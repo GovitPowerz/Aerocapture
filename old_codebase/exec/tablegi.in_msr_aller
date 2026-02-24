@@ -1,0 +1,10 @@
+0				modnum		mode de fonctionnement (0) recherche de corridor, (1) variations lat, (2) variation vit, (3) variations rho
+60.				nombit		nombre d'itérations pour modnum>0
+10.				maxlat		latitude maximale
+-10.				minlat		latitude minimale
+5787.				maxvit		vitesse d'entree maximale
+5587.				minvit		vitesse d'entree minimale
+90.				maxatm		gabarit de dispersions atmospheriques maximal
+60.				minatm		gabarit de dispersions atmospheriques minimal
+.msr_aller64			sufdin		fichier d'entree overshoot
+

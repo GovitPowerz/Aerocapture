@@ -1,0 +1,32 @@
+1                               natman          aerocapture (1) ou aerogravity assist (2)
+3   				natpla	    	nature Planete: Terre 3  Mars 4  Jupiter  5
+100  				nbsimu          nombre de simulations a jouer
+1  				natsim          totalite du guidage (1), capture (2) ou sortie (3) ou preprogramme (4)
+0   				istats          traitement statistique uniquement (1)
+1  				itirag          lecture (0) ou creation (1) des dispersions
+1   				numsim          numero de simulation a rejouer
+1   				isauve          sauvegarde (1) des resultats de la simulation a visualiser
+1   				numvis          numero de simulation a visualiser
+1   				iecran          edition ecran (1) ou non (0) de messages intermediaires
+0.12   				xgalea        	generateur aleatoire
+0     				irefer        	trajectoire de reference (1) ou guidee (0)
+81.97173    			gitref        	gite constante sur trajectoire de reference
+1.                              xmulti(1)       coeff. multiplicatif erreurs nav aerocapture
+1.				xmulti(2)       coeff. multiplicatif erreurs nav interplanetaire
+1.                              xmulti(3)       coeff. multiplicatif erreurs mesure accelero
+1.				xmulti(4)       coeff. multiplicatif erreurs modele aero
+.msr_retour   			sufmsr     	caracteristiques capsule
+.msr_retour82   			sufren     	caracteristiques rentree
+.msr_retour   			sufmis     	caracteristiques mission
+.msr_retour82   			sufgui 	  	caracteristiques guidage vol equilibre - phase de sortie
+.msr_retour         		sufinc     	caracteristiques profil d'incidence commandee
+.msr         			sufaer     	caracteristiques aerodynamiques
+.terre_ASTRIUM        			sufatm     	caracteristiques atmospheriques
+.msr_essai		       		sufdis     	caracteristiques dispersions initiales
+.nul         		sufnav     	caracteristiques navigation
+.msr         			suflot     	caracteristiques dispersions-meconnaissances
+.msr_retour         			sufsuc     	caracteristiques erreurs finales admissibles
+.msr_retour_82	   sufres       	fichier de resultat
+1                    				confirmation des choix
+
+

@@ -1,0 +1,43 @@
+
+	Caracteristiques guidage Predicteur-Correcteur Analytique
+
+    0.7        amortissement de l'asservissement sur trajectoire de reference
+    0.072        pulsation de l'asservissement sur trajectoire de reference   (rad/s)
+      1.75      marge pour le calcul de la Pdyn de reference, vol equilibre
+   0.7      amortissement des oscillations en altitude, vol equilibre            
+   0.08       pulsation des oscillations en altitude, vol equilibre                 (deg/s)
+   4400.        seuil en vitesse radiale pour passer du vol equilibre a la phase de sortie    (m/s)
+      1.75      marge sur le calcul de la Pdyn de reference en phase de sortie      
+     60.        seuil d'altitude de sortie a acceleration radiale constante           (km)
+     10.      gain sur l'erreur de vitesse radiale en phase de sortie               (Pa/m/s) 
+    100.        seuil de comparaison sur l'apogee en phase de sortie                   (m)
+   27400.      pente de la largeur du couloir de guidage lateral en inclinaison      (m/s)
+     -0.2     valeur a l'origine du couloir de guidage lateral en inclinaison       (deg)
+      5         nombre maximal de renverses de roulis
+      1         mode de securisation du guidage en phase de capture
+      3         mode de securisation du guidage en phase de sortie
+      0.8       gain du filtre passD-bas pour la densite atmospherique biaisee
+     50.5       seuil d'activation du guidage longi sur critere d'energie  (MJ/kg)
+    -30.      seuil d'inhibition du guidage longi sur critere d'energie  (MJ/kg)
+     23.       seuil d'activation du guidage lateral sur critere d'energie  (MJ/kg)
+    -31.      seuil d'inhibition du guidage lateral sur critere d'energie  (MJ/kg)
+      0.      valeur min de Pdyn pour asservissement                 (Pa)
+     9       nombre de points d'altitude de la table Pdyn = f(altitude)
+      0.  -0.5        modele de Pdyn q = ah + b (altitude, a et b)
+    75.   -0.28        
+    80.   -0.14     
+    85.   -0.06 
+    90.   -0.024
+    95.   -0.009
+   100.   -0.004
+   105.   -0.002
+   110.   -0.00035
+   
+
+
+    
+     
+    
+     
+      
+

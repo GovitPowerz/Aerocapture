@@ -1,0 +1,16 @@
+fichier1 cpu.ftc  1
+fichier2 cpu.ftc_mod  1
+
+planche (9) 0 (12) 2  (17) 1 (16) 0  (21) 1 (23) 0 (25) 15 (19) 1
+
+fenetre 0 (4) 2 (6) 0 (7)  0 (11) 100 (12) 100 (9)
+ courbe1 1 4 (4) 21 (5) 4 (6) 0 (13) 3
+ courbe1 1 4 (4) 21 (5) 4 (6) 0 (13) 60 (3) 15
+ courbe2 1 4 (4) 17 (5) 4 (6) 0 (13) 3
+ courbe2 1 4 (4) 17 (5) 4 (6) 0 (13) 60 (3) 15
+ titrex time (s) /* (2) 1
+ titrey (s) /* (2) 1
+ titreg cpu time /* (2) 1  
+
+ 
+ 

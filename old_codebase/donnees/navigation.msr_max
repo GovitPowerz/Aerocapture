@@ -1,0 +1,11 @@
+
+	Caracteristiques performances de navigation
+
+    1.    ecart-type de l'erreur de navigation en altitude     (km)
+    0.1    ecart-type de l'erreur de navigation en longitude   (deg)
+    0.1    ecart-type de l'erreur de navigation en latitude    (deg)
+    1.     ecart-type de l'erreur de navigation en vitesse     (m/s)
+    0.05   ecart-type de l'erreur de navigation en pente       (deg)
+    0.05   ecart-type de l'erreur de navigation en azimut      (deg) 
+    0.1    bruit sur l'acceleration de trainee                 (m/s2)
+

@@ -1,0 +1,9 @@
+
+	Caracteristiques dispersions injection
+	
+    0.5     erreur max admissible finale sur l'inclinaison                 (deg)
+  125.      cout max admissible de changement d'orbite                     (m/s)
+  100.      erreur max admissible finale sur l'apoastre                    (km)
+   25.      erreur max admissible finale sur le periastre                  (km)
+
+

@@ -1,0 +1,11 @@
+
+	Caracteristiques du pilotage
+
+   0             modelisation du pilote (0: parfait   1: 1er ordre    2: 2nd ordre)        			 (kg)
+   1.            constante de temps du 1er ordre   (s)
+   0.7            amortissement du 2nd ordre
+   0.072          pulsation propre du 2nd ordre  (rad/s)
+   
+                    
+                    
+                     

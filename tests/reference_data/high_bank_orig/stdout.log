@@ -1,0 +1,182 @@
+
+          ################################
+          #                              #
+          #   AEROCAPTURE -  CAPREE      #
+          #                              #
+          ################################
+
+
+ aerocapture (1) ou aero-gravity-assist (2)
+ nature Planete: Terre 3  Mars 4  Jupiter  5
+ nombre de simulations a jouer
+ totalite du guidage (1), capture (2) ou sortie (3)
+ traitement statistique uniquement (1)
+ lecture (0) ou creation (1) des dispersions
+ numero de simulation a rejouer
+ sauvegarde des resultats (1) ou non (0)
+ numero de simulation a visualiser
+ edition ecran messages intermediaires (1) ou non (0)
+ generateur aleatoire entre 0 et 1
+ trajectoire de reference (1) ou guidee (0)
+ gite constante sur la reference (deg)
+ coeff. multi des dispersions de nav aerocapture
+ coeff. multi des dispersions de nav interplanetaire
+ coeff. multi des dispersions mesure accelero
+ coeff. multi des dispersions aerodynamiques
+ suffixe fichier caracteristiques capsule
+ suffixe fichier conditions a la rentree
+ suffixe fichier caracteristique mission aerocapture
+ suffixe fichier caracteristiques guidage
+ suffixe fichier profil d'incidence commandee
+ suffixe fichier tables aerodynamiques
+ suffixe fichier tables atmospheriques
+ suffixe fichier dispersions initiales
+ suffixe fichier performances navigation
+ suffixe fichier tirage dispersions
+ suffixe fichier erreurs finales admissibles
+ suffixe fichiers de resultats
+
+ nombre de simulations      1
+
+ fichier caracteristiques capsule    :                     .msr_aller
+ fichier conditions a la rentree     :                   .msr_aller64
+ fichier caracteristiques mission    :                     .msr_aller
+ fichier caracteristiques guidage    :                   .msr_aller64
+ fichier profil incidence commandee  :                     .msr_aller
+ fichier tables aerodynamiques       :                           .msr
+ fichier tables atmospheriques       :                  .mars_ASTRIUM
+ fichier dispersions initiales       :                           .nul
+ fichier performances navigation     :                           .nul
+ fichier tirage dispersions          :                          .msr2
+ fichier erreurs finales admissibles :                     .msr_aller
+ fichier resultats                   :           .test_high_bank_orig
+
+ Confirmation des parametres de simulation (0 - 1)?
+  -27.500000000000000        1.2202752130163452       0.40412176939372257     
+  -27.500000000000000        1.2202752130163452       0.40412176939372257     
+ Altitude.......  130.000000
+ Longitude......    0.000000
+ Latitude.......    0.000000
+ Vitesse........ 5687.155860
+ Pente..........  -10.812510
+ Azimuth........   38.040690
+ Finesse........    0.331173 (100.00% valeur nominale)
+ C.ballistique..    0.016472 (100.00% valeur nominale)
+ Densite au sol.    0.013359 (100.00% valeur nominale)
+ K dispersion...    0.000000
+
+     Simulation     1
+
+ Aerocapture MSR 
+
+                sans vent
+     trajectoire de reference a gite cste :     64.770 deg
+     erreurs de nav. aerocapture         x       1.000
+     erreurs de nav interplanetaire      x       1.000
+     erreurs de mesure accelero          x       1.000
+     erreurs de modele aero              x       1.000
+
+     seuil d'activation du guidage longi :   1000.000 MJ/kg
+     seuil d'inhibition du guidage longi :  -1000.000 MJ/kg 
+
+ Parametres Mission
+
+ Energie            -5.867 MJ/kg dh/dt           201.978 m/s
+ altitude          130.988 km    Vitesse        3360.258 m/s
+ longitude          36.334 deg   pente             3.446 deg
+ latitude           30.634 deg   azimut          299.401 deg
+
+ Apoastre          500.130 km    Periastre        11.233 km
+ demigrand axe    3649.622 km    Omega            -7.612 deg
+ excentricite        0.067       inclinaison      50.000 deg
+
+ Orbite de parking
+ Apoastre         500.000 km    Periastre       500.000 km
+
+ mode de securisation guidage capture    1
+ mode de securisation guidage sortie     3
+ seuil d activation guidage lateral         1.311 MJ/kg
+ seuil d inhibition guidage lateral      1000.000 MJ/kg
+
+
+ Erreurs debut rentree
+Note: The following floating-point exceptions are signalling: IEEE_UNDERFLOW_FLAG
+
+ altitude       -0.000 km   vitesse       1.792 m/s 
+ longitude       0.866 deg  pente        -0.095 deg 
+ latitude        0.032 deg  azimut       -0.068 deg 
+
+ Erreurs navigation 
+
+ altitude       -0.000 km   vitesse       0.000 m/s 
+ longitude       0.000 deg  pente        -0.000 deg 
+ latitude        0.000 deg  azimut        0.000 deg 
+ trainee        -0.000 m/s2
+
+ atmopshere     ro      -0.000 %
+ incidence               0.000 deg
+ aerodynamique  Ca       0.000 %   Cn      -0.000 %
+
+ Orbite initiale
+
+ demi grand axe     -4353.997 km
+ excentricite           1.788
+ inclinaison           50.062 deg
+ Omega                  0.840 deg
+ omega                 16.572 deg
+ nu                   -16.531 deg
+ Z apoastre        -15532.462 km
+ Z periastre           36.587 km
+ vinfini	     3136.327 m/s 
+ nuinfini	       34.008 deg 
+ vinfx  	    -2441.355 m/s 
+ vinfy  	     1242.823 m/s 
+ vinfz  	     1526.997 m/s 
+
+
+
+      Fin de simulation    1
+
+ duree aerocapture             725.000 s
+ securisation cosinus gite       0.000 %
+ inhibition guidage longi        0.000 %
+ securisation guidage longi      0.000 %
+
+ rebond atmosphere       43.447 km
+                 T      152.000 s
+ renverse de roulis     0
+ valeurs maximales      178.871 kW/m2         2.882 g         1.629 kPa
+                 Z       46.519 km           43.920 km       43.920 km
+                 T      121.000 s           138.000 s       138.000 s
+ integrale de flux       20.857 MW/m2
+ gite consommee           0.000 deg
+
+ valeurs finales E       -6.564 MJ/kg dh/dt      86.880 m/s
+
+ altitude       131.072 km      vitesse       3156.678 m/s
+ longitude       36.016 deg     pente            1.577 deg
+ latitude        29.568 deg     azimut         300.151 deg
+
+ demi grand axe    3262.132 km     ecart    -387.490 km
+ excentricite         0.083        ecart       0.016
+ inclinaison         39.846 deg    ecart     -10.154 deg
+ longitude W         -6.301 deg    ecart       1.311 deg
+ arugment Zp        246.503 deg
+ anomalie vraie     163.358 deg
+ Z apoastre         140.357 km     ecart    -359.773 km
+ Z periastre       -403.972 km     ecart    -415.205 km
+ vitesse infinie      0.000 m/s 
+ nuinfini             0.000 deg 
+ Vinfx                0.000 m/s 
+ Vinfy                0.000 m/s 
+ Vinfz                0.000 m/s 
+
+ Orbite non viable
+
+ cout de changement d'orbite    905.5 m/s (opt:    113.0 m/s)
+ manoeuvre 1                    231.7 m/s (opt:    113.0 m/s)
+ manoeuvre 2                     81.3 m/s (opt:     -0.0 m/s)
+ manoeuvre 3                    592.6 m/s (opt:      0.0 m/s)
+
+ ----------------------------------------------------
+

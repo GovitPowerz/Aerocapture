@@ -1,0 +1,32 @@
+1                              natman          aerocapture (1) ou aerogravity assist (2)
+4                           natpla                nature Planete: Terre 3  Mars 4  Jupiter  5
+10                          nbsimu          nombre de simulations a jouer
+1                          natsim          totalite du guidage (1), capture (2) ou sortie (3) ou preprogramme (4)
+2                          natgnn          guidage ftc (1), guidage nn (2)
+0                           istats          traitement statistique uniquement (1)
+0                          itirag          lecture (0) ou creation (1) des dispersions
+1                           numsim          numero de simulation a rejouer
+0                           isauve          sauvegarde (1) des resultats de la simulation a visualiser
+1                           numvis          numero de simulation a visualiser
+0                           iecran          edition ecran (1) ou non (0) de messages intermediaires
+0.6866                           xgalea              generateur aleatoire
+0                             irefer              trajectoire de reference (1) ou guidee (0)
+0.1                            gitref              gite constante sur trajectoire de reference
+1.                              xmulti(1)       coeff. multiplicatif erreurs nav aerocapture
+1.                              xmulti(2)       coeff. multiplicatif erreurs nav interplanetaire
+1.                              xmulti(3)       coeff. multiplicatif erreurs mesure accelero
+1.                              xmulti(4)       coeff. multiplicatif erreurs modele aero
+.msr_aller                     sufmsr           caracteristiques capsule
+.msr_aller64                     sufren           caracteristiques rentree
+.msr_aller                     sufmis           caracteristiques mission
+.msr_aller64                     sufgui               caracteristiques guidage vol equilibre - phase de sortie
+.temp                     sufgnn               caracteristiques guidage neural
+.msr_aller                     sufinc           caracteristiques profil d incidence commandee
+.msr                           sufaer           caracteristiques aerodynamiques
+.mars_ASTRIUM                          sufatm           caracteristiques atmospheriques
+.msr_essai                               sufdis           caracteristiques dispersions initiales
+.nul                     sufnav           caracteristiques navigation
+.msr_MC1000                           suflot           caracteristiques dispersions-meconnaissances
+.msr_aller                           sufsuc           caracteristiques erreurs finales admissibles
+.nn_mc_film   sufres             fichier de resultat
+1                                            confirmation des choix

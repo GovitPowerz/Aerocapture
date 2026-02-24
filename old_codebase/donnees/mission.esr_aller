@@ -1,0 +1,23 @@
+
+	Caracteristiques mission
+	
+    0		indicateur de simulations avec vent
+33721.096	flux thermique conventionnel maximal		     (kW/m2)
+    4.421	facteur de charge maximal			     (g)
+    6.492       pression dynamique maximale                          (kPa)
+  608.535	altitude finale 				     (km)
+   12.569	longitude finale				     (deg)
+  -0.045	latitude finale 				     (deg)
+43682.546	vitesse relative finale 			     (m/s)
+    4.701	pente vitesse finale				      (deg)
+  269.086	azimut vitesse finale				     (deg)
+ -170.501	energie finale			        	     (MJ)
+ 3580.320	vitesse verticale finale                             (m/s)
+599757.465	altitude apoastre                                    (km)
+  282.373	altitude periastre				     (km)
+371511.919	demi grand axe  				     (km)
+    0.807	excentricite                                         (-)
+    0.464	inclinaison					     (deg)
+   -0.321       longitude noeud ascendant			    (deg)
+  599742.          altitude apoastre orbite de parking                  (km)
+  599474.          altitude periastre orbite de parking                 (km)

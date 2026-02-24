@@ -1,0 +1,96 @@
+{
+    "folders": [
+        {
+            "path": "."
+        }
+    ],
+    "settings": {
+        // File explorer cleanup
+        "files.exclude": {
+            "**/__pycache__": true,
+            "**/.venv": true,
+            "**/.pytest_cache": true,
+            "**/.mypy_cache": true,
+            "**/.ruff_cache": true
+        },
+        // Python environment
+        "python.defaultInterpreterPath": ".venv/bin/python",
+        "python.terminal.activateEnvInCurrentTerminal": true,
+        // Testing
+        "python.testing.unittestEnabled": false,
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": [
+            "tests"
+        ],
+        // Pylance - navigation only, no diagnostics
+        "python.languageServer": "Pylance",
+        "python.analysis.typeCheckingMode": "off",
+        "python.analysis.diagnosticMode": "openFilesOnly",
+        "python.analysis.extraPaths": [],
+        // Ruff - linting & formatting
+        "ruff.enable": true,
+        "[python]": {
+            "editor.defaultFormatter": "charliermarsh.ruff",
+            "editor.codeActionsOnSave": {
+                "source.organizeImports": "explicit",
+                "source.fixAll": "explicit"
+            }
+        },
+        // Mypy - type checking in editor
+        "mypy-type-checker.importStrategy": "fromEnvironment",
+        "mypy-type-checker.args": [
+            "--config-file=pyproject.toml"
+        ],
+        // Editor
+        "editor.formatOnSave": true,
+        "editor.rulers": [
+            160
+        ],
+        "editor.bracketPairColorization.enabled": true,
+        "editor.guides.bracketPairs": true,
+        "search.showLineNumbers": true,
+        // Rainbow CSV
+        "rainbow_csv.autodetect_separators": [
+            ";",
+            "\t",
+            ",",
+            "|"
+        ],
+        // Disable other linters
+        "python.experiments.enabled": false,
+        // Git
+        "git.ignoreLimitWarning": true,
+        // Color customizations
+        "workbench.colorCustomizations": {
+            "editorRuler.foreground": "#6f95c0",
+            "editorLineNumber.activeForeground": "#a8e48d",
+            "scrollbarSlider.activeBackground": "#46b115",
+            "scrollbarSlider.hoverBackground": "#aa251c",
+            "scrollbarSlider.background": "#517da0"
+        },
+        "chat.tools.terminal.autoApprove": {
+            "uv": true
+        }
+    },
+    "extensions": {
+        "recommendations": [
+            "charliermarsh.ruff",
+            "ms-python.mypy-type-checker",
+            "anthropics.claude-code",
+            "mechatroner.rainbow-csv"
+        ]
+    },
+    "launch": {
+        "version": "0.2.0",
+        "configurations": [
+            {
+                "name": "Python : current file",
+                "type": "debugpy",
+                "request": "launch",
+                "program": "${file}",
+                "console": "integratedTerminal",
+                "args": []
+            }
+        ]
+    }
+}

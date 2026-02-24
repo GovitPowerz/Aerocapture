@@ -1,0 +1,15 @@
+
+	Caracteristiques dispersions injection
+	
+  0     ecart-type de l'erreur en altitude en debut de rentree         (km)
+  0.   ecart-type de l'erreur en longitude en debut de rentree        (deg)
+  0.0   ecart-type de l'erreur en latitude en debut de rentree         (deg)
+  0.     ecart-type de l'erreur en vitesse en debut de rentree          (m/s)
+  0.  ecart-type de l'erreur en pente en debut de rentree            (deg)
+  0.0    ecart-type de l'erreur en azimut en debut de rentree           (deg)
+ 10.      ecart-type de la meconnaissance sur le coefficient de trainee  (%)
+ 10.      ecart-type de la meconnaissance sur le coefficient de portance (%) 
+0.      ecart-type de la meconnaissance sur la densite atmopsherique   (%)
+  0.      ecart-type de l'erreur sur l'incidence                        (deg)
+    0.      ecart-type de la meconnaissance sur la masse                  (%)
+

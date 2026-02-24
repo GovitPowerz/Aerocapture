@@ -1,0 +1,108 @@
+fichier1 ../../predicteur/sorties/photo.msr_aller_atpe_rho_rol_nav90  1
+fichier2 ../sorties/photo.msr_aller_atpe_nav90  1
+fichier3 visu.ovr_res  1
+fichier4 visu.udr_res  1
+fichier5 visu.90  1
+fichier6 ../../predicteur/sorties/photo.msr_aller_atpe_rho_rol_nav  1
+fichier7 ../sorties/photo.msr_aller_atpe_nav  1
+fichier8 visu.gitref2  1
+
+c                                                                        c
+c                                                                        c
+c                       Planche 1 Pdyn en fonction de E                  c
+c                                                                        c
+c                                                                        c
+
+planche 1 9  (9) 0 (12) 2  (17) 1 (16) 0 (21) 1 (23) 1 (25) 25 (26) 25 (19) 1 (24) 0 (33) corrid_ftc90
+
+fenetre 0 (4) 2 (6) 0 (7)  0 (12) 80 (13) 3 (17) 1 (9) -1
+ courbe4 1  2 (4) 2 (5) 1 (6) 12 (8) 60 (29) 1
+ courbe3 1  2 (4) 3 (5) 1 (6) 12 (8) 60 (29) 1
+ courbe5 1  2 (4) 1 (5) 3 (6) 0
+ courbe1 ' c19 / 1000000 ' ' c20 / 1000 ' (3) 7 (5) 0.01 (7) 3 (8) 95 (4) 21
+ courbe2 ' c19 / 1000000 ' ' c20 / 1000 ' (3) 7 (5) 0.01 (7) 3 (8) 95 (4) 19
+ axey (5) 1 (12) 0
+ axex (5) 1
+ titrex orbital energy (MJ/kg) /* (2) 1
+ titrey dynamic pressure (kPa) /* (2) 1
+c titreg aerocapture corridor /* (2) 1
+
+ 
+c                                                                        c
+c                                                                        c
+c                       Planche 1 Pdyn en fonction de E                  c
+c                                                                        c
+c                                                                        c
+
+planche 111 191  (9) 0 (12) 2  (17) 1 (16) 0 (21) 1 (23) 1 (25) 25 (26) 25 (19) 1 (24) 0 (33) corrid_ftc64
+
+entete  1000 runs  /* (2) 1 (6) 20 
+
+fenetre 0 (4) 2 (6) 0 (7)  0 (11) 100 (12) 100 (9)
+  titreg Reference trajectory : <f13>m<f10> = 64.77 deg /* 350 (2) 1 
+  
+fenetre 0 (4) 2 (6) 0 (7)  0 (12) 80 (13) 3 (17) 1 (9) -1
+ courbe4 1  2 (4) 2 (5) 1 (6) 12 (8) 60 (29) 1
+ courbe3 1  2 (4) 3 (5) 1 (6) 12 (8) 60 (29) 1
+ courbe8 1  2 (4) 1 (5) 3 (6) 0
+c courbe6 ' c19 / 1000000 ' ' c20 / 1000 ' (3) 7 (5) 0.01 (7) 3 (8) 95 (4) 21
+ courbe7 ' c19 / 1000000 ' ' c20 / 1000 ' (3) 7 (5) 0.01 (7) 3 (8) 95 (4) 19
+ axey (5) 1 (12) 0
+ axex (5) 1
+ titrex orbital energy (MJ/kg) /* (2) 1
+ titrey dynamic pressure (kPa) /* (2) 1
+c titreg aerocapture corridor /* (2) 1
+
+fenetre 0 (4) 2 (6) 0 (7)  0 (11) 100 (12) 100 (9)
+ legende frame frequency 0.02 Hz /* (12) 3 (9) 0
+ legende feedback trajectory control /* 4 2
+c legende apoapsis predictor /* 4 2
+ legende reference trajectory /* 3 2
+
+planche 111 191  (9) 0 (12) 2  (17) 1 (16) 0 (21) 1 (23) 1 (25) 25 (26) 25 (19) 1 (24) 0 (33) corrid_fen2
+
+entete  1000 runs  /* (2) 1 (6) 20 
+
+fenetre 0 (4) 2 (6) 0 (7)  0 (11) 100 (12) 100 (9)
+  titreg ATPE mission MSR - Aerocapture on Mars /* 350 (2) 1 
+  
+fenetre 0 (4) 2 (6) 0 (7)  0 (12) 80 (13) 3 (17) 1 (9) -1
+ courbe4 1  2 (4) 2 (5) 1 (6) 12 (8) 60 (29) 1
+ courbe3 1  2 (4) 3 (5) 1 (6) 12 (8) 60 (29) 1
+ courbe5 1  2 (4) 5 (5) 3 (6) 0
+ courbe8 1  2 (4) 4 (5) 3 (6) 0
+ courbe2 ' c19 / 1000000 ' ' c20 / 1000 ' (3) 7 (5) 0.01 (7) 3 (8) 95 (4) 21
+ courbe7 ' c19 / 1000000 ' ' c20 / 1000 ' (3) 7 (5) 0.01 (7) 3 (8) 95 (4) 19
+ axey (5) 1 (12) 0
+ axex (5) 1
+ titrex orbital energy (MJ/kg) /* (2) 1
+ titrey dynamic pressure (kPa) /* (2) 1
+ titreg aerocapture corridor /* (2) 1
+
+fenetre 0 (4) 2 (6) 0 (7)  0 (11) 100 (12) 100 (9)
+ legende reference trajectory <f13>m<f10>=64.77 deg /* 4 2 (12) 2 (9) 0
+ legende reference trajectory <f13>m<f10>=90 deg /* 3 2
+ legende sampling frequency 0.02 Hz /* (12) 2 (9) 0
+
+ 
+planche 111 191  (9) 0 (12) 2  (17) 1 (16) 0 (21) 1 (23) 1 (25) 25 (26) 25 (19) 1 (24) 0 (33) corrid_fen3
+
+fenetre 0 (4) 2 (6) 0 (7)  0 (11) 100 (12) 100 (9)
+  titreg ATPE mission MSR - Aerocapture on Mars /* 350 (2) 1 
+  
+fenetre 0 (4) 2 (6) 0 (7)  0 (12) 80 (13) 3 (17) 1 (9) -1
+ courbe4 1  2 (4) 2 (5) 1 (6) 12 (8) 60 (29) 1
+ courbe3 1  2 (4) 3 (5) 1 (6) 12 (8) 60 (29) 1
+ courbe5 1  2 (4) 17 (5) 4 (6) 6
+ courbe8 1  2 (4) 21 (5) 4 (6) 6
+ axey (5) 1 (12) 0
+ axex (5) 1
+ titrex orbital energy (MJ/kg) /* (2) 1
+ titrey dynamic pressure (kPa) /* (2) 1
+ titreg aerocapture corridor /* (2) 1
+
+fenetre 0 (4) 2 (6) 0 (7)  0 (11) 100 (12) 100 (9)
+ legende reference trajectory <f13>m<f10> = 64.77 deg /* 4 2 (12) 2 (9) 0
+ legende reference trajectory <f13>m<f10> = 90 deg /* 3 2
+
+
