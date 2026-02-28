@@ -14,19 +14,18 @@ The simulation models a spacecraft entering a planet's atmosphere at hyperbolic 
 # ── Rust Simulator ──
 cd src/rust
 cargo build --release              # Build optimized binary
-cargo run --release < ../../old_codebase/exec/aerocap.in_msr_aller_64_nom  # Run single sim
-# Binary reads stdin (.in config), reads data from ../donnees/ relative to CWD,
-# writes photo output to ../sorties/ relative to CWD
+# Run from old_codebase/exec/ (CWD matters — reads ../donnees/, writes ../sorties/)
+cd ../../old_codebase/exec
+../../src/rust/target/release/aerocapture < test_input.in
 
 # ── Legacy Fortran (from old_codebase/exec/) ──
 cd old_codebase/exec
-make clean_orig && make original   # ALWAYS clean before rebuild (stale .o corruption)
-./aerocap < aerocap.in_msr_aller_64_nom   # Run legacy simulation
+make clean && make                 # ALWAYS clean before rebuild (stale .o corruption)
+./aerocap < test_input.in          # Run legacy simulation
 # Output: ../sorties/photo.*, ../sorties/final.*, fort.201-204
 
 # ── Python Analysis ──
 uv sync                            # Install dependencies
-source .venv/bin/activate
 pytest tests                       # Run all tests
 pytest tests/test_foo.py::test_bar -v
 ruff check . && ruff format .      # Lint + format
@@ -159,4 +158,4 @@ Photo files use `format(24(1x,d12.5))` — 24 columns of Fortran D-notation floa
 - **Rust**: Edition 2024, nalgebra for linear algebra, release profile with LTO
 - **Python**: Ruff (line-length 160), uv package manager, pytest, mypy strict mode
 - **Testing**: pytest for Python, Fortran golden reference files under `tests/reference_data/`
-- **Validation**: Step-by-step comparison of Rust vs Fortran at each GNC module output
+- **Validation**: Rust vs Fortran comparison complete — 22/24 photo columns bit-identical across 725 timesteps. See `tests/compare_results.py` for the comparison framework.
