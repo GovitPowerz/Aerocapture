@@ -85,10 +85,12 @@ Key Rust dependency: `nalgebra` for vector/matrix ops.
 ### Legacy Fortran (`old_codebase/`)
 
 Fortran 77 fixed-form code. Two variants:
+
 - `fortran_original/` — FTC predictor-corrector guidance (65 source files)
 - `fortran_neural/` — adds neural network guidance variant (guidnn.f, lecgnn.f)
 
 **Simulation flow** (simmsr.f main loop, one timestep):
+
 1. `naviga` — Add navigation biases to true state, estimate density via exponential filter, detect bounce/phase transitions
 2. `guidag` → `guilon` → `guicap` — Compute bank angle command from reference trajectory deviations
 3. `guilat` + `vigite` — Roll sign management via inclination error
@@ -98,6 +100,7 @@ Fortran 77 fixed-form code. Two variants:
 7. `photra`/`sortie` — Write output
 
 **Data sharing**: Fortran common blocks. Notable ones:
+
 - `/capsul/` — mass, reference area, max bank rate
 - `/period/` — module cadences (tnavig, tguida, tpilot, tinteg)
 - `/modatm/` — atmosphere model coefficients
@@ -111,6 +114,7 @@ Fortran 77 fixed-form code. Two variants:
 ### Data Files (`old_codebase/donnees/`)
 
 Configuration files selected via suffix (e.g., `.msr_aller64`):
+
 - `atmosphere.*` — Density vs altitude table (tabulated MarsGram 3.8)
 - `aerodyn.*` — Cx, Cz vs AoA
 - `capsule.*` — Vehicle properties
@@ -126,31 +130,37 @@ Configuration files selected via suffix (e.g., `.msr_aller64`):
 ### Python Tools (`src/python/`, `pyproject.toml`)
 
 Python analysis package (numpy, pandas, matplotlib) for:
-- Output file parsers (photo, final, fort.* files with Fortran D-notation floats)
+
+- Output file parsers (photo, final, fort.\* files with Fortran D-notation floats)
 - Visualization (corridor plots, MC ensembles, CDF of correction cost)
 - NN training pipeline (genetic algorithm calling simulator as subprocess)
 
 ## Key Lessons & Pitfalls
 
 ### Fortran Common Block Size Mismatch (Root Cause of Density Explosion)
+
 The density filter instability at step ~40 was caused by a **common block size mismatch** in `guilat.f`. The `/reftab/` common block was declared with only 4 arrays (64,000 bytes) in `guilat.f`, while `lectci.f`, `guicap.f`, `initia.f`, and `integr.f` declared it with 6 arrays (96,000 bytes). The gfortran linker allocated the smaller size and placed `/estiro/` (containing `lambda`, the density filter gain) in memory overlapping with `refdates(57)`. When `lectci.f` wrote `refdates(57)`, it corrupted lambda from 0.8 to 56.0, causing the filter equation `coefro = (1-lambda)*coefro + lambda*(roesti/rorefr)` to amplify errors by 55x per step. **Fixed** in both `fortran_original/guilat.f` and `fortran_neural/guilat.f` by adding the missing `refdates` and `refcmu` arrays to the common block declaration.
 
 **Always do `make clean_orig && make original` after any Fortran source change** — stale `.o` files cause silent corruption with `gfortran -O3 -ffast-math`.
 
 ### Fortran Uninitialized Variables in photra.f
+
 - `xrayon` (planet radius for post-bounce phase check) is declared but never assigned — defaults to 0, making `positr(1) - xrayon` always > 80km, so iphase is always 3 after bounce
 - `romver` uninitialized at first call → col 22 garbage at timestep 0
 - `xphoto(24)` retains stale `numsuc` value from `etafin.f` via stack reuse between calls
 
 ### Input File Format Variants
+
 - **Original variant** (`fortran_original/entree.f`): **30 reads** from stdin
 - **Neural variant** (`fortran_neural/entree.f`): **32 reads** (adds `natgnn` + `sufgnn` lines)
 - All `.in` files in the repo were originally for the neural variant. `test_input.in` has been rewritten for the original variant.
 
 ### Energy Computation
+
 Energy must use **absolute (inertial) velocity**, not relative velocity. Both Fortran `enrtot()`/`energi()` and Rust `total_energy()` convert relative→absolute via `xvabsl`/`to_absolute_cartesian` before computing E = V_abs²/2 - mu/r. Photo output column 19 should use this absolute energy.
 
 ### Fortran Output Format
+
 Photo files use `format(24(1x,d12.5))` — 24 columns of Fortran D-notation floats per line. The Rust output writer must match this format exactly for comparison.
 
 ## Conventions
@@ -159,3 +169,7 @@ Photo files use `format(24(1x,d12.5))` — 24 columns of Fortran D-notation floa
 - **Python**: Ruff (line-length 160), uv package manager, pytest, mypy strict mode
 - **Testing**: pytest for Python, Fortran golden reference files under `tests/reference_data/`
 - **Validation**: Rust vs Fortran comparison complete — 22/24 photo columns bit-identical across 725 timesteps. See `tests/compare_results.py` for the comparison framework.
+
+## Tone
+
+Be a **quirky friendly but critical peer reviewer**. Think of yourself as a quirky senior developer doing a code review: helpful, but holding me to high standards. Always **Challenge inefficiencies**: if I'm doing something the hard way, call it out.

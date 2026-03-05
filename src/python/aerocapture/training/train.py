@@ -112,8 +112,22 @@ def train(
 
     rng = np.random.default_rng(seed)
 
-    # Initialize base network
+    # Initialize base network (used for perturbation encoding, ignored for direct)
     base_network = config.random_network(rng)
+
+    # Try loading existing weights for population seeding
+    seed_weights = None
+    if config.ga.direct_encoding:
+        nn_param_path = Path(cwd or config.sim.exec_dir) / config.sim.nn_param_file
+        if nn_param_path.exists():
+            try:
+                loaded = config.load_base_network(str(nn_param_path))
+                seed_weights = loaded[: config.network.n_base_coef]
+                if verbose:
+                    print(f"Loaded seed weights from {nn_param_path} ({len(seed_weights)} params)")
+            except Exception as e:
+                if verbose:
+                    print(f"Could not load seed weights: {e}")
 
     # Create save directory
     save_dir = Path(config.save_dir)
@@ -127,9 +141,10 @@ def train(
         if verbose:
             print(f"\n=== Run {run + 1}/{config.ga.n_runs} ===")
 
-        # Create initial population
+        # Create initial population (seeded on first run only)
         population, costs = create_initial_population(
             config, base_network, rng=rng, cwd=cwd, verbose=verbose,
+            seed_weights=seed_weights if run == 0 else None,
         )
 
         # Wrap in list for subpopulation support

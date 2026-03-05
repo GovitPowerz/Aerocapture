@@ -89,11 +89,15 @@ def write_nn_params(
     """
     filepath = Path(filepath)
     with open(filepath, "w") as f:
-        f.write(f"{n_input}\n")
-        f.write(f"{n_hidden}\n")
-        f.write(f"{n_output}\n")
+        # 6-line header matching Fortran lecgnn.f (skips 6 reads before weights)
+        f.write(" \n")
+        f.write("   Caracteristiques neural network\n")
+        f.write(" \n")
+        f.write(f"           {n_input}   ninput\n")
+        f.write(f"           {n_hidden}  {n_hidden}  {n_hidden}   nhid\n")
+        f.write(f"           {n_output}   noutput\n")
         for w in weights:
-            f.write(f"{w:.30f}\n")
+            f.write(f"       {w: .30f}\n")
 
 
 def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt.NDArray[np.float64] | None:
@@ -110,8 +114,8 @@ def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt
         cwd = config.sim.exec_dir
     cwd = Path(cwd)
 
-    init_file = cwd / config.sim.init_file
-    executable = cwd / config.sim.executable
+    init_file = (cwd / config.sim.init_file).resolve()
+    executable = (cwd / config.sim.executable).resolve()
 
     try:
         with open(init_file) as f:
@@ -120,7 +124,7 @@ def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt
                 stdin=f,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                cwd=str(cwd),
+                cwd=str(cwd.resolve()),
                 timeout=300,
             )
     except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -145,63 +149,79 @@ def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt
         return None
 
 
-def compute_cost(
-    final_conditions: npt.NDArray[np.float64],
-    duration_col: int = 29,
-    periapsis_col: int = 39,
-    apoapsis_col: int = 40,
-    inclination_col: int = 41,
-) -> float:
+def compute_cost(final_conditions: npt.NDArray[np.float64]) -> float:
     """Compute RMS cost from simulation final conditions.
 
-    Implements the hierarchical penalty cost function from MATLAB.
+    Uses a smooth, continuous cost function that provides gradient signal
+    even for non-capturing (hyperbolic) trajectories. This is critical for
+    GA convergence: random NNs produce different bank angle profiles that
+    dissipate different amounts of orbital energy, so energy-based cost
+    differentiates between candidates that a binary crash/no-crash penalty cannot.
 
-    Args:
-        final_conditions: Array of final conditions (n_sims, n_cols).
-        duration_col: Column index for duration error.
-        periapsis_col: Column index for periapsis error.
-        apoapsis_col: Column index for apoapsis error.
-        inclination_col: Column index for inclination error.
+    Final file columns (0-indexed):
+        8  = orbital energy (MJ/kg), >0 hyperbolic, <0 bound
+        10 = eccentricity, >1 hyperbolic
+        28 = total simulation time (s)
+        30 = periapsis altitude error vs target (km)
+        31 = apoapsis altitude error vs target (km)
+        42 = total delta-V to reach target orbit (m/s)
+
+    Cost hierarchy (smooth within each level):
+        Level 0: Hyperbolic escape → 1e6 + 1e3 * |energy|
+        Level 1: Captured, large orbit errors → 1e4 + |apo_err| + |peri_err|
+        Level 2: Captured, small errors → |apo_err| + |peri_err| + dv_total
 
     Returns:
         RMS cost value. Lower is better.
     """
-    # Extract absolute errors (1-indexed in MATLAB, 0-indexed here)
-    # Adjust for 0-indexed columns
-    dur = np.abs(final_conditions[:, duration_col - 1])
-    peri = np.abs(final_conditions[:, periapsis_col - 1])
-    apo = np.abs(final_conditions[:, apoapsis_col - 1])
-    incl = np.abs(final_conditions[:, inclination_col - 1])
+    energy = final_conditions[:, 8]      # MJ/kg
+    ecc = final_conditions[:, 10]        # dimensionless
+    sim_time = final_conditions[:, 28]   # s
+    peri_err = final_conditions[:, 30]   # km
+    apo_err = final_conditions[:, 31]    # km
+    dv_total = final_conditions[:, 42]   # m/s
 
-    # Constraint hierarchy
-    crash = (peri > 1e20) | (apo > 1e20) | (incl > 1e20)
-    apo_viol = apo > 40
-    peri_viol = (peri - 113) > 40
-    incl_viol = incl > 40
+    hyperbolic = (ecc > 1.0) | (energy > 0)
 
-    err = np.zeros_like(dur)
+    costs = np.zeros(len(final_conditions))
 
-    # Level 1: Crash
-    mask = crash
-    err[mask] = 1e30 / np.maximum(dur[mask], 1e-10)
+    # Level 0: Non-capturing (hyperbolic) — smooth energy-based cost
+    # Energy varies between NNs: more atmospheric drag = lower energy = better
+    # Also reward longer flight time (more atmospheric interaction)
+    mask = hyperbolic
+    costs[mask] = 1e6 + 1e3 * np.abs(energy[mask]) - 0.1 * sim_time[mask]
 
-    # Level 2: Apoapsis violation (not crash)
-    mask = ~crash & apo_viol
-    err[mask] = 1e18 * apo[mask] + 1e12 * dur[mask] + 1e6 * incl[mask]
+    # Captured trajectories
+    mask = ~hyperbolic
+    abs_apo = np.abs(apo_err[mask])
+    abs_peri = np.abs(peri_err[mask])
+    orbit_err = abs_apo + abs_peri
 
-    # Level 3: Periapsis violation (not crash, not apo violation)
-    mask = ~crash & ~apo_viol & peri_viol
-    err[mask] = apo[mask] + 1e12 * dur[mask] + 1e6 * incl[mask]
+    # Sanitize dv_total: Fortran writes 1e30 when maneuver computation fails
+    dv_clean = np.clip(dv_total[mask], 0, 1e4)
+    dv_clean = np.where(dv_total[mask] > 1e10, 0.0, dv_clean)  # ignore bogus values
 
-    # Level 4: Inclination violation (no other violations)
-    mask = ~crash & ~apo_viol & ~peri_viol & incl_viol
-    err[mask] = apo[mask] + dur[mask] + 1e6 * incl[mask]
+    # Smooth continuous cost: orbit error + small delta-V contribution
+    costs[mask] = orbit_err + 0.01 * dv_clean
 
-    # Level 5: All nominal
-    mask = ~crash & ~apo_viol & ~peri_viol & ~incl_viol
-    err[mask] = apo[mask] + dur[mask] + incl[mask]
+    return float(np.sqrt(np.mean(costs**2)))
 
-    return float(np.sqrt(np.mean(err**2)))
+
+def decode_direct(
+    xbit: npt.NDArray[np.int8],
+    config: TrainingConfig,
+) -> npt.NDArray[np.float64]:
+    """Decode chromosome directly to weight values (no base network needed).
+
+    Maps n_base_coef groups of n_bit binary digits to values in [p_min, p_max].
+    """
+    n_base = config.network.n_base_coef
+    n_bit = config.ga.n_bit
+    p_range = config.ga.p_max - config.ga.p_min
+
+    bit_weights = np.power(2.0, np.arange(n_bit - 1, -1, -1))
+    bits = xbit[: n_base * n_bit].reshape(n_base, n_bit)
+    return np.sum(bits * bit_weights, axis=1) / (2**n_bit - 1) * p_range + config.ga.p_min
 
 
 def evaluate_chromosome(
@@ -210,19 +230,21 @@ def evaluate_chromosome(
     config: TrainingConfig,
     cwd: str | Path | None = None,
 ) -> tuple[float, npt.NDArray[np.float64] | None]:
-    """Full evaluation pipeline: decode, perturb, simulate, score.
+    """Full evaluation pipeline: decode, simulate, score.
 
     Args:
         xbit: Binary chromosome.
-        base_network: Base network weights.
+        base_network: Base network weights (ignored in direct encoding mode).
         config: Training configuration.
         cwd: Working directory.
 
     Returns:
         (cost, final_conditions) tuple.
     """
-    # Perturb network
-    weights = perturb_network(xbit, base_network, config)
+    if config.ga.direct_encoding:
+        weights = decode_direct(xbit, config)
+    else:
+        weights = perturb_network(xbit, base_network, config)
 
     # Write to file
     if cwd is None:

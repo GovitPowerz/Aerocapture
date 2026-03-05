@@ -8,6 +8,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 
+from aerocapture.io._fortran import parse_fortran_line
+
+
+def _load_fortran_table(path: str | Path) -> npt.NDArray[np.float64]:
+    """Load a whitespace-delimited file with Fortran D-notation floats."""
+    rows = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                rows.append(parse_fortran_line(line))
+    return np.array(rows, dtype=np.float64)
+
 
 def load_corridor_boundaries(
     overshoot_path: str | Path,
@@ -22,8 +35,8 @@ def load_corridor_boundaries(
     Returns:
         (overshoot, undershoot): 2D arrays with columns [energy, pressure].
     """
-    overshoot = np.loadtxt(overshoot_path)
-    undershoot = np.loadtxt(undershoot_path)
+    overshoot = _load_fortran_table(overshoot_path)
+    undershoot = _load_fortran_table(undershoot_path)
     return overshoot, undershoot
 
 
