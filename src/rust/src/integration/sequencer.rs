@@ -46,17 +46,34 @@ impl SequencerState {
         let pred = should_execute(time, self.last_prediction, periods.prediction);
         let photo = should_execute(time, self.last_photo, periods.photo);
 
-        if nav { self.last_navigation = time; }
-        if guid { self.last_guidance = time; }
-        if pilot { self.last_pilot = time; }
-        if pred { self.last_prediction = time; }
-        if photo { self.last_photo = time; }
+        if nav {
+            self.last_navigation = time;
+        }
+        if guid {
+            self.last_guidance = time;
+        }
+        if pilot {
+            self.last_pilot = time;
+        }
+        if pred {
+            self.last_prediction = time;
+        }
+        if photo {
+            self.last_photo = time;
+        }
 
-        SequencerFlags { nav, guid, pilot, pred, photo }
+        SequencerFlags {
+            nav,
+            guid,
+            pilot,
+            pred,
+            photo,
+        }
     }
 }
 
 /// Flags indicating which subsystems should execute this step
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct SequencerFlags {
     pub nav: bool,

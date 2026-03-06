@@ -8,8 +8,8 @@ use crate::data::pilot::{PilotModel, PilotType};
 /// Pilot state for dynamic models
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PilotState {
-    pub bank_angle: f64,      // current realized bank angle (rad)
-    pub bank_rate: f64,       // current bank angle rate (rad/s) — for 2nd order
+    pub bank_angle: f64, // current realized bank angle (rad)
+    pub bank_rate: f64,  // current bank angle rate (rad/s) — for 2nd order
 }
 
 /// Apply pilot dynamics to compute realized bank angle.

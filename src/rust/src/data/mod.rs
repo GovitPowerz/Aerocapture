@@ -38,19 +38,21 @@ pub struct SphericalState {
 }
 
 /// Orbital elements
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OrbitalElements {
     pub semi_major_axis: f64, // meters
     pub eccentricity: f64,
-    pub inclination: f64,  // radians
-    pub raan: f64,         // radians
+    pub inclination: f64,   // radians
+    pub raan: f64,          // radians
     pub arg_periapsis: f64, // radians
-    pub true_anomaly: f64, // radians
+    pub true_anomaly: f64,  // radians
     pub periapsis_alt: f64, // meters
-    pub apoapsis_alt: f64, // meters
+    pub apoapsis_alt: f64,  // meters
 }
 
 /// Target orbital parameters (from mission file)
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OrbitalTarget {
     pub apoapsis: f64,        // meters (altitude)
@@ -62,6 +64,7 @@ pub struct OrbitalTarget {
 }
 
 /// Mission final conditions (from mission file)
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FinalConditions {
     pub altitude: f64,    // meters
@@ -75,6 +78,7 @@ pub struct FinalConditions {
 }
 
 /// Parking orbit parameters
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ParkingOrbit {
     pub apoapsis: f64,  // meters
@@ -109,12 +113,13 @@ impl Default for TimePeriods {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EntryConditions {
     pub state: SphericalState,
-    pub initial_date: f64,  // seconds
-    pub initial_bank: f64,  // radians (gite)
-    pub initial_aoa: f64,   // radians (incidence)
+    pub initial_date: f64, // seconds
+    pub initial_bank: f64, // radians (gite)
+    pub initial_aoa: f64,  // radians (incidence)
 }
 
 /// Reentry constraints (converted to SI)
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Constraints {
     pub max_heat_flux: f64,        // W/m^2 (from kW/m^2)
@@ -123,6 +128,7 @@ pub struct Constraints {
 }
 
 /// Success criteria
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SuccessCriteria {
     pub inclination_tol: f64, // radians (from deg)
@@ -132,13 +138,15 @@ pub struct SuccessCriteria {
 }
 
 /// AGA-specific parameters
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AgaParams {
-    pub v_infinity: f64,    // m/s
-    pub true_anomaly: f64,  // radians
+    pub v_infinity: f64,   // m/s
+    pub true_anomaly: f64, // radians
 }
 
 /// All loaded simulation data
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct SimData {
     pub capsule: capsule::Capsule,
@@ -169,9 +177,8 @@ impl SimData {
     ///
     /// Matches the Fortran lectci.f reading order.
     pub fn load(config: &SimInput) -> Result<Self, DataError> {
-        let capsule = capsule::Capsule::load(
-            &config.data_path("capsule", &config.suffixes.capsule),
-        )?;
+        let capsule =
+            capsule::Capsule::load(&config.data_path("capsule", &config.suffixes.capsule))?;
 
         let aero = aerodynamics::AeroTables::load(
             &config.data_path("aerodynamique", &config.suffixes.aero),
@@ -181,9 +188,7 @@ impl SimData {
             &config.data_path("atmosphere", &config.suffixes.atmosphere),
         )?;
 
-        let entry = load_entry_conditions(
-            &config.data_path("rentree", &config.suffixes.reentry),
-        )?;
+        let entry = load_entry_conditions(&config.data_path("rentree", &config.suffixes.reentry))?;
 
         let (constraints, final_cond, target, parking, wind, aga) = load_mission(
             &config.data_path("mission", &config.suffixes.mission),
@@ -215,13 +220,9 @@ impl SimData {
         )?;
 
         // Fortran uses sufmsr (capsule suffix) for pilote file
-        let pilot = pilot::PilotModel::load(
-            &config.data_path("pilote", &config.suffixes.capsule),
-        )?;
+        let pilot = pilot::PilotModel::load(&config.data_path("pilote", &config.suffixes.capsule))?;
 
-        let success = load_success(
-            &config.data_path("succes", &config.suffixes.success),
-        )?;
+        let success = load_success(&config.data_path("succes", &config.suffixes.success))?;
 
         let neural_net = if config.guidance_type == GuidanceType::NeuralNetwork {
             let nn_path = config.data_path("nn_param", &config.suffixes.neural);
@@ -324,10 +325,21 @@ fn load_entry_conditions(path: &str) -> Result<EntryConditions, DataError> {
 ///   zapoge (km), zperig (km), demiax (km), excorb,
 ///   xincli (deg), gomega (deg), zapotf (km), zpertf (km),
 ///   [AGA only: vitinf (m/s), anoinf (deg)]
+#[allow(clippy::type_complexity)]
 fn load_mission(
     path: &str,
     mission_type: MissionType,
-) -> Result<(Constraints, FinalConditions, OrbitalTarget, ParkingOrbit, bool, Option<AgaParams>), DataError> {
+) -> Result<
+    (
+        Constraints,
+        FinalConditions,
+        OrbitalTarget,
+        ParkingOrbit,
+        bool,
+        Option<AgaParams>,
+    ),
+    DataError,
+> {
     let rows = parse_data_file(path)?;
     if rows.len() < 20 {
         return Err(DataError(format!(
@@ -341,8 +353,8 @@ fn load_mission(
 
     let constraints = Constraints {
         max_heat_flux: rows[1][0] * 1e3,        // kW/m2 → W/m2
-        max_load_factor: rows[2][0] * G0,        // g → m/s2
-        max_dynamic_pressure: rows[3][0] * 1e3,  // kPa → Pa
+        max_load_factor: rows[2][0] * G0,       // g → m/s2
+        max_dynamic_pressure: rows[3][0] * 1e3, // kPa → Pa
     };
 
     let final_cond = FinalConditions {
@@ -352,7 +364,7 @@ fn load_mission(
         velocity: rows[7][0],
         flight_path: rows[8][0] * DEG2RAD,
         azimuth: rows[9][0] * DEG2RAD,
-        energy: rows[10][0] * 1e6,    // MJ/kg → J/kg
+        energy: rows[10][0] * 1e6, // MJ/kg → J/kg
         radial_vel: rows[11][0],
     };
 

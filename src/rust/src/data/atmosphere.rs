@@ -13,26 +13,28 @@
 //!   zromod — exponential model reference altitude (m)
 //!   cstgam — gas constant ratio (gamma)
 
-use super::{parse_data_file, DataError};
+use super::{DataError, parse_data_file};
 
 /// Density dispersion profile (altitude-dependent bias envelope)
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct DensityProfile {
-    pub altitudes: Vec<f64>,       // meters (up to 5 breakpoints)
-    pub max_dispersion: Vec<f64>,  // fractional (converted from %)
-    pub slopes: Vec<f64>,          // linear interpolation slopes
-    pub intercepts: Vec<f64>,      // linear interpolation intercepts
+    pub altitudes: Vec<f64>,      // meters (up to 5 breakpoints)
+    pub max_dispersion: Vec<f64>, // fractional (converted from %)
+    pub slopes: Vec<f64>,         // linear interpolation slopes
+    pub intercepts: Vec<f64>,     // linear interpolation intercepts
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AtmosphereModel {
     pub n_points: usize,
-    pub altitudes: Vec<f64>,    // meters
-    pub densities: Vec<f64>,    // kg/m^3
-    pub ref_density: f64,       // exponential model rho0 (kg/m3)
-    pub scale_factor: f64,      // exponential model H^-1 (1/m)
-    pub ref_altitude: f64,      // exponential model z0 (m)
-    pub gas_constant: f64,      // gamma (ratio of specific heats)
+    pub altitudes: Vec<f64>, // meters
+    pub densities: Vec<f64>, // kg/m^3
+    pub ref_density: f64,    // exponential model rho0 (kg/m3)
+    pub scale_factor: f64,   // exponential model H^-1 (1/m)
+    pub ref_altitude: f64,   // exponential model z0 (m)
+    pub gas_constant: f64,   // gamma (ratio of specific heats)
     pub density_profile: DensityProfile,
 }
 
@@ -141,8 +143,7 @@ impl AtmosphereModel {
             if altitude <= self.altitudes[i] {
                 let frac = (altitude - self.altitudes[i - 1])
                     / (self.altitudes[i] - self.altitudes[i - 1]);
-                return self.densities[i - 1]
-                    + frac * (self.densities[i] - self.densities[i - 1]);
+                return self.densities[i - 1] + frac * (self.densities[i] - self.densities[i - 1]);
             }
         }
         self.exponential_density(altitude)

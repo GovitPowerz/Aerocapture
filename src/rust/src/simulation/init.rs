@@ -3,16 +3,17 @@
 //! Matches Fortran inimsr.f.
 
 use crate::config::SimInput;
-use crate::data::{EntryConditions, SimData, SphericalState};
+use crate::data::{EntryConditions, SimData};
 
 /// Per-simulation-run state after applying dispersions.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct RunState {
     pub entry: EntryConditions,
-    pub cx_bias: f64,       // drag coefficient bias (fractional)
-    pub cz_bias: f64,       // lift coefficient bias (fractional)
-    pub density_bias: f64,  // atmosphere density bias (fractional)
-    pub mass_bias: f64,     // mass bias (fractional)
+    pub cx_bias: f64,        // drag coefficient bias (fractional)
+    pub cz_bias: f64,        // lift coefficient bias (fractional)
+    pub density_bias: f64,   // atmosphere density bias (fractional)
+    pub mass_bias: f64,      // mass bias (fractional)
     pub incidence_bias: f64, // incidence error (radians)
 }
 
@@ -28,17 +29,17 @@ pub struct RunState {
 ///   dndrag, dalfae, dmvehi
 #[derive(Debug, Clone, Default)]
 pub struct LotteryDraw {
-    pub daltit: f64,  // altitude dispersion (meters, added to radius)
-    pub dlongi: f64,  // longitude dispersion (radians)
-    pub dlatit: f64,  // latitude dispersion (radians)
-    pub dvites: f64,  // velocity dispersion (m/s)
-    pub dazimu: f64,  // azimuth dispersion (radians)
-    pub dpente: f64,  // FPA dispersion (radians)
-    pub ddensi: f64,  // density dispersion factor
-    pub dcxeng: f64,  // drag coeff dispersion factor
-    pub dczeng: f64,  // lift coeff dispersion factor
-    pub dalfae: f64,  // incidence dispersion (radians)
-    pub dmvehi: f64,  // mass dispersion factor
+    pub daltit: f64, // altitude dispersion (meters, added to radius)
+    pub dlongi: f64, // longitude dispersion (radians)
+    pub dlatit: f64, // latitude dispersion (radians)
+    pub dvites: f64, // velocity dispersion (m/s)
+    pub dazimu: f64, // azimuth dispersion (radians)
+    pub dpente: f64, // FPA dispersion (radians)
+    pub ddensi: f64, // density dispersion factor
+    pub dcxeng: f64, // drag coeff dispersion factor
+    pub dczeng: f64, // lift coeff dispersion factor
+    pub dalfae: f64, // incidence dispersion (radians)
+    pub dmvehi: f64, // mass dispersion factor
 }
 
 /// Read lottery dispersions for a given simulation index.
@@ -48,8 +49,8 @@ pub struct LotteryDraw {
 /// For Monte Carlo: reads sequentially.
 pub fn read_lottery(
     path: &str,
-    sim_index: i32,  // 0-based
-    visualize_sim: i32,  // numsim from config (1-based)
+    sim_index: i32,     // 0-based
+    visualize_sim: i32, // numsim from config (1-based)
     is_monte_carlo: bool,
 ) -> LotteryDraw {
     let content = match std::fs::read_to_string(path) {
@@ -112,12 +113,7 @@ pub fn read_lottery(
 ///
 /// Reads lottery dispersions and applies them to entry conditions.
 /// Matches Fortran inimsr.f.
-pub fn init_run(
-    sim_data: &SimData,
-    config: &SimInput,
-    sim_index: i32,
-    _rng_seed: f64,
-) -> RunState {
+pub fn init_run(sim_data: &SimData, config: &SimInput, sim_index: i32, _rng_seed: f64) -> RunState {
     // Read lottery file dispersions
     let lottery_path = config.data_path("loterie", &config.suffixes.lottery);
     let is_mc = config.n_sims > 1;

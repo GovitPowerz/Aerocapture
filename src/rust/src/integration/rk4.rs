@@ -41,8 +41,7 @@ pub fn rk4_increment(
             for i in 0..n {
                 let xk = dt * derivs[i];
                 state[i] += (1.0 - ix_f / a) * (xk - qk[i]);
-                qk[i] = qk[i] * (-2.0 + 3.0 * ix_f / a)
-                    + xk * (2.0 - ix_f * a);
+                qk[i] = qk[i] * (-2.0 + 3.0 * ix_f / a) + xk * (2.0 - ix_f * a);
             }
             *ix = -1;
         }

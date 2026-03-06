@@ -4,7 +4,7 @@
 //! Writes fort.201-204, photo.*, final.*, initial.* files.
 
 use std::fs::File;
-use std::io::{self, Write, BufWriter};
+use std::io::{self, BufWriter, Write};
 
 /// Fortran-compatible D-notation float formatter.
 ///
@@ -38,10 +38,7 @@ pub fn fortran_float(val: f64, width: usize, decimals: usize) -> String {
 /// Write a trajectory snapshot line (photo format).
 ///
 /// Format: 24 columns, (24(1x,d12.5))
-pub fn write_photo_line(
-    writer: &mut impl Write,
-    values: &[f64],
-) -> io::Result<()> {
+pub fn write_photo_line(writer: &mut impl Write, values: &[f64]) -> io::Result<()> {
     for val in values {
         write!(writer, " {}", fortran_float(*val, 12, 5))?;
     }
@@ -52,10 +49,8 @@ pub fn write_photo_line(
 /// Write fort.201 line (28 columns, D20.10 format).
 ///
 /// Matches Fortran result.f: write(201,1001) format(28(1x,d20.10))
-pub fn write_fort201_line(
-    writer: &mut impl Write,
-    values: &[f64; 28],
-) -> io::Result<()> {
+#[allow(dead_code)]
+pub fn write_fort201_line(writer: &mut impl Write, values: &[f64; 28]) -> io::Result<()> {
     for val in values {
         write!(writer, " {}", fortran_float(*val, 20, 10))?;
     }
@@ -64,10 +59,8 @@ pub fn write_fort201_line(
 }
 
 /// Write fort.202 line (24 columns, D20.10 format).
-pub fn write_fort202_line(
-    writer: &mut impl Write,
-    values: &[f64; 24],
-) -> io::Result<()> {
+#[allow(dead_code)]
+pub fn write_fort202_line(writer: &mut impl Write, values: &[f64; 24]) -> io::Result<()> {
     for val in values {
         write!(writer, " {}", fortran_float(*val, 20, 10))?;
     }
@@ -76,9 +69,16 @@ pub fn write_fort202_line(
 }
 
 /// Create fort.201-204 output files and return buffered writers.
+#[allow(dead_code)]
+#[allow(clippy::type_complexity)]
 pub fn create_fort_files(
     results_suffix: &str,
-) -> io::Result<(BufWriter<File>, BufWriter<File>, BufWriter<File>, BufWriter<File>)> {
+) -> io::Result<(
+    BufWriter<File>,
+    BufWriter<File>,
+    BufWriter<File>,
+    BufWriter<File>,
+)> {
     let dir = format!("../sorties/resultats{}", results_suffix);
     std::fs::create_dir_all(&dir).ok();
 

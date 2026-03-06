@@ -27,8 +27,7 @@ pub fn gravity(radius: f64, latitude: f64, planet: &Planet) -> (f64, f64) {
     let gravtl = 3.0 * mu * j2 * req2 * sin_lat * cos_lat / r4;
 
     // Radial component (positive outward)
-    let gravtr = mu / r2
-        + 3.0 * mu * j2 * req2 * (1.0 - 3.0 * sin2) / (2.0 * r4);
+    let gravtr = mu / r2 + 3.0 * mu * j2 * req2 * (1.0 - 3.0 * sin2) / (2.0 * r4);
 
     (gravtl, gravtr)
 }

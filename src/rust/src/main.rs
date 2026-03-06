@@ -12,7 +12,11 @@ use std::process;
 fn main() {
     // Read input from stdin (same interface as Fortran: ./aerocap < config.in)
     let stdin = io::stdin();
-    let lines: Vec<String> = stdin.lock().lines().map(|l| l.unwrap_or_default()).collect();
+    let lines: Vec<String> = stdin
+        .lock()
+        .lines()
+        .map(|l| l.unwrap_or_default())
+        .collect();
 
     let sim_config = match config::SimInput::parse(&lines) {
         Ok(c) => c,
@@ -31,16 +35,25 @@ fn main() {
         }
     };
 
-    eprintln!("Config: planet={:?}, nsims={}, reference={}, ref_bank={:.2}deg",
-        sim_config.planet, sim_config.n_sims, sim_config.reference_trajectory,
-        sim_config.reference_bank_angle);
-    eprintln!("RefTraj: {} points, guidance suffix='{}'",
-        sim_data.guidance.ref_trajectory.n_points,
-        sim_config.suffixes.guidance);
+    eprintln!(
+        "Config: planet={:?}, nsims={}, reference={}, ref_bank={:.2}deg",
+        sim_config.planet,
+        sim_config.n_sims,
+        sim_config.reference_trajectory,
+        sim_config.reference_bank_angle
+    );
+    eprintln!(
+        "RefTraj: {} points, guidance suffix='{}'",
+        sim_data.guidance.ref_trajectory.n_points, sim_config.suffixes.guidance
+    );
     if sim_data.guidance.ref_trajectory.n_points > 0 {
         let rt = &sim_data.guidance.ref_trajectory;
-        eprintln!("  E[0]={:.3} MJ/kg, cos_bank[0]={:.6}, E[last]={:.3} MJ/kg",
-            rt.energy[0] / 1e6, rt.cos_bank[0], rt.energy[rt.n_points-1] / 1e6);
+        eprintln!(
+            "  E[0]={:.3} MJ/kg, cos_bank[0]={:.6}, E[last]={:.3} MJ/kg",
+            rt.energy[0] / 1e6,
+            rt.cos_bank[0],
+            rt.energy[rt.n_points - 1] / 1e6
+        );
     }
 
     // Run simulation

@@ -6,9 +6,10 @@ use crate::data::aerodynamics::AeroTables;
 use crate::data::capsule::Capsule;
 
 /// Aerodynamic forces result
+#[allow(dead_code)]
 pub struct AeroForces {
-    pub drag: f64,    // N (along velocity, opposing motion)
-    pub lift: f64,    // N (perpendicular to velocity)
+    pub drag: f64,      // N (along velocity, opposing motion)
+    pub lift: f64,      // N (perpendicular to velocity)
     pub heat_flux: f64, // W/m^2
 }
 
@@ -19,6 +20,7 @@ pub struct AeroForces {
 /// - `alpha`: angle of attack (radians)
 /// - `cx_bias`: drag coefficient bias (fractional, for MC)
 /// - `cz_bias`: lift coefficient bias (fractional, for MC)
+#[allow(dead_code)]
 pub fn aero_forces(
     aero: &AeroTables,
     capsule: &Capsule,

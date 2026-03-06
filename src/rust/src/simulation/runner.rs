@@ -2,11 +2,11 @@
 //!
 //! Matches Fortran simmsr.f + realit.f + finmsr.f.
 
-use crate::config::{Planet, SimInput, SimPhase};
+use crate::config::{Planet, SimInput};
 use crate::data::SimData;
 use crate::gnc::control::pilot::{self, PilotState};
 use crate::gnc::guidance::ftc::{self, FtcState};
-use crate::gnc::navigation::coordinates::{geodetic_from_spherical, to_absolute_cartesian, norm};
+use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
 use crate::gnc::navigation::estimator::{self, NavigationBiases, NavigationState};
 use crate::integration::rk4;
 use crate::integration::sequencer::SequencerState;
@@ -30,6 +30,7 @@ impl fmt::Display for SimError {
 impl std::error::Error for SimError {}
 
 /// Simulation state
+#[allow(dead_code)]
 struct SimState {
     // State vector: [r, lon, lat, V, gamma, psi, flux, time]
     state: [f64; 8],
@@ -104,7 +105,7 @@ fn run_single(
             entry.state.velocity,
             entry.state.flight_path,
             entry.state.azimuth,
-            0.0,           // integrated flux
+            0.0, // integrated flux
             entry.initial_date,
         ],
         qk: [0.0; 8],
@@ -133,8 +134,12 @@ fn run_single(
     // === GNC subsystem initialization ===
     let mut nav_state = NavigationState::new();
     let nav_biases = NavigationBiases::default(); // TODO: apply from lottery
-    eprintln!("  Init: entry.initial_bank={:.5}deg, gitref={:.5}deg, sim.bank_angle={:.5}deg",
-        entry.initial_bank.to_degrees(), gitref.to_degrees(), sim.bank_angle.to_degrees());
+    eprintln!(
+        "  Init: entry.initial_bank={:.5}deg, gitref={:.5}deg, sim.bank_angle={:.5}deg",
+        entry.initial_bank.to_degrees(),
+        gitref.to_degrees(),
+        sim.bank_angle.to_degrees()
+    );
     let mut ftc_state = FtcState::new(entry.initial_bank, entry.initial_aoa);
     let mut pilot_state = PilotState {
         bank_angle: sim.bank_angle,
@@ -143,9 +148,13 @@ fn run_single(
     let mut sequencer = SequencerState::new();
 
     // === Open photo output file ===
-    let photo_path = format!("../sorties/photo.{}", config.suffixes.results.trim_start_matches('.'));
+    let photo_path = format!(
+        "../sorties/photo.{}",
+        config.suffixes.results.trim_start_matches('.')
+    );
     let mut photo_file = BufWriter::new(
-        File::create(&photo_path).map_err(|e| SimError(format!("Cannot create {}: {}", photo_path, e)))?
+        File::create(&photo_path)
+            .map_err(|e| SimError(format!("Cannot create {}: {}", photo_path, e)))?,
     );
 
     // somgit tracks cumulative bank angle changes (for photo col 18)
@@ -170,7 +179,6 @@ fn run_single(
         let flags = sequencer.update(temsim, &data.periods);
 
         // === Navigation (naviga.f) ===
-        let mut ftc_out = ftc::FtcOutput::default();
         if !config.reference_trajectory {
             let positr = [sim.state[0], sim.state[1], sim.state[2]];
             let vitesr = [sim.state[3], sim.state[4], sim.state[5]];
@@ -194,7 +202,7 @@ fn run_single(
             romver_for_photo = nav_out.roguid;
 
             // === Guidance (guidag.f) ===
-            ftc_out = ftc::guidance_step(
+            let ftc_out = ftc::guidance_step(
                 &nav_out,
                 sim.bank_angle,
                 temsim,
@@ -226,11 +234,12 @@ fn run_single(
             sim.aoa = ftc_out.alfcom;
 
             if step < 5 || step % 50 == 0 {
-                let (dbg_alt, _) = geodetic_from_spherical(
-                    sim.state[0], sim.state[1], sim.state[2], planet,
-                );
-                eprintln!("  step={} t={:.1} bank={:.3}deg aoa={:.3}deg ilongi={} alt={:.1}km vel={:.1}",
-                    step, temsim,
+                let (dbg_alt, _) =
+                    geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
+                eprintln!(
+                    "  step={} t={:.1} bank={:.3}deg aoa={:.3}deg ilongi={} alt={:.1}km vel={:.1}",
+                    step,
+                    temsim,
                     sim.bank_angle.to_degrees(),
                     sim.aoa.to_degrees(),
                     ftc_out.ilongi,
@@ -244,25 +253,24 @@ fn run_single(
         if flags.photo {
             write_photo(
                 &mut photo_file,
-                &sim, temsim, planet, degrad,
-                pdynan_for_photo, romver_for_photo,
-                sim_idx + 1, somgit_deg * degrad,
-            ).map_err(|e| SimError(format!("Photo write error: {}", e)))?;
+                &sim,
+                temsim,
+                planet,
+                degrad,
+                pdynan_for_photo,
+                romver_for_photo,
+                sim_idx + 1,
+                somgit_deg * degrad,
+            )
+            .map_err(|e| SimError(format!("Photo write error: {}", e)))?;
         }
 
         // === Integration step (realit.f) ===
-        integrate_step(
-            &mut sim,
-            dt,
-            planet,
-            data,
-            run_state,
-        );
+        integrate_step(&mut sim, dt, planet, data, run_state);
 
         // Compute geodetic altitude
-        let (altitude, _lat_geo) = geodetic_from_spherical(
-            sim.state[0], sim.state[1], sim.state[2], planet,
-        );
+        let (altitude, _lat_geo) =
+            geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
 
         // === Termination checks (finmsr.f) ===
         if altitude <= 0.0 {
@@ -299,17 +307,24 @@ fn run_single(
     // Write final photo snapshot
     write_photo(
         &mut photo_file,
-        &sim, temsim, planet, degrad,
-        pdynan_for_photo, romver_for_photo,
-        sim_idx + 1, somgit_deg * degrad,
-    ).map_err(|e| SimError(format!("Photo write error: {}", e)))?;
+        &sim,
+        temsim,
+        planet,
+        degrad,
+        pdynan_for_photo,
+        romver_for_photo,
+        sim_idx + 1,
+        somgit_deg * degrad,
+    )
+    .map_err(|e| SimError(format!("Photo write error: {}", e)))?;
 
-    photo_file.flush().map_err(|e| SimError(format!("Photo flush error: {}", e)))?;
+    photo_file
+        .flush()
+        .map_err(|e| SimError(format!("Photo flush error: {}", e)))?;
 
     {
-        let (alt_final, _) = geodetic_from_spherical(
-            sim.state[0], sim.state[1], sim.state[2], planet,
-        );
+        let (alt_final, _) =
+            geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
         eprintln!(
             "  Final: alt={:.3} km, vel={:.3} m/s, t={:.1} s, steps={}, term={:?}",
             alt_final / 1e3,
@@ -326,6 +341,7 @@ fn run_single(
 /// Write a photo snapshot line matching Fortran photra.f format.
 ///
 /// 24 columns: format(24(1x,d12.5))
+#[allow(clippy::too_many_arguments)]
 fn write_photo(
     writer: &mut impl Write,
     sim: &SimState,
@@ -337,25 +353,32 @@ fn write_photo(
     isimul: i32,
     somgit: f64,
 ) -> std::io::Result<()> {
-    let req = planet.equatorial_radius();
+    let _req = planet.equatorial_radius();
 
     // Geodetic altitude
-    let (altitr, xlatit) = geodetic_from_spherical(
-        sim.state[0], sim.state[1], sim.state[2], planet,
-    );
+    let (altitr, xlatit) =
+        geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
 
     // Orbital elements
     let orbit = elements::from_spherical(
-        sim.state[0], sim.state[1], sim.state[2],
-        sim.state[3], sim.state[4], sim.state[5],
+        sim.state[0],
+        sim.state[1],
+        sim.state[2],
+        sim.state[3],
+        sim.state[4],
+        sim.state[5],
         planet,
     );
 
     // Energy using absolute (inertial) velocity (matches Fortran enrtot.f → xvabsl.f)
     let mu = planet.mu();
     let (_posita, vitesa) = to_absolute_cartesian(
-        sim.state[0], sim.state[1], sim.state[2],
-        sim.state[3], sim.state[4], sim.state[5],
+        sim.state[0],
+        sim.state[1],
+        sim.state[2],
+        sim.state[3],
+        sim.state[4],
+        sim.state[5],
         planet,
     );
     let vitabs = norm(&vitesa);
@@ -375,30 +398,30 @@ fn write_photo(
     };
 
     let values: [f64; 24] = [
-        temsim,                           // 1: time (s)
-        altitr / 1e3,                     // 2: altitude (km)
-        sim.state[1] / degrad,            // 3: longitude (deg)
-        xlatit / degrad,                  // 4: latitude (deg)
-        sim.state[3],                     // 5: velocity (m/s)
-        sim.state[4] / degrad,            // 6: flight path angle (deg)
-        sim.state[5] / degrad,            // 7: azimuth (deg)
-        orbit.semi_major_axis / 1e3,      // 8: semi-major axis (km)
-        orbit.eccentricity,               // 9: eccentricity
-        orbit.inclination / degrad,       // 10: inclination (deg)
-        orbit.raan / degrad,              // 11: RAAN (deg)
-        orbit.periapsis_alt / 1e3,        // 12: periapsis alt (km)
-        orbit.apoapsis_alt / 1e3,         // 13: apoapsis alt (km)
-        iphase,                           // 14: flight phase
-        sim.bank_angle / degrad,          // 15: bank angle (deg)
-        vitrad,                           // 16: vertical velocity (m/s)
-        sim.aoa / degrad,                 // 17: angle of attack (deg)
-        somgit / degrad,                  // 18: cumulative bank rate (deg)
-        enerjr,                           // 19: specific orbital energy (J/kg)
-        pdynan,                           // 20: dynamic pressure (Pa)
-        vitrad,                           // 21: radial velocity (m/s)
+        temsim,                                           // 1: time (s)
+        altitr / 1e3,                                     // 2: altitude (km)
+        sim.state[1] / degrad,                            // 3: longitude (deg)
+        xlatit / degrad,                                  // 4: latitude (deg)
+        sim.state[3],                                     // 5: velocity (m/s)
+        sim.state[4] / degrad,                            // 6: flight path angle (deg)
+        sim.state[5] / degrad,                            // 7: azimuth (deg)
+        orbit.semi_major_axis / 1e3,                      // 8: semi-major axis (km)
+        orbit.eccentricity,                               // 9: eccentricity
+        orbit.inclination / degrad,                       // 10: inclination (deg)
+        orbit.raan / degrad,                              // 11: RAAN (deg)
+        orbit.periapsis_alt / 1e3,                        // 12: periapsis alt (km)
+        orbit.apoapsis_alt / 1e3,                         // 13: apoapsis alt (km)
+        iphase,                                           // 14: flight phase
+        sim.bank_angle / degrad,                          // 15: bank angle (deg)
+        vitrad,                                           // 16: vertical velocity (m/s)
+        sim.aoa / degrad,                                 // 17: angle of attack (deg)
+        somgit / degrad,                                  // 18: cumulative bank rate (deg)
+        enerjr,                                           // 19: specific orbital energy (J/kg)
+        pdynan,                                           // 20: dynamic pressure (Pa)
+        vitrad,                                           // 21: radial velocity (m/s)
         0.5 * romver * sim.state[3] * sim.state[3] / 1e3, // 22: dyn press (kPa)
-        isimul as f64,                    // 23: simulation number
-        0.0,                              // 24: reserved
+        isimul as f64,                                    // 23: simulation number
+        0.0,                                              // 24: reserved
     ];
 
     output::write_photo_line(writer, &values)
@@ -418,14 +441,8 @@ fn integrate_step(
 
     for k in 1..=4 {
         // Compute derivatives at current state
-        let derivs = compute_derivatives(
-            &sim.state,
-            sim.bank_angle,
-            sim.aoa,
-            planet,
-            data,
-            run_state,
-        );
+        let derivs =
+            compute_derivatives(&sim.state, sim.bank_angle, sim.aoa, planet, data, run_state);
 
         // RK4 increment (Gill's variant)
         rk4::rk4_increment(dt, &derivs, k, 8, &mut sim.ix, &mut sim.qk, &mut sim.state);
@@ -445,12 +462,12 @@ fn compute_derivatives(
     data: &SimData,
     run_state: &init::RunState,
 ) -> [f64; 8] {
-    let r = state[0];       // radius
-    let _lon = state[1];    // longitude
-    let lat = state[2];     // latitude
-    let v = state[3];       // velocity
-    let gamma = state[4];   // flight path angle
-    let psi = state[5];     // azimuth
+    let r = state[0]; // radius
+    let _lon = state[1]; // longitude
+    let lat = state[2]; // latitude
+    let v = state[3]; // velocity
+    let gamma = state[4]; // flight path angle
+    let psi = state[5]; // azimuth
     let _flux = state[6];
     let _time = state[7];
 
@@ -494,19 +511,14 @@ fn compute_derivatives(
     let dlat = v * cos_gamma * cos_psi / r;
 
     // dV/dt
-    let dv = -acdrag
-        - gravtr * sin_gamma
-        - gravtl * cos_gamma * cos_psi
-        + omega * omega * r * cos_lat
-            * (cos_lat * sin_gamma - sin_lat * cos_gamma * cos_psi);
+    let dv = -acdrag - gravtr * sin_gamma - gravtl * cos_gamma * cos_psi
+        + omega * omega * r * cos_lat * (cos_lat * sin_gamma - sin_lat * cos_gamma * cos_psi);
 
     // dgamma/dt
-    let dgamma = (aclift * cos_mu / v)
-        + (v * cos_gamma / r)
+    let dgamma = (aclift * cos_mu / v) + (v * cos_gamma / r)
         - ((gravtr * cos_gamma - gravtl * sin_gamma * cos_psi) / v)
         + (2.0 * omega * sin_psi * cos_lat)
-        + (omega * omega * r * cos_lat
-            * (sin_lat * sin_gamma * cos_psi + cos_lat * cos_gamma) / v);
+        + (omega * omega * r * cos_lat * (sin_lat * sin_gamma * cos_psi + cos_lat * cos_gamma) / v);
 
     // dpsi/dt
     let dpsi = (aclift * sin_mu / (v * cos_gamma))

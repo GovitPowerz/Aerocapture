@@ -45,32 +45,32 @@ pub fn nn_bank_angle(
 
     // 6 normalized inputs (matching guidnn.f lines 86-91)
     let input = [
-        orbit.eccentricity - 1.0,                                    // xorbit(2) - 1
+        orbit.eccentricity - 1.0, // xorbit(2) - 1
         (orbit.inclination - target_inclination) / degrad * 3.0 / 5.0, // (incl - target) scaled
-        2.0 * (vitrad / 1e3 + 1.2) / 1.5 - 1.0,                    // radial vel scaled
-        -mu / (2.0 * orbit.semi_major_axis) / 6e6,                  // orbital energy scaled
-        (nav.vitesn[0] / 3e3 - 1.5) * 2.0,                         // velocity scaled
-        accel_mag / 20.0 - 1.0,                                     // acceleration scaled
+        2.0 * (vitrad / 1e3 + 1.2) / 1.5 - 1.0, // radial vel scaled
+        -mu / (2.0 * orbit.semi_major_axis) / 6e6, // orbital energy scaled
+        (nav.vitesn[0] / 3e3 - 1.5) * 2.0, // velocity scaled
+        accel_mag / 20.0 - 1.0,   // acceleration scaled
     ];
 
     // Hidden layer: tanh activation
     let mut hidden = [0.0_f64; crate::data::neural::N_HIDDEN];
-    for j in 0..crate::data::neural::N_HIDDEN {
+    for (j, h) in hidden.iter_mut().enumerate() {
         let mut sum = 0.0;
-        for i in 0..crate::data::neural::N_INPUT {
-            sum += nn.lw1[j][i] * input[i];
+        for (i, inp) in input.iter().enumerate() {
+            sum += nn.lw1[j][i] * inp;
         }
-        hidden[j] = (sum + nn.bias1[j]).tanh();
+        *h = (sum + nn.bias1[j]).tanh();
     }
 
     // Output layer: asinh activation
     let mut output = [0.0_f64; crate::data::neural::N_OUTPUT];
-    for j in 0..crate::data::neural::N_OUTPUT {
+    for (j, out) in output.iter_mut().enumerate() {
         let mut sum = 0.0;
-        for i in 0..crate::data::neural::N_HIDDEN {
-            sum += nn.lw4[j][i] * hidden[i];
+        for (i, h) in hidden.iter().enumerate() {
+            sum += nn.lw4[j][i] * h;
         }
-        output[j] = (sum + nn.bias4[j]).asinh();
+        *out = (sum + nn.bias4[j]).asinh();
     }
 
     // Bank angle from atan2 (matches guidnn.f line 113)

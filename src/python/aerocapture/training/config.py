@@ -81,7 +81,7 @@ class TrainingConfig:
         p_range = self.ga.p_max - self.ga.p_min
         # Each row: [2^(nbit-1), 2^(nbit-2), ..., 2^0] / (2^nbit - 1) * range
         bit_weights = np.power(2.0, np.arange(n_bit - 1, -1, -1))
-        conv = np.tile(bit_weights, (n_coef, 1)) / (2**n_bit - 1) * p_range
+        conv: npt.NDArray[np.float64] = np.tile(bit_weights, (n_coef, 1)) / (2**n_bit - 1) * p_range
         return conv
 
     def random_network(self, rng: np.random.Generator | None = None) -> npt.NDArray[np.float64]:

@@ -35,7 +35,7 @@ def roulette_selection(
     fitness = (max_cost - costs) / max(max_cost, 1e-300)
     total = np.sum(fitness)
     if total <= 0:
-        return rng.integers(len(costs))
+        return int(rng.integers(len(costs)))
     probs = np.cumsum(fitness / total)
     r = rng.random()
     return int(np.searchsorted(probs, r))

@@ -10,21 +10,22 @@ use crate::gnc::navigation::estimator::NavigationOutput;
 use crate::orbit::elements;
 
 /// FTC guidance persistent state.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct FtcState {
     // Bank angle command
-    pub gitcom: f64,     // current commanded bank angle (rad)
-    pub gitpre: f64,     // previous commanded bank angle (rad)
-    pub gpilpr: f64,     // previous pilot bank angle (rad)
-    pub alfcom: f64,     // commanded AoA (rad)
+    pub gitcom: f64, // current commanded bank angle (rad)
+    pub gitpre: f64, // previous commanded bank angle (rad)
+    pub gpilpr: f64, // previous pilot bank angle (rad)
+    pub alfcom: f64, // commanded AoA (rad)
 
     // Roll sign and reversal tracking
-    pub sgngit: f64,     // roll polarity sign (-1, 0, +1)
-    pub somgit: f64,     // cumulative bank angle changes (rad)
-    pub nbroll: i32,     // number of roll reversals
-    pub indrvr: i32,     // roll reversal active flag
-    pub rolway: i32,     // roll reversal path (+1=short, -1=long)
-    pub trevrs: f64,     // roll reversal duration (s)
+    pub sgngit: f64, // roll polarity sign (-1, 0, +1)
+    pub somgit: f64, // cumulative bank angle changes (rad)
+    pub nbroll: i32, // number of roll reversals
+    pub indrvr: i32, // roll reversal active flag
+    pub rolway: i32, // roll reversal path (+1=short, -1=long)
+    pub trevrs: f64, // roll reversal duration (s)
 
     // Guidance securization
     pub iprepr: [i32; 2], // securization counters
@@ -34,8 +35,8 @@ pub struct FtcState {
     pub vitref: f64,
 
     // Counters
-    pub n_secur: i32,    // number of securization events
-    pub n_active: i32,   // number of active guidance calls
+    pub n_secur: i32,  // number of securization events
+    pub n_active: i32, // number of active guidance calls
 }
 
 impl FtcState {
@@ -63,22 +64,23 @@ impl FtcState {
 /// FTC guidance output.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FtcOutput {
-    pub gitcom: f64,     // commanded bank angle (rad)
-    pub alfcom: f64,     // commanded AoA (rad)
-    pub vitgit: f64,     // bank rate before saturation (rad/s)
-    pub ilongi: i32,     // longitudinal guidance active
-    pub isatur: i32,     // rate saturation occurred
-    pub indrol: i32,     // roll reversal indicator
+    pub gitcom: f64, // commanded bank angle (rad)
+    pub alfcom: f64, // commanded AoA (rad)
+    pub vitgit: f64, // bank rate before saturation (rad/s)
+    pub ilongi: i32, // longitudinal guidance active
+    pub isatur: i32, // rate saturation occurred
+    pub indrol: i32, // roll reversal indicator
 }
 
 /// Run one FTC guidance step.
 ///
 /// Matches Fortran guidag.f.
+#[allow(clippy::too_many_arguments)]
 pub fn guidance_step(
     nav: &NavigationOutput,
-    gitpil: f64,         // pilot-realized bank angle
+    gitpil: f64, // pilot-realized bank angle
     temsim: f64,
-    gitref: f64,         // reference bank angle (from config, rad)
+    gitref: f64, // reference bank angle (from config, rad)
     state: &mut FtcState,
     data: &SimData,
     planet: &Planet,
@@ -94,16 +96,19 @@ pub fn guidance_step(
 
     // === Angle of attack guidance (guialf) ===
     // proalf returns altitude as scheduling parameter
-    let (altitude, _) = geodetic_from_spherical(
-        nav.positn[0], nav.positn[1], nav.positn[2], planet,
-    );
+    let (altitude, _) =
+        geodetic_from_spherical(nav.positn[0], nav.positn[1], nav.positn[2], planet);
     state.alfcom = data.incidence.incidence_at(altitude);
     out.alfcom = state.alfcom;
 
     // === Longitudinal guidance activation ===
     let enrjlt = total_energy(
-        nav.positn[0], nav.positn[1], nav.positn[2],
-        nav.vitesn[0], nav.vitesn[1], nav.vitesn[2],
+        nav.positn[0],
+        nav.positn[1],
+        nav.positn[2],
+        nav.vitesn[0],
+        nav.vitesn[1],
+        nav.vitesn[2],
         planet,
     );
 
@@ -119,9 +124,17 @@ pub fn guidance_step(
     } else {
         // Aero-gravity assist: pressure-based activation
         if nav.ibounc == 0 {
-            ilongi = if nav.pdynan < data.guidance.longi_activation { 0 } else { 1 };
+            ilongi = if nav.pdynan < data.guidance.longi_activation {
+                0
+            } else {
+                1
+            };
         } else {
-            ilongi = if nav.pdynan < data.guidance.longi_inhibition { 0 } else { 1 };
+            ilongi = if nav.pdynan < data.guidance.longi_inhibition {
+                0
+            } else {
+                1
+            };
         }
         if ilongi == 0 {
             state.iprepr[1] += 1;
@@ -140,7 +153,7 @@ pub fn guidance_step(
 
     // === Longitudinal bank angle command ===
     // gitref passed as parameter from config.reference_bank_angle
-    let mut gitlon: f64;
+    let gitlon: f64;
 
     if is_reference {
         state.gitcom = gitref;
@@ -162,7 +175,8 @@ pub fn guidance_step(
     // === Lateral guidance activation ===
     let mut ilater: i32;
     if mission_type == MissionType::Aerocapture {
-        if enrjlt <= data.guidance.lateral_activation && enrjlt >= data.guidance.lateral_inhibition {
+        if enrjlt <= data.guidance.lateral_activation && enrjlt >= data.guidance.lateral_inhibition
+        {
             ilater = 1;
         } else {
             ilater = 0;
@@ -181,12 +195,18 @@ pub fn guidance_step(
             } else {
                 ilater = 0;
             }
-        } else {
-            if nav.ibounc == 0 {
-                ilater = if nav.pdynan < data.guidance.lateral_activation { 0 } else { 1 };
+        } else if nav.ibounc == 0 {
+            ilater = if nav.pdynan < data.guidance.lateral_activation {
+                0
             } else {
-                ilater = if nav.pdynan < data.guidance.lateral_inhibition { 0 } else { 1 };
-            }
+                1
+            };
+        } else {
+            ilater = if nav.pdynan < data.guidance.lateral_inhibition {
+                0
+            } else {
+                1
+            };
         }
     }
 
@@ -195,10 +215,7 @@ pub fn guidance_step(
     // === Lateral guidance ===
     let mut indrol = 0;
     if ilater == 1 {
-        guilat(
-            nav, gitlon, temsim, state, data, planet,
-            &mut indrol,
-        );
+        guilat(nav, gitlon, temsim, state, data, planet, &mut indrol);
         if state.indrvr == 1 {
             state.iguida[1] = 0;
         }
@@ -274,7 +291,7 @@ fn guicap(
     altitude: f64,
     state: &mut FtcState,
     data: &SimData,
-    planet: &Planet,
+    _planet: &Planet,
 ) -> f64 {
     let ref_traj = &data.guidance.ref_trajectory;
 
@@ -289,9 +306,7 @@ fn guicap(
     let _httnom = ref_traj.interpolate(enrjlt, &ref_traj.altitude_rate);
 
     // Compute gains (tbgain)
-    let (gaindh, gainpd) = tbgain(
-        altitude, &nav.coefan, data,
-    );
+    let (gaindh, gainpd) = tbgain(altitude, &nav.coefan, data);
 
     // Predictor-corrector equation
     // cos(gitlon) = cmunom + gaindh*(vitrad - hdtnom)/pdyneq + gainpd*(pdyneq - prenom)/pdyneq
@@ -323,11 +338,7 @@ fn guicap(
 /// Compute guidance gains from altitude-based Pdyn model.
 ///
 /// Matches Fortran tbgain.f.
-fn tbgain(
-    altitude: f64,
-    coefan: &[f64; 2],
-    data: &SimData,
-) -> (f64, f64) {
+fn tbgain(altitude: f64, coefan: &[f64; 2], data: &SimData) -> (f64, f64) {
     let pdyn_table = &data.guidance.pdyn_table;
     let alt_km = altitude / 1e3;
 
@@ -336,13 +347,20 @@ fn tbgain(
     // We use Option<usize> to avoid off-by-one with 0-based indexing.
     let mut found: Option<usize> = None;
     for i in 0..pdyn_table.len().saturating_sub(1) {
-        if alt_km >= pdyn_table[i].altitude && alt_km < pdyn_table[i + 1].altitude && found.is_none() {
+        if alt_km >= pdyn_table[i].altitude
+            && alt_km < pdyn_table[i + 1].altitude
+            && found.is_none()
+        {
             found = Some(i);
         }
     }
     // Fortran: if inumer==0 then inumer=nzapd (last entry)
     let inumer = found.unwrap_or_else(|| {
-        if pdyn_table.is_empty() { 0 } else { pdyn_table.len() - 1 }
+        if pdyn_table.is_empty() {
+            0
+        } else {
+            pdyn_table.len() - 1
+        }
     });
 
     let coefpd_a = if inumer < pdyn_table.len() {
@@ -379,7 +397,7 @@ fn tbgain(
 fn guilat(
     nav: &NavigationOutput,
     gitlon: f64,
-    temsim: f64,
+    _temsim: f64,
     state: &mut FtcState,
     data: &SimData,
     planet: &Planet,
@@ -395,12 +413,16 @@ fn guilat(
 
     // Compute orbital elements for inclination
     let orbit = elements::from_spherical(
-        nav.positn[0], nav.positn[1], nav.positn[2],
-        nav.vitesn[0], nav.vitesn[1], nav.vitesn[2],
+        nav.positn[0],
+        nav.positn[1],
+        nav.positn[2],
+        nav.vitesn[0],
+        nav.vitesn[1],
+        nav.vitesn[2],
         planet,
     );
 
-    let mut xinccr = data.target_orbit.inclination - orbit.inclination;
+    let xinccr = data.target_orbit.inclination - orbit.inclination;
     // Hemisphere correction (commented out in Fortran: if positn(3) < 0 then xinccr = -xinccr)
 
     let vitrel = nav.vitesn[0];
@@ -411,29 +433,28 @@ fn guilat(
     let xinmax = (vitrel / coridx).powi(4) + coridy;
 
     // Reversal decision
-    if xinccr.abs() >= xinmax && gitlon.abs() > 1e-10 {
-        if state.nbroll < data.guidance.max_reversals {
-            if xinccr > xinmax {
-                state.sgngit = -1.0;
-            } else if xinccr < -xinmax {
-                state.sgngit = 1.0;
-            }
+    if xinccr.abs() >= xinmax && gitlon.abs() > 1e-10 && state.nbroll < data.guidance.max_reversals
+    {
+        if xinccr > xinmax {
+            state.sgngit = -1.0;
+        } else if xinccr < -xinmax {
+            state.sgngit = 1.0;
+        }
 
-            if state.sgngit * sgnpre < 0.0 {
-                // Roll reversal commanded
-                *indrol = 1;
-                state.nbroll += 1;
+        if state.sgngit * sgnpre < 0.0 {
+            // Roll reversal commanded
+            *indrol = 1;
+            state.nbroll += 1;
 
-                if state.indrvr == 0 {
-                    state.indrvr = 1;
-                    state.indrvr = 0; // Fortran: immediately reset (line 157)
-                    state.rolway = 1;
-                    let dgitcm = state.gitpre.abs() + gitlon.abs();
-                    let vgitmx = data.capsule.max_bank_rate;
-                    let tguida = data.periods.guidance;
-                    state.trevrs = dgitcm / vgitmx;
-                    state.trevrs = (state.trevrs / tguida).floor() * tguida;
-                }
+            if state.indrvr == 0 {
+                state.indrvr = 1;
+                state.indrvr = 0; // Fortran: immediately reset (line 157)
+                state.rolway = 1;
+                let dgitcm = state.gitpre.abs() + gitlon.abs();
+                let vgitmx = data.capsule.max_bank_rate;
+                let tguida = data.periods.guidance;
+                state.trevrs = dgitcm / vgitmx;
+                state.trevrs = (state.trevrs / tguida).floor() * tguida;
             }
         }
     }

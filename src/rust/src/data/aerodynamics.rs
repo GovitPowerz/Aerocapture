@@ -11,21 +11,22 @@
 //!   Cx = Ca*cos(alpha) + Cn*sin(alpha)   (drag coefficient)
 //!   Cz = -Ca*sin(alpha) + Cn*cos(alpha)  (lift coefficient)
 
-use super::{parse_data_file, DataError};
+use super::{DataError, parse_data_file};
 
 const DEG2RAD: f64 = std::f64::consts::PI / 180.0;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AeroTables {
-    pub equilibrium_aoa: f64,        // radians
+    pub equilibrium_aoa: f64, // radians
     pub n_points: usize,
-    pub incidence: Vec<f64>,         // radians
-    pub cx: Vec<f64>,                // drag coefficient (stability axis)
-    pub cz: Vec<f64>,                // lift coefficient (stability axis)
-    pub nominal_cx: f64,             // Cx at equilibrium AoA
-    pub nominal_cz: f64,             // Cz at equilibrium AoA
-    pub nominal_finesse: f64,        // Cz/Cx (L/D ratio)
-    pub ballistic_coeff: f64,        // 1/(m/(S*Cx_nom)), set after capsule loading
+    pub incidence: Vec<f64>,  // radians
+    pub cx: Vec<f64>,         // drag coefficient (stability axis)
+    pub cz: Vec<f64>,         // lift coefficient (stability axis)
+    pub nominal_cx: f64,      // Cx at equilibrium AoA
+    pub nominal_cz: f64,      // Cz at equilibrium AoA
+    pub nominal_finesse: f64, // Cz/Cx (L/D ratio)
+    pub ballistic_coeff: f64, // 1/(m/(S*Cx_nom)), set after capsule loading
 }
 
 impl AeroTables {
@@ -60,7 +61,9 @@ impl AeroTables {
             if row.len() < 3 {
                 return Err(DataError(format!(
                     "Aero row {} too short ({} cols, need 3): {}",
-                    i, row.len(), path
+                    i,
+                    row.len(),
+                    path
                 )));
             }
             let alpha = row[0] * DEG2RAD;

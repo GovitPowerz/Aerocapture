@@ -46,11 +46,10 @@ pub fn geodetic_from_spherical(
         let mut rplant = req;
         let mut altitz = altitr - (req * rpol).sqrt();
         let mut altitude;
-        let mut lat_geo = latitude;
+        let lat_geo;
 
         for _ in 0..10 {
-            let tan_lat = (pos_z / pos_p)
-                / (1.0 - e2 * rplant / (rplant + altitz));
+            let tan_lat = (pos_z / pos_p) / (1.0 - e2 * rplant / (rplant + altitz));
             let sin_l = (tan_lat * tan_lat / (1.0 + tan_lat * tan_lat)).sqrt();
             let cos_l = (1.0 / (1.0 + tan_lat * tan_lat)).sqrt();
             altitude = pos_p / cos_l - rplant;
@@ -66,8 +65,7 @@ pub fn geodetic_from_spherical(
         }
 
         // Fallback after max iterations
-        let tan_lat = (pos_z / pos_p)
-            / (1.0 - e2 * rplant / (rplant + altitz));
+        let tan_lat = (pos_z / pos_p) / (1.0 - e2 * rplant / (rplant + altitz));
         let sin_l = (tan_lat * tan_lat / (1.0 + tan_lat * tan_lat)).sqrt();
         let cos_l = (1.0 / (1.0 + tan_lat * tan_lat)).sqrt();
         altitude = pos_p / cos_l - rplant;
@@ -80,6 +78,7 @@ pub fn geodetic_from_spherical(
 /// Convert geodetic to geocentric Cartesian position.
 ///
 /// Matches Fortran geodes.f.
+#[allow(dead_code)]
 pub fn geodetic_to_cartesian(
     altitude: f64,
     latitude: f64,
@@ -145,9 +144,9 @@ pub fn local_to_geocentric_matrix(lon: f64, lat: f64) -> [[f64; 3]; 3] {
     let coslon = lon.cos();
 
     [
-        [-coslon * sinlat,  sinlon, coslon * coslat],
+        [-coslon * sinlat, sinlon, coslon * coslat],
         [-sinlon * sinlat, -coslon, sinlon * coslat],
-        [ coslat,           0.0,    sinlat         ],
+        [coslat, 0.0, sinlat],
     ]
 }
 
@@ -191,8 +190,12 @@ pub fn norm(v: &[f64; 3]) -> f64 {
 /// Takes geocentric spherical position [r, lon, lat] and local spherical velocity [V, gamma, psi].
 /// Returns (position_cartesian, velocity_absolute_cartesian).
 pub fn to_absolute_cartesian(
-    r: f64, lon: f64, lat: f64,
-    v: f64, gamma: f64, psi: f64,
+    r: f64,
+    lon: f64,
+    lat: f64,
+    v: f64,
+    gamma: f64,
+    psi: f64,
     planet: &Planet,
 ) -> ([f64; 3], [f64; 3]) {
     // Position: spherical → Cartesian
@@ -227,8 +230,12 @@ pub fn to_absolute_cartesian(
 /// Matches Fortran enrtot.f.
 /// E = |v_abs|^2/2 - mu/|r|
 pub fn total_energy(
-    r: f64, lon: f64, lat: f64,
-    v: f64, gamma: f64, psi: f64,
+    r: f64,
+    lon: f64,
+    lat: f64,
+    v: f64,
+    gamma: f64,
+    psi: f64,
     planet: &Planet,
 ) -> f64 {
     let (posita, vitesa) = to_absolute_cartesian(r, lon, lat, v, gamma, psi, planet);

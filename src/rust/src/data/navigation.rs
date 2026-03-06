@@ -5,10 +5,11 @@
 //! Format: 3 header lines, then 7 standard deviations.
 //! Multipliers xmulti(1) and xmulti(3) are applied per Fortran lectci.f.
 
-use super::{parse_data_file, DataError};
+use super::{DataError, parse_data_file};
 
 const DEG2RAD: f64 = std::f64::consts::PI / 180.0;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NavigationParams {
     pub altitude: f64,    // meters (from km)

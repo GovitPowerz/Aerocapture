@@ -6,7 +6,7 @@ import numpy as np
 import numpy.typing as npt
 
 
-def empirical_cdf(x: npt.ArrayLike) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+def empirical_cdf(x: npt.NDArray[np.float64]) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Compute empirical CDF (step function) from samples.
 
     Equivalent to MATLAB cdfgov.m: produces coordinates for a step-function CDF.

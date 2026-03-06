@@ -13,9 +13,10 @@ use crate::data::{OrbitalTarget, ParkingOrbit};
 /// 1. Apoapsis correction (circularize or adjust)
 /// 2. Periapsis correction
 /// 3. Inclination correction (plane change)
+#[allow(dead_code)]
 pub fn correction_cost(
-    current_apoapsis: f64,  // meters (altitude)
-    current_periapsis: f64, // meters (altitude)
+    current_apoapsis: f64,    // meters (altitude)
+    current_periapsis: f64,   // meters (altitude)
     current_inclination: f64, // radians
     target: &OrbitalTarget,
     parking: &ParkingOrbit,
@@ -42,7 +43,7 @@ pub fn correction_cost(
     let dv_periapsis = (v_apo_target - v_apo).abs();
 
     // Velocity at new periapsis for plane change
-    let v_peri = (mu * (2.0 / r_peri_target - 1.0 / sma_target)).sqrt();
+    let _v_peri = (mu * (2.0 / r_peri_target - 1.0 / sma_target)).sqrt();
 
     // Plane change delta-V (at lowest velocity point = apoapsis is more efficient)
     let di = (current_inclination - target.inclination).abs();

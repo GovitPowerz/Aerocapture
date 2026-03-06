@@ -117,6 +117,7 @@ pub struct DataSuffixes {
 }
 
 /// Parsed simulation input configuration
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SimInput {
     pub mission_type: MissionType,
@@ -148,16 +149,29 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-fn parse_line<T: std::str::FromStr>(lines: &[String], idx: usize, name: &str) -> Result<T, ParseError> {
-    let line = lines.get(idx).ok_or_else(|| ParseError(format!("Missing line {} for {}", idx, name)))?;
+fn parse_line<T: std::str::FromStr>(
+    lines: &[String],
+    idx: usize,
+    name: &str,
+) -> Result<T, ParseError> {
+    let line = lines
+        .get(idx)
+        .ok_or_else(|| ParseError(format!("Missing line {} for {}", idx, name)))?;
     let token = line.split_whitespace().next().unwrap_or("");
-    token
-        .parse::<T>()
-        .map_err(|_| ParseError(format!("Cannot parse '{}' as {} for {}", token, std::any::type_name::<T>(), name)))
+    token.parse::<T>().map_err(|_| {
+        ParseError(format!(
+            "Cannot parse '{}' as {} for {}",
+            token,
+            std::any::type_name::<T>(),
+            name
+        ))
+    })
 }
 
 fn parse_string(lines: &[String], idx: usize, name: &str) -> Result<String, ParseError> {
-    let line = lines.get(idx).ok_or_else(|| ParseError(format!("Missing line {} for {}", idx, name)))?;
+    let line = lines
+        .get(idx)
+        .ok_or_else(|| ParseError(format!("Missing line {} for {}", idx, name)))?;
     let token = line.split_whitespace().next().unwrap_or("");
     Ok(token.to_string())
 }
@@ -231,8 +245,8 @@ impl SimInput {
         i += 1;
 
         let mut xmulti = [1.0f64; 4];
-        for j in 0..4 {
-            xmulti[j] = parse_line(lines, i, &format!("xmulti({})", j + 1))?;
+        for (j, item) in xmulti.iter_mut().enumerate() {
+            *item = parse_line(lines, i, &format!("xmulti({})", j + 1))?;
             i += 1;
         }
 

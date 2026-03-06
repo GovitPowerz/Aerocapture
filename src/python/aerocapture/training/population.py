@@ -5,6 +5,8 @@ Replaces MATLAB Initial_Population_Aerocap.m.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import numpy.typing as npt
 
@@ -42,7 +44,7 @@ def create_initial_population(
     config: TrainingConfig,
     base_network: npt.NDArray[np.float64],
     rng: np.random.Generator | None = None,
-    cwd: str | None = None,
+    cwd: str | Path | None = None,
     verbose: bool = True,
     seed_weights: npt.NDArray[np.float64] | None = None,
 ) -> tuple[npt.NDArray[np.int8], npt.NDArray[np.float64]]:

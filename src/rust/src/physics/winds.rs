@@ -4,6 +4,7 @@
 //! Currently returns zero wind velocity.
 
 /// Wind velocity components (m/s) in local frame.
+#[allow(dead_code)]
 pub struct WindVelocity {
     pub north: f64,
     pub east: f64,
@@ -13,6 +14,7 @@ pub struct WindVelocity {
 /// Compute wind velocity at a given position.
 ///
 /// Currently returns zero (no wind model).
+#[allow(dead_code)]
 pub fn wind_velocity(
     _altitude: f64,
     _latitude: f64,

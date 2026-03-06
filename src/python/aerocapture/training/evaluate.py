@@ -31,7 +31,8 @@ def binary_to_decimal(
     """
     n_coef, n_bit = conv_bd.shape
     bits = xbit[: n_coef * n_bit].reshape(n_coef, n_bit)
-    return np.sum(bits * conv_bd, axis=1) + p_min
+    result: npt.NDArray[np.float64] = np.sum(bits * conv_bd, axis=1) + p_min
+    return result
 
 
 def perturb_network(
@@ -119,11 +120,10 @@ def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt
 
     try:
         with open(init_file) as f:
-            result = subprocess.run(
+            subprocess.run(
                 [str(executable)],
                 stdin=f,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 cwd=str(cwd.resolve()),
                 timeout=300,
             )
@@ -221,7 +221,8 @@ def decode_direct(
 
     bit_weights = np.power(2.0, np.arange(n_bit - 1, -1, -1))
     bits = xbit[: n_base * n_bit].reshape(n_base, n_bit)
-    return np.sum(bits * bit_weights, axis=1) / (2**n_bit - 1) * p_range + config.ga.p_min
+    result: npt.NDArray[np.float64] = np.sum(bits * bit_weights, axis=1) / (2**n_bit - 1) * p_range + config.ga.p_min
+    return result
 
 
 def evaluate_chromosome(
@@ -241,10 +242,7 @@ def evaluate_chromosome(
     Returns:
         (cost, final_conditions) tuple.
     """
-    if config.ga.direct_encoding:
-        weights = decode_direct(xbit, config)
-    else:
-        weights = perturb_network(xbit, base_network, config)
+    weights = decode_direct(xbit, config) if config.ga.direct_encoding else perturb_network(xbit, base_network, config)
 
     # Write to file
     if cwd is None:

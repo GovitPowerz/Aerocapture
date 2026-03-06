@@ -41,10 +41,10 @@ impl NeuralNetParams {
             .skip(6) // 6 header lines
             .filter(|l| !l.trim().is_empty())
             .map(|l| {
-                let token = l.trim().split_whitespace().next().unwrap_or("0");
-                token.parse::<f64>().map_err(|_| {
-                    DataError(format!("Cannot parse '{}' as f64 in {}", token, path))
-                })
+                let token = l.split_whitespace().next().unwrap_or("0");
+                token
+                    .parse::<f64>()
+                    .map_err(|_| DataError(format!("Cannot parse '{}' as f64 in {}", token, path)))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -62,30 +62,30 @@ impl NeuralNetParams {
         let mut lw1 = [[0.0; N_INPUT]; N_HIDDEN];
         // Fortran reads: do i=1,n_input; do j=1,n_hidden; read n1lw1(j,i)
         for i in 0..N_INPUT {
-            for j in 0..N_HIDDEN {
-                lw1[j][i] = values[idx];
+            for row in lw1.iter_mut() {
+                row[i] = values[idx];
                 idx += 1;
             }
         }
 
         let mut bias1 = [0.0; N_HIDDEN];
-        for j in 0..N_HIDDEN {
-            bias1[j] = values[idx];
+        for item in bias1.iter_mut() {
+            *item = values[idx];
             idx += 1;
         }
 
         let mut lw4 = [[0.0; N_HIDDEN]; N_OUTPUT];
         // Fortran reads: do i=1,n_hidden; do j=1,n_output; read n1lw4(j,i)
         for i in 0..N_HIDDEN {
-            for j in 0..N_OUTPUT {
-                lw4[j][i] = values[idx];
+            for row in lw4.iter_mut() {
+                row[i] = values[idx];
                 idx += 1;
             }
         }
 
         let mut bias4 = [0.0; N_OUTPUT];
-        for j in 0..N_OUTPUT {
-            bias4[j] = values[idx];
+        for item in bias4.iter_mut() {
+            *item = values[idx];
             idx += 1;
         }
 

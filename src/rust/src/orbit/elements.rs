@@ -4,7 +4,7 @@
 
 use crate::config::Planet;
 use crate::data::OrbitalElements;
-use crate::gnc::navigation::coordinates::{to_absolute_cartesian, cross, dot, norm};
+use crate::gnc::navigation::coordinates::{cross, dot, norm, to_absolute_cartesian};
 
 /// Compute orbital elements from spherical state.
 ///
@@ -26,8 +26,12 @@ pub fn from_spherical(
 
     // Get absolute position and velocity in Cartesian
     let (posita, vitesa) = to_absolute_cartesian(
-        radius, longitude, latitude,
-        velocity, flight_path, azimuth,
+        radius,
+        longitude,
+        latitude,
+        velocity,
+        flight_path,
+        azimuth,
         planet,
     );
 
@@ -72,8 +76,8 @@ pub fn from_spherical(
     let posvit = dot(&posita, &vitesa);
     let v0 = if enrorb < 0.0 {
         // Elliptical orbit
-        let sv0 = posvit * (1.0 - excent * excent).max(0.0).sqrt()
-            / (excent * (mu * demiax).sqrt());
+        let sv0 =
+            posvit * (1.0 - excent * excent).max(0.0).sqrt() / (excent * (mu * demiax).sqrt());
         let cv0 = (1.0 - rayvec / demiax) / excent - excent;
         sv0.atan2(cv0)
     } else {

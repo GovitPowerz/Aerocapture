@@ -5,55 +5,57 @@
 //! Contains FTC predictor-corrector parameters for longitudinal
 //! and lateral guidance during capture and exit phases.
 
-use super::{parse_data_file, DataError};
+use super::{DataError, parse_data_file};
 use crate::config::MissionType;
 
 const DEG2RAD: f64 = std::f64::consts::PI / 180.0;
 
 /// Pdyn reference table entry: altitude, slope_a, slope_b
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct PdynTableEntry {
-    pub altitude: f64,  // km (stored as-is from file)
+    pub altitude: f64, // km (stored as-is from file)
     pub coeff_a: f64,
     pub coeff_b: f64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct GuidanceParams {
     // Capture phase — trajectory tracking
-    pub capture_damping: f64,        // amorft — damping ratio
-    pub capture_frequency: f64,      // pulsft — natural frequency (rad/s)
-    pub capture_pdyn_margin: f64,    // margmu(1) — Pdyn reference margin
+    pub capture_damping: f64,     // amorft — damping ratio
+    pub capture_frequency: f64,   // pulsft — natural frequency (rad/s)
+    pub capture_pdyn_margin: f64, // margmu(1) — Pdyn reference margin
 
     // Capture phase — altitude oscillation
-    pub altitude_damping: f64,       // amorth
-    pub altitude_frequency: f64,     // pulsah (rad/s, converted from deg/s)
+    pub altitude_damping: f64,   // amorth
+    pub altitude_frequency: f64, // pulsah (rad/s, converted from deg/s)
 
     // Exit phase
     pub exit_velocity_threshold: f64, // vsorti — radial velocity threshold (m/s)
-    pub exit_pdyn_margin: f64,       // margmu(2)
+    pub exit_pdyn_margin: f64,        // margmu(2)
     pub exit_altitude_threshold: f64, // altcst — constant accel altitude (m, from km)
-    pub exit_radial_vel_gain: f64,   // gaindh — gain on radial velocity error (Pa/(m/s))
+    pub exit_radial_vel_gain: f64,    // gaindh — gain on radial velocity error (Pa/(m/s))
     pub exit_apoapsis_threshold: f64, // dzalim — apoapsis comparison threshold (m)
 
     // Lateral guidance
-    pub corridor_slope: f64,         // coridx — inclination corridor slope (m/s)
-    pub corridor_intercept: f64,     // coridy — inclination corridor intercept (rad, from deg)
-    pub max_reversals: i32,          // irevrs — max number of bank reversals
+    pub corridor_slope: f64,     // coridx — inclination corridor slope (m/s)
+    pub corridor_intercept: f64, // coridy — inclination corridor intercept (rad, from deg)
+    pub max_reversals: i32,      // irevrs — max number of bank reversals
 
     // Security modes
-    pub security_capture: i32,       // iseccp — capture phase security mode
-    pub security_exit: i32,          // isecex — exit phase security mode
+    pub security_capture: i32, // iseccp — capture phase security mode
+    pub security_exit: i32,    // isecex — exit phase security mode
 
     // Density estimation
-    pub density_filter_gain: f64,    // lambda — low-pass filter gain
+    pub density_filter_gain: f64, // lambda — low-pass filter gain
 
     // Activation/inhibition thresholds
-    pub longi_activation: f64,       // pdacti — longitudinal guidance activation (J/kg or Pa)
-    pub longi_inhibition: f64,       // pdinib — longitudinal guidance inhibition
-    pub lateral_activation: f64,     // enrlat(1) — lateral guidance activation
-    pub lateral_inhibition: f64,     // enrlat(2) — lateral guidance inhibition
-    pub pdyn_min: f64,               // pdymax — min Pdyn for tracking (Pa)
+    pub longi_activation: f64, // pdacti — longitudinal guidance activation (J/kg or Pa)
+    pub longi_inhibition: f64, // pdinib — longitudinal guidance inhibition
+    pub lateral_activation: f64, // enrlat(1) — lateral guidance activation
+    pub lateral_inhibition: f64, // enrlat(2) — lateral guidance inhibition
+    pub pdyn_min: f64,         // pdymax — min Pdyn for tracking (Pa)
 
     // Pdyn = f(altitude) reference table
     pub pdyn_table: Vec<PdynTableEntry>,
@@ -67,16 +69,17 @@ pub struct GuidanceParams {
 /// Matches Fortran common blocks tabnrj, reftab (unit 113).
 /// When irefer=1, these are empty (reference trajectory is being generated).
 /// When irefer=0, these are loaded from file and used by guicap.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct ReferenceTrajectory {
     pub n_points: usize,
-    pub energy: Vec<f64>,       // nrjval — energy (J/kg)
-    pub pressure: Vec<f64>,     // refpre — dynamic pressure (Pa)
-    pub radial_vel: Vec<f64>,   // refhdt — radial velocity (m/s)
-    pub altitude_rate: Vec<f64>,// refhtt — hpp (altitude derivative)
-    pub inclination: Vec<f64>,  // refincli — inclination (rad)
-    pub time: Vec<f64>,         // refdates — time (s)
-    pub cos_bank: Vec<f64>,     // refcmu — cos(bank angle)
+    pub energy: Vec<f64>,        // nrjval — energy (J/kg)
+    pub pressure: Vec<f64>,      // refpre — dynamic pressure (Pa)
+    pub radial_vel: Vec<f64>,    // refhdt — radial velocity (m/s)
+    pub altitude_rate: Vec<f64>, // refhtt — hpp (altitude derivative)
+    pub inclination: Vec<f64>,   // refincli — inclination (rad)
+    pub time: Vec<f64>,          // refdates — time (s)
+    pub cos_bank: Vec<f64>,      // refcmu — cos(bank angle)
 }
 
 impl ReferenceTrajectory {
@@ -112,7 +115,7 @@ impl ReferenceTrajectory {
                 })
                 .collect();
             if tokens.len() >= 7 {
-                energy.push(tokens[0] * 1e6);  // MJ/kg → J/kg
+                energy.push(tokens[0] * 1e6); // MJ/kg → J/kg
                 pressure.push(tokens[1]);
                 radial_vel.push(tokens[2]);
                 altitude_rate.push(tokens[3]);
@@ -156,7 +159,7 @@ impl ReferenceTrajectory {
 
         for _ in 0..self.n_points {
             let x_prev = self.energy[k - 1]; // tablxx(k-1) in Fortran
-            let x_curr = self.energy[k];     // tablxx(k) in Fortran
+            let x_curr = self.energy[k]; // tablxx(k) in Fortran
 
             if energy_val >= x_curr && energy_val < x_prev {
                 // Found descending bracket — linear interpolation
@@ -185,11 +188,17 @@ impl ReferenceTrajectory {
 }
 
 impl GuidanceParams {
+    #[allow(dead_code)]
     pub fn load(path: &str, mission_type: MissionType) -> Result<Self, DataError> {
         Self::load_with_ref(path, mission_type, "", false)
     }
 
-    pub fn load_with_ref(path: &str, mission_type: MissionType, ref_path: &str, is_reference: bool) -> Result<Self, DataError> {
+    pub fn load_with_ref(
+        path: &str,
+        mission_type: MissionType,
+        ref_path: &str,
+        is_reference: bool,
+    ) -> Result<Self, DataError> {
         let rows = parse_data_file(path)?;
         if rows.len() < 22 {
             return Err(DataError(format!(
@@ -200,28 +209,48 @@ impl GuidanceParams {
         }
 
         let mut i = 0;
-        let capture_damping = rows[i][0]; i += 1;       // amorft
-        let capture_frequency = rows[i][0]; i += 1;     // pulsft
-        let capture_pdyn_margin = rows[i][0]; i += 1;   // margmu(1)
-        let altitude_damping = rows[i][0]; i += 1;      // amorth
-        let altitude_frequency = rows[i][0] * DEG2RAD; i += 1; // pulsah (deg/s -> rad/s)
-        let exit_velocity_threshold = rows[i][0]; i += 1; // vsorti
-        let exit_pdyn_margin = rows[i][0]; i += 1;      // margmu(2)
-        let exit_altitude_threshold = rows[i][0] * 1e3; i += 1; // altcst (km -> m)
-        let exit_radial_vel_gain = rows[i][0]; i += 1;  // gaindh
-        let exit_apoapsis_threshold = rows[i][0]; i += 1; // dzalim
-        let corridor_slope = rows[i][0]; i += 1;        // coridx
-        let corridor_intercept = rows[i][0] * DEG2RAD; i += 1; // coridy (deg -> rad)
-        let max_reversals = rows[i][0] as i32; i += 1;  // irevrs
-        let security_capture = rows[i][0] as i32; i += 1; // iseccp
-        let security_exit = rows[i][0] as i32; i += 1;  // isecex
-        let density_filter_gain = rows[i][0]; i += 1;   // lambda
+        let capture_damping = rows[i][0];
+        i += 1; // amorft
+        let capture_frequency = rows[i][0];
+        i += 1; // pulsft
+        let capture_pdyn_margin = rows[i][0];
+        i += 1; // margmu(1)
+        let altitude_damping = rows[i][0];
+        i += 1; // amorth
+        let altitude_frequency = rows[i][0] * DEG2RAD;
+        i += 1; // pulsah (deg/s -> rad/s)
+        let exit_velocity_threshold = rows[i][0];
+        i += 1; // vsorti
+        let exit_pdyn_margin = rows[i][0];
+        i += 1; // margmu(2)
+        let exit_altitude_threshold = rows[i][0] * 1e3;
+        i += 1; // altcst (km -> m)
+        let exit_radial_vel_gain = rows[i][0];
+        i += 1; // gaindh
+        let exit_apoapsis_threshold = rows[i][0];
+        i += 1; // dzalim
+        let corridor_slope = rows[i][0];
+        i += 1; // coridx
+        let corridor_intercept = rows[i][0] * DEG2RAD;
+        i += 1; // coridy (deg -> rad)
+        let max_reversals = rows[i][0] as i32;
+        i += 1; // irevrs
+        let security_capture = rows[i][0] as i32;
+        i += 1; // iseccp
+        let security_exit = rows[i][0] as i32;
+        i += 1; // isecex
+        let density_filter_gain = rows[i][0];
+        i += 1; // lambda
 
         // Activation thresholds — for aerocapture, multiply by 1e6 (MJ/kg -> J/kg)
-        let pdacti_raw = rows[i][0]; i += 1;
-        let pdinib_raw = rows[i][0]; i += 1;
-        let enrlat1_raw = rows[i][0]; i += 1;
-        let enrlat2_raw = rows[i][0]; i += 1;
+        let pdacti_raw = rows[i][0];
+        i += 1;
+        let pdinib_raw = rows[i][0];
+        i += 1;
+        let enrlat1_raw = rows[i][0];
+        i += 1;
+        let enrlat2_raw = rows[i][0];
+        i += 1;
 
         let energy_scale = if mission_type == MissionType::Aerocapture {
             1e6
@@ -234,8 +263,10 @@ impl GuidanceParams {
         let lateral_activation = enrlat1_raw * energy_scale;
         let lateral_inhibition = enrlat2_raw * energy_scale;
 
-        let pdyn_min = rows[i][0]; i += 1;              // pdymax (Pa)
-        let n_pdyn = rows[i][0] as usize; i += 1;       // number of Pdyn table points
+        let pdyn_min = rows[i][0];
+        i += 1; // pdymax (Pa)
+        let n_pdyn = rows[i][0] as usize;
+        i += 1; // number of Pdyn table points
 
         let mut pdyn_table = Vec::with_capacity(n_pdyn);
         for j in 0..n_pdyn {

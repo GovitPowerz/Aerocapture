@@ -5,6 +5,8 @@ Replaces MATLAB Migration_Aerocap.m.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import numpy.typing as npt
 
@@ -18,7 +20,7 @@ def migrate(
     generation: int,
     base_network: npt.NDArray[np.float64],
     config: TrainingConfig,
-    cwd: str | None = None,
+    cwd: str | Path | None = None,
     rng: np.random.Generator | None = None,
 ) -> tuple[list[npt.NDArray[np.int8]], list[npt.NDArray[np.float64]]]:
     """Perform ring-topology migration between subpopulations.

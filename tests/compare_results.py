@@ -86,13 +86,13 @@ def compare_files(
     max_dev_loc = ""
     passed = True
 
-    for row_idx, (test_row, ref_row) in enumerate(zip(test_data, ref_data)):
+    for row_idx, (test_row, ref_row) in enumerate(zip(test_data, ref_data, strict=False)):
         if len(test_row) != len(ref_row):
             messages.append(f"Column count mismatch at row {row_idx}: test={len(test_row)} ref={len(ref_row)}")
             passed = False
             continue
 
-        for col_idx, (tv, rv) in enumerate(zip(test_row, ref_row)):
+        for col_idx, (tv, rv) in enumerate(zip(test_row, ref_row, strict=False)):
             abs_dev = abs(tv - rv)
             rel_dev = abs_dev / max(abs(rv), 1e-300) if rv != 0.0 else abs_dev
 
