@@ -9,9 +9,10 @@ pub mod dispersions;
 pub mod guidance_params;
 pub mod incidence;
 pub mod navigation;
+pub mod neural;
 pub mod pilot;
 
-use crate::config::{MissionType, SimInput};
+use crate::config::{GuidanceType, MissionType, SimInput};
 use std::fmt;
 
 #[derive(Debug)]
@@ -157,6 +158,7 @@ pub struct SimData {
     pub success: SuccessCriteria,
     pub wind_enabled: bool,
     pub aga: Option<AgaParams>,
+    pub neural_net: Option<neural::NeuralNetParams>,
 }
 
 const G0: f64 = 9.81;
@@ -221,6 +223,13 @@ impl SimData {
             &config.data_path("succes", &config.suffixes.success),
         )?;
 
+        let neural_net = if config.guidance_type == GuidanceType::NeuralNetwork {
+            let nn_path = config.data_path("nn_param", &config.suffixes.neural);
+            Some(neural::NeuralNetParams::load(&nn_path)?)
+        } else {
+            None
+        };
+
         Ok(SimData {
             capsule,
             aero,
@@ -239,6 +248,7 @@ impl SimData {
             success,
             wind_enabled: wind,
             aga,
+            neural_net,
         })
     }
 }

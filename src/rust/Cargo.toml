@@ -5,7 +5,7 @@ edition = "2024"
 description = "Trajectory simulation for aerocapture maneuvers"
 
 [dependencies]
-nalgebra = "0.33"
+nalgebra = "0.34"
 
 [dev-dependencies]
 

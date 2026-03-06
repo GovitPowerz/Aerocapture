@@ -204,6 +204,7 @@ fn run_single(
                 planet,
                 config.mission_type,
                 config.reference_trajectory,
+                config.guidance_type,
             );
 
             // === Pilot (pilote.f) ===

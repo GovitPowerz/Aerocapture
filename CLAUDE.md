@@ -25,11 +25,16 @@ make clean && make                 # ALWAYS clean before rebuild (stale .o corru
 # Output: ../sorties/photo.*, ../sorties/final.*, fort.201-204
 
 # ── Python Analysis ──
-uv sync                            # Install dependencies
+uv sync                            # Install dependencies (Python >=3.14)
+uv sync --group dev                # Include dev tools (pytest, ruff, mypy)
 pytest tests                       # Run all tests
 pytest tests/test_foo.py::test_bar -v
-ruff check . && ruff format .      # Lint + format
-mypy --config-file=pyproject.toml .
+
+# ── Utility Scripts (from repo root) ──
+./setup_env.sh                     # Create fresh .venv + install deps
+./lint_code.sh                     # Run ruff (imports, format, lint) + mypy
+./check_all.sh                     # Rust: test + fmt --check + clippy
+./upgrade_dependencies.sh          # uv sync --upgrade
 ```
 
 ## Architecture
@@ -129,7 +134,7 @@ Configuration files selected via suffix (e.g., `.msr_aller64`):
 
 ### Python Tools (`src/python/`, `pyproject.toml`)
 
-Python analysis package (numpy, pandas, matplotlib) for:
+Python analysis package (numpy, pandas, matplotlib, deap, scipy) for:
 
 - Output file parsers (photo, final, fort.\* files with Fortran D-notation floats)
 - Visualization (corridor plots, MC ensembles, CDF of correction cost)
@@ -166,7 +171,7 @@ Photo files use `format(24(1x,d12.5))` — 24 columns of Fortran D-notation floa
 ## Conventions
 
 - **Rust**: Edition 2024, nalgebra for linear algebra, release profile with LTO
-- **Python**: Ruff (line-length 160), uv package manager, pytest, mypy strict mode
+- **Python**: Python >=3.14, Ruff (line-length 160, target py314), uv package manager, pytest, mypy strict mode. Dev tools in `[dependency-groups]` (not `[project.optional-dependencies]`). Training deps (deap, scipy) are core dependencies.
 - **Testing**: pytest for Python, Fortran golden reference files under `tests/reference_data/`
 - **Validation**: Rust vs Fortran comparison complete — 22/24 photo columns bit-identical across 725 timesteps. See `tests/compare_results.py` for the comparison framework.
 

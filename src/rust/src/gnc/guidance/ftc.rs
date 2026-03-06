@@ -2,8 +2,9 @@
 //!
 //! Matches Fortran guidag.f, guicap.f, guilon.f, guilat.f, vigite.f, guialf.f.
 
-use crate::config::{MissionType, Planet};
+use crate::config::{GuidanceType, MissionType, Planet};
 use crate::data::SimData;
+use crate::gnc::guidance::neural;
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
 use crate::gnc::navigation::estimator::NavigationOutput;
 use crate::orbit::elements;
@@ -83,6 +84,7 @@ pub fn guidance_step(
     planet: &Planet,
     mission_type: MissionType,
     is_reference: bool,
+    guidance_type: GuidanceType,
 ) -> FtcOutput {
     let pi = std::f64::consts::PI;
     let mut out = FtcOutput::default();
@@ -146,10 +148,14 @@ pub fn guidance_step(
     } else if ilongi == 0 {
         gitlon = gitref.abs();
     } else {
-        // Call guicap (capture phase guidance)
-        gitlon = guicap(
-            nav, enrjlt, altitude, state, data, planet,
-        );
+        // Longitudinal guidance dispatch (matches Fortran guilon.f)
+        gitlon = match guidance_type {
+            GuidanceType::Ftc => guicap(nav, enrjlt, altitude, state, data, planet),
+            GuidanceType::NeuralNetwork => {
+                let nn = data.neural_net.as_ref().expect("NN params not loaded");
+                neural::nn_bank_angle(nav, nn, planet, data.target_orbit.inclination)
+            }
+        };
         state.n_active += 1;
     }
 
