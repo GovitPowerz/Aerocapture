@@ -1,4 +1,4 @@
-- Add missing guidance scheme in Rust code
+- clean-up both python and rust code
 - ensure guidance training by GA is functional using Rust code
 - update input interface to use proper/modern config loading the output MUST be the same as before
 - update output interface to store output in proper archive files (parquet?). Output must be the same just in a different format
