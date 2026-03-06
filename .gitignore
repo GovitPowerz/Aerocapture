@@ -87,3 +87,8 @@ old_codebase/traces/
 
 # === Claude Code ===
 .claude/
+
+# === Miscellaneous ===
+*.json
+*.temp
+*.png
