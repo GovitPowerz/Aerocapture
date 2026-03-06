@@ -60,10 +60,12 @@ def plot_corridor_comparison(
 
     fig, axes = plt.subplots(4, 2, figsize=(14, 16))
 
-    for col, (photo_mc, final_mc, photo_nom, label) in enumerate([
-        (photo_mc_a, final_mc_a, photo_nom_a, label_a),
-        (photo_mc_b, final_mc_b, photo_nom_b, label_b),
-    ]):
+    for col, (photo_mc, final_mc, photo_nom, label) in enumerate(
+        [
+            (photo_mc_a, final_mc_a, photo_nom_a, label_a),
+            (photo_mc_b, final_mc_b, photo_nom_b, label_b),
+        ]
+    ):
         trajectories = segment_mc_trajectories(photo_mc.values)
 
         # Corridor

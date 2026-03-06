@@ -127,7 +127,7 @@ def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt
                 cwd=str(cwd.resolve()),
                 timeout=300,
             )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except subprocess.TimeoutExpired, FileNotFoundError:
         return None
 
     # Parse final conditions
@@ -174,12 +174,12 @@ def compute_cost(final_conditions: npt.NDArray[np.float64]) -> float:
     Returns:
         RMS cost value. Lower is better.
     """
-    energy = final_conditions[:, 8]      # MJ/kg
-    ecc = final_conditions[:, 10]        # dimensionless
-    sim_time = final_conditions[:, 28]   # s
-    peri_err = final_conditions[:, 30]   # km
-    apo_err = final_conditions[:, 31]    # km
-    dv_total = final_conditions[:, 42]   # m/s
+    energy = final_conditions[:, 8]  # MJ/kg
+    ecc = final_conditions[:, 10]  # dimensionless
+    sim_time = final_conditions[:, 28]  # s
+    peri_err = final_conditions[:, 30]  # km
+    apo_err = final_conditions[:, 31]  # km
+    dv_total = final_conditions[:, 42]  # m/s
 
     hyperbolic = (ecc > 1.0) | (energy > 0)
 
@@ -251,7 +251,8 @@ def evaluate_chromosome(
         cwd = config.sim.exec_dir
     nn_path = Path(cwd) / config.sim.nn_param_file
     write_nn_params(
-        weights, nn_path,
+        weights,
+        nn_path,
         config.network.n_input,
         config.network.n_hidden,
         config.network.n_output,

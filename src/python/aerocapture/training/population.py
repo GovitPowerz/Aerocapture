@@ -102,7 +102,7 @@ def create_initial_population(
         cost, _ = evaluate_chromosome(candidates[i], base_network, config, cwd=cwd)
         costs[i] = cost
         if verbose and (i + 1) % 10 == 0:
-            print(f"  Evaluated {i + 1}/{n_candidates}, best so far: {np.min(costs[:i + 1]):.4e}")
+            print(f"  Evaluated {i + 1}/{n_candidates}, best so far: {np.min(costs[: i + 1]):.4e}")
 
     # Sort by cost and keep best n_pop
     order = np.argsort(costs)
@@ -115,7 +115,11 @@ def create_initial_population(
     # Local improvement on best chromosome (skip if all costs are identical — no gradient)
     if pop_costs[0] < pop_costs[-1]:
         improved, improved_cost, gain = improve_chromosome(
-            population[0], base_network, config, mode=0, cwd=cwd,
+            population[0],
+            base_network,
+            config,
+            mode=0,
+            cwd=cwd,
         )
         if improved_cost < pop_costs[-1]:
             population[-1] = improved

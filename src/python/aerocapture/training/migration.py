@@ -68,8 +68,12 @@ def migrate(
     for k in range(n_subpop):
         best_idx = np.argmin(costs[k])
         improved, improved_cost, _ = improve_chromosome(
-            populations[k][best_idx], base_network, config,
-            mode=0, cwd=cwd, rng=rng,
+            populations[k][best_idx],
+            base_network,
+            config,
+            mode=0,
+            cwd=cwd,
+            rng=rng,
         )
         # Place improved at second-worst position
         order = np.argsort(costs[k])

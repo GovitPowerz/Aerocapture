@@ -143,7 +143,11 @@ def train(
 
         # Create initial population (seeded on first run only)
         population, costs = create_initial_population(
-            config, base_network, rng=rng, cwd=cwd, verbose=verbose,
+            config,
+            base_network,
+            rng=rng,
+            cwd=cwd,
+            verbose=verbose,
             seed_weights=seed_weights if run == 0 else None,
         )
 
@@ -165,7 +169,10 @@ def train(
                 offspring_costs = np.full(len(offspring), np.inf)
                 for i in range(len(offspring)):
                     cost, _ = evaluate_chromosome(
-                        offspring[i], base_network, config, cwd=cwd,
+                        offspring[i],
+                        base_network,
+                        config,
+                        cwd=cwd,
                     )
                     offspring_costs[i] = cost
 
@@ -185,8 +192,13 @@ def train(
 
             # Migration
             populations, all_costs = migrate(
-                populations, all_costs, gen + 1,
-                base_network, config, cwd=cwd, rng=rng,
+                populations,
+                all_costs,
+                gen + 1,
+                base_network,
+                config,
+                cwd=cwd,
+                rng=rng,
             )
 
             gen_best_costs.append(best_overall_cost)
