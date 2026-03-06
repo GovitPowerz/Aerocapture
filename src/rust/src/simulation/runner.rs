@@ -10,7 +10,7 @@ use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_abso
 use crate::gnc::navigation::estimator::{self, NavigationBiases, NavigationState};
 use crate::integration::rk4;
 use crate::integration::sequencer::SequencerState;
-use crate::orbit::elements;
+use crate::orbit::{elements, maneuver};
 use crate::physics::gravity;
 use crate::simulation::init;
 use crate::simulation::output;
@@ -47,6 +47,13 @@ struct SimState {
     max_heat_flux: f64,
     max_load_factor: f64,
     max_dyn_pressure: f64,
+    // Max-value altitudes and times (for carltf output)
+    alt_max_flux: f64,
+    alt_max_load: f64,
+    alt_max_pdyn: f64,
+    time_max_flux: f64,
+    time_max_load: f64,
+    time_max_pdyn: f64,
 }
 
 /// Termination reason
@@ -62,6 +69,16 @@ enum TermReason {
 pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
     let n_sims = if config.n_sims == 0 { 1 } else { config.n_sims };
 
+    // Open final file (carltf.f format) for Monte Carlo output
+    let final_path = format!(
+        "../sorties/final.{}",
+        config.suffixes.results.trim_start_matches('.')
+    );
+    let mut final_file = BufWriter::new(
+        File::create(&final_path)
+            .map_err(|e| SimError(format!("Cannot create {}: {}", final_path, e)))?,
+    );
+
     for sim_idx in 0..n_sims {
         let run_state = init::init_run(data, config, sim_idx, config.random_seed);
 
@@ -75,8 +92,12 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
             );
         }
 
-        run_single(config, data, &run_state, sim_idx)?;
+        run_single(config, data, &run_state, sim_idx, &mut final_file)?;
     }
+
+    final_file
+        .flush()
+        .map_err(|e| SimError(format!("Final file flush error: {}", e)))?;
 
     Ok(())
 }
@@ -87,6 +108,7 @@ fn run_single(
     data: &SimData,
     run_state: &init::RunState,
     sim_idx: i32,
+    final_writer: &mut impl Write,
 ) -> Result<(), SimError> {
     let planet = &config.planet;
     let req = planet.equatorial_radius();
@@ -118,6 +140,12 @@ fn run_single(
         max_heat_flux: 0.0,
         max_load_factor: 0.0,
         max_dyn_pressure: 0.0,
+        alt_max_flux: 0.0,
+        alt_max_load: 0.0,
+        alt_max_pdyn: 0.0,
+        time_max_flux: 0.0,
+        time_max_load: 0.0,
+        time_max_pdyn: 0.0,
     };
 
     // Override bank angle for reference trajectory
@@ -322,18 +350,119 @@ fn run_single(
         .flush()
         .map_err(|e| SimError(format!("Photo flush error: {}", e)))?;
 
-    {
-        let (alt_final, _) =
-            geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
-        eprintln!(
-            "  Final: alt={:.3} km, vel={:.3} m/s, t={:.1} s, steps={}, term={:?}",
-            alt_final / 1e3,
-            sim.state[3],
-            temsim,
-            step,
-            term,
-        );
-    }
+    // === Final conditions (carltf.f) ===
+    let (alt_final, lat_final) =
+        geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
+
+    eprintln!(
+        "  Final: alt={:.3} km, vel={:.3} m/s, t={:.1} s, steps={}, term={:?}",
+        alt_final / 1e3,
+        sim.state[3],
+        temsim,
+        step,
+        term,
+    );
+
+    // Compute final orbital elements
+    let orbit = elements::from_spherical(
+        sim.state[0],
+        sim.state[1],
+        sim.state[2],
+        sim.state[3],
+        sim.state[4],
+        sim.state[5],
+        planet,
+    );
+
+    // Compute energy using absolute velocity (matches Fortran enrtot)
+    let mu = planet.mu();
+    let (_posita, vitesa) = to_absolute_cartesian(
+        sim.state[0],
+        sim.state[1],
+        sim.state[2],
+        sim.state[3],
+        sim.state[4],
+        sim.state[5],
+        planet,
+    );
+    let vitabs = norm(&vitesa);
+    let xenerg = vitabs * vitabs / 2.0 - mu / sim.state[0];
+    let vitrad = sim.state[3] * sim.state[4].sin();
+
+    // Compute delta-V (matches Fortran ergols.f)
+    let ifinal = match term {
+        TermReason::AtmosphereExit => 3,
+        TermReason::Crash => 1,
+        _ => 2,
+    };
+    let deltav = maneuver::compute_deltav(
+        &orbit,
+        ifinal,
+        &data.target_orbit,
+        &data.parking_orbit,
+        planet,
+    );
+
+    let g0terr = 9.81_f64;
+
+    // Write final line (carltf.f format: 52 values after sim number)
+    // xsauve[1..52] maps to columns 1-52 (0-indexed in Python as cols 1-52)
+    let mut xsauve = [0.0_f64; 52];
+    xsauve[0] = alt_final / 1e3; // xsauve(2): altitude (km)
+    xsauve[1] = sim.state[1] / degrad; // xsauve(3): longitude (deg)
+    xsauve[2] = lat_final / degrad; // xsauve(4): latitude (deg)
+    xsauve[3] = sim.state[3]; // xsauve(5): velocity (m/s)
+    xsauve[4] = sim.state[4] / degrad; // xsauve(6): FPA (deg)
+    xsauve[5] = sim.state[5] / degrad; // xsauve(7): azimuth (deg)
+    xsauve[6] = vitrad; // xsauve(8): radial velocity (m/s)
+    xsauve[7] = xenerg / 1e6; // xsauve(9): energy (MJ/kg) — Python col 8
+    xsauve[8] = orbit.semi_major_axis / 1e3; // xsauve(10): SMA (km)
+    xsauve[9] = orbit.eccentricity; // xsauve(11): eccentricity — Python col 10
+    xsauve[10] = orbit.inclination / degrad; // xsauve(12): inclination (deg)
+    xsauve[11] = orbit.raan / degrad; // xsauve(13): RAAN (deg)
+    xsauve[12] = orbit.arg_periapsis / degrad; // xsauve(14): arg periapsis (deg)
+    xsauve[13] = orbit.true_anomaly / degrad; // xsauve(15): true anomaly (deg)
+    xsauve[14] = orbit.periapsis_alt / 1e3; // xsauve(16): periapsis alt (km)
+    xsauve[15] = orbit.apoapsis_alt / 1e3; // xsauve(17): apoapsis alt (km)
+    xsauve[16] = sim.max_heat_flux / 1e3; // xsauve(18): max heat flux (kW/m2)
+    xsauve[17] = sim.max_load_factor / g0terr; // xsauve(19): max load factor (g)
+    xsauve[18] = sim.max_dyn_pressure / 1e3; // xsauve(20): max dyn pressure (kPa)
+    xsauve[19] = sim.alt_max_flux / 1e3; // xsauve(21): alt at max flux (km)
+    xsauve[20] = sim.alt_max_load / 1e3; // xsauve(22): alt at max load (km)
+    xsauve[21] = sim.alt_max_pdyn / 1e3; // xsauve(23): alt at max pdyn (km)
+    xsauve[22] = sim.time_max_flux; // xsauve(24): time at max flux (s)
+    xsauve[23] = sim.time_max_load; // xsauve(25): time at max load (s)
+    xsauve[24] = sim.time_max_pdyn; // xsauve(26): time at max pdyn (s)
+    xsauve[25] = sim.bounce_alt / 1e3; // xsauve(27): bounce alt (km)
+    xsauve[26] = sim.bounce_time; // xsauve(28): bounce time (s)
+    xsauve[27] = temsim; // xsauve(29): total sim time — Python col 28
+    xsauve[28] = sim.state[6] / 1e6; // xsauve(30): integrated flux (MW/m2)
+    xsauve[29] = orbit.periapsis_alt / 1e3 - data.target_orbit.periapsis / 1e3; // xsauve(31): peri error — Python col 30
+    xsauve[30] = orbit.apoapsis_alt / 1e3 - data.target_orbit.apoapsis / 1e3; // xsauve(32): apo error — Python col 31
+    xsauve[31] = ifinal as f64; // xsauve(33): termination code
+    xsauve[32] = 0.0; // xsauve(34): ecartr(1) placeholder
+    xsauve[33] = 0.0; // xsauve(35): ecartr(2) placeholder
+    xsauve[34] = 0.0; // xsauve(36): ecartr(3) placeholder
+    xsauve[35] = 0.0; // xsauve(37): ecartr(4) placeholder
+    xsauve[36] = 0.0; // xsauve(38): finesse placeholder
+    xsauve[37] = deltav.dv1; // xsauve(39): deltav(1)
+    xsauve[38] = deltav.dv2; // xsauve(40): deltav(2)
+    xsauve[39] = deltav.dv3; // xsauve(41): deltav(3)
+    xsauve[40] = deltav.dv1.abs() + deltav.dv2.abs(); // xsauve(42): |dv1|+|dv2|
+    xsauve[41] = deltav.total; // xsauve(43): total DV — Python col 42
+    xsauve[42] = 0.0; // xsauve(44): securization % placeholder
+    xsauve[43] = 0.0; // xsauve(45): inhibition % placeholder
+    xsauve[44] = 0.0; // xsauve(46): securization/active % placeholder
+    xsauve[45] = somgit_deg; // xsauve(47): cumulative bank (deg)
+    xsauve[46] = 0.0; // xsauve(48): v_infinity
+    xsauve[47] = 0.0; // xsauve(49): true anomaly infinity (deg)
+    xsauve[48] = ftc_state.nbroll as f64; // xsauve(50): roll reversals
+    xsauve[49] = 0.0; // xsauve(51): v_inf error
+    xsauve[50] = 0.0; // xsauve(52): anomaly error
+    xsauve[51] = 0.0; // xsauve(53): isucces
+
+    output::write_final_line(final_writer, sim_idx + 1, &xsauve)
+        .map_err(|e| SimError(format!("Final write error: {}", e)))?;
 
     Ok(())
 }

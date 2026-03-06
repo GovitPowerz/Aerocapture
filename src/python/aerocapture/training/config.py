@@ -52,7 +52,7 @@ class GAConfig:
 class SimConfig:
     """Simulation configuration for cost evaluation."""
 
-    executable: str = "./aerocap_nn"
+    executable: str = "../../src/rust/target/release/aerocapture"
     init_file: str = "train_nn.in"
     nn_param_file: str = "../donnees/nn_param.temp"
     final_file: str = "../sorties/final.train_nn_temp"

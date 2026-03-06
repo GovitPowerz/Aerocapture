@@ -46,6 +46,22 @@ pub fn write_photo_line(writer: &mut impl Write, values: &[f64]) -> io::Result<(
     Ok(())
 }
 
+/// Write a final conditions line (carltf.f format).
+///
+/// Format: i5 + 52 D15.7 values — matches `format(1x,i5,52(1x,d15.7))`
+pub fn write_final_line(
+    writer: &mut impl Write,
+    sim_num: i32,
+    values: &[f64; 52],
+) -> io::Result<()> {
+    write!(writer, " {:5}", sim_num)?;
+    for val in values {
+        write!(writer, " {}", fortran_float(*val, 15, 7))?;
+    }
+    writeln!(writer)?;
+    Ok(())
+}
+
 /// Write fort.201 line (28 columns, D20.10 format).
 ///
 /// Matches Fortran result.f: write(201,1001) format(28(1x,d20.10))
