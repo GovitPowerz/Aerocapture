@@ -8,6 +8,7 @@ description = "Trajectory simulation for aerocapture maneuvers"
 nalgebra = "0.34"
 rand = "0.9"
 rand_distr = "0.5"
+rayon = "1.10"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 
