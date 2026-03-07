@@ -1,8 +1,8 @@
-- Add support for multi threading Monte Carlo simulations (one thread per trajectory)
 - Improve nn serializing / deserializing to improve training with resuming
+- update Rust NN guidance with a more modular approach (like keras)
 - update output interface to store output in proper archive files (parquet?). Output must be the same just in a different format. Maybe question the usefulness of certain output files.
 - update input interface: remove old config reading
+- remove old dispersion system (lottery)
 - update training algorithms (GA, RL, PSO, ...) and output visualisation
 - update Rust simulation based on improvements.md
-- update Rust NN guidance with a more modular approach (like keras)
 - add navigation and control neural counterparts algorithms to compare to non neural ones

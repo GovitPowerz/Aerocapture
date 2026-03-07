@@ -235,7 +235,8 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--n-gen", type=int, default=100)
     parser.add_argument("--n-pop", type=int, default=20)
-    parser.add_argument("--cwd", type=str, default="old_codebase/exec")
+    parser.add_argument("--cwd", type=str, default=None)
+    parser.add_argument("--toml", type=str, default=None, help="TOML config path (enables TOML mode, runs from repo root)")
     args = parser.parse_args()
 
     cfg = TrainingConfig()
@@ -243,5 +244,40 @@ if __name__ == "__main__":
     cfg.ga.n_pop = args.n_pop
     cfg.ga.n_runs = 1
 
-    result = train(cfg, seed=args.seed, cwd=args.cwd)
+    cwd = args.cwd
+    if args.toml:
+        cfg.sim.toml_config = args.toml
+        cfg.sim.executable = "src/rust/target/release/aerocapture"
+        cfg.sim.nn_param_file = "old_codebase/donnees/nn_param.temp"
+        cfg.sim.final_file = "old_codebase/sorties/final.train_nn_temp"
+        cfg.sim.exec_dir = "."
+        if cwd is None:
+            cwd = "."
+    else:
+        if cwd is None:
+            cwd = "old_codebase/exec"
+
+    result = train(cfg, seed=args.seed, cwd=cwd)
     print(f"\nFinal best cost: {result['best_cost']:.4e}")
+
+    # Save best weights and run final evaluation
+    if result["best_chromosome"] is not None:
+        from aerocapture.training.evaluate import decode_direct, write_nn_params, run_simulation, compute_cost
+
+        weights = decode_direct(result["best_chromosome"], cfg)
+        nn_path = Path(cwd) / cfg.sim.nn_param_file
+        write_nn_params(weights, nn_path, cfg.network.n_input, cfg.network.n_hidden, cfg.network.n_output)
+        print(f"Best weights saved to {nn_path}")
+
+        final = run_simulation(cfg, cwd=cwd)
+        if final is not None:
+            cost = compute_cost(final)
+            print(f"Final re-evaluation cost: {cost:.4e}")
+            energy = final[:, 8]
+            ecc = final[:, 10]
+            captured = (ecc < 1.0) & (energy < 0)
+            print(f"  Captured: {captured.sum()}/{len(final)}")
+            if captured.any():
+                print(f"  Apoapsis err (km):  mean={np.abs(final[captured, 31]).mean():.1f}")
+                print(f"  Periapsis err (km): mean={np.abs(final[captured, 30]).mean():.1f}")
+                print(f"  Delta-V (m/s):      mean={final[captured, 42].mean():.1f}")
