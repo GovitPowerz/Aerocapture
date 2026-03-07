@@ -1,6 +1,6 @@
 1                              natman          aerocapture (1) ou aerogravity assist (2)
 4                           natpla                nature Planete: Terre 3  Mars 4  Jupiter  5
-5                          nbsimu          nombre de simulations a jouer
+100                          nbsimu          nombre de simulations a jouer
 1                          natsim          totalite du guidage (1), capture (2) ou sortie (3) ou preprogramme (4)
 2                          natgnn          guidage ftc (1), guidage nn (2)
 0                           istats          traitement statistique uniquement (1)
@@ -28,5 +28,5 @@
 .nul                     sufnav           caracteristiques navigation
 .msr_MC1000                           suflot           caracteristiques dispersions-meconnaissances
 .msr_aller                           sufsuc           caracteristiques erreurs finales admissibles
-.train_nn_temp                   sufres             fichier de resultat
+.mc100_nn                   sufres             fichier de resultat
 1                                            confirmation des choix
