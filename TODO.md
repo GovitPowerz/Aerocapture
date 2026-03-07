@@ -1,4 +1,6 @@
 - update input interface to use proper/modern config loading the output MUST be the same as before
+- Add support for multi threading Monte Carlo simulations (one thread per trajectory)
+- Improve nn serializing / deserializing to improve training with resuming
 - update output interface to store output in proper archive files (parquet?). Output must be the same just in a different format
 - update training algorithms (GA, RL, PSO, ...) and output visualisation
 - update Rust simulation based on improvements.md
