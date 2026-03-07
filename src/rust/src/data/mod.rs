@@ -12,7 +12,7 @@ pub mod navigation;
 pub mod neural;
 pub mod pilot;
 
-use crate::config::{GuidanceType, MissionType, SimInput, TomlConfig};
+use crate::config::{GuidanceType, MissionType, SimInput, TomlConfig, TomlMonteCarlo};
 use std::fmt;
 
 #[derive(Debug)]
@@ -167,6 +167,8 @@ pub struct SimData {
     pub wind_enabled: bool,
     pub aga: Option<AgaParams>,
     pub neural_net: Option<neural::NeuralNetParams>,
+    /// Domain-based dispersion config (replaces lottery files when present)
+    pub dispersion_config: Option<dispersions::DispersionConfig>,
 }
 
 const G0: f64 = 9.81;
@@ -250,6 +252,7 @@ impl SimData {
             wind_enabled: wind,
             aga,
             neural_net,
+            dispersion_config: None,
         })
     }
 
@@ -517,6 +520,13 @@ impl SimData {
             None
         };
 
+        // Domain-based Monte Carlo config (replaces lottery files)
+        let dispersion_config = if let Some(ref mc) = toml.monte_carlo {
+            Some(build_dispersion_config(mc)?)
+        } else {
+            None
+        };
+
         Ok(SimData {
             capsule: capsule_data,
             aero,
@@ -536,8 +546,86 @@ impl SimData {
             wind_enabled: f.wind,
             aga: None,
             neural_net,
+            dispersion_config,
         })
     }
+}
+
+/// Build a DispersionConfig from TOML [monte_carlo] section.
+fn build_dispersion_config(mc: &TomlMonteCarlo) -> Result<dispersions::DispersionConfig, DataError> {
+    use dispersions::*;
+
+    let initial_state = mc.initial_state.as_ref().map(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off { return None; }
+        let mut s = InitialStateSigmas::from_level(level);
+        if level == DispersionLevel::Custom {
+            if let Some(&v) = d.custom.get("altitude") { s.altitude = v; }
+            if let Some(&v) = d.custom.get("longitude") { s.longitude = v; }
+            if let Some(&v) = d.custom.get("latitude") { s.latitude = v; }
+            if let Some(&v) = d.custom.get("velocity") { s.velocity = v; }
+            if let Some(&v) = d.custom.get("flight_path_angle") { s.flight_path = v; }
+            if let Some(&v) = d.custom.get("azimuth") { s.azimuth = v; }
+        }
+        Some(s)
+    }).flatten();
+
+    let atmosphere = mc.atmosphere.as_ref().map(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off { return None; }
+        let mut s = AtmosphereSigmas::from_level(level);
+        if level == DispersionLevel::Custom {
+            if let Some(&v) = d.custom.get("density") { s.density = v; }
+        }
+        Some(s)
+    }).flatten();
+
+    let aerodynamics = mc.aerodynamics.as_ref().map(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off { return None; }
+        let mut s = AerodynamicsSigmas::from_level(level);
+        if level == DispersionLevel::Custom {
+            if let Some(&v) = d.custom.get("drag") { s.drag = v; }
+            if let Some(&v) = d.custom.get("lift") { s.lift = v; }
+            if let Some(&v) = d.custom.get("incidence") { s.incidence = v; }
+        }
+        Some(s)
+    }).flatten();
+
+    let navigation = mc.navigation.as_ref().map(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off { return None; }
+        let mut s = NavigationSigmas::from_level(level);
+        if level == DispersionLevel::Custom {
+            if let Some(&v) = d.custom.get("altitude") { s.altitude = v; }
+            if let Some(&v) = d.custom.get("longitude") { s.longitude = v; }
+            if let Some(&v) = d.custom.get("latitude") { s.latitude = v; }
+            if let Some(&v) = d.custom.get("velocity") { s.velocity = v; }
+            if let Some(&v) = d.custom.get("flight_path_angle") { s.flight_path = v; }
+            if let Some(&v) = d.custom.get("azimuth") { s.azimuth = v; }
+            if let Some(&v) = d.custom.get("drag_accel") { s.drag_accel = v; }
+        }
+        Some(s)
+    }).flatten();
+
+    let mass = mc.mass.as_ref().map(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off { return None; }
+        let mut s = MassSigmas::from_level(level);
+        if level == DispersionLevel::Custom {
+            if let Some(&v) = d.custom.get("mass") { s.mass = v; }
+        }
+        Some(s)
+    }).flatten();
+
+    Ok(DispersionConfig {
+        seed: mc.seed,
+        initial_state,
+        atmosphere,
+        aerodynamics,
+        navigation,
+        mass,
+    })
 }
 
 /// Parse a data file, skipping comment/header lines.

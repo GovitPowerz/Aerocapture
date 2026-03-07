@@ -1,9 +1,13 @@
 //! Per-run initialization and Monte Carlo dispersion application.
 //!
-//! Matches Fortran inimsr.f.
+//! Two modes:
+//! - **Legacy**: reads pre-computed draws from lottery files (Fortran inimsr.f compat)
+//! - **Domain-based**: generates draws at runtime from seeded RNG (new system)
 
 use crate::config::SimInput;
+use crate::data::dispersions::DispersionDraw;
 use crate::data::{EntryConditions, SimData};
+use crate::gnc::navigation::estimator::NavigationBiases;
 
 /// Per-simulation-run state after applying dispersions.
 #[allow(dead_code)]
@@ -15,11 +19,12 @@ pub struct RunState {
     pub density_bias: f64,   // atmosphere density bias (fractional)
     pub mass_bias: f64,      // mass bias (fractional)
     pub incidence_bias: f64, // incidence error (radians)
+    pub nav_biases: NavigationBiases,
 }
 
 /// Raw dispersions read from the lottery file.
 ///
-/// These values are drawn from Gaussian distributions and stored in
+/// These values are pre-multiplied (sigma × random draw) and stored in
 /// the lottery file. They are directly added to the nominal conditions.
 ///
 /// Matches Fortran inimsr.f read format:
@@ -29,7 +34,7 @@ pub struct RunState {
 ///   dndrag, dalfae, dmvehi
 #[derive(Debug, Clone, Default)]
 pub struct LotteryDraw {
-    pub daltit: f64, // altitude dispersion (meters, added to radius)
+    pub daltit: f64, // altitude dispersion (meters)
     pub dlongi: f64, // longitude dispersion (radians)
     pub dlatit: f64, // latitude dispersion (radians)
     pub dvites: f64, // velocity dispersion (m/s)
@@ -38,6 +43,14 @@ pub struct LotteryDraw {
     pub ddensi: f64, // density dispersion factor
     pub dcxeng: f64, // drag coeff dispersion factor
     pub dczeng: f64, // lift coeff dispersion factor
+    // Navigation biases
+    pub dnalti: f64, // nav altitude bias (meters)
+    pub dnlati: f64, // nav latitude bias (radians)
+    pub dnlong: f64, // nav longitude bias (radians)
+    pub dnvite: f64, // nav velocity bias (m/s)
+    pub dnazim: f64, // nav azimuth bias (radians)
+    pub dnpent: f64, // nav FPA bias (radians)
+    pub dndrag: f64, // nav drag accel bias (m/s²)
     pub dalfae: f64, // incidence dispersion (radians)
     pub dmvehi: f64, // mass dispersion factor
 }
@@ -65,11 +78,8 @@ pub fn read_lottery(
 
     // Determine which line to read
     let line_idx = if is_monte_carlo {
-        // Monte Carlo: read sim_index-th line (0-based)
         sim_index as usize
     } else {
-        // Single run: skip (numsim-1) lines, read numsim-th
-        // Fortran: numsim is 1-based, so line index = numsim - 1
         (visualize_sim - 1).max(0) as usize
     };
 
@@ -78,7 +88,6 @@ pub fn read_lottery(
     }
 
     let line = lines[line_idx];
-    // Parse: normalize D-notation and split
     let tokens: Vec<f64> = line
         .split_whitespace()
         .filter_map(|t| {
@@ -103,28 +112,52 @@ pub fn read_lottery(
         ddensi: tokens[8],
         dcxeng: tokens[9],
         dczeng: tokens[10],
-        // tokens[11..17] = navigation dispersions (dnalti..dnpent, dndrag)
+        dnalti: tokens[11],
+        dnlati: tokens[12],
+        dnlong: tokens[13],
+        dnvite: tokens[14],
+        dnazim: tokens[15],
+        dnpent: tokens[16],
+        dndrag: tokens[17],
         dalfae: tokens[18],
         dmvehi: tokens[19],
     }
 }
 
-/// Initialize a simulation run.
+/// Initialize a simulation run using domain-based RNG draws.
+pub fn init_run_from_draw(sim_data: &SimData, draw: &DispersionDraw) -> RunState {
+    let mut entry = sim_data.entry;
+    entry.state.altitude += draw.altitude;
+    entry.state.longitude += draw.longitude;
+    entry.state.latitude += draw.latitude;
+    entry.state.velocity += draw.velocity;
+    entry.state.flight_path += draw.flight_path;
+    entry.state.azimuth += draw.azimuth;
+
+    RunState {
+        entry,
+        cx_bias: draw.drag_coeff,
+        cz_bias: draw.lift_coeff,
+        density_bias: draw.density,
+        mass_bias: draw.mass,
+        incidence_bias: draw.incidence,
+        nav_biases: NavigationBiases {
+            pos: [draw.nav_altitude, draw.nav_longitude, draw.nav_latitude],
+            vel: [draw.nav_velocity, draw.nav_flight_path, draw.nav_azimuth],
+            drag: draw.nav_drag_accel,
+        },
+    }
+}
+
+/// Initialize a simulation run using legacy lottery file draws.
 ///
-/// Reads lottery dispersions and applies them to entry conditions.
 /// Matches Fortran inimsr.f.
 pub fn init_run(sim_data: &SimData, config: &SimInput, sim_index: i32, _rng_seed: f64) -> RunState {
-    // Read lottery file dispersions
     let lottery_path = config.data_path("loterie", &config.suffixes.lottery);
     let is_mc = config.n_sims > 1;
     let draw = read_lottery(&lottery_path, sim_index, config.replay_sim, is_mc);
 
-    // Apply initial condition dispersions (matches inimsr.f lines 232-237)
     let mut entry = sim_data.entry;
-    // positr(1) = daltit + positz(1)  — daltit added to radius directly
-    // But entry.state.altitude is geodetic altitude, and positz(1) is radius.
-    // The Fortran adds daltit to the radius (positz(1) = radius from geodes).
-    // Since r = altitude + req approximately, adding to altitude has the same effect.
     entry.state.altitude += draw.daltit;
     entry.state.longitude += draw.dlongi;
     entry.state.latitude += draw.dlatit;
@@ -132,20 +165,17 @@ pub fn init_run(sim_data: &SimData, config: &SimInput, sim_index: i32, _rng_seed
     entry.state.flight_path += draw.dpente;
     entry.state.azimuth += draw.dazimu;
 
-    // Aero/atmo dispersions (matches inimsr.f lines 196-198)
-    // disatm = ddensi, dxdrag = dcxeng, dxlift = dczeng
-    let density_bias = draw.ddensi;
-    let cx_bias = draw.dcxeng;
-    let cz_bias = draw.dczeng;
-    let mass_bias = draw.dmvehi;
-    let incidence_bias = draw.dalfae;
-
     RunState {
         entry,
-        cx_bias,
-        cz_bias,
-        density_bias,
-        mass_bias,
-        incidence_bias,
+        cx_bias: draw.dcxeng,
+        cz_bias: draw.dczeng,
+        density_bias: draw.ddensi,
+        mass_bias: draw.dmvehi,
+        incidence_bias: draw.dalfae,
+        nav_biases: NavigationBiases {
+            pos: [draw.dnalti, draw.dnlong, draw.dnlati],
+            vel: [draw.dnvite, draw.dnpent, draw.dnazim],
+            drag: draw.dndrag,
+        },
     }
 }

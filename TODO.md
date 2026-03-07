@@ -1,7 +1,7 @@
 - improve Monte Carlo dispersions management. I feel like it would be better to have gabarit (low, medium, high) and enabled/disabled flags per domain (atmosphere, capsule, navigation, control actuators, ...). What do you think?
 - Add support for multi threading Monte Carlo simulations (one thread per trajectory)
 - Improve nn serializing / deserializing to improve training with resuming
-- update output interface to store output in proper archive files (parquet?). Output must be the same just in a different format
+- update output interface to store output in proper archive files (parquet?). Output must be the same just in a different format. Maybe question the usefulness of certain output files.
 - update input interface: remove old config reading
 - update training algorithms (GA, RL, PSO, ...) and output visualisation
 - update Rust simulation based on improvements.md

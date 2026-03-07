@@ -166,6 +166,9 @@ pub struct TomlConfig {
     pub incidence: Option<TomlIncidence>,
     pub initial_dispersions: Option<TomlInitialDispersions>,
     pub navigation_errors: Option<TomlNavErrors>,
+
+    // Domain-based Monte Carlo config (consolidated mode — replaces lottery files)
+    pub monte_carlo: Option<TomlMonteCarlo>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -524,6 +527,32 @@ pub struct TomlNavErrors {
     #[serde(default)]
     pub drag_accel: f64,        // m/s²
 }
+
+// ─── Domain-based Monte Carlo TOML structs ───
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlMonteCarlo {
+    pub seed: u64,
+    pub initial_state: Option<TomlMcDomain>,
+    pub atmosphere: Option<TomlMcDomain>,
+    pub aerodynamics: Option<TomlMcDomain>,
+    pub navigation: Option<TomlMcDomain>,
+    pub mass: Option<TomlMcDomain>,
+}
+
+/// A single dispersion domain config.
+/// `level` selects a preset ("off", "low", "medium", "high", "custom").
+/// Custom sigma overrides are only used when level = "custom".
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlMcDomain {
+    #[serde(default = "default_mc_level")]
+    pub level: String,
+    // Custom overrides — field names match the domain, optional
+    #[serde(flatten)]
+    pub custom: std::collections::HashMap<String, f64>,
+}
+
+fn default_mc_level() -> String { "medium".to_string() }
 
 #[derive(Debug)]
 pub struct ParseError(pub String);

@@ -7,7 +7,7 @@ use crate::data::SimData;
 use crate::gnc::control::pilot::{self, PilotState};
 use crate::gnc::guidance::ftc::{self, FtcState};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
-use crate::gnc::navigation::estimator::{self, NavigationBiases, NavigationState};
+use crate::gnc::navigation::estimator::{self, NavigationState};
 use crate::integration::rk4;
 use crate::integration::sequencer::SequencerState;
 use crate::orbit::{elements, maneuver};
@@ -79,8 +79,29 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
             .map_err(|e| SimError(format!("Cannot create {}: {}", final_path, e)))?,
     );
 
+    // Pre-generate dispersion draws if using domain-based config
+    let draws = data.dispersion_config.as_ref().map(|dc| {
+        let draws = dc.generate_draws(n_sims as usize);
+        eprintln!(
+            "Monte Carlo: {} draws from seed {}, domains: state={} atmo={} aero={} nav={} mass={}",
+            draws.len(), dc.seed,
+            if dc.initial_state.is_some() { "on" } else { "off" },
+            if dc.atmosphere.is_some() { "on" } else { "off" },
+            if dc.aerodynamics.is_some() { "on" } else { "off" },
+            if dc.navigation.is_some() { "on" } else { "off" },
+            if dc.mass.is_some() { "on" } else { "off" },
+        );
+        draws
+    });
+
     for sim_idx in 0..n_sims {
-        let run_state = init::init_run(data, config, sim_idx, config.random_seed);
+        let run_state = if let Some(ref d) = draws {
+            // Domain-based: use pre-generated RNG draws
+            init::init_run_from_draw(data, &d[sim_idx as usize])
+        } else {
+            // Legacy: read from lottery file
+            init::init_run(data, config, sim_idx, config.random_seed)
+        };
 
         if config.screen_output {
             eprintln!("--- Simulation {} ---", sim_idx + 1);
@@ -161,7 +182,7 @@ fn run_single(
 
     // === GNC subsystem initialization ===
     let mut nav_state = NavigationState::new();
-    let nav_biases = NavigationBiases::default(); // TODO: apply from lottery
+    let nav_biases = run_state.nav_biases;
     eprintln!(
         "  Init: entry.initial_bank={:.5}deg, gitref={:.5}deg, sim.bank_angle={:.5}deg",
         entry.initial_bank.to_degrees(),
