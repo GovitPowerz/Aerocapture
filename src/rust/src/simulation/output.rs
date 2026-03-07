@@ -89,13 +89,14 @@ pub fn write_fort202_line(writer: &mut impl Write, values: &[f64; 24]) -> io::Re
 #[allow(clippy::type_complexity)]
 pub fn create_fort_files(
     results_suffix: &str,
+    output_dir: &str,
 ) -> io::Result<(
     BufWriter<File>,
     BufWriter<File>,
     BufWriter<File>,
     BufWriter<File>,
 )> {
-    let dir = format!("../sorties/resultats{}", results_suffix);
+    let dir = format!("{}/resultats{}", output_dir, results_suffix);
     std::fs::create_dir_all(&dir).ok();
 
     let f201 = BufWriter::new(File::create("fort.201")?);

@@ -10,19 +10,40 @@ use std::io::{self, BufRead};
 use std::process;
 
 fn main() {
-    // Read input from stdin (same interface as Fortran: ./aerocap < config.in)
-    let stdin = io::stdin();
-    let lines: Vec<String> = stdin
-        .lock()
-        .lines()
-        .map(|l| l.unwrap_or_default())
-        .collect();
+    let args: Vec<String> = std::env::args().collect();
 
-    let sim_config = match config::SimInput::parse(&lines) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Error parsing input: {}", e);
-            process::exit(1);
+    let sim_config = if args.len() >= 2 {
+        // TOML config file path as CLI argument
+        let toml_path = &args[1];
+        let content = match std::fs::read_to_string(toml_path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Cannot read {}: {}", toml_path, e);
+                process::exit(1);
+            }
+        };
+        match config::SimInput::from_toml(&content) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Error parsing TOML config: {}", e);
+                process::exit(1);
+            }
+        }
+    } else {
+        // Legacy: read .in format from stdin
+        let stdin = io::stdin();
+        let lines: Vec<String> = stdin
+            .lock()
+            .lines()
+            .map(|l| l.unwrap_or_default())
+            .collect();
+
+        match config::SimInput::parse(&lines) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Error parsing input: {}", e);
+                process::exit(1);
+            }
         }
     };
 
@@ -36,11 +57,16 @@ fn main() {
     };
 
     eprintln!(
-        "Config: planet={:?}, nsims={}, reference={}, ref_bank={:.2}deg",
+        "Config: planet={:?}, nsims={}, guidance={:?}, reference={}, ref_bank={:.2}deg",
         sim_config.planet,
         sim_config.n_sims,
+        sim_config.guidance_type,
         sim_config.reference_trajectory,
         sim_config.reference_bank_angle
+    );
+    eprintln!(
+        "Data: base_dir='{}', output_dir='{}'",
+        sim_config.base_dir, sim_config.output_dir
     );
     eprintln!(
         "RefTraj: {} points, guidance suffix='{}'",

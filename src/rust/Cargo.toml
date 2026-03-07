@@ -6,6 +6,8 @@ description = "Trajectory simulation for aerocapture maneuvers"
 
 [dependencies]
 nalgebra = "0.34"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
 
 [dev-dependencies]
 

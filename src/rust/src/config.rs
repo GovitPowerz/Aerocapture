@@ -2,6 +2,7 @@
 //!
 //! Handles both the original (30-field) and neural (32-field) input formats.
 
+use serde::Deserialize;
 use std::fmt;
 
 /// Mission type
@@ -140,7 +141,127 @@ pub struct SimInput {
     pub reference_bank_angle: f64, // degrees
     pub dispersion_multipliers: [f64; 4],
     pub suffixes: DataSuffixes,
+    pub base_dir: String,
+    pub output_dir: String,
 }
+
+// ─── TOML deserialization structs ───
+
+#[derive(Debug, Deserialize)]
+pub struct TomlConfig {
+    pub mission: TomlMission,
+    pub guidance: TomlGuidance,
+    #[serde(default)]
+    pub simulation: TomlSimulation,
+    #[serde(default)]
+    pub dispersions: TomlDispersions,
+    pub data: TomlData,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TomlMission {
+    #[serde(rename = "type")]
+    pub mission_type: String,
+    pub planet: String,
+    #[serde(default = "default_phase")]
+    pub phase: String,
+}
+
+fn default_phase() -> String { "full".to_string() }
+
+#[derive(Debug, Deserialize)]
+pub struct TomlGuidance {
+    #[serde(rename = "type")]
+    pub guidance_type: String,
+    #[serde(default)]
+    pub reference_trajectory: bool,
+    #[serde(default = "default_ref_bank")]
+    pub reference_bank_angle: f64,
+}
+
+fn default_ref_bank() -> f64 { 0.0 }
+
+#[derive(Debug, Deserialize, Default)]
+pub struct TomlSimulation {
+    #[serde(default = "default_one_i32")]
+    pub n_sims: i32,
+    #[serde(default)]
+    pub random_seed: f64,
+    #[serde(default)]
+    pub screen_output: bool,
+    #[serde(default)]
+    pub stats_only: bool,
+    #[serde(default)]
+    pub create_dispersions: bool,
+    #[serde(default)]
+    pub replay_sim: i32,
+    #[serde(default = "default_true")]
+    pub save_results: bool,
+    #[serde(default)]
+    pub visualize_sim: i32,
+}
+
+fn default_one_i32() -> i32 { 1 }
+fn default_true() -> bool { true }
+
+#[derive(Debug, Deserialize)]
+pub struct TomlDispersions {
+    #[serde(default = "default_one")]
+    pub nav_aerocapture: f64,
+    #[serde(default = "default_one")]
+    pub nav_interplanetary: f64,
+    #[serde(default = "default_one")]
+    pub accelerometer: f64,
+    #[serde(default = "default_one")]
+    pub aero_model: f64,
+}
+
+fn default_one() -> f64 { 1.0 }
+
+impl Default for TomlDispersions {
+    fn default() -> Self {
+        Self {
+            nav_aerocapture: 1.0,
+            nav_interplanetary: 1.0,
+            accelerometer: 1.0,
+            aero_model: 1.0,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TomlData {
+    #[serde(default = "default_base_dir")]
+    pub base_dir: String,
+    #[serde(default = "default_output_dir")]
+    pub output_dir: String,
+    pub files: TomlDataFiles,
+}
+
+fn default_base_dir() -> String { "old_codebase/donnees".to_string() }
+fn default_output_dir() -> String { "old_codebase/sorties".to_string() }
+
+#[derive(Debug, Deserialize)]
+pub struct TomlDataFiles {
+    pub capsule: String,
+    pub entry: String,
+    pub mission: String,
+    pub guidance: String,
+    #[serde(default)]
+    pub neural_network: String,
+    pub incidence: String,
+    pub aerodynamics: String,
+    pub atmosphere: String,
+    #[serde(default = "default_nul")]
+    pub dispersions: String,
+    #[serde(default = "default_nul")]
+    pub navigation: String,
+    pub lottery: String,
+    pub success: String,
+    pub results: String,
+}
+
+fn default_nul() -> String { ".nul".to_string() }
 
 #[derive(Debug)]
 pub struct ParseError(pub String);
@@ -181,6 +302,84 @@ fn parse_string(lines: &[String], idx: usize, name: &str) -> Result<String, Pars
 }
 
 impl SimInput {
+    /// Parse a TOML configuration string into SimInput.
+    pub fn from_toml(content: &str) -> Result<Self, ParseError> {
+        let config: TomlConfig = toml::from_str(content)
+            .map_err(|e| ParseError(format!("TOML parse error: {}", e)))?;
+
+        let mission_type = match config.mission.mission_type.as_str() {
+            "aerocapture" => MissionType::Aerocapture,
+            "aero_gravity_assist" => MissionType::AeroGravityAssist,
+            other => return Err(ParseError(format!("Unknown mission type: {}", other))),
+        };
+
+        let planet = match config.mission.planet.as_str() {
+            "moon" => Planet::Moon,
+            "earth" => Planet::Earth,
+            "mars" => Planet::Mars,
+            "jupiter" => Planet::Jupiter,
+            other => return Err(ParseError(format!("Unknown planet: {}", other))),
+        };
+
+        let sim_phase = match config.mission.phase.as_str() {
+            "full" => SimPhase::Full,
+            "capture_only" => SimPhase::CaptureOnly,
+            "exit_only" => SimPhase::ExitOnly,
+            "preprogrammed" => SimPhase::Preprogrammed,
+            other => return Err(ParseError(format!("Unknown phase: {}", other))),
+        };
+
+        let guidance_type = match config.guidance.guidance_type.as_str() {
+            "ftc" => GuidanceType::Ftc,
+            "neural_network" => GuidanceType::NeuralNetwork,
+            "equilibrium_glide" => GuidanceType::EquilibriumGlide,
+            "energy_controller" => GuidanceType::EnergyController,
+            "pred_guid" => GuidanceType::PredGuid,
+            "fnpag" => GuidanceType::Fnpag,
+            other => return Err(ParseError(format!("Unknown guidance type: {}", other))),
+        };
+
+        Ok(SimInput {
+            mission_type,
+            planet,
+            n_sims: config.simulation.n_sims,
+            sim_phase,
+            guidance_type,
+            stats_only: config.simulation.stats_only,
+            create_dispersions: config.simulation.create_dispersions,
+            replay_sim: config.simulation.replay_sim,
+            save_results: config.simulation.save_results,
+            visualize_sim: config.simulation.visualize_sim,
+            screen_output: config.simulation.screen_output,
+            random_seed: config.simulation.random_seed,
+            reference_trajectory: config.guidance.reference_trajectory,
+            reference_bank_angle: config.guidance.reference_bank_angle,
+            dispersion_multipliers: [
+                config.dispersions.nav_aerocapture,
+                config.dispersions.nav_interplanetary,
+                config.dispersions.accelerometer,
+                config.dispersions.aero_model,
+            ],
+            suffixes: DataSuffixes {
+                capsule: config.data.files.capsule,
+                reentry: config.data.files.entry,
+                mission: config.data.files.mission,
+                guidance: config.data.files.guidance,
+                neural: config.data.files.neural_network,
+                incidence: config.data.files.incidence,
+                aero: config.data.files.aerodynamics,
+                atmosphere: config.data.files.atmosphere,
+                dispersions: config.data.files.dispersions,
+                navigation: config.data.files.navigation,
+                lottery: config.data.files.lottery,
+                success: config.data.files.success,
+                results: config.data.files.results,
+            },
+            base_dir: config.data.base_dir,
+            output_dir: config.data.output_dir,
+        })
+    }
+
     /// Parse input configuration from lines (stdin).
     ///
     /// Auto-detects whether this is the neural variant (32 fields with natgnn + sufgnn)
@@ -323,11 +522,18 @@ impl SimInput {
                 success: sufsuc,
                 results: sufres,
             },
+            base_dir: "../donnees".to_string(),
+            output_dir: "../sorties".to_string(),
         })
     }
 
     /// Build the data file path for a given category
     pub fn data_path(&self, category: &str, suffix: &str) -> String {
-        format!("../donnees/{}{}", category, suffix)
+        format!("{}/{}{}", self.base_dir, category, suffix)
+    }
+
+    /// Build an output file path
+    pub fn output_path(&self, filename: &str) -> String {
+        format!("{}/{}", self.output_dir, filename)
     }
 }

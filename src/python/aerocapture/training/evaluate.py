@@ -115,19 +115,28 @@ def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt
         cwd = config.sim.exec_dir
     cwd = Path(cwd)
 
-    init_file = (cwd / config.sim.init_file).resolve()
     executable = (cwd / config.sim.executable).resolve()
 
     try:
-        with open(init_file) as f:
+        if config.sim.toml_config:
+            toml_path = (cwd / config.sim.toml_config).resolve()
             subprocess.run(
-                [str(executable)],
-                stdin=f,
+                [str(executable), str(toml_path)],
                 capture_output=True,
                 cwd=str(cwd.resolve()),
                 timeout=300,
             )
-    except subprocess.TimeoutExpired, FileNotFoundError:
+        else:
+            init_file = (cwd / config.sim.init_file).resolve()
+            with open(init_file) as f:
+                subprocess.run(
+                    [str(executable)],
+                    stdin=f,
+                    capture_output=True,
+                    cwd=str(cwd.resolve()),
+                    timeout=300,
+                )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
         return None
 
     # Parse final conditions

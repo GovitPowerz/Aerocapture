@@ -70,10 +70,10 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
     let n_sims = if config.n_sims == 0 { 1 } else { config.n_sims };
 
     // Open final file (carltf.f format) for Monte Carlo output
-    let final_path = format!(
-        "../sorties/final.{}",
+    let final_path = config.output_path(&format!(
+        "final.{}",
         config.suffixes.results.trim_start_matches('.')
-    );
+    ));
     let mut final_file = BufWriter::new(
         File::create(&final_path)
             .map_err(|e| SimError(format!("Cannot create {}: {}", final_path, e)))?,
@@ -176,10 +176,10 @@ fn run_single(
     let mut sequencer = SequencerState::new();
 
     // === Open photo output file ===
-    let photo_path = format!(
-        "../sorties/photo.{}",
+    let photo_path = config.output_path(&format!(
+        "photo.{}",
         config.suffixes.results.trim_start_matches('.')
-    );
+    ));
     let mut photo_file = BufWriter::new(
         File::create(&photo_path)
             .map_err(|e| SimError(format!("Cannot create {}: {}", photo_path, e)))?,

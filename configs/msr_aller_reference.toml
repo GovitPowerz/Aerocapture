@@ -1,0 +1,32 @@
+# MSR outbound — Reference trajectory (constant bank angle 0.1°)
+
+[mission]
+type = "aerocapture"
+planet = "mars"
+
+[guidance]
+type = "ftc"
+reference_trajectory = true
+reference_bank_angle = 0.1
+
+[simulation]
+n_sims = 1
+random_seed = 0.6866
+
+[data]
+base_dir = "old_codebase/donnees"
+output_dir = "old_codebase/sorties"
+
+[data.files]
+capsule = ".msr_aller"
+entry = ".msr_aller64"
+mission = ".msr_aller"
+guidance = ".msr_aller64"
+neural_network = ".temp"
+incidence = ".msr_aller"
+aerodynamics = ".msr"
+atmosphere = ".mars_ASTRIUM"
+dispersions = ".msr_essai"
+lottery = ".msr2"
+success = ".msr_aller"
+results = ".test_ref"
