@@ -156,6 +156,16 @@ pub struct TomlConfig {
     #[serde(default)]
     pub dispersions: TomlDispersions,
     pub data: TomlData,
+
+    // Inline data sections (consolidated mode — replaces 10 external files)
+    pub vehicle: Option<TomlVehicle>,
+    pub entry: Option<TomlEntry>,
+    pub aerodynamics: Option<TomlAero>,
+    pub flight: Option<TomlFlight>,
+    pub success: Option<TomlSuccess>,
+    pub incidence: Option<TomlIncidence>,
+    pub initial_dispersions: Option<TomlInitialDispersions>,
+    pub navigation_errors: Option<TomlNavErrors>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -177,6 +187,8 @@ pub struct TomlGuidance {
     pub reference_trajectory: bool,
     #[serde(default = "default_ref_bank")]
     pub reference_bank_angle: f64,
+    /// FTC-specific parameters (consolidated mode, from guidage.* files)
+    pub ftc: Option<TomlFtcParams>,
 }
 
 fn default_ref_bank() -> f64 { 0.0 }
@@ -235,7 +247,14 @@ pub struct TomlData {
     pub base_dir: String,
     #[serde(default = "default_output_dir")]
     pub output_dir: String,
-    pub files: TomlDataFiles,
+    /// Suffix-based file references (legacy mode). None in consolidated mode.
+    pub files: Option<TomlDataFiles>,
+    // Direct file paths for external data (consolidated mode)
+    pub atmosphere: Option<String>,
+    pub reference_trajectory: Option<String>,
+    pub lottery: Option<String>,
+    pub neural_network: Option<String>,
+    pub results_suffix: Option<String>,
 }
 
 fn default_base_dir() -> String { "old_codebase/donnees".to_string() }
@@ -262,6 +281,249 @@ pub struct TomlDataFiles {
 }
 
 fn default_nul() -> String { ".nul".to_string() }
+
+// ─── Inline data TOML structs (consolidated mode) ───
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlVehicle {
+    pub mass: f64,                  // kg
+    pub reference_area: f64,        // m²
+    pub cq: f64,                    // heat flux coefficient
+    pub max_bank_rate: f64,         // deg/s
+    #[serde(default)]
+    pub periods: TomlPeriods,
+    #[serde(default)]
+    pub pilot: TomlPilot,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlPeriods {
+    #[serde(default = "default_one")]
+    pub navigation: f64,
+    #[serde(default = "default_one")]
+    pub guidance: f64,
+    #[serde(default = "default_one")]
+    pub pilot: f64,
+    #[serde(default = "default_one")]
+    pub prediction: f64,
+    #[serde(default = "default_one")]
+    pub integration: f64,
+    #[serde(default = "default_one")]
+    pub photo: f64,
+}
+
+impl Default for TomlPeriods {
+    fn default() -> Self {
+        Self {
+            navigation: 1.0, guidance: 1.0, pilot: 1.0,
+            prediction: 1.0, integration: 1.0, photo: 1.0,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlPilot {
+    #[serde(default = "default_pilot_model")]
+    pub model: String,
+    #[serde(default = "default_one")]
+    pub time_constant: f64,
+    #[serde(default = "default_pilot_damping")]
+    pub damping: f64,
+    #[serde(default = "default_pilot_freq")]
+    pub frequency: f64,
+}
+
+fn default_pilot_model() -> String { "perfect".to_string() }
+fn default_pilot_damping() -> f64 { 0.7 }
+fn default_pilot_freq() -> f64 { 0.072 }
+
+impl Default for TomlPilot {
+    fn default() -> Self {
+        Self {
+            model: "perfect".to_string(),
+            time_constant: 1.0, damping: 0.7, frequency: 0.072,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlEntry {
+    pub altitude: f64,              // km
+    #[serde(default)]
+    pub longitude: f64,             // deg
+    #[serde(default)]
+    pub latitude: f64,              // deg
+    pub velocity: f64,              // m/s
+    pub flight_path_angle: f64,     // deg
+    pub azimuth: f64,               // deg
+    #[serde(default)]
+    pub initial_time: f64,          // s
+    pub initial_bank_angle: f64,    // deg
+    pub initial_aoa: f64,           // deg
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlAeroPoint {
+    pub aoa: f64,   // deg
+    pub ca: f64,    // axial force coeff (body axis)
+    pub cn: f64,    // normal force coeff (body axis)
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlAero {
+    pub equilibrium_aoa: f64,       // deg
+    pub points: Vec<TomlAeroPoint>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlFlight {
+    #[serde(default)]
+    pub wind: bool,
+    pub constraints: TomlConstraints,
+    pub final_conditions: TomlFinalConditions,
+    pub target_orbit: TomlTargetOrbit,
+    pub parking_orbit: TomlParkingOrbit,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlConstraints {
+    pub max_heat_flux: f64,         // kW/m²
+    pub max_load_factor: f64,       // g
+    pub max_dynamic_pressure: f64,  // kPa
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlFinalConditions {
+    pub altitude: f64,              // km
+    pub longitude: f64,             // deg
+    pub latitude: f64,              // deg
+    pub velocity: f64,              // m/s
+    pub flight_path_angle: f64,     // deg
+    pub azimuth: f64,               // deg
+    pub energy: f64,                // MJ/kg
+    pub radial_velocity: f64,       // m/s
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlTargetOrbit {
+    pub apoapsis: f64,              // km
+    pub periapsis: f64,             // km
+    pub semi_major_axis: f64,       // km
+    pub eccentricity: f64,
+    pub inclination: f64,           // deg
+    pub raan: f64,                  // deg
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlParkingOrbit {
+    pub apoapsis: f64,              // km
+    pub periapsis: f64,             // km
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlSuccess {
+    pub inclination_tolerance: f64, // deg
+    pub velocity_tolerance: f64,    // m/s
+    pub apoapsis_tolerance: f64,    // km
+    pub periapsis_tolerance: f64,   // km
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlIncidence {
+    pub altitudes: Vec<f64>,        // km
+    pub angles: Vec<f64>,           // deg
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlFtcParams {
+    pub capture_damping: f64,
+    pub capture_frequency: f64,        // rad/s
+    pub capture_pdyn_margin: f64,
+    pub altitude_damping: f64,
+    pub altitude_frequency: f64,       // deg/s (converted to rad/s)
+    pub exit_velocity_threshold: f64,  // m/s
+    pub exit_pdyn_margin: f64,
+    pub exit_altitude_threshold: f64,  // km
+    pub exit_radial_vel_gain: f64,     // Pa/(m/s)
+    pub exit_apoapsis_threshold: f64,  // m
+    pub corridor_slope: f64,           // m/s
+    #[serde(default)]
+    pub corridor_intercept: f64,       // deg
+    #[serde(default = "default_five_i32")]
+    pub max_reversals: i32,
+    #[serde(default = "default_one_i32")]
+    pub security_capture: i32,
+    #[serde(default = "default_three_i32")]
+    pub security_exit: i32,
+    pub density_filter_gain: f64,
+    #[serde(default = "default_longi_act")]
+    pub longi_activation: f64,         // MJ/kg
+    #[serde(default = "default_longi_inh")]
+    pub longi_inhibition: f64,         // MJ/kg
+    pub lateral_activation: f64,       // MJ/kg
+    #[serde(default = "default_longi_act")]
+    pub lateral_inhibition: f64,       // MJ/kg
+    #[serde(default)]
+    pub pdyn_min: f64,                 // Pa
+    #[serde(default)]
+    pub pdyn_table: Vec<TomlPdynEntry>,
+}
+
+fn default_five_i32() -> i32 { 5 }
+fn default_three_i32() -> i32 { 3 }
+fn default_longi_act() -> f64 { 1000.0 }
+fn default_longi_inh() -> f64 { -1000.0 }
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlPdynEntry {
+    pub altitude: f64,
+    pub a: f64,
+    pub b: f64,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct TomlInitialDispersions {
+    #[serde(default)]
+    pub altitude: f64,          // km (1-sigma)
+    #[serde(default)]
+    pub longitude: f64,         // deg
+    #[serde(default)]
+    pub latitude: f64,          // deg
+    #[serde(default)]
+    pub velocity: f64,          // m/s
+    #[serde(default)]
+    pub flight_path_angle: f64, // deg
+    #[serde(default)]
+    pub azimuth: f64,           // deg
+    #[serde(default)]
+    pub drag_coeff: f64,        // %
+    #[serde(default)]
+    pub lift_coeff: f64,        // %
+    #[serde(default)]
+    pub density: f64,           // %
+    #[serde(default)]
+    pub incidence: f64,         // deg
+    #[serde(default)]
+    pub mass: f64,              // %
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct TomlNavErrors {
+    #[serde(default)]
+    pub altitude: f64,          // km (1-sigma)
+    #[serde(default)]
+    pub longitude: f64,         // deg
+    #[serde(default)]
+    pub latitude: f64,          // deg
+    #[serde(default)]
+    pub velocity: f64,          // m/s
+    #[serde(default)]
+    pub flight_path_angle: f64, // deg
+    #[serde(default)]
+    pub azimuth: f64,           // deg
+    #[serde(default)]
+    pub drag_accel: f64,        // m/s²
+}
 
 #[derive(Debug)]
 pub struct ParseError(pub String);
@@ -302,8 +564,9 @@ fn parse_string(lines: &[String], idx: usize, name: &str) -> Result<String, Pars
 }
 
 impl SimInput {
-    /// Parse a TOML configuration string into SimInput.
-    pub fn from_toml(content: &str) -> Result<Self, ParseError> {
+    /// Parse a TOML configuration string. Returns (SimInput, TomlConfig).
+    /// The TomlConfig is needed for inline data loading in consolidated mode.
+    pub fn from_toml(content: &str) -> Result<(Self, TomlConfig), ParseError> {
         let config: TomlConfig = toml::from_str(content)
             .map_err(|e| ParseError(format!("TOML parse error: {}", e)))?;
 
@@ -339,7 +602,37 @@ impl SimInput {
             other => return Err(ParseError(format!("Unknown guidance type: {}", other))),
         };
 
-        Ok(SimInput {
+        // Build suffixes from [data.files] if present, otherwise use placeholder empty strings
+        let suffixes = if let Some(ref files) = config.data.files {
+            DataSuffixes {
+                capsule: files.capsule.clone(),
+                reentry: files.entry.clone(),
+                mission: files.mission.clone(),
+                guidance: files.guidance.clone(),
+                neural: files.neural_network.clone(),
+                incidence: files.incidence.clone(),
+                aero: files.aerodynamics.clone(),
+                atmosphere: files.atmosphere.clone(),
+                dispersions: files.dispersions.clone(),
+                navigation: files.navigation.clone(),
+                lottery: files.lottery.clone(),
+                success: files.success.clone(),
+                results: files.results.clone(),
+            }
+        } else {
+            // Consolidated mode: atmosphere/lottery/results come from [data] directly
+            DataSuffixes {
+                capsule: String::new(), reentry: String::new(), mission: String::new(),
+                guidance: String::new(), neural: config.data.neural_network.clone().unwrap_or_default(),
+                incidence: String::new(), aero: String::new(),
+                atmosphere: String::new(), dispersions: String::new(),
+                navigation: String::new(), lottery: String::new(),
+                success: String::new(),
+                results: config.data.results_suffix.clone().unwrap_or_else(|| ".out".to_string()),
+            }
+        };
+
+        let sim_input = SimInput {
             mission_type,
             planet,
             n_sims: config.simulation.n_sims,
@@ -360,24 +653,17 @@ impl SimInput {
                 config.dispersions.accelerometer,
                 config.dispersions.aero_model,
             ],
-            suffixes: DataSuffixes {
-                capsule: config.data.files.capsule,
-                reentry: config.data.files.entry,
-                mission: config.data.files.mission,
-                guidance: config.data.files.guidance,
-                neural: config.data.files.neural_network,
-                incidence: config.data.files.incidence,
-                aero: config.data.files.aerodynamics,
-                atmosphere: config.data.files.atmosphere,
-                dispersions: config.data.files.dispersions,
-                navigation: config.data.files.navigation,
-                lottery: config.data.files.lottery,
-                success: config.data.files.success,
-                results: config.data.files.results,
-            },
-            base_dir: config.data.base_dir,
-            output_dir: config.data.output_dir,
-        })
+            suffixes,
+            base_dir: config.data.base_dir.clone(),
+            output_dir: config.data.output_dir.clone(),
+        };
+
+        Ok((sim_input, config))
+    }
+
+    /// Whether the TOML config uses consolidated inline data (has [vehicle] section)
+    pub fn is_consolidated(config: &TomlConfig) -> bool {
+        config.vehicle.is_some()
     }
 
     /// Parse input configuration from lines (stdin).

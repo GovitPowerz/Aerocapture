@@ -12,7 +12,7 @@ use std::process;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    let sim_config = if args.len() >= 2 {
+    let (sim_config, sim_data) = if args.len() >= 2 {
         // TOML config file path as CLI argument
         let toml_path = &args[1];
         let content = match std::fs::read_to_string(toml_path) {
@@ -22,13 +22,35 @@ fn main() {
                 process::exit(1);
             }
         };
-        match config::SimInput::from_toml(&content) {
+        let (sim_config, toml_config) = match config::SimInput::from_toml(&content) {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("Error parsing TOML config: {}", e);
                 process::exit(1);
             }
-        }
+        };
+
+        let sim_data = if config::SimInput::is_consolidated(&toml_config) {
+            // Consolidated mode: inline data + external files
+            match data::SimData::from_toml(&toml_config, &sim_config) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("Error loading inline data: {}", e);
+                    process::exit(1);
+                }
+            }
+        } else {
+            // Suffix mode: load all from external files
+            match data::SimData::load(&sim_config) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("Error loading data: {}", e);
+                    process::exit(1);
+                }
+            }
+        };
+
+        (sim_config, sim_data)
     } else {
         // Legacy: read .in format from stdin
         let stdin = io::stdin();
@@ -38,22 +60,23 @@ fn main() {
             .map(|l| l.unwrap_or_default())
             .collect();
 
-        match config::SimInput::parse(&lines) {
+        let sim_config = match config::SimInput::parse(&lines) {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("Error parsing input: {}", e);
                 process::exit(1);
             }
-        }
-    };
+        };
 
-    // Load data files
-    let sim_data = match data::SimData::load(&sim_config) {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("Error loading data: {}", e);
-            process::exit(1);
-        }
+        let sim_data = match data::SimData::load(&sim_config) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("Error loading data: {}", e);
+                process::exit(1);
+            }
+        };
+
+        (sim_config, sim_data)
     };
 
     eprintln!(
@@ -69,8 +92,8 @@ fn main() {
         sim_config.base_dir, sim_config.output_dir
     );
     eprintln!(
-        "RefTraj: {} points, guidance suffix='{}'",
-        sim_data.guidance.ref_trajectory.n_points, sim_config.suffixes.guidance
+        "RefTraj: {} points",
+        sim_data.guidance.ref_trajectory.n_points
     );
     if sim_data.guidance.ref_trajectory.n_points > 0 {
         let rt = &sim_data.guidance.ref_trajectory;

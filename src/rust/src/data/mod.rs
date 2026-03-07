@@ -12,7 +12,7 @@ pub mod navigation;
 pub mod neural;
 pub mod pilot;
 
-use crate::config::{GuidanceType, MissionType, SimInput};
+use crate::config::{GuidanceType, MissionType, SimInput, TomlConfig};
 use std::fmt;
 
 #[derive(Debug)]
@@ -249,6 +249,292 @@ impl SimData {
             success,
             wind_enabled: wind,
             aga,
+            neural_net,
+        })
+    }
+
+    /// Load simulation data from consolidated TOML config (inline data + external files).
+    pub fn from_toml(toml: &TomlConfig, config: &SimInput) -> Result<Self, DataError> {
+        let v = toml.vehicle.as_ref()
+            .ok_or_else(|| DataError("Missing [vehicle] section".to_string()))?;
+        let e = toml.entry.as_ref()
+            .ok_or_else(|| DataError("Missing [entry] section".to_string()))?;
+        let f = toml.flight.as_ref()
+            .ok_or_else(|| DataError("Missing [flight] section".to_string()))?;
+        let a = toml.aerodynamics.as_ref()
+            .ok_or_else(|| DataError("Missing [aerodynamics] section".to_string()))?;
+
+        // Vehicle / capsule
+        let capsule_data = capsule::Capsule {
+            mass: v.mass,
+            reference_area: v.reference_area,
+            cq: v.cq,
+            max_bank_rate: v.max_bank_rate * DEG2RAD,
+            periods: TimePeriods {
+                navigation: v.periods.navigation,
+                guidance: v.periods.guidance,
+                pilot: v.periods.pilot,
+                prediction: v.periods.prediction,
+                integration: v.periods.integration,
+                photo: v.periods.photo,
+            },
+        };
+
+        // Pilot
+        let pilot_type = match v.pilot.model.as_str() {
+            "perfect" => pilot::PilotType::Perfect,
+            "first_order" => pilot::PilotType::FirstOrder,
+            "second_order" => pilot::PilotType::SecondOrder,
+            other => return Err(DataError(format!("Unknown pilot model: {}", other))),
+        };
+        let pilot_data = pilot::PilotModel {
+            pilot_type,
+            time_constant: v.pilot.time_constant,
+            damping: v.pilot.damping,
+            frequency: v.pilot.frequency,
+        };
+
+        // Entry conditions
+        let entry = EntryConditions {
+            state: SphericalState {
+                altitude: e.altitude * 1e3,
+                longitude: e.longitude * DEG2RAD,
+                latitude: e.latitude * DEG2RAD,
+                velocity: e.velocity,
+                flight_path: e.flight_path_angle * DEG2RAD,
+                azimuth: e.azimuth * DEG2RAD,
+            },
+            initial_date: e.initial_time,
+            initial_bank: e.initial_bank_angle * DEG2RAD,
+            initial_aoa: e.initial_aoa * DEG2RAD,
+        };
+
+        // Aerodynamics (body-axis Ca/Cn → stability-axis Cx/Cz)
+        let alfaeq = a.equilibrium_aoa * DEG2RAD;
+        let n_aero = a.points.len();
+        let mut aero_incidence = Vec::with_capacity(n_aero);
+        let mut cx_vec = Vec::with_capacity(n_aero);
+        let mut cz_vec = Vec::with_capacity(n_aero);
+        for pt in &a.points {
+            let alpha = pt.aoa * DEG2RAD;
+            let cx_i = pt.ca * alpha.cos() + pt.cn * alpha.sin();
+            let cz_i = -pt.ca * alpha.sin() + pt.cn * alpha.cos();
+            aero_incidence.push(alpha);
+            cx_vec.push(cx_i);
+            cz_vec.push(cz_i);
+        }
+        let nominal_cx = aerodynamics::interpolate(&aero_incidence, &cx_vec, alfaeq);
+        let nominal_cz = aerodynamics::interpolate(&aero_incidence, &cz_vec, alfaeq);
+        let nominal_finesse = if nominal_cx.abs() > 1e-30 { nominal_cz / nominal_cx } else { 0.0 };
+        let aero = aerodynamics::AeroTables {
+            equilibrium_aoa: alfaeq,
+            n_points: n_aero,
+            incidence: aero_incidence,
+            cx: cx_vec,
+            cz: cz_vec,
+            nominal_cx,
+            nominal_cz,
+            nominal_finesse,
+            ballistic_coeff: 0.0,
+        };
+
+        // Flight / mission
+        let constraints = Constraints {
+            max_heat_flux: f.constraints.max_heat_flux * 1e3,
+            max_load_factor: f.constraints.max_load_factor * G0,
+            max_dynamic_pressure: f.constraints.max_dynamic_pressure * 1e3,
+        };
+        let final_conditions = FinalConditions {
+            altitude: f.final_conditions.altitude * 1e3,
+            longitude: f.final_conditions.longitude * DEG2RAD,
+            latitude: f.final_conditions.latitude * DEG2RAD,
+            velocity: f.final_conditions.velocity,
+            flight_path: f.final_conditions.flight_path_angle * DEG2RAD,
+            azimuth: f.final_conditions.azimuth * DEG2RAD,
+            energy: f.final_conditions.energy * 1e6,
+            radial_vel: f.final_conditions.radial_velocity,
+        };
+        let target_orbit = OrbitalTarget {
+            apoapsis: f.target_orbit.apoapsis * 1e3,
+            periapsis: f.target_orbit.periapsis * 1e3,
+            semi_major_axis: f.target_orbit.semi_major_axis * 1e3,
+            eccentricity: f.target_orbit.eccentricity,
+            inclination: f.target_orbit.inclination * DEG2RAD,
+            raan: f.target_orbit.raan * DEG2RAD,
+        };
+        let parking_orbit = ParkingOrbit {
+            apoapsis: f.parking_orbit.apoapsis * 1e3,
+            periapsis: f.parking_orbit.periapsis * 1e3,
+        };
+
+        // Success criteria
+        let success = if let Some(ref s) = toml.success {
+            SuccessCriteria {
+                inclination_tol: s.inclination_tolerance * DEG2RAD,
+                velocity_tol: s.velocity_tolerance,
+                apoapsis_tol: s.apoapsis_tolerance * 1e3,
+                periapsis_tol: s.periapsis_tolerance * 1e3,
+            }
+        } else {
+            SuccessCriteria::default()
+        };
+
+        // Incidence profile
+        let incidence_data = if let Some(ref inc) = toml.incidence {
+            let n = inc.altitudes.len().min(inc.angles.len());
+            incidence::IncidenceProfile {
+                n_points: n,
+                altitudes: inc.altitudes[..n].iter().map(|a| a * 1e3).collect(),
+                incidences: inc.angles[..n].iter().map(|a| a * DEG2RAD).collect(),
+            }
+        } else {
+            incidence::IncidenceProfile { n_points: 0, altitudes: vec![], incidences: vec![] }
+        };
+
+        // FTC guidance params
+        let guidance = if let Some(ref ftc) = toml.guidance.ftc {
+            let energy_scale = if config.mission_type == MissionType::Aerocapture { 1e6 } else { 1.0 };
+            let pdyn_table = ftc.pdyn_table.iter().map(|e| {
+                guidance_params::PdynTableEntry {
+                    altitude: e.altitude,
+                    coeff_a: e.a,
+                    coeff_b: e.b,
+                }
+            }).collect();
+
+            // Load reference trajectory from external file
+            let ref_traj = if !config.reference_trajectory {
+                if let Some(ref path) = toml.data.reference_trajectory {
+                    guidance_params::ReferenceTrajectory::load(path)?
+                } else {
+                    guidance_params::ReferenceTrajectory::default()
+                }
+            } else {
+                guidance_params::ReferenceTrajectory::default()
+            };
+
+            guidance_params::GuidanceParams {
+                capture_damping: ftc.capture_damping,
+                capture_frequency: ftc.capture_frequency,
+                capture_pdyn_margin: ftc.capture_pdyn_margin,
+                altitude_damping: ftc.altitude_damping,
+                altitude_frequency: ftc.altitude_frequency * DEG2RAD,
+                exit_velocity_threshold: ftc.exit_velocity_threshold,
+                exit_pdyn_margin: ftc.exit_pdyn_margin,
+                exit_altitude_threshold: ftc.exit_altitude_threshold * 1e3,
+                exit_radial_vel_gain: ftc.exit_radial_vel_gain,
+                exit_apoapsis_threshold: ftc.exit_apoapsis_threshold,
+                corridor_slope: ftc.corridor_slope,
+                corridor_intercept: ftc.corridor_intercept * DEG2RAD,
+                max_reversals: ftc.max_reversals,
+                security_capture: ftc.security_capture,
+                security_exit: ftc.security_exit,
+                density_filter_gain: ftc.density_filter_gain,
+                longi_activation: ftc.longi_activation * energy_scale,
+                longi_inhibition: ftc.longi_inhibition * energy_scale,
+                lateral_activation: ftc.lateral_activation * energy_scale,
+                lateral_inhibition: ftc.lateral_inhibition * energy_scale,
+                pdyn_min: ftc.pdyn_min,
+                pdyn_table,
+                ref_trajectory: ref_traj,
+            }
+        } else {
+            // No FTC params — load from file if guidance suffix available, else defaults
+            let ref_traj = if !config.reference_trajectory {
+                if let Some(ref path) = toml.data.reference_trajectory {
+                    guidance_params::ReferenceTrajectory::load(path)?
+                } else {
+                    guidance_params::ReferenceTrajectory::default()
+                }
+            } else {
+                guidance_params::ReferenceTrajectory::default()
+            };
+            guidance_params::GuidanceParams {
+                capture_damping: 0.7, capture_frequency: 0.072,
+                capture_pdyn_margin: 1.75, altitude_damping: 0.7,
+                altitude_frequency: 0.08 * DEG2RAD,
+                exit_velocity_threshold: 4400.0, exit_pdyn_margin: 1.75,
+                exit_altitude_threshold: 60e3, exit_radial_vel_gain: 10.0,
+                exit_apoapsis_threshold: 100.0, corridor_slope: 13080.458,
+                corridor_intercept: 0.0, max_reversals: 5,
+                security_capture: 1, security_exit: 3,
+                density_filter_gain: 0.8,
+                longi_activation: 1e9, longi_inhibition: -1e9,
+                lateral_activation: 1.311e6, lateral_inhibition: 1e9,
+                pdyn_min: 0.0, pdyn_table: vec![],
+                ref_trajectory: ref_traj,
+            }
+        };
+
+        // Dispersions
+        let xm = &config.dispersion_multipliers;
+        let disp = if let Some(ref d) = toml.initial_dispersions {
+            dispersions::DispersionParams {
+                altitude: xm[1] * d.altitude * 1e3,
+                longitude: xm[1] * d.longitude * DEG2RAD,
+                latitude: xm[1] * d.latitude * DEG2RAD,
+                velocity: xm[1] * d.velocity,
+                flight_path: xm[1] * d.flight_path_angle * DEG2RAD,
+                azimuth: xm[1] * d.azimuth * DEG2RAD,
+                drag_coeff: xm[3] * d.drag_coeff / 100.0,
+                lift_coeff: xm[3] * d.lift_coeff / 100.0,
+                density: d.density / 100.0,
+                incidence: xm[3] * d.incidence * DEG2RAD,
+                mass: d.mass / 100.0,
+            }
+        } else {
+            dispersions::DispersionParams::default()
+        };
+
+        // Navigation errors
+        let nav = if let Some(ref n) = toml.navigation_errors {
+            navigation::NavigationParams {
+                altitude: xm[0] * n.altitude * 1e3,
+                latitude: xm[0] * n.latitude * DEG2RAD,
+                longitude: xm[0] * n.longitude * DEG2RAD,
+                velocity: xm[0] * n.velocity,
+                flight_path: xm[0] * n.flight_path_angle * DEG2RAD,
+                azimuth: xm[0] * n.azimuth * DEG2RAD,
+                drag_accel: xm[2] * n.drag_accel,
+            }
+        } else {
+            navigation::NavigationParams::default()
+        };
+
+        // Atmosphere (always external)
+        let atm_path = toml.data.atmosphere.as_ref()
+            .ok_or_else(|| DataError("Missing data.atmosphere path".to_string()))?;
+        let atm = atmosphere::AtmosphereModel::load(atm_path)?;
+
+        // Neural network (external, optional)
+        let neural_net = if config.guidance_type == GuidanceType::NeuralNetwork {
+            if let Some(ref nn_path) = toml.data.neural_network {
+                Some(neural::NeuralNetParams::load(nn_path)?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Ok(SimData {
+            capsule: capsule_data,
+            aero,
+            atmosphere: atm,
+            entry,
+            constraints,
+            final_conditions,
+            target_orbit,
+            parking_orbit,
+            periods: capsule_data.periods,
+            guidance,
+            dispersions: disp,
+            navigation: nav,
+            incidence: incidence_data,
+            pilot: pilot_data,
+            success,
+            wind_enabled: f.wind,
+            aga: None,
             neural_net,
         })
     }
