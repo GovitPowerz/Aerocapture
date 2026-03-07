@@ -1,7 +1,11 @@
 //! Guidance algorithms.
 
+pub mod energy_controller;
+pub mod equilibrium_glide;
+pub mod fnpag;
 pub mod ftc;
 pub mod neural;
+pub mod predguid;
 pub mod reference;
 
 use crate::data::SphericalState;

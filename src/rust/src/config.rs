@@ -96,6 +96,10 @@ pub enum SimPhase {
 pub enum GuidanceType {
     Ftc,
     NeuralNetwork,
+    EquilibriumGlide,
+    EnergyController,
+    PredGuid,
+    Fnpag,
 }
 
 /// Data file suffix configuration
@@ -219,6 +223,10 @@ impl SimInput {
             match natgnn {
                 1 => GuidanceType::Ftc,
                 2 => GuidanceType::NeuralNetwork,
+                3 => GuidanceType::EquilibriumGlide,
+                4 => GuidanceType::EnergyController,
+                5 => GuidanceType::PredGuid,
+                6 => GuidanceType::Fnpag,
                 _ => return Err(ParseError(format!("Invalid natgnn: {}", natgnn))),
             }
         } else {

@@ -4,7 +4,7 @@
 
 use crate::config::{GuidanceType, MissionType, Planet};
 use crate::data::SimData;
-use crate::gnc::guidance::neural;
+use crate::gnc::guidance::{energy_controller, equilibrium_glide, fnpag, neural, predguid};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
 use crate::gnc::navigation::estimator::NavigationOutput;
 use crate::orbit::elements;
@@ -37,6 +37,11 @@ pub struct FtcState {
     // Counters
     pub n_secur: i32,  // number of securization events
     pub n_active: i32, // number of active guidance calls
+
+    // Optional states for alternative guidance algorithms
+    pub energy_ctrl: energy_controller::EnergyControllerState,
+    pub predguid: predguid::PredGuidState,
+    pub fnpag: fnpag::FnpagState,
 }
 
 impl FtcState {
@@ -57,6 +62,9 @@ impl FtcState {
             vitref: 0.0,
             n_secur: 0,
             n_active: 0,
+            energy_ctrl: energy_controller::EnergyControllerState::new(),
+            predguid: predguid::PredGuidState::new(),
+            fnpag: fnpag::FnpagState::new(initial_bank),
         }
     }
 }
@@ -167,6 +175,18 @@ pub fn guidance_step(
             GuidanceType::NeuralNetwork => {
                 let nn = data.neural_net.as_ref().expect("NN params not loaded");
                 neural::nn_bank_angle(nav, nn, planet, data.target_orbit.inclination)
+            }
+            GuidanceType::EquilibriumGlide => {
+                equilibrium_glide::equilibrium_glide_bank(nav, data, planet)
+            }
+            GuidanceType::EnergyController => {
+                energy_controller::energy_controller_bank(nav, &state.energy_ctrl, data, planet)
+            }
+            GuidanceType::PredGuid => {
+                predguid::predguid_bank(nav, &state.predguid, data, planet)
+            }
+            GuidanceType::Fnpag => {
+                fnpag::fnpag_bank(nav, &mut state.fnpag, data, planet)
             }
         };
         state.n_active += 1;
