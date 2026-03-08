@@ -84,11 +84,11 @@ impl Default for PredGuidParams {
 /// FNPAG (fully numerical predictor-corrector) tunable parameters.
 #[derive(Debug, Clone)]
 pub struct FnpagParams {
-    pub energy_tol: f64,       // convergence tolerance (J/kg)
-    pub prediction_dt: f64,    // forward prediction timestep (s)
-    pub bank_min_deg: f64,     // minimum bank angle (deg)
+    pub energy_tol: f64,        // convergence tolerance (J/kg)
+    pub prediction_dt: f64,     // forward prediction timestep (s)
+    pub bank_min_deg: f64,      // minimum bank angle (deg)
     pub bank_max_high_deg: f64, // max bank above 50 km (deg)
-    pub bank_max_low_deg: f64, // max bank below 50 km (deg)
+    pub bank_max_low_deg: f64,  // max bank below 50 km (deg)
 }
 
 impl Default for FnpagParams {

@@ -111,20 +111,36 @@ impl InitialStateSigmas {
     pub fn from_level(level: DispersionLevel) -> Self {
         match level {
             DispersionLevel::Off => Self {
-                altitude: 0.0, longitude: 0.0, latitude: 0.0,
-                velocity: 0.0, flight_path: 0.0, azimuth: 0.0,
+                altitude: 0.0,
+                longitude: 0.0,
+                latitude: 0.0,
+                velocity: 0.0,
+                flight_path: 0.0,
+                azimuth: 0.0,
             },
             DispersionLevel::Low => Self {
-                altitude: 0.0, longitude: 0.01, latitude: 0.01,
-                velocity: 0.13, flight_path: 0.043, azimuth: 0.043,
+                altitude: 0.0,
+                longitude: 0.01,
+                latitude: 0.01,
+                velocity: 0.13,
+                flight_path: 0.043,
+                azimuth: 0.043,
             },
             DispersionLevel::Medium => Self {
-                altitude: 0.0, longitude: 0.1, latitude: 0.05,
-                velocity: 1.0, flight_path: 0.1, azimuth: 0.05,
+                altitude: 0.0,
+                longitude: 0.1,
+                latitude: 0.05,
+                velocity: 1.0,
+                flight_path: 0.1,
+                azimuth: 0.05,
             },
             DispersionLevel::High => Self {
-                altitude: 0.5, longitude: 0.5, latitude: 0.1,
-                velocity: 2.0, flight_path: 0.2, azimuth: 0.1,
+                altitude: 0.5,
+                longitude: 0.5,
+                latitude: 0.1,
+                velocity: 2.0,
+                flight_path: 0.2,
+                azimuth: 0.1,
             },
             DispersionLevel::Custom => Self::from_level(DispersionLevel::Medium),
         }
@@ -160,10 +176,26 @@ pub struct AerodynamicsSigmas {
 impl AerodynamicsSigmas {
     pub fn from_level(level: DispersionLevel) -> Self {
         match level {
-            DispersionLevel::Off => Self { drag: 0.0, lift: 0.0, incidence: 0.0 },
-            DispersionLevel::Low => Self { drag: 3.0, lift: 5.0, incidence: 0.5 },
-            DispersionLevel::Medium => Self { drag: 5.0, lift: 10.0, incidence: 1.0 },
-            DispersionLevel::High => Self { drag: 10.0, lift: 15.0, incidence: 2.0 },
+            DispersionLevel::Off => Self {
+                drag: 0.0,
+                lift: 0.0,
+                incidence: 0.0,
+            },
+            DispersionLevel::Low => Self {
+                drag: 3.0,
+                lift: 5.0,
+                incidence: 0.5,
+            },
+            DispersionLevel::Medium => Self {
+                drag: 5.0,
+                lift: 10.0,
+                incidence: 1.0,
+            },
+            DispersionLevel::High => Self {
+                drag: 10.0,
+                lift: 15.0,
+                incidence: 2.0,
+            },
             DispersionLevel::Custom => Self::from_level(DispersionLevel::Medium),
         }
     }
@@ -185,20 +217,40 @@ impl NavigationSigmas {
     pub fn from_level(level: DispersionLevel) -> Self {
         match level {
             DispersionLevel::Off => Self {
-                altitude: 0.0, longitude: 0.0, latitude: 0.0,
-                velocity: 0.0, flight_path: 0.0, azimuth: 0.0, drag_accel: 0.0,
+                altitude: 0.0,
+                longitude: 0.0,
+                latitude: 0.0,
+                velocity: 0.0,
+                flight_path: 0.0,
+                azimuth: 0.0,
+                drag_accel: 0.0,
             },
             DispersionLevel::Low => Self {
-                altitude: 0.3, longitude: 0.01, latitude: 0.01,
-                velocity: 0.2, flight_path: 0.02, azimuth: 0.02, drag_accel: 0.05,
+                altitude: 0.3,
+                longitude: 0.01,
+                latitude: 0.01,
+                velocity: 0.2,
+                flight_path: 0.02,
+                azimuth: 0.02,
+                drag_accel: 0.05,
             },
             DispersionLevel::Medium => Self {
-                altitude: 0.667, longitude: 0.05, latitude: 0.05,
-                velocity: 0.4, flight_path: 0.03, azimuth: 0.03, drag_accel: 0.1,
+                altitude: 0.667,
+                longitude: 0.05,
+                latitude: 0.05,
+                velocity: 0.4,
+                flight_path: 0.03,
+                azimuth: 0.03,
+                drag_accel: 0.1,
             },
             DispersionLevel::High => Self {
-                altitude: 1.0, longitude: 0.1, latitude: 0.1,
-                velocity: 1.0, flight_path: 0.05, azimuth: 0.05, drag_accel: 0.2,
+                altitude: 1.0,
+                longitude: 0.1,
+                latitude: 0.1,
+                velocity: 1.0,
+                flight_path: 0.05,
+                azimuth: 0.05,
+                drag_accel: 0.2,
             },
             DispersionLevel::Custom => Self::from_level(DispersionLevel::Medium),
         }

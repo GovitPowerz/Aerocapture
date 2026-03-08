@@ -159,12 +159,8 @@ pub fn fnpag_bank(
     };
 
     // Check if we're in the sensible atmosphere (density > threshold)
-    let (altitude, _) = geodetic_from_spherical(
-        nav.positn[0],
-        nav.positn[1],
-        nav.positn[2],
-        planet,
-    );
+    let (altitude, _) =
+        geodetic_from_spherical(nav.positn[0], nav.positn[1], nav.positn[2], planet);
     let rho = data.atmosphere.density_at(altitude);
     if rho < 1e-10 {
         // Outside sensible atmosphere — hold current bank angle
@@ -218,7 +214,14 @@ pub fn fnpag_bank(
     let mut best_err = err_k.abs();
 
     for _iter in 0..5 {
-        let e_trial = predict_exit_energy(current, bank_trial, planet, data, exit_alt, params.prediction_dt);
+        let e_trial = predict_exit_energy(
+            current,
+            bank_trial,
+            planet,
+            data,
+            exit_alt,
+            params.prediction_dt,
+        );
         let err_trial = e_trial - target_energy;
 
         // Track best solution
@@ -250,7 +253,14 @@ pub fn fnpag_bank(
 
     // Use best result found
     state.bank_prev = best_bank;
-    let e_final = predict_exit_energy(current, best_bank, planet, data, exit_alt, params.prediction_dt);
+    let e_final = predict_exit_energy(
+        current,
+        best_bank,
+        planet,
+        data,
+        exit_alt,
+        params.prediction_dt,
+    );
     state.energy_prev = e_final - target_energy;
 
     best_bank.clamp(bank_min, bank_max)

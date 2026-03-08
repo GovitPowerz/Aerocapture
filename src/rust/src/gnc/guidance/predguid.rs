@@ -97,7 +97,11 @@ pub fn predguid_bank(
     // cos(bank) = -1 means full lift-down (max drag exposure).
     // So drag error should DECREASE cos_bank (bank toward lift-up to reduce drag).
     let params = &data.guidance.pred_guid;
-    let k_drag = if pdyn > params.pdyn_threshold { params.k_drag_high } else { params.k_drag_low };
+    let k_drag = if pdyn > params.pdyn_threshold {
+        params.k_drag_high
+    } else {
+        params.k_drag_low
+    };
     let cos_bank = cos_bank_ref - k_drag * drag_err / lift_abs;
 
     let cos_bank = cos_bank.clamp(-1.0, 1.0);

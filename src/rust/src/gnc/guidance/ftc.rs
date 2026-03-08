@@ -182,12 +182,8 @@ pub fn guidance_step(
             GuidanceType::EnergyController => {
                 energy_controller::energy_controller_bank(nav, &state.energy_ctrl, data, planet)
             }
-            GuidanceType::PredGuid => {
-                predguid::predguid_bank(nav, &state.predguid, data, planet)
-            }
-            GuidanceType::Fnpag => {
-                fnpag::fnpag_bank(nav, &mut state.fnpag, data, planet)
-            }
+            GuidanceType::PredGuid => predguid::predguid_bank(nav, &state.predguid, data, planet),
+            GuidanceType::Fnpag => fnpag::fnpag_bank(nav, &mut state.fnpag, data, planet),
         };
         state.n_active += 1;
     }

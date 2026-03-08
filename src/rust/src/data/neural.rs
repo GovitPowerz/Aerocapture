@@ -109,9 +109,10 @@ impl NeuralNetModel {
         let mut layers = Vec::with_capacity(n_layers);
         for i in 0..n_layers {
             let key = format!("layer_{}", i);
-            let lw = file.weights.get(&key).ok_or_else(|| {
-                DataError(format!("Missing {} in weights in {}", key, path))
-            })?;
+            let lw = file
+                .weights
+                .get(&key)
+                .ok_or_else(|| DataError(format!("Missing {} in weights in {}", key, path)))?;
 
             let n_out = file.architecture.layers[i + 1];
             let n_in = file.architecture.layers[i];
@@ -119,7 +120,12 @@ impl NeuralNetModel {
             if lw.w.len() != n_out || lw.b.len() != n_out {
                 return Err(DataError(format!(
                     "Layer {} size mismatch: expected {}x{}, got w={}x?, b={} in {}",
-                    i, n_out, n_in, lw.w.len(), lw.b.len(), path
+                    i,
+                    n_out,
+                    n_in,
+                    lw.w.len(),
+                    lw.b.len(),
+                    path
                 )));
             }
 
@@ -161,7 +167,9 @@ impl NeuralNetModel {
         if values.len() < expected {
             return Err(DataError(format!(
                 "NN param file too short: {} values, need {} in {}",
-                values.len(), expected, path
+                values.len(),
+                expected,
+                path
             )));
         }
 
@@ -201,8 +209,16 @@ impl NeuralNetModel {
         Ok(NeuralNetModel {
             layer_sizes: vec![N_INPUT, N_HIDDEN, N_OUTPUT],
             layers: vec![
-                Layer { w: lw1, b: bias1, activation: Activation::Tanh },
-                Layer { w: lw4, b: bias4, activation: Activation::Asinh },
+                Layer {
+                    w: lw1,
+                    b: bias1,
+                    activation: Activation::Tanh,
+                },
+                Layer {
+                    w: lw4,
+                    b: bias4,
+                    activation: Activation::Asinh,
+                },
             ],
             output_interpretation: "atan2".to_string(),
         })
@@ -259,7 +275,10 @@ impl NeuralNetModel {
 
     /// Total number of parameters (weights + biases).
     pub fn n_params(&self) -> usize {
-        self.layers.iter().map(|l| l.w.len() * l.w[0].len() + l.b.len()).sum()
+        self.layers
+            .iter()
+            .map(|l| l.w.len() * l.w[0].len() + l.b.len())
+            .sum()
     }
 
     /// Flatten all weights and biases into a single vector.

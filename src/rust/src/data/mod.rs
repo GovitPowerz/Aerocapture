@@ -258,13 +258,21 @@ impl SimData {
 
     /// Load simulation data from consolidated TOML config (inline data + external files).
     pub fn from_toml(toml: &TomlConfig, config: &SimInput) -> Result<Self, DataError> {
-        let v = toml.vehicle.as_ref()
+        let v = toml
+            .vehicle
+            .as_ref()
             .ok_or_else(|| DataError("Missing [vehicle] section".to_string()))?;
-        let e = toml.entry.as_ref()
+        let e = toml
+            .entry
+            .as_ref()
             .ok_or_else(|| DataError("Missing [entry] section".to_string()))?;
-        let f = toml.flight.as_ref()
+        let f = toml
+            .flight
+            .as_ref()
             .ok_or_else(|| DataError("Missing [flight] section".to_string()))?;
-        let a = toml.aerodynamics.as_ref()
+        let a = toml
+            .aerodynamics
+            .as_ref()
             .ok_or_else(|| DataError("Missing [aerodynamics] section".to_string()))?;
 
         // Vehicle / capsule
@@ -328,7 +336,11 @@ impl SimData {
         }
         let nominal_cx = aerodynamics::interpolate(&aero_incidence, &cx_vec, alfaeq);
         let nominal_cz = aerodynamics::interpolate(&aero_incidence, &cz_vec, alfaeq);
-        let nominal_finesse = if nominal_cx.abs() > 1e-30 { nominal_cz / nominal_cx } else { 0.0 };
+        let nominal_finesse = if nominal_cx.abs() > 1e-30 {
+            nominal_cz / nominal_cx
+        } else {
+            0.0
+        };
         let aero = aerodynamics::AeroTables {
             equilibrium_aoa: alfaeq,
             n_points: n_aero,
@@ -391,7 +403,11 @@ impl SimData {
                 incidences: inc.angles[..n].iter().map(|a| a * DEG2RAD).collect(),
             }
         } else {
-            incidence::IncidenceProfile { n_points: 0, altitudes: vec![], incidences: vec![] }
+            incidence::IncidenceProfile {
+                n_points: 0,
+                altitudes: vec![],
+                incidences: vec![],
+            }
         };
 
         // Per-scheme guidance params (with defaults if not in TOML)
@@ -443,14 +459,20 @@ impl SimData {
 
         // FTC guidance params
         let guidance = if let Some(ref ftc) = toml.guidance.ftc {
-            let energy_scale = if config.mission_type == MissionType::Aerocapture { 1e6 } else { 1.0 };
-            let pdyn_table = ftc.pdyn_table.iter().map(|e| {
-                guidance_params::PdynTableEntry {
+            let energy_scale = if config.mission_type == MissionType::Aerocapture {
+                1e6
+            } else {
+                1.0
+            };
+            let pdyn_table = ftc
+                .pdyn_table
+                .iter()
+                .map(|e| guidance_params::PdynTableEntry {
                     altitude: e.altitude,
                     coeff_a: e.a,
                     coeff_b: e.b,
-                }
-            }).collect();
+                })
+                .collect();
 
             // Load reference trajectory from external file
             let ref_traj = if !config.reference_trajectory {
@@ -504,18 +526,28 @@ impl SimData {
                 guidance_params::ReferenceTrajectory::default()
             };
             guidance_params::GuidanceParams {
-                capture_damping: 0.7, capture_frequency: 0.072,
-                capture_pdyn_margin: 1.75, altitude_damping: 0.7,
+                capture_damping: 0.7,
+                capture_frequency: 0.072,
+                capture_pdyn_margin: 1.75,
+                altitude_damping: 0.7,
                 altitude_frequency: 0.08 * DEG2RAD,
-                exit_velocity_threshold: 4400.0, exit_pdyn_margin: 1.75,
-                exit_altitude_threshold: 60e3, exit_radial_vel_gain: 10.0,
-                exit_apoapsis_threshold: 100.0, corridor_slope: 13080.458,
-                corridor_intercept: 0.0, max_reversals: 5,
-                security_capture: 1, security_exit: 3,
+                exit_velocity_threshold: 4400.0,
+                exit_pdyn_margin: 1.75,
+                exit_altitude_threshold: 60e3,
+                exit_radial_vel_gain: 10.0,
+                exit_apoapsis_threshold: 100.0,
+                corridor_slope: 13080.458,
+                corridor_intercept: 0.0,
+                max_reversals: 5,
+                security_capture: 1,
+                security_exit: 3,
                 density_filter_gain: 0.8,
-                longi_activation: 1e9, longi_inhibition: -1e9,
-                lateral_activation: 1.311e6, lateral_inhibition: 1e9,
-                pdyn_min: 0.0, pdyn_table: vec![],
+                longi_activation: 1e9,
+                longi_inhibition: -1e9,
+                lateral_activation: 1.311e6,
+                lateral_inhibition: 1e9,
+                pdyn_min: 0.0,
+                pdyn_table: vec![],
                 ref_trajectory: ref_traj,
                 eq_glide: eq_glide_params,
                 energy_ctrl: energy_ctrl_params,
@@ -560,7 +592,10 @@ impl SimData {
         };
 
         // Atmosphere (always external)
-        let atm_path = toml.data.atmosphere.as_ref()
+        let atm_path = toml
+            .data
+            .atmosphere
+            .as_ref()
             .ok_or_else(|| DataError("Missing data.atmosphere path".to_string()))?;
         let atm = atmosphere::AtmosphereModel::load(atm_path)?;
 
@@ -607,71 +642,139 @@ impl SimData {
 }
 
 /// Build a DispersionConfig from TOML [monte_carlo] section.
-fn build_dispersion_config(mc: &TomlMonteCarlo) -> Result<dispersions::DispersionConfig, DataError> {
+fn build_dispersion_config(
+    mc: &TomlMonteCarlo,
+) -> Result<dispersions::DispersionConfig, DataError> {
     use dispersions::*;
 
-    let initial_state = mc.initial_state.as_ref().map(|d| {
-        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-        if level == DispersionLevel::Off { return None; }
-        let mut s = InitialStateSigmas::from_level(level);
-        if level == DispersionLevel::Custom {
-            if let Some(&v) = d.custom.get("altitude") { s.altitude = v; }
-            if let Some(&v) = d.custom.get("longitude") { s.longitude = v; }
-            if let Some(&v) = d.custom.get("latitude") { s.latitude = v; }
-            if let Some(&v) = d.custom.get("velocity") { s.velocity = v; }
-            if let Some(&v) = d.custom.get("flight_path_angle") { s.flight_path = v; }
-            if let Some(&v) = d.custom.get("azimuth") { s.azimuth = v; }
-        }
-        Some(s)
-    }).flatten();
+    let initial_state = mc
+        .initial_state
+        .as_ref()
+        .map(|d| {
+            let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+            if level == DispersionLevel::Off {
+                return None;
+            }
+            let mut s = InitialStateSigmas::from_level(level);
+            if level == DispersionLevel::Custom {
+                if let Some(&v) = d.custom.get("altitude") {
+                    s.altitude = v;
+                }
+                if let Some(&v) = d.custom.get("longitude") {
+                    s.longitude = v;
+                }
+                if let Some(&v) = d.custom.get("latitude") {
+                    s.latitude = v;
+                }
+                if let Some(&v) = d.custom.get("velocity") {
+                    s.velocity = v;
+                }
+                if let Some(&v) = d.custom.get("flight_path_angle") {
+                    s.flight_path = v;
+                }
+                if let Some(&v) = d.custom.get("azimuth") {
+                    s.azimuth = v;
+                }
+            }
+            Some(s)
+        })
+        .flatten();
 
-    let atmosphere = mc.atmosphere.as_ref().map(|d| {
-        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-        if level == DispersionLevel::Off { return None; }
-        let mut s = AtmosphereSigmas::from_level(level);
-        if level == DispersionLevel::Custom {
-            if let Some(&v) = d.custom.get("density") { s.density = v; }
-        }
-        Some(s)
-    }).flatten();
+    let atmosphere = mc
+        .atmosphere
+        .as_ref()
+        .map(|d| {
+            let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+            if level == DispersionLevel::Off {
+                return None;
+            }
+            let mut s = AtmosphereSigmas::from_level(level);
+            if level == DispersionLevel::Custom {
+                if let Some(&v) = d.custom.get("density") {
+                    s.density = v;
+                }
+            }
+            Some(s)
+        })
+        .flatten();
 
-    let aerodynamics = mc.aerodynamics.as_ref().map(|d| {
-        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-        if level == DispersionLevel::Off { return None; }
-        let mut s = AerodynamicsSigmas::from_level(level);
-        if level == DispersionLevel::Custom {
-            if let Some(&v) = d.custom.get("drag") { s.drag = v; }
-            if let Some(&v) = d.custom.get("lift") { s.lift = v; }
-            if let Some(&v) = d.custom.get("incidence") { s.incidence = v; }
-        }
-        Some(s)
-    }).flatten();
+    let aerodynamics = mc
+        .aerodynamics
+        .as_ref()
+        .map(|d| {
+            let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+            if level == DispersionLevel::Off {
+                return None;
+            }
+            let mut s = AerodynamicsSigmas::from_level(level);
+            if level == DispersionLevel::Custom {
+                if let Some(&v) = d.custom.get("drag") {
+                    s.drag = v;
+                }
+                if let Some(&v) = d.custom.get("lift") {
+                    s.lift = v;
+                }
+                if let Some(&v) = d.custom.get("incidence") {
+                    s.incidence = v;
+                }
+            }
+            Some(s)
+        })
+        .flatten();
 
-    let navigation = mc.navigation.as_ref().map(|d| {
-        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-        if level == DispersionLevel::Off { return None; }
-        let mut s = NavigationSigmas::from_level(level);
-        if level == DispersionLevel::Custom {
-            if let Some(&v) = d.custom.get("altitude") { s.altitude = v; }
-            if let Some(&v) = d.custom.get("longitude") { s.longitude = v; }
-            if let Some(&v) = d.custom.get("latitude") { s.latitude = v; }
-            if let Some(&v) = d.custom.get("velocity") { s.velocity = v; }
-            if let Some(&v) = d.custom.get("flight_path_angle") { s.flight_path = v; }
-            if let Some(&v) = d.custom.get("azimuth") { s.azimuth = v; }
-            if let Some(&v) = d.custom.get("drag_accel") { s.drag_accel = v; }
-        }
-        Some(s)
-    }).flatten();
+    let navigation = mc
+        .navigation
+        .as_ref()
+        .map(|d| {
+            let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+            if level == DispersionLevel::Off {
+                return None;
+            }
+            let mut s = NavigationSigmas::from_level(level);
+            if level == DispersionLevel::Custom {
+                if let Some(&v) = d.custom.get("altitude") {
+                    s.altitude = v;
+                }
+                if let Some(&v) = d.custom.get("longitude") {
+                    s.longitude = v;
+                }
+                if let Some(&v) = d.custom.get("latitude") {
+                    s.latitude = v;
+                }
+                if let Some(&v) = d.custom.get("velocity") {
+                    s.velocity = v;
+                }
+                if let Some(&v) = d.custom.get("flight_path_angle") {
+                    s.flight_path = v;
+                }
+                if let Some(&v) = d.custom.get("azimuth") {
+                    s.azimuth = v;
+                }
+                if let Some(&v) = d.custom.get("drag_accel") {
+                    s.drag_accel = v;
+                }
+            }
+            Some(s)
+        })
+        .flatten();
 
-    let mass = mc.mass.as_ref().map(|d| {
-        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-        if level == DispersionLevel::Off { return None; }
-        let mut s = MassSigmas::from_level(level);
-        if level == DispersionLevel::Custom {
-            if let Some(&v) = d.custom.get("mass") { s.mass = v; }
-        }
-        Some(s)
-    }).flatten();
+    let mass = mc
+        .mass
+        .as_ref()
+        .map(|d| {
+            let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+            if level == DispersionLevel::Off {
+                return None;
+            }
+            let mut s = MassSigmas::from_level(level);
+            if level == DispersionLevel::Custom {
+                if let Some(&v) = d.custom.get("mass") {
+                    s.mass = v;
+                }
+            }
+            Some(s)
+        })
+        .flatten();
 
     Ok(DispersionConfig {
         seed: mc.seed,

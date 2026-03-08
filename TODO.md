@@ -1,11 +1,15 @@
-- update input interface: remove old config reading from Rust simulator
-- remove old dispersion system (lottery) from Rust simulator
-- remove old codebase (but keep all data such as missions in proper new config files, we can discuss on what is worth keeping or not)
+- update input interface: remove old config reading from Rust simulator but we should implement a lot of tests unitary and otherwise to be sure that we don't break things in the future developments or if we do we can explain why the tests need changing.
+- remove old dispersion system (lottery) from Rust simulator but we should implement a lot of tests unitary and otherwise to be sure that we don't break things in the future developments or if we do we can explain why the tests need changing.
+- remove old codebase (but keep all data such as missions in proper new config files, we can discuss on what is worth keeping or not) but we should implement a lot of tests unitary and otherwise to be sure that we don't break things in the future developments or if we do we can explain why the tests need changing.
 - remove rust and python code for leagcy input output formats but we should implement a lot of tests unitary and otherwise to be sure that we don't break things in the future developments or if we do we can explain why the tests need changing.
-- clean-up Rust code warnings
+- clean-up Rust code warnings and rename every variable properly (no french or badly named variable, and no need of only 6 letters names as in Fortran)
+- describe testing in details (actual and what is missing)
+- analyse the code structure both in Rust and in python and suggest imporvements. Same for the data and tests (coverage and test code (is it good or not)).
+
+- update Improvements.md based on all we already did and what could be nice additions but were not already in there.
+- update Rust simulation based on improvements.md
 - is the roll reversal startegy used for nn guidance. If yes, I'd like to try letting the nn deal with it also. We should discuss this
 - work on cost function (energy, correction cost,...), discuss this
 - update training algorithms (GA, RL, PSO, ...) and output visualisation
 - what about lstm? transformer?
-- update Rust simulation based on improvements.md
 - add navigation and control neural counterparts algorithms to compare to non neural ones
