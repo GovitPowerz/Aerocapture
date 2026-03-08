@@ -43,14 +43,27 @@ def run_scheme(
     with open(base_toml, "rb") as f:
         toml_data = tomllib.load(f)
 
-    # Override n_sims
+    # Override n_sims and results suffix
+    results_suffix = f".compare_{scheme}"
     toml_data.setdefault("simulation", {})["n_sims"] = n_sims
+    toml_data.setdefault("data", {})["results_suffix"] = results_suffix
 
     # Set guidance type
     toml_data.setdefault("guidance", {})["type"] = scheme
 
-    # Remove neural_network reference if not NN
-    if scheme != "neural_network":
+    # Handle NN: ensure neural_network data path is set
+    if scheme == "neural_network":
+        if "neural_network" not in toml_data.get("data", {}):
+            # Use best_model.json if available, otherwise default
+            nn_path = params_dir / "neural_network" / "best_model.json" if params_dir else None
+            if nn_path and nn_path.exists():
+                toml_data["data"]["neural_network"] = str(nn_path)
+                print(f"  Using optimized NN from {nn_path}")
+            else:
+                default_nn = "old_codebase/donnees/nn_model.json"
+                toml_data["data"]["neural_network"] = default_nn
+                print(f"  Using default NN weights from {default_nn}")
+    else:
         toml_data.get("data", {}).pop("neural_network", None)
 
     # Load optimized params if available
@@ -62,25 +75,27 @@ def run_scheme(
             from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
 
             section = GUIDANCE_TOML_SECTIONS[scheme]
-            toml_data["guidance"][section] = params
+            # Merge into existing section (FTC has many required fields beyond optimized ones)
+            existing = toml_data.get("guidance", {}).get(section, {})
+            if existing:
+                existing.update(params)
+                toml_data["guidance"][section] = existing
+            else:
+                toml_data["guidance"][section] = params
             print(f"  Using optimized params from {params_file}")
         else:
             print(f"  Using default params (no {params_file})")
+
+    # Delete stale output file to avoid reading old results
+    output_dir = toml_data.get("data", {}).get("output_dir", "old_codebase/sorties")
+    stale_file = cwd / output_dir / f"final{results_suffix}"
+    stale_file.unlink(missing_ok=True)
 
     # Write temp TOML
     from aerocapture.training.evaluate import _write_toml
 
     temp_toml = cwd / f"_compare_{scheme}.toml"
     _write_toml(toml_data, temp_toml)
-
-    # Set results suffix per scheme to avoid file collisions
-    results_suffix = f".compare_{scheme}"
-    # Patch the suffix in the temp TOML
-    with open(temp_toml) as f:
-        content = f.read()
-    content = content.replace('.train_nn_temp', results_suffix)
-    with open(temp_toml, "w") as f:
-        f.write(content)
 
     # Run simulator
     exe = (cwd / executable).resolve()
