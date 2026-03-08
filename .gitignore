@@ -92,3 +92,4 @@ old_codebase/traces/
 *.json
 *.temp
 *.png
+save_net/

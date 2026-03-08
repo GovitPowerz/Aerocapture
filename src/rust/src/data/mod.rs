@@ -166,7 +166,7 @@ pub struct SimData {
     pub success: SuccessCriteria,
     pub wind_enabled: bool,
     pub aga: Option<AgaParams>,
-    pub neural_net: Option<neural::NeuralNetParams>,
+    pub neural_net: Option<neural::NeuralNetModel>,
     /// Domain-based dispersion config (replaces lottery files when present)
     pub dispersion_config: Option<dispersions::DispersionConfig>,
 }
@@ -228,7 +228,7 @@ impl SimData {
 
         let neural_net = if config.guidance_type == GuidanceType::NeuralNetwork {
             let nn_path = config.data_path("nn_param", &config.suffixes.neural);
-            Some(neural::NeuralNetParams::load(&nn_path)?)
+            Some(neural::NeuralNetModel::load(&nn_path)?)
         } else {
             None
         };
@@ -512,7 +512,7 @@ impl SimData {
         // Neural network (external, optional)
         let neural_net = if config.guidance_type == GuidanceType::NeuralNetwork {
             if let Some(ref nn_path) = toml.data.neural_network {
-                Some(neural::NeuralNetParams::load(nn_path)?)
+                Some(neural::NeuralNetModel::load(nn_path)?)
             } else {
                 None
             }

@@ -5,13 +5,14 @@ Replaces MATLAB ComputeCost_Aerocap.m.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
 
-from aerocapture.training.config import TrainingConfig
+from aerocapture.training.config import NetworkConfig, TrainingConfig
 
 
 def binary_to_decimal(
@@ -99,6 +100,46 @@ def write_nn_params(
         f.write(f"           {n_output}   noutput\n")
         for w in weights:
             f.write(f"       {w: .30f}\n")
+
+
+def write_nn_json(
+    weights: npt.NDArray[np.float64],
+    network: NetworkConfig,
+    filepath: str | Path,
+) -> None:
+    """Write neural network weights in JSON format readable by Rust.
+
+    Partitions the flat weight vector into layers according to network.layer_sizes.
+    """
+    filepath = Path(filepath)
+    layer_weights: dict[str, dict] = {}
+    idx = 0
+
+    for i in range(len(network.layer_sizes) - 1):
+        n_in = network.layer_sizes[i]
+        n_out = network.layer_sizes[i + 1]
+
+        w = []
+        for _ in range(n_out):
+            w.append(weights[idx : idx + n_in].tolist())
+            idx += n_in
+        b = weights[idx : idx + n_out].tolist()
+        idx += n_out
+
+        layer_weights[f"layer_{i}"] = {"w": w, "b": b}
+
+    data = {
+        "format_version": 1,
+        "architecture": {
+            "layers": network.layer_sizes,
+            "activations": network.activations,
+        },
+        "weights": layer_weights,
+        "output_interpretation": "atan2",
+    }
+
+    with open(filepath, "w") as f:
+        json.dump(data, f)
 
 
 def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt.NDArray[np.float64] | None:
@@ -257,13 +298,7 @@ def evaluate_chromosome(
     if cwd is None:
         cwd = config.sim.exec_dir
     nn_path = Path(cwd) / config.sim.nn_param_file
-    write_nn_params(
-        weights,
-        nn_path,
-        config.network.n_input,
-        config.network.n_hidden,
-        config.network.n_output,
-    )
+    write_nn_json(weights, config.network, nn_path)
 
     # Run simulation
     final = run_simulation(config, cwd=cwd)
