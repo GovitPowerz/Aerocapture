@@ -82,6 +82,9 @@ pub fn navigate(
     run_cx_bias: f64,
     _run_cz_bias: f64,
     run_mass_bias: f64,
+    run_incidence_bias: f64,
+    run_ref_area_bias: f64,
+    run_filter_gain_bias: f64,
 ) -> NavigationOutput {
     let mut out = NavigationOutput {
         indext: 0,
@@ -105,10 +108,11 @@ pub fn navigate(
     let (alt_true, _) = geodetic_from_spherical(positr[0], positr[1], positr[2], planet);
     let rho_true = data.atmosphere.density_at(alt_true);
     let rho_true = rho_true * (1.0 + run_density_bias);
-    let cx_true = data.aero.interpolate_cx(alfcom) * (1.0 + run_cx_bias);
+    let cx_true = data.aero.interpolate_cx(alfcom + run_incidence_bias) * (1.0 + run_cx_bias);
     let mass_true = data.capsule.mass * (1.0 + run_mass_bias);
-    let acdrag_true = rho_true * data.capsule.reference_area * cx_true * vitesr[0] * vitesr[0]
-        / (2.0 * mass_true);
+    let ref_area_true = data.capsule.reference_area * (1.0 + run_ref_area_bias);
+    let acdrag_true =
+        rho_true * ref_area_true * cx_true * vitesr[0] * vitesr[0] / (2.0 * mass_true);
     let acdram = acdrag_true + biases.drag;
 
     // Compute estimated aero coefficients (imodel=1)
@@ -133,7 +137,7 @@ pub fn navigate(
 
     // Exponential filter for density correction
     // coefro = (1-λ)*coefro + λ*(roesti/rorefr)
-    let lambda = data.guidance.density_filter_gain;
+    let lambda = (data.guidance.density_filter_gain + run_filter_gain_bias).clamp(0.01, 0.99);
     if rho_model.abs() > 1e-30 {
         nav_state.coefro = (1.0 - lambda) * nav_state.coefro + lambda * (roesti / rho_model);
     }

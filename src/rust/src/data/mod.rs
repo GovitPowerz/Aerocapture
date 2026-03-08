@@ -724,6 +724,57 @@ fn build_dispersion_config(
         })
         .flatten();
 
+    let vehicle = mc.vehicle.as_ref().and_then(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off {
+            return None;
+        }
+        let mut s = VehicleSigmas::from_level(level);
+        if level == DispersionLevel::Custom {
+            if let Some(&v) = d.custom.get("ref_area") {
+                s.ref_area = v;
+            }
+            if let Some(&v) = d.custom.get("max_bank_rate") {
+                s.max_bank_rate = v;
+            }
+        }
+        Some(s)
+    });
+
+    let pilot = mc.pilot.as_ref().and_then(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off {
+            return None;
+        }
+        let mut s = PilotSigmas::from_level(level);
+        if level == DispersionLevel::Custom {
+            if let Some(&v) = d.custom.get("time_constant") {
+                s.time_constant = v;
+            }
+            if let Some(&v) = d.custom.get("damping") {
+                s.damping = v;
+            }
+            if let Some(&v) = d.custom.get("frequency") {
+                s.frequency = v;
+            }
+        }
+        Some(s)
+    });
+
+    let nav_filter = mc.nav_filter.as_ref().and_then(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off {
+            return None;
+        }
+        let mut s = NavFilterSigmas::from_level(level);
+        if level == DispersionLevel::Custom
+            && let Some(&v) = d.custom.get("filter_gain")
+        {
+            s.filter_gain = v;
+        }
+        Some(s)
+    });
+
     Ok(DispersionConfig {
         seed: mc.seed,
         initial_state,
@@ -731,6 +782,9 @@ fn build_dispersion_config(
         aerodynamics,
         navigation,
         mass,
+        vehicle,
+        pilot,
+        nav_filter,
     })
 }
 

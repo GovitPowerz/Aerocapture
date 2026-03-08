@@ -95,6 +95,15 @@ level = "low"
 [monte_carlo.mass]
 level = "off"
 
+[monte_carlo.vehicle]
+level = "medium"
+
+[monte_carlo.pilot]
+level = "low"
+
+[monte_carlo.nav_filter]
+level = "medium"
+
 # ── Inline vehicle/mission data ──
 
 [vehicle]

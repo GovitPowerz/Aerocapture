@@ -4,6 +4,7 @@
 
 use crate::data::dispersions::DispersionDraw;
 use crate::data::{EntryConditions, SimData};
+use crate::gnc::control::pilot::PilotBiases;
 use crate::gnc::navigation::estimator::NavigationBiases;
 
 /// Per-simulation-run state after applying dispersions.
@@ -11,12 +12,16 @@ use crate::gnc::navigation::estimator::NavigationBiases;
 #[derive(Debug, Clone)]
 pub struct RunState {
     pub entry: EntryConditions,
-    pub cx_bias: f64,        // drag coefficient bias (fractional)
-    pub cz_bias: f64,        // lift coefficient bias (fractional)
-    pub density_bias: f64,   // atmosphere density bias (fractional)
-    pub mass_bias: f64,      // mass bias (fractional)
-    pub incidence_bias: f64, // incidence error (radians)
+    pub cx_bias: f64,            // drag coefficient bias (fractional)
+    pub cz_bias: f64,            // lift coefficient bias (fractional)
+    pub density_bias: f64,       // atmosphere density bias (fractional)
+    pub mass_bias: f64,          // mass bias (fractional)
+    pub incidence_bias: f64,     // incidence error (radians)
+    pub ref_area_bias: f64,      // reference area bias (fractional)
+    pub max_bank_rate_bias: f64, // max bank rate bias (fractional)
+    pub filter_gain_bias: f64,   // density filter gain bias (absolute delta)
     pub nav_biases: NavigationBiases,
+    pub pilot_biases: PilotBiases,
 }
 
 /// Initialize a simulation run by applying dispersion draws to entry conditions.
@@ -36,10 +41,18 @@ pub fn init_run_from_draw(sim_data: &SimData, draw: &DispersionDraw) -> RunState
         density_bias: draw.density,
         mass_bias: draw.mass,
         incidence_bias: draw.incidence,
+        ref_area_bias: draw.ref_area,
+        max_bank_rate_bias: draw.max_bank_rate,
+        filter_gain_bias: draw.filter_gain,
         nav_biases: NavigationBiases {
             pos: [draw.nav_altitude, draw.nav_longitude, draw.nav_latitude],
             vel: [draw.nav_velocity, draw.nav_flight_path, draw.nav_azimuth],
             drag: draw.nav_drag_accel,
+        },
+        pilot_biases: PilotBiases {
+            tau: draw.pilot_tau,
+            damping: draw.pilot_damping,
+            frequency: draw.pilot_frequency,
         },
     }
 }
@@ -117,6 +130,12 @@ mod tests {
         assert_eq!(run.density_bias, 0.0);
         assert_eq!(run.mass_bias, 0.0);
         assert_eq!(run.incidence_bias, 0.0);
+        assert_eq!(run.ref_area_bias, 0.0);
+        assert_eq!(run.max_bank_rate_bias, 0.0);
+        assert_eq!(run.filter_gain_bias, 0.0);
+        assert_eq!(run.pilot_biases.tau, 0.0);
+        assert_eq!(run.pilot_biases.damping, 0.0);
+        assert_eq!(run.pilot_biases.frequency, 0.0);
         assert_eq!(run.nav_biases.drag, 0.0);
     }
 
@@ -135,6 +154,12 @@ mod tests {
             density: 0.15,
             mass: -0.01,
             incidence: 0.01,
+            ref_area: 0.02,
+            max_bank_rate: -0.05,
+            pilot_tau: 0.08,
+            pilot_damping: -0.03,
+            pilot_frequency: 0.05,
+            filter_gain: 0.07,
             ..Default::default()
         };
         let run = init_run_from_draw(&sim_data, &draw);
@@ -146,6 +171,12 @@ mod tests {
         assert_eq!(run.density_bias, 0.15);
         assert_eq!(run.mass_bias, -0.01);
         assert_eq!(run.incidence_bias, 0.01);
+        assert_eq!(run.ref_area_bias, 0.02);
+        assert_eq!(run.max_bank_rate_bias, -0.05);
+        assert_eq!(run.filter_gain_bias, 0.07);
+        assert_eq!(run.pilot_biases.tau, 0.08);
+        assert_eq!(run.pilot_biases.damping, -0.03);
+        assert_eq!(run.pilot_biases.frequency, 0.05);
     }
 
     #[test]

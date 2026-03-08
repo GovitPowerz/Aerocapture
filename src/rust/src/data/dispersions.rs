@@ -3,9 +3,9 @@
 //! Domain-based: sigma values from TOML config with preset levels + runtime RNG
 //! draw generation.
 //!
-//! Distribution types match the original Fortran (loteri.f):
-//! - Initial state + navigation: Gaussian (bgauss.f — sum of 12 uniforms, CLT)
-//! - Atmosphere, aerodynamics, incidence, mass: Uniform[-sigma, +sigma] (bunifo.f)
+//! Distribution types:
+//! - Initial state + navigation + nav filter: Gaussian (1-sigma)
+//! - Atmosphere, aerodynamics, incidence, mass, vehicle, pilot: Uniform[-sigma, +sigma]
 
 use super::DataError;
 use rand::SeedableRng;
@@ -217,6 +217,94 @@ impl MassSigmas {
     }
 }
 
+/// Vehicle dispersion sigmas (Uniform, half-width).
+/// Covers manufacturing tolerance and ablation uncertainty.
+#[derive(Debug, Clone, Copy)]
+pub struct VehicleSigmas {
+    pub ref_area: f64,      // % — reference area
+    pub max_bank_rate: f64, // % — max bank rate
+}
+
+impl VehicleSigmas {
+    pub fn from_level(level: DispersionLevel) -> Self {
+        match level {
+            DispersionLevel::Off => Self {
+                ref_area: 0.0,
+                max_bank_rate: 0.0,
+            },
+            DispersionLevel::Low => Self {
+                ref_area: 1.0,
+                max_bank_rate: 5.0,
+            },
+            DispersionLevel::Medium => Self {
+                ref_area: 2.0,
+                max_bank_rate: 10.0,
+            },
+            DispersionLevel::High => Self {
+                ref_area: 5.0,
+                max_bank_rate: 20.0,
+            },
+            DispersionLevel::Custom => Self::from_level(DispersionLevel::Medium),
+        }
+    }
+}
+
+/// Pilot dynamics dispersion sigmas (Uniform, half-width).
+/// Actuator performance uncertainty.
+#[derive(Debug, Clone, Copy)]
+pub struct PilotSigmas {
+    pub time_constant: f64, // % — tau
+    pub damping: f64,       // % — zeta
+    pub frequency: f64,     // % — omega
+}
+
+impl PilotSigmas {
+    pub fn from_level(level: DispersionLevel) -> Self {
+        match level {
+            DispersionLevel::Off => Self {
+                time_constant: 0.0,
+                damping: 0.0,
+                frequency: 0.0,
+            },
+            DispersionLevel::Low => Self {
+                time_constant: 5.0,
+                damping: 5.0,
+                frequency: 5.0,
+            },
+            DispersionLevel::Medium => Self {
+                time_constant: 10.0,
+                damping: 10.0,
+                frequency: 10.0,
+            },
+            DispersionLevel::High => Self {
+                time_constant: 20.0,
+                damping: 20.0,
+                frequency: 20.0,
+            },
+            DispersionLevel::Custom => Self::from_level(DispersionLevel::Medium),
+        }
+    }
+}
+
+/// Navigation filter dispersion sigmas (Gaussian, 1-sigma).
+/// Density filter gain (lambda) tuning uncertainty.
+#[derive(Debug, Clone, Copy)]
+pub struct NavFilterSigmas {
+    pub filter_gain: f64, // absolute delta on lambda (e.g. 0.1)
+}
+
+impl NavFilterSigmas {
+    pub fn from_level(level: DispersionLevel) -> Self {
+        match level {
+            DispersionLevel::Off => Self { filter_gain: 0.0 },
+            DispersionLevel::Low => Self { filter_gain: 0.05 },
+            DispersionLevel::Medium => Self { filter_gain: 0.10 },
+            DispersionLevel::High => Self { filter_gain: 0.15 },
+            DispersionLevel::Custom => Self::from_level(DispersionLevel::Medium),
+        }
+    }
+}
+
 /// Full domain-based dispersion configuration.
 #[derive(Debug, Clone)]
 pub struct DispersionConfig {
@@ -226,13 +314,16 @@ pub struct DispersionConfig {
     pub aerodynamics: Option<AerodynamicsSigmas>,
     pub navigation: Option<NavigationSigmas>,
     pub mass: Option<MassSigmas>,
+    pub vehicle: Option<VehicleSigmas>,
+    pub pilot: Option<PilotSigmas>,
+    pub nav_filter: Option<NavFilterSigmas>,
 }
 
 // ────────────────────────────────────────────────────────────────────
 // Draw generation
 // ────────────────────────────────────────────────────────────────────
 
-/// One simulation's dispersion draws (replaces LotteryDraw).
+/// One simulation's dispersion draws.
 /// Values are in SI units, ready to apply directly.
 #[derive(Debug, Clone, Default)]
 pub struct DispersionDraw {
@@ -263,15 +354,27 @@ pub struct DispersionDraw {
 
     // Mass (Uniform draw × sigma, fractional)
     pub mass: f64, // fractional
+
+    // Vehicle (Uniform draws × sigma, fractional)
+    pub ref_area: f64,      // fractional
+    pub max_bank_rate: f64, // fractional
+
+    // Pilot dynamics (Uniform draws × sigma, fractional)
+    pub pilot_tau: f64,       // fractional
+    pub pilot_damping: f64,   // fractional
+    pub pilot_frequency: f64, // fractional
+
+    // Navigation filter (Gaussian draw × sigma, absolute)
+    pub filter_gain: f64, // absolute delta on lambda
 }
 
 impl DispersionConfig {
     /// Generate all dispersion draws for a batch of simulations.
     ///
-    /// Uses a seeded RNG for reproducibility. The draw order matches
-    /// the Fortran loteri.f sequence: initial state (Gaussian),
-    /// atmosphere (Uniform), aero (Uniform), nav (Gaussian),
-    /// incidence (Uniform), mass (Uniform).
+    /// Uses a seeded RNG for reproducibility. Draw order:
+    /// initial state (Gaussian), atmosphere (Uniform), aero (Uniform),
+    /// nav (Gaussian), mass (Uniform), vehicle (Uniform), pilot (Uniform),
+    /// nav_filter (Gaussian).
     pub fn generate_draws(&self, n_sims: usize) -> Vec<DispersionDraw> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(self.seed);
         let normal = Normal::new(0.0, 1.0).unwrap();
@@ -319,6 +422,24 @@ impl DispersionConfig {
                     draw.mass = uniform.sample(&mut rng) * s.mass / 100.0;
                 }
 
+                // Vehicle (Uniform)
+                if let Some(ref s) = self.vehicle {
+                    draw.ref_area = uniform.sample(&mut rng) * s.ref_area / 100.0;
+                    draw.max_bank_rate = uniform.sample(&mut rng) * s.max_bank_rate / 100.0;
+                }
+
+                // Pilot dynamics (Uniform)
+                if let Some(ref s) = self.pilot {
+                    draw.pilot_tau = uniform.sample(&mut rng) * s.time_constant / 100.0;
+                    draw.pilot_damping = uniform.sample(&mut rng) * s.damping / 100.0;
+                    draw.pilot_frequency = uniform.sample(&mut rng) * s.frequency / 100.0;
+                }
+
+                // Navigation filter (Gaussian)
+                if let Some(ref s) = self.nav_filter {
+                    draw.filter_gain = normal.sample(&mut rng) * s.filter_gain;
+                }
+
                 draw
             })
             .collect()
@@ -337,6 +458,9 @@ mod tests {
             aerodynamics: Some(AerodynamicsSigmas::from_level(DispersionLevel::Medium)),
             navigation: Some(NavigationSigmas::from_level(DispersionLevel::Medium)),
             mass: Some(MassSigmas::from_level(DispersionLevel::Medium)),
+            vehicle: Some(VehicleSigmas::from_level(DispersionLevel::Medium)),
+            pilot: Some(PilotSigmas::from_level(DispersionLevel::Medium)),
+            nav_filter: Some(NavFilterSigmas::from_level(DispersionLevel::Medium)),
         }
     }
 
@@ -351,6 +475,9 @@ mod tests {
             assert_eq!(a.drag_coeff, b.drag_coeff);
             assert_eq!(a.nav_altitude, b.nav_altitude);
             assert_eq!(a.mass, b.mass);
+            assert_eq!(a.ref_area, b.ref_area);
+            assert_eq!(a.pilot_tau, b.pilot_tau);
+            assert_eq!(a.filter_gain, b.filter_gain);
         }
     }
 
@@ -383,6 +510,9 @@ mod tests {
             aerodynamics: None,
             navigation: None,
             mass: None,
+            vehicle: None,
+            pilot: None,
+            nav_filter: None,
         };
         let draws = config.generate_draws(10);
         for d in &draws {
@@ -393,6 +523,12 @@ mod tests {
             assert_eq!(d.drag_coeff, 0.0);
             assert_eq!(d.nav_altitude, 0.0);
             assert_eq!(d.mass, 0.0);
+            assert_eq!(d.ref_area, 0.0);
+            assert_eq!(d.max_bank_rate, 0.0);
+            assert_eq!(d.pilot_tau, 0.0);
+            assert_eq!(d.pilot_damping, 0.0);
+            assert_eq!(d.pilot_frequency, 0.0);
+            assert_eq!(d.filter_gain, 0.0);
         }
     }
 
@@ -404,7 +540,6 @@ mod tests {
             DispersionLevel::High,
         ] {
             let s = InitialStateSigmas::from_level(level);
-            // At least velocity should be non-zero for all non-off levels
             assert!(
                 s.velocity > 0.0,
                 "velocity sigma should be > 0 for {:?}",
@@ -416,11 +551,25 @@ mod tests {
 
             let n = NavigationSigmas::from_level(level);
             assert!(n.altitude > 0.0);
+
+            let v = VehicleSigmas::from_level(level);
+            assert!(v.ref_area > 0.0);
+            assert!(v.max_bank_rate > 0.0);
+
+            let p = PilotSigmas::from_level(level);
+            assert!(p.time_constant > 0.0);
+
+            let nf = NavFilterSigmas::from_level(level);
+            assert!(nf.filter_gain > 0.0);
         }
 
         let s_off = InitialStateSigmas::from_level(DispersionLevel::Off);
         assert_eq!(s_off.altitude, 0.0);
         assert_eq!(s_off.velocity, 0.0);
+
+        let v_off = VehicleSigmas::from_level(DispersionLevel::Off);
+        assert_eq!(v_off.ref_area, 0.0);
+        assert_eq!(v_off.max_bank_rate, 0.0);
     }
 
     #[test]
@@ -436,6 +585,16 @@ mod tests {
             }),
             navigation: None,
             mass: Some(MassSigmas { mass: 1.0 }),
+            vehicle: Some(VehicleSigmas {
+                ref_area: 2.0,
+                max_bank_rate: 10.0,
+            }),
+            pilot: Some(PilotSigmas {
+                time_constant: 10.0,
+                damping: 10.0,
+                frequency: 10.0,
+            }),
+            nav_filter: None,
         };
         let draws = config.generate_draws(1000);
         for d in &draws {
@@ -465,7 +624,58 @@ mod tests {
                 "mass out of bounds: {}",
                 d.mass
             );
+            assert!(
+                d.ref_area.abs() <= 0.02 + 1e-10,
+                "ref_area out of bounds: {}",
+                d.ref_area
+            );
+            assert!(
+                d.max_bank_rate.abs() <= 0.10 + 1e-10,
+                "max_bank_rate out of bounds: {}",
+                d.max_bank_rate
+            );
+            assert!(
+                d.pilot_tau.abs() <= 0.10 + 1e-10,
+                "pilot_tau out of bounds: {}",
+                d.pilot_tau
+            );
+            assert!(
+                d.pilot_damping.abs() <= 0.10 + 1e-10,
+                "pilot_damping out of bounds: {}",
+                d.pilot_damping
+            );
+            assert!(
+                d.pilot_frequency.abs() <= 0.10 + 1e-10,
+                "pilot_frequency out of bounds: {}",
+                d.pilot_frequency
+            );
         }
+    }
+
+    #[test]
+    fn test_filter_gain_gaussian_range() {
+        let config = DispersionConfig {
+            seed: 54321,
+            initial_state: None,
+            atmosphere: None,
+            aerodynamics: None,
+            navigation: None,
+            mass: None,
+            vehicle: None,
+            pilot: None,
+            nav_filter: Some(NavFilterSigmas { filter_gain: 0.10 }),
+        };
+        let draws = config.generate_draws(1000);
+        // Gaussian: most draws within ±3sigma = ±0.30
+        let within_3sigma = draws.iter().filter(|d| d.filter_gain.abs() <= 0.30).count();
+        assert!(
+            within_3sigma > 990,
+            "Expected >99% within 3-sigma, got {}/1000",
+            within_3sigma
+        );
+        // At least some should be nonzero
+        let any_nonzero = draws.iter().any(|d| d.filter_gain.abs() > 0.001);
+        assert!(any_nonzero, "Filter gain draws should not all be zero");
     }
 
     #[test]

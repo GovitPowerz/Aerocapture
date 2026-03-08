@@ -589,6 +589,9 @@ pub struct TomlMonteCarlo {
     pub aerodynamics: Option<TomlMcDomain>,
     pub navigation: Option<TomlMcDomain>,
     pub mass: Option<TomlMcDomain>,
+    pub vehicle: Option<TomlMcDomain>,
+    pub pilot: Option<TomlMcDomain>,
+    pub nav_filter: Option<TomlMcDomain>,
 }
 
 /// A single dispersion domain config.

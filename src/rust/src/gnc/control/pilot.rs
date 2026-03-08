@@ -12,6 +12,14 @@ pub struct PilotState {
     pub bank_rate: f64,  // current bank angle rate (rad/s) — for 2nd order
 }
 
+/// Fractional biases on pilot dynamics parameters.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PilotBiases {
+    pub tau: f64,       // fractional bias on time constant
+    pub damping: f64,   // fractional bias on damping ratio
+    pub frequency: f64, // fractional bias on natural frequency
+}
+
 /// Apply pilot dynamics to compute realized bank angle.
 ///
 /// Returns (new_bank_angle, new_bank_rate).
@@ -21,6 +29,7 @@ pub fn apply_pilot(
     state: &PilotState,
     dt: f64,
     max_rate: f64,
+    biases: &PilotBiases,
 ) -> PilotState {
     match model.pilot_type {
         PilotType::Perfect => PilotState {
@@ -29,7 +38,7 @@ pub fn apply_pilot(
         },
         PilotType::FirstOrder => {
             // First order: tau * d(phi)/dt + phi = phi_cmd
-            let tau = model.time_constant;
+            let tau = model.time_constant * (1.0 + biases.tau);
             let error = commanded - state.bank_angle;
             let rate = (error / tau).clamp(-max_rate, max_rate);
             PilotState {
@@ -39,8 +48,8 @@ pub fn apply_pilot(
         }
         PilotType::SecondOrder => {
             // Second order: d2(phi)/dt2 + 2*zeta*omega*d(phi)/dt + omega^2*(phi - phi_cmd) = 0
-            let omega = model.frequency;
-            let zeta = model.damping;
+            let omega = model.frequency * (1.0 + biases.frequency);
+            let zeta = model.damping * (1.0 + biases.damping);
             let error = state.bank_angle - commanded;
             let accel = -2.0 * zeta * omega * state.bank_rate - omega * omega * error;
             let new_rate = (state.bank_rate + accel * dt).clamp(-max_rate, max_rate);

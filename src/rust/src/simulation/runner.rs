@@ -82,23 +82,19 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
     // Pre-generate dispersion draws if using domain-based config
     let draws = data.dispersion_config.as_ref().map(|dc| {
         let draws = dc.generate_draws(n_sims as usize);
+        let on_off = |b: bool| if b { "on" } else { "off" };
         eprintln!(
-            "Monte Carlo: {} draws from seed {}, domains: state={} atmo={} aero={} nav={} mass={}",
+            "Monte Carlo: {} draws from seed {}, domains: state={} atmo={} aero={} nav={} mass={} vehicle={} pilot={} nav_filter={}",
             draws.len(),
             dc.seed,
-            if dc.initial_state.is_some() {
-                "on"
-            } else {
-                "off"
-            },
-            if dc.atmosphere.is_some() { "on" } else { "off" },
-            if dc.aerodynamics.is_some() {
-                "on"
-            } else {
-                "off"
-            },
-            if dc.navigation.is_some() { "on" } else { "off" },
-            if dc.mass.is_some() { "on" } else { "off" },
+            on_off(dc.initial_state.is_some()),
+            on_off(dc.atmosphere.is_some()),
+            on_off(dc.aerodynamics.is_some()),
+            on_off(dc.navigation.is_some()),
+            on_off(dc.mass.is_some()),
+            on_off(dc.vehicle.is_some()),
+            on_off(dc.pilot.is_some()),
+            on_off(dc.nav_filter.is_some()),
         );
         draws
     });
@@ -450,6 +446,9 @@ fn run_single(
                 run_state.cx_bias,
                 run_state.cz_bias,
                 run_state.mass_bias,
+                run_state.incidence_bias,
+                run_state.ref_area_bias,
+                run_state.filter_gain_bias,
             );
 
             pdynan_for_photo = nav_out.pdynan;
@@ -468,12 +467,14 @@ fn run_single(
                 config.guidance_type,
             );
 
+            let max_rate = data.capsule.max_bank_rate * (1.0 + run_state.max_bank_rate_bias);
             pilot_state = pilot::apply_pilot(
                 &data.pilot,
                 ftc_out.gitcom,
                 &pilot_state,
                 data.periods.pilot,
-                data.capsule.max_bank_rate,
+                max_rate,
+                &run_state.pilot_biases,
             );
 
             let bank_change = (pilot_state.bank_angle - sim.bank_angle).abs();
@@ -767,11 +768,13 @@ fn compute_derivatives(
     let (altitude, _lat_geo) = geodetic_from_spherical(r, state[1], lat, planet);
     let rho = data.atmosphere.density_at(altitude) * (1.0 + run_state.density_bias);
 
-    let cx = data.aero.interpolate_cx(aoa) * (1.0 + run_state.cx_bias);
-    let cz = data.aero.interpolate_cz(aoa) * (1.0 + run_state.cz_bias);
+    let aoa_dispersed = aoa + run_state.incidence_bias;
+    let cx = data.aero.interpolate_cx(aoa_dispersed) * (1.0 + run_state.cx_bias);
+    let cz = data.aero.interpolate_cz(aoa_dispersed) * (1.0 + run_state.cz_bias);
 
     let mass = data.capsule.mass * (1.0 + run_state.mass_bias);
-    let coefar = rho * data.capsule.reference_area / (2.0 * mass);
+    let ref_area = data.capsule.reference_area * (1.0 + run_state.ref_area_bias);
+    let coefar = rho * ref_area / (2.0 * mass);
     let acdrag = coefar * cx * v * v;
     let aclift = coefar * cz * v * v;
 
