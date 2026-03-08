@@ -145,6 +145,44 @@ def write_nn_json(
         json.dump(data, f)
 
 
+def _parse_final_to_legacy_array(filepath: Path) -> npt.NDArray[np.float64] | None:
+    """Parse a final conditions file, returning legacy-compatible 53-column array.
+
+    Auto-detects CSV vs Fortran text format. For CSV, maps named columns back
+    to the legacy 53-column positions so compute_cost() works unchanged.
+    """
+    with open(filepath) as f:
+        first_line = f.readline()
+
+    if "," in first_line:
+        # CSV format — map columns back to legacy positions
+        import pandas as pd
+
+        from aerocapture.io.parse_final import CSV_TO_LEGACY_INDEX
+
+        df = pd.read_csv(filepath)
+        if df.empty:
+            return None
+        n = len(df)
+        result = np.zeros((n, 53))
+        result[:, 0] = df["sim_number"].to_numpy()
+        for col_name, legacy_idx in CSV_TO_LEGACY_INDEX.items():
+            if col_name in df.columns:
+                result[:, legacy_idx + 1] = df[col_name].to_numpy()
+        return result
+
+    # Legacy Fortran text format
+    from aerocapture.io._fortran import parse_fortran_line
+
+    rows = []
+    with open(filepath) as f:
+        for line in f:
+            values = parse_fortran_line(line)
+            if values:
+                rows.append(values)
+    return np.array(rows) if rows else None
+
+
 def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt.NDArray[np.float64] | None:
     """Run the Fortran simulator and parse final conditions.
 
@@ -183,21 +221,17 @@ def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return None
 
-    # Parse final conditions
+    # Parse final conditions — auto-detect CSV vs legacy text
+    # Try CSV first (new default), then legacy text, then CSV with .csv extension
     final_file = cwd / config.sim.final_file
-    if not final_file.exists():
+    csv_final = Path(str(final_file) + ".csv")
+    if csv_final.exists():
+        final_file = csv_final
+    elif not final_file.exists():
         return None
 
     try:
-        from aerocapture.io._fortran import parse_fortran_line
-
-        rows = []
-        with open(final_file) as f:
-            for line in f:
-                values = parse_fortran_line(line)
-                if values:
-                    rows.append(values)
-        return np.array(rows) if rows else None
+        return _parse_final_to_legacy_array(final_file)
     except Exception:
         return None
 

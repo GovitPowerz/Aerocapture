@@ -86,10 +86,12 @@ def run_scheme(
         else:
             print(f"  Using default params (no {params_file})")
 
-    # Delete stale output file to avoid reading old results
+    # Delete stale output files to avoid reading old results (both CSV and text)
     output_dir = toml_data.get("data", {}).get("output_dir", "old_codebase/sorties")
-    stale_file = cwd / output_dir / f"final{results_suffix}"
-    stale_file.unlink(missing_ok=True)
+    suffix = results_suffix.lstrip(".")
+    for pattern in [f"final{results_suffix}", f"final.{suffix}.csv"]:
+        stale_file = cwd / output_dir / pattern
+        stale_file.unlink(missing_ok=True)
 
     # Write temp TOML
     from aerocapture.training.evaluate import _write_toml
@@ -113,28 +115,23 @@ def run_scheme(
 
     temp_toml.unlink(missing_ok=True)
 
-    # Parse final file
+    # Parse final file — auto-detect CSV vs legacy text
     output_dir = toml_data.get("data", {}).get("output_dir", "old_codebase/sorties")
-    final_file = cwd / output_dir / f"final{results_suffix}"
+    suffix = results_suffix.lstrip(".")
+    final_file = cwd / output_dir / f"final.{suffix}.csv"
     if not final_file.exists():
-        print(f"  ERROR: {final_file} not found")
+        final_file = cwd / output_dir / f"final{results_suffix}"
+    if not final_file.exists():
+        print(f"  ERROR: final file not found in {output_dir}")
         if result.stderr:
             print(f"  stderr: {result.stderr.decode()[:500]}")
         return None
 
-    from aerocapture.io._fortran import parse_fortran_line
+    from aerocapture.training.evaluate import _parse_final_to_legacy_array
 
-    rows = []
-    with open(final_file) as f:
-        for line in f:
-            values = parse_fortran_line(line)
-            if values:
-                rows.append(values)
-
-    if not rows:
+    final = _parse_final_to_legacy_array(final_file)
+    if final is None or len(final) == 0:
         return None
-
-    final = np.array(rows)
     energy = final[:, 8]
     ecc = final[:, 10]
     captured = (ecc < 1.0) & (energy < 0)

@@ -3,7 +3,7 @@
 //! Matches Fortran simmsr.f + realit.f + finmsr.f.
 //! Monte Carlo runs are parallelized with rayon (one thread per trajectory).
 
-use crate::config::{Planet, SimInput};
+use crate::config::{OutputFormat, Planet, SimInput};
 use crate::data::SimData;
 use crate::gnc::control::pilot::{self, PilotState};
 use crate::gnc::guidance::ftc::{self, FtcState};
@@ -153,7 +153,70 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
         vec![run_single(config, data, run_state, 0, true)?]
     };
 
-    // Write final file (sequential, in sim order)
+    // Write output files based on format
+    match config.output_format {
+        OutputFormat::Csv => write_csv_output(config, &results, photo_sim_idx)?,
+        OutputFormat::Text => write_text_output(config, &results, photo_sim_idx)?,
+    }
+
+    Ok(())
+}
+
+/// Write output in CSV format with named headers and clean schema.
+fn write_csv_output(
+    config: &SimInput,
+    results: &[SimResult],
+    photo_sim_idx: i32,
+) -> Result<(), SimError> {
+    let suffix = config.suffixes.results.trim_start_matches('.');
+    let final_path = config.output_path(&format!("final.{}.csv", suffix));
+    let mut final_file = BufWriter::new(
+        File::create(&final_path)
+            .map_err(|e| SimError(format!("Cannot create {}: {}", final_path, e)))?,
+    );
+
+    output::write_final_csv_header(&mut final_file)
+        .map_err(|e| SimError(format!("Final CSV header error: {}", e)))?;
+
+    for result in results {
+        let csv_values = extract_final_csv_values(&result.final_line);
+        output::write_final_csv_line(&mut final_file, result.sim_idx + 1, &csv_values)
+            .map_err(|e| SimError(format!("Final CSV write error: {}", e)))?;
+    }
+    final_file
+        .flush()
+        .map_err(|e| SimError(format!("Final CSV flush error: {}", e)))?;
+
+    // Write photo CSV
+    let photo_path = config.output_path(&format!("photo.{}.csv", suffix));
+    if let Some(result) = results.iter().find(|r| r.sim_idx == photo_sim_idx) {
+        let mut photo_file = BufWriter::new(
+            File::create(&photo_path)
+                .map_err(|e| SimError(format!("Cannot create {}: {}", photo_path, e)))?,
+        );
+
+        output::write_photo_csv_header(&mut photo_file)
+            .map_err(|e| SimError(format!("Photo CSV header error: {}", e)))?;
+
+        for line in &result.photo_lines {
+            let csv_values = extract_photo_csv_values(line);
+            output::write_photo_csv_line(&mut photo_file, &csv_values)
+                .map_err(|e| SimError(format!("Photo CSV write error: {}", e)))?;
+        }
+        photo_file
+            .flush()
+            .map_err(|e| SimError(format!("Photo CSV flush error: {}", e)))?;
+    }
+
+    Ok(())
+}
+
+/// Write output in legacy Fortran D-notation text format.
+fn write_text_output(
+    config: &SimInput,
+    results: &[SimResult],
+    photo_sim_idx: i32,
+) -> Result<(), SimError> {
     let final_path = config.output_path(&format!(
         "final.{}",
         config.suffixes.results.trim_start_matches('.')
@@ -163,15 +226,14 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
             .map_err(|e| SimError(format!("Cannot create {}: {}", final_path, e)))?,
     );
 
-    for result in &results {
-        output::write_final_line(&mut final_file, result.sim_idx + 1, &result.final_line)
+    for result in results {
+        output::write_final_text_line(&mut final_file, result.sim_idx + 1, &result.final_line)
             .map_err(|e| SimError(format!("Final write error: {}", e)))?;
     }
     final_file
         .flush()
         .map_err(|e| SimError(format!("Final file flush error: {}", e)))?;
 
-    // Write photo file for the selected simulation
     let photo_path = config.output_path(&format!(
         "photo.{}",
         config.suffixes.results.trim_start_matches('.')
@@ -182,7 +244,7 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
                 .map_err(|e| SimError(format!("Cannot create {}: {}", photo_path, e)))?,
         );
         for line in &result.photo_lines {
-            output::write_photo_line(&mut photo_file, line)
+            output::write_photo_text_line(&mut photo_file, line)
                 .map_err(|e| SimError(format!("Photo write error: {}", e)))?;
         }
         photo_file
@@ -191,6 +253,80 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
     }
 
     Ok(())
+}
+
+/// Extract 21 CSV values from the 24-element photo array.
+/// Drops: [20] radial_velocity_2 (duplicate), [22] sim_number, [23] reserved.
+fn extract_photo_csv_values(values: &[f64; 24]) -> [f64; 21] {
+    [
+        values[0],  // time_s
+        values[1],  // altitude_km
+        values[2],  // longitude_deg
+        values[3],  // latitude_deg
+        values[4],  // velocity_m_s
+        values[5],  // flight_path_deg
+        values[6],  // azimuth_deg
+        values[7],  // semi_major_axis_km
+        values[8],  // eccentricity
+        values[9],  // inclination_deg
+        values[10], // raan_deg
+        values[11], // periapsis_alt_km
+        values[12], // apoapsis_alt_km
+        values[13], // phase
+        values[14], // bank_angle_deg
+        values[15], // radial_velocity_m_s
+        values[16], // aoa_deg
+        values[17], // cumulative_bank_change_deg
+        values[18], // energy_j_kg
+        values[19], // dynamic_pressure_pa
+        values[21], // dynamic_pressure_onboard_kpa (skip [20] duplicate)
+    ]
+}
+
+/// Extract 39 CSV values from the 52-element final array.
+/// Drops 14 always-zero indices: 32-36, 42-44, 46-47, 49-51.
+fn extract_final_csv_values(values: &[f64; 52]) -> [f64; 39] {
+    [
+        values[0],  // altitude_km
+        values[1],  // longitude_deg
+        values[2],  // latitude_deg
+        values[3],  // velocity_m_s
+        values[4],  // flight_path_deg
+        values[5],  // azimuth_deg
+        values[6],  // radial_velocity_m_s
+        values[7],  // energy_mj_kg
+        values[8],  // semi_major_axis_km
+        values[9],  // eccentricity
+        values[10], // inclination_deg
+        values[11], // raan_deg
+        values[12], // arg_periapsis_deg
+        values[13], // true_anomaly_deg
+        values[14], // periapsis_alt_km
+        values[15], // apoapsis_alt_km
+        values[16], // max_heat_flux_kw_m2
+        values[17], // max_load_factor_g
+        values[18], // max_dyn_pressure_kpa
+        values[19], // alt_max_flux_km
+        values[20], // alt_max_load_km
+        values[21], // alt_max_pdyn_km
+        values[22], // time_max_flux_s
+        values[23], // time_max_load_s
+        values[24], // time_max_pdyn_s
+        values[25], // bounce_alt_km
+        values[26], // bounce_time_s
+        values[27], // sim_time_s
+        values[28], // integrated_flux_mj_m2
+        values[29], // periapsis_err_km
+        values[30], // apoapsis_err_km
+        values[31], // ifinal
+        values[37], // dv1_m_s
+        values[38], // dv2_m_s
+        values[39], // dv3_m_s
+        values[40], // dv12_m_s
+        values[41], // dv_total_m_s
+        values[45], // cumulative_bank_change_deg
+        values[48], // n_roll_reversals
+    ]
 }
 
 /// Run a single simulation, returning results.

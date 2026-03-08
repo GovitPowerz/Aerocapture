@@ -1,8 +1,9 @@
-- does the roll reversal startegy is used for nn guidance. If yes, I'd like to try letting the nn deal with it also. We should discuss this
-- update output interface to store output in proper archive files (parquet?). Output must be the same just in a different format. Maybe question the usefulness of certain output files.
+- is the roll reversal startegy used for nn guidance. If yes, I'd like to try letting the nn deal with it also. We should discuss this
 - update input interface: remove old config reading
 - remove old dispersion system (lottery)
 - remove old codebase (but keep all data such as missions in proper new config files, we can discuss on what is worth keeping or not)
+- remove rust and python code for leagcy input output formats
+- clean-up Rust code warnings
 - update training algorithms (GA, RL, PSO, ...) and output visualisation
 - work on cost function (energy, correction cost,...)
 - what about lstm? transformer?

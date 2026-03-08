@@ -92,6 +92,17 @@ pub enum SimPhase {
     Preprogrammed,
 }
 
+/// Output format for simulation results
+#[derive(Debug, Clone, Copy, PartialEq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputFormat {
+    /// CSV with named column headers (default)
+    #[default]
+    Csv,
+    /// Legacy Fortran D-notation text format (for regression tests)
+    Text,
+}
+
 /// Guidance type
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GuidanceType {
@@ -143,6 +154,7 @@ pub struct SimInput {
     pub suffixes: DataSuffixes,
     pub base_dir: String,
     pub output_dir: String,
+    pub output_format: OutputFormat,
 }
 
 // ─── TOML deserialization structs ───
@@ -266,6 +278,8 @@ pub struct TomlData {
     pub lottery: Option<String>,
     pub neural_network: Option<String>,
     pub results_suffix: Option<String>,
+    #[serde(default)]
+    pub output_format: OutputFormat,
 }
 
 fn default_base_dir() -> String { "old_codebase/donnees".to_string() }
@@ -763,6 +777,7 @@ impl SimInput {
             suffixes,
             base_dir: config.data.base_dir.clone(),
             output_dir: config.data.output_dir.clone(),
+            output_format: config.data.output_format,
         };
 
         Ok((sim_input, config))
@@ -917,6 +932,7 @@ impl SimInput {
             },
             base_dir: "../donnees".to_string(),
             output_dir: "../sorties".to_string(),
+            output_format: OutputFormat::Text,
         })
     }
 
