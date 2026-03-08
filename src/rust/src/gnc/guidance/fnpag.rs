@@ -21,17 +21,13 @@ use crate::data::SimData;
 use crate::gnc::navigation::coordinates::geodetic_from_spherical;
 use crate::gnc::navigation::estimator::NavigationOutput;
 
-/// FNPAG persistent state.
+/// FNPAG persistent state (mutable runtime state only).
 #[derive(Debug, Clone)]
 pub struct FnpagState {
     /// Previous bank angle command (for secant method seeding)
     pub bank_prev: f64,
     /// Previous predicted exit energy (for secant method)
     pub energy_prev: f64,
-    /// Number of predictor-corrector iterations per step
-    pub max_iter: usize,
-    /// Convergence tolerance on exit energy (J/kg)
-    pub energy_tol: f64,
     /// Whether predictor has been initialized
     pub initialized: bool,
 }
@@ -41,8 +37,6 @@ impl FnpagState {
         Self {
             bank_prev: initial_bank,
             energy_prev: 0.0,
-            max_iter: 5,
-            energy_tol: 1e4, // 10 kJ/kg tolerance
             initialized: false,
         }
     }
@@ -70,10 +64,10 @@ fn predict_exit_energy(
     planet: &Planet,
     data: &SimData,
     exit_alt: f64,
+    dt: f64,
 ) -> f64 {
     let mu = planet.mu();
     let req = planet.equatorial_radius();
-    let dt = 2.0; // prediction timestep (coarser than sim for speed)
     let max_steps = 2000;
     let cos_bank = bank_angle.cos();
 
@@ -177,24 +171,23 @@ pub fn fnpag_bank(
         return state.bank_prev.abs();
     }
 
-    // Bank angle limits — avoid near-zero (full lift-up, skip-out) and
-    // near-180 (full lift-down, crash). Tighter limits at low altitude.
-    let bank_min = 20.0_f64.to_radians();
+    let params = &data.guidance.fnpag;
+
+    // Bank angle limits from params
+    let bank_min = params.bank_min_deg.to_radians();
     let bank_max = if altitude < 50e3 {
-        // Below 50 km, limit max bank to prevent crash
-        100.0_f64.to_radians()
+        params.bank_max_low_deg.to_radians()
     } else {
-        140.0_f64.to_radians()
+        params.bank_max_high_deg.to_radians()
     };
 
     // Initialize with a bisection-style search over a wide bracket
     if !state.initialized {
-        // Evaluate at two well-separated bank angles to seed secant
         let bank1 = 40.0_f64.to_radians();
         let bank2 = 90.0_f64.to_radians();
 
-        let e1 = predict_exit_energy(current, bank1, planet, data, exit_alt);
-        let e2 = predict_exit_energy(current, bank2, planet, data, exit_alt);
+        let e1 = predict_exit_energy(current, bank1, planet, data, exit_alt, params.prediction_dt);
+        let e2 = predict_exit_energy(current, bank2, planet, data, exit_alt, params.prediction_dt);
 
         let err1 = e1 - target_energy;
         let err2 = e2 - target_energy;
@@ -224,8 +217,8 @@ pub fn fnpag_bank(
     let mut best_bank = bank_k;
     let mut best_err = err_k.abs();
 
-    for _iter in 0..state.max_iter {
-        let e_trial = predict_exit_energy(current, bank_trial, planet, data, exit_alt);
+    for _iter in 0..5 {
+        let e_trial = predict_exit_energy(current, bank_trial, planet, data, exit_alt, params.prediction_dt);
         let err_trial = e_trial - target_energy;
 
         // Track best solution
@@ -235,7 +228,7 @@ pub fn fnpag_bank(
         }
 
         // Check convergence
-        if err_trial.abs() < state.energy_tol {
+        if err_trial.abs() < params.energy_tol {
             state.bank_prev = bank_trial;
             state.energy_prev = err_trial;
             return bank_trial.clamp(bank_min, bank_max);
@@ -257,7 +250,7 @@ pub fn fnpag_bank(
 
     // Use best result found
     state.bank_prev = best_bank;
-    let e_final = predict_exit_energy(current, best_bank, planet, data, exit_alt);
+    let e_final = predict_exit_energy(current, best_bank, planet, data, exit_alt, params.prediction_dt);
     state.energy_prev = e_final - target_energy;
 
     best_bank.clamp(bank_min, bank_max)

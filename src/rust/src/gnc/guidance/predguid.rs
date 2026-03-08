@@ -24,16 +24,15 @@ use crate::data::SimData;
 use crate::gnc::navigation::coordinates::total_energy;
 use crate::gnc::navigation::estimator::NavigationOutput;
 
-/// PredGuid persistent state.
+/// PredGuid persistent state (runtime-only, no tunable params).
 #[derive(Debug, Clone)]
 pub struct PredGuidState {
-    /// Drag error gain. Typical: 0.5-2.0
-    pub k_drag: f64,
+    _placeholder: (),
 }
 
 impl PredGuidState {
     pub fn new() -> Self {
-        Self { k_drag: 1.0 }
+        Self { _placeholder: () }
     }
 }
 
@@ -97,7 +96,8 @@ pub fn predguid_bank(
     // The sign convention: cos(bank) = 1 means full lift-up (min drag exposure),
     // cos(bank) = -1 means full lift-down (max drag exposure).
     // So drag error should DECREASE cos_bank (bank toward lift-up to reduce drag).
-    let k_drag = if pdyn > 100.0 { 0.8 } else { 0.3 };
+    let params = &data.guidance.pred_guid;
+    let k_drag = if pdyn > params.pdyn_threshold { params.k_drag_high } else { params.k_drag_low };
     let cos_bank = cos_bank_ref - k_drag * drag_err / lift_abs;
 
     let cos_bank = cos_bank.clamp(-1.0, 1.0);

@@ -1,5 +1,6 @@
-"""Main GA optimization loop for neural network guidance training.
+"""Main GA optimization loop for guidance parameter training.
 
+Supports both NN weight optimization and generic guidance parameter optimization.
 Replaces MATLAB Train_Net_Aerocap.m.
 """
 
@@ -12,7 +13,7 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.config import TrainingConfig
-from aerocapture.training.evaluate import decode_direct, evaluate_chromosome, write_nn_json
+from aerocapture.training.evaluate import decode_direct, decode_params_from_chromosome, evaluate_chromosome, write_nn_json
 from aerocapture.training.migration import migrate
 from aerocapture.training.population import create_initial_population
 
@@ -126,14 +127,18 @@ def save_checkpoint(
         arrays["best_chromosome"] = best_chrom
     np.savez(save_dir / f"{prefix}.npz", **arrays)
 
-    # Save best model weights (immediately usable by Rust)
+    # Save best model/params (immediately usable by Rust)
     if best_chrom is not None:
-        weights = decode_direct(best_chrom, config)
-        write_nn_json(weights, config.network, save_dir / "best_model.json")
-        # Also write to the simulator's nn_param_file so next run uses it
-        if cwd is not None:
-            nn_path = Path(cwd) / config.sim.nn_param_file
-            write_nn_json(weights, config.network, nn_path)
+        if config.guidance_type == "neural_network":
+            weights = decode_direct(best_chrom, config)
+            write_nn_json(weights, config.network, save_dir / "best_model.json")
+            if cwd is not None:
+                nn_path = Path(cwd) / config.sim.nn_param_file
+                write_nn_json(weights, config.network, nn_path)
+        else:
+            params = decode_params_from_chromosome(best_chrom, config)
+            with open(save_dir / "best_params.json", "w") as fp:
+                json.dump(params, fp, indent=2)
 
 
 def load_checkpoint(
@@ -226,9 +231,9 @@ def train(
             if verbose:
                 print(f"Resumed from run {resumed['run']}, gen {resumed['generation']}, best={resumed['best_cost']:.4e}")
 
-    # Try loading existing weights for population seeding
+    # Try loading existing NN weights for population seeding (NN only)
     seed_weights = None
-    if config.ga.direct_encoding and resumed is None:
+    if config.guidance_type == "neural_network" and config.ga.direct_encoding and resumed is None:
         nn_param_path = Path(cwd or config.sim.exec_dir) / config.sim.nn_param_file
         if nn_param_path.exists():
             try:
@@ -344,21 +349,29 @@ def train(
 if __name__ == "__main__":
     import argparse
 
-    from aerocapture.training.evaluate import compute_cost, run_simulation
+    from aerocapture.training.evaluate import compute_cost, run_simulation, write_guidance_toml
 
-    parser = argparse.ArgumentParser(description="Train NN guidance via GA")
+    parser = argparse.ArgumentParser(description="Train guidance parameters via GA")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--n-gen", type=int, default=100)
     parser.add_argument("--n-pop", type=int, default=20)
     parser.add_argument("--cwd", type=str, default=None)
     parser.add_argument("--toml", type=str, default=None, help="TOML config path (enables TOML mode, runs from repo root)")
     parser.add_argument("--resume", type=str, default=None, help="Checkpoint directory to resume training from")
+    parser.add_argument(
+        "--guidance",
+        type=str,
+        default="neural_network",
+        choices=["neural_network", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag", "ftc"],
+        help="Guidance scheme to optimize (default: neural_network)",
+    )
     args = parser.parse_args()
 
     cfg = TrainingConfig()
     cfg.ga.n_gen = args.n_gen
     cfg.ga.n_pop = args.n_pop
     cfg.ga.n_runs = 1
+    cfg.guidance_type = args.guidance
 
     cwd = args.cwd
     if args.toml:
@@ -373,18 +386,41 @@ if __name__ == "__main__":
         if cwd is None:
             cwd = "old_codebase/exec"
 
+    # Non-NN schemes require TOML mode
+    if cfg.guidance_type != "neural_network" and not args.toml:
+        print("ERROR: Non-NN guidance schemes require --toml <config.toml>")
+        raise SystemExit(1)
+
+    # Save dir per scheme
+    cfg.save_dir = f"save_net/{cfg.guidance_type}"
+
     if args.resume:
         cfg.save_dir = args.resume
 
     result = train(cfg, seed=args.seed, cwd=cwd, resume_dir=args.resume)
     print(f"\nFinal best cost: {result['best_cost']:.4e}")
 
-    # Save best weights and run final evaluation
+    # Save best result and run final evaluation
     if result["best_chromosome"] is not None:
-        weights = decode_direct(result["best_chromosome"], cfg)
-        nn_path = Path(cwd) / cfg.sim.nn_param_file
-        write_nn_json(weights, cfg.network, nn_path)
-        print(f"Best weights saved to {nn_path}")
+        if cfg.guidance_type == "neural_network":
+            weights = decode_direct(result["best_chromosome"], cfg)
+            nn_path = Path(cwd) / cfg.sim.nn_param_file
+            write_nn_json(weights, cfg.network, nn_path)
+            print(f"Best weights saved to {nn_path}")
+        else:
+            params = decode_params_from_chromosome(result["best_chromosome"], cfg)
+            params_path = Path(cfg.save_dir) / "best_params.json"
+            with open(params_path, "w") as fp:
+                json.dump(params, fp, indent=2)
+            print(f"Best params saved to {params_path}")
+            print(f"  Params: {params}")
+
+            # Write optimized TOML for easy re-use
+            assert cfg.sim.toml_config is not None
+            base_toml = Path(cwd) / cfg.sim.toml_config
+            opt_toml = Path(cfg.save_dir) / f"optimized_{cfg.guidance_type}.toml"
+            write_guidance_toml(base_toml, cfg.guidance_type, params, opt_toml)
+            print(f"  Optimized TOML: {opt_toml}")
 
         final = run_simulation(cfg, cwd=cwd)
         if final is not None:

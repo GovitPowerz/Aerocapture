@@ -11,11 +11,12 @@ Modernized from a legacy Fortran 77 codebase (~10,675 lines, ~65 files) into a *
 cd src/rust
 cargo build --release
 
-# Run a guided FTC simulation (from old_codebase/exec/)
+# Run with TOML config (preferred — supports all guidance schemes)
+../../src/rust/target/release/aerocapture configs/msr_aller_ftc_nominal.toml
+
+# Run with legacy .in config (from old_codebase/exec/)
 cd ../../old_codebase/exec
 ../../src/rust/target/release/aerocapture < test_input.in
-
-# Output written to ../sorties/photo.test
 ```
 
 ## Project Structure
@@ -23,7 +24,8 @@ cd ../../old_codebase/exec
 ```
 src/
   rust/                    Rust simulator (validated reimplementation)
-  python/                  Python analysis package (parsing, plotting, NN training)
+  python/                  Python analysis package (parsing, plotting, training)
+configs/                   TOML configuration files (per guidance scheme)
 old_codebase/
   fortran_original/        Legacy Fortran 77 — FTC predictor-corrector guidance
   fortran_neural/          Fortran variant with neural network guidance
@@ -32,15 +34,45 @@ old_codebase/
 tests/                     Test framework and Fortran reference data
 ```
 
+## Guidance Schemes
+
+Six guidance algorithms are implemented, all GA-optimizable:
+
+| Scheme | Description | Params |
+|---|---|---|
+| **FTC** | Predictor-corrector with reference trajectory tracking | 8 |
+| **Neural Network** | Trained NN maps nav state to bank angle command | 110 |
+| **Equilibrium Glide** | Balances gravity, centrifugal, and lift forces | 7 |
+| **Energy Controller** | Tracks reference energy dissipation profile | 3 |
+| **PredGuid** | Apollo/Shuttle-heritage drag tracking | 3 |
+| **FNPAG** | Lu's numerical predictor-corrector | 5 |
+
 ## GNC Architecture
 
 The simulation implements a full closed-loop GNC chain:
 
 1. **Navigation** — State estimation with density filter (exponential filter on atmospheric density ratio)
-2. **Guidance** — FTC predictor-corrector computes bank angle command from reference trajectory deviations
+2. **Guidance** — One of 6 algorithms computes bank angle command (see table above)
 3. **Lateral guidance** — Roll sign management via inclination error with deadband
 4. **Control** — Pilot dynamics model applies rate limits and first/second-order lag to bank angle commands
 5. **Integration** — Gill-variant RK4 propagates equations of motion with J2 gravity, tabulated atmosphere, and aerodynamic forces
+
+## GA Optimization
+
+All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize orbit insertion error across Monte Carlo dispersions.
+
+```bash
+# Optimize any guidance scheme
+uv run python -m aerocapture.training.train \
+    --guidance equilibrium_glide \
+    --toml configs/msr_aller_eqglide_train.toml \
+    --n-gen 50 --n-pop 20
+
+# Compare all schemes on identical MC scenarios
+uv run python -m aerocapture.training.compare_guidance \
+    --base-toml configs/msr_aller_eqglide_train.toml \
+    --n-sims 100
+```
 
 ## Validation
 

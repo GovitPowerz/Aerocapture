@@ -41,7 +41,7 @@ def improve_chromosome(
     if rng is None:
         rng = np.random.default_rng()
 
-    n_coef = config.network.n_base_coef if config.ga.direct_encoding else config.network.n_coef
+    n_coef = config.n_params
     n_bit = config.ga.n_bit
 
     # Initial cost

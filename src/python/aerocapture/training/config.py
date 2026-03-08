@@ -1,6 +1,6 @@
-"""GA + NN hyperparameters for aerocapture guidance training.
+"""GA hyperparameters for aerocapture guidance training.
 
-Replaces MATLAB Param_Struct_Aerocap.m.
+Supports both NN weight optimization and generic guidance parameter optimization.
 """
 
 from __future__ import annotations
@@ -88,6 +88,21 @@ class TrainingConfig:
     ga: GAConfig = field(default_factory=GAConfig)
     sim: SimConfig = field(default_factory=SimConfig)
     save_dir: str = "save_net"
+    guidance_type: str = "neural_network"
+
+    @property
+    def n_params(self) -> int:
+        """Number of parameters to optimize (depends on guidance type)."""
+        if self.guidance_type == "neural_network":
+            return self.network.n_base_coef
+        from aerocapture.training.param_spaces import PARAM_SPACES
+
+        return len(PARAM_SPACES[self.guidance_type])
+
+    @property
+    def chrom_length(self) -> int:
+        """Binary chromosome length."""
+        return self.n_params * self.ga.n_bit
 
     def build_conversion_matrix(self) -> npt.NDArray[np.float64]:
         """Build binary-to-decimal conversion matrix.

@@ -394,6 +394,53 @@ impl SimData {
             incidence::IncidenceProfile { n_points: 0, altitudes: vec![], incidences: vec![] }
         };
 
+        // Per-scheme guidance params (with defaults if not in TOML)
+        let eq_glide_params = if let Some(ref p) = toml.guidance.equilibrium_glide {
+            guidance_params::EqGlideParams {
+                k_hdot_scale: p.k_hdot_scale,
+                v_ratio_threshold: p.v_ratio_threshold,
+                velocity_bias_high: p.velocity_bias_high,
+                velocity_bias_low: p.velocity_bias_low,
+                alt_bias_threshold: p.alt_bias_threshold,
+                cos_bank_min: p.cos_bank_min,
+                cos_bank_max: p.cos_bank_max,
+            }
+        } else {
+            guidance_params::EqGlideParams::default()
+        };
+
+        let energy_ctrl_params = if let Some(ref p) = toml.guidance.energy_controller {
+            guidance_params::EnergyCtrlParams {
+                gain: p.gain,
+                kp: p.kp,
+                kd: p.kd,
+            }
+        } else {
+            guidance_params::EnergyCtrlParams::default()
+        };
+
+        let pred_guid_params = if let Some(ref p) = toml.guidance.pred_guid {
+            guidance_params::PredGuidParams {
+                k_drag_high: p.k_drag_high,
+                k_drag_low: p.k_drag_low,
+                pdyn_threshold: p.pdyn_threshold,
+            }
+        } else {
+            guidance_params::PredGuidParams::default()
+        };
+
+        let fnpag_params = if let Some(ref p) = toml.guidance.fnpag {
+            guidance_params::FnpagParams {
+                energy_tol: p.energy_tol,
+                prediction_dt: p.prediction_dt,
+                bank_min_deg: p.bank_min_deg,
+                bank_max_high_deg: p.bank_max_high_deg,
+                bank_max_low_deg: p.bank_max_low_deg,
+            }
+        } else {
+            guidance_params::FnpagParams::default()
+        };
+
         // FTC guidance params
         let guidance = if let Some(ref ftc) = toml.guidance.ftc {
             let energy_scale = if config.mission_type == MissionType::Aerocapture { 1e6 } else { 1.0 };
@@ -440,6 +487,10 @@ impl SimData {
                 pdyn_min: ftc.pdyn_min,
                 pdyn_table,
                 ref_trajectory: ref_traj,
+                eq_glide: eq_glide_params.clone(),
+                energy_ctrl: energy_ctrl_params.clone(),
+                pred_guid: pred_guid_params.clone(),
+                fnpag: fnpag_params.clone(),
             }
         } else {
             // No FTC params — load from file if guidance suffix available, else defaults
@@ -466,6 +517,10 @@ impl SimData {
                 lateral_activation: 1.311e6, lateral_inhibition: 1e9,
                 pdyn_min: 0.0, pdyn_table: vec![],
                 ref_trajectory: ref_traj,
+                eq_glide: eq_glide_params,
+                energy_ctrl: energy_ctrl_params,
+                pred_guid: pred_guid_params,
+                fnpag: fnpag_params,
             }
         };
 

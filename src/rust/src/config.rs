@@ -192,6 +192,14 @@ pub struct TomlGuidance {
     pub reference_bank_angle: f64,
     /// FTC-specific parameters (consolidated mode, from guidage.* files)
     pub ftc: Option<TomlFtcParams>,
+    /// Equilibrium glide parameters
+    pub equilibrium_glide: Option<TomlEqGlideParams>,
+    /// Energy controller parameters
+    pub energy_controller: Option<TomlEnergyCtrlParams>,
+    /// PredGuid (drag tracking) parameters
+    pub pred_guid: Option<TomlPredGuidParams>,
+    /// FNPAG (numerical predictor-corrector) parameters
+    pub fnpag: Option<TomlFnpagParams>,
 }
 
 fn default_ref_bank() -> f64 { 0.0 }
@@ -483,6 +491,76 @@ pub struct TomlPdynEntry {
     pub a: f64,
     pub b: f64,
 }
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlEqGlideParams {
+    #[serde(default = "default_0_3")]
+    pub k_hdot_scale: f64,
+    #[serde(default = "default_1_1")]
+    pub v_ratio_threshold: f64,
+    #[serde(default = "default_0_15")]
+    pub velocity_bias_high: f64,
+    #[serde(default = "default_0_3")]
+    pub velocity_bias_low: f64,
+    #[serde(default = "default_40")]
+    pub alt_bias_threshold: f64,
+    #[serde(default = "default_neg_0_5")]
+    pub cos_bank_min: f64,
+    #[serde(default = "default_0_95")]
+    pub cos_bank_max: f64,
+}
+
+fn default_0_3() -> f64 { 0.3 }
+fn default_1_1() -> f64 { 1.1 }
+fn default_0_15() -> f64 { 0.15 }
+fn default_40() -> f64 { 40.0 }
+fn default_neg_0_5() -> f64 { -0.5 }
+fn default_0_95() -> f64 { 0.95 }
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlEnergyCtrlParams {
+    #[serde(default = "default_5e_7")]
+    pub gain: f64,
+    #[serde(default = "default_one")]
+    pub kp: f64,
+    #[serde(default = "default_0_5")]
+    pub kd: f64,
+}
+
+fn default_5e_7() -> f64 { 5e-7 }
+fn default_0_5() -> f64 { 0.5 }
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlPredGuidParams {
+    #[serde(default = "default_0_8")]
+    pub k_drag_high: f64,
+    #[serde(default = "default_0_3")]
+    pub k_drag_low: f64,
+    #[serde(default = "default_100")]
+    pub pdyn_threshold: f64,
+}
+
+fn default_0_8() -> f64 { 0.8 }
+fn default_100() -> f64 { 100.0 }
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlFnpagParams {
+    #[serde(default = "default_1e4")]
+    pub energy_tol: f64,
+    #[serde(default = "default_2")]
+    pub prediction_dt: f64,
+    #[serde(default = "default_20")]
+    pub bank_min_deg: f64,
+    #[serde(default = "default_140")]
+    pub bank_max_high_deg: f64,
+    #[serde(default = "default_100")]
+    pub bank_max_low_deg: f64,
+}
+
+fn default_1e4() -> f64 { 1e4 }
+fn default_2() -> f64 { 2.0 }
+fn default_20() -> f64 { 20.0 }
+fn default_140() -> f64 { 140.0 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct TomlInitialDispersions {

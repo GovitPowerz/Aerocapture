@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Aerocapture is a trajectory simulation tool for aerocapture maneuvers (primarily Mars Sample Return). The project is being modernized from a legacy Fortran 77 codebase (~10,675 lines across ~65 Fortran files) into a **Rust simulator** with **Python analysis tools**. The Rust simulator has been **validated against the Fortran reference** — FTC guided trajectories match to bit-level precision across all 725 timesteps (22/24 photo columns exact; the remaining 2 are Fortran uninitialized variable artifacts).
 
-The simulation models a spacecraft entering a planet's atmosphere at hyperbolic velocity, using aerodynamic forces and bank angle modulation to capture into a target orbit. The GNC chain is: Navigation (state estimation + density filter) -> Guidance (FTC predictor-corrector bank angle command) -> Control (pilot dynamics + roll reversal).
+The simulation models a spacecraft entering a planet's atmosphere at hyperbolic velocity, using aerodynamic forces and bank angle modulation to capture into a target orbit. The GNC chain is: Navigation (state estimation + density filter) -> Guidance (one of 6 algorithms: FTC, NN, Equilibrium Glide, Energy Controller, PredGuid, FNPAG) -> Control (pilot dynamics + roll reversal). All guidance schemes have TOML-configurable parameters and can be GA-optimized.
 
 ## Build & Development Commands
 
@@ -41,7 +41,7 @@ pytest tests/test_foo.py::test_bar -v
 
 ### Rust Simulator (`src/rust/`)
 
-The Rust code is a faithful line-by-line reimplementation of the Fortran. Each module maps directly to one or more Fortran subroutines. The entry point reads `.in` config from stdin (same interface as Fortran: `./aerocap < config.in`).
+The Rust code is a faithful line-by-line reimplementation of the Fortran. Each module maps directly to one or more Fortran subroutines. The entry point supports both legacy `.in` config from stdin (`./aerocap < config.in`) and TOML config as a CLI argument (`./aerocap config.toml`). TOML is preferred for new work as it supports all 6 guidance schemes and inline vehicle/mission data.
 
 ```
 src/rust/src/
@@ -52,7 +52,7 @@ src/rust/src/
     atmosphere.rs                  — Atmosphere density table (from fatmos.*)
     aerodynamics.rs                — Cx/Cz vs AoA tables (from aerodyn.*)
     capsule.rs                     — Vehicle: mass, reference area, max bank rate
-    guidance_params.rs             — Guidance law config (gains, filter lambda, pdyn table)
+    guidance_params.rs             — Guidance law config: FTC gains, EqGlide, EnergyCtrl, PredGuid, FNPAG params
     dispersions.rs                 — Monte Carlo dispersion profiles
     navigation.rs                  — Navigation error gabarits
     incidence.rs                   — AoA profile tables
@@ -69,7 +69,11 @@ src/rust/src/
     guidance/
       ftc.rs                       — FTC capture-phase guidance (← guidag.f + guicap.f + guilon.f + guilat.f + vigite.f + guialf.f)
       reference.rs                 — Constant bank angle mode
-      neural.rs                    — NN guidance (← guidnn.f, placeholder)
+      neural.rs                    — NN guidance (modular JSON architecture, GA-trained)
+      equilibrium_glide.rs         — Equilibrium glide with hdot damping + velocity bias
+      energy_controller.rs         — Energy dissipation tracking via pdyn/hdot feedback
+      predguid.rs                  — Apollo/Shuttle-heritage drag tracking guidance
+      fnpag.rs                     — Lu's numerical predictor-corrector (FNPAG)
     control/
       pilot.rs                     — Pilot dynamics (← pilote.f)
       attitude.rs                  — Attitude command realization
@@ -130,7 +134,9 @@ Configuration files selected via suffix (e.g., `.msr_aller64`):
 
 ### Input Configuration
 
-`.in` files specify: planet ID, guidance type (0=reference/1=FTC), number of sims, reference bank angle, initial orbital elements, file suffixes for data variant selection, output options.
+Two formats supported:
+- **TOML** (preferred): `./aerocapture config.toml` — supports all 6 guidance schemes, inline vehicle data, domain-based MC dispersions, per-scheme parameter tuning. Configs in `configs/`.
+- **Legacy `.in`**: `./aerocapture < config.in` — planet ID, guidance type (0=reference/1=FTC), number of sims, reference bank angle, initial orbital elements, file suffixes for data variant selection, output options.
 
 ### Python Tools (`src/python/`, `pyproject.toml`)
 
@@ -138,7 +144,43 @@ Python analysis package (numpy, pandas, matplotlib, deap, scipy) for:
 
 - Output file parsers (photo, final, fort.\* files with Fortran D-notation floats)
 - Visualization (corridor plots, MC ensembles, CDF of correction cost)
-- NN training pipeline (genetic algorithm calling simulator as subprocess)
+- GA training pipeline: optimizes any guidance scheme's parameters (not just NN weights)
+  - `train.py` — Main GA loop with checkpoint save/resume (`--guidance <scheme> --toml <config>`)
+  - `param_spaces.py` — Per-scheme parameter bounds (with optional log-scale encoding)
+  - `evaluate.py` — Decode chromosome → write params (NN JSON or patched TOML) → run sim → cost
+  - `compare_guidance.py` — Fair head-to-head comparison on identical MC scenarios
+
+## GA Training & Comparison
+
+```bash
+# ── Optimize a guidance scheme ──
+uv run python -m aerocapture.training.train \
+    --guidance equilibrium_glide \
+    --toml configs/msr_aller_eqglide_train.toml \
+    --n-gen 50 --n-pop 20
+
+# ── Resume from checkpoint ──
+uv run python -m aerocapture.training.train \
+    --guidance equilibrium_glide \
+    --toml configs/msr_aller_eqglide_train.toml \
+    --resume save_net/equilibrium_glide
+
+# ── Compare all schemes on identical MC scenarios ──
+uv run python -m aerocapture.training.compare_guidance \
+    --base-toml configs/msr_aller_eqglide_train.toml \
+    --n-sims 100 \
+    --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network
+```
+
+Guidance schemes and their TOML training configs:
+- `neural_network` → `configs/msr_aller_nn_train_consolidated.toml`
+- `equilibrium_glide` → `configs/msr_aller_eqglide_train.toml`
+- `energy_controller` → `configs/msr_aller_energy_controller_train.toml`
+- `pred_guid` → `configs/msr_aller_pred_guid_train.toml`
+- `fnpag` → `configs/msr_aller_fnpag_train.toml`
+- `ftc` → `configs/msr_aller_ftc_train.toml`
+
+Optimized params saved to `save_net/<scheme>/best_params.json` (or `best_model.json` for NN).
 
 ## Key Lessons & Pitfalls
 

@@ -52,10 +52,12 @@ pub fn equilibrium_glide_bank(nav: &NavigationOutput, data: &SimData, planet: &P
     // Base equilibrium: cos(bank) = (g - V²/r) / lift_accel
     let cos_eq = (g - v2_over_r) / lift_accel;
 
+    let params = &data.guidance.eq_glide;
+
     // Radial velocity damping: if sinking, reduce bank (more lift-up);
     // if rising, increase bank (more lift-down toward equilibrium)
     let hdot = v * nav.vitesn[1].sin();
-    let k_hdot = 0.3 / v.max(100.0); // damping gain, scales with velocity
+    let k_hdot = params.k_hdot_scale / v.max(100.0);
     let cos_hdot_correction = -k_hdot * hdot;
 
     // Velocity-dependent bias: at hyperbolic velocities, we want more drag
@@ -63,23 +65,22 @@ pub fn equilibrium_glide_bank(nav: &NavigationOutput, data: &SimData, planet: &P
     // circular, reduce bank to stop dissipation.
     let v_circular = (mu / r).sqrt();
     let v_ratio = v / v_circular;
-    // Above circular: bias toward higher bank (cos closer to -1)
-    // Below circular: bias toward lower bank (cos closer to +1)
-    let velocity_bias = if v_ratio > 1.1 {
-        -0.15 * (v_ratio - 1.1).min(1.0)
+    let velocity_bias = if v_ratio > params.v_ratio_threshold {
+        -params.velocity_bias_high * (v_ratio - params.v_ratio_threshold).min(1.0)
     } else {
-        0.3 * (1.1 - v_ratio).min(0.5)
+        params.velocity_bias_low * (params.v_ratio_threshold - v_ratio).min(0.5)
     };
 
     // Altitude-dependent correction: if too low, bias toward lift-up
     let alt_km = altitude / 1e3;
-    let alt_bias = if alt_km < 40.0 {
-        0.3 * (1.0 - alt_km / 40.0) // strong lift-up bias below 40 km
+    let alt_bias = if alt_km < params.alt_bias_threshold {
+        params.velocity_bias_low * (1.0 - alt_km / params.alt_bias_threshold)
     } else {
         0.0
     };
 
-    let cos_bank = (cos_eq + cos_hdot_correction + velocity_bias + alt_bias).clamp(-0.5, 0.95);
+    let cos_bank = (cos_eq + cos_hdot_correction + velocity_bias + alt_bias)
+        .clamp(params.cos_bank_min, params.cos_bank_max);
     let bank = cos_bank.acos();
 
     // Safety clamp: never go below 15° (skip-out) or above 120° (crash risk)

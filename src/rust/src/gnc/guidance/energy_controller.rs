@@ -17,16 +17,15 @@ use crate::data::SimData;
 use crate::gnc::navigation::coordinates::total_energy;
 use crate::gnc::navigation::estimator::NavigationOutput;
 
-/// Energy controller persistent state.
+/// Energy controller persistent state (runtime-only, no tunable params).
 #[derive(Debug, Clone)]
 pub struct EnergyControllerState {
-    /// Gain on energy error (1/Pa). Typical: 1e-7 to 1e-5.
-    pub gain: f64,
+    _placeholder: (),
 }
 
 impl EnergyControllerState {
     pub fn new() -> Self {
-        Self { gain: 5e-7 }
+        Self { _placeholder: () }
     }
 }
 
@@ -72,13 +71,11 @@ pub fn energy_controller_bank(
     // Also correct for radial velocity error (helps dampen oscillations).
     let pdyn_safe = pdyn.max(1e-3);
 
-    // Gains: pressure error gain and radial velocity damping gain
-    let kp = 1.0; // pressure proportional gain (dimensionless)
-    let kd = 0.5; // radial velocity damping gain (dimensionless, acts like derivative)
+    let params = &data.guidance.energy_ctrl;
 
     let cos_bank = cos_bank_ref
-        + kp * (pdyn - pdyn_ref) / pdyn_safe
-        + kd * (hdot - hdot_ref) / pdyn_safe;
+        + params.kp * (pdyn - pdyn_ref) / pdyn_safe
+        + params.kd * (hdot - hdot_ref) / pdyn_safe;
 
     let cos_bank = cos_bank.clamp(-1.0, 1.0);
     cos_bank.acos()

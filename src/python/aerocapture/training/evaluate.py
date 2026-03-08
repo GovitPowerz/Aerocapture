@@ -1,12 +1,15 @@
-"""Cost function evaluation: write NN weights, run simulator, compute cost.
+"""Cost function evaluation: write NN/guidance params, run simulator, compute cost.
 
 Replaces MATLAB ComputeCost_Aerocap.m.
+Supports both NN weight optimization and generic guidance parameter optimization.
 """
 
 from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
+from io import TextIOWrapper
 from pathlib import Path
 
 import numpy as np
@@ -275,6 +278,173 @@ def decode_direct(
     return result
 
 
+def decode_params_from_chromosome(
+    xbit: npt.NDArray[np.int8],
+    config: TrainingConfig,
+) -> dict[str, float]:
+    """Decode binary chromosome to named guidance parameter values.
+
+    Each parameter has its own [p_min, p_max] bounds. Parameters with
+    log_scale=True are decoded in log space then exponentiated.
+
+    Returns:
+        Dict mapping parameter name to decoded float value.
+    """
+    from aerocapture.training.param_spaces import PARAM_SPACES
+
+    specs = PARAM_SPACES[config.guidance_type]
+    n_bit = config.ga.n_bit
+    bit_weights = np.power(2.0, np.arange(n_bit - 1, -1, -1))
+    max_val = 2**n_bit - 1
+
+    result = {}
+    for i, spec in enumerate(specs):
+        bits = xbit[i * n_bit : (i + 1) * n_bit]
+        normalized = float(np.sum(bits * bit_weights)) / max_val  # [0, 1]
+
+        if spec.log_scale:
+            log_min = np.log10(spec.p_min)
+            log_max = np.log10(spec.p_max)
+            result[spec.name] = 10.0 ** (log_min + normalized * (log_max - log_min))
+        else:
+            result[spec.name] = spec.p_min + normalized * (spec.p_max - spec.p_min)
+
+    return result
+
+
+def write_guidance_toml(
+    base_toml_path: str | Path,
+    guidance_type: str,
+    params: dict[str, float],
+    output_path: str | Path | None = None,
+) -> Path:
+    """Patch a base TOML config with optimized guidance parameters.
+
+    Reads the base TOML, adds/overwrites the [guidance.<section>] with
+    the provided parameter values, and writes to output_path (or a temp file).
+
+    Returns:
+        Path to the written TOML file.
+    """
+    import tomllib
+
+    from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
+
+    base_toml_path = Path(base_toml_path)
+    with open(base_toml_path, "rb") as f:
+        toml_data = tomllib.load(f)
+
+    # Set the guidance type
+    toml_data.setdefault("guidance", {})["type"] = guidance_type
+
+    # Set the parameter section
+    section_name = GUIDANCE_TOML_SECTIONS[guidance_type]
+    toml_data["guidance"][section_name] = params
+
+    # Write TOML (minimal writer — machine-consumed only)
+    if output_path is None:
+        fd, path_str = tempfile.mkstemp(suffix=".toml", prefix="guidance_")
+        output_path = Path(path_str)
+        import os
+
+        os.close(fd)
+    else:
+        output_path = Path(output_path)
+
+    _write_toml(toml_data, output_path)
+    return output_path
+
+
+def _write_toml(data: dict, path: Path) -> None:
+    """Minimal TOML writer for nested dicts with scalar/list values."""
+    with open(path, "w") as f:
+        _write_toml_section(f, data, prefix="")
+
+
+def _write_toml_section(f: TextIOWrapper, data: dict, prefix: str) -> None:
+    """Recursively write TOML sections."""
+    # First pass: write scalar/list values at this level
+    for key, value in data.items():
+        if isinstance(value, dict):
+            # Check if it's an inline table (contains only scalars) or a section
+            if _is_table_array(value):
+                # Array of inline tables (like aerodynamics.points)
+                continue
+            if any(isinstance(v, dict) for v in value.values()):
+                continue  # Will be written as subsection
+            if not _has_non_dict_values(value):
+                continue
+        if not isinstance(value, dict):
+            f.write(f"{key} = {_toml_value(value)}\n")
+
+    # Second pass: write array-of-tables
+    for key, value in data.items():
+        if isinstance(value, list) and value and isinstance(value[0], dict):
+            full_key = f"{prefix}{key}" if prefix else key
+            for item in value:
+                f.write(f"\n[[{full_key}]]\n")
+                _write_toml_section(f, item, prefix=f"{full_key}.")
+
+    # Third pass: write subsections
+    for key, value in data.items():
+        if isinstance(value, dict):
+            full_key = f"{prefix}{key}" if prefix else key
+            # Write section header if this dict has scalar values
+            scalars = {k: v for k, v in value.items() if not isinstance(v, dict) and not _is_table_array_entry(v)}
+            if scalars:
+                f.write(f"\n[{full_key}]\n")
+                for sk, sv in scalars.items():
+                    if isinstance(sv, list) and sv and isinstance(sv[0], dict):
+                        continue  # handled separately
+                    f.write(f"{sk} = {_toml_value(sv)}\n")
+            # Write array-of-tables within this section
+            for sk, sv in value.items():
+                if isinstance(sv, list) and sv and isinstance(sv[0], dict):
+                    aot_key = f"{full_key}.{sk}"
+                    for item in sv:
+                        f.write(f"\n[[{aot_key}]]\n")
+                        for ik, iv in item.items():
+                            f.write(f"{ik} = {_toml_value(iv)}\n")
+            # Recurse into nested dicts
+            for sk, sv in value.items():
+                if isinstance(sv, dict):
+                    _write_toml_section(f, {sk: sv}, prefix=f"{full_key}.")
+
+
+def _is_table_array(value: object) -> bool:
+    return isinstance(value, list) and bool(value) and isinstance(value[0], dict)
+
+
+def _is_table_array_entry(value: object) -> bool:
+    return isinstance(value, list) and bool(value) and isinstance(value[0], dict)
+
+
+def _has_non_dict_values(d: dict) -> bool:
+    return any(not isinstance(v, dict) for v in d.values())
+
+
+def _toml_value(value: object) -> str:
+    """Format a Python value as TOML."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    if isinstance(value, str):
+        return f'"{value}"'
+    if isinstance(value, list):
+        if value and isinstance(value[0], dict):
+            # Inline table array — should be handled as [[section]]
+            items = []
+            for item in value:
+                fields = ", ".join(f"{k} = {_toml_value(v)}" for k, v in item.items())
+                items.append(f"{{ {fields} }}")
+            return f"[{', '.join(items)}]"
+        return f"[{', '.join(_toml_value(v) for v in value)}]"
+    return str(value)
+
+
 def evaluate_chromosome(
     xbit: npt.NDArray[np.int8],
     base_network: npt.NDArray[np.float64],
@@ -283,28 +453,47 @@ def evaluate_chromosome(
 ) -> tuple[float, npt.NDArray[np.float64] | None]:
     """Full evaluation pipeline: decode, simulate, score.
 
+    Dispatches between NN weight optimization and generic guidance
+    parameter optimization based on config.guidance_type.
+
     Args:
         xbit: Binary chromosome.
-        base_network: Base network weights (ignored in direct encoding mode).
+        base_network: Base network weights (ignored for non-NN schemes).
         config: Training configuration.
         cwd: Working directory.
 
     Returns:
         (cost, final_conditions) tuple.
     """
-    weights = decode_direct(xbit, config) if config.ga.direct_encoding else perturb_network(xbit, base_network, config)
-
-    # Write to file
     if cwd is None:
         cwd = config.sim.exec_dir
-    nn_path = Path(cwd) / config.sim.nn_param_file
-    write_nn_json(weights, config.network, nn_path)
 
-    # Run simulation
-    final = run_simulation(config, cwd=cwd)
+    if config.guidance_type == "neural_network":
+        # NN path: decode weights, write JSON, run sim
+        weights = decode_direct(xbit, config) if config.ga.direct_encoding else perturb_network(xbit, base_network, config)
+        nn_path = Path(cwd) / config.sim.nn_param_file
+        write_nn_json(weights, config.network, nn_path)
+        final = run_simulation(config, cwd=cwd)
+    else:
+        # Generic guidance param path: decode params, patch TOML, run sim
+        params = decode_params_from_chromosome(xbit, config)
+        if config.sim.toml_config is None:
+            msg = f"toml_config must be set for guidance_type={config.guidance_type}"
+            raise ValueError(msg)
+        base_toml = Path(cwd) / config.sim.toml_config
+        patched_toml = write_guidance_toml(base_toml, config.guidance_type, params)
+        try:
+            # Temporarily override TOML config to use patched file
+            orig_toml = config.sim.toml_config
+            config.sim.toml_config = str(patched_toml)
+            final = run_simulation(config, cwd=cwd)
+            config.sim.toml_config = orig_toml
+        finally:
+            # Clean up temp file
+            patched_toml.unlink(missing_ok=True)
+
     if final is None:
         return 1e30, None
 
-    # Compute cost
     cost = compute_cost(final)
     return cost, final

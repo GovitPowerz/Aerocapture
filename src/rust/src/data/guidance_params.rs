@@ -19,6 +19,90 @@ pub struct PdynTableEntry {
     pub coeff_b: f64,
 }
 
+/// Equilibrium glide tunable parameters.
+#[derive(Debug, Clone)]
+pub struct EqGlideParams {
+    pub k_hdot_scale: f64,       // radial velocity damping numerator
+    pub v_ratio_threshold: f64,  // velocity ratio breakpoint
+    pub velocity_bias_high: f64, // cos(bank) bias magnitude above v_ratio
+    pub velocity_bias_low: f64,  // cos(bank) bias magnitude below v_ratio
+    pub alt_bias_threshold: f64, // altitude (km) for lift-up bias
+    pub cos_bank_min: f64,       // lower clamp on cos(bank)
+    pub cos_bank_max: f64,       // upper clamp on cos(bank)
+}
+
+impl Default for EqGlideParams {
+    fn default() -> Self {
+        Self {
+            k_hdot_scale: 0.3,
+            v_ratio_threshold: 1.1,
+            velocity_bias_high: 0.15,
+            velocity_bias_low: 0.3,
+            alt_bias_threshold: 40.0,
+            cos_bank_min: -0.5,
+            cos_bank_max: 0.95,
+        }
+    }
+}
+
+/// Energy controller tunable parameters.
+#[derive(Debug, Clone)]
+pub struct EnergyCtrlParams {
+    pub gain: f64, // energy error gain (1/Pa)
+    pub kp: f64,   // pressure proportional gain
+    pub kd: f64,   // radial velocity damping gain
+}
+
+impl Default for EnergyCtrlParams {
+    fn default() -> Self {
+        Self {
+            gain: 5e-7,
+            kp: 1.0,
+            kd: 0.5,
+        }
+    }
+}
+
+/// PredGuid (drag tracking) tunable parameters.
+#[derive(Debug, Clone)]
+pub struct PredGuidParams {
+    pub k_drag_high: f64,    // gain when pdyn > threshold
+    pub k_drag_low: f64,     // gain when pdyn <= threshold
+    pub pdyn_threshold: f64, // switchover dynamic pressure (Pa)
+}
+
+impl Default for PredGuidParams {
+    fn default() -> Self {
+        Self {
+            k_drag_high: 0.8,
+            k_drag_low: 0.3,
+            pdyn_threshold: 100.0,
+        }
+    }
+}
+
+/// FNPAG (fully numerical predictor-corrector) tunable parameters.
+#[derive(Debug, Clone)]
+pub struct FnpagParams {
+    pub energy_tol: f64,       // convergence tolerance (J/kg)
+    pub prediction_dt: f64,    // forward prediction timestep (s)
+    pub bank_min_deg: f64,     // minimum bank angle (deg)
+    pub bank_max_high_deg: f64, // max bank above 50 km (deg)
+    pub bank_max_low_deg: f64, // max bank below 50 km (deg)
+}
+
+impl Default for FnpagParams {
+    fn default() -> Self {
+        Self {
+            energy_tol: 1e4,
+            prediction_dt: 2.0,
+            bank_min_deg: 20.0,
+            bank_max_high_deg: 140.0,
+            bank_max_low_deg: 100.0,
+        }
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct GuidanceParams {
@@ -62,6 +146,12 @@ pub struct GuidanceParams {
 
     // Reference trajectory tables (from tables_energie_gains file)
     pub ref_trajectory: ReferenceTrajectory,
+
+    // Per-scheme tunable parameters
+    pub eq_glide: EqGlideParams,
+    pub energy_ctrl: EnergyCtrlParams,
+    pub pred_guid: PredGuidParams,
+    pub fnpag: FnpagParams,
 }
 
 /// Reference trajectory tables loaded from tables_energie_gains file.
@@ -312,6 +402,10 @@ impl GuidanceParams {
             pdyn_min,
             pdyn_table,
             ref_trajectory,
+            eq_glide: EqGlideParams::default(),
+            energy_ctrl: EnergyCtrlParams::default(),
+            pred_guid: PredGuidParams::default(),
+            fnpag: FnpagParams::default(),
         })
     }
 }

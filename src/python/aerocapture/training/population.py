@@ -40,6 +40,40 @@ def encode_weights_to_chromosome(
     return chrom
 
 
+def encode_params_to_chromosome(
+    params: dict[str, float],
+    config: TrainingConfig,
+) -> npt.NDArray[np.int8]:
+    """Encode guidance parameter values into a binary chromosome.
+
+    Inverse of decode_params_from_chromosome: maps named params to binary.
+    """
+    from aerocapture.training.param_spaces import PARAM_SPACES
+
+    specs = PARAM_SPACES[config.guidance_type]
+    n_bit = config.ga.n_bit
+    max_val = 2**n_bit - 1
+    chrom = np.zeros(len(specs) * n_bit, dtype=np.int8)
+
+    for i, spec in enumerate(specs):
+        value = params.get(spec.name, spec.default)
+
+        if spec.log_scale:
+            log_min = np.log10(spec.p_min)
+            log_max = np.log10(spec.p_max)
+            log_val = np.log10(np.clip(value, spec.p_min, spec.p_max))
+            normalized = (log_val - log_min) / (log_max - log_min)
+        else:
+            clipped = np.clip(value, spec.p_min, spec.p_max)
+            normalized = (clipped - spec.p_min) / (spec.p_max - spec.p_min)
+
+        int_val = int(np.round(normalized * max_val))
+        for b in range(n_bit):
+            chrom[i * n_bit + b] = (int_val >> (n_bit - 1 - b)) & 1
+
+    return chrom
+
+
 def create_initial_population(
     config: TrainingConfig,
     base_network: npt.NDArray[np.float64],
@@ -51,15 +85,16 @@ def create_initial_population(
     """Generate and evaluate initial GA population.
 
     Creates 3x oversized population, evaluates all, keeps best.
-    Optionally seeds population with encoded versions of known weights.
+    Optionally seeds population with encoded versions of known weights
+    (NN) or default parameter values (guidance params).
 
     Args:
         config: Training configuration.
-        base_network: Base network weights (ignored in direct encoding).
+        base_network: Base network weights (ignored in direct encoding and non-NN).
         rng: Random number generator.
         cwd: Working directory for simulation.
         verbose: Print progress.
-        seed_weights: Known weight vector to seed population (direct encoding only).
+        seed_weights: Known weight vector to seed population (NN direct encoding only).
 
     Returns:
         (population, costs) where population has shape (n_pop, chromosome_length)
@@ -69,33 +104,44 @@ def create_initial_population(
         rng = np.random.default_rng()
 
     n_pop = config.ga.n_pop
-    n_bit = config.ga.n_bit
-    if config.ga.direct_encoding:
-        chrom_len = n_bit * config.network.n_base_coef
-    else:
-        n_coef = config.network.n_coef
-        chrom_len = n_bit * n_coef + n_coef  # bits + sign bits
+    chrom_len = config.chrom_length
     n_candidates = 3 * n_pop
 
     if verbose:
-        print(f"Generating {n_candidates} candidate chromosomes...")
+        print(f"Generating {n_candidates} candidate chromosomes ({config.guidance_type}, {config.n_params} params)...")
 
     # Generate random binary chromosomes
     candidates = rng.integers(0, 2, size=(n_candidates, chrom_len), dtype=np.int8)
 
-    # Seed with known weights: exact encoding + mutated variants
-    if seed_weights is not None and config.ga.direct_encoding:
-        seed_chrom = encode_weights_to_chromosome(seed_weights, config)
+    # Seed population from known values
+    if config.guidance_type == "neural_network":
+        # NN: seed from known weights
+        if seed_weights is not None and config.ga.direct_encoding:
+            seed_chrom = encode_weights_to_chromosome(seed_weights, config)
+            candidates[0] = seed_chrom
+            n_seeded = min(n_pop // 2, n_candidates - 1)
+            for i in range(1, 1 + n_seeded):
+                mutant = seed_chrom.copy()
+                flip_mask = rng.random(chrom_len) < 0.05
+                mutant[flip_mask] = 1 - mutant[flip_mask]
+                candidates[i] = mutant
+            if verbose:
+                print(f"  Seeded {1 + n_seeded} chromosomes from known weights")
+    else:
+        # Guidance params: seed from defaults
+        from aerocapture.training.param_spaces import PARAM_SPACES
+
+        defaults = {s.name: s.default for s in PARAM_SPACES[config.guidance_type]}
+        seed_chrom = encode_params_to_chromosome(defaults, config)
         candidates[0] = seed_chrom
         n_seeded = min(n_pop // 2, n_candidates - 1)
         for i in range(1, 1 + n_seeded):
             mutant = seed_chrom.copy()
-            # Flip ~5% of bits randomly
             flip_mask = rng.random(chrom_len) < 0.05
             mutant[flip_mask] = 1 - mutant[flip_mask]
             candidates[i] = mutant
         if verbose:
-            print(f"  Seeded {1 + n_seeded} chromosomes from known weights")
+            print(f"  Seeded {1 + n_seeded} chromosomes from default params")
 
     costs = np.full(n_candidates, np.inf)
 
