@@ -109,7 +109,8 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
             if let Some(ref d) = draws {
                 init::init_run_from_draw(data, &d[sim_idx as usize])
             } else {
-                init::init_run(data, config, sim_idx, config.random_seed)
+                // No [monte_carlo] config: zero dispersions (nominal trajectory)
+                init::init_run_from_draw(data, &crate::data::dispersions::DispersionDraw::default())
             }
         })
         .collect();

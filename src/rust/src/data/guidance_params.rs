@@ -277,6 +277,40 @@ impl ReferenceTrajectory {
     }
 }
 
+impl Default for GuidanceParams {
+    fn default() -> Self {
+        Self {
+            capture_damping: 0.0,
+            capture_frequency: 0.0,
+            capture_pdyn_margin: 0.0,
+            altitude_damping: 0.0,
+            altitude_frequency: 0.0,
+            exit_velocity_threshold: 0.0,
+            exit_pdyn_margin: 0.0,
+            exit_altitude_threshold: 0.0,
+            exit_radial_vel_gain: 0.0,
+            exit_apoapsis_threshold: 0.0,
+            corridor_slope: 0.0,
+            corridor_intercept: 0.0,
+            max_reversals: 0,
+            security_capture: 0,
+            security_exit: 0,
+            density_filter_gain: 0.0,
+            longi_activation: 0.0,
+            longi_inhibition: 0.0,
+            lateral_activation: 0.0,
+            lateral_inhibition: 0.0,
+            pdyn_min: 0.0,
+            pdyn_table: Vec::new(),
+            ref_trajectory: ReferenceTrajectory::default(),
+            eq_glide: EqGlideParams::default(),
+            energy_ctrl: EnergyCtrlParams::default(),
+            pred_guid: PredGuidParams::default(),
+            fnpag: FnpagParams::default(),
+        }
+    }
+}
+
 impl GuidanceParams {
     #[allow(dead_code)]
     pub fn load(path: &str, mission_type: MissionType) -> Result<Self, DataError> {

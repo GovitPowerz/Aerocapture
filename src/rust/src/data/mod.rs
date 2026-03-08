@@ -8,7 +8,6 @@ pub mod capsule;
 pub mod dispersions;
 pub mod guidance_params;
 pub mod incidence;
-pub mod navigation;
 pub mod neural;
 pub mod pilot;
 
@@ -159,8 +158,6 @@ pub struct SimData {
     pub parking_orbit: ParkingOrbit,
     pub periods: TimePeriods,
     pub guidance: guidance_params::GuidanceParams,
-    pub dispersions: dispersions::DispersionParams,
-    pub navigation: navigation::NavigationParams,
     pub incidence: incidence::IncidenceProfile,
     pub pilot: pilot::PilotModel,
     pub success: SuccessCriteria,
@@ -207,16 +204,6 @@ impl SimData {
             config.reference_trajectory,
         )?;
 
-        let dispersions = dispersions::DispersionParams::load(
-            &config.data_path("dispersions", &config.suffixes.dispersions),
-            &config.dispersion_multipliers,
-        )?;
-
-        let navigation = navigation::NavigationParams::load(
-            &config.data_path("navigation", &config.suffixes.navigation),
-            &config.dispersion_multipliers,
-        )?;
-
         let incidence = incidence::IncidenceProfile::load(
             &config.data_path("incidence", &config.suffixes.incidence),
         )?;
@@ -244,8 +231,6 @@ impl SimData {
             parking_orbit: parking,
             periods,
             guidance,
-            dispersions,
-            navigation,
             incidence,
             pilot,
             success,
@@ -556,41 +541,6 @@ impl SimData {
             }
         };
 
-        // Dispersions
-        let xm = &config.dispersion_multipliers;
-        let disp = if let Some(ref d) = toml.initial_dispersions {
-            dispersions::DispersionParams {
-                altitude: xm[1] * d.altitude * 1e3,
-                longitude: xm[1] * d.longitude * DEG2RAD,
-                latitude: xm[1] * d.latitude * DEG2RAD,
-                velocity: xm[1] * d.velocity,
-                flight_path: xm[1] * d.flight_path_angle * DEG2RAD,
-                azimuth: xm[1] * d.azimuth * DEG2RAD,
-                drag_coeff: xm[3] * d.drag_coeff / 100.0,
-                lift_coeff: xm[3] * d.lift_coeff / 100.0,
-                density: d.density / 100.0,
-                incidence: xm[3] * d.incidence * DEG2RAD,
-                mass: d.mass / 100.0,
-            }
-        } else {
-            dispersions::DispersionParams::default()
-        };
-
-        // Navigation errors
-        let nav = if let Some(ref n) = toml.navigation_errors {
-            navigation::NavigationParams {
-                altitude: xm[0] * n.altitude * 1e3,
-                latitude: xm[0] * n.latitude * DEG2RAD,
-                longitude: xm[0] * n.longitude * DEG2RAD,
-                velocity: xm[0] * n.velocity,
-                flight_path: xm[0] * n.flight_path_angle * DEG2RAD,
-                azimuth: xm[0] * n.azimuth * DEG2RAD,
-                drag_accel: xm[2] * n.drag_accel,
-            }
-        } else {
-            navigation::NavigationParams::default()
-        };
-
         // Atmosphere (always external)
         let atm_path = toml
             .data
@@ -628,8 +578,6 @@ impl SimData {
             parking_orbit,
             periods: capsule_data.periods,
             guidance,
-            dispersions: disp,
-            navigation: nav,
             incidence: incidence_data,
             pilot: pilot_data,
             success,

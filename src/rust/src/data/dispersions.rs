@@ -1,76 +1,18 @@
 //! Monte Carlo dispersion system.
 //!
-//! Two modes:
-//! - **Legacy**: sigma values from `dispersions.*`/`navigation.*` files + pre-computed
-//!   draws from `loterie.*` files (Fortran heritage).
-//! - **Domain-based**: sigma values from TOML config with preset levels + runtime RNG
-//!   draw generation (replaces lottery files entirely).
+//! Domain-based: sigma values from TOML config with preset levels + runtime RNG
+//! draw generation.
 //!
 //! Distribution types match the original Fortran (loteri.f):
 //! - Initial state + navigation: Gaussian (bgauss.f — sum of 12 uniforms, CLT)
 //! - Atmosphere, aerodynamics, incidence, mass: Uniform[-sigma, +sigma] (bunifo.f)
 
-use super::{DataError, parse_data_file};
+use super::DataError;
 use rand::SeedableRng;
 use rand::distr::Distribution;
 use rand_distr::{Normal, Uniform};
 
 const DEG2RAD: f64 = std::f64::consts::PI / 180.0;
-
-// ────────────────────────────────────────────────────────────────────
-// Legacy sigma structs (kept for suffix-based file loading)
-// ────────────────────────────────────────────────────────────────────
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DispersionParams {
-    // Initial state dispersions (1-sigma, after multiplier xmulti(2))
-    pub altitude: f64,    // meters (from km)
-    pub longitude: f64,   // radians (from deg)
-    pub latitude: f64,    // radians (from deg)
-    pub velocity: f64,    // m/s
-    pub flight_path: f64, // radians (from deg)
-    pub azimuth: f64,     // radians (from deg)
-
-    // Aerodynamic/model dispersions (1-sigma, after multiplier xmulti(4))
-    pub drag_coeff: f64, // fractional (from %)
-    pub lift_coeff: f64, // fractional (from %)
-    pub density: f64,    // fractional (from %)
-    pub incidence: f64,  // radians (from deg)
-    pub mass: f64,       // fractional (from %)
-}
-
-impl DispersionParams {
-    pub fn load(path: &str, xmulti: &[f64; 4]) -> Result<Self, DataError> {
-        let rows = parse_data_file(path)?;
-        if rows.len() < 11 {
-            return Err(DataError(format!(
-                "Dispersions file too short ({} rows, need 11): {}",
-                rows.len(),
-                path
-            )));
-        }
-
-        // Matches Fortran lectci.f conversion exactly
-        Ok(DispersionParams {
-            altitude: xmulti[1] * rows[0][0] * 1e3, // km -> m
-            longitude: xmulti[1] * rows[1][0] * DEG2RAD,
-            latitude: xmulti[1] * rows[2][0] * DEG2RAD,
-            velocity: xmulti[1] * rows[3][0],
-            flight_path: xmulti[1] * rows[4][0] * DEG2RAD,
-            azimuth: xmulti[1] * rows[5][0] * DEG2RAD,
-            drag_coeff: xmulti[3] * rows[6][0] / 100.0,
-            lift_coeff: xmulti[3] * rows[7][0] / 100.0,
-            density: rows[8][0] / 100.0, // droatm — no multiplier in Fortran
-            incidence: xmulti[3] * rows[9][0] * DEG2RAD,
-            mass: rows[10][0] / 100.0,
-        })
-    }
-}
-
-// ────────────────────────────────────────────────────────────────────
-// Domain-based dispersion config (new system)
-// ────────────────────────────────────────────────────────────────────
 
 /// Preset dispersion severity level.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -380,5 +322,174 @@ impl DispersionConfig {
                 draw
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn medium_config(seed: u64) -> DispersionConfig {
+        DispersionConfig {
+            seed,
+            initial_state: Some(InitialStateSigmas::from_level(DispersionLevel::Medium)),
+            atmosphere: Some(AtmosphereSigmas::from_level(DispersionLevel::Medium)),
+            aerodynamics: Some(AerodynamicsSigmas::from_level(DispersionLevel::Medium)),
+            navigation: Some(NavigationSigmas::from_level(DispersionLevel::Medium)),
+            mass: Some(MassSigmas::from_level(DispersionLevel::Medium)),
+        }
+    }
+
+    #[test]
+    fn test_generate_draws_reproducible() {
+        let draws_a = medium_config(42).generate_draws(10);
+        let draws_b = medium_config(42).generate_draws(10);
+        for (a, b) in draws_a.iter().zip(draws_b.iter()) {
+            assert_eq!(a.altitude, b.altitude);
+            assert_eq!(a.velocity, b.velocity);
+            assert_eq!(a.density, b.density);
+            assert_eq!(a.drag_coeff, b.drag_coeff);
+            assert_eq!(a.nav_altitude, b.nav_altitude);
+            assert_eq!(a.mass, b.mass);
+        }
+    }
+
+    #[test]
+    fn test_generate_draws_different_seeds() {
+        let draws_a = medium_config(42).generate_draws(5);
+        let draws_b = medium_config(99).generate_draws(5);
+        // With different seeds, at least one draw should differ
+        let any_differ = draws_a
+            .iter()
+            .zip(draws_b.iter())
+            .any(|(a, b)| a.velocity != b.velocity);
+        assert!(any_differ, "Different seeds should produce different draws");
+    }
+
+    #[test]
+    fn test_generate_draws_count() {
+        for n in [0, 1, 5, 100] {
+            let draws = medium_config(42).generate_draws(n);
+            assert_eq!(draws.len(), n);
+        }
+    }
+
+    #[test]
+    fn test_all_none_gives_zeros() {
+        let config = DispersionConfig {
+            seed: 42,
+            initial_state: None,
+            atmosphere: None,
+            aerodynamics: None,
+            navigation: None,
+            mass: None,
+        };
+        let draws = config.generate_draws(10);
+        for d in &draws {
+            assert_eq!(d.altitude, 0.0);
+            assert_eq!(d.longitude, 0.0);
+            assert_eq!(d.velocity, 0.0);
+            assert_eq!(d.density, 0.0);
+            assert_eq!(d.drag_coeff, 0.0);
+            assert_eq!(d.nav_altitude, 0.0);
+            assert_eq!(d.mass, 0.0);
+        }
+    }
+
+    #[test]
+    fn test_sigma_presets_nonzero() {
+        for level in [
+            DispersionLevel::Low,
+            DispersionLevel::Medium,
+            DispersionLevel::High,
+        ] {
+            let s = InitialStateSigmas::from_level(level);
+            // At least velocity should be non-zero for all non-off levels
+            assert!(
+                s.velocity > 0.0,
+                "velocity sigma should be > 0 for {:?}",
+                level
+            );
+
+            let a = AtmosphereSigmas::from_level(level);
+            assert!(a.density > 0.0);
+
+            let n = NavigationSigmas::from_level(level);
+            assert!(n.altitude > 0.0);
+        }
+
+        let s_off = InitialStateSigmas::from_level(DispersionLevel::Off);
+        assert_eq!(s_off.altitude, 0.0);
+        assert_eq!(s_off.velocity, 0.0);
+    }
+
+    #[test]
+    fn test_uniform_fields_bounded() {
+        let config = DispersionConfig {
+            seed: 12345,
+            initial_state: None,
+            atmosphere: Some(AtmosphereSigmas { density: 50.0 }),
+            aerodynamics: Some(AerodynamicsSigmas {
+                drag: 5.0,
+                lift: 10.0,
+                incidence: 1.0,
+            }),
+            navigation: None,
+            mass: Some(MassSigmas { mass: 1.0 }),
+        };
+        let draws = config.generate_draws(1000);
+        for d in &draws {
+            // Uniform[-1,1] * sigma/100, so |value| <= sigma/100
+            assert!(
+                d.density.abs() <= 0.50 + 1e-10,
+                "density out of bounds: {}",
+                d.density
+            );
+            assert!(
+                d.drag_coeff.abs() <= 0.05 + 1e-10,
+                "drag out of bounds: {}",
+                d.drag_coeff
+            );
+            assert!(
+                d.lift_coeff.abs() <= 0.10 + 1e-10,
+                "lift out of bounds: {}",
+                d.lift_coeff
+            );
+            assert!(
+                d.incidence.abs() <= 1.0 * DEG2RAD + 1e-10,
+                "incidence out of bounds: {}",
+                d.incidence
+            );
+            assert!(
+                d.mass.abs() <= 0.01 + 1e-10,
+                "mass out of bounds: {}",
+                d.mass
+            );
+        }
+    }
+
+    #[test]
+    fn test_dispersion_level_parsing() {
+        assert_eq!(
+            DispersionLevel::from_str("off").unwrap(),
+            DispersionLevel::Off
+        );
+        assert_eq!(
+            DispersionLevel::from_str("low").unwrap(),
+            DispersionLevel::Low
+        );
+        assert_eq!(
+            DispersionLevel::from_str("medium").unwrap(),
+            DispersionLevel::Medium
+        );
+        assert_eq!(
+            DispersionLevel::from_str("high").unwrap(),
+            DispersionLevel::High
+        );
+        assert_eq!(
+            DispersionLevel::from_str("custom").unwrap(),
+            DispersionLevel::Custom
+        );
+        assert!(DispersionLevel::from_str("invalid").is_err());
     }
 }

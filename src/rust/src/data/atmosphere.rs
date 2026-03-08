@@ -17,7 +17,7 @@ use super::{DataError, parse_data_file};
 
 /// Density dispersion profile (altitude-dependent bias envelope)
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DensityProfile {
     pub altitudes: Vec<f64>,      // meters (up to 5 breakpoints)
     pub max_dispersion: Vec<f64>, // fractional (converted from %)
@@ -26,7 +26,7 @@ pub struct DensityProfile {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AtmosphereModel {
     pub n_points: usize,
     pub altitudes: Vec<f64>, // meters

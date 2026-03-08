@@ -16,7 +16,7 @@ use super::{DataError, parse_data_file};
 const DEG2RAD: f64 = std::f64::consts::PI / 180.0;
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AeroTables {
     pub equilibrium_aoa: f64, // radians
     pub n_points: usize,

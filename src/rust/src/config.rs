@@ -105,19 +105,16 @@ pub enum GuidanceType {
 /// Data file suffix configuration
 #[derive(Debug, Clone)]
 pub struct DataSuffixes {
-    pub capsule: String,     // sufmsr
-    pub reentry: String,     // sufren
-    pub mission: String,     // sufmis
-    pub guidance: String,    // sufgui
-    pub neural: String,      // sufgnn (nn variant only)
-    pub incidence: String,   // sufinc
-    pub aero: String,        // sufaer
-    pub atmosphere: String,  // sufatm
-    pub dispersions: String, // sufdis
-    pub navigation: String,  // sufnav
-    pub lottery: String,     // suflot
-    pub success: String,     // sufsuc
-    pub results: String,     // sufres
+    pub capsule: String,    // sufmsr
+    pub reentry: String,    // sufren
+    pub mission: String,    // sufmis
+    pub guidance: String,   // sufgui
+    pub neural: String,     // sufgnn (nn variant only)
+    pub incidence: String,  // sufinc
+    pub aero: String,       // sufaer
+    pub atmosphere: String, // sufatm
+    pub success: String,    // sufsuc
+    pub results: String,    // sufres
 }
 
 /// Parsed simulation input configuration
@@ -130,15 +127,12 @@ pub struct SimInput {
     pub sim_phase: SimPhase,
     pub guidance_type: GuidanceType,
     pub stats_only: bool,
-    pub create_dispersions: bool,
-    pub replay_sim: i32,
     pub save_results: bool,
     pub visualize_sim: i32,
     pub screen_output: bool,
     pub random_seed: f64,
     pub reference_trajectory: bool,
     pub reference_bank_angle: f64, // degrees
-    pub dispersion_multipliers: [f64; 4],
     pub suffixes: DataSuffixes,
     pub base_dir: String,
     pub output_dir: String,
@@ -153,8 +147,6 @@ pub struct TomlConfig {
     pub guidance: TomlGuidance,
     #[serde(default)]
     pub simulation: TomlSimulation,
-    #[serde(default)]
-    pub dispersions: TomlDispersions,
     pub data: TomlData,
 
     // Inline data sections (consolidated mode — replaces 10 external files)
@@ -164,10 +156,7 @@ pub struct TomlConfig {
     pub flight: Option<TomlFlight>,
     pub success: Option<TomlSuccess>,
     pub incidence: Option<TomlIncidence>,
-    pub initial_dispersions: Option<TomlInitialDispersions>,
-    pub navigation_errors: Option<TomlNavErrors>,
-
-    // Domain-based Monte Carlo config (consolidated mode — replaces lottery files)
+    // Domain-based Monte Carlo config (consolidated mode)
     pub monte_carlo: Option<TomlMonteCarlo>,
 }
 
@@ -218,10 +207,6 @@ pub struct TomlSimulation {
     pub screen_output: bool,
     #[serde(default)]
     pub stats_only: bool,
-    #[serde(default)]
-    pub create_dispersions: bool,
-    #[serde(default)]
-    pub replay_sim: i32,
     #[serde(default = "default_true")]
     pub save_results: bool,
     #[serde(default)]
@@ -231,35 +216,11 @@ pub struct TomlSimulation {
 fn default_one_i32() -> i32 {
     1
 }
-fn default_true() -> bool {
-    true
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TomlDispersions {
-    #[serde(default = "default_one")]
-    pub nav_aerocapture: f64,
-    #[serde(default = "default_one")]
-    pub nav_interplanetary: f64,
-    #[serde(default = "default_one")]
-    pub accelerometer: f64,
-    #[serde(default = "default_one")]
-    pub aero_model: f64,
-}
-
 fn default_one() -> f64 {
     1.0
 }
-
-impl Default for TomlDispersions {
-    fn default() -> Self {
-        Self {
-            nav_aerocapture: 1.0,
-            nav_interplanetary: 1.0,
-            accelerometer: 1.0,
-            aero_model: 1.0,
-        }
-    }
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize)]
@@ -273,7 +234,6 @@ pub struct TomlData {
     // Direct file paths for external data (consolidated mode)
     pub atmosphere: Option<String>,
     pub reference_trajectory: Option<String>,
-    pub lottery: Option<String>,
     pub neural_network: Option<String>,
     pub results_suffix: Option<String>,
     #[serde(default)]
@@ -298,17 +258,8 @@ pub struct TomlDataFiles {
     pub incidence: String,
     pub aerodynamics: String,
     pub atmosphere: String,
-    #[serde(default = "default_nul")]
-    pub dispersions: String,
-    #[serde(default = "default_nul")]
-    pub navigation: String,
-    pub lottery: String,
     pub success: String,
     pub results: String,
-}
-
-fn default_nul() -> String {
-    ".nul".to_string()
 }
 
 // ─── Inline data TOML structs (consolidated mode) ───
@@ -628,50 +579,6 @@ fn default_140() -> f64 {
     140.0
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
-pub struct TomlInitialDispersions {
-    #[serde(default)]
-    pub altitude: f64, // km (1-sigma)
-    #[serde(default)]
-    pub longitude: f64, // deg
-    #[serde(default)]
-    pub latitude: f64, // deg
-    #[serde(default)]
-    pub velocity: f64, // m/s
-    #[serde(default)]
-    pub flight_path_angle: f64, // deg
-    #[serde(default)]
-    pub azimuth: f64, // deg
-    #[serde(default)]
-    pub drag_coeff: f64, // %
-    #[serde(default)]
-    pub lift_coeff: f64, // %
-    #[serde(default)]
-    pub density: f64, // %
-    #[serde(default)]
-    pub incidence: f64, // deg
-    #[serde(default)]
-    pub mass: f64, // %
-}
-
-#[derive(Debug, Deserialize, Clone, Default)]
-pub struct TomlNavErrors {
-    #[serde(default)]
-    pub altitude: f64, // km (1-sigma)
-    #[serde(default)]
-    pub longitude: f64, // deg
-    #[serde(default)]
-    pub latitude: f64, // deg
-    #[serde(default)]
-    pub velocity: f64, // m/s
-    #[serde(default)]
-    pub flight_path_angle: f64, // deg
-    #[serde(default)]
-    pub azimuth: f64, // deg
-    #[serde(default)]
-    pub drag_accel: f64, // m/s²
-}
-
 // ─── Domain-based Monte Carlo TOML structs ───
 
 #[derive(Debug, Deserialize, Clone)]
@@ -761,14 +668,11 @@ impl SimInput {
                 incidence: files.incidence.clone(),
                 aero: files.aerodynamics.clone(),
                 atmosphere: files.atmosphere.clone(),
-                dispersions: files.dispersions.clone(),
-                navigation: files.navigation.clone(),
-                lottery: files.lottery.clone(),
                 success: files.success.clone(),
                 results: files.results.clone(),
             }
         } else {
-            // Consolidated mode: atmosphere/lottery/results come from [data] directly
+            // Consolidated mode: atmosphere/results come from [data] directly
             DataSuffixes {
                 capsule: String::new(),
                 reentry: String::new(),
@@ -778,9 +682,6 @@ impl SimInput {
                 incidence: String::new(),
                 aero: String::new(),
                 atmosphere: String::new(),
-                dispersions: String::new(),
-                navigation: String::new(),
-                lottery: String::new(),
                 success: String::new(),
                 results: config
                     .data
@@ -797,20 +698,12 @@ impl SimInput {
             sim_phase,
             guidance_type,
             stats_only: config.simulation.stats_only,
-            create_dispersions: config.simulation.create_dispersions,
-            replay_sim: config.simulation.replay_sim,
             save_results: config.simulation.save_results,
             visualize_sim: config.simulation.visualize_sim,
             screen_output: config.simulation.screen_output,
             random_seed: config.simulation.random_seed,
             reference_trajectory: config.guidance.reference_trajectory,
             reference_bank_angle: config.guidance.reference_bank_angle,
-            dispersion_multipliers: [
-                config.dispersions.nav_aerocapture,
-                config.dispersions.nav_interplanetary,
-                config.dispersions.accelerometer,
-                config.dispersions.aero_model,
-            ],
             suffixes,
             base_dir: config.data.base_dir.clone(),
             output_dir: config.data.output_dir.clone(),
