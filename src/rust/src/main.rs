@@ -6,77 +6,51 @@ mod orbit;
 mod physics;
 mod simulation;
 
-use std::io::{self, BufRead};
 use std::process;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    let (sim_config, sim_data) = if args.len() >= 2 {
-        // TOML config file path as CLI argument
-        let toml_path = &args[1];
-        let content = match std::fs::read_to_string(toml_path) {
-            Ok(c) => c,
+    if args.len() < 2 {
+        eprintln!("Usage: aerocapture <config.toml>");
+        process::exit(1);
+    }
+
+    // TOML config file path as CLI argument
+    let toml_path = &args[1];
+    let content = match std::fs::read_to_string(toml_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Cannot read {}: {}", toml_path, e);
+            process::exit(1);
+        }
+    };
+    let (sim_config, toml_config) = match config::SimInput::from_toml(&content) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error parsing TOML config: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let sim_data = if config::SimInput::is_consolidated(&toml_config) {
+        // Consolidated mode: inline data + external files
+        match data::SimData::from_toml(&toml_config, &sim_config) {
+            Ok(d) => d,
             Err(e) => {
-                eprintln!("Cannot read {}: {}", toml_path, e);
+                eprintln!("Error loading inline data: {}", e);
                 process::exit(1);
             }
-        };
-        let (sim_config, toml_config) = match config::SimInput::from_toml(&content) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Error parsing TOML config: {}", e);
-                process::exit(1);
-            }
-        };
-
-        let sim_data = if config::SimInput::is_consolidated(&toml_config) {
-            // Consolidated mode: inline data + external files
-            match data::SimData::from_toml(&toml_config, &sim_config) {
-                Ok(d) => d,
-                Err(e) => {
-                    eprintln!("Error loading inline data: {}", e);
-                    process::exit(1);
-                }
-            }
-        } else {
-            // Suffix mode: load all from external files
-            match data::SimData::load(&sim_config) {
-                Ok(d) => d,
-                Err(e) => {
-                    eprintln!("Error loading data: {}", e);
-                    process::exit(1);
-                }
-            }
-        };
-
-        (sim_config, sim_data)
+        }
     } else {
-        // Legacy: read .in format from stdin
-        let stdin = io::stdin();
-        let lines: Vec<String> = stdin
-            .lock()
-            .lines()
-            .map(|l| l.unwrap_or_default())
-            .collect();
-
-        let sim_config = match config::SimInput::parse(&lines) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Error parsing input: {}", e);
-                process::exit(1);
-            }
-        };
-
-        let sim_data = match data::SimData::load(&sim_config) {
+        // Suffix mode: load all from external files
+        match data::SimData::load(&sim_config) {
             Ok(d) => d,
             Err(e) => {
                 eprintln!("Error loading data: {}", e);
                 process::exit(1);
             }
-        };
-
-        (sim_config, sim_data)
+        }
     };
 
     eprintln!(

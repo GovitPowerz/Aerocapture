@@ -1,6 +1,4 @@
-//! Parse .in configuration files + data file suffixes.
-//!
-//! Handles both the original (30-field) and neural (32-field) input formats.
+//! Parse TOML configuration files + data file suffixes.
 
 use serde::Deserialize;
 use std::fmt;
@@ -22,16 +20,6 @@ pub enum Planet {
 }
 
 impl Planet {
-    pub fn from_id(id: i32) -> Result<Self, String> {
-        match id {
-            2 => Ok(Planet::Moon),
-            3 => Ok(Planet::Earth),
-            4 => Ok(Planet::Mars),
-            5 => Ok(Planet::Jupiter),
-            _ => Err(format!("Unknown planet id: {}", id)),
-        }
-    }
-
     /// Mean equatorial radius in meters
     pub fn equatorial_radius(&self) -> f64 {
         match self {
@@ -192,7 +180,9 @@ pub struct TomlMission {
     pub phase: String,
 }
 
-fn default_phase() -> String { "full".to_string() }
+fn default_phase() -> String {
+    "full".to_string()
+}
 
 #[derive(Debug, Deserialize)]
 pub struct TomlGuidance {
@@ -214,7 +204,9 @@ pub struct TomlGuidance {
     pub fnpag: Option<TomlFnpagParams>,
 }
 
-fn default_ref_bank() -> f64 { 0.0 }
+fn default_ref_bank() -> f64 {
+    0.0
+}
 
 #[derive(Debug, Deserialize, Default)]
 pub struct TomlSimulation {
@@ -236,8 +228,12 @@ pub struct TomlSimulation {
     pub visualize_sim: i32,
 }
 
-fn default_one_i32() -> i32 { 1 }
-fn default_true() -> bool { true }
+fn default_one_i32() -> i32 {
+    1
+}
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Deserialize)]
 pub struct TomlDispersions {
@@ -251,7 +247,9 @@ pub struct TomlDispersions {
     pub aero_model: f64,
 }
 
-fn default_one() -> f64 { 1.0 }
+fn default_one() -> f64 {
+    1.0
+}
 
 impl Default for TomlDispersions {
     fn default() -> Self {
@@ -282,8 +280,12 @@ pub struct TomlData {
     pub output_format: OutputFormat,
 }
 
-fn default_base_dir() -> String { "old_codebase/donnees".to_string() }
-fn default_output_dir() -> String { "old_codebase/sorties".to_string() }
+fn default_base_dir() -> String {
+    "old_codebase/donnees".to_string()
+}
+fn default_output_dir() -> String {
+    "old_codebase/sorties".to_string()
+}
 
 #[derive(Debug, Deserialize)]
 pub struct TomlDataFiles {
@@ -305,16 +307,18 @@ pub struct TomlDataFiles {
     pub results: String,
 }
 
-fn default_nul() -> String { ".nul".to_string() }
+fn default_nul() -> String {
+    ".nul".to_string()
+}
 
 // ─── Inline data TOML structs (consolidated mode) ───
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlVehicle {
-    pub mass: f64,                  // kg
-    pub reference_area: f64,        // m²
-    pub cq: f64,                    // heat flux coefficient
-    pub max_bank_rate: f64,         // deg/s
+    pub mass: f64,           // kg
+    pub reference_area: f64, // m²
+    pub cq: f64,             // heat flux coefficient
+    pub max_bank_rate: f64,  // deg/s
     #[serde(default)]
     pub periods: TomlPeriods,
     #[serde(default)]
@@ -340,8 +344,12 @@ pub struct TomlPeriods {
 impl Default for TomlPeriods {
     fn default() -> Self {
         Self {
-            navigation: 1.0, guidance: 1.0, pilot: 1.0,
-            prediction: 1.0, integration: 1.0, photo: 1.0,
+            navigation: 1.0,
+            guidance: 1.0,
+            pilot: 1.0,
+            prediction: 1.0,
+            integration: 1.0,
+            photo: 1.0,
         }
     }
 }
@@ -358,45 +366,53 @@ pub struct TomlPilot {
     pub frequency: f64,
 }
 
-fn default_pilot_model() -> String { "perfect".to_string() }
-fn default_pilot_damping() -> f64 { 0.7 }
-fn default_pilot_freq() -> f64 { 0.072 }
+fn default_pilot_model() -> String {
+    "perfect".to_string()
+}
+fn default_pilot_damping() -> f64 {
+    0.7
+}
+fn default_pilot_freq() -> f64 {
+    0.072
+}
 
 impl Default for TomlPilot {
     fn default() -> Self {
         Self {
             model: "perfect".to_string(),
-            time_constant: 1.0, damping: 0.7, frequency: 0.072,
+            time_constant: 1.0,
+            damping: 0.7,
+            frequency: 0.072,
         }
     }
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlEntry {
-    pub altitude: f64,              // km
+    pub altitude: f64, // km
     #[serde(default)]
-    pub longitude: f64,             // deg
+    pub longitude: f64, // deg
     #[serde(default)]
-    pub latitude: f64,              // deg
-    pub velocity: f64,              // m/s
-    pub flight_path_angle: f64,     // deg
-    pub azimuth: f64,               // deg
+    pub latitude: f64, // deg
+    pub velocity: f64, // m/s
+    pub flight_path_angle: f64, // deg
+    pub azimuth: f64,  // deg
     #[serde(default)]
-    pub initial_time: f64,          // s
-    pub initial_bank_angle: f64,    // deg
-    pub initial_aoa: f64,           // deg
+    pub initial_time: f64, // s
+    pub initial_bank_angle: f64, // deg
+    pub initial_aoa: f64, // deg
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlAeroPoint {
-    pub aoa: f64,   // deg
-    pub ca: f64,    // axial force coeff (body axis)
-    pub cn: f64,    // normal force coeff (body axis)
+    pub aoa: f64, // deg
+    pub ca: f64,  // axial force coeff (body axis)
+    pub cn: f64,  // normal force coeff (body axis)
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlAero {
-    pub equilibrium_aoa: f64,       // deg
+    pub equilibrium_aoa: f64, // deg
     pub points: Vec<TomlAeroPoint>,
 }
 
@@ -412,37 +428,37 @@ pub struct TomlFlight {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlConstraints {
-    pub max_heat_flux: f64,         // kW/m²
-    pub max_load_factor: f64,       // g
-    pub max_dynamic_pressure: f64,  // kPa
+    pub max_heat_flux: f64,        // kW/m²
+    pub max_load_factor: f64,      // g
+    pub max_dynamic_pressure: f64, // kPa
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlFinalConditions {
-    pub altitude: f64,              // km
-    pub longitude: f64,             // deg
-    pub latitude: f64,              // deg
-    pub velocity: f64,              // m/s
-    pub flight_path_angle: f64,     // deg
-    pub azimuth: f64,               // deg
-    pub energy: f64,                // MJ/kg
-    pub radial_velocity: f64,       // m/s
+    pub altitude: f64,          // km
+    pub longitude: f64,         // deg
+    pub latitude: f64,          // deg
+    pub velocity: f64,          // m/s
+    pub flight_path_angle: f64, // deg
+    pub azimuth: f64,           // deg
+    pub energy: f64,            // MJ/kg
+    pub radial_velocity: f64,   // m/s
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlTargetOrbit {
-    pub apoapsis: f64,              // km
-    pub periapsis: f64,             // km
-    pub semi_major_axis: f64,       // km
+    pub apoapsis: f64,        // km
+    pub periapsis: f64,       // km
+    pub semi_major_axis: f64, // km
     pub eccentricity: f64,
-    pub inclination: f64,           // deg
-    pub raan: f64,                  // deg
+    pub inclination: f64, // deg
+    pub raan: f64,        // deg
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlParkingOrbit {
-    pub apoapsis: f64,              // km
-    pub periapsis: f64,             // km
+    pub apoapsis: f64,  // km
+    pub periapsis: f64, // km
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -455,25 +471,25 @@ pub struct TomlSuccess {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlIncidence {
-    pub altitudes: Vec<f64>,        // km
-    pub angles: Vec<f64>,           // deg
+    pub altitudes: Vec<f64>, // km
+    pub angles: Vec<f64>,    // deg
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlFtcParams {
     pub capture_damping: f64,
-    pub capture_frequency: f64,        // rad/s
+    pub capture_frequency: f64, // rad/s
     pub capture_pdyn_margin: f64,
     pub altitude_damping: f64,
-    pub altitude_frequency: f64,       // deg/s (converted to rad/s)
-    pub exit_velocity_threshold: f64,  // m/s
+    pub altitude_frequency: f64,      // deg/s (converted to rad/s)
+    pub exit_velocity_threshold: f64, // m/s
     pub exit_pdyn_margin: f64,
-    pub exit_altitude_threshold: f64,  // km
-    pub exit_radial_vel_gain: f64,     // Pa/(m/s)
-    pub exit_apoapsis_threshold: f64,  // m
-    pub corridor_slope: f64,           // m/s
+    pub exit_altitude_threshold: f64, // km
+    pub exit_radial_vel_gain: f64,    // Pa/(m/s)
+    pub exit_apoapsis_threshold: f64, // m
+    pub corridor_slope: f64,          // m/s
     #[serde(default)]
-    pub corridor_intercept: f64,       // deg
+    pub corridor_intercept: f64, // deg
     #[serde(default = "default_five_i32")]
     pub max_reversals: i32,
     #[serde(default = "default_one_i32")]
@@ -482,22 +498,30 @@ pub struct TomlFtcParams {
     pub security_exit: i32,
     pub density_filter_gain: f64,
     #[serde(default = "default_longi_act")]
-    pub longi_activation: f64,         // MJ/kg
+    pub longi_activation: f64, // MJ/kg
     #[serde(default = "default_longi_inh")]
-    pub longi_inhibition: f64,         // MJ/kg
-    pub lateral_activation: f64,       // MJ/kg
+    pub longi_inhibition: f64, // MJ/kg
+    pub lateral_activation: f64, // MJ/kg
     #[serde(default = "default_longi_act")]
-    pub lateral_inhibition: f64,       // MJ/kg
+    pub lateral_inhibition: f64, // MJ/kg
     #[serde(default)]
-    pub pdyn_min: f64,                 // Pa
+    pub pdyn_min: f64, // Pa
     #[serde(default)]
     pub pdyn_table: Vec<TomlPdynEntry>,
 }
 
-fn default_five_i32() -> i32 { 5 }
-fn default_three_i32() -> i32 { 3 }
-fn default_longi_act() -> f64 { 1000.0 }
-fn default_longi_inh() -> f64 { -1000.0 }
+fn default_five_i32() -> i32 {
+    5
+}
+fn default_three_i32() -> i32 {
+    3
+}
+fn default_longi_act() -> f64 {
+    1000.0
+}
+fn default_longi_inh() -> f64 {
+    -1000.0
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlPdynEntry {
@@ -524,12 +548,24 @@ pub struct TomlEqGlideParams {
     pub cos_bank_max: f64,
 }
 
-fn default_0_3() -> f64 { 0.3 }
-fn default_1_1() -> f64 { 1.1 }
-fn default_0_15() -> f64 { 0.15 }
-fn default_40() -> f64 { 40.0 }
-fn default_neg_0_5() -> f64 { -0.5 }
-fn default_0_95() -> f64 { 0.95 }
+fn default_0_3() -> f64 {
+    0.3
+}
+fn default_1_1() -> f64 {
+    1.1
+}
+fn default_0_15() -> f64 {
+    0.15
+}
+fn default_40() -> f64 {
+    40.0
+}
+fn default_neg_0_5() -> f64 {
+    -0.5
+}
+fn default_0_95() -> f64 {
+    0.95
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlEnergyCtrlParams {
@@ -541,8 +577,12 @@ pub struct TomlEnergyCtrlParams {
     pub kd: f64,
 }
 
-fn default_5e_7() -> f64 { 5e-7 }
-fn default_0_5() -> f64 { 0.5 }
+fn default_5e_7() -> f64 {
+    5e-7
+}
+fn default_0_5() -> f64 {
+    0.5
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlPredGuidParams {
@@ -554,8 +594,12 @@ pub struct TomlPredGuidParams {
     pub pdyn_threshold: f64,
 }
 
-fn default_0_8() -> f64 { 0.8 }
-fn default_100() -> f64 { 100.0 }
+fn default_0_8() -> f64 {
+    0.8
+}
+fn default_100() -> f64 {
+    100.0
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlFnpagParams {
@@ -571,53 +615,61 @@ pub struct TomlFnpagParams {
     pub bank_max_low_deg: f64,
 }
 
-fn default_1e4() -> f64 { 1e4 }
-fn default_2() -> f64 { 2.0 }
-fn default_20() -> f64 { 20.0 }
-fn default_140() -> f64 { 140.0 }
+fn default_1e4() -> f64 {
+    1e4
+}
+fn default_2() -> f64 {
+    2.0
+}
+fn default_20() -> f64 {
+    20.0
+}
+fn default_140() -> f64 {
+    140.0
+}
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct TomlInitialDispersions {
     #[serde(default)]
-    pub altitude: f64,          // km (1-sigma)
+    pub altitude: f64, // km (1-sigma)
     #[serde(default)]
-    pub longitude: f64,         // deg
+    pub longitude: f64, // deg
     #[serde(default)]
-    pub latitude: f64,          // deg
+    pub latitude: f64, // deg
     #[serde(default)]
-    pub velocity: f64,          // m/s
+    pub velocity: f64, // m/s
     #[serde(default)]
     pub flight_path_angle: f64, // deg
     #[serde(default)]
-    pub azimuth: f64,           // deg
+    pub azimuth: f64, // deg
     #[serde(default)]
-    pub drag_coeff: f64,        // %
+    pub drag_coeff: f64, // %
     #[serde(default)]
-    pub lift_coeff: f64,        // %
+    pub lift_coeff: f64, // %
     #[serde(default)]
-    pub density: f64,           // %
+    pub density: f64, // %
     #[serde(default)]
-    pub incidence: f64,         // deg
+    pub incidence: f64, // deg
     #[serde(default)]
-    pub mass: f64,              // %
+    pub mass: f64, // %
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct TomlNavErrors {
     #[serde(default)]
-    pub altitude: f64,          // km (1-sigma)
+    pub altitude: f64, // km (1-sigma)
     #[serde(default)]
-    pub longitude: f64,         // deg
+    pub longitude: f64, // deg
     #[serde(default)]
-    pub latitude: f64,          // deg
+    pub latitude: f64, // deg
     #[serde(default)]
-    pub velocity: f64,          // m/s
+    pub velocity: f64, // m/s
     #[serde(default)]
     pub flight_path_angle: f64, // deg
     #[serde(default)]
-    pub azimuth: f64,           // deg
+    pub azimuth: f64, // deg
     #[serde(default)]
-    pub drag_accel: f64,        // m/s²
+    pub drag_accel: f64, // m/s²
 }
 
 // ─── Domain-based Monte Carlo TOML structs ───
@@ -644,7 +696,9 @@ pub struct TomlMcDomain {
     pub custom: std::collections::HashMap<String, f64>,
 }
 
-fn default_mc_level() -> String { "medium".to_string() }
+fn default_mc_level() -> String {
+    "medium".to_string()
+}
 
 #[derive(Debug)]
 pub struct ParseError(pub String);
@@ -657,39 +711,12 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-fn parse_line<T: std::str::FromStr>(
-    lines: &[String],
-    idx: usize,
-    name: &str,
-) -> Result<T, ParseError> {
-    let line = lines
-        .get(idx)
-        .ok_or_else(|| ParseError(format!("Missing line {} for {}", idx, name)))?;
-    let token = line.split_whitespace().next().unwrap_or("");
-    token.parse::<T>().map_err(|_| {
-        ParseError(format!(
-            "Cannot parse '{}' as {} for {}",
-            token,
-            std::any::type_name::<T>(),
-            name
-        ))
-    })
-}
-
-fn parse_string(lines: &[String], idx: usize, name: &str) -> Result<String, ParseError> {
-    let line = lines
-        .get(idx)
-        .ok_or_else(|| ParseError(format!("Missing line {} for {}", idx, name)))?;
-    let token = line.split_whitespace().next().unwrap_or("");
-    Ok(token.to_string())
-}
-
 impl SimInput {
     /// Parse a TOML configuration string. Returns (SimInput, TomlConfig).
     /// The TomlConfig is needed for inline data loading in consolidated mode.
     pub fn from_toml(content: &str) -> Result<(Self, TomlConfig), ParseError> {
-        let config: TomlConfig = toml::from_str(content)
-            .map_err(|e| ParseError(format!("TOML parse error: {}", e)))?;
+        let config: TomlConfig =
+            toml::from_str(content).map_err(|e| ParseError(format!("TOML parse error: {}", e)))?;
 
         let mission_type = match config.mission.mission_type.as_str() {
             "aerocapture" => MissionType::Aerocapture,
@@ -743,13 +770,23 @@ impl SimInput {
         } else {
             // Consolidated mode: atmosphere/lottery/results come from [data] directly
             DataSuffixes {
-                capsule: String::new(), reentry: String::new(), mission: String::new(),
-                guidance: String::new(), neural: config.data.neural_network.clone().unwrap_or_default(),
-                incidence: String::new(), aero: String::new(),
-                atmosphere: String::new(), dispersions: String::new(),
-                navigation: String::new(), lottery: String::new(),
+                capsule: String::new(),
+                reentry: String::new(),
+                mission: String::new(),
+                guidance: String::new(),
+                neural: config.data.neural_network.clone().unwrap_or_default(),
+                incidence: String::new(),
+                aero: String::new(),
+                atmosphere: String::new(),
+                dispersions: String::new(),
+                navigation: String::new(),
+                lottery: String::new(),
                 success: String::new(),
-                results: config.data.results_suffix.clone().unwrap_or_else(|| ".out".to_string()),
+                results: config
+                    .data
+                    .results_suffix
+                    .clone()
+                    .unwrap_or_else(|| ".out".to_string()),
             }
         };
 
@@ -786,154 +823,6 @@ impl SimInput {
     /// Whether the TOML config uses consolidated inline data (has [vehicle] section)
     pub fn is_consolidated(config: &TomlConfig) -> bool {
         config.vehicle.is_some()
-    }
-
-    /// Parse input configuration from lines (stdin).
-    ///
-    /// Auto-detects whether this is the neural variant (32 fields with natgnn + sufgnn)
-    /// or original variant (30 fields without those).
-    pub fn parse(lines: &[String]) -> Result<Self, ParseError> {
-        // Count non-empty lines to determine format
-        let data_lines: Vec<&String> = lines.iter().filter(|l| !l.trim().is_empty()).collect();
-        let is_neural = data_lines.len() >= 32;
-
-        let mut i = 0;
-
-        let natman: i32 = parse_line(lines, i, "natman")?;
-        i += 1;
-        let mission_type = match natman {
-            1 => MissionType::Aerocapture,
-            2 => MissionType::AeroGravityAssist,
-            _ => return Err(ParseError(format!("Invalid natman: {}", natman))),
-        };
-
-        let natpla: i32 = parse_line(lines, i, "natpla")?;
-        i += 1;
-        let planet = Planet::from_id(natpla).map_err(ParseError)?;
-
-        let n_sims: i32 = parse_line(lines, i, "nbsimu")?;
-        i += 1;
-
-        let natsim: i32 = parse_line(lines, i, "natsim")?;
-        i += 1;
-        let sim_phase = match natsim {
-            1 => SimPhase::Full,
-            2 => SimPhase::CaptureOnly,
-            3 => SimPhase::ExitOnly,
-            4 => SimPhase::Preprogrammed,
-            _ => return Err(ParseError(format!("Invalid natsim: {}", natsim))),
-        };
-
-        let guidance_type = if is_neural {
-            let natgnn: i32 = parse_line(lines, i, "natgnn")?;
-            i += 1;
-            match natgnn {
-                1 => GuidanceType::Ftc,
-                2 => GuidanceType::NeuralNetwork,
-                3 => GuidanceType::EquilibriumGlide,
-                4 => GuidanceType::EnergyController,
-                5 => GuidanceType::PredGuid,
-                6 => GuidanceType::Fnpag,
-                _ => return Err(ParseError(format!("Invalid natgnn: {}", natgnn))),
-            }
-        } else {
-            GuidanceType::Ftc
-        };
-
-        let istats: i32 = parse_line(lines, i, "istats")?;
-        i += 1;
-        let itirag: i32 = parse_line(lines, i, "itirag")?;
-        i += 1;
-        let numsim: i32 = parse_line(lines, i, "numsim")?;
-        i += 1;
-        let isauve: i32 = parse_line(lines, i, "isauve")?;
-        i += 1;
-        let numvis: i32 = parse_line(lines, i, "numvis")?;
-        i += 1;
-        let iecran: i32 = parse_line(lines, i, "iecran")?;
-        i += 1;
-        let xgalea: f64 = parse_line(lines, i, "xgalea")?;
-        i += 1;
-        let irefer: i32 = parse_line(lines, i, "irefer")?;
-        i += 1;
-        let gitref: f64 = parse_line(lines, i, "gitref")?;
-        i += 1;
-
-        let mut xmulti = [1.0f64; 4];
-        for (j, item) in xmulti.iter_mut().enumerate() {
-            *item = parse_line(lines, i, &format!("xmulti({})", j + 1))?;
-            i += 1;
-        }
-
-        let sufmsr = parse_string(lines, i, "sufmsr")?;
-        i += 1;
-        let sufren = parse_string(lines, i, "sufren")?;
-        i += 1;
-        let sufmis = parse_string(lines, i, "sufmis")?;
-        i += 1;
-        let sufgui = parse_string(lines, i, "sufgui")?;
-        i += 1;
-
-        let sufgnn = if is_neural {
-            let s = parse_string(lines, i, "sufgnn")?;
-            i += 1;
-            s
-        } else {
-            String::new()
-        };
-
-        let sufinc = parse_string(lines, i, "sufinc")?;
-        i += 1;
-        let sufaer = parse_string(lines, i, "sufaer")?;
-        i += 1;
-        let sufatm = parse_string(lines, i, "sufatm")?;
-        i += 1;
-        let sufdis = parse_string(lines, i, "sufdis")?;
-        i += 1;
-        let sufnav = parse_string(lines, i, "sufnav")?;
-        i += 1;
-        let suflot = parse_string(lines, i, "suflot")?;
-        i += 1;
-        let sufsuc = parse_string(lines, i, "sufsuc")?;
-        i += 1;
-        let sufres = parse_string(lines, i, "sufres")?;
-        // confirmation line is read but not used
-
-        Ok(SimInput {
-            mission_type,
-            planet,
-            n_sims,
-            sim_phase,
-            guidance_type,
-            stats_only: istats == 1,
-            create_dispersions: itirag == 1,
-            replay_sim: numsim,
-            save_results: isauve == 1,
-            visualize_sim: numvis,
-            screen_output: iecran == 1,
-            random_seed: xgalea,
-            reference_trajectory: irefer == 1,
-            reference_bank_angle: gitref,
-            dispersion_multipliers: xmulti,
-            suffixes: DataSuffixes {
-                capsule: sufmsr,
-                reentry: sufren,
-                mission: sufmis,
-                guidance: sufgui,
-                neural: sufgnn,
-                incidence: sufinc,
-                aero: sufaer,
-                atmosphere: sufatm,
-                dispersions: sufdis,
-                navigation: sufnav,
-                lottery: suflot,
-                success: sufsuc,
-                results: sufres,
-            },
-            base_dir: "../donnees".to_string(),
-            output_dir: "../sorties".to_string(),
-            output_format: OutputFormat::Text,
-        })
     }
 
     /// Build the data file path for a given category

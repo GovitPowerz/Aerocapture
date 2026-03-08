@@ -84,10 +84,19 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
         let draws = dc.generate_draws(n_sims as usize);
         eprintln!(
             "Monte Carlo: {} draws from seed {}, domains: state={} atmo={} aero={} nav={} mass={}",
-            draws.len(), dc.seed,
-            if dc.initial_state.is_some() { "on" } else { "off" },
+            draws.len(),
+            dc.seed,
+            if dc.initial_state.is_some() {
+                "on"
+            } else {
+                "off"
+            },
             if dc.atmosphere.is_some() { "on" } else { "off" },
-            if dc.aerodynamics.is_some() { "on" } else { "off" },
+            if dc.aerodynamics.is_some() {
+                "on"
+            } else {
+                "off"
+            },
             if dc.navigation.is_some() { "on" } else { "off" },
             if dc.mass.is_some() { "on" } else { "off" },
         );
@@ -479,8 +488,13 @@ fn run_single(
                     geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
                 eprintln!(
                     "  step={} t={:.1} bank={:.3}deg aoa={:.3}deg ilongi={} alt={:.1}km vel={:.1}",
-                    step, temsim, sim.bank_angle.to_degrees(), sim.aoa.to_degrees(),
-                    ftc_out.ilongi, dbg_alt / 1e3, sim.state[3],
+                    step,
+                    temsim,
+                    sim.bank_angle.to_degrees(),
+                    sim.aoa.to_degrees(),
+                    ftc_out.ilongi,
+                    dbg_alt / 1e3,
+                    sim.state[3],
                 );
             }
         }
@@ -488,8 +502,14 @@ fn run_single(
         // === Photo snapshot ===
         if write_photo && flags.photo {
             photo_lines.push(build_photo_values(
-                &sim, temsim, planet, degrad, pdynan_for_photo, romver_for_photo,
-                sim_idx + 1, somgit_deg * degrad,
+                &sim,
+                temsim,
+                planet,
+                degrad,
+                pdynan_for_photo,
+                romver_for_photo,
+                sim_idx + 1,
+                somgit_deg * degrad,
             ));
         }
 
@@ -523,8 +543,14 @@ fn run_single(
     // Final photo snapshot
     if write_photo {
         photo_lines.push(build_photo_values(
-            &sim, temsim, planet, degrad, pdynan_for_photo, romver_for_photo,
-            sim_idx + 1, somgit_deg * degrad,
+            &sim,
+            temsim,
+            planet,
+            degrad,
+            pdynan_for_photo,
+            romver_for_photo,
+            sim_idx + 1,
+            somgit_deg * degrad,
         ));
     }
 
@@ -535,20 +561,32 @@ fn run_single(
     if is_single {
         eprintln!(
             "  Final: alt={:.3} km, vel={:.3} m/s, t={:.1} s, steps={}, term={:?}",
-            alt_final / 1e3, sim.state[3], temsim, step, term,
+            alt_final / 1e3,
+            sim.state[3],
+            temsim,
+            step,
+            term,
         );
     }
 
     let orbit = elements::from_spherical(
-        sim.state[0], sim.state[1], sim.state[2],
-        sim.state[3], sim.state[4], sim.state[5],
+        sim.state[0],
+        sim.state[1],
+        sim.state[2],
+        sim.state[3],
+        sim.state[4],
+        sim.state[5],
         planet,
     );
 
     let mu = planet.mu();
     let (_posita, vitesa) = to_absolute_cartesian(
-        sim.state[0], sim.state[1], sim.state[2],
-        sim.state[3], sim.state[4], sim.state[5],
+        sim.state[0],
+        sim.state[1],
+        sim.state[2],
+        sim.state[3],
+        sim.state[4],
+        sim.state[5],
         planet,
     );
     let vitabs = norm(&vitesa);
@@ -560,7 +598,13 @@ fn run_single(
         TermReason::Crash => 1,
         _ => 2,
     };
-    let deltav = maneuver::compute_deltav(&orbit, ifinal, &data.target_orbit, &data.parking_orbit, planet);
+    let deltav = maneuver::compute_deltav(
+        &orbit,
+        ifinal,
+        &data.target_orbit,
+        &data.parking_orbit,
+        planet,
+    );
 
     let g0terr = 9.81_f64;
     let mut xsauve = [0.0_f64; 52];
@@ -626,15 +670,23 @@ fn build_photo_values(
         geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
 
     let orbit = elements::from_spherical(
-        sim.state[0], sim.state[1], sim.state[2],
-        sim.state[3], sim.state[4], sim.state[5],
+        sim.state[0],
+        sim.state[1],
+        sim.state[2],
+        sim.state[3],
+        sim.state[4],
+        sim.state[5],
         planet,
     );
 
     let mu = planet.mu();
     let (_posita, vitesa) = to_absolute_cartesian(
-        sim.state[0], sim.state[1], sim.state[2],
-        sim.state[3], sim.state[4], sim.state[5],
+        sim.state[0],
+        sim.state[1],
+        sim.state[2],
+        sim.state[3],
+        sim.state[4],
+        sim.state[5],
         planet,
     );
     let vitabs = norm(&vitesa);
