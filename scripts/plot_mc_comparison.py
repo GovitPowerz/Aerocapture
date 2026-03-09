@@ -6,7 +6,6 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-
 from aerocapture.io._fortran import parse_fortran_line
 from aerocapture.plotting.stats import empirical_cdf
 
