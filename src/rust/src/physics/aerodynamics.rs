@@ -47,3 +47,157 @@ pub fn aero_forces(
         heat_flux,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::TimePeriods;
+
+    /// Build a simple 3-point AeroTables fixture.
+    /// Incidence: [0, 10, 20] deg → [0.0, 0.1745…, 0.3491…] rad
+    /// Cx:       [1.5, 1.6, 1.7]
+    /// Cz:       [0.0, -0.2, -0.4]
+    fn make_aero() -> AeroTables {
+        let deg2rad = std::f64::consts::PI / 180.0;
+        AeroTables {
+            equilibrium_aoa: 10.0 * deg2rad,
+            n_points: 3,
+            incidence: vec![0.0 * deg2rad, 10.0 * deg2rad, 20.0 * deg2rad],
+            cx: vec![1.5, 1.6, 1.7],
+            cz: vec![0.0, -0.2, -0.4],
+            nominal_cx: 1.6,
+            nominal_cz: -0.2,
+            nominal_finesse: -0.2 / 1.6,
+            ballistic_coeff: 0.0,
+        }
+    }
+
+    fn make_capsule() -> Capsule {
+        Capsule {
+            mass: 2400.0,
+            reference_area: 4.52,
+            cq: 1.75e-4,
+            max_bank_rate: 0.1,
+            periods: TimePeriods::default(),
+        }
+    }
+
+    #[test]
+    fn zero_velocity_zero_forces() {
+        let aero = make_aero();
+        let cap = make_capsule();
+        let alpha = aero.equilibrium_aoa;
+        let f = aero_forces(&aero, &cap, 0.01, 0.0, alpha, 0.0, 0.0);
+        assert_eq!(f.drag, 0.0);
+        assert_eq!(f.lift, 0.0);
+        assert_eq!(f.heat_flux, 0.0);
+    }
+
+    #[test]
+    fn drag_is_cx_q_s() {
+        let aero = make_aero();
+        let cap = make_capsule();
+        let alpha = aero.equilibrium_aoa; // Cx = 1.6
+        let rho = 0.02;
+        let v = 5000.0;
+        let f = aero_forces(&aero, &cap, rho, v, alpha, 0.0, 0.0);
+
+        let q = 0.5 * rho * v * v;
+        let expected_drag = q * cap.reference_area * 1.6;
+        assert!((f.drag - expected_drag).abs() < 1e-6, "drag: {} vs {}", f.drag, expected_drag);
+    }
+
+    #[test]
+    fn lift_is_cz_q_s() {
+        let aero = make_aero();
+        let cap = make_capsule();
+        let alpha = aero.equilibrium_aoa; // Cz = -0.2
+        let rho = 0.02;
+        let v = 5000.0;
+        let f = aero_forces(&aero, &cap, rho, v, alpha, 0.0, 0.0);
+
+        let q = 0.5 * rho * v * v;
+        let expected_lift = q * cap.reference_area * (-0.2);
+        assert!((f.lift - expected_lift).abs() < 1e-6, "lift: {} vs {}", f.lift, expected_lift);
+    }
+
+    #[test]
+    fn cx_bias_scales_drag() {
+        let aero = make_aero();
+        let cap = make_capsule();
+        let alpha = aero.equilibrium_aoa;
+        let rho = 0.02;
+        let v = 5000.0;
+
+        let f_nom = aero_forces(&aero, &cap, rho, v, alpha, 0.0, 0.0);
+        let f_biased = aero_forces(&aero, &cap, rho, v, alpha, 0.1, 0.0);
+
+        let expected = f_nom.drag * 1.1;
+        assert!(
+            (f_biased.drag - expected).abs() < 1e-6,
+            "biased drag: {} vs {}",
+            f_biased.drag,
+            expected
+        );
+    }
+
+    #[test]
+    fn cz_bias_scales_lift() {
+        let aero = make_aero();
+        let cap = make_capsule();
+        let alpha = aero.equilibrium_aoa;
+        let rho = 0.02;
+        let v = 5000.0;
+
+        let f_nom = aero_forces(&aero, &cap, rho, v, alpha, 0.0, 0.0);
+        let f_biased = aero_forces(&aero, &cap, rho, v, alpha, 0.0, -0.15);
+
+        let expected = f_nom.lift * 0.85;
+        assert!(
+            (f_biased.lift - expected).abs() < 1e-6,
+            "biased lift: {} vs {}",
+            f_biased.lift,
+            expected
+        );
+    }
+
+    #[test]
+    fn heat_flux_formula() {
+        let aero = make_aero();
+        let cap = make_capsule();
+        let alpha = aero.equilibrium_aoa;
+        let rho = 0.02;
+        let v = 5000.0;
+
+        let f = aero_forces(&aero, &cap, rho, v, alpha, 0.0, 0.0);
+        let expected = cap.cq * rho.sqrt() * v.powi(3);
+        assert!(
+            (f.heat_flux - expected).abs() < 1e-6,
+            "heat_flux: {} vs {}",
+            f.heat_flux,
+            expected
+        );
+    }
+
+    #[test]
+    fn interpolation_at_boundary() {
+        let aero = make_aero();
+        let cap = make_capsule();
+        let rho = 0.02;
+        let v = 5000.0;
+        // Alpha well below table min (0 deg) → should clamp to first Cx = 1.5
+        let alpha_below = -0.5; // radians, ~-28.6 deg
+
+        let f = aero_forces(&aero, &cap, rho, v, alpha_below, 0.0, 0.0);
+        let q = 0.5 * rho * v * v;
+        let expected_drag = q * cap.reference_area * 1.5; // first Cx value
+        assert!(
+            (f.drag - expected_drag).abs() < 1e-6,
+            "boundary drag: {} vs {}",
+            f.drag,
+            expected_drag
+        );
+        // Lift should also clamp to first Cz = 0.0
+        assert!(f.lift.abs() < 1e-6, "boundary lift should be ~0, got {}", f.lift);
+    }
+}
