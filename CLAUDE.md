@@ -216,6 +216,7 @@ Photo files use `format(24(1x,d12.5))` — 24 columns of Fortran D-notation floa
 - **Python**: Python >=3.14, Ruff (line-length 160, target py314), uv package manager, pytest, mypy strict mode. Dev tools in `[dependency-groups]` (not `[project.optional-dependencies]`). Training deps (deap, scipy) are core dependencies.
 - **Testing (Python)**: pytest, Fortran golden reference files under `tests/reference_data/`
 - **Testing (Rust)**: Three-tier pyramid — unit tests (inline `#[cfg(test)]` modules), integration tests (`src/rust/tests/`), E2E subprocess tests. Dev-dependencies: `approx` (float comparison), `rstest` (parameterized tests). Run with `cargo test` or `./check_all.sh`.
+- **CI**: GitHub Actions (`.github/workflows/ci.yml`) — Rust (fmt, clippy, test) and Python (ruff lint, ruff format, mypy, pytest) run on push to `main`/`feature/**` and PRs to `main`.
 - **Validation**: Rust vs Fortran comparison complete — 22/24 photo columns bit-identical across 725 timesteps. See `tests/compare_results.py` for the comparison framework.
 
 ## Tone

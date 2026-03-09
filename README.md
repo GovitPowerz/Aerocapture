@@ -80,6 +80,13 @@ The Rust simulator matches the Fortran reference across all 725 timesteps of a g
 - **22 of 24** photo output columns are bit-identical
 - The remaining 2 differ only at the first timestep due to Fortran uninitialized variable artifacts (`romver`, `numsuc`)
 
+## CI
+
+GitHub Actions runs on every push and PR:
+
+- **Rust**: `cargo fmt --check`, `cargo clippy`, `cargo test --release`
+- **Python**: `ruff check`, `ruff format --check`, `mypy`, `pytest`
+
 ## Build Commands
 
 ```bash
