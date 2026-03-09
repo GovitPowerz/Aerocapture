@@ -1,12 +1,8 @@
-mod config;
-mod data;
-mod gnc;
-mod integration;
-mod orbit;
-mod physics;
-mod simulation;
-
 use std::process;
+
+use aerocapture::config;
+use aerocapture::data;
+use aerocapture::simulation;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
