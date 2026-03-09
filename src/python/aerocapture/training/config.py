@@ -68,10 +68,10 @@ class GAConfig:
 class SimConfig:
     """Simulation configuration for cost evaluation."""
 
-    executable: str = "../../src/rust/target/release/aerocapture"
+    executable: str = "src/rust/target/release/aerocapture"
     init_file: str = "train_nn.in"
-    nn_param_file: str = "../donnees/nn_param.temp"
-    final_file: str = "../sorties/final.train_nn_temp"
+    nn_param_file: str = "data/neural_network/nn_model.json"
+    final_file: str = "output/final.train_nn_temp"
     exec_dir: str = "."
     n_sims: int = 10
     toml_config: str | None = None  # TOML config path (relative to exec_dir); if set, passed as CLI arg
