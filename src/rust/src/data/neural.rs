@@ -178,6 +178,7 @@ impl NeuralNetModel {
 
         // lw1: input→hidden [N_HIDDEN × N_INPUT]
         let mut lw1 = vec![vec![0.0; N_INPUT]; N_HIDDEN];
+        #[allow(clippy::needless_range_loop)]
         for i in 0..N_INPUT {
             for j in 0..N_HIDDEN {
                 lw1[j][i] = values[idx];
@@ -193,6 +194,7 @@ impl NeuralNetModel {
 
         // lw4: hidden→output [N_OUTPUT × N_HIDDEN]
         let mut lw4 = vec![vec![0.0; N_HIDDEN]; N_OUTPUT];
+        #[allow(clippy::needless_range_loop)]
         for i in 0..N_HIDDEN {
             for j in 0..N_OUTPUT {
                 lw4[j][i] = values[idx];

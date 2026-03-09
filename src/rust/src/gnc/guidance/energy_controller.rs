@@ -23,6 +23,12 @@ pub struct EnergyControllerState {
     _placeholder: (),
 }
 
+impl Default for EnergyControllerState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EnergyControllerState {
     pub fn new() -> Self {
         Self { _placeholder: () }

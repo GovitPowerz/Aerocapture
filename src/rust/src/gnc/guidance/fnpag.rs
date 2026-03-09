@@ -126,8 +126,7 @@ fn predict_exit_energy(
     }
 
     // Timeout — didn't exit atmosphere
-    let energy = s.v * s.v / 2.0 - mu / s.r;
-    energy
+    s.v * s.v / 2.0 - mu / s.r
 }
 
 /// Compute FNPAG bank angle command.

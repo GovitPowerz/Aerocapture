@@ -360,10 +360,7 @@ mod tests {
         // M * M^T should be identity
         for i in 0..3 {
             for j in 0..3 {
-                let mut sum = 0.0;
-                for k in 0..3 {
-                    sum += m[i][k] * m[j][k];
-                }
+                let sum: f64 = (0..3).map(|k| m[i][k] * m[j][k]).sum();
                 let expected = if i == j { 1.0 } else { 0.0 };
                 assert_relative_eq!(sum, expected, epsilon = 1e-14);
             }
@@ -399,7 +396,10 @@ mod tests {
         let gamma = -0.1; // slight descent
         let psi = PI / 2.0;
         let energy = total_energy(r, 0.0, 0.0, v, gamma, psi, &mars);
-        assert!(energy > 0.0, "Hyperbolic entry should have positive energy, got {energy}");
+        assert!(
+            energy > 0.0,
+            "Hyperbolic entry should have positive energy, got {energy}"
+        );
     }
 
     // ── Absolute velocity ──

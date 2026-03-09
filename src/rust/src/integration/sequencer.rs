@@ -27,6 +27,12 @@ pub struct SequencerState {
     pub last_photo: f64,
 }
 
+impl Default for SequencerState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SequencerState {
     pub fn new() -> Self {
         Self {
@@ -92,7 +98,7 @@ mod tests {
         TimePeriods {
             navigation: nav,
             guidance: guid,
-            pilot: pilot,
+            pilot,
             prediction: 1.0,
             integration: 1.0,
             photo: 1.0,

@@ -25,6 +25,7 @@ pub enum DispersionLevel {
 }
 
 impl DispersionLevel {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Result<Self, DataError> {
         match s {
             "off" => Ok(DispersionLevel::Off),

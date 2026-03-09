@@ -104,7 +104,12 @@ mod tests {
 
         let q = 0.5 * rho * v * v;
         let expected_drag = q * cap.reference_area * 1.6;
-        assert!((f.drag - expected_drag).abs() < 1e-6, "drag: {} vs {}", f.drag, expected_drag);
+        assert!(
+            (f.drag - expected_drag).abs() < 1e-6,
+            "drag: {} vs {}",
+            f.drag,
+            expected_drag
+        );
     }
 
     #[test]
@@ -118,7 +123,12 @@ mod tests {
 
         let q = 0.5 * rho * v * v;
         let expected_lift = q * cap.reference_area * (-0.2);
-        assert!((f.lift - expected_lift).abs() < 1e-6, "lift: {} vs {}", f.lift, expected_lift);
+        assert!(
+            (f.lift - expected_lift).abs() < 1e-6,
+            "lift: {} vs {}",
+            f.lift,
+            expected_lift
+        );
     }
 
     #[test]
@@ -198,6 +208,10 @@ mod tests {
             expected_drag
         );
         // Lift should also clamp to first Cz = 0.0
-        assert!(f.lift.abs() < 1e-6, "boundary lift should be ~0, got {}", f.lift);
+        assert!(
+            f.lift.abs() < 1e-6,
+            "boundary lift should be ~0, got {}",
+            f.lift
+        );
     }
 }

@@ -30,6 +30,12 @@ pub struct PredGuidState {
     _placeholder: (),
 }
 
+impl Default for PredGuidState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PredGuidState {
     pub fn new() -> Self {
         Self { _placeholder: () }

@@ -29,6 +29,12 @@ pub struct NavigationState {
     pub tcaptr: f64, // capture phase duration (s)
 }
 
+impl Default for NavigationState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NavigationState {
     pub fn new() -> Self {
         Self {

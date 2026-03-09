@@ -577,134 +577,114 @@ fn build_dispersion_config(
 ) -> Result<dispersions::DispersionConfig, DataError> {
     use dispersions::*;
 
-    let initial_state = mc
-        .initial_state
-        .as_ref()
-        .map(|d| {
-            let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-            if level == DispersionLevel::Off {
-                return None;
+    let initial_state = mc.initial_state.as_ref().and_then(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off {
+            return None;
+        }
+        let mut s = InitialStateSigmas::from_level(level);
+        if level == DispersionLevel::Custom {
+            if let Some(&v) = d.custom.get("altitude") {
+                s.altitude = v;
             }
-            let mut s = InitialStateSigmas::from_level(level);
-            if level == DispersionLevel::Custom {
-                if let Some(&v) = d.custom.get("altitude") {
-                    s.altitude = v;
-                }
-                if let Some(&v) = d.custom.get("longitude") {
-                    s.longitude = v;
-                }
-                if let Some(&v) = d.custom.get("latitude") {
-                    s.latitude = v;
-                }
-                if let Some(&v) = d.custom.get("velocity") {
-                    s.velocity = v;
-                }
-                if let Some(&v) = d.custom.get("flight_path_angle") {
-                    s.flight_path = v;
-                }
-                if let Some(&v) = d.custom.get("azimuth") {
-                    s.azimuth = v;
-                }
+            if let Some(&v) = d.custom.get("longitude") {
+                s.longitude = v;
             }
-            Some(s)
-        })
-        .flatten();
+            if let Some(&v) = d.custom.get("latitude") {
+                s.latitude = v;
+            }
+            if let Some(&v) = d.custom.get("velocity") {
+                s.velocity = v;
+            }
+            if let Some(&v) = d.custom.get("flight_path_angle") {
+                s.flight_path = v;
+            }
+            if let Some(&v) = d.custom.get("azimuth") {
+                s.azimuth = v;
+            }
+        }
+        Some(s)
+    });
 
-    let atmosphere = mc
-        .atmosphere
-        .as_ref()
-        .map(|d| {
-            let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-            if level == DispersionLevel::Off {
-                return None;
-            }
-            let mut s = AtmosphereSigmas::from_level(level);
-            if level == DispersionLevel::Custom {
-                if let Some(&v) = d.custom.get("density") {
-                    s.density = v;
-                }
-            }
-            Some(s)
-        })
-        .flatten();
+    let atmosphere = mc.atmosphere.as_ref().and_then(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off {
+            return None;
+        }
+        let mut s = AtmosphereSigmas::from_level(level);
+        if level == DispersionLevel::Custom
+            && let Some(&v) = d.custom.get("density")
+        {
+            s.density = v;
+        }
+        Some(s)
+    });
 
-    let aerodynamics = mc
-        .aerodynamics
-        .as_ref()
-        .map(|d| {
-            let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-            if level == DispersionLevel::Off {
-                return None;
+    let aerodynamics = mc.aerodynamics.as_ref().and_then(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off {
+            return None;
+        }
+        let mut s = AerodynamicsSigmas::from_level(level);
+        if level == DispersionLevel::Custom {
+            if let Some(&v) = d.custom.get("drag") {
+                s.drag = v;
             }
-            let mut s = AerodynamicsSigmas::from_level(level);
-            if level == DispersionLevel::Custom {
-                if let Some(&v) = d.custom.get("drag") {
-                    s.drag = v;
-                }
-                if let Some(&v) = d.custom.get("lift") {
-                    s.lift = v;
-                }
-                if let Some(&v) = d.custom.get("incidence") {
-                    s.incidence = v;
-                }
+            if let Some(&v) = d.custom.get("lift") {
+                s.lift = v;
             }
-            Some(s)
-        })
-        .flatten();
+            if let Some(&v) = d.custom.get("incidence") {
+                s.incidence = v;
+            }
+        }
+        Some(s)
+    });
 
-    let navigation = mc
-        .navigation
-        .as_ref()
-        .map(|d| {
-            let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-            if level == DispersionLevel::Off {
-                return None;
+    let navigation = mc.navigation.as_ref().and_then(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off {
+            return None;
+        }
+        let mut s = NavigationSigmas::from_level(level);
+        if level == DispersionLevel::Custom {
+            if let Some(&v) = d.custom.get("altitude") {
+                s.altitude = v;
             }
-            let mut s = NavigationSigmas::from_level(level);
-            if level == DispersionLevel::Custom {
-                if let Some(&v) = d.custom.get("altitude") {
-                    s.altitude = v;
-                }
-                if let Some(&v) = d.custom.get("longitude") {
-                    s.longitude = v;
-                }
-                if let Some(&v) = d.custom.get("latitude") {
-                    s.latitude = v;
-                }
-                if let Some(&v) = d.custom.get("velocity") {
-                    s.velocity = v;
-                }
-                if let Some(&v) = d.custom.get("flight_path_angle") {
-                    s.flight_path = v;
-                }
-                if let Some(&v) = d.custom.get("azimuth") {
-                    s.azimuth = v;
-                }
-                if let Some(&v) = d.custom.get("drag_accel") {
-                    s.drag_accel = v;
-                }
+            if let Some(&v) = d.custom.get("longitude") {
+                s.longitude = v;
             }
-            Some(s)
-        })
-        .flatten();
+            if let Some(&v) = d.custom.get("latitude") {
+                s.latitude = v;
+            }
+            if let Some(&v) = d.custom.get("velocity") {
+                s.velocity = v;
+            }
+            if let Some(&v) = d.custom.get("flight_path_angle") {
+                s.flight_path = v;
+            }
+            if let Some(&v) = d.custom.get("azimuth") {
+                s.azimuth = v;
+            }
+            if let Some(&v) = d.custom.get("drag_accel") {
+                s.drag_accel = v;
+            }
+        }
+        Some(s)
+    });
 
-    let mass = mc
-        .mass
-        .as_ref()
-        .map(|d| {
-            let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-            if level == DispersionLevel::Off {
-                return None;
-            }
-            let mut s = MassSigmas::from_level(level);
-            if level == DispersionLevel::Custom {
-                if let Some(&v) = d.custom.get("mass") {
-                    s.mass = v;
-                }
-            }
-            Some(s)
-        })
-        .flatten();
+    let mass = mc.mass.as_ref().and_then(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off {
+            return None;
+        }
+        let mut s = MassSigmas::from_level(level);
+        if level == DispersionLevel::Custom
+            && let Some(&v) = d.custom.get("mass")
+        {
+            s.mass = v;
+        }
+        Some(s)
+    });
 
     let vehicle = mc.vehicle.as_ref().and_then(|d| {
         let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
@@ -923,7 +903,7 @@ fn load_success(path: &str) -> Result<SuccessCriteria, DataError> {
 mod tests {
     use super::*;
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     /// Create a unique temp directory for test files.
     fn temp_dir(name: &str) -> PathBuf {
@@ -933,7 +913,7 @@ mod tests {
     }
 
     /// Write content to a temp file and return its path as a String.
-    fn write_temp_file(dir: &PathBuf, filename: &str, content: &str) -> String {
+    fn write_temp_file(dir: &Path, filename: &str, content: &str) -> String {
         let path = dir.join(filename);
         fs::write(&path, content).expect("failed to write temp file");
         path.to_str().unwrap().to_string()
@@ -951,7 +931,11 @@ mod tests {
         let rows = parse_data_file(&path).expect("parse failed");
         assert_eq!(rows.len(), 2, "expected 2 data rows, got {}", rows.len());
         assert_eq!(rows[0], vec![1.0, 2.0, 3.0]);
-        assert_eq!(rows[1], vec![40.0, 5.0, 6.0], "D-notation 4.0D+01 should become 40.0");
+        assert_eq!(
+            rows[1],
+            vec![40.0, 5.0, 6.0],
+            "D-notation 4.0D+01 should become 40.0"
+        );
 
         // Cleanup
         let _ = fs::remove_dir_all(&dir);
@@ -964,7 +948,11 @@ mod tests {
 
         let rows = parse_data_file(&path).expect("parse failed");
         assert_eq!(rows.len(), 2);
-        assert!((rows[0][0] - 12300.0).abs() < 1e-10, "expected 12300.0, got {}", rows[0][0]);
+        assert!(
+            (rows[0][0] - 12300.0).abs() < 1e-10,
+            "expected 12300.0, got {}",
+            rows[0][0]
+        );
         assert!(
             (rows[1][0] - (-0.00567)).abs() < 1e-10,
             "expected -0.00567, got {}",
@@ -980,7 +968,12 @@ mod tests {
         let path = write_temp_file(&dir, "test.dat", "\n\n1.0\n\n2.0\n\n");
 
         let rows = parse_data_file(&path).expect("parse failed");
-        assert_eq!(rows.len(), 2, "expected 2 rows after skipping blanks, got {}", rows.len());
+        assert_eq!(
+            rows.len(),
+            2,
+            "expected 2 rows after skipping blanks, got {}",
+            rows.len()
+        );
         assert_eq!(rows[0], vec![1.0]);
         assert_eq!(rows[1], vec![2.0]);
 

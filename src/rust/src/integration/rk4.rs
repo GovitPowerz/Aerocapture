@@ -61,7 +61,14 @@ mod tests {
 
     /// Helper: run one full RK4 step with a derivative function that takes (x, state) -> derivs.
     /// `x` is the independent variable (time), `dt` is the step size.
-    fn rk4_step(x: f64, dt: f64, state: &mut [f64], ix: &mut i32, qk: &mut [f64], deriv_fn: impl Fn(f64, &[f64]) -> Vec<f64>) {
+    fn rk4_step(
+        x: f64,
+        dt: f64,
+        state: &mut [f64],
+        ix: &mut i32,
+        qk: &mut [f64],
+        deriv_fn: impl Fn(f64, &[f64]) -> Vec<f64>,
+    ) {
         let n = state.len();
         // k=1: derivs at x
         let derivs = deriv_fn(x, state);
@@ -92,7 +99,11 @@ mod tests {
             rk4_step(x, dt, &mut state, &mut ix, &mut qk, |t, _| vec![t]);
         }
 
-        assert!((state[0] - 0.5).abs() < 1e-10, "Expected 0.5, got {}", state[0]);
+        assert!(
+            (state[0] - 0.5).abs() < 1e-10,
+            "Expected 0.5, got {}",
+            state[0]
+        );
     }
 
     #[test]
@@ -133,7 +144,9 @@ mod tests {
         for step in 0..n_steps {
             let t = step as f64 * dt;
             ix = 0;
-            rk4_step(t, dt, &mut state, &mut ix, &mut qk, |_, s| vec![s[1], -s[0]]);
+            rk4_step(t, dt, &mut state, &mut ix, &mut qk, |_, s| {
+                vec![s[1], -s[0]]
+            });
         }
 
         // Tolerance accounts for both integrator error and period discretization
@@ -143,11 +156,7 @@ mod tests {
             "Expected x ≈ 1.0, got {}",
             state[0]
         );
-        assert!(
-            state[1].abs() < 5e-3,
-            "Expected v ≈ 0.0, got {}",
-            state[1]
-        );
+        assert!(state[1].abs() < 5e-3, "Expected v ≈ 0.0, got {}", state[1]);
     }
 
     #[test]

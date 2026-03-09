@@ -131,7 +131,7 @@ mod tests {
         let orbit = OrbitalElements {
             semi_major_axis: 4.0e6,
             eccentricity: 0.3,
-            inclination: 0.45,       // ~25.8 deg
+            inclination: 0.45, // ~25.8 deg
             raan: 1.0,
             arg_periapsis: 0.5,
             true_anomaly: 0.0,
@@ -171,7 +171,10 @@ mod tests {
         let dv = compute_deltav(&orbit, 3, &target, &parking, &planet);
         assert!(dv.total.is_finite(), "total should be finite");
         assert!(dv.total > 0.0, "total should be positive");
-        assert!(dv.total < 5000.0, "total should be < 5000 m/s for reasonable orbit");
+        assert!(
+            dv.total < 5000.0,
+            "total should be < 5000 m/s for reasonable orbit"
+        );
     }
 
     #[test]

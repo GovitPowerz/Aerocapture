@@ -153,7 +153,11 @@ mod tests {
 
         assert_relative_eq!(oe.semi_major_axis, r, max_relative = 1e-6);
         assert_relative_eq!(oe.eccentricity, 0.0, epsilon = 1e-3);
-        assert!(oe.inclination.abs() < 0.01, "inclination should be near zero, got {}", oe.inclination);
+        assert!(
+            oe.inclination.abs() < 0.01,
+            "inclination should be near zero, got {}",
+            oe.inclination
+        );
     }
 
     /// Hyperbolic entry at Mars: V = 5687 m/s at 125 km alt.
@@ -169,8 +173,16 @@ mod tests {
 
         let oe = from_spherical(r, 0.0, 0.0, v, gamma, psi, &planet);
 
-        assert!(oe.semi_major_axis < 0.0, "SMA should be negative for hyperbolic orbit, got {}", oe.semi_major_axis);
-        assert!(oe.eccentricity > 1.0, "eccentricity should be > 1, got {}", oe.eccentricity);
+        assert!(
+            oe.semi_major_axis < 0.0,
+            "SMA should be negative for hyperbolic orbit, got {}",
+            oe.semi_major_axis
+        );
+        assert!(
+            oe.eccentricity > 1.0,
+            "eccentricity should be > 1, got {}",
+            oe.eccentricity
+        );
     }
 
     /// For an elliptical orbit (e < 1), periapsis_alt < apoapsis_alt.
@@ -189,7 +201,11 @@ mod tests {
 
         let oe = from_spherical(r, 0.0, 0.0, v_rel, 0.0, PI / 2.0, &planet);
 
-        assert!(oe.eccentricity < 1.0, "orbit should be elliptical, e = {}", oe.eccentricity);
+        assert!(
+            oe.eccentricity < 1.0,
+            "orbit should be elliptical, e = {}",
+            oe.eccentricity
+        );
         assert!(
             oe.periapsis_alt < oe.apoapsis_alt,
             "periapsis ({}) should be below apoapsis ({})",

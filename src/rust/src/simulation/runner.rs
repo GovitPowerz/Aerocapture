@@ -657,6 +657,7 @@ fn run_single(
 }
 
 /// Build a photo snapshot line matching Fortran photra.f format.
+#[allow(clippy::too_many_arguments)]
 fn build_photo_values(
     sim: &SimState,
     temsim: f64,
