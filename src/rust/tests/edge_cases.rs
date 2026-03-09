@@ -69,6 +69,7 @@ fn single_sim_no_mc_produces_output() {
 #[test]
 fn esr_aller_completes() {
     // ESR uses old_codebase/donnees/ data files (suffix-based config).
+    // TODO: Will break after old_codebase removal — needs consolidated ESR config (Task 4).
     // This test verifies multi-planet coverage (Earth vs Mars).
     let output = run_sim("esr_aller_ftc_nominal.toml");
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -93,6 +94,7 @@ fn esr_retour_completes() {
 // ─── Helper ───
 
 /// Find the final output file, trying both .csv and plain suffix variants.
+// TODO: Update path once configs use new output_dir (Task 4).
 fn find_final_output(repo: &std::path::Path, suffix: &str) -> PathBuf {
     let csv = repo
         .join("old_codebase/sorties")
