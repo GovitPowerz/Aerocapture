@@ -23,7 +23,7 @@ def load_final(path: str | Path) -> np.ndarray:
 
 
 def main() -> None:
-    base = Path("old_codebase/sorties")
+    base = Path("output")
     ftc = load_final(base / "final.mc100_ftc")
     nn = load_final(base / "final.mc100_nn")
 
