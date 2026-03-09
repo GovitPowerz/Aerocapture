@@ -1,12 +1,33 @@
-- remove old codebase (but keep all data such as missions in proper new config files, we can discuss on what is worth keeping or not) but we should implement a lot of tests unitary and otherwise to be sure that we don't break things in the future developments or if we do we can explain why the tests need changing.
-- remove rust and python code for leagcy input output formats but we should implement a lot of tests unitary and otherwise to be sure that we don't break things in the future developments or if we do we can explain why the tests need changing.
-- clean-up Rust code warnings and rename every variable properly (no french or badly named variable, and no need of only 6 letters names as in Fortran)
-- analyse the code structure both in Rust and in python and suggest improvements. Same for the data and tests (coverage and test code (is it good or not)).
+# TODO
 
-- update Improvements.md based on all we already did and what could be nice additions but were not already in there.
-- update Rust simulation based on improvements.md
-- is the roll reversal startegy used for nn guidance. If yes, I'd like to try letting the nn deal with it also. We should discuss this
-- work on cost function (energy, correction cost,...), discuss this
-- update training algorithms (GA, RL, PSO, ...) and output visualisation
-- what about lstm? transformer?
-- add navigation and control neural counterparts algorithms to compare to non neural ones
+## Codebase Cleanup
+
+- [ ] Clean up Rust warnings and rename variables properly (no French, no 6-char Fortran legacy names)
+- [ ] Remove legacy Fortran codebase (`old_codebase/`)
+  - Preserve all mission data as proper TOML configs first
+  - Decide what reference data is worth keeping for validation
+- [ ] Remove Rust and Python code for legacy `.in` input/output formats
+- [ ] Expand test coverage (unit + integration) before and after removals to catch regressions
+- [ ] Analyse directory structure (Rust and Python) and suggest improvements
+- [ ] Review test quality and coverage gaps
+
+## CI / DevOps
+
+- [ ] Run CI tests only on PRs, not on every push
+
+## Documentation
+
+- [ ] Update `Improvements.md` based on completed work and future ideas
+
+## Simulation Improvements
+
+- [ ] Implement improvements from `Improvements.md` in Rust simulator
+- [ ] Revisit roll reversal strategy for NN guidance — explore letting the NN handle it directly
+- [ ] Rework cost function design (energy, correction cost, etc.)
+
+## Training & ML
+
+- [ ] Update training algorithms (GA, RL, PSO, ...)
+- [ ] Improve output visualisation for training runs
+- [ ] Explore LSTM / Transformer architectures for guidance
+- [ ] Add neural counterparts for navigation and control (to compare against classical algorithms)
