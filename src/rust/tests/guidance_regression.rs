@@ -36,20 +36,22 @@ fn run_sim(config_name: &str) -> std::process::Output {
         .expect("failed to execute aerocapture")
 }
 
-/// Run a guidance scheme's training config and compare final output against golden reference.
+/// Run a guidance scheme's dedicated test config and compare final output
+/// against golden reference (byte-level -- same seed must produce identical output).
 ///
-/// Since all configs use the same MC seed (42) and deterministic dispersions,
-/// the output must be byte-identical to the golden reference.
+/// Each scheme has its own config with a unique `results_suffix`, so tests
+/// can safely run in parallel without overwriting each other's output files.
 #[rstest]
-#[case("msr_aller_eqglide_train.toml", "eqglide", "EquilibriumGlide")]
-#[case("msr_aller_energy_controller_train.toml", "energy_ctrl", "EnergyController")]
-#[case("msr_aller_pred_guid_train.toml", "pred_guid", "PredGuid")]
-#[case("msr_aller_fnpag_train.toml", "fnpag", "FNPAG")]
-#[case("msr_aller_ftc_train.toml", "ftc_train", "FTC")]
-#[case("msr_aller_nn_train_consolidated.toml", "neural", "NeuralNetwork")]
+#[case("test_eqglide_golden.toml", "eqglide", ".golden_eqglide", "EquilibriumGlide")]
+#[case("test_energy_ctrl_golden.toml", "energy_ctrl", ".golden_energy_ctrl", "EnergyController")]
+#[case("test_pred_guid_golden.toml", "pred_guid", ".golden_pred_guid", "PredGuid")]
+#[case("test_fnpag_golden.toml", "fnpag", ".golden_fnpag", "FNPAG")]
+#[case("test_ftc_golden.toml", "ftc", ".golden_ftc", "FTC")]
+#[case("test_neural_golden.toml", "neural", ".golden_neural", "NeuralNetwork")]
 fn guidance_regression(
     #[case] config_name: &str,
     #[case] golden_dir: &str,
+    #[case] suffix: &str,
     #[case] scheme_label: &str,
 ) {
     let output = run_sim(config_name);
@@ -61,8 +63,9 @@ fn guidance_regression(
 
     let repo = common::repo_root();
 
-    // Read actual output
-    let actual_path = repo.join("old_codebase/sorties/final.train_nn_temp");
+    // Read actual output (Rust simulator appends .csv to the suffix)
+    let actual_filename = format!("final{suffix}.csv");
+    let actual_path = repo.join("old_codebase/sorties").join(&actual_filename);
     let actual = std::fs::read_to_string(&actual_path).unwrap_or_else(|e| {
         panic!(
             "{scheme_label}: cannot read final output at {}: {e}",
@@ -74,7 +77,7 @@ fn guidance_regression(
     let golden_path = repo
         .join("tests/reference_data/rust_golden")
         .join(golden_dir)
-        .join("final.train_nn_temp");
+        .join(&actual_filename);
     let golden = std::fs::read_to_string(&golden_path).unwrap_or_else(|e| {
         panic!(
             "{scheme_label}: cannot read golden reference at {}: {e}",
@@ -83,12 +86,34 @@ fn guidance_regression(
     });
 
     // Byte-level comparison: same seed must produce identical output
-    assert_eq!(
-        actual, golden,
-        "{scheme_label}: final output differs from golden reference.\n\
-         Golden: {}\n\
-         Actual: {}",
-        golden_path.display(),
-        actual_path.display(),
-    );
+    if actual != golden {
+        // Show first differing line for diagnostics
+        let actual_lines: Vec<&str> = actual.lines().collect();
+        let golden_lines: Vec<&str> = golden.lines().collect();
+        let mut diff_msg = String::new();
+        for (i, (a, g)) in actual_lines.iter().zip(golden_lines.iter()).enumerate() {
+            if a != g {
+                diff_msg = format!(
+                    "First difference at line {} (0-indexed):\n  golden: {}\n  actual: {}",
+                    i, g, a
+                );
+                break;
+            }
+        }
+        if diff_msg.is_empty() && actual_lines.len() != golden_lines.len() {
+            diff_msg = format!(
+                "Line count differs: golden={}, actual={}",
+                golden_lines.len(),
+                actual_lines.len()
+            );
+        }
+        panic!(
+            "{scheme_label}: final output differs from golden reference.\n\
+             Golden: {}\n\
+             Actual: {}\n\
+             {diff_msg}",
+            golden_path.display(),
+            actual_path.display(),
+        );
+    }
 }
