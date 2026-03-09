@@ -5,6 +5,7 @@
 use super::{Guidance, GuidanceCommand};
 use crate::data::SphericalState;
 
+#[allow(dead_code)]
 pub struct ReferenceGuidance {
     pub bank_angle: f64,
     pub aoa: f64,

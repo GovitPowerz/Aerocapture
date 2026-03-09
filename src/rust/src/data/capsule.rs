@@ -6,16 +6,16 @@
 //!   xmasse (kg), srefer (m2), cq, vgitmx (deg/s),
 //!   tnavig (s), tguida (s), tpilot (s), tpredi (s), tinteg (s), tphoto (s)
 
-use super::{parse_data_file, DataError, TimePeriods};
+use super::{DataError, TimePeriods, parse_data_file};
 
 const DEG2RAD: f64 = std::f64::consts::PI / 180.0;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Capsule {
-    pub mass: f64,             // kg
-    pub reference_area: f64,   // m^2
-    pub cq: f64,               // heat flux coefficient
-    pub max_bank_rate: f64,    // rad/s
+    pub mass: f64,           // kg
+    pub reference_area: f64, // m^2
+    pub cq: f64,             // heat flux coefficient
+    pub max_bank_rate: f64,  // rad/s
     pub periods: TimePeriods,
 }
 

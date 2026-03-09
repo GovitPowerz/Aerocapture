@@ -46,11 +46,10 @@ pub fn geodetic_from_spherical(
         let mut rplant = req;
         let mut altitz = altitr - (req * rpol).sqrt();
         let mut altitude;
-        let mut lat_geo = latitude;
+        let lat_geo;
 
         for _ in 0..10 {
-            let tan_lat = (pos_z / pos_p)
-                / (1.0 - e2 * rplant / (rplant + altitz));
+            let tan_lat = (pos_z / pos_p) / (1.0 - e2 * rplant / (rplant + altitz));
             let sin_l = (tan_lat * tan_lat / (1.0 + tan_lat * tan_lat)).sqrt();
             let cos_l = (1.0 / (1.0 + tan_lat * tan_lat)).sqrt();
             altitude = pos_p / cos_l - rplant;
@@ -66,8 +65,7 @@ pub fn geodetic_from_spherical(
         }
 
         // Fallback after max iterations
-        let tan_lat = (pos_z / pos_p)
-            / (1.0 - e2 * rplant / (rplant + altitz));
+        let tan_lat = (pos_z / pos_p) / (1.0 - e2 * rplant / (rplant + altitz));
         let sin_l = (tan_lat * tan_lat / (1.0 + tan_lat * tan_lat)).sqrt();
         let cos_l = (1.0 / (1.0 + tan_lat * tan_lat)).sqrt();
         altitude = pos_p / cos_l - rplant;
@@ -80,6 +78,7 @@ pub fn geodetic_from_spherical(
 /// Convert geodetic to geocentric Cartesian position.
 ///
 /// Matches Fortran geodes.f.
+#[allow(dead_code)]
 pub fn geodetic_to_cartesian(
     altitude: f64,
     latitude: f64,
@@ -145,9 +144,9 @@ pub fn local_to_geocentric_matrix(lon: f64, lat: f64) -> [[f64; 3]; 3] {
     let coslon = lon.cos();
 
     [
-        [-coslon * sinlat,  sinlon, coslon * coslat],
+        [-coslon * sinlat, sinlon, coslon * coslat],
         [-sinlon * sinlat, -coslon, sinlon * coslat],
-        [ coslat,           0.0,    sinlat         ],
+        [coslat, 0.0, sinlat],
     ]
 }
 
@@ -191,8 +190,12 @@ pub fn norm(v: &[f64; 3]) -> f64 {
 /// Takes geocentric spherical position [r, lon, lat] and local spherical velocity [V, gamma, psi].
 /// Returns (position_cartesian, velocity_absolute_cartesian).
 pub fn to_absolute_cartesian(
-    r: f64, lon: f64, lat: f64,
-    v: f64, gamma: f64, psi: f64,
+    r: f64,
+    lon: f64,
+    lat: f64,
+    v: f64,
+    gamma: f64,
+    psi: f64,
     planet: &Planet,
 ) -> ([f64; 3], [f64; 3]) {
     // Position: spherical → Cartesian
@@ -227,12 +230,194 @@ pub fn to_absolute_cartesian(
 /// Matches Fortran enrtot.f.
 /// E = |v_abs|^2/2 - mu/|r|
 pub fn total_energy(
-    r: f64, lon: f64, lat: f64,
-    v: f64, gamma: f64, psi: f64,
+    r: f64,
+    lon: f64,
+    lat: f64,
+    v: f64,
+    gamma: f64,
+    psi: f64,
     planet: &Planet,
 ) -> f64 {
     let (posita, vitesa) = to_absolute_cartesian(r, lon, lat, v, gamma, psi, planet);
     let vitabs = norm(&vitesa);
     let rayvec = norm(&posita);
     vitabs * vitabs / 2.0 - planet.mu() / rayvec
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+    use std::f64::consts::PI;
+
+    // ── Vector math ──
+
+    #[test]
+    fn cross_product_orthogonal() {
+        let x = [1.0, 0.0, 0.0];
+        let y = [0.0, 1.0, 0.0];
+        let z = cross(&x, &y);
+        assert_relative_eq!(z[0], 0.0, epsilon = 1e-15);
+        assert_relative_eq!(z[1], 0.0, epsilon = 1e-15);
+        assert_relative_eq!(z[2], 1.0, epsilon = 1e-15);
+    }
+
+    #[test]
+    fn cross_product_anticommutative() {
+        let a = [1.0, 2.0, 3.0];
+        let b = [4.0, -1.0, 7.0];
+        let ab = cross(&a, &b);
+        let ba = cross(&b, &a);
+        assert_relative_eq!(ab[0], -ba[0], epsilon = 1e-15);
+        assert_relative_eq!(ab[1], -ba[1], epsilon = 1e-15);
+        assert_relative_eq!(ab[2], -ba[2], epsilon = 1e-15);
+    }
+
+    #[test]
+    fn dot_product() {
+        let a = [1.0, 2.0, 3.0];
+        let b = [4.0, 5.0, 6.0];
+        assert_relative_eq!(dot(&a, &b), 32.0, epsilon = 1e-15);
+    }
+
+    #[test]
+    fn norm_unit_vectors() {
+        assert_relative_eq!(norm(&[1.0, 0.0, 0.0]), 1.0, epsilon = 1e-15);
+        assert_relative_eq!(norm(&[0.0, 0.0, 0.0]), 0.0, epsilon = 1e-15);
+        assert_relative_eq!(norm(&[3.0, 4.0, 0.0]), 5.0, epsilon = 1e-15);
+    }
+
+    // ── Position conversions ──
+
+    #[test]
+    fn position_to_cartesian_at_origin() {
+        let r = 3.39394e6;
+        let pos = position_to_cartesian(r, 0.0, 0.0);
+        assert_relative_eq!(pos[0], r, epsilon = 1e-10);
+        assert_relative_eq!(pos[1], 0.0, epsilon = 1e-10);
+        assert_relative_eq!(pos[2], 0.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn position_to_cartesian_at_pole() {
+        let r = 3.39394e6;
+        let pos = position_to_cartesian(r, 0.0, PI / 2.0);
+        assert_relative_eq!(pos[0], 0.0, epsilon = 1e-5);
+        assert_relative_eq!(pos[1], 0.0, epsilon = 1e-5);
+        assert_relative_eq!(pos[2], r, epsilon = 1e-5);
+    }
+
+    #[test]
+    fn position_roundtrip_norm() {
+        let r = 4.0e6;
+        let lon = 0.7;
+        let lat = -0.3;
+        let pos = position_to_cartesian(r, lon, lat);
+        assert_relative_eq!(norm(&pos), r, max_relative = 1e-14);
+    }
+
+    // ── Geodetic ──
+
+    #[test]
+    fn geodetic_spherical_planet() {
+        // Moon is near-spherical: req ≈ rpol
+        let moon = Planet::Moon;
+        let r = 6.0518e6 + 100_000.0; // 100 km altitude
+        let lat = 0.5; // ~28.6°
+        let (alt, geo_lat) = geodetic_from_spherical(r, 0.0, lat, &moon);
+        // For a spherical planet, geodetic ≈ geocentric
+        assert_relative_eq!(geo_lat, lat, max_relative = 1e-10);
+        assert_relative_eq!(alt, 100_000.0, max_relative = 1e-10);
+    }
+
+    #[test]
+    fn geodetic_at_equator() {
+        let mars = Planet::Mars;
+        let r = mars.equatorial_radius() + 120_000.0;
+        let (_, geo_lat) = geodetic_from_spherical(r, 0.0, 0.0, &mars);
+        assert_relative_eq!(geo_lat, 0.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn geodetic_at_pole() {
+        let mars = Planet::Mars;
+        let rpol = mars.polar_radius();
+        let r = rpol + 50_000.0;
+        let (alt, _) = geodetic_from_spherical(r, 0.0, PI / 2.0, &mars);
+        // At the pole, altitude should be approximately r - rpol
+        // (not exact because of oblate geometry, but close)
+        assert_relative_eq!(alt, 50_000.0, max_relative = 0.01);
+    }
+
+    // ── Rotation matrix ──
+
+    #[test]
+    fn rotation_matrix_is_orthogonal() {
+        let lon = 0.5;
+        let lat = 0.3;
+        let m = local_to_geocentric_matrix(lon, lat);
+
+        // M * M^T should be identity
+        for i in 0..3 {
+            for j in 0..3 {
+                let sum: f64 = (0..3).map(|k| m[i][k] * m[j][k]).sum();
+                let expected = if i == j { 1.0 } else { 0.0 };
+                assert_relative_eq!(sum, expected, epsilon = 1e-14);
+            }
+        }
+    }
+
+    // ── Energy ──
+
+    #[test]
+    fn circular_orbit_energy() {
+        // For a circular orbit: V_circ_abs = sqrt(mu/r), E = -mu/(2r)
+        // But total_energy uses absolute velocity, and the input V is relative.
+        // V_abs = V_rel + omega × r. At equator heading east:
+        // V_abs = V_rel + omega * r, so V_rel = V_circ_abs - omega * r
+        let mars = Planet::Mars;
+        let r = mars.equatorial_radius() + 300_000.0; // 300 km altitude
+        let mu = mars.mu();
+        let omega = mars.omega();
+        let v_circ_abs = (mu / r).sqrt();
+        let v_rel = v_circ_abs - omega * r;
+        // Circular orbit: gamma=0, heading east: psi=PI/2
+        let energy = total_energy(r, 0.0, 0.0, v_rel, 0.0, PI / 2.0, &mars);
+        let expected = -mu / (2.0 * r);
+        assert_relative_eq!(energy, expected, max_relative = 1e-6);
+    }
+
+    #[test]
+    fn hyperbolic_energy_positive() {
+        // Mars entry at 5687 m/s (relative) — hyperbolic approach
+        let mars = Planet::Mars;
+        let r = mars.equatorial_radius() + 120_000.0;
+        let v = 5687.0;
+        let gamma = -0.1; // slight descent
+        let psi = PI / 2.0;
+        let energy = total_energy(r, 0.0, 0.0, v, gamma, psi, &mars);
+        assert!(
+            energy > 0.0,
+            "Hyperbolic entry should have positive energy, got {energy}"
+        );
+    }
+
+    // ── Absolute velocity ──
+
+    #[test]
+    fn absolute_velocity_includes_rotation() {
+        // At equator heading east, V_abs > V_rel because planet rotation adds velocity
+        let mars = Planet::Mars;
+        let r = mars.equatorial_radius() + 120_000.0;
+        let v_rel = 3000.0;
+        let gamma = 0.0;
+        let psi = PI / 2.0; // heading east
+
+        let (_, v_abs_vec) = to_absolute_cartesian(r, 0.0, 0.0, v_rel, gamma, psi, &mars);
+        let v_abs = norm(&v_abs_vec);
+        assert!(
+            v_abs > v_rel,
+            "Absolute velocity ({v_abs}) should exceed relative ({v_rel}) when heading east at equator"
+        );
+    }
 }

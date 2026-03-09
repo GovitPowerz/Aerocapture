@@ -5,6 +5,8 @@ Replaces MATLAB Improve_Chrom_Aerocap.m.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import numpy.typing as npt
 
@@ -17,7 +19,7 @@ def improve_chromosome(
     base_network: npt.NDArray[np.float64],
     config: TrainingConfig,
     mode: int = 0,
-    cwd: str | None = None,
+    cwd: str | Path | None = None,
     rng: np.random.Generator | None = None,
 ) -> tuple[npt.NDArray[np.int8], float, float]:
     """Improve a chromosome via greedy bit-flip local search.
@@ -39,10 +41,7 @@ def improve_chromosome(
     if rng is None:
         rng = np.random.default_rng()
 
-    if config.ga.direct_encoding:
-        n_coef = config.network.n_base_coef
-    else:
-        n_coef = config.network.n_coef
+    n_coef = config.n_params
     n_bit = config.ga.n_bit
 
     # Initial cost
@@ -51,10 +50,7 @@ def improve_chromosome(
     initial_cost = current_cost
 
     # Determine which coefficients to optimize
-    if mode == 0:
-        coef_indices = rng.permutation(n_coef)[:1]
-    else:
-        coef_indices = rng.permutation(n_coef)
+    coef_indices = rng.permutation(n_coef)[:1] if mode == 0 else rng.permutation(n_coef)
 
     for coef_idx in coef_indices:
         # Random bit order within this coefficient

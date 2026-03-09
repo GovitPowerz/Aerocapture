@@ -8,7 +8,7 @@
 //!   amrpil — second-order damping ratio
 //!   omgpil — second-order natural frequency (rad/s)
 
-use super::{parse_data_file, DataError};
+use super::{DataError, parse_data_file};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PilotType {
@@ -20,9 +20,9 @@ pub enum PilotType {
 #[derive(Debug, Clone, Copy)]
 pub struct PilotModel {
     pub pilot_type: PilotType,
-    pub time_constant: f64,   // first-order tau (s)
-    pub damping: f64,         // second-order zeta
-    pub frequency: f64,       // second-order omega (rad/s)
+    pub time_constant: f64, // first-order tau (s)
+    pub damping: f64,       // second-order zeta
+    pub frequency: f64,     // second-order omega (rad/s)
 }
 
 impl PilotModel {
@@ -45,7 +45,7 @@ impl PilotModel {
                 return Err(DataError(format!(
                     "Invalid pilot type {}: {}",
                     natpil, path
-                )))
+                )));
             }
         };
 

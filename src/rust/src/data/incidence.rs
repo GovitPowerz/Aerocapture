@@ -7,15 +7,15 @@
 //!   nbalfa altitude values (km)
 //!   nbalfa incidence values (deg)
 
-use super::{parse_data_file, DataError};
+use super::{DataError, parse_data_file};
 
 const DEG2RAD: f64 = std::f64::consts::PI / 180.0;
 
 #[derive(Debug, Clone)]
 pub struct IncidenceProfile {
     pub n_points: usize,
-    pub altitudes: Vec<f64>,   // meters (from km)
-    pub incidences: Vec<f64>,  // radians (from deg)
+    pub altitudes: Vec<f64>,  // meters (from km)
+    pub incidences: Vec<f64>, // radians (from deg)
 }
 
 impl IncidenceProfile {

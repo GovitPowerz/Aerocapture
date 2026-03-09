@@ -1,0 +1,35 @@
+# Test: FTC guided trajectory
+# Equivalent to old_codebase/exec/test_guided_orig.in
+# Reference data: tests/reference_data/guided_orig/
+
+[mission]
+type = "aerocapture"
+planet = "mars"
+
+[guidance]
+type = "ftc"
+reference_trajectory = false
+reference_bank_angle = 64.77026
+
+[simulation]
+n_sims = 1
+random_seed = 0.6866
+
+[data]
+base_dir = "old_codebase/donnees"
+output_dir = "old_codebase/sorties"
+results_suffix = ".test_guided_orig"
+output_format = "text"
+
+[data.files]
+capsule = ".msr_aller"
+entry = ".msr_aller64"
+mission = ".msr_aller"
+guidance = ".msr_aller64"
+incidence = ".msr_aller"
+aerodynamics = ".msr"
+atmosphere = ".mars_ASTRIUM"
+dispersions = ".nul"
+navigation = ".nul"
+success = ".msr_aller"
+results = ".test_guided_orig"

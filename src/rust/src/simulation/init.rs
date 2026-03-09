@@ -1,155 +1,204 @@
 //! Per-run initialization and Monte Carlo dispersion application.
 //!
-//! Matches Fortran inimsr.f.
+//! Domain-based system: generates draws at runtime from seeded RNG.
 
-use crate::config::SimInput;
-use crate::data::{EntryConditions, SimData, SphericalState};
+use crate::data::dispersions::DispersionDraw;
+use crate::data::{EntryConditions, SimData};
+use crate::gnc::control::pilot::PilotBiases;
+use crate::gnc::navigation::estimator::NavigationBiases;
 
 /// Per-simulation-run state after applying dispersions.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct RunState {
     pub entry: EntryConditions,
-    pub cx_bias: f64,       // drag coefficient bias (fractional)
-    pub cz_bias: f64,       // lift coefficient bias (fractional)
-    pub density_bias: f64,  // atmosphere density bias (fractional)
-    pub mass_bias: f64,     // mass bias (fractional)
-    pub incidence_bias: f64, // incidence error (radians)
+    pub cx_bias: f64,            // drag coefficient bias (fractional)
+    pub cz_bias: f64,            // lift coefficient bias (fractional)
+    pub density_bias: f64,       // atmosphere density bias (fractional)
+    pub mass_bias: f64,          // mass bias (fractional)
+    pub incidence_bias: f64,     // incidence error (radians)
+    pub ref_area_bias: f64,      // reference area bias (fractional)
+    pub max_bank_rate_bias: f64, // max bank rate bias (fractional)
+    pub filter_gain_bias: f64,   // density filter gain bias (absolute delta)
+    pub nav_biases: NavigationBiases,
+    pub pilot_biases: PilotBiases,
 }
 
-/// Raw dispersions read from the lottery file.
-///
-/// These values are drawn from Gaussian distributions and stored in
-/// the lottery file. They are directly added to the nominal conditions.
-///
-/// Matches Fortran inimsr.f read format:
-///   i, xaleat, daltit, dlongi, dlatit, dvites, dazimu, dpente,
-///   ddensi, dcxeng, dczeng,
-///   dnalti, dnlati, dnlong, dnvite, dnazim, dnpent,
-///   dndrag, dalfae, dmvehi
-#[derive(Debug, Clone, Default)]
-pub struct LotteryDraw {
-    pub daltit: f64,  // altitude dispersion (meters, added to radius)
-    pub dlongi: f64,  // longitude dispersion (radians)
-    pub dlatit: f64,  // latitude dispersion (radians)
-    pub dvites: f64,  // velocity dispersion (m/s)
-    pub dazimu: f64,  // azimuth dispersion (radians)
-    pub dpente: f64,  // FPA dispersion (radians)
-    pub ddensi: f64,  // density dispersion factor
-    pub dcxeng: f64,  // drag coeff dispersion factor
-    pub dczeng: f64,  // lift coeff dispersion factor
-    pub dalfae: f64,  // incidence dispersion (radians)
-    pub dmvehi: f64,  // mass dispersion factor
-}
-
-/// Read lottery dispersions for a given simulation index.
-///
-/// Matches Fortran inimsr.f lottery file reading.
-/// For single runs: reads the numsim-th line (1-based).
-/// For Monte Carlo: reads sequentially.
-pub fn read_lottery(
-    path: &str,
-    sim_index: i32,  // 0-based
-    visualize_sim: i32,  // numsim from config (1-based)
-    is_monte_carlo: bool,
-) -> LotteryDraw {
-    let content = match std::fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(_) => return LotteryDraw::default(),
-    };
-
-    let lines: Vec<&str> = content.lines().collect();
-    if lines.is_empty() {
-        return LotteryDraw::default();
-    }
-
-    // Determine which line to read
-    let line_idx = if is_monte_carlo {
-        // Monte Carlo: read sim_index-th line (0-based)
-        sim_index as usize
-    } else {
-        // Single run: skip (numsim-1) lines, read numsim-th
-        // Fortran: numsim is 1-based, so line index = numsim - 1
-        (visualize_sim - 1).max(0) as usize
-    };
-
-    if line_idx >= lines.len() {
-        return LotteryDraw::default();
-    }
-
-    let line = lines[line_idx];
-    // Parse: normalize D-notation and split
-    let tokens: Vec<f64> = line
-        .split_whitespace()
-        .filter_map(|t| {
-            let norm = t.replace('D', "E").replace('d', "e");
-            norm.parse::<f64>().ok()
-        })
-        .collect();
-
-    // tokens[0] = i (sim number), tokens[1] = xaleat (random seed)
-    // tokens[2..] = dispersions
-    if tokens.len() < 20 {
-        return LotteryDraw::default();
-    }
-
-    LotteryDraw {
-        daltit: tokens[2],
-        dlongi: tokens[3],
-        dlatit: tokens[4],
-        dvites: tokens[5],
-        dazimu: tokens[6],
-        dpente: tokens[7],
-        ddensi: tokens[8],
-        dcxeng: tokens[9],
-        dczeng: tokens[10],
-        // tokens[11..17] = navigation dispersions (dnalti..dnpent, dndrag)
-        dalfae: tokens[18],
-        dmvehi: tokens[19],
-    }
-}
-
-/// Initialize a simulation run.
-///
-/// Reads lottery dispersions and applies them to entry conditions.
-/// Matches Fortran inimsr.f.
-pub fn init_run(
-    sim_data: &SimData,
-    config: &SimInput,
-    sim_index: i32,
-    _rng_seed: f64,
-) -> RunState {
-    // Read lottery file dispersions
-    let lottery_path = config.data_path("loterie", &config.suffixes.lottery);
-    let is_mc = config.n_sims > 1;
-    let draw = read_lottery(&lottery_path, sim_index, config.replay_sim, is_mc);
-
-    // Apply initial condition dispersions (matches inimsr.f lines 232-237)
+/// Initialize a simulation run by applying dispersion draws to entry conditions.
+pub fn init_run_from_draw(sim_data: &SimData, draw: &DispersionDraw) -> RunState {
     let mut entry = sim_data.entry;
-    // positr(1) = daltit + positz(1)  — daltit added to radius directly
-    // But entry.state.altitude is geodetic altitude, and positz(1) is radius.
-    // The Fortran adds daltit to the radius (positz(1) = radius from geodes).
-    // Since r = altitude + req approximately, adding to altitude has the same effect.
-    entry.state.altitude += draw.daltit;
-    entry.state.longitude += draw.dlongi;
-    entry.state.latitude += draw.dlatit;
-    entry.state.velocity += draw.dvites;
-    entry.state.flight_path += draw.dpente;
-    entry.state.azimuth += draw.dazimu;
-
-    // Aero/atmo dispersions (matches inimsr.f lines 196-198)
-    // disatm = ddensi, dxdrag = dcxeng, dxlift = dczeng
-    let density_bias = draw.ddensi;
-    let cx_bias = draw.dcxeng;
-    let cz_bias = draw.dczeng;
-    let mass_bias = draw.dmvehi;
-    let incidence_bias = draw.dalfae;
+    entry.state.altitude += draw.altitude;
+    entry.state.longitude += draw.longitude;
+    entry.state.latitude += draw.latitude;
+    entry.state.velocity += draw.velocity;
+    entry.state.flight_path += draw.flight_path;
+    entry.state.azimuth += draw.azimuth;
 
     RunState {
         entry,
-        cx_bias,
-        cz_bias,
-        density_bias,
-        mass_bias,
-        incidence_bias,
+        cx_bias: draw.drag_coeff,
+        cz_bias: draw.lift_coeff,
+        density_bias: draw.density,
+        mass_bias: draw.mass,
+        incidence_bias: draw.incidence,
+        ref_area_bias: draw.ref_area,
+        max_bank_rate_bias: draw.max_bank_rate,
+        filter_gain_bias: draw.filter_gain,
+        nav_biases: NavigationBiases {
+            pos: [draw.nav_altitude, draw.nav_longitude, draw.nav_latitude],
+            vel: [draw.nav_velocity, draw.nav_flight_path, draw.nav_azimuth],
+            drag: draw.nav_drag_accel,
+        },
+        pilot_biases: PilotBiases {
+            tau: draw.pilot_tau,
+            damping: draw.pilot_damping,
+            frequency: draw.pilot_frequency,
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::dispersions::DispersionDraw;
+    use crate::data::{
+        Constraints, EntryConditions, FinalConditions, OrbitalTarget, ParkingOrbit, SphericalState,
+        SuccessCriteria, TimePeriods, aerodynamics, atmosphere, capsule, guidance_params,
+        incidence, pilot,
+    };
+
+    fn test_sim_data() -> SimData {
+        SimData {
+            capsule: capsule::Capsule {
+                mass: 1089.0,
+                reference_area: 14.7,
+                cq: 0.0,
+                max_bank_rate: 0.0,
+                periods: TimePeriods::default(),
+            },
+            aero: aerodynamics::AeroTables::default(),
+            atmosphere: atmosphere::AtmosphereModel::default(),
+            entry: EntryConditions {
+                state: SphericalState {
+                    altitude: 130_000.0,
+                    longitude: 0.1,
+                    latitude: 0.2,
+                    velocity: 5687.0,
+                    flight_path: -0.189,
+                    azimuth: 0.664,
+                },
+                initial_date: 0.0,
+                initial_bank: 1.13,
+                initial_aoa: -0.48,
+            },
+            constraints: Constraints::default(),
+            final_conditions: FinalConditions::default(),
+            target_orbit: OrbitalTarget::default(),
+            parking_orbit: ParkingOrbit::default(),
+            periods: TimePeriods::default(),
+            guidance: guidance_params::GuidanceParams::default(),
+            incidence: incidence::IncidenceProfile {
+                n_points: 0,
+                altitudes: vec![],
+                incidences: vec![],
+            },
+            pilot: pilot::PilotModel {
+                pilot_type: pilot::PilotType::Perfect,
+                time_constant: 1.0,
+                damping: 0.7,
+                frequency: 0.072,
+            },
+            success: SuccessCriteria::default(),
+            wind_enabled: false,
+            neural_net: None,
+            dispersion_config: None,
+        }
+    }
+
+    #[test]
+    fn test_zero_draw_preserves_entry() {
+        let sim_data = test_sim_data();
+        let draw = DispersionDraw::default();
+        let run = init_run_from_draw(&sim_data, &draw);
+
+        assert_eq!(run.entry.state.altitude, 130_000.0);
+        assert_eq!(run.entry.state.velocity, 5687.0);
+        assert_eq!(run.entry.state.longitude, 0.1);
+        assert_eq!(run.cx_bias, 0.0);
+        assert_eq!(run.cz_bias, 0.0);
+        assert_eq!(run.density_bias, 0.0);
+        assert_eq!(run.mass_bias, 0.0);
+        assert_eq!(run.incidence_bias, 0.0);
+        assert_eq!(run.ref_area_bias, 0.0);
+        assert_eq!(run.max_bank_rate_bias, 0.0);
+        assert_eq!(run.filter_gain_bias, 0.0);
+        assert_eq!(run.pilot_biases.tau, 0.0);
+        assert_eq!(run.pilot_biases.damping, 0.0);
+        assert_eq!(run.pilot_biases.frequency, 0.0);
+        assert_eq!(run.nav_biases.drag, 0.0);
+    }
+
+    #[test]
+    fn test_nonzero_draw_shifts_entry() {
+        let sim_data = test_sim_data();
+        let draw = DispersionDraw {
+            altitude: 500.0,
+            velocity: -2.0,
+            longitude: 0.001,
+            latitude: -0.001,
+            flight_path: 0.002,
+            azimuth: -0.003,
+            drag_coeff: 0.05,
+            lift_coeff: -0.03,
+            density: 0.15,
+            mass: -0.01,
+            incidence: 0.01,
+            ref_area: 0.02,
+            max_bank_rate: -0.05,
+            pilot_tau: 0.08,
+            pilot_damping: -0.03,
+            pilot_frequency: 0.05,
+            filter_gain: 0.07,
+            ..Default::default()
+        };
+        let run = init_run_from_draw(&sim_data, &draw);
+
+        assert_eq!(run.entry.state.altitude, 130_500.0);
+        assert_eq!(run.entry.state.velocity, 5685.0);
+        assert_eq!(run.cx_bias, 0.05);
+        assert_eq!(run.cz_bias, -0.03);
+        assert_eq!(run.density_bias, 0.15);
+        assert_eq!(run.mass_bias, -0.01);
+        assert_eq!(run.incidence_bias, 0.01);
+        assert_eq!(run.ref_area_bias, 0.02);
+        assert_eq!(run.max_bank_rate_bias, -0.05);
+        assert_eq!(run.filter_gain_bias, 0.07);
+        assert_eq!(run.pilot_biases.tau, 0.08);
+        assert_eq!(run.pilot_biases.damping, -0.03);
+        assert_eq!(run.pilot_biases.frequency, 0.05);
+    }
+
+    #[test]
+    fn test_nav_bias_mapping() {
+        let sim_data = test_sim_data();
+        let draw = DispersionDraw {
+            nav_altitude: 100.0,
+            nav_longitude: 0.01,
+            nav_latitude: 0.02,
+            nav_velocity: 0.5,
+            nav_flight_path: 0.03,
+            nav_azimuth: 0.04,
+            nav_drag_accel: 0.1,
+            ..Default::default()
+        };
+        let run = init_run_from_draw(&sim_data, &draw);
+
+        assert_eq!(run.nav_biases.pos[0], 100.0);
+        assert_eq!(run.nav_biases.pos[1], 0.01);
+        assert_eq!(run.nav_biases.pos[2], 0.02);
+        assert_eq!(run.nav_biases.vel[0], 0.5);
+        assert_eq!(run.nav_biases.vel[1], 0.03);
+        assert_eq!(run.nav_biases.vel[2], 0.04);
+        assert_eq!(run.nav_biases.drag, 0.1);
     }
 }

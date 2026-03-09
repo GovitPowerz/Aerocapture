@@ -1,0 +1,29 @@
+# MSR outbound — Neural Network guided, 100 Monte Carlo runs
+
+[mission]
+type = "aerocapture"
+planet = "mars"
+
+[guidance]
+type = "neural_network"
+reference_bank_angle = 64.77026
+
+[simulation]
+n_sims = 100
+random_seed = 0.6866
+
+[data]
+base_dir = "old_codebase/donnees"
+output_dir = "old_codebase/sorties"
+
+[data.files]
+capsule = ".msr_aller"
+entry = ".msr_aller64"
+mission = ".msr_aller"
+guidance = ".msr_aller64"
+neural_network = ".temp"
+incidence = ".msr_aller"
+aerodynamics = ".msr"
+atmosphere = ".mars_ASTRIUM"
+success = ".msr_aller"
+results = ".mc100_nn"

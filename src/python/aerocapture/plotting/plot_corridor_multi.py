@@ -10,7 +10,6 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 
 from aerocapture.io import parse_final, parse_photo
 from aerocapture.plotting.corridor import draw_corridor, segment_mc_trajectories
