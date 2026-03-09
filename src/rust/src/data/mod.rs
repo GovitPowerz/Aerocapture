@@ -918,3 +918,83 @@ fn load_success(path: &str) -> Result<SuccessCriteria, DataError> {
         periapsis_tol: rows[3][0] * 1e3,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    /// Create a unique temp directory for test files.
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("aerocapture_test_{}", name));
+        let _ = fs::create_dir_all(&dir);
+        dir
+    }
+
+    /// Write content to a temp file and return its path as a String.
+    fn write_temp_file(dir: &PathBuf, filename: &str, content: &str) -> String {
+        let path = dir.join(filename);
+        fs::write(&path, content).expect("failed to write temp file");
+        path.to_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn parse_data_file_skips_comments() {
+        let dir = temp_dir("skips_comments");
+        let path = write_temp_file(
+            &dir,
+            "test.dat",
+            "# Header\n  text line\n1.0 2.0 3.0\n4.0D+01 5.0 6.0\n",
+        );
+
+        let rows = parse_data_file(&path).expect("parse failed");
+        assert_eq!(rows.len(), 2, "expected 2 data rows, got {}", rows.len());
+        assert_eq!(rows[0], vec![1.0, 2.0, 3.0]);
+        assert_eq!(rows[1], vec![40.0, 5.0, 6.0], "D-notation 4.0D+01 should become 40.0");
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parse_data_file_handles_d_notation() {
+        let dir = temp_dir("d_notation");
+        let path = write_temp_file(&dir, "test.dat", "1.23D+04\n-5.67d-03\n");
+
+        let rows = parse_data_file(&path).expect("parse failed");
+        assert_eq!(rows.len(), 2);
+        assert!((rows[0][0] - 12300.0).abs() < 1e-10, "expected 12300.0, got {}", rows[0][0]);
+        assert!(
+            (rows[1][0] - (-0.00567)).abs() < 1e-10,
+            "expected -0.00567, got {}",
+            rows[1][0]
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parse_data_file_empty_lines_skipped() {
+        let dir = temp_dir("empty_lines");
+        let path = write_temp_file(&dir, "test.dat", "\n\n1.0\n\n2.0\n\n");
+
+        let rows = parse_data_file(&path).expect("parse failed");
+        assert_eq!(rows.len(), 2, "expected 2 rows after skipping blanks, got {}", rows.len());
+        assert_eq!(rows[0], vec![1.0]);
+        assert_eq!(rows[1], vec![2.0]);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn spherical_state_default_is_zero() {
+        let s = SphericalState::default();
+        assert_eq!(s.altitude, 0.0);
+        assert_eq!(s.longitude, 0.0);
+        assert_eq!(s.latitude, 0.0);
+        assert_eq!(s.velocity, 0.0);
+        assert_eq!(s.flight_path, 0.0);
+        assert_eq!(s.azimuth, 0.0);
+    }
+}
