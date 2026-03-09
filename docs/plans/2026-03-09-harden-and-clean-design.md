@@ -22,9 +22,12 @@ Fill gaps in guidance scheme coverage (all 6 schemes need at least one integrati
 
 Ensure every mission variant in `old_codebase/donnees/` has a corresponding TOML config in `configs/`. Discuss which variants are worth keeping vs. which are historical dead weight.
 
-### Phase 4 — Remove legacy `.in` format support
+### Phase 4 — Convert suffix-mode configs to consolidated TOML + remove suffix mode
 
-Strip stdin-based `.in` parsing from Rust (`main.rs`, `config.rs`) and Python parsers. TOML is the only input format going forward.
+~~Remove legacy `.in` format support~~ — already done, Rust has no stdin parsing.
+The real dependency is "suffix mode" TOML configs that reference `old_codebase/donnees/` files.
+Convert all configs to consolidated (inline data), move external data to `data/`, then remove
+the suffix mode code path from Rust. Also update Python hardcoded `old_codebase/` paths.
 
 ### Phase 5 — Remove `old_codebase/`
 
