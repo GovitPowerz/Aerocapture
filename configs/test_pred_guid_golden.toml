@@ -13,10 +13,9 @@ n_sims = 3
 random_seed = 0.6866
 
 [data]
-base_dir = "old_codebase/donnees"
-output_dir = "old_codebase/sorties"
-atmosphere = "old_codebase/donnees/atmosphere.mars_ASTRIUM"
-reference_trajectory = "old_codebase/donnees/tables_energie_gains.msr_aller64"
+output_dir = "output"
+atmosphere = "data/atmosphere/mars.dat"
+reference_trajectory = "data/reference_trajectory/msr_aller.dat"
 results_suffix = ".golden_pred_guid"
 
 [monte_carlo]

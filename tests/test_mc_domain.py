@@ -18,7 +18,7 @@ import pytest
 
 ROOT = Path(__file__).parent.parent
 BINARY = ROOT / "src" / "rust" / "target" / "release" / "aerocapture"
-OUTPUT_DIR = ROOT / "old_codebase" / "sorties"
+OUTPUT_DIR = ROOT / "output"
 BASE_CONFIG = ROOT / "configs" / "msr_aller_ftc_mc_domain.toml"
 
 

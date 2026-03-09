@@ -384,14 +384,14 @@ if __name__ == "__main__":
     if args.toml:
         cfg.sim.toml_config = args.toml
         cfg.sim.executable = "src/rust/target/release/aerocapture"
-        cfg.sim.nn_param_file = "old_codebase/donnees/nn_model.json"
-        cfg.sim.final_file = "old_codebase/sorties/final.train_nn_temp"
+        cfg.sim.nn_param_file = "data/neural_network/nn_model.json"
+        cfg.sim.final_file = "output/final.train_nn_temp"
         cfg.sim.exec_dir = "."
         if cwd is None:
             cwd = "."
     else:
         if cwd is None:
-            cwd = "old_codebase/exec"
+            cwd = "."
 
     # Non-NN schemes require TOML mode
     if cfg.guidance_type != "neural_network" and not args.toml:

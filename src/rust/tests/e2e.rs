@@ -127,7 +127,7 @@ fn mc_domain_completes() {
 #[test]
 fn mc_deterministic_same_seed() {
     let repo = common::repo_root();
-    let final_path = repo.join("old_codebase/sorties/final.mc100_domain");
+    let final_path = repo.join("output/final.mc100_domain");
 
     // Run 1
     let output1 = run_sim("msr_aller_ftc_mc_domain.toml");
@@ -138,7 +138,7 @@ fn mc_deterministic_same_seed() {
     );
     let content1 = std::fs::read_to_string(&final_path).unwrap_or_else(|e| {
         // Try CSV variant
-        let csv_path = repo.join("old_codebase/sorties/final.mc100_domain.csv");
+        let csv_path = repo.join("output/final.mc100_domain.csv");
         std::fs::read_to_string(&csv_path)
             .unwrap_or_else(|_| panic!("Cannot read final output after run 1: {}", e))
     });
@@ -151,7 +151,7 @@ fn mc_deterministic_same_seed() {
         String::from_utf8_lossy(&output2.stderr)
     );
     let content2 = std::fs::read_to_string(&final_path).unwrap_or_else(|_| {
-        let csv_path = repo.join("old_codebase/sorties/final.mc100_domain.csv");
+        let csv_path = repo.join("output/final.mc100_domain.csv");
         std::fs::read_to_string(&csv_path).expect("Cannot read final output after run 2")
     });
 

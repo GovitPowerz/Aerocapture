@@ -8,21 +8,135 @@ planet = "earth"
 type = "ftc"
 reference_bank_angle = 64.77026
 
+[guidance.ftc]
+capture_damping = 0.7
+capture_frequency = 0.072
+capture_pdyn_margin = 1.75
+altitude_damping = 0.7
+altitude_frequency = 0.08
+exit_velocity_threshold = 4400.0
+exit_pdyn_margin = 1.75
+exit_altitude_threshold = 60.0
+exit_radial_vel_gain = 10.0
+exit_apoapsis_threshold = 100.0
+corridor_slope = 108000.0
+corridor_intercept = 0.0
+max_reversals = 5
+security_capture = 1
+security_exit = 3
+density_filter_gain = 0.8
+longi_activation = 50.0
+longi_inhibition = -200.0
+lateral_activation = -200.0
+lateral_inhibition = -200.0
+pdyn_min = 0.0
+pdyn_table = [
+    { altitude =   0.0000000000, a = -3978.560682,    b = 4.254960540 },
+    { altitude = 294.2486630,    a = -2021.990388,    b = 1.985120540 },
+    { altitude = 314.2486630,    a = -948.9086717,    b = 0.9399715279 },
+    { altitude = 334.2486630,    a = -471.0430133,    b = 0.4488293474 },
+    { altitude = 354.2486630,    a = -227.0980177,    b = 0.2189307700 },
+    { altitude = 374.2486630,    a = -108.5468725,    b = 0.09801385362 },
+    { altitude = 394.2486630,    a = -52.62852619,    b = 0.04763612425 },
+    { altitude = 414.2486630,    a = -24.08581596,    b = 0.02390645503 },
+    { altitude = 434.2486630,    a = -11.59351106,    b = 0.01146473399 },
+    { altitude = 454.2486630,    a = -5.331006423,    b = 0.005251233998 },
+    { altitude = 474.2486630,    a = -2.639476039,    b = 0.002557150918 },
+    { altitude = 494.2486630,    a = -1.264027292,    b = 0.001201952452 },
+    { altitude = 514.2486630,    a = -0.5883005931,   b = 0.0005462162713 },
+    { altitude = 534.2486630,    a = -0.2634240038,   b = 0.0002700433351 },
+    { altitude = 554.2486630,    a = -0.1317516793,   b = 0.0001302086771 },
+    { altitude = 574.2486630,    a = -0.06436022892,  b = 0.00006122233561 },
+    { altitude = 594.2486630,    a = -0.04445302154,  b = 0.00003411902363 },
+    { altitude = 614.2486630,    a = -0.0000001,      b = 0.00003411902363 },
+]
+
 [simulation]
 n_sims = 1
 random_seed = 0.6866
 
 [data]
-base_dir = "old_codebase/donnees"
-output_dir = "old_codebase/sorties"
+output_dir = "output"
+atmosphere = "data/atmosphere/earth.dat"
+reference_trajectory = "data/reference_trajectory/esr_aller.dat"
+results_suffix = ".esr_aller_ftc"
 
-[data.files]
-capsule = ".esr_aller"
-entry = ".esr_aller"
-mission = ".esr_aller"
-guidance = ".esr_aller"
-incidence = ".esr_aller"
-aerodynamics = ".esr_aller"
-atmosphere = ".terre_ASTRIUM"
-success = ".esr_aller"
-results = ".esr_aller_ftc"
+# ── Inline vehicle/mission data ──
+
+[vehicle]
+mass = 5600.0
+reference_area = 29.0
+cq = 0.00008242
+max_bank_rate = 15.0
+
+[vehicle.periods]
+navigation = 1.0
+guidance = 1.0
+pilot = 1.0
+prediction = 1.0
+integration = 1.0
+photo = 20.0
+
+[vehicle.pilot]
+model = "perfect"
+time_constant = 1.0
+damping = 0.7
+frequency = 0.072
+
+[entry]
+altitude = 600.0
+longitude = 0.0
+latitude = 0.0
+velocity = 47295.97517
+flight_path_angle = -4.88388
+azimuth = 89.40733
+initial_time = 0.0
+initial_bank_angle = 90.0
+initial_aoa = -27.5
+
+[aerodynamics]
+equilibrium_aoa = -27.5
+points = [
+    { aoa = -27.5, ca = 1.269, cn = -0.205 },
+    { aoa = -27.5, ca = 1.269, cn = -0.205 },
+]
+
+[flight]
+wind = false
+
+[flight.constraints]
+max_heat_flux = 33721.096
+max_load_factor = 4.421
+max_dynamic_pressure = 6.492
+
+[flight.final_conditions]
+altitude = 608.535
+longitude = 12.569
+latitude = -0.045
+velocity = 43682.546
+flight_path_angle = 4.701
+azimuth = 269.086
+energy = -170.501
+radial_velocity = 3580.320
+
+[flight.target_orbit]
+apoapsis = 599757.465
+periapsis = 282.373
+semi_major_axis = 371511.919
+eccentricity = 0.807
+inclination = 0.464
+raan = -0.321
+
+[flight.parking_orbit]
+apoapsis = 599742.0
+periapsis = 599474.0
+
+[success]
+inclination_tolerance = 0.5
+velocity_tolerance = 9500.0
+apoapsis_tolerance = 100000.0
+periapsis_tolerance = 1000.0
+
+[incidence]
+altitudes = [-10.0, 50.0, 80.0, 650.0]
+angles = [-27.5, -27.5, -27.5, -27.5]

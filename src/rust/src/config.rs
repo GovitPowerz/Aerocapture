@@ -240,10 +240,10 @@ pub struct TomlData {
 }
 
 fn default_base_dir() -> String {
-    "old_codebase/donnees".to_string()
+    "data".to_string()
 }
 fn default_output_dir() -> String {
-    "old_codebase/sorties".to_string()
+    "output".to_string()
 }
 
 #[derive(Debug, Deserialize)]

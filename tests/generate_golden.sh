@@ -14,8 +14,7 @@ cd "$REPO_ROOT"
 
 BINARY="src/rust/target/release/aerocapture"
 GOLDEN_DIR="tests/reference_data/rust_golden"
-# TODO: Update to new output_dir once configs are converted to consolidated (Task 4)
-OUTPUT_DIR="old_codebase/sorties"
+OUTPUT_DIR="output"
 
 echo "==> Building Rust simulator (release)..."
 (cd src/rust && cargo build --release)

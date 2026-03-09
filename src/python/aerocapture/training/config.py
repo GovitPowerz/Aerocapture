@@ -72,7 +72,7 @@ class SimConfig:
     init_file: str = "train_nn.in"
     nn_param_file: str = "../donnees/nn_param.temp"
     final_file: str = "../sorties/final.train_nn_temp"
-    exec_dir: str = "old_codebase/exec"
+    exec_dir: str = "."
     n_sims: int = 10
     toml_config: str | None = None  # TOML config path (relative to exec_dir); if set, passed as CLI arg
 

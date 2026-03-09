@@ -65,7 +65,7 @@ fn guidance_regression(
 
     // Read actual output (Rust simulator appends .csv to the suffix)
     let actual_filename = format!("final{suffix}.csv");
-    let actual_path = repo.join("old_codebase/sorties").join(&actual_filename);
+    let actual_path = repo.join("output").join(&actual_filename);
     let actual = std::fs::read_to_string(&actual_path).unwrap_or_else(|e| {
         panic!(
             "{scheme_label}: cannot read final output at {}: {e}",

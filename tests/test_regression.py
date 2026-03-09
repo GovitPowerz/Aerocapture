@@ -28,7 +28,7 @@ ROOT = Path(__file__).parent.parent
 BINARY = ROOT / "src" / "rust" / "target" / "release" / "aerocapture"
 REF_DIR = ROOT / "tests" / "reference_data"
 GOLDEN_DIR = REF_DIR / "rust_golden"
-OUTPUT_DIR = ROOT / "old_codebase" / "sorties"
+OUTPUT_DIR = ROOT / "output"
 
 # Test cases: (name, toml_config, reference_dir, files_to_compare)
 # Skip fort.* (dead code in Rust), initial.* (not written by Rust),
