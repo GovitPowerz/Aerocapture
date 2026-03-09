@@ -41,7 +41,7 @@ jobs:
       - name: ${{ matrix.check }}
         run: ${{ matrix.command }}
 
-  python:
+  python-lint:
     name: Python (${{ matrix.check }})
     runs-on: ubuntu-latest
     strategy:
@@ -54,8 +54,6 @@ jobs:
             command: uv run ruff format --check src/python tests
           - check: typecheck
             command: uv run mypy src/python
-          - check: test
-            command: uv run pytest tests -v
 
     steps:
       - uses: actions/checkout@v4
@@ -67,3 +65,27 @@ jobs:
 
       - name: ${{ matrix.check }}
         run: ${{ matrix.command }}
+
+  python-test:
+    name: Python (test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/rust
+
+      - name: Build Rust simulator
+        run: cargo build --release
+        working-directory: src/rust
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run tests
+        run: uv run pytest tests -v
