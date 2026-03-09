@@ -82,3 +82,87 @@ pub struct SequencerFlags {
     pub pred: bool,
     pub photo: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper to build TimePeriods with uniform photo/prediction/integration periods.
+    fn make_periods(nav: f64, guid: f64, pilot: f64) -> TimePeriods {
+        TimePeriods {
+            navigation: nav,
+            guidance: guid,
+            pilot: pilot,
+            prediction: 1.0,
+            integration: 1.0,
+            photo: 1.0,
+        }
+    }
+
+    #[test]
+    fn first_call_always_fires() {
+        let mut seq = SequencerState::new();
+        let periods = make_periods(1.0, 2.0, 0.5);
+        let flags = seq.update(0.0, &periods);
+        assert!(flags.nav, "nav should fire on first call");
+        assert!(flags.guid, "guid should fire on first call");
+        assert!(flags.pilot, "pilot should fire on first call");
+        assert!(flags.pred, "pred should fire on first call");
+        assert!(flags.photo, "photo should fire on first call");
+    }
+
+    #[test]
+    fn respects_cadence() {
+        let mut seq = SequencerState::new();
+        let periods = make_periods(1.0, 2.0, 0.5);
+
+        // First call at t=0 — fires everything and records timestamps.
+        let _ = seq.update(0.0, &periods);
+
+        // At t=0.5: only pilot (period=0.5) should fire.
+        let flags = seq.update(0.5, &periods);
+        assert!(!flags.nav, "nav (period=1.0) should NOT fire at t=0.5");
+        assert!(!flags.guid, "guid (period=2.0) should NOT fire at t=0.5");
+        assert!(flags.pilot, "pilot (period=0.5) should fire at t=0.5");
+    }
+
+    #[test]
+    fn fires_at_period() {
+        let mut seq = SequencerState::new();
+        let periods = make_periods(1.0, 2.0, 0.5);
+
+        // t=0: fire everything
+        let _ = seq.update(0.0, &periods);
+        // t=0.5: fire pilot
+        let _ = seq.update(0.5, &periods);
+
+        // t=1.0: nav (period=1.0) and pilot (period=0.5) should fire; guid (period=2.0) should not.
+        let flags = seq.update(1.0, &periods);
+        assert!(flags.nav, "nav should fire at t=1.0 (period=1.0)");
+        assert!(!flags.guid, "guid should NOT fire at t=1.0 (period=2.0)");
+        assert!(flags.pilot, "pilot should fire at t=1.0 (period=0.5)");
+    }
+
+    #[test]
+    fn zero_period_always_fires() {
+        assert!(should_execute(0.0, 0.0, 0.0));
+        assert!(should_execute(100.0, 99.0, 0.0));
+        assert!(should_execute(0.0, 0.0, -1.0));
+    }
+
+    #[test]
+    fn tolerance_handling() {
+        // Elapsed = 1.0, period = 1.0 + 1e-11. The tolerance is 1e-10,
+        // so 1.0 >= (1.0 + 1e-11) - 1e-10 = 1.0 - 8.9e-11 ≈ true.
+        assert!(
+            should_execute(1.0, 0.0, 1.0 + 1e-11),
+            "1e-11 overshoot should still fire thanks to 1e-10 tolerance"
+        );
+
+        // Elapsed = 1.0, period = 1.0 + 1e-8 — well outside tolerance, should NOT fire.
+        assert!(
+            !should_execute(1.0, 0.0, 1.0 + 1e-8),
+            "1e-8 overshoot exceeds tolerance and should NOT fire"
+        );
+    }
+}
