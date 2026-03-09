@@ -39,10 +39,7 @@ class NetworkConfig:
     @property
     def n_base_coef(self) -> int:
         """Total weights + biases across all layers."""
-        return sum(
-            self.layer_sizes[i] * self.layer_sizes[i + 1] + self.layer_sizes[i + 1]
-            for i in range(len(self.layer_sizes) - 1)
-        )
+        return sum(self.layer_sizes[i] * self.layer_sizes[i + 1] + self.layer_sizes[i + 1] for i in range(len(self.layer_sizes) - 1))
 
     @property
     def n_coef(self) -> int:
