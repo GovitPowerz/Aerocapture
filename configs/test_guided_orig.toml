@@ -1,5 +1,4 @@
 # Test: FTC guided trajectory
-# Equivalent to old_codebase/exec/test_guided_orig.in
 # Reference data: tests/reference_data/guided_orig/
 
 [mission]

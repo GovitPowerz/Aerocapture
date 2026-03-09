@@ -1,5 +1,4 @@
 # Test: reference trajectory, constant bank angle 0.1°
-# Equivalent to old_codebase/exec/test_ref_orig.in
 # Reference data: tests/reference_data/ref_orig/
 
 [mission]

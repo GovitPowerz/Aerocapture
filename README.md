@@ -2,7 +2,7 @@
 
 Trajectory simulation tool for aerocapture maneuvers, primarily targeting Mars Sample Return (MSR). Models a spacecraft entering a planet's atmosphere at hyperbolic velocity, using aerodynamic forces and bank angle modulation to capture into a target orbit.
 
-Modernized from a legacy Fortran 77 codebase (~10,675 lines, ~65 files) into a **Rust simulator** with **Python analysis tools**. The Rust simulator has been validated against the Fortran reference to bit-level precision.
+Modernized from a legacy Fortran 77 codebase (~10,675 lines, ~65 files) into a **Rust simulator** with **Python analysis tools**. The Rust simulator has been validated against the Fortran reference to bit-level precision. The legacy Fortran code has been removed (preserved in git history).
 
 ## Quick Start
 
@@ -11,12 +11,8 @@ Modernized from a legacy Fortran 77 codebase (~10,675 lines, ~65 files) into a *
 cd src/rust
 cargo build --release
 
-# Run with TOML config (preferred — supports all guidance schemes)
-../../src/rust/target/release/aerocapture configs/msr_aller_ftc_nominal.toml
-
-# Run with legacy .in config (from old_codebase/exec/)
-cd ../../old_codebase/exec
-../../src/rust/target/release/aerocapture < test_input.in
+# Run with TOML config
+./target/release/aerocapture ../../configs/msr_aller_ftc_nominal.toml
 ```
 
 ## Project Structure
@@ -26,12 +22,10 @@ src/
   rust/                    Rust simulator (validated reimplementation)
   python/                  Python analysis package (parsing, plotting, training)
 configs/                   TOML configuration files (per guidance scheme)
-old_codebase/
-  fortran_original/        Legacy Fortran 77 — FTC predictor-corrector guidance
-  fortran_neural/          Fortran variant with neural network guidance
-  donnees/                 Data files (atmosphere, aerodynamics, capsule, guidance)
-  exec/                    Input configs, makefiles, MATLAB scripts
-tests/                     Test framework and Fortran reference data
+data/
+  atmosphere/              Atmosphere density tables (Mars, Earth)
+  reference_trajectory/    Reference trajectories for guided schemes
+tests/                     Test framework and golden reference data
 ```
 
 ## Guidance Schemes
@@ -92,9 +86,6 @@ GitHub Actions runs on every push and PR:
 ```bash
 # Rust
 cd src/rust && cargo build --release
-
-# Fortran (always clean first)
-cd old_codebase/exec && make clean && make
 
 # Python
 uv sync && pytest tests

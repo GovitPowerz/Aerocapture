@@ -3,11 +3,9 @@
 ## Codebase Cleanup
 
 - [ ] Clean up Rust warnings and rename variables properly (no French, no 6-char Fortran legacy names)
-- [ ] Remove legacy Fortran codebase (`old_codebase/`)
-  - Preserve all relevant mission data as proper TOML configs first (we should discuss what is relevant and what is not)
-  - Decide what reference data is worth keeping for validation
+- [x] Remove legacy Fortran codebase (`old_codebase/`) — done, mission data preserved in `data/` and `configs/`
 - [ ] Remove Rust and Python code for legacy `.in` input/output formats
-- [ ] Expand test coverage (unit + integration) before and after removals to catch regressions
+- [ ] Expand test coverage (unit + integration) to catch regressions
 - [ ] Analyse directory structure (Rust, Python, tests, data) and suggest improvements
 - [ ] Review test quality and coverage gaps
 
