@@ -1,8 +1,7 @@
-- remove aerogravity assist, I don't need it anymore and we did not test it thoroughly
 - remove old codebase (but keep all data such as missions in proper new config files, we can discuss on what is worth keeping or not) but we should implement a lot of tests unitary and otherwise to be sure that we don't break things in the future developments or if we do we can explain why the tests need changing.
+- describe testing in details (actual and what is missing)
 - remove rust and python code for leagcy input output formats but we should implement a lot of tests unitary and otherwise to be sure that we don't break things in the future developments or if we do we can explain why the tests need changing.
 - clean-up Rust code warnings and rename every variable properly (no french or badly named variable, and no need of only 6 letters names as in Fortran)
-- describe testing in details (actual and what is missing)
 - analyse the code structure both in Rust and in python and suggest improvements. Same for the data and tests (coverage and test code (is it good or not)).
 
 - update Improvements.md based on all we already did and what could be nice additions but were not already in there.

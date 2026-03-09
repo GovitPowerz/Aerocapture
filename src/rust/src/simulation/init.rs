@@ -110,7 +110,6 @@ mod tests {
             },
             success: SuccessCriteria::default(),
             wind_enabled: false,
-            aga: None,
             neural_net: None,
             dispersion_config: None,
         }

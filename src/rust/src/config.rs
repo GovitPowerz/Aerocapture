@@ -7,7 +7,6 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MissionType {
     Aerocapture,
-    AeroGravityAssist,
 }
 
 /// Planet identifier
@@ -630,7 +629,6 @@ impl SimInput {
 
         let mission_type = match config.mission.mission_type.as_str() {
             "aerocapture" => MissionType::Aerocapture,
-            "aero_gravity_assist" => MissionType::AeroGravityAssist,
             other => return Err(ParseError(format!("Unknown mission type: {}", other))),
         };
 

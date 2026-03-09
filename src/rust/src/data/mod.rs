@@ -11,7 +11,7 @@ pub mod incidence;
 pub mod neural;
 pub mod pilot;
 
-use crate::config::{GuidanceType, MissionType, SimInput, TomlConfig, TomlMonteCarlo};
+use crate::config::{GuidanceType, SimInput, TomlConfig, TomlMonteCarlo};
 use std::fmt;
 
 #[derive(Debug)]
@@ -136,14 +136,6 @@ pub struct SuccessCriteria {
     pub periapsis_tol: f64,   // meters (from km)
 }
 
-/// AGA-specific parameters
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, Default)]
-pub struct AgaParams {
-    pub v_infinity: f64,   // m/s
-    pub true_anomaly: f64, // radians
-}
-
 /// All loaded simulation data
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -162,7 +154,6 @@ pub struct SimData {
     pub pilot: pilot::PilotModel,
     pub success: SuccessCriteria,
     pub wind_enabled: bool,
-    pub aga: Option<AgaParams>,
     pub neural_net: Option<neural::NeuralNetModel>,
     /// Domain-based dispersion config (replaces lottery files when present)
     pub dispersion_config: Option<dispersions::DispersionConfig>,
@@ -189,17 +180,14 @@ impl SimData {
 
         let entry = load_entry_conditions(&config.data_path("rentree", &config.suffixes.reentry))?;
 
-        let (constraints, final_cond, target, parking, wind, aga) = load_mission(
-            &config.data_path("mission", &config.suffixes.mission),
-            config.mission_type,
-        )?;
+        let (constraints, final_cond, target, parking, wind) =
+            load_mission(&config.data_path("mission", &config.suffixes.mission))?;
 
         let periods = capsule.periods;
 
         let ref_path = config.data_path("tables_energie_gains", &config.suffixes.guidance);
         let guidance = guidance_params::GuidanceParams::load_with_ref(
             &config.data_path("guidage", &config.suffixes.guidance),
-            config.mission_type,
             &ref_path,
             config.reference_trajectory,
         )?;
@@ -235,7 +223,6 @@ impl SimData {
             pilot,
             success,
             wind_enabled: wind,
-            aga,
             neural_net,
             dispersion_config: None,
         })
@@ -444,11 +431,7 @@ impl SimData {
 
         // FTC guidance params
         let guidance = if let Some(ref ftc) = toml.guidance.ftc {
-            let energy_scale = if config.mission_type == MissionType::Aerocapture {
-                1e6
-            } else {
-                1.0
-            };
+            let energy_scale = 1e6;
             let pdyn_table = ftc
                 .pdyn_table
                 .iter()
@@ -582,7 +565,6 @@ impl SimData {
             pilot: pilot_data,
             success,
             wind_enabled: f.wind,
-            aga: None,
             neural_net,
             dispersion_config,
         })
@@ -858,11 +840,8 @@ fn load_entry_conditions(path: &str) -> Result<EntryConditions, DataError> {
 ///   xpenfn (deg), xazmfn (deg), enrjfn (MJ/kg), vitzfn (m/s),
 ///   zapoge (km), zperig (km), demiax (km), excorb,
 ///   xincli (deg), gomega (deg), zapotf (km), zpertf (km),
-///   [AGA only: vitinf (m/s), anoinf (deg)]
-#[allow(clippy::type_complexity)]
 fn load_mission(
     path: &str,
-    mission_type: MissionType,
 ) -> Result<
     (
         Constraints,
@@ -870,7 +849,6 @@ fn load_mission(
         OrbitalTarget,
         ParkingOrbit,
         bool,
-        Option<AgaParams>,
     ),
     DataError,
 > {
@@ -916,16 +894,7 @@ fn load_mission(
         periapsis: rows[19][0] * 1e3,
     };
 
-    let aga = if mission_type == MissionType::AeroGravityAssist && rows.len() >= 22 {
-        Some(AgaParams {
-            v_infinity: rows[20][0],
-            true_anomaly: rows[21][0] * DEG2RAD,
-        })
-    } else {
-        None
-    };
-
-    Ok((constraints, final_cond, target, parking, wind, aga))
+    Ok((constraints, final_cond, target, parking, wind))
 }
 
 /// Load success criteria.

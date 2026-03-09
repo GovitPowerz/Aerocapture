@@ -462,7 +462,6 @@ fn run_single(
                 &mut ftc_state,
                 data,
                 planet,
-                config.mission_type,
                 config.reference_trajectory,
                 config.guidance_type,
             );

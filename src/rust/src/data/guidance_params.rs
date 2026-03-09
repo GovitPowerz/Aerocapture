@@ -6,7 +6,6 @@
 //! and lateral guidance during capture and exit phases.
 
 use super::{DataError, parse_data_file};
-use crate::config::MissionType;
 
 const DEG2RAD: f64 = std::f64::consts::PI / 180.0;
 
@@ -313,13 +312,12 @@ impl Default for GuidanceParams {
 
 impl GuidanceParams {
     #[allow(dead_code)]
-    pub fn load(path: &str, mission_type: MissionType) -> Result<Self, DataError> {
-        Self::load_with_ref(path, mission_type, "", false)
+    pub fn load(path: &str) -> Result<Self, DataError> {
+        Self::load_with_ref(path, "", false)
     }
 
     pub fn load_with_ref(
         path: &str,
-        mission_type: MissionType,
         ref_path: &str,
         is_reference: bool,
     ) -> Result<Self, DataError> {
@@ -376,11 +374,8 @@ impl GuidanceParams {
         let enrlat2_raw = rows[i][0];
         i += 1;
 
-        let energy_scale = if mission_type == MissionType::Aerocapture {
-            1e6
-        } else {
-            1.0
-        };
+        // Activation thresholds in MJ/kg → J/kg
+        let energy_scale = 1e6;
 
         let longi_activation = pdacti_raw * energy_scale;
         let longi_inhibition = pdinib_raw * energy_scale;

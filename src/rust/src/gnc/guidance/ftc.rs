@@ -2,7 +2,7 @@
 //!
 //! Matches Fortran guidag.f, guicap.f, guilon.f, guilat.f, vigite.f, guialf.f.
 
-use crate::config::{GuidanceType, MissionType, Planet};
+use crate::config::{GuidanceType, Planet};
 use crate::data::SimData;
 use crate::gnc::guidance::{energy_controller, equilibrium_glide, fnpag, neural, predguid};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
@@ -92,7 +92,6 @@ pub fn guidance_step(
     state: &mut FtcState,
     data: &SimData,
     planet: &Planet,
-    mission_type: MissionType,
     is_reference: bool,
     guidance_type: GuidanceType,
 ) -> FtcOutput {
@@ -121,32 +120,11 @@ pub fn guidance_step(
     );
 
     let mut ilongi: i32;
-    if mission_type == MissionType::Aerocapture {
-        // Aerocapture: energy-based activation
-        if enrjlt <= data.guidance.longi_activation && enrjlt >= data.guidance.longi_inhibition {
-            ilongi = 1;
-        } else {
-            ilongi = 0;
-            state.iprepr[1] += 1;
-        }
+    if enrjlt <= data.guidance.longi_activation && enrjlt >= data.guidance.longi_inhibition {
+        ilongi = 1;
     } else {
-        // Aero-gravity assist: pressure-based activation
-        if nav.ibounc == 0 {
-            ilongi = if nav.pdynan < data.guidance.longi_activation {
-                0
-            } else {
-                1
-            };
-        } else {
-            ilongi = if nav.pdynan < data.guidance.longi_inhibition {
-                0
-            } else {
-                1
-            };
-        }
-        if ilongi == 0 {
-            state.iprepr[1] += 1;
-        }
+        ilongi = 0;
+        state.iprepr[1] += 1;
     }
 
     ilongi *= state.iguida[0];
@@ -190,40 +168,10 @@ pub fn guidance_step(
 
     // === Lateral guidance activation ===
     let mut ilater: i32;
-    if mission_type == MissionType::Aerocapture {
-        if enrjlt <= data.guidance.lateral_activation && enrjlt >= data.guidance.lateral_inhibition
-        {
-            ilater = 1;
-        } else {
-            ilater = 0;
-        }
+    if enrjlt <= data.guidance.lateral_activation && enrjlt >= data.guidance.lateral_inhibition {
+        ilater = 1;
     } else {
-        // AGA lateral logic
-        if data.guidance.lateral_activation < 0.0 {
-            if nav.ibounc == 1 {
-                if nav.pdynan >= data.guidance.lateral_inhibition
-                    && nav.pdynan <= -data.guidance.lateral_activation
-                {
-                    ilater = 1;
-                } else {
-                    ilater = 0;
-                }
-            } else {
-                ilater = 0;
-            }
-        } else if nav.ibounc == 0 {
-            ilater = if nav.pdynan < data.guidance.lateral_activation {
-                0
-            } else {
-                1
-            };
-        } else {
-            ilater = if nav.pdynan < data.guidance.lateral_inhibition {
-                0
-            } else {
-                1
-            };
-        }
+        ilater = 0;
     }
 
     ilater *= state.iguida[1];
