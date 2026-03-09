@@ -121,3 +121,104 @@ pub fn compute_deltav_optimal(
         total,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a realistic post-aerocapture orbit at Mars.
+    fn mars_test_fixtures() -> (OrbitalElements, OrbitalTarget, ParkingOrbit, Planet) {
+        let orbit = OrbitalElements {
+            semi_major_axis: 4.0e6,
+            eccentricity: 0.3,
+            inclination: 0.45,       // ~25.8 deg
+            raan: 1.0,
+            arg_periapsis: 0.5,
+            true_anomaly: 0.0,
+            periapsis_alt: 100_000.0, // 100 km
+            apoapsis_alt: 500_000.0,  // 500 km
+        };
+        let target = OrbitalTarget {
+            apoapsis: 500_000.0,
+            periapsis: 250_000.0,
+            semi_major_axis: 3.77e6,
+            eccentricity: 0.03,
+            inclination: 0.45, // same as orbit for some tests; overridden where needed
+            raan: 1.0,
+        };
+        let parking = ParkingOrbit {
+            apoapsis: 500_000.0,
+            periapsis: 250_000.0,
+        };
+        (orbit, target, parking, Planet::Mars)
+    }
+
+    #[test]
+    fn non_exit_returns_penalty() {
+        let (orbit, target, parking, planet) = mars_test_fixtures();
+        for ifinal in [0, 1, 2, 4, -1] {
+            let dv = compute_deltav(&orbit, ifinal, &target, &parking, &planet);
+            assert_eq!(dv.dv1, 1e30, "dv1 should be 1e30 for ifinal={ifinal}");
+            assert_eq!(dv.dv2, 1e30, "dv2 should be 1e30 for ifinal={ifinal}");
+            assert_eq!(dv.dv3, 1e30, "dv3 should be 1e30 for ifinal={ifinal}");
+            assert_eq!(dv.total, 1e30, "total should be 1e30 for ifinal={ifinal}");
+        }
+    }
+
+    #[test]
+    fn exit_returns_finite_cost() {
+        let (orbit, target, parking, planet) = mars_test_fixtures();
+        let dv = compute_deltav(&orbit, 3, &target, &parking, &planet);
+        assert!(dv.total.is_finite(), "total should be finite");
+        assert!(dv.total > 0.0, "total should be positive");
+        assert!(dv.total < 5000.0, "total should be < 5000 m/s for reasonable orbit");
+    }
+
+    #[test]
+    fn total_is_sum_of_abs() {
+        let (orbit, target, parking, planet) = mars_test_fixtures();
+        let dv = compute_deltav(&orbit, 3, &target, &parking, &planet);
+        let expected = dv.dv1.abs() + dv.dv2.abs() + dv.dv3.abs();
+        assert!(
+            (dv.total - expected).abs() < 1e-10,
+            "total ({}) should equal |dv1|+|dv2|+|dv3| ({})",
+            dv.total,
+            expected
+        );
+    }
+
+    #[test]
+    fn optimal_has_zero_dv3() {
+        let (_, target, parking, planet) = mars_test_fixtures();
+        let dv = compute_deltav_optimal(&target, &parking, &planet);
+        assert_eq!(dv.dv3, 0.0, "optimal dv3 should be exactly zero");
+        assert!(dv.total.is_finite(), "optimal total should be finite");
+        let expected = dv.dv1.abs() + dv.dv2.abs();
+        assert!(
+            (dv.total - expected).abs() < 1e-10,
+            "optimal total should equal |dv1|+|dv2|"
+        );
+    }
+
+    #[test]
+    fn zero_inclination_error_small_dv3() {
+        let (mut orbit, target, parking, planet) = mars_test_fixtures();
+        // Set orbit inclination exactly equal to target inclination
+        orbit.inclination = target.inclination;
+        let dv = compute_deltav(&orbit, 3, &target, &parking, &planet);
+        assert!(
+            dv.dv3.abs() < 1e-6,
+            "dv3 ({}) should be near-zero when inclinations match",
+            dv.dv3
+        );
+
+        // Also test with a tiny offset — should still be very small
+        orbit.inclination = target.inclination + 1e-4; // ~0.006 deg
+        let dv2 = compute_deltav(&orbit, 3, &target, &parking, &planet);
+        assert!(
+            dv2.dv3.abs() < 1.0,
+            "dv3 ({}) should be < 1 m/s for ~0.006 deg inclination error",
+            dv2.dv3
+        );
+    }
+}
