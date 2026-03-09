@@ -116,7 +116,7 @@ def compare_values(
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _build_rust():
+def _build_rust() -> None:
     """Ensure Rust binary is built before running tests."""
     if not BINARY.exists():
         subprocess.run(["cargo", "build", "--release"], cwd=ROOT / "src" / "rust", check=True)

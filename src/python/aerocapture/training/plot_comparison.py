@@ -19,7 +19,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-
 SCHEME_LABELS = {
     "ftc": "FTC",
     "neural_network": "Neural Net",
@@ -57,9 +56,8 @@ def plot_comparison(results: dict[str, dict], output: Path) -> None:
     ax.set_ylabel("Capture Rate (%)")
     ax.set_ylim(0, 105)
     ax.axhline(y=100, color="green", linestyle="--", alpha=0.3, linewidth=1)
-    for bar, val in zip(bars, capture_rates):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 1,
-                f"{val:.0f}%", ha="center", va="bottom", fontsize=9)
+    for bar, val in zip(bars, capture_rates, strict=True):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 1, f"{val:.0f}%", ha="center", va="bottom", fontsize=9)
     ax.set_title("Capture Rate")
     ax.tick_params(axis="x", rotation=30)
 
@@ -77,8 +75,7 @@ def plot_comparison(results: dict[str, dict], output: Path) -> None:
     apo_means = [results[s].get("apo_err_mean", float("nan")) for s in schemes]
     apo_stds = [results[s].get("apo_err_std", 0) for s in schemes]
     x = np.arange(len(schemes))
-    ax.bar(x, apo_means, yerr=apo_stds, color=colors, edgecolor="white",
-           linewidth=0.5, capsize=3, error_kw={"linewidth": 1})
+    ax.bar(x, apo_means, yerr=apo_stds, color=colors, edgecolor="white", linewidth=0.5, capsize=3, error_kw={"linewidth": 1})
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=30)
     ax.set_ylabel("Apoapsis Error (km)")
@@ -88,8 +85,7 @@ def plot_comparison(results: dict[str, dict], output: Path) -> None:
     ax = axes[1, 0]
     peri_means = [results[s].get("peri_err_mean", float("nan")) for s in schemes]
     peri_stds = [results[s].get("peri_err_std", 0) for s in schemes]
-    ax.bar(x, peri_means, yerr=peri_stds, color=colors, edgecolor="white",
-           linewidth=0.5, capsize=3, error_kw={"linewidth": 1})
+    ax.bar(x, peri_means, yerr=peri_stds, color=colors, edgecolor="white", linewidth=0.5, capsize=3, error_kw={"linewidth": 1})
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=30)
     ax.set_ylabel("Periapsis Error (km)")
@@ -99,8 +95,7 @@ def plot_comparison(results: dict[str, dict], output: Path) -> None:
     ax = axes[1, 1]
     dv_means = [results[s].get("dv_mean", float("nan")) for s in schemes]
     dv_stds = [results[s].get("dv_std", 0) for s in schemes]
-    ax.bar(x, dv_means, yerr=dv_stds, color=colors, edgecolor="white",
-           linewidth=0.5, capsize=3, error_kw={"linewidth": 1})
+    ax.bar(x, dv_means, yerr=dv_stds, color=colors, edgecolor="white", linewidth=0.5, capsize=3, error_kw={"linewidth": 1})
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=30)
     ax.set_ylabel("Delta-V (m/s)")
@@ -123,8 +118,7 @@ def plot_comparison(results: dict[str, dict], output: Path) -> None:
         ]
         table_data.append(row)
 
-    table = ax.table(cellText=table_data, colLabels=col_labels,
-                     loc="center", cellLoc="center")
+    table = ax.table(cellText=table_data, colLabels=col_labels, loc="center", cellLoc="center")
     table.auto_set_font_size(False)
     table.set_fontsize(9)
     table.scale(1.0, 1.4)

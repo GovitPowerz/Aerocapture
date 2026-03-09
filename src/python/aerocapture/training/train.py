@@ -125,7 +125,7 @@ def save_checkpoint(
     arrays["n_subpops"] = np.array([len(populations)])
     if best_chrom is not None:
         arrays["best_chromosome"] = best_chrom
-    np.savez(save_dir / f"{prefix}.npz", **arrays)
+    np.savez(save_dir / f"{prefix}.npz", **arrays)  # type: ignore[arg-type]  # mypy vs numpy stubs kwargs issue
 
     # Save best model/params (immediately usable by Rust)
     if best_chrom is not None:
@@ -329,10 +329,17 @@ def train(
             # Checkpoint
             if (gen + 1) % checkpoint_interval == 0:
                 save_checkpoint(
-                    save_dir, run, gen + 1,
-                    populations, all_costs,
-                    best_overall_cost, best_overall_chrom,
-                    cost_history + gen_best_costs, rng, config, cwd,
+                    save_dir,
+                    run,
+                    gen + 1,
+                    populations,
+                    all_costs,
+                    best_overall_cost,
+                    best_overall_chrom,
+                    cost_history + gen_best_costs,
+                    rng,
+                    config,
+                    cwd,
                 )
                 if verbose:
                     print(f"  Checkpoint saved: r{run:03d}_g{gen + 1:05d}")
