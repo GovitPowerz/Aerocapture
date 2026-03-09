@@ -1,6 +1,6 @@
 mod common;
 
-use aerocapture::config::{Planet, SimInput};
+use aerocapture::config::{Planet, SimInput, TomlConfig};
 
 #[test]
 fn parse_ftc_consolidated_toml() {
@@ -51,4 +51,23 @@ fn parse_all_available_configs() {
         }
     }
     assert!(count >= 10, "Expected at least 10 configs, found {}", count);
+}
+
+#[test]
+fn all_configs_are_consolidated() {
+    let configs_dir = common::repo_root().join("configs");
+    for entry in std::fs::read_dir(&configs_dir).expect("read configs dir") {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|e| e != "toml") {
+            continue;
+        }
+        let content = std::fs::read_to_string(&path).expect("read config");
+        let toml_config: TomlConfig =
+            toml::from_str(&content).unwrap_or_else(|e| panic!("{}: {}", path.display(), e));
+        assert!(
+            toml_config.vehicle.is_some(),
+            "{} is not consolidated (missing [vehicle] section)",
+            path.display()
+        );
+    }
 }

@@ -42,9 +42,24 @@ fn run_sim(config_name: &str) -> std::process::Output {
 /// Each scheme has its own config with a unique `results_suffix`, so tests
 /// can safely run in parallel without overwriting each other's output files.
 #[rstest]
-#[case("test_eqglide_golden.toml", "eqglide", ".golden_eqglide", "EquilibriumGlide")]
-#[case("test_energy_ctrl_golden.toml", "energy_ctrl", ".golden_energy_ctrl", "EnergyController")]
-#[case("test_pred_guid_golden.toml", "pred_guid", ".golden_pred_guid", "PredGuid")]
+#[case(
+    "test_eqglide_golden.toml",
+    "eqglide",
+    ".golden_eqglide",
+    "EquilibriumGlide"
+)]
+#[case(
+    "test_energy_ctrl_golden.toml",
+    "energy_ctrl",
+    ".golden_energy_ctrl",
+    "EnergyController"
+)]
+#[case(
+    "test_pred_guid_golden.toml",
+    "pred_guid",
+    ".golden_pred_guid",
+    "PredGuid"
+)]
 #[case("test_fnpag_golden.toml", "fnpag", ".golden_fnpag", "FNPAG")]
 #[case("test_ftc_golden.toml", "ftc", ".golden_ftc", "FTC")]
 #[case("test_neural_golden.toml", "neural", ".golden_neural", "NeuralNetwork")]

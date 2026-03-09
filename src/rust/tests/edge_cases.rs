@@ -81,15 +81,11 @@ fn esr_aller_completes() {
 
 /// Find the final output file, trying both .csv and plain suffix variants.
 fn find_final_output(repo: &std::path::Path, suffix: &str) -> PathBuf {
-    let csv = repo
-        .join("output")
-        .join(format!("final{suffix}.csv"));
+    let csv = repo.join("output").join(format!("final{suffix}.csv"));
     if csv.exists() {
         return csv;
     }
-    let plain = repo
-        .join("output")
-        .join(format!("final{suffix}"));
+    let plain = repo.join("output").join(format!("final{suffix}"));
     if plain.exists() {
         return plain;
     }

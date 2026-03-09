@@ -174,7 +174,7 @@ fn write_csv_output(
     results: &[SimResult],
     photo_sim_idx: i32,
 ) -> Result<(), SimError> {
-    let suffix = config.suffixes.results.trim_start_matches('.');
+    let suffix = config.results_suffix.trim_start_matches('.');
     let final_path = config.output_path(&format!("final.{}.csv", suffix));
     let mut final_file = BufWriter::new(
         File::create(&final_path)
@@ -225,7 +225,7 @@ fn write_text_output(
 ) -> Result<(), SimError> {
     let final_path = config.output_path(&format!(
         "final.{}",
-        config.suffixes.results.trim_start_matches('.')
+        config.results_suffix.trim_start_matches('.')
     ));
     let mut final_file = BufWriter::new(
         File::create(&final_path)
@@ -242,7 +242,7 @@ fn write_text_output(
 
     let photo_path = config.output_path(&format!(
         "photo.{}",
-        config.suffixes.results.trim_start_matches('.')
+        config.results_suffix.trim_start_matches('.')
     ));
     if let Some(result) = results.iter().find(|r| r.sim_idx == photo_sim_idx) {
         let mut photo_file = BufWriter::new(

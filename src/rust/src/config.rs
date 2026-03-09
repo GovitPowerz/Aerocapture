@@ -101,21 +101,6 @@ pub enum GuidanceType {
     Fnpag,
 }
 
-/// Data file suffix configuration
-#[derive(Debug, Clone)]
-pub struct DataSuffixes {
-    pub capsule: String,    // sufmsr
-    pub reentry: String,    // sufren
-    pub mission: String,    // sufmis
-    pub guidance: String,   // sufgui
-    pub neural: String,     // sufgnn (nn variant only)
-    pub incidence: String,  // sufinc
-    pub aero: String,       // sufaer
-    pub atmosphere: String, // sufatm
-    pub success: String,    // sufsuc
-    pub results: String,    // sufres
-}
-
 /// Parsed simulation input configuration
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -132,10 +117,10 @@ pub struct SimInput {
     pub random_seed: f64,
     pub reference_trajectory: bool,
     pub reference_bank_angle: f64, // degrees
-    pub suffixes: DataSuffixes,
     pub base_dir: String,
     pub output_dir: String,
     pub output_format: OutputFormat,
+    pub results_suffix: String,
 }
 
 // ─── TOML deserialization structs ───
@@ -228,9 +213,7 @@ pub struct TomlData {
     pub base_dir: String,
     #[serde(default = "default_output_dir")]
     pub output_dir: String,
-    /// Suffix-based file references (legacy mode). None in consolidated mode.
-    pub files: Option<TomlDataFiles>,
-    // Direct file paths for external data (consolidated mode)
+    // Direct file paths for external data
     pub atmosphere: Option<String>,
     pub reference_trajectory: Option<String>,
     pub neural_network: Option<String>,
@@ -244,21 +227,6 @@ fn default_base_dir() -> String {
 }
 fn default_output_dir() -> String {
     "output".to_string()
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TomlDataFiles {
-    pub capsule: String,
-    pub entry: String,
-    pub mission: String,
-    pub guidance: String,
-    #[serde(default)]
-    pub neural_network: String,
-    pub incidence: String,
-    pub aerodynamics: String,
-    pub atmosphere: String,
-    pub success: String,
-    pub results: String,
 }
 
 // ─── Inline data TOML structs (consolidated mode) ───
@@ -658,40 +626,6 @@ impl SimInput {
             other => return Err(ParseError(format!("Unknown guidance type: {}", other))),
         };
 
-        // Build suffixes from [data.files] if present, otherwise use placeholder empty strings
-        let suffixes = if let Some(ref files) = config.data.files {
-            DataSuffixes {
-                capsule: files.capsule.clone(),
-                reentry: files.entry.clone(),
-                mission: files.mission.clone(),
-                guidance: files.guidance.clone(),
-                neural: files.neural_network.clone(),
-                incidence: files.incidence.clone(),
-                aero: files.aerodynamics.clone(),
-                atmosphere: files.atmosphere.clone(),
-                success: files.success.clone(),
-                results: files.results.clone(),
-            }
-        } else {
-            // Consolidated mode: atmosphere/results come from [data] directly
-            DataSuffixes {
-                capsule: String::new(),
-                reentry: String::new(),
-                mission: String::new(),
-                guidance: String::new(),
-                neural: config.data.neural_network.clone().unwrap_or_default(),
-                incidence: String::new(),
-                aero: String::new(),
-                atmosphere: String::new(),
-                success: String::new(),
-                results: config
-                    .data
-                    .results_suffix
-                    .clone()
-                    .unwrap_or_else(|| ".out".to_string()),
-            }
-        };
-
         let sim_input = SimInput {
             mission_type,
             planet,
@@ -705,23 +639,17 @@ impl SimInput {
             random_seed: config.simulation.random_seed,
             reference_trajectory: config.guidance.reference_trajectory,
             reference_bank_angle: config.guidance.reference_bank_angle,
-            suffixes,
             base_dir: config.data.base_dir.clone(),
             output_dir: config.data.output_dir.clone(),
             output_format: config.data.output_format,
+            results_suffix: config
+                .data
+                .results_suffix
+                .clone()
+                .unwrap_or_else(|| ".out".to_string()),
         };
 
         Ok((sim_input, config))
-    }
-
-    /// Whether the TOML config uses consolidated inline data (has [vehicle] section)
-    pub fn is_consolidated(config: &TomlConfig) -> bool {
-        config.vehicle.is_some()
-    }
-
-    /// Build the data file path for a given category
-    pub fn data_path(&self, category: &str, suffix: &str) -> String {
-        format!("{}/{}{}", self.base_dir, category, suffix)
     }
 
     /// Build an output file path

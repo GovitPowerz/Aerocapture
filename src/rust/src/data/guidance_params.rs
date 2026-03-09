@@ -1,13 +1,9 @@
-//! Guidance parameters loader.
-//!
-//! Reads from `guidage.*` data files (unit 109 in Fortran).
+//! Guidance parameters.
 //!
 //! Contains FTC predictor-corrector parameters for longitudinal
 //! and lateral guidance during capture and exit phases.
 
-use super::{DataError, parse_data_file};
-
-const DEG2RAD: f64 = std::f64::consts::PI / 180.0;
+use super::DataError;
 
 /// Pdyn reference table entry: altitude, slope_a, slope_b
 #[allow(dead_code)]
@@ -307,134 +303,5 @@ impl Default for GuidanceParams {
             pred_guid: PredGuidParams::default(),
             fnpag: FnpagParams::default(),
         }
-    }
-}
-
-impl GuidanceParams {
-    #[allow(dead_code)]
-    pub fn load(path: &str) -> Result<Self, DataError> {
-        Self::load_with_ref(path, "", false)
-    }
-
-    pub fn load_with_ref(
-        path: &str,
-        ref_path: &str,
-        is_reference: bool,
-    ) -> Result<Self, DataError> {
-        let rows = parse_data_file(path)?;
-        if rows.len() < 22 {
-            return Err(DataError(format!(
-                "Guidance file too short ({} rows, need >= 22): {}",
-                rows.len(),
-                path
-            )));
-        }
-
-        let mut i = 0;
-        let capture_damping = rows[i][0];
-        i += 1; // amorft
-        let capture_frequency = rows[i][0];
-        i += 1; // pulsft
-        let capture_pdyn_margin = rows[i][0];
-        i += 1; // margmu(1)
-        let altitude_damping = rows[i][0];
-        i += 1; // amorth
-        let altitude_frequency = rows[i][0] * DEG2RAD;
-        i += 1; // pulsah (deg/s -> rad/s)
-        let exit_velocity_threshold = rows[i][0];
-        i += 1; // vsorti
-        let exit_pdyn_margin = rows[i][0];
-        i += 1; // margmu(2)
-        let exit_altitude_threshold = rows[i][0] * 1e3;
-        i += 1; // altcst (km -> m)
-        let exit_radial_vel_gain = rows[i][0];
-        i += 1; // gaindh
-        let exit_apoapsis_threshold = rows[i][0];
-        i += 1; // dzalim
-        let corridor_slope = rows[i][0];
-        i += 1; // coridx
-        let corridor_intercept = rows[i][0] * DEG2RAD;
-        i += 1; // coridy (deg -> rad)
-        let max_reversals = rows[i][0] as i32;
-        i += 1; // irevrs
-        let security_capture = rows[i][0] as i32;
-        i += 1; // iseccp
-        let security_exit = rows[i][0] as i32;
-        i += 1; // isecex
-        let density_filter_gain = rows[i][0];
-        i += 1; // lambda
-
-        // Activation thresholds — for aerocapture, multiply by 1e6 (MJ/kg -> J/kg)
-        let pdacti_raw = rows[i][0];
-        i += 1;
-        let pdinib_raw = rows[i][0];
-        i += 1;
-        let enrlat1_raw = rows[i][0];
-        i += 1;
-        let enrlat2_raw = rows[i][0];
-        i += 1;
-
-        // Activation thresholds in MJ/kg → J/kg
-        let energy_scale = 1e6;
-
-        let longi_activation = pdacti_raw * energy_scale;
-        let longi_inhibition = pdinib_raw * energy_scale;
-        let lateral_activation = enrlat1_raw * energy_scale;
-        let lateral_inhibition = enrlat2_raw * energy_scale;
-
-        let pdyn_min = rows[i][0];
-        i += 1; // pdymax (Pa)
-        let n_pdyn = rows[i][0] as usize;
-        i += 1; // number of Pdyn table points
-
-        let mut pdyn_table = Vec::with_capacity(n_pdyn);
-        for j in 0..n_pdyn {
-            if i + j >= rows.len() {
-                break;
-            }
-            let row = &rows[i + j];
-            pdyn_table.push(PdynTableEntry {
-                altitude: row[0],
-                coeff_a: if row.len() > 1 { row[1] } else { 0.0 },
-                coeff_b: if row.len() > 2 { row[2] } else { 0.0 },
-            });
-        }
-
-        // Load reference trajectory if not in reference mode
-        let ref_trajectory = if !is_reference && !ref_path.is_empty() {
-            ReferenceTrajectory::load(ref_path)?
-        } else {
-            ReferenceTrajectory::default()
-        };
-
-        Ok(GuidanceParams {
-            capture_damping,
-            capture_frequency,
-            capture_pdyn_margin,
-            altitude_damping,
-            altitude_frequency,
-            exit_velocity_threshold,
-            exit_pdyn_margin,
-            exit_altitude_threshold,
-            exit_radial_vel_gain,
-            exit_apoapsis_threshold,
-            corridor_slope,
-            corridor_intercept,
-            max_reversals,
-            security_capture,
-            security_exit,
-            density_filter_gain,
-            longi_activation,
-            longi_inhibition,
-            lateral_activation,
-            lateral_inhibition,
-            pdyn_min,
-            pdyn_table,
-            ref_trajectory,
-            eq_glide: EqGlideParams::default(),
-            energy_ctrl: EnergyCtrlParams::default(),
-            pred_guid: PredGuidParams::default(),
-            fnpag: FnpagParams::default(),
-        })
     }
 }
