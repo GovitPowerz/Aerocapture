@@ -41,7 +41,7 @@ pytest tests/test_foo.py::test_bar -v
 
 ### Rust Simulator (`src/rust/`)
 
-The Rust code is a faithful line-by-line reimplementation of the Fortran. Each module maps directly to one or more Fortran subroutines. The entry point supports both legacy `.in` config from stdin (`./aerocap < config.in`) and TOML config as a CLI argument (`./aerocap config.toml`). TOML is preferred for new work as it supports all 6 guidance schemes and inline vehicle/mission data.
+The Rust code is a faithful line-by-line reimplementation of the Fortran. Each module maps directly to one or more Fortran subroutines. The crate has both `lib.rs` (public API for tests) and `main.rs` (CLI entry). TOML config as a CLI argument (`./aerocapture config.toml`) is the only supported input format. TOML supports all 6 guidance schemes and inline vehicle/mission data.
 
 ```
 src/rust/src/
@@ -214,7 +214,8 @@ Photo files use `format(24(1x,d12.5))` — 24 columns of Fortran D-notation floa
 
 - **Rust**: Edition 2024, nalgebra for linear algebra, release profile with LTO
 - **Python**: Python >=3.14, Ruff (line-length 160, target py314), uv package manager, pytest, mypy strict mode. Dev tools in `[dependency-groups]` (not `[project.optional-dependencies]`). Training deps (deap, scipy) are core dependencies.
-- **Testing**: pytest for Python, Fortran golden reference files under `tests/reference_data/`
+- **Testing (Python)**: pytest, Fortran golden reference files under `tests/reference_data/`
+- **Testing (Rust)**: Three-tier pyramid — unit tests (inline `#[cfg(test)]` modules), integration tests (`src/rust/tests/`), E2E subprocess tests. Dev-dependencies: `approx` (float comparison), `rstest` (parameterized tests). Run with `cargo test` or `./check_all.sh`.
 - **Validation**: Rust vs Fortran comparison complete — 22/24 photo columns bit-identical across 725 timesteps. See `tests/compare_results.py` for the comparison framework.
 
 ## Tone

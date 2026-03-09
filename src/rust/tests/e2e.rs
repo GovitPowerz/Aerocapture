@@ -94,10 +94,11 @@ fn guidance_ftc_train_completes() {
 
 fn run_guidance_config(config_name: &str) {
     let config_file = common::repo_root().join("configs").join(config_name);
-    if !config_file.exists() {
-        eprintln!("SKIP: {} does not exist", config_name);
-        return;
-    }
+    assert!(
+        config_file.exists(),
+        "Config file missing: configs/{}",
+        config_name
+    );
     let output = run_sim(config_name);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(

@@ -52,6 +52,7 @@ pub fn aero_forces(
 mod tests {
     use super::*;
     use crate::data::TimePeriods;
+    use approx::assert_abs_diff_eq;
 
     /// Build a simple 3-point AeroTables fixture.
     /// Incidence: [0, 10, 20] deg → [0.0, 0.1745…, 0.3491…] rad
@@ -104,12 +105,7 @@ mod tests {
 
         let q = 0.5 * rho * v * v;
         let expected_drag = q * cap.reference_area * 1.6;
-        assert!(
-            (f.drag - expected_drag).abs() < 1e-6,
-            "drag: {} vs {}",
-            f.drag,
-            expected_drag
-        );
+        assert_abs_diff_eq!(f.drag, expected_drag, epsilon = 1e-6);
     }
 
     #[test]
@@ -123,12 +119,7 @@ mod tests {
 
         let q = 0.5 * rho * v * v;
         let expected_lift = q * cap.reference_area * (-0.2);
-        assert!(
-            (f.lift - expected_lift).abs() < 1e-6,
-            "lift: {} vs {}",
-            f.lift,
-            expected_lift
-        );
+        assert_abs_diff_eq!(f.lift, expected_lift, epsilon = 1e-6);
     }
 
     #[test]
@@ -142,13 +133,7 @@ mod tests {
         let f_nom = aero_forces(&aero, &cap, rho, v, alpha, 0.0, 0.0);
         let f_biased = aero_forces(&aero, &cap, rho, v, alpha, 0.1, 0.0);
 
-        let expected = f_nom.drag * 1.1;
-        assert!(
-            (f_biased.drag - expected).abs() < 1e-6,
-            "biased drag: {} vs {}",
-            f_biased.drag,
-            expected
-        );
+        assert_abs_diff_eq!(f_biased.drag, f_nom.drag * 1.1, epsilon = 1e-6);
     }
 
     #[test]
@@ -162,13 +147,7 @@ mod tests {
         let f_nom = aero_forces(&aero, &cap, rho, v, alpha, 0.0, 0.0);
         let f_biased = aero_forces(&aero, &cap, rho, v, alpha, 0.0, -0.15);
 
-        let expected = f_nom.lift * 0.85;
-        assert!(
-            (f_biased.lift - expected).abs() < 1e-6,
-            "biased lift: {} vs {}",
-            f_biased.lift,
-            expected
-        );
+        assert_abs_diff_eq!(f_biased.lift, f_nom.lift * 0.85, epsilon = 1e-6);
     }
 
     #[test]
@@ -181,12 +160,7 @@ mod tests {
 
         let f = aero_forces(&aero, &cap, rho, v, alpha, 0.0, 0.0);
         let expected = cap.cq * rho.sqrt() * v.powi(3);
-        assert!(
-            (f.heat_flux - expected).abs() < 1e-6,
-            "heat_flux: {} vs {}",
-            f.heat_flux,
-            expected
-        );
+        assert_abs_diff_eq!(f.heat_flux, expected, epsilon = 1e-6);
     }
 
     #[test]
@@ -201,17 +175,8 @@ mod tests {
         let f = aero_forces(&aero, &cap, rho, v, alpha_below, 0.0, 0.0);
         let q = 0.5 * rho * v * v;
         let expected_drag = q * cap.reference_area * 1.5; // first Cx value
-        assert!(
-            (f.drag - expected_drag).abs() < 1e-6,
-            "boundary drag: {} vs {}",
-            f.drag,
-            expected_drag
-        );
+        assert_abs_diff_eq!(f.drag, expected_drag, epsilon = 1e-6);
         // Lift should also clamp to first Cz = 0.0
-        assert!(
-            f.lift.abs() < 1e-6,
-            "boundary lift should be ~0, got {}",
-            f.lift
-        );
+        assert_abs_diff_eq!(f.lift, 0.0, epsilon = 1e-6);
     }
 }

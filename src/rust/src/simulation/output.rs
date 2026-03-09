@@ -172,3 +172,81 @@ pub fn write_final_text_line(
     writeln!(writer)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    // ─── fortran_float D-notation ───
+
+    #[test]
+    fn zero_formats_correctly() {
+        let s = fortran_float(0.0, 12, 5);
+        assert_eq!(s.trim(), "0.00000D+00");
+        assert_eq!(s.len(), 12);
+    }
+
+    #[rstest]
+    #[case(1.0, " 0.10000D+01")]
+    #[case(123.456, " 0.12346D+03")]
+    #[case(-42.0, "-0.42000D+02")]
+    #[case(0.001, " 0.10000D-02")]
+    fn d12_5_known_values(#[case] val: f64, #[case] expected: &str) {
+        let s = fortran_float(val, 12, 5);
+        assert_eq!(s, expected, "fortran_float({val}, 12, 5)");
+    }
+
+    #[test]
+    fn width_is_respected() {
+        let s12 = fortran_float(3.125, 12, 5);
+        let s15 = fortran_float(3.125, 15, 7);
+        assert_eq!(s12.len(), 12);
+        assert_eq!(s15.len(), 15);
+    }
+
+    #[rstest]
+    #[case(1e-10)]
+    #[case(1e10)]
+    #[case(-1e-10)]
+    #[case(-1e10)]
+    fn extreme_values_no_panic(#[case] val: f64) {
+        let s = fortran_float(val, 12, 5);
+        assert!(s.contains('D'), "should contain D-notation: {s}");
+        assert_eq!(s.len(), 12);
+    }
+
+    // ─── write_photo_text_line ───
+
+    #[test]
+    fn photo_text_line_has_correct_column_count() {
+        let values = vec![0.0; 24];
+        let mut buf = Vec::new();
+        write_photo_text_line(&mut buf, &values).unwrap();
+        let line = String::from_utf8(buf).unwrap();
+        let trimmed = line.trim_end_matches('\n');
+        let d_count = trimmed.matches('D').count();
+        assert_eq!(d_count, 24, "should have 24 D-notation columns");
+    }
+
+    // ─── CSV writers ───
+
+    #[test]
+    fn csv_header_has_correct_column_count() {
+        let mut buf = Vec::new();
+        write_photo_csv_header(&mut buf).unwrap();
+        let line = String::from_utf8(buf).unwrap();
+        let cols: Vec<&str> = line.trim().split(',').collect();
+        assert_eq!(cols.len(), PHOTO_CSV_COLUMNS.len());
+    }
+
+    #[test]
+    fn csv_line_uses_scientific_notation() {
+        let values = vec![1.23, 4.56];
+        let mut buf = Vec::new();
+        write_photo_csv_line(&mut buf, &values).unwrap();
+        let line = String::from_utf8(buf).unwrap();
+        assert!(line.contains('e'), "CSV should use e-notation: {line}");
+        assert!(!line.contains('D'), "CSV should not use D-notation");
+    }
+}

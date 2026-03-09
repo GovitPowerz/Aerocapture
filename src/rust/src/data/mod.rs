@@ -902,6 +902,7 @@ fn load_success(path: &str) -> Result<SuccessCriteria, DataError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use approx::assert_abs_diff_eq;
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -948,16 +949,8 @@ mod tests {
 
         let rows = parse_data_file(&path).expect("parse failed");
         assert_eq!(rows.len(), 2);
-        assert!(
-            (rows[0][0] - 12300.0).abs() < 1e-10,
-            "expected 12300.0, got {}",
-            rows[0][0]
-        );
-        assert!(
-            (rows[1][0] - (-0.00567)).abs() < 1e-10,
-            "expected -0.00567, got {}",
-            rows[1][0]
-        );
+        assert_abs_diff_eq!(rows[0][0], 12300.0, epsilon = 1e-10);
+        assert_abs_diff_eq!(rows[1][0], -0.00567, epsilon = 1e-10);
 
         let _ = fs::remove_dir_all(&dir);
     }

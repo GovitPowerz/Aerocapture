@@ -113,3 +113,162 @@ pub fn predguid_bank(
     let cos_bank = cos_bank.clamp(-1.0, 1.0);
     cos_bank.acos()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+    use rstest::rstest;
+
+    use crate::data::aerodynamics::AeroTables;
+    use crate::data::atmosphere::{AtmosphereModel, DensityProfile};
+    use crate::data::capsule::Capsule;
+    use crate::data::guidance_params::{GuidanceParams, ReferenceTrajectory};
+    use crate::data::incidence::IncidenceProfile;
+    use crate::data::pilot::{PilotModel, PilotType};
+    use crate::data::{
+        Constraints, EntryConditions, FinalConditions, OrbitalTarget, ParkingOrbit, SimData,
+        SphericalState, SuccessCriteria, TimePeriods,
+    };
+
+    fn test_nav(velocity: f64) -> NavigationOutput {
+        let r = 3_396_200.0 + 50_000.0;
+        NavigationOutput {
+            positn: [r, 0.0, 0.0],
+            vitesn: [velocity, -0.15, 0.6],
+            acceln: [50.0, -8.0],
+            coefan: [1.269, -0.205],
+            roguid: 0.001,
+            roexit: 1e-6,
+            pdynan: 0.5 * 0.001 * velocity * velocity,
+            energn: -1e6,
+            ..Default::default()
+        }
+    }
+
+    fn test_sim_data() -> SimData {
+        SimData {
+            capsule: Capsule {
+                mass: 1089.0,
+                reference_area: 14.7,
+                cq: 0.00008242,
+                max_bank_rate: 15.0_f64.to_radians(),
+                periods: TimePeriods::default(),
+            },
+            aero: AeroTables {
+                n_points: 2,
+                incidence: vec![-0.5, 0.0],
+                cx: vec![1.269, 1.269],
+                cz: vec![-0.205, -0.205],
+                equilibrium_aoa: -0.48,
+                ..Default::default()
+            },
+            atmosphere: AtmosphereModel {
+                n_points: 3,
+                altitudes: vec![0.0, 50_000.0, 130_000.0],
+                densities: vec![0.02, 0.001, 1e-8],
+                ref_density: 1e-8,
+                scale_factor: 1e-4,
+                ref_altitude: 130_000.0,
+                gas_constant: 1.3,
+                density_profile: DensityProfile::default(),
+            },
+            entry: EntryConditions {
+                state: SphericalState {
+                    altitude: 130_000.0,
+                    velocity: 5687.0,
+                    flight_path: -10.8_f64.to_radians(),
+                    ..Default::default()
+                },
+                initial_bank: 64.77_f64.to_radians(),
+                initial_aoa: -27.5_f64.to_radians(),
+                initial_date: 0.0,
+            },
+            guidance: GuidanceParams {
+                density_filter_gain: 0.8,
+                exit_velocity_threshold: 4400.0,
+                exit_altitude_threshold: 60_000.0,
+                ..Default::default()
+            },
+            incidence: IncidenceProfile {
+                n_points: 2,
+                altitudes: vec![-10_000.0, 150_000.0],
+                incidences: vec![-0.48, -0.48],
+            },
+            periods: TimePeriods::default(),
+            pilot: PilotModel {
+                pilot_type: PilotType::Perfect,
+                time_constant: 0.0,
+                damping: 0.0,
+                frequency: 0.0,
+            },
+            target_orbit: OrbitalTarget {
+                semi_major_axis: 3_649_622.0,
+                eccentricity: 0.067,
+                inclination: 50.0_f64.to_radians(),
+                raan: -7.612_f64.to_radians(),
+                apoapsis: 500_130.0,
+                periapsis: 11_233.0,
+            },
+            final_conditions: FinalConditions::default(),
+            parking_orbit: ParkingOrbit::default(),
+            constraints: Constraints::default(),
+            success: SuccessCriteria::default(),
+            wind_enabled: false,
+            neural_net: None,
+            dispersion_config: None,
+        }
+    }
+
+    fn test_sim_data_with_ref_traj() -> SimData {
+        let mut data = test_sim_data();
+        data.guidance.ref_trajectory = ReferenceTrajectory {
+            n_points: 3,
+            energy: vec![-1e6, -3e6, -5e6],
+            pressure: vec![500.0, 800.0, 300.0],
+            radial_vel: vec![-100.0, -50.0, 50.0],
+            altitude_rate: vec![-500.0, -200.0, 100.0],
+            inclination: vec![0.87, 0.87, 0.87],
+            time: vec![0.0, 300.0, 600.0],
+            cos_bank: vec![0.4, 0.3, 0.5],
+        };
+        data
+    }
+
+    #[test]
+    fn no_ref_trajectory_returns_default() {
+        let nav = test_nav(4500.0);
+        let state = PredGuidState::new();
+        let data = test_sim_data(); // ref_trajectory.n_points == 0
+        let planet = Planet::Mars;
+
+        let bank = predguid_bank(&nav, &state, &data, &planet);
+
+        assert_relative_eq!(bank, 60.0_f64.to_radians(), epsilon = 1e-10);
+    }
+
+    #[rstest]
+    #[case(3000.0)]
+    #[case(4500.0)]
+    #[case(5687.0)]
+    fn output_is_finite(#[case] velocity: f64) {
+        let nav = test_nav(velocity);
+        let state = PredGuidState::new();
+        let data = test_sim_data_with_ref_traj();
+        let planet = Planet::Mars;
+
+        let bank = predguid_bank(&nav, &state, &data, &planet);
+
+        assert!(
+            bank.is_finite(),
+            "bank angle must be finite for V={}",
+            velocity
+        );
+        assert!(
+            (0.0..=std::f64::consts::PI).contains(&bank),
+            "bank={:.4} rad outside [0, pi] for V={}",
+            bank,
+            velocity,
+        );
+    }
+}
