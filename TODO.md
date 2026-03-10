@@ -1,9 +1,5 @@
 # TODO
 
-## Codebase Cleanup
-
-- [ ] Clean up Rust warnings and rename variables properly (no French, no 6-char Fortran legacy names)
-
 ## Documentation
 
 - [ ] Update `IMPROVEMENTS.md` based on completed work and future ideas
