@@ -1,6 +1,4 @@
 //! FTC (Full Trajectory Control) predictor-corrector guidance.
-//!
-//! Matches Fortran guidag.f, guicap.f, guilon.f, guilat.f, vigite.f, guialf.f.
 
 use crate::config::{GuidanceType, Planet};
 use crate::data::SimData;
@@ -81,8 +79,6 @@ pub struct FtcOutput {
 }
 
 /// Run one FTC guidance step.
-///
-/// Matches Fortran guidag.f.
 #[allow(clippy::too_many_arguments)]
 pub fn guidance_step(
     nav: &NavigationOutput,
@@ -101,7 +97,7 @@ pub fn guidance_step(
     let sgnpre = state.sgngit;
     state.gpilpr = gitpil;
 
-    // === Angle of attack guidance (guialf) ===
+    // === Angle of attack guidance ===
     // proalf returns altitude as scheduling parameter
     let (altitude, _) =
         geodetic_from_spherical(nav.positn[0], nav.positn[1], nav.positn[2], planet);
@@ -147,7 +143,7 @@ pub fn guidance_step(
     } else if ilongi == 0 {
         gitlon = gitref.abs();
     } else {
-        // Longitudinal guidance dispatch (matches Fortran guilon.f)
+        // Longitudinal guidance dispatch
         gitlon = match guidance_type {
             GuidanceType::Ftc => guicap(nav, enrjlt, altitude, state, data, planet),
             GuidanceType::NeuralNetwork => {
@@ -216,7 +212,7 @@ pub fn guidance_step(
         }
     }
 
-    // === Roll rate saturation (vigite) ===
+    // === Roll rate saturation ===
     let vgitmx = data.capsule.max_bank_rate;
     let tguida = data.periods.guidance;
     let vitgit = (state.gitcom - state.gitpre) / tguida;
@@ -246,9 +242,7 @@ pub fn guidance_step(
     out
 }
 
-/// Capture phase longitudinal guidance.
-///
-/// Matches Fortran guicap.f (flag=0 path — tbgain-based predictor-corrector).
+/// Capture phase longitudinal guidance: altitude-gain predictor-corrector.
 fn guicap(
     nav: &NavigationOutput,
     enrjlt: f64,
@@ -300,15 +294,11 @@ fn guicap(
 }
 
 /// Compute guidance gains from altitude-based Pdyn model.
-///
-/// Matches Fortran tbgain.f.
 fn tbgain(altitude: f64, coefan: &[f64; 2], data: &SimData) -> (f64, f64) {
     let pdyn_table = &data.guidance.pdyn_table;
     let alt_km = altitude / 1e3;
 
-    // Find altitude bracket — matches Fortran tbgain.f
-    // Fortran uses 1-based indexing with inumer=0 as "not found" sentinel.
-    // We use Option<usize> to avoid off-by-one with 0-based indexing.
+    // Find altitude bracket; use Option<usize> as "not found" sentinel.
     let mut found: Option<usize> = None;
     for i in 0..pdyn_table.len().saturating_sub(1) {
         if alt_km >= pdyn_table[i].altitude
@@ -318,7 +308,7 @@ fn tbgain(altitude: f64, coefan: &[f64; 2], data: &SimData) -> (f64, f64) {
             found = Some(i);
         }
     }
-    // Fortran: if inumer==0 then inumer=nzapd (last entry)
+    // If no bracket found, fall back to last entry
     let inumer = found.unwrap_or_else(|| {
         if pdyn_table.is_empty() {
             0
@@ -356,8 +346,6 @@ fn tbgain(altitude: f64, coefan: &[f64; 2], data: &SimData) -> (f64, f64) {
 }
 
 /// Lateral guidance — roll reversal logic.
-///
-/// Matches Fortran guilat.f.
 fn guilat(
     nav: &NavigationOutput,
     gitlon: f64,
@@ -387,7 +375,7 @@ fn guilat(
     );
 
     let xinccr = data.target_orbit.inclination - orbit.inclination;
-    // Hemisphere correction (commented out in Fortran: if positn(3) < 0 then xinccr = -xinccr)
+    // Hemisphere correction intentionally omitted (inactive)
 
     let vitrel = nav.vitesn[0];
 
@@ -412,7 +400,7 @@ fn guilat(
 
             if state.indrvr == 0 {
                 state.indrvr = 1;
-                state.indrvr = 0; // Fortran: immediately reset (line 157)
+                state.indrvr = 0; // immediately reset after arming
                 state.rolway = 1;
                 let dgitcm = state.gitpre.abs() + gitlon.abs();
                 let vgitmx = data.capsule.max_bank_rate;

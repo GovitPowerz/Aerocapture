@@ -1,12 +1,8 @@
 //! Coordinate transformations.
-//!
-//! Derived from Fortran frayon.f, geodes.f, cartes.f, reploc.f, xvabsl.f.
 
 use crate::config::Planet;
 
 /// Compute geodetic altitude and latitude from geocentric spherical position.
-///
-/// Matches Fortran frayon.f exactly.
 ///
 /// Input: position = [radius, longitude, latitude] (geocentric spherical)
 /// Output: (geodetic_altitude, geodetic_latitude)
@@ -76,8 +72,6 @@ pub fn geodetic_from_spherical(
 }
 
 /// Convert geodetic to geocentric Cartesian position.
-///
-/// Matches Fortran geodes.f.
 #[allow(dead_code)]
 pub fn geodetic_to_cartesian(
     altitude: f64,
@@ -105,7 +99,6 @@ pub fn geodetic_to_cartesian(
 
 /// Convert spherical position to Cartesian.
 ///
-/// Matches Fortran cartes.f with iposvi=0.
 /// Input: [r, longitude, latitude]
 /// Output: [x, y, z] geocentric Cartesian
 pub fn position_to_cartesian(r: f64, lon: f64, lat: f64) -> [f64; 3] {
@@ -118,7 +111,6 @@ pub fn position_to_cartesian(r: f64, lon: f64, lat: f64) -> [f64; 3] {
 
 /// Convert spherical velocity to local Cartesian.
 ///
-/// Matches Fortran cartes.f with iposvi=1.
 /// Input: [V, gamma, psi] (speed, flight path angle, azimuth)
 /// Output: local Cartesian velocity [vx, vy, vz]
 pub fn velocity_to_local_cartesian(v: f64, gamma: f64, psi: f64) -> [f64; 3] {
@@ -134,7 +126,6 @@ pub fn velocity_to_local_cartesian(v: f64, gamma: f64, psi: f64) -> [f64; 3] {
 
 /// Build local-to-geocentric rotation matrix.
 ///
-/// Matches Fortran reploc.f with indloc=0.
 /// Input: position as [r, longitude, latitude]
 /// Output: 3x3 rotation matrix (row-major)
 pub fn local_to_geocentric_matrix(lon: f64, lat: f64) -> [[f64; 3]; 3] {
@@ -151,8 +142,6 @@ pub fn local_to_geocentric_matrix(lon: f64, lat: f64) -> [[f64; 3]; 3] {
 }
 
 /// Matrix-vector product (3x3 matrix × 3-vector).
-///
-/// Matches Fortran matvec.f.
 pub fn mat_vec_3(m: &[[f64; 3]; 3], v: &[f64; 3]) -> [f64; 3] {
     [
         m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
@@ -162,8 +151,6 @@ pub fn mat_vec_3(m: &[[f64; 3]; 3], v: &[f64; 3]) -> [f64; 3] {
 }
 
 /// Cross product of two 3-vectors.
-///
-/// Matches Fortran pvecto.f.
 pub fn cross(a: &[f64; 3], b: &[f64; 3]) -> [f64; 3] {
     [
         a[1] * b[2] - a[2] * b[1],
@@ -178,8 +165,6 @@ pub fn dot(a: &[f64; 3], b: &[f64; 3]) -> f64 {
 }
 
 /// Norm of a 3-vector.
-///
-/// Matches Fortran pnorme.f.
 pub fn norm(v: &[f64; 3]) -> f64 {
     (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
 }
