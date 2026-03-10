@@ -1,6 +1,5 @@
 //! Main simulation loop.
 //!
-//! Matches Fortran simmsr.f + realit.f + finmsr.f.
 //! Monte Carlo runs are parallelized with rayon (one thread per trajectory).
 
 use crate::config::{Planet, SimInput};
@@ -333,10 +332,10 @@ fn run_single(
         time_max_pdyn: 0.0,
     };
 
-    let gitref = config.reference_bank_angle.to_radians();
+    let reference_bank_angle = config.reference_bank_angle.to_radians();
 
     if config.reference_trajectory {
-        sim.bank_angle = gitref;
+        sim.bank_angle = reference_bank_angle;
     }
 
     let dt = data.periods.integration;
@@ -349,9 +348,9 @@ fn run_single(
     let is_single = config.n_sims <= 1;
     if is_single {
         eprintln!(
-            "  Init: entry.initial_bank={:.5}deg, gitref={:.5}deg, sim.bank_angle={:.5}deg",
+            "  Init: entry.initial_bank={:.5}deg, reference_bank_angle={:.5}deg, sim.bank_angle={:.5}deg",
             entry.initial_bank.to_degrees(),
-            gitref.to_degrees(),
+            reference_bank_angle.to_degrees(),
             sim.bank_angle.to_degrees()
         );
     }
@@ -389,7 +388,7 @@ fn run_single(
             let nav_out = estimator::navigate(
                 &positr,
                 &vitesr,
-                ftc_state.alfcom,
+                ftc_state.aoa_commanded,
                 temsim,
                 &nav_biases,
                 &mut nav_state,
@@ -411,7 +410,7 @@ fn run_single(
                 &nav_out,
                 sim.bank_angle,
                 temsim,
-                gitref,
+                reference_bank_angle,
                 &mut ftc_state,
                 data,
                 planet,
@@ -422,7 +421,7 @@ fn run_single(
             let max_rate = data.capsule.max_bank_rate * (1.0 + run_state.max_bank_rate_bias);
             pilot_state = pilot::apply_pilot(
                 &data.pilot,
-                ftc_out.gitcom,
+                ftc_out.bank_angle_commanded,
                 &pilot_state,
                 data.periods.pilot,
                 max_rate,
@@ -435,7 +434,7 @@ fn run_single(
             }
 
             sim.bank_angle = pilot_state.bank_angle;
-            sim.aoa = ftc_out.alfcom;
+            sim.aoa = ftc_out.aoa_commanded;
 
             if is_single && (step < 5 || step % 50 == 0) {
                 let (dbg_alt, _) =
@@ -446,7 +445,7 @@ fn run_single(
                     temsim,
                     sim.bank_angle.to_degrees(),
                     sim.aoa.to_degrees(),
-                    ftc_out.ilongi,
+                    ftc_out.longitudinal_active,
                     dbg_alt / 1e3,
                     sim.state[3],
                 );
@@ -600,7 +599,7 @@ fn run_single(
     xsauve[40] = deltav.dv1.abs() + deltav.dv2.abs();
     xsauve[41] = deltav.total;
     xsauve[45] = somgit_deg;
-    xsauve[48] = ftc_state.nbroll as f64;
+    xsauve[48] = ftc_state.n_reversals as f64;
 
     Ok(SimResult {
         sim_idx,
@@ -609,7 +608,7 @@ fn run_single(
     })
 }
 
-/// Build a photo snapshot line matching Fortran photra.f format.
+/// Build a photo snapshot line (24-column D12.5 format).
 #[allow(clippy::too_many_arguments)]
 fn build_photo_values(
     sim: &SimState,
