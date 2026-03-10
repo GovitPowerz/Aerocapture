@@ -1,3 +1,5 @@
+pub mod fixtures;
+
 use std::path::PathBuf;
 
 /// Get absolute path to repo root (2 levels up from src/rust/).
