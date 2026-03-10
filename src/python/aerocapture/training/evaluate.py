@@ -76,35 +76,6 @@ def perturb_network(
     return signs * base_network * perturbation
 
 
-def write_nn_params(
-    weights: npt.NDArray[np.float64],
-    filepath: str | Path,
-    n_input: int,
-    n_hidden: int,
-    n_output: int,
-) -> None:
-    """Write neural network parameters to Fortran-readable file.
-
-    Args:
-        weights: Network weight vector.
-        filepath: Output file path.
-        n_input: Number of inputs.
-        n_hidden: Number of hidden neurons.
-        n_output: Number of outputs.
-    """
-    filepath = Path(filepath)
-    with open(filepath, "w") as f:
-        # 6-line header matching Fortran lecgnn.f (skips 6 reads before weights)
-        f.write(" \n")
-        f.write("   Caracteristiques neural network\n")
-        f.write(" \n")
-        f.write(f"           {n_input}   ninput\n")
-        f.write(f"           {n_hidden}  {n_hidden}  {n_hidden}   nhid\n")
-        f.write(f"           {n_output}   noutput\n")
-        for w in weights:
-            f.write(f"       {w: .30f}\n")
-
-
 def write_nn_json(
     weights: npt.NDArray[np.float64],
     network: NetworkConfig,
@@ -184,7 +155,7 @@ def _parse_final_to_legacy_array(filepath: Path) -> npt.NDArray[np.float64] | No
 
 
 def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt.NDArray[np.float64] | None:
-    """Run the Fortran simulator and parse final conditions.
+    """Run the Rust simulator and parse final conditions.
 
     Args:
         config: Training configuration.
@@ -199,30 +170,21 @@ def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt
 
     executable = (cwd / config.sim.executable).resolve()
 
+    if not config.sim.toml_config:
+        return None
+
+    toml_path = (cwd / config.sim.toml_config).resolve()
     try:
-        if config.sim.toml_config:
-            toml_path = (cwd / config.sim.toml_config).resolve()
-            subprocess.run(
-                [str(executable), str(toml_path)],
-                capture_output=True,
-                cwd=str(cwd.resolve()),
-                timeout=300,
-            )
-        else:
-            init_file = (cwd / config.sim.init_file).resolve()
-            with open(init_file) as f:
-                subprocess.run(
-                    [str(executable)],
-                    stdin=f,
-                    capture_output=True,
-                    cwd=str(cwd.resolve()),
-                    timeout=300,
-                )
+        subprocess.run(
+            [str(executable), str(toml_path)],
+            capture_output=True,
+            cwd=str(cwd.resolve()),
+            timeout=300,
+        )
     except subprocess.TimeoutExpired, FileNotFoundError:
         return None
 
     # Parse final conditions — auto-detect CSV vs legacy text
-    # Try CSV first (new default), then legacy text, then CSV with .csv extension
     final_file = cwd / config.sim.final_file
     csv_final = Path(str(final_file) + ".csv")
     if csv_final.exists():
