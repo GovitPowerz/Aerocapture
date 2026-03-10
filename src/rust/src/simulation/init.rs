@@ -178,6 +178,38 @@ mod tests {
         assert_eq!(run.pilot_biases.frequency, 0.05);
     }
 
+    proptest::proptest! {
+        /// For any reasonable dispersion draw, the dispersed altitude and velocity
+        /// must remain positive — a negative altitude or velocity would cause
+        /// the simulator to crash before a single integration step.
+        #[test]
+        fn proptest_dispersed_entry_positive(
+            alt_draw in -5_000.0_f64..=5_000.0_f64,   // ±5 km
+            vel_draw in -50.0_f64..=50.0_f64,          // ±50 m/s
+            fp_draw  in -0.05_f64..=0.05_f64,          // ±~3 deg in rad
+        ) {
+            let sim_data = test_sim_data();
+            let draw = DispersionDraw {
+                altitude: alt_draw,
+                velocity: vel_draw,
+                flight_path: fp_draw,
+                ..Default::default()
+            };
+            let run = init_run_from_draw(&sim_data, &draw);
+
+            proptest::prop_assert!(
+                run.entry.state.altitude > 0.0,
+                "dispersed altitude must be positive, got {}",
+                run.entry.state.altitude
+            );
+            proptest::prop_assert!(
+                run.entry.state.velocity > 0.0,
+                "dispersed velocity must be positive, got {}",
+                run.entry.state.velocity
+            );
+        }
+    }
+
     #[test]
     fn test_nav_bias_mapping() {
         let sim_data = test_sim_data();
