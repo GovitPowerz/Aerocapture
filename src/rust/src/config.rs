@@ -29,7 +29,7 @@ impl Planet {
         }
     }
 
-    /// Polar radius in meters (must match Fortran lectci.f)
+    /// Polar radius in meters
     pub fn polar_radius(&self) -> f64 {
         match self {
             Planet::Moon => 6.0518e6,
@@ -59,7 +59,7 @@ impl Planet {
         }
     }
 
-    /// Rotation rate (rad/s) — must match Fortran lectci.f
+    /// Rotation rate (rad/s)
     pub fn omega(&self) -> f64 {
         match self {
             Planet::Moon => 2.9924e-7,

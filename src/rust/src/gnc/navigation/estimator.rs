@@ -73,8 +73,8 @@ pub struct NavigationOutput {
 pub fn navigate(
     positr: &[f64; 3], // true position [r, lon, lat]
     vitesr: &[f64; 3], // true velocity [V, gamma, psi]
-    alfcom: f64,       // commanded AoA
-    temsim: f64,       // current time
+    aoa_commanded: f64, // commanded AoA
+    sim_time: f64,      // current time
     biases: &NavigationBiases,
     nav_state: &mut NavigationState,
     data: &SimData,
@@ -107,7 +107,7 @@ pub fn navigate(
     let (alt_true, _) = geodetic_from_spherical(positr[0], positr[1], positr[2], planet);
     let rho_true = data.atmosphere.density_at(alt_true);
     let rho_true = rho_true * (1.0 + run_density_bias);
-    let cx_true = data.aero.interpolate_cx(alfcom + run_incidence_bias) * (1.0 + run_cx_bias);
+    let cx_true = data.aero.interpolate_cx(aoa_commanded + run_incidence_bias) * (1.0 + run_cx_bias);
     let mass_true = data.capsule.mass * (1.0 + run_mass_bias);
     let ref_area_true = data.capsule.reference_area * (1.0 + run_ref_area_bias);
     let acdrag_true =
@@ -116,8 +116,8 @@ pub fn navigate(
 
     // Compute estimated aero coefficients (onboard model)
     let (alt_est, _) = geodetic_from_spherical(out.position_estimated[0], out.position_estimated[1], out.position_estimated[2], planet);
-    let cx_est = data.aero.interpolate_cx(alfcom);
-    let cz_est = data.aero.interpolate_cz(alfcom);
+    let cx_est = data.aero.interpolate_cx(aoa_commanded);
+    let cz_est = data.aero.interpolate_cz(aoa_commanded);
     out.aero_coefficients[0] = cx_est;
     out.aero_coefficients[1] = cz_est;
 
@@ -200,7 +200,7 @@ pub fn navigate(
         }
         if velocity_relative <= vphase && nav_state.guidance_phase == 1 {
             nav_state.guidance_phase = 2;
-            nav_state.capture_time = temsim;
+            nav_state.capture_time = sim_time;
             out.phase_transition_flag = 1;
             out.reference_velocity = velocity_radial;
         }
@@ -353,7 +353,7 @@ mod tests {
             positr,
             vitesr,
             data.entry.initial_aoa,
-            0.0, // temsim
+            0.0, // sim_time
             biases,
             nav_state,
             data,
@@ -532,7 +532,7 @@ mod tests {
     #[rstest]
     #[case::descending(-0.15, 0, "negative gamma (descending) => no bounce")]
     #[case::ascending(0.05, 1, "positive gamma (ascending) => bounce detected")]
-    fn bounce_detection(#[case] gamma: f64, #[case] expected_ibounc: i32, #[case] _label: &str) {
+    fn bounce_detection(#[case] gamma: f64, #[case] expected_bounce_flag: i32, #[case] _label: &str) {
         let data = test_sim_data();
         let r = MARS_REQ + 50_000.0;
         let positr = [r, 0.0, 0.0];
@@ -550,8 +550,8 @@ mod tests {
         );
 
         assert_eq!(
-            nav_state.bounce_flag, expected_ibounc,
-            "with gamma={gamma}, expected ibounc={expected_ibounc}, got {}",
+            nav_state.bounce_flag, expected_bounce_flag,
+            "with gamma={gamma}, expected bounce_flag={expected_bounce_flag}, got {}",
             nav_state.bounce_flag
         );
     }

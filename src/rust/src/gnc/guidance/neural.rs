@@ -24,7 +24,6 @@ pub fn nn_bank_angle(
     target_inclination: f64, // radians (xincli from /orbvis/)
 ) -> f64 {
     let mu = planet.mu();
-    let degrad = std::f64::consts::PI / 180.0;
 
     // Radial velocity: V * sin(gamma)
     let vitrad = nav.velocity_estimated[0] * nav.velocity_estimated[1].sin();
@@ -46,7 +45,7 @@ pub fn nn_bank_angle(
     // 6 normalized inputs (matching guidnn.f)
     let input = [
         orbit.eccentricity - 1.0,
-        (orbit.inclination - target_inclination) / degrad * 3.0 / 5.0,
+        (orbit.inclination - target_inclination).to_degrees() * 3.0 / 5.0,
         2.0 * (vitrad / 1e3 + 1.2) / 1.5 - 1.0,
         -mu / (2.0 * orbit.semi_major_axis) / 6e6,
         (nav.velocity_estimated[0] / 3e3 - 1.5) * 2.0,

@@ -1,6 +1,5 @@
 //! Pilot dynamics model.
 //!
-//! Matches Fortran pilote.f.
 //! Models the delay/dynamics in realizing commanded bank angle.
 
 use crate::data::pilot::{PilotModel, PilotType};

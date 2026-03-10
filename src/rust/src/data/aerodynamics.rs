@@ -30,7 +30,7 @@ impl AeroTables {
     }
 }
 
-/// Linear interpolation in a table (matches Fortran intrmo.f)
+/// Linear interpolation in a table
 pub fn interpolate(x_table: &[f64], y_table: &[f64], x: f64) -> f64 {
     let n = x_table.len();
     if n == 0 {

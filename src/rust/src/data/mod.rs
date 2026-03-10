@@ -1,6 +1,4 @@
 //! Data file loading and simulation data structures.
-//!
-//! Matches the Fortran lectci.f reading order exactly.
 
 pub mod aerodynamics;
 pub mod atmosphere;
@@ -688,7 +686,7 @@ fn build_dispersion_config(
 /// Parse a data file, skipping comment/header lines.
 ///
 /// Lines whose first whitespace-delimited token parses as f64 are data lines.
-/// Fortran D-notation (1.23D+04) is handled by replacing D/d with E/e.
+/// D-notation (1.23D+04) is handled by replacing D/d with E/e.
 pub fn parse_data_file(path: &str) -> Result<Vec<Vec<f64>>, DataError> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| DataError(format!("Cannot read {}: {}", path, e)))?;

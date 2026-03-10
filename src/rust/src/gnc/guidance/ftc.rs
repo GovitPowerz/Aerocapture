@@ -83,7 +83,7 @@ pub struct FtcOutput {
 pub fn guidance_step(
     nav: &NavigationOutput,
     pilot_bank_angle: f64, // pilot-realized bank angle
-    temsim: f64,
+    sim_time: f64,
     reference_bank_angle: f64, // reference bank angle (from config, rad)
     state: &mut FtcState,
     data: &SimData,
@@ -175,7 +175,7 @@ pub fn guidance_step(
     // === Lateral guidance ===
     let mut roll_reversal_active = 0;
     if lateral_active == 1 {
-        lateral_guidance(nav, bank_angle_longitudinal, temsim, state, data, planet, &mut roll_reversal_active);
+        lateral_guidance(nav, bank_angle_longitudinal, sim_time, state, data, planet, &mut roll_reversal_active);
         if state.reversal_active == 1 {
             state.guidance_active[1] = 0;
         }
@@ -263,8 +263,8 @@ fn capture_guidance(
     let altitude_rate_nominal = ref_traj.interpolate(energy, &ref_traj.radial_vel);
     let _httnom = ref_traj.interpolate(energy, &ref_traj.altitude_rate);
 
-    // Compute gains (tbgain)
-    let (gain_altitude_rate, gain_dynamic_pressure) = tbgain(altitude, &nav.aero_coefficients, data);
+    // Compute gains
+    let (gain_altitude_rate, gain_dynamic_pressure) = compute_gains(altitude, &nav.aero_coefficients, data);
 
     // Predictor-corrector equation
     // cos(bank_angle_longitudinal) = cos_bank_nominal + gain_altitude_rate*(velocity_radial - altitude_rate_nominal)/dynamic_pressure_equilibrium + gain_dynamic_pressure*(dynamic_pressure_equilibrium - dynamic_pressure_nominal)/dynamic_pressure_equilibrium
@@ -294,7 +294,7 @@ fn capture_guidance(
 }
 
 /// Compute guidance gains from altitude-based Pdyn model.
-fn tbgain(altitude: f64, coefan: &[f64; 2], data: &SimData) -> (f64, f64) {
+fn compute_gains(altitude: f64, aero_coefficients: &[f64; 2], data: &SimData) -> (f64, f64) {
     let pdyn_table = &data.guidance.pdyn_table;
     let alt_km = altitude / 1e3;
 
@@ -328,7 +328,7 @@ fn tbgain(altitude: f64, coefan: &[f64; 2], data: &SimData) -> (f64, f64) {
     let frequency_capture = data.guidance.capture_frequency;
     let reference_area = data.capsule.reference_area;
     let mass = data.capsule.mass;
-    let cz = coefan[1]; // lift coefficient
+    let cz = aero_coefficients[1]; // lift coefficient
 
     let gain_altitude_rate = if (reference_area * cz).abs() > 1e-30 {
         -2.0 * damping_capture * frequency_capture * mass / (reference_area * cz)
@@ -349,7 +349,7 @@ fn tbgain(altitude: f64, coefan: &[f64; 2], data: &SimData) -> (f64, f64) {
 fn lateral_guidance(
     nav: &NavigationOutput,
     bank_angle_longitudinal: f64,
-    _temsim: f64,
+    _sim_time: f64,
     state: &mut FtcState,
     data: &SimData,
     planet: &Planet,
@@ -544,7 +544,7 @@ mod tests {
         let out = guidance_step(
             &nav,
             initial_bank,
-            0.0, // temsim
+            0.0, // sim_time
             initial_bank,
             &mut state,
             &data,

@@ -26,42 +26,42 @@ pub fn geodetic_from_spherical(
     let pos_p = (pos_x * pos_x + pos_y * pos_y).sqrt();
     let pos_r = (pos_z * pos_z + pos_p * pos_p).sqrt();
 
-    let altitr = pos_r - req;
+    let altitude = pos_r - req;
 
     if (req - rpol).abs() < 1e-10 {
         // Spherical planet
         let sin_lat_geo = pos_z / pos_r;
         let cos_lat_geo = pos_p / pos_r;
         let lat_geo = sin_lat_geo.atan2(cos_lat_geo);
-        (altitr, lat_geo)
+        (altitude, lat_geo)
     } else {
         // Oblate planet — iterative computation
         let excent = ((req * req - rpol * rpol) / (req * req)).sqrt();
         let e2 = excent * excent;
 
         let mut rplant = req;
-        let mut altitz = altitr - (req * rpol).sqrt();
+        let mut altitude_z = altitude - (req * rpol).sqrt();
         let mut altitude;
         let lat_geo;
 
         for _ in 0..10 {
-            let tan_lat = (pos_z / pos_p) / (1.0 - e2 * rplant / (rplant + altitz));
+            let tan_lat = (pos_z / pos_p) / (1.0 - e2 * rplant / (rplant + altitude_z));
             let sin_l = (tan_lat * tan_lat / (1.0 + tan_lat * tan_lat)).sqrt();
             let cos_l = (1.0 / (1.0 + tan_lat * tan_lat)).sqrt();
             altitude = pos_p / cos_l - rplant;
             let sin_l = if tan_lat < 0.0 { -sin_l } else { sin_l };
 
-            if (altitude - altitz).abs() < 0.01 {
+            if (altitude - altitude_z).abs() < 0.01 {
                 lat_geo = sin_l.atan2(cos_l);
                 return (altitude, lat_geo);
             }
 
             rplant = req / (1.0 - e2 * sin_l * sin_l).sqrt();
-            altitz = altitude;
+            altitude_z = altitude;
         }
 
         // Fallback after max iterations
-        let tan_lat = (pos_z / pos_p) / (1.0 - e2 * rplant / (rplant + altitz));
+        let tan_lat = (pos_z / pos_p) / (1.0 - e2 * rplant / (rplant + altitude_z));
         let sin_l = (tan_lat * tan_lat / (1.0 + tan_lat * tan_lat)).sqrt();
         let cos_l = (1.0 / (1.0 + tan_lat * tan_lat)).sqrt();
         altitude = pos_p / cos_l - rplant;

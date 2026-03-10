@@ -1,6 +1,5 @@
 //! Module cadence scheduling.
 //!
-//! Matches Fortran sequen.f.
 //! Determines when each subsystem (navigation, guidance, pilot) should execute
 //! based on configured time periods.
 

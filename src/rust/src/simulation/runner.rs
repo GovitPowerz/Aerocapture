@@ -442,7 +442,7 @@ fn run_single(
                 let (dbg_alt, _) =
                     geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
                 eprintln!(
-                    "  step={} t={:.1} bank={:.3}deg aoa={:.3}deg ilongi={} alt={:.1}km vel={:.1}",
+                    "  step={} t={:.1} bank={:.3}deg aoa={:.3}deg longitudinal={} alt={:.1}km vel={:.1}",
                     step,
                     sim_time,
                     sim.bank_angle.to_degrees(),

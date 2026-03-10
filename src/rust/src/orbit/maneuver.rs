@@ -1,6 +1,5 @@
 //! Orbit maneuver cost computation.
 //!
-//! Matches Fortran ergols.f.
 //! Computes delta-V cost for orbit correction after aerocapture.
 
 use crate::config::Planet;
@@ -21,7 +20,6 @@ pub struct DeltaV {
 
 /// Compute delta-V cost for orbit correction.
 ///
-/// Matches Fortran ergols.f exactly:
 /// - If ifinal != 3 (not atmosphere exit), returns 1e30 for all values
 /// - Maneuver 1 at apoapsis: correct periapsis to target
 /// - Maneuver 2 at new periapsis: correct apoapsis (circularize)
@@ -87,8 +85,6 @@ pub fn compute_deltav(
 }
 
 /// Compute optimal delta-V (from target orbit to parking orbit).
-///
-/// Matches Fortran ergols.f "dvopti" section.
 #[allow(dead_code)]
 pub fn compute_deltav_optimal(
     target: &OrbitalTarget,
@@ -111,7 +107,7 @@ pub fn compute_deltav_optimal(
     let vitini2 = (2.0 * mu * rapoge / (rpertf * (rapoge + rpertf))).sqrt();
     let dv2 = vitfin2 - vitini2;
 
-    let dv3 = 0.0_f64; // Fortran: dvopti(3) = 0
+    let dv3 = 0.0_f64; // inclination correction not computed for optimal case
     let total = dv1.abs() + dv2.abs() + dv3.abs();
 
     DeltaV {
