@@ -1,7 +1,5 @@
 //! Atmosphere model loader.
 //!
-//! Reads from `atmosphere.*` data files (unit 105 in Fortran).
-//!
 //! Format: 3 header lines, then:
 //!   naltit — number of altitude points
 //!   naltit lines of: altitude(m)  density(kg/m3)
@@ -69,7 +67,7 @@ impl AtmosphereModel {
         idx += 1;
 
         // Read 4 altitude breakpoints (km) and 4 dispersion breakpoints (%)
-        // Fortran reads 5 of each but first altitude is 0
+        // 5 total breakpoints per dimension; first altitude and first dispersion are 0
         let mut prof_alts = vec![0.0f64]; // first breakpoint is 0
         for _ in 0..4 {
             if idx >= rows.len() {
@@ -89,7 +87,6 @@ impl AtmosphereModel {
         }
 
         // Compute slopes and intercepts for piecewise-linear profile
-        // (matches Fortran xgabro computation)
         let n_prof = prof_alts.len();
         let mut slopes = vec![0.0f64; n_prof];
         let mut intercepts = vec![0.0f64; n_prof];

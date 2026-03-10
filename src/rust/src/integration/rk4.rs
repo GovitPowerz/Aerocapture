@@ -1,10 +1,8 @@
 //! Runge-Kutta 4th order integrator (Gill's variant).
 //!
-//! Matches Fortran rkutta.f exactly.
-//!
 //! This is called 4 times per integration step (k=1..4).
 //! Between calls, the caller recomputes derivatives using the updated state.
-//! The `qk` and `ix` variables persist across the 4 calls.
+//! The `accumulator` and `gill_toggle` variables persist across the 4 calls.
 
 /// Perform one increment of the Gill RK4 method.
 ///
@@ -12,43 +10,43 @@
 /// - `derivs`: state derivatives at current point
 /// - `k`: RK4 increment (1-based: 1, 2, 3, or 4)
 /// - `n`: number of state components
-/// - `ix`: internal variable (modified in place, initially 0)
-/// - `qk`: internal storage (modified in place)
+/// - `gill_toggle`: Gill's variant toggle (-1 or +1, modified in place, initially 0)
+/// - `accumulator`: internal RK4 storage (modified in place)
 /// - `state`: state vector (modified in place)
 pub fn rk4_increment(
     dt: f64,
     derivs: &[f64],
     k: usize,
     n: usize,
-    ix: &mut i32,
-    qk: &mut [f64],
+    gill_toggle: &mut i32,
+    accumulator: &mut [f64],
     state: &mut [f64],
 ) {
     let a = std::f64::consts::SQRT_2;
-    let ix_f = *ix as f64;
+    let gill_toggle_f = *gill_toggle as f64;
 
-    // xk = dt * derivs
     match k {
         1 => {
             for i in 0..n {
-                let xk = dt * derivs[i];
-                state[i] += 0.5 * xk;
-                qk[i] = xk;
+                let step_increment = dt * derivs[i];
+                state[i] += 0.5 * step_increment;
+                accumulator[i] = step_increment;
             }
-            *ix = 1;
+            *gill_toggle = 1;
         }
         2 | 3 => {
             for i in 0..n {
-                let xk = dt * derivs[i];
-                state[i] += (1.0 - ix_f / a) * (xk - qk[i]);
-                qk[i] = qk[i] * (-2.0 + 3.0 * ix_f / a) + xk * (2.0 - ix_f * a);
+                let step_increment = dt * derivs[i];
+                state[i] += (1.0 - gill_toggle_f / a) * (step_increment - accumulator[i]);
+                accumulator[i] = accumulator[i] * (-2.0 + 3.0 * gill_toggle_f / a)
+                    + step_increment * (2.0 - gill_toggle_f * a);
             }
-            *ix = -1;
+            *gill_toggle = -1;
         }
         4 => {
             for i in 0..n {
-                let xk = dt * derivs[i];
-                state[i] += (xk - 2.0 * qk[i]) / 6.0;
+                let step_increment = dt * derivs[i];
+                state[i] += (step_increment - 2.0 * accumulator[i]) / 6.0;
             }
         }
         _ => {}
@@ -65,23 +63,23 @@ mod tests {
         x: f64,
         dt: f64,
         state: &mut [f64],
-        ix: &mut i32,
-        qk: &mut [f64],
+        gill_toggle: &mut i32,
+        accumulator: &mut [f64],
         deriv_fn: impl Fn(f64, &[f64]) -> Vec<f64>,
     ) {
         let n = state.len();
         // k=1: derivs at x
         let derivs = deriv_fn(x, state);
-        rk4_increment(dt, &derivs, 1, n, ix, qk, state);
+        rk4_increment(dt, &derivs, 1, n, gill_toggle, accumulator, state);
         // k=2: derivs at x + dt/2
         let derivs = deriv_fn(x + dt / 2.0, state);
-        rk4_increment(dt, &derivs, 2, n, ix, qk, state);
+        rk4_increment(dt, &derivs, 2, n, gill_toggle, accumulator, state);
         // k=3: derivs at x + dt/2
         let derivs = deriv_fn(x + dt / 2.0, state);
-        rk4_increment(dt, &derivs, 3, n, ix, qk, state);
+        rk4_increment(dt, &derivs, 3, n, gill_toggle, accumulator, state);
         // k=4: derivs at x + dt
         let derivs = deriv_fn(x + dt, state);
-        rk4_increment(dt, &derivs, 4, n, ix, qk, state);
+        rk4_increment(dt, &derivs, 4, n, gill_toggle, accumulator, state);
     }
 
     #[test]
@@ -90,13 +88,20 @@ mod tests {
         let dt = 0.01;
         let n_steps = 100;
         let mut state = vec![0.0]; // y
-        let mut qk = vec![0.0];
-        let mut ix: i32;
+        let mut accumulator = vec![0.0];
+        let mut gill_toggle: i32;
 
         for step in 0..n_steps {
             let x = step as f64 * dt;
-            ix = 0;
-            rk4_step(x, dt, &mut state, &mut ix, &mut qk, |t, _| vec![t]);
+            gill_toggle = 0;
+            rk4_step(
+                x,
+                dt,
+                &mut state,
+                &mut gill_toggle,
+                &mut accumulator,
+                |t, _| vec![t],
+            );
         }
 
         assert!(
@@ -112,13 +117,20 @@ mod tests {
         let dt = 0.01;
         let n_steps = 100;
         let mut state = vec![1.0];
-        let mut qk = vec![0.0];
-        let mut ix: i32;
+        let mut accumulator = vec![0.0];
+        let mut gill_toggle: i32;
 
         for step in 0..n_steps {
             let x = step as f64 * dt;
-            ix = 0;
-            rk4_step(x, dt, &mut state, &mut ix, &mut qk, |_, s| vec![s[0]]);
+            gill_toggle = 0;
+            rk4_step(
+                x,
+                dt,
+                &mut state,
+                &mut gill_toggle,
+                &mut accumulator,
+                |_, s| vec![s[0]],
+            );
         }
 
         let expected = std::f64::consts::E;
@@ -138,15 +150,20 @@ mod tests {
         let period = 2.0 * std::f64::consts::PI;
         let n_steps = (period / dt).round() as usize;
         let mut state = vec![1.0, 0.0]; // [x, v]
-        let mut qk = vec![0.0, 0.0];
-        let mut ix: i32;
+        let mut accumulator = vec![0.0, 0.0];
+        let mut gill_toggle: i32;
 
         for step in 0..n_steps {
             let t = step as f64 * dt;
-            ix = 0;
-            rk4_step(t, dt, &mut state, &mut ix, &mut qk, |_, s| {
-                vec![s[1], -s[0]]
-            });
+            gill_toggle = 0;
+            rk4_step(
+                t,
+                dt,
+                &mut state,
+                &mut gill_toggle,
+                &mut accumulator,
+                |_, s| vec![s[1], -s[0]],
+            );
         }
 
         // Tolerance accounts for both integrator error and period discretization
@@ -164,13 +181,20 @@ mod tests {
         // dy/dx = 0, y(0) = 42 => y stays 42
         let dt = 0.1;
         let mut state = vec![42.0];
-        let mut qk = vec![0.0];
-        let mut ix: i32;
+        let mut accumulator = vec![0.0];
+        let mut gill_toggle: i32;
 
         for step in 0..10 {
             let x = step as f64 * dt;
-            ix = 0;
-            rk4_step(x, dt, &mut state, &mut ix, &mut qk, |_, _| vec![0.0]);
+            gill_toggle = 0;
+            rk4_step(
+                x,
+                dt,
+                &mut state,
+                &mut gill_toggle,
+                &mut accumulator,
+                |_, _| vec![0.0],
+            );
         }
 
         assert!(

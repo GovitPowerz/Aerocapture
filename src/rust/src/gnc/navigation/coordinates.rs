@@ -1,12 +1,8 @@
 //! Coordinate transformations.
-//!
-//! Matches Fortran frayon.f, geodes.f, cartes.f, reploc.f, xvabsl.f.
 
 use crate::config::Planet;
 
 /// Compute geodetic altitude and latitude from geocentric spherical position.
-///
-/// Matches Fortran frayon.f exactly.
 ///
 /// Input: position = [radius, longitude, latitude] (geocentric spherical)
 /// Output: (geodetic_altitude, geodetic_latitude)
@@ -30,42 +26,42 @@ pub fn geodetic_from_spherical(
     let pos_p = (pos_x * pos_x + pos_y * pos_y).sqrt();
     let pos_r = (pos_z * pos_z + pos_p * pos_p).sqrt();
 
-    let altitr = pos_r - req;
+    let altitude = pos_r - req;
 
     if (req - rpol).abs() < 1e-10 {
         // Spherical planet
         let sin_lat_geo = pos_z / pos_r;
         let cos_lat_geo = pos_p / pos_r;
         let lat_geo = sin_lat_geo.atan2(cos_lat_geo);
-        (altitr, lat_geo)
+        (altitude, lat_geo)
     } else {
         // Oblate planet — iterative computation
         let excent = ((req * req - rpol * rpol) / (req * req)).sqrt();
         let e2 = excent * excent;
 
         let mut rplant = req;
-        let mut altitz = altitr - (req * rpol).sqrt();
+        let mut altitude_z = altitude - (req * rpol).sqrt();
         let mut altitude;
         let lat_geo;
 
         for _ in 0..10 {
-            let tan_lat = (pos_z / pos_p) / (1.0 - e2 * rplant / (rplant + altitz));
+            let tan_lat = (pos_z / pos_p) / (1.0 - e2 * rplant / (rplant + altitude_z));
             let sin_l = (tan_lat * tan_lat / (1.0 + tan_lat * tan_lat)).sqrt();
             let cos_l = (1.0 / (1.0 + tan_lat * tan_lat)).sqrt();
             altitude = pos_p / cos_l - rplant;
             let sin_l = if tan_lat < 0.0 { -sin_l } else { sin_l };
 
-            if (altitude - altitz).abs() < 0.01 {
+            if (altitude - altitude_z).abs() < 0.01 {
                 lat_geo = sin_l.atan2(cos_l);
                 return (altitude, lat_geo);
             }
 
             rplant = req / (1.0 - e2 * sin_l * sin_l).sqrt();
-            altitz = altitude;
+            altitude_z = altitude;
         }
 
         // Fallback after max iterations
-        let tan_lat = (pos_z / pos_p) / (1.0 - e2 * rplant / (rplant + altitz));
+        let tan_lat = (pos_z / pos_p) / (1.0 - e2 * rplant / (rplant + altitude_z));
         let sin_l = (tan_lat * tan_lat / (1.0 + tan_lat * tan_lat)).sqrt();
         let cos_l = (1.0 / (1.0 + tan_lat * tan_lat)).sqrt();
         altitude = pos_p / cos_l - rplant;
@@ -76,8 +72,6 @@ pub fn geodetic_from_spherical(
 }
 
 /// Convert geodetic to geocentric Cartesian position.
-///
-/// Matches Fortran geodes.f.
 #[allow(dead_code)]
 pub fn geodetic_to_cartesian(
     altitude: f64,
@@ -105,7 +99,6 @@ pub fn geodetic_to_cartesian(
 
 /// Convert spherical position to Cartesian.
 ///
-/// Matches Fortran cartes.f with iposvi=0.
 /// Input: [r, longitude, latitude]
 /// Output: [x, y, z] geocentric Cartesian
 pub fn position_to_cartesian(r: f64, lon: f64, lat: f64) -> [f64; 3] {
@@ -118,7 +111,6 @@ pub fn position_to_cartesian(r: f64, lon: f64, lat: f64) -> [f64; 3] {
 
 /// Convert spherical velocity to local Cartesian.
 ///
-/// Matches Fortran cartes.f with iposvi=1.
 /// Input: [V, gamma, psi] (speed, flight path angle, azimuth)
 /// Output: local Cartesian velocity [vx, vy, vz]
 pub fn velocity_to_local_cartesian(v: f64, gamma: f64, psi: f64) -> [f64; 3] {
@@ -134,7 +126,6 @@ pub fn velocity_to_local_cartesian(v: f64, gamma: f64, psi: f64) -> [f64; 3] {
 
 /// Build local-to-geocentric rotation matrix.
 ///
-/// Matches Fortran reploc.f with indloc=0.
 /// Input: position as [r, longitude, latitude]
 /// Output: 3x3 rotation matrix (row-major)
 pub fn local_to_geocentric_matrix(lon: f64, lat: f64) -> [[f64; 3]; 3] {
@@ -151,8 +142,6 @@ pub fn local_to_geocentric_matrix(lon: f64, lat: f64) -> [[f64; 3]; 3] {
 }
 
 /// Matrix-vector product (3x3 matrix × 3-vector).
-///
-/// Matches Fortran matvec.f.
 pub fn mat_vec_3(m: &[[f64; 3]; 3], v: &[f64; 3]) -> [f64; 3] {
     [
         m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
@@ -162,8 +151,6 @@ pub fn mat_vec_3(m: &[[f64; 3]; 3], v: &[f64; 3]) -> [f64; 3] {
 }
 
 /// Cross product of two 3-vectors.
-///
-/// Matches Fortran pvecto.f.
 pub fn cross(a: &[f64; 3], b: &[f64; 3]) -> [f64; 3] {
     [
         a[1] * b[2] - a[2] * b[1],
@@ -178,15 +165,12 @@ pub fn dot(a: &[f64; 3], b: &[f64; 3]) -> f64 {
 }
 
 /// Norm of a 3-vector.
-///
-/// Matches Fortran pnorme.f.
 pub fn norm(v: &[f64; 3]) -> f64 {
     (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
 }
 
 /// Compute absolute (inertial) position and velocity from spherical state.
 ///
-/// Matches Fortran xvabsl.f.
 /// Takes geocentric spherical position [r, lon, lat] and local spherical velocity [V, gamma, psi].
 /// Returns (position_cartesian, velocity_absolute_cartesian).
 pub fn to_absolute_cartesian(
@@ -199,35 +183,34 @@ pub fn to_absolute_cartesian(
     planet: &Planet,
 ) -> ([f64; 3], [f64; 3]) {
     // Position: spherical → Cartesian
-    let posita = position_to_cartesian(r, lon, lat);
+    let position_abs = position_to_cartesian(r, lon, lat);
 
     // Velocity: spherical → local Cartesian
-    let vitesl = velocity_to_local_cartesian(v, gamma, psi);
+    let velocity_local = velocity_to_local_cartesian(v, gamma, psi);
 
     // Local-to-geocentric rotation matrix
-    let plocal = local_to_geocentric_matrix(lon, lat);
+    let local_to_geocentric = local_to_geocentric_matrix(lon, lat);
 
-    // Velocity in geocentric frame = P * vitesl
-    let vitesr = mat_vec_3(&plocal, &vitesl);
+    // Velocity in geocentric frame = rotation * velocity_local
+    let velocity_geocentric = mat_vec_3(&local_to_geocentric, &velocity_local);
 
     // Entrainment velocity = omega × position
     let omega = planet.omega();
-    let omega_vec = [0.0, 0.0, omega]; // Fortran: xomega = [0, 0, omega]
-    let vitese = cross(&omega_vec, &posita);
+    let omega_vec = [0.0, 0.0, omega];
+    let velocity_entrainment = cross(&omega_vec, &position_abs);
 
     // Absolute velocity = entrainment + relative geocentric
-    let vitesa = [
-        vitese[0] + vitesr[0],
-        vitese[1] + vitesr[1],
-        vitese[2] + vitesr[2],
+    let velocity_abs = [
+        velocity_entrainment[0] + velocity_geocentric[0],
+        velocity_entrainment[1] + velocity_geocentric[1],
+        velocity_entrainment[2] + velocity_geocentric[2],
     ];
 
-    (posita, vitesa)
+    (position_abs, velocity_abs)
 }
 
 /// Compute total orbital energy from spherical state.
 ///
-/// Matches Fortran enrtot.f.
 /// E = |v_abs|^2/2 - mu/|r|
 pub fn total_energy(
     r: f64,
@@ -238,10 +221,10 @@ pub fn total_energy(
     psi: f64,
     planet: &Planet,
 ) -> f64 {
-    let (posita, vitesa) = to_absolute_cartesian(r, lon, lat, v, gamma, psi, planet);
-    let vitabs = norm(&vitesa);
-    let rayvec = norm(&posita);
-    vitabs * vitabs / 2.0 - planet.mu() / rayvec
+    let (position_abs, velocity_abs) = to_absolute_cartesian(r, lon, lat, v, gamma, psi, planet);
+    let speed_abs = norm(&velocity_abs);
+    let radius = norm(&position_abs);
+    speed_abs * speed_abs / 2.0 - planet.mu() / radius
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@
 
 Trajectory simulation tool for aerocapture maneuvers, primarily targeting Mars Sample Return (MSR). Models a spacecraft entering a planet's atmosphere at hyperbolic velocity, using aerodynamic forces and bank angle modulation to capture into a target orbit.
 
-Modernized from a legacy Fortran 77 codebase (~10,675 lines, ~65 files) into a **Rust simulator** with **Python analysis tools**. The Rust simulator has been validated against the Fortran reference to bit-level precision.
+Modernized from a legacy Fortran 77 codebase (~10,675 lines, ~65 files) into a **Rust simulator** with **Python analysis tools**. The Rust simulator has been validated against the Fortran reference to bit-level precision. The legacy Fortran code has been removed (preserved in git history).
 
 ## Quick Start
 
@@ -11,12 +11,8 @@ Modernized from a legacy Fortran 77 codebase (~10,675 lines, ~65 files) into a *
 cd src/rust
 cargo build --release
 
-# Run with TOML config (preferred — supports all guidance schemes)
-../../src/rust/target/release/aerocapture configs/msr_aller_ftc_nominal.toml
-
-# Run with legacy .in config (from old_codebase/exec/)
-cd ../../old_codebase/exec
-../../src/rust/target/release/aerocapture < test_input.in
+# Run with TOML config
+./target/release/aerocapture ../../configs/nominal/msr_aller_ftc_nominal.toml
 ```
 
 ## Project Structure
@@ -25,13 +21,14 @@ cd ../../old_codebase/exec
 src/
   rust/                    Rust simulator (validated reimplementation)
   python/                  Python analysis package (parsing, plotting, training)
-configs/                   TOML configuration files (per guidance scheme)
-old_codebase/
-  fortran_original/        Legacy Fortran 77 — FTC predictor-corrector guidance
-  fortran_neural/          Fortran variant with neural network guidance
-  donnees/                 Data files (atmosphere, aerodynamics, capsule, guidance)
-  exec/                    Input configs, makefiles, MATLAB scripts
-tests/                     Test framework and Fortran reference data
+configs/
+  nominal/                 Nominal simulation configurations
+  training/                GA training configurations (per guidance scheme)
+  test/                    Golden test configurations (regression tests)
+data/
+  atmosphere/              Atmosphere density tables (Mars, Earth)
+  reference_trajectory/    Reference trajectories for guided schemes
+tests/                     Test framework and golden reference data
 ```
 
 ## Guidance Schemes
@@ -65,12 +62,12 @@ All guidance schemes can be optimized via genetic algorithm. The GA tunes each s
 # Optimize any guidance scheme
 uv run python -m aerocapture.training.train \
     --guidance equilibrium_glide \
-    --toml configs/msr_aller_eqglide_train.toml \
+    --toml configs/training/msr_aller_eqglide_train.toml \
     --n-gen 50 --n-pop 20
 
 # Compare all schemes on identical MC scenarios
 uv run python -m aerocapture.training.compare_guidance \
-    --base-toml configs/msr_aller_eqglide_train.toml \
+    --base-toml configs/training/msr_aller_eqglide_train.toml \
     --n-sims 100
 ```
 
@@ -82,7 +79,7 @@ The Rust simulator matches the Fortran reference across all 725 timesteps of a g
 
 ## CI
 
-GitHub Actions runs on every push and PR:
+GitHub Actions runs on PRs to `main` and manual dispatch:
 
 - **Rust**: `cargo fmt --check`, `cargo clippy`, `cargo test --release`
 - **Python**: `ruff check`, `ruff format --check`, `mypy`, `pytest`
@@ -93,13 +90,10 @@ GitHub Actions runs on every push and PR:
 # Rust
 cd src/rust && cargo build --release
 
-# Fortran (always clean first)
-cd old_codebase/exec && make clean && make
-
 # Python
 uv sync && pytest tests
 ```
 
 ## Roadmap
 
-See [improvements.md](improvements.md) for the physics, GNC, and software improvement roadmap.
+See [IMPROVEMENTS.md](IMPROVEMENTS.md) for the physics, GNC, and software improvement roadmap.

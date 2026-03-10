@@ -59,12 +59,12 @@ pub fn predguid_bank(
 
     // Current energy for reference lookup
     let energy = total_energy(
-        nav.positn[0],
-        nav.positn[1],
-        nav.positn[2],
-        nav.vitesn[0],
-        nav.vitesn[1],
-        nav.vitesn[2],
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
         planet,
     );
 
@@ -73,15 +73,15 @@ pub fn predguid_bank(
     let pdyn_ref = ref_traj.interpolate(energy, &ref_traj.pressure);
 
     // Current drag and lift accelerations from navigation
-    let drag_accel = nav.acceln[0]; // D/m
-    let lift_accel = nav.acceln[1]; // L/m
+    let drag_accel = nav.acceleration_estimated[0]; // D/m
+    let lift_accel = nav.acceleration_estimated[1]; // L/m
 
     // Current dynamic pressure
-    let v = nav.vitesn[0];
-    let pdyn = 0.5 * nav.roguid * v * v;
+    let v = nav.velocity_estimated[0];
+    let pdyn = 0.5 * nav.density_guidance * v * v;
 
     // Reference drag acceleration: D_ref/m = pdyn_ref * S * Cx / m
-    let cx = nav.coefan[0];
+    let cx = nav.aero_coefficients[0];
     let sref = data.capsule.reference_area;
     let mass = data.capsule.mass;
     let drag_ref = pdyn_ref * sref * cx / mass;
@@ -134,14 +134,14 @@ mod tests {
     fn test_nav(velocity: f64) -> NavigationOutput {
         let r = 3_396_200.0 + 50_000.0;
         NavigationOutput {
-            positn: [r, 0.0, 0.0],
-            vitesn: [velocity, -0.15, 0.6],
-            acceln: [50.0, -8.0],
-            coefan: [1.269, -0.205],
-            roguid: 0.001,
-            roexit: 1e-6,
-            pdynan: 0.5 * 0.001 * velocity * velocity,
-            energn: -1e6,
+            position_estimated: [r, 0.0, 0.0],
+            velocity_estimated: [velocity, -0.15, 0.6],
+            acceleration_estimated: [50.0, -8.0],
+            aero_coefficients: [1.269, -0.205],
+            density_guidance: 0.001,
+            density_exit: 1e-6,
+            dynamic_pressure_estimated: 0.5 * 0.001 * velocity * velocity,
+            energy_estimated: -1e6,
             ..Default::default()
         }
     }
@@ -270,5 +270,36 @@ mod tests {
             bank,
             velocity,
         );
+    }
+
+    mod prop {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn output_always_finite_and_bounded(
+                alt in 10_000.0..130_000.0_f64,
+                vel in 2000.0..7000.0_f64,
+                fpa in -0.2..0.05_f64,
+                rho in 1e-6..0.05_f64,
+            ) {
+                let mut nav = test_nav(vel);
+                let r = Planet::Mars.equatorial_radius() + alt;
+                nav.position_estimated[0] = r;
+                nav.velocity_estimated[1] = fpa;
+                nav.density_guidance = rho;
+                nav.dynamic_pressure_estimated = 0.5 * rho * vel * vel;
+
+                let state = PredGuidState::new();
+                let data = test_sim_data_with_ref_traj();
+                let planet = Planet::Mars;
+                let bank = predguid_bank(&nav, &state, &data, &planet);
+
+                prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
+                prop_assert!(bank >= 0.0 - 1e-10, "bank negative: {}", bank);
+                prop_assert!(bank <= std::f64::consts::PI + 1e-10, "bank > pi: {}", bank);
+            }
+        }
     }
 }

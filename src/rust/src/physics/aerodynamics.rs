@@ -1,6 +1,4 @@
 //! Aerodynamic force computation.
-//!
-//! Matches Fortran faeros.f.
 
 use crate::data::aerodynamics::AeroTables;
 use crate::data::capsule::Capsule;

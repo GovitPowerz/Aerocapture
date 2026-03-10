@@ -68,11 +68,10 @@ class GAConfig:
 class SimConfig:
     """Simulation configuration for cost evaluation."""
 
-    executable: str = "../../src/rust/target/release/aerocapture"
-    init_file: str = "train_nn.in"
-    nn_param_file: str = "../donnees/nn_param.temp"
-    final_file: str = "../sorties/final.train_nn_temp"
-    exec_dir: str = "old_codebase/exec"
+    executable: str = "src/rust/target/release/aerocapture"
+    nn_param_file: str = "data/neural_network/nn_model.json"
+    final_file: str = "output/final.train_nn_temp"
+    exec_dir: str = "."
     n_sims: int = 10
     toml_config: str | None = None  # TOML config path (relative to exec_dir); if set, passed as CLI arg
 
@@ -84,7 +83,7 @@ class TrainingConfig:
     network: NetworkConfig = field(default_factory=NetworkConfig)
     ga: GAConfig = field(default_factory=GAConfig)
     sim: SimConfig = field(default_factory=SimConfig)
-    save_dir: str = "save_net"
+    save_dir: str = "training_output"
     guidance_type: str = "neural_network"
 
     @property
@@ -127,9 +126,7 @@ class TrainingConfig:
         return 0.1 * (2 * rng.random(self.network.n_coef) - 1)
 
     def load_base_network(self, filepath: str | Path) -> npt.NDArray[np.float64]:
-        """Load base network weights from a JSON or legacy Fortran nn_param file.
-
-        Auto-detects format: JSON files start with '{', legacy files have a 6-line header.
+        """Load base network weights from a JSON nn_param file.
 
         Returns:
             Array of shape (n_coef,) with loaded weights (padded with 1.0).
@@ -139,44 +136,13 @@ class TrainingConfig:
         filepath = Path(filepath)
         content = filepath.read_text().strip()
 
-        if content.startswith("{"):
-            # JSON: weights already in row-major order
-            data = json.loads(content)
-            weights = []
-            for i in range(len(data["architecture"]["layers"]) - 1):
-                layer = data["weights"][f"layer_{i}"]
-                for row in layer["w"]:
-                    weights.extend(row)
-                weights.extend(layer["b"])
-        else:
-            # Legacy Fortran: weights in column-major order, convert to row-major
-            from aerocapture.io._fortran import parse_fortran_line
-
-            raw_values: list[float] = []
-            with open(filepath) as f:
-                for _ in range(6):
-                    next(f)
-                for line in f:
-                    vals = parse_fortran_line(line.strip())
-                    if vals:
-                        raw_values.extend(vals)
-
-            # Reorder column-major to row-major for each layer pair
-            weights = []
-            idx = 0
-            sizes = self.network.layer_sizes
-            for k in range(len(sizes) - 1):
-                n_in, n_out = sizes[k], sizes[k + 1]
-                # Fortran: for i in 0..n_in: for j in 0..n_out: w[j][i]
-                col_major = raw_values[idx : idx + n_in * n_out]
-                idx += n_in * n_out
-                # Convert to row-major: w[j][i] for j in 0..n_out, i in 0..n_in
-                for j in range(n_out):
-                    for i in range(n_in):
-                        weights.append(col_major[i * n_out + j])
-                # Biases (no reordering needed)
-                weights.extend(raw_values[idx : idx + n_out])
-                idx += n_out
+        data = json.loads(content)
+        weights = []
+        for i in range(len(data["architecture"]["layers"]) - 1):
+            layer = data["weights"][f"layer_{i}"]
+            for row in layer["w"]:
+                weights.extend(row)
+            weights.extend(layer["b"])
 
         n_base = self.network.n_base_coef
         base = np.array(weights[:n_base], dtype=np.float64)

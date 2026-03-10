@@ -1,6 +1,5 @@
 //! Navigation state estimator.
 //!
-//! Matches Fortran naviga.f.
 //! Adds navigation errors to the true state to produce measured state,
 //! estimates atmospheric density, and manages guidance phase transitions.
 
@@ -10,8 +9,6 @@ use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy}
 use crate::orbit::elements;
 
 /// Navigation error biases (constant during a run).
-///
-/// Matches Fortran common /pernav/ dispos(3), disvit(3), disdra.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NavigationBiases {
     pub pos: [f64; 3], // [altitude, longitude, latitude] bias
@@ -22,11 +19,11 @@ pub struct NavigationBiases {
 /// Navigation filter state (persistent across steps).
 #[derive(Debug, Clone, Copy)]
 pub struct NavigationState {
-    pub coefro: f64, // density estimation coefficient
-    pub vitpre: f64, // previous radial velocity (m/s)
-    pub ibounc: i32, // bounce indicator: 0=before, 1=after
-    pub iphase: i32, // guidance phase: 1=capture, 2=exit, 3=emergency
-    pub tcaptr: f64, // capture phase duration (s)
+    pub density_gain: f64,             // density estimation coefficient
+    pub previous_radial_velocity: f64, // previous radial velocity (m/s)
+    pub bounce_flag: i32,              // bounce indicator: 0=before, 1=after
+    pub guidance_phase: i32,           // guidance phase: 1=capture, 2=exit, 3=emergency
+    pub capture_time: f64,             // capture phase duration (s)
 }
 
 impl Default for NavigationState {
@@ -38,11 +35,11 @@ impl Default for NavigationState {
 impl NavigationState {
     pub fn new() -> Self {
         Self {
-            coefro: 1.0,
-            vitpre: 0.0,
-            ibounc: 0,
-            iphase: 1,
-            tcaptr: 0.0,
+            density_gain: 1.0,
+            previous_radial_velocity: 0.0,
+            bounce_flag: 0,
+            guidance_phase: 1,
+            capture_time: 0.0,
         }
     }
 }
@@ -51,35 +48,33 @@ impl NavigationState {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NavigationOutput {
     // Estimated state (with navigation errors added)
-    pub positn: [f64; 3], // [r, lon, lat]
-    pub vitesn: [f64; 3], // [V, gamma, psi]
+    pub position_estimated: [f64; 3], // [r, lon, lat]
+    pub velocity_estimated: [f64; 3], // [V, gamma, psi]
     // Estimated aerodynamic quantities
-    pub acceln: [f64; 2], // [drag accel, lift accel]
-    pub coefan: [f64; 2], // [Cx, Cz]
-    pub roguid: f64,      // estimated density for guidance
-    pub roexit: f64,      // estimated exit density
-    pub pdynan: f64,      // estimated dynamic pressure
-    pub energn: f64,      // total energy
+    pub acceleration_estimated: [f64; 2], // [drag accel, lift accel]
+    pub aero_coefficients: [f64; 2],      // [Cx, Cz]
+    pub density_guidance: f64,            // estimated density for guidance
+    pub density_exit: f64,                // estimated exit density
+    pub dynamic_pressure_estimated: f64,  // estimated dynamic pressure
+    pub energy_estimated: f64,            // total energy
     // Orbital parameter errors
-    pub ecartn: [f64; 4], // [Δa, Δe, Δi, ΔΩ]
+    pub orbital_errors: [f64; 4], // [Δa, Δe, Δi, ΔΩ]
     // Phase management
-    pub ibounc: i32,
-    pub iphase: i32,
-    pub icrash: i32,
-    pub indext: i32, // phase transition flag
-    pub vitref: f64, // reference radial velocity
-    pub tcaptr: f64, // capture duration
+    pub bounce_flag: i32,
+    pub guidance_phase: i32,
+    pub crash_flag: i32,
+    pub phase_transition_flag: i32, // phase transition flag
+    pub reference_velocity: f64,    // reference radial velocity
+    pub capture_time: f64,          // capture duration
 }
 
 /// Run one navigation step.
-///
-/// Matches Fortran naviga.f.
 #[allow(clippy::too_many_arguments)]
 pub fn navigate(
-    positr: &[f64; 3], // true position [r, lon, lat]
-    vitesr: &[f64; 3], // true velocity [V, gamma, psi]
-    alfcom: f64,       // commanded AoA
-    temsim: f64,       // current time
+    position_true: &[f64; 3], // true position [r, lon, lat]
+    velocity_true: &[f64; 3], // true velocity [V, gamma, psi]
+    aoa_commanded: f64,       // commanded AoA
+    sim_time: f64,            // current time
     biases: &NavigationBiases,
     nav_state: &mut NavigationState,
     data: &SimData,
@@ -93,47 +88,51 @@ pub fn navigate(
     run_filter_gain_bias: f64,
 ) -> NavigationOutput {
     let mut out = NavigationOutput {
-        indext: 0,
-        icrash: 0,
+        phase_transition_flag: 0,
+        crash_flag: 0,
         ..Default::default()
     };
 
     // Add navigation errors (bias constants)
-    // Matches naviga.f lines 140-143
-    out.positn[0] = positr[0] + biases.pos[0];
-    out.positn[1] = positr[1] + biases.pos[1];
-    out.positn[2] = positr[2] + biases.pos[2];
-    out.vitesn[0] = vitesr[0] + biases.vel[0];
-    out.vitesn[1] = vitesr[1] + biases.vel[1];
-    out.vitesn[2] = vitesr[2] + biases.vel[2];
+    out.position_estimated[0] = position_true[0] + biases.pos[0];
+    out.position_estimated[1] = position_true[1] + biases.pos[1];
+    out.position_estimated[2] = position_true[2] + biases.pos[2];
+    out.velocity_estimated[0] = velocity_true[0] + biases.vel[0];
+    out.velocity_estimated[1] = velocity_true[1] + biases.vel[1];
+    out.velocity_estimated[2] = velocity_true[2] + biases.vel[2];
 
-    let vitrel = out.vitesn[0];
+    let velocity_relative = out.velocity_estimated[0];
 
-    // Compute true drag acceleration (imodel=0)
-    // Matches conphy with true state
-    let (alt_true, _) = geodetic_from_spherical(positr[0], positr[1], positr[2], planet);
+    // Compute true drag acceleration (truth model)
+    let (alt_true, _) =
+        geodetic_from_spherical(position_true[0], position_true[1], position_true[2], planet);
     let rho_true = data.atmosphere.density_at(alt_true);
     let rho_true = rho_true * (1.0 + run_density_bias);
-    let cx_true = data.aero.interpolate_cx(alfcom + run_incidence_bias) * (1.0 + run_cx_bias);
+    let cx_true =
+        data.aero.interpolate_cx(aoa_commanded + run_incidence_bias) * (1.0 + run_cx_bias);
     let mass_true = data.capsule.mass * (1.0 + run_mass_bias);
     let ref_area_true = data.capsule.reference_area * (1.0 + run_ref_area_bias);
-    let acdrag_true =
-        rho_true * ref_area_true * cx_true * vitesr[0] * vitesr[0] / (2.0 * mass_true);
-    let acdram = acdrag_true + biases.drag;
+    let acdrag_true = rho_true * ref_area_true * cx_true * velocity_true[0] * velocity_true[0]
+        / (2.0 * mass_true);
+    let drag_acceleration_measured = acdrag_true + biases.drag;
 
-    // Compute estimated aero coefficients (imodel=1)
-    // Matches conphy with estimated state
-    let (alt_est, _) = geodetic_from_spherical(out.positn[0], out.positn[1], out.positn[2], planet);
-    let cx_est = data.aero.interpolate_cx(alfcom);
-    let cz_est = data.aero.interpolate_cz(alfcom);
-    out.coefan[0] = cx_est;
-    out.coefan[1] = cz_est;
+    // Compute estimated aero coefficients (onboard model)
+    let (alt_est, _) = geodetic_from_spherical(
+        out.position_estimated[0],
+        out.position_estimated[1],
+        out.position_estimated[2],
+        planet,
+    );
+    let cx_est = data.aero.interpolate_cx(aoa_commanded);
+    let cz_est = data.aero.interpolate_cz(aoa_commanded);
+    out.aero_coefficients[0] = cx_est;
+    out.aero_coefficients[1] = cz_est;
 
     // Density estimation via inverse dynamics
-    // roesti = 2*|acdram|*mass / (Cx*S*V^2)
-    let roesti = if cx_est.abs() > 1e-30 && vitrel.abs() > 1e-10 {
-        2.0 * acdram.abs() * data.capsule.mass
-            / (cx_est * data.capsule.reference_area * vitrel * vitrel)
+    // density_estimated = 2*|drag_acceleration_measured|*mass / (Cx*S*V^2)
+    let density_estimated = if cx_est.abs() > 1e-30 && velocity_relative.abs() > 1e-10 {
+        2.0 * drag_acceleration_measured.abs() * data.capsule.mass
+            / (cx_est * data.capsule.reference_area * velocity_relative * velocity_relative)
     } else {
         0.0
     };
@@ -142,102 +141,104 @@ pub fn navigate(
     let rho_model = data.atmosphere.density_at(alt_est);
 
     // Exponential filter for density correction
-    // coefro = (1-λ)*coefro + λ*(roesti/rorefr)
+    // density_gain = (1-λ)*density_gain + λ*(density_estimated/rho_model)
     let lambda = (data.guidance.density_filter_gain + run_filter_gain_bias).clamp(0.01, 0.99);
     if rho_model.abs() > 1e-30 {
-        nav_state.coefro = (1.0 - lambda) * nav_state.coefro + lambda * (roesti / rho_model);
+        nav_state.density_gain =
+            (1.0 - lambda) * nav_state.density_gain + lambda * (density_estimated / rho_model);
     }
     if alt_est > 100e3 {
-        nav_state.coefro = 1.0;
+        nav_state.density_gain = 1.0;
     }
 
-    out.roguid = nav_state.coefro * rho_model;
+    out.density_guidance = nav_state.density_gain * rho_model;
 
     // Estimated drag and lift accelerations
     let mass_est = data.capsule.mass;
-    let coefar = out.roguid * data.capsule.reference_area / (2.0 * mass_est);
-    out.acceln[0] = coefar * cx_est * vitrel * vitrel;
-    out.acceln[1] = coefar * cz_est * vitrel * vitrel;
-    out.pdynan = 0.5 * out.roguid * vitrel * vitrel;
+    let aero_factor = out.density_guidance * data.capsule.reference_area / (2.0 * mass_est);
+    out.acceleration_estimated[0] = aero_factor * cx_est * velocity_relative * velocity_relative;
+    out.acceleration_estimated[1] = aero_factor * cz_est * velocity_relative * velocity_relative;
+    out.dynamic_pressure_estimated =
+        0.5 * out.density_guidance * velocity_relative * velocity_relative;
 
     // Exit density estimation
     let alt_exit = data.guidance.exit_altitude_threshold;
     let rho_exit_model = data.atmosphere.density_at(alt_exit);
-    out.roexit = nav_state.coefro * rho_exit_model;
+    out.density_exit = nav_state.density_gain * rho_exit_model;
 
     // Total energy
-    out.energn = total_energy(
-        out.positn[0],
-        out.positn[1],
-        out.positn[2],
-        out.vitesn[0],
-        out.vitesn[1],
-        out.vitesn[2],
+    out.energy_estimated = total_energy(
+        out.position_estimated[0],
+        out.position_estimated[1],
+        out.position_estimated[2],
+        out.velocity_estimated[0],
+        out.velocity_estimated[1],
+        out.velocity_estimated[2],
         planet,
     );
 
     // Orbital elements
     let orbit = elements::from_spherical(
-        out.positn[0],
-        out.positn[1],
-        out.positn[2],
-        out.vitesn[0],
-        out.vitesn[1],
-        out.vitesn[2],
+        out.position_estimated[0],
+        out.position_estimated[1],
+        out.position_estimated[2],
+        out.velocity_estimated[0],
+        out.velocity_estimated[1],
+        out.velocity_estimated[2],
         planet,
     );
-    out.ecartn[0] = orbit.semi_major_axis - data.target_orbit.semi_major_axis;
-    out.ecartn[1] = orbit.eccentricity - data.target_orbit.eccentricity;
-    out.ecartn[2] = orbit.inclination - data.target_orbit.inclination;
-    out.ecartn[3] = orbit.raan - data.target_orbit.raan;
+    out.orbital_errors[0] = orbit.semi_major_axis - data.target_orbit.semi_major_axis;
+    out.orbital_errors[1] = orbit.eccentricity - data.target_orbit.eccentricity;
+    out.orbital_errors[2] = orbit.inclination - data.target_orbit.inclination;
+    out.orbital_errors[3] = orbit.raan - data.target_orbit.raan;
 
     // Bounce detection
-    if nav_state.ibounc == 0 && out.vitesn[1].sin() > 0.0 {
-        nav_state.ibounc = 1;
+    if nav_state.bounce_flag == 0 && out.velocity_estimated[1].sin() > 0.0 {
+        nav_state.bounce_flag = 1;
     }
 
-    let vitrad = vitrel * out.vitesn[1].sin();
+    let velocity_radial = velocity_relative * out.velocity_estimated[1].sin();
 
-    // Phase management (matches naviga.f lines 256-299)
-    if nav_state.ibounc == 0 {
-        nav_state.iphase = 1;
+    // Phase management
+    if nav_state.bounce_flag == 0 {
+        nav_state.guidance_phase = 1;
     } else {
         let vphase = data.guidance.exit_velocity_threshold;
-        if vitrel >= vphase && vitrad < 0.0 {
-            nav_state.iphase = 1;
+        if velocity_relative >= vphase && velocity_radial < 0.0 {
+            nav_state.guidance_phase = 1;
         }
-        if vitrel <= vphase && nav_state.iphase == 1 {
-            nav_state.iphase = 2;
-            nav_state.tcaptr = temsim;
-            out.indext = 1;
-            out.vitref = vitrad;
+        if velocity_relative <= vphase && nav_state.guidance_phase == 1 {
+            nav_state.guidance_phase = 2;
+            nav_state.capture_time = sim_time;
+            out.phase_transition_flag = 1;
+            out.reference_velocity = velocity_radial;
         }
     }
 
     // Crash detection after bounce
-    if nav_state.ibounc >= 1 {
-        let dvitrd = vitrad - nav_state.vitpre;
-        nav_state.vitpre = vitrad;
-        if dvitrd < 0.0 {
-            out.icrash = 1;
+    if nav_state.bounce_flag >= 1 {
+        let delta_radial_velocity = velocity_radial - nav_state.previous_radial_velocity;
+        nav_state.previous_radial_velocity = velocity_radial;
+        if delta_radial_velocity < 0.0 {
+            out.crash_flag = 1;
         }
     }
 
-    if out.icrash == 1 {
-        nav_state.iphase = 3;
-    } else if vitrad >= 120.0 {
-        nav_state.iphase = 2;
+    if out.crash_flag == 1 {
+        nav_state.guidance_phase = 3;
+    } else if velocity_radial >= 120.0 {
+        nav_state.guidance_phase = 2;
     }
 
-    // Fortran has "iphase=1" hardcoded at line 301 (override)
-    nav_state.iphase = 1;
-    if nav_state.iphase == 1 {
-        nav_state.tcaptr += data.periods.navigation;
+    // guidance_phase is hardcoded to 1 (phase management logic above is inactive)
+    nav_state.guidance_phase = 1;
+    if nav_state.guidance_phase == 1 {
+        nav_state.capture_time += data.periods.navigation;
     }
 
-    out.ibounc = nav_state.ibounc;
-    out.iphase = nav_state.iphase;
-    out.tcaptr = nav_state.tcaptr;
+    out.bounce_flag = nav_state.bounce_flag;
+    out.guidance_phase = nav_state.guidance_phase;
+    out.capture_time = nav_state.capture_time;
 
     out
 }
@@ -350,18 +351,18 @@ mod tests {
 
     /// Helper: call navigate with a convenient tuple of run biases.
     fn call_navigate(
-        positr: &[f64; 3],
-        vitesr: &[f64; 3],
+        position_true: &[f64; 3],
+        velocity_true: &[f64; 3],
         biases: &NavigationBiases,
         nav_state: &mut NavigationState,
         data: &SimData,
         run_biases: &[f64; 7],
     ) -> NavigationOutput {
         navigate(
-            positr,
-            vitesr,
+            position_true,
+            velocity_true,
             data.entry.initial_aoa,
-            0.0, // temsim
+            0.0, // sim_time
             biases,
             nav_state,
             data,
@@ -396,8 +397,8 @@ mod tests {
         let planet = Planet::Mars;
         // Use high altitude so density filter doesn't complicate things
         let r = planet.equatorial_radius() + 120_000.0;
-        let positr = [r, 0.5, 0.3];
-        let vitesr = [5500.0, -0.15, 1.2];
+        let position_true = [r, 0.5, 0.3];
+        let velocity_true = [5500.0, -0.15, 1.2];
 
         let biases = NavigationBiases {
             pos: pos_bias,
@@ -406,8 +407,8 @@ mod tests {
         };
         let mut nav_state = NavigationState::new();
         let out = call_navigate(
-            &positr,
-            &vitesr,
+            &position_true,
+            &velocity_true,
             &biases,
             &mut nav_state,
             &data,
@@ -415,8 +416,16 @@ mod tests {
         );
 
         for i in 0..3 {
-            assert_relative_eq!(out.positn[i], positr[i] + pos_bias[i], max_relative = 1e-14);
-            assert_relative_eq!(out.vitesn[i], vitesr[i] + vel_bias[i], max_relative = 1e-14);
+            assert_relative_eq!(
+                out.position_estimated[i],
+                position_true[i] + pos_bias[i],
+                max_relative = 1e-14
+            );
+            assert_relative_eq!(
+                out.velocity_estimated[i],
+                velocity_true[i] + vel_bias[i],
+                max_relative = 1e-14
+            );
         }
     }
 
@@ -427,16 +436,16 @@ mod tests {
         let data = test_sim_data();
         // Altitude ~40 km where there's meaningful atmosphere
         let r = MARS_REQ + 40_000.0;
-        let positr = [r, 0.0, 0.0];
-        let vitesr = [5000.0, -0.10, 1.0];
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, -0.10, 1.0];
         let biases = zero_biases();
         let mut nav_state = NavigationState::new();
 
-        let mut coefro_values = Vec::new();
+        let mut density_gain_values = Vec::new();
         for step in 0..50 {
             let _out = navigate(
-                &positr,
-                &vitesr,
+                &position_true,
+                &velocity_true,
                 data.entry.initial_aoa,
                 step as f64,
                 &biases,
@@ -451,54 +460,54 @@ mod tests {
                 0.0,
                 0.0,
             );
-            coefro_values.push(nav_state.coefro);
+            density_gain_values.push(nav_state.density_gain);
         }
 
-        // After many steps with constant inputs, coefro should converge
+        // After many steps with constant inputs, density_gain should converge
         // (difference between successive values should shrink).
-        let late_delta = (coefro_values[49] - coefro_values[48]).abs();
-        let early_delta = (coefro_values[5] - coefro_values[4]).abs();
+        let late_delta = (density_gain_values[49] - density_gain_values[48]).abs();
+        let early_delta = (density_gain_values[5] - density_gain_values[4]).abs();
 
         // Late deltas should be smaller or equal to early deltas (convergence).
-        // If coefro converges immediately (same input each step), both could be 0.
+        // If density_gain converges immediately (same input each step), both could be 0.
         assert!(
             late_delta <= early_delta + 1e-15,
             "density filter should converge: early_delta={early_delta:.6e}, late_delta={late_delta:.6e}"
         );
 
-        // The final coefro should be finite and positive
+        // The final density_gain should be finite and positive
         assert!(
-            nav_state.coefro.is_finite() && nav_state.coefro > 0.0,
-            "coefro should be finite and positive, got {}",
-            nav_state.coefro
+            nav_state.density_gain.is_finite() && nav_state.density_gain > 0.0,
+            "density_gain should be finite and positive, got {}",
+            nav_state.density_gain
         );
     }
 
-    // ── Test 3: high_altitude_resets_coefro ──
+    // ── Test 3: high_altitude_resets_density_gain ──
 
     #[test]
-    fn high_altitude_resets_coefro() {
+    fn high_altitude_resets_density_gain() {
         let data = test_sim_data();
         // Altitude above 100 km
         let r = MARS_REQ + 110_000.0;
-        let positr = [r, 0.0, 0.0];
-        let vitesr = [5687.0, -0.15, 1.0];
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5687.0, -0.15, 1.0];
         let biases = zero_biases();
         let mut nav_state = NavigationState::new();
 
-        // Perturb coefro away from 1.0
-        nav_state.coefro = 2.5;
+        // Perturb density_gain away from 1.0
+        nav_state.density_gain = 2.5;
 
         let _out = call_navigate(
-            &positr,
-            &vitesr,
+            &position_true,
+            &velocity_true,
             &biases,
             &mut nav_state,
             &data,
             &no_run_biases(),
         );
 
-        assert_relative_eq!(nav_state.coefro, 1.0, max_relative = 1e-14,);
+        assert_relative_eq!(nav_state.density_gain, 1.0, max_relative = 1e-14,);
     }
 
     // ── Test 4: filter_gain_clamped ──
@@ -510,15 +519,15 @@ mod tests {
         let data = test_sim_data();
         // Use 40 km altitude so filter runs
         let r = MARS_REQ + 40_000.0;
-        let positr = [r, 0.0, 0.0];
-        let vitesr = [5000.0, -0.10, 1.0];
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, -0.10, 1.0];
         let biases = zero_biases();
         let mut nav_state = NavigationState::new();
 
         let run_biases = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, filter_gain_bias];
         let out = call_navigate(
-            &positr,
-            &vitesr,
+            &position_true,
+            &velocity_true,
             &biases,
             &mut nav_state,
             &data,
@@ -526,12 +535,21 @@ mod tests {
         );
 
         // Function should not crash, and all outputs should be finite
-        assert!(out.positn[0].is_finite(), "positn[0] should be finite");
-        assert!(out.vitesn[0].is_finite(), "vitesn[0] should be finite");
-        assert!(out.roguid.is_finite(), "roguid should be finite");
         assert!(
-            nav_state.coefro.is_finite(),
-            "coefro should be finite with filter_gain_bias={filter_gain_bias}"
+            out.position_estimated[0].is_finite(),
+            "position_estimated[0] should be finite"
+        );
+        assert!(
+            out.velocity_estimated[0].is_finite(),
+            "velocity_estimated[0] should be finite"
+        );
+        assert!(
+            out.density_guidance.is_finite(),
+            "density_guidance should be finite"
+        );
+        assert!(
+            nav_state.density_gain.is_finite(),
+            "density_gain should be finite with filter_gain_bias={filter_gain_bias}"
         );
     }
 
@@ -540,17 +558,21 @@ mod tests {
     #[rstest]
     #[case::descending(-0.15, 0, "negative gamma (descending) => no bounce")]
     #[case::ascending(0.05, 1, "positive gamma (ascending) => bounce detected")]
-    fn bounce_detection(#[case] gamma: f64, #[case] expected_ibounc: i32, #[case] _label: &str) {
+    fn bounce_detection(
+        #[case] gamma: f64,
+        #[case] expected_bounce_flag: i32,
+        #[case] _label: &str,
+    ) {
         let data = test_sim_data();
         let r = MARS_REQ + 50_000.0;
-        let positr = [r, 0.0, 0.0];
-        let vitesr = [5000.0, gamma, 1.0];
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, gamma, 1.0];
         let biases = zero_biases();
         let mut nav_state = NavigationState::new();
 
         let _out = call_navigate(
-            &positr,
-            &vitesr,
+            &position_true,
+            &velocity_true,
             &biases,
             &mut nav_state,
             &data,
@@ -558,10 +580,91 @@ mod tests {
         );
 
         assert_eq!(
-            nav_state.ibounc, expected_ibounc,
-            "with gamma={gamma}, expected ibounc={expected_ibounc}, got {}",
-            nav_state.ibounc
+            nav_state.bounce_flag, expected_bounce_flag,
+            "with gamma={gamma}, expected bounce_flag={expected_bounce_flag}, got {}",
+            nav_state.bounce_flag
         );
+    }
+
+    // ── Test 7: density_filter_stability ──
+
+    /// Run navigate() 100 times in a loop and verify density_gain stays finite and
+    /// positive at every step.  This guards against density filter instability
+    /// (lambda > 1 causing exponential amplification per step).
+    #[test]
+    fn density_filter_stability() {
+        let data = test_sim_data();
+        // 40 km — meaningful atmosphere so the filter actually updates
+        let r = MARS_REQ + 40_000.0;
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, -0.10, 1.0];
+        let biases = zero_biases();
+        let mut nav_state = NavigationState::new();
+
+        for step in 0..100 {
+            let _out = call_navigate(
+                &position_true,
+                &velocity_true,
+                &biases,
+                &mut nav_state,
+                &data,
+                &no_run_biases(),
+            );
+            assert!(
+                nav_state.density_gain.is_finite(),
+                "density_gain became non-finite at step {step}: {}",
+                nav_state.density_gain
+            );
+            assert!(
+                nav_state.density_gain > 0.0,
+                "density_gain became non-positive at step {step}: {}",
+                nav_state.density_gain
+            );
+        }
+    }
+
+    // ── Test 8: proptest_navigate_outputs_finite ──
+
+    proptest::proptest! {
+        /// For any bounded but arbitrary state, navigate() must produce entirely
+        /// finite outputs — no NaN or Inf should escape.
+        #[test]
+        fn proptest_navigate_outputs_finite(
+            // altitude 30–120 km above Mars surface
+            alt_km in 30.0_f64..=120.0_f64,
+            velocity in 1_000.0_f64..=8_000.0_f64,
+            gamma in -0.5_f64..=0.5_f64,
+            psi in -3.15_f64..=3.15_f64,
+            pos_bias_alt in -500.0_f64..=500.0_f64,
+            vel_bias in -5.0_f64..=5.0_f64,
+        ) {
+            let data = test_sim_data();
+            let r = MARS_REQ + alt_km * 1_000.0;
+            let position_true = [r, 0.1, 0.05];
+            let velocity_true = [velocity, gamma, psi];
+            let biases = NavigationBiases {
+                pos: [pos_bias_alt, 0.0, 0.0],
+                vel: [vel_bias, 0.0, 0.0],
+                drag: 0.0,
+            };
+            let mut nav_state = NavigationState::new();
+
+            let out = call_navigate(
+                &position_true,
+                &velocity_true,
+                &biases,
+                &mut nav_state,
+                &data,
+                &no_run_biases(),
+            );
+
+            proptest::prop_assert!(out.position_estimated[0].is_finite(), "position_estimated[0] non-finite");
+            proptest::prop_assert!(out.velocity_estimated[0].is_finite(), "velocity_estimated[0] non-finite");
+            proptest::prop_assert!(out.density_guidance.is_finite(), "density_guidance non-finite");
+            proptest::prop_assert!(out.dynamic_pressure_estimated.is_finite(), "dynamic_pressure_estimated non-finite");
+            proptest::prop_assert!(out.energy_estimated.is_finite(), "energy_estimated non-finite");
+            proptest::prop_assert!(nav_state.density_gain.is_finite(), "density_gain non-finite");
+        }
     }
 
     // ── Test 6: zero_biases_no_nav_errors ──
@@ -570,14 +673,14 @@ mod tests {
     fn zero_biases_no_nav_errors() {
         let data = test_sim_data();
         let r = MARS_REQ + 80_000.0;
-        let positr = [r, 0.3, -0.1];
-        let vitesr = [5200.0, -0.12, 0.8];
+        let position_true = [r, 0.3, -0.1];
+        let velocity_true = [5200.0, -0.12, 0.8];
         let biases = zero_biases();
         let mut nav_state = NavigationState::new();
 
         let out = call_navigate(
-            &positr,
-            &vitesr,
+            &position_true,
+            &velocity_true,
             &biases,
             &mut nav_state,
             &data,
@@ -587,12 +690,12 @@ mod tests {
         // With zero biases, output position should exactly equal input
         for i in 0..3 {
             assert_eq!(
-                out.positn[i], positr[i],
-                "positn[{i}] should exactly match input with zero biases"
+                out.position_estimated[i], position_true[i],
+                "position_estimated[{i}] should exactly match input with zero biases"
             );
             assert_eq!(
-                out.vitesn[i], vitesr[i],
-                "vitesn[{i}] should exactly match input with zero biases"
+                out.velocity_estimated[i], velocity_true[i],
+                "velocity_estimated[{i}] should exactly match input with zero biases"
             );
         }
     }

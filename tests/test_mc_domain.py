@@ -16,17 +16,15 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).resolve().parent.parent
 BINARY = ROOT / "src" / "rust" / "target" / "release" / "aerocapture"
-OUTPUT_DIR = ROOT / "old_codebase" / "sorties"
-BASE_CONFIG = ROOT / "configs" / "msr_aller_ftc_mc_domain.toml"
+OUTPUT_DIR = ROOT / "output"
+BASE_CONFIG = ROOT / "configs" / "nominal" / "msr_aller_ftc_mc_domain.toml"
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _build_rust() -> None:
-    """Ensure Rust binary is built before running tests."""
-    if not BINARY.exists():
-        subprocess.run(["cargo", "build", "--release"], cwd=ROOT / "src" / "rust", check=True)
+def _build_rust(rust_binary: Path) -> Path:
+    return rust_binary
 
 
 def _make_mc_config(n_sims: int, seed: int, suffix: str) -> Path:
@@ -137,7 +135,7 @@ class TestDomainMC:
     def test_single_sim_no_mc_config(self) -> None:
         """Single sim with no [monte_carlo] section should produce clean output."""
         # Use a non-MC config that has 1 sim
-        config = ROOT / "configs" / "test_guided_orig.toml"
+        config = ROOT / "configs" / "test" / "test_guided_orig.toml"
         result = _run_sim(config)
         assert result.returncode == 0, f"Simulator failed:\n{result.stderr.decode()}"
         n_rows = _count_final_rows("test_guided_orig")

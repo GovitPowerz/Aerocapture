@@ -1,17 +1,10 @@
-"""Parse trajectory snapshot files (photo.*) into DataFrames.
-
-Supports both CSV format (with headers) and legacy Fortran D-notation format.
-Auto-detects the format from the first line of the file.
-"""
+"""Parse trajectory snapshot files (photo.*) into DataFrames."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
-
-from aerocapture.io._fortran import parse_fortran_line
 
 # CSV column names (21 columns — matches Rust PHOTO_CSV_COLUMNS)
 PHOTO_CSV_COLUMNS = [
@@ -36,34 +29,6 @@ PHOTO_CSV_COLUMNS = [
     "energy_j_kg",
     "dynamic_pressure_pa",
     "dynamic_pressure_onboard_kpa",
-]
-
-# Legacy Fortran column names (24 columns — kept for backward compatibility)
-PHOTO_COLUMNS = [
-    "time",
-    "altitude",
-    "longitude",
-    "latitude",
-    "velocity",
-    "flight_path_angle",
-    "azimuth",
-    "semi_major_axis",
-    "eccentricity",
-    "inclination",
-    "raan",
-    "periapsis_alt",
-    "apoapsis_alt",
-    "phase",
-    "bank_angle",
-    "radial_velocity",
-    "aoa",
-    "bank_rate",
-    "energy",
-    "dynamic_pressure",
-    "radial_velocity_2",
-    "dynamic_pressure_rho",
-    "sim_number",
-    "reserved",
 ]
 
 # Map CSV column names to legacy column names for backward compatibility.
@@ -94,40 +59,20 @@ _CSV_TO_LEGACY_NAMES: dict[str, str] = {
 
 
 def parse_photo(filepath: str | Path) -> pd.DataFrame:
-    """Parse a photo trajectory snapshot file into a DataFrame.
-
-    Auto-detects CSV (with headers) vs legacy Fortran D-notation format.
+    """Parse a photo trajectory snapshot CSV file into a DataFrame.
 
     Args:
-        filepath: Path to the photo file (.csv or legacy text).
+        filepath: Path to the photo CSV file.
 
     Returns:
-        DataFrame with named columns.
+        DataFrame with named columns (CSV names normalized to legacy names).
     """
     filepath = Path(filepath)
 
-    with open(filepath) as f:
-        first_line = f.readline()
-
-    # Auto-detect: CSV has commas, Fortran D-notation does not
-    if "," in first_line:
-        df = pd.read_csv(filepath)
-        # Normalize CSV column names to legacy names for backward compatibility
-        df = df.rename(columns=_CSV_TO_LEGACY_NAMES)
-        return df
-
-    # Legacy Fortran format
-    rows = []
-    with open(filepath) as f:
-        for line in f:
-            values = parse_fortran_line(line)
-            if values:
-                rows.append(values)
-
-    if not rows:
+    if filepath.stat().st_size == 0:
         return pd.DataFrame()
 
-    data = np.array(rows)
-    if data.shape[1] == len(PHOTO_COLUMNS):
-        return pd.DataFrame(data, columns=PHOTO_COLUMNS)
-    return pd.DataFrame(data, columns=[f"col_{i}" for i in range(data.shape[1])])
+    df = pd.read_csv(filepath)
+    # Normalize CSV column names to legacy names for backward compatibility
+    df = df.rename(columns=_CSV_TO_LEGACY_NAMES)
+    return df

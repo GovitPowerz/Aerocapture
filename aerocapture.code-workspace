@@ -13,19 +13,7 @@
             "**/.mypy_cache": true,
             "**/.ruff_cache": true,
             "**/.DS_Store": true,
-            "src/rust/target": true,
-            "old_codebase/objets": true,
-            "old_codebase/objets_orig": true,
-            "old_codebase/objets_nn": true,
-            "old_codebase/sorties": true,
-            "old_codebase/listings": true,
-            "old_codebase/traces": true,
-            "old_codebase/exec/save_net": true,
-            "old_codebase/exec/functions/nnet/nncontrol": true,
-            "old_codebase/exec/functions/nnet/nndemos": true,
-            "old_codebase/exec/functions/nnet/nnet": true,
-            "old_codebase/exec/functions/nnet/nnobsolete": true,
-            "old_codebase/exec/functions/nnet/nnutils": true
+            "src/rust/target": true
         },
         // Python environment
         "python.defaultInterpreterPath": ".venv/bin/python",
@@ -64,17 +52,6 @@
             "editor.defaultFormatter": "rust-lang.rust-analyzer",
             "editor.formatOnSave": true
         },
-        // Fortran
-        "fortran.formatting.formatter": "disabled",
-        "[FortranFixedForm]": {
-            "editor.rulers": [6, 72],
-            "editor.tabSize": 6,
-            "editor.insertSpaces": true
-        },
-        "files.associations": {
-            "*.f": "FortranFixedForm",
-            "*.incl": "FortranFixedForm"
-        },
         // Editor
         "editor.formatOnSave": true,
         "editor.rulers": [
@@ -111,7 +88,6 @@
             "charliermarsh.ruff",
             "ms-python.mypy-type-checker",
             "rust-lang.rust-analyzer",
-            "fortran-lang.linter-gfortran",
             "anthropics.claude-code",
             "mechatroner.rainbow-csv"
         ]
@@ -128,13 +104,12 @@
                 "args": []
             },
             {
-                "name": "Rust: aerocapture (guided)",
+                "name": "Rust: aerocapture (TOML config)",
                 "type": "lldb",
                 "request": "launch",
                 "program": "${workspaceFolder}/src/rust/target/debug/aerocapture",
-                "args": [],
-                "cwd": "${workspaceFolder}/old_codebase/exec",
-                "stdio": ["${workspaceFolder}/old_codebase/exec/test_input.in", null, null],
+                "args": ["${workspaceFolder}/configs/msr_aller_ftc_consolidated.toml"],
+                "cwd": "${workspaceFolder}",
                 "preLaunchTask": "rust: cargo build"
             }
         ]
@@ -163,31 +138,11 @@
                 "problemMatcher": ["$rustc"]
             },
             {
-                "label": "rust: run guided sim",
+                "label": "rust: run sim (consolidated)",
                 "type": "shell",
-                "command": "cargo run --release < ../../old_codebase/exec/test_input.in",
+                "command": "./src/rust/target/release/aerocapture configs/msr_aller_ftc_consolidated.toml",
                 "options": {
-                    "cwd": "${workspaceFolder}/src/rust"
-                },
-                "group": "test",
-                "problemMatcher": []
-            },
-            {
-                "label": "fortran: build original",
-                "type": "shell",
-                "command": "make -f makefile clean_orig && make -f makefile original",
-                "options": {
-                    "cwd": "${workspaceFolder}/old_codebase/exec"
-                },
-                "group": "build",
-                "problemMatcher": []
-            },
-            {
-                "label": "fortran: run guided sim",
-                "type": "shell",
-                "command": "./aerocap < test_input.in",
-                "options": {
-                    "cwd": "${workspaceFolder}/old_codebase/exec"
+                    "cwd": "${workspaceFolder}"
                 },
                 "group": "test",
                 "problemMatcher": []

@@ -5,7 +5,7 @@ then prints a summary table of performance metrics.
 
 Usage:
     uv run python -m aerocapture.training.compare_guidance \
-        --base-toml configs/msr_aller_eqglide_train.toml \
+        --base-toml configs/training/msr_aller_eqglide_train.toml \
         --n-sims 100 \
         --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network
 """
@@ -60,7 +60,7 @@ def run_scheme(
                 toml_data["data"]["neural_network"] = str(nn_path)
                 print(f"  Using optimized NN from {nn_path}")
             else:
-                default_nn = "old_codebase/donnees/nn_model.json"
+                default_nn = "data/neural_network/nn_model.json"
                 toml_data["data"]["neural_network"] = default_nn
                 print(f"  Using default NN weights from {default_nn}")
     else:
@@ -87,7 +87,7 @@ def run_scheme(
             print(f"  Using default params (no {params_file})")
 
     # Delete stale output files to avoid reading old results (both CSV and text)
-    output_dir = toml_data.get("data", {}).get("output_dir", "old_codebase/sorties")
+    output_dir = toml_data.get("data", {}).get("output_dir", "output")
     suffix = results_suffix.lstrip(".")
     for pattern in [f"final{results_suffix}", f"final.{suffix}.csv"]:
         stale_file = cwd / output_dir / pattern
@@ -116,7 +116,7 @@ def run_scheme(
     temp_toml.unlink(missing_ok=True)
 
     # Parse final file — auto-detect CSV vs legacy text
-    output_dir = toml_data.get("data", {}).get("output_dir", "old_codebase/sorties")
+    output_dir = toml_data.get("data", {}).get("output_dir", "output")
     suffix = results_suffix.lstrip(".")
     final_file = cwd / output_dir / f"final.{suffix}.csv"
     if not final_file.exists():
@@ -190,7 +190,7 @@ def main() -> None:
         choices=SCHEMES,
         help="Schemes to compare",
     )
-    parser.add_argument("--params-dir", type=str, default="save_net", help="Directory with optimized params")
+    parser.add_argument("--params-dir", type=str, default="training_output", help="Directory with optimized params")
     parser.add_argument("--executable", type=str, default="src/rust/target/release/aerocapture")
     parser.add_argument("--cwd", type=str, default=".")
     args = parser.parse_args()

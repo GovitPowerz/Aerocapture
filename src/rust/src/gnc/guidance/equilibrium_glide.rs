@@ -26,8 +26,8 @@ use crate::gnc::navigation::estimator::NavigationOutput;
 /// Returns the bank angle magnitude (always positive) in radians.
 /// The caller handles roll sign via lateral guidance.
 pub fn equilibrium_glide_bank(nav: &NavigationOutput, data: &SimData, planet: &Planet) -> f64 {
-    let r = nav.positn[0];
-    let v = nav.vitesn[0];
+    let r = nav.position_estimated[0];
+    let v = nav.velocity_estimated[0];
 
     // Local gravity (simplified — use mu/r² for the dominant term)
     let mu = planet.mu();
@@ -37,9 +37,14 @@ pub fn equilibrium_glide_bank(nav: &NavigationOutput, data: &SimData, planet: &P
     let v2_over_r = v * v / r;
 
     // Lift force per unit mass: L/m = 0.5 * rho * V² * S * Cz / m
-    let (altitude, _) = geodetic_from_spherical(r, nav.positn[1], nav.positn[2], planet);
+    let (altitude, _) = geodetic_from_spherical(
+        r,
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        planet,
+    );
     let rho = data.atmosphere.density_at(altitude);
-    let cz = nav.coefan[1]; // lift coefficient from navigation
+    let cz = nav.aero_coefficients[1]; // lift coefficient from navigation
     let sref = data.capsule.reference_area;
     let mass = data.capsule.mass;
     let lift_accel = 0.5 * rho * v * v * sref * cz.abs() / mass;
@@ -56,7 +61,7 @@ pub fn equilibrium_glide_bank(nav: &NavigationOutput, data: &SimData, planet: &P
 
     // Radial velocity damping: if sinking, reduce bank (more lift-up);
     // if rising, increase bank (more lift-down toward equilibrium)
-    let hdot = v * nav.vitesn[1].sin();
+    let hdot = v * nav.velocity_estimated[1].sin();
     let k_hdot = params.k_hdot_scale / v.max(100.0);
     let cos_hdot_correction = -k_hdot * hdot;
 
@@ -107,14 +112,14 @@ mod tests {
     fn test_nav(velocity: f64) -> NavigationOutput {
         let r = 3_396_200.0 + 50_000.0; // Mars radius + 50 km
         NavigationOutput {
-            positn: [r, 0.0, 0.0],
-            vitesn: [velocity, -0.15, 0.6],
-            acceln: [50.0, -8.0],
-            coefan: [1.269, -0.205],
-            roguid: 0.001,
-            roexit: 1e-6,
-            pdynan: 0.5 * 0.001 * velocity * velocity,
-            energn: -1e6,
+            position_estimated: [r, 0.0, 0.0],
+            velocity_estimated: [velocity, -0.15, 0.6],
+            acceleration_estimated: [50.0, -8.0],
+            aero_coefficients: [1.269, -0.205],
+            density_guidance: 0.001,
+            density_exit: 1e-6,
+            dynamic_pressure_estimated: 0.5 * 0.001 * velocity * velocity,
+            energy_estimated: -1e6,
             ..Default::default()
         }
     }
@@ -220,7 +225,7 @@ mod tests {
     #[test]
     fn zero_lift_returns_default() {
         let mut nav = test_nav(4500.0);
-        nav.coefan = [1.269, 0.0]; // Cz = 0
+        nav.aero_coefficients = [1.269, 0.0]; // Cz = 0
 
         let mut data = test_sim_data();
         data.aero.cz = vec![0.0, 0.0];
@@ -245,5 +250,37 @@ mod tests {
             bank_fast,
             bank_slow,
         );
+    }
+
+    mod prop {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn output_always_finite_and_bounded(
+                alt in 10_000.0..130_000.0_f64,
+                vel in 2000.0..7000.0_f64,
+                fpa in -0.2..0.05_f64,
+                rho in 1e-6..0.05_f64,
+            ) {
+                let mut nav = test_nav(vel);
+                let r = Planet::Mars.equatorial_radius() + alt;
+                nav.position_estimated[0] = r;
+                nav.velocity_estimated[1] = fpa;
+                nav.density_guidance = rho;
+                nav.dynamic_pressure_estimated = 0.5 * rho * vel * vel;
+
+                let data = test_sim_data();
+                let planet = Planet::Mars;
+                let bank = equilibrium_glide_bank(&nav, &data, &planet);
+
+                let min_bank = 15.0_f64.to_radians();
+                let max_bank = 120.0_f64.to_radians();
+                prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
+                prop_assert!(bank >= min_bank - 1e-10, "bank below 15°: {} rad", bank);
+                prop_assert!(bank <= max_bank + 1e-10, "bank above 120°: {} rad", bank);
+            }
+        }
     }
 }

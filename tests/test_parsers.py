@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 from aerocapture.io.parse_final import FINAL_CSV_COLUMNS, parse_final
-from aerocapture.io.parse_photo import PHOTO_COLUMNS, PHOTO_CSV_COLUMNS, parse_photo
+from aerocapture.io.parse_photo import PHOTO_CSV_COLUMNS, parse_photo
 
 
 class TestParsePhoto:
@@ -34,22 +34,6 @@ class TestParsePhoto:
         assert "energy" in df.columns
         assert "velocity" in df.columns
 
-    def test_fortran_text_detection(self, tmp_path: Path) -> None:
-        """Fortran D-notation files are detected by absence of commas."""
-        # 24 columns of D12.5 format
-        values = " ".join([" 0.12345D+02"] * 24)
-        text_file = tmp_path / "photo.test"
-        text_file.write_text(f"{values}\n{values}\n")
-        df = parse_photo(text_file)
-        assert len(df) == 2
-        assert len(df.columns) == 24
-        assert df.columns[0] == PHOTO_COLUMNS[0]
-
-    def test_csv_has_fewer_columns_than_legacy(self, tmp_path: Path) -> None:
-        """CSV format has 21 columns (3 dropped from legacy 24)."""
-        assert len(PHOTO_CSV_COLUMNS) == 21
-        assert len(PHOTO_COLUMNS) == 24
-
     def test_empty_file(self, tmp_path: Path) -> None:
         """Empty file returns empty DataFrame."""
         empty = tmp_path / "photo.empty"
@@ -71,16 +55,6 @@ class TestParseFinal:
         assert len(df) == 1
         assert "sim_number" in df.columns
         assert "energy_mj_kg" in df.columns
-
-    def test_fortran_text_detection(self, tmp_path: Path) -> None:
-        """Fortran D-notation files detected by absence of commas."""
-        # i5 + 52 D15.7 values
-        values = "    1" + " ".join([" 0.1234567D+02"] * 52)
-        text_file = tmp_path / "final.test"
-        text_file.write_text(f"{values}\n")
-        df = parse_final(text_file)
-        assert len(df) == 1
-        assert "sim_number" in df.columns
 
     def test_csv_has_40_columns(self) -> None:
         """CSV format has exactly 40 named columns."""

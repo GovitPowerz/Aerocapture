@@ -29,23 +29,11 @@ fn main() {
         }
     };
 
-    let sim_data = if config::SimInput::is_consolidated(&toml_config) {
-        // Consolidated mode: inline data + external files
-        match data::SimData::from_toml(&toml_config, &sim_config) {
-            Ok(d) => d,
-            Err(e) => {
-                eprintln!("Error loading inline data: {}", e);
-                process::exit(1);
-            }
-        }
-    } else {
-        // Suffix mode: load all from external files
-        match data::SimData::load(&sim_config) {
-            Ok(d) => d,
-            Err(e) => {
-                eprintln!("Error loading data: {}", e);
-                process::exit(1);
-            }
+    let sim_data = match data::SimData::from_toml(&toml_config, &sim_config) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("Error loading data: {}", e);
+            process::exit(1);
         }
     };
 
