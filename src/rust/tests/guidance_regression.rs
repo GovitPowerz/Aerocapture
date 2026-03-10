@@ -60,10 +60,7 @@ fn compare_csv_approx(actual: &str, golden: &str, scheme_label: &str, rel_tol: f
     for (i, (a_line, g_line)) in actual_lines.iter().zip(golden_lines.iter()).enumerate() {
         // Header line: exact match
         if i == 0 {
-            assert_eq!(
-                a_line, g_line,
-                "{scheme_label}: header line differs"
-            );
+            assert_eq!(a_line, g_line, "{scheme_label}: header line differs");
             continue;
         }
 
@@ -82,7 +79,11 @@ fn compare_csv_approx(actual: &str, golden: &str, scheme_label: &str, rel_tol: f
                     let abs_diff = (a_val - g_val).abs();
                     let max_mag = a_val.abs().max(g_val.abs());
                     // Use absolute tolerance for near-zero values, relative otherwise
-                    let tol = if max_mag < 1e-15 { 1e-15 } else { rel_tol * max_mag };
+                    let tol = if max_mag < 1e-15 {
+                        1e-15
+                    } else {
+                        rel_tol * max_mag
+                    };
                     assert!(
                         abs_diff <= tol,
                         "{scheme_label}: line {i}, col {j} differs beyond tolerance.\n\

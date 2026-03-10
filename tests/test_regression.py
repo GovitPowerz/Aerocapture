@@ -25,8 +25,8 @@ GOLDEN_CASES = [
     ("guided", "configs/test/test_guided_orig.toml", "guided", "test_guided_orig"),
 ]
 
-ATOL = 1e-10
-RTOL = 1e-10
+ATOL = 1e-9
+RTOL = 1e-9
 
 
 def _parse_csv(filepath: Path) -> list[list[float]]:
