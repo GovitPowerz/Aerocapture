@@ -38,7 +38,7 @@ fn run_sim(config_name: &str) -> std::process::Output {
 
 #[test]
 fn single_sim_no_mc_produces_output() {
-    let output = run_sim("msr_aller_ftc_consolidated.toml");
+    let output = run_sim("nominal/msr_aller_ftc_consolidated.toml");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
@@ -68,7 +68,7 @@ fn single_sim_no_mc_produces_output() {
 
 #[test]
 fn esr_aller_completes() {
-    let output = run_sim("esr_aller_ftc_nominal.toml");
+    let output = run_sim("nominal/esr_aller_ftc_nominal.toml");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),

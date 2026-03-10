@@ -399,7 +399,7 @@ if __name__ == "__main__":
         raise SystemExit(1)
 
     # Save dir per scheme
-    cfg.save_dir = f"save_net/{cfg.guidance_type}"
+    cfg.save_dir = f"training_output/{cfg.guidance_type}"
 
     if args.resume:
         cfg.save_dir = args.resume

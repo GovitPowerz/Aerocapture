@@ -34,8 +34,8 @@ run_and_copy() {
     echo "    Copied photo.$suffix and final.$suffix"
 }
 
-run_and_copy "configs/test_ref_orig.toml"       "ref"       "test_ref_orig"
-run_and_copy "configs/test_high_bank_orig.toml"  "high_bank"  "test_high_bank_orig"
-run_and_copy "configs/test_guided_orig.toml"     "guided"     "test_guided_orig"
+run_and_copy "configs/test/test_ref_orig.toml"       "ref"       "test_ref_orig"
+run_and_copy "configs/test/test_high_bank_orig.toml"  "high_bank"  "test_high_bank_orig"
+run_and_copy "configs/test/test_guided_orig.toml"     "guided"     "test_guided_orig"
 
 echo "==> Golden reference outputs regenerated."

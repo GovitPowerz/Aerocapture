@@ -12,7 +12,7 @@ cd src/rust
 cargo build --release
 
 # Run with TOML config
-./target/release/aerocapture ../../configs/msr_aller_ftc_nominal.toml
+./target/release/aerocapture ../../configs/nominal/msr_aller_ftc_nominal.toml
 ```
 
 ## Project Structure
@@ -21,7 +21,10 @@ cargo build --release
 src/
   rust/                    Rust simulator (validated reimplementation)
   python/                  Python analysis package (parsing, plotting, training)
-configs/                   TOML configuration files (per guidance scheme)
+configs/
+  nominal/                 Nominal simulation configurations
+  training/                GA training configurations (per guidance scheme)
+  test/                    Golden test configurations (regression tests)
 data/
   atmosphere/              Atmosphere density tables (Mars, Earth)
   reference_trajectory/    Reference trajectories for guided schemes
@@ -59,12 +62,12 @@ All guidance schemes can be optimized via genetic algorithm. The GA tunes each s
 # Optimize any guidance scheme
 uv run python -m aerocapture.training.train \
     --guidance equilibrium_glide \
-    --toml configs/msr_aller_eqglide_train.toml \
+    --toml configs/training/msr_aller_eqglide_train.toml \
     --n-gen 50 --n-pop 20
 
 # Compare all schemes on identical MC scenarios
 uv run python -m aerocapture.training.compare_guidance \
-    --base-toml configs/msr_aller_eqglide_train.toml \
+    --base-toml configs/training/msr_aller_eqglide_train.toml \
     --n-sims 100
 ```
 

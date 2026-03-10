@@ -20,9 +20,9 @@ OUTPUT_DIR = ROOT / "output"
 
 # (test_id, toml_config, golden_subdir, output_suffix)
 GOLDEN_CASES = [
-    ("ref", "configs/test_ref_orig.toml", "ref", "test_ref_orig"),
-    ("high_bank", "configs/test_high_bank_orig.toml", "high_bank", "test_high_bank_orig"),
-    ("guided", "configs/test_guided_orig.toml", "guided", "test_guided_orig"),
+    ("ref", "configs/test/test_ref_orig.toml", "ref", "test_ref_orig"),
+    ("high_bank", "configs/test/test_high_bank_orig.toml", "high_bank", "test_high_bank_orig"),
+    ("guided", "configs/test/test_guided_orig.toml", "guided", "test_guided_orig"),
 ]
 
 ATOL = 1e-10

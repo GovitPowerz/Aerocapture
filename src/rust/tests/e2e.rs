@@ -38,7 +38,7 @@ fn run_sim(config_name: &str) -> std::process::Output {
 
 #[test]
 fn reference_trajectory_completes() {
-    let output = run_sim("msr_aller_reference.toml");
+    let output = run_sim("nominal/msr_aller_reference.toml");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
@@ -56,7 +56,7 @@ fn reference_trajectory_completes() {
 
 #[test]
 fn ftc_guided_completes() {
-    let output = run_sim("msr_aller_ftc_consolidated.toml");
+    let output = run_sim("nominal/msr_aller_ftc_consolidated.toml");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
@@ -69,27 +69,27 @@ fn ftc_guided_completes() {
 
 #[test]
 fn guidance_eqglide_completes() {
-    run_guidance_config("msr_aller_eqglide_train.toml");
+    run_guidance_config("training/msr_aller_eqglide_train.toml");
 }
 
 #[test]
 fn guidance_energy_controller_completes() {
-    run_guidance_config("msr_aller_energy_controller_train.toml");
+    run_guidance_config("training/msr_aller_energy_controller_train.toml");
 }
 
 #[test]
 fn guidance_pred_guid_completes() {
-    run_guidance_config("msr_aller_pred_guid_train.toml");
+    run_guidance_config("training/msr_aller_pred_guid_train.toml");
 }
 
 #[test]
 fn guidance_fnpag_completes() {
-    run_guidance_config("msr_aller_fnpag_train.toml");
+    run_guidance_config("training/msr_aller_fnpag_train.toml");
 }
 
 #[test]
 fn guidance_ftc_train_completes() {
-    run_guidance_config("msr_aller_ftc_train.toml");
+    run_guidance_config("training/msr_aller_ftc_train.toml");
 }
 
 fn run_guidance_config(config_name: &str) {
@@ -113,7 +113,7 @@ fn run_guidance_config(config_name: &str) {
 
 #[test]
 fn mc_domain_completes() {
-    let output = run_sim("msr_aller_ftc_mc_domain.toml");
+    let output = run_sim("nominal/msr_aller_ftc_mc_domain.toml");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
@@ -130,7 +130,7 @@ fn mc_deterministic_same_seed() {
     let final_path = repo.join("output/final.mc100_domain");
 
     // Run 1
-    let output1 = run_sim("msr_aller_ftc_mc_domain.toml");
+    let output1 = run_sim("nominal/msr_aller_ftc_mc_domain.toml");
     assert!(
         output1.status.success(),
         "MC run 1 failed: {}",
@@ -144,7 +144,7 @@ fn mc_deterministic_same_seed() {
     });
 
     // Run 2
-    let output2 = run_sim("msr_aller_ftc_mc_domain.toml");
+    let output2 = run_sim("nominal/msr_aller_ftc_mc_domain.toml");
     assert!(
         output2.status.success(),
         "MC run 2 failed: {}",

@@ -15,7 +15,7 @@ The simulation models a spacecraft entering a planet's atmosphere at hyperbolic 
 cd src/rust
 cargo build --release              # Build optimized binary
 # Run from repo root:
-./src/rust/target/release/aerocapture configs/test_ref_orig.toml
+./src/rust/target/release/aerocapture configs/test/test_ref_orig.toml
 
 # ── Python Analysis ──
 uv sync                            # Install dependencies (Python >=3.14)
@@ -93,7 +93,7 @@ Key Rust dependency: `nalgebra` for vector/matrix ops.
 
 ### Input Configuration
 
-TOML config files in `configs/` are the only supported input format. Each config specifies mission, guidance scheme, vehicle, entry conditions, aerodynamics, Monte Carlo settings, and data file paths.
+TOML config files in `configs/` are the only supported input format, organized into subdirectories: `configs/nominal/` (simulation configs), `configs/training/` (GA training configs), `configs/test/` (golden test configs). Each config specifies mission, guidance scheme, vehicle, entry conditions, aerodynamics, Monte Carlo settings, and data file paths.
 
 ### Python Tools (`src/python/`, `pyproject.toml`)
 
@@ -113,31 +113,31 @@ Python analysis package (numpy, pandas, matplotlib, deap, scipy) for:
 # ── Optimize a guidance scheme ──
 uv run python -m aerocapture.training.train \
     --guidance equilibrium_glide \
-    --toml configs/msr_aller_eqglide_train.toml \
+    --toml configs/training/msr_aller_eqglide_train.toml \
     --n-gen 50 --n-pop 20
 
 # ── Resume from checkpoint ──
 uv run python -m aerocapture.training.train \
     --guidance equilibrium_glide \
-    --toml configs/msr_aller_eqglide_train.toml \
-    --resume save_net/equilibrium_glide
+    --toml configs/training/msr_aller_eqglide_train.toml \
+    --resume training_output/equilibrium_glide
 
 # ── Compare all schemes on identical MC scenarios ──
 uv run python -m aerocapture.training.compare_guidance \
-    --base-toml configs/msr_aller_eqglide_train.toml \
+    --base-toml configs/training/msr_aller_eqglide_train.toml \
     --n-sims 100 \
     --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network
 ```
 
 Guidance schemes and their TOML training configs:
-- `neural_network` -> `configs/msr_aller_nn_train_consolidated.toml`
-- `equilibrium_glide` -> `configs/msr_aller_eqglide_train.toml`
-- `energy_controller` -> `configs/msr_aller_energy_controller_train.toml`
-- `pred_guid` -> `configs/msr_aller_pred_guid_train.toml`
-- `fnpag` -> `configs/msr_aller_fnpag_train.toml`
-- `ftc` -> `configs/msr_aller_ftc_train.toml`
+- `neural_network` -> `configs/training/msr_aller_nn_train_consolidated.toml`
+- `equilibrium_glide` -> `configs/training/msr_aller_eqglide_train.toml`
+- `energy_controller` -> `configs/training/msr_aller_energy_controller_train.toml`
+- `pred_guid` -> `configs/training/msr_aller_pred_guid_train.toml`
+- `fnpag` -> `configs/training/msr_aller_fnpag_train.toml`
+- `ftc` -> `configs/training/msr_aller_ftc_train.toml`
 
-Optimized params saved to `save_net/<scheme>/best_params.json` (or `best_model.json` for NN).
+Optimized params saved to `training_output/<scheme>/best_params.json` (or `best_model.json` for NN).
 
 ## Key Lessons & Pitfalls
 

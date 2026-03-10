@@ -9,7 +9,7 @@ pub fn repo_root() -> PathBuf {
         .unwrap()
 }
 
-/// Get path to a TOML config in configs/.
+/// Get path to a TOML config in configs/<subdir>/.
 pub fn config_path(name: &str) -> String {
     repo_root()
         .join("configs")

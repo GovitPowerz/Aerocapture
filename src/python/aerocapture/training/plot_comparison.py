@@ -5,7 +5,7 @@ a multi-panel figure showing performance metrics across all schemes.
 
 Usage:
     uv run python -m aerocapture.training.plot_comparison \
-        --results save_net/comparison_results.json \
+        --results training_output/comparison_results.json \
         --output guidance_comparison.png
 """
 
@@ -139,7 +139,7 @@ def plot_comparison(results: dict[str, dict], output: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Plot guidance comparison results")
-    parser.add_argument("--results", type=str, default="save_net/comparison_results.json")
+    parser.add_argument("--results", type=str, default="training_output/comparison_results.json")
     parser.add_argument("--output", type=str, default="guidance_comparison.png")
     args = parser.parse_args()
 

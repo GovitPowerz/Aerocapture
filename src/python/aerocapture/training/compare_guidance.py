@@ -5,7 +5,7 @@ then prints a summary table of performance metrics.
 
 Usage:
     uv run python -m aerocapture.training.compare_guidance \
-        --base-toml configs/msr_aller_eqglide_train.toml \
+        --base-toml configs/training/msr_aller_eqglide_train.toml \
         --n-sims 100 \
         --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network
 """
@@ -190,7 +190,7 @@ def main() -> None:
         choices=SCHEMES,
         help="Schemes to compare",
     )
-    parser.add_argument("--params-dir", type=str, default="save_net", help="Directory with optimized params")
+    parser.add_argument("--params-dir", type=str, default="training_output", help="Directory with optimized params")
     parser.add_argument("--executable", type=str, default="src/rust/target/release/aerocapture")
     parser.add_argument("--cwd", type=str, default=".")
     args = parser.parse_args()

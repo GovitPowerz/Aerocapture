@@ -83,7 +83,7 @@ class TrainingConfig:
     network: NetworkConfig = field(default_factory=NetworkConfig)
     ga: GAConfig = field(default_factory=GAConfig)
     sim: SimConfig = field(default_factory=SimConfig)
-    save_dir: str = "save_net"
+    save_dir: str = "training_output"
     guidance_type: str = "neural_network"
 
     @property

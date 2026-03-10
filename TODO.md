@@ -2,10 +2,10 @@
 
 ## Codebase Cleanup
 
+- [x] Analyse directory structure (Rust, Python, tests, data) and suggest improvements
 - [ ] Clean up Rust warnings and rename variables properly (no French, no 6-char Fortran legacy names)
-- [ ] Expand test coverage (unit + integration) to catch regressions
-- [ ] Analyse directory structure (Rust, Python, tests, data) and suggest improvements
 - [ ] Review test quality and coverage gaps
+- [ ] Expand test coverage (unit + integration) to catch regressions
 
 ## CI / DevOps
 
