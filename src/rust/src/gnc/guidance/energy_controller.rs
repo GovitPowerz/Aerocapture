@@ -244,4 +244,35 @@ mod tests {
             velocity,
         );
     }
+
+    mod prop {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn output_always_finite_and_bounded(
+                alt in 10_000.0..130_000.0_f64,
+                vel in 2000.0..7000.0_f64,
+                fpa in -0.2..0.05_f64,
+                rho in 1e-6..0.05_f64,
+            ) {
+                let mut nav = test_nav(vel);
+                let r = Planet::Mars.equatorial_radius() + alt;
+                nav.positn[0] = r;
+                nav.vitesn[1] = fpa;
+                nav.roguid = rho;
+                nav.pdynan = 0.5 * rho * vel * vel;
+
+                let state = EnergyControllerState::new();
+                let data = test_sim_data_with_ref_traj();
+                let planet = Planet::Mars;
+                let bank = energy_controller_bank(&nav, &state, &data, &planet);
+
+                prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
+                prop_assert!(bank >= 0.0 - 1e-10, "bank negative: {}", bank);
+                prop_assert!(bank <= std::f64::consts::PI + 1e-10, "bank > pi: {}", bank);
+            }
+        }
+    }
 }
