@@ -370,7 +370,7 @@ impl SimData {
             let pdyn_table = ftc
                 .pdyn_table
                 .iter()
-                .map(|e| guidance_params::PdynTableEntry {
+                .map(|e| guidance_params::DynamicPressureTableEntry {
                     altitude: e.altitude,
                     coeff_a: e.a,
                     coeff_b: e.b,
