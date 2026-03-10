@@ -409,8 +409,12 @@ def _toml_value(value: object) -> str:
         return "true" if value else "false"
     if isinstance(value, int):
         return str(value)
-    if isinstance(value, float):
-        return repr(value)
+    # Coerce numpy scalar floats (np.float64, np.float32, etc.) to plain Python float
+    # before formatting; repr(np.float64(...)) produces invalid TOML like "np.float64(1e-07)".
+    import numbers
+
+    if isinstance(value, numbers.Real) and not isinstance(value, bool):
+        return repr(float(value))
     if isinstance(value, str):
         return f'"{value}"'
     if isinstance(value, list):
