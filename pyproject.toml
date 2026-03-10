@@ -34,7 +34,7 @@ packages = ["src/python/aerocapture"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src/python"]
+pythonpath = ["src/python", "."]
 
 [tool.ruff]
 line-length = 160
