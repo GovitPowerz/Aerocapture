@@ -27,3 +27,29 @@ pub fn wind_velocity(
         vertical: 0.0,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// With wind disabled the stub always returns a zero velocity vector.
+    #[test]
+    fn disabled_returns_zero() {
+        let w = wind_velocity(40_000.0, 0.3, 1.2, false);
+        assert_eq!(w.north, 0.0, "north should be zero when disabled");
+        assert_eq!(w.east, 0.0, "east should be zero when disabled");
+        assert_eq!(w.vertical, 0.0, "vertical should be zero when disabled");
+    }
+
+    /// With wind enabled the stub still returns zero — documents stub-only behaviour.
+    #[test]
+    fn enabled_returns_zero_for_stub() {
+        let w = wind_velocity(10_000.0, -0.5, 2.0, true);
+        assert_eq!(w.north, 0.0, "stub: north should be zero even when enabled");
+        assert_eq!(w.east, 0.0, "stub: east should be zero even when enabled");
+        assert_eq!(
+            w.vertical, 0.0,
+            "stub: vertical should be zero even when enabled"
+        );
+    }
+}
