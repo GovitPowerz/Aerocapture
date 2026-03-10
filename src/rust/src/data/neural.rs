@@ -1,8 +1,7 @@
 //! Neural network model with modular architecture.
 //!
 //! Supports arbitrary layer configurations (e.g. [6, 12, 2] or [6, 24, 12, 2])
-//! with per-layer activation function choice. Loads from JSON (new format) or
-//! legacy Fortran nn_param files (auto-detected).
+//! with per-layer activation function choice. Loads from JSON format.
 
 use super::DataError;
 use serde::{Deserialize, Serialize};
@@ -76,19 +75,11 @@ pub struct NeuralNetModel {
 }
 
 impl NeuralNetModel {
-    /// Load NN from file, auto-detecting format.
-    ///
-    /// JSON files start with `{`, legacy Fortran files start with whitespace/text.
+    /// Load NN model from a JSON file.
     pub fn load(path: &str) -> Result<Self, DataError> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| DataError(format!("Cannot read {}: {}", path, e)))?;
-
-        let first_char = content.trim_start().chars().next().unwrap_or(' ');
-        if first_char == '{' {
-            Self::from_json(&content, path)
-        } else {
-            Self::from_legacy(&content, path)
-        }
+        Self::from_json(&content, path)
     }
 
     /// Load from JSON format.
@@ -140,89 +131,6 @@ impl NeuralNetModel {
             layer_sizes: file.architecture.layers,
             layers,
             output_interpretation: file.output_interpretation,
-        })
-    }
-
-    /// Load from legacy Fortran nn_param format (6-line header + flat weights).
-    ///
-    /// Hardcodes the legacy architecture: 6→12(tanh)→2(asinh).
-    fn from_legacy(content: &str, path: &str) -> Result<Self, DataError> {
-        const N_INPUT: usize = 6;
-        const N_HIDDEN: usize = 12;
-        const N_OUTPUT: usize = 2;
-
-        let values: Vec<f64> = content
-            .lines()
-            .skip(6)
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| {
-                let token = l.split_whitespace().next().unwrap_or("0");
-                token
-                    .parse::<f64>()
-                    .map_err(|_| DataError(format!("Cannot parse '{}' as f64 in {}", token, path)))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let expected = N_INPUT * N_HIDDEN + N_HIDDEN + N_HIDDEN * N_OUTPUT + N_OUTPUT;
-        if values.len() < expected {
-            return Err(DataError(format!(
-                "NN param file too short: {} values, need {} in {}",
-                values.len(),
-                expected,
-                path
-            )));
-        }
-
-        // Read in Fortran column-major order, store as row-major
-        let mut idx = 0;
-
-        // lw1: input→hidden [N_HIDDEN × N_INPUT]
-        let mut lw1 = vec![vec![0.0; N_INPUT]; N_HIDDEN];
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..N_INPUT {
-            for j in 0..N_HIDDEN {
-                lw1[j][i] = values[idx];
-                idx += 1;
-            }
-        }
-
-        let mut bias1 = vec![0.0; N_HIDDEN];
-        for b in bias1.iter_mut() {
-            *b = values[idx];
-            idx += 1;
-        }
-
-        // lw4: hidden→output [N_OUTPUT × N_HIDDEN]
-        let mut lw4 = vec![vec![0.0; N_HIDDEN]; N_OUTPUT];
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..N_HIDDEN {
-            for j in 0..N_OUTPUT {
-                lw4[j][i] = values[idx];
-                idx += 1;
-            }
-        }
-
-        let mut bias4 = vec![0.0; N_OUTPUT];
-        for b in bias4.iter_mut() {
-            *b = values[idx];
-            idx += 1;
-        }
-
-        Ok(NeuralNetModel {
-            layer_sizes: vec![N_INPUT, N_HIDDEN, N_OUTPUT],
-            layers: vec![
-                Layer {
-                    w: lw1,
-                    b: bias1,
-                    activation: Activation::Tanh,
-                },
-                Layer {
-                    w: lw4,
-                    b: bias4,
-                    activation: Activation::Asinh,
-                },
-            ],
-            output_interpretation: "atan2".to_string(),
         })
     }
 

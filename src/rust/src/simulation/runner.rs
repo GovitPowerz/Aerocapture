@@ -3,7 +3,7 @@
 //! Matches Fortran simmsr.f + realit.f + finmsr.f.
 //! Monte Carlo runs are parallelized with rayon (one thread per trajectory).
 
-use crate::config::{OutputFormat, Planet, SimInput};
+use crate::config::{Planet, SimInput};
 use crate::data::SimData;
 use crate::gnc::control::pilot::{self, PilotState};
 use crate::gnc::guidance::ftc::{self, FtcState};
@@ -159,11 +159,8 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
         vec![run_single(config, data, run_state, 0, true)?]
     };
 
-    // Write output files based on format
-    match config.output_format {
-        OutputFormat::Csv => write_csv_output(config, &results, photo_sim_idx)?,
-        OutputFormat::Text => write_text_output(config, &results, photo_sim_idx)?,
-    }
+    // Write output files
+    write_csv_output(config, &results, photo_sim_idx)?;
 
     Ok(())
 }
@@ -212,50 +209,6 @@ fn write_csv_output(
         photo_file
             .flush()
             .map_err(|e| SimError(format!("Photo CSV flush error: {}", e)))?;
-    }
-
-    Ok(())
-}
-
-/// Write output in legacy Fortran D-notation text format.
-fn write_text_output(
-    config: &SimInput,
-    results: &[SimResult],
-    photo_sim_idx: i32,
-) -> Result<(), SimError> {
-    let final_path = config.output_path(&format!(
-        "final.{}",
-        config.results_suffix.trim_start_matches('.')
-    ));
-    let mut final_file = BufWriter::new(
-        File::create(&final_path)
-            .map_err(|e| SimError(format!("Cannot create {}: {}", final_path, e)))?,
-    );
-
-    for result in results {
-        output::write_final_text_line(&mut final_file, result.sim_idx + 1, &result.final_line)
-            .map_err(|e| SimError(format!("Final write error: {}", e)))?;
-    }
-    final_file
-        .flush()
-        .map_err(|e| SimError(format!("Final file flush error: {}", e)))?;
-
-    let photo_path = config.output_path(&format!(
-        "photo.{}",
-        config.results_suffix.trim_start_matches('.')
-    ));
-    if let Some(result) = results.iter().find(|r| r.sim_idx == photo_sim_idx) {
-        let mut photo_file = BufWriter::new(
-            File::create(&photo_path)
-                .map_err(|e| SimError(format!("Cannot create {}: {}", photo_path, e)))?,
-        );
-        for line in &result.photo_lines {
-            output::write_photo_text_line(&mut photo_file, line)
-                .map_err(|e| SimError(format!("Photo write error: {}", e)))?;
-        }
-        photo_file
-            .flush()
-            .map_err(|e| SimError(format!("Photo flush error: {}", e)))?;
     }
 
     Ok(())

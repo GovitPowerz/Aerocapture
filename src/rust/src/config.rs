@@ -79,17 +79,6 @@ pub enum SimPhase {
     Preprogrammed,
 }
 
-/// Output format for simulation results
-#[derive(Debug, Clone, Copy, PartialEq, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum OutputFormat {
-    /// CSV with named column headers (default)
-    #[default]
-    Csv,
-    /// Legacy Fortran D-notation text format (for regression tests)
-    Text,
-}
-
 /// Guidance type
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GuidanceType {
@@ -119,7 +108,6 @@ pub struct SimInput {
     pub reference_bank_angle: f64, // degrees
     pub base_dir: String,
     pub output_dir: String,
-    pub output_format: OutputFormat,
     pub results_suffix: String,
 }
 
@@ -218,8 +206,6 @@ pub struct TomlData {
     pub reference_trajectory: Option<String>,
     pub neural_network: Option<String>,
     pub results_suffix: Option<String>,
-    #[serde(default)]
-    pub output_format: OutputFormat,
 }
 
 fn default_base_dir() -> String {
@@ -641,7 +627,6 @@ impl SimInput {
             reference_bank_angle: config.guidance.reference_bank_angle,
             base_dir: config.data.base_dir.clone(),
             output_dir: config.data.output_dir.clone(),
-            output_format: config.data.output_format,
             results_suffix: config
                 .data
                 .results_suffix
