@@ -48,7 +48,8 @@ pub fn from_spherical(
     let semi_major_axis_raw = -mu / (2.0 * energy);
 
     // Eccentricity
-    let eccentricity_param = angular_momentum_magnitude * angular_momentum_magnitude / (mu * semi_major_axis_raw);
+    let eccentricity_param =
+        angular_momentum_magnitude * angular_momentum_magnitude / (mu * semi_major_axis_raw);
     let eccentricity_raw = if (eccentricity_param - 1.0).abs() < 1e-20 {
         0.0
     } else {
@@ -73,15 +74,16 @@ pub fn from_spherical(
     let pos_dot_vel = dot(&position_abs, &velocity_abs);
     let v0 = if energy < 0.0 {
         // Elliptical orbit
-        let sv0 =
-            pos_dot_vel * (1.0 - eccentricity_raw * eccentricity_raw).max(0.0).sqrt() / (eccentricity_raw * (mu * semi_major_axis_raw).sqrt());
+        let sv0 = pos_dot_vel * (1.0 - eccentricity_raw * eccentricity_raw).max(0.0).sqrt()
+            / (eccentricity_raw * (mu * semi_major_axis_raw).sqrt());
         let cv0 = (1.0 - radius_val / semi_major_axis_raw) / eccentricity_raw - eccentricity_raw;
         sv0.atan2(cv0)
     } else {
         // Hyperbolic orbit
         let sv0 = pos_dot_vel * (eccentricity_raw * eccentricity_raw - 1.0).max(0.0).sqrt()
             / (eccentricity_raw * (mu * semi_major_axis_raw.abs()).sqrt());
-        let cv0 = -((1.0 + radius_val / semi_major_axis_raw.abs()) / eccentricity_raw - eccentricity_raw);
+        let cv0 =
+            -((1.0 + radius_val / semi_major_axis_raw.abs()) / eccentricity_raw - eccentricity_raw);
         sv0.atan2(cv0)
     };
 

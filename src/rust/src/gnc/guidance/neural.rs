@@ -16,17 +16,17 @@ use crate::orbit::elements;
 /// - Forward pass through the network
 /// - Bank angle = atan2(out[0], out[1])
 ///
-/// Returns the bank angle magnitude (gitlon) in radians.
+/// Returns the bank angle magnitude in radians.
 pub fn nn_bank_angle(
     nav: &NavigationOutput,
     nn: &NeuralNetModel,
     planet: &Planet,
-    target_inclination: f64, // radians (xincli from /orbvis/)
+    target_inclination: f64, // radians
 ) -> f64 {
     let mu = planet.mu();
 
     // Radial velocity: V * sin(gamma)
-    let vitrad = nav.velocity_estimated[0] * nav.velocity_estimated[1].sin();
+    let velocity_radial = nav.velocity_estimated[0] * nav.velocity_estimated[1].sin();
 
     // Orbital elements
     let orbit = elements::from_spherical(
@@ -40,13 +40,15 @@ pub fn nn_bank_angle(
     );
 
     // Acceleration magnitude: sqrt(drag^2 + lift^2)
-    let accel_mag = (nav.acceleration_estimated[0] * nav.acceleration_estimated[0] + nav.acceleration_estimated[1] * nav.acceleration_estimated[1]).sqrt();
+    let accel_mag = (nav.acceleration_estimated[0] * nav.acceleration_estimated[0]
+        + nav.acceleration_estimated[1] * nav.acceleration_estimated[1])
+        .sqrt();
 
-    // 6 normalized inputs (matching guidnn.f)
+    // 6 normalized inputs
     let input = [
         orbit.eccentricity - 1.0,
         (orbit.inclination - target_inclination).to_degrees() * 3.0 / 5.0,
-        2.0 * (vitrad / 1e3 + 1.2) / 1.5 - 1.0,
+        2.0 * (velocity_radial / 1e3 + 1.2) / 1.5 - 1.0,
         -mu / (2.0 * orbit.semi_major_axis) / 6e6,
         (nav.velocity_estimated[0] / 3e3 - 1.5) * 2.0,
         accel_mag / 20.0 - 1.0,

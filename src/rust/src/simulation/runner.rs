@@ -692,7 +692,15 @@ fn integrate_step(
     for k in 1..=4 {
         let derivs =
             compute_derivatives(&sim.state, sim.bank_angle, sim.aoa, planet, data, run_state);
-        rk4::rk4_increment(dt, &derivs, k, 8, &mut sim.gill_toggle, &mut sim.accumulator, &mut sim.state);
+        rk4::rk4_increment(
+            dt,
+            &derivs,
+            k,
+            8,
+            &mut sim.gill_toggle,
+            &mut sim.accumulator,
+            &mut sim.state,
+        );
     }
 }
 
@@ -724,9 +732,9 @@ fn compute_derivatives(
 
     let mass = data.capsule.mass * (1.0 + run_state.mass_bias);
     let ref_area = data.capsule.reference_area * (1.0 + run_state.ref_area_bias);
-    let coefar = rho * ref_area / (2.0 * mass);
-    let acdrag = coefar * cx * v * v;
-    let aclift = coefar * cz * v * v;
+    let aero_factor = rho * ref_area / (2.0 * mass);
+    let acdrag = aero_factor * cx * v * v;
+    let aclift = aero_factor * cz * v * v;
 
     let cos_mu = bank_angle.cos();
     let sin_mu = bank_angle.sin();
