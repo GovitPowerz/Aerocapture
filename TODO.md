@@ -3,8 +3,6 @@
 ## Codebase Cleanup
 
 - [ ] Clean up Rust warnings and rename variables properly (no French, no 6-char Fortran legacy names)
-- [x] Remove legacy Fortran codebase (`old_codebase/`) — done, mission data preserved in `data/` and `configs/`
-- [x] Remove Rust and Python code for legacy `.in` input/output formats — done, CSV is now the only supported format
 - [ ] Expand test coverage (unit + integration) to catch regressions
 - [ ] Analyse directory structure (Rust, Python, tests, data) and suggest improvements
 - [ ] Review test quality and coverage gaps
