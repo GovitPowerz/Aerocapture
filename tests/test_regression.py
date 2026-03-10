@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).resolve().parent.parent
 BINARY = ROOT / "src" / "rust" / "target" / "release" / "aerocapture"
 GOLDEN_DIR = ROOT / "tests" / "reference_data" / "rust_golden"
 OUTPUT_DIR = ROOT / "output"
@@ -67,10 +67,8 @@ def _compare_values(
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _build_rust() -> None:
-    """Ensure Rust binary is built before running tests."""
-    if not BINARY.exists():
-        subprocess.run(["cargo", "build", "--release"], cwd=ROOT / "src" / "rust", check=True)
+def _build_rust(rust_binary: Path) -> Path:
+    return rust_binary
 
 
 def _run_and_compare(toml_config: str, golden_dir: Path, suffix: str) -> None:
