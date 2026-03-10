@@ -71,10 +71,10 @@ pub struct NavigationOutput {
 /// Run one navigation step.
 #[allow(clippy::too_many_arguments)]
 pub fn navigate(
-    positr: &[f64; 3],  // true position [r, lon, lat]
-    vitesr: &[f64; 3],  // true velocity [V, gamma, psi]
-    aoa_commanded: f64, // commanded AoA
-    sim_time: f64,      // current time
+    position_true: &[f64; 3], // true position [r, lon, lat]
+    velocity_true: &[f64; 3], // true velocity [V, gamma, psi]
+    aoa_commanded: f64,       // commanded AoA
+    sim_time: f64,            // current time
     biases: &NavigationBiases,
     nav_state: &mut NavigationState,
     data: &SimData,
@@ -94,25 +94,26 @@ pub fn navigate(
     };
 
     // Add navigation errors (bias constants)
-    out.position_estimated[0] = positr[0] + biases.pos[0];
-    out.position_estimated[1] = positr[1] + biases.pos[1];
-    out.position_estimated[2] = positr[2] + biases.pos[2];
-    out.velocity_estimated[0] = vitesr[0] + biases.vel[0];
-    out.velocity_estimated[1] = vitesr[1] + biases.vel[1];
-    out.velocity_estimated[2] = vitesr[2] + biases.vel[2];
+    out.position_estimated[0] = position_true[0] + biases.pos[0];
+    out.position_estimated[1] = position_true[1] + biases.pos[1];
+    out.position_estimated[2] = position_true[2] + biases.pos[2];
+    out.velocity_estimated[0] = velocity_true[0] + biases.vel[0];
+    out.velocity_estimated[1] = velocity_true[1] + biases.vel[1];
+    out.velocity_estimated[2] = velocity_true[2] + biases.vel[2];
 
     let velocity_relative = out.velocity_estimated[0];
 
     // Compute true drag acceleration (truth model)
-    let (alt_true, _) = geodetic_from_spherical(positr[0], positr[1], positr[2], planet);
+    let (alt_true, _) =
+        geodetic_from_spherical(position_true[0], position_true[1], position_true[2], planet);
     let rho_true = data.atmosphere.density_at(alt_true);
     let rho_true = rho_true * (1.0 + run_density_bias);
     let cx_true =
         data.aero.interpolate_cx(aoa_commanded + run_incidence_bias) * (1.0 + run_cx_bias);
     let mass_true = data.capsule.mass * (1.0 + run_mass_bias);
     let ref_area_true = data.capsule.reference_area * (1.0 + run_ref_area_bias);
-    let acdrag_true =
-        rho_true * ref_area_true * cx_true * vitesr[0] * vitesr[0] / (2.0 * mass_true);
+    let acdrag_true = rho_true * ref_area_true * cx_true * velocity_true[0] * velocity_true[0]
+        / (2.0 * mass_true);
     let drag_acceleration_measured = acdrag_true + biases.drag;
 
     // Compute estimated aero coefficients (onboard model)
@@ -350,16 +351,16 @@ mod tests {
 
     /// Helper: call navigate with a convenient tuple of run biases.
     fn call_navigate(
-        positr: &[f64; 3],
-        vitesr: &[f64; 3],
+        position_true: &[f64; 3],
+        velocity_true: &[f64; 3],
         biases: &NavigationBiases,
         nav_state: &mut NavigationState,
         data: &SimData,
         run_biases: &[f64; 7],
     ) -> NavigationOutput {
         navigate(
-            positr,
-            vitesr,
+            position_true,
+            velocity_true,
             data.entry.initial_aoa,
             0.0, // sim_time
             biases,
@@ -396,8 +397,8 @@ mod tests {
         let planet = Planet::Mars;
         // Use high altitude so density filter doesn't complicate things
         let r = planet.equatorial_radius() + 120_000.0;
-        let positr = [r, 0.5, 0.3];
-        let vitesr = [5500.0, -0.15, 1.2];
+        let position_true = [r, 0.5, 0.3];
+        let velocity_true = [5500.0, -0.15, 1.2];
 
         let biases = NavigationBiases {
             pos: pos_bias,
@@ -406,8 +407,8 @@ mod tests {
         };
         let mut nav_state = NavigationState::new();
         let out = call_navigate(
-            &positr,
-            &vitesr,
+            &position_true,
+            &velocity_true,
             &biases,
             &mut nav_state,
             &data,
@@ -417,12 +418,12 @@ mod tests {
         for i in 0..3 {
             assert_relative_eq!(
                 out.position_estimated[i],
-                positr[i] + pos_bias[i],
+                position_true[i] + pos_bias[i],
                 max_relative = 1e-14
             );
             assert_relative_eq!(
                 out.velocity_estimated[i],
-                vitesr[i] + vel_bias[i],
+                velocity_true[i] + vel_bias[i],
                 max_relative = 1e-14
             );
         }
@@ -435,16 +436,16 @@ mod tests {
         let data = test_sim_data();
         // Altitude ~40 km where there's meaningful atmosphere
         let r = MARS_REQ + 40_000.0;
-        let positr = [r, 0.0, 0.0];
-        let vitesr = [5000.0, -0.10, 1.0];
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, -0.10, 1.0];
         let biases = zero_biases();
         let mut nav_state = NavigationState::new();
 
         let mut density_gain_values = Vec::new();
         for step in 0..50 {
             let _out = navigate(
-                &positr,
-                &vitesr,
+                &position_true,
+                &velocity_true,
                 data.entry.initial_aoa,
                 step as f64,
                 &biases,
@@ -489,8 +490,8 @@ mod tests {
         let data = test_sim_data();
         // Altitude above 100 km
         let r = MARS_REQ + 110_000.0;
-        let positr = [r, 0.0, 0.0];
-        let vitesr = [5687.0, -0.15, 1.0];
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5687.0, -0.15, 1.0];
         let biases = zero_biases();
         let mut nav_state = NavigationState::new();
 
@@ -498,8 +499,8 @@ mod tests {
         nav_state.density_gain = 2.5;
 
         let _out = call_navigate(
-            &positr,
-            &vitesr,
+            &position_true,
+            &velocity_true,
             &biases,
             &mut nav_state,
             &data,
@@ -518,15 +519,15 @@ mod tests {
         let data = test_sim_data();
         // Use 40 km altitude so filter runs
         let r = MARS_REQ + 40_000.0;
-        let positr = [r, 0.0, 0.0];
-        let vitesr = [5000.0, -0.10, 1.0];
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, -0.10, 1.0];
         let biases = zero_biases();
         let mut nav_state = NavigationState::new();
 
         let run_biases = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, filter_gain_bias];
         let out = call_navigate(
-            &positr,
-            &vitesr,
+            &position_true,
+            &velocity_true,
             &biases,
             &mut nav_state,
             &data,
@@ -564,14 +565,14 @@ mod tests {
     ) {
         let data = test_sim_data();
         let r = MARS_REQ + 50_000.0;
-        let positr = [r, 0.0, 0.0];
-        let vitesr = [5000.0, gamma, 1.0];
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, gamma, 1.0];
         let biases = zero_biases();
         let mut nav_state = NavigationState::new();
 
         let _out = call_navigate(
-            &positr,
-            &vitesr,
+            &position_true,
+            &velocity_true,
             &biases,
             &mut nav_state,
             &data,
@@ -595,15 +596,15 @@ mod tests {
         let data = test_sim_data();
         // 40 km — meaningful atmosphere so the filter actually updates
         let r = MARS_REQ + 40_000.0;
-        let positr = [r, 0.0, 0.0];
-        let vitesr = [5000.0, -0.10, 1.0];
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, -0.10, 1.0];
         let biases = zero_biases();
         let mut nav_state = NavigationState::new();
 
         for step in 0..100 {
             let _out = call_navigate(
-                &positr,
-                &vitesr,
+                &position_true,
+                &velocity_true,
                 &biases,
                 &mut nav_state,
                 &data,
@@ -639,8 +640,8 @@ mod tests {
         ) {
             let data = test_sim_data();
             let r = MARS_REQ + alt_km * 1_000.0;
-            let positr = [r, 0.1, 0.05];
-            let vitesr = [velocity, gamma, psi];
+            let position_true = [r, 0.1, 0.05];
+            let velocity_true = [velocity, gamma, psi];
             let biases = NavigationBiases {
                 pos: [pos_bias_alt, 0.0, 0.0],
                 vel: [vel_bias, 0.0, 0.0],
@@ -649,8 +650,8 @@ mod tests {
             let mut nav_state = NavigationState::new();
 
             let out = call_navigate(
-                &positr,
-                &vitesr,
+                &position_true,
+                &velocity_true,
                 &biases,
                 &mut nav_state,
                 &data,
@@ -672,14 +673,14 @@ mod tests {
     fn zero_biases_no_nav_errors() {
         let data = test_sim_data();
         let r = MARS_REQ + 80_000.0;
-        let positr = [r, 0.3, -0.1];
-        let vitesr = [5200.0, -0.12, 0.8];
+        let position_true = [r, 0.3, -0.1];
+        let velocity_true = [5200.0, -0.12, 0.8];
         let biases = zero_biases();
         let mut nav_state = NavigationState::new();
 
         let out = call_navigate(
-            &positr,
-            &vitesr,
+            &position_true,
+            &velocity_true,
             &biases,
             &mut nav_state,
             &data,
@@ -689,11 +690,11 @@ mod tests {
         // With zero biases, output position should exactly equal input
         for i in 0..3 {
             assert_eq!(
-                out.position_estimated[i], positr[i],
+                out.position_estimated[i], position_true[i],
                 "position_estimated[{i}] should exactly match input with zero biases"
             );
             assert_eq!(
-                out.velocity_estimated[i], vitesr[i],
+                out.velocity_estimated[i], velocity_true[i],
                 "velocity_estimated[{i}] should exactly match input with zero biases"
             );
         }

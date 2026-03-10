@@ -736,8 +736,8 @@ fn compute_derivatives(
     let acdrag = aero_factor * cx * v * v;
     let aclift = aero_factor * cz * v * v;
 
-    let cos_mu = bank_angle.cos();
-    let sin_mu = bank_angle.sin();
+    let cos_bank = bank_angle.cos();
+    let sin_bank = bank_angle.sin();
     let cos_gamma = gamma.cos();
     let sin_gamma = gamma.sin();
     let cos_psi = psi.cos();
@@ -756,12 +756,12 @@ fn compute_derivatives(
     let dv = -acdrag - gravtr * sin_gamma - gravtl * cos_gamma * cos_psi
         + omega * omega * r * cos_lat * (cos_lat * sin_gamma - sin_lat * cos_gamma * cos_psi);
 
-    let dgamma = (aclift * cos_mu / v) + (v * cos_gamma / r)
+    let dgamma = (aclift * cos_bank / v) + (v * cos_gamma / r)
         - ((gravtr * cos_gamma - gravtl * sin_gamma * cos_psi) / v)
         + (2.0 * omega * sin_psi * cos_lat)
         + (omega * omega * r * cos_lat * (sin_lat * sin_gamma * cos_psi + cos_lat * cos_gamma) / v);
 
-    let dpsi = (aclift * sin_mu / (v * cos_gamma))
+    let dpsi = (aclift * sin_bank / (v * cos_gamma))
         + (v * cos_gamma * sin_psi * tan_lat / r)
         + (2.0 * omega * (sin_lat - cos_psi * cos_lat * tan_gamma))
         + (gravtl * sin_psi / (v * cos_gamma))

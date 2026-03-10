@@ -22,7 +22,7 @@ pub struct FtcState {
     pub cumulative_bank_change: f64, // cumulative bank angle changes (rad)
     pub n_reversals: i32,            // number of roll reversals
     pub reversal_active: i32,        // roll reversal active flag
-    pub rolway: i32,                 // roll reversal path (+1=short, -1=long)
+    pub roll_path: i32,              // roll reversal path (+1=short, -1=long)
     pub reversal_duration: f64,      // roll reversal duration (s)
 
     // Guidance securization
@@ -53,7 +53,7 @@ impl FtcState {
             cumulative_bank_change: 0.0,
             n_reversals: 0,
             reversal_active: 0,
-            rolway: 1,
+            roll_path: 1,
             reversal_duration: 0.0,
             securization_counters: [0, 0],
             guidance_active: [1, 1],
@@ -202,7 +202,7 @@ pub fn guidance_step(
         } else if state.reversal_active == 1 {
             let max_bank_rate = data.capsule.max_bank_rate;
             let guidance_period = data.periods.guidance;
-            if state.rolway == 1 {
+            if state.roll_path == 1 {
                 if state.roll_sign > 0.0 {
                     state.bank_angle_commanded =
                         state.bank_angle_previous + max_bank_rate * guidance_period;
@@ -430,7 +430,7 @@ fn lateral_guidance(
             if state.reversal_active == 0 {
                 state.reversal_active = 1;
                 state.reversal_active = 0; // immediately reset after arming
-                state.rolway = 1;
+                state.roll_path = 1;
                 let bank_angle_change =
                     state.bank_angle_previous.abs() + bank_angle_longitudinal.abs();
                 let max_bank_rate = data.capsule.max_bank_rate;
