@@ -62,7 +62,12 @@ fn run_sim(config_name: &str) -> std::process::Output {
 )]
 #[case("test/test_fnpag_golden.toml", "fnpag", ".golden_fnpag", "FNPAG")]
 #[case("test/test_ftc_golden.toml", "ftc", ".golden_ftc", "FTC")]
-#[case("test/test_neural_golden.toml", "neural", ".golden_neural", "NeuralNetwork")]
+#[case(
+    "test/test_neural_golden.toml",
+    "neural",
+    ".golden_neural",
+    "NeuralNetwork"
+)]
 fn guidance_regression(
     #[case] config_name: &str,
     #[case] golden_dir: &str,

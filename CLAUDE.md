@@ -163,8 +163,8 @@ Energy must use **absolute (inertial) velocity**, not relative velocity. The Rus
 
 - **Rust**: Edition 2024, nalgebra for linear algebra, release profile with LTO
 - **Python**: Python >=3.14, Ruff (line-length 160, target py314), uv package manager, pytest, mypy strict mode. Dev tools in `[dependency-groups]` (not `[project.optional-dependencies]`). Training deps (deap, scipy) are core dependencies.
-- **Testing (Python)**: pytest, golden reference files under `tests/reference_data/`
-- **Testing (Rust)**: Three-tier pyramid — unit tests (inline `#[cfg(test)]` modules), integration tests (`src/rust/tests/`), E2E subprocess tests. Dev-dependencies: `approx` (float comparison), `rstest` (parameterized tests). Run with `cargo test` or `./check_all.sh`.
+- **Testing (Python)**: pytest, hypothesis (property-based). Golden reference files under `tests/reference_data/`. Shared fixtures in `tests/conftest.py` (session-scoped Rust build) and `tests/fixtures/factories.py` (config/chromosome factories). ~99 tests covering parsers, regression, MC, GA pipeline (chromosome, cost, TOML patching, config, operators).
+- **Testing (Rust)**: Three-tier pyramid — unit tests (inline `#[cfg(test)]` modules with proptest property tests), integration tests (`src/rust/tests/`), E2E subprocess tests. Shared test infrastructure in `tests/common/` (fixtures.rs, assertions.rs). Dev-dependencies: `approx` (float comparison), `rstest` (parameterized tests), `proptest` (property-based testing). ~172 tests covering physics, GNC, guidance (all 6 schemes), navigation, error paths. Run with `cargo test` or `./check_all.sh`.
 - **CI**: GitHub Actions (`.github/workflows/ci.yml`) — Rust (fmt, clippy, test) and Python (ruff lint, ruff format, mypy, pytest) run on PRs to `main` and manual dispatch (`workflow_dispatch`).
 - **Validation**: Rust vs Fortran comparison complete — 22/24 photo columns bit-identical across 725 timesteps.
 

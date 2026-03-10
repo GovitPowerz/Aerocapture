@@ -410,7 +410,10 @@ mod tests {
 
         let _ = fnpag_bank(&nav, &mut state, &data, &planet);
 
-        assert!(state.initialized, "state must be initialized after first call");
+        assert!(
+            state.initialized,
+            "state must be initialized after first call"
+        );
         // bank_prev should now be one of the two bisection candidates (40° or 90°)
         let bank40 = 40.0_f64.to_radians();
         let bank90 = 90.0_f64.to_radians();

@@ -355,6 +355,75 @@ fn tbgain(altitude: f64, coefan: &[f64; 2], data: &SimData) -> (f64, f64) {
     (gaindh, gainpd)
 }
 
+/// Lateral guidance — roll reversal logic.
+///
+/// Matches Fortran guilat.f.
+fn guilat(
+    nav: &NavigationOutput,
+    gitlon: f64,
+    _temsim: f64,
+    state: &mut FtcState,
+    data: &SimData,
+    planet: &Planet,
+    indrol: &mut i32,
+) {
+    let pi = std::f64::consts::PI;
+
+    if gitlon == 0.0 || gitlon == pi {
+        return;
+    }
+
+    let sgnpre = state.sgngit;
+
+    // Compute orbital elements for inclination
+    let orbit = elements::from_spherical(
+        nav.positn[0],
+        nav.positn[1],
+        nav.positn[2],
+        nav.vitesn[0],
+        nav.vitesn[1],
+        nav.vitesn[2],
+        planet,
+    );
+
+    let xinccr = data.target_orbit.inclination - orbit.inclination;
+    // Hemisphere correction (commented out in Fortran: if positn(3) < 0 then xinccr = -xinccr)
+
+    let vitrel = nav.vitesn[0];
+
+    // Corridor boundary: xinmax = (v/coridx)^4 + coridy
+    let coridx = data.guidance.corridor_slope;
+    let coridy = data.guidance.corridor_intercept;
+    let xinmax = (vitrel / coridx).powi(4) + coridy;
+
+    // Reversal decision
+    if xinccr.abs() >= xinmax && gitlon.abs() > 1e-10 && state.nbroll < data.guidance.max_reversals
+    {
+        if xinccr > xinmax {
+            state.sgngit = -1.0;
+        } else if xinccr < -xinmax {
+            state.sgngit = 1.0;
+        }
+
+        if state.sgngit * sgnpre < 0.0 {
+            // Roll reversal commanded
+            *indrol = 1;
+            state.nbroll += 1;
+
+            if state.indrvr == 0 {
+                state.indrvr = 1;
+                state.indrvr = 0; // Fortran: immediately reset (line 157)
+                state.rolway = 1;
+                let dgitcm = state.gitpre.abs() + gitlon.abs();
+                let vgitmx = data.capsule.max_bank_rate;
+                let tguida = data.periods.guidance;
+                state.trevrs = dgitcm / vgitmx;
+                state.trevrs = (state.trevrs / tguida).floor() * tguida;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,7 +556,7 @@ mod tests {
         let out = guidance_step(
             &nav,
             initial_bank,
-            0.0,   // temsim
+            0.0, // temsim
             initial_bank,
             &mut state,
             &data,
@@ -496,21 +565,9 @@ mod tests {
             GuidanceType::Ftc,
         );
 
-        assert!(
-            out.gitcom.is_finite(),
-            "gitcom not finite: {}",
-            out.gitcom
-        );
-        assert!(
-            out.alfcom.is_finite(),
-            "alfcom not finite: {}",
-            out.alfcom
-        );
-        assert!(
-            out.vitgit.is_finite(),
-            "vitgit not finite: {}",
-            out.vitgit
-        );
+        assert!(out.gitcom.is_finite(), "gitcom not finite: {}", out.gitcom);
+        assert!(out.alfcom.is_finite(), "alfcom not finite: {}", out.alfcom);
+        assert!(out.vitgit.is_finite(), "vitgit not finite: {}", out.vitgit);
     }
 
     /// In reference mode, output bank should equal the reference bank angle.
@@ -670,75 +727,6 @@ mod tests {
                     "gitcom = {} outside [-π, π]",
                     out.gitcom
                 );
-            }
-        }
-    }
-}
-
-/// Lateral guidance — roll reversal logic.
-///
-/// Matches Fortran guilat.f.
-fn guilat(
-    nav: &NavigationOutput,
-    gitlon: f64,
-    _temsim: f64,
-    state: &mut FtcState,
-    data: &SimData,
-    planet: &Planet,
-    indrol: &mut i32,
-) {
-    let pi = std::f64::consts::PI;
-
-    if gitlon == 0.0 || gitlon == pi {
-        return;
-    }
-
-    let sgnpre = state.sgngit;
-
-    // Compute orbital elements for inclination
-    let orbit = elements::from_spherical(
-        nav.positn[0],
-        nav.positn[1],
-        nav.positn[2],
-        nav.vitesn[0],
-        nav.vitesn[1],
-        nav.vitesn[2],
-        planet,
-    );
-
-    let xinccr = data.target_orbit.inclination - orbit.inclination;
-    // Hemisphere correction (commented out in Fortran: if positn(3) < 0 then xinccr = -xinccr)
-
-    let vitrel = nav.vitesn[0];
-
-    // Corridor boundary: xinmax = (v/coridx)^4 + coridy
-    let coridx = data.guidance.corridor_slope;
-    let coridy = data.guidance.corridor_intercept;
-    let xinmax = (vitrel / coridx).powi(4) + coridy;
-
-    // Reversal decision
-    if xinccr.abs() >= xinmax && gitlon.abs() > 1e-10 && state.nbroll < data.guidance.max_reversals
-    {
-        if xinccr > xinmax {
-            state.sgngit = -1.0;
-        } else if xinccr < -xinmax {
-            state.sgngit = 1.0;
-        }
-
-        if state.sgngit * sgnpre < 0.0 {
-            // Roll reversal commanded
-            *indrol = 1;
-            state.nbroll += 1;
-
-            if state.indrvr == 0 {
-                state.indrvr = 1;
-                state.indrvr = 0; // Fortran: immediately reset (line 157)
-                state.rolway = 1;
-                let dgitcm = state.gitpre.abs() + gitlon.abs();
-                let vgitmx = data.capsule.max_bank_rate;
-                let tguida = data.periods.guidance;
-                state.trevrs = dgitcm / vgitmx;
-                state.trevrs = (state.trevrs / tguida).floor() * tguida;
             }
         }
     }

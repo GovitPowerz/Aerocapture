@@ -2,7 +2,6 @@
 
 ## Codebase Cleanup
 
-- [x] Analyse directory structure (Rust, Python, tests, data) and suggest improvements
 - [ ] Clean up Rust warnings and rename variables properly (no French, no 6-char Fortran legacy names)
 - [ ] Review test quality and coverage gaps
 - [ ] Expand test coverage (unit + integration) to catch regressions
@@ -26,4 +25,5 @@
 - [ ] Update training algorithms (GA, RL, PSO, ...)
 - [ ] Improve output visualisation for training runs
 - [ ] Explore LSTM / Transformer architectures for guidance
+- [ ] For recurrent architecture, investigate the use of Backprop through time
 - [ ] Add neural counterparts for navigation and control (to compare against classical algorithms)

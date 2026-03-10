@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-
 from aerocapture.training.config import GAConfig, NetworkConfig, SimConfig, TrainingConfig
-from aerocapture.training.param_spaces import PARAM_SPACES
 
 
 def make_training_config(guidance_type: str = "equilibrium_glide") -> TrainingConfig:

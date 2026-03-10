@@ -22,9 +22,6 @@ pub fn assert_bank_angle_valid(angle_rad: f64, context: &str) {
 /// Assert all components of a 3-vector are finite.
 pub fn assert_vector_finite(v: &[f64; 3], context: &str) {
     for (i, &x) in v.iter().enumerate() {
-        assert!(
-            x.is_finite(),
-            "{context}[{i}]: expected finite, got {x}"
-        );
+        assert!(x.is_finite(), "{context}[{i}]: expected finite, got {x}");
     }
 }

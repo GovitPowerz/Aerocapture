@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from aerocapture.training.train import crossover_and_mutate, roulette_selection
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from aerocapture.training.train import crossover_and_mutate, roulette_selection
-from tests.fixtures.factories import make_chromosome, make_training_config
+from tests.fixtures.factories import make_training_config
 
 
 class TestRouletteSelection:
@@ -39,9 +39,7 @@ class TestRouletteSelection:
             counts[roulette_selection(costs, rng)] += 1
 
         # Individual 0 should be selected far more than the others combined
-        assert counts[0] > n_trials * 0.5, (
-            f"Low-cost individual not preferred: counts={counts}"
-        )
+        assert counts[0] > n_trials * 0.5, f"Low-cost individual not preferred: counts={counts}"
 
     def test_equal_costs_roughly_uniform(self) -> None:
         """Equal costs → each individual selected ~uniformly."""
@@ -56,9 +54,7 @@ class TestRouletteSelection:
         # Each bucket should receive ~n_trials/n selections (chi-square style)
         expected = n_trials / n
         for i, c in enumerate(counts):
-            assert abs(c - expected) < 0.15 * n_trials, (
-                f"Selection not uniform at index {i}: count={c}, expected≈{expected:.0f}"
-            )
+            assert abs(c - expected) < 0.15 * n_trials, f"Selection not uniform at index {i}: count={c}, expected≈{expected:.0f}"
 
     def test_single_element_returns_zero(self) -> None:
         """With only one individual, must always return index 0."""

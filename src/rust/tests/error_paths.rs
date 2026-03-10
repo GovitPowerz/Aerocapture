@@ -7,7 +7,9 @@
 mod common;
 
 use aerocapture::config::Planet;
-use aerocapture::gnc::guidance::energy_controller::{EnergyControllerState, energy_controller_bank};
+use aerocapture::gnc::guidance::energy_controller::{
+    EnergyControllerState, energy_controller_bank,
+};
 use aerocapture::gnc::guidance::equilibrium_glide::equilibrium_glide_bank;
 use aerocapture::gnc::guidance::fnpag::{FnpagState, fnpag_bank};
 use aerocapture::gnc::guidance::predguid::{PredGuidState, predguid_bank};
@@ -18,7 +20,6 @@ use common::fixtures::{minimal_sim_data, nav_from_state};
 
 const PLANET: Planet = Planet::Mars;
 
-
 // ─── Equilibrium Glide ────────────────────────────────────────────────────────
 
 #[test]
@@ -26,7 +27,10 @@ fn eq_glide_zero_velocity() {
     let nav = nav_from_state(60_000.0, 0.0, -10.0_f64.to_radians(), 1e-4, 0.0, 0.0);
     let data = minimal_sim_data();
     let bank = equilibrium_glide_bank(&nav, &data, &PLANET);
-    assert!(bank.is_finite(), "eq_glide zero velocity produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "eq_glide zero velocity produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
@@ -36,25 +40,48 @@ fn eq_glide_zero_density() {
     // so we use a very high altitude to get near-zero density from the table.
     let nav_high = nav_from_state(300_000.0, 5_000.0, -10.0_f64.to_radians(), 0.0, 0.0, 0.0);
     let bank = equilibrium_glide_bank(&nav_high, &data, &PLANET);
-    assert!(bank.is_finite(), "eq_glide zero density produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "eq_glide zero density produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
 fn eq_glide_extreme_fpa_down() {
     // gamma = -π/2: straight down
-    let nav = nav_from_state(60_000.0, 5_000.0, -std::f64::consts::FRAC_PI_2, 1e-4, 10.0, -2.0);
+    let nav = nav_from_state(
+        60_000.0,
+        5_000.0,
+        -std::f64::consts::FRAC_PI_2,
+        1e-4,
+        10.0,
+        -2.0,
+    );
     let data = minimal_sim_data();
     let bank = equilibrium_glide_bank(&nav, &data, &PLANET);
-    assert!(bank.is_finite(), "eq_glide straight-down produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "eq_glide straight-down produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
 fn eq_glide_extreme_fpa_up() {
     // gamma = +π/2: straight up
-    let nav = nav_from_state(60_000.0, 5_000.0, std::f64::consts::FRAC_PI_2, 1e-4, 10.0, -2.0);
+    let nav = nav_from_state(
+        60_000.0,
+        5_000.0,
+        std::f64::consts::FRAC_PI_2,
+        1e-4,
+        10.0,
+        -2.0,
+    );
     let data = minimal_sim_data();
     let bank = equilibrium_glide_bank(&nav, &data, &PLANET);
-    assert!(bank.is_finite(), "eq_glide straight-up produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "eq_glide straight-up produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
@@ -63,7 +90,10 @@ fn eq_glide_very_high_altitude() {
     let nav = nav_from_state(300_000.0, 5_000.0, -10.0_f64.to_radians(), 0.0, 0.0, 0.0);
     let data = minimal_sim_data();
     let bank = equilibrium_glide_bank(&nav, &data, &PLANET);
-    assert!(bank.is_finite(), "eq_glide 300 km altitude produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "eq_glide 300 km altitude produced non-finite bank: {bank}"
+    );
 }
 
 // ─── FNPAG ────────────────────────────────────────────────────────────────────
@@ -74,7 +104,10 @@ fn fnpag_zero_velocity() {
     let data = minimal_sim_data();
     let mut state = FnpagState::new(60.0_f64.to_radians());
     let bank = fnpag_bank(&nav, &mut state, &data, &PLANET);
-    assert!(bank.is_finite(), "fnpag zero velocity produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "fnpag zero velocity produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
@@ -85,25 +118,48 @@ fn fnpag_zero_density() {
     let init_bank = 60.0_f64.to_radians();
     let mut state = FnpagState::new(init_bank);
     let bank = fnpag_bank(&nav, &mut state, &data, &PLANET);
-    assert!(bank.is_finite(), "fnpag zero density produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "fnpag zero density produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
 fn fnpag_extreme_fpa_down() {
-    let nav = nav_from_state(60_000.0, 5_000.0, -std::f64::consts::FRAC_PI_2, 1e-4, 10.0, -2.0);
+    let nav = nav_from_state(
+        60_000.0,
+        5_000.0,
+        -std::f64::consts::FRAC_PI_2,
+        1e-4,
+        10.0,
+        -2.0,
+    );
     let data = minimal_sim_data();
     let mut state = FnpagState::new(60.0_f64.to_radians());
     let bank = fnpag_bank(&nav, &mut state, &data, &PLANET);
-    assert!(bank.is_finite(), "fnpag straight-down produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "fnpag straight-down produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
 fn fnpag_extreme_fpa_up() {
-    let nav = nav_from_state(60_000.0, 5_000.0, std::f64::consts::FRAC_PI_2, 1e-4, 10.0, -2.0);
+    let nav = nav_from_state(
+        60_000.0,
+        5_000.0,
+        std::f64::consts::FRAC_PI_2,
+        1e-4,
+        10.0,
+        -2.0,
+    );
     let data = minimal_sim_data();
     let mut state = FnpagState::new(60.0_f64.to_radians());
     let bank = fnpag_bank(&nav, &mut state, &data, &PLANET);
-    assert!(bank.is_finite(), "fnpag straight-up produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "fnpag straight-up produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
@@ -112,7 +168,10 @@ fn fnpag_very_high_altitude() {
     let data = minimal_sim_data();
     let mut state = FnpagState::new(60.0_f64.to_radians());
     let bank = fnpag_bank(&nav, &mut state, &data, &PLANET);
-    assert!(bank.is_finite(), "fnpag 300 km produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "fnpag 300 km produced non-finite bank: {bank}"
+    );
 }
 
 // ─── Energy Controller ────────────────────────────────────────────────────────
@@ -129,7 +188,10 @@ fn energy_ctrl_zero_velocity() {
     let data = minimal_sim_data();
     let state = EnergyControllerState::new();
     let bank = energy_controller_bank(&nav, &state, &data, &PLANET);
-    assert!(bank.is_finite(), "energy_ctrl zero velocity produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "energy_ctrl zero velocity produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
@@ -138,25 +200,48 @@ fn energy_ctrl_zero_density() {
     let data = minimal_sim_data();
     let state = EnergyControllerState::new();
     let bank = energy_controller_bank(&nav, &state, &data, &PLANET);
-    assert!(bank.is_finite(), "energy_ctrl zero density produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "energy_ctrl zero density produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
 fn energy_ctrl_extreme_fpa_down() {
-    let nav = nav_from_state(60_000.0, 5_000.0, -std::f64::consts::FRAC_PI_2, 1e-4, 10.0, -2.0);
+    let nav = nav_from_state(
+        60_000.0,
+        5_000.0,
+        -std::f64::consts::FRAC_PI_2,
+        1e-4,
+        10.0,
+        -2.0,
+    );
     let data = minimal_sim_data();
     let state = EnergyControllerState::new();
     let bank = energy_controller_bank(&nav, &state, &data, &PLANET);
-    assert!(bank.is_finite(), "energy_ctrl straight-down produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "energy_ctrl straight-down produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
 fn energy_ctrl_extreme_fpa_up() {
-    let nav = nav_from_state(60_000.0, 5_000.0, std::f64::consts::FRAC_PI_2, 1e-4, 10.0, -2.0);
+    let nav = nav_from_state(
+        60_000.0,
+        5_000.0,
+        std::f64::consts::FRAC_PI_2,
+        1e-4,
+        10.0,
+        -2.0,
+    );
     let data = minimal_sim_data();
     let state = EnergyControllerState::new();
     let bank = energy_controller_bank(&nav, &state, &data, &PLANET);
-    assert!(bank.is_finite(), "energy_ctrl straight-up produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "energy_ctrl straight-up produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
@@ -165,7 +250,10 @@ fn energy_ctrl_very_high_altitude() {
     let data = minimal_sim_data();
     let state = EnergyControllerState::new();
     let bank = energy_controller_bank(&nav, &state, &data, &PLANET);
-    assert!(bank.is_finite(), "energy_ctrl 300 km produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "energy_ctrl 300 km produced non-finite bank: {bank}"
+    );
 }
 
 // ─── PredGuid ─────────────────────────────────────────────────────────────────
@@ -179,7 +267,10 @@ fn predguid_zero_velocity() {
     let data = minimal_sim_data();
     let state = PredGuidState::new();
     let bank = predguid_bank(&nav, &state, &data, &PLANET);
-    assert!(bank.is_finite(), "predguid zero velocity produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "predguid zero velocity produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
@@ -188,25 +279,48 @@ fn predguid_zero_density() {
     let data = minimal_sim_data();
     let state = PredGuidState::new();
     let bank = predguid_bank(&nav, &state, &data, &PLANET);
-    assert!(bank.is_finite(), "predguid zero density produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "predguid zero density produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
 fn predguid_extreme_fpa_down() {
-    let nav = nav_from_state(60_000.0, 5_000.0, -std::f64::consts::FRAC_PI_2, 1e-4, 10.0, -2.0);
+    let nav = nav_from_state(
+        60_000.0,
+        5_000.0,
+        -std::f64::consts::FRAC_PI_2,
+        1e-4,
+        10.0,
+        -2.0,
+    );
     let data = minimal_sim_data();
     let state = PredGuidState::new();
     let bank = predguid_bank(&nav, &state, &data, &PLANET);
-    assert!(bank.is_finite(), "predguid straight-down produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "predguid straight-down produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
 fn predguid_extreme_fpa_up() {
-    let nav = nav_from_state(60_000.0, 5_000.0, std::f64::consts::FRAC_PI_2, 1e-4, 10.0, -2.0);
+    let nav = nav_from_state(
+        60_000.0,
+        5_000.0,
+        std::f64::consts::FRAC_PI_2,
+        1e-4,
+        10.0,
+        -2.0,
+    );
     let data = minimal_sim_data();
     let state = PredGuidState::new();
     let bank = predguid_bank(&nav, &state, &data, &PLANET);
-    assert!(bank.is_finite(), "predguid straight-up produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "predguid straight-up produced non-finite bank: {bank}"
+    );
 }
 
 #[test]
@@ -215,5 +329,8 @@ fn predguid_very_high_altitude() {
     let data = minimal_sim_data();
     let state = PredGuidState::new();
     let bank = predguid_bank(&nav, &state, &data, &PLANET);
-    assert!(bank.is_finite(), "predguid 300 km produced non-finite bank: {bank}");
+    assert!(
+        bank.is_finite(),
+        "predguid 300 km produced non-finite bank: {bank}"
+    );
 }

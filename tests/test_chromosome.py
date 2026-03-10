@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from hypothesis import given, settings
-from hypothesis import strategies as st
-
 from aerocapture.training.evaluate import decode_params_from_chromosome
 from aerocapture.training.param_spaces import PARAM_SPACES
 from aerocapture.training.population import encode_params_to_chromosome
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 from tests.fixtures.factories import make_chromosome, make_training_config
 
 ALL_SCHEMES = list(PARAM_SPACES.keys())
@@ -39,10 +39,7 @@ class TestChromosomeRoundtrip:
             # Quantisation error from n_bit=16 is ~0.002% of the full range.
             p_range = spec.p_max - spec.p_min
             abs_tol = max(0.01 * abs(expected), 0.001 * p_range)
-            assert abs(actual - expected) <= abs_tol, (
-                f"scheme={scheme} param={spec.name}: expected {expected}, got {actual} "
-                f"(tol={abs_tol:.2e})"
-            )
+            assert abs(actual - expected) <= abs_tol, f"scheme={scheme} param={spec.name}: expected {expected}, got {actual} (tol={abs_tol:.2e})"
 
     @pytest.mark.parametrize("scheme", ALL_SCHEMES)
     def test_all_zeros_gives_minimum(self, scheme: str) -> None:
@@ -57,9 +54,7 @@ class TestChromosomeRoundtrip:
         for spec in specs:
             expected = spec.p_min  # log-scale: 10^log_min = p_min
             actual = decoded[spec.name]
-            assert abs(actual - expected) <= 0.01 * abs(expected) + 1e-12, (
-                f"scheme={scheme} param={spec.name}: zeros → expected p_min={expected}, got {actual}"
-            )
+            assert abs(actual - expected) <= 0.01 * abs(expected) + 1e-12, f"scheme={scheme} param={spec.name}: zeros → expected p_min={expected}, got {actual}"
 
     @pytest.mark.parametrize("scheme", ALL_SCHEMES)
     def test_all_ones_gives_maximum(self, scheme: str) -> None:
@@ -74,9 +69,7 @@ class TestChromosomeRoundtrip:
         for spec in specs:
             expected = spec.p_max
             actual = decoded[spec.name]
-            assert abs(actual - expected) <= 0.01 * abs(expected) + 1e-12, (
-                f"scheme={scheme} param={spec.name}: ones → expected p_max={expected}, got {actual}"
-            )
+            assert abs(actual - expected) <= 0.01 * abs(expected) + 1e-12, f"scheme={scheme} param={spec.name}: ones → expected p_max={expected}, got {actual}"
 
 
 class TestChromosomeProperties:
@@ -98,6 +91,4 @@ class TestChromosomeProperties:
 
         for spec in specs:
             val = decoded[spec.name]
-            assert spec.p_min <= val <= spec.p_max + 1e-9, (
-                f"scheme={scheme} param={spec.name}: {val} outside [{spec.p_min}, {spec.p_max}]"
-            )
+            assert spec.p_min <= val <= spec.p_max + 1e-9, f"scheme={scheme} param={spec.name}: {val} outside [{spec.p_min}, {spec.p_max}]"

@@ -11,9 +11,9 @@ import tomllib
 from pathlib import Path
 
 import pytest
-
 from aerocapture.training.evaluate import decode_params_from_chromosome, write_guidance_toml
 from aerocapture.training.param_spaces import PARAM_SPACES
+
 from tests.fixtures.factories import make_chromosome, make_training_config
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -99,9 +99,7 @@ def test_toml_roundtrip_values_close(scheme: str, tmp_path: Path) -> None:
 
     for name, expected in params.items():
         actual = sub[name]
-        assert abs(actual - expected) <= 1e-9 * max(abs(expected), 1.0), (
-            f"scheme={scheme} param={name}: written={expected}, read back={actual}"
-        )
+        assert abs(actual - expected) <= 1e-9 * max(abs(expected), 1.0), f"scheme={scheme} param={name}: written={expected}, read back={actual}"
 
 
 @pytest.mark.parametrize("scheme", list(TRAINING_CONFIGS.keys()))

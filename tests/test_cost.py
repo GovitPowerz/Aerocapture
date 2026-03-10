@@ -14,10 +14,9 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 import pytest
+from aerocapture.training.evaluate import compute_cost
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
-from aerocapture.training.evaluate import compute_cost
 
 N_COLS = 53
 
@@ -63,9 +62,7 @@ class TestCostEdgeCases:
         """
         row = _make_row(energy=0.0, ecc=1.0)
         cost = compute_cost(row)
-        assert cost == pytest.approx(0.0, abs=1e-12), (
-            f"Parabolic boundary values classified as captured with zero errors, expected cost≈0, got {cost}"
-        )
+        assert cost == pytest.approx(0.0, abs=1e-12), f"Parabolic boundary values classified as captured with zero errors, expected cost≈0, got {cost}"
 
     def test_strictly_hyperbolic_penalized(self) -> None:
         """energy > 0 AND ecc > 1 → Level 0 penalty well above 1e6."""
@@ -98,9 +95,7 @@ class TestCostEdgeCases:
         cost_single = compute_cost(row)
         cost_multi = compute_cost(stacked)
 
-        assert abs(cost_single - cost_multi) < 1e-9, (
-            f"cost mismatch: single={cost_single}, multi={cost_multi}"
-        )
+        assert abs(cost_single - cost_multi) < 1e-9, f"cost mismatch: single={cost_single}, multi={cost_multi}"
 
     def test_perfect_orbit_has_low_cost(self) -> None:
         """Zero orbital errors and zero dv → cost is exactly 0."""

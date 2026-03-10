@@ -612,7 +612,7 @@ mod tests {
             alt_km in 30.0_f64..=120.0_f64,
             velocity in 1_000.0_f64..=8_000.0_f64,
             gamma in -0.5_f64..=0.5_f64,
-            psi in -3.14_f64..=3.14_f64,
+            psi in -3.15_f64..=3.15_f64,
             pos_bias_alt in -500.0_f64..=500.0_f64,
             vel_bias in -5.0_f64..=5.0_f64,
         ) {

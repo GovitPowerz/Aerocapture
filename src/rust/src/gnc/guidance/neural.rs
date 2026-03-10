@@ -156,8 +156,11 @@ mod tests {
 
         assert!(bank.is_finite(), "bank angle must be finite, got: {}", bank);
         // atan2 always produces values in (-PI, PI]
-        assert!(bank > -std::f64::consts::PI - 1e-10 && bank <= std::f64::consts::PI + 1e-10,
-            "bank angle out of atan2 range: {}", bank);
+        assert!(
+            bank > -std::f64::consts::PI - 1e-10 && bank <= std::f64::consts::PI + 1e-10,
+            "bank angle out of atan2 range: {}",
+            bank
+        );
     }
 
     mod prop {

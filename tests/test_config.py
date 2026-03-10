@@ -7,9 +7,9 @@ stay consistent with the underlying PARAM_SPACES definitions.
 from __future__ import annotations
 
 import pytest
-
 from aerocapture.training.config import GAConfig, NetworkConfig, TrainingConfig
 from aerocapture.training.param_spaces import PARAM_SPACES
+
 from tests.fixtures.factories import make_training_config
 
 ALL_NON_NN_SCHEMES = list(PARAM_SPACES.keys())
@@ -21,8 +21,7 @@ class TestNParamsConsistency:
         """config.n_params must equal len(PARAM_SPACES[scheme]) for non-NN schemes."""
         config = make_training_config(scheme)
         assert config.n_params == len(PARAM_SPACES[scheme]), (
-            f"scheme={scheme}: config.n_params={config.n_params}, "
-            f"len(PARAM_SPACES)={len(PARAM_SPACES[scheme])}"
+            f"scheme={scheme}: config.n_params={config.n_params}, len(PARAM_SPACES)={len(PARAM_SPACES[scheme])}"
         )
 
     def test_nn_n_params_uses_network_config(self) -> None:
@@ -35,9 +34,7 @@ class TestNParamsConsistency:
         )
         # n_base_coef = (6*12 + 12) + (12*2 + 2) = 84 + 26 = 110
         expected = config.network.n_base_coef
-        assert config.n_params == expected, (
-            f"NN n_params={config.n_params} != n_base_coef={expected}"
-        )
+        assert config.n_params == expected, f"NN n_params={config.n_params} != n_base_coef={expected}"
 
     @pytest.mark.parametrize("layer_sizes", [[6, 12, 2], [4, 8, 8, 2], [6, 6, 2]])
     def test_nn_n_params_varies_with_architecture(self, layer_sizes: list[int]) -> None:
@@ -47,10 +44,7 @@ class TestNParamsConsistency:
             guidance_type="neural_network",
         )
         # Manual calculation
-        expected = sum(
-            layer_sizes[i] * layer_sizes[i + 1] + layer_sizes[i + 1]
-            for i in range(len(layer_sizes) - 1)
-        )
+        expected = sum(layer_sizes[i] * layer_sizes[i + 1] + layer_sizes[i + 1] for i in range(len(layer_sizes) - 1))
         assert config.n_params == expected
 
 
@@ -60,9 +54,7 @@ class TestChromLengthConsistency:
         """chrom_length == n_params * n_bit for all schemes."""
         config = make_training_config(scheme)
         expected = config.n_params * config.ga.n_bit
-        assert config.chrom_length == expected, (
-            f"scheme={scheme}: chrom_length={config.chrom_length}, expected={expected}"
-        )
+        assert config.chrom_length == expected, f"scheme={scheme}: chrom_length={config.chrom_length}, expected={expected}"
 
     @pytest.mark.parametrize("n_bit", [8, 12, 16, 24])
     def test_chrom_length_scales_with_n_bit(self, n_bit: int) -> None:
