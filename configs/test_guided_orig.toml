@@ -70,7 +70,6 @@ output_dir = "output"
 atmosphere = "data/atmosphere/mars.dat"
 reference_trajectory = "data/reference_trajectory/msr_aller.dat"
 results_suffix = ".test_guided_orig"
-output_format = "text"
 
 # ── Inline vehicle/mission data ──
 
