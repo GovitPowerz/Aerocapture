@@ -4,6 +4,8 @@
 
 **Goal:** Replace all French/Fortran legacy variable names with explicit English across the Rust codebase, strip all Fortran-origin comments.
 
+**Status:** Complete — all 15 tasks done, 172 tests passing, zero legacy names remaining.
+
 **Architecture:** Bottom-up rename: leaf modules first (no dependents), then mid-level guidance modules, then core GNC structs (highest fan-out), then consumers (runner, init, output), then integration tests. Each tier compiles and passes tests before moving on.
 
 **Tech Stack:** Rust (Edition 2024), cargo test, cargo clippy

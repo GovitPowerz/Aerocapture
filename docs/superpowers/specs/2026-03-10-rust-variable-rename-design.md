@@ -1,7 +1,7 @@
 # Design: Full Sweep Rust Variable Rename
 
 **Date**: 2026-03-10
-**Status**: Approved
+**Status**: Complete
 **Scope**: Replace all French/Fortran legacy variable names with explicit English names across the entire Rust codebase, including tests. Strip all Fortran-origin comments.
 
 ## Decisions
