@@ -117,41 +117,25 @@ def write_nn_json(
 
 
 def _parse_final_to_legacy_array(filepath: Path) -> npt.NDArray[np.float64] | None:
-    """Parse a final conditions file, returning legacy-compatible 53-column array.
+    """Parse a final conditions CSV file, returning legacy-compatible 53-column array.
 
-    Auto-detects CSV vs Fortran text format. For CSV, maps named columns back
-    to the legacy 53-column positions so compute_cost() works unchanged.
+    Maps named CSV columns back to the legacy 53-column positions so
+    compute_cost() works unchanged.
     """
-    with open(filepath) as f:
-        first_line = f.readline()
+    import pandas as pd
 
-    if "," in first_line:
-        # CSV format — map columns back to legacy positions
-        import pandas as pd
+    from aerocapture.io.parse_final import CSV_TO_LEGACY_INDEX
 
-        from aerocapture.io.parse_final import CSV_TO_LEGACY_INDEX
-
-        df = pd.read_csv(filepath)
-        if df.empty:
-            return None
-        n = len(df)
-        result = np.zeros((n, 53))
-        result[:, 0] = df["sim_number"].to_numpy()
-        for col_name, legacy_idx in CSV_TO_LEGACY_INDEX.items():
-            if col_name in df.columns:
-                result[:, legacy_idx + 1] = df[col_name].to_numpy()
-        return result
-
-    # Legacy Fortran text format
-    from aerocapture.io._fortran import parse_fortran_line
-
-    rows = []
-    with open(filepath) as f:
-        for line in f:
-            values = parse_fortran_line(line)
-            if values:
-                rows.append(values)
-    return np.array(rows) if rows else None
+    df = pd.read_csv(filepath)
+    if df.empty:
+        return None
+    n = len(df)
+    result = np.zeros((n, 53))
+    result[:, 0] = df["sim_number"].to_numpy()
+    for col_name, legacy_idx in CSV_TO_LEGACY_INDEX.items():
+        if col_name in df.columns:
+            result[:, legacy_idx + 1] = df[col_name].to_numpy()
+    return result
 
 
 def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt.NDArray[np.float64] | None:

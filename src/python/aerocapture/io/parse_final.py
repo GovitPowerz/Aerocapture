@@ -1,17 +1,10 @@
-"""Parse final conditions files (final.*) into DataFrames.
-
-Supports both CSV format (with headers) and legacy Fortran D-notation format.
-Auto-detects the format from the first line of the file.
-"""
+"""Parse final conditions files (final.*) into DataFrames."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
-
-from aerocapture.io._fortran import parse_fortran_line
 
 # CSV column names (40 columns — matches Rust FINAL_CSV_COLUMNS)
 FINAL_CSV_COLUMNS = [
@@ -103,39 +96,17 @@ CSV_TO_LEGACY_INDEX: dict[str, int] = {
 
 
 def parse_final(filepath: str | Path) -> pd.DataFrame:
-    """Parse a final conditions file into a DataFrame.
-
-    Auto-detects CSV (with headers) vs legacy Fortran D-notation format.
+    """Parse a final conditions CSV file into a DataFrame.
 
     Args:
-        filepath: Path to the final file (.csv or legacy text).
+        filepath: Path to the final CSV file.
 
     Returns:
         DataFrame with named columns.
     """
     filepath = Path(filepath)
 
-    with open(filepath) as f:
-        first_line = f.readline()
-
-    # Auto-detect: CSV has commas, Fortran D-notation does not
-    if "," in first_line:
-        return pd.read_csv(filepath)
-
-    # Legacy Fortran format: i5 + 52 D15.7 values
-    rows = []
-    with open(filepath) as f:
-        for line in f:
-            values = parse_fortran_line(line)
-            if values:
-                rows.append(values)
-
-    if not rows:
+    if filepath.stat().st_size == 0:
         return pd.DataFrame()
 
-    data = np.array(rows)
-    ncols = data.shape[1]
-    columns = [f"col_{i}" for i in range(ncols)]
-    if ncols > 0:
-        columns[0] = "sim_number"
-    return pd.DataFrame(data, columns=columns)
+    return pd.read_csv(filepath)
