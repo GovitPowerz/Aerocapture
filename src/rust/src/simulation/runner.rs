@@ -19,6 +19,9 @@ use std::fmt;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
+const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
+const G0: f64 = 9.81;
+
 #[derive(Debug)]
 pub struct SimError(pub String);
 
@@ -39,8 +42,8 @@ struct SimState {
     accumulator: [f64; 8],
     gill_toggle: i32,
     // Guidance
-    bank_angle: f64, // gitpil (rad) — realized bank angle
-    aoa: f64,        // alfpil (rad) — realized AoA
+    bank_angle: f64, // realized bank angle (rad)
+    aoa: f64,        // realized AoA (rad)
     // Tracking
     bounced: bool,
     bounce_alt: f64,
@@ -297,7 +300,6 @@ fn run_single(
 ) -> Result<SimResult, SimError> {
     let planet = &config.planet;
     let req = planet.equatorial_radius();
-    let degrad = std::f64::consts::PI / 180.0;
 
     // Initial state: convert entry conditions to state vector
     let entry = &run_state.entry;
@@ -362,34 +364,34 @@ fn run_single(
     let mut sequencer = SequencerState::new();
 
     let mut photo_lines: Vec<[f64; 24]> = Vec::new();
-    let mut somgit_deg = 0.0_f64;
-    let mut pdynan_for_photo = 0.0_f64;
-    let mut romver_for_photo = 0.0_f64;
+    let mut cumulative_bank_change_deg = 0.0_f64;
+    let mut dynamic_pressure_for_photo = 0.0_f64;
+    let mut density_estimate_for_photo = 0.0_f64;
 
     // Main simulation loop
-    let mut temsim = entry.initial_date;
+    let mut sim_time = entry.initial_date;
     let mut term = TermReason::None;
     let mut step = 0;
     let mut first_iter = true;
 
     while term == TermReason::None {
         if !first_iter {
-            temsim += dt;
+            sim_time += dt;
         }
         first_iter = false;
 
-        let flags = sequencer.update(temsim, &data.periods);
+        let flags = sequencer.update(sim_time, &data.periods);
 
         // === Navigation + Guidance + Pilot ===
         if !config.reference_trajectory {
-            let positr = [sim.state[0], sim.state[1], sim.state[2]];
-            let vitesr = [sim.state[3], sim.state[4], sim.state[5]];
+            let position_true = [sim.state[0], sim.state[1], sim.state[2]];
+            let velocity_true = [sim.state[3], sim.state[4], sim.state[5]];
 
             let nav_out = estimator::navigate(
-                &positr,
-                &vitesr,
+                &position_true,
+                &velocity_true,
                 ftc_state.aoa_commanded,
-                temsim,
+                sim_time,
                 &nav_biases,
                 &mut nav_state,
                 data,
@@ -403,13 +405,13 @@ fn run_single(
                 run_state.filter_gain_bias,
             );
 
-            pdynan_for_photo = nav_out.dynamic_pressure_estimated;
-            romver_for_photo = nav_out.density_guidance;
+            dynamic_pressure_for_photo = nav_out.dynamic_pressure_estimated;
+            density_estimate_for_photo = nav_out.density_guidance;
 
             let ftc_out = ftc::guidance_step(
                 &nav_out,
                 sim.bank_angle,
-                temsim,
+                sim_time,
                 reference_bank_angle,
                 &mut ftc_state,
                 data,
@@ -430,7 +432,7 @@ fn run_single(
 
             let bank_change = (pilot_state.bank_angle - sim.bank_angle).abs();
             if bank_change > 1e-10 {
-                somgit_deg += bank_change / degrad;
+                cumulative_bank_change_deg += bank_change / DEG_TO_RAD;
             }
 
             sim.bank_angle = pilot_state.bank_angle;
@@ -442,7 +444,7 @@ fn run_single(
                 eprintln!(
                     "  step={} t={:.1} bank={:.3}deg aoa={:.3}deg ilongi={} alt={:.1}km vel={:.1}",
                     step,
-                    temsim,
+                    sim_time,
                     sim.bank_angle.to_degrees(),
                     sim.aoa.to_degrees(),
                     ftc_out.longitudinal_active,
@@ -456,13 +458,12 @@ fn run_single(
         if write_photo && flags.photo {
             photo_lines.push(build_photo_values(
                 &sim,
-                temsim,
+                sim_time,
                 planet,
-                degrad,
-                pdynan_for_photo,
-                romver_for_photo,
+                dynamic_pressure_for_photo,
+                density_estimate_for_photo,
                 sim_idx + 1,
-                somgit_deg * degrad,
+                cumulative_bank_change_deg * DEG_TO_RAD,
             ));
         }
 
@@ -476,7 +477,7 @@ fn run_single(
         if altitude <= 0.0 {
             term = TermReason::Crash;
         }
-        if temsim >= max_time {
+        if sim_time >= max_time {
             term = TermReason::Timeout;
         }
         if sim.bounced && altitude >= exit_altitude {
@@ -487,7 +488,7 @@ fn run_single(
         if !sim.bounced && sim.state[4].sin() >= 0.0 {
             sim.bounced = true;
             sim.bounce_alt = altitude;
-            sim.bounce_time = temsim;
+            sim.bounce_time = sim_time;
         }
 
         step += 1;
@@ -497,13 +498,12 @@ fn run_single(
     if write_photo {
         photo_lines.push(build_photo_values(
             &sim,
-            temsim,
+            sim_time,
             planet,
-            degrad,
-            pdynan_for_photo,
-            romver_for_photo,
+            dynamic_pressure_for_photo,
+            density_estimate_for_photo,
             sim_idx + 1,
-            somgit_deg * degrad,
+            cumulative_bank_change_deg * DEG_TO_RAD,
         ));
     }
 
@@ -516,7 +516,7 @@ fn run_single(
             "  Final: alt={:.3} km, vel={:.3} m/s, t={:.1} s, steps={}, term={:?}",
             alt_final / 1e3,
             sim.state[3],
-            temsim,
+            sim_time,
             step,
             term,
         );
@@ -559,68 +559,66 @@ fn run_single(
         planet,
     );
 
-    let g0terr = 9.81_f64;
-    let mut xsauve = [0.0_f64; 52];
-    xsauve[0] = alt_final / 1e3;
-    xsauve[1] = sim.state[1] / degrad;
-    xsauve[2] = lat_final / degrad;
-    xsauve[3] = sim.state[3];
-    xsauve[4] = sim.state[4] / degrad;
-    xsauve[5] = sim.state[5] / degrad;
-    xsauve[6] = velocity_radial;
-    xsauve[7] = energy / 1e6;
-    xsauve[8] = orbit.semi_major_axis / 1e3;
-    xsauve[9] = orbit.eccentricity;
-    xsauve[10] = orbit.inclination / degrad;
-    xsauve[11] = orbit.raan / degrad;
-    xsauve[12] = orbit.arg_periapsis / degrad;
-    xsauve[13] = orbit.true_anomaly / degrad;
-    xsauve[14] = orbit.periapsis_alt / 1e3;
-    xsauve[15] = orbit.apoapsis_alt / 1e3;
-    xsauve[16] = sim.max_heat_flux / 1e3;
-    xsauve[17] = sim.max_load_factor / g0terr;
-    xsauve[18] = sim.max_dyn_pressure / 1e3;
-    xsauve[19] = sim.alt_max_flux / 1e3;
-    xsauve[20] = sim.alt_max_load / 1e3;
-    xsauve[21] = sim.alt_max_pdyn / 1e3;
-    xsauve[22] = sim.time_max_flux;
-    xsauve[23] = sim.time_max_load;
-    xsauve[24] = sim.time_max_pdyn;
-    xsauve[25] = sim.bounce_alt / 1e3;
-    xsauve[26] = sim.bounce_time;
-    xsauve[27] = temsim;
-    xsauve[28] = sim.state[6] / 1e6;
-    xsauve[29] = orbit.periapsis_alt / 1e3 - data.target_orbit.periapsis / 1e3;
-    xsauve[30] = orbit.apoapsis_alt / 1e3 - data.target_orbit.apoapsis / 1e3;
-    xsauve[31] = ifinal as f64;
-    xsauve[37] = deltav.dv1;
-    xsauve[38] = deltav.dv2;
-    xsauve[39] = deltav.dv3;
-    xsauve[40] = deltav.dv1.abs() + deltav.dv2.abs();
-    xsauve[41] = deltav.total;
-    xsauve[45] = somgit_deg;
-    xsauve[48] = ftc_state.n_reversals as f64;
+    let mut final_record = [0.0_f64; 52];
+    final_record[0] = alt_final / 1e3;
+    final_record[1] = sim.state[1] / DEG_TO_RAD;
+    final_record[2] = lat_final / DEG_TO_RAD;
+    final_record[3] = sim.state[3];
+    final_record[4] = sim.state[4] / DEG_TO_RAD;
+    final_record[5] = sim.state[5] / DEG_TO_RAD;
+    final_record[6] = velocity_radial;
+    final_record[7] = energy / 1e6;
+    final_record[8] = orbit.semi_major_axis / 1e3;
+    final_record[9] = orbit.eccentricity;
+    final_record[10] = orbit.inclination / DEG_TO_RAD;
+    final_record[11] = orbit.raan / DEG_TO_RAD;
+    final_record[12] = orbit.arg_periapsis / DEG_TO_RAD;
+    final_record[13] = orbit.true_anomaly / DEG_TO_RAD;
+    final_record[14] = orbit.periapsis_alt / 1e3;
+    final_record[15] = orbit.apoapsis_alt / 1e3;
+    final_record[16] = sim.max_heat_flux / 1e3;
+    final_record[17] = sim.max_load_factor / G0;
+    final_record[18] = sim.max_dyn_pressure / 1e3;
+    final_record[19] = sim.alt_max_flux / 1e3;
+    final_record[20] = sim.alt_max_load / 1e3;
+    final_record[21] = sim.alt_max_pdyn / 1e3;
+    final_record[22] = sim.time_max_flux;
+    final_record[23] = sim.time_max_load;
+    final_record[24] = sim.time_max_pdyn;
+    final_record[25] = sim.bounce_alt / 1e3;
+    final_record[26] = sim.bounce_time;
+    final_record[27] = sim_time;
+    final_record[28] = sim.state[6] / 1e6;
+    final_record[29] = orbit.periapsis_alt / 1e3 - data.target_orbit.periapsis / 1e3;
+    final_record[30] = orbit.apoapsis_alt / 1e3 - data.target_orbit.apoapsis / 1e3;
+    final_record[31] = ifinal as f64;
+    final_record[37] = deltav.dv1;
+    final_record[38] = deltav.dv2;
+    final_record[39] = deltav.dv3;
+    final_record[40] = deltav.dv1.abs() + deltav.dv2.abs();
+    final_record[41] = deltav.total;
+    final_record[45] = cumulative_bank_change_deg;
+    final_record[48] = ftc_state.n_reversals as f64;
 
     Ok(SimResult {
         sim_idx,
-        final_line: xsauve,
+        final_line: final_record,
         photo_lines,
     })
 }
 
-/// Build a photo snapshot line (24-column D12.5 format).
+/// Build a photo snapshot line.
 #[allow(clippy::too_many_arguments)]
 fn build_photo_values(
     sim: &SimState,
-    temsim: f64,
+    sim_time: f64,
     planet: &Planet,
-    degrad: f64,
-    pdynan: f64,
-    romver: f64,
-    isimul: i32,
-    somgit: f64,
+    dynamic_pressure: f64,
+    density_estimate: f64,
+    sim_index: i32,
+    cumulative_bank_change: f64,
 ) -> [f64; 24] {
-    let (altitr, xlatit) =
+    let (altitude, latitude) =
         geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
 
     let orbit = elements::from_spherical(
@@ -647,36 +645,36 @@ fn build_photo_values(
     let energy = speed_abs * speed_abs / 2.0 - mu / sim.state[0];
     let velocity_radial = sim.state[3] * sim.state[4].sin();
 
-    let iphase = if !sim.bounced {
-        if altitr > 80e3 { 1.0 } else { 2.0 }
+    let phase = if !sim.bounced {
+        if altitude > 80e3 { 1.0 } else { 2.0 }
     } else {
         if sim.state[0] > 80e3 { 3.0 } else { 2.0 }
     };
 
     [
-        temsim,
-        altitr / 1e3,
-        sim.state[1] / degrad,
-        xlatit / degrad,
+        sim_time,
+        altitude / 1e3,
+        sim.state[1] / DEG_TO_RAD,
+        latitude / DEG_TO_RAD,
         sim.state[3],
-        sim.state[4] / degrad,
-        sim.state[5] / degrad,
+        sim.state[4] / DEG_TO_RAD,
+        sim.state[5] / DEG_TO_RAD,
         orbit.semi_major_axis / 1e3,
         orbit.eccentricity,
-        orbit.inclination / degrad,
-        orbit.raan / degrad,
+        orbit.inclination / DEG_TO_RAD,
+        orbit.raan / DEG_TO_RAD,
         orbit.periapsis_alt / 1e3,
         orbit.apoapsis_alt / 1e3,
-        iphase,
-        sim.bank_angle / degrad,
+        phase,
+        sim.bank_angle / DEG_TO_RAD,
         velocity_radial,
-        sim.aoa / degrad,
-        somgit / degrad,
+        sim.aoa / DEG_TO_RAD,
+        cumulative_bank_change / DEG_TO_RAD,
         energy,
-        pdynan,
+        dynamic_pressure,
         velocity_radial,
-        0.5 * romver * sim.state[3] * sim.state[3] / 1e3,
-        isimul as f64,
+        0.5 * density_estimate * sim.state[3] * sim.state[3] / 1e3,
+        sim_index as f64,
         0.0,
     ]
 }
