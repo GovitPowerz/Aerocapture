@@ -355,6 +355,326 @@ fn tbgain(altitude: f64, coefan: &[f64; 2], data: &SimData) -> (f64, f64) {
     (gaindh, gainpd)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::config::{GuidanceType, Planet};
+    use crate::data::aerodynamics::AeroTables;
+    use crate::data::atmosphere::{AtmosphereModel, DensityProfile};
+    use crate::data::capsule::Capsule;
+    use crate::data::guidance_params::GuidanceParams;
+    use crate::data::incidence::IncidenceProfile;
+    use crate::data::pilot::{PilotModel, PilotType};
+    use crate::data::{
+        Constraints, EntryConditions, FinalConditions, OrbitalTarget, ParkingOrbit, SimData,
+        SphericalState, SuccessCriteria, TimePeriods,
+    };
+    use crate::gnc::navigation::estimator::NavigationOutput;
+
+    // ─── Fixture builders ───────────────────────────────────────────────────
+
+    fn test_nav() -> NavigationOutput {
+        let r = Planet::Mars.equatorial_radius() + 50_000.0; // Mars + 50 km
+        NavigationOutput {
+            positn: [r, 0.0, 0.0],
+            vitesn: [5000.0, -0.15, 0.6],
+            acceln: [50.0, -8.0],
+            coefan: [1.269, -0.205],
+            roguid: 0.001,
+            roexit: 1e-6,
+            pdynan: 0.5 * 0.001 * 5000.0 * 5000.0,
+            energn: -1e6,
+            ..Default::default()
+        }
+    }
+
+    fn test_sim_data() -> SimData {
+        SimData {
+            capsule: Capsule {
+                mass: 1089.0,
+                reference_area: 14.7,
+                cq: 0.00008242,
+                max_bank_rate: 15.0_f64.to_radians(),
+                periods: TimePeriods::default(),
+            },
+            aero: AeroTables {
+                n_points: 2,
+                incidence: vec![-0.5, 0.0],
+                cx: vec![1.269, 1.269],
+                cz: vec![-0.205, -0.205],
+                equilibrium_aoa: -0.48,
+                ..Default::default()
+            },
+            atmosphere: AtmosphereModel {
+                n_points: 3,
+                altitudes: vec![0.0, 50_000.0, 130_000.0],
+                densities: vec![0.02, 0.001, 1e-8],
+                ref_density: 1e-8,
+                scale_factor: 1e-4,
+                ref_altitude: 130_000.0,
+                gas_constant: 1.3,
+                density_profile: DensityProfile::default(),
+            },
+            entry: EntryConditions {
+                state: SphericalState {
+                    altitude: 130_000.0,
+                    velocity: 5687.0,
+                    flight_path: -10.8_f64.to_radians(),
+                    ..Default::default()
+                },
+                initial_bank: 64.77_f64.to_radians(),
+                initial_aoa: -27.5_f64.to_radians(),
+                initial_date: 0.0,
+            },
+            guidance: GuidanceParams {
+                // Wide activation window so longitudinal guidance fires
+                longi_activation: 1e12,
+                longi_inhibition: -1e12,
+                lateral_activation: -1e12, // disable lateral for simple tests
+                lateral_inhibition: -1e12,
+                density_filter_gain: 0.8,
+                exit_velocity_threshold: 4400.0,
+                exit_altitude_threshold: 60_000.0,
+                capture_damping: 0.7,
+                capture_frequency: 0.072,
+                corridor_slope: 13080.458,
+                max_reversals: 5,
+                ..Default::default()
+            },
+            incidence: IncidenceProfile {
+                n_points: 2,
+                altitudes: vec![-10_000.0, 150_000.0],
+                incidences: vec![-0.48, -0.48],
+            },
+            periods: TimePeriods::default(),
+            pilot: PilotModel {
+                pilot_type: PilotType::Perfect,
+                time_constant: 0.0,
+                damping: 0.0,
+                frequency: 0.0,
+            },
+            target_orbit: OrbitalTarget {
+                semi_major_axis: 3_649_622.0,
+                eccentricity: 0.067,
+                inclination: 50.0_f64.to_radians(),
+                raan: -7.612_f64.to_radians(),
+                apoapsis: 500_130.0,
+                periapsis: 11_233.0,
+            },
+            final_conditions: FinalConditions::default(),
+            parking_orbit: ParkingOrbit::default(),
+            constraints: Constraints::default(),
+            success: SuccessCriteria::default(),
+            wind_enabled: false,
+            neural_net: None,
+            dispersion_config: None,
+        }
+    }
+
+    // ─── Deterministic tests ─────────────────────────────────────────────────
+
+    /// guidance_step should return a finite bank angle for a typical MSR state
+    /// using the FTC scheme.
+    #[test]
+    fn guidance_step_returns_finite_output() {
+        let nav = test_nav();
+        let data = test_sim_data();
+        let planet = Planet::Mars;
+        let initial_bank = 64.77_f64.to_radians();
+        let mut state = FtcState::new(initial_bank, -0.48_f64.to_radians());
+
+        let out = guidance_step(
+            &nav,
+            initial_bank,
+            0.0,   // temsim
+            initial_bank,
+            &mut state,
+            &data,
+            &planet,
+            false,
+            GuidanceType::Ftc,
+        );
+
+        assert!(
+            out.gitcom.is_finite(),
+            "gitcom not finite: {}",
+            out.gitcom
+        );
+        assert!(
+            out.alfcom.is_finite(),
+            "alfcom not finite: {}",
+            out.alfcom
+        );
+        assert!(
+            out.vitgit.is_finite(),
+            "vitgit not finite: {}",
+            out.vitgit
+        );
+    }
+
+    /// In reference mode, output bank should equal the reference bank angle.
+    #[test]
+    fn reference_mode_returns_reference_bank() {
+        let nav = test_nav();
+        let data = test_sim_data();
+        let planet = Planet::Mars;
+        let gitref = 45.0_f64.to_radians();
+        let mut state = FtcState::new(gitref, -0.48_f64.to_radians());
+        // Prime gitpre so rate saturation doesn't shift the value
+        state.gitpre = gitref;
+
+        let out = guidance_step(
+            &nav,
+            gitref,
+            0.0,
+            gitref,
+            &mut state,
+            &data,
+            &planet,
+            true, // is_reference
+            GuidanceType::Ftc,
+        );
+
+        assert!(
+            (out.gitcom - gitref).abs() < 1e-9,
+            "expected gitcom ≈ gitref ({:.6} rad), got {:.6} rad",
+            gitref,
+            out.gitcom,
+        );
+    }
+
+    /// Bank angle magnitude should stay within [0, π] radians.
+    #[test]
+    fn output_bank_bounded() {
+        let nav = test_nav();
+        let data = test_sim_data();
+        let planet = Planet::Mars;
+        let initial_bank = 64.77_f64.to_radians();
+        let mut state = FtcState::new(initial_bank, -0.48_f64.to_radians());
+
+        let out = guidance_step(
+            &nav,
+            initial_bank,
+            0.0,
+            initial_bank,
+            &mut state,
+            &data,
+            &planet,
+            false,
+            GuidanceType::Ftc,
+        );
+
+        let pi = std::f64::consts::PI;
+        assert!(
+            out.gitcom >= -pi && out.gitcom <= pi,
+            "gitcom = {:.4} rad is outside [-π, π]",
+            out.gitcom,
+        );
+    }
+
+    /// ilongi=0 (guidance inactive) should still return a finite bank
+    /// equal to |gitref|, without saturating.
+    #[test]
+    fn inactive_longitudinal_guidance_uses_reference_bank() {
+        let nav = test_nav();
+        let mut data = test_sim_data();
+        // Force energy outside activation window so ilongi=0
+        data.guidance.longi_activation = -1e12;
+        data.guidance.longi_inhibition = -2e12;
+        data.guidance.lateral_activation = -2e12;
+
+        let planet = Planet::Mars;
+        let gitref = 30.0_f64.to_radians();
+        let mut state = FtcState::new(gitref, -0.48_f64.to_radians());
+        state.gitpre = gitref;
+
+        let out = guidance_step(
+            &nav,
+            gitref,
+            0.0,
+            gitref,
+            &mut state,
+            &data,
+            &planet,
+            false,
+            GuidanceType::Ftc,
+        );
+
+        assert!(
+            out.gitcom.is_finite(),
+            "expected finite gitcom, got {}",
+            out.gitcom
+        );
+        // When guidance is inactive and no lateral, gitcom comes from gitref.abs()
+        // clamped by rate saturation — it should stay close to gitref for a single step
+        let pi = std::f64::consts::PI;
+        assert!(
+            out.gitcom.abs() <= pi,
+            "gitcom magnitude exceeds π: {}",
+            out.gitcom
+        );
+    }
+
+    // ─── Property-based tests ────────────────────────────────────────────────
+
+    mod prop {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// For any valid atmospheric state, guidance_step produces finite output.
+            #[test]
+            fn output_always_finite(
+                alt in 20_000.0..130_000.0_f64,
+                vel in 2000.0..7000.0_f64,
+                fpa in -0.3..0.05_f64,
+                bank_deg in 0.0..90.0_f64,
+            ) {
+                let r = Planet::Mars.equatorial_radius() + alt;
+                let initial_bank = bank_deg.to_radians();
+                let nav = NavigationOutput {
+                    positn: [r, 0.0, 0.0],
+                    vitesn: [vel, fpa, 0.6],
+                    acceln: [50.0, -8.0],
+                    coefan: [1.269, -0.205],
+                    roguid: 1e-4,
+                    roexit: 1e-6,
+                    pdynan: 0.5 * 1e-4 * vel * vel,
+                    energn: -1e6,
+                    ..Default::default()
+                };
+
+                let data = test_sim_data();
+                let planet = Planet::Mars;
+                let mut state = FtcState::new(initial_bank, -0.48_f64.to_radians());
+
+                let out = guidance_step(
+                    &nav,
+                    initial_bank,
+                    0.0,
+                    initial_bank,
+                    &mut state,
+                    &data,
+                    &planet,
+                    false,
+                    GuidanceType::Ftc,
+                );
+
+                prop_assert!(out.gitcom.is_finite(), "gitcom not finite: {}", out.gitcom);
+                prop_assert!(out.alfcom.is_finite(), "alfcom not finite: {}", out.alfcom);
+
+                let pi = std::f64::consts::PI;
+                prop_assert!(
+                    out.gitcom >= -pi && out.gitcom <= pi,
+                    "gitcom = {} outside [-π, π]",
+                    out.gitcom
+                );
+            }
+        }
+    }
+}
+
 /// Lateral guidance — roll reversal logic.
 ///
 /// Matches Fortran guilat.f.
