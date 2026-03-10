@@ -1,3 +1,4 @@
+pub mod assertions;
 pub mod fixtures;
 
 use std::path::PathBuf;
