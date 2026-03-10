@@ -37,8 +37,8 @@ struct SimState {
     // State vector: [r, lon, lat, V, gamma, psi, flux, time]
     state: [f64; 8],
     // RK4 internals
-    qk: [f64; 8],
-    ix: i32,
+    accumulator: [f64; 8],
+    gill_toggle: i32,
     // Guidance
     bank_angle: f64, // gitpil (rad) — realized bank angle
     aoa: f64,        // alfpil (rad) — realized AoA
@@ -315,8 +315,8 @@ fn run_single(
             0.0,
             entry.initial_date,
         ],
-        qk: [0.0; 8],
-        ix: 0,
+        accumulator: [0.0; 8],
+        gill_toggle: 0,
         bank_angle: entry.initial_bank,
         aoa: entry.initial_aoa,
         bounced: false,
@@ -690,12 +690,12 @@ fn integrate_step(
     data: &SimData,
     run_state: &init::RunState,
 ) {
-    sim.ix = 0;
+    sim.gill_toggle = 0;
 
     for k in 1..=4 {
         let derivs =
             compute_derivatives(&sim.state, sim.bank_angle, sim.aoa, planet, data, run_state);
-        rk4::rk4_increment(dt, &derivs, k, 8, &mut sim.ix, &mut sim.qk, &mut sim.state);
+        rk4::rk4_increment(dt, &derivs, k, 8, &mut sim.gill_toggle, &mut sim.accumulator, &mut sim.state);
     }
 }
 
