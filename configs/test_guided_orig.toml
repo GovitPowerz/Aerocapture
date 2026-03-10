@@ -1,5 +1,5 @@
 # Test: FTC guided trajectory
-# Reference data: tests/reference_data/guided_orig/
+# Reference data: tests/reference_data/rust_golden/guided/
 
 [mission]
 type = "aerocapture"

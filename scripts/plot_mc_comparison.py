@@ -6,19 +6,14 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-from aerocapture.io._fortran import parse_fortran_line
+import pandas as pd
 from aerocapture.plotting.stats import empirical_cdf
 
 
 def load_final(path: str | Path) -> np.ndarray:
-    """Load a carltf-format final file into a numpy array."""
-    rows = []
-    with open(path) as f:
-        for line in f:
-            vals = parse_fortran_line(line)
-            if vals:
-                rows.append(vals)
-    return np.array(rows)
+    """Load a final conditions CSV file into a numpy array."""
+    df = pd.read_csv(path)
+    return df.to_numpy()
 
 
 def main() -> None:

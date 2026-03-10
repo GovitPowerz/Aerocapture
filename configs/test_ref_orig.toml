@@ -1,5 +1,5 @@
 # Test: reference trajectory, constant bank angle 0.1°
-# Reference data: tests/reference_data/ref_orig/
+# Reference data: tests/reference_data/rust_golden/ref/
 
 [mission]
 type = "aerocapture"
