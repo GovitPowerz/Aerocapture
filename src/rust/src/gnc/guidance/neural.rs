@@ -11,7 +11,6 @@ use crate::orbit::elements;
 
 /// Compute NN-guided longitudinal bank angle.
 ///
-/// Input normalization matches Fortran guidnn.f:
 /// - Computes orbital elements from navigation state
 /// - Normalizes 6 inputs from orbital/aerodynamic quantities
 /// - Forward pass through the network
@@ -28,21 +27,21 @@ pub fn nn_bank_angle(
     let degrad = std::f64::consts::PI / 180.0;
 
     // Radial velocity: V * sin(gamma)
-    let vitrad = nav.vitesn[0] * nav.vitesn[1].sin();
+    let vitrad = nav.velocity_estimated[0] * nav.velocity_estimated[1].sin();
 
     // Orbital elements
     let orbit = elements::from_spherical(
-        nav.positn[0],
-        nav.positn[1],
-        nav.positn[2],
-        nav.vitesn[0],
-        nav.vitesn[1],
-        nav.vitesn[2],
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
         planet,
     );
 
     // Acceleration magnitude: sqrt(drag^2 + lift^2)
-    let accel_mag = (nav.acceln[0] * nav.acceln[0] + nav.acceln[1] * nav.acceln[1]).sqrt();
+    let accel_mag = (nav.acceleration_estimated[0] * nav.acceleration_estimated[0] + nav.acceleration_estimated[1] * nav.acceleration_estimated[1]).sqrt();
 
     // 6 normalized inputs (matching guidnn.f)
     let input = [
@@ -50,7 +49,7 @@ pub fn nn_bank_angle(
         (orbit.inclination - target_inclination) / degrad * 3.0 / 5.0,
         2.0 * (vitrad / 1e3 + 1.2) / 1.5 - 1.0,
         -mu / (2.0 * orbit.semi_major_axis) / 6e6,
-        (nav.vitesn[0] / 3e3 - 1.5) * 2.0,
+        (nav.velocity_estimated[0] / 3e3 - 1.5) * 2.0,
         accel_mag / 20.0 - 1.0,
     ];
 
@@ -72,14 +71,14 @@ mod tests {
         let r = 3_396_200.0 + 50_000.0; // Mars radius + 50 km
         let velocity = 5000.0;
         NavigationOutput {
-            positn: [r, 0.1, 0.05],
-            vitesn: [velocity, -0.10, 0.5],
-            acceln: [80.0, -12.0],
-            coefan: [1.269, -0.205],
-            roguid: 0.001,
-            roexit: 1e-6,
-            pdynan: 0.5 * 0.001 * velocity * velocity,
-            energn: -1e6,
+            position_estimated: [r, 0.1, 0.05],
+            velocity_estimated: [velocity, -0.10, 0.5],
+            acceleration_estimated: [80.0, -12.0],
+            aero_coefficients: [1.269, -0.205],
+            density_guidance: 0.001,
+            density_exit: 1e-6,
+            dynamic_pressure_estimated: 0.5 * 0.001 * velocity * velocity,
+            energy_estimated: -1e6,
             ..Default::default()
         }
     }
@@ -192,13 +191,13 @@ mod tests {
             ) {
                 let r = Planet::Mars.equatorial_radius() + alt;
                 let nav = NavigationOutput {
-                    positn: [r, 0.1, 0.05],
-                    vitesn: [vel, fpa, az],
-                    acceln: [50.0, -8.0],
-                    coefan: [1.269, -0.205],
-                    roguid: 0.001,
-                    pdynan: 0.5 * 0.001 * vel * vel,
-                    energn: -1e6,
+                    position_estimated: [r, 0.1, 0.05],
+                    velocity_estimated: [vel, fpa, az],
+                    acceleration_estimated: [50.0, -8.0],
+                    aero_coefficients: [1.269, -0.205],
+                    density_guidance: 0.001,
+                    dynamic_pressure_estimated: 0.5 * 0.001 * vel * vel,
+                    energy_estimated: -1e6,
                     ..Default::default()
                 };
 

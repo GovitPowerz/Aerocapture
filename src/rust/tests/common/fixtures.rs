@@ -36,14 +36,14 @@ pub fn nav_from_state(
 ) -> NavigationOutput {
     let r = 3_396_200.0 + altitude; // Mars mean equatorial radius + altitude
     NavigationOutput {
-        positn: [r, 0.0, 0.0],
-        vitesn: [velocity, flight_path, 0.6],
-        acceln: [drag_accel, lift_accel],
-        coefan: [1.269, -0.205],
-        roguid: density,
-        roexit: 1e-6,
-        pdynan: 0.5 * density * velocity * velocity,
-        energn: -1e6,
+        position_estimated: [r, 0.0, 0.0],
+        velocity_estimated: [velocity, flight_path, 0.6],
+        acceleration_estimated: [drag_accel, lift_accel],
+        aero_coefficients: [1.269, -0.205],
+        density_guidance: density,
+        density_exit: 1e-6,
+        dynamic_pressure_estimated: 0.5 * density * velocity * velocity,
+        energy_estimated: -1e6,
         ..Default::default()
     }
 }

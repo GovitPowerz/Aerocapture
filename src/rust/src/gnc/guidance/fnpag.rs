@@ -152,14 +152,14 @@ pub fn fnpag_bank(
 
     // Current state for prediction
     let current = PredState {
-        r: nav.positn[0],
-        v: nav.vitesn[0],
-        gamma: nav.vitesn[1],
+        r: nav.position_estimated[0],
+        v: nav.velocity_estimated[0],
+        gamma: nav.velocity_estimated[1],
     };
 
     // Check if we're in the sensible atmosphere (density > threshold)
     let (altitude, _) =
-        geodetic_from_spherical(nav.positn[0], nav.positn[1], nav.positn[2], planet);
+        geodetic_from_spherical(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], planet);
     let rho = data.atmosphere.density_at(altitude);
     if rho < 1e-10 {
         // Outside sensible atmosphere — hold current bank angle
@@ -285,14 +285,14 @@ mod tests {
     fn test_nav(velocity: f64) -> NavigationOutput {
         let r = 3_396_200.0 + 50_000.0; // Mars radius + 50 km
         NavigationOutput {
-            positn: [r, 0.0, 0.0],
-            vitesn: [velocity, -0.15, 0.6],
-            acceln: [50.0, -8.0],
-            coefan: [1.269, -0.205],
-            roguid: 0.001,
-            roexit: 1e-6,
-            pdynan: 0.5 * 0.001 * velocity * velocity,
-            energn: -1e6,
+            position_estimated: [r, 0.0, 0.0],
+            velocity_estimated: [velocity, -0.15, 0.6],
+            acceleration_estimated: [50.0, -8.0],
+            aero_coefficients: [1.269, -0.205],
+            density_guidance: 0.001,
+            density_exit: 1e-6,
+            dynamic_pressure_estimated: 0.5 * 0.001 * velocity * velocity,
+            energy_estimated: -1e6,
             ..Default::default()
         }
     }
@@ -382,7 +382,7 @@ mod tests {
     fn low_density_returns_previous_bank() {
         // Place spacecraft at 200 km — exponential tail gives ≈9e-12 kg/m³ < 1e-10
         let mut nav = test_nav(5000.0);
-        nav.positn[0] = Planet::Mars.equatorial_radius() + 200_000.0;
+        nav.position_estimated[0] = Planet::Mars.equatorial_radius() + 200_000.0;
 
         let prev_bank = 55.0_f64.to_radians();
         let mut state = FnpagState::new(prev_bank);
@@ -489,10 +489,10 @@ mod tests {
             ) {
                 let mut nav = test_nav(vel);
                 let r = Planet::Mars.equatorial_radius() + alt;
-                nav.positn[0] = r;
-                nav.vitesn[1] = fpa;
-                nav.roguid = rho;
-                nav.pdynan = 0.5 * rho * vel * vel;
+                nav.position_estimated[0] = r;
+                nav.velocity_estimated[1] = fpa;
+                nav.density_guidance = rho;
+                nav.dynamic_pressure_estimated = 0.5 * rho * vel * vel;
 
                 let mut state = FnpagState::new(64.77_f64.to_radians());
                 let data = test_sim_data();

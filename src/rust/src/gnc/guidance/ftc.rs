@@ -100,18 +100,18 @@ pub fn guidance_step(
     // === Angle of attack guidance ===
     // proalf returns altitude as scheduling parameter
     let (altitude, _) =
-        geodetic_from_spherical(nav.positn[0], nav.positn[1], nav.positn[2], planet);
+        geodetic_from_spherical(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], planet);
     state.aoa_commanded = data.incidence.incidence_at(altitude);
     out.aoa_commanded = state.aoa_commanded;
 
     // === Longitudinal guidance activation ===
     let energy = total_energy(
-        nav.positn[0],
-        nav.positn[1],
-        nav.positn[2],
-        nav.vitesn[0],
-        nav.vitesn[1],
-        nav.vitesn[2],
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
         planet,
     );
 
@@ -253,9 +253,9 @@ fn capture_guidance(
 ) -> f64 {
     let ref_traj = &data.guidance.ref_trajectory;
 
-    let velocity_relative = nav.vitesn[0];
-    let velocity_radial = velocity_relative * nav.vitesn[1].sin();
-    let dynamic_pressure_equilibrium = 0.5 * nav.roguid * velocity_relative * velocity_relative;
+    let velocity_relative = nav.velocity_estimated[0];
+    let velocity_radial = velocity_relative * nav.velocity_estimated[1].sin();
+    let dynamic_pressure_equilibrium = 0.5 * nav.density_guidance * velocity_relative * velocity_relative;
 
     // Interpolate reference trajectory at current energy
     let cos_bank_nominal = ref_traj.interpolate(energy, &ref_traj.cos_bank);
@@ -264,7 +264,7 @@ fn capture_guidance(
     let _httnom = ref_traj.interpolate(energy, &ref_traj.altitude_rate);
 
     // Compute gains (tbgain)
-    let (gain_altitude_rate, gain_dynamic_pressure) = tbgain(altitude, &nav.coefan, data);
+    let (gain_altitude_rate, gain_dynamic_pressure) = tbgain(altitude, &nav.aero_coefficients, data);
 
     // Predictor-corrector equation
     // cos(bank_angle_longitudinal) = cos_bank_nominal + gain_altitude_rate*(velocity_radial - altitude_rate_nominal)/dynamic_pressure_equilibrium + gain_dynamic_pressure*(dynamic_pressure_equilibrium - dynamic_pressure_nominal)/dynamic_pressure_equilibrium
@@ -365,19 +365,19 @@ fn lateral_guidance(
 
     // Compute orbital elements for inclination
     let orbit = elements::from_spherical(
-        nav.positn[0],
-        nav.positn[1],
-        nav.positn[2],
-        nav.vitesn[0],
-        nav.vitesn[1],
-        nav.vitesn[2],
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
         planet,
     );
 
     let inclination_error = data.target_orbit.inclination - orbit.inclination;
     // Hemisphere correction intentionally omitted (inactive)
 
-    let velocity_relative = nav.vitesn[0];
+    let velocity_relative = nav.velocity_estimated[0];
 
     // Corridor boundary: inclination_max = (v/corridor_slope)^4 + corridor_intercept
     let corridor_slope = data.guidance.corridor_slope;
@@ -434,14 +434,14 @@ mod tests {
     fn test_nav() -> NavigationOutput {
         let r = Planet::Mars.equatorial_radius() + 50_000.0; // Mars + 50 km
         NavigationOutput {
-            positn: [r, 0.0, 0.0],
-            vitesn: [5000.0, -0.15, 0.6],
-            acceln: [50.0, -8.0],
-            coefan: [1.269, -0.205],
-            roguid: 0.001,
-            roexit: 1e-6,
-            pdynan: 0.5 * 0.001 * 5000.0 * 5000.0,
-            energn: -1e6,
+            position_estimated: [r, 0.0, 0.0],
+            velocity_estimated: [5000.0, -0.15, 0.6],
+            acceleration_estimated: [50.0, -8.0],
+            aero_coefficients: [1.269, -0.205],
+            density_guidance: 0.001,
+            density_exit: 1e-6,
+            dynamic_pressure_estimated: 0.5 * 0.001 * 5000.0 * 5000.0,
+            energy_estimated: -1e6,
             ..Default::default()
         }
     }
@@ -679,14 +679,14 @@ mod tests {
                 let r = Planet::Mars.equatorial_radius() + alt;
                 let initial_bank = bank_deg.to_radians();
                 let nav = NavigationOutput {
-                    positn: [r, 0.0, 0.0],
-                    vitesn: [vel, fpa, 0.6],
-                    acceln: [50.0, -8.0],
-                    coefan: [1.269, -0.205],
-                    roguid: 1e-4,
-                    roexit: 1e-6,
-                    pdynan: 0.5 * 1e-4 * vel * vel,
-                    energn: -1e6,
+                    position_estimated: [r, 0.0, 0.0],
+                    velocity_estimated: [vel, fpa, 0.6],
+                    acceleration_estimated: [50.0, -8.0],
+                    aero_coefficients: [1.269, -0.205],
+                    density_guidance: 1e-4,
+                    density_exit: 1e-6,
+                    dynamic_pressure_estimated: 0.5 * 1e-4 * vel * vel,
+                    energy_estimated: -1e6,
                     ..Default::default()
                 };
 

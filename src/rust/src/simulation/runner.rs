@@ -403,8 +403,8 @@ fn run_single(
                 run_state.filter_gain_bias,
             );
 
-            pdynan_for_photo = nav_out.pdynan;
-            romver_for_photo = nav_out.roguid;
+            pdynan_for_photo = nav_out.dynamic_pressure_estimated;
+            romver_for_photo = nav_out.density_guidance;
 
             let ftc_out = ftc::guidance_step(
                 &nav_out,
