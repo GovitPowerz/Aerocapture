@@ -36,8 +36,75 @@ fn run_sim(config_name: &str) -> std::process::Output {
         .expect("failed to execute aerocapture")
 }
 
+/// Parse a CSV value, returning None for non-numeric entries (header row).
+fn parse_csv_value(s: &str) -> Option<f64> {
+    s.trim().parse::<f64>().ok()
+}
+
+/// Compare two CSV files with approximate floating-point tolerance.
+///
+/// Allows relative error up to `rel_tol` (default 1e-9) to accommodate
+/// cross-platform floating-point differences (macOS ARM vs Linux x86_64).
+fn compare_csv_approx(actual: &str, golden: &str, scheme_label: &str, rel_tol: f64) {
+    let actual_lines: Vec<&str> = actual.lines().collect();
+    let golden_lines: Vec<&str> = golden.lines().collect();
+
+    assert_eq!(
+        actual_lines.len(),
+        golden_lines.len(),
+        "{scheme_label}: line count differs: golden={}, actual={}",
+        golden_lines.len(),
+        actual_lines.len(),
+    );
+
+    for (i, (a_line, g_line)) in actual_lines.iter().zip(golden_lines.iter()).enumerate() {
+        // Header line: exact match
+        if i == 0 {
+            assert_eq!(
+                a_line, g_line,
+                "{scheme_label}: header line differs"
+            );
+            continue;
+        }
+
+        let a_vals: Vec<&str> = a_line.split(',').collect();
+        let g_vals: Vec<&str> = g_line.split(',').collect();
+
+        assert_eq!(
+            a_vals.len(),
+            g_vals.len(),
+            "{scheme_label}: column count differs at line {i}"
+        );
+
+        for (j, (a_str, g_str)) in a_vals.iter().zip(g_vals.iter()).enumerate() {
+            match (parse_csv_value(a_str), parse_csv_value(g_str)) {
+                (Some(a_val), Some(g_val)) => {
+                    let abs_diff = (a_val - g_val).abs();
+                    let max_mag = a_val.abs().max(g_val.abs());
+                    // Use absolute tolerance for near-zero values, relative otherwise
+                    let tol = if max_mag < 1e-15 { 1e-15 } else { rel_tol * max_mag };
+                    assert!(
+                        abs_diff <= tol,
+                        "{scheme_label}: line {i}, col {j} differs beyond tolerance.\n\
+                         golden: {g_str}\n\
+                         actual: {a_str}\n\
+                         abs_diff: {abs_diff:.3e}, rel_tol: {rel_tol:.0e}",
+                    );
+                }
+                _ => {
+                    // Non-numeric: exact match
+                    assert_eq!(
+                        a_str, g_str,
+                        "{scheme_label}: non-numeric value differs at line {i}, col {j}"
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Run a guidance scheme's dedicated test config and compare final output
-/// against golden reference (byte-level -- same seed must produce identical output).
+/// against golden reference with approximate floating-point tolerance.
 ///
 /// Each scheme has its own config with a unique `results_suffix`, so tests
 /// can safely run in parallel without overwriting each other's output files.
@@ -83,7 +150,7 @@ fn guidance_regression(
 
     let repo = common::repo_root();
 
-    // Read actual output (Rust simulator appends .csv to the suffix)
+    // Read actual output
     let actual_filename = format!("final{suffix}.csv");
     let actual_path = repo.join("output").join(&actual_filename);
     let actual = std::fs::read_to_string(&actual_path).unwrap_or_else(|e| {
@@ -105,35 +172,6 @@ fn guidance_regression(
         )
     });
 
-    // Byte-level comparison: same seed must produce identical output
-    if actual != golden {
-        // Show first differing line for diagnostics
-        let actual_lines: Vec<&str> = actual.lines().collect();
-        let golden_lines: Vec<&str> = golden.lines().collect();
-        let mut diff_msg = String::new();
-        for (i, (a, g)) in actual_lines.iter().zip(golden_lines.iter()).enumerate() {
-            if a != g {
-                diff_msg = format!(
-                    "First difference at line {} (0-indexed):\n  golden: {}\n  actual: {}",
-                    i, g, a
-                );
-                break;
-            }
-        }
-        if diff_msg.is_empty() && actual_lines.len() != golden_lines.len() {
-            diff_msg = format!(
-                "Line count differs: golden={}, actual={}",
-                golden_lines.len(),
-                actual_lines.len()
-            );
-        }
-        panic!(
-            "{scheme_label}: final output differs from golden reference.\n\
-             Golden: {}\n\
-             Actual: {}\n\
-             {diff_msg}",
-            golden_path.display(),
-            actual_path.display(),
-        );
-    }
+    // Approximate comparison: rel_tol=1e-9 accommodates cross-platform FP differences
+    compare_csv_approx(&actual, &golden, scheme_label, 1e-9);
 }
