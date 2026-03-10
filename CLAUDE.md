@@ -165,7 +165,7 @@ Energy must use **absolute (inertial) velocity**, not relative velocity. The Rus
 - **Python**: Python >=3.14, Ruff (line-length 160, target py314), uv package manager, pytest, mypy strict mode. Dev tools in `[dependency-groups]` (not `[project.optional-dependencies]`). Training deps (deap, scipy) are core dependencies.
 - **Testing (Python)**: pytest, golden reference files under `tests/reference_data/`
 - **Testing (Rust)**: Three-tier pyramid — unit tests (inline `#[cfg(test)]` modules), integration tests (`src/rust/tests/`), E2E subprocess tests. Dev-dependencies: `approx` (float comparison), `rstest` (parameterized tests). Run with `cargo test` or `./check_all.sh`.
-- **CI**: GitHub Actions (`.github/workflows/ci.yml`) — Rust (fmt, clippy, test) and Python (ruff lint, ruff format, mypy, pytest) run on push to `main`/`feature/**` and PRs to `main`.
+- **CI**: GitHub Actions (`.github/workflows/ci.yml`) — Rust (fmt, clippy, test) and Python (ruff lint, ruff format, mypy, pytest) run on PRs to `main` and manual dispatch (`workflow_dispatch`).
 - **Validation**: Rust vs Fortran comparison complete — 22/24 photo columns bit-identical across 725 timesteps.
 
 ## Tone

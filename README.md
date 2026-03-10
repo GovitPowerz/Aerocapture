@@ -76,7 +76,7 @@ The Rust simulator matches the Fortran reference across all 725 timesteps of a g
 
 ## CI
 
-GitHub Actions runs on every push and PR:
+GitHub Actions runs on PRs to `main` and manual dispatch:
 
 - **Rust**: `cargo fmt --check`, `cargo clippy`, `cargo test --release`
 - **Python**: `ruff check`, `ruff format --check`, `mypy`, `pytest`
@@ -93,4 +93,4 @@ uv sync && pytest tests
 
 ## Roadmap
 
-See [improvements.md](improvements.md) for the physics, GNC, and software improvement roadmap.
+See [IMPROVEMENTS.md](IMPROVEMENTS.md) for the physics, GNC, and software improvement roadmap.
