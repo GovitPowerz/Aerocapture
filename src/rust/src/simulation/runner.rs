@@ -534,7 +534,7 @@ fn run_single(
     );
 
     let mu = planet.mu();
-    let (_posita, vitesa) = to_absolute_cartesian(
+    let (_position_abs, velocity_abs) = to_absolute_cartesian(
         sim.state[0],
         sim.state[1],
         sim.state[2],
@@ -543,9 +543,9 @@ fn run_single(
         sim.state[5],
         planet,
     );
-    let vitabs = norm(&vitesa);
-    let xenerg = vitabs * vitabs / 2.0 - mu / sim.state[0];
-    let vitrad = sim.state[3] * sim.state[4].sin();
+    let speed_abs = norm(&velocity_abs);
+    let energy = speed_abs * speed_abs / 2.0 - mu / sim.state[0];
+    let velocity_radial = sim.state[3] * sim.state[4].sin();
 
     let ifinal = match term {
         TermReason::AtmosphereExit => 3,
@@ -568,8 +568,8 @@ fn run_single(
     xsauve[3] = sim.state[3];
     xsauve[4] = sim.state[4] / degrad;
     xsauve[5] = sim.state[5] / degrad;
-    xsauve[6] = vitrad;
-    xsauve[7] = xenerg / 1e6;
+    xsauve[6] = velocity_radial;
+    xsauve[7] = energy / 1e6;
     xsauve[8] = orbit.semi_major_axis / 1e3;
     xsauve[9] = orbit.eccentricity;
     xsauve[10] = orbit.inclination / degrad;
@@ -635,7 +635,7 @@ fn build_photo_values(
     );
 
     let mu = planet.mu();
-    let (_posita, vitesa) = to_absolute_cartesian(
+    let (_position_abs, velocity_abs) = to_absolute_cartesian(
         sim.state[0],
         sim.state[1],
         sim.state[2],
@@ -644,9 +644,9 @@ fn build_photo_values(
         sim.state[5],
         planet,
     );
-    let vitabs = norm(&vitesa);
-    let enerjr = vitabs * vitabs / 2.0 - mu / sim.state[0];
-    let vitrad = sim.state[3] * sim.state[4].sin();
+    let speed_abs = norm(&velocity_abs);
+    let energy = speed_abs * speed_abs / 2.0 - mu / sim.state[0];
+    let velocity_radial = sim.state[3] * sim.state[4].sin();
 
     let iphase = if !sim.bounced {
         if altitr > 80e3 { 1.0 } else { 2.0 }
@@ -670,12 +670,12 @@ fn build_photo_values(
         orbit.apoapsis_alt / 1e3,
         iphase,
         sim.bank_angle / degrad,
-        vitrad,
+        velocity_radial,
         sim.aoa / degrad,
         somgit / degrad,
-        enerjr,
+        energy,
         pdynan,
-        vitrad,
+        velocity_radial,
         0.5 * romver * sim.state[3] * sim.state[3] / 1e3,
         isimul as f64,
         0.0,

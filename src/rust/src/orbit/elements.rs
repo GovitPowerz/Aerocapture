@@ -1,6 +1,4 @@
 //! Orbital element computation from state vectors.
-//!
-//! Matches Fortran orbito.f exactly.
 
 use crate::config::Planet;
 use crate::data::OrbitalElements;
@@ -8,7 +6,6 @@ use crate::gnc::navigation::coordinates::{cross, dot, norm, to_absolute_cartesia
 
 /// Compute orbital elements from spherical state.
 ///
-/// Matches Fortran orbito.f.
 /// Position: [r, lon, lat] geocentric spherical
 /// Velocity: [V, gamma, psi] local spherical
 pub fn from_spherical(
@@ -22,10 +19,10 @@ pub fn from_spherical(
 ) -> OrbitalElements {
     let mu = planet.mu();
     let req = planet.equatorial_radius();
-    let enrmin = 1e-6; // Fortran: satorb common, small threshold
+    let enrmin = 1e-6; // small threshold to avoid parabolic singularity
 
     // Get absolute position and velocity in Cartesian
-    let (posita, vitesa) = to_absolute_cartesian(
+    let (position_abs, velocity_abs) = to_absolute_cartesian(
         radius,
         longitude,
         latitude,
@@ -36,71 +33,71 @@ pub fn from_spherical(
     );
 
     // Angular momentum: L = r × v
-    let xmocin = cross(&posita, &vitesa);
+    let angular_momentum = cross(&position_abs, &velocity_abs);
 
-    let rayvec = norm(&posita);
-    let vitabs = norm(&vitesa);
-    let xcinet = norm(&xmocin);
+    let radius_val = norm(&position_abs);
+    let speed_abs = norm(&velocity_abs);
+    let angular_momentum_magnitude = norm(&angular_momentum);
 
     // Total energy (thresholded to avoid parabolic singularity)
-    let enrorb_raw = vitabs * vitabs / 2.0 - mu / rayvec;
-    let sigenr = enrorb_raw.signum();
-    let enrorb = sigenr * enrorb_raw.abs().max(enrmin);
+    let energy_raw = speed_abs * speed_abs / 2.0 - mu / radius_val;
+    let energy_sign = energy_raw.signum();
+    let energy = energy_sign * energy_raw.abs().max(enrmin);
 
     // Semi-major axis
-    let demiax = -mu / (2.0 * enrorb);
+    let semi_major_axis_raw = -mu / (2.0 * energy);
 
     // Eccentricity
-    let parexc = xcinet * xcinet / (mu * demiax);
-    let excent = if (parexc - 1.0).abs() < 1e-20 {
+    let eccentricity_param = angular_momentum_magnitude * angular_momentum_magnitude / (mu * semi_major_axis_raw);
+    let eccentricity_raw = if (eccentricity_param - 1.0).abs() < 1e-20 {
         0.0
     } else {
-        (1.0 - parexc).abs().sqrt()
+        (1.0 - eccentricity_param).abs().sqrt()
     };
 
     // Inclination
-    let cosinc = xmocin[2] / xcinet;
-    let sininc = (1.0 - cosinc * cosinc).max(0.0).sqrt();
-    let xincli = sininc.atan2(cosinc);
+    let cos_inclination = angular_momentum[2] / angular_momentum_magnitude;
+    let sin_inclination = (1.0 - cos_inclination * cos_inclination).max(0.0).sqrt();
+    let inclination_raw = sin_inclination.atan2(cos_inclination);
 
     // RAAN (longitude of ascending node)
-    let gomega = if sininc.abs() > 1e-10 {
-        let sinomg = xmocin[0] / (xcinet * sininc);
-        let cosomg = -xmocin[1] / (xcinet * sininc);
+    let raan_raw = if sin_inclination.abs() > 1e-10 {
+        let sinomg = angular_momentum[0] / (angular_momentum_magnitude * sin_inclination);
+        let cosomg = -angular_momentum[1] / (angular_momentum_magnitude * sin_inclination);
         sinomg.atan2(cosomg)
     } else {
         0.0
     };
 
     // True anomaly
-    let posvit = dot(&posita, &vitesa);
-    let v0 = if enrorb < 0.0 {
+    let pos_dot_vel = dot(&position_abs, &velocity_abs);
+    let v0 = if energy < 0.0 {
         // Elliptical orbit
         let sv0 =
-            posvit * (1.0 - excent * excent).max(0.0).sqrt() / (excent * (mu * demiax).sqrt());
-        let cv0 = (1.0 - rayvec / demiax) / excent - excent;
+            pos_dot_vel * (1.0 - eccentricity_raw * eccentricity_raw).max(0.0).sqrt() / (eccentricity_raw * (mu * semi_major_axis_raw).sqrt());
+        let cv0 = (1.0 - radius_val / semi_major_axis_raw) / eccentricity_raw - eccentricity_raw;
         sv0.atan2(cv0)
     } else {
         // Hyperbolic orbit
-        let sv0 = posvit * (excent * excent - 1.0).max(0.0).sqrt()
-            / (excent * (mu * demiax.abs()).sqrt());
-        let cv0 = -((1.0 + rayvec / demiax.abs()) / excent - excent);
+        let sv0 = pos_dot_vel * (eccentricity_raw * eccentricity_raw - 1.0).max(0.0).sqrt()
+            / (eccentricity_raw * (mu * semi_major_axis_raw.abs()).sqrt());
+        let cv0 = -((1.0 + radius_val / semi_major_axis_raw.abs()) / eccentricity_raw - eccentricity_raw);
         sv0.atan2(cv0)
     };
 
     // Argument of periapsis
-    let sinomg = gomega.sin();
-    let cosomg = gomega.cos();
-    let pomega = if xincli > 1e-3 {
-        let arg1 = posita[2] / (xincli.sin() * rayvec);
-        let arg2 = (posita[0] * cosomg + posita[1] * sinomg) / rayvec;
+    let sinomg = raan_raw.sin();
+    let cosomg = raan_raw.cos();
+    let arg_periapsis_raw = if inclination_raw > 1e-3 {
+        let arg1 = position_abs[2] / (inclination_raw.sin() * radius_val);
+        let arg2 = (position_abs[0] * cosomg + position_abs[1] * sinomg) / radius_val;
         let mut w = arg1.atan2(arg2) - v0;
         if w < 0.0 {
             w += 2.0 * std::f64::consts::PI;
         }
         w
     } else {
-        let mut w = posita[1].atan2(posita[0]) - v0;
+        let mut w = position_abs[1].atan2(position_abs[0]) - v0;
         if w < 0.0 {
             w += 2.0 * std::f64::consts::PI;
         }
@@ -108,15 +105,15 @@ pub fn from_spherical(
     };
 
     // Periapsis and apoapsis radii → altitudes
-    let rayper = demiax * (1.0 - excent);
-    let rayapo = demiax * (1.0 + excent);
+    let rayper = semi_major_axis_raw * (1.0 - eccentricity_raw);
+    let rayapo = semi_major_axis_raw * (1.0 + eccentricity_raw);
 
     OrbitalElements {
-        semi_major_axis: demiax,
-        eccentricity: excent,
-        inclination: xincli,
-        raan: gomega,
-        arg_periapsis: pomega,
+        semi_major_axis: semi_major_axis_raw,
+        eccentricity: eccentricity_raw,
+        inclination: inclination_raw,
+        raan: raan_raw,
+        arg_periapsis: arg_periapsis_raw,
         true_anomaly: v0,
         periapsis_alt: rayper - req,
         apoapsis_alt: rayapo - req,

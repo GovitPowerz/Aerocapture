@@ -1,6 +1,6 @@
 //! Coordinate transformations.
 //!
-//! Matches Fortran frayon.f, geodes.f, cartes.f, reploc.f, xvabsl.f.
+//! Derived from Fortran frayon.f, geodes.f, cartes.f, reploc.f, xvabsl.f.
 
 use crate::config::Planet;
 
@@ -186,7 +186,6 @@ pub fn norm(v: &[f64; 3]) -> f64 {
 
 /// Compute absolute (inertial) position and velocity from spherical state.
 ///
-/// Matches Fortran xvabsl.f.
 /// Takes geocentric spherical position [r, lon, lat] and local spherical velocity [V, gamma, psi].
 /// Returns (position_cartesian, velocity_absolute_cartesian).
 pub fn to_absolute_cartesian(
@@ -199,35 +198,34 @@ pub fn to_absolute_cartesian(
     planet: &Planet,
 ) -> ([f64; 3], [f64; 3]) {
     // Position: spherical → Cartesian
-    let posita = position_to_cartesian(r, lon, lat);
+    let position_abs = position_to_cartesian(r, lon, lat);
 
     // Velocity: spherical → local Cartesian
-    let vitesl = velocity_to_local_cartesian(v, gamma, psi);
+    let velocity_local = velocity_to_local_cartesian(v, gamma, psi);
 
     // Local-to-geocentric rotation matrix
-    let plocal = local_to_geocentric_matrix(lon, lat);
+    let local_to_geocentric = local_to_geocentric_matrix(lon, lat);
 
-    // Velocity in geocentric frame = P * vitesl
-    let vitesr = mat_vec_3(&plocal, &vitesl);
+    // Velocity in geocentric frame = rotation * velocity_local
+    let velocity_geocentric = mat_vec_3(&local_to_geocentric, &velocity_local);
 
     // Entrainment velocity = omega × position
     let omega = planet.omega();
-    let omega_vec = [0.0, 0.0, omega]; // Fortran: xomega = [0, 0, omega]
-    let vitese = cross(&omega_vec, &posita);
+    let omega_vec = [0.0, 0.0, omega];
+    let velocity_entrainment = cross(&omega_vec, &position_abs);
 
     // Absolute velocity = entrainment + relative geocentric
-    let vitesa = [
-        vitese[0] + vitesr[0],
-        vitese[1] + vitesr[1],
-        vitese[2] + vitesr[2],
+    let velocity_abs = [
+        velocity_entrainment[0] + velocity_geocentric[0],
+        velocity_entrainment[1] + velocity_geocentric[1],
+        velocity_entrainment[2] + velocity_geocentric[2],
     ];
 
-    (posita, vitesa)
+    (position_abs, velocity_abs)
 }
 
 /// Compute total orbital energy from spherical state.
 ///
-/// Matches Fortran enrtot.f.
 /// E = |v_abs|^2/2 - mu/|r|
 pub fn total_energy(
     r: f64,
@@ -238,10 +236,10 @@ pub fn total_energy(
     psi: f64,
     planet: &Planet,
 ) -> f64 {
-    let (posita, vitesa) = to_absolute_cartesian(r, lon, lat, v, gamma, psi, planet);
-    let vitabs = norm(&vitesa);
-    let rayvec = norm(&posita);
-    vitabs * vitabs / 2.0 - planet.mu() / rayvec
+    let (position_abs, velocity_abs) = to_absolute_cartesian(r, lon, lat, v, gamma, psi, planet);
+    let speed_abs = norm(&velocity_abs);
+    let radius = norm(&position_abs);
+    speed_abs * speed_abs / 2.0 - planet.mu() / radius
 }
 
 #[cfg(test)]
