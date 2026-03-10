@@ -165,7 +165,7 @@ def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt
             cwd=str(cwd.resolve()),
             timeout=300,
         )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except subprocess.TimeoutExpired, FileNotFoundError:
         return None
 
     # Parse final conditions — auto-detect CSV vs legacy text
