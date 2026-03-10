@@ -564,6 +564,87 @@ mod tests {
         );
     }
 
+    // ── Test 7: density_filter_stability ──
+
+    /// Run navigate() 100 times in a loop and verify coefro stays finite and
+    /// positive at every step.  This guards against the common-block bug that
+    /// caused a 55x amplification per step in the original Fortran.
+    #[test]
+    fn density_filter_stability() {
+        let data = test_sim_data();
+        // 40 km — meaningful atmosphere so the filter actually updates
+        let r = MARS_REQ + 40_000.0;
+        let positr = [r, 0.0, 0.0];
+        let vitesr = [5000.0, -0.10, 1.0];
+        let biases = zero_biases();
+        let mut nav_state = NavigationState::new();
+
+        for step in 0..100 {
+            let _out = call_navigate(
+                &positr,
+                &vitesr,
+                &biases,
+                &mut nav_state,
+                &data,
+                &no_run_biases(),
+            );
+            assert!(
+                nav_state.coefro.is_finite(),
+                "coefro became non-finite at step {step}: {}",
+                nav_state.coefro
+            );
+            assert!(
+                nav_state.coefro > 0.0,
+                "coefro became non-positive at step {step}: {}",
+                nav_state.coefro
+            );
+        }
+    }
+
+    // ── Test 8: proptest_navigate_outputs_finite ──
+
+    proptest::proptest! {
+        /// For any bounded but arbitrary state, navigate() must produce entirely
+        /// finite outputs — no NaN or Inf should escape.
+        #[test]
+        fn proptest_navigate_outputs_finite(
+            // altitude 30–120 km above Mars surface
+            alt_km in 30.0_f64..=120.0_f64,
+            velocity in 1_000.0_f64..=8_000.0_f64,
+            gamma in -0.5_f64..=0.5_f64,
+            psi in -3.14_f64..=3.14_f64,
+            pos_bias_alt in -500.0_f64..=500.0_f64,
+            vel_bias in -5.0_f64..=5.0_f64,
+        ) {
+            let data = test_sim_data();
+            let r = MARS_REQ + alt_km * 1_000.0;
+            let positr = [r, 0.1, 0.05];
+            let vitesr = [velocity, gamma, psi];
+            let biases = NavigationBiases {
+                pos: [pos_bias_alt, 0.0, 0.0],
+                vel: [vel_bias, 0.0, 0.0],
+                drag: 0.0,
+            };
+            let mut nav_state = NavigationState::new();
+
+            let out = call_navigate(
+                &positr,
+                &vitesr,
+                &biases,
+                &mut nav_state,
+                &data,
+                &no_run_biases(),
+            );
+
+            proptest::prop_assert!(out.positn[0].is_finite(), "positn[0] non-finite");
+            proptest::prop_assert!(out.vitesn[0].is_finite(), "vitesn[0] non-finite");
+            proptest::prop_assert!(out.roguid.is_finite(), "roguid non-finite");
+            proptest::prop_assert!(out.pdynan.is_finite(), "pdynan non-finite");
+            proptest::prop_assert!(out.energn.is_finite(), "energn non-finite");
+            proptest::prop_assert!(nav_state.coefro.is_finite(), "coefro non-finite");
+        }
+    }
+
     // ── Test 6: zero_biases_no_nav_errors ──
 
     #[test]
