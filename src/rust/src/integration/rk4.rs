@@ -38,7 +38,8 @@ pub fn rk4_increment(
             for i in 0..n {
                 let step_increment = dt * derivs[i];
                 state[i] += (1.0 - gill_toggle_f / a) * (step_increment - accumulator[i]);
-                accumulator[i] = accumulator[i] * (-2.0 + 3.0 * gill_toggle_f / a) + step_increment * (2.0 - gill_toggle_f * a);
+                accumulator[i] = accumulator[i] * (-2.0 + 3.0 * gill_toggle_f / a)
+                    + step_increment * (2.0 - gill_toggle_f * a);
             }
             *gill_toggle = -1;
         }
@@ -93,7 +94,14 @@ mod tests {
         for step in 0..n_steps {
             let x = step as f64 * dt;
             gill_toggle = 0;
-            rk4_step(x, dt, &mut state, &mut gill_toggle, &mut accumulator, |t, _| vec![t]);
+            rk4_step(
+                x,
+                dt,
+                &mut state,
+                &mut gill_toggle,
+                &mut accumulator,
+                |t, _| vec![t],
+            );
         }
 
         assert!(
@@ -115,7 +123,14 @@ mod tests {
         for step in 0..n_steps {
             let x = step as f64 * dt;
             gill_toggle = 0;
-            rk4_step(x, dt, &mut state, &mut gill_toggle, &mut accumulator, |_, s| vec![s[0]]);
+            rk4_step(
+                x,
+                dt,
+                &mut state,
+                &mut gill_toggle,
+                &mut accumulator,
+                |_, s| vec![s[0]],
+            );
         }
 
         let expected = std::f64::consts::E;
@@ -141,9 +156,14 @@ mod tests {
         for step in 0..n_steps {
             let t = step as f64 * dt;
             gill_toggle = 0;
-            rk4_step(t, dt, &mut state, &mut gill_toggle, &mut accumulator, |_, s| {
-                vec![s[1], -s[0]]
-            });
+            rk4_step(
+                t,
+                dt,
+                &mut state,
+                &mut gill_toggle,
+                &mut accumulator,
+                |_, s| vec![s[1], -s[0]],
+            );
         }
 
         // Tolerance accounts for both integrator error and period discretization
@@ -167,7 +187,14 @@ mod tests {
         for step in 0..10 {
             let x = step as f64 * dt;
             gill_toggle = 0;
-            rk4_step(x, dt, &mut state, &mut gill_toggle, &mut accumulator, |_, _| vec![0.0]);
+            rk4_step(
+                x,
+                dt,
+                &mut state,
+                &mut gill_toggle,
+                &mut accumulator,
+                |_, _| vec![0.0],
+            );
         }
 
         assert!(

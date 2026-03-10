@@ -37,7 +37,12 @@ pub fn equilibrium_glide_bank(nav: &NavigationOutput, data: &SimData, planet: &P
     let v2_over_r = v * v / r;
 
     // Lift force per unit mass: L/m = 0.5 * rho * V² * S * Cz / m
-    let (altitude, _) = geodetic_from_spherical(r, nav.position_estimated[1], nav.position_estimated[2], planet);
+    let (altitude, _) = geodetic_from_spherical(
+        r,
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        planet,
+    );
     let rho = data.atmosphere.density_at(altitude);
     let cz = nav.aero_coefficients[1]; // lift coefficient from navigation
     let sref = data.capsule.reference_area;

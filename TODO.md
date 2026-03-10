@@ -3,12 +3,6 @@
 ## Codebase Cleanup
 
 - [ ] Clean up Rust warnings and rename variables properly (no French, no 6-char Fortran legacy names)
-- [ ] Review test quality and coverage gaps
-- [ ] Expand test coverage (unit + integration) to catch regressions
-
-## CI / DevOps
-
-- [ ] Run CI tests only on PRs, not on every push
 
 ## Documentation
 

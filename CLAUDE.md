@@ -34,7 +34,7 @@ pytest tests/test_foo.py::test_bar -v
 
 ### Rust Simulator (`src/rust/`)
 
-The Rust code is a faithful line-by-line reimplementation of the original Fortran. Each module maps directly to one or more Fortran subroutines. The crate has both `lib.rs` (public API for tests) and `main.rs` (CLI entry). TOML config as a CLI argument (`./aerocapture config.toml`) is the only supported input format. TOML supports all 6 guidance schemes and inline vehicle/mission data.
+The Rust code is a reimplementation of the original Fortran algorithms with all variable names modernized to explicit English (no French/Fortran legacy names remain). The crate has both `lib.rs` (public API for tests) and `main.rs` (CLI entry). TOML config as a CLI argument (`./aerocapture config.toml`) is the only supported input format. TOML supports all 6 guidance schemes and inline vehicle/mission data.
 
 ```
 src/rust/src/
@@ -47,7 +47,7 @@ src/rust/src/
     capsule.rs                     — Vehicle: mass, reference area, max bank rate
     guidance_params.rs             — Guidance law config: FTC gains, EqGlide, EnergyCtrl, PredGuid, FNPAG params
     dispersions.rs                 — Monte Carlo dispersion profiles
-    navigation.rs                  — Navigation error gabarits
+    navigation.rs                  — Navigation error profiles
     incidence.rs                   — AoA profile tables
     pilot.rs                       — Pilot dynamics parameters
   physics/

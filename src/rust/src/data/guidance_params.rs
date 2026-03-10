@@ -130,11 +130,11 @@ pub struct GuidanceParams {
     pub density_filter_gain: f64, // low-pass filter gain for density estimation
 
     // Activation/inhibition thresholds
-    pub longi_activation: f64,   // longitudinal guidance activation threshold (J/kg)
-    pub longi_inhibition: f64,   // longitudinal guidance inhibition threshold (J/kg)
+    pub longi_activation: f64, // longitudinal guidance activation threshold (J/kg)
+    pub longi_inhibition: f64, // longitudinal guidance inhibition threshold (J/kg)
     pub lateral_activation: f64, // lateral guidance activation threshold (J/kg)
     pub lateral_inhibition: f64, // lateral guidance inhibition threshold (J/kg)
-    pub pdyn_min: f64,           // minimum dynamic pressure for tracking (Pa)
+    pub pdyn_min: f64,         // minimum dynamic pressure for tracking (Pa)
 
     // Pdyn = f(altitude) reference table
     pub pdyn_table: Vec<DynamicPressureTableEntry>,

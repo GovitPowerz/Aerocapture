@@ -158,8 +158,12 @@ pub fn fnpag_bank(
     };
 
     // Check if we're in the sensible atmosphere (density > threshold)
-    let (altitude, _) =
-        geodetic_from_spherical(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], planet);
+    let (altitude, _) = geodetic_from_spherical(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        planet,
+    );
     let rho = data.atmosphere.density_at(altitude);
     if rho < 1e-10 {
         // Outside sensible atmosphere — hold current bank angle

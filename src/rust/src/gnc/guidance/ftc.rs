@@ -18,12 +18,12 @@ pub struct FtcState {
     pub aoa_commanded: f64,        // commanded AoA (rad)
 
     // Roll sign and reversal tracking
-    pub roll_sign: f64,            // roll polarity sign (-1, 0, +1)
+    pub roll_sign: f64,              // roll polarity sign (-1, 0, +1)
     pub cumulative_bank_change: f64, // cumulative bank angle changes (rad)
-    pub n_reversals: i32,          // number of roll reversals
-    pub reversal_active: i32,      // roll reversal active flag
-    pub rolway: i32,               // roll reversal path (+1=short, -1=long)
-    pub reversal_duration: f64,    // roll reversal duration (s)
+    pub n_reversals: i32,            // number of roll reversals
+    pub reversal_active: i32,        // roll reversal active flag
+    pub rolway: i32,                 // roll reversal path (+1=short, -1=long)
+    pub reversal_duration: f64,      // roll reversal duration (s)
 
     // Guidance securization
     pub securization_counters: [i32; 2], // securization counters
@@ -99,8 +99,12 @@ pub fn guidance_step(
 
     // === Angle of attack guidance ===
     // proalf returns altitude as scheduling parameter
-    let (altitude, _) =
-        geodetic_from_spherical(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], planet);
+    let (altitude, _) = geodetic_from_spherical(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        planet,
+    );
     state.aoa_commanded = data.incidence.incidence_at(altitude);
     out.aoa_commanded = state.aoa_commanded;
 
@@ -175,7 +179,15 @@ pub fn guidance_step(
     // === Lateral guidance ===
     let mut roll_reversal_active = 0;
     if lateral_active == 1 {
-        lateral_guidance(nav, bank_angle_longitudinal, sim_time, state, data, planet, &mut roll_reversal_active);
+        lateral_guidance(
+            nav,
+            bank_angle_longitudinal,
+            sim_time,
+            state,
+            data,
+            planet,
+            &mut roll_reversal_active,
+        );
         if state.reversal_active == 1 {
             state.guidance_active[1] = 0;
         }
@@ -192,18 +204,22 @@ pub fn guidance_step(
             let guidance_period = data.periods.guidance;
             if state.rolway == 1 {
                 if state.roll_sign > 0.0 {
-                    state.bank_angle_commanded = state.bank_angle_previous + max_bank_rate * guidance_period;
+                    state.bank_angle_commanded =
+                        state.bank_angle_previous + max_bank_rate * guidance_period;
                 } else {
-                    state.bank_angle_commanded = state.bank_angle_previous - max_bank_rate * guidance_period;
+                    state.bank_angle_commanded =
+                        state.bank_angle_previous - max_bank_rate * guidance_period;
                 }
             } else {
                 if state.roll_sign > 0.0 {
-                    state.bank_angle_commanded = state.bank_angle_previous - max_bank_rate * guidance_period;
+                    state.bank_angle_commanded =
+                        state.bank_angle_previous - max_bank_rate * guidance_period;
                     if state.bank_angle_commanded < -pi {
                         state.bank_angle_commanded += 2.0 * pi;
                     }
                 } else {
-                    state.bank_angle_commanded = state.bank_angle_previous + max_bank_rate * guidance_period;
+                    state.bank_angle_commanded =
+                        state.bank_angle_previous + max_bank_rate * guidance_period;
                     if state.bank_angle_commanded > pi {
                         state.bank_angle_commanded -= 2.0 * pi;
                     }
@@ -221,15 +237,18 @@ pub fn guidance_step(
     if bank_rate.abs() - max_bank_rate > 1e-10 {
         rate_saturated = 1;
         if state.bank_angle_commanded > state.bank_angle_previous {
-            state.bank_angle_commanded = state.bank_angle_previous + max_bank_rate * guidance_period;
+            state.bank_angle_commanded =
+                state.bank_angle_previous + max_bank_rate * guidance_period;
         } else {
-            state.bank_angle_commanded = state.bank_angle_previous - max_bank_rate * guidance_period;
+            state.bank_angle_commanded =
+                state.bank_angle_previous - max_bank_rate * guidance_period;
         }
     }
 
     // Cumulative bank angle tracking
     if bank_rate.abs() > 1e-10 {
-        state.cumulative_bank_change += (state.bank_angle_commanded - state.bank_angle_previous).abs();
+        state.cumulative_bank_change +=
+            (state.bank_angle_commanded - state.bank_angle_previous).abs();
     }
 
     state.bank_angle_previous = state.bank_angle_commanded;
@@ -255,7 +274,8 @@ fn capture_guidance(
 
     let velocity_relative = nav.velocity_estimated[0];
     let velocity_radial = velocity_relative * nav.velocity_estimated[1].sin();
-    let dynamic_pressure_equilibrium = 0.5 * nav.density_guidance * velocity_relative * velocity_relative;
+    let dynamic_pressure_equilibrium =
+        0.5 * nav.density_guidance * velocity_relative * velocity_relative;
 
     // Interpolate reference trajectory at current energy
     let cos_bank_nominal = ref_traj.interpolate(energy, &ref_traj.cos_bank);
@@ -264,14 +284,21 @@ fn capture_guidance(
     let _httnom = ref_traj.interpolate(energy, &ref_traj.altitude_rate);
 
     // Compute gains
-    let (gain_altitude_rate, gain_dynamic_pressure) = compute_gains(altitude, &nav.aero_coefficients, data);
+    let (gain_altitude_rate, gain_dynamic_pressure) =
+        compute_gains(altitude, &nav.aero_coefficients, data);
 
     // Predictor-corrector equation
     // cos(bank_angle_longitudinal) = cos_bank_nominal + gain_altitude_rate*(velocity_radial - altitude_rate_nominal)/dynamic_pressure_equilibrium + gain_dynamic_pressure*(dynamic_pressure_equilibrium - dynamic_pressure_nominal)/dynamic_pressure_equilibrium
-    let dynamic_pressure_equilibrium_safe = if dynamic_pressure_equilibrium.abs() > 1e-10 { dynamic_pressure_equilibrium } else { 1e-10 };
+    let dynamic_pressure_equilibrium_safe = if dynamic_pressure_equilibrium.abs() > 1e-10 {
+        dynamic_pressure_equilibrium
+    } else {
+        1e-10
+    };
     let mut cos_bank_commanded = cos_bank_nominal
-        + gain_altitude_rate * (velocity_radial - altitude_rate_nominal) / dynamic_pressure_equilibrium_safe
-        + gain_dynamic_pressure * (dynamic_pressure_equilibrium - dynamic_pressure_nominal) / dynamic_pressure_equilibrium_safe;
+        + gain_altitude_rate * (velocity_radial - altitude_rate_nominal)
+            / dynamic_pressure_equilibrium_safe
+        + gain_dynamic_pressure * (dynamic_pressure_equilibrium - dynamic_pressure_nominal)
+            / dynamic_pressure_equilibrium_safe;
 
     // Securization: clamp cos to [-1, 1]
     let is_securized;
@@ -385,7 +412,9 @@ fn lateral_guidance(
     let inclination_max = (velocity_relative / corridor_slope).powi(4) + corridor_intercept;
 
     // Reversal decision
-    if inclination_error.abs() >= inclination_max && bank_angle_longitudinal.abs() > 1e-10 && state.n_reversals < data.guidance.max_reversals
+    if inclination_error.abs() >= inclination_max
+        && bank_angle_longitudinal.abs() > 1e-10
+        && state.n_reversals < data.guidance.max_reversals
     {
         if inclination_error > inclination_max {
             state.roll_sign = -1.0;
@@ -402,11 +431,13 @@ fn lateral_guidance(
                 state.reversal_active = 1;
                 state.reversal_active = 0; // immediately reset after arming
                 state.rolway = 1;
-                let bank_angle_change = state.bank_angle_previous.abs() + bank_angle_longitudinal.abs();
+                let bank_angle_change =
+                    state.bank_angle_previous.abs() + bank_angle_longitudinal.abs();
                 let max_bank_rate = data.capsule.max_bank_rate;
                 let guidance_period = data.periods.guidance;
                 state.reversal_duration = bank_angle_change / max_bank_rate;
-                state.reversal_duration = (state.reversal_duration / guidance_period).floor() * guidance_period;
+                state.reversal_duration =
+                    (state.reversal_duration / guidance_period).floor() * guidance_period;
             }
         }
     }
@@ -553,9 +584,21 @@ mod tests {
             GuidanceType::Ftc,
         );
 
-        assert!(out.bank_angle_commanded.is_finite(), "bank_angle_commanded not finite: {}", out.bank_angle_commanded);
-        assert!(out.aoa_commanded.is_finite(), "aoa_commanded not finite: {}", out.aoa_commanded);
-        assert!(out.bank_rate.is_finite(), "bank_rate not finite: {}", out.bank_rate);
+        assert!(
+            out.bank_angle_commanded.is_finite(),
+            "bank_angle_commanded not finite: {}",
+            out.bank_angle_commanded
+        );
+        assert!(
+            out.aoa_commanded.is_finite(),
+            "aoa_commanded not finite: {}",
+            out.aoa_commanded
+        );
+        assert!(
+            out.bank_rate.is_finite(),
+            "bank_rate not finite: {}",
+            out.bank_rate
+        );
     }
 
     /// In reference mode, output bank should equal the reference bank angle.
