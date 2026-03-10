@@ -1,7 +1,6 @@
 //! Atmospheric density computation.
 //!
 //! Wraps the atmosphere data model for use in the simulation loop.
-//! Matches Fortran fatmos.f.
 
 use crate::data::atmosphere::AtmosphereModel;
 

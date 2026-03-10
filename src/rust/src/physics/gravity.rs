@@ -1,6 +1,4 @@
 //! Gravity model with J2 oblate planet correction.
-//!
-//! Matches Fortran fgravi.f exactly.
 
 use crate::config::Planet;
 
@@ -9,8 +7,6 @@ use crate::config::Planet;
 /// Returns (gravtl, gravtr):
 ///   - gravtl: lateral (latitudinal) component from J2 (m/s^2)
 ///   - gravtr: radial component, positive outward (m/s^2)
-///
-/// Matches Fortran fgravi.f equations.
 pub fn gravity(radius: f64, latitude: f64, planet: &Planet) -> (f64, f64) {
     let mu = planet.mu();
     let req = planet.equatorial_radius();

@@ -1,6 +1,5 @@
 //! Wind model.
 //!
-//! Placeholder for Fortran fvents.f wind model.
 //! Currently returns zero wind velocity.
 
 /// Wind velocity components (m/s) in local frame.
