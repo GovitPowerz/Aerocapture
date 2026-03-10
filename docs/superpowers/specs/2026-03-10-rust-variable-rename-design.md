@@ -95,6 +95,16 @@
 | `iphase` | `guidance_phase` |
 | `tcaptr` | `capture_time` |
 
+### FtcOutput fields
+| Old | New |
+|-----|-----|
+| `gitcom` | `bank_angle_commanded` |
+| `alfcom` | `aoa_commanded` |
+| `vitgit` | `bank_rate` |
+| `ilongi` | `longitudinal_active` |
+| `isatur` | `rate_saturated` |
+| `indrol` | `roll_reversal_active` |
+
 ### NavigationOutput fields
 | Old | New |
 |-----|-----|
@@ -107,6 +117,7 @@
 | `pdynan` | `dynamic_pressure_estimated` |
 | `energn` | `energy_estimated` |
 | `ecartn` | `orbital_errors` |
+| `vitref` | `reference_velocity` |
 | `icrash` | `crash_flag` |
 | `indext` | `phase_transition_flag` |
 
@@ -124,7 +135,7 @@
 | `hdtnom` | `altitude_rate_nominal` |
 | `cosmuc` | `cos_bank_commanded` |
 | `inumer` | `table_index` |
-| `coefpd_a/b` | `pressure_coeff_a/b` |
+| `coefpd_a` | `pressure_coeff_a` |
 | `amorft` | `damping_capture` |
 | `pulsft` | `frequency_capture` |
 | `srefer` | `reference_area` |
@@ -143,6 +154,25 @@
 | Old | New |
 |-----|-----|
 | `roesti` | `density_estimated` |
+| `vitrel` | `velocity_relative` |
+| `vitrad` | `velocity_radial` |
+| `dvitrd` | `delta_radial_velocity` |
+| `acdram` | `drag_acceleration_measured` |
+
+### Runner local variables (runner.rs)
+| Old | New |
+|-----|-----|
+| `romver` | `density_estimate` |
+| `xsauve` | `final_record` |
+| `xenerg` | `energy` |
+| `vitrad` | `velocity_radial` |
+| `altitr` | `altitude` |
+| `xlatit` | `latitude` |
+| `enerjr` | `energy` |
+| `isimul` | `sim_index` |
+| `somgit` | `cumulative_bank_change` |
+| `gitref` | `reference_bank_angle` |
+| `degrad` | `DEG_TO_RAD` |
 
 ### RK4 variables (rk4.rs)
 | Old | New |
