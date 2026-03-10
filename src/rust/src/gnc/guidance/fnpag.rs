@@ -264,3 +264,243 @@ pub fn fnpag_bank(
 
     best_bank.clamp(bank_min, bank_max)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+    use rstest::rstest;
+
+    use crate::data::aerodynamics::AeroTables;
+    use crate::data::atmosphere::{AtmosphereModel, DensityProfile};
+    use crate::data::capsule::Capsule;
+    use crate::data::guidance_params::GuidanceParams;
+    use crate::data::incidence::IncidenceProfile;
+    use crate::data::pilot::{PilotModel, PilotType};
+    use crate::data::{
+        Constraints, EntryConditions, FinalConditions, OrbitalTarget, ParkingOrbit, SimData,
+        SphericalState, SuccessCriteria, TimePeriods,
+    };
+
+    fn test_nav(velocity: f64) -> NavigationOutput {
+        let r = 3_396_200.0 + 50_000.0; // Mars radius + 50 km
+        NavigationOutput {
+            positn: [r, 0.0, 0.0],
+            vitesn: [velocity, -0.15, 0.6],
+            acceln: [50.0, -8.0],
+            coefan: [1.269, -0.205],
+            roguid: 0.001,
+            roexit: 1e-6,
+            pdynan: 0.5 * 0.001 * velocity * velocity,
+            energn: -1e6,
+            ..Default::default()
+        }
+    }
+
+    fn test_sim_data() -> SimData {
+        SimData {
+            capsule: Capsule {
+                mass: 1089.0,
+                reference_area: 14.7,
+                cq: 0.00008242,
+                max_bank_rate: 15.0_f64.to_radians(),
+                periods: TimePeriods::default(),
+            },
+            aero: AeroTables {
+                n_points: 2,
+                incidence: vec![-0.5, 0.0],
+                cx: vec![1.269, 1.269],
+                cz: vec![-0.205, -0.205],
+                equilibrium_aoa: -0.48,
+                ..Default::default()
+            },
+            atmosphere: AtmosphereModel {
+                n_points: 3,
+                altitudes: vec![0.0, 50_000.0, 130_000.0],
+                densities: vec![0.02, 0.001, 1e-8],
+                ref_density: 1e-8,
+                scale_factor: 1e-4,
+                ref_altitude: 130_000.0,
+                gas_constant: 1.3,
+                density_profile: DensityProfile::default(),
+            },
+            entry: EntryConditions {
+                state: SphericalState {
+                    altitude: 130_000.0,
+                    velocity: 5687.0,
+                    flight_path: -10.8_f64.to_radians(),
+                    ..Default::default()
+                },
+                initial_bank: 64.77_f64.to_radians(),
+                initial_aoa: -27.5_f64.to_radians(),
+                initial_date: 0.0,
+            },
+            guidance: GuidanceParams {
+                density_filter_gain: 0.8,
+                exit_velocity_threshold: 4400.0,
+                exit_altitude_threshold: 60_000.0,
+                ..Default::default()
+            },
+            incidence: IncidenceProfile {
+                n_points: 2,
+                altitudes: vec![-10_000.0, 150_000.0],
+                incidences: vec![-0.48, -0.48],
+            },
+            periods: TimePeriods::default(),
+            pilot: PilotModel {
+                pilot_type: PilotType::Perfect,
+                time_constant: 0.0,
+                damping: 0.0,
+                frequency: 0.0,
+            },
+            target_orbit: OrbitalTarget {
+                semi_major_axis: 3_649_622.0,
+                eccentricity: 0.067,
+                inclination: 50.0_f64.to_radians(),
+                raan: -7.612_f64.to_radians(),
+                apoapsis: 500_130.0,
+                periapsis: 11_233.0,
+            },
+            final_conditions: FinalConditions {
+                altitude: 60_000.0,
+                ..Default::default()
+            },
+            parking_orbit: ParkingOrbit::default(),
+            constraints: Constraints::default(),
+            success: SuccessCriteria::default(),
+            wind_enabled: false,
+            neural_net: None,
+            dispersion_config: None,
+        }
+    }
+
+    // ── Deterministic tests ──────────────────────────────────────────────────
+
+    /// When the spacecraft is above the sensible atmosphere (density < 1e-10),
+    /// FNPAG must return the previous bank angle unchanged.
+    #[test]
+    fn low_density_returns_previous_bank() {
+        // Place spacecraft at 200 km — exponential tail gives ≈9e-12 kg/m³ < 1e-10
+        let mut nav = test_nav(5000.0);
+        nav.positn[0] = Planet::Mars.equatorial_radius() + 200_000.0;
+
+        let prev_bank = 55.0_f64.to_radians();
+        let mut state = FnpagState::new(prev_bank);
+        state.initialized = true; // doesn't matter — early exit fires first
+
+        let data = test_sim_data();
+        let planet = Planet::Mars;
+
+        let bank = fnpag_bank(&nav, &mut state, &data, &planet);
+
+        assert_relative_eq!(bank, prev_bank, epsilon = 1e-12);
+    }
+
+    /// A fresh (uninitialized) FnpagState must be marked initialized after the
+    /// first call and the stored bank_prev must be updated.
+    #[test]
+    fn first_call_initializes_state() {
+        let nav = test_nav(5687.0);
+        let initial_bank = 0.5_f64; // arbitrary seed; will be overwritten
+        let mut state = FnpagState::new(initial_bank);
+        assert!(!state.initialized, "state should start uninitialized");
+
+        let data = test_sim_data();
+        let planet = Planet::Mars;
+
+        let _ = fnpag_bank(&nav, &mut state, &data, &planet);
+
+        assert!(state.initialized, "state must be initialized after first call");
+        // bank_prev should now be one of the two bisection candidates (40° or 90°)
+        let bank40 = 40.0_f64.to_radians();
+        let bank90 = 90.0_f64.to_radians();
+        assert!(
+            (state.bank_prev - bank40).abs() < 1e-9 || (state.bank_prev - bank90).abs() < 1e-9,
+            "bank_prev {:.4} rad should be either 40° or 90° after init",
+            state.bank_prev
+        );
+    }
+
+    /// Typical MSR entry state — bank angle must be finite and within [0, π].
+    #[rstest]
+    #[case(3000.0)]
+    #[case(4500.0)]
+    #[case(5687.0)]
+    fn output_finite_for_typical_state(#[case] velocity: f64) {
+        let nav = test_nav(velocity);
+        let mut state = FnpagState::new(64.77_f64.to_radians());
+        let data = test_sim_data();
+        let planet = Planet::Mars;
+
+        let bank = fnpag_bank(&nav, &mut state, &data, &planet);
+
+        assert!(
+            bank.is_finite(),
+            "bank not finite for V={velocity} m/s: {bank}"
+        );
+        assert!(
+            (0.0..=std::f64::consts::PI).contains(&bank),
+            "bank {:.4} rad outside [0, π] for V={velocity} m/s",
+            bank
+        );
+    }
+
+    /// Subsequent calls (initialized state) also produce finite, bounded output.
+    #[test]
+    fn second_call_produces_finite_output() {
+        let nav = test_nav(5000.0);
+        let mut state = FnpagState::new(64.77_f64.to_radians());
+        let data = test_sim_data();
+        let planet = Planet::Mars;
+
+        // Prime the state
+        let _ = fnpag_bank(&nav, &mut state, &data, &planet);
+        assert!(state.initialized);
+
+        // Second call — exercises secant method path
+        let bank = fnpag_bank(&nav, &mut state, &data, &planet);
+
+        assert!(bank.is_finite(), "second-call bank not finite: {bank}");
+        assert!(
+            (0.0..=std::f64::consts::PI).contains(&bank),
+            "second-call bank {:.4} rad outside [0, π]",
+            bank
+        );
+    }
+
+    // ── Proptest ─────────────────────────────────────────────────────────────
+
+    mod prop {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// For valid atmospheric entry conditions, FNPAG must always return a
+            /// finite bank angle within [0, π].
+            #[test]
+            fn output_always_finite_and_bounded(
+                alt in 20_000.0..100_000.0_f64,
+                vel in 3_000.0..6_000.0_f64,
+                fpa in -0.15..0.0_f64,
+                rho in 1e-5..0.01_f64,
+            ) {
+                let mut nav = test_nav(vel);
+                let r = Planet::Mars.equatorial_radius() + alt;
+                nav.positn[0] = r;
+                nav.vitesn[1] = fpa;
+                nav.roguid = rho;
+                nav.pdynan = 0.5 * rho * vel * vel;
+
+                let mut state = FnpagState::new(64.77_f64.to_radians());
+                let data = test_sim_data();
+                let planet = Planet::Mars;
+
+                let bank = fnpag_bank(&nav, &mut state, &data, &planet);
+
+                prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
+                prop_assert!(bank >= 0.0 - 1e-10, "bank negative: {}", bank);
+                prop_assert!(bank <= std::f64::consts::PI + 1e-10, "bank > π: {}", bank);
+            }
+        }
+    }
+}
