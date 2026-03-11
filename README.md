@@ -59,16 +59,23 @@ The simulation implements a full closed-loop GNC chain:
 All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize orbit insertion error across Monte Carlo dispersions.
 
 ```bash
-# Optimize any guidance scheme
+# Optimize any guidance scheme (Rich TUI with sparklines and ETA)
 uv run python -m aerocapture.training.train \
     --guidance equilibrium_glide \
     --toml configs/training/msr_aller_eqglide_train.toml \
     --n-gen 50 --n-pop 20
 
+# Disable TUI (CI / piped output)
+uv run python -m aerocapture.training.train ... --no-tui
+
 # Compare all schemes on identical MC scenarios
 uv run python -m aerocapture.training.compare_guidance \
     --base-toml configs/training/msr_aller_eqglide_train.toml \
     --n-sims 100
+
+# Generate post-training Plotly HTML report (requires uv sync --group viz)
+uv run python -m aerocapture.training.report training_output/equilibrium_glide/
+uv run python -m aerocapture.training.report --compare training_output/
 ```
 
 ## Validation

@@ -1,5 +1,7 @@
 # TODO
 
+- [ ] Discuss the interest of using a pyO3 interface between Rust and python
+
 ## Simulation — High Impact
 
 - [ ] Implement wind model (currently a stub returning zero) — `IMPROVEMENTS.md` §1.4
@@ -21,7 +23,7 @@
 - [ ] Explore LSTM / Transformer architectures for guidance (BPTT for recurrent) — §12.2
 - [ ] Let NN handle roll reversal directly (remove FTC lateral dependency) — §8.3
 - [ ] Add neural counterparts for navigation and control — §12.3
-- [ ] Improve training visualization (live plots, convergence diagnostics) — §11.3
+- [ ] Improve training visualization (live plots, convergence diagnostics) — `IMPROVEMENTS.md` §11.3
 
 ## Mission Extensions
 
