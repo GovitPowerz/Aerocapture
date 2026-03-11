@@ -1,19 +1,30 @@
 # TODO
 
-## Documentation
+## Simulation — High Impact
 
-- [ ] Update `IMPROVEMENTS.md` based on completed work and future ideas
+- [ ] Implement wind model (currently a stub returning zero) — `IMPROVEMENTS.md` §1.4
+- [ ] Add Mach-dependent Cx/Cz tables (2D interpolation: AoA x Mach) — §3.1
+- [ ] Implement integrated heat load tracking (`sum(q*dt)`) — §4.2
+- [ ] Enable exit phase guidance (phase transition logic present but inactive) — §6.3
+- [ ] Replace bias-only navigation with EKF/UKF — §5.1
 
-## Simulation Improvements
+## Simulation — Medium Impact
 
-- [ ] Implement improvements from `IMPROVEMENTS.md` in Rust simulator
-- [ ] Revisit roll reversal strategy for NN guidance — explore letting the NN handle it directly
-- [ ] Rework cost function design (energy, correction cost, etc.)
+- [ ] Improve FNPAG predictor fidelity (add J2, actual atmo table) — §6.4
+- [ ] Adaptive RK4 step sizing (Dormand-Prince or two-phase scheme) — §10.1
+- [ ] Separate truth vs onboard atmosphere models — §1.2
+- [ ] Rework cost function design (multi-objective, delta-V primary objective) — §12.4
 
 ## Training & ML
 
-- [ ] Update training algorithms (GA, RL, PSO, ...)
-- [ ] Improve output visualisation for training runs
-- [ ] Explore LSTM / Transformer architectures for guidance
-- [ ] For recurrent architecture, investigate the use of Backprop through time
-- [ ] Add neural counterparts for navigation and control (to compare against classical algorithms)
+- [ ] Add alternative optimizers: CMA-ES, PSO, Bayesian optimization — §12.1
+- [ ] Explore LSTM / Transformer architectures for guidance (BPTT for recurrent) — §12.2
+- [ ] Let NN handle roll reversal directly (remove FTC lateral dependency) — §8.3
+- [ ] Add neural counterparts for navigation and control — §12.3
+- [ ] Improve training visualization (live plots, convergence diagnostics) — §11.3
+
+## Mission Extensions
+
+- [ ] Add Venus and Titan atmosphere/gravity models — §13.3
+- [ ] Multi-pass aerocapture support — §13.1
+- [ ] Develop ESR (Earth Sample Return) mission profiles — §13.4
