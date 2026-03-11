@@ -26,7 +26,7 @@ Collects per-generation metrics during training and writes them to a JSON-lines 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `generation` | int | Generation index (1-based) |
+| `generation` | int | Generation index (1-based). `train.py` passes `gen + 1` to `log_generation`. |
 | `run` | int | Run index (0-based) |
 | `timestamp` | str | ISO 8601 timestamp |
 | `best_cost` | float | Best cost in population |
@@ -34,17 +34,19 @@ Collects per-generation metrics during training and writes them to a JSON-lines 
 | `worst_cost` | float | Worst cost in population |
 | `median_cost` | float | Median cost |
 | `std_cost` | float | Standard deviation of costs |
-| `capture_rate` | float | Fraction of population that achieved capture (0.0–1.0) |
+| `capture_rate` | float | Fraction of population with `cost < 1e6` (the sentinel value from `compute_cost` for non-capturing trajectories). This is a cost-domain proxy for physical capture (`ecc < 1 and energy < 0`), not a physics-domain check. (0.0–1.0) |
 | `population_diversity` | float | Mean pairwise Hamming distance of binary chromosomes, normalized 0–1 |
-| `best_params` | dict | Decoded parameter values from best chromosome |
+| `best_params` | dict \| None | Decoded parameter values from best chromosome. For non-NN schemes, this is a `dict[str, float]` with named keys from `PARAM_SPACES`. For `neural_network`, this is `None` (110 unnamed weights are not useful for display); the TUI and reports skip this field for NN runs. |
 | `improvement` | bool | Whether `best_cost` improved this generation |
 | `scheme` | str | Guidance scheme name |
 | `config_hash` | str | Hash of the training TOML config for experiment grouping |
 
 ### File format
 
-- Path: `training_output/<scheme>/run_<run>_<timestamp>.jsonl`
-- One JSON object per line, append-only
+- Path: `training_output/<scheme>/run_<run>_<YYYYMMDDTHHMMSS>.jsonl` (e.g., `run_000_20260311T143022.jsonl`)
+- Timestamp is the session start time — each `train.py` invocation creates a new file
+- On resume (`--resume`), a **new** JSONL file is created (not appended to the old one). `report.py` merges all JSONL files for the same run index by sorting on `generation`.
+- One JSON object per line, append-only during a session
 - Trivially parseable with `json.loads()` per line
 
 ### API
@@ -54,13 +56,17 @@ class TrainingLogger:
     def __init__(self, scheme: str, run: int, output_dir: Path, config_hash: str) -> None: ...
     def log_generation(self, generation: int, populations: list[np.ndarray],
                        costs: list[np.ndarray], best_chromosome: np.ndarray,
-                       decode_fn: Callable) -> None: ...
+                       decode_fn: Callable[[np.ndarray], dict[str, float]] | None) -> None: ...
     @property
     def buffer(self) -> list[dict]: ...  # In-memory metrics for LiveDisplay
     def close(self) -> None: ...
 ```
 
 The logger computes derived metrics internally (diversity, stats) — `train.py` passes raw population data and a decode function.
+
+**`decode_fn` contract:** A callable that takes a binary chromosome (`np.ndarray` of `np.int8`, values strictly `{0, 1}`) and returns a `dict[str, float]` of named parameter values. For non-NN schemes, `train.py` passes a lambda closing over `config`: `lambda chrom: decode_params_from_chromosome(chrom, config)`. For `neural_network`, pass `None` — the logger sets `best_params` to `None` in the JSONL record.
+
+**Binary invariant:** `populations` arrays must contain only `{0, 1}` values (`np.int8`). The `population_diversity` function assumes this. This invariant is maintained by the GA operators (`crossover_and_mutate` uses `1 - flat[pos]` bit-flip).
 
 ### Integration with train.py
 
@@ -108,8 +114,7 @@ class LiveDisplay:
 
 - Context manager wrapping `rich.live.Live`
 - Reads from `TrainingLogger.buffer` — no direct coupling to training internals
-- Falls back to current plain-text logging when `--no-tui` is passed (CI, piped output, non-interactive terminals)
-- Auto-detects non-interactive terminal and falls back automatically
+- Falls back when `--no-tui` is passed or when a non-interactive terminal is auto-detected. In fallback mode, `LiveDisplay` is a no-op (context manager that does nothing), and `train.py`'s existing `verbose` print path remains unchanged. The `verbose` flag continues to control plain-text output independently of the TUI.
 
 ---
 
@@ -122,8 +127,12 @@ Pure functions for computing derived training metrics. Used by both `TrainingLog
 ### Functions
 
 ```python
+def cost_stats(costs: np.ndarray) -> dict[str, float]:
+    """Compute best/mean/worst/median/std cost, filtering np.inf and np.nan.
+    Returns np.nan for stats when all values are non-finite."""
+
 def population_diversity(chromosomes: np.ndarray) -> float:
-    """Mean pairwise Hamming distance, normalized 0-1."""
+    """Mean pairwise Hamming distance, normalized 0-1. Assumes binary {0,1} input."""
 
 def convergence_speed(cost_history: list[float], threshold: float = 0.9) -> int:
     """Generation at which threshold% of final improvement was achieved."""
@@ -131,8 +140,8 @@ def convergence_speed(cost_history: list[float], threshold: float = 0.9) -> int:
 def stagnation_count(cost_history: list[float]) -> int:
     """Number of consecutive generations without improvement at end of history."""
 
-def capture_rate(costs: np.ndarray, capture_threshold: float) -> float:
-    """Fraction of individuals with cost below capture threshold."""
+def capture_rate(costs: np.ndarray, capture_threshold: float = 1e6) -> float:
+    """Fraction of individuals with cost below capture threshold (default 1e6, the compute_cost sentinel)."""
 ```
 
 ---
@@ -168,7 +177,7 @@ Generates cross-run visualizations:
 2. **Same-scheme overlay** — multiple runs of the same scheme overlaid, legend shows config differences
 3. **Final metrics table** — sortable: scheme, best cost, generations, capture rate, convergence speed
 
-Filters: `--schemes eq_glide ftc`, `--after 2026-03-01`
+Filters: `--schemes equilibrium_glide ftc`, `--after 2026-03-01`
 
 Output: `training_output/comparison_report.html`
 
@@ -190,10 +199,14 @@ src/python/aerocapture/training/
   metrics.py         -- Pure functions: diversity, convergence speed, stagnation
 ```
 
-### New dependencies (added to pyproject.toml core deps)
+### New dependencies
+
+Added to `[dependency-groups]` as a `viz` group in `pyproject.toml` (consistent with how `hypothesis` lives in `dev`):
 
 - `rich` — live TUI
 - `plotly` — self-contained HTML reports
+
+Install with: `uv sync --group viz` (or `uv sync --group viz --group dev` for development).
 
 ### Unchanged
 
@@ -233,3 +246,5 @@ Post-training:
 - **display.py** — minimal smoke test (instantiate, call update with mock logger, verify no crash). No visual regression tests.
 - **report.py** — integration test: generate report from fixture JSONL data, verify HTML file is produced and contains expected Plotly div IDs
 - **Backward compatibility** — test checkpoint-only fallback path with existing checkpoint fixture data
+- **train.py integration** — one test that monkey-patches `TrainingLogger.log_generation` to record call order relative to selection, verifying logged metrics reflect the pre-selection population
+- **Edge cases** — NaN/inf costs, single-generation runs, empty populations, NN scheme (best_params=None)
