@@ -34,7 +34,7 @@ Collects per-generation metrics during training and writes them to a JSON-lines 
 | `worst_cost` | float | Worst cost in population |
 | `median_cost` | float | Median cost |
 | `std_cost` | float | Standard deviation of costs |
-| `capture_rate` | float | Fraction of population with `cost < 1e6` (the sentinel value from `compute_cost` for non-capturing trajectories). This is a cost-domain proxy for physical capture (`ecc < 1 and energy < 0`), not a physics-domain check. (0.0–1.0) |
+| `capture_rate` | float | Fraction of population with `cost < 1e6`. In `compute_cost`, non-capturing trajectories receive a cost of `1e6 + 1e3 * |energy|`, so `1e6` is the floor of the hyperbolic-branch cost, not an exact sentinel. The `< 1e6` threshold is a cost-domain proxy for physical capture (`ecc < 1 and energy < 0`). (0.0–1.0) |
 | `population_diversity` | float | Mean pairwise Hamming distance of binary chromosomes, normalized 0–1 |
 | `best_params` | dict \| None | Decoded parameter values from best chromosome. For non-NN schemes, this is a `dict[str, float]` with named keys from `PARAM_SPACES`. For `neural_network`, this is `None` (110 unnamed weights are not useful for display); the TUI and reports skip this field for NN runs. |
 | `improvement` | bool | Whether `best_cost` improved this generation |
@@ -45,7 +45,7 @@ Collects per-generation metrics during training and writes them to a JSON-lines 
 
 - Path: `training_output/<scheme>/run_<run>_<YYYYMMDDTHHMMSS>.jsonl` (e.g., `run_000_20260311T143022.jsonl`)
 - Timestamp is the session start time — each `train.py` invocation creates a new file
-- On resume (`--resume`), a **new** JSONL file is created (not appended to the old one). `report.py` merges all JSONL files for the same run index by sorting on `generation`.
+- On resume (`--resume`), a **new** JSONL file is created (not appended to the old one). The resumed run logs generations starting from `gen_start + 1`, so there is no overlap with the previous file's generation numbers. `report.py` merges all JSONL files for the same run index by sorting on `generation`. If duplicate generation numbers are found (e.g., from a corrupted resume), the later file's records take precedence (last-writer-wins by file timestamp).
 - One JSON object per line, append-only during a session
 - Trivially parseable with `json.loads()` per line
 
@@ -71,8 +71,12 @@ The logger computes derived metrics internally (diversity, stats) — `train.py`
 ### Integration with train.py
 
 - Instantiated at run start, called once per generation
-- Called after fitness evaluation, before selection/crossover
+- Called **after** the tournament selection + migration step (i.e., the populations passed are the surviving elite, not the pre-tournament pool). This is the natural insertion point — after the inner subpopulation loop completes but before checkpoint saving. The logged costs and chromosomes represent the population that will seed the next generation.
 - `train.py` does not compute any metrics itself — the logger owns all metric computation
+
+### Multi-subpopulation handling
+
+The logger receives `populations: list[np.ndarray]` (one array per subpopulation). For aggregate metrics (`population_diversity`, `cost_stats`, `capture_rate`), the logger concatenates all subpopulations via `np.vstack` / `np.concatenate` before computing. Per-subpopulation breakdowns are not logged (the aggregate view is sufficient for training diagnostics).
 
 ---
 
@@ -246,5 +250,5 @@ Post-training:
 - **display.py** — minimal smoke test (instantiate, call update with mock logger, verify no crash). No visual regression tests.
 - **report.py** — integration test: generate report from fixture JSONL data, verify HTML file is produced and contains expected Plotly div IDs
 - **Backward compatibility** — test checkpoint-only fallback path with existing checkpoint fixture data
-- **train.py integration** — one test that monkey-patches `TrainingLogger.log_generation` to record call order relative to selection, verifying logged metrics reflect the pre-selection population
+- **train.py integration** — one test that monkey-patches `TrainingLogger.log_generation` to record call arguments, verifying it is called once per generation after tournament selection and before checkpoint saving, with the post-tournament population
 - **Edge cases** — NaN/inf costs, single-generation runs, empty populations, NN scheme (best_params=None)
