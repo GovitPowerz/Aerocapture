@@ -185,10 +185,6 @@ Filters: `--schemes equilibrium_glide ftc`, `--after 2026-03-01`
 
 Output: `training_output/comparison_report.html`
 
-### Backward compatibility
-
-Existing checkpoint data lacks JSONL logs. When no `.jsonl` files are found, `report.py` falls back to reconstructing a minimal convergence curve from `cost_history` arrays in checkpoint `.json` files. This produces a degraded report (convergence curve only, no diversity/params/capture) but is still useful for old runs.
-
 ---
 
 ## 5. File layout
@@ -249,6 +245,17 @@ Post-training:
 - **logger.py** — unit tests: write to temp dir, verify JSONL structure, verify metric computation
 - **display.py** — minimal smoke test (instantiate, call update with mock logger, verify no crash). No visual regression tests.
 - **report.py** — integration test: generate report from fixture JSONL data, verify HTML file is produced and contains expected Plotly div IDs
-- **Backward compatibility** — test checkpoint-only fallback path with existing checkpoint fixture data
 - **train.py integration** — one test that monkey-patches `TrainingLogger.log_generation` to record call arguments, verifying it is called once per generation after tournament selection and before checkpoint saving, with the post-tournament population
 - **Edge cases** — NaN/inf costs, single-generation runs, empty populations, NN scheme (best_params=None)
+
+---
+
+## 8. Cleanup
+
+### Remove legacy training data
+
+Delete all existing files in `training_output/` (legacy checkpoints, old per-scheme outputs). These were produced before the JSONL logging system and are no longer useful. The directory structure (`training_output/<scheme>/`) will be recreated by new training runs.
+
+### Final step
+
+Use the `smart-commit` skill to commit all changes with updated documentation (CLAUDE.md, README.md).
