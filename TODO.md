@@ -23,7 +23,6 @@
 - [ ] Explore LSTM / Transformer architectures for guidance (BPTT for recurrent) — §12.2
 - [ ] Let NN handle roll reversal directly (remove FTC lateral dependency) — §8.3
 - [ ] Add neural counterparts for navigation and control — §12.3
-- [ ] Improve training visualization (live plots, convergence diagnostics) — `IMPROVEMENTS.md` §11.3
 
 ## Mission Extensions
 
