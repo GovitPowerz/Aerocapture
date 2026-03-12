@@ -18,6 +18,7 @@ from aerocapture.training.config import TrainingConfig
 from aerocapture.training.evaluate import decode_direct, decode_params_from_chromosome, evaluate_chromosome, write_nn_json
 from aerocapture.training.migration import migrate
 from aerocapture.training.population import create_initial_population
+from aerocapture.training.weight_stats import compute_weight_stats
 
 
 def roulette_selection(
@@ -358,6 +359,12 @@ def train(
 
                 gen_best_costs.append(best_overall_cost)
 
+                # Compute per-layer weight stats for NN (instrumentation for future adaptive bounds)
+                ws = None
+                if config.guidance_type == "neural_network" and best_overall_chrom is not None:
+                    best_weights = decode_direct(best_overall_chrom, config)
+                    ws = compute_weight_stats(best_weights, config.network.layer_sizes)
+
                 # Log metrics
                 logger.log_generation(
                     gen + 1,
@@ -365,6 +372,7 @@ def train(
                     all_costs,
                     best_overall_chrom if best_overall_chrom is not None else populations[0][0],
                     decode_fn,
+                    weight_stats=ws,
                 )
                 display.update(logger, current_run=run)
 

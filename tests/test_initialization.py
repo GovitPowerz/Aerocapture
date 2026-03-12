@@ -103,3 +103,34 @@ class TestGenerateInitializedWeights:
             layer_b = weights[idx : idx + fan_out]
             assert np.all(layer_b == 0.0), f"Layer {i} biases not zero"
             idx += fan_out
+
+
+from aerocapture.training.weight_stats import compute_weight_stats
+
+
+class TestComputeWeightStats:
+    def test_stats_keys(self) -> None:
+        """Returns per-layer weight and bias stats."""
+        weights = np.zeros(110)
+        stats = compute_weight_stats(weights, [6, 12, 2])
+        assert "layer_0_w" in stats
+        assert "layer_0_b" in stats
+        assert "layer_1_w" in stats
+        assert "layer_1_b" in stats
+
+    def test_stats_values(self) -> None:
+        """Stats are computed correctly for known values."""
+        rng = np.random.default_rng(42)
+        weights = generate_initialized_weights([6, 12, 2], ["tanh", "asinh"], rng)
+        stats = compute_weight_stats(weights, [6, 12, 2])
+        layer0_w = weights[:72]
+        assert stats["layer_0_w"]["min"] == pytest.approx(float(layer0_w.min()))
+        assert stats["layer_0_w"]["max"] == pytest.approx(float(layer0_w.max()))
+        assert stats["layer_0_w"]["mean"] == pytest.approx(float(layer0_w.mean()))
+        assert stats["layer_0_w"]["std"] == pytest.approx(float(layer0_w.std()))
+
+    def test_zero_biases(self) -> None:
+        """Zero biases produce zero stats."""
+        weights = np.zeros(110)
+        stats = compute_weight_stats(weights, [6, 12, 2])
+        assert stats["layer_0_b"]["std"] == 0.0
