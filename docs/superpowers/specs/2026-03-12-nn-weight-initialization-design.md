@@ -43,26 +43,21 @@ Returns the uniform limit for one layer based on the activation function:
 - Iterates over layers, computes per-layer bounds via `compute_layer_bound()`
 - Generates weights: `rng.uniform(-limit, limit, size=(fan_out, fan_in))`
 - Biases: initialized to zero (standard practice)
-- Returns flat weight vector in same order as `to_flat_weights()` / `decode_direct()`: all weights (row-major) then all biases, per layer
+- Returns flat weight vector in same order as `write_nn_json()` / `to_flat_weights()`: weights row-major then biases, per layer
 
-### 2. New function in `evaluate.py`: `encode_weights()`
+### 2. Existing encode function: `encode_weights_to_chromosome()` in `population.py`
 
-**`encode_weights(weights: np.ndarray, config: TrainingConfig) -> np.ndarray`**
+`encode_weights_to_chromosome()` already exists in `population.py` and performs the exact encoding needed (clamp to `[p_min, p_max]`, normalize, compute int_val, MSB-first bit unpacking). No new encode function is needed — `generate_initialized_weights()` feeds directly into this existing function.
 
-Inverse of `decode_direct()`. Converts a flat float weight vector to a binary chromosome (int8 array):
-
-1. Clamp each weight to `[p_min, p_max]` (safety guard)
-2. `int_value = round((weight - p_min) / (p_max - p_min) * (2^n_bit - 1))`
-3. Convert each `int_value` to `n_bit` binary digits
-4. Concatenate into flat chromosome array
+**Note on bit ordering**: the encode/decode pair uses MSB-first binary representation. The existing `encode_weights_to_chromosome()` and `decode_direct()` are already consistent on this.
 
 ### 3. Modified `create_initial_population()` in `population.py`
 
 Current flow generates random binary chromosomes. New flow:
 
-- **NN guidance**: each candidate is produced by `generate_initialized_weights()` -> `encode_weights()`. Every initial chromosome decodes to weights following proper per-layer distributions.
+- **NN guidance**: each candidate is produced by `generate_initialized_weights()` -> `encode_weights_to_chromosome()`. Every initial chromosome decodes to weights following proper per-layer distributions.
 - **Non-NN guidance**: unchanged (random binary chromosomes). Branch on `config.guidance == "neural_network"`.
-- **Seeding**: unchanged. When `seed_weights` is provided (from existing JSON), it overrides candidate[0] and generates mutants. A known-good model takes priority over smart initialization.
+- **Seeding interaction**: when `seed_weights` is provided, slot 0 holds the seed chromosome, slots 1 through `n_seeded` hold mutants (unchanged). Slots `n_seeded+1` through `n_candidates-1` use smart initialization. When no seed is provided, all `n_candidates` slots use smart initialization.
 
 ### 4. Weight stats logging
 
@@ -79,7 +74,9 @@ Per-generation logging of elite individual's per-layer weight statistics, append
 }
 ```
 
-Computed in the training loop (`train.py`) after evaluating each generation: decode best individual's weights, partition by layer, compute min/max/mean/std. Passed to `logger.log_generation()`.
+Computed in the training loop (`train.py`) after evaluating each generation: decode best individual's weights, partition by layer, compute min/max/mean/std. Passed to `logger.log_generation()` via a new optional `weight_stats: dict | None = None` parameter added to `log_generation()`'s signature. When provided, it is stored as a top-level key in the JSONL record: `record["weight_stats"] = weight_stats`.
+
+**Files modified**: `logger.py` (add `weight_stats` parameter to `log_generation()`, write to record), `train.py` (compute stats and pass at call site).
 
 Purpose: instrument for potential future adaptive bounds. If elite weights consistently drift to `[-3, 3]` edges, that's the signal to implement per-layer bound adaptation.
 
@@ -90,7 +87,7 @@ Purpose: instrument for potential future adaptive bounds. If elite weights consi
 - `test_compute_layer_bound_xavier` — tanh/sigmoid/asinh produce `sqrt(6/(fan_in+fan_out))`
 - `test_compute_layer_bound_he` — relu produces `sqrt(6/fan_in)`
 - `test_compute_layer_bound_lecun` — linear produces `sqrt(3/fan_in)`
-- `test_encode_decode_roundtrip` — `encode_weights(decode_direct(chrom))` matches original within 1-bit quantization
+- `test_encode_decode_roundtrip` — `encode_weights_to_chromosome(decode_direct(chrom))` matches original within 1-bit quantization
 - `test_generate_initialized_weights_shape` — output length matches `n_base_coef` for given architecture
 - `test_generate_initialized_weights_bounds` — all weights per layer fall within `[-limit, +limit]`
 - `test_generate_initialized_weights_biases_zero` — biases initialized to zero
