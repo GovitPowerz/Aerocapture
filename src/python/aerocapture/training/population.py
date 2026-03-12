@@ -116,9 +116,7 @@ def create_initial_population(
         # Smart initialization: per-layer Xavier/He/LeCun uniform
         candidates = np.zeros((n_candidates, chrom_len), dtype=np.int8)
         for i in range(n_candidates):
-            weights = generate_initialized_weights(
-                config.network.layer_sizes, config.network.activations, rng
-            )
+            weights = generate_initialized_weights(config.network.layer_sizes, config.network.activations, rng)
             candidates[i] = encode_weights_to_chromosome(weights, config)
     else:
         # Random binary chromosomes (non-NN schemes)
