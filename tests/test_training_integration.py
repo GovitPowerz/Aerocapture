@@ -60,8 +60,8 @@ class TestRotateSeedsIntegration:
 
         mock_eval_calls: list[dict] = []
 
-        def tracking_eval(*args, **kwargs):
-            mock_eval_calls.append(kwargs.copy())
+        def tracking_eval(*args: object, **kwargs: object) -> tuple[float, None]:
+            mock_eval_calls.append(kwargs.copy())  # type: ignore[arg-type]
             return 100.0, None
 
         with (
@@ -93,8 +93,8 @@ class TestRotateSeedsIntegration:
 
         mock_eval_calls: list[dict] = []
 
-        def tracking_eval(*args, **kwargs):
-            mock_eval_calls.append(kwargs.copy())
+        def tracking_eval(*args: object, **kwargs: object) -> tuple[float, None]:
+            mock_eval_calls.append(kwargs.copy())  # type: ignore[arg-type]
             return 100.0, None
 
         with (
@@ -129,7 +129,7 @@ class TestRotateSeedsIntegration:
 
         eval_count = 0
 
-        def counting_eval(*args, **kwargs):
+        def counting_eval(*args: object, **kwargs: object) -> tuple[float, None]:
             nonlocal eval_count
             eval_count += 1
             return 100.0, None

@@ -459,6 +459,7 @@ if __name__ == "__main__":
         help="Guidance scheme to optimize (default: neural_network)",
     )
     parser.add_argument("--no-tui", action="store_true", help="Disable Rich TUI (use plain-text output)")
+    parser.add_argument("--rotate-seeds", action="store_true", help="Rotate MC dispersion seed each generation (prevents overfitting to fixed scenarios)")
     args = parser.parse_args()
 
     cfg = TrainingConfig()
@@ -466,6 +467,7 @@ if __name__ == "__main__":
     cfg.ga.n_pop = args.n_pop
     cfg.ga.n_runs = 1
     cfg.guidance_type = args.guidance
+    cfg.ga.rotate_seeds = args.rotate_seeds
 
     cwd = args.cwd
     if args.toml:
