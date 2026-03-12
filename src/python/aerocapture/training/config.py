@@ -68,6 +68,7 @@ class GAConfig:
     n_gen: int = 100
     mutation_rate: float = 0.02
     n_runs: int = 100
+    rotate_seeds: bool = False
 
 
 @dataclass
