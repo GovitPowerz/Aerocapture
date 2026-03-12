@@ -7,12 +7,13 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
-from hypothesis import given, settings
-from hypothesis import strategies as st
-
 from aerocapture.training.evaluate import decode_direct
 from aerocapture.training.initialization import compute_layer_bound, generate_initialized_weights
 from aerocapture.training.population import create_initial_population, encode_weights_to_chromosome
+from aerocapture.training.weight_stats import compute_weight_stats
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 from tests.fixtures.factories import make_training_config
 
 
@@ -109,9 +110,6 @@ class TestGenerateInitializedWeights:
             idx += fan_out
 
 
-from aerocapture.training.weight_stats import compute_weight_stats
-
-
 class TestComputeWeightStats:
     def test_stats_keys(self) -> None:
         """Returns per-layer weight and bias stats."""
@@ -145,9 +143,7 @@ class TestEncodeDecodeRoundtrip:
         """generate_initialized_weights -> encode -> decode ≈ original (within quantization)."""
         config = make_training_config("neural_network")
         rng = np.random.default_rng(42)
-        original = generate_initialized_weights(
-            config.network.layer_sizes, config.network.activations, rng
-        )
+        original = generate_initialized_weights(config.network.layer_sizes, config.network.activations, rng)
         chrom = encode_weights_to_chromosome(original, config)
         decoded = decode_direct(chrom, config)
         # 16-bit quantization over [-3, 3]: max error = 6 / 65535 ≈ 9.15e-5
@@ -162,11 +158,11 @@ class TestPopulationSmartInit:
         rng = np.random.default_rng(42)
 
         # Mock evaluate_chromosome to avoid running the actual simulator
-        with patch("aerocapture.training.population.evaluate_chromosome", return_value=(1.0, None)):
-            with patch("aerocapture.training.population.improve_chromosome", return_value=(np.zeros(config.chrom_length, dtype=np.int8), 1.0, 0.0)):
-                population, costs = create_initial_population(
-                    config, np.zeros(config.network.n_coef), rng=rng, verbose=False
-                )
+        with (
+            patch("aerocapture.training.population.evaluate_chromosome", return_value=(1.0, None)),
+            patch("aerocapture.training.population.improve_chromosome", return_value=(np.zeros(config.chrom_length, dtype=np.int8), 1.0, 0.0)),
+        ):
+            population, costs = create_initial_population(config, np.zeros(config.network.n_coef), rng=rng, verbose=False)
 
         # Decode all chromosomes and check weight distribution
         all_decoded = np.array([decode_direct(chrom, config) for chrom in population])
@@ -179,11 +175,11 @@ class TestPopulationSmartInit:
         config.ga.n_pop = 4
         rng = np.random.default_rng(42)
 
-        with patch("aerocapture.training.population.evaluate_chromosome", return_value=(1.0, None)):
-            with patch("aerocapture.training.population.improve_chromosome", return_value=(np.zeros(config.chrom_length, dtype=np.int8), 1.0, 0.0)):
-                population, costs = create_initial_population(
-                    config, np.zeros(config.network.n_coef), rng=rng, verbose=False
-                )
+        with (
+            patch("aerocapture.training.population.evaluate_chromosome", return_value=(1.0, None)),
+            patch("aerocapture.training.population.improve_chromosome", return_value=(np.zeros(config.chrom_length, dtype=np.int8), 1.0, 0.0)),
+        ):
+            population, costs = create_initial_population(config, np.zeros(config.network.n_coef), rng=rng, verbose=False)
 
         # Non-NN: random bits decode to values spread across [-3, 3]
         assert population.shape == (4, config.chrom_length)
