@@ -44,6 +44,7 @@ class TrainingLogger:
         costs: list[npt.NDArray[np.float64]],
         best_chromosome: npt.NDArray[np.int8],
         decode_fn: Callable[[npt.NDArray[np.int8]], dict[str, float]] | None,
+        weight_stats: dict[str, dict[str, float]] | None = None,
     ) -> None:
         """Log metrics for one generation."""
         all_chroms = np.vstack(populations)
@@ -76,6 +77,9 @@ class TrainingLogger:
             "scheme": self._scheme,
             "config_hash": self._config_hash,
         }
+
+        if weight_stats is not None:
+            record["weight_stats"] = weight_stats
 
         self._buffer.append(record)
         self._file.write(json.dumps(record) + "\n")

@@ -94,3 +94,17 @@ class TestTrainingLogger:
         costs = _make_costs(5) + _make_costs(5)
         logger.log_generation(1, pops, costs, np.zeros(112, dtype=np.int8), _decode_fn)
         assert 0.0 <= logger.buffer[0]["population_diversity"] <= 1.0
+
+    def test_weight_stats_recorded(self, logger: TrainingLogger) -> None:
+        stats = {
+            "layer_0_w": {"min": -0.38, "max": 0.41, "mean": 0.01, "std": 0.22},
+            "layer_0_b": {"min": 0.0, "max": 0.0, "mean": 0.0, "std": 0.0},
+        }
+        logger.log_generation(1, _make_populations(), _make_costs(), np.zeros(112, dtype=np.int8), _decode_fn, weight_stats=stats)
+        assert logger.buffer[0]["weight_stats"] == stats
+        logger.close()
+
+    def test_weight_stats_none_by_default(self, logger: TrainingLogger) -> None:
+        logger.log_generation(1, _make_populations(), _make_costs(), np.zeros(112, dtype=np.int8), _decode_fn)
+        assert "weight_stats" not in logger.buffer[0]
+        logger.close()
