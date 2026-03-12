@@ -66,10 +66,10 @@ Per-generation logging of elite individual's per-layer weight statistics, append
 ```json
 {
   "weight_stats": {
-    "layer_0_w": {"min": -0.38, "max": 0.41, "std": 0.22},
-    "layer_0_b": {"min": -0.01, "max": 0.03, "std": 0.01},
-    "layer_1_w": {"min": -0.55, "max": 0.48, "std": 0.31},
-    "layer_1_b": {"min": 0.00, "max": 0.00, "std": 0.00}
+    "layer_0_w": {"min": -0.38, "max": 0.41, "mean": 0.01, "std": 0.22},
+    "layer_0_b": {"min": -0.01, "max": 0.03, "mean": 0.00, "std": 0.01},
+    "layer_1_w": {"min": -0.55, "max": 0.48, "mean": -0.02, "std": 0.31},
+    "layer_1_b": {"min": 0.00, "max": 0.00, "mean": 0.00, "std": 0.00}
   }
 }
 ```
