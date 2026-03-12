@@ -45,6 +45,7 @@ class TrainingLogger:
         best_chromosome: npt.NDArray[np.int8],
         decode_fn: Callable[[npt.NDArray[np.int8]], dict[str, float]] | None,
         weight_stats: dict[str, dict[str, float]] | None = None,
+        mc_seed: int | None = None,
     ) -> None:
         """Log metrics for one generation."""
         all_chroms = np.vstack(populations)
@@ -80,6 +81,9 @@ class TrainingLogger:
 
         if weight_stats is not None:
             record["weight_stats"] = weight_stats
+
+        if mc_seed is not None:
+            record["mc_seed"] = mc_seed
 
         self._buffer.append(record)
         self._file.write(json.dumps(record) + "\n")

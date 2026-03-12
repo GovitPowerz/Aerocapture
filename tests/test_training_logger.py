@@ -108,3 +108,20 @@ class TestTrainingLogger:
         logger.log_generation(1, _make_populations(), _make_costs(), np.zeros(112, dtype=np.int8), _decode_fn)
         assert "weight_stats" not in logger.buffer[0]
         logger.close()
+
+    def test_mc_seed_recorded(self, logger: TrainingLogger) -> None:
+        logger.log_generation(1, _make_populations(), _make_costs(), np.zeros(112, dtype=np.int8), _decode_fn, mc_seed=99)
+        assert logger.buffer[0]["mc_seed"] == 99
+        logger.close()
+
+    def test_mc_seed_absent_by_default(self, logger: TrainingLogger) -> None:
+        logger.log_generation(1, _make_populations(), _make_costs(), np.zeros(112, dtype=np.int8), _decode_fn)
+        assert "mc_seed" not in logger.buffer[0]
+        logger.close()
+
+    def test_mc_seed_written_to_jsonl(self, logger: TrainingLogger, tmp_path: Path) -> None:
+        logger.log_generation(1, _make_populations(), _make_costs(), np.zeros(112, dtype=np.int8), _decode_fn, mc_seed=77)
+        logger.close()
+        jsonl_file = list(tmp_path.glob("*.jsonl"))[0]
+        record = json.loads(jsonl_file.read_text().strip())
+        assert record["mc_seed"] == 77
