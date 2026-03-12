@@ -218,6 +218,22 @@ def train(
     save_dir = Path(config.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
+    # Read base MC seed from TOML for seed rotation
+    base_mc_seed: int | None = None
+    if config.ga.rotate_seeds:
+        if not config.sim.toml_config:
+            msg = "rotate_seeds requires a TOML config with [monte_carlo].seed"
+            raise ValueError(msg)
+        import tomllib
+
+        toml_path = Path(cwd or config.sim.exec_dir) / config.sim.toml_config
+        with open(toml_path, "rb") as f:
+            _toml = tomllib.load(f)
+        base_mc_seed = _toml.get("monte_carlo", {}).get("seed")
+        if base_mc_seed is None:
+            msg = "rotate_seeds requires [monte_carlo].seed in the TOML config"
+            raise ValueError(msg)
+
     # Compute config hash for experiment grouping
     config_hash = hashlib.sha256(repr(config).encode()).hexdigest()[:12]
 
@@ -314,6 +330,8 @@ def train(
             gen_best_costs: list[float] = []
 
             for gen in range(gen_start, config.ga.n_gen):
+                mc_seed = (base_mc_seed + gen) if base_mc_seed is not None else None
+
                 for k in range(config.ga.n_subpop):
                     pop = populations[k]
                     pop_costs = all_costs[k]
@@ -329,8 +347,21 @@ def train(
                             base_network,
                             config,
                             cwd=cwd,
+                            mc_seed=mc_seed,
                         )
                         offspring_costs[i] = cost
+
+                    # Re-evaluate parents on current seed when rotating
+                    if mc_seed is not None:
+                        for i in range(len(pop)):
+                            cost, _ = evaluate_chromosome(
+                                pop[i],
+                                base_network,
+                                config,
+                                cwd=cwd,
+                                mc_seed=mc_seed,
+                            )
+                            pop_costs[i] = cost
 
                     # Tournament selection: combine parents + offspring, keep best
                     combined = np.vstack([pop, offspring])
@@ -373,6 +404,7 @@ def train(
                     best_overall_chrom if best_overall_chrom is not None else populations[0][0],
                     decode_fn,
                     weight_stats=ws,
+                    mc_seed=mc_seed,
                 )
                 display.update(logger, current_run=run)
 
