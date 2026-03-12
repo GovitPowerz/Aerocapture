@@ -490,7 +490,9 @@ def evaluate_chromosome(
         nn_path = Path(cwd) / config.sim.nn_param_file
         write_nn_json(weights, config.network, nn_path)
         if mc_seed is not None:
-            assert config.sim.toml_config is not None
+            if config.sim.toml_config is None:
+                msg = "mc_seed requires toml_config to be set for neural_network guidance"
+                raise ValueError(msg)
             patched_toml = patch_toml_mc_seed(Path(cwd) / config.sim.toml_config, mc_seed)
             try:
                 orig_toml = config.sim.toml_config

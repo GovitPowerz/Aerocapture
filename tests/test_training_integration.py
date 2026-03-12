@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 
 from tests.fixtures.factories import make_training_config
 
@@ -149,3 +150,36 @@ class TestRotateSeedsIntegration:
 
         # 1 gen, 1 subpop: 4 offspring + 4 parents = 8 evals
         assert eval_count == 8
+
+    def test_rotate_seeds_requires_toml_config(self, tmp_path: Path) -> None:
+        """rotate_seeds=True without toml_config raises ValueError."""
+        config = make_training_config("equilibrium_glide")
+        config.ga.n_gen = 1
+        config.ga.n_pop = 4
+        config.ga.n_runs = 1
+        config.ga.rotate_seeds = True
+        config.sim.toml_config = None
+        config.save_dir = str(tmp_path)
+
+        from aerocapture.training.train import train
+
+        with pytest.raises(ValueError, match="rotate_seeds requires a TOML config"):
+            train(config, seed=42, cwd=str(tmp_path), verbose=False, no_tui=True)
+
+    def test_rotate_seeds_requires_mc_seed_in_toml(self, tmp_path: Path) -> None:
+        """rotate_seeds=True with TOML missing [monte_carlo].seed raises ValueError."""
+        config = make_training_config("equilibrium_glide")
+        config.ga.n_gen = 1
+        config.ga.n_pop = 4
+        config.ga.n_runs = 1
+        config.ga.rotate_seeds = True
+        config.sim.toml_config = "dummy.toml"
+        config.save_dir = str(tmp_path)
+
+        dummy_toml = tmp_path / "dummy.toml"
+        dummy_toml.write_text('[mission]\ntype = "aerocapture"\n')
+
+        from aerocapture.training.train import train
+
+        with pytest.raises(ValueError, match=r"rotate_seeds requires \[monte_carlo\]\.seed"):
+            train(config, seed=42, cwd=str(tmp_path), verbose=False, no_tui=True)
