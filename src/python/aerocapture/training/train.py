@@ -431,7 +431,18 @@ if __name__ == "__main__":
     if args.toml:
         cfg.sim.toml_config = args.toml
         cfg.sim.executable = "src/rust/target/release/aerocapture"
-        cfg.sim.nn_param_file = "data/neural_network/nn_model.json"
+        # Read nn_param_file from TOML [data] neural_network field if present
+        import tomllib
+
+        with open(args.toml, "rb") as _f:
+            _toml_data = tomllib.load(_f)
+        cfg.sim.nn_param_file = _toml_data.get("data", {}).get("neural_network", "data/neural_network/nn_model.json")
+        # Override NN architecture from TOML [network] section if present
+        _net = _toml_data.get("network", {})
+        if "layer_sizes" in _net:
+            cfg.network.layer_sizes = _net["layer_sizes"]
+        if "activations" in _net:
+            cfg.network.activations = _net["activations"]
         cfg.sim.final_file = "output/final.train_nn_temp"
         cfg.sim.exec_dir = "."
         if cwd is None:

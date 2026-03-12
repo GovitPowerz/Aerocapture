@@ -93,7 +93,7 @@ Key Rust dependency: `nalgebra` for vector/matrix ops.
 
 ### Input Configuration
 
-TOML config files in `configs/` are the only supported input format, organized into subdirectories: `configs/nominal/` (simulation configs), `configs/training/` (GA training configs), `configs/test/` (golden test configs). Each config specifies mission, guidance scheme, vehicle, entry conditions, aerodynamics, Monte Carlo settings, and data file paths.
+TOML config files in `configs/` are the only supported input format, organized into subdirectories: `configs/nominal/` (simulation configs), `configs/training/` (GA training configs), `configs/test/` (golden test configs). Each config specifies mission, guidance scheme, vehicle, entry conditions, aerodynamics, Monte Carlo settings, and data file paths. The NN weight file path (`[data] neural_network`) and optional architecture override (`[network] layer_sizes`, `activations`) are read from TOML at training time.
 
 ### Python Tools (`src/python/`, `pyproject.toml`)
 

@@ -36,11 +36,18 @@ class TestNParamsConsistency:
         expected = config.network.n_base_coef
         assert config.n_params == expected, f"NN n_params={config.n_params} != n_base_coef={expected}"
 
-    @pytest.mark.parametrize("layer_sizes", [[6, 12, 2], [4, 8, 8, 2], [6, 6, 2]])
-    def test_nn_n_params_varies_with_architecture(self, layer_sizes: list[int]) -> None:
+    @pytest.mark.parametrize(
+        "layer_sizes,activations",
+        [
+            ([6, 12, 2], ["tanh", "asinh"]),
+            ([6, 8, 8, 2], ["tanh", "tanh", "asinh"]),
+            ([6, 6, 2], ["tanh", "asinh"]),
+        ],
+    )
+    def test_nn_n_params_varies_with_architecture(self, layer_sizes: list[int], activations: list[str]) -> None:
         """n_params reflects the actual NN architecture."""
         config = TrainingConfig(
-            network=NetworkConfig(layer_sizes=layer_sizes),
+            network=NetworkConfig(layer_sizes=layer_sizes, activations=activations),
             guidance_type="neural_network",
         )
         # Manual calculation
