@@ -7,6 +7,7 @@ section is present and contains the expected keys.
 
 from __future__ import annotations
 
+import inspect
 import tomllib
 from pathlib import Path
 
@@ -143,5 +144,44 @@ class TestPatchTomlMcSeed:
             with open(patched, "rb") as f:
                 data = tomllib.load(f)
             assert data["monte_carlo"]["seed"] == 55
+        finally:
+            patched.unlink(missing_ok=True)
+
+
+class TestEvaluateChromosomeMcSeed:
+    def test_mc_seed_param_exists(self) -> None:
+        from aerocapture.training.evaluate import evaluate_chromosome
+
+        sig = inspect.signature(evaluate_chromosome)
+        assert "mc_seed" in sig.parameters
+
+
+class TestWriteGuidanceTomlMcSeed:
+    def test_mc_seed_composed_into_patched_toml(self, tmp_path: Path) -> None:
+        base = tmp_path / "base.toml"
+        base.write_text(
+            '[mission]\ntype = "aerocapture"\n\n[monte_carlo]\nseed = 42\n\n'
+            '[guidance]\ntype = "equilibrium_glide"\n\n[guidance.equilibrium_glide]\nk_hdot = 1.0\n'
+        )
+        patched = write_guidance_toml(base, "equilibrium_glide", {"k_hdot": 2.0}, mc_seed=99)
+        try:
+            with open(patched, "rb") as f:
+                data = tomllib.load(f)
+            assert data["monte_carlo"]["seed"] == 99
+            assert data["guidance"]["equilibrium_glide"]["k_hdot"] == 2.0
+        finally:
+            patched.unlink(missing_ok=True)
+
+    def test_no_mc_seed_preserves_original(self, tmp_path: Path) -> None:
+        base = tmp_path / "base.toml"
+        base.write_text(
+            '[mission]\ntype = "aerocapture"\n\n[monte_carlo]\nseed = 42\n\n'
+            '[guidance]\ntype = "equilibrium_glide"\n\n[guidance.equilibrium_glide]\nk_hdot = 1.0\n'
+        )
+        patched = write_guidance_toml(base, "equilibrium_glide", {"k_hdot": 2.0})
+        try:
+            with open(patched, "rb") as f:
+                data = tomllib.load(f)
+            assert data["monte_carlo"]["seed"] == 42
         finally:
             patched.unlink(missing_ok=True)
