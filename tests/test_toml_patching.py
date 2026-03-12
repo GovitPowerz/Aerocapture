@@ -11,7 +11,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
-from aerocapture.training.evaluate import decode_params_from_chromosome, write_guidance_toml
+from aerocapture.training.evaluate import decode_params_from_chromosome, patch_toml_mc_seed, write_guidance_toml
 from aerocapture.training.param_spaces import PARAM_SPACES
 
 from tests.fixtures.factories import make_chromosome, make_training_config
@@ -120,3 +120,28 @@ def test_toml_roundtrip_temp_file(scheme: str) -> None:
         assert "guidance" in parsed
     finally:
         written.unlink(missing_ok=True)
+
+
+class TestPatchTomlMcSeed:
+    def test_overrides_seed(self, tmp_path: Path) -> None:
+        base = tmp_path / "base.toml"
+        base.write_text('[monte_carlo]\nseed = 42\n\n[mission]\ntype = "aerocapture"\n')
+        patched = patch_toml_mc_seed(base, 99)
+        try:
+            with open(patched, "rb") as f:
+                data = tomllib.load(f)
+            assert data["monte_carlo"]["seed"] == 99
+            assert data["mission"]["type"] == "aerocapture"
+        finally:
+            patched.unlink(missing_ok=True)
+
+    def test_adds_seed_when_missing(self, tmp_path: Path) -> None:
+        base = tmp_path / "base.toml"
+        base.write_text('[mission]\ntype = "aerocapture"\n')
+        patched = patch_toml_mc_seed(base, 55)
+        try:
+            with open(patched, "rb") as f:
+                data = tomllib.load(f)
+            assert data["monte_carlo"]["seed"] == 55
+        finally:
+            patched.unlink(missing_ok=True)

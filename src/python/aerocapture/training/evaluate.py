@@ -429,6 +429,32 @@ def _toml_value(value: object) -> str:
     return str(value)
 
 
+def patch_toml_mc_seed(base_toml_path: str | Path, mc_seed: int) -> Path:
+    """Create a temp TOML with [monte_carlo].seed overridden.
+
+    Args:
+        base_toml_path: Path to the base TOML config.
+        mc_seed: The Monte Carlo seed to set.
+
+    Returns:
+        Path to the temp TOML file (caller must clean up).
+    """
+    import os
+    import tomllib
+
+    base_toml_path = Path(base_toml_path)
+    with open(base_toml_path, "rb") as f:
+        toml_data = tomllib.load(f)
+
+    toml_data.setdefault("monte_carlo", {})["seed"] = mc_seed
+
+    fd, path_str = tempfile.mkstemp(suffix=".toml", prefix="mc_seed_")
+    output_path = Path(path_str)
+    os.close(fd)
+    _write_toml(toml_data, output_path)
+    return output_path
+
+
 def evaluate_chromosome(
     xbit: npt.NDArray[np.int8],
     base_network: npt.NDArray[np.float64],
