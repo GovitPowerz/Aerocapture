@@ -23,6 +23,12 @@ class NetworkConfig:
     layer_sizes: list[int] = field(default_factory=lambda: [6, 12, 2])
     activations: list[str] = field(default_factory=lambda: ["tanh", "asinh"])
 
+    def __post_init__(self) -> None:
+        n_layers = len(self.layer_sizes) - 1
+        if len(self.activations) != n_layers:
+            msg = f"activations length ({len(self.activations)}) must equal len(layer_sizes)-1 ({n_layers})"
+            raise ValueError(msg)
+
     @property
     def n_input(self) -> int:
         return self.layer_sizes[0]
@@ -62,6 +68,7 @@ class GAConfig:
     n_gen: int = 100
     mutation_rate: float = 0.02
     n_runs: int = 100
+    rotate_seeds: bool = False
 
 
 @dataclass

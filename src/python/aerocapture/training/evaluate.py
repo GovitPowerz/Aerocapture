@@ -297,6 +297,7 @@ def write_guidance_toml(
     guidance_type: str,
     params: dict[str, float],
     output_path: str | Path | None = None,
+    mc_seed: int | None = None,
 ) -> Path:
     """Patch a base TOML config with optimized guidance parameters.
 
@@ -320,6 +321,9 @@ def write_guidance_toml(
     # Set the parameter section
     section_name = GUIDANCE_TOML_SECTIONS[guidance_type]
     toml_data["guidance"][section_name] = params
+
+    if mc_seed is not None:
+        toml_data.setdefault("monte_carlo", {})["seed"] = mc_seed
 
     # Write TOML (minimal writer — machine-consumed only)
     if output_path is None:
@@ -429,11 +433,38 @@ def _toml_value(value: object) -> str:
     return str(value)
 
 
+def patch_toml_mc_seed(base_toml_path: str | Path, mc_seed: int) -> Path:
+    """Create a temp TOML with [monte_carlo].seed overridden.
+
+    Args:
+        base_toml_path: Path to the base TOML config.
+        mc_seed: The Monte Carlo seed to set.
+
+    Returns:
+        Path to the temp TOML file (caller must clean up).
+    """
+    import os
+    import tomllib
+
+    base_toml_path = Path(base_toml_path)
+    with open(base_toml_path, "rb") as f:
+        toml_data = tomllib.load(f)
+
+    toml_data.setdefault("monte_carlo", {})["seed"] = mc_seed
+
+    fd, path_str = tempfile.mkstemp(suffix=".toml", prefix="mc_seed_")
+    output_path = Path(path_str)
+    os.close(fd)
+    _write_toml(toml_data, output_path)
+    return output_path
+
+
 def evaluate_chromosome(
     xbit: npt.NDArray[np.int8],
     base_network: npt.NDArray[np.float64],
     config: TrainingConfig,
     cwd: str | Path | None = None,
+    mc_seed: int | None = None,
 ) -> tuple[float, npt.NDArray[np.float64] | None]:
     """Full evaluation pipeline: decode, simulate, score.
 
@@ -445,6 +476,7 @@ def evaluate_chromosome(
         base_network: Base network weights (ignored for non-NN schemes).
         config: Training configuration.
         cwd: Working directory.
+        mc_seed: Optional Monte Carlo seed to inject into the TOML config.
 
     Returns:
         (cost, final_conditions) tuple.
@@ -457,7 +489,20 @@ def evaluate_chromosome(
         weights = decode_direct(xbit, config) if config.ga.direct_encoding else perturb_network(xbit, base_network, config)
         nn_path = Path(cwd) / config.sim.nn_param_file
         write_nn_json(weights, config.network, nn_path)
-        final = run_simulation(config, cwd=cwd)
+        if mc_seed is not None:
+            if config.sim.toml_config is None:
+                msg = "mc_seed requires toml_config to be set for neural_network guidance"
+                raise ValueError(msg)
+            patched_toml = patch_toml_mc_seed(Path(cwd) / config.sim.toml_config, mc_seed)
+            try:
+                orig_toml = config.sim.toml_config
+                config.sim.toml_config = str(patched_toml)
+                final = run_simulation(config, cwd=cwd)
+            finally:
+                config.sim.toml_config = orig_toml
+                patched_toml.unlink(missing_ok=True)
+        else:
+            final = run_simulation(config, cwd=cwd)
     else:
         # Generic guidance param path: decode params, patch TOML, run sim
         params = decode_params_from_chromosome(xbit, config)
@@ -465,14 +510,14 @@ def evaluate_chromosome(
             msg = f"toml_config must be set for guidance_type={config.guidance_type}"
             raise ValueError(msg)
         base_toml = Path(cwd) / config.sim.toml_config
-        patched_toml = write_guidance_toml(base_toml, config.guidance_type, params)
+        patched_toml = write_guidance_toml(base_toml, config.guidance_type, params, mc_seed=mc_seed)
         try:
             # Temporarily override TOML config to use patched file
             orig_toml = config.sim.toml_config
             config.sim.toml_config = str(patched_toml)
             final = run_simulation(config, cwd=cwd)
-            config.sim.toml_config = orig_toml
         finally:
+            config.sim.toml_config = orig_toml
             # Clean up temp file
             patched_toml.unlink(missing_ok=True)
 

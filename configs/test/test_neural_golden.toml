@@ -17,7 +17,7 @@ output_dir = "output"
 atmosphere = "data/atmosphere/mars.dat"
 reference_trajectory = "data/reference_trajectory/msr_aller.dat"
 results_suffix = ".golden_neural"
-neural_network = "data/neural_network/nn_model.json"
+neural_network = "tests/reference_data/rust_golden/neural/nn_model_golden.json"
 
 [monte_carlo]
 seed = 42

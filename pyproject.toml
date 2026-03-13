@@ -4,19 +4,21 @@ version = "0.1.0"
 description = "Trajectory simulation tool for aerocapture maneuvers"
 requires-python = ">=3.14"
 dependencies = [
-    "numpy>=1.26",
-    "pandas>=2.1",
-    "matplotlib>=3.8",
+    "numpy>=2.4",
+    "pandas>=3.0",
+    "matplotlib>=3.10",
     "deap>=1.4",
     "scipy>=1.17.1",
+    "rich>=14.3",
+    "plotly>=6.6",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0",
-    "ruff>=0.15.5",
+    "pytest>=9.0",
+    "ruff>=0.15",
     "mypy>=1.9",
-    "pandas-stubs>=2.1",
+    "pandas-stubs>=3.0",
     "scipy-stubs>=1.17.1.0",
     "types-defusedxml>=0.7.0.20250822",
     "types-openpyxl>=3.1.5.20250919",
@@ -24,6 +26,7 @@ dev = [
     "types-xlrd>=2.0.0.20251020",
     "hypothesis>=6.100",
 ]
+
 
 [build-system]
 requires = ["hatchling"]

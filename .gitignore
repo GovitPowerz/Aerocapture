@@ -42,6 +42,7 @@ output/*
 # === Miscellaneous ===
 *.json
 !data/**/*.json
+!tests/reference_data/**/*.json
 *.temp
 *.png
 training_output/

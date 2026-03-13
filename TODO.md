@@ -1,5 +1,10 @@
 # TODO
 
+- [ ] Discuss the interest of using a pyO3 interface between Rust and python
+- [ ] Design a rolling strategy over generations when rotating seed to keep MC dispersions draws that best cover the whole range of difficulty for the guidance (i.e. statistical distribution of cost)
+- [ ] Improve end training visualisation with a proper statistical distribution of final DeltaV and the 3 orbital corrections
+- [ ] for the final re-evaluation, it would be more interesting to do it on a 1000 MC simulation
+
 ## Simulation — High Impact
 
 - [ ] Implement wind model (currently a stub returning zero) — `IMPROVEMENTS.md` §1.4
@@ -21,7 +26,6 @@
 - [ ] Explore LSTM / Transformer architectures for guidance (BPTT for recurrent) — §12.2
 - [ ] Let NN handle roll reversal directly (remove FTC lateral dependency) — §8.3
 - [ ] Add neural counterparts for navigation and control — §12.3
-- [ ] Improve training visualization (live plots, convergence diagnostics) — §11.3
 
 ## Mission Extensions
 

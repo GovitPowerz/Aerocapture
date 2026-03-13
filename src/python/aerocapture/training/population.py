@@ -12,6 +12,7 @@ import numpy.typing as npt
 
 from aerocapture.training.config import TrainingConfig
 from aerocapture.training.evaluate import evaluate_chromosome
+from aerocapture.training.initialization import generate_initialized_weights
 from aerocapture.training.local_search import improve_chromosome
 
 
@@ -110,8 +111,16 @@ def create_initial_population(
     if verbose:
         print(f"Generating {n_candidates} candidate chromosomes ({config.guidance_type}, {config.n_params} params)...")
 
-    # Generate random binary chromosomes
-    candidates = rng.integers(0, 2, size=(n_candidates, chrom_len), dtype=np.int8)
+    # Generate initial chromosomes
+    if config.guidance_type == "neural_network" and config.ga.direct_encoding:
+        # Smart initialization: per-layer Xavier/He/LeCun uniform
+        candidates = np.zeros((n_candidates, chrom_len), dtype=np.int8)
+        for i in range(n_candidates):
+            weights = generate_initialized_weights(config.network.layer_sizes, config.network.activations, rng)
+            candidates[i] = encode_weights_to_chromosome(weights, config)
+    else:
+        # Random binary chromosomes (non-NN schemes)
+        candidates = rng.integers(0, 2, size=(n_candidates, chrom_len), dtype=np.int8)
 
     # Seed population from known values
     if config.guidance_type == "neural_network":
