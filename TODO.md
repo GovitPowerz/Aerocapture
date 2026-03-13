@@ -1,7 +1,9 @@
 # TODO
 
 - [ ] Discuss the interest of using a pyO3 interface between Rust and python
-- [ ] Design a strategy when rotating seed to keep MC dispersions draws that best cover the whole range of difficulty for the guidance (i.e. statistical distribution of cost)
+- [ ] Design a rolling strategy over generations when rotating seed to keep MC dispersions draws that best cover the whole range of difficulty for the guidance (i.e. statistical distribution of cost)
+- [ ] Improve end training visualisation with a proper statistical distribution of final DeltaV and the 3 orbital corrections
+- [ ] for the final re-evaluation, it would be more interesting to do it on a 1000 MC simulation
 
 ## Simulation — High Impact
 
