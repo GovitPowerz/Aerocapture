@@ -14,6 +14,8 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
+from aerocapture.training.config import TrainingConfig
+
 # Legacy array column indices (53-column format from evaluate._parse_final_to_legacy_array)
 _COL_VELOCITY = 4
 _COL_FPA = 5
@@ -39,6 +41,70 @@ _COLOR_DV3 = "#4CAF50"
 _COLOR_CAPTURED = "#4CAF50"
 _COLOR_HYPERBOLIC = "#F44336"
 _COLOR_CDF = "#9C27B0"
+
+
+def _read_target_inclination(toml_path: Path) -> float:
+    """Read target inclination from TOML [flight.target_orbit] section."""
+    import tomllib
+
+    with open(toml_path, "rb") as f:
+        data = tomllib.load(f)
+    return float(data.get("flight", {}).get("target_orbit", {}).get("inclination", 0.0))
+
+
+def _patch_toml_for_final_eval(
+    base_toml_path: Path,
+    n_sims: int,
+    seed: int,
+) -> Path:
+    """Create a temporary TOML with overridden n_sims and mc_seed."""
+    import os
+    import tempfile
+    import tomllib
+
+    with open(base_toml_path, "rb") as f:
+        toml_data = tomllib.load(f)
+
+    toml_data.setdefault("monte_carlo", {})["n_sims"] = n_sims
+    toml_data["monte_carlo"]["seed"] = seed
+
+    from aerocapture.training.evaluate import _write_toml
+
+    fd, path_str = tempfile.mkstemp(suffix=".toml", prefix="final_eval_")
+    os.close(fd)
+    output_path = Path(path_str)
+    _write_toml(toml_data, output_path)
+    return output_path
+
+
+def run_final_evaluation(
+    cfg: TrainingConfig,
+    n_sims: int = 1000,
+    seed: int | None = None,
+    cwd: Path | None = None,
+) -> npt.NDArray[np.float64] | None:
+    """Run large-MC re-evaluation of best solution.
+
+    Patches the TOML config to override n_sims and mc_seed, then runs
+    the simulator. Returns final conditions array (n_sims, 53) in
+    legacy format, or None if the simulation fails.
+    """
+    from aerocapture.training.evaluate import run_simulation
+
+    if cfg.sim.toml_config is None:
+        return None
+
+    cwd_path = Path(cwd) if cwd else Path(".")
+    base_toml = cwd_path / cfg.sim.toml_config
+
+    patched_toml = _patch_toml_for_final_eval(base_toml, n_sims, 0 if seed is None else seed)
+    orig_toml = cfg.sim.toml_config
+    try:
+        cfg.sim.toml_config = str(patched_toml)
+        return run_simulation(cfg, cwd=cwd)
+    finally:
+        cfg.sim.toml_config = orig_toml
+        patched_toml.unlink(missing_ok=True)
 
 
 def generate_final_report(
@@ -261,3 +327,69 @@ def _add_summary_table(
         row=row,
         col=col,
     )
+
+
+def main() -> None:
+    """CLI entry point for standalone final evaluation."""
+    import argparse
+    import json
+    import sys
+
+    from aerocapture.training.evaluate import write_guidance_toml
+
+    parser = argparse.ArgumentParser(description="Run final evaluation and generate report")
+    parser.add_argument("scheme_dir", type=str, help="Path to scheme output directory (contains best_params.json or best_model.json)")
+    parser.add_argument("--toml", type=str, required=True, help="Base TOML config path")
+    parser.add_argument("--n-sims", type=int, default=1000, help="Number of MC simulations (default: 1000)")
+    parser.add_argument("--seed", type=int, default=42, help="MC seed for re-evaluation")
+    args = parser.parse_args()
+
+    scheme_dir = Path(args.scheme_dir)
+    if not scheme_dir.exists():
+        print(f"ERROR: Directory not found: {scheme_dir}")
+        sys.exit(1)
+
+    scheme = scheme_dir.name
+
+    params_path = scheme_dir / "best_params.json"
+    model_path = scheme_dir / "best_model.json"
+
+    cfg = TrainingConfig()
+    cfg.sim.toml_config = args.toml
+    cfg.sim.executable = "src/rust/target/release/aerocapture"
+    cfg.guidance_type = scheme
+
+    if params_path.exists():
+        with open(params_path) as f:
+            params = json.load(f)
+        opt_toml = scheme_dir / f"optimized_{scheme}.toml"
+        if not opt_toml.exists():
+            base_toml = Path(args.toml)
+            write_guidance_toml(base_toml, scheme, params, opt_toml)
+        cfg.sim.toml_config = str(opt_toml)
+    elif model_path.exists():
+        import tomllib
+
+        with open(args.toml, "rb") as f:
+            toml_data = tomllib.load(f)
+        cfg.sim.nn_param_file = toml_data.get("data", {}).get("neural_network", "data/neural_network/nn_model.json")
+    else:
+        print(f"ERROR: No best_params.json or best_model.json found in {scheme_dir}")
+        sys.exit(1)
+
+    target_incl = _read_target_inclination(Path(args.toml))
+
+    print(f"Running {args.n_sims}-sim final evaluation for {scheme} (seed={args.seed})...")
+    final = run_final_evaluation(cfg, n_sims=args.n_sims, seed=args.seed)
+
+    if final is None:
+        print("ERROR: Simulation failed")
+        sys.exit(1)
+
+    output_path = scheme_dir / "final_report.html"
+    generate_final_report(final, scheme, target_incl, output_path)
+    print(f"Report saved to {output_path}")
+
+
+if __name__ == "__main__":
+    main()
