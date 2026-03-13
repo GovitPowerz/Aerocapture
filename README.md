@@ -68,6 +68,9 @@ uv run python -m aerocapture.training.train \
 # Disable TUI (CI / piped output)
 uv run python -m aerocapture.training.train ... --no-tui
 
+# Rotate MC dispersion seeds each generation (prevents overfitting)
+uv run python -m aerocapture.training.train ... --rotate-seeds
+
 # Compare all schemes on identical MC scenarios
 uv run python -m aerocapture.training.compare_guidance \
     --base-toml configs/training/msr_aller_eqglide_train.toml \

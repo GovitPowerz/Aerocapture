@@ -1,7 +1,5 @@
 # TODO
 
-- [x] Discuss the interest of using Xavier weight initialisation
-- [ ] Discuss the interest of changing dispersions draws for each generation when training
 - [ ] Discuss the interest of using a pyO3 interface between Rust and python
 
 ## Simulation — High Impact
