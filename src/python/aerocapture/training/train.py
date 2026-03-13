@@ -466,6 +466,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--no-tui", action="store_true", help="Disable Rich TUI (use plain-text output)")
     parser.add_argument("--rotate-seeds", action="store_true", help="Rotate MC dispersion seed each generation (prevents overfitting to fixed scenarios)")
+    parser.add_argument("--skip-final-report", action="store_true", help="Skip final re-evaluation report")
+    parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
     args = parser.parse_args()
 
     cfg = TrainingConfig()
@@ -547,3 +549,31 @@ if __name__ == "__main__":
                 print(f"  Apoapsis err (km):  mean={np.abs(final[captured, 31]).mean():.1f}")
                 print(f"  Periapsis err (km): mean={np.abs(final[captured, 30]).mean():.1f}")
                 print(f"  Delta-V (m/s):      mean={final[captured, 42].mean():.1f}")
+
+        # Final evaluation report (large-MC re-evaluation)
+        if not args.skip_final_report:
+            from aerocapture.training.final_report import (
+                _read_target_inclination,
+                generate_final_report,
+                run_final_evaluation,
+            )
+
+            # For non-NN schemes, use the optimized TOML (contains best guidance params)
+            # For NN, the base TOML already references the NN JSON on disk
+            if cfg.guidance_type != "neural_network":
+                opt_toml = Path(cfg.save_dir) / f"optimized_{cfg.guidance_type}.toml"
+                if opt_toml.exists():
+                    cfg.sim.toml_config = str(opt_toml)
+
+            # Read target inclination from the base TOML (target_orbit is unchanged by patching)
+            target_incl = _read_target_inclination(Path(cwd or ".") / args.toml)
+
+            final_seed = args.seed + 9999
+            print(f"\nRunning {args.final_n_sims}-sim final evaluation (seed={final_seed})...")
+            final_eval = run_final_evaluation(cfg, n_sims=args.final_n_sims, seed=final_seed, cwd=cwd)
+            if final_eval is not None:
+                report_path = Path(cfg.save_dir) / "final_report.html"
+                generate_final_report(final_eval, cfg.guidance_type, target_incl, report_path)
+                print(f"Final report saved to {report_path}")
+            else:
+                print("WARNING: Final evaluation simulation failed, skipping report")
