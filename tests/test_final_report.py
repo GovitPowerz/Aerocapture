@@ -88,3 +88,78 @@ class TestGenerateFinalReport:
         assert output.exists()
         content = output.read_text()
         assert "No captured trajectories" in content
+
+
+class TestRunFinalEvaluation:
+    def test_patches_n_sims_and_seed(self, tmp_path: Path) -> None:
+        """Verify TOML patching writes correct n_sims and seed."""
+        import tomllib
+
+        from aerocapture.training.final_report import _patch_toml_for_final_eval
+
+        toml_content = '[monte_carlo]\nn_sims = 10\nseed = 1\n[guidance]\ntype = "ftc"\n'
+        src_toml = tmp_path / "base.toml"
+        src_toml.write_text(toml_content)
+
+        patched = _patch_toml_for_final_eval(src_toml, n_sims=1000, seed=9999)
+        with open(patched, "rb") as f:
+            data = tomllib.load(f)
+        assert data["monte_carlo"]["n_sims"] == 1000
+        assert data["monte_carlo"]["seed"] == 9999
+        patched.unlink()
+
+    def test_reads_target_inclination_from_toml(self, tmp_path: Path) -> None:
+        """Verify target inclination extraction from TOML."""
+        from aerocapture.training.final_report import _read_target_inclination
+
+        toml_content = '[flight.target_orbit]\napoapsis = 500.0\nperiapsis = 250.0\ninclination = 50.0\n'
+        toml_file = tmp_path / "cfg.toml"
+        toml_file.write_text(toml_content)
+
+        assert _read_target_inclination(toml_file) == 50.0
+
+    def test_target_inclination_missing_returns_zero(self, tmp_path: Path) -> None:
+        """Fallback to 0.0 if inclination not in TOML."""
+        from aerocapture.training.final_report import _read_target_inclination
+
+        toml_content = '[flight.target_orbit]\napoapsis = 500.0\n'
+        toml_file = tmp_path / "cfg.toml"
+        toml_file.write_text(toml_content)
+
+        assert _read_target_inclination(toml_file) == 0.0
+
+    def test_seed_zero_is_not_replaced(self, tmp_path: Path) -> None:
+        """Explicit seed=0 should be preserved, not treated as None."""
+        import tomllib
+
+        from aerocapture.training.final_report import _patch_toml_for_final_eval
+
+        toml_content = '[monte_carlo]\nn_sims = 10\nseed = 99\n'
+        src_toml = tmp_path / "base.toml"
+        src_toml.write_text(toml_content)
+
+        patched = _patch_toml_for_final_eval(src_toml, n_sims=100, seed=0)
+        with open(patched, "rb") as f:
+            data = tomllib.load(f)
+        assert data["monte_carlo"]["seed"] == 0
+        patched.unlink()
+
+
+@pytest.mark.skipif(
+    not Path("src/rust/target/release/aerocapture").exists(),
+    reason="Rust binary not built",
+)
+class TestFinalReportCLI:
+    def test_cli_produces_html(self, tmp_path: Path) -> None:
+        """Integration test: standalone CLI produces an HTML report."""
+        import subprocess
+
+        pytest.importorskip("plotly")
+
+        result = subprocess.run(
+            ["uv", "run", "python", "-m", "aerocapture.training.final_report", "--help"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        assert "--n-sims" in result.stdout
