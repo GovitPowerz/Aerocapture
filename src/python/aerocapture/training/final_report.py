@@ -267,20 +267,20 @@ def _add_hist_cdf(
     """Add histogram + CDF overlay with percentile lines to a subplot."""
     import plotly.graph_objects as go  # type: ignore[import-untyped]
 
-    fig.add_trace(go.Histogram(x=data, name=xaxis_label, marker_color=color, opacity=0.7, nbinsx=40, showlegend=False), row=row, col=col)  # type: ignore[union-attr]
+    fig.add_trace(go.Histogram(x=data, name=xaxis_label, marker_color=color, opacity=0.7, nbinsx=40, showlegend=False), row=row, col=col)  # type: ignore[attr-defined]
 
     sorted_data = np.sort(data)
     cdf = np.arange(1, len(sorted_data) + 1) / len(sorted_data)
-    fig.add_trace(go.Scatter(x=sorted_data, y=cdf, name="CDF", line={"color": _COLOR_CDF, "width": 2}, showlegend=False), row=row, col=col, secondary_y=True)  # type: ignore[union-attr]
+    fig.add_trace(go.Scatter(x=sorted_data, y=cdf, name="CDF", line={"color": _COLOR_CDF, "width": 2}, showlegend=False), row=row, col=col, secondary_y=True)  # type: ignore[attr-defined]
 
     # Percentile lines
     for p in _PERCENTILES:
         val = float(np.percentile(data, p))
-        fig.add_vline(x=val, line_dash="dot", line_color="gray", opacity=0.5, row=row, col=col, annotation_text=f"p{p}")  # type: ignore[union-attr]
+        fig.add_vline(x=val, line_dash="dot", line_color="gray", opacity=0.5, row=row, col=col, annotation_text=f"p{p}")  # type: ignore[attr-defined]
 
-    fig.update_xaxes(title_text=xaxis_label, row=row, col=col)  # type: ignore[union-attr]
-    fig.update_yaxes(title_text="Count", row=row, col=col, secondary_y=False)  # type: ignore[union-attr]
-    fig.update_yaxes(title_text="CDF", row=row, col=col, secondary_y=True)  # type: ignore[union-attr]
+    fig.update_xaxes(title_text=xaxis_label, row=row, col=col)  # type: ignore[attr-defined]
+    fig.update_yaxes(title_text="Count", row=row, col=col, secondary_y=False)  # type: ignore[attr-defined]
+    fig.update_yaxes(title_text="CDF", row=row, col=col, secondary_y=True)  # type: ignore[attr-defined]
 
 
 def _add_summary_table(
@@ -318,8 +318,8 @@ def _add_summary_table(
     # Add capture rate as first row
     rows.insert(0, [f"Capture rate: {n_captured}/{n_total} ({n_captured / n_total * 100:.1f}%)", "", "", "", "", "", "", ""])
 
-    cells_transposed = list(zip(*rows, strict=False)) if rows else [[] for _ in header]
-    fig.add_trace(  # type: ignore[union-attr]
+    cells_transposed = list(zip(*rows, strict=False)) if rows else [[] for _ in header]  # type: ignore[misc]
+    fig.add_trace(  # type: ignore[attr-defined]
         go.Table(
             header={"values": header, "fill_color": _COLOR_PRIMARY, "font_color": "white", "align": "center"},
             cells={"values": cells_transposed, "align": "center"},
