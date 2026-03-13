@@ -210,6 +210,12 @@ def train(
     if config is None:
         config = TrainingConfig()
 
+    # Fail fast if Rust binary is missing
+    exe = Path(cwd or config.sim.exec_dir) / config.sim.executable
+    if not exe.exists():
+        msg = f"Rust simulator not found at {exe.resolve()}. Build it first: cd src/rust && cargo build --release"
+        raise FileNotFoundError(msg)
+
     rng = np.random.default_rng(seed)
 
     # Initialize base network (used for perturbation encoding, ignored for direct)

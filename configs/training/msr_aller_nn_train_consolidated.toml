@@ -9,8 +9,12 @@ planet = "mars"
 type = "neural_network"
 reference_bank_angle = 64.77026
 
+[network]
+layer_sizes = [6, 8, 8, 2]              # input, hidden..., output
+activations = ["tanh", "tanh", "asinh"] # one per non-input layer
+
 [simulation]
-n_sims = 100
+n_sims = 50
 random_seed = 0.6866
 
 [data]

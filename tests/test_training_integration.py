@@ -11,6 +11,14 @@ import pytest
 from tests.fixtures.factories import make_training_config
 
 
+@pytest.fixture(autouse=True)
+def _dummy_executable(tmp_path: Path) -> None:
+    """Create a dummy executable so train()'s binary check passes."""
+    exe = tmp_path / "dummy"
+    exe.touch()
+    exe.chmod(0o755)
+
+
 class TestTrainLoggerIntegration:
     def test_logger_called_once_per_generation(self, tmp_path: Path) -> None:
         """Verify log_generation is called once per gen, after tournament, before checkpoint."""
