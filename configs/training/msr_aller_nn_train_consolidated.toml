@@ -1,4 +1,4 @@
-# MSR outbound — NN training, 10 MC sims per evaluation, domain-based dispersions
+# MSR outbound — NN training, n_sims MC sims per evaluation, domain-based dispersions
 # Consolidated: inline vehicle/mission data, external atmosphere + ref trajectory + NN weights
 
 [mission]
