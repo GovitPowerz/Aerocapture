@@ -1,6 +1,7 @@
 # TODO
 
 - [ ] Discuss the interest of using a pyO3 interface between Rust and python
+- [ ] Design a strategy when rotating seed to keep MC dispersions draws that best cover the whole range of difficulty for the guidance (i.e. statistical distribution of cost)
 
 ## Simulation — High Impact
 
