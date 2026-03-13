@@ -112,7 +112,7 @@ class TestRunFinalEvaluation:
         """Verify target inclination extraction from TOML."""
         from aerocapture.training.final_report import _read_target_inclination
 
-        toml_content = '[flight.target_orbit]\napoapsis = 500.0\nperiapsis = 250.0\ninclination = 50.0\n'
+        toml_content = "[flight.target_orbit]\napoapsis = 500.0\nperiapsis = 250.0\ninclination = 50.0\n"
         toml_file = tmp_path / "cfg.toml"
         toml_file.write_text(toml_content)
 
@@ -122,7 +122,7 @@ class TestRunFinalEvaluation:
         """Fallback to 0.0 if inclination not in TOML."""
         from aerocapture.training.final_report import _read_target_inclination
 
-        toml_content = '[flight.target_orbit]\napoapsis = 500.0\n'
+        toml_content = "[flight.target_orbit]\napoapsis = 500.0\n"
         toml_file = tmp_path / "cfg.toml"
         toml_file.write_text(toml_content)
 
@@ -134,7 +134,7 @@ class TestRunFinalEvaluation:
 
         from aerocapture.training.final_report import _patch_toml_for_final_eval
 
-        toml_content = '[monte_carlo]\nn_sims = 10\nseed = 99\n'
+        toml_content = "[monte_carlo]\nn_sims = 10\nseed = 99\n"
         src_toml = tmp_path / "base.toml"
         src_toml.write_text(toml_content)
 

@@ -76,9 +76,16 @@ uv run python -m aerocapture.training.compare_guidance \
     --base-toml configs/training/msr_aller_eqglide_train.toml \
     --n-sims 100
 
-# Generate post-training Plotly HTML report (requires uv sync --group viz)
+# Generate post-training convergence report
 uv run python -m aerocapture.training.report training_output/equilibrium_glide/
 uv run python -m aerocapture.training.report --compare training_output/
+
+# Final evaluation report (1000-sim MC re-evaluation with statistical distributions)
+# Runs automatically at end of training; also standalone:
+uv run python -m aerocapture.training.final_report \
+    training_output/equilibrium_glide/ \
+    --toml configs/training/msr_aller_eqglide_train.toml \
+    --n-sims 1000 --seed 42
 ```
 
 ## Validation
