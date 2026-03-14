@@ -17,6 +17,14 @@ import numpy.typing as npt
 
 from aerocapture.training.config import NetworkConfig, TrainingConfig
 
+try:
+    import aerocapture_rs as _aero_rs  # type: ignore[import-untyped]
+
+    _HAS_PYO3 = True
+except ImportError:
+    _aero_rs = None  # type: ignore[assignment]
+    _HAS_PYO3 = False
+
 
 def binary_to_decimal(
     xbit: npt.NDArray[np.int8],
@@ -117,10 +125,9 @@ def write_nn_json(
 
 
 def _parse_final_to_legacy_array(filepath: Path) -> npt.NDArray[np.float64] | None:
-    """Parse a final conditions CSV file, returning legacy-compatible 53-column array.
+    """Parse a final conditions CSV file, returning 0-based 52-column array.
 
-    Maps named CSV columns back to the legacy 53-column positions so
-    compute_cost() works unchanged.
+    Maps named CSV columns to their xsauve indices (0-based, no sim_number prefix).
     """
     import pandas as pd
 
@@ -130,24 +137,61 @@ def _parse_final_to_legacy_array(filepath: Path) -> npt.NDArray[np.float64] | No
     if df.empty:
         return None
     n = len(df)
-    result = np.zeros((n, 53))
-    result[:, 0] = df["sim_number"].to_numpy()
+    result = np.zeros((n, 52))
     for col_name, legacy_idx in CSV_TO_LEGACY_INDEX.items():
         if col_name in df.columns:
-            result[:, legacy_idx + 1] = df[col_name].to_numpy()
+            result[:, legacy_idx] = df[col_name].to_numpy()
     return result
 
 
-def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt.NDArray[np.float64] | None:
+def run_simulation(
+    config: TrainingConfig,
+    cwd: str | Path | None = None,
+    overrides: dict[str, object] | None = None,
+) -> npt.NDArray[np.float64] | None:
     """Run the Rust simulator and parse final conditions.
+
+    Dispatches to PyO3 direct call when available, falling back to subprocess.
 
     Args:
         config: Training configuration.
         cwd: Working directory (defaults to config.sim.exec_dir).
+        overrides: Optional TOML override dict (PyO3 path only).
 
     Returns:
-        Array of final conditions, or None if simulation failed.
+        Array of final conditions (n, 52), or None if simulation failed.
     """
+    if _HAS_PYO3 and config.sim.toml_config:
+        return _run_via_pyo3(config, cwd, overrides)
+    return _run_via_subprocess(config, cwd)
+
+
+def _run_via_pyo3(
+    config: TrainingConfig,
+    cwd: str | Path | None = None,
+    overrides: dict[str, object] | None = None,
+) -> npt.NDArray[np.float64] | None:
+    """Run simulation via PyO3 direct call (in-process, no subprocess)."""
+    assert _aero_rs is not None
+    if cwd is None:
+        cwd = config.sim.exec_dir
+    cwd = Path(cwd)
+    if not config.sim.toml_config:
+        return None
+    toml_path = str((cwd / config.sim.toml_config).resolve())
+    try:
+        result = _aero_rs.run(toml_path=toml_path, overrides=overrides)
+        arr: npt.NDArray[np.float64] = result.final_record.reshape(1, 52)
+        return arr
+    except Exception:
+        import traceback
+
+        traceback.print_exc()
+        return None
+
+
+def _run_via_subprocess(config: TrainingConfig, cwd: str | Path | None = None) -> npt.NDArray[np.float64] | None:
+    """Run simulation via subprocess (legacy path)."""
     if cwd is None:
         cwd = config.sim.exec_dir
     cwd = Path(cwd)
@@ -165,7 +209,7 @@ def run_simulation(config: TrainingConfig, cwd: str | Path | None = None) -> npt
             cwd=str(cwd.resolve()),
             timeout=300,
         )
-    except subprocess.TimeoutExpired, FileNotFoundError:
+    except (subprocess.TimeoutExpired, FileNotFoundError):
         return None
 
     # Parse final conditions — auto-detect CSV vs legacy text
@@ -191,13 +235,13 @@ def compute_cost(final_conditions: npt.NDArray[np.float64]) -> float:
     dissipate different amounts of orbital energy, so energy-based cost
     differentiates between candidates that a binary crash/no-crash penalty cannot.
 
-    Final file columns (0-indexed):
-        8  = orbital energy (MJ/kg), >0 hyperbolic, <0 bound
-        10 = eccentricity, >1 hyperbolic
-        28 = total simulation time (s)
-        30 = periapsis altitude error vs target (km)
-        31 = apoapsis altitude error vs target (km)
-        42 = total delta-V to reach target orbit (m/s)
+    Final file columns (0-indexed, 52-column layout):
+        7  = orbital energy (MJ/kg), >0 hyperbolic, <0 bound
+        9  = eccentricity, >1 hyperbolic
+        27 = total simulation time (s)
+        29 = periapsis altitude error vs target (km)
+        30 = apoapsis altitude error vs target (km)
+        41 = total delta-V to reach target orbit (m/s)
 
     Cost hierarchy (smooth within each level):
         Level 0: Hyperbolic escape → 1e6 + 1e3 * |energy|
@@ -207,12 +251,12 @@ def compute_cost(final_conditions: npt.NDArray[np.float64]) -> float:
     Returns:
         RMS cost value. Lower is better.
     """
-    energy = final_conditions[:, 8]  # MJ/kg
-    ecc = final_conditions[:, 10]  # dimensionless
-    sim_time = final_conditions[:, 28]  # s
-    peri_err = final_conditions[:, 30]  # km
-    apo_err = final_conditions[:, 31]  # km
-    dv_total = final_conditions[:, 42]  # m/s
+    energy = final_conditions[:, 7]  # MJ/kg
+    ecc = final_conditions[:, 9]  # dimensionless
+    sim_time = final_conditions[:, 27]  # s
+    peri_err = final_conditions[:, 29]  # km
+    apo_err = final_conditions[:, 30]  # km
+    dv_total = final_conditions[:, 41]  # m/s
 
     hyperbolic = (ecc > 1.0) | (energy > 0)
 
