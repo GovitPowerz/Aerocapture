@@ -291,157 +291,180 @@ def train(
         enabled=not no_tui and verbose,
     )
 
+    interrupted = False
+
     with display:
-        for run in range(start_run, config.ga.n_runs):
-            if verbose:
-                print(f"\n=== Run {run + 1}/{config.ga.n_runs} ===")
+        try:
+            for run in range(start_run, config.ga.n_runs):
+                if verbose:
+                    print(f"\n=== Run {run + 1}/{config.ga.n_runs} ===")
 
-            if resumed is not None and run == start_run:
-                # Restore population from checkpoint
-                populations = resumed["populations"]
-                all_costs = resumed["all_costs"]
-                gen_start = start_gen
-            else:
-                # Create initial population
-                population, costs = create_initial_population(
-                    config,
-                    base_network,
-                    rng=rng,
-                    cwd=cwd,
-                    verbose=verbose,
-                    seed_weights=seed_weights if run == 0 and resumed is None else None,
+                if resumed is not None and run == start_run:
+                    # Restore population from checkpoint
+                    populations = resumed["populations"]
+                    all_costs = resumed["all_costs"]
+                    gen_start = start_gen
+                else:
+                    # Create initial population
+                    population, costs = create_initial_population(
+                        config,
+                        base_network,
+                        rng=rng,
+                        cwd=cwd,
+                        verbose=verbose,
+                        seed_weights=seed_weights if run == 0 and resumed is None else None,
+                    )
+                    populations = [population]
+                    all_costs = [costs]
+                    gen_start = 0
+
+                # Set up decode function for logger (typed for mypy disallow_untyped_defs)
+                decode_fn: Callable[[npt.NDArray[np.int8]], dict[str, float]] | None
+                if config.guidance_type == "neural_network":
+                    decode_fn = None
+                else:
+
+                    def _decode(chrom: npt.NDArray[np.int8]) -> dict[str, float]:
+                        return decode_params_from_chromosome(chrom, config)
+
+                    decode_fn = _decode
+
+                logger = TrainingLogger(
+                    scheme=config.guidance_type,
+                    run=run,
+                    output_dir=save_dir,
+                    config_hash=config_hash,
                 )
-                populations = [population]
-                all_costs = [costs]
-                gen_start = 0
 
-            # Set up decode function for logger (typed for mypy disallow_untyped_defs)
-            decode_fn: Callable[[npt.NDArray[np.int8]], dict[str, float]] | None
-            if config.guidance_type == "neural_network":
-                decode_fn = None
-            else:
+                gen_best_costs: list[float] = []
 
-                def _decode(chrom: npt.NDArray[np.int8]) -> dict[str, float]:
-                    return decode_params_from_chromosome(chrom, config)
+                for gen in range(gen_start, config.ga.n_gen):
+                    mc_seed = (base_mc_seed + gen) if base_mc_seed is not None else None
 
-                decode_fn = _decode
+                    for k in range(config.ga.n_subpop):
+                        pop = populations[k]
+                        pop_costs = all_costs[k]
 
-            logger = TrainingLogger(
-                scheme=config.guidance_type,
-                run=run,
-                output_dir=save_dir,
-                config_hash=config_hash,
-            )
+                        # Create offspring
+                        offspring = crossover_and_mutate(pop, pop_costs, config, rng)
 
-            gen_best_costs: list[float] = []
-
-            for gen in range(gen_start, config.ga.n_gen):
-                mc_seed = (base_mc_seed + gen) if base_mc_seed is not None else None
-
-                for k in range(config.ga.n_subpop):
-                    pop = populations[k]
-                    pop_costs = all_costs[k]
-
-                    # Create offspring
-                    offspring = crossover_and_mutate(pop, pop_costs, config, rng)
-
-                    # Evaluate offspring
-                    offspring_costs = np.full(len(offspring), np.inf)
-                    for i in range(len(offspring)):
-                        cost, _ = evaluate_chromosome(
-                            offspring[i],
-                            base_network,
-                            config,
-                            cwd=cwd,
-                            mc_seed=mc_seed,
-                        )
-                        offspring_costs[i] = cost
-
-                    # Re-evaluate parents on current seed when rotating
-                    if mc_seed is not None:
-                        for i in range(len(pop)):
+                        # Evaluate offspring
+                        offspring_costs = np.full(len(offspring), np.inf)
+                        for i in range(len(offspring)):
                             cost, _ = evaluate_chromosome(
-                                pop[i],
+                                offspring[i],
                                 base_network,
                                 config,
                                 cwd=cwd,
                                 mc_seed=mc_seed,
                             )
-                            pop_costs[i] = cost
+                            offspring_costs[i] = cost
 
-                    # Tournament selection: combine parents + offspring, keep best
-                    combined = np.vstack([pop, offspring])
-                    combined_costs = np.concatenate([pop_costs, offspring_costs])
-                    order = np.argsort(combined_costs)
-                    n_pop = len(pop)
-                    populations[k] = combined[order[:n_pop]]
-                    all_costs[k] = combined_costs[order[:n_pop]]
+                        # Re-evaluate parents on current seed when rotating
+                        if mc_seed is not None:
+                            for i in range(len(pop)):
+                                cost, _ = evaluate_chromosome(
+                                    pop[i],
+                                    base_network,
+                                    config,
+                                    cwd=cwd,
+                                    mc_seed=mc_seed,
+                                )
+                                pop_costs[i] = cost
 
-                    # Track best
-                    gen_best = all_costs[k][0]
-                    if gen_best < best_overall_cost:
-                        best_overall_cost = gen_best
-                        best_overall_chrom = populations[k][0].copy()
+                        # Tournament selection: combine parents + offspring, keep best
+                        combined = np.vstack([pop, offspring])
+                        combined_costs = np.concatenate([pop_costs, offspring_costs])
+                        order = np.argsort(combined_costs)
+                        n_pop = len(pop)
+                        populations[k] = combined[order[:n_pop]]
+                        all_costs[k] = combined_costs[order[:n_pop]]
 
-                # Migration
-                populations, all_costs = migrate(
-                    populations,
-                    all_costs,
-                    gen + 1,
-                    base_network,
-                    config,
-                    cwd=cwd,
-                    rng=rng,
-                )
+                        # Track best
+                        gen_best = all_costs[k][0]
+                        if gen_best < best_overall_cost:
+                            best_overall_cost = gen_best
+                            best_overall_chrom = populations[k][0].copy()
 
-                gen_best_costs.append(best_overall_cost)
+                    # Migration
+                    populations, all_costs = migrate(
+                        populations,
+                        all_costs,
+                        gen + 1,
+                        base_network,
+                        config,
+                        cwd=cwd,
+                        rng=rng,
+                    )
 
-                # Compute per-layer weight stats for NN (instrumentation for future adaptive bounds)
-                ws = None
-                if config.guidance_type == "neural_network" and best_overall_chrom is not None:
-                    best_weights = decode_direct(best_overall_chrom, config)
-                    ws = compute_weight_stats(best_weights, config.network.layer_sizes)
+                    gen_best_costs.append(best_overall_cost)
 
-                # Log metrics
-                logger.log_generation(
-                    gen + 1,
-                    populations,
-                    all_costs,
-                    best_overall_chrom if best_overall_chrom is not None else populations[0][0],
-                    decode_fn,
-                    weight_stats=ws,
-                    mc_seed=mc_seed,
-                )
-                display.update(logger, current_run=run)
+                    # Compute per-layer weight stats for NN (instrumentation for future adaptive bounds)
+                    ws = None
+                    if config.guidance_type == "neural_network" and best_overall_chrom is not None:
+                        best_weights = decode_direct(best_overall_chrom, config)
+                        ws = compute_weight_stats(best_weights, config.network.layer_sizes)
 
-                if verbose and (gen + 1) % 5 == 0:
-                    print(f"  Gen {gen + 1}/{config.ga.n_gen}: best={best_overall_cost:.4e}")
-
-                # Checkpoint
-                if (gen + 1) % checkpoint_interval == 0:
-                    save_checkpoint(
-                        save_dir,
-                        run,
+                    # Log metrics
+                    logger.log_generation(
                         gen + 1,
                         populations,
                         all_costs,
-                        best_overall_cost,
-                        best_overall_chrom,
-                        cost_history + gen_best_costs,
-                        rng,
-                        config,
-                        cwd,
+                        best_overall_chrom if best_overall_chrom is not None else populations[0][0],
+                        decode_fn,
+                        weight_stats=ws,
+                        mc_seed=mc_seed,
                     )
-                    if verbose:
-                        print(f"  Checkpoint saved: r{run:03d}_g{gen + 1:05d}")
+                    display.update(logger, current_run=run)
 
-            cost_history.extend(gen_best_costs)
+                    if verbose and (gen + 1) % 5 == 0:
+                        print(f"  Gen {gen + 1}/{config.ga.n_gen}: best={best_overall_cost:.4e}")
+
+                    # Checkpoint
+                    if (gen + 1) % checkpoint_interval == 0:
+                        save_checkpoint(
+                            save_dir,
+                            run,
+                            gen + 1,
+                            populations,
+                            all_costs,
+                            best_overall_cost,
+                            best_overall_chrom,
+                            cost_history + gen_best_costs,
+                            rng,
+                            config,
+                            cwd,
+                        )
+                        if verbose:
+                            print(f"  Checkpoint saved: r{run:03d}_g{gen + 1:05d}")
+
+                cost_history.extend(gen_best_costs)
+                logger.close()
+
+        except KeyboardInterrupt:
+            interrupted = True
+            display.stop()
+            print(f"\nInterrupted at run {run + 1}, gen {gen + 1}. Saving checkpoint...")
+            save_checkpoint(
+                save_dir,
+                run,
+                gen + 1,
+                populations,
+                all_costs,
+                best_overall_cost,
+                best_overall_chrom,
+                cost_history + gen_best_costs,
+                rng,
+                config,
+                cwd,
+            )
             logger.close()
 
     return {
         "best_cost": best_overall_cost,
         "best_chromosome": best_overall_chrom,
         "cost_history": cost_history,
+        "interrupted": interrupted,
     }
 
 
