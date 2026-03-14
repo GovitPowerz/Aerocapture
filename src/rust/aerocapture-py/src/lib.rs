@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 
+mod batch;
 mod config;
 mod results;
 
