@@ -64,7 +64,7 @@ fn run(toml_path: &str, overrides: Option<&Bound<'_, PyDict>>) -> PyResult<SimRe
     let overrides = extract_overrides(overrides)?;
 
     let (sim_input, sim_data) = config::load_and_override(&toml_content, &overrides)
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e))?;
+        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     let outputs = aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data)
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e)))?;
@@ -115,7 +115,7 @@ fn run_batch(
     }
 
     let outputs = batch::run_batch(&toml_content, overrides_vec, n_threads)
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e))?;
+        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }

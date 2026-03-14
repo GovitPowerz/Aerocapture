@@ -23,8 +23,7 @@ impl SimResult {
     fn trajectory<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
         let rows: Vec<Vec<f64>> = self.output.trajectory.iter().map(|r| r.to_vec()).collect();
         if rows.is_empty() {
-            // Return a (0, 8) array.
-            PyArray2::from_vec2(py, &vec![]).unwrap()
+            PyArray2::from_vec2(py, &[]).unwrap()
         } else {
             PyArray2::from_vec2(py, &rows).unwrap()
         }
@@ -98,7 +97,6 @@ impl SimResult {
 #[pyclass]
 pub struct BatchResults {
     outputs: Vec<RunOutput>,
-    include_trajectories: bool,
 }
 
 #[pymethods]
@@ -128,7 +126,7 @@ impl BatchResults {
             .map(|o| {
                 let rows: Vec<Vec<f64>> = o.trajectory.iter().map(|r| r.to_vec()).collect();
                 if rows.is_empty() {
-                    PyArray2::from_vec2(py, &vec![]).unwrap()
+                    PyArray2::from_vec2(py, &[]).unwrap()
                 } else {
                     PyArray2::from_vec2(py, &rows).unwrap()
                 }
@@ -157,9 +155,6 @@ impl BatchResults {
                 })
                 .collect()
         };
-        Self {
-            outputs,
-            include_trajectories,
-        }
+        Self { outputs }
     }
 }
