@@ -88,3 +88,30 @@ jobs:
 
       - name: Run tests
         run: uv run pytest tests -v
+
+  python-pyo3:
+    name: Python (pyo3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/rust
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Build Rust simulator
+        run: cargo build --release
+        working-directory: src/rust
+
+      - name: Build PyO3 module
+        run: cd src/rust/aerocapture-py && uv run maturin develop --release
+
+      - name: Run PyO3 tests
+        run: uv run pytest tests/test_pyo3.py -v
