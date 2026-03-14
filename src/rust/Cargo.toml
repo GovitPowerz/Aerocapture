@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "aerocapture-py"]
+
 [package]
 name = "aerocapture"
 version = "0.1.0"
