@@ -69,6 +69,10 @@ class GAConfig:
     mutation_rate: float = 0.02
     n_runs: int = 100
     rotate_seeds: bool = False
+    adaptive_seeds: bool = False
+    seed_pool_cap: int = 100
+    cost_alpha: float = 0.7
+    cvar_percentile: int = 20
 
 
 @dataclass

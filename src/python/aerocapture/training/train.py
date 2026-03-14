@@ -15,9 +15,19 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.config import TrainingConfig
-from aerocapture.training.evaluate import decode_direct, decode_params_from_chromosome, evaluate_chromosome, write_nn_json
+from aerocapture.training.evaluate import (
+    _HAS_PYO3,
+    _aero_rs,
+    compute_cost,
+    decode_direct,
+    decode_params_from_chromosome,
+    evaluate_chromosome,
+    perturb_network,
+    write_nn_json,
+)
 from aerocapture.training.migration import migrate
 from aerocapture.training.population import create_initial_population
+from aerocapture.training.seed_pool import SeedPool
 from aerocapture.training.weight_stats import compute_weight_stats
 
 
@@ -99,6 +109,7 @@ def save_checkpoint(
     rng: np.random.Generator,
     config: TrainingConfig,
     cwd: str | Path | None,
+    seed_pool: SeedPool | None = None,
 ) -> None:
     """Save full training state for later resumption."""
     prefix = f"checkpoint_r{run:03d}_g{generation:05d}"
@@ -118,6 +129,8 @@ def save_checkpoint(
         "cost_history": [float(c) for c in cost_history],
         "rng_state": rng_state_json,
     }
+    if seed_pool is not None:
+        meta["seed_pool"] = seed_pool.to_dict()
     with open(save_dir / f"{prefix}.json", "w") as f:
         json.dump(meta, f, indent=2)
 
@@ -179,6 +192,7 @@ def load_checkpoint(
         "best_chromosome": best_chrom,
         "cost_history": meta["cost_history"],
         "rng_state": meta.get("rng_state"),
+        "seed_pool": meta.get("seed_pool"),
     }
 
 
@@ -240,6 +254,28 @@ def train(
             msg = "rotate_seeds requires [monte_carlo].seed in the TOML config"
             raise ValueError(msg)
 
+    # Initialize adaptive seed pool
+    seed_pool: SeedPool | None = None
+    if config.ga.adaptive_seeds:
+        if not config.sim.toml_config:
+            msg = "adaptive_seeds requires a TOML config with [monte_carlo].seed"
+            raise ValueError(msg)
+        import tomllib
+
+        toml_path = Path(cwd or config.sim.exec_dir) / config.sim.toml_config
+        with open(toml_path, "rb") as f:
+            _toml = tomllib.load(f)
+        pool_base_seed = _toml.get("monte_carlo", {}).get("seed")
+        if pool_base_seed is None:
+            msg = "adaptive_seeds requires [monte_carlo].seed in the TOML config"
+            raise ValueError(msg)
+        seed_pool = SeedPool(
+            base_seed=pool_base_seed,
+            max_size=config.ga.seed_pool_cap,
+            alpha=config.ga.cost_alpha,
+            cvar_percentile=config.ga.cvar_percentile,
+        )
+
     # Compute config hash for experiment grouping
     config_hash = hashlib.sha256(repr(config).encode()).hexdigest()[:12]
 
@@ -259,6 +295,8 @@ def train(
                     pass  # Fall back to seeded RNG if state restore fails
             if verbose:
                 print(f"Resumed from run {resumed['run']}, gen {resumed['generation']}, best={resumed['best_cost']:.4e}")
+            if seed_pool is not None and resumed.get("seed_pool") is not None:
+                seed_pool = SeedPool.from_dict(resumed["seed_pool"])
 
     # Try loading existing NN weights for population seeding (NN only)
     seed_weights = None
@@ -338,65 +376,152 @@ def train(
 
                 gen_best_costs: list[float] = []
 
-                for gen in range(gen_start, config.ga.n_gen):
-                    mc_seed = (base_mc_seed + gen) if base_mc_seed is not None else None
+                # Build evaluator callbacks for adaptive seed pool
+                def _pool_evaluator(chrom: npt.NDArray[np.int8], mc_seed: int) -> float:
+                    """Scalar fallback: one (chromosome, seed) pair."""
+                    cost, _ = evaluate_chromosome(chrom, base_network, config, cwd=cwd, mc_seed=mc_seed)
+                    return cost
 
-                    for k in range(config.ga.n_subpop):
-                        pop = populations[k]
-                        pop_costs = all_costs[k]
+                _batch_evaluator: Callable[[npt.NDArray[np.int8], list[int]], npt.NDArray[np.float64]] | None = None
+                if seed_pool is not None and _HAS_PYO3 and config.sim.toml_config:
 
-                        # Create offspring
-                        offspring = crossover_and_mutate(pop, pop_costs, config, rng)
+                    def _make_batch_eval(
+                        base_net: npt.NDArray[np.float64],
+                        cfg: TrainingConfig,
+                        working_dir: str | Path | None,
+                    ) -> Callable[[npt.NDArray[np.int8], list[int]], npt.NDArray[np.float64]]:
+                        """Factory to avoid closure over mutable loop variables."""
 
-                        # Evaluate offspring
-                        offspring_costs = np.full(len(offspring), np.inf)
-                        for i in range(len(offspring)):
-                            cost, _ = evaluate_chromosome(
-                                offspring[i],
-                                base_network,
-                                config,
-                                cwd=cwd,
-                                mc_seed=mc_seed,
+                        def _batch_eval(chrom: npt.NDArray[np.int8], seeds: list[int]) -> npt.NDArray[np.float64]:
+                            if cfg.guidance_type == "neural_network":
+                                weights = decode_direct(chrom, cfg) if cfg.ga.direct_encoding else perturb_network(chrom, base_net, cfg)
+                                nn_path = Path(working_dir or cfg.sim.exec_dir) / cfg.sim.nn_param_file
+                                write_nn_json(weights, cfg.network, nn_path)
+                                overrides_list = [{"monte_carlo.seed": s} for s in seeds]
+                            else:
+                                params = decode_params_from_chromosome(chrom, cfg)
+                                from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
+
+                                section = GUIDANCE_TOML_SECTIONS[cfg.guidance_type]
+                                base_overrides: dict[str, object] = {f"guidance.{section}.{k}": v for k, v in params.items()}
+                                base_overrides["guidance.type"] = cfg.guidance_type
+                                overrides_list = [{**base_overrides, "monte_carlo.seed": s} for s in seeds]
+
+                            toml_path = str((Path(working_dir or cfg.sim.exec_dir) / cfg.sim.toml_config).resolve())  # type: ignore[arg-type]
+                            results = _aero_rs.run_batch(  # type: ignore[union-attr]
+                                toml_path=toml_path,
+                                overrides_list=overrides_list,
                             )
-                            offspring_costs[i] = cost
+                            costs: npt.NDArray[np.float64] = np.array([compute_cost(r.final_record.reshape(1, 52)) for r in results.results])
+                            return costs
 
-                        # Re-evaluate parents on current seed when rotating
-                        if mc_seed is not None:
-                            for i in range(len(pop)):
+                        return _batch_eval
+
+                    _batch_evaluator = _make_batch_eval(base_network, config, cwd)
+
+                for gen in range(gen_start, config.ga.n_gen):
+                    if seed_pool is not None:
+                        # === Adaptive seed pool path ===
+                        seed_pool.add_seeds(gen)
+
+                        for k in range(config.ga.n_subpop):
+                            pop = populations[k]
+                            pop_costs = all_costs[k]
+
+                            offspring = crossover_and_mutate(pop, pop_costs, config, rng)
+
+                            combined = np.vstack([pop, offspring])
+                            combined_fitness = seed_pool.evaluate_population(
+                                combined,
+                                _pool_evaluator,
+                                batch_evaluator=_batch_evaluator,
+                            )
+
+                            seed_pool.evict_redundant()
+
+                            n_pop = len(pop)
+                            order = np.argsort(combined_fitness)
+                            populations[k] = combined[order[:n_pop]]
+                            all_costs[k] = combined_fitness[order[:n_pop]]
+
+                            gen_best = all_costs[k][0]
+                            if gen_best < best_overall_cost:
+                                best_overall_cost = gen_best
+                                best_overall_chrom = populations[k][0].copy()
+
+                        # Migration: skip local improvement in adaptive mode
+                        if (gen + 1) % config.ga.migration_interval == 0 and config.ga.n_subpop > 1:
+                            for i in range(config.ga.n_subpop - 1):
+                                best_idx = int(np.argmin(all_costs[i + 1]))
+                                worst_idx = int(np.argmax(all_costs[i]))
+                                populations[i][worst_idx] = populations[i + 1][best_idx].copy()
+                                all_costs[i][worst_idx] = all_costs[i + 1][best_idx]
+                            best_idx = int(np.argmin(all_costs[0]))
+                            worst_idx = int(np.argmax(all_costs[-1]))
+                            populations[-1][worst_idx] = populations[0][best_idx].copy()
+                            all_costs[-1][worst_idx] = all_costs[0][best_idx]
+
+                    else:
+                        # === Original path (fixed seed or rotate-seeds) ===
+                        mc_seed = (base_mc_seed + gen) if base_mc_seed is not None else None
+
+                        for k in range(config.ga.n_subpop):
+                            pop = populations[k]
+                            pop_costs = all_costs[k]
+
+                            # Create offspring
+                            offspring = crossover_and_mutate(pop, pop_costs, config, rng)
+
+                            # Evaluate offspring
+                            offspring_costs = np.full(len(offspring), np.inf)
+                            for i in range(len(offspring)):
                                 cost, _ = evaluate_chromosome(
-                                    pop[i],
+                                    offspring[i],
                                     base_network,
                                     config,
                                     cwd=cwd,
                                     mc_seed=mc_seed,
                                 )
-                                pop_costs[i] = cost
+                                offspring_costs[i] = cost
 
-                        # Tournament selection: combine parents + offspring, keep best
-                        combined = np.vstack([pop, offspring])
-                        combined_costs = np.concatenate([pop_costs, offspring_costs])
-                        order = np.argsort(combined_costs)
-                        n_pop = len(pop)
-                        populations[k] = combined[order[:n_pop]]
-                        all_costs[k] = combined_costs[order[:n_pop]]
+                            # Re-evaluate parents on current seed when rotating
+                            if mc_seed is not None:
+                                for i in range(len(pop)):
+                                    cost, _ = evaluate_chromosome(
+                                        pop[i],
+                                        base_network,
+                                        config,
+                                        cwd=cwd,
+                                        mc_seed=mc_seed,
+                                    )
+                                    pop_costs[i] = cost
 
-                        # Track best
-                        gen_best = all_costs[k][0]
-                        if gen_best < best_overall_cost:
-                            best_overall_cost = gen_best
-                            best_overall_chrom = populations[k][0].copy()
+                            # Tournament selection: combine parents + offspring, keep best
+                            combined = np.vstack([pop, offspring])
+                            combined_costs = np.concatenate([pop_costs, offspring_costs])
+                            order = np.argsort(combined_costs)
+                            n_pop = len(pop)
+                            populations[k] = combined[order[:n_pop]]
+                            all_costs[k] = combined_costs[order[:n_pop]]
 
-                    # Migration
-                    populations, all_costs = migrate(
-                        populations,
-                        all_costs,
-                        gen + 1,
-                        base_network,
-                        config,
-                        cwd=cwd,
-                        rng=rng,
-                    )
+                            # Track best
+                            gen_best = all_costs[k][0]
+                            if gen_best < best_overall_cost:
+                                best_overall_cost = gen_best
+                                best_overall_chrom = populations[k][0].copy()
 
+                        # Migration
+                        populations, all_costs = migrate(
+                            populations,
+                            all_costs,
+                            gen + 1,
+                            base_network,
+                            config,
+                            cwd=cwd,
+                            rng=rng,
+                        )
+
+                    # === Common path (both adaptive and original) ===
                     gen_best_costs.append(best_overall_cost)
 
                     # Compute per-layer weight stats for NN (instrumentation for future adaptive bounds)
@@ -404,6 +529,17 @@ def train(
                     if config.guidance_type == "neural_network" and best_overall_chrom is not None:
                         best_weights = decode_direct(best_overall_chrom, config)
                         ws = compute_weight_stats(best_weights, config.network.layer_sizes)
+
+                    # Pool metrics for logger
+                    pool_metrics: dict | None = None
+                    if seed_pool is not None:
+                        d_min, d_max = seed_pool.difficulty_range
+                        pool_metrics = {
+                            "pool_size": len(seed_pool.seeds),
+                            "difficulty_min": d_min,
+                            "difficulty_max": d_max,
+                            "n_evictions": seed_pool.n_evictions,
+                        }
 
                     # Log metrics
                     logger.log_generation(
@@ -413,7 +549,8 @@ def train(
                         best_overall_chrom if best_overall_chrom is not None else populations[0][0],
                         decode_fn,
                         weight_stats=ws,
-                        mc_seed=mc_seed,
+                        mc_seed=(base_mc_seed + gen) if base_mc_seed is not None else None,
+                        pool_metrics=pool_metrics,
                     )
                     display.update(logger, current_run=run)
 
@@ -434,6 +571,7 @@ def train(
                             rng,
                             config,
                             cwd,
+                            seed_pool=seed_pool,
                         )
                         if verbose:
                             print(f"  Checkpoint saved: r{run:03d}_g{gen + 1:05d}")
@@ -457,6 +595,7 @@ def train(
                 rng,
                 config,
                 cwd,
+                seed_pool=seed_pool,
             )
             logger.close()
 
@@ -488,7 +627,12 @@ if __name__ == "__main__":
         help="Guidance scheme to optimize (default: neural_network)",
     )
     parser.add_argument("--no-tui", action="store_true", help="Disable Rich TUI (use plain-text output)")
-    parser.add_argument("--rotate-seeds", action="store_true", help="Rotate MC dispersion seed each generation (prevents overfitting to fixed scenarios)")
+    seed_group = parser.add_mutually_exclusive_group()
+    seed_group.add_argument("--rotate-seeds", action="store_true", help="Rotate MC dispersion seed each generation (prevents overfitting to fixed scenarios)")
+    seed_group.add_argument("--adaptive-seeds", action="store_true", help="Use adaptive seed pool with difficulty-based eviction")
+    parser.add_argument("--seed-pool-cap", type=int, default=100, help="Maximum adaptive seed pool size (default: 100)")
+    parser.add_argument("--cost-alpha", type=float, default=0.7, help="Mean/CVaR blend weight: 1.0=pure mean, 0.0=pure CVaR (default: 0.7)")
+    parser.add_argument("--cvar-percentile", type=int, default=20, help="CVaR tail fraction in percent (default: 20)")
     parser.add_argument("--skip-final-report", action="store_true", help="Skip final re-evaluation report")
     parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
     args = parser.parse_args()
@@ -499,6 +643,10 @@ if __name__ == "__main__":
     cfg.ga.n_runs = 1
     cfg.guidance_type = args.guidance
     cfg.ga.rotate_seeds = args.rotate_seeds
+    cfg.ga.adaptive_seeds = args.adaptive_seeds
+    cfg.ga.seed_pool_cap = args.seed_pool_cap
+    cfg.ga.cost_alpha = args.cost_alpha
+    cfg.ga.cvar_percentile = args.cvar_percentile
 
     cwd = args.cwd
     if args.toml:
