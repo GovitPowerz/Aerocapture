@@ -139,3 +139,35 @@ class TestSeedPoolScoring:
         assert pool.difficulty[10] == pytest.approx(10.0)
         assert pool.difficulty[20] == pytest.approx(20.0)
         assert pool.difficulty[30] == pytest.approx(30.0)
+
+
+class TestSeedPoolCheckpoint:
+    def test_round_trip(self) -> None:
+        pool = SeedPool(base_seed=42, max_size=50, alpha=0.8, cvar_percentile=25)
+        pool.seeds = [42, 43, 44]
+        pool.difficulty = {42: 1.0, 43: 5.0, 44: 10.0}
+        pool.generation_added = {42: 0, 43: 0, 44: 1}
+        pool.n_evictions = 2
+        data = pool.to_dict()
+        restored = SeedPool.from_dict(data)
+        assert restored.base_seed == 42
+        assert restored.max_size == 50
+        assert restored.alpha == 0.8
+        assert restored.cvar_percentile == 25
+        assert restored.seeds == [42, 43, 44]
+        assert restored.difficulty == {42: 1.0, 43: 5.0, 44: 10.0}
+        assert restored.generation_added == {42: 0, 43: 0, 44: 1}
+        assert restored.n_evictions == 2
+
+    def test_round_trip_json_compatible(self) -> None:
+        import json
+
+        pool = SeedPool(base_seed=0, max_size=10)
+        pool.seeds = [0, 1, 2]
+        pool.difficulty = {0: 1.0, 1: 2.0, 2: 3.0}
+        pool.generation_added = {0: 0, 1: 0, 2: 1}
+        data = pool.to_dict()
+        json_str = json.dumps(data)
+        restored_data = json.loads(json_str)
+        restored = SeedPool.from_dict(restored_data)
+        assert restored.seeds == [0, 1, 2]
