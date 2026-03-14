@@ -72,7 +72,7 @@ class TestLegacyArrayMapping:
     """Tests for CSV→legacy index mapping in evaluate.py."""
 
     def test_csv_to_legacy_mapping(self, tmp_path: Path) -> None:
-        """CSV final file maps back to correct legacy 53-column positions."""
+        """CSV final file maps back to correct 0-based 52-column positions."""
         from aerocapture.training.evaluate import _parse_final_to_legacy_array
 
         # Create a CSV file with known values
@@ -80,11 +80,11 @@ class TestLegacyArrayMapping:
         # Set distinct values for key columns
         values = {col: 0.0 for col in FINAL_CSV_COLUMNS}
         values["sim_number"] = 1.0
-        values["energy_mj_kg"] = -5.0  # legacy index 8 (after sim_number offset)
-        values["eccentricity"] = 0.5  # legacy index 10
-        values["periapsis_err_km"] = 42.0  # legacy index 30
-        values["apoapsis_err_km"] = 100.0  # legacy index 31
-        values["dv_total_m_s"] = 500.0  # legacy index 42
+        values["energy_mj_kg"] = -5.0  # index 7
+        values["eccentricity"] = 0.5  # index 9
+        values["periapsis_err_km"] = 42.0  # index 29
+        values["apoapsis_err_km"] = 100.0  # index 30
+        values["dv_total_m_s"] = 500.0  # index 41
 
         row = ",".join(str(values[col]) for col in FINAL_CSV_COLUMNS)
         csv_file = tmp_path / "final.csv"
@@ -92,17 +92,14 @@ class TestLegacyArrayMapping:
 
         result = _parse_final_to_legacy_array(csv_file)
         assert result is not None
-        assert result.shape == (1, 53)
+        assert result.shape == (1, 52)
 
-        # Check key columns at their legacy positions
-        # CSV_TO_LEGACY_INDEX maps col name → xsauve index, then result[:, idx+1]
-        # because result[:, 0] = sim_number
-        assert result[0, 0] == 1.0  # sim_number
-        assert result[0, 8] == -5.0  # energy: CSV_TO_LEGACY_INDEX=7, array pos=8
-        assert result[0, 10] == 0.5  # eccentricity: legacy_idx=9, pos=10
-        assert result[0, 30] == 42.0  # peri_err: legacy_idx=29, pos=30
-        assert result[0, 31] == 100.0  # apo_err: legacy_idx=30, pos=31
-        assert result[0, 42] == 500.0  # dv_total: legacy_idx=41, pos=42
+        # Check key columns at their 0-based positions (no sim_number prefix)
+        assert result[0, 7] == -5.0  # energy
+        assert result[0, 9] == 0.5  # eccentricity
+        assert result[0, 29] == 42.0  # peri_err
+        assert result[0, 30] == 100.0  # apo_err
+        assert result[0, 41] == 500.0  # dv_total
 
 
 class TestComputeCost:
@@ -113,13 +110,13 @@ class TestComputeCost:
         from aerocapture.training.evaluate import compute_cost
 
         # Simulate a captured trajectory (energy < 0, ecc < 1)
-        final = np.zeros((1, 53))
-        final[0, 8] = -5.0  # energy (MJ/kg), negative = captured
-        final[0, 10] = 0.5  # eccentricity < 1
-        final[0, 28] = 500.0  # sim_time
-        final[0, 30] = 10.0  # peri_err (km)
-        final[0, 31] = 20.0  # apo_err (km)
-        final[0, 42] = 100.0  # dv_total (m/s)
+        final = np.zeros((1, 52))
+        final[0, 7] = -5.0  # energy (MJ/kg), negative = captured
+        final[0, 9] = 0.5  # eccentricity < 1
+        final[0, 27] = 500.0  # sim_time
+        final[0, 29] = 10.0  # peri_err (km)
+        final[0, 30] = 20.0  # apo_err (km)
+        final[0, 41] = 100.0  # dv_total (m/s)
 
         cost = compute_cost(final)
         assert cost > 0
@@ -129,10 +126,10 @@ class TestComputeCost:
         """Hyperbolic trajectory gets high penalty."""
         from aerocapture.training.evaluate import compute_cost
 
-        final = np.zeros((1, 53))
-        final[0, 8] = 5.0  # energy > 0 = hyperbolic
-        final[0, 10] = 1.5  # eccentricity > 1
-        final[0, 28] = 100.0  # sim_time
+        final = np.zeros((1, 52))
+        final[0, 7] = 5.0  # energy > 0 = hyperbolic
+        final[0, 9] = 1.5  # eccentricity > 1
+        final[0, 27] = 100.0  # sim_time
 
         cost = compute_cost(final)
         assert cost > 1e6  # Should be penalized heavily

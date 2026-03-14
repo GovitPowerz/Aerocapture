@@ -1,12 +1,12 @@
 """Tests for compute_cost edge cases and invariants.
 
-Column layout of final_conditions (0-indexed):
-    8  = energy (MJ/kg), >0 → hyperbolic
-    10 = eccentricity, >1 → hyperbolic
-    28 = sim_time (s)
-    30 = periapsis_err (km)
-    31 = apoapsis_err (km)
-    42 = dv_total (m/s)
+Column layout of final_conditions (0-indexed, 52-column):
+    7  = energy (MJ/kg), >0 → hyperbolic
+    9  = eccentricity, >1 → hyperbolic
+    27 = sim_time (s)
+    29 = periapsis_err (km)
+    30 = apoapsis_err (km)
+    41 = dv_total (m/s)
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from aerocapture.training.evaluate import compute_cost
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-N_COLS = 53
+N_COLS = 52
 
 
 def _make_row(
@@ -32,12 +32,12 @@ def _make_row(
 ) -> npt.NDArray[np.float64]:
     """Build a single-row final_conditions array with the given values."""
     row = np.zeros((1, N_COLS))
-    row[0, 8] = energy
-    row[0, 10] = ecc
-    row[0, 28] = sim_time
-    row[0, 30] = peri_err
-    row[0, 31] = apo_err
-    row[0, 42] = dv_total
+    row[0, 7] = energy
+    row[0, 9] = ecc
+    row[0, 27] = sim_time
+    row[0, 29] = peri_err
+    row[0, 30] = apo_err
+    row[0, 41] = dv_total
     return row
 
 

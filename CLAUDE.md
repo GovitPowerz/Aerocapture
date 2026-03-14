@@ -17,9 +17,15 @@ cargo build --release              # Build optimized binary
 # Run from repo root:
 ./src/rust/target/release/aerocapture configs/test/test_ref_orig.toml
 
+# ── PyO3 Bindings ──
+cd src/rust/aerocapture-py
+maturin develop --release          # Build + install aerocapture_rs module
+# Or via uv:
+uv run maturin develop --release
+
 # ── Python Analysis ──
 uv sync                            # Install dependencies (Python >=3.14)
-uv sync --group dev                # Include dev tools (pytest, ruff, mypy)
+uv sync --group dev                # Include dev tools (pytest, ruff, mypy, maturin)
 pytest tests                       # Run all tests
 pytest tests/test_foo.py::test_bar -v
 
@@ -34,7 +40,7 @@ pytest tests/test_foo.py::test_bar -v
 
 ### Rust Simulator (`src/rust/`)
 
-The Rust code is a reimplementation of the original Fortran algorithms with all variable names modernized to explicit English (no French/Fortran legacy names remain). The crate has both `lib.rs` (public API for tests) and `main.rs` (CLI entry). TOML config as a CLI argument (`./aerocapture config.toml`) is the only supported input format. TOML supports all 6 guidance schemes and inline vehicle/mission data.
+The Rust code is a reimplementation of the original Fortran algorithms with all variable names modernized to explicit English (no French/Fortran legacy names remain). The crate has both `lib.rs` (public API: `RunOutput` struct + `run_for_api()`) and `main.rs` (CLI entry). A Cargo workspace contains two members: the core `aerocapture` crate and the `aerocapture-py` PyO3 binding crate. TOML config as a CLI argument (`./aerocapture config.toml`) is the only supported input format. TOML supports all 6 guidance schemes and inline vehicle/mission data.
 
 ```
 src/rust/src/
@@ -77,12 +83,31 @@ src/rust/src/
     elements.rs                    — Orbital elements from state vector
     maneuver.rs                    — Delta-V cost computation
   simulation/
-    runner.rs                      — Main sim loop
+    runner.rs                      — Main sim loop: run() for CLI, run_for_api() for PyO3
     init.rs                        — Per-run initialization
     output.rs                      — File writers (photo, final, CSV)
 ```
 
 Key Rust dependency: `nalgebra` for vector/matrix ops.
+
+### PyO3 Bindings (`src/rust/aerocapture-py/`)
+
+Separate workspace member crate providing Python bindings via PyO3. Built with `maturin develop --release`. Imports as `aerocapture_rs` in Python.
+
+```
+src/rust/aerocapture-py/src/
+  lib.rs         — Module entry: run(), run_batch(), load_config()
+  config.rs      — TOML loading with dot-path override merging
+  results.rs     — SimResult/BatchResults pyclasses with numpy getters
+  batch.rs       — Rayon parallel batch execution
+```
+
+Key API:
+- `aerocapture_rs.run(toml_path, overrides=None)` → `SimResult` with `.final_record` (52,), `.captured`, `.energy`, `.ecc`, etc.
+- `aerocapture_rs.run_batch(toml_path, overrides_list, n_threads=None, include_trajectories=False)` → `BatchResults` with `.final_records` (N, 52)
+- `aerocapture_rs.load_config(toml_path)` → Python dict
+
+The training pipeline (`evaluate.py`) auto-detects PyO3 availability and falls back to subprocess if not installed. Override dict uses dot-separated TOML key paths with type coercion (int→float when existing field is float).
 
 ### Data Files (`data/`)
 
@@ -104,7 +129,7 @@ Python analysis package (numpy, pandas, matplotlib, deap, scipy) for:
 - GA training pipeline: optimizes any guidance scheme's parameters (not just NN weights)
   - `train.py` — Main GA loop with checkpoint save/resume (`--guidance <scheme> --toml <config> [--no-tui] [--rotate-seeds] [--skip-final-report] [--final-n-sims N]`)
   - `param_spaces.py` — Per-scheme parameter bounds (with optional log-scale encoding)
-  - `evaluate.py` — Decode chromosome -> write params (NN JSON or patched TOML) -> run sim -> cost
+  - `evaluate.py` — Decode chromosome -> write params (NN JSON or patched TOML) -> run sim -> cost. Uses PyO3 direct call when `aerocapture_rs` is available, subprocess fallback otherwise.
   - `compare_guidance.py` — Fair head-to-head comparison on identical MC scenarios
   - `initialization.py` — Activation-aware weight init (Xavier/He/LeCun uniform) for NN population seeding
   - `weight_stats.py` — Per-layer weight statistics (min/max/mean/std) for training instrumentation
@@ -188,9 +213,9 @@ Energy must use **absolute (inertial) velocity**, not relative velocity. The Rus
 
 - **Rust**: Edition 2024, nalgebra for linear algebra, release profile with LTO
 - **Python**: Python >=3.14, Ruff (line-length 160, target py314), uv package manager, pytest, mypy strict mode. Dev tools in `[dependency-groups]` (not `[project.optional-dependencies]`). Training deps (deap, scipy) are core dependencies.
-- **Testing (Python)**: pytest, hypothesis (property-based). Golden reference files under `tests/reference_data/`. Shared fixtures in `tests/conftest.py` (session-scoped Rust build) and `tests/fixtures/factories.py` (config/chromosome factories). ~180 tests covering parsers, regression, MC, GA pipeline (chromosome, cost, TOML patching, config, operators), training visualization (metrics, logger, display, integration, report, final evaluation), NN weight initialization, seed rotation.
-- **Testing (Rust)**: Three-tier pyramid — unit tests (inline `#[cfg(test)]` modules with proptest property tests), integration tests (`src/rust/tests/`), E2E subprocess tests. Shared test infrastructure in `tests/common/` (fixtures.rs, assertions.rs). Dev-dependencies: `approx` (float comparison), `rstest` (parameterized tests), `proptest` (property-based testing). ~172 tests covering physics, GNC, guidance (all 6 schemes), navigation, error paths. Run with `cargo test` or `./check_all.sh`.
-- **CI**: GitHub Actions (`.github/workflows/ci.yml`) — Rust (fmt, clippy, test) and Python (ruff lint, ruff format, mypy, pytest) run on PRs to `main` and manual dispatch (`workflow_dispatch`).
+- **Testing (Python)**: pytest, hypothesis (property-based). Golden reference files under `tests/reference_data/`. Shared fixtures in `tests/conftest.py` (session-scoped Rust build) and `tests/fixtures/factories.py` (config/chromosome factories). ~196 tests covering parsers, regression, MC, GA pipeline (chromosome, cost, TOML patching, config, operators), training visualization (metrics, logger, display, integration, report, final evaluation), NN weight initialization, seed rotation, PyO3 integration (bit-identical regression against subprocess path).
+- **Testing (Rust)**: Three-tier pyramid — unit tests (inline `#[cfg(test)]` modules with proptest property tests), integration tests (`src/rust/tests/`), E2E subprocess tests. Shared test infrastructure in `tests/common/` (fixtures.rs, assertions.rs). Dev-dependencies: `approx` (float comparison), `rstest` (parameterized tests), `proptest` (property-based testing). ~176 tests covering physics, GNC, guidance (all 6 schemes), navigation, error paths, `run_for_api()`. Run with `cargo test` or `./check_all.sh`.
+- **CI**: GitHub Actions (`.github/workflows/ci.yml`) — Rust (fmt, clippy, test), Python (ruff lint, ruff format, mypy, pytest), and PyO3 (maturin build + pytest test_pyo3.py) run on PRs to `main` and manual dispatch (`workflow_dispatch`).
 - **Validation**: Rust vs Fortran comparison complete — 22/24 photo columns bit-identical across 725 timesteps.
 
 ## Tone

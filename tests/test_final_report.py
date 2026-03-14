@@ -11,20 +11,19 @@ import pytest
 def _make_captured_array(n: int = 100, seed: int = 42) -> np.ndarray:
     """Create a synthetic final conditions array with all captured trajectories."""
     rng = np.random.default_rng(seed)
-    arr = np.zeros((n, 53))
-    arr[:, 0] = np.arange(n)  # sim_number
-    arr[:, 4] = rng.normal(5500, 50, n)  # velocity_m_s
-    arr[:, 5] = rng.normal(-12.0, 0.5, n)  # flight_path_deg
-    arr[:, 8] = rng.uniform(-2.0, -0.5, n)  # energy < 0 (captured)
-    arr[:, 10] = rng.uniform(0.3, 0.9, n)  # ecc < 1 (captured)
-    arr[:, 11] = rng.normal(50.0, 1.0, n)  # inclination_deg
-    arr[:, 28] = rng.uniform(300, 600, n)  # sim_time_s
-    arr[:, 30] = rng.normal(0, 10, n)  # periapsis_err_km
-    arr[:, 31] = rng.normal(0, 15, n)  # apoapsis_err_km
-    arr[:, 38] = rng.exponential(20, n)  # dv1
-    arr[:, 39] = rng.exponential(50, n)  # dv2
-    arr[:, 40] = rng.exponential(10, n)  # dv3
-    arr[:, 42] = arr[:, 38] + arr[:, 39] + arr[:, 40]  # dv_total
+    arr = np.zeros((n, 52))
+    arr[:, 3] = rng.normal(5500, 50, n)  # velocity_m_s
+    arr[:, 4] = rng.normal(-12.0, 0.5, n)  # flight_path_deg
+    arr[:, 7] = rng.uniform(-2.0, -0.5, n)  # energy < 0 (captured)
+    arr[:, 9] = rng.uniform(0.3, 0.9, n)  # ecc < 1 (captured)
+    arr[:, 10] = rng.normal(50.0, 1.0, n)  # inclination_deg
+    arr[:, 27] = rng.uniform(300, 600, n)  # sim_time_s
+    arr[:, 29] = rng.normal(0, 10, n)  # periapsis_err_km
+    arr[:, 30] = rng.normal(0, 15, n)  # apoapsis_err_km
+    arr[:, 37] = rng.exponential(20, n)  # dv1
+    arr[:, 38] = rng.exponential(50, n)  # dv2
+    arr[:, 39] = rng.exponential(10, n)  # dv3
+    arr[:, 41] = arr[:, 37] + arr[:, 38] + arr[:, 39]  # dv_total
     return arr
 
 
@@ -32,16 +31,16 @@ def _make_mixed_array(n_captured: int = 80, n_hyper: int = 20, seed: int = 42) -
     """Create array with both captured and hyperbolic trajectories."""
     arr = _make_captured_array(n_captured + n_hyper, seed)
     # Make last n_hyper trajectories hyperbolic
-    arr[n_captured:, 8] = np.abs(arr[n_captured:, 8])  # energy > 0
-    arr[n_captured:, 10] = 1.0 + np.abs(arr[n_captured:, 10])  # ecc > 1
+    arr[n_captured:, 7] = np.abs(arr[n_captured:, 7])  # energy > 0
+    arr[n_captured:, 9] = 1.0 + np.abs(arr[n_captured:, 9])  # ecc > 1
     return arr
 
 
 def _make_all_hyperbolic(n: int = 50, seed: int = 42) -> np.ndarray:
     """Create array with zero captured trajectories."""
     arr = _make_captured_array(n, seed)
-    arr[:, 8] = np.abs(arr[:, 8])  # energy > 0
-    arr[:, 10] = 1.0 + np.abs(arr[:, 10])  # ecc > 1
+    arr[:, 7] = np.abs(arr[:, 7])  # energy > 0
+    arr[:, 9] = 1.0 + np.abs(arr[:, 9])  # ecc > 1
     return arr
 
 

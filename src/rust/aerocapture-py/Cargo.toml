@@ -1,0 +1,19 @@
+[package]
+name = "aerocapture-py"
+version = "0.1.0"
+edition = "2024"
+description = "PyO3 bindings for the aerocapture trajectory simulator"
+
+[lib]
+name = "aerocapture_rs"
+crate-type = ["cdylib", "lib"]
+
+[features]
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+aerocapture = { path = ".." }
+pyo3 = { version = "0.28" }
+numpy = "0.28"
+rayon = "1.10"
+toml = "0.9"
