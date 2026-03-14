@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
-from aerocapture.training.seed_pool import aggregate_fitness, compute_cvar
+from aerocapture.training.seed_pool import SeedPool, aggregate_fitness, compute_cvar
 
 
 class TestComputeCvar:
@@ -69,3 +68,74 @@ class TestAggregateFitness:
         result = aggregate_fitness(cost_matrix, alpha=1.0, cvar_percentile=20)
         assert result[0] == pytest.approx(3.0)
         assert result[1] == pytest.approx(30.0)
+
+
+class TestSeedPoolGrowth:
+    def test_bootstrap_creates_5_seeds(self) -> None:
+        pool = SeedPool(base_seed=100, max_size=50)
+        pool.add_seeds(generation=0)
+        assert len(pool.seeds) == 5
+        assert pool.seeds == [100, 101, 102, 103, 104]
+
+    def test_incremental_growth(self) -> None:
+        pool = SeedPool(base_seed=100, max_size=50)
+        pool.add_seeds(generation=0)
+        assert len(pool.seeds) == 5
+        pool.add_seeds(generation=1)
+        assert len(pool.seeds) == 6
+        assert 105 in pool.seeds
+
+    def test_no_duplicate_seeds(self) -> None:
+        pool = SeedPool(base_seed=100, max_size=50)
+        pool.add_seeds(generation=0)
+        pool.add_seeds(generation=0)
+        assert len(pool.seeds) == 5
+
+
+class TestSeedPoolEviction:
+    def test_eviction_at_cap(self) -> None:
+        pool = SeedPool(base_seed=0, max_size=7)
+        pool.add_seeds(generation=0)  # 5 seeds
+        pool.add_seeds(generation=1)  # 6 seeds
+        pool.add_seeds(generation=2)  # 7 seeds
+        pool.add_seeds(generation=3)  # 8 seeds -> should evict to 7
+        for i, seed in enumerate(pool.seeds):
+            pool.difficulty[seed] = float(i * 10)
+        pool.evict_redundant()
+        assert len(pool.seeds) == 7
+
+    def test_evict_closest_pair_older_one(self) -> None:
+        pool = SeedPool(base_seed=0, max_size=3)
+        pool.seeds = [10, 20, 30, 40]
+        pool.difficulty = {10: 1.0, 20: 1.5, 30: 5.0, 40: 10.0}
+        pool.generation_added = {10: 0, 20: 1, 30: 2, 40: 3}
+        pool.evict_redundant()
+        assert len(pool.seeds) == 3
+        assert 10 not in pool.seeds
+        assert 20 in pool.seeds
+
+    def test_no_eviction_under_cap(self) -> None:
+        pool = SeedPool(base_seed=0, max_size=10)
+        pool.seeds = [1, 2, 3]
+        pool.difficulty = {1: 1.0, 2: 2.0, 3: 3.0}
+        pool.generation_added = {1: 0, 2: 1, 3: 2}
+        pool.evict_redundant()
+        assert len(pool.seeds) == 3
+
+
+class TestSeedPoolScoring:
+    def test_score_updates_difficulty(self) -> None:
+        pool = SeedPool(base_seed=0, max_size=10)
+        pool.seeds = [10, 20, 30]
+        cost_matrix = np.array(
+            [
+                [100.0, 200.0, 300.0],
+                [10.0, 20.0, 30.0],
+                [50.0, 60.0, 70.0],
+            ]
+        )
+        best_idx = 1
+        pool.score_difficulty(cost_matrix, best_idx)
+        assert pool.difficulty[10] == pytest.approx(10.0)
+        assert pool.difficulty[20] == pytest.approx(20.0)
+        assert pool.difficulty[30] == pytest.approx(30.0)
