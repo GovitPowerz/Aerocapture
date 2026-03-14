@@ -35,7 +35,7 @@ class TestKeyboardInterrupt:
 
         call_count = 0
 
-        def mock_evaluate(*args, **kwargs):
+        def mock_evaluate(*args: object, **kwargs: object) -> tuple[float, None]:
             nonlocal call_count
             call_count += 1
             if call_count > 10:

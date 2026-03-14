@@ -397,7 +397,7 @@ def train(
                                 weights = decode_direct(chrom, cfg) if cfg.ga.direct_encoding else perturb_network(chrom, base_net, cfg)
                                 nn_path = Path(working_dir or cfg.sim.exec_dir) / cfg.sim.nn_param_file
                                 write_nn_json(weights, cfg.network, nn_path)
-                                overrides_list = [{"monte_carlo.seed": s} for s in seeds]
+                                overrides_list: list[dict[str, object]] = [{"monte_carlo.seed": s} for s in seeds]
                             else:
                                 params = decode_params_from_chromosome(chrom, cfg)
                                 from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
@@ -407,7 +407,8 @@ def train(
                                 base_overrides["guidance.type"] = cfg.guidance_type
                                 overrides_list = [{**base_overrides, "monte_carlo.seed": s} for s in seeds]
 
-                            toml_path = str((Path(working_dir or cfg.sim.exec_dir) / cfg.sim.toml_config).resolve())  # type: ignore[arg-type]
+                            assert cfg.sim.toml_config is not None
+                            toml_path = str((Path(working_dir or cfg.sim.exec_dir) / cfg.sim.toml_config).resolve())
                             results = _aero_rs.run_batch(  # type: ignore[union-attr]
                                 toml_path=toml_path,
                                 overrides_list=overrides_list,

@@ -202,7 +202,7 @@ class TestSeedPoolEvaluation:
         def evaluator(chrom: npt.NDArray[np.int8], seed: int) -> float:
             return float(seed) * 10.0
 
-        fitness = pool.evaluate_population(population, evaluator)
+        pool.evaluate_population(population, evaluator)
         assert pool.difficulty[0] == pytest.approx(0.0)
         assert pool.difficulty[1] == pytest.approx(10.0)
 
