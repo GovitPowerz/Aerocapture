@@ -111,7 +111,7 @@ jobs:
         working-directory: src/rust
 
       - name: Build PyO3 module
-        run: cd src/rust/aerocapture-py && uv run maturin develop --release
+        run: uv run maturin develop --release --manifest-path src/rust/aerocapture-py/Cargo.toml
 
       - name: Run PyO3 tests
         run: uv run pytest tests/test_pyo3.py -v

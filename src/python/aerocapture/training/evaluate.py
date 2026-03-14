@@ -18,7 +18,7 @@ import numpy.typing as npt
 from aerocapture.training.config import NetworkConfig, TrainingConfig
 
 try:
-    import aerocapture_rs as _aero_rs  # type: ignore[import-untyped]
+    import aerocapture_rs as _aero_rs  # type: ignore[import-not-found, import-untyped]
 
     _HAS_PYO3 = True
 except ImportError:
