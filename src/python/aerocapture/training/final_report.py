@@ -16,18 +16,18 @@ import numpy.typing as npt
 
 from aerocapture.training.config import TrainingConfig
 
-# Legacy array column indices (53-column format from evaluate._parse_final_to_legacy_array)
-_COL_VELOCITY = 4
-_COL_FPA = 5
-_COL_ENERGY = 8
-_COL_ECC = 10
-_COL_INCL = 11
-_COL_PERI_ERR = 30
-_COL_APO_ERR = 31
-_COL_DV1 = 38
-_COL_DV2 = 39
-_COL_DV3 = 40
-_COL_DV_TOTAL = 42
+# Array column indices (0-based 52-column format, no sim_number prefix)
+_COL_VELOCITY = 3
+_COL_FPA = 4
+_COL_ENERGY = 7
+_COL_ECC = 9
+_COL_INCL = 10
+_COL_PERI_ERR = 29
+_COL_APO_ERR = 30
+_COL_DV1 = 37
+_COL_DV2 = 38
+_COL_DV3 = 39
+_COL_DV_TOTAL = 41
 
 _PERCENTILES = [5, 25, 50, 75, 95]
 
@@ -86,8 +86,8 @@ def run_final_evaluation(
     """Run large-MC re-evaluation of best solution.
 
     Patches the TOML config to override n_sims and mc_seed, then runs
-    the simulator. Returns final conditions array (n_sims, 53) in
-    legacy format, or None if the simulation fails.
+    the simulator. Returns final conditions array (n_sims, 52) in
+    0-based format, or None if the simulation fails.
     """
     from aerocapture.training.evaluate import run_simulation
 
