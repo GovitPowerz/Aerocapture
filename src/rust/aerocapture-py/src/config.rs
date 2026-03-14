@@ -24,7 +24,11 @@ pub enum OverrideValue {
 /// - Setting an existing Float field with an `Int` value → coerce to Float.
 /// - Setting an existing field with a mismatched type → `Err`.
 /// - Setting a new (non-existent) key → accept any type.
-pub fn apply_override(root: &mut Value, key_path: &str, value: &OverrideValue) -> Result<(), String> {
+pub fn apply_override(
+    root: &mut Value,
+    key_path: &str,
+    value: &OverrideValue,
+) -> Result<(), String> {
     let parts: Vec<&str> = key_path.split('.').collect();
     if parts.is_empty() {
         return Err("Empty key path".to_string());
@@ -114,8 +118,8 @@ pub fn load_and_override(
 
     let (sim_input, toml_config) =
         SimInput::from_toml(&patched).map_err(|e| format!("Config parse error: {}", e))?;
-    let sim_data =
-        SimData::from_toml(&toml_config, &sim_input).map_err(|e| format!("Data load error: {}", e))?;
+    let sim_data = SimData::from_toml(&toml_config, &sim_input)
+        .map_err(|e| format!("Data load error: {}", e))?;
 
     Ok((sim_input, sim_data))
 }
@@ -147,7 +151,12 @@ k_alt = 2.0
     #[test]
     fn apply_override_simple_float() {
         let mut root = sample_toml_tree();
-        apply_override(&mut root, "guidance.reference_bank_angle", &OverrideValue::Float(45.0)).unwrap();
+        apply_override(
+            &mut root,
+            "guidance.reference_bank_angle",
+            &OverrideValue::Float(45.0),
+        )
+        .unwrap();
         assert_eq!(
             root["guidance"]["reference_bank_angle"].as_float().unwrap(),
             45.0

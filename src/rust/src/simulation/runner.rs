@@ -77,7 +77,11 @@ struct SimResult {
 }
 
 /// Shared simulation orchestration: build run states, dispatch parallel/sequential runs.
-fn run_core(config: &SimInput, data: &SimData, write_photo: bool) -> Result<Vec<SimResult>, SimError> {
+fn run_core(
+    config: &SimInput,
+    data: &SimData,
+    write_photo: bool,
+) -> Result<Vec<SimResult>, SimError> {
     let n_sims = if config.n_sims == 0 { 1 } else { config.n_sims };
     let is_mc = n_sims > 1;
 
@@ -134,7 +138,9 @@ fn run_core(config: &SimInput, data: &SimData, write_photo: bool) -> Result<Vec<
             let elapsed = start.elapsed();
             eprintln!(
                 "Completed {} simulations in {:.3}s ({:.1} sims/s)",
-                n_sims, elapsed.as_secs_f64(), n_sims as f64 / elapsed.as_secs_f64(),
+                n_sims,
+                elapsed.as_secs_f64(),
+                n_sims as f64 / elapsed.as_secs_f64(),
             );
         }
         Ok(results)
@@ -156,8 +162,14 @@ fn run_core(config: &SimInput, data: &SimData, write_photo: bool) -> Result<Vec<
 pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
     let n_sims = if config.n_sims == 0 { 1 } else { config.n_sims };
     let photo_sim_idx = if n_sims > 1 {
-        if config.visualize_sim > 0 { (config.visualize_sim - 1).min(n_sims - 1) } else { n_sims - 1 }
-    } else { 0 };
+        if config.visualize_sim > 0 {
+            (config.visualize_sim - 1).min(n_sims - 1)
+        } else {
+            n_sims - 1
+        }
+    } else {
+        0
+    };
 
     let results = run_core(config, data, true)?;
     write_csv_output(config, &results, photo_sim_idx)?;
@@ -806,8 +818,8 @@ mod run_output_tests {
             .unwrap();
         std::env::set_current_dir(&repo_root).unwrap();
 
-        let content = std::fs::read_to_string("configs/test/test_ref_orig.toml")
-            .expect("test config");
+        let content =
+            std::fs::read_to_string("configs/test/test_ref_orig.toml").expect("test config");
         let (sim_config, toml_config) = SimInput::from_toml(&content).expect("parse");
         let sim_data = SimData::from_toml(&toml_config, &sim_config).expect("data");
         (sim_config, sim_data)

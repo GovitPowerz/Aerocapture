@@ -58,21 +58,23 @@ fn extract_overrides(dict: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<(String, 
 #[pyfunction]
 #[pyo3(signature = (toml_path, overrides=None))]
 fn run(toml_path: &str, overrides: Option<&Bound<'_, PyDict>>) -> PyResult<SimResult> {
-    let toml_content = std::fs::read_to_string(toml_path)
-        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("Cannot read '{}': {}", toml_path, e)))?;
+    let toml_content = std::fs::read_to_string(toml_path).map_err(|e| {
+        pyo3::exceptions::PyIOError::new_err(format!("Cannot read '{}': {}", toml_path, e))
+    })?;
 
     let overrides = extract_overrides(overrides)?;
 
     let (sim_input, sim_data) = config::load_and_override(&toml_content, &overrides)
         .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
-    let outputs = aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data)
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e)))?;
+    let outputs =
+        aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e))
+        })?;
 
-    let output = outputs
-        .into_iter()
-        .next()
-        .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("Simulation produced no results"))?;
+    let output = outputs.into_iter().next().ok_or_else(|| {
+        pyo3::exceptions::PyRuntimeError::new_err("Simulation produced no results")
+    })?;
 
     Ok(SimResult::from_output(output))
 }
@@ -98,8 +100,9 @@ fn run_batch(
     n_threads: Option<usize>,
     include_trajectories: bool,
 ) -> PyResult<BatchResults> {
-    let toml_content = std::fs::read_to_string(toml_path)
-        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("Cannot read '{}': {}", toml_path, e)))?;
+    let toml_content = std::fs::read_to_string(toml_path).map_err(|e| {
+        pyo3::exceptions::PyIOError::new_err(format!("Cannot read '{}': {}", toml_path, e))
+    })?;
 
     let n_threads = n_threads.unwrap_or_else(|| {
         std::thread::available_parallelism()
@@ -125,8 +128,9 @@ fn run_batch(
 /// Useful for inspecting or modifying config before passing overrides.
 #[pyfunction]
 fn load_config(py: Python<'_>, toml_path: &str) -> PyResult<Py<PyAny>> {
-    let content = std::fs::read_to_string(toml_path)
-        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("Cannot read '{}': {}", toml_path, e)))?;
+    let content = std::fs::read_to_string(toml_path).map_err(|e| {
+        pyo3::exceptions::PyIOError::new_err(format!("Cannot read '{}': {}", toml_path, e))
+    })?;
 
     let value: toml::Value = toml::from_str::<toml::Table>(&content)
         .map(toml::Value::Table)

@@ -3,13 +3,13 @@
 //! Parses the base TOML once, then applies per-run overrides in parallel
 //! using a scoped Rayon thread pool.
 
+use aerocapture::RunOutput;
 use aerocapture::config::SimInput;
 use aerocapture::data::SimData;
 use aerocapture::simulation::runner::SimError;
-use aerocapture::RunOutput;
 use toml::{Table, Value};
 
-use crate::config::{apply_override, OverrideValue};
+use crate::config::{OverrideValue, apply_override};
 
 /// Run a batch of simulations with per-run TOML overrides.
 ///

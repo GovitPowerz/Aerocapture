@@ -104,7 +104,11 @@ impl BatchResults {
     /// All final records stacked as an (N, 52) NumPy array.
     #[getter]
     fn final_records<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
-        let rows: Vec<Vec<f64>> = self.outputs.iter().map(|o| o.final_record.to_vec()).collect();
+        let rows: Vec<Vec<f64>> = self
+            .outputs
+            .iter()
+            .map(|o| o.final_record.to_vec())
+            .collect();
         PyArray2::from_vec2(py, &rows).unwrap()
     }
 
