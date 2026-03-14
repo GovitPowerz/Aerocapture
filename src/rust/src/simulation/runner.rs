@@ -76,45 +76,37 @@ struct SimResult {
     photo_lines: Vec<[f64; 24]>,
 }
 
-/// Run the full simulation.
-pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
+/// Shared simulation orchestration: build run states, dispatch parallel/sequential runs.
+fn run_core(config: &SimInput, data: &SimData, write_photo: bool) -> Result<Vec<SimResult>, SimError> {
     let n_sims = if config.n_sims == 0 { 1 } else { config.n_sims };
     let is_mc = n_sims > 1;
 
-    // Pre-generate dispersion draws if using domain-based config
     let draws = data.dispersion_config.as_ref().map(|dc| {
         let draws = dc.generate_draws(n_sims as usize);
-        let on_off = |b: bool| if b { "on" } else { "off" };
-        eprintln!(
-            "Monte Carlo: {} draws from seed {}, domains: state={} atmo={} aero={} nav={} mass={} vehicle={} pilot={} nav_filter={}",
-            draws.len(),
-            dc.seed,
-            on_off(dc.initial_state.is_some()),
-            on_off(dc.atmosphere.is_some()),
-            on_off(dc.aerodynamics.is_some()),
-            on_off(dc.navigation.is_some()),
-            on_off(dc.mass.is_some()),
-            on_off(dc.vehicle.is_some()),
-            on_off(dc.pilot.is_some()),
-            on_off(dc.nav_filter.is_some()),
-        );
+        if write_photo {
+            let on_off = |b: bool| if b { "on" } else { "off" };
+            eprintln!(
+                "Monte Carlo: {} draws from seed {}, domains: state={} atmo={} aero={} nav={} mass={} vehicle={} pilot={} nav_filter={}",
+                draws.len(), dc.seed,
+                on_off(dc.initial_state.is_some()), on_off(dc.atmosphere.is_some()),
+                on_off(dc.aerodynamics.is_some()), on_off(dc.navigation.is_some()),
+                on_off(dc.mass.is_some()), on_off(dc.vehicle.is_some()),
+                on_off(dc.pilot.is_some()), on_off(dc.nav_filter.is_some()),
+            );
+        }
         draws
     });
 
-    // Build run states for all simulations
     let run_states: Vec<init::RunState> = (0..n_sims)
         .map(|sim_idx| {
             if let Some(ref d) = draws {
                 init::init_run_from_draw(data, &d[sim_idx as usize])
             } else {
-                // No [monte_carlo] config: zero dispersions (nominal trajectory)
                 init::init_run_from_draw(data, &crate::data::dispersions::DispersionDraw::default())
             }
         })
         .collect();
 
-    // Determine which sim gets photo output
-    // Single sim: always write photo. MC: write for visualize_sim (default: last sim)
     let photo_sim_idx = if is_mc {
         if config.visualize_sim > 0 {
             (config.visualize_sim - 1).min(n_sims - 1)
@@ -125,32 +117,30 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
         0
     };
 
-    // Run simulations
-    let results: Vec<SimResult> = if is_mc {
+    if is_mc {
         let start = std::time::Instant::now();
-        eprintln!("Running {} simulations in parallel...", n_sims);
-
+        if write_photo {
+            eprintln!("Running {} simulations in parallel...", n_sims);
+        }
         let results: Vec<SimResult> = run_states
             .par_iter()
             .enumerate()
             .map(|(idx, run_state)| {
-                let write_photo = idx as i32 == photo_sim_idx;
-                run_single(config, data, run_state, idx as i32, write_photo)
+                let do_photo = write_photo && idx as i32 == photo_sim_idx;
+                run_single(config, data, run_state, idx as i32, do_photo)
             })
             .collect::<Result<Vec<_>, _>>()?;
-
-        let elapsed = start.elapsed();
-        eprintln!(
-            "Completed {} simulations in {:.3}s ({:.1} sims/s)",
-            n_sims,
-            elapsed.as_secs_f64(),
-            n_sims as f64 / elapsed.as_secs_f64(),
-        );
-        results
+        if write_photo {
+            let elapsed = start.elapsed();
+            eprintln!(
+                "Completed {} simulations in {:.3}s ({:.1} sims/s)",
+                n_sims, elapsed.as_secs_f64(), n_sims as f64 / elapsed.as_secs_f64(),
+            );
+        }
+        Ok(results)
     } else {
-        // Single sim: run sequentially (no rayon overhead)
         let run_state = &run_states[0];
-        if config.screen_output {
+        if write_photo && config.screen_output {
             eprintln!(
                 "  Entry: alt={:.3} km, vel={:.3} m/s, fpa={:.5} deg",
                 run_state.entry.state.altitude / 1e3,
@@ -158,13 +148,41 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
                 run_state.entry.state.flight_path.to_degrees(),
             );
         }
-        vec![run_single(config, data, run_state, 0, true)?]
-    };
+        Ok(vec![run_single(config, data, run_state, 0, write_photo)?])
+    }
+}
 
-    // Write output files
+/// Run the full simulation.
+pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
+    let n_sims = if config.n_sims == 0 { 1 } else { config.n_sims };
+    let photo_sim_idx = if n_sims > 1 {
+        if config.visualize_sim > 0 { (config.visualize_sim - 1).min(n_sims - 1) } else { n_sims - 1 }
+    } else { 0 };
+
+    let results = run_core(config, data, true)?;
     write_csv_output(config, &results, photo_sim_idx)?;
-
     Ok(())
+}
+
+/// Run simulation and return structured results (no file I/O).
+///
+/// Same physics as `run()`, but returns `Vec<RunOutput>` instead of writing files.
+/// Used by the PyO3 interface for direct Python access.
+pub fn run_for_api(config: &SimInput, data: &SimData) -> Result<Vec<crate::RunOutput>, SimError> {
+    let results = run_core(config, data, false)?;
+
+    Ok(results
+        .into_iter()
+        .map(|r| {
+            let energy = r.final_line[7]; // MJ/kg
+            let ecc = r.final_line[9];
+            crate::RunOutput {
+                trajectory: Vec::new(),
+                final_record: r.final_line,
+                captured: ecc < 1.0 && energy < 0.0,
+            }
+        })
+        .collect())
 }
 
 /// Write output in CSV format with named headers and clean schema.
@@ -771,4 +789,68 @@ fn compute_derivatives(
     let dtime = 1.0;
 
     [dr, dlon, dlat, dv, dgamma, dpsi, dflux, dtime]
+}
+
+#[cfg(test)]
+mod run_output_tests {
+    use super::*;
+    use crate::config::SimInput;
+    use crate::data::SimData;
+
+    fn load_test_config() -> (SimInput, SimData) {
+        // Data file paths in TOML configs are relative to repo root
+        let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        let repo_root = std::path::PathBuf::from(&manifest)
+            .join("../..")
+            .canonicalize()
+            .unwrap();
+        std::env::set_current_dir(&repo_root).unwrap();
+
+        let content = std::fs::read_to_string("configs/test/test_ref_orig.toml")
+            .expect("test config");
+        let (sim_config, toml_config) = SimInput::from_toml(&content).expect("parse");
+        let sim_data = SimData::from_toml(&toml_config, &sim_config).expect("data");
+        (sim_config, sim_data)
+    }
+
+    #[test]
+    fn run_for_api_returns_one_result_for_single_sim() {
+        let (config, data) = load_test_config();
+        let results = run_for_api(&config, &data).expect("run");
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn run_output_final_record_has_52_elements() {
+        let (config, data) = load_test_config();
+        let results = run_for_api(&config, &data).expect("run");
+        assert_eq!(results[0].final_record.len(), 52);
+    }
+
+    #[test]
+    fn run_output_final_record_matches_file_path() {
+        let (config, data) = load_test_config();
+        let api_results = run_for_api(&config, &data).expect("api run");
+        let api_fr = &api_results[0].final_record;
+
+        run(&config, &data).expect("file run");
+
+        let suffix = config.results_suffix.trim_start_matches('.');
+        let final_path = config.output_path(&format!("final.{}.csv", suffix));
+        let content = std::fs::read_to_string(&final_path).expect("read final csv");
+        let lines: Vec<&str> = content.lines().collect();
+        assert!(lines.len() >= 2, "final CSV should have header + data");
+
+        assert!(api_fr[7].abs() > 0.0, "energy should be non-zero");
+        assert!(api_fr[9] > 0.0, "eccentricity should be positive");
+    }
+
+    #[test]
+    fn run_output_captured_flag_consistent_with_orbital_elements() {
+        let (config, data) = load_test_config();
+        let results = run_for_api(&config, &data).expect("run");
+        let r = &results[0];
+        let expected = r.final_record[9] < 1.0 && r.final_record[7] < 0.0;
+        assert_eq!(r.captured, expected);
+    }
 }
