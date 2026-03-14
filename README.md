@@ -20,6 +20,7 @@ cargo build --release
 ```
 src/
   rust/                    Rust simulator (validated reimplementation)
+    aerocapture-py/        PyO3 Python bindings (aerocapture_rs module)
   python/                  Python analysis package (parsing, plotting, training)
 configs/
   nominal/                 Nominal simulation configurations
@@ -94,18 +95,43 @@ The Rust simulator matches the Fortran reference across all 725 timesteps of a g
 - **22 of 24** photo output columns are bit-identical
 - The remaining 2 differ only at the first timestep due to Fortran uninitialized variable artifacts (`romver`, `numsuc`)
 
+## PyO3 Python Bindings
+
+The `aerocapture_rs` Python module provides direct access to the Rust simulator, eliminating subprocess overhead for GA training.
+
+```python
+import aerocapture_rs as aero
+
+# Single run
+result = aero.run("configs/test/test_ref_orig.toml")
+print(f"Captured: {result.captured}, dV: {result.delta_v:.1f} m/s")
+
+# Batch run with per-sim overrides (parallel via Rayon)
+overrides = [{"simulation.random_seed": float(i) / 10} for i in range(100)]
+batch = aero.run_batch("configs/training/msr_aller_ftc_train.toml", overrides)
+print(f"Final records: {batch.final_records.shape}")  # (100, 52)
+```
+
+Build with: `cd src/rust/aerocapture-py && maturin develop --release`
+
+The training pipeline auto-detects PyO3 and falls back to subprocess if not installed.
+
 ## CI
 
 GitHub Actions runs on PRs to `main` and manual dispatch:
 
 - **Rust**: `cargo fmt --check`, `cargo clippy`, `cargo test --release`
 - **Python**: `ruff check`, `ruff format --check`, `mypy`, `pytest`
+- **PyO3**: `maturin develop --release`, `pytest tests/test_pyo3.py`
 
 ## Build Commands
 
 ```bash
 # Rust
 cd src/rust && cargo build --release
+
+# PyO3 bindings
+cd src/rust/aerocapture-py && maturin develop --release
 
 # Python
 uv sync && pytest tests
