@@ -57,7 +57,7 @@ The simulation implements a full closed-loop GNC chain:
 
 ## GA Optimization
 
-All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize orbit insertion error across Monte Carlo dispersions.
+All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize orbit insertion error across Monte Carlo dispersions. Training supports graceful Ctrl+C interruption (saves checkpoint and returns cleanly).
 
 ```bash
 # Optimize any guidance scheme (Rich TUI with sparklines and ETA)
@@ -71,6 +71,9 @@ uv run python -m aerocapture.training.train ... --no-tui
 
 # Rotate MC dispersion seeds each generation (prevents overfitting)
 uv run python -m aerocapture.training.train ... --rotate-seeds
+
+# Adaptive seed pool (curates seeds by difficulty, CVaR-blended fitness)
+uv run python -m aerocapture.training.train ... --adaptive-seeds
 
 # Compare all schemes on identical MC scenarios
 uv run python -m aerocapture.training.compare_guidance \
