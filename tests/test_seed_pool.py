@@ -227,3 +227,39 @@ class TestSeedPoolEvaluation:
         fitness = pool.evaluate_population(population, scalar_eval, batch_evaluator=batch_eval)
         assert not scalar_called  # batch should be used instead
         assert fitness.shape == (2,)
+
+
+class TestAdaptiveSeedIntegration:
+    """Integration test: adaptive seed pool in the GA training loop."""
+
+    def test_pool_grows_and_evicts_during_training(self) -> None:
+        """Verify pool grows, evicts, and produces valid fitness across generations."""
+        pool = SeedPool(base_seed=0, max_size=8, alpha=0.7, cvar_percentile=20)
+
+        rng = np.random.default_rng(42)
+        pop = rng.integers(0, 2, size=(4, 10), dtype=np.int8)
+
+        def evaluator(chrom: npt.NDArray[np.int8], seed: int) -> float:
+            quality = float(np.sum(chrom)) / len(chrom)
+            return float(seed) * 10.0 + quality * 5.0
+
+        for gen in range(10):
+            pool.add_seeds(gen)
+            fitness = pool.evaluate_population(pop, evaluator)
+
+            assert fitness.shape == (4,)
+            assert all(np.isfinite(fitness))
+
+            pool.evict_redundant()
+            assert len(pool.seeds) <= 8
+
+        # After 10 gens: bootstrapped 5, added 9 more = 14 total, evicted to 8
+        assert len(pool.seeds) == 8
+        assert pool.n_evictions == 6
+
+        # Difficulty should be populated for all active seeds
+        assert len(pool.difficulty) == len(pool.seeds)
+
+        # Difficulty range should be non-trivial
+        d_min, d_max = pool.difficulty_range
+        assert d_max > d_min
