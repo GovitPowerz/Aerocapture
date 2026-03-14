@@ -109,6 +109,7 @@ pub struct SimInput {
     pub base_dir: String,
     pub output_dir: String,
     pub results_suffix: String,
+    pub max_time: f64,
 }
 
 // ─── TOML deserialization structs ───
@@ -183,6 +184,12 @@ pub struct TomlSimulation {
     pub save_results: bool,
     #[serde(default)]
     pub visualize_sim: i32,
+    #[serde(default = "default_max_time")]
+    pub max_time: f64,
+}
+
+fn default_max_time() -> f64 {
+    3000.0
 }
 
 fn default_one_i32() -> i32 {
@@ -632,6 +639,7 @@ impl SimInput {
                 .results_suffix
                 .clone()
                 .unwrap_or_else(|| ".out".to_string()),
+            max_time: config.simulation.max_time,
         };
 
         Ok((sim_input, config))

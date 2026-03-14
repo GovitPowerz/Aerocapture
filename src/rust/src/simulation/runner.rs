@@ -371,7 +371,7 @@ fn run_single(
     }
 
     let dt = data.periods.integration;
-    let max_time = 5000.0;
+    let max_time = config.max_time;
     let exit_altitude = data.final_conditions.altitude;
 
     // === GNC subsystem initialization ===
