@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 
 mod config;
+mod results;
 
 /// Aerocapture trajectory simulator Python bindings.
 #[pymodule]
