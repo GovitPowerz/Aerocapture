@@ -9,4 +9,4 @@ version = "0.1.0"
 description = "PyO3 bindings for the aerocapture trajectory simulator"
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
+features = ["extension-module"]
