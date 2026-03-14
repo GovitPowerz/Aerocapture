@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 from aerocapture.training.seed_pool import SeedPool, aggregate_fitness, compute_cvar
 
@@ -171,3 +172,58 @@ class TestSeedPoolCheckpoint:
         restored_data = json.loads(json_str)
         restored = SeedPool.from_dict(restored_data)
         assert restored.seeds == [0, 1, 2]
+
+
+class TestSeedPoolEvaluation:
+    """Tests for pool-based population evaluation."""
+
+    def test_evaluate_population_calls_evaluator(self) -> None:
+        pool = SeedPool(base_seed=0, max_size=10, alpha=1.0, cvar_percentile=20)
+        pool.seeds = [0, 1, 2]
+        pool.generation_added = {0: 0, 1: 0, 2: 0}
+
+        population = np.array([[1, 0, 1], [0, 1, 0]], dtype=np.int8)
+
+        def evaluator(chrom: npt.NDArray[np.int8], seed: int) -> float:
+            return float(seed) + float(chrom[0])
+
+        fitness = pool.evaluate_population(population, evaluator)
+        assert fitness.shape == (2,)
+        assert fitness[0] == pytest.approx(2.0)  # costs=[1,2,3], mean=2.0
+        assert fitness[1] == pytest.approx(1.0)  # costs=[0,1,2], mean=1.0
+
+    def test_evaluate_population_updates_difficulty(self) -> None:
+        pool = SeedPool(base_seed=0, max_size=10, alpha=1.0, cvar_percentile=20)
+        pool.seeds = [0, 1]
+        pool.generation_added = {0: 0, 1: 0}
+
+        population = np.array([[0, 1, 0], [1, 0, 1]], dtype=np.int8)
+
+        def evaluator(chrom: npt.NDArray[np.int8], seed: int) -> float:
+            return float(seed) * 10.0
+
+        fitness = pool.evaluate_population(population, evaluator)
+        assert pool.difficulty[0] == pytest.approx(0.0)
+        assert pool.difficulty[1] == pytest.approx(10.0)
+
+    def test_evaluate_population_with_batch_evaluator(self) -> None:
+        """Batch evaluator is used when provided."""
+        pool = SeedPool(base_seed=0, max_size=10, alpha=1.0, cvar_percentile=20)
+        pool.seeds = [0, 1, 2]
+        pool.generation_added = {0: 0, 1: 0, 2: 0}
+
+        population = np.array([[1, 0], [0, 1]], dtype=np.int8)
+
+        scalar_called = False
+
+        def scalar_eval(chrom: npt.NDArray[np.int8], seed: int) -> float:
+            nonlocal scalar_called
+            scalar_called = True
+            return 0.0
+
+        def batch_eval(chrom: npt.NDArray[np.int8], seeds: list[int]) -> npt.NDArray[np.float64]:
+            return np.array([float(s) + float(chrom[0]) for s in seeds])
+
+        fitness = pool.evaluate_population(population, scalar_eval, batch_evaluator=batch_eval)
+        assert not scalar_called  # batch should be used instead
+        assert fitness.shape == (2,)

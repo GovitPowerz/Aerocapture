@@ -8,6 +8,7 @@ of mean cost and CVaR (Conditional Value at Risk).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -119,6 +120,43 @@ class SeedPool:
             del self.difficulty[evict_candidate]
             del self.generation_added[evict_candidate]
             self.n_evictions += 1
+
+    def evaluate_population(
+        self,
+        population: npt.NDArray[np.int8],
+        evaluator: Callable[[npt.NDArray[np.int8], int], float],
+        batch_evaluator: Callable[[npt.NDArray[np.int8], list[int]], npt.NDArray[np.float64]] | None = None,
+    ) -> npt.NDArray[np.float64]:
+        """Evaluate all individuals on all pool seeds.
+
+        If batch_evaluator is provided, uses it for per-individual batched
+        evaluation. Falls back to the scalar evaluator otherwise.
+
+        Args:
+            population: Shape (n_pop, chrom_length).
+            evaluator: Callable(chromosome, mc_seed) -> cost (scalar fallback).
+            batch_evaluator: Callable(chromosome, seeds) -> costs array (n_seeds,).
+
+        Returns:
+            1D fitness array (n_pop,) with aggregated fitness values.
+        """
+        n_pop = len(population)
+        n_seeds = len(self.seeds)
+        cost_matrix = np.full((n_pop, n_seeds), np.inf)
+
+        if batch_evaluator is not None:
+            for i in range(n_pop):
+                cost_matrix[i] = batch_evaluator(population[i], self.seeds)
+        else:
+            for i in range(n_pop):
+                for j, seed in enumerate(self.seeds):
+                    cost_matrix[i, j] = evaluator(population[i], seed)
+
+        fitness = aggregate_fitness(cost_matrix, self.alpha, self.cvar_percentile)
+        best_idx = int(np.argmin(fitness))
+        self.score_difficulty(cost_matrix, best_idx)
+
+        return fitness
 
     @property
     def difficulty_range(self) -> tuple[float, float]:
