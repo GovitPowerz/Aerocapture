@@ -40,6 +40,7 @@ class DisplayProtocol(Protocol):
     """Protocol for training display (allows NoopDisplay as substitute)."""
 
     def update(self, logger: TrainingLogger, current_run: int) -> None: ...
+    def stop(self) -> None: ...
     def __enter__(self) -> DisplayProtocol: ...
     def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None) -> None: ...
 
@@ -48,6 +49,9 @@ class NoopDisplay:
     """No-op display for non-interactive terminals or --no-tui mode."""
 
     def update(self, logger: TrainingLogger, current_run: int) -> None:
+        pass
+
+    def stop(self) -> None:
         pass
 
     def __enter__(self) -> NoopDisplay:
@@ -135,6 +139,11 @@ class LiveDisplay:
             return
         panel = self._build_panel(logger, current_run)
         self._live.update(panel)
+
+    def stop(self) -> None:
+        """Stop the Live display (for clean interrupt output)."""
+        if self._live is not None:
+            self._live.stop()
 
     def __enter__(self) -> LiveDisplay:
         from rich.live import Live

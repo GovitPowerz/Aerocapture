@@ -30,9 +30,10 @@ pytest tests                       # Run all tests
 pytest tests/test_foo.py::test_bar -v
 
 # ── Utility Scripts (from repo root) ──
+./build.sh                         # Build Rust binary + PyO3 bindings (-c to clean artifacts)
 ./setup_env.sh                     # Create fresh .venv + install deps
 ./lint_code.sh                     # Run ruff (imports, format, lint) + mypy
-./check_all.sh                     # Rust: test + fmt --check + clippy
+./check_all.sh                     # Rust: test + fmt --check + clippy + release build
 ./upgrade_dependencies.sh          # uv sync --upgrade
 ```
 
@@ -96,14 +97,15 @@ Separate workspace member crate providing Python bindings via PyO3. Built with `
 
 ```
 src/rust/aerocapture-py/src/
-  lib.rs         — Module entry: run(), run_batch(), load_config()
+  lib.rs         — Module entry: run(), run_mc(), run_batch(), load_config()
   config.rs      — TOML loading with dot-path override merging
   results.rs     — SimResult/BatchResults pyclasses with numpy getters
   batch.rs       — Rayon parallel batch execution
 ```
 
 Key API:
-- `aerocapture_rs.run(toml_path, overrides=None)` → `SimResult` with `.final_record` (52,), `.captured`, `.energy`, `.ecc`, etc.
+- `aerocapture_rs.run(toml_path, overrides=None)` → `SimResult` with `.final_record` (52,), `.captured`, `.energy`, `.ecc`, etc. Returns first result only (use `run_mc` for multi-sim).
+- `aerocapture_rs.run_mc(toml_path, overrides=None, include_trajectories=False)` → `BatchResults` with all n_sims results. Use for MC evaluations needing the full distribution.
 - `aerocapture_rs.run_batch(toml_path, overrides_list, n_threads=None, include_trajectories=False)` → `BatchResults` with `.final_records` (N, 52)
 - `aerocapture_rs.load_config(toml_path)` → Python dict
 
@@ -118,7 +120,7 @@ The training pipeline (`evaluate.py`) auto-detects PyO3 availability and falls b
 
 ### Input Configuration
 
-TOML config files in `configs/` are the only supported input format, organized into subdirectories: `configs/nominal/` (simulation configs), `configs/training/` (GA training configs), `configs/test/` (golden test configs). Each config specifies mission, guidance scheme, vehicle, entry conditions, aerodynamics, Monte Carlo settings, and data file paths. The NN weight file path (`[data] neural_network`) and optional architecture override (`[network] layer_sizes`, `activations`) are read from TOML at training time.
+TOML config files in `configs/` are the only supported input format, organized into subdirectories: `configs/nominal/` (simulation configs), `configs/training/` (GA training configs), `configs/test/` (golden test configs). Each config specifies mission, guidance scheme, vehicle, entry conditions, aerodynamics, Monte Carlo settings, and data file paths. The NN weight file path (`[data] neural_network`) and optional architecture override (`[network] layer_sizes`, `activations`) are read from TOML at training time. The `[simulation]` section supports `max_time` (default: 3000.0 s) as a hard wall to prevent runaway simulations.
 
 ### Python Tools (`src/python/`, `pyproject.toml`)
 
@@ -127,18 +129,19 @@ Python analysis package (numpy, pandas, matplotlib, deap, scipy) for:
 - Output file parsers (photo, final, CSV files)
 - Visualization (corridor plots, MC ensembles, CDF of correction cost)
 - GA training pipeline: optimizes any guidance scheme's parameters (not just NN weights)
-  - `train.py` — Main GA loop with checkpoint save/resume (`--guidance <scheme> --toml <config> [--no-tui] [--rotate-seeds] [--skip-final-report] [--final-n-sims N]`)
+  - `train.py` — Main GA loop with checkpoint save/resume (`--guidance <scheme> --toml <config> [--no-tui] [--rotate-seeds | --adaptive-seeds] [--seed-pool-cap N] [--cost-alpha F] [--cvar-percentile P] [--skip-final-report] [--final-n-sims N]`). Graceful KeyboardInterrupt handling: Ctrl+C saves checkpoint and returns cleanly with `interrupted: True`.
   - `param_spaces.py` — Per-scheme parameter bounds (with optional log-scale encoding)
   - `evaluate.py` — Decode chromosome -> write params (NN JSON or patched TOML) -> run sim -> cost. Uses PyO3 direct call when `aerocapture_rs` is available, subprocess fallback otherwise.
   - `compare_guidance.py` — Fair head-to-head comparison on identical MC scenarios
   - `initialization.py` — Activation-aware weight init (Xavier/He/LeCun uniform) for NN population seeding
+  - `seed_pool.py` — Adaptive seed pool for MC dispersions: rolling pool of seeds scored by population-relative difficulty (CVaR-blended fitness), with incremental growth and redundancy eviction. `SeedPool` class with `evaluate_population()` (supports PyO3 batch), `score_difficulty()`, `evict_redundant()`, and checkpoint serialization.
   - `weight_stats.py` — Per-layer weight statistics (min/max/mean/std) for training instrumentation
 - Training visualization:
   - `metrics.py` — Pure metric functions: cost stats, diversity, capture rate, convergence speed, stagnation
   - `logger.py` — `TrainingLogger`: writes one JSONL line per generation; in-memory buffer for live display
   - `display.py` — `LiveDisplay`: Rich TUI with sparklines, ETA, progress bar (degrades to `NoopDisplay` when `--no-tui` or non-interactive)
-  - `report.py` — Plotly self-contained HTML reports (single-run and cross-scheme comparison); CLI: `python -m aerocapture.training.report`
-  - `final_report.py` — Post-training final evaluation: runs 1000-sim MC re-evaluation, generates Plotly HTML with delta-V distributions, orbital error distributions, entry conditions scatter, and summary statistics; CLI: `python -m aerocapture.training.final_report`
+  - `report.py` — Plotly self-contained HTML convergence reports (single-run and cross-scheme comparison); auto-generated at end of training, also standalone CLI: `python -m aerocapture.training.report`
+  - `final_report.py` — Post-training final evaluation: runs 1000-sim MC re-evaluation via `run_mc()`, generates Plotly HTML with delta-V distributions, orbital error distributions, entry conditions scatter, and summary statistics; auto-generated at end of training, also standalone CLI: `python -m aerocapture.training.final_report`
 
 ## GA Training & Comparison
 
@@ -154,6 +157,12 @@ uv run python -m aerocapture.training.train \
     --guidance equilibrium_glide \
     --toml configs/training/msr_aller_eqglide_train.toml \
     --n-gen 50 --n-pop 20 --no-tui
+
+# ── Adaptive seed pool (curates MC seeds by difficulty) ──
+uv run python -m aerocapture.training.train \
+    --guidance equilibrium_glide \
+    --toml configs/training/msr_aller_eqglide_train.toml \
+    --n-gen 50 --n-pop 20 --adaptive-seeds
 
 # ── Resume from checkpoint ──
 uv run python -m aerocapture.training.train \
@@ -213,7 +222,7 @@ Energy must use **absolute (inertial) velocity**, not relative velocity. The Rus
 
 - **Rust**: Edition 2024, nalgebra for linear algebra, release profile with LTO
 - **Python**: Python >=3.14, Ruff (line-length 160, target py314), uv package manager, pytest, mypy strict mode. Dev tools in `[dependency-groups]` (not `[project.optional-dependencies]`). Training deps (deap, scipy) are core dependencies.
-- **Testing (Python)**: pytest, hypothesis (property-based). Golden reference files under `tests/reference_data/`. Shared fixtures in `tests/conftest.py` (session-scoped Rust build) and `tests/fixtures/factories.py` (config/chromosome factories). ~196 tests covering parsers, regression, MC, GA pipeline (chromosome, cost, TOML patching, config, operators), training visualization (metrics, logger, display, integration, report, final evaluation), NN weight initialization, seed rotation, PyO3 integration (bit-identical regression against subprocess path).
+- **Testing (Python)**: pytest, hypothesis (property-based). Golden reference files under `tests/reference_data/`. Shared fixtures in `tests/conftest.py` (session-scoped Rust build) and `tests/fixtures/factories.py` (config/chromosome factories). ~218 tests covering parsers, regression, MC, GA pipeline (chromosome, cost, TOML patching, config, operators), training visualization (metrics, logger, display, integration, report, final evaluation), NN weight initialization, seed rotation, adaptive seed pool (CVaR, aggregation, growth, eviction, scoring, checkpoint, evaluation, integration), graceful interrupt handling, PyO3 integration (bit-identical regression against subprocess path).
 - **Testing (Rust)**: Three-tier pyramid — unit tests (inline `#[cfg(test)]` modules with proptest property tests), integration tests (`src/rust/tests/`), E2E subprocess tests. Shared test infrastructure in `tests/common/` (fixtures.rs, assertions.rs). Dev-dependencies: `approx` (float comparison), `rstest` (parameterized tests), `proptest` (property-based testing). ~176 tests covering physics, GNC, guidance (all 6 schemes), navigation, error paths, `run_for_api()`. Run with `cargo test` or `./check_all.sh`.
 - **CI**: GitHub Actions (`.github/workflows/ci.yml`) — Rust (fmt, clippy, test), Python (ruff lint, ruff format, mypy, pytest), and PyO3 (maturin build + pytest test_pyo3.py) run on PRs to `main` and manual dispatch (`workflow_dispatch`).
 - **Validation**: Rust vs Fortran comparison complete — 22/24 photo columns bit-identical across 725 timesteps.

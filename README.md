@@ -57,7 +57,7 @@ The simulation implements a full closed-loop GNC chain:
 
 ## GA Optimization
 
-All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize orbit insertion error across Monte Carlo dispersions.
+All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize orbit insertion error across Monte Carlo dispersions. Training supports graceful Ctrl+C interruption (saves checkpoint and returns cleanly).
 
 ```bash
 # Optimize any guidance scheme (Rich TUI with sparklines and ETA)
@@ -72,17 +72,20 @@ uv run python -m aerocapture.training.train ... --no-tui
 # Rotate MC dispersion seeds each generation (prevents overfitting)
 uv run python -m aerocapture.training.train ... --rotate-seeds
 
+# Adaptive seed pool (curates seeds by difficulty, CVaR-blended fitness)
+uv run python -m aerocapture.training.train ... --adaptive-seeds
+
 # Compare all schemes on identical MC scenarios
 uv run python -m aerocapture.training.compare_guidance \
     --base-toml configs/training/msr_aller_eqglide_train.toml \
     --n-sims 100
 
-# Generate post-training convergence report
+# Convergence report (auto-generated at end of training; also standalone)
 uv run python -m aerocapture.training.report training_output/equilibrium_glide/
 uv run python -m aerocapture.training.report --compare training_output/
 
 # Final evaluation report (1000-sim MC re-evaluation with statistical distributions)
-# Runs automatically at end of training; also standalone:
+# Auto-generated at end of training; also standalone:
 uv run python -m aerocapture.training.final_report \
     training_output/equilibrium_glide/ \
     --toml configs/training/msr_aller_eqglide_train.toml \
@@ -127,13 +130,13 @@ GitHub Actions runs on PRs to `main` and manual dispatch:
 ## Build Commands
 
 ```bash
-# Rust
-cd src/rust && cargo build --release
+# Build everything (Rust binary + PyO3 bindings)
+./build.sh
 
-# PyO3 bindings
-cd src/rust/aerocapture-py && maturin develop --release
+# Build and clean intermediate artifacts
+./build.sh -c
 
-# Python
+# Python dependencies
 uv sync && pytest tests
 ```
 

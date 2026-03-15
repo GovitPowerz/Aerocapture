@@ -11,6 +11,7 @@ reference_bank_angle = 0.1
 
 [simulation]
 n_sims = 1
+screen_output = true
 random_seed = 0.6866
 
 [data]

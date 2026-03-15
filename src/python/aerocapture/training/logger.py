@@ -46,6 +46,7 @@ class TrainingLogger:
         decode_fn: Callable[[npt.NDArray[np.int8]], dict[str, float]] | None,
         weight_stats: dict[str, dict[str, float]] | None = None,
         mc_seed: int | None = None,
+        pool_metrics: dict | None = None,
     ) -> None:
         """Log metrics for one generation."""
         all_chroms = np.vstack(populations)
@@ -84,6 +85,9 @@ class TrainingLogger:
 
         if mc_seed is not None:
             record["mc_seed"] = mc_seed
+
+        if pool_metrics is not None:
+            record["pool_metrics"] = pool_metrics
 
         self._buffer.append(record)
         self._file.write(json.dumps(record) + "\n")

@@ -16,6 +16,7 @@ activations = ["tanh", "tanh", "asinh"] # one per non-input layer
 [simulation]
 n_sims = 50
 random_seed = 0.6866
+max_time = 3000.0
 
 [data]
 output_dir = "output"
