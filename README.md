@@ -130,13 +130,13 @@ GitHub Actions runs on PRs to `main` and manual dispatch:
 ## Build Commands
 
 ```bash
-# Rust
-cd src/rust && cargo build --release
+# Build everything (Rust binary + PyO3 bindings)
+./build.sh
 
-# PyO3 bindings
-cd src/rust/aerocapture-py && maturin develop --release
+# Build and clean intermediate artifacts
+./build.sh -c
 
-# Python
+# Python dependencies
 uv sync && pytest tests
 ```
 

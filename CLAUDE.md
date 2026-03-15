@@ -30,9 +30,10 @@ pytest tests                       # Run all tests
 pytest tests/test_foo.py::test_bar -v
 
 # ── Utility Scripts (from repo root) ──
+./build.sh                         # Build Rust binary + PyO3 bindings (-c to clean artifacts)
 ./setup_env.sh                     # Create fresh .venv + install deps
 ./lint_code.sh                     # Run ruff (imports, format, lint) + mypy
-./check_all.sh                     # Rust: test + fmt --check + clippy
+./check_all.sh                     # Rust: test + fmt --check + clippy + release build
 ./upgrade_dependencies.sh          # uv sync --upgrade
 ```
 

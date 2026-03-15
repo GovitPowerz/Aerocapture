@@ -397,7 +397,7 @@ def train(
                                 weights = decode_direct(chrom, cfg) if cfg.ga.direct_encoding else perturb_network(chrom, base_net, cfg)
                                 nn_path = Path(working_dir or cfg.sim.exec_dir) / cfg.sim.nn_param_file
                                 write_nn_json(weights, cfg.network, nn_path)
-                                overrides_list: list[dict[str, object]] = [{"monte_carlo.seed": s} for s in seeds]
+                                overrides_list: list[dict[str, object]] = [{"monte_carlo.seed": s, "simulation.n_sims": 1} for s in seeds]
                             else:
                                 params = decode_params_from_chromosome(chrom, cfg)
                                 from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
@@ -405,7 +405,7 @@ def train(
                                 section = GUIDANCE_TOML_SECTIONS[cfg.guidance_type]
                                 base_overrides: dict[str, object] = {f"guidance.{section}.{k}": v for k, v in params.items()}
                                 base_overrides["guidance.type"] = cfg.guidance_type
-                                overrides_list = [{**base_overrides, "monte_carlo.seed": s} for s in seeds]
+                                overrides_list = [{**base_overrides, "monte_carlo.seed": s, "simulation.n_sims": 1} for s in seeds]
 
                             assert cfg.sim.toml_config is not None
                             toml_path = str((Path(working_dir or cfg.sim.exec_dir) / cfg.sim.toml_config).resolve())
@@ -413,7 +413,8 @@ def train(
                                 toml_path=toml_path,
                                 overrides_list=overrides_list,
                             )
-                            costs: npt.NDArray[np.float64] = np.array([compute_cost(r.final_record.reshape(1, 52)) for r in results.results])
+                            final_records = results.final_records  # (N, 52) numpy array
+                            costs: npt.NDArray[np.float64] = np.array([compute_cost(final_records[i : i + 1]) for i in range(final_records.shape[0])])
                             return costs
 
                         return _batch_eval
