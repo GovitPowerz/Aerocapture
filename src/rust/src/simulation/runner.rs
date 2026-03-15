@@ -855,7 +855,7 @@ mod run_output_tests {
     use crate::config::SimInput;
     use crate::data::SimData;
 
-    fn load_test_config() -> (SimInput, SimData) {
+    fn load_config(config_name: &str) -> (SimInput, SimData) {
         // Data file paths in TOML configs are relative to repo root
         let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
         let repo_root = std::path::PathBuf::from(&manifest)
@@ -864,11 +864,14 @@ mod run_output_tests {
             .unwrap();
         std::env::set_current_dir(&repo_root).unwrap();
 
-        let content =
-            std::fs::read_to_string("configs/test/test_ref_orig.toml").expect("test config");
+        let content = std::fs::read_to_string(config_name).expect("test config");
         let (sim_config, toml_config) = SimInput::from_toml(&content).expect("parse");
         let sim_data = SimData::from_toml(&toml_config, &sim_config).expect("data");
         (sim_config, sim_data)
+    }
+
+    fn load_test_config() -> (SimInput, SimData) {
+        load_config("configs/test/test_ref_orig.toml")
     }
 
     #[test]
@@ -910,5 +913,37 @@ mod run_output_tests {
         let r = &results[0];
         let expected = r.final_record[9] < 1.0 && r.final_record[7] < 0.0;
         assert_eq!(r.captured, expected);
+    }
+
+    #[test]
+    fn peak_values_populated_for_atmospheric_trajectory() {
+        let (config, data) = load_config("configs/test/test_high_bank_orig.toml");
+        let results = run_for_api(&config, &data).expect("run");
+        let rec = &results[0].final_record;
+
+        // Columns 16-18: peak heat flux (kW/m²), load factor (g), dynamic pressure (kPa)
+        assert!(rec[16] > 0.0, "max_heat_flux should be > 0, got {}", rec[16]);
+        assert!(rec[17] > 0.0, "max_load_factor should be > 0, got {}", rec[17]);
+        assert!(rec[18] > 0.0, "max_dyn_pressure should be > 0, got {}", rec[18]);
+
+        // Columns 19-24: altitudes and times at peak values
+        assert!(rec[19] > 0.0, "alt_max_flux should be > 0, got {}", rec[19]);
+        assert!(rec[20] > 0.0, "alt_max_load should be > 0, got {}", rec[20]);
+        assert!(rec[21] > 0.0, "alt_max_pdyn should be > 0, got {}", rec[21]);
+        assert!(rec[22] > 0.0, "time_max_flux should be > 0, got {}", rec[22]);
+        assert!(rec[23] > 0.0, "time_max_load should be > 0, got {}", rec[23]);
+        assert!(rec[24] > 0.0, "time_max_pdyn should be > 0, got {}", rec[24]);
+
+        // Physical plausibility for Mars entry:
+        assert!(
+            rec[16] > 10.0 && rec[16] < 500.0,
+            "peak heat flux {:.1} kW/m² outside reasonable Mars entry range",
+            rec[16]
+        );
+        assert!(
+            rec[17] > 1.0 && rec[17] < 30.0,
+            "peak load factor {:.1} g outside reasonable Mars entry range",
+            rec[17]
+        );
     }
 }
