@@ -238,17 +238,31 @@ def train(
     save_dir = Path(config.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
+    # Load TOML config once (used for cost function params, seed rotation, adaptive seeds)
+    import tomllib
+
+    _toml: dict = {}
+    cost_kwargs: dict[str, float] = {}
+    if config.sim.toml_config:
+        toml_path = Path(cwd or config.sim.exec_dir) / config.sim.toml_config
+        with open(toml_path, "rb") as f:
+            _toml = tomllib.load(f)
+
+        # Parse cost function config (with defaults)
+        cost_cfg = _toml.get("cost_function", {})
+        cost_kwargs = {
+            "g_load_limit": float(cost_cfg.get("g_load_limit", 15.0)),
+            "heat_flux_limit": float(cost_cfg.get("heat_flux_limit", 200.0)),
+            "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
+            "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
+        }
+
     # Read base MC seed from TOML for seed rotation
     base_mc_seed: int | None = None
     if config.ga.rotate_seeds:
         if not config.sim.toml_config:
             msg = "rotate_seeds requires a TOML config with [monte_carlo].seed"
             raise ValueError(msg)
-        import tomllib
-
-        toml_path = Path(cwd or config.sim.exec_dir) / config.sim.toml_config
-        with open(toml_path, "rb") as f:
-            _toml = tomllib.load(f)
         base_mc_seed = _toml.get("monte_carlo", {}).get("seed")
         if base_mc_seed is None:
             msg = "rotate_seeds requires [monte_carlo].seed in the TOML config"
@@ -260,11 +274,6 @@ def train(
         if not config.sim.toml_config:
             msg = "adaptive_seeds requires a TOML config with [monte_carlo].seed"
             raise ValueError(msg)
-        import tomllib
-
-        toml_path = Path(cwd or config.sim.exec_dir) / config.sim.toml_config
-        with open(toml_path, "rb") as f:
-            _toml = tomllib.load(f)
         pool_base_seed = _toml.get("monte_carlo", {}).get("seed")
         if pool_base_seed is None:
             msg = "adaptive_seeds requires [monte_carlo].seed in the TOML config"
@@ -379,7 +388,7 @@ def train(
                 # Build evaluator callbacks for adaptive seed pool
                 def _pool_evaluator(chrom: npt.NDArray[np.int8], mc_seed: int) -> float:
                     """Scalar fallback: one (chromosome, seed) pair."""
-                    cost, _ = evaluate_chromosome(chrom, base_network, config, cwd=cwd, mc_seed=mc_seed)
+                    cost, _ = evaluate_chromosome(chrom, base_network, config, cwd=cwd, mc_seed=mc_seed, cost_kwargs=cost_kwargs)
                     return cost
 
                 _batch_evaluator: Callable[[npt.NDArray[np.int8], list[int]], npt.NDArray[np.float64]] | None = None
@@ -389,6 +398,7 @@ def train(
                         base_net: npt.NDArray[np.float64],
                         cfg: TrainingConfig,
                         working_dir: str | Path | None,
+                        cost_kw: dict[str, float],
                     ) -> Callable[[npt.NDArray[np.int8], list[int]], npt.NDArray[np.float64]]:
                         """Factory to avoid closure over mutable loop variables."""
 
@@ -414,12 +424,12 @@ def train(
                                 overrides_list=overrides_list,
                             )
                             final_records = results.final_records  # (N, 52) numpy array
-                            costs: npt.NDArray[np.float64] = np.array([compute_cost(final_records[i : i + 1]) for i in range(final_records.shape[0])])
+                            costs: npt.NDArray[np.float64] = np.array([compute_cost(final_records[i : i + 1], **cost_kw) for i in range(final_records.shape[0])])
                             return costs
 
                         return _batch_eval
 
-                    _batch_evaluator = _make_batch_eval(base_network, config, cwd)
+                    _batch_evaluator = _make_batch_eval(base_network, config, cwd, cost_kwargs)
 
                 for gen in range(gen_start, config.ga.n_gen):
                     if seed_pool is not None:
@@ -483,6 +493,7 @@ def train(
                                     config,
                                     cwd=cwd,
                                     mc_seed=mc_seed,
+                                    cost_kwargs=cost_kwargs,
                                 )
                                 offspring_costs[i] = cost
 
@@ -495,6 +506,7 @@ def train(
                                         config,
                                         cwd=cwd,
                                         mc_seed=mc_seed,
+                                        cost_kwargs=cost_kwargs,
                                     )
                                     pop_costs[i] = cost
 
