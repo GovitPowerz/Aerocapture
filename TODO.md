@@ -13,7 +13,7 @@
 - [ ] Improve FNPAG predictor fidelity (add J2, actual atmo table) — §6.4
 - [ ] Adaptive RK4 step sizing (Dormand-Prince or two-phase scheme) — §10.1
 - [ ] Separate truth vs onboard atmosphere models — §1.2
-- [ ] Rework cost function design (multi-objective, delta-V primary objective) — §12.4
+- [ ] Investigate reworking cost function design (multi-objective, delta-V primary objective) — §12.4
 
 ## Training & ML
 

@@ -80,12 +80,12 @@ uv run python -m aerocapture.training.compare_guidance \
     --base-toml configs/training/msr_aller_eqglide_train.toml \
     --n-sims 100
 
-# Generate post-training convergence report
+# Convergence report (auto-generated at end of training; also standalone)
 uv run python -m aerocapture.training.report training_output/equilibrium_glide/
 uv run python -m aerocapture.training.report --compare training_output/
 
 # Final evaluation report (1000-sim MC re-evaluation with statistical distributions)
-# Runs automatically at end of training; also standalone:
+# Auto-generated at end of training; also standalone:
 uv run python -m aerocapture.training.final_report \
     training_output/equilibrium_glide/ \
     --toml configs/training/msr_aller_eqglide_train.toml \

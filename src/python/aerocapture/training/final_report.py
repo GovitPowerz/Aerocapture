@@ -86,10 +86,11 @@ def run_final_evaluation(
     """Run large-MC re-evaluation of best solution.
 
     Patches the TOML config to override n_sims and mc_seed, then runs
-    the simulator. Returns final conditions array (n_sims, 52) in
+    the simulator via PyO3 ``run_mc()`` (returns all n_sims results) or
+    subprocess fallback. Returns final conditions array (n_sims, 52) in
     0-based format, or None if the simulation fails.
     """
-    from aerocapture.training.evaluate import run_simulation
+    from aerocapture.training.evaluate import _HAS_PYO3, _aero_rs
 
     if cfg.sim.toml_config is None:
         return None
@@ -100,8 +101,23 @@ def run_final_evaluation(
     patched_toml = _patch_toml_for_final_eval(base_toml, n_sims, 0 if seed is None else seed)
     orig_toml = cfg.sim.toml_config
     try:
-        cfg.sim.toml_config = str(patched_toml)
-        return run_simulation(cfg, cwd=cwd)
+        if _HAS_PYO3:
+            assert _aero_rs is not None
+            toml_path = str(patched_toml.resolve())
+            results = _aero_rs.run_mc(toml_path=toml_path)
+            arr: npt.NDArray[np.float64] = results.final_records  # (n_sims, 52)
+            return arr
+        else:
+            # Subprocess fallback: run_simulation parses all rows from CSV
+            from aerocapture.training.evaluate import run_simulation
+
+            cfg.sim.toml_config = str(patched_toml)
+            return run_simulation(cfg, cwd=cwd)
+    except Exception:
+        import traceback
+
+        traceback.print_exc()
+        return None
     finally:
         cfg.sim.toml_config = orig_toml
         patched_toml.unlink(missing_ok=True)

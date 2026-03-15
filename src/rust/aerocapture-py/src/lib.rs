@@ -79,6 +79,45 @@ fn run(toml_path: &str, overrides: Option<&Bound<'_, PyDict>>) -> PyResult<SimRe
     Ok(SimResult::from_output(output))
 }
 
+/// Run a Monte Carlo simulation returning all results.
+///
+/// Unlike `run()` which returns only the first result, this function
+/// returns all n_sims results as a `BatchResults` object. Use this
+/// for MC evaluations where you need the full distribution.
+///
+/// Args:
+///     toml_path: Path to the TOML config file.
+///     overrides: Optional dict of "dotted.key" -> value overrides.
+///     include_trajectories: If True, keep per-timestep trajectory data
+///         (default: False to save memory).
+///
+/// Returns:
+///     BatchResults with final_records (N,52), captured (N,), and
+///     optionally trajectories.
+#[pyfunction]
+#[pyo3(signature = (toml_path, overrides=None, include_trajectories=false))]
+fn run_mc(
+    toml_path: &str,
+    overrides: Option<&Bound<'_, PyDict>>,
+    include_trajectories: bool,
+) -> PyResult<BatchResults> {
+    let toml_content = std::fs::read_to_string(toml_path).map_err(|e| {
+        pyo3::exceptions::PyIOError::new_err(format!("Cannot read '{}': {}", toml_path, e))
+    })?;
+
+    let overrides = extract_overrides(overrides)?;
+
+    let (sim_input, sim_data) = config::load_and_override(&toml_content, &overrides)
+        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+
+    let outputs =
+        aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e))
+        })?;
+
+    Ok(BatchResults::from_outputs(outputs, include_trajectories))
+}
+
 /// Run a batch of simulations with per-run overrides, in parallel.
 ///
 /// Args:
@@ -174,6 +213,7 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<SimResult>()?;
     m.add_class::<BatchResults>()?;
     m.add_function(wrap_pyfunction!(run, m)?)?;
+    m.add_function(wrap_pyfunction!(run_mc, m)?)?;
     m.add_function(wrap_pyfunction!(run_batch, m)?)?;
     m.add_function(wrap_pyfunction!(load_config, m)?)?;
     Ok(())

@@ -97,14 +97,15 @@ Separate workspace member crate providing Python bindings via PyO3. Built with `
 
 ```
 src/rust/aerocapture-py/src/
-  lib.rs         — Module entry: run(), run_batch(), load_config()
+  lib.rs         — Module entry: run(), run_mc(), run_batch(), load_config()
   config.rs      — TOML loading with dot-path override merging
   results.rs     — SimResult/BatchResults pyclasses with numpy getters
   batch.rs       — Rayon parallel batch execution
 ```
 
 Key API:
-- `aerocapture_rs.run(toml_path, overrides=None)` → `SimResult` with `.final_record` (52,), `.captured`, `.energy`, `.ecc`, etc.
+- `aerocapture_rs.run(toml_path, overrides=None)` → `SimResult` with `.final_record` (52,), `.captured`, `.energy`, `.ecc`, etc. Returns first result only (use `run_mc` for multi-sim).
+- `aerocapture_rs.run_mc(toml_path, overrides=None, include_trajectories=False)` → `BatchResults` with all n_sims results. Use for MC evaluations needing the full distribution.
 - `aerocapture_rs.run_batch(toml_path, overrides_list, n_threads=None, include_trajectories=False)` → `BatchResults` with `.final_records` (N, 52)
 - `aerocapture_rs.load_config(toml_path)` → Python dict
 
@@ -139,8 +140,8 @@ Python analysis package (numpy, pandas, matplotlib, deap, scipy) for:
   - `metrics.py` — Pure metric functions: cost stats, diversity, capture rate, convergence speed, stagnation
   - `logger.py` — `TrainingLogger`: writes one JSONL line per generation; in-memory buffer for live display
   - `display.py` — `LiveDisplay`: Rich TUI with sparklines, ETA, progress bar (degrades to `NoopDisplay` when `--no-tui` or non-interactive)
-  - `report.py` — Plotly self-contained HTML reports (single-run and cross-scheme comparison); CLI: `python -m aerocapture.training.report`
-  - `final_report.py` — Post-training final evaluation: runs 1000-sim MC re-evaluation, generates Plotly HTML with delta-V distributions, orbital error distributions, entry conditions scatter, and summary statistics; CLI: `python -m aerocapture.training.final_report`
+  - `report.py` — Plotly self-contained HTML convergence reports (single-run and cross-scheme comparison); auto-generated at end of training, also standalone CLI: `python -m aerocapture.training.report`
+  - `final_report.py` — Post-training final evaluation: runs 1000-sim MC re-evaluation via `run_mc()`, generates Plotly HTML with delta-V distributions, orbital error distributions, entry conditions scatter, and summary statistics; auto-generated at end of training, also standalone CLI: `python -m aerocapture.training.final_report`
 
 ## GA Training & Comparison
 

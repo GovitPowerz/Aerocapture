@@ -688,6 +688,15 @@ if __name__ == "__main__":
     result = train(cfg, seed=args.seed, cwd=cwd, resume_dir=args.resume, no_tui=args.no_tui)
     print(f"\nFinal best cost: {result['best_cost']:.4e}")
 
+    # Generate convergence report from JSONL training logs
+    from aerocapture.training.report import generate_single_report
+
+    scheme_dir = Path(cfg.save_dir)
+    if list(scheme_dir.glob("*.jsonl")):
+        generate_single_report(scheme_dir)
+    else:
+        print("No JSONL logs found, skipping convergence report")
+
     # Save best result and run final evaluation
     if result["best_chromosome"] is not None:
         if cfg.guidance_type == "neural_network":
