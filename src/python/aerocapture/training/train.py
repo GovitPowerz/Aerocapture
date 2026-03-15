@@ -425,7 +425,9 @@ def train(
                                 overrides_list=overrides_list,
                             )
                             final_records = results.final_records  # (N, 52) numpy array
-                            costs: npt.NDArray[np.float64] = np.array([compute_cost(final_records[i : i + 1], **cost_kw) for i in range(final_records.shape[0])])
+                            costs: npt.NDArray[np.float64] = np.array(
+                                [compute_cost(final_records[i : i + 1], **cost_kw) for i in range(final_records.shape[0])]
+                            )
                             return costs
 
                         return _batch_eval

@@ -159,7 +159,12 @@ class TestCostProperties:
     )
     @settings(max_examples=200)
     def test_cost_always_finite_nonneg(
-        self, energy: float, ecc: float, dv_total: float, g_max: float, q_max: float,
+        self,
+        energy: float,
+        ecc: float,
+        dv_total: float,
+        g_max: float,
+        q_max: float,
     ) -> None:
         """For any finite inputs, compute_cost returns a finite, non-negative value."""
         row = _make_row(energy=energy, ecc=ecc, dv_total=dv_total, g_max=g_max, q_max=q_max)

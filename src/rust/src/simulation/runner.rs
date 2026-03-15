@@ -922,17 +922,41 @@ mod run_output_tests {
         let rec = &results[0].final_record;
 
         // Columns 16-18: peak heat flux (kW/m²), load factor (g), dynamic pressure (kPa)
-        assert!(rec[16] > 0.0, "max_heat_flux should be > 0, got {}", rec[16]);
-        assert!(rec[17] > 0.0, "max_load_factor should be > 0, got {}", rec[17]);
-        assert!(rec[18] > 0.0, "max_dyn_pressure should be > 0, got {}", rec[18]);
+        assert!(
+            rec[16] > 0.0,
+            "max_heat_flux should be > 0, got {}",
+            rec[16]
+        );
+        assert!(
+            rec[17] > 0.0,
+            "max_load_factor should be > 0, got {}",
+            rec[17]
+        );
+        assert!(
+            rec[18] > 0.0,
+            "max_dyn_pressure should be > 0, got {}",
+            rec[18]
+        );
 
         // Columns 19-24: altitudes and times at peak values
         assert!(rec[19] > 0.0, "alt_max_flux should be > 0, got {}", rec[19]);
         assert!(rec[20] > 0.0, "alt_max_load should be > 0, got {}", rec[20]);
         assert!(rec[21] > 0.0, "alt_max_pdyn should be > 0, got {}", rec[21]);
-        assert!(rec[22] > 0.0, "time_max_flux should be > 0, got {}", rec[22]);
-        assert!(rec[23] > 0.0, "time_max_load should be > 0, got {}", rec[23]);
-        assert!(rec[24] > 0.0, "time_max_pdyn should be > 0, got {}", rec[24]);
+        assert!(
+            rec[22] > 0.0,
+            "time_max_flux should be > 0, got {}",
+            rec[22]
+        );
+        assert!(
+            rec[23] > 0.0,
+            "time_max_load should be > 0, got {}",
+            rec[23]
+        );
+        assert!(
+            rec[24] > 0.0,
+            "time_max_pdyn should be > 0, got {}",
+            rec[24]
+        );
 
         // Physical plausibility for Mars entry:
         assert!(
