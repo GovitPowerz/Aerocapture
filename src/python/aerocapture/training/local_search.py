@@ -21,6 +21,7 @@ def improve_chromosome(
     mode: int = 0,
     cwd: str | Path | None = None,
     rng: np.random.Generator | None = None,
+    cost_kwargs: dict[str, float] | None = None,
 ) -> tuple[npt.NDArray[np.int8], float, float]:
     """Improve a chromosome via greedy bit-flip local search.
 
@@ -46,7 +47,7 @@ def improve_chromosome(
 
     # Initial cost
     current = xbit.copy()
-    current_cost, _ = evaluate_chromosome(current, base_network, config, cwd=cwd)
+    current_cost, _ = evaluate_chromosome(current, base_network, config, cwd=cwd, cost_kwargs=cost_kwargs)
     initial_cost = current_cost
 
     # Determine which coefficients to optimize
@@ -59,7 +60,7 @@ def improve_chromosome(
             pos = coef_idx * n_bit + bit_offset
             # Flip bit
             current[pos] = 1 - current[pos]
-            new_cost, _ = evaluate_chromosome(current, base_network, config, cwd=cwd)
+            new_cost, _ = evaluate_chromosome(current, base_network, config, cwd=cwd, cost_kwargs=cost_kwargs)
 
             if new_cost < current_cost:
                 current_cost = new_cost  # Keep improvement

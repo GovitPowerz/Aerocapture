@@ -360,6 +360,7 @@ def train(
                         cwd=cwd,
                         verbose=verbose,
                         seed_weights=seed_weights if run == 0 and resumed is None else None,
+                        cost_kwargs=cost_kwargs,
                     )
                     populations = [population]
                     all_costs = [costs]
