@@ -226,27 +226,30 @@ def _run_via_subprocess(config: TrainingConfig, cwd: str | Path | None = None) -
         return None
 
 
-def compute_cost(final_conditions: npt.NDArray[np.float64]) -> float:
+def compute_cost(
+    final_conditions: npt.NDArray[np.float64],
+    *,
+    g_load_limit: float = 15.0,
+    heat_flux_limit: float = 200.0,
+    g_load_weight: float = 1000.0,
+    heat_flux_weight: float = 1000.0,
+) -> float:
     """Compute RMS cost from simulation final conditions.
 
-    Uses a smooth, continuous cost function that provides gradient signal
-    even for non-capturing (hyperbolic) trajectories. This is critical for
-    GA convergence: random NNs produce different bank angle profiles that
-    dissipate different amounts of orbital energy, so energy-based cost
-    differentiates between candidates that a binary crash/no-crash penalty cannot.
+    Uses delta-V as the primary objective with normalized soft constraint
+    penalties for g-load and heat flux exceedances.
 
     Final file columns (0-indexed, 52-column layout):
         7  = orbital energy (MJ/kg), >0 hyperbolic, <0 bound
         9  = eccentricity, >1 hyperbolic
+        16 = peak heat flux (kW/m²)
+        17 = peak g-load (g)
         27 = total simulation time (s)
-        29 = periapsis altitude error vs target (km)
-        30 = apoapsis altitude error vs target (km)
         41 = total delta-V to reach target orbit (m/s)
 
-    Cost hierarchy (smooth within each level):
-        Level 0: Hyperbolic escape → 1e6 + 1e3 * |energy|
-        Level 1: Captured, large orbit errors → 1e4 + |apo_err| + |peri_err|
-        Level 2: Captured, small errors → |apo_err| + |peri_err| + dv_total
+    Cost hierarchy:
+        Non-capture (hyperbolic or bogus ΔV): 1e6 + 1e3 * |energy| - 0.1 * sim_time
+        Captured: ΔV + w_g * max((g-g_lim)/g_lim, 0)² + w_q * max((q-q_lim)/q_lim, 0)²
 
     Returns:
         RMS cost value. Lower is better.
@@ -254,32 +257,24 @@ def compute_cost(final_conditions: npt.NDArray[np.float64]) -> float:
     energy = final_conditions[:, 7]  # MJ/kg
     ecc = final_conditions[:, 9]  # dimensionless
     sim_time = final_conditions[:, 27]  # s
-    peri_err = final_conditions[:, 29]  # km
-    apo_err = final_conditions[:, 30]  # km
     dv_total = final_conditions[:, 41]  # m/s
+    g_max = final_conditions[:, 17]  # g
+    q_max = final_conditions[:, 16]  # kW/m²
 
     hyperbolic = (ecc > 1.0) | (energy > 0)
 
     costs = np.zeros(len(final_conditions))
 
-    # Level 0: Non-capturing (hyperbolic) — smooth energy-based cost
-    # Energy varies between NNs: more atmospheric drag = lower energy = better
-    # Also reward longer flight time (more atmospheric interaction)
-    mask = hyperbolic
-    costs[mask] = 1e6 + 1e3 * np.abs(energy[mask]) - 0.1 * sim_time[mask]
+    # Non-capture OR bogus delta-V: energy-based penalty
+    bad = hyperbolic | (dv_total > 1e10)
+    costs[bad] = 1e6 + 1e3 * np.abs(energy[bad]) - 0.1 * sim_time[bad]
 
-    # Captured trajectories
-    mask = ~hyperbolic
-    abs_apo = np.abs(apo_err[mask])
-    abs_peri = np.abs(peri_err[mask])
-    orbit_err = abs_apo + abs_peri
-
-    # Sanitize dv_total: Fortran writes 1e30 when maneuver computation fails
-    dv_clean = np.clip(dv_total[mask], 0, 1e4)
-    dv_clean = np.where(dv_total[mask] > 1e10, 0.0, dv_clean)  # ignore bogus values
-
-    # Smooth continuous cost: orbit error + small delta-V contribution
-    costs[mask] = orbit_err + 0.01 * dv_clean
+    # Captured with valid delta-V
+    ok = ~bad
+    dv = np.clip(dv_total[ok], 0, 1e4)
+    g_penalty = g_load_weight * np.maximum((g_max[ok] - g_load_limit) / g_load_limit, 0) ** 2
+    q_penalty = heat_flux_weight * np.maximum((q_max[ok] - heat_flux_limit) / heat_flux_limit, 0) ** 2
+    costs[ok] = dv + g_penalty + q_penalty
 
     return float(np.sqrt(np.mean(costs**2)))
 
