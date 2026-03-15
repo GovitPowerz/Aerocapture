@@ -504,6 +504,7 @@ def evaluate_chromosome(
     config: TrainingConfig,
     cwd: str | Path | None = None,
     mc_seed: int | None = None,
+    cost_kwargs: dict[str, float] | None = None,
 ) -> tuple[float, npt.NDArray[np.float64] | None]:
     """Full evaluation pipeline: decode, simulate, score.
 
@@ -563,5 +564,5 @@ def evaluate_chromosome(
     if final is None:
         return 1e30, None
 
-    cost = compute_cost(final)
+    cost = compute_cost(final, **(cost_kwargs or {}))
     return cost, final
