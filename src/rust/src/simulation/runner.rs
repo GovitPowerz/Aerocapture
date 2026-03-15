@@ -49,7 +49,7 @@ struct SimState {
     bounce_alt: f64,
     bounce_time: f64,
     max_heat_flux: f64,
-    max_load_factor: f64,
+    max_load_factor: f64, // m/s², divided by G0 when written to final_record
     max_dyn_pressure: f64,
     // Max-value altitudes and times (for carltf output)
     alt_max_flux: f64,
@@ -503,6 +503,8 @@ fn run_single(
         let (altitude, _lat_geo) =
             geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
 
+        track_peak_values(&mut sim, altitude, sim_time, data, run_state);
+
         // === Termination checks ===
         if altitude <= 0.0 {
             term = TermReason::Crash;
@@ -731,6 +733,50 @@ fn integrate_step(
             &mut sim.accumulator,
             &mut sim.state,
         );
+    }
+}
+
+/// Update peak tracking values (heat flux, load factor, dynamic pressure)
+/// after each integration step.
+fn track_peak_values(
+    sim: &mut SimState,
+    altitude: f64,
+    sim_time: f64,
+    data: &SimData,
+    run_state: &init::RunState,
+) {
+    let v = sim.state[3];
+    let rho = data.atmosphere.density_at(altitude) * (1.0 + run_state.density_bias);
+
+    // Heat flux (W/m²) — same formula as dflux in compute_derivatives
+    let heat_flux = data.capsule.cq * rho.sqrt() * v.powf(3.05);
+
+    // Dynamic pressure (Pa)
+    let pdyn = 0.5 * rho * v * v;
+
+    // Load factor (m/s²) — aerodynamic acceleration magnitude
+    let aoa_dispersed = sim.aoa + run_state.incidence_bias;
+    let cx = data.aero.interpolate_cx(aoa_dispersed) * (1.0 + run_state.cx_bias);
+    let cz = data.aero.interpolate_cz(aoa_dispersed) * (1.0 + run_state.cz_bias);
+    let mass = data.capsule.mass * (1.0 + run_state.mass_bias);
+    let ref_area = data.capsule.reference_area * (1.0 + run_state.ref_area_bias);
+    let aero_accel = rho * ref_area * v * v / (2.0 * mass);
+    let load_factor = aero_accel * (cx * cx + cz * cz).sqrt();
+
+    if heat_flux > sim.max_heat_flux {
+        sim.max_heat_flux = heat_flux;
+        sim.alt_max_flux = altitude;
+        sim.time_max_flux = sim_time;
+    }
+    if load_factor > sim.max_load_factor {
+        sim.max_load_factor = load_factor;
+        sim.alt_max_load = altitude;
+        sim.time_max_load = sim_time;
+    }
+    if pdyn > sim.max_dyn_pressure {
+        sim.max_dyn_pressure = pdyn;
+        sim.alt_max_pdyn = altitude;
+        sim.time_max_pdyn = sim_time;
     }
 }
 
