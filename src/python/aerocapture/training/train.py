@@ -636,6 +636,7 @@ if __name__ == "__main__":
     parser.add_argument("--cwd", type=str, default=None)
     parser.add_argument("--toml", type=str, default=None, help="TOML config path (enables TOML mode, runs from repo root)")
     parser.add_argument("--resume", type=str, default=None, help="Checkpoint directory to resume training from")
+    parser.add_argument("-fs", "--from-scratch", action="store_true", help="Wipe existing training output and start fresh (deletes checkpoints, logs, reports)")
     parser.add_argument(
         "--guidance",
         type=str,
@@ -699,6 +700,17 @@ if __name__ == "__main__":
 
     if args.resume:
         cfg.save_dir = args.resume
+
+    if args.from_scratch:
+        if args.resume:
+            print("ERROR: --from-scratch and --resume are mutually exclusive")
+            raise SystemExit(1)
+        save_path = Path(cfg.save_dir)
+        if save_path.exists():
+            import shutil
+
+            shutil.rmtree(save_path)
+            print(f"Wiped existing output: {save_path}")
 
     result = train(cfg, seed=args.seed, cwd=cwd, resume_dir=args.resume, no_tui=args.no_tui)
     print(f"\nFinal best cost: {result['best_cost']:.4e}")
