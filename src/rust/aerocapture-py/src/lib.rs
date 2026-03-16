@@ -1,5 +1,7 @@
 //! PyO3 bindings for the aerocapture trajectory simulator.
 
+use std::collections::HashSet;
+
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
 
@@ -58,14 +60,11 @@ fn extract_overrides(dict: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<(String, 
 #[pyfunction]
 #[pyo3(signature = (toml_path, overrides=None))]
 fn run(toml_path: &str, overrides: Option<&Bound<'_, PyDict>>) -> PyResult<SimResult> {
-    let toml_content = std::fs::read_to_string(toml_path).map_err(|e| {
-        pyo3::exceptions::PyIOError::new_err(format!("Cannot read '{}': {}", toml_path, e))
-    })?;
-
     let overrides = extract_overrides(overrides)?;
 
-    let (sim_input, sim_data) = config::load_and_override(&toml_content, &overrides)
-        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+    let (sim_input, sim_data) =
+        config::load_and_override(std::path::Path::new(toml_path), &overrides)
+            .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     let outputs =
         aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data).map_err(|e| {
@@ -101,14 +100,11 @@ fn run_mc(
     overrides: Option<&Bound<'_, PyDict>>,
     include_trajectories: bool,
 ) -> PyResult<BatchResults> {
-    let toml_content = std::fs::read_to_string(toml_path).map_err(|e| {
-        pyo3::exceptions::PyIOError::new_err(format!("Cannot read '{}': {}", toml_path, e))
-    })?;
-
     let overrides = extract_overrides(overrides)?;
 
-    let (sim_input, sim_data) = config::load_and_override(&toml_content, &overrides)
-        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+    let (sim_input, sim_data) =
+        config::load_and_override(std::path::Path::new(toml_path), &overrides)
+            .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     let outputs =
         aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data).map_err(|e| {
@@ -139,10 +135,6 @@ fn run_batch(
     n_threads: Option<usize>,
     include_trajectories: bool,
 ) -> PyResult<BatchResults> {
-    let toml_content = std::fs::read_to_string(toml_path).map_err(|e| {
-        pyo3::exceptions::PyIOError::new_err(format!("Cannot read '{}': {}", toml_path, e))
-    })?;
-
     let n_threads = n_threads.unwrap_or_else(|| {
         std::thread::available_parallelism()
             .map(|n| n.get())
@@ -156,7 +148,7 @@ fn run_batch(
         overrides_vec.push(extract_overrides(Some(dict))?);
     }
 
-    let outputs = batch::run_batch(&toml_content, overrides_vec, n_threads)
+    let outputs = batch::run_batch(std::path::Path::new(toml_path), overrides_vec, n_threads)
         .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
@@ -167,7 +159,8 @@ fn run_batch(
 /// Useful for inspecting or modifying config before passing overrides.
 #[pyfunction]
 fn load_config(py: Python<'_>, toml_path: &str) -> PyResult<Py<PyAny>> {
-    let content = std::fs::read_to_string(toml_path).map_err(|e| {
+    let path = std::path::Path::new(toml_path);
+    let content = std::fs::read_to_string(path).map_err(|e| {
         pyo3::exceptions::PyIOError::new_err(format!("Cannot read '{}': {}", toml_path, e))
     })?;
 
@@ -175,7 +168,14 @@ fn load_config(py: Python<'_>, toml_path: &str) -> PyResult<Py<PyAny>> {
         .map(toml::Value::Table)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("TOML parse error: {}", e)))?;
 
-    toml_to_py(py, &value)
+    // Resolve base inheritance.
+    let mut visited = HashSet::new();
+    let resolved =
+        aerocapture::config::resolve_toml_bases(value, path, &mut visited).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Base resolution error: {}", e))
+        })?;
+
+    toml_to_py(py, &resolved)
 }
 
 /// Convert a TOML value tree into Python objects (dict, list, str, int, float, bool).

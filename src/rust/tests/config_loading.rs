@@ -1,12 +1,12 @@
 mod common;
 
-use aerocapture::config::{Planet, SimInput, TomlConfig};
+use aerocapture::config::{Planet, SimInput};
+use std::path::Path;
 
 #[test]
 fn parse_ftc_consolidated_toml() {
     let path = common::config_path("nominal/msr_aller_ftc_consolidated.toml");
-    let content = std::fs::read_to_string(&path).expect("read config");
-    let (config, _toml) = SimInput::from_toml(&content).expect("parse config");
+    let (config, _toml) = SimInput::from_toml_file(Path::new(&path)).expect("parse config");
     assert_eq!(config.planet, Planet::Mars);
     assert_eq!(config.n_sims, 1);
     assert!(!config.reference_trajectory);
@@ -15,8 +15,7 @@ fn parse_ftc_consolidated_toml() {
 #[test]
 fn parse_reference_toml() {
     let path = common::config_path("nominal/msr_aller_reference.toml");
-    let content = std::fs::read_to_string(&path).expect("read config");
-    let (config, _toml) = SimInput::from_toml(&content).expect("parse config");
+    let (config, _toml) = SimInput::from_toml_file(Path::new(&path)).expect("parse config");
     assert!(config.reference_trajectory);
     assert_eq!(config.planet, Planet::Mars);
     assert!((config.reference_bank_angle - 0.1).abs() < 1e-6);
@@ -25,8 +24,7 @@ fn parse_reference_toml() {
 #[test]
 fn parse_mc_domain_toml() {
     let path = common::config_path("nominal/msr_aller_ftc_mc_domain.toml");
-    let content = std::fs::read_to_string(&path).expect("read config");
-    let (config, _toml) = SimInput::from_toml(&content).expect("parse config");
+    let (config, _toml) = SimInput::from_toml_file(Path::new(&path)).expect("parse config");
     assert_eq!(config.n_sims, 100);
     assert!(!config.reference_trajectory);
 }
@@ -40,8 +38,12 @@ fn parse_all_available_configs() {
         for entry in std::fs::read_dir(&dir).expect("read configs subdir") {
             let path = entry.unwrap().path();
             if path.extension().is_some_and(|e| e == "toml") {
-                let content = std::fs::read_to_string(&path).expect("read config");
-                let result = SimInput::from_toml(&content);
+                // Skip base-only configs (no [mission] section — they're fragments)
+                let raw = std::fs::read_to_string(&path).expect("read config");
+                if !raw.contains("[mission]") && !raw.contains("base =") {
+                    continue;
+                }
+                let result = SimInput::from_toml_file(&path);
                 assert!(
                     result.is_ok(),
                     "Failed to parse {}: {:?}",
@@ -65,12 +67,17 @@ fn all_configs_are_consolidated() {
             if path.extension().is_none_or(|e| e != "toml") {
                 continue;
             }
-            let content = std::fs::read_to_string(&path).expect("read config");
-            let toml_config: TomlConfig =
-                toml::from_str(&content).unwrap_or_else(|e| panic!("{}: {}", path.display(), e));
+            // Skip base-only configs (no [mission] section — they're fragments)
+            let raw = std::fs::read_to_string(&path).expect("read config");
+            if !raw.contains("[mission]") && !raw.contains("base =") {
+                continue;
+            }
+            // Use from_toml_file to resolve base inheritance before checking
+            let (_config, toml_config) = SimInput::from_toml_file(&path)
+                .unwrap_or_else(|e| panic!("{}: {:?}", path.display(), e));
             assert!(
                 toml_config.vehicle.is_some(),
-                "{} is not consolidated (missing [vehicle] section)",
+                "{} is not consolidated (missing [vehicle] section after base resolution)",
                 path.display()
             );
         }

@@ -1,7 +1,10 @@
 //! Parallel batch runner.
 //!
-//! Parses the base TOML once, then applies per-run overrides in parallel
-//! using a scoped Rayon thread pool.
+//! Parses the base TOML once (resolving `base` inheritance), then applies
+//! per-run overrides in parallel using a scoped Rayon thread pool.
+
+use std::collections::HashSet;
+use std::path::Path;
 
 use aerocapture::RunOutput;
 use aerocapture::config::SimInput;
@@ -13,8 +16,8 @@ use crate::config::{OverrideValue, apply_override};
 
 /// Run a batch of simulations with per-run TOML overrides.
 ///
-/// 1. Parse `toml_content` into a TOML value tree (the "base config").
-/// 2. For each entry in `overrides_list`, clone the base tree, apply
+/// 1. Read and parse the TOML file, resolving `base` inheritance.
+/// 2. For each entry in `overrides_list`, clone the resolved tree, apply
 ///    overrides, serialize back, parse via `SimInput::from_toml` +
 ///    `SimData::from_toml`, and run `run_for_api`.
 /// 3. Returns the first `RunOutput` per batch item (if `n_sims > 1` in
@@ -22,14 +25,21 @@ use crate::config::{OverrideValue, apply_override};
 ///
 /// Uses a scoped Rayon thread pool with `n_threads` threads.
 pub fn run_batch(
-    toml_content: &str,
+    toml_path: &Path,
     overrides_list: Vec<Vec<(String, OverrideValue)>>,
     n_threads: usize,
 ) -> Result<Vec<RunOutput>, String> {
-    // Parse the base config once.
+    // Read and parse the base config once.
+    let toml_content = std::fs::read_to_string(toml_path)
+        .map_err(|e| format!("Cannot read '{}': {}", toml_path.display(), e))?;
     let base_table: Table =
-        toml::from_str(toml_content).map_err(|e| format!("TOML parse error: {}", e))?;
+        toml::from_str(&toml_content).map_err(|e| format!("TOML parse error: {}", e))?;
     let base_value = Value::Table(base_table);
+
+    // Resolve base inheritance once.
+    let mut visited = HashSet::new();
+    let base_value = aerocapture::config::resolve_toml_bases(base_value, toml_path, &mut visited)
+        .map_err(|e| format!("Base resolution error: {}", e))?;
 
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(n_threads)

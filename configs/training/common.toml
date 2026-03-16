@@ -1,0 +1,32 @@
+# Shared training config — inherited by all 6 training TOMLs
+# Contains simulation seed, MC dispersion levels, and cost function thresholds
+
+[simulation]
+random_seed = 0.6866
+n_sims = 50
+max_time = 3000.0
+
+# ── Domain-based Monte Carlo dispersions ──
+[monte_carlo]
+seed = 42
+
+[monte_carlo.initial_state]
+level = "low"
+
+[monte_carlo.atmosphere]
+level = "low"
+
+[monte_carlo.aerodynamics]
+level = "low"
+
+[monte_carlo.navigation]
+level = "low"
+
+[monte_carlo.mass]
+level = "low"
+
+[cost_function]
+g_load_limit = 15.0
+heat_flux_limit = 200.0
+g_load_weight = 1000.0
+heat_flux_weight = 1000.0

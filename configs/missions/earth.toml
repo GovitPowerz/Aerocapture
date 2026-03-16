@@ -1,0 +1,88 @@
+# Earth Sample Return — shared mission base config
+# Inherited by all ESR configs via base = ["../missions/earth.toml"]
+
+[mission]
+type = "aerocapture"
+planet = "earth"
+
+[entry]
+altitude = 600.0
+longitude = 0.0
+latitude = 0.0
+velocity = 47295.97517
+flight_path_angle = -4.88388
+azimuth = 89.40733
+initial_time = 0.0
+initial_bank_angle = 90.0
+initial_aoa = -27.5
+
+[vehicle]
+mass = 5600.0
+reference_area = 29.0
+cq = 0.00008242
+max_bank_rate = 15.0
+
+[vehicle.periods]
+navigation = 1.0
+guidance = 1.0
+pilot = 1.0
+prediction = 1.0
+integration = 1.0
+photo = 20.0
+
+[vehicle.pilot]
+model = "perfect"
+time_constant = 1.0
+damping = 0.7
+frequency = 0.072
+
+[aerodynamics]
+equilibrium_aoa = -27.5
+points = [
+    { aoa = -27.5, ca = 1.269, cn = -0.205 },
+    { aoa = -27.5, ca = 1.269, cn = -0.205 },
+]
+
+[flight]
+wind = false
+
+[flight.constraints]
+max_heat_flux = 33721.096
+max_load_factor = 4.421
+max_dynamic_pressure = 6.492
+
+[flight.final_conditions]
+altitude = 608.535
+longitude = 12.569
+latitude = -0.045
+velocity = 43682.546
+flight_path_angle = 4.701
+azimuth = 269.086
+energy = -170.501
+radial_velocity = 3580.320
+
+[flight.target_orbit]
+apoapsis = 599757.465
+periapsis = 282.373
+semi_major_axis = 371511.919
+eccentricity = 0.807
+inclination = 0.464
+raan = -0.321
+
+[flight.parking_orbit]
+apoapsis = 599742.0
+periapsis = 599474.0
+
+[success]
+inclination_tolerance = 0.5
+velocity_tolerance = 9500.0
+apoapsis_tolerance = 100000.0
+periapsis_tolerance = 1000.0
+
+[incidence]
+altitudes = [-10.0, 50.0, 80.0, 650.0]
+angles = [-27.5, -27.5, -27.5, -27.5]
+
+[data]
+atmosphere = "data/atmosphere/earth.dat"
+reference_trajectory = "data/reference_trajectory/esr_aller.dat"

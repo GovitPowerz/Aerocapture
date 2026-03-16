@@ -864,8 +864,8 @@ mod run_output_tests {
             .unwrap();
         std::env::set_current_dir(&repo_root).unwrap();
 
-        let content = std::fs::read_to_string(config_name).expect("test config");
-        let (sim_config, toml_config) = SimInput::from_toml(&content).expect("parse");
+        let path = std::path::Path::new(config_name);
+        let (sim_config, toml_config) = SimInput::from_toml_file(path).expect("parse");
         let sim_data = SimData::from_toml(&toml_config, &sim_config).expect("data");
         (sim_config, sim_data)
     }

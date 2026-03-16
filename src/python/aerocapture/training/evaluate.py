@@ -346,13 +346,11 @@ def write_guidance_toml(
     Returns:
         Path to the written TOML file.
     """
-    import tomllib
-
     from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
+    from aerocapture.training.toml_utils import load_toml_with_bases
 
     base_toml_path = Path(base_toml_path)
-    with open(base_toml_path, "rb") as f:
-        toml_data = tomllib.load(f)
+    toml_data = load_toml_with_bases(base_toml_path)
 
     # Set the guidance type
     toml_data.setdefault("guidance", {})["type"] = guidance_type
@@ -483,11 +481,11 @@ def patch_toml_mc_seed(base_toml_path: str | Path, mc_seed: int) -> Path:
         Path to the temp TOML file (caller must clean up).
     """
     import os
-    import tomllib
+
+    from aerocapture.training.toml_utils import load_toml_with_bases
 
     base_toml_path = Path(base_toml_path)
-    with open(base_toml_path, "rb") as f:
-        toml_data = tomllib.load(f)
+    toml_data = load_toml_with_bases(base_toml_path)
 
     toml_data.setdefault("monte_carlo", {})["seed"] = mc_seed
 
