@@ -144,6 +144,20 @@ class TestResumeDetection:
         assert resume_gens == [6, 11]
 
 
+class TestResumeMarkers:
+    def test_report_contains_resume_marker(self, tmp_path: Path) -> None:
+        scheme_dir = _write_resumed_jsonl(tmp_path)
+        generate_single_report(scheme_dir)
+        content = (scheme_dir / "report.html").read_text()
+        assert "resumed" in content.lower()
+
+    def test_report_without_resume_has_no_marker(self, tmp_path: Path) -> None:
+        scheme_dir = _write_fixture_jsonl(tmp_path)
+        generate_single_report(scheme_dir)
+        content = (scheme_dir / "report.html").read_text()
+        assert "resumed" not in content.lower()
+
+
 class TestSingleReport:
     def test_generates_html_file(self, tmp_path: Path) -> None:
         scheme_dir = _write_fixture_jsonl(tmp_path)
