@@ -58,7 +58,7 @@ The simulation implements a full closed-loop GNC chain:
 
 ## GA Optimization
 
-All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load and heat flux exceedances. Training supports graceful Ctrl+C interruption (saves checkpoint and returns cleanly).
+All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load and heat flux exceedances. Training supports graceful Ctrl+C interruption (saves checkpoint and returns cleanly). On resume, `--n-gen` means "N additional generations" — generation numbering continues seamlessly.
 
 ```bash
 # Optimize any guidance scheme (Rich TUI with sparklines and ETA)
@@ -81,7 +81,7 @@ uv run python -m aerocapture.training.compare_guidance \
     --base-toml configs/training/msr_aller_eqglide_train.toml \
     --n-sims 100
 
-# Convergence report (auto-generated at end of training; also standalone)
+# Convergence report (dynamic layout with resume markers and seed panels)
 uv run python -m aerocapture.training.report training_output/equilibrium_glide/
 uv run python -m aerocapture.training.report --compare training_output/
 
