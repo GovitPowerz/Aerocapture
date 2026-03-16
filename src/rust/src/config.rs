@@ -647,31 +647,37 @@ pub fn resolve_toml_bases(
         )));
     }
 
-    let mut merged = toml::Value::Table(toml::map::Map::new());
-    for base_rel in &base_paths {
-        let base_abs = base_dir.join(base_rel);
-        let base_content = std::fs::read_to_string(&base_abs).map_err(|e| {
-            ParseError(format!(
-                "Cannot read base '{}' (referenced from '{}'): {}",
-                base_abs.display(),
-                file_path.display(),
-                e
-            ))
-        })?;
-        let base_value: toml::Value = toml::from_str(&base_content).map_err(|e| {
-            ParseError(format!(
-                "TOML parse error in '{}': {}",
-                base_abs.display(),
-                e
-            ))
-        })?;
-        let resolved_base = resolve_toml_bases(base_value, &base_abs, visited)?;
-        deep_merge(&mut merged, resolved_base);
-    }
+    let result = (|| {
+        let mut merged = toml::Value::Table(toml::map::Map::new());
+        for base_rel in &base_paths {
+            let base_abs = base_dir.join(base_rel);
+            let base_content = std::fs::read_to_string(&base_abs).map_err(|e| {
+                ParseError(format!(
+                    "Cannot read base '{}' (referenced from '{}'): {}",
+                    base_abs.display(),
+                    file_path.display(),
+                    e
+                ))
+            })?;
+            let base_value: toml::Value = toml::from_str(&base_content).map_err(|e| {
+                ParseError(format!(
+                    "TOML parse error in '{}': {}",
+                    base_abs.display(),
+                    e
+                ))
+            })?;
+            let resolved_base = resolve_toml_bases(base_value, &base_abs, visited)?;
+            deep_merge(&mut merged, resolved_base);
+        }
 
-    deep_merge(&mut merged, root);
+        deep_merge(&mut merged, root);
+        Ok(merged)
+    })();
+
+    // Always clean up visited, even on error paths, to prevent
+    // false cycle errors for sibling references (diamond inheritance).
     visited.remove(&canonical);
-    Ok(merged)
+    result
 }
 
 impl SimInput {
