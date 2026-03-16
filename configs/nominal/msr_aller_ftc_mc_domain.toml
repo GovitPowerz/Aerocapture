@@ -1,12 +1,5 @@
 # MSR outbound — FTC guided, 100-sim Monte Carlo with domain-based dispersions
-# No lottery file needed — draws generated from seed at runtime
-#
-# Dispersion levels: "off", "low", "medium", "high", "custom"
-# For "custom", add sigma overrides directly in the domain section.
-
-[mission]
-type = "aerocapture"
-planet = "mars"
+base = ["../missions/mars.toml"]
 
 [guidance]
 type = "ftc"
@@ -68,14 +61,9 @@ n_sims = 100
 random_seed = 0.6866
 
 [data]
-output_dir = "output"
-atmosphere = "data/atmosphere/mars.dat"
-reference_trajectory = "data/reference_trajectory/msr_aller.dat"
 results_suffix = ".mc100_domain"
 
 # ── Domain-based Monte Carlo dispersions ──
-# Replaces lottery files entirely. Draws generated from seed at runtime.
-
 [monte_carlo]
 seed = 42
 
@@ -102,69 +90,3 @@ level = "low"
 
 [monte_carlo.nav_filter]
 level = "medium"
-
-# ── Inline vehicle/mission data ──
-
-[vehicle]
-mass = 1089.0
-reference_area = 14.7
-cq = 0.00008242
-max_bank_rate = 15.0
-
-[entry]
-altitude = 130.0
-longitude = 0.0
-latitude = 0.0
-velocity = 5687.15586
-flight_path_angle = -10.81251
-azimuth = 38.04069
-initial_time = 0.0
-initial_bank_angle = 64.77026
-initial_aoa = -27.5
-
-[aerodynamics]
-equilibrium_aoa = -27.5
-points = [
-    { aoa = -27.5, ca = 1.269, cn = -0.205 },
-    { aoa = -27.5, ca = 1.269, cn = -0.205 },
-]
-
-[flight]
-wind = false
-
-[flight.constraints]
-max_heat_flux = 151.571
-max_load_factor = 1.912
-max_dynamic_pressure = 1.081
-
-[flight.final_conditions]
-altitude = 130.988
-longitude = 36.334
-latitude = 30.634
-velocity = 3360.258
-flight_path_angle = 3.446
-azimuth = 299.401
-energy = -5.867
-radial_velocity = 201.978
-
-[flight.target_orbit]
-apoapsis = 500.130
-periapsis = 11.233
-semi_major_axis = 3649.622
-eccentricity = 0.067
-inclination = 50.0
-raan = -7.612
-
-[flight.parking_orbit]
-apoapsis = 500.0
-periapsis = 500.0
-
-[success]
-inclination_tolerance = 0.5
-velocity_tolerance = 170.0
-apoapsis_tolerance = 100.0
-periapsis_tolerance = 25.0
-
-[incidence]
-altitudes = [-10.0, 50.0, 80.0, 150.0]
-angles = [-27.5, -27.5, -27.5, -27.5]

@@ -1,8 +1,5 @@
 # MSR outbound — FTC guided, single nominal run (consolidated: inline data + external files)
-
-[mission]
-type = "aerocapture"
-planet = "mars"
+base = ["../missions/mars.toml"]
 
 [guidance]
 type = "ftc"
@@ -10,26 +7,26 @@ reference_bank_angle = 64.77026
 
 [guidance.ftc]
 capture_damping = 0.7
-capture_frequency = 0.072          # rad/s
+capture_frequency = 0.072
 capture_pdyn_margin = 1.75
 altitude_damping = 0.7
-altitude_frequency = 0.08          # deg/s (converted to rad/s internally)
-exit_velocity_threshold = 4400.0   # m/s
+altitude_frequency = 0.08
+exit_velocity_threshold = 4400.0
 exit_pdyn_margin = 1.75
-exit_altitude_threshold = 60.0     # km
-exit_radial_vel_gain = 10.0        # Pa/(m/s)
-exit_apoapsis_threshold = 100.0    # m
-corridor_slope = 13080.458         # m/s
-corridor_intercept = 0.0           # deg
+exit_altitude_threshold = 60.0
+exit_radial_vel_gain = 10.0
+exit_apoapsis_threshold = 100.0
+corridor_slope = 13080.458
+corridor_intercept = 0.0
 max_reversals = 5
 security_capture = 1
 security_exit = 3
 density_filter_gain = 0.8
-longi_activation = 1000.0          # MJ/kg
-longi_inhibition = -1000.0         # MJ/kg
-lateral_activation = 1.311         # MJ/kg
-lateral_inhibition = 1000.0        # MJ/kg
-pdyn_min = 0.0                     # Pa
+longi_activation = 1000.0
+longi_inhibition = -1000.0
+lateral_activation = 1.311
+lateral_inhibition = 1000.0
+pdyn_min = 0.0
 pdyn_table = [
     { altitude =  0.0000000000, a = -0.1645497562, b = 1.4897963360 },
     { altitude = 45.6282285400, a = -0.1965988262, b = 1.3408173570 },
@@ -65,87 +62,4 @@ screen_output = true
 random_seed = 0.6866
 
 [data]
-output_dir = "output"
-atmosphere = "data/atmosphere/mars.dat"
-reference_trajectory = "data/reference_trajectory/msr_aller.dat"
 results_suffix = ".test_consolidated"
-
-# ── Inline data (replaces 10 external files) ──
-
-[vehicle]
-mass = 1089.0              # kg
-reference_area = 14.7      # m²
-cq = 0.00008242            # heat flux coefficient
-max_bank_rate = 15.0       # deg/s
-
-[vehicle.periods]
-navigation = 1.0
-guidance = 1.0
-pilot = 1.0
-prediction = 1.0
-integration = 1.0
-photo = 1.0
-
-[vehicle.pilot]
-model = "perfect"
-time_constant = 1.0
-damping = 0.7
-frequency = 0.072
-
-[entry]
-altitude = 130.0           # km
-longitude = 0.0            # deg
-latitude = 0.0             # deg
-velocity = 5687.15586      # m/s
-flight_path_angle = -10.81251  # deg
-azimuth = 38.04069         # deg
-initial_time = 0.0         # s
-initial_bank_angle = 64.77026  # deg
-initial_aoa = -27.5        # deg
-
-[aerodynamics]
-equilibrium_aoa = -27.5    # deg
-points = [
-    { aoa = -27.5, ca = 1.269, cn = -0.205 },
-    { aoa = -27.5, ca = 1.269, cn = -0.205 },
-]
-
-[flight]
-wind = false
-
-[flight.constraints]
-max_heat_flux = 151.571        # kW/m²
-max_load_factor = 1.912        # g
-max_dynamic_pressure = 1.081   # kPa
-
-[flight.final_conditions]
-altitude = 130.988             # km
-longitude = 36.334             # deg
-latitude = 30.634              # deg
-velocity = 3360.258            # m/s
-flight_path_angle = 3.446      # deg
-azimuth = 299.401              # deg
-energy = -5.867                # MJ/kg
-radial_velocity = 201.978      # m/s
-
-[flight.target_orbit]
-apoapsis = 500.130             # km
-periapsis = 11.233             # km
-semi_major_axis = 3649.622     # km
-eccentricity = 0.067
-inclination = 50.0             # deg
-raan = -7.612                  # deg
-
-[flight.parking_orbit]
-apoapsis = 500.0               # km
-periapsis = 500.0              # km
-
-[success]
-inclination_tolerance = 0.5    # deg
-velocity_tolerance = 170.0     # m/s
-apoapsis_tolerance = 100.0     # km
-periapsis_tolerance = 25.0     # km
-
-[incidence]
-altitudes = [-10.0, 50.0, 80.0, 150.0]   # km
-angles = [-27.5, -27.5, -27.5, -27.5]    # deg
