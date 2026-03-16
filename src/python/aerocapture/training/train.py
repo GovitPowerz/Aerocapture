@@ -639,7 +639,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-pop", type=int, default=20)
     parser.add_argument("--cwd", type=str, default=None)
     parser.add_argument("--toml", type=str, default=None, help="TOML config path (enables TOML mode, runs from repo root)")
-    parser.add_argument("--resume", type=str, default=None, help="Checkpoint directory to resume training from")
+    parser.add_argument("--resume", type=str, default=None, help="Checkpoint directory to resume from (auto-detected if omitted and checkpoint exists)")
     parser.add_argument("-fs", "--from-scratch", action="store_true", help="Wipe existing training output and start fresh (deletes checkpoints, logs, reports)")
     parser.add_argument(
         "--guidance",
@@ -715,7 +715,14 @@ if __name__ == "__main__":
             shutil.rmtree(save_path)
             print(f"Wiped existing output: {save_path}")
 
-    result = train(cfg, seed=args.seed, cwd=cwd, resume_dir=args.resume, no_tui=args.no_tui)
+    # Auto-resume: if no --resume and no -fs, check for existing checkpoint
+    resume_dir = args.resume
+    if resume_dir is None and not args.from_scratch:
+        save_path = Path(cfg.save_dir)
+        if list(save_path.glob("checkpoint_*.json")):
+            resume_dir = cfg.save_dir
+
+    result = train(cfg, seed=args.seed, cwd=cwd, resume_dir=resume_dir, no_tui=args.no_tui)
     print(f"\nFinal best cost: {result['best_cost']:.4e}")
 
     # Generate convergence report from JSONL training logs
