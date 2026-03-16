@@ -96,14 +96,14 @@ class TestRunFinalEvaluation:
 
         from aerocapture.training.final_report import _patch_toml_for_final_eval
 
-        toml_content = '[monte_carlo]\nn_sims = 10\nseed = 1\n[guidance]\ntype = "ftc"\n'
+        toml_content = '[simulation]\nn_sims = 10\n[monte_carlo]\nseed = 1\n[guidance]\ntype = "ftc"\n'
         src_toml = tmp_path / "base.toml"
         src_toml.write_text(toml_content)
 
         patched = _patch_toml_for_final_eval(src_toml, n_sims=1000, seed=9999)
         with open(patched, "rb") as f:
             data = tomllib.load(f)
-        assert data["monte_carlo"]["n_sims"] == 1000
+        assert data["simulation"]["n_sims"] == 1000
         assert data["monte_carlo"]["seed"] == 9999
         patched.unlink()
 

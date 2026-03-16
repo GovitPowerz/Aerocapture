@@ -64,8 +64,8 @@ def _patch_toml_for_final_eval(
 
     toml_data = load_toml_with_bases(base_toml_path)
 
-    toml_data.setdefault("monte_carlo", {})["n_sims"] = n_sims
-    toml_data["monte_carlo"]["seed"] = seed
+    toml_data.setdefault("simulation", {})["n_sims"] = n_sims
+    toml_data.setdefault("monte_carlo", {})["seed"] = seed
 
     from aerocapture.training.evaluate import _write_toml
 
