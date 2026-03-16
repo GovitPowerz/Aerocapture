@@ -38,10 +38,6 @@ pub fn run_batch(
 
     // Resolve base inheritance once.
     let mut visited = HashSet::new();
-    let canonical = toml_path
-        .canonicalize()
-        .map_err(|e| format!("Cannot canonicalize '{}': {}", toml_path.display(), e))?;
-    visited.insert(canonical);
     let base_value = aerocapture::config::resolve_toml_bases(base_value, toml_path, &mut visited)
         .map_err(|e| format!("Base resolution error: {}", e))?;
 

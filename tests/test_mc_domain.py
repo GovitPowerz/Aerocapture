@@ -29,20 +29,18 @@ def _build_rust(rust_binary: Path) -> Path:
 
 def _make_mc_config(n_sims: int, seed: int, suffix: str) -> Path:
     """Create a temporary TOML config for MC testing with given n_sims and seed."""
-    content = BASE_CONFIG.read_text()
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    data = load_toml_with_bases(BASE_CONFIG)
     # Override n_sims, seed, and results_suffix
-    lines = []
-    for line in content.splitlines():
-        if line.startswith("n_sims"):
-            lines.append(f"n_sims = {n_sims}")
-        elif line.startswith("seed") and "random_seed" not in line:
-            lines.append(f"seed = {seed}")
-        elif line.startswith("results_suffix"):
-            lines.append(f'results_suffix = ".{suffix}"')
-        else:
-            lines.append(line)
+    data.setdefault("simulation", {})["n_sims"] = n_sims
+    data.setdefault("monte_carlo", {})["seed"] = seed
+    data.setdefault("data", {})["results_suffix"] = f".{suffix}"
+
+    from aerocapture.training.evaluate import _write_toml
+
     tmp = Path(tempfile.mktemp(suffix=".toml", prefix="mc_test_"))
-    tmp.write_text("\n".join(lines))
+    _write_toml(data, tmp)
     return tmp
 
 

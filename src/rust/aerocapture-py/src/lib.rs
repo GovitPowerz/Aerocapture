@@ -148,9 +148,8 @@ fn run_batch(
         overrides_vec.push(extract_overrides(Some(dict))?);
     }
 
-    let outputs =
-        batch::run_batch(std::path::Path::new(toml_path), overrides_vec, n_threads)
-            .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+    let outputs = batch::run_batch(std::path::Path::new(toml_path), overrides_vec, n_threads)
+        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }
@@ -171,11 +170,10 @@ fn load_config(py: Python<'_>, toml_path: &str) -> PyResult<Py<PyAny>> {
 
     // Resolve base inheritance.
     let mut visited = HashSet::new();
-    if let Ok(canonical) = path.canonicalize() {
-        visited.insert(canonical);
-    }
-    let resolved = aerocapture::config::resolve_toml_bases(value, path, &mut visited)
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Base resolution error: {}", e)))?;
+    let resolved =
+        aerocapture::config::resolve_toml_bases(value, path, &mut visited).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Base resolution error: {}", e))
+        })?;
 
     toml_to_py(py, &resolved)
 }

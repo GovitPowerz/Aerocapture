@@ -118,10 +118,6 @@ pub fn load_and_override(
 
     // Resolve base inheritance before applying overrides.
     let mut visited = HashSet::new();
-    let canonical = toml_path
-        .canonicalize()
-        .map_err(|e| format!("Cannot canonicalize '{}': {}", toml_path.display(), e))?;
-    visited.insert(canonical);
     let mut root = aerocapture::config::resolve_toml_bases(root, toml_path, &mut visited)
         .map_err(|e| format!("Base resolution error: {}", e))?;
 
