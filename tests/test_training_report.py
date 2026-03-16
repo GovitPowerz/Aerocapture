@@ -86,6 +86,65 @@ def _write_resumed_jsonl(path: Path) -> Path:
     return scheme_dir
 
 
+def _write_fixture_with_pool_metrics(path: Path, n_gens: int = 10) -> Path:
+    """Write JSONL with pool_metrics fields (adaptive seeds)."""
+    scheme_dir = path / "adaptive_scheme"
+    scheme_dir.mkdir(parents=True, exist_ok=True)
+    with open(scheme_dir / "run_000_20260311T120000.jsonl", "w") as f:
+        for gen in range(1, n_gens + 1):
+            record = {
+                "generation": gen,
+                "run": 0,
+                "timestamp": f"2026-03-11T12:00:{gen:02d}Z",
+                "best_cost": 1e5 * (0.9 ** gen),
+                "mean_cost": 3e5 * (0.9 ** gen),
+                "worst_cost": 1e6 * (0.9 ** gen),
+                "median_cost": 2e5 * (0.9 ** gen),
+                "std_cost": 1.5e5 * (0.9 ** gen),
+                "capture_rate": 0.8,
+                "population_diversity": 0.3,
+                "best_params": {"k": 0.3},
+                "improvement": gen <= 5,
+                "scheme": "test",
+                "config_hash": "abc",
+                "pool_metrics": {
+                    "pool_size": gen + 4,
+                    "difficulty_min": 600.0 + gen * 10,
+                    "difficulty_max": 800.0 + gen * 5,
+                    "n_evictions": gen // 3,
+                },
+            }
+            f.write(json.dumps(record) + "\n")
+    return scheme_dir
+
+
+def _write_fixture_with_mc_seed(path: Path, n_gens: int = 10) -> Path:
+    """Write JSONL with mc_seed fields (rotate seeds)."""
+    scheme_dir = path / "rotate_scheme"
+    scheme_dir.mkdir(parents=True, exist_ok=True)
+    with open(scheme_dir / "run_000_20260311T120000.jsonl", "w") as f:
+        for gen in range(1, n_gens + 1):
+            record = {
+                "generation": gen,
+                "run": 0,
+                "timestamp": f"2026-03-11T12:00:{gen:02d}Z",
+                "best_cost": 1e5 * (0.9 ** gen),
+                "mean_cost": 3e5 * (0.9 ** gen),
+                "worst_cost": 1e6 * (0.9 ** gen),
+                "median_cost": 2e5 * (0.9 ** gen),
+                "std_cost": 1.5e5 * (0.9 ** gen),
+                "capture_rate": 0.8,
+                "population_diversity": 0.3,
+                "best_params": {"k": 0.3},
+                "improvement": gen <= 5,
+                "scheme": "test",
+                "config_hash": "abc",
+                "mc_seed": 42 + gen,
+            }
+            f.write(json.dumps(record) + "\n")
+    return scheme_dir
+
+
 class TestLoadRunData:
     def test_loads_all_records(self, tmp_path: Path) -> None:
         scheme_dir = _write_fixture_jsonl(tmp_path)
@@ -273,3 +332,24 @@ class TestResumeGenerationOffset:
             config.ga.n_gen += resumed["generation"]
 
         assert config.ga.n_gen == 50
+
+
+class TestConditionalPanels:
+    def test_pool_metrics_panel_appears(self, tmp_path: Path) -> None:
+        scheme_dir = _write_fixture_with_pool_metrics(tmp_path)
+        generate_single_report(scheme_dir)
+        content = (scheme_dir / "report.html").read_text()
+        assert "Seed Pool" in content or "Pool Size" in content
+
+    def test_mc_seed_panel_appears(self, tmp_path: Path) -> None:
+        scheme_dir = _write_fixture_with_mc_seed(tmp_path)
+        generate_single_report(scheme_dir)
+        content = (scheme_dir / "report.html").read_text()
+        assert "MC Seed" in content
+
+    def test_no_extra_panels_without_seed_data(self, tmp_path: Path) -> None:
+        scheme_dir = _write_fixture_jsonl(tmp_path)
+        generate_single_report(scheme_dir)
+        content = (scheme_dir / "report.html").read_text()
+        assert "Seed Pool" not in content
+        assert "MC Seed" not in content
