@@ -598,6 +598,27 @@ def train(
                             print(f"  Checkpoint saved: r{run:03d}_g{gen + 1:05d}")
 
                 cost_history.extend(gen_best_costs)
+
+                # Always save a final checkpoint at end of run
+                last_gen = config.ga.n_gen
+                if last_gen % checkpoint_interval != 0:
+                    save_checkpoint(
+                        save_dir,
+                        run,
+                        last_gen,
+                        populations,
+                        all_costs,
+                        best_overall_cost,
+                        best_overall_chrom,
+                        cost_history,
+                        rng,
+                        config,
+                        cwd,
+                        seed_pool=seed_pool,
+                    )
+                    if verbose:
+                        print(f"  Final checkpoint saved: r{run:03d}_g{last_gen:05d}")
+
                 logger.close()
 
         except KeyboardInterrupt:
