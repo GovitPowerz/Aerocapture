@@ -39,10 +39,9 @@ def run_scheme(
     If params_dir/<scheme>/best_params.json exists, uses optimized params.
     Otherwise uses defaults.
     """
-    import tomllib
+    from aerocapture.training.toml_utils import load_toml_with_bases
 
-    with open(base_toml, "rb") as f:
-        toml_data = tomllib.load(f)
+    toml_data = load_toml_with_bases(Path(base_toml))
 
     # Override n_sims and results suffix
     results_suffix = f".compare_{scheme}"
@@ -205,11 +204,10 @@ def main() -> None:
         sys.exit(1)
 
     # Parse cost function config from TOML (with defaults)
-    import tomllib
+    from aerocapture.training.toml_utils import load_toml_with_bases
 
     cost_kwargs: dict[str, float] = {}
-    with open(base_toml, "rb") as f:
-        _toml = tomllib.load(f)
+    _toml = load_toml_with_bases(Path(base_toml))
     cost_cfg = _toml.get("cost_function", {})
     cost_kwargs = {
         "g_load_limit": float(cost_cfg.get("g_load_limit", 15.0)),

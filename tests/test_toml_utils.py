@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-
 from aerocapture.training.toml_utils import load_toml_with_bases
 
 
@@ -26,8 +25,8 @@ def test_single_base(tmp_path: Path) -> None:
 
 def test_multiple_bases_merge_order(tmp_path: Path) -> None:
     """Left-to-right merge: later bases win, child wins over all."""
-    _write(tmp_path / "a.toml", '[section]\nx = 1\ny = 10\n')
-    _write(tmp_path / "b.toml", '[section]\nx = 2\nz = 30\n')
+    _write(tmp_path / "a.toml", "[section]\nx = 1\ny = 10\n")
+    _write(tmp_path / "b.toml", "[section]\nx = 2\nz = 30\n")
     _write(tmp_path / "child.toml", 'base = ["a.toml", "b.toml"]\n[section]\nw = 99\n')
 
     data = load_toml_with_bases(tmp_path / "child.toml")
@@ -39,7 +38,7 @@ def test_multiple_bases_merge_order(tmp_path: Path) -> None:
 
 def test_recursive_base(tmp_path: Path) -> None:
     """Grandparent -> parent -> child chain."""
-    _write(tmp_path / "gp.toml", '[a]\nval = 1\n[b]\nval = 2\n')
+    _write(tmp_path / "gp.toml", "[a]\nval = 1\n[b]\nval = 2\n")
     _write(tmp_path / "parent.toml", 'base = "gp.toml"\n[b]\nval = 20\n[c]\nval = 3\n')
     _write(tmp_path / "child.toml", 'base = "parent.toml"\n[c]\nval = 30\n')
 

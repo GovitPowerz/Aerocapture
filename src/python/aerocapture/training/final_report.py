@@ -45,10 +45,9 @@ _COLOR_CDF = "#9C27B0"
 
 def _read_target_inclination(toml_path: Path) -> float:
     """Read target inclination from TOML [flight.target_orbit] section."""
-    import tomllib
+    from aerocapture.training.toml_utils import load_toml_with_bases
 
-    with open(toml_path, "rb") as f:
-        data = tomllib.load(f)
+    data = load_toml_with_bases(toml_path)
     return float(data.get("flight", {}).get("target_orbit", {}).get("inclination", 0.0))
 
 
@@ -60,10 +59,10 @@ def _patch_toml_for_final_eval(
     """Create a temporary TOML with overridden n_sims and mc_seed."""
     import os
     import tempfile
-    import tomllib
 
-    with open(base_toml_path, "rb") as f:
-        toml_data = tomllib.load(f)
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    toml_data = load_toml_with_bases(base_toml_path)
 
     toml_data.setdefault("monte_carlo", {})["n_sims"] = n_sims
     toml_data["monte_carlo"]["seed"] = seed
@@ -384,10 +383,9 @@ def main() -> None:
             write_guidance_toml(base_toml, scheme, params, opt_toml)
         cfg.sim.toml_config = str(opt_toml)
     elif model_path.exists():
-        import tomllib
+        from aerocapture.training.toml_utils import load_toml_with_bases
 
-        with open(args.toml, "rb") as f:
-            toml_data = tomllib.load(f)
+        toml_data = load_toml_with_bases(Path(args.toml))
         cfg.sim.nn_param_file = toml_data.get("data", {}).get("neural_network", "data/neural_network/nn_model.json")
     else:
         print(f"ERROR: No best_params.json or best_model.json found in {scheme_dir}")

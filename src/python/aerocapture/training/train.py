@@ -239,14 +239,13 @@ def train(
     save_dir.mkdir(parents=True, exist_ok=True)
 
     # Load TOML config once (used for cost function params, seed rotation, adaptive seeds)
-    import tomllib
+    from aerocapture.training.toml_utils import load_toml_with_bases
 
     _toml: dict = {}
     cost_kwargs: dict[str, float] = {}
     if config.sim.toml_config:
         toml_path = Path(cwd or config.sim.exec_dir) / config.sim.toml_config
-        with open(toml_path, "rb") as f:
-            _toml = tomllib.load(f)
+        _toml = load_toml_with_bases(toml_path)
 
         # Parse cost function config (with defaults)
         cost_cfg = _toml.get("cost_function", {})
@@ -671,10 +670,9 @@ if __name__ == "__main__":
         cfg.sim.toml_config = args.toml
         cfg.sim.executable = "src/rust/target/release/aerocapture"
         # Read nn_param_file from TOML [data] neural_network field if present
-        import tomllib
+        from aerocapture.training.toml_utils import load_toml_with_bases
 
-        with open(args.toml, "rb") as _f:
-            _toml_data = tomllib.load(_f)
+        _toml_data = load_toml_with_bases(Path(args.toml))
         cfg.sim.nn_param_file = _toml_data.get("data", {}).get("neural_network", "data/neural_network/nn_model.json")
         # Override NN architecture from TOML [network] section if present
         _net = _toml_data.get("network", {})
