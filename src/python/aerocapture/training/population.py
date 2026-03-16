@@ -82,6 +82,7 @@ def create_initial_population(
     cwd: str | Path | None = None,
     verbose: bool = True,
     seed_weights: npt.NDArray[np.float64] | None = None,
+    cost_kwargs: dict[str, float] | None = None,
 ) -> tuple[npt.NDArray[np.int8], npt.NDArray[np.float64]]:
     """Generate and evaluate initial GA population.
 
@@ -156,7 +157,7 @@ def create_initial_population(
 
     # Evaluate all candidates
     for i in range(n_candidates):
-        cost, _ = evaluate_chromosome(candidates[i], base_network, config, cwd=cwd)
+        cost, _ = evaluate_chromosome(candidates[i], base_network, config, cwd=cwd, cost_kwargs=cost_kwargs)
         costs[i] = cost
         if verbose and (i + 1) % 10 == 0:
             print(f"  Evaluated {i + 1}/{n_candidates}, best so far: {np.min(costs[: i + 1]):.4e}")
@@ -177,6 +178,7 @@ def create_initial_population(
             config,
             mode=0,
             cwd=cwd,
+            cost_kwargs=cost_kwargs,
         )
         if improved_cost < pop_costs[-1]:
             population[-1] = improved

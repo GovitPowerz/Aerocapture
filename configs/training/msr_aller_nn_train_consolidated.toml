@@ -123,3 +123,9 @@ periapsis_tolerance = 25.0
 [incidence]
 altitudes = [-10.0, 50.0, 80.0, 150.0]
 angles = [-27.5, -27.5, -27.5, -27.5]
+
+[cost_function]
+g_load_limit = 15.0          # g (Earth g's)
+heat_flux_limit = 200.0      # kW/m²
+g_load_weight = 1000.0       # penalty weight on normalized squared exceedance
+heat_flux_weight = 1000.0    # penalty weight on normalized squared exceedance

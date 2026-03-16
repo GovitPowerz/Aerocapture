@@ -1,5 +1,10 @@
 # TODO
 
+- [ ] investigate the possibility that all training and final simulation testing toml share a common mission sub-toml for all guidance schemes
+- [ ] training report should be checked (does not work properly) and could be improved anyway
+- [ ] final report does not perform 1000 mc sim that I asked for, and could be improved
+- [ ] Update IMPROVEMENTS.md
+
 ## Simulation — High Impact
 
 - [ ] Implement wind model (currently a stub returning zero) — `IMPROVEMENTS.md` §1.4
@@ -13,7 +18,6 @@
 - [ ] Improve FNPAG predictor fidelity (add J2, actual atmo table) — §6.4
 - [ ] Adaptive RK4 step sizing (Dormand-Prince or two-phase scheme) — §10.1
 - [ ] Separate truth vs onboard atmosphere models — §1.2
-- [ ] Investigate reworking cost function design (multi-objective, delta-V primary objective) — §12.4
 
 ## Training & ML
 

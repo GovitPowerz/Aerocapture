@@ -57,7 +57,7 @@ The simulation implements a full closed-loop GNC chain:
 
 ## GA Optimization
 
-All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize orbit insertion error across Monte Carlo dispersions. Training supports graceful Ctrl+C interruption (saves checkpoint and returns cleanly).
+All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load and heat flux exceedances. Training supports graceful Ctrl+C interruption (saves checkpoint and returns cleanly).
 
 ```bash
 # Optimize any guidance scheme (Rich TUI with sparklines and ETA)

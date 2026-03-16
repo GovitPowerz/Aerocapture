@@ -32,6 +32,7 @@ def run_scheme(
     executable: str,
     cwd: Path,
     params_dir: Path | None = None,
+    cost_kwargs: dict[str, float] | None = None,
 ) -> dict | None:
     """Run a single guidance scheme and return metrics.
 
@@ -140,7 +141,7 @@ def run_scheme(
         "n_sims": len(final),
         "captured": int(captured.sum()),
         "capture_rate": float(captured.sum()) / len(final) * 100,
-        "cost": compute_cost(final),
+        "cost": compute_cost(final, **(cost_kwargs or {})),
     }
 
     if captured.any():
@@ -203,6 +204,20 @@ def main() -> None:
         print(f"ERROR: Base TOML not found: {base_toml}")
         sys.exit(1)
 
+    # Parse cost function config from TOML (with defaults)
+    import tomllib
+
+    cost_kwargs: dict[str, float] = {}
+    with open(base_toml, "rb") as f:
+        _toml = tomllib.load(f)
+    cost_cfg = _toml.get("cost_function", {})
+    cost_kwargs = {
+        "g_load_limit": float(cost_cfg.get("g_load_limit", 15.0)),
+        "heat_flux_limit": float(cost_cfg.get("heat_flux_limit", 200.0)),
+        "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
+        "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
+    }
+
     results: dict[str, dict] = {}
     for scheme in args.schemes:
         print(f"\nRunning {scheme}...")
@@ -213,6 +228,7 @@ def main() -> None:
             args.executable,
             cwd,
             params_dir,
+            cost_kwargs=cost_kwargs,
         )
         if metrics:
             results[scheme] = metrics
