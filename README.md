@@ -58,7 +58,7 @@ The simulation implements a full closed-loop GNC chain:
 
 ## GA Optimization
 
-All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load and heat flux exceedances. Training supports graceful Ctrl+C interruption (saves checkpoint and returns cleanly). On resume, `--n-gen` means "N additional generations" — generation numbering continues seamlessly.
+All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load and heat flux exceedances. Training auto-resumes from existing checkpoints (use `-fs` to start fresh). On resume, `--n-gen` means "N additional generations." Training supports graceful Ctrl+C interruption (saves checkpoint and returns cleanly).
 
 ```bash
 # Optimize any guidance scheme (Rich TUI with sparklines and ETA)

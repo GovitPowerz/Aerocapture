@@ -1,6 +1,6 @@
 # TODO
 
-- [ ] training report should be checked (does not work properly) and could be improved anyway
+- [ ] add an animation script of entry corridors and trajectories evolution during training based on checkpoints
 - [ ] final report could be improved
 - [ ] Update IMPROVEMENTS.md
 

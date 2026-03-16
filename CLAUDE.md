@@ -133,7 +133,7 @@ Python analysis package (numpy, pandas, matplotlib, deap, scipy) for:
 - Output file parsers (photo, final, CSV files)
 - Visualization (corridor plots, MC ensembles, CDF of correction cost)
 - GA training pipeline: optimizes any guidance scheme's parameters (not just NN weights)
-  - `train.py` — Main GA loop with checkpoint save/resume (`--guidance <scheme> --toml <config> [--no-tui] [--rotate-seeds | --adaptive-seeds] [--seed-pool-cap N] [--cost-alpha F] [--cvar-percentile P] [--skip-final-report] [--final-n-sims N]`). On resume, `--n-gen` means "N additional generations" (not total). Graceful KeyboardInterrupt handling: Ctrl+C saves checkpoint and returns cleanly with `interrupted: True`.
+  - `train.py` — Main GA loop with checkpoint save/resume (`--guidance <scheme> --toml <config> [--no-tui] [--rotate-seeds | --adaptive-seeds] [--seed-pool-cap N] [--cost-alpha F] [--cvar-percentile P] [--skip-final-report] [--final-n-sims N]`). Auto-resumes from existing checkpoint when output dir exists (no `--resume` needed); `--resume` only needed to specify a non-default directory. On resume, `--n-gen` means "N additional generations" (not total). A checkpoint is always saved at end of training (not just at interval multiples). Graceful KeyboardInterrupt handling: Ctrl+C saves checkpoint and returns cleanly with `interrupted: True`. Final evaluation prints capture rate, delta-V, and orbital error percentiles (p50/p95/mean) to stdout.
   - `param_spaces.py` — Per-scheme parameter bounds (with optional log-scale encoding)
   - `evaluate.py` — Decode chromosome -> write params (NN JSON or patched TOML) -> run sim -> cost. Uses PyO3 direct call when `aerocapture_rs` is available, subprocess fallback otherwise. Cost function uses delta-V as primary objective with TOML-configurable normalized soft constraint penalties for g-load and heat flux exceedances.
   - `compare_guidance.py` — Fair head-to-head comparison on identical MC scenarios
@@ -169,11 +169,10 @@ uv run python -m aerocapture.training.train \
     --toml configs/training/msr_aller_eqglide_train.toml \
     --n-gen 50 --n-pop 20 --adaptive-seeds
 
-# ── Resume from checkpoint (--n-gen means "N additional" on resume) ──
+# ── Resume training (auto-detects checkpoint; --n-gen means "N additional") ──
 uv run python -m aerocapture.training.train \
     --guidance equilibrium_glide \
     --toml configs/training/msr_aller_eqglide_train.toml \
-    --resume training_output/equilibrium_glide \
     --n-gen 50
 
 # ── Compare all schemes on identical MC scenarios ──
