@@ -23,8 +23,9 @@ src/
     aerocapture-py/        PyO3 Python bindings (aerocapture_rs module)
   python/                  Python analysis package (parsing, plotting, training)
 configs/
+  missions/                Shared per-planet base configs (Mars, Earth)
   nominal/                 Nominal simulation configurations
-  training/                GA training configurations (per guidance scheme)
+  training/                GA training configs (per scheme) + common.toml (shared MC/cost)
   test/                    Golden test configurations (regression tests)
 data/
   atmosphere/              Atmosphere density tables (Mars, Earth)
