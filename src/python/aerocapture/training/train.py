@@ -305,6 +305,11 @@ def train(
                 print(f"Resumed from run {resumed['run']}, gen {resumed['generation']}, best={resumed['best_cost']:.4e}")
             if seed_pool is not None and resumed.get("seed_pool") is not None:
                 seed_pool = SeedPool.from_dict(resumed["seed_pool"])
+            # Make --n-gen mean "N additional" on resume (only safe with n_runs=1,
+            # which is the CLI default; with multiple runs, subsequent runs would
+            # inherit the inflated n_gen and loop range(0, inflated) = too many gens)
+            if config.ga.n_runs == 1:
+                config.ga.n_gen += resumed["generation"]
 
     # Try loading existing NN weights for population seeding (NN only)
     seed_weights = None
@@ -630,7 +635,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Train guidance parameters via GA")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--n-gen", type=int, default=100)
+    parser.add_argument("--n-gen", type=int, default=100, help="Number of generations (additional when resuming)")
     parser.add_argument("--n-pop", type=int, default=20)
     parser.add_argument("--cwd", type=str, default=None)
     parser.add_argument("--toml", type=str, default=None, help="TOML config path (enables TOML mode, runs from repo root)")
