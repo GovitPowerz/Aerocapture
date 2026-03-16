@@ -153,7 +153,8 @@ def generate_single_report(scheme_dir: Path) -> None:
         r = data[i]
         fig.add_trace(
             go.Box(y=[r["best_cost"], r["median_cost"], r["mean_cost"], r["worst_cost"]], name=f"Gen {r['generation']}", showlegend=False),
-            row=2, col=2,
+            row=2,
+            col=2,
         )
     fig.update_yaxes(type="log", title_text="Cost", row=2, col=2)
 
@@ -180,11 +181,15 @@ def generate_single_report(scheme_dir: Path) -> None:
         fig.add_trace(go.Scatter(x=pool_gens, y=pool_sizes, name="Pool Size", line={"color": "#2196F3"}), row=p_row, col=p_col, secondary_y=False)
         fig.add_trace(
             go.Scatter(x=pool_gens, y=diff_maxs, name="Diff. Max", line={"color": "#FF9800", "dash": "dot"}, fill=None),
-            row=p_row, col=p_col, secondary_y=True,
+            row=p_row,
+            col=p_col,
+            secondary_y=True,
         )
         fig.add_trace(
             go.Scatter(x=pool_gens, y=diff_mins, name="Diff. Min", line={"color": "#FF9800", "dash": "dot"}, fill="tonexty"),
-            row=p_row, col=p_col, secondary_y=True,
+            row=p_row,
+            col=p_col,
+            secondary_y=True,
         )
         fig.update_yaxes(title_text="Pool Size", row=p_row, col=p_col, secondary_y=False)
         fig.update_yaxes(title_text="Difficulty", row=p_row, col=p_col, secondary_y=True)
@@ -193,7 +198,9 @@ def generate_single_report(scheme_dir: Path) -> None:
         p_row, p_col = seed_pos
         seed_gens = [r["generation"] for r in data if r.get("mc_seed") is not None]
         seed_vals = [r["mc_seed"] for r in data if r.get("mc_seed") is not None]
-        fig.add_trace(go.Scatter(x=seed_gens, y=seed_vals, name="MC Seed", mode="lines+markers", line={"color": "#795548"}, marker={"size": 4}), row=p_row, col=p_col)
+        fig.add_trace(
+            go.Scatter(x=seed_gens, y=seed_vals, name="MC Seed", mode="lines+markers", line={"color": "#795548"}, marker={"size": 4}), row=p_row, col=p_col
+        )
         fig.update_yaxes(title_text="MC Seed", row=p_row, col=p_col)
 
     # Summary panel (always last)
@@ -218,9 +225,15 @@ def generate_single_report(scheme_dir: Path) -> None:
 
     fig.add_annotation(
         text=summary_text,
-        xref="x domain", yref="y domain",
-        x=0.5, y=0.5, showarrow=False, font={"size": 12}, align="left",
-        row=summary_row, col=summary_col,
+        xref="x domain",
+        yref="y domain",
+        x=0.5,
+        y=0.5,
+        showarrow=False,
+        font={"size": 12},
+        align="left",
+        row=summary_row,
+        col=summary_col,
     )
 
     # Resume markers on all panels
@@ -310,9 +323,13 @@ def generate_comparison_report(
 
     for gen in sorted(all_resume_gens):
         fig.add_vline(
-            x=gen, line_dash="dash", line_color="rgba(128, 128, 128, 0.5)",
-            annotation_text="resumed", annotation_font_color="gray",
-            row=1, col=1,
+            x=gen,
+            line_dash="dash",
+            line_color="rgba(128, 128, 128, 0.5)",
+            annotation_text="resumed",
+            annotation_font_color="gray",
+            row=1,
+            col=1,
         )
 
     fig.update_yaxes(type="log", title_text="Best Cost", row=1, col=1)
