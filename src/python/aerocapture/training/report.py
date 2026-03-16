@@ -14,17 +14,31 @@ from pathlib import Path
 from aerocapture.training.metrics import convergence_speed, stagnation_count
 
 
-def load_run_data(scheme_dir: Path) -> list[dict]:
-    """Load all JSONL records from a scheme directory, sorted by generation."""
-    records: list[dict] = []
+def load_run_data(scheme_dir: Path) -> tuple[list[dict], list[int]]:
+    """Load all JSONL records from a scheme directory, sorted by generation.
+
+    Returns:
+        Tuple of (records, resume_generations) where resume_generations
+        contains the first generation number from each JSONL file after
+        the first (i.e., where training was resumed).
+    """
+    file_records: list[list[dict]] = []
     for jsonl_file in sorted(scheme_dir.glob("*.jsonl")):
+        file_recs: list[dict] = []
         with open(jsonl_file) as f:
             for line in f:
                 line = line.strip()
                 if line:
-                    records.append(json.loads(line))
+                    file_recs.append(json.loads(line))
+        if file_recs:
+            file_records.append(file_recs)
+
+    records: list[dict] = []
+    for file_recs in file_records:
+        records.extend(file_recs)
     records.sort(key=lambda r: r["generation"])
-    # Deduplicate: last-writer-wins for same generation
+
+    # Deduplicate: last-writer-wins for same generation (safety net for legacy logs)
     seen: dict[int, int] = {}
     deduped: list[dict] = []
     for r in records:
@@ -34,7 +48,17 @@ def load_run_data(scheme_dir: Path) -> list[dict]:
         else:
             seen[gen] = len(deduped)
             deduped.append(r)
-    return deduped
+
+    # Detect resume points: first generation of each file after the first
+    resume_gens: list[int] = []
+    for file_recs in file_records[1:]:
+        if file_recs:
+            first_gen = min(r["generation"] for r in file_recs)
+            if first_gen not in resume_gens:
+                resume_gens.append(first_gen)
+    resume_gens.sort()
+
+    return deduped, resume_gens
 
 
 def generate_single_report(scheme_dir: Path) -> None:
@@ -42,7 +66,7 @@ def generate_single_report(scheme_dir: Path) -> None:
     import plotly.graph_objects as go  # type: ignore[import-untyped]
     from plotly.subplots import make_subplots  # type: ignore[import-untyped]
 
-    data = load_run_data(scheme_dir)
+    data, resume_gens = load_run_data(scheme_dir)
     if not data:
         print(f"No JSONL data found in {scheme_dir}")
         return
@@ -188,7 +212,7 @@ def generate_comparison_report(
 
     for scheme_dir in scheme_dirs:
         scheme_name = scheme_dir.name
-        data = load_run_data(scheme_dir)
+        data, _resume_gens = load_run_data(scheme_dir)
         if not data:
             continue
 
