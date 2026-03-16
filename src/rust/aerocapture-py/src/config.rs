@@ -4,6 +4,9 @@
 //! `load_and_override` to go from raw TOML text + overrides to fully
 //! constructed `SimInput` + `SimData`.
 
+use std::collections::HashSet;
+use std::path::Path;
+
 use aerocapture::config::SimInput;
 use aerocapture::data::SimData;
 use toml::{Table, Value};
@@ -99,15 +102,28 @@ fn override_type_name(v: &OverrideValue) -> &'static str {
     }
 }
 
-/// Parse TOML content, apply a list of overrides, and construct `SimInput` + `SimData`.
+/// Read a TOML file, resolve `base` inheritance, apply overrides, and
+/// construct `SimInput` + `SimData`.
 pub fn load_and_override(
-    toml_content: &str,
+    toml_path: &Path,
     overrides: &[(String, OverrideValue)],
 ) -> Result<(SimInput, SimData), String> {
+    let toml_content = std::fs::read_to_string(toml_path)
+        .map_err(|e| format!("Cannot read '{}': {}", toml_path.display(), e))?;
+
     // Parse into a generic TOML value tree so we can patch it.
     let table: Table =
-        toml::from_str(toml_content).map_err(|e| format!("TOML parse error: {}", e))?;
-    let mut root = Value::Table(table);
+        toml::from_str(&toml_content).map_err(|e| format!("TOML parse error: {}", e))?;
+    let root = Value::Table(table);
+
+    // Resolve base inheritance before applying overrides.
+    let mut visited = HashSet::new();
+    let canonical = toml_path
+        .canonicalize()
+        .map_err(|e| format!("Cannot canonicalize '{}': {}", toml_path.display(), e))?;
+    visited.insert(canonical);
+    let mut root = aerocapture::config::resolve_toml_bases(root, toml_path, &mut visited)
+        .map_err(|e| format!("Base resolution error: {}", e))?;
 
     for (key, value) in overrides {
         apply_override(&mut root, key, value)?;
