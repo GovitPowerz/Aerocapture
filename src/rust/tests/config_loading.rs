@@ -40,7 +40,7 @@ fn parse_all_available_configs() {
             if path.extension().is_some_and(|e| e == "toml") {
                 // Skip base-only configs (no [mission] section — they're fragments)
                 let raw = std::fs::read_to_string(&path).expect("read config");
-                if !raw.contains("[mission]") {
+                if !raw.contains("[mission]") && !raw.contains("base =") {
                     continue;
                 }
                 let result = SimInput::from_toml_file(&path);
@@ -69,7 +69,7 @@ fn all_configs_are_consolidated() {
             }
             // Skip base-only configs (no [mission] section — they're fragments)
             let raw = std::fs::read_to_string(&path).expect("read config");
-            if !raw.contains("[mission]") {
+            if !raw.contains("[mission]") && !raw.contains("base =") {
                 continue;
             }
             // Use from_toml_file to resolve base inheritance before checking
