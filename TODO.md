@@ -1,8 +1,7 @@
 # TODO
 
-- [ ] investigate the possibility that all training and final simulation testing toml share a common mission sub-toml for all guidance schemes
 - [ ] training report should be checked (does not work properly) and could be improved anyway
-- [ ] final report does not perform 1000 mc sim that I asked for, and could be improved
+- [ ] final report could be improved
 - [ ] Update IMPROVEMENTS.md
 
 ## Simulation — High Impact
