@@ -1,7 +1,9 @@
 //! Parse TOML configuration files + data file suffixes.
 
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::fmt;
+use std::path::Path;
 
 /// Mission type
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -581,7 +583,112 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+/// Deep-merge `overlay` into `base`. Tables merge recursively;
+/// all other types (scalars, arrays) replace the base value.
+pub fn deep_merge(base: &mut toml::Value, overlay: toml::Value) {
+    match (base.is_table(), overlay.is_table()) {
+        (true, true) => {
+            let base_table = base.as_table_mut().unwrap();
+            if let toml::Value::Table(overlay_table) = overlay {
+                for (key, overlay_val) in overlay_table {
+                    if let Some(base_val) = base_table.get_mut(&key) {
+                        deep_merge(base_val, overlay_val);
+                    } else {
+                        base_table.insert(key, overlay_val);
+                    }
+                }
+            }
+        }
+        _ => {
+            *base = overlay;
+        }
+    }
+}
+
+/// Resolve `base` key(s) in a TOML value tree, loading and merging parent configs.
+/// Supports single string (`base = "file.toml"`) or array (`base = ["a.toml", "b.toml"]`).
+/// Detects cycles via the `visited` set.
+pub fn resolve_toml_bases(
+    mut root: toml::Value,
+    file_path: &Path,
+    visited: &mut HashSet<std::path::PathBuf>,
+) -> Result<toml::Value, ParseError> {
+    let base_dir = file_path.parent().unwrap_or_else(|| Path::new("."));
+
+    let base_paths: Vec<String> = match root.as_table_mut().and_then(|t| t.remove("base")) {
+        None => return Ok(root),
+        Some(toml::Value::String(s)) => vec![s],
+        Some(toml::Value::Array(arr)) => arr
+            .into_iter()
+            .map(|v| {
+                v.as_str()
+                    .map(|s| s.to_string())
+                    .ok_or_else(|| ParseError("base array elements must be strings".into()))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        Some(_) => {
+            return Err(ParseError(
+                "base must be a string or array of strings".into(),
+            ));
+        }
+    };
+
+    let canonical = file_path.canonicalize().map_err(|e| {
+        ParseError(format!(
+            "Cannot canonicalize '{}': {}",
+            file_path.display(),
+            e
+        ))
+    })?;
+    if !visited.insert(canonical.clone()) {
+        return Err(ParseError(format!(
+            "Cycle detected: '{}' was already visited",
+            file_path.display()
+        )));
+    }
+
+    let mut merged = toml::Value::Table(toml::map::Map::new());
+    for base_rel in &base_paths {
+        let base_abs = base_dir.join(base_rel);
+        let base_content = std::fs::read_to_string(&base_abs).map_err(|e| {
+            ParseError(format!(
+                "Cannot read base '{}' (referenced from '{}'): {}",
+                base_abs.display(),
+                file_path.display(),
+                e
+            ))
+        })?;
+        let base_value: toml::Value = toml::from_str(&base_content).map_err(|e| {
+            ParseError(format!(
+                "TOML parse error in '{}': {}",
+                base_abs.display(),
+                e
+            ))
+        })?;
+        let resolved_base = resolve_toml_bases(base_value, &base_abs, visited)?;
+        deep_merge(&mut merged, resolved_base);
+    }
+
+    deep_merge(&mut merged, root);
+    visited.remove(&canonical);
+    Ok(merged)
+}
+
 impl SimInput {
+    /// Load a TOML config file with base inheritance resolution.
+    /// Returns (SimInput, TomlConfig).
+    pub fn from_toml_file(path: &Path) -> Result<(Self, TomlConfig), ParseError> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| ParseError(format!("Cannot read '{}': {}", path.display(), e)))?;
+        let root: toml::Value = toml::from_str(&content)
+            .map_err(|e| ParseError(format!("TOML parse error in '{}': {}", path.display(), e)))?;
+        let mut visited = HashSet::new();
+        let resolved = resolve_toml_bases(root, path, &mut visited)?;
+        let resolved_str = toml::to_string(&resolved)
+            .map_err(|e| ParseError(format!("TOML serialize error: {}", e)))?;
+        Self::from_toml(&resolved_str)
+    }
+
     /// Parse a TOML configuration string. Returns (SimInput, TomlConfig).
     /// The TomlConfig is needed for inline data loading in consolidated mode.
     pub fn from_toml(content: &str) -> Result<(Self, TomlConfig), ParseError> {
@@ -648,5 +755,208 @@ impl SimInput {
     /// Build an output file path
     pub fn output_path(&self, filename: &str) -> String {
         format!("{}/{}", self.output_dir, filename)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use toml::Value;
+
+    fn val(s: &str) -> Value {
+        toml::from_str::<Value>(s).unwrap()
+    }
+
+    fn write_temp_toml(dir: &std::path::Path, name: &str, content: &str) -> std::path::PathBuf {
+        let path = dir.join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::File::create(&path)
+            .unwrap()
+            .write_all(content.as_bytes())
+            .unwrap();
+        path
+    }
+
+    // ─── deep_merge tests ───
+
+    #[test]
+    fn test_deep_merge_scalar_replacement() {
+        let mut base = val("x = 1");
+        let overlay = val("x = 99");
+        deep_merge(&mut base, overlay);
+        assert_eq!(base["x"].as_integer().unwrap(), 99);
+    }
+
+    #[test]
+    fn test_deep_merge_array_replacement() {
+        let mut base = val("x = [1, 2, 3]");
+        let overlay = val("x = [42]");
+        deep_merge(&mut base, overlay);
+        let arr = base["x"].as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0].as_integer().unwrap(), 42);
+    }
+
+    #[test]
+    fn test_deep_merge_table_recursion() {
+        let mut base = val("[a]\nx = 1\ny = 2");
+        let overlay = val("[a]\ny = 99\nz = 3");
+        deep_merge(&mut base, overlay);
+        let a = base["a"].as_table().unwrap();
+        assert_eq!(a["x"].as_integer().unwrap(), 1); // kept from base
+        assert_eq!(a["y"].as_integer().unwrap(), 99); // overlay wins
+        assert_eq!(a["z"].as_integer().unwrap(), 3); // added from overlay
+    }
+
+    #[test]
+    fn test_deep_merge_nested_tables() {
+        let mut base = val("[a.b]\nx = 1");
+        let overlay = val("[a.b]\ny = 2\n[a.c]\nz = 3");
+        deep_merge(&mut base, overlay);
+        assert_eq!(base["a"]["b"]["x"].as_integer().unwrap(), 1);
+        assert_eq!(base["a"]["b"]["y"].as_integer().unwrap(), 2);
+        assert_eq!(base["a"]["c"]["z"].as_integer().unwrap(), 3);
+    }
+
+    #[test]
+    fn test_deep_merge_overlay_adds_new_top_level() {
+        let mut base = val("x = 1");
+        let overlay = val("y = 2");
+        deep_merge(&mut base, overlay);
+        assert_eq!(base["x"].as_integer().unwrap(), 1);
+        assert_eq!(base["y"].as_integer().unwrap(), 2);
+    }
+
+    // ─── resolve_toml_bases tests ───
+
+    #[test]
+    fn test_resolve_single_base() {
+        let dir = tempfile::tempdir().unwrap();
+        write_temp_toml(dir.path(), "parent.toml", "x = 1\ny = 2");
+        let child_path = write_temp_toml(
+            dir.path(),
+            "child.toml",
+            "base = \"parent.toml\"\ny = 99\nz = 3",
+        );
+
+        let content = std::fs::read_to_string(&child_path).unwrap();
+        let root: Value = toml::from_str(&content).unwrap();
+        let mut visited = HashSet::new();
+        let result = resolve_toml_bases(root, &child_path, &mut visited).unwrap();
+
+        assert_eq!(result["x"].as_integer().unwrap(), 1); // from parent
+        assert_eq!(result["y"].as_integer().unwrap(), 99); // child wins
+        assert_eq!(result["z"].as_integer().unwrap(), 3); // child only
+        assert!(result.get("base").is_none()); // base key stripped
+    }
+
+    #[test]
+    fn test_resolve_multiple_bases_merge_order() {
+        let dir = tempfile::tempdir().unwrap();
+        write_temp_toml(dir.path(), "a.toml", "x = 1\ny = 10");
+        write_temp_toml(dir.path(), "b.toml", "y = 20\nz = 30");
+        let child_path = write_temp_toml(
+            dir.path(),
+            "child.toml",
+            "base = [\"a.toml\", \"b.toml\"]\nz = 99",
+        );
+
+        let content = std::fs::read_to_string(&child_path).unwrap();
+        let root: Value = toml::from_str(&content).unwrap();
+        let mut visited = HashSet::new();
+        let result = resolve_toml_bases(root, &child_path, &mut visited).unwrap();
+
+        assert_eq!(result["x"].as_integer().unwrap(), 1); // from a
+        assert_eq!(result["y"].as_integer().unwrap(), 20); // b wins over a
+        assert_eq!(result["z"].as_integer().unwrap(), 99); // child wins over b
+    }
+
+    #[test]
+    fn test_resolve_recursive_base() {
+        let dir = tempfile::tempdir().unwrap();
+        write_temp_toml(dir.path(), "grandparent.toml", "x = 1");
+        write_temp_toml(
+            dir.path(),
+            "parent.toml",
+            "base = \"grandparent.toml\"\ny = 2",
+        );
+        let child_path = write_temp_toml(dir.path(), "child.toml", "base = \"parent.toml\"\nz = 3");
+
+        let content = std::fs::read_to_string(&child_path).unwrap();
+        let root: Value = toml::from_str(&content).unwrap();
+        let mut visited = HashSet::new();
+        let result = resolve_toml_bases(root, &child_path, &mut visited).unwrap();
+
+        assert_eq!(result["x"].as_integer().unwrap(), 1);
+        assert_eq!(result["y"].as_integer().unwrap(), 2);
+        assert_eq!(result["z"].as_integer().unwrap(), 3);
+    }
+
+    #[test]
+    fn test_resolve_cycle_detection() {
+        let dir = tempfile::tempdir().unwrap();
+        write_temp_toml(dir.path(), "a.toml", "base = \"b.toml\"\nx = 1");
+        write_temp_toml(dir.path(), "b.toml", "base = \"a.toml\"\ny = 2");
+
+        let a_path = dir.path().join("a.toml");
+        let content = std::fs::read_to_string(&a_path).unwrap();
+        let root: Value = toml::from_str(&content).unwrap();
+        let mut visited = HashSet::new();
+        let result = resolve_toml_bases(root, &a_path, &mut visited);
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().0;
+        assert!(err_msg.contains("Cycle detected") || err_msg.contains("already visited"));
+    }
+
+    #[test]
+    fn test_resolve_missing_base_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let child_path = write_temp_toml(
+            dir.path(),
+            "child.toml",
+            "base = \"nonexistent.toml\"\nx = 1",
+        );
+
+        let content = std::fs::read_to_string(&child_path).unwrap();
+        let root: Value = toml::from_str(&content).unwrap();
+        let mut visited = HashSet::new();
+        let result = resolve_toml_bases(root, &child_path, &mut visited);
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().0;
+        assert!(err_msg.contains("Cannot read base"));
+        assert!(err_msg.contains("nonexistent.toml"));
+    }
+
+    #[test]
+    fn test_resolve_no_base_passthrough() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_temp_toml(dir.path(), "standalone.toml", "x = 1\ny = 2");
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let root: Value = toml::from_str(&content).unwrap();
+        let mut visited = HashSet::new();
+        let result = resolve_toml_bases(root.clone(), &path, &mut visited).unwrap();
+
+        assert_eq!(result, root);
+    }
+
+    #[test]
+    fn test_resolve_base_single_string() {
+        let dir = tempfile::tempdir().unwrap();
+        write_temp_toml(dir.path(), "parent.toml", "x = 1");
+        let child_path = write_temp_toml(dir.path(), "child.toml", "base = \"parent.toml\"\ny = 2");
+
+        let content = std::fs::read_to_string(&child_path).unwrap();
+        let root: Value = toml::from_str(&content).unwrap();
+        let mut visited = HashSet::new();
+        let result = resolve_toml_bases(root, &child_path, &mut visited).unwrap();
+
+        assert_eq!(result["x"].as_integer().unwrap(), 1);
+        assert_eq!(result["y"].as_integer().unwrap(), 2);
     }
 }

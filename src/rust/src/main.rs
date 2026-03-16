@@ -13,18 +13,11 @@ fn main() {
     }
 
     // TOML config file path as CLI argument
-    let toml_path = &args[1];
-    let content = match std::fs::read_to_string(toml_path) {
+    let toml_path = std::path::Path::new(&args[1]);
+    let (sim_config, toml_config) = match config::SimInput::from_toml_file(toml_path) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Cannot read {}: {}", toml_path, e);
-            process::exit(1);
-        }
-    };
-    let (sim_config, toml_config) = match config::SimInput::from_toml(&content) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Error parsing TOML config: {}", e);
+            eprintln!("Error loading config: {}", e);
             process::exit(1);
         }
     };
