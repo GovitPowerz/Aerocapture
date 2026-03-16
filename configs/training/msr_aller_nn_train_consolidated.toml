@@ -9,10 +9,6 @@ reference_bank_angle = 64.77026
 layer_sizes = [6, 8, 8, 2]
 activations = ["tanh", "tanh", "asinh"]
 
-[simulation]
-n_sims = 50
-max_time = 3000.0
-
 [data]
 neural_network = "data/neural_network/nn_model.json"
-results_suffix = ".train_nn_temp"
+results_suffix = ".train_nn"

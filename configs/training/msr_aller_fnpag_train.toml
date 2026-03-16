@@ -5,8 +5,5 @@ base = ["../missions/mars.toml", "common.toml"]
 type = "fnpag"
 reference_bank_angle = 64.77026
 
-[simulation]
-n_sims = 10
-
 [data]
-results_suffix = ".train_nn_temp"
+results_suffix = ".train_fnpag"

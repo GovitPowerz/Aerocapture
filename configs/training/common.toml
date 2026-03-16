@@ -3,25 +3,27 @@
 
 [simulation]
 random_seed = 0.6866
+n_sims = 50
+max_time = 3000.0
 
 # ── Domain-based Monte Carlo dispersions ──
 [monte_carlo]
 seed = 42
 
 [monte_carlo.initial_state]
-level = "medium"
+level = "low"
 
 [monte_carlo.atmosphere]
-level = "high"
+level = "low"
 
 [monte_carlo.aerodynamics]
-level = "medium"
+level = "low"
 
 [monte_carlo.navigation]
 level = "low"
 
 [monte_carlo.mass]
-level = "off"
+level = "low"
 
 [cost_function]
 g_load_limit = 15.0
