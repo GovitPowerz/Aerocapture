@@ -61,20 +61,37 @@ def load_run_data(scheme_dir: Path) -> tuple[list[dict], list[int]]:
     return deduped, resume_gens
 
 
-def _add_resume_markers(fig: object, resume_gens: list[int], n_rows: int, n_cols: int) -> None:
-    """Add vertical dashed lines at resume points across all subplots."""
+def _add_resume_markers(
+    fig: object,
+    resume_gens: list[int],
+    n_rows: int,
+    n_cols: int,
+    skip_panels: set[tuple[int, int]] | None = None,
+) -> None:
+    """Add vertical dashed lines at resume points across all subplots.
+
+    Args:
+        skip_panels: Set of (row, col) tuples to skip (e.g., categorical x-axis panels).
+    """
+    skip = skip_panels or set()
+    first_marker = True
     for gen in resume_gens:
         for row in range(1, n_rows + 1):
             for col in range(1, n_cols + 1):
-                fig.add_vline(  # type: ignore[attr-defined]
-                    x=gen,
-                    line_dash="dash",
-                    line_color="rgba(128, 128, 128, 0.5)",
-                    annotation_text="resumed" if (row == 1 and col == 1) else None,
-                    annotation_font_color="gray",
-                    row=row,
-                    col=col,
-                )
+                if (row, col) in skip:
+                    continue
+                kwargs: dict[str, object] = {
+                    "x": gen,
+                    "line_dash": "dash",
+                    "line_color": "rgba(128, 128, 128, 0.5)",
+                    "row": row,
+                    "col": col,
+                }
+                if first_marker:
+                    kwargs["annotation_text"] = "resumed"
+                    kwargs["annotation_font_color"] = "gray"
+                    first_marker = False
+                fig.add_vline(**kwargs)  # type: ignore[attr-defined]
 
 
 def generate_single_report(scheme_dir: Path) -> None:
@@ -236,8 +253,9 @@ def generate_single_report(scheme_dir: Path) -> None:
         col=summary_col,
     )
 
-    # Resume markers on all panels
-    _add_resume_markers(fig, resume_gens, n_rows, n_cols)
+    # Resume markers on all panels (skip categorical/non-numeric x-axis panels)
+    skip = {(2, 2), (summary_row, summary_col)}  # Cost Distribution (boxplot) + Summary
+    _add_resume_markers(fig, resume_gens, n_rows, n_cols, skip_panels=skip)
 
     fig.update_layout(height=max(1000, n_rows * 350), title_text=f"Training Report — {scheme}", showlegend=True)
     fig.update_xaxes(title_text="Generation", row=n_rows, col=1)
