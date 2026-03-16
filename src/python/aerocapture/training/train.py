@@ -777,22 +777,14 @@ if __name__ == "__main__":
             write_guidance_toml(base_toml, cfg.guidance_type, params, opt_toml)
             print(f"  Optimized TOML: {opt_toml}")
 
-        final = run_simulation(cfg, cwd=cwd)
-        if final is not None:
-            cost = compute_cost(final)
-            print(f"Final re-evaluation cost: {cost:.4e}")
-            energy = final[:, 8]
-            ecc = final[:, 10]
-            captured = (ecc < 1.0) & (energy < 0)
-            print(f"  Captured: {captured.sum()}/{len(final)}")
-            if captured.any():
-                print(f"  Apoapsis err (km):  mean={np.abs(final[captured, 31]).mean():.1f}")
-                print(f"  Periapsis err (km): mean={np.abs(final[captured, 30]).mean():.1f}")
-                print(f"  Delta-V (m/s):      mean={final[captured, 42].mean():.1f}")
-
         # Final evaluation report (large-MC re-evaluation)
         if not args.skip_final_report:
             from aerocapture.training.final_report import (
+                _COL_APO_ERR,
+                _COL_DV_TOTAL,
+                _COL_ENERGY,
+                _COL_ECC,
+                _COL_PERI_ERR,
                 _read_target_inclination,
                 generate_final_report,
                 run_final_evaluation,
@@ -812,8 +804,24 @@ if __name__ == "__main__":
             print(f"\nRunning {args.final_n_sims}-sim final evaluation (seed={final_seed})...")
             final_eval = run_final_evaluation(cfg, n_sims=args.final_n_sims, seed=final_seed, cwd=cwd)
             if final_eval is not None:
+                # Print summary statistics to stdout
+                n_sims = len(final_eval)
+                energy = final_eval[:, _COL_ENERGY]
+                ecc = final_eval[:, _COL_ECC]
+                captured = (ecc < 1.0) & (energy < 0)
+                n_cap = int(captured.sum())
+                print(f"\n  Final evaluation ({n_sims} sims):")
+                print(f"    Capture rate:       {n_cap}/{n_sims} ({100 * n_cap / n_sims:.1f}%)")
+                if n_cap > 0:
+                    dv = final_eval[captured, _COL_DV_TOTAL]
+                    apo_err = np.abs(final_eval[captured, _COL_APO_ERR])
+                    peri_err = np.abs(final_eval[captured, _COL_PERI_ERR])
+                    print(f"    Delta-V (m/s):      p50={np.median(dv):.1f}  p95={np.percentile(dv, 95):.1f}  mean={dv.mean():.1f}")
+                    print(f"    Apoapsis err (km):  p50={np.median(apo_err):.1f}  p95={np.percentile(apo_err, 95):.1f}  mean={apo_err.mean():.1f}")
+                    print(f"    Periapsis err (km): p50={np.median(peri_err):.1f}  p95={np.percentile(peri_err, 95):.1f}  mean={peri_err.mean():.1f}")
+
                 report_path = Path(cfg.save_dir) / "final_report.html"
                 generate_final_report(final_eval, cfg.guidance_type, target_incl, report_path)
-                print(f"Final report saved to {report_path}")
+                print(f"  Final report saved to {report_path}")
             else:
                 print("WARNING: Final evaluation simulation failed, skipping report")
