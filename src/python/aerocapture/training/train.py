@@ -786,7 +786,6 @@ if __name__ == "__main__":
                 _COL_ENERGY,
                 _COL_INCL,
                 _COL_PERI_ERR,
-                _read_ref_trajectory_path,
                 _read_target_inclination,
                 generate_final_report,
                 run_final_evaluation,
@@ -802,7 +801,6 @@ if __name__ == "__main__":
             # Read target inclination and reference trajectory from the base TOML
             base_toml_path = Path(cwd or ".") / args.toml
             target_incl = _read_target_inclination(base_toml_path)
-            ref_traj_path = _read_ref_trajectory_path(base_toml_path)
 
             final_seed = args.seed + 9999
             print(f"\nRunning {args.final_n_sims}-sim final evaluation (seed={final_seed})...")
@@ -853,7 +851,7 @@ if __name__ == "__main__":
                     save_corridor(corr_data, corr_npz)
 
                 report_path = Path(cfg.save_dir) / "final_report.html"
-                generate_final_report(eval_data, cfg.guidance_type, target_incl, report_path, ref_trajectory_path=ref_traj_path, corridor_path=corr_npz)
+                generate_final_report(eval_data, cfg.guidance_type, target_incl, report_path, corridor_path=corr_npz)
                 print(f"Final report saved to {report_path}")
             else:
                 print("WARNING: Final evaluation simulation failed, skipping report")

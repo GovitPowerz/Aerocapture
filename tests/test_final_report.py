@@ -296,56 +296,6 @@ class TestRunFinalEvaluation:
         patched.unlink()
 
 
-class TestRefTrajectory:
-    def test_read_ref_trajectory_path_string(self, tmp_path: Path) -> None:
-        """Reads reference trajectory path from TOML when it's a string."""
-        from aerocapture.training.final_report import _read_ref_trajectory_path
-
-        # Create a dummy .dat file for the path to resolve
-        dat_file = tmp_path / "ref.dat"
-        dat_file.write_text("1.0 2.0 3.0 4.0 5.0 6.0 0.5\n")
-        toml_content = f'[data]\nreference_trajectory = "{dat_file}"\n'
-        toml_file = tmp_path / "cfg.toml"
-        toml_file.write_text(toml_content)
-        result = _read_ref_trajectory_path(toml_file)
-        assert result is not None
-
-    def test_read_ref_trajectory_path_bool(self, tmp_path: Path) -> None:
-        """Returns None when reference_trajectory is a boolean."""
-        from aerocapture.training.final_report import _read_ref_trajectory_path
-
-        toml_content = "[data]\nreference_trajectory = true\n"
-        toml_file = tmp_path / "cfg.toml"
-        toml_file.write_text(toml_content)
-        assert _read_ref_trajectory_path(toml_file) is None
-
-    def test_load_reference_trajectory(self, tmp_path: Path) -> None:
-        """Loads and converts reference trajectory data."""
-        from aerocapture.training.final_report import _load_reference_trajectory
-
-        data = np.column_stack(
-            [
-                np.linspace(5, -2, 10),  # energy MJ/kg
-                np.linspace(0, 1000, 10),  # pdyn Pa
-                np.zeros(10),
-                np.zeros(10),
-                np.linspace(0.5, 1.0, 10),  # inclination rad
-                np.zeros(10),
-                np.linspace(0.0, 1.0, 10),  # cos(bank)
-            ]
-        )
-        dat_file = tmp_path / "ref.dat"
-        np.savetxt(dat_file, data)
-        result = _load_reference_trajectory(dat_file)
-        assert result is not None
-        assert "energy_MJkg" in result
-        assert "pdyn_kPa" in result
-        assert "inclination_deg" in result
-        assert "bank_deg" in result
-        # Check conversion: pdyn Pa -> kPa
-        np.testing.assert_allclose(result["pdyn_kPa"], data[:, 1] / 1e3)
-
-
 @pytest.mark.skipif(
     not Path("src/rust/target/release/aerocapture").exists(),
     reason="Rust binary not built",

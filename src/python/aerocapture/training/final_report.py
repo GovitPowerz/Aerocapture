@@ -97,38 +97,6 @@ def _read_target_inclination(toml_path: Path) -> float:
     return float(data.get("flight", {}).get("target_orbit", {}).get("inclination", 0.0))
 
 
-def _read_ref_trajectory_path(toml_path: Path) -> Path | None:
-    """Read reference trajectory path from TOML [data] section."""
-    from aerocapture.training.toml_utils import load_toml_with_bases
-
-    data = load_toml_with_bases(toml_path)
-    ref_path = data.get("data", {}).get("reference_trajectory")
-    if ref_path is None or isinstance(ref_path, bool):
-        return None
-    p = Path(ref_path)
-    if not p.is_absolute():
-        # Resolve relative to repo root (cwd)
-        p = Path(".") / p
-    return p if p.exists() else None
-
-
-def _load_reference_trajectory(path: Path) -> dict[str, npt.NDArray[np.float64]] | None:
-    """Load reference trajectory from .dat file.
-
-    Returns dict with keys: energy_MJkg, pdyn_kPa, inclination_deg, bank_deg.
-    """
-    try:
-        data = np.loadtxt(path)
-    except Exception:
-        return None
-    if data.ndim != 2 or data.shape[1] < 7:
-        return None
-    return {
-        "energy_MJkg": data[:, 0],
-        "pdyn_kPa": data[:, 1] / 1e3,  # Pa -> kPa
-        "inclination_deg": data[:, 4],  # already in deg (despite Rust comment saying rad)
-        "bank_deg": np.degrees(np.arccos(np.clip(data[:, 6], -1.0, 1.0))),  # cos(bank) -> deg
-    }
 
 
 def _patch_toml_for_final_eval(
@@ -212,7 +180,6 @@ def generate_final_report(
     scheme: str,
     target_inclination: float,
     output_path: Path,
-    ref_trajectory_path: Path | None = None,
     corridor_path: Path | None = None,
 ) -> Path:
     """Generate self-contained Plotly HTML report with statistical distributions.
@@ -237,8 +204,6 @@ def generate_final_report(
     # Determine whether we have trajectory data for corridor panels
     has_trajectories = trajectories is not None and len(trajectories) > 0 and any(len(t) > 0 for t in trajectories)
 
-    # Load reference trajectory if path provided
-    ref_traj = _load_reference_trajectory(ref_trajectory_path) if ref_trajectory_path is not None else None
 
     # Build subplot layout
     n_rows = 5  # base rows: 2 dist + 2 dist + entry/exit + DV-vs-error/table
@@ -422,7 +387,7 @@ def generate_final_report(
             corridor_data = load_corridor(corridor_path)
             if corridor_data is not None:
                 print(f"  Loaded corridor boundaries from {corridor_path}")
-        _generate_corridor_png(trajectories, captured, ref_traj, corridor_png, dv_captured=dv_cap, corridor_data=corridor_data, final_array=final_array)
+        _generate_corridor_png(trajectories, captured, corridor_png, dv_captured=dv_cap, corridor_data=corridor_data, final_array=final_array)
         print(f"Corridor plots saved to {corridor_png}")
 
     fig.update_layout(
@@ -623,7 +588,6 @@ def _draw_pdyn_zones(
 def _generate_corridor_png(
     trajectories: list[npt.NDArray[np.float64]],
     captured: npt.NDArray[np.bool_],
-    ref_traj: dict[str, npt.NDArray[np.float64]] | None,
     output_path: Path,
     dv_captured: npt.NDArray[np.float64] | None = None,
     corridor_data: dict[str, npt.NDArray[np.float64]] | None = None,
@@ -674,12 +638,12 @@ def _generate_corridor_png(
             guid_nom_dv = float(final_array[first_cap, _COL_DV_TOTAL])
 
     corridor_panels = [
-        (axes[0, 0], _TRAJ_COL_PDYN, "Dynamic Pressure (kPa)", "pdyn_kPa", "(a)"),
-        (axes[0, 1], _TRAJ_COL_INCL, "Inclination (deg)", "inclination_deg", "(b)"),
-        (axes[1, 0], _TRAJ_COL_BANK, "Bank Angle (deg)", "bank_deg", "(c)"),
+        (axes[0, 0], _TRAJ_COL_PDYN, "Dynamic Pressure (kPa)", "(a)"),
+        (axes[0, 1], _TRAJ_COL_INCL, "Inclination (deg)", "(b)"),
+        (axes[1, 0], _TRAJ_COL_BANK, "Bank Angle (deg)", "(c)"),
     ]
 
-    for ax, y_col, y_label, ref_key, panel_label in corridor_panels:
+    for ax, y_col, y_label, panel_label in corridor_panels:
         # MC spaghetti — captured blue, hyperbolic red
         for is_cap, color in [(True, "#2196F3"), (False, "#F44336")]:
             mask = captured if is_cap else ~captured
@@ -698,10 +662,6 @@ def _generate_corridor_png(
                 bc, y_lo, y_hi, valid = _compute_envelope(trajectories, captured, y_col)
                 if valid.any():
                     ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.15, zorder=2)
-
-        # Reference trajectory from .dat file
-        if ref_traj is not None and ref_key in ref_traj:
-            ax.plot(ref_traj["energy_MJkg"], ref_traj[ref_key], color="red", linewidth=2.5, linestyle="--", zorder=5)
 
         # Corridor nominal (optimal constant-bank) — orange
         if corr_nom is not None:
@@ -722,8 +682,6 @@ def _generate_corridor_png(
         Patch(facecolor=_COLOR_CRASH, alpha=0.5, label="Crash"),
         Patch(facecolor=_COLOR_HYPERBOLIC, alpha=0.5, label="Hyperbolic exit"),
     ]
-    if ref_traj is not None:
-        legend_elements.append(Line2D([0], [0], color="red", linewidth=2.5, linestyle="--", label="Ref. trajectory"))
     if corr_nom is not None:
         legend_elements.append(Line2D([0], [0], color="#FF9800", linewidth=2, label="Nominal (const. bank)"))
     if guid_nom is not None:
@@ -903,7 +861,6 @@ def main() -> None:
         sys.exit(1)
 
     target_incl = _read_target_inclination(Path(args.toml))
-    ref_traj_path = _read_ref_trajectory_path(Path(args.toml))
 
     print(f"Running {args.n_sims}-sim final evaluation for {scheme} (seed={args.seed})...")
     eval_data = run_final_evaluation(cfg, n_sims=args.n_sims, seed=args.seed)
@@ -914,7 +871,7 @@ def main() -> None:
 
     output_path = scheme_dir / "final_report.html"
     corr_path = Path(args.corridor) if args.corridor else None
-    generate_final_report(eval_data, scheme, target_incl, output_path, ref_trajectory_path=ref_traj_path, corridor_path=corr_path)
+    generate_final_report(eval_data, scheme, target_incl, output_path, corridor_path=corr_path)
     print(f"Report saved to {output_path}")
 
 
