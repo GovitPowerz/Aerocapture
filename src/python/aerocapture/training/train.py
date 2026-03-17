@@ -830,8 +830,11 @@ if __name__ == "__main__":
                         "\n  Note: Final evaluation stats are only meaningful in comparison to other schemes or configurations on the same scenario and seed.\n"
                     )
 
-                # Compute corridor boundaries (or load cached)
-                corr_npz = Path(cfg.save_dir) / "corridor_boundaries.npz"
+                # Compute corridor boundaries (or load cached) — shared across schemes per mission
+                mission_name = Path(args.toml).stem
+                corr_dir = Path(cfg.save_dir).parent / mission_name
+                corr_dir.mkdir(parents=True, exist_ok=True)
+                corr_npz = corr_dir / "corridor_boundaries.npz"
                 if not corr_npz.exists():
                     from aerocapture.training.corridor import compute_corridor, save_corridor
 
