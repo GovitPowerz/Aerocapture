@@ -88,6 +88,7 @@ def _run_mc_constant_bank(
         }
         if not with_dispersions:
             ovr["monte_carlo.dispersion_level"] = "none"
+            ovr["monte_carlo.seed"] = seed
         overrides_list.append(ovr)
 
     results = aero.run_batch(  # type: ignore[attr-defined]
