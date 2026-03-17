@@ -747,7 +747,7 @@ def _generate_corridor_png(
     if guid_nom_dv is not None:
         ax_dv.axvline(x=guid_nom_dv, color="#4CAF50", linewidth=2, linestyle="--", label=f"Guidance: {guid_nom_dv:.0f} m/s")
     if corr_nom_dv is not None or guid_nom_dv is not None:
-        ax_dv.legend(fontsize=7, loc="upper right")
+        ax_dv.legend(fontsize=7, loc="center right")
 
     ax_dv.set_xlabel("Correction cost (m/s)")
     ax_dv.set_ylabel("Density")
