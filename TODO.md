@@ -1,8 +1,9 @@
 # TODO
 
+- [ ] fix coridor visualization. I think there is an issue with corridors trajectories computation / serialization. The corridor should build 3 trajectories (orbital energy vs dynamic pressure): nominal best DeltaV, undershoot and overshoot boundary trajectories for capture. When plotting
+- [ ] remove reference_bank_angle from all guidance schemes and default to initial bank angle in the mission data
 - [ ] add an animation script of entry corridors and trajectories evolution during training based on checkpoints
-- [ ] add 2 nominal trajectories on all corridors plots (nominal constant bank angle that minimizes DeltaV + nominal with guidance scheme)
-- [ ] 1e30 for Dv is too much, we should use something like log(Dv) for higher values than a threshold but make it continuous
+- [ ] 1e30 for Dv is too much, we should use something like log(Dv) for values higher than a threshold but make it continuous (and derivable) at the threshold (1000 m/s seems reasonable)
 - [ ] Update IMPROVEMENTS.md
 
 ## Simulation — High Impact
