@@ -847,7 +847,7 @@ if __name__ == "__main__":
                     from aerocapture.training.corridor import compute_corridor, save_corridor
 
                     print("Computing corridor boundaries...")
-                    corr_data = compute_corridor(str(base_toml_path), n_sims=1000, seed=final_seed)
+                    corr_data = compute_corridor(str(base_toml_path), seed=final_seed)
                     save_corridor(corr_data, corr_npz)
 
                 report_path = Path(cfg.save_dir) / "final_report.html"
