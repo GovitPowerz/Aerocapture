@@ -744,8 +744,8 @@ mod tests {
         };
         let arr = draw.to_array();
         assert_eq!(arr.len(), 24);
-        for i in 0..24 {
-            assert_eq!(arr[i], (i + 1) as f64);
+        for (i, &val) in arr.iter().enumerate() {
+            assert_eq!(val, (i + 1) as f64);
         }
     }
 

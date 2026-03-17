@@ -652,7 +652,7 @@ def train(
 if __name__ == "__main__":
     import argparse
 
-    from aerocapture.training.evaluate import compute_cost, run_simulation, write_guidance_toml
+    from aerocapture.training.evaluate import compute_cost, write_guidance_toml
 
     parser = argparse.ArgumentParser(description="Train guidance parameters via GA")
     parser.add_argument("--seed", type=int, default=42)

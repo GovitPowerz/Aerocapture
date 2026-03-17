@@ -245,7 +245,7 @@ def generate_final_report(
         [{"secondary_y": True}, {"secondary_y": True}],  # Row 2: apo/peri error
         [{"secondary_y": True}, {}],  # Row 3: incl error, DV vs orbital error
         [{}, {}],  # Row 4: entry conditions, exit conditions
-        [{"type": "table", "colspan": 2}, None],  # Row 5: performance table
+        [{"type": "table", "colspan": 2}, None],  # type: ignore[list-item]  # Row 5: performance table
     ]
     subplot_titles = [
         "Total Delta-V Distribution",
@@ -264,17 +264,19 @@ def generate_final_report(
         n_rows += 2
         row_specs.append([{}, {}])  # Row 6: energy-pdyn, energy-incl
         row_specs.append([{}, {}])  # Row 7: energy-bank, empty
-        subplot_titles.extend([
-            "Energy vs Dynamic Pressure",
-            "Energy vs Inclination",
-            "Energy vs Bank Angle",
-            "",
-        ])
+        subplot_titles.extend(
+            [
+                "Energy vs Dynamic Pressure",
+                "Energy vs Inclination",
+                "Energy vs Bank Angle",
+                "",
+            ]
+        )
 
     fig = make_subplots(
         rows=n_rows,
         cols=2,
-        subplot_titles=subplot_titles[:n_rows * 2],
+        subplot_titles=subplot_titles[: n_rows * 2],
         specs=row_specs,
     )
 
@@ -433,8 +435,8 @@ def generate_final_report(
     has_dispersions = dispersions is not None and dispersions.shape[0] > 0  # type: ignore[union-attr]
     if has_dispersions and n_captured > 0:
         disp_fig = _build_dispersion_grid(dispersions, final_array, captured)  # type: ignore[arg-type]
-        main_html = fig.to_html(include_plotlyjs=True, full_html=False)
-        disp_html = disp_fig.to_html(include_plotlyjs=False, full_html=False)
+        main_html = fig.to_html(include_plotlyjs=True, full_html=False)  # type: ignore[attr-defined]
+        disp_html = disp_fig.to_html(include_plotlyjs=False, full_html=False)  # type: ignore[attr-defined]
         with open(str(output_path), "w") as f:
             f.write(f"<html><body>{main_html}<hr>{disp_html}</body></html>")
     else:
@@ -500,14 +502,16 @@ def _add_performance_table(
         }
         for name, data in metrics.items():
             pcts = np.percentile(data, _PERCENTILES)
-            rows.append([
-                name,
-                f"{data.mean():.2f}",
-                f"{data.std():.2f}",
-                f"{data.min():.2f}",
-                *[f"{p:.2f}" for p in pcts],
-                f"{data.max():.2f}",
-            ])
+            rows.append(
+                [
+                    name,
+                    f"{data.mean():.2f}",
+                    f"{data.std():.2f}",
+                    f"{data.min():.2f}",
+                    *[f"{p:.2f}" for p in pcts],
+                    f"{data.max():.2f}",
+                ]
+            )
 
     # Add capture rate as first row annotation
     rate_str = f"Capture rate: {n_captured}/{n_total} ({n_captured / n_total * 100:.1f}%)" if n_total > 0 else "No simulations"
