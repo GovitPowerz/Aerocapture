@@ -12,6 +12,7 @@ use crate::integration::rk4;
 use crate::integration::sequencer::SequencerState;
 use crate::orbit::{elements, maneuver};
 use crate::physics::gravity;
+use crate::data::dispersions::DISPERSION_DRAW_LEN;
 use crate::simulation::init;
 use crate::simulation::output;
 use rayon::prelude::*;
@@ -74,6 +75,7 @@ struct SimResult {
     sim_idx: i32,
     final_line: [f64; 52],
     photo_lines: Vec<[f64; 24]>,
+    dispersions: [f64; DISPERSION_DRAW_LEN],
 }
 
 /// Shared simulation orchestration: build run states, dispatch parallel/sequential runs.
@@ -81,6 +83,7 @@ fn run_core(
     config: &SimInput,
     data: &SimData,
     write_photo: bool,
+    include_trajectories: bool,
 ) -> Result<Vec<SimResult>, SimError> {
     let n_sims = if config.n_sims == 0 { 1 } else { config.n_sims };
     let is_mc = n_sims > 1;
@@ -101,13 +104,14 @@ fn run_core(
         draws
     });
 
-    let run_states: Vec<init::RunState> = (0..n_sims)
+    let run_states: Vec<(init::RunState, [f64; DISPERSION_DRAW_LEN])> = (0..n_sims)
         .map(|sim_idx| {
-            if let Some(ref d) = draws {
-                init::init_run_from_draw(data, &d[sim_idx as usize])
+            let draw = if let Some(ref d) = draws {
+                &d[sim_idx as usize]
             } else {
-                init::init_run_from_draw(data, &crate::data::dispersions::DispersionDraw::default())
-            }
+                &crate::data::dispersions::DispersionDraw::default()
+            };
+            (init::init_run_from_draw(data, draw), draw.to_array())
         })
         .collect();
 
@@ -129,9 +133,11 @@ fn run_core(
         let results: Vec<SimResult> = run_states
             .par_iter()
             .enumerate()
-            .map(|(idx, run_state)| {
-                let do_photo = write_photo && idx as i32 == photo_sim_idx;
-                run_single(config, data, run_state, idx as i32, do_photo)
+            .map(|(idx, (run_state, disp_array))| {
+                let do_photo = (write_photo && idx as i32 == photo_sim_idx) || include_trajectories;
+                let mut result = run_single(config, data, run_state, idx as i32, do_photo)?;
+                result.dispersions = *disp_array;
+                Ok(result)
             })
             .collect::<Result<Vec<_>, _>>()?;
         if write_photo {
@@ -145,7 +151,7 @@ fn run_core(
         }
         Ok(results)
     } else {
-        let run_state = &run_states[0];
+        let (run_state, disp_array) = &run_states[0];
         if write_photo && config.screen_output {
             eprintln!(
                 "  Entry: alt={:.3} km, vel={:.3} m/s, fpa={:.5} deg",
@@ -154,7 +160,9 @@ fn run_core(
                 run_state.entry.state.flight_path.to_degrees(),
             );
         }
-        Ok(vec![run_single(config, data, run_state, 0, write_photo)?])
+        let mut result = run_single(config, data, run_state, 0, write_photo)?;
+        result.dispersions = *disp_array;
+        Ok(vec![result])
     }
 }
 
@@ -171,7 +179,7 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
         0
     };
 
-    let results = run_core(config, data, true)?;
+    let results = run_core(config, data, true, false)?;
     write_csv_output(config, &results, photo_sim_idx)?;
     Ok(())
 }
@@ -180,18 +188,40 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
 ///
 /// Same physics as `run()`, but returns `Vec<RunOutput>` instead of writing files.
 /// Used by the PyO3 interface for direct Python access.
-pub fn run_for_api(config: &SimInput, data: &SimData) -> Result<Vec<crate::RunOutput>, SimError> {
-    let results = run_core(config, data, false)?;
+pub fn run_for_api(config: &SimInput, data: &SimData, include_trajectories: bool) -> Result<Vec<crate::RunOutput>, SimError> {
+    let results = run_core(config, data, false, include_trajectories)?;
 
     Ok(results
         .into_iter()
         .map(|r| {
             let energy = r.final_line[7]; // MJ/kg
             let ecc = r.final_line[9];
+            let trajectory = if include_trajectories {
+                r.photo_lines
+                    .iter()
+                    .map(|p| [
+                        p[1],                // [0] alt_km
+                        p[2],                // [1] lon_deg
+                        p[3],                // [2] lat_deg
+                        p[4],                // [3] vel_m_s
+                        p[5],                // [4] fpa_deg
+                        p[6],                // [5] heading_deg
+                        0.0,                 // [6] heat flux placeholder
+                        p[0],                // [7] time_s
+                        p[18] / 1e6,         // [8] energy J/kg → MJ/kg
+                        p[19] / 1e3,         // [9] pdyn Pa → kPa
+                        p[14],               // [10] bank_angle deg
+                        p[9],                // [11] inclination deg
+                    ])
+                    .collect()
+            } else {
+                Vec::new()
+            };
             crate::RunOutput {
-                trajectory: Vec::new(),
+                trajectory,
                 final_record: r.final_line,
                 captured: ecc < 1.0 && energy < 0.0,
+                dispersions: r.dispersions,
             }
         })
         .collect())
@@ -591,6 +621,23 @@ fn run_single(
         planet,
     );
 
+    // final_record layout (52 slots):
+    //   0  altitude (km)           16 max heat flux (kW/m²)     32-36 UNUSED
+    //   1  longitude (deg)         17 max g-load (g)             37 dv1 (m/s)
+    //   2  latitude (deg)          18 max pdyn (kPa)             38 dv2 (m/s)
+    //   3  velocity (m/s)          19 alt at max flux (km)       39 dv3 (m/s)
+    //   4  FPA (deg)               20 alt at max load (km)       40 dv1+dv2 (m/s)
+    //   5  heading (deg)           21 alt at max pdyn (km)       41 dv total (m/s)
+    //   6  radial velocity (m/s)   22 time at max flux (s)       42-44 UNUSED
+    //   7  energy (MJ/kg)          23 time at max load (s)       45 bank consumption (deg)
+    //   8  SMA (km)                24 time at max pdyn (s)       46-47 UNUSED
+    //   9  eccentricity            25 bounce alt (km)            48 n_reversals
+    //  10  inclination (deg)       26 bounce time (s)            49-51 UNUSED
+    //  11  RAAN (deg)              27 sim time (s)
+    //  12  arg periapsis (deg)     28 cumulative flux (MJ/m²)
+    //  13  true anomaly (deg)      29 periapsis error (km)
+    //  14  periapsis alt (km)      30 apoapsis error (km)
+    //  15  apoapsis alt (km)       31 final phase
     let mut final_record = [0.0_f64; 52];
     final_record[0] = alt_final / 1e3;
     final_record[1] = sim.state[1] / DEG_TO_RAD;
@@ -636,6 +683,7 @@ fn run_single(
         sim_idx,
         final_line: final_record,
         photo_lines,
+        dispersions: [0.0; DISPERSION_DRAW_LEN],
     })
 }
 
@@ -877,21 +925,21 @@ mod run_output_tests {
     #[test]
     fn run_for_api_returns_one_result_for_single_sim() {
         let (config, data) = load_test_config();
-        let results = run_for_api(&config, &data).expect("run");
+        let results = run_for_api(&config, &data, false).expect("run");
         assert_eq!(results.len(), 1);
     }
 
     #[test]
     fn run_output_final_record_has_52_elements() {
         let (config, data) = load_test_config();
-        let results = run_for_api(&config, &data).expect("run");
+        let results = run_for_api(&config, &data, false).expect("run");
         assert_eq!(results[0].final_record.len(), 52);
     }
 
     #[test]
     fn run_output_final_record_matches_file_path() {
         let (config, data) = load_test_config();
-        let api_results = run_for_api(&config, &data).expect("api run");
+        let api_results = run_for_api(&config, &data, false).expect("api run");
         let api_fr = &api_results[0].final_record;
 
         run(&config, &data).expect("file run");
@@ -909,7 +957,7 @@ mod run_output_tests {
     #[test]
     fn run_output_captured_flag_consistent_with_orbital_elements() {
         let (config, data) = load_test_config();
-        let results = run_for_api(&config, &data).expect("run");
+        let results = run_for_api(&config, &data, false).expect("run");
         let r = &results[0];
         let expected = r.final_record[9] < 1.0 && r.final_record[7] < 0.0;
         assert_eq!(r.captured, expected);
@@ -918,7 +966,7 @@ mod run_output_tests {
     #[test]
     fn peak_values_populated_for_atmospheric_trajectory() {
         let (config, data) = load_config("configs/test/test_high_bank_orig.toml");
-        let results = run_for_api(&config, &data).expect("run");
+        let results = run_for_api(&config, &data, false).expect("run");
         let rec = &results[0].final_record;
 
         // Columns 16-18: peak heat flux (kW/m²), load factor (g), dynamic pressure (kPa)

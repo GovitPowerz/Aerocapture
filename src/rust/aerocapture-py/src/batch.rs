@@ -73,7 +73,7 @@ pub fn run_batch(
                     );
                 }
 
-                let outputs = aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data)
+                let outputs = aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data, false)
                     .map_err(|e: SimError| format!("Simulation error: {}", e))?;
 
                 outputs

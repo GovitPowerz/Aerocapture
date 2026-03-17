@@ -67,7 +67,7 @@ fn run(toml_path: &str, overrides: Option<&Bound<'_, PyDict>>) -> PyResult<SimRe
             .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     let outputs =
-        aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data).map_err(|e| {
+        aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data, false).map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e))
         })?;
 
@@ -107,7 +107,7 @@ fn run_mc(
             .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     let outputs =
-        aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data).map_err(|e| {
+        aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data, include_trajectories).map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e))
         })?;
 
