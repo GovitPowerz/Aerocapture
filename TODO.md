@@ -1,6 +1,21 @@
 # TODO
 
-- [ ] fix coridor visualization. I think there is an issue with corridors trajectories computation / serialization. The corridor should build 3 trajectories (orbital energy vs dynamic pressure): nominal best DeltaV, undershoot and overshoot boundary trajectories for capture. When plotting
+- [ ] fix coridor visualization. I think there is an issue with corridors trajectories computation / serialization. The corridor should build 5 trajectories (orbital energy vs dynamic pressure): nominal best DeltaV, undershoot and overshoot boundary trajectories for capture with apoapsis +-200km, crash limit, hyperbolic exit. Here are detailed definitions: a good way to characterize aerocapture missions is to represent the trajectories as the orbital energy
+  versus the dynamic pressure. In this plane, an aerocapture corridor is delimited by two trajectories with a
+  constant bank angle:
+  • an overshoot trajectory that represents the limit between an exit of the atmosphere on an elliptic orbit
+  and an exit of the atmosphere on a hyperbolic one,
+  • an undershoot trajectory that represents the limit between the crash of the vehicle on the ground and
+  an exit of the atmosphere on an elliptic orbit.
+  However, in order to have a more practical representation of the mission objectives, one can slightly modify
+  this definition and build a restricted corridor with:
+  • an overshoot trajectory with a constant bank angle that leads to an error on the apoapsis at atmosphere
+  exit of +δZa,
+  14 of 21
+  American Institute of Aeronautics and Astronautics
+  • an undershoot trajectory with a constant bank angle that leads to an error on the apoapsis at atmo-
+  sphere exit of -δZa,
+  where δZa depends on the mission (here, we considered δZa = 200 km).
 - [ ] add an animation script of entry corridors and trajectories evolution during training based on checkpoints
 - [ ] 1e30 for Dv is too much, we should use something like log(Dv) for values higher than a threshold but make it continuous (and derivable) at the threshold (1000 m/s seems reasonable)
 - [ ] Update IMPROVEMENTS.md

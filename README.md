@@ -86,14 +86,15 @@ uv run python -m aerocapture.training.report training_output/equilibrium_glide/
 uv run python -m aerocapture.training.report --compare training_output/
 
 # Pre-compute corridor boundaries (cached per mission, shared across schemes)
+# Reads [corridor] section from mission TOML for delta_za and n_sims defaults
 uv run python -m aerocapture.training.corridor \
-    --toml configs/missions/mars.toml --n-sims 5000
+    --toml configs/missions/mars.toml
 
 # Final evaluation report (1000-sim MC re-evaluation)
 # Includes: delta-V/orbital error distributions, entry/exit conditions,
-# performance summary table, energy corridor PNG (pdyn with crash/hyperbolic
-# zones, inclination, bank angle, DV distribution), and dispersion correlation
-# grid (~24 scatter plots with regressions).
+# performance summary table, energy corridor PNG (pdyn with 4-layer zones:
+# crash/undershoot/corridor/overshoot/hyperbolic, inclination, bank angle,
+# DV distribution), and dispersion correlation grid (~24 scatter plots).
 # Auto-generated at end of training; also standalone:
 uv run python -m aerocapture.training.final_report \
     training_output/equilibrium_glide/ \
