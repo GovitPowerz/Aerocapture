@@ -570,7 +570,7 @@ def _add_corridor_panel(
                     mode="lines",
                     name=name,
                     line={"color": color, "width": 0.5},
-                    opacity=0.3,
+                    opacity=max(0.02, min(0.15, 10.0 / max(len(trajectories), 1))),
                     showlegend=(row == 6 and col == 1),  # legend only on first corridor panel
                 ),
                 row=row,
@@ -678,16 +678,15 @@ def _build_dispersion_grid(
 
         x = cap_disp[:, i]
         # Skip fields with zero variance
-        axis_suffix = "" if (i + 1) == 1 else str(i + 1)
         if np.std(x) < 1e-15:
-            fig.add_annotation(
+            fig.add_annotation(  # type: ignore[attr-defined]
                 text="Zero variance",
-                xref=f"x{axis_suffix} domain",
-                yref=f"y{axis_suffix} domain",
                 x=0.5,
                 y=0.5,
                 showarrow=False,
                 font={"size": 10, "color": "gray"},
+                row=r,
+                col=c,
             )
             continue
 
@@ -719,15 +718,17 @@ def _build_dispersion_grid(
         )
 
         # Annotation with R^2 and p-value
-        fig.add_annotation(
+        fig.add_annotation(  # type: ignore[attr-defined]
             text=f"R\u00b2={r_value**2:.3f} p={p_value:.2e}",
-            xref=f"x{axis_suffix} domain",
-            yref=f"y{axis_suffix} domain",
             x=0.02,
             y=0.98,
+            xanchor="left",
+            yanchor="top",
             showarrow=False,
             font={"size": 9},
             bgcolor="rgba(255,255,255,0.7)",
+            row=r,
+            col=c,
         )
 
         fig.update_xaxes(title_text=f"{label} ({unit})", row=r, col=c)
