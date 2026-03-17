@@ -148,7 +148,11 @@ impl BatchResults {
     /// Dispersion draws as an (N, 24) NumPy array — always populated.
     #[getter]
     fn dispersions<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
-        let rows: Vec<Vec<f64>> = self.outputs.iter().map(|o| o.dispersions.to_vec()).collect();
+        let rows: Vec<Vec<f64>> = self
+            .outputs
+            .iter()
+            .map(|o| o.dispersions.to_vec())
+            .collect();
         PyArray2::from_vec2(py, &rows).unwrap()
     }
 

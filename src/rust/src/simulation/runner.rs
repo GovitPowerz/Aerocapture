@@ -4,6 +4,7 @@
 
 use crate::config::{Planet, SimInput};
 use crate::data::SimData;
+use crate::data::dispersions::DISPERSION_DRAW_LEN;
 use crate::gnc::control::pilot::{self, PilotState};
 use crate::gnc::guidance::ftc::{self, FtcState};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
@@ -12,7 +13,6 @@ use crate::integration::rk4;
 use crate::integration::sequencer::SequencerState;
 use crate::orbit::{elements, maneuver};
 use crate::physics::gravity;
-use crate::data::dispersions::DISPERSION_DRAW_LEN;
 use crate::simulation::init;
 use crate::simulation::output;
 use rayon::prelude::*;
@@ -188,7 +188,11 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
 ///
 /// Same physics as `run()`, but returns `Vec<RunOutput>` instead of writing files.
 /// Used by the PyO3 interface for direct Python access.
-pub fn run_for_api(config: &SimInput, data: &SimData, include_trajectories: bool) -> Result<Vec<crate::RunOutput>, SimError> {
+pub fn run_for_api(
+    config: &SimInput,
+    data: &SimData,
+    include_trajectories: bool,
+) -> Result<Vec<crate::RunOutput>, SimError> {
     let results = run_core(config, data, false, include_trajectories)?;
 
     Ok(results
@@ -199,20 +203,22 @@ pub fn run_for_api(config: &SimInput, data: &SimData, include_trajectories: bool
             let trajectory = if include_trajectories {
                 r.photo_lines
                     .iter()
-                    .map(|p| [
-                        p[1],                // [0] alt_km
-                        p[2],                // [1] lon_deg
-                        p[3],                // [2] lat_deg
-                        p[4],                // [3] vel_m_s
-                        p[5],                // [4] fpa_deg
-                        p[6],                // [5] heading_deg
-                        0.0,                 // [6] heat flux placeholder
-                        p[0],                // [7] time_s
-                        p[18] / 1e6,         // [8] energy J/kg → MJ/kg
-                        p[19] / 1e3,         // [9] pdyn Pa → kPa
-                        p[14],               // [10] bank_angle deg
-                        p[9],                // [11] inclination deg
-                    ])
+                    .map(|p| {
+                        [
+                            p[1],        // [0] alt_km
+                            p[2],        // [1] lon_deg
+                            p[3],        // [2] lat_deg
+                            p[4],        // [3] vel_m_s
+                            p[5],        // [4] fpa_deg
+                            p[6],        // [5] heading_deg
+                            0.0,         // [6] heat flux placeholder
+                            p[0],        // [7] time_s
+                            p[18] / 1e6, // [8] energy J/kg → MJ/kg
+                            p[19] / 1e3, // [9] pdyn Pa → kPa
+                            p[14],       // [10] bank_angle deg
+                            p[9],        // [11] inclination deg
+                        ]
+                    })
                     .collect()
             } else {
                 Vec::new()

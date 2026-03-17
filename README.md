@@ -85,7 +85,10 @@ uv run python -m aerocapture.training.compare_guidance \
 uv run python -m aerocapture.training.report training_output/equilibrium_glide/
 uv run python -m aerocapture.training.report --compare training_output/
 
-# Final evaluation report (1000-sim MC re-evaluation with statistical distributions)
+# Final evaluation report (1000-sim MC re-evaluation)
+# Includes: delta-V/orbital error distributions, entry/exit conditions,
+# performance summary table, energy corridor plots (pdyn, inclination, bank angle),
+# and dispersion correlation grid (~24 scatter plots with regressions).
 # Auto-generated at end of training; also standalone:
 uv run python -m aerocapture.training.final_report \
     training_output/equilibrium_glide/ \

@@ -310,15 +310,17 @@ class TestRefTrajectory:
         """Loads and converts reference trajectory data."""
         from aerocapture.training.final_report import _load_reference_trajectory
 
-        data = np.column_stack([
-            np.linspace(5, -2, 10),  # energy MJ/kg
-            np.linspace(0, 1000, 10),  # pdyn Pa
-            np.zeros(10),
-            np.zeros(10),
-            np.linspace(0.5, 1.0, 10),  # inclination rad
-            np.zeros(10),
-            np.linspace(0.0, 1.0, 10),  # cos(bank)
-        ])
+        data = np.column_stack(
+            [
+                np.linspace(5, -2, 10),  # energy MJ/kg
+                np.linspace(0, 1000, 10),  # pdyn Pa
+                np.zeros(10),
+                np.zeros(10),
+                np.linspace(0.5, 1.0, 10),  # inclination rad
+                np.zeros(10),
+                np.linspace(0.0, 1.0, 10),  # cos(bank)
+            ]
+        )
         dat_file = tmp_path / "ref.dat"
         np.savetxt(dat_file, data)
         result = _load_reference_trajectory(dat_file)

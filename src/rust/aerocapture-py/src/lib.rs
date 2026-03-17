@@ -66,8 +66,8 @@ fn run(toml_path: &str, overrides: Option<&Bound<'_, PyDict>>) -> PyResult<SimRe
         config::load_and_override(std::path::Path::new(toml_path), &overrides)
             .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
-    let outputs =
-        aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data, false).map_err(|e| {
+    let outputs = aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data, false)
+        .map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e))
         })?;
 
@@ -107,7 +107,8 @@ fn run_mc(
             .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     let outputs =
-        aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data, include_trajectories).map_err(|e| {
+        aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data, include_trajectories)
+            .map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e))
         })?;
 
@@ -148,8 +149,13 @@ fn run_batch(
         overrides_vec.push(extract_overrides(Some(dict))?);
     }
 
-    let outputs = batch::run_batch(std::path::Path::new(toml_path), overrides_vec, n_threads, include_trajectories)
-        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+    let outputs = batch::run_batch(
+        std::path::Path::new(toml_path),
+        overrides_vec,
+        n_threads,
+        include_trajectories,
+    )
+    .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }
