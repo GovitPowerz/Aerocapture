@@ -826,9 +826,12 @@ if __name__ == "__main__":
                     print(f"    Periapsis err (km): p50={np.median(peri_err):.1f}  p95={np.percentile(peri_err, 95):.1f}  mean={peri_err.mean():.1f}")
                     incl_err = final_eval[captured, _COL_INCL] - target_incl
                     print(f"    Inclin. err (deg):  p50={np.median(incl_err):.2f}  p95={np.percentile(incl_err, 95):.2f}  mean={incl_err.mean():.2f}")
+                    print(
+                        "\n  Note: Final evaluation stats are only meaningful in comparison to other schemes or configurations on the same scenario and seed.\n"
+                    )
 
                 report_path = Path(cfg.save_dir) / "final_report.html"
                 generate_final_report(eval_data, cfg.guidance_type, target_incl, report_path, ref_trajectory_path=ref_traj_path)
-                print(f"  Final report saved to {report_path}")
+                print(f"Final report saved to {report_path}")
             else:
                 print("WARNING: Final evaluation simulation failed, skipping report")
