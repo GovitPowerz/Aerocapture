@@ -412,6 +412,7 @@ def generate_final_report(
         assert trajectories is not None
         corridor_path = output_path.with_name(output_path.stem + "_corridors.png")
         _generate_corridor_png(trajectories, captured, ref_traj, corridor_path)
+        print(f"Corridor plots saved to {corridor_path}")
 
     fig.update_layout(
         height=400 * n_rows,
@@ -427,6 +428,7 @@ def generate_final_report(
         disp_fig = _build_dispersion_grid(dispersions, final_array, captured)  # type: ignore[arg-type]
         disp_path = output_path.with_name(output_path.stem + "_dispersions.html")
         disp_fig.write_html(str(disp_path), include_plotlyjs=True)  # type: ignore[attr-defined]
+        print(f"Dispersion correlations saved to {disp_path}")
 
     return output_path
 
