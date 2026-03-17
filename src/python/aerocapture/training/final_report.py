@@ -575,7 +575,9 @@ def _draw_pdyn_zones(
     otherwise falls back to the final-evaluation MC captured envelope.
     Crash zone (above envelope) and hyperbolic zone (below) use distinct colors.
     """
-    y_axis_max = ax.get_ylim()[1] * 1.1
+    # Add 30% headroom above the data so the crash zone is clearly visible
+    y_data_max = ax.get_ylim()[1]
+    y_axis_max = y_data_max * 1.3
     ax.set_ylim(bottom=0, top=y_axis_max)
 
     # Determine which trajectory set to use for the envelope
@@ -596,27 +598,26 @@ def _draw_pdyn_zones(
     if not valid.any():
         return
 
+    # Draw zones ON TOP of spaghetti (zorder=4) so they're always visible
     # Crash zone (above envelope) — light red
-    ax.fill_between(bc[valid], y_hi[valid], y_axis_max, color=_COLOR_CRASH, alpha=0.5, zorder=0)
+    ax.fill_between(bc[valid], y_hi[valid], y_axis_max, color=_COLOR_CRASH, alpha=0.4, zorder=4)
     # Hyperbolic exit zone (below envelope) — blue-grey
-    ax.fill_between(bc[valid], 0, y_lo[valid], color=_COLOR_HYPERBOLIC, alpha=0.5, zorder=0)
-    # Captured corridor — blue fill
-    ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.15, zorder=1)
+    ax.fill_between(bc[valid], 0, y_lo[valid], color=_COLOR_HYPERBOLIC, alpha=0.4, zorder=4)
 
-    # Grey fill for the edges outside the envelope x-range
+    # Fill the x-edges outside the envelope range with hyperbolic color
     x_lo_ax, x_hi_ax = ax.get_xlim()
     bc_v = bc[valid]
     if bc_v[0] > x_lo_ax:
-        ax.axvspan(x_lo_ax, bc_v[0], color=_COLOR_HYPERBOLIC, alpha=0.5, zorder=0)
+        ax.axvspan(x_lo_ax, bc_v[0], color=_COLOR_HYPERBOLIC, alpha=0.4, zorder=4)
     if bc_v[-1] < x_hi_ax:
-        ax.axvspan(bc_v[-1], x_hi_ax, color=_COLOR_HYPERBOLIC, alpha=0.5, zorder=0)
+        ax.axvspan(bc_v[-1], x_hi_ax, color=_COLOR_HYPERBOLIC, alpha=0.4, zorder=4)
 
-    # Annotations
+    # Annotations — on top of everything
     mid_e = (x_lo_ax + x_hi_ax) / 2
-    ax.text(mid_e, y_axis_max * 0.88, "Crash", ha="center", fontsize=10, fontstyle="italic", color="#B71C1C", zorder=5)
-    ax.text(mid_e, y_axis_max * 0.03, "Hyperbolic exit", ha="center", fontsize=10, fontstyle="italic", color="#37474F", zorder=5)
-    ax.text(x_hi_ax * 0.9, y_axis_max * 0.03, "Entry", fontsize=8, color="#37474F", ha="right", zorder=5)
-    ax.text(x_lo_ax * 0.9, y_axis_max * 0.03, "Atm. exit", fontsize=8, color="#37474F", ha="left", zorder=5)
+    ax.text(mid_e, y_axis_max * 0.90, "Crash", ha="center", fontsize=10, fontstyle="italic", color="#B71C1C", zorder=6)
+    ax.text(mid_e, y_axis_max * 0.02, "Hyperbolic exit", ha="center", fontsize=10, fontstyle="italic", color="#37474F", zorder=6)
+    ax.text(x_hi_ax * 0.9, y_axis_max * 0.02, "Entry", fontsize=8, color="#37474F", ha="right", zorder=6)
+    ax.text(x_lo_ax * 0.9, y_axis_max * 0.02, "Atm. exit", fontsize=8, color="#37474F", ha="left", zorder=6)
 
 
 def _generate_corridor_png(
@@ -700,7 +701,7 @@ def _generate_corridor_png(
 
         # Reference trajectory from .dat file
         if ref_traj is not None and ref_key in ref_traj:
-            ax.plot(ref_traj["energy_MJkg"], ref_traj[ref_key], color="red", linewidth=2.5, linestyle="--", zorder=4)
+            ax.plot(ref_traj["energy_MJkg"], ref_traj[ref_key], color="red", linewidth=2.5, linestyle="--", zorder=5)
 
         # Corridor nominal (optimal constant-bank) — orange
         if corr_nom is not None:
