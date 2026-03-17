@@ -60,7 +60,7 @@ Using p99/p1 instead of true max/min provides robustness against outlier traject
 
 #### Phase 2: Bank-Only MC (10k sims, no dispersions)
 
-Same bank angle sweep [0deg, 180deg] but with `dispersion_level="none"`. Among viable captures (same criteria as existing `_viable_capture_mask`: `ecc < 1.0`, `energy < 0.0`, `peri_alt > 0.0`, `dv < 1e10`), select the trajectory that minimizes `final_record[40]` = `|dv1| + |dv2|` (periapsis + apoapsis correction only, excluding inclination correction dv3). This becomes the **nominal constant-bank trajectory**.
+Same bank angle sweep [0deg, 180deg] but with `dispersion_level="none"`. Among viable captures (same criteria as existing `_viable_capture_mask`: `ecc < 1.0`, `energy < 0.0`, `peri_alt > 0.0`, `dv < 1e10`), select the trajectory that minimizes `final_record[40]` = `|dv1| + |dv2|` (periapsis + apoapsis correction only, excluding inclination correction dv3 — constant bank cannot control inclination, so inclination DV is not decision-relevant). This becomes the **nominal constant-bank trajectory**.
 
 **Memory note:** 10k sims with `include_trajectories=True` at ~700 timesteps x 12 floats x 8 bytes = ~670 MB for trajectory data. This is acceptable on modern machines but the `[corridor].n_sims` parameter allows reducing if needed.
 
@@ -90,20 +90,17 @@ delta_za = 200.0  # km, apoapsis error tolerance for restricted corridor boundar
 n_sims = 10000    # number of MC sims for corridor boundary computation
 ```
 
-`corridor.py` reads these from the loaded config. Falls back to `delta_za=200.0` and `n_sims=10000` if the section is absent.
+`corridor.py` reads these from the loaded config (inherited via TOML base resolution from mission TOML into training TOML). Falls back to `delta_za=200.0` and `n_sims=10000` if the section is absent. Phase 2 (bank-only MC) uses the same `n_sims` as Phase 1 (no cap).
 
 ### Cache Format (`.npz`)
 
 | Key | Shape | Description |
 |-----|-------|-------------|
-| `envelope_undershoot_energy` | `(B,)` | Energy bin centers for undershoot boundary |
-| `envelope_undershoot_pdyn` | `(B,)` | p99 pdyn of trajectories with apo_error >= -delta_za |
-| `envelope_crash_energy` | `(B,)` | Energy bin centers for crash boundary |
-| `envelope_crash_pdyn` | `(B,)` | p99 pdyn of non-crashing trajectories |
-| `envelope_overshoot_energy` | `(B,)` | Energy bin centers for overshoot boundary |
-| `envelope_overshoot_pdyn` | `(B,)` | p1 pdyn of trajectories with apo_error <= +delta_za |
-| `envelope_hyperbolic_energy` | `(B,)` | Energy bin centers for hyperbolic boundary |
-| `envelope_hyperbolic_pdyn` | `(B,)` | p1 pdyn of all captured trajectories |
+| `energy_bins` | `(B,)` | Shared energy bin centers (all envelopes use same axis) |
+| `envelope_undershoot_pdyn` | `(B,)` | p99 pdyn of trajectories with apo_error >= -delta_za (NaN where no data) |
+| `envelope_crash_pdyn` | `(B,)` | p99 pdyn of non-crashing trajectories (NaN where no data) |
+| `envelope_overshoot_pdyn` | `(B,)` | p1 pdyn of trajectories with apo_error <= +delta_za (NaN where no data) |
+| `envelope_hyperbolic_pdyn` | `(B,)` | p1 pdyn of all captured trajectories (NaN where no data) |
 | `nominal` | `(T, 12)` | Nominal constant-bank trajectory (min |dv1|+|dv2|) |
 | `nominal_bank_deg` | `(1,)` | Bank angle of nominal trajectory |
 | `nominal_dv` | `(1,)` | |dv1|+|dv2| of nominal (excludes inclination) |
@@ -112,7 +109,7 @@ n_sims = 10000    # number of MC sims for corridor boundary computation
 | `target_apoapsis_km` | `(1,)` | From TOML `[flight.target_orbit]` |
 | `delta_za_km` | `(1,)` | From TOML `[corridor]` |
 | `n_sims` | `(1,)` | MC size used |
-| `classification_counts` | `(5,)` | [crash, undershoot, corridor, overshoot, hyperbolic] |
+| `classification_counts` | `(5,)` | [crash, undershoot, corridor, overshoot, hyperbolic] (timeout discarded before classification) |
 
 Cached per mission in `training_output/<mission>/corridor_boundaries.npz` (same location as current).
 
