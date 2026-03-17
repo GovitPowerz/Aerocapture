@@ -782,9 +782,10 @@ if __name__ == "__main__":
             from aerocapture.training.final_report import (
                 _COL_APO_ERR,
                 _COL_DV_TOTAL,
-                _COL_ENERGY,
                 _COL_ECC,
+                _COL_ENERGY,
                 _COL_PERI_ERR,
+                _read_ref_trajectory_path,
                 _read_target_inclination,
                 generate_final_report,
                 run_final_evaluation,
@@ -797,14 +798,17 @@ if __name__ == "__main__":
                 if opt_toml.exists():
                     cfg.sim.toml_config = str(opt_toml)
 
-            # Read target inclination from the base TOML (target_orbit is unchanged by patching)
-            target_incl = _read_target_inclination(Path(cwd or ".") / args.toml)
+            # Read target inclination and reference trajectory from the base TOML
+            base_toml_path = Path(cwd or ".") / args.toml
+            target_incl = _read_target_inclination(base_toml_path)
+            ref_traj_path = _read_ref_trajectory_path(base_toml_path)
 
             final_seed = args.seed + 9999
             print(f"\nRunning {args.final_n_sims}-sim final evaluation (seed={final_seed})...")
-            final_eval = run_final_evaluation(cfg, n_sims=args.final_n_sims, seed=final_seed, cwd=cwd)
-            if final_eval is not None:
+            eval_data = run_final_evaluation(cfg, n_sims=args.final_n_sims, seed=final_seed, cwd=cwd)
+            if eval_data is not None:
                 # Print summary statistics to stdout
+                final_eval = eval_data.final_array
                 n_sims = len(final_eval)
                 energy = final_eval[:, _COL_ENERGY]
                 ecc = final_eval[:, _COL_ECC]
@@ -821,7 +825,7 @@ if __name__ == "__main__":
                     print(f"    Periapsis err (km): p50={np.median(peri_err):.1f}  p95={np.percentile(peri_err, 95):.1f}  mean={peri_err.mean():.1f}")
 
                 report_path = Path(cfg.save_dir) / "final_report.html"
-                generate_final_report(final_eval, cfg.guidance_type, target_incl, report_path)
+                generate_final_report(eval_data, cfg.guidance_type, target_incl, report_path, ref_trajectory_path=ref_traj_path)
                 print(f"  Final report saved to {report_path}")
             else:
                 print("WARNING: Final evaluation simulation failed, skipping report")
