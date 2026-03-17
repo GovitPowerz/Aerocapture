@@ -296,6 +296,67 @@ class TestRunFinalEvaluation:
         patched.unlink()
 
 
+class TestCorridorRendering:
+    def test_corridor_png_with_new_format_corridor_data(self, tmp_path: Path) -> None:
+        """Corridor PNG renders correctly with schema-v2 corridor data."""
+        from aerocapture.training.final_report import generate_final_report
+
+        eval_data = _make_eval_data(50, with_trajectories=True, n_captured=40, n_hyper=10)
+        corridor_data = {
+            "schema_version": np.array([2]),
+            "energy_bins": np.linspace(-6, 4, 50),
+            "envelope_undershoot_pdyn": np.linspace(1.5, 0.0, 50),
+            "envelope_crash_pdyn": np.linspace(2.0, 0.0, 50),
+            "envelope_overshoot_pdyn": np.linspace(0.8, 0.0, 50),
+            "envelope_hyperbolic_pdyn": np.linspace(0.3, 0.0, 50),
+            "nominal": np.column_stack(
+                [
+                    np.zeros((30, 8)),
+                    np.linspace(4, -5, 30),
+                    np.linspace(0, 1.2, 30),
+                    np.full(30, 65.0),
+                    np.full(30, 50.0),
+                ]
+            ),
+            "nominal_bank_deg": np.array([65.0]),
+            "nominal_dv": np.array([150.0]),
+            "nominal_dv_total": np.array([180.0]),
+        }
+        corr_path = tmp_path / "corridor_boundaries.npz"
+        np.savez_compressed(str(corr_path), **corridor_data)  # type: ignore[arg-type]
+
+        output = tmp_path / "report.html"
+        generate_final_report(eval_data, "eqglide", 50.0, output, corridor_path=corr_path)
+        corridor_png = tmp_path / "report_corridors.png"
+        assert corridor_png.exists()
+        assert corridor_png.stat().st_size > 1000
+
+    def test_guided_nominal_is_min_dv(self) -> None:
+        """Guided nominal should be the min-DV captured trajectory, not first-by-index."""
+        from aerocapture.training.final_report import _select_guided_nominal
+
+        n = 50
+        final_array = _make_captured_array(n)
+        captured = np.ones(n, dtype=bool)
+        final_array[:, 41] = 200.0
+        final_array[30, 41] = 50.0
+
+        trajectories = _make_trajectories(n)
+        idx, dv = _select_guided_nominal(final_array, captured, trajectories)
+        assert idx == 30
+        assert dv == pytest.approx(50.0)
+
+    def test_guided_nominal_none_when_no_captures(self) -> None:
+        from aerocapture.training.final_report import _select_guided_nominal
+
+        final_array = _make_all_hyperbolic(20)
+        captured = np.zeros(20, dtype=bool)
+        trajectories = _make_trajectories(20)
+        idx, dv = _select_guided_nominal(final_array, captured, trajectories)
+        assert idx is None
+        assert dv is None
+
+
 @pytest.mark.skipif(
     not Path("src/rust/target/release/aerocapture").exists(),
     reason="Rust binary not built",

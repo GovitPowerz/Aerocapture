@@ -521,52 +521,93 @@ def _compute_envelope(
     return bc, y_lo, y_hi, valid
 
 
-_COLOR_CRASH = "#E57373"  # light red for crash zone
-_COLOR_HYPERBOLIC = "#90A4AE"  # blue-grey for hyperbolic exit zone
+def _select_guided_nominal(
+    final_array: npt.NDArray[np.float64],
+    captured: npt.NDArray[np.bool_],
+    trajectories: list[npt.NDArray[np.float64]],
+) -> tuple[int | None, float | None]:
+    """Select guided nominal as the min total-DV captured trajectory.
+
+    Returns (index, dv_total) or (None, None) if no captures.
+    """
+    if not captured.any():
+        return None, None
+
+    cap_indices = np.where(captured)[0]
+    dv_values = final_array[cap_indices, _COL_DV_TOTAL]
+    best_in_cap = int(np.argmin(dv_values))
+    best_idx = int(cap_indices[best_in_cap])
+
+    t = np.asarray(trajectories[best_idx])
+    if t.ndim != 2 or t.shape[0] == 0:
+        return None, None
+
+    return best_idx, float(dv_values[best_in_cap])
+
+
+_COLOR_CRASH = "#E57373"  # light red for crash/hyperbolic zones
+_COLOR_UNDERSHOOT = "#BDBDBD"  # grey for undershoot/overshoot zones
+_COLOR_OVERSHOOT = "#BDBDBD"  # grey for overshoot zone
 
 
 def _draw_pdyn_zones(
     ax: Any,  # matplotlib Axes
-    trajectories: list[npt.NDArray[np.float64]],
-    captured: npt.NDArray[np.bool_],
+    corridor_data: dict[str, npt.NDArray[np.float64]] | None,
 ) -> None:
-    """Draw crash (upper) and hyperbolic exit (lower) zones on the pdyn panel.
+    """Draw 4-layer corridor zones on the pdyn panel.
 
-    Uses the final-evaluation MC captured envelope to define the corridor boundary.
-    Crash zone (above envelope) and hyperbolic zone (below) use distinct colors.
+    Layers (back to front):
+    1. Grey fill above undershoot envelope (Envelope A)
+    2. Red fill above crash envelope (Envelope B) — overpaints grey
+    3. Grey fill below overshoot envelope (Envelope C)
+    4. Red fill below hyperbolic envelope (Envelope D) — overpaints grey
+
+    The white gap between Envelopes A and C is the viable corridor.
     """
-    # Add 30% headroom above the data so the crash zone is clearly visible
+    if corridor_data is None:
+        return
+
+    energy = corridor_data.get("energy_bins")
+    if energy is None or len(energy) == 0:
+        return
+
+    # Add 30% headroom above the data
     y_data_max = ax.get_ylim()[1]
     y_axis_max = y_data_max * 1.3
     ax.set_ylim(bottom=0, top=y_axis_max)
 
-    # Determine which trajectory set to use for the envelope
-    if captured.any():
-        bc, y_lo, y_hi, valid = _compute_envelope(trajectories, captured, _TRAJ_COL_PDYN)
-    else:
-        return
+    x_lo, x_hi = ax.get_xlim()
 
-    if not valid.any():
-        return
+    # Layer 1: Grey above undershoot boundary (Envelope A)
+    env_under = corridor_data.get("envelope_undershoot_pdyn")
+    if env_under is not None and not np.all(np.isnan(env_under)):
+        valid = ~np.isnan(env_under)
+        ax.fill_between(energy[valid], env_under[valid], y_axis_max, color=_COLOR_UNDERSHOOT, alpha=0.5, zorder=4)
 
-    x_lo_ax, x_hi_ax = ax.get_xlim()
+    # Layer 2: Red above crash boundary (Envelope B) — overpaints grey
+    env_crash = corridor_data.get("envelope_crash_pdyn")
+    if env_crash is not None and not np.all(np.isnan(env_crash)):
+        valid = ~np.isnan(env_crash)
+        ax.fill_between(energy[valid], env_crash[valid], y_axis_max, color=_COLOR_CRASH, alpha=0.5, zorder=4.1)
 
-    # Split the full plot background: crash (upper half) + hyperbolic (lower half)
-    # at the envelope's mid-height, then carve out the corridor
-    y_mid = (y_hi[valid].max() + y_lo[valid].min()) / 2 if valid.any() else y_axis_max / 2
-    ax.axhspan(y_mid, y_axis_max, color=_COLOR_CRASH, alpha=0.4, zorder=4)
-    ax.axhspan(0, y_mid, color=_COLOR_HYPERBOLIC, alpha=0.4, zorder=4)
+    # Layer 3: Grey below overshoot boundary (Envelope C)
+    env_over = corridor_data.get("envelope_overshoot_pdyn")
+    if env_over is not None and not np.all(np.isnan(env_over)):
+        valid = ~np.isnan(env_over)
+        ax.fill_between(energy[valid], 0, env_over[valid], color=_COLOR_OVERSHOOT, alpha=0.5, zorder=4.2)
 
-    # Carve out the corridor: white fill then light blue
-    ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="white", zorder=4.1)
-    ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.10, zorder=4.2)
+    # Layer 4: Red below hyperbolic boundary (Envelope D) — overpaints grey
+    env_hyper = corridor_data.get("envelope_hyperbolic_pdyn")
+    if env_hyper is not None and not np.all(np.isnan(env_hyper)):
+        valid = ~np.isnan(env_hyper)
+        ax.fill_between(energy[valid], 0, env_hyper[valid], color=_COLOR_CRASH, alpha=0.5, zorder=4.3)
 
-    # Annotations — on top of everything
-    mid_e = (x_lo_ax + x_hi_ax) / 2
-    ax.text(mid_e, y_axis_max * 0.90, "Crash", ha="center", fontsize=10, fontstyle="italic", color="#B71C1C", zorder=6)
+    # Annotations
+    mid_e = (x_lo + x_hi) / 2
+    ax.text(mid_e, y_axis_max * 0.92, "Crash", ha="center", fontsize=10, fontstyle="italic", color="#B71C1C", zorder=6)
     ax.text(mid_e, y_axis_max * 0.02, "Hyperbolic exit", ha="center", fontsize=10, fontstyle="italic", color="#37474F", zorder=6)
-    ax.text(x_hi_ax * 0.9, y_axis_max * 0.02, "Entry", fontsize=8, color="#37474F", ha="right", zorder=6)
-    ax.text(x_lo_ax * 0.9, y_axis_max * 0.02, "Atm. exit", fontsize=8, color="#37474F", ha="left", zorder=6)
+    ax.text(x_hi * 0.9, y_axis_max * 0.02, "Entry", fontsize=8, color="#37474F", ha="right", zorder=6)
+    ax.text(x_lo * 0.9, y_axis_max * 0.02, "Atm. exit", fontsize=8, color="#37474F", ha="left", zorder=6)
 
 
 def _generate_corridor_png(
@@ -584,7 +625,7 @@ def _generate_corridor_png(
     (d) correction cost distribution (histogram + CDF).
 
     Both the corridor nominal (optimal constant-bank, red) and the guidance
-    scheme nominal (first captured MC sim, green) are overlaid on all panels.
+    scheme nominal (min-DV captured MC sim, green) are overlaid on all panels.
     On panel (d) they appear as vertical dashed lines.
     """
     import matplotlib
@@ -610,16 +651,15 @@ def _generate_corridor_png(
         if _nom_dv.size > 0:
             corr_nom_dv = float(_nom_dv[0])
 
-    # Guidance nominal: first captured trajectory from final-evaluation MC
+    # Guidance nominal: min-DV captured trajectory from final-evaluation MC
     guid_nom: npt.NDArray[np.float64] | None = None
     guid_nom_dv: float | None = None
-    if captured.any():
-        first_cap = int(np.where(captured)[0][0])
-        t = np.asarray(trajectories[first_cap])
-        if t.ndim == 2 and t.shape[0] > 0:
-            guid_nom = t
-        if final_array is not None:
-            guid_nom_dv = float(final_array[first_cap, _COL_DV_TOTAL])
+    if captured.any() and final_array is not None:
+        guid_idx, guid_nom_dv = _select_guided_nominal(final_array, captured, trajectories)
+        if guid_idx is not None:
+            t = np.asarray(trajectories[guid_idx])
+            if t.ndim == 2 and t.shape[0] > 0:
+                guid_nom = t
 
     corridor_panels = [
         (axes[0, 0], _TRAJ_COL_PDYN, "Dynamic Pressure (kPa)", "(a)"),
@@ -639,7 +679,7 @@ def _generate_corridor_png(
 
         # Crash / hyperbolic exit zones on pdyn panel (a) — drawn AFTER spaghetti so ylim is set
         if y_col == _TRAJ_COL_PDYN:
-            _draw_pdyn_zones(ax, trajectories, captured)
+            _draw_pdyn_zones(ax, corridor_data)
         else:
             # Captured envelope for non-pdyn panels
             if captured.any():
@@ -663,8 +703,8 @@ def _generate_corridor_png(
     # Legend on panel (a)
     legend_elements: list[Any] = [
         Patch(facecolor="#2196F3", alpha=0.4, label="MC captured"),
-        Patch(facecolor=_COLOR_CRASH, alpha=0.5, label="Crash"),
-        Patch(facecolor=_COLOR_HYPERBOLIC, alpha=0.5, label="Hyperbolic exit"),
+        Patch(facecolor=_COLOR_CRASH, alpha=0.5, label="Crash / Hyperbolic exit"),
+        Patch(facecolor=_COLOR_UNDERSHOOT, alpha=0.5, label="Undershoot / Overshoot"),
     ]
     if corr_nom is not None:
         legend_elements.append(Line2D([0], [0], color="#D32F2F", linewidth=2, label="Nominal (const. bank)"))
