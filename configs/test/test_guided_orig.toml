@@ -5,7 +5,6 @@ base = ["../missions/mars.toml"]
 [guidance]
 type = "ftc"
 reference_trajectory = false
-reference_bank_angle = 64.77026
 
 [guidance.ftc]
 capture_damping = 0.7

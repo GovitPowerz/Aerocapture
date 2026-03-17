@@ -3,7 +3,6 @@ base = ["../missions/mars.toml"]
 
 [guidance]
 type = "pred_guid"
-reference_bank_angle = 64.77026
 
 [simulation]
 n_sims = 3

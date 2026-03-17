@@ -154,8 +154,7 @@ pub struct TomlGuidance {
     pub guidance_type: String,
     #[serde(default)]
     pub reference_trajectory: bool,
-    #[serde(default = "default_ref_bank")]
-    pub reference_bank_angle: f64,
+    pub reference_bank_angle: Option<f64>,
     /// FTC-specific parameters (consolidated mode, from guidage.* files)
     pub ftc: Option<TomlFtcParams>,
     /// Equilibrium glide parameters
@@ -166,10 +165,6 @@ pub struct TomlGuidance {
     pub pred_guid: Option<TomlPredGuidParams>,
     /// FNPAG (numerical predictor-corrector) parameters
     pub fnpag: Option<TomlFnpagParams>,
-}
-
-fn default_ref_bank() -> f64 {
-    0.0
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -744,7 +739,9 @@ impl SimInput {
             screen_output: config.simulation.screen_output,
             random_seed: config.simulation.random_seed,
             reference_trajectory: config.guidance.reference_trajectory,
-            reference_bank_angle: config.guidance.reference_bank_angle,
+            reference_bank_angle: config.guidance.reference_bank_angle.unwrap_or_else(|| {
+                config.entry.as_ref().map(|e| e.initial_bank_angle).unwrap_or(0.0)
+            }),
             base_dir: config.data.base_dir.clone(),
             output_dir: config.data.output_dir.clone(),
             results_suffix: config
