@@ -97,8 +97,6 @@ def _read_target_inclination(toml_path: Path) -> float:
     return float(data.get("flight", {}).get("target_orbit", {}).get("inclination", 0.0))
 
 
-
-
 def _patch_toml_for_final_eval(
     base_toml_path: Path,
     n_sims: int,
@@ -203,7 +201,6 @@ def generate_final_report(
 
     # Determine whether we have trajectory data for corridor panels
     has_trajectories = trajectories is not None and len(trajectories) > 0 and any(len(t) > 0 for t in trajectories)
-
 
     # Build subplot layout
     n_rows = 5  # base rows: 2 dist + 2 dist + entry/exit + DV-vs-error/table
@@ -532,12 +529,10 @@ def _draw_pdyn_zones(
     ax: Any,  # matplotlib Axes
     trajectories: list[npt.NDArray[np.float64]],
     captured: npt.NDArray[np.bool_],
-    corridor_data: dict[str, npt.NDArray[np.float64]] | None,
 ) -> None:
     """Draw crash (upper) and hyperbolic exit (lower) zones on the pdyn panel.
 
-    Uses corridor MC captured trajectories for the envelope when available,
-    otherwise falls back to the final-evaluation MC captured envelope.
+    Uses the final-evaluation MC captured envelope to define the corridor boundary.
     Crash zone (above envelope) and hyperbolic zone (below) use distinct colors.
     """
     # Add 30% headroom above the data so the crash zone is clearly visible
@@ -546,16 +541,7 @@ def _draw_pdyn_zones(
     ax.set_ylim(bottom=0, top=y_axis_max)
 
     # Determine which trajectory set to use for the envelope
-    if corridor_data is not None and "traj_lengths" in corridor_data:
-        from aerocapture.training.corridor import _unpack_trajectories
-
-        corr_trajs = _unpack_trajectories(corridor_data)
-        if corr_trajs:
-            all_mask = np.ones(len(corr_trajs), dtype=bool)
-            bc, y_lo, y_hi, valid = _compute_envelope(corr_trajs, all_mask, _TRAJ_COL_PDYN)
-        else:
-            bc, y_lo, y_hi, valid = _compute_envelope(trajectories, captured, _TRAJ_COL_PDYN)
-    elif captured.any():
+    if captured.any():
         bc, y_lo, y_hi, valid = _compute_envelope(trajectories, captured, _TRAJ_COL_PDYN)
     else:
         return
@@ -653,7 +639,7 @@ def _generate_corridor_png(
 
         # Crash / hyperbolic exit zones on pdyn panel (a) — drawn AFTER spaghetti so ylim is set
         if y_col == _TRAJ_COL_PDYN:
-            _draw_pdyn_zones(ax, trajectories, captured, corridor_data)
+            _draw_pdyn_zones(ax, trajectories, captured)
         else:
             # Captured envelope for non-pdyn panels
             if captured.any():
