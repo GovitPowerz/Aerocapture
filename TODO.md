@@ -2,7 +2,7 @@
 
 - [ ] add an animation script of entry corridors and trajectories evolution during training based on checkpoints
 - [x] final report could be improved
-- [ ] Missing test for R²/p-value in HTML
+- [x] Missing test for R²/p-value in final report HTML
 - [ ] Update IMPROVEMENTS.md
 
 ## Simulation — High Impact

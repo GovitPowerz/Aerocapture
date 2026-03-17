@@ -431,16 +431,14 @@ def generate_final_report(
         showlegend=True,
     )
 
-    # Write HTML — combine with dispersion grid if available
+    fig.write_html(str(output_path), include_plotlyjs=True)
+
+    # Write dispersion grid as a separate HTML file for memory efficiency
     has_dispersions = dispersions is not None and dispersions.shape[0] > 0  # type: ignore[union-attr]
     if has_dispersions and n_captured > 0:
         disp_fig = _build_dispersion_grid(dispersions, final_array, captured)  # type: ignore[arg-type]
-        main_html = fig.to_html(include_plotlyjs=True, full_html=False)  # type: ignore[attr-defined]
-        disp_html = disp_fig.to_html(include_plotlyjs=False, full_html=False)  # type: ignore[attr-defined]
-        with open(str(output_path), "w") as f:
-            f.write(f"<html><body>{main_html}<hr>{disp_html}</body></html>")
-    else:
-        fig.write_html(str(output_path), include_plotlyjs=True)
+        disp_path = output_path.with_name(output_path.stem + "_dispersions.html")
+        disp_fig.write_html(str(disp_path), include_plotlyjs=True)  # type: ignore[attr-defined]
 
     return output_path
 
@@ -732,8 +730,11 @@ def _build_dispersion_grid(
             col=c,
         )
 
-        fig.update_xaxes(title_text=f"{label} ({unit})", row=r, col=c)
-        fig.update_yaxes(title_text="\u0394V (m/s)", row=r, col=c)
+        # Tighten axes around data with a small margin
+        x_margin = (x.max() - x.min()) * 0.05 or 1.0
+        y_margin = (cap_dv.max() - cap_dv.min()) * 0.05 or 1.0
+        fig.update_xaxes(title_text=f"{label} ({unit})", range=[x.min() - x_margin, x.max() + x_margin], row=r, col=c)
+        fig.update_yaxes(title_text="\u0394V (m/s)", range=[cap_dv.min() - y_margin, cap_dv.max() + y_margin], row=r, col=c)
 
     fig.update_layout(
         height=300 * n_rows,

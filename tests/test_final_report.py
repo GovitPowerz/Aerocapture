@@ -206,26 +206,40 @@ class TestGenerateFinalReport:
         content = output.read_text()
         assert "Energy vs Dynamic Pressure" not in content
 
-    def test_dispersion_grid_present_with_data(self, tmp_path: Path) -> None:
-        """Dispersion grid appears when dispersions are provided."""
+    def test_dispersion_grid_written_to_separate_file(self, tmp_path: Path) -> None:
+        """Dispersion grid is written to a separate HTML file."""
         from aerocapture.training.final_report import generate_final_report
 
         eval_data = _make_eval_data(100, with_dispersions=True)
         output = tmp_path / "report.html"
         generate_final_report(eval_data, "equilibrium_glide", 50.0, output)
-        content = output.read_text()
+        disp_path = tmp_path / "report_dispersions.html"
+        assert disp_path.exists()
+        content = disp_path.read_text()
         assert "Dispersion Correlation Grid" in content
-        assert "<hr>" in content  # separator between main and dispersion figures
 
     def test_dispersion_grid_absent_without_data(self, tmp_path: Path) -> None:
-        """No dispersion grid when dispersions are None."""
+        """No dispersion grid file when dispersions are None."""
         from aerocapture.training.final_report import generate_final_report
 
         eval_data = _make_eval_data(100, with_dispersions=False)
         output = tmp_path / "report.html"
         generate_final_report(eval_data, "equilibrium_glide", 50.0, output)
-        content = output.read_text()
-        assert "Dispersion Correlation Grid" not in content
+        disp_path = tmp_path / "report_dispersions.html"
+        assert not disp_path.exists()
+
+    def test_dispersion_grid_has_r_squared_and_pvalue(self, tmp_path: Path) -> None:
+        """Dispersion scatter subplots contain R² and p-value annotations."""
+        from aerocapture.training.final_report import generate_final_report
+
+        eval_data = _make_eval_data(100, with_dispersions=True)
+        output = tmp_path / "report.html"
+        generate_final_report(eval_data, "equilibrium_glide", 50.0, output)
+        disp_path = tmp_path / "report_dispersions.html"
+        content = disp_path.read_text()
+        # R² is encoded as R\u00b2 in Plotly JSON
+        assert "R\\u00b2=" in content
+        assert "p=" in content
 
 
 class TestRunFinalEvaluation:
