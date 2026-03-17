@@ -160,7 +160,7 @@ fn run_core(
                 run_state.entry.state.flight_path.to_degrees(),
             );
         }
-        let mut result = run_single(config, data, run_state, 0, write_photo)?;
+        let mut result = run_single(config, data, run_state, 0, write_photo || include_trajectories)?;
         result.dispersions = *disp_array;
         Ok(vec![result])
     }
