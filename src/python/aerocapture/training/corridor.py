@@ -9,8 +9,11 @@ The boundaries are found by bisecting on bank angle at the nominal entry FPA.
 
 Usage (standalone):
     uv run python -m aerocapture.training.corridor \\
-        --toml configs/missions/mars.toml \\
+        --toml configs/nominal/msr_aller_ftc_nominal.toml \\
         --output corridor_boundaries.npz
+
+The TOML must be a complete config with a [guidance] section (e.g., a nominal
+or training config that inherits from a mission base), not a bare mission base.
 """
 
 from __future__ import annotations
@@ -21,23 +24,29 @@ import numpy as np
 import numpy.typing as npt
 
 
-def _run_constant_bank(toml_path: str, bank_angle_deg: float) -> tuple[bool, npt.NDArray[np.float64]]:
-    """Run a single sim with constant bank angle (reference_trajectory mode).
-
-    Returns (captured, trajectory) where trajectory is (T, 12) or empty.
-    """
+def _get_aero() -> object:
+    """Import and return the aerocapture_rs module."""
     try:
         import aerocapture_rs as aero  # type: ignore[import-not-found, import-untyped]
     except ImportError as e:
         msg = "PyO3 aerocapture_rs module required for corridor computation"
         raise ImportError(msg) from e
+    return aero
+
+
+def _run_constant_bank(toml_path: str, bank_angle_deg: float) -> tuple[bool, npt.NDArray[np.float64]]:
+    """Run a single sim with constant bank angle (reference_trajectory mode).
+
+    Returns (captured, trajectory) where trajectory is (T, 12) or empty.
+    """
+    aero = _get_aero()
 
     overrides = {
         "guidance.reference_trajectory": True,
         "guidance.reference_bank_angle": float(bank_angle_deg),
         "simulation.n_sims": 1,
     }
-    result = aero.run(toml_path, overrides=overrides)
+    result = aero.run(toml_path, overrides=overrides)  # type: ignore[attr-defined]
     traj: npt.NDArray[np.float64] = result.trajectory
     return bool(result.captured), traj
 
@@ -47,16 +56,12 @@ def _run_nominal(toml_path: str) -> tuple[bool, npt.NDArray[np.float64]]:
 
     Returns (captured, trajectory) where trajectory is (T, 12) or empty.
     """
-    try:
-        import aerocapture_rs as aero  # type: ignore[import-not-found, import-untyped]
-    except ImportError as e:
-        msg = "PyO3 aerocapture_rs module required for corridor computation"
-        raise ImportError(msg) from e
+    aero = _get_aero()
 
     overrides = {
         "simulation.n_sims": 1,
     }
-    result = aero.run(toml_path, overrides=overrides)
+    result = aero.run(toml_path, overrides=overrides)  # type: ignore[attr-defined]
     traj: npt.NDArray[np.float64] = result.trajectory
     return bool(result.captured), traj
 
@@ -216,7 +221,7 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Compute aerocapture corridor boundaries")
-    parser.add_argument("--toml", type=str, required=True, help="Mission TOML config path")
+    parser.add_argument("--toml", type=str, required=True, help="TOML config with [guidance] section (e.g., nominal or training config)")
     parser.add_argument("--output", type=str, default="corridor_boundaries.npz", help="Output .npz file path")
     parser.add_argument("--tol", type=float, default=0.1, help="Bank angle bisection tolerance in degrees (default: 0.1)")
     args = parser.parse_args()
