@@ -9,11 +9,11 @@ The boundaries are found by bisecting on bank angle at the nominal entry FPA.
 
 Usage (standalone):
     uv run python -m aerocapture.training.corridor \\
-        --toml configs/nominal/msr_aller_ftc_nominal.toml \\
+        --toml configs/missions/mars.toml \\
         --output corridor_boundaries.npz
 
-The TOML must be a complete config with a [guidance] section (e.g., a nominal
-or training config that inherits from a mission base), not a bare mission base.
+Any mission TOML works — the guidance scheme is irrelevant since all corridor
+trajectories use constant bank angle (reference_trajectory mode).
 """
 
 from __future__ import annotations
@@ -45,6 +45,7 @@ def _run_constant_bank(toml_path: str, bank_angle_deg: float) -> tuple[bool, npt
     aero = _get_aero()
 
     overrides = {
+        "guidance.type": "ftc",  # dummy — overridden by reference_trajectory=true
         "guidance.reference_trajectory": True,
         "guidance.reference_bank_angle": float(bank_angle_deg),
         "simulation.n_sims": 1,
@@ -235,7 +236,7 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Compute aerocapture corridor boundaries")
-    parser.add_argument("--toml", type=str, required=True, help="TOML config with [guidance] section (e.g., nominal or training config)")
+    parser.add_argument("--toml", type=str, required=True, help="Mission TOML config (e.g., configs/missions/mars.toml)")
     parser.add_argument("--output", type=str, default="corridor_boundaries.npz", help="Output .npz file path")
     parser.add_argument("--tol", type=float, default=0.1, help="Bank angle bisection tolerance in degrees (default: 0.1)")
     args = parser.parse_args()
