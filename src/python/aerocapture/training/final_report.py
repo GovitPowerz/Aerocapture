@@ -125,7 +125,7 @@ def _load_reference_trajectory(path: Path) -> dict[str, npt.NDArray[np.float64]]
     return {
         "energy_MJkg": data[:, 0],
         "pdyn_kPa": data[:, 1] / 1e3,  # Pa -> kPa
-        "inclination_deg": np.degrees(data[:, 4]),  # rad -> deg
+        "inclination_deg": data[:, 4],  # already in deg (despite Rust comment saying rad)
         "bank_deg": np.degrees(np.arccos(np.clip(data[:, 6], -1.0, 1.0))),  # cos(bank) -> deg
     }
 
@@ -257,7 +257,7 @@ def generate_final_report(
         "Entry Conditions",
         "Exit Conditions",
         "Performance Summary",
-        "",
+        # No empty slot for the None cell in colspan row — Plotly skips it automatically
     ]
 
     if has_trajectories:
@@ -276,7 +276,7 @@ def generate_final_report(
     fig = make_subplots(
         rows=n_rows,
         cols=2,
-        subplot_titles=subplot_titles[: n_rows * 2],
+        subplot_titles=subplot_titles,
         specs=row_specs,
     )
 
@@ -513,9 +513,6 @@ def _add_performance_table(
                 ]
             )
 
-    # Add capture rate as first row annotation
-    rate_str = f"Capture rate: {n_captured}/{n_total} ({n_captured / n_total * 100:.1f}%)" if n_total > 0 else "No simulations"
-    rows.insert(0, [rate_str, "", "", "", "", "", "", "", "", ""])
 
     cells_transposed = list(zip(*rows, strict=False)) if rows else [[] for _ in header]  # type: ignore[misc]
     fig.add_trace(  # type: ignore[attr-defined]
