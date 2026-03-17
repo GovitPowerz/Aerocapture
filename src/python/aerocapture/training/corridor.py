@@ -189,12 +189,15 @@ def compute_envelopes(
         warnings.warn("No captured trajectories with apo_err >= -delta_za — undershoot envelope empty", stacklevel=2)
     envelope_undershoot = _envelope(mask_a, 99)
 
-    # Envelope B (crash boundary): p1 of crash trajectories (lower bound of crash zone)
-    # When no crashes exist, the crash boundary is undefined (all NaN).
-    mask_b = labels == "crash"
-    if not mask_b.any():
-        warnings.warn("No crash trajectories — crash envelope empty", stacklevel=2)
-    envelope_crash = _envelope(mask_b, 1)
+    # Envelope B (crash boundary): p99 of ALL non-crashing trajectories
+    # Upper edge above which everything crashes. NaN when no crashes observed.
+    mask_b = (labels != "crash") & (labels != "timeout")
+    has_crashes = (labels == "crash").any()
+    if not has_crashes:
+        warnings.warn("No crash trajectories observed — crash zone not drawn", stacklevel=2)
+        envelope_crash = np.full(n_bins, np.nan)
+    else:
+        envelope_crash = _envelope(mask_b, 99)
 
     # Envelope C (overshoot boundary): p1 of captured trajectories with apo_err <= +delta_za
     # These are: corridor + undershoot (captured with apo_err <= +delta_za)
