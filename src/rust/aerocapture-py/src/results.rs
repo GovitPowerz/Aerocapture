@@ -15,9 +15,10 @@ pub struct SimResult {
 
 #[pymethods]
 impl SimResult {
-    /// Per-timestep trajectory as an (N, 8) NumPy array.
+    /// Per-timestep trajectory as an (N, 12) NumPy array.
     ///
-    /// Columns: [alt_km, lon_deg, lat_deg, vel_m_s, fpa_deg, heading_deg, flux, time].
+    /// Columns: [alt_km, lon_deg, lat_deg, vel_m_s, fpa_deg, heading_deg, flux, time,
+    ///           bank_cmd_deg, bank_actual_deg, g_load, dynamic_pressure_pa].
     /// Empty if trajectories were not requested.
     #[getter]
     fn trajectory<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
@@ -84,6 +85,12 @@ impl SimResult {
     fn apo_err(&self) -> f64 {
         self.output.final_record[30]
     }
+
+    /// Dispersion draws as a 1D NumPy array (24 elements).
+    #[getter]
+    fn dispersions<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        PyArray1::from_slice(py, &self.output.dispersions)
+    }
 }
 
 impl SimResult {
@@ -119,10 +126,10 @@ impl BatchResults {
         PyArray1::from_vec(py, flags)
     }
 
-    /// Per-run trajectories as a list of (T_i, 8) NumPy arrays.
+    /// Per-run trajectories as a list of (T_i, 12) NumPy arrays.
     ///
     /// Only populated if `include_trajectories=True` was passed; otherwise
-    /// returns a list of empty (0, 8) arrays.
+    /// returns a list of empty (0, 12) arrays.
     #[getter]
     fn trajectories<'py>(&self, py: Python<'py>) -> Vec<Bound<'py, PyArray2<f64>>> {
         self.outputs
@@ -136,6 +143,13 @@ impl BatchResults {
                 }
             })
             .collect()
+    }
+
+    /// Dispersion draws as an (N, 24) NumPy array — always populated.
+    #[getter]
+    fn dispersions<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        let rows: Vec<Vec<f64>> = self.outputs.iter().map(|o| o.dispersions.to_vec()).collect();
+        PyArray2::from_vec2(py, &rows).unwrap()
     }
 
     /// Number of runs in the batch.

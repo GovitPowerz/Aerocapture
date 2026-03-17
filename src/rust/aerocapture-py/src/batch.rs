@@ -28,6 +28,7 @@ pub fn run_batch(
     toml_path: &Path,
     overrides_list: Vec<Vec<(String, OverrideValue)>>,
     n_threads: usize,
+    include_trajectories: bool,
 ) -> Result<Vec<RunOutput>, String> {
     // Read and parse the base config once.
     let toml_content = std::fs::read_to_string(toml_path)
@@ -73,7 +74,7 @@ pub fn run_batch(
                     );
                 }
 
-                let outputs = aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data, false)
+                let outputs = aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data, include_trajectories)
                     .map_err(|e: SimError| format!("Simulation error: {}", e))?;
 
                 outputs

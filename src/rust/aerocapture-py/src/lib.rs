@@ -148,7 +148,7 @@ fn run_batch(
         overrides_vec.push(extract_overrides(Some(dict))?);
     }
 
-    let outputs = batch::run_batch(std::path::Path::new(toml_path), overrides_vec, n_threads)
+    let outputs = batch::run_batch(std::path::Path::new(toml_path), overrides_vec, n_threads, include_trajectories)
         .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
