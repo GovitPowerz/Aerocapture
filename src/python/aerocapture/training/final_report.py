@@ -411,7 +411,8 @@ def generate_final_report(
     if has_trajectories:
         assert trajectories is not None
         corridor_path = output_path.with_name(output_path.stem + "_corridors.png")
-        _generate_corridor_png(trajectories, captured, ref_traj, corridor_path)
+        dv_cap = final_array[captured, _COL_DV_TOTAL] if n_captured > 0 else None
+        _generate_corridor_png(trajectories, captured, ref_traj, corridor_path, dv_captured=dv_cap)
         print(f"Corridor plots saved to {corridor_path}")
 
     fig.update_layout(
@@ -511,33 +512,72 @@ def _add_performance_table(
     )
 
 
+def _compute_envelope(
+    trajectories: list[npt.NDArray[np.float64]],
+    mask: npt.NDArray[np.bool_],
+    y_col: int,
+    n_bins: int = 100,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.bool_]]:
+    """Bin trajectories by energy and compute min/max y per bin.
+
+    Returns (bin_centers, y_lo, y_hi, valid_mask).
+    """
+    all_e: list[float] = []
+    all_y: list[float] = []
+    for i in np.where(mask)[0]:
+        t = np.asarray(trajectories[i])
+        if t.ndim != 2 or t.shape[0] == 0:
+            continue
+        all_e.extend(t[:, _TRAJ_COL_ENERGY].tolist())
+        all_y.extend(t[:, y_col].tolist())
+    if not all_e:
+        empty = np.array([])
+        return empty, empty, empty, np.array([], dtype=bool)
+    e_arr = np.array(all_e)
+    y_arr = np.array(all_y)
+    bins = np.linspace(e_arr.min(), e_arr.max(), n_bins + 1)
+    bin_idx = np.clip(np.digitize(e_arr, bins) - 1, 0, n_bins - 1)
+    bc = (bins[:-1] + bins[1:]) / 2
+    y_lo = np.full(n_bins, np.nan)
+    y_hi = np.full(n_bins, np.nan)
+    for b in range(n_bins):
+        m = bin_idx == b
+        if m.any():
+            y_lo[b] = y_arr[m].min()
+            y_hi[b] = y_arr[m].max()
+    valid = ~np.isnan(y_lo)
+    return bc, y_lo, y_hi, valid
+
+
 def _generate_corridor_png(
     trajectories: list[npt.NDArray[np.float64]],
     captured: npt.NDArray[np.bool_],
     ref_traj: dict[str, npt.NDArray[np.float64]] | None,
     output_path: Path,
+    dv_captured: npt.NDArray[np.float64] | None = None,
 ) -> None:
-    """Generate static matplotlib corridor plots as a publication-quality PNG.
+    """Generate publication-quality corridor plots as a 2×2 matplotlib PNG.
 
-    Three panels: energy vs pdyn, energy vs inclination, energy vs bank angle.
-    MC trajectories as translucent spaghetti, envelope as filled region,
-    reference trajectory as bold dashed red line.
+    Panels: (a) energy vs pdyn with crash/hyperbolic zones,
+    (b) energy vs inclination, (c) energy vs bank angle,
+    (d) correction cost distribution (histogram + CDF).
     """
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
 
-    panels = [
-        (_TRAJ_COL_PDYN, "Dynamic Pressure (kPa)", "pdyn_kPa", "(a)"),
-        (_TRAJ_COL_INCL, "Inclination (deg)", "inclination_deg", "(b)"),
-        (_TRAJ_COL_BANK, "Bank Angle (deg)", "bank_deg", "(c)"),
-    ]
-
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     opacity = max(0.02, min(0.15, 10.0 / max(len(trajectories), 1)))
 
-    for ax, (y_col, y_label, ref_key, panel_label) in zip(axes, panels, strict=False):
+    corridor_panels = [
+        (axes[0, 0], _TRAJ_COL_PDYN, "Dynamic Pressure (kPa)", "pdyn_kPa", "(a)"),
+        (axes[0, 1], _TRAJ_COL_INCL, "Inclination (deg)", "inclination_deg", "(b)"),
+        (axes[1, 0], _TRAJ_COL_BANK, "Bank Angle (deg)", "bank_deg", "(c)"),
+    ]
+
+    for ax, y_col, y_label, ref_key, panel_label in corridor_panels:
         # MC spaghetti — captured blue, hyperbolic red
         for is_cap, color in [(True, "#2196F3"), (False, "#F44336")]:
             mask = captured if is_cap else ~captured
@@ -547,32 +587,29 @@ def _generate_corridor_png(
                     continue
                 ax.plot(t[:, _TRAJ_COL_ENERGY], t[:, y_col], color=color, alpha=opacity, linewidth=0.5)
 
-        # Envelope — filled region between min/max y at each energy bin
+        # Captured envelope
         if captured.any():
-            all_e: list[float] = []
-            all_y: list[float] = []
-            for i in np.where(captured)[0]:
-                t = np.asarray(trajectories[i])
-                if t.ndim != 2 or t.shape[0] == 0:
-                    continue
-                all_e.extend(t[:, _TRAJ_COL_ENERGY].tolist())
-                all_y.extend(t[:, y_col].tolist())
-            if all_e:
-                e_arr = np.array(all_e)
-                y_arr = np.array(all_y)
-                bins = np.linspace(e_arr.min(), e_arr.max(), 101)
-                bin_idx = np.clip(np.digitize(e_arr, bins) - 1, 0, 99)
-                bc = (bins[:-1] + bins[1:]) / 2
-                y_lo = np.full(100, np.nan)
-                y_hi = np.full(100, np.nan)
-                for b in range(100):
-                    m = bin_idx == b
-                    if m.any():
-                        y_lo[b] = y_arr[m].min()
-                        y_hi[b] = y_arr[m].max()
-                valid = ~np.isnan(y_lo)
-                if valid.any():
-                    ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.15, label="Envelope")
+            bc, y_lo, y_hi, valid = _compute_envelope(trajectories, captured, y_col)
+            if valid.any():
+                ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.4)
+
+        # Crash / hyperbolic exit zones on pdyn panel (a) only
+        if y_col == _TRAJ_COL_PDYN and captured.any():
+            bc, y_lo, y_hi, valid = _compute_envelope(trajectories, captured, y_col)
+            if valid.any():
+                y_axis_max = ax.get_ylim()[1] * 1.1
+                # Upper grey zone: crash (above captured envelope)
+                ax.fill_between(bc[valid], y_hi[valid], y_axis_max, color="#BDBDBD", alpha=0.6)
+                # Lower grey zone: hyperbolic exit (below captured envelope)
+                ax.fill_between(bc[valid], 0, y_lo[valid], color="#BDBDBD", alpha=0.6)
+                ax.set_ylim(bottom=0, top=y_axis_max)
+                # Annotations
+                mid_e = bc[valid].mean()
+                ax.text(mid_e, y_axis_max * 0.85, "Crash", ha="center", fontsize=9, fontstyle="italic", color="#616161")
+                ax.text(mid_e, y_lo[valid].min() * 0.3, "Hyperbolic exit", ha="center", fontsize=9, fontstyle="italic", color="#616161")
+                # Entry / exit annotations at envelope endpoints
+                ax.text(bc[valid][-1], y_lo[valid][-1], "  Entry", fontsize=7, color="#616161", va="center")
+                ax.text(bc[valid][0], y_lo[valid][0], "Atm. exit  ", fontsize=7, color="#616161", va="center", ha="right")
 
         # Reference trajectory
         if ref_traj is not None and ref_key in ref_traj:
@@ -583,10 +620,32 @@ def _generate_corridor_png(
         ax.set_title(panel_label)
         ax.grid(True, alpha=0.3)
 
-    # Add legend to first panel only
-    handles, _ = axes[0].get_legend_handles_labels()
-    if handles:
-        axes[0].legend(loc="best", fontsize=8)
+    # Legend on panel (a) using patches
+    legend_elements = [
+        Patch(facecolor="#2196F3", alpha=0.4, label="Captured"),
+        Patch(facecolor="#BDBDBD", alpha=0.6, label="Crash / Hyperbolic"),
+    ]
+    if ref_traj is not None:
+        from matplotlib.lines import Line2D
+
+        legend_elements.append(Line2D([0], [0], color="red", linewidth=2.5, linestyle="--", label="Reference"))
+    axes[0, 0].legend(handles=legend_elements, loc="upper left", fontsize=8)
+
+    # Panel (d): Correction cost distribution
+    ax_dv = axes[1, 1]
+    if dv_captured is not None and len(dv_captured) > 0:
+        ax_dv.hist(dv_captured, bins=30, color="#F44336", alpha=0.7, edgecolor="white", density=True, label="Histogram")
+        # CDF on secondary axis
+        ax_cdf = ax_dv.twinx()
+        sorted_dv = np.sort(dv_captured)
+        cdf = np.arange(1, len(sorted_dv) + 1) / len(sorted_dv)
+        ax_cdf.plot(sorted_dv, cdf, color="#2196F3", linewidth=2, label="CDF")
+        ax_cdf.set_ylabel("Distribution (-)")
+        ax_cdf.set_ylim(0, 1.05)
+    ax_dv.set_xlabel("Correction cost (m/s)")
+    ax_dv.set_ylabel("Density")
+    ax_dv.set_title("(d)")
+    ax_dv.grid(True, alpha=0.3)
 
     fig.tight_layout()
     fig.savefig(str(output_path), dpi=150, bbox_inches="tight")

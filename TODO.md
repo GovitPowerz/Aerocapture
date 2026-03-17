@@ -1,7 +1,7 @@
 # TODO
 
 - [ ] add an animation script of entry corridors and trajectories evolution during training based on checkpoints
-- [ ] corridors don't need to be interactive (make a png as the one in my article)
+- [x] corridors don't need to be interactive (make a png as the one in my article)
 - [ ] 1e30 for Dv is too much, we should use something like log(Dv) for higher values than a threshold but make it continuous
 - [ ] Update IMPROVEMENTS.md
 
