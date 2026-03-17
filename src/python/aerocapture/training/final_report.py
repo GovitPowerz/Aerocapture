@@ -567,39 +567,35 @@ def _draw_pdyn_zones(
 ) -> None:
     """Draw crash/hyperbolic grey zones on the pdyn corridor panel.
 
-    If corridor_data is provided, uses the overshoot (lower boundary) and
-    undershoot (upper boundary) trajectories from bisection. Otherwise falls
-    back to the MC captured envelope.
+    If corridor_data is provided, uses the captured corridor MC trajectories
+    for the envelope (wider, dispersion-aware corridor). Otherwise falls back
+    to the final-evaluation MC captured envelope.
     """
     y_axis_max = ax.get_ylim()[1] * 1.1
     ax.set_ylim(bottom=0, top=y_axis_max)
 
-    if corridor_data is not None and corridor_data["undershoot"].size > 0 and corridor_data["overshoot"].size > 0:
-        udr = corridor_data["undershoot"]  # undershoot = high pdyn boundary
-        ovr = corridor_data["overshoot"]  # overshoot = low pdyn boundary
-        udr_energy = udr[:, _TRAJ_COL_ENERGY]
-        udr_pdyn = udr[:, _TRAJ_COL_PDYN]
-        ovr_energy = ovr[:, _TRAJ_COL_ENERGY]
-        ovr_pdyn = ovr[:, _TRAJ_COL_PDYN]
+    # Determine which trajectory set to use for the envelope
+    if corridor_data is not None and "traj_lengths" in corridor_data:
+        from aerocapture.training.corridor import _unpack_trajectories
 
-        # Overshoot grey zone: fill below the overshoot curve (hyperbolic exit)
-        ovr_x = np.concatenate([[ovr_energy[0]], ovr_energy, [ovr_energy[-1]]])
-        ovr_y = np.concatenate([[0.0], ovr_pdyn, [0.0]])
-        ax.fill(ovr_x, ovr_y, color="#BDBDBD", alpha=0.6, zorder=0, edgecolor="#999999", linewidth=0.5)
-
-        # Undershoot grey zone: fill above the undershoot curve (crash)
-        e_min = min(udr_energy.min(), ovr_energy.min()) - 0.5
-        e_max = max(udr_energy.max(), ovr_energy.max()) + 0.5
-        udr_x = np.concatenate([[e_max], [e_max], [udr_energy[0]], udr_energy, [udr_energy[-1]], [e_min], [e_min]])
-        udr_y = np.concatenate([[y_axis_max], [0.0], [0.0], udr_pdyn, [0.0], [0.0], [y_axis_max]])
-        ax.fill(udr_x, udr_y, color="#BDBDBD", alpha=0.6, zorder=0, edgecolor="#999999", linewidth=0.5)
+        corr_trajs = _unpack_trajectories(corridor_data)
+        if corr_trajs:
+            all_mask = np.ones(len(corr_trajs), dtype=bool)  # all are viable captures
+            bc, y_lo, y_hi, valid = _compute_envelope(corr_trajs, all_mask, _TRAJ_COL_PDYN)
+        else:
+            bc, y_lo, y_hi, valid = _compute_envelope(trajectories, captured, _TRAJ_COL_PDYN)
     elif captured.any():
-        # Fallback: use MC envelope when no corridor boundaries available
         bc, y_lo, y_hi, valid = _compute_envelope(trajectories, captured, _TRAJ_COL_PDYN)
-        if valid.any():
-            ax.axhspan(0, y_axis_max, color="#BDBDBD", alpha=0.5, zorder=0)
-            ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="white", zorder=1)
-            ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.4, zorder=2)
+    else:
+        return
+
+    if not valid.any():
+        return
+
+    # Fill entire background grey, then carve out the corridor
+    ax.axhspan(0, y_axis_max, color="#BDBDBD", alpha=0.5, zorder=0)
+    ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="white", zorder=1)
+    ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.4, zorder=2)
 
     # Annotations
     x_lo, x_hi = ax.get_xlim()

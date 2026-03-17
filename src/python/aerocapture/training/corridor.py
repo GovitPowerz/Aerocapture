@@ -1,15 +1,19 @@
-"""Aerocapture corridor boundary computation.
+"""Aerocapture corridor boundary computation via Monte Carlo.
 
-Computes three boundary trajectories for a given mission config:
-- Nominal: run with the configured guidance algorithm, no dispersions
-- Undershoot: constant bank angle at the maximum lift-up angle that still captures
-- Overshoot: constant bank angle at the maximum lift-down angle that still captures
+Computes corridor boundaries and optimal nominal trajectory using two MC runs:
 
-The boundaries are found by bisecting on bank angle at the nominal entry FPA.
+1. **Full MC** (bank angle dispersed [0°,180°] + all mission dispersions):
+   Filter viable captures, extract the energy-vs-pdyn envelope as corridor boundaries.
+   The union of all captured trajectories defines the widest possible corridor.
+
+2. **Bank-only MC** (bank angle dispersed [0°,180°], no other dispersions):
+   Filter viable captures, pick the trajectory with lowest |dv1|+|dv2| as the
+   optimal constant-bank nominal.
 
 Usage (standalone):
     uv run python -m aerocapture.training.corridor \\
         --toml configs/missions/mars.toml \\
+        --n-sims 5000 \\
         --output corridor_boundaries.npz
 
 Any mission TOML works — the guidance scheme is irrelevant since all corridor
@@ -23,261 +27,228 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
+# Trajectory column indices (12-column format)
+_TRAJ_COL_ENERGY = 8
+_TRAJ_COL_PDYN = 9
 
-def _get_aero() -> object:
-    """Import and return the aerocapture_rs module."""
+# Final record column indices (52-column format)
+_COL_ENERGY = 7
+_COL_ECC = 9
+_COL_PERI_ALT = 14
+_COL_DV_APO_PERI = 40  # |dv1| + |dv2|
+_DV_CRASH_SENTINEL = 1e10
+
+
+def _viable_capture_mask(final_records: npt.NDArray[np.float64]) -> npt.NDArray[np.bool_]:
+    """Return boolean mask for viable captures in a batch of final records (N, 52).
+
+    Viable = bound orbit (ecc < 1, energy < 0) + periapsis above surface + DV not sentinel.
+    """
+    ecc = final_records[:, _COL_ECC]
+    energy = final_records[:, _COL_ENERGY]
+    peri_alt = final_records[:, _COL_PERI_ALT]
+    dv = final_records[:, _COL_DV_APO_PERI]
+    return (ecc < 1.0) & (energy < 0.0) & (peri_alt > 0.0) & (dv < _DV_CRASH_SENTINEL)
+
+
+def _run_mc_constant_bank(
+    toml_path: str,
+    n_sims: int,
+    bank_lo: float,
+    bank_hi: float,
+    seed: int,
+    with_dispersions: bool,
+) -> tuple[npt.NDArray[np.float64], list[npt.NDArray[np.float64]]]:
+    """Run MC with constant bank angle uniformly dispersed in [bank_lo, bank_hi].
+
+    When with_dispersions=False, sets dispersion level to "none" to disable all
+    mission dispersions (only bank angle varies).
+
+    Returns (final_records (N, 52), trajectories list of (T_i, 12)).
+    """
     try:
         import aerocapture_rs as aero  # type: ignore[import-not-found, import-untyped]
     except ImportError as e:
         msg = "PyO3 aerocapture_rs module required for corridor computation"
         raise ImportError(msg) from e
-    return aero
 
+    # We can't directly disperse bank angle through the TOML dispersion system
+    # (it disperses entry conditions, not guidance params). Instead, run n_sims
+    # individual sims with bank angles drawn from uniform [bank_lo, bank_hi].
+    rng = np.random.default_rng(seed)
+    bank_angles = rng.uniform(bank_lo, bank_hi, n_sims)
 
-_COL_DV_APO_PERI = 40  # |dv1| + |dv2| (apoapsis + periapsis corrections, excludes inclination)
-_COL_PERI_ALT = 14  # periapsis altitude (km)
-_DV_CRASH_SENTINEL = 1e10  # above this, orbit is unusable (crash or degenerate)
+    overrides_list = []
+    for bank in bank_angles:
+        ovr: dict[str, object] = {
+            "guidance.type": "ftc",  # dummy — overridden by reference_trajectory
+            "guidance.reference_trajectory": True,
+            "guidance.reference_bank_angle": float(bank),
+            "simulation.n_sims": 1,
+        }
+        if not with_dispersions:
+            ovr["monte_carlo.dispersion_level"] = "none"
+        overrides_list.append(ovr)
 
-
-def _is_viable_capture(fr: npt.NDArray[np.float64]) -> bool:
-    """Check if a final_record represents a viable captured orbit.
-
-    Requires: bound orbit (ecc < 1, energy < 0), periapsis above the surface,
-    and correction DV below the crash sentinel.
-    """
-    ecc = float(fr[9])
-    energy = float(fr[7])
-    peri_alt = float(fr[_COL_PERI_ALT])
-    dv = float(fr[_COL_DV_APO_PERI])
-    return ecc < 1.0 and energy < 0.0 and peri_alt > 0.0 and dv < _DV_CRASH_SENTINEL
-
-
-def _run_constant_bank(toml_path: str, bank_angle_deg: float) -> tuple[bool, npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    """Run a single sim with constant bank angle (reference_trajectory mode).
-
-    Returns (viable_capture, trajectory (T, 12), final_record (52,)).
-    Uses run_mc with include_trajectories=True to get per-timestep data.
-    """
-    aero = _get_aero()
-
-    overrides = {
-        "guidance.type": "ftc",  # dummy — overridden by reference_trajectory=true
-        "guidance.reference_trajectory": True,
-        "guidance.reference_bank_angle": float(bank_angle_deg),
-        "simulation.n_sims": 1,
-    }
-    results = aero.run_mc(toml_path=toml_path, overrides=overrides, include_trajectories=True)  # type: ignore[attr-defined]
-    fr: npt.NDArray[np.float64] = results.final_records[0]
-    trajs = results.trajectories
-    traj: npt.NDArray[np.float64] = trajs[0] if trajs and len(trajs) > 0 else np.array([])
-    return _is_viable_capture(fr), traj, fr
-
-
-def _bisect_bank_angle(
-    toml_path: str,
-    lo: float,
-    hi: float,
-    captured_side: str,
-    tol: float = 0.1,
-    max_iter: int = 30,
-) -> tuple[float, npt.NDArray[np.float64]]:
-    """Bisect on bank angle to find the capture/escape boundary.
-
-    Args:
-        toml_path: Path to TOML config.
-        lo: Lower bank angle bound (deg).
-        hi: Upper bank angle bound (deg).
-        captured_side: "lo" if lo is the captured side, "hi" if hi is.
-        tol: Bank angle tolerance (deg) for bisection convergence.
-        max_iter: Maximum bisection iterations.
-
-    Returns:
-        (boundary_bank_angle_deg, boundary_trajectory)
-    """
-    last_captured_traj: npt.NDArray[np.float64] = np.array([])
-    last_captured_bank = lo if captured_side == "lo" else hi
-
-    for _ in range(max_iter):
-        mid = (lo + hi) / 2.0
-        captured, traj, _ = _run_constant_bank(toml_path, mid)
-
-        if captured:
-            last_captured_traj = traj
-            last_captured_bank = mid
-
-        if abs(hi - lo) < tol:
-            break
-
-        if captured_side == "lo":
-            if captured:
-                lo = mid
-            else:
-                hi = mid
-        else:
-            if captured:
-                hi = mid
-            else:
-                lo = mid
-
-    return last_captured_bank, last_captured_traj
-
-
-def _find_optimal_bank(
-    toml_path: str,
-    lo_bank: float,
-    hi_bank: float,
-    tol: float = 0.1,
-) -> tuple[float, npt.NDArray[np.float64]]:
-    """Find the constant bank angle that minimizes |dv1|+|dv2| (apoapsis+periapsis correction).
-
-    Uses scipy.optimize.minimize_scalar with bounded method within the captured corridor.
-    """
-    from scipy.optimize import minimize_scalar
-
-    best_traj: npt.NDArray[np.float64] = np.array([])
-    best_bank = (lo_bank + hi_bank) / 2.0
-
-    def objective(bank_deg: float) -> float:
-        nonlocal best_traj, best_bank
-        captured, traj, fr = _run_constant_bank(toml_path, bank_deg)
-        if not captured:
-            return 1e30
-        dv = float(fr[_COL_DV_APO_PERI])
-        best_traj = traj
-        best_bank = bank_deg
-        return dv
-
-    result = minimize_scalar(objective, bounds=(lo_bank, hi_bank), method="bounded", options={"xatol": tol, "maxiter": 30})
-    # Run one final time at the optimum to ensure we have its trajectory
-    captured, traj, fr = _run_constant_bank(toml_path, float(result.x))
-    if captured:
-        return float(result.x), traj
-    return best_bank, best_traj
+    results = aero.run_batch(  # type: ignore[attr-defined]
+        toml_path,
+        overrides_list,
+        include_trajectories=True,
+    )
+    final_records: npt.NDArray[np.float64] = results.final_records
+    trajectories: list[npt.NDArray[np.float64]] = results.trajectories
+    return final_records, trajectories
 
 
 def compute_corridor(
     toml_path: str,
-    bank_tol: float = 0.1,
+    n_sims: int = 5000,
+    seed: int = 42,
 ) -> dict[str, npt.NDArray[np.float64]]:
-    """Compute corridor boundaries and optimal nominal trajectory.
+    """Compute corridor boundaries and optimal nominal via Monte Carlo.
 
-    All three trajectories use constant bank angle:
-    - **Undershoot boundary**: bank angle closest to 0° (full lift-up) that still captures.
-    - **Overshoot boundary**: bank angle closest to 180° (full lift-down) that still captures.
-    - **Nominal**: bank angle within the corridor that minimizes |dv1|+|dv2|
-      (apoapsis + periapsis correction cost, excluding inclination).
+    1. Full MC (bank [0°,180°] + all dispersions) → viable capture envelope = corridor.
+    2. Bank-only MC (bank [0°,180°], no dispersions) → min-DV trajectory = nominal.
 
     Args:
-        toml_path: Path to TOML config with [guidance] section.
-        bank_tol: Bank angle tolerance in degrees for bisection/optimization.
+        toml_path: Path to mission TOML config.
+        n_sims: Number of MC sims per run (default 5000).
+        seed: Random seed.
 
     Returns:
-        Dict with keys: "nominal", "undershoot", "overshoot" → (T, 12) trajectory arrays,
-        plus "nominal_bank_deg", "undershoot_bank_deg", "overshoot_bank_deg" scalar arrays.
+        Dict with keys:
+        - "nominal": (T, 12) trajectory array (optimal constant-bank, min DV)
+        - "nominal_bank_deg": scalar array with the nominal bank angle
+        - "captured_trajectories": list of (T_i, 12) arrays for corridor envelope
+        - "captured_final_records": (N_cap, 52) for captured sims
+        - "n_sims": total sims run
+        - "n_viable": number of viable captures
     """
     toml_str = str(Path(toml_path).resolve())
 
-    # 1. Scan to find the viable capture range
-    #    A "viable capture" requires bound orbit + periapsis above surface + DV below sentinel.
-    #    Scan from 0° to 180° in coarse steps to find the captured region.
-    print("  Scanning bank angle range for viable captures...")
-    scan_step = 10.0
-    scan_angles = np.arange(0.0, 180.0 + scan_step, scan_step)
-    viable_angles: list[float] = []
-    for bank in scan_angles:
-        cap, _, _ = _run_constant_bank(toml_str, float(bank))
-        status = "viable" if cap else "crash/escape"
-        print(f"    bank={bank:>5.0f}°: {status}")
-        if cap:
-            viable_angles.append(float(bank))
+    # 1. Full MC: bank + all dispersions → corridor envelope
+    print(f"  Running {n_sims}-sim full MC (bank [0°,180°] + dispersions)...")
+    fr_full, traj_full = _run_mc_constant_bank(toml_str, n_sims, 0.0, 180.0, seed, with_dispersions=True)
+    viable_full = _viable_capture_mask(fr_full)
+    n_viable = int(viable_full.sum())
+    print(f"    Viable captures: {n_viable}/{n_sims} ({100 * n_viable / n_sims:.1f}%)")
 
-    if not viable_angles:
-        print("  ERROR: No viable captures found at any bank angle!")
-        return {"nominal": np.array([]), "undershoot": np.array([]), "overshoot": np.array([]),
-                "nominal_bank_deg": np.array([0.0]), "undershoot_bank_deg": np.array([0.0]), "overshoot_bank_deg": np.array([0.0])}
+    captured_trajs = [traj_full[i] for i in np.where(viable_full)[0]]
+    captured_frs = fr_full[viable_full]
 
-    scan_lo = min(viable_angles)
-    scan_hi = max(viable_angles)
-    print(f"  Viable capture range: ~{scan_lo:.0f}°—{scan_hi:.0f}°")
+    # 2. Bank-only MC: no dispersions → find optimal nominal
+    n_nom = min(n_sims, 2000)  # fewer sims needed without dispersions
+    print(f"  Running {n_nom}-sim bank-only MC (no dispersions)...")
+    fr_nom, traj_nom = _run_mc_constant_bank(toml_str, n_nom, 0.0, 180.0, seed + 1, with_dispersions=False)
+    viable_nom = _viable_capture_mask(fr_nom)
+    n_viable_nom = int(viable_nom.sum())
+    print(f"    Viable captures: {n_viable_nom}/{n_nom}")
 
-    # 2. Bisect for the undershoot boundary (low bank angle edge of the corridor)
-    #    Below this bank angle, the trajectory crashes (too deep).
-    if scan_lo <= 0.0:
-        # 0° is viable → undershoot boundary is at 0°
-        udr_bank = 0.0
-        udr_traj = _run_constant_bank(toml_str, 0.0)[1]
-        print("    Undershoot boundary: bank=0.00° (0° is viable)")
+    if n_viable_nom > 0:
+        # Pick trajectory with lowest |dv1| + |dv2|
+        dv_values = fr_nom[viable_nom, _COL_DV_APO_PERI]
+        best_idx_in_viable = int(np.argmin(dv_values))
+        best_idx = np.where(viable_nom)[0][best_idx_in_viable]
+        nom_traj = traj_nom[best_idx]
+        nom_dv = float(dv_values[best_idx_in_viable])
+        # Recover bank angle from the initial bank (trajectory first timestep bank col)
+        nom_bank = float(nom_traj[0, 10]) if nom_traj.size > 0 else 0.0  # col 10 = bank_deg
+        print(f"    Nominal: bank≈{nom_bank:.1f}°, DV(apo+peri)={nom_dv:.1f} m/s")
     else:
-        print(f"  Bisecting undershoot boundary ({scan_lo - scan_step:.0f}°→{scan_lo:.0f}°)...")
-        udr_bank, udr_traj = _bisect_bank_angle(toml_str, scan_lo - scan_step, scan_lo, captured_side="hi", tol=bank_tol)
-        print(f"    Undershoot boundary: bank={udr_bank:.2f}°")
-
-    # 3. Bisect for the overshoot boundary (high bank angle edge of the corridor)
-    #    Above this bank angle, the trajectory crashes or escapes.
-    if scan_hi >= 180.0:
-        ovr_bank = 180.0
-        ovr_traj = _run_constant_bank(toml_str, 180.0)[1]
-        print("    Overshoot boundary: bank=180.00° (180° is viable)")
-    else:
-        print(f"  Bisecting overshoot boundary ({scan_hi:.0f}°→{scan_hi + scan_step:.0f}°)...")
-        ovr_bank, ovr_traj = _bisect_bank_angle(toml_str, scan_hi, scan_hi + scan_step, captured_side="lo", tol=bank_tol)
-        print(f"    Overshoot boundary: bank={ovr_bank:.2f}°")
-
-    # 4. Find optimal nominal: minimize |dv1|+|dv2| within the captured corridor
-    margin = bank_tol * 2
-    nom_lo = min(udr_bank, ovr_bank) + margin
-    nom_hi = max(udr_bank, ovr_bank) - margin
-    print(f"  Optimizing nominal bank angle for min DV (apo+peri) in [{nom_lo:.1f}°, {nom_hi:.1f}°]...")
-    nom_bank, nom_traj = _find_optimal_bank(toml_str, nom_lo, nom_hi, tol=bank_tol)
-    _, _, nom_fr = _run_constant_bank(toml_str, nom_bank)
-    nom_dv = float(nom_fr[_COL_DV_APO_PERI])
-    print(f"    Nominal: bank={nom_bank:.2f}°, DV(apo+peri)={nom_dv:.1f} m/s")
+        print("  WARNING: No viable captures in bank-only MC")
+        nom_traj = np.array([])
+        nom_bank = 0.0
 
     return {
         "nominal": nom_traj,
-        "undershoot": udr_traj,
-        "overshoot": ovr_traj,
         "nominal_bank_deg": np.array([nom_bank]),
-        "undershoot_bank_deg": np.array([udr_bank]),
-        "overshoot_bank_deg": np.array([ovr_bank]),
+        "captured_trajectories_count": np.array([len(captured_trajs)]),
+        "captured_final_records": captured_frs,
+        "n_sims": np.array([n_sims]),
+        "n_viable": np.array([n_viable]),
+        # Store all captured trajectories concatenated with a separator scheme:
+        # lengths array + flat concatenation, to fit in npz format
+        **_pack_trajectories(captured_trajs),
     }
 
 
+def _pack_trajectories(trajs: list[npt.NDArray[np.float64]]) -> dict[str, npt.NDArray[np.floating | np.signedinteger]]:
+    """Pack variable-length trajectories into npz-compatible arrays.
+
+    Returns {"traj_lengths": (N,), "traj_data": (total_rows, 12)}.
+    """
+    if not trajs:
+        return {"traj_lengths": np.array([], dtype=np.int64), "traj_data": np.empty((0, 12))}
+    lengths = np.array([len(t) for t in trajs], dtype=np.int64)
+    data = np.vstack(trajs)
+    return {"traj_lengths": lengths, "traj_data": data}
+
+
+def _unpack_trajectories(data: dict[str, npt.NDArray[np.float64]]) -> list[npt.NDArray[np.float64]]:
+    """Unpack trajectories from npz format back to list of arrays."""
+    lengths = data.get("traj_lengths", np.array([]))
+    flat = data.get("traj_data", np.empty((0, 12)))
+    if lengths.size == 0:
+        return []
+    trajs: list[npt.NDArray[np.float64]] = []
+    offset = 0
+    for length in lengths:
+        trajs.append(flat[offset : offset + int(length)])
+        offset += int(length)
+    return trajs
+
+
 def save_corridor(data: dict[str, npt.NDArray[np.float64]], output_path: Path) -> None:
-    """Save corridor boundaries to a compressed .npz file."""
+    """Save corridor data to a compressed .npz file."""
     np.savez_compressed(str(output_path), **data)  # type: ignore[arg-type]
-    print(f"  Corridor boundaries saved to {output_path}")
+    print(f"  Corridor data saved to {output_path}")
 
 
 def load_corridor(path: Path) -> dict[str, npt.NDArray[np.float64]] | None:
-    """Load corridor boundaries from a .npz file. Returns None if not found."""
+    """Load corridor data from a .npz file. Returns None if not found."""
     if not path.exists():
         return None
-    data = np.load(str(path))
-    return {k: data[k] for k in data.files}
+    npz = np.load(str(path))
+    return {k: npz[k] for k in npz.files}
+
+
+def load_corridor_trajectories(path: Path) -> tuple[npt.NDArray[np.float64], list[npt.NDArray[np.float64]]] | None:
+    """Load corridor nominal trajectory and captured trajectory list.
+
+    Returns (nominal_trajectory, captured_trajectories) or None.
+    """
+    data = load_corridor(path)
+    if data is None:
+        return None
+    nominal = data.get("nominal", np.array([]))
+    captured = _unpack_trajectories(data)
+    return nominal, captured
 
 
 def main() -> None:
     """CLI entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Compute aerocapture corridor boundaries")
+    parser = argparse.ArgumentParser(description="Compute aerocapture corridor boundaries via Monte Carlo")
     parser.add_argument("--toml", type=str, required=True, help="Mission TOML config (e.g., configs/missions/mars.toml)")
     parser.add_argument("--output", type=str, default="corridor_boundaries.npz", help="Output .npz file path")
-    parser.add_argument("--tol", type=float, default=0.1, help="Bank angle bisection tolerance in degrees (default: 0.1)")
+    parser.add_argument("--n-sims", type=int, default=5000, help="Number of MC sims (default: 5000)")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
     args = parser.parse_args()
 
     print(f"Computing corridor boundaries for {args.toml}...")
-    corridor = compute_corridor(args.toml, bank_tol=args.tol)
+    corridor = compute_corridor(args.toml, n_sims=args.n_sims, seed=args.seed)
     save_corridor(corridor, Path(args.output))
 
     # Print summary
-    for key in ["nominal", "undershoot", "overshoot"]:
-        traj = corridor[key]
-        if traj.size > 0:
-            print(f"  {key}: {traj.shape[0]} timesteps, energy range [{traj[:, 8].min():.2f}, {traj[:, 8].max():.2f}] MJ/kg")
-        else:
-            print(f"  {key}: empty trajectory")
+    n_viable = int(corridor["n_viable"][0])
+    n_total = int(corridor["n_sims"][0])
+    print(f"\n  Summary: {n_viable}/{n_total} viable captures ({100 * n_viable / n_total:.1f}%)")
+    nom = corridor["nominal"]
+    if nom.size > 0:
+        print(f"  Nominal: {nom.shape[0]} timesteps, energy [{nom[:, _TRAJ_COL_ENERGY].min():.2f}, {nom[:, _TRAJ_COL_ENERGY].max():.2f}] MJ/kg")
+    n_cap_trajs = int(corridor["captured_trajectories_count"][0])
+    print(f"  Captured trajectories stored: {n_cap_trajs}")
 
 
 if __name__ == "__main__":
