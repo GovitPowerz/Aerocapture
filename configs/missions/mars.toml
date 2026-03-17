@@ -86,3 +86,7 @@ angles = [-27.5, -27.5, -27.5, -27.5]
 [data]
 atmosphere = "data/atmosphere/mars.dat"
 reference_trajectory = "data/reference_trajectory/msr_aller.dat"
+
+[corridor]
+delta_za = 200.0  # km, apoapsis error tolerance for restricted corridor boundaries
+n_sims = 10000    # number of MC sims for corridor boundary computation
