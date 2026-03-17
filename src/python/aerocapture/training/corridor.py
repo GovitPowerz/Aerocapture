@@ -34,10 +34,13 @@ def _get_aero() -> object:
     return aero
 
 
-def _run_constant_bank(toml_path: str, bank_angle_deg: float) -> tuple[bool, npt.NDArray[np.float64]]:
+_COL_DV_APO_PERI = 40  # |dv1| + |dv2| (apoapsis + periapsis corrections, excludes inclination)
+
+
+def _run_constant_bank(toml_path: str, bank_angle_deg: float) -> tuple[bool, npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Run a single sim with constant bank angle (reference_trajectory mode).
 
-    Returns (captured, trajectory) where trajectory is (T, 12) or empty.
+    Returns (captured, trajectory (T, 12), final_record (52,)).
     """
     aero = _get_aero()
 
@@ -48,22 +51,8 @@ def _run_constant_bank(toml_path: str, bank_angle_deg: float) -> tuple[bool, npt
     }
     result = aero.run(toml_path, overrides=overrides)  # type: ignore[attr-defined]
     traj: npt.NDArray[np.float64] = result.trajectory
-    return bool(result.captured), traj
-
-
-def _run_nominal(toml_path: str) -> tuple[bool, npt.NDArray[np.float64]]:
-    """Run a single sim with the configured guidance, no dispersions.
-
-    Returns (captured, trajectory) where trajectory is (T, 12) or empty.
-    """
-    aero = _get_aero()
-
-    overrides = {
-        "simulation.n_sims": 1,
-    }
-    result = aero.run(toml_path, overrides=overrides)  # type: ignore[attr-defined]
-    traj: npt.NDArray[np.float64] = result.trajectory
-    return bool(result.captured), traj
+    fr: npt.NDArray[np.float64] = result.final_record
+    return bool(result.captured), traj, fr
 
 
 def _bisect_bank_angle(
@@ -92,7 +81,7 @@ def _bisect_bank_angle(
 
     for _ in range(max_iter):
         mid = (lo + hi) / 2.0
-        captured, traj = _run_constant_bank(toml_path, mid)
+        captured, traj, _ = _run_constant_bank(toml_path, mid)
 
         if captured:
             last_captured_traj = traj
@@ -102,13 +91,11 @@ def _bisect_bank_angle(
             break
 
         if captured_side == "lo":
-            # lo is captured, hi is escaped → if mid captures, move lo up
             if captured:
                 lo = mid
             else:
                 hi = mid
         else:
-            # hi is captured, lo is escaped → if mid captures, move hi down
             if captured:
                 hi = mid
             else:
@@ -117,86 +104,113 @@ def _bisect_bank_angle(
     return last_captured_bank, last_captured_traj
 
 
+def _find_optimal_bank(
+    toml_path: str,
+    lo_bank: float,
+    hi_bank: float,
+    tol: float = 0.1,
+) -> tuple[float, npt.NDArray[np.float64]]:
+    """Find the constant bank angle that minimizes |dv1|+|dv2| (apoapsis+periapsis correction).
+
+    Uses scipy.optimize.minimize_scalar with bounded method within the captured corridor.
+    """
+    from scipy.optimize import minimize_scalar
+
+    best_traj: npt.NDArray[np.float64] = np.array([])
+    best_bank = (lo_bank + hi_bank) / 2.0
+
+    def objective(bank_deg: float) -> float:
+        nonlocal best_traj, best_bank
+        captured, traj, fr = _run_constant_bank(toml_path, bank_deg)
+        if not captured:
+            return 1e30
+        dv = float(fr[_COL_DV_APO_PERI])
+        best_traj = traj
+        best_bank = bank_deg
+        return dv
+
+    result = minimize_scalar(objective, bounds=(lo_bank, hi_bank), method="bounded", options={"xatol": tol, "maxiter": 30})
+    # Run one final time at the optimum to ensure we have its trajectory
+    captured, traj, fr = _run_constant_bank(toml_path, float(result.x))
+    if captured:
+        return float(result.x), traj
+    return best_bank, best_traj
+
+
 def compute_corridor(
     toml_path: str,
     bank_tol: float = 0.1,
 ) -> dict[str, npt.NDArray[np.float64]]:
-    """Compute nominal + undershoot/overshoot corridor boundaries.
+    """Compute corridor boundaries and optimal nominal trajectory.
 
-    The undershoot boundary is the constant bank angle closest to 0° (full lift-up)
-    that still captures — this produces the highest pdyn trajectory.
-
-    The overshoot boundary is the constant bank angle closest to 180° (full lift-down)
-    that still captures — this produces the lowest pdyn trajectory.
+    All three trajectories use constant bank angle:
+    - **Undershoot boundary**: bank angle closest to 0° (full lift-up) that still captures.
+    - **Overshoot boundary**: bank angle closest to 180° (full lift-down) that still captures.
+    - **Nominal**: bank angle within the corridor that minimizes |dv1|+|dv2|
+      (apoapsis + periapsis correction cost, excluding inclination).
 
     Args:
-        toml_path: Path to mission TOML config.
-        bank_tol: Bank angle bisection tolerance in degrees.
+        toml_path: Path to TOML config with [guidance] section.
+        bank_tol: Bank angle tolerance in degrees for bisection/optimization.
 
     Returns:
         Dict with keys: "nominal", "undershoot", "overshoot" → (T, 12) trajectory arrays,
-        plus "undershoot_bank_deg" and "overshoot_bank_deg" scalar arrays.
+        plus "nominal_bank_deg", "undershoot_bank_deg", "overshoot_bank_deg" scalar arrays.
     """
     toml_str = str(Path(toml_path).resolve())
 
-    # 1. Nominal trajectory with configured guidance
-    print("  Running nominal trajectory...")
-    nom_captured, nom_traj = _run_nominal(toml_str)
-    if not nom_captured:
-        print("  WARNING: Nominal trajectory did not capture!")
-
-    # 2. Find undershoot boundary: bisect bank angle in [0, 90]
-    # At bank=0 (full lift-up), trajectory goes deepest → likely captured
-    # At bank=90, less lift → may or may not capture
-    # We want the HIGHEST bank angle that still captures (closest to escape)
+    # 1. Find undershoot boundary: bisect bank angle in [0, 90]
     print("  Bisecting undershoot boundary (bank 0°→90°)...")
-    cap_0, _ = _run_constant_bank(toml_str, 0.0)
-    cap_90, _ = _run_constant_bank(toml_str, 90.0)
+    cap_0, _, _ = _run_constant_bank(toml_str, 0.0)
+    cap_90, _, _ = _run_constant_bank(toml_str, 90.0)
 
     if cap_0 and not cap_90:
-        # Normal case: 0° captures, 90° escapes → bisect
         udr_bank, udr_traj = _bisect_bank_angle(toml_str, 0.0, 90.0, captured_side="lo", tol=bank_tol)
     elif cap_0 and cap_90:
-        # Both capture → boundary is beyond 90°, use 90° as undershoot
         print("  Both 0° and 90° capture; using 90° as undershoot boundary")
         udr_bank, udr_traj = 90.0, _run_constant_bank(toml_str, 90.0)[1]
     else:
-        # 0° doesn't capture → very steep entry, corridor may not exist
         print("  WARNING: Bank=0° does not capture; using 0° trajectory")
         udr_bank, udr_traj = 0.0, _run_constant_bank(toml_str, 0.0)[1]
 
     print(f"    Undershoot boundary: bank={udr_bank:.2f}°")
 
-    # 3. Find overshoot boundary: bisect bank angle in [90, 180]
-    # At bank=180 (full lift-down), trajectory is shallow → likely escapes
-    # At bank=90, moderate → may capture
+    # 2. Find overshoot boundary: bisect bank angle in [90, 180]
     print("  Bisecting overshoot boundary (bank 90°→180°)...")
-    cap_180, _ = _run_constant_bank(toml_str, 180.0)
+    cap_180, _, _ = _run_constant_bank(toml_str, 180.0)
 
     if cap_90 and not cap_180:
-        # Normal case: 90° captures, 180° escapes → bisect
         ovr_bank, ovr_traj = _bisect_bank_angle(toml_str, 90.0, 180.0, captured_side="lo", tol=bank_tol)
     elif not cap_90 and not cap_180:
-        # Neither captures → try from nominal bank angle downward
-        # Use the initial_bank_angle as known-captured reference
         print("  90° and 180° both escape; bisecting from 45°→180°...")
-        cap_45, _ = _run_constant_bank(toml_str, 45.0)
+        cap_45, _, _ = _run_constant_bank(toml_str, 45.0)
         if cap_45:
             ovr_bank, ovr_traj = _bisect_bank_angle(toml_str, 45.0, 180.0, captured_side="lo", tol=bank_tol)
         else:
             print("  WARNING: Cannot find overshoot boundary")
             ovr_bank, ovr_traj = 180.0, _run_constant_bank(toml_str, 180.0)[1]
     else:
-        # Both capture → boundary beyond 180° (unlikely)
         print("  Both 90° and 180° capture; using 180° as overshoot boundary")
         ovr_bank, ovr_traj = 180.0, _run_constant_bank(toml_str, 180.0)[1]
 
     print(f"    Overshoot boundary: bank={ovr_bank:.2f}°")
 
+    # 3. Find optimal nominal: minimize |dv1|+|dv2| within the captured corridor
+    # Search between the two boundaries (with a small inward margin to stay captured)
+    margin = bank_tol * 2
+    nom_lo = min(udr_bank, ovr_bank) + margin
+    nom_hi = max(udr_bank, ovr_bank) - margin
+    print(f"  Optimizing nominal bank angle for min DV (apo+peri) in [{nom_lo:.1f}°, {nom_hi:.1f}°]...")
+    nom_bank, nom_traj = _find_optimal_bank(toml_str, nom_lo, nom_hi, tol=bank_tol)
+    _, _, nom_fr = _run_constant_bank(toml_str, nom_bank)
+    nom_dv = float(nom_fr[_COL_DV_APO_PERI])
+    print(f"    Nominal: bank={nom_bank:.2f}°, DV(apo+peri)={nom_dv:.1f} m/s")
+
     return {
         "nominal": nom_traj,
         "undershoot": udr_traj,
         "overshoot": ovr_traj,
+        "nominal_bank_deg": np.array([nom_bank]),
         "undershoot_bank_deg": np.array([udr_bank]),
         "overshoot_bank_deg": np.array([ovr_bank]),
     }
