@@ -563,19 +563,17 @@ def _draw_pdyn_zones(
     if not valid.any():
         return
 
-    # Draw zones ON TOP of spaghetti (zorder=4) so they're always visible
-    # Crash zone (above envelope) — light red
-    ax.fill_between(bc[valid], y_hi[valid], y_axis_max, color=_COLOR_CRASH, alpha=0.4, zorder=4)
-    # Hyperbolic exit zone (below envelope) — blue-grey
-    ax.fill_between(bc[valid], 0, y_lo[valid], color=_COLOR_HYPERBOLIC, alpha=0.4, zorder=4)
-
-    # Fill the x-edges outside the envelope range with hyperbolic color
     x_lo_ax, x_hi_ax = ax.get_xlim()
-    bc_v = bc[valid]
-    if bc_v[0] > x_lo_ax:
-        ax.axvspan(x_lo_ax, bc_v[0], color=_COLOR_HYPERBOLIC, alpha=0.4, zorder=4)
-    if bc_v[-1] < x_hi_ax:
-        ax.axvspan(bc_v[-1], x_hi_ax, color=_COLOR_HYPERBOLIC, alpha=0.4, zorder=4)
+
+    # Split the full plot background: crash (upper half) + hyperbolic (lower half)
+    # at the envelope's mid-height, then carve out the corridor
+    y_mid = (y_hi[valid].max() + y_lo[valid].min()) / 2 if valid.any() else y_axis_max / 2
+    ax.axhspan(y_mid, y_axis_max, color=_COLOR_CRASH, alpha=0.4, zorder=4)
+    ax.axhspan(0, y_mid, color=_COLOR_HYPERBOLIC, alpha=0.4, zorder=4)
+
+    # Carve out the corridor: white fill then light blue
+    ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="white", zorder=4.1)
+    ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.10, zorder=4.2)
 
     # Annotations — on top of everything
     mid_e = (x_lo_ax + x_hi_ax) / 2
@@ -599,7 +597,7 @@ def _generate_corridor_png(
     (b) energy vs inclination, (c) energy vs bank angle,
     (d) correction cost distribution (histogram + CDF).
 
-    Both the corridor nominal (optimal constant-bank, orange) and the guidance
+    Both the corridor nominal (optimal constant-bank, red) and the guidance
     scheme nominal (first captured MC sim, green) are overlaid on all panels.
     On panel (d) they appear as vertical dashed lines.
     """
@@ -665,7 +663,7 @@ def _generate_corridor_png(
 
         # Corridor nominal (optimal constant-bank) — orange
         if corr_nom is not None:
-            ax.plot(corr_nom[:, _TRAJ_COL_ENERGY], corr_nom[:, y_col], color="#FF9800", linewidth=2, linestyle="-", zorder=5)
+            ax.plot(corr_nom[:, _TRAJ_COL_ENERGY], corr_nom[:, y_col], color="#D32F2F", linewidth=2, linestyle="-", zorder=5)
 
         # Guidance scheme nominal — green
         if guid_nom is not None:
@@ -683,7 +681,7 @@ def _generate_corridor_png(
         Patch(facecolor=_COLOR_HYPERBOLIC, alpha=0.5, label="Hyperbolic exit"),
     ]
     if corr_nom is not None:
-        legend_elements.append(Line2D([0], [0], color="#FF9800", linewidth=2, label="Nominal (const. bank)"))
+        legend_elements.append(Line2D([0], [0], color="#D32F2F", linewidth=2, label="Nominal (const. bank)"))
     if guid_nom is not None:
         legend_elements.append(Line2D([0], [0], color="#4CAF50", linewidth=2, label="Nominal (guidance)"))
     axes[0, 0].legend(handles=legend_elements, loc="upper left", fontsize=7)
@@ -702,7 +700,7 @@ def _generate_corridor_png(
 
     # Vertical dashed lines for nominal DV values
     if corr_nom_dv is not None:
-        ax_dv.axvline(x=corr_nom_dv, color="#FF9800", linewidth=2, linestyle="--", label=f"Const. bank: {corr_nom_dv:.0f} m/s")
+        ax_dv.axvline(x=corr_nom_dv, color="#D32F2F", linewidth=2, linestyle="--", label=f"Const. bank: {corr_nom_dv:.0f} m/s")
     if guid_nom_dv is not None:
         ax_dv.axvline(x=guid_nom_dv, color="#4CAF50", linewidth=2, linestyle="--", label=f"Guidance: {guid_nom_dv:.0f} m/s")
     if corr_nom_dv is not None or guid_nom_dv is not None:
