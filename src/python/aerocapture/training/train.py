@@ -830,8 +830,17 @@ if __name__ == "__main__":
                         "\n  Note: Final evaluation stats are only meaningful in comparison to other schemes or configurations on the same scenario and seed.\n"
                     )
 
+                # Compute corridor boundaries (or load cached)
+                corr_npz = Path(cfg.save_dir) / "corridor_boundaries.npz"
+                if not corr_npz.exists():
+                    from aerocapture.training.corridor import compute_corridor, save_corridor
+
+                    print("Computing corridor boundaries...")
+                    corr_data = compute_corridor(str(base_toml_path), n_sims=1000, seed=final_seed)
+                    save_corridor(corr_data, corr_npz)
+
                 report_path = Path(cfg.save_dir) / "final_report.html"
-                generate_final_report(eval_data, cfg.guidance_type, target_incl, report_path, ref_trajectory_path=ref_traj_path)
+                generate_final_report(eval_data, cfg.guidance_type, target_incl, report_path, ref_trajectory_path=ref_traj_path, corridor_path=corr_npz)
                 print(f"Final report saved to {report_path}")
             else:
                 print("WARNING: Final evaluation simulation failed, skipping report")
