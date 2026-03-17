@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections import namedtuple
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -212,6 +213,7 @@ def generate_final_report(
     target_inclination: float,
     output_path: Path,
     ref_trajectory_path: Path | None = None,
+    corridor_path: Path | None = None,
 ) -> Path:
     """Generate self-contained Plotly HTML report with statistical distributions.
 
@@ -410,10 +412,18 @@ def generate_final_report(
     # Corridor panels: static matplotlib PNG (lighter than interactive Plotly)
     if has_trajectories:
         assert trajectories is not None
-        corridor_path = output_path.with_name(output_path.stem + "_corridors.png")
+        corridor_png = output_path.with_name(output_path.stem + "_corridors.png")
         dv_cap = final_array[captured, _COL_DV_TOTAL] if n_captured > 0 else None
-        _generate_corridor_png(trajectories, captured, ref_traj, corridor_path, dv_captured=dv_cap)
-        print(f"Corridor plots saved to {corridor_path}")
+        # Load pre-computed corridor boundaries if available
+        corridor_data: dict[str, npt.NDArray[np.float64]] | None = None
+        if corridor_path is not None:
+            from aerocapture.training.corridor import load_corridor
+
+            corridor_data = load_corridor(corridor_path)
+            if corridor_data is not None:
+                print(f"  Loaded corridor boundaries from {corridor_path}")
+        _generate_corridor_png(trajectories, captured, ref_traj, corridor_png, dv_captured=dv_cap, corridor_data=corridor_data)
+        print(f"Corridor plots saved to {corridor_png}")
 
     fig.update_layout(
         height=400 * n_rows,
@@ -549,18 +559,74 @@ def _compute_envelope(
     return bc, y_lo, y_hi, valid
 
 
+def _draw_pdyn_zones(
+    ax: Any,  # matplotlib Axes
+    trajectories: list[npt.NDArray[np.float64]],
+    captured: npt.NDArray[np.bool_],
+    corridor_data: dict[str, npt.NDArray[np.float64]] | None,
+) -> None:
+    """Draw crash/hyperbolic grey zones on the pdyn corridor panel.
+
+    If corridor_data is provided, uses the overshoot (lower boundary) and
+    undershoot (upper boundary) trajectories from bisection. Otherwise falls
+    back to the MC captured envelope.
+    """
+    y_axis_max = ax.get_ylim()[1] * 1.1
+    ax.set_ylim(bottom=0, top=y_axis_max)
+
+    if corridor_data is not None and corridor_data["undershoot"].size > 0 and corridor_data["overshoot"].size > 0:
+        udr = corridor_data["undershoot"]  # undershoot = high pdyn boundary
+        ovr = corridor_data["overshoot"]  # overshoot = low pdyn boundary
+        udr_energy = udr[:, _TRAJ_COL_ENERGY]
+        udr_pdyn = udr[:, _TRAJ_COL_PDYN]
+        ovr_energy = ovr[:, _TRAJ_COL_ENERGY]
+        ovr_pdyn = ovr[:, _TRAJ_COL_PDYN]
+
+        # Overshoot grey zone: fill below the overshoot curve (hyperbolic exit)
+        ovr_x = np.concatenate([[ovr_energy[0]], ovr_energy, [ovr_energy[-1]]])
+        ovr_y = np.concatenate([[0.0], ovr_pdyn, [0.0]])
+        ax.fill(ovr_x, ovr_y, color="#BDBDBD", alpha=0.6, zorder=0, edgecolor="#999999", linewidth=0.5)
+
+        # Undershoot grey zone: fill above the undershoot curve (crash)
+        e_min = min(udr_energy.min(), ovr_energy.min()) - 0.5
+        e_max = max(udr_energy.max(), ovr_energy.max()) + 0.5
+        udr_x = np.concatenate([[e_max], [e_max], [udr_energy[0]], udr_energy, [udr_energy[-1]], [e_min], [e_min]])
+        udr_y = np.concatenate([[y_axis_max], [0.0], [0.0], udr_pdyn, [0.0], [0.0], [y_axis_max]])
+        ax.fill(udr_x, udr_y, color="#BDBDBD", alpha=0.6, zorder=0, edgecolor="#999999", linewidth=0.5)
+    elif captured.any():
+        # Fallback: use MC envelope when no corridor boundaries available
+        bc, y_lo, y_hi, valid = _compute_envelope(trajectories, captured, _TRAJ_COL_PDYN)
+        if valid.any():
+            ax.axhspan(0, y_axis_max, color="#BDBDBD", alpha=0.5, zorder=0)
+            ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="white", zorder=1)
+            ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.4, zorder=2)
+
+    # Annotations
+    x_lo, x_hi = ax.get_xlim()
+    mid_e = (x_lo + x_hi) / 2
+    ax.text(mid_e, y_axis_max * 0.88, "Crash", ha="center", fontsize=10, fontstyle="italic", color="#616161", zorder=5)
+    ax.text(mid_e, y_axis_max * 0.03, "Hyperbolic exit", ha="center", fontsize=10, fontstyle="italic", color="#616161", zorder=5)
+    ax.text(x_hi * 0.9, y_axis_max * 0.03, "Entry", fontsize=8, color="#616161", ha="right", zorder=5)
+    ax.text(x_lo * 0.9, y_axis_max * 0.03, "Atm. exit", fontsize=8, color="#616161", ha="left", zorder=5)
+
+
 def _generate_corridor_png(
     trajectories: list[npt.NDArray[np.float64]],
     captured: npt.NDArray[np.bool_],
     ref_traj: dict[str, npt.NDArray[np.float64]] | None,
     output_path: Path,
     dv_captured: npt.NDArray[np.float64] | None = None,
+    corridor_data: dict[str, npt.NDArray[np.float64]] | None = None,
 ) -> None:
     """Generate publication-quality corridor plots as a 2×2 matplotlib PNG.
 
     Panels: (a) energy vs pdyn with crash/hyperbolic zones,
     (b) energy vs inclination, (c) energy vs bank angle,
     (d) correction cost distribution (histogram + CDF).
+
+    If corridor_data is provided (from corridor.py), the pdyn panel uses the
+    overshoot/undershoot boundary curves for grey zones. Otherwise falls back
+    to the MC envelope.
     """
     import matplotlib
 
@@ -594,27 +660,8 @@ def _generate_corridor_png(
                 ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.4)
 
         # Crash / hyperbolic exit zones on pdyn panel (a) only
-        if y_col == _TRAJ_COL_PDYN and captured.any():
-            bc, y_lo, y_hi, valid = _compute_envelope(trajectories, captured, y_col)
-            if valid.any():
-                y_axis_max = ax.get_ylim()[1] * 1.1
-                x_lo, x_hi = ax.get_xlim()
-                ax.set_ylim(bottom=0, top=y_axis_max)
-
-                # Fill entire plot background grey (crash + hyperbolic everywhere)
-                ax.axhspan(0, y_axis_max, color="#BDBDBD", alpha=0.5, zorder=0)
-
-                # Carve out the captured corridor: fill envelope with white to "erase" grey
-                ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="white", zorder=1)
-                # Then redraw the blue envelope on top
-                ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.4, zorder=2)
-
-                # Annotations
-                mid_e = (x_lo + x_hi) / 2
-                ax.text(mid_e, y_axis_max * 0.88, "Crash", ha="center", fontsize=10, fontstyle="italic", color="#616161", zorder=5)
-                ax.text(mid_e, y_lo[valid].min() * 0.25, "Hyperbolic exit", ha="center", fontsize=10, fontstyle="italic", color="#616161", zorder=5)
-                ax.text(bc[valid][-1], y_lo[valid][-1], "  Entry", fontsize=8, color="#616161", va="center", zorder=5)
-                ax.text(bc[valid][0], y_lo[valid][0], "Atm. exit  ", fontsize=8, color="#616161", va="center", ha="right", zorder=5)
+        if y_col == _TRAJ_COL_PDYN:
+            _draw_pdyn_zones(ax, trajectories, captured, corridor_data)
 
         # Reference trajectory
         if ref_traj is not None and ref_key in ref_traj:
@@ -626,7 +673,7 @@ def _generate_corridor_png(
         ax.grid(True, alpha=0.3)
 
     # Legend on panel (a) using patches
-    legend_elements = [
+    legend_elements: list[Any] = [
         Patch(facecolor="#2196F3", alpha=0.4, label="Captured"),
         Patch(facecolor="#BDBDBD", alpha=0.6, label="Crash / Hyperbolic"),
     ]
@@ -764,6 +811,7 @@ def main() -> None:
     parser.add_argument("--toml", type=str, required=True, help="Base TOML config path")
     parser.add_argument("--n-sims", type=int, default=1000, help="Number of MC simulations (default: 1000)")
     parser.add_argument("--seed", type=int, default=42, help="MC seed for re-evaluation")
+    parser.add_argument("--corridor", type=str, default=None, help="Path to pre-computed corridor boundaries (.npz)")
     args = parser.parse_args()
 
     scheme_dir = Path(args.scheme_dir)
@@ -809,7 +857,8 @@ def main() -> None:
         sys.exit(1)
 
     output_path = scheme_dir / "final_report.html"
-    generate_final_report(eval_data, scheme, target_incl, output_path, ref_trajectory_path=ref_traj_path)
+    corr_path = Path(args.corridor) if args.corridor else None
+    generate_final_report(eval_data, scheme, target_incl, output_path, ref_trajectory_path=ref_traj_path, corridor_path=corr_path)
     print(f"Report saved to {output_path}")
 
 
