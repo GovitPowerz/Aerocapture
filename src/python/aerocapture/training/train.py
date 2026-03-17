@@ -831,7 +831,17 @@ if __name__ == "__main__":
                     )
 
                 # Compute corridor boundaries (or load cached) — shared across schemes per mission
-                mission_name = Path(args.toml).stem
+                # Derive mission name from the first base TOML (the mission config)
+                import tomllib
+
+                with open(base_toml_path, "rb") as _f:
+                    _raw_toml = tomllib.load(_f)
+                _bases = _raw_toml.get("base", [])
+                if isinstance(_bases, str):
+                    _bases = [_bases]
+                # First base that contains "missions/" is the mission config
+                _mission_base = next((b for b in _bases if "missions/" in b), _bases[0] if _bases else "")
+                mission_name = Path(_mission_base).stem if _mission_base else Path(args.toml).stem
                 corr_dir = Path(cfg.save_dir).parent / mission_name
                 corr_dir.mkdir(parents=True, exist_ok=True)
                 corr_npz = corr_dir / "corridor_boundaries.npz"
