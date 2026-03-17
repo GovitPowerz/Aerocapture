@@ -585,7 +585,7 @@ def _generate_corridor_png(
                 t = np.asarray(trajectories[i])
                 if t.ndim != 2 or t.shape[0] == 0:
                     continue
-                ax.plot(t[:, _TRAJ_COL_ENERGY], t[:, y_col], color=color, alpha=opacity, linewidth=0.5)
+                ax.plot(t[:, _TRAJ_COL_ENERGY], t[:, y_col], color=color, alpha=opacity, linewidth=0.5, zorder=3)
 
         # Captured envelope
         if captured.any():
@@ -598,22 +598,27 @@ def _generate_corridor_png(
             bc, y_lo, y_hi, valid = _compute_envelope(trajectories, captured, y_col)
             if valid.any():
                 y_axis_max = ax.get_ylim()[1] * 1.1
-                # Upper grey zone: crash (above captured envelope)
-                ax.fill_between(bc[valid], y_hi[valid], y_axis_max, color="#BDBDBD", alpha=0.6)
-                # Lower grey zone: hyperbolic exit (below captured envelope)
-                ax.fill_between(bc[valid], 0, y_lo[valid], color="#BDBDBD", alpha=0.6)
+                x_lo, x_hi = ax.get_xlim()
                 ax.set_ylim(bottom=0, top=y_axis_max)
+
+                # Fill entire plot background grey (crash + hyperbolic everywhere)
+                ax.axhspan(0, y_axis_max, color="#BDBDBD", alpha=0.5, zorder=0)
+
+                # Carve out the captured corridor: fill envelope with white to "erase" grey
+                ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="white", zorder=1)
+                # Then redraw the blue envelope on top
+                ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.4, zorder=2)
+
                 # Annotations
-                mid_e = bc[valid].mean()
-                ax.text(mid_e, y_axis_max * 0.85, "Crash", ha="center", fontsize=9, fontstyle="italic", color="#616161")
-                ax.text(mid_e, y_lo[valid].min() * 0.3, "Hyperbolic exit", ha="center", fontsize=9, fontstyle="italic", color="#616161")
-                # Entry / exit annotations at envelope endpoints
-                ax.text(bc[valid][-1], y_lo[valid][-1], "  Entry", fontsize=7, color="#616161", va="center")
-                ax.text(bc[valid][0], y_lo[valid][0], "Atm. exit  ", fontsize=7, color="#616161", va="center", ha="right")
+                mid_e = (x_lo + x_hi) / 2
+                ax.text(mid_e, y_axis_max * 0.88, "Crash", ha="center", fontsize=10, fontstyle="italic", color="#616161", zorder=5)
+                ax.text(mid_e, y_lo[valid].min() * 0.25, "Hyperbolic exit", ha="center", fontsize=10, fontstyle="italic", color="#616161", zorder=5)
+                ax.text(bc[valid][-1], y_lo[valid][-1], "  Entry", fontsize=8, color="#616161", va="center", zorder=5)
+                ax.text(bc[valid][0], y_lo[valid][0], "Atm. exit  ", fontsize=8, color="#616161", va="center", ha="right", zorder=5)
 
         # Reference trajectory
         if ref_traj is not None and ref_key in ref_traj:
-            ax.plot(ref_traj["energy_MJkg"], ref_traj[ref_key], color="red", linewidth=2.5, linestyle="--", label="Reference")
+            ax.plot(ref_traj["energy_MJkg"], ref_traj[ref_key], color="red", linewidth=2.5, linestyle="--", label="Reference", zorder=4)
 
         ax.set_xlabel("Orbital Energy (MJ/kg)")
         ax.set_ylabel(y_label)
