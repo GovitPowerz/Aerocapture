@@ -17,8 +17,8 @@ pub struct SimResult {
 impl SimResult {
     /// Per-timestep trajectory as an (N, 12) NumPy array.
     ///
-    /// Columns: [alt_km, lon_deg, lat_deg, vel_m_s, fpa_deg, heading_deg, flux, time,
-    ///           bank_cmd_deg, bank_actual_deg, g_load, dynamic_pressure_pa].
+    /// Columns: [alt_km, lon_deg, lat_deg, vel_m_s, fpa_deg, heading_deg, heat_flux, time_s,
+    ///           energy_mj_kg, pdyn_kpa, bank_angle_deg, inclination_deg].
     /// Empty if trajectories were not requested.
     #[getter]
     fn trajectory<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
