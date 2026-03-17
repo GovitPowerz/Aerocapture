@@ -155,14 +155,19 @@ def compute_corridor(
         # Recover bank angle from the initial bank (trajectory first timestep bank col)
         nom_bank = float(nom_traj[0, 10]) if nom_traj.size > 0 else 0.0  # col 10 = bank_deg
         print(f"    Nominal: bank≈{nom_bank:.1f}°, DV(apo+peri)={nom_dv:.1f} m/s")
+        nom_dv_total = float(fr_nom[best_idx, 41])  # total DV (incl. inclination)
     else:
         print("  WARNING: No viable captures in bank-only MC")
         nom_traj = np.array([])
         nom_bank = 0.0
+        nom_dv = 0.0
+        nom_dv_total = 0.0
 
     return {
         "nominal": nom_traj,
         "nominal_bank_deg": np.array([nom_bank]),
+        "nominal_dv": np.array([nom_dv]),  # |dv1| + |dv2| (apo+peri only)
+        "nominal_dv_total": np.array([nom_dv_total]),  # total DV incl. inclination
         "captured_trajectories_count": np.array([len(captured_trajs)]),
         "captured_final_records": captured_frs,
         "n_sims": np.array([n_sims]),

@@ -422,7 +422,7 @@ def generate_final_report(
             corridor_data = load_corridor(corridor_path)
             if corridor_data is not None:
                 print(f"  Loaded corridor boundaries from {corridor_path}")
-        _generate_corridor_png(trajectories, captured, ref_traj, corridor_png, dv_captured=dv_cap, corridor_data=corridor_data)
+        _generate_corridor_png(trajectories, captured, ref_traj, corridor_png, dv_captured=dv_cap, corridor_data=corridor_data, final_array=final_array)
         print(f"Corridor plots saved to {corridor_png}")
 
     fig.update_layout(
@@ -559,17 +559,21 @@ def _compute_envelope(
     return bc, y_lo, y_hi, valid
 
 
+_COLOR_CRASH = "#E57373"  # light red for crash zone
+_COLOR_HYPERBOLIC = "#90A4AE"  # blue-grey for hyperbolic exit zone
+
+
 def _draw_pdyn_zones(
     ax: Any,  # matplotlib Axes
     trajectories: list[npt.NDArray[np.float64]],
     captured: npt.NDArray[np.bool_],
     corridor_data: dict[str, npt.NDArray[np.float64]] | None,
 ) -> None:
-    """Draw crash/hyperbolic grey zones on the pdyn corridor panel.
+    """Draw crash (upper) and hyperbolic exit (lower) zones on the pdyn panel.
 
-    If corridor_data is provided, uses the captured corridor MC trajectories
-    for the envelope (wider, dispersion-aware corridor). Otherwise falls back
-    to the final-evaluation MC captured envelope.
+    Uses corridor MC captured trajectories for the envelope when available,
+    otherwise falls back to the final-evaluation MC captured envelope.
+    Crash zone (above envelope) and hyperbolic zone (below) use distinct colors.
     """
     y_axis_max = ax.get_ylim()[1] * 1.1
     ax.set_ylim(bottom=0, top=y_axis_max)
@@ -580,7 +584,7 @@ def _draw_pdyn_zones(
 
         corr_trajs = _unpack_trajectories(corridor_data)
         if corr_trajs:
-            all_mask = np.ones(len(corr_trajs), dtype=bool)  # all are viable captures
+            all_mask = np.ones(len(corr_trajs), dtype=bool)
             bc, y_lo, y_hi, valid = _compute_envelope(corr_trajs, all_mask, _TRAJ_COL_PDYN)
         else:
             bc, y_lo, y_hi, valid = _compute_envelope(trajectories, captured, _TRAJ_COL_PDYN)
@@ -592,18 +596,27 @@ def _draw_pdyn_zones(
     if not valid.any():
         return
 
-    # Fill entire background grey, then carve out the corridor
-    ax.axhspan(0, y_axis_max, color="#BDBDBD", alpha=0.5, zorder=0)
-    ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="white", zorder=1)
-    ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.4, zorder=2)
+    # Crash zone (above envelope) — light red
+    ax.fill_between(bc[valid], y_hi[valid], y_axis_max, color=_COLOR_CRASH, alpha=0.5, zorder=0)
+    # Hyperbolic exit zone (below envelope) — blue-grey
+    ax.fill_between(bc[valid], 0, y_lo[valid], color=_COLOR_HYPERBOLIC, alpha=0.5, zorder=0)
+    # Captured corridor — blue fill
+    ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.15, zorder=1)
+
+    # Grey fill for the edges outside the envelope x-range
+    x_lo_ax, x_hi_ax = ax.get_xlim()
+    bc_v = bc[valid]
+    if bc_v[0] > x_lo_ax:
+        ax.axvspan(x_lo_ax, bc_v[0], color=_COLOR_HYPERBOLIC, alpha=0.5, zorder=0)
+    if bc_v[-1] < x_hi_ax:
+        ax.axvspan(bc_v[-1], x_hi_ax, color=_COLOR_HYPERBOLIC, alpha=0.5, zorder=0)
 
     # Annotations
-    x_lo, x_hi = ax.get_xlim()
-    mid_e = (x_lo + x_hi) / 2
-    ax.text(mid_e, y_axis_max * 0.88, "Crash", ha="center", fontsize=10, fontstyle="italic", color="#616161", zorder=5)
-    ax.text(mid_e, y_axis_max * 0.03, "Hyperbolic exit", ha="center", fontsize=10, fontstyle="italic", color="#616161", zorder=5)
-    ax.text(x_hi * 0.9, y_axis_max * 0.03, "Entry", fontsize=8, color="#616161", ha="right", zorder=5)
-    ax.text(x_lo * 0.9, y_axis_max * 0.03, "Atm. exit", fontsize=8, color="#616161", ha="left", zorder=5)
+    mid_e = (x_lo_ax + x_hi_ax) / 2
+    ax.text(mid_e, y_axis_max * 0.88, "Crash", ha="center", fontsize=10, fontstyle="italic", color="#B71C1C", zorder=5)
+    ax.text(mid_e, y_axis_max * 0.03, "Hyperbolic exit", ha="center", fontsize=10, fontstyle="italic", color="#37474F", zorder=5)
+    ax.text(x_hi_ax * 0.9, y_axis_max * 0.03, "Entry", fontsize=8, color="#37474F", ha="right", zorder=5)
+    ax.text(x_lo_ax * 0.9, y_axis_max * 0.03, "Atm. exit", fontsize=8, color="#37474F", ha="left", zorder=5)
 
 
 def _generate_corridor_png(
@@ -613,6 +626,7 @@ def _generate_corridor_png(
     output_path: Path,
     dv_captured: npt.NDArray[np.float64] | None = None,
     corridor_data: dict[str, npt.NDArray[np.float64]] | None = None,
+    final_array: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Generate publication-quality corridor plots as a 2×2 matplotlib PNG.
 
@@ -620,18 +634,43 @@ def _generate_corridor_png(
     (b) energy vs inclination, (c) energy vs bank angle,
     (d) correction cost distribution (histogram + CDF).
 
-    If corridor_data is provided (from corridor.py), the pdyn panel uses the
-    overshoot/undershoot boundary curves for grey zones. Otherwise falls back
-    to the MC envelope.
+    Both the corridor nominal (optimal constant-bank, orange) and the guidance
+    scheme nominal (first captured MC sim, green) are overlaid on all panels.
+    On panel (d) they appear as vertical dashed lines.
     """
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     opacity = max(0.02, min(0.15, 10.0 / max(len(trajectories), 1)))
+
+    # Extract nominal trajectories
+    corr_nom: npt.NDArray[np.float64] | None = None
+    corr_nom_dv: float | None = None
+    if corridor_data is not None:
+        _nom = corridor_data.get("nominal", np.array([]))
+        if _nom.size > 0 and _nom.ndim == 2:
+            corr_nom = _nom
+        # Corridor nominal DV stored in captured_final_records is not the nominal itself.
+        # We need to store it separately. For now, check if "nominal_dv" was saved.
+        _nom_dv = corridor_data.get("nominal_dv", np.array([]))
+        if _nom_dv.size > 0:
+            corr_nom_dv = float(_nom_dv[0])
+
+    # Guidance nominal: first captured trajectory from final-evaluation MC
+    guid_nom: npt.NDArray[np.float64] | None = None
+    guid_nom_dv: float | None = None
+    if captured.any():
+        first_cap = int(np.where(captured)[0][0])
+        t = np.asarray(trajectories[first_cap])
+        if t.ndim == 2 and t.shape[0] > 0:
+            guid_nom = t
+        if final_array is not None:
+            guid_nom_dv = float(final_array[first_cap, _COL_DV_TOTAL])
 
     corridor_panels = [
         (axes[0, 0], _TRAJ_COL_PDYN, "Dynamic Pressure (kPa)", "pdyn_kPa", "(a)"),
@@ -644,52 +683,72 @@ def _generate_corridor_png(
         for is_cap, color in [(True, "#2196F3"), (False, "#F44336")]:
             mask = captured if is_cap else ~captured
             for i in np.where(mask)[0]:
-                t = np.asarray(trajectories[i])
-                if t.ndim != 2 or t.shape[0] == 0:
+                t_arr = np.asarray(trajectories[i])
+                if t_arr.ndim != 2 or t_arr.shape[0] == 0:
                     continue
-                ax.plot(t[:, _TRAJ_COL_ENERGY], t[:, y_col], color=color, alpha=opacity, linewidth=0.5, zorder=3)
+                ax.plot(t_arr[:, _TRAJ_COL_ENERGY], t_arr[:, y_col], color=color, alpha=opacity, linewidth=0.5, zorder=3)
 
-        # Captured envelope
-        if captured.any():
-            bc, y_lo, y_hi, valid = _compute_envelope(trajectories, captured, y_col)
-            if valid.any():
-                ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.4)
-
-        # Crash / hyperbolic exit zones on pdyn panel (a) only
+        # Crash / hyperbolic exit zones on pdyn panel (a) — drawn AFTER spaghetti so ylim is set
         if y_col == _TRAJ_COL_PDYN:
             _draw_pdyn_zones(ax, trajectories, captured, corridor_data)
+        else:
+            # Captured envelope for non-pdyn panels
+            if captured.any():
+                bc, y_lo, y_hi, valid = _compute_envelope(trajectories, captured, y_col)
+                if valid.any():
+                    ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.15, zorder=2)
 
-        # Reference trajectory
+        # Reference trajectory from .dat file
         if ref_traj is not None and ref_key in ref_traj:
-            ax.plot(ref_traj["energy_MJkg"], ref_traj[ref_key], color="red", linewidth=2.5, linestyle="--", label="Reference", zorder=4)
+            ax.plot(ref_traj["energy_MJkg"], ref_traj[ref_key], color="red", linewidth=2.5, linestyle="--", zorder=4)
+
+        # Corridor nominal (optimal constant-bank) — orange
+        if corr_nom is not None:
+            ax.plot(corr_nom[:, _TRAJ_COL_ENERGY], corr_nom[:, y_col], color="#FF9800", linewidth=2, linestyle="-", zorder=5)
+
+        # Guidance scheme nominal — green
+        if guid_nom is not None:
+            ax.plot(guid_nom[:, _TRAJ_COL_ENERGY], guid_nom[:, y_col], color="#4CAF50", linewidth=2, linestyle="-", zorder=5)
 
         ax.set_xlabel("Orbital Energy (MJ/kg)")
         ax.set_ylabel(y_label)
         ax.set_title(panel_label)
         ax.grid(True, alpha=0.3)
 
-    # Legend on panel (a) using patches
+    # Legend on panel (a)
     legend_elements: list[Any] = [
-        Patch(facecolor="#2196F3", alpha=0.4, label="Captured"),
-        Patch(facecolor="#BDBDBD", alpha=0.6, label="Crash / Hyperbolic"),
+        Patch(facecolor="#2196F3", alpha=0.4, label="MC captured"),
+        Patch(facecolor=_COLOR_CRASH, alpha=0.5, label="Crash"),
+        Patch(facecolor=_COLOR_HYPERBOLIC, alpha=0.5, label="Hyperbolic exit"),
     ]
     if ref_traj is not None:
-        from matplotlib.lines import Line2D
-
-        legend_elements.append(Line2D([0], [0], color="red", linewidth=2.5, linestyle="--", label="Reference"))
-    axes[0, 0].legend(handles=legend_elements, loc="upper left", fontsize=8)
+        legend_elements.append(Line2D([0], [0], color="red", linewidth=2.5, linestyle="--", label="Ref. trajectory"))
+    if corr_nom is not None:
+        legend_elements.append(Line2D([0], [0], color="#FF9800", linewidth=2, label="Nominal (const. bank)"))
+    if guid_nom is not None:
+        legend_elements.append(Line2D([0], [0], color="#4CAF50", linewidth=2, label="Nominal (guidance)"))
+    axes[0, 0].legend(handles=legend_elements, loc="upper left", fontsize=7)
 
     # Panel (d): Correction cost distribution
     ax_dv = axes[1, 1]
     if dv_captured is not None and len(dv_captured) > 0:
-        ax_dv.hist(dv_captured, bins=30, color="#F44336", alpha=0.7, edgecolor="white", density=True, label="Histogram")
+        ax_dv.hist(dv_captured, bins=30, color="#F44336", alpha=0.7, edgecolor="white", density=True)
         # CDF on secondary axis
         ax_cdf = ax_dv.twinx()
         sorted_dv = np.sort(dv_captured)
         cdf = np.arange(1, len(sorted_dv) + 1) / len(sorted_dv)
-        ax_cdf.plot(sorted_dv, cdf, color="#2196F3", linewidth=2, label="CDF")
+        ax_cdf.plot(sorted_dv, cdf, color="#2196F3", linewidth=2)
         ax_cdf.set_ylabel("Distribution (-)")
         ax_cdf.set_ylim(0, 1.05)
+
+    # Vertical dashed lines for nominal DV values
+    if corr_nom_dv is not None:
+        ax_dv.axvline(x=corr_nom_dv, color="#FF9800", linewidth=2, linestyle="--", label=f"Const. bank: {corr_nom_dv:.0f} m/s")
+    if guid_nom_dv is not None:
+        ax_dv.axvline(x=guid_nom_dv, color="#4CAF50", linewidth=2, linestyle="--", label=f"Guidance: {guid_nom_dv:.0f} m/s")
+    if corr_nom_dv is not None or guid_nom_dv is not None:
+        ax_dv.legend(fontsize=7, loc="upper right")
+
     ax_dv.set_xlabel("Correction cost (m/s)")
     ax_dv.set_ylabel("Density")
     ax_dv.set_title("(d)")
