@@ -260,18 +260,7 @@ def generate_final_report(
         # No empty slot for the None cell in colspan row — Plotly skips it automatically
     ]
 
-    if has_trajectories:
-        n_rows += 2
-        row_specs.append([{}, {}])  # Row 6: energy-pdyn, energy-incl
-        row_specs.append([{}, {}])  # Row 7: energy-bank, empty
-        subplot_titles.extend(
-            [
-                "Energy vs Dynamic Pressure",
-                "Energy vs Inclination",
-                "Energy vs Bank Angle",
-                "",
-            ]
-        )
+    # Corridor panels are rendered as a static matplotlib PNG (not in the Plotly figure)
 
     fig = make_subplots(
         rows=n_rows,
@@ -418,12 +407,11 @@ def generate_final_report(
     # Row 5: Performance summary table (colspan 2)
     _add_performance_table(fig, final_array, captured, target_inclination, row=5, col=1)
 
-    # Rows 6-7: Corridor panels (if trajectories available)
+    # Corridor panels: static matplotlib PNG (lighter than interactive Plotly)
     if has_trajectories:
         assert trajectories is not None
-        _add_corridor_panel(fig, trajectories, captured, ref_traj, "pdyn_kPa", "Dynamic Pressure (kPa)", row=6, col=1)
-        _add_corridor_panel(fig, trajectories, captured, ref_traj, "inclination_deg", "Inclination (deg)", row=6, col=2)
-        _add_corridor_panel(fig, trajectories, captured, ref_traj, "bank_deg", "Bank Angle (deg)", row=7, col=1)
+        corridor_path = output_path.with_name(output_path.stem + "_corridors.png")
+        _generate_corridor_png(trajectories, captured, ref_traj, corridor_path)
 
     fig.update_layout(
         height=400 * n_rows,
@@ -481,7 +469,6 @@ def _add_performance_table(
     """Add detailed performance statistics table to a subplot."""
     import plotly.graph_objects as go  # type: ignore[import-untyped]
 
-    n_total = len(final_array)
     n_captured = int(captured.sum())
 
     header = ["Parameter", "Mean", "Std", "Min", "p5", "p25", "p50", "p75", "p95", "Max"]
@@ -511,7 +498,6 @@ def _add_performance_table(
                 ]
             )
 
-
     cells_transposed = list(zip(*rows, strict=False)) if rows else [[] for _ in header]  # type: ignore[misc]
     fig.add_trace(  # type: ignore[attr-defined]
         go.Table(
@@ -523,132 +509,86 @@ def _add_performance_table(
     )
 
 
-def _add_corridor_panel(
-    fig: object,
+def _generate_corridor_png(
     trajectories: list[npt.NDArray[np.float64]],
     captured: npt.NDArray[np.bool_],
     ref_traj: dict[str, npt.NDArray[np.float64]] | None,
-    y_key: str,
-    y_label: str,
-    row: int,
-    col: int,
+    output_path: Path,
 ) -> None:
-    """Add energy corridor panel with concatenated traces (NOT one trace per sim).
+    """Generate static matplotlib corridor plots as a publication-quality PNG.
 
-    Concatenates all trajectories into one Scattergl trace with None separators
-    to keep HTML manageable for 1000+ sims.
+    Three panels: energy vs pdyn, energy vs inclination, energy vs bank angle.
+    MC trajectories as translucent spaghetti, envelope as filled region,
+    reference trajectory as bold dashed red line.
     """
-    import plotly.graph_objects as go  # type: ignore[import-untyped]
+    import matplotlib
 
-    # Map y_key to trajectory column index
-    y_col_map = {
-        "pdyn_kPa": _TRAJ_COL_PDYN,
-        "inclination_deg": _TRAJ_COL_INCL,
-        "bank_deg": _TRAJ_COL_BANK,
-    }
-    y_col = y_col_map[y_key]
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
 
-    # Concatenate captured and hyperbolic trajectories separately with None separators
-    for is_captured, color, name in [(True, _COLOR_CAPTURED, "Captured"), (False, _COLOR_HYPERBOLIC, "Hyperbolic")]:
-        mask = captured if is_captured else ~captured
-        xs: list[float | None] = []
-        ys: list[float | None] = []
-        for i in np.where(mask)[0]:
-            t = np.asarray(trajectories[i])
-            if t.ndim != 2 or t.shape[0] == 0:
-                continue
-            xs.extend(t[:, _TRAJ_COL_ENERGY].tolist())
-            ys.extend(t[:, y_col].tolist())
-            xs.append(None)
-            ys.append(None)
-        if xs:
-            fig.add_trace(  # type: ignore[attr-defined]
-                go.Scattergl(
-                    x=xs,
-                    y=ys,
-                    mode="lines",
-                    name=name,
-                    line={"color": color, "width": 0.5},
-                    opacity=max(0.02, min(0.15, 10.0 / max(len(trajectories), 1))),
-                    showlegend=(row == 6 and col == 1),  # legend only on first corridor panel
-                ),
-                row=row,
-                col=col,
-            )
+    panels = [
+        (_TRAJ_COL_PDYN, "Dynamic Pressure (kPa)", "pdyn_kPa", "(a)"),
+        (_TRAJ_COL_INCL, "Inclination (deg)", "inclination_deg", "(b)"),
+        (_TRAJ_COL_BANK, "Bank Angle (deg)", "bank_deg", "(c)"),
+    ]
 
-    # Envelope: bin captured trajectories by energy, compute min/max y per bin
-    if captured.any():
-        all_energy: list[float] = []
-        all_y: list[float] = []
-        for i in np.where(captured)[0]:
-            t = np.asarray(trajectories[i])
-            if t.ndim != 2 or t.shape[0] == 0:
-                continue
-            all_energy.extend(t[:, _TRAJ_COL_ENERGY].tolist())
-            all_y.extend(t[:, y_col].tolist())
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    opacity = max(0.02, min(0.15, 10.0 / max(len(trajectories), 1)))
 
-        if all_energy:
-            e_arr = np.array(all_energy)
-            y_arr = np.array(all_y)
-            bins = np.linspace(e_arr.min(), e_arr.max(), 101)
-            bin_idx = np.digitize(e_arr, bins) - 1
-            bin_idx = np.clip(bin_idx, 0, 99)
-            bin_centers = (bins[:-1] + bins[1:]) / 2
+    for ax, (y_col, y_label, ref_key, panel_label) in zip(axes, panels, strict=False):
+        # MC spaghetti — captured blue, hyperbolic red
+        for is_cap, color in [(True, "#2196F3"), (False, "#F44336")]:
+            mask = captured if is_cap else ~captured
+            for i in np.where(mask)[0]:
+                t = np.asarray(trajectories[i])
+                if t.ndim != 2 or t.shape[0] == 0:
+                    continue
+                ax.plot(t[:, _TRAJ_COL_ENERGY], t[:, y_col], color=color, alpha=opacity, linewidth=0.5)
 
-            y_min = np.full(100, np.nan)
-            y_max = np.full(100, np.nan)
-            for b in range(100):
-                mask_b = bin_idx == b
-                if mask_b.any():
-                    y_min[b] = y_arr[mask_b].min()
-                    y_max[b] = y_arr[mask_b].max()
+        # Envelope — filled region between min/max y at each energy bin
+        if captured.any():
+            all_e: list[float] = []
+            all_y: list[float] = []
+            for i in np.where(captured)[0]:
+                t = np.asarray(trajectories[i])
+                if t.ndim != 2 or t.shape[0] == 0:
+                    continue
+                all_e.extend(t[:, _TRAJ_COL_ENERGY].tolist())
+                all_y.extend(t[:, y_col].tolist())
+            if all_e:
+                e_arr = np.array(all_e)
+                y_arr = np.array(all_y)
+                bins = np.linspace(e_arr.min(), e_arr.max(), 101)
+                bin_idx = np.clip(np.digitize(e_arr, bins) - 1, 0, 99)
+                bc = (bins[:-1] + bins[1:]) / 2
+                y_lo = np.full(100, np.nan)
+                y_hi = np.full(100, np.nan)
+                for b in range(100):
+                    m = bin_idx == b
+                    if m.any():
+                        y_lo[b] = y_arr[m].min()
+                        y_hi[b] = y_arr[m].max()
+                valid = ~np.isnan(y_lo)
+                if valid.any():
+                    ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.15, label="Envelope")
 
-            valid = ~np.isnan(y_min)
-            if valid.any():
-                bc = bin_centers[valid]
-                fig.add_trace(  # type: ignore[attr-defined]
-                    go.Scatter(
-                        x=bc.tolist(),
-                        y=y_min[valid].tolist(),
-                        mode="lines",
-                        line={"color": "rgba(0,0,0,0)"},
-                        showlegend=False,
-                    ),
-                    row=row,
-                    col=col,
-                )
-                fig.add_trace(  # type: ignore[attr-defined]
-                    go.Scatter(
-                        x=bc.tolist(),
-                        y=y_max[valid].tolist(),
-                        mode="lines",
-                        fill="tonexty",
-                        fillcolor="rgba(33,150,243,0.15)",
-                        line={"color": "rgba(0,0,0,0)"},
-                        name="Envelope",
-                        showlegend=(row == 6 and col == 1),
-                    ),
-                    row=row,
-                    col=col,
-                )
+        # Reference trajectory
+        if ref_traj is not None and ref_key in ref_traj:
+            ax.plot(ref_traj["energy_MJkg"], ref_traj[ref_key], color="red", linewidth=2.5, linestyle="--", label="Reference")
 
-    # Reference trajectory overlay
-    if ref_traj is not None and y_key in ref_traj:
-        fig.add_trace(  # type: ignore[attr-defined]
-            go.Scatter(
-                x=ref_traj["energy_MJkg"].tolist(),
-                y=ref_traj[y_key].tolist(),
-                mode="lines",
-                name="Reference",
-                line={"color": "#F44336", "width": 3, "dash": "dash"},
-                showlegend=(row == 6 and col == 1),
-            ),
-            row=row,
-            col=col,
-        )
+        ax.set_xlabel("Orbital Energy (MJ/kg)")
+        ax.set_ylabel(y_label)
+        ax.set_title(panel_label)
+        ax.grid(True, alpha=0.3)
 
-    fig.update_xaxes(title_text="Orbital Energy (MJ/kg)", row=row, col=col)  # type: ignore[attr-defined]
-    fig.update_yaxes(title_text=y_label, row=row, col=col)  # type: ignore[attr-defined]
+    # Add legend to first panel only
+    handles, _ = axes[0].get_legend_handles_labels()
+    if handles:
+        axes[0].legend(loc="best", fontsize=8)
+
+    fig.tight_layout()
+    fig.savefig(str(output_path), dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
 
 def _build_dispersion_grid(

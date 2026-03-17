@@ -184,27 +184,26 @@ class TestGenerateFinalReport:
         assert "heat flux" in content
         assert "Bank angle" in content
 
-    def test_corridor_panels_present_with_trajectories(self, tmp_path: Path) -> None:
-        """Corridor panels appear when trajectories are provided."""
+    def test_corridor_png_generated_with_trajectories(self, tmp_path: Path) -> None:
+        """Corridor PNG is generated when trajectories are provided."""
         from aerocapture.training.final_report import generate_final_report
 
         eval_data = _make_eval_data(50, with_trajectories=True)
         output = tmp_path / "report.html"
         generate_final_report(eval_data, "equilibrium_glide", 50.0, output)
-        content = output.read_text()
-        assert "Dynamic Pressure" in content
-        assert "Bank Angle" in content
-        assert "Energy vs" in content
+        corridor_path = tmp_path / "report_corridors.png"
+        assert corridor_path.exists()
+        assert corridor_path.stat().st_size > 1000  # non-trivial PNG
 
-    def test_corridor_panels_absent_without_trajectories(self, tmp_path: Path) -> None:
-        """Corridor panels should not appear without trajectory data."""
+    def test_corridor_png_absent_without_trajectories(self, tmp_path: Path) -> None:
+        """No corridor PNG generated without trajectory data."""
         from aerocapture.training.final_report import generate_final_report
 
         eval_data = _make_eval_data(50, with_trajectories=False)
         output = tmp_path / "report.html"
         generate_final_report(eval_data, "equilibrium_glide", 50.0, output)
-        content = output.read_text()
-        assert "Energy vs Dynamic Pressure" not in content
+        corridor_path = tmp_path / "report_corridors.png"
+        assert not corridor_path.exists()
 
     def test_dispersion_grid_written_to_separate_file(self, tmp_path: Path) -> None:
         """Dispersion grid is written to a separate HTML file."""
