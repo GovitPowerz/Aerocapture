@@ -784,6 +784,7 @@ if __name__ == "__main__":
                 _COL_DV_TOTAL,
                 _COL_ECC,
                 _COL_ENERGY,
+                _COL_INCL,
                 _COL_PERI_ERR,
                 _read_ref_trajectory_path,
                 _read_target_inclination,
@@ -823,6 +824,8 @@ if __name__ == "__main__":
                     print(f"    Delta-V (m/s):      p50={np.median(dv):.1f}  p95={np.percentile(dv, 95):.1f}  mean={dv.mean():.1f}")
                     print(f"    Apoapsis err (km):  p50={np.median(apo_err):.1f}  p95={np.percentile(apo_err, 95):.1f}  mean={apo_err.mean():.1f}")
                     print(f"    Periapsis err (km): p50={np.median(peri_err):.1f}  p95={np.percentile(peri_err, 95):.1f}  mean={peri_err.mean():.1f}")
+                    incl_err = final_eval[captured, _COL_INCL] - target_incl
+                    print(f"    Inclin. err (deg):  p50={np.median(incl_err):.2f}  p95={np.percentile(incl_err, 95):.2f}  mean={incl_err.mean():.2f}")
 
                 report_path = Path(cfg.save_dir) / "final_report.html"
                 generate_final_report(eval_data, cfg.guidance_type, target_incl, report_path, ref_trajectory_path=ref_traj_path)
