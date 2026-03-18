@@ -847,7 +847,8 @@ if __name__ == "__main__":
                     from aerocapture.training.corridor import compute_corridor, save_corridor
 
                     print("Computing corridor boundaries...")
-                    corr_data = compute_corridor(str(base_toml_path), seed=final_seed)
+                    # Use training TOML (inherits common.toml dispersions), not bare mission TOML
+                    corr_data = compute_corridor(args.toml, seed=final_seed)
                     save_corridor(corr_data, corr_npz)
 
                 report_path = Path(cfg.save_dir) / "final_report.html"

@@ -234,10 +234,13 @@ def _run_mc_constant_bank(
     bank_lo: float,
     bank_hi: float,
     seed: int,
+    with_dispersions: bool = False,
 ) -> tuple[npt.NDArray[np.float64], list[npt.NDArray[np.float64]]]:
     """Run MC with constant bank angle uniformly dispersed in [bank_lo, bank_hi].
 
-    No mission dispersions — only bank angle varies.
+    When with_dispersions=True, uses whatever dispersions are configured in the
+    TOML (e.g., initial_state, atmosphere from common.toml inheritance).
+    When False, overrides all dispersions to "off".
 
     Returns (final_records (N, 52), trajectories list of (T_i, 12)).
     """
@@ -252,14 +255,19 @@ def _run_mc_constant_bank(
 
     overrides_list = []
     for bank in bank_angles:
-        overrides_list.append({
+        ovr: dict[str, object] = {
             "guidance.type": "ftc",  # dummy — overridden by reference_trajectory
             "guidance.reference_trajectory": True,
             "guidance.reference_bank_angle": float(bank),
             "simulation.n_sims": 1,
-            "monte_carlo.dispersion_level": "none",
-            "monte_carlo.seed": seed,
-        })
+        }
+        if not with_dispersions:
+            ovr["monte_carlo.initial_state.level"] = "off"
+            ovr["monte_carlo.atmosphere.level"] = "off"
+            ovr["monte_carlo.aerodynamics.level"] = "off"
+            ovr["monte_carlo.navigation.level"] = "off"
+            ovr["monte_carlo.mass.level"] = "off"
+        overrides_list.append(ovr)
 
     results = aero.run_batch(  # type: ignore[attr-defined]
         toml_path,
@@ -291,20 +299,21 @@ def compute_corridor(
     seed: int = 42,
     delta_za: float | None = None,
 ) -> dict[str, npt.NDArray[np.float64]]:
-    """Compute corridor boundaries and optimal nominal via single-phase MC.
+    """Compute corridor boundaries and optimal nominal via two-phase MC.
 
-    Bank angle dispersed [0deg,180deg], no mission dispersions. Each bank angle
-    maps to exactly one outcome, giving clean corridor boundaries.
+    Phase 1 (bank [0deg,180deg] + TOML-configured dispersions): classify
+    trajectories, extract crash/capture envelopes. The TOML should inherit
+    from common.toml (or equivalent) so that initial_state, atmosphere, etc.
+    dispersions are active.
 
-    Outputs:
-    - Crash envelope (max pdyn of non-crash) and capture envelope (min pdyn of captured)
-      for the red fill zones.
-    - ±δZa boundary trajectories (dashed lines within corridor).
-    - Min-DV nominal trajectory.
+    Phase 2 (bank [0deg,180deg], no dispersions): find ±δZa boundary
+    trajectories and min-DV nominal. Deterministic (each bank angle maps
+    to exactly one outcome).
 
     Args:
-        toml_path: Path to mission TOML config.
-        n_sims: Number of MC sims (overrides TOML [corridor].n_sims).
+        toml_path: Path to TOML config (training TOML recommended, so
+            dispersions from common.toml are inherited).
+        n_sims: Number of MC sims per phase (overrides TOML [corridor].n_sims).
         seed: Random seed.
         delta_za: Apoapsis error tolerance in km (overrides TOML [corridor].delta_za).
 
@@ -323,10 +332,10 @@ def compute_corridor(
     toml_data = load_toml_with_bases(Path(toml_str))
     target_apo = float(toml_data.get("flight", {}).get("target_orbit", {}).get("apoapsis", 0.0))
 
-    # Single-phase MC: bank [0deg,180deg], no dispersions
-    print(f"  Corridor: Running {n_sims}-sim bank-angle sweep (no dispersions)...")
-    fr, traj = _run_mc_constant_bank(toml_str, n_sims, 0.0, 180.0, seed)
-    labels = classify_trajectories(fr, delta_za=delta_za)
+    # Phase 1: bank [0deg,180deg] + TOML dispersions -> envelopes
+    print(f"  Phase 1: Running {n_sims}-sim MC (bank [0deg,180deg] + TOML dispersions)...")
+    fr_disp, traj_disp = _run_mc_constant_bank(toml_str, n_sims, 0.0, 180.0, seed, with_dispersions=True)
+    labels = classify_trajectories(fr_disp, delta_za=delta_za)
 
     counts = np.array(
         [
@@ -340,34 +349,50 @@ def compute_corridor(
     print(f"    Classification: crash={counts[0]}, under={counts[1]}, corridor={counts[2]}, over={counts[3]}, hyper={counts[4]}")
 
     # Envelopes: crash and capture boundaries for red fill zones
-    envelopes = compute_envelopes(traj, labels)
+    envelopes = compute_envelopes(traj_disp, labels)
+
+    # Phase 2: bank [0deg,180deg], no dispersions -> boundary trajectories + nominal
+    print(f"  Phase 2: Running {n_sims}-sim bank-angle sweep (no dispersions)...")
+    fr_nom, traj_nom = _run_mc_constant_bank(toml_str, n_sims, 0.0, 180.0, seed + 1, with_dispersions=False)
+    labels_nom = classify_trajectories(fr_nom, delta_za=delta_za)
+
+    counts_nom = np.array(
+        [
+            int((labels_nom == "crash").sum()),
+            int((labels_nom == "undershoot").sum()),
+            int((labels_nom == "corridor").sum()),
+            int((labels_nom == "overshoot").sum()),
+            int((labels_nom == "hyperbolic").sum()),
+        ]
+    )
+    print(f"    Classification (no disp): crash={counts_nom[0]}, under={counts_nom[1]}, corridor={counts_nom[2]}, over={counts_nom[3]}, hyper={counts_nom[4]}")
 
     # ±δZa boundary trajectories (dashed lines within corridor)
-    boundary_undershoot = _find_boundary_trajectory(fr, traj, -delta_za)
-    boundary_overshoot = _find_boundary_trajectory(fr, traj, +delta_za)
+    boundary_undershoot = _find_boundary_trajectory(fr_nom, traj_nom, -delta_za)
+    boundary_overshoot = _find_boundary_trajectory(fr_nom, traj_nom, +delta_za)
 
     if boundary_undershoot.size > 0:
         bank_u = float(boundary_undershoot[0, 10])
-        apo_u = float(fr[np.argmin(np.abs(fr[:, _COL_APO_ERR] - (-delta_za))), _COL_APO_ERR])
+        apo_u = float(fr_nom[np.argmin(np.abs(fr_nom[:, _COL_APO_ERR] - (-delta_za))), _COL_APO_ERR])
         print(f"    Undershoot boundary: bank={bank_u:.1f}deg, apo_err={apo_u:.0f}km")
     if boundary_overshoot.size > 0:
         bank_o = float(boundary_overshoot[0, 10])
-        apo_o = float(fr[np.argmin(np.abs(fr[:, _COL_APO_ERR] - delta_za)), _COL_APO_ERR])
+        apo_o = float(fr_nom[np.argmin(np.abs(fr_nom[:, _COL_APO_ERR] - delta_za)), _COL_APO_ERR])
         print(f"    Overshoot boundary:  bank={bank_o:.1f}deg, apo_err={apo_o:.0f}km")
 
-    # Nominal: min |dv_peri| + |dv_apo| among captured
-    viable = _viable_capture_mask(fr)
+    # Nominal: min |dv_peri| + |dv_apo| among captured (from Phase 2, no dispersions)
+    viable = _viable_capture_mask(fr_nom)
     n_viable = int(viable.sum())
     print(f"    Viable captures: {n_viable}/{n_sims}")
 
     if n_viable > 0:
-        dv_values = fr[viable, _COL_DV_APO_PERI]
+        dv_values = fr_nom[viable, _COL_DV_APO_PERI]
         best_idx_in_viable = int(np.argmin(dv_values))
         best_idx = np.where(viable)[0][best_idx_in_viable]
-        nom_traj = np.asarray(traj[best_idx])
+        nom_traj = np.asarray(traj_nom[best_idx])
         nom_dv = float(dv_values[best_idx_in_viable])
         nom_bank = float(nom_traj[0, 10]) if nom_traj.size > 0 else 0.0
-        nom_dv_total = float(fr[best_idx, _COL_DV_TOTAL])
+        nom_dv_total = float(fr_nom[best_idx, _COL_DV_TOTAL])
         print(f"    Nominal: bank={nom_bank:.1f}deg, DV(apo+peri)={nom_dv:.1f} m/s, DV(total)={nom_dv_total:.1f} m/s")
     else:
         print("  WARNING: No viable captures in bank-angle sweep")
