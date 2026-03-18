@@ -546,23 +546,21 @@ def _select_guided_nominal(
 
 
 _COLOR_CRASH = "#E57373"  # light red for crash/hyperbolic zones
-_COLOR_UNDERSHOOT = "#BDBDBD"  # grey for undershoot/overshoot zones
-_COLOR_OVERSHOOT = "#BDBDBD"  # grey for overshoot zone
+_COLOR_BOUNDARY = "#757575"  # dark grey for ±δZa boundary lines
 
 
 def _draw_pdyn_zones(
     ax: Any,  # matplotlib Axes
     corridor_data: dict[str, npt.NDArray[np.float64]] | None,
 ) -> None:
-    """Draw 4-layer corridor zones on the pdyn panel.
+    """Draw corridor zones on the pdyn panel.
 
-    Layers (back to front):
-    1. Grey fill above undershoot envelope (Envelope A)
-    2. Red fill above crash envelope (Envelope B) — overpaints grey
-    3. Grey fill below overshoot envelope (Envelope C)
-    4. Red fill below hyperbolic envelope (Envelope D) — overpaints grey
+    Two red fills define the full capture corridor:
+    1. Red fill above crash envelope (max pdyn of non-crash)
+    2. Red fill below capture envelope (min pdyn of captured)
 
-    The white gap between Envelopes A and C is the viable corridor.
+    The white gap between is the full capture corridor. Within it,
+    ±δZa boundary trajectories are drawn as dashed grey lines.
     """
     if corridor_data is None:
         return
@@ -578,29 +576,28 @@ def _draw_pdyn_zones(
 
     x_lo, x_hi = ax.get_xlim()
 
-    # Layer 1: Grey above undershoot boundary (Envelope A)
-    env_under = corridor_data.get("envelope_undershoot_pdyn")
-    if env_under is not None and not np.all(np.isnan(env_under)):
-        valid = ~np.isnan(env_under)
-        ax.fill_between(energy[valid], env_under[valid], y_axis_max, color=_COLOR_UNDERSHOOT, alpha=0.5, zorder=4)
-
-    # Layer 2: Red above crash boundary (Envelope B) — overpaints grey
+    # Red fill above crash boundary
     env_crash = corridor_data.get("envelope_crash_pdyn")
     if env_crash is not None and not np.all(np.isnan(env_crash)):
         valid = ~np.isnan(env_crash)
-        ax.fill_between(energy[valid], env_crash[valid], y_axis_max, color=_COLOR_CRASH, alpha=0.5, zorder=4.1)
+        ax.fill_between(energy[valid], env_crash[valid], y_axis_max, color=_COLOR_CRASH, alpha=0.5, zorder=4)
 
-    # Layer 3: Grey below overshoot boundary (Envelope C)
-    env_over = corridor_data.get("envelope_overshoot_pdyn")
-    if env_over is not None and not np.all(np.isnan(env_over)):
-        valid = ~np.isnan(env_over)
-        ax.fill_between(energy[valid], 0, env_over[valid], color=_COLOR_OVERSHOOT, alpha=0.5, zorder=4.2)
+    # Red fill below capture boundary
+    env_capture = corridor_data.get("envelope_capture_pdyn")
+    if env_capture is not None and not np.all(np.isnan(env_capture)):
+        valid = ~np.isnan(env_capture)
+        ax.fill_between(energy[valid], 0, env_capture[valid], color=_COLOR_CRASH, alpha=0.5, zorder=4.1)
 
-    # Layer 4: Red below hyperbolic boundary (Envelope D) — overpaints grey
-    env_hyper = corridor_data.get("envelope_hyperbolic_pdyn")
-    if env_hyper is not None and not np.all(np.isnan(env_hyper)):
-        valid = ~np.isnan(env_hyper)
-        ax.fill_between(energy[valid], 0, env_hyper[valid], color=_COLOR_CRASH, alpha=0.5, zorder=4.3)
+    # ±δZa boundary trajectories as dashed lines within the corridor
+    bnd_under = corridor_data.get("boundary_undershoot")
+    if bnd_under is not None and bnd_under.ndim == 2 and bnd_under.shape[0] > 0:
+        ax.plot(bnd_under[:, _TRAJ_COL_ENERGY], bnd_under[:, _TRAJ_COL_PDYN], color=_COLOR_BOUNDARY, linewidth=1.2,
+                linestyle="--", zorder=4.5)
+
+    bnd_over = corridor_data.get("boundary_overshoot")
+    if bnd_over is not None and bnd_over.ndim == 2 and bnd_over.shape[0] > 0:
+        ax.plot(bnd_over[:, _TRAJ_COL_ENERGY], bnd_over[:, _TRAJ_COL_PDYN], color=_COLOR_BOUNDARY, linewidth=1.2,
+                linestyle="--", zorder=4.5)
 
     # Annotations
     mid_e = (x_lo + x_hi) / 2
@@ -704,7 +701,7 @@ def _generate_corridor_png(
     legend_elements: list[Any] = [
         Patch(facecolor="#2196F3", alpha=0.4, label="MC captured"),
         Patch(facecolor=_COLOR_CRASH, alpha=0.5, label="Crash / Hyperbolic exit"),
-        Patch(facecolor=_COLOR_UNDERSHOOT, alpha=0.5, label="Undershoot / Overshoot"),
+        Line2D([0], [0], color=_COLOR_BOUNDARY, linewidth=1.2, linestyle="--", label=r"$\pm\delta Z_a$ boundary"),
     ]
     if corr_nom is not None:
         legend_elements.append(Line2D([0], [0], color="#D32F2F", linewidth=2, label="Nominal (const. bank)"))

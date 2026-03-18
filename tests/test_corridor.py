@@ -119,40 +119,29 @@ class TestClassifyTrajectories:
 
 
 class TestComputeEnvelopes:
-    def test_returns_four_envelopes(self) -> None:
+    def test_returns_crash_and_capture_envelopes(self) -> None:
         trajs, labels = _make_trajectories_with_labels()
-        result = compute_envelopes(trajs, labels, delta_za=200.0, n_bins=50)
+        result = compute_envelopes(trajs, labels, n_bins=50)
         assert "energy_bins" in result
-        assert "envelope_undershoot_pdyn" in result
         assert "envelope_crash_pdyn" in result
-        assert "envelope_overshoot_pdyn" in result
-        assert "envelope_hyperbolic_pdyn" in result
+        assert "envelope_capture_pdyn" in result
         assert len(result["energy_bins"]) == 50
 
-    def test_crash_envelope_above_undershoot(self) -> None:
+    def test_crash_envelope_above_capture(self) -> None:
         trajs, labels = _make_trajectories_with_labels()
-        result = compute_envelopes(trajs, labels, delta_za=200.0, n_bins=50)
+        result = compute_envelopes(trajs, labels, n_bins=50)
         crash = result["envelope_crash_pdyn"]
-        under = result["envelope_undershoot_pdyn"]
-        valid = ~np.isnan(crash) & ~np.isnan(under)
+        capture = result["envelope_capture_pdyn"]
+        valid = ~np.isnan(crash) & ~np.isnan(capture)
         if valid.any():
-            assert np.all(crash[valid] >= under[valid] - 0.1)
+            assert np.all(crash[valid] >= capture[valid] - 0.1)
 
-    def test_hyperbolic_envelope_below_overshoot(self) -> None:
-        trajs, labels = _make_trajectories_with_labels()
-        result = compute_envelopes(trajs, labels, delta_za=200.0, n_bins=50)
-        hyper = result["envelope_hyperbolic_pdyn"]
-        over = result["envelope_overshoot_pdyn"]
-        valid = ~np.isnan(hyper) & ~np.isnan(over)
-        if valid.any():
-            assert np.all(hyper[valid] <= over[valid] + 0.1)
-
-    def test_empty_class_produces_nan_envelope(self) -> None:
+    def test_empty_class_produces_nan_crash_envelope(self) -> None:
         trajs, labels = _make_trajectories_with_labels()
         non_crash = labels != "crash"
         trajs_filtered = [trajs[i] for i in range(len(trajs)) if non_crash[i]]
         labels_filtered = labels[non_crash]
-        result = compute_envelopes(trajs_filtered, labels_filtered, delta_za=200.0, n_bins=50)
+        result = compute_envelopes(trajs_filtered, labels_filtered, n_bins=50)
         assert np.all(np.isnan(result["envelope_crash_pdyn"]))
 
 
@@ -160,25 +149,25 @@ class TestCorridorCache:
     def test_save_and_load_roundtrip(self, tmp_path: Path) -> None:
         path = tmp_path / "corridor.npz"
         data = {
-            "schema_version": np.array([2]),
+            "schema_version": np.array([3]),
             "energy_bins": np.linspace(-6, 4, 50),
-            "envelope_undershoot_pdyn": np.random.default_rng(0).random(50),
             "envelope_crash_pdyn": np.random.default_rng(1).random(50),
-            "envelope_overshoot_pdyn": np.random.default_rng(2).random(50),
-            "envelope_hyperbolic_pdyn": np.random.default_rng(3).random(50),
+            "envelope_capture_pdyn": np.random.default_rng(2).random(50),
+            "boundary_undershoot": np.random.default_rng(5).random((100, 12)),
+            "boundary_overshoot": np.random.default_rng(6).random((100, 12)),
             "nominal": np.random.default_rng(4).random((100, 12)),
             "nominal_bank_deg": np.array([65.0]),
             "nominal_dv": np.array([150.0]),
             "nominal_dv_total": np.array([180.0]),
             "target_apoapsis_km": np.array([500.13]),
-            "delta_za_km": np.array([200.0]),
+            "delta_za_km": np.array([500.0]),
             "n_sims": np.array([10000]),
             "classification_counts": np.array([500, 1000, 6000, 1000, 1500]),
         }
         save_corridor(data, path)
         loaded = load_corridor(path)
         assert loaded is not None
-        assert loaded["schema_version"][0] == 2
+        assert loaded["schema_version"][0] == 3
         np.testing.assert_array_equal(loaded["energy_bins"], data["energy_bins"])
 
     def test_load_old_cache_returns_none(self, tmp_path: Path) -> None:

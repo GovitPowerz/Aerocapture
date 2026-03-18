@@ -1,14 +1,14 @@
 """Aerocapture corridor boundary computation via Monte Carlo.
 
-Computes corridor boundaries (4 envelopes) and optimal nominal trajectory
-using two MC phases:
+Computes the full capture corridor (crash-to-capture boundaries) and
+±δZa restricted boundary trajectories using a single bank-angle sweep MC:
 
-1. **Phase 1** (bank angle dispersed [0deg,180deg] + all mission dispersions):
-   Classify each trajectory (crash/undershoot/corridor/overshoot/hyperbolic),
-   extract 4 pdyn envelopes at p99/p1 percentiles.
-
-2. **Phase 2** (bank angle dispersed [0deg,180deg], no other dispersions):
-   Find the trajectory with lowest |dv1|+|dv2| as the optimal constant-bank nominal.
+1. Bank angle dispersed [0deg,180deg], no mission dispersions.
+2. Classify each trajectory (crash/undershoot/corridor/overshoot/hyperbolic).
+3. Extract 2 fill envelopes: crash boundary (max pdyn of non-crash) and
+   capture boundary (min pdyn of captured).
+4. Find ±δZa boundary trajectories (closest to apo_err = ±delta_za).
+5. Find min-DV nominal (lowest |dv_peri|+|dv_apo| among captured).
 
 Usage (standalone):
     uv run python -m aerocapture.training.corridor \\
@@ -39,11 +39,11 @@ _COL_DV_APO_PERI = 40  # |dv1| + |dv2|
 _COL_DV_TOTAL = 41
 _DV_CRASH_SENTINEL = 1e10
 
-# Cache schema version
-_SCHEMA_VERSION = 2
+# Cache schema version — bumped from 2 to 3 for new corridor format
+_SCHEMA_VERSION = 3
 
 # Default corridor parameters
-_DEFAULT_DELTA_ZA = 200.0
+_DEFAULT_DELTA_ZA = 500.0
 _DEFAULT_N_SIMS = 10000
 
 
@@ -112,12 +112,13 @@ def classify_trajectories(
 def compute_envelopes(
     trajectories: list[npt.NDArray[np.float64]],
     labels: npt.NDArray[np.str_],
-    delta_za: float = _DEFAULT_DELTA_ZA,
     n_bins: int = 200,
 ) -> dict[str, npt.NDArray[np.float64]]:
-    """Extract 4 pdyn envelope curves from classified trajectories.
+    """Extract crash and capture pdyn envelopes from classified trajectories.
 
-    Returns dict with keys: energy_bins, envelope_{undershoot,crash,overshoot,hyperbolic}_pdyn.
+    Returns dict with keys: energy_bins, envelope_crash_pdyn, envelope_capture_pdyn.
+    - crash envelope: MAX pdyn of non-crash trajectories (above = crash zone)
+    - capture envelope: MIN pdyn of captured trajectories (below = hyperbolic zone)
     Each envelope array has NaN where insufficient data exists.
     """
     # Shared energy axis from ALL trajectories
@@ -131,23 +132,20 @@ def compute_envelopes(
         empty = np.full(n_bins, np.nan)
         return {
             "energy_bins": np.linspace(-6, 4, n_bins),
-            "envelope_undershoot_pdyn": empty.copy(),
             "envelope_crash_pdyn": empty.copy(),
-            "envelope_overshoot_pdyn": empty.copy(),
-            "envelope_hyperbolic_pdyn": empty.copy(),
+            "envelope_capture_pdyn": empty.copy(),
         }
 
     e_all = np.array(all_energies)
     bins = np.linspace(e_all.min(), e_all.max(), n_bins + 1)
     bin_centers = (bins[:-1] + bins[1:]) / 2
 
-    def _envelope(mask: npt.NDArray[np.bool_], percentile: float) -> npt.NDArray[np.float64]:
-        """Compute percentile of pdyn per energy bin for trajectories matching mask."""
+    def _envelope(mask: npt.NDArray[np.bool_], use_max: bool) -> npt.NDArray[np.float64]:
+        """Compute envelope (max or min) of pdyn per energy bin for trajectories matching mask."""
         result = np.full(n_bins, np.nan)
         if not mask.any():
             return result
 
-        # Collect all (energy, pdyn) points from matching trajectories
         e_pts: list[float] = []
         p_pts: list[float] = []
         for i in np.where(mask)[0]:
@@ -164,11 +162,12 @@ def compute_envelopes(
         p_arr = np.array(p_pts)
         bin_idx = np.clip(np.digitize(e_arr, bins) - 1, 0, n_bins - 1)
 
+        agg_fn = np.max if use_max else np.min
         for b in range(n_bins):
             m = bin_idx == b
             count = int(m.sum())
             if count >= 3:  # minimum bin occupancy
-                result[b] = np.percentile(p_arr[m], percentile)
+                result[b] = agg_fn(p_arr[m])
 
         # Interpolate NaN gaps from neighbors
         valid = ~np.isnan(result)
@@ -182,43 +181,51 @@ def compute_envelopes(
 
         return result
 
-    # Envelope A (undershoot boundary): p99 of captured trajectories with apo_err >= -delta_za
-    # "corridor" and "overshoot" qualify; "undershoot" has apo_err < -delta_za so excluded
-    mask_a = (labels == "corridor") | (labels == "overshoot")
-    if not mask_a.any():
-        warnings.warn("No captured trajectories with apo_err >= -delta_za — undershoot envelope empty", stacklevel=2)
-    envelope_undershoot = _envelope(mask_a, 99)
-
-    # Envelope B (crash boundary): p99 of ALL non-crashing trajectories
-    # Upper edge above which everything crashes. NaN when no crashes observed.
-    mask_b = (labels != "crash") & (labels != "timeout")
+    # Crash boundary: MAX pdyn of ALL non-crashing trajectories
+    # The area ABOVE this envelope is the crash zone (red).
+    mask_crash = (labels != "crash") & (labels != "timeout")
     has_crashes = (labels == "crash").any()
     if not has_crashes:
         warnings.warn("No crash trajectories observed — crash zone not drawn", stacklevel=2)
         envelope_crash = np.full(n_bins, np.nan)
     else:
-        envelope_crash = _envelope(mask_b, 99)
+        envelope_crash = _envelope(mask_crash, use_max=True)
 
-    # Envelope C (overshoot boundary): p1 of captured trajectories with apo_err <= +delta_za
-    # These are: corridor + undershoot (captured with apo_err <= +delta_za)
-    mask_c = (labels == "corridor") | (labels == "undershoot")
-    if not mask_c.any():
-        warnings.warn("No captured trajectories with apo_err <= +delta_za — overshoot envelope empty", stacklevel=2)
-    envelope_overshoot = _envelope(mask_c, 1)
-
-    # Envelope D (hyperbolic boundary): p1 of ALL captured trajectories
-    mask_d = (labels == "corridor") | (labels == "undershoot") | (labels == "overshoot")
-    if not mask_d.any():
-        warnings.warn("No captured trajectories — hyperbolic envelope empty", stacklevel=2)
-    envelope_hyperbolic = _envelope(mask_d, 1)
+    # Capture boundary: MIN pdyn of ALL captured trajectories
+    # The area BELOW this envelope is the hyperbolic exit zone (red).
+    mask_capture = (labels == "corridor") | (labels == "undershoot") | (labels == "overshoot")
+    if not mask_capture.any():
+        warnings.warn("No captured trajectories — capture envelope empty", stacklevel=2)
+    envelope_capture = _envelope(mask_capture, use_max=False)
 
     return {
         "energy_bins": bin_centers,
-        "envelope_undershoot_pdyn": envelope_undershoot,
         "envelope_crash_pdyn": envelope_crash,
-        "envelope_overshoot_pdyn": envelope_overshoot,
-        "envelope_hyperbolic_pdyn": envelope_hyperbolic,
+        "envelope_capture_pdyn": envelope_capture,
     }
+
+
+def _find_boundary_trajectory(
+    final_records: npt.NDArray[np.float64],
+    trajectories: list[npt.NDArray[np.float64]],
+    target_apo_err: float,
+) -> npt.NDArray[np.float64]:
+    """Find the captured trajectory with apo_err closest to target_apo_err.
+
+    Returns the trajectory array (T, 12), or empty (0, 12) if no captures.
+    """
+    ifinal = final_records[:, _COL_IFINAL]
+    energy = final_records[:, _COL_ENERGY]
+    ecc = final_records[:, _COL_ECC]
+    captured = (ifinal == 3.0) & (ecc < 1.0) & (energy < 0.0)
+
+    if not captured.any():
+        return np.empty((0, 12))
+
+    cap_idx = np.where(captured)[0]
+    apo_err = final_records[cap_idx, _COL_APO_ERR]
+    best = cap_idx[int(np.argmin(np.abs(apo_err - target_apo_err)))]
+    return np.asarray(trajectories[best])
 
 
 def _run_mc_constant_bank(
@@ -227,12 +234,10 @@ def _run_mc_constant_bank(
     bank_lo: float,
     bank_hi: float,
     seed: int,
-    with_dispersions: bool,
 ) -> tuple[npt.NDArray[np.float64], list[npt.NDArray[np.float64]]]:
     """Run MC with constant bank angle uniformly dispersed in [bank_lo, bank_hi].
 
-    When with_dispersions=False, sets dispersion level to "none" to disable all
-    mission dispersions (only bank angle varies).
+    No mission dispersions — only bank angle varies.
 
     Returns (final_records (N, 52), trajectories list of (T_i, 12)).
     """
@@ -247,16 +252,14 @@ def _run_mc_constant_bank(
 
     overrides_list = []
     for bank in bank_angles:
-        ovr: dict[str, object] = {
+        overrides_list.append({
             "guidance.type": "ftc",  # dummy — overridden by reference_trajectory
             "guidance.reference_trajectory": True,
             "guidance.reference_bank_angle": float(bank),
             "simulation.n_sims": 1,
-        }
-        if not with_dispersions:
-            ovr["monte_carlo.dispersion_level"] = "none"
-            ovr["monte_carlo.seed"] = seed
-        overrides_list.append(ovr)
+            "monte_carlo.dispersion_level": "none",
+            "monte_carlo.seed": seed,
+        })
 
     results = aero.run_batch(  # type: ignore[attr-defined]
         toml_path,
@@ -288,19 +291,24 @@ def compute_corridor(
     seed: int = 42,
     delta_za: float | None = None,
 ) -> dict[str, npt.NDArray[np.float64]]:
-    """Compute corridor boundaries and optimal nominal via Monte Carlo.
+    """Compute corridor boundaries and optimal nominal via single-phase MC.
 
-    1. Phase 1 (bank [0deg,180deg] + all dispersions): classify trajectories,
-       extract 4 pdyn envelopes.
-    2. Phase 2 (bank [0deg,180deg], no dispersions): find min-DV nominal.
+    Bank angle dispersed [0deg,180deg], no mission dispersions. Each bank angle
+    maps to exactly one outcome, giving clean corridor boundaries.
+
+    Outputs:
+    - Crash envelope (max pdyn of non-crash) and capture envelope (min pdyn of captured)
+      for the red fill zones.
+    - ±δZa boundary trajectories (dashed lines within corridor).
+    - Min-DV nominal trajectory.
 
     Args:
         toml_path: Path to mission TOML config.
-        n_sims: Number of MC sims per phase (overrides TOML [corridor].n_sims).
+        n_sims: Number of MC sims (overrides TOML [corridor].n_sims).
         seed: Random seed.
         delta_za: Apoapsis error tolerance in km (overrides TOML [corridor].delta_za).
 
-    Returns dict with corridor cache data (schema version 2).
+    Returns dict with corridor cache data (schema version 3).
     """
     toml_str = str(Path(toml_path).resolve())
 
@@ -315,10 +323,10 @@ def compute_corridor(
     toml_data = load_toml_with_bases(Path(toml_str))
     target_apo = float(toml_data.get("flight", {}).get("target_orbit", {}).get("apoapsis", 0.0))
 
-    # Phase 1: Full MC (bank + all dispersions) -> envelopes
-    print(f"  Phase 1: Running {n_sims}-sim full MC (bank [0deg,180deg] + dispersions)...")
-    fr_full, traj_full = _run_mc_constant_bank(toml_str, n_sims, 0.0, 180.0, seed, with_dispersions=True)
-    labels = classify_trajectories(fr_full, delta_za=delta_za)
+    # Single-phase MC: bank [0deg,180deg], no dispersions
+    print(f"  Corridor: Running {n_sims}-sim bank-angle sweep (no dispersions)...")
+    fr, traj = _run_mc_constant_bank(toml_str, n_sims, 0.0, 180.0, seed)
+    labels = classify_trajectories(fr, delta_za=delta_za)
 
     counts = np.array(
         [
@@ -331,26 +339,38 @@ def compute_corridor(
     )
     print(f"    Classification: crash={counts[0]}, under={counts[1]}, corridor={counts[2]}, over={counts[3]}, hyper={counts[4]}")
 
-    envelopes = compute_envelopes(traj_full, labels, delta_za=delta_za)
+    # Envelopes: crash and capture boundaries for red fill zones
+    envelopes = compute_envelopes(traj, labels)
 
-    # Phase 2: Bank-only MC (no dispersions) -> nominal
-    print(f"  Phase 2: Running {n_sims}-sim bank-only MC (no dispersions)...")
-    fr_nom, traj_nom = _run_mc_constant_bank(toml_str, n_sims, 0.0, 180.0, seed + 1, with_dispersions=False)
-    viable_nom = _viable_capture_mask(fr_nom)
-    n_viable_nom = int(viable_nom.sum())
-    print(f"    Viable captures: {n_viable_nom}/{n_sims}")
+    # ±δZa boundary trajectories (dashed lines within corridor)
+    boundary_undershoot = _find_boundary_trajectory(fr, traj, -delta_za)
+    boundary_overshoot = _find_boundary_trajectory(fr, traj, +delta_za)
 
-    if n_viable_nom > 0:
-        dv_values = fr_nom[viable_nom, _COL_DV_APO_PERI]
+    if boundary_undershoot.size > 0:
+        bank_u = float(boundary_undershoot[0, 10])
+        apo_u = float(fr[np.argmin(np.abs(fr[:, _COL_APO_ERR] - (-delta_za))), _COL_APO_ERR])
+        print(f"    Undershoot boundary: bank={bank_u:.1f}deg, apo_err={apo_u:.0f}km")
+    if boundary_overshoot.size > 0:
+        bank_o = float(boundary_overshoot[0, 10])
+        apo_o = float(fr[np.argmin(np.abs(fr[:, _COL_APO_ERR] - delta_za)), _COL_APO_ERR])
+        print(f"    Overshoot boundary:  bank={bank_o:.1f}deg, apo_err={apo_o:.0f}km")
+
+    # Nominal: min |dv_peri| + |dv_apo| among captured
+    viable = _viable_capture_mask(fr)
+    n_viable = int(viable.sum())
+    print(f"    Viable captures: {n_viable}/{n_sims}")
+
+    if n_viable > 0:
+        dv_values = fr[viable, _COL_DV_APO_PERI]
         best_idx_in_viable = int(np.argmin(dv_values))
-        best_idx = np.where(viable_nom)[0][best_idx_in_viable]
-        nom_traj = traj_nom[best_idx]
+        best_idx = np.where(viable)[0][best_idx_in_viable]
+        nom_traj = np.asarray(traj[best_idx])
         nom_dv = float(dv_values[best_idx_in_viable])
         nom_bank = float(nom_traj[0, 10]) if nom_traj.size > 0 else 0.0
-        nom_dv_total = float(fr_nom[best_idx, _COL_DV_TOTAL])
+        nom_dv_total = float(fr[best_idx, _COL_DV_TOTAL])
         print(f"    Nominal: bank={nom_bank:.1f}deg, DV(apo+peri)={nom_dv:.1f} m/s, DV(total)={nom_dv_total:.1f} m/s")
     else:
-        print("  WARNING: No viable captures in bank-only MC")
+        print("  WARNING: No viable captures in bank-angle sweep")
         nom_traj = np.empty((0, 12))
         nom_bank = 0.0
         nom_dv = 0.0
@@ -359,6 +379,8 @@ def compute_corridor(
     return {
         "schema_version": np.array([_SCHEMA_VERSION]),
         **envelopes,
+        "boundary_undershoot": boundary_undershoot,
+        "boundary_overshoot": boundary_overshoot,
         "nominal": nom_traj,
         "nominal_bank_deg": np.array([nom_bank]),
         "nominal_dv": np.array([nom_dv]),
@@ -407,7 +429,7 @@ def main() -> None:
     parser.add_argument("--output", type=str, default="corridor_boundaries.npz", help="Output .npz file path")
     parser.add_argument("--n-sims", type=int, default=None, help="Number of MC sims (default: from TOML or 10000)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
-    parser.add_argument("--delta-za", type=float, default=None, help="Apoapsis error tolerance km (default: from TOML or 200)")
+    parser.add_argument("--delta-za", type=float, default=None, help="Apoapsis error tolerance km (default: from TOML or 500)")
     args = parser.parse_args()
 
     print(f"Computing corridor boundaries for {args.toml}...")
