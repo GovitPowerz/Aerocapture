@@ -1,0 +1,12 @@
+base = ["../training/common.toml", "../missions/mars.toml"]
+
+[guidance]
+type = "piecewise_constant"
+
+[guidance.piecewise_constant]
+energy_min = -6.0
+energy_max = 5.0
+
+[simulation]
+n_sims = 50
+results_suffix = "piecewise_constant"
