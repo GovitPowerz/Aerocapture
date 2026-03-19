@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from aerocapture.training.corridor import CorridorAccumulator, classify_trajectories, compute_envelopes, load_corridor, save_corridor
+from aerocapture.training.corridor import CorridorAccumulator, classify_trajectories, load_corridor, save_corridor
 
 
 def _make_final_records(
@@ -117,32 +117,18 @@ class TestClassifyTrajectories:
         assert labels[0] == "corridor"
         assert labels[1] == "corridor"
 
-
-class TestComputeEnvelopes:
-    def test_returns_crash_and_capture_envelopes(self) -> None:
-        trajs, labels = _make_trajectories_with_labels()
-        result = compute_envelopes(trajs, labels, n_bins=50)
-        assert "energy_bins" in result
-        assert "envelope_crash_pdyn" in result
-        assert "envelope_capture_pdyn" in result
-        assert len(result["energy_bins"]) == 50
-
-    def test_crash_envelope_above_capture(self) -> None:
-        trajs, labels = _make_trajectories_with_labels()
-        result = compute_envelopes(trajs, labels, n_bins=50)
-        crash = result["envelope_crash_pdyn"]
-        capture = result["envelope_capture_pdyn"]
-        valid = ~np.isnan(crash) & ~np.isnan(capture)
-        if valid.any():
-            assert np.all(crash[valid] >= capture[valid] - 0.1)
-
-    def test_empty_class_produces_nan_crash_envelope(self) -> None:
-        trajs, labels = _make_trajectories_with_labels()
-        non_crash = labels != "crash"
-        trajs_filtered = [trajs[i] for i in range(len(trajs)) if non_crash[i]]
-        labels_filtered = labels[non_crash]
-        result = compute_envelopes(trajs_filtered, labels_filtered, n_bins=50)
-        assert np.all(np.isnan(result["envelope_crash_pdyn"]))
+    def test_asymmetric_bounds(self) -> None:
+        fr = np.zeros((3, 52))
+        fr[:, 31] = 3.0
+        fr[:, 7] = -1.0
+        fr[:, 9] = 0.5
+        fr[0, 30] = -150.0  # within [-200, +1000]
+        fr[1, 30] = 800.0   # within [-200, +1000]
+        fr[2, 30] = 1100.0  # outside (overshoot)
+        labels = classify_trajectories(fr, delta_za_low=-200.0, delta_za_high=1000.0)
+        assert labels[0] == "corridor"
+        assert labels[1] == "corridor"
+        assert labels[2] == "overshoot"
 
 
 class TestCorridorAccumulator:
@@ -170,7 +156,7 @@ class TestCorridorAccumulator:
         np.testing.assert_array_equal(acc.crash_max_pdyn, crash_after_first)
 
     def test_checkpoint_roundtrip(self) -> None:
-        acc = CorridorAccumulator(energy_min=-6e6, energy_max=5e6, delta_za_restricted=200.0)
+        acc = CorridorAccumulator(energy_min=-6e6, energy_max=5e6, delta_za_restricted=200.0, delta_za_low=-200.0, delta_za_high=1000.0)
         trajs, labels = _make_trajectories_with_labels()
         acc.update(trajs, labels)
         state = acc.to_checkpoint()
@@ -179,6 +165,8 @@ class TestCorridorAccumulator:
         np.testing.assert_array_equal(acc.restricted_max_pdyn, acc2.restricted_max_pdyn)
         np.testing.assert_array_equal(acc.restricted_min_pdyn, acc2.restricted_min_pdyn)
         np.testing.assert_array_equal(acc.capture_min_pdyn, acc2.capture_min_pdyn)
+        assert acc2.delta_za_low == -200.0
+        assert acc2.delta_za_high == 1000.0
 
     def test_to_corridor_data(self) -> None:
         acc = CorridorAccumulator(energy_min=-6e6, energy_max=5e6, delta_za_restricted=200.0)
@@ -197,30 +185,31 @@ class TestCorridorCache:
     def test_save_and_load_roundtrip(self, tmp_path: Path) -> None:
         path = tmp_path / "corridor.npz"
         data = {
-            "schema_version": np.array([3]),
+            "schema_version": np.array([4]),
             "energy_bins": np.linspace(-6, 4, 50),
             "envelope_crash_pdyn": np.random.default_rng(1).random(50),
             "envelope_capture_pdyn": np.random.default_rng(2).random(50),
-            "boundary_undershoot": np.random.default_rng(5).random((100, 12)),
-            "boundary_overshoot": np.random.default_rng(6).random((100, 12)),
-            "nominal": np.random.default_rng(4).random((100, 12)),
-            "nominal_bank_deg": np.array([65.0]),
-            "nominal_dv": np.array([150.0]),
-            "nominal_dv_total": np.array([180.0]),
-            "target_apoapsis_km": np.array([500.13]),
-            "delta_za_km": np.array([500.0]),
-            "n_sims": np.array([10000]),
-            "classification_counts": np.array([500, 1000, 6000, 1000, 1500]),
+            "envelope_restricted_max_pdyn": np.random.default_rng(3).random(50),
+            "envelope_restricted_min_pdyn": np.random.default_rng(4).random(50),
+            "nominal": np.random.default_rng(5).random((100, 12)),
+            "delta_za_km": np.array([200.0]),
         }
         save_corridor(data, path)
         loaded = load_corridor(path)
         assert loaded is not None
-        assert loaded["schema_version"][0] == 3
+        assert loaded["schema_version"][0] == 4
         np.testing.assert_array_equal(loaded["energy_bins"], data["energy_bins"])
 
     def test_load_old_cache_returns_none(self, tmp_path: Path) -> None:
         path = tmp_path / "old_corridor.npz"
         np.savez_compressed(str(path), nominal=np.zeros((10, 12)), traj_lengths=np.array([10]))
+        loaded = load_corridor(path)
+        assert loaded is None
+
+    def test_load_v3_cache_returns_none(self, tmp_path: Path) -> None:
+        """v3 caches from old compute_corridor are no longer supported."""
+        path = tmp_path / "v3_corridor.npz"
+        np.savez_compressed(str(path), schema_version=np.array([3]), energy_bins=np.linspace(-6, 4, 50))
         loaded = load_corridor(path)
         assert loaded is None
 

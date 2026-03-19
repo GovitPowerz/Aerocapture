@@ -970,16 +970,12 @@ if __name__ == "__main__":
                         "\n  Note: Final evaluation stats are only meaningful in comparison to other schemes or configurations on the same scenario and seed.\n"
                     )
 
-                # Compute corridor boundaries (or load cached) — shared across schemes per mission
+                # Corridor boundaries (produced by piecewise_constant training)
                 # mission_name and corr_dir already derived above (before train() call)
                 corr_npz = corr_dir / "corridor_boundaries.npz"
                 if not corr_npz.exists():
-                    from aerocapture.training.corridor import compute_corridor, save_corridor
-
-                    print("Computing corridor boundaries...")
-                    # Use training TOML (inherits common.toml dispersions), not bare mission TOML
-                    corr_data = compute_corridor(args.toml, seed=final_seed)
-                    save_corridor(corr_data, corr_npz)
+                    print("  No corridor cache found — corridor zones will not be drawn.")
+                    print("  Run piecewise_constant training to generate corridor boundaries.")
 
                 report_path = Path(cfg.save_dir) / "final_report.html"
                 generate_final_report(eval_data, cfg.guidance_type, target_incl, report_path, corridor_path=corr_npz)
