@@ -160,7 +160,13 @@ fn run_core(
                 run_state.entry.state.flight_path.to_degrees(),
             );
         }
-        let mut result = run_single(config, data, run_state, 0, write_photo || include_trajectories)?;
+        let mut result = run_single(
+            config,
+            data,
+            run_state,
+            0,
+            write_photo || include_trajectories,
+        )?;
         result.dispersions = *disp_array;
         Ok(vec![result])
     }
@@ -522,8 +528,7 @@ fn run_single(
             // Reference trajectory mode: compute pdyn from truth state for photo output
             let (alt_truth, _) =
                 geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
-            let rho_truth =
-                data.atmosphere.density_at(alt_truth) * (1.0 + run_state.density_bias);
+            let rho_truth = data.atmosphere.density_at(alt_truth) * (1.0 + run_state.density_bias);
             dynamic_pressure_for_photo = 0.5 * rho_truth * sim.state[3] * sim.state[3];
             density_estimate_for_photo = rho_truth;
         }

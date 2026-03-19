@@ -164,13 +164,11 @@ pub fn guidance_step(
             }
             GuidanceType::PredGuid => predguid::predguid_bank(nav, &state.predguid, data, planet),
             GuidanceType::Fnpag => fnpag::fnpag_bank(nav, &mut state.fnpag, data, planet),
-            GuidanceType::PiecewiseConstant => {
-                piecewise_constant::piecewise_constant_bank(
-                    nav,
-                    &data.guidance.piecewise_constant,
-                    planet,
-                )
-            }
+            GuidanceType::PiecewiseConstant => piecewise_constant::piecewise_constant_bank(
+                nav,
+                &data.guidance.piecewise_constant,
+                planet,
+            ),
         };
         state.n_active += 1;
     }

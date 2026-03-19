@@ -783,7 +783,11 @@ impl SimInput {
             random_seed: config.simulation.random_seed,
             reference_trajectory: config.guidance.reference_trajectory,
             reference_bank_angle: config.guidance.reference_bank_angle.unwrap_or_else(|| {
-                config.entry.as_ref().map(|e| e.initial_bank_angle).unwrap_or(0.0)
+                config
+                    .entry
+                    .as_ref()
+                    .map(|e| e.initial_bank_angle)
+                    .unwrap_or(0.0)
             }),
             base_dir: config.data.base_dir.clone(),
             output_dir: config.data.output_dir.clone(),

@@ -585,8 +585,10 @@ def _draw_pdyn_zones(
     env_restricted_min = corridor_data.get("envelope_restricted_min_pdyn")
 
     has_restricted = (
-        env_restricted_max is not None and not np.all(np.isnan(env_restricted_max))
-        and env_restricted_min is not None and not np.all(np.isnan(env_restricted_min))
+        env_restricted_max is not None
+        and not np.all(np.isnan(env_restricted_max))
+        and env_restricted_min is not None
+        and not np.all(np.isnan(env_restricted_min))
     )
 
     if has_restricted:

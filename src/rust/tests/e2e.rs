@@ -92,6 +92,11 @@ fn guidance_ftc_train_completes() {
     run_guidance_config("training/msr_aller_ftc_train.toml");
 }
 
+#[test]
+fn guidance_piecewise_constant_completes() {
+    run_guidance_config("training/msr_aller_piecewise_constant_train.toml");
+}
+
 fn run_guidance_config(config_name: &str) {
     let config_file = common::repo_root().join("configs").join(config_name);
     assert!(
