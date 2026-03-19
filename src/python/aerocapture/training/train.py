@@ -865,6 +865,12 @@ if __name__ == "__main__":
         best_ovr: dict[str, object] = {f"guidance.{_pc_section}.{k_}": v for k_, v in best_params.items()}
         best_ovr["guidance.type"] = cfg.guidance_type
         best_ovr["simulation.n_sims"] = 1
+        # Disable dispersions so the nominal is the true undispersed trajectory
+        best_ovr["monte_carlo.initial_state.level"] = "off"
+        best_ovr["monte_carlo.atmosphere.level"] = "off"
+        best_ovr["monte_carlo.aerodynamics.level"] = "off"
+        best_ovr["monte_carlo.navigation.level"] = "off"
+        best_ovr["monte_carlo.mass.level"] = "off"
 
         assert cfg.sim.toml_config is not None
         _pc_toml_path = str((Path(cwd or ".") / cfg.sim.toml_config).resolve())

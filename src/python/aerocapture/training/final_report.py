@@ -661,11 +661,11 @@ def _generate_corridor_png(
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     opacity = max(0.02, min(0.15, 10.0 / max(len(trajectories), 1)))
 
-    # Extract corridor nominal (skip for piecewise_constant — same as guidance nominal)
+    # Extract corridor nominal (undispersed piecewise-constant reference trajectory)
     is_piecewise = guidance_type == "piecewise_constant"
     corr_nom: npt.NDArray[np.float64] | None = None
     corr_nom_dv: float | None = None
-    if corridor_data is not None and not is_piecewise:
+    if corridor_data is not None:
         _nom = corridor_data.get("nominal", np.array([]))
         if _nom.size > 0 and _nom.ndim == 2:
             corr_nom = _nom
