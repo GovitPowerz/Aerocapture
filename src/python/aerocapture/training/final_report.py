@@ -546,7 +546,7 @@ def _select_guided_nominal(
 
 
 _COLOR_CRASH = "#E57373"  # light red for crash/hyperbolic zones
-_COLOR_BOUNDARY = "#757575"  # dark grey for ±δZa boundary lines
+_COLOR_TRANSITION = "#BDBDBD"  # light grey for transition zones
 
 
 def _draw_pdyn_zones(
@@ -555,12 +555,15 @@ def _draw_pdyn_zones(
 ) -> None:
     """Draw corridor zones on the pdyn panel.
 
-    Two red fills define the full capture corridor:
-    1. Red fill above crash envelope (max pdyn of non-crash)
-    2. Red fill below capture envelope (min pdyn of captured)
+    Schema v4 (restricted envelopes present): 4-layer fill —
+    1. Grey above restricted_max (transition zone)
+    2. Red above crash envelope (overpaints grey — crash zone)
+    3. Grey below restricted_min (transition zone)
+    4. Red below capture envelope (overpaints grey — hyperbolic zone)
 
-    The white gap between is the full capture corridor. Within it,
-    ±δZa boundary trajectories are drawn as dashed grey lines.
+    Schema v3 fallback (no restricted envelopes): 2-layer fill —
+    1. Red above crash envelope
+    2. Red below capture envelope
     """
     if corridor_data is None:
         return
@@ -576,28 +579,45 @@ def _draw_pdyn_zones(
 
     x_lo, x_hi = ax.get_xlim()
 
-    # Red fill above crash boundary
     env_crash = corridor_data.get("envelope_crash_pdyn")
-    if env_crash is not None and not np.all(np.isnan(env_crash)):
-        valid = ~np.isnan(env_crash)
-        ax.fill_between(energy[valid], env_crash[valid], y_axis_max, color=_COLOR_CRASH, alpha=0.5, zorder=4)
-
-    # Red fill below capture boundary
     env_capture = corridor_data.get("envelope_capture_pdyn")
-    if env_capture is not None and not np.all(np.isnan(env_capture)):
-        valid = ~np.isnan(env_capture)
-        ax.fill_between(energy[valid], 0, env_capture[valid], color=_COLOR_CRASH, alpha=0.5, zorder=4.1)
+    env_restricted_max = corridor_data.get("envelope_restricted_max_pdyn")
+    env_restricted_min = corridor_data.get("envelope_restricted_min_pdyn")
 
-    # ±δZa boundary trajectories as dashed lines within the corridor
-    bnd_under = corridor_data.get("boundary_undershoot")
-    if bnd_under is not None and bnd_under.ndim == 2 and bnd_under.shape[0] > 0:
-        ax.plot(bnd_under[:, _TRAJ_COL_ENERGY], bnd_under[:, _TRAJ_COL_PDYN], color=_COLOR_BOUNDARY, linewidth=1.2,
-                linestyle="--", zorder=4.5)
+    has_restricted = (
+        env_restricted_max is not None and not np.all(np.isnan(env_restricted_max))
+        and env_restricted_min is not None and not np.all(np.isnan(env_restricted_min))
+    )
 
-    bnd_over = corridor_data.get("boundary_overshoot")
-    if bnd_over is not None and bnd_over.ndim == 2 and bnd_over.shape[0] > 0:
-        ax.plot(bnd_over[:, _TRAJ_COL_ENERGY], bnd_over[:, _TRAJ_COL_PDYN], color=_COLOR_BOUNDARY, linewidth=1.2,
-                linestyle="--", zorder=4.5)
+    if has_restricted:
+        assert env_restricted_max is not None
+        assert env_restricted_min is not None
+        # Layer 1: grey above restricted_max — transition zone (zorder=4)
+        valid = ~np.isnan(env_restricted_max)
+        ax.fill_between(energy[valid], env_restricted_max[valid], y_axis_max, color=_COLOR_TRANSITION, alpha=0.5, zorder=4)
+
+        # Layer 2: red above crash — crash zone, overpaints grey (zorder=4.1)
+        if env_crash is not None and not np.all(np.isnan(env_crash)):
+            valid = ~np.isnan(env_crash)
+            ax.fill_between(energy[valid], env_crash[valid], y_axis_max, color=_COLOR_CRASH, alpha=0.5, zorder=4.1)
+
+        # Layer 3: grey below restricted_min — transition zone (zorder=4.2)
+        valid = ~np.isnan(env_restricted_min)
+        ax.fill_between(energy[valid], 0, env_restricted_min[valid], color=_COLOR_TRANSITION, alpha=0.5, zorder=4.2)
+
+        # Layer 4: red below capture — hyperbolic zone, overpaints grey (zorder=4.3)
+        if env_capture is not None and not np.all(np.isnan(env_capture)):
+            valid = ~np.isnan(env_capture)
+            ax.fill_between(energy[valid], 0, env_capture[valid], color=_COLOR_CRASH, alpha=0.5, zorder=4.3)
+    else:
+        # v3 fallback: 2-layer red fills
+        if env_crash is not None and not np.all(np.isnan(env_crash)):
+            valid = ~np.isnan(env_crash)
+            ax.fill_between(energy[valid], env_crash[valid], y_axis_max, color=_COLOR_CRASH, alpha=0.5, zorder=4)
+
+        if env_capture is not None and not np.all(np.isnan(env_capture)):
+            valid = ~np.isnan(env_capture)
+            ax.fill_between(energy[valid], 0, env_capture[valid], color=_COLOR_CRASH, alpha=0.5, zorder=4.1)
 
     # Annotations
     mid_e = (x_lo + x_hi) / 2
@@ -701,7 +721,7 @@ def _generate_corridor_png(
     legend_elements: list[Any] = [
         Patch(facecolor="#2196F3", alpha=0.4, label="MC captured"),
         Patch(facecolor=_COLOR_CRASH, alpha=0.5, label="Crash / Hyperbolic exit"),
-        Line2D([0], [0], color=_COLOR_BOUNDARY, linewidth=1.2, linestyle="--", label=r"$\pm\delta Z_a$ boundary"),
+        Patch(facecolor=_COLOR_TRANSITION, alpha=0.5, label="Transition zone"),
     ]
     if corr_nom is not None:
         legend_elements.append(Line2D([0], [0], color="#D32F2F", linewidth=2, label="Nominal (const. bank)"))
