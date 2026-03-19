@@ -16,7 +16,8 @@ use crate::orbit::elements;
 /// - Forward pass through the network
 /// - Bank angle = atan2(out[0], out[1])
 ///
-/// Returns the bank angle magnitude in radians.
+/// Returns the **signed** bank angle in radians (via atan2).
+/// Lateral guidance is bypassed for this scheme — the NN controls roll direction directly.
 pub fn nn_bank_angle(
     nav: &NavigationOutput,
     nn: &NeuralNetModel,

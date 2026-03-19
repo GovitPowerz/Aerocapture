@@ -173,8 +173,12 @@ pub fn guidance_step(
         state.n_active += 1;
     }
 
-    // PiecewiseConstant provides signed bank angle — skip lateral guidance entirely
-    if guidance_type == GuidanceType::PiecewiseConstant {
+    // Schemes that provide signed bank angles — skip lateral guidance entirely
+    let skip_lateral = matches!(
+        guidance_type,
+        GuidanceType::PiecewiseConstant | GuidanceType::NeuralNetwork
+    );
+    if skip_lateral {
         state.bank_angle_commanded = bank_angle_longitudinal;
         state.roll_sign = if bank_angle_longitudinal >= 0.0 {
             1.0
@@ -193,7 +197,7 @@ pub fn guidance_step(
 
     lateral_active *= state.guidance_active[1];
 
-    if guidance_type == GuidanceType::PiecewiseConstant {
+    if skip_lateral {
         lateral_active = 0;
     }
 
@@ -217,8 +221,8 @@ pub fn guidance_step(
     }
 
     // === Combine longitudinal and lateral commands ===
-    // PiecewiseConstant already set bank_angle_commanded with correct sign — skip combine
-    if !is_reference && guidance_type != GuidanceType::PiecewiseConstant {
+    // Signed-bank schemes already set bank_angle_commanded with correct sign — skip combine
+    if !is_reference && !skip_lateral {
         if state.guidance_active[0] * state.guidance_active[1] == 1 {
             state.bank_angle_commanded = bank_angle_longitudinal * state.roll_sign;
         } else if state.reversal_active == 1 {
