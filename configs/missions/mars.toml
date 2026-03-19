@@ -88,7 +88,5 @@ atmosphere = "data/atmosphere/mars.dat"
 reference_trajectory = "data/reference_trajectory/msr_aller.dat"
 
 [corridor]
-delta_za = 500.0                  # km, apoapsis error tolerance for restricted corridor boundaries
 delta_za_restricted_low = -200.0  # km, undershoot limit for restricted corridor (negative = below target)
 delta_za_restricted_high = 1000.0 # km, overshoot limit for restricted corridor (positive = above target)
-n_sims = 10000                    # number of MC sims for corridor boundary computation
