@@ -384,7 +384,10 @@ def generate_final_report(
             corridor_data = load_corridor(corridor_path)
             if corridor_data is not None:
                 print(f"  Loaded corridor boundaries from {corridor_path}")
-        _generate_corridor_png(trajectories, captured, corridor_png, dv_captured=dv_cap, corridor_data=corridor_data, final_array=final_array)
+        _generate_corridor_png(
+            trajectories, captured, corridor_png,
+            dv_captured=dv_cap, corridor_data=corridor_data, final_array=final_array, guidance_type=scheme,
+        )
         print(f"Corridor plots saved to {corridor_png}")
 
     fig.update_layout(
@@ -636,6 +639,7 @@ def _generate_corridor_png(
     dv_captured: npt.NDArray[np.float64] | None = None,
     corridor_data: dict[str, npt.NDArray[np.float64]] | None = None,
     final_array: npt.NDArray[np.float64] | None = None,
+    guidance_type: str = "",
 ) -> None:
     """Generate publication-quality corridor plots as a 2×2 matplotlib PNG.
 
@@ -657,15 +661,14 @@ def _generate_corridor_png(
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     opacity = max(0.02, min(0.15, 10.0 / max(len(trajectories), 1)))
 
-    # Extract nominal trajectories
+    # Extract corridor nominal (skip for piecewise_constant — same as guidance nominal)
+    is_piecewise = guidance_type == "piecewise_constant"
     corr_nom: npt.NDArray[np.float64] | None = None
     corr_nom_dv: float | None = None
-    if corridor_data is not None:
+    if corridor_data is not None and not is_piecewise:
         _nom = corridor_data.get("nominal", np.array([]))
         if _nom.size > 0 and _nom.ndim == 2:
             corr_nom = _nom
-        # Corridor nominal DV stored in captured_final_records is not the nominal itself.
-        # We need to store it separately. For now, check if "nominal_dv" was saved.
         _nom_dv = corridor_data.get("nominal_dv", np.array([]))
         if _nom_dv.size > 0:
             corr_nom_dv = float(_nom_dv[0])
@@ -726,9 +729,10 @@ def _generate_corridor_png(
         Patch(facecolor=_COLOR_TRANSITION, alpha=0.5, label="Transition zone"),
     ]
     if corr_nom is not None:
-        legend_elements.append(Line2D([0], [0], color="#D32F2F", linewidth=2, label="Nominal (const. bank)"))
+        legend_elements.append(Line2D([0], [0], color="#D32F2F", linewidth=2, label="Nominal (piecewise const.)"))
     if guid_nom is not None:
-        legend_elements.append(Line2D([0], [0], color="#4CAF50", linewidth=2, label="Nominal (guidance)"))
+        guid_label = "Nominal (best MC)" if is_piecewise else "Nominal (guidance)"
+        legend_elements.append(Line2D([0], [0], color="#4CAF50", linewidth=2, label=guid_label))
     axes[0, 0].legend(handles=legend_elements, loc="upper left", fontsize=7)
 
     # Panel (d): Correction cost distribution
@@ -745,9 +749,10 @@ def _generate_corridor_png(
 
     # Vertical dashed lines for nominal DV values
     if corr_nom_dv is not None:
-        ax_dv.axvline(x=corr_nom_dv, color="#D32F2F", linewidth=2, linestyle="--", label=f"Const. bank: {corr_nom_dv:.0f} m/s")
+        ax_dv.axvline(x=corr_nom_dv, color="#D32F2F", linewidth=2, linestyle="--", label=f"Piecewise const.: {corr_nom_dv:.0f} m/s")
     if guid_nom_dv is not None:
-        ax_dv.axvline(x=guid_nom_dv, color="#4CAF50", linewidth=2, linestyle="--", label=f"Guidance: {guid_nom_dv:.0f} m/s")
+        dv_label = f"Best MC: {guid_nom_dv:.0f} m/s" if is_piecewise else f"Guidance: {guid_nom_dv:.0f} m/s"
+        ax_dv.axvline(x=guid_nom_dv, color="#4CAF50", linewidth=2, linestyle="--", label=dv_label)
     if corr_nom_dv is not None or guid_nom_dv is not None:
         ax_dv.legend(fontsize=7, loc="center right")
 
