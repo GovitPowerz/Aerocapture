@@ -22,7 +22,7 @@ Add a new `piecewise_constant` guidance scheme: 10 constant bank angle segments 
 
 ### 1. New Guidance Scheme — `piecewise_constant`
 
-**Concept:** The orbital energy range is divided into 10 uniform segments. Each segment has a constant bank angle in [-180°, +180°]. Negative bank angles implicitly encode roll reversals without any lateral guidance logic. The trajectory is fully determined by the 10 bank values — pure open-loop, no navigation, no guidance feedback.
+**Concept:** The orbital energy range is divided into 10 uniform segments. Each segment has a constant bank angle in [-180°, +180°]. Negative bank angles implicitly encode roll reversals without any lateral guidance logic. The trajectory is determined by the 10 bank values — open-loop guidance, no navigation feedback, but with pilot dynamics for realistic bank rate transitions.
 
 **Segment ordering:** Segment 0 covers the highest energy (entry, near `energy_range[1]`) and segment 9 covers the lowest energy (deepest capture, near `energy_range[0]`). Energy decreases during atmospheric flight.
 
@@ -30,13 +30,17 @@ Add a new `piecewise_constant` guidance scheme: 10 constant bank angle segments 
 
 **Rust side** (`config.rs`, `runner.rs`):
 
-The `piecewise_constant` scheme always implies `reference_trajectory = true` — the Rust config enforces this internally regardless of TOML setting. In the reference trajectory `else` branch in `runner.rs`, if `bank_angles` is present in the config:
+The `piecewise_constant` scheme does NOT use `reference_trajectory = true`. Instead, it runs through the normal GNC path but with its own guidance step that replaces the FTC/EqGlide/etc. dispatch. This ensures pilot dynamics (bank rate limiting) are active, making transitions between segments physically realistic.
+
+In the guidance dispatch:
 
 1. Compute current orbital energy using `total_energy()` (absolute/inertial velocity via `to_absolute_cartesian`, same as everywhere else in the codebase).
 2. Determine which of the 10 energy segments it falls in (clamp if outside range).
-3. Set `sim.bank_angle` directly to that segment's bank angle (in radians, sign included), before the photo snapshot. No pilot dynamics, no rate limiting on sign changes.
+3. Return the segment's bank angle as `bank_angle_commanded` (in radians, sign included).
 
-This replaces the single `reference_bank_angle` lookup with a piecewise-constant energy-indexed lookup.
+The pilot model then rate-limits the actual bank angle change (max 15°/s), so a segment transition from +70° to -65° takes ~9 seconds to execute. This means the GA naturally avoids profiles with too many rapid reversals, and the resulting reference trajectory is more representative of what a real vehicle would fly.
+
+Navigation runs but its output is only used for the energy computation (state estimation). No lateral guidance / roll reversal logic — the bank angle sign comes directly from the piecewise-constant profile.
 
 TOML config:
 ```toml
@@ -77,7 +81,7 @@ When `--guidance piecewise_constant` training completes:
 
 **Mission-level outputs** (shared across schemes):
 - `training_output/<mission>/ref_trajectory.dat` — best individual's trajectory in the legacy 7-column format.
-- `training_output/<mission>/corridor_boundaries.npz` — 4 envelopes (crash, restricted upper, restricted lower, capture) built incrementally from all GA generations, plus Phase 2 deterministic boundary trajectories and nominal.
+- `training_output/<mission>/corridor_boundaries.npz` — 4 envelopes (crash, restricted upper, restricted lower, capture) built incrementally from all GA generations, plus the best individual's trajectory as the nominal.
 
 **Generating `ref_trajectory.dat`:** Re-run the best individual with `include_trajectories=True` via PyO3. The 12-column trajectory format from `run_for_api` does NOT contain all 7 required columns (missing `radial_vel` and `altitude_rate`). Instead, run the best individual via the **CLI binary** with CSV output enabled, which produces the full 24-column photo CSV. Extract the 7 columns from the 24-column photo format:
 
@@ -147,16 +151,9 @@ This replaces the per-chromosome `evaluate_chromosome` calls for this scheme —
 
 **Checkpoint integration:** The 4 envelope arrays are serialized into the checkpoint `.npz` file (alongside the existing population/halloffame data). On resume, the accumulator is restored from the checkpoint and continues accumulating.
 
-### 5. Corridor Computation (Phase 2)
+### 5. Corridor Save
 
-After piecewise_constant training completes, a deterministic Phase 2 runs (same as current):
-- 10k constant-bank-angle sweep [0°, 180°], no dispersions
-- Extracts ±δZa boundary trajectories (dashed lines)
-- Finds min-DV nominal (constant-bank reference)
-
-This provides the dashed boundary lines and the constant-bank nominal for the visualization. The GA-accumulated envelopes provide the 4-layer fills.
-
-Both are saved to `training_output/<mission>/corridor_boundaries.npz` with **schema version 4** (bumped from v3 to accommodate the new restricted envelope arrays and avoid collision with existing v3 caches which only have crash/capture envelopes).
+After piecewise_constant training completes, the accumulated envelopes and the best individual's trajectory are saved to `training_output/<mission>/corridor_boundaries.npz` with **schema version 4** (bumped from v3 to accommodate the new restricted envelope arrays). No separate Phase 2 MC sweep is needed — the GA population history provides all corridor data.
 
 ### 6. Visualization — 4-Layer Fill
 
@@ -169,38 +166,34 @@ The corridor panel (a) in `final_report.py` uses 4-layer fills:
 4. Red (`#E57373`, alpha=0.5) below `capture_min_pdyn` — hyperbolic exit zone (overpaints grey)
 
 **On top:**
-5. Dashed grey lines — ±δZa boundary trajectories (Phase 2)
-6. Blue spaghetti — MC guided trajectories (final evaluation)
-7. Red line — nominal piecewise-constant (best GA individual)
-8. Green line — nominal guidance scheme (min-DV from final eval)
+5. Blue spaghetti — MC guided trajectories (final evaluation)
+6. Red line — nominal piecewise-constant (best GA individual)
+7. Green line — nominal guidance scheme (min-DV from final eval)
 
 White corridor between layers 1 and 3 = the restricted corridor where captures with |apo_err| < δZa_restricted happen. The grey transition zones show where capture is possible but outside the restricted corridor bounds.
 
 **TOML config** (`[corridor]` section in mission TOML):
 ```toml
 [corridor]
-delta_za = 500.0            # km, for dashed boundary lines (Phase 2)
 delta_za_restricted = 200.0  # km, for restricted corridor envelopes (GA)
-n_sims = 10000              # Phase 2 deterministic sweep size
 ```
 
 **Fallback behavior:**
 - Corridor `.npz` exists with schema v4 → full 4-layer visualization
-- Corridor `.npz` exists with schema v3 (crash/capture only) → 2-layer red fills (no grey), same as current
-- Corridor `.npz` missing → spaghetti only, no zones
+- Corridor `.npz` missing or old schema → spaghetti only, no zones
 
 ### 7. Changes Summary
 
 | Component | Change |
 |-----------|--------|
-| **Rust** `config.rs` | Parse `guidance.bank_angles` array + `guidance.energy_range`; enforce `reference_trajectory = true` for piecewise_constant |
-| **Rust** `runner.rs` | In reference trajectory `else` branch: if `bank_angles` present, energy → segment → set `sim.bank_angle` directly |
+| **Rust** `config.rs` | Parse `guidance.bank_angles` array + `guidance.energy_range` |
+| **Rust** `runner.rs` | New guidance dispatch for piecewise_constant: energy → segment → bank_angle_commanded; runs through normal GNC path with pilot dynamics |
 | **Python** `param_spaces.py` | `piecewise_constant`: 10 params [-180, 180]; `REQUIRES_REF_TRAJECTORY` set |
 | **Python** `evaluate.py` | Special branch for `piecewise_constant`: chromosome → `guidance.bank_angles` list override (analogous to NN branch) |
-| **Python** `corridor.py` | `CorridorAccumulator` class with `update()` and checkpoint serialization; keep Phase 2 for boundary trajectories |
+| **Python** `corridor.py` | `CorridorAccumulator` class with `update()` and checkpoint serialization; remove Phase 2 constant-bank sweep |
 | **Python** `train.py` | Ref trajectory check at startup; during piecewise_constant training: batch eval + corridor accumulation per generation; at end: save ref trajectory + corridor `.npz` |
-| **Python** `final_report.py` | 4-layer fill (grey/red/grey/red) using restricted + full envelopes; v3 fallback for 2-layer |
-| **TOML** `mars.toml` | Add `delta_za_restricted = 200.0` |
+| **Python** `final_report.py` | 4-layer fill (grey/red/grey/red) using restricted + full envelopes |
+| **TOML** `mars.toml` | Add `delta_za_restricted = 200.0` to `[corridor]` |
 | **TOML** new config | `configs/training/msr_aller_piecewise_constant_train.toml` |
 | **Tests** | Piecewise_constant guidance unit test (Rust: segment lookup, clamping, sign), `CorridorAccumulator` tests (Python: update, checkpoint round-trip, empty input), ref trajectory check test, schema v4 cache test |
 
