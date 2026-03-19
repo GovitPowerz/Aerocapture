@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from aerocapture.training.corridor import classify_trajectories, compute_envelopes, load_corridor, save_corridor
+from aerocapture.training.corridor import CorridorAccumulator, classify_trajectories, compute_envelopes, load_corridor, save_corridor
 
 
 def _make_final_records(
@@ -143,6 +143,54 @@ class TestComputeEnvelopes:
         labels_filtered = labels[non_crash]
         result = compute_envelopes(trajs_filtered, labels_filtered, n_bins=50)
         assert np.all(np.isnan(result["envelope_crash_pdyn"]))
+
+
+class TestCorridorAccumulator:
+    def test_init_creates_nan_envelopes(self) -> None:
+        acc = CorridorAccumulator(energy_min=-6e6, energy_max=5e6, delta_za_restricted=200.0)
+        assert acc.energy_bins.shape == (200,)
+        assert np.all(np.isnan(acc.crash_max_pdyn))
+        assert np.all(np.isnan(acc.restricted_max_pdyn))
+        assert np.all(np.isnan(acc.restricted_min_pdyn))
+        assert np.all(np.isnan(acc.capture_min_pdyn))
+
+    def test_update_populates_envelopes(self) -> None:
+        acc = CorridorAccumulator(energy_min=-6e6, energy_max=5e6, delta_za_restricted=200.0)
+        trajs, labels = _make_trajectories_with_labels()
+        acc.update(trajs, labels)
+        assert not np.all(np.isnan(acc.crash_max_pdyn))
+        assert not np.all(np.isnan(acc.capture_min_pdyn))
+
+    def test_update_is_incremental(self) -> None:
+        acc = CorridorAccumulator(energy_min=-6e6, energy_max=5e6, delta_za_restricted=200.0)
+        trajs, labels = _make_trajectories_with_labels()
+        acc.update(trajs, labels)
+        crash_after_first = acc.crash_max_pdyn.copy()
+        acc.update(trajs, labels)
+        np.testing.assert_array_equal(acc.crash_max_pdyn, crash_after_first)
+
+    def test_checkpoint_roundtrip(self) -> None:
+        acc = CorridorAccumulator(energy_min=-6e6, energy_max=5e6, delta_za_restricted=200.0)
+        trajs, labels = _make_trajectories_with_labels()
+        acc.update(trajs, labels)
+        state = acc.to_checkpoint()
+        acc2 = CorridorAccumulator.from_checkpoint(state)
+        np.testing.assert_array_equal(acc.crash_max_pdyn, acc2.crash_max_pdyn)
+        np.testing.assert_array_equal(acc.restricted_max_pdyn, acc2.restricted_max_pdyn)
+        np.testing.assert_array_equal(acc.restricted_min_pdyn, acc2.restricted_min_pdyn)
+        np.testing.assert_array_equal(acc.capture_min_pdyn, acc2.capture_min_pdyn)
+
+    def test_to_corridor_data(self) -> None:
+        acc = CorridorAccumulator(energy_min=-6e6, energy_max=5e6, delta_za_restricted=200.0)
+        trajs, labels = _make_trajectories_with_labels()
+        acc.update(trajs, labels)
+        data = acc.to_corridor_data(nominal=trajs[0])
+        assert "schema_version" in data
+        assert int(data["schema_version"][0]) == 4
+        assert "envelope_crash_pdyn" in data
+        assert "envelope_restricted_max_pdyn" in data
+        assert "envelope_restricted_min_pdyn" in data
+        assert "envelope_capture_pdyn" in data
 
 
 class TestCorridorCache:
