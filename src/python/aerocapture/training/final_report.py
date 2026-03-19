@@ -179,6 +179,7 @@ def generate_final_report(
     target_inclination: float,
     output_path: Path,
     corridor_path: Path | None = None,
+    undispersed_nominal: npt.NDArray[np.float64] | None = None,
 ) -> Path:
     """Generate self-contained Plotly HTML report with statistical distributions.
 
@@ -386,7 +387,8 @@ def generate_final_report(
                 print(f"  Loaded corridor boundaries from {corridor_path}")
         _generate_corridor_png(
             trajectories, captured, corridor_png,
-            dv_captured=dv_cap, corridor_data=corridor_data, final_array=final_array, guidance_type=scheme,
+            dv_captured=dv_cap, corridor_data=corridor_data, final_array=final_array,
+            undispersed_nominal=undispersed_nominal,
         )
         print(f"Corridor plots saved to {corridor_png}")
 
@@ -639,7 +641,7 @@ def _generate_corridor_png(
     dv_captured: npt.NDArray[np.float64] | None = None,
     corridor_data: dict[str, npt.NDArray[np.float64]] | None = None,
     final_array: npt.NDArray[np.float64] | None = None,
-    guidance_type: str = "",
+    undispersed_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Generate publication-quality corridor plots as a 2×2 matplotlib PNG.
 
@@ -662,7 +664,6 @@ def _generate_corridor_png(
     opacity = max(0.02, min(0.15, 10.0 / max(len(trajectories), 1)))
 
     # Extract corridor nominal (undispersed piecewise-constant reference trajectory)
-    is_piecewise = guidance_type == "piecewise_constant"
     corr_nom: npt.NDArray[np.float64] | None = None
     corr_nom_dv: float | None = None
     if corridor_data is not None:
@@ -673,7 +674,12 @@ def _generate_corridor_png(
         if _nom_dv.size > 0:
             corr_nom_dv = float(_nom_dv[0])
 
-    # Guidance nominal: min-DV captured trajectory from final-evaluation MC
+    # Undispersed guidance nominal (orange) — the scheme run without atmospheric dispersions
+    undisp_nom: npt.NDArray[np.float64] | None = None
+    if undispersed_nominal is not None and undispersed_nominal.ndim == 2 and undispersed_nominal.shape[0] > 0:
+        undisp_nom = undispersed_nominal
+
+    # Best case: min-DV captured trajectory from final-evaluation MC (green)
     guid_nom: npt.NDArray[np.float64] | None = None
     guid_nom_dv: float | None = None
     if captured.any() and final_array is not None:
@@ -709,13 +715,17 @@ def _generate_corridor_png(
                 if valid.any():
                     ax.fill_between(bc[valid], y_lo[valid], y_hi[valid], color="#2196F3", alpha=0.15, zorder=2)
 
-        # Corridor nominal (optimal constant-bank) — orange
+        # Corridor nominal (piecewise-constant reference) — red
         if corr_nom is not None:
             ax.plot(corr_nom[:, _TRAJ_COL_ENERGY], corr_nom[:, y_col], color="#D32F2F", linewidth=2, linestyle="-", zorder=5)
 
-        # Guidance scheme nominal — green
+        # Undispersed guidance nominal — orange
+        if undisp_nom is not None:
+            ax.plot(undisp_nom[:, _TRAJ_COL_ENERGY], undisp_nom[:, y_col], color="#FF9800", linewidth=2, linestyle="-", zorder=5.1)
+
+        # Best case (min-DV captured MC trajectory) — green
         if guid_nom is not None:
-            ax.plot(guid_nom[:, _TRAJ_COL_ENERGY], guid_nom[:, y_col], color="#4CAF50", linewidth=2, linestyle="-", zorder=5)
+            ax.plot(guid_nom[:, _TRAJ_COL_ENERGY], guid_nom[:, y_col], color="#4CAF50", linewidth=2, linestyle="-", zorder=5.2)
 
         ax.set_xlabel("Orbital Energy (MJ/kg)")
         ax.set_ylabel(y_label)
@@ -729,10 +739,11 @@ def _generate_corridor_png(
         Patch(facecolor=_COLOR_TRANSITION, alpha=0.5, label="Transition zone"),
     ]
     if corr_nom is not None:
-        legend_elements.append(Line2D([0], [0], color="#D32F2F", linewidth=2, label="Nominal (piecewise const.)"))
+        legend_elements.append(Line2D([0], [0], color="#D32F2F", linewidth=2, label="Piecewise const. nominal"))
+    if undisp_nom is not None:
+        legend_elements.append(Line2D([0], [0], color="#FF9800", linewidth=2, label="Guidance nominal"))
     if guid_nom is not None:
-        guid_label = "Nominal (best MC)" if is_piecewise else "Nominal (guidance)"
-        legend_elements.append(Line2D([0], [0], color="#4CAF50", linewidth=2, label=guid_label))
+        legend_elements.append(Line2D([0], [0], color="#4CAF50", linewidth=2, label="Best case"))
     axes[0, 0].legend(handles=legend_elements, loc="upper left", fontsize=7)
 
     # Panel (d): Correction cost distribution
@@ -751,8 +762,7 @@ def _generate_corridor_png(
     if corr_nom_dv is not None:
         ax_dv.axvline(x=corr_nom_dv, color="#D32F2F", linewidth=2, linestyle="--", label=f"Piecewise const.: {corr_nom_dv:.0f} m/s")
     if guid_nom_dv is not None:
-        dv_label = f"Best MC: {guid_nom_dv:.0f} m/s" if is_piecewise else f"Guidance: {guid_nom_dv:.0f} m/s"
-        ax_dv.axvline(x=guid_nom_dv, color="#4CAF50", linewidth=2, linestyle="--", label=dv_label)
+        ax_dv.axvline(x=guid_nom_dv, color="#4CAF50", linewidth=2, linestyle="--", label=f"Best case: {guid_nom_dv:.0f} m/s")
     if corr_nom_dv is not None or guid_nom_dv is not None:
         ax_dv.legend(fontsize=7, loc="center right")
 

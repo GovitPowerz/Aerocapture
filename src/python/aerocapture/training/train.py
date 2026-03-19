@@ -983,8 +983,32 @@ if __name__ == "__main__":
                     print("  No corridor cache found — corridor zones will not be drawn.")
                     print("  Run piecewise_constant training to generate corridor boundaries.")
 
+                # Run one undispersed sim for the guidance nominal trajectory
+                undisp_nom = None
+                try:
+                    from aerocapture.training.evaluate import _HAS_PYO3, _aero_rs
+
+                    if _HAS_PYO3 and _aero_rs is not None:
+                        _toml_for_undisp = str((Path(cwd or ".") / cfg.sim.toml_config).resolve())
+                        _undisp_ovr: dict[str, object] = {
+                            "simulation.n_sims": 1,
+                            "monte_carlo.initial_state.level": "off",
+                            "monte_carlo.atmosphere.level": "off",
+                            "monte_carlo.aerodynamics.level": "off",
+                            "monte_carlo.navigation.level": "off",
+                            "monte_carlo.mass.level": "off",
+                        }
+                        _undisp_batch = _aero_rs.run_batch(_toml_for_undisp, [_undisp_ovr], include_trajectories=True)
+                        if _undisp_batch.trajectories:
+                            undisp_nom = np.asarray(_undisp_batch.trajectories[0])
+                except Exception:
+                    pass  # Non-critical — just skip the undispersed nominal line
+
                 report_path = Path(cfg.save_dir) / "final_report.html"
-                generate_final_report(eval_data, cfg.guidance_type, target_incl, report_path, corridor_path=corr_npz)
+                generate_final_report(
+                    eval_data, cfg.guidance_type, target_incl, report_path,
+                    corridor_path=corr_npz, undispersed_nominal=undisp_nom,
+                )
                 print(f"Final report saved to {report_path}")
             else:
                 print("WARNING: Final evaluation simulation failed, skipping report")
