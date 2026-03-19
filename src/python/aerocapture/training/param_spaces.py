@@ -59,6 +59,18 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         ParamSpec("exit_radial_vel_gain", -0.1, 0.0, -0.02),
         ParamSpec("capture_pdyn_margin", 1.0, 3.0, 1.75),
     ],
+    "piecewise_constant": [
+        ParamSpec("bank_angle_0", -180.0, 180.0, 65.0),
+        ParamSpec("bank_angle_1", -180.0, 180.0, 65.0),
+        ParamSpec("bank_angle_2", -180.0, 180.0, 65.0),
+        ParamSpec("bank_angle_3", -180.0, 180.0, 65.0),
+        ParamSpec("bank_angle_4", -180.0, 180.0, 65.0),
+        ParamSpec("bank_angle_5", -180.0, 180.0, 65.0),
+        ParamSpec("bank_angle_6", -180.0, 180.0, 65.0),
+        ParamSpec("bank_angle_7", -180.0, 180.0, 65.0),
+        ParamSpec("bank_angle_8", -180.0, 180.0, 65.0),
+        ParamSpec("bank_angle_9", -180.0, 180.0, 65.0),
+    ],
 }
 
 # TOML section name for each guidance type (used in [guidance.<section>])
@@ -68,4 +80,8 @@ GUIDANCE_TOML_SECTIONS: dict[str, str] = {
     "pred_guid": "pred_guid",
     "fnpag": "fnpag",
     "ftc": "ftc",
+    "piecewise_constant": "piecewise_constant",
 }
+
+# Schemes that require a pre-computed reference trajectory
+REQUIRES_REF_TRAJECTORY: set[str] = {"energy_controller", "pred_guid", "fnpag", "ftc"}

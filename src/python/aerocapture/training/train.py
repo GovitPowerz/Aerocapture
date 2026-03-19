@@ -666,7 +666,7 @@ if __name__ == "__main__":
         "--guidance",
         type=str,
         default="neural_network",
-        choices=["neural_network", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag", "ftc"],
+        choices=["neural_network", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag", "ftc", "piecewise_constant"],
         help="Guidance scheme to optimize (default: neural_network)",
     )
     parser.add_argument("--no-tui", action="store_true", help="Disable Rich TUI (use plain-text output)")
