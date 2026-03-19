@@ -162,6 +162,9 @@ pub fn guidance_step(
             }
             GuidanceType::PredGuid => predguid::predguid_bank(nav, &state.predguid, data, planet),
             GuidanceType::Fnpag => fnpag::fnpag_bank(nav, &mut state.fnpag, data, planet),
+            GuidanceType::PiecewiseConstant => {
+                unimplemented!("PiecewiseConstant guidance dispatch not yet implemented")
+            }
         };
         state.n_active += 1;
     }

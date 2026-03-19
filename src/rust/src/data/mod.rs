@@ -316,6 +316,26 @@ impl SimData {
         };
 
         // Per-scheme guidance params (with defaults if not in TOML)
+        let piecewise_constant_params = {
+            let pc = &toml.guidance.piecewise_constant;
+            guidance_params::PiecewiseConstantParams {
+                bank_angles: [
+                    pc.bank_angle_0.to_radians(),
+                    pc.bank_angle_1.to_radians(),
+                    pc.bank_angle_2.to_radians(),
+                    pc.bank_angle_3.to_radians(),
+                    pc.bank_angle_4.to_radians(),
+                    pc.bank_angle_5.to_radians(),
+                    pc.bank_angle_6.to_radians(),
+                    pc.bank_angle_7.to_radians(),
+                    pc.bank_angle_8.to_radians(),
+                    pc.bank_angle_9.to_radians(),
+                ],
+                energy_min: pc.energy_min * 1e6,
+                energy_max: pc.energy_max * 1e6,
+            }
+        };
+
         let eq_glide_params = if let Some(ref p) = toml.guidance.equilibrium_glide {
             guidance_params::EqGlideParams {
                 k_hdot_scale: p.k_hdot_scale,
@@ -414,6 +434,7 @@ impl SimData {
                 energy_ctrl: energy_ctrl_params.clone(),
                 pred_guid: pred_guid_params.clone(),
                 fnpag: fnpag_params.clone(),
+                piecewise_constant: piecewise_constant_params.clone(),
             }
         } else {
             // No FTC params — load from file if guidance suffix available, else defaults
@@ -454,6 +475,7 @@ impl SimData {
                 energy_ctrl: energy_ctrl_params,
                 pred_guid: pred_guid_params,
                 fnpag: fnpag_params,
+                piecewise_constant: piecewise_constant_params,
             }
         };
 
