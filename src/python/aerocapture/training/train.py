@@ -880,9 +880,11 @@ if __name__ == "__main__":
             include_trajectories=True,
         )
         nom_traj = np.asarray(best_batch.trajectories[0]) if best_batch.trajectories else np.empty((0, 12))
+        nom_dv_total = float(best_batch.final_records[0, 41]) if best_batch.final_records.shape[0] > 0 else 0.0
 
         # Save corridor_boundaries.npz from accumulated envelopes
         corr_data = corridor_acc.to_corridor_data(nominal=nom_traj)
+        corr_data["nominal_dv"] = np.array([nom_dv_total])
         corr_npz = corr_dir / "corridor_boundaries.npz"
         _save_corr(corr_data, corr_npz)
 
@@ -985,6 +987,7 @@ if __name__ == "__main__":
 
                 # Run one undispersed sim for the guidance nominal trajectory
                 undisp_nom = None
+                undisp_dv: float | None = None
                 try:
                     from aerocapture.training.evaluate import _HAS_PYO3, _aero_rs
 
@@ -1001,13 +1004,15 @@ if __name__ == "__main__":
                         _undisp_batch = _aero_rs.run_batch(_toml_for_undisp, [_undisp_ovr], include_trajectories=True)
                         if _undisp_batch.trajectories:
                             undisp_nom = np.asarray(_undisp_batch.trajectories[0])
+                        if _undisp_batch.final_records.shape[0] > 0:
+                            undisp_dv = float(_undisp_batch.final_records[0, _COL_DV_TOTAL])
                 except Exception:
                     pass  # Non-critical — just skip the undispersed nominal line
 
                 report_path = Path(cfg.save_dir) / "final_report.html"
                 generate_final_report(
                     eval_data, cfg.guidance_type, target_incl, report_path,
-                    corridor_path=corr_npz, undispersed_nominal=undisp_nom,
+                    corridor_path=corr_npz, undispersed_nominal=undisp_nom, undispersed_dv=undisp_dv,
                 )
                 print(f"Final report saved to {report_path}")
             else:

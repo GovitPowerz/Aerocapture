@@ -180,6 +180,7 @@ def generate_final_report(
     output_path: Path,
     corridor_path: Path | None = None,
     undispersed_nominal: npt.NDArray[np.float64] | None = None,
+    undispersed_dv: float | None = None,
 ) -> Path:
     """Generate self-contained Plotly HTML report with statistical distributions.
 
@@ -388,7 +389,7 @@ def generate_final_report(
         _generate_corridor_png(
             trajectories, captured, corridor_png,
             dv_captured=dv_cap, corridor_data=corridor_data, final_array=final_array,
-            undispersed_nominal=undispersed_nominal,
+            undispersed_nominal=undispersed_nominal, undispersed_dv=undispersed_dv,
         )
         print(f"Corridor plots saved to {corridor_png}")
 
@@ -642,6 +643,7 @@ def _generate_corridor_png(
     corridor_data: dict[str, npt.NDArray[np.float64]] | None = None,
     final_array: npt.NDArray[np.float64] | None = None,
     undispersed_nominal: npt.NDArray[np.float64] | None = None,
+    undispersed_dv: float | None = None,
 ) -> None:
     """Generate publication-quality corridor plots as a 2×2 matplotlib PNG.
 
@@ -761,9 +763,11 @@ def _generate_corridor_png(
     # Vertical dashed lines for nominal DV values
     if corr_nom_dv is not None:
         ax_dv.axvline(x=corr_nom_dv, color="#D32F2F", linewidth=2, linestyle="--", label=f"Piecewise const.: {corr_nom_dv:.0f} m/s")
+    if undispersed_dv is not None:
+        ax_dv.axvline(x=undispersed_dv, color="#FF9800", linewidth=2, linestyle="--", label=f"Guidance nominal: {undispersed_dv:.0f} m/s")
     if guid_nom_dv is not None:
         ax_dv.axvline(x=guid_nom_dv, color="#4CAF50", linewidth=2, linestyle="--", label=f"Best case: {guid_nom_dv:.0f} m/s")
-    if corr_nom_dv is not None or guid_nom_dv is not None:
+    if corr_nom_dv is not None or undispersed_dv is not None or guid_nom_dv is not None:
         ax_dv.legend(fontsize=7, loc="center right")
 
     ax_dv.set_xlabel("Correction cost (m/s)")

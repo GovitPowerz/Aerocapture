@@ -355,9 +355,9 @@ def write_guidance_toml(
     # Set the guidance type
     toml_data.setdefault("guidance", {})["type"] = guidance_type
 
-    # Set the parameter section
+    # Merge GA params into existing section (preserves non-GA fields like energy_min/max)
     section_name = GUIDANCE_TOML_SECTIONS[guidance_type]
-    toml_data["guidance"][section_name] = params
+    toml_data["guidance"].setdefault(section_name, {}).update(params)
 
     if mc_seed is not None:
         toml_data.setdefault("monte_carlo", {})["seed"] = mc_seed
