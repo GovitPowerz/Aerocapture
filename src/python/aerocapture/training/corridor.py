@@ -568,11 +568,12 @@ def load_corridor(path: Path) -> dict[str, npt.NDArray[np.float64]] | None:
     npz = np.load(str(path))
     data = {k: npz[k] for k in npz.files}
 
-    # Check schema version
+    # Check schema version — accept v3 (2-layer) and v4 (4-layer with restricted envelopes)
+    _ACCEPTED_VERSIONS = {_SCHEMA_VERSION, 4}
     version = data.get("schema_version", np.array([0]))
-    if int(version[0]) != _SCHEMA_VERSION:
+    if int(version[0]) not in _ACCEPTED_VERSIONS:
         warnings.warn(
-            f"Corridor cache {path} has schema version {int(version[0])}, expected {_SCHEMA_VERSION}. Recomputation required.",
+            f"Corridor cache {path} has schema version {int(version[0])}, expected one of {_ACCEPTED_VERSIONS}. Recomputation required.",
             stacklevel=2,
         )
         return None
