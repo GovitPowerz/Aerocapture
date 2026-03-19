@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -15,6 +16,7 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.config import TrainingConfig
+from aerocapture.training.corridor import CorridorAccumulator
 from aerocapture.training.evaluate import (
     _HAS_PYO3,
     _aero_rs,
@@ -110,6 +112,7 @@ def save_checkpoint(
     config: TrainingConfig,
     cwd: str | Path | None,
     seed_pool: SeedPool | None = None,
+    corridor_acc: CorridorAccumulator | None = None,
 ) -> None:
     """Save full training state for later resumption."""
     prefix = f"checkpoint_r{run:03d}_g{generation:05d}"
@@ -141,6 +144,9 @@ def save_checkpoint(
     arrays["n_subpops"] = np.array([len(populations)])
     if best_chrom is not None:
         arrays["best_chromosome"] = best_chrom
+    if corridor_acc is not None:
+        for ck, cv in corridor_acc.to_checkpoint().items():
+            arrays[ck] = cv
     np.savez(save_dir / f"{prefix}.npz", **arrays)  # type: ignore[arg-type]  # mypy vs numpy stubs kwargs issue
 
     # Save best model/params (immediately usable by Rust)
@@ -183,6 +189,12 @@ def load_checkpoint(
     all_costs = [data[f"costs_{k}"] for k in range(n_subpops)]
     best_chrom = data.get("best_chromosome", None)
 
+    # Restore corridor accumulator if present in checkpoint
+    corridor_acc_restored: CorridorAccumulator | None = None
+    if "corridor_energy_bins" in data:
+        corridor_state = {k: data[k] for k in data if k.startswith("corridor_")}
+        corridor_acc_restored = CorridorAccumulator.from_checkpoint(corridor_state)
+
     return {
         "run": meta["run"],
         "generation": meta["generation"],
@@ -193,6 +205,7 @@ def load_checkpoint(
         "cost_history": meta["cost_history"],
         "rng_state": meta.get("rng_state"),
         "seed_pool": meta.get("seed_pool"),
+        "corridor_acc": corridor_acc_restored,
     }
 
 
@@ -204,6 +217,7 @@ def train(
     checkpoint_interval: int = 10,
     resume_dir: str | Path | None = None,
     no_tui: bool = False,
+    corridor_acc: CorridorAccumulator | None = None,
 ) -> dict:
     """Run the full GA training pipeline.
 
@@ -214,12 +228,16 @@ def train(
         verbose: Print progress.
         checkpoint_interval: Save checkpoint every N generations.
         resume_dir: Directory to resume training from (loads latest checkpoint).
+        no_tui: Disable Rich TUI (use plain-text output).
+        corridor_acc: Optional CorridorAccumulator for piecewise_constant training.
+            When provided, updated each generation with trajectory data.
 
     Returns:
         Dictionary with training results:
             - 'best_cost': Best cost found
             - 'best_chromosome': Best chromosome
             - 'cost_history': Cost per generation
+            - 'corridor_acc': CorridorAccumulator (if piecewise_constant)
     """
     if config is None:
         config = TrainingConfig()
@@ -305,6 +323,8 @@ def train(
                 print(f"Resumed from run {resumed['run']}, gen {resumed['generation']}, best={resumed['best_cost']:.4e}")
             if seed_pool is not None and resumed.get("seed_pool") is not None:
                 seed_pool = SeedPool.from_dict(resumed["seed_pool"])
+            if corridor_acc is not None and resumed.get("corridor_acc") is not None:
+                corridor_acc = resumed["corridor_acc"]
             # Make --n-gen mean "N additional" on resume (only safe with n_runs=1,
             # which is the CLI default; with multiple runs, subsequent runs would
             # inherit the inflated n_gen and loop range(0, inflated) = too many gens)
@@ -542,6 +562,30 @@ def train(
                             rng=rng,
                         )
 
+                    # Corridor accumulation for piecewise_constant (separate batch call)
+                    if config.guidance_type == "piecewise_constant" and corridor_acc is not None and _HAS_PYO3 and config.sim.toml_config:
+                        from aerocapture.training.corridor import classify_trajectories as classify_traj
+                        from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
+
+                        section = GUIDANCE_TOML_SECTIONS[config.guidance_type]
+                        pop_overrides: list[dict[str, object]] = []
+                        for k in range(config.ga.n_subpop):
+                            for ind in populations[k]:
+                                params = decode_params_from_chromosome(ind, config)
+                                ovr: dict[str, object] = {f"guidance.{section}.{k_}": v for k_, v in params.items()}
+                                ovr["guidance.type"] = config.guidance_type
+                                ovr["simulation.n_sims"] = 1
+                                pop_overrides.append(ovr)
+
+                        corr_toml_path = str((Path(cwd or config.sim.exec_dir) / config.sim.toml_config).resolve())
+                        batch_results = _aero_rs.run_batch(  # type: ignore[union-attr]
+                            toml_path=corr_toml_path,
+                            overrides_list=pop_overrides,
+                            include_trajectories=True,
+                        )
+                        labels = classify_traj(batch_results.final_records, delta_za=corridor_acc.delta_za_restricted)
+                        corridor_acc.update(batch_results.trajectories, labels)
+
                     # === Common path (both adaptive and original) ===
                     gen_best_costs.append(best_overall_cost)
 
@@ -593,6 +637,7 @@ def train(
                             config,
                             cwd,
                             seed_pool=seed_pool,
+                            corridor_acc=corridor_acc,
                         )
                         if verbose:
                             print(f"  Checkpoint saved: r{run:03d}_g{gen + 1:05d}")
@@ -615,6 +660,7 @@ def train(
                         config,
                         cwd,
                         seed_pool=seed_pool,
+                        corridor_acc=corridor_acc,
                     )
                     if verbose:
                         print(f"  Final checkpoint saved: r{run:03d}_g{last_gen:05d}")
@@ -638,6 +684,7 @@ def train(
                 config,
                 cwd,
                 seed_pool=seed_pool,
+                corridor_acc=corridor_acc,
             )
             logger.close()
 
@@ -646,6 +693,7 @@ def train(
         "best_chromosome": best_overall_chrom,
         "cost_history": cost_history,
         "interrupted": interrupted,
+        "corridor_acc": corridor_acc,
     }
 
 
@@ -743,8 +791,54 @@ if __name__ == "__main__":
         if list(save_path.glob("checkpoint_*.json")):
             resume_dir = cfg.save_dir
 
-    result = train(cfg, seed=args.seed, cwd=cwd, resume_dir=resume_dir, no_tui=args.no_tui)
+    # Derive mission name from the first base TOML (the mission config)
+    # Needed early for ref trajectory check and corridor accumulation
+    import tomllib
+
+    mission_name = Path(args.toml).stem if args.toml else "unknown"
+    corr_dir = Path(cfg.save_dir).parent / mission_name
+    if args.toml:
+        base_toml_path = Path(cwd or ".") / args.toml
+        with open(base_toml_path, "rb") as _f:
+            _raw_toml = tomllib.load(_f)
+        _bases = _raw_toml.get("base", [])
+        if isinstance(_bases, str):
+            _bases = [_bases]
+        # First base that contains "missions/" is the mission config
+        _mission_base = next((b for b in _bases if "missions/" in b), _bases[0] if _bases else "")
+        mission_name = Path(_mission_base).stem if _mission_base else Path(args.toml).stem
+        corr_dir = Path(cfg.save_dir).parent / mission_name
+        corr_dir.mkdir(parents=True, exist_ok=True)
+
+    # Check for reference trajectory requirement
+    from aerocapture.training.param_spaces import REQUIRES_REF_TRAJECTORY
+
+    if cfg.guidance_type in REQUIRES_REF_TRAJECTORY:
+        ref_traj_path = corr_dir / "ref_trajectory.dat"
+        if not ref_traj_path.exists():
+            print(f"\nERROR: No reference trajectory found for mission '{mission_name}'.")
+            print("Run piecewise_constant training first:")
+            print("  uv run python -m aerocapture.training.train --guidance piecewise_constant --toml <config>")
+            sys.exit(1)
+        print(f"  Using reference trajectory: {ref_traj_path}")
+
+    # Initialize corridor accumulator for piecewise_constant training
+    corridor_acc: CorridorAccumulator | None = None
+    if cfg.guidance_type == "piecewise_constant" and args.toml:
+        from aerocapture.training.toml_utils import load_toml_with_bases as _load_toml
+
+        _pc_toml = _load_toml(Path(args.toml))
+        pc_section = _pc_toml.get("guidance", {}).get("piecewise_constant", {})
+        energy_min = float(pc_section.get("energy_min", -6.0))  # MJ/kg (matches trajectory col 8)
+        energy_max = float(pc_section.get("energy_max", 5.0))  # MJ/kg (matches trajectory col 8)
+        delta_za_r = float(_pc_toml.get("corridor", {}).get("delta_za_restricted", 200.0))
+        corridor_acc = CorridorAccumulator(energy_min, energy_max, delta_za_restricted=delta_za_r)
+
+    result = train(cfg, seed=args.seed, cwd=cwd, resume_dir=resume_dir, no_tui=args.no_tui, corridor_acc=corridor_acc)
     print(f"\nFinal best cost: {result['best_cost']:.4e}")
+
+    # Update corridor_acc from train() result (may have been restored from checkpoint)
+    corridor_acc = result.get("corridor_acc")
 
     # Generate convergence report from JSONL training logs
     from aerocapture.training.report import generate_single_report
@@ -754,6 +848,51 @@ if __name__ == "__main__":
         generate_single_report(scheme_dir)
     else:
         print("No JSONL logs found, skipping convergence report")
+
+    # Save corridor data and reference trajectory for piecewise_constant
+    if cfg.guidance_type == "piecewise_constant" and corridor_acc is not None and result["best_chromosome"] is not None:
+        import aerocapture_rs as _aero_pc  # type: ignore[import-not-found, import-untyped]
+
+        from aerocapture.training.corridor import save_corridor as _save_corr
+        from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS as _GTS
+
+        # Re-run best individual with trajectories for nominal
+        best_params = decode_params_from_chromosome(result["best_chromosome"], cfg)
+        _pc_section = _GTS[cfg.guidance_type]
+        best_ovr: dict[str, object] = {f"guidance.{_pc_section}.{k_}": v for k_, v in best_params.items()}
+        best_ovr["guidance.type"] = cfg.guidance_type
+        best_ovr["simulation.n_sims"] = 1
+
+        assert cfg.sim.toml_config is not None
+        _pc_toml_path = str((Path(cwd or ".") / cfg.sim.toml_config).resolve())
+        best_batch = _aero_pc.run_batch(
+            toml_path=_pc_toml_path,
+            overrides_list=[best_ovr],
+            include_trajectories=True,
+        )
+        nom_traj = np.asarray(best_batch.trajectories[0]) if best_batch.trajectories else np.empty((0, 12))
+
+        # Save corridor_boundaries.npz from accumulated envelopes
+        corr_data = corridor_acc.to_corridor_data(nominal=nom_traj)
+        corr_npz = corr_dir / "corridor_boundaries.npz"
+        _save_corr(corr_data, corr_npz)
+
+        # Generate ref_trajectory.dat (7-column format: energy, pdyn, hdot, hdot, incl, time, cos_bank)
+        if nom_traj.ndim == 2 and nom_traj.shape[0] > 0:
+            vel = nom_traj[:, 3]  # vel_m_s
+            fpa_rad = np.radians(nom_traj[:, 4])  # fpa_deg -> rad
+            radial_vel = vel * np.sin(fpa_rad)
+            energy_j = nom_traj[:, 8] * 1e6  # MJ/kg -> J/kg
+            pdyn_pa = nom_traj[:, 9] * 1e3  # kPa -> Pa
+            incl_rad = np.radians(nom_traj[:, 11])  # deg -> rad
+            time_s = nom_traj[:, 7]
+            bank_rad = np.radians(nom_traj[:, 10])
+            cos_bank = np.cos(bank_rad)
+
+            ref_data = np.column_stack([energy_j, pdyn_pa, radial_vel, radial_vel, incl_rad, time_s, cos_bank])
+            ref_path = corr_dir / "ref_trajectory.dat"
+            np.savetxt(str(ref_path), ref_data, fmt="  %.16E")
+            print(f"  Reference trajectory saved to {ref_path} ({ref_data.shape[0]} points)")
 
     # Save best result and run final evaluation
     if result["best_chromosome"] is not None:
@@ -829,19 +968,7 @@ if __name__ == "__main__":
                     )
 
                 # Compute corridor boundaries (or load cached) — shared across schemes per mission
-                # Derive mission name from the first base TOML (the mission config)
-                import tomllib
-
-                with open(base_toml_path, "rb") as _f:
-                    _raw_toml = tomllib.load(_f)
-                _bases = _raw_toml.get("base", [])
-                if isinstance(_bases, str):
-                    _bases = [_bases]
-                # First base that contains "missions/" is the mission config
-                _mission_base = next((b for b in _bases if "missions/" in b), _bases[0] if _bases else "")
-                mission_name = Path(_mission_base).stem if _mission_base else Path(args.toml).stem
-                corr_dir = Path(cfg.save_dir).parent / mission_name
-                corr_dir.mkdir(parents=True, exist_ok=True)
+                # mission_name and corr_dir already derived above (before train() call)
                 corr_npz = corr_dir / "corridor_boundaries.npz"
                 if not corr_npz.exists():
                     from aerocapture.training.corridor import compute_corridor, save_corridor
