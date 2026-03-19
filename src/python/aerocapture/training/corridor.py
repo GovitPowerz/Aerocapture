@@ -62,14 +62,22 @@ def _viable_capture_mask(final_records: npt.NDArray[np.float64]) -> npt.NDArray[
 def classify_trajectories(
     final_records: npt.NDArray[np.float64],
     delta_za: float = _DEFAULT_DELTA_ZA,
+    delta_za_low: float | None = None,
+    delta_za_high: float | None = None,
 ) -> npt.NDArray[np.str_]:
     """Classify each trajectory by outcome.
 
     Priority order: crash > timeout > hyperbolic > captured sub-categories.
 
+    Corridor bounds are asymmetric: apo_err in [delta_za_low, delta_za_high].
+    If delta_za_low/high are None, falls back to symmetric ±delta_za.
+
     Returns array of strings: "crash", "undershoot", "corridor", "overshoot",
     "hyperbolic", or "timeout".
     """
+    lo = delta_za_low if delta_za_low is not None else -delta_za
+    hi = delta_za_high if delta_za_high is not None else delta_za
+
     n = len(final_records)
     labels = np.empty(n, dtype="U12")
 
@@ -97,9 +105,9 @@ def classify_trajectories(
     hyperbolic = atm_exit & ~captured & ~crash & ~timeout
     labels[hyperbolic] = "hyperbolic"
 
-    # Captured sub-categories by apoapsis error
-    undershoot = captured & (apo_err < -delta_za)
-    overshoot = captured & (apo_err > delta_za)
+    # Captured sub-categories by apoapsis error (asymmetric bounds)
+    undershoot = captured & (apo_err < lo)
+    overshoot = captured & (apo_err > hi)
     corridor = captured & ~undershoot & ~overshoot
 
     labels[undershoot] = "undershoot"
@@ -422,9 +430,11 @@ class CorridorAccumulator:
 
     Maintains 4 running envelopes updated per generation:
     - crash_max_pdyn: max pdyn of non-crash trajectories (above = crash zone)
-    - restricted_max_pdyn: max pdyn of corridor-classified (|apo_err| < delta_za)
+    - restricted_max_pdyn: max pdyn of corridor-classified
     - restricted_min_pdyn: min pdyn of corridor-classified
     - capture_min_pdyn: min pdyn of all captured (below = hyperbolic zone)
+
+    Corridor classification uses asymmetric bounds: apo_err in [delta_za_low, delta_za_high].
 
     Designed for incremental updates across GA generations without storing
     all trajectory data.
@@ -435,10 +445,14 @@ class CorridorAccumulator:
         energy_min: float,
         energy_max: float,
         delta_za_restricted: float = 200.0,
+        delta_za_low: float | None = None,
+        delta_za_high: float | None = None,
         n_bins: int = 200,
     ) -> None:
         self.n_bins = n_bins
         self.delta_za_restricted = delta_za_restricted
+        self.delta_za_low = delta_za_low if delta_za_low is not None else -delta_za_restricted
+        self.delta_za_high = delta_za_high if delta_za_high is not None else delta_za_restricted
         bins = np.linspace(energy_min, energy_max, n_bins + 1)
         self.energy_bins: npt.NDArray[np.float64] = (bins[:-1] + bins[1:]) / 2
         self._bin_edges: npt.NDArray[np.float64] = bins
@@ -501,6 +515,8 @@ class CorridorAccumulator:
             "corridor_restricted_min_pdyn": self.restricted_min_pdyn,
             "corridor_capture_min_pdyn": self.capture_min_pdyn,
             "corridor_delta_za": np.array([self.delta_za_restricted]),
+            "corridor_delta_za_low": np.array([self.delta_za_low]),
+            "corridor_delta_za_high": np.array([self.delta_za_high]),
         }
 
     @classmethod
@@ -509,8 +525,10 @@ class CorridorAccumulator:
         energy_bins = state["corridor_energy_bins"]
         n_bins = len(energy_bins)
         delta_za = float(state["corridor_delta_za"][0])
+        delta_za_low = float(state["corridor_delta_za_low"][0]) if "corridor_delta_za_low" in state else -delta_za
+        delta_za_high = float(state["corridor_delta_za_high"][0]) if "corridor_delta_za_high" in state else delta_za
         # Construct with dummy range; we overwrite bins directly below
-        acc = cls(energy_min=0.0, energy_max=1.0, delta_za_restricted=delta_za, n_bins=n_bins)
+        acc = cls(energy_min=0.0, energy_max=1.0, delta_za_restricted=delta_za, delta_za_low=delta_za_low, delta_za_high=delta_za_high, n_bins=n_bins)
         acc.energy_bins = energy_bins.copy()
         half = (energy_bins[1] - energy_bins[0]) / 2 if n_bins > 1 else 0.5
         acc._bin_edges = np.concatenate([[energy_bins[0] - half], energy_bins + half])
@@ -528,6 +546,8 @@ class CorridorAccumulator:
 
         Fills NaN gaps via interpolation and applies a mild smoothing filter.
         """
+        from scipy.ndimage import gaussian_filter1d
+
         smoothed: dict[str, npt.NDArray[np.float64]] = {}
         for name, arr in [
             ("envelope_crash_pdyn", self.crash_max_pdyn),
@@ -539,8 +559,8 @@ class CorridorAccumulator:
             valid = ~np.isnan(s)
             if valid.any() and (~valid).any():
                 s[~valid] = np.interp(self.energy_bins[~valid], self.energy_bins[valid], s[valid])
-            if valid.sum() > 5:
-                s = uniform_filter1d(s, size=5)
+            if valid.sum() > 10:
+                s = gaussian_filter1d(s, sigma=3.0)
             smoothed[name] = s
 
         return {

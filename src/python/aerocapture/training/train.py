@@ -583,7 +583,7 @@ def train(
                             overrides_list=pop_overrides,
                             include_trajectories=True,
                         )
-                        labels = classify_traj(batch_results.final_records, delta_za=corridor_acc.delta_za_restricted)
+                        labels = classify_traj(batch_results.final_records, delta_za_low=corridor_acc.delta_za_low, delta_za_high=corridor_acc.delta_za_high)
                         corridor_acc.update(batch_results.trajectories, labels)
 
                     # === Common path (both adaptive and original) ===
@@ -831,8 +831,11 @@ if __name__ == "__main__":
         pc_section = _pc_toml.get("guidance", {}).get("piecewise_constant", {})
         energy_min = float(pc_section.get("energy_min", -6.0))  # MJ/kg (matches trajectory col 8)
         energy_max = float(pc_section.get("energy_max", 5.0))  # MJ/kg (matches trajectory col 8)
-        delta_za_r = float(_pc_toml.get("corridor", {}).get("delta_za_restricted", 200.0))
-        corridor_acc = CorridorAccumulator(energy_min, energy_max, delta_za_restricted=delta_za_r)
+        corr_section = _pc_toml.get("corridor", {})
+        delta_za_r = float(corr_section.get("delta_za_restricted", 200.0))
+        delta_za_low = float(corr_section.get("delta_za_restricted_low", -delta_za_r))
+        delta_za_high = float(corr_section.get("delta_za_restricted_high", delta_za_r))
+        corridor_acc = CorridorAccumulator(energy_min, energy_max, delta_za_restricted=delta_za_r, delta_za_low=delta_za_low, delta_za_high=delta_za_high)
 
     result = train(cfg, seed=args.seed, cwd=cwd, resume_dir=resume_dir, no_tui=args.no_tui, corridor_acc=corridor_acc)
     print(f"\nFinal best cost: {result['best_cost']:.4e}")
