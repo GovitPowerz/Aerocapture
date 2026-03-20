@@ -35,10 +35,11 @@ tests/                     Test framework and golden reference data
 
 ## Guidance Schemes
 
-Six guidance algorithms are implemented, all GA-optimizable:
+Seven guidance algorithms are implemented, all GA-optimizable:
 
 | Scheme | Description | Params |
 |---|---|---|
+| **Piecewise Constant** | 10-segment bank angle profile (train first — produces ref trajectory + corridor) | 10 |
 | **FTC** | Predictor-corrector with reference trajectory tracking | 8 |
 | **Neural Network** | Trained NN maps nav state to bank angle command | 110 |
 | **Equilibrium Glide** | Balances gravity, centrifugal, and lift forces | 7 |
@@ -58,7 +59,7 @@ The simulation implements a full closed-loop GNC chain:
 
 ## GA Optimization
 
-All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load and heat flux exceedances. Training auto-resumes from existing checkpoints (use `-fs` to start fresh). On resume, `--n-gen` means "N additional generations." Training supports graceful Ctrl+C interruption (saves checkpoint and returns cleanly).
+All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load and heat flux exceedances. The cost function uses a C1-continuous log-capped compression (`log_cap`) that smoothly transitions from linear to logarithmic above a configurable threshold (default 1000 m/s), preventing outliers from dominating the RMS. The simulator returns meaningful DV values for all termination outcomes — captured (real orbital correction), hyperbolic (excess velocity), crash/pending crash/timeout (proportional virtual DV) — so no branching on capture status is needed. Training auto-resumes from existing checkpoints (use `-fs` to start fresh). On resume, `--n-gen` means "N additional generations." Training supports graceful Ctrl+C interruption (saves checkpoint and returns cleanly).
 
 ```bash
 # Optimize any guidance scheme (Rich TUI with sparklines and ETA)
