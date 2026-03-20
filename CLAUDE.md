@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Aerocapture is a trajectory simulation tool for aerocapture maneuvers (primarily Mars Sample Return). The project was modernized from a legacy Fortran 77 codebase into a **Rust simulator** with **Python analysis tools**. The Rust simulator was **validated against the Fortran reference** (now removed from the working tree but preserved in git history) — FTC guided trajectories matched to bit-level precision across all 725 timesteps (22/24 photo columns exact; the remaining 2 were Fortran uninitialized variable artifacts).
 
-The simulation models a spacecraft entering a planet's atmosphere at hyperbolic velocity, using aerodynamic forces and bank angle modulation to capture into a target orbit. The GNC chain is: Navigation (state estimation + density filter) -> Guidance (one of 6 algorithms: FTC, NN, Equilibrium Glide, Energy Controller, PredGuid, FNPAG) -> Control (pilot dynamics + roll reversal). All guidance schemes have TOML-configurable parameters and can be GA-optimized.
+The simulation models a spacecraft entering a planet's atmosphere at hyperbolic velocity, using aerodynamic forces and bank angle modulation to capture into a target orbit. The GNC chain is: Navigation (state estimation + density filter) -> Guidance (one of 7 algorithms: FTC, NN, Equilibrium Glide, Energy Controller, PredGuid, FNPAG, Piecewise Constant) -> Control (pilot dynamics + roll reversal). Schemes providing signed bank angles (NN, Piecewise Constant) bypass lateral guidance — they control roll direction directly. All guidance schemes have TOML-configurable parameters and can be GA-optimized.
 
 ## Build & Development Commands
 
@@ -67,13 +67,14 @@ src/rust/src/
       estimator.rs                 — State estimation + density filter
       coordinates.rs               — Spherical<>Cartesian, geodetic, total energy
     guidance/
-      ftc.rs                       — FTC capture-phase guidance
+      ftc.rs                       — FTC capture-phase guidance + central guidance dispatch
       reference.rs                 — Constant bank angle mode
-      neural.rs                    — NN guidance (modular JSON architecture, GA-trained)
+      neural.rs                    — NN guidance (modular JSON architecture, GA-trained, signed bank via atan2)
       equilibrium_glide.rs         — Equilibrium glide with hdot damping + velocity bias
       energy_controller.rs         — Energy dissipation tracking via pdyn/hdot feedback
       predguid.rs                  — Apollo/Shuttle-heritage drag tracking guidance
       fnpag.rs                     — Lu's numerical predictor-corrector (FNPAG)
+      piecewise_constant.rs        — 10-segment bank angle profile (GA-optimized, produces ref trajectory + corridor)
     control/
       pilot.rs                     — Pilot dynamics
       attitude.rs                  — Attitude command realization
@@ -104,9 +105,9 @@ src/rust/aerocapture-py/src/
 ```
 
 Key API:
-- `aerocapture_rs.run(toml_path, overrides=None)` → `SimResult` with `.final_record` (52,), `.captured`, `.energy`, `.ecc`, etc. Returns first result only (use `run_mc` for multi-sim).
-- `aerocapture_rs.run_mc(toml_path, overrides=None, include_trajectories=False)` → `BatchResults` with all n_sims results. Use for MC evaluations needing the full distribution.
-- `aerocapture_rs.run_batch(toml_path, overrides_list, n_threads=None, include_trajectories=False)` → `BatchResults` with `.final_records` (N, 52)
+- `aerocapture_rs.run(toml_path, overrides=None)` → `SimResult` with `.final_record` (52,), `.captured`, `.energy`, `.ecc`, `.dispersions` (24,), etc. Returns first result only (use `run_mc` for multi-sim).
+- `aerocapture_rs.run_mc(toml_path, overrides=None, include_trajectories=False)` → `BatchResults` with all n_sims results. When `include_trajectories=True`, populates per-timestep trajectory data (N, 12) for corridor plots. `.dispersions` (N, 24) always populated.
+- `aerocapture_rs.run_batch(toml_path, overrides_list, n_threads=None, include_trajectories=False)` → `BatchResults` with `.final_records` (N, 52), `.dispersions` (N, 24)
 - `aerocapture_rs.load_config(toml_path)` → Python dict
 
 The training pipeline (`evaluate.py`) auto-detects PyO3 availability and falls back to subprocess if not installed. Override dict uses dot-separated TOML key paths with type coercion (int→float when existing field is float).
@@ -124,7 +125,7 @@ TOML config files in `configs/` are the only supported input format, organized i
 
 **Base inheritance:** Configs support a `base` key (string or array of strings) that references parent TOML files, resolved relative to the declaring file. The loader deep-merges bases left-to-right, then overlays the child's own keys. This eliminates duplication — mission-level content (entry, vehicle, aero, flight, orbit, success, incidence, atmosphere paths) lives in `configs/missions/mars.toml` or `earth.toml`, common training settings (MC dispersions, cost function) live in `configs/training/common.toml`, and each leaf config only specifies its overrides (guidance type, n_sims, results_suffix). Both Rust (`resolve_toml_bases()` in `config.rs`) and Python (`load_toml_with_bases()` in `toml_utils.py`) implement the same resolution logic.
 
-Each config specifies mission, guidance scheme, vehicle, entry conditions, aerodynamics, Monte Carlo settings, and data file paths. The NN weight file path (`[data] neural_network`) and optional architecture override (`[network] layer_sizes`, `activations`) are read from TOML at training time. The `[simulation]` section supports `max_time` (default: 3000.0 s) as a hard wall to prevent runaway simulations. Training TOMLs include a `[cost_function]` section with configurable thresholds and penalty weights for g-load (`g_load_limit`, `g_load_weight`) and heat flux (`heat_flux_limit`, `heat_flux_weight`).
+Each config specifies mission, guidance scheme, vehicle, entry conditions, aerodynamics, Monte Carlo settings, and data file paths. Mission TOMLs include a `[corridor]` section with asymmetric restricted corridor bounds (`delta_za_restricted_low`, `delta_za_restricted_high` in km). The NN weight file path (`[data] neural_network`) and optional architecture override (`[network] layer_sizes`, `activations`) are read from TOML at training time. The `[simulation]` section supports `max_time` (default: 3000.0 s) as a hard wall to prevent runaway simulations. Training TOMLs include a `[cost_function]` section with configurable thresholds and penalty weights for g-load (`g_load_limit`, `g_load_weight`) and heat flux (`heat_flux_limit`, `heat_flux_weight`).
 
 ### Python Tools (`src/python/`, `pyproject.toml`)
 
@@ -133,7 +134,7 @@ Python analysis package (numpy, pandas, matplotlib, deap, scipy) for:
 - Output file parsers (photo, final, CSV files)
 - Visualization (corridor plots, MC ensembles, CDF of correction cost)
 - GA training pipeline: optimizes any guidance scheme's parameters (not just NN weights)
-  - `train.py` — Main GA loop with checkpoint save/resume (`--guidance <scheme> --toml <config> [--no-tui] [--rotate-seeds | --adaptive-seeds] [--seed-pool-cap N] [--cost-alpha F] [--cvar-percentile P] [--skip-final-report] [--final-n-sims N]`). Graceful KeyboardInterrupt handling: Ctrl+C saves checkpoint and returns cleanly with `interrupted: True`.
+  - `train.py` — Main GA loop with checkpoint save/resume (`--guidance <scheme> --toml <config> [--no-tui] [--rotate-seeds | --adaptive-seeds] [--seed-pool-cap N] [--cost-alpha F] [--cvar-percentile P] [--skip-final-report] [--final-n-sims N]`). Auto-resumes from existing checkpoint when output dir exists (no `--resume` needed); `--resume` only needed to specify a non-default directory. On resume, `--n-gen` means "N additional generations" (not total). A checkpoint is always saved at end of training (not just at interval multiples). Graceful KeyboardInterrupt handling: Ctrl+C saves checkpoint and returns cleanly with `interrupted: True`. Final evaluation prints capture rate, delta-V, and orbital error percentiles (p50/p95/mean) to stdout.
   - `param_spaces.py` — Per-scheme parameter bounds (with optional log-scale encoding)
   - `evaluate.py` — Decode chromosome -> write params (NN JSON or patched TOML) -> run sim -> cost. Uses PyO3 direct call when `aerocapture_rs` is available, subprocess fallback otherwise. Cost function uses delta-V as primary objective with TOML-configurable normalized soft constraint penalties for g-load and heat flux exceedances.
   - `compare_guidance.py` — Fair head-to-head comparison on identical MC scenarios
@@ -145,8 +146,9 @@ Python analysis package (numpy, pandas, matplotlib, deap, scipy) for:
   - `metrics.py` — Pure metric functions: cost stats, diversity, capture rate, convergence speed, stagnation
   - `logger.py` — `TrainingLogger`: writes one JSONL line per generation; in-memory buffer for live display
   - `display.py` — `LiveDisplay`: Rich TUI with sparklines, ETA, progress bar (degrades to `NoopDisplay` when `--no-tui` or non-interactive)
-  - `report.py` — Plotly self-contained HTML convergence reports (single-run and cross-scheme comparison); auto-generated at end of training, also standalone CLI: `python -m aerocapture.training.report`
-  - `final_report.py` — Post-training final evaluation: runs 1000-sim MC re-evaluation via `run_mc()`, generates Plotly HTML with delta-V distributions, orbital error distributions, entry conditions scatter, and summary statistics; auto-generated at end of training, also standalone CLI: `python -m aerocapture.training.final_report`
+  - `report.py` — Plotly self-contained HTML convergence reports (single-run and cross-scheme comparison) with dynamic grid layout; conditionally shows seed pool evolution panel (adaptive seeds) and MC seed trace panel (rotate seeds) when relevant JSONL fields are present; detects resume points from JSONL file boundaries and renders vertical markers on all panels. Auto-generated at end of training, also standalone CLI: `python -m aerocapture.training.report`
+  - `final_report.py` — Post-training final evaluation: runs 1000-sim MC re-evaluation via `run_mc(include_trajectories=True)`, returns `FinalEvalData(final_array, trajectories, dispersions)`. Produces three output files: (1) Plotly HTML with delta-V/orbital error distributions (dv1=periapsis, dv2=apoapsis, dv3=inclination), entry/exit conditions scatter, performance summary table (g-load, heat flux, bank consumption, orbital errors, DV with Mean/Std/Min/p5-p95/Max); (2) matplotlib PNG with energy corridor panels (pdyn, inclination, bank angle vs energy — MC spaghetti + 4-layer zone fill: red crash/hyperbolic, grey transition, white restricted corridor + three nominals: red piecewise-constant reference, orange undispersed guidance, green best-case MC); (3) separate Plotly HTML with dispersion correlation grid (~24 scatter subplots with linear regression R²/p-value). Auto-generated at end of training, also standalone CLI: `python -m aerocapture.training.final_report`
+  - `corridor.py` — Corridor boundary computation via `CorridorAccumulator`. During `piecewise_constant` GA training, each generation's trajectories are classified (`classify_trajectories` with asymmetric bounds `delta_za_low`/`delta_za_high`) and their pdyn envelopes updated incrementally (running max/min per energy bin). Produces schema-v4 `.npz` cache with 4 envelopes (crash, restricted upper/lower, capture), nominal trajectory, and DV. Gaussian smoothing applied at save time. Cached per mission in `training_output/<mission>/corridor_boundaries.npz`. Also produces `ref_trajectory.dat` (7-column format) for schemes that track a reference trajectory.
 
 ## GA Training & Comparison
 
@@ -169,11 +171,11 @@ uv run python -m aerocapture.training.train \
     --toml configs/training/msr_aller_eqglide_train.toml \
     --n-gen 50 --n-pop 20 --adaptive-seeds
 
-# ── Resume from checkpoint ──
+# ── Resume training (auto-detects checkpoint; --n-gen means "N additional") ──
 uv run python -m aerocapture.training.train \
     --guidance equilibrium_glide \
     --toml configs/training/msr_aller_eqglide_train.toml \
-    --resume training_output/equilibrium_glide
+    --n-gen 50
 
 # ── Compare all schemes on identical MC scenarios ──
 uv run python -m aerocapture.training.compare_guidance \
@@ -194,12 +196,15 @@ uv run python -m aerocapture.training.final_report \
 ```
 
 Guidance schemes and their TOML training configs:
+- `piecewise_constant` -> `configs/training/msr_aller_piecewise_constant_train.toml` **(train first — produces ref trajectory + corridor)**
 - `neural_network` -> `configs/training/msr_aller_nn_train_consolidated.toml`
 - `equilibrium_glide` -> `configs/training/msr_aller_eqglide_train.toml`
-- `energy_controller` -> `configs/training/msr_aller_energy_controller_train.toml`
-- `pred_guid` -> `configs/training/msr_aller_pred_guid_train.toml`
-- `fnpag` -> `configs/training/msr_aller_fnpag_train.toml`
-- `ftc` -> `configs/training/msr_aller_ftc_train.toml`
+- `energy_controller` -> `configs/training/msr_aller_energy_controller_train.toml` *(requires ref trajectory)*
+- `pred_guid` -> `configs/training/msr_aller_pred_guid_train.toml` *(requires ref trajectory)*
+- `fnpag` -> `configs/training/msr_aller_fnpag_train.toml` *(requires ref trajectory)*
+- `ftc` -> `configs/training/msr_aller_ftc_train.toml` *(requires ref trajectory)*
+
+**Training order:** Run `piecewise_constant` first — it produces `training_output/<mission>/ref_trajectory.dat` (optimized reference for other schemes) and `corridor_boundaries.npz` (4-layer corridor envelopes from GA population history). Schemes marked *(requires ref trajectory)* will error at startup if the ref trajectory is missing. Schemes without the marker (`neural_network`, `equilibrium_glide`) can be trained independently.
 
 Optimized params saved to `training_output/<scheme>/best_params.json` (or `best_model.json` for NN).
 
@@ -227,8 +232,8 @@ Energy must use **absolute (inertial) velocity**, not relative velocity. The Rus
 
 - **Rust**: Edition 2024, nalgebra for linear algebra, release profile with LTO
 - **Python**: Python >=3.14, Ruff (line-length 160, target py314), uv package manager, pytest, mypy strict mode. Dev tools in `[dependency-groups]` (not `[project.optional-dependencies]`). Training deps (deap, scipy) are core dependencies.
-- **Testing (Python)**: pytest, hypothesis (property-based). Golden reference files under `tests/reference_data/`. Shared fixtures in `tests/conftest.py` (session-scoped Rust build) and `tests/fixtures/factories.py` (config/chromosome factories). ~234 tests covering parsers, regression, MC, GA pipeline (chromosome, cost, TOML patching, config, operators), training visualization (metrics, logger, display, integration, report, final evaluation), NN weight initialization, seed rotation, adaptive seed pool (CVaR, aggregation, growth, eviction, scoring, checkpoint, evaluation, integration), graceful interrupt handling, TOML base inheritance resolution, PyO3 integration (bit-identical regression against subprocess path).
-- **Testing (Rust)**: Three-tier pyramid — unit tests (inline `#[cfg(test)]` modules with proptest property tests), integration tests (`src/rust/tests/`), E2E subprocess tests. Shared test infrastructure in `tests/common/` (fixtures.rs, assertions.rs). Dev-dependencies: `approx` (float comparison), `rstest` (parameterized tests), `proptest` (property-based testing), `tempfile` (temp dirs for base inheritance tests). ~189 tests covering physics, GNC, guidance (all 6 schemes), navigation, error paths, `run_for_api()`, peak value tracking, TOML base inheritance (deep_merge, resolve_toml_bases, cycle detection). Run with `cargo test` or `./check_all.sh`.
+- **Testing (Python)**: pytest, hypothesis (property-based). Golden reference files under `tests/reference_data/`. Shared fixtures in `tests/conftest.py` (session-scoped Rust build) and `tests/fixtures/factories.py` (config/chromosome factories). ~278 tests covering parsers, regression, MC, GA pipeline (chromosome, cost, TOML patching, config, operators), training visualization (metrics, logger, display, integration, report, final evaluation), NN weight initialization, seed rotation, adaptive seed pool (CVaR, aggregation, growth, eviction, scoring, checkpoint, evaluation, integration), graceful interrupt handling, TOML base inheritance resolution, PyO3 integration (bit-identical regression against subprocess path), report resume detection and conditional panel rendering, final report corridor/dispersion/entry-exit panels, corridor accumulator (incremental envelope building, checkpoint roundtrip, asymmetric bounds).
+- **Testing (Rust)**: Three-tier pyramid — unit tests (inline `#[cfg(test)]` modules with proptest property tests), integration tests (`src/rust/tests/`), E2E subprocess tests. Shared test infrastructure in `tests/common/` (fixtures.rs, assertions.rs). Dev-dependencies: `approx` (float comparison), `rstest` (parameterized tests), `proptest` (property-based testing), `tempfile` (temp dirs for base inheritance tests). ~199 tests covering physics, GNC, guidance (all 7 schemes including piecewise_constant), navigation, error paths, `run_for_api()`, peak value tracking, TOML base inheritance (deep_merge, resolve_toml_bases, cycle detection). Run with `cargo test` or `./check_all.sh`.
 - **CI**: GitHub Actions (`.github/workflows/ci.yml`) — Rust (fmt, clippy, test), Python (ruff lint, ruff format, mypy, pytest), and PyO3 (maturin build + pytest test_pyo3.py) run on PRs to `main` and manual dispatch (`workflow_dispatch`).
 - **Validation**: Rust vs Fortran comparison complete — 22/24 photo columns bit-identical across 725 timesteps.
 

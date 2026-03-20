@@ -1,7 +1,8 @@
 # TODO
 
-- [ ] training report should be checked (does not work properly) and could be improved anyway
-- [ ] final report could be improved
+- [ ] improve control to follow shortest path (mod[2pi])
+- [ ] add an animation script of entry corridors and trajectories evolution during training based on checkpoints
+- [ ] 1e30 for Dv is too much, we should use something like log(Dv) for values higher than a threshold but make it continuous (and derivable) at the threshold (1000 m/s seems reasonable). Maybe change also the simulation tool to improve "crash" detection
 - [ ] Update IMPROVEMENTS.md
 
 ## Simulation — High Impact
@@ -22,7 +23,6 @@
 
 - [ ] Add alternative optimizers: CMA-ES, PSO, Bayesian optimization — §12.1
 - [ ] Explore LSTM / Transformer architectures for guidance (BPTT for recurrent) — §12.2
-- [ ] Let NN handle roll reversal directly (remove FTC lateral dependency) — §8.3
 - [ ] Add neural counterparts for navigation and control — §12.3
 
 ## Mission Extensions

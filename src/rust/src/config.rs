@@ -90,6 +90,7 @@ pub enum GuidanceType {
     EnergyController,
     PredGuid,
     Fnpag,
+    PiecewiseConstant,
 }
 
 /// Parsed simulation input configuration
@@ -154,8 +155,7 @@ pub struct TomlGuidance {
     pub guidance_type: String,
     #[serde(default)]
     pub reference_trajectory: bool,
-    #[serde(default = "default_ref_bank")]
-    pub reference_bank_angle: f64,
+    pub reference_bank_angle: Option<f64>,
     /// FTC-specific parameters (consolidated mode, from guidage.* files)
     pub ftc: Option<TomlFtcParams>,
     /// Equilibrium glide parameters
@@ -166,10 +166,9 @@ pub struct TomlGuidance {
     pub pred_guid: Option<TomlPredGuidParams>,
     /// FNPAG (numerical predictor-corrector) parameters
     pub fnpag: Option<TomlFnpagParams>,
-}
-
-fn default_ref_bank() -> f64 {
-    0.0
+    /// Piecewise-constant bank angle parameters
+    #[serde(default)]
+    pub piecewise_constant: TomlPiecewiseConstantParams,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -541,6 +540,44 @@ fn default_140() -> f64 {
     140.0
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct TomlPiecewiseConstantParams {
+    #[serde(default = "default_bank_65")]
+    pub bank_angle_0: f64,
+    #[serde(default = "default_bank_65")]
+    pub bank_angle_1: f64,
+    #[serde(default = "default_bank_65")]
+    pub bank_angle_2: f64,
+    #[serde(default = "default_bank_65")]
+    pub bank_angle_3: f64,
+    #[serde(default = "default_bank_65")]
+    pub bank_angle_4: f64,
+    #[serde(default = "default_bank_65")]
+    pub bank_angle_5: f64,
+    #[serde(default = "default_bank_65")]
+    pub bank_angle_6: f64,
+    #[serde(default = "default_bank_65")]
+    pub bank_angle_7: f64,
+    #[serde(default = "default_bank_65")]
+    pub bank_angle_8: f64,
+    #[serde(default = "default_bank_65")]
+    pub bank_angle_9: f64,
+    #[serde(default = "default_energy_min")]
+    pub energy_min: f64, // MJ/kg in TOML, converted to J/kg at load time
+    #[serde(default = "default_energy_max")]
+    pub energy_max: f64, // MJ/kg in TOML, converted to J/kg at load time
+}
+
+fn default_bank_65() -> f64 {
+    65.0
+}
+fn default_energy_min() -> f64 {
+    -6.0
+}
+fn default_energy_max() -> f64 {
+    5.0
+}
+
 // ─── Domain-based Monte Carlo TOML structs ───
 
 #[derive(Debug, Deserialize, Clone)]
@@ -729,6 +766,7 @@ impl SimInput {
             "energy_controller" => GuidanceType::EnergyController,
             "pred_guid" => GuidanceType::PredGuid,
             "fnpag" => GuidanceType::Fnpag,
+            "piecewise_constant" => GuidanceType::PiecewiseConstant,
             other => return Err(ParseError(format!("Unknown guidance type: {}", other))),
         };
 
@@ -744,7 +782,13 @@ impl SimInput {
             screen_output: config.simulation.screen_output,
             random_seed: config.simulation.random_seed,
             reference_trajectory: config.guidance.reference_trajectory,
-            reference_bank_angle: config.guidance.reference_bank_angle,
+            reference_bank_angle: config.guidance.reference_bank_angle.unwrap_or_else(|| {
+                config
+                    .entry
+                    .as_ref()
+                    .map(|e| e.initial_bank_angle)
+                    .unwrap_or(0.0)
+            }),
             base_dir: config.data.base_dir.clone(),
             output_dir: config.data.output_dir.clone(),
             results_suffix: config

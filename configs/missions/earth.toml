@@ -86,3 +86,7 @@ angles = [-27.5, -27.5, -27.5, -27.5]
 [data]
 atmosphere = "data/atmosphere/earth.dat"
 reference_trajectory = "data/reference_trajectory/esr_aller.dat"
+
+[corridor]
+delta_za = 100000.0  # km, apoapsis error tolerance (scaled for Earth high orbit)
+n_sims = 10000       # number of MC sims for corridor boundary computation

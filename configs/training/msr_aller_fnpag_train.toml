@@ -3,7 +3,6 @@ base = ["../missions/mars.toml", "common.toml"]
 
 [guidance]
 type = "fnpag"
-reference_bank_angle = 64.77026
 
 [data]
 results_suffix = ".train_fnpag"

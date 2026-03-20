@@ -98,6 +98,26 @@ impl Default for FnpagParams {
     }
 }
 
+/// Piecewise-constant bank angle guidance parameters.
+/// 10 segments uniformly distributed over the energy range.
+/// Bank angles are signed (negative = implicit roll reversal).
+#[derive(Debug, Clone)]
+pub struct PiecewiseConstantParams {
+    pub bank_angles: [f64; 10], // radians, signed
+    pub energy_min: f64,        // J/kg (NOT MJ/kg)
+    pub energy_max: f64,        // J/kg (NOT MJ/kg)
+}
+
+impl Default for PiecewiseConstantParams {
+    fn default() -> Self {
+        Self {
+            bank_angles: [65.0_f64.to_radians(); 10],
+            energy_min: -6.0e6,
+            energy_max: 5.0e6,
+        }
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct GuidanceParams {
@@ -147,6 +167,7 @@ pub struct GuidanceParams {
     pub energy_ctrl: EnergyCtrlParams,
     pub pred_guid: PredGuidParams,
     pub fnpag: FnpagParams,
+    pub piecewise_constant: PiecewiseConstantParams,
 }
 
 /// Reference trajectory tables loaded from the reference trajectory data file.
@@ -300,6 +321,7 @@ impl Default for GuidanceParams {
             energy_ctrl: EnergyCtrlParams::default(),
             pred_guid: PredGuidParams::default(),
             fnpag: FnpagParams::default(),
+            piecewise_constant: PiecewiseConstantParams::default(),
         }
     }
 }

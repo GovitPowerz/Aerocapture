@@ -369,6 +369,41 @@ pub struct DispersionDraw {
     pub filter_gain: f64, // absolute delta on lambda
 }
 
+/// Number of fields in [`DispersionDraw`] — keep in sync with [`DispersionDraw::to_array`].
+pub const DISPERSION_DRAW_LEN: usize = 24;
+
+impl DispersionDraw {
+    /// Serialize all fields to a flat array in struct field order.
+    pub fn to_array(&self) -> [f64; DISPERSION_DRAW_LEN] {
+        [
+            self.altitude,
+            self.longitude,
+            self.latitude,
+            self.velocity,
+            self.flight_path,
+            self.azimuth,
+            self.density,
+            self.drag_coeff,
+            self.lift_coeff,
+            self.incidence,
+            self.nav_altitude,
+            self.nav_longitude,
+            self.nav_latitude,
+            self.nav_velocity,
+            self.nav_flight_path,
+            self.nav_azimuth,
+            self.nav_drag_accel,
+            self.mass,
+            self.ref_area,
+            self.max_bank_rate,
+            self.pilot_tau,
+            self.pilot_damping,
+            self.pilot_frequency,
+            self.filter_gain,
+        ]
+    }
+}
+
 impl DispersionConfig {
     /// Generate all dispersion draws for a batch of simulations.
     ///
@@ -677,6 +712,48 @@ mod tests {
         // At least some should be nonzero
         let any_nonzero = draws.iter().any(|d| d.filter_gain.abs() > 0.001);
         assert!(any_nonzero, "Filter gain draws should not all be zero");
+    }
+
+    #[test]
+    fn dispersion_draw_to_array_roundtrip() {
+        let draw = DispersionDraw {
+            altitude: 1.0,
+            longitude: 2.0,
+            latitude: 3.0,
+            velocity: 4.0,
+            flight_path: 5.0,
+            azimuth: 6.0,
+            density: 7.0,
+            drag_coeff: 8.0,
+            lift_coeff: 9.0,
+            incidence: 10.0,
+            nav_altitude: 11.0,
+            nav_longitude: 12.0,
+            nav_latitude: 13.0,
+            nav_velocity: 14.0,
+            nav_flight_path: 15.0,
+            nav_azimuth: 16.0,
+            nav_drag_accel: 17.0,
+            mass: 18.0,
+            ref_area: 19.0,
+            max_bank_rate: 20.0,
+            pilot_tau: 21.0,
+            pilot_damping: 22.0,
+            pilot_frequency: 23.0,
+            filter_gain: 24.0,
+        };
+        let arr = draw.to_array();
+        assert_eq!(arr.len(), 24);
+        for (i, &val) in arr.iter().enumerate() {
+            assert_eq!(val, (i + 1) as f64);
+        }
+    }
+
+    #[test]
+    fn dispersion_draw_default_to_array_all_zeros() {
+        let arr = DispersionDraw::default().to_array();
+        assert_eq!(arr.len(), 24);
+        assert!(arr.iter().all(|&v| v == 0.0));
     }
 
     #[test]

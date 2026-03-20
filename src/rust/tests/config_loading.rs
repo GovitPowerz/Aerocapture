@@ -10,6 +10,12 @@ fn parse_ftc_consolidated_toml() {
     assert_eq!(config.planet, Planet::Mars);
     assert_eq!(config.n_sims, 1);
     assert!(!config.reference_trajectory);
+    // reference_bank_angle not set in TOML → falls back to entry.initial_bank_angle
+    assert!(
+        (config.reference_bank_angle - 64.77026).abs() < 1e-6,
+        "expected reference_bank_angle ≈ 64.77026 (from entry.initial_bank_angle), got {}",
+        config.reference_bank_angle
+    );
 }
 
 #[test]

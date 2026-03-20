@@ -2,7 +2,9 @@
 
 use crate::config::{GuidanceType, Planet};
 use crate::data::SimData;
-use crate::gnc::guidance::{energy_controller, equilibrium_glide, fnpag, neural, predguid};
+use crate::gnc::guidance::{
+    energy_controller, equilibrium_glide, fnpag, neural, piecewise_constant, predguid,
+};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
 use crate::gnc::navigation::estimator::NavigationOutput;
 use crate::orbit::elements;
@@ -162,8 +164,27 @@ pub fn guidance_step(
             }
             GuidanceType::PredGuid => predguid::predguid_bank(nav, &state.predguid, data, planet),
             GuidanceType::Fnpag => fnpag::fnpag_bank(nav, &mut state.fnpag, data, planet),
+            GuidanceType::PiecewiseConstant => piecewise_constant::piecewise_constant_bank(
+                nav,
+                &data.guidance.piecewise_constant,
+                planet,
+            ),
         };
         state.n_active += 1;
+    }
+
+    // Schemes that provide signed bank angles — skip lateral guidance entirely
+    let skip_lateral = matches!(
+        guidance_type,
+        GuidanceType::PiecewiseConstant | GuidanceType::NeuralNetwork
+    );
+    if skip_lateral {
+        state.bank_angle_commanded = bank_angle_longitudinal;
+        state.roll_sign = if bank_angle_longitudinal >= 0.0 {
+            1.0
+        } else {
+            -1.0
+        };
     }
 
     // === Lateral guidance activation ===
@@ -175,6 +196,10 @@ pub fn guidance_step(
     }
 
     lateral_active *= state.guidance_active[1];
+
+    if skip_lateral {
+        lateral_active = 0;
+    }
 
     // === Lateral guidance ===
     let mut roll_reversal_active = 0;
@@ -196,7 +221,8 @@ pub fn guidance_step(
     }
 
     // === Combine longitudinal and lateral commands ===
-    if !is_reference {
+    // Signed-bank schemes already set bank_angle_commanded with correct sign — skip combine
+    if !is_reference && !skip_lateral {
         if state.guidance_active[0] * state.guidance_active[1] == 1 {
             state.bank_angle_commanded = bank_angle_longitudinal * state.roll_sign;
         } else if state.reversal_active == 1 {
