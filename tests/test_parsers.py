@@ -123,13 +123,14 @@ class TestComputeCost:
         assert cost < 1e6  # Should be much less than hyperbolic penalty
 
     def test_compute_cost_hyperbolic(self) -> None:
-        """Hyperbolic trajectory gets high penalty."""
+        """Hyperbolic trajectory gets high cost via large DV from Rust."""
         from aerocapture.training.evaluate import compute_cost
 
         final = np.zeros((1, 52))
         final[0, 7] = 5.0  # energy > 0 = hyperbolic
         final[0, 9] = 1.5  # eccentricity > 1
         final[0, 27] = 100.0  # sim_time
+        final[0, 41] = 12000.0  # Rust assigns 10000 + excess_velocity for hyperbolic
 
         cost = compute_cost(final)
-        assert cost > 1e6  # Should be penalized heavily
+        assert cost > 3000  # Log-capped but still high

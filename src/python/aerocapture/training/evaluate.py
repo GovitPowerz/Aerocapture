@@ -226,9 +226,26 @@ def _run_via_subprocess(config: TrainingConfig, cwd: str | Path | None = None) -
         return None
 
 
+def log_cap(dv: npt.NDArray[np.float64], threshold: float = 1000.0) -> npt.NDArray[np.float64]:
+    """C1-continuous log-capped cost: linear below threshold, log above.
+
+    Properties:
+        - C0 continuous at threshold: both sides evaluate to T
+        - C1 continuous at threshold: both sides have derivative 1
+        - Monotonically increasing for all dv > 0
+    """
+    dv = np.maximum(dv, 1e-6)  # safety floor
+    below = dv <= threshold
+    result = np.empty_like(dv)
+    result[below] = dv[below]
+    result[~below] = threshold * (1.0 + np.log(dv[~below] / threshold))
+    return result
+
+
 def compute_cost(
     final_conditions: npt.NDArray[np.float64],
     *,
+    dv_threshold: float = 1000.0,
     g_load_limit: float = 15.0,
     heat_flux_limit: float = 200.0,
     g_load_weight: float = 1000.0,
@@ -236,45 +253,26 @@ def compute_cost(
 ) -> float:
     """Compute RMS cost from simulation final conditions.
 
-    Uses delta-V as the primary objective with normalized soft constraint
-    penalties for g-load and heat flux exceedances.
+    Uses log-capped delta-V as the primary objective with normalized
+    soft constraint penalties for g-load and heat flux exceedances.
 
-    Final file columns (0-indexed, 52-column layout):
-        7  = orbital energy (MJ/kg), >0 hyperbolic, <0 bound
-        9  = eccentricity, >1 hyperbolic
-        16 = peak heat flux (kW/m²)
-        17 = peak g-load (g)
-        27 = total simulation time (s)
-        41 = total delta-V to reach target orbit (m/s)
-
-    Cost hierarchy:
-        Non-capture (hyperbolic or bogus ΔV): 1e6 + 1e3 * |energy| - 0.1 * sim_time
-        Captured: ΔV + w_g * max((g-g_lim)/g_lim, 0)² + w_q * max((q-q_lim)/q_lim, 0)²
+    All termination outcomes produce meaningful DV values from Rust:
+    - Captured: real orbital correction DV
+    - Hyperbolic: 10000 + excess velocity
+    - Crash/PendingCrash/Timeout: 20000 * proportional time decay
 
     Returns:
         RMS cost value. Lower is better.
     """
-    energy = final_conditions[:, 7]  # MJ/kg
-    ecc = final_conditions[:, 9]  # dimensionless
-    sim_time = final_conditions[:, 27]  # s
-    dv_total = final_conditions[:, 41]  # m/s
-    g_max = final_conditions[:, 17]  # g
-    q_max = final_conditions[:, 16]  # kW/m²
+    dv_total = final_conditions[:, 41]
+    g_max = final_conditions[:, 17]
+    q_max = final_conditions[:, 16]
 
-    hyperbolic = (ecc > 1.0) | (energy > 0)
+    costs = log_cap(dv_total, threshold=dv_threshold)
 
-    costs = np.zeros(len(final_conditions))
-
-    # Non-capture OR bogus delta-V: energy-based penalty
-    bad = hyperbolic | (dv_total > 1e10)
-    costs[bad] = 1e6 + 1e3 * np.abs(energy[bad]) - 0.1 * sim_time[bad]
-
-    # Captured with valid delta-V
-    ok = ~bad
-    dv = np.clip(dv_total[ok], 0, 1e4)
-    g_penalty = g_load_weight * np.maximum((g_max[ok] - g_load_limit) / g_load_limit, 0) ** 2
-    q_penalty = heat_flux_weight * np.maximum((q_max[ok] - heat_flux_limit) / heat_flux_limit, 0) ** 2
-    costs[ok] = dv + g_penalty + q_penalty
+    g_penalty = g_load_weight * np.maximum((g_max - g_load_limit) / g_load_limit, 0) ** 2
+    q_penalty = heat_flux_weight * np.maximum((q_max - heat_flux_limit) / heat_flux_limit, 0) ** 2
+    costs = costs + g_penalty + q_penalty
 
     return float(np.sqrt(np.mean(costs**2)))
 
