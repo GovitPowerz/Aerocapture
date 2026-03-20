@@ -655,12 +655,7 @@ fn run_single(
     };
 
     let deltav = if term == TermReason::AtmosphereExit && captured {
-        maneuver::compute_deltav(
-            &orbit,
-            &data.target_orbit,
-            &data.parking_orbit,
-            planet,
-        )
+        maneuver::compute_deltav(&orbit, &data.target_orbit, &data.parking_orbit, planet)
     } else if term == TermReason::AtmosphereExit {
         // Hyperbolic exit: excess velocity over escape speed
         let v_escape = (2.0 * mu / sim.state[0]).sqrt();
@@ -1116,7 +1111,17 @@ mod virtual_dv_tests {
         let capture_dv = 500.0;
         let hyperbolic_dv = HYPERBOLIC_BASE + 100.0;
         let crash_dv = CRASH_BASE * 0.9;
-        assert!(crash_dv > hyperbolic_dv, "crash {} should > hyperbolic {}", crash_dv, hyperbolic_dv);
-        assert!(hyperbolic_dv > capture_dv, "hyperbolic {} should > capture {}", hyperbolic_dv, capture_dv);
+        assert!(
+            crash_dv > hyperbolic_dv,
+            "crash {} should > hyperbolic {}",
+            crash_dv,
+            hyperbolic_dv
+        );
+        assert!(
+            hyperbolic_dv > capture_dv,
+            "hyperbolic {} should > capture {}",
+            hyperbolic_dv,
+            capture_dv
+        );
     }
 }
