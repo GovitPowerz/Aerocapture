@@ -645,7 +645,7 @@ fn run_single(
         TermReason::AtmosphereExit => 3,
         TermReason::Crash => 1,
         TermReason::PendingCrash => 4,
-        _ => 2,
+        TermReason::Timeout | TermReason::None => 2,
     };
 
     let deltav = if term == TermReason::AtmosphereExit && captured {
@@ -667,7 +667,8 @@ fn run_single(
         }
     } else {
         // Crash, PendingCrash, or Timeout: proportional time decay
-        let virtual_dv = CRASH_BASE * (1.0 - 0.5 * sim_time / max_time);
+        let t_ratio = (sim_time / max_time).min(1.0);
+        let virtual_dv = CRASH_BASE * (1.0 - 0.5 * t_ratio);
         DeltaV {
             dv1: 0.0,
             dv2: 0.0,
