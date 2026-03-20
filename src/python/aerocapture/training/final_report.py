@@ -263,9 +263,9 @@ def generate_final_report(
         _add_hist_cdf(fig, dv_total, "Delta-V (m/s)", _COLOR_PRIMARY, row=1, col=1)
 
         # Row 1 right: Individual corrections overlaid
-        fig.add_trace(go.Histogram(x=dv1, name="dv1 (incl.)", opacity=0.5, marker_color=_COLOR_DV1, nbinsx=30), row=1, col=2)
-        fig.add_trace(go.Histogram(x=dv2, name="dv2 (SMA/ecc)", opacity=0.5, marker_color=_COLOR_DV2, nbinsx=30), row=1, col=2)
-        fig.add_trace(go.Histogram(x=dv3, name="dv3 (RAAN)", opacity=0.5, marker_color=_COLOR_DV3, nbinsx=30), row=1, col=2)
+        fig.add_trace(go.Histogram(x=dv1, name="dv1 (periapsis)", opacity=0.5, marker_color=_COLOR_DV1, nbinsx=30), row=1, col=2)
+        fig.add_trace(go.Histogram(x=dv2, name="dv2 (apoapsis)", opacity=0.5, marker_color=_COLOR_DV2, nbinsx=30), row=1, col=2)
+        fig.add_trace(go.Histogram(x=dv3, name="dv3 (inclination)", opacity=0.5, marker_color=_COLOR_DV3, nbinsx=30), row=1, col=2)
         fig.update_layout(barmode="overlay")
         fig.update_xaxes(title_text="m/s", row=1, col=2)
 
