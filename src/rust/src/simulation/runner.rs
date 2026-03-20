@@ -1076,3 +1076,41 @@ mod run_output_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod virtual_dv_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn crash_virtual_dv_in_range(
+            sim_time in 0.0f64..10000.0,
+            max_time in 100.0f64..10000.0,
+        ) {
+            let t_ratio = (sim_time / max_time).min(1.0);
+            let virtual_dv = CRASH_BASE * (1.0 - 0.5 * t_ratio);
+            prop_assert!(virtual_dv.is_finite());
+            prop_assert!(virtual_dv >= CRASH_BASE * 0.5, "virtual_dv={} < {}", virtual_dv, CRASH_BASE * 0.5);
+            prop_assert!(virtual_dv <= CRASH_BASE, "virtual_dv={} > {}", virtual_dv, CRASH_BASE);
+        }
+
+        #[test]
+        fn hyperbolic_virtual_dv_above_base(
+            v_excess in 0.0f64..5000.0,
+        ) {
+            let virtual_dv = HYPERBOLIC_BASE + v_excess;
+            prop_assert!(virtual_dv >= HYPERBOLIC_BASE);
+            prop_assert!(virtual_dv.is_finite());
+        }
+    }
+
+    #[test]
+    fn cost_ordering_crash_gt_hyperbolic_gt_capture() {
+        let capture_dv = 500.0;
+        let hyperbolic_dv = HYPERBOLIC_BASE + 100.0;
+        let crash_dv = CRASH_BASE * 0.9;
+        assert!(crash_dv > hyperbolic_dv, "crash {} should > hyperbolic {}", crash_dv, hyperbolic_dv);
+        assert!(hyperbolic_dv > capture_dv, "hyperbolic {} should > capture {}", hyperbolic_dv, capture_dv);
+    }
+}
