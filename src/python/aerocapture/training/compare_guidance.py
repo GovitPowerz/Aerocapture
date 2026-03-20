@@ -132,9 +132,10 @@ def run_scheme(
     final = _parse_final_to_legacy_array(final_file)
     if final is None or len(final) == 0:
         return None
-    energy = final[:, 8]
-    ecc = final[:, 10]
-    captured = (ecc < 1.0) & (energy < 0)
+    energy = final[:, 7]
+    ecc = final[:, 9]
+    ifinal = final[:, 31]
+    captured = (ecc < 1.0) & (energy < 0) & (ifinal != 4.0)
 
     metrics: dict = {
         "n_sims": len(final),
@@ -144,14 +145,13 @@ def run_scheme(
     }
 
     if captured.any():
-        metrics["apo_err_mean"] = float(np.abs(final[captured, 31]).mean())
-        metrics["apo_err_std"] = float(np.abs(final[captured, 31]).std())
-        metrics["peri_err_mean"] = float(np.abs(final[captured, 30]).mean())
-        metrics["peri_err_std"] = float(np.abs(final[captured, 30]).std())
-        dv = final[captured, 42]
-        dv_clean = np.where(dv > 1e10, np.nan, dv)
-        metrics["dv_mean"] = float(np.nanmean(dv_clean))
-        metrics["dv_std"] = float(np.nanstd(dv_clean))
+        metrics["apo_err_mean"] = float(np.abs(final[captured, 30]).mean())
+        metrics["apo_err_std"] = float(np.abs(final[captured, 30]).std())
+        metrics["peri_err_mean"] = float(np.abs(final[captured, 29]).mean())
+        metrics["peri_err_std"] = float(np.abs(final[captured, 29]).std())
+        dv = final[captured, 41]
+        metrics["dv_mean"] = float(np.mean(dv))
+        metrics["dv_std"] = float(np.std(dv))
     else:
         metrics["apo_err_mean"] = float("inf")
         metrics["peri_err_mean"] = float("inf")
@@ -210,6 +210,7 @@ def main() -> None:
     _toml = load_toml_with_bases(Path(base_toml))
     cost_cfg = _toml.get("cost_function", {})
     cost_kwargs = {
+        "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
         "g_load_limit": float(cost_cfg.get("g_load_limit", 15.0)),
         "heat_flux_limit": float(cost_cfg.get("heat_flux_limit", 200.0)),
         "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),

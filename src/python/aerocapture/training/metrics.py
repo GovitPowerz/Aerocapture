@@ -46,11 +46,11 @@ def population_diversity(chromosomes: npt.NDArray[np.int8]) -> float:
     return float(total_distance) / float(n_pairs * chrom_len)
 
 
-def capture_rate(costs: npt.NDArray[np.float64], capture_threshold: float = 1e6) -> float:
+def capture_rate(costs: npt.NDArray[np.float64], capture_threshold: float = 3000.0) -> float:
     """Fraction of individuals with cost below capture threshold.
 
-    Default threshold 1e6 is the floor of the hyperbolic-branch cost
-    in compute_cost (non-capturing trajectories get 1e6 + 1e3*|energy|).
+    Default threshold 3000 separates captured trajectories (max ~2600
+    after log compression) from non-captures (min ~3300).
     """
     return float(int(np.sum(costs < capture_threshold)) / len(costs))
 
