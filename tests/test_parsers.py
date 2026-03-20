@@ -120,7 +120,7 @@ class TestComputeCost:
 
         cost = compute_cost(final)
         assert cost > 0
-        assert cost < 1e6  # Should be much less than hyperbolic penalty
+        assert cost < 300, f"Good capture (DV=100) should produce low cost, got {cost}"
 
     def test_compute_cost_hyperbolic(self) -> None:
         """Hyperbolic trajectory gets high cost via large DV from Rust."""

@@ -51,6 +51,10 @@ def capture_rate(costs: npt.NDArray[np.float64], capture_threshold: float = 3000
 
     Default threshold 3000 separates captured trajectories (max ~2600
     after log compression) from non-captures (min ~3300).
+
+    Note: this default assumes dv_threshold=1000 in the cost function.
+    If dv_threshold is changed, this threshold should be adjusted
+    accordingly — the gap is log_cap(HYPERBOLIC_BASE, dv_threshold).
     """
     return float(int(np.sum(costs < capture_threshold)) / len(costs))
 

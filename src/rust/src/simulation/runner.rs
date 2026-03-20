@@ -25,8 +25,13 @@ const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
 const G0: f64 = 9.81;
 
 /// Virtual DV base for hyperbolic exits (m/s).
+/// Set above any realistic captured orbit correction DV.
+/// Note: at the boundary, a very late crash (t_ratio ≈ 1.0, DV ≈ CRASH_BASE * 0.5 = 10000)
+/// can equal a barely-hyperbolic exit (DV ≈ HYPERBOLIC_BASE = 10000). This overlap is
+/// acceptable — late crashes are near-captures and the GA naturally finds capture solutions.
 const HYPERBOLIC_BASE: f64 = 10_000.0;
 /// Virtual DV base for crash/timeout (m/s).
+/// Set above any hyperbolic virtual DV to maintain cost ordering for typical cases.
 const CRASH_BASE: f64 = 20_000.0;
 
 #[derive(Debug)]
@@ -645,7 +650,8 @@ fn run_single(
         TermReason::AtmosphereExit => 3,
         TermReason::Crash => 1,
         TermReason::PendingCrash => 4,
-        TermReason::Timeout | TermReason::None => 2,
+        TermReason::Timeout => 2,
+        TermReason::None => unreachable!("simulation loop exits only on non-None termination"),
     };
 
     let deltav = if term == TermReason::AtmosphereExit && captured {

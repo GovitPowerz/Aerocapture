@@ -96,6 +96,13 @@ class TestUnifiedComputeCost:
         cost_high_t = compute_cost(final, dv_threshold=2000.0)
         assert cost_low_t < cost_high_t
 
+    def test_zero_dv_produces_finite_cost(self) -> None:
+        """DV=0 (safety floor) should produce a near-zero finite cost."""
+        final = self._make_final(3, dv=0.0, g=5.0, q=50.0)
+        cost = compute_cost(final)
+        assert np.isfinite(cost)
+        assert cost < 1.0
+
     @given(st.floats(min_value=1.0, max_value=50000.0))
     @settings(max_examples=100)
     def test_cost_always_finite(self, dv: float) -> None:
@@ -103,3 +110,45 @@ class TestUnifiedComputeCost:
         cost = compute_cost(final)
         assert np.isfinite(cost)
         assert cost >= 0
+
+
+class TestSentinelOverrides:
+    """Tests for sentinel chromosome override construction."""
+
+    def test_sentinel_bank_angles_coverage(self) -> None:
+        from aerocapture.training.train import _SENTINEL_BANK_ANGLES
+
+        assert len(_SENTINEL_BANK_ANGLES) == 11
+        assert _SENTINEL_BANK_ANGLES[0] == 0
+        assert _SENTINEL_BANK_ANGLES[-1] == 180
+        # Uniform 18-degree spacing
+        for i in range(len(_SENTINEL_BANK_ANGLES) - 1):
+            assert _SENTINEL_BANK_ANGLES[i + 1] - _SENTINEL_BANK_ANGLES[i] == 18
+
+    def test_sentinel_override_construction(self) -> None:
+        from aerocapture.training.train import _SENTINEL_BANK_ANGLES
+
+        section = "piecewise_constant"
+        sentinel_overrides: list[dict[str, object]] = []
+        for bank in _SENTINEL_BANK_ANGLES:
+            ovr: dict[str, object] = {f"guidance.{section}.bank_angle_{i}": float(bank) for i in range(10)}
+            ovr["guidance.type"] = "piecewise_constant"
+            ovr["simulation.n_sims"] = 1
+            sentinel_overrides.append(ovr)
+
+        assert len(sentinel_overrides) == 11
+        # Each override has 10 bank angles + guidance.type + simulation.n_sims = 12 keys
+        for ovr in sentinel_overrides:
+            assert len(ovr) == 12
+
+        # First sentinel: all bank angles = 0.0 (full lift-up)
+        for i in range(10):
+            assert sentinel_overrides[0][f"guidance.piecewise_constant.bank_angle_{i}"] == 0.0
+
+        # Last sentinel: all bank angles = 180.0 (full lift-down)
+        for i in range(10):
+            assert sentinel_overrides[-1][f"guidance.piecewise_constant.bank_angle_{i}"] == 180.0
+
+        # Middle sentinel (index 5): all bank angles = 90.0
+        for i in range(10):
+            assert sentinel_overrides[5][f"guidance.piecewise_constant.bank_angle_{i}"] == 90.0
