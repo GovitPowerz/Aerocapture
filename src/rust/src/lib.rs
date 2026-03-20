@@ -13,7 +13,7 @@ pub struct RunOutput {
     pub trajectory: Vec<[f64; 12]>,
     /// Full 52-column final record (same layout as CSV file output)
     pub final_record: [f64; 52],
-    /// True if orbit is bound (ecc < 1 && energy < 0)
+    /// True if orbit is bound (ecc < 1 && energy < 0) and not a pending crash (ifinal != 4).
     pub captured: bool,
     /// Dispersion draws for this simulation (24 fields from DispersionDraw::to_array)
     pub dispersions: [f64; data::dispersions::DISPERSION_DRAW_LEN],

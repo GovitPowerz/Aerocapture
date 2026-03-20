@@ -11,6 +11,7 @@ use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_abso
 use crate::gnc::navigation::estimator::{self, NavigationState};
 use crate::integration::rk4;
 use crate::integration::sequencer::SequencerState;
+use crate::orbit::maneuver::DeltaV;
 use crate::orbit::{elements, maneuver};
 use crate::physics::gravity;
 use crate::simulation::init;
@@ -22,6 +23,11 @@ use std::io::{BufWriter, Write};
 
 const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
 const G0: f64 = 9.81;
+
+/// Virtual DV base for hyperbolic exits (m/s).
+const HYPERBOLIC_BASE: f64 = 10_000.0;
+/// Virtual DV base for crash/timeout (m/s).
+const CRASH_BASE: f64 = 20_000.0;
 
 #[derive(Debug)]
 pub struct SimError(pub String);
@@ -68,6 +74,7 @@ enum TermReason {
     Crash,
     Timeout,
     AtmosphereExit,
+    PendingCrash,
 }
 
 /// Result from a single simulation run.
@@ -229,10 +236,11 @@ pub fn run_for_api(
             } else {
                 Vec::new()
             };
+            let ifinal_val = r.final_line[31] as i32;
             crate::RunOutput {
                 trajectory,
                 final_record: r.final_line,
-                captured: ecc < 1.0 && energy < 0.0,
+                captured: ecc < 1.0 && energy < 0.0 && ifinal_val != 4,
                 dispersions: r.dispersions,
             }
         })
@@ -627,18 +635,46 @@ fn run_single(
     let energy = speed_abs * speed_abs / 2.0 - mu / sim.state[0];
     let velocity_radial = sim.state[3] * sim.state[4].sin();
 
+    // Pending crash: captured orbit with apoapsis below atmosphere ceiling
+    let captured = orbit.eccentricity < 1.0 && energy < 0.0;
+    if term == TermReason::AtmosphereExit && captured && orbit.apoapsis_alt < exit_altitude {
+        term = TermReason::PendingCrash;
+    }
+
     let ifinal = match term {
         TermReason::AtmosphereExit => 3,
         TermReason::Crash => 1,
+        TermReason::PendingCrash => 4,
         _ => 2,
     };
-    let deltav = maneuver::compute_deltav(
-        &orbit,
-        ifinal,
-        &data.target_orbit,
-        &data.parking_orbit,
-        planet,
-    );
+
+    let deltav = if term == TermReason::AtmosphereExit && captured {
+        maneuver::compute_deltav(
+            &orbit,
+            &data.target_orbit,
+            &data.parking_orbit,
+            planet,
+        )
+    } else if term == TermReason::AtmosphereExit {
+        // Hyperbolic exit: excess velocity over escape speed
+        let v_escape = (2.0 * mu / sim.state[0]).sqrt();
+        let v_excess = (speed_abs - v_escape).max(0.0);
+        DeltaV {
+            dv1: 0.0,
+            dv2: 0.0,
+            dv3: 0.0,
+            total: HYPERBOLIC_BASE + v_excess,
+        }
+    } else {
+        // Crash, PendingCrash, or Timeout: proportional time decay
+        let virtual_dv = CRASH_BASE * (1.0 - 0.5 * sim_time / max_time);
+        DeltaV {
+            dv1: 0.0,
+            dv2: 0.0,
+            dv3: 0.0,
+            total: virtual_dv,
+        }
+    };
 
     // final_record layout (52 slots):
     //   0  altitude (km)           16 max heat flux (kW/m²)     32-36 UNUSED
@@ -978,7 +1014,8 @@ mod run_output_tests {
         let (config, data) = load_test_config();
         let results = run_for_api(&config, &data, false).expect("run");
         let r = &results[0];
-        let expected = r.final_record[9] < 1.0 && r.final_record[7] < 0.0;
+        let ifinal_val = r.final_record[31] as i32;
+        let expected = r.final_record[9] < 1.0 && r.final_record[7] < 0.0 && ifinal_val != 4;
         assert_eq!(r.captured, expected);
     }
 
