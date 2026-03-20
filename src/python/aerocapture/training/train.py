@@ -32,6 +32,11 @@ from aerocapture.training.population import create_initial_population
 from aerocapture.training.seed_pool import SeedPool
 from aerocapture.training.weight_stats import compute_weight_stats
 
+# Constant bank angles for corridor boundary sentinels (degrees).
+# 0° = full lift-up (hyperbolic boundary), 180° = full lift-down (crash boundary).
+# Only magnitude affects energy-vs-pdyn corridor; sign only affects lateral track.
+_SENTINEL_BANK_ANGLES = [0, 18, 36, 54, 72, 90, 108, 126, 144, 162, 180]
+
 
 def roulette_selection(
     costs: npt.NDArray[np.float64],
@@ -268,6 +273,7 @@ def train(
         # Parse cost function config (with defaults)
         cost_cfg = _toml.get("cost_function", {})
         cost_kwargs = {
+            "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
             "g_load_limit": float(cost_cfg.get("g_load_limit", 15.0)),
             "heat_flux_limit": float(cost_cfg.get("heat_flux_limit", 200.0)),
             "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
@@ -585,6 +591,26 @@ def train(
                         )
                         labels = classify_traj(batch_results.final_records, delta_za_low=corridor_acc.delta_za_low, delta_za_high=corridor_acc.delta_za_high)
                         corridor_acc.update(batch_results.trajectories, labels)
+
+                        # Sentinel chromosomes: constant bank angles for corridor boundary resolution
+                        sentinel_overrides: list[dict[str, object]] = []
+                        for bank in _SENTINEL_BANK_ANGLES:
+                            ovr_s: dict[str, object] = {f"guidance.{section}.bank_angle_{i}": float(bank) for i in range(10)}
+                            ovr_s["guidance.type"] = config.guidance_type
+                            ovr_s["simulation.n_sims"] = 1
+                            sentinel_overrides.append(ovr_s)
+
+                        sentinel_results = _aero_rs.run_batch(  # type: ignore[union-attr]
+                            toml_path=corr_toml_path,
+                            overrides_list=sentinel_overrides,
+                            include_trajectories=True,
+                        )
+                        sentinel_labels = classify_traj(
+                            sentinel_results.final_records,
+                            delta_za_low=corridor_acc.delta_za_low,
+                            delta_za_high=corridor_acc.delta_za_high,
+                        )
+                        corridor_acc.update(sentinel_results.trajectories, sentinel_labels)
 
                     # === Common path (both adaptive and original) ===
                     gen_best_costs.append(best_overall_cost)

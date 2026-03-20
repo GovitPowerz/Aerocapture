@@ -11,6 +11,7 @@ use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_abso
 use crate::gnc::navigation::estimator::{self, NavigationState};
 use crate::integration::rk4;
 use crate::integration::sequencer::SequencerState;
+use crate::orbit::maneuver::DeltaV;
 use crate::orbit::{elements, maneuver};
 use crate::physics::gravity;
 use crate::simulation::init;
@@ -22,6 +23,16 @@ use std::io::{BufWriter, Write};
 
 const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
 const G0: f64 = 9.81;
+
+/// Virtual DV base for hyperbolic exits (m/s).
+/// Set above any realistic captured orbit correction DV.
+/// Note: at the boundary, a very late crash (t_ratio ≈ 1.0, DV ≈ CRASH_BASE * 0.5 = 10000)
+/// can equal a barely-hyperbolic exit (DV ≈ HYPERBOLIC_BASE = 10000). This overlap is
+/// acceptable — late crashes are near-captures and the GA naturally finds capture solutions.
+const HYPERBOLIC_BASE: f64 = 10_000.0;
+/// Virtual DV base for crash/timeout (m/s).
+/// Set above any hyperbolic virtual DV to maintain cost ordering for typical cases.
+const CRASH_BASE: f64 = 20_000.0;
 
 #[derive(Debug)]
 pub struct SimError(pub String);
@@ -68,6 +79,7 @@ enum TermReason {
     Crash,
     Timeout,
     AtmosphereExit,
+    PendingCrash,
 }
 
 /// Result from a single simulation run.
@@ -229,10 +241,11 @@ pub fn run_for_api(
             } else {
                 Vec::new()
             };
+            let ifinal_val = r.final_line[31] as i32;
             crate::RunOutput {
                 trajectory,
                 final_record: r.final_line,
-                captured: ecc < 1.0 && energy < 0.0,
+                captured: ecc < 1.0 && energy < 0.0 && ifinal_val != 4,
                 dispersions: r.dispersions,
             }
         })
@@ -627,18 +640,43 @@ fn run_single(
     let energy = speed_abs * speed_abs / 2.0 - mu / sim.state[0];
     let velocity_radial = sim.state[3] * sim.state[4].sin();
 
+    // Pending crash: captured orbit with apoapsis below atmosphere ceiling
+    let captured = orbit.eccentricity < 1.0 && energy < 0.0;
+    if term == TermReason::AtmosphereExit && captured && orbit.apoapsis_alt < exit_altitude {
+        term = TermReason::PendingCrash;
+    }
+
     let ifinal = match term {
         TermReason::AtmosphereExit => 3,
         TermReason::Crash => 1,
-        _ => 2,
+        TermReason::PendingCrash => 4,
+        TermReason::Timeout => 2,
+        TermReason::None => unreachable!("simulation loop exits only on non-None termination"),
     };
-    let deltav = maneuver::compute_deltav(
-        &orbit,
-        ifinal,
-        &data.target_orbit,
-        &data.parking_orbit,
-        planet,
-    );
+
+    let deltav = if term == TermReason::AtmosphereExit && captured {
+        maneuver::compute_deltav(&orbit, &data.target_orbit, &data.parking_orbit, planet)
+    } else if term == TermReason::AtmosphereExit {
+        // Hyperbolic exit: excess velocity over escape speed
+        let v_escape = (2.0 * mu / sim.state[0]).sqrt();
+        let v_excess = (speed_abs - v_escape).max(0.0);
+        DeltaV {
+            dv1: 0.0,
+            dv2: 0.0,
+            dv3: 0.0,
+            total: HYPERBOLIC_BASE + v_excess,
+        }
+    } else {
+        // Crash, PendingCrash, or Timeout: proportional time decay
+        let t_ratio = (sim_time / max_time).min(1.0);
+        let virtual_dv = CRASH_BASE * (1.0 - 0.5 * t_ratio);
+        DeltaV {
+            dv1: 0.0,
+            dv2: 0.0,
+            dv3: 0.0,
+            total: virtual_dv,
+        }
+    };
 
     // final_record layout (52 slots):
     //   0  altitude (km)           16 max heat flux (kW/m²)     32-36 UNUSED
@@ -978,7 +1016,8 @@ mod run_output_tests {
         let (config, data) = load_test_config();
         let results = run_for_api(&config, &data, false).expect("run");
         let r = &results[0];
-        let expected = r.final_record[9] < 1.0 && r.final_record[7] < 0.0;
+        let ifinal_val = r.final_record[31] as i32;
+        let expected = r.final_record[9] < 1.0 && r.final_record[7] < 0.0 && ifinal_val != 4;
         assert_eq!(r.captured, expected);
     }
 
@@ -1035,6 +1074,54 @@ mod run_output_tests {
             rec[17] > 1.0 && rec[17] < 30.0,
             "peak load factor {:.1} g outside reasonable Mars entry range",
             rec[17]
+        );
+    }
+}
+
+#[cfg(test)]
+mod virtual_dv_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn crash_virtual_dv_in_range(
+            sim_time in 0.0f64..10000.0,
+            max_time in 100.0f64..10000.0,
+        ) {
+            let t_ratio = (sim_time / max_time).min(1.0);
+            let virtual_dv = CRASH_BASE * (1.0 - 0.5 * t_ratio);
+            prop_assert!(virtual_dv.is_finite());
+            prop_assert!(virtual_dv >= CRASH_BASE * 0.5, "virtual_dv={} < {}", virtual_dv, CRASH_BASE * 0.5);
+            prop_assert!(virtual_dv <= CRASH_BASE, "virtual_dv={} > {}", virtual_dv, CRASH_BASE);
+        }
+
+        #[test]
+        fn hyperbolic_virtual_dv_above_base(
+            v_excess in 0.0f64..5000.0,
+        ) {
+            let virtual_dv = HYPERBOLIC_BASE + v_excess;
+            prop_assert!(virtual_dv >= HYPERBOLIC_BASE);
+            prop_assert!(virtual_dv.is_finite());
+        }
+    }
+
+    #[test]
+    fn cost_ordering_crash_gt_hyperbolic_gt_capture() {
+        let capture_dv = 500.0;
+        let hyperbolic_dv = HYPERBOLIC_BASE + 100.0;
+        let crash_dv = CRASH_BASE * 0.9;
+        assert!(
+            crash_dv > hyperbolic_dv,
+            "crash {} should > hyperbolic {}",
+            crash_dv,
+            hyperbolic_dv
+        );
+        assert!(
+            hyperbolic_dv > capture_dv,
+            "hyperbolic {} should > capture {}",
+            hyperbolic_dv,
+            capture_dv
         );
     }
 }

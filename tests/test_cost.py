@@ -1,173 +1,154 @@
-"""Tests for compute_cost: delta-V primary with normalized constraint penalties.
-
-Column layout of final_conditions (0-indexed, 52-column):
-    7  = energy (MJ/kg), >0 → hyperbolic
-    9  = eccentricity, >1 → hyperbolic
-    16 = max heat flux (kW/m²)
-    17 = max g-load (g)
-    27 = sim_time (s)
-    41 = dv_total (m/s)
-"""
-
-from __future__ import annotations
+"""Tests for the unified cost function with log-cap compression."""
 
 import numpy as np
-import numpy.typing as npt
-import pytest
-from aerocapture.training.evaluate import compute_cost
+from aerocapture.training.evaluate import compute_cost, log_cap
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-N_COLS = 52
 
+class TestLogCap:
+    """Tests for the C1-continuous log-cap function."""
 
-def _make_row(
-    *,
-    energy: float = -1.0,
-    ecc: float = 0.5,
-    sim_time: float = 300.0,
-    dv_total: float = 0.0,
-    g_max: float = 0.0,
-    q_max: float = 0.0,
-) -> npt.NDArray[np.float64]:
-    """Build a single-row final_conditions array with the given values."""
-    row = np.zeros((1, N_COLS))
-    row[0, 7] = energy
-    row[0, 9] = ecc
-    row[0, 16] = q_max
-    row[0, 17] = g_max
-    row[0, 27] = sim_time
-    row[0, 41] = dv_total
-    return row
+    def test_linear_below_threshold(self) -> None:
+        dv = np.array([100.0, 500.0, 999.0])
+        result = log_cap(dv, threshold=1000.0)
+        np.testing.assert_array_almost_equal(result, dv)
 
+    def test_log_above_threshold(self) -> None:
+        dv = np.array([2000.0, 5000.0, 10000.0])
+        result = log_cap(dv, threshold=1000.0)
+        expected = 1000.0 * (1.0 + np.log(dv / 1000.0))
+        np.testing.assert_array_almost_equal(result, expected)
 
-class TestCostDeltaVPrimary:
-    def test_zero_dv_zero_cost(self) -> None:
-        """Captured with zero delta-V and no constraint violations → cost = 0."""
-        row = _make_row(energy=-2.0, ecc=0.4, dv_total=0.0)
-        cost = compute_cost(row)
-        assert cost == pytest.approx(0.0, abs=1e-12)
+    def test_c0_continuity_at_threshold(self) -> None:
+        t = 1000.0
+        below = log_cap(np.array([t - 1e-10]), threshold=t)[0]
+        above = log_cap(np.array([t + 1e-10]), threshold=t)[0]
+        assert abs(below - above) < 1e-6
 
-    def test_dv_is_primary_cost(self) -> None:
-        """For captured trajectory, cost ≈ delta-V when no constraints violated."""
-        row = _make_row(energy=-2.0, ecc=0.4, dv_total=150.0)
-        cost = compute_cost(row)
-        assert cost == pytest.approx(150.0, abs=1e-6)
+    def test_c1_continuity_at_threshold(self) -> None:
+        t = 1000.0
+        eps = 1e-6
+        left_deriv = (log_cap(np.array([t]), t)[0] - log_cap(np.array([t - eps]), t)[0]) / eps
+        right_deriv = (log_cap(np.array([t + eps]), t)[0] - log_cap(np.array([t]), t)[0]) / eps
+        assert abs(left_deriv - 1.0) < 1e-3
+        assert abs(right_deriv - 1.0) < 1e-3
 
-    def test_dv_clipped_at_10000(self) -> None:
-        """Delta-V above 10000 m/s is clipped."""
-        row = _make_row(energy=-2.0, ecc=0.4, dv_total=50000.0)
-        cost = compute_cost(row)
-        assert cost <= 10001.0
+    def test_safety_floor(self) -> None:
+        result = log_cap(np.array([0.0, -1.0]), threshold=1000.0)
+        assert np.all(np.isfinite(result))
 
-    def test_bogus_dv_treated_as_noncapture(self) -> None:
-        """dv_total > 1e10 (bogus Fortran value) → non-capture penalty path."""
-        row = _make_row(energy=-1.0, ecc=0.5, dv_total=1e30)
-        cost = compute_cost(row)
-        assert cost > 1e6, f"Bogus dv should trigger non-capture penalty, got {cost}"
-
-
-class TestCostConstraintPenalties:
-    def test_gload_below_limit_no_penalty(self) -> None:
-        """G-load below limit contributes zero penalty."""
-        row = _make_row(energy=-2.0, ecc=0.4, dv_total=100.0, g_max=14.0)
-        cost = compute_cost(row, g_load_limit=15.0)
-        assert cost == pytest.approx(100.0, abs=1e-6)
-
-    def test_gload_at_limit_no_penalty(self) -> None:
-        """G-load exactly at limit contributes zero penalty."""
-        row = _make_row(energy=-2.0, ecc=0.4, dv_total=100.0, g_max=15.0)
-        cost = compute_cost(row, g_load_limit=15.0)
-        assert cost == pytest.approx(100.0, abs=1e-9)
-
-    def test_gload_above_limit_adds_penalty(self) -> None:
-        """G-load above limit adds quadratic normalized penalty."""
-        row = _make_row(energy=-2.0, ecc=0.4, dv_total=100.0, g_max=16.5)
-        cost_with = compute_cost(row, g_load_limit=15.0, g_load_weight=1000.0)
-        cost_without = compute_cost(row, g_load_limit=15.0, g_load_weight=0.0)
-        assert cost_with > cost_without
-
-    def test_heat_flux_below_limit_no_penalty(self) -> None:
-        """Heat flux below limit contributes zero penalty."""
-        row = _make_row(energy=-2.0, ecc=0.4, dv_total=100.0, q_max=180.0)
-        cost = compute_cost(row, heat_flux_limit=200.0)
-        assert cost == pytest.approx(100.0, abs=1e-6)
-
-    def test_heat_flux_at_limit_no_penalty(self) -> None:
-        """Heat flux exactly at limit contributes zero penalty."""
-        row = _make_row(energy=-2.0, ecc=0.4, dv_total=100.0, q_max=200.0)
-        cost = compute_cost(row, heat_flux_limit=200.0)
-        assert cost == pytest.approx(100.0, abs=1e-9)
-
-    def test_heat_flux_above_limit_adds_penalty(self) -> None:
-        """Heat flux above limit adds quadratic normalized penalty."""
-        row = _make_row(energy=-2.0, ecc=0.4, dv_total=100.0, q_max=250.0)
-        cost_with = compute_cost(row, heat_flux_limit=200.0, heat_flux_weight=1000.0)
-        cost_without = compute_cost(row, heat_flux_limit=200.0, heat_flux_weight=0.0)
-        assert cost_with > cost_without
-
-    def test_normalized_exceedance_symmetry(self) -> None:
-        """10% g-load exceedance = 10% heat flux exceedance at equal weights."""
-        row_g = _make_row(energy=-2.0, ecc=0.4, dv_total=0.0, g_max=11.0)
-        cost_g = compute_cost(row_g, g_load_limit=10.0, g_load_weight=1000.0, heat_flux_weight=0.0)
-        row_q = _make_row(energy=-2.0, ecc=0.4, dv_total=0.0, q_max=110.0)
-        cost_q = compute_cost(row_q, heat_flux_limit=100.0, heat_flux_weight=1000.0, g_load_weight=0.0)
-        assert cost_g == pytest.approx(cost_q, rel=1e-10)
-
-    def test_weight_zero_disables_penalty(self) -> None:
-        """Setting weight to 0 disables that constraint penalty."""
-        row = _make_row(energy=-2.0, ecc=0.4, dv_total=50.0, g_max=100.0, q_max=1000.0)
-        cost = compute_cost(row, g_load_weight=0.0, heat_flux_weight=0.0)
-        assert cost == pytest.approx(50.0, abs=1e-6)
-
-
-class TestCostHyperbolic:
-    def test_hyperbolic_penalized(self) -> None:
-        """energy > 0 AND ecc > 1 → Level 0 penalty above 1e6."""
-        row = _make_row(energy=5.0, ecc=2.0)
-        cost = compute_cost(row)
-        assert cost > 1e6
-
-    def test_hyperbolic_higher_than_captured(self) -> None:
-        """Hyperbolic always costs more than a well-captured orbit."""
-        hyperbolic = _make_row(energy=1.0, ecc=1.5)
-        captured = _make_row(energy=-1.0, ecc=0.5, dv_total=500.0)
-        assert compute_cost(hyperbolic) > compute_cost(captured)
-
-    def test_parabolic_boundary_classified_as_captured(self) -> None:
-        """Energy=0, ecc=1 (strict >) → classified as captured."""
-        row = _make_row(energy=0.0, ecc=1.0, dv_total=0.0)
-        cost = compute_cost(row)
-        assert cost == pytest.approx(0.0, abs=1e-12)
-
-
-class TestCostAggregation:
-    def test_multi_sim_rms(self) -> None:
-        """Stacking identical rows produces the same cost as a single row."""
-        row = _make_row(energy=-2.0, ecc=0.4, dv_total=100.0)
-        stacked = np.tile(row, (5, 1))
-        assert compute_cost(row) == pytest.approx(compute_cost(stacked), abs=1e-9)
-
-
-class TestCostProperties:
-    @given(
-        energy=st.floats(-1e6, 1e6, allow_nan=False, allow_infinity=False),
-        ecc=st.floats(0.0, 3.0, allow_nan=False, allow_infinity=False),
-        dv_total=st.floats(0.0, 1e4, allow_nan=False, allow_infinity=False),
-        g_max=st.floats(0.0, 100.0, allow_nan=False, allow_infinity=False),
-        q_max=st.floats(0.0, 1000.0, allow_nan=False, allow_infinity=False),
-    )
+    @given(st.floats(min_value=0.01, max_value=1e6))
     @settings(max_examples=200)
-    def test_cost_always_finite_nonneg(
-        self,
-        energy: float,
-        ecc: float,
-        dv_total: float,
-        g_max: float,
-        q_max: float,
-    ) -> None:
-        """For any finite inputs, compute_cost returns a finite, non-negative value."""
-        row = _make_row(energy=energy, ecc=ecc, dv_total=dv_total, g_max=g_max, q_max=q_max)
-        cost = compute_cost(row)
-        assert np.isfinite(cost), f"cost is not finite: {cost}"
-        assert cost >= 0.0, f"cost is negative: {cost}"
+    def test_monotonically_increasing(self, dv: float) -> None:
+        eps = 1.0
+        v1 = log_cap(np.array([dv]), threshold=1000.0)[0]
+        v2 = log_cap(np.array([dv + eps]), threshold=1000.0)[0]
+        assert v2 >= v1
+
+
+class TestUnifiedComputeCost:
+    """Tests for the unified compute_cost function."""
+
+    @staticmethod
+    def _make_final(n: int, dv: float = 200.0, g: float = 5.0, q: float = 100.0) -> np.ndarray:
+        arr = np.zeros((n, 52))
+        arr[:, 41] = dv
+        arr[:, 17] = g
+        arr[:, 16] = q
+        return arr
+
+    def test_good_capture_cost_equals_dv(self) -> None:
+        final = self._make_final(5, dv=200.0, g=5.0, q=50.0)
+        cost = compute_cost(final)
+        assert abs(cost - 200.0) < 1.0
+
+    def test_bad_capture_log_compressed(self) -> None:
+        final = self._make_final(5, dv=5000.0, g=5.0, q=50.0)
+        cost = compute_cost(final)
+        assert 2500 < cost < 2700
+
+    def test_crash_dv_produces_high_cost(self) -> None:
+        final = self._make_final(5, dv=20000.0, g=5.0, q=50.0)
+        cost = compute_cost(final)
+        assert 3900 < cost < 4100
+
+    def test_cost_ordering(self) -> None:
+        good = compute_cost(self._make_final(5, dv=200.0))
+        bad = compute_cost(self._make_final(5, dv=5000.0))
+        hyper = compute_cost(self._make_final(5, dv=10500.0))
+        crash = compute_cost(self._make_final(5, dv=19000.0))
+        assert good < bad < hyper < crash
+
+    def test_g_load_penalty(self) -> None:
+        no_penalty = compute_cost(self._make_final(5, dv=200.0, g=10.0))
+        with_penalty = compute_cost(self._make_final(5, dv=200.0, g=20.0))
+        assert with_penalty > no_penalty
+
+    def test_heat_flux_penalty(self) -> None:
+        no_penalty = compute_cost(self._make_final(5, dv=200.0, q=100.0))
+        with_penalty = compute_cost(self._make_final(5, dv=200.0, q=300.0))
+        assert with_penalty > no_penalty
+
+    def test_custom_dv_threshold(self) -> None:
+        final = self._make_final(5, dv=5000.0, g=5.0, q=50.0)
+        cost_low_t = compute_cost(final, dv_threshold=500.0)
+        cost_high_t = compute_cost(final, dv_threshold=2000.0)
+        assert cost_low_t < cost_high_t
+
+    def test_zero_dv_produces_finite_cost(self) -> None:
+        """DV=0 (safety floor) should produce a near-zero finite cost."""
+        final = self._make_final(3, dv=0.0, g=5.0, q=50.0)
+        cost = compute_cost(final)
+        assert np.isfinite(cost)
+        assert cost < 1.0
+
+    @given(st.floats(min_value=1.0, max_value=50000.0))
+    @settings(max_examples=100)
+    def test_cost_always_finite(self, dv: float) -> None:
+        final = self._make_final(3, dv=dv, g=5.0, q=50.0)
+        cost = compute_cost(final)
+        assert np.isfinite(cost)
+        assert cost >= 0
+
+
+class TestSentinelOverrides:
+    """Tests for sentinel chromosome override construction."""
+
+    def test_sentinel_bank_angles_coverage(self) -> None:
+        from aerocapture.training.train import _SENTINEL_BANK_ANGLES
+
+        assert len(_SENTINEL_BANK_ANGLES) == 11
+        assert _SENTINEL_BANK_ANGLES[0] == 0
+        assert _SENTINEL_BANK_ANGLES[-1] == 180
+        # Uniform 18-degree spacing
+        for i in range(len(_SENTINEL_BANK_ANGLES) - 1):
+            assert _SENTINEL_BANK_ANGLES[i + 1] - _SENTINEL_BANK_ANGLES[i] == 18
+
+    def test_sentinel_override_construction(self) -> None:
+        from aerocapture.training.train import _SENTINEL_BANK_ANGLES
+
+        section = "piecewise_constant"
+        sentinel_overrides: list[dict[str, object]] = []
+        for bank in _SENTINEL_BANK_ANGLES:
+            ovr: dict[str, object] = {f"guidance.{section}.bank_angle_{i}": float(bank) for i in range(10)}
+            ovr["guidance.type"] = "piecewise_constant"
+            ovr["simulation.n_sims"] = 1
+            sentinel_overrides.append(ovr)
+
+        assert len(sentinel_overrides) == 11
+        # Each override has 10 bank angles + guidance.type + simulation.n_sims = 12 keys
+        for ovr in sentinel_overrides:
+            assert len(ovr) == 12
+
+        # First sentinel: all bank angles = 0.0 (full lift-up)
+        for i in range(10):
+            assert sentinel_overrides[0][f"guidance.piecewise_constant.bank_angle_{i}"] == 0.0
+
+        # Last sentinel: all bank angles = 180.0 (full lift-down)
+        for i in range(10):
+            assert sentinel_overrides[-1][f"guidance.piecewise_constant.bank_angle_{i}"] == 180.0
+
+        # Middle sentinel (index 5): all bank angles = 90.0
+        for i in range(10):
+            assert sentinel_overrides[5][f"guidance.piecewise_constant.bank_angle_{i}"] == 90.0

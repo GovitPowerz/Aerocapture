@@ -117,6 +117,15 @@ class TestClassifyTrajectories:
         assert labels[0] == "corridor"
         assert labels[1] == "corridor"
 
+    def test_pending_crash_classified_as_crash(self) -> None:
+        """ifinal=4 (pending crash) should be classified same as ifinal=1."""
+        fr = np.zeros((2, 52))
+        fr[0, 31] = 1.0  # real crash
+        fr[1, 31] = 4.0  # pending crash
+        labels = classify_trajectories(fr)
+        assert labels[0] == "crash"
+        assert labels[1] == "crash"
+
     def test_asymmetric_bounds(self) -> None:
         fr = np.zeros((3, 52))
         fr[:, 31] = 3.0

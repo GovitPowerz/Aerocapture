@@ -33,6 +33,7 @@ _COL_MAX_HEAT_FLUX = 16
 _COL_MAX_G_LOAD = 17
 _COL_PERI_ERR = 29
 _COL_APO_ERR = 30
+_COL_IFINAL = 31
 _COL_DV1 = 37
 _COL_DV2 = 38
 _COL_DV3 = 39
@@ -196,7 +197,8 @@ def generate_final_report(
 
     energy = final_array[:, _COL_ENERGY]
     ecc = final_array[:, _COL_ECC]
-    captured = (ecc < 1.0) & (energy < 0)
+    ifinal = final_array[:, _COL_IFINAL]
+    captured = (ecc < 1.0) & (energy < 0) & (ifinal != 4.0)
     n_total = len(final_array)
     n_captured = int(captured.sum())
     capture_rate = n_captured / n_total * 100 if n_total > 0 else 0.0

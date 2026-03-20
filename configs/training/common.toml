@@ -26,6 +26,7 @@ level = "medium"
 level = "medium"
 
 [cost_function]
+dv_threshold = 1000.0
 g_load_limit = 15.0
 heat_flux_limit = 200.0
 g_load_weight = 1000.0

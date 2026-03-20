@@ -62,8 +62,8 @@ def classify_trajectories(
     ecc = final_records[:, _COL_ECC]
     apo_err = final_records[:, _COL_APO_ERR]
 
-    # Step 1: crash (ifinal == 1) — highest priority
-    crash = ifinal == 1.0
+    # Step 1: crash (ifinal == 1 or 4 = pending crash) — highest priority
+    crash = (ifinal == 1.0) | (ifinal == 4.0)
     labels[crash] = "crash"
 
     # Step 2: timeout (ifinal == 2) — discard

@@ -18,30 +18,23 @@ pub struct DeltaV {
     pub total: f64,
 }
 
-/// Compute delta-V cost for orbit correction.
+/// Compute delta-V cost for orbit correction (confirmed captures only).
 ///
-/// - If ifinal != 3 (not atmosphere exit), returns 1e30 for all values
+/// Only called when the trajectory has exited the atmosphere into a bound orbit.
+/// The caller is responsible for routing non-capture cases (hyperbolic exit, crash,
+/// pending crash, timeout) to virtual DV computation instead.
+///
 /// - Maneuver 1 at apoapsis: correct periapsis to target
 /// - Maneuver 2 at new periapsis: correct apoapsis (circularize)
 /// - Maneuver 3: inclination plane change at ascending/descending node
 pub fn compute_deltav(
     orbit: &OrbitalElements,
-    ifinal: i32,
     target: &OrbitalTarget,
     parking: &ParkingOrbit,
     planet: &Planet,
 ) -> DeltaV {
     let mu = planet.mu();
     let req = planet.equatorial_radius();
-
-    if ifinal != 3 {
-        return DeltaV {
-            dv1: 1e30,
-            dv2: 1e30,
-            dv3: 1e30,
-            total: 1e30,
-        };
-    }
 
     let rapoge = req + orbit.apoapsis_alt;
     let rperig = req + orbit.periapsis_alt;
@@ -150,21 +143,9 @@ mod tests {
     }
 
     #[test]
-    fn non_exit_returns_penalty() {
-        let (orbit, target, parking, planet) = mars_test_fixtures();
-        for ifinal in [0, 1, 2, 4, -1] {
-            let dv = compute_deltav(&orbit, ifinal, &target, &parking, &planet);
-            assert_eq!(dv.dv1, 1e30, "dv1 should be 1e30 for ifinal={ifinal}");
-            assert_eq!(dv.dv2, 1e30, "dv2 should be 1e30 for ifinal={ifinal}");
-            assert_eq!(dv.dv3, 1e30, "dv3 should be 1e30 for ifinal={ifinal}");
-            assert_eq!(dv.total, 1e30, "total should be 1e30 for ifinal={ifinal}");
-        }
-    }
-
-    #[test]
     fn exit_returns_finite_cost() {
         let (orbit, target, parking, planet) = mars_test_fixtures();
-        let dv = compute_deltav(&orbit, 3, &target, &parking, &planet);
+        let dv = compute_deltav(&orbit, &target, &parking, &planet);
         assert!(dv.total.is_finite(), "total should be finite");
         assert!(dv.total > 0.0, "total should be positive");
         assert!(
@@ -176,7 +157,7 @@ mod tests {
     #[test]
     fn total_is_sum_of_abs() {
         let (orbit, target, parking, planet) = mars_test_fixtures();
-        let dv = compute_deltav(&orbit, 3, &target, &parking, &planet);
+        let dv = compute_deltav(&orbit, &target, &parking, &planet);
         let expected = dv.dv1.abs() + dv.dv2.abs() + dv.dv3.abs();
         assert!(
             (dv.total - expected).abs() < 1e-10,
@@ -204,7 +185,7 @@ mod tests {
         let (mut orbit, target, parking, planet) = mars_test_fixtures();
         // Set orbit inclination exactly equal to target inclination
         orbit.inclination = target.inclination;
-        let dv = compute_deltav(&orbit, 3, &target, &parking, &planet);
+        let dv = compute_deltav(&orbit, &target, &parking, &planet);
         assert!(
             dv.dv3.abs() < 1e-6,
             "dv3 ({}) should be near-zero when inclinations match",
@@ -213,7 +194,7 @@ mod tests {
 
         // Also test with a tiny offset — should still be very small
         orbit.inclination = target.inclination + 1e-4; // ~0.006 deg
-        let dv2 = compute_deltav(&orbit, 3, &target, &parking, &planet);
+        let dv2 = compute_deltav(&orbit, &target, &parking, &planet);
         assert!(
             dv2.dv3.abs() < 1.0,
             "dv3 ({}) should be < 1 m/s for ~0.006 deg inclination error",
