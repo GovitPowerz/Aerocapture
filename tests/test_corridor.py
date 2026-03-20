@@ -123,7 +123,7 @@ class TestClassifyTrajectories:
         fr[:, 7] = -1.0
         fr[:, 9] = 0.5
         fr[0, 30] = -150.0  # within [-200, +1000]
-        fr[1, 30] = 800.0   # within [-200, +1000]
+        fr[1, 30] = 800.0  # within [-200, +1000]
         fr[2, 30] = 1100.0  # outside (overshoot)
         labels = classify_trajectories(fr, delta_za_low=-200.0, delta_za_high=1000.0)
         assert labels[0] == "corridor"

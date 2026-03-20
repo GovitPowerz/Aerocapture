@@ -991,7 +991,7 @@ if __name__ == "__main__":
                 try:
                     from aerocapture.training.evaluate import _HAS_PYO3, _aero_rs
 
-                    if _HAS_PYO3 and _aero_rs is not None:
+                    if _HAS_PYO3 and _aero_rs is not None and cfg.sim.toml_config is not None:
                         _toml_for_undisp = str((Path(cwd or ".") / cfg.sim.toml_config).resolve())
                         _undisp_ovr: dict[str, object] = {
                             "simulation.n_sims": 1,
@@ -1011,8 +1011,13 @@ if __name__ == "__main__":
 
                 report_path = Path(cfg.save_dir) / "final_report.html"
                 generate_final_report(
-                    eval_data, cfg.guidance_type, target_incl, report_path,
-                    corridor_path=corr_npz, undispersed_nominal=undisp_nom, undispersed_dv=undisp_dv,
+                    eval_data,
+                    cfg.guidance_type,
+                    target_incl,
+                    report_path,
+                    corridor_path=corr_npz,
+                    undispersed_nominal=undisp_nom,
+                    undispersed_dv=undisp_dv,
                 )
                 print(f"Final report saved to {report_path}")
             else:

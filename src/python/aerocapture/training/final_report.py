@@ -387,9 +387,14 @@ def generate_final_report(
             if corridor_data is not None:
                 print(f"  Loaded corridor boundaries from {corridor_path}")
         _generate_corridor_png(
-            trajectories, captured, corridor_png,
-            dv_captured=dv_cap, corridor_data=corridor_data, final_array=final_array,
-            undispersed_nominal=undispersed_nominal, undispersed_dv=undispersed_dv,
+            trajectories,
+            captured,
+            corridor_png,
+            dv_captured=dv_cap,
+            corridor_data=corridor_data,
+            final_array=final_array,
+            undispersed_nominal=undispersed_nominal,
+            undispersed_dv=undispersed_dv,
         )
         print(f"Corridor plots saved to {corridor_png}")
 
