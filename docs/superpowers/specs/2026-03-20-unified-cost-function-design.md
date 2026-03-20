@@ -221,8 +221,8 @@ Each sentinel is a 10-segment chromosome with all segments set to the same bank 
 | `src/python/aerocapture/training/evaluate.py` | Unified `compute_cost()` with `log_cap()` |
 | `src/python/aerocapture/training/corridor.py` | Treat `ifinal == 4` as crash in `classify_trajectories` |
 | `src/python/aerocapture/training/train.py` | Sentinel chromosome evaluation, `dv_threshold` TOML parsing into `cost_kwargs` |
-| `src/python/aerocapture/training/metrics.py` | Update `capture_rate` default threshold from `1e6` to `4000.0` (above any realistic capture cost, below all non-capture costs after log compression) |
-| `src/python/aerocapture/training/compare_guidance.py` | Remove `dv > 1e10` filtering; fix pre-existing column index bugs (energy uses col 8 instead of 7, ecc uses col 10 instead of 9, DV uses col 42 instead of 41); add `ifinal != 4` exclusion from capture stats |
+| `src/python/aerocapture/training/metrics.py` | Update `capture_rate` default threshold from `1e6` to `3000.0` (above worst captured cost ~2600, below all non-capture costs ~3300+, giving ~700 gap) |
+| `src/python/aerocapture/training/compare_guidance.py` | Remove `dv > 1e10` filtering; fix 5 pre-existing column index bugs (energy: 8->7, ecc: 10->9, apo_err: 31->30, peri_err: 30->29, DV: 42->41); add `ifinal != 4` exclusion from capture stats; parse `dv_threshold` from TOML into cost_kwargs |
 | `src/python/aerocapture/training/final_report.py` | Update `captured` derivation to exclude pending crashes: `(ecc < 1.0) & (energy < 0) & (ifinal != 4)` |
 | `configs/training/common.toml` | Add `dv_threshold = 1000.0` to `[cost_function]` |
 | `tests/test_cost.py` | Rewrite tests for new unified cost function (remove two-tier tests) |
