@@ -112,25 +112,32 @@ def log_cap(dv: np.ndarray, threshold: float = 1000.0) -> np.ndarray:
 
 **Simulation failure path:** When `evaluate_chromosome()` cannot run the simulation at all (subprocess timeout, binary crash), it returns `(1e30, None)` as the cost, bypassing `compute_cost()` entirely. This path is unchanged — `log_cap` is never called with that value.
 
-**New `compute_cost()`:**
+**New `compute_cost()` — keeps existing kwargs signature pattern:**
 
 ```python
-def compute_cost(final_records, cost_kwargs):
-    dv = final_records[:, 41]          # always meaningful now
-    g_max = final_records[:, 17]
-    q_max = final_records[:, 16]
+def compute_cost(
+    final_conditions: np.ndarray, *,
+    dv_threshold: float = 1000.0,
+    g_load_limit: float = 15.0,
+    heat_flux_limit: float = 200.0,
+    g_load_weight: float = 1000.0,
+    heat_flux_weight: float = 1000.0,
+) -> float:
+    dv = final_conditions[:, 41]       # always meaningful now
+    g_max = final_conditions[:, 17]
+    q_max = final_conditions[:, 16]
 
-    cost = log_cap(dv, threshold=cost_kwargs.get("dv_threshold", 1000.0))
+    cost = log_cap(dv, threshold=dv_threshold)
 
     # Soft constraint penalties (unchanged)
-    g_limit = cost_kwargs["g_load_limit"]
-    q_limit = cost_kwargs["heat_flux_limit"]
-    g_penalty = cost_kwargs["g_load_weight"] * np.maximum((g_max - g_limit) / g_limit, 0) ** 2
-    q_penalty = cost_kwargs["heat_flux_weight"] * np.maximum((q_max - q_limit) / q_limit, 0) ** 2
+    g_penalty = g_load_weight * np.maximum((g_max - g_load_limit) / g_load_limit, 0) ** 2
+    q_penalty = heat_flux_weight * np.maximum((q_max - heat_flux_limit) / heat_flux_limit, 0) ** 2
 
     cost += g_penalty + q_penalty
-    return np.sqrt(np.mean(cost ** 2))  # RMS aggregation
+    return float(np.sqrt(np.mean(cost ** 2)))  # RMS aggregation
 ```
+
+Callers continue to use `compute_cost(final, **cost_kwargs)` — no call-site changes needed.
 
 **Removed:**
 - Branching on `hyperbolic | (dv_total > 1e10)`
@@ -174,7 +181,7 @@ Each sentinel is a 10-segment chromosome with all segments set to the same bank 
 
 **Why only 0°–180° (not negative angles):** Piecewise-constant uses signed bank angles where the sign controls lateral roll direction. But the corridor is plotted in energy-vs-pdyn space, which depends only on the bank angle magnitude (the lift component in the vertical plane). A trajectory at -45° has the same pdyn/energy profile as +45° — only the ground track differs. So 0°–180° covers the full corridor.
 
-**No changes needed to:** `evaluate.py`, `corridor.py`, `final_report.py`.
+**No changes needed to:** `evaluate.py`, `corridor.py`.
 
 ## Testing Strategy
 
@@ -195,7 +202,7 @@ Each sentinel is a 10-segment chromosome with all segments set to the same bank 
 - **`metrics.py` capture_rate:** Verify updated threshold works with new cost scale
 - **`compare_guidance.py`:** Verify no `dv > 1e10` filtering remains
 - **Sentinel integration:** Test that sentinel chromosomes are correctly constructed and their trajectories feed the accumulator
-- **Checkpoint roundtrip:** Verify `dv_threshold` in `cost_kwargs` survives checkpoint save/resume
+- **TOML parsing:** Verify `dv_threshold` is correctly parsed from TOML and propagated to `cost_kwargs`
 
 ### Property-Based Tests
 
@@ -214,8 +221,9 @@ Each sentinel is a 10-segment chromosome with all segments set to the same bank 
 | `src/python/aerocapture/training/evaluate.py` | Unified `compute_cost()` with `log_cap()` |
 | `src/python/aerocapture/training/corridor.py` | Treat `ifinal == 4` as crash in `classify_trajectories` |
 | `src/python/aerocapture/training/train.py` | Sentinel chromosome evaluation, `dv_threshold` TOML parsing into `cost_kwargs` |
-| `src/python/aerocapture/training/metrics.py` | Update `capture_rate` default threshold from `1e6` to match new cost scale (~3302) |
-| `src/python/aerocapture/training/compare_guidance.py` | Remove `dv > 1e10` filtering (line ~152), no longer needed |
+| `src/python/aerocapture/training/metrics.py` | Update `capture_rate` default threshold from `1e6` to `4000.0` (above any realistic capture cost, below all non-capture costs after log compression) |
+| `src/python/aerocapture/training/compare_guidance.py` | Remove `dv > 1e10` filtering; fix pre-existing column index bugs (energy uses col 8 instead of 7, ecc uses col 10 instead of 9, DV uses col 42 instead of 41); add `ifinal != 4` exclusion from capture stats |
+| `src/python/aerocapture/training/final_report.py` | Update `captured` derivation to exclude pending crashes: `(ecc < 1.0) & (energy < 0) & (ifinal != 4)` |
 | `configs/training/common.toml` | Add `dv_threshold = 1000.0` to `[cost_function]` |
 | `tests/test_cost.py` | Rewrite tests for new unified cost function (remove two-tier tests) |
 | `tests/test_corridor.py` | Add `ifinal == 4` classification tests |
