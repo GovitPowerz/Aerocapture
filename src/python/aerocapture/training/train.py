@@ -812,8 +812,9 @@ if __name__ == "__main__":
         if list(save_path.glob("checkpoint_*.json")):
             resume_dir = cfg.save_dir
 
-    # Derive mission name from the first base TOML (the mission config)
-    # Needed early for ref trajectory check and corridor accumulation
+    # Derive mission name from the first base TOML (the mission config).
+    # Needed early for ref trajectory check and corridor accumulation.
+    # Re-read the raw leaf TOML because load_toml_with_bases() pops the 'base' key.
     import tomllib
 
     base_toml_path = Path(cwd) / args.toml
