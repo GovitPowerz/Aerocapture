@@ -134,7 +134,7 @@ Python analysis package (numpy, pandas, matplotlib, deap, scipy) for:
 - Output file parsers (photo, final, CSV files)
 - Visualization (corridor plots, MC ensembles, CDF of correction cost)
 - GA training pipeline: optimizes any guidance scheme's parameters (not just NN weights)
-  - `train.py` — Main GA loop with checkpoint save/resume (`--guidance <scheme> --toml <config> [--no-tui] [--rotate-seeds | --adaptive-seeds] [--seed-pool-cap N] [--cost-alpha F] [--cvar-percentile P] [--skip-final-report] [--final-n-sims N]`). Auto-resumes from existing checkpoint when output dir exists (no `--resume` needed); `--resume` only needed to specify a non-default directory. On resume, `--n-gen` means "N additional generations" (not total). A checkpoint is always saved at end of training (not just at interval multiples). Graceful KeyboardInterrupt handling: Ctrl+C saves checkpoint and returns cleanly with `interrupted: True`. Final evaluation prints capture rate, delta-V, and orbital error percentiles (p50/p95/mean) to stdout.
+  - `train.py` — Main GA loop with checkpoint save/resume (`<config.toml> [--no-tui] [--rotate-seeds | --adaptive-seeds] [--seed-pool-cap N] [--cost-alpha F] [--cvar-percentile P] [--skip-final-report] [--final-n-sims N]`). Auto-resumes from existing checkpoint when output dir exists (no `--resume` needed); `--resume` only needed to specify a non-default directory. On resume, `--n-gen` means "N additional generations" (not total). A checkpoint is always saved at end of training (not just at interval multiples). Graceful KeyboardInterrupt handling: Ctrl+C saves checkpoint and returns cleanly with `interrupted: True`. Final evaluation prints capture rate, delta-V, and orbital error percentiles (p50/p95/mean) to stdout.
   - `param_spaces.py` — Per-scheme parameter bounds (with optional log-scale encoding)
   - `evaluate.py` — Decode chromosome -> write params (NN JSON or patched TOML) -> run sim -> cost. Uses PyO3 direct call when `aerocapture_rs` is available, subprocess fallback otherwise. Cost function uses `log_cap(dv)` — a C1-continuous log-capped function (linear below `dv_threshold`, logarithmic above) — as primary objective, with TOML-configurable normalized soft constraint penalties for g-load and heat flux exceedances. All termination outcomes (captured, hyperbolic, crash, pending crash, timeout) produce meaningful DV values from Rust, so no branching on capture status is needed.
   - `compare_guidance.py` — Fair head-to-head comparison on identical MC scenarios
@@ -155,26 +155,22 @@ Python analysis package (numpy, pandas, matplotlib, deap, scipy) for:
 ```bash
 # ── Optimize a guidance scheme (with Rich TUI) ──
 uv run python -m aerocapture.training.train \
-    --guidance equilibrium_glide \
-    --toml configs/training/msr_aller_eqglide_train.toml \
+    configs/training/msr_aller_eqglide_train.toml \
     --n-gen 50 --n-pop 20
 
 # ── Disable TUI (e.g. in CI or when piping output) ──
 uv run python -m aerocapture.training.train \
-    --guidance equilibrium_glide \
-    --toml configs/training/msr_aller_eqglide_train.toml \
+    configs/training/msr_aller_eqglide_train.toml \
     --n-gen 50 --n-pop 20 --no-tui
 
 # ── Adaptive seed pool (curates MC seeds by difficulty) ──
 uv run python -m aerocapture.training.train \
-    --guidance equilibrium_glide \
-    --toml configs/training/msr_aller_eqglide_train.toml \
+    configs/training/msr_aller_eqglide_train.toml \
     --n-gen 50 --n-pop 20 --adaptive-seeds
 
 # ── Resume training (auto-detects checkpoint; --n-gen means "N additional") ──
 uv run python -m aerocapture.training.train \
-    --guidance equilibrium_glide \
-    --toml configs/training/msr_aller_eqglide_train.toml \
+    configs/training/msr_aller_eqglide_train.toml \
     --n-gen 50
 
 # ── Compare all schemes on identical MC scenarios ──
