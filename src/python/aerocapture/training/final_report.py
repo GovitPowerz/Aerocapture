@@ -291,7 +291,7 @@ def generate_final_report(
         )
 
     # Row 1: DV histograms (always rendered, all trajectories)
-    _add_hist_cdf(fig, dv_total, "Delta-V (m/s)", _COLOR_PRIMARY, row=1, col=1)
+    _add_hist_cdf(fig, dv_total, "Delta-V (m/s)", _COLOR_PRIMARY, row=1, col=1, log_scale=True)
 
     # Row 1 right: Individual corrections overlaid
     fig.add_trace(go.Histogram(x=dv1, name="dv1 (periapsis)", opacity=0.5, marker_color=_COLOR_DV1, nbinsx=30), row=1, col=2)
@@ -299,7 +299,6 @@ def generate_final_report(
     fig.add_trace(go.Histogram(x=dv3, name="dv3 (inclination)", opacity=0.5, marker_color=_COLOR_DV3, nbinsx=30), row=1, col=2)
     fig.update_layout(barmode="overlay")
     fig.update_xaxes(title_text="m/s", row=1, col=2)
-    fig.update_xaxes(type="log", row=1, col=1)
     fig.update_xaxes(type="log", row=1, col=2)
 
     fig.update_xaxes(title_text="Orbital Error (km)", row=3, col=2)
@@ -436,11 +435,28 @@ def _add_hist_cdf(
     color: str,
     row: int,
     col: int,
+    *,
+    log_scale: bool = False,
 ) -> None:
     """Add histogram + CDF overlay with percentile lines to a subplot."""
     import plotly.graph_objects as go  # type: ignore[import-untyped]
 
-    fig.add_trace(go.Histogram(x=data, name=xaxis_label, marker_color=color, opacity=0.7, nbinsx=40, showlegend=False), row=row, col=col)  # type: ignore[attr-defined]
+    if log_scale:
+        # Log-spaced bins for readable histograms on log-scale axes
+        log_min = np.log10(data[data > 0].min()) if (data > 0).any() else -1.0
+        log_max = np.log10(data.max()) if data.max() > 0 else 1.0
+        bin_edges = np.logspace(log_min, log_max, 41)
+        fig.add_trace(  # type: ignore[attr-defined]
+            go.Histogram(
+                x=data, name=xaxis_label, marker_color=color, opacity=0.7,
+                xbins={"start": bin_edges[0], "end": bin_edges[-1], "size": None},
+                nbinsx=40, showlegend=False,
+            ),
+            row=row, col=col,
+        )
+        fig.update_xaxes(type="log", row=row, col=col)  # type: ignore[attr-defined]
+    else:
+        fig.add_trace(go.Histogram(x=data, name=xaxis_label, marker_color=color, opacity=0.7, nbinsx=40, showlegend=False), row=row, col=col)  # type: ignore[attr-defined]
 
     sorted_data = np.sort(data)
     cdf = np.arange(1, len(sorted_data) + 1) / len(sorted_data)
