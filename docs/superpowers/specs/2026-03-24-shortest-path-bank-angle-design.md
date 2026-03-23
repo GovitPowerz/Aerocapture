@@ -93,13 +93,15 @@ let bank_change = shortest_angle_diff(sim.bank_angle, pilot_state.bank_angle).ab
 
 ### Unit tests for `shortest_angle_diff` (in `angle_utils.rs`)
 
-- **Property tests (proptest):** result always in [-PI, PI]; antisymmetric (`diff(a,b) == -diff(b,a)`); `|diff| <= PI`
+- **Property tests (proptest):** result always in [-PI, PI]; approximate antisymmetry (`(diff(a,b) + diff(b,a)).abs() < 1e-15` — float `%` is not perfectly symmetric); `|diff| <= PI`
 - **Specific cases:**
   - `(170°, -170°)` → `+20°` (short path through +180°)
   - `(-170°, 170°)` → `-20°` (short path through -180°)
-  - `(0°, 180°)` → `+180°` or `-180°` (boundary — either is valid)
+  - `(0°, 180°)` → exactly `+PI` (since `PI % TAU == PI` and `d > PI` is false)
   - `(0°, 0°)` → `0°`
-  - `(90°, -90°)` → `+180°` or `-180°`
+  - `(PI, -PI)` → `0°` (same angle)
+  - `(-PI, PI)` → `0°` (same angle)
+- **NaN/infinity:** inputs must be finite; `shortest_angle_diff` propagates NaN for non-finite inputs (standard IEEE 754 behavior, no panic). Add `debug_assert!(from.is_finite() && to.is_finite())` to catch upstream corruption in debug builds.
 
 ### Pilot dynamics tests (in `pilot.rs`)
 
