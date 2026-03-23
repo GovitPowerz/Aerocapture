@@ -535,7 +535,7 @@ def _add_performance_table(
             "Apoapsis error (km)": cap[:, _COL_APO_ERR],
             "Periapsis error (km)": cap[:, _COL_PERI_ERR],
             "Inclination error (deg)": cap[:, _COL_INCL] - target_inclination,
-            "Correction cost \u0394V (m/s)": np.clip(final_array[:, _COL_DV_TOTAL], DV_FLOOR, DV_CAP),
+            "Correction cost \u0394V (m/s)": np.clip(cap[:, _COL_DV_TOTAL], DV_FLOOR, DV_CAP),
         }
         for name, data in metrics.items():
             pcts = np.percentile(data, _PERCENTILES)

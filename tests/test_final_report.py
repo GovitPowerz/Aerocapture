@@ -400,16 +400,17 @@ class TestDvClippingAndLogScale:
         assert clipped.min() == pytest.approx(DV_FLOOR)
 
     def test_dv_axes_use_log_scale(self, tmp_path: Path) -> None:
-        """DV distribution axes should show log-scaled tick labels."""
+        """DV distribution axes should have log10-spaced custom tick labels."""
         from aerocapture.training.final_report import generate_final_report
 
         eval_data = _make_eval_data(100)
         output = tmp_path / "report.html"
         generate_final_report(eval_data, "eqglide", 50.0, output)
         content = output.read_text()
-        # Log scale is implemented via log10-transformed data + custom ticktext
-        assert "1000" in content
-        assert "5000" in content
+        # Log scale is implemented via log10-transformed data on a linear axis
+        # with custom tickvals. log10(1000) = 3.0 appears as a tickval only
+        # when the log10 transform is active.
+        assert "3.6989700043360187" in content  # log10(5000) — unique to log10 tick path
 
     def test_all_hyperbolic_with_clipping_does_not_crash(self, tmp_path: Path) -> None:
         """100% hyperbolic trajectories should still produce a valid report."""
