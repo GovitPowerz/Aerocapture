@@ -443,17 +443,17 @@ def _add_hist_cdf(
 
     if log_scale:
         # Pre-compute histogram with log-spaced bins (go.Bar avoids Plotly's
-        # broken go.Histogram + log axis interaction)
+        # broken go.Histogram + log axis interaction where bin params get
+        # misinterpreted in log space)
         pos = data[data > 0]
         log_min = np.log10(pos.min()) if len(pos) > 0 else -1.0
         log_max = np.log10(pos.max()) if len(pos) > 0 else 1.0
         bin_edges = np.logspace(log_min, log_max, 41)
         counts, _ = np.histogram(data, bins=bin_edges)
         bin_centers = np.sqrt(bin_edges[:-1] * bin_edges[1:])  # geometric mean
-        bin_widths = bin_edges[1:] - bin_edges[:-1]
         fig.add_trace(  # type: ignore[attr-defined]
             go.Bar(
-                x=bin_centers, y=counts, width=bin_widths,
+                x=bin_centers, y=counts,
                 name=xaxis_label, marker_color=color, opacity=0.7, showlegend=False,
             ),
             row=row, col=col,
