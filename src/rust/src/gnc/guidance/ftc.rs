@@ -2,6 +2,7 @@
 
 use crate::config::{GuidanceType, Planet};
 use crate::data::SimData;
+use crate::gnc::control::angle_utils::shortest_angle_diff;
 use crate::gnc::guidance::{
     energy_controller, equilibrium_glide, fnpag, neural, piecewise_constant, predguid,
 };
@@ -254,27 +255,22 @@ pub fn guidance_step(
         }
     }
 
-    // === Roll rate saturation ===
+    // === Roll rate saturation (wrap-aware) ===
     let max_bank_rate = data.capsule.max_bank_rate;
     let guidance_period = data.periods.guidance;
-    let bank_rate = (state.bank_angle_commanded - state.bank_angle_previous) / guidance_period;
+    let angle_diff = shortest_angle_diff(state.bank_angle_previous, state.bank_angle_commanded);
+    let bank_rate = angle_diff / guidance_period;
     let mut rate_saturated = 0;
 
     if bank_rate.abs() - max_bank_rate > 1e-10 {
         rate_saturated = 1;
-        if state.bank_angle_commanded > state.bank_angle_previous {
-            state.bank_angle_commanded =
-                state.bank_angle_previous + max_bank_rate * guidance_period;
-        } else {
-            state.bank_angle_commanded =
-                state.bank_angle_previous - max_bank_rate * guidance_period;
-        }
+        state.bank_angle_commanded =
+            state.bank_angle_previous + max_bank_rate.copysign(angle_diff) * guidance_period;
     }
 
-    // Cumulative bank angle tracking
+    // Cumulative bank angle tracking (shortest path)
     if bank_rate.abs() > 1e-10 {
-        state.cumulative_bank_change +=
-            (state.bank_angle_commanded - state.bank_angle_previous).abs();
+        state.cumulative_bank_change += angle_diff.abs();
     }
 
     state.bank_angle_previous = state.bank_angle_commanded;

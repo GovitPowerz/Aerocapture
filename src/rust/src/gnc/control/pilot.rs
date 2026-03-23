@@ -3,6 +3,7 @@
 //! Models the delay/dynamics in realizing commanded bank angle.
 
 use crate::data::pilot::{PilotModel, PilotType};
+use crate::gnc::control::angle_utils::shortest_angle_diff;
 
 /// Pilot state for dynamic models
 #[derive(Debug, Clone, Copy, Default)]
@@ -38,7 +39,7 @@ pub fn apply_pilot(
         PilotType::FirstOrder => {
             // First order: tau * d(phi)/dt + phi = phi_cmd
             let tau = model.time_constant * (1.0 + biases.tau);
-            let error = commanded - state.bank_angle;
+            let error = shortest_angle_diff(state.bank_angle, commanded);
             let rate = (error / tau).clamp(-max_rate, max_rate);
             PilotState {
                 bank_angle: state.bank_angle + rate * dt,
@@ -49,7 +50,7 @@ pub fn apply_pilot(
             // Second order: d2(phi)/dt2 + 2*zeta*omega*d(phi)/dt + omega^2*(phi - phi_cmd) = 0
             let omega = model.frequency * (1.0 + biases.frequency);
             let zeta = model.damping * (1.0 + biases.damping);
-            let error = state.bank_angle - commanded;
+            let error = shortest_angle_diff(commanded, state.bank_angle);
             let accel = -2.0 * zeta * omega * state.bank_rate - omega * omega * error;
             let new_rate = (state.bank_rate + accel * dt).clamp(-max_rate, max_rate);
             PilotState {
@@ -99,11 +100,11 @@ mod tests {
 
     #[test]
     fn first_order_rate_clamped() {
-        // tau=0.1, cmd=10.0 from 0: unclamped rate = 10/0.1 = 100, clamped to 0.5
+        // tau=0.1, cmd=2.0 rad (~115°) from 0: shortest_diff = 2.0, unclamped rate = 2.0/0.1 = 20, clamped to 0.5
         // angle = 0 + 0.5 * 0.1 = 0.05
         let model = make_model(PilotType::FirstOrder, 0.1, 0.0, 0.0);
         let state = PilotState::default();
-        let result = apply_pilot(&model, 10.0, &state, 0.1, 0.5, &PilotBiases::default());
+        let result = apply_pilot(&model, 2.0, &state, 0.1, 0.5, &PilotBiases::default());
         assert!((result.bank_angle - 0.05).abs() < EPS);
         assert!((result.bank_rate - 0.5).abs() < EPS);
     }
@@ -118,6 +119,21 @@ mod tests {
         let result = apply_pilot(&model, 1.0, &state, 0.1, 10.0, &PilotBiases::default());
         assert!((result.bank_rate - 0.4).abs() < EPS);
         assert!((result.bank_angle - 0.04).abs() < EPS);
+    }
+
+    #[test]
+    fn first_order_wraps_through_pi_shortest_path() {
+        use std::f64::consts::PI;
+        let deg = PI / 180.0;
+        let model = make_model(PilotType::FirstOrder, 1.0, 0.0, 0.0);
+        let state = PilotState {
+            bank_angle: 170.0 * deg,
+            bank_rate: 0.0,
+        };
+        let result = apply_pilot(&model, -170.0 * deg, &state, 0.1, 10.0, &PilotBiases::default());
+        // Shortest diff is +20° (0.349 rad), rate = 0.349/1.0 = 0.349, new = 170° + 0.349*0.1 = 170.035°
+        assert!(result.bank_rate > 0.0, "rate should be positive (through +180°), got {}", result.bank_rate);
+        assert!(result.bank_angle > 170.0 * deg, "should move toward +180°, got {} deg", result.bank_angle / deg);
     }
 
     #[test]
