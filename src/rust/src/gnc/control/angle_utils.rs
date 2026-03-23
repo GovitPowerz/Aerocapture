@@ -9,7 +9,10 @@ use std::f64::consts::{PI, TAU};
 /// Inputs must be finite; propagates NaN for non-finite inputs.
 #[inline]
 pub fn shortest_angle_diff(from: f64, to: f64) -> f64 {
-    debug_assert!(from.is_finite() && to.is_finite(), "shortest_angle_diff: inputs must be finite");
+    debug_assert!(
+        from.is_finite() && to.is_finite(),
+        "shortest_angle_diff: inputs must be finite"
+    );
     let mut d = (to - from) % TAU;
     if d > PI {
         d -= TAU;

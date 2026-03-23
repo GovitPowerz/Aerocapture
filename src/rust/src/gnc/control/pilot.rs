@@ -130,10 +130,25 @@ mod tests {
             bank_angle: 170.0 * deg,
             bank_rate: 0.0,
         };
-        let result = apply_pilot(&model, -170.0 * deg, &state, 0.1, 10.0, &PilotBiases::default());
+        let result = apply_pilot(
+            &model,
+            -170.0 * deg,
+            &state,
+            0.1,
+            10.0,
+            &PilotBiases::default(),
+        );
         // Shortest diff is +20° (0.349 rad), rate = 0.349/1.0 = 0.349, new = 170° + 0.349*0.1 = 170.035°
-        assert!(result.bank_rate > 0.0, "rate should be positive (through +180°), got {}", result.bank_rate);
-        assert!(result.bank_angle > 170.0 * deg, "should move toward +180°, got {} deg", result.bank_angle / deg);
+        assert!(
+            result.bank_rate > 0.0,
+            "rate should be positive (through +180°), got {}",
+            result.bank_rate
+        );
+        assert!(
+            result.bank_angle > 170.0 * deg,
+            "should move toward +180°, got {} deg",
+            result.bank_angle / deg
+        );
     }
 
     #[test]
