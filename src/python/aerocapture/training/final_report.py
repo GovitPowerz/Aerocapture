@@ -43,8 +43,8 @@ _COL_BANK_CONSUMPTION = 45
 _PERCENTILES = [5, 25, 50, 75, 95]
 
 # DV clipping for plot readability (virtual DV penalties reach 10k-20k m/s)
-DV_CAP = 5000.0    # m/s — upper clip for DV values in plots and table
-DV_FLOOR = 0.1     # m/s — lower clip to avoid log(0) on log-scale axes
+DV_CAP = 5000.0  # m/s — upper clip for DV values in plots and table
+DV_FLOOR = 0.1  # m/s — lower clip to avoid log(0) on log-scale axes
 
 # Colors consistent with report.py palette
 _COLOR_PRIMARY = "#2196F3"
