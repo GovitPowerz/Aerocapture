@@ -2,7 +2,6 @@
 
 - [ ] improve control to follow shortest path (mod[2pi])
 - [ ] add an animation script of entry corridors and trajectories evolution during training based on checkpoints
-- [ ] 1e30 for Dv is too much, we should use something like log(Dv) for values higher than a threshold but make it continuous (and derivable) at the threshold (1000 m/s seems reasonable). Maybe change also the simulation tool to improve "crash" detection
 - [ ] Update IMPROVEMENTS.md
 
 ## Simulation — High Impact
