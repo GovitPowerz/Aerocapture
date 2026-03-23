@@ -357,6 +357,89 @@ class TestCorridorRendering:
         assert dv is None
 
 
+class TestDvClippingAndLogScale:
+    """Tests for DV cap at 5000 m/s + log scale (spec: 2026-03-23)."""
+
+    def test_dv_clipping_includes_all_trajectories(self, tmp_path: Path) -> None:
+        """DV histograms should include non-captured trajectories, clipped to DV_CAP."""
+        from aerocapture.training.final_report import DV_CAP, DV_FLOOR, generate_final_report
+
+        # 80 captured (DV ~ 80 m/s) + 20 hyperbolic (DV = 15000 m/s)
+        arr = _make_mixed_array(n_captured=80, n_hyper=20)
+        arr[80:, 41] = 15000.0  # hyperbolic: virtual DV >> DV_CAP
+        eval_data = FinalEvalData(final_array=arr, trajectories=None, dispersions=None)
+
+        output = tmp_path / "report.html"
+        generate_final_report(eval_data, "ftc", 50.0, output)
+
+        # Verify clipping directly: the clipped array should have values at DV_CAP
+        clipped = np.clip(arr[:, 41], DV_FLOOR, DV_CAP)
+        assert clipped.max() == pytest.approx(DV_CAP)  # hyperbolic rows clipped to cap
+        assert (clipped == DV_CAP).sum() == 20  # exactly the 20 hyperbolic rows
+        assert clipped.min() >= DV_FLOOR  # no zeros
+
+    def test_dv_floor_prevents_zero(self, tmp_path: Path) -> None:
+        """DV values of 0.0 should be floored to DV_FLOOR for log scale safety."""
+        from aerocapture.training.final_report import DV_FLOOR, generate_final_report
+
+        arr = _make_captured_array(50)
+        arr[:, 37] = 0.0  # dv1 = 0 (perfect periapsis)
+        arr[:, 38] = 0.0  # dv2 = 0
+        arr[:, 39] = 0.0  # dv3 = 0
+        arr[:, 41] = 0.0  # total = 0
+        eval_data = FinalEvalData(final_array=arr, trajectories=None, dispersions=None)
+
+        output = tmp_path / "report.html"
+        # Should not raise — log(0) would break Plotly log-scale rendering
+        generate_final_report(eval_data, "eqglide", 50.0, output)
+        assert output.exists()
+        assert output.stat().st_size > 1000
+
+        # Verify floor is applied
+        clipped = np.clip(arr[:, 41], DV_FLOOR, 5000.0)
+        assert clipped.min() == pytest.approx(DV_FLOOR)
+
+    def test_dv_axes_use_log_scale(self, tmp_path: Path) -> None:
+        """DV distribution axes should be log-scaled."""
+        from aerocapture.training.final_report import generate_final_report
+
+        eval_data = _make_eval_data(100)
+        output = tmp_path / "report.html"
+        generate_final_report(eval_data, "eqglide", 50.0, output)
+        content = output.read_text()
+        # Plotly encodes axis type in the layout JSON — check for log type
+        assert '"type":"log"' in content.replace(" ", "")
+
+    def test_all_hyperbolic_with_clipping_does_not_crash(self, tmp_path: Path) -> None:
+        """100% hyperbolic trajectories should still produce a valid report."""
+        from aerocapture.training.final_report import generate_final_report
+
+        arr = _make_all_hyperbolic(50)
+        arr[:, 41] = 15000.0  # all virtual DV
+        eval_data = FinalEvalData(final_array=arr, trajectories=None, dispersions=None)
+
+        output = tmp_path / "report.html"
+        generate_final_report(eval_data, "ftc", 50.0, output)
+        assert output.exists()
+
+    def test_dispersion_grid_uses_clipped_dv(self, tmp_path: Path) -> None:
+        """Dispersion grid y-axis (DV) should be clipped at DV_CAP."""
+        from aerocapture.training.final_report import DV_CAP, DV_FLOOR, generate_final_report
+
+        arr = _make_captured_array(100)
+        arr[0, 41] = 8000.0  # one outlier captured trajectory
+        disp = _make_dispersions(100)
+        eval_data = FinalEvalData(final_array=arr, trajectories=None, dispersions=disp)
+
+        output = tmp_path / "report.html"
+        generate_final_report(eval_data, "eqglide", 50.0, output)
+
+        # Verify clipping directly: outlier should be capped
+        clipped = np.clip(arr[:, 41], DV_FLOOR, DV_CAP)
+        assert clipped[0] == pytest.approx(DV_CAP)  # 8000 -> 5000
+        assert clipped.max() == pytest.approx(DV_CAP)
+
+
 @pytest.mark.skipif(
     not Path("src/rust/target/release/aerocapture").exists(),
     reason="Rust binary not built",
