@@ -314,6 +314,7 @@ def generate_final_report(
         title_text="Delta-V (m/s)", row=3, col=2,
         tickvals=[np.log10(v) for v in _dv_ticks],
         ticktext=[str(int(v)) if v >= 1 else str(v) for v in _dv_ticks],
+        range=[np.log10(DV_FLOOR), np.log10(DV_CAP)],
     )
 
     # Row 4 left: Entry Conditions (from trajectory initial state, if available)
