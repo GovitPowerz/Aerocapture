@@ -310,11 +310,20 @@ def generate_final_report(
     )
 
     fig.update_xaxes(title_text="Orbital Error (km)", row=3, col=2)
+    # Y-axis range: snap to enclosing powers of 10 around actual data
+    if n_captured > 0:
+        dv_min_raw = np.clip(cap[:, _COL_DV_TOTAL], DV_FLOOR, DV_CAP).min()
+        dv_max_raw = np.clip(cap[:, _COL_DV_TOTAL], DV_FLOOR, DV_CAP).max()
+        y_lo = np.floor(np.log10(max(dv_min_raw, DV_FLOOR)))
+        y_hi = np.ceil(np.log10(max(dv_max_raw, DV_FLOOR)))
+    else:
+        y_lo, y_hi = np.log10(DV_FLOOR), np.log10(DV_CAP)
+    _scatter_ticks = [v for v in _dv_ticks if y_lo <= np.log10(v) <= y_hi]
     fig.update_yaxes(
         title_text="Delta-V (m/s)", row=3, col=2,
-        tickvals=[np.log10(v) for v in _dv_ticks],
-        ticktext=[str(int(v)) if v >= 1 else str(v) for v in _dv_ticks],
-        range=[np.log10(DV_FLOOR), np.log10(DV_CAP)],
+        tickvals=[np.log10(v) for v in _scatter_ticks],
+        ticktext=[str(int(v)) if v >= 1 else str(v) for v in _scatter_ticks],
+        range=[y_lo, y_hi],
     )
 
     # Row 4 left: Entry Conditions (from trajectory initial state, if available)
