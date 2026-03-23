@@ -64,18 +64,17 @@ All guidance schemes can be optimized via genetic algorithm. The GA tunes each s
 ```bash
 # Optimize any guidance scheme (Rich TUI with sparklines and ETA)
 uv run python -m aerocapture.training.train \
-    --guidance equilibrium_glide \
-    --toml configs/training/msr_aller_eqglide_train.toml \
+    configs/training/msr_aller_eqglide_train.toml \
     --n-gen 50 --n-pop 20
 
 # Disable TUI (CI / piped output)
-uv run python -m aerocapture.training.train ... --no-tui
+uv run python -m aerocapture.training.train <config.toml> --no-tui
 
 # Rotate MC dispersion seeds each generation (prevents overfitting)
-uv run python -m aerocapture.training.train ... --rotate-seeds
+uv run python -m aerocapture.training.train <config.toml> --rotate-seeds
 
 # Adaptive seed pool (curates seeds by difficulty, CVaR-blended fitness)
-uv run python -m aerocapture.training.train ... --adaptive-seeds
+uv run python -m aerocapture.training.train <config.toml> --adaptive-seeds
 
 # Compare all schemes on identical MC scenarios
 uv run python -m aerocapture.training.compare_guidance \

@@ -729,20 +729,12 @@ if __name__ == "__main__":
     from aerocapture.training.evaluate import compute_cost, write_guidance_toml
 
     parser = argparse.ArgumentParser(description="Train guidance parameters via GA")
+    parser.add_argument("toml", type=str, help="TOML training config path (must contain [guidance] type)")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--n-gen", type=int, default=100, help="Number of generations (additional when resuming)")
     parser.add_argument("--n-pop", type=int, default=20)
-    parser.add_argument("--cwd", type=str, default=None)
-    parser.add_argument("--toml", type=str, default=None, help="TOML config path (enables TOML mode, runs from repo root)")
     parser.add_argument("--resume", type=str, default=None, help="Checkpoint directory to resume from (auto-detected if omitted and checkpoint exists)")
     parser.add_argument("-fs", "--from-scratch", action="store_true", help="Wipe existing training output and start fresh (deletes checkpoints, logs, reports)")
-    parser.add_argument(
-        "--guidance",
-        type=str,
-        default="neural_network",
-        choices=["neural_network", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag", "ftc", "piecewise_constant"],
-        help="Guidance scheme to optimize (default: neural_network)",
-    )
     parser.add_argument("--no-tui", action="store_true", help="Disable Rich TUI (use plain-text output)")
     seed_group = parser.add_mutually_exclusive_group()
     seed_group.add_argument("--rotate-seeds", action="store_true", help="Rotate MC dispersion seed each generation (prevents overfitting to fixed scenarios)")
@@ -758,40 +750,43 @@ if __name__ == "__main__":
     cfg.ga.n_gen = args.n_gen
     cfg.ga.n_pop = args.n_pop
     cfg.ga.n_runs = 1
-    cfg.guidance_type = args.guidance
     cfg.ga.rotate_seeds = args.rotate_seeds
     cfg.ga.adaptive_seeds = args.adaptive_seeds
     cfg.ga.seed_pool_cap = args.seed_pool_cap
     cfg.ga.cost_alpha = args.cost_alpha
     cfg.ga.cvar_percentile = args.cvar_percentile
 
-    cwd = args.cwd
-    if args.toml:
-        cfg.sim.toml_config = args.toml
-        cfg.sim.executable = "src/rust/target/release/aerocapture"
-        # Read nn_param_file from TOML [data] neural_network field if present
-        from aerocapture.training.toml_utils import load_toml_with_bases
+    # Load TOML and extract guidance type
+    from aerocapture.training.toml_utils import load_toml_with_bases
 
-        _toml_data = load_toml_with_bases(Path(args.toml))
-        cfg.sim.nn_param_file = _toml_data.get("data", {}).get("neural_network", "data/neural_network/nn_model.json")
-        # Override NN architecture from TOML [network] section if present
-        _net = _toml_data.get("network", {})
-        if "layer_sizes" in _net:
-            cfg.network.layer_sizes = _net["layer_sizes"]
-        if "activations" in _net:
-            cfg.network.activations = _net["activations"]
-        cfg.sim.final_file = "output/final.train_nn_temp"
-        cfg.sim.exec_dir = "."
-        if cwd is None:
-            cwd = "."
-    else:
-        if cwd is None:
-            cwd = "."
-
-    # Non-NN schemes require TOML mode
-    if cfg.guidance_type != "neural_network" and not args.toml:
-        print("ERROR: Non-NN guidance schemes require --toml <config.toml>")
+    _toml_data = load_toml_with_bases(Path(args.toml))
+    guidance_type = _toml_data.get("guidance", {}).get("type")
+    if guidance_type is None:
+        print("ERROR: TOML config must contain [guidance] type = '<scheme>'")
+        print("  Valid schemes: neural_network, equilibrium_glide, energy_controller, pred_guid, fnpag, ftc, piecewise_constant")
         raise SystemExit(1)
+
+    from aerocapture.training.param_spaces import PARAM_SPACES
+
+    _valid_types = set(PARAM_SPACES.keys()) | {"neural_network"}
+    if guidance_type not in _valid_types:
+        print(f"ERROR: Unknown guidance type '{guidance_type}' in TOML")
+        print(f"  Valid schemes: {', '.join(sorted(_valid_types))}")
+        raise SystemExit(1)
+
+    cfg.guidance_type = guidance_type
+    cfg.sim.toml_config = args.toml
+    cfg.sim.executable = "src/rust/target/release/aerocapture"
+    cfg.sim.nn_param_file = _toml_data.get("data", {}).get("neural_network", "data/neural_network/nn_model.json")
+    # Override NN architecture from TOML [network] section if present
+    _net = _toml_data.get("network", {})
+    if "layer_sizes" in _net:
+        cfg.network.layer_sizes = _net["layer_sizes"]
+    if "activations" in _net:
+        cfg.network.activations = _net["activations"]
+    cfg.sim.final_file = "output/final.train_nn_temp"
+    cfg.sim.exec_dir = "."
+    cwd = "."
 
     # Save dir per scheme
     cfg.save_dir = f"training_output/{cfg.guidance_type}"
@@ -817,24 +812,22 @@ if __name__ == "__main__":
         if list(save_path.glob("checkpoint_*.json")):
             resume_dir = cfg.save_dir
 
-    # Derive mission name from the first base TOML (the mission config)
-    # Needed early for ref trajectory check and corridor accumulation
+    # Derive mission name from the first base TOML (the mission config).
+    # Needed early for ref trajectory check and corridor accumulation.
+    # Re-read the raw leaf TOML because load_toml_with_bases() pops the 'base' key.
     import tomllib
 
-    mission_name = Path(args.toml).stem if args.toml else "unknown"
+    base_toml_path = Path(cwd) / args.toml
+    with open(base_toml_path, "rb") as _f:
+        _raw_toml = tomllib.load(_f)
+    _bases = _raw_toml.get("base", [])
+    if isinstance(_bases, str):
+        _bases = [_bases]
+    # First base that contains "missions/" is the mission config
+    _mission_base = next((b for b in _bases if "missions/" in b), _bases[0] if _bases else "")
+    mission_name = Path(_mission_base).stem if _mission_base else Path(args.toml).stem
     corr_dir = Path(cfg.save_dir).parent / mission_name
-    if args.toml:
-        base_toml_path = Path(cwd or ".") / args.toml
-        with open(base_toml_path, "rb") as _f:
-            _raw_toml = tomllib.load(_f)
-        _bases = _raw_toml.get("base", [])
-        if isinstance(_bases, str):
-            _bases = [_bases]
-        # First base that contains "missions/" is the mission config
-        _mission_base = next((b for b in _bases if "missions/" in b), _bases[0] if _bases else "")
-        mission_name = Path(_mission_base).stem if _mission_base else Path(args.toml).stem
-        corr_dir = Path(cfg.save_dir).parent / mission_name
-        corr_dir.mkdir(parents=True, exist_ok=True)
+    corr_dir.mkdir(parents=True, exist_ok=True)
 
     # Check for reference trajectory requirement
     from aerocapture.training.param_spaces import REQUIRES_REF_TRAJECTORY
@@ -844,16 +837,14 @@ if __name__ == "__main__":
         if not ref_traj_path.exists():
             print(f"\nERROR: No reference trajectory found for mission '{mission_name}'.")
             print("Run piecewise_constant training first:")
-            print("  uv run python -m aerocapture.training.train --guidance piecewise_constant --toml <config>")
+            print("  uv run python -m aerocapture.training.train configs/training/msr_aller_piecewise_constant_train.toml")
             sys.exit(1)
         print(f"  Using reference trajectory: {ref_traj_path}")
 
     # Initialize corridor accumulator for piecewise_constant training
     corridor_acc: CorridorAccumulator | None = None
-    if cfg.guidance_type == "piecewise_constant" and args.toml:
-        from aerocapture.training.toml_utils import load_toml_with_bases as _load_toml
-
-        _pc_toml = _load_toml(Path(args.toml))
+    if cfg.guidance_type == "piecewise_constant":
+        _pc_toml = _toml_data
         pc_section = _pc_toml.get("guidance", {}).get("piecewise_constant", {})
         energy_min = float(pc_section.get("energy_min", -6.0))  # MJ/kg (matches trajectory col 8)
         energy_max = float(pc_section.get("energy_max", 5.0))  # MJ/kg (matches trajectory col 8)
@@ -899,7 +890,7 @@ if __name__ == "__main__":
         best_ovr["monte_carlo.mass.level"] = "off"
 
         assert cfg.sim.toml_config is not None
-        _pc_toml_path = str((Path(cwd or ".") / cfg.sim.toml_config).resolve())
+        _pc_toml_path = str((Path(cwd) / cfg.sim.toml_config).resolve())
         best_batch = _aero_pc.run_batch(
             toml_path=_pc_toml_path,
             overrides_list=[best_ovr],
@@ -975,12 +966,12 @@ if __name__ == "__main__":
                     cfg.sim.toml_config = str(opt_toml)
 
             # Read target inclination and reference trajectory from the base TOML
-            base_toml_path = Path(cwd or ".") / args.toml
+            base_toml_path = Path(cwd) / args.toml
             target_incl = _read_target_inclination(base_toml_path)
 
             final_seed = args.seed + 9999
             print(f"\nRunning {args.final_n_sims}-sim final evaluation (seed={final_seed})...")
-            eval_data = run_final_evaluation(cfg, n_sims=args.final_n_sims, seed=final_seed, cwd=cwd)
+            eval_data = run_final_evaluation(cfg, n_sims=args.final_n_sims, seed=final_seed, cwd=Path(cwd))
             if eval_data is not None:
                 # Print summary statistics to stdout
                 final_eval = eval_data.final_array
@@ -1018,7 +1009,7 @@ if __name__ == "__main__":
                     from aerocapture.training.evaluate import _HAS_PYO3, _aero_rs
 
                     if _HAS_PYO3 and _aero_rs is not None and cfg.sim.toml_config is not None:
-                        _toml_for_undisp = str((Path(cwd or ".") / cfg.sim.toml_config).resolve())
+                        _toml_for_undisp = str((Path(cwd) / cfg.sim.toml_config).resolve())
                         _undisp_ovr: dict[str, object] = {
                             "simulation.n_sims": 1,
                             "monte_carlo.initial_state.level": "off",

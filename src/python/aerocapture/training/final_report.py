@@ -42,6 +42,10 @@ _COL_BANK_CONSUMPTION = 45
 
 _PERCENTILES = [5, 25, 50, 75, 95]
 
+# DV clipping for plot readability (virtual DV penalties reach 10k-20k m/s)
+DV_CAP = 5000.0  # m/s — upper clip for DV values in plots and table
+DV_FLOOR = 0.1  # m/s — lower clip to avoid log(0) on log-scale axes
+
 # Colors consistent with report.py palette
 _COLOR_PRIMARY = "#2196F3"
 _COLOR_SECONDARY = "#FF9800"
@@ -237,9 +241,15 @@ def generate_final_report(
         specs=row_specs,
     )
 
+    # DV arrays for all trajectories, clipped for plot readability
+    dv_total = np.clip(final_array[:, _COL_DV_TOTAL], DV_FLOOR, DV_CAP)
+    dv1 = np.clip(final_array[:, _COL_DV1], DV_FLOOR, DV_CAP)
+    dv2 = np.clip(final_array[:, _COL_DV2], DV_FLOOR, DV_CAP)
+    dv3 = np.clip(final_array[:, _COL_DV3], DV_FLOOR, DV_CAP)
+
     if n_captured == 0:
-        # Add "No captured trajectories" annotation to distribution panels
-        for row, col in [(1, 1), (1, 2), (2, 1), (2, 2), (3, 1), (3, 2)]:
+        # Add "No captured trajectories" annotation to orbital error panels only (rows 2-3)
+        for row, col in [(2, 1), (2, 2), (3, 1), (3, 2)]:
             idx = (row - 1) * 2 + col
             axis_suffix = "" if idx == 1 else str(idx)
             fig.add_annotation(
@@ -253,23 +263,9 @@ def generate_final_report(
             )
     else:
         cap = final_array[captured]
-        dv_total = cap[:, _COL_DV_TOTAL]
-        dv1 = cap[:, _COL_DV1]
-        dv2 = cap[:, _COL_DV2]
-        dv3 = cap[:, _COL_DV3]
         apo_err = cap[:, _COL_APO_ERR]
         peri_err = cap[:, _COL_PERI_ERR]
         incl_err = cap[:, _COL_INCL] - target_inclination
-
-        # Row 1 left: Total Delta-V histogram + CDF
-        _add_hist_cdf(fig, dv_total, "Delta-V (m/s)", _COLOR_PRIMARY, row=1, col=1)
-
-        # Row 1 right: Individual corrections overlaid
-        fig.add_trace(go.Histogram(x=dv1, name="dv1 (periapsis)", opacity=0.5, marker_color=_COLOR_DV1, nbinsx=30), row=1, col=2)
-        fig.add_trace(go.Histogram(x=dv2, name="dv2 (apoapsis)", opacity=0.5, marker_color=_COLOR_DV2, nbinsx=30), row=1, col=2)
-        fig.add_trace(go.Histogram(x=dv3, name="dv3 (inclination)", opacity=0.5, marker_color=_COLOR_DV3, nbinsx=30), row=1, col=2)
-        fig.update_layout(barmode="overlay")
-        fig.update_xaxes(title_text="m/s", row=1, col=2)
 
         # Row 2 left: Apoapsis error
         _add_hist_cdf(fig, apo_err, "km", _COLOR_PRIMARY, row=2, col=1)
@@ -280,12 +276,13 @@ def generate_final_report(
         # Row 3 left: Inclination error
         _add_hist_cdf(fig, incl_err, "deg", _COLOR_TERTIARY, row=3, col=1)
 
-        # Row 3 right: Delta-V vs orbital error scatter (captured only)
+        # Row 3 right: Delta-V vs orbital error scatter (captured only, log10 y-axis)
         orbital_err = np.sqrt(cap[:, _COL_APO_ERR] ** 2 + cap[:, _COL_PERI_ERR] ** 2)
+        log_dv_scatter = np.log10(np.maximum(np.clip(cap[:, _COL_DV_TOTAL], DV_FLOOR, DV_CAP), DV_FLOOR))
         fig.add_trace(
             go.Scatter(
                 x=orbital_err,
-                y=cap[:, _COL_DV_TOTAL],
+                y=log_dv_scatter,
                 mode="markers",
                 name="DV vs Error",
                 marker={"color": _COLOR_PRIMARY, "opacity": 0.5},
@@ -293,8 +290,55 @@ def generate_final_report(
             row=3,
             col=2,
         )
+
+    # Row 1: DV histograms (always rendered, all trajectories)
+    _add_hist_cdf(fig, dv_total, "Delta-V (m/s)", _COLOR_PRIMARY, row=1, col=1, log_scale=True)
+
+    # Row 1 right: Individual corrections overlaid (log10-transformed, linear axis)
+    log_dv1 = np.log10(np.maximum(dv1, DV_FLOOR))
+    log_dv2 = np.log10(np.maximum(dv2, DV_FLOOR))
+    log_dv3 = np.log10(np.maximum(dv3, DV_FLOOR))
+    fig.add_trace(go.Histogram(x=log_dv1, name="dv1 (periapsis)", opacity=0.5, marker_color=_COLOR_DV1, nbinsx=30), row=1, col=2)
+    fig.add_trace(go.Histogram(x=log_dv2, name="dv2 (apoapsis)", opacity=0.5, marker_color=_COLOR_DV2, nbinsx=30), row=1, col=2)
+    fig.add_trace(go.Histogram(x=log_dv3, name="dv3 (inclination)", opacity=0.5, marker_color=_COLOR_DV3, nbinsx=30), row=1, col=2)
+    fig.update_layout(barmode="overlay")
+    _dv_ticks = [v for v in [0.1, 1, 10, 100, 1000, 5000] if v >= DV_FLOOR and v <= DV_CAP]
+    fig.update_xaxes(
+        title_text="m/s",
+        row=1,
+        col=2,
+        tickvals=[np.log10(v) for v in _dv_ticks],
+        ticktext=[str(int(v)) if v >= 1 else str(v) for v in _dv_ticks],
+    )
+
     fig.update_xaxes(title_text="Orbital Error (km)", row=3, col=2)
-    fig.update_yaxes(title_text="Delta-V (m/s)", row=3, col=2)
+    # Y-axis range: snap to enclosing powers of 10 around actual data
+    if n_captured > 0:
+        dv_min_raw = np.clip(cap[:, _COL_DV_TOTAL], DV_FLOOR, DV_CAP).min()
+        dv_max_raw = np.clip(cap[:, _COL_DV_TOTAL], DV_FLOOR, DV_CAP).max()
+        y_lo = np.floor(np.log10(max(dv_min_raw, DV_FLOOR)))
+        y_hi = np.ceil(np.log10(max(dv_max_raw, DV_FLOOR)))
+    else:
+        y_lo, y_hi = np.log10(DV_FLOOR), np.log10(DV_CAP)
+    # Build tick arrays with minor ticks (2x–9x between each power of 10)
+    _tick_vals: list[float] = []
+    _tick_text: list[str] = []
+    for decade in range(int(y_lo), int(y_hi) + 1):
+        base = 10.0**decade
+        for mult in range(1, 10):
+            v = base * mult
+            if v < 10**y_lo or v > 10**y_hi:
+                continue
+            _tick_vals.append(np.log10(v))
+            _tick_text.append(str(int(v)) if v >= 1 else str(v) if mult == 1 else "")
+    fig.update_yaxes(
+        title_text="Delta-V (m/s)",
+        row=3,
+        col=2,
+        tickvals=_tick_vals,
+        ticktext=_tick_text,
+        range=[y_lo, y_hi],
+    )
 
     # Row 4 left: Entry Conditions (from trajectory initial state, if available)
     if has_trajectories:
@@ -426,22 +470,51 @@ def _add_hist_cdf(
     color: str,
     row: int,
     col: int,
+    *,
+    log_scale: bool = False,
 ) -> None:
     """Add histogram + CDF overlay with percentile lines to a subplot."""
     import plotly.graph_objects as go  # type: ignore[import-untyped]
 
-    fig.add_trace(go.Histogram(x=data, name=xaxis_label, marker_color=color, opacity=0.7, nbinsx=40, showlegend=False), row=row, col=col)  # type: ignore[attr-defined]
+    if log_scale:
+        # Work entirely in log10 space on a LINEAR axis to avoid Plotly's
+        # broken log axis handling (misinterprets bin widths, bar widths, etc.)
+        log_data = np.log10(np.maximum(data, DV_FLOOR))
+        fig.add_trace(  # type: ignore[attr-defined]
+            go.Histogram(x=log_data, name=xaxis_label, marker_color=color, opacity=0.7, nbinsx=40, showlegend=False),
+            row=row,
+            col=col,
+        )
+        sorted_log = np.sort(log_data)
+        cdf = np.arange(1, len(sorted_log) + 1) / len(sorted_log)
+        fig.add_trace(go.Scatter(x=sorted_log, y=cdf, name="CDF", line={"color": _COLOR_CDF, "width": 2}, showlegend=False), row=row, col=col, secondary_y=True)  # type: ignore[attr-defined]
+        for p in _PERCENTILES:
+            val = float(np.log10(max(np.percentile(data, p), DV_FLOOR)))
+            fig.add_vline(x=val, line_dash="dot", line_color="gray", opacity=0.5, row=row, col=col, annotation_text=f"p{p}")  # type: ignore[attr-defined]
+        # Custom tick labels: show real m/s values at log-spaced positions
+        tick_vals = [v for v in [0.1, 1, 10, 100, 1000, 5000] if v >= DV_FLOOR and v <= DV_CAP]
+        fig.update_xaxes(  # type: ignore[attr-defined]
+            title_text=xaxis_label,
+            row=row,
+            col=col,
+            tickvals=[np.log10(v) for v in tick_vals],
+            ticktext=[str(int(v)) if v >= 1 else str(v) for v in tick_vals],
+        )
+    else:
+        fig.add_trace(go.Histogram(x=data, name=xaxis_label, marker_color=color, opacity=0.7, nbinsx=40, showlegend=False), row=row, col=col)  # type: ignore[attr-defined]
 
-    sorted_data = np.sort(data)
-    cdf = np.arange(1, len(sorted_data) + 1) / len(sorted_data)
-    fig.add_trace(go.Scatter(x=sorted_data, y=cdf, name="CDF", line={"color": _COLOR_CDF, "width": 2}, showlegend=False), row=row, col=col, secondary_y=True)  # type: ignore[attr-defined]
-
-    # Percentile lines
-    for p in _PERCENTILES:
-        val = float(np.percentile(data, p))
-        fig.add_vline(x=val, line_dash="dot", line_color="gray", opacity=0.5, row=row, col=col, annotation_text=f"p{p}")  # type: ignore[attr-defined]
-
-    fig.update_xaxes(title_text=xaxis_label, row=row, col=col)  # type: ignore[attr-defined]
+        sorted_data = np.sort(data)
+        cdf = np.arange(1, len(sorted_data) + 1) / len(sorted_data)
+        fig.add_trace(  # type: ignore[attr-defined]
+            go.Scatter(x=sorted_data, y=cdf, name="CDF", line={"color": _COLOR_CDF, "width": 2}, showlegend=False),
+            row=row,
+            col=col,
+            secondary_y=True,
+        )
+        for p in _PERCENTILES:
+            val = float(np.percentile(data, p))
+            fig.add_vline(x=val, line_dash="dot", line_color="gray", opacity=0.5, row=row, col=col, annotation_text=f"p{p}")  # type: ignore[attr-defined]
+        fig.update_xaxes(title_text=xaxis_label, row=row, col=col)  # type: ignore[attr-defined]
     fig.update_yaxes(title_text="Count", row=row, col=col, secondary_y=False)  # type: ignore[attr-defined]
     fig.update_yaxes(title_text="CDF", row=row, col=col, secondary_y=True)  # type: ignore[attr-defined]
 
@@ -471,7 +544,7 @@ def _add_performance_table(
             "Apoapsis error (km)": cap[:, _COL_APO_ERR],
             "Periapsis error (km)": cap[:, _COL_PERI_ERR],
             "Inclination error (deg)": cap[:, _COL_INCL] - target_inclination,
-            "Correction cost \u0394V (m/s)": cap[:, _COL_DV_TOTAL],
+            "Correction cost \u0394V (m/s)": np.clip(cap[:, _COL_DV_TOTAL], DV_FLOOR, DV_CAP),
         }
         for name, data in metrics.items():
             pcts = np.percentile(data, _PERCENTILES)
@@ -805,7 +878,7 @@ def _build_dispersion_grid(
     fig = make_subplots(rows=n_rows, cols=n_cols, subplot_titles=titles)
 
     cap_disp = dispersions[captured]
-    cap_dv = final_array[captured, _COL_DV_TOTAL]
+    cap_dv = np.clip(final_array[captured, _COL_DV_TOTAL], DV_FLOOR, DV_CAP)
 
     for i, (label, unit) in enumerate(_DISPERSION_LABELS):
         r = i // n_cols + 1
