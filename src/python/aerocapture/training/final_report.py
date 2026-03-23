@@ -281,7 +281,7 @@ def generate_final_report(
         fig.add_trace(
             go.Scatter(
                 x=orbital_err,
-                y=cap[:, _COL_DV_TOTAL],
+                y=np.clip(cap[:, _COL_DV_TOTAL], DV_FLOOR, DV_CAP),
                 mode="markers",
                 name="DV vs Error",
                 marker={"color": _COLOR_PRIMARY, "opacity": 0.5},
@@ -304,6 +304,7 @@ def generate_final_report(
 
     fig.update_xaxes(title_text="Orbital Error (km)", row=3, col=2)
     fig.update_yaxes(title_text="Delta-V (m/s)", row=3, col=2)
+    fig.update_yaxes(type="log", row=3, col=2)
 
     # Row 4 left: Entry Conditions (from trajectory initial state, if available)
     if has_trajectories:
@@ -480,7 +481,7 @@ def _add_performance_table(
             "Apoapsis error (km)": cap[:, _COL_APO_ERR],
             "Periapsis error (km)": cap[:, _COL_PERI_ERR],
             "Inclination error (deg)": cap[:, _COL_INCL] - target_inclination,
-            "Correction cost \u0394V (m/s)": cap[:, _COL_DV_TOTAL],
+            "Correction cost \u0394V (m/s)": np.clip(final_array[:, _COL_DV_TOTAL], DV_FLOOR, DV_CAP),
         }
         for name, data in metrics.items():
             pcts = np.percentile(data, _PERCENTILES)
@@ -814,7 +815,7 @@ def _build_dispersion_grid(
     fig = make_subplots(rows=n_rows, cols=n_cols, subplot_titles=titles)
 
     cap_disp = dispersions[captured]
-    cap_dv = final_array[captured, _COL_DV_TOTAL]
+    cap_dv = np.clip(final_array[captured, _COL_DV_TOTAL], DV_FLOOR, DV_CAP)
 
     for i, (label, unit) in enumerate(_DISPERSION_LABELS):
         r = i // n_cols + 1
