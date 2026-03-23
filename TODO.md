@@ -1,6 +1,5 @@
 # TODO
 
-- [ ] improve control to follow shortest path (mod[2pi])
 - [ ] add an animation script of entry corridors and trajectories evolution during training based on checkpoints
 - [ ] Update IMPROVEMENTS.md
 - [ ] Replace plotly reports with typst -> pdf reports

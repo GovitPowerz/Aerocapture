@@ -5,6 +5,7 @@
 use crate::config::{Planet, SimInput};
 use crate::data::SimData;
 use crate::data::dispersions::DISPERSION_DRAW_LEN;
+use crate::gnc::control::angle_utils::shortest_angle_diff;
 use crate::gnc::control::pilot::{self, PilotState};
 use crate::gnc::guidance::ftc::{self, FtcState};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
@@ -515,7 +516,7 @@ fn run_single(
                 &run_state.pilot_biases,
             );
 
-            let bank_change = (pilot_state.bank_angle - sim.bank_angle).abs();
+            let bank_change = shortest_angle_diff(sim.bank_angle, pilot_state.bank_angle).abs();
             if bank_change > 1e-10 {
                 cumulative_bank_change_deg += bank_change / DEG_TO_RAD;
             }
