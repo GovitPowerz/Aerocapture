@@ -241,9 +241,15 @@ def generate_final_report(
         specs=row_specs,
     )
 
+    # DV arrays for all trajectories, clipped for plot readability
+    dv_total = np.clip(final_array[:, _COL_DV_TOTAL], DV_FLOOR, DV_CAP)
+    dv1 = np.clip(final_array[:, _COL_DV1], DV_FLOOR, DV_CAP)
+    dv2 = np.clip(final_array[:, _COL_DV2], DV_FLOOR, DV_CAP)
+    dv3 = np.clip(final_array[:, _COL_DV3], DV_FLOOR, DV_CAP)
+
     if n_captured == 0:
-        # Add "No captured trajectories" annotation to distribution panels
-        for row, col in [(1, 1), (1, 2), (2, 1), (2, 2), (3, 1), (3, 2)]:
+        # Add "No captured trajectories" annotation to orbital error panels only (rows 2-3)
+        for row, col in [(2, 1), (2, 2), (3, 1), (3, 2)]:
             idx = (row - 1) * 2 + col
             axis_suffix = "" if idx == 1 else str(idx)
             fig.add_annotation(
@@ -257,23 +263,9 @@ def generate_final_report(
             )
     else:
         cap = final_array[captured]
-        dv_total = cap[:, _COL_DV_TOTAL]
-        dv1 = cap[:, _COL_DV1]
-        dv2 = cap[:, _COL_DV2]
-        dv3 = cap[:, _COL_DV3]
         apo_err = cap[:, _COL_APO_ERR]
         peri_err = cap[:, _COL_PERI_ERR]
         incl_err = cap[:, _COL_INCL] - target_inclination
-
-        # Row 1 left: Total Delta-V histogram + CDF
-        _add_hist_cdf(fig, dv_total, "Delta-V (m/s)", _COLOR_PRIMARY, row=1, col=1)
-
-        # Row 1 right: Individual corrections overlaid
-        fig.add_trace(go.Histogram(x=dv1, name="dv1 (periapsis)", opacity=0.5, marker_color=_COLOR_DV1, nbinsx=30), row=1, col=2)
-        fig.add_trace(go.Histogram(x=dv2, name="dv2 (apoapsis)", opacity=0.5, marker_color=_COLOR_DV2, nbinsx=30), row=1, col=2)
-        fig.add_trace(go.Histogram(x=dv3, name="dv3 (inclination)", opacity=0.5, marker_color=_COLOR_DV3, nbinsx=30), row=1, col=2)
-        fig.update_layout(barmode="overlay")
-        fig.update_xaxes(title_text="m/s", row=1, col=2)
 
         # Row 2 left: Apoapsis error
         _add_hist_cdf(fig, apo_err, "km", _COLOR_PRIMARY, row=2, col=1)
@@ -297,6 +289,19 @@ def generate_final_report(
             row=3,
             col=2,
         )
+
+    # Row 1: DV histograms (always rendered, all trajectories)
+    _add_hist_cdf(fig, dv_total, "Delta-V (m/s)", _COLOR_PRIMARY, row=1, col=1)
+
+    # Row 1 right: Individual corrections overlaid
+    fig.add_trace(go.Histogram(x=dv1, name="dv1 (periapsis)", opacity=0.5, marker_color=_COLOR_DV1, nbinsx=30), row=1, col=2)
+    fig.add_trace(go.Histogram(x=dv2, name="dv2 (apoapsis)", opacity=0.5, marker_color=_COLOR_DV2, nbinsx=30), row=1, col=2)
+    fig.add_trace(go.Histogram(x=dv3, name="dv3 (inclination)", opacity=0.5, marker_color=_COLOR_DV3, nbinsx=30), row=1, col=2)
+    fig.update_layout(barmode="overlay")
+    fig.update_xaxes(title_text="m/s", row=1, col=2)
+    fig.update_xaxes(type="log", row=1, col=1)
+    fig.update_xaxes(type="log", row=1, col=2)
+
     fig.update_xaxes(title_text="Orbital Error (km)", row=3, col=2)
     fig.update_yaxes(title_text="Delta-V (m/s)", row=3, col=2)
 
