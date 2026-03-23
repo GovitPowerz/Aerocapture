@@ -318,11 +318,21 @@ def generate_final_report(
         y_hi = np.ceil(np.log10(max(dv_max_raw, DV_FLOOR)))
     else:
         y_lo, y_hi = np.log10(DV_FLOOR), np.log10(DV_CAP)
-    _scatter_ticks = [v for v in _dv_ticks if y_lo <= np.log10(v) <= y_hi]
+    # Build tick arrays with minor ticks (2x–9x between each power of 10)
+    _tick_vals: list[float] = []
+    _tick_text: list[str] = []
+    for decade in range(int(y_lo), int(y_hi) + 1):
+        base = 10.0**decade
+        for mult in range(1, 10):
+            v = base * mult
+            if v < 10**y_lo or v > 10**y_hi:
+                continue
+            _tick_vals.append(np.log10(v))
+            _tick_text.append(str(int(v)) if v >= 1 else str(v) if mult == 1 else "")
     fig.update_yaxes(
         title_text="Delta-V (m/s)", row=3, col=2,
-        tickvals=[np.log10(v) for v in _scatter_ticks],
-        ticktext=[str(int(v)) if v >= 1 else str(v) for v in _scatter_ticks],
+        tickvals=_tick_vals,
+        ticktext=_tick_text,
         range=[y_lo, y_hi],
     )
 
