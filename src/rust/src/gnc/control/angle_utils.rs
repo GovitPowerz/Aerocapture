@@ -74,7 +74,7 @@ mod tests {
         #[test]
         fn result_in_range(a in -100.0_f64..100.0, b in -100.0_f64..100.0) {
             let d = shortest_angle_diff(a, b);
-            prop_assert!(d >= -PI && d <= PI, "diff={d} outside [-PI, PI]");
+            prop_assert!((-PI..=PI).contains(&d), "diff={d} outside [-PI, PI]");
         }
 
         #[test]
