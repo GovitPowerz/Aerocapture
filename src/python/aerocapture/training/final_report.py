@@ -304,7 +304,9 @@ def generate_final_report(
     fig.update_layout(barmode="overlay")
     _dv_ticks = [v for v in [0.1, 1, 10, 100, 1000, 5000] if v >= DV_FLOOR and v <= DV_CAP]
     fig.update_xaxes(
-        title_text="m/s", row=1, col=2,
+        title_text="m/s",
+        row=1,
+        col=2,
         tickvals=[np.log10(v) for v in _dv_ticks],
         ticktext=[str(int(v)) if v >= 1 else str(v) for v in _dv_ticks],
     )
@@ -330,7 +332,9 @@ def generate_final_report(
             _tick_vals.append(np.log10(v))
             _tick_text.append(str(int(v)) if v >= 1 else str(v) if mult == 1 else "")
     fig.update_yaxes(
-        title_text="Delta-V (m/s)", row=3, col=2,
+        title_text="Delta-V (m/s)",
+        row=3,
+        col=2,
         tickvals=_tick_vals,
         ticktext=_tick_text,
         range=[y_lo, y_hi],
@@ -478,7 +482,8 @@ def _add_hist_cdf(
         log_data = np.log10(np.maximum(data, DV_FLOOR))
         fig.add_trace(  # type: ignore[attr-defined]
             go.Histogram(x=log_data, name=xaxis_label, marker_color=color, opacity=0.7, nbinsx=40, showlegend=False),
-            row=row, col=col,
+            row=row,
+            col=col,
         )
         sorted_log = np.sort(log_data)
         cdf = np.arange(1, len(sorted_log) + 1) / len(sorted_log)
@@ -489,7 +494,9 @@ def _add_hist_cdf(
         # Custom tick labels: show real m/s values at log-spaced positions
         tick_vals = [v for v in [0.1, 1, 10, 100, 1000, 5000] if v >= DV_FLOOR and v <= DV_CAP]
         fig.update_xaxes(  # type: ignore[attr-defined]
-            title_text=xaxis_label, row=row, col=col,
+            title_text=xaxis_label,
+            row=row,
+            col=col,
             tickvals=[np.log10(v) for v in tick_vals],
             ticktext=[str(int(v)) if v >= 1 else str(v) for v in tick_vals],
         )
@@ -500,7 +507,9 @@ def _add_hist_cdf(
         cdf = np.arange(1, len(sorted_data) + 1) / len(sorted_data)
         fig.add_trace(  # type: ignore[attr-defined]
             go.Scatter(x=sorted_data, y=cdf, name="CDF", line={"color": _COLOR_CDF, "width": 2}, showlegend=False),
-            row=row, col=col, secondary_y=True,
+            row=row,
+            col=col,
+            secondary_y=True,
         )
         for p in _PERCENTILES:
             val = float(np.percentile(data, p))
