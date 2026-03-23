@@ -442,15 +442,19 @@ def _add_hist_cdf(
     import plotly.graph_objects as go  # type: ignore[import-untyped]
 
     if log_scale:
-        # Plotly interprets xbins start/end/size in log10 space on log axes
-        log_min = np.log10(data[data > 0].min()) if (data > 0).any() else -1.0
-        log_max = np.log10(data.max()) if data.max() > 0 else 1.0
-        bin_size = (log_max - log_min) / 40
+        # Pre-compute histogram with log-spaced bins (go.Bar avoids Plotly's
+        # broken go.Histogram + log axis interaction)
+        pos = data[data > 0]
+        log_min = np.log10(pos.min()) if len(pos) > 0 else -1.0
+        log_max = np.log10(pos.max()) if len(pos) > 0 else 1.0
+        bin_edges = np.logspace(log_min, log_max, 41)
+        counts, _ = np.histogram(data, bins=bin_edges)
+        bin_centers = np.sqrt(bin_edges[:-1] * bin_edges[1:])  # geometric mean
+        bin_widths = bin_edges[1:] - bin_edges[:-1]
         fig.add_trace(  # type: ignore[attr-defined]
-            go.Histogram(
-                x=data, name=xaxis_label, marker_color=color, opacity=0.7,
-                xbins={"start": log_min, "end": log_max, "size": bin_size},
-                showlegend=False,
+            go.Bar(
+                x=bin_centers, y=counts, width=bin_widths,
+                name=xaxis_label, marker_color=color, opacity=0.7, showlegend=False,
             ),
             row=row, col=col,
         )
