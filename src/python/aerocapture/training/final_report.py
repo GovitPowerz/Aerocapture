@@ -276,12 +276,13 @@ def generate_final_report(
         # Row 3 left: Inclination error
         _add_hist_cdf(fig, incl_err, "deg", _COLOR_TERTIARY, row=3, col=1)
 
-        # Row 3 right: Delta-V vs orbital error scatter (captured only)
+        # Row 3 right: Delta-V vs orbital error scatter (captured only, log10 y-axis)
         orbital_err = np.sqrt(cap[:, _COL_APO_ERR] ** 2 + cap[:, _COL_PERI_ERR] ** 2)
+        log_dv_scatter = np.log10(np.maximum(np.clip(cap[:, _COL_DV_TOTAL], DV_FLOOR, DV_CAP), DV_FLOOR))
         fig.add_trace(
             go.Scatter(
                 x=orbital_err,
-                y=np.clip(cap[:, _COL_DV_TOTAL], DV_FLOOR, DV_CAP),
+                y=log_dv_scatter,
                 mode="markers",
                 name="DV vs Error",
                 marker={"color": _COLOR_PRIMARY, "opacity": 0.5},
@@ -293,17 +294,27 @@ def generate_final_report(
     # Row 1: DV histograms (always rendered, all trajectories)
     _add_hist_cdf(fig, dv_total, "Delta-V (m/s)", _COLOR_PRIMARY, row=1, col=1, log_scale=True)
 
-    # Row 1 right: Individual corrections overlaid
-    fig.add_trace(go.Histogram(x=dv1, name="dv1 (periapsis)", opacity=0.5, marker_color=_COLOR_DV1, nbinsx=30), row=1, col=2)
-    fig.add_trace(go.Histogram(x=dv2, name="dv2 (apoapsis)", opacity=0.5, marker_color=_COLOR_DV2, nbinsx=30), row=1, col=2)
-    fig.add_trace(go.Histogram(x=dv3, name="dv3 (inclination)", opacity=0.5, marker_color=_COLOR_DV3, nbinsx=30), row=1, col=2)
+    # Row 1 right: Individual corrections overlaid (log10-transformed, linear axis)
+    log_dv1 = np.log10(np.maximum(dv1, DV_FLOOR))
+    log_dv2 = np.log10(np.maximum(dv2, DV_FLOOR))
+    log_dv3 = np.log10(np.maximum(dv3, DV_FLOOR))
+    fig.add_trace(go.Histogram(x=log_dv1, name="dv1 (periapsis)", opacity=0.5, marker_color=_COLOR_DV1, nbinsx=30), row=1, col=2)
+    fig.add_trace(go.Histogram(x=log_dv2, name="dv2 (apoapsis)", opacity=0.5, marker_color=_COLOR_DV2, nbinsx=30), row=1, col=2)
+    fig.add_trace(go.Histogram(x=log_dv3, name="dv3 (inclination)", opacity=0.5, marker_color=_COLOR_DV3, nbinsx=30), row=1, col=2)
     fig.update_layout(barmode="overlay")
-    fig.update_xaxes(title_text="m/s", row=1, col=2)
-    fig.update_xaxes(type="log", row=1, col=2)
+    _dv_ticks = [v for v in [0.1, 1, 10, 100, 1000, 5000] if v >= DV_FLOOR and v <= DV_CAP]
+    fig.update_xaxes(
+        title_text="m/s", row=1, col=2,
+        tickvals=[np.log10(v) for v in _dv_ticks],
+        ticktext=[str(int(v)) if v >= 1 else str(v) for v in _dv_ticks],
+    )
 
     fig.update_xaxes(title_text="Orbital Error (km)", row=3, col=2)
-    fig.update_yaxes(title_text="Delta-V (m/s)", row=3, col=2)
-    fig.update_yaxes(type="log", row=3, col=2)
+    fig.update_yaxes(
+        title_text="Delta-V (m/s)", row=3, col=2,
+        tickvals=[np.log10(v) for v in _dv_ticks],
+        ticktext=[str(int(v)) if v >= 1 else str(v) for v in _dv_ticks],
+    )
 
     # Row 4 left: Entry Conditions (from trajectory initial state, if available)
     if has_trajectories:
@@ -442,36 +453,39 @@ def _add_hist_cdf(
     import plotly.graph_objects as go  # type: ignore[import-untyped]
 
     if log_scale:
-        # Pre-compute histogram with log-spaced bins (go.Bar avoids Plotly's
-        # broken go.Histogram + log axis interaction where bin params get
-        # misinterpreted in log space)
-        pos = data[data > 0]
-        log_min = np.log10(pos.min()) if len(pos) > 0 else -1.0
-        log_max = np.log10(pos.max()) if len(pos) > 0 else 1.0
-        bin_edges = np.logspace(log_min, log_max, 41)
-        counts, _ = np.histogram(data, bins=bin_edges)
-        bin_centers = np.sqrt(bin_edges[:-1] * bin_edges[1:])  # geometric mean
+        # Work entirely in log10 space on a LINEAR axis to avoid Plotly's
+        # broken log axis handling (misinterprets bin widths, bar widths, etc.)
+        log_data = np.log10(np.maximum(data, DV_FLOOR))
         fig.add_trace(  # type: ignore[attr-defined]
-            go.Bar(
-                x=bin_centers, y=counts,
-                name=xaxis_label, marker_color=color, opacity=0.7, showlegend=False,
-            ),
+            go.Histogram(x=log_data, name=xaxis_label, marker_color=color, opacity=0.7, nbinsx=40, showlegend=False),
             row=row, col=col,
         )
-        fig.update_xaxes(type="log", row=row, col=col)  # type: ignore[attr-defined]
+        sorted_log = np.sort(log_data)
+        cdf = np.arange(1, len(sorted_log) + 1) / len(sorted_log)
+        fig.add_trace(go.Scatter(x=sorted_log, y=cdf, name="CDF", line={"color": _COLOR_CDF, "width": 2}, showlegend=False), row=row, col=col, secondary_y=True)  # type: ignore[attr-defined]
+        for p in _PERCENTILES:
+            val = float(np.log10(max(np.percentile(data, p), DV_FLOOR)))
+            fig.add_vline(x=val, line_dash="dot", line_color="gray", opacity=0.5, row=row, col=col, annotation_text=f"p{p}")  # type: ignore[attr-defined]
+        # Custom tick labels: show real m/s values at log-spaced positions
+        tick_vals = [v for v in [0.1, 1, 10, 100, 1000, 5000] if v >= DV_FLOOR and v <= DV_CAP]
+        fig.update_xaxes(  # type: ignore[attr-defined]
+            title_text=xaxis_label, row=row, col=col,
+            tickvals=[np.log10(v) for v in tick_vals],
+            ticktext=[str(int(v)) if v >= 1 else str(v) for v in tick_vals],
+        )
     else:
         fig.add_trace(go.Histogram(x=data, name=xaxis_label, marker_color=color, opacity=0.7, nbinsx=40, showlegend=False), row=row, col=col)  # type: ignore[attr-defined]
 
-    sorted_data = np.sort(data)
-    cdf = np.arange(1, len(sorted_data) + 1) / len(sorted_data)
-    fig.add_trace(go.Scatter(x=sorted_data, y=cdf, name="CDF", line={"color": _COLOR_CDF, "width": 2}, showlegend=False), row=row, col=col, secondary_y=True)  # type: ignore[attr-defined]
-
-    # Percentile lines
-    for p in _PERCENTILES:
-        val = float(np.percentile(data, p))
-        fig.add_vline(x=val, line_dash="dot", line_color="gray", opacity=0.5, row=row, col=col, annotation_text=f"p{p}")  # type: ignore[attr-defined]
-
-    fig.update_xaxes(title_text=xaxis_label, row=row, col=col)  # type: ignore[attr-defined]
+        sorted_data = np.sort(data)
+        cdf = np.arange(1, len(sorted_data) + 1) / len(sorted_data)
+        fig.add_trace(  # type: ignore[attr-defined]
+            go.Scatter(x=sorted_data, y=cdf, name="CDF", line={"color": _COLOR_CDF, "width": 2}, showlegend=False),
+            row=row, col=col, secondary_y=True,
+        )
+        for p in _PERCENTILES:
+            val = float(np.percentile(data, p))
+            fig.add_vline(x=val, line_dash="dot", line_color="gray", opacity=0.5, row=row, col=col, annotation_text=f"p{p}")  # type: ignore[attr-defined]
+        fig.update_xaxes(title_text=xaxis_label, row=row, col=col)  # type: ignore[attr-defined]
     fig.update_yaxes(title_text="Count", row=row, col=col, secondary_y=False)  # type: ignore[attr-defined]
     fig.update_yaxes(title_text="CDF", row=row, col=col, secondary_y=True)  # type: ignore[attr-defined]
 
