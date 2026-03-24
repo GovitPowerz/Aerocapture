@@ -17,7 +17,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import numpy.typing as npt  # noqa: E402
-import seaborn as sns  # noqa: E402
+import seaborn as sns  # type: ignore[import-untyped]  # noqa: E402
 from scipy import stats  # noqa: E402
 
 # ---------------------------------------------------------------------------

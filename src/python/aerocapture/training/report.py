@@ -142,8 +142,8 @@ def _read_mission_name(toml_path: Path) -> str:
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     data = load_toml_with_bases(toml_path)
-    planet = data.get("planet", {}).get("name", "Unknown")
-    mission_type = data.get("mission", {}).get("type", "")
+    planet: str = data.get("planet", {}).get("name", "Unknown")
+    mission_type: str = data.get("mission", {}).get("type", "")
     if mission_type:
         return f"{planet} — {mission_type}"
     return planet
