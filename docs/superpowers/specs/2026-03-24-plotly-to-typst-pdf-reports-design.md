@@ -15,11 +15,33 @@ Consolidate the current 5 separate report files (3 Plotly HTML + 2 matplotlib PN
 - Seaborn provides clean, publication-style aesthetics with minimal code
 - Typst compiles in milliseconds and produces professional layouts with a readable template language
 
+## Prerequisites: Rust Trajectory Output Extension
+
+Panels 11 (Heat Flux vs Time), 12 (G-Load vs Time), and 14 (Nav Filter Density Ratio) require per-timestep data that the current 12-column trajectory array does not include:
+
+- **Heat flux** (column 6) is currently a placeholder zero in `runner.rs` — needs to be populated from the existing heat flux computation
+- **G-load** is not emitted at all — needs a new column computed from aerodynamic + gravity forces
+- **Nav density ratio** (estimated/truth) is not emitted — needs two new columns from the navigation filter state
+
+The trajectory array must be extended from 12 to 15 columns before these panels can be implemented. This is a Rust-side change in `runner.rs` (trajectory recording) and `results.rs` (PyO3 column mapping). All downstream Python code that indexes trajectory columns must be updated.
+
+**Column layout after extension:**
+
+| Index | Field | Status |
+|-------|-------|--------|
+| 0-5 | alt, lon, lat, vel, fpa, heading | Existing |
+| 6 | heat_flux | Fix: populate from existing computation |
+| 7 | time | Existing |
+| 8-11 | energy, pdyn, bank_angle, inclination | Existing |
+| 12 | g_load | New |
+| 13 | nav_density_ratio | New (estimated/truth) |
+| 14 | truth_density | New (for reference) |
+
 ## Report Structure
 
 ### Cover Page
 
-- Scheme name, mission, date, config hash
+- Scheme name, mission, date, config hash (SHA-256 of normalized TOML, read from JSONL `config_hash` field)
 - Key metrics: best cost, capture rate, total generations, n_sims for final eval
 
 ### Part 1: Training Convergence
@@ -124,11 +146,12 @@ src/typst/
 - One function per panel, each takes data (DataFrame/array) and output path, writes an SVG
 - Seaborn theme set once at module level: `sns.set_theme(style="whitegrid", palette="muted")`
 - Specific color overrides for trajectory types: captured (blue), hyperbolic (red), nominals (red/orange/green for piecewise-constant/undispersed/best-case)
-- Spaghetti plot opacity scales with `1/sqrt(n_trajectories)` for readability
+- Spaghetti plot opacity: `clamp(1/sqrt(n_trajectories), 0.02, 0.2)` — bounded to avoid extremes at low/high trajectory counts
 
 ### Typst Template Design
 
 - Receives a directory path as input via `--input dir=<path>`
+- Template accesses via `#let dir = sys.inputs.at("dir")`, constructs paths like `image(dir + "/convergence.svg")`
 - Loads SVGs with `image()`, loads JSON data with `json()`
 - No string templating or Jinja -- Typst has native data loading
 - Summary table (panel 19) rendered natively in Typst for clean formatting
@@ -182,13 +205,13 @@ if not args.skip_report:
     generate_report(scheme_dir, toml_path)
 ```
 
-`--skip-final-report` renamed to `--skip-report`.
+`--skip-final-report` renamed to `--skip-report`. The old flag is kept as a deprecated alias (maps to the same `dest`) for backward compatibility with existing wrapper scripts.
 
 ## Configuration
 
-- `n_sims` and `seed` for final MC evaluation read from TOML config (not CLI args)
+- `n_sims` and `seed` for final MC evaluation: read from `[simulation]` section in TOML config (`n_sims` key, already exists; `seed` key, already exists). Not exposed as CLI args on the report command. During training, `train.py` still uses `--final-n-sims` to override for the end-of-training report call.
 - Corridor data path derived from training output directory structure
-- Config hash computed from TOML for cover page metadata
+- Config hash: read from JSONL `config_hash` field (SHA-256 of normalized TOML, already computed by logger)
 
 ## Dependencies
 
@@ -218,6 +241,14 @@ Training results are still saved; only the PDF is skipped.
 | Missing trajectories | Time-domain panels (10-14) omitted with note; histograms/scatters still render |
 | No captures (n_captured=0) | Orbital error panels show "No captured trajectories" annotation |
 
+## CLI Flags Dropped
+
+| Flag | Was on | Reason |
+|------|--------|--------|
+| `--n-sims` | `final_report.py` CLI | Read from TOML config instead |
+| `--seed` | `final_report.py` CLI | Read from TOML config instead |
+| `--after` | `report.py --compare` | Rarely used date filter; drop for simplicity |
+
 ## Files Deleted
 
 - `final_report.py` -- logic moves to `report.py` + `charts.py`
@@ -227,4 +258,4 @@ Training results are still saved; only the PDF is skipped.
 
 - `logger.py`, `metrics.py`, `display.py` -- training instrumentation untouched
 - `corridor.py` -- still generates `.npz` during piecewise_constant training
-- `compare_guidance.py` -- still runs MC comparisons and saves JSON
+- `compare_guidance.py` -- still runs MC comparisons and saves JSON results; no longer produces any visualization itself (that moves to `plot_comparison.py` which reads the JSON and produces the comparison PDF)
