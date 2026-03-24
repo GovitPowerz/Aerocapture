@@ -17,7 +17,12 @@ from aerocapture.training.charts import (
     chart_corridor_inclination,
     chart_corridor_pdyn,
     chart_cost_distribution,
+    chart_dispersion_grid,
     chart_diversity_cost,
+    chart_dv_distribution,
+    chart_dv_individual_burns,
+    chart_entry_conditions,
+    chart_exit_conditions,
     chart_gload_time,
     chart_heat_flux_time,
     chart_nav_density_ratio,
@@ -269,6 +274,81 @@ class TestTimeDomainCharts:
         for traj in mc_trajectories:
             traj[:, 13] = rng.uniform(0.8, 1.2, traj.shape[0])
         chart_nav_density_ratio(mc_trajectories, captured_mask, tmp_svg)
+        assert tmp_svg.exists()
+        content = tmp_svg.read_text()
+        assert "<svg" in content
+
+
+# ---------------------------------------------------------------------------
+# Distribution / scatter / dispersion chart fixtures
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def final_records() -> npt.NDArray[np.float64]:
+    """Synthetic final records (20 sims, 52 columns)."""
+    rng = np.random.default_rng(42)
+    n = 20
+    records = np.zeros((n, 52))
+    records[:, 3] = rng.uniform(5000, 6000, n)  # velocity
+    records[:, 4] = rng.uniform(-6, -4, n)  # FPA
+    records[:, 9] = rng.uniform(0.5, 1.5, n)  # eccentricity
+    records[:15, 9] = rng.uniform(0.3, 0.9, 15)  # first 15 captured
+    records[:, 29] = rng.uniform(-50, 50, n)  # peri_err
+    records[:, 30] = rng.uniform(-100, 100, n)  # apo_err
+    records[:, 37] = rng.uniform(1, 100, n)  # dv1
+    records[:, 38] = rng.uniform(1, 100, n)  # dv2
+    records[:, 39] = rng.uniform(1, 50, n)  # dv3
+    records[:, 41] = records[:, 37] + records[:, 38] + records[:, 39]
+    records[:, 31] = 3  # ifinal
+    return records
+
+
+@pytest.fixture()
+def dispersions() -> npt.NDArray[np.float64]:
+    """Synthetic dispersion array (20 sims, 24 fields)."""
+    return np.random.default_rng(42).normal(0, 1, (20, 24))
+
+
+# ---------------------------------------------------------------------------
+# Distribution / scatter / dispersion chart tests
+# ---------------------------------------------------------------------------
+class TestDistributionCharts:
+    """Tests for panels 15-18 and 20."""
+
+    def test_dv_distribution(self, final_records: npt.NDArray[np.float64], tmp_svg: Path) -> None:
+        """Panel 15: total DV distribution creates a valid SVG file."""
+        chart_dv_distribution(final_records, tmp_svg)
+        assert tmp_svg.exists()
+        content = tmp_svg.read_text()
+        assert "<svg" in content
+
+    def test_dv_individual_burns(self, final_records: npt.NDArray[np.float64], tmp_svg: Path) -> None:
+        """Panel 16: individual burn DV histograms create a valid SVG file."""
+        chart_dv_individual_burns(final_records, tmp_svg)
+        assert tmp_svg.exists()
+        content = tmp_svg.read_text()
+        assert "<svg" in content
+
+    def test_entry_conditions(
+        self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path
+    ) -> None:
+        """Panel 17: entry conditions scatter creates a valid SVG file."""
+        chart_entry_conditions(mc_trajectories, captured_mask, tmp_svg)
+        assert tmp_svg.exists()
+        content = tmp_svg.read_text()
+        assert "<svg" in content
+
+    def test_exit_conditions(self, final_records: npt.NDArray[np.float64], tmp_svg: Path) -> None:
+        """Panel 18: exit conditions scatter creates a valid SVG file."""
+        chart_exit_conditions(final_records, tmp_svg)
+        assert tmp_svg.exists()
+        content = tmp_svg.read_text()
+        assert "<svg" in content
+
+    def test_dispersion_grid(
+        self, final_records: npt.NDArray[np.float64], dispersions: npt.NDArray[np.float64], tmp_svg: Path
+    ) -> None:
+        """Panel 20: dispersion correlation grid creates a valid SVG file."""
+        chart_dispersion_grid(final_records, dispersions, tmp_svg)
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content

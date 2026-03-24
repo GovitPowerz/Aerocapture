@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import numpy.typing as npt  # noqa: E402
 import seaborn as sns  # noqa: E402
+from scipy import stats  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Module-level theme
@@ -50,6 +51,68 @@ DPI: int = 150
 DV_CAP: float = 5000.0
 DV_FLOOR: float = 0.1
 
+# ---------------------------------------------------------------------------
+# Final record column indices (52-element array)
+# ---------------------------------------------------------------------------
+_FR_VELOCITY = 3
+_FR_FPA = 4
+_FR_ECC = 9
+_FR_INCL = 10
+_FR_MAX_HEAT_FLUX = 16
+_FR_MAX_G_LOAD = 17
+_FR_PERI_ERR = 29
+_FR_APO_ERR = 30
+_FR_IFINAL = 31
+_FR_DV1 = 37
+_FR_DV2 = 38
+_FR_DV3 = 39
+_FR_DV_TOTAL = 41
+_FR_BANK_CONSUMPTION = 45
+_FR_INCL_ERR = 46
+
+# ---------------------------------------------------------------------------
+# Dispersion field labels (24 fields)
+# ---------------------------------------------------------------------------
+DISPERSION_LABELS = [
+    "Entry velocity",
+    "Entry FPA",
+    "Entry azimuth",
+    "Entry altitude",
+    "Density mult.",
+    "Density bias",
+    "Cx bias",
+    "Cz bias",
+    "Mass bias",
+    "Ref area bias",
+    "Incidence bias",
+    "Nav vel err",
+    "Nav FPA err",
+    "Nav azimuth err",
+    "Nav alt err",
+    "Nav lon err",
+    "Nav lat err",
+    "Density filter gain",
+    "Gyro bias X",
+    "Gyro bias Y",
+    "Gyro bias Z",
+    "Wind vel",
+    "Wind azimuth",
+    "Reserved",
+]
+
+# ---------------------------------------------------------------------------
+# Scheme colors for comparison charts
+# ---------------------------------------------------------------------------
+SCHEME_COLORS = {
+    "ftc": "#1f77b4",
+    "neural_network": "#ff7f0e",
+    "equilibrium_glide": "#2ca02c",
+    "energy_controller": "#9467bd",
+    "pred_guid": "#d62728",
+    "fnpag": "#8c564b",
+    "piecewise_constant": "#e377c2",
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -80,6 +143,11 @@ def _require_records(records: list[dict[str, Any]]) -> None:
     if not records:
         msg = "No training records provided"
         raise ValueError(msg)
+
+
+def _clip_dv(dv: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """Clip DV values to [DV_FLOOR, DV_CAP] for plot readability."""
+    return np.clip(dv, DV_FLOOR, DV_CAP)
 
 
 # ---------------------------------------------------------------------------
@@ -616,6 +684,204 @@ def chart_nav_density_ratio(
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Nav density ratio")
     ax.set_title("Navigation Density Ratio vs Time")
+    ax.legend(fontsize="small")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Panel 15: Total DV distribution — histogram + CDF + percentile markers
+# ---------------------------------------------------------------------------
+_LOG10_TICK_VALUES = [0.1, 1, 10, 100, 1000, 5000]
+
+
+def chart_dv_distribution(final_records: npt.NDArray[np.float64], output: Path) -> None:
+    """Panel 15: Total DV histogram (log10 x) with CDF overlay and percentile markers."""
+    dv = _clip_dv(final_records[:, _FR_DV_TOTAL])
+    log_dv = np.log10(dv)
+
+    fig, ax1 = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+
+    # Histogram
+    ax1.hist(log_dv, bins=30, color=COLOR_CAPTURE, alpha=0.7, edgecolor="white")
+    ax1.set_xlabel("Total \u0394V (m/s)")
+    ax1.set_ylabel("Count")
+
+    # Custom log-scale tick labels
+    tick_positions = [np.log10(v) for v in _LOG10_TICK_VALUES]
+    tick_labels = [str(v) for v in _LOG10_TICK_VALUES]
+    ax1.set_xticks(tick_positions)
+    ax1.set_xticklabels(tick_labels)
+
+    # CDF on secondary y-axis
+    ax2 = ax1.twinx()
+    sorted_log = np.sort(log_dv)
+    cdf = np.arange(1, len(sorted_log) + 1) / len(sorted_log)
+    ax2.plot(sorted_log, cdf, color=COLOR_MEAN, linewidth=1.5, label="CDF")
+    ax2.set_ylabel("CDF")
+    ax2.set_ylim(0, 1.05)
+
+    # Percentile markers
+    for pct, ls in [(5, ":"), (50, "--"), (95, "-.")]:
+        val = float(np.percentile(log_dv, pct))
+        ax1.axvline(val, color=COLOR_WORST, linestyle=ls, linewidth=0.8, label=f"p{pct}")
+
+    # Combined legend
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, fontsize="x-small")
+
+    ax1.set_title("Total \u0394V Distribution")
+    sns.despine(fig=fig, right=False)
+    _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Panel 16: Individual burn DV histograms (overlaid, log10 x)
+# ---------------------------------------------------------------------------
+def chart_dv_individual_burns(final_records: npt.NDArray[np.float64], output: Path) -> None:
+    """Panel 16: Overlaid histograms for dv1, dv2, dv3 on log10 x-axis."""
+    dv1 = np.log10(_clip_dv(final_records[:, _FR_DV1]))
+    dv2 = np.log10(_clip_dv(final_records[:, _FR_DV2]))
+    dv3 = np.log10(_clip_dv(final_records[:, _FR_DV3]))
+
+    fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+    ax.hist(dv1, bins=25, color="#1f77b4", alpha=0.5, label="\u0394V\u2081 (periapsis)")
+    ax.hist(dv2, bins=25, color="#ff7f0e", alpha=0.5, label="\u0394V\u2082 (apoapsis)")
+    ax.hist(dv3, bins=25, color="#2ca02c", alpha=0.5, label="\u0394V\u2083 (inclination)")
+
+    tick_positions = [np.log10(v) for v in _LOG10_TICK_VALUES]
+    tick_labels = [str(v) for v in _LOG10_TICK_VALUES]
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(tick_labels)
+
+    ax.set_xlabel("\u0394V (m/s)")
+    ax.set_ylabel("Count")
+    ax.set_title("Individual Burn \u0394V")
+    ax.legend(fontsize="x-small")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Panel 17: Entry conditions scatter (V vs FPA)
+# ---------------------------------------------------------------------------
+def chart_entry_conditions(
+    trajectories: list[npt.NDArray[np.float64]],
+    captured_mask: npt.NDArray[np.bool_],
+    output: Path,
+) -> None:
+    """Panel 17: Entry V vs FPA scatter — captured green, hyperbolic red X."""
+    entry_v = np.array([traj[0, 3] for traj in trajectories])
+    entry_fpa = np.array([traj[0, 4] for traj in trajectories])
+
+    fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+    cap = captured_mask
+    ax.scatter(entry_fpa[cap], entry_v[cap], color=COLOR_NOMINAL_BEST, s=20, label="Captured", zorder=5)
+    hyp = ~cap
+    ax.scatter(entry_fpa[hyp], entry_v[hyp], color=COLOR_HYPERBOLIC, marker="x", s=30, label="Hyperbolic", zorder=5)
+
+    ax.set_xlabel("Entry FPA (deg)")
+    ax.set_ylabel("Entry velocity (m/s)")
+    ax.set_title("Entry Conditions")
+    ax.legend(fontsize="small")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Panel 18: Exit conditions scatter (V vs FPA, marker size ~ log10 DV)
+# ---------------------------------------------------------------------------
+def chart_exit_conditions(final_records: npt.NDArray[np.float64], output: Path) -> None:
+    """Panel 18: Exit V vs FPA, marker size proportional to log10(DV)."""
+    exit_v = final_records[:, _FR_VELOCITY]
+    exit_fpa = final_records[:, _FR_FPA]
+    dv = _clip_dv(final_records[:, _FR_DV_TOTAL])
+    sizes = np.log10(dv) * 10  # scale for visibility
+    sizes = np.clip(sizes, 5, 100)
+
+    ecc = final_records[:, _FR_ECC]
+    captured = ecc < 1.0
+
+    fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+    if np.any(captured):
+        ax.scatter(exit_fpa[captured], exit_v[captured], s=sizes[captured], color=COLOR_NOMINAL_BEST, alpha=0.7, label="Captured")
+    if np.any(~captured):
+        ax.scatter(exit_fpa[~captured], exit_v[~captured], s=sizes[~captured], color=COLOR_HYPERBOLIC, marker="x", label="Hyperbolic")
+
+    ax.set_xlabel("Exit FPA (deg)")
+    ax.set_ylabel("Exit velocity (m/s)")
+    ax.set_title("Exit Conditions")
+    ax.legend(fontsize="small")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Panel 20: Dispersion correlation grid (4x6, scatter + regression)
+# ---------------------------------------------------------------------------
+def chart_dispersion_grid(
+    final_records: npt.NDArray[np.float64],
+    dispersions: npt.NDArray[np.float64],
+    output: Path,
+) -> None:
+    """Panel 20: 4x6 subplot grid — each dispersion field vs log10(DV) with linear regression."""
+    n_fields = dispersions.shape[1]
+    n_cols = 6
+    n_rows = math.ceil(n_fields / n_cols)
+
+    dv = _clip_dv(final_records[:, _FR_DV_TOTAL])
+    log_dv = np.log10(dv)
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, 2.5 * n_rows), dpi=DPI)
+    axes_flat = axes.flatten()
+
+    for i in range(n_fields):
+        ax = axes_flat[i]
+        x = dispersions[:, i]
+        ax.scatter(x, log_dv, s=8, alpha=0.5, color=COLOR_CAPTURE)
+
+        # Linear regression
+        finite = np.isfinite(x) & np.isfinite(log_dv)
+        if np.sum(finite) > 2:
+            result = stats.linregress(x[finite], log_dv[finite])
+            x_range = np.array([float(np.min(x[finite])), float(np.max(x[finite]))])
+            ax.plot(x_range, result.slope * x_range + result.intercept, color=COLOR_WORST, linewidth=1.0)
+            label_txt = f"R\u00b2={result.rvalue**2:.2f}\np={result.pvalue:.1e}"
+            ax.annotate(label_txt, xy=(0.05, 0.95), xycoords="axes fraction", fontsize=6, verticalalignment="top")
+
+        label = DISPERSION_LABELS[i] if i < len(DISPERSION_LABELS) else f"Field {i}"
+        ax.set_title(label, fontsize=7)
+        ax.tick_params(labelsize=6)
+
+    # Hide unused subplots
+    for i in range(n_fields, len(axes_flat)):
+        axes_flat[i].set_visible(False)
+
+    fig.supylabel("log\u2081\u2080(\u0394V)", fontsize=9)
+    fig.suptitle("Dispersion Correlation Grid", fontsize=11)
+    fig.tight_layout()
+    _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Comparison: Cross-scheme convergence (semilogy)
+# ---------------------------------------------------------------------------
+def chart_comparison_convergence(all_data: dict[str, list[dict[str, Any]]], output: Path) -> None:
+    """Cross-scheme convergence chart — one semilogy line per guidance scheme."""
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
+
+    for scheme, records in all_data.items():
+        if not records:
+            continue
+        gens = [r["generation"] for r in records]
+        best = [r["best_cost"] for r in records]
+        color = SCHEME_COLORS.get(scheme, "#333333")
+        ax.semilogy(gens, best, color=color, linewidth=1.5, label=scheme)
+
+    ax.set_xlabel("Generation")
+    ax.set_ylabel("Best cost (log scale)")
+    ax.set_title("Cross-Scheme Convergence")
     ax.legend(fontsize="small")
     sns.despine(fig=fig)
     _save_svg(fig, output)
