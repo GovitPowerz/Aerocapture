@@ -16,6 +16,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+import numpy.typing as npt  # noqa: E402
 import seaborn as sns  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -306,3 +307,195 @@ def chart_seed_pool(records: list[dict[str, Any]], output: Path, resume_gens: li
     sns.despine(fig=fig, right=False)
     _save_svg(fig, output)
     return True
+
+
+# ---------------------------------------------------------------------------
+# Corridor / energy helpers
+# ---------------------------------------------------------------------------
+def _compute_envelope(
+    trajectories: list[npt.NDArray[np.float64]],
+    energy_col: int,
+    value_col: int,
+    captured_mask: npt.NDArray[np.bool_],
+    n_bins: int = 200,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """Bin captured trajectories by energy, compute min/max value per bin.
+
+    Returns ``(centers, min_vals, max_vals)`` with NaN for empty bins.
+    """
+    # Collect all captured trajectory points
+    captured_indices = np.where(captured_mask)[0]
+    if len(captured_indices) == 0:
+        centers = np.full(n_bins, np.nan)
+        return centers, np.full(n_bins, np.nan), np.full(n_bins, np.nan)
+
+    all_energy: list[npt.NDArray[np.float64]] = []
+    all_values: list[npt.NDArray[np.float64]] = []
+    for idx in captured_indices:
+        traj = trajectories[idx]
+        all_energy.append(traj[:, energy_col])
+        all_values.append(traj[:, value_col])
+
+    energy = np.concatenate(all_energy)
+    values = np.concatenate(all_values)
+
+    e_min, e_max = float(np.nanmin(energy)), float(np.nanmax(energy))
+    if e_min == e_max:
+        centers = np.full(n_bins, e_min)
+        return centers, np.full(n_bins, np.nanmin(values)), np.full(n_bins, np.nanmax(values))
+
+    edges = np.linspace(e_min, e_max, n_bins + 1)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    min_vals = np.full(n_bins, np.nan)
+    max_vals = np.full(n_bins, np.nan)
+
+    bin_indices = np.digitize(energy, edges) - 1
+    bin_indices = np.clip(bin_indices, 0, n_bins - 1)
+
+    for b in range(n_bins):
+        mask = bin_indices == b
+        if np.any(mask):
+            min_vals[b] = float(np.nanmin(values[mask]))
+            max_vals[b] = float(np.nanmax(values[mask]))
+
+    return centers, min_vals, max_vals
+
+
+def _draw_spaghetti(
+    ax: plt.Axes,  # type: ignore[name-defined]
+    trajectories: list[npt.NDArray[np.float64]],
+    captured_mask: npt.NDArray[np.bool_],
+    x_col: int,
+    y_col: int,
+) -> None:
+    """Draw MC spaghetti lines: captured blue, hyperbolic red."""
+    alpha = _spaghetti_alpha(len(trajectories))
+    for i, traj in enumerate(trajectories):
+        color = COLOR_CAPTURE if captured_mask[i] else COLOR_HYPERBOLIC
+        ax.plot(traj[:, x_col], traj[:, y_col], color=color, alpha=alpha, linewidth=0.5)
+
+
+def _draw_nominals(
+    ax: plt.Axes,  # type: ignore[name-defined]
+    x_col: int,
+    y_col: int,
+    ref_nominal: npt.NDArray[np.float64] | None = None,
+    undispersed_nominal: npt.NDArray[np.float64] | None = None,
+    best_nominal: npt.NDArray[np.float64] | None = None,
+) -> None:
+    """Overlay up to 3 nominal trajectories on *ax*."""
+    if ref_nominal is not None:
+        ax.plot(ref_nominal[:, x_col], ref_nominal[:, y_col], color=COLOR_NOMINAL_REF, linewidth=1.5, label="Ref nominal")
+    if undispersed_nominal is not None:
+        ax.plot(undispersed_nominal[:, x_col], undispersed_nominal[:, y_col], color=COLOR_NOMINAL_UNDISPERSED, linewidth=1.5, label="Undispersed")
+    if best_nominal is not None:
+        ax.plot(best_nominal[:, x_col], best_nominal[:, y_col], color=COLOR_NOMINAL_BEST, linewidth=1.5, label="Best MC")
+
+
+# ---------------------------------------------------------------------------
+# Panel 7: Energy vs pdyn (full width)
+# ---------------------------------------------------------------------------
+def chart_corridor_pdyn(
+    trajectories: list[npt.NDArray[np.float64]],
+    captured_mask: npt.NDArray[np.bool_],
+    output: Path,
+    corridor_data: dict[str, Any] | None = None,
+    ref_nominal: npt.NDArray[np.float64] | None = None,
+    undispersed_nominal: npt.NDArray[np.float64] | None = None,
+    best_nominal: npt.NDArray[np.float64] | None = None,
+) -> None:
+    """Panel 7: Energy vs dynamic pressure with optional 4-layer corridor fill."""
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
+
+    # Draw corridor zones if data is provided
+    if corridor_data is not None:
+        e_bins = corridor_data["energy_bins"]
+        crash_pdyn = corridor_data["envelope_crash_pdyn"]
+        restricted_max = corridor_data["envelope_restricted_max_pdyn"]
+        restricted_min = corridor_data["envelope_restricted_min_pdyn"]
+        capture_pdyn = corridor_data["envelope_capture_pdyn"]
+
+        # Red zone at top (crash)
+        ax.fill_between(e_bins, restricted_max, crash_pdyn, color=COLOR_WORST, alpha=0.15, label="Crash zone")
+        # Grey transition above restricted
+        ax.fill_between(e_bins, restricted_max, restricted_min, color="white", alpha=0.6)
+        # Grey transition below restricted
+        ax.fill_between(e_bins, restricted_min, capture_pdyn, color="#cccccc", alpha=0.3, label="Transition")
+        # Red zone at bottom (hyperbolic)
+        ax.fill_between(e_bins, capture_pdyn, 0, color=COLOR_WORST, alpha=0.15, label="Hyperbolic zone")
+
+    _draw_spaghetti(ax, trajectories, captured_mask, x_col=8, y_col=9)
+    _draw_nominals(ax, x_col=8, y_col=9, ref_nominal=ref_nominal, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
+
+    ax.set_xlabel("Energy (MJ/kg)")
+    ax.set_ylabel("Dynamic pressure (kPa)")
+    ax.set_title("Corridor — Dynamic Pressure")
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(fontsize="small")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Panel 8: Energy vs inclination (half width)
+# ---------------------------------------------------------------------------
+def chart_corridor_inclination(
+    trajectories: list[npt.NDArray[np.float64]],
+    captured_mask: npt.NDArray[np.bool_],
+    output: Path,
+    ref_nominal: npt.NDArray[np.float64] | None = None,
+    undispersed_nominal: npt.NDArray[np.float64] | None = None,
+    best_nominal: npt.NDArray[np.float64] | None = None,
+) -> None:
+    """Panel 8: Energy vs inclination with captured envelope fill."""
+    fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+
+    centers, min_vals, max_vals = _compute_envelope(trajectories, energy_col=8, value_col=11, captured_mask=captured_mask)
+    valid = ~np.isnan(min_vals)
+    if np.any(valid):
+        ax.fill_between(centers[valid], min_vals[valid], max_vals[valid], color=COLOR_CAPTURE, alpha=0.15, label="Captured envelope")
+
+    _draw_spaghetti(ax, trajectories, captured_mask, x_col=8, y_col=11)
+    _draw_nominals(ax, x_col=8, y_col=11, ref_nominal=ref_nominal, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
+
+    ax.set_xlabel("Energy (MJ/kg)")
+    ax.set_ylabel("Inclination (deg)")
+    ax.set_title("Corridor — Inclination")
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(fontsize="small")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Panel 9: Energy vs bank angle (half width)
+# ---------------------------------------------------------------------------
+def chart_corridor_bank(
+    trajectories: list[npt.NDArray[np.float64]],
+    captured_mask: npt.NDArray[np.bool_],
+    output: Path,
+    ref_nominal: npt.NDArray[np.float64] | None = None,
+    undispersed_nominal: npt.NDArray[np.float64] | None = None,
+    best_nominal: npt.NDArray[np.float64] | None = None,
+) -> None:
+    """Panel 9: Energy vs bank angle with captured envelope fill."""
+    fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+
+    centers, min_vals, max_vals = _compute_envelope(trajectories, energy_col=8, value_col=10, captured_mask=captured_mask)
+    valid = ~np.isnan(min_vals)
+    if np.any(valid):
+        ax.fill_between(centers[valid], min_vals[valid], max_vals[valid], color=COLOR_CAPTURE, alpha=0.15, label="Captured envelope")
+
+    _draw_spaghetti(ax, trajectories, captured_mask, x_col=8, y_col=10)
+    _draw_nominals(ax, x_col=8, y_col=10, ref_nominal=ref_nominal, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
+
+    ax.set_xlabel("Energy (MJ/kg)")
+    ax.set_ylabel("Bank angle (deg)")
+    ax.set_title("Corridor — Bank Angle")
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(fontsize="small")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)
