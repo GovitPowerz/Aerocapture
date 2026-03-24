@@ -499,3 +499,123 @@ def chart_corridor_bank(
         ax.legend(fontsize="small")
     sns.despine(fig=fig)
     _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Panel 10: Altitude vs time (full width)
+# ---------------------------------------------------------------------------
+def chart_altitude_time(
+    trajectories: list[npt.NDArray[np.float64]],
+    captured_mask: npt.NDArray[np.bool_],
+    output: Path,
+    best_idx: int | None = None,
+) -> None:
+    """Panel 10: Altitude vs time MC spaghetti with optional best-case highlight."""
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
+    _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=0)
+
+    if best_idx is not None and 0 <= best_idx < len(trajectories):
+        traj = trajectories[best_idx]
+        ax.plot(traj[:, 7], traj[:, 0], color=COLOR_NOMINAL_BEST, linewidth=1.5, zorder=10, label="Best case")
+
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Altitude (km)")
+    ax.set_title("Altitude vs Time")
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(fontsize="small")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Panel 11: Heat flux vs time (half width)
+# ---------------------------------------------------------------------------
+def chart_heat_flux_time(
+    trajectories: list[npt.NDArray[np.float64]],
+    captured_mask: npt.NDArray[np.bool_],
+    output: Path,
+    limit_kw_m2: float | None = None,
+) -> None:
+    """Panel 11: Heat flux vs time MC spaghetti with optional constraint line."""
+    fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+    _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=6)
+
+    if limit_kw_m2 is not None:
+        ax.axhline(limit_kw_m2, color=COLOR_WORST, linestyle="--", linewidth=1.0, label=f"Limit ({limit_kw_m2:.0f} kW/m\u00b2)")
+
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Heat flux (kW/m\u00b2)")
+    ax.set_title("Heat Flux vs Time")
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(fontsize="small")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Panel 12: G-load vs time (half width)
+# ---------------------------------------------------------------------------
+def chart_gload_time(
+    trajectories: list[npt.NDArray[np.float64]],
+    captured_mask: npt.NDArray[np.bool_],
+    output: Path,
+    limit_g: float | None = None,
+) -> None:
+    """Panel 12: G-load vs time MC spaghetti with optional constraint line."""
+    fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+    _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=12)
+
+    if limit_g is not None:
+        ax.axhline(limit_g, color=COLOR_WORST, linestyle="--", linewidth=1.0, label=f"Limit ({limit_g:.1f} g)")
+
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("G-load (g)")
+    ax.set_title("G-Load vs Time")
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(fontsize="small")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Panel 13: Bank angle vs time (full width)
+# ---------------------------------------------------------------------------
+def chart_bank_angle_time(
+    trajectories: list[npt.NDArray[np.float64]],
+    captured_mask: npt.NDArray[np.bool_],
+    output: Path,
+) -> None:
+    """Panel 13: Bank angle vs time MC spaghetti."""
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
+    _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=10)
+
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Bank angle (deg)")
+    ax.set_title("Bank Angle vs Time")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Panel 14: Navigation density ratio vs time (full width)
+# ---------------------------------------------------------------------------
+def chart_nav_density_ratio(
+    trajectories: list[npt.NDArray[np.float64]],
+    captured_mask: npt.NDArray[np.bool_],
+    output: Path,
+) -> None:
+    """Panel 14: Navigation density ratio vs time with perfect-estimate reference."""
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
+    _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=13)
+
+    ax.axhline(1.0, color="grey", linestyle="--", linewidth=1.0, label="Perfect estimate")
+
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Nav density ratio")
+    ax.set_title("Navigation Density Ratio vs Time")
+    ax.legend(fontsize="small")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)

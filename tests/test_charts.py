@@ -9,6 +9,8 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from aerocapture.training.charts import (
+    chart_altitude_time,
+    chart_bank_angle_time,
     chart_capture_constraint_rate,
     chart_convergence,
     chart_corridor_bank,
@@ -16,6 +18,9 @@ from aerocapture.training.charts import (
     chart_corridor_pdyn,
     chart_cost_distribution,
     chart_diversity_cost,
+    chart_gload_time,
+    chart_heat_flux_time,
+    chart_nav_density_ratio,
     chart_parameter_evolution,
     chart_seed_pool,
 )
@@ -194,6 +199,76 @@ class TestCorridorCharts:
     ) -> None:
         """Panel 9: bank angle corridor chart creates a valid SVG file."""
         chart_corridor_bank(mc_trajectories, captured_mask, tmp_svg)
+        assert tmp_svg.exists()
+        content = tmp_svg.read_text()
+        assert "<svg" in content
+
+
+# ---------------------------------------------------------------------------
+# Time-domain chart tests
+# ---------------------------------------------------------------------------
+class TestTimeDomainCharts:
+    """Tests for time-domain trajectory panels 10-14."""
+
+    def test_altitude_time(
+        self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path
+    ) -> None:
+        """Panel 10: altitude vs time spaghetti creates a valid SVG file."""
+        chart_altitude_time(mc_trajectories, captured_mask, tmp_svg)
+        assert tmp_svg.exists()
+        content = tmp_svg.read_text()
+        assert "<svg" in content
+
+    def test_altitude_highlights_best(
+        self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path
+    ) -> None:
+        """Panel 10: altitude chart highlights best trajectory when best_idx provided."""
+        chart_altitude_time(mc_trajectories, captured_mask, tmp_svg, best_idx=0)
+        assert tmp_svg.exists()
+        content = tmp_svg.read_text()
+        assert "<svg" in content
+
+    def test_heat_flux_with_limit(
+        self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path
+    ) -> None:
+        """Panel 11: heat flux chart with constraint limit line."""
+        rng = np.random.default_rng(99)
+        for traj in mc_trajectories:
+            traj[:, 6] = rng.uniform(50.0, 200.0, traj.shape[0])
+        chart_heat_flux_time(mc_trajectories, captured_mask, tmp_svg, limit_kw_m2=150.0)
+        assert tmp_svg.exists()
+        content = tmp_svg.read_text()
+        assert "<svg" in content
+
+    def test_gload_with_limit(
+        self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path
+    ) -> None:
+        """Panel 12: g-load chart with constraint limit line."""
+        rng = np.random.default_rng(99)
+        for traj in mc_trajectories:
+            traj[:, 12] = rng.uniform(0.5, 5.0, traj.shape[0])
+        chart_gload_time(mc_trajectories, captured_mask, tmp_svg, limit_g=4.0)
+        assert tmp_svg.exists()
+        content = tmp_svg.read_text()
+        assert "<svg" in content
+
+    def test_bank_angle_time(
+        self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path
+    ) -> None:
+        """Panel 13: bank angle vs time spaghetti creates a valid SVG file."""
+        chart_bank_angle_time(mc_trajectories, captured_mask, tmp_svg)
+        assert tmp_svg.exists()
+        content = tmp_svg.read_text()
+        assert "<svg" in content
+
+    def test_nav_density_ratio(
+        self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path
+    ) -> None:
+        """Panel 14: nav density ratio chart with perfect-estimate reference line."""
+        rng = np.random.default_rng(99)
+        for traj in mc_trajectories:
+            traj[:, 13] = rng.uniform(0.8, 1.2, traj.shape[0])
+        chart_nav_density_ratio(mc_trajectories, captured_mask, tmp_svg)
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content
