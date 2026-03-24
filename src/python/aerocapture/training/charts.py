@@ -746,9 +746,9 @@ def chart_dv_individual_burns(final_records: npt.NDArray[np.float64], output: Pa
     dv3 = np.log10(_clip_dv(final_records[:, _FR_DV3]))
 
     fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
-    ax.hist(dv1, bins=25, color="#1f77b4", alpha=0.5, label="\u0394V\u2081 (periapsis)")
-    ax.hist(dv2, bins=25, color="#ff7f0e", alpha=0.5, label="\u0394V\u2082 (apoapsis)")
-    ax.hist(dv3, bins=25, color="#2ca02c", alpha=0.5, label="\u0394V\u2083 (inclination)")
+    ax.hist(dv1, bins=25, color="#1f77b4", alpha=0.5, label="DV1 (periapsis)")
+    ax.hist(dv2, bins=25, color="#ff7f0e", alpha=0.5, label="DV2 (apoapsis)")
+    ax.hist(dv3, bins=25, color="#2ca02c", alpha=0.5, label="DV3 (inclination)")
 
     tick_positions = [np.log10(v) for v in _LOG10_TICK_VALUES]
     tick_labels = [str(v) for v in _LOG10_TICK_VALUES]
@@ -858,7 +858,7 @@ def chart_dispersion_grid(
     for i in range(n_fields, len(axes_flat)):
         axes_flat[i].set_visible(False)
 
-    fig.supylabel("log\u2081\u2080(\u0394V)", fontsize=9)
+    fig.supylabel("log10(DV)", fontsize=9)
     fig.suptitle("Dispersion Correlation Grid", fontsize=11)
     fig.tight_layout()
     _save_svg(fig, output)
