@@ -23,19 +23,20 @@ Panels 11 (Heat Flux vs Time), 12 (G-Load vs Time), and 14 (Nav Filter Density R
 - **G-load** is not emitted at all — needs a new column computed from aerodynamic + gravity forces
 - **Nav density ratio** (estimated/truth) is not emitted — needs two new columns from the navigation filter state
 
-The trajectory array must be extended from 12 to 15 columns before these panels can be implemented. This is a Rust-side change in `runner.rs` (trajectory recording) and `results.rs` (PyO3 column mapping). All downstream Python code that indexes trajectory columns must be updated.
+The photo array must be extended from `[f64; 24]` to `[f64; 28]` in `build_photo_values()` (which has access to `&SimState`, `&SimData`, and `density_gain`), and the trajectory array extended from 12 to 16 columns in `run_for_api()`. This is a Rust-side change in `runner.rs` and `results.rs`. All downstream Python code that indexes trajectory columns must be updated.
 
 **Column layout after extension:**
 
 | Index | Field | Status |
 |-------|-------|--------|
 | 0-5 | alt, lon, lat, vel, fpa, heading | Existing |
-| 6 | heat_flux | Fix: populate from existing computation |
+| 6 | heat_flux (kW/m²) | Fix: compute in build_photo_values from rho, v, cq |
 | 7 | time | Existing |
 | 8-11 | energy, pdyn, bank_angle, inclination | Existing |
-| 12 | g_load | New |
-| 13 | nav_density_ratio | New (estimated/truth) |
-| 14 | truth_density | New (for reference) |
+| 12 | g_load (g) | New: compute from aero acceleration |
+| 13 | nav_density_ratio | New (density_gain from NavigationState) |
+| 14 | truth_density (kg/m³) | New (for reference) |
+| 15 | reserved | New (padding for future use) |
 
 ## Report Structure
 
