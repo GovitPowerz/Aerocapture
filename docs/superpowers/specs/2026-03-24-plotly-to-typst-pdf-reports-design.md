@@ -118,7 +118,7 @@ report.generate_report(scheme_dir, toml_path)
   |
   +-- 2. Generate charts (matplotlib + seaborn)
   |     +-- charts.py -> writes SVGs to temp dir
-  |     +-- data.py -> writes metadata.json + summary_table.json to temp dir
+  |     +-- report.py (orchestrator) -> writes metadata.json + summary_table.json to temp dir
   |
   +-- 3. Compile PDF
   |     +-- typst compile report.typ --input dir=<temp_dir> -> report.pdf
@@ -209,7 +209,7 @@ if not args.skip_report:
 
 ## Configuration
 
-- `n_sims` and `seed` for final MC evaluation: read from `[simulation]` section in TOML config (`n_sims` key, already exists; `seed` key, already exists). Not exposed as CLI args on the report command. During training, `train.py` still uses `--final-n-sims` to override for the end-of-training report call.
+- `n_sims` and `random_seed` for final MC evaluation: read from `[simulation]` section in TOML config (`n_sims` key, already exists; `random_seed` key, already exists). Not exposed as CLI args on the report command. During training, `train.py` still uses `--final-n-sims` to override for the end-of-training report call.
 - Corridor data path derived from training output directory structure
 - Config hash: read from JSONL `config_hash` field (SHA-256 of normalized TOML, already computed by logger)
 
