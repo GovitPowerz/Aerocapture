@@ -63,6 +63,8 @@ class TrainingLogger:
 
         best_params = decode_fn(best_chromosome) if decode_fn is not None else None
 
+        constraint_violation_rate = float(np.mean(all_costs > np.median(all_costs) * 2)) if len(all_costs) > 0 else 0.0
+
         record = {
             "generation": generation,
             "run": self._run,
@@ -73,11 +75,13 @@ class TrainingLogger:
             "median_cost": stats["median"],
             "std_cost": stats["std"],
             "capture_rate": cap_rate,
+            "constraint_violation_rate": constraint_violation_rate,
             "population_diversity": diversity,
             "best_params": best_params,
             "improvement": improved,
             "scheme": self._scheme,
             "config_hash": self._config_hash,
+            "all_costs": all_costs.tolist(),
         }
 
         if weight_stats is not None:
