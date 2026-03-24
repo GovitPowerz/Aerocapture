@@ -841,9 +841,9 @@ def chart_dispersion_grid(
         x = dispersions[:, i]
         ax.scatter(x, log_dv, s=8, alpha=0.5, color=COLOR_CAPTURE)
 
-        # Linear regression
+        # Linear regression (skip if all x values are identical — e.g. a zero-variance dispersion field)
         finite = np.isfinite(x) & np.isfinite(log_dv)
-        if np.sum(finite) > 2:
+        if np.sum(finite) > 2 and np.ptp(x[finite]) > 0:
             result = stats.linregress(x[finite], log_dv[finite])
             x_range = np.array([float(np.min(x[finite])), float(np.max(x[finite]))])
             ax.plot(x_range, result.slope * x_range + result.intercept, color=COLOR_WORST, linewidth=1.0)
