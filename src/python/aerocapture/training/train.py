@@ -742,8 +742,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed-pool-cap", type=int, default=100, help="Maximum adaptive seed pool size (default: 100)")
     parser.add_argument("--cost-alpha", type=float, default=0.7, help="Mean/CVaR blend weight: 1.0=pure mean, 0.0=pure CVaR (default: 0.7)")
     parser.add_argument("--cvar-percentile", type=int, default=20, help="CVaR tail fraction in percent (default: 20)")
-    parser.add_argument("--skip-report", "--skip-final-report", action="store_true", dest="skip_report",
-                        help="Skip PDF report generation at end of training")
+    parser.add_argument("--skip-report", "--skip-final-report", action="store_true", dest="skip_report", help="Skip PDF report generation at end of training")
     parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
     args = parser.parse_args()
 
@@ -939,5 +938,6 @@ if __name__ == "__main__":
         # ── Report Generation ──
         if not args.skip_report:
             from aerocapture.training.report import generate_report
+
             toml_path = Path(args.toml)
             generate_report(Path(cfg.save_dir), toml_path, n_sims_override=args.final_n_sims)

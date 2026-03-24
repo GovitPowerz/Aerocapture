@@ -81,26 +81,14 @@ uv run python -m aerocapture.training.compare_guidance \
     --base-toml configs/training/msr_aller_eqglide_train.toml \
     --n-sims 100
 
-# Convergence report (dynamic layout with resume markers and seed panels)
-uv run python -m aerocapture.training.report training_output/equilibrium_glide/
-uv run python -m aerocapture.training.report --compare training_output/
-
-# Pre-compute corridor boundaries (cached per mission, shared across schemes)
-# Reads [corridor] section from mission TOML for delta_za and n_sims defaults
-uv run python -m aerocapture.training.corridor \
-    --toml configs/missions/mars.toml
-
-# Final evaluation report (1000-sim MC re-evaluation)
-# Includes: delta-V/orbital error distributions, entry/exit conditions,
-# performance summary table, energy corridor PNG (pdyn with 4-layer zones:
-# crash/undershoot/corridor/overshoot/hyperbolic, inclination, bank angle,
-# DV distribution), and dispersion correlation grid (~24 scatter plots).
+# PDF report (training convergence + final MC evaluation in one document)
 # Auto-generated at end of training; also standalone:
-uv run python -m aerocapture.training.final_report \
+uv run python -m aerocapture.training.report \
     training_output/equilibrium_glide/ \
-    --toml configs/training/msr_aller_eqglide_train.toml \
-    --corridor training_output/mars/corridor_boundaries.npz \
-    --n-sims 1000 --seed 42
+    --toml configs/training/msr_aller_eqglide_train.toml
+
+# Cross-scheme comparison PDF
+uv run python -m aerocapture.training.report --compare training_output/
 ```
 
 ## Validation

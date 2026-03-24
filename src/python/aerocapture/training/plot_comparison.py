@@ -110,14 +110,16 @@ def plot_comparison(results: dict[str, dict], output: Path) -> None:
     table_data = []
     for s in schemes:
         m = results[s]
-        table_data.append([
-            SCHEME_LABELS.get(s, s),
-            f"{m.get('capture_rate', 0):.0f}",
-            f"{m.get('cost', 0):.0e}",
-            f"{m.get('apo_err_mean', float('nan')):.0f}",
-            f"{m.get('peri_err_mean', float('nan')):.0f}",
-            f"{m.get('dv_mean', float('nan')):.0f}",
-        ])
+        table_data.append(
+            [
+                SCHEME_LABELS.get(s, s),
+                f"{m.get('capture_rate', 0):.0f}",
+                f"{m.get('cost', 0):.0e}",
+                f"{m.get('apo_err_mean', float('nan')):.0f}",
+                f"{m.get('peri_err_mean', float('nan')):.0f}",
+                f"{m.get('dv_mean', float('nan')):.0f}",
+            ]
+        )
 
     table = ax.table(cellText=table_data, colLabels=col_labels, loc="center", cellLoc="center")
     table.auto_set_font_size(False)
