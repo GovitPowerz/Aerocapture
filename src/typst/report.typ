@@ -47,20 +47,28 @@
   ]
 }
 
-#half-width-pair(dir + "/dv_distribution.svg", dir + "/dv_individual_burns.svg")
+#if meta.at("has_final_eval", default: false) {
+  half-width-pair(dir + "/dv_distribution.svg", dir + "/dv_individual_burns.svg")
 
-#if meta.at("has_trajectories", default: false) {
-  half-width-pair(dir + "/entry_conditions.svg", dir + "/exit_conditions.svg")
+  if meta.at("has_trajectories", default: false) {
+    half-width-pair(dir + "/entry_conditions.svg", dir + "/exit_conditions.svg")
+  }
+
+  // Performance Summary Table
+  v(0.5cm)
+  text(size: 12pt, weight: "bold")[Performance Summary]
+  v(0.3cm)
+  let summary = json(dir + "/summary_table.json")
+  performance-table(summary.rows)
+
+  // Dispersion Grid
+  pagebreak()
+  section-heading("Dispersion Correlations")
+  image(dir + "/dispersion_grid.svg", width: 100%)
+} else {
+  align(center)[
+    #v(2cm)
+    #text(fill: luma(120), size: 12pt)[Final evaluation not available — distribution panels omitted.]
+    #v(2cm)
+  ]
 }
-
-// Performance Summary Table
-#v(0.5cm)
-#text(size: 12pt, weight: "bold")[Performance Summary]
-#v(0.3cm)
-#let summary = json(dir + "/summary_table.json")
-#performance-table(summary.rows)
-
-// Dispersion Grid
-#pagebreak()
-#section-heading("Dispersion Correlations")
-#image(dir + "/dispersion_grid.svg", width: 100%)
