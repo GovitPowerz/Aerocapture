@@ -245,6 +245,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from aerocapture.training.charts import (
@@ -523,8 +524,8 @@ def chart_diversity_cost(
     _save_svg(fig, output)
 
 
-def chart_cost_distribution(records: list[dict], output: Path) -> None:
-    """Panel 4: Cost distribution box plots at sampled generations."""
+def chart_cost_distribution(records: list[dict], output: Path) -> bool:
+    """Panel 4: Cost distribution box plots at sampled generations. Returns False if no data."""
     if not records:
         raise ValueError("No training records provided")
 
@@ -544,7 +545,7 @@ def chart_cost_distribution(records: list[dict], output: Path) -> None:
             labels.append(str(r["generation"]))
 
     if not data_for_box:
-        return  # No per-population cost data available
+        return False  # No per-population cost data available
 
     fig, ax = plt.subplots(figsize=HALF_WIDTH)
     ax.boxplot(data_for_box, labels=labels, whis=1.5)
@@ -554,6 +555,7 @@ def chart_cost_distribution(records: list[dict], output: Path) -> None:
     ax.set_title("Cost Distribution")
     sns.despine(fig=fig)
     _save_svg(fig, output)
+    return True
 
 
 def chart_parameter_evolution(
@@ -1481,7 +1483,11 @@ Create `src/typst/report.typ`:
 
 #full-width-chart(dir + "/convergence.svg")
 #full-width-chart(dir + "/capture_constraint_rate.svg")
-#half-width-pair(dir + "/diversity_cost.svg", dir + "/cost_distribution.svg")
+#if meta.at("has_cost_distribution", default: false) {
+  half-width-pair(dir + "/diversity_cost.svg", dir + "/cost_distribution.svg")
+} else {
+  full-width-chart(dir + "/diversity_cost.svg")
+}
 #full-width-chart(dir + "/parameter_evolution.svg")
 
 // Conditional: seed pool (only if file exists)
@@ -1844,6 +1850,7 @@ def _build_metadata(
     has_seed_pool: bool,
     has_trajectories: bool,
     toml_path: Path | None = None,
+    has_cost_distribution: bool = False,
 ) -> dict:
     """Build metadata dict for cover page."""
     last = records[-1] if records else {}
@@ -1858,6 +1865,7 @@ def _build_metadata(
         "config_hash": last.get("config_hash", "N/A"),
         "has_seed_pool": has_seed_pool,
         "has_trajectories": has_trajectories,
+        "has_cost_distribution": has_cost_distribution,
     }
 
 
@@ -1903,6 +1911,7 @@ def generate_report(
     toml_path: Path | None = None,
     skip_final_eval: bool = False,
     keep_artifacts: bool = False,
+    n_sims_override: int | None = None,
 ) -> Path | None:
     """Generate a single PDF report combining training convergence and mission performance.
 
@@ -1956,7 +1965,7 @@ def generate_report(
         charts.chart_convergence(records, tmp / "convergence.svg", resume_gens)
         charts.chart_capture_constraint_rate(records, tmp / "capture_constraint_rate.svg", resume_gens)
         charts.chart_diversity_cost(records, tmp / "diversity_cost.svg", resume_gens)
-        charts.chart_cost_distribution(records, tmp / "cost_distribution.svg")
+        has_cost_dist = charts.chart_cost_distribution(records, tmp / "cost_distribution.svg")
         charts.chart_parameter_evolution(records, tmp / "parameter_evolution.svg", resume_gens)
         has_seed_pool = charts.chart_seed_pool(records, tmp / "seed_pool.svg", resume_gens)
 
@@ -1982,7 +1991,8 @@ def generate_report(
 
         # 6. Write JSON data
         n_sims = len(final_records) if final_records is not None else 0
-        meta = _build_metadata(records, scheme_dir, n_sims, has_seed_pool, has_trajectories, toml_path)
+        meta = _build_metadata(records, scheme_dir, n_sims, has_seed_pool, has_trajectories, toml_path,
+                               has_cost_distribution=has_cost_dist)
         (tmp / "metadata.json").write_text(json.dumps(meta, indent=2))
 
         if final_records is not None:
@@ -2191,7 +2201,7 @@ parser.add_argument("--skip-report", "--skip-final-report", action="store_true",
                     help="Skip PDF report generation at end of training")
 ```
 
-Remove `--final-n-sims` (line 746) — n_sims comes from TOML now.
+Keep `--final-n-sims` (line 746) — it's passed to `generate_report()` as an override. The default (1000) is unchanged.
 
 - [ ] **Step 2: Replace end-of-training report generation**
 
@@ -2202,7 +2212,7 @@ Replace the convergence report block (lines 863-870) and final report block (lin
 if not args.skip_report:
     from aerocapture.training.report import generate_report
     toml_path = Path(args.toml)
-    generate_report(Path(cfg.save_dir), toml_path)
+    generate_report(Path(cfg.save_dir), toml_path, n_sims_override=args.final_n_sims)
 ```
 
 This single call replaces both `generate_single_report()` and `generate_final_report()`.
