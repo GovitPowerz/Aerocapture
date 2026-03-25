@@ -3,6 +3,8 @@
 - [ ] add an animation script of entry corridors and trajectories evolution during training based on checkpoints
 - [ ] Update IMPROVEMENTS.md
 - [ ] Replace plotly reports with typst -> pdf reports
+- [ ] Can you check that when using -fs with nn guidance, the existing eights are ignored, please?
+- [ ] Can you check that the simulator exit on apoapsis lower than max atmospheric altitude because I see trajectories that go down to -12MJ orbital energy which doesn't seem possible unless both apoapsis and periapsis are lower than max atmospheric altitude.
 
 ## Simulation — High Impact
 
