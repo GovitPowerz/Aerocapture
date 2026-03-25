@@ -677,19 +677,30 @@ def chart_corridor_bank(
 # ---------------------------------------------------------------------------
 # Panel 10: Altitude vs time (full width)
 # ---------------------------------------------------------------------------
+def _draw_time_nominals(
+    ax: plt.Axes,  # type: ignore[name-defined]
+    y_col: int,
+    undispersed_nominal: npt.NDArray[np.float64] | None = None,
+    best_nominal: npt.NDArray[np.float64] | None = None,
+) -> None:
+    """Overlay undispersed and best-DV trajectories on a time-domain chart."""
+    if undispersed_nominal is not None:
+        ax.plot(undispersed_nominal[:, 7], undispersed_nominal[:, y_col], color=COLOR_NOMINAL_UNDISPERSED, linewidth=1.5, zorder=10, label="Undispersed")
+    if best_nominal is not None:
+        ax.plot(best_nominal[:, 7], best_nominal[:, y_col], color=COLOR_NOMINAL_BEST, linewidth=1.5, zorder=10, label="Best MC")
+
+
 def chart_altitude_time(
     trajectories: list[npt.NDArray[np.float64]],
     captured_mask: npt.NDArray[np.bool_],
     output: Path,
-    best_idx: int | None = None,
+    undispersed_nominal: npt.NDArray[np.float64] | None = None,
+    best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
-    """Panel 10: Altitude vs time MC spaghetti with optional best-case highlight."""
+    """Panel 10: Altitude vs time MC spaghetti with nominal overlays."""
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
     _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=0)
-
-    if best_idx is not None and 0 <= best_idx < len(trajectories):
-        traj = trajectories[best_idx]
-        ax.plot(traj[:, 7], traj[:, 0], color=COLOR_NOMINAL_BEST, linewidth=1.5, zorder=10, label="Best case")
+    _draw_time_nominals(ax, y_col=0, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
 
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Altitude (km)")
@@ -702,17 +713,20 @@ def chart_altitude_time(
 
 
 # ---------------------------------------------------------------------------
-# Panel 11: Heat flux vs time (half width)
+# Panel 11: Heat flux vs time
 # ---------------------------------------------------------------------------
 def chart_heat_flux_time(
     trajectories: list[npt.NDArray[np.float64]],
     captured_mask: npt.NDArray[np.bool_],
     output: Path,
     limit_kw_m2: float | None = None,
+    undispersed_nominal: npt.NDArray[np.float64] | None = None,
+    best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
-    """Panel 11: Heat flux vs time MC spaghetti with optional constraint line."""
+    """Panel 11: Heat flux vs time MC spaghetti with optional constraint line and nominals."""
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
     _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=6)
+    _draw_time_nominals(ax, y_col=6, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
 
     if limit_kw_m2 is not None:
         ax.axhline(limit_kw_m2, color=COLOR_WORST, linestyle="--", linewidth=1.0, label=f"Limit ({limit_kw_m2:.0f} kW/m\u00b2)")
@@ -728,17 +742,20 @@ def chart_heat_flux_time(
 
 
 # ---------------------------------------------------------------------------
-# Panel 12: G-load vs time (half width)
+# Panel 12: G-load vs time
 # ---------------------------------------------------------------------------
 def chart_gload_time(
     trajectories: list[npt.NDArray[np.float64]],
     captured_mask: npt.NDArray[np.bool_],
     output: Path,
     limit_g: float | None = None,
+    undispersed_nominal: npt.NDArray[np.float64] | None = None,
+    best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
-    """Panel 12: G-load vs time MC spaghetti with optional constraint line."""
+    """Panel 12: G-load vs time MC spaghetti with optional constraint line and nominals."""
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
     _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=12)
+    _draw_time_nominals(ax, y_col=12, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
 
     if limit_g is not None:
         ax.axhline(limit_g, color=COLOR_WORST, linestyle="--", linewidth=1.0, label=f"Limit ({limit_g:.1f} g)")
@@ -754,35 +771,44 @@ def chart_gload_time(
 
 
 # ---------------------------------------------------------------------------
-# Panel 13: Bank angle vs time (full width)
+# Panel 13: Bank angle vs time
 # ---------------------------------------------------------------------------
 def chart_bank_angle_time(
     trajectories: list[npt.NDArray[np.float64]],
     captured_mask: npt.NDArray[np.bool_],
     output: Path,
+    undispersed_nominal: npt.NDArray[np.float64] | None = None,
+    best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
-    """Panel 13: Bank angle vs time MC spaghetti."""
+    """Panel 13: Bank angle vs time MC spaghetti with nominal overlays."""
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
     _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=10)
+    _draw_time_nominals(ax, y_col=10, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
 
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Bank angle (deg)")
     ax.set_title("Bank Angle vs Time")
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(fontsize="small")
     sns.despine(fig=fig)
     _save_svg(fig, output)
 
 
 # ---------------------------------------------------------------------------
-# Panel 14: Navigation density ratio vs time (full width)
+# Panel 14: Navigation density ratio vs time
 # ---------------------------------------------------------------------------
 def chart_nav_density_ratio(
     trajectories: list[npt.NDArray[np.float64]],
     captured_mask: npt.NDArray[np.bool_],
     output: Path,
+    undispersed_nominal: npt.NDArray[np.float64] | None = None,
+    best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
-    """Panel 14: Navigation density ratio vs time with perfect-estimate reference."""
+    """Panel 14: Navigation density ratio vs time with nominals and perfect-estimate reference."""
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
     _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=13)
+    _draw_time_nominals(ax, y_col=13, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
 
     ax.axhline(1.0, color="grey", linestyle="--", linewidth=1.0, label="Perfect estimate")
 

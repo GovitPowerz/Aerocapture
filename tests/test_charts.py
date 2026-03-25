@@ -217,8 +217,8 @@ class TestTimeDomainCharts:
         assert "<svg" in content
 
     def test_altitude_highlights_best(self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path) -> None:
-        """Panel 10: altitude chart highlights best trajectory when best_idx provided."""
-        chart_altitude_time(mc_trajectories, captured_mask, tmp_svg, best_idx=0)
+        """Panel 10: altitude chart highlights best trajectory when best_nominal provided."""
+        chart_altitude_time(mc_trajectories, captured_mask, tmp_svg, best_nominal=mc_trajectories[0])
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content

@@ -380,11 +380,11 @@ def _generate_trajectory_charts(
     charts.chart_corridor_bank(trajectories, captured_mask, out_dir / "corridor_bank.svg", **nominal_kwargs)
 
     # Time-domain panels
-    charts.chart_altitude_time(trajectories, captured_mask, out_dir / "altitude_time.svg")
-    charts.chart_heat_flux_time(trajectories, captured_mask, out_dir / "heat_flux_time.svg")
-    charts.chart_gload_time(trajectories, captured_mask, out_dir / "gload_time.svg")
-    charts.chart_bank_angle_time(trajectories, captured_mask, out_dir / "bank_angle_time.svg")
-    charts.chart_nav_density_ratio(trajectories, captured_mask, out_dir / "nav_density_ratio.svg")
+    charts.chart_altitude_time(trajectories, captured_mask, out_dir / "altitude_time.svg", **nominal_kwargs)
+    charts.chart_heat_flux_time(trajectories, captured_mask, out_dir / "heat_flux_time.svg", **nominal_kwargs)
+    charts.chart_gload_time(trajectories, captured_mask, out_dir / "gload_time.svg", **nominal_kwargs)
+    charts.chart_bank_angle_time(trajectories, captured_mask, out_dir / "bank_angle_time.svg", **nominal_kwargs)
+    charts.chart_nav_density_ratio(trajectories, captured_mask, out_dir / "nav_density_ratio.svg", **nominal_kwargs)
 
     # Distribution panels
     charts.chart_dv_distribution(final_records, out_dir / "dv_distribution.svg")
