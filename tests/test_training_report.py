@@ -215,7 +215,6 @@ class TestSingleReport:
         assert result is None
 
 
-
 class TestResumeMarkers:
     @patch("aerocapture.training.report._check_typst", return_value=False)
     def test_report_with_resume_data_runs(self, _mock_typst: object, tmp_path: Path) -> None:
