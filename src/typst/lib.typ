@@ -39,14 +39,18 @@
     #v(1cm)
     #table(
       columns: (auto, auto),
-      stroke: 0.5pt + luma(200),
-      inset: 8pt,
+      stroke: none,
+      inset: (x: 12pt, y: 5pt),
       align: (left, right),
+      table.hline(stroke: 1.2pt),
       [*Best Cost*], [#meta.best_cost],
       [*Capture Rate*], [#meta.capture_rate],
+      table.hline(stroke: 0.4pt),
       [*Generations*], [#meta.total_generations],
       [*Final Eval Sims*], [#meta.n_sims],
+      table.hline(stroke: 0.4pt),
       [*Config Hash*], [#text(size: 8pt, font: "Courier New")[#meta.config_hash]],
+      table.hline(stroke: 1.2pt),
     )
   ]
   pagebreak()
@@ -54,12 +58,25 @@
 
 #let performance-table(data) = {
   let headers = ("Parameter", "Mean", "Std", "Min", "p5", "p25", "p50", "p75", "p95", "Max")
+  let n-cols = headers.len()
+  let n-rows = data.len() + 1  // +1 for header
+
+  // Booktabs style: no vertical strokes, horizontal rules only
   table(
-    columns: headers.len(),
-    stroke: 0.5pt + luma(200),
-    inset: 6pt,
-    align: (left, ..range(headers.len() - 1).map(_ => right)),
+    columns: n-cols,
+    stroke: none,
+    inset: (x: 6pt, y: 4pt),
+    align: (left, ..range(n-cols - 1).map(_ => right)),
+
+    // Header row
+    table.hline(stroke: 1.2pt),
     ..headers.map(h => text(weight: "bold", size: 8pt)[#h]),
+    table.hline(stroke: 0.6pt),
+
+    // Data rows
     ..data.flatten().map(cell => text(size: 8pt)[#cell]),
+
+    // Bottom rule
+    table.hline(stroke: 1.2pt),
   )
 }

@@ -247,6 +247,10 @@ def _build_summary_table(final_records: npt.NDArray[np.float64]) -> dict:
 
     dv_total = np.clip(cap_data[:, charts._FR_DV_TOTAL], charts.DV_FLOOR, charts.DV_CAP)
 
+    dv1_abs = np.abs(cap_data[:, charts._FR_DV1])
+    dv2_abs = np.abs(cap_data[:, charts._FR_DV2])
+    dv3_abs = np.abs(cap_data[:, charts._FR_DV3])
+
     rows = [
         _row("Max G-load (g)", cap_data[:, charts._FR_MAX_G_LOAD]),
         _row("Max heat flux (kW/m2)", cap_data[:, charts._FR_MAX_HEAT_FLUX]),
@@ -254,6 +258,9 @@ def _build_summary_table(final_records: npt.NDArray[np.float64]) -> dict:
         _row("Periapsis error (km)", cap_data[:, charts._FR_PERI_ERR]),
         _row("Apoapsis error (km)", cap_data[:, charts._FR_APO_ERR]),
         _row("Inclination error (deg)", cap_data[:, charts._FR_INCL_ERR]),
+        _row("|DV1| periapsis (m/s)", dv1_abs),
+        _row("|DV2| apoapsis (m/s)", dv2_abs),
+        _row("|DV3| inclination (m/s)", dv3_abs),
         _row("Total DV (m/s)", dv_total),
     ]
 
