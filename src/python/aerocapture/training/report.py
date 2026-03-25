@@ -134,6 +134,27 @@ def run_final_evaluation(
         return None
 
 
+def _print_eval_summary(final_records: npt.NDArray[np.float64], n_sims: int) -> None:
+    """Print a human-readable summary of the final MC evaluation to stdout."""
+    ecc = final_records[:, charts._FR_ECC]
+    captured = ecc < 1.0
+    n_captured = int(np.sum(captured))
+    cap = final_records[captured]
+
+    print(f"\n  Final evaluation ({n_sims} sims):")
+    print(f"    Capture rate:       {n_captured}/{n_sims} ({100 * n_captured / n_sims:.1f}%)")
+
+    if n_captured > 0:
+        dv = np.clip(cap[:, charts._FR_DV_TOTAL], charts.DV_FLOOR, charts.DV_CAP)
+        apo = cap[:, charts._FR_APO_ERR]
+        peri = cap[:, charts._FR_PERI_ERR]
+        incl = cap[:, charts._FR_INCL_ERR]
+        print(f"    Delta-V (m/s):      p50={np.median(dv):.1f}  p95={np.percentile(dv, 95):.1f}  mean={np.mean(dv):.1f}")
+        print(f"    Apoapsis err (km):  p50={np.median(apo):.1f}  p95={np.percentile(apo, 95):.1f}  mean={np.mean(apo):.1f}")
+        print(f"    Periapsis err (km): p50={np.median(peri):.1f}  p95={np.percentile(peri, 95):.1f}  mean={np.mean(peri):.1f}")
+        print(f"    Inclin. err (deg):  p50={np.median(incl):.2f}  p95={np.percentile(incl, 95):.2f}  mean={np.mean(incl):.2f}")
+
+
 # ---------------------------------------------------------------------------
 # TOML metadata reader
 # ---------------------------------------------------------------------------
@@ -330,10 +351,12 @@ def generate_report(
         has_trajectories = False
         final_records = None
         if not skip_final_eval and toml_path is not None:
+            print(f"\nRunning {n_sims}-sim final evaluation...")
             eval_result = run_final_evaluation(toml_path, scheme_dir, n_sims=n_sims)
             if eval_result is not None:
                 final_records_arr, trajectories, dispersions = eval_result
                 has_trajectories = True
+                _print_eval_summary(final_records_arr, n_sims)
                 _generate_trajectory_charts(final_records_arr, trajectories, dispersions, tmp_dir)
                 final_records = final_records_arr
 
