@@ -19,6 +19,7 @@ import sys
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -287,20 +288,96 @@ def _generate_training_charts(
     return has_cost_distribution
 
 
+def _load_corridor_data(scheme_dir: Path) -> dict[str, Any] | None:
+    """Load corridor boundaries .npz from the mission-level training output directory."""
+    from aerocapture.training.corridor import load_corridor
+
+    # corridor_boundaries.npz lives one level up (mission directory, e.g. training_output/)
+    # or in the piecewise_constant sibling directory
+    candidates = [
+        scheme_dir.parent / "corridor_boundaries.npz",
+        scheme_dir.parent / "piecewise_constant" / "corridor_boundaries.npz",
+    ]
+    for path in candidates:
+        data = load_corridor(path)
+        if data is not None:
+            return data
+    return None
+
+
+def _run_undispersed_nominal(toml_path: Path, scheme_dir: Path) -> npt.NDArray[np.float64] | None:
+    """Run a single undispersed simulation to get the nominal trajectory."""
+    try:
+        import aerocapture_rs  # type: ignore[import-not-found, import-untyped]
+    except ImportError:
+        return None
+
+    optimized = scheme_dir / f"optimized_{scheme_dir.name}.toml"
+    eval_toml = optimized if optimized.exists() else toml_path
+
+    overrides: dict[str, object] = {
+        "simulation.n_sims": 1,
+        "monte_carlo.initial_state.level": "off",
+        "monte_carlo.atmosphere.level": "off",
+        "monte_carlo.aerodynamics.level": "off",
+        "monte_carlo.navigation.level": "off",
+        "monte_carlo.mass.level": "off",
+    }
+
+    try:
+        results = aerocapture_rs.run_mc(
+            toml_path=str(eval_toml.resolve()),
+            overrides=overrides,
+            include_trajectories=True,
+        )
+        if results.trajectories:
+            traj: npt.NDArray[np.float64] = results.trajectories[0]
+            return traj
+    except Exception:
+        pass
+    return None
+
+
+def _find_best_trajectory(
+    final_records: npt.NDArray[np.float64],
+    trajectories: list[npt.NDArray[np.float64]],
+) -> npt.NDArray[np.float64] | None:
+    """Find the trajectory with the lowest total DV among captured cases."""
+    ecc = final_records[:, charts._FR_ECC]
+    captured_indices = np.where(ecc < 1.0)[0]
+    if len(captured_indices) == 0:
+        return None
+    dv = final_records[captured_indices, charts._FR_DV_TOTAL]
+    best_idx = captured_indices[int(np.argmin(dv))]
+    result: npt.NDArray[np.float64] = trajectories[best_idx]
+    return result
+
+
 def _generate_trajectory_charts(
     final_records: npt.NDArray[np.float64],
     trajectories: list[npt.NDArray[np.float64]],
     dispersions: npt.NDArray[np.float64],
     out_dir: Path,
+    scheme_dir: Path | None = None,
+    toml_path: Path | None = None,
 ) -> None:
     """Generate Part 2 (mission performance) SVG charts from final eval data."""
     ecc = final_records[:, charts._FR_ECC]
     captured_mask = ecc < 1.0
 
+    # Load corridor boundaries and nominal trajectories
+    corridor_data = _load_corridor_data(scheme_dir) if scheme_dir is not None else None
+    undispersed = _run_undispersed_nominal(toml_path, scheme_dir) if toml_path is not None and scheme_dir is not None else None
+    best_traj = _find_best_trajectory(final_records, trajectories)
+
     # Corridor panels
-    charts.chart_corridor_pdyn(trajectories, captured_mask, out_dir / "corridor_pdyn.svg")
-    charts.chart_corridor_inclination(trajectories, captured_mask, out_dir / "corridor_inclination.svg")
-    charts.chart_corridor_bank(trajectories, captured_mask, out_dir / "corridor_bank.svg")
+    nominal_kwargs: dict[str, Any] = {"undispersed_nominal": undispersed, "best_nominal": best_traj}
+    charts.chart_corridor_pdyn(
+        trajectories, captured_mask, out_dir / "corridor_pdyn.svg",
+        corridor_data=corridor_data, **nominal_kwargs,
+    )
+    charts.chart_corridor_inclination(trajectories, captured_mask, out_dir / "corridor_inclination.svg", **nominal_kwargs)
+    charts.chart_corridor_bank(trajectories, captured_mask, out_dir / "corridor_bank.svg", **nominal_kwargs)
 
     # Time-domain panels
     charts.chart_altitude_time(trajectories, captured_mask, out_dir / "altitude_time.svg")
@@ -364,7 +441,10 @@ def generate_report(
                 final_records_arr, trajectories, dispersions = eval_result
                 has_trajectories = True
                 _print_eval_summary(final_records_arr, n_sims)
-                _generate_trajectory_charts(final_records_arr, trajectories, dispersions, tmp_dir)
+                _generate_trajectory_charts(
+                    final_records_arr, trajectories, dispersions, tmp_dir,
+                    scheme_dir=scheme_dir, toml_path=toml_path,
+                )
                 final_records = final_records_arr
 
         # Write metadata.json
