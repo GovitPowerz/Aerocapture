@@ -934,9 +934,9 @@ def chart_dispersion_grid(
     dispersions: npt.NDArray[np.float64],
     output: Path,
 ) -> None:
-    """Panel 20: 4x6 subplot grid — each dispersion field vs log10(DV) with linear regression."""
+    """Panel 20: subplot grid — each dispersion field vs log10(DV) with linear regression."""
     n_fields = dispersions.shape[1]
-    n_cols = 6
+    n_cols = 4
     n_rows = math.ceil(n_fields / n_cols)
 
     dv = _clip_dv(final_records[:, _FR_DV_TOTAL])
