@@ -404,7 +404,7 @@ def generate_report(
             print(f"Typst compilation failed:\n{result.stderr}")
             return None
 
-        print(f"Report saved to {output_pdf}")
+        print(f"\nReport saved to {output_pdf}")
         return output_pdf
 
     finally:

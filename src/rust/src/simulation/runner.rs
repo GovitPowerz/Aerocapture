@@ -743,6 +743,7 @@ fn run_single(
     final_record[40] = deltav.dv1.abs() + deltav.dv2.abs();
     final_record[41] = deltav.total;
     final_record[45] = cumulative_bank_change_deg;
+    final_record[46] = orbit.inclination / DEG_TO_RAD - data.target_orbit.inclination / DEG_TO_RAD;
     final_record[48] = ftc_state.n_reversals as f64;
 
     Ok(SimResult {

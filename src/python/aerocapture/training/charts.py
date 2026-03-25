@@ -740,20 +740,24 @@ def chart_dv_distribution(final_records: npt.NDArray[np.float64], output: Path) 
 # Panel 16: Individual burn DV histograms (overlaid, log10 x)
 # ---------------------------------------------------------------------------
 def chart_dv_individual_burns(final_records: npt.NDArray[np.float64], output: Path) -> None:
-    """Panel 16: Overlaid histograms for dv1, dv2, dv3 on log10 x-axis."""
-    dv1 = np.log10(_clip_dv(final_records[:, _FR_DV1]))
-    dv2 = np.log10(_clip_dv(final_records[:, _FR_DV2]))
-    dv3 = np.log10(_clip_dv(final_records[:, _FR_DV3]))
+    """Panel 16: Overlaid histograms for |dv1|, |dv2|, |dv3| on log10 x-axis."""
+    dv1 = np.log10(_clip_dv(np.abs(final_records[:, _FR_DV1])))
+    dv2 = np.log10(_clip_dv(np.abs(final_records[:, _FR_DV2])))
+    dv3 = np.log10(_clip_dv(np.abs(final_records[:, _FR_DV3])))
 
     fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
-    ax.hist(dv1, bins=25, color="#1f77b4", alpha=0.5, label="DV1 (periapsis)")
-    ax.hist(dv2, bins=25, color="#ff7f0e", alpha=0.5, label="DV2 (apoapsis)")
-    ax.hist(dv3, bins=25, color="#2ca02c", alpha=0.5, label="DV3 (inclination)")
+    ax.hist(dv1, bins=25, color="#1f77b4", alpha=0.5, label="|DV1| (periapsis)")
+    ax.hist(dv2, bins=25, color="#ff7f0e", alpha=0.5, label="|DV2| (apoapsis)")
+    ax.hist(dv3, bins=25, color="#2ca02c", alpha=0.5, label="|DV3| (inclination)")
 
-    tick_positions = [np.log10(v) for v in _LOG10_TICK_VALUES]
-    tick_labels = [str(v) for v in _LOG10_TICK_VALUES]
-    ax.set_xticks(tick_positions)
-    ax.set_xticklabels(tick_labels)
+    # Snap x-axis to enclosing powers of 10
+    all_log = np.concatenate([dv1, dv2, dv3])
+    lo = np.floor(np.min(all_log))
+    hi = np.ceil(np.max(all_log))
+    ax.set_xlim(lo, hi)
+    tick_decades = np.arange(lo, hi + 1)
+    ax.set_xticks(tick_decades)
+    ax.set_xticklabels([f"{10**d:g}" for d in tick_decades])
 
     ax.set_xlabel("\u0394V (m/s)")
     ax.set_ylabel("Count")
