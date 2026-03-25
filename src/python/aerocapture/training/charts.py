@@ -307,20 +307,33 @@ _PARAM_DISTRIBUTION_THRESHOLD = 10
 def chart_parameter_evolution(records: list[dict[str, Any]], output: Path, resume_gens: list[int] | None = None) -> None:
     """Panel 5: Evolution of best parameter values across generations.
 
-    For schemes with <= 10 parameters, shows one line per parameter (normalized).
-    For schemes with > 10 parameters (e.g. NN weights), shows the distribution
-    of normalized parameter values as percentile curves (p1-p99).
+    For schemes with <= 10 parameters (from ``best_params``), shows one line per
+    parameter (normalized to [0,1]).
+
+    For schemes with > 10 parameters, shows percentile curves (p1-p99) of the
+    normalized parameter distribution.
+
+    For NN schemes (no ``best_params``, but ``weight_stats`` present), shows
+    per-layer mean/std evolution with ±1σ bands.
     """
     _require_records(records)
 
     with_params = [r for r in records if r.get("best_params")]
-    if not with_params:
+    with_weights = [r for r in records if r.get("weight_stats")]
+
+    if not with_params and not with_weights:
         fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
         ax.set_title("Parameter Evolution (no data)")
         sns.despine(fig=fig)
         _save_svg(fig, output)
         return
 
+    # --- NN path: use weight_stats (per-layer mean/std) ---
+    if not with_params and with_weights:
+        _chart_weight_stats_evolution(with_weights, output, resume_gens)
+        return
+
+    # --- Standard path: use best_params ---
     gens = [r["generation"] for r in with_params]
 
     # Collect all parameter names (stable order)
@@ -343,33 +356,67 @@ def chart_parameter_evolution(records: list[dict[str, Any]], output: Path, resum
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
 
     if len(all_keys) <= _PARAM_DISTRIBUTION_THRESHOLD:
-        # Individual lines mode
         for i, key in enumerate(all_keys):
             ax.plot(gens, normed_matrix[:, i], linewidth=1.0, label=key)
         ax.legend(fontsize="x-small", ncol=max(1, len(all_keys) // 4), loc="upper right")
+        ax.set_title("Parameter Evolution")
     else:
-        # Distribution mode: percentile curves across all parameters per generation
-        percentiles = [1, 10, 25, 50, 75, 90, 99]
-        pct_colors = ["#d62728", "#ff7f0e", "#bcbd22", "#1f77b4", "#bcbd22", "#ff7f0e", "#d62728"]
-        pct_widths = [0.6, 0.8, 1.0, 1.5, 1.0, 0.8, 0.6]
-        pct_styles: list[str] = [":", "--", "-.", "-", "-.", "--", ":"]
-
-        pct_data: dict[int, npt.NDArray[np.float64]] = {}
-        for p in percentiles:
-            pct_data[p] = np.nanpercentile(normed_matrix, p, axis=1)
-
-        for p, color, lw, ls in zip(percentiles, pct_colors, pct_widths, pct_styles):
-            ax.plot(gens, pct_data[p], color=color, linewidth=lw, linestyle=ls, label=f"p{p}")
-
-        ax.fill_between(gens, pct_data[25], pct_data[75], alpha=0.15, color="#1f77b4")
-        ax.legend(fontsize="x-small", ncol=4)
+        _plot_percentile_curves(ax, gens, normed_matrix)
         ax.set_title(f"Parameter Distribution ({len(all_keys)} params)")
 
     _add_resume_markers(ax, resume_gens)
     ax.set_xlabel("Generation")
     ax.set_ylabel("Normalized value")
-    if len(all_keys) <= _PARAM_DISTRIBUTION_THRESHOLD:
-        ax.set_title("Parameter Evolution")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)
+
+
+def _plot_percentile_curves(ax: plt.Axes, gens: list[int], matrix: npt.NDArray[np.float64]) -> None:  # type: ignore[name-defined]
+    """Draw percentile curves (p1-p99) with p25-p75 fill for a (n_gens, n_values) matrix."""
+    percentiles = [1, 10, 25, 50, 75, 90, 99]
+    pct_colors = ["#d62728", "#ff7f0e", "#bcbd22", "#1f77b4", "#bcbd22", "#ff7f0e", "#d62728"]
+    pct_widths = [0.6, 0.8, 1.0, 1.5, 1.0, 0.8, 0.6]
+    pct_styles: list[str] = [":", "--", "-.", "-", "-.", "--", ":"]
+
+    pct_data: dict[int, npt.NDArray[np.float64]] = {}
+    for p in percentiles:
+        pct_data[p] = np.nanpercentile(matrix, p, axis=1)
+
+    for p, color, lw, ls in zip(percentiles, pct_colors, pct_widths, pct_styles):
+        ax.plot(gens, pct_data[p], color=color, linewidth=lw, linestyle=ls, label=f"p{p}")
+
+    ax.fill_between(gens, pct_data[25], pct_data[75], alpha=0.15, color="#1f77b4")
+    ax.legend(fontsize="x-small", ncol=4)
+
+
+def _chart_weight_stats_evolution(
+    records: list[dict[str, Any]], output: Path, resume_gens: list[int] | None
+) -> None:
+    """NN variant: per-layer mean ± std evolution from weight_stats."""
+    gens = [r["generation"] for r in records]
+
+    # Discover layer names from first record
+    layer_names = list(records[0]["weight_stats"].keys())
+
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    for i, layer in enumerate(layer_names):
+        color = colors[i % len(colors)]
+        means = [r["weight_stats"][layer]["mean"] for r in records]
+        stds = [r["weight_stats"][layer]["std"] for r in records]
+        means_arr = np.array(means)
+        stds_arr = np.array(stds)
+
+        ax.plot(gens, means_arr, color=color, linewidth=1.0, label=layer)
+        ax.fill_between(gens, means_arr - stds_arr, means_arr + stds_arr, color=color, alpha=0.12)
+
+    _add_resume_markers(ax, resume_gens)
+    ax.set_xlabel("Generation")
+    ax.set_ylabel("Weight value")
+    ax.set_title(f"NN Weight Evolution ({len(layer_names)} layers, mean \u00b1 1\u03c3)")
+    ax.legend(fontsize="x-small", ncol=max(1, len(layer_names) // 3))
+    ax.axhline(0, color="grey", linewidth=0.5, linestyle="-")
     sns.despine(fig=fig)
     _save_svg(fig, output)
 
