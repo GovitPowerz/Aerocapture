@@ -625,11 +625,13 @@ def train(
                     pool_metrics: dict | None = None
                     if seed_pool is not None:
                         d_min, d_max = seed_pool.difficulty_range
+                        difficulty_scores = sorted(seed_pool.difficulty.values())
                         pool_metrics = {
                             "pool_size": len(seed_pool.seeds),
                             "difficulty_min": d_min,
                             "difficulty_max": d_max,
                             "n_evictions": seed_pool.n_evictions,
+                            "difficulty_scores": difficulty_scores,
                         }
 
                     # Log metrics

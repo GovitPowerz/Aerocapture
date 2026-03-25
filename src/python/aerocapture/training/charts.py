@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import matplotlib
 
@@ -23,7 +23,7 @@ from scipy import stats  # noqa: E402
 # ---------------------------------------------------------------------------
 # Module-level theme
 # ---------------------------------------------------------------------------
-sns.set_theme(style="whitegrid", palette="muted", font_scale=0.9)
+sns.set_theme(style="whitegrid", palette="muted", font_scale=0.9, rc={"axes.facecolor": "#f5f5f5"})
 
 # ---------------------------------------------------------------------------
 # Color constants
@@ -130,6 +130,17 @@ def _spaghetti_alpha(n: int) -> float:
     return max(0.02, min(0.2, 1.0 / math.sqrt(n)))
 
 
+def _add_log_minor_ticks(ax: plt.Axes, axis: Literal["x", "y"] = "y") -> None:  # type: ignore[name-defined]
+    """Add light dashed horizontal (or vertical) lines for log-scale minor ticks."""
+    from matplotlib.ticker import LogLocator
+
+    target = ax.yaxis if axis == "y" else ax.xaxis
+    subs: list[float] = list(range(2, 10))
+    target.set_minor_locator(LogLocator(base=10.0, subs=subs, numticks=100))
+    ax.grid(which="minor", axis=axis, color="#cccccc", linestyle="--", linewidth=0.4, alpha=0.6)
+    ax.grid(which="major", axis=axis, color="#aaaaaa", linestyle="-", linewidth=0.6, alpha=0.8)
+
+
 def _add_resume_markers(ax: plt.Axes, resume_gens: list[int] | None) -> None:  # type: ignore[name-defined]
     """Add vertical dashed lines at resume generations."""
     if not resume_gens:
@@ -173,6 +184,7 @@ def chart_convergence(records: list[dict[str, Any]], output: Path, resume_gens: 
     if improvement_gens:
         ax.scatter(improvement_gens, improvement_costs, color=COLOR_BEST, marker="v", s=30, zorder=5, label="Improvement")
 
+    _add_log_minor_ticks(ax, axis="y")
     _add_resume_markers(ax, resume_gens)
     ax.set_xlabel("Generation")
     ax.set_ylabel("Cost (log scale)")
@@ -229,7 +241,7 @@ def chart_diversity_cost(records: list[dict[str, Any]], output: Path, resume_gen
     diversity = [r.get("population_diversity", 0.0) for r in records]
     best = [r["best_cost"] for r in records]
 
-    fig, ax1 = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+    fig, ax1 = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
     ax1.plot(gens, diversity, color=COLOR_DIVERSITY, linewidth=1.5, label="Diversity")
     ax1.set_xlabel("Generation")
     ax1.set_ylabel("Population diversity", color=COLOR_DIVERSITY)
@@ -239,6 +251,7 @@ def chart_diversity_cost(records: list[dict[str, Any]], output: Path, resume_gen
     ax2.semilogy(gens, best, color=COLOR_BEST, linewidth=1.0, alpha=0.8, label="Best cost")
     ax2.set_ylabel("Best cost (log)", color=COLOR_BEST)
     ax2.tick_params(axis="y", labelcolor=COLOR_BEST)
+    _add_log_minor_ticks(ax2, axis="y")
 
     _add_resume_markers(ax1, resume_gens)
     ax1.set_title("Diversity vs Cost")
@@ -276,6 +289,7 @@ def chart_cost_distribution(records: list[dict[str, Any]], output: Path) -> bool
 
     ax.boxplot(box_data, positions=positions, tick_labels=labels, widths=0.6)
     ax.set_yscale("log")
+    _add_log_minor_ticks(ax, axis="y")
     ax.set_xlabel("Generation")
     ax.set_ylabel("Cost (log scale)")
     ax.set_title("Cost Distribution Over Training")
@@ -342,7 +356,11 @@ def chart_parameter_evolution(records: list[dict[str, Any]], output: Path, resum
 # Panel 6: Seed pool evolution (conditional)
 # ---------------------------------------------------------------------------
 def chart_seed_pool(records: list[dict[str, Any]], output: Path, resume_gens: list[int] | None = None) -> bool:
-    """Panel 6: Seed pool size and difficulty metrics over generations.
+    """Panel 6: Seed pool difficulty distribution over generations.
+
+    Shows percentile curves (p1, p10, p25, p50, p75, p90, p99) of per-seed
+    difficulty scores. Falls back to min/max lines if difficulty_scores arrays
+    are not available in the JSONL data.
 
     Returns False if no ``pool_metrics`` data is available.
     """
@@ -351,28 +369,46 @@ def chart_seed_pool(records: list[dict[str, Any]], output: Path, resume_gens: li
         return False
 
     gens = [r["generation"] for r in with_pool]
-    pool_sizes = [r["pool_metrics"].get("pool_size", 0) for r in with_pool]
-    mean_difficulty = [r["pool_metrics"].get("mean_difficulty", 0.0) for r in with_pool]
+    has_scores = any(r["pool_metrics"].get("difficulty_scores") for r in with_pool)
 
-    fig, ax1 = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    ax1.plot(gens, pool_sizes, color=COLOR_CAPTURE, linewidth=1.5, label="Pool size")
-    ax1.set_xlabel("Generation")
-    ax1.set_ylabel("Pool size", color=COLOR_CAPTURE)
-    ax1.tick_params(axis="y", labelcolor=COLOR_CAPTURE)
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
 
-    ax2 = ax1.twinx()
-    ax2.plot(gens, mean_difficulty, color=COLOR_WORST, linewidth=1.0, alpha=0.8, label="Mean difficulty")
-    ax2.set_ylabel("Mean difficulty", color=COLOR_WORST)
-    ax2.tick_params(axis="y", labelcolor=COLOR_WORST)
+    if has_scores:
+        percentiles = [1, 10, 25, 50, 75, 90, 99]
+        pct_colors = ["#d62728", "#ff7f0e", "#bcbd22", "#1f77b4", "#bcbd22", "#ff7f0e", "#d62728"]
+        pct_widths = [0.6, 0.8, 1.0, 1.5, 1.0, 0.8, 0.6]
+        pct_styles = [":", "--", "-.", "-", "-.", "--", ":"]
 
-    _add_resume_markers(ax1, resume_gens)
-    ax1.set_title("Seed Pool Evolution")
+        pct_data: dict[int, list[float]] = {p: [] for p in percentiles}
+        for r in with_pool:
+            scores = r["pool_metrics"].get("difficulty_scores", [])
+            if scores:
+                arr = np.array(scores)
+                for p in percentiles:
+                    pct_data[p].append(float(np.percentile(arr, p)))
+            else:
+                for p in percentiles:
+                    pct_data[p].append(float("nan"))
 
-    lines1, labels1 = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, fontsize="small")
+        for p, color, lw, ls in zip(percentiles, pct_colors, pct_widths, pct_styles):
+            ax.plot(gens, pct_data[p], color=color, linewidth=lw, linestyle=ls, label=f"p{p}")
 
-    sns.despine(fig=fig, right=False)
+        # Fill between p25-p75
+        ax.fill_between(gens, pct_data[25], pct_data[75], alpha=0.15, color="#1f77b4")
+    else:
+        # Fallback: only min/max available
+        d_min = [r["pool_metrics"].get("difficulty_min", 0.0) for r in with_pool]
+        d_max = [r["pool_metrics"].get("difficulty_max", 0.0) for r in with_pool]
+        ax.plot(gens, d_min, color=COLOR_CAPTURE, linewidth=1.0, label="Min difficulty")
+        ax.plot(gens, d_max, color=COLOR_WORST, linewidth=1.0, label="Max difficulty")
+        ax.fill_between(gens, d_min, d_max, alpha=0.15, color="#1f77b4")
+
+    _add_resume_markers(ax, resume_gens)
+    ax.set_xlabel("Generation")
+    ax.set_ylabel("Difficulty (cost of best individual)")
+    ax.set_title("Seed Pool Difficulty Distribution")
+    ax.legend(fontsize="x-small", ncol=4)
+    sns.despine(fig=fig)
     _save_svg(fig, output)
     return True
 
@@ -517,7 +553,7 @@ def chart_corridor_inclination(
     best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Panel 8: Energy vs inclination with captured envelope fill."""
-    fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
 
     centers, min_vals, max_vals = _compute_envelope(trajectories, energy_col=8, value_col=11, captured_mask=captured_mask)
     valid = ~np.isnan(min_vals)
@@ -549,7 +585,7 @@ def chart_corridor_bank(
     best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Panel 9: Energy vs bank angle with captured envelope fill."""
-    fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
 
     centers, min_vals, max_vals = _compute_envelope(trajectories, energy_col=8, value_col=10, captured_mask=captured_mask)
     valid = ~np.isnan(min_vals)
@@ -606,7 +642,7 @@ def chart_heat_flux_time(
     limit_kw_m2: float | None = None,
 ) -> None:
     """Panel 11: Heat flux vs time MC spaghetti with optional constraint line."""
-    fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
     _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=6)
 
     if limit_kw_m2 is not None:
@@ -632,7 +668,7 @@ def chart_gload_time(
     limit_g: float | None = None,
 ) -> None:
     """Panel 12: G-load vs time MC spaghetti with optional constraint line."""
-    fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
     _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=12)
 
     if limit_g is not None:
@@ -700,7 +736,7 @@ def chart_dv_distribution(final_records: npt.NDArray[np.float64], output: Path) 
     dv = _clip_dv(final_records[:, _FR_DV_TOTAL])
     log_dv = np.log10(dv)
 
-    fig, ax1 = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+    fig, ax1 = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
 
     # Histogram
     ax1.hist(log_dv, bins=30, color=COLOR_CAPTURE, alpha=0.7, edgecolor="white")
@@ -745,7 +781,7 @@ def chart_dv_individual_burns(final_records: npt.NDArray[np.float64], output: Pa
     dv2 = np.log10(_clip_dv(np.abs(final_records[:, _FR_DV2])))
     dv3 = np.log10(_clip_dv(np.abs(final_records[:, _FR_DV3])))
 
-    fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
     ax.hist(dv1, bins=25, color="#1f77b4", alpha=0.5, label="|DV1| (periapsis)")
     ax.hist(dv2, bins=25, color="#ff7f0e", alpha=0.5, label="|DV2| (apoapsis)")
     ax.hist(dv3, bins=25, color="#2ca02c", alpha=0.5, label="|DV3| (inclination)")
@@ -779,7 +815,7 @@ def chart_entry_conditions(
     entry_v = np.array([traj[0, 3] for traj in trajectories])
     entry_fpa = np.array([traj[0, 4] for traj in trajectories])
 
-    fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
     cap = captured_mask
     ax.scatter(entry_fpa[cap], entry_v[cap], color=COLOR_NOMINAL_BEST, s=20, label="Captured", zorder=5)
     hyp = ~cap
@@ -807,7 +843,7 @@ def chart_exit_conditions(final_records: npt.NDArray[np.float64], output: Path) 
     ecc = final_records[:, _FR_ECC]
     captured = ecc < 1.0
 
-    fig, ax = plt.subplots(figsize=HALF_WIDTH, dpi=DPI)
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
     if np.any(captured):
         ax.scatter(exit_fpa[captured], exit_v[captured], s=sizes[captured], color=COLOR_NOMINAL_BEST, alpha=0.7, label="Captured")
     if np.any(~captured):

@@ -15,10 +15,10 @@
 #full-width-chart(dir + "/convergence.svg")
 #full-width-chart(dir + "/capture_constraint_rate.svg")
 
+#full-width-chart(dir + "/diversity_cost.svg")
+
 #if meta.at("has_cost_distribution", default: false) {
-  half-width-pair(dir + "/diversity_cost.svg", dir + "/cost_distribution.svg")
-} else {
-  full-width-chart(dir + "/diversity_cost.svg")
+  full-width-chart(dir + "/cost_distribution.svg")
 }
 
 #full-width-chart(dir + "/parameter_evolution.svg")
@@ -34,9 +34,11 @@
 
 #if meta.at("has_trajectories", default: false) {
   full-width-chart(dir + "/corridor_pdyn.svg")
-  half-width-pair(dir + "/corridor_inclination.svg", dir + "/corridor_bank.svg")
+  full-width-chart(dir + "/corridor_inclination.svg")
+  full-width-chart(dir + "/corridor_bank.svg")
   full-width-chart(dir + "/altitude_time.svg")
-  half-width-pair(dir + "/heat_flux_time.svg", dir + "/gload_time.svg")
+  full-width-chart(dir + "/heat_flux_time.svg")
+  full-width-chart(dir + "/gload_time.svg")
   full-width-chart(dir + "/bank_angle_time.svg")
   full-width-chart(dir + "/nav_density_ratio.svg")
 } else {
@@ -48,10 +50,12 @@
 }
 
 #if meta.at("has_final_eval", default: false) {
-  half-width-pair(dir + "/dv_distribution.svg", dir + "/dv_individual_burns.svg")
+  full-width-chart(dir + "/dv_distribution.svg")
+  full-width-chart(dir + "/dv_individual_burns.svg")
 
   if meta.at("has_trajectories", default: false) {
-    half-width-pair(dir + "/entry_conditions.svg", dir + "/exit_conditions.svg")
+    full-width-chart(dir + "/entry_conditions.svg")
+    full-width-chart(dir + "/exit_conditions.svg")
   }
 
   // Performance Summary Table
