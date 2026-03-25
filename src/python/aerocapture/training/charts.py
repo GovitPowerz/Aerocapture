@@ -46,7 +46,7 @@ HALF_WIDTH: tuple[int, int] = (5, 4)
 DPI: int = 150
 
 # ---------------------------------------------------------------------------
-# DV constants (shared with final_report.py)
+# DV constants (shared with report.py)
 # ---------------------------------------------------------------------------
 DV_CAP: float = 5000.0
 DV_FLOOR: float = 0.1

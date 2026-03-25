@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from aerocapture.training.report import generate_comparison_report, generate_report, generate_single_report, load_run_data
+from aerocapture.training.report import generate_comparison_report, generate_report, load_run_data
 
 
 def _write_fixture_jsonl(path: Path, n_gens: int = 20) -> Path:
@@ -214,11 +214,6 @@ class TestSingleReport:
         # Typst unavailable -> returns None but charts were generated
         assert result is None
 
-    @patch("aerocapture.training.report._check_typst", return_value=False)
-    def test_backward_compat_alias(self, _mock_typst: object, tmp_path: Path) -> None:
-        scheme_dir = _write_fixture_jsonl(tmp_path)
-        result = generate_single_report(scheme_dir)
-        assert result is None  # Typst not available
 
 
 class TestResumeMarkers:

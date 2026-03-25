@@ -415,14 +415,6 @@ def generate_report(
 # ---------------------------------------------------------------------------
 # Backward compatibility alias (used by train.py)
 # ---------------------------------------------------------------------------
-def generate_single_report(scheme_dir: Path) -> Path | None:
-    """Backward-compatible wrapper around :func:`generate_report`.
-
-    Called by ``train.py`` at end of training — runs without final eval.
-    """
-    return generate_report(scheme_dir, toml_path=None, skip_final_eval=True)
-
-
 # ---------------------------------------------------------------------------
 # Cross-scheme comparison report
 # ---------------------------------------------------------------------------
