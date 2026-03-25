@@ -301,13 +301,20 @@ def chart_cost_distribution(records: list[dict[str, Any]], output: Path) -> bool
 # ---------------------------------------------------------------------------
 # Panel 5: Best parameter values over generations
 # ---------------------------------------------------------------------------
+_PARAM_DISTRIBUTION_THRESHOLD = 10
+
+
 def chart_parameter_evolution(records: list[dict[str, Any]], output: Path, resume_gens: list[int] | None = None) -> None:
-    """Panel 5: Evolution of best parameter values across generations."""
+    """Panel 5: Evolution of best parameter values across generations.
+
+    For schemes with <= 10 parameters, shows one line per parameter (normalized).
+    For schemes with > 10 parameters (e.g. NN weights), shows the distribution
+    of normalized parameter values as percentile curves (p1-p99).
+    """
     _require_records(records)
 
     with_params = [r for r in records if r.get("best_params")]
     if not with_params:
-        # Nothing to plot but not an error — just create an empty figure
         fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
         ax.set_title("Parameter Evolution (no data)")
         sns.despine(fig=fig)
@@ -315,7 +322,8 @@ def chart_parameter_evolution(records: list[dict[str, Any]], output: Path, resum
         return
 
     gens = [r["generation"] for r in with_params]
-    # Collect all parameter names
+
+    # Collect all parameter names (stable order)
     all_keys: list[str] = []
     seen: set[str] = set()
     for r in with_params:
@@ -324,30 +332,44 @@ def chart_parameter_evolution(records: list[dict[str, Any]], output: Path, resum
                 all_keys.append(k)
                 seen.add(k)
 
-    # Normalize each parameter to [0, 1] for overlay plotting
-    for key in all_keys:
-        values = [r["best_params"].get(key, float("nan")) for r in with_params]
-        arr = np.array(values, dtype=float)
-        vmin, vmax = np.nanmin(arr), np.nanmax(arr)
-        normed = (arr - vmin) / (vmax - vmin) if vmax - vmin > 0 else np.full_like(arr, 0.5)
-        # Store back temporarily for plotting
-        for i, r in enumerate(with_params):
-            r.setdefault("_normed_params", {})[key] = normed[i]
+    # Build normalized matrix: (n_gens, n_params)
+    raw_matrix = np.array([[r["best_params"].get(k, float("nan")) for k in all_keys] for r in with_params])
+    col_min = np.nanmin(raw_matrix, axis=0)
+    col_max = np.nanmax(raw_matrix, axis=0)
+    col_range = col_max - col_min
+    col_range[col_range == 0] = 1.0  # avoid division by zero
+    normed_matrix = (raw_matrix - col_min) / col_range
 
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    for key in all_keys:
-        vals = [r["_normed_params"][key] for r in with_params]
-        ax.plot(gens, vals, linewidth=1.0, label=key)
 
-    # Clean up temporary data
-    for r in with_params:
-        r.pop("_normed_params", None)
+    if len(all_keys) <= _PARAM_DISTRIBUTION_THRESHOLD:
+        # Individual lines mode
+        for i, key in enumerate(all_keys):
+            ax.plot(gens, normed_matrix[:, i], linewidth=1.0, label=key)
+        ax.legend(fontsize="x-small", ncol=max(1, len(all_keys) // 4), loc="upper right")
+    else:
+        # Distribution mode: percentile curves across all parameters per generation
+        percentiles = [1, 10, 25, 50, 75, 90, 99]
+        pct_colors = ["#d62728", "#ff7f0e", "#bcbd22", "#1f77b4", "#bcbd22", "#ff7f0e", "#d62728"]
+        pct_widths = [0.6, 0.8, 1.0, 1.5, 1.0, 0.8, 0.6]
+        pct_styles: list[str] = [":", "--", "-.", "-", "-.", "--", ":"]
+
+        pct_data: dict[int, npt.NDArray[np.float64]] = {}
+        for p in percentiles:
+            pct_data[p] = np.nanpercentile(normed_matrix, p, axis=1)
+
+        for p, color, lw, ls in zip(percentiles, pct_colors, pct_widths, pct_styles):
+            ax.plot(gens, pct_data[p], color=color, linewidth=lw, linestyle=ls, label=f"p{p}")
+
+        ax.fill_between(gens, pct_data[25], pct_data[75], alpha=0.15, color="#1f77b4")
+        ax.legend(fontsize="x-small", ncol=4)
+        ax.set_title(f"Parameter Distribution ({len(all_keys)} params)")
 
     _add_resume_markers(ax, resume_gens)
     ax.set_xlabel("Generation")
     ax.set_ylabel("Normalized value")
-    ax.set_title("Parameter Evolution")
-    ax.legend(fontsize="x-small", ncol=max(1, len(all_keys) // 4), loc="upper right")
+    if len(all_keys) <= _PARAM_DISTRIBUTION_THRESHOLD:
+        ax.set_title("Parameter Evolution")
     sns.despine(fig=fig)
     _save_svg(fig, output)
 
