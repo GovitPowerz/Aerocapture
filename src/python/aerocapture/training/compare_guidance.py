@@ -132,7 +132,6 @@ def run_scheme(
     final = _parse_final_to_legacy_array(final_file)
     if final is None or len(final) == 0:
         return None
-    energy = final[:, 7]
     ecc = final[:, 9]
     ifinal = final[:, 31]
     captured = (ifinal == 3) & (ecc < 1.0)
