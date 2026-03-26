@@ -11,7 +11,7 @@ pub mod simulation;
 pub struct RunOutput {
     /// Per-timestep state: [alt_km, lon_deg, lat_deg, vel_m_s, fpa_deg, heading_deg,
     /// heat_flux_kw_m2, time_s, energy_mj_kg, pdyn_kpa, bank_angle_deg, inclination_deg,
-    /// g_load_g, nav_density_ratio, truth_density_kg_m3, reserved]
+    /// g_load_g, nav_density_ratio, truth_density_kg_m3, heat_load_kj_m2]
     pub trajectory: Vec<[f64; 16]>,
     /// Full 52-column final record (same layout as CSV file output)
     pub final_record: [f64; 52],

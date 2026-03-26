@@ -87,7 +87,7 @@ enum TermReason {
 struct SimResult {
     sim_idx: i32,
     final_line: [f64; 52],
-    photo_lines: Vec<[f64; 28]>,
+    photo_lines: Vec<[f64; 29]>,
     dispersions: [f64; DISPERSION_DRAW_LEN],
 }
 
@@ -239,7 +239,7 @@ pub fn run_for_api(
                             p[25],       // [12] g_load_g
                             p[26],       // [13] nav_density_ratio
                             p[27],       // [14] truth_density_kg_m3
-                            0.0,         // [15] reserved
+                            p[28],       // [15] heat_load_kj_m2
                         ]
                     })
                     .collect()
@@ -306,9 +306,9 @@ fn write_csv_output(
     Ok(())
 }
 
-/// Extract 21 CSV values from the 28-element photo array.
+/// Extract 22 CSV values from the 29-element photo array.
 /// Drops: [20] radial_velocity_2 (duplicate), [22] sim_number, [23] reserved, [24-27] trajectory-only columns.
-fn extract_photo_csv_values(values: &[f64; 28]) -> [f64; 21] {
+fn extract_photo_csv_values(values: &[f64; 29]) -> [f64; 22] {
     [
         values[0],  // time_s
         values[1],  // altitude_km
@@ -331,6 +331,7 @@ fn extract_photo_csv_values(values: &[f64; 28]) -> [f64; 21] {
         values[18], // energy_j_kg
         values[19], // dynamic_pressure_pa
         values[21], // dynamic_pressure_onboard_kpa (skip [20] duplicate)
+        values[28], // heat_load_kj_m2
     ]
 }
 
@@ -453,7 +454,7 @@ fn run_single(
     };
     let mut sequencer = SequencerState::new();
 
-    let mut photo_lines: Vec<[f64; 28]> = Vec::new();
+    let mut photo_lines: Vec<[f64; 29]> = Vec::new();
     let mut cumulative_bank_change_deg = 0.0_f64;
     let mut dynamic_pressure_for_photo = 0.0_f64;
     let mut density_estimate_for_photo = 0.0_f64;
@@ -564,6 +565,7 @@ fn run_single(
                 data,
                 nav_state.density_gain,
                 run_state,
+                sim.state[6],
             ));
         }
 
@@ -622,6 +624,7 @@ fn run_single(
             data,
             nav_state.density_gain,
             run_state,
+            sim.state[6],
         ));
     }
 
@@ -783,7 +786,8 @@ fn build_photo_values(
     data: &SimData,
     density_gain: f64,
     run_state: &init::RunState,
-) -> [f64; 28] {
+    cumulative_flux: f64,
+) -> [f64; 29] {
     let (altitude, latitude) =
         geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
 
@@ -856,10 +860,11 @@ fn build_photo_values(
         0.5 * density_estimate * sim.state[3] * sim.state[3] / 1e3,
         sim_index as f64,
         0.0,
-        heat_flux / 1e3,  // [24] heat_flux kW/m²
-        load_factor / G0, // [25] g-load in g's
-        density_gain,     // [26] nav density ratio (estimated/model)
-        rho_truth,        // [27] truth density kg/m³
+        heat_flux / 1e3,       // [24] heat_flux kW/m²
+        load_factor / G0,      // [25] g-load in g's
+        density_gain,          // [26] nav density ratio (estimated/model)
+        rho_truth,             // [27] truth density kg/m³
+        cumulative_flux / 1e3, // [28] heat_load_kj_m2 (J/m² → kJ/m²)
     ]
 }
 

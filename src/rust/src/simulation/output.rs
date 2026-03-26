@@ -4,7 +4,7 @@ use std::io::{self, Write};
 
 // ─── CSV column schemas ───
 
-/// Photo CSV column headers (21 columns, down from 24).
+/// Photo CSV column headers (22 columns, down from 24 + 1 new).
 /// Dropped: radial_velocity_2 (duplicate), sim_number (metadata), reserved (always 0).
 pub const PHOTO_CSV_COLUMNS: &[&str] = &[
     "time_s",
@@ -28,6 +28,7 @@ pub const PHOTO_CSV_COLUMNS: &[&str] = &[
     "energy_j_kg",
     "dynamic_pressure_pa",
     "dynamic_pressure_onboard_kpa",
+    "heat_load_kj_m2",
 ];
 
 /// Final CSV column headers (39 columns, down from 53).
