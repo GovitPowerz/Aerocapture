@@ -20,6 +20,8 @@ pub struct RunState {
     pub ref_area_bias: f64,      // reference area bias (fractional)
     pub max_bank_rate_bias: f64, // max bank rate bias (fractional)
     pub filter_gain_bias: f64,   // density filter gain bias (absolute delta)
+    pub wind_scale: f64,         // wind speed multiplier (1.0 = nominal)
+    pub wind_direction_bias: f64, // wind direction rotation (radians)
     pub nav_biases: NavigationBiases,
     pub pilot_biases: PilotBiases,
 }
@@ -44,6 +46,8 @@ pub fn init_run_from_draw(sim_data: &SimData, draw: &DispersionDraw) -> RunState
         ref_area_bias: draw.ref_area,
         max_bank_rate_bias: draw.max_bank_rate,
         filter_gain_bias: draw.filter_gain,
+        wind_scale: draw.wind_scale,
+        wind_direction_bias: draw.wind_direction_bias,
         nav_biases: NavigationBiases {
             pos: [draw.nav_altitude, draw.nav_longitude, draw.nav_latitude],
             vel: [draw.nav_velocity, draw.nav_flight_path, draw.nav_azimuth],
@@ -110,6 +114,7 @@ mod tests {
             },
             success: SuccessCriteria::default(),
             wind_enabled: false,
+            wind_table: None,
             neural_net: None,
             dispersion_config: None,
         }

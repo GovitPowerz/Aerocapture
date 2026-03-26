@@ -122,6 +122,7 @@ pub fn minimal_sim_data() -> SimData {
         constraints: Constraints::default(),
         success: SuccessCriteria::default(),
         wind_enabled: false,
+        wind_table: None,
         neural_net: None,
         dispersion_config: None,
     }

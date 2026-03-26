@@ -826,13 +826,17 @@ fn build_photo_values(
     // with final_record peak values and constraint classification.
     let rho_truth = data.atmosphere.density_at(altitude);
     let rho_dispersed = rho_truth * (1.0 + run_state.density_bias);
-    let heat_flux = data.capsule.cq * rho_dispersed.sqrt() * sim.state[3].powf(3.05);
+    // Wind-corrected velocity for aero-dependent quantities
+    let v_eff = effective_airspeed(
+        sim.state[3], sim.state[4], sim.state[5], sim.state[2], altitude, data, run_state,
+    );
+    let heat_flux = data.capsule.cq * rho_dispersed.sqrt() * v_eff.powf(3.05);
     let aoa_dispersed = sim.aoa + run_state.incidence_bias;
     let cx = data.aero.interpolate_cx(aoa_dispersed) * (1.0 + run_state.cx_bias);
     let cz = data.aero.interpolate_cz(aoa_dispersed) * (1.0 + run_state.cz_bias);
     let mass = data.capsule.mass * (1.0 + run_state.mass_bias);
     let ref_area = data.capsule.reference_area * (1.0 + run_state.ref_area_bias);
-    let aero_accel = rho_dispersed * ref_area * sim.state[3] * sim.state[3] / (2.0 * mass);
+    let aero_accel = rho_dispersed * ref_area * v_eff * v_eff / (2.0 * mass);
     let load_factor = aero_accel * (cx * cx + cz * cz).sqrt();
 
     [
@@ -903,13 +907,19 @@ fn track_peak_values(
     run_state: &init::RunState,
 ) {
     let v = sim.state[3];
+    let gamma = sim.state[4];
+    let psi = sim.state[5];
+    let lat = sim.state[2];
     let rho = data.atmosphere.density_at(altitude) * (1.0 + run_state.density_bias);
 
+    // Wind-corrected velocity for aero-dependent quantities
+    let v_eff = effective_airspeed(v, gamma, psi, lat, altitude, data, run_state);
+
     // Heat flux (W/m²) — same formula as dflux in compute_derivatives
-    let heat_flux = data.capsule.cq * rho.sqrt() * v.powf(3.05);
+    let heat_flux = data.capsule.cq * rho.sqrt() * v_eff.powf(3.05);
 
     // Dynamic pressure (Pa)
-    let pdyn = 0.5 * rho * v * v;
+    let pdyn = 0.5 * rho * v_eff * v_eff;
 
     // Load factor (m/s²) — aerodynamic acceleration magnitude
     let aoa_dispersed = sim.aoa + run_state.incidence_bias;
@@ -917,7 +927,7 @@ fn track_peak_values(
     let cz = data.aero.interpolate_cz(aoa_dispersed) * (1.0 + run_state.cz_bias);
     let mass = data.capsule.mass * (1.0 + run_state.mass_bias);
     let ref_area = data.capsule.reference_area * (1.0 + run_state.ref_area_bias);
-    let aero_accel = rho * ref_area * v * v / (2.0 * mass);
+    let aero_accel = rho * ref_area * v_eff * v_eff / (2.0 * mass);
     let load_factor = aero_accel * (cx * cx + cz * cz).sqrt();
 
     if heat_flux > sim.max_heat_flux {
@@ -934,6 +944,42 @@ fn track_peak_values(
         sim.max_dyn_pressure = pdyn;
         sim.alt_max_pdyn = altitude;
         sim.time_max_pdyn = sim_time;
+    }
+}
+
+/// Compute effective airspeed accounting for wind.
+///
+/// The state velocity `v` is relative to the planet-fixed atmosphere.
+/// Wind adds a velocity perturbation: we subtract wind from the vehicle's
+/// ground-relative velocity components to get the airspeed used for aero forces.
+/// Returns the original `v` when wind is disabled or no wind table is loaded.
+fn effective_airspeed(
+    v: f64,
+    gamma: f64,
+    psi: f64,
+    lat: f64,
+    altitude: f64,
+    data: &SimData,
+    run_state: &init::RunState,
+) -> f64 {
+    if !data.wind_enabled {
+        return v;
+    }
+    if let Some(ref wt) = data.wind_table {
+        let w = wt.wind_at(altitude, lat);
+        let scale = run_state.wind_scale;
+        let rot = run_state.wind_direction_bias;
+        // Apply dispersions: scale and rotate wind vector
+        let we = scale * (w.east * rot.cos() - w.north * rot.sin());
+        let wn = scale * (w.east * rot.sin() + w.north * rot.cos());
+        // Project into trajectory frame and compute effective speed
+        let cos_g = gamma.cos();
+        let v_east = v * cos_g * psi.sin() - we;
+        let v_north = v * cos_g * psi.cos() - wn;
+        let v_vert = v * gamma.sin();
+        (v_east * v_east + v_north * v_north + v_vert * v_vert).sqrt()
+    } else {
+        v
     }
 }
 
@@ -965,9 +1011,13 @@ fn compute_derivatives(
 
     let mass = data.capsule.mass * (1.0 + run_state.mass_bias);
     let ref_area = data.capsule.reference_area * (1.0 + run_state.ref_area_bias);
+
+    // Wind-corrected velocity for aero forces and heat flux
+    let v_eff = effective_airspeed(v, gamma, psi, lat, altitude, data, run_state);
+
     let aero_factor = rho * ref_area / (2.0 * mass);
-    let acdrag = aero_factor * cx * v * v;
-    let aclift = aero_factor * cz * v * v;
+    let acdrag = aero_factor * cx * v_eff * v_eff;
+    let aclift = aero_factor * cz * v_eff * v_eff;
 
     let cos_bank = bank_angle.cos();
     let sin_bank = bank_angle.sin();
@@ -982,6 +1032,7 @@ fn compute_derivatives(
 
     let omega = planet.omega();
 
+    // Kinematic derivatives use original v (planet-relative)
     let dr = v * sin_gamma;
     let dlon = v * cos_gamma * sin_psi / (r * cos_lat);
     let dlat = v * cos_gamma * cos_psi / r;
@@ -1000,7 +1051,8 @@ fn compute_derivatives(
         + (gravtl * sin_psi / (v * cos_gamma))
         + (omega * omega * r * cos_lat * sin_lat * sin_psi / (v * cos_gamma));
 
-    let dflux = data.capsule.cq * rho.sqrt() * v.powf(3.05);
+    // Heat flux uses wind-corrected velocity
+    let dflux = data.capsule.cq * rho.sqrt() * v_eff.powf(3.05);
     let dtime = 1.0;
 
     [dr, dlon, dlat, dv, dgamma, dpsi, dflux, dtime]

@@ -213,6 +213,8 @@ pub struct TomlData {
     pub atmosphere: Option<String>,
     pub reference_trajectory: Option<String>,
     pub neural_network: Option<String>,
+    #[serde(default)]
+    pub wind_table: Option<String>,
     pub results_suffix: Option<String>,
 }
 
@@ -591,6 +593,27 @@ pub struct TomlMonteCarlo {
     pub vehicle: Option<TomlMcDomain>,
     pub pilot: Option<TomlMcDomain>,
     pub nav_filter: Option<TomlMcDomain>,
+    pub wind: Option<TomlMcWind>,
+}
+
+/// Wind dispersion config.
+/// Scale is a uniform draw in [scale_min, scale_max] (multiplicative on wind speed).
+/// Direction bias is a uniform draw in [-direction_bias_deg, +direction_bias_deg] (rotation).
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct TomlMcWind {
+    #[serde(default = "default_wind_scale_min")]
+    pub scale_min: f64,
+    #[serde(default = "default_wind_scale_max")]
+    pub scale_max: f64,
+    #[serde(default)]
+    pub direction_bias_deg: f64,
+}
+
+fn default_wind_scale_min() -> f64 {
+    0.5
+}
+fn default_wind_scale_max() -> f64 {
+    1.5
 }
 
 /// A single dispersion domain config.

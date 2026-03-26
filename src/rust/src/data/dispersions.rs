@@ -306,6 +306,14 @@ impl NavFilterSigmas {
     }
 }
 
+/// Wind dispersion parameters.
+#[derive(Debug, Clone, Copy)]
+pub struct WindDispersionConfig {
+    pub scale_min: f64,          // lower bound for uniform draw (e.g. 0.5)
+    pub scale_max: f64,          // upper bound for uniform draw (e.g. 1.5)
+    pub direction_bias_deg: f64, // max rotation ±deg
+}
+
 /// Full domain-based dispersion configuration.
 #[derive(Debug, Clone)]
 pub struct DispersionConfig {
@@ -318,6 +326,7 @@ pub struct DispersionConfig {
     pub vehicle: Option<VehicleSigmas>,
     pub pilot: Option<PilotSigmas>,
     pub nav_filter: Option<NavFilterSigmas>,
+    pub wind: Option<WindDispersionConfig>,
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -326,7 +335,7 @@ pub struct DispersionConfig {
 
 /// One simulation's dispersion draws.
 /// Values are in SI units, ready to apply directly.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct DispersionDraw {
     // Initial state (Gaussian draws × sigma, SI units)
     pub altitude: f64,    // meters
@@ -367,10 +376,47 @@ pub struct DispersionDraw {
 
     // Navigation filter (Gaussian draw × sigma, absolute)
     pub filter_gain: f64, // absolute delta on lambda
+
+    // Wind dispersions
+    pub wind_scale: f64,          // multiplicative (1.0 = no change)
+    pub wind_direction_bias: f64, // rotation in radians
+}
+
+impl Default for DispersionDraw {
+    fn default() -> Self {
+        Self {
+            altitude: 0.0,
+            longitude: 0.0,
+            latitude: 0.0,
+            velocity: 0.0,
+            flight_path: 0.0,
+            azimuth: 0.0,
+            density: 0.0,
+            drag_coeff: 0.0,
+            lift_coeff: 0.0,
+            incidence: 0.0,
+            nav_altitude: 0.0,
+            nav_longitude: 0.0,
+            nav_latitude: 0.0,
+            nav_velocity: 0.0,
+            nav_flight_path: 0.0,
+            nav_azimuth: 0.0,
+            nav_drag_accel: 0.0,
+            mass: 0.0,
+            ref_area: 0.0,
+            max_bank_rate: 0.0,
+            pilot_tau: 0.0,
+            pilot_damping: 0.0,
+            pilot_frequency: 0.0,
+            filter_gain: 0.0,
+            wind_scale: 1.0,          // 1.0 = no scaling (identity)
+            wind_direction_bias: 0.0, // no rotation
+        }
+    }
 }
 
 /// Number of fields in [`DispersionDraw`] — keep in sync with [`DispersionDraw::to_array`].
-pub const DISPERSION_DRAW_LEN: usize = 24;
+pub const DISPERSION_DRAW_LEN: usize = 26;
 
 impl DispersionDraw {
     /// Serialize all fields to a flat array in struct field order.
@@ -400,6 +446,8 @@ impl DispersionDraw {
             self.pilot_damping,
             self.pilot_frequency,
             self.filter_gain,
+            self.wind_scale,
+            self.wind_direction_bias,
         ]
     }
 }
@@ -476,6 +524,18 @@ impl DispersionConfig {
                     draw.filter_gain = normal.sample(&mut rng) * s.filter_gain;
                 }
 
+                // Wind (Uniform scale in [min, max], Uniform direction bias in [-deg, +deg])
+                if let Some(ref w) = self.wind {
+                    let scale_uniform =
+                        Uniform::new(w.scale_min, w.scale_max).unwrap();
+                    draw.wind_scale = scale_uniform.sample(&mut rng);
+                    draw.wind_direction_bias =
+                        uniform.sample(&mut rng) * w.direction_bias_deg * DEG2RAD;
+                } else {
+                    draw.wind_scale = 1.0; // no-op scale
+                    draw.wind_direction_bias = 0.0;
+                }
+
                 draw
             })
             .collect()
@@ -497,6 +557,7 @@ mod tests {
             vehicle: Some(VehicleSigmas::from_level(DispersionLevel::Medium)),
             pilot: Some(PilotSigmas::from_level(DispersionLevel::Medium)),
             nav_filter: Some(NavFilterSigmas::from_level(DispersionLevel::Medium)),
+            wind: None,
         }
     }
 
@@ -549,6 +610,7 @@ mod tests {
             vehicle: None,
             pilot: None,
             nav_filter: None,
+            wind: None,
         };
         let draws = config.generate_draws(10);
         for d in &draws {
@@ -565,6 +627,8 @@ mod tests {
             assert_eq!(d.pilot_damping, 0.0);
             assert_eq!(d.pilot_frequency, 0.0);
             assert_eq!(d.filter_gain, 0.0);
+            assert_eq!(d.wind_scale, 1.0, "wind_scale default should be 1.0 (identity)");
+            assert_eq!(d.wind_direction_bias, 0.0);
         }
     }
 
@@ -631,6 +695,7 @@ mod tests {
                 frequency: 10.0,
             }),
             nav_filter: None,
+            wind: None,
         };
         let draws = config.generate_draws(1000);
         for d in &draws {
@@ -700,6 +765,7 @@ mod tests {
             vehicle: None,
             pilot: None,
             nav_filter: Some(NavFilterSigmas { filter_gain: 0.10 }),
+            wind: None,
         };
         let draws = config.generate_draws(1000);
         // Gaussian: most draws within ±3sigma = ±0.30
@@ -741,19 +807,24 @@ mod tests {
             pilot_damping: 22.0,
             pilot_frequency: 23.0,
             filter_gain: 24.0,
+            wind_scale: 25.0,
+            wind_direction_bias: 26.0,
         };
         let arr = draw.to_array();
-        assert_eq!(arr.len(), 24);
+        assert_eq!(arr.len(), 26);
         for (i, &val) in arr.iter().enumerate() {
             assert_eq!(val, (i + 1) as f64);
         }
     }
 
     #[test]
-    fn dispersion_draw_default_to_array_all_zeros() {
+    fn dispersion_draw_default_to_array_len() {
         let arr = DispersionDraw::default().to_array();
-        assert_eq!(arr.len(), 24);
-        assert!(arr.iter().all(|&v| v == 0.0));
+        assert_eq!(arr.len(), 26);
+        // All zeros except wind_scale which defaults to 1.0
+        assert!(arr[..24].iter().all(|&v| v == 0.0));
+        assert_eq!(arr[24], 1.0, "wind_scale default is 1.0");
+        assert_eq!(arr[25], 0.0, "wind_direction_bias default is 0.0");
     }
 
     #[test]

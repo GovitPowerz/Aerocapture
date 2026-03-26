@@ -10,6 +10,7 @@ pub mod neural;
 pub mod pilot;
 
 use crate::config::{GuidanceType, SimInput, TomlConfig, TomlMonteCarlo};
+use crate::physics::winds;
 use std::fmt;
 
 #[derive(Debug)]
@@ -152,6 +153,7 @@ pub struct SimData {
     pub pilot: pilot::PilotModel,
     pub success: SuccessCriteria,
     pub wind_enabled: bool,
+    pub wind_table: Option<winds::WindTable>,
     pub neural_net: Option<neural::NeuralNetModel>,
     /// Domain-based dispersion config (replaces lottery files when present)
     pub dispersion_config: Option<dispersions::DispersionConfig>,
@@ -487,6 +489,13 @@ impl SimData {
             .ok_or_else(|| DataError("Missing data.atmosphere path".to_string()))?;
         let atm = atmosphere::AtmosphereModel::load(atm_path)?;
 
+        // Wind table (optional)
+        let wind_table = if let Some(ref wt_path) = toml.data.wind_table {
+            Some(winds::WindTable::load(wt_path)?)
+        } else {
+            None
+        };
+
         // Neural network (external, optional)
         let neural_net = if config.guidance_type == GuidanceType::NeuralNetwork {
             if let Some(ref nn_path) = toml.data.neural_network {
@@ -520,6 +529,7 @@ impl SimData {
             pilot: pilot_data,
             success,
             wind_enabled: f.wind,
+            wind_table,
             neural_net,
             dispersion_config,
         })
@@ -692,6 +702,12 @@ fn build_dispersion_config(
         Some(s)
     });
 
+    let wind = mc.wind.as_ref().map(|w| WindDispersionConfig {
+        scale_min: w.scale_min,
+        scale_max: w.scale_max,
+        direction_bias_deg: w.direction_bias_deg,
+    });
+
     Ok(DispersionConfig {
         seed: mc.seed,
         initial_state,
@@ -702,6 +718,7 @@ fn build_dispersion_config(
         vehicle,
         pilot,
         nav_filter,
+        wind,
     })
 }
 
