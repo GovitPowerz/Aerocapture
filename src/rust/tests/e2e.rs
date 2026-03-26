@@ -212,6 +212,51 @@ fn wind_enabled_changes_trajectory() {
     );
 }
 
+// ─── EKF navigation ───
+
+/// EKF navigation mode should produce a valid trajectory: sim_time > 0 and
+/// ifinal in the expected range 1–5.
+#[test]
+fn ekf_navigation_produces_valid_trajectory() {
+    let (cfg, data) = load_config_for_api("test/test_ekf_mars.toml");
+    let results = run_for_api(&cfg, &data, false).expect("EKF sim failed");
+
+    // final_record[27] = sim_time (s)
+    let sim_time = results[0].final_record[27];
+    assert!(sim_time > 0.0, "Expected sim_time > 0, got {:.3}", sim_time);
+
+    // final_record[31] = ifinal (1=captured, 2=hyperbolic, 3=captured, 4=pending crash, 5=timeout)
+    let ifinal = results[0].final_record[31] as i32;
+    assert!(
+        (1..=5).contains(&ifinal),
+        "Expected ifinal in 1..=5, got {}",
+        ifinal
+    );
+}
+
+/// EKF and bias navigation modes should produce different trajectories — each
+/// navigation mode applies distinct estimation logic that perturbs the guidance
+/// commands differently, so the final velocity must diverge by more than 1 m/s.
+#[test]
+fn ekf_and_bias_produce_different_results() {
+    let (cfg_bias, data_bias) = load_config_for_api("test/test_guided_orig.toml");
+    let results_bias = run_for_api(&cfg_bias, &data_bias, false).expect("bias sim failed");
+
+    let (cfg_ekf, data_ekf) = load_config_for_api("test/test_ekf_mars.toml");
+    let results_ekf = run_for_api(&cfg_ekf, &data_ekf, false).expect("EKF sim failed");
+
+    // final_record[3] = final velocity (m/s)
+    let vel_bias = results_bias[0].final_record[3];
+    let vel_ekf = results_ekf[0].final_record[3];
+
+    assert!(
+        (vel_bias - vel_ekf).abs() > 1.0,
+        "Expected EKF and bias to differ by >1 m/s, but got bias={:.3} ekf={:.3}",
+        vel_bias,
+        vel_ekf,
+    );
+}
+
 /// When `[flight] wind = false` (the default), the trajectory must be identical
 /// whether or not a wind_table path is present in [data] — backward compatibility.
 #[test]
