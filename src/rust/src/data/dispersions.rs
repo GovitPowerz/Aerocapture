@@ -458,7 +458,7 @@ impl DispersionConfig {
     /// Uses a seeded RNG for reproducibility. Draw order:
     /// initial state (Gaussian), atmosphere (Uniform), aero (Uniform),
     /// nav (Gaussian), mass (Uniform), vehicle (Uniform), pilot (Uniform),
-    /// nav_filter (Gaussian).
+    /// nav_filter (Gaussian), wind (Uniform scale + Uniform direction bias).
     pub fn generate_draws(&self, n_sims: usize) -> Vec<DispersionDraw> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(self.seed);
         let normal = Normal::new(0.0, 1.0).unwrap();
