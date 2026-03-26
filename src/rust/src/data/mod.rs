@@ -9,9 +9,16 @@ pub mod incidence;
 pub mod neural;
 pub mod pilot;
 
-use crate::config::{GuidanceType, SimInput, TomlConfig, TomlMonteCarlo};
+use crate::config::{GuidanceType, SimInput, TomlConfig, TomlMonteCarlo, TomlNavigation};
 use crate::physics::winds;
 use std::fmt;
+
+/// Navigation mode: bias-based (legacy) or Extended Kalman Filter.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NavMode {
+    Bias,
+    Ekf,
+}
 
 #[derive(Debug)]
 pub struct DataError(pub String);
@@ -157,6 +164,10 @@ pub struct SimData {
     pub neural_net: Option<neural::NeuralNetModel>,
     /// Domain-based dispersion config (replaces lottery files when present)
     pub dispersion_config: Option<dispersions::DispersionConfig>,
+    /// Navigation mode: bias (legacy) or EKF
+    pub nav_mode: NavMode,
+    /// Raw TOML navigation config for building EKF sensor models
+    pub nav_config: Option<TomlNavigation>,
 }
 
 const G0: f64 = 9.81;
@@ -514,6 +525,12 @@ impl SimData {
             None
         };
 
+        // Navigation mode
+        let nav_mode = match toml.navigation.as_ref().map(|n| n.mode.as_str()) {
+            Some("ekf") => NavMode::Ekf,
+            _ => NavMode::Bias,
+        };
+
         Ok(SimData {
             capsule: capsule_data,
             aero,
@@ -532,6 +549,8 @@ impl SimData {
             wind_table,
             neural_net,
             dispersion_config,
+            nav_mode,
+            nav_config: toml.navigation.clone(),
         })
     }
 }

@@ -134,6 +134,88 @@ pub struct TomlConfig {
     pub incidence: Option<TomlIncidence>,
     // Domain-based Monte Carlo config (consolidated mode)
     pub monte_carlo: Option<TomlMonteCarlo>,
+    // Navigation mode config (bias vs EKF)
+    pub navigation: Option<TomlNavigation>,
+}
+
+// ─── Navigation TOML structs ───
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct TomlNavigation {
+    #[serde(default = "default_nav_mode")]
+    pub mode: String, // "bias" or "ekf"
+    pub imu: Option<TomlImu>,
+    pub star_tracker: Option<TomlStarTracker>,
+    pub ekf: Option<TomlEkf>,
+}
+
+fn default_nav_mode() -> String {
+    "bias".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TomlImu {
+    #[serde(default = "default_accel_bias_sigma")]
+    pub accel_bias_sigma: f64,
+    #[serde(default = "default_accel_noise_sigma")]
+    pub accel_noise_sigma: f64,
+    #[serde(default = "default_accel_sf_sigma")]
+    pub accel_scale_factor_sigma: f64,
+    #[serde(default = "default_gyro_bias_sigma")]
+    pub gyro_bias_sigma: f64,
+    #[serde(default = "default_gyro_noise_sigma")]
+    pub gyro_noise_sigma: f64,
+}
+
+fn default_accel_bias_sigma() -> f64 {
+    1e-4
+}
+fn default_accel_noise_sigma() -> f64 {
+    5e-4
+}
+fn default_accel_sf_sigma() -> f64 {
+    1e-4
+}
+fn default_gyro_bias_sigma() -> f64 {
+    5e-6
+}
+fn default_gyro_noise_sigma() -> f64 {
+    1e-5
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TomlStarTracker {
+    #[serde(default = "default_st_pos_sigma")]
+    pub position_sigma: f64, // 50.0 m
+    #[serde(default = "default_st_att_sigma")]
+    pub attitude_sigma: f64, // 3e-4 rad
+    #[serde(default = "default_st_period")]
+    pub update_period: f64, // 10.0 s
+    #[serde(default = "default_st_blackout")]
+    pub blackout_qdyn_threshold: f64, // 100.0 Pa
+}
+
+fn default_st_pos_sigma() -> f64 {
+    50.0
+}
+fn default_st_att_sigma() -> f64 {
+    3e-4
+}
+fn default_st_period() -> f64 {
+    10.0
+}
+fn default_st_blackout() -> f64 {
+    100.0
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TomlEkf {
+    #[serde(default = "default_q_density")]
+    pub process_noise_density: f64, // 0.1
+}
+
+fn default_q_density() -> f64 {
+    0.1
 }
 
 #[derive(Debug, Deserialize)]

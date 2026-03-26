@@ -9,7 +9,7 @@ use crate::gnc::control::angle_utils::shortest_angle_diff;
 use crate::gnc::control::pilot::{self, PilotState};
 use crate::gnc::guidance::ftc::{self, FtcState};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
-use crate::gnc::navigation::estimator::{self, NavigationState};
+use crate::gnc::navigation::estimator::{self, NavigationFilter};
 use crate::integration::rk4;
 use crate::integration::sequencer::SequencerState;
 use crate::orbit::maneuver::DeltaV;
@@ -436,7 +436,15 @@ fn run_single(
     let exit_altitude = data.final_conditions.altitude;
 
     // === GNC subsystem initialization ===
-    let mut nav_state = NavigationState::new();
+    let mut nav_filter = match data.nav_mode {
+        crate::data::NavMode::Bias => NavigationFilter::new_bias(),
+        crate::data::NavMode::Ekf => {
+            let nav_toml = data.nav_config.as_ref().expect("EKF mode requires [navigation] config");
+            let (imu_cfg, st_cfg, ekf_cfg) = estimator::build_ekf_configs(nav_toml);
+            let seed = config.random_seed as u64 + sim_idx as u64 * 10_000;
+            NavigationFilter::new_ekf(imu_cfg, st_cfg, ekf_cfg, seed)
+        }
+    };
     let nav_biases = run_state.nav_biases;
     let is_single = config.n_sims <= 1 && config.screen_output;
     if is_single {
@@ -478,23 +486,58 @@ fn run_single(
             let position_true = [sim.state[0], sim.state[1], sim.state[2]];
             let velocity_true = [sim.state[3], sim.state[4], sim.state[5]];
 
-            let nav_out = estimator::navigate(
-                &position_true,
-                &velocity_true,
-                ftc_state.aoa_commanded,
-                sim_time,
-                &nav_biases,
-                &mut nav_state,
-                data,
-                planet,
-                run_state.density_bias,
-                run_state.cx_bias,
-                run_state.cz_bias,
-                run_state.mass_bias,
-                run_state.incidence_bias,
-                run_state.ref_area_bias,
-                run_state.filter_gain_bias,
-            );
+            let nav_out = match &mut nav_filter {
+                NavigationFilter::Bias(nav_state) => {
+                    estimator::navigate(
+                        &position_true,
+                        &velocity_true,
+                        ftc_state.aoa_commanded,
+                        sim_time,
+                        &nav_biases,
+                        nav_state,
+                        data,
+                        planet,
+                        run_state.density_bias,
+                        run_state.cx_bias,
+                        run_state.cz_bias,
+                        run_state.mass_bias,
+                        run_state.incidence_bias,
+                        run_state.ref_area_bias,
+                        run_state.filter_gain_bias,
+                    )
+                }
+                NavigationFilter::Ekf {
+                    ekf,
+                    imu,
+                    star_tracker,
+                    st_config,
+                    ekf_config,
+                    legacy,
+                    ..
+                } => {
+                    estimator::navigate_ekf(
+                        &position_true,
+                        &velocity_true,
+                        ftc_state.aoa_commanded,
+                        sim_time,
+                        data.periods.navigation,
+                        &nav_biases,
+                        legacy,
+                        ekf,
+                        imu,
+                        star_tracker,
+                        st_config,
+                        ekf_config,
+                        data,
+                        planet,
+                        run_state.density_bias,
+                        run_state.cx_bias,
+                        run_state.mass_bias,
+                        run_state.incidence_bias,
+                        run_state.ref_area_bias,
+                    )
+                }
+            };
 
             dynamic_pressure_for_photo = nav_out.dynamic_pressure_estimated;
             density_estimate_for_photo = nav_out.density_guidance;
@@ -563,7 +606,7 @@ fn run_single(
                 sim_idx + 1,
                 cumulative_bank_change_deg * DEG_TO_RAD,
                 data,
-                nav_state.density_gain,
+                nav_filter.density_gain(),
                 run_state,
                 sim.state[6],
             ));
@@ -622,7 +665,7 @@ fn run_single(
             sim_idx + 1,
             cumulative_bank_change_deg * DEG_TO_RAD,
             data,
-            nav_state.density_gain,
+            nav_filter.density_gain(),
             run_state,
             sim.state[6],
         ));

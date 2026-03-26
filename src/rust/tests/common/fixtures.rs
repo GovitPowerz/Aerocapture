@@ -125,6 +125,8 @@ pub fn minimal_sim_data() -> SimData {
         wind_table: None,
         neural_net: None,
         dispersion_config: None,
+        nav_mode: aerocapture::data::NavMode::Bias,
+        nav_config: None,
     }
 }
 
