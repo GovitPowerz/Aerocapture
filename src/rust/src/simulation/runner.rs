@@ -563,6 +563,7 @@ fn run_single(
                 cumulative_bank_change_deg * DEG_TO_RAD,
                 data,
                 nav_state.density_gain,
+                run_state,
             ));
         }
 
@@ -620,6 +621,7 @@ fn run_single(
             cumulative_bank_change_deg * DEG_TO_RAD,
             data,
             nav_state.density_gain,
+            run_state,
         ));
     }
 
@@ -780,6 +782,7 @@ fn build_photo_values(
     cumulative_bank_change: f64,
     data: &SimData,
     density_gain: f64,
+    run_state: &init::RunState,
 ) -> [f64; 28] {
     let (altitude, latitude) =
         geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
@@ -814,13 +817,18 @@ fn build_photo_values(
         if sim.state[0] > 80e3 { 3.0 } else { 2.0 }
     };
 
-    // Compute per-timestep heat flux, g-load, and truth density for trajectory output
+    // Compute per-timestep heat flux, g-load, and truth density for trajectory output.
+    // Use dispersed values (matching track_peak_values) so trajectory plots are consistent
+    // with final_record peak values and constraint classification.
     let rho_truth = data.atmosphere.density_at(altitude);
-    let heat_flux = data.capsule.cq * rho_truth.sqrt() * sim.state[3].powf(3.05);
-    let cx = data.aero.interpolate_cx(sim.aoa);
-    let cz = data.aero.interpolate_cz(sim.aoa);
-    let aero_accel = rho_truth * data.capsule.reference_area * sim.state[3] * sim.state[3]
-        / (2.0 * data.capsule.mass);
+    let rho_dispersed = rho_truth * (1.0 + run_state.density_bias);
+    let heat_flux = data.capsule.cq * rho_dispersed.sqrt() * sim.state[3].powf(3.05);
+    let aoa_dispersed = sim.aoa + run_state.incidence_bias;
+    let cx = data.aero.interpolate_cx(aoa_dispersed) * (1.0 + run_state.cx_bias);
+    let cz = data.aero.interpolate_cz(aoa_dispersed) * (1.0 + run_state.cz_bias);
+    let mass = data.capsule.mass * (1.0 + run_state.mass_bias);
+    let ref_area = data.capsule.reference_area * (1.0 + run_state.ref_area_bias);
+    let aero_accel = rho_dispersed * ref_area * sim.state[3] * sim.state[3] / (2.0 * mass);
     let load_factor = aero_accel * (cx * cx + cz * cz).sqrt();
 
     [
