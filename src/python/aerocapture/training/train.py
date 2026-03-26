@@ -223,6 +223,7 @@ def train(
     resume_dir: str | Path | None = None,
     no_tui: bool = False,
     corridor_acc: CorridorAccumulator | None = None,
+    from_scratch: bool = False,
 ) -> dict:
     """Run the full GA training pipeline.
 
@@ -270,12 +271,14 @@ def train(
         toml_path = Path(cwd or config.sim.exec_dir) / config.sim.toml_config
         _toml = load_toml_with_bases(toml_path)
 
-        # Parse cost function config (with defaults)
+        # Parse cost function config — limits come from [flight.constraints],
+        # weights and DV threshold from [cost_function]
         cost_cfg = _toml.get("cost_function", {})
+        constraints = _toml.get("flight", {}).get("constraints", {})
         cost_kwargs = {
             "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
-            "g_load_limit": float(cost_cfg.get("g_load_limit", 15.0)),
-            "heat_flux_limit": float(cost_cfg.get("heat_flux_limit", 200.0)),
+            "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
+            "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
             "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
             "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
         }
@@ -338,8 +341,9 @@ def train(
                 config.ga.n_gen += resumed["generation"]
 
     # Try loading existing NN weights for population seeding (NN only)
+    # Skip when --from-scratch: truly fresh start without bias from previous training
     seed_weights = None
-    if config.guidance_type == "neural_network" and config.ga.direct_encoding and resumed is None:
+    if config.guidance_type == "neural_network" and config.ga.direct_encoding and resumed is None and not from_scratch:
         nn_param_path = Path(cwd or config.sim.exec_dir) / config.sim.nn_param_file
         if nn_param_path.exists():
             try:
@@ -625,11 +629,13 @@ def train(
                     pool_metrics: dict | None = None
                     if seed_pool is not None:
                         d_min, d_max = seed_pool.difficulty_range
+                        difficulty_scores = sorted(seed_pool.difficulty.values())
                         pool_metrics = {
                             "pool_size": len(seed_pool.seeds),
                             "difficulty_min": d_min,
                             "difficulty_max": d_max,
                             "n_evictions": seed_pool.n_evictions,
+                            "difficulty_scores": difficulty_scores,
                         }
 
                     # Log metrics
@@ -742,7 +748,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed-pool-cap", type=int, default=100, help="Maximum adaptive seed pool size (default: 100)")
     parser.add_argument("--cost-alpha", type=float, default=0.7, help="Mean/CVaR blend weight: 1.0=pure mean, 0.0=pure CVaR (default: 0.7)")
     parser.add_argument("--cvar-percentile", type=int, default=20, help="CVaR tail fraction in percent (default: 20)")
-    parser.add_argument("--skip-final-report", action="store_true", help="Skip final re-evaluation report")
+    parser.add_argument("--skip-report", "--skip-final-report", action="store_true", dest="skip_report", help="Skip PDF report generation at end of training")
     parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
     args = parser.parse_args()
 
@@ -805,6 +811,16 @@ if __name__ == "__main__":
             shutil.rmtree(save_path)
             print(f"Wiped existing output: {save_path}")
 
+        # For piecewise_constant, also wipe corridor/ref trajectory in the mission directory
+        # since those are produced by this scheme and would be stale after a fresh start
+        if cfg.guidance_type == "piecewise_constant":
+            mission_dir = save_path.parent
+            for stale in ("corridor_boundaries.npz", "ref_trajectory.dat"):
+                stale_path = mission_dir / stale
+                if stale_path.exists():
+                    stale_path.unlink()
+                    print(f"  Removed stale {stale_path}")
+
     # Auto-resume: if no --resume and no -fs, check for existing checkpoint
     resume_dir = args.resume
     if resume_dir is None and not args.from_scratch:
@@ -854,20 +870,11 @@ if __name__ == "__main__":
         delta_za_high = float(corr_section.get("delta_za_restricted_high", delta_za_r))
         corridor_acc = CorridorAccumulator(energy_min, energy_max, delta_za_restricted=delta_za_r, delta_za_low=delta_za_low, delta_za_high=delta_za_high)
 
-    result = train(cfg, seed=args.seed, cwd=cwd, resume_dir=resume_dir, no_tui=args.no_tui, corridor_acc=corridor_acc)
+    result = train(cfg, seed=args.seed, cwd=cwd, resume_dir=resume_dir, no_tui=args.no_tui, corridor_acc=corridor_acc, from_scratch=args.from_scratch)
     print(f"\nFinal best cost: {result['best_cost']:.4e}")
 
     # Update corridor_acc from train() result (may have been restored from checkpoint)
     corridor_acc = result.get("corridor_acc")
-
-    # Generate convergence report from JSONL training logs
-    from aerocapture.training.report import generate_single_report
-
-    scheme_dir = Path(cfg.save_dir)
-    if list(scheme_dir.glob("*.jsonl")):
-        generate_single_report(scheme_dir)
-    else:
-        print("No JSONL logs found, skipping convergence report")
 
     # Save corridor data and reference trajectory for piecewise_constant
     if cfg.guidance_type == "piecewise_constant" and corridor_acc is not None and result["best_chromosome"] is not None:
@@ -944,98 +951,9 @@ if __name__ == "__main__":
             write_guidance_toml(base_toml, cfg.guidance_type, params, opt_toml)
             print(f"  Optimized TOML: {opt_toml}")
 
-        # Final evaluation report (large-MC re-evaluation)
-        if not args.skip_final_report:
-            from aerocapture.training.final_report import (
-                _COL_APO_ERR,
-                _COL_DV_TOTAL,
-                _COL_ECC,
-                _COL_ENERGY,
-                _COL_INCL,
-                _COL_PERI_ERR,
-                _read_target_inclination,
-                generate_final_report,
-                run_final_evaluation,
-            )
+        # ── Report Generation ──
+        if not args.skip_report:
+            from aerocapture.training.report import generate_report
 
-            # For non-NN schemes, use the optimized TOML (contains best guidance params)
-            # For NN, the base TOML already references the NN JSON on disk
-            if cfg.guidance_type != "neural_network":
-                opt_toml = Path(cfg.save_dir) / f"optimized_{cfg.guidance_type}.toml"
-                if opt_toml.exists():
-                    cfg.sim.toml_config = str(opt_toml)
-
-            # Read target inclination and reference trajectory from the base TOML
-            base_toml_path = Path(cwd) / args.toml
-            target_incl = _read_target_inclination(base_toml_path)
-
-            final_seed = args.seed + 9999
-            print(f"\nRunning {args.final_n_sims}-sim final evaluation (seed={final_seed})...")
-            eval_data = run_final_evaluation(cfg, n_sims=args.final_n_sims, seed=final_seed, cwd=Path(cwd))
-            if eval_data is not None:
-                # Print summary statistics to stdout
-                final_eval = eval_data.final_array
-                n_sims = len(final_eval)
-                energy = final_eval[:, _COL_ENERGY]
-                ecc = final_eval[:, _COL_ECC]
-                captured = (ecc < 1.0) & (energy < 0)
-                n_cap = int(captured.sum())
-                print(f"\n  Final evaluation ({n_sims} sims):")
-                print(f"    Capture rate:       {n_cap}/{n_sims} ({100 * n_cap / n_sims:.1f}%)")
-                if n_cap > 0:
-                    dv = final_eval[captured, _COL_DV_TOTAL]
-                    apo_err = np.abs(final_eval[captured, _COL_APO_ERR])
-                    peri_err = np.abs(final_eval[captured, _COL_PERI_ERR])
-                    print(f"    Delta-V (m/s):      p50={np.median(dv):.1f}  p95={np.percentile(dv, 95):.1f}  mean={dv.mean():.1f}")
-                    print(f"    Apoapsis err (km):  p50={np.median(apo_err):.1f}  p95={np.percentile(apo_err, 95):.1f}  mean={apo_err.mean():.1f}")
-                    print(f"    Periapsis err (km): p50={np.median(peri_err):.1f}  p95={np.percentile(peri_err, 95):.1f}  mean={peri_err.mean():.1f}")
-                    incl_err = final_eval[captured, _COL_INCL] - target_incl
-                    print(f"    Inclin. err (deg):  p50={np.median(incl_err):.2f}  p95={np.percentile(incl_err, 95):.2f}  mean={incl_err.mean():.2f}")
-                    print(
-                        "\n  Note: Final evaluation stats are only meaningful in comparison to other schemes or configurations on the same scenario and seed.\n"
-                    )
-
-                # Corridor boundaries (produced by piecewise_constant training)
-                # mission_name and corr_dir already derived above (before train() call)
-                corr_npz = corr_dir / "corridor_boundaries.npz"
-                if not corr_npz.exists():
-                    print("  No corridor cache found — corridor zones will not be drawn.")
-                    print("  Run piecewise_constant training to generate corridor boundaries.")
-
-                # Run one undispersed sim for the guidance nominal trajectory
-                undisp_nom = None
-                undisp_dv: float | None = None
-                try:
-                    from aerocapture.training.evaluate import _HAS_PYO3, _aero_rs
-
-                    if _HAS_PYO3 and _aero_rs is not None and cfg.sim.toml_config is not None:
-                        _toml_for_undisp = str((Path(cwd) / cfg.sim.toml_config).resolve())
-                        _undisp_ovr: dict[str, object] = {
-                            "simulation.n_sims": 1,
-                            "monte_carlo.initial_state.level": "off",
-                            "monte_carlo.atmosphere.level": "off",
-                            "monte_carlo.aerodynamics.level": "off",
-                            "monte_carlo.navigation.level": "off",
-                            "monte_carlo.mass.level": "off",
-                        }
-                        _undisp_batch = _aero_rs.run_batch(_toml_for_undisp, [_undisp_ovr], include_trajectories=True)
-                        if _undisp_batch.trajectories:
-                            undisp_nom = np.asarray(_undisp_batch.trajectories[0])
-                        if _undisp_batch.final_records.shape[0] > 0:
-                            undisp_dv = float(_undisp_batch.final_records[0, _COL_DV_TOTAL])
-                except Exception:
-                    pass  # Non-critical — just skip the undispersed nominal line
-
-                report_path = Path(cfg.save_dir) / "final_report.html"
-                generate_final_report(
-                    eval_data,
-                    cfg.guidance_type,
-                    target_incl,
-                    report_path,
-                    corridor_path=corr_npz,
-                    undispersed_nominal=undisp_nom,
-                    undispersed_dv=undisp_dv,
-                )
-                print(f"Final report saved to {report_path}")
-            else:
-                print("WARNING: Final evaluation simulation failed, skipping report")
+            toml_path = Path(args.toml)
+            generate_report(Path(cfg.save_dir), toml_path, n_sims_override=args.final_n_sims)

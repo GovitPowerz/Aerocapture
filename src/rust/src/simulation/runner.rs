@@ -87,7 +87,7 @@ enum TermReason {
 struct SimResult {
     sim_idx: i32,
     final_line: [f64; 52],
-    photo_lines: Vec<[f64; 24]>,
+    photo_lines: Vec<[f64; 28]>,
     dispersions: [f64; DISPERSION_DRAW_LEN],
 }
 
@@ -224,18 +224,22 @@ pub fn run_for_api(
                     .iter()
                     .map(|p| {
                         [
-                            p[1],        // [0] alt_km
-                            p[2],        // [1] lon_deg
-                            p[3],        // [2] lat_deg
-                            p[4],        // [3] vel_m_s
-                            p[5],        // [4] fpa_deg
-                            p[6],        // [5] heading_deg
-                            0.0,         // [6] heat flux placeholder
-                            p[0],        // [7] time_s
-                            p[18] / 1e6, // [8] energy J/kg → MJ/kg
-                            p[19] / 1e3, // [9] pdyn Pa → kPa
-                            p[14],       // [10] bank_angle deg
-                            p[9],        // [11] inclination deg
+                            p[1],        // [0]  alt_km
+                            p[2],        // [1]  lon_deg
+                            p[3],        // [2]  lat_deg
+                            p[4],        // [3]  vel_m_s
+                            p[5],        // [4]  fpa_deg
+                            p[6],        // [5]  heading_deg
+                            p[24],       // [6]  heat_flux_kw_m2
+                            p[0],        // [7]  time_s
+                            p[18] / 1e6, // [8]  energy_mj_kg
+                            p[19] / 1e3, // [9]  pdyn_kpa
+                            p[14],       // [10] bank_angle_deg
+                            p[9],        // [11] inclination_deg
+                            p[25],       // [12] g_load_g
+                            p[26],       // [13] nav_density_ratio
+                            p[27],       // [14] truth_density_kg_m3
+                            0.0,         // [15] reserved
                         ]
                     })
                     .collect()
@@ -246,7 +250,7 @@ pub fn run_for_api(
             crate::RunOutput {
                 trajectory,
                 final_record: r.final_line,
-                captured: ecc < 1.0 && energy < 0.0 && ifinal_val != 4,
+                captured: ifinal_val == 3 && ecc < 1.0 && energy < 0.0,
                 dispersions: r.dispersions,
             }
         })
@@ -302,9 +306,9 @@ fn write_csv_output(
     Ok(())
 }
 
-/// Extract 21 CSV values from the 24-element photo array.
-/// Drops: [20] radial_velocity_2 (duplicate), [22] sim_number, [23] reserved.
-fn extract_photo_csv_values(values: &[f64; 24]) -> [f64; 21] {
+/// Extract 21 CSV values from the 28-element photo array.
+/// Drops: [20] radial_velocity_2 (duplicate), [22] sim_number, [23] reserved, [24-27] trajectory-only columns.
+fn extract_photo_csv_values(values: &[f64; 28]) -> [f64; 21] {
     [
         values[0],  // time_s
         values[1],  // altitude_km
@@ -449,7 +453,7 @@ fn run_single(
     };
     let mut sequencer = SequencerState::new();
 
-    let mut photo_lines: Vec<[f64; 24]> = Vec::new();
+    let mut photo_lines: Vec<[f64; 28]> = Vec::new();
     let mut cumulative_bank_change_deg = 0.0_f64;
     let mut dynamic_pressure_for_photo = 0.0_f64;
     let mut density_estimate_for_photo = 0.0_f64;
@@ -557,6 +561,9 @@ fn run_single(
                 density_estimate_for_photo,
                 sim_idx + 1,
                 cumulative_bank_change_deg * DEG_TO_RAD,
+                data,
+                nav_state.density_gain,
+                run_state,
             ));
         }
 
@@ -586,6 +593,19 @@ fn run_single(
             sim.bounce_time = sim_time;
         }
 
+        // Atmospheric apoapsis crash: bounced, now descending again, still inside atmosphere
+        // → the apoapsis is below the atmospheric ceiling, guaranteed re-entry crash.
+        // Guard: bounce altitude must be above 20 km to exclude transient FPA sign changes
+        // during the deep pass (aggressive bank reversals can momentarily push FPA positive).
+        if sim.bounced
+            && sim.bounce_alt > 20e3
+            && sim.state[4].sin() < 0.0
+            && altitude < exit_altitude
+            && term == TermReason::None
+        {
+            term = TermReason::Crash;
+        }
+
         step += 1;
     }
 
@@ -599,6 +619,9 @@ fn run_single(
             density_estimate_for_photo,
             sim_idx + 1,
             cumulative_bank_change_deg * DEG_TO_RAD,
+            data,
+            nav_state.density_gain,
+            run_state,
         ));
     }
 
@@ -688,7 +711,8 @@ fn run_single(
     //   5  heading (deg)           21 alt at max pdyn (km)       41 dv total (m/s)
     //   6  radial velocity (m/s)   22 time at max flux (s)       42-44 UNUSED
     //   7  energy (MJ/kg)          23 time at max load (s)       45 bank consumption (deg)
-    //   8  SMA (km)                24 time at max pdyn (s)       46-47 UNUSED
+    //   8  SMA (km)                24 time at max pdyn (s)       46 incl error (deg)
+    //                                                              47 UNUSED
     //   9  eccentricity            25 bounce alt (km)            48 n_reversals
     //  10  inclination (deg)       26 bounce time (s)            49-51 UNUSED
     //  11  RAAN (deg)              27 sim time (s)
@@ -735,6 +759,7 @@ fn run_single(
     final_record[40] = deltav.dv1.abs() + deltav.dv2.abs();
     final_record[41] = deltav.total;
     final_record[45] = cumulative_bank_change_deg;
+    final_record[46] = orbit.inclination / DEG_TO_RAD - data.target_orbit.inclination / DEG_TO_RAD;
     final_record[48] = ftc_state.n_reversals as f64;
 
     Ok(SimResult {
@@ -755,7 +780,10 @@ fn build_photo_values(
     density_estimate: f64,
     sim_index: i32,
     cumulative_bank_change: f64,
-) -> [f64; 24] {
+    data: &SimData,
+    density_gain: f64,
+    run_state: &init::RunState,
+) -> [f64; 28] {
     let (altitude, latitude) =
         geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
 
@@ -789,6 +817,20 @@ fn build_photo_values(
         if sim.state[0] > 80e3 { 3.0 } else { 2.0 }
     };
 
+    // Compute per-timestep heat flux, g-load, and truth density for trajectory output.
+    // Use dispersed values (matching track_peak_values) so trajectory plots are consistent
+    // with final_record peak values and constraint classification.
+    let rho_truth = data.atmosphere.density_at(altitude);
+    let rho_dispersed = rho_truth * (1.0 + run_state.density_bias);
+    let heat_flux = data.capsule.cq * rho_dispersed.sqrt() * sim.state[3].powf(3.05);
+    let aoa_dispersed = sim.aoa + run_state.incidence_bias;
+    let cx = data.aero.interpolate_cx(aoa_dispersed) * (1.0 + run_state.cx_bias);
+    let cz = data.aero.interpolate_cz(aoa_dispersed) * (1.0 + run_state.cz_bias);
+    let mass = data.capsule.mass * (1.0 + run_state.mass_bias);
+    let ref_area = data.capsule.reference_area * (1.0 + run_state.ref_area_bias);
+    let aero_accel = rho_dispersed * ref_area * sim.state[3] * sim.state[3] / (2.0 * mass);
+    let load_factor = aero_accel * (cx * cx + cz * cz).sqrt();
+
     [
         sim_time,
         altitude / 1e3,
@@ -814,6 +856,10 @@ fn build_photo_values(
         0.5 * density_estimate * sim.state[3] * sim.state[3] / 1e3,
         sim_index as f64,
         0.0,
+        heat_flux / 1e3,  // [24] heat_flux kW/m²
+        load_factor / G0, // [25] g-load in g's
+        density_gain,     // [26] nav density ratio (estimated/model)
+        rho_truth,        // [27] truth density kg/m³
     ]
 }
 
@@ -1018,7 +1064,7 @@ mod run_output_tests {
         let results = run_for_api(&config, &data, false).expect("run");
         let r = &results[0];
         let ifinal_val = r.final_record[31] as i32;
-        let expected = r.final_record[9] < 1.0 && r.final_record[7] < 0.0 && ifinal_val != 4;
+        let expected = ifinal_val == 3 && r.final_record[9] < 1.0 && r.final_record[7] < 0.0;
         assert_eq!(r.captured, expected);
     }
 

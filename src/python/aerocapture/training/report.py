@@ -1,19 +1,54 @@
-"""Generate self-contained Plotly HTML reports from training JSONL logs.
+"""PDF report orchestrator — generates Typst-compiled PDF reports from training data.
+
+Loads JSONL training logs, optionally runs final MC evaluation via PyO3,
+generates all SVG charts, writes metadata/summary JSON, and invokes
+``typst compile`` to produce a PDF.
 
 Usage:
     uv run python -m aerocapture.training.report training_output/equilibrium_glide/
+    uv run python -m aerocapture.training.report training_output/equilibrium_glide/ --toml configs/training/msr_aller_eqglide_train.toml
     uv run python -m aerocapture.training.report --compare training_output/
 """
 
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import sys
+import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
+import numpy as np
+import numpy.typing as npt
+
+from aerocapture.training import charts
 from aerocapture.training.metrics import convergence_speed, stagnation_count
 
+# ---------------------------------------------------------------------------
+# Typst template directory — src/typst/ relative to this file
+# report.py lives at src/python/aerocapture/training/report.py
+# typst dir lives at src/typst/
+# ---------------------------------------------------------------------------
+_TYPST_DIR = Path(__file__).resolve().parent.parent.parent.parent / "typst"
 
+# Percentiles for summary table
+_PERCENTILES = [5, 25, 50, 75, 95]
+
+
+# ---------------------------------------------------------------------------
+# Typst availability check
+# ---------------------------------------------------------------------------
+def _check_typst() -> bool:
+    """Return True if the ``typst`` CLI is available on PATH."""
+    return shutil.which("typst") is not None
+
+
+# ---------------------------------------------------------------------------
+# JSONL loading (preserved from original report.py)
+# ---------------------------------------------------------------------------
 def load_run_data(scheme_dir: Path) -> tuple[list[dict], list[int]]:
     """Load all JSONL records from a scheme directory, sorted by generation.
 
@@ -61,324 +96,575 @@ def load_run_data(scheme_dir: Path) -> tuple[list[dict], list[int]]:
     return deduped, resume_gens
 
 
-def _add_resume_markers(
-    fig: object,
-    resume_gens: list[int],
-    n_rows: int,
-    n_cols: int,
-    skip_panels: set[tuple[int, int]] | None = None,
-) -> None:
-    """Add vertical dashed lines at resume points across all subplots.
+# ---------------------------------------------------------------------------
+# Final MC evaluation via PyO3
+# ---------------------------------------------------------------------------
+def run_final_evaluation(
+    toml_path: Path,
+    scheme_dir: Path,
+    n_sims: int = 1000,
+) -> tuple[npt.NDArray[np.float64], list[npt.NDArray[np.float64]], npt.NDArray[np.float64]] | None:
+    """Run final MC evaluation using PyO3 bindings.
 
-    Args:
-        skip_panels: Set of (row, col) tuples to skip (e.g., categorical x-axis panels).
+    Uses optimized TOML if it exists (``scheme_dir / f"optimized_{scheme_dir.name}.toml"``),
+    otherwise the provided *toml_path*.
+
+    Returns ``(final_records, trajectories, dispersions)`` or None on failure.
     """
-    skip = skip_panels or set()
-    first_marker = True
-    for gen in resume_gens:
-        for row in range(1, n_rows + 1):
-            for col in range(1, n_cols + 1):
-                if (row, col) in skip:
-                    continue
-                kwargs: dict[str, object] = {
-                    "x": gen,
-                    "line_dash": "dash",
-                    "line_color": "rgba(128, 128, 128, 0.5)",
-                    "row": row,
-                    "col": col,
-                }
-                if first_marker:
-                    kwargs["annotation_text"] = "resumed"
-                    kwargs["annotation_font_color"] = "gray"
-                    first_marker = False
-                fig.add_vline(**kwargs)  # type: ignore[attr-defined]
+    try:
+        import aerocapture_rs  # type: ignore[import-not-found, import-untyped]
+    except ImportError:
+        print("PyO3 bindings not available — skipping final evaluation")
+        return None
+
+    # Prefer optimized TOML if it exists
+    optimized = scheme_dir / f"optimized_{scheme_dir.name}.toml"
+    eval_toml = optimized if optimized.exists() else toml_path
+
+    try:
+        results = aerocapture_rs.run_mc(
+            toml_path=str(eval_toml.resolve()),
+            overrides={"simulation.n_sims": n_sims},
+            include_trajectories=True,
+        )
+        return (results.final_records, results.trajectories, results.dispersions)
+    except Exception:
+        import traceback
+
+        traceback.print_exc()
+        return None
 
 
-def generate_single_report(scheme_dir: Path) -> None:
-    """Generate a single-run HTML report from JSONL data."""
-    import plotly.graph_objects as go  # type: ignore[import-untyped]
-    from plotly.subplots import make_subplots  # type: ignore[import-untyped]
+def _print_eval_summary(final_records: npt.NDArray[np.float64], n_sims: int) -> None:
+    """Print a human-readable summary of the final MC evaluation to stdout."""
+    ecc = final_records[:, charts._FR_ECC]
+    ifinal = final_records[:, charts._FR_IFINAL]
+    captured = (ifinal == 3) & (ecc < 1.0)  # only AtmosphereExit on bound orbit
+    n_captured = int(np.sum(captured))
+    cap = final_records[captured]
 
-    data, resume_gens = load_run_data(scheme_dir)
-    if not data:
-        print(f"No JSONL data found in {scheme_dir}")
-        return
+    print(f"\n  Final evaluation ({n_sims} sims):")
+    print(f"    Capture rate:       {n_captured}/{n_sims} ({100 * n_captured / n_sims:.1f}%)")
 
-    gens = [r["generation"] for r in data]
-    best_costs = [r["best_cost"] for r in data]
-    mean_costs = [r["mean_cost"] for r in data]
-    worst_costs = [r["worst_cost"] for r in data]
-    cap_rates = [r["capture_rate"] * 100 for r in data]
-    diversities = [r["population_diversity"] for r in data]
+    if n_captured > 0:
+        dv = np.clip(cap[:, charts._FR_DV_TOTAL], charts.DV_FLOOR, charts.DV_CAP)
+        apo = cap[:, charts._FR_APO_ERR]
+        peri = cap[:, charts._FR_PERI_ERR]
+        incl = cap[:, charts._FR_INCL_ERR]
+        print(f"    Delta-V (m/s):      p50={np.median(dv):.1f}  p95={np.percentile(dv, 95):.1f}  mean={np.mean(dv):.1f}")
+        print(f"    Apoapsis err (km):  p50={np.median(apo):.1f}  p95={np.percentile(apo, 95):.1f}  mean={np.mean(apo):.1f}")
+        print(f"    Periapsis err (km): p50={np.median(peri):.1f}  p95={np.percentile(peri, 95):.1f}  mean={np.mean(peri):.1f}")
+        print(f"    Inclin. err (deg):  p50={np.median(incl):.2f}  p95={np.percentile(incl, 95):.2f}  mean={np.mean(incl):.2f}")
 
-    scheme = data[0].get("scheme", scheme_dir.name)
 
-    # Detect conditional panels
-    has_pool_metrics = any(r.get("pool_metrics") for r in data)
-    has_mc_seed = any(r.get("mc_seed") is not None for r in data)
+# ---------------------------------------------------------------------------
+# TOML metadata reader
+# ---------------------------------------------------------------------------
+def _read_mission_name(toml_path: Path) -> str:
+    """Read planet name and mission type from TOML, returning a human label."""
+    from aerocapture.training.toml_utils import load_toml_with_bases
 
-    # Build panel list: (title, specs_dict)
-    panels: list[tuple[str, dict]] = [
-        ("Convergence (log scale)", {}),
-        ("Population Diversity vs Best Cost", {"secondary_y": True}),
-        ("Capture Rate (%)", {}),
-        ("Cost Distribution", {}),
-        ("Parameter Evolution", {}),
+    data = load_toml_with_bases(toml_path)
+    planet: str = data.get("planet", {}).get("name", "Unknown")
+    mission_type: str = data.get("mission", {}).get("type", "")
+    if mission_type:
+        return f"{planet} — {mission_type}"
+    return planet
+
+
+def _read_constraint_limits(toml_path: Path) -> tuple[float | None, float | None]:
+    """Read heat flux and g-load limits from TOML [flight.constraints] section."""
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    data = load_toml_with_bases(toml_path)
+    constraints = data.get("flight", {}).get("constraints", {})
+    heat_flux: float | None = constraints.get("max_heat_flux")
+    g_load: float | None = constraints.get("max_load_factor")
+    return heat_flux, g_load
+
+
+# ---------------------------------------------------------------------------
+# Metadata builder (for cover page)
+# ---------------------------------------------------------------------------
+def _build_metadata(
+    records: list[dict],
+    scheme_dir: Path,
+    n_sims: int,
+    has_seed_pool: bool,
+    has_trajectories: bool,
+    has_final_eval: bool,
+    toml_path: Path | None,
+    has_cost_distribution: bool,
+) -> dict:
+    """Build metadata dict for the Typst cover page."""
+    scheme = records[0].get("scheme", scheme_dir.name) if records else scheme_dir.name
+    best_cost = records[-1]["best_cost"] if records else 0.0
+    capture_rate = records[-1].get("capture_rate", 0.0) if records else 0.0
+    config_hash = records[0].get("config_hash", "N/A") if records else "N/A"
+
+    cost_history = [r["best_cost"] for r in records]
+    conv_speed = convergence_speed(cost_history) if cost_history else 0
+    stag = stagnation_count(cost_history) if cost_history else 0
+
+    mission = ""
+    if toml_path is not None and toml_path.exists():
+        try:
+            mission = _read_mission_name(toml_path)
+        except Exception:
+            mission = ""
+
+    return {
+        "scheme": scheme,
+        "mission": mission or "N/A",
+        "date": datetime.now(tz=UTC).strftime("%Y-%m-%d"),
+        "best_cost": f"{best_cost:.4e}",
+        "capture_rate": f"{capture_rate * 100:.0f}%",
+        "total_generations": str(len(records)),
+        "convergence_speed": str(conv_speed),
+        "stagnation": str(stag),
+        "n_sims": str(n_sims),
+        "config_hash": config_hash,
+        "has_seed_pool": has_seed_pool,
+        "has_trajectories": has_trajectories,
+        "has_final_eval": has_final_eval,
+        "has_cost_distribution": has_cost_distribution,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Summary table builder
+# ---------------------------------------------------------------------------
+def _build_summary_table(
+    final_records: npt.NDArray[np.float64],
+    heat_flux_limit: float | None = None,
+    g_load_limit: float | None = None,
+) -> dict:
+    """Build the performance summary table dict for Typst.
+
+    Returns dict with ``rows`` key — each row is
+    [name, mean, std, min, p5, p25, p50, p75, p95, max].
+    Only captured trajectories (eccentricity < 1.0) are included.
+    Adds constraint violation rates when limits are provided.
+    """
+    n_total = len(final_records)
+    ecc = final_records[:, charts._FR_ECC]
+    ifinal = final_records[:, charts._FR_IFINAL]
+    captured = (ifinal == 3) & (ecc < 1.0)  # only AtmosphereExit on bound orbit
+    cap_data = final_records[captured]
+
+    if len(cap_data) == 0:
+        return {"rows": []}
+
+    def _row(name: str, values: npt.NDArray[np.float64]) -> list[str]:
+        pcts = np.percentile(values, _PERCENTILES)
+        return [
+            name,
+            f"{np.mean(values):.2f}",
+            f"{np.std(values):.2f}",
+            f"{np.min(values):.2f}",
+            *[f"{p:.2f}" for p in pcts],
+            f"{np.max(values):.2f}",
+        ]
+
+    dv_total = np.clip(cap_data[:, charts._FR_DV_TOTAL], charts.DV_FLOOR, charts.DV_CAP)
+
+    dv1_abs = np.abs(cap_data[:, charts._FR_DV1])
+    dv2_abs = np.abs(cap_data[:, charts._FR_DV2])
+    dv3_abs = np.abs(cap_data[:, charts._FR_DV3])
+
+    rows = [
+        _row("Max G-load (g)", cap_data[:, charts._FR_MAX_G_LOAD]),
+        _row("Max heat flux (kW/m2)", cap_data[:, charts._FR_MAX_HEAT_FLUX]),
+        _row("Bank consumption (deg)", cap_data[:, charts._FR_BANK_CONSUMPTION]),
+        _row("Periapsis error (km)", cap_data[:, charts._FR_PERI_ERR]),
+        _row("Apoapsis error (km)", cap_data[:, charts._FR_APO_ERR]),
+        _row("Inclination error (deg)", cap_data[:, charts._FR_INCL_ERR]),
+        _row("|DV1| periapsis (m/s)", dv1_abs),
+        _row("|DV2| apoapsis (m/s)", dv2_abs),
+        _row("|DV3| inclination (m/s)", dv3_abs),
+        _row("Total DV (m/s)", dv_total),
     ]
-    if has_pool_metrics:
-        panels.append(("Seed Pool Evolution", {"secondary_y": True}))
-    if has_mc_seed:
-        panels.append(("MC Seed Trace", {}))
-    panels.append(("Summary", {}))
 
-    n_cols = 2
-    n_rows = (len(panels) + 1) // 2
-    subplot_titles = [p[0] for p in panels]
-    specs: list[list[dict]] = []
-    for row_start in range(0, len(panels), n_cols):
-        row_specs = [panels[i][1] if i < len(panels) else {} for i in range(row_start, row_start + n_cols)]
-        specs.append(row_specs)
+    # Constraint statistics (over ALL sims, not just captured)
+    all_g = final_records[:, charts._FR_MAX_G_LOAD]
+    all_q = final_records[:, charts._FR_MAX_HEAT_FLUX]
 
-    fig = make_subplots(rows=n_rows, cols=n_cols, subplot_titles=subplot_titles, specs=specs)
+    n_captured = int(np.sum(captured))
+    capture_pct = 100 * n_captured / n_total if n_total > 0 else 0.0
 
-    # Panel position lookup: maps 0-indexed panel to (row, col)
-    panel_positions = [(i // n_cols + 1, i % n_cols + 1) for i in range(len(panels))]
+    violation_rows: list[list[str]] = []
+    if g_load_limit is not None:
+        g_exceed = float(np.mean(all_g > g_load_limit) * 100)
+        violation_rows.append(_row(f"G-load, all sims (g) — {g_exceed:.1f}% > {g_load_limit:.1f}", all_g))
+    if heat_flux_limit is not None:
+        q_exceed = float(np.mean(all_q > heat_flux_limit) * 100)
+        violation_rows.append(_row(f"Heat flux, all sims (kW/m2) — {q_exceed:.1f}% > {heat_flux_limit:.0f}", all_q))
+    # Capture rate: single value, fill remaining columns with empty strings
+    cr_label = f"Capture rate: {capture_pct:.1f}% ({n_captured}/{n_total})"
+    violation_rows.append([cr_label, "", "", "", "", "", "", "", "", ""])
 
-    # 1. Convergence (row=1, col=1)
-    fig.add_trace(go.Scatter(x=gens, y=best_costs, name="Best", line={"color": "#2196F3"}), row=1, col=1)
-    fig.add_trace(go.Scatter(x=gens, y=mean_costs, name="Mean", line={"color": "#FF9800", "dash": "dash"}), row=1, col=1)
-    fig.add_trace(go.Scatter(x=gens, y=worst_costs, name="Worst", line={"color": "#F44336", "dash": "dot"}), row=1, col=1)
-    imp_gens = [r["generation"] for r in data if r["improvement"]]
-    imp_costs = [r["best_cost"] for r in data if r["improvement"]]
-    fig.add_trace(go.Scatter(x=imp_gens, y=imp_costs, mode="markers", name="Improvement", marker={"color": "#4CAF50", "size": 6}), row=1, col=1)
-    fig.update_yaxes(type="log", title_text="Cost", row=1, col=1)
+    return {"rows": rows, "violation_rows": violation_rows}
 
-    # 2. Diversity + best cost overlay (row=1, col=2)
-    fig.add_trace(go.Scatter(x=gens, y=diversities, name="Diversity", line={"color": "#9C27B0"}), row=1, col=2, secondary_y=False)
-    fig.add_trace(go.Scatter(x=gens, y=best_costs, name="Best Cost", line={"color": "#2196F3", "dash": "dot"}), row=1, col=2, secondary_y=True)
-    fig.update_yaxes(title_text="Diversity", row=1, col=2, secondary_y=False)
-    fig.update_yaxes(title_text="Best Cost", type="log", row=1, col=2, secondary_y=True)
 
-    # 3. Capture rate (row=2, col=1)
-    fig.add_trace(go.Scatter(x=gens, y=cap_rates, name="Capture %", line={"color": "#4CAF50"}, fill="tozeroy"), row=2, col=1)
-    fig.update_yaxes(title_text="Capture Rate (%)", range=[0, 105], row=2, col=1)
+# ---------------------------------------------------------------------------
+# Chart generation helpers
+# ---------------------------------------------------------------------------
+def _generate_training_charts(
+    records: list[dict],
+    resume_gens: list[int],
+    out_dir: Path,
+) -> tuple[bool, bool]:
+    """Generate Part 1 (training convergence) SVG charts. Returns (has_cost_distribution, has_seed_pool)."""
+    charts.chart_convergence(records, out_dir / "convergence.svg", resume_gens=resume_gens)
+    charts.chart_diversity_cost(records, out_dir / "diversity_cost.svg", resume_gens=resume_gens)
+    has_cost_distribution = charts.chart_cost_distribution(records, out_dir / "cost_distribution.svg")
+    charts.chart_parameter_evolution(records, out_dir / "parameter_evolution.svg", resume_gens=resume_gens)
+    has_seed_pool = charts.chart_seed_pool(records, out_dir / "seed_pool.svg", resume_gens=resume_gens)
 
-    # 4. Cost distribution (row=2, col=2)
-    n_boxes = min(10, len(data))
-    step = max(1, len(data) // n_boxes)
-    for i in range(0, len(data), step):
-        r = data[i]
-        fig.add_trace(
-            go.Box(y=[r["best_cost"], r["median_cost"], r["mean_cost"], r["worst_cost"]], name=f"Gen {r['generation']}", showlegend=False),
-            row=2,
-            col=2,
+    return has_cost_distribution, has_seed_pool
+
+
+def _load_corridor_data(scheme_dir: Path) -> dict[str, Any] | None:
+    """Load corridor boundaries .npz from the mission-level training output directory."""
+    from aerocapture.training.corridor import load_corridor
+
+    # corridor_boundaries.npz lives one level up (mission directory, e.g. training_output/)
+    # or in the piecewise_constant sibling directory
+    candidates = [
+        scheme_dir.parent / "corridor_boundaries.npz",
+        scheme_dir.parent / "piecewise_constant" / "corridor_boundaries.npz",
+    ]
+    for path in candidates:
+        data = load_corridor(path)
+        if data is not None:
+            return data
+    return None
+
+
+def _run_undispersed_nominal(toml_path: Path, scheme_dir: Path) -> npt.NDArray[np.float64] | None:
+    """Run a single undispersed simulation to get the nominal trajectory."""
+    try:
+        import aerocapture_rs  # type: ignore[import-not-found, import-untyped]
+    except ImportError:
+        return None
+
+    optimized = scheme_dir / f"optimized_{scheme_dir.name}.toml"
+    eval_toml = optimized if optimized.exists() else toml_path
+
+    overrides: dict[str, object] = {
+        "simulation.n_sims": 1,
+        "monte_carlo.initial_state.level": "off",
+        "monte_carlo.atmosphere.level": "off",
+        "monte_carlo.aerodynamics.level": "off",
+        "monte_carlo.navigation.level": "off",
+        "monte_carlo.mass.level": "off",
+    }
+
+    try:
+        results = aerocapture_rs.run_mc(
+            toml_path=str(eval_toml.resolve()),
+            overrides=overrides,
+            include_trajectories=True,
         )
-    fig.update_yaxes(type="log", title_text="Cost", row=2, col=2)
-
-    # 5. Parameter evolution (row=3, col=1)
-    first_params = data[0].get("best_params")
-    if first_params is not None:
-        for param_name in first_params:
-            vals = [r["best_params"][param_name] for r in data if r.get("best_params")]
-            param_gens = [r["generation"] for r in data if r.get("best_params")]
-            fig.add_trace(go.Scatter(x=param_gens, y=vals, name=param_name), row=3, col=1)
-    fig.update_yaxes(title_text="Parameter Value", row=3, col=1)
-
-    # Conditional panels — look up positions by title
-    pool_pos = next((panel_positions[i] for i, (t, _) in enumerate(panels) if t == "Seed Pool Evolution"), None)
-    seed_pos = next((panel_positions[i] for i, (t, _) in enumerate(panels) if t == "MC Seed Trace"), None)
-    summary_pos = next((panel_positions[i] for i, (t, _) in enumerate(panels) if t == "Summary"), None)
-
-    if has_pool_metrics and pool_pos:
-        p_row, p_col = pool_pos
-        pool_gens = [r["generation"] for r in data if r.get("pool_metrics")]
-        pool_sizes = [r["pool_metrics"]["pool_size"] for r in data if r.get("pool_metrics")]
-        diff_mins = [r["pool_metrics"]["difficulty_min"] for r in data if r.get("pool_metrics")]
-        diff_maxs = [r["pool_metrics"]["difficulty_max"] for r in data if r.get("pool_metrics")]
-        fig.add_trace(go.Scatter(x=pool_gens, y=pool_sizes, name="Pool Size", line={"color": "#2196F3"}), row=p_row, col=p_col, secondary_y=False)
-        fig.add_trace(
-            go.Scatter(x=pool_gens, y=diff_maxs, name="Diff. Max", line={"color": "#FF9800", "dash": "dot"}, fill=None),
-            row=p_row,
-            col=p_col,
-            secondary_y=True,
-        )
-        fig.add_trace(
-            go.Scatter(x=pool_gens, y=diff_mins, name="Diff. Min", line={"color": "#FF9800", "dash": "dot"}, fill="tonexty"),
-            row=p_row,
-            col=p_col,
-            secondary_y=True,
-        )
-        fig.update_yaxes(title_text="Pool Size", row=p_row, col=p_col, secondary_y=False)
-        fig.update_yaxes(title_text="Difficulty", row=p_row, col=p_col, secondary_y=True)
-
-    if has_mc_seed and seed_pos:
-        p_row, p_col = seed_pos
-        seed_gens = [r["generation"] for r in data if r.get("mc_seed") is not None]
-        seed_vals = [r["mc_seed"] for r in data if r.get("mc_seed") is not None]
-        fig.add_trace(
-            go.Scatter(x=seed_gens, y=seed_vals, name="MC Seed", mode="lines+markers", line={"color": "#795548"}, marker={"size": 4}), row=p_row, col=p_col
-        )
-        fig.update_yaxes(title_text="MC Seed", row=p_row, col=p_col)
-
-    # Summary panel (always last)
-    assert summary_pos is not None
-    summary_row, summary_col = summary_pos
-
-    cost_history = [r["best_cost"] for r in data]
-    conv_speed = convergence_speed(cost_history)
-    stag = stagnation_count(cost_history)
-    config_hash = data[0].get("config_hash", "N/A")
-
-    summary_text = (
-        f"Scheme: {scheme}<br>"
-        f"Final best cost: {best_costs[-1]:.4e}<br>"
-        f"Total generations: {len(data)}<br>"
-        f"Convergence speed (90%): gen {conv_speed}<br>"
-        f"Final stagnation: {stag} gens<br>"
-        f"Config hash: {config_hash}"
-    )
-    if resume_gens:
-        summary_text += f"<br>Resume points: {len(resume_gens)}"
-
-    fig.add_annotation(
-        text=summary_text,
-        xref="x domain",
-        yref="y domain",
-        x=0.5,
-        y=0.5,
-        showarrow=False,
-        font={"size": 12},
-        align="left",
-        row=summary_row,
-        col=summary_col,
-    )
-
-    # Resume markers on all panels (skip categorical/non-numeric x-axis panels)
-    skip = {(2, 2), (summary_row, summary_col)}  # Cost Distribution (boxplot) + Summary
-    _add_resume_markers(fig, resume_gens, n_rows, n_cols, skip_panels=skip)
-
-    fig.update_layout(height=max(1000, n_rows * 350), title_text=f"Training Report — {scheme}", showlegend=True)
-    fig.update_xaxes(title_text="Generation", row=n_rows, col=1)
-
-    output_path = scheme_dir / "report.html"
-    fig.write_html(str(output_path), include_plotlyjs=True)
-    print(f"Report saved to {output_path}")
+        if results.trajectories:
+            traj: npt.NDArray[np.float64] = results.trajectories[0]
+            return traj
+    except Exception as exc:
+        print(f"Warning: undispersed nominal run failed: {exc}")
+    return None
 
 
-_SCHEME_LABELS = {
-    "ftc": "FTC",
-    "neural_network": "Neural Net",
-    "equilibrium_glide": "Eq. Glide",
-    "energy_controller": "Energy Ctrl",
-    "pred_guid": "PredGuid",
-    "fnpag": "FNPAG",
-}
-
-_SCHEME_COLORS = {
-    "ftc": "#2196F3",
-    "neural_network": "#FF9800",
-    "equilibrium_glide": "#4CAF50",
-    "energy_controller": "#9C27B0",
-    "pred_guid": "#F44336",
-    "fnpag": "#795548",
-}
+def _find_best_trajectory(
+    final_records: npt.NDArray[np.float64],
+    trajectories: list[npt.NDArray[np.float64]],
+) -> npt.NDArray[np.float64] | None:
+    """Find the trajectory with the lowest total DV among captured cases."""
+    ecc = final_records[:, charts._FR_ECC]
+    ifinal = final_records[:, charts._FR_IFINAL]
+    captured_indices = np.where((ifinal == 3) & (ecc < 1.0))[0]
+    if len(captured_indices) == 0:
+        return None
+    dv = final_records[captured_indices, charts._FR_DV_TOTAL]
+    best_idx = captured_indices[int(np.argmin(dv))]
+    result: npt.NDArray[np.float64] = trajectories[best_idx]
+    return result
 
 
-def generate_comparison_report(
-    base_dir: Path,
-    schemes: list[str] | None = None,
-    after: str | None = None,
+def _generate_trajectory_charts(
+    final_records: npt.NDArray[np.float64],
+    trajectories: list[npt.NDArray[np.float64]],
+    dispersions: npt.NDArray[np.float64],
+    out_dir: Path,
+    scheme_dir: Path | None = None,
+    toml_path: Path | None = None,
 ) -> None:
-    """Generate a cross-scheme comparison HTML report."""
-    import plotly.graph_objects as go  # type: ignore[import-untyped]
-    from plotly.subplots import make_subplots  # type: ignore[import-untyped]
+    """Generate Part 2 (mission performance) SVG charts from final eval data."""
+    # Load constraint limits and classify trajectories
+    heat_flux_limit, g_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None)
+    traj_class = charts.classify_trajectories(final_records, heat_flux_limit=heat_flux_limit, g_load_limit=g_load_limit)
 
-    scheme_dirs = sorted(d for d in base_dir.iterdir() if d.is_dir() and list(d.glob("*.jsonl")))
+    # Load corridor boundaries and nominal trajectories
+    corridor_data = _load_corridor_data(scheme_dir) if scheme_dir is not None else None
+    undispersed = _run_undispersed_nominal(toml_path, scheme_dir) if toml_path is not None and scheme_dir is not None else None
+    best_traj = _find_best_trajectory(final_records, trajectories)
+
+    # Corridor panels
+    nominal_kwargs: dict[str, Any] = {"undispersed_nominal": undispersed, "best_nominal": best_traj}
+    charts.chart_corridor_pdyn(
+        trajectories,
+        traj_class,
+        out_dir / "corridor_pdyn.svg",
+        corridor_data=corridor_data,
+        **nominal_kwargs,
+    )
+    charts.chart_corridor_inclination(trajectories, traj_class, out_dir / "corridor_inclination.svg", **nominal_kwargs)
+    charts.chart_corridor_bank(trajectories, traj_class, out_dir / "corridor_bank.svg", **nominal_kwargs)
+
+    # Time-domain panels
+    charts.chart_altitude_time(trajectories, traj_class, out_dir / "altitude_time.svg", **nominal_kwargs)
+    charts.chart_heat_flux_time(trajectories, traj_class, out_dir / "heat_flux_time.svg", limit_kw_m2=heat_flux_limit, **nominal_kwargs)
+    charts.chart_gload_time(trajectories, traj_class, out_dir / "gload_time.svg", limit_g=g_load_limit, **nominal_kwargs)
+    charts.chart_bank_angle_time(trajectories, traj_class, out_dir / "bank_angle_time.svg", **nominal_kwargs)
+    charts.chart_nav_density_ratio(trajectories, traj_class, out_dir / "nav_density_ratio.svg", **nominal_kwargs)
+
+    # Distribution panels
+    charts.chart_dv_distribution(final_records, out_dir / "dv_distribution.svg")
+    charts.chart_dv_individual_burns(final_records, out_dir / "dv_individual_burns.svg")
+
+    # Entry/exit conditions
+    charts.chart_entry_conditions(trajectories, traj_class, out_dir / "entry_conditions.svg")
+    charts.chart_exit_conditions(final_records, out_dir / "exit_conditions.svg")
+
+    # Dispersion grid
+    charts.chart_dispersion_grid(final_records, dispersions, out_dir / "dispersion_grid.svg")
+
+
+# ---------------------------------------------------------------------------
+# Main entry point: single-scheme report
+# ---------------------------------------------------------------------------
+def generate_report(
+    scheme_dir: Path,
+    toml_path: Path | None = None,
+    skip_final_eval: bool = False,
+    keep_artifacts: bool = False,
+    n_sims_override: int | None = None,
+) -> Path | None:
+    """Generate a PDF training report for a single guidance scheme.
+
+    Loads JSONL training data, optionally runs final MC evaluation,
+    generates SVG charts, writes JSON metadata, and compiles PDF via Typst.
+
+    Returns the path to the generated PDF, or None if no data / Typst unavailable.
+    """
+    records, resume_gens = load_run_data(scheme_dir)
+    if not records:
+        print(f"No JSONL data found in {scheme_dir}")
+        return None
+
+    n_sims = n_sims_override if n_sims_override is not None else 1000
+
+    # Create temp directory for artifacts
+    tmp_dir = Path(tempfile.mkdtemp(prefix="aerocapture_report_"))
+
+    try:
+        # Part 1: training convergence charts
+        has_cost_distribution, has_seed_pool = _generate_training_charts(records, resume_gens, tmp_dir)
+
+        # Part 2: final evaluation (optional)
+        has_trajectories = False
+        final_records = None
+        if not skip_final_eval and toml_path is not None:
+            print(f"\nRunning {n_sims}-sim final evaluation...")
+            eval_result = run_final_evaluation(toml_path, scheme_dir, n_sims=n_sims)
+            if eval_result is not None:
+                final_records_arr, trajectories, dispersions = eval_result
+                has_trajectories = True
+                _print_eval_summary(final_records_arr, n_sims)
+                _generate_trajectory_charts(
+                    final_records_arr,
+                    trajectories,
+                    dispersions,
+                    tmp_dir,
+                    scheme_dir=scheme_dir,
+                    toml_path=toml_path,
+                )
+                final_records = final_records_arr
+
+        # Write metadata.json
+        metadata = _build_metadata(
+            records,
+            scheme_dir,
+            n_sims=n_sims,
+            has_seed_pool=has_seed_pool,
+            has_trajectories=has_trajectories,
+            has_final_eval=final_records is not None,
+            toml_path=toml_path,
+            has_cost_distribution=has_cost_distribution,
+        )
+        (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
+
+        # Write summary_table.json
+        heat_flux_limit, g_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None)
+        summary = (
+            _build_summary_table(final_records, heat_flux_limit=heat_flux_limit, g_load_limit=g_load_limit)
+            if final_records is not None
+            else {"rows": [], "violation_rows": []}
+        )
+        (tmp_dir / "summary_table.json").write_text(json.dumps(summary, indent=2))
+
+        # Compile PDF via Typst
+        if not _check_typst():
+            print("Typst CLI not found — skipping PDF compilation")
+            if keep_artifacts:
+                print(f"Chart artifacts available at: {tmp_dir}")
+            return None
+
+        output_pdf = scheme_dir / "report.pdf"
+        template = _TYPST_DIR / "report.typ"
+
+        result = subprocess.run(
+            [
+                "typst",
+                "compile",
+                str(template),
+                "--root",
+                "/",
+                "--input",
+                f"dir={tmp_dir}",
+                str(output_pdf),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            print(f"Typst compilation failed:\n{result.stderr}")
+            return None
+
+        print(f"\nReport saved to {output_pdf}")
+        return output_pdf
+
+    finally:
+        if not keep_artifacts:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Backward compatibility alias (used by train.py)
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Cross-scheme comparison report
+# ---------------------------------------------------------------------------
+def generate_comparison_report(
+    training_output_dir: Path,
+    schemes: list[str] | None = None,
+    keep_artifacts: bool = False,
+) -> Path | None:
+    """Generate a cross-scheme comparison PDF report.
+
+    Scans subdirectories of *training_output_dir* for JSONL data, generates
+    a comparison convergence chart and metrics table, and compiles PDF.
+
+    Returns the path to the generated PDF, or None if no data / Typst unavailable.
+    """
+    scheme_dirs = sorted(d for d in training_output_dir.iterdir() if d.is_dir() and list(d.glob("*.jsonl")))
 
     if schemes:
         scheme_dirs = [d for d in scheme_dirs if d.name in schemes]
 
     if not scheme_dirs:
-        print(f"No JSONL data found in subdirectories of {base_dir}")
-        return
+        print(f"No JSONL data found in subdirectories of {training_output_dir}")
+        return None
 
-    fig = make_subplots(
-        rows=2,
-        cols=1,
-        subplot_titles=("Cross-Scheme Convergence", "Final Metrics"),
-        specs=[[{}], [{"type": "table"}]],
-        row_heights=[0.65, 0.35],
-    )
-
+    # Collect data per scheme
+    all_data: dict[str, list[dict]] = {}
     summary_rows: list[list[str]] = []
-    all_resume_gens: set[int] = set()
 
     for scheme_dir in scheme_dirs:
         scheme_name = scheme_dir.name
-        data, resume_gens = load_run_data(scheme_dir)
-        all_resume_gens.update(resume_gens)
+        data, _resume_gens = load_run_data(scheme_dir)
         if not data:
             continue
-
-        # Filter by date if requested
-        if after:
-            data = [r for r in data if r.get("timestamp", "") >= after]
-            if not data:
-                continue
-
-        gens = [r["generation"] for r in data]
-        best_costs = [r["best_cost"] for r in data]
-        color = _SCHEME_COLORS.get(scheme_name, "#666666")
-        label = _SCHEME_LABELS.get(scheme_name, scheme_name)
-
-        fig.add_trace(go.Scatter(x=gens, y=best_costs, name=label, line={"color": color}), row=1, col=1)
+        all_data[scheme_name] = data
 
         cost_history = [r["best_cost"] for r in data]
         conv = convergence_speed(cost_history)
         cap = data[-1].get("capture_rate", 0) * 100
 
-        summary_rows.append([label, f"{best_costs[-1]:.2e}", str(len(data)), f"{cap:.0f}%", str(conv)])
+        summary_rows.append([scheme_name, f"{cost_history[-1]:.2e}", str(len(data)), f"{cap:.0f}%", str(conv)])
 
-    for gen in sorted(all_resume_gens):
-        fig.add_vline(
-            x=gen,
-            line_dash="dash",
-            line_color="rgba(128, 128, 128, 0.5)",
-            annotation_text="resumed",
-            annotation_font_color="gray",
-            row=1,
-            col=1,
+    if not all_data:
+        print("No valid scheme data found")
+        return None
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="aerocapture_comparison_"))
+
+    try:
+        # Generate comparison chart
+        charts.chart_comparison_convergence(all_data, tmp_dir / "comparison_convergence.svg")
+
+        # Write metadata
+        metadata = {
+            "date": datetime.now(tz=UTC).strftime("%Y-%m-%d"),
+            "schemes": list(all_data.keys()),
+        }
+        (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
+
+        # Write comparison table
+        comparison_table = {
+            "headers": ["Scheme", "Best Cost", "Generations", "Capture %", "Conv. Speed"],
+            "rows": summary_rows,
+        }
+        (tmp_dir / "comparison_table.json").write_text(json.dumps(comparison_table, indent=2))
+
+        # Compile PDF
+        if not _check_typst():
+            print("Typst CLI not found — skipping PDF compilation")
+            return None
+
+        output_pdf = training_output_dir / "comparison_report.pdf"
+        template = _TYPST_DIR / "comparison.typ"
+
+        result = subprocess.run(
+            [
+                "typst",
+                "compile",
+                str(template),
+                "--root",
+                "/",
+                "--input",
+                f"dir={tmp_dir}",
+                str(output_pdf),
+            ],
+            capture_output=True,
+            text=True,
         )
 
-    fig.update_yaxes(type="log", title_text="Best Cost", row=1, col=1)
-    fig.update_xaxes(title_text="Generation", row=1, col=1)
+        if result.returncode != 0:
+            print(f"Typst compilation failed:\n{result.stderr}")
+            return None
 
-    # Summary table
-    header = ["Scheme", "Best Cost", "Generations", "Capture %", "Conv. Speed"]
-    fig.add_trace(
-        go.Table(
-            header={"values": header, "fill_color": "#2196F3", "font_color": "white", "align": "center"},
-            cells={"values": list(zip(*summary_rows, strict=False)) if summary_rows else [[] for _ in header], "align": "center"},  # type: ignore[misc]
-        ),
-        row=2,
-        col=1,
-    )
+        print(f"Comparison report saved to {output_pdf}")
+        return output_pdf
 
-    fig.update_layout(height=800, title_text="Training Comparison Report")
-
-    output_path = base_dir / "comparison_report.html"
-    fig.write_html(str(output_path), include_plotlyjs=True)
-    print(f"Comparison report saved to {output_path}")
+    finally:
+        if not keep_artifacts:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
 def main() -> None:
+    """CLI entry point: generate training reports from JSONL logs."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Generate training reports from JSONL logs")
+    parser = argparse.ArgumentParser(description="Generate PDF training reports from JSONL logs")
     parser.add_argument("path", type=str, help="Path to scheme directory (single) or training_output/ (comparison)")
+    parser.add_argument("--toml", type=str, default=None, help="Path to training TOML config (enables final MC evaluation)")
     parser.add_argument("--compare", action="store_true", help="Generate cross-scheme comparison report")
     parser.add_argument("--schemes", nargs="*", help="Filter by scheme names (comparison mode)")
-    parser.add_argument("--after", type=str, default=None, help="Filter runs after this date (YYYY-MM-DD)")
+    parser.add_argument("--keep-artifacts", action="store_true", help="Keep temporary SVG/JSON artifacts after PDF generation")
     args = parser.parse_args()
 
     path = Path(args.path)
@@ -387,9 +673,10 @@ def main() -> None:
         sys.exit(1)
 
     if args.compare:
-        generate_comparison_report(path, schemes=args.schemes, after=args.after)
+        generate_comparison_report(path, schemes=args.schemes, keep_artifacts=args.keep_artifacts)
     else:
-        generate_single_report(path)
+        toml_path = Path(args.toml) if args.toml else None
+        generate_report(path, toml_path=toml_path, keep_artifacts=args.keep_artifacts)
 
 
 if __name__ == "__main__":

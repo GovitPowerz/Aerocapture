@@ -47,8 +47,8 @@ points = [
 wind = false
 
 [flight.constraints]
-max_heat_flux = 151.571
-max_load_factor = 1.912
+max_heat_flux = 200.0
+max_load_factor = 4.0
 max_dynamic_pressure = 1.081
 
 [flight.final_conditions]

@@ -10,7 +10,7 @@ dependencies = [
     "deap>=1.4",
     "scipy>=1.17.1",
     "rich>=14.3",
-    "plotly>=6.6",
+    "seaborn>=0.13",
 ]
 
 [dependency-groups]
@@ -26,6 +26,7 @@ dev = [
     "types-xlrd>=2.0.0.20251020",
     "hypothesis>=6.100",
     "maturin>=1.12.6",
+    "types-seaborn>=0.13.2.20251221",
 ]
 
 
