@@ -25,6 +25,9 @@ level = "medium"
 [monte_carlo.mass]
 level = "medium"
 
+[monte_carlo.pilot]
+level = "medium"
+
 [monte_carlo.wind]
 scale_min = 0.5
 scale_max = 1.5
