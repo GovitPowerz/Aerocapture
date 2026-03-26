@@ -223,6 +223,7 @@ def train(
     resume_dir: str | Path | None = None,
     no_tui: bool = False,
     corridor_acc: CorridorAccumulator | None = None,
+    from_scratch: bool = False,
 ) -> dict:
     """Run the full GA training pipeline.
 
@@ -340,7 +341,7 @@ def train(
     # Try loading existing NN weights for population seeding (NN only)
     # Skip when --from-scratch: truly fresh start without bias from previous training
     seed_weights = None
-    if config.guidance_type == "neural_network" and config.ga.direct_encoding and resumed is None and not args.from_scratch:
+    if config.guidance_type == "neural_network" and config.ga.direct_encoding and resumed is None and not from_scratch:
         nn_param_path = Path(cwd or config.sim.exec_dir) / config.sim.nn_param_file
         if nn_param_path.exists():
             try:
@@ -808,6 +809,16 @@ if __name__ == "__main__":
             shutil.rmtree(save_path)
             print(f"Wiped existing output: {save_path}")
 
+        # For piecewise_constant, also wipe corridor/ref trajectory in the mission directory
+        # since those are produced by this scheme and would be stale after a fresh start
+        if cfg.guidance_type == "piecewise_constant":
+            mission_dir = save_path.parent
+            for stale in ("corridor_boundaries.npz", "ref_trajectory.dat"):
+                stale_path = mission_dir / stale
+                if stale_path.exists():
+                    stale_path.unlink()
+                    print(f"  Removed stale {stale_path}")
+
     # Auto-resume: if no --resume and no -fs, check for existing checkpoint
     resume_dir = args.resume
     if resume_dir is None and not args.from_scratch:
@@ -857,7 +868,7 @@ if __name__ == "__main__":
         delta_za_high = float(corr_section.get("delta_za_restricted_high", delta_za_r))
         corridor_acc = CorridorAccumulator(energy_min, energy_max, delta_za_restricted=delta_za_r, delta_za_low=delta_za_low, delta_za_high=delta_za_high)
 
-    result = train(cfg, seed=args.seed, cwd=cwd, resume_dir=resume_dir, no_tui=args.no_tui, corridor_acc=corridor_acc)
+    result = train(cfg, seed=args.seed, cwd=cwd, resume_dir=resume_dir, no_tui=args.no_tui, corridor_acc=corridor_acc, from_scratch=args.from_scratch)
     print(f"\nFinal best cost: {result['best_cost']:.4e}")
 
     # Update corridor_acc from train() result (may have been restored from checkpoint)

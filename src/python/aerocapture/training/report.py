@@ -497,7 +497,7 @@ def generate_report(
         summary = (
             _build_summary_table(final_records, heat_flux_limit=heat_flux_limit, g_load_limit=g_load_limit)
             if final_records is not None
-            else {"rows": []}
+            else {"rows": [], "violation_rows": []}
         )
         (tmp_dir / "summary_table.json").write_text(json.dumps(summary, indent=2))
 

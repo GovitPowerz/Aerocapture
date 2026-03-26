@@ -593,8 +593,15 @@ fn run_single(
         }
 
         // Atmospheric apoapsis crash: bounced, now descending again, still inside atmosphere
-        // → the apoapsis is below the atmospheric ceiling, guaranteed re-entry crash
-        if sim.bounced && sim.state[4].sin() < 0.0 && altitude < exit_altitude && term == TermReason::None {
+        // → the apoapsis is below the atmospheric ceiling, guaranteed re-entry crash.
+        // Guard: bounce altitude must be above 20 km to exclude transient FPA sign changes
+        // during the deep pass (aggressive bank reversals can momentarily push FPA positive).
+        if sim.bounced
+            && sim.bounce_alt > 20e3
+            && sim.state[4].sin() < 0.0
+            && altitude < exit_altitude
+            && term == TermReason::None
+        {
             term = TermReason::Crash;
         }
 

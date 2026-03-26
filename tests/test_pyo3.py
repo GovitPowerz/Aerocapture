@@ -117,9 +117,13 @@ class TestBitIdenticalRegression:
         # Subprocess path round-trips through CSV text, losing ~10 significant
         # digits.  PyO3 returns full f64 precision.  Use allclose with tight
         # tolerances that still accommodate the CSV formatting loss.
+        # Column 46 (inclination error) is populated in-memory but not written
+        # to the CSV output, so the subprocess path has 0 there — skip it.
+        cols = list(range(52))
+        cols.remove(46)
         np.testing.assert_allclose(
-            sub_result,
-            pyo3_array,
+            sub_result[:, cols],
+            pyo3_array[:, cols],
             rtol=1e-9,
             atol=1e-9,
             err_msg="PyO3 and subprocess paths diverge beyond CSV round-trip tolerance",
