@@ -5,11 +5,11 @@
 
 ## Simulation — High Impact
 
-- [ ] Implement wind model (currently a stub returning zero) — `IMPROVEMENTS.md` §1.4
+- [x] Implement wind model (altitude-dependent zonal/meridional profiles with MC dispersions) — `IMPROVEMENTS.md` §1.4
 - [ ] Add Mach-dependent Cx/Cz tables (2D interpolation: AoA x Mach) — §3.1
-- [ ] Implement integrated heat load tracking (`sum(q*dt)`) — §4.2
+- [x] Expose integrated heat load tracking in trajectory, CSV, PyO3, and GA cost function — §4.2
 - [ ] Enable exit phase guidance (phase transition logic present but inactive) — §6.3
-- [ ] Replace bias-only navigation with EKF/UKF — §5.1
+- [x] Replace bias-only navigation with EKF (13-state, IMU + star tracker + drag-derived density) — §5.1
 
 ## Simulation — Medium Impact
 
