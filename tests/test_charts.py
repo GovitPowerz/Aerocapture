@@ -115,9 +115,16 @@ class TestTrainingCharts:
         assert "<svg" in content
 
     def test_seed_pool_creates_svg(self, training_records: list[dict[str, Any]], tmp_svg: Path) -> None:
-        """Panel 6: seed pool chart creates SVG when pool_metrics present."""
+        """Panel 6: seed pool chart creates SVG when pool_metrics with difficulty_scores present."""
         for r in training_records:
-            r["pool_metrics"] = {"pool_size": 10 + r["generation"], "mean_difficulty": 0.5 + 0.02 * r["generation"]}
+            gen = r["generation"]
+            scores = [0.3 + 0.01 * gen + 0.05 * i for i in range(10)]
+            r["pool_metrics"] = {
+                "pool_size": 10 + gen,
+                "difficulty_min": min(scores),
+                "difficulty_max": max(scores),
+                "difficulty_scores": scores,
+            }
         result = chart_seed_pool(training_records, tmp_svg)
         assert result is True
         assert tmp_svg.exists()

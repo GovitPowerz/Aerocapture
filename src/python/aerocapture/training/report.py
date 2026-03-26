@@ -191,6 +191,7 @@ def _build_metadata(
     n_sims: int,
     has_seed_pool: bool,
     has_trajectories: bool,
+    has_final_eval: bool,
     toml_path: Path | None,
     has_cost_distribution: bool,
 ) -> dict:
@@ -224,7 +225,7 @@ def _build_metadata(
         "config_hash": config_hash,
         "has_seed_pool": has_seed_pool,
         "has_trajectories": has_trajectories,
-        "has_final_eval": has_trajectories,
+        "has_final_eval": has_final_eval,
         "has_cost_distribution": has_cost_distribution,
     }
 
@@ -343,8 +344,8 @@ def _run_undispersed_nominal(toml_path: Path, scheme_dir: Path) -> npt.NDArray[n
         if results.trajectories:
             traj: npt.NDArray[np.float64] = results.trajectories[0]
             return traj
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"Warning: undispersed nominal run failed: {exc}")
     return None
 
 
@@ -463,6 +464,7 @@ def generate_report(
             n_sims=n_sims,
             has_seed_pool=has_seed_pool,
             has_trajectories=has_trajectories,
+            has_final_eval=final_records is not None,
             toml_path=toml_path,
             has_cost_distribution=has_cost_distribution,
         )
@@ -518,6 +520,7 @@ def generate_report(
 def generate_comparison_report(
     training_output_dir: Path,
     schemes: list[str] | None = None,
+    keep_artifacts: bool = False,
 ) -> Path | None:
     """Generate a cross-scheme comparison PDF report.
 
@@ -607,7 +610,8 @@ def generate_comparison_report(
         return output_pdf
 
     finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        if not keep_artifacts:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -631,7 +635,7 @@ def main() -> None:
         sys.exit(1)
 
     if args.compare:
-        generate_comparison_report(path, schemes=args.schemes)
+        generate_comparison_report(path, schemes=args.schemes, keep_artifacts=args.keep_artifacts)
     else:
         toml_path = Path(args.toml) if args.toml else None
         generate_report(path, toml_path=toml_path, keep_artifacts=args.keep_artifacts)
