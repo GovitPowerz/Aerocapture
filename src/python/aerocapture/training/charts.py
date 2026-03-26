@@ -515,9 +515,10 @@ def classify_trajectories(
     n = len(final_records)
     classification = np.full(n, TRAJ_FAILED, dtype=np.int8)
 
-    ecc = final_records[:, _FR_ECC]
     ifinal = final_records[:, _FR_IFINAL]
-    captured = (ecc < 1.0) & (ifinal != 4)  # exclude pending crash
+    ecc = final_records[:, _FR_ECC]
+    # Captured = exited atmosphere (ifinal=3) on a bound orbit (ecc < 1)
+    captured = (ifinal == 3) & (ecc < 1.0)
     classification[captured] = TRAJ_OK
 
     # Downgrade captured trajectories that violate constraints

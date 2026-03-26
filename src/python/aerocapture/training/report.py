@@ -139,7 +139,7 @@ def _print_eval_summary(final_records: npt.NDArray[np.float64], n_sims: int) -> 
     """Print a human-readable summary of the final MC evaluation to stdout."""
     ecc = final_records[:, charts._FR_ECC]
     ifinal = final_records[:, charts._FR_IFINAL]
-    captured = (ecc < 1.0) & (ifinal != 4)  # exclude pending crash
+    captured = (ifinal == 3) & (ecc < 1.0)  # only AtmosphereExit on bound orbit
     n_captured = int(np.sum(captured))
     cap = final_records[captured]
 
@@ -249,7 +249,7 @@ def _build_summary_table(
     n_total = len(final_records)
     ecc = final_records[:, charts._FR_ECC]
     ifinal = final_records[:, charts._FR_IFINAL]
-    captured = (ecc < 1.0) & (ifinal != 4)  # exclude pending crash
+    captured = (ifinal == 3) & (ecc < 1.0)  # only AtmosphereExit on bound orbit
     cap_data = final_records[captured]
 
     if len(cap_data) == 0:
