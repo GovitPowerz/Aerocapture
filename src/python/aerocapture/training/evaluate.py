@@ -248,13 +248,15 @@ def compute_cost(
     dv_threshold: float = 1000.0,
     g_load_limit: float = 15.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
     heat_flux_limit: float = 200.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
+    heat_load_limit: float = 25000.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
     g_load_weight: float = 1000.0,
     heat_flux_weight: float = 1000.0,
+    heat_load_weight: float = 1000.0,
 ) -> float:
     """Compute RMS cost from simulation final conditions.
 
     Uses log-capped delta-V as the primary objective with normalized
-    soft constraint penalties for g-load and heat flux exceedances.
+    soft constraint penalties for g-load, heat flux, and heat load exceedances.
 
     All termination outcomes produce meaningful DV values from Rust:
     - Captured: real orbital correction DV
@@ -272,7 +274,9 @@ def compute_cost(
 
     g_penalty = g_load_weight * np.maximum((g_max - g_load_limit) / g_load_limit, 0) ** 2
     q_penalty = heat_flux_weight * np.maximum((q_max - heat_flux_limit) / heat_flux_limit, 0) ** 2
-    costs = costs + g_penalty + q_penalty
+    heat_load = final_conditions[:, 28] * 1e3  # MJ/m² → kJ/m²
+    hl_penalty = heat_load_weight * np.maximum((heat_load - heat_load_limit) / heat_load_limit, 0) ** 2
+    costs = costs + g_penalty + q_penalty + hl_penalty
 
     return float(np.sqrt(np.mean(costs**2)))
 

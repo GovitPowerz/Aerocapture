@@ -25,8 +25,23 @@ level = "medium"
 [monte_carlo.mass]
 level = "medium"
 
+[monte_carlo.vehicle]
+level = "medium"
+
+[monte_carlo.pilot]
+level = "medium"
+
+[monte_carlo.wind]
+scale_min = 0.5
+scale_max = 1.5
+direction_bias_deg = 30.0
+
+[monte_carlo.nav_filter]
+level = "medium"
+
 [cost_function]
 dv_threshold = 1000.0
 # Constraint limits come from [flight.constraints] in the mission TOML
 g_load_weight = 1000.0
 heat_flux_weight = 1000.0
+heat_load_weight = 1000.0

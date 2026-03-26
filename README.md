@@ -51,15 +51,15 @@ Seven guidance algorithms are implemented, all GA-optimizable:
 
 The simulation implements a full closed-loop GNC chain:
 
-1. **Navigation** — State estimation with density filter (exponential filter on atmospheric density ratio)
-2. **Guidance** — One of 6 algorithms computes bank angle command (see table above)
+1. **Navigation** — Two modes: legacy bias-only, or 13-state EKF (IMU sensor model + star tracker with atmospheric blackout + drag-derived density estimation). Configurable via `[navigation] mode = "bias"` or `"ekf"`.
+2. **Guidance** — One of 7 algorithms computes bank angle command (see table above)
 3. **Lateral guidance** — Roll sign management via inclination error with deadband
 4. **Control** — Pilot dynamics model applies rate limits and first/second-order lag to bank angle commands
-5. **Integration** — Gill-variant RK4 propagates equations of motion with J2 gravity, tabulated atmosphere, and aerodynamic forces
+5. **Integration** — Gill-variant RK4 propagates equations of motion with J2 gravity, tabulated atmosphere, altitude-dependent wind model, and aerodynamic forces
 
 ## GA Optimization
 
-All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load and heat flux exceedances. The cost function uses a C1-continuous log-capped compression (`log_cap`) that smoothly transitions from linear to logarithmic above a configurable threshold (default 1000 m/s), preventing outliers from dominating the RMS. The simulator returns meaningful DV values for all termination outcomes — captured (real orbital correction), hyperbolic (excess velocity), crash/pending crash/timeout (proportional virtual DV) — so no branching on capture status is needed. Training auto-resumes from existing checkpoints (use `-fs` to start fresh). On resume, `--n-gen` means "N additional generations." Training supports graceful Ctrl+C interruption (saves checkpoint and returns cleanly).
+All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load, heat flux, and integrated heat load exceedances. The cost function uses a C1-continuous log-capped compression (`log_cap`) that smoothly transitions from linear to logarithmic above a configurable threshold (default 1000 m/s), preventing outliers from dominating the RMS. The simulator returns meaningful DV values for all termination outcomes — captured (real orbital correction), hyperbolic (excess velocity), crash/pending crash/timeout (proportional virtual DV) — so no branching on capture status is needed. Training auto-resumes from existing checkpoints (use `-fs` to start fresh). On resume, `--n-gen` means "N additional generations." Training supports graceful Ctrl+C interruption (saves checkpoint and returns cleanly).
 
 ```bash
 # Optimize any guidance scheme (Rich TUI with sparklines and ETA)

@@ -19,7 +19,7 @@ impl SimResult {
     ///
     /// Columns: [alt_km, lon_deg, lat_deg, vel_m_s, fpa_deg, heading_deg, heat_flux_kw_m2,
     ///           time_s, energy_mj_kg, pdyn_kpa, bank_angle_deg, inclination_deg,
-    ///           g_load_g, nav_density_ratio, truth_density_kg_m3, reserved].
+    ///           g_load_g, nav_density_ratio, truth_density_kg_m3, heat_load_kj_m2].
     /// Empty if trajectories were not requested.
     #[getter]
     fn trajectory<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
@@ -87,7 +87,13 @@ impl SimResult {
         self.output.final_record[30]
     }
 
-    /// Dispersion draws as a 1D NumPy array (24 elements).
+    /// Integrated heat load (kJ/m²) — from final_record[28]
+    #[getter]
+    fn integrated_heat_load(&self) -> f64 {
+        self.output.final_record[28] * 1e3 // MJ/m² → kJ/m²
+    }
+
+    /// Dispersion draws as a 1D NumPy array (26 elements).
     #[getter]
     fn dispersions<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         PyArray1::from_slice(py, &self.output.dispersions)
@@ -146,7 +152,7 @@ impl BatchResults {
             .collect()
     }
 
-    /// Dispersion draws as an (N, 24) NumPy array — always populated.
+    /// Dispersion draws as an (N, 26) NumPy array — always populated.
     #[getter]
     fn dispersions<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
         let rows: Vec<Vec<f64>> = self

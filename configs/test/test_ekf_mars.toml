@@ -1,0 +1,26 @@
+# Test: EKF navigation mode with FTC guidance on Mars.
+# Used by EKF integration tests to verify that EKF navigation produces a valid trajectory.
+base = ["../missions/mars.toml"]
+
+[simulation]
+n_sims = 1
+
+[navigation]
+mode = "ekf"
+
+[navigation.imu]
+accel_bias_sigma = 1e-4
+accel_noise_sigma = 5e-4
+gyro_bias_sigma = 5e-6
+gyro_noise_sigma = 1e-5
+
+[navigation.star_tracker]
+position_sigma = 50.0
+update_period = 10.0
+blackout_qdyn_threshold = 100.0
+
+[guidance]
+type = "ftc"
+
+[data]
+results_suffix = ".test_ekf_mars"

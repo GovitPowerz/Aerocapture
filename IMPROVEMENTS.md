@@ -29,12 +29,9 @@ Current dispersions are static per-run (piecewise linear altitude profile applie
 - **Improvement**: Add stochastic density perturbations that evolve during a run (e.g., Gauss-Markov process, or Dryden-like turbulence model applied to density).
 - **Impact**: Tests guidance robustness to transient density features, not just static biases.
 
-### 1.4 [NEW] Wind model
+### 1.4 [DONE] Wind model
 
-The wind model is currently a stub returning zero velocity (`physics/winds.rs`). Mars entry encounters zonal winds up to ~100 m/s.
-
-- **Improvement**: Implement altitude-dependent zonal/meridional wind profiles (e.g., from MCD or parametric models). Add wind dispersions for Monte Carlo.
-- **Impact**: Affects relative velocity, dynamic pressure, and guidance accuracy — particularly important for low-L/D vehicles.
+Implemented altitude-dependent zonal/meridional wind profiles loaded from data files (`physics/winds.rs`, `data/atmosphere/mars_winds.dat`, `data/atmosphere/earth_winds.dat`). Parametric profiles based on Forget et al. 1999. Zonal wind cosine-scaled with latitude. MC dispersions include wind scaling factor (uniform) and direction bias (uniform rotation). Wired into equations of motion via `effective_airspeed()` — aero forces and heat flux use wind-corrected velocity, kinematic terms use planet-relative velocity. TOML-configurable via `[data] wind_table` path and `[monte_carlo.wind]` section. Backward compatible (absent wind table = no wind).
 
 ### 1.5 Horizontal atmosphere variation
 
@@ -96,12 +93,9 @@ Current model: `q = Cq * sqrt(rho) * V^3` (Sutton-Graves convective correlation)
 - **Improvement**: Add radiative heating component (significant above ~6 km/s), possibly via Tauber-Sutton or tabulated CFD-based correlations. Add stagnation point vs acreage distribution.
 - **Impact**: More accurate TPS sizing and thermal constraint evaluation.
 
-### 4.2 [NEW] Integrated heat load tracking
+### 4.2 [DONE] Integrated heat load tracking
 
-Instantaneous heat flux is computed and max values tracked (`runner.rs`), but total integrated heat load is not accumulated. The state vector has a `flux` component but it stores instantaneous, not cumulative.
-
-- **Improvement**: Accumulate `sum(q * dt)` during the atmospheric pass and output it in final CSV. Add integrated heat load as a cost function component for GA training.
-- **Impact**: Enables TPS mass estimation and thermal margin assessment.
+Cumulative heat load was already computed via RK4 integration of `dflux` in `state[6]` and stored in `final_record[28]` as `integrated_flux_mj_m2`. Exposed through: trajectory data (column 15 = `heat_load_kj_m2`), photo CSV (new column), PyO3 `SimResult.integrated_heat_load` getter, and GA cost function (`heat_load_weight` penalty, `max_heat_load` constraint in mission TOML). New `chart_heat_load_time()` chart function for cumulative heat load vs time spaghetti plots.
 
 ### 4.3 Heat rate and heat load as guidance constraints
 
@@ -113,15 +107,9 @@ Heat flux is tracked but not used as a guidance constraint.
 
 ## 5. Navigation
 
-### 5.1 Replace bias-only navigation with a Kalman filter
+### 5.1 [DONE] Replace bias-only navigation with EKF
 
-The current navigation model (`gnc/navigation/estimator.rs`) adds constant biases to the true state. There is no Kalman filter, no IMU model, no star tracker update, and no actual state estimation.
-
-- **Improvement**: Implement an Extended Kalman Filter (EKF) or Unscented Kalman Filter (UKF) with:
-  - IMU propagation (accelerometers + gyros with bias, scale factor, noise models)
-  - Star tracker updates (periodic, with blackout during atmospheric pass)
-  - Drag-derived altitude updates
-- **Impact**: Critical for realistic closed-loop GNC assessment. The current model is too optimistic (perfect knowledge with small bias).
+Implemented a 13-state Extended Kalman Filter (`gnc/navigation/ekf.rs`) with error-state formulation: position/velocity errors (6), accelerometer biases (3), gyro biases (3), density correction factor (1). Includes IMU sensor model (`imu.rs`: bias, scale factor, white noise) and star tracker model (`star_tracker.rs`: position updates with dynamic pressure blackout during atmospheric pass). Drag-derived density updates replace the legacy exponential filter when in EKF mode. TOML-configurable via `[navigation] mode = "ekf"` with `[navigation.imu]`, `[navigation.star_tracker]`, and `[navigation.ekf]` sections. Mode switch in `estimator.rs` via `NavigationFilter` enum — `mode = "bias"` (default) preserves all existing behavior. UKF remains future work.
 
 ### 5.2 [PARTIAL] Improve density estimation filter
 

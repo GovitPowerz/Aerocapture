@@ -284,8 +284,8 @@ def final_records() -> npt.NDArray[np.float64]:
 
 @pytest.fixture()
 def dispersions() -> npt.NDArray[np.float64]:
-    """Synthetic dispersion array (20 sims, 24 fields)."""
-    return np.random.default_rng(42).normal(0, 1, (20, 24))
+    """Synthetic dispersion array (20 sims, 26 fields)."""
+    return np.random.default_rng(42).normal(0, 1, (20, 26))
 
 
 # ---------------------------------------------------------------------------

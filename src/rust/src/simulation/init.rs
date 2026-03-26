@@ -8,18 +8,24 @@ use crate::gnc::control::pilot::PilotBiases;
 use crate::gnc::navigation::estimator::NavigationBiases;
 
 /// Per-simulation-run state after applying dispersions.
+///
+/// **Note:** `wind_scale` must be initialized to `1.0` (identity), not `0.0`.
+/// Setting it to `0.0` silently zeroes out all wind. Use `init_run_from_draw()`
+/// for production; for tests, set `wind_scale: 1.0` explicitly.
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct RunState {
     pub entry: EntryConditions,
-    pub cx_bias: f64,            // drag coefficient bias (fractional)
-    pub cz_bias: f64,            // lift coefficient bias (fractional)
-    pub density_bias: f64,       // atmosphere density bias (fractional)
-    pub mass_bias: f64,          // mass bias (fractional)
-    pub incidence_bias: f64,     // incidence error (radians)
-    pub ref_area_bias: f64,      // reference area bias (fractional)
-    pub max_bank_rate_bias: f64, // max bank rate bias (fractional)
-    pub filter_gain_bias: f64,   // density filter gain bias (absolute delta)
+    pub cx_bias: f64,             // drag coefficient bias (fractional)
+    pub cz_bias: f64,             // lift coefficient bias (fractional)
+    pub density_bias: f64,        // atmosphere density bias (fractional)
+    pub mass_bias: f64,           // mass bias (fractional)
+    pub incidence_bias: f64,      // incidence error (radians)
+    pub ref_area_bias: f64,       // reference area bias (fractional)
+    pub max_bank_rate_bias: f64,  // max bank rate bias (fractional)
+    pub filter_gain_bias: f64,    // density filter gain bias (absolute delta)
+    pub wind_scale: f64,          // wind speed multiplier (1.0 = nominal, NOT 0.0)
+    pub wind_direction_bias: f64, // wind direction rotation (radians)
     pub nav_biases: NavigationBiases,
     pub pilot_biases: PilotBiases,
 }
@@ -44,6 +50,8 @@ pub fn init_run_from_draw(sim_data: &SimData, draw: &DispersionDraw) -> RunState
         ref_area_bias: draw.ref_area,
         max_bank_rate_bias: draw.max_bank_rate,
         filter_gain_bias: draw.filter_gain,
+        wind_scale: draw.wind_scale,
+        wind_direction_bias: draw.wind_direction_bias,
         nav_biases: NavigationBiases {
             pos: [draw.nav_altitude, draw.nav_longitude, draw.nav_latitude],
             vel: [draw.nav_velocity, draw.nav_flight_path, draw.nav_azimuth],
@@ -110,8 +118,11 @@ mod tests {
             },
             success: SuccessCriteria::default(),
             wind_enabled: false,
+            wind_table: None,
             neural_net: None,
             dispersion_config: None,
+            nav_mode: crate::data::NavMode::Bias,
+            nav_config: None,
         }
     }
 

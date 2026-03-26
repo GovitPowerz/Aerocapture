@@ -9,7 +9,7 @@ use crate::gnc::control::angle_utils::shortest_angle_diff;
 use crate::gnc::control::pilot::{self, PilotState};
 use crate::gnc::guidance::ftc::{self, FtcState};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
-use crate::gnc::navigation::estimator::{self, NavigationState};
+use crate::gnc::navigation::estimator::{self, NavigationFilter};
 use crate::integration::rk4;
 use crate::integration::sequencer::SequencerState;
 use crate::orbit::maneuver::DeltaV;
@@ -87,7 +87,7 @@ enum TermReason {
 struct SimResult {
     sim_idx: i32,
     final_line: [f64; 52],
-    photo_lines: Vec<[f64; 28]>,
+    photo_lines: Vec<[f64; 29]>,
     dispersions: [f64; DISPERSION_DRAW_LEN],
 }
 
@@ -239,7 +239,7 @@ pub fn run_for_api(
                             p[25],       // [12] g_load_g
                             p[26],       // [13] nav_density_ratio
                             p[27],       // [14] truth_density_kg_m3
-                            0.0,         // [15] reserved
+                            p[28],       // [15] heat_load_kj_m2
                         ]
                     })
                     .collect()
@@ -306,9 +306,9 @@ fn write_csv_output(
     Ok(())
 }
 
-/// Extract 21 CSV values from the 28-element photo array.
+/// Extract 22 CSV values from the 29-element photo array.
 /// Drops: [20] radial_velocity_2 (duplicate), [22] sim_number, [23] reserved, [24-27] trajectory-only columns.
-fn extract_photo_csv_values(values: &[f64; 28]) -> [f64; 21] {
+fn extract_photo_csv_values(values: &[f64; 29]) -> [f64; 22] {
     [
         values[0],  // time_s
         values[1],  // altitude_km
@@ -331,6 +331,7 @@ fn extract_photo_csv_values(values: &[f64; 28]) -> [f64; 21] {
         values[18], // energy_j_kg
         values[19], // dynamic_pressure_pa
         values[21], // dynamic_pressure_onboard_kpa (skip [20] duplicate)
+        values[28], // heat_load_kj_m2
     ]
 }
 
@@ -435,7 +436,18 @@ fn run_single(
     let exit_altitude = data.final_conditions.altitude;
 
     // === GNC subsystem initialization ===
-    let mut nav_state = NavigationState::new();
+    let mut nav_filter = match data.nav_mode {
+        crate::data::NavMode::Bias => NavigationFilter::new_bias(),
+        crate::data::NavMode::Ekf => {
+            let nav_toml = data
+                .nav_config
+                .as_ref()
+                .expect("EKF mode requires [navigation] config");
+            let (imu_cfg, st_cfg, ekf_cfg) = estimator::build_ekf_configs(nav_toml);
+            let seed = config.random_seed as u64 + sim_idx as u64 * 10_000;
+            NavigationFilter::new_ekf(imu_cfg, st_cfg, ekf_cfg, seed)
+        }
+    };
     let nav_biases = run_state.nav_biases;
     let is_single = config.n_sims <= 1 && config.screen_output;
     if is_single {
@@ -453,7 +465,7 @@ fn run_single(
     };
     let mut sequencer = SequencerState::new();
 
-    let mut photo_lines: Vec<[f64; 28]> = Vec::new();
+    let mut photo_lines: Vec<[f64; 29]> = Vec::new();
     let mut cumulative_bank_change_deg = 0.0_f64;
     let mut dynamic_pressure_for_photo = 0.0_f64;
     let mut density_estimate_for_photo = 0.0_f64;
@@ -477,23 +489,54 @@ fn run_single(
             let position_true = [sim.state[0], sim.state[1], sim.state[2]];
             let velocity_true = [sim.state[3], sim.state[4], sim.state[5]];
 
-            let nav_out = estimator::navigate(
-                &position_true,
-                &velocity_true,
-                ftc_state.aoa_commanded,
-                sim_time,
-                &nav_biases,
-                &mut nav_state,
-                data,
-                planet,
-                run_state.density_bias,
-                run_state.cx_bias,
-                run_state.cz_bias,
-                run_state.mass_bias,
-                run_state.incidence_bias,
-                run_state.ref_area_bias,
-                run_state.filter_gain_bias,
-            );
+            let nav_out = match &mut nav_filter {
+                NavigationFilter::Bias(nav_state) => estimator::navigate(
+                    &position_true,
+                    &velocity_true,
+                    ftc_state.aoa_commanded,
+                    sim_time,
+                    &nav_biases,
+                    nav_state,
+                    data,
+                    planet,
+                    run_state.density_bias,
+                    run_state.cx_bias,
+                    run_state.cz_bias,
+                    run_state.mass_bias,
+                    run_state.incidence_bias,
+                    run_state.ref_area_bias,
+                    run_state.filter_gain_bias,
+                ),
+                NavigationFilter::Ekf {
+                    ekf,
+                    imu,
+                    star_tracker,
+                    st_config,
+                    ekf_config,
+                    legacy,
+                    ..
+                } => estimator::navigate_ekf(
+                    &position_true,
+                    &velocity_true,
+                    ftc_state.aoa_commanded,
+                    sim_time,
+                    data.periods.navigation,
+                    &nav_biases,
+                    legacy,
+                    ekf,
+                    imu,
+                    star_tracker,
+                    st_config,
+                    ekf_config,
+                    data,
+                    planet,
+                    run_state.density_bias,
+                    run_state.cx_bias,
+                    run_state.mass_bias,
+                    run_state.incidence_bias,
+                    run_state.ref_area_bias,
+                ),
+            };
 
             dynamic_pressure_for_photo = nav_out.dynamic_pressure_estimated;
             density_estimate_for_photo = nav_out.density_guidance;
@@ -562,8 +605,9 @@ fn run_single(
                 sim_idx + 1,
                 cumulative_bank_change_deg * DEG_TO_RAD,
                 data,
-                nav_state.density_gain,
+                nav_filter.density_gain(),
                 run_state,
+                sim.state[6],
             ));
         }
 
@@ -620,8 +664,9 @@ fn run_single(
             sim_idx + 1,
             cumulative_bank_change_deg * DEG_TO_RAD,
             data,
-            nav_state.density_gain,
+            nav_filter.density_gain(),
             run_state,
+            sim.state[6],
         ));
     }
 
@@ -783,7 +828,8 @@ fn build_photo_values(
     data: &SimData,
     density_gain: f64,
     run_state: &init::RunState,
-) -> [f64; 28] {
+    cumulative_flux: f64,
+) -> [f64; 29] {
     let (altitude, latitude) =
         geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
 
@@ -822,13 +868,23 @@ fn build_photo_values(
     // with final_record peak values and constraint classification.
     let rho_truth = data.atmosphere.density_at(altitude);
     let rho_dispersed = rho_truth * (1.0 + run_state.density_bias);
-    let heat_flux = data.capsule.cq * rho_dispersed.sqrt() * sim.state[3].powf(3.05);
+    // Wind-corrected velocity for aero-dependent quantities
+    let v_eff = effective_airspeed(
+        sim.state[3],
+        sim.state[4],
+        sim.state[5],
+        sim.state[2],
+        altitude,
+        data,
+        run_state,
+    );
+    let heat_flux = data.capsule.cq * rho_dispersed.sqrt() * v_eff.powf(3.05);
     let aoa_dispersed = sim.aoa + run_state.incidence_bias;
     let cx = data.aero.interpolate_cx(aoa_dispersed) * (1.0 + run_state.cx_bias);
     let cz = data.aero.interpolate_cz(aoa_dispersed) * (1.0 + run_state.cz_bias);
     let mass = data.capsule.mass * (1.0 + run_state.mass_bias);
     let ref_area = data.capsule.reference_area * (1.0 + run_state.ref_area_bias);
-    let aero_accel = rho_dispersed * ref_area * sim.state[3] * sim.state[3] / (2.0 * mass);
+    let aero_accel = rho_dispersed * ref_area * v_eff * v_eff / (2.0 * mass);
     let load_factor = aero_accel * (cx * cx + cz * cz).sqrt();
 
     [
@@ -856,10 +912,11 @@ fn build_photo_values(
         0.5 * density_estimate * sim.state[3] * sim.state[3] / 1e3,
         sim_index as f64,
         0.0,
-        heat_flux / 1e3,  // [24] heat_flux kW/m²
-        load_factor / G0, // [25] g-load in g's
-        density_gain,     // [26] nav density ratio (estimated/model)
-        rho_truth,        // [27] truth density kg/m³
+        heat_flux / 1e3,       // [24] heat_flux kW/m²
+        load_factor / G0,      // [25] g-load in g's
+        density_gain,          // [26] nav density ratio (estimated/model)
+        rho_truth,             // [27] truth density kg/m³
+        cumulative_flux / 1e3, // [28] heat_load_kj_m2 (J/m² → kJ/m²)
     ]
 }
 
@@ -898,13 +955,19 @@ fn track_peak_values(
     run_state: &init::RunState,
 ) {
     let v = sim.state[3];
+    let gamma = sim.state[4];
+    let psi = sim.state[5];
+    let lat = sim.state[2];
     let rho = data.atmosphere.density_at(altitude) * (1.0 + run_state.density_bias);
 
+    // Wind-corrected velocity for aero-dependent quantities
+    let v_eff = effective_airspeed(v, gamma, psi, lat, altitude, data, run_state);
+
     // Heat flux (W/m²) — same formula as dflux in compute_derivatives
-    let heat_flux = data.capsule.cq * rho.sqrt() * v.powf(3.05);
+    let heat_flux = data.capsule.cq * rho.sqrt() * v_eff.powf(3.05);
 
     // Dynamic pressure (Pa)
-    let pdyn = 0.5 * rho * v * v;
+    let pdyn = 0.5 * rho * v_eff * v_eff;
 
     // Load factor (m/s²) — aerodynamic acceleration magnitude
     let aoa_dispersed = sim.aoa + run_state.incidence_bias;
@@ -912,7 +975,7 @@ fn track_peak_values(
     let cz = data.aero.interpolate_cz(aoa_dispersed) * (1.0 + run_state.cz_bias);
     let mass = data.capsule.mass * (1.0 + run_state.mass_bias);
     let ref_area = data.capsule.reference_area * (1.0 + run_state.ref_area_bias);
-    let aero_accel = rho * ref_area * v * v / (2.0 * mass);
+    let aero_accel = rho * ref_area * v_eff * v_eff / (2.0 * mass);
     let load_factor = aero_accel * (cx * cx + cz * cz).sqrt();
 
     if heat_flux > sim.max_heat_flux {
@@ -929,6 +992,42 @@ fn track_peak_values(
         sim.max_dyn_pressure = pdyn;
         sim.alt_max_pdyn = altitude;
         sim.time_max_pdyn = sim_time;
+    }
+}
+
+/// Compute effective airspeed accounting for wind.
+///
+/// The state velocity `v` is relative to the planet-fixed atmosphere.
+/// Wind adds a velocity perturbation: we subtract wind from the vehicle's
+/// ground-relative velocity components to get the airspeed used for aero forces.
+/// Returns the original `v` when wind is disabled or no wind table is loaded.
+fn effective_airspeed(
+    v: f64,
+    gamma: f64,
+    psi: f64,
+    lat: f64,
+    altitude: f64,
+    data: &SimData,
+    run_state: &init::RunState,
+) -> f64 {
+    if !data.wind_enabled {
+        return v;
+    }
+    if let Some(ref wt) = data.wind_table {
+        let w = wt.wind_at(altitude, lat);
+        let scale = run_state.wind_scale;
+        let rot = run_state.wind_direction_bias;
+        // Apply dispersions: scale and rotate wind vector
+        let we = scale * (w.east * rot.cos() - w.north * rot.sin());
+        let wn = scale * (w.east * rot.sin() + w.north * rot.cos());
+        // Project into trajectory frame and compute effective speed
+        let cos_g = gamma.cos();
+        let v_east = v * cos_g * psi.sin() - we;
+        let v_north = v * cos_g * psi.cos() - wn;
+        let v_vert = v * gamma.sin();
+        (v_east * v_east + v_north * v_north + v_vert * v_vert).sqrt()
+    } else {
+        v
     }
 }
 
@@ -960,9 +1059,17 @@ fn compute_derivatives(
 
     let mass = data.capsule.mass * (1.0 + run_state.mass_bias);
     let ref_area = data.capsule.reference_area * (1.0 + run_state.ref_area_bias);
+
+    // Wind-corrected velocity for aero forces and heat flux.
+    // Note: aero force *magnitude* uses v_eff (airspeed) but is applied along the
+    // planet-relative velocity direction. This is a first-order approximation valid
+    // when wind << vehicle speed. At Mars entry (100 m/s wind vs 5700 m/s), the
+    // direction error is O(wind/V)² ≈ 0.03%.
+    let v_eff = effective_airspeed(v, gamma, psi, lat, altitude, data, run_state);
+
     let aero_factor = rho * ref_area / (2.0 * mass);
-    let acdrag = aero_factor * cx * v * v;
-    let aclift = aero_factor * cz * v * v;
+    let acdrag = aero_factor * cx * v_eff * v_eff;
+    let aclift = aero_factor * cz * v_eff * v_eff;
 
     let cos_bank = bank_angle.cos();
     let sin_bank = bank_angle.sin();
@@ -977,6 +1084,7 @@ fn compute_derivatives(
 
     let omega = planet.omega();
 
+    // Kinematic derivatives use original v (planet-relative)
     let dr = v * sin_gamma;
     let dlon = v * cos_gamma * sin_psi / (r * cos_lat);
     let dlat = v * cos_gamma * cos_psi / r;
@@ -995,7 +1103,8 @@ fn compute_derivatives(
         + (gravtl * sin_psi / (v * cos_gamma))
         + (omega * omega * r * cos_lat * sin_lat * sin_psi / (v * cos_gamma));
 
-    let dflux = data.capsule.cq * rho.sqrt() * v.powf(3.05);
+    // Heat flux uses wind-corrected velocity
+    let dflux = data.capsule.cq * rho.sqrt() * v_eff.powf(3.05);
     let dtime = 1.0;
 
     [dr, dlon, dlat, dv, dgamma, dpsi, dflux, dtime]
@@ -1121,6 +1230,40 @@ mod run_output_tests {
             rec[17] > 1.0 && rec[17] < 30.0,
             "peak load factor {:.1} g outside reasonable Mars entry range",
             rec[17]
+        );
+    }
+
+    #[test]
+    fn heat_load_in_trajectory_is_monotonically_nondecreasing() {
+        let (config, data) = load_test_config();
+        let results = run_for_api(&config, &data, true).expect("run");
+        let traj = &results[0].trajectory;
+        assert!(!traj.is_empty(), "trajectory should not be empty");
+        for i in 1..traj.len() {
+            assert!(
+                traj[i][15] >= traj[i - 1][15],
+                "heat load must be monotonically non-decreasing at step {}: {} < {}",
+                i,
+                traj[i][15],
+                traj[i - 1][15]
+            );
+        }
+    }
+
+    #[test]
+    fn heat_load_final_matches_final_record() {
+        let (config, data) = load_test_config();
+        let results = run_for_api(&config, &data, true).expect("run");
+        let r = &results[0];
+        let last_traj_heat_load = r.trajectory.last().unwrap()[15]; // kJ/m²
+        let final_record_heat_load = r.final_record[28] * 1e3; // MJ/m² → kJ/m²
+        let diff = (last_traj_heat_load - final_record_heat_load).abs();
+        assert!(
+            diff < 1.0, // allow 1 kJ/m² tolerance (photo cadence vs final state)
+            "trajectory last heat load ({:.2}) should match final_record ({:.2}), diff={:.4}",
+            last_traj_heat_load,
+            final_record_heat_load,
+            diff
         );
     }
 }

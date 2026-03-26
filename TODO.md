@@ -1,15 +1,12 @@
 # TODO
 
 - [ ] add an animation script of entry corridors and trajectories evolution during training based on checkpoints
-- [ ] Update IMPROVEMENTS.md
+- [ ] Make 3 separate graphs for individual burn corrections and add xticklabeld on total DeltV distribution graph
 
 ## Simulation — High Impact
 
-- [ ] Implement wind model (currently a stub returning zero) — `IMPROVEMENTS.md` §1.4
 - [ ] Add Mach-dependent Cx/Cz tables (2D interpolation: AoA x Mach) — §3.1
-- [ ] Implement integrated heat load tracking (`sum(q*dt)`) — §4.2
 - [ ] Enable exit phase guidance (phase transition logic present but inactive) — §6.3
-- [ ] Replace bias-only navigation with EKF/UKF — §5.1
 
 ## Simulation — Medium Impact
 

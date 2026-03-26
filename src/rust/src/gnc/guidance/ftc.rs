@@ -577,8 +577,11 @@ mod tests {
             constraints: Constraints::default(),
             success: SuccessCriteria::default(),
             wind_enabled: false,
+            wind_table: None,
             neural_net: None,
             dispersion_config: None,
+            nav_mode: crate::data::NavMode::Bias,
+            nav_config: None,
         }
     }
 

@@ -1,0 +1,20 @@
+# Test: constant bank angle trajectory with Mars wind model enabled.
+# Used by wind integration tests to verify that wind affects the trajectory.
+base = ["../missions/mars.toml"]
+
+[simulation]
+n_sims = 1
+random_seed = 0.6866
+
+[flight]
+wind = true
+
+[data]
+atmosphere = "data/atmosphere/mars.dat"
+wind_table = "data/atmosphere/mars_winds.dat"
+results_suffix = ".test_wind_mars"
+
+[guidance]
+type = "ftc"
+reference_trajectory = true
+reference_bank_angle = 64.77026
