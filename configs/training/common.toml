@@ -25,6 +25,9 @@ level = "medium"
 [monte_carlo.mass]
 level = "medium"
 
+[monte_carlo.vehicle]
+level = "medium"
+
 [monte_carlo.pilot]
 level = "medium"
 

@@ -70,7 +70,7 @@ impl InitialStateSigmas {
                 azimuth: 0.043,
             },
             DispersionLevel::Medium => Self {
-                altitude: 0.0,
+                altitude: 0.1,
                 longitude: 0.1,
                 latitude: 0.05,
                 velocity: 1.0,
