@@ -381,16 +381,14 @@ def _plot_percentile_curves(ax: plt.Axes, gens: list[int], matrix: npt.NDArray[n
     for p in percentiles:
         pct_data[p] = np.nanpercentile(matrix, p, axis=1)
 
-    for p, color, lw, ls in zip(percentiles, pct_colors, pct_widths, pct_styles):
+    for p, color, lw, ls in zip(percentiles, pct_colors, pct_widths, pct_styles, strict=True):
         ax.plot(gens, pct_data[p], color=color, linewidth=lw, linestyle=ls, label=f"p{p}")
 
     ax.fill_between(gens, pct_data[25], pct_data[75], alpha=0.15, color="#1f77b4")
     ax.legend(fontsize="x-small", ncol=4)
 
 
-def _chart_weight_stats_evolution(
-    records: list[dict[str, Any]], output: Path, resume_gens: list[int] | None
-) -> None:
+def _chart_weight_stats_evolution(records: list[dict[str, Any]], output: Path, resume_gens: list[int] | None) -> None:
     """NN variant: per-layer mean ± std evolution from weight_stats."""
     gens = [r["generation"] for r in records]
 
@@ -458,7 +456,7 @@ def chart_seed_pool(records: list[dict[str, Any]], output: Path, resume_gens: li
                 for p in percentiles:
                     pct_data[p].append(float("nan"))
 
-        for p, color, lw, ls in zip(percentiles, pct_colors, pct_widths, pct_styles):
+        for p, color, lw, ls in zip(percentiles, pct_colors, pct_widths, pct_styles, strict=True):
             ax.plot(gens, pct_data[p], color=color, linewidth=lw, linestyle=ls, label=f"p{p}")
 
         # Fill between p25-p75
