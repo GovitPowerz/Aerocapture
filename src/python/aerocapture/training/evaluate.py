@@ -246,8 +246,8 @@ def compute_cost(
     final_conditions: npt.NDArray[np.float64],
     *,
     dv_threshold: float = 1000.0,
-    g_load_limit: float = 15.0,
-    heat_flux_limit: float = 200.0,
+    g_load_limit: float = 15.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
+    heat_flux_limit: float = 200.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
     g_load_weight: float = 1000.0,
     heat_flux_weight: float = 1000.0,
 ) -> float:

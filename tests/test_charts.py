@@ -75,7 +75,6 @@ class TestTrainingCharts:
         with pytest.raises(ValueError, match="No training records provided"):
             chart_convergence([], tmp_svg)
 
-
     def test_diversity_cost(self, training_records: list[dict[str, Any]], tmp_svg: Path) -> None:
         """Panel 3: diversity vs cost chart creates SVG."""
         for r in training_records:

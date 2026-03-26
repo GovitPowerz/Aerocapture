@@ -172,13 +172,13 @@ def _read_mission_name(toml_path: Path) -> str:
 
 
 def _read_constraint_limits(toml_path: Path) -> tuple[float | None, float | None]:
-    """Read heat flux and g-load limits from TOML [cost_function] section."""
+    """Read heat flux and g-load limits from TOML [flight.constraints] section."""
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     data = load_toml_with_bases(toml_path)
-    cost = data.get("cost_function", {})
-    heat_flux: float | None = cost.get("heat_flux_limit")
-    g_load: float | None = cost.get("g_load_limit")
+    constraints = data.get("flight", {}).get("constraints", {})
+    heat_flux: float | None = constraints.get("max_heat_flux")
+    g_load: float | None = constraints.get("max_load_factor")
     return heat_flux, g_load
 
 

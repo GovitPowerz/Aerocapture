@@ -209,10 +209,11 @@ def main() -> None:
     cost_kwargs: dict[str, float] = {}
     _toml = load_toml_with_bases(Path(base_toml))
     cost_cfg = _toml.get("cost_function", {})
+    constraints = _toml.get("flight", {}).get("constraints", {})
     cost_kwargs = {
         "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
-        "g_load_limit": float(cost_cfg.get("g_load_limit", 15.0)),
-        "heat_flux_limit": float(cost_cfg.get("heat_flux_limit", 200.0)),
+        "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
+        "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
         "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
         "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
     }
