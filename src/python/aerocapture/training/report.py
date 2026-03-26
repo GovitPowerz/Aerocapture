@@ -381,7 +381,7 @@ def _find_best_trajectory(
     """Find the trajectory with the lowest total DV among captured cases."""
     ecc = final_records[:, charts._FR_ECC]
     ifinal = final_records[:, charts._FR_IFINAL]
-    captured_indices = np.where((ecc < 1.0) & (ifinal != 4))[0]
+    captured_indices = np.where((ifinal == 3) & (ecc < 1.0))[0]
     if len(captured_indices) == 0:
         return None
     dv = final_records[captured_indices, charts._FR_DV_TOTAL]

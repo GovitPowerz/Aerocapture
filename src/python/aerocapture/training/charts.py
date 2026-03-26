@@ -939,14 +939,15 @@ def chart_exit_conditions(final_records: npt.NDArray[np.float64], output: Path) 
     sizes = np.log10(dv) * 10  # scale for visibility
     sizes = np.clip(sizes, 5, 100)
 
+    ifinal = final_records[:, _FR_IFINAL]
     ecc = final_records[:, _FR_ECC]
-    captured = ecc < 1.0
+    captured = (ifinal == 3) & (ecc < 1.0)
 
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
     if np.any(captured):
-        ax.scatter(exit_fpa[captured], exit_v[captured], s=sizes[captured], color=COLOR_NOMINAL_BEST, alpha=0.7, label="Captured")
+        ax.scatter(exit_fpa[captured], exit_v[captured], s=sizes[captured], color=COLOR_CAPTURE, alpha=0.7, label="Captured")
     if np.any(~captured):
-        ax.scatter(exit_fpa[~captured], exit_v[~captured], s=sizes[~captured], color=COLOR_HYPERBOLIC, marker="x", label="Hyperbolic")
+        ax.scatter(exit_fpa[~captured], exit_v[~captured], s=sizes[~captured], color=COLOR_HYPERBOLIC, marker="x", label="Failed")
 
     ax.set_xlabel("Exit FPA (deg)")
     ax.set_ylabel("Exit velocity (m/s)")

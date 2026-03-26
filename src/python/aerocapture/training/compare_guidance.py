@@ -135,7 +135,7 @@ def run_scheme(
     energy = final[:, 7]
     ecc = final[:, 9]
     ifinal = final[:, 31]
-    captured = (ecc < 1.0) & (energy < 0) & (ifinal != 4.0)
+    captured = (ifinal == 3) & (ecc < 1.0)
 
     metrics: dict = {
         "n_sims": len(final),

@@ -250,7 +250,7 @@ pub fn run_for_api(
             crate::RunOutput {
                 trajectory,
                 final_record: r.final_line,
-                captured: ecc < 1.0 && energy < 0.0 && ifinal_val != 4,
+                captured: ifinal_val == 3 && ecc < 1.0 && energy < 0.0,
                 dispersions: r.dispersions,
             }
         })
@@ -1064,7 +1064,7 @@ mod run_output_tests {
         let results = run_for_api(&config, &data, false).expect("run");
         let r = &results[0];
         let ifinal_val = r.final_record[31] as i32;
-        let expected = r.final_record[9] < 1.0 && r.final_record[7] < 0.0 && ifinal_val != 4;
+        let expected = ifinal_val == 3 && r.final_record[9] < 1.0 && r.final_record[7] < 0.0;
         assert_eq!(r.captured, expected);
     }
 
