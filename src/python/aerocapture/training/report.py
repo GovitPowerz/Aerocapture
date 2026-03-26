@@ -395,37 +395,40 @@ def _generate_trajectory_charts(
     toml_path: Path | None = None,
 ) -> None:
     """Generate Part 2 (mission performance) SVG charts from final eval data."""
-    ecc = final_records[:, charts._FR_ECC]
-    captured_mask = ecc < 1.0
+    # Load constraint limits and classify trajectories
+    heat_flux_limit, g_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None)
+    traj_class = charts.classify_trajectories(final_records, heat_flux_limit=heat_flux_limit, g_load_limit=g_load_limit)
 
-    # Load corridor boundaries, nominal trajectories, and constraint limits
+    # Load corridor boundaries and nominal trajectories
     corridor_data = _load_corridor_data(scheme_dir) if scheme_dir is not None else None
     undispersed = _run_undispersed_nominal(toml_path, scheme_dir) if toml_path is not None and scheme_dir is not None else None
     best_traj = _find_best_trajectory(final_records, trajectories)
-    heat_flux_limit, g_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None)
 
     # Corridor panels
     nominal_kwargs: dict[str, Any] = {"undispersed_nominal": undispersed, "best_nominal": best_traj}
     charts.chart_corridor_pdyn(
-        trajectories, captured_mask, out_dir / "corridor_pdyn.svg",
-        corridor_data=corridor_data, **nominal_kwargs,
+        trajectories,
+        traj_class,
+        out_dir / "corridor_pdyn.svg",
+        corridor_data=corridor_data,
+        **nominal_kwargs,
     )
-    charts.chart_corridor_inclination(trajectories, captured_mask, out_dir / "corridor_inclination.svg", **nominal_kwargs)
-    charts.chart_corridor_bank(trajectories, captured_mask, out_dir / "corridor_bank.svg", **nominal_kwargs)
+    charts.chart_corridor_inclination(trajectories, traj_class, out_dir / "corridor_inclination.svg", **nominal_kwargs)
+    charts.chart_corridor_bank(trajectories, traj_class, out_dir / "corridor_bank.svg", **nominal_kwargs)
 
     # Time-domain panels
-    charts.chart_altitude_time(trajectories, captured_mask, out_dir / "altitude_time.svg", **nominal_kwargs)
-    charts.chart_heat_flux_time(trajectories, captured_mask, out_dir / "heat_flux_time.svg", limit_kw_m2=heat_flux_limit, **nominal_kwargs)
-    charts.chart_gload_time(trajectories, captured_mask, out_dir / "gload_time.svg", limit_g=g_load_limit, **nominal_kwargs)
-    charts.chart_bank_angle_time(trajectories, captured_mask, out_dir / "bank_angle_time.svg", **nominal_kwargs)
-    charts.chart_nav_density_ratio(trajectories, captured_mask, out_dir / "nav_density_ratio.svg", **nominal_kwargs)
+    charts.chart_altitude_time(trajectories, traj_class, out_dir / "altitude_time.svg", **nominal_kwargs)
+    charts.chart_heat_flux_time(trajectories, traj_class, out_dir / "heat_flux_time.svg", limit_kw_m2=heat_flux_limit, **nominal_kwargs)
+    charts.chart_gload_time(trajectories, traj_class, out_dir / "gload_time.svg", limit_g=g_load_limit, **nominal_kwargs)
+    charts.chart_bank_angle_time(trajectories, traj_class, out_dir / "bank_angle_time.svg", **nominal_kwargs)
+    charts.chart_nav_density_ratio(trajectories, traj_class, out_dir / "nav_density_ratio.svg", **nominal_kwargs)
 
     # Distribution panels
     charts.chart_dv_distribution(final_records, out_dir / "dv_distribution.svg")
     charts.chart_dv_individual_burns(final_records, out_dir / "dv_individual_burns.svg")
 
     # Entry/exit conditions
-    charts.chart_entry_conditions(trajectories, captured_mask, out_dir / "entry_conditions.svg")
+    charts.chart_entry_conditions(trajectories, traj_class, out_dir / "entry_conditions.svg")
     charts.chart_exit_conditions(final_records, out_dir / "exit_conditions.svg")
 
     # Dispersion grid
@@ -474,8 +477,12 @@ def generate_report(
                 has_trajectories = True
                 _print_eval_summary(final_records_arr, n_sims)
                 _generate_trajectory_charts(
-                    final_records_arr, trajectories, dispersions, tmp_dir,
-                    scheme_dir=scheme_dir, toml_path=toml_path,
+                    final_records_arr,
+                    trajectories,
+                    dispersions,
+                    tmp_dir,
+                    scheme_dir=scheme_dir,
+                    toml_path=toml_path,
                 )
                 final_records = final_records_arr
 

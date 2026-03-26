@@ -34,9 +34,15 @@ COLOR_WORST = "#d62728"
 COLOR_NOMINAL_REF = "#d62728"
 COLOR_NOMINAL_UNDISPERSED = "#ff7f0e"
 COLOR_NOMINAL_BEST = "#2ca02c"
-COLOR_CAPTURE = "#1f77b4"
-COLOR_HYPERBOLIC = "#d62728"
+COLOR_CAPTURE = "#1f77b4"  # blue: captured, constraints OK
+COLOR_CONSTRAINED = "#ff7f0e"  # orange: captured but violates heat/g-load
+COLOR_HYPERBOLIC = "#d62728"  # red: crash or hyperbolic exit
 COLOR_DIVERSITY = "#9467bd"
+
+# Trajectory classification codes (used by classify_trajectories / _draw_spaghetti)
+TRAJ_OK = 0  # captured + all constraints respected
+TRAJ_CONSTRAINED = 1  # captured but violates at least one constraint
+TRAJ_FAILED = 2  # crash, hyperbolic exit, timeout
 
 # ---------------------------------------------------------------------------
 # Figure defaults
@@ -486,15 +492,15 @@ def _compute_envelope(
     trajectories: list[npt.NDArray[np.float64]],
     energy_col: int,
     value_col: int,
-    captured_mask: npt.NDArray[np.bool_],
+    traj_class: npt.NDArray[np.int8],
     n_bins: int = 200,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Bin captured trajectories by energy, compute min/max value per bin.
 
     Returns ``(centers, min_vals, max_vals)`` with NaN for empty bins.
     """
-    # Collect all captured trajectory points
-    captured_indices = np.where(captured_mask)[0]
+    # Collect all captured trajectory points (OK + constrained, not failed)
+    captured_indices = np.where(traj_class != TRAJ_FAILED)[0]
     if len(captured_indices) == 0:
         centers = np.full(n_bins, np.nan)
         return centers, np.full(n_bins, np.nan), np.full(n_bins, np.nan)
@@ -531,17 +537,49 @@ def _compute_envelope(
     return centers, min_vals, max_vals
 
 
+def classify_trajectories(
+    final_records: npt.NDArray[np.float64],
+    heat_flux_limit: float | None = None,
+    g_load_limit: float | None = None,
+) -> npt.NDArray[np.int8]:
+    """Classify each trajectory as OK (0), constrained (1), or failed (2).
+
+    - OK: captured (ecc < 1) and within all constraint limits
+    - Constrained: captured but exceeds heat flux or g-load limit
+    - Failed: crash, hyperbolic exit, timeout
+    """
+    n = len(final_records)
+    classification = np.full(n, TRAJ_FAILED, dtype=np.int8)
+
+    ecc = final_records[:, _FR_ECC]
+    captured = ecc < 1.0
+    classification[captured] = TRAJ_OK
+
+    # Downgrade captured trajectories that violate constraints
+    if heat_flux_limit is not None:
+        q_exceed = final_records[:, _FR_MAX_HEAT_FLUX] > heat_flux_limit
+        classification[captured & q_exceed] = TRAJ_CONSTRAINED
+    if g_load_limit is not None:
+        g_exceed = final_records[:, _FR_MAX_G_LOAD] > g_load_limit
+        classification[captured & g_exceed] = TRAJ_CONSTRAINED
+
+    return classification
+
+
+_TRAJ_COLORS = {TRAJ_OK: COLOR_CAPTURE, TRAJ_CONSTRAINED: COLOR_CONSTRAINED, TRAJ_FAILED: COLOR_HYPERBOLIC}
+
+
 def _draw_spaghetti(
     ax: plt.Axes,  # type: ignore[name-defined]
     trajectories: list[npt.NDArray[np.float64]],
-    captured_mask: npt.NDArray[np.bool_],
+    traj_class: npt.NDArray[np.int8],
     x_col: int,
     y_col: int,
 ) -> None:
-    """Draw MC spaghetti lines: captured blue, hyperbolic red."""
+    """Draw MC spaghetti lines colored by classification: blue/orange/red."""
     alpha = _spaghetti_alpha(len(trajectories))
     for i, traj in enumerate(trajectories):
-        color = COLOR_CAPTURE if captured_mask[i] else COLOR_HYPERBOLIC
+        color = _TRAJ_COLORS.get(int(traj_class[i]), COLOR_HYPERBOLIC)
         ax.plot(traj[:, x_col], traj[:, y_col], color=color, alpha=alpha, linewidth=0.5)
 
 
@@ -567,7 +605,7 @@ def _draw_nominals(
 # ---------------------------------------------------------------------------
 def chart_corridor_pdyn(
     trajectories: list[npt.NDArray[np.float64]],
-    captured_mask: npt.NDArray[np.bool_],
+    traj_class: npt.NDArray[np.int8],
     output: Path,
     corridor_data: dict[str, Any] | None = None,
     ref_nominal: npt.NDArray[np.float64] | None = None,
@@ -594,7 +632,7 @@ def chart_corridor_pdyn(
         # Red zone at bottom (hyperbolic)
         ax.fill_between(e_bins, capture_pdyn, 0, color=COLOR_WORST, alpha=0.15, label="Hyperbolic zone")
 
-    _draw_spaghetti(ax, trajectories, captured_mask, x_col=8, y_col=9)
+    _draw_spaghetti(ax, trajectories, traj_class, x_col=8, y_col=9)
     _draw_nominals(ax, x_col=8, y_col=9, ref_nominal=ref_nominal, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
 
     ax.set_xlabel("Energy (MJ/kg)")
@@ -612,7 +650,7 @@ def chart_corridor_pdyn(
 # ---------------------------------------------------------------------------
 def chart_corridor_inclination(
     trajectories: list[npt.NDArray[np.float64]],
-    captured_mask: npt.NDArray[np.bool_],
+    traj_class: npt.NDArray[np.int8],
     output: Path,
     ref_nominal: npt.NDArray[np.float64] | None = None,
     undispersed_nominal: npt.NDArray[np.float64] | None = None,
@@ -621,12 +659,12 @@ def chart_corridor_inclination(
     """Panel 8: Energy vs inclination with captured envelope fill."""
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
 
-    centers, min_vals, max_vals = _compute_envelope(trajectories, energy_col=8, value_col=11, captured_mask=captured_mask)
+    centers, min_vals, max_vals = _compute_envelope(trajectories, energy_col=8, value_col=11, traj_class=traj_class)
     valid = ~np.isnan(min_vals)
     if np.any(valid):
         ax.fill_between(centers[valid], min_vals[valid], max_vals[valid], color=COLOR_CAPTURE, alpha=0.15, label="Captured envelope")
 
-    _draw_spaghetti(ax, trajectories, captured_mask, x_col=8, y_col=11)
+    _draw_spaghetti(ax, trajectories, traj_class, x_col=8, y_col=11)
     _draw_nominals(ax, x_col=8, y_col=11, ref_nominal=ref_nominal, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
 
     ax.set_xlabel("Energy (MJ/kg)")
@@ -644,7 +682,7 @@ def chart_corridor_inclination(
 # ---------------------------------------------------------------------------
 def chart_corridor_bank(
     trajectories: list[npt.NDArray[np.float64]],
-    captured_mask: npt.NDArray[np.bool_],
+    traj_class: npt.NDArray[np.int8],
     output: Path,
     ref_nominal: npt.NDArray[np.float64] | None = None,
     undispersed_nominal: npt.NDArray[np.float64] | None = None,
@@ -653,12 +691,12 @@ def chart_corridor_bank(
     """Panel 9: Energy vs bank angle with captured envelope fill."""
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
 
-    centers, min_vals, max_vals = _compute_envelope(trajectories, energy_col=8, value_col=10, captured_mask=captured_mask)
+    centers, min_vals, max_vals = _compute_envelope(trajectories, energy_col=8, value_col=10, traj_class=traj_class)
     valid = ~np.isnan(min_vals)
     if np.any(valid):
         ax.fill_between(centers[valid], min_vals[valid], max_vals[valid], color=COLOR_CAPTURE, alpha=0.15, label="Captured envelope")
 
-    _draw_spaghetti(ax, trajectories, captured_mask, x_col=8, y_col=10)
+    _draw_spaghetti(ax, trajectories, traj_class, x_col=8, y_col=10)
     _draw_nominals(ax, x_col=8, y_col=10, ref_nominal=ref_nominal, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
 
     ax.set_xlabel("Energy (MJ/kg)")
@@ -689,14 +727,14 @@ def _draw_time_nominals(
 
 def chart_altitude_time(
     trajectories: list[npt.NDArray[np.float64]],
-    captured_mask: npt.NDArray[np.bool_],
+    traj_class: npt.NDArray[np.int8],
     output: Path,
     undispersed_nominal: npt.NDArray[np.float64] | None = None,
     best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Panel 10: Altitude vs time MC spaghetti with nominal overlays."""
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=0)
+    _draw_spaghetti(ax, trajectories, traj_class, x_col=7, y_col=0)
     _draw_time_nominals(ax, y_col=0, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
 
     ax.set_xlabel("Time (s)")
@@ -714,7 +752,7 @@ def chart_altitude_time(
 # ---------------------------------------------------------------------------
 def chart_heat_flux_time(
     trajectories: list[npt.NDArray[np.float64]],
-    captured_mask: npt.NDArray[np.bool_],
+    traj_class: npt.NDArray[np.int8],
     output: Path,
     limit_kw_m2: float | None = None,
     undispersed_nominal: npt.NDArray[np.float64] | None = None,
@@ -722,7 +760,7 @@ def chart_heat_flux_time(
 ) -> None:
     """Panel 11: Heat flux vs time MC spaghetti with optional constraint line and nominals."""
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=6)
+    _draw_spaghetti(ax, trajectories, traj_class, x_col=7, y_col=6)
     _draw_time_nominals(ax, y_col=6, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
 
     if limit_kw_m2 is not None:
@@ -743,7 +781,7 @@ def chart_heat_flux_time(
 # ---------------------------------------------------------------------------
 def chart_gload_time(
     trajectories: list[npt.NDArray[np.float64]],
-    captured_mask: npt.NDArray[np.bool_],
+    traj_class: npt.NDArray[np.int8],
     output: Path,
     limit_g: float | None = None,
     undispersed_nominal: npt.NDArray[np.float64] | None = None,
@@ -751,7 +789,7 @@ def chart_gload_time(
 ) -> None:
     """Panel 12: G-load vs time MC spaghetti with optional constraint line and nominals."""
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=12)
+    _draw_spaghetti(ax, trajectories, traj_class, x_col=7, y_col=12)
     _draw_time_nominals(ax, y_col=12, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
 
     if limit_g is not None:
@@ -772,14 +810,14 @@ def chart_gload_time(
 # ---------------------------------------------------------------------------
 def chart_bank_angle_time(
     trajectories: list[npt.NDArray[np.float64]],
-    captured_mask: npt.NDArray[np.bool_],
+    traj_class: npt.NDArray[np.int8],
     output: Path,
     undispersed_nominal: npt.NDArray[np.float64] | None = None,
     best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Panel 13: Bank angle vs time MC spaghetti with nominal overlays."""
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=10)
+    _draw_spaghetti(ax, trajectories, traj_class, x_col=7, y_col=10)
     _draw_time_nominals(ax, y_col=10, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
 
     ax.set_xlabel("Time (s)")
@@ -797,14 +835,14 @@ def chart_bank_angle_time(
 # ---------------------------------------------------------------------------
 def chart_nav_density_ratio(
     trajectories: list[npt.NDArray[np.float64]],
-    captured_mask: npt.NDArray[np.bool_],
+    traj_class: npt.NDArray[np.int8],
     output: Path,
     undispersed_nominal: npt.NDArray[np.float64] | None = None,
     best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Panel 14: Navigation density ratio vs time with nominals and perfect-estimate reference."""
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    _draw_spaghetti(ax, trajectories, captured_mask, x_col=7, y_col=13)
+    _draw_spaghetti(ax, trajectories, traj_class, x_col=7, y_col=13)
     _draw_time_nominals(ax, y_col=13, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
 
     ax.axhline(1.0, color="grey", linestyle="--", linewidth=1.0, label="Perfect estimate")
@@ -900,18 +938,21 @@ def chart_dv_individual_burns(final_records: npt.NDArray[np.float64], output: Pa
 # ---------------------------------------------------------------------------
 def chart_entry_conditions(
     trajectories: list[npt.NDArray[np.float64]],
-    captured_mask: npt.NDArray[np.bool_],
+    traj_class: npt.NDArray[np.int8],
     output: Path,
 ) -> None:
-    """Panel 17: Entry V vs FPA scatter — captured green, hyperbolic red X."""
+    """Panel 17: Entry V vs FPA scatter — blue OK, orange constrained, red failed."""
     entry_v = np.array([traj[0, 3] for traj in trajectories])
     entry_fpa = np.array([traj[0, 4] for traj in trajectories])
 
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    cap = captured_mask
-    ax.scatter(entry_fpa[cap], entry_v[cap], color=COLOR_NOMINAL_BEST, s=20, label="Captured", zorder=5)
-    hyp = ~cap
-    ax.scatter(entry_fpa[hyp], entry_v[hyp], color=COLOR_HYPERBOLIC, marker="x", s=30, label="Hyperbolic", zorder=5)
+    ok = traj_class == TRAJ_OK
+    constrained = traj_class == TRAJ_CONSTRAINED
+    failed = traj_class == TRAJ_FAILED
+    ax.scatter(entry_fpa[ok], entry_v[ok], color=COLOR_CAPTURE, s=20, label="Captured", zorder=5)
+    if np.any(constrained):
+        ax.scatter(entry_fpa[constrained], entry_v[constrained], color=COLOR_CONSTRAINED, s=20, label="Constrained", zorder=5)
+    ax.scatter(entry_fpa[failed], entry_v[failed], color=COLOR_HYPERBOLIC, marker="x", s=30, label="Failed", zorder=5)
 
     ax.set_xlabel("Entry FPA (deg)")
     ax.set_ylabel("Entry velocity (m/s)")

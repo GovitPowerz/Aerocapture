@@ -12,6 +12,7 @@ from aerocapture.training.charts import (
     chart_altitude_time,
     chart_bank_angle_time,
     chart_capture_constraint_rate,
+    chart_comparison_convergence,
     chart_convergence,
     chart_corridor_bank,
     chart_corridor_inclination,
@@ -27,7 +28,6 @@ from aerocapture.training.charts import (
     chart_heat_flux_time,
     chart_nav_density_ratio,
     chart_parameter_evolution,
-    chart_comparison_convergence,
     chart_seed_pool,
 )
 
@@ -160,11 +160,12 @@ def mc_trajectories() -> list[npt.NDArray[np.float64]]:
 
 
 @pytest.fixture()
-def captured_mask() -> npt.NDArray[np.bool_]:
-    """Capture mask: first 8 captured, last 2 hyperbolic."""
-    mask = np.ones(10, dtype=bool)
-    mask[8:] = False
-    return mask
+def traj_class() -> npt.NDArray[np.int8]:
+    """Classification: first 7 OK, 1 constrained, last 2 failed."""
+    tc = np.zeros(10, dtype=np.int8)
+    tc[7] = 1  # TRAJ_CONSTRAINED
+    tc[8:] = 2  # TRAJ_FAILED
+    return tc
 
 
 # ---------------------------------------------------------------------------
@@ -173,14 +174,14 @@ def captured_mask() -> npt.NDArray[np.bool_]:
 class TestCorridorCharts:
     """Tests for corridor/energy panels 7-9."""
 
-    def test_pdyn_creates_svg(self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path) -> None:
+    def test_pdyn_creates_svg(self, mc_trajectories: list[npt.NDArray[np.float64]], traj_class: npt.NDArray[np.int8], tmp_svg: Path) -> None:
         """Panel 7: pdyn corridor chart creates a valid SVG file."""
-        chart_corridor_pdyn(mc_trajectories, captured_mask, tmp_svg)
+        chart_corridor_pdyn(mc_trajectories, traj_class, tmp_svg)
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content
 
-    def test_pdyn_with_corridor_data(self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path) -> None:
+    def test_pdyn_with_corridor_data(self, mc_trajectories: list[npt.NDArray[np.float64]], traj_class: npt.NDArray[np.int8], tmp_svg: Path) -> None:
         """Panel 7: pdyn corridor chart with 4-layer corridor fill zones."""
         n_bins = 50
         energy_bins = np.linspace(-1.0, -3.0, n_bins)
@@ -191,21 +192,21 @@ class TestCorridorCharts:
             "envelope_restricted_min_pdyn": np.full(n_bins, 2.0),
             "envelope_capture_pdyn": np.full(n_bins, 0.5),
         }
-        chart_corridor_pdyn(mc_trajectories, captured_mask, tmp_svg, corridor_data=corridor_data)
+        chart_corridor_pdyn(mc_trajectories, traj_class, tmp_svg, corridor_data=corridor_data)
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content
 
-    def test_inclination_creates_svg(self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path) -> None:
+    def test_inclination_creates_svg(self, mc_trajectories: list[npt.NDArray[np.float64]], traj_class: npt.NDArray[np.int8], tmp_svg: Path) -> None:
         """Panel 8: inclination corridor chart creates a valid SVG file."""
-        chart_corridor_inclination(mc_trajectories, captured_mask, tmp_svg)
+        chart_corridor_inclination(mc_trajectories, traj_class, tmp_svg)
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content
 
-    def test_bank_creates_svg(self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path) -> None:
+    def test_bank_creates_svg(self, mc_trajectories: list[npt.NDArray[np.float64]], traj_class: npt.NDArray[np.int8], tmp_svg: Path) -> None:
         """Panel 9: bank angle corridor chart creates a valid SVG file."""
-        chart_corridor_bank(mc_trajectories, captured_mask, tmp_svg)
+        chart_corridor_bank(mc_trajectories, traj_class, tmp_svg)
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content
@@ -217,53 +218,53 @@ class TestCorridorCharts:
 class TestTimeDomainCharts:
     """Tests for time-domain trajectory panels 10-14."""
 
-    def test_altitude_time(self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path) -> None:
+    def test_altitude_time(self, mc_trajectories: list[npt.NDArray[np.float64]], traj_class: npt.NDArray[np.int8], tmp_svg: Path) -> None:
         """Panel 10: altitude vs time spaghetti creates a valid SVG file."""
-        chart_altitude_time(mc_trajectories, captured_mask, tmp_svg)
+        chart_altitude_time(mc_trajectories, traj_class, tmp_svg)
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content
 
-    def test_altitude_highlights_best(self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path) -> None:
+    def test_altitude_highlights_best(self, mc_trajectories: list[npt.NDArray[np.float64]], traj_class: npt.NDArray[np.int8], tmp_svg: Path) -> None:
         """Panel 10: altitude chart highlights best trajectory when best_nominal provided."""
-        chart_altitude_time(mc_trajectories, captured_mask, tmp_svg, best_nominal=mc_trajectories[0])
+        chart_altitude_time(mc_trajectories, traj_class, tmp_svg, best_nominal=mc_trajectories[0])
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content
 
-    def test_heat_flux_with_limit(self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path) -> None:
+    def test_heat_flux_with_limit(self, mc_trajectories: list[npt.NDArray[np.float64]], traj_class: npt.NDArray[np.int8], tmp_svg: Path) -> None:
         """Panel 11: heat flux chart with constraint limit line."""
         rng = np.random.default_rng(99)
         for traj in mc_trajectories:
             traj[:, 6] = rng.uniform(50.0, 200.0, traj.shape[0])
-        chart_heat_flux_time(mc_trajectories, captured_mask, tmp_svg, limit_kw_m2=150.0)
+        chart_heat_flux_time(mc_trajectories, traj_class, tmp_svg, limit_kw_m2=150.0)
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content
 
-    def test_gload_with_limit(self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path) -> None:
+    def test_gload_with_limit(self, mc_trajectories: list[npt.NDArray[np.float64]], traj_class: npt.NDArray[np.int8], tmp_svg: Path) -> None:
         """Panel 12: g-load chart with constraint limit line."""
         rng = np.random.default_rng(99)
         for traj in mc_trajectories:
             traj[:, 12] = rng.uniform(0.5, 5.0, traj.shape[0])
-        chart_gload_time(mc_trajectories, captured_mask, tmp_svg, limit_g=4.0)
+        chart_gload_time(mc_trajectories, traj_class, tmp_svg, limit_g=4.0)
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content
 
-    def test_bank_angle_time(self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path) -> None:
+    def test_bank_angle_time(self, mc_trajectories: list[npt.NDArray[np.float64]], traj_class: npt.NDArray[np.int8], tmp_svg: Path) -> None:
         """Panel 13: bank angle vs time spaghetti creates a valid SVG file."""
-        chart_bank_angle_time(mc_trajectories, captured_mask, tmp_svg)
+        chart_bank_angle_time(mc_trajectories, traj_class, tmp_svg)
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content
 
-    def test_nav_density_ratio(self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path) -> None:
+    def test_nav_density_ratio(self, mc_trajectories: list[npt.NDArray[np.float64]], traj_class: npt.NDArray[np.int8], tmp_svg: Path) -> None:
         """Panel 14: nav density ratio chart with perfect-estimate reference line."""
         rng = np.random.default_rng(99)
         for traj in mc_trajectories:
             traj[:, 13] = rng.uniform(0.8, 1.2, traj.shape[0])
-        chart_nav_density_ratio(mc_trajectories, captured_mask, tmp_svg)
+        chart_nav_density_ratio(mc_trajectories, traj_class, tmp_svg)
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content
@@ -318,9 +319,9 @@ class TestDistributionCharts:
         content = tmp_svg.read_text()
         assert "<svg" in content
 
-    def test_entry_conditions(self, mc_trajectories: list[npt.NDArray[np.float64]], captured_mask: npt.NDArray[np.bool_], tmp_svg: Path) -> None:
+    def test_entry_conditions(self, mc_trajectories: list[npt.NDArray[np.float64]], traj_class: npt.NDArray[np.int8], tmp_svg: Path) -> None:
         """Panel 17: entry conditions scatter creates a valid SVG file."""
-        chart_entry_conditions(mc_trajectories, captured_mask, tmp_svg)
+        chart_entry_conditions(mc_trajectories, traj_class, tmp_svg)
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content
@@ -344,14 +345,8 @@ class TestComparisonCharts:
     def test_comparison_convergence(self, tmp_svg: Path) -> None:
         """Comparison chart: multi-scheme convergence creates a valid SVG file."""
         scheme_data: dict[str, list[dict[str, Any]]] = {
-            "scheme_a": [
-                {"generation": i, "best_cost": 1000 / (i + 1), "mean_cost": 2000 / (i + 1), "worst_cost": 5000 / (i + 1)}
-                for i in range(10)
-            ],
-            "scheme_b": [
-                {"generation": i, "best_cost": 800 / (i + 1), "mean_cost": 1500 / (i + 1), "worst_cost": 4000 / (i + 1)}
-                for i in range(10)
-            ],
+            "scheme_a": [{"generation": i, "best_cost": 1000 / (i + 1), "mean_cost": 2000 / (i + 1), "worst_cost": 5000 / (i + 1)} for i in range(10)],
+            "scheme_b": [{"generation": i, "best_cost": 800 / (i + 1), "mean_cost": 1500 / (i + 1), "worst_cost": 4000 / (i + 1)} for i in range(10)],
         }
         chart_comparison_convergence(scheme_data, tmp_svg)
         assert tmp_svg.exists()
