@@ -83,7 +83,7 @@ pub fn write_photo_csv_header(writer: &mut impl Write) -> io::Result<()> {
     writeln!(writer, "{}", PHOTO_CSV_COLUMNS.join(","))
 }
 
-/// Write a photo CSV data line (21 values).
+/// Write a photo CSV data line (22 values).
 pub fn write_photo_csv_line(writer: &mut impl Write, values: &[f64]) -> io::Result<()> {
     for (i, val) in values.iter().enumerate() {
         if i > 0 {

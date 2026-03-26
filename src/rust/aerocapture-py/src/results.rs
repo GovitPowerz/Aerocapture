@@ -19,7 +19,7 @@ impl SimResult {
     ///
     /// Columns: [alt_km, lon_deg, lat_deg, vel_m_s, fpa_deg, heading_deg, heat_flux_kw_m2,
     ///           time_s, energy_mj_kg, pdyn_kpa, bank_angle_deg, inclination_deg,
-    ///           g_load_g, nav_density_ratio, truth_density_kg_m3, reserved].
+    ///           g_load_g, nav_density_ratio, truth_density_kg_m3, heat_load_kj_m2].
     /// Empty if trajectories were not requested.
     #[getter]
     fn trajectory<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
