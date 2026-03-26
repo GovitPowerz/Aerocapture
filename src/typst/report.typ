@@ -63,7 +63,7 @@
   text(size: 12pt, weight: "bold")[Performance Summary]
   v(0.3cm)
   let summary = json(dir + "/summary_table.json")
-  performance-table(summary.rows)
+  performance-table(summary.rows, violation-rows: summary.at("violation_rows", default: ()))
 
   // Dispersion Grid
   pagebreak()

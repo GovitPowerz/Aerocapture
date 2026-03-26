@@ -212,8 +212,8 @@ def chart_capture_constraint_rate(records: list[dict[str, Any]], output: Path, r
     ax1.set_ylim(-5, 105)
 
     ax2 = ax1.twinx()
-    ax2.plot(gens, constraint, color=COLOR_WORST, linewidth=1.0, alpha=0.8, label="Constraint violations")
-    ax2.set_ylabel("Constraint violation (%)", color=COLOR_WORST)
+    ax2.plot(gens, constraint, color=COLOR_WORST, linewidth=1.0, alpha=0.8, label="Cost outliers (>2x median)")
+    ax2.set_ylabel("Cost outliers (%)", color=COLOR_WORST)
     ax2.tick_params(axis="y", labelcolor=COLOR_WORST)
     ax2.set_ylim(-5, 105)
 

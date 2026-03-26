@@ -233,13 +233,19 @@ def _build_metadata(
 # ---------------------------------------------------------------------------
 # Summary table builder
 # ---------------------------------------------------------------------------
-def _build_summary_table(final_records: npt.NDArray[np.float64]) -> dict:
+def _build_summary_table(
+    final_records: npt.NDArray[np.float64],
+    heat_flux_limit: float | None = None,
+    g_load_limit: float | None = None,
+) -> dict:
     """Build the performance summary table dict for Typst.
 
     Returns dict with ``rows`` key — each row is
     [name, mean, std, min, p5, p25, p50, p75, p95, max].
     Only captured trajectories (eccentricity < 1.0) are included.
+    Adds constraint violation rates when limits are provided.
     """
+    n_total = len(final_records)
     ecc = final_records[:, charts._FR_ECC]
     captured = ecc < 1.0
     cap_data = final_records[captured]
@@ -277,7 +283,23 @@ def _build_summary_table(final_records: npt.NDArray[np.float64]) -> dict:
         _row("Total DV (m/s)", dv_total),
     ]
 
-    return {"rows": rows}
+    # Constraint violation rates (over ALL sims, not just captured)
+    all_g = final_records[:, charts._FR_MAX_G_LOAD]
+    all_q = final_records[:, charts._FR_MAX_HEAT_FLUX]
+
+    violation_rows: list[list[str]] = []
+    if g_load_limit is not None:
+        g_exceed = float(np.mean(all_g > g_load_limit) * 100)
+        violation_rows.append([f"G-load > {g_load_limit:.1f} g (%)", f"{g_exceed:.1f}", "", "", "", "", "", "", "", ""])
+    if heat_flux_limit is not None:
+        q_exceed = float(np.mean(all_q > heat_flux_limit) * 100)
+        violation_rows.append([f"Heat flux > {heat_flux_limit:.0f} kW/m2 (%)", f"{q_exceed:.1f}", "", "", "", "", "", "", "", ""])
+
+    n_captured = int(np.sum(captured))
+    capture_pct = 100 * n_captured / n_total if n_total > 0 else 0.0
+    violation_rows.append(["Capture rate (%)", f"{capture_pct:.1f}", "", "", "", "", "", "", "", ""])
+
+    return {"rows": rows, "violation_rows": violation_rows}
 
 
 # ---------------------------------------------------------------------------
@@ -471,7 +493,12 @@ def generate_report(
         (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
 
         # Write summary_table.json
-        summary = _build_summary_table(final_records) if final_records is not None else {"rows": []}
+        heat_flux_limit, g_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None)
+        summary = (
+            _build_summary_table(final_records, heat_flux_limit=heat_flux_limit, g_load_limit=g_load_limit)
+            if final_records is not None
+            else {"rows": []}
+        )
         (tmp_dir / "summary_table.json").write_text(json.dumps(summary, indent=2))
 
         # Compile PDF via Typst

@@ -56,10 +56,9 @@
   pagebreak()
 }
 
-#let performance-table(data) = {
+#let performance-table(data, violation-rows: ()) = {
   let headers = ("Parameter", "Mean", "Std", "Min", "p5", "p25", "p50", "p75", "p95", "Max")
   let n-cols = headers.len()
-  let n-rows = data.len() + 1  // +1 for header
 
   // Booktabs style: no vertical strokes, horizontal rules only
   table(
@@ -75,6 +74,16 @@
 
     // Data rows
     ..data.flatten().map(cell => text(size: 8pt)[#cell]),
+
+    // Constraint violation section
+    ..if violation-rows.len() > 0 {
+      (
+        table.hline(stroke: 0.6pt),
+        ..violation-rows.flatten().map(cell => text(size: 8pt, fill: if cell != "" { luma(80) } else { white })[#cell]),
+      )
+    } else {
+      ()
+    },
 
     // Bottom rule
     table.hline(stroke: 1.2pt),
