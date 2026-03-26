@@ -93,7 +93,7 @@ impl SimResult {
         self.output.final_record[28] * 1e3  // MJ/m² → kJ/m²
     }
 
-    /// Dispersion draws as a 1D NumPy array (24 elements).
+    /// Dispersion draws as a 1D NumPy array (26 elements).
     #[getter]
     fn dispersions<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         PyArray1::from_slice(py, &self.output.dispersions)
@@ -152,7 +152,7 @@ impl BatchResults {
             .collect()
     }
 
-    /// Dispersion draws as an (N, 24) NumPy array — always populated.
+    /// Dispersion draws as an (N, 26) NumPy array — always populated.
     #[getter]
     fn dispersions<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
         let rows: Vec<Vec<f64>> = self
