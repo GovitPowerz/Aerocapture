@@ -138,7 +138,8 @@ def run_final_evaluation(
 def _print_eval_summary(final_records: npt.NDArray[np.float64], n_sims: int) -> None:
     """Print a human-readable summary of the final MC evaluation to stdout."""
     ecc = final_records[:, charts._FR_ECC]
-    captured = ecc < 1.0
+    ifinal = final_records[:, charts._FR_IFINAL]
+    captured = (ecc < 1.0) & (ifinal != 4)  # exclude pending crash
     n_captured = int(np.sum(captured))
     cap = final_records[captured]
 
@@ -247,7 +248,8 @@ def _build_summary_table(
     """
     n_total = len(final_records)
     ecc = final_records[:, charts._FR_ECC]
-    captured = ecc < 1.0
+    ifinal = final_records[:, charts._FR_IFINAL]
+    captured = (ecc < 1.0) & (ifinal != 4)  # exclude pending crash
     cap_data = final_records[captured]
 
     if len(cap_data) == 0:
@@ -378,7 +380,8 @@ def _find_best_trajectory(
 ) -> npt.NDArray[np.float64] | None:
     """Find the trajectory with the lowest total DV among captured cases."""
     ecc = final_records[:, charts._FR_ECC]
-    captured_indices = np.where(ecc < 1.0)[0]
+    ifinal = final_records[:, charts._FR_IFINAL]
+    captured_indices = np.where((ecc < 1.0) & (ifinal != 4))[0]
     if len(captured_indices) == 0:
         return None
     dv = final_records[captured_indices, charts._FR_DV_TOTAL]

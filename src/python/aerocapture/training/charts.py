@@ -508,15 +508,16 @@ def classify_trajectories(
 ) -> npt.NDArray[np.int8]:
     """Classify each trajectory as OK (0), constrained (1), or failed (2).
 
-    - OK: captured (ecc < 1) and within all constraint limits
+    - OK: captured (ecc < 1, not pending crash) and within all constraint limits
     - Constrained: captured but exceeds heat flux or g-load limit
-    - Failed: crash, hyperbolic exit, timeout
+    - Failed: crash, hyperbolic exit, timeout, or pending crash (ifinal=4)
     """
     n = len(final_records)
     classification = np.full(n, TRAJ_FAILED, dtype=np.int8)
 
     ecc = final_records[:, _FR_ECC]
-    captured = ecc < 1.0
+    ifinal = final_records[:, _FR_IFINAL]
+    captured = (ecc < 1.0) & (ifinal != 4)  # exclude pending crash
     classification[captured] = TRAJ_OK
 
     # Downgrade captured trajectories that violate constraints
