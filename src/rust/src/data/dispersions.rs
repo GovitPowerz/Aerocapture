@@ -526,8 +526,7 @@ impl DispersionConfig {
 
                 // Wind (Uniform scale in [min, max], Uniform direction bias in [-deg, +deg])
                 if let Some(ref w) = self.wind {
-                    let scale_uniform =
-                        Uniform::new(w.scale_min, w.scale_max).unwrap();
+                    let scale_uniform = Uniform::new(w.scale_min, w.scale_max).unwrap();
                     draw.wind_scale = scale_uniform.sample(&mut rng);
                     draw.wind_direction_bias =
                         uniform.sample(&mut rng) * w.direction_bias_deg * DEG2RAD;
@@ -627,7 +626,10 @@ mod tests {
             assert_eq!(d.pilot_damping, 0.0);
             assert_eq!(d.pilot_frequency, 0.0);
             assert_eq!(d.filter_gain, 0.0);
-            assert_eq!(d.wind_scale, 1.0, "wind_scale default should be 1.0 (identity)");
+            assert_eq!(
+                d.wind_scale, 1.0,
+                "wind_scale default should be 1.0 (identity)"
+            );
             assert_eq!(d.wind_direction_bias, 0.0);
         }
     }

@@ -439,7 +439,10 @@ fn run_single(
     let mut nav_filter = match data.nav_mode {
         crate::data::NavMode::Bias => NavigationFilter::new_bias(),
         crate::data::NavMode::Ekf => {
-            let nav_toml = data.nav_config.as_ref().expect("EKF mode requires [navigation] config");
+            let nav_toml = data
+                .nav_config
+                .as_ref()
+                .expect("EKF mode requires [navigation] config");
             let (imu_cfg, st_cfg, ekf_cfg) = estimator::build_ekf_configs(nav_toml);
             let seed = config.random_seed as u64 + sim_idx as u64 * 10_000;
             NavigationFilter::new_ekf(imu_cfg, st_cfg, ekf_cfg, seed)
@@ -487,25 +490,23 @@ fn run_single(
             let velocity_true = [sim.state[3], sim.state[4], sim.state[5]];
 
             let nav_out = match &mut nav_filter {
-                NavigationFilter::Bias(nav_state) => {
-                    estimator::navigate(
-                        &position_true,
-                        &velocity_true,
-                        ftc_state.aoa_commanded,
-                        sim_time,
-                        &nav_biases,
-                        nav_state,
-                        data,
-                        planet,
-                        run_state.density_bias,
-                        run_state.cx_bias,
-                        run_state.cz_bias,
-                        run_state.mass_bias,
-                        run_state.incidence_bias,
-                        run_state.ref_area_bias,
-                        run_state.filter_gain_bias,
-                    )
-                }
+                NavigationFilter::Bias(nav_state) => estimator::navigate(
+                    &position_true,
+                    &velocity_true,
+                    ftc_state.aoa_commanded,
+                    sim_time,
+                    &nav_biases,
+                    nav_state,
+                    data,
+                    planet,
+                    run_state.density_bias,
+                    run_state.cx_bias,
+                    run_state.cz_bias,
+                    run_state.mass_bias,
+                    run_state.incidence_bias,
+                    run_state.ref_area_bias,
+                    run_state.filter_gain_bias,
+                ),
                 NavigationFilter::Ekf {
                     ekf,
                     imu,
@@ -514,29 +515,27 @@ fn run_single(
                     ekf_config,
                     legacy,
                     ..
-                } => {
-                    estimator::navigate_ekf(
-                        &position_true,
-                        &velocity_true,
-                        ftc_state.aoa_commanded,
-                        sim_time,
-                        data.periods.navigation,
-                        &nav_biases,
-                        legacy,
-                        ekf,
-                        imu,
-                        star_tracker,
-                        st_config,
-                        ekf_config,
-                        data,
-                        planet,
-                        run_state.density_bias,
-                        run_state.cx_bias,
-                        run_state.mass_bias,
-                        run_state.incidence_bias,
-                        run_state.ref_area_bias,
-                    )
-                }
+                } => estimator::navigate_ekf(
+                    &position_true,
+                    &velocity_true,
+                    ftc_state.aoa_commanded,
+                    sim_time,
+                    data.periods.navigation,
+                    &nav_biases,
+                    legacy,
+                    ekf,
+                    imu,
+                    star_tracker,
+                    st_config,
+                    ekf_config,
+                    data,
+                    planet,
+                    run_state.density_bias,
+                    run_state.cx_bias,
+                    run_state.mass_bias,
+                    run_state.incidence_bias,
+                    run_state.ref_area_bias,
+                ),
             };
 
             dynamic_pressure_for_photo = nav_out.dynamic_pressure_estimated;
@@ -871,7 +870,13 @@ fn build_photo_values(
     let rho_dispersed = rho_truth * (1.0 + run_state.density_bias);
     // Wind-corrected velocity for aero-dependent quantities
     let v_eff = effective_airspeed(
-        sim.state[3], sim.state[4], sim.state[5], sim.state[2], altitude, data, run_state,
+        sim.state[3],
+        sim.state[4],
+        sim.state[5],
+        sim.state[2],
+        altitude,
+        data,
+        run_state,
     );
     let heat_flux = data.capsule.cq * rho_dispersed.sqrt() * v_eff.powf(3.05);
     let aoa_dispersed = sim.aoa + run_state.incidence_bias;

@@ -86,7 +86,10 @@ impl EkfState {
         // Density correction
         p[(12, 12)] = config.p0_density;
 
-        Self { state, covariance: p }
+        Self {
+            state,
+            covariance: p,
+        }
     }
 
     /// Prediction step: propagate error-state and covariance forward by `dt`.
@@ -101,7 +104,13 @@ impl EkfState {
     /// angular rates. The filter still provides value through its density
     /// estimation and covariance tracking, but the error-state propagation
     /// is open-loop with respect to flight dynamics.
-    pub fn predict(&mut self, dt: f64, _accel_meas: &[f64; 3], _gyro_meas: &[f64; 3], config: &EkfConfig) {
+    pub fn predict(
+        &mut self,
+        dt: f64,
+        _accel_meas: &[f64; 3],
+        _gyro_meas: &[f64; 3],
+        config: &EkfConfig,
+    ) {
         // ── State transition matrix F ────────────────────────────────────
         let mut f = SMatrix::<f64, N_STATES, N_STATES>::identity();
 
@@ -137,12 +146,12 @@ impl EkfState {
         let dt3_3 = dt2 * dt / 3.0;
         // Simplified: q_pos ~ q_vel * dt² (cross terms from F*Q_vel*F^T)
         q[(0, 0)] = dt3_3 * config.q_accel_bias; // radial position from accel noise
-        q[(1, 1)] = dt3_3 * config.q_gyro_bias;  // longitude from gyro noise
-        q[(2, 2)] = dt3_3 * config.q_gyro_bias;  // latitude from gyro noise
+        q[(1, 1)] = dt3_3 * config.q_gyro_bias; // longitude from gyro noise
+        q[(2, 2)] = dt3_3 * config.q_gyro_bias; // latitude from gyro noise
         // Velocity process noise: dV from accel bias, dgamma/dpsi from gyro bias
         q[(3, 3)] = dt2 * config.q_accel_bias;
-        q[(4, 4)] = dt2 * config.q_gyro_bias;  // FPA error driven by gyro
-        q[(5, 5)] = dt2 * config.q_gyro_bias;  // heading error driven by gyro
+        q[(4, 4)] = dt2 * config.q_gyro_bias; // FPA error driven by gyro
+        q[(5, 5)] = dt2 * config.q_gyro_bias; // heading error driven by gyro
         // Accelerometer bias random walk
         for i in 6..9 {
             q[(i, i)] = dt * config.q_accel_bias;
@@ -173,7 +182,13 @@ impl EkfState {
         h[(1, 1)] = 1.0;
         h[(2, 2)] = 1.0;
 
-        kalman_update(&mut self.state, &mut self.covariance, &h, innovation, r_meas);
+        kalman_update(
+            &mut self.state,
+            &mut self.covariance,
+            &h,
+            innovation,
+            r_meas,
+        );
     }
 
     /// Drag-derived density measurement update (scalar innovation).
@@ -188,7 +203,13 @@ impl EkfState {
         let innov_vec = SVector::<f64, 1>::new(innovation);
         let r_mat = SMatrix::<f64, 1, 1>::new(r_meas);
 
-        kalman_update(&mut self.state, &mut self.covariance, &h, &innov_vec, &r_mat);
+        kalman_update(
+            &mut self.state,
+            &mut self.covariance,
+            &h,
+            &innov_vec,
+            &r_mat,
+        );
 
         // Clamp density correction to keep factor in [0.1, 10.0]
         self.state[12] = self.state[12].clamp(-0.9, 9.0);
@@ -245,7 +266,10 @@ mod tests {
         let ekf = EkfState::new(&EkfConfig::default());
         assert!(ekf.state.iter().all(|&x| x == 0.0));
         for i in 0..13 {
-            assert!(ekf.covariance[(i, i)] > 0.0, "P[{i},{i}] should be positive");
+            assert!(
+                ekf.covariance[(i, i)] > 0.0,
+                "P[{i},{i}] should be positive"
+            );
         }
     }
 
@@ -268,7 +292,10 @@ mod tests {
         let mut ekf = EkfState::new(&config);
         let p0 = ekf.covariance[(0, 0)];
         ekf.predict(1.0, &[0.0; 3], &[0.0; 3], &config);
-        assert!(ekf.covariance[(0, 0)] > p0, "position covariance should grow after predict");
+        assert!(
+            ekf.covariance[(0, 0)] > p0,
+            "position covariance should grow after predict"
+        );
     }
 
     #[test]
@@ -280,7 +307,10 @@ mod tests {
         let innovation = SVector::<f64, 3>::new(100.0, 0.001, 0.001);
         let r = SMatrix::<f64, 3, 3>::identity() * 100.0;
         ekf.update_position(&innovation, &r);
-        assert!(ekf.covariance[(0, 0)] < p_before, "position covariance should decrease after update");
+        assert!(
+            ekf.covariance[(0, 0)] < p_before,
+            "position covariance should decrease after update"
+        );
     }
 
     #[test]
@@ -289,7 +319,10 @@ mod tests {
         let mut ekf = EkfState::new(&config);
         assert_eq!(ekf.density_correction(), 1.0);
         ekf.update_density(0.1, 0.01);
-        assert!(ekf.density_correction() > 1.0, "density correction should increase with positive innovation");
+        assert!(
+            ekf.density_correction() > 1.0,
+            "density correction should increase with positive innovation"
+        );
     }
 
     #[test]
@@ -299,7 +332,10 @@ mod tests {
         // Force extreme state
         ekf.state[12] = 20.0;
         ekf.update_density(0.0, 0.01);
-        assert!(ekf.state[12] <= 9.0, "density state should be clamped to 9.0 max");
+        assert!(
+            ekf.state[12] <= 9.0,
+            "density state should be clamped to 9.0 max"
+        );
     }
 
     #[test]
@@ -310,7 +346,10 @@ mod tests {
         let r = SMatrix::<f64, 3, 3>::identity() * 100.0;
         ekf.update_position(&innovation, &r);
         // State should move toward the innovation
-        assert!(ekf.state[0] > 0.0, "radial error should shift toward positive innovation");
+        assert!(
+            ekf.state[0] > 0.0,
+            "radial error should shift toward positive innovation"
+        );
     }
 
     #[test]
@@ -325,7 +364,10 @@ mod tests {
         }
         // Covariance should remain finite and positive definite
         for i in 0..13 {
-            assert!(ekf.covariance[(i, i)].is_finite(), "P[{i},{i}] is not finite");
+            assert!(
+                ekf.covariance[(i, i)].is_finite(),
+                "P[{i},{i}] is not finite"
+            );
             assert!(ekf.covariance[(i, i)] >= 0.0, "P[{i},{i}] is negative");
         }
     }
@@ -336,7 +378,13 @@ mod tests {
         let mut ekf = EkfState::new(&config);
         ekf.state[12] = -5.0;
         ekf.update_density(0.0, 0.01);
-        assert!(ekf.state[12] >= -0.9, "density state should be clamped to -0.9 min");
-        assert!(ekf.density_correction() >= 0.1 - 1e-12, "density factor should be >= 0.1");
+        assert!(
+            ekf.state[12] >= -0.9,
+            "density state should be clamped to -0.9 min"
+        );
+        assert!(
+            ekf.density_correction() >= 0.1 - 1e-12,
+            "density factor should be >= 0.1"
+        );
     }
 }

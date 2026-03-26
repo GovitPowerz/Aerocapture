@@ -177,12 +177,10 @@ fn load_config_for_api(config_name: &str) -> (SimInput, SimData) {
     let repo = common::repo_root();
     std::env::set_current_dir(&repo).expect("set cwd to repo root");
     let path = repo.join("configs").join(config_name);
-    let (sim_input, toml_config) = SimInput::from_toml_file(&path).unwrap_or_else(|e| {
-        panic!("Failed to load config {}: {}", path.display(), e)
-    });
-    let sim_data = SimData::from_toml(&toml_config, &sim_input).unwrap_or_else(|e| {
-        panic!("Failed to build SimData for {}: {}", path.display(), e)
-    });
+    let (sim_input, toml_config) = SimInput::from_toml_file(&path)
+        .unwrap_or_else(|e| panic!("Failed to load config {}: {}", path.display(), e));
+    let sim_data = SimData::from_toml(&toml_config, &sim_input)
+        .unwrap_or_else(|e| panic!("Failed to build SimData for {}: {}", path.display(), e));
     (sim_input, sim_data)
 }
 
@@ -193,12 +191,11 @@ fn load_config_for_api(config_name: &str) -> (SimInput, SimData) {
 #[test]
 fn wind_enabled_changes_trajectory() {
     let (cfg_no_wind, data_no_wind) = load_config_for_api("test/test_high_bank_orig.toml");
-    let results_no_wind = run_for_api(&cfg_no_wind, &data_no_wind, false)
-        .expect("no-wind sim failed");
+    let results_no_wind =
+        run_for_api(&cfg_no_wind, &data_no_wind, false).expect("no-wind sim failed");
 
     let (cfg_wind, data_wind) = load_config_for_api("test/test_wind_mars.toml");
-    let results_wind = run_for_api(&cfg_wind, &data_wind, false)
-        .expect("wind sim failed");
+    let results_wind = run_for_api(&cfg_wind, &data_wind, false).expect("wind sim failed");
 
     // final_record[3] = final velocity (m/s)
     let vel_no_wind = results_no_wind[0].final_record[3];

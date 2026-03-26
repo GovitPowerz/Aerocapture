@@ -55,7 +55,11 @@ impl StarTrackerState {
     pub fn new(config: &StarTrackerConfig, seed: u64) -> Self {
         let rng = rand::rngs::StdRng::seed_from_u64(seed);
         let pos_noise = Normal::new(0.0, config.position_sigma).unwrap();
-        Self { last_update_time: -1e10, rng, pos_noise }
+        Self {
+            last_update_time: -1e10,
+            rng,
+            pos_noise,
+        }
     }
 
     /// Attempt a measurement.
@@ -90,7 +94,11 @@ impl StarTrackerState {
         let noise_lon = self.pos_noise.sample(&mut self.rng) / r;
         let noise_lat = self.pos_noise.sample(&mut self.rng) / r;
 
-        Some([true_position[0] + noise_r, true_position[1] + noise_lon, true_position[2] + noise_lat])
+        Some([
+            true_position[0] + noise_r,
+            true_position[1] + noise_lon,
+            true_position[2] + noise_lat,
+        ])
     }
 }
 

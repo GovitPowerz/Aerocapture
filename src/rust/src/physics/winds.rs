@@ -43,9 +43,12 @@ impl WindTable {
         let count_str = data_lines
             .next()
             .ok_or_else(|| DataError(format!("Wind file empty: {}", path)))?;
-        let n_points: usize = count_str
-            .parse()
-            .map_err(|_| DataError(format!("Wind file: bad count line '{}': {}", count_str, path)))?;
+        let n_points: usize = count_str.parse().map_err(|_| {
+            DataError(format!(
+                "Wind file: bad count line '{}': {}",
+                count_str, path
+            ))
+        })?;
 
         let mut altitudes_m = Vec::with_capacity(n_points);
         let mut zonal_m_s = Vec::with_capacity(n_points);
@@ -235,8 +238,7 @@ mod tests {
     fn load_mars_wind_file() {
         // Resolve path relative to the workspace root
         let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
-        let path = PathBuf::from(&manifest)
-            .join("../../data/atmosphere/mars_winds.dat");
+        let path = PathBuf::from(&manifest).join("../../data/atmosphere/mars_winds.dat");
         let path_str = path.to_str().expect("path to str");
 
         let table = WindTable::load(path_str).expect("load mars_winds.dat");

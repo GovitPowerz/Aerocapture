@@ -479,10 +479,8 @@ pub fn navigate_ekf(
     // ── Step 9: Estimated drag, lift, dynamic pressure ──
     let mass_est = data.capsule.mass;
     let aero_factor = out.density_guidance * data.capsule.reference_area / (2.0 * mass_est);
-    out.acceleration_estimated[0] =
-        aero_factor * cx_est * velocity_relative * velocity_relative;
-    out.acceleration_estimated[1] =
-        aero_factor * cz_est * velocity_relative * velocity_relative;
+    out.acceleration_estimated[0] = aero_factor * cx_est * velocity_relative * velocity_relative;
+    out.acceleration_estimated[1] = aero_factor * cz_est * velocity_relative * velocity_relative;
     out.dynamic_pressure_estimated =
         0.5 * out.density_guidance * velocity_relative * velocity_relative;
 

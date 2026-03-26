@@ -74,7 +74,14 @@ impl ImuState {
         let accel_noise = Normal::new(0.0, config.accel_noise_sigma).unwrap();
         let gyro_noise = Normal::new(0.0, config.gyro_noise_sigma).unwrap();
 
-        Self { accel_bias, accel_scale_factor, gyro_bias, rng, accel_noise, gyro_noise }
+        Self {
+            accel_bias,
+            accel_scale_factor,
+            gyro_bias,
+            rng,
+            accel_noise,
+            gyro_noise,
+        }
     }
 
     /// Apply accelerometer model: `(1 + scale_factor) * true_accel + bias + noise`.
@@ -120,7 +127,12 @@ mod tests {
 
     #[test]
     fn noise_statistics_reasonable() {
-        let config = ImuConfig { accel_bias_sigma: 0.0, accel_scale_factor_sigma: 0.0, gyro_bias_sigma: 0.0, ..ImuConfig::default() };
+        let config = ImuConfig {
+            accel_bias_sigma: 0.0,
+            accel_scale_factor_sigma: 0.0,
+            gyro_bias_sigma: 0.0,
+            ..ImuConfig::default()
+        };
         let mut imu = ImuState::new(&config, 99);
         let n = 10_000usize;
         let mut sum = [0.0f64; 3];
@@ -140,7 +152,10 @@ mod tests {
 
     #[test]
     fn gyro_noise_statistics_reasonable() {
-        let config = ImuConfig { gyro_bias_sigma: 0.0, ..ImuConfig::default() };
+        let config = ImuConfig {
+            gyro_bias_sigma: 0.0,
+            ..ImuConfig::default()
+        };
         let mut imu = ImuState::new(&config, 7);
         let n = 10_000usize;
         let mut sum = [0.0f64; 3];

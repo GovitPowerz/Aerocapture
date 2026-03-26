@@ -90,7 +90,7 @@ impl SimResult {
     /// Integrated heat load (kJ/m²) — from final_record[28]
     #[getter]
     fn integrated_heat_load(&self) -> f64 {
-        self.output.final_record[28] * 1e3  // MJ/m² → kJ/m²
+        self.output.final_record[28] * 1e3 // MJ/m² → kJ/m²
     }
 
     /// Dispersion draws as a 1D NumPy array (26 elements).

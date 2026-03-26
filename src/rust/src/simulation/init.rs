@@ -16,15 +16,15 @@ use crate::gnc::navigation::estimator::NavigationBiases;
 #[derive(Debug, Clone)]
 pub struct RunState {
     pub entry: EntryConditions,
-    pub cx_bias: f64,            // drag coefficient bias (fractional)
-    pub cz_bias: f64,            // lift coefficient bias (fractional)
-    pub density_bias: f64,       // atmosphere density bias (fractional)
-    pub mass_bias: f64,          // mass bias (fractional)
-    pub incidence_bias: f64,     // incidence error (radians)
-    pub ref_area_bias: f64,      // reference area bias (fractional)
-    pub max_bank_rate_bias: f64, // max bank rate bias (fractional)
-    pub filter_gain_bias: f64,   // density filter gain bias (absolute delta)
-    pub wind_scale: f64,         // wind speed multiplier (1.0 = nominal, NOT 0.0)
+    pub cx_bias: f64,             // drag coefficient bias (fractional)
+    pub cz_bias: f64,             // lift coefficient bias (fractional)
+    pub density_bias: f64,        // atmosphere density bias (fractional)
+    pub mass_bias: f64,           // mass bias (fractional)
+    pub incidence_bias: f64,      // incidence error (radians)
+    pub ref_area_bias: f64,       // reference area bias (fractional)
+    pub max_bank_rate_bias: f64,  // max bank rate bias (fractional)
+    pub filter_gain_bias: f64,    // density filter gain bias (absolute delta)
+    pub wind_scale: f64,          // wind speed multiplier (1.0 = nominal, NOT 0.0)
     pub wind_direction_bias: f64, // wind direction rotation (radians)
     pub nav_biases: NavigationBiases,
     pub pilot_biases: PilotBiases,
