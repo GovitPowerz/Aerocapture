@@ -51,11 +51,11 @@ Seven guidance algorithms are implemented, all GA-optimizable:
 
 The simulation implements a full closed-loop GNC chain:
 
-1. **Navigation** — State estimation with density filter (exponential filter on atmospheric density ratio)
-2. **Guidance** — One of 6 algorithms computes bank angle command (see table above)
+1. **Navigation** — Two modes: legacy bias-only, or 13-state EKF (IMU sensor model + star tracker with atmospheric blackout + drag-derived density estimation). Configurable via `[navigation] mode = "bias"` or `"ekf"`.
+2. **Guidance** — One of 7 algorithms computes bank angle command (see table above)
 3. **Lateral guidance** — Roll sign management via inclination error with deadband
 4. **Control** — Pilot dynamics model applies rate limits and first/second-order lag to bank angle commands
-5. **Integration** — Gill-variant RK4 propagates equations of motion with J2 gravity, tabulated atmosphere, and aerodynamic forces
+5. **Integration** — Gill-variant RK4 propagates equations of motion with J2 gravity, tabulated atmosphere, altitude-dependent wind model, and aerodynamic forces
 
 ## GA Optimization
 
