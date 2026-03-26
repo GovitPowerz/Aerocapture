@@ -338,8 +338,9 @@ def train(
                 config.ga.n_gen += resumed["generation"]
 
     # Try loading existing NN weights for population seeding (NN only)
+    # Skip when --from-scratch: truly fresh start without bias from previous training
     seed_weights = None
-    if config.guidance_type == "neural_network" and config.ga.direct_encoding and resumed is None:
+    if config.guidance_type == "neural_network" and config.ga.direct_encoding and resumed is None and not args.from_scratch:
         nn_param_path = Path(cwd or config.sim.exec_dir) / config.sim.nn_param_file
         if nn_param_path.exists():
             try:
