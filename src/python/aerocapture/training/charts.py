@@ -200,42 +200,6 @@ def chart_convergence(records: list[dict[str, Any]], output: Path, resume_gens: 
 
 
 # ---------------------------------------------------------------------------
-# Panel 2: Capture rate + constraint violation rate (dual axis)
-# ---------------------------------------------------------------------------
-def chart_capture_constraint_rate(records: list[dict[str, Any]], output: Path, resume_gens: list[int] | None = None) -> None:
-    """Panel 2: Capture rate % and constraint violation rate on dual y-axes."""
-    _require_records(records)
-
-    gens = [r["generation"] for r in records]
-    capture = [r.get("capture_rate", 0.0) * 100 for r in records]
-    constraint = [r.get("constraint_violation_rate", 0.0) * 100 for r in records]
-
-    fig, ax1 = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    ax1.plot(gens, capture, color=COLOR_CAPTURE, linewidth=1.5, label="Capture rate")
-    ax1.set_xlabel("Generation")
-    ax1.set_ylabel("Capture rate (%)", color=COLOR_CAPTURE)
-    ax1.tick_params(axis="y", labelcolor=COLOR_CAPTURE)
-    ax1.set_ylim(-5, 105)
-
-    ax2 = ax1.twinx()
-    ax2.plot(gens, constraint, color=COLOR_WORST, linewidth=1.0, alpha=0.8, label="Cost outliers (>2x median)")
-    ax2.set_ylabel("Cost outliers (%)", color=COLOR_WORST)
-    ax2.tick_params(axis="y", labelcolor=COLOR_WORST)
-    ax2.set_ylim(-5, 105)
-
-    _add_resume_markers(ax1, resume_gens)
-    ax1.set_title("Capture & Constraint Rates")
-
-    # Combine legends from both axes
-    lines1, labels1 = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, fontsize="small", loc="lower right")
-
-    sns.despine(fig=fig, right=False)
-    _save_svg(fig, output)
-
-
-# ---------------------------------------------------------------------------
 # Panel 3: Population diversity vs best cost (dual axis, half width)
 # ---------------------------------------------------------------------------
 def chart_diversity_cost(records: list[dict[str, Any]], output: Path, resume_gens: list[int] | None = None) -> None:

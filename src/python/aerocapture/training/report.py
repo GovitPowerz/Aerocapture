@@ -312,7 +312,6 @@ def _generate_training_charts(
 ) -> tuple[bool, bool]:
     """Generate Part 1 (training convergence) SVG charts. Returns (has_cost_distribution, has_seed_pool)."""
     charts.chart_convergence(records, out_dir / "convergence.svg", resume_gens=resume_gens)
-    charts.chart_capture_constraint_rate(records, out_dir / "capture_constraint_rate.svg", resume_gens=resume_gens)
     charts.chart_diversity_cost(records, out_dir / "diversity_cost.svg", resume_gens=resume_gens)
     has_cost_distribution = charts.chart_cost_distribution(records, out_dir / "cost_distribution.svg")
     charts.chart_parameter_evolution(records, out_dir / "parameter_evolution.svg", resume_gens=resume_gens)

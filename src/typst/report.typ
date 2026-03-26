@@ -13,7 +13,6 @@
 #section-heading("Part 1: Training Convergence")
 
 #full-width-chart(dir + "/convergence.svg")
-#full-width-chart(dir + "/capture_constraint_rate.svg")
 
 #full-width-chart(dir + "/diversity_cost.svg")
 

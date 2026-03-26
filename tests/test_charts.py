@@ -11,7 +11,6 @@ import pytest
 from aerocapture.training.charts import (
     chart_altitude_time,
     chart_bank_angle_time,
-    chart_capture_constraint_rate,
     chart_comparison_convergence,
     chart_convergence,
     chart_corridor_bank,
@@ -76,15 +75,6 @@ class TestTrainingCharts:
         with pytest.raises(ValueError, match="No training records provided"):
             chart_convergence([], tmp_svg)
 
-    def test_capture_constraint_rate(self, training_records: list[dict[str, Any]], tmp_svg: Path) -> None:
-        """Panel 2: capture + constraint rate chart creates SVG."""
-        for r in training_records:
-            r["capture_rate"] = 0.5 + 0.05 * r["generation"]
-            r["constraint_violation_rate"] = 0.3 - 0.02 * r["generation"]
-        chart_capture_constraint_rate(training_records, tmp_svg)
-        assert tmp_svg.exists()
-        content = tmp_svg.read_text()
-        assert "<svg" in content
 
     def test_diversity_cost(self, training_records: list[dict[str, Any]], tmp_svg: Path) -> None:
         """Panel 3: diversity vs cost chart creates SVG."""
