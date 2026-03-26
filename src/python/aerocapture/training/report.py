@@ -283,21 +283,23 @@ def _build_summary_table(
         _row("Total DV (m/s)", dv_total),
     ]
 
-    # Constraint violation rates (over ALL sims, not just captured)
+    # Constraint statistics (over ALL sims, not just captured)
     all_g = final_records[:, charts._FR_MAX_G_LOAD]
     all_q = final_records[:, charts._FR_MAX_HEAT_FLUX]
+
+    n_captured = int(np.sum(captured))
+    capture_pct = 100 * n_captured / n_total if n_total > 0 else 0.0
 
     violation_rows: list[list[str]] = []
     if g_load_limit is not None:
         g_exceed = float(np.mean(all_g > g_load_limit) * 100)
-        violation_rows.append([f"G-load > {g_load_limit:.1f} g (%)", f"{g_exceed:.1f}", "", "", "", "", "", "", "", ""])
+        violation_rows.append(_row(f"G-load, all sims (g) — {g_exceed:.1f}% > {g_load_limit:.1f}", all_g))
     if heat_flux_limit is not None:
         q_exceed = float(np.mean(all_q > heat_flux_limit) * 100)
-        violation_rows.append([f"Heat flux > {heat_flux_limit:.0f} kW/m2 (%)", f"{q_exceed:.1f}", "", "", "", "", "", "", "", ""])
-
-    n_captured = int(np.sum(captured))
-    capture_pct = 100 * n_captured / n_total if n_total > 0 else 0.0
-    violation_rows.append(["Capture rate (%)", f"{capture_pct:.1f}", "", "", "", "", "", "", "", ""])
+        violation_rows.append(_row(f"Heat flux, all sims (kW/m2) — {q_exceed:.1f}% > {heat_flux_limit:.0f}", all_q))
+    # Capture rate: single value, fill remaining columns with empty strings
+    cr_label = f"Capture rate: {capture_pct:.1f}% ({n_captured}/{n_total})"
+    violation_rows.append([cr_label, "", "", "", "", "", "", "", "", ""])
 
     return {"rows": rows, "violation_rows": violation_rows}
 

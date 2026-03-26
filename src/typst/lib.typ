@@ -60,9 +60,9 @@
   let headers = ("Parameter", "Mean", "Std", "Min", "p5", "p25", "p50", "p75", "p95", "Max")
   let n-cols = headers.len()
 
-  // Booktabs style: no vertical strokes, horizontal rules only
+  // Booktabs style: no vertical strokes, horizontal rules only, full page width
   table(
-    columns: n-cols,
+    columns: (1fr, ..range(n-cols - 1).map(_ => auto)),
     stroke: none,
     inset: (x: 6pt, y: 4pt),
     align: (left, ..range(n-cols - 1).map(_ => right)),
