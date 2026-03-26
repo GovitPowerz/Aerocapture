@@ -72,6 +72,7 @@ _FR_DV1 = 37
 _FR_DV2 = 38
 _FR_DV3 = 39
 _FR_DV_TOTAL = 41
+_FR_INTEGRATED_FLUX = 28
 _FR_BANK_CONSUMPTION = 45
 _FR_INCL_ERR = 46
 
@@ -505,11 +506,12 @@ def classify_trajectories(
     final_records: npt.NDArray[np.float64],
     heat_flux_limit: float | None = None,
     g_load_limit: float | None = None,
+    heat_load_limit: float | None = None,
 ) -> npt.NDArray[np.int8]:
     """Classify each trajectory as OK (0), constrained (1), or failed (2).
 
     - OK: captured (ecc < 1, not pending crash) and within all constraint limits
-    - Constrained: captured but exceeds heat flux or g-load limit
+    - Constrained: captured but exceeds heat flux, g-load, or heat load limit
     - Failed: crash, hyperbolic exit, timeout, or pending crash (ifinal=4)
     """
     n = len(final_records)
@@ -522,12 +524,15 @@ def classify_trajectories(
     classification[captured] = TRAJ_OK
 
     # Downgrade captured trajectories that violate constraints
+    constrained = np.zeros(n, dtype=bool)
     if heat_flux_limit is not None:
-        q_exceed = final_records[:, _FR_MAX_HEAT_FLUX] > heat_flux_limit
-        classification[captured & q_exceed] = TRAJ_CONSTRAINED
+        constrained = constrained | (final_records[:, _FR_MAX_HEAT_FLUX] > heat_flux_limit)
     if g_load_limit is not None:
-        g_exceed = final_records[:, _FR_MAX_G_LOAD] > g_load_limit
-        classification[captured & g_exceed] = TRAJ_CONSTRAINED
+        constrained = constrained | (final_records[:, _FR_MAX_G_LOAD] > g_load_limit)
+    if heat_load_limit is not None:
+        hl = final_records[:, _FR_INTEGRATED_FLUX] * 1e3  # MJ/m² → kJ/m²
+        constrained = constrained | (hl > heat_load_limit)
+    classification[captured & constrained] = TRAJ_CONSTRAINED
 
     return classification
 
@@ -735,6 +740,35 @@ def chart_heat_flux_time(
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Heat flux (kW/m\u00b2)")
     ax.set_title("Heat Flux vs Time")
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(fontsize="small")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Panel 11b: Heat load vs time
+# ---------------------------------------------------------------------------
+def chart_heat_load_time(
+    trajectories: list[npt.NDArray[np.float64]],
+    traj_class: npt.NDArray[np.int8],
+    output: Path,
+    limit_kj_m2: float | None = None,
+    undispersed_nominal: npt.NDArray[np.float64] | None = None,
+    best_nominal: npt.NDArray[np.float64] | None = None,
+) -> None:
+    """Cumulative heat load vs time MC spaghetti with optional constraint line."""
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
+    _draw_spaghetti(ax, trajectories, traj_class, x_col=7, y_col=15)
+    _draw_time_nominals(ax, y_col=15, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
+
+    if limit_kj_m2 is not None:
+        ax.axhline(limit_kj_m2, color=COLOR_WORST, linestyle="--", linewidth=1.0, label=f"Limit ({limit_kj_m2:.0f} kJ/m\u00b2)")
+
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Heat load (kJ/m\u00b2)")
+    ax.set_title("Cumulative Heat Load vs Time")
     handles, labels = ax.get_legend_handles_labels()
     if handles:
         ax.legend(fontsize="small")

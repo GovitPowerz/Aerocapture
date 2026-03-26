@@ -90,6 +90,22 @@ class TestUnifiedComputeCost:
         with_penalty = compute_cost(self._make_final(5, dv=200.0, q=300.0))
         assert with_penalty > no_penalty
 
+    def test_heat_load_penalty_applied_when_exceeded(self) -> None:
+        """Cost increases when integrated heat load exceeds limit."""
+        fc = self._make_final(10, dv=100.0)
+        fc[:, 28] = 60.0  # 60 MJ/m² = 60000 kJ/m²
+        cost_under = compute_cost(fc, heat_load_limit=100000.0)  # well under
+        cost_over = compute_cost(fc, heat_load_limit=10000.0)  # well over
+        assert cost_over > cost_under
+
+    def test_heat_load_penalty_zero_when_under_limit(self) -> None:
+        """No penalty when heat load is under limit."""
+        fc = self._make_final(10, dv=100.0)
+        fc[:, 28] = 10.0  # 10 MJ/m² = 10000 kJ/m²
+        cost_no_hl = compute_cost(fc, heat_load_weight=0.0)
+        cost_with_hl = compute_cost(fc, heat_load_limit=50000.0, heat_load_weight=1000.0)
+        assert abs(cost_no_hl - cost_with_hl) < 1e-10
+
     def test_custom_dv_threshold(self) -> None:
         final = self._make_final(5, dv=5000.0, g=5.0, q=50.0)
         cost_low_t = compute_cost(final, dv_threshold=500.0)
