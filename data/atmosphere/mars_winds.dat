@@ -1,0 +1,23 @@
+# Mars wind profile (altitude-dependent)
+# Source: Parametric model based on Forget et al. 1999 / Millour et al. 2015
+# Columns: altitude_km  zonal_m_s  meridional_m_s
+# Zonal = eastward (positive), Meridional = northward (positive)
+18
+  0.0     5.0    2.0
+  5.0    10.0    3.0
+ 10.0    15.0    4.0
+ 15.0    20.0    5.0
+ 20.0    30.0    7.0
+ 25.0    45.0    8.0
+ 30.0    60.0   10.0
+ 35.0    75.0   12.0
+ 40.0    85.0   13.0
+ 45.0    95.0   14.0
+ 50.0   100.0   15.0
+ 60.0    90.0   12.0
+ 70.0    70.0    8.0
+ 80.0    50.0    5.0
+ 90.0    30.0    3.0
+100.0    15.0    2.0
+120.0     5.0    1.0
+150.0     0.0    0.0

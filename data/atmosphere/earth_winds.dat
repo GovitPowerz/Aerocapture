@@ -1,0 +1,19 @@
+# Earth wind profile (altitude-dependent)
+# Source: Parametric model based on standard atmosphere + jet stream data
+# Columns: altitude_km  zonal_m_s  meridional_m_s
+# Zonal = eastward (positive), Meridional = northward (positive)
+14
+  0.0    10.0    3.0
+  5.0    20.0    5.0
+ 10.0    40.0    8.0
+ 12.0    60.0   10.0
+ 15.0    50.0    8.0
+ 20.0    30.0    5.0
+ 30.0    50.0    7.0
+ 40.0    40.0    5.0
+ 50.0    60.0    8.0
+ 60.0    70.0   10.0
+ 70.0    50.0    7.0
+ 80.0    30.0    4.0
+100.0    10.0    2.0
+130.0     0.0    0.0
