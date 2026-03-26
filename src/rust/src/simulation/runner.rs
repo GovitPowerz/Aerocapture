@@ -1055,7 +1055,11 @@ fn compute_derivatives(
     let mass = data.capsule.mass * (1.0 + run_state.mass_bias);
     let ref_area = data.capsule.reference_area * (1.0 + run_state.ref_area_bias);
 
-    // Wind-corrected velocity for aero forces and heat flux
+    // Wind-corrected velocity for aero forces and heat flux.
+    // Note: aero force *magnitude* uses v_eff (airspeed) but is applied along the
+    // planet-relative velocity direction. This is a first-order approximation valid
+    // when wind << vehicle speed. At Mars entry (100 m/s wind vs 5700 m/s), the
+    // direction error is O(wind/V)² ≈ 0.03%.
     let v_eff = effective_airspeed(v, gamma, psi, lat, altitude, data, run_state);
 
     let aero_factor = rho * ref_area / (2.0 * mass);

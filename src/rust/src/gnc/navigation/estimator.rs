@@ -552,7 +552,11 @@ pub fn navigate_ekf(
         legacy.guidance_phase = 2;
     }
 
-    // Hardcoded to phase 1 (same as bias mode)
+    // TODO: Enable phase management for EKF mode. The logic above correctly
+    // computes bounce/crash/phase transitions but is currently overridden to
+    // phase 1 because exit-phase guidance (phase 2) is not yet active (see
+    // IMPROVEMENTS.md §6.3). Once exit guidance is implemented, remove this
+    // override to let the EKF navigator drive phase transitions.
     legacy.guidance_phase = 1;
     if legacy.guidance_phase == 1 {
         legacy.capture_time += nav_dt;

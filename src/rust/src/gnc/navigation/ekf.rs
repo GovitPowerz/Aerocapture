@@ -94,6 +94,13 @@ impl EkfState {
     /// Uses a simplified error-state transition where position errors grow
     /// with velocity errors and velocity errors grow with IMU biases.
     /// Biases and density correction are modeled as random walks.
+    ///
+    /// TODO: Incorporate IMU measurements into the prediction step for proper
+    /// strapdown inertial navigation. Currently the state transition matrix F
+    /// is time-invariant and does not depend on the measured accelerations or
+    /// angular rates. The filter still provides value through its density
+    /// estimation and covariance tracking, but the error-state propagation
+    /// is open-loop with respect to flight dynamics.
     pub fn predict(&mut self, dt: f64, _accel_meas: &[f64; 3], _gyro_meas: &[f64; 3], config: &EkfConfig) {
         // ── State transition matrix F ────────────────────────────────────
         let mut f = SMatrix::<f64, N_STATES, N_STATES>::identity();
@@ -129,13 +136,13 @@ impl EkfState {
         let dt2 = dt * dt;
         let dt3_3 = dt2 * dt / 3.0;
         // Simplified: q_pos ~ q_vel * dt² (cross terms from F*Q_vel*F^T)
-        for i in 0..3 {
-            q[(i, i)] = dt3_3 * config.q_accel_bias; // position drift from accel noise
-        }
-        // Velocity process noise from accel bias
-        for i in 3..6 {
-            q[(i, i)] = dt2 * config.q_accel_bias;
-        }
+        q[(0, 0)] = dt3_3 * config.q_accel_bias; // radial position from accel noise
+        q[(1, 1)] = dt3_3 * config.q_gyro_bias;  // longitude from gyro noise
+        q[(2, 2)] = dt3_3 * config.q_gyro_bias;  // latitude from gyro noise
+        // Velocity process noise: dV from accel bias, dgamma/dpsi from gyro bias
+        q[(3, 3)] = dt2 * config.q_accel_bias;
+        q[(4, 4)] = dt2 * config.q_gyro_bias;  // FPA error driven by gyro
+        q[(5, 5)] = dt2 * config.q_gyro_bias;  // heading error driven by gyro
         // Accelerometer bias random walk
         for i in 6..9 {
             q[(i, i)] = dt * config.q_accel_bias;

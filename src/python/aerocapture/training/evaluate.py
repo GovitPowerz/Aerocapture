@@ -248,7 +248,7 @@ def compute_cost(
     dv_threshold: float = 1000.0,
     g_load_limit: float = 15.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
     heat_flux_limit: float = 200.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
-    heat_load_limit: float = 50000.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
+    heat_load_limit: float = 25000.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
     g_load_weight: float = 1000.0,
     heat_flux_weight: float = 1000.0,
     heat_load_weight: float = 1000.0,

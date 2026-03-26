@@ -50,7 +50,7 @@ wind = false
 max_heat_flux = 200.0
 max_load_factor = 4.0
 max_dynamic_pressure = 1.081
-max_heat_load = 50000.0  # kJ/m²
+max_heat_load = 25000.0  # kJ/m² (typical MSR aerocapture: 5k-20k)
 
 [flight.final_conditions]
 altitude = 130.988
