@@ -1128,6 +1128,40 @@ mod run_output_tests {
             rec[17]
         );
     }
+
+    #[test]
+    fn heat_load_in_trajectory_is_monotonically_nondecreasing() {
+        let (config, data) = load_test_config();
+        let results = run_for_api(&config, &data, true).expect("run");
+        let traj = &results[0].trajectory;
+        assert!(!traj.is_empty(), "trajectory should not be empty");
+        for i in 1..traj.len() {
+            assert!(
+                traj[i][15] >= traj[i - 1][15],
+                "heat load must be monotonically non-decreasing at step {}: {} < {}",
+                i,
+                traj[i][15],
+                traj[i - 1][15]
+            );
+        }
+    }
+
+    #[test]
+    fn heat_load_final_matches_final_record() {
+        let (config, data) = load_test_config();
+        let results = run_for_api(&config, &data, true).expect("run");
+        let r = &results[0];
+        let last_traj_heat_load = r.trajectory.last().unwrap()[15]; // kJ/m²
+        let final_record_heat_load = r.final_record[28] * 1e3; // MJ/m² → kJ/m²
+        let diff = (last_traj_heat_load - final_record_heat_load).abs();
+        assert!(
+            diff < 1.0, // allow 1 kJ/m² tolerance (photo cadence vs final state)
+            "trajectory last heat load ({:.2}) should match final_record ({:.2}), diff={:.4}",
+            last_traj_heat_load,
+            final_record_heat_load,
+            diff
+        );
+    }
 }
 
 #[cfg(test)]
