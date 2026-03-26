@@ -171,6 +171,17 @@ def _read_mission_name(toml_path: Path) -> str:
     return planet
 
 
+def _read_constraint_limits(toml_path: Path) -> tuple[float | None, float | None]:
+    """Read heat flux and g-load limits from TOML [cost_function] section."""
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    data = load_toml_with_bases(toml_path)
+    cost = data.get("cost_function", {})
+    heat_flux: float | None = cost.get("heat_flux_limit")
+    g_load: float | None = cost.get("g_load_limit")
+    return heat_flux, g_load
+
+
 # ---------------------------------------------------------------------------
 # Metadata builder (for cover page)
 # ---------------------------------------------------------------------------
@@ -275,17 +286,16 @@ def _generate_training_charts(
     records: list[dict],
     resume_gens: list[int],
     out_dir: Path,
-) -> bool:
-    """Generate Part 1 (training convergence) SVG charts. Returns has_cost_distribution."""
+) -> tuple[bool, bool]:
+    """Generate Part 1 (training convergence) SVG charts. Returns (has_cost_distribution, has_seed_pool)."""
     charts.chart_convergence(records, out_dir / "convergence.svg", resume_gens=resume_gens)
     charts.chart_capture_constraint_rate(records, out_dir / "capture_constraint_rate.svg", resume_gens=resume_gens)
     charts.chart_diversity_cost(records, out_dir / "diversity_cost.svg", resume_gens=resume_gens)
     has_cost_distribution = charts.chart_cost_distribution(records, out_dir / "cost_distribution.svg")
     charts.chart_parameter_evolution(records, out_dir / "parameter_evolution.svg", resume_gens=resume_gens)
+    has_seed_pool = charts.chart_seed_pool(records, out_dir / "seed_pool.svg", resume_gens=resume_gens)
 
-    charts.chart_seed_pool(records, out_dir / "seed_pool.svg", resume_gens=resume_gens)
-
-    return has_cost_distribution
+    return has_cost_distribution, has_seed_pool
 
 
 def _load_corridor_data(scheme_dir: Path) -> dict[str, Any] | None:
@@ -365,10 +375,11 @@ def _generate_trajectory_charts(
     ecc = final_records[:, charts._FR_ECC]
     captured_mask = ecc < 1.0
 
-    # Load corridor boundaries and nominal trajectories
+    # Load corridor boundaries, nominal trajectories, and constraint limits
     corridor_data = _load_corridor_data(scheme_dir) if scheme_dir is not None else None
     undispersed = _run_undispersed_nominal(toml_path, scheme_dir) if toml_path is not None and scheme_dir is not None else None
     best_traj = _find_best_trajectory(final_records, trajectories)
+    heat_flux_limit, g_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None)
 
     # Corridor panels
     nominal_kwargs: dict[str, Any] = {"undispersed_nominal": undispersed, "best_nominal": best_traj}
@@ -381,8 +392,8 @@ def _generate_trajectory_charts(
 
     # Time-domain panels
     charts.chart_altitude_time(trajectories, captured_mask, out_dir / "altitude_time.svg", **nominal_kwargs)
-    charts.chart_heat_flux_time(trajectories, captured_mask, out_dir / "heat_flux_time.svg", **nominal_kwargs)
-    charts.chart_gload_time(trajectories, captured_mask, out_dir / "gload_time.svg", **nominal_kwargs)
+    charts.chart_heat_flux_time(trajectories, captured_mask, out_dir / "heat_flux_time.svg", limit_kw_m2=heat_flux_limit, **nominal_kwargs)
+    charts.chart_gload_time(trajectories, captured_mask, out_dir / "gload_time.svg", limit_g=g_load_limit, **nominal_kwargs)
     charts.chart_bank_angle_time(trajectories, captured_mask, out_dir / "bank_angle_time.svg", **nominal_kwargs)
     charts.chart_nav_density_ratio(trajectories, captured_mask, out_dir / "nav_density_ratio.svg", **nominal_kwargs)
 
@@ -420,16 +431,14 @@ def generate_report(
         print(f"No JSONL data found in {scheme_dir}")
         return None
 
-    n_sims = n_sims_override or 1000
+    n_sims = n_sims_override if n_sims_override is not None else 1000
 
     # Create temp directory for artifacts
     tmp_dir = Path(tempfile.mkdtemp(prefix="aerocapture_report_"))
 
     try:
         # Part 1: training convergence charts
-        has_cost_distribution = _generate_training_charts(records, resume_gens, tmp_dir)
-
-        has_seed_pool = any(r.get("pool_metrics") for r in records)
+        has_cost_distribution, has_seed_pool = _generate_training_charts(records, resume_gens, tmp_dir)
 
         # Part 2: final evaluation (optional)
         has_trajectories = False
@@ -466,7 +475,8 @@ def generate_report(
         # Compile PDF via Typst
         if not _check_typst():
             print("Typst CLI not found — skipping PDF compilation")
-            print(f"Chart artifacts available at: {tmp_dir}")
+            if keep_artifacts:
+                print(f"Chart artifacts available at: {tmp_dir}")
             return None
 
         output_pdf = scheme_dir / "report.pdf"

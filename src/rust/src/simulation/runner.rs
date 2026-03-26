@@ -696,7 +696,8 @@ fn run_single(
     //   5  heading (deg)           21 alt at max pdyn (km)       41 dv total (m/s)
     //   6  radial velocity (m/s)   22 time at max flux (s)       42-44 UNUSED
     //   7  energy (MJ/kg)          23 time at max load (s)       45 bank consumption (deg)
-    //   8  SMA (km)                24 time at max pdyn (s)       46-47 UNUSED
+    //   8  SMA (km)                24 time at max pdyn (s)       46 incl error (deg)
+    //                                                              47 UNUSED
     //   9  eccentricity            25 bounce alt (km)            48 n_reversals
     //  10  inclination (deg)       26 bounce time (s)            49-51 UNUSED
     //  11  RAAN (deg)              27 sim time (s)

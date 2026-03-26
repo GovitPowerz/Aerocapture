@@ -27,6 +27,7 @@ from aerocapture.training.charts import (
     chart_heat_flux_time,
     chart_nav_density_ratio,
     chart_parameter_evolution,
+    chart_comparison_convergence,
     chart_seed_pool,
 )
 
@@ -327,6 +328,25 @@ class TestDistributionCharts:
     def test_dispersion_grid(self, final_records: npt.NDArray[np.float64], dispersions: npt.NDArray[np.float64], tmp_svg: Path) -> None:
         """Panel 20: dispersion correlation grid creates a valid SVG file."""
         chart_dispersion_grid(final_records, dispersions, tmp_svg)
+        assert tmp_svg.exists()
+        content = tmp_svg.read_text()
+        assert "<svg" in content
+
+
+class TestComparisonCharts:
+    def test_comparison_convergence(self, tmp_svg: Path) -> None:
+        """Comparison chart: multi-scheme convergence creates a valid SVG file."""
+        scheme_data: dict[str, list[dict[str, Any]]] = {
+            "scheme_a": [
+                {"generation": i, "best_cost": 1000 / (i + 1), "mean_cost": 2000 / (i + 1), "worst_cost": 5000 / (i + 1)}
+                for i in range(10)
+            ],
+            "scheme_b": [
+                {"generation": i, "best_cost": 800 / (i + 1), "mean_cost": 1500 / (i + 1), "worst_cost": 4000 / (i + 1)}
+                for i in range(10)
+            ],
+        }
+        chart_comparison_convergence(scheme_data, tmp_svg)
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content
