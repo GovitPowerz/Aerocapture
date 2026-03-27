@@ -530,4 +530,61 @@ mod tests {
             steps,
         );
     }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        /// For any reasonable initial state, a DOPRI45 step should:
+        /// 1. Always produce finite state values (no NaN/Inf)
+        /// 2. Return a positive dt_next
+        /// 3. Restore state exactly on rejection
+        #[test]
+        fn step_produces_finite_output(
+            r in 3.3e6_f64..3.5e6,
+            v in 3000.0_f64..7000.0,
+            gamma in -0.15_f64..0.05,
+            dt in 0.001_f64..2.0,
+        ) {
+            let atol = [1.0, 1e-8, 1e-8, 1e-3, 1e-8, 1e-8, 1e-2, 1e-6];
+            let rtol = 1e-6;
+            let mut state = [r, 0.0, 0.0, v, gamma, 0.0, 0.0, 0.0];
+            let state_before = state;
+            let mut dopri = Dopri45State::new();
+
+            // Simple gravity + drag ODE (no tables needed)
+            let mu = 4.2828e13_f64; // Mars GM
+            let result = dopri45_step(
+                &mut state,
+                dt,
+                &mut dopri,
+                &atol,
+                rtol,
+                &mut |s| {
+                    let mut d = [0.0; 8];
+                    d[0] = s[3] * s[4].sin();                    // dr/dt = V * sin(gamma)
+                    d[3] = -mu / (s[0] * s[0]) * s[4].sin();     // dV/dt (gravity drag)
+                    d[4] = (s[3] / s[0] - mu / (s[0] * s[0] * s[3])) * s[4].cos(); // dgamma/dt
+                    d[7] = 1.0;
+                    d
+                },
+            );
+
+            // dt_next must be positive and finite
+            prop_assert!(result.dt_next > 0.0, "dt_next must be positive: {}", result.dt_next);
+            prop_assert!(result.dt_next.is_finite(), "dt_next must be finite: {}", result.dt_next);
+            prop_assert!(result.error_norm.is_finite(), "error_norm must be finite");
+
+            if result.accepted {
+                // All state components must be finite
+                for (i, &val) in state.iter().enumerate() {
+                    prop_assert!(val.is_finite(), "state[{}] = {} is not finite", i, val);
+                }
+            } else {
+                // State must be exactly restored on rejection
+                for i in 0..8 {
+                    prop_assert_eq!(state[i], state_before[i], "state[{}] not restored", i);
+                }
+            }
+        }
+    }
 }
