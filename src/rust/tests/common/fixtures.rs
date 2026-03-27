@@ -80,6 +80,7 @@ pub fn minimal_sim_data() -> SimData {
             gas_constant: 1.3,
             density_profile: DensityProfile::default(),
         },
+        atmosphere_onboard: aerocapture::data::atmosphere::OnboardAtmosphereModel::Identical,
         entry: EntryConditions {
             state: SphericalState {
                 altitude: 130_000.0,

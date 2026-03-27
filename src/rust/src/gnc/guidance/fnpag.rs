@@ -7,7 +7,7 @@
 //!
 //! Algorithm overview:
 //! 1. Predict forward trajectory with current bank angle using simplified
-//!    equations of motion (no J2, constant bank, analytical density model)
+//!    equations of motion (no J2, constant bank, onboard atmosphere model)
 //! 2. Compute predicted exit energy
 //! 3. Use secant method to find the bank angle that achieves target energy
 //! 4. Blend with equilibrium glide near atmosphere boundaries
@@ -90,7 +90,7 @@ fn predict_exit_energy(
         }
 
         // Atmospheric density (using the simulator's tabulated model)
-        let rho = data.atmosphere.density_at(alt);
+        let rho = data.atmosphere_onboard.density_at(alt, &data.atmosphere);
 
         // Aero forces
         let cx = data.aero.interpolate_cx(data.entry.initial_aoa);
@@ -164,7 +164,9 @@ pub fn fnpag_bank(
         nav.position_estimated[2],
         planet,
     );
-    let rho = data.atmosphere.density_at(altitude);
+    let rho = data
+        .atmosphere_onboard
+        .density_at(altitude, &data.atmosphere);
     if rho < 1e-10 {
         // Outside sensible atmosphere — hold current bank angle
         return state.bank_prev.abs();
@@ -328,6 +330,7 @@ mod tests {
                 gas_constant: 1.3,
                 density_profile: DensityProfile::default(),
             },
+            atmosphere_onboard: crate::data::atmosphere::OnboardAtmosphereModel::Identical,
             entry: EntryConditions {
                 state: SphericalState {
                     altitude: 130_000.0,

@@ -63,3 +63,6 @@ random_seed = 0.6866
 
 [data]
 results_suffix = ".test_guided_orig"
+
+[onboard_atmosphere]
+mode = "identical"

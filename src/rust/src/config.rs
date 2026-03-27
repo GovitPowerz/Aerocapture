@@ -136,6 +136,28 @@ pub struct TomlConfig {
     pub monte_carlo: Option<TomlMonteCarlo>,
     // Navigation mode config (bias vs EKF)
     pub navigation: Option<TomlNavigation>,
+    /// Onboard atmosphere model config
+    #[serde(default)]
+    pub onboard_atmosphere: Option<TomlAtmosphereOnboard>,
+}
+
+// ─── Onboard Atmosphere TOML structs ───
+
+/// TOML config for explicit exponential segment override.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TomlExponentialSegment {
+    pub alt_low: f64,
+    pub alt_high: f64,
+    pub rho_ref: f64,
+    pub scale_height: f64,
+}
+
+/// TOML config for the onboard atmosphere model.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct TomlAtmosphereOnboard {
+    pub mode: Option<String>,
+    pub n_segments: Option<usize>,
+    pub segments: Option<Vec<TomlExponentialSegment>>,
 }
 
 // ─── Navigation TOML structs ───

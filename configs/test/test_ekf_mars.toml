@@ -24,3 +24,6 @@ type = "ftc"
 
 [data]
 results_suffix = ".test_ekf_mars"
+
+[onboard_atmosphere]
+mode = "identical"

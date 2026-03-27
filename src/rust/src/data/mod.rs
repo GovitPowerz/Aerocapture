@@ -149,6 +149,8 @@ pub struct SimData {
     pub capsule: capsule::Capsule,
     pub aero: aerodynamics::AeroTables,
     pub atmosphere: atmosphere::AtmosphereModel,
+    /// Onboard atmosphere model (degraded) for navigation and guidance
+    pub atmosphere_onboard: atmosphere::OnboardAtmosphereModel,
     pub entry: EntryConditions,
     pub constraints: Constraints,
     pub final_conditions: FinalConditions,
@@ -500,6 +502,35 @@ impl SimData {
             .ok_or_else(|| DataError("Missing data.atmosphere path".to_string()))?;
         let atm = atmosphere::AtmosphereModel::load(atm_path)?;
 
+        // Onboard atmosphere model
+        let atm_onboard = match &toml.onboard_atmosphere {
+            Some(cfg) if cfg.mode.as_deref() == Some("identical") => {
+                atmosphere::OnboardAtmosphereModel::Identical
+            }
+            Some(cfg) if cfg.segments.is_some() => {
+                let segs = cfg.segments.as_ref().unwrap();
+                atmosphere::OnboardAtmosphereModel::PiecewiseExponential {
+                    segments: segs
+                        .iter()
+                        .map(|s| atmosphere::ExponentialSegment {
+                            alt_low: s.alt_low,
+                            alt_high: s.alt_high,
+                            rho_ref: s.rho_ref,
+                            scale_height: s.scale_height,
+                        })
+                        .collect(),
+                }
+            }
+            Some(cfg) => {
+                let n = cfg.n_segments.unwrap_or(5);
+                atmosphere::OnboardAtmosphereModel::fit_from_table(&atm, n)
+            }
+            None => {
+                // Default: auto-fit with 5 segments
+                atmosphere::OnboardAtmosphereModel::fit_from_table(&atm, 5)
+            }
+        };
+
         // Wind table (optional)
         let wind_table = if let Some(ref wt_path) = toml.data.wind_table {
             Some(winds::WindTable::load(wt_path)?)
@@ -535,6 +566,7 @@ impl SimData {
             capsule: capsule_data,
             aero,
             atmosphere: atm,
+            atmosphere_onboard: atm_onboard,
             entry,
             constraints,
             final_conditions,

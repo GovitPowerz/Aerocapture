@@ -11,6 +11,9 @@ random_seed = 0.6866
 [data]
 results_suffix = ".golden_eqglide"
 
+[onboard_atmosphere]
+mode = "identical"
+
 [monte_carlo]
 seed = 42
 
