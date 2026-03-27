@@ -15,12 +15,9 @@ The current model uses tabulated MarsGram 3.8 density vs altitude (`data/atmosph
 - **Improvement**: Interface with MCD v6+ (LMD/CNRS), which provides density, temperature, pressure, and winds as functions of (altitude, latitude, longitude, solar longitude, local time, dust scenario).
 - **Impact**: More realistic atmospheric variability, especially important for Monte Carlo campaigns.
 
-### 1.2 Separate truth vs onboard atmosphere models
+### 1.2 [DONE] Separate truth vs onboard atmosphere models
 
-Currently both truth and onboard models use the same density table. The only difference is that the truth model applies a dispersion multiplier via the `DensityProfile` (5 altitude breakpoints in `data/dispersions.rs`). The onboard model is unrealistically close to truth.
-
-- **Improvement**: Use a separate, degraded onboard atmosphere model (e.g., exponential with fitted scale height) distinct from the truth model. The density estimator should then correct the onboard model, not just track a known table.
-- **Impact**: More realistic navigation filter behavior and guidance robustness assessment.
+Implemented `OnboardAtmosphereModel` in `data/atmosphere.rs` — a piecewise exponential model auto-fitted from the truth density table at simulation init. Navigation (bias mode and EKF) and guidance schemes (FNPAG, equilibrium glide) query the degraded onboard model; physics propagation uses the full truth table with MC dispersions. Three TOML-configurable modes via `[onboard_atmosphere]`: `mode = "identical"` (truth table, backward compatible), `n_segments = N` (auto-fit), or explicit `segments = [...]`. Default: 5-segment auto-fit. The density filter now corrects meaningful structural error (piecewise exponential vs tabulated truth) plus random MC perturbations, not just a known table.
 
 ### 1.3 Time-varying density perturbations
 
