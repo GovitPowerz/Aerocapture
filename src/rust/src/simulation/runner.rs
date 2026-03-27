@@ -3,7 +3,6 @@
 //! Monte Carlo runs are parallelized with rayon (one thread per trajectory).
 
 use crate::config::{AdaptiveConfig, IntegrationMode, Planet, SimInput};
-use crate::integration::dopri45::{self, Dopri45State};
 use crate::data::SimData;
 use crate::data::dispersions::DISPERSION_DRAW_LEN;
 use crate::gnc::control::angle_utils::shortest_angle_diff;
@@ -11,6 +10,7 @@ use crate::gnc::control::pilot::{self, PilotState};
 use crate::gnc::guidance::ftc::{self, FtcState};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
 use crate::gnc::navigation::estimator::{self, NavigationFilter};
+use crate::integration::dopri45::{self, Dopri45State};
 use crate::integration::rk4;
 use crate::integration::sequencer::SequencerState;
 use crate::orbit::maneuver::DeltaV;
@@ -39,14 +39,14 @@ const CRASH_BASE: f64 = 20_000.0;
 /// Default absolute tolerances for DOPRI45, one per state component.
 /// State = [r(m), lon(rad), lat(rad), V(m/s), gamma(rad), psi(rad), flux(kJ/m²), time(s)]
 const DOPRI45_ATOL: [f64; 8] = [
-    1.0,    // r: 1 m on ~3.4e6 m
-    1e-8,   // lon: ~0.03 m at Mars equator
-    1e-8,   // lat: ~0.03 m
-    1e-3,   // V: 1 mm/s on ~5700 m/s
-    1e-8,   // gamma: ~0.03 m position equiv
-    1e-8,   // psi: ~0.03 m
-    1e-2,   // flux: 0.01 kJ/m² on O(1000) total
-    1e-6,   // time: machine-level for identity derivative
+    1.0,  // r: 1 m on ~3.4e6 m
+    1e-8, // lon: ~0.03 m at Mars equator
+    1e-8, // lat: ~0.03 m
+    1e-3, // V: 1 mm/s on ~5700 m/s
+    1e-8, // gamma: ~0.03 m position equiv
+    1e-8, // psi: ~0.03 m
+    1e-2, // flux: 0.01 kJ/m² on O(1000) total
+    1e-6, // time: machine-level for identity derivative
 ];
 
 #[derive(Debug)]

@@ -9,7 +9,9 @@ pub mod incidence;
 pub mod neural;
 pub mod pilot;
 
-use crate::config::{GuidanceType, IntegrationMode, SimInput, TomlConfig, TomlMonteCarlo, TomlNavigation};
+use crate::config::{
+    GuidanceType, IntegrationMode, SimInput, TomlConfig, TomlMonteCarlo, TomlNavigation,
+};
 use crate::physics::winds;
 use std::fmt;
 
@@ -585,10 +587,7 @@ impl SimData {
             dispersion_config,
             nav_mode,
             nav_config: toml.navigation.clone(),
-            integration_mode: IntegrationMode::from_toml(
-                &toml.integration,
-                v.periods.integration,
-            ),
+            integration_mode: IntegrationMode::from_toml(&toml.integration, v.periods.integration),
         })
     }
 }

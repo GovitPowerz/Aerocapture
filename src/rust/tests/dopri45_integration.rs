@@ -27,10 +27,17 @@ fn adaptive_produces_valid_capture() {
     assert_eq!(results.len(), 1, "Should produce exactly one result");
 
     let r = &results[0];
-    assert!(r.captured, "Adaptive mode should produce a captured trajectory");
+    assert!(
+        r.captured,
+        "Adaptive mode should produce a captured trajectory"
+    );
 
     let ecc = r.final_record[9];
-    assert!(ecc < 1.0, "Eccentricity should be < 1.0 for capture, got {}", ecc);
+    assert!(
+        ecc < 1.0,
+        "Eccentricity should be < 1.0 for capture, got {}",
+        ecc
+    );
 
     let final_time = r.final_record[27];
     assert!(final_time > 0.0, "Final time should be positive");
