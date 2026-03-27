@@ -81,6 +81,48 @@ pub enum SimPhase {
     Preprogrammed,
 }
 
+/// Adaptive integration configuration.
+#[derive(Debug, Clone, Copy)]
+pub struct AdaptiveConfig {
+    pub rtol: f64,       // relative tolerance
+    pub initial_dt: f64, // initial sub-step guess (seconds)
+    pub min_dt: f64,     // floor (seconds)
+    pub max_dt: f64,     // ceiling (seconds)
+}
+
+/// Integration method selection.
+#[derive(Debug, Clone, Copy)]
+pub enum IntegrationMode {
+    /// Fixed-step Gill-variant RK4 (legacy, default).
+    FixedGill,
+    /// Adaptive Dormand-Prince 4(5) with error control.
+    AdaptiveDopri45(AdaptiveConfig),
+}
+
+impl Default for IntegrationMode {
+    fn default() -> Self {
+        Self::FixedGill
+    }
+}
+
+impl IntegrationMode {
+    /// Build from TOML config. `integration_period` is the outer tick dt from [vehicle.periods].
+    pub fn from_toml(toml: &Option<TomlIntegration>, integration_period: f64) -> Self {
+        let Some(cfg) = toml else {
+            return Self::FixedGill;
+        };
+        match cfg.mode.as_str() {
+            "adaptive" => Self::AdaptiveDopri45(AdaptiveConfig {
+                rtol: cfg.rtol.unwrap_or(1e-6),
+                initial_dt: cfg.initial_dt.unwrap_or(0.1),
+                min_dt: cfg.min_dt.unwrap_or(1e-6),
+                max_dt: cfg.max_dt.unwrap_or(integration_period),
+            }),
+            _ => Self::FixedGill, // "fixed" or unrecognized => default
+        }
+    }
+}
+
 /// Guidance type
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GuidanceType {
@@ -139,6 +181,8 @@ pub struct TomlConfig {
     /// Onboard atmosphere model config
     #[serde(default)]
     pub onboard_atmosphere: Option<TomlAtmosphereOnboard>,
+    /// Integration method config (adaptive DOPRI45 vs fixed Gill RK4)
+    pub integration: Option<TomlIntegration>,
 }
 
 // ─── Onboard Atmosphere TOML structs ───
@@ -158,6 +202,18 @@ pub struct TomlAtmosphereOnboard {
     pub mode: Option<String>,
     pub n_segments: Option<usize>,
     pub segments: Option<Vec<TomlExponentialSegment>>,
+}
+
+// ─── Integration TOML structs ───
+
+/// TOML config for the integration method.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TomlIntegration {
+    pub mode: String,          // "fixed" or "adaptive"
+    pub rtol: Option<f64>,     // relative tolerance (default 1e-6)
+    pub initial_dt: Option<f64>, // initial sub-step guess in seconds (default 0.1)
+    pub min_dt: Option<f64>,   // floor to prevent sub-step collapse (default 1e-6)
+    pub max_dt: Option<f64>,   // ceiling in seconds (default = periods.integration)
 }
 
 // ─── Navigation TOML structs ───
@@ -1135,5 +1191,118 @@ mod tests {
 
         assert_eq!(result["x"].as_integer().unwrap(), 1);
         assert_eq!(result["y"].as_integer().unwrap(), 2);
+    }
+
+    // ─── integration section tests ───
+
+    #[test]
+    fn parse_integration_section_adaptive() {
+        let toml_str = r#"
+            [mission]
+            type = "aerocapture"
+            planet = "mars"
+            phase = "full"
+
+            [guidance]
+            type = "ftc"
+
+            [data]
+            base_dir = "."
+            output_dir = "."
+
+            [integration]
+            mode = "adaptive"
+            rtol = 1e-8
+            initial_dt = 0.05
+            min_dt = 1e-8
+            max_dt = 1.5
+        "#;
+        let (_, toml) = SimInput::from_toml(toml_str).expect("parse");
+        let integ = toml.integration.unwrap();
+        assert_eq!(integ.mode, "adaptive");
+        assert!((integ.rtol.unwrap() - 1e-8).abs() < 1e-15);
+        assert!((integ.initial_dt.unwrap() - 0.05).abs() < 1e-15);
+        assert!((integ.min_dt.unwrap() - 1e-8).abs() < 1e-15);
+        assert!((integ.max_dt.unwrap() - 1.5).abs() < 1e-15);
+    }
+
+    #[test]
+    fn parse_integration_section_absent_defaults_to_none() {
+        let toml_str = r#"
+            [mission]
+            type = "aerocapture"
+            planet = "mars"
+            phase = "full"
+
+            [guidance]
+            type = "ftc"
+
+            [data]
+            base_dir = "."
+            output_dir = "."
+        "#;
+        let (_, toml) = SimInput::from_toml(toml_str).expect("parse");
+        assert!(toml.integration.is_none());
+    }
+
+    #[test]
+    fn integration_mode_from_toml_none_gives_fixed() {
+        let mode = IntegrationMode::from_toml(&None, 1.0);
+        assert!(matches!(mode, IntegrationMode::FixedGill));
+    }
+
+    #[test]
+    fn integration_mode_from_toml_fixed_gives_fixed() {
+        let cfg = Some(TomlIntegration {
+            mode: "fixed".to_string(),
+            rtol: None,
+            initial_dt: None,
+            min_dt: None,
+            max_dt: None,
+        });
+        let mode = IntegrationMode::from_toml(&cfg, 1.0);
+        assert!(matches!(mode, IntegrationMode::FixedGill));
+    }
+
+    #[test]
+    fn integration_mode_from_toml_adaptive_defaults() {
+        let cfg = Some(TomlIntegration {
+            mode: "adaptive".to_string(),
+            rtol: None,
+            initial_dt: None,
+            min_dt: None,
+            max_dt: None,
+        });
+        let mode = IntegrationMode::from_toml(&cfg, 2.0);
+        match mode {
+            IntegrationMode::AdaptiveDopri45(ac) => {
+                assert!((ac.rtol - 1e-6).abs() < 1e-15);
+                assert!((ac.initial_dt - 0.1).abs() < 1e-15);
+                assert!((ac.min_dt - 1e-6).abs() < 1e-15);
+                assert!((ac.max_dt - 2.0).abs() < 1e-15); // falls back to integration_period
+            }
+            _ => panic!("expected AdaptiveDopri45"),
+        }
+    }
+
+    #[test]
+    fn integration_mode_from_toml_adaptive_explicit() {
+        let cfg = Some(TomlIntegration {
+            mode: "adaptive".to_string(),
+            rtol: Some(1e-8),
+            initial_dt: Some(0.05),
+            min_dt: Some(1e-8),
+            max_dt: Some(1.5),
+        });
+        let mode = IntegrationMode::from_toml(&cfg, 2.0);
+        match mode {
+            IntegrationMode::AdaptiveDopri45(ac) => {
+                assert!((ac.rtol - 1e-8).abs() < 1e-15);
+                assert!((ac.initial_dt - 0.05).abs() < 1e-15);
+                assert!((ac.min_dt - 1e-8).abs() < 1e-15);
+                assert!((ac.max_dt - 1.5).abs() < 1e-15);
+            }
+            _ => panic!("expected AdaptiveDopri45"),
+        }
     }
 }
