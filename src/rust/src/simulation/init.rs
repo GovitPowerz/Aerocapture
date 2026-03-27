@@ -86,6 +86,7 @@ mod tests {
             },
             aero: aerodynamics::AeroTables::default(),
             atmosphere: atmosphere::AtmosphereModel::default(),
+            atmosphere_onboard: atmosphere::OnboardAtmosphereModel::Identical,
             entry: EntryConditions {
                 state: SphericalState {
                     altitude: 130_000.0,

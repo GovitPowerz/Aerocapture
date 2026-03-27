@@ -328,6 +328,7 @@ mod tests {
                 gas_constant: 1.3,
                 density_profile: DensityProfile::default(),
             },
+            atmosphere_onboard: crate::data::atmosphere::OnboardAtmosphereModel::Identical,
             entry: EntryConditions {
                 state: SphericalState {
                     altitude: 130_000.0,
