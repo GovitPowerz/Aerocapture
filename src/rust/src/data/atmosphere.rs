@@ -151,3 +151,145 @@ impl AtmosphereModel {
         self.ref_density * (-self.scale_factor * (altitude - self.ref_altitude)).exp()
     }
 }
+
+/// One altitude band of the onboard piecewise exponential model.
+#[derive(Debug, Clone)]
+pub struct ExponentialSegment {
+    pub alt_low: f64,      // meters
+    pub alt_high: f64,     // meters
+    pub rho_ref: f64,      // kg/m^3 (density at alt_low)
+    pub scale_height: f64, // meters
+}
+
+/// Onboard atmosphere model — degraded representation of truth.
+#[derive(Debug, Clone)]
+pub enum OnboardAtmosphereModel {
+    /// Use the truth table directly (backward-compatible mode).
+    Identical,
+    /// Piecewise exponential segments auto-fitted or manually specified.
+    PiecewiseExponential { segments: Vec<ExponentialSegment> },
+}
+
+impl OnboardAtmosphereModel {
+    /// Query onboard density at a given altitude.
+    ///
+    /// For `Identical`, delegates to the truth table.
+    /// For `PiecewiseExponential`, finds the containing segment and evaluates
+    /// `rho_ref * exp(-(alt - alt_low) / H)`. Below the first segment uses
+    /// the first segment's rho_ref. Above the last segment uses exponential
+    /// extrapolation from the last segment.
+    pub fn density_at(&self, altitude: f64, truth: &AtmosphereModel) -> f64 {
+        match self {
+            OnboardAtmosphereModel::Identical => truth.density_at(altitude),
+            OnboardAtmosphereModel::PiecewiseExponential { segments } => {
+                if segments.is_empty() {
+                    return truth.density_at(altitude);
+                }
+                // Below first segment: clamp to first segment's rho_ref
+                if altitude <= segments[0].alt_low {
+                    return segments[0].rho_ref;
+                }
+                // Find containing segment
+                for seg in segments {
+                    if altitude <= seg.alt_high {
+                        return seg.rho_ref * (-(altitude - seg.alt_low) / seg.scale_height).exp();
+                    }
+                }
+                // Above last segment: extrapolate from last segment
+                let last = &segments[segments.len() - 1];
+                last.rho_ref * (-(altitude - last.alt_low) / last.scale_height).exp()
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_abs_diff_eq;
+
+    /// Build a small 3-point atmosphere table for testing.
+    fn test_atm() -> AtmosphereModel {
+        AtmosphereModel {
+            n_points: 3,
+            altitudes: vec![10_000.0, 20_000.0, 30_000.0],
+            densities: vec![1.0, 0.5, 0.1],
+            ref_density: 0.1,
+            scale_factor: 1e-4,
+            ref_altitude: 30_000.0,
+            gas_constant: 1.3,
+            density_profile: DensityProfile::default(),
+        }
+    }
+
+    #[test]
+    fn piecewise_exponential_single_segment() {
+        let model = OnboardAtmosphereModel::PiecewiseExponential {
+            segments: vec![ExponentialSegment {
+                alt_low: 0.0,
+                alt_high: 50_000.0,
+                rho_ref: 0.02,
+                scale_height: 10_000.0,
+            }],
+        };
+        let truth = test_atm();
+        // At alt_low the density should be rho_ref
+        assert_abs_diff_eq!(model.density_at(0.0, &truth), 0.02, epsilon = 1e-10);
+        // At one scale height above, density should be rho_ref * exp(-1)
+        let expected = 0.02 * (-1.0_f64).exp();
+        assert_abs_diff_eq!(
+            model.density_at(10_000.0, &truth),
+            expected,
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    fn piecewise_exponential_two_segments() {
+        let model = OnboardAtmosphereModel::PiecewiseExponential {
+            segments: vec![
+                ExponentialSegment {
+                    alt_low: 0.0,
+                    alt_high: 20_000.0,
+                    rho_ref: 0.02,
+                    scale_height: 10_000.0,
+                },
+                ExponentialSegment {
+                    alt_low: 20_000.0,
+                    alt_high: 50_000.0,
+                    rho_ref: 0.002,
+                    scale_height: 8_000.0,
+                },
+            ],
+        };
+        let truth = test_atm();
+        // In first segment
+        let expected_low = 0.02 * (-15_000.0 / 10_000.0_f64).exp();
+        assert_abs_diff_eq!(
+            model.density_at(15_000.0, &truth),
+            expected_low,
+            epsilon = 1e-10
+        );
+        // In second segment
+        let expected_high = 0.002 * (-5_000.0 / 8_000.0_f64).exp();
+        assert_abs_diff_eq!(
+            model.density_at(25_000.0, &truth),
+            expected_high,
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    fn identical_mode_delegates_to_truth() {
+        let truth = test_atm();
+        let model = OnboardAtmosphereModel::Identical;
+        assert_abs_diff_eq!(
+            model.density_at(15_000.0, &truth),
+            truth.density_at(15_000.0)
+        );
+        assert_abs_diff_eq!(
+            model.density_at(35_000.0, &truth),
+            truth.density_at(35_000.0)
+        );
+    }
+}
