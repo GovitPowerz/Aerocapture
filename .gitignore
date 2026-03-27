@@ -41,8 +41,8 @@ output/*
 
 # === Miscellaneous ===
 *.json
-!data/**/*.json
 !tests/reference_data/**/*.json
 *.temp
 *.png
 training_output/
+data/neural_network/nn_model.json

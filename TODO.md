@@ -2,6 +2,9 @@
 
 - [ ] add an animation script of entry corridors and trajectories evolution during training based on checkpoints
 - [ ] Make 3 separate graphs for individual burn corrections and add xticklabeld on total DeltV distribution graph
+- [ ] Fix guidance schemes training than never finishes
+- [ ] add roll reversal to pred_guid eqglide fnpag energy_controller
+- [ ] Maybe better scale parameters in non nn guidance schemes to improve training
 
 ## Simulation — High Impact
 
