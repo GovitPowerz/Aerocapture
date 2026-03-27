@@ -171,6 +171,70 @@ pub enum OnboardAtmosphereModel {
 }
 
 impl OnboardAtmosphereModel {
+    /// Auto-fit a piecewise exponential model from the truth atmosphere table.
+    ///
+    /// Divides the truth table altitude range into `n_segments` equal bands.
+    /// For each band, samples the truth table at the band endpoints and any
+    /// interior table points, then performs a linear regression on ln(rho) vs
+    /// altitude to extract scale height H and reference density rho_ref.
+    pub fn fit_from_table(truth: &AtmosphereModel, n_segments: usize) -> Self {
+        if truth.n_points < 2 || n_segments == 0 {
+            return OnboardAtmosphereModel::Identical;
+        }
+
+        let alt_min = truth.altitudes[0];
+        let alt_max = truth.altitudes[truth.n_points - 1];
+        let band_width = (alt_max - alt_min) / n_segments as f64;
+
+        let mut segments = Vec::with_capacity(n_segments);
+        for i in 0..n_segments {
+            let alt_low = alt_min + i as f64 * band_width;
+            let alt_high = alt_min + (i + 1) as f64 * band_width;
+
+            // Sample truth densities within this band (at least 2 points: endpoints)
+            let mut samples: Vec<(f64, f64)> = Vec::new();
+
+            // Add band endpoints
+            let rho_low = truth.density_at(alt_low);
+            if rho_low > 0.0 {
+                samples.push((alt_low, rho_low));
+            }
+            let rho_high = truth.density_at(alt_high);
+            if rho_high > 0.0 {
+                samples.push((alt_high, rho_high));
+            }
+
+            // Add interior table points
+            for j in 0..truth.n_points {
+                let alt_j = truth.altitudes[j];
+                if alt_j > alt_low && alt_j < alt_high {
+                    let rho_j = truth.densities[j];
+                    if rho_j > 0.0 {
+                        samples.push((alt_j, rho_j));
+                    }
+                }
+            }
+
+            // Linear regression on ln(rho) vs altitude
+            let (rho_ref, scale_height) = if samples.len() >= 2 {
+                fit_exponential(&samples, alt_low)
+            } else if let Some(&(_, rho)) = samples.first() {
+                (rho, 1.0 / truth.scale_factor)
+            } else {
+                (truth.ref_density, 1.0 / truth.scale_factor)
+            };
+
+            segments.push(ExponentialSegment {
+                alt_low,
+                alt_high,
+                rho_ref,
+                scale_height,
+            });
+        }
+
+        OnboardAtmosphereModel::PiecewiseExponential { segments }
+    }
+
     /// Query onboard density at a given altitude.
     ///
     /// For `Identical`, delegates to the truth table.
@@ -201,6 +265,41 @@ impl OnboardAtmosphereModel {
             }
         }
     }
+}
+
+/// Fit rho_ref and scale_height from samples using linear regression on ln(rho).
+///
+/// Model: ln(rho) = ln(rho_ref) - (alt - alt_low) / H
+/// Which is: y = c + m*x where y=ln(rho), x=(alt-alt_low), c=ln(rho_ref), m=-1/H
+fn fit_exponential(samples: &[(f64, f64)], alt_low: f64) -> (f64, f64) {
+    let n = samples.len() as f64;
+    let mut sum_x = 0.0;
+    let mut sum_y = 0.0;
+    let mut sum_xx = 0.0;
+    let mut sum_xy = 0.0;
+
+    for &(alt, rho) in samples {
+        let x = alt - alt_low;
+        let y = rho.ln();
+        sum_x += x;
+        sum_y += y;
+        sum_xx += x * x;
+        sum_xy += x * y;
+    }
+
+    let denom = n * sum_xx - sum_x * sum_x;
+    if denom.abs() < 1e-30 {
+        let rho_ref = (sum_y / n).exp();
+        return (rho_ref, 10_000.0);
+    }
+
+    let slope = (n * sum_xy - sum_x * sum_y) / denom;
+    let intercept = (sum_y - slope * sum_x) / n;
+
+    let rho_ref = intercept.exp();
+    let scale_height = if slope < -1e-15 { -1.0 / slope } else { 1e6 };
+
+    (rho_ref, scale_height)
 }
 
 #[cfg(test)]
@@ -291,5 +390,60 @@ mod tests {
             model.density_at(35_000.0, &truth),
             truth.density_at(35_000.0)
         );
+    }
+
+    #[test]
+    fn auto_fit_produces_correct_segment_count() {
+        let truth = AtmosphereModel {
+            n_points: 5,
+            altitudes: vec![0.0, 25_000.0, 50_000.0, 75_000.0, 100_000.0],
+            densities: vec![0.013, 0.003, 5e-4, 6e-5, 5e-6],
+            ref_density: 5e-6,
+            scale_factor: 1e-4,
+            ref_altitude: 100_000.0,
+            gas_constant: 1.3,
+            density_profile: DensityProfile::default(),
+        };
+        let model = OnboardAtmosphereModel::fit_from_table(&truth, 3);
+        match &model {
+            OnboardAtmosphereModel::PiecewiseExponential { segments } => {
+                assert_eq!(segments.len(), 3);
+                assert_abs_diff_eq!(segments[0].alt_low, 0.0);
+                assert_abs_diff_eq!(segments[2].alt_high, 100_000.0);
+                for seg in segments {
+                    assert!(seg.scale_height > 0.0, "scale_height must be positive");
+                    assert!(seg.rho_ref > 0.0, "rho_ref must be positive");
+                }
+            }
+            _ => panic!("Expected PiecewiseExponential variant"),
+        }
+    }
+
+    #[test]
+    fn auto_fit_approximates_truth_within_tolerance() {
+        let truth = AtmosphereModel {
+            n_points: 5,
+            altitudes: vec![0.0, 25_000.0, 50_000.0, 75_000.0, 100_000.0],
+            densities: vec![0.013, 0.003, 5e-4, 6e-5, 5e-6],
+            ref_density: 5e-6,
+            scale_factor: 1e-4,
+            ref_altitude: 100_000.0,
+            gas_constant: 1.3,
+            density_profile: DensityProfile::default(),
+        };
+        let model = OnboardAtmosphereModel::fit_from_table(&truth, 5);
+        for &alt in &truth.altitudes {
+            let rho_truth = truth.density_at(alt);
+            let rho_onboard = model.density_at(alt, &truth);
+            if rho_truth > 1e-10 {
+                let rel_err = (rho_onboard - rho_truth).abs() / rho_truth;
+                assert!(
+                    rel_err < 0.5,
+                    "relative error {:.2}% at alt={} m exceeds 50%",
+                    rel_err * 100.0,
+                    alt,
+                );
+            }
+        }
     }
 }
