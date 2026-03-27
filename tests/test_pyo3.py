@@ -130,6 +130,32 @@ class TestBitIdenticalRegression:
         )
 
 
+class TestAdaptiveIntegration:
+    """Test adaptive DOPRI45 integration via PyO3 overrides."""
+
+    def test_adaptive_override_produces_valid_result(self) -> None:
+        """Setting integration.mode = 'adaptive' via overrides should work."""
+        result = aero.run(
+            GOLDEN_TOML,
+            overrides={"integration.mode": "adaptive", "integration.rtol": 1e-6},
+        )
+        assert result.captured, "Adaptive mode should produce a captured trajectory"
+        assert result.final_record.shape == (52,)
+
+    def test_adaptive_agrees_with_fixed(self) -> None:
+        """Adaptive and fixed modes should produce similar results on the same config."""
+        r_fixed = aero.run(GOLDEN_TOML)
+        r_adaptive = aero.run(
+            GOLDEN_TOML,
+            overrides={"integration.mode": "adaptive"},
+        )
+        assert r_fixed.captured
+        assert r_adaptive.captured
+        # Energy agreement within 1%
+        energy_err = abs(r_fixed.energy - r_adaptive.energy) / abs(r_fixed.energy)
+        assert energy_err < 0.01, f"Energy mismatch: {energy_err:.4f}"
+
+
 class TestLoadConfig:
     def test_load_config_returns_dict(self) -> None:
         config = aero.load_config(GOLDEN_TOML)

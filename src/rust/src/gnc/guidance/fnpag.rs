@@ -381,6 +381,7 @@ mod tests {
             dispersion_config: None,
             nav_mode: crate::data::NavMode::Bias,
             nav_config: None,
+            integration_mode: crate::config::IntegrationMode::FixedGill,
         }
     }
 

@@ -9,7 +9,9 @@ pub mod incidence;
 pub mod neural;
 pub mod pilot;
 
-use crate::config::{GuidanceType, SimInput, TomlConfig, TomlMonteCarlo, TomlNavigation};
+use crate::config::{
+    GuidanceType, IntegrationMode, SimInput, TomlConfig, TomlMonteCarlo, TomlNavigation,
+};
 use crate::physics::winds;
 use std::fmt;
 
@@ -170,6 +172,8 @@ pub struct SimData {
     pub nav_mode: NavMode,
     /// Raw TOML navigation config for building EKF sensor models
     pub nav_config: Option<TomlNavigation>,
+    /// Integration method: fixed Gill RK4 (default) or adaptive DOPRI45
+    pub integration_mode: IntegrationMode,
 }
 
 const G0: f64 = 9.81;
@@ -583,6 +587,7 @@ impl SimData {
             dispersion_config,
             nav_mode,
             nav_config: toml.navigation.clone(),
+            integration_mode: IntegrationMode::from_toml(&toml.integration, v.periods.integration),
         })
     }
 }

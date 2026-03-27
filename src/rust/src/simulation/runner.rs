@@ -2,7 +2,7 @@
 //!
 //! Monte Carlo runs are parallelized with rayon (one thread per trajectory).
 
-use crate::config::{Planet, SimInput};
+use crate::config::{AdaptiveConfig, IntegrationMode, Planet, SimInput};
 use crate::data::SimData;
 use crate::data::dispersions::DISPERSION_DRAW_LEN;
 use crate::gnc::control::angle_utils::shortest_angle_diff;
@@ -10,6 +10,7 @@ use crate::gnc::control::pilot::{self, PilotState};
 use crate::gnc::guidance::ftc::{self, FtcState};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
 use crate::gnc::navigation::estimator::{self, NavigationFilter};
+use crate::integration::dopri45::{self, Dopri45State};
 use crate::integration::rk4;
 use crate::integration::sequencer::SequencerState;
 use crate::orbit::maneuver::DeltaV;
@@ -35,6 +36,19 @@ const HYPERBOLIC_BASE: f64 = 10_000.0;
 /// Set above any hyperbolic virtual DV to maintain cost ordering for typical cases.
 const CRASH_BASE: f64 = 20_000.0;
 
+/// Default absolute tolerances for DOPRI45, one per state component.
+/// State = [r(m), lon(rad), lat(rad), V(m/s), gamma(rad), psi(rad), flux(kJ/m²), time(s)]
+const DOPRI45_ATOL: [f64; 8] = [
+    1.0,  // r: 1 m on ~3.4e6 m
+    1e-8, // lon: ~0.03 m at Mars equator
+    1e-8, // lat: ~0.03 m
+    1e-3, // V: 1 mm/s on ~5700 m/s
+    1e-8, // gamma: ~0.03 m position equiv
+    1e-8, // psi: ~0.03 m
+    1e-2, // flux: 0.01 kJ/m² on O(1000) total
+    1e-6, // time: machine-level for identity derivative
+];
+
 #[derive(Debug)]
 pub struct SimError(pub String);
 
@@ -54,6 +68,8 @@ struct SimState {
     // RK4 internals
     accumulator: [f64; 8],
     gill_toggle: i32,
+    // DOPRI45 adaptive integrator state (only used in adaptive mode)
+    dopri: Dopri45State,
     // Guidance
     bank_angle: f64, // realized bank angle (rad)
     aoa: f64,        // realized AoA (rad)
@@ -409,6 +425,7 @@ fn run_single(
         ],
         accumulator: [0.0; 8],
         gill_toggle: 0,
+        dopri: Dopri45State::new(),
         bank_angle: entry.initial_bank,
         aoa: entry.initial_aoa,
         bounced: false,
@@ -612,7 +629,14 @@ fn run_single(
         }
 
         // === Integration step ===
-        integrate_step(&mut sim, dt, planet, data, run_state);
+        match &data.integration_mode {
+            IntegrationMode::FixedGill => {
+                integrate_step(&mut sim, dt, planet, data, run_state);
+            }
+            IntegrationMode::AdaptiveDopri45(adaptive_config) => {
+                let _ = integrate_adaptive(&mut sim, dt, adaptive_config, planet, data, run_state);
+            }
+        }
 
         let (altitude, _lat_geo) =
             geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
@@ -942,6 +966,84 @@ fn integrate_step(
             &mut sim.accumulator,
             &mut sim.state,
         );
+    }
+}
+
+/// Diagnostics from one outer tick of adaptive sub-stepping.
+/// Fields are available for future telemetry/logging.
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+struct AdaptiveStepStats {
+    n_substeps: u32,
+    n_rejections: u32,
+    hit_limit: bool,
+}
+
+/// Advance the state by `dt_outer` using adaptive DOPRI45 sub-stepping.
+///
+/// The integrator takes variable-size sub-steps within the outer tick,
+/// controlled by local error estimation. The outer tick duration is covered
+/// exactly (final sub-step is clamped to land on the tick boundary).
+fn integrate_adaptive(
+    sim: &mut SimState,
+    dt_outer: f64,
+    config: &AdaptiveConfig,
+    planet: &Planet,
+    data: &SimData,
+    run_state: &init::RunState,
+) -> AdaptiveStepStats {
+    const MAX_SUBSTEPS: u32 = 1000;
+
+    let bank_angle = sim.bank_angle;
+    let aoa = sim.aoa;
+    let mut t_remaining = dt_outer;
+    let mut h = config.initial_dt.min(t_remaining).max(config.min_dt);
+    let mut n_substeps: u32 = 0;
+    let mut n_rejections: u32 = 0;
+
+    while t_remaining > 1e-14 {
+        h = h.min(t_remaining).min(config.max_dt).max(config.min_dt);
+
+        // If remaining time is very small, take it in one step regardless
+        if t_remaining <= config.min_dt * 1.5 {
+            h = t_remaining;
+        }
+
+        let result = dopri45::dopri45_step(
+            &mut sim.state,
+            h,
+            &mut sim.dopri,
+            &DOPRI45_ATOL,
+            config.rtol,
+            &mut |state| compute_derivatives(state, bank_angle, aoa, planet, data, run_state),
+        );
+
+        if result.accepted {
+            t_remaining -= h;
+            n_substeps += 1;
+            h = result.dt_next;
+        } else {
+            n_rejections += 1;
+            h = result.dt_next;
+        }
+
+        if n_substeps + n_rejections >= MAX_SUBSTEPS {
+            eprintln!(
+                "WARNING: adaptive integrator hit {} step limit with t_remaining={:.2e}s ({} accepted, {} rejected)",
+                MAX_SUBSTEPS, t_remaining, n_substeps, n_rejections,
+            );
+            return AdaptiveStepStats {
+                n_substeps,
+                n_rejections,
+                hit_limit: true,
+            };
+        }
+    }
+
+    AdaptiveStepStats {
+        n_substeps,
+        n_rejections,
+        hit_limit: false,
     }
 }
 

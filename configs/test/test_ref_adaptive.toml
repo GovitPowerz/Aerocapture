@@ -1,0 +1,22 @@
+# Test: adaptive DOPRI45 integration, reference trajectory, constant bank angle 0.1 deg
+base = ["../missions/mars.toml"]
+
+[guidance]
+type = "ftc"
+reference_trajectory = true
+reference_bank_angle = 0.1
+
+[simulation]
+n_sims = 1
+random_seed = 0.6866
+
+[data]
+results_suffix = ".test_ref_adaptive"
+
+[onboard_atmosphere]
+mode = "identical"
+
+[integration]
+mode = "adaptive"
+rtol = 1e-6
+initial_dt = 0.1
