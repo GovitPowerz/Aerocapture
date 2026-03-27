@@ -358,13 +358,13 @@ mod tests {
 
         // k_last should match a fresh evaluation at the current state
         let k_fresh = deriv(&state);
-        for i in 0..8 {
+        for (i, &kf) in k_fresh.iter().enumerate() {
             assert!(
-                (dopri.k_last[i] - k_fresh[i]).abs() < 1e-14,
+                (dopri.k_last[i] - kf).abs() < 1e-14,
                 "FSAL mismatch at component {}: k_last={}, k_fresh={}",
                 i,
                 dopri.k_last[i],
-                k_fresh[i],
+                kf,
             );
         }
     }
