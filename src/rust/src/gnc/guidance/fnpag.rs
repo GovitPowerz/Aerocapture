@@ -90,7 +90,7 @@ fn predict_exit_energy(
         }
 
         // Atmospheric density (using the simulator's tabulated model)
-        let rho = data.atmosphere.density_at(alt);
+        let rho = data.atmosphere_onboard.density_at(alt, &data.atmosphere);
 
         // Aero forces
         let cx = data.aero.interpolate_cx(data.entry.initial_aoa);
@@ -164,7 +164,9 @@ pub fn fnpag_bank(
         nav.position_estimated[2],
         planet,
     );
-    let rho = data.atmosphere.density_at(altitude);
+    let rho = data
+        .atmosphere_onboard
+        .density_at(altitude, &data.atmosphere);
     if rho < 1e-10 {
         // Outside sensible atmosphere — hold current bank angle
         return state.bank_prev.abs();

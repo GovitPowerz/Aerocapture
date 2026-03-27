@@ -43,7 +43,9 @@ pub fn equilibrium_glide_bank(nav: &NavigationOutput, data: &SimData, planet: &P
         nav.position_estimated[2],
         planet,
     );
-    let rho = data.atmosphere.density_at(altitude);
+    let rho = data
+        .atmosphere_onboard
+        .density_at(altitude, &data.atmosphere);
     let cz = nav.aero_coefficients[1]; // lift coefficient from navigation
     let sref = data.capsule.reference_area;
     let mass = data.capsule.mass;

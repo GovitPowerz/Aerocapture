@@ -142,7 +142,9 @@ pub fn navigate(
     };
 
     // Model atmosphere density at estimated altitude
-    let rho_model = data.atmosphere.density_at(alt_est);
+    let rho_model = data
+        .atmosphere_onboard
+        .density_at(alt_est, &data.atmosphere);
 
     // Exponential filter for density correction
     // density_gain = (1-λ)*density_gain + λ*(density_estimated/rho_model)
@@ -167,7 +169,9 @@ pub fn navigate(
 
     // Exit density estimation
     let alt_exit = data.guidance.exit_altitude_threshold;
-    let rho_exit_model = data.atmosphere.density_at(alt_exit);
+    let rho_exit_model = data
+        .atmosphere_onboard
+        .density_at(alt_exit, &data.atmosphere);
     out.density_exit = nav_state.density_gain * rho_exit_model;
 
     // Total energy
@@ -431,7 +435,9 @@ pub fn navigate_ekf(
     };
 
     // Model density at estimated altitude
-    let rho_model = data.atmosphere.density_at(alt_est);
+    let rho_model = data
+        .atmosphere_onboard
+        .density_at(alt_est, &data.atmosphere);
 
     // ── Step 7: Star tracker update (if available) ──
     // Compute dynamic pressure for blackout check
@@ -486,7 +492,9 @@ pub fn navigate_ekf(
 
     // Exit density estimation
     let alt_exit = data.guidance.exit_altitude_threshold;
-    let rho_exit_model = data.atmosphere.density_at(alt_exit);
+    let rho_exit_model = data
+        .atmosphere_onboard
+        .density_at(alt_exit, &data.atmosphere);
     out.density_exit = ekf.density_correction() * rho_exit_model;
 
     // ── Step 10: Energy + orbital elements (same as legacy) ──
@@ -1026,5 +1034,46 @@ mod tests {
                 "velocity_estimated[{i}] should exactly match input with zero biases"
             );
         }
+    }
+
+    // ── Test 7: density_gain_diverges_with_onboard_model ──
+
+    #[test]
+    fn density_gain_diverges_with_onboard_model() {
+        use crate::data::atmosphere::{ExponentialSegment, OnboardAtmosphereModel};
+
+        let mut data = test_sim_data();
+        data.atmosphere_onboard = OnboardAtmosphereModel::PiecewiseExponential {
+            segments: vec![ExponentialSegment {
+                alt_low: 0.0,
+                alt_high: 150_000.0,
+                rho_ref: 0.02,
+                scale_height: 12_000.0,
+            }],
+        };
+
+        let biases = NavigationBiases::default();
+        let mut nav_state = NavigationState::new();
+        let planet = Planet::Mars;
+        let r = planet.equatorial_radius() + 50_000.0;
+        let position = [r, 0.0, 0.0];
+        let velocity = [5000.0, -0.15, 0.6];
+
+        for _ in 0..10 {
+            call_navigate(
+                &position,
+                &velocity,
+                &biases,
+                &mut nav_state,
+                &data,
+                &no_run_biases(),
+            );
+        }
+
+        assert!(
+            (nav_state.density_gain - 1.0).abs() > 0.01,
+            "density gain {} should diverge from 1.0 with inaccurate onboard model",
+            nav_state.density_gain,
+        );
     }
 }

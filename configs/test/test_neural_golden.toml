@@ -12,6 +12,9 @@ random_seed = 0.6866
 results_suffix = ".golden_neural"
 neural_network = "tests/reference_data/rust_golden/neural/nn_model_golden.json"
 
+[onboard_atmosphere]
+mode = "identical"
+
 [monte_carlo]
 seed = 42
 
