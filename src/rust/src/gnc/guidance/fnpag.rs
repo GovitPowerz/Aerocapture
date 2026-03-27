@@ -7,7 +7,7 @@
 //!
 //! Algorithm overview:
 //! 1. Predict forward trajectory with current bank angle using simplified
-//!    equations of motion (no J2, constant bank, analytical density model)
+//!    equations of motion (no J2, constant bank, onboard atmosphere model)
 //! 2. Compute predicted exit energy
 //! 3. Use secant method to find the bank angle that achieves target energy
 //! 4. Blend with equilibrium glide near atmosphere boundaries
