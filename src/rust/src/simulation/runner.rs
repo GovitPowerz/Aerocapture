@@ -634,7 +634,7 @@ fn run_single(
                 integrate_step(&mut sim, dt, planet, data, run_state);
             }
             IntegrationMode::AdaptiveDopri45(adaptive_config) => {
-                integrate_adaptive(&mut sim, dt, adaptive_config, planet, data, run_state);
+                let _ = integrate_adaptive(&mut sim, dt, adaptive_config, planet, data, run_state);
             }
         }
 
@@ -969,6 +969,16 @@ fn integrate_step(
     }
 }
 
+/// Diagnostics from one outer tick of adaptive sub-stepping.
+/// Fields are available for future telemetry/logging.
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+struct AdaptiveStepStats {
+    n_substeps: u32,
+    n_rejections: u32,
+    hit_limit: bool,
+}
+
 /// Advance the state by `dt_outer` using adaptive DOPRI45 sub-stepping.
 ///
 /// The integrator takes variable-size sub-steps within the outer tick,
@@ -981,14 +991,15 @@ fn integrate_adaptive(
     planet: &Planet,
     data: &SimData,
     run_state: &init::RunState,
-) {
+) -> AdaptiveStepStats {
     const MAX_SUBSTEPS: u32 = 1000;
 
     let bank_angle = sim.bank_angle;
     let aoa = sim.aoa;
     let mut t_remaining = dt_outer;
     let mut h = config.initial_dt.min(t_remaining).max(config.min_dt);
-    let mut n_total: u32 = 0;
+    let mut n_substeps: u32 = 0;
+    let mut n_rejections: u32 = 0;
 
     while t_remaining > 1e-14 {
         h = h.min(t_remaining).min(config.max_dt).max(config.min_dt);
@@ -1009,19 +1020,30 @@ fn integrate_adaptive(
 
         if result.accepted {
             t_remaining -= h;
+            n_substeps += 1;
             h = result.dt_next;
         } else {
+            n_rejections += 1;
             h = result.dt_next;
         }
 
-        n_total += 1;
-        if n_total >= MAX_SUBSTEPS {
+        if n_substeps + n_rejections >= MAX_SUBSTEPS {
             eprintln!(
-                "WARNING: adaptive integrator hit {} step limit with t_remaining={:.2e}s",
-                MAX_SUBSTEPS, t_remaining,
+                "WARNING: adaptive integrator hit {} step limit with t_remaining={:.2e}s ({} accepted, {} rejected)",
+                MAX_SUBSTEPS, t_remaining, n_substeps, n_rejections,
             );
-            break;
+            return AdaptiveStepStats {
+                n_substeps,
+                n_rejections,
+                hit_limit: true,
+            };
         }
+    }
+
+    AdaptiveStepStats {
+        n_substeps,
+        n_rejections,
+        hit_limit: false,
     }
 }
 

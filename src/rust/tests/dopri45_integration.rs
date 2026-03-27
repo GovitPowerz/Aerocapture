@@ -2,7 +2,7 @@
 
 mod common;
 
-use aerocapture::config::SimInput;
+use aerocapture::config::{AdaptiveConfig, IntegrationMode, SimInput};
 use aerocapture::data::SimData;
 use aerocapture::simulation::runner::run_for_api;
 
@@ -86,4 +86,26 @@ fn adaptive_agrees_with_fixed_on_reference_trajectory() {
         ecc_fixed,
         ecc_adaptive,
     );
+}
+
+/// Pathologically tight tolerance should hit the 1000-substep safety cap
+/// and still terminate (not hang). The simulation may not capture, but it
+/// must not panic or loop forever.
+#[test]
+fn safety_cap_terminates_with_tight_tolerance() {
+    let (config, data) = load_config_for_api("test/test_ref_adaptive.toml");
+
+    // Override with pathologically tight tolerance — the integrator will reject
+    // almost every step and hit the 1000-step cap.
+    let mut data = data;
+    data.integration_mode = IntegrationMode::AdaptiveDopri45(AdaptiveConfig {
+        rtol: 1e-20, // impossibly tight
+        initial_dt: 0.1,
+        min_dt: 1e-6,
+        max_dt: 1.0,
+    });
+
+    // Must terminate without panic — result quality doesn't matter
+    let results = run_for_api(&config, &data, false).expect("should not panic");
+    assert_eq!(results.len(), 1, "Should produce exactly one result");
 }
