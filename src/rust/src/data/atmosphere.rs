@@ -446,4 +446,80 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn auto_fit_mars_like_table_diverges_from_truth() {
+        let altitudes: Vec<f64> = (0..14).map(|i| i as f64 * 10_000.0).collect();
+        let densities: Vec<f64> = altitudes
+            .iter()
+            .map(|&alt| 0.013 * (-alt / 9_000.0).exp())
+            .collect();
+        let n = altitudes.len();
+
+        let truth = AtmosphereModel {
+            n_points: n,
+            altitudes: altitudes.clone(),
+            densities: densities.clone(),
+            ref_density: densities[n - 1],
+            scale_factor: 1.0 / 9_000.0,
+            ref_altitude: altitudes[n - 1],
+            gas_constant: 1.3,
+            density_profile: DensityProfile::default(),
+        };
+
+        let model = OnboardAtmosphereModel::fit_from_table(&truth, 5);
+
+        let mut max_rel_err = 0.0_f64;
+        for &alt in &[5_000.0, 15_000.0, 35_000.0, 55_000.0, 95_000.0] {
+            let rho_truth = truth.density_at(alt);
+            let rho_onboard = model.density_at(alt, &truth);
+            if rho_truth > 1e-15 {
+                let rel_err = (rho_onboard - rho_truth).abs() / rho_truth;
+                max_rel_err = max_rel_err.max(rel_err);
+            }
+        }
+
+        assert!(
+            max_rel_err > 1e-6,
+            "onboard model should differ from truth; max_rel_err={}",
+            max_rel_err,
+        );
+        assert!(
+            max_rel_err < 1.0,
+            "onboard model too far from truth; max_rel_err={}",
+            max_rel_err,
+        );
+    }
+
+    #[test]
+    fn piecewise_density_always_positive() {
+        let truth = AtmosphereModel {
+            n_points: 5,
+            altitudes: vec![0.0, 25_000.0, 50_000.0, 75_000.0, 100_000.0],
+            densities: vec![0.013, 0.003, 5e-4, 6e-5, 5e-6],
+            ref_density: 5e-6,
+            scale_factor: 1e-4,
+            ref_altitude: 100_000.0,
+            gas_constant: 1.3,
+            density_profile: DensityProfile::default(),
+        };
+        let model = OnboardAtmosphereModel::fit_from_table(&truth, 5);
+
+        for alt_km in 0..=150 {
+            let alt = alt_km as f64 * 1_000.0;
+            let rho = model.density_at(alt, &truth);
+            assert!(
+                rho > 0.0,
+                "density must be positive at alt={} m, got {}",
+                alt,
+                rho,
+            );
+            assert!(
+                rho.is_finite(),
+                "density must be finite at alt={} m, got {}",
+                alt,
+                rho,
+            );
+        }
+    }
 }
