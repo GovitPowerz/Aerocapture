@@ -91,18 +91,13 @@ pub struct AdaptiveConfig {
 }
 
 /// Integration method selection.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum IntegrationMode {
     /// Fixed-step Gill-variant RK4 (legacy, default).
+    #[default]
     FixedGill,
     /// Adaptive Dormand-Prince 4(5) with error control.
     AdaptiveDopri45(AdaptiveConfig),
-}
-
-impl Default for IntegrationMode {
-    fn default() -> Self {
-        Self::FixedGill
-    }
 }
 
 impl IntegrationMode {
@@ -209,11 +204,11 @@ pub struct TomlAtmosphereOnboard {
 /// TOML config for the integration method.
 #[derive(Debug, Clone, Deserialize)]
 pub struct TomlIntegration {
-    pub mode: String,          // "fixed" or "adaptive"
-    pub rtol: Option<f64>,     // relative tolerance (default 1e-6)
+    pub mode: String,            // "fixed" or "adaptive"
+    pub rtol: Option<f64>,       // relative tolerance (default 1e-6)
     pub initial_dt: Option<f64>, // initial sub-step guess in seconds (default 0.1)
-    pub min_dt: Option<f64>,   // floor to prevent sub-step collapse (default 1e-6)
-    pub max_dt: Option<f64>,   // ceiling in seconds (default = periods.integration)
+    pub min_dt: Option<f64>,     // floor to prevent sub-step collapse (default 1e-6)
+    pub max_dt: Option<f64>,     // ceiling in seconds (default = periods.integration)
 }
 
 // ─── Navigation TOML structs ───

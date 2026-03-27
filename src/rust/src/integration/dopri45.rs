@@ -11,15 +11,10 @@
 /// Runge-Kutta formulae", Journal of Computational and Applied Mathematics.
 mod tableau {
     /// Stage time offsets (c_i): fraction of dt at which each stage is evaluated.
-    pub const C: [f64; 7] = [
-        0.0,
-        1.0 / 5.0,
-        3.0 / 10.0,
-        4.0 / 5.0,
-        8.0 / 9.0,
-        1.0,
-        1.0,
-    ];
+    /// Not used directly in integration (stages are computed inline), but required for
+    /// tableau consistency verification in tests.
+    #[cfg(test)]
+    pub const C: [f64; 7] = [0.0, 1.0 / 5.0, 3.0 / 10.0, 4.0 / 5.0, 8.0 / 9.0, 1.0, 1.0];
 
     /// Stage coupling coefficients (a_ij): how each stage depends on previous stages.
     /// a[i] contains coefficients for stage i+1 (stage 0 has no dependencies).
@@ -96,13 +91,19 @@ pub struct Dopri45State {
     err_prev: f64,
 }
 
-impl Dopri45State {
-    pub fn new() -> Self {
+impl Default for Dopri45State {
+    fn default() -> Self {
         Self {
             k_last: [0.0; N],
             fsal_valid: false,
             err_prev: 0.0,
         }
+    }
+}
+
+impl Dopri45State {
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -134,7 +135,7 @@ fn error_norm(y: &[f64; N], y4: &[f64; N], y5: &[f64; N], atol: &[f64; N], rtol:
 /// On first accepted step or after rejection, uses elementary controller (beta2=0).
 /// Otherwise uses PI controller to smooth step-size changes.
 fn compute_dt_next(dt: f64, err: f64, err_prev: f64, is_first_or_rejected: bool) -> f64 {
-    const FAC: f64 = 0.9;     // safety factor
+    const FAC: f64 = 0.9; // safety factor
     const FAC_MIN: f64 = 0.2; // max shrink: dt * 0.2
     const FAC_MAX: f64 = 5.0; // max grow: dt * 5.0
     const BETA1: f64 = 0.7 / 5.0; // PI controller exponent (proportional)
@@ -285,22 +286,18 @@ mod tests {
         let mut state = [0.0; 8];
         let mut dopri = Dopri45State::new();
 
-        let result = dopri45_step(
-            &mut state,
-            1.0,
-            &mut dopri,
-            &atol,
-            rtol,
-            &mut |s| {
-                let t = s[7]; // time is state[7]
-                let mut d = [0.0; 8];
-                d[0] = 4.0 * t * t * t; // dy/dt = 4t^3
-                d[7] = 1.0;             // dt/dt = 1
-                d
-            },
-        );
+        let result = dopri45_step(&mut state, 1.0, &mut dopri, &atol, rtol, &mut |s| {
+            let t = s[7]; // time is state[7]
+            let mut d = [0.0; 8];
+            d[0] = 4.0 * t * t * t; // dy/dt = 4t^3
+            d[7] = 1.0; // dt/dt = 1
+            d
+        });
 
-        assert!(result.accepted, "Step should be accepted for smooth polynomial");
+        assert!(
+            result.accepted,
+            "Step should be accepted for smooth polynomial"
+        );
         assert!(
             (state[0] - 1.0).abs() < 1e-10,
             "Expected y(1) = 1.0, got {}",
@@ -329,22 +326,14 @@ mod tests {
     #[test]
     fn b5_weights_sum_to_one() {
         let sum: f64 = tableau::B5.iter().sum();
-        assert!(
-            (sum - 1.0).abs() < 1e-14,
-            "B5 sum = {}, expected 1.0",
-            sum
-        );
+        assert!((sum - 1.0).abs() < 1e-14, "B5 sum = {}, expected 1.0", sum);
     }
 
     /// 4th-order weights must sum to 1.0.
     #[test]
     fn b4_weights_sum_to_one() {
         let sum: f64 = tableau::B4.iter().sum();
-        assert!(
-            (sum - 1.0).abs() < 1e-14,
-            "B4 sum = {}, expected 1.0",
-            sum
-        );
+        assert!((sum - 1.0).abs() < 1e-14, "B4 sum = {}, expected 1.0", sum);
     }
 
     /// FSAL: k7 from an accepted step must equal k1 recomputed at the new state.
@@ -405,7 +394,10 @@ mod tests {
         );
         // State must be restored on rejection
         for i in 0..8 {
-            assert_eq!(state[i], state_before[i], "State must be restored on rejection");
+            assert_eq!(
+                state[i], state_before[i],
+                "State must be restored on rejection"
+            );
         }
 
         // Retry with suggested dt — should eventually accept
@@ -494,20 +486,13 @@ mod tests {
 
         while t < period {
             let h = dt.min(period - t);
-            let result = dopri45_step(
-                &mut state,
-                h,
-                &mut dopri,
-                &atol,
-                rtol,
-                &mut |s| {
-                    let mut d = [0.0; 8];
-                    d[0] = s[1];      // dx/dt = v
-                    d[1] = -s[0];     // dv/dt = -x
-                    d[7] = 1.0;
-                    d
-                },
-            );
+            let result = dopri45_step(&mut state, h, &mut dopri, &atol, rtol, &mut |s| {
+                let mut d = [0.0; 8];
+                d[0] = s[1]; // dx/dt = v
+                d[1] = -s[0]; // dv/dt = -x
+                d[7] = 1.0;
+                d
+            });
             if result.accepted {
                 t += h;
                 dt = result.dt_next;
