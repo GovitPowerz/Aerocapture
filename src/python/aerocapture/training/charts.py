@@ -55,7 +55,7 @@ DPI: int = 150
 # DV constants (shared with report.py)
 # ---------------------------------------------------------------------------
 DV_CAP: float = 5000.0
-DV_FLOOR: float = 0.1
+DV_FLOOR: float = 1.0
 
 # ---------------------------------------------------------------------------
 # Final record column indices (52-element array)
@@ -167,6 +167,25 @@ def _require_records(records: list[dict[str, Any]]) -> None:
 def _clip_dv(dv: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """Clip DV values to [DV_FLOOR, DV_CAP] for plot readability."""
     return np.clip(dv, DV_FLOOR, DV_CAP)
+
+
+def _log10_ticks(values: npt.NDArray[np.float64], floor: float = 1.0) -> tuple[npt.NDArray[np.float64], list[str]]:
+    """Compute snug power-of-10 tick positions and labels for log10-scaled data.
+
+    Returns tick positions (in log10 space) and formatted string labels.
+    Floor clamps the minimum to at least ``floor`` (default 1.0 m/s).
+    """
+    clipped = np.abs(values)
+    clipped = clipped[clipped >= floor]
+    if len(clipped) == 0:
+        clipped = np.array([floor])
+    lo = max(0, int(np.floor(np.log10(np.min(clipped)))))
+    hi = int(np.ceil(np.log10(np.max(clipped))))
+    if hi <= lo:
+        hi = lo + 1
+    tick_decades = np.arange(lo, hi + 1, dtype=float)
+    tick_labels = [f"{10**d:g}" for d in tick_decades]
+    return tick_decades, tick_labels
 
 
 # ---------------------------------------------------------------------------
@@ -860,9 +879,6 @@ def chart_nav_density_ratio(
 # ---------------------------------------------------------------------------
 # Panel 15: Total DV distribution — histogram + CDF + percentile markers
 # ---------------------------------------------------------------------------
-_LOG10_TICK_VALUES = [0.1, 1, 10, 100, 1000, 5000]
-
-
 def chart_dv_distribution(final_records: npt.NDArray[np.float64], output: Path) -> None:
     """Panel 15: Total DV histogram (log10 x) with CDF overlay and percentile markers."""
     dv = _clip_dv(final_records[:, _FR_DV_TOTAL])
@@ -875,10 +891,9 @@ def chart_dv_distribution(final_records: npt.NDArray[np.float64], output: Path) 
     ax1.set_xlabel("Total \u0394V (m/s)")
     ax1.set_ylabel("Count")
 
-    # Custom log-scale tick labels
-    tick_positions = [np.log10(v) for v in _LOG10_TICK_VALUES]
-    tick_labels = [str(v) for v in _LOG10_TICK_VALUES]
-    ax1.set_xticks(tick_positions)
+    # Auto-decade tick labels
+    tick_pos, tick_labels = _log10_ticks(dv)
+    ax1.set_xticks(tick_pos)
     ax1.set_xticklabels(tick_labels)
 
     # CDF on secondary y-axis
@@ -905,32 +920,35 @@ def chart_dv_distribution(final_records: npt.NDArray[np.float64], output: Path) 
 
 
 # ---------------------------------------------------------------------------
-# Panel 16: Individual burn DV histograms (overlaid, log10 x)
+# Panel 16: Individual burn DV histograms (stacked, log10 x)
 # ---------------------------------------------------------------------------
 def chart_dv_individual_burns(final_records: npt.NDArray[np.float64], output: Path) -> None:
-    """Panel 16: Overlaid histograms for |dv1|, |dv2|, |dv3| on log10 x-axis."""
-    dv1 = np.log10(_clip_dv(np.abs(final_records[:, _FR_DV1])))
-    dv2 = np.log10(_clip_dv(np.abs(final_records[:, _FR_DV2])))
-    dv3 = np.log10(_clip_dv(np.abs(final_records[:, _FR_DV3])))
+    """Panel 16: Stacked histograms for |dv1|, |dv2|, |dv3| on log10 x-axis."""
+    burns = [
+        (np.abs(final_records[:, _FR_DV1]), "#1f77b4", "|DV1| (periapsis)"),
+        (np.abs(final_records[:, _FR_DV2]), "#ff7f0e", "|DV2| (apoapsis)"),
+        (np.abs(final_records[:, _FR_DV3]), "#2ca02c", "|DV3| (inclination)"),
+    ]
 
-    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    ax.hist(dv1, bins=25, color="#1f77b4", alpha=0.5, label="|DV1| (periapsis)")
-    ax.hist(dv2, bins=25, color="#ff7f0e", alpha=0.5, label="|DV2| (apoapsis)")
-    ax.hist(dv3, bins=25, color="#2ca02c", alpha=0.5, label="|DV3| (inclination)")
+    # Shared tick range from all burns combined
+    all_raw = np.concatenate([b[0] for b in burns])
+    tick_pos, tick_labels = _log10_ticks(all_raw)
 
-    # Snap x-axis to enclosing powers of 10
-    all_log = np.concatenate([dv1, dv2, dv3])
-    lo = np.floor(np.min(all_log))
-    hi = np.ceil(np.max(all_log))
-    ax.set_xlim(lo, hi)
-    tick_decades = np.arange(lo, hi + 1)
-    ax.set_xticks(tick_decades)
-    ax.set_xticklabels([f"{10**d:g}" for d in tick_decades])
+    fig, axes = plt.subplots(3, 1, figsize=(FULL_WIDTH[0], FULL_WIDTH[1] * 1.8), dpi=DPI, sharex=True)
 
-    ax.set_xlabel("\u0394V (m/s)")
-    ax.set_ylabel("Count")
-    ax.set_title("Individual Burn \u0394V")
-    ax.legend(fontsize="x-small")
+    for ax, (raw, color, label) in zip(axes, burns, strict=True):
+        log_vals = np.log10(_clip_dv(raw))
+        ax.hist(log_vals, bins=25, color=color, alpha=0.7, edgecolor="white", label=label)
+        ax.set_ylabel("Count")
+        ax.legend(fontsize="x-small", loc="upper right")
+
+    # Only bottom axes gets x-axis labels
+    axes[-1].set_xlabel("\u0394V (m/s)")
+    axes[-1].set_xticks(tick_pos)
+    axes[-1].set_xticklabels(tick_labels)
+    axes[0].set_title("Individual Burn \u0394V")
+
+    fig.tight_layout()
     sns.despine(fig=fig)
     _save_svg(fig, output)
 
