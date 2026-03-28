@@ -88,7 +88,6 @@ pub fn guidance_step(
 ) -> FtcOutput {
     let mut out = FtcOutput::default();
 
-    let previous_roll_sign = state.lateral_state.roll_sign;
     state.pilot_bank_angle_previous = pilot_bank_angle;
 
     // === Angle of attack guidance ===
@@ -191,15 +190,6 @@ pub fn guidance_step(
             planet,
         );
     }
-    if !skip_lateral && !roll_reversal_active {
-        // Hold previous roll sign when lateral is inactive or no reversal triggered
-        if energy > data.guidance.lateral.lateral_activation
-            || energy < data.guidance.lateral.lateral_inhibition
-        {
-            state.lateral_state.roll_sign = previous_roll_sign;
-        }
-    }
-
     // === Combine longitudinal and lateral commands ===
     if !is_reference && !skip_lateral {
         state.bank_angle_commanded = bank_angle_longitudinal * state.lateral_state.roll_sign;

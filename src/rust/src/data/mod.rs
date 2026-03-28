@@ -500,13 +500,8 @@ impl SimData {
                         max_reversals: lat.max_reversals,
                     }
                 } else {
-                    LateralParams {
-                        corridor_slope: 13080.458,
-                        corridor_intercept: 0.0,
-                        lateral_activation: 1.311e6,
-                        lateral_inhibition: 1e9,
-                        max_reversals: 5,
-                    }
+                    // No lateral config — inactive by default (zero-width energy window)
+                    LateralParams::default()
                 },
                 security_capture: 1,
                 security_exit: 3,
