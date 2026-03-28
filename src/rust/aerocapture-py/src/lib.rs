@@ -127,9 +127,7 @@ fn run_mc(
         include_trajectories,
         wall_timeout,
     )
-    .map_err(|e| {
-        pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e))
-    })?;
+    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e)))?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }

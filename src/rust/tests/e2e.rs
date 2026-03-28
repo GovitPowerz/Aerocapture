@@ -314,8 +314,8 @@ fn wind_disabled_ignores_wind_table() {
 fn wall_clock_timeout_terminates_quickly() {
     let (cfg, data) = load_config_for_api("test/test_high_bank_orig.toml");
     let start = std::time::Instant::now();
-    let results =
-        run_for_api(&cfg, &data, false, Some(Duration::from_nanos(1))).expect("sim should not error");
+    let results = run_for_api(&cfg, &data, false, Some(Duration::from_nanos(1)))
+        .expect("sim should not error");
     let elapsed = start.elapsed();
 
     assert!(!results.is_empty());

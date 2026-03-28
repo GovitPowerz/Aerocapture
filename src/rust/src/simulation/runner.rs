@@ -166,7 +166,8 @@ fn run_core(
             .enumerate()
             .map(|(idx, (run_state, disp_array))| {
                 let do_photo = (write_photo && idx as i32 == photo_sim_idx) || include_trajectories;
-                let mut result = run_single(config, data, run_state, idx as i32, do_photo, wall_timeout)?;
+                let mut result =
+                    run_single(config, data, run_state, idx as i32, do_photo, wall_timeout)?;
                 result.dispersions = *disp_array;
                 Ok(result)
             })
@@ -657,11 +658,11 @@ fn run_single(
             break;
         }
 
-        if let Some(timeout) = wall_timeout {
-            if wall_start.elapsed() > timeout {
-                term = TermReason::Timeout;
-                break;
-            }
+        if let Some(timeout) = wall_timeout
+            && wall_start.elapsed() > timeout
+        {
+            term = TermReason::Timeout;
+            break;
         }
 
         // === Termination checks ===
