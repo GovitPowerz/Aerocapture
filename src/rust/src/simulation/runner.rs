@@ -643,6 +643,13 @@ fn run_single(
 
         track_peak_values(&mut sim, altitude, sim_time, data, run_state);
 
+        // NaN/Inf safety net: extreme GA parameters can blow up numerically.
+        // All termination checks evaluate to false on NaN, so the loop would spin forever.
+        if sim.state.iter().any(|x| !x.is_finite()) {
+            term = TermReason::Crash;
+            break;
+        }
+
         // === Termination checks ===
         if altitude <= 0.0 {
             term = TermReason::Crash;
