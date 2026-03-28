@@ -4,6 +4,7 @@
 //! and lateral guidance during capture and exit phases.
 
 use super::DataError;
+use crate::gnc::guidance::lateral::LateralParams;
 
 /// Dynamic pressure reference table entry: altitude (km), linear coefficients a and b.
 #[allow(dead_code)]
@@ -138,9 +139,7 @@ pub struct GuidanceParams {
     pub exit_apoapsis_threshold: f64, // apoapsis comparison threshold (m)
 
     // Lateral guidance
-    pub corridor_slope: f64,     // inclination corridor slope (m/s)
-    pub corridor_intercept: f64, // inclination corridor intercept (rad, converted from deg)
-    pub max_reversals: i32,      // max number of bank reversals
+    pub lateral: LateralParams,
 
     // Security modes
     pub security_capture: i32, // capture phase security mode flag
@@ -152,8 +151,6 @@ pub struct GuidanceParams {
     // Activation/inhibition thresholds
     pub longi_activation: f64, // longitudinal guidance activation threshold (J/kg)
     pub longi_inhibition: f64, // longitudinal guidance inhibition threshold (J/kg)
-    pub lateral_activation: f64, // lateral guidance activation threshold (J/kg)
-    pub lateral_inhibition: f64, // lateral guidance inhibition threshold (J/kg)
     pub pdyn_min: f64,         // minimum dynamic pressure for tracking (Pa)
 
     // Pdyn = f(altitude) reference table
@@ -304,16 +301,12 @@ impl Default for GuidanceParams {
             exit_altitude_threshold: 0.0,
             exit_radial_vel_gain: 0.0,
             exit_apoapsis_threshold: 0.0,
-            corridor_slope: 0.0,
-            corridor_intercept: 0.0,
-            max_reversals: 0,
+            lateral: LateralParams::default(),
             security_capture: 0,
             security_exit: 0,
             density_filter_gain: 0.0,
             longi_activation: 0.0,
             longi_inhibition: 0.0,
-            lateral_activation: 0.0,
-            lateral_inhibition: 0.0,
             pdyn_min: 0.0,
             pdyn_table: Vec::new(),
             ref_trajectory: ReferenceTrajectory::default(),

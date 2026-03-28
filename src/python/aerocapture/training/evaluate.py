@@ -357,9 +357,21 @@ def write_guidance_toml(
     # Set the guidance type
     toml_data.setdefault("guidance", {})["type"] = guidance_type
 
-    # Merge GA params into existing section (preserves non-GA fields like energy_min/max)
+    # Split lateral params from scheme-specific params
+    lateral_params = {k.removeprefix("lateral."): v for k, v in params.items() if k.startswith("lateral.")}
+    scheme_params = {k: v for k, v in params.items() if not k.startswith("lateral.")}
+
+    # Round max_reversals to integer
+    if "max_reversals" in lateral_params:
+        lateral_params["max_reversals"] = int(round(lateral_params["max_reversals"]))
+
+    # Merge scheme params into [guidance.<scheme>]
     section_name = GUIDANCE_TOML_SECTIONS[guidance_type]
-    toml_data["guidance"].setdefault(section_name, {}).update(params)
+    toml_data["guidance"].setdefault(section_name, {}).update(scheme_params)
+
+    # Merge lateral params into [guidance.lateral]
+    if lateral_params:
+        toml_data["guidance"].setdefault("lateral", {}).update(lateral_params)
 
     if mc_seed is not None:
         toml_data.setdefault("monte_carlo", {})["seed"] = mc_seed

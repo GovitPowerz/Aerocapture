@@ -12,6 +12,7 @@ pub mod pilot;
 use crate::config::{
     GuidanceType, IntegrationMode, SimInput, TomlConfig, TomlMonteCarlo, TomlNavigation,
 };
+use crate::gnc::guidance::lateral::LateralParams;
 use crate::physics::winds;
 use std::fmt;
 
@@ -436,16 +437,29 @@ impl SimData {
                 exit_altitude_threshold: ftc.exit_altitude_threshold * 1e3,
                 exit_radial_vel_gain: ftc.exit_radial_vel_gain,
                 exit_apoapsis_threshold: ftc.exit_apoapsis_threshold,
-                corridor_slope: ftc.corridor_slope,
-                corridor_intercept: ftc.corridor_intercept * DEG2RAD,
-                max_reversals: ftc.max_reversals,
+                lateral: if let Some(ref lat) = toml.guidance.lateral {
+                    LateralParams {
+                        corridor_slope: lat.corridor_slope,
+                        corridor_intercept: lat.corridor_intercept * DEG2RAD,
+                        lateral_activation: lat.lateral_activation * energy_scale,
+                        lateral_inhibition: lat.lateral_inhibition * energy_scale,
+                        max_reversals: lat.max_reversals,
+                    }
+                } else {
+                    // Backward compat: read from FTC section if present
+                    LateralParams {
+                        corridor_slope: ftc.corridor_slope,
+                        corridor_intercept: ftc.corridor_intercept * DEG2RAD,
+                        lateral_activation: ftc.lateral_activation * energy_scale,
+                        lateral_inhibition: ftc.lateral_inhibition * energy_scale,
+                        max_reversals: ftc.max_reversals,
+                    }
+                },
                 security_capture: ftc.security_capture,
                 security_exit: ftc.security_exit,
                 density_filter_gain: ftc.density_filter_gain,
                 longi_activation: ftc.longi_activation * energy_scale,
                 longi_inhibition: ftc.longi_inhibition * energy_scale,
-                lateral_activation: ftc.lateral_activation * energy_scale,
-                lateral_inhibition: ftc.lateral_inhibition * energy_scale,
                 pdyn_min: ftc.pdyn_min,
                 pdyn_table,
                 ref_trajectory: ref_traj,
@@ -477,16 +491,23 @@ impl SimData {
                 exit_altitude_threshold: 60e3,
                 exit_radial_vel_gain: 10.0,
                 exit_apoapsis_threshold: 100.0,
-                corridor_slope: 13080.458,
-                corridor_intercept: 0.0,
-                max_reversals: 5,
+                lateral: if let Some(ref lat) = toml.guidance.lateral {
+                    LateralParams {
+                        corridor_slope: lat.corridor_slope,
+                        corridor_intercept: lat.corridor_intercept * DEG2RAD,
+                        lateral_activation: lat.lateral_activation * 1e6,
+                        lateral_inhibition: lat.lateral_inhibition * 1e6,
+                        max_reversals: lat.max_reversals,
+                    }
+                } else {
+                    // No lateral config — inactive by default (zero-width energy window)
+                    LateralParams::default()
+                },
                 security_capture: 1,
                 security_exit: 3,
                 density_filter_gain: 0.8,
                 longi_activation: 1e9,
                 longi_inhibition: -1e9,
-                lateral_activation: 1.311e6,
-                lateral_inhibition: 1e9,
                 pdyn_min: 0.0,
                 pdyn_table: vec![],
                 ref_trajectory: ref_traj,
