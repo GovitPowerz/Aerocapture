@@ -1,7 +1,6 @@
 # TODO
 
 - [ ] add an animation script of entry corridors and trajectories evolution during training based on checkpoints
-- [ ] Make 3 separate graphs for individual burn corrections and add xticklabeld on total DeltV distribution graph
 - [ ] Fix guidance schemes training than never finishes
 - [ ] Maybe better scale parameters in non nn guidance schemes to improve training
 
@@ -13,8 +12,6 @@
 ## Simulation — Medium Impact
 
 - [ ] Improve FNPAG predictor fidelity (add J2, actual atmo table) — §6.4
-- [ ] Adaptive RK4 step sizing (Dormand-Prince or two-phase scheme) — §10.1
-- [x] Separate truth vs onboard atmosphere models — §1.2
 
 ## Training & ML
 
