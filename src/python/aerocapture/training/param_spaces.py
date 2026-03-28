@@ -66,6 +66,8 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
     "ftc": [
         ParamSpec("capture_damping", 0.3, 1.5, 0.7),
         ParamSpec("capture_frequency", 0.01, 0.2, 0.072),
+        ParamSpec("altitude_damping", 0.3, 1.5, 0.7),
+        ParamSpec("altitude_frequency", 0.01, 0.2, 0.08),
         ParamSpec("density_filter_gain", 0.3, 1.0, 0.8),
         ParamSpec("exit_velocity_threshold", -100.0, 0.0, -20.0),
         ParamSpec("exit_radial_vel_gain", -0.1, 0.0, -0.02),
