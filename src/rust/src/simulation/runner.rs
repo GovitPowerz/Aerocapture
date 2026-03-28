@@ -660,6 +660,7 @@ fn run_single(
         if let Some(timeout) = wall_timeout {
             if wall_start.elapsed() > timeout {
                 term = TermReason::Timeout;
+                break;
             }
         }
 
