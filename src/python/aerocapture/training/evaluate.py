@@ -180,7 +180,7 @@ def _run_via_pyo3(
         return None
     toml_path = str((cwd / config.sim.toml_config).resolve())
     try:
-        result = _aero_rs.run(toml_path=toml_path, overrides=overrides)
+        result = _aero_rs.run(toml_path=toml_path, overrides=overrides, sim_timeout_secs=config.sim.sim_timeout_secs)
         arr: npt.NDArray[np.float64] = result.final_record.reshape(1, 52)
         return arr
     except Exception:

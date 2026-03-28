@@ -6,6 +6,7 @@ use aerocapture::simulation::runner::run_for_api;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Once;
+use std::time::Duration;
 
 static BUILD_ONCE: Once = Once::new();
 
@@ -302,5 +303,36 @@ fn wind_disabled_ignores_wind_table() {
         vel_a, vel_b,
         "No-wind sim is non-deterministic: run1={:.6} run2={:.6}",
         vel_a, vel_b,
+    );
+}
+
+// ─── Wall-clock timeout ───
+
+/// A wall-clock timeout of 1 nanosecond should terminate the simulation
+/// almost immediately with a timeout result (ifinal=5, high virtual DV).
+#[test]
+fn wall_clock_timeout_terminates_quickly() {
+    let (cfg, data) = load_config_for_api("test/test_high_bank_orig.toml");
+    let start = std::time::Instant::now();
+    let results =
+        run_for_api(&cfg, &data, false, Some(Duration::from_nanos(1))).expect("sim should not error");
+    let elapsed = start.elapsed();
+
+    assert!(!results.is_empty());
+    // ifinal: 2 = Timeout
+    let ifinal = results[0].final_record[31] as i32;
+    assert_eq!(ifinal, 2, "Expected ifinal=2 (Timeout), got {}", ifinal);
+    // Should complete in well under 1 second (the sim normally takes longer)
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "Timeout sim took too long: {:?}",
+        elapsed
+    );
+    // Virtual DV should be in the crash/timeout range (10k-20k m/s)
+    let dv_total = results[0].final_record[41];
+    assert!(
+        dv_total > 5000.0,
+        "Expected high virtual DV for timeout, got {:.1}",
+        dv_total
     );
 }

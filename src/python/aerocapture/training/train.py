@@ -459,6 +459,7 @@ def train(
                             results = _aero_rs.run_batch(  # type: ignore[union-attr]
                                 toml_path=toml_path,
                                 overrides_list=overrides_list,
+                                sim_timeout_secs=cfg.sim.sim_timeout_secs,
                             )
                             final_records = results.final_records  # (N, 52) numpy array
                             costs: npt.NDArray[np.float64] = np.array(
@@ -594,6 +595,7 @@ def train(
                             toml_path=corr_toml_path,
                             overrides_list=pop_overrides,
                             include_trajectories=True,
+                            sim_timeout_secs=config.sim.sim_timeout_secs,
                         )
                         labels = classify_traj(batch_results.final_records, delta_za_low=corridor_acc.delta_za_low, delta_za_high=corridor_acc.delta_za_high)
                         corridor_acc.update(batch_results.trajectories, labels)
@@ -610,6 +612,7 @@ def train(
                             toml_path=corr_toml_path,
                             overrides_list=sentinel_overrides,
                             include_trajectories=True,
+                            sim_timeout_secs=config.sim.sim_timeout_secs,
                         )
                         sentinel_labels = classify_traj(
                             sentinel_results.final_records,
@@ -752,6 +755,7 @@ if __name__ == "__main__":
     parser.add_argument("--cvar-percentile", type=int, default=20, help="CVaR tail fraction in percent (default: 20)")
     parser.add_argument("--skip-report", "--skip-final-report", action="store_true", dest="skip_report", help="Skip PDF report generation at end of training")
     parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
+    parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds (default: no limit)")
     args = parser.parse_args()
 
     cfg = TrainingConfig()
@@ -784,6 +788,7 @@ if __name__ == "__main__":
 
     cfg.guidance_type = guidance_type
     cfg.sim.toml_config = args.toml
+    cfg.sim.sim_timeout_secs = args.sim_timeout
     cfg.sim.executable = "src/rust/target/release/aerocapture"
     cfg.sim.nn_param_file = _toml_data.get("data", {}).get("neural_network", "data/neural_network/nn_model.json")
     # Override NN architecture from TOML [network] section if present

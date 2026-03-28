@@ -923,7 +923,7 @@ def chart_dv_distribution(final_records: npt.NDArray[np.float64], output: Path) 
 # Panel 16: Individual burn DV histograms (stacked, log10 x)
 # ---------------------------------------------------------------------------
 def chart_dv_individual_burns(final_records: npt.NDArray[np.float64], output: Path) -> None:
-    """Panel 16: Stacked histograms for |dv1|, |dv2|, |dv3| on log10 x-axis."""
+    """Panel 16: 3-row subplot histograms for |dv1|, |dv2|, |dv3| on log10 x-axis."""
     burns = [
         (np.abs(final_records[:, _FR_DV1]), "#1f77b4", "|DV1| (periapsis)"),
         (np.abs(final_records[:, _FR_DV2]), "#ff7f0e", "|DV2| (circularization)"),

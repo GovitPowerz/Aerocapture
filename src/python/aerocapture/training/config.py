@@ -85,6 +85,7 @@ class SimConfig:
     exec_dir: str = "."
     n_sims: int = 10
     toml_config: str | None = None  # TOML config path (relative to exec_dir); if set, passed as CLI arg
+    sim_timeout_secs: float | None = None  # wall-clock timeout per simulation (seconds); None = no limit
 
 
 @dataclass
