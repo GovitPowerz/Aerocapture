@@ -24,9 +24,9 @@ pub struct FtcState {
     pub lateral_state: LateralState,
     pub cumulative_bank_change: f64, // cumulative bank angle changes (rad)
 
-    // Guidance securization
-    pub securization_counters: [i32; 2], // securization counters
-    pub guidance_active: [i32; 2],       // securization indicators
+    // Guidance securization (longitudinal only; lateral securization handled by lateral module)
+    pub securization_counters: [i32; 2], // securization counters ([0]=longi inactive, [1]=longi secur)
+    pub longi_active: i32,               // longitudinal securization indicator (1=active)
 
     // Reference velocity
     pub reference_velocity: f64,
@@ -51,7 +51,7 @@ impl FtcState {
             lateral_state: LateralState::new(initial_bank),
             cumulative_bank_change: 0.0,
             securization_counters: [0, 0],
-            guidance_active: [1, 1],
+            longi_active: 1,
             reference_velocity: 0.0,
             n_secur: 0,
             n_active: 0,
@@ -120,13 +120,13 @@ pub fn guidance_step(
         state.securization_counters[1] += 1;
     }
 
-    longitudinal_active *= state.guidance_active[0];
+    longitudinal_active *= state.longi_active;
     out.longitudinal_active = longitudinal_active;
 
     // === Reference trajectory mode ===
     if is_reference {
         longitudinal_active = 0;
-        state.guidance_active[0] = 0;
+        state.longi_active = 0;
     }
 
     // === Longitudinal bank angle command ===

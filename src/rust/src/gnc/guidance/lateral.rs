@@ -75,8 +75,9 @@ pub fn lateral_guidance(
         return false;
     }
 
-    // Skip degenerate bank angles
-    if bank_magnitude.abs() < 1e-10 {
+    // Skip degenerate bank angles (near 0 or π, where roll sign is physically meaningless)
+    let pi = std::f64::consts::PI;
+    if bank_magnitude.abs() < 1e-10 || (bank_magnitude.abs() - pi).abs() < 1e-10 {
         return false;
     }
 
@@ -94,8 +95,9 @@ pub fn lateral_guidance(
     let inclination_error = target_inclination - orbit.inclination;
     let velocity = nav.velocity_estimated[0];
 
-    // Corridor boundary: narrows with decreasing velocity
-    let corridor_width = (velocity / params.corridor_slope).powi(4) + params.corridor_intercept;
+    // Corridor boundary: narrows with decreasing velocity (clamped to non-negative)
+    let corridor_width =
+        ((velocity / params.corridor_slope).powi(4) + params.corridor_intercept).max(0.0);
 
     // Check reversal conditions
     if inclination_error.abs() < corridor_width {

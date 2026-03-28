@@ -67,11 +67,10 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         ParamSpec("capture_damping", 0.3, 1.5, 0.7),
         ParamSpec("capture_frequency", 0.01, 0.2, 0.072),
         ParamSpec("density_filter_gain", 0.3, 1.0, 0.8),
-        ParamSpec("corridor_slope", 2000.0, 20000.0, 13080.458),
-        ParamSpec("corridor_intercept", -2.0, 2.0, 0.0),
         ParamSpec("exit_velocity_threshold", -100.0, 0.0, -20.0),
         ParamSpec("exit_radial_vel_gain", -0.1, 0.0, -0.02),
         ParamSpec("capture_pdyn_margin", 1.0, 3.0, 1.75),
+        *_LATERAL_PARAMS,
     ],
     "piecewise_constant": [
         ParamSpec("bank_angle_0", -180.0, 180.0, 65.0),
