@@ -3,12 +3,12 @@
 use crate::config::{GuidanceType, Planet};
 use crate::data::SimData;
 use crate::gnc::control::angle_utils::shortest_angle_diff;
+use crate::gnc::guidance::lateral::{self, LateralState};
 use crate::gnc::guidance::{
     energy_controller, equilibrium_glide, fnpag, neural, piecewise_constant, predguid,
 };
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
 use crate::gnc::navigation::estimator::NavigationOutput;
-use crate::orbit::elements;
 
 /// FTC guidance persistent state.
 #[allow(dead_code)]
@@ -21,12 +21,8 @@ pub struct FtcState {
     pub aoa_commanded: f64,        // commanded AoA (rad)
 
     // Roll sign and reversal tracking
-    pub roll_sign: f64,              // roll polarity sign (-1, 0, +1)
+    pub lateral_state: LateralState,
     pub cumulative_bank_change: f64, // cumulative bank angle changes (rad)
-    pub n_reversals: i32,            // number of roll reversals
-    pub reversal_active: i32,        // roll reversal active flag
-    pub roll_path: i32,              // roll reversal path (+1=short, -1=long)
-    pub reversal_duration: f64,      // roll reversal duration (s)
 
     // Guidance securization
     pub securization_counters: [i32; 2], // securization counters
@@ -52,12 +48,8 @@ impl FtcState {
             bank_angle_previous: initial_bank,
             pilot_bank_angle_previous: initial_bank,
             aoa_commanded: initial_aoa,
-            roll_sign: if initial_bank >= 0.0 { 1.0 } else { -1.0 },
+            lateral_state: LateralState::new(initial_bank),
             cumulative_bank_change: 0.0,
-            n_reversals: 0,
-            reversal_active: 0,
-            roll_path: 1,
-            reversal_duration: 0.0,
             securization_counters: [0, 0],
             guidance_active: [1, 1],
             reference_velocity: 0.0,
@@ -86,7 +78,7 @@ pub struct FtcOutput {
 pub fn guidance_step(
     nav: &NavigationOutput,
     pilot_bank_angle: f64, // pilot-realized bank angle
-    sim_time: f64,
+    _sim_time: f64,
     reference_bank_angle: f64, // reference bank angle (from config, rad)
     state: &mut FtcState,
     data: &SimData,
@@ -94,10 +86,9 @@ pub fn guidance_step(
     is_reference: bool,
     guidance_type: GuidanceType,
 ) -> FtcOutput {
-    let pi = std::f64::consts::PI;
     let mut out = FtcOutput::default();
 
-    let previous_roll_sign = state.roll_sign;
+    let previous_roll_sign = state.lateral_state.roll_sign;
     state.pilot_bank_angle_previous = pilot_bank_angle;
 
     // === Angle of attack guidance ===
@@ -137,7 +128,6 @@ pub fn guidance_step(
     if is_reference {
         longitudinal_active = 0;
         state.guidance_active[0] = 0;
-        state.guidance_active[1] = 0;
     }
 
     // === Longitudinal bank angle command ===
@@ -181,80 +171,38 @@ pub fn guidance_step(
     );
     if skip_lateral {
         state.bank_angle_commanded = bank_angle_longitudinal;
-        state.roll_sign = if bank_angle_longitudinal >= 0.0 {
+        state.lateral_state.roll_sign = if bank_angle_longitudinal >= 0.0 {
             1.0
         } else {
             -1.0
         };
     }
 
-    // === Lateral guidance activation ===
-    let mut lateral_active: i32;
-    if energy <= data.guidance.lateral.lateral_activation
-        && energy >= data.guidance.lateral.lateral_inhibition
-    {
-        lateral_active = 1;
-    } else {
-        lateral_active = 0;
-    }
-
-    lateral_active *= state.guidance_active[1];
-
-    if skip_lateral {
-        lateral_active = 0;
-    }
-
     // === Lateral guidance ===
-    let mut roll_reversal_active = 0;
-    if lateral_active == 1 {
-        lateral_guidance(
+    let mut roll_reversal_active = false;
+    if !skip_lateral {
+        roll_reversal_active = lateral::lateral_guidance(
+            &data.guidance.lateral,
+            &mut state.lateral_state,
             nav,
+            data.target_orbit.inclination,
+            energy,
             bank_angle_longitudinal,
-            sim_time,
-            state,
-            data,
             planet,
-            &mut roll_reversal_active,
         );
-        if state.reversal_active == 1 {
-            state.guidance_active[1] = 0;
+    }
+    if !skip_lateral && !roll_reversal_active {
+        // Hold previous roll sign when lateral is inactive or no reversal triggered
+        if energy > data.guidance.lateral.lateral_activation
+            || energy < data.guidance.lateral.lateral_inhibition
+        {
+            state.lateral_state.roll_sign = previous_roll_sign;
         }
-    } else {
-        state.roll_sign = previous_roll_sign;
     }
 
     // === Combine longitudinal and lateral commands ===
-    // Signed-bank schemes already set bank_angle_commanded with correct sign — skip combine
     if !is_reference && !skip_lateral {
-        if state.guidance_active[0] * state.guidance_active[1] == 1 {
-            state.bank_angle_commanded = bank_angle_longitudinal * state.roll_sign;
-        } else if state.reversal_active == 1 {
-            let max_bank_rate = data.capsule.max_bank_rate;
-            let guidance_period = data.periods.guidance;
-            if state.roll_path == 1 {
-                if state.roll_sign > 0.0 {
-                    state.bank_angle_commanded =
-                        state.bank_angle_previous + max_bank_rate * guidance_period;
-                } else {
-                    state.bank_angle_commanded =
-                        state.bank_angle_previous - max_bank_rate * guidance_period;
-                }
-            } else {
-                if state.roll_sign > 0.0 {
-                    state.bank_angle_commanded =
-                        state.bank_angle_previous - max_bank_rate * guidance_period;
-                    if state.bank_angle_commanded < -pi {
-                        state.bank_angle_commanded += 2.0 * pi;
-                    }
-                } else {
-                    state.bank_angle_commanded =
-                        state.bank_angle_previous + max_bank_rate * guidance_period;
-                    if state.bank_angle_commanded > pi {
-                        state.bank_angle_commanded -= 2.0 * pi;
-                    }
-                }
-            }
-        }
+        state.bank_angle_commanded = bank_angle_longitudinal * state.lateral_state.roll_sign;
     }
 
     // === Roll rate saturation (wrap-aware) ===
@@ -280,7 +228,7 @@ pub fn guidance_step(
     out.bank_angle_commanded = state.bank_angle_commanded;
     out.bank_rate = bank_rate;
     out.rate_saturated = rate_saturated;
-    out.roll_reversal_active = roll_reversal_active;
+    out.roll_reversal_active = if roll_reversal_active { 1 } else { 0 };
 
     out
 }
@@ -394,77 +342,6 @@ fn compute_gains(altitude: f64, aero_coefficients: &[f64; 2], data: &SimData) ->
     };
 
     (gain_altitude_rate, gain_dynamic_pressure)
-}
-
-/// Lateral guidance — roll reversal logic.
-fn lateral_guidance(
-    nav: &NavigationOutput,
-    bank_angle_longitudinal: f64,
-    _sim_time: f64,
-    state: &mut FtcState,
-    data: &SimData,
-    planet: &Planet,
-    roll_reversal_active: &mut i32,
-) {
-    let pi = std::f64::consts::PI;
-
-    if bank_angle_longitudinal == 0.0 || bank_angle_longitudinal == pi {
-        return;
-    }
-
-    let previous_roll_sign = state.roll_sign;
-
-    // Compute orbital elements for inclination
-    let orbit = elements::from_spherical(
-        nav.position_estimated[0],
-        nav.position_estimated[1],
-        nav.position_estimated[2],
-        nav.velocity_estimated[0],
-        nav.velocity_estimated[1],
-        nav.velocity_estimated[2],
-        planet,
-    );
-
-    let inclination_error = data.target_orbit.inclination - orbit.inclination;
-    // Hemisphere correction intentionally omitted (inactive)
-
-    let velocity_relative = nav.velocity_estimated[0];
-
-    // Corridor boundary: inclination_max = (v/corridor_slope)^4 + corridor_intercept
-    let corridor_slope = data.guidance.lateral.corridor_slope;
-    let corridor_intercept = data.guidance.lateral.corridor_intercept;
-    let inclination_max = (velocity_relative / corridor_slope).powi(4) + corridor_intercept;
-
-    // Reversal decision
-    if inclination_error.abs() >= inclination_max
-        && bank_angle_longitudinal.abs() > 1e-10
-        && state.n_reversals < data.guidance.lateral.max_reversals
-    {
-        if inclination_error > inclination_max {
-            state.roll_sign = -1.0;
-        } else if inclination_error < -inclination_max {
-            state.roll_sign = 1.0;
-        }
-
-        if state.roll_sign * previous_roll_sign < 0.0 {
-            // Roll reversal commanded
-            *roll_reversal_active = 1;
-            state.n_reversals += 1;
-
-            if state.reversal_active == 0 {
-                state.reversal_active = 1;
-                state.reversal_active = 0; // immediately reset after arming
-                state.roll_path = 1;
-                let bank_angle_change =
-                    state.bank_angle_previous.abs() + bank_angle_longitudinal.abs();
-                let max_bank_rate = data.capsule.max_bank_rate;
-                let guidance_period = data.periods.guidance;
-                state.reversal_duration = bank_angle_change / max_bank_rate;
-                state.reversal_duration =
-                    (state.reversal_duration / guidance_period).floor() * guidance_period;
-            }
-        }
-    }
 }
 
 #[cfg(test)]
