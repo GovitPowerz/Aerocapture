@@ -21,6 +21,7 @@
 - [ ] Add alternative optimizers: CMA-ES, PSO, Bayesian optimization — §12.1
 - [ ] Explore LSTM / Transformer architectures for guidance (BPTT for recurrent) — §12.2
 - [ ] Add neural counterparts for navigation and control — §12.3
+- [ ] Switch from binary GA to real-valued GA: SBX crossover + polynomial mutation (DEAP built-in), normalize all parameters to [0,1] internally, adaptive mutation rates per parameter — eliminates scale-blind bit-flip problem entirely
 
 ## Mission Extensions
 
