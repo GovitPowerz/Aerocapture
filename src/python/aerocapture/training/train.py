@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -456,12 +457,30 @@ def train(
 
                             assert cfg.sim.toml_config is not None
                             toml_path = str((Path(working_dir or cfg.sim.exec_dir) / cfg.sim.toml_config).resolve())
+                            batch_t0 = time.perf_counter()
                             results = _aero_rs.run_batch(  # type: ignore[union-attr]
                                 toml_path=toml_path,
                                 overrides_list=overrides_list,
                                 sim_timeout_secs=cfg.sim.sim_timeout_secs,
                             )
+                            batch_dt = time.perf_counter() - batch_t0
                             final_records = results.final_records  # (N, 52) numpy array
+
+                            # Log timed-out sims with the parameters that caused them
+                            n_timeout = int(np.sum(final_records[:, 31] == 2))
+                            if n_timeout > 0:
+                                timeout_indices = np.where(final_records[:, 31] == 2)[0]
+                                print(
+                                    f"  [sim-timeout] {n_timeout}/{len(final_records)} sims timed out "
+                                    f"(batch took {batch_dt:.1f}s). Params: "
+                                    + ", ".join(
+                                        f"{k}={v}"
+                                        for k, v in overrides_list[int(timeout_indices[0])].items()
+                                        if k.startswith("guidance.") and k != "guidance.type"
+                                    ),
+                                    file=sys.stderr,
+                                )
+
                             costs: npt.NDArray[np.float64] = np.array(
                                 [compute_cost(final_records[i : i + 1], **cost_kw) for i in range(final_records.shape[0])]
                             )
@@ -472,6 +491,8 @@ def train(
                     _batch_evaluator = _make_batch_eval(base_network, config, cwd, cost_kwargs)
 
                 for gen in range(gen_start, config.ga.n_gen):
+                    gen_wall_start = time.perf_counter()
+
                     if seed_pool is not None:
                         # === Adaptive seed pool path ===
                         seed_pool.add_seeds(gen)
@@ -644,6 +665,7 @@ def train(
                         }
 
                     # Log metrics
+                    gen_elapsed_s = time.perf_counter() - gen_wall_start
                     logger.log_generation(
                         gen + 1,
                         populations,
@@ -653,11 +675,12 @@ def train(
                         weight_stats=ws,
                         mc_seed=(base_mc_seed + gen) if base_mc_seed is not None else None,
                         pool_metrics=pool_metrics,
+                        gen_elapsed_s=gen_elapsed_s,
                     )
                     display.update(logger, current_run=run)
 
                     if verbose and (gen + 1) % 5 == 0:
-                        print(f"  Gen {gen + 1}/{config.ga.n_gen}: best={best_overall_cost:.4e}")
+                        print(f"  Gen {gen + 1}/{config.ga.n_gen}: best={best_overall_cost:.4e} ({gen_elapsed_s:.1f}s)")
 
                     # Checkpoint
                     if (gen + 1) % checkpoint_interval == 0:

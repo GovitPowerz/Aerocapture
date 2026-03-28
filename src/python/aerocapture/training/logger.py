@@ -47,6 +47,7 @@ class TrainingLogger:
         weight_stats: dict[str, dict[str, float]] | None = None,
         mc_seed: int | None = None,
         pool_metrics: dict | None = None,
+        gen_elapsed_s: float | None = None,
     ) -> None:
         """Log metrics for one generation."""
         all_chroms = np.vstack(populations)
@@ -92,6 +93,9 @@ class TrainingLogger:
 
         if pool_metrics is not None:
             record["pool_metrics"] = pool_metrics
+
+        if gen_elapsed_s is not None:
+            record["gen_elapsed_s"] = round(gen_elapsed_s, 3)
 
         self._buffer.append(record)
         self._file.write(json.dumps(record) + "\n")
