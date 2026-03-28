@@ -24,6 +24,9 @@ pub struct LateralParams {
 }
 
 impl Default for LateralParams {
+    /// Default produces **inactive** lateral guidance: `corridor_slope = 0.0` triggers
+    /// the early-return guard, and the zero-width energy window admits no energy values.
+    /// Use explicit values (or TOML `[guidance.lateral]`) to activate.
     fn default() -> Self {
         Self {
             corridor_slope: 0.0,
@@ -243,6 +246,19 @@ mod tests {
         let reversed =
             lateral_guidance(&params, &mut state, &nav, 10.0, -1e6, 1e-15, &Planet::Mars);
         assert!(!reversed);
+    }
+
+    #[test]
+    fn no_reversal_when_bank_near_pi() {
+        let params = active_params();
+        let mut state = LateralState::new(1.0);
+        let nav = test_nav();
+        let pi = std::f64::consts::PI;
+        // At bank = π (full lift-down), roll sign is physically meaningless
+        let reversed =
+            lateral_guidance(&params, &mut state, &nav, 10.0, -1e6, pi, &Planet::Mars);
+        assert!(!reversed);
+        assert_eq!(state.n_reversals, 0);
     }
 
     #[test]
