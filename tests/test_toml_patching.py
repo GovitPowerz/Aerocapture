@@ -71,9 +71,14 @@ def test_toml_roundtrip_params_present(scheme: str, tmp_path: Path) -> None:
     section_name = GUIDANCE_TOML_SECTIONS[scheme]
     guidance = parsed.get("guidance", {})
     sub = guidance.get(section_name, {})
+    lateral_sub = guidance.get("lateral", {})
 
     for name in params:
-        assert name in sub, f"scheme={scheme}: param '{name}' missing from guidance.{section_name}"
+        if name.startswith("lateral."):
+            bare = name.removeprefix("lateral.")
+            assert bare in lateral_sub, f"scheme={scheme}: lateral param '{bare}' missing from guidance.lateral"
+        else:
+            assert name in sub, f"scheme={scheme}: param '{name}' missing from guidance.{section_name}"
 
 
 @pytest.mark.parametrize("scheme", list(TRAINING_CONFIGS.keys()))
@@ -97,9 +102,17 @@ def test_toml_roundtrip_values_close(scheme: str, tmp_path: Path) -> None:
 
     section_name = GUIDANCE_TOML_SECTIONS[scheme]
     sub = parsed["guidance"][section_name]
+    lateral_sub = parsed["guidance"].get("lateral", {})
 
     for name, expected in params.items():
-        actual = sub[name]
+        if name.startswith("lateral."):
+            bare = name.removeprefix("lateral.")
+            actual = lateral_sub[bare]
+            # max_reversals is rounded to int before writing
+            if bare == "max_reversals":
+                expected = float(int(round(expected)))
+        else:
+            actual = sub[name]
         assert abs(actual - expected) <= 1e-9 * max(abs(expected), 1.0), f"scheme={scheme} param={name}: written={expected}, read back={actual}"
 
 

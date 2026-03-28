@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+from aerocapture.training.param_spaces import PARAM_SPACES
 
 from tests.fixtures.factories import make_training_config
 
@@ -38,7 +39,8 @@ class TestTrainLoggerIntegration:
             patch("aerocapture.training.train.create_initial_population") as mock_init,
         ):
             rng = np.random.default_rng(0)
-            pop = rng.integers(0, 2, size=(4, 112), dtype=np.int8)
+            chrom_len = len(PARAM_SPACES["equilibrium_glide"]) * config.ga.n_bit
+            pop = rng.integers(0, 2, size=(4, chrom_len), dtype=np.int8)
             costs = np.array([100.0, 200.0, 300.0, 400.0])
             mock_init.return_value = (pop, costs)
 
@@ -78,7 +80,8 @@ class TestRotateSeedsIntegration:
             patch("aerocapture.training.train.create_initial_population") as mock_init,
         ):
             rng = np.random.default_rng(0)
-            pop = rng.integers(0, 2, size=(4, 112), dtype=np.int8)
+            chrom_len = len(PARAM_SPACES["equilibrium_glide"]) * config.ga.n_bit
+            pop = rng.integers(0, 2, size=(4, chrom_len), dtype=np.int8)
             costs = np.array([100.0, 200.0, 300.0, 400.0])
             mock_init.return_value = (pop, costs)
 
@@ -111,7 +114,8 @@ class TestRotateSeedsIntegration:
             patch("aerocapture.training.train.create_initial_population") as mock_init,
         ):
             rng = np.random.default_rng(0)
-            pop = rng.integers(0, 2, size=(4, 112), dtype=np.int8)
+            chrom_len = len(PARAM_SPACES["equilibrium_glide"]) * config.ga.n_bit
+            pop = rng.integers(0, 2, size=(4, chrom_len), dtype=np.int8)
             costs = np.array([100.0, 200.0, 300.0, 400.0])
             mock_init.return_value = (pop, costs)
 
@@ -148,7 +152,8 @@ class TestRotateSeedsIntegration:
             patch("aerocapture.training.train.create_initial_population") as mock_init,
         ):
             rng = np.random.default_rng(0)
-            pop = rng.integers(0, 2, size=(4, 112), dtype=np.int8)
+            chrom_len = len(PARAM_SPACES["equilibrium_glide"]) * config.ga.n_bit
+            pop = rng.integers(0, 2, size=(4, chrom_len), dtype=np.int8)
             costs = np.array([100.0, 200.0, 300.0, 400.0])
             mock_init.return_value = (pop, costs)
 
