@@ -65,6 +65,11 @@ pub fn lateral_guidance(
     bank_magnitude: f64,
     planet: &Planet,
 ) -> bool {
+    // Guard: corridor_slope must be positive to avoid division by zero
+    if params.corridor_slope <= 0.0 {
+        return false;
+    }
+
     // Energy window gate: lateral_inhibition <= energy <= lateral_activation
     if energy > params.lateral_activation || energy < params.lateral_inhibition {
         return false;
