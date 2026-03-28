@@ -41,7 +41,7 @@ pytest tests/test_foo.py::test_bar -v
 
 ### Rust Simulator (`src/rust/`)
 
-The Rust code is a reimplementation of the original Fortran algorithms with all variable names modernized to explicit English (no French/Fortran legacy names remain). The crate has both `lib.rs` (public API: `RunOutput` struct + `run_for_api()`) and `main.rs` (CLI entry). A Cargo workspace contains two members: the core `aerocapture` crate and the `aerocapture-py` PyO3 binding crate. TOML config as a CLI argument (`./aerocapture config.toml`) is the only supported input format. TOML supports all 6 guidance schemes and inline vehicle/mission data.
+The Rust code is a reimplementation of the original Fortran algorithms with all variable names modernized to explicit English (no French/Fortran legacy names remain). The crate has both `lib.rs` (public API: `RunOutput` struct + `run_for_api()`) and `main.rs` (CLI entry). A Cargo workspace contains two members: the core `aerocapture` crate and the `aerocapture-py` PyO3 binding crate. TOML config as a CLI argument (`./aerocapture config.toml`) is the only supported input format. TOML supports all 7 guidance schemes and inline vehicle/mission data.
 
 ```
 src/rust/src/
@@ -91,7 +91,7 @@ src/rust/src/
     elements.rs                    — Orbital elements from state vector
     maneuver.rs                    — Delta-V cost computation (only called for confirmed captures)
   simulation/
-    runner.rs                      — Main sim loop: run() for CLI, run_for_api() for PyO3; dispatches between fixed Gill RK4 and adaptive DOPRI45 based on IntegrationMode; tracks peak heat flux, g-load, dynamic pressure; pending crash detection (ifinal=4); atmospheric apoapsis crash (bounce_alt > 20km + descending + still in atmosphere); virtual DV for all termination outcomes
+    runner.rs                      — Main sim loop: run() for CLI, run_for_api() for PyO3; dispatches between fixed Gill RK4 and adaptive DOPRI45 based on IntegrationMode; tracks peak heat flux, g-load, dynamic pressure; NaN/Inf state termination (prevents infinite loops from extreme GA params); optional wall-clock timeout per sim (prevents Rayon batch blocking); pending crash detection (ifinal=4); atmospheric apoapsis crash (bounce_alt > 20km + descending + still in atmosphere); virtual DV for all termination outcomes
     init.rs                        — Per-run initialization
     output.rs                      — File writers (photo, final, CSV)
 ```
@@ -111,9 +111,9 @@ src/rust/aerocapture-py/src/
 ```
 
 Key API:
-- `aerocapture_rs.run(toml_path, overrides=None)` → `SimResult` with `.final_record` (52,), `.captured`, `.energy`, `.ecc`, `.dispersions` (26,), etc. Returns first result only (use `run_mc` for multi-sim).
-- `aerocapture_rs.run_mc(toml_path, overrides=None, include_trajectories=False)` → `BatchResults` with all n_sims results. When `include_trajectories=True`, populates per-timestep trajectory data (N, 16) for corridor/time-domain plots. Trajectory columns: [alt_km, lon_deg, lat_deg, vel_m_s, fpa_deg, heading_deg, heat_flux_kw_m2, time_s, energy_mj_kg, pdyn_kpa, bank_angle_deg, inclination_deg, g_load_g, nav_density_ratio, truth_density_kg_m3, heat_load_kj_m2]. `.dispersions` (N, 26) always populated.
-- `aerocapture_rs.run_batch(toml_path, overrides_list, n_threads=None, include_trajectories=False)` → `BatchResults` with `.final_records` (N, 52), `.dispersions` (N, 26)
+- `aerocapture_rs.run(toml_path, overrides=None, sim_timeout_secs=None)` → `SimResult` with `.final_record` (52,), `.captured`, `.energy`, `.ecc`, `.dispersions` (26,), etc. Returns first result only (use `run_mc` for multi-sim).
+- `aerocapture_rs.run_mc(toml_path, overrides=None, include_trajectories=False, sim_timeout_secs=None)` → `BatchResults` with all n_sims results. When `include_trajectories=True`, populates per-timestep trajectory data (N, 16) for corridor/time-domain plots. Trajectory columns: [alt_km, lon_deg, lat_deg, vel_m_s, fpa_deg, heading_deg, heat_flux_kw_m2, time_s, energy_mj_kg, pdyn_kpa, bank_angle_deg, inclination_deg, g_load_g, nav_density_ratio, truth_density_kg_m3, heat_load_kj_m2]. `.dispersions` (N, 26) always populated.
+- `aerocapture_rs.run_batch(toml_path, overrides_list, n_threads=None, include_trajectories=False, sim_timeout_secs=None)` → `BatchResults` with `.final_records` (N, 52), `.dispersions` (N, 26)
 - `aerocapture_rs.load_config(toml_path)` → Python dict
 
 The training pipeline (`evaluate.py`) auto-detects PyO3 availability and falls back to subprocess if not installed. Override dict uses dot-separated TOML key paths with type coercion (int→float when existing field is float).

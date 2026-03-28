@@ -6,6 +6,7 @@ use aerocapture::simulation::runner::run_for_api;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Once;
+use std::time::Duration;
 
 static BUILD_ONCE: Once = Once::new();
 
@@ -192,10 +193,10 @@ fn load_config_for_api(config_name: &str) -> (SimInput, SimData) {
 fn wind_enabled_changes_trajectory() {
     let (cfg_no_wind, data_no_wind) = load_config_for_api("test/test_high_bank_orig.toml");
     let results_no_wind =
-        run_for_api(&cfg_no_wind, &data_no_wind, false).expect("no-wind sim failed");
+        run_for_api(&cfg_no_wind, &data_no_wind, false, None).expect("no-wind sim failed");
 
     let (cfg_wind, data_wind) = load_config_for_api("test/test_wind_mars.toml");
-    let results_wind = run_for_api(&cfg_wind, &data_wind, false).expect("wind sim failed");
+    let results_wind = run_for_api(&cfg_wind, &data_wind, false, None).expect("wind sim failed");
 
     // final_record[3] = final velocity (m/s)
     let vel_no_wind = results_no_wind[0].final_record[3];
@@ -216,7 +217,7 @@ fn wind_enabled_changes_trajectory() {
 #[test]
 fn ekf_navigation_produces_valid_trajectory() {
     let (cfg, data) = load_config_for_api("test/test_ekf_mars.toml");
-    let results = run_for_api(&cfg, &data, false).expect("EKF sim failed");
+    let results = run_for_api(&cfg, &data, false, None).expect("EKF sim failed");
 
     // final_record[27] = sim_time (s)
     let sim_time = results[0].final_record[27];
@@ -237,10 +238,10 @@ fn ekf_navigation_produces_valid_trajectory() {
 #[test]
 fn ekf_and_bias_produce_different_results() {
     let (cfg_bias, data_bias) = load_config_for_api("test/test_guided_orig.toml");
-    let results_bias = run_for_api(&cfg_bias, &data_bias, false).expect("bias sim failed");
+    let results_bias = run_for_api(&cfg_bias, &data_bias, false, None).expect("bias sim failed");
 
     let (cfg_ekf, data_ekf) = load_config_for_api("test/test_ekf_mars.toml");
-    let results_ekf = run_for_api(&cfg_ekf, &data_ekf, false).expect("EKF sim failed");
+    let results_ekf = run_for_api(&cfg_ekf, &data_ekf, false, None).expect("EKF sim failed");
 
     // final_record[3] = final velocity (m/s)
     let vel_bias = results_bias[0].final_record[3];
@@ -262,7 +263,7 @@ fn ekf_and_bias_produce_different_results() {
 #[test]
 fn lateral_eqglide_completes() {
     let (cfg, data) = load_config_for_api("test/test_lateral_eqglide.toml");
-    let results = run_for_api(&cfg, &data, false).expect("lateral eqglide sim failed");
+    let results = run_for_api(&cfg, &data, false, None).expect("lateral eqglide sim failed");
 
     // Verify simulation produced results
     assert!(!results.is_empty(), "Expected at least one result");
@@ -286,14 +287,14 @@ fn lateral_eqglide_completes() {
 fn wind_disabled_ignores_wind_table() {
     // test_high_bank_orig.toml inherits wind=false from mars.toml (no wind_table key)
     let (cfg_a, data_a) = load_config_for_api("test/test_high_bank_orig.toml");
-    let results_a = run_for_api(&cfg_a, &data_a, false).expect("baseline sim failed");
+    let results_a = run_for_api(&cfg_a, &data_a, false, None).expect("baseline sim failed");
 
     // test_wind_mars.toml has wind=true — we want a wind=false variant for comparison.
     // Reuse the no-wind config directly; the point is that wind=false in mars.toml
     // produces the same result regardless of whether the struct has a wind table loaded.
     // Verify that the no-wind run is deterministic (same result twice).
     let (cfg_b, data_b) = load_config_for_api("test/test_high_bank_orig.toml");
-    let results_b = run_for_api(&cfg_b, &data_b, false).expect("second baseline sim failed");
+    let results_b = run_for_api(&cfg_b, &data_b, false, None).expect("second baseline sim failed");
 
     let vel_a = results_a[0].final_record[3];
     let vel_b = results_b[0].final_record[3];
@@ -302,5 +303,36 @@ fn wind_disabled_ignores_wind_table() {
         vel_a, vel_b,
         "No-wind sim is non-deterministic: run1={:.6} run2={:.6}",
         vel_a, vel_b,
+    );
+}
+
+// ─── Wall-clock timeout ───
+
+/// A wall-clock timeout of 1 nanosecond should terminate the simulation
+/// almost immediately with a timeout result (ifinal=5, high virtual DV).
+#[test]
+fn wall_clock_timeout_terminates_quickly() {
+    let (cfg, data) = load_config_for_api("test/test_high_bank_orig.toml");
+    let start = std::time::Instant::now();
+    let results = run_for_api(&cfg, &data, false, Some(Duration::from_nanos(1)))
+        .expect("sim should not error");
+    let elapsed = start.elapsed();
+
+    assert!(!results.is_empty());
+    // ifinal: 2 = Timeout
+    let ifinal = results[0].final_record[31] as i32;
+    assert_eq!(ifinal, 2, "Expected ifinal=2 (Timeout), got {}", ifinal);
+    // Should complete in well under 1 second (the sim normally takes longer)
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "Timeout sim took too long: {:?}",
+        elapsed
+    );
+    // Virtual DV should be in the crash/timeout range (10k-20k m/s)
+    let dv_total = results[0].final_record[41];
+    assert!(
+        dv_total > 5000.0,
+        "Expected high virtual DV for timeout, got {:.1}",
+        dv_total
     );
 }

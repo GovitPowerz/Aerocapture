@@ -1,6 +1,7 @@
 //! PyO3 bindings for the aerocapture trajectory simulator.
 
 use std::collections::HashSet;
+use std::time::Duration;
 
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
@@ -53,23 +54,32 @@ fn extract_overrides(dict: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<(String, 
 /// Args:
 ///     toml_path: Path to the TOML config file.
 ///     overrides: Optional dict of "dotted.key" -> value overrides.
+///     sim_timeout_secs: Optional wall-clock timeout per simulation in seconds.
+///         If the simulation exceeds this duration it is terminated and returns
+///         a timeout result. Default None (no timeout).
 ///
 /// Returns:
 ///     SimResult with trajectory, final_record, captured flag, and
 ///     convenience getters (energy, ecc, periapsis_alt, etc.).
 #[pyfunction]
-#[pyo3(signature = (toml_path, overrides=None))]
-fn run(toml_path: &str, overrides: Option<&Bound<'_, PyDict>>) -> PyResult<SimResult> {
+#[pyo3(signature = (toml_path, overrides=None, sim_timeout_secs=None))]
+fn run(
+    toml_path: &str,
+    overrides: Option<&Bound<'_, PyDict>>,
+    sim_timeout_secs: Option<f64>,
+) -> PyResult<SimResult> {
     let overrides = extract_overrides(overrides)?;
+    let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
 
     let (sim_input, sim_data) =
         config::load_and_override(std::path::Path::new(toml_path), &overrides)
             .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
-    let outputs = aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data, false)
-        .map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e))
-        })?;
+    let outputs =
+        aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data, false, wall_timeout)
+            .map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e))
+            })?;
 
     let output = outputs.into_iter().next().ok_or_else(|| {
         pyo3::exceptions::PyRuntimeError::new_err("Simulation produced no results")
@@ -89,28 +99,35 @@ fn run(toml_path: &str, overrides: Option<&Bound<'_, PyDict>>) -> PyResult<SimRe
 ///     overrides: Optional dict of "dotted.key" -> value overrides.
 ///     include_trajectories: If True, keep per-timestep trajectory data
 ///         (default: False to save memory).
+///     sim_timeout_secs: Optional wall-clock timeout per simulation in seconds.
+///         If a simulation exceeds this duration it is terminated and returns
+///         a timeout result. Default None (no timeout).
 ///
 /// Returns:
 ///     BatchResults with final_records (N,52), captured (N,), and
 ///     optionally trajectories.
 #[pyfunction]
-#[pyo3(signature = (toml_path, overrides=None, include_trajectories=false))]
+#[pyo3(signature = (toml_path, overrides=None, include_trajectories=false, sim_timeout_secs=None))]
 fn run_mc(
     toml_path: &str,
     overrides: Option<&Bound<'_, PyDict>>,
     include_trajectories: bool,
+    sim_timeout_secs: Option<f64>,
 ) -> PyResult<BatchResults> {
     let overrides = extract_overrides(overrides)?;
+    let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
 
     let (sim_input, sim_data) =
         config::load_and_override(std::path::Path::new(toml_path), &overrides)
             .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
-    let outputs =
-        aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data, include_trajectories)
-            .map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e))
-        })?;
+    let outputs = aerocapture::simulation::runner::run_for_api(
+        &sim_input,
+        &sim_data,
+        include_trajectories,
+        wall_timeout,
+    )
+    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e)))?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }
@@ -124,17 +141,21 @@ fn run_mc(
 ///     n_threads: Number of Rayon threads (default: number of CPUs).
 ///     include_trajectories: If True, keep per-timestep trajectory data
 ///         (default: False to save memory).
+///     sim_timeout_secs: Optional wall-clock timeout per simulation in seconds.
+///         If a simulation exceeds this duration it is terminated and returns
+///         a timeout result. Default None (no timeout).
 ///
 /// Returns:
 ///     BatchResults with final_records (N,52), captured (N,), and
 ///     optionally trajectories.
 #[pyfunction]
-#[pyo3(signature = (toml_path, overrides_list, n_threads=None, include_trajectories=false))]
+#[pyo3(signature = (toml_path, overrides_list, n_threads=None, include_trajectories=false, sim_timeout_secs=None))]
 fn run_batch(
     toml_path: &str,
     overrides_list: &Bound<'_, PyList>,
     n_threads: Option<usize>,
     include_trajectories: bool,
+    sim_timeout_secs: Option<f64>,
 ) -> PyResult<BatchResults> {
     let n_threads = n_threads.unwrap_or_else(|| {
         std::thread::available_parallelism()
@@ -149,11 +170,14 @@ fn run_batch(
         overrides_vec.push(extract_overrides(Some(dict))?);
     }
 
+    let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
+
     let outputs = batch::run_batch(
         std::path::Path::new(toml_path),
         overrides_vec,
         n_threads,
         include_trajectories,
+        wall_timeout,
     )
     .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 

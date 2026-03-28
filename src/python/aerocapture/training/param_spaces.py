@@ -52,7 +52,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
     "pred_guid": [
         ParamSpec("k_drag_high", 0.1, 3.0, 0.8),
         ParamSpec("k_drag_low", 0.05, 2.0, 0.3),
-        ParamSpec("pdyn_threshold", 10.0, 500.0, 100.0),
+        ParamSpec("pdyn_threshold", 10.0, 500.0, 100.0, log_scale=True),
         *_LATERAL_PARAMS,
     ],
     "fnpag": [
@@ -66,9 +66,11 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
     "ftc": [
         ParamSpec("capture_damping", 0.3, 1.5, 0.7),
         ParamSpec("capture_frequency", 0.01, 0.2, 0.072),
+        ParamSpec("altitude_damping", 0.3, 1.5, 0.7),
+        ParamSpec("altitude_frequency", 0.01, 0.2, 0.08),
         ParamSpec("density_filter_gain", 0.3, 1.0, 0.8),
-        ParamSpec("exit_velocity_threshold", -100.0, 0.0, -20.0),
-        ParamSpec("exit_radial_vel_gain", -0.1, 0.0, -0.02),
+        ParamSpec("exit_velocity_threshold", 3000.0, 5500.0, 4400.0),
+        ParamSpec("exit_radial_vel_gain", 1.0, 30.0, 10.0),
         ParamSpec("capture_pdyn_margin", 1.0, 3.0, 1.75),
         *_LATERAL_PARAMS,
     ],

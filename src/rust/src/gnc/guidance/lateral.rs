@@ -255,8 +255,7 @@ mod tests {
         let nav = test_nav();
         let pi = std::f64::consts::PI;
         // At bank = π (full lift-down), roll sign is physically meaningless
-        let reversed =
-            lateral_guidance(&params, &mut state, &nav, 10.0, -1e6, pi, &Planet::Mars);
+        let reversed = lateral_guidance(&params, &mut state, &nav, 10.0, -1e6, pi, &Planet::Mars);
         assert!(!reversed);
         assert_eq!(state.n_reversals, 0);
     }

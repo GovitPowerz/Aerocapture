@@ -23,7 +23,7 @@ fn load_config_for_api(config_name: &str) -> (SimInput, SimData) {
 fn adaptive_produces_valid_capture() {
     let (config, data) = load_config_for_api("test/test_ref_adaptive.toml");
 
-    let results = run_for_api(&config, &data, false).expect("run simulation");
+    let results = run_for_api(&config, &data, false, None).expect("run simulation");
     assert_eq!(results.len(), 1, "Should produce exactly one result");
 
     let r = &results[0];
@@ -47,12 +47,12 @@ fn adaptive_produces_valid_capture() {
 fn adaptive_agrees_with_fixed_on_reference_trajectory() {
     // Run with fixed Gill (the golden reference config)
     let (config_fixed, data_fixed) = load_config_for_api("test/test_ref_orig.toml");
-    let results_fixed = run_for_api(&config_fixed, &data_fixed, false).expect("run fixed");
+    let results_fixed = run_for_api(&config_fixed, &data_fixed, false, None).expect("run fixed");
 
     // Run with adaptive DOPRI45
     let (config_adaptive, data_adaptive) = load_config_for_api("test/test_ref_adaptive.toml");
     let results_adaptive =
-        run_for_api(&config_adaptive, &data_adaptive, false).expect("run adaptive");
+        run_for_api(&config_adaptive, &data_adaptive, false, None).expect("run adaptive");
 
     let rf = &results_fixed[0];
     let ra = &results_adaptive[0];
@@ -106,6 +106,6 @@ fn safety_cap_terminates_with_tight_tolerance() {
     });
 
     // Must terminate without panic — result quality doesn't matter
-    let results = run_for_api(&config, &data, false).expect("should not panic");
+    let results = run_for_api(&config, &data, false, None).expect("should not panic");
     assert_eq!(results.len(), 1, "Should produce exactly one result");
 }
