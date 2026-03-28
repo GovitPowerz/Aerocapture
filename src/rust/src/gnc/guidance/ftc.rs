@@ -190,7 +190,9 @@ pub fn guidance_step(
 
     // === Lateral guidance activation ===
     let mut lateral_active: i32;
-    if energy <= data.guidance.lateral_activation && energy >= data.guidance.lateral_inhibition {
+    if energy <= data.guidance.lateral.lateral_activation
+        && energy >= data.guidance.lateral.lateral_inhibition
+    {
         lateral_active = 1;
     } else {
         lateral_active = 0;
@@ -429,14 +431,14 @@ fn lateral_guidance(
     let velocity_relative = nav.velocity_estimated[0];
 
     // Corridor boundary: inclination_max = (v/corridor_slope)^4 + corridor_intercept
-    let corridor_slope = data.guidance.corridor_slope;
-    let corridor_intercept = data.guidance.corridor_intercept;
+    let corridor_slope = data.guidance.lateral.corridor_slope;
+    let corridor_intercept = data.guidance.lateral.corridor_intercept;
     let inclination_max = (velocity_relative / corridor_slope).powi(4) + corridor_intercept;
 
     // Reversal decision
     if inclination_error.abs() >= inclination_max
         && bank_angle_longitudinal.abs() > 1e-10
-        && state.n_reversals < data.guidance.max_reversals
+        && state.n_reversals < data.guidance.lateral.max_reversals
     {
         if inclination_error > inclination_max {
             state.roll_sign = -1.0;
@@ -480,6 +482,7 @@ mod tests {
         Constraints, EntryConditions, FinalConditions, OrbitalTarget, ParkingOrbit, SimData,
         SphericalState, SuccessCriteria, TimePeriods,
     };
+    use crate::gnc::guidance::lateral::LateralParams;
     use crate::gnc::navigation::estimator::NavigationOutput;
 
     // ─── Fixture builders ───────────────────────────────────────────────────
@@ -542,15 +545,18 @@ mod tests {
                 // Wide activation window so longitudinal guidance fires
                 longi_activation: 1e12,
                 longi_inhibition: -1e12,
-                lateral_activation: -1e12, // disable lateral for simple tests
-                lateral_inhibition: -1e12,
+                lateral: LateralParams {
+                    lateral_activation: -1e12, // disable lateral for simple tests
+                    lateral_inhibition: -1e12,
+                    corridor_slope: 13080.458,
+                    corridor_intercept: 0.0,
+                    max_reversals: 5,
+                },
                 density_filter_gain: 0.8,
                 exit_velocity_threshold: 4400.0,
                 exit_altitude_threshold: 60_000.0,
                 capture_damping: 0.7,
                 capture_frequency: 0.072,
-                corridor_slope: 13080.458,
-                max_reversals: 5,
                 ..Default::default()
             },
             incidence: IncidenceProfile {
@@ -697,7 +703,7 @@ mod tests {
         // Force energy outside activation window so longitudinal_active=0
         data.guidance.longi_activation = -1e12;
         data.guidance.longi_inhibition = -2e12;
-        data.guidance.lateral_activation = -2e12;
+        data.guidance.lateral.lateral_activation = -2e12;
 
         let planet = Planet::Mars;
         let reference_bank_angle = 30.0_f64.to_radians();

@@ -324,6 +324,9 @@ pub struct TomlGuidance {
     /// Piecewise-constant bank angle parameters
     #[serde(default)]
     pub piecewise_constant: TomlPiecewiseConstantParams,
+    /// Lateral guidance parameters (shared by unsigned-magnitude schemes)
+    #[serde(default)]
+    pub lateral: Option<TomlLateralParams>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -733,6 +736,24 @@ fn default_energy_min() -> f64 {
 }
 fn default_energy_max() -> f64 {
     5.0
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlLateralParams {
+    #[serde(default = "default_lateral_corridor_slope")]
+    pub corridor_slope: f64, // m/s
+    #[serde(default)]
+    pub corridor_intercept: f64, // deg (converted to rad)
+    #[serde(default = "default_five_i32")]
+    pub max_reversals: i32,
+    #[serde(default)]
+    pub lateral_activation: f64, // MJ/kg
+    #[serde(default)]
+    pub lateral_inhibition: f64, // MJ/kg
+}
+
+fn default_lateral_corridor_slope() -> f64 {
+    13080.458
 }
 
 // ─── Domain-based Monte Carlo TOML structs ───

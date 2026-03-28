@@ -173,8 +173,15 @@ mod tests {
             nav.velocity_estimated[2],
             &Planet::Mars,
         );
-        let reversed =
-            lateral_guidance(&params, &mut state, &nav, orbit.inclination, -1e6, 1.0, &Planet::Mars);
+        let reversed = lateral_guidance(
+            &params,
+            &mut state,
+            &nav,
+            orbit.inclination,
+            -1e6,
+            1.0,
+            &Planet::Mars,
+        );
         assert!(!reversed);
         assert_eq!(state.n_reversals, 0);
     }
@@ -226,7 +233,8 @@ mod tests {
         let params = active_params();
         let mut state = LateralState::new(1.0);
         let nav = test_nav();
-        let reversed = lateral_guidance(&params, &mut state, &nav, 10.0, -1e6, 1e-15, &Planet::Mars);
+        let reversed =
+            lateral_guidance(&params, &mut state, &nav, 10.0, -1e6, 1e-15, &Planet::Mars);
         assert!(!reversed);
     }
 
