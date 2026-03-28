@@ -5,6 +5,7 @@
 
 use std::collections::HashSet;
 use std::path::Path;
+use std::time::Duration;
 
 use aerocapture::RunOutput;
 use aerocapture::config::SimInput;
@@ -29,6 +30,7 @@ pub fn run_batch(
     overrides_list: Vec<Vec<(String, OverrideValue)>>,
     n_threads: usize,
     include_trajectories: bool,
+    wall_timeout: Option<Duration>,
 ) -> Result<Vec<RunOutput>, String> {
     // Read and parse the base config once.
     let toml_content = std::fs::read_to_string(toml_path)
@@ -78,7 +80,7 @@ pub fn run_batch(
                     &sim_input,
                     &sim_data,
                     include_trajectories,
-                    None,
+                    wall_timeout,
                 )
                 .map_err(|e: SimError| format!("Simulation error: {}", e))?;
 
