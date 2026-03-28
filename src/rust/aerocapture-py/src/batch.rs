@@ -78,6 +78,7 @@ pub fn run_batch(
                     &sim_input,
                     &sim_data,
                     include_trajectories,
+                    None,
                 )
                 .map_err(|e: SimError| format!("Simulation error: {}", e))?;
 

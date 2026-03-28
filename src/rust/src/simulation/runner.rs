@@ -22,6 +22,7 @@ use rayon::prelude::*;
 use std::fmt;
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::time::{Duration, Instant};
 
 const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
 const G0: f64 = 9.81;
@@ -113,6 +114,7 @@ fn run_core(
     data: &SimData,
     write_photo: bool,
     include_trajectories: bool,
+    wall_timeout: Option<Duration>,
 ) -> Result<Vec<SimResult>, SimError> {
     let n_sims = if config.n_sims == 0 { 1 } else { config.n_sims };
     let is_mc = n_sims > 1;
@@ -164,7 +166,7 @@ fn run_core(
             .enumerate()
             .map(|(idx, (run_state, disp_array))| {
                 let do_photo = (write_photo && idx as i32 == photo_sim_idx) || include_trajectories;
-                let mut result = run_single(config, data, run_state, idx as i32, do_photo)?;
+                let mut result = run_single(config, data, run_state, idx as i32, do_photo, wall_timeout)?;
                 result.dispersions = *disp_array;
                 Ok(result)
             })
@@ -195,6 +197,7 @@ fn run_core(
             run_state,
             0,
             write_photo || include_trajectories,
+            wall_timeout,
         )?;
         result.dispersions = *disp_array;
         Ok(vec![result])
@@ -214,7 +217,7 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
         0
     };
 
-    let results = run_core(config, data, true, false)?;
+    let results = run_core(config, data, true, false, None)?;
     write_csv_output(config, &results, photo_sim_idx)?;
     Ok(())
 }
@@ -227,8 +230,9 @@ pub fn run_for_api(
     config: &SimInput,
     data: &SimData,
     include_trajectories: bool,
+    wall_timeout: Option<Duration>,
 ) -> Result<Vec<crate::RunOutput>, SimError> {
-    let results = run_core(config, data, false, include_trajectories)?;
+    let results = run_core(config, data, false, include_trajectories, wall_timeout)?;
 
     Ok(results
         .into_iter()
@@ -404,6 +408,7 @@ fn run_single(
     run_state: &init::RunState,
     sim_idx: i32,
     write_photo: bool,
+    wall_timeout: Option<Duration>,
 ) -> Result<SimResult, SimError> {
     let planet = &config.planet;
     let req = planet.equatorial_radius();
@@ -486,6 +491,8 @@ fn run_single(
     let mut cumulative_bank_change_deg = 0.0_f64;
     let mut dynamic_pressure_for_photo = 0.0_f64;
     let mut density_estimate_for_photo = 0.0_f64;
+
+    let wall_start = Instant::now();
 
     // Main simulation loop
     let mut sim_time = entry.initial_date;
@@ -648,6 +655,12 @@ fn run_single(
         if sim.state.iter().any(|x| !x.is_finite()) {
             term = TermReason::Crash;
             break;
+        }
+
+        if let Some(timeout) = wall_timeout {
+            if wall_start.elapsed() > timeout {
+                term = TermReason::Timeout;
+            }
         }
 
         // === Termination checks ===
@@ -1247,21 +1260,21 @@ mod run_output_tests {
     #[test]
     fn run_for_api_returns_one_result_for_single_sim() {
         let (config, data) = load_test_config();
-        let results = run_for_api(&config, &data, false).expect("run");
+        let results = run_for_api(&config, &data, false, None).expect("run");
         assert_eq!(results.len(), 1);
     }
 
     #[test]
     fn run_output_final_record_has_52_elements() {
         let (config, data) = load_test_config();
-        let results = run_for_api(&config, &data, false).expect("run");
+        let results = run_for_api(&config, &data, false, None).expect("run");
         assert_eq!(results[0].final_record.len(), 52);
     }
 
     #[test]
     fn run_output_final_record_matches_file_path() {
         let (config, data) = load_test_config();
-        let api_results = run_for_api(&config, &data, false).expect("api run");
+        let api_results = run_for_api(&config, &data, false, None).expect("api run");
         let api_fr = &api_results[0].final_record;
 
         run(&config, &data).expect("file run");
@@ -1279,7 +1292,7 @@ mod run_output_tests {
     #[test]
     fn run_output_captured_flag_consistent_with_orbital_elements() {
         let (config, data) = load_test_config();
-        let results = run_for_api(&config, &data, false).expect("run");
+        let results = run_for_api(&config, &data, false, None).expect("run");
         let r = &results[0];
         let ifinal_val = r.final_record[31] as i32;
         let expected = ifinal_val == 3 && r.final_record[9] < 1.0 && r.final_record[7] < 0.0;
@@ -1289,7 +1302,7 @@ mod run_output_tests {
     #[test]
     fn peak_values_populated_for_atmospheric_trajectory() {
         let (config, data) = load_config("configs/test/test_high_bank_orig.toml");
-        let results = run_for_api(&config, &data, false).expect("run");
+        let results = run_for_api(&config, &data, false, None).expect("run");
         let rec = &results[0].final_record;
 
         // Columns 16-18: peak heat flux (kW/m²), load factor (g), dynamic pressure (kPa)
@@ -1345,7 +1358,7 @@ mod run_output_tests {
     #[test]
     fn heat_load_in_trajectory_is_monotonically_nondecreasing() {
         let (config, data) = load_test_config();
-        let results = run_for_api(&config, &data, true).expect("run");
+        let results = run_for_api(&config, &data, true, None).expect("run");
         let traj = &results[0].trajectory;
         assert!(!traj.is_empty(), "trajectory should not be empty");
         for i in 1..traj.len() {
@@ -1362,7 +1375,7 @@ mod run_output_tests {
     #[test]
     fn heat_load_final_matches_final_record() {
         let (config, data) = load_test_config();
-        let results = run_for_api(&config, &data, true).expect("run");
+        let results = run_for_api(&config, &data, true, None).expect("run");
         let r = &results[0];
         let last_traj_heat_load = r.trajectory.last().unwrap()[15]; // kJ/m²
         let final_record_heat_load = r.final_record[28] * 1e3; // MJ/m² → kJ/m²
