@@ -254,6 +254,32 @@ fn ekf_and_bias_produce_different_results() {
     );
 }
 
+// ─── Lateral guidance (roll reversal) ───
+
+/// Lateral guidance with equilibrium glide should produce a valid trajectory
+/// that completes without panicking. This is a smoke test verifying the
+/// lateral_guidance() integration path works end-to-end.
+#[test]
+fn lateral_eqglide_completes() {
+    let (cfg, data) = load_config_for_api("test/test_lateral_eqglide.toml");
+    let results = run_for_api(&cfg, &data, false).expect("lateral eqglide sim failed");
+
+    // Verify simulation produced results
+    assert!(!results.is_empty(), "Expected at least one result");
+
+    // final_record[27] = sim_time (s)
+    let sim_time = results[0].final_record[27];
+    assert!(sim_time > 0.0, "Expected sim_time > 0, got {:.3}", sim_time);
+
+    // final_record[31] = ifinal (1..=5)
+    let ifinal = results[0].final_record[31] as i32;
+    assert!(
+        (1..=5).contains(&ifinal),
+        "Expected ifinal in 1..=5, got {}",
+        ifinal
+    );
+}
+
 /// When `[flight] wind = false` (the default), the trajectory must be identical
 /// whether or not a wind_table path is present in [data] — backward compatibility.
 #[test]
