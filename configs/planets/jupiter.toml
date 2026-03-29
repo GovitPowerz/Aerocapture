@@ -1,0 +1,11 @@
+# Jupiter planet constants (Juno / Iess et al. 2018)
+
+[planet]
+name = "jupiter"
+mu = 1.26686e17
+equatorial_radius = 71492000.0
+polar_radius = 66854000.0
+omega = 1.759e-4
+j2 = 1.4736e-2
+j3 = -4.2e-8
+j4 = -5.866e-4

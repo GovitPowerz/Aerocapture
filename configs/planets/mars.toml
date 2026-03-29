@@ -1,0 +1,11 @@
+# Mars planet constants (GMM-3 gravity model, Genova/Konopliv et al. 2016)
+
+[planet]
+name = "mars"
+mu = 4.282829e13
+equatorial_radius = 3393940.0
+polar_radius = 3376780.0
+omega = 7.088218e-5
+j2 = 1.958616e-3
+j3 = 3.145e-5
+j4 = -1.538e-5
