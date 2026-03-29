@@ -23,22 +23,24 @@ pub fn gravity(radius: f64, latitude: f64, planet: &PlanetConfig) -> (f64, f64) 
     let sin2 = sin_lat * sin_lat;
     let req2 = req * req;
 
+    // Hoist shared intermediates for J3/J4 (computed unconditionally, the multiplications are cheap)
+    let r5 = r4 * radius;
+    let r6 = r4 * r2;
+    let req3 = req2 * req;
+    let req4 = req2 * req2;
+    let sin4 = sin2 * sin2;
+
     // ── Radial component (positive inward): gravtr = -g_r ──
     // Keplerian + J2
     let mut gravtr = mu / r2 + 1.5 * mu * j2 * req2 * (1.0 - 3.0 * sin2) / r4;
 
     // J3: 2*mu*J3*R^3 * sin*(3 - 5*sin^2) / r^5
     if j3 != 0.0 {
-        let r5 = r4 * radius;
-        let req3 = req2 * req;
         gravtr += 2.0 * mu * j3 * req3 * sin_lat * (3.0 - 5.0 * sin2) / r5;
     }
 
     // J4: -(5/8)*mu*J4*R^4 * (3 - 30*sin^2 + 35*sin^4) / r^6
     if j4 != 0.0 {
-        let r6 = r4 * r2;
-        let req4 = req2 * req2;
-        let sin4 = sin2 * sin2;
         gravtr -= 0.625 * mu * j4 * req4 * (3.0 - 30.0 * sin2 + 35.0 * sin4) / r6;
     }
 
@@ -48,15 +50,11 @@ pub fn gravity(radius: f64, latitude: f64, planet: &PlanetConfig) -> (f64, f64) 
 
     // J3: (3/2)*mu*J3*R^3 * cos*(5*sin^2 - 1) / r^5
     if j3 != 0.0 {
-        let r5 = r4 * radius;
-        let req3 = req2 * req;
         gravtl += 1.5 * mu * j3 * req3 * cos_lat * (5.0 * sin2 - 1.0) / r5;
     }
 
     // J4: -(5/2)*mu*J4*R^4 * sin*cos*(3 - 7*sin^2) / r^6
     if j4 != 0.0 {
-        let r6 = r4 * r2;
-        let req4 = req2 * req2;
         gravtl -= 2.5 * mu * j4 * req4 * sin_lat * cos_lat * (3.0 - 7.0 * sin2) / r6;
     }
 
@@ -92,7 +90,7 @@ mod tests {
     }
 
     #[test]
-    fn j2_lateral_zero_at_pole() {
+    fn lateral_zero_at_pole() {
         // cos(pi/2) ≈ 0 → gravtl ≈ 0 (all J2/J3/J4 lateral terms contain cos(lat))
         let planet = PlanetConfig::mars();
         let (gravtl, _) = gravity(planet.equatorial_radius, FRAC_PI_2, &planet);
@@ -163,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn j2_lateral_max_at_45_deg() {
+    fn lateral_peak_near_45_deg() {
         // sin(2*lat) peaks at lat=pi/4, so |gravtl| should be maximal there
         // (J3/J4 shift the peak slightly but not enough to change this for Mars)
         let planet = PlanetConfig::mars();
