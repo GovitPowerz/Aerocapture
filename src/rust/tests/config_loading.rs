@@ -1,13 +1,13 @@
 mod common;
 
-use aerocapture::config::{Planet, SimInput};
+use aerocapture::config::SimInput;
 use std::path::Path;
 
 #[test]
 fn parse_ftc_consolidated_toml() {
     let path = common::config_path("nominal/msr_aller_ftc_consolidated.toml");
     let (config, _toml) = SimInput::from_toml_file(Path::new(&path)).expect("parse config");
-    assert_eq!(config.planet, Planet::Mars);
+    assert_eq!(config.planet.name, "mars");
     assert_eq!(config.n_sims, 1);
     assert!(!config.reference_trajectory);
     // reference_bank_angle not set in TOML → falls back to entry.initial_bank_angle
@@ -23,7 +23,7 @@ fn parse_reference_toml() {
     let path = common::config_path("nominal/msr_aller_reference.toml");
     let (config, _toml) = SimInput::from_toml_file(Path::new(&path)).expect("parse config");
     assert!(config.reference_trajectory);
-    assert_eq!(config.planet, Planet::Mars);
+    assert_eq!(config.planet.name, "mars");
     assert!((config.reference_bank_angle - 0.1).abs() < 1e-6);
 }
 

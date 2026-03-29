@@ -1,9 +1,9 @@
 # Earth Sample Return — shared mission base config
 # Inherited by all ESR configs via base = ["../missions/earth.toml"]
+base = ["../planets/earth.toml"]
 
 [mission]
 type = "aerocapture"
-planet = "earth"
 
 [entry]
 altitude = 600.0

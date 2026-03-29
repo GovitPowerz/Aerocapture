@@ -1,6 +1,6 @@
 //! FTC (Full Trajectory Control) predictor-corrector guidance.
 
-use crate::config::{GuidanceType, Planet};
+use crate::config::{GuidanceType, PlanetConfig};
 use crate::data::SimData;
 use crate::gnc::control::angle_utils::shortest_angle_diff;
 use crate::gnc::guidance::lateral::{self, LateralState};
@@ -82,7 +82,7 @@ pub fn guidance_step(
     reference_bank_angle: f64, // reference bank angle (from config, rad)
     state: &mut FtcState,
     data: &SimData,
-    planet: &Planet,
+    planet: &PlanetConfig,
     is_reference: bool,
     guidance_type: GuidanceType,
 ) -> FtcOutput {
@@ -230,7 +230,7 @@ fn capture_guidance(
     altitude: f64,
     state: &mut FtcState,
     data: &SimData,
-    _planet: &Planet,
+    _planet: &PlanetConfig,
 ) -> f64 {
     let ref_traj = &data.guidance.ref_trajectory;
 
@@ -338,7 +338,7 @@ fn compute_gains(altitude: f64, aero_coefficients: &[f64; 2], data: &SimData) ->
 mod tests {
     use super::*;
 
-    use crate::config::{GuidanceType, Planet};
+    use crate::config::{GuidanceType, PlanetConfig};
     use crate::data::aerodynamics::AeroTables;
     use crate::data::atmosphere::{AtmosphereModel, DensityProfile};
     use crate::data::capsule::Capsule;
@@ -355,7 +355,7 @@ mod tests {
     // ─── Fixture builders ───────────────────────────────────────────────────
 
     fn test_nav() -> NavigationOutput {
-        let r = Planet::Mars.equatorial_radius() + 50_000.0; // Mars + 50 km
+        let r = PlanetConfig::mars().equatorial_radius + 50_000.0; // Mars + 50 km
         NavigationOutput {
             position_estimated: [r, 0.0, 0.0],
             velocity_estimated: [5000.0, -0.15, 0.6],
@@ -468,7 +468,7 @@ mod tests {
     fn guidance_step_returns_finite_output() {
         let nav = test_nav();
         let data = test_sim_data();
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
         let initial_bank = 64.77_f64.to_radians();
         let mut state = FtcState::new(initial_bank, -0.48_f64.to_radians());
 
@@ -506,7 +506,7 @@ mod tests {
     fn reference_mode_returns_reference_bank() {
         let nav = test_nav();
         let data = test_sim_data();
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
         let reference_bank_angle = 45.0_f64.to_radians();
         let mut state = FtcState::new(reference_bank_angle, -0.48_f64.to_radians());
         // Prime bank_angle_previous so rate saturation doesn't shift the value
@@ -537,7 +537,7 @@ mod tests {
     fn output_bank_bounded() {
         let nav = test_nav();
         let data = test_sim_data();
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
         let initial_bank = 64.77_f64.to_radians();
         let mut state = FtcState::new(initial_bank, -0.48_f64.to_radians());
 
@@ -572,7 +572,7 @@ mod tests {
         data.guidance.longi_inhibition = -2e12;
         data.guidance.lateral.lateral_activation = -2e12;
 
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
         let reference_bank_angle = 30.0_f64.to_radians();
         let mut state = FtcState::new(reference_bank_angle, -0.48_f64.to_radians());
         state.bank_angle_previous = reference_bank_angle;
@@ -619,7 +619,7 @@ mod tests {
                 fpa in -0.3..0.05_f64,
                 bank_deg in 0.0..90.0_f64,
             ) {
-                let r = Planet::Mars.equatorial_radius() + alt;
+                let r = PlanetConfig::mars().equatorial_radius + alt;
                 let initial_bank = bank_deg.to_radians();
                 let nav = NavigationOutput {
                     position_estimated: [r, 0.0, 0.0],
@@ -634,7 +634,7 @@ mod tests {
                 };
 
                 let data = test_sim_data();
-                let planet = Planet::Mars;
+                let planet = PlanetConfig::mars();
                 let mut state = FtcState::new(initial_bank, -0.48_f64.to_radians());
 
                 let out = guidance_step(

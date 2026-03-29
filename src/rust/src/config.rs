@@ -11,63 +11,68 @@ pub enum MissionType {
     Aerocapture,
 }
 
-/// Planet identifier
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Planet {
-    Moon,
-    Earth,
-    Mars,
-    Jupiter,
+/// Planet physical constants, parsed from TOML [planet] section.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PlanetConfig {
+    pub name: String,
+    pub mu: f64,
+    pub equatorial_radius: f64,
+    pub polar_radius: f64,
+    pub omega: f64,
+    pub j2: f64,
+    #[serde(default)]
+    pub j3: f64,
+    #[serde(default)]
+    pub j4: f64,
 }
 
-impl Planet {
-    /// Mean equatorial radius in meters
-    pub fn equatorial_radius(&self) -> f64 {
-        match self {
-            Planet::Moon => 6.0518e6,
-            Planet::Earth => 6.378137e6,
-            Planet::Mars => 3.39394e6,
-            Planet::Jupiter => 71.492e6,
+#[cfg(test)]
+impl PlanetConfig {
+    pub fn mars() -> Self {
+        Self {
+            name: "mars".into(),
+            mu: 4.282829e13,
+            equatorial_radius: 3393940.0,
+            polar_radius: 3376780.0,
+            omega: 7.088218e-5,
+            j2: 1.958616e-3,
+            j3: 3.145e-5,
+            j4: -1.538e-5,
         }
     }
 
-    /// Polar radius in meters
-    pub fn polar_radius(&self) -> f64 {
-        match self {
-            Planet::Moon => 6.0518e6,
-            Planet::Earth => 6.356784e6,
-            Planet::Mars => 3.376780e6,
-            Planet::Jupiter => 66.854e6,
+    pub fn earth() -> Self {
+        Self {
+            name: "earth".into(),
+            mu: 3.98600418e14,
+            equatorial_radius: 6378137.0,
+            polar_radius: 6356784.0,
+            omega: 7.292115e-5,
+            j2: 1.08263e-3,
+            j3: -2.5327e-6,
+            j4: -1.6196e-6,
         }
     }
 
-    /// Gravitational parameter mu = GM (m^3/s^2)
-    pub fn mu(&self) -> f64 {
-        match self {
-            Planet::Moon => 3.249e14,
-            Planet::Earth => 3.98600418e14,
-            Planet::Mars => 4.282829e13,
-            Planet::Jupiter => 1.26686e17,
+    pub fn moon() -> Self {
+        Self {
+            name: "moon".into(),
+            mu: 3.249e14,
+            equatorial_radius: 6051800.0,
+            polar_radius: 6051800.0,
+            omega: 2.9924e-7,
+            j2: 4.458e-6,
+            j3: 0.0,
+            j4: 0.0,
         }
     }
 
-    /// J2 gravitational harmonic coefficient
-    pub fn j2(&self) -> f64 {
-        match self {
-            Planet::Moon => 4.458e-6,
-            Planet::Earth => 1.08263e-3,
-            Planet::Mars => 1.958616e-3,
-            Planet::Jupiter => 14.736e-3,
-        }
-    }
-
-    /// Rotation rate (rad/s)
-    pub fn omega(&self) -> f64 {
-        match self {
-            Planet::Moon => 2.9924e-7,
-            Planet::Earth => 7.292115e-5,
-            Planet::Mars => 7.088218e-5,
-            Planet::Jupiter => 1.759e-4,
+    /// Mars-like planet with J3=J4=0 for backward-compat tests.
+    pub fn mars_j2_only() -> Self {
+        Self {
+            j3: 0.0,
+            j4: 0.0,
+            ..Self::mars()
         }
     }
 }
@@ -135,7 +140,7 @@ pub enum GuidanceType {
 #[derive(Debug, Clone)]
 pub struct SimInput {
     pub mission_type: MissionType,
-    pub planet: Planet,
+    pub planet: PlanetConfig,
     pub n_sims: i32,
     pub sim_phase: SimPhase,
     pub guidance_type: GuidanceType,
@@ -157,6 +162,7 @@ pub struct SimInput {
 #[derive(Debug, Deserialize)]
 pub struct TomlConfig {
     pub mission: TomlMission,
+    pub planet: PlanetConfig,
     pub guidance: TomlGuidance,
     #[serde(default)]
     pub simulation: TomlSimulation,
@@ -295,7 +301,6 @@ fn default_q_density() -> f64 {
 pub struct TomlMission {
     #[serde(rename = "type")]
     pub mission_type: String,
-    pub planet: String,
     #[serde(default = "default_phase")]
     pub phase: String,
 }
@@ -942,13 +947,7 @@ impl SimInput {
             other => return Err(ParseError(format!("Unknown mission type: {}", other))),
         };
 
-        let planet = match config.mission.planet.as_str() {
-            "moon" => Planet::Moon,
-            "earth" => Planet::Earth,
-            "mars" => Planet::Mars,
-            "jupiter" => Planet::Jupiter,
-            other => return Err(ParseError(format!("Unknown planet: {}", other))),
-        };
+        let planet = config.planet.clone();
 
         let sim_phase = match config.mission.phase.as_str() {
             "full" => SimPhase::Full,
@@ -1216,8 +1215,15 @@ mod tests {
         let toml_str = r#"
             [mission]
             type = "aerocapture"
-            planet = "mars"
             phase = "full"
+
+            [planet]
+            name = "mars"
+            mu = 4.282829e13
+            equatorial_radius = 3393940.0
+            polar_radius = 3376780.0
+            omega = 7.088218e-5
+            j2 = 1.958616e-3
 
             [guidance]
             type = "ftc"
@@ -1247,8 +1253,15 @@ mod tests {
         let toml_str = r#"
             [mission]
             type = "aerocapture"
-            planet = "mars"
             phase = "full"
+
+            [planet]
+            name = "mars"
+            mu = 4.282829e13
+            equatorial_radius = 3393940.0
+            polar_radius = 3376780.0
+            omega = 7.088218e-5
+            j2 = 1.958616e-3
 
             [guidance]
             type = "ftc"

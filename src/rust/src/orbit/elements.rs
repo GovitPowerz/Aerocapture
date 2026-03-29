@@ -1,6 +1,6 @@
 //! Orbital element computation from state vectors.
 
-use crate::config::Planet;
+use crate::config::PlanetConfig;
 use crate::data::OrbitalElements;
 use crate::gnc::navigation::coordinates::{cross, dot, norm, to_absolute_cartesian};
 
@@ -15,10 +15,10 @@ pub fn from_spherical(
     velocity: f64,
     flight_path: f64,
     azimuth: f64,
-    planet: &Planet,
+    planet: &PlanetConfig,
 ) -> OrbitalElements {
-    let mu = planet.mu();
-    let req = planet.equatorial_radius();
+    let mu = planet.mu;
+    let req = planet.equatorial_radius;
     let enrmin = 1e-6; // small threshold to avoid parabolic singularity
 
     // Get absolute position and velocity in Cartesian
@@ -128,8 +128,8 @@ mod tests {
     use approx::assert_relative_eq;
     use std::f64::consts::PI;
 
-    fn mars() -> Planet {
-        Planet::Mars
+    fn mars() -> PlanetConfig {
+        PlanetConfig::mars()
     }
 
     /// Circular equatorial orbit at 300 km altitude.
@@ -138,9 +138,9 @@ mod tests {
     #[test]
     fn circular_equatorial_orbit() {
         let planet = mars();
-        let mu = planet.mu();
-        let req = planet.equatorial_radius();
-        let omega = planet.omega();
+        let mu = planet.mu;
+        let req = planet.equatorial_radius;
+        let omega = planet.omega;
         let alt = 300_000.0;
         let r = req + alt;
 
@@ -164,7 +164,7 @@ mod tests {
     #[test]
     fn hyperbolic_orbit_has_negative_sma() {
         let planet = mars();
-        let req = planet.equatorial_radius();
+        let req = planet.equatorial_radius;
         let r = req + 125_000.0;
         let v = 5687.0;
         let gamma = -10.0_f64.to_radians(); // shallow entry
@@ -188,9 +188,9 @@ mod tests {
     #[test]
     fn periapsis_below_apoapsis() {
         let planet = mars();
-        let mu = planet.mu();
-        let req = planet.equatorial_radius();
-        let omega = planet.omega();
+        let mu = planet.mu;
+        let req = planet.equatorial_radius;
+        let omega = planet.omega;
         let alt = 300_000.0;
         let r = req + alt;
 
@@ -217,9 +217,9 @@ mod tests {
     #[test]
     fn inclination_from_azimuth() {
         let planet = mars();
-        let mu = planet.mu();
-        let req = planet.equatorial_radius();
-        let omega = planet.omega();
+        let mu = planet.mu;
+        let req = planet.equatorial_radius;
+        let omega = planet.omega;
         let r = req + 300_000.0;
         let v_inertial = (mu / r).sqrt();
         let v_rel = v_inertial - omega * r;
@@ -245,9 +245,9 @@ mod tests {
         use crate::gnc::navigation::coordinates::total_energy;
 
         let planet = mars();
-        let mu = planet.mu();
-        let req = planet.equatorial_radius();
-        let omega = planet.omega();
+        let mu = planet.mu;
+        let req = planet.equatorial_radius;
+        let omega = planet.omega;
         let r = req + 400_000.0;
         let v_inertial = (mu / r).sqrt() * 1.1;
         let v_rel = v_inertial - omega * r;

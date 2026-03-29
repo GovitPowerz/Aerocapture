@@ -16,7 +16,7 @@
 //! rather than tracking a pre-computed reference trajectory. This makes it
 //! inherently more robust to dispersions since it continuously re-plans.
 
-use crate::config::Planet;
+use crate::config::PlanetConfig;
 use crate::data::SimData;
 use crate::gnc::navigation::coordinates::geodetic_from_spherical;
 use crate::gnc::navigation::estimator::NavigationOutput;
@@ -61,13 +61,13 @@ struct PredState {
 fn predict_exit_energy(
     initial: PredState,
     bank_angle: f64,
-    planet: &Planet,
+    planet: &PlanetConfig,
     data: &SimData,
     exit_alt: f64,
     dt: f64,
 ) -> f64 {
-    let mu = planet.mu();
-    let req = planet.equatorial_radius();
+    let mu = planet.mu;
+    let req = planet.equatorial_radius;
     let max_steps = 2000;
     let cos_bank = bank_angle.cos();
 
@@ -139,13 +139,13 @@ pub fn fnpag_bank(
     nav: &NavigationOutput,
     state: &mut FnpagState,
     data: &SimData,
-    planet: &Planet,
+    planet: &PlanetConfig,
 ) -> f64 {
-    let mu = planet.mu();
+    let mu = planet.mu;
 
     // Target exit energy: E = -mu / (2a) for the target orbit
-    let target_sma = (data.target_orbit.apoapsis + data.target_orbit.periapsis) / 2.0
-        + planet.equatorial_radius();
+    let target_sma =
+        (data.target_orbit.apoapsis + data.target_orbit.periapsis) / 2.0 + planet.equatorial_radius;
     let target_energy = -mu / (2.0 * target_sma);
 
     let exit_alt = data.final_conditions.altitude;
@@ -393,14 +393,14 @@ mod tests {
     fn low_density_returns_previous_bank() {
         // Place spacecraft at 200 km — exponential tail gives ≈9e-12 kg/m³ < 1e-10
         let mut nav = test_nav(5000.0);
-        nav.position_estimated[0] = Planet::Mars.equatorial_radius() + 200_000.0;
+        nav.position_estimated[0] = PlanetConfig::mars().equatorial_radius + 200_000.0;
 
         let prev_bank = 55.0_f64.to_radians();
         let mut state = FnpagState::new(prev_bank);
         state.initialized = true; // doesn't matter — early exit fires first
 
         let data = test_sim_data();
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
 
         let bank = fnpag_bank(&nav, &mut state, &data, &planet);
 
@@ -417,7 +417,7 @@ mod tests {
         assert!(!state.initialized, "state should start uninitialized");
 
         let data = test_sim_data();
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
 
         let _ = fnpag_bank(&nav, &mut state, &data, &planet);
 
@@ -444,7 +444,7 @@ mod tests {
         let nav = test_nav(velocity);
         let mut state = FnpagState::new(64.77_f64.to_radians());
         let data = test_sim_data();
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
 
         let bank = fnpag_bank(&nav, &mut state, &data, &planet);
 
@@ -465,7 +465,7 @@ mod tests {
         let nav = test_nav(5000.0);
         let mut state = FnpagState::new(64.77_f64.to_radians());
         let data = test_sim_data();
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
 
         // Prime the state
         let _ = fnpag_bank(&nav, &mut state, &data, &planet);
@@ -499,7 +499,7 @@ mod tests {
                 rho in 1e-5..0.01_f64,
             ) {
                 let mut nav = test_nav(vel);
-                let r = Planet::Mars.equatorial_radius() + alt;
+                let r = PlanetConfig::mars().equatorial_radius + alt;
                 nav.position_estimated[0] = r;
                 nav.velocity_estimated[1] = fpa;
                 nav.density_guidance = rho;
@@ -507,7 +507,7 @@ mod tests {
 
                 let mut state = FnpagState::new(64.77_f64.to_radians());
                 let data = test_sim_data();
-                let planet = Planet::Mars;
+                let planet = PlanetConfig::mars();
 
                 let bank = fnpag_bank(&nav, &mut state, &data, &planet);
 

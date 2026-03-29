@@ -2,7 +2,7 @@
 //!
 //! Computes delta-V cost for orbit correction after aerocapture.
 
-use crate::config::Planet;
+use crate::config::PlanetConfig;
 use crate::data::{OrbitalElements, OrbitalTarget, ParkingOrbit};
 
 /// Delta-V results for orbit correction maneuvers.
@@ -31,10 +31,10 @@ pub fn compute_deltav(
     orbit: &OrbitalElements,
     target: &OrbitalTarget,
     parking: &ParkingOrbit,
-    planet: &Planet,
+    planet: &PlanetConfig,
 ) -> DeltaV {
-    let mu = planet.mu();
-    let req = planet.equatorial_radius();
+    let mu = planet.mu;
+    let req = planet.equatorial_radius;
 
     let rapoge = req + orbit.apoapsis_alt;
     let rperig = req + orbit.periapsis_alt;
@@ -82,10 +82,10 @@ pub fn compute_deltav(
 pub fn compute_deltav_optimal(
     target: &OrbitalTarget,
     parking: &ParkingOrbit,
-    planet: &Planet,
+    planet: &PlanetConfig,
 ) -> DeltaV {
-    let mu = planet.mu();
-    let req = planet.equatorial_radius();
+    let mu = planet.mu;
+    let req = planet.equatorial_radius;
 
     let rapoge = req + target.apoapsis;
     let rperig = req + target.periapsis;
@@ -116,7 +116,7 @@ mod tests {
     use super::*;
 
     /// Build a realistic post-aerocapture orbit at Mars.
-    fn mars_test_fixtures() -> (OrbitalElements, OrbitalTarget, ParkingOrbit, Planet) {
+    fn mars_test_fixtures() -> (OrbitalElements, OrbitalTarget, ParkingOrbit, PlanetConfig) {
         let orbit = OrbitalElements {
             semi_major_axis: 4.0e6,
             eccentricity: 0.3,
@@ -139,7 +139,7 @@ mod tests {
             apoapsis: 500_000.0,
             periapsis: 250_000.0,
         };
-        (orbit, target, parking, Planet::Mars)
+        (orbit, target, parking, PlanetConfig::mars())
     }
 
     #[test]
