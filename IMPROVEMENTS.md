@@ -15,22 +15,14 @@ The current model uses tabulated MarsGram 3.8 density vs altitude (`data/atmosph
 - **Improvement**: Interface with MCD v6+ (LMD/CNRS), which provides density, temperature, pressure, and winds as functions of (altitude, latitude, longitude, solar longitude, local time, dust scenario).
 - **Impact**: More realistic atmospheric variability, especially important for Monte Carlo campaigns.
 
-### 1.2 [DONE] Separate truth vs onboard atmosphere models
-
-Implemented `OnboardAtmosphereModel` in `data/atmosphere.rs` — a piecewise exponential model auto-fitted from the truth density table at simulation init. Navigation (bias mode and EKF) and guidance schemes (FNPAG, equilibrium glide) query the degraded onboard model; physics propagation uses the full truth table with MC dispersions. Three TOML-configurable modes via `[onboard_atmosphere]`: `mode = "identical"` (truth table, backward compatible), `n_segments = N` (auto-fit), or explicit `segments = [...]`. Default: 5-segment auto-fit. The density filter now corrects meaningful structural error (piecewise exponential vs tabulated truth) plus random MC perturbations, not just a known table.
-
-### 1.3 Time-varying density perturbations
+### 1.2 Time-varying density perturbations
 
 Current dispersions are static per-run (piecewise linear altitude profile applied as a constant multiplier). Real atmospheric variability includes gravity waves, dust storms, and diurnal cycles.
 
 - **Improvement**: Add stochastic density perturbations that evolve during a run (e.g., Gauss-Markov process, or Dryden-like turbulence model applied to density).
 - **Impact**: Tests guidance robustness to transient density features, not just static biases.
 
-### 1.4 [DONE] Wind model
-
-Implemented altitude-dependent zonal/meridional wind profiles loaded from data files (`physics/winds.rs`, `data/atmosphere/mars_winds.dat`, `data/atmosphere/earth_winds.dat`). Parametric profiles based on Forget et al. 1999. Zonal wind cosine-scaled with latitude. MC dispersions include wind scaling factor (uniform) and direction bias (uniform rotation). Wired into equations of motion via `effective_airspeed()` — aero forces and heat flux use wind-corrected velocity, kinematic terms use planet-relative velocity. TOML-configurable via `[data] wind_table` path and `[monte_carlo.wind]` section. Backward compatible (absent wind table = no wind).
-
-### 1.5 Horizontal atmosphere variation
+### 1.3 Horizontal atmosphere variation
 
 The original Fortran had a crude sinusoidal horizontal variation model. The Rust code does not implement this.
 
@@ -46,13 +38,6 @@ Current model (`physics/gravity.rs`) uses J2 only: radial and lateral components
 
 - **Improvement**: Add J3, J4 (significant for Mars), or implement full spherical harmonics up to degree N using a standard gravity field (e.g., GMM-3 for Mars).
 - **Impact**: Minor for aerocapture (aero forces dominate during atmospheric pass), but important for coasting phases and orbit determination after exit.
-
-### 2.2 Third-body perturbations
-
-No Sun or Phobos/Deimos gravitational perturbation.
-
-- **Improvement**: Add point-mass third-body accelerations for long-duration coasting arcs.
-- **Impact**: Low during atmospheric pass, relevant for multi-orbit or multi-pass scenarios.
 
 ---
 
@@ -90,11 +75,7 @@ Current model: `q = Cq * sqrt(rho) * V^3` (Sutton-Graves convective correlation)
 - **Improvement**: Add radiative heating component (significant above ~6 km/s), possibly via Tauber-Sutton or tabulated CFD-based correlations. Add stagnation point vs acreage distribution.
 - **Impact**: More accurate TPS sizing and thermal constraint evaluation.
 
-### 4.2 [DONE] Integrated heat load tracking
-
-Cumulative heat load was already computed via RK4 integration of `dflux` in `state[6]` and stored in `final_record[28]` as `integrated_flux_mj_m2`. Exposed through: trajectory data (column 15 = `heat_load_kj_m2`), photo CSV (new column), PyO3 `SimResult.integrated_heat_load` getter, and GA cost function (`heat_load_weight` penalty, `max_heat_load` constraint in mission TOML). New `chart_heat_load_time()` chart function for cumulative heat load vs time spaghetti plots.
-
-### 4.3 Heat rate and heat load as guidance constraints
+### 4.2 Heat rate and heat load as guidance constraints
 
 Heat flux is tracked but not used as a guidance constraint.
 
