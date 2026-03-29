@@ -31,7 +31,14 @@ run_and_copy() {
 
     cp "$OUTPUT_DIR/photo.$suffix" "$dest/"
     cp "$OUTPUT_DIR/final.$suffix" "$dest/"
-    echo "    Copied photo.$suffix and final.$suffix"
+    # Also copy CSV variants used by Python regression tests
+    if [ -f "$OUTPUT_DIR/photo.$suffix.csv" ]; then
+        cp "$OUTPUT_DIR/photo.$suffix.csv" "$dest/"
+    fi
+    if [ -f "$OUTPUT_DIR/final.$suffix.csv" ]; then
+        cp "$OUTPUT_DIR/final.$suffix.csv" "$dest/"
+    fi
+    echo "    Copied photo.$suffix and final.$suffix (+ CSV variants)"
 }
 
 run_and_copy "configs/test/test_ref_orig.toml"       "ref"       "test_ref_orig"
