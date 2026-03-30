@@ -569,12 +569,19 @@ pub fn navigate_ekf(
         legacy.guidance_phase = 2;
     }
 
-    // TODO: Enable phase management for EKF mode. The logic above correctly
-    // computes bounce/crash/phase transitions but is currently overridden to
-    // phase 1 because exit-phase guidance (phase 2) is not yet active (see
-    // IMPROVEMENTS.md §6.3). Once exit guidance is implemented, remove this
-    // override to let the EKF navigator drive phase transitions.
-    legacy.guidance_phase = 1;
+    // Apply SimPhase gating
+    match data.sim_phase {
+        SimPhase::CaptureOnly => {
+            legacy.guidance_phase = 1;
+        }
+        SimPhase::ExitOnly => {
+            legacy.guidance_phase = 2;
+        }
+        SimPhase::Full | SimPhase::Preprogrammed => {
+            // Phase logic above already computed the correct phase
+        }
+    }
+
     if legacy.guidance_phase == 1 {
         legacy.capture_time += nav_dt;
     }
