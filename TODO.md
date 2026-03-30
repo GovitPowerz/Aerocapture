@@ -1,27 +1,40 @@
 # TODO
 
-- [ ] add an animation script of entry corridors and trajectories evolution during training based on checkpoints
-- [ ] Fix guidance schemes training than never finishes
-- [ ] Maybe better scale parameters in non nn guidance schemes to improve training
+## Visualization
+
+- [ ] Add an animation script of entry corridors and trajectories evolution during training based on checkpoints
 
 ## Simulation — High Impact
 
-- [ ] Add Mach-dependent Cx/Cz tables (2D interpolation: AoA x Mach) — §3.1
-- [ ] Enable exit phase guidance (phase transition logic present but inactive) — §6.3
+- [ ] Enable exit phase guidance (phase transition logic present but inactive) — §4.2
+- [ ] Add heat rate and heat load as active guidance constraints — §2.1
 
 ## Simulation — Medium Impact
 
-- [ ] Improve FNPAG predictor fidelity (add J2, actual atmo table) — §6.4
+- [ ] Improve FNPAG predictor fidelity (add J2, actual atmo table) — §4.3
+- [ ] Fix FTC gain discontinuity at altitude table boundary — §4.1
+- [ ] Add bank angle rate/acceleration limits to guidance — §4.4
+- [ ] Improve roll reversal logic (predictive instead of corridor-based) — §5.1
+- [ ] Time-varying density perturbations (Gauss-Markov process) — §1.1
+- [ ] Event detection (root-finding for atmo entry/exit) — §7.1
+
+## Navigation
+
+- [ ] Improve density estimation filter (gain saturation, outlier rejection) — §3.1
+- [ ] Better drag acceleration extraction (decompose drag/lift) — §3.2
+
+## Monte Carlo & Analysis
+
+- [ ] Advanced MC sampling (LHS, Sobol, importance sampling) — §6.1
+- [ ] Sensitivity analysis (Sobol indices, tornado diagrams) — §6.2
+- [ ] Output format improvements (HDF5/Parquet, metadata, dispersions in final CSV) — §8.1
 
 ## Training & ML
 
-- [ ] Add alternative optimizers: CMA-ES, PSO, Bayesian optimization — §12.1
-- [ ] Explore LSTM / Transformer architectures for guidance (BPTT for recurrent) — §12.2
-- [ ] Add neural counterparts for navigation and control — §12.3
-- [ ] Switch from binary GA to real-valued GA: SBX crossover + polynomial mutation (DEAP built-in), normalize all parameters to [0,1] internally, adaptive mutation rates per parameter — eliminates scale-blind bit-flip problem entirely
+- [ ] Switch to real-valued GA + alternative optimizers (CMA-ES, PSO, RL) — §9.1
+- [ ] Explore LSTM / Transformer architectures for guidance — §9.2
+- [ ] Add neural counterparts for navigation and control — §9.3
 
 ## Mission Extensions
 
-- [ ] Add Venus and Titan atmosphere/gravity models — §13.3
-- [ ] Multi-pass aerocapture support — §13.1
-- [ ] Develop ESR (Earth Sample Return) mission profiles — §13.4
+- [ ] Develop ESR (Earth Sample Return) mission profiles — §10.1
