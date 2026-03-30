@@ -2,7 +2,7 @@
 
 ## Visualization
 
-- [ ] Add an animation script of entry corridors and trajectories evolution during training based on checkpoints
+- [x] Add an animation script of entry corridors and trajectories evolution during training based on checkpoints
 
 ## Simulation — High Impact
 
