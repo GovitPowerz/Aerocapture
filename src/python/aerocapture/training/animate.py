@@ -167,7 +167,7 @@ def _render_corridor_panel(
     ax.set_xlim(axis_ranges["energy_min"], axis_ranges["energy_max"])
     ax.set_ylim(axis_ranges["pdyn_min"], axis_ranges["pdyn_max"])
     ax.set_xlabel("Energy (MJ/kg)")
-    ax.set_ylabel("Dynamic pressure (Pa)")
+    ax.set_ylabel("Dynamic pressure (kPa)")
     ax.set_title("Corridor")
 
 
@@ -226,6 +226,12 @@ def _render_cost_panel(
     # Best cost marker
     ax.axvline(best_cost, color=COLOR_CAPTURE, linestyle="--", linewidth=1, label=f"Best: {best_cost:.1f}")
 
+    # Mean/median annotations
+    median = float(np.median(finite))
+    mean = float(np.mean(finite))
+    ax.axvline(median, color=COLOR_CONSTRAINED, linestyle=":", linewidth=1, label=f"Median: {median:.1f}")
+    ax.axvline(mean, color=COLOR_HYPERBOLIC, linestyle="-.", linewidth=1, label=f"Mean: {mean:.1f}")
+
     ax.set_xlim(0, axis_ranges["cost_max"])
     ax.set_xlabel("Cost")
     ax.set_ylabel("Density")
@@ -250,10 +256,6 @@ def _render_frame(
     Returns:
         Matplotlib Figure ready for GIF writer.
     """
-    import seaborn as sns
-
-    sns.set_theme(style="whitegrid", palette="muted", font_scale=0.9, rc={"axes.facecolor": "#f5f5f5"})
-
     traj_class = classify_trajectories(final_records, heat_flux_limit=heat_flux_limit, g_load_limit=g_load_limit)
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 9))
@@ -391,6 +393,10 @@ def generate_animation(
         progress_ctx = None  # type: ignore[assignment]
 
     matplotlib.use("Agg")
+    import seaborn as sns
+
+    sns.set_theme(style="whitegrid", palette="muted", font_scale=0.9, rc={"axes.facecolor": "#f5f5f5"})
+
     from matplotlib.animation import PillowWriter
 
     fig_placeholder = plt.figure()  # PillowWriter needs a figure to init
@@ -437,7 +443,8 @@ def generate_animation(
                 heat_flux_limit=heat_flux_limit,
                 g_load_limit=g_load_limit,
             )
-            writer.grab_frame()  # grabs from current figure
+            writer.fig = fig  # Point writer at the actual frame
+            writer.grab_frame()
             plt.close(fig)
 
             if progress_ctx is not None:
