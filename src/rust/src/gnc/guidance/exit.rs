@@ -46,7 +46,11 @@ pub fn exit_guidance(
     let pdyn_current = 0.5 * nav.density_guidance * velocity * velocity;
 
     // Safe denominator — avoids division-by-zero at extreme altitudes.
-    let pdyn_safe = if pdyn_current.abs() > 1e-10 { pdyn_current } else { 1e-10 };
+    let pdyn_safe = if pdyn_current.abs() > 1e-10 {
+        pdyn_current
+    } else {
+        1e-10
+    };
 
     // Dynamic pressure correction: positive when we're deeper than target (bank up).
     let pdyn_correction = (pdyn_current - pdyn_target) / pdyn_safe;

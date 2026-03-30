@@ -1121,10 +1121,18 @@ mod tests {
             &mut nav_state,
             &data,
             &planet,
-            run_biases[0], run_biases[1], run_biases[2],
-            run_biases[3], run_biases[4], run_biases[5], run_biases[6],
+            run_biases[0],
+            run_biases[1],
+            run_biases[2],
+            run_biases[3],
+            run_biases[4],
+            run_biases[5],
+            run_biases[6],
         );
-        assert_eq!(out1.guidance_phase, 1, "should be capture phase while descending");
+        assert_eq!(
+            out1.guidance_phase, 1,
+            "should be capture phase while descending"
+        );
 
         // Second call: ascending (FPA positive, small angle so velocity_radial < 120 m/s)
         // but velocity still above threshold — should remain capture phase.
@@ -1138,10 +1146,18 @@ mod tests {
             &mut nav_state,
             &data,
             &planet,
-            run_biases[0], run_biases[1], run_biases[2],
-            run_biases[3], run_biases[4], run_biases[5], run_biases[6],
+            run_biases[0],
+            run_biases[1],
+            run_biases[2],
+            run_biases[3],
+            run_biases[4],
+            run_biases[5],
+            run_biases[6],
         );
-        assert_eq!(out2.guidance_phase, 1, "above velocity threshold → still capture");
+        assert_eq!(
+            out2.guidance_phase, 1,
+            "above velocity threshold → still capture"
+        );
 
         // Third call: ascending, velocity below threshold → phase 2.
         // Use gamma = 0.028 rad so velocity_radial ≈ 4000 * sin(0.028) ≈ 112 m/s.
@@ -1156,12 +1172,26 @@ mod tests {
             &mut nav_state,
             &data,
             &planet,
-            run_biases[0], run_biases[1], run_biases[2],
-            run_biases[3], run_biases[4], run_biases[5], run_biases[6],
+            run_biases[0],
+            run_biases[1],
+            run_biases[2],
+            run_biases[3],
+            run_biases[4],
+            run_biases[5],
+            run_biases[6],
         );
-        assert_eq!(out3.guidance_phase, 2, "below velocity threshold after bounce → exit phase");
-        assert_eq!(out3.phase_transition_flag, 1, "transition flag should be set");
-        assert!(out3.reference_velocity.abs() > 0.0, "reference_velocity should be latched");
+        assert_eq!(
+            out3.guidance_phase, 2,
+            "below velocity threshold after bounce → exit phase"
+        );
+        assert_eq!(
+            out3.phase_transition_flag, 1,
+            "transition flag should be set"
+        );
+        assert!(
+            out3.reference_velocity.abs() > 0.0,
+            "reference_velocity should be latched"
+        );
     }
 
     /// SimPhase::CaptureOnly: phase stays 1 regardless of state.
@@ -1186,8 +1216,13 @@ mod tests {
             &mut nav_state,
             &data,
             &planet,
-            run_biases[0], run_biases[1], run_biases[2],
-            run_biases[3], run_biases[4], run_biases[5], run_biases[6],
+            run_biases[0],
+            run_biases[1],
+            run_biases[2],
+            run_biases[3],
+            run_biases[4],
+            run_biases[5],
+            run_biases[6],
         );
 
         // Below threshold after bounce — would normally be phase 2, but CaptureOnly keeps phase 1.
@@ -1202,8 +1237,13 @@ mod tests {
             &mut nav_state,
             &data,
             &planet,
-            run_biases[0], run_biases[1], run_biases[2],
-            run_biases[3], run_biases[4], run_biases[5], run_biases[6],
+            run_biases[0],
+            run_biases[1],
+            run_biases[2],
+            run_biases[3],
+            run_biases[4],
+            run_biases[5],
+            run_biases[6],
         );
         assert_eq!(out.guidance_phase, 1, "CaptureOnly must keep phase 1");
     }
@@ -1229,8 +1269,13 @@ mod tests {
             &mut nav_state,
             &data,
             &planet,
-            run_biases[0], run_biases[1], run_biases[2],
-            run_biases[3], run_biases[4], run_biases[5], run_biases[6],
+            run_biases[0],
+            run_biases[1],
+            run_biases[2],
+            run_biases[3],
+            run_biases[4],
+            run_biases[5],
+            run_biases[6],
         );
         assert_eq!(out.guidance_phase, 2, "ExitOnly must force phase 2");
     }
