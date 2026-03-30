@@ -1,0 +1,11 @@
+# Earth planet constants (WGS-84 / EGM96)
+
+[planet]
+name = "earth"
+mu = 3.98600418e14
+equatorial_radius = 6378137.0
+polar_radius = 6356784.0
+omega = 7.292115e-5
+j2 = 1.08263e-3
+j3 = -2.5327e-6
+j4 = -1.6196e-6

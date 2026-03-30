@@ -16,7 +16,7 @@
 //! radial velocity feedback term to dampen altitude oscillations and
 //! a velocity-dependent bias to control energy dissipation rate.
 
-use crate::config::Planet;
+use crate::config::PlanetConfig;
 use crate::data::SimData;
 use crate::gnc::navigation::coordinates::geodetic_from_spherical;
 use crate::gnc::navigation::estimator::NavigationOutput;
@@ -25,12 +25,16 @@ use crate::gnc::navigation::estimator::NavigationOutput;
 ///
 /// Returns the bank angle magnitude (always positive) in radians.
 /// The caller handles roll sign via lateral guidance.
-pub fn equilibrium_glide_bank(nav: &NavigationOutput, data: &SimData, planet: &Planet) -> f64 {
+pub fn equilibrium_glide_bank(
+    nav: &NavigationOutput,
+    data: &SimData,
+    planet: &PlanetConfig,
+) -> f64 {
     let r = nav.position_estimated[0];
     let v = nav.velocity_estimated[0];
 
     // Local gravity (simplified — use mu/r² for the dominant term)
-    let mu = planet.mu();
+    let mu = planet.mu;
     let g = mu / (r * r);
 
     // Centrifugal acceleration
@@ -212,7 +216,7 @@ mod tests {
     fn bank_angle_in_valid_range(#[case] velocity: f64) {
         let nav = test_nav(velocity);
         let data = test_sim_data();
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
 
         let bank = equilibrium_glide_bank(&nav, &data, &planet);
 
@@ -237,7 +241,7 @@ mod tests {
         let mut data = test_sim_data();
         data.aero.cz = vec![0.0, 0.0];
 
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
         let bank = equilibrium_glide_bank(&nav, &data, &planet);
 
         assert_relative_eq!(bank, 60.0_f64.to_radians(), epsilon = 1e-10);
@@ -246,7 +250,7 @@ mod tests {
     #[test]
     fn higher_velocity_gives_larger_bank() {
         let data = test_sim_data();
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
 
         let bank_slow = equilibrium_glide_bank(&test_nav(3000.0), &data, &planet);
         let bank_fast = equilibrium_glide_bank(&test_nav(5687.0), &data, &planet);
@@ -272,14 +276,14 @@ mod tests {
                 rho in 1e-6..0.05_f64,
             ) {
                 let mut nav = test_nav(vel);
-                let r = Planet::Mars.equatorial_radius() + alt;
+                let r = PlanetConfig::mars().equatorial_radius + alt;
                 nav.position_estimated[0] = r;
                 nav.velocity_estimated[1] = fpa;
                 nav.density_guidance = rho;
                 nav.dynamic_pressure_estimated = 0.5 * rho * vel * vel;
 
                 let data = test_sim_data();
-                let planet = Planet::Mars;
+                let planet = PlanetConfig::mars();
                 let bank = equilibrium_glide_bank(&nav, &data, &planet);
 
                 let min_bank = 15.0_f64.to_radians();

@@ -40,12 +40,9 @@ The original Fortran had a crude sinusoidal horizontal variation model. The Rust
 
 ## 2. Gravity Model
 
-### 2.1 Higher-order gravity harmonics
+### 2.1 [DONE] Higher-order gravity harmonics
 
-Current model (`physics/gravity.rs`) uses J2 only: radial and lateral components from a single zonal harmonic.
-
-- **Improvement**: Add J3, J4 (significant for Mars), or implement full spherical harmonics up to degree N using a standard gravity field (e.g., GMM-3 for Mars).
-- **Impact**: Minor for aerocapture (aero forces dominate during atmospheric pass), but important for coasting phases and orbit determination after exit.
+Implemented J3/J4 zonal harmonics in `physics/gravity.rs` using standard Legendre polynomial derivatives. Planet constants (mu, radii, omega, J2, J3, J4) moved from hard-coded `Planet` enum to TOML-configurable `PlanetConfig` struct, parsed from a `[planet]` section. Planet preset files in `configs/planets/` (Mars GMM-3, Earth WGS-84, Jupiter Juno) are base-inherited by mission configs. J3/J4 default to 0.0 when omitted. Full spherical harmonics (tesseral/sectorial) remain future work.
 
 ### 2.2 Third-body perturbations
 

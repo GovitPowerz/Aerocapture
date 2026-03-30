@@ -12,7 +12,7 @@
 //! where E_ref is interpolated from the reference trajectory at the current
 //! energy level, and K_e is a tunable gain.
 
-use crate::config::Planet;
+use crate::config::PlanetConfig;
 use crate::data::SimData;
 use crate::gnc::navigation::coordinates::total_energy;
 use crate::gnc::navigation::estimator::NavigationOutput;
@@ -43,7 +43,7 @@ pub fn energy_controller_bank(
     nav: &NavigationOutput,
     _state: &EnergyControllerState,
     data: &SimData,
-    planet: &Planet,
+    planet: &PlanetConfig,
 ) -> f64 {
     let ref_traj = &data.guidance.ref_trajectory;
     if ref_traj.n_points == 0 {
@@ -218,7 +218,7 @@ mod tests {
         let nav = test_nav(4500.0);
         let state = EnergyControllerState::new();
         let data = test_sim_data(); // ref_trajectory.n_points == 0
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
 
         let bank = energy_controller_bank(&nav, &state, &data, &planet);
 
@@ -233,7 +233,7 @@ mod tests {
         let nav = test_nav(velocity);
         let state = EnergyControllerState::new();
         let data = test_sim_data_with_ref_traj();
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
 
         let bank = energy_controller_bank(&nav, &state, &data, &planet);
 
@@ -263,7 +263,7 @@ mod tests {
                 rho in 1e-6..0.05_f64,
             ) {
                 let mut nav = test_nav(vel);
-                let r = Planet::Mars.equatorial_radius() + alt;
+                let r = PlanetConfig::mars().equatorial_radius + alt;
                 nav.position_estimated[0] = r;
                 nav.velocity_estimated[1] = fpa;
                 nav.density_guidance = rho;
@@ -271,7 +271,7 @@ mod tests {
 
                 let state = EnergyControllerState::new();
                 let data = test_sim_data_with_ref_traj();
-                let planet = Planet::Mars;
+                let planet = PlanetConfig::mars();
                 let bank = energy_controller_bank(&nav, &state, &data, &planet);
 
                 prop_assert!(bank.is_finite(), "bank not finite: {}", bank);

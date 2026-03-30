@@ -1,6 +1,6 @@
 //! Coordinate transformations.
 
-use crate::config::Planet;
+use crate::config::PlanetConfig;
 
 /// Compute geodetic altitude and latitude from geocentric spherical position.
 ///
@@ -10,10 +10,10 @@ pub fn geodetic_from_spherical(
     radius: f64,
     longitude: f64,
     latitude: f64,
-    planet: &Planet,
+    planet: &PlanetConfig,
 ) -> (f64, f64) {
-    let req = planet.equatorial_radius();
-    let rpol = planet.polar_radius();
+    let req = planet.equatorial_radius;
+    let rpol = planet.polar_radius;
 
     let cos_lat = latitude.cos();
     let sin_lat = latitude.sin();
@@ -77,10 +77,10 @@ pub fn geodetic_to_cartesian(
     altitude: f64,
     latitude: f64,
     longitude: f64,
-    planet: &Planet,
+    planet: &PlanetConfig,
 ) -> [f64; 3] {
-    let req = planet.equatorial_radius();
-    let rpol = planet.polar_radius();
+    let req = planet.equatorial_radius;
+    let rpol = planet.polar_radius;
     let excent = ((req * req - rpol * rpol) / (req * req)).sqrt();
     let e2 = excent * excent;
 
@@ -180,7 +180,7 @@ pub fn to_absolute_cartesian(
     v: f64,
     gamma: f64,
     psi: f64,
-    planet: &Planet,
+    planet: &PlanetConfig,
 ) -> ([f64; 3], [f64; 3]) {
     // Position: spherical → Cartesian
     let position_abs = position_to_cartesian(r, lon, lat);
@@ -195,7 +195,7 @@ pub fn to_absolute_cartesian(
     let velocity_geocentric = mat_vec_3(&local_to_geocentric, &velocity_local);
 
     // Entrainment velocity = omega × position
-    let omega = planet.omega();
+    let omega = planet.omega;
     let omega_vec = [0.0, 0.0, omega];
     let velocity_entrainment = cross(&omega_vec, &position_abs);
 
@@ -219,12 +219,12 @@ pub fn total_energy(
     v: f64,
     gamma: f64,
     psi: f64,
-    planet: &Planet,
+    planet: &PlanetConfig,
 ) -> f64 {
     let (position_abs, velocity_abs) = to_absolute_cartesian(r, lon, lat, v, gamma, psi, planet);
     let speed_abs = norm(&velocity_abs);
     let radius = norm(&position_abs);
-    speed_abs * speed_abs / 2.0 - planet.mu() / radius
+    speed_abs * speed_abs / 2.0 - planet.mu / radius
 }
 
 #[cfg(test)]
@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn geodetic_spherical_planet() {
         // Moon is near-spherical: req ≈ rpol
-        let moon = Planet::Moon;
+        let moon = PlanetConfig::moon();
         let r = 6.0518e6 + 100_000.0; // 100 km altitude
         let lat = 0.5; // ~28.6°
         let (alt, geo_lat) = geodetic_from_spherical(r, 0.0, lat, &moon);
@@ -315,16 +315,16 @@ mod tests {
 
     #[test]
     fn geodetic_at_equator() {
-        let mars = Planet::Mars;
-        let r = mars.equatorial_radius() + 120_000.0;
+        let mars = PlanetConfig::mars();
+        let r = mars.equatorial_radius + 120_000.0;
         let (_, geo_lat) = geodetic_from_spherical(r, 0.0, 0.0, &mars);
         assert_relative_eq!(geo_lat, 0.0, epsilon = 1e-12);
     }
 
     #[test]
     fn geodetic_at_pole() {
-        let mars = Planet::Mars;
-        let rpol = mars.polar_radius();
+        let mars = PlanetConfig::mars();
+        let rpol = mars.polar_radius;
         let r = rpol + 50_000.0;
         let (alt, _) = geodetic_from_spherical(r, 0.0, PI / 2.0, &mars);
         // At the pole, altitude should be approximately r - rpol
@@ -358,10 +358,10 @@ mod tests {
         // But total_energy uses absolute velocity, and the input V is relative.
         // V_abs = V_rel + omega × r. At equator heading east:
         // V_abs = V_rel + omega * r, so V_rel = V_circ_abs - omega * r
-        let mars = Planet::Mars;
-        let r = mars.equatorial_radius() + 300_000.0; // 300 km altitude
-        let mu = mars.mu();
-        let omega = mars.omega();
+        let mars = PlanetConfig::mars();
+        let r = mars.equatorial_radius + 300_000.0; // 300 km altitude
+        let mu = mars.mu;
+        let omega = mars.omega;
         let v_circ_abs = (mu / r).sqrt();
         let v_rel = v_circ_abs - omega * r;
         // Circular orbit: gamma=0, heading east: psi=PI/2
@@ -373,8 +373,8 @@ mod tests {
     #[test]
     fn hyperbolic_energy_positive() {
         // Mars entry at 5687 m/s (relative) — hyperbolic approach
-        let mars = Planet::Mars;
-        let r = mars.equatorial_radius() + 120_000.0;
+        let mars = PlanetConfig::mars();
+        let r = mars.equatorial_radius + 120_000.0;
         let v = 5687.0;
         let gamma = -0.1; // slight descent
         let psi = PI / 2.0;
@@ -390,8 +390,8 @@ mod tests {
     #[test]
     fn absolute_velocity_includes_rotation() {
         // At equator heading east, V_abs > V_rel because planet rotation adds velocity
-        let mars = Planet::Mars;
-        let r = mars.equatorial_radius() + 120_000.0;
+        let mars = PlanetConfig::mars();
+        let r = mars.equatorial_radius + 120_000.0;
         let v_rel = 3000.0;
         let gamma = 0.0;
         let psi = PI / 2.0; // heading east

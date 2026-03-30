@@ -2,7 +2,7 @@
 //!
 //! Monte Carlo runs are parallelized with rayon (one thread per trajectory).
 
-use crate::config::{AdaptiveConfig, IntegrationMode, Planet, SimInput};
+use crate::config::{AdaptiveConfig, IntegrationMode, PlanetConfig, SimInput};
 use crate::data::SimData;
 use crate::data::dispersions::DISPERSION_DRAW_LEN;
 use crate::gnc::control::angle_utils::shortest_angle_diff;
@@ -412,7 +412,7 @@ fn run_single(
     wall_timeout: Option<Duration>,
 ) -> Result<SimResult, SimError> {
     let planet = &config.planet;
-    let req = planet.equatorial_radius();
+    let req = planet.equatorial_radius;
 
     // Initial state: convert entry conditions to state vector
     let entry = &run_state.entry;
@@ -741,7 +741,7 @@ fn run_single(
         planet,
     );
 
-    let mu = planet.mu();
+    let mu = planet.mu;
     let (_position_abs, velocity_abs) = to_absolute_cartesian(
         sim.state[0],
         sim.state[1],
@@ -866,7 +866,7 @@ fn run_single(
 fn build_photo_values(
     sim: &SimState,
     sim_time: f64,
-    planet: &Planet,
+    planet: &PlanetConfig,
     dynamic_pressure: f64,
     density_estimate: f64,
     sim_index: i32,
@@ -889,7 +889,7 @@ fn build_photo_values(
         planet,
     );
 
-    let mu = planet.mu();
+    let mu = planet.mu;
     let (_position_abs, velocity_abs) = to_absolute_cartesian(
         sim.state[0],
         sim.state[1],
@@ -970,7 +970,7 @@ fn build_photo_values(
 fn integrate_step(
     sim: &mut SimState,
     dt: f64,
-    planet: &Planet,
+    planet: &PlanetConfig,
     data: &SimData,
     run_state: &init::RunState,
 ) {
@@ -1010,7 +1010,7 @@ fn integrate_adaptive(
     sim: &mut SimState,
     dt_outer: f64,
     config: &AdaptiveConfig,
-    planet: &Planet,
+    planet: &PlanetConfig,
     data: &SimData,
     run_state: &init::RunState,
 ) -> AdaptiveStepStats {
@@ -1162,7 +1162,7 @@ fn compute_derivatives(
     state: &[f64; 8],
     bank_angle: f64,
     aoa: f64,
-    planet: &Planet,
+    planet: &PlanetConfig,
     data: &SimData,
     run_state: &init::RunState,
 ) -> [f64; 8] {
@@ -1206,7 +1206,7 @@ fn compute_derivatives(
     let tan_gamma = sin_gamma / cos_gamma;
     let tan_lat = sin_lat / cos_lat;
 
-    let omega = planet.omega();
+    let omega = planet.omega;
 
     // Kinematic derivatives use original v (planet-relative)
     let dr = v * sin_gamma;

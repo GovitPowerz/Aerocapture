@@ -23,7 +23,8 @@ src/
     aerocapture-py/        PyO3 Python bindings (aerocapture_rs module)
   python/                  Python analysis package (parsing, plotting, training)
 configs/
-  missions/                Shared per-planet base configs (Mars, Earth)
+  planets/                 Planet physical constants (mu, radii, omega, J2/J3/J4)
+  missions/                Shared per-planet base configs (inherit from planets/)
   nominal/                 Nominal simulation configurations
   training/                GA training configs (per scheme) + common.toml (shared MC/cost)
   test/                    Golden test configurations (regression tests)
@@ -55,7 +56,7 @@ The simulation implements a full closed-loop GNC chain:
 2. **Guidance** — One of 7 algorithms computes bank angle command (see table above)
 3. **Lateral guidance** — Roll sign management via inclination error with deadband
 4. **Control** — Pilot dynamics model applies rate limits and first/second-order lag to bank angle commands
-5. **Integration** — Two modes: fixed-step Gill-variant RK4 (default, Fortran-validated) or adaptive Dormand-Prince 4(5) with embedded error estimation and PI step-size control (`[integration] mode = "adaptive"`). Both propagate equations of motion with J2 gravity, tabulated atmosphere (truth) with separate piecewise-exponential onboard model for nav/guidance, altitude-dependent wind model, and aerodynamic forces. Adaptive mode sub-steps within each GNC tick — guidance/navigation cadences are unchanged
+5. **Integration** — Two modes: fixed-step Gill-variant RK4 (default, Fortran-validated) or adaptive Dormand-Prince 4(5) with embedded error estimation and PI step-size control (`[integration] mode = "adaptive"`). Both propagate equations of motion with J2/J3/J4 zonal harmonic gravity, tabulated atmosphere (truth) with separate piecewise-exponential onboard model for nav/guidance, altitude-dependent wind model, and aerodynamic forces. Adaptive mode sub-steps within each GNC tick — guidance/navigation cadences are unchanged
 
 ## GA Optimization
 

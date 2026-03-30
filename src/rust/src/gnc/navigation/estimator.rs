@@ -3,7 +3,7 @@
 //! Adds navigation errors to the true state to produce measured state,
 //! estimates atmospheric density, and manages guidance phase transitions.
 
-use crate::config::Planet;
+use crate::config::PlanetConfig;
 use crate::data::SimData;
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
 use crate::gnc::navigation::ekf::{EkfConfig, EkfState};
@@ -82,7 +82,7 @@ pub fn navigate(
     biases: &NavigationBiases,
     nav_state: &mut NavigationState,
     data: &SimData,
-    planet: &Planet,
+    planet: &PlanetConfig,
     run_density_bias: f64,
     run_cx_bias: f64,
     _run_cz_bias: f64,
@@ -355,7 +355,7 @@ pub fn navigate_ekf(
     st_config: &StarTrackerConfig,
     ekf_config: &EkfConfig,
     data: &SimData,
-    planet: &Planet,
+    planet: &PlanetConfig,
     run_density_bias: f64,
     run_cx_bias: f64,
     run_mass_bias: f64,
@@ -703,7 +703,7 @@ mod tests {
             biases,
             nav_state,
             data,
-            &Planet::Mars,
+            &PlanetConfig::mars(),
             run_biases[0], // density
             run_biases[1], // cx
             run_biases[2], // cz
@@ -731,9 +731,9 @@ mod tests {
         #[case] _label: &str,
     ) {
         let data = test_sim_data();
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
         // Use high altitude so density filter doesn't complicate things
-        let r = planet.equatorial_radius() + 120_000.0;
+        let r = planet.equatorial_radius + 120_000.0;
         let position_true = [r, 0.5, 0.3];
         let velocity_true = [5500.0, -0.15, 1.2];
 
@@ -788,7 +788,7 @@ mod tests {
                 &biases,
                 &mut nav_state,
                 &data,
-                &Planet::Mars,
+                &PlanetConfig::mars(),
                 0.0,
                 0.0,
                 0.0,
@@ -1055,8 +1055,8 @@ mod tests {
 
         let biases = NavigationBiases::default();
         let mut nav_state = NavigationState::new();
-        let planet = Planet::Mars;
-        let r = planet.equatorial_radius() + 50_000.0;
+        let planet = PlanetConfig::mars();
+        let r = planet.equatorial_radius + 50_000.0;
         let position = [r, 0.0, 0.0];
         let velocity = [5000.0, -0.15, 0.6];
 

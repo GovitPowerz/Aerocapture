@@ -1,0 +1,11 @@
+# Moon planet constants (legacy Fortran values; J3/J4 not characterized)
+
+[planet]
+name = "moon"
+mu = 3.249e14
+equatorial_radius = 6051800.0
+polar_radius = 6051800.0
+omega = 2.9924e-7
+j2 = 4.458e-6
+j3 = 0.0
+j4 = 0.0

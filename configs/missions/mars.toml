@@ -1,9 +1,9 @@
 # Mars Sample Return — shared mission base config
 # Inherited by all MSR training, test, and nominal configs via base = ["../missions/mars.toml"]
+base = ["../planets/mars.toml"]
 
 [mission]
 type = "aerocapture"
-planet = "mars"
 
 [entry]
 altitude = 130.0

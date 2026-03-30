@@ -4,7 +4,7 @@
 //! Supports arbitrary layer architectures via NeuralNetModel.
 //! Default: 6 inputs → 12 hidden (tanh) → 2 outputs (asinh) → atan2 bank angle.
 
-use crate::config::Planet;
+use crate::config::PlanetConfig;
 use crate::data::neural::NeuralNetModel;
 use crate::gnc::navigation::estimator::NavigationOutput;
 use crate::orbit::elements;
@@ -21,10 +21,10 @@ use crate::orbit::elements;
 pub fn nn_bank_angle(
     nav: &NavigationOutput,
     nn: &NeuralNetModel,
-    planet: &Planet,
+    planet: &PlanetConfig,
     target_inclination: f64, // radians
 ) -> f64 {
-    let mu = planet.mu();
+    let mu = planet.mu;
 
     // Radial velocity: V * sin(gamma)
     let velocity_radial = nav.velocity_estimated[0] * nav.velocity_estimated[1].sin();
@@ -108,7 +108,7 @@ mod tests {
         let bias1 = 1.0_f64;
         let nn = zero_weight_nn(bias0, bias1);
         let nav = test_nav();
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
 
         // With zero weights + linear activation: output = [bias0, bias1]
         // Bank angle = atan2(1.0, 1.0) = PI/4
@@ -122,7 +122,7 @@ mod tests {
         // Verify atan2 sign handling: atan2(-1, 1) = -PI/4
         let nn = zero_weight_nn(-1.0, 1.0);
         let nav = test_nav();
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
 
         let bank = nn_bank_angle(&nav, &nn, &planet, 50.0_f64.to_radians());
         assert_relative_eq!(bank, (-1.0_f64).atan2(1.0), epsilon = 1e-12);
@@ -152,7 +152,7 @@ mod tests {
         };
 
         let nav = test_nav();
-        let planet = Planet::Mars;
+        let planet = PlanetConfig::mars();
         let bank = nn_bank_angle(&nav, &nn, &planet, 50.0_f64.to_radians());
 
         assert!(bank.is_finite(), "bank angle must be finite, got: {}", bank);
@@ -191,7 +191,7 @@ mod tests {
                 fpa in -0.3..0.05_f64,
                 az  in -1.0..1.0_f64,
             ) {
-                let r = Planet::Mars.equatorial_radius() + alt;
+                let r = PlanetConfig::mars().equatorial_radius + alt;
                 let nav = NavigationOutput {
                     position_estimated: [r, 0.1, 0.05],
                     velocity_estimated: [vel, fpa, az],
@@ -204,7 +204,7 @@ mod tests {
                 };
 
                 let nn = fixed_small_nn();
-                let planet = Planet::Mars;
+                let planet = PlanetConfig::mars();
                 let bank = nn_bank_angle(&nav, &nn, &planet, 50.0_f64.to_radians());
 
                 prop_assert!(bank.is_finite(), "bank not finite: {}", bank);

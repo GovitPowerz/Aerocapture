@@ -7,7 +7,7 @@
 //!
 //! GA-optimized to produce reference trajectories and corridor envelopes.
 
-use crate::config::Planet;
+use crate::config::PlanetConfig;
 use crate::data::guidance_params::PiecewiseConstantParams;
 use crate::gnc::navigation::coordinates::total_energy;
 use crate::gnc::navigation::estimator::NavigationOutput;
@@ -23,7 +23,7 @@ const N_SEGMENTS: usize = 10;
 pub fn piecewise_constant_bank(
     nav: &NavigationOutput,
     params: &PiecewiseConstantParams,
-    planet: &Planet,
+    planet: &PlanetConfig,
 ) -> f64 {
     let energy = total_energy(
         nav.position_estimated[0],

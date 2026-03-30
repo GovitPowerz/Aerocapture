@@ -4,7 +4,7 @@
 //! PredGuid, FNPAG). Schemes that produce signed bank angles (NeuralNetwork,
 //! PiecewiseConstant) bypass this entirely.
 
-use crate::config::Planet;
+use crate::config::PlanetConfig;
 use crate::gnc::navigation::estimator::NavigationOutput;
 use crate::orbit::elements;
 
@@ -66,7 +66,7 @@ pub fn lateral_guidance(
     target_inclination: f64,
     energy: f64,
     bank_magnitude: f64,
-    planet: &Planet,
+    planet: &PlanetConfig,
 ) -> bool {
     // Guard: corridor_slope must be positive to avoid division by zero
     if params.corridor_slope <= 0.0 {
@@ -130,11 +130,11 @@ pub fn lateral_guidance(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Planet;
+    use crate::config::PlanetConfig;
     use crate::gnc::navigation::estimator::NavigationOutput;
 
     fn test_nav() -> NavigationOutput {
-        let r = Planet::Mars.equatorial_radius() + 50_000.0;
+        let r = PlanetConfig::mars().equatorial_radius + 50_000.0;
         NavigationOutput {
             position_estimated: [r, 0.0, 0.0],
             velocity_estimated: [5000.0, -0.15, 0.6],
@@ -164,7 +164,15 @@ mod tests {
         };
         let mut state = LateralState::new(1.0);
         let nav = test_nav();
-        let reversed = lateral_guidance(&params, &mut state, &nav, 1.0, 1e6, 1.0, &Planet::Mars);
+        let reversed = lateral_guidance(
+            &params,
+            &mut state,
+            &nav,
+            1.0,
+            1e6,
+            1.0,
+            &PlanetConfig::mars(),
+        );
         assert!(!reversed);
         assert_eq!(state.n_reversals, 0);
     }
@@ -181,7 +189,7 @@ mod tests {
             nav.velocity_estimated[0],
             nav.velocity_estimated[1],
             nav.velocity_estimated[2],
-            &Planet::Mars,
+            &PlanetConfig::mars(),
         );
         let reversed = lateral_guidance(
             &params,
@@ -190,7 +198,7 @@ mod tests {
             orbit.inclination,
             -1e6,
             1.0,
-            &Planet::Mars,
+            &PlanetConfig::mars(),
         );
         assert!(!reversed);
         assert_eq!(state.n_reversals, 0);
@@ -202,7 +210,15 @@ mod tests {
         let mut state = LateralState::new(1.0);
         assert_eq!(state.roll_sign, 1.0);
         let nav = test_nav();
-        let reversed = lateral_guidance(&params, &mut state, &nav, 10.0, -1e6, 1.0, &Planet::Mars);
+        let reversed = lateral_guidance(
+            &params,
+            &mut state,
+            &nav,
+            10.0,
+            -1e6,
+            1.0,
+            &PlanetConfig::mars(),
+        );
         assert!(reversed);
         assert_eq!(state.roll_sign, -1.0);
         assert_eq!(state.n_reversals, 1);
@@ -214,7 +230,15 @@ mod tests {
         let mut state = LateralState::new(1.0);
         state.roll_sign = -1.0;
         let nav = test_nav();
-        let reversed = lateral_guidance(&params, &mut state, &nav, -10.0, -1e6, 1.0, &Planet::Mars);
+        let reversed = lateral_guidance(
+            &params,
+            &mut state,
+            &nav,
+            -10.0,
+            -1e6,
+            1.0,
+            &PlanetConfig::mars(),
+        );
         assert!(reversed);
         assert_eq!(state.roll_sign, 1.0);
         assert_eq!(state.n_reversals, 1);
@@ -228,11 +252,27 @@ mod tests {
         };
         let mut state = LateralState::new(1.0);
         let nav = test_nav();
-        let r1 = lateral_guidance(&params, &mut state, &nav, 10.0, -1e6, 1.0, &Planet::Mars);
+        let r1 = lateral_guidance(
+            &params,
+            &mut state,
+            &nav,
+            10.0,
+            -1e6,
+            1.0,
+            &PlanetConfig::mars(),
+        );
         assert!(r1);
         assert_eq!(state.n_reversals, 1);
         assert_eq!(state.roll_sign, -1.0);
-        let r2 = lateral_guidance(&params, &mut state, &nav, -10.0, -1e6, 1.0, &Planet::Mars);
+        let r2 = lateral_guidance(
+            &params,
+            &mut state,
+            &nav,
+            -10.0,
+            -1e6,
+            1.0,
+            &PlanetConfig::mars(),
+        );
         assert!(!r2);
         assert_eq!(state.n_reversals, 1);
         assert_eq!(state.roll_sign, -1.0);
@@ -243,8 +283,15 @@ mod tests {
         let params = active_params();
         let mut state = LateralState::new(1.0);
         let nav = test_nav();
-        let reversed =
-            lateral_guidance(&params, &mut state, &nav, 10.0, -1e6, 1e-15, &Planet::Mars);
+        let reversed = lateral_guidance(
+            &params,
+            &mut state,
+            &nav,
+            10.0,
+            -1e6,
+            1e-15,
+            &PlanetConfig::mars(),
+        );
         assert!(!reversed);
     }
 
@@ -255,7 +302,15 @@ mod tests {
         let nav = test_nav();
         let pi = std::f64::consts::PI;
         // At bank = π (full lift-down), roll sign is physically meaningless
-        let reversed = lateral_guidance(&params, &mut state, &nav, 10.0, -1e6, pi, &Planet::Mars);
+        let reversed = lateral_guidance(
+            &params,
+            &mut state,
+            &nav,
+            10.0,
+            -1e6,
+            pi,
+            &PlanetConfig::mars(),
+        );
         assert!(!reversed);
         assert_eq!(state.n_reversals, 0);
     }
@@ -265,9 +320,25 @@ mod tests {
         let params = active_params();
         let mut state = LateralState::new(1.0);
         let nav = test_nav();
-        lateral_guidance(&params, &mut state, &nav, 10.0, -1e6, 1.0, &Planet::Mars);
+        lateral_guidance(
+            &params,
+            &mut state,
+            &nav,
+            10.0,
+            -1e6,
+            1.0,
+            &PlanetConfig::mars(),
+        );
         assert!(state.roll_sign == 1.0 || state.roll_sign == -1.0);
-        lateral_guidance(&params, &mut state, &nav, -10.0, -1e6, 1.0, &Planet::Mars);
+        lateral_guidance(
+            &params,
+            &mut state,
+            &nav,
+            -10.0,
+            -1e6,
+            1.0,
+            &PlanetConfig::mars(),
+        );
         assert!(state.roll_sign == 1.0 || state.roll_sign == -1.0);
     }
 
@@ -305,7 +376,7 @@ mod tests {
                     max_reversals: 5,
                 };
                 let mut state = LateralState::new(1.0);
-                lateral_guidance(&params, &mut state, &nav, target, -1e6, 1.0, &Planet::Mars);
+                lateral_guidance(&params, &mut state, &nav, target, -1e6, 1.0, &PlanetConfig::mars());
                 prop_assert!(state.roll_sign == 1.0 || state.roll_sign == -1.0);
             }
 
@@ -324,7 +395,7 @@ mod tests {
                 let mut state = LateralState::new(1.0);
                 let mut prev_n = 0;
                 for t in &targets {
-                    lateral_guidance(&params, &mut state, &nav, *t, -1e6, 1.0, &Planet::Mars);
+                    lateral_guidance(&params, &mut state, &nav, *t, -1e6, 1.0, &PlanetConfig::mars());
                     prop_assert!(state.n_reversals >= prev_n);
                     prev_n = state.n_reversals;
                 }
