@@ -90,3 +90,12 @@ reference_trajectory = "data/reference_trajectory/esr_aller.dat"
 [corridor]
 delta_za = 100000.0  # km, apoapsis error tolerance (scaled for Earth high orbit)
 n_sims = 10000       # number of MC sims for corridor boundary computation
+
+[guidance.ftc]
+exit_velocity_threshold = 4400.0
+exit_pdyn_margin = 1.75
+exit_altitude_threshold = 60.0
+exit_radial_vel_gain = 10.0
+exit_apoapsis_threshold = 100.0
+security_capture = 1
+security_exit = 3
