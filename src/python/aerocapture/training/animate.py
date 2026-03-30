@@ -301,6 +301,8 @@ def _decode_and_build_overrides(
 
     if guidance_type == "neural_network":
         # NN requires writing weights to disk; return minimal overrides
+        # NOTE: Writes NN weights to a shared file path derived from the TOML config.
+        # Not safe for concurrent animation runs on the same config.
         from aerocapture.training.evaluate import decode_direct, write_nn_json
 
         net = toml_data.get("network", {})
@@ -339,6 +341,7 @@ def generate_animation(
     fps: int = 4,
     output: Path | None = None,
     every: int = 1,
+    sim_timeout_secs: float | None = None,
 ) -> Path:
     """Generate a GIF animation of training evolution.
 
@@ -349,6 +352,7 @@ def generate_animation(
         fps: Frames per second in output GIF.
         output: Output GIF path. Defaults to training_dir/animation.gif.
         every: Use every Nth checkpoint (1 = all).
+        sim_timeout_secs: Wall-clock timeout per simulation in seconds (default: no limit).
 
     Returns:
         Path to generated GIF file.
@@ -380,9 +384,12 @@ def generate_animation(
     toml_resolved = str(toml_path.resolve())
 
     # Step 1: Pre-compute axis ranges from the final checkpoint
+    # NOTE: Axis ranges are computed from the final (most converged) checkpoint's trajectories.
+    # Early-generation frames may have trajectories that extend beyond these limits and get clipped.
+    # This is a deliberate trade-off to avoid running N extra MC evals just for range computation.
     last = checkpoints[-1]
     last_overrides = _decode_and_build_overrides(last["best_chromosome"], guidance_type, toml_data, n_sims)
-    last_results = aero_rs.run_mc(toml_path=toml_resolved, overrides=last_overrides, include_trajectories=True)
+    last_results = aero_rs.run_mc(toml_path=toml_resolved, overrides=last_overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
     all_costs_for_range = np.concatenate([c["costs"] for c in checkpoints])
     axis_ranges = _compute_axis_ranges(last_results.trajectories, all_costs_for_range)
 
@@ -421,7 +428,7 @@ def generate_animation(
 
             # Decode + run MC
             overrides = _decode_and_build_overrides(best_chrom, guidance_type, toml_data, n_sims)
-            results = aero_rs.run_mc(toml_path=toml_resolved, overrides=overrides, include_trajectories=True)
+            results = aero_rs.run_mc(toml_path=toml_resolved, overrides=overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
             trajectories = results.trajectories
             final_records = results.final_records
 
@@ -473,6 +480,7 @@ def main() -> None:
     parser.add_argument("--fps", type=int, default=4, help="Frames per second (default: 4)")
     parser.add_argument("--output", type=Path, default=None, help="Output GIF path (default: <training_dir>/animation.gif)")
     parser.add_argument("--every", type=int, default=1, help="Use every Nth checkpoint (default: 1 = all)")
+    parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds (default: no limit)")
     args = parser.parse_args()
 
     result = generate_animation(
@@ -482,6 +490,7 @@ def main() -> None:
         fps=args.fps,
         output=args.output,
         every=args.every,
+        sim_timeout_secs=args.sim_timeout,
     )
     print(f"Animation saved to {result}")
 

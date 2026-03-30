@@ -87,9 +87,9 @@ class TestComputeAxisRanges:
     def test_returns_dict_with_expected_keys(self) -> None:
         from aerocapture.training.animate import _compute_axis_ranges
 
-        # Create fake trajectory data (12-column format)
+        # Create fake trajectory data (16-column format matching PyO3 output)
         rng = np.random.default_rng(42)
-        trajectories = [rng.standard_normal((50, 12)) for _ in range(10)]
+        trajectories = [rng.standard_normal((50, 16)) for _ in range(10)]
         costs = rng.uniform(50, 200, size=30)
 
         ranges = _compute_axis_ranges(trajectories, costs)
@@ -100,7 +100,7 @@ class TestComputeAxisRanges:
         from aerocapture.training.animate import _compute_axis_ranges
 
         # All trajectories have energy in [0, 1], pdyn in [0, 100]
-        traj = np.zeros((50, 12))
+        traj = np.zeros((50, 16))
         traj[:, 8] = np.linspace(0, 1, 50)  # energy
         traj[:, 9] = np.linspace(0, 100, 50)  # pdyn
         traj[:, 10] = np.linspace(-90, 90, 50)  # bank
@@ -118,7 +118,7 @@ class TestRenderFrame:
         from aerocapture.training.charts import classify_trajectories
 
         rng = np.random.default_rng(42)
-        trajectories = [rng.standard_normal((50, 12)).astype(np.float64) for _ in range(10)]
+        trajectories = [rng.standard_normal((50, 16)).astype(np.float64) for _ in range(10)]
         final_records = rng.standard_normal((10, 52)).astype(np.float64)
         # Set ifinal=3 and ecc<1 for some to be "captured"
         final_records[:5, 31] = 3.0  # ifinal
@@ -203,7 +203,7 @@ class TestGenerateAnimation:
         mock_results.final_records[:5, 31] = 3.0
         mock_results.final_records[:5, 9] = 0.5
         mock_results.final_records[5:, 31] = 1.0
-        mock_results.trajectories = [rng.standard_normal((50, 12)).astype(np.float64) for _ in range(n_sims)]
+        mock_results.trajectories = [rng.standard_normal((50, 16)).astype(np.float64) for _ in range(n_sims)]
 
         mock_aero = MagicMock()
         mock_aero.run_mc.return_value = mock_results
