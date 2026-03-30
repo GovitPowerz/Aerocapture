@@ -120,6 +120,7 @@ def write_nn_json(
         "output_interpretation": "atan2",
     }
 
+    Path(filepath).parent.mkdir(parents=True, exist_ok=True)
     with open(filepath, "w") as f:
         json.dump(data, f)
 
