@@ -3,7 +3,7 @@
 //! Adds navigation errors to the true state to produce measured state,
 //! estimates atmospheric density, and manages guidance phase transitions.
 
-use crate::config::PlanetConfig;
+use crate::config::{PlanetConfig, SimPhase};
 use crate::data::SimData;
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
 use crate::gnc::navigation::ekf::{EkfConfig, EkfState};
@@ -238,8 +238,19 @@ pub fn navigate(
         nav_state.guidance_phase = 2;
     }
 
-    // guidance_phase is hardcoded to 1 (phase management logic above is inactive)
-    nav_state.guidance_phase = 1;
+    // Apply SimPhase gating
+    match data.sim_phase {
+        SimPhase::CaptureOnly => {
+            nav_state.guidance_phase = 1;
+        }
+        SimPhase::ExitOnly => {
+            nav_state.guidance_phase = 2;
+        }
+        SimPhase::Full | SimPhase::Preprogrammed => {
+            // Phase logic above already computed the correct phase
+        }
+    }
+
     if nav_state.guidance_phase == 1 {
         nav_state.capture_time += data.periods.navigation;
     }
@@ -1077,5 +1088,143 @@ mod tests {
             "density gain {} should diverge from 1.0 with inaccurate onboard model",
             nav_state.density_gain,
         );
+    }
+
+    // ── Test 9: SimPhase gating in navigate() ──
+
+    /// SimPhase::Full: phase transitions from 1 → 2 after bounce + velocity below threshold.
+    #[test]
+    fn full_phase_transitions_to_exit() {
+        let mut data = test_sim_data();
+        data.sim_phase = SimPhase::Full;
+        data.guidance.exit_velocity_threshold = 4400.0;
+        let planet = PlanetConfig::mars();
+        let r = planet.equatorial_radius + 50_000.0;
+        let biases = zero_biases();
+        let mut nav_state = NavigationState::new();
+        let run_biases = no_run_biases();
+
+        // First call: descending (FPA negative, pre-bounce) — should be phase 1
+        let out1 = navigate(
+            &[r, 0.0, 0.0],
+            &[5000.0, -0.05, 0.6], // negative FPA → sin < 0 → no bounce
+            data.entry.initial_aoa,
+            10.0,
+            &biases,
+            &mut nav_state,
+            &data,
+            &planet,
+            run_biases[0], run_biases[1], run_biases[2],
+            run_biases[3], run_biases[4], run_biases[5], run_biases[6],
+        );
+        assert_eq!(out1.guidance_phase, 1, "should be capture phase while descending");
+
+        // Second call: ascending (FPA positive, small angle so velocity_radial < 120 m/s)
+        // but velocity still above threshold — should remain capture phase.
+        // gamma = 0.02 rad → velocity_radial ≈ 5000 * sin(0.02) ≈ 100 m/s < 120 m/s
+        let out2 = navigate(
+            &[r, 0.0, 0.0],
+            &[5000.0, 0.02, 0.6], // positive FPA → sin > 0 → bounce; radial < 120 m/s
+            data.entry.initial_aoa,
+            20.0,
+            &biases,
+            &mut nav_state,
+            &data,
+            &planet,
+            run_biases[0], run_biases[1], run_biases[2],
+            run_biases[3], run_biases[4], run_biases[5], run_biases[6],
+        );
+        assert_eq!(out2.guidance_phase, 1, "above velocity threshold → still capture");
+
+        // Third call: ascending, velocity below threshold → phase 2.
+        // Use gamma = 0.028 rad so velocity_radial ≈ 4000 * sin(0.028) ≈ 112 m/s.
+        // This exceeds call 2's radial (≈ 5000 * sin(0.02) ≈ 100 m/s), so delta_radial > 0
+        // and crash detection does not trigger. velocity < 4400 triggers the threshold transition.
+        let out3 = navigate(
+            &[r, 0.0, 0.0],
+            &[4000.0, 0.028, 0.6], // below 4400 threshold; radial ≈ 112 m/s > prev, no crash
+            data.entry.initial_aoa,
+            30.0,
+            &biases,
+            &mut nav_state,
+            &data,
+            &planet,
+            run_biases[0], run_biases[1], run_biases[2],
+            run_biases[3], run_biases[4], run_biases[5], run_biases[6],
+        );
+        assert_eq!(out3.guidance_phase, 2, "below velocity threshold after bounce → exit phase");
+        assert_eq!(out3.phase_transition_flag, 1, "transition flag should be set");
+        assert!(out3.reference_velocity.abs() > 0.0, "reference_velocity should be latched");
+    }
+
+    /// SimPhase::CaptureOnly: phase stays 1 regardless of state.
+    #[test]
+    fn capture_only_stays_phase_1() {
+        let mut data = test_sim_data();
+        data.sim_phase = SimPhase::CaptureOnly;
+        data.guidance.exit_velocity_threshold = 4400.0;
+        let planet = PlanetConfig::mars();
+        let r = planet.equatorial_radius + 50_000.0;
+        let biases = zero_biases();
+        let mut nav_state = NavigationState::new();
+        let run_biases = no_run_biases();
+
+        // Trigger bounce (small FPA so velocity_radial < 120 m/s, avoiding the radial override)
+        let _ = navigate(
+            &[r, 0.0, 0.0],
+            &[5000.0, 0.02, 0.6], // positive FPA, radial ≈ 100 m/s < 120
+            data.entry.initial_aoa,
+            10.0,
+            &biases,
+            &mut nav_state,
+            &data,
+            &planet,
+            run_biases[0], run_biases[1], run_biases[2],
+            run_biases[3], run_biases[4], run_biases[5], run_biases[6],
+        );
+
+        // Below threshold after bounce — would normally be phase 2, but CaptureOnly keeps phase 1.
+        // gamma = 0.028 so radial ≈ 4000 * sin(0.028) ≈ 112 m/s, which exceeds call 1's radial
+        // (≈ 5000 * sin(0.02) ≈ 100 m/s), so delta_radial > 0 and crash detection does not fire.
+        let out = navigate(
+            &[r, 0.0, 0.0],
+            &[4000.0, 0.028, 0.6], // below 4400 threshold, radial ≈ 112 m/s > prev, no crash
+            data.entry.initial_aoa,
+            20.0,
+            &biases,
+            &mut nav_state,
+            &data,
+            &planet,
+            run_biases[0], run_biases[1], run_biases[2],
+            run_biases[3], run_biases[4], run_biases[5], run_biases[6],
+        );
+        assert_eq!(out.guidance_phase, 1, "CaptureOnly must keep phase 1");
+    }
+
+    /// SimPhase::ExitOnly: phase stays 2 regardless of state.
+    #[test]
+    fn exit_only_stays_phase_2() {
+        let mut data = test_sim_data();
+        data.sim_phase = SimPhase::ExitOnly;
+        let planet = PlanetConfig::mars();
+        let r = planet.equatorial_radius + 50_000.0;
+        let biases = zero_biases();
+        let mut nav_state = NavigationState::new();
+        let run_biases = no_run_biases();
+
+        // Descending, pre-bounce — would normally be phase 1
+        let out = navigate(
+            &[r, 0.0, 0.0],
+            &[5000.0, -0.05, 0.6],
+            data.entry.initial_aoa,
+            10.0,
+            &biases,
+            &mut nav_state,
+            &data,
+            &planet,
+            run_biases[0], run_biases[1], run_biases[2],
+            run_biases[3], run_biases[4], run_biases[5], run_biases[6],
+        );
+        assert_eq!(out.guidance_phase, 2, "ExitOnly must force phase 2");
     }
 }
