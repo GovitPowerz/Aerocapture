@@ -492,6 +492,7 @@ fn run_single(
     let mut cumulative_bank_change_deg = 0.0_f64;
     let mut dynamic_pressure_for_photo = 0.0_f64;
     let mut density_estimate_for_photo = 0.0_f64;
+    let mut guidance_phase_for_photo = 1_i32;
 
     let wall_start = Instant::now();
 
@@ -565,6 +566,12 @@ fn run_single(
 
             dynamic_pressure_for_photo = nav_out.dynamic_pressure_estimated;
             density_estimate_for_photo = nav_out.density_guidance;
+            guidance_phase_for_photo = nav_out.guidance_phase;
+
+            // Latch reference velocity at the phase 1→2 transition
+            if nav_out.phase_transition_flag == 1 {
+                ftc_state.reference_velocity = nav_out.reference_velocity;
+            }
 
             let ftc_out = ftc::guidance_step(
                 &nav_out,
@@ -633,6 +640,7 @@ fn run_single(
                 nav_filter.density_gain(),
                 run_state,
                 sim.state[6],
+                guidance_phase_for_photo,
             ));
         }
 
@@ -713,6 +721,7 @@ fn run_single(
             nav_filter.density_gain(),
             run_state,
             sim.state[6],
+            guidance_phase_for_photo,
         ));
     }
 
@@ -875,6 +884,7 @@ fn build_photo_values(
     density_gain: f64,
     run_state: &init::RunState,
     cumulative_flux: f64,
+    guidance_phase: i32,
 ) -> [f64; 29] {
     let (altitude, latitude) =
         geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
@@ -903,11 +913,7 @@ fn build_photo_values(
     let energy = speed_abs * speed_abs / 2.0 - mu / sim.state[0];
     let velocity_radial = sim.state[3] * sim.state[4].sin();
 
-    let phase = if !sim.bounced {
-        if altitude > 80e3 { 1.0 } else { 2.0 }
-    } else {
-        if sim.state[0] > 80e3 { 3.0 } else { 2.0 }
-    };
+    let phase = guidance_phase as f64;
 
     // Compute per-timestep heat flux, g-load, and truth density for trajectory output.
     // Use dispersed values (matching track_peak_values) so trajectory plots are consistent
