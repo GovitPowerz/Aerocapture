@@ -1,97 +1,23 @@
 # Improvements Roadmap
 
-This document lists physics, GNC, and software improvements for the aerocapture simulator. The Rust simulator is validated against the original Fortran reference (22/24 photo columns bit-identical across 725 timesteps) and all 6 guidance schemes are operational with GA-optimizable parameters. Items are grouped by domain and roughly prioritized within each section (high-impact first).
-
-**Legend**: [DONE] = implemented, [PARTIAL] = partially addressed, [NEW] = added since last revision
+This document lists physics, GNC, and software improvements for the aerocapture simulator. Items are grouped by domain and roughly prioritized within each section (high-impact first).
 
 ---
 
 ## 1. Atmosphere Model
 
-### 1.1 Upgrade to Mars Climate Database (MCD)
-
-The current model uses tabulated MarsGram 3.8 density vs altitude (`data/atmosphere/mars.dat`) with linear interpolation and exponential extrapolation above the table ceiling (`physics/atmosphere.rs`).
-
-- **Improvement**: Interface with MCD v6+ (LMD/CNRS), which provides density, temperature, pressure, and winds as functions of (altitude, latitude, longitude, solar longitude, local time, dust scenario).
-- **Impact**: More realistic atmospheric variability, especially important for Monte Carlo campaigns.
-
-### 1.2 [DONE] Separate truth vs onboard atmosphere models
-
-Implemented `OnboardAtmosphereModel` in `data/atmosphere.rs` — a piecewise exponential model auto-fitted from the truth density table at simulation init. Navigation (bias mode and EKF) and guidance schemes (FNPAG, equilibrium glide) query the degraded onboard model; physics propagation uses the full truth table with MC dispersions. Three TOML-configurable modes via `[onboard_atmosphere]`: `mode = "identical"` (truth table, backward compatible), `n_segments = N` (auto-fit), or explicit `segments = [...]`. Default: 5-segment auto-fit. The density filter now corrects meaningful structural error (piecewise exponential vs tabulated truth) plus random MC perturbations, not just a known table.
-
-### 1.3 Time-varying density perturbations
+### 1.1 Time-varying density perturbations
 
 Current dispersions are static per-run (piecewise linear altitude profile applied as a constant multiplier). Real atmospheric variability includes gravity waves, dust storms, and diurnal cycles.
 
 - **Improvement**: Add stochastic density perturbations that evolve during a run (e.g., Gauss-Markov process, or Dryden-like turbulence model applied to density).
 - **Impact**: Tests guidance robustness to transient density features, not just static biases.
 
-### 1.4 [DONE] Wind model
-
-Implemented altitude-dependent zonal/meridional wind profiles loaded from data files (`physics/winds.rs`, `data/atmosphere/mars_winds.dat`, `data/atmosphere/earth_winds.dat`). Parametric profiles based on Forget et al. 1999. Zonal wind cosine-scaled with latitude. MC dispersions include wind scaling factor (uniform) and direction bias (uniform rotation). Wired into equations of motion via `effective_airspeed()` — aero forces and heat flux use wind-corrected velocity, kinematic terms use planet-relative velocity. TOML-configurable via `[data] wind_table` path and `[monte_carlo.wind]` section. Backward compatible (absent wind table = no wind).
-
-### 1.5 Horizontal atmosphere variation
-
-The original Fortran had a crude sinusoidal horizontal variation model. The Rust code does not implement this.
-
-- **Improvement**: Use MCD's native 3D fields, or implement a proper gravity wave model with configurable wavelength/amplitude spectra.
-
 ---
 
-## 2. Gravity Model
+## 2. Thermal Environment
 
-### 2.1 [DONE] Higher-order gravity harmonics
-
-Implemented J3/J4 zonal harmonics in `physics/gravity.rs` using standard Legendre polynomial derivatives. Planet constants (mu, radii, omega, J2, J3, J4) moved from hard-coded `Planet` enum to TOML-configurable `PlanetConfig` struct, parsed from a `[planet]` section. Planet preset files in `configs/planets/` (Mars GMM-3, Earth WGS-84, Jupiter Juno) are base-inherited by mission configs. J3/J4 default to 0.0 when omitted. Full spherical harmonics (tesseral/sectorial) remain future work.
-
-### 2.2 Third-body perturbations
-
-No Sun or Phobos/Deimos gravitational perturbation.
-
-- **Improvement**: Add point-mass third-body accelerations for long-duration coasting arcs.
-- **Impact**: Low during atmospheric pass, relevant for multi-orbit or multi-pass scenarios.
-
----
-
-## 3. Aerodynamics
-
-### 3.1 Mach-dependent aero coefficients
-
-Mach number is not used — Cx and Cz are interpolated from 1D tables indexed by AoA only (`data/aerodynamics.rs`).
-
-- **Improvement**: Implement 2D aero tables Cx(AoA, Mach) and Cz(AoA, Mach). At Mars entry speeds (>5 km/s), real-gas and rarefied flow effects change the coefficients significantly across the trajectory.
-- **Impact**: High — the vehicle transitions from free-molecular to hypersonic continuum flow during entry, with Cx/Cz variations of 10-30%.
-
-### 3.2 Dynamic aero uncertainty model
-
-Current aero dispersions are constant uniform multipliers across the entire trajectory (`data/dispersions.rs`, aerodynamics section).
-
-- **Improvement**: Altitude/Mach-dependent aero uncertainty profiles. Different uncertainty levels for different flow regimes (free-molecular, transitional, continuum).
-- **Impact**: Better Monte Carlo fidelity.
-
-### 3.3 Ablation coupling
-
-No coupling between thermal protection system ablation and aerodynamic coefficients. Mass loss and shape change are ignored.
-
-- **Improvement**: Simple mass-decrement model coupled with AoA trim shift.
-- **Impact**: Low for short aerocapture passes (~5 min), potentially significant for multi-pass scenarios.
-
----
-
-## 4. Thermal Environment
-
-### 4.1 Improved heat flux correlation
-
-Current model: `q = Cq * sqrt(rho) * V^3` (Sutton-Graves convective correlation) in `physics/aerodynamics.rs`. No radiative heating.
-
-- **Improvement**: Add radiative heating component (significant above ~6 km/s), possibly via Tauber-Sutton or tabulated CFD-based correlations. Add stagnation point vs acreage distribution.
-- **Impact**: More accurate TPS sizing and thermal constraint evaluation.
-
-### 4.2 [DONE] Integrated heat load tracking
-
-Cumulative heat load was already computed via RK4 integration of `dflux` in `state[6]` and stored in `final_record[28]` as `integrated_flux_mj_m2`. Exposed through: trajectory data (column 15 = `heat_load_kj_m2`), photo CSV (new column), PyO3 `SimResult.integrated_heat_load` getter, and GA cost function (`heat_load_weight` penalty, `max_heat_load` constraint in mission TOML). New `chart_heat_load_time()` chart function for cumulative heat load vs time spaghetti plots.
-
-### 4.3 Heat rate and heat load as guidance constraints
+### 2.1 Heat rate and heat load as guidance constraints
 
 Heat flux is tracked but not used as a guidance constraint.
 
@@ -99,23 +25,16 @@ Heat flux is tracked but not used as a guidance constraint.
 
 ---
 
-## 5. Navigation
+## 3. Navigation
 
-### 5.1 [DONE] Replace bias-only navigation with EKF
+### 3.1 Improve density estimation filter
 
-Implemented a 13-state Extended Kalman Filter (`gnc/navigation/ekf.rs`) with error-state formulation: position/velocity errors (6), accelerometer biases (3), gyro biases (3), density correction factor (1). Includes IMU sensor model (`imu.rs`: bias, scale factor, white noise) and star tracker model (`star_tracker.rs`: position updates with dynamic pressure blackout during atmospheric pass). Drag-derived density updates replace the legacy exponential filter when in EKF mode. TOML-configurable via `[navigation] mode = "ekf"` with `[navigation.imu]`, `[navigation.star_tracker]`, and `[navigation.ekf]` sections. Mode switch in `estimator.rs` via `NavigationFilter` enum — `mode = "bias"` (default) preserves all existing behavior. UKF remains future work.
+The exponential filter `gain = (1-lambda)*gain_prev + lambda*(rho_est/rho_model)` is functional with lambda clamped to [0.01, 0.99] (`estimator.rs`), preventing a legacy instability. The EKF includes a density correction state, but the legacy bias-mode filter could still benefit from:
 
-### 5.2 [PARTIAL] Improve density estimation filter
+- Add gain saturation bounds (e.g., 0.1 < gain < 10) as a safety net
+- Add outlier rejection (if |rho_est/rho_model - gain| > threshold, hold previous value)
 
-The exponential filter `gain = (1-lambda)*gain_prev + lambda*(rho_est/rho_model)` is functional with lambda clamped to [0.01, 0.99] (`estimator.rs`), preventing the legacy Fortran instability. However it remains a simple exponential smoother with no state covariance.
-
-- **Remaining improvements**:
-  - Add gain saturation bounds (e.g., 0.1 < gain < 10) as a safety net
-  - Replace with a proper density estimation state in the Kalman filter (see 5.1)
-  - Add outlier rejection (if |rho_est/rho_model - gain| > threshold, hold previous value)
-- **Impact**: Improves guidance robustness for edge cases where the density ratio spikes transiently.
-
-### 5.3 Drag acceleration extraction
+### 3.2 Drag acceleration extraction
 
 Currently `rho_est = 2*|a_drag|*m / (Cx*S*V^2)` assumes all measured acceleration is drag. This ignores the lift component and gravity projection.
 
@@ -124,40 +43,30 @@ Currently `rho_est = 2*|a_drag|*m / (Cx*S*V^2)` assumes all measured acceleratio
 
 ---
 
-## 6. Guidance
+## 4. Guidance
 
-### 6.1 [DONE] Predictor-corrector guidance
-
-FNPAG (`gnc/guidance/fnpag.rs`) implements a full numerical predictor-corrector (Ping Lu's algorithm):
-
-- Forward trajectory prediction via 2000-step Euler integration with simplified dynamics
-- Secant method root-finding to match target exit orbital energy
-- Re-plans every guidance step — inherently robust to dispersions
-
-The original FTC scheme (`gnc/guidance/ftc.rs`) remains a proportional feedback law on reference trajectory deviations (not a true predictor-corrector), but FNPAG fills this gap.
-
-### 6.2 Fix gain discontinuity at altitude table boundary
+### 4.1 Fix gain discontinuity at altitude table boundary
 
 The altitude-dependent gain table (`compute_gains()` in `ftc.rs`) has entries up to a maximum altitude. Above this ceiling, extrapolation can cause gain discontinuities.
 
 - **Improvement**: Extend the gain table to cover the full altitude range, or implement smooth gain scheduling that fades to zero above the sensible atmosphere.
 - **Impact**: Prevents transient bank angle spikes during initial entry and final exit.
 
-### 6.3 [NEW] Exit phase guidance
+### 4.2 Exit phase guidance
 
 The navigation state tracks `guidance_phase` (capture=1, exit=2) but the phase transition logic is currently hardcoded to phase 1. Exit phase guidance is not active.
 
 - **Improvement**: Implement exit phase guidance that targets the final orbit parameters (apoapsis, periapsis, inclination) using the remaining atmospheric pass. Enable phase transition when radial velocity becomes positive after the trajectory nadir.
 - **Impact**: Better orbit insertion accuracy, especially for inclination and RAAN corrections.
 
-### 6.4 [NEW] FNPAG predictor fidelity
+### 4.3 FNPAG predictor fidelity
 
 FNPAG uses simplified dynamics for prediction (planar, no J2, constant bank, exponential atmosphere). This limits accuracy for long atmospheric passes or high-latitude entries.
 
 - **Improvement**: Add J2 gravity and 3D trajectory propagation to the predictor. Use the actual atmosphere table instead of an exponential fit. Consider adaptive prediction horizon.
 - **Impact**: Better convergence and accuracy for challenging entry conditions.
 
-### 6.5 Bank angle rate and acceleration limits
+### 4.4 Bank angle rate and acceleration limits
 
 Guidance computes bank angle without considering how fast the vehicle can actually rotate. The pilot model (`gnc/control/pilot.rs`) enforces rate limits, but guidance doesn't anticipate this.
 
@@ -166,63 +75,27 @@ Guidance computes bank angle without considering how fast the vehicle can actual
 
 ---
 
-## 7. Control (Pilot Model)
+## 5. Lateral Guidance
 
-### 7.1 Actuator dynamics
+### 5.1 Improved roll reversal logic
 
-The pilot model (`gnc/control/pilot.rs`) supports Perfect, FirstOrder, and SecondOrder dynamics with bank rate saturation. No actuator saturation, no thruster on/off logic, no fuel consumption.
-
-- **Improvement**: Model RCS thruster pulse-width modulation, fuel mass tracking, thruster failure modes.
-- **Impact**: More realistic bank angle response and enables propellant budget analysis.
-
-### 7.2 AoA modulation
-
-AoA is set from an altitude-dependent incidence profile lookup (`data/incidence.rs`). No dynamic AoA control during the pass.
-
-- **Improvement**: Implement AoA trim control that adjusts L/D as a function of altitude or energy to expand the flyable corridor.
-- **Impact**: Additional control authority for corridor management.
-
----
-
-## 8. Lateral Guidance & Roll Reversal
-
-### 8.1 Improved roll reversal logic
-
-The current roll sign management (`lateral_guidance()` in `ftc.rs`) uses a velocity-dependent inclination error corridor: `i_max(V) = (V/corridor_slope)^4 + corridor_intercept`. This can cause unnecessary reversals.
+The current roll sign management uses a velocity-dependent inclination error corridor: `i_max(V) = (V/corridor_slope)^4 + corridor_intercept`. This can cause unnecessary reversals.
 
 - **Improvement**: Predictive roll reversal that accounts for the remaining trajectory and total delta-inclination needed. Bank-angle-weighted heading error integration.
 - **Impact**: Fewer roll reversals = less propellant, less thermal exposure.
 
-### 8.2 Coupled longitudinal-lateral guidance
-
-Longitudinal (bank magnitude) and lateral (bank sign) guidance are currently decoupled. The bank magnitude is computed ignoring the sign constraint, then the sign is chosen independently.
-
-- **Improvement**: Joint optimization of bank magnitude and sign, accounting for both energy management and plane change simultaneously.
-- **Impact**: Better overall trajectory optimization, especially for missions requiring large plane changes.
-
-### 8.3 [NEW] NN-driven roll reversal
-
-The neural network guidance currently outputs a signed bank angle via `atan2(out[0], out[1])` but still relies on the FTC lateral guidance for roll reversal decisions.
-
-- **Improvement**: Let the NN handle roll reversal directly by training it to output the sign as part of its bank angle command. This removes the dependency on the classical corridor-based reversal logic.
-- **Impact**: Potentially smoother trajectories and fewer reversals if the NN learns a better policy.
-
 ---
 
-## 9. Monte Carlo Framework
+## 6. Monte Carlo Framework
 
-### 9.1 Advanced sampling methods
+### 6.1 Advanced sampling methods
 
 Current Monte Carlo uses Gaussian (initial state, navigation) and uniform (atmosphere, aero, pilot) random draws (`data/dispersions.rs`).
 
 - **Improvement**: Latin Hypercube Sampling (LHS), Sobol quasi-random sequences, or importance sampling for rare-event analysis (e.g., TPS failure probability).
 - **Impact**: Better coverage of the dispersion space with fewer runs (10x efficiency improvement typical for LHS vs random).
 
-### 9.2 [DONE] Parallel execution
-
-Monte Carlo runs are parallelized with Rayon (`runner.rs`). Each run is independent, using `par_iter().map()` for linear speedup with core count.
-
-### 9.3 Sensitivity analysis
+### 6.2 Sensitivity analysis
 
 No built-in sensitivity analysis (which dispersions matter most?).
 
@@ -231,16 +104,9 @@ No built-in sensitivity analysis (which dispersions matter most?).
 
 ---
 
-## 10. Integration
+## 7. Integration
 
-### 10.1 Adaptive step sizing
-
-The Gill-variant RK4 integrator (`integration/rk4.rs`) uses a fixed timestep (configurable via TOML `periods.integration`, typically 1 s). This is fine during the atmospheric pass but wasteful during coasting.
-
-- **Improvement**: Implement RK4(5) Dormand-Prince with adaptive step control, or at minimum a two-phase scheme (large steps during coast, small steps during atmospheric pass).
-- **Impact**: Faster simulation for multi-pass or long-coast scenarios, better accuracy during rapid dynamics.
-
-### 10.2 Event detection
+### 7.1 Event detection
 
 No proper event detection (atmosphere entry/exit, bounce, crash). Currently uses altitude threshold checks at fixed intervals.
 
@@ -249,90 +115,71 @@ No proper event detection (atmosphere entry/exit, bounce, crash). Currently uses
 
 ---
 
-## 11. Output & Analysis
+## 8. Output & Analysis
 
-### 11.1 [PARTIAL] Output formats
+### 8.1 Output formats
 
-Output is now clean CSV with named column headers — photo CSV (21 columns) and final CSV (39 columns) with 10 significant figures (`simulation/output.rs`). This is a major improvement over the legacy fixed-width Fortran format.
+Output is clean CSV with named column headers — photo CSV and final CSV with 10 significant figures. Remaining improvements:
 
-- **Remaining improvements**:
-  - Add HDF5 or Parquet output for large MC campaigns (smaller files, faster I/O)
-  - Embed config/dispersions/random seed metadata in the output file for reproducibility
-  - Add per-run dispersion values to the final CSV
-
-### 11.2 Real-time visualization
-
-No real-time feedback during simulation.
-
-- **Improvement**: Optional WebSocket or shared-memory interface for live trajectory plotting during long MC campaigns.
-
-### 11.3 [NEW] Training visualization
-
-The GA training pipeline saves checkpoints but has limited visualization of training progress.
-
-- **Improvement**: Live cost function plots, population diversity metrics, convergence diagnostics. Optionally integrate with TensorBoard or Weights & Biases for experiment tracking.
-- **Impact**: Faster debugging of training runs, better hyperparameter tuning.
+- Add HDF5 or Parquet output for large MC campaigns (smaller files, faster I/O)
+- Embed config/dispersions/random seed metadata in the output file for reproducibility
+- Add per-run dispersion values to the final CSV
 
 ---
 
-## 12. Training & ML
+## 9. Training & ML
 
-### 12.1 [NEW] Alternative optimization algorithms
+### 9.1 Alternative optimization algorithms and real-valued encoding
 
-The current GA uses binary-encoded chromosomes with roulette wheel selection, uniform crossover, and bit-flip mutation (`training/train.py`). This is functional but may not be the most efficient optimizer for all parameter spaces.
+The current GA uses binary-encoded chromosomes with roulette wheel selection, uniform crossover, and bit-flip mutation. This is functional but has known limitations: scale-blind bit-flip mutation doesn't respect parameter sensitivity, and binary encoding wastes resolution.
 
-- **Improvement**: Add CMA-ES (excellent for continuous optimization), PSO (particle swarm), or differential evolution as alternative optimizers. Consider Bayesian optimization for expensive-to-evaluate configurations. Investigate the use of Reinforcement Learning for NN (and others?).
-- **Impact**: Potentially faster convergence, especially for smooth parameter landscapes (equilibrium glide, energy controller).
+- **Improvement**: Switch from binary GA to real-valued GA: SBX crossover + polynomial mutation (DEAP built-in), normalize all parameters to [0,1] internally, adaptive mutation rates per parameter. Also consider CMA-ES (excellent for continuous optimization), PSO, differential evolution, or Bayesian optimization. Investigate Reinforcement Learning for NN training.
+- **Impact**: Potentially faster convergence, especially for smooth parameter landscapes. Real-valued encoding eliminates the scale-blind bit-flip problem entirely.
 
-### 12.2 [NEW] Recurrent and transformer architectures
+### 9.2 Recurrent and transformer architectures
 
 The neural network guidance uses a feedforward architecture (`gnc/guidance/neural.rs`). This cannot exploit temporal correlations in the trajectory.
 
-- **Improvement**: Implement LSTM or Transformer-based guidance that conditions on trajectory history (previous states, density estimates, bank angle commands). Requires backpropagation through time for training but can also be trained with GA and equivalent.
+- **Improvement**: Implement LSTM or Transformer-based guidance that conditions on trajectory history (previous states, density estimates, bank angle commands). Requires backpropagation through time for training but can also be trained with GA.
 - **Impact**: Could learn more sophisticated strategies that adapt to evolving conditions during the pass, rather than reacting to instantaneous state only.
 
-### 12.3 [NEW] Neural navigation and control
+### 9.3 Neural navigation and control
 
 Only guidance uses neural networks. Navigation and control use classical algorithms.
 
 - **Improvement**: Train neural counterparts for the density estimator (replacing the exponential filter) and the pilot model (replacing the first/second-order dynamics). Compare against classical algorithms on identical MC scenarios.
 - **Impact**: Benchmarks classical vs learned components; may discover better density estimation strategies.
 
-### 12.4 [NEW] Cost function design
-
-The current cost function penalizes energy error, inclination error, max g-load, and heat load. The relative weighting and functional form significantly affect what the optimizer converges to.
-
-- **Improvement**: Investigate multi-objective optimization (Pareto fronts of correction cost vs constraints). Add delta-V cost as a primary objective. Explore curriculum learning (easy scenarios first, then harder dispersions).
-- **Impact**: Better-tuned guidance parameters that balance performance across the dispersion space.
-
 ---
 
-## 13. Mission Extensions
+## 10. Mission Extensions
 
-### 13.1 Multi-pass aerocapture
-
-Current code assumes single-pass aerocapture (enter atmosphere, exit, done).
-
-- **Improvement**: Support multi-pass scenarios where the vehicle performs several atmospheric dips to gradually lower the orbit. Requires inter-pass coast propagation and re-entry targeting.
-- **Impact**: Enables lower-L/D vehicle designs and reduces peak heating.
-
-### 13.2 Drag modulation
-
-Current control is bank angle only (lift vector orientation). Some aerocapture concepts use drag modulation (jettisoning ballast, deploying drag devices) instead of or in addition to bank angle.
-
-- **Improvement**: Add drag modulation as an alternative control mode. Model discrete drag events (ballast jettison) or continuous modulation (deployable surfaces).
-- **Impact**: Enables simulation of a broader class of aerocapture vehicles.
-
-### 13.3 Venus and Titan applications
-
-The code currently supports Moon, Earth, Mars, Jupiter (`config.rs` Planet enum). Venus and Titan are prime aerocapture targets.
-
-- **Improvement**: Add Venus (CO2 atmosphere, ~90 bar surface, extreme heating) and Titan (N2/CH4 atmosphere, low gravity, thick atmosphere) with appropriate atmosphere tables and gravity models.
-- **Impact**: Broadens the simulator's applicability to other planetary missions.
-
-### 13.4 [NEW] Earth return (ESR) mission profiles
+### 10.1 Earth return (ESR) mission profiles
 
 The simulator has ESR reference trajectory data (`data/reference_trajectory/esr_aller.dat`) but ESR-specific configurations and validation are limited.
 
 - **Improvement**: Develop and validate ESR entry profiles, including Earth-specific atmosphere dispersions, higher entry velocities (~12 km/s), and appropriate thermal constraints.
 - **Impact**: Supports Mars Sample Return Earth entry phase analysis.
+
+---
+
+## Not For Now
+
+Items deferred because they require unavailable data, external dependencies, or are out of scope for the current simulator.
+
+| Item | Reason |
+|------|--------|
+| MCD v6+ atmosphere interface | External dependency, out of scope |
+| Horizontal atmosphere variation | Depends on MCD or gravity wave model |
+| Third-body perturbations | Low impact for single-pass aerocapture |
+| Mach-dependent Cx/Cz tables | No data available |
+| Dynamic aero uncertainty model | Needs regime-specific uncertainty data |
+| Ablation coupling | Needs TPS data, low impact for single-pass |
+| Radiative heat flux correlation | Borderline relevance at Mars entry speeds |
+| RCS actuator dynamics | Not modeling propulsion |
+| AoA modulation | Needs multi-AoA/Mach aero data |
+| Coupled longitudinal-lateral guidance | Ambitious, lower priority |
+| Real-time visualization | Nice-to-have, significant plumbing |
+| Multi-pass aerocapture | Large scope expansion |
+| Drag modulation | No drag device data |
+| Venus/Titan applications | Atmosphere data not available |
