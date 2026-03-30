@@ -2,6 +2,7 @@
 
 pub mod energy_controller;
 pub mod equilibrium_glide;
+pub mod exit;
 pub mod fnpag;
 pub mod ftc;
 pub mod lateral;
