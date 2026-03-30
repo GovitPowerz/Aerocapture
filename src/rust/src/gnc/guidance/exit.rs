@@ -201,7 +201,7 @@ mod tests {
 
         assert!(bank.is_finite(), "bank angle must be finite, got {}", bank);
         assert!(
-            bank >= 0.0 && bank <= std::f64::consts::PI,
+            (0.0..=std::f64::consts::PI).contains(&bank),
             "bank={:.4} rad ({:.1}°) outside [0, π]",
             bank,
             bank.to_degrees(),
@@ -249,7 +249,7 @@ mod tests {
             bank,
         );
         assert!(
-            bank >= 0.0 && bank <= std::f64::consts::PI,
+            (0.0..=std::f64::consts::PI).contains(&bank),
             "bank={:.4} rad outside [0, π] with zero density_exit",
             bank,
         );
