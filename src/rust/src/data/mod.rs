@@ -10,7 +10,7 @@ pub mod neural;
 pub mod pilot;
 
 use crate::config::{
-    GuidanceType, IntegrationMode, SimInput, TomlConfig, TomlMonteCarlo, TomlNavigation,
+    GuidanceType, IntegrationMode, SimInput, SimPhase, TomlConfig, TomlMonteCarlo, TomlNavigation,
 };
 use crate::gnc::guidance::lateral::LateralParams;
 use crate::physics::winds;
@@ -175,6 +175,8 @@ pub struct SimData {
     pub nav_config: Option<TomlNavigation>,
     /// Integration method: fixed Gill RK4 (default) or adaptive DOPRI45
     pub integration_mode: IntegrationMode,
+    /// Simulation phase mode (Full, CaptureOnly, ExitOnly, Preprogrammed)
+    pub sim_phase: SimPhase,
 }
 
 const G0: f64 = 9.81;
@@ -609,6 +611,7 @@ impl SimData {
             nav_mode,
             nav_config: toml.navigation.clone(),
             integration_mode: IntegrationMode::from_toml(&toml.integration, v.periods.integration),
+            sim_phase: config.sim_phase,
         })
     }
 }
