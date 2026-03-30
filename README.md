@@ -8,20 +8,30 @@ Built as a **Rust simulator** with **Python analysis tools**. Validated against 
 
 ```bash
 # Build the Rust simulator
-cd src/rust
-cargo build --release
+cd src/rust && cargo build --release && cd ../..
 
-# Run with TOML config
-./target/release/aerocapture ../../configs/nominal/msr_aller_ftc_nominal.toml
+# Run a simulation with TOML config
+./src/rust/target/release/aerocapture configs/nominal/msr_aller_ftc_nominal.toml
+
+# Build PyO3 bindings (optional, speeds up training ~10x)
+cd src/rust/aerocapture-py && maturin develop --release && cd ../../..
+
+# Set up Python environment
+uv sync --group dev
+
+# Run tests
+cargo test --release --manifest-path src/rust/Cargo.toml
+uv run pytest tests/
 ```
 
 ## Project Structure
 
 ```
 src/
-  rust/                    Rust simulator (validated reimplementation)
+  rust/                    Rust simulator (core crate + CLI entry)
     aerocapture-py/        PyO3 Python bindings (aerocapture_rs module)
   python/                  Python analysis package (parsing, plotting, training)
+  typst/                   PDF report templates (compiled by typst)
 configs/
   planets/                 Planet physical constants (mu, radii, omega, J2/J3/J4)
   missions/                Shared per-planet base configs (inherit from planets/)
@@ -29,41 +39,92 @@ configs/
   training/                GA training configs (per scheme) + common.toml (shared MC/cost)
   test/                    Golden test configurations (regression tests)
 data/
-  atmosphere/              Atmosphere density tables (Mars, Earth)
+  atmosphere/              Atmosphere density + wind tables (Mars, Earth)
   reference_trajectory/    Reference trajectories for guided schemes
-tests/                     Test framework and golden reference data
+training_output/           GA training output (checkpoints, logs, reports, animations)
+tests/                     Python test suite + golden reference data
 ```
 
-## Guidance Schemes
+## TOML Configuration
 
-Seven guidance algorithms are implemented, all GA-optimizable:
+Configs are the **only input format** — no command-line flags for mission parameters. The system uses a **base inheritance** mechanism: each config can reference parent files via a `base` key, resolved relative to the declaring file. The loader deep-merges bases left-to-right, then overlays the child's own keys.
 
-| Scheme | Description | Params |
-|---|---|---|
-| **Piecewise Constant** | 10-segment bank angle profile (train first — produces ref trajectory + corridor) | 10 |
-| **FTC** | Predictor-corrector with reference trajectory tracking | 8 |
-| **Neural Network** | Trained NN maps nav state to bank angle command | 110 |
-| **Equilibrium Glide** | Balances gravity, centrifugal, and lift forces | 7 |
-| **Energy Controller** | Tracks reference energy dissipation profile | 3 |
-| **PredGuid** | Apollo/Shuttle-heritage drag tracking | 3 |
-| **FNPAG** | Lu's numerical predictor-corrector | 5 |
+```
+configs/planets/mars.toml          Planet constants (mu, radii, J2/J3/J4)
+         ^
+configs/missions/mars.toml         Entry conditions, vehicle, aero, atmosphere, constraints
+         ^
+configs/training/common.toml       MC dispersions, cost function, simulation settings
+         ^
+configs/training/msr_aller_eqglide_train.toml   Just: guidance type + results suffix
+```
+
+A typical training config is only 9 lines because everything else is inherited:
+
+```toml
+base = ["../missions/mars.toml", "common.toml"]
+
+[guidance]
+type = "equilibrium_glide"
+
+[data]
+results_suffix = ".train_eqglide"
+```
+
+Adding a new planet requires only a new TOML preset file in `configs/planets/` — no Rust changes.
+
+## Physical Models
+
+| Model | Description |
+|---|---|
+| **Gravity** | J2/J3/J4 zonal harmonic gravity (J3/J4 default to 0 if omitted) |
+| **Atmosphere** | Tabulated density vs altitude (MarsGram 3.8 for Mars). Separate piecewise-exponential onboard model for nav/guidance (auto-fitted or explicit segments) |
+| **Winds** | Altitude-dependent zonal/meridional wind profiles with MC dispersions (based on Forget et al. 1999) |
+| **Aerodynamics** | Cx/Cz vs angle-of-attack tables, configurable vehicle (mass, reference area, max bank rate) |
+| **Integration** | Fixed-step Gill-variant RK4 (default, validated) or adaptive Dormand-Prince 4(5) with PI step-size control |
 
 ## GNC Architecture
 
 The simulation implements a full closed-loop GNC chain:
 
 1. **Navigation** — Two modes: legacy bias-only, or 13-state EKF (IMU sensor model + star tracker with atmospheric blackout + drag-derived density estimation). Configurable via `[navigation] mode = "bias"` or `"ekf"`.
-2. **Guidance** — One of 7 algorithms computes bank angle command (see table above)
-3. **Lateral guidance** — Roll sign management via inclination error with deadband
+2. **Guidance** — One of 7 algorithms computes a bank angle command (see table below)
+3. **Lateral guidance** — Roll sign management via inclination-corridor logic with deadband. Shared by unsigned-magnitude schemes (EqGlide, EnergyCtrl, PredGuid, FNPAG). NN and PiecewiseConstant produce signed bank angles and bypass lateral guidance entirely.
 4. **Control** — Pilot dynamics model applies rate limits and first/second-order lag to bank angle commands
-5. **Integration** — Two modes: fixed-step Gill-variant RK4 (default, validated) or adaptive Dormand-Prince 4(5) with embedded error estimation and PI step-size control (`[integration] mode = "adaptive"`). Both propagate equations of motion with J2/J3/J4 zonal harmonic gravity, tabulated atmosphere (truth) with separate piecewise-exponential onboard model for nav/guidance, altitude-dependent wind model, and aerodynamic forces. Adaptive mode sub-steps within each GNC tick — guidance/navigation cadences are unchanged
+5. **Integration** — Propagates equations of motion with all physical models above. Adaptive mode sub-steps within each GNC tick — guidance/navigation cadences are unchanged.
+
+## Guidance Schemes
+
+Seven guidance algorithms, all GA-optimizable:
+
+| Scheme | Description | Params | Notes |
+|---|---|---|---|
+| **Piecewise Constant** | 10-segment bank angle profile | 10 | Train first — produces ref trajectory + corridor |
+| **FTC** | Predictor-corrector with reference trajectory tracking | 8 | Requires ref trajectory |
+| **Neural Network** | Trained NN maps nav state to signed bank angle (atan2) | ~110 | Independent, signed bank |
+| **Equilibrium Glide** | Balances gravity, centrifugal, and lift forces | 7 | Independent |
+| **Energy Controller** | Tracks reference energy dissipation profile | 3 | Requires ref trajectory |
+| **PredGuid** | Apollo/Shuttle-heritage drag tracking | 3 | Requires ref trajectory |
+| **FNPAG** | Lu's numerical predictor-corrector | 5 | Requires ref trajectory |
+
+**Training order:** Run `piecewise_constant` first — it produces `ref_trajectory.dat` (optimized reference) and `corridor_boundaries.npz` (4-layer corridor envelopes from GA population history). Schemes marked "Requires ref trajectory" will error at startup if it's missing.
 
 ## GA Optimization
 
-All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load, heat flux, and integrated heat load exceedances. The cost function uses a C1-continuous log-capped compression (`log_cap`) that smoothly transitions from linear to logarithmic above a configurable threshold (default 1000 m/s), preventing outliers from dominating the RMS. The simulator returns meaningful DV values for all termination outcomes — captured (real orbital correction), hyperbolic (excess velocity), crash/pending crash/timeout (proportional virtual DV) — so no branching on capture status is needed. Training auto-resumes from existing checkpoints (use `-fs` to start fresh). On resume, `--n-gen` means "N additional generations." Training supports graceful Ctrl+C interruption (saves checkpoint and returns cleanly).
+All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load, heat flux, and integrated heat load exceedances.
+
+The cost function uses a C1-continuous log-capped compression (`log_cap`) that smoothly transitions from linear to logarithmic above a configurable threshold (default 1000 m/s), preventing outliers from dominating the RMS. The simulator returns meaningful DV values for all termination outcomes (captured, hyperbolic, crash, pending crash, timeout), so no branching on capture status is needed.
+
+Training features:
+- Auto-resumes from existing checkpoints (use `-fs` to start fresh)
+- `--n-gen` means "N additional generations" when resuming
+- Graceful Ctrl+C (saves checkpoint and returns cleanly)
+- Rich TUI with sparklines, ETA, progress bar
+- Rotating or adaptive MC dispersion seeds (prevents overfitting)
+- PDF report auto-generated at end of training
 
 ```bash
-# Optimize any guidance scheme (Rich TUI with sparklines and ETA)
+# Optimize any guidance scheme
 uv run python -m aerocapture.training.train \
     configs/training/msr_aller_eqglide_train.toml \
     --n-gen 50 --n-pop 20
@@ -71,19 +132,18 @@ uv run python -m aerocapture.training.train \
 # Disable TUI (CI / piped output)
 uv run python -m aerocapture.training.train <config.toml> --no-tui
 
-# Rotate MC dispersion seeds each generation (prevents overfitting)
-uv run python -m aerocapture.training.train <config.toml> --rotate-seeds
-
 # Adaptive seed pool (curates seeds by difficulty, CVaR-blended fitness)
 uv run python -m aerocapture.training.train <config.toml> --adaptive-seeds
+```
 
-# Compare all schemes on identical MC scenarios
-uv run python -m aerocapture.training.compare_guidance \
-    --base-toml configs/training/msr_aller_eqglide_train.toml \
-    --n-sims 100
+## Reports and Visualization
 
-# PDF report (training convergence + final MC evaluation in one document)
-# Auto-generated at end of training; also standalone:
+### PDF Reports (Typst)
+
+Auto-generated at end of training, or standalone:
+
+```bash
+# Single-scheme report (training convergence + final MC evaluation)
 uv run python -m aerocapture.training.report \
     training_output/equilibrium_glide/ \
     --toml configs/training/msr_aller_eqglide_train.toml
@@ -92,11 +152,31 @@ uv run python -m aerocapture.training.report \
 uv run python -m aerocapture.training.report --compare training_output/
 ```
 
-## Validation
+Reports include: cost convergence curves, population diversity, corridor plots with zone fills, altitude/heat flux/g-load/bank angle vs time spaghetti with constraint limit lines, DV distributions, entry/exit conditions, performance summary tables. Compiled via `typst` (install with `brew install typst`). Degrades gracefully if Typst is not installed — charts are still generated as SVGs.
 
-The Rust simulator has been validated against a reference implementation across all 725 timesteps of a guided FTC trajectory:
-- **22 of 24** photo output columns are bit-identical
-- The remaining 2 differ only at the first timestep due to uninitialized variable artifacts in the reference
+### Training Animation
+
+Replay training checkpoints as a GIF showing how corridors and trajectories evolve over generations:
+
+```bash
+uv run python -m aerocapture.training.animate \
+    training_output/piecewise_constant/ \
+    --toml configs/training/msr_aller_piecewise_constant_train.toml \
+    --n-sims 100 --fps 4 --every 5
+```
+
+Produces a 2x2 animation (corridor with envelope fills, inclination, bank angle, cost CDF) by re-running MC simulations at each checkpoint via PyO3.
+
+### Scheme Comparison
+
+Fair head-to-head comparison on identical MC scenarios:
+
+```bash
+uv run python -m aerocapture.training.compare_guidance \
+    --base-toml configs/training/msr_aller_eqglide_train.toml \
+    --n-sims 100 \
+    --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network
+```
 
 ## PyO3 Python Bindings
 
@@ -109,15 +189,46 @@ import aerocapture_rs as aero
 result = aero.run("configs/test/test_ref_orig.toml")
 print(f"Captured: {result.captured}, dV: {result.delta_v:.1f} m/s")
 
+# Monte Carlo with trajectory data
+mc = aero.run_mc("config.toml", overrides={"simulation.n_sims": 1000},
+                 include_trajectories=True)
+print(f"Final records: {mc.final_records.shape}")       # (1000, 52)
+print(f"Trajectories: {len(mc.trajectories)} arrays")   # list of (N, 16)
+
 # Batch run with per-sim overrides (parallel via Rayon)
-overrides = [{"simulation.random_seed": float(i) / 10} for i in range(100)]
-batch = aero.run_batch("configs/training/msr_aller_ftc_train.toml", overrides)
-print(f"Final records: {batch.final_records.shape}")  # (100, 52)
+overrides = [{"guidance.equilibrium_glide.gain_kp": v} for v in [0.1, 0.5, 1.0]]
+batch = aero.run_batch("config.toml", overrides)
 ```
 
 Build with: `cd src/rust/aerocapture-py && maturin develop --release`
 
 The training pipeline auto-detects PyO3 and falls back to subprocess if not installed.
+
+## Validation
+
+The Rust simulator has been validated against a reference implementation across all 725 timesteps of a guided FTC trajectory:
+- **22 of 24** photo output columns are bit-identical
+- The remaining 2 differ only at the first timestep due to uninitialized variable artifacts in the reference
+
+## Testing
+
+```bash
+# Rust tests (~277 tests)
+cargo test --release --manifest-path src/rust/Cargo.toml
+
+# Python tests (~303 tests)
+uv run pytest tests/
+
+# Linting + type checking
+./lint_code.sh        # ruff (imports, format, lint) + mypy
+
+# Full Rust check (test + fmt + clippy + release build)
+./check_all.sh
+```
+
+**Rust tests** cover: physics (J2/J3/J4 gravity with proptest), all 7 guidance schemes, lateral guidance, navigation (bias + EKF), wind model, control (pilot dynamics, angle utils), DOPRI45 adaptive integrator, TOML base inheritance, virtual DV ranges, trajectory heat load.
+
+**Python tests** cover: parsers, regression, GA pipeline, training visualization, training animation, NN weight initialization, adaptive seed pool, graceful interrupt, TOML base inheritance, PyO3 integration (bit-identical regression), corridor accumulator, unified cost function.
 
 ## CI
 
@@ -130,16 +241,13 @@ GitHub Actions runs on PRs to `main` and manual dispatch:
 ## Build Commands
 
 ```bash
-# Build everything (Rust binary + PyO3 bindings)
-./build.sh
-
-# Build and clean intermediate artifacts
-./build.sh -c
-
-# Python dependencies
-uv sync && pytest tests
+./build.sh              # Build Rust binary + PyO3 bindings (-c to clean artifacts)
+./setup_env.sh          # Create fresh .venv + install deps
+./lint_code.sh          # Run ruff (imports, format, lint) + mypy
+./check_all.sh          # Rust: test + fmt --check + clippy + release build
+./upgrade_dependencies.sh   # uv sync --upgrade
 ```
 
 ## Roadmap
 
-See [IMPROVEMENTS.md](IMPROVEMENTS.md) for the physics, GNC, and software improvement roadmap.
+See [TODO.md](TODO.md) for the prioritized task list and [IMPROVEMENTS.md](IMPROVEMENTS.md) for the detailed physics, GNC, and software improvement roadmap.
