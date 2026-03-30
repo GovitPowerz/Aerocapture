@@ -235,6 +235,9 @@ pub fn navigate(
     if out.crash_flag == 1 {
         nav_state.guidance_phase = 3;
     } else if velocity_radial >= 120.0 {
+        // Fallback path to exit phase: strong upward radial velocity after bounce.
+        // For schemes without tuned exit params (defaults = 0.0), this produces
+        // full lift-up (bank=0) on the ascending leg, which is a safe default.
         nav_state.guidance_phase = 2;
     }
 
@@ -566,6 +569,9 @@ pub fn navigate_ekf(
     if out.crash_flag == 1 {
         legacy.guidance_phase = 3;
     } else if velocity_radial >= 120.0 {
+        // Fallback path to exit phase: strong upward radial velocity after bounce.
+        // For schemes without tuned exit params (defaults = 0.0), this produces
+        // full lift-up (bank=0) on the ascending leg, which is a safe default.
         legacy.guidance_phase = 2;
     }
 
