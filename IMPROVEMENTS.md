@@ -29,7 +29,7 @@ Heat flux is tracked but not used as a guidance constraint.
 
 ### 3.1 Improve density estimation filter
 
-The exponential filter `gain = (1-lambda)*gain_prev + lambda*(rho_est/rho_model)` is functional with lambda clamped to [0.01, 0.99] (`estimator.rs`), preventing the legacy Fortran instability. The EKF includes a density correction state, but the legacy bias-mode filter could still benefit from:
+The exponential filter `gain = (1-lambda)*gain_prev + lambda*(rho_est/rho_model)` is functional with lambda clamped to [0.01, 0.99] (`estimator.rs`), preventing a legacy instability. The EKF includes a density correction state, but the legacy bias-mode filter could still benefit from:
 
 - Add gain saturation bounds (e.g., 0.1 < gain < 10) as a safety net
 - Add outlier rejection (if |rho_est/rho_model - gain| > threshold, hold previous value)

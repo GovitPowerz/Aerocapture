@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Aerocapture is a trajectory simulation tool for aerocapture maneuvers (primarily Mars Sample Return). The project was modernized from a legacy Fortran 77 codebase into a **Rust simulator** with **Python analysis tools**. The Rust simulator was **validated against the Fortran reference** (now removed from the working tree but preserved in git history) — FTC guided trajectories matched to bit-level precision across all 725 timesteps (22/24 photo columns exact; the remaining 2 were Fortran uninitialized variable artifacts).
+Aerocapture is a trajectory simulation tool for aerocapture maneuvers (primarily Mars Sample Return). The **Rust simulator** with **Python analysis tools** was validated against a legacy reference implementation to bit-level precision — FTC guided trajectories matched across all 725 timesteps (22/24 photo columns exact; the remaining 2 were uninitialized variable artifacts in the reference).
 
 The simulation models a spacecraft entering a planet's atmosphere at hyperbolic velocity, using aerodynamic forces and bank angle modulation to capture into a target orbit. Includes altitude-dependent wind model (zonal/meridional profiles with MC dispersions) and two navigation modes: legacy bias-only or 13-state EKF (IMU + star tracker with atmospheric blackout + drag-derived density estimation). The GNC chain is: Navigation (bias mode or EKF) -> Guidance (one of 7 algorithms: FTC, NN, Equilibrium Glide, Energy Controller, PredGuid, FNPAG, Piecewise Constant) -> Control (pilot dynamics + roll reversal). Schemes providing signed bank angles (NN, Piecewise Constant) bypass lateral guidance — they control roll direction directly. All guidance schemes have TOML-configurable parameters and can be GA-optimized.
 
@@ -41,7 +41,7 @@ pytest tests/test_foo.py::test_bar -v
 
 ### Rust Simulator (`src/rust/`)
 
-The Rust code is a reimplementation of the original Fortran algorithms with all variable names modernized to explicit English (no French/Fortran legacy names remain). The crate has both `lib.rs` (public API: `RunOutput` struct + `run_for_api()`) and `main.rs` (CLI entry). A Cargo workspace contains two members: the core `aerocapture` crate and the `aerocapture-py` PyO3 binding crate. TOML config as a CLI argument (`./aerocapture config.toml`) is the only supported input format. TOML supports all 7 guidance schemes and inline vehicle/mission data.
+The crate has both `lib.rs` (public API: `RunOutput` struct + `run_for_api()`) and `main.rs` (CLI entry). A Cargo workspace contains two members: the core `aerocapture` crate and the `aerocapture-py` PyO3 binding crate. TOML config as a CLI argument (`./aerocapture config.toml`) is the only supported input format. TOML supports all 7 guidance schemes and inline vehicle/mission data.
 
 ```
 src/rust/src/
@@ -225,19 +225,17 @@ Optimized params saved to `training_output/<scheme>/best_params.json` (or `best_
 
 ## Key Lessons & Pitfalls
 
-### Historical: Fortran Common Block Size Mismatch (Root Cause of Density Explosion)
+### Historical: Density Filter Gain Clamping
 
-*Context: explains why the Rust density filter code has careful gain-clamping logic.*
+*Context: explains why the density filter code has careful gain-clamping logic in `estimator.rs`.*
 
-The original Fortran had a density filter instability at step ~40, caused by a **common block size mismatch** in `guilat.f`. The `/reftab/` common block was declared with only 4 arrays (64,000 bytes) in `guilat.f`, while other files declared it with 6 arrays (96,000 bytes). The gfortran linker allocated the smaller size and placed `/estiro/` (containing `lambda`, the density filter gain) in overlapping memory. Writing `refdates(57)` corrupted lambda from 0.8 to 56.0, causing the filter equation to amplify errors by 55x per step.
+The original codebase had a memory corruption bug that turned the density filter gain from 0.8 to 56.0, causing 55x error amplification per step. The Rust code clamps lambda to [0.01, 0.99] as a safety net.
 
-### Historical: Fortran Uninitialized Variables in photra.f
+### Historical: Regression Test Tolerances
 
-*Context: explains why Rust validation tolerates 2/24 column mismatches in regression tests.*
+*Context: explains why regression tests tolerate 2/24 column mismatches.*
 
-- `xrayon` (planet radius) never assigned -> 0 at runtime
-- `romver` uninitialized at first call -> col 22 garbage at timestep 0
-- `xphoto(24)` retains stale `numsuc` from another subroutine via stack reuse
+Two output columns in the reference implementation used uninitialized variables, producing non-deterministic values. The Rust validation excludes these columns.
 
 ### Energy Computation
 
@@ -250,7 +248,7 @@ Energy must use **absolute (inertial) velocity**, not relative velocity. The Rus
 - **Testing (Python)**: pytest, hypothesis (property-based). Golden reference files under `tests/reference_data/`. Shared fixtures in `tests/conftest.py` (session-scoped Rust build) and `tests/fixtures/factories.py` (config/chromosome factories). ~291 tests covering parsers, regression, MC, GA pipeline (chromosome, cost, TOML patching, config, operators), training visualization (metrics, logger, display, integration, report PDF generation, chart SVG generation), NN weight initialization, seed rotation, adaptive seed pool (CVaR, aggregation, growth, eviction, scoring, checkpoint, evaluation, integration), graceful interrupt handling, TOML base inheritance resolution, PyO3 integration (bit-identical regression against subprocess path), report resume detection and conditional panel rendering, corridor accumulator (incremental envelope building, checkpoint roundtrip, asymmetric bounds, ifinal=4 pending crash classification), unified cost function (log_cap C0/C1 continuity, monotonicity, cost ordering, heat load penalty).
 - **Testing (Rust)**: Three-tier pyramid — unit tests (inline `#[cfg(test)]` modules with proptest property tests), integration tests (`src/rust/tests/`), E2E subprocess tests. Shared test infrastructure in `tests/common/` (fixtures.rs, assertions.rs). Dev-dependencies: `approx` (float comparison), `rstest` (parameterized tests), `proptest` (property-based testing), `tempfile` (temp dirs for base inheritance tests). ~277 tests covering physics (J2/J3/J4 gravity: bit-identity when J3=J4=0, symmetry breaking, small correction bounds, proptest finiteness), GNC, guidance (all 7 schemes including piecewise_constant), lateral guidance (roll reversal: energy window gating, corridor boundary, max_reversals, proptest invariants), navigation (bias mode + EKF: predict/update symmetry, covariance growth/reduction, density correction clamping, IMU noise statistics, star tracker blackout/cadence), wind model (table loading, interpolation, latitude scaling, integration effect), control (angle_utils proptest: range/antisymmetry/magnitude properties + wrap-around edge cases, pilot wrap-through-±π), DOPRI45 adaptive integrator (Butcher tableau consistency, FSAL continuity, rejection/recovery, PI controller bounds, error norm scaling, harmonic oscillator, proptest robustness, E2E capture validity and Gill agreement), error paths, `run_for_api()`, peak value tracking, TOML base inheritance (deep_merge, resolve_toml_bases, cycle detection), virtual DV ranges (proptest: crash DV in [10k,20k], hyperbolic DV >= 10k, cost ordering invariant), trajectory heat load (monotonically non-decreasing, consistent with final_record). Run with `cargo test` or `./check_all.sh`.
 - **CI**: GitHub Actions (`.github/workflows/ci.yml`) — Rust (fmt, clippy, test), Python (ruff lint, ruff format, mypy, pytest), and PyO3 (maturin build + pytest test_pyo3.py) run on PRs to `main` and manual dispatch (`workflow_dispatch`).
-- **Validation**: Rust vs Fortran comparison complete — 22/24 photo columns bit-identical across 725 timesteps.
+- **Validation**: Validated against reference implementation — 22/24 photo columns bit-identical across 725 timesteps.
 
 ## Tone
 

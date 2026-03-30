@@ -2,7 +2,7 @@
 
 Trajectory simulation tool for aerocapture maneuvers, primarily targeting Mars Sample Return (MSR). Models a spacecraft entering a planet's atmosphere at hyperbolic velocity, using aerodynamic forces and bank angle modulation to capture into a target orbit.
 
-Modernized from a legacy Fortran 77 codebase (~10,675 lines, ~65 files) into a **Rust simulator** with **Python analysis tools**. The Rust simulator has been validated against the Fortran reference to bit-level precision. The legacy Fortran code has been removed (preserved in git history).
+Built as a **Rust simulator** with **Python analysis tools**. Validated against a legacy reference implementation to bit-level precision.
 
 ## Quick Start
 
@@ -56,7 +56,7 @@ The simulation implements a full closed-loop GNC chain:
 2. **Guidance** — One of 7 algorithms computes bank angle command (see table above)
 3. **Lateral guidance** — Roll sign management via inclination error with deadband
 4. **Control** — Pilot dynamics model applies rate limits and first/second-order lag to bank angle commands
-5. **Integration** — Two modes: fixed-step Gill-variant RK4 (default, Fortran-validated) or adaptive Dormand-Prince 4(5) with embedded error estimation and PI step-size control (`[integration] mode = "adaptive"`). Both propagate equations of motion with J2/J3/J4 zonal harmonic gravity, tabulated atmosphere (truth) with separate piecewise-exponential onboard model for nav/guidance, altitude-dependent wind model, and aerodynamic forces. Adaptive mode sub-steps within each GNC tick — guidance/navigation cadences are unchanged
+5. **Integration** — Two modes: fixed-step Gill-variant RK4 (default, validated) or adaptive Dormand-Prince 4(5) with embedded error estimation and PI step-size control (`[integration] mode = "adaptive"`). Both propagate equations of motion with J2/J3/J4 zonal harmonic gravity, tabulated atmosphere (truth) with separate piecewise-exponential onboard model for nav/guidance, altitude-dependent wind model, and aerodynamic forces. Adaptive mode sub-steps within each GNC tick — guidance/navigation cadences are unchanged
 
 ## GA Optimization
 
@@ -94,9 +94,9 @@ uv run python -m aerocapture.training.report --compare training_output/
 
 ## Validation
 
-The Rust simulator matches the Fortran reference across all 725 timesteps of a guided FTC trajectory:
+The Rust simulator has been validated against a reference implementation across all 725 timesteps of a guided FTC trajectory:
 - **22 of 24** photo output columns are bit-identical
-- The remaining 2 differ only at the first timestep due to Fortran uninitialized variable artifacts (`romver`, `numsuc`)
+- The remaining 2 differ only at the first timestep due to uninitialized variable artifacts in the reference
 
 ## PyO3 Python Bindings
 
