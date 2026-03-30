@@ -17,6 +17,8 @@ from aerocapture.training.charts import (
     COLOR_CAPTURE,
     COLOR_CONSTRAINED,
     COLOR_HYPERBOLIC,
+    COLOR_WORST,
+    TRAJ_FAILED,
     _draw_spaghetti,
     classify_trajectories,
 )
@@ -57,16 +59,17 @@ def _discover_checkpoints(training_dir: Path, every: int) -> list[dict]:
             meta = json.load(f)
 
         # Load population costs from npz
-        data = np.load(npz_path, allow_pickle=False)
-        costs_arrays: list[npt.NDArray[np.float64]] = []
-        n_subpops = int(data["n_subpops"][0]) if "n_subpops" in data else 1
-        for k in range(n_subpops):
-            key = f"costs_{k}"
-            if key in data:
-                costs_arrays.append(data[key])
-        all_costs = np.concatenate(costs_arrays) if costs_arrays else np.array([])
+        with np.load(npz_path, allow_pickle=False) as data:
+            costs_arrays: list[npt.NDArray[np.float64]] = []
+            n_subpops = int(data["n_subpops"][0]) if "n_subpops" in data else 1
+            for k in range(n_subpops):
+                key = f"costs_{k}"
+                if key in data:
+                    costs_arrays.append(data[key])
+            all_costs = np.concatenate(costs_arrays) if costs_arrays else np.array([])
 
-        best_chrom = data.get("best_chromosome", None)
+            best_chrom = data.get("best_chromosome", None)
+            npz_data = dict(data)
 
         result.append(
             {
@@ -77,7 +80,7 @@ def _discover_checkpoints(training_dir: Path, every: int) -> list[dict]:
                 "npz_path": npz_path,
                 "costs": all_costs,
                 "best_chromosome": best_chrom,
-                "npz_data": dict(data),
+                "npz_data": npz_data,
             }
         )
 
@@ -157,10 +160,10 @@ def _render_corridor_panel(
         restricted_min = corridor_data["envelope_restricted_min_pdyn"]
         capture_pdyn = corridor_data["envelope_capture_pdyn"]
 
-        ax.fill_between(e_bins, restricted_max, crash_pdyn, color=COLOR_HYPERBOLIC, alpha=0.15)
+        ax.fill_between(e_bins, restricted_max, crash_pdyn, color=COLOR_WORST, alpha=0.15)
         ax.fill_between(e_bins, restricted_max, restricted_min, color="white", alpha=0.6)
         ax.fill_between(e_bins, restricted_min, capture_pdyn, color="#cccccc", alpha=0.3)
-        ax.fill_between(e_bins, capture_pdyn, 0, color=COLOR_HYPERBOLIC, alpha=0.15)
+        ax.fill_between(e_bins, capture_pdyn, 0, color=COLOR_WORST, alpha=0.15)
 
     # col 8 = energy, col 9 = pdyn
     _draw_spaghetti(ax, trajectories, traj_class, x_col=8, y_col=9)
@@ -244,20 +247,16 @@ def _render_frame(
     best_cost: float,
     capture_rate: float,
     trajectories: list[npt.NDArray[np.float64]],
-    final_records: npt.NDArray[np.float64],
+    traj_class: npt.NDArray[np.int8],
     costs: npt.NDArray[np.float64],
     corridor_data: dict[str, npt.NDArray[np.float64]] | None,
     axis_ranges: dict[str, float],
-    heat_flux_limit: float | None = None,
-    g_load_limit: float | None = None,
 ) -> Figure:
     """Render a single animation frame (2x2 grid).
 
     Returns:
         Matplotlib Figure ready for GIF writer.
     """
-    traj_class = classify_trajectories(final_records, heat_flux_limit=heat_flux_limit, g_load_limit=g_load_limit)
-
     fig, axes = plt.subplots(2, 2, figsize=(12, 9))
     fig.suptitle(f"Generation {generation}  |  Best cost: {best_cost:.1f}  |  Capture: {capture_rate:.0%}", fontsize=13, fontweight="bold")
 
@@ -292,13 +291,18 @@ def _decode_and_build_overrides(
     Handles both neural_network (writes JSON file, returns minimal overrides)
     and guidance-parameter schemes (returns full dot-path overrides).
     """
+    from aerocapture.training.config import TrainingConfig
+
+    cfg = TrainingConfig()
+    cfg.guidance_type = guidance_type
+    ga = toml_data.get("ga", {})
+    if "n_bit" in ga:
+        cfg.ga.n_bit = ga["n_bit"]
+
     if guidance_type == "neural_network":
         # NN requires writing weights to disk; return minimal overrides
-        from aerocapture.training.config import TrainingConfig
         from aerocapture.training.evaluate import decode_direct, write_nn_json
 
-        cfg = TrainingConfig()
-        cfg.guidance_type = "neural_network"
         net = toml_data.get("network", {})
         if "layer_sizes" in net:
             cfg.network.layer_sizes = net["layer_sizes"]
@@ -311,11 +315,8 @@ def _decode_and_build_overrides(
         write_nn_json(weights, cfg.network, nn_path)
         return {"simulation.n_sims": n_sims}
 
-    from aerocapture.training.config import TrainingConfig
     from aerocapture.training.evaluate import decode_params_from_chromosome
 
-    cfg = TrainingConfig()
-    cfg.guidance_type = guidance_type
     params = decode_params_from_chromosome(best_chromosome, cfg)
     return _build_overrides(guidance_type, params, n_sims)
 
@@ -374,6 +375,7 @@ def generate_animation(
     constraints = toml_data.get("flight", {}).get("constraints", {})
     heat_flux_limit: float | None = constraints.get("max_heat_flux")
     g_load_limit: float | None = constraints.get("max_load_factor")
+    heat_load_limit: float | None = constraints.get("max_heat_load")
 
     toml_resolved = str(toml_path.resolve())
 
@@ -423,8 +425,14 @@ def generate_animation(
             trajectories = results.trajectories
             final_records = results.final_records
 
-            # Capture rate from this MC eval
-            captured = (final_records[:, 31] == 3) & (final_records[:, 9] < 1.0)
+            # Classify trajectories and derive capture rate (avoids magic column indices)
+            traj_class = classify_trajectories(
+                final_records,
+                heat_flux_limit=heat_flux_limit,
+                g_load_limit=g_load_limit,
+                heat_load_limit=heat_load_limit,
+            )
+            captured = traj_class != TRAJ_FAILED
             capture_rate = float(np.mean(captured))
 
             # Corridor from checkpoint
@@ -436,12 +444,10 @@ def generate_animation(
                 best_cost=ckpt["best_cost"],
                 capture_rate=capture_rate,
                 trajectories=trajectories,
-                final_records=final_records,
+                traj_class=traj_class,
                 costs=ckpt["costs"],
                 corridor_data=corridor_data,
                 axis_ranges=axis_ranges,
-                heat_flux_limit=heat_flux_limit,
-                g_load_limit=g_load_limit,
             )
             writer.fig = fig  # Point writer at the actual frame
             writer.grab_frame()

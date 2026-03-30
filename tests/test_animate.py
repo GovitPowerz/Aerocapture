@@ -115,6 +115,7 @@ class TestComputeAxisRanges:
 class TestRenderFrame:
     def test_returns_figure_with_4_axes(self) -> None:
         from aerocapture.training.animate import _render_frame
+        from aerocapture.training.charts import classify_trajectories
 
         rng = np.random.default_rng(42)
         trajectories = [rng.standard_normal((50, 12)).astype(np.float64) for _ in range(10)]
@@ -123,6 +124,8 @@ class TestRenderFrame:
         final_records[:5, 31] = 3.0  # ifinal
         final_records[:5, 9] = 0.5  # ecc < 1
         final_records[5:, 31] = 1.0  # not captured
+
+        traj_class = classify_trajectories(final_records)
 
         costs = rng.uniform(50, 200, size=30)
         axis_ranges = {
@@ -142,7 +145,7 @@ class TestRenderFrame:
             best_cost=55.0,
             capture_rate=0.8,
             trajectories=trajectories,
-            final_records=final_records,
+            traj_class=traj_class,
             costs=costs,
             corridor_data=None,
             axis_ranges=axis_ranges,
