@@ -358,9 +358,10 @@ def write_guidance_toml(
     # Set the guidance type
     toml_data.setdefault("guidance", {})["type"] = guidance_type
 
-    # Split lateral params from scheme-specific params
+    # Split lateral and exit params from scheme-specific params
     lateral_params = {k.removeprefix("lateral."): v for k, v in params.items() if k.startswith("lateral.")}
-    scheme_params = {k: v for k, v in params.items() if not k.startswith("lateral.")}
+    exit_params = {k.removeprefix("exit."): v for k, v in params.items() if k.startswith("exit.")}
+    scheme_params = {k: v for k, v in params.items() if not k.startswith("lateral.") and not k.startswith("exit.")}
 
     # Round max_reversals to integer
     if "max_reversals" in lateral_params:
@@ -373,6 +374,10 @@ def write_guidance_toml(
     # Merge lateral params into [guidance.lateral]
     if lateral_params:
         toml_data["guidance"].setdefault("lateral", {}).update(lateral_params)
+
+    # Merge exit params into [guidance.ftc] (exit guidance is loaded from ftc section for all schemes)
+    if exit_params:
+        toml_data["guidance"].setdefault("ftc", {}).update(exit_params)
 
     if mc_seed is not None:
         toml_data.setdefault("monte_carlo", {})["seed"] = mc_seed

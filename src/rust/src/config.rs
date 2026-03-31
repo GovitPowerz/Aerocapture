@@ -552,19 +552,30 @@ pub struct TomlIncidence {
     pub angles: Vec<f64>,    // deg
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct TomlFtcParams {
+    #[serde(default)]
     pub capture_damping: f64,
+    #[serde(default)]
     pub capture_frequency: f64, // rad/s
+    #[serde(default)]
     pub capture_pdyn_margin: f64,
+    #[serde(default)]
     pub altitude_damping: f64,
-    pub altitude_frequency: f64,      // deg/s (converted to rad/s)
+    #[serde(default)]
+    pub altitude_frequency: f64, // deg/s (converted to rad/s)
+    #[serde(default)]
     pub exit_velocity_threshold: f64, // m/s
+    #[serde(default)]
     pub exit_pdyn_margin: f64,
+    #[serde(default)]
     pub exit_altitude_threshold: f64, // km
-    pub exit_radial_vel_gain: f64,    // Pa/(m/s)
+    #[serde(default)]
+    pub exit_radial_vel_gain: f64, // Pa/(m/s)
+    #[serde(default)]
     pub exit_apoapsis_threshold: f64, // m
-    pub corridor_slope: f64,          // m/s
+    #[serde(default)]
+    pub corridor_slope: f64, // m/s
     #[serde(default)]
     pub corridor_intercept: f64, // deg
     #[serde(default = "default_five_i32")]
@@ -573,11 +584,13 @@ pub struct TomlFtcParams {
     pub security_capture: i32,
     #[serde(default = "default_three_i32")]
     pub security_exit: i32,
+    #[serde(default)]
     pub density_filter_gain: f64,
     #[serde(default = "default_longi_act")]
     pub longi_activation: f64, // MJ/kg
     #[serde(default = "default_longi_inh")]
     pub longi_inhibition: f64, // MJ/kg
+    #[serde(default)]
     pub lateral_activation: f64, // MJ/kg
     #[serde(default = "default_longi_act")]
     pub lateral_inhibition: f64, // MJ/kg
