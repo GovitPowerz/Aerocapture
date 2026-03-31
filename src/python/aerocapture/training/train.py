@@ -941,6 +941,7 @@ if __name__ == "__main__":
             toml_path=_pc_toml_path,
             overrides_list=[best_ovr],
             include_trajectories=True,
+            sim_timeout_secs=cfg.sim.sim_timeout_secs,
         )
         nom_traj = np.asarray(best_batch.trajectories[0]) if best_batch.trajectories else np.empty((0, 12))
         nom_dv_total = float(best_batch.final_records[0, 41]) if best_batch.final_records.shape[0] > 0 else 0.0
@@ -995,4 +996,4 @@ if __name__ == "__main__":
             from aerocapture.training.report import generate_report
 
             toml_path = Path(args.toml)
-            generate_report(Path(cfg.save_dir), toml_path, n_sims_override=args.final_n_sims)
+            generate_report(Path(cfg.save_dir), toml_path, n_sims_override=args.final_n_sims, sim_timeout_secs=cfg.sim.sim_timeout_secs)

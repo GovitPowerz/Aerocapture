@@ -103,6 +103,7 @@ def run_final_evaluation(
     toml_path: Path,
     scheme_dir: Path,
     n_sims: int = 1000,
+    sim_timeout_secs: float | None = None,
 ) -> tuple[npt.NDArray[np.float64], list[npt.NDArray[np.float64]], npt.NDArray[np.float64]] | None:
     """Run final MC evaluation using PyO3 bindings.
 
@@ -126,6 +127,7 @@ def run_final_evaluation(
             toml_path=str(eval_toml.resolve()),
             overrides={"simulation.n_sims": n_sims},
             include_trajectories=True,
+            sim_timeout_secs=sim_timeout_secs,
         )
         return (results.final_records, results.trajectories, results.dispersions)
     except Exception:
@@ -341,7 +343,9 @@ def _load_corridor_data(scheme_dir: Path) -> dict[str, Any] | None:
     return None
 
 
-def _run_undispersed_nominal(toml_path: Path, scheme_dir: Path) -> npt.NDArray[np.float64] | None:
+def _run_undispersed_nominal(
+    toml_path: Path, scheme_dir: Path, sim_timeout_secs: float | None = None
+) -> npt.NDArray[np.float64] | None:
     """Run a single undispersed simulation to get the nominal trajectory."""
     try:
         import aerocapture_rs  # type: ignore[import-not-found, import-untyped]
@@ -365,6 +369,7 @@ def _run_undispersed_nominal(toml_path: Path, scheme_dir: Path) -> npt.NDArray[n
             toml_path=str(eval_toml.resolve()),
             overrides=overrides,
             include_trajectories=True,
+            sim_timeout_secs=sim_timeout_secs,
         )
         if results.trajectories:
             traj: npt.NDArray[np.float64] = results.trajectories[0]
@@ -397,6 +402,7 @@ def _generate_trajectory_charts(
     out_dir: Path,
     scheme_dir: Path | None = None,
     toml_path: Path | None = None,
+    sim_timeout_secs: float | None = None,
 ) -> None:
     """Generate Part 2 (mission performance) SVG charts from final eval data."""
     # Load constraint limits and classify trajectories
@@ -405,7 +411,11 @@ def _generate_trajectory_charts(
 
     # Load corridor boundaries and nominal trajectories
     corridor_data = _load_corridor_data(scheme_dir) if scheme_dir is not None else None
-    undispersed = _run_undispersed_nominal(toml_path, scheme_dir) if toml_path is not None and scheme_dir is not None else None
+    undispersed = (
+        _run_undispersed_nominal(toml_path, scheme_dir, sim_timeout_secs=sim_timeout_secs)
+        if toml_path is not None and scheme_dir is not None
+        else None
+    )
     best_traj = _find_best_trajectory(final_records, trajectories)
 
     # Corridor panels
@@ -448,6 +458,7 @@ def generate_report(
     skip_final_eval: bool = False,
     keep_artifacts: bool = False,
     n_sims_override: int | None = None,
+    sim_timeout_secs: float | None = None,
 ) -> Path | None:
     """Generate a PDF training report for a single guidance scheme.
 
@@ -475,7 +486,7 @@ def generate_report(
         final_records = None
         if not skip_final_eval and toml_path is not None:
             print(f"\nRunning {n_sims}-sim final evaluation...")
-            eval_result = run_final_evaluation(toml_path, scheme_dir, n_sims=n_sims)
+            eval_result = run_final_evaluation(toml_path, scheme_dir, n_sims=n_sims, sim_timeout_secs=sim_timeout_secs)
             if eval_result is not None:
                 final_records_arr, trajectories, dispersions = eval_result
                 has_trajectories = True
@@ -487,6 +498,7 @@ def generate_report(
                     tmp_dir,
                     scheme_dir=scheme_dir,
                     toml_path=toml_path,
+                    sim_timeout_secs=sim_timeout_secs,
                 )
                 final_records = final_records_arr
 
@@ -665,6 +677,7 @@ def main() -> None:
     parser.add_argument("--compare", action="store_true", help="Generate cross-scheme comparison report")
     parser.add_argument("--schemes", nargs="*", help="Filter by scheme names (comparison mode)")
     parser.add_argument("--keep-artifacts", action="store_true", help="Keep temporary SVG/JSON artifacts after PDF generation")
+    parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds")
     args = parser.parse_args()
 
     path = Path(args.path)
@@ -676,7 +689,7 @@ def main() -> None:
         generate_comparison_report(path, schemes=args.schemes, keep_artifacts=args.keep_artifacts)
     else:
         toml_path = Path(args.toml) if args.toml else None
-        generate_report(path, toml_path=toml_path, keep_artifacts=args.keep_artifacts)
+        generate_report(path, toml_path=toml_path, keep_artifacts=args.keep_artifacts, sim_timeout_secs=args.sim_timeout)
 
 
 if __name__ == "__main__":
