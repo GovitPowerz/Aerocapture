@@ -2,7 +2,7 @@
 
 ## Visualization
 
-- [x] Add an animation script of entry corridors and trajectories evolution during training based on checkpoints
+- [ ] Remove crash or assimilated from DV plots in reports and add in final reports tables (stdout and in pdf) a stats line on objective cost
 
 ## Simulation — High Impact
 

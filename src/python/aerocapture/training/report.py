@@ -343,9 +343,7 @@ def _load_corridor_data(scheme_dir: Path) -> dict[str, Any] | None:
     return None
 
 
-def _run_undispersed_nominal(
-    toml_path: Path, scheme_dir: Path, sim_timeout_secs: float | None = None
-) -> npt.NDArray[np.float64] | None:
+def _run_undispersed_nominal(toml_path: Path, scheme_dir: Path, sim_timeout_secs: float | None = None) -> npt.NDArray[np.float64] | None:
     """Run a single undispersed simulation to get the nominal trajectory."""
     try:
         import aerocapture_rs  # type: ignore[import-not-found, import-untyped]
@@ -412,9 +410,7 @@ def _generate_trajectory_charts(
     # Load corridor boundaries and nominal trajectories
     corridor_data = _load_corridor_data(scheme_dir) if scheme_dir is not None else None
     undispersed = (
-        _run_undispersed_nominal(toml_path, scheme_dir, sim_timeout_secs=sim_timeout_secs)
-        if toml_path is not None and scheme_dir is not None
-        else None
+        _run_undispersed_nominal(toml_path, scheme_dir, sim_timeout_secs=sim_timeout_secs) if toml_path is not None and scheme_dir is not None else None
     )
     best_traj = _find_best_trajectory(final_records, trajectories)
 
