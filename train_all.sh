@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-COMMON="--n-gen 100 --n-pop 50 --adaptive-seeds -fs --sim-timeout 5"
+COMMON="--n-gen 100 --n-pop 50 --adaptive-seeds -fs --sim-timeout 2"
 
 # Piecewise constant first (produces ref trajectory + corridor for other schemes)
 echo "Training piecewise constant scheme..."

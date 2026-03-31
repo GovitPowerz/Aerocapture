@@ -704,6 +704,33 @@ fn run_single(
             term = TermReason::Crash;
         }
 
+        // Trapped orbit detection: after bounce, if the osculating semi-major axis
+        // implies the orbit fits entirely within the atmosphere, the vehicle is trapped.
+        // Uses vis-viva (a = -mu/(2E)) with inertial velocity — no FPA dependency,
+        // catches oscillating trajectories that the FPA-based check above misses.
+        if sim.bounced && sim.bounce_alt > 20e3 && term == TermReason::None {
+            let (_, v_abs) = to_absolute_cartesian(
+                sim.state[0],
+                sim.state[1],
+                sim.state[2],
+                sim.state[3],
+                sim.state[4],
+                sim.state[5],
+                planet,
+            );
+            let speed_abs = norm(&v_abs);
+            let energy_abs = speed_abs * speed_abs / 2.0 - planet.mu / sim.state[0];
+            // Bound orbit with semi-major axis small enough that apoapsis < atmosphere ceiling
+            // a*(1+e) < r_exit. Conservative: use a*2 < r_exit (assumes e<1, so a*(1+e) < 2a).
+            if energy_abs < 0.0 {
+                let sma = -planet.mu / (2.0 * energy_abs);
+                let r_exit = planet.equatorial_radius + exit_altitude;
+                if 2.0 * sma < r_exit {
+                    term = TermReason::Crash;
+                }
+            }
+        }
+
         step += 1;
     }
 
