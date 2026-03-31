@@ -451,7 +451,16 @@ def train(
                                 from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
 
                                 section = GUIDANCE_TOML_SECTIONS[cfg.guidance_type]
-                                base_overrides: dict[str, object] = {f"guidance.{section}.{k}": v for k, v in params.items()}
+                                base_overrides: dict[str, object] = {}
+                                for k, v in params.items():
+                                    if k == "lateral.max_reversals":
+                                        v = int(round(v))
+                                    if k.startswith("lateral."):
+                                        base_overrides[f"guidance.lateral.{k.removeprefix('lateral.')}"] = v
+                                    elif k.startswith("exit."):
+                                        base_overrides[f"guidance.ftc.{k.removeprefix('exit.')}"] = v
+                                    else:
+                                        base_overrides[f"guidance.{section}.{k}"] = v
                                 base_overrides["guidance.type"] = cfg.guidance_type
                                 overrides_list = [{**base_overrides, "monte_carlo.seed": s, "simulation.n_sims": 1} for s in seeds]
 
