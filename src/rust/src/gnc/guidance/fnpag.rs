@@ -383,6 +383,7 @@ mod tests {
             nav_config: None,
             integration_mode: crate::config::IntegrationMode::FixedGill,
             sim_phase: crate::config::SimPhase::Full,
+            density_perturbation: None,
         }
     }
 

@@ -811,6 +811,7 @@ pub struct TomlMonteCarlo {
     pub pilot: Option<TomlMcDomain>,
     pub nav_filter: Option<TomlMcDomain>,
     pub wind: Option<TomlMcWind>,
+    pub density_perturbation: Option<TomlMcDomain>,
 }
 
 /// Wind dispersion config.
@@ -1369,5 +1370,45 @@ mod tests {
             }
             _ => panic!("expected AdaptiveDopri45"),
         }
+    }
+
+    // ─── density_perturbation TOML parsing tests ───
+
+    #[test]
+    fn test_density_perturbation_toml_parsing() {
+        let toml_str = r#"
+            seed = 42
+            [density_perturbation]
+            level = "high"
+        "#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        assert!(mc.density_perturbation.is_some());
+        let dp = mc.density_perturbation.unwrap();
+        assert_eq!(dp.level, "high");
+    }
+
+    #[test]
+    fn test_density_perturbation_toml_custom() {
+        let toml_str = r#"
+            seed = 42
+            [density_perturbation]
+            level = "custom"
+            tau = 45.0
+            sigma = 0.15
+        "#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        let dp = mc.density_perturbation.unwrap();
+        assert_eq!(dp.level, "custom");
+        assert_eq!(*dp.custom.get("tau").unwrap(), 45.0);
+        assert_eq!(*dp.custom.get("sigma").unwrap(), 0.15);
+    }
+
+    #[test]
+    fn test_density_perturbation_toml_absent() {
+        let toml_str = r#"
+            seed = 42
+        "#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        assert!(mc.density_perturbation.is_none());
     }
 }

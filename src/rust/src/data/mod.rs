@@ -179,6 +179,8 @@ pub struct SimData {
     pub integration_mode: IntegrationMode,
     /// Simulation phase mode (Full, CaptureOnly, ExitOnly, Preprogrammed)
     pub sim_phase: SimPhase,
+    /// Gauss-Markov density perturbation config (None = disabled)
+    pub density_perturbation: Option<dispersions::DensityPerturbationConfig>,
 }
 
 const G0: f64 = 9.81;
@@ -606,6 +608,10 @@ impl SimData {
             None
         };
 
+        let density_perturbation = dispersion_config
+            .as_ref()
+            .and_then(|dc| dc.density_perturbation);
+
         // Navigation mode
         let nav_mode = match toml.navigation.as_ref().map(|n| n.mode.as_str()) {
             Some("ekf") => NavMode::Ekf,
@@ -635,6 +641,7 @@ impl SimData {
             nav_config: toml.navigation.clone(),
             integration_mode: IntegrationMode::from_toml(&toml.integration, v.periods.integration),
             sim_phase: config.sim_phase,
+            density_perturbation,
         })
     }
 }
@@ -811,6 +818,23 @@ fn build_dispersion_config(
         direction_bias_deg: w.direction_bias_deg,
     });
 
+    let density_perturbation = mc.density_perturbation.as_ref().and_then(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off {
+            return None;
+        }
+        let mut cfg = DensityPerturbationConfig::from_level(level);
+        if level == DispersionLevel::Custom {
+            if let Some(&v) = d.custom.get("tau") {
+                cfg.tau = v;
+            }
+            if let Some(&v) = d.custom.get("sigma") {
+                cfg.sigma = v;
+            }
+        }
+        Some(cfg)
+    });
+
     Ok(DispersionConfig {
         seed: mc.seed,
         initial_state,
@@ -822,6 +846,7 @@ fn build_dispersion_config(
         pilot,
         nav_filter,
         wind,
+        density_perturbation,
     })
 }
 

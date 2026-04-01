@@ -365,6 +365,7 @@ pub struct DispersionConfig {
     pub pilot: Option<PilotSigmas>,
     pub nav_filter: Option<NavFilterSigmas>,
     pub wind: Option<WindDispersionConfig>,
+    pub density_perturbation: Option<DensityPerturbationConfig>,
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -595,6 +596,7 @@ mod tests {
             pilot: Some(PilotSigmas::from_level(DispersionLevel::Medium)),
             nav_filter: Some(NavFilterSigmas::from_level(DispersionLevel::Medium)),
             wind: None,
+            density_perturbation: None,
         }
     }
 
@@ -648,6 +650,7 @@ mod tests {
             pilot: None,
             nav_filter: None,
             wind: None,
+            density_perturbation: None,
         };
         let draws = config.generate_draws(10);
         for d in &draws {
@@ -736,6 +739,7 @@ mod tests {
             }),
             nav_filter: None,
             wind: None,
+            density_perturbation: None,
         };
         let draws = config.generate_draws(1000);
         for d in &draws {
@@ -806,6 +810,7 @@ mod tests {
             pilot: None,
             nav_filter: Some(NavFilterSigmas { filter_gain: 0.10 }),
             wind: None,
+            density_perturbation: None,
         };
         let draws = config.generate_draws(1000);
         // Gaussian: most draws within ±3sigma = ±0.30
