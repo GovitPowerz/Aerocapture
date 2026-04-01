@@ -51,7 +51,8 @@ pub fn apply_thermal_limit(
 ///
 /// Returns 0.0 below activation, 1.0 at or above 100%, smooth ramp in between.
 fn compute_alpha(fraction: f64, activation: f64, exponent: f64) -> f64 {
-    if fraction <= activation {
+    // activation >= 1.0 means "disabled" -- never activates regardless of fraction.
+    if activation >= 1.0 || fraction <= activation {
         0.0
     } else if fraction >= 1.0 {
         1.0
@@ -163,9 +164,11 @@ mod tests {
     fn default_params_never_activate() {
         let p = ThermalLimiterParams::default();
         let cos_cmd = -1.0;
-        // activation=1.0 means fraction must exceed 1.0 to trigger
-        let result = apply_thermal_limit(cos_cmd, 0.99, 0.99, &p);
-        assert_relative_eq!(result, cos_cmd, epsilon = 1e-12);
+        // activation=1.0 disables the limiter -- even fractions above 1.0 must not trigger.
+        let result_below = apply_thermal_limit(cos_cmd, 0.99, 0.99, &p);
+        assert_relative_eq!(result_below, cos_cmd, epsilon = 1e-12);
+        let result_above = apply_thermal_limit(cos_cmd, 1.5, 1.5, &p);
+        assert_relative_eq!(result_above, cos_cmd, epsilon = 1e-12);
     }
 
     #[test]

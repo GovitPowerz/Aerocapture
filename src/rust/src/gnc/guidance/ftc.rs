@@ -6,6 +6,7 @@ use crate::gnc::control::angle_utils::shortest_angle_diff;
 use crate::gnc::guidance::lateral::{self, LateralState};
 use crate::gnc::guidance::{
     energy_controller, equilibrium_glide, exit, fnpag, neural, piecewise_constant, predguid,
+    thermal_limiter,
 };
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
 use crate::gnc::navigation::estimator::NavigationOutput;
@@ -131,7 +132,7 @@ pub fn guidance_step(
 
     // === Longitudinal bank angle command ===
     // reference_bank_angle passed as parameter from config.reference_bank_angle
-    let bank_angle_longitudinal: f64;
+    let mut bank_angle_longitudinal: f64;
 
     // Schemes that produce signed bank angles bypass exit guidance entirely
     let uses_exit_guidance = !matches!(
@@ -171,6 +172,22 @@ pub fn guidance_step(
             ),
         };
         state.n_active += 1;
+    }
+
+    // === Thermal safety limiter (unsigned-magnitude schemes only) ===
+    let uses_thermal_limiter = !matches!(
+        guidance_type,
+        GuidanceType::PiecewiseConstant | GuidanceType::NeuralNetwork
+    );
+    if uses_thermal_limiter && longitudinal_active == 1 && !is_reference {
+        let cos_bank = bank_angle_longitudinal.cos();
+        let cos_limited = thermal_limiter::apply_thermal_limit(
+            cos_bank,
+            nav.heat_flux_fraction,
+            nav.heat_load_fraction,
+            &data.guidance.thermal_limiter,
+        );
+        bank_angle_longitudinal = cos_limited.acos();
     }
 
     // Schemes that provide signed bank angles — skip lateral guidance entirely
