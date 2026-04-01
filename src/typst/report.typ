@@ -49,6 +49,7 @@
 }
 
 #if meta.at("has_final_eval", default: false) {
+  full-width-chart(dir + "/cost_objective.svg")
   full-width-chart(dir + "/dv_distribution.svg")
   full-width-chart(dir + "/dv_individual_burns.svg")
 

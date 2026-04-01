@@ -332,6 +332,9 @@ pub struct TomlGuidance {
     /// Lateral guidance parameters (shared by unsigned-magnitude schemes)
     #[serde(default)]
     pub lateral: Option<TomlLateralParams>,
+    /// Thermal safety limiter parameters (shared by unsigned-magnitude schemes)
+    #[serde(default)]
+    pub thermal_limiter: Option<TomlThermalLimiterParams>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -508,6 +511,8 @@ pub struct TomlConstraints {
     pub max_heat_flux: f64,        // kW/m²
     pub max_load_factor: f64,      // g
     pub max_dynamic_pressure: f64, // kPa
+    #[serde(default)]
+    pub max_heat_load: f64, // kJ/m^2
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -552,19 +557,30 @@ pub struct TomlIncidence {
     pub angles: Vec<f64>,    // deg
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct TomlFtcParams {
+    #[serde(default)]
     pub capture_damping: f64,
+    #[serde(default)]
     pub capture_frequency: f64, // rad/s
+    #[serde(default)]
     pub capture_pdyn_margin: f64,
+    #[serde(default)]
     pub altitude_damping: f64,
-    pub altitude_frequency: f64,      // deg/s (converted to rad/s)
+    #[serde(default)]
+    pub altitude_frequency: f64, // deg/s (converted to rad/s)
+    #[serde(default)]
     pub exit_velocity_threshold: f64, // m/s
+    #[serde(default)]
     pub exit_pdyn_margin: f64,
+    #[serde(default = "default_exit_altitude_km")]
     pub exit_altitude_threshold: f64, // km
-    pub exit_radial_vel_gain: f64,    // Pa/(m/s)
+    #[serde(default)]
+    pub exit_radial_vel_gain: f64, // Pa/(m/s)
+    #[serde(default)]
     pub exit_apoapsis_threshold: f64, // m
-    pub corridor_slope: f64,          // m/s
+    #[serde(default)]
+    pub corridor_slope: f64, // m/s
     #[serde(default)]
     pub corridor_intercept: f64, // deg
     #[serde(default = "default_five_i32")]
@@ -573,11 +589,13 @@ pub struct TomlFtcParams {
     pub security_capture: i32,
     #[serde(default = "default_three_i32")]
     pub security_exit: i32,
+    #[serde(default = "default_density_filter_gain")]
     pub density_filter_gain: f64,
     #[serde(default = "default_longi_act")]
     pub longi_activation: f64, // MJ/kg
     #[serde(default = "default_longi_inh")]
     pub longi_inhibition: f64, // MJ/kg
+    #[serde(default)]
     pub lateral_activation: f64, // MJ/kg
     #[serde(default = "default_longi_act")]
     pub lateral_inhibition: f64, // MJ/kg
@@ -592,6 +610,12 @@ fn default_five_i32() -> i32 {
 }
 fn default_three_i32() -> i32 {
     3
+}
+fn default_exit_altitude_km() -> f64 {
+    60.0
+}
+fn default_density_filter_gain() -> f64 {
+    0.8
 }
 fn default_longi_act() -> f64 {
     1000.0
@@ -759,6 +783,18 @@ pub struct TomlLateralParams {
 
 fn default_lateral_corridor_slope() -> f64 {
     13080.458
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlThermalLimiterParams {
+    #[serde(default = "default_one")]
+    pub heat_flux_activation: f64,
+    #[serde(default = "default_one")]
+    pub heat_load_activation: f64,
+    #[serde(default = "default_one")]
+    pub heat_flux_ramp_exponent: f64,
+    #[serde(default = "default_one")]
+    pub heat_load_ramp_exponent: f64,
 }
 
 // ─── Domain-based Monte Carlo TOML structs ───

@@ -451,7 +451,16 @@ def train(
                                 from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
 
                                 section = GUIDANCE_TOML_SECTIONS[cfg.guidance_type]
-                                base_overrides: dict[str, object] = {f"guidance.{section}.{k}": v for k, v in params.items()}
+                                base_overrides: dict[str, object] = {}
+                                for k, v in params.items():
+                                    if k == "lateral.max_reversals":
+                                        v = int(round(v))
+                                    if k.startswith("lateral."):
+                                        base_overrides[f"guidance.lateral.{k.removeprefix('lateral.')}"] = v
+                                    elif k.startswith("exit."):
+                                        base_overrides[f"guidance.ftc.{k.removeprefix('exit.')}"] = v
+                                    else:
+                                        base_overrides[f"guidance.{section}.{k}"] = v
                                 base_overrides["guidance.type"] = cfg.guidance_type
                                 overrides_list = [{**base_overrides, "monte_carlo.seed": s, "simulation.n_sims": 1} for s in seeds]
 
@@ -932,6 +941,7 @@ if __name__ == "__main__":
             toml_path=_pc_toml_path,
             overrides_list=[best_ovr],
             include_trajectories=True,
+            sim_timeout_secs=cfg.sim.sim_timeout_secs,
         )
         nom_traj = np.asarray(best_batch.trajectories[0]) if best_batch.trajectories else np.empty((0, 12))
         nom_dv_total = float(best_batch.final_records[0, 41]) if best_batch.final_records.shape[0] > 0 else 0.0
@@ -986,4 +996,4 @@ if __name__ == "__main__":
             from aerocapture.training.report import generate_report
 
             toml_path = Path(args.toml)
-            generate_report(Path(cfg.save_dir), toml_path, n_sims_override=args.final_n_sims)
+            generate_report(Path(cfg.save_dir), toml_path, n_sims_override=args.final_n_sims, sim_timeout_secs=cfg.sim.sim_timeout_secs)

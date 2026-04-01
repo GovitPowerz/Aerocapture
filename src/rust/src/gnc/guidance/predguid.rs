@@ -222,6 +222,7 @@ mod tests {
             nav_mode: crate::data::NavMode::Bias,
             nav_config: None,
             integration_mode: crate::config::IntegrationMode::FixedGill,
+            sim_phase: crate::config::SimPhase::Full,
         }
     }
 

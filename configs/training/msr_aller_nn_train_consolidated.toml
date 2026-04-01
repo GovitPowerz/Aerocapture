@@ -5,7 +5,7 @@ base = ["../missions/mars.toml", "common.toml"]
 type = "neural_network"
 
 [network]
-layer_sizes = [6, 16, 64, 16, 2]
+layer_sizes = [8, 16, 64, 16, 2]
 activations = ["asinh", "asinh", "asinh", "asinh"]
 
 [data]

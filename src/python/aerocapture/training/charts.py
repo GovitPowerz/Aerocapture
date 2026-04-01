@@ -877,11 +877,85 @@ def chart_nav_density_ratio(
 
 
 # ---------------------------------------------------------------------------
+# Panel 14b: Objective cost distribution — histogram + CDF (all sims)
+# ---------------------------------------------------------------------------
+def chart_cost_objective(
+    final_records: npt.NDArray[np.float64],
+    output: Path,
+    *,
+    dv_threshold: float = 1000.0,
+    g_load_limit: float = 15.0,
+    heat_flux_limit: float = 200.0,
+    heat_load_limit: float = 25000.0,
+    g_load_weight: float = 1000.0,
+    heat_flux_weight: float = 1000.0,
+    heat_load_weight: float = 1000.0,
+) -> None:
+    """Objective cost histogram with CDF overlay (all sims, including crashes)."""
+    from aerocapture.training.evaluate import compute_cost
+
+    n = final_records.shape[0]
+    costs = np.array(
+        [
+            compute_cost(
+                final_records[i : i + 1],
+                dv_threshold=dv_threshold,
+                g_load_limit=g_load_limit,
+                heat_flux_limit=heat_flux_limit,
+                heat_load_limit=heat_load_limit,
+                g_load_weight=g_load_weight,
+                heat_flux_weight=heat_flux_weight,
+                heat_load_weight=heat_load_weight,
+            )
+            for i in range(n)
+        ]
+    )
+
+    log_costs = np.log10(np.maximum(costs, 1e-6))
+
+    fig, ax1 = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
+
+    ax1.hist(log_costs, bins=30, color=COLOR_CAPTURE, alpha=0.7, edgecolor="white")
+    ax1.set_xlabel("Objective Cost")
+    ax1.set_ylabel("Count")
+
+    tick_pos, tick_labels = _log10_ticks(np.maximum(costs, 1e-6))
+    ax1.set_xticks(tick_pos)
+    ax1.set_xticklabels(tick_labels)
+
+    ax2 = ax1.twinx()
+    sorted_log = np.sort(log_costs)
+    cdf = np.arange(1, len(sorted_log) + 1) / len(sorted_log)
+    ax2.plot(sorted_log, cdf, color=COLOR_MEAN, linewidth=1.5, label="CDF")
+    ax2.set_ylabel("CDF")
+    ax2.set_ylim(0, 1.05)
+
+    for pct, ls in [(5, ":"), (50, "--"), (95, "-.")]:
+        val = float(np.percentile(log_costs, pct))
+        ax1.axvline(val, color=COLOR_WORST, linestyle=ls, linewidth=0.8, label=f"p{pct}")
+
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, fontsize="x-small")
+
+    ax1.set_title("Objective Cost Distribution (all sims)")
+    sns.despine(fig=fig, right=False)
+    _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
 # Panel 15: Total DV distribution — histogram + CDF + percentile markers
 # ---------------------------------------------------------------------------
 def chart_dv_distribution(final_records: npt.NDArray[np.float64], output: Path) -> None:
-    """Panel 15: Total DV histogram (log10 x) with CDF overlay and percentile markers."""
-    dv = _clip_dv(final_records[:, _FR_DV_TOTAL])
+    """Panel 15: Total DV histogram (log10 x) with CDF overlay and percentile markers. Captured only."""
+    captured = (final_records[:, _FR_IFINAL] == 3) & (final_records[:, _FR_ECC] < 1.0)
+    if not np.any(captured):
+        fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
+        ax.text(0.5, 0.5, "No captured trajectories", ha="center", va="center", transform=ax.transAxes, fontsize=12, color="grey")
+        ax.set_title("Total \u0394V Distribution (captured only)")
+        _save_svg(fig, output)
+        return
+    dv = _clip_dv(final_records[captured, _FR_DV_TOTAL])
     log_dv = np.log10(dv)
 
     fig, ax1 = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
@@ -914,7 +988,7 @@ def chart_dv_distribution(final_records: npt.NDArray[np.float64], output: Path) 
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax1.legend(lines1 + lines2, labels1 + labels2, fontsize="x-small")
 
-    ax1.set_title("Total \u0394V Distribution")
+    ax1.set_title("Total \u0394V Distribution (captured only)")
     sns.despine(fig=fig, right=False)
     _save_svg(fig, output)
 
@@ -923,11 +997,19 @@ def chart_dv_distribution(final_records: npt.NDArray[np.float64], output: Path) 
 # Panel 16: Individual burn DV histograms (stacked, log10 x)
 # ---------------------------------------------------------------------------
 def chart_dv_individual_burns(final_records: npt.NDArray[np.float64], output: Path) -> None:
-    """Panel 16: 3-row subplot histograms for |dv1|, |dv2|, |dv3| on log10 x-axis."""
+    """Panel 16: 3-row subplot histograms for |dv1|, |dv2|, |dv3| on log10 x-axis. Captured only."""
+    captured = (final_records[:, _FR_IFINAL] == 3) & (final_records[:, _FR_ECC] < 1.0)
+    if not np.any(captured):
+        fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
+        ax.text(0.5, 0.5, "No captured trajectories", ha="center", va="center", transform=ax.transAxes, fontsize=12, color="grey")
+        ax.set_title("Individual Burn \u0394V (captured only)")
+        _save_svg(fig, output)
+        return
+    cap = final_records[captured]
     burns = [
-        (np.abs(final_records[:, _FR_DV1]), "#1f77b4", "|DV1| (periapsis)"),
-        (np.abs(final_records[:, _FR_DV2]), "#ff7f0e", "|DV2| (circularization)"),
-        (np.abs(final_records[:, _FR_DV3]), "#2ca02c", "|DV3| (inclination)"),
+        (np.abs(cap[:, _FR_DV1]), "#1f77b4", "|DV1| (periapsis)"),
+        (np.abs(cap[:, _FR_DV2]), "#ff7f0e", "|DV2| (circularization)"),
+        (np.abs(cap[:, _FR_DV3]), "#2ca02c", "|DV3| (inclination)"),
     ]
 
     # Shared tick range from all burns combined
@@ -946,7 +1028,7 @@ def chart_dv_individual_burns(final_records: npt.NDArray[np.float64], output: Pa
     axes[-1].set_xlabel("\u0394V (m/s)")
     axes[-1].set_xticks(tick_pos)
     axes[-1].set_xticklabels(tick_labels)
-    axes[0].set_title("Individual Burn \u0394V")
+    axes[0].set_title("Individual Burn \u0394V (captured only)")
 
     fig.tight_layout()
     sns.despine(fig=fig)

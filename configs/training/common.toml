@@ -4,7 +4,7 @@
 [simulation]
 random_seed = 0.6866
 n_sims = 1000
-max_time = 3000.0
+max_time = 2000.0
 
 # ── Domain-based Monte Carlo dispersions ──
 [monte_carlo]

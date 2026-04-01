@@ -492,6 +492,7 @@ fn run_single(
     let mut cumulative_bank_change_deg = 0.0_f64;
     let mut dynamic_pressure_for_photo = 0.0_f64;
     let mut density_estimate_for_photo = 0.0_f64;
+    let mut guidance_phase_for_photo = 1_i32;
 
     let wall_start = Instant::now();
 
@@ -514,7 +515,7 @@ fn run_single(
             let position_true = [sim.state[0], sim.state[1], sim.state[2]];
             let velocity_true = [sim.state[3], sim.state[4], sim.state[5]];
 
-            let nav_out = match &mut nav_filter {
+            let mut nav_out = match &mut nav_filter {
                 NavigationFilter::Bias(nav_state) => estimator::navigate(
                     &position_true,
                     &velocity_true,
@@ -565,6 +566,42 @@ fn run_single(
 
             dynamic_pressure_for_photo = nav_out.dynamic_pressure_estimated;
             density_estimate_for_photo = nav_out.density_guidance;
+            guidance_phase_for_photo = nav_out.guidance_phase;
+
+            // Latch reference velocity at the phase 1→2 transition
+            if nav_out.phase_transition_flag == 1 {
+                ftc_state.reference_velocity = nav_out.reference_velocity;
+            }
+
+            // Compute thermal fractions for guidance limiter + NN inputs.
+            // Instantaneous heat flux uses the same formula as track_peak_values.
+            {
+                let (alt_for_thermal, _) =
+                    geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
+                let rho_thermal =
+                    data.atmosphere.density_at(alt_for_thermal) * (1.0 + run_state.density_bias);
+                let v_eff_thermal = effective_airspeed(
+                    sim.state[3],
+                    sim.state[4],
+                    sim.state[5],
+                    sim.state[2],
+                    alt_for_thermal,
+                    data,
+                    run_state,
+                );
+                let heat_flux_now = data.capsule.cq * rho_thermal.sqrt() * v_eff_thermal.powf(3.05);
+
+                nav_out.heat_flux_fraction = if data.constraints.max_heat_flux > 0.0 {
+                    heat_flux_now / data.constraints.max_heat_flux
+                } else {
+                    0.0
+                };
+                nav_out.heat_load_fraction = if data.constraints.max_heat_load > 0.0 {
+                    sim.state[6] / data.constraints.max_heat_load
+                } else {
+                    0.0
+                };
+            }
 
             let ftc_out = ftc::guidance_step(
                 &nav_out,
@@ -633,6 +670,7 @@ fn run_single(
                 nav_filter.density_gain(),
                 run_state,
                 sim.state[6],
+                guidance_phase_for_photo,
             ));
         }
 
@@ -696,6 +734,33 @@ fn run_single(
             term = TermReason::Crash;
         }
 
+        // Trapped orbit detection: after bounce, if the osculating semi-major axis
+        // implies the orbit fits entirely within the atmosphere, the vehicle is trapped.
+        // Uses vis-viva (a = -mu/(2E)) with inertial velocity — no FPA dependency,
+        // catches oscillating trajectories that the FPA-based check above misses.
+        if sim.bounced && sim.bounce_alt > 20e3 && term == TermReason::None {
+            let (_, v_abs) = to_absolute_cartesian(
+                sim.state[0],
+                sim.state[1],
+                sim.state[2],
+                sim.state[3],
+                sim.state[4],
+                sim.state[5],
+                planet,
+            );
+            let speed_abs = norm(&v_abs);
+            let energy_abs = speed_abs * speed_abs / 2.0 - planet.mu / sim.state[0];
+            // Bound orbit with semi-major axis small enough that apoapsis < atmosphere ceiling
+            // a*(1+e) < r_exit. Conservative: use a*2 < r_exit (assumes e<1, so a*(1+e) < 2a).
+            if energy_abs < 0.0 {
+                let sma = -planet.mu / (2.0 * energy_abs);
+                let r_exit = planet.equatorial_radius + exit_altitude;
+                if 2.0 * sma < r_exit {
+                    term = TermReason::Crash;
+                }
+            }
+        }
+
         step += 1;
     }
 
@@ -713,6 +778,7 @@ fn run_single(
             nav_filter.density_gain(),
             run_state,
             sim.state[6],
+            guidance_phase_for_photo,
         ));
     }
 
@@ -875,6 +941,7 @@ fn build_photo_values(
     density_gain: f64,
     run_state: &init::RunState,
     cumulative_flux: f64,
+    guidance_phase: i32,
 ) -> [f64; 29] {
     let (altitude, latitude) =
         geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
@@ -903,11 +970,7 @@ fn build_photo_values(
     let energy = speed_abs * speed_abs / 2.0 - mu / sim.state[0];
     let velocity_radial = sim.state[3] * sim.state[4].sin();
 
-    let phase = if !sim.bounced {
-        if altitude > 80e3 { 1.0 } else { 2.0 }
-    } else {
-        if sim.state[0] > 80e3 { 3.0 } else { 2.0 }
-    };
+    let phase = guidance_phase as f64;
 
     // Compute per-timestep heat flux, g-load, and truth density for trajectory output.
     // Use dispersed values (matching track_peak_values) so trajectory plots are consistent

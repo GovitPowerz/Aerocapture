@@ -5,7 +5,8 @@ use crate::data::SimData;
 use crate::gnc::control::angle_utils::shortest_angle_diff;
 use crate::gnc::guidance::lateral::{self, LateralState};
 use crate::gnc::guidance::{
-    energy_controller, equilibrium_glide, fnpag, neural, piecewise_constant, predguid,
+    energy_controller, equilibrium_glide, exit, fnpag, neural, piecewise_constant, predguid,
+    thermal_limiter,
 };
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
 use crate::gnc::navigation::estimator::NavigationOutput;
@@ -131,15 +132,25 @@ pub fn guidance_step(
 
     // === Longitudinal bank angle command ===
     // reference_bank_angle passed as parameter from config.reference_bank_angle
-    let bank_angle_longitudinal: f64;
+    let mut bank_angle_longitudinal: f64;
+
+    // Schemes that produce signed bank angles bypass exit guidance entirely
+    let uses_exit_guidance = !matches!(
+        guidance_type,
+        GuidanceType::PiecewiseConstant | GuidanceType::NeuralNetwork
+    );
 
     if is_reference {
         state.bank_angle_commanded = reference_bank_angle;
         bank_angle_longitudinal = reference_bank_angle;
     } else if longitudinal_active == 0 {
         bank_angle_longitudinal = reference_bank_angle.abs();
+    } else if nav.guidance_phase == 2 && uses_exit_guidance {
+        // Exit phase: shared pdyn-feedback controller for all unsigned-magnitude schemes
+        bank_angle_longitudinal = exit::exit_guidance(nav, data, planet, state.reference_velocity);
+        state.n_active += 1;
     } else {
-        // Longitudinal guidance dispatch
+        // Capture phase: scheme-specific longitudinal guidance
         bank_angle_longitudinal = match guidance_type {
             GuidanceType::Ftc => capture_guidance(nav, energy, altitude, state, data, planet),
             GuidanceType::NeuralNetwork => {
@@ -161,6 +172,22 @@ pub fn guidance_step(
             ),
         };
         state.n_active += 1;
+    }
+
+    // === Thermal safety limiter (unsigned-magnitude schemes only) ===
+    let uses_thermal_limiter = !matches!(
+        guidance_type,
+        GuidanceType::PiecewiseConstant | GuidanceType::NeuralNetwork
+    );
+    if uses_thermal_limiter && longitudinal_active == 1 && !is_reference {
+        let cos_bank = bank_angle_longitudinal.cos();
+        let cos_limited = thermal_limiter::apply_thermal_limit(
+            cos_bank,
+            nav.heat_flux_fraction,
+            nav.heat_load_fraction,
+            &data.guidance.thermal_limiter,
+        );
+        bank_angle_longitudinal = cos_limited.acos();
     }
 
     // Schemes that provide signed bank angles — skip lateral guidance entirely
@@ -457,6 +484,7 @@ mod tests {
             nav_mode: crate::data::NavMode::Bias,
             nav_config: None,
             integration_mode: crate::config::IntegrationMode::FixedGill,
+            sim_phase: crate::config::SimPhase::Full,
         }
     }
 
@@ -660,5 +688,77 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ─── Phase dispatch tests ─────────────────────────────────────────────────
+
+    /// Phase 2 should dispatch to exit guidance for FTC scheme.
+    #[test]
+    fn phase_2_dispatches_to_exit_guidance() {
+        let mut nav = test_nav();
+        nav.guidance_phase = 2;
+        nav.bounce_flag = 1;
+        nav.density_exit = 1e-6;
+        nav.velocity_estimated[1] = 0.05; // positive FPA (ascending)
+
+        let mut data = test_sim_data();
+        data.guidance.exit_pdyn_margin = 1.75;
+        data.guidance.exit_radial_vel_gain = 10.0;
+
+        let planet = PlanetConfig::mars();
+        let initial_bank = 64.77_f64.to_radians();
+        let mut state = FtcState::new(initial_bank, -0.48_f64.to_radians());
+        state.reference_velocity = 50.0;
+
+        let out = guidance_step(
+            &nav,
+            initial_bank,
+            100.0,
+            initial_bank,
+            &mut state,
+            &data,
+            &planet,
+            false,
+            GuidanceType::Ftc,
+        );
+
+        assert!(
+            out.bank_angle_commanded.is_finite(),
+            "exit phase should produce finite bank: {}",
+            out.bank_angle_commanded
+        );
+    }
+
+    /// PiecewiseConstant scheme should ignore phase 2 (produces its own signed bank).
+    #[test]
+    fn piecewise_constant_ignores_exit_phase() {
+        let mut nav = test_nav();
+        nav.guidance_phase = 2;
+        nav.bounce_flag = 1;
+
+        let mut data = test_sim_data();
+        data.guidance.piecewise_constant = crate::data::guidance_params::PiecewiseConstantParams {
+            bank_angles: [0.5; 10],
+            energy_min: -6.0e6,
+            energy_max: 5.0e6,
+        };
+
+        let planet = PlanetConfig::mars();
+        let initial_bank = 0.5;
+        let mut state = FtcState::new(initial_bank, -0.48_f64.to_radians());
+
+        let out = guidance_step(
+            &nav,
+            initial_bank,
+            100.0,
+            initial_bank,
+            &mut state,
+            &data,
+            &planet,
+            false,
+            GuidanceType::PiecewiseConstant,
+        );
+
+        assert!(out.bank_angle_commanded.is_finite());
     }
 }

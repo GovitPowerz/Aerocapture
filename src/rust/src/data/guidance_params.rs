@@ -5,6 +5,7 @@
 
 use super::DataError;
 use crate::gnc::guidance::lateral::LateralParams;
+use crate::gnc::guidance::thermal_limiter::ThermalLimiterParams;
 
 /// Dynamic pressure reference table entry: altitude (km), linear coefficients a and b.
 #[allow(dead_code)]
@@ -165,6 +166,7 @@ pub struct GuidanceParams {
     pub pred_guid: PredGuidParams,
     pub fnpag: FnpagParams,
     pub piecewise_constant: PiecewiseConstantParams,
+    pub thermal_limiter: ThermalLimiterParams,
 }
 
 /// Reference trajectory tables loaded from the reference trajectory data file.
@@ -315,6 +317,7 @@ impl Default for GuidanceParams {
             pred_guid: PredGuidParams::default(),
             fnpag: FnpagParams::default(),
             piecewise_constant: PiecewiseConstantParams::default(),
+            thermal_limiter: ThermalLimiterParams::default(),
         }
     }
 }

@@ -2,7 +2,7 @@
 //!
 //! Feedforward network computing bank angle from navigation state.
 //! Supports arbitrary layer architectures via NeuralNetModel.
-//! Default: 6 inputs → 12 hidden (tanh) → 2 outputs (asinh) → atan2 bank angle.
+//! Default: 8 inputs → 12 hidden (tanh) → 2 outputs (asinh) → atan2 bank angle.
 
 use crate::config::PlanetConfig;
 use crate::data::neural::NeuralNetModel;
@@ -12,7 +12,7 @@ use crate::orbit::elements;
 /// Compute NN-guided longitudinal bank angle.
 ///
 /// - Computes orbital elements from navigation state
-/// - Normalizes 6 inputs from orbital/aerodynamic quantities
+/// - Normalizes 8 inputs from orbital/aerodynamic/thermal quantities
 /// - Forward pass through the network
 /// - Bank angle = atan2(out[0], out[1])
 ///
@@ -45,7 +45,7 @@ pub fn nn_bank_angle(
         + nav.acceleration_estimated[1] * nav.acceleration_estimated[1])
         .sqrt();
 
-    // 6 normalized inputs
+    // 8 normalized inputs (6 orbital/aero + 2 thermal margins)
     let input = [
         orbit.eccentricity - 1.0,
         (orbit.inclination - target_inclination).to_degrees() * 3.0 / 5.0,
@@ -53,6 +53,8 @@ pub fn nn_bank_angle(
         -mu / (2.0 * orbit.semi_major_axis) / 6e6,
         (nav.velocity_estimated[0] / 3e3 - 1.5) * 2.0,
         accel_mag / 20.0 - 1.0,
+        nav.heat_flux_fraction * 2.0 - 1.0,
+        nav.heat_load_fraction * 2.0 - 1.0,
     ];
 
     let output = nn.forward(&input);
@@ -85,16 +87,16 @@ mod tests {
         }
     }
 
-    /// Build a minimal 6→2 network (one layer, all-zero weights).
+    /// Build a minimal 8→2 network (one layer, all-zero weights).
     ///
     /// Forward pass: output[j] = activation(sum(0 * input) + bias[j]) = activation(bias[j])
     /// With Linear activation: output = bias directly.
     /// Bank angle = atan2(b[0], b[1])
     fn zero_weight_nn(bias0: f64, bias1: f64) -> NeuralNetModel {
         NeuralNetModel {
-            layer_sizes: vec![6, 2],
+            layer_sizes: vec![8, 2],
             layers: vec![Layer {
-                w: vec![vec![0.0; 6], vec![0.0; 6]],
+                w: vec![vec![0.0; 8], vec![0.0; 8]],
                 b: vec![bias0, bias1],
                 activation: Activation::Linear,
             }],
@@ -130,12 +132,12 @@ mod tests {
 
     #[test]
     fn output_in_valid_range() {
-        // Small 6→3→2 network with tanh hidden layer and asinh output
+        // Small 8→3→2 network with tanh hidden layer and asinh output
         let layer0 = Layer {
             w: vec![
-                vec![0.1, -0.2, 0.3, -0.1, 0.2, -0.3],
-                vec![-0.2, 0.1, -0.1, 0.3, -0.2, 0.1],
-                vec![0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
+                vec![0.1, -0.2, 0.3, -0.1, 0.2, -0.3, 0.05, -0.05],
+                vec![-0.2, 0.1, -0.1, 0.3, -0.2, 0.1, 0.05, -0.05],
+                vec![0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
             ],
             b: vec![0.1, -0.1, 0.0],
             activation: Activation::Tanh,
@@ -146,7 +148,7 @@ mod tests {
             activation: Activation::Asinh,
         };
         let nn = NeuralNetModel {
-            layer_sizes: vec![6, 3, 2],
+            layer_sizes: vec![8, 3, 2],
             layers: vec![layer0, layer1],
             output_interpretation: "atan2".to_string(),
         };
@@ -170,11 +172,11 @@ mod tests {
 
         fn fixed_small_nn() -> NeuralNetModel {
             NeuralNetModel {
-                layer_sizes: vec![6, 2],
+                layer_sizes: vec![8, 2],
                 layers: vec![Layer {
                     w: vec![
-                        vec![0.1, -0.1, 0.2, -0.2, 0.05, -0.05],
-                        vec![-0.1, 0.1, -0.05, 0.05, 0.15, -0.15],
+                        vec![0.1, -0.1, 0.2, -0.2, 0.05, -0.05, 0.1, -0.1],
+                        vec![-0.1, 0.1, -0.05, 0.05, 0.15, -0.15, 0.05, -0.05],
                     ],
                     b: vec![0.3, -0.2],
                     activation: Activation::Tanh,

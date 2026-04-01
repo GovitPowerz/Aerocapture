@@ -88,8 +88,8 @@ Adding a new planet requires only a new TOML preset file in `configs/planets/` �
 The simulation implements a full closed-loop GNC chain:
 
 1. **Navigation** — Two modes: legacy bias-only, or 13-state EKF (IMU sensor model + star tracker with atmospheric blackout + drag-derived density estimation). Configurable via `[navigation] mode = "bias"` or `"ekf"`.
-2. **Guidance** — One of 7 algorithms computes a bank angle command (see table below)
-3. **Lateral guidance** — Roll sign management via inclination-corridor logic with deadband. Shared by unsigned-magnitude schemes (EqGlide, EnergyCtrl, PredGuid, FNPAG). NN and PiecewiseConstant produce signed bank angles and bypass lateral guidance entirely.
+2. **Guidance** — One of 7 algorithms computes a bank angle command (see table below). After the trajectory nadir (bounce), FTC + 4 unsigned-magnitude schemes automatically switch to a shared **exit phase controller** (dynamic pressure feedback with radial velocity damping) for apoapsis targeting on the ascending leg.
+3. **Lateral guidance** — Roll sign management via inclination-corridor logic with deadband. Shared by unsigned-magnitude schemes (EqGlide, EnergyCtrl, PredGuid, FNPAG). Remains active during exit phase for inclination correction. NN and PiecewiseConstant produce signed bank angles and bypass both lateral and exit guidance entirely.
 4. **Control** — Pilot dynamics model applies rate limits and first/second-order lag to bank angle commands
 5. **Integration** — Propagates equations of motion with all physical models above. Adaptive mode sub-steps within each GNC tick — guidance/navigation cadences are unchanged.
 
@@ -213,10 +213,10 @@ The Rust simulator has been validated against a reference implementation across 
 ## Testing
 
 ```bash
-# Rust tests (~277 tests)
+# Rust tests (~307 tests)
 cargo test --release --manifest-path src/rust/Cargo.toml
 
-# Python tests (~303 tests)
+# Python tests (~322 tests)
 uv run pytest tests/
 
 # Linting + type checking
@@ -226,7 +226,7 @@ uv run pytest tests/
 ./check_all.sh
 ```
 
-**Rust tests** cover: physics (J2/J3/J4 gravity with proptest), all 7 guidance schemes, lateral guidance, navigation (bias + EKF), wind model, control (pilot dynamics, angle utils), DOPRI45 adaptive integrator, TOML base inheritance, virtual DV ranges, trajectory heat load.
+**Rust tests** cover: physics (J2/J3/J4 gravity with proptest), all 7 guidance schemes, exit phase guidance (pdyn feedback with proptest), phase dispatch, lateral guidance, navigation (bias + EKF, SimPhase gating), wind model, control (pilot dynamics, angle utils), DOPRI45 adaptive integrator, TOML base inheritance, virtual DV ranges, trajectory heat load.
 
 **Python tests** cover: parsers, regression, GA pipeline, training visualization, training animation, NN weight initialization, adaptive seed pool, graceful interrupt, TOML base inheritance, PyO3 integration (bit-identical regression), corridor accumulator, unified cost function.
 

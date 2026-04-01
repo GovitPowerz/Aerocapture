@@ -73,10 +73,19 @@ def test_toml_roundtrip_params_present(scheme: str, tmp_path: Path) -> None:
     sub = guidance.get(section_name, {})
     lateral_sub = guidance.get("lateral", {})
 
+    exit_sub = guidance.get("ftc", {})
+    thermal_sub = guidance.get("thermal_limiter", {})
+
     for name in params:
         if name.startswith("lateral."):
             bare = name.removeprefix("lateral.")
             assert bare in lateral_sub, f"scheme={scheme}: lateral param '{bare}' missing from guidance.lateral"
+        elif name.startswith("exit."):
+            bare = name.removeprefix("exit.")
+            assert bare in exit_sub, f"scheme={scheme}: exit param '{bare}' missing from guidance.ftc"
+        elif name.startswith("thermal."):
+            bare = name.removeprefix("thermal.")
+            assert bare in thermal_sub, f"scheme={scheme}: thermal param '{bare}' missing from guidance.thermal_limiter"
         else:
             assert name in sub, f"scheme={scheme}: param '{name}' missing from guidance.{section_name}"
 
@@ -103,6 +112,8 @@ def test_toml_roundtrip_values_close(scheme: str, tmp_path: Path) -> None:
     section_name = GUIDANCE_TOML_SECTIONS[scheme]
     sub = parsed["guidance"][section_name]
     lateral_sub = parsed["guidance"].get("lateral", {})
+    exit_sub = parsed["guidance"].get("ftc", {})
+    thermal_sub = parsed["guidance"].get("thermal_limiter", {})
 
     for name, expected in params.items():
         if name.startswith("lateral."):
@@ -111,6 +122,12 @@ def test_toml_roundtrip_values_close(scheme: str, tmp_path: Path) -> None:
             # max_reversals is rounded to int before writing
             if bare == "max_reversals":
                 expected = float(int(round(expected)))
+        elif name.startswith("exit."):
+            bare = name.removeprefix("exit.")
+            actual = exit_sub[bare]
+        elif name.startswith("thermal."):
+            bare = name.removeprefix("thermal.")
+            actual = thermal_sub[bare]
         else:
             actual = sub[name]
         assert abs(actual - expected) <= 1e-9 * max(abs(expected), 1.0), f"scheme={scheme} param={name}: written={expected}, read back={actual}"
@@ -198,3 +215,83 @@ class TestWriteGuidanceTomlMcSeed:
             assert data["monte_carlo"]["seed"] == 42
         finally:
             patched.unlink(missing_ok=True)
+
+
+class TestThermalLimiterParams:
+    """Thermal limiter params present in unsigned-magnitude schemes and route correctly."""
+
+    UNSIGNED_SCHEMES = ["equilibrium_glide", "energy_controller", "pred_guid", "fnpag", "ftc"]
+
+    @pytest.mark.parametrize("scheme", UNSIGNED_SCHEMES)
+    def test_thermal_params_in_param_space(self, scheme: str) -> None:
+        """All unsigned-magnitude schemes include thermal limiter params."""
+        specs = PARAM_SPACES[scheme]
+        thermal_names = {s.name for s in specs if s.name.startswith("thermal.")}
+        expected = {
+            "thermal.heat_flux_activation",
+            "thermal.heat_load_activation",
+            "thermal.heat_flux_ramp_exponent",
+            "thermal.heat_load_ramp_exponent",
+        }
+        assert thermal_names == expected, f"scheme={scheme}: thermal params mismatch: {thermal_names}"
+
+    def test_piecewise_constant_has_no_thermal_params(self) -> None:
+        """Piecewise constant should NOT have thermal limiter params."""
+        specs = PARAM_SPACES["piecewise_constant"]
+        thermal_names = [s.name for s in specs if s.name.startswith("thermal.")]
+        assert thermal_names == [], f"piecewise_constant should not have thermal params: {thermal_names}"
+
+    @pytest.mark.parametrize("scheme", UNSIGNED_SCHEMES)
+    def test_thermal_params_route_to_toml_section(self, scheme: str, tmp_path: Path) -> None:
+        """thermal.* params end up in [guidance.thermal_limiter] in the patched TOML."""
+        config = make_training_config(scheme)
+        specs = PARAM_SPACES[scheme]
+        chrom_len = len(specs) * config.ga.n_bit
+        chrom = make_chromosome(chrom_len, strategy="mid")
+
+        params = decode_params_from_chromosome(chrom, config)
+        base_toml = TRAINING_CONFIGS[scheme]
+        out_path = tmp_path / f"{scheme}_thermal.toml"
+        written = write_guidance_toml(base_toml, scheme, params, output_path=out_path)
+
+        with open(written, "rb") as f:
+            parsed = tomllib.load(f)
+
+        thermal_section = parsed.get("guidance", {}).get("thermal_limiter", {})
+        assert "heat_flux_activation" in thermal_section, f"scheme={scheme}: heat_flux_activation missing"
+        assert "heat_load_activation" in thermal_section, f"scheme={scheme}: heat_load_activation missing"
+        assert "heat_flux_ramp_exponent" in thermal_section, f"scheme={scheme}: heat_flux_ramp_exponent missing"
+        assert "heat_load_ramp_exponent" in thermal_section, f"scheme={scheme}: heat_load_ramp_exponent missing"
+
+
+class TestExitParamsSafety:
+    """Non-FTC schemes get safe density_filter_gain when exit params create [guidance.ftc]."""
+
+    NON_FTC_SCHEMES = ["equilibrium_glide", "energy_controller", "pred_guid", "fnpag"]
+
+    @pytest.mark.parametrize("scheme", NON_FTC_SCHEMES)
+    def test_density_filter_gain_written_for_non_ftc(self, scheme: str, tmp_path: Path) -> None:
+        """Non-FTC schemes must have density_filter_gain=0.8 in the sparse [guidance.ftc] section."""
+        config = make_training_config(scheme)
+        specs = PARAM_SPACES[scheme]
+        chrom_len = len(specs) * config.ga.n_bit
+        chrom = make_chromosome(chrom_len, strategy="mid")
+
+        params = decode_params_from_chromosome(chrom, config)
+        base_toml = TRAINING_CONFIGS[scheme]
+        out_path = tmp_path / f"{scheme}_exit_safety.toml"
+        written = write_guidance_toml(base_toml, scheme, params, output_path=out_path)
+
+        with open(written, "rb") as f:
+            parsed = tomllib.load(f)
+
+        ftc_section = parsed.get("guidance", {}).get("ftc", {})
+        assert "density_filter_gain" in ftc_section, f"scheme={scheme}: density_filter_gain missing from guidance.ftc"
+        assert ftc_section["density_filter_gain"] == 0.8, f"scheme={scheme}: density_filter_gain should be 0.8, got {ftc_section['density_filter_gain']}"
+
+    @pytest.mark.parametrize("scheme", NON_FTC_SCHEMES)
+    def test_exit_altitude_threshold_in_param_space(self, scheme: str) -> None:
+        """All unsigned-magnitude schemes include exit_altitude_threshold as a GA param."""
+        specs = PARAM_SPACES[scheme]
+        exit_names = {s.name for s in specs if s.name.startswith("exit.")}
+        assert "exit.exit_altitude_threshold" in exit_names, f"scheme={scheme}: exit_altitude_threshold missing from param space"

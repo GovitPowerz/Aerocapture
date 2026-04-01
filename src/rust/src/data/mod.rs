@@ -10,9 +10,10 @@ pub mod neural;
 pub mod pilot;
 
 use crate::config::{
-    GuidanceType, IntegrationMode, SimInput, TomlConfig, TomlMonteCarlo, TomlNavigation,
+    GuidanceType, IntegrationMode, SimInput, SimPhase, TomlConfig, TomlMonteCarlo, TomlNavigation,
 };
 use crate::gnc::guidance::lateral::LateralParams;
+use crate::gnc::guidance::thermal_limiter::ThermalLimiterParams;
 use crate::physics::winds;
 use std::fmt;
 
@@ -133,6 +134,7 @@ pub struct Constraints {
     pub max_heat_flux: f64,        // W/m^2 (from kW/m^2)
     pub max_load_factor: f64,      // m/s^2 (from g, multiplied by g0=9.81)
     pub max_dynamic_pressure: f64, // Pa (from kPa)
+    pub max_heat_load: f64,        // J/m^2 (from kJ/m^2)
 }
 
 /// Success criteria
@@ -175,6 +177,8 @@ pub struct SimData {
     pub nav_config: Option<TomlNavigation>,
     /// Integration method: fixed Gill RK4 (default) or adaptive DOPRI45
     pub integration_mode: IntegrationMode,
+    /// Simulation phase mode (Full, CaptureOnly, ExitOnly, Preprogrammed)
+    pub sim_phase: SimPhase,
 }
 
 const G0: f64 = 9.81;
@@ -283,6 +287,7 @@ impl SimData {
             max_heat_flux: f.constraints.max_heat_flux * 1e3,
             max_load_factor: f.constraints.max_load_factor * G0,
             max_dynamic_pressure: f.constraints.max_dynamic_pressure * 1e3,
+            max_heat_load: f.constraints.max_heat_load * 1e3, // kJ/m^2 -> J/m^2
         };
         let final_conditions = FinalConditions {
             altitude: f.final_conditions.altitude * 1e3,
@@ -468,6 +473,16 @@ impl SimData {
                 pred_guid: pred_guid_params.clone(),
                 fnpag: fnpag_params.clone(),
                 piecewise_constant: piecewise_constant_params.clone(),
+                thermal_limiter: if let Some(ref tl) = toml.guidance.thermal_limiter {
+                    ThermalLimiterParams {
+                        heat_flux_activation: tl.heat_flux_activation,
+                        heat_load_activation: tl.heat_load_activation,
+                        heat_flux_ramp_exponent: tl.heat_flux_ramp_exponent,
+                        heat_load_ramp_exponent: tl.heat_load_ramp_exponent,
+                    }
+                } else {
+                    ThermalLimiterParams::default()
+                },
             }
         } else {
             // No FTC params — load from file if guidance suffix available, else defaults
@@ -516,6 +531,16 @@ impl SimData {
                 pred_guid: pred_guid_params,
                 fnpag: fnpag_params,
                 piecewise_constant: piecewise_constant_params,
+                thermal_limiter: if let Some(ref tl) = toml.guidance.thermal_limiter {
+                    ThermalLimiterParams {
+                        heat_flux_activation: tl.heat_flux_activation,
+                        heat_load_activation: tl.heat_load_activation,
+                        heat_flux_ramp_exponent: tl.heat_flux_ramp_exponent,
+                        heat_load_ramp_exponent: tl.heat_load_ramp_exponent,
+                    }
+                } else {
+                    ThermalLimiterParams::default()
+                },
             }
         };
 
@@ -609,6 +634,7 @@ impl SimData {
             nav_mode,
             nav_config: toml.navigation.clone(),
             integration_mode: IntegrationMode::from_toml(&toml.integration, v.periods.integration),
+            sim_phase: config.sim_phase,
         })
     }
 }
