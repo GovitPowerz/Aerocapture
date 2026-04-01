@@ -165,6 +165,20 @@ def _print_eval_summary(final_records: npt.NDArray[np.float64], n_sims: int, cos
         print(f"    Periapsis err (km): p50={np.median(peri):.1f}  p95={np.percentile(peri, 95):.1f}  mean={np.mean(peri):.1f}")
         print(f"    Inclin. err (deg):  p50={np.median(incl):.2f}  p95={np.percentile(incl, 95):.2f}  mean={np.mean(incl):.2f}")
 
+    # Constraint violation stats (over ALL sims)
+    all_q = final_records[:, charts._FR_MAX_HEAT_FLUX]
+    all_g = final_records[:, charts._FR_MAX_G_LOAD]
+    all_hl = final_records[:, charts._FR_INTEGRATED_FLUX] * 1e3  # MJ/m2 -> kJ/m2
+    q_limit = cost_kwargs.get("heat_flux_limit") if cost_kwargs else None
+    g_limit = cost_kwargs.get("g_load_limit") if cost_kwargs else None
+    hl_limit = cost_kwargs.get("heat_load_limit") if cost_kwargs else None
+    q_viol = f"  {np.mean(all_q > q_limit) * 100:.1f}% > {q_limit:.0f}" if q_limit else ""
+    g_viol = f"  {np.mean(all_g > g_limit) * 100:.1f}% > {g_limit:.1f}" if g_limit else ""
+    hl_viol = f"  {np.mean(all_hl > hl_limit) * 100:.1f}% > {hl_limit:.0f}" if hl_limit else ""
+    print(f"    Heat flux (kW/m2):  p50={np.median(all_q):.1f}  p95={np.percentile(all_q, 95):.1f}  max={np.max(all_q):.1f}{q_viol}")
+    print(f"    G-load (g):         p50={np.median(all_g):.2f}  p95={np.percentile(all_g, 95):.2f}  max={np.max(all_g):.2f}{g_viol}")
+    print(f"    Heat load (kJ/m2):  p50={np.median(all_hl):.0f}  p95={np.percentile(all_hl, 95):.0f}  max={np.max(all_hl):.0f}{hl_viol}")
+
 
 # ---------------------------------------------------------------------------
 # TOML metadata reader
