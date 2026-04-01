@@ -13,6 +13,7 @@ use crate::config::{
     GuidanceType, IntegrationMode, SimInput, SimPhase, TomlConfig, TomlMonteCarlo, TomlNavigation,
 };
 use crate::gnc::guidance::lateral::LateralParams;
+use crate::gnc::guidance::thermal_limiter::ThermalLimiterParams;
 use crate::physics::winds;
 use std::fmt;
 
@@ -472,6 +473,16 @@ impl SimData {
                 pred_guid: pred_guid_params.clone(),
                 fnpag: fnpag_params.clone(),
                 piecewise_constant: piecewise_constant_params.clone(),
+                thermal_limiter: if let Some(ref tl) = toml.guidance.thermal_limiter {
+                    ThermalLimiterParams {
+                        heat_flux_activation: tl.heat_flux_activation,
+                        heat_load_activation: tl.heat_load_activation,
+                        heat_flux_ramp_exponent: tl.heat_flux_ramp_exponent,
+                        heat_load_ramp_exponent: tl.heat_load_ramp_exponent,
+                    }
+                } else {
+                    ThermalLimiterParams::default()
+                },
             }
         } else {
             // No FTC params — load from file if guidance suffix available, else defaults
@@ -520,6 +531,16 @@ impl SimData {
                 pred_guid: pred_guid_params,
                 fnpag: fnpag_params,
                 piecewise_constant: piecewise_constant_params,
+                thermal_limiter: if let Some(ref tl) = toml.guidance.thermal_limiter {
+                    ThermalLimiterParams {
+                        heat_flux_activation: tl.heat_flux_activation,
+                        heat_load_activation: tl.heat_load_activation,
+                        heat_flux_ramp_exponent: tl.heat_flux_ramp_exponent,
+                        heat_load_ramp_exponent: tl.heat_load_ramp_exponent,
+                    }
+                } else {
+                    ThermalLimiterParams::default()
+                },
             }
         };
 

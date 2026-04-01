@@ -332,6 +332,9 @@ pub struct TomlGuidance {
     /// Lateral guidance parameters (shared by unsigned-magnitude schemes)
     #[serde(default)]
     pub lateral: Option<TomlLateralParams>,
+    /// Thermal safety limiter parameters (shared by unsigned-magnitude schemes)
+    #[serde(default)]
+    pub thermal_limiter: Option<TomlThermalLimiterParams>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -774,6 +777,18 @@ pub struct TomlLateralParams {
 
 fn default_lateral_corridor_slope() -> f64 {
     13080.458
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlThermalLimiterParams {
+    #[serde(default = "default_one")]
+    pub heat_flux_activation: f64,
+    #[serde(default = "default_one")]
+    pub heat_load_activation: f64,
+    #[serde(default = "default_one")]
+    pub heat_flux_ramp_exponent: f64,
+    #[serde(default = "default_one")]
+    pub heat_load_ramp_exponent: f64,
 }
 
 // ─── Domain-based Monte Carlo TOML structs ───
