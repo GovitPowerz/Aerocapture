@@ -1,9 +1,5 @@
 # TODO
 
-## Simulation — High Impact
-
-- [ ] Add heat rate and heat load as active guidance constraints — §2.1 in IMPROVEMENTS.md
-
 ## Simulation — Medium Impact
 
 - [ ] Improve FNPAG predictor fidelity (add J2, actual atmo table) — §4.3  in IMPROVEMENTS.md

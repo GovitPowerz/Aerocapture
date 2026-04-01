@@ -378,7 +378,12 @@ def write_guidance_toml(
 
     # Merge exit params into [guidance.ftc] (exit guidance is loaded from ftc section for all schemes)
     if exit_params:
-        toml_data["guidance"].setdefault("ftc", {}).update(exit_params)
+        ftc_section = toml_data["guidance"].setdefault("ftc", {})
+        ftc_section.update(exit_params)
+        # Ensure density_filter_gain is present when creating a sparse [guidance.ftc]
+        # for non-FTC schemes, so serde doesn't default it to 0.0.
+        if guidance_type != "ftc":
+            ftc_section.setdefault("density_filter_gain", 0.8)
 
     # Merge thermal limiter params into [guidance.thermal_limiter]
     if thermal_params:

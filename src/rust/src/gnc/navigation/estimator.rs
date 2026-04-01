@@ -28,6 +28,7 @@ pub struct NavigationState {
     pub bounce_flag: i32,              // bounce indicator: 0=before, 1=after
     pub guidance_phase: i32,           // guidance phase: 1=capture, 2=exit, 3=emergency
     pub capture_time: f64,             // capture phase duration (s)
+    pub exit_phase_locked: bool,       // once true, phase cannot revert from 2 to 1
 }
 
 impl Default for NavigationState {
@@ -44,6 +45,7 @@ impl NavigationState {
             bounce_flag: 0,
             guidance_phase: 1,
             capture_time: 0.0,
+            exit_phase_locked: false,
         }
     }
 }
@@ -210,16 +212,17 @@ pub fn navigate(
 
     let velocity_radial = velocity_relative * out.velocity_estimated[1].sin();
 
-    // Phase management
+    // Phase management (once exit phase is entered, it cannot revert to capture)
     if nav_state.bounce_flag == 0 {
         nav_state.guidance_phase = 1;
-    } else {
+    } else if !nav_state.exit_phase_locked {
         let vphase = data.guidance.exit_velocity_threshold;
         if velocity_relative >= vphase && velocity_radial < 0.0 {
             nav_state.guidance_phase = 1;
         }
         if velocity_relative <= vphase && nav_state.guidance_phase == 1 {
             nav_state.guidance_phase = 2;
+            nav_state.exit_phase_locked = true;
             nav_state.capture_time = sim_time;
             out.phase_transition_flag = 1;
             out.reference_velocity = velocity_radial;

@@ -27,6 +27,7 @@ _EXIT_PARAMS: list[ParamSpec] = [
     ParamSpec("exit.exit_velocity_threshold", 3000.0, 5500.0, 4400.0),
     ParamSpec("exit.exit_pdyn_margin", 0.5, 4.0, 1.75),
     ParamSpec("exit.exit_radial_vel_gain", 1.0, 30.0, 10.0),
+    ParamSpec("exit.exit_altitude_threshold", 30.0, 90.0, 60.0),  # km
 ]
 
 # Lateral guidance params shared by all unsigned-magnitude schemes.

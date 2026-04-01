@@ -573,7 +573,7 @@ pub struct TomlFtcParams {
     pub exit_velocity_threshold: f64, // m/s
     #[serde(default)]
     pub exit_pdyn_margin: f64,
-    #[serde(default)]
+    #[serde(default = "default_exit_altitude_km")]
     pub exit_altitude_threshold: f64, // km
     #[serde(default)]
     pub exit_radial_vel_gain: f64, // Pa/(m/s)
@@ -589,7 +589,7 @@ pub struct TomlFtcParams {
     pub security_capture: i32,
     #[serde(default = "default_three_i32")]
     pub security_exit: i32,
-    #[serde(default)]
+    #[serde(default = "default_density_filter_gain")]
     pub density_filter_gain: f64,
     #[serde(default = "default_longi_act")]
     pub longi_activation: f64, // MJ/kg
@@ -610,6 +610,12 @@ fn default_five_i32() -> i32 {
 }
 fn default_three_i32() -> i32 {
     3
+}
+fn default_exit_altitude_km() -> f64 {
+    60.0
+}
+fn default_density_filter_gain() -> f64 {
+    0.8
 }
 fn default_longi_act() -> f64 {
     1000.0

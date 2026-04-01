@@ -42,11 +42,10 @@ pub fn exit_guidance(
     let fpa = nav.velocity_estimated[1];
     let velocity_radial = velocity * fpa.sin();
 
-    // Target dynamic pressure: density at exit altitude scaled by a margin factor.
-    // `density_exit` is already computed every nav step from the onboard model
+    // Target dynamic pressure: q_exit * margin, where q_exit = 0.5 * rho_exit * V^2.
+    // `density_exit` is computed every nav step from the onboard model
     // evaluated at `exit_altitude_threshold`.
-    let pdyn_target = nav.density_exit * velocity * velocity * data.guidance.exit_pdyn_margin;
-
+    let pdyn_target = 0.5 * nav.density_exit * velocity * velocity * data.guidance.exit_pdyn_margin;
     // Current dynamic pressure from nav estimate.
     let pdyn_current = 0.5 * nav.density_guidance * velocity * velocity;
 

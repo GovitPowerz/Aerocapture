@@ -262,3 +262,36 @@ class TestThermalLimiterParams:
         assert "heat_load_activation" in thermal_section, f"scheme={scheme}: heat_load_activation missing"
         assert "heat_flux_ramp_exponent" in thermal_section, f"scheme={scheme}: heat_flux_ramp_exponent missing"
         assert "heat_load_ramp_exponent" in thermal_section, f"scheme={scheme}: heat_load_ramp_exponent missing"
+
+
+class TestExitParamsSafety:
+    """Non-FTC schemes get safe density_filter_gain when exit params create [guidance.ftc]."""
+
+    NON_FTC_SCHEMES = ["equilibrium_glide", "energy_controller", "pred_guid", "fnpag"]
+
+    @pytest.mark.parametrize("scheme", NON_FTC_SCHEMES)
+    def test_density_filter_gain_written_for_non_ftc(self, scheme: str, tmp_path: Path) -> None:
+        """Non-FTC schemes must have density_filter_gain=0.8 in the sparse [guidance.ftc] section."""
+        config = make_training_config(scheme)
+        specs = PARAM_SPACES[scheme]
+        chrom_len = len(specs) * config.ga.n_bit
+        chrom = make_chromosome(chrom_len, strategy="mid")
+
+        params = decode_params_from_chromosome(chrom, config)
+        base_toml = TRAINING_CONFIGS[scheme]
+        out_path = tmp_path / f"{scheme}_exit_safety.toml"
+        written = write_guidance_toml(base_toml, scheme, params, output_path=out_path)
+
+        with open(written, "rb") as f:
+            parsed = tomllib.load(f)
+
+        ftc_section = parsed.get("guidance", {}).get("ftc", {})
+        assert "density_filter_gain" in ftc_section, f"scheme={scheme}: density_filter_gain missing from guidance.ftc"
+        assert ftc_section["density_filter_gain"] == 0.8, f"scheme={scheme}: density_filter_gain should be 0.8, got {ftc_section['density_filter_gain']}"
+
+    @pytest.mark.parametrize("scheme", NON_FTC_SCHEMES)
+    def test_exit_altitude_threshold_in_param_space(self, scheme: str) -> None:
+        """All unsigned-magnitude schemes include exit_altitude_threshold as a GA param."""
+        specs = PARAM_SPACES[scheme]
+        exit_names = {s.name for s in specs if s.name.startswith("exit.")}
+        assert "exit.exit_altitude_threshold" in exit_names, f"scheme={scheme}: exit_altitude_threshold missing from param space"

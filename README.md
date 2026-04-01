@@ -213,10 +213,10 @@ The Rust simulator has been validated against a reference implementation across 
 ## Testing
 
 ```bash
-# Rust tests (~295 tests)
+# Rust tests (~307 tests)
 cargo test --release --manifest-path src/rust/Cargo.toml
 
-# Python tests (~303 tests)
+# Python tests (~322 tests)
 uv run pytest tests/
 
 # Linting + type checking

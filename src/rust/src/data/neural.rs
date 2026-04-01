@@ -170,6 +170,13 @@ impl NeuralNetModel {
 
     /// Generic forward pass through all layers.
     pub fn forward(&self, input: &[f64]) -> Vec<f64> {
+        assert_eq!(
+            input.len(),
+            self.layer_sizes[0],
+            "NN input length ({}) does not match expected input size ({})",
+            input.len(),
+            self.layer_sizes[0],
+        );
         let mut current = input.to_vec();
         for layer in &self.layers {
             let n_out = layer.b.len();
