@@ -70,6 +70,9 @@ pub struct NavigationOutput {
     pub phase_transition_flag: i32, // phase transition flag
     pub reference_velocity: f64,    // reference radial velocity
     pub capture_time: f64,          // capture duration
+    // Thermal state (for guidance limiter and NN inputs)
+    pub heat_flux_fraction: f64,    // current_heat_flux / max_heat_flux (0.0 if no limit)
+    pub heat_load_fraction: f64,    // cumulative_heat_load / max_heat_load (0.0 if no limit)
 }
 
 /// Run one navigation step.

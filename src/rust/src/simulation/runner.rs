@@ -515,7 +515,7 @@ fn run_single(
             let position_true = [sim.state[0], sim.state[1], sim.state[2]];
             let velocity_true = [sim.state[3], sim.state[4], sim.state[5]];
 
-            let nav_out = match &mut nav_filter {
+            let mut nav_out = match &mut nav_filter {
                 NavigationFilter::Bias(nav_state) => estimator::navigate(
                     &position_true,
                     &velocity_true,
@@ -571,6 +571,33 @@ fn run_single(
             // Latch reference velocity at the phase 1→2 transition
             if nav_out.phase_transition_flag == 1 {
                 ftc_state.reference_velocity = nav_out.reference_velocity;
+            }
+
+            // Compute thermal fractions for guidance limiter + NN inputs.
+            // Instantaneous heat flux uses the same formula as track_peak_values.
+            {
+                let (alt_for_thermal, _) = geodetic_from_spherical(
+                    sim.state[0], sim.state[1], sim.state[2], planet,
+                );
+                let rho_thermal = data.atmosphere.density_at(alt_for_thermal)
+                    * (1.0 + run_state.density_bias);
+                let v_eff_thermal = effective_airspeed(
+                    sim.state[3], sim.state[4], sim.state[5], sim.state[2],
+                    alt_for_thermal, data, run_state,
+                );
+                let heat_flux_now = data.capsule.cq * rho_thermal.sqrt()
+                    * v_eff_thermal.powf(3.05);
+
+                nav_out.heat_flux_fraction = if data.constraints.max_heat_flux > 0.0 {
+                    heat_flux_now / data.constraints.max_heat_flux
+                } else {
+                    0.0
+                };
+                nav_out.heat_load_fraction = if data.constraints.max_heat_load > 0.0 {
+                    sim.state[6] / data.constraints.max_heat_load
+                } else {
+                    0.0
+                };
             }
 
             let ftc_out = ftc::guidance_step(
