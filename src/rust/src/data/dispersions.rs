@@ -339,6 +339,19 @@ impl DensityPerturbationConfig {
     }
 }
 
+/// Advance the Ornstein-Uhlenbeck density perturbation by one timestep.
+///
+/// Exact transition: x(t+dt) = x(t)*exp(-dt/tau) + sigma*sqrt(1 - exp(-2*dt/tau))*N(0,1)
+///
+/// Returns 0.0 when disabled (sigma <= 0 or tau <= 0).
+pub fn step_density_perturbation(x: f64, dt: f64, tau: f64, sigma: f64, normal_sample: f64) -> f64 {
+    if sigma <= 0.0 || tau <= 0.0 {
+        return 0.0;
+    }
+    let decay = (-dt / tau).exp();
+    x * decay + sigma * (1.0 - decay * decay).sqrt() * normal_sample
+}
+
 /// Full domain-based dispersion configuration.
 #[derive(Debug, Clone)]
 pub struct DispersionConfig {
@@ -924,5 +937,91 @@ mod tests {
             !DensityPerturbationConfig::from_level(DispersionLevel::Medium).is_disabled(),
             "Medium preset should not be disabled"
         );
+    }
+
+    #[test]
+    fn test_step_density_perturbation_disabled_sigma_zero() {
+        assert_eq!(step_density_perturbation(0.5, 0.1, 60.0, 0.0, 1.0), 0.0);
+    }
+
+    #[test]
+    fn test_step_density_perturbation_disabled_tau_zero() {
+        assert_eq!(step_density_perturbation(0.5, 0.1, 0.0, 0.10, 1.0), 0.0);
+    }
+
+    #[test]
+    fn test_step_density_perturbation_deterministic() {
+        let a = step_density_perturbation(0.0, 0.1, 60.0, 0.10, 0.5);
+        let b = step_density_perturbation(0.0, 0.1, 60.0, 0.10, 0.5);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_step_density_perturbation_decay() {
+        // With zero noise (normal_sample=0), the state should decay toward 0
+        let x = step_density_perturbation(1.0, 0.1, 60.0, 0.10, 0.0);
+        assert!(x < 1.0, "state should decay: got {}", x);
+        assert!(x > 0.0, "state should remain positive with no noise: got {}", x);
+    }
+
+    #[test]
+    fn test_step_density_perturbation_statistical_properties() {
+        // Run many steps from x=0 and check steady-state variance ~ sigma^2
+        let tau = 60.0;
+        let sigma = 0.10;
+        let dt = 0.1;
+        let n_steps = 100_000;
+
+        use rand::SeedableRng;
+        use rand_distr::{Distribution, Normal};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        let normal = Normal::new(0.0, 1.0).unwrap();
+
+        let mut x = 0.0;
+        let mut sum = 0.0;
+        let mut sum_sq = 0.0;
+        let burn_in = 10_000; // let it reach steady state
+
+        for i in 0..n_steps {
+            let z = normal.sample(&mut rng);
+            x = step_density_perturbation(x, dt, tau, sigma, z);
+            if i >= burn_in {
+                sum += x;
+                sum_sq += x * x;
+            }
+        }
+
+        let n = (n_steps - burn_in) as f64;
+        let mean = sum / n;
+        let variance = sum_sq / n - mean * mean;
+
+        // Mean should be ~0
+        assert!(mean.abs() < 0.02, "mean should be ~0, got {}", mean);
+        // Variance should be ~sigma^2 = 0.01
+        assert!(
+            (variance - sigma * sigma).abs() < 0.002,
+            "variance should be ~{}, got {}",
+            sigma * sigma,
+            variance
+        );
+    }
+
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn step_always_finite(
+                x in -10.0f64..10.0,
+                dt in 0.001f64..10.0,
+                tau in 0.01f64..1000.0,
+                sigma in 0.0f64..1.0,
+                z in -5.0f64..5.0,
+            ) {
+                let result = step_density_perturbation(x, dt, tau, sigma, z);
+                prop_assert!(result.is_finite(), "got {}", result);
+            }
+        }
     }
 }
