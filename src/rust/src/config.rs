@@ -508,6 +508,8 @@ pub struct TomlConstraints {
     pub max_heat_flux: f64,        // kW/m²
     pub max_load_factor: f64,      // g
     pub max_dynamic_pressure: f64, // kPa
+    #[serde(default)]
+    pub max_heat_load: f64, // kJ/m^2
 }
 
 #[derive(Debug, Deserialize, Clone)]

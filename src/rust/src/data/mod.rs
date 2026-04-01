@@ -133,6 +133,7 @@ pub struct Constraints {
     pub max_heat_flux: f64,        // W/m^2 (from kW/m^2)
     pub max_load_factor: f64,      // m/s^2 (from g, multiplied by g0=9.81)
     pub max_dynamic_pressure: f64, // Pa (from kPa)
+    pub max_heat_load: f64,        // J/m^2 (from kJ/m^2)
 }
 
 /// Success criteria
@@ -285,6 +286,7 @@ impl SimData {
             max_heat_flux: f.constraints.max_heat_flux * 1e3,
             max_load_factor: f.constraints.max_load_factor * G0,
             max_dynamic_pressure: f.constraints.max_dynamic_pressure * 1e3,
+            max_heat_load: f.constraints.max_heat_load * 1e3, // kJ/m^2 -> J/m^2
         };
         let final_conditions = FinalConditions {
             altitude: f.final_conditions.altitude * 1e3,
