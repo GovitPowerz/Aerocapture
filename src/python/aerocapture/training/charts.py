@@ -895,19 +895,21 @@ def chart_cost_objective(
     from aerocapture.training.evaluate import compute_cost
 
     n = final_records.shape[0]
-    costs = np.array([
-        compute_cost(
-            final_records[i : i + 1],
-            dv_threshold=dv_threshold,
-            g_load_limit=g_load_limit,
-            heat_flux_limit=heat_flux_limit,
-            heat_load_limit=heat_load_limit,
-            g_load_weight=g_load_weight,
-            heat_flux_weight=heat_flux_weight,
-            heat_load_weight=heat_load_weight,
-        )
-        for i in range(n)
-    ])
+    costs = np.array(
+        [
+            compute_cost(
+                final_records[i : i + 1],
+                dv_threshold=dv_threshold,
+                g_load_limit=g_load_limit,
+                heat_flux_limit=heat_flux_limit,
+                heat_load_limit=heat_load_limit,
+                g_load_weight=g_load_weight,
+                heat_flux_weight=heat_flux_weight,
+                heat_load_weight=heat_load_weight,
+            )
+            for i in range(n)
+        ]
+    )
 
     log_costs = np.log10(np.maximum(costs, 1e-6))
 

@@ -137,9 +137,7 @@ def run_final_evaluation(
         return None
 
 
-def _print_eval_summary(
-    final_records: npt.NDArray[np.float64], n_sims: int, cost_kwargs: dict[str, float] | None = None
-) -> None:
+def _print_eval_summary(final_records: npt.NDArray[np.float64], n_sims: int, cost_kwargs: dict[str, float] | None = None) -> None:
     """Print a human-readable summary of the final MC evaluation to stdout."""
     from aerocapture.training.evaluate import compute_cost
 
