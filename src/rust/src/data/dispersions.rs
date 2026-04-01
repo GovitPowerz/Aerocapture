@@ -314,6 +314,31 @@ pub struct WindDispersionConfig {
     pub direction_bias_deg: f64, // max rotation ±deg
 }
 
+/// Gauss-Markov (Ornstein-Uhlenbeck) density perturbation config.
+/// Produces time-varying density multiplier that evolves during each run.
+#[derive(Debug, Clone, Copy)]
+pub struct DensityPerturbationConfig {
+    pub tau: f64,   // correlation time (seconds)
+    pub sigma: f64, // steady-state RMS amplitude (fractional)
+}
+
+impl DensityPerturbationConfig {
+    pub fn from_level(level: DispersionLevel) -> Self {
+        match level {
+            DispersionLevel::Off => Self { tau: 0.0, sigma: 0.0 },
+            DispersionLevel::Low => Self { tau: 120.0, sigma: 0.05 },
+            DispersionLevel::Medium => Self { tau: 60.0, sigma: 0.10 },
+            DispersionLevel::High => Self { tau: 30.0, sigma: 0.20 },
+            DispersionLevel::Custom => Self::from_level(DispersionLevel::Medium),
+        }
+    }
+
+    /// Returns true if the perturbation is effectively disabled.
+    pub fn is_disabled(&self) -> bool {
+        self.sigma <= 0.0 || self.tau <= 0.0
+    }
+}
+
 /// Full domain-based dispersion configuration.
 #[derive(Debug, Clone)]
 pub struct DispersionConfig {
@@ -852,5 +877,52 @@ mod tests {
             DispersionLevel::Custom
         );
         assert!(DispersionLevel::from_str("invalid").is_err());
+    }
+
+    #[test]
+    fn test_density_perturbation_config_off() {
+        let cfg = DensityPerturbationConfig::from_level(DispersionLevel::Off);
+        assert_eq!(cfg.sigma, 0.0);
+        assert_eq!(cfg.tau, 0.0);
+    }
+
+    #[test]
+    fn test_density_perturbation_config_low() {
+        let cfg = DensityPerturbationConfig::from_level(DispersionLevel::Low);
+        assert_eq!(cfg.tau, 120.0);
+        assert_eq!(cfg.sigma, 0.05);
+    }
+
+    #[test]
+    fn test_density_perturbation_config_medium() {
+        let cfg = DensityPerturbationConfig::from_level(DispersionLevel::Medium);
+        assert_eq!(cfg.tau, 60.0);
+        assert_eq!(cfg.sigma, 0.10);
+    }
+
+    #[test]
+    fn test_density_perturbation_config_high() {
+        let cfg = DensityPerturbationConfig::from_level(DispersionLevel::High);
+        assert_eq!(cfg.tau, 30.0);
+        assert_eq!(cfg.sigma, 0.20);
+    }
+
+    #[test]
+    fn test_density_perturbation_config_custom_defaults_to_medium() {
+        let cfg = DensityPerturbationConfig::from_level(DispersionLevel::Custom);
+        assert_eq!(cfg.tau, 60.0);
+        assert_eq!(cfg.sigma, 0.10);
+    }
+
+    #[test]
+    fn test_density_perturbation_is_disabled() {
+        assert!(
+            DensityPerturbationConfig::from_level(DispersionLevel::Off).is_disabled(),
+            "Off preset should be disabled"
+        );
+        assert!(
+            !DensityPerturbationConfig::from_level(DispersionLevel::Medium).is_disabled(),
+            "Medium preset should not be disabled"
+        );
     }
 }
