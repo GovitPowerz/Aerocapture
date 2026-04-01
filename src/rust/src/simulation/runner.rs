@@ -104,7 +104,7 @@ enum TermReason {
 struct SimResult {
     sim_idx: i32,
     final_line: [f64; 52],
-    photo_lines: Vec<[f64; 29]>,
+    photo_lines: Vec<[f64; 30]>,
     dispersions: [f64; DISPERSION_DRAW_LEN],
 }
 
@@ -261,6 +261,7 @@ pub fn run_for_api(
                             p[26],       // [13] nav_density_ratio
                             p[27],       // [14] truth_density_kg_m3
                             p[28],       // [15] heat_load_kj_m2
+                            p[29],       // [16] density_perturbation
                         ]
                     })
                     .collect()
@@ -327,9 +328,9 @@ fn write_csv_output(
     Ok(())
 }
 
-/// Extract 22 CSV values from the 29-element photo array.
-/// Drops: [20] radial_velocity_2 (duplicate), [22] sim_number, [23] reserved, [24-27] trajectory-only columns.
-fn extract_photo_csv_values(values: &[f64; 29]) -> [f64; 22] {
+/// Extract 22 CSV values from the 30-element photo array.
+/// Drops: [20] radial_velocity_2 (duplicate), [22] sim_number, [23] reserved, [24-27] trajectory-only, [29] density_perturbation.
+fn extract_photo_csv_values(values: &[f64; 30]) -> [f64; 22] {
     [
         values[0],  // time_s
         values[1],  // altitude_km
@@ -503,7 +504,7 @@ fn run_single(
     };
     let mut sequencer = SequencerState::new();
 
-    let mut photo_lines: Vec<[f64; 29]> = Vec::new();
+    let mut photo_lines: Vec<[f64; 30]> = Vec::new();
     let mut cumulative_bank_change_deg = 0.0_f64;
     let mut dynamic_pressure_for_photo = 0.0_f64;
     let mut density_estimate_for_photo = 0.0_f64;
@@ -976,7 +977,7 @@ fn build_photo_values(
     run_state: &init::RunState,
     cumulative_flux: f64,
     guidance_phase: i32,
-) -> [f64; 29] {
+) -> [f64; 30] {
     let (altitude, latitude) =
         geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
 
@@ -1060,7 +1061,8 @@ fn build_photo_values(
         load_factor / G0,      // [25] g-load in g's
         density_gain,          // [26] nav density ratio (estimated/model)
         rho_truth,             // [27] truth density kg/m³
-        cumulative_flux / 1e3, // [28] heat_load_kj_m2 (J/m² → kJ/m²)
+        cumulative_flux / 1e3,             // [28] heat_load_kj_m2 (J/m2 -> kJ/m2)
+        run_state.density_perturbation,    // [29] density_perturbation (fractional GM value)
     ]
 }
 
