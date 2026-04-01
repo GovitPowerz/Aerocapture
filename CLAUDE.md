@@ -114,7 +114,7 @@ src/rust/aerocapture-py/src/
 
 Key API:
 - `aerocapture_rs.run(toml_path, overrides=None, sim_timeout_secs=None)` → `SimResult` with `.final_record` (52,), `.captured`, `.energy`, `.ecc`, `.dispersions` (26,), etc. Returns first result only (use `run_mc` for multi-sim).
-- `aerocapture_rs.run_mc(toml_path, overrides=None, include_trajectories=False, sim_timeout_secs=None)` → `BatchResults` with all n_sims results. When `include_trajectories=True`, populates per-timestep trajectory data (N, 16) for corridor/time-domain plots. Trajectory columns: [alt_km, lon_deg, lat_deg, vel_m_s, fpa_deg, heading_deg, heat_flux_kw_m2, time_s, energy_mj_kg, pdyn_kpa, bank_angle_deg, inclination_deg, g_load_g, nav_density_ratio, truth_density_kg_m3, heat_load_kj_m2]. `.dispersions` (N, 26) always populated.
+- `aerocapture_rs.run_mc(toml_path, overrides=None, include_trajectories=False, sim_timeout_secs=None)` → `BatchResults` with all n_sims results. When `include_trajectories=True`, populates per-timestep trajectory data (N, 17) for corridor/time-domain plots. Trajectory columns: [alt_km, lon_deg, lat_deg, vel_m_s, fpa_deg, heading_deg, heat_flux_kw_m2, time_s, energy_mj_kg, pdyn_kpa, bank_angle_deg, inclination_deg, g_load_g, nav_density_ratio, truth_density_kg_m3, heat_load_kj_m2, density_perturbation]. `.dispersions` (N, 26) always populated.
 - `aerocapture_rs.run_batch(toml_path, overrides_list, n_threads=None, include_trajectories=False, sim_timeout_secs=None)` → `BatchResults` with `.final_records` (N, 52), `.dispersions` (N, 26)
 - `aerocapture_rs.load_config(toml_path)` → Python dict
 

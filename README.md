@@ -193,7 +193,7 @@ print(f"Captured: {result.captured}, dV: {result.delta_v:.1f} m/s")
 mc = aero.run_mc("config.toml", overrides={"simulation.n_sims": 1000},
                  include_trajectories=True)
 print(f"Final records: {mc.final_records.shape}")       # (1000, 52)
-print(f"Trajectories: {len(mc.trajectories)} arrays")   # list of (N, 16)
+print(f"Trajectories: {len(mc.trajectories)} arrays")   # list of (N, 17)
 
 # Batch run with per-sim overrides (parallel via Rayon)
 overrides = [{"guidance.equilibrium_glide.gain_kp": v} for v in [0.1, 0.5, 1.0]]
@@ -213,7 +213,7 @@ The Rust simulator has been validated against a reference implementation across 
 ## Testing
 
 ```bash
-# Rust tests (~307 tests)
+# Rust tests (~324 tests)
 cargo test --release --manifest-path src/rust/Cargo.toml
 
 # Python tests (~322 tests)
@@ -226,7 +226,7 @@ uv run pytest tests/
 ./check_all.sh
 ```
 
-**Rust tests** cover: physics (J2/J3/J4 gravity with proptest), all 7 guidance schemes, exit phase guidance (pdyn feedback with proptest), phase dispatch, lateral guidance, navigation (bias + EKF, SimPhase gating), wind model, control (pilot dynamics, angle utils), DOPRI45 adaptive integrator, TOML base inheritance, virtual DV ranges, trajectory heat load.
+**Rust tests** cover: physics (J2/J3/J4 gravity with proptest), all 7 guidance schemes, exit phase guidance (pdyn feedback with proptest), phase dispatch, lateral guidance, navigation (bias + EKF, SimPhase gating), wind model, control (pilot dynamics, angle utils), DOPRI45 adaptive integrator, TOML base inheritance, virtual DV ranges, trajectory heat load, density perturbation (OU config presets, step function statistics, TOML parsing, E2E backward compat).
 
 **Python tests** cover: parsers, regression, GA pipeline, training visualization, training animation, NN weight initialization, adaptive seed pool, graceful interrupt, TOML base inheritance, PyO3 integration (bit-identical regression), corridor accumulator, unified cost function.
 
