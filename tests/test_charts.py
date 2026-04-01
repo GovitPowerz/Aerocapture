@@ -132,12 +132,12 @@ class TestTrainingCharts:
 # ---------------------------------------------------------------------------
 @pytest.fixture()
 def mc_trajectories() -> list[npt.NDArray[np.float64]]:
-    """Synthetic MC trajectories (10 runs, ~50 timesteps each, 16 cols)."""
+    """Synthetic MC trajectories (10 runs, ~50 timesteps each, 17 cols)."""
     rng = np.random.default_rng(42)
     trajs: list[npt.NDArray[np.float64]] = []
     for _ in range(10):
         n_steps = int(rng.integers(40, 60))
-        traj = np.zeros((n_steps, 16))
+        traj = np.zeros((n_steps, 17))
         traj[:, 0] = np.linspace(120, 30, n_steps)  # alt_km
         traj[:, 7] = np.linspace(0, 300, n_steps)  # time_s
         traj[:, 8] = np.linspace(-1.0, -3.0, n_steps)  # energy_mj_kg
