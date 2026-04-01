@@ -106,7 +106,10 @@ mod tests {
         let rho_bias_only = density(&atm, 15_000.0, 0.2, 0.0);
         let rho_pert_only = density(&atm, 15_000.0, 0.0, 0.15);
         let rho_both = density(&atm, 15_000.0, 0.2, 0.15);
-        // Multiplicative: rho_both = rho_nominal * 1.2 * 1.15, not rho_nominal * 1.35
+        // Individual factors are correct
+        assert_abs_diff_eq!(rho_bias_only, rho_nominal * 1.2, epsilon = 1e-12);
+        assert_abs_diff_eq!(rho_pert_only, rho_nominal * 1.15, epsilon = 1e-12);
+        // Combined is multiplicative: rho_nominal * 1.2 * 1.15 = 1.38, not additive 1.35
         assert_abs_diff_eq!(rho_both, rho_nominal * 1.2 * 1.15, epsilon = 1e-12);
         assert!(
             (rho_both - rho_nominal * 1.35).abs() > 1e-6,
