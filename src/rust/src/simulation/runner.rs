@@ -15,7 +15,7 @@ use crate::integration::rk4;
 use crate::integration::sequencer::SequencerState;
 use crate::orbit::maneuver::DeltaV;
 use crate::orbit::{elements, maneuver};
-use crate::physics::gravity;
+use crate::physics::{atmosphere, gravity};
 use crate::simulation::init;
 use crate::simulation::output;
 use rayon::prelude::*;
@@ -417,16 +417,19 @@ fn run_single(
     // Clone run_state so we can mutate density_perturbation each tick
     let mut run_state = run_state.clone();
 
-    // Gauss-Markov density perturbation RNG (deterministic per sim)
-    let gm_config = data.density_perturbation.as_ref().cloned();
-    let mut gm_rng = {
+    // Gauss-Markov density perturbation RNG (deterministic per sim, only allocated when enabled)
+    let gm_config = data.density_perturbation.filter(|g| !g.is_disabled());
+    let (mut gm_rng, gm_normal) = if gm_config.is_some() {
         use rand::SeedableRng;
         // Offset by 0xDE45 to avoid correlation with EKF RNG (which uses sim_idx * 10_000)
-        rand::rngs::StdRng::seed_from_u64(
+        let rng = rand::rngs::StdRng::seed_from_u64(
             config.random_seed as u64 + sim_idx as u64 * 10_000 + 0xDE45,
-        )
+        );
+        let normal = rand_distr::Normal::new(0.0, 1.0).unwrap();
+        (Some(rng), Some(normal))
+    } else {
+        (None, None)
     };
-    let gm_normal = rand_distr::Normal::new(0.0, 1.0).unwrap();
 
     let req = planet.equatorial_radius;
 
@@ -527,9 +530,9 @@ fn run_single(
         let flags = sequencer.update(sim_time, &data.periods);
 
         // Step Gauss-Markov density perturbation
-        if let Some(gm) = gm_config.as_ref().filter(|g| !g.is_disabled()) {
+        if let Some(gm) = gm_config {
             use rand_distr::Distribution;
-            let z: f64 = gm_normal.sample(&mut gm_rng);
+            let z: f64 = gm_normal.as_ref().unwrap().sample(gm_rng.as_mut().unwrap());
             run_state.density_perturbation = crate::data::dispersions::step_density_perturbation(
                 run_state.density_perturbation,
                 dt,
@@ -609,9 +612,12 @@ fn run_single(
             {
                 let (alt_for_thermal, _) =
                     geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
-                let rho_thermal = data.atmosphere.density_at(alt_for_thermal)
-                    * (1.0 + run_state.density_bias)
-                    * (1.0 + run_state.density_perturbation);
+                let rho_thermal = atmosphere::density(
+                    &data.atmosphere,
+                    alt_for_thermal,
+                    run_state.density_bias,
+                    run_state.density_perturbation,
+                );
                 let v_eff_thermal = effective_airspeed(
                     sim.state[3],
                     sim.state[4],
@@ -683,9 +689,12 @@ fn run_single(
             // Reference trajectory mode: compute pdyn from truth state for photo output
             let (alt_truth, _) =
                 geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
-            let rho_truth = data.atmosphere.density_at(alt_truth)
-                * (1.0 + run_state.density_bias)
-                * (1.0 + run_state.density_perturbation);
+            let rho_truth = atmosphere::density(
+                &data.atmosphere,
+                alt_truth,
+                run_state.density_bias,
+                run_state.density_perturbation,
+            );
             dynamic_pressure_for_photo = 0.5 * rho_truth * sim.state[3] * sim.state[3];
             density_estimate_for_photo = rho_truth;
         }
@@ -1010,8 +1019,12 @@ fn build_photo_values(
     // Use dispersed values (matching track_peak_values) so trajectory plots are consistent
     // with final_record peak values and constraint classification.
     let rho_truth = data.atmosphere.density_at(altitude);
-    let rho_dispersed =
-        rho_truth * (1.0 + run_state.density_bias) * (1.0 + run_state.density_perturbation);
+    let rho_dispersed = atmosphere::density(
+        &data.atmosphere,
+        altitude,
+        run_state.density_bias,
+        run_state.density_perturbation,
+    );
     // Wind-corrected velocity for aero-dependent quantities
     let v_eff = effective_airspeed(
         sim.state[3],
@@ -1181,9 +1194,12 @@ fn track_peak_values(
     let gamma = sim.state[4];
     let psi = sim.state[5];
     let lat = sim.state[2];
-    let rho = data.atmosphere.density_at(altitude)
-        * (1.0 + run_state.density_bias)
-        * (1.0 + run_state.density_perturbation);
+    let rho = atmosphere::density(
+        &data.atmosphere,
+        altitude,
+        run_state.density_bias,
+        run_state.density_perturbation,
+    );
 
     // Wind-corrected velocity for aero-dependent quantities
     let v_eff = effective_airspeed(v, gamma, psi, lat, altitude, data, run_state);
@@ -1276,9 +1292,12 @@ fn compute_derivatives(
 
     let (gravtl, gravtr) = gravity::gravity(r, lat, planet);
     let (altitude, _lat_geo) = geodetic_from_spherical(r, state[1], lat, planet);
-    let rho = data.atmosphere.density_at(altitude)
-        * (1.0 + run_state.density_bias)
-        * (1.0 + run_state.density_perturbation);
+    let rho = atmosphere::density(
+        &data.atmosphere,
+        altitude,
+        run_state.density_bias,
+        run_state.density_perturbation,
+    );
 
     let aoa_dispersed = aoa + run_state.incidence_bias;
     let cx = data.aero.interpolate_cx(aoa_dispersed) * (1.0 + run_state.cx_bias);

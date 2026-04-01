@@ -414,3 +414,29 @@ fn density_perturbation_enabled_trajectory_nonzero() {
         );
     }
 }
+
+/// Two MC sims with GM enabled should produce different perturbation sequences
+/// (per-sim RNG seeding with sim_idx offset).
+#[test]
+fn density_perturbation_per_sim_divergence() {
+    let (mut cfg, mut data) = load_config_for_api("test/test_high_bank_orig.toml");
+    data.density_perturbation = Some(DensityPerturbationConfig {
+        tau: 60.0,
+        sigma: 0.10,
+    });
+    cfg.n_sims = 2;
+    let results = run_for_api(&cfg, &data, true, None).expect("MC GM sim failed");
+    assert_eq!(results.len(), 2);
+    assert!(!results[0].trajectory.is_empty());
+    assert!(!results[1].trajectory.is_empty());
+
+    // Compare density_perturbation column [16] between the two sims
+    let min_len = results[0].trajectory.len().min(results[1].trajectory.len());
+    assert!(min_len > 10, "trajectories too short to compare");
+    let any_differ =
+        (0..min_len).any(|i| results[0].trajectory[i][16] != results[1].trajectory[i][16]);
+    assert!(
+        any_differ,
+        "Two MC sims with different sim_idx should produce different GM sequences"
+    );
+}

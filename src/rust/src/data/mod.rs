@@ -832,22 +832,31 @@ fn build_dispersion_config(
         Some(cfg)
     });
 
-    let density_perturbation = mc.density_perturbation.as_ref().and_then(|d| {
+    let density_perturbation = if let Some(d) = mc.density_perturbation.as_ref() {
         let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
         if level == DispersionLevel::Off {
-            return None;
-        }
-        let mut cfg = DensityPerturbationConfig::from_level(level);
-        if level == DispersionLevel::Custom {
-            if let Some(&v) = d.custom.get("tau") {
-                cfg.tau = v;
+            None
+        } else {
+            let mut cfg = DensityPerturbationConfig::from_level(level);
+            if level == DispersionLevel::Custom {
+                if let Some(&v) = d.custom.get("tau") {
+                    cfg.tau = v;
+                }
+                if let Some(&v) = d.custom.get("sigma") {
+                    cfg.sigma = v;
+                }
             }
-            if let Some(&v) = d.custom.get("sigma") {
-                cfg.sigma = v;
+            if cfg.tau < 0.0 || cfg.sigma < 0.0 {
+                return Err(DataError(format!(
+                    "density_perturbation: tau ({}) and sigma ({}) must be non-negative",
+                    cfg.tau, cfg.sigma
+                )));
             }
+            Some(cfg)
         }
-        Some(cfg)
-    });
+    } else {
+        None
+    };
 
     Ok(DispersionConfig {
         seed: mc.seed,

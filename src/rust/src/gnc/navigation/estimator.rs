@@ -10,6 +10,7 @@ use crate::gnc::navigation::ekf::{EkfConfig, EkfState};
 use crate::gnc::navigation::imu::{ImuConfig, ImuState};
 use crate::gnc::navigation::star_tracker::{StarTrackerConfig, StarTrackerState};
 use crate::orbit::elements;
+use crate::physics::atmosphere;
 use nalgebra::{SMatrix, SVector};
 
 /// Navigation error biases (constant during a run).
@@ -116,8 +117,12 @@ pub fn navigate(
     // Compute true drag acceleration (truth model)
     let (alt_true, _) =
         geodetic_from_spherical(position_true[0], position_true[1], position_true[2], planet);
-    let rho_true = data.atmosphere.density_at(alt_true);
-    let rho_true = rho_true * (1.0 + run_density_bias) * (1.0 + run_density_perturbation);
+    let rho_true = atmosphere::density(
+        &data.atmosphere,
+        alt_true,
+        run_density_bias,
+        run_density_perturbation,
+    );
     let cx_true =
         data.aero.interpolate_cx(aoa_commanded + run_incidence_bias) * (1.0 + run_cx_bias);
     let mass_true = data.capsule.mass * (1.0 + run_mass_bias);
@@ -400,9 +405,12 @@ pub fn navigate_ekf(
     // ── Step 2: Compute true aero acceleration for IMU ──
     let (alt_true, _) =
         geodetic_from_spherical(position_true[0], position_true[1], position_true[2], planet);
-    let rho_true = data.atmosphere.density_at(alt_true)
-        * (1.0 + run_density_bias)
-        * (1.0 + run_density_perturbation);
+    let rho_true = atmosphere::density(
+        &data.atmosphere,
+        alt_true,
+        run_density_bias,
+        run_density_perturbation,
+    );
     let cx_true =
         data.aero.interpolate_cx(aoa_commanded + run_incidence_bias) * (1.0 + run_cx_bias);
     let mass_true = data.capsule.mass * (1.0 + run_mass_bias);
