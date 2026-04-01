@@ -10,6 +10,7 @@ pub mod neural;
 pub mod piecewise_constant;
 pub mod predguid;
 pub mod reference;
+pub mod thermal_limiter;
 
 use crate::data::SphericalState;
 
