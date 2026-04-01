@@ -39,6 +39,15 @@ _LATERAL_PARAMS: list[ParamSpec] = [
     ParamSpec("lateral.max_reversals", 1.0, 10.0, 5.0),
 ]
 
+# Thermal safety limiter params shared by all unsigned-magnitude schemes.
+# Prefixed with "thermal." so evaluate.py routes them to [guidance.thermal_limiter] in TOML.
+_THERMAL_LIMITER_PARAMS: list[ParamSpec] = [
+    ParamSpec("thermal.heat_flux_activation", 0.6, 0.95, 1.0),
+    ParamSpec("thermal.heat_load_activation", 0.6, 0.95, 1.0),
+    ParamSpec("thermal.heat_flux_ramp_exponent", 0.5, 3.0, 1.0),
+    ParamSpec("thermal.heat_load_ramp_exponent", 0.5, 3.0, 1.0),
+]
+
 # TOML section key matches the guidance type name used in [guidance] type field
 PARAM_SPACES: dict[str, list[ParamSpec]] = {
     "equilibrium_glide": [
@@ -51,6 +60,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         ParamSpec("cos_bank_max", 0.5, 1.0, 0.95),
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
+        *_THERMAL_LIMITER_PARAMS,
     ],
     "energy_controller": [
         ParamSpec("gain", 1e-8, 1e-5, 5e-7, log_scale=True),
@@ -58,6 +68,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         ParamSpec("kd", 0.0, 3.0, 0.5),
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
+        *_THERMAL_LIMITER_PARAMS,
     ],
     "pred_guid": [
         ParamSpec("k_drag_high", 0.1, 3.0, 0.8),
@@ -65,6 +76,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         ParamSpec("pdyn_threshold", 10.0, 500.0, 100.0, log_scale=True),
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
+        *_THERMAL_LIMITER_PARAMS,
     ],
     "fnpag": [
         ParamSpec("energy_tol", 1e2, 1e5, 1e4, log_scale=True),
@@ -74,6 +86,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         ParamSpec("bank_max_low_deg", 70.0, 130.0, 100.0),
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
+        *_THERMAL_LIMITER_PARAMS,
     ],
     "ftc": [
         ParamSpec("capture_damping", 0.3, 1.5, 0.7),
@@ -84,6 +97,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         ParamSpec("capture_pdyn_margin", 1.0, 3.0, 1.75),
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
+        *_THERMAL_LIMITER_PARAMS,
     ],
     "piecewise_constant": [
         ParamSpec("bank_angle_0", -180.0, 180.0, 65.0),
