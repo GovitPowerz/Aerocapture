@@ -362,10 +362,7 @@ def write_guidance_toml(
     lateral_params = {k.removeprefix("lateral."): v for k, v in params.items() if k.startswith("lateral.")}
     exit_params = {k.removeprefix("exit."): v for k, v in params.items() if k.startswith("exit.")}
     thermal_params = {k.removeprefix("thermal."): v for k, v in params.items() if k.startswith("thermal.")}
-    scheme_params = {
-        k: v for k, v in params.items()
-        if not k.startswith("lateral.") and not k.startswith("exit.") and not k.startswith("thermal.")
-    }
+    scheme_params = {k: v for k, v in params.items() if not k.startswith("lateral.") and not k.startswith("exit.") and not k.startswith("thermal.")}
 
     # Round max_reversals to integer
     if "max_reversals" in lateral_params:
