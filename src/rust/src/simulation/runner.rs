@@ -576,17 +576,20 @@ fn run_single(
             // Compute thermal fractions for guidance limiter + NN inputs.
             // Instantaneous heat flux uses the same formula as track_peak_values.
             {
-                let (alt_for_thermal, _) = geodetic_from_spherical(
-                    sim.state[0], sim.state[1], sim.state[2], planet,
-                );
-                let rho_thermal = data.atmosphere.density_at(alt_for_thermal)
-                    * (1.0 + run_state.density_bias);
+                let (alt_for_thermal, _) =
+                    geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
+                let rho_thermal =
+                    data.atmosphere.density_at(alt_for_thermal) * (1.0 + run_state.density_bias);
                 let v_eff_thermal = effective_airspeed(
-                    sim.state[3], sim.state[4], sim.state[5], sim.state[2],
-                    alt_for_thermal, data, run_state,
+                    sim.state[3],
+                    sim.state[4],
+                    sim.state[5],
+                    sim.state[2],
+                    alt_for_thermal,
+                    data,
+                    run_state,
                 );
-                let heat_flux_now = data.capsule.cq * rho_thermal.sqrt()
-                    * v_eff_thermal.powf(3.05);
+                let heat_flux_now = data.capsule.cq * rho_thermal.sqrt() * v_eff_thermal.powf(3.05);
 
                 nav_out.heat_flux_fraction = if data.constraints.max_heat_flux > 0.0 {
                     heat_flux_now / data.constraints.max_heat_flux

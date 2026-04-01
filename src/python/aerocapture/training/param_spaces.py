@@ -42,8 +42,8 @@ _LATERAL_PARAMS: list[ParamSpec] = [
 # Thermal safety limiter params shared by all unsigned-magnitude schemes.
 # Prefixed with "thermal." so evaluate.py routes them to [guidance.thermal_limiter] in TOML.
 _THERMAL_LIMITER_PARAMS: list[ParamSpec] = [
-    ParamSpec("thermal.heat_flux_activation", 0.6, 0.95, 1.0),
-    ParamSpec("thermal.heat_load_activation", 0.6, 0.95, 1.0),
+    ParamSpec("thermal.heat_flux_activation", 0.6, 1.0, 1.0),
+    ParamSpec("thermal.heat_load_activation", 0.6, 1.0, 1.0),
     ParamSpec("thermal.heat_flux_ramp_exponent", 0.5, 3.0, 1.0),
     ParamSpec("thermal.heat_load_ramp_exponent", 0.5, 3.0, 1.0),
 ]

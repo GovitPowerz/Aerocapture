@@ -20,7 +20,7 @@ pub struct ThermalLimiterParams {
 impl Default for ThermalLimiterParams {
     fn default() -> Self {
         Self {
-            heat_flux_activation: 1.0,   // 1.0 = never activates
+            heat_flux_activation: 1.0, // 1.0 = never activates
             heat_load_activation: 1.0,
             heat_flux_ramp_exponent: 1.0,
             heat_load_ramp_exponent: 1.0,
@@ -41,8 +41,16 @@ pub fn apply_thermal_limit(
     heat_load_fraction: f64,
     params: &ThermalLimiterParams,
 ) -> f64 {
-    let alpha_flux = compute_alpha(heat_flux_fraction, params.heat_flux_activation, params.heat_flux_ramp_exponent);
-    let alpha_load = compute_alpha(heat_load_fraction, params.heat_load_activation, params.heat_load_ramp_exponent);
+    let alpha_flux = compute_alpha(
+        heat_flux_fraction,
+        params.heat_flux_activation,
+        params.heat_flux_ramp_exponent,
+    );
+    let alpha_load = compute_alpha(
+        heat_load_fraction,
+        params.heat_load_activation,
+        params.heat_load_ramp_exponent,
+    );
     let alpha = alpha_flux.max(alpha_load);
     (1.0 - alpha) * cos_bank_cmd + alpha * 1.0
 }
