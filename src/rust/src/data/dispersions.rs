@@ -325,10 +325,22 @@ pub struct DensityPerturbationConfig {
 impl DensityPerturbationConfig {
     pub fn from_level(level: DispersionLevel) -> Self {
         match level {
-            DispersionLevel::Off => Self { tau: 0.0, sigma: 0.0 },
-            DispersionLevel::Low => Self { tau: 120.0, sigma: 0.05 },
-            DispersionLevel::Medium => Self { tau: 60.0, sigma: 0.10 },
-            DispersionLevel::High => Self { tau: 30.0, sigma: 0.20 },
+            DispersionLevel::Off => Self {
+                tau: 0.0,
+                sigma: 0.0,
+            },
+            DispersionLevel::Low => Self {
+                tau: 120.0,
+                sigma: 0.05,
+            },
+            DispersionLevel::Medium => Self {
+                tau: 60.0,
+                sigma: 0.10,
+            },
+            DispersionLevel::High => Self {
+                tau: 30.0,
+                sigma: 0.20,
+            },
             DispersionLevel::Custom => Self::from_level(DispersionLevel::Medium),
         }
     }
@@ -966,7 +978,11 @@ mod tests {
         // With zero noise (normal_sample=0), the state should decay toward 0
         let x = step_density_perturbation(1.0, 0.1, 60.0, 0.10, 0.0);
         assert!(x < 1.0, "state should decay: got {}", x);
-        assert!(x > 0.0, "state should remain positive with no noise: got {}", x);
+        assert!(
+            x > 0.0,
+            "state should remain positive with no noise: got {}",
+            x
+        );
     }
 
     #[test]
