@@ -1,6 +1,7 @@
 mod common;
 
 use aerocapture::config::SimInput;
+use aerocapture::data::dispersions::DensityPerturbationConfig;
 use aerocapture::data::SimData;
 use aerocapture::simulation::runner::run_for_api;
 use std::path::PathBuf;
@@ -335,4 +336,81 @@ fn wall_clock_timeout_terminates_quickly() {
         "Expected high virtual DV for timeout, got {:.1}",
         dv_total
     );
+}
+
+// ─── Density perturbation trajectory column ───
+
+/// Without density perturbation configured, the new trajectory column [16]
+/// should be all zeros (backward compatibility).
+#[test]
+fn density_perturbation_disabled_trajectory_zeros() {
+    let (cfg, data) = load_config_for_api("test/test_high_bank_orig.toml");
+    // Confirm no density perturbation is configured
+    assert!(
+        data.density_perturbation.is_none(),
+        "Expected no density_perturbation config in test_high_bank_orig.toml"
+    );
+
+    let results = run_for_api(&cfg, &data, true, None).expect("sim failed");
+    assert!(!results.is_empty());
+
+    let traj = &results[0].trajectory;
+    assert!(
+        !traj.is_empty(),
+        "Expected non-empty trajectory with include_trajectories=true"
+    );
+    // Column [16] = density_perturbation -- must be all zeros when disabled
+    for (i, row) in traj.iter().enumerate() {
+        assert_eq!(
+            row[16], 0.0,
+            "Row {}: density_perturbation column should be 0.0 when disabled, got {}",
+            i, row[16]
+        );
+    }
+    // Sanity: trajectory has 17 columns
+    assert_eq!(traj[0].len(), 17, "Expected 17-column trajectory");
+}
+
+/// With density perturbation enabled (GM process), the trajectory column [16]
+/// should contain non-zero values (the time-varying perturbation).
+#[test]
+fn density_perturbation_enabled_trajectory_nonzero() {
+    let (cfg, mut data) = load_config_for_api("test/test_high_bank_orig.toml");
+    // Enable GM density perturbation
+    data.density_perturbation = Some(DensityPerturbationConfig {
+        tau: 60.0,
+        sigma: 0.10,
+    });
+
+    let results = run_for_api(&cfg, &data, true, None).expect("sim failed");
+    assert!(!results.is_empty());
+
+    let traj = &results[0].trajectory;
+    assert!(
+        !traj.is_empty(),
+        "Expected non-empty trajectory with include_trajectories=true"
+    );
+    // At least some rows should have non-zero density_perturbation.
+    // The GM process starts at 0 and evolves, so early rows may be ~0,
+    // but after enough timesteps the process should have non-trivial values.
+    let nonzero_count = traj.iter().filter(|row| row[16].abs() > 1e-12).count();
+    assert!(
+        nonzero_count > 0,
+        "Expected some non-zero density_perturbation values with GM enabled, all were zero"
+    );
+    // The values should be reasonable fractional perturbations (not NaN or huge)
+    for (i, row) in traj.iter().enumerate() {
+        assert!(
+            row[16].is_finite(),
+            "Row {}: density_perturbation is not finite: {}",
+            i,
+            row[16]
+        );
+        assert!(
+            row[16].abs() < 1.0,
+            "Row {}: density_perturbation unreasonably large: {}",
+            i,
+            row[16]
+        );
+    }
 }
