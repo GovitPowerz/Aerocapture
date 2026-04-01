@@ -130,6 +130,7 @@ pub fn minimal_sim_data() -> SimData {
         nav_config: None,
         integration_mode: aerocapture::config::IntegrationMode::FixedGill,
         sim_phase: aerocapture::config::SimPhase::Full,
+        density_perturbation: None,
     }
 }
 

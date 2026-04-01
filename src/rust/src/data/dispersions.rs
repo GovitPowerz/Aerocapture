@@ -314,6 +314,84 @@ pub struct WindDispersionConfig {
     pub direction_bias_deg: f64, // max rotation ±deg
 }
 
+impl WindDispersionConfig {
+    pub fn from_level(level: DispersionLevel) -> Self {
+        match level {
+            DispersionLevel::Off => Self {
+                scale_min: 1.0,
+                scale_max: 1.0,
+                direction_bias_deg: 0.0,
+            },
+            DispersionLevel::Low => Self {
+                scale_min: 0.7,
+                scale_max: 1.3,
+                direction_bias_deg: 5.0,
+            },
+            DispersionLevel::Medium => Self {
+                scale_min: 0.5,
+                scale_max: 1.5,
+                direction_bias_deg: 10.0,
+            },
+            DispersionLevel::High => Self {
+                scale_min: 0.2,
+                scale_max: 2.0,
+                direction_bias_deg: 20.0,
+            },
+            DispersionLevel::Custom => Self::from_level(DispersionLevel::Medium),
+        }
+    }
+}
+
+/// Gauss-Markov (Ornstein-Uhlenbeck) density perturbation config.
+/// Produces time-varying density multiplier that evolves during each run.
+#[derive(Debug, Clone, Copy)]
+pub struct DensityPerturbationConfig {
+    pub tau: f64,   // correlation time (seconds)
+    pub sigma: f64, // steady-state RMS amplitude (fractional)
+}
+
+impl DensityPerturbationConfig {
+    pub fn from_level(level: DispersionLevel) -> Self {
+        match level {
+            DispersionLevel::Off => Self {
+                tau: 0.0,
+                sigma: 0.0,
+            },
+            DispersionLevel::Low => Self {
+                tau: 120.0,
+                sigma: 0.05,
+            },
+            DispersionLevel::Medium => Self {
+                tau: 60.0,
+                sigma: 0.10,
+            },
+            DispersionLevel::High => Self {
+                tau: 30.0,
+                sigma: 0.20,
+            },
+            DispersionLevel::Custom => Self::from_level(DispersionLevel::Medium),
+        }
+    }
+
+    /// Returns true if the perturbation is effectively disabled.
+    pub fn is_disabled(&self) -> bool {
+        self.sigma <= 0.0 || self.tau <= 0.0
+    }
+}
+
+/// Advance the Ornstein-Uhlenbeck density perturbation by one timestep.
+///
+/// Exact transition: x(t+dt) = x(t)*exp(-dt/tau) + sigma*sqrt(1 - exp(-2*dt/tau))*N(0,1)
+///
+/// Returns 0.0 when disabled (sigma <= 0 or tau <= 0).
+pub fn step_density_perturbation(x: f64, dt: f64, tau: f64, sigma: f64, normal_sample: f64) -> f64 {
+    if sigma <= 0.0 || tau <= 0.0 {
+        return 0.0;
+    }
+    let decay = (-dt / tau).exp();
+    x * decay + sigma * (1.0 - decay * decay).sqrt() * normal_sample
+}
+
 /// Full domain-based dispersion configuration.
 #[derive(Debug, Clone)]
 pub struct DispersionConfig {
@@ -327,6 +405,7 @@ pub struct DispersionConfig {
     pub pilot: Option<PilotSigmas>,
     pub nav_filter: Option<NavFilterSigmas>,
     pub wind: Option<WindDispersionConfig>,
+    pub density_perturbation: Option<DensityPerturbationConfig>,
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -557,6 +636,7 @@ mod tests {
             pilot: Some(PilotSigmas::from_level(DispersionLevel::Medium)),
             nav_filter: Some(NavFilterSigmas::from_level(DispersionLevel::Medium)),
             wind: None,
+            density_perturbation: None,
         }
     }
 
@@ -610,6 +690,7 @@ mod tests {
             pilot: None,
             nav_filter: None,
             wind: None,
+            density_perturbation: None,
         };
         let draws = config.generate_draws(10);
         for d in &draws {
@@ -675,6 +756,39 @@ mod tests {
     }
 
     #[test]
+    fn test_wind_config_off() {
+        let cfg = WindDispersionConfig::from_level(DispersionLevel::Off);
+        assert_eq!(cfg.scale_min, 1.0);
+        assert_eq!(cfg.scale_max, 1.0);
+        assert_eq!(cfg.direction_bias_deg, 0.0);
+    }
+
+    #[test]
+    fn test_wind_config_medium() {
+        let cfg = WindDispersionConfig::from_level(DispersionLevel::Medium);
+        assert_eq!(cfg.scale_min, 0.5);
+        assert_eq!(cfg.scale_max, 1.5);
+        assert_eq!(cfg.direction_bias_deg, 10.0);
+    }
+
+    #[test]
+    fn test_wind_config_high() {
+        let cfg = WindDispersionConfig::from_level(DispersionLevel::High);
+        assert_eq!(cfg.scale_min, 0.2);
+        assert_eq!(cfg.scale_max, 2.0);
+        assert_eq!(cfg.direction_bias_deg, 20.0);
+    }
+
+    #[test]
+    fn test_wind_config_custom_defaults_to_medium() {
+        let cfg = WindDispersionConfig::from_level(DispersionLevel::Custom);
+        let med = WindDispersionConfig::from_level(DispersionLevel::Medium);
+        assert_eq!(cfg.scale_min, med.scale_min);
+        assert_eq!(cfg.scale_max, med.scale_max);
+        assert_eq!(cfg.direction_bias_deg, med.direction_bias_deg);
+    }
+
+    #[test]
     fn test_uniform_fields_bounded() {
         let config = DispersionConfig {
             seed: 12345,
@@ -698,6 +812,7 @@ mod tests {
             }),
             nav_filter: None,
             wind: None,
+            density_perturbation: None,
         };
         let draws = config.generate_draws(1000);
         for d in &draws {
@@ -768,6 +883,7 @@ mod tests {
             pilot: None,
             nav_filter: Some(NavFilterSigmas { filter_gain: 0.10 }),
             wind: None,
+            density_perturbation: None,
         };
         let draws = config.generate_draws(1000);
         // Gaussian: most draws within ±3sigma = ±0.30
@@ -852,5 +968,142 @@ mod tests {
             DispersionLevel::Custom
         );
         assert!(DispersionLevel::from_str("invalid").is_err());
+    }
+
+    #[test]
+    fn test_density_perturbation_config_off() {
+        let cfg = DensityPerturbationConfig::from_level(DispersionLevel::Off);
+        assert_eq!(cfg.sigma, 0.0);
+        assert_eq!(cfg.tau, 0.0);
+    }
+
+    #[test]
+    fn test_density_perturbation_config_low() {
+        let cfg = DensityPerturbationConfig::from_level(DispersionLevel::Low);
+        assert_eq!(cfg.tau, 120.0);
+        assert_eq!(cfg.sigma, 0.05);
+    }
+
+    #[test]
+    fn test_density_perturbation_config_medium() {
+        let cfg = DensityPerturbationConfig::from_level(DispersionLevel::Medium);
+        assert_eq!(cfg.tau, 60.0);
+        assert_eq!(cfg.sigma, 0.10);
+    }
+
+    #[test]
+    fn test_density_perturbation_config_high() {
+        let cfg = DensityPerturbationConfig::from_level(DispersionLevel::High);
+        assert_eq!(cfg.tau, 30.0);
+        assert_eq!(cfg.sigma, 0.20);
+    }
+
+    #[test]
+    fn test_density_perturbation_config_custom_defaults_to_medium() {
+        let cfg = DensityPerturbationConfig::from_level(DispersionLevel::Custom);
+        assert_eq!(cfg.tau, 60.0);
+        assert_eq!(cfg.sigma, 0.10);
+    }
+
+    #[test]
+    fn test_density_perturbation_is_disabled() {
+        assert!(
+            DensityPerturbationConfig::from_level(DispersionLevel::Off).is_disabled(),
+            "Off preset should be disabled"
+        );
+        assert!(
+            !DensityPerturbationConfig::from_level(DispersionLevel::Medium).is_disabled(),
+            "Medium preset should not be disabled"
+        );
+    }
+
+    #[test]
+    fn test_step_density_perturbation_disabled_sigma_zero() {
+        assert_eq!(step_density_perturbation(0.5, 0.1, 60.0, 0.0, 1.0), 0.0);
+    }
+
+    #[test]
+    fn test_step_density_perturbation_disabled_tau_zero() {
+        assert_eq!(step_density_perturbation(0.5, 0.1, 0.0, 0.10, 1.0), 0.0);
+    }
+
+    #[test]
+    fn test_step_density_perturbation_deterministic() {
+        let a = step_density_perturbation(0.0, 0.1, 60.0, 0.10, 0.5);
+        let b = step_density_perturbation(0.0, 0.1, 60.0, 0.10, 0.5);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_step_density_perturbation_decay() {
+        // With zero noise (normal_sample=0), the state should decay toward 0
+        let x = step_density_perturbation(1.0, 0.1, 60.0, 0.10, 0.0);
+        assert!(x < 1.0, "state should decay: got {}", x);
+        assert!(
+            x > 0.0,
+            "state should remain positive with no noise: got {}",
+            x
+        );
+    }
+
+    #[test]
+    fn test_step_density_perturbation_statistical_properties() {
+        // Run many steps from x=0 and check steady-state variance ~ sigma^2
+        let tau = 60.0;
+        let sigma = 0.10;
+        let dt = 0.1;
+        let n_steps = 100_000;
+
+        use rand::SeedableRng;
+        use rand_distr::{Distribution, Normal};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        let normal = Normal::new(0.0, 1.0).unwrap();
+
+        let mut x = 0.0;
+        let mut sum = 0.0;
+        let mut sum_sq = 0.0;
+        let burn_in = 10_000; // let it reach steady state
+
+        for i in 0..n_steps {
+            let z = normal.sample(&mut rng);
+            x = step_density_perturbation(x, dt, tau, sigma, z);
+            if i >= burn_in {
+                sum += x;
+                sum_sq += x * x;
+            }
+        }
+
+        let n = (n_steps - burn_in) as f64;
+        let mean = sum / n;
+        let variance = sum_sq / n - mean * mean;
+
+        // Mean should be ~0
+        assert!(mean.abs() < 0.02, "mean should be ~0, got {}", mean);
+        // Variance should be ~sigma^2 = 0.01
+        assert!(
+            (variance - sigma * sigma).abs() < 0.002,
+            "variance should be ~{}, got {}",
+            sigma * sigma,
+            variance
+        );
+    }
+
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn step_always_finite(
+                x in -10.0f64..10.0,
+                dt in 0.001f64..10.0,
+                tau in 0.01f64..1000.0,
+                sigma in 0.0f64..1.0,
+                z in -5.0f64..5.0,
+            ) {
+                let result = step_density_perturbation(x, dt, tau, sigma, z);
+                prop_assert!(result.is_finite(), "got {}", result);
+            }
+        }
     }
 }

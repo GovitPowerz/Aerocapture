@@ -810,27 +810,8 @@ pub struct TomlMonteCarlo {
     pub vehicle: Option<TomlMcDomain>,
     pub pilot: Option<TomlMcDomain>,
     pub nav_filter: Option<TomlMcDomain>,
-    pub wind: Option<TomlMcWind>,
-}
-
-/// Wind dispersion config.
-/// Scale is a uniform draw in [scale_min, scale_max] (multiplicative on wind speed).
-/// Direction bias is a uniform draw in [-direction_bias_deg, +direction_bias_deg] (rotation).
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct TomlMcWind {
-    #[serde(default = "default_wind_scale_min")]
-    pub scale_min: f64,
-    #[serde(default = "default_wind_scale_max")]
-    pub scale_max: f64,
-    #[serde(default)]
-    pub direction_bias_deg: f64,
-}
-
-fn default_wind_scale_min() -> f64 {
-    0.5
-}
-fn default_wind_scale_max() -> f64 {
-    1.5
+    pub wind: Option<TomlMcDomain>,
+    pub density_perturbation: Option<TomlMcDomain>,
 }
 
 /// A single dispersion domain config.
@@ -1369,5 +1350,86 @@ mod tests {
             }
             _ => panic!("expected AdaptiveDopri45"),
         }
+    }
+
+    // ─── density_perturbation TOML parsing tests ───
+
+    #[test]
+    fn test_density_perturbation_toml_parsing() {
+        let toml_str = r#"
+            seed = 42
+            [density_perturbation]
+            level = "high"
+        "#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        assert!(mc.density_perturbation.is_some());
+        let dp = mc.density_perturbation.unwrap();
+        assert_eq!(dp.level, "high");
+    }
+
+    #[test]
+    fn test_density_perturbation_toml_custom() {
+        let toml_str = r#"
+            seed = 42
+            [density_perturbation]
+            level = "custom"
+            tau = 45.0
+            sigma = 0.15
+        "#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        let dp = mc.density_perturbation.unwrap();
+        assert_eq!(dp.level, "custom");
+        assert_eq!(*dp.custom.get("tau").unwrap(), 45.0);
+        assert_eq!(*dp.custom.get("sigma").unwrap(), 0.15);
+    }
+
+    #[test]
+    fn test_density_perturbation_toml_absent() {
+        let toml_str = r#"
+            seed = 42
+        "#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        assert!(mc.density_perturbation.is_none());
+    }
+
+    // --- wind domain tests ---
+
+    #[test]
+    fn test_wind_toml_level() {
+        let toml_str = r#"
+            seed = 42
+            [wind]
+            level = "high"
+        "#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        assert!(mc.wind.is_some());
+        assert_eq!(mc.wind.unwrap().level, "high");
+    }
+
+    #[test]
+    fn test_wind_toml_backward_compat() {
+        // Old-style config without level field should still parse
+        let toml_str = r#"
+            seed = 42
+            [wind]
+            scale_min = 0.3
+            scale_max = 1.7
+            direction_bias_deg = 15.0
+        "#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        let w = mc.wind.unwrap();
+        assert_eq!(w.level, "medium"); // default
+        assert_eq!(*w.custom.get("scale_min").unwrap(), 0.3);
+        assert_eq!(*w.custom.get("scale_max").unwrap(), 1.7);
+        assert_eq!(*w.custom.get("direction_bias_deg").unwrap(), 15.0);
+    }
+
+    #[test]
+    fn test_wind_toml_absent() {
+        let toml_str = r#"
+            seed = 42
+        "#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        assert!(mc.wind.is_none());
     }
 }

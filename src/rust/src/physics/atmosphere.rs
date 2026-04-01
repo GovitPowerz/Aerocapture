@@ -6,11 +6,15 @@ use crate::data::atmosphere::AtmosphereModel;
 
 /// Compute atmospheric density at a given geodetic altitude.
 ///
-/// Applies optional density bias for Monte Carlo dispersions.
-#[allow(dead_code)]
-pub fn density(atm: &AtmosphereModel, altitude: f64, density_bias: f64) -> f64 {
+/// Applies optional density bias (MC static) and density perturbation (GM time-varying).
+pub fn density(
+    atm: &AtmosphereModel,
+    altitude: f64,
+    density_bias: f64,
+    density_perturbation: f64,
+) -> f64 {
     let rho = atm.density_at(altitude);
-    rho * (1.0 + density_bias)
+    rho * (1.0 + density_bias) * (1.0 + density_perturbation)
 }
 
 #[cfg(test)]
@@ -66,7 +70,7 @@ mod tests {
     fn density_bias_positive() {
         let atm = test_atm();
         let rho_nominal = atm.density_at(15_000.0);
-        let rho_biased = density(&atm, 15_000.0, 0.1);
+        let rho_biased = density(&atm, 15_000.0, 0.1, 0.0);
         assert_abs_diff_eq!(rho_biased, rho_nominal * 1.1, epsilon = 1e-12);
     }
 
@@ -74,7 +78,7 @@ mod tests {
     fn density_bias_zero_is_nominal() {
         let atm = test_atm();
         let rho_nominal = atm.density_at(15_000.0);
-        let rho_biased = density(&atm, 15_000.0, 0.0);
+        let rho_biased = density(&atm, 15_000.0, 0.0, 0.0);
         assert_abs_diff_eq!(rho_biased, rho_nominal);
     }
 
@@ -82,7 +86,34 @@ mod tests {
     fn density_bias_negative() {
         let atm = test_atm();
         let rho_nominal = atm.density_at(15_000.0);
-        let rho_biased = density(&atm, 15_000.0, -0.2);
+        let rho_biased = density(&atm, 15_000.0, -0.2, 0.0);
         assert_abs_diff_eq!(rho_biased, rho_nominal * 0.8, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn density_with_perturbation() {
+        let atm = test_atm();
+        let rho_nominal = atm.density_at(15_000.0);
+        let rho = density(&atm, 15_000.0, 0.1, 0.05);
+        // (1 + 0.1) * (1 + 0.05) = 1.155
+        assert_abs_diff_eq!(rho, rho_nominal * 1.155, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn density_bias_and_perturbation_are_multiplicative() {
+        let atm = test_atm();
+        let rho_nominal = atm.density_at(15_000.0);
+        let rho_bias_only = density(&atm, 15_000.0, 0.2, 0.0);
+        let rho_pert_only = density(&atm, 15_000.0, 0.0, 0.15);
+        let rho_both = density(&atm, 15_000.0, 0.2, 0.15);
+        // Individual factors are correct
+        assert_abs_diff_eq!(rho_bias_only, rho_nominal * 1.2, epsilon = 1e-12);
+        assert_abs_diff_eq!(rho_pert_only, rho_nominal * 1.15, epsilon = 1e-12);
+        // Combined is multiplicative: rho_nominal * 1.2 * 1.15 = 1.38, not additive 1.35
+        assert_abs_diff_eq!(rho_both, rho_nominal * 1.2 * 1.15, epsilon = 1e-12);
+        assert!(
+            (rho_both - rho_nominal * 1.35).abs() > 1e-6,
+            "bias and perturbation must be multiplicative, not additive"
+        );
     }
 }

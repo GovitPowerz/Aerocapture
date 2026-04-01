@@ -6,22 +6,13 @@ This document lists physics, GNC, and software improvements for the aerocapture 
 
 ## 1. Atmosphere Model
 
-### 1.1 Time-varying density perturbations
-
-Current dispersions are static per-run (piecewise linear altitude profile applied as a constant multiplier). Real atmospheric variability includes gravity waves, dust storms, and diurnal cycles.
-
-- **Improvement**: Add stochastic density perturbations that evolve during a run (e.g., Gauss-Markov process, or Dryden-like turbulence model applied to density).
-- **Impact**: Tests guidance robustness to transient density features, not just static biases.
+*(No open items -- see Done section below.)*
 
 ---
 
 ## 2. Thermal Environment
 
-### 2.1 Heat rate and heat load as guidance constraints
-
-Heat flux is tracked but not used as a guidance constraint.
-
-- **Improvement**: Add heat rate and integrated heat load to the constraint set that guidance can actively manage (e.g., bank-up to reduce heating when approaching limits).
+*(No open items -- see Done section below.)*
 
 ---
 
@@ -52,21 +43,14 @@ The altitude-dependent gain table (`compute_gains()` in `ftc.rs`) has entries up
 - **Improvement**: Extend the gain table to cover the full altitude range, or implement smooth gain scheduling that fades to zero above the sensible atmosphere.
 - **Impact**: Prevents transient bank angle spikes during initial entry and final exit.
 
-### 4.2 Exit phase guidance
-
-The navigation state tracks `guidance_phase` (capture=1, exit=2) but the phase transition logic is currently hardcoded to phase 1. Exit phase guidance is not active.
-
-- **Improvement**: Implement exit phase guidance that targets the final orbit parameters (apoapsis, periapsis, inclination) using the remaining atmospheric pass. Enable phase transition when radial velocity becomes positive after the trajectory nadir.
-- **Impact**: Better orbit insertion accuracy, especially for inclination and RAAN corrections.
-
-### 4.3 FNPAG predictor fidelity
+### 4.2 FNPAG predictor fidelity
 
 FNPAG uses simplified dynamics for prediction (planar, no J2, constant bank, exponential atmosphere). This limits accuracy for long atmospheric passes or high-latitude entries.
 
 - **Improvement**: Add J2 gravity and 3D trajectory propagation to the predictor. Use the actual atmosphere table instead of an exponential fit. Consider adaptive prediction horizon.
 - **Impact**: Better convergence and accuracy for challenging entry conditions.
 
-### 4.4 Bank angle rate and acceleration limits
+### 4.3 Bank angle rate and acceleration limits
 
 Guidance computes bank angle without considering how fast the vehicle can actually rotate. The pilot model (`gnc/control/pilot.rs`) enforces rate limits, but guidance doesn't anticipate this.
 
@@ -160,6 +144,18 @@ The simulator has ESR reference trajectory data (`data/reference_trajectory/esr_
 
 - **Improvement**: Develop and validate ESR entry profiles, including Earth-specific atmosphere dispersions, higher entry velocities (~12 km/s), and appropriate thermal constraints.
 - **Impact**: Supports Mars Sample Return Earth entry phase analysis.
+
+---
+
+## Done
+
+Items completed and merged.
+
+| Item | When | Details |
+|------|------|---------|
+| 1.1 Time-varying density perturbations | 2026-04-01 | Gauss-Markov (OU) process with Off/Low/Medium/High/Custom presets. `[monte_carlo.density_perturbation]` TOML section. Multiplicative on static bias. Also: wind dispersions refactored to use same level preset pattern; `common.toml` wind direction_bias reduced from 30 to 10 deg (medium preset). |
+| 2.1 Heat rate/load as guidance constraints | 2026-04-01 | Thermal safety limiter: smooth bank-to-lift-up ramp near heat flux/load limits (PR #22) |
+| 4.2 Exit phase guidance | 2026-04-01 | Shared pdyn-feedback exit controller for ascending leg after trajectory nadir (PR #22) |
 
 ---
 

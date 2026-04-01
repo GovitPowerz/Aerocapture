@@ -179,6 +179,8 @@ pub struct SimData {
     pub integration_mode: IntegrationMode,
     /// Simulation phase mode (Full, CaptureOnly, ExitOnly, Preprogrammed)
     pub sim_phase: SimPhase,
+    /// Gauss-Markov density perturbation config (None = disabled)
+    pub density_perturbation: Option<dispersions::DensityPerturbationConfig>,
 }
 
 const G0: f64 = 9.81;
@@ -606,6 +608,10 @@ impl SimData {
             None
         };
 
+        let density_perturbation = dispersion_config
+            .as_ref()
+            .and_then(|dc| dc.density_perturbation);
+
         // Navigation mode
         let nav_mode = match toml.navigation.as_ref().map(|n| n.mode.as_str()) {
             Some("ekf") => NavMode::Ekf,
@@ -635,6 +641,7 @@ impl SimData {
             nav_config: toml.navigation.clone(),
             integration_mode: IntegrationMode::from_toml(&toml.integration, v.periods.integration),
             sim_phase: config.sim_phase,
+            density_perturbation,
         })
     }
 }
@@ -805,11 +812,51 @@ fn build_dispersion_config(
         Some(s)
     });
 
-    let wind = mc.wind.as_ref().map(|w| WindDispersionConfig {
-        scale_min: w.scale_min,
-        scale_max: w.scale_max,
-        direction_bias_deg: w.direction_bias_deg,
+    let wind = mc.wind.as_ref().and_then(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off {
+            return None;
+        }
+        let mut cfg = WindDispersionConfig::from_level(level);
+        // Apply custom overrides (for backward compat: existing configs without a level
+        // field get level="medium" by default, with their explicit values as overrides)
+        if let Some(&v) = d.custom.get("scale_min") {
+            cfg.scale_min = v;
+        }
+        if let Some(&v) = d.custom.get("scale_max") {
+            cfg.scale_max = v;
+        }
+        if let Some(&v) = d.custom.get("direction_bias_deg") {
+            cfg.direction_bias_deg = v;
+        }
+        Some(cfg)
     });
+
+    let density_perturbation = if let Some(d) = mc.density_perturbation.as_ref() {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off {
+            None
+        } else {
+            let mut cfg = DensityPerturbationConfig::from_level(level);
+            if level == DispersionLevel::Custom {
+                if let Some(&v) = d.custom.get("tau") {
+                    cfg.tau = v;
+                }
+                if let Some(&v) = d.custom.get("sigma") {
+                    cfg.sigma = v;
+                }
+            }
+            if cfg.tau < 0.0 || cfg.sigma < 0.0 {
+                return Err(DataError(format!(
+                    "density_perturbation: tau ({}) and sigma ({}) must be non-negative",
+                    cfg.tau, cfg.sigma
+                )));
+            }
+            Some(cfg)
+        }
+    } else {
+        None
+    };
 
     Ok(DispersionConfig {
         seed: mc.seed,
@@ -822,6 +869,7 @@ fn build_dispersion_config(
         pilot,
         nav_filter,
         wind,
+        density_perturbation,
     })
 }
 

@@ -15,11 +15,12 @@ pub struct SimResult {
 
 #[pymethods]
 impl SimResult {
-    /// Per-timestep trajectory as an (N, 16) NumPy array.
+    /// Per-timestep trajectory as an (N, 17) NumPy array.
     ///
     /// Columns: [alt_km, lon_deg, lat_deg, vel_m_s, fpa_deg, heading_deg, heat_flux_kw_m2,
     ///           time_s, energy_mj_kg, pdyn_kpa, bank_angle_deg, inclination_deg,
-    ///           g_load_g, nav_density_ratio, truth_density_kg_m3, heat_load_kj_m2].
+    ///           g_load_g, nav_density_ratio, truth_density_kg_m3, heat_load_kj_m2,
+    ///           density_perturbation].
     /// Empty if trajectories were not requested.
     #[getter]
     fn trajectory<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
@@ -133,10 +134,10 @@ impl BatchResults {
         PyArray1::from_vec(py, flags)
     }
 
-    /// Per-run trajectories as a list of (T_i, 16) NumPy arrays.
+    /// Per-run trajectories as a list of (T_i, 17) NumPy arrays.
     ///
     /// Only populated if `include_trajectories=True` was passed; otherwise
-    /// returns a list of empty (0, 16) arrays.
+    /// returns a list of empty (0, 17) arrays.
     #[getter]
     fn trajectories<'py>(&self, py: Python<'py>) -> Vec<Bound<'py, PyArray2<f64>>> {
         self.outputs

@@ -10,6 +10,7 @@ use crate::gnc::navigation::ekf::{EkfConfig, EkfState};
 use crate::gnc::navigation::imu::{ImuConfig, ImuState};
 use crate::gnc::navigation::star_tracker::{StarTrackerConfig, StarTrackerState};
 use crate::orbit::elements;
+use crate::physics::atmosphere;
 use nalgebra::{SMatrix, SVector};
 
 /// Navigation error biases (constant during a run).
@@ -89,6 +90,7 @@ pub fn navigate(
     data: &SimData,
     planet: &PlanetConfig,
     run_density_bias: f64,
+    run_density_perturbation: f64,
     run_cx_bias: f64,
     _run_cz_bias: f64,
     run_mass_bias: f64,
@@ -115,8 +117,12 @@ pub fn navigate(
     // Compute true drag acceleration (truth model)
     let (alt_true, _) =
         geodetic_from_spherical(position_true[0], position_true[1], position_true[2], planet);
-    let rho_true = data.atmosphere.density_at(alt_true);
-    let rho_true = rho_true * (1.0 + run_density_bias);
+    let rho_true = atmosphere::density(
+        &data.atmosphere,
+        alt_true,
+        run_density_bias,
+        run_density_perturbation,
+    );
     let cx_true =
         data.aero.interpolate_cx(aoa_commanded + run_incidence_bias) * (1.0 + run_cx_bias);
     let mass_true = data.capsule.mass * (1.0 + run_mass_bias);
@@ -372,6 +378,7 @@ pub fn navigate_ekf(
     data: &SimData,
     planet: &PlanetConfig,
     run_density_bias: f64,
+    run_density_perturbation: f64,
     run_cx_bias: f64,
     run_mass_bias: f64,
     run_incidence_bias: f64,
@@ -398,7 +405,12 @@ pub fn navigate_ekf(
     // ── Step 2: Compute true aero acceleration for IMU ──
     let (alt_true, _) =
         geodetic_from_spherical(position_true[0], position_true[1], position_true[2], planet);
-    let rho_true = data.atmosphere.density_at(alt_true) * (1.0 + run_density_bias);
+    let rho_true = atmosphere::density(
+        &data.atmosphere,
+        alt_true,
+        run_density_bias,
+        run_density_perturbation,
+    );
     let cx_true =
         data.aero.interpolate_cx(aoa_commanded + run_incidence_bias) * (1.0 + run_cx_bias);
     let mass_true = data.capsule.mass * (1.0 + run_mass_bias);
@@ -693,6 +705,7 @@ mod tests {
             nav_config: None,
             integration_mode: crate::config::IntegrationMode::FixedGill,
             sim_phase: crate::config::SimPhase::Full,
+            density_perturbation: None,
         }
     }
 
@@ -726,6 +739,7 @@ mod tests {
             data,
             &PlanetConfig::mars(),
             run_biases[0], // density
+            0.0,           // density_perturbation
             run_biases[1], // cx
             run_biases[2], // cz
             run_biases[3], // mass
@@ -810,13 +824,14 @@ mod tests {
                 &mut nav_state,
                 &data,
                 &PlanetConfig::mars(),
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
+                0.0, // density_bias
+                0.0, // density_perturbation
+                0.0, // cx
+                0.0, // cz
+                0.0, // mass
+                0.0, // incidence
+                0.0, // ref_area
+                0.0, // filter_gain
             );
             density_gain_values.push(nav_state.density_gain);
         }
@@ -1124,6 +1139,7 @@ mod tests {
             &data,
             &planet,
             run_biases[0],
+            0.0, // density_perturbation
             run_biases[1],
             run_biases[2],
             run_biases[3],
@@ -1149,6 +1165,7 @@ mod tests {
             &data,
             &planet,
             run_biases[0],
+            0.0, // density_perturbation
             run_biases[1],
             run_biases[2],
             run_biases[3],
@@ -1175,6 +1192,7 @@ mod tests {
             &data,
             &planet,
             run_biases[0],
+            0.0, // density_perturbation
             run_biases[1],
             run_biases[2],
             run_biases[3],
@@ -1219,6 +1237,7 @@ mod tests {
             &data,
             &planet,
             run_biases[0],
+            0.0, // density_perturbation
             run_biases[1],
             run_biases[2],
             run_biases[3],
@@ -1240,6 +1259,7 @@ mod tests {
             &data,
             &planet,
             run_biases[0],
+            0.0, // density_perturbation
             run_biases[1],
             run_biases[2],
             run_biases[3],
@@ -1272,6 +1292,7 @@ mod tests {
             &data,
             &planet,
             run_biases[0],
+            0.0, // density_perturbation
             run_biases[1],
             run_biases[2],
             run_biases[3],

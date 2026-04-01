@@ -31,10 +31,11 @@ level = "medium"
 [monte_carlo.pilot]
 level = "medium"
 
+[monte_carlo.density_perturbation]
+level = "medium"
+
 [monte_carlo.wind]
-scale_min = 0.5
-scale_max = 1.5
-direction_bias_deg = 30.0
+level = "medium"
 
 [monte_carlo.nav_filter]
 level = "medium"

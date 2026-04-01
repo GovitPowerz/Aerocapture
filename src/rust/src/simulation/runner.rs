@@ -15,7 +15,7 @@ use crate::integration::rk4;
 use crate::integration::sequencer::SequencerState;
 use crate::orbit::maneuver::DeltaV;
 use crate::orbit::{elements, maneuver};
-use crate::physics::gravity;
+use crate::physics::{atmosphere, gravity};
 use crate::simulation::init;
 use crate::simulation::output;
 use rayon::prelude::*;
@@ -104,7 +104,7 @@ enum TermReason {
 struct SimResult {
     sim_idx: i32,
     final_line: [f64; 52],
-    photo_lines: Vec<[f64; 29]>,
+    photo_lines: Vec<[f64; 30]>,
     dispersions: [f64; DISPERSION_DRAW_LEN],
 }
 
@@ -261,6 +261,7 @@ pub fn run_for_api(
                             p[26],       // [13] nav_density_ratio
                             p[27],       // [14] truth_density_kg_m3
                             p[28],       // [15] heat_load_kj_m2
+                            p[29],       // [16] density_perturbation
                         ]
                     })
                     .collect()
@@ -327,9 +328,9 @@ fn write_csv_output(
     Ok(())
 }
 
-/// Extract 22 CSV values from the 29-element photo array.
-/// Drops: [20] radial_velocity_2 (duplicate), [22] sim_number, [23] reserved, [24-27] trajectory-only columns.
-fn extract_photo_csv_values(values: &[f64; 29]) -> [f64; 22] {
+/// Extract 22 CSV values from the 30-element photo array.
+/// Drops: [20] radial_velocity_2 (duplicate), [22] sim_number, [23] reserved, [24-27] trajectory-only, [29] density_perturbation.
+fn extract_photo_csv_values(values: &[f64; 30]) -> [f64; 22] {
     [
         values[0],  // time_s
         values[1],  // altitude_km
@@ -412,6 +413,24 @@ fn run_single(
     wall_timeout: Option<Duration>,
 ) -> Result<SimResult, SimError> {
     let planet = &config.planet;
+
+    // Clone run_state so we can mutate density_perturbation each tick
+    let mut run_state = run_state.clone();
+
+    // Gauss-Markov density perturbation RNG (deterministic per sim, only allocated when enabled)
+    let gm_config = data.density_perturbation.filter(|g| !g.is_disabled());
+    let (mut gm_rng, gm_normal) = if gm_config.is_some() {
+        use rand::SeedableRng;
+        // Offset by 0xDE45 to avoid correlation with EKF RNG (which uses sim_idx * 10_000)
+        let rng = rand::rngs::StdRng::seed_from_u64(
+            config.random_seed as u64 + sim_idx as u64 * 10_000 + 0xDE45,
+        );
+        let normal = rand_distr::Normal::new(0.0, 1.0).unwrap();
+        (Some(rng), Some(normal))
+    } else {
+        (None, None)
+    };
+
     let req = planet.equatorial_radius;
 
     // Initial state: convert entry conditions to state vector
@@ -488,7 +507,7 @@ fn run_single(
     };
     let mut sequencer = SequencerState::new();
 
-    let mut photo_lines: Vec<[f64; 29]> = Vec::new();
+    let mut photo_lines: Vec<[f64; 30]> = Vec::new();
     let mut cumulative_bank_change_deg = 0.0_f64;
     let mut dynamic_pressure_for_photo = 0.0_f64;
     let mut density_estimate_for_photo = 0.0_f64;
@@ -510,6 +529,19 @@ fn run_single(
 
         let flags = sequencer.update(sim_time, &data.periods);
 
+        // Step Gauss-Markov density perturbation
+        if let Some(gm) = gm_config {
+            use rand_distr::Distribution;
+            let z: f64 = gm_normal.as_ref().unwrap().sample(gm_rng.as_mut().unwrap());
+            run_state.density_perturbation = crate::data::dispersions::step_density_perturbation(
+                run_state.density_perturbation,
+                dt,
+                gm.tau,
+                gm.sigma,
+                z,
+            );
+        }
+
         // === Navigation + Guidance + Pilot ===
         if !config.reference_trajectory {
             let position_true = [sim.state[0], sim.state[1], sim.state[2]];
@@ -526,6 +558,7 @@ fn run_single(
                     data,
                     planet,
                     run_state.density_bias,
+                    run_state.density_perturbation,
                     run_state.cx_bias,
                     run_state.cz_bias,
                     run_state.mass_bias,
@@ -557,6 +590,7 @@ fn run_single(
                     data,
                     planet,
                     run_state.density_bias,
+                    run_state.density_perturbation,
                     run_state.cx_bias,
                     run_state.mass_bias,
                     run_state.incidence_bias,
@@ -578,8 +612,12 @@ fn run_single(
             {
                 let (alt_for_thermal, _) =
                     geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
-                let rho_thermal =
-                    data.atmosphere.density_at(alt_for_thermal) * (1.0 + run_state.density_bias);
+                let rho_thermal = atmosphere::density(
+                    &data.atmosphere,
+                    alt_for_thermal,
+                    run_state.density_bias,
+                    run_state.density_perturbation,
+                );
                 let v_eff_thermal = effective_airspeed(
                     sim.state[3],
                     sim.state[4],
@@ -587,7 +625,7 @@ fn run_single(
                     sim.state[2],
                     alt_for_thermal,
                     data,
-                    run_state,
+                    &run_state,
                 );
                 let heat_flux_now = data.capsule.cq * rho_thermal.sqrt() * v_eff_thermal.powf(3.05);
 
@@ -651,7 +689,12 @@ fn run_single(
             // Reference trajectory mode: compute pdyn from truth state for photo output
             let (alt_truth, _) =
                 geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
-            let rho_truth = data.atmosphere.density_at(alt_truth) * (1.0 + run_state.density_bias);
+            let rho_truth = atmosphere::density(
+                &data.atmosphere,
+                alt_truth,
+                run_state.density_bias,
+                run_state.density_perturbation,
+            );
             dynamic_pressure_for_photo = 0.5 * rho_truth * sim.state[3] * sim.state[3];
             density_estimate_for_photo = rho_truth;
         }
@@ -668,7 +711,7 @@ fn run_single(
                 cumulative_bank_change_deg * DEG_TO_RAD,
                 data,
                 nav_filter.density_gain(),
-                run_state,
+                &run_state,
                 sim.state[6],
                 guidance_phase_for_photo,
             ));
@@ -677,17 +720,17 @@ fn run_single(
         // === Integration step ===
         match &data.integration_mode {
             IntegrationMode::FixedGill => {
-                integrate_step(&mut sim, dt, planet, data, run_state);
+                integrate_step(&mut sim, dt, planet, data, &run_state);
             }
             IntegrationMode::AdaptiveDopri45(adaptive_config) => {
-                let _ = integrate_adaptive(&mut sim, dt, adaptive_config, planet, data, run_state);
+                let _ = integrate_adaptive(&mut sim, dt, adaptive_config, planet, data, &run_state);
             }
         }
 
         let (altitude, _lat_geo) =
             geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
 
-        track_peak_values(&mut sim, altitude, sim_time, data, run_state);
+        track_peak_values(&mut sim, altitude, sim_time, data, &run_state);
 
         // NaN/Inf safety net: extreme GA parameters can blow up numerically.
         // All termination checks evaluate to false on NaN, so the loop would spin forever.
@@ -776,7 +819,7 @@ fn run_single(
             cumulative_bank_change_deg * DEG_TO_RAD,
             data,
             nav_filter.density_gain(),
-            run_state,
+            &run_state,
             sim.state[6],
             guidance_phase_for_photo,
         ));
@@ -942,7 +985,7 @@ fn build_photo_values(
     run_state: &init::RunState,
     cumulative_flux: f64,
     guidance_phase: i32,
-) -> [f64; 29] {
+) -> [f64; 30] {
     let (altitude, latitude) =
         geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
 
@@ -976,7 +1019,12 @@ fn build_photo_values(
     // Use dispersed values (matching track_peak_values) so trajectory plots are consistent
     // with final_record peak values and constraint classification.
     let rho_truth = data.atmosphere.density_at(altitude);
-    let rho_dispersed = rho_truth * (1.0 + run_state.density_bias);
+    let rho_dispersed = atmosphere::density(
+        &data.atmosphere,
+        altitude,
+        run_state.density_bias,
+        run_state.density_perturbation,
+    );
     // Wind-corrected velocity for aero-dependent quantities
     let v_eff = effective_airspeed(
         sim.state[3],
@@ -1021,11 +1069,12 @@ fn build_photo_values(
         0.5 * density_estimate * sim.state[3] * sim.state[3] / 1e3,
         sim_index as f64,
         0.0,
-        heat_flux / 1e3,       // [24] heat_flux kW/m²
-        load_factor / G0,      // [25] g-load in g's
-        density_gain,          // [26] nav density ratio (estimated/model)
-        rho_truth,             // [27] truth density kg/m³
-        cumulative_flux / 1e3, // [28] heat_load_kj_m2 (J/m² → kJ/m²)
+        heat_flux / 1e3,                // [24] heat_flux kW/m²
+        load_factor / G0,               // [25] g-load in g's
+        density_gain,                   // [26] nav density ratio (estimated/model)
+        rho_truth,                      // [27] truth density kg/m³
+        cumulative_flux / 1e3,          // [28] heat_load_kj_m2 (J/m2 -> kJ/m2)
+        run_state.density_perturbation, // [29] density_perturbation (fractional GM value)
     ]
 }
 
@@ -1145,7 +1194,12 @@ fn track_peak_values(
     let gamma = sim.state[4];
     let psi = sim.state[5];
     let lat = sim.state[2];
-    let rho = data.atmosphere.density_at(altitude) * (1.0 + run_state.density_bias);
+    let rho = atmosphere::density(
+        &data.atmosphere,
+        altitude,
+        run_state.density_bias,
+        run_state.density_perturbation,
+    );
 
     // Wind-corrected velocity for aero-dependent quantities
     let v_eff = effective_airspeed(v, gamma, psi, lat, altitude, data, run_state);
@@ -1238,7 +1292,12 @@ fn compute_derivatives(
 
     let (gravtl, gravtr) = gravity::gravity(r, lat, planet);
     let (altitude, _lat_geo) = geodetic_from_spherical(r, state[1], lat, planet);
-    let rho = data.atmosphere.density_at(altitude) * (1.0 + run_state.density_bias);
+    let rho = atmosphere::density(
+        &data.atmosphere,
+        altitude,
+        run_state.density_bias,
+        run_state.density_perturbation,
+    );
 
     let aoa_dispersed = aoa + run_state.incidence_bias;
     let cx = data.aero.interpolate_cx(aoa_dispersed) * (1.0 + run_state.cx_bias);
