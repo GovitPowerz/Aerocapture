@@ -812,10 +812,24 @@ fn build_dispersion_config(
         Some(s)
     });
 
-    let wind = mc.wind.as_ref().map(|w| WindDispersionConfig {
-        scale_min: w.scale_min,
-        scale_max: w.scale_max,
-        direction_bias_deg: w.direction_bias_deg,
+    let wind = mc.wind.as_ref().and_then(|d| {
+        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        if level == DispersionLevel::Off {
+            return None;
+        }
+        let mut cfg = WindDispersionConfig::from_level(level);
+        // Apply custom overrides (for backward compat: existing configs without a level
+        // field get level="medium" by default, with their explicit values as overrides)
+        if let Some(&v) = d.custom.get("scale_min") {
+            cfg.scale_min = v;
+        }
+        if let Some(&v) = d.custom.get("scale_max") {
+            cfg.scale_max = v;
+        }
+        if let Some(&v) = d.custom.get("direction_bias_deg") {
+            cfg.direction_bias_deg = v;
+        }
+        Some(cfg)
     });
 
     let density_perturbation = mc.density_perturbation.as_ref().and_then(|d| {

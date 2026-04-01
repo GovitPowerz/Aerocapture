@@ -314,6 +314,34 @@ pub struct WindDispersionConfig {
     pub direction_bias_deg: f64, // max rotation ±deg
 }
 
+impl WindDispersionConfig {
+    pub fn from_level(level: DispersionLevel) -> Self {
+        match level {
+            DispersionLevel::Off => Self {
+                scale_min: 1.0,
+                scale_max: 1.0,
+                direction_bias_deg: 0.0,
+            },
+            DispersionLevel::Low => Self {
+                scale_min: 0.7,
+                scale_max: 1.3,
+                direction_bias_deg: 5.0,
+            },
+            DispersionLevel::Medium => Self {
+                scale_min: 0.5,
+                scale_max: 1.5,
+                direction_bias_deg: 10.0,
+            },
+            DispersionLevel::High => Self {
+                scale_min: 0.2,
+                scale_max: 2.0,
+                direction_bias_deg: 20.0,
+            },
+            DispersionLevel::Custom => Self::from_level(DispersionLevel::Medium),
+        }
+    }
+}
+
 /// Gauss-Markov (Ornstein-Uhlenbeck) density perturbation config.
 /// Produces time-varying density multiplier that evolves during each run.
 #[derive(Debug, Clone, Copy)]
@@ -725,6 +753,39 @@ mod tests {
         let v_off = VehicleSigmas::from_level(DispersionLevel::Off);
         assert_eq!(v_off.ref_area, 0.0);
         assert_eq!(v_off.max_bank_rate, 0.0);
+    }
+
+    #[test]
+    fn test_wind_config_off() {
+        let cfg = WindDispersionConfig::from_level(DispersionLevel::Off);
+        assert_eq!(cfg.scale_min, 1.0);
+        assert_eq!(cfg.scale_max, 1.0);
+        assert_eq!(cfg.direction_bias_deg, 0.0);
+    }
+
+    #[test]
+    fn test_wind_config_medium() {
+        let cfg = WindDispersionConfig::from_level(DispersionLevel::Medium);
+        assert_eq!(cfg.scale_min, 0.5);
+        assert_eq!(cfg.scale_max, 1.5);
+        assert_eq!(cfg.direction_bias_deg, 10.0);
+    }
+
+    #[test]
+    fn test_wind_config_high() {
+        let cfg = WindDispersionConfig::from_level(DispersionLevel::High);
+        assert_eq!(cfg.scale_min, 0.2);
+        assert_eq!(cfg.scale_max, 2.0);
+        assert_eq!(cfg.direction_bias_deg, 20.0);
+    }
+
+    #[test]
+    fn test_wind_config_custom_defaults_to_medium() {
+        let cfg = WindDispersionConfig::from_level(DispersionLevel::Custom);
+        let med = WindDispersionConfig::from_level(DispersionLevel::Medium);
+        assert_eq!(cfg.scale_min, med.scale_min);
+        assert_eq!(cfg.scale_max, med.scale_max);
+        assert_eq!(cfg.direction_bias_deg, med.direction_bias_deg);
     }
 
     #[test]
