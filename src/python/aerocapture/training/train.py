@@ -481,7 +481,7 @@ def train(
                                 timeout_indices = np.where(final_records[:, 31] == 2)[0]
                                 print(
                                     f"  [sim-timeout] {n_timeout}/{len(final_records)} sims timed out "
-                                    f"(batch took {batch_dt:.1f}s). Params: "
+                                    f"(batch took {batch_dt:.2f}s). Params: "
                                     + ", ".join(
                                         f"{k}={v}"
                                         for k, v in overrides_list[int(timeout_indices[0])].items()
