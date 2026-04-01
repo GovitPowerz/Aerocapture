@@ -530,14 +530,13 @@ fn run_single(
         if let Some(gm) = gm_config.as_ref().filter(|g| !g.is_disabled()) {
             use rand_distr::Distribution;
             let z: f64 = gm_normal.sample(&mut gm_rng);
-            run_state.density_perturbation =
-                crate::data::dispersions::step_density_perturbation(
-                    run_state.density_perturbation,
-                    dt,
-                    gm.tau,
-                    gm.sigma,
-                    z,
-                );
+            run_state.density_perturbation = crate::data::dispersions::step_density_perturbation(
+                run_state.density_perturbation,
+                dt,
+                gm.tau,
+                gm.sigma,
+                z,
+            );
         }
 
         // === Navigation + Guidance + Pilot ===
@@ -1057,12 +1056,12 @@ fn build_photo_values(
         0.5 * density_estimate * sim.state[3] * sim.state[3] / 1e3,
         sim_index as f64,
         0.0,
-        heat_flux / 1e3,       // [24] heat_flux kW/m²
-        load_factor / G0,      // [25] g-load in g's
-        density_gain,          // [26] nav density ratio (estimated/model)
-        rho_truth,             // [27] truth density kg/m³
-        cumulative_flux / 1e3,             // [28] heat_load_kj_m2 (J/m2 -> kJ/m2)
-        run_state.density_perturbation,    // [29] density_perturbation (fractional GM value)
+        heat_flux / 1e3,                // [24] heat_flux kW/m²
+        load_factor / G0,               // [25] g-load in g's
+        density_gain,                   // [26] nav density ratio (estimated/model)
+        rho_truth,                      // [27] truth density kg/m³
+        cumulative_flux / 1e3,          // [28] heat_load_kj_m2 (J/m2 -> kJ/m2)
+        run_state.density_perturbation, // [29] density_perturbation (fractional GM value)
     ]
 }
 
