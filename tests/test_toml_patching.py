@@ -83,6 +83,9 @@ def test_toml_roundtrip_params_present(scheme: str, tmp_path: Path) -> None:
         elif name.startswith("exit."):
             bare = name.removeprefix("exit.")
             assert bare in exit_sub, f"scheme={scheme}: exit param '{bare}' missing from guidance.ftc"
+        elif name.startswith("nav."):
+            bare = name.removeprefix("nav.")
+            assert bare in exit_sub, f"scheme={scheme}: nav param '{bare}' missing from guidance.ftc"
         elif name.startswith("thermal."):
             bare = name.removeprefix("thermal.")
             assert bare in thermal_sub, f"scheme={scheme}: thermal param '{bare}' missing from guidance.thermal_limiter"
@@ -124,6 +127,9 @@ def test_toml_roundtrip_values_close(scheme: str, tmp_path: Path) -> None:
                 expected = float(int(round(expected)))
         elif name.startswith("exit."):
             bare = name.removeprefix("exit.")
+            actual = exit_sub[bare]
+        elif name.startswith("nav."):
+            bare = name.removeprefix("nav.")
             actual = exit_sub[bare]
         elif name.startswith("thermal."):
             bare = name.removeprefix("thermal.")
@@ -265,13 +271,13 @@ class TestThermalLimiterParams:
 
 
 class TestExitParamsSafety:
-    """Non-FTC schemes get safe density_filter_gain when exit params create [guidance.ftc]."""
+    """Non-FTC schemes get density filter params routed to [guidance.ftc]."""
 
     NON_FTC_SCHEMES = ["equilibrium_glide", "energy_controller", "pred_guid", "fnpag"]
 
     @pytest.mark.parametrize("scheme", NON_FTC_SCHEMES)
-    def test_density_filter_gain_written_for_non_ftc(self, scheme: str, tmp_path: Path) -> None:
-        """Non-FTC schemes must have density_filter_gain=0.8 in the sparse [guidance.ftc] section."""
+    def test_density_filter_params_written_for_non_ftc(self, scheme: str, tmp_path: Path) -> None:
+        """Non-FTC schemes must have density_filter_gain and density_gain_max_delta in [guidance.ftc]."""
         config = make_training_config(scheme)
         specs = PARAM_SPACES[scheme]
         chrom_len = len(specs) * config.ga.n_bit
@@ -287,7 +293,11 @@ class TestExitParamsSafety:
 
         ftc_section = parsed.get("guidance", {}).get("ftc", {})
         assert "density_filter_gain" in ftc_section, f"scheme={scheme}: density_filter_gain missing from guidance.ftc"
-        assert ftc_section["density_filter_gain"] == 0.8, f"scheme={scheme}: density_filter_gain should be 0.8, got {ftc_section['density_filter_gain']}"
+        assert 0.3 <= ftc_section["density_filter_gain"] <= 1.0, f"scheme={scheme}: density_filter_gain out of bounds: {ftc_section['density_filter_gain']}"
+        assert "density_gain_max_delta" in ftc_section, f"scheme={scheme}: density_gain_max_delta missing from guidance.ftc"
+        assert 0.01 <= ftc_section["density_gain_max_delta"] <= 0.5, (
+            f"scheme={scheme}: density_gain_max_delta out of bounds: {ftc_section['density_gain_max_delta']}"
+        )
 
     @pytest.mark.parametrize("scheme", NON_FTC_SCHEMES)
     def test_exit_altitude_threshold_in_param_space(self, scheme: str) -> None:
