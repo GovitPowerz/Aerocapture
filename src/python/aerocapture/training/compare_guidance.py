@@ -78,18 +78,16 @@ def run_scheme(
     # Set guidance type
     toml_data.setdefault("guidance", {})["type"] = scheme
 
-    # Handle NN: ensure neural_network data path is set
+    # Handle NN: always prefer best_model.json from training output
     if scheme == "neural_network":
-        if "neural_network" not in toml_data.get("data", {}):
-            # Use best_model.json if available, otherwise default
-            nn_path = params_dir / "neural_network" / "best_model.json" if params_dir else None
-            if nn_path and nn_path.exists():
-                toml_data["data"]["neural_network"] = str(nn_path)
-                print(f"  Using optimized NN from {nn_path}")
-            else:
-                default_nn = "data/neural_network/nn_model.json"
-                toml_data["data"]["neural_network"] = default_nn
-                print(f"  Using default NN weights from {default_nn}")
+        nn_path = params_dir / "neural_network" / "best_model.json" if params_dir else None
+        if nn_path and nn_path.exists():
+            toml_data.setdefault("data", {})["neural_network"] = str(nn_path)
+            print(f"  Using optimized NN from {nn_path}")
+        elif "neural_network" not in toml_data.get("data", {}):
+            default_nn = "data/neural_network/nn_model.json"
+            toml_data["data"]["neural_network"] = default_nn
+            print(f"  Using default NN weights from {default_nn}")
     else:
         toml_data.get("data", {}).pop("neural_network", None)
 
