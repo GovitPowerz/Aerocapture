@@ -57,23 +57,23 @@ pub fn nn_bank_angle(
     // 16 normalized inputs (6 orbital/aero + 2 thermal margins + 8 extended state)
     let input = [
         // -- Existing 8 inputs (indices 0-7) --
-        orbit.eccentricity - 1.0,                                          // 0: eccentricity excess
+        orbit.eccentricity - 1.0, // 0: eccentricity excess
         (orbit.inclination - target_inclination).to_degrees() * 3.0 / 5.0, // 1: inclination error
-        2.0 * (velocity_radial / 1e3 + 1.2) / 1.5 - 1.0,                 // 2: radial velocity
-        -mu / (2.0 * orbit.semi_major_axis) / 6e6,                        // 3: orbital energy
-        (nav.velocity_estimated[0] / 3e3 - 1.5) * 2.0,                   // 4: velocity
-        accel_mag / 20.0 - 1.0,                                           // 5: accel magnitude
-        nav.heat_flux_fraction * 2.0 - 1.0,                               // 6: heat flux fraction
-        nav.heat_load_fraction * 2.0 - 1.0,                               // 7: heat load fraction
+        2.0 * (velocity_radial / 1e3 + 1.2) / 1.5 - 1.0, // 2: radial velocity
+        -mu / (2.0 * orbit.semi_major_axis) / 6e6, // 3: orbital energy
+        (nav.velocity_estimated[0] / 3e3 - 1.5) * 2.0, // 4: velocity
+        accel_mag / 20.0 - 1.0,   // 5: accel magnitude
+        nav.heat_flux_fraction * 2.0 - 1.0, // 6: heat flux fraction
+        nav.heat_load_fraction * 2.0 - 1.0, // 7: heat load fraction
         // -- New 8 inputs (indices 8-15) --
-        (altitude_km - 65.0) / 65.0,                                      // 8: altitude
-        nav.velocity_estimated[1] / 0.3,                                   // 9: flight path angle
-        nav.position_estimated[2] / std::f64::consts::FRAC_PI_2,          // 10: latitude
-        nav.acceleration_estimated[0] / 50.0 - 1.0,                       // 11: drag acceleration
-        nav.acceleration_estimated[1] / 10.0,                              // 12: lift acceleration
-        nav.orbital_errors[0] / 5e5,                                       // 13: SMA error
-        orbit.apoapsis_alt / 1e6 - 1.0,                                   // 14: apoapsis altitude
-        nav.bounce_flag as f64 * 2.0 - 1.0,                               // 15: bounce flag
+        (altitude_km - 65.0) / 65.0,     // 8: altitude
+        nav.velocity_estimated[1] / 0.3, // 9: flight path angle
+        nav.position_estimated[2] / std::f64::consts::FRAC_PI_2, // 10: latitude
+        nav.acceleration_estimated[0] / 50.0 - 1.0, // 11: drag acceleration
+        nav.acceleration_estimated[1] / 10.0, // 12: lift acceleration
+        nav.orbital_errors[0] / 5e5,     // 13: SMA error
+        orbit.apoapsis_alt / 1e6 - 1.0,  // 14: apoapsis altitude
+        nav.bounce_flag as f64 * 2.0 - 1.0, // 15: bounce flag
     ];
 
     let output = nn.forward(&input);
@@ -155,9 +155,18 @@ mod tests {
         // Small 16→3→2 network with tanh hidden layer and asinh output
         let layer0 = Layer {
             w: vec![
-                vec![0.1, -0.2, 0.3, -0.1, 0.2, -0.3, 0.05, -0.05, 0.02, -0.03, 0.04, -0.01, 0.03, -0.02, 0.01, -0.04],
-                vec![-0.2, 0.1, -0.1, 0.3, -0.2, 0.1, 0.05, -0.05, -0.01, 0.02, -0.03, 0.04, -0.02, 0.01, -0.04, 0.03],
-                vec![0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
+                vec![
+                    0.1, -0.2, 0.3, -0.1, 0.2, -0.3, 0.05, -0.05, 0.02, -0.03, 0.04, -0.01, 0.03,
+                    -0.02, 0.01, -0.04,
+                ],
+                vec![
+                    -0.2, 0.1, -0.1, 0.3, -0.2, 0.1, 0.05, -0.05, -0.01, 0.02, -0.03, 0.04, -0.02,
+                    0.01, -0.04, 0.03,
+                ],
+                vec![
+                    0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.02, 0.02, 0.02, 0.02, 0.02,
+                    0.02, 0.02, 0.02,
+                ],
             ],
             b: vec![0.1, -0.1, 0.0],
             activation: Activation::Tanh,
@@ -206,8 +215,12 @@ mod tests {
         };
         let layer1 = Layer {
             w: vec![
-                (0..24).map(|i| 0.1 * if i % 2 == 0 { 1.0 } else { -1.0 }).collect(),
-                (0..24).map(|i| 0.1 * if i % 3 == 0 { 1.0 } else { -1.0 }).collect(),
+                (0..24)
+                    .map(|i| 0.1 * if i % 2 == 0 { 1.0 } else { -1.0 })
+                    .collect(),
+                (0..24)
+                    .map(|i| 0.1 * if i % 3 == 0 { 1.0 } else { -1.0 })
+                    .collect(),
             ],
             b: vec![0.0, 0.0],
             activation: Activation::Asinh,
@@ -238,8 +251,14 @@ mod tests {
                 layer_sizes: vec![16, 2],
                 layers: vec![Layer {
                     w: vec![
-                        vec![0.1, -0.1, 0.2, -0.2, 0.05, -0.05, 0.1, -0.1, 0.02, -0.03, 0.04, -0.01, 0.03, -0.02, 0.01, -0.04],
-                        vec![-0.1, 0.1, -0.05, 0.05, 0.15, -0.15, 0.05, -0.05, -0.02, 0.03, -0.01, 0.04, -0.03, 0.02, -0.04, 0.01],
+                        vec![
+                            0.1, -0.1, 0.2, -0.2, 0.05, -0.05, 0.1, -0.1, 0.02, -0.03, 0.04, -0.01,
+                            0.03, -0.02, 0.01, -0.04,
+                        ],
+                        vec![
+                            -0.1, 0.1, -0.05, 0.05, 0.15, -0.15, 0.05, -0.05, -0.02, 0.03, -0.01,
+                            0.04, -0.03, 0.02, -0.04, 0.01,
+                        ],
                     ],
                     b: vec![0.3, -0.2],
                     activation: Activation::Tanh,

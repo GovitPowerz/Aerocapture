@@ -155,7 +155,9 @@ pub fn guidance_step(
     } else {
         // Capture phase: scheme-specific longitudinal guidance
         bank_angle_longitudinal = match guidance_type {
-            GuidanceType::Ftc => ftc_capture::ftc_bank_angle(nav, &mut state.ftc_capture, data, planet),
+            GuidanceType::Ftc => {
+                ftc_capture::ftc_bank_angle(nav, &mut state.ftc_capture, data, planet)
+            }
             GuidanceType::NeuralNetwork => {
                 let nn = data.neural_net.as_ref().expect("NN params not loaded");
                 neural::nn_bank_angle(nav, nn, planet, data.target_orbit.inclination)
