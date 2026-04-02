@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Aerocapture is a trajectory simulation tool for aerocapture maneuvers (primarily Mars Sample Return). The **Rust simulator** with **Python analysis tools** was validated against a legacy reference implementation to bit-level precision — FTC guided trajectories matched across all 725 timesteps (22/24 photo columns exact; the remaining 2 were uninitialized variable artifacts in the reference).
 
-The simulation models a spacecraft entering a planet's atmosphere at hyperbolic velocity, using aerodynamic forces and bank angle modulation to capture into a target orbit. Includes altitude-dependent wind model (zonal/meridional profiles with MC dispersions) and two navigation modes: legacy bias-only or 13-state EKF (IMU + star tracker with atmospheric blackout + drag-derived density estimation). The GNC chain is: Navigation (bias mode or EKF, with phase management: capture/exit/emergency) -> Guidance (one of 7 algorithms: FTC, NN, Equilibrium Glide, Energy Controller, PredGuid, FNPAG, Piecewise Constant; FTC + 4 unsigned-magnitude schemes switch to a shared exit-phase controller after trajectory nadir) -> Thermal Limiter (GA-tunable smooth ramp to lift-up near heat flux/load limits, unsigned-magnitude schemes only) -> Control (pilot dynamics + roll reversal). Schemes providing signed bank angles (NN, Piecewise Constant) bypass lateral, exit, and thermal limiter guidance -- NN receives thermal margin fractions as inputs and learns its own avoidance policy via GA. All guidance schemes have TOML-configurable parameters and can be GA-optimized.
+The simulation models a spacecraft entering a planet's atmosphere at hyperbolic velocity, using aerodynamic forces and bank angle modulation to capture into a target orbit. Includes altitude-dependent wind model (zonal/meridional profiles with MC dispersions) and two navigation modes: legacy bias-only or 13-state EKF (IMU + star tracker with atmospheric blackout + drag-derived density estimation). The GNC chain is: Navigation (bias mode or EKF, with phase management: capture/exit/emergency) -> Guidance (one of 7 algorithms: FTC, NN, Equilibrium Glide, Energy Controller, PredGuid, FNPAG, Piecewise Constant; FTC + 4 unsigned-magnitude schemes switch to a shared exit-phase controller after trajectory nadir) -> Thermal Limiter (GA-tunable smooth ramp to lift-up near heat flux/load limits, unsigned-magnitude schemes only) -> Control (pilot dynamics + roll reversal). Schemes providing signed bank angles (NN, Piecewise Constant) bypass lateral, exit, and thermal limiter guidance -- NN receives 16 inputs (orbital/aero/thermal state + altitude, FPA, latitude, separate drag/lift, SMA error, apoapsis altitude, bounce flag) and operates as a single phase-blind controller across capture and exit phases. All guidance schemes have TOML-configurable parameters and can be GA-optimized.
 
 ## Build & Development Commands
 
@@ -70,11 +70,12 @@ src/rust/src/
       star_tracker.rs              — Star tracker model (position updates with dynamic pressure blackout)
       coordinates.rs               — Spherical<>Cartesian, geodetic, total energy
     guidance/
-      ftc.rs                       — FTC capture-phase guidance + central guidance dispatch (phase-aware: routes to exit guidance when guidance_phase=2)
+      dispatch.rs                  — Central guidance dispatch (phase-aware: routes to exit guidance when guidance_phase=2), GuidanceState, GuidanceOutput
+      ftc.rs                       — FTC capture-phase guidance: altitude-gain predictor-corrector (FtcCaptureState, ftc_bank_angle)
       exit.rs                      — Exit phase guidance: shared pdyn-feedback controller for ascending leg (FTC + 4 unsigned-magnitude schemes)
       lateral.rs                   — Lateral guidance (roll reversal): LateralParams, LateralState, inclination-corridor logic (shared by unsigned-magnitude schemes)
       reference.rs                 — Constant bank angle mode
-      neural.rs                    — NN guidance (modular JSON architecture, GA-trained, signed bank via atan2, 8 inputs: 6 orbital/aero + 2 thermal margin fractions)
+      neural.rs                    — NN guidance (modular JSON architecture, GA-trained, signed bank via atan2, 16 inputs: 8 orbital/aero/thermal + 8 extended state including altitude, FPA, latitude, separate drag/lift, SMA error, apoapsis altitude, bounce flag)
       equilibrium_glide.rs         — Equilibrium glide with hdot damping + velocity bias
       energy_controller.rs         — Energy dissipation tracking via pdyn/hdot feedback
       predguid.rs                  — Apollo/Shuttle-heritage drag tracking guidance
