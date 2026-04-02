@@ -4,12 +4,12 @@ base = ["../missions/mars.toml", "common.toml"]
 [guidance]
 type = "neural_network"
 
-[guidance.ftc]
+[navigation]
 density_filter_gain = 0.91
 density_gain_max_delta = 0.4
 
 [network]
-layer_sizes = [16, 64, 16, 2]
+layer_sizes = [16, 32, 16, 2]
 activations = ["asinh", "asinh", "asinh"]
 
 [data]

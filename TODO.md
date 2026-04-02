@@ -1,5 +1,7 @@
 # TODO
 
+- [ ] update comparison script
+
 ## Simulation — Medium Impact
 
 - [ ] Improve FNPAG predictor fidelity (add J2, actual atmo table) — §4.3  in IMPROVEMENTS.md

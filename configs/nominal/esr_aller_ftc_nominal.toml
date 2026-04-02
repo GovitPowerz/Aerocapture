@@ -21,7 +21,6 @@ corridor_intercept = 0.0
 max_reversals = 5
 security_capture = 1
 security_exit = 3
-density_filter_gain = 0.8
 longi_activation = 50.0
 longi_inhibition = -200.0
 lateral_activation = -200.0
