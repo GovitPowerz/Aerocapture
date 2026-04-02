@@ -394,6 +394,7 @@ pub fn navigate_ekf(
     run_density_bias: f64,
     run_density_perturbation: f64,
     run_cx_bias: f64,
+    run_cz_bias: f64,
     run_mass_bias: f64,
     run_incidence_bias: f64,
     run_ref_area_bias: f64,
@@ -425,16 +426,18 @@ pub fn navigate_ekf(
         run_density_bias,
         run_density_perturbation,
     );
-    let cx_true =
-        data.aero.interpolate_cx(aoa_commanded + run_incidence_bias) * (1.0 + run_cx_bias);
+    let aoa_true = aoa_commanded + run_incidence_bias;
+    let cx_true = data.aero.interpolate_cx(aoa_true) * (1.0 + run_cx_bias);
+    let cz_true = data.aero.interpolate_cz(aoa_true) * (1.0 + run_cz_bias);
     let mass_true = data.capsule.mass * (1.0 + run_mass_bias);
     let ref_area_true = data.capsule.reference_area * (1.0 + run_ref_area_bias);
     let aero_factor_true =
         rho_true * ref_area_true * velocity_true[0] * velocity_true[0] / (2.0 * mass_true);
-    let drag_accel_true = aero_factor_true * cx_true;
+    let accel_body_x_true =
+        aero_factor_true * (cx_true * aoa_true.cos() + cz_true * aoa_true.sin());
 
-    // Simplified: treat drag as acting along velocity (body x-axis approximation)
-    let true_accel = [drag_accel_true, 0.0, 0.0];
+    // Body-frame x-axis acceleration includes both drag and lift projections
+    let true_accel = [accel_body_x_true, 0.0, 0.0];
     let true_gyro = [0.0, 0.0, 0.0]; // simplified: no true rotation rate available here
 
     // ── Step 3: IMU measurements ──
@@ -466,11 +469,13 @@ pub fn navigate_ekf(
     out.aero_coefficients[0] = cx_est;
     out.aero_coefficients[1] = cz_est;
 
-    // Drag-derived density from measured acceleration
-    let drag_acceleration_measured = accel_meas[0]; // IMU x-axis ~ drag direction
-    let density_estimated = if cx_est.abs() > 1e-30 && velocity_relative.abs() > 1e-10 {
-        2.0 * drag_acceleration_measured.abs() * data.capsule.mass
-            / (cx_est * data.capsule.reference_area * velocity_relative * velocity_relative)
+    // Density estimation via inverse dynamics (lift-corrected)
+    let accel_measured_ekf = accel_meas[0];
+    let aoa_est = aoa_commanded;
+    let denom = cx_est * aoa_est.cos() + cz_est * aoa_est.sin();
+    let density_estimated = if denom.abs() > 1e-10 && velocity_relative.abs() > 1e-10 {
+        2.0 * accel_measured_ekf.abs() * data.capsule.mass
+            / (denom * data.capsule.reference_area * velocity_relative * velocity_relative)
     } else {
         0.0
     };
