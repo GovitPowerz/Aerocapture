@@ -358,11 +358,16 @@ def write_guidance_toml(
     # Set the guidance type
     toml_data.setdefault("guidance", {})["type"] = guidance_type
 
-    # Split lateral, exit, and thermal params from scheme-specific params
+    # Split lateral, exit, nav, and thermal params from scheme-specific params
     lateral_params = {k.removeprefix("lateral."): v for k, v in params.items() if k.startswith("lateral.")}
     exit_params = {k.removeprefix("exit."): v for k, v in params.items() if k.startswith("exit.")}
+    nav_params = {k.removeprefix("nav."): v for k, v in params.items() if k.startswith("nav.")}
     thermal_params = {k.removeprefix("thermal."): v for k, v in params.items() if k.startswith("thermal.")}
-    scheme_params = {k: v for k, v in params.items() if not k.startswith("lateral.") and not k.startswith("exit.") and not k.startswith("thermal.")}
+    scheme_params = {
+        k: v
+        for k, v in params.items()
+        if not k.startswith("lateral.") and not k.startswith("exit.") and not k.startswith("nav.") and not k.startswith("thermal.")
+    }
 
     # Round max_reversals to integer
     if "max_reversals" in lateral_params:
@@ -380,10 +385,10 @@ def write_guidance_toml(
     if exit_params:
         ftc_section = toml_data["guidance"].setdefault("ftc", {})
         ftc_section.update(exit_params)
-        # Ensure density_filter_gain is present when creating a sparse [guidance.ftc]
-        # for non-FTC schemes, so serde doesn't default it to 0.0.
-        if guidance_type != "ftc":
-            ftc_section.setdefault("density_filter_gain", 0.8)
+
+    # Merge nav params into [navigation] (density filter config used by all schemes)
+    if nav_params:
+        toml_data.setdefault("navigation", {}).update(nav_params)
 
     # Merge thermal limiter params into [guidance.thermal_limiter]
     if thermal_params:

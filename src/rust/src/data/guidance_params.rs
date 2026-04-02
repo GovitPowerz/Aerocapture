@@ -148,6 +148,7 @@ pub struct GuidanceParams {
 
     // Density estimation
     pub density_filter_gain: f64, // low-pass filter gain for density estimation
+    pub density_gain_max_delta: f64, // max per-step change in density_gain (rate limiter)
 
     // Activation/inhibition thresholds
     pub longi_activation: f64, // longitudinal guidance activation threshold (J/kg)
@@ -307,6 +308,7 @@ impl Default for GuidanceParams {
             security_capture: 0,
             security_exit: 0,
             density_filter_gain: 0.0,
+            density_gain_max_delta: 0.1,
             longi_activation: 0.0,
             longi_inhibition: 0.0,
             pdyn_min: 0.0,

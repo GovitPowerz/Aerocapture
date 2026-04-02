@@ -18,19 +18,7 @@ This document lists physics, GNC, and software improvements for the aerocapture 
 
 ## 3. Navigation
 
-### 3.1 Improve density estimation filter
-
-The exponential filter `gain = (1-lambda)*gain_prev + lambda*(rho_est/rho_model)` is functional with lambda clamped to [0.01, 0.99] (`estimator.rs`), preventing a legacy instability. The EKF includes a density correction state, but the legacy bias-mode filter could still benefit from:
-
-- Add gain saturation bounds (e.g., 0.1 < gain < 10) as a safety net
-- Add outlier rejection (if |rho_est/rho_model - gain| > threshold, hold previous value)
-
-### 3.2 Drag acceleration extraction
-
-Currently `rho_est = 2*|a_drag|*m / (Cx*S*V^2)` assumes all measured acceleration is drag. This ignores the lift component and gravity projection.
-
-- **Improvement**: Decompose the total measured acceleration into drag and lift components using the known bank angle and estimated AoA, or use a full acceleration model inversion.
-- **Impact**: More accurate density estimation, especially at high bank angles where lift-to-drag ratio contributes to the total acceleration.
+*(No open items -- see Done section below.)*
 
 ---
 
@@ -156,6 +144,8 @@ Items completed and merged.
 | 1.1 Time-varying density perturbations | 2026-04-01 | Gauss-Markov (OU) process with Off/Low/Medium/High/Custom presets. `[monte_carlo.density_perturbation]` TOML section. Multiplicative on static bias. Also: wind dispersions refactored to use same level preset pattern; `common.toml` wind direction_bias reduced from 30 to 10 deg (medium preset). |
 | 2.1 Heat rate/load as guidance constraints | 2026-04-01 | Thermal safety limiter: smooth bank-to-lift-up ramp near heat flux/load limits (PR #22) |
 | 4.2 Exit phase guidance | 2026-04-01 | Shared pdyn-feedback exit controller for ascending leg after trajectory nadir (PR #22) |
+| 3.1 Density filter hardening | 2026-04-02 | Legacy bias-mode filter: rate-of-change limiting (configurable `density_gain_max_delta`, default 0.1) + gain saturation [0.1, 10.0] matching EKF bounds. GA-optimizable for all unsigned-magnitude schemes via `nav.` prefix routing. |
+| 3.2 Lift-corrected drag extraction | 2026-04-02 | Both nav modes use `Cx*cos(alpha) + Cz*sin(alpha)` denominator instead of `Cx`-only. Corrects ~4% density estimation error at AoA=10 deg. Activates previously unused `run_cz_bias` MC dispersion. |
 
 ---
 

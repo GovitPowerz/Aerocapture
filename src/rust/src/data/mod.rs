@@ -409,6 +409,16 @@ impl SimData {
             guidance_params::FnpagParams::default()
         };
 
+        // Navigation density filter params (live in [navigation], used by all schemes)
+        let nav_density_filter_gain = toml
+            .navigation
+            .as_ref()
+            .map_or(0.8, |n| n.density_filter_gain);
+        let nav_density_gain_max_delta = toml
+            .navigation
+            .as_ref()
+            .map_or(0.1, |n| n.density_gain_max_delta);
+
         // FTC guidance params
         let guidance = if let Some(ref ftc) = toml.guidance.ftc {
             let energy_scale = 1e6;
@@ -464,7 +474,8 @@ impl SimData {
                 },
                 security_capture: ftc.security_capture,
                 security_exit: ftc.security_exit,
-                density_filter_gain: ftc.density_filter_gain,
+                density_filter_gain: nav_density_filter_gain,
+                density_gain_max_delta: nav_density_gain_max_delta,
                 longi_activation: ftc.longi_activation * energy_scale,
                 longi_inhibition: ftc.longi_inhibition * energy_scale,
                 pdyn_min: ftc.pdyn_min,
@@ -522,7 +533,8 @@ impl SimData {
                 },
                 security_capture: 1,
                 security_exit: 3,
-                density_filter_gain: 0.8,
+                density_filter_gain: nav_density_filter_gain,
+                density_gain_max_delta: nav_density_gain_max_delta,
                 longi_activation: 1e9,
                 longi_inhibition: -1e9,
                 pdyn_min: 0.0,

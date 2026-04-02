@@ -592,6 +592,7 @@ fn run_single(
                     run_state.density_bias,
                     run_state.density_perturbation,
                     run_state.cx_bias,
+                    run_state.cz_bias,
                     run_state.mass_bias,
                     run_state.incidence_bias,
                     run_state.ref_area_bias,

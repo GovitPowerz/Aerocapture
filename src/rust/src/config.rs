@@ -223,6 +223,10 @@ pub struct TomlIntegration {
 pub struct TomlNavigation {
     #[serde(default = "default_nav_mode")]
     pub mode: String, // "bias" or "ekf"
+    #[serde(default = "default_density_filter_gain")]
+    pub density_filter_gain: f64,
+    #[serde(default = "default_density_gain_max_delta")]
+    pub density_gain_max_delta: f64,
     pub imu: Option<TomlImu>,
     pub star_tracker: Option<TomlStarTracker>,
     pub ekf: Option<TomlEkf>,
@@ -589,8 +593,6 @@ pub struct TomlFtcParams {
     pub security_capture: i32,
     #[serde(default = "default_three_i32")]
     pub security_exit: i32,
-    #[serde(default = "default_density_filter_gain")]
-    pub density_filter_gain: f64,
     #[serde(default = "default_longi_act")]
     pub longi_activation: f64, // MJ/kg
     #[serde(default = "default_longi_inh")]
@@ -616,6 +618,9 @@ fn default_exit_altitude_km() -> f64 {
 }
 fn default_density_filter_gain() -> f64 {
     0.8
+}
+fn default_density_gain_max_delta() -> f64 {
+    0.1
 }
 fn default_longi_act() -> f64 {
     1000.0

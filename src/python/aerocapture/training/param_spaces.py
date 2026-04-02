@@ -49,6 +49,14 @@ _THERMAL_LIMITER_PARAMS: list[ParamSpec] = [
     ParamSpec("thermal.heat_load_ramp_exponent", 0.5, 3.0, 1.0),
 ]
 
+# Navigation density filter params shared by all unsigned-magnitude schemes.
+# Prefixed with "nav." so evaluate.py routes them to [guidance.ftc] in TOML
+# (density filter config lives in the FTC TOML section but affects all schemes).
+_NAV_PARAMS: list[ParamSpec] = [
+    ParamSpec("nav.density_filter_gain", 0.3, 1.0, 0.8),
+    ParamSpec("nav.density_gain_max_delta", 0.01, 0.5, 0.1),
+]
+
 # TOML section key matches the guidance type name used in [guidance] type field
 PARAM_SPACES: dict[str, list[ParamSpec]] = {
     "equilibrium_glide": [
@@ -59,6 +67,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         ParamSpec("alt_bias_threshold", 20.0, 80.0, 40.0),
         ParamSpec("cos_bank_min", -1.0, 0.0, -0.5),
         ParamSpec("cos_bank_max", 0.5, 1.0, 0.95),
+        *_NAV_PARAMS,
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
         *_THERMAL_LIMITER_PARAMS,
@@ -67,6 +76,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         ParamSpec("gain", 1e-8, 1e-5, 5e-7, log_scale=True),
         ParamSpec("kp", 0.1, 5.0, 1.0),
         ParamSpec("kd", 0.0, 3.0, 0.5),
+        *_NAV_PARAMS,
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
         *_THERMAL_LIMITER_PARAMS,
@@ -75,6 +85,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         ParamSpec("k_drag_high", 0.1, 3.0, 0.8),
         ParamSpec("k_drag_low", 0.05, 2.0, 0.3),
         ParamSpec("pdyn_threshold", 10.0, 500.0, 100.0, log_scale=True),
+        *_NAV_PARAMS,
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
         *_THERMAL_LIMITER_PARAMS,
@@ -85,6 +96,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         ParamSpec("bank_min_deg", 10.0, 40.0, 20.0),
         ParamSpec("bank_max_high_deg", 100.0, 170.0, 140.0),
         ParamSpec("bank_max_low_deg", 70.0, 130.0, 100.0),
+        *_NAV_PARAMS,
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
         *_THERMAL_LIMITER_PARAMS,
@@ -94,8 +106,8 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         ParamSpec("capture_frequency", 0.01, 0.2, 0.072),
         ParamSpec("altitude_damping", 0.3, 1.5, 0.7),
         ParamSpec("altitude_frequency", 0.01, 0.2, 0.08),
-        ParamSpec("density_filter_gain", 0.3, 1.0, 0.8),
         ParamSpec("capture_pdyn_margin", 1.0, 3.0, 1.75),
+        *_NAV_PARAMS,
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
         *_THERMAL_LIMITER_PARAMS,
