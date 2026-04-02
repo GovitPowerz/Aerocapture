@@ -1,5 +1,6 @@
 //! Guidance algorithms.
 
+pub mod capture;
 pub mod energy_controller;
 pub mod equilibrium_glide;
 pub mod exit;
