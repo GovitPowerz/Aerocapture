@@ -7,7 +7,7 @@ Usage:
     uv run python -m aerocapture.training.compare_guidance \
         --base-toml configs/training/msr_aller_eqglide_train.toml \
         --n-sims 100 \
-        --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network
+        --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network piecewise_constant
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import numpy as np
 
 from aerocapture.training.evaluate import compute_cost
 
-SCHEMES = ["equilibrium_glide", "energy_controller", "pred_guid", "fnpag", "ftc", "neural_network"]
+SCHEMES = ["equilibrium_glide", "energy_controller", "pred_guid", "fnpag", "ftc", "neural_network", "piecewise_constant"]
 
 
 def run_scheme(
