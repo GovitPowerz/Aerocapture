@@ -5,7 +5,7 @@
 use crate::config::{AdaptiveConfig, IntegrationMode, PlanetConfig, SimInput};
 use crate::data::SimData;
 use crate::data::dispersions::DISPERSION_DRAW_LEN;
-use crate::gnc::control::angle_utils::shortest_angle_diff;
+use crate::gnc::control::angle_utils::{shortest_angle_diff, wrap_to_pi};
 use crate::gnc::control::pilot::{self, PilotState};
 use crate::gnc::guidance::dispatch::{self as dispatch, GuidanceState};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
@@ -668,7 +668,7 @@ fn run_single(
                 cumulative_bank_change_deg += bank_change / DEG_TO_RAD;
             }
 
-            sim.bank_angle = pilot_state.bank_angle;
+            sim.bank_angle = wrap_to_pi(pilot_state.bank_angle);
             sim.aoa = guidance_out.aoa_commanded;
 
             if is_single && (step < 5 || step % 50 == 0) {
