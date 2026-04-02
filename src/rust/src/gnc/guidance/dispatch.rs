@@ -27,14 +27,12 @@ pub struct GuidanceState {
     pub cumulative_bank_change: f64, // cumulative bank angle changes (rad)
 
     // Guidance securization (longitudinal only; lateral securization handled by lateral module)
-    pub securization_counters: [i32; 2], // securization counters ([0]=longi inactive, [1]=longi secur)
-    pub longi_active: i32,               // longitudinal securization indicator (1=active)
+    pub longi_active: i32, // longitudinal securization indicator (1=active)
 
     // Reference velocity
     pub reference_velocity: f64,
 
     // Counters
-    pub n_secur: i32,  // number of securization events
     pub n_active: i32, // number of active guidance calls
 
     // Scheme-specific states
@@ -53,10 +51,8 @@ impl GuidanceState {
             aoa_commanded: initial_aoa,
             lateral_state: LateralState::new(initial_bank),
             cumulative_bank_change: 0.0,
-            securization_counters: [0, 0],
             longi_active: 1,
             reference_velocity: 0.0,
-            n_secur: 0,
             n_active: 0,
             ftc_capture: FtcCaptureState::default(),
             energy_ctrl: energy_controller::EnergyControllerState::new(),
@@ -121,7 +117,6 @@ pub fn guidance_step(
         longitudinal_active = 1;
     } else {
         longitudinal_active = 0;
-        state.securization_counters[1] += 1;
     }
 
     longitudinal_active *= state.longi_active;

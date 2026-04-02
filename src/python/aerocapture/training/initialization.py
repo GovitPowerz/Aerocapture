@@ -55,7 +55,7 @@ def generate_initialized_weights(
     for each layer: weights (row-major, shape fan_out x fan_in) then biases.
 
     Args:
-        layer_sizes: Network layer sizes, e.g. [6, 12, 2].
+        layer_sizes: Network layer sizes, e.g. [16, 24, 2].
         activations: Activation per layer, length = len(layer_sizes) - 1.
         rng: Numpy random generator.
 

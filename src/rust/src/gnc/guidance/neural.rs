@@ -72,7 +72,7 @@ pub fn nn_bank_angle(
         nav.acceleration_estimated[0] / 50.0 - 1.0, // 11: drag acceleration
         nav.acceleration_estimated[1] / 10.0, // 12: lift acceleration
         nav.orbital_errors[0] / 5e5,     // 13: SMA error
-        orbit.apoapsis_alt / 1e6 - 1.0,  // 14: apoapsis altitude
+        orbit.apoapsis_alt.clamp(-10e6, 10e6) / 1e6 - 1.0, // 14: apoapsis altitude
         nav.bounce_flag as f64 * 2.0 - 1.0, // 15: bounce flag
     ];
 

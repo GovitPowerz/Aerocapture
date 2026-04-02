@@ -14,7 +14,7 @@ def compute_weight_stats(
 
     Args:
         weights: Flat weight vector (same layout as write_nn_json / to_flat_weights).
-        layer_sizes: Network layer sizes, e.g. [6, 12, 2].
+        layer_sizes: Network layer sizes, e.g. [16, 24, 2].
 
     Returns:
         Dict with keys like "layer_0_w", "layer_0_b", each mapping to
