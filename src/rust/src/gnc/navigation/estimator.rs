@@ -161,8 +161,16 @@ pub fn navigate(
     // density_gain = (1-λ)*density_gain + λ*(density_estimated/rho_model)
     let lambda = (data.guidance.density_filter_gain + run_filter_gain_bias).clamp(0.01, 0.99);
     if rho_model.abs() > 1e-30 {
-        nav_state.density_gain =
-            (1.0 - lambda) * nav_state.density_gain + lambda * (density_estimated / rho_model);
+        let raw_gain = (1.0 - lambda) * nav_state.density_gain
+            + lambda * (density_estimated / rho_model);
+
+        // Rate-of-change limiting
+        let max_delta = data.guidance.density_gain_max_delta;
+        let delta = (raw_gain - nav_state.density_gain).clamp(-max_delta, max_delta);
+        nav_state.density_gain += delta;
+
+        // Gain saturation (hardcoded safety bounds, matches EKF [0.1, 10.0])
+        nav_state.density_gain = nav_state.density_gain.clamp(0.1, 10.0);
     }
     if alt_est > 100e3 {
         nav_state.density_gain = 1.0;
@@ -996,6 +1004,111 @@ mod tests {
         }
     }
 
+    // ── Test: density_gain_rate_limited ──
+
+    #[test]
+    fn density_gain_rate_limited() {
+        let mut data = test_sim_data();
+        data.guidance.density_gain_max_delta = 0.05; // tight rate limit
+        let r = MARS_REQ + 40_000.0;
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, -0.10, 1.0];
+        let biases = zero_biases();
+        let mut nav_state = NavigationState::new();
+        nav_state.density_gain = 1.0;
+
+        let _out = call_navigate(
+            &position_true,
+            &velocity_true,
+            &biases,
+            &mut nav_state,
+            &data,
+            &no_run_biases(),
+        );
+
+        // With rate limit of 0.05, density_gain cannot move more than 0.05 from 1.0
+        let delta = (nav_state.density_gain - 1.0).abs();
+        assert!(
+            delta <= 0.05 + 1e-14,
+            "density_gain delta {delta} exceeded max_delta 0.05"
+        );
+    }
+
+    // ── Test: density_gain_saturated ──
+
+    #[test]
+    fn density_gain_saturated() {
+        let mut data = test_sim_data();
+        data.guidance.density_gain_max_delta = 100.0; // very loose rate limit
+        let r = MARS_REQ + 40_000.0;
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, -0.10, 1.0];
+        let biases = zero_biases();
+        let mut nav_state = NavigationState::new();
+
+        // Start with extreme density_gain — should be clamped to [0.1, 10.0]
+        nav_state.density_gain = 50.0;
+
+        let _out = call_navigate(
+            &position_true,
+            &velocity_true,
+            &biases,
+            &mut nav_state,
+            &data,
+            &no_run_biases(),
+        );
+
+        assert!(
+            nav_state.density_gain <= 10.0,
+            "density_gain {} should be <= 10.0",
+            nav_state.density_gain
+        );
+        assert!(
+            nav_state.density_gain >= 0.1,
+            "density_gain {} should be >= 0.1",
+            nav_state.density_gain
+        );
+    }
+
+    // ── Test: rate_limit_before_saturation ──
+
+    #[test]
+    fn rate_limit_before_saturation() {
+        let mut data = test_sim_data();
+        data.guidance.density_gain_max_delta = 0.02; // very tight
+        let r = MARS_REQ + 40_000.0;
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, -0.10, 1.0];
+        let biases = zero_biases();
+
+        // Start near the lower saturation bound
+        let mut nav_state = NavigationState::new();
+        nav_state.density_gain = 0.12;
+
+        // Run one step — even if filter wants to go below 0.1,
+        // rate limit restricts movement to 0.02
+        let _out = call_navigate(
+            &position_true,
+            &velocity_true,
+            &biases,
+            &mut nav_state,
+            &data,
+            &no_run_biases(),
+        );
+
+        // density_gain should be in [0.10, 0.14] (0.12 +/- 0.02, then clamped to [0.1, 10.0])
+        assert!(
+            nav_state.density_gain >= 0.1,
+            "density_gain {} below saturation floor",
+            nav_state.density_gain
+        );
+        let delta = (nav_state.density_gain - 0.12).abs();
+        assert!(
+            delta <= 0.02 + 1e-14,
+            "density_gain moved by {delta}, exceeding rate limit 0.02"
+        );
+    }
+
     // ── Test 8: proptest_navigate_outputs_finite ──
 
     proptest::proptest! {
@@ -1037,6 +1150,43 @@ mod tests {
             proptest::prop_assert!(out.dynamic_pressure_estimated.is_finite(), "dynamic_pressure_estimated non-finite");
             proptest::prop_assert!(out.energy_estimated.is_finite(), "energy_estimated non-finite");
             proptest::prop_assert!(nav_state.density_gain.is_finite(), "density_gain non-finite");
+        }
+    }
+
+    proptest::proptest! {
+        /// density_gain must always be in [0.1, 10.0] after any filter update
+        /// (except high-altitude reset to 1.0).
+        #[test]
+        fn proptest_density_gain_bounded(
+            alt_km in 30.0_f64..=90.0_f64,  // below 100 km so filter runs
+            velocity in 2_000.0_f64..=8_000.0_f64,
+            gamma in -0.3_f64..=0.0_f64,
+            initial_gain in 0.001_f64..=100.0_f64,
+            filter_gain_bias in -5.0_f64..=5.0_f64,
+        ) {
+            let data = test_sim_data();
+            let r = MARS_REQ + alt_km * 1000.0;
+            let position_true = [r, 0.0, 0.0];
+            let velocity_true = [velocity, gamma, 1.0];
+            let biases = zero_biases();
+            let mut nav_state = NavigationState::new();
+            nav_state.density_gain = initial_gain;
+
+            let run_biases = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, filter_gain_bias];
+            let _out = call_navigate(
+                &position_true,
+                &velocity_true,
+                &biases,
+                &mut nav_state,
+                &data,
+                &run_biases,
+            );
+
+            proptest::prop_assert!(
+                nav_state.density_gain >= 0.1 && nav_state.density_gain <= 10.0,
+                "density_gain {} out of [0.1, 10.0] bounds",
+                nav_state.density_gain
+            );
         }
     }
 
