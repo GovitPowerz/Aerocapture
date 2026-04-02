@@ -251,6 +251,18 @@ Two output columns in the reference implementation used uninitialized variables,
 
 Energy must use **absolute (inertial) velocity**, not relative velocity. The Rust `total_energy()` converts relative->absolute via `to_absolute_cartesian` before computing E = V_abs^2/2 - mu/r.
 
+### GA Parameter Routing
+
+`param_spaces.py` uses prefixed names to route params to TOML sections: `nav.` -> `[navigation]`, `lateral.` -> `[guidance.lateral]`, `exit.` -> `[guidance.ftc]`, `thermal.` -> `[guidance.thermal_limiter]`, unprefixed -> `[guidance.<scheme>]`. This routing must be consistent across `evaluate.py` (write), `compare_guidance.py` (load best_params.json), and `train.py` (PyO3 override dict for best-individual re-evaluation). NN training bypasses `write_guidance_toml()` entirely -- navigation-level TOML overrides must be set in the NN training config directly.
+
+### Navigation-Level Config
+
+Density filter params (`density_filter_gain`, `density_gain_max_delta`) live in `[navigation]` TOML section (`TomlNavigation` in config.rs), not in `[guidance.ftc]`. They affect all guidance schemes via `estimator.rs`. When adding new navigation-level tunable params, put them in `[navigation]` from the start, add to `_NAV_PARAMS` in `param_spaces.py` with `nav.` prefix.
+
+### Golden File Regeneration
+
+Physics changes (density estimation, gravity, aerodynamics) invalidate guidance regression golden files in `tests/reference_data/rust_golden/`. Regenerate by running the updated binary on each test config and replacing the CSV files. The 6 golden files cover: eqglide, energy_ctrl, pred_guid, fnpag, ftc, neural.
+
 ## Conventions
 
 - **Rust**: Edition 2024, nalgebra for linear algebra, release profile with LTO
