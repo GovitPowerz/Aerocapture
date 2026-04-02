@@ -78,7 +78,10 @@ def run_scheme(
             # Route prefixed params to correct TOML sections (same logic as evaluate.py)
             for k, v in params.items():
                 if k.startswith("lateral."):
-                    toml_data["guidance"].setdefault("lateral", {})[k.removeprefix("lateral.")] = v
+                    bare = k.removeprefix("lateral.")
+                    if bare == "max_reversals":
+                        v = int(round(v))
+                    toml_data["guidance"].setdefault("lateral", {})[bare] = v
                 elif k.startswith("exit."):
                     toml_data["guidance"].setdefault("ftc", {})[k.removeprefix("exit.")] = v
                 elif k.startswith("nav."):

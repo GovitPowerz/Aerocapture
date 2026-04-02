@@ -927,6 +927,8 @@ if __name__ == "__main__":
         _pc_section = _GTS[cfg.guidance_type]
         best_ovr: dict[str, object] = {}
         for k_, v in best_params.items():
+            if k_ == "lateral.max_reversals":
+                v = int(round(v))
             if k_.startswith("lateral."):
                 best_ovr[f"guidance.lateral.{k_.removeprefix('lateral.')}"] = v
             elif k_.startswith("exit."):
