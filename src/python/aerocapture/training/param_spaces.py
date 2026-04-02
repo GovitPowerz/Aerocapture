@@ -95,6 +95,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         ParamSpec("altitude_damping", 0.3, 1.5, 0.7),
         ParamSpec("altitude_frequency", 0.01, 0.2, 0.08),
         ParamSpec("density_filter_gain", 0.3, 1.0, 0.8),
+        ParamSpec("density_gain_max_delta", 0.01, 0.5, 0.1),
         ParamSpec("capture_pdyn_margin", 1.0, 3.0, 1.75),
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
