@@ -87,7 +87,7 @@ Adding a new planet requires only a new TOML preset file in `configs/planets/` �
 
 The simulation implements a full closed-loop GNC chain:
 
-1. **Navigation** — Two modes: legacy bias-only, or 13-state EKF (IMU sensor model + star tracker with atmospheric blackout + drag-derived density estimation). Configurable via `[navigation] mode = "bias"` or `"ekf"`.
+1. **Navigation** — Two modes: legacy bias-only, or 13-state EKF (IMU sensor model + star tracker with atmospheric blackout + lift-corrected drag-derived density estimation). Legacy filter includes rate-of-change limiting and gain saturation [0.1, 10.0]. Configurable via `[navigation] mode = "bias"` or `"ekf"`.
 2. **Guidance** — One of 7 algorithms computes a bank angle command (see table below). After the trajectory nadir (bounce), FTC + 4 unsigned-magnitude schemes automatically switch to a shared **exit phase controller** (dynamic pressure feedback with radial velocity damping) for apoapsis targeting on the ascending leg.
 3. **Lateral guidance** — Roll sign management via inclination-corridor logic with deadband. Shared by unsigned-magnitude schemes (EqGlide, EnergyCtrl, PredGuid, FNPAG). Remains active during exit phase for inclination correction. NN and PiecewiseConstant produce signed bank angles and bypass both lateral and exit guidance entirely.
 4. **Control** — Pilot dynamics model applies rate limits and first/second-order lag to bank angle commands
