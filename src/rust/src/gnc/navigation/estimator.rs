@@ -128,8 +128,8 @@ pub fn navigate(
     let cz_true = data.aero.interpolate_cz(aoa_true) * (1.0 + run_cz_bias);
     let mass_true = data.capsule.mass * (1.0 + run_mass_bias);
     let ref_area_true = data.capsule.reference_area * (1.0 + run_ref_area_bias);
-    let aero_factor_true = rho_true * ref_area_true * velocity_true[0] * velocity_true[0]
-        / (2.0 * mass_true);
+    let aero_factor_true =
+        rho_true * ref_area_true * velocity_true[0] * velocity_true[0] / (2.0 * mass_true);
     let accel_body_x_true =
         aero_factor_true * (cx_true * aoa_true.cos() + cz_true * aoa_true.sin());
     let accel_measured = accel_body_x_true + biases.drag;
@@ -167,8 +167,8 @@ pub fn navigate(
     // density_gain = (1-λ)*density_gain + λ*(density_estimated/rho_model)
     let lambda = (data.guidance.density_filter_gain + run_filter_gain_bias).clamp(0.01, 0.99);
     if rho_model.abs() > 1e-30 {
-        let raw_gain = (1.0 - lambda) * nav_state.density_gain
-            + lambda * (density_estimated / rho_model);
+        let raw_gain =
+            (1.0 - lambda) * nav_state.density_gain + lambda * (density_estimated / rho_model);
 
         // Rate-of-change limiting
         let max_delta = data.guidance.density_gain_max_delta;
