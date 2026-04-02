@@ -29,10 +29,10 @@ class TestNParamsConsistency:
         config = make_training_config("neural_network") if "neural_network" in PARAM_SPACES else TrainingConfig()
         # Build explicitly for NN
         config = TrainingConfig(
-            network=NetworkConfig(layer_sizes=[6, 12, 2]),
+            network=NetworkConfig(layer_sizes=[16, 24, 2]),
             guidance_type="neural_network",
         )
-        # n_base_coef = (6*12 + 12) + (12*2 + 2) = 84 + 26 = 110
+        # n_base_coef = (16*24 + 24) + (24*2 + 2) = 408 + 50 = 458
         expected = config.network.n_base_coef
         assert config.n_params == expected, f"NN n_params={config.n_params} != n_base_coef={expected}"
 
@@ -76,7 +76,7 @@ class TestChromLengthConsistency:
     def test_nn_chrom_length_is_n_base_coef_times_n_bit(self) -> None:
         """For NN, chrom_length == n_base_coef * n_bit (direct encoding)."""
         config = TrainingConfig(
-            network=NetworkConfig(layer_sizes=[6, 12, 2]),
+            network=NetworkConfig(layer_sizes=[16, 24, 2]),
             ga=GAConfig(n_bit=16),
             guidance_type="neural_network",
         )
@@ -87,13 +87,13 @@ class TestChromLengthConsistency:
 class TestNetworkConfigProperties:
     def test_n_base_coef_matches_layer_computation(self) -> None:
         """n_base_coef: sum of (n_in * n_out + n_out) for each layer transition."""
-        net = NetworkConfig(layer_sizes=[6, 12, 2])
-        # Layer 0→1: 6*12 + 12 = 84; Layer 1→2: 12*2 + 2 = 26
-        assert net.n_base_coef == 110
+        net = NetworkConfig(layer_sizes=[16, 24, 2])
+        # Layer 0→1: 16*24 + 24 = 408; Layer 1→2: 24*2 + 2 = 50
+        assert net.n_base_coef == 458
 
     def test_n_coef_is_double_n_base_coef(self) -> None:
         """n_coef includes sign bits — it is 2 * n_base_coef."""
-        net = NetworkConfig(layer_sizes=[6, 12, 2])
+        net = NetworkConfig(layer_sizes=[16, 24, 2])
         assert net.n_coef == 2 * net.n_base_coef
 
     def test_input_output_properties(self) -> None:

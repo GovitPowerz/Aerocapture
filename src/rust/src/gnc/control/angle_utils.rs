@@ -23,6 +23,19 @@ pub fn shortest_angle_diff(from: f64, to: f64) -> f64 {
     d
 }
 
+/// Wrap an angle to [-PI, PI].
+#[inline]
+pub fn wrap_to_pi(angle: f64) -> f64 {
+    let mut a = angle % TAU;
+    if a > PI {
+        a -= TAU;
+    }
+    if a < -PI {
+        a += TAU;
+    }
+    a
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

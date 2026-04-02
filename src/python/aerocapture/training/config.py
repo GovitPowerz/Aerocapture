@@ -17,10 +17,10 @@ class NetworkConfig:
     """Neural network architecture configuration.
 
     Supports arbitrary layer configurations via `layer_sizes` and `activations`.
-    Default [6, 12, 2] with ["tanh", "asinh"] matches the legacy Fortran architecture.
+    Default [16, 24, 2] with ["tanh", "asinh"] matches the 16-input Rust architecture.
     """
 
-    layer_sizes: list[int] = field(default_factory=lambda: [6, 12, 2])
+    layer_sizes: list[int] = field(default_factory=lambda: [16, 24, 2])
     activations: list[str] = field(default_factory=lambda: ["tanh", "asinh"])
 
     def __post_init__(self) -> None:

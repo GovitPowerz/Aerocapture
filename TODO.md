@@ -1,7 +1,5 @@
 # TODO
 
-- [ ] Add as many inputs to nn as available from sensors/nav
-
 ## Simulation — Medium Impact
 
 - [ ] Improve FNPAG predictor fidelity (add J2, actual atmo table) — §4.3  in IMPROVEMENTS.md
