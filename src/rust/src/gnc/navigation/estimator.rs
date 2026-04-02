@@ -1358,16 +1358,15 @@ mod tests {
 
     #[test]
     fn lift_correction_denom_guard() {
-        // When Cx*cos(alpha) + Cz*sin(alpha) is near zero, density_estimated
-        // should fall back to 0.0 (guard against division by near-zero).
+        // When Cx*cos(alpha) + Cz*sin(alpha) is exactly zero, the guard
+        // should trigger and density_estimated falls back to 0.0.
         let mut data = test_sim_data();
-        // Set up pathological aero: large negative Cz that nearly cancels Cx at some AoA
-        let aoa = 1.2; // ~69 deg
-        data.aero.incidence = vec![0.0, aoa, 1.57];
-        data.aero.cx = vec![0.4, 0.4, 0.4];
-        data.aero.cz = vec![0.0, -1.1, -1.1]; // Cx*cos(69) + Cz*sin(69) ~ 0.4*0.36 + (-1.1)*0.93 ~ -0.88
-        data.aero.n_points = 3;
-        data.entry.initial_aoa = aoa;
+        // Force denom = 0: Cx=0, Cz=0 at all AoA
+        data.aero.incidence = vec![0.0, 1.57];
+        data.aero.cx = vec![0.0, 0.0];
+        data.aero.cz = vec![0.0, 0.0];
+        data.aero.n_points = 2;
+        data.entry.initial_aoa = 0.5;
 
         let r = MARS_REQ + 40_000.0;
         let position_true = [r, 0.0, 0.0];
@@ -1375,7 +1374,6 @@ mod tests {
         let biases = zero_biases();
         let mut nav_state = NavigationState::new();
 
-        // This should not crash or produce NaN/Inf
         let out = call_navigate(
             &position_true,
             &velocity_true,
@@ -1385,9 +1383,10 @@ mod tests {
             &no_run_biases(),
         );
 
+        // Guard triggered: density_estimated = 0.0, filter stays near initial gain
         assert!(
             out.density_guidance.is_finite(),
-            "density_guidance should be finite even with pathological aero, got {}",
+            "density_guidance should be finite when denom guard triggers, got {}",
             out.density_guidance
         );
     }
