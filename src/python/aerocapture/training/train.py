@@ -925,7 +925,18 @@ if __name__ == "__main__":
         # Re-run best individual with trajectories for nominal
         best_params = decode_params_from_chromosome(result["best_chromosome"], cfg)
         _pc_section = _GTS[cfg.guidance_type]
-        best_ovr: dict[str, object] = {f"guidance.{_pc_section}.{k_}": v for k_, v in best_params.items()}
+        best_ovr: dict[str, object] = {}
+        for k_, v in best_params.items():
+            if k_.startswith("lateral."):
+                best_ovr[f"guidance.lateral.{k_.removeprefix('lateral.')}"] = v
+            elif k_.startswith("exit."):
+                best_ovr[f"guidance.ftc.{k_.removeprefix('exit.')}"] = v
+            elif k_.startswith("nav."):
+                best_ovr[f"navigation.{k_.removeprefix('nav.')}"] = v
+            elif k_.startswith("thermal."):
+                best_ovr[f"guidance.thermal_limiter.{k_.removeprefix('thermal.')}"] = v
+            else:
+                best_ovr[f"guidance.{_pc_section}.{k_}"] = v
         best_ovr["guidance.type"] = cfg.guidance_type
         best_ovr["simulation.n_sims"] = 1
         # Disable dispersions so the nominal is the true undispersed trajectory

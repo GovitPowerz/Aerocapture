@@ -75,13 +75,18 @@ def run_scheme(
             from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
 
             section = GUIDANCE_TOML_SECTIONS[scheme]
-            # Merge into existing section (FTC has many required fields beyond optimized ones)
-            existing = toml_data.get("guidance", {}).get(section, {})
-            if existing:
-                existing.update(params)
-                toml_data["guidance"][section] = existing
-            else:
-                toml_data["guidance"][section] = params
+            # Route prefixed params to correct TOML sections (same logic as evaluate.py)
+            for k, v in params.items():
+                if k.startswith("lateral."):
+                    toml_data["guidance"].setdefault("lateral", {})[k.removeprefix("lateral.")] = v
+                elif k.startswith("exit."):
+                    toml_data["guidance"].setdefault("ftc", {})[k.removeprefix("exit.")] = v
+                elif k.startswith("nav."):
+                    toml_data.setdefault("navigation", {})[k.removeprefix("nav.")] = v
+                elif k.startswith("thermal."):
+                    toml_data["guidance"].setdefault("thermal_limiter", {})[k.removeprefix("thermal.")] = v
+                else:
+                    toml_data["guidance"].setdefault(section, {})[k] = v
             print(f"  Using optimized params from {params_file}")
         else:
             print(f"  Using default params (no {params_file})")
