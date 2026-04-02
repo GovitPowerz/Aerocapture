@@ -92,7 +92,7 @@ pub fn navigate(
     run_density_bias: f64,
     run_density_perturbation: f64,
     run_cx_bias: f64,
-    _run_cz_bias: f64,
+    run_cz_bias: f64,
     run_mass_bias: f64,
     run_incidence_bias: f64,
     run_ref_area_bias: f64,
@@ -123,13 +123,16 @@ pub fn navigate(
         run_density_bias,
         run_density_perturbation,
     );
-    let cx_true =
-        data.aero.interpolate_cx(aoa_commanded + run_incidence_bias) * (1.0 + run_cx_bias);
+    let aoa_true = aoa_commanded + run_incidence_bias;
+    let cx_true = data.aero.interpolate_cx(aoa_true) * (1.0 + run_cx_bias);
+    let cz_true = data.aero.interpolate_cz(aoa_true) * (1.0 + run_cz_bias);
     let mass_true = data.capsule.mass * (1.0 + run_mass_bias);
     let ref_area_true = data.capsule.reference_area * (1.0 + run_ref_area_bias);
-    let acdrag_true = rho_true * ref_area_true * cx_true * velocity_true[0] * velocity_true[0]
+    let aero_factor_true = rho_true * ref_area_true * velocity_true[0] * velocity_true[0]
         / (2.0 * mass_true);
-    let drag_acceleration_measured = acdrag_true + biases.drag;
+    let accel_body_x_true =
+        aero_factor_true * (cx_true * aoa_true.cos() + cz_true * aoa_true.sin());
+    let accel_measured = accel_body_x_true + biases.drag;
 
     // Compute estimated aero coefficients (onboard model)
     let (alt_est, _) = geodetic_from_spherical(
@@ -143,11 +146,14 @@ pub fn navigate(
     out.aero_coefficients[0] = cx_est;
     out.aero_coefficients[1] = cz_est;
 
-    // Density estimation via inverse dynamics
-    // density_estimated = 2*|drag_acceleration_measured|*mass / (Cx*S*V^2)
-    let density_estimated = if cx_est.abs() > 1e-30 && velocity_relative.abs() > 1e-10 {
-        2.0 * drag_acceleration_measured.abs() * data.capsule.mass
-            / (cx_est * data.capsule.reference_area * velocity_relative * velocity_relative)
+    // Density estimation via inverse dynamics (lift-corrected)
+    // a_body_x = (rho*S*V^2 / 2m) * (Cx*cos(alpha) + Cz*sin(alpha))
+    // => rho = 2*m*|a| / (S*V^2 * (Cx*cos(alpha) + Cz*sin(alpha)))
+    let aoa_est = aoa_commanded;
+    let denom = cx_est * aoa_est.cos() + cz_est * aoa_est.sin();
+    let density_estimated = if denom.abs() > 1e-10 && velocity_relative.abs() > 1e-10 {
+        2.0 * accel_measured.abs() * data.capsule.mass
+            / (denom * data.capsule.reference_area * velocity_relative * velocity_relative)
     } else {
         0.0
     };
@@ -1261,6 +1267,128 @@ mod tests {
             (nav_state.density_gain - 1.0).abs() > 0.01,
             "density gain {} should diverge from 1.0 with inaccurate onboard model",
             nav_state.density_gain,
+        );
+    }
+
+    // ── Test: lift_correction_at_zero_aoa ──
+
+    #[test]
+    fn lift_correction_at_zero_aoa() {
+        let mut data = test_sim_data();
+        // Override aero tables to have Cz = 0 at AoA = 0
+        data.aero.incidence = vec![0.0, 0.35];
+        data.aero.cx = vec![1.5, 1.7];
+        data.aero.cz = vec![0.0, -0.4];
+        data.aero.n_points = 2;
+        data.entry.initial_aoa = 0.0; // zero AoA
+
+        let r = MARS_REQ + 40_000.0;
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, -0.10, 1.0];
+        let biases = zero_biases();
+        let mut nav_state = NavigationState::new();
+
+        let out = call_navigate(
+            &position_true,
+            &velocity_true,
+            &biases,
+            &mut nav_state,
+            &data,
+            &no_run_biases(),
+        );
+
+        // At alpha=0, cos(0)=1, sin(0)=0, so correction factor = 1.0
+        // density_guidance should be positive and finite
+        assert!(out.density_guidance > 0.0 && out.density_guidance.is_finite());
+    }
+
+    // ── Test: lift_correction_at_nonzero_aoa ──
+
+    #[test]
+    fn lift_correction_at_nonzero_aoa() {
+        // Test that at non-zero AoA, the corrected density differs from
+        // what a Cx-only inversion would produce.
+        let mut data = test_sim_data();
+        // Set up aero tables with known Cx and Cz at a specific AoA
+        let aoa_10deg = 10.0_f64.to_radians();
+        data.aero.incidence = vec![0.0, aoa_10deg, 0.35];
+        data.aero.cx = vec![1.5, 1.6, 1.7];
+        data.aero.cz = vec![0.0, -0.2, -0.4];
+        data.aero.n_points = 3;
+        data.entry.initial_aoa = aoa_10deg;
+        // AoA profile returns constant aoa_10deg
+        data.incidence.altitudes = vec![-10_000.0, 150_000.0];
+        data.incidence.incidences = vec![aoa_10deg, aoa_10deg];
+
+        let r = MARS_REQ + 40_000.0;
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, -0.10, 1.0];
+        let biases = zero_biases();
+
+        let mut nav_state = NavigationState::new();
+        let out = call_navigate(
+            &position_true,
+            &velocity_true,
+            &biases,
+            &mut nav_state,
+            &data,
+            &no_run_biases(),
+        );
+
+        // The corrected denominator at AoA=10deg: 1.6*cos(10) + (-0.2)*sin(10)
+        // = 1.6 * 0.9848 - 0.2 * 0.1736 = 1.5757 - 0.0347 = 1.5410
+        // Correction factor vs Cx-only: 1.6 / 1.541 = 1.038 (~3.8% more density)
+        let cx = 1.6_f64;
+        let cz = -0.2_f64;
+        let corrected_denom = cx * aoa_10deg.cos() + cz * aoa_10deg.sin();
+        let correction_ratio = cx / corrected_denom;
+
+        // Verify the ratio is approximately 1.038
+        assert_relative_eq!(correction_ratio, 1.038, max_relative = 0.01);
+
+        // density_guidance should be finite and positive
+        assert!(
+            out.density_guidance > 0.0 && out.density_guidance.is_finite(),
+            "density_guidance should be positive and finite, got {}",
+            out.density_guidance
+        );
+    }
+
+    // ── Test: lift_correction_denom_guard ──
+
+    #[test]
+    fn lift_correction_denom_guard() {
+        // When Cx*cos(alpha) + Cz*sin(alpha) is near zero, density_estimated
+        // should fall back to 0.0 (guard against division by near-zero).
+        let mut data = test_sim_data();
+        // Set up pathological aero: large negative Cz that nearly cancels Cx at some AoA
+        let aoa = 1.2; // ~69 deg
+        data.aero.incidence = vec![0.0, aoa, 1.57];
+        data.aero.cx = vec![0.4, 0.4, 0.4];
+        data.aero.cz = vec![0.0, -1.1, -1.1]; // Cx*cos(69) + Cz*sin(69) ~ 0.4*0.36 + (-1.1)*0.93 ~ -0.88
+        data.aero.n_points = 3;
+        data.entry.initial_aoa = aoa;
+
+        let r = MARS_REQ + 40_000.0;
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, -0.10, 1.0];
+        let biases = zero_biases();
+        let mut nav_state = NavigationState::new();
+
+        // This should not crash or produce NaN/Inf
+        let out = call_navigate(
+            &position_true,
+            &velocity_true,
+            &biases,
+            &mut nav_state,
+            &data,
+            &no_run_biases(),
+        );
+
+        assert!(
+            out.density_guidance.is_finite(),
+            "density_guidance should be finite even with pathological aero, got {}",
+            out.density_guidance
         );
     }
 
