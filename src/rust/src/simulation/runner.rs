@@ -7,7 +7,7 @@ use crate::data::SimData;
 use crate::data::dispersions::DISPERSION_DRAW_LEN;
 use crate::gnc::control::angle_utils::shortest_angle_diff;
 use crate::gnc::control::pilot::{self, PilotState};
-use crate::gnc::guidance::ftc::{self, FtcState};
+use crate::gnc::guidance::dispatch::{self as dispatch, GuidanceState};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
 use crate::gnc::navigation::estimator::{self, NavigationFilter};
 use crate::integration::dopri45::{self, Dopri45State};
@@ -500,7 +500,7 @@ fn run_single(
             sim.bank_angle.to_degrees()
         );
     }
-    let mut ftc_state = FtcState::new(entry.initial_bank, entry.initial_aoa);
+    let mut guidance_state = GuidanceState::new(entry.initial_bank, entry.initial_aoa);
     let mut pilot_state = PilotState {
         bank_angle: sim.bank_angle,
         bank_rate: 0.0,
@@ -551,7 +551,7 @@ fn run_single(
                 NavigationFilter::Bias(nav_state) => estimator::navigate(
                     &position_true,
                     &velocity_true,
-                    ftc_state.aoa_commanded,
+                    guidance_state.aoa_commanded,
                     sim_time,
                     &nav_biases,
                     nav_state,
@@ -577,7 +577,7 @@ fn run_single(
                 } => estimator::navigate_ekf(
                     &position_true,
                     &velocity_true,
-                    ftc_state.aoa_commanded,
+                    guidance_state.aoa_commanded,
                     sim_time,
                     data.periods.navigation,
                     &nav_biases,
@@ -604,7 +604,7 @@ fn run_single(
 
             // Latch reference velocity at the phase 1→2 transition
             if nav_out.phase_transition_flag == 1 {
-                ftc_state.reference_velocity = nav_out.reference_velocity;
+                guidance_state.reference_velocity = nav_out.reference_velocity;
             }
 
             // Compute thermal fractions for guidance limiter + NN inputs.
@@ -641,12 +641,12 @@ fn run_single(
                 };
             }
 
-            let ftc_out = ftc::guidance_step(
+            let guidance_out = dispatch::guidance_step(
                 &nav_out,
                 sim.bank_angle,
                 sim_time,
                 reference_bank_angle,
-                &mut ftc_state,
+                &mut guidance_state,
                 data,
                 planet,
                 config.reference_trajectory,
@@ -656,7 +656,7 @@ fn run_single(
             let max_rate = data.capsule.max_bank_rate * (1.0 + run_state.max_bank_rate_bias);
             pilot_state = pilot::apply_pilot(
                 &data.pilot,
-                ftc_out.bank_angle_commanded,
+                guidance_out.bank_angle_commanded,
                 &pilot_state,
                 data.periods.pilot,
                 max_rate,
@@ -669,7 +669,7 @@ fn run_single(
             }
 
             sim.bank_angle = pilot_state.bank_angle;
-            sim.aoa = ftc_out.aoa_commanded;
+            sim.aoa = guidance_out.aoa_commanded;
 
             if is_single && (step < 5 || step % 50 == 0) {
                 let (dbg_alt, _) =
@@ -680,7 +680,7 @@ fn run_single(
                     sim_time,
                     sim.bank_angle.to_degrees(),
                     sim.aoa.to_degrees(),
-                    ftc_out.longitudinal_active,
+                    guidance_out.longitudinal_active,
                     dbg_alt / 1e3,
                     sim.state[3],
                 );
@@ -960,7 +960,7 @@ fn run_single(
     final_record[41] = deltav.total;
     final_record[45] = cumulative_bank_change_deg;
     final_record[46] = orbit.inclination / DEG_TO_RAD - data.target_orbit.inclination / DEG_TO_RAD;
-    final_record[48] = ftc_state.lateral_state.n_reversals as f64;
+    final_record[48] = guidance_state.lateral_state.n_reversals as f64;
 
     Ok(SimResult {
         sim_idx,
