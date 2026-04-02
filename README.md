@@ -169,11 +169,10 @@ Produces a 2x2 animation (corridor with envelope fills, inclination, bank angle,
 
 ### Scheme Comparison
 
-Fair head-to-head comparison on identical MC scenarios:
+Fair head-to-head comparison on identical MC scenarios. Each scheme uses its own training TOML config (so network architecture, navigation params, etc. are preserved):
 
 ```bash
 uv run python -m aerocapture.training.compare_guidance \
-    --base-toml configs/training/msr_aller_eqglide_train.toml \
     --n-sims 500 \
     --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network piecewise_constant
 ```

@@ -1,11 +1,11 @@
 """Compare guidance schemes on identical Monte Carlo scenarios.
 
-Runs each guidance scheme with the same random seed and dispersion config,
+Runs each guidance scheme with its own training TOML config (so scheme-specific
+settings like network architecture, navigation params, etc. are preserved),
 then prints a summary table of performance metrics.
 
 Usage:
     uv run python -m aerocapture.training.compare_guidance \
-        --base-toml configs/training/msr_aller_eqglide_train.toml \
         --n-sims 500 \
         --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network piecewise_constant
 """
@@ -24,24 +24,51 @@ from aerocapture.training.evaluate import compute_cost
 
 SCHEMES = ["equilibrium_glide", "energy_controller", "pred_guid", "fnpag", "ftc", "neural_network", "piecewise_constant"]
 
+# Each scheme's training TOML (relative to repo root).
+# These inherit from missions/ and common.toml, so they carry the full
+# mission config including MC dispersions, cost function, and constraints.
+SCHEME_TRAINING_CONFIGS: dict[str, str] = {
+    "equilibrium_glide": "configs/training/msr_aller_eqglide_train.toml",
+    "energy_controller": "configs/training/msr_aller_energy_controller_train.toml",
+    "pred_guid": "configs/training/msr_aller_pred_guid_train.toml",
+    "fnpag": "configs/training/msr_aller_fnpag_train.toml",
+    "ftc": "configs/training/msr_aller_ftc_train.toml",
+    "neural_network": "configs/training/msr_aller_nn_train_consolidated.toml",
+    "piecewise_constant": "configs/training/msr_aller_piecewise_constant_train.toml",
+}
+
 
 def run_scheme(
     scheme: str,
-    base_toml: Path,
     n_sims: int,
     executable: str,
     cwd: Path,
     params_dir: Path | None = None,
     cost_kwargs: dict[str, float] | None = None,
+    base_toml_override: Path | None = None,
 ) -> dict | None:
     """Run a single guidance scheme and return metrics.
 
+    Uses the scheme's own training TOML as base config (so network architecture,
+    navigation params, etc. are preserved). If base_toml_override is provided,
+    uses that instead (fallback for schemes without a dedicated config).
+
     If params_dir/<scheme>/best_params.json exists, uses optimized params.
-    Otherwise uses defaults.
+    Otherwise uses defaults from the training TOML.
     """
     from aerocapture.training.toml_utils import load_toml_with_bases
 
-    toml_data = load_toml_with_bases(Path(base_toml))
+    # Use scheme-specific training TOML, or fallback to override
+    scheme_toml_path = cwd / SCHEME_TRAINING_CONFIGS.get(scheme, "")
+    if scheme_toml_path.exists():
+        toml_data = load_toml_with_bases(scheme_toml_path)
+        print(f"  Config: {SCHEME_TRAINING_CONFIGS[scheme]}")
+    elif base_toml_override and base_toml_override.exists():
+        toml_data = load_toml_with_bases(base_toml_override)
+        print(f"  Config: {base_toml_override} (fallback)")
+    else:
+        print(f"  ERROR: No training config found for {scheme}")
+        return None
 
     # Override n_sims and results suffix
     results_suffix = f".compare_{scheme}"
@@ -123,7 +150,7 @@ def run_scheme(
 
     temp_toml.unlink(missing_ok=True)
 
-    # Parse final file — auto-detect CSV vs legacy text
+    # Parse final file -- auto-detect CSV vs legacy text
     output_dir = toml_data.get("data", {}).get("output_dir", "output")
     suffix = results_suffix.lstrip(".")
     final_file = cwd / output_dir / f"final.{suffix}.csv"
@@ -188,8 +215,13 @@ def print_comparison_table(results: dict[str, dict]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare guidance schemes on identical MC scenarios")
-    parser.add_argument("--base-toml", type=str, required=True, help="Base TOML config file")
-    parser.add_argument("--n-sims", type=int, default=100, help="Number of MC sims per scheme")
+    parser.add_argument(
+        "--base-toml",
+        type=str,
+        default=None,
+        help="Fallback TOML config for schemes without a dedicated training config",
+    )
+    parser.add_argument("--n-sims", type=int, default=500, help="Number of MC sims per scheme")
     parser.add_argument(
         "--schemes",
         nargs="+",
@@ -202,22 +234,26 @@ def main() -> None:
     parser.add_argument("--cwd", type=str, default=".")
     args = parser.parse_args()
 
-    base_toml = Path(args.base_toml)
+    base_toml = Path(args.base_toml) if args.base_toml else None
     cwd = Path(args.cwd)
     params_dir = Path(args.params_dir)
 
-    if not base_toml.exists():
-        print(f"ERROR: Base TOML not found: {base_toml}")
-        sys.exit(1)
-
-    # Parse cost function config from TOML (with defaults)
+    # Parse cost function config from the first scheme's TOML (all inherit from same common.toml)
     from aerocapture.training.toml_utils import load_toml_with_bases
 
-    cost_kwargs: dict[str, float] = {}
-    _toml = load_toml_with_bases(Path(base_toml))
+    first_scheme = args.schemes[0]
+    cost_toml_path = cwd / SCHEME_TRAINING_CONFIGS.get(first_scheme, "")
+    if cost_toml_path.exists():
+        _toml = load_toml_with_bases(cost_toml_path)
+    elif base_toml and base_toml.exists():
+        _toml = load_toml_with_bases(base_toml)
+    else:
+        print(f"ERROR: No config found for cost function parsing (tried {first_scheme})")
+        sys.exit(1)
+
     cost_cfg = _toml.get("cost_function", {})
     constraints = _toml.get("flight", {}).get("constraints", {})
-    cost_kwargs = {
+    cost_kwargs: dict[str, float] = {
         "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
         "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
         "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
@@ -230,12 +266,12 @@ def main() -> None:
         print(f"\nRunning {scheme}...")
         metrics = run_scheme(
             scheme,
-            base_toml,
             args.n_sims,
             args.executable,
             cwd,
             params_dir,
             cost_kwargs=cost_kwargs,
+            base_toml_override=base_toml,
         )
         if metrics:
             results[scheme] = metrics
