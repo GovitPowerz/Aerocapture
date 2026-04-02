@@ -32,10 +32,10 @@ level = "medium"
 level = "medium"
 
 [monte_carlo.density_perturbation]
-level = "medium"
+level = "low"
 
 [monte_carlo.wind]
-level = "medium"
+level = "low"
 
 [monte_carlo.nav_filter]
 level = "medium"
