@@ -174,7 +174,7 @@ Fair head-to-head comparison on identical MC scenarios:
 ```bash
 uv run python -m aerocapture.training.compare_guidance \
     --base-toml configs/training/msr_aller_eqglide_train.toml \
-    --n-sims 100 \
+    --n-sims 500 \
     --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network piecewise_constant
 ```
 
