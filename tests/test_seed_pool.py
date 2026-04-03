@@ -128,27 +128,23 @@ class TestSeedPoolGrowth:
         assert len(set(pool.seeds)) == 6
 
 
-class TestSeedPoolEviction:
-    def test_eviction_at_cap(self) -> None:
-        pool = SeedPool(base_seed=0, max_size=7)
-        pool.add_seeds(generation=0)  # 5 seeds
-        pool.add_seeds(generation=1)  # 6 seeds
-        pool.add_seeds(generation=2)  # 7 seeds
-        pool.add_seeds(generation=3)  # 8 seeds -> should evict to 7
-        for i, seed in enumerate(pool.seeds):
-            pool.difficulty[seed] = float(i * 10)
-        pool.evict_redundant()
-        assert len(pool.seeds) == 7
-
-    def test_evict_closest_pair_older_one(self) -> None:
+class TestKeepHardestEviction:
+    def test_easiest_seeds_evicted(self) -> None:
         pool = SeedPool(base_seed=0, max_size=3)
-        pool.seeds = [10, 20, 30, 40]
-        pool.difficulty = {10: 1.0, 20: 1.5, 30: 5.0, 40: 10.0}
-        pool.generation_added = {10: 0, 20: 1, 30: 2, 40: 3}
+        pool.seeds = [10, 20, 30, 40, 50]
+        pool.difficulty = {10: 100.0, 20: 1.0, 30: 50.0, 40: 2.0, 50: 75.0}
+        pool.generation_added = {10: 0, 20: 1, 30: 2, 40: 3, 50: 4}
         pool.evict_redundant()
         assert len(pool.seeds) == 3
-        assert 10 not in pool.seeds
-        assert 20 in pool.seeds
+        assert set(pool.seeds) == {10, 50, 30}
+
+    def test_hardest_seeds_always_survive(self) -> None:
+        pool = SeedPool(base_seed=0, max_size=2)
+        pool.seeds = [1, 2, 3, 4, 5]
+        pool.difficulty = {1: 1000.0, 2: 0.1, 3: 0.2, 4: 999.0, 5: 0.3}
+        pool.generation_added = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        pool.evict_redundant()
+        assert set(pool.seeds) == {1, 4}
 
     def test_no_eviction_under_cap(self) -> None:
         pool = SeedPool(base_seed=0, max_size=10)

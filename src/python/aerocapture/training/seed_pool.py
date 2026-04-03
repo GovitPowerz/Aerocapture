@@ -117,23 +117,15 @@ class SeedPool:
     def evict_redundant(self) -> None:
         """Evict seeds until pool size <= max_size.
 
-        Eviction strategy: find the adjacent pair (when sorted by difficulty)
-        with the smallest gap, and remove the older of the two. This preserves
-        coverage across the difficulty spectrum while removing redundant seeds.
+        Keep-hardest strategy: drop the seed with the lowest difficulty
+        score (easiest for the best individual). Hard seeds survive
+        unconditionally.
         """
         while len(self.seeds) > self.max_size:
-            scored = sorted(self.seeds, key=lambda s: self.difficulty.get(s, 0.0))
-            min_gap = float("inf")
-            evict_candidate = scored[0]
-            for i in range(len(scored) - 1):
-                gap = abs(self.difficulty.get(scored[i + 1], 0.0) - self.difficulty.get(scored[i], 0.0))
-                if gap < min_gap:
-                    min_gap = gap
-                    a, b = scored[i], scored[i + 1]
-                    evict_candidate = a if self.generation_added.get(a, 0) <= self.generation_added.get(b, 0) else b
-            self.seeds.remove(evict_candidate)
-            del self.difficulty[evict_candidate]
-            del self.generation_added[evict_candidate]
+            easiest = min(self.seeds, key=lambda s: self.difficulty.get(s, 0.0))
+            self.seeds.remove(easiest)
+            del self.difficulty[easiest]
+            del self.generation_added[easiest]
             self.n_evictions += 1
 
     def evaluate_population(
