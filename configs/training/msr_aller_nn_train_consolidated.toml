@@ -5,8 +5,8 @@ base = ["../missions/mars.toml", "common.toml"]
 type = "neural_network"
 
 [navigation]
-density_filter_gain = 0.91
-density_gain_max_delta = 0.4
+density_filter_gain = 0.6
+density_gain_max_delta = 0.3
 
 [network]
 layer_sizes = [16, 32, 16, 2]

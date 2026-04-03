@@ -25,16 +25,10 @@ scale_height = 20`), the model produces -0.0008 at 50 km vs the old table's -0.0
 -0.11. That's still **100x too small**. The analytical model with these bounds is
 structurally incapable of expressing the gain profile the old table provided.
 
-**Fix options:**
-- **(a) Widen bounds dramatically**: `base` in [-1.0, -0.001], `scale_height` in [3, 50].
-  This would let the GA explore the old regime. Default should be closer to -0.1.
-- **(b) Revert to the pdyn_table**: The table was empirically tuned to the mission. The
-  analytical model is a simplification that doesn't fit this data well (the old table's
-  coefficients are not a clean exponential -- they're noisy and offset from origin).
-- **(c) Fit the analytical model to the old table**: Use scipy to find the best-fit
-  `base` and `scale_height` for the old table's coeff_a values, then use those as
-  defaults and center bounds around them. This would at least give the GA a reasonable
-  starting point.
+**FIXED (option c):** Scipy curve_fit on the operating range (45-81 km) gives
+`base = -134.4, scale_height = 6.9` with ~12% mean relative error (vs 10,000x before).
+GA bounds updated to `base` in [-500, -10], `scale_height` in [4, 15].
+Golden files regenerated. All tests pass.
 
 #### 2. Seed Pool Keep-Hardest Eviction: Difficulty Ratchet (All schemes with --adaptive-seeds)
 
@@ -116,7 +110,7 @@ These changes on the branch are improvements and should be kept:
 
 1. Revert seed pool eviction to gap-closure (or implement mixed strategy)
 2. Reduce stress test aggressiveness (fewer injections, or disable by default)
-3. Fix FTC analytical model bounds (option (c): fit to old table, use as defaults)
+3. ~~Fix FTC analytical model bounds~~ -- DONE (fitted to old table: base=-134.4, sh=6.9)
 4. Revert default seed/n-pop to 42/20 (or document the change)
 5. Re-run training for all schemes and compare against baseline
 

@@ -635,10 +635,10 @@ fn default_longi_inh() -> f64 {
     -1000.0
 }
 fn default_pressure_coeff_base() -> f64 {
-    -0.001
+    -134.4
 }
 fn default_pressure_coeff_scale_height() -> f64 {
-    10.0
+    6.9
 }
 fn default_gain_fade_start_km() -> f64 {
     80.0
