@@ -422,15 +422,6 @@ impl SimData {
         // FTC guidance params
         let guidance = if let Some(ref ftc) = toml.guidance.ftc {
             let energy_scale = 1e6;
-            let pdyn_table = ftc
-                .pdyn_table
-                .iter()
-                .map(|e| guidance_params::DynamicPressureTableEntry {
-                    altitude: e.altitude,
-                    coeff_a: e.a,
-                    coeff_b: e.b,
-                })
-                .collect();
 
             // Load reference trajectory from external file
             let ref_traj = if !config.reference_trajectory {
@@ -479,7 +470,10 @@ impl SimData {
                 longi_activation: ftc.longi_activation * energy_scale,
                 longi_inhibition: ftc.longi_inhibition * energy_scale,
                 pdyn_min: ftc.pdyn_min,
-                pdyn_table,
+                pressure_coeff_base: ftc.pressure_coeff_base,
+                pressure_coeff_scale_height: ftc.pressure_coeff_scale_height,
+                gain_fade_start_km: ftc.gain_fade_start_km,
+                gain_fade_end_km: ftc.gain_fade_end_km,
                 ref_trajectory: ref_traj,
                 eq_glide: eq_glide_params.clone(),
                 energy_ctrl: energy_ctrl_params.clone(),
@@ -538,7 +532,10 @@ impl SimData {
                 longi_activation: 1e9,
                 longi_inhibition: -1e9,
                 pdyn_min: 0.0,
-                pdyn_table: vec![],
+                pressure_coeff_base: -0.001,
+                pressure_coeff_scale_height: 10.0,
+                gain_fade_start_km: 80.0,
+                gain_fade_end_km: 100.0,
                 ref_trajectory: ref_traj,
                 eq_glide: eq_glide_params,
                 energy_ctrl: energy_ctrl_params,
