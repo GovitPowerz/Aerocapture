@@ -73,6 +73,9 @@ class GAConfig:
     seed_pool_cap: int = 100
     cost_alpha: float = 0.7
     cvar_percentile: int = 20
+    stress_interval: int = 5
+    stress_probes: int = 200
+    stress_inject: int = 20
 
 
 @dataclass

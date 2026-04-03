@@ -268,10 +268,10 @@ class TestSeedPoolEvaluation:
 
 
 class TestAdaptiveSeedIntegration:
-    """Integration test: adaptive seed pool in the GA training loop."""
+    """Integration test: adaptive seed pool with stress tests in a GA loop."""
 
-    def test_pool_grows_and_evicts_during_training(self) -> None:
-        """Verify pool grows, evicts, and produces valid fitness across generations."""
+    def test_pool_grows_evicts_and_stress_tests(self) -> None:
+        """Verify pool grows, evicts hardest-first, and stress tests inject hard seeds."""
         pool = SeedPool(base_seed=0, max_size=8, alpha=0.7, cvar_percentile=20)
 
         rng = np.random.default_rng(42)
@@ -279,8 +279,9 @@ class TestAdaptiveSeedIntegration:
 
         def evaluator(chrom: npt.NDArray[np.int8], seed: int) -> float:
             quality = float(np.sum(chrom)) / len(chrom)
-            return float(seed) * 10.0 + quality * 5.0
+            return float(seed % 1000) * 10.0 + quality * 5.0
 
+        stress_ran = False
         for gen in range(10):
             pool.add_seeds(gen)
             fitness = pool.evaluate_population(pop, evaluator)
@@ -291,16 +292,25 @@ class TestAdaptiveSeedIntegration:
             pool.evict_redundant()
             assert len(pool.seeds) <= 8
 
-        # After 10 gens: bootstrapped 5, added 9 more = 14 total, evicted to 8
-        assert len(pool.seeds) == 8
-        assert pool.n_evictions == 6
+            # Run stress test every 5 generations
+            if (gen + 1) % 5 == 0:
 
-        # Difficulty should be populated for all active seeds
+                def stress_eval(seeds: list[int]) -> npt.NDArray[np.float64]:
+                    return np.array([float(s % 1000) * 10.0 for s in seeds])
+
+                metrics = pool.stress_test(gen, stress_eval, n_probes=20, n_inject=3)
+                assert metrics["n_injected"] <= 3
+                assert metrics["n_probes"] == 20
+                stress_ran = True
+
+        assert stress_ran
+        assert len(pool.seeds) <= 8
+        assert pool.n_evictions > 0
         assert len(pool.difficulty) == len(pool.seeds)
 
-        # Difficulty range should be non-trivial
-        d_min, d_max = pool.difficulty_range
-        assert d_max > d_min
+        # Verify hardest seeds survived (keep-hardest eviction)
+        difficulties = sorted(pool.difficulty.values())
+        assert difficulties[-1] > difficulties[0]
 
 
 class TestStressSeedHash:

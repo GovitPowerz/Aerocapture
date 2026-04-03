@@ -184,7 +184,7 @@ class SeedPool:
         the best individual on all of them, and injects the worst n_inject
         into the pool. Returns metrics including an estimated capture rate.
         """
-        probe_seeds = []
+        probe_seeds: list[int] = []
         idx = 0
         while len(probe_seeds) < n_probes:
             s = _stress_seed(self.base_seed, generation, idx)
