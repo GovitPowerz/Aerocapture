@@ -703,6 +703,8 @@ def train(
 
                     # Log metrics
                     gen_elapsed_s = time.perf_counter() - gen_wall_start
+                    gen_best_subpop = min(range(config.ga.n_subpop), key=lambda k: all_costs[k][0])
+                    gen_best_chrom = populations[gen_best_subpop][0]
                     logger.log_generation(
                         gen + 1,
                         populations,
@@ -713,6 +715,7 @@ def train(
                         mc_seed=(base_mc_seed + gen) if base_mc_seed is not None else None,
                         pool_metrics=pool_metrics,
                         gen_elapsed_s=gen_elapsed_s,
+                        gen_best_chromosome=gen_best_chrom,
                     )
                     display.update(logger, current_run=run)
 
@@ -801,9 +804,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Train guidance parameters via GA")
     parser.add_argument("toml", type=str, help="TOML training config path (must contain [guidance] type)")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--n-gen", type=int, default=100, help="Number of generations (additional when resuming)")
-    parser.add_argument("--n-pop", type=int, default=20)
+    parser.add_argument("--n-pop", type=int, default=50)
     parser.add_argument("--resume", type=str, default=None, help="Checkpoint directory to resume from (auto-detected if omitted and checkpoint exists)")
     parser.add_argument("-fs", "--from-scratch", action="store_true", help="Wipe existing training output and start fresh (deletes checkpoints, logs, reports)")
     parser.add_argument("--no-tui", action="store_true", help="Disable Rich TUI (use plain-text output)")

@@ -295,21 +295,42 @@ def chart_cost_distribution(records: list[dict[str, Any]], output: Path) -> bool
 _PARAM_DISTRIBUTION_THRESHOLD = 10
 
 
+def _get_param_bounds(records: list[dict[str, Any]], keys: list[str]) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]] | None:
+    """Look up ParamSpec bounds for each key. Returns (p_min, p_max) arrays or None."""
+    scheme = next((r.get("scheme") for r in records if r.get("scheme")), None)
+    if scheme is None or scheme == "neural_network":
+        return None
+    try:
+        from aerocapture.training.param_spaces import PARAM_SPACES
+
+        specs = {s.name: s for s in PARAM_SPACES[scheme]}
+    except (ImportError, KeyError):  # fmt: skip
+        return None
+    p_min = np.array([specs[k].p_min if k in specs else np.nan for k in keys])
+    p_max = np.array([specs[k].p_max if k in specs else np.nan for k in keys])
+    if np.any(np.isnan(p_min)) or np.any(np.isnan(p_max)):
+        return None
+    return p_min, p_max
+
+
 def chart_parameter_evolution(records: list[dict[str, Any]], output: Path, resume_gens: list[int] | None = None) -> None:
-    """Panel 5: Evolution of best parameter values across generations.
+    """Panel 5: Evolution of generation-best parameter values across generations.
 
-    For schemes with <= 10 parameters (from ``best_params``), shows one line per
-    parameter (normalized to [0,1]).
+    Uses ``gen_best_params`` (current generation's best individual) when available,
+    falling back to ``best_params`` (global best) for older JSONL logs.
 
-    For schemes with > 10 parameters, shows percentile curves (p1-p99) of the
-    normalized parameter distribution.
+    Normalizes against ParamSpec bounds when the scheme is known, so 0 = p_min
+    and 1 = p_max. Falls back to observed min/max normalization otherwise.
 
-    For NN schemes (no ``best_params``, but ``weight_stats`` present), shows
-    per-layer mean/std evolution with ±1σ bands.
+    For schemes with <= 10 parameters, shows one line per parameter.
+    For schemes with > 10 parameters, shows percentile curves (p1-p99).
+    For NN schemes (``weight_stats``), shows per-layer mean/std evolution.
     """
     _require_records(records)
 
-    with_params = [r for r in records if r.get("best_params")]
+    # Prefer gen_best_params (generation best) over best_params (global best)
+    params_key = "gen_best_params" if any(r.get("gen_best_params") for r in records) else "best_params"
+    with_params = [r for r in records if r.get(params_key)]
     with_weights = [r for r in records if r.get("weight_stats")]
 
     if not with_params and not with_weights:
@@ -324,25 +345,34 @@ def chart_parameter_evolution(records: list[dict[str, Any]], output: Path, resum
         _chart_weight_stats_evolution(with_weights, output, resume_gens)
         return
 
-    # --- Standard path: use best_params ---
+    # --- Standard path: use gen_best_params (or best_params fallback) ---
     gens = [r["generation"] for r in with_params]
 
     # Collect all parameter names (stable order)
     all_keys: list[str] = []
     seen: set[str] = set()
     for r in with_params:
-        for k in r["best_params"]:
+        for k in r[params_key]:
             if k not in seen:
                 all_keys.append(k)
                 seen.add(k)
 
-    # Build normalized matrix: (n_gens, n_params)
-    raw_matrix = np.array([[r["best_params"].get(k, float("nan")) for k in all_keys] for r in with_params])
-    col_min = np.nanmin(raw_matrix, axis=0)
-    col_max = np.nanmax(raw_matrix, axis=0)
-    col_range = col_max - col_min
-    col_range[col_range == 0] = 1.0  # avoid division by zero
-    normed_matrix = (raw_matrix - col_min) / col_range
+    raw_matrix = np.array([[r[params_key].get(k, float("nan")) for k in all_keys] for r in with_params])
+
+    # Normalize against ParamSpec bounds when available (0 = p_min, 1 = p_max),
+    # otherwise fall back to observed min/max normalization.
+    bounds = _get_param_bounds(records, all_keys)
+    if bounds is not None:
+        p_min, p_max = bounds
+        col_range = p_max - p_min
+        col_range[col_range == 0] = 1.0
+        normed_matrix = (raw_matrix - p_min) / col_range
+    else:
+        col_min = np.nanmin(raw_matrix, axis=0)
+        col_max = np.nanmax(raw_matrix, axis=0)
+        col_range = col_max - col_min
+        col_range[col_range == 0] = 1.0
+        normed_matrix = (raw_matrix - col_min) / col_range
 
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
 
@@ -350,14 +380,14 @@ def chart_parameter_evolution(records: list[dict[str, Any]], output: Path, resum
         for i, key in enumerate(all_keys):
             ax.plot(gens, normed_matrix[:, i], linewidth=1.0, label=key)
         ax.legend(fontsize="x-small", ncol=max(1, len(all_keys) // 4), loc="upper right")
-        ax.set_title("Parameter Evolution")
+        ax.set_title("Parameter Evolution (gen best)")
     else:
         _plot_percentile_curves(ax, gens, normed_matrix)
-        ax.set_title(f"Parameter Distribution ({len(all_keys)} params)")
+        ax.set_title(f"Parameter Distribution ({len(all_keys)} params, gen best)")
 
     _add_resume_markers(ax, resume_gens)
     ax.set_xlabel("Generation")
-    ax.set_ylabel("Normalized value")
+    ax.set_ylabel("Normalized value [0=p_min, 1=p_max]")
     sns.despine(fig=fig)
     _save_svg(fig, output)
 
