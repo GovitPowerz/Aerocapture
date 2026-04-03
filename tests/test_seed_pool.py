@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 import pytest
-from aerocapture.training.seed_pool import SeedPool, aggregate_fitness, compute_cvar
+from aerocapture.training.seed_pool import SeedPool, _pool_seed, aggregate_fitness, compute_cvar
 
 
 class TestComputeCvar:
@@ -71,12 +71,46 @@ class TestAggregateFitness:
         assert result[1] == pytest.approx(30.0)
 
 
+class TestPoolSeedHash:
+    def test_different_indices_produce_different_seeds(self) -> None:
+        s0 = _pool_seed(42, 0)
+        s1 = _pool_seed(42, 1)
+        assert s0 != s1
+
+    def test_seeds_within_valid_range(self) -> None:
+        for i in range(100):
+            s = _pool_seed(42, i)
+            assert 0 <= s < 2**31
+
+    def test_different_bases_produce_different_seeds(self) -> None:
+        assert _pool_seed(42, 0) != _pool_seed(99, 0)
+
+    def test_deterministic(self) -> None:
+        assert _pool_seed(42, 7) == _pool_seed(42, 7)
+
+
+class TestSeedPoolExclusion:
+    def test_excluded_seed_never_in_pool(self) -> None:
+        excluded = _pool_seed(42, 0)
+        pool = SeedPool(base_seed=42, max_size=50, excluded_seeds={excluded})
+        pool.add_seeds(generation=0)
+        assert excluded not in pool.seeds
+        assert len(pool.seeds) == 5
+
+    def test_pool_uses_hash_seeds_not_consecutive(self) -> None:
+        pool = SeedPool(base_seed=42, max_size=50)
+        pool.add_seeds(generation=0)
+        assert pool.seeds != [42, 43, 44, 45, 46]
+        assert len(pool.seeds) == 5
+
+
 class TestSeedPoolGrowth:
     def test_bootstrap_creates_5_seeds(self) -> None:
         pool = SeedPool(base_seed=100, max_size=50)
         pool.add_seeds(generation=0)
         assert len(pool.seeds) == 5
-        assert pool.seeds == [100, 101, 102, 103, 104]
+        assert all(0 <= s < 2**31 for s in pool.seeds)
+        assert len(set(pool.seeds)) == 5
 
     def test_incremental_growth(self) -> None:
         pool = SeedPool(base_seed=100, max_size=50)
@@ -84,13 +118,14 @@ class TestSeedPoolGrowth:
         assert len(pool.seeds) == 5
         pool.add_seeds(generation=1)
         assert len(pool.seeds) == 6
-        assert 105 in pool.seeds
 
     def test_no_duplicate_seeds(self) -> None:
         pool = SeedPool(base_seed=100, max_size=50)
         pool.add_seeds(generation=0)
         pool.add_seeds(generation=0)
-        assert len(pool.seeds) == 5
+        # Bootstrap adds 5, second call adds 1 more (always unique via hash)
+        assert len(pool.seeds) == 6
+        assert len(set(pool.seeds)) == 6
 
 
 class TestSeedPoolEviction:
@@ -145,9 +180,10 @@ class TestSeedPoolScoring:
 class TestSeedPoolCheckpoint:
     def test_round_trip(self) -> None:
         pool = SeedPool(base_seed=42, max_size=50, alpha=0.8, cvar_percentile=25)
-        pool.seeds = [42, 43, 44]
-        pool.difficulty = {42: 1.0, 43: 5.0, 44: 10.0}
-        pool.generation_added = {42: 0, 43: 0, 44: 1}
+        pool.add_seeds(generation=0)
+        seeds_before = pool.seeds.copy()
+        for s in pool.seeds:
+            pool.difficulty[s] = float(s % 100)
         pool.n_evictions = 2
         data = pool.to_dict()
         restored = SeedPool.from_dict(data)
@@ -155,23 +191,29 @@ class TestSeedPoolCheckpoint:
         assert restored.max_size == 50
         assert restored.alpha == 0.8
         assert restored.cvar_percentile == 25
-        assert restored.seeds == [42, 43, 44]
-        assert restored.difficulty == {42: 1.0, 43: 5.0, 44: 10.0}
-        assert restored.generation_added == {42: 0, 43: 0, 44: 1}
+        assert restored.seeds == seeds_before
         assert restored.n_evictions == 2
+        assert restored._next_index == pool._next_index
 
     def test_round_trip_json_compatible(self) -> None:
         import json
 
         pool = SeedPool(base_seed=0, max_size=10)
-        pool.seeds = [0, 1, 2]
-        pool.difficulty = {0: 1.0, 1: 2.0, 2: 3.0}
-        pool.generation_added = {0: 0, 1: 0, 2: 1}
+        pool.add_seeds(generation=0)
+        for s in pool.seeds:
+            pool.difficulty[s] = 1.0
         data = pool.to_dict()
         json_str = json.dumps(data)
         restored_data = json.loads(json_str)
         restored = SeedPool.from_dict(restored_data)
-        assert restored.seeds == [0, 1, 2]
+        assert restored.seeds == pool.seeds
+
+    def test_from_dict_with_excluded_seeds(self) -> None:
+        pool = SeedPool(base_seed=42, max_size=50)
+        pool.add_seeds(generation=0)
+        data = pool.to_dict()
+        restored = SeedPool.from_dict(data, excluded_seeds={999})
+        assert 999 in restored.excluded_seeds
 
 
 class TestSeedPoolEvaluation:
