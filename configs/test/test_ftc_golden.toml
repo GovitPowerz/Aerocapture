@@ -4,6 +4,12 @@ base = ["../missions/mars.toml"]
 [guidance]
 type = "ftc"
 
+[guidance.ftc]
+pressure_coeff_base = -0.001
+pressure_coeff_scale_height = 10.0
+gain_fade_start_km = 80.0
+gain_fade_end_km = 100.0
+
 [simulation]
 n_sims = 3
 random_seed = 0.6866
