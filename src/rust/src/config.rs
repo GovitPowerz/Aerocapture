@@ -603,8 +603,14 @@ pub struct TomlFtcParams {
     pub lateral_inhibition: f64, // MJ/kg
     #[serde(default)]
     pub pdyn_min: f64, // Pa
-    #[serde(default)]
-    pub pdyn_table: Vec<TomlPdynEntry>,
+    #[serde(default = "default_pressure_coeff_base")]
+    pub pressure_coeff_base: f64,
+    #[serde(default = "default_pressure_coeff_scale_height")]
+    pub pressure_coeff_scale_height: f64, // km
+    #[serde(default = "default_gain_fade_start_km")]
+    pub gain_fade_start_km: f64,
+    #[serde(default = "default_gain_fade_end_km")]
+    pub gain_fade_end_km: f64,
 }
 
 fn default_five_i32() -> i32 {
@@ -628,12 +634,17 @@ fn default_longi_act() -> f64 {
 fn default_longi_inh() -> f64 {
     -1000.0
 }
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct TomlPdynEntry {
-    pub altitude: f64,
-    pub a: f64,
-    pub b: f64,
+fn default_pressure_coeff_base() -> f64 {
+    -0.001
+}
+fn default_pressure_coeff_scale_height() -> f64 {
+    10.0
+}
+fn default_gain_fade_start_km() -> f64 {
+    80.0
+}
+fn default_gain_fade_end_km() -> f64 {
+    100.0
 }
 
 #[derive(Debug, Deserialize, Clone)]

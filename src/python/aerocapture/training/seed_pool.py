@@ -8,11 +8,24 @@ of mean cost and CVaR (Conditional Value at Risk).
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+
+
+def _pool_seed(base: int, index: int) -> int:
+    """Generate a well-spread seed from (base, index) using SHA-256."""
+    h = hashlib.sha256(f"{base}:pool:{index}".encode()).digest()
+    return int.from_bytes(h[:8], "big") % (2**31)
+
+
+def _stress_seed(base: int, generation: int, index: int) -> int:
+    """Generate a stress-test seed from a separate hash namespace."""
+    h = hashlib.sha256(f"{base}:stress:{generation}:{index}".encode()).digest()
+    return int.from_bytes(h[:8], "big") % (2**31)
 
 
 def compute_cvar(costs: npt.NDArray[np.float64], percentile: int) -> float:
@@ -63,27 +76,35 @@ class SeedPool:
         max_size: int = 100,
         alpha: float = 0.7,
         cvar_percentile: int = 20,
+        excluded_seeds: set[int] | None = None,
     ) -> None:
         self.base_seed = base_seed
         self.max_size = max_size
         self.alpha = alpha
         self.cvar_percentile = cvar_percentile
+        self.excluded_seeds: set[int] = excluded_seeds or set()
         self.seeds: list[int] = []
         self.difficulty: dict[int, float] = {}
         self.generation_added: dict[int, int] = {}
         self.n_evictions: int = 0
+        self._next_index: int = 0
 
     def add_seeds(self, generation: int) -> None:
         """Add seeds to the pool for a given generation.
 
         Generation 0 bootstraps 5 seeds; subsequent generations add 1 per call.
-        Duplicate seeds are silently ignored.
+        Seeds are generated via hash-based spread. Excluded seeds are skipped.
         """
-        new_seeds = [self.base_seed + i for i in range(5)] if generation == 0 else [self.base_seed + generation + 4]
-        for seed in new_seeds:
-            if seed not in self.generation_added:
-                self.seeds.append(seed)
-                self.generation_added[seed] = generation
+        n_to_add = 5 if generation == 0 and self._next_index == 0 else 1
+        added = 0
+        while added < n_to_add:
+            seed = _pool_seed(self.base_seed, self._next_index)
+            self._next_index += 1
+            if seed in self.excluded_seeds or seed in self.generation_added:
+                continue
+            self.seeds.append(seed)
+            self.generation_added[seed] = generation
+            added += 1
 
     def score_difficulty(self, cost_matrix: npt.NDArray[np.float64], best_idx: int) -> None:
         """Update per-seed difficulty scores using the best individual's costs.
@@ -102,23 +123,15 @@ class SeedPool:
     def evict_redundant(self) -> None:
         """Evict seeds until pool size <= max_size.
 
-        Eviction strategy: find the adjacent pair (when sorted by difficulty)
-        with the smallest gap, and remove the older of the two. This preserves
-        coverage across the difficulty spectrum while removing redundant seeds.
+        Keep-hardest strategy: drop the seed with the lowest difficulty
+        score (easiest for the best individual). Hard seeds survive
+        unconditionally.
         """
         while len(self.seeds) > self.max_size:
-            scored = sorted(self.seeds, key=lambda s: self.difficulty.get(s, 0.0))
-            min_gap = float("inf")
-            evict_candidate = scored[0]
-            for i in range(len(scored) - 1):
-                gap = abs(self.difficulty.get(scored[i + 1], 0.0) - self.difficulty.get(scored[i], 0.0))
-                if gap < min_gap:
-                    min_gap = gap
-                    a, b = scored[i], scored[i + 1]
-                    evict_candidate = a if self.generation_added.get(a, 0) <= self.generation_added.get(b, 0) else b
-            self.seeds.remove(evict_candidate)
-            del self.difficulty[evict_candidate]
-            del self.generation_added[evict_candidate]
+            easiest = min(self.seeds, key=lambda s: self.difficulty.get(s, 0.0))
+            self.seeds.remove(easiest)
+            del self.difficulty[easiest]
+            del self.generation_added[easiest]
             self.n_evictions += 1
 
     def evaluate_population(
@@ -158,6 +171,51 @@ class SeedPool:
 
         return fitness
 
+    def stress_test(
+        self,
+        generation: int,
+        evaluator: Callable[[list[int]], npt.NDArray[np.float64]],
+        n_probes: int = 200,
+        n_inject: int = 20,
+    ) -> dict[str, Any]:
+        """Probe fresh seeds and inject the hardest into the pool.
+
+        Generates n_probes seeds from a separate hash namespace, evaluates
+        the best individual on all of them, and injects the worst n_inject
+        into the pool. Returns metrics including an estimated capture rate.
+        """
+        probe_seeds: list[int] = []
+        idx = 0
+        while len(probe_seeds) < n_probes:
+            s = _stress_seed(self.base_seed, generation, idx)
+            idx += 1
+            if s not in self.excluded_seeds and s not in self.generation_added:
+                probe_seeds.append(s)
+
+        costs = evaluator(probe_seeds)
+
+        capture_rate = float(np.mean(costs < 10000.0))
+
+        worst_indices = np.argsort(costs)[::-1][:n_inject]
+        n_injected = 0
+        for i in worst_indices:
+            s = probe_seeds[i]
+            if s not in self.generation_added:
+                self.seeds.append(s)
+                self.difficulty[s] = float(costs[i])
+                self.generation_added[s] = generation
+                n_injected += 1
+
+        self.evict_redundant()
+
+        return {
+            "n_probes": n_probes,
+            "n_injected": n_injected,
+            "worst_cost": float(np.max(costs)),
+            "median_cost": float(np.median(costs)),
+            "capture_rate": capture_rate,
+        }
+
     @property
     def difficulty_range(self) -> tuple[float, float]:
         """Return (min, max) of current difficulty scores."""
@@ -177,19 +235,22 @@ class SeedPool:
             "difficulty": {str(k): v for k, v in self.difficulty.items()},
             "generation_added": {str(k): v for k, v in self.generation_added.items()},
             "n_evictions": self.n_evictions,
+            "next_index": self._next_index,
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> SeedPool:
+    def from_dict(cls, data: dict[str, Any], excluded_seeds: set[int] | None = None) -> SeedPool:
         """Restore a SeedPool from a checkpointed dict."""
         pool = cls(
             base_seed=int(data["base_seed"]),
             max_size=int(data["max_size"]),
             alpha=float(data.get("alpha", 0.7)),
             cvar_percentile=int(data.get("cvar_percentile", 20)),
+            excluded_seeds=excluded_seeds,
         )
         pool.seeds = list(data["seeds"])
         pool.difficulty = {int(k): float(v) for k, v in dict(data["difficulty"]).items()}
         pool.generation_added = {int(k): int(v) for k, v in dict(data["generation_added"]).items()}
         pool.n_evictions = int(data.get("n_evictions", 0))
+        pool._next_index = int(data.get("next_index", 0))
         return pool

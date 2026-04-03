@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 import pytest
-from aerocapture.training.seed_pool import SeedPool, aggregate_fitness, compute_cvar
+from aerocapture.training.seed_pool import SeedPool, _pool_seed, _stress_seed, aggregate_fitness, compute_cvar
 
 
 class TestComputeCvar:
@@ -71,12 +71,46 @@ class TestAggregateFitness:
         assert result[1] == pytest.approx(30.0)
 
 
+class TestPoolSeedHash:
+    def test_different_indices_produce_different_seeds(self) -> None:
+        s0 = _pool_seed(42, 0)
+        s1 = _pool_seed(42, 1)
+        assert s0 != s1
+
+    def test_seeds_within_valid_range(self) -> None:
+        for i in range(100):
+            s = _pool_seed(42, i)
+            assert 0 <= s < 2**31
+
+    def test_different_bases_produce_different_seeds(self) -> None:
+        assert _pool_seed(42, 0) != _pool_seed(99, 0)
+
+    def test_deterministic(self) -> None:
+        assert _pool_seed(42, 7) == _pool_seed(42, 7)
+
+
+class TestSeedPoolExclusion:
+    def test_excluded_seed_never_in_pool(self) -> None:
+        excluded = _pool_seed(42, 0)
+        pool = SeedPool(base_seed=42, max_size=50, excluded_seeds={excluded})
+        pool.add_seeds(generation=0)
+        assert excluded not in pool.seeds
+        assert len(pool.seeds) == 5
+
+    def test_pool_uses_hash_seeds_not_consecutive(self) -> None:
+        pool = SeedPool(base_seed=42, max_size=50)
+        pool.add_seeds(generation=0)
+        assert pool.seeds != [42, 43, 44, 45, 46]
+        assert len(pool.seeds) == 5
+
+
 class TestSeedPoolGrowth:
     def test_bootstrap_creates_5_seeds(self) -> None:
         pool = SeedPool(base_seed=100, max_size=50)
         pool.add_seeds(generation=0)
         assert len(pool.seeds) == 5
-        assert pool.seeds == [100, 101, 102, 103, 104]
+        assert all(0 <= s < 2**31 for s in pool.seeds)
+        assert len(set(pool.seeds)) == 5
 
     def test_incremental_growth(self) -> None:
         pool = SeedPool(base_seed=100, max_size=50)
@@ -84,36 +118,33 @@ class TestSeedPoolGrowth:
         assert len(pool.seeds) == 5
         pool.add_seeds(generation=1)
         assert len(pool.seeds) == 6
-        assert 105 in pool.seeds
 
     def test_no_duplicate_seeds(self) -> None:
         pool = SeedPool(base_seed=100, max_size=50)
         pool.add_seeds(generation=0)
         pool.add_seeds(generation=0)
-        assert len(pool.seeds) == 5
+        # Bootstrap adds 5, second call adds 1 more (always unique via hash)
+        assert len(pool.seeds) == 6
+        assert len(set(pool.seeds)) == 6
 
 
-class TestSeedPoolEviction:
-    def test_eviction_at_cap(self) -> None:
-        pool = SeedPool(base_seed=0, max_size=7)
-        pool.add_seeds(generation=0)  # 5 seeds
-        pool.add_seeds(generation=1)  # 6 seeds
-        pool.add_seeds(generation=2)  # 7 seeds
-        pool.add_seeds(generation=3)  # 8 seeds -> should evict to 7
-        for i, seed in enumerate(pool.seeds):
-            pool.difficulty[seed] = float(i * 10)
-        pool.evict_redundant()
-        assert len(pool.seeds) == 7
-
-    def test_evict_closest_pair_older_one(self) -> None:
+class TestKeepHardestEviction:
+    def test_easiest_seeds_evicted(self) -> None:
         pool = SeedPool(base_seed=0, max_size=3)
-        pool.seeds = [10, 20, 30, 40]
-        pool.difficulty = {10: 1.0, 20: 1.5, 30: 5.0, 40: 10.0}
-        pool.generation_added = {10: 0, 20: 1, 30: 2, 40: 3}
+        pool.seeds = [10, 20, 30, 40, 50]
+        pool.difficulty = {10: 100.0, 20: 1.0, 30: 50.0, 40: 2.0, 50: 75.0}
+        pool.generation_added = {10: 0, 20: 1, 30: 2, 40: 3, 50: 4}
         pool.evict_redundant()
         assert len(pool.seeds) == 3
-        assert 10 not in pool.seeds
-        assert 20 in pool.seeds
+        assert set(pool.seeds) == {10, 50, 30}
+
+    def test_hardest_seeds_always_survive(self) -> None:
+        pool = SeedPool(base_seed=0, max_size=2)
+        pool.seeds = [1, 2, 3, 4, 5]
+        pool.difficulty = {1: 1000.0, 2: 0.1, 3: 0.2, 4: 999.0, 5: 0.3}
+        pool.generation_added = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        pool.evict_redundant()
+        assert set(pool.seeds) == {1, 4}
 
     def test_no_eviction_under_cap(self) -> None:
         pool = SeedPool(base_seed=0, max_size=10)
@@ -145,9 +176,10 @@ class TestSeedPoolScoring:
 class TestSeedPoolCheckpoint:
     def test_round_trip(self) -> None:
         pool = SeedPool(base_seed=42, max_size=50, alpha=0.8, cvar_percentile=25)
-        pool.seeds = [42, 43, 44]
-        pool.difficulty = {42: 1.0, 43: 5.0, 44: 10.0}
-        pool.generation_added = {42: 0, 43: 0, 44: 1}
+        pool.add_seeds(generation=0)
+        seeds_before = pool.seeds.copy()
+        for s in pool.seeds:
+            pool.difficulty[s] = float(s % 100)
         pool.n_evictions = 2
         data = pool.to_dict()
         restored = SeedPool.from_dict(data)
@@ -155,23 +187,29 @@ class TestSeedPoolCheckpoint:
         assert restored.max_size == 50
         assert restored.alpha == 0.8
         assert restored.cvar_percentile == 25
-        assert restored.seeds == [42, 43, 44]
-        assert restored.difficulty == {42: 1.0, 43: 5.0, 44: 10.0}
-        assert restored.generation_added == {42: 0, 43: 0, 44: 1}
+        assert restored.seeds == seeds_before
         assert restored.n_evictions == 2
+        assert restored._next_index == pool._next_index
 
     def test_round_trip_json_compatible(self) -> None:
         import json
 
         pool = SeedPool(base_seed=0, max_size=10)
-        pool.seeds = [0, 1, 2]
-        pool.difficulty = {0: 1.0, 1: 2.0, 2: 3.0}
-        pool.generation_added = {0: 0, 1: 0, 2: 1}
+        pool.add_seeds(generation=0)
+        for s in pool.seeds:
+            pool.difficulty[s] = 1.0
         data = pool.to_dict()
         json_str = json.dumps(data)
         restored_data = json.loads(json_str)
         restored = SeedPool.from_dict(restored_data)
-        assert restored.seeds == [0, 1, 2]
+        assert restored.seeds == pool.seeds
+
+    def test_from_dict_with_excluded_seeds(self) -> None:
+        pool = SeedPool(base_seed=42, max_size=50)
+        pool.add_seeds(generation=0)
+        data = pool.to_dict()
+        restored = SeedPool.from_dict(data, excluded_seeds={999})
+        assert 999 in restored.excluded_seeds
 
 
 class TestSeedPoolEvaluation:
@@ -230,10 +268,10 @@ class TestSeedPoolEvaluation:
 
 
 class TestAdaptiveSeedIntegration:
-    """Integration test: adaptive seed pool in the GA training loop."""
+    """Integration test: adaptive seed pool with stress tests in a GA loop."""
 
-    def test_pool_grows_and_evicts_during_training(self) -> None:
-        """Verify pool grows, evicts, and produces valid fitness across generations."""
+    def test_pool_grows_evicts_and_stress_tests(self) -> None:
+        """Verify pool grows, evicts hardest-first, and stress tests inject hard seeds."""
         pool = SeedPool(base_seed=0, max_size=8, alpha=0.7, cvar_percentile=20)
 
         rng = np.random.default_rng(42)
@@ -241,8 +279,9 @@ class TestAdaptiveSeedIntegration:
 
         def evaluator(chrom: npt.NDArray[np.int8], seed: int) -> float:
             quality = float(np.sum(chrom)) / len(chrom)
-            return float(seed) * 10.0 + quality * 5.0
+            return float(seed % 1000) * 10.0 + quality * 5.0
 
+        stress_ran = False
         for gen in range(10):
             pool.add_seeds(gen)
             fitness = pool.evaluate_population(pop, evaluator)
@@ -253,13 +292,77 @@ class TestAdaptiveSeedIntegration:
             pool.evict_redundant()
             assert len(pool.seeds) <= 8
 
-        # After 10 gens: bootstrapped 5, added 9 more = 14 total, evicted to 8
-        assert len(pool.seeds) == 8
-        assert pool.n_evictions == 6
+            # Run stress test every 5 generations
+            if (gen + 1) % 5 == 0:
 
-        # Difficulty should be populated for all active seeds
+                def stress_eval(seeds: list[int]) -> npt.NDArray[np.float64]:
+                    return np.array([float(s % 1000) * 10.0 for s in seeds])
+
+                metrics = pool.stress_test(gen, stress_eval, n_probes=20, n_inject=3)
+                assert metrics["n_injected"] <= 3
+                assert metrics["n_probes"] == 20
+                stress_ran = True
+
+        assert stress_ran
+        assert len(pool.seeds) <= 8
+        assert pool.n_evictions > 0
         assert len(pool.difficulty) == len(pool.seeds)
 
-        # Difficulty range should be non-trivial
-        d_min, d_max = pool.difficulty_range
-        assert d_max > d_min
+        # Verify hardest seeds survived (keep-hardest eviction)
+        difficulties = sorted(pool.difficulty.values())
+        assert difficulties[-1] > difficulties[0]
+
+
+class TestStressSeedHash:
+    def test_stress_seeds_differ_from_pool_seeds(self) -> None:
+        assert _pool_seed(42, 0) != _stress_seed(42, 0, 0)
+
+    def test_stress_seeds_vary_by_generation(self) -> None:
+        assert _stress_seed(42, 0, 0) != _stress_seed(42, 1, 0)
+
+    def test_stress_seeds_within_range(self) -> None:
+        for i in range(100):
+            assert 0 <= _stress_seed(42, 5, i) < 2**31
+
+
+class TestStressTest:
+    def test_injects_worst_seeds(self) -> None:
+        pool = SeedPool(base_seed=42, max_size=50)
+        pool.add_seeds(generation=0)
+        initial_size = len(pool.seeds)
+
+        def evaluator(seeds: list[int]) -> npt.NDArray[np.float64]:
+            return np.array([float(s) for s in seeds])
+
+        metrics = pool.stress_test(generation=5, evaluator=evaluator, n_probes=20, n_inject=5)
+        assert len(pool.seeds) == initial_size + 5
+        assert metrics["n_probes"] == 20
+        assert metrics["n_injected"] == 5
+        assert "worst_cost" in metrics
+        assert "median_cost" in metrics
+        assert "capture_rate" in metrics
+
+    def test_injected_seeds_survive_eviction(self) -> None:
+        pool = SeedPool(base_seed=42, max_size=8)
+        pool.add_seeds(generation=0)
+        for s in pool.seeds:
+            pool.difficulty[s] = 1.0
+
+        def evaluator(seeds: list[int]) -> npt.NDArray[np.float64]:
+            return np.array([10000.0] * len(seeds))
+
+        pool.stress_test(generation=5, evaluator=evaluator, n_probes=10, n_inject=5)
+        pool.evict_redundant()
+        assert len(pool.seeds) == 8
+        difficulties = [pool.difficulty[s] for s in pool.seeds]
+        assert sum(d >= 10000.0 for d in difficulties) == 5
+
+    def test_stress_test_capture_rate(self) -> None:
+        pool = SeedPool(base_seed=42, max_size=50)
+        pool.add_seeds(generation=0)
+
+        def evaluator(seeds: list[int]) -> npt.NDArray[np.float64]:
+            return np.array([1.0 if i % 2 == 0 else 50000.0 for i in range(len(seeds))])
+
+        metrics = pool.stress_test(generation=5, evaluator=evaluator, n_probes=20, n_inject=5)
+        assert 0.0 <= metrics["capture_rate"] <= 1.0

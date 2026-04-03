@@ -312,6 +312,7 @@ def train(
             max_size=config.ga.seed_pool_cap,
             alpha=config.ga.cost_alpha,
             cvar_percentile=config.ga.cvar_percentile,
+            excluded_seeds={pool_base_seed},
         )
 
     # Compute config hash for experiment grouping
@@ -334,7 +335,7 @@ def train(
             if verbose:
                 print(f"Resumed from run {resumed['run']}, gen {resumed['generation']}, best={resumed['best_cost']:.4e}")
             if seed_pool is not None and resumed.get("seed_pool") is not None:
-                seed_pool = SeedPool.from_dict(resumed["seed_pool"])
+                seed_pool = SeedPool.from_dict(resumed["seed_pool"], excluded_seeds={pool_base_seed})
             if corridor_acc is not None and resumed.get("corridor_acc") is not None:
                 corridor_acc = resumed["corridor_acc"]
             # Make --n-gen mean "N additional" on resume (only safe with n_runs=1,
@@ -501,6 +502,7 @@ def train(
 
                 for gen in range(gen_start, config.ga.n_gen):
                     gen_wall_start = time.perf_counter()
+                    stress_metrics: dict | None = None
 
                     if seed_pool is not None:
                         # === Adaptive seed pool path ===
@@ -542,6 +544,25 @@ def train(
                             worst_idx = int(np.argmax(all_costs[-1]))
                             populations[-1][worst_idx] = populations[0][best_idx].copy()
                             all_costs[-1][worst_idx] = all_costs[0][best_idx]
+
+                        # Stress test: probe fresh seeds and inject hardest
+                        if (gen + 1) % config.ga.stress_interval == 0 and _batch_evaluator is not None and best_overall_chrom is not None:
+                            _st_eval = _batch_evaluator
+                            _st_chrom = best_overall_chrom.copy()
+
+                            def _stress_eval(
+                                seeds: list[int],
+                                _e: Callable[[npt.NDArray[np.int8], list[int]], npt.NDArray[np.float64]] = _st_eval,
+                                _c: npt.NDArray[np.int8] = _st_chrom,
+                            ) -> npt.NDArray[np.float64]:
+                                return _e(_c, seeds)
+
+                            stress_metrics = seed_pool.stress_test(
+                                generation=gen,
+                                evaluator=_stress_eval,
+                                n_probes=config.ga.stress_probes,
+                                n_inject=config.ga.stress_inject,
+                            )
 
                     else:
                         # === Original path (fixed seed or rotate-seeds) ===
@@ -665,16 +686,25 @@ def train(
                     if seed_pool is not None:
                         d_min, d_max = seed_pool.difficulty_range
                         difficulty_scores = sorted(seed_pool.difficulty.values())
+                        # Real capture rate: fraction of pool seeds where best individual captured
+                        # (cost < 10000 = virtual DV threshold for crash/hyperbolic)
+                        n_captured = sum(1 for d in seed_pool.difficulty.values() if d < 10000.0)
+                        pool_capture_rate = n_captured / len(seed_pool.difficulty) if seed_pool.difficulty else 0.0
                         pool_metrics = {
                             "pool_size": len(seed_pool.seeds),
                             "difficulty_min": d_min,
                             "difficulty_max": d_max,
                             "n_evictions": seed_pool.n_evictions,
                             "difficulty_scores": difficulty_scores,
+                            "capture_rate": pool_capture_rate,
                         }
+                        if stress_metrics is not None:
+                            pool_metrics["stress_test"] = stress_metrics
 
                     # Log metrics
                     gen_elapsed_s = time.perf_counter() - gen_wall_start
+                    gen_best_subpop = min(range(config.ga.n_subpop), key=lambda k: all_costs[k][0])
+                    gen_best_chrom = populations[gen_best_subpop][0]
                     logger.log_generation(
                         gen + 1,
                         populations,
@@ -685,6 +715,7 @@ def train(
                         mc_seed=(base_mc_seed + gen) if base_mc_seed is not None else None,
                         pool_metrics=pool_metrics,
                         gen_elapsed_s=gen_elapsed_s,
+                        gen_best_chromosome=gen_best_chrom,
                     )
                     display.update(logger, current_run=run)
 
@@ -773,9 +804,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Train guidance parameters via GA")
     parser.add_argument("toml", type=str, help="TOML training config path (must contain [guidance] type)")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--n-gen", type=int, default=100, help="Number of generations (additional when resuming)")
-    parser.add_argument("--n-pop", type=int, default=20)
+    parser.add_argument("--n-pop", type=int, default=50)
     parser.add_argument("--resume", type=str, default=None, help="Checkpoint directory to resume from (auto-detected if omitted and checkpoint exists)")
     parser.add_argument("-fs", "--from-scratch", action="store_true", help="Wipe existing training output and start fresh (deletes checkpoints, logs, reports)")
     parser.add_argument("--no-tui", action="store_true", help="Disable Rich TUI (use plain-text output)")
@@ -785,6 +816,9 @@ if __name__ == "__main__":
     parser.add_argument("--seed-pool-cap", type=int, default=100, help="Maximum adaptive seed pool size (default: 100)")
     parser.add_argument("--cost-alpha", type=float, default=0.7, help="Mean/CVaR blend weight: 1.0=pure mean, 0.0=pure CVaR (default: 0.7)")
     parser.add_argument("--cvar-percentile", type=int, default=20, help="CVaR tail fraction in percent (default: 20)")
+    parser.add_argument("--stress-interval", type=int, default=5, help="Run stress test every N generations (default: 5, only with --adaptive-seeds)")
+    parser.add_argument("--stress-probes", type=int, default=200, help="Number of fresh seeds to probe per stress test (default: 200)")
+    parser.add_argument("--stress-inject", type=int, default=20, help="Number of worst seeds to inject from each stress test (default: 20)")
     parser.add_argument("--skip-report", "--skip-final-report", action="store_true", dest="skip_report", help="Skip PDF report generation at end of training")
     parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
     parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds (default: no limit)")
@@ -799,6 +833,9 @@ if __name__ == "__main__":
     cfg.ga.seed_pool_cap = args.seed_pool_cap
     cfg.ga.cost_alpha = args.cost_alpha
     cfg.ga.cvar_percentile = args.cvar_percentile
+    cfg.ga.stress_interval = args.stress_interval
+    cfg.ga.stress_probes = args.stress_probes
+    cfg.ga.stress_inject = args.stress_inject
 
     # Load TOML and extract guidance type
     from aerocapture.training.toml_utils import load_toml_with_bases
@@ -925,7 +962,20 @@ if __name__ == "__main__":
         # Re-run best individual with trajectories for nominal
         best_params = decode_params_from_chromosome(result["best_chromosome"], cfg)
         _pc_section = _GTS[cfg.guidance_type]
-        best_ovr: dict[str, object] = {f"guidance.{_pc_section}.{k_}": v for k_, v in best_params.items()}
+        best_ovr: dict[str, object] = {}
+        for k_, v in best_params.items():
+            if k_ == "lateral.max_reversals":
+                v = int(round(v))
+            if k_.startswith("lateral."):
+                best_ovr[f"guidance.lateral.{k_.removeprefix('lateral.')}"] = v
+            elif k_.startswith("exit."):
+                best_ovr[f"guidance.ftc.{k_.removeprefix('exit.')}"] = v
+            elif k_.startswith("nav."):
+                best_ovr[f"navigation.{k_.removeprefix('nav.')}"] = v
+            elif k_.startswith("thermal."):
+                best_ovr[f"guidance.thermal_limiter.{k_.removeprefix('thermal.')}"] = v
+            else:
+                best_ovr[f"guidance.{_pc_section}.{k_}"] = v
         best_ovr["guidance.type"] = cfg.guidance_type
         best_ovr["simulation.n_sims"] = 1
         # Disable dispersions so the nominal is the true undispersed trajectory
