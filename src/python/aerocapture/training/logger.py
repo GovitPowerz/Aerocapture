@@ -54,7 +54,9 @@ class TrainingLogger:
         all_costs = np.concatenate(costs)
 
         stats = cost_stats(all_costs)
-        cap_rate = capture_rate(all_costs)
+        # In adaptive-seed mode, use pool's per-seed capture rate (honest metric).
+        # The default capture_rate(all_costs) is meaningless when costs are aggregated fitness.
+        cap_rate = pool_metrics["capture_rate"] if pool_metrics is not None and "capture_rate" in pool_metrics else capture_rate(all_costs)
         diversity = population_diversity(all_chroms)
 
         gen_best = stats["best"]

@@ -686,12 +686,17 @@ def train(
                     if seed_pool is not None:
                         d_min, d_max = seed_pool.difficulty_range
                         difficulty_scores = sorted(seed_pool.difficulty.values())
+                        # Real capture rate: fraction of pool seeds where best individual captured
+                        # (cost < 10000 = virtual DV threshold for crash/hyperbolic)
+                        n_captured = sum(1 for d in seed_pool.difficulty.values() if d < 10000.0)
+                        pool_capture_rate = n_captured / len(seed_pool.difficulty) if seed_pool.difficulty else 0.0
                         pool_metrics = {
                             "pool_size": len(seed_pool.seeds),
                             "difficulty_min": d_min,
                             "difficulty_max": d_max,
                             "n_evictions": seed_pool.n_evictions,
                             "difficulty_scores": difficulty_scores,
+                            "capture_rate": pool_capture_rate,
                         }
                         if stress_metrics is not None:
                             pool_metrics["stress_test"] = stress_metrics
