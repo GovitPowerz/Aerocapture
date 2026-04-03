@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 import pytest
-from aerocapture.training.seed_pool import SeedPool, _pool_seed, aggregate_fitness, compute_cvar
+from aerocapture.training.seed_pool import SeedPool, _pool_seed, _stress_seed, aggregate_fitness, compute_cvar
 
 
 class TestComputeCvar:
@@ -301,3 +301,58 @@ class TestAdaptiveSeedIntegration:
         # Difficulty range should be non-trivial
         d_min, d_max = pool.difficulty_range
         assert d_max > d_min
+
+
+class TestStressSeedHash:
+    def test_stress_seeds_differ_from_pool_seeds(self) -> None:
+        assert _pool_seed(42, 0) != _stress_seed(42, 0, 0)
+
+    def test_stress_seeds_vary_by_generation(self) -> None:
+        assert _stress_seed(42, 0, 0) != _stress_seed(42, 1, 0)
+
+    def test_stress_seeds_within_range(self) -> None:
+        for i in range(100):
+            assert 0 <= _stress_seed(42, 5, i) < 2**31
+
+
+class TestStressTest:
+    def test_injects_worst_seeds(self) -> None:
+        pool = SeedPool(base_seed=42, max_size=50)
+        pool.add_seeds(generation=0)
+        initial_size = len(pool.seeds)
+
+        def evaluator(seeds: list[int]) -> npt.NDArray[np.float64]:
+            return np.array([float(s) for s in seeds])
+
+        metrics = pool.stress_test(generation=5, evaluator=evaluator, n_probes=20, n_inject=5)
+        assert len(pool.seeds) == initial_size + 5
+        assert metrics["n_probes"] == 20
+        assert metrics["n_injected"] == 5
+        assert "worst_cost" in metrics
+        assert "median_cost" in metrics
+        assert "capture_rate" in metrics
+
+    def test_injected_seeds_survive_eviction(self) -> None:
+        pool = SeedPool(base_seed=42, max_size=8)
+        pool.add_seeds(generation=0)
+        for s in pool.seeds:
+            pool.difficulty[s] = 1.0
+
+        def evaluator(seeds: list[int]) -> npt.NDArray[np.float64]:
+            return np.array([10000.0] * len(seeds))
+
+        pool.stress_test(generation=5, evaluator=evaluator, n_probes=10, n_inject=5)
+        pool.evict_redundant()
+        assert len(pool.seeds) == 8
+        difficulties = [pool.difficulty[s] for s in pool.seeds]
+        assert sum(d >= 10000.0 for d in difficulties) == 5
+
+    def test_stress_test_capture_rate(self) -> None:
+        pool = SeedPool(base_seed=42, max_size=50)
+        pool.add_seeds(generation=0)
+
+        def evaluator(seeds: list[int]) -> npt.NDArray[np.float64]:
+            return np.array([1.0 if i % 2 == 0 else 50000.0 for i in range(len(seeds))])
+
+        metrics = pool.stress_test(generation=5, evaluator=evaluator, n_probes=20, n_inject=5)
+        assert 0.0 <= metrics["capture_rate"] <= 1.0

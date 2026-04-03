@@ -22,6 +22,12 @@ def _pool_seed(base: int, index: int) -> int:
     return int.from_bytes(h[:8], "big") % (2**31)
 
 
+def _stress_seed(base: int, generation: int, index: int) -> int:
+    """Generate a stress-test seed from a separate hash namespace."""
+    h = hashlib.sha256(f"{base}:stress:{generation}:{index}".encode()).digest()
+    return int.from_bytes(h[:8], "big") % (2**31)
+
+
 def compute_cvar(costs: npt.NDArray[np.float64], percentile: int) -> float:
     """Compute CVaR (mean of the worst p% of costs).
 
@@ -164,6 +170,51 @@ class SeedPool:
         self.score_difficulty(cost_matrix, best_idx)
 
         return fitness
+
+    def stress_test(
+        self,
+        generation: int,
+        evaluator: Callable[[list[int]], npt.NDArray[np.float64]],
+        n_probes: int = 200,
+        n_inject: int = 20,
+    ) -> dict[str, Any]:
+        """Probe fresh seeds and inject the hardest into the pool.
+
+        Generates n_probes seeds from a separate hash namespace, evaluates
+        the best individual on all of them, and injects the worst n_inject
+        into the pool. Returns metrics including an estimated capture rate.
+        """
+        probe_seeds = []
+        idx = 0
+        while len(probe_seeds) < n_probes:
+            s = _stress_seed(self.base_seed, generation, idx)
+            idx += 1
+            if s not in self.excluded_seeds and s not in self.generation_added:
+                probe_seeds.append(s)
+
+        costs = evaluator(probe_seeds)
+
+        capture_rate = float(np.mean(costs < 10000.0))
+
+        worst_indices = np.argsort(costs)[::-1][:n_inject]
+        n_injected = 0
+        for i in worst_indices:
+            s = probe_seeds[i]
+            if s not in self.generation_added:
+                self.seeds.append(s)
+                self.difficulty[s] = float(costs[i])
+                self.generation_added[s] = generation
+                n_injected += 1
+
+        self.evict_redundant()
+
+        return {
+            "n_probes": n_probes,
+            "n_injected": n_injected,
+            "worst_cost": float(np.max(costs)),
+            "median_cost": float(np.median(costs)),
+            "capture_rate": capture_rate,
+        }
 
     @property
     def difficulty_range(self) -> tuple[float, float]:
