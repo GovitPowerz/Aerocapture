@@ -7,15 +7,6 @@ use super::DataError;
 use crate::gnc::guidance::lateral::LateralParams;
 use crate::gnc::guidance::thermal_limiter::ThermalLimiterParams;
 
-/// Dynamic pressure reference table entry: altitude (km), linear coefficients a and b.
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
-pub struct DynamicPressureTableEntry {
-    pub altitude: f64, // km (stored as-is from file)
-    pub coeff_a: f64,
-    pub coeff_b: f64,
-}
-
 /// Equilibrium glide tunable parameters.
 #[derive(Debug, Clone)]
 pub struct EqGlideParams {
@@ -155,8 +146,11 @@ pub struct GuidanceParams {
     pub longi_inhibition: f64, // longitudinal guidance inhibition threshold (J/kg)
     pub pdyn_min: f64,         // minimum dynamic pressure for tracking (Pa)
 
-    // Pdyn = f(altitude) reference table
-    pub pdyn_table: Vec<DynamicPressureTableEntry>,
+    // Analytical gain model (replaces pdyn altitude table)
+    pub pressure_coeff_base: f64,         // base pressure coefficient for exponential decay
+    pub pressure_coeff_scale_height: f64, // exponential decay scale height (km)
+    pub gain_fade_start_km: f64,          // altitude where gain fade begins (km)
+    pub gain_fade_end_km: f64,            // altitude where gains reach zero (km)
 
     // Reference trajectory tables (from tables_energie_gains file)
     pub ref_trajectory: ReferenceTrajectory,
@@ -312,7 +306,10 @@ impl Default for GuidanceParams {
             longi_activation: 0.0,
             longi_inhibition: 0.0,
             pdyn_min: 0.0,
-            pdyn_table: Vec::new(),
+            pressure_coeff_base: -0.001,
+            pressure_coeff_scale_height: 10.0,
+            gain_fade_start_km: 80.0,
+            gain_fade_end_km: 100.0,
             ref_trajectory: ReferenceTrajectory::default(),
             eq_glide: EqGlideParams::default(),
             energy_ctrl: EnergyCtrlParams::default(),
