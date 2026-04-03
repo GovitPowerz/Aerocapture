@@ -84,35 +84,30 @@ pub fn ftc_bank_angle(
     bank_angle_longitudinal
 }
 
-/// Compute guidance gains from altitude-based Pdyn model.
+/// Cosine fade: 1.0 below `start`, 0.0 above `end`, smooth cosine taper between.
+/// Degenerate case: if `end <= start`, returns 1.0 (no fade).
+fn cosine_fade(alt_km: f64, start: f64, end: f64) -> f64 {
+    if end <= start {
+        return 1.0;
+    }
+    let t = ((alt_km - start) / (end - start)).clamp(0.0, 1.0);
+    0.5 * (1.0 + (std::f64::consts::PI * t).cos())
+}
+
+/// Compute guidance gains using analytical exponential decay model.
 fn compute_gains(altitude: f64, aero_coefficients: &[f64; 2], data: &SimData) -> (f64, f64) {
-    let pdyn_table = &data.guidance.pdyn_table;
     let alt_km = altitude / 1e3;
 
-    // Find altitude bracket; use Option<usize> as "not found" sentinel.
-    let mut found: Option<usize> = None;
-    for i in 0..pdyn_table.len().saturating_sub(1) {
-        if alt_km >= pdyn_table[i].altitude
-            && alt_km < pdyn_table[i + 1].altitude
-            && found.is_none()
-        {
-            found = Some(i);
-        }
-    }
-    // If no bracket found, fall back to last entry
-    let table_index = found.unwrap_or_else(|| {
-        if pdyn_table.is_empty() {
-            0
-        } else {
-            pdyn_table.len() - 1
-        }
-    });
+    // Exponential decay pressure coefficient
+    let pressure_coeff = data.guidance.pressure_coeff_base
+        * (-alt_km / data.guidance.pressure_coeff_scale_height).exp();
 
-    let pressure_coeff = if table_index < pdyn_table.len() {
-        pdyn_table[table_index].coeff_a
-    } else {
-        1.0
-    };
+    // Cosine fade: both gains taper to zero above the sensible atmosphere
+    let fade = cosine_fade(
+        alt_km,
+        data.guidance.gain_fade_start_km,
+        data.guidance.gain_fade_end_km,
+    );
 
     // Gains
     let damping_capture = data.guidance.capture_damping;
@@ -122,13 +117,14 @@ fn compute_gains(altitude: f64, aero_coefficients: &[f64; 2], data: &SimData) ->
     let cz = aero_coefficients[1]; // lift coefficient
 
     let gain_altitude_rate = if (reference_area * cz).abs() > 1e-30 {
-        -2.0 * damping_capture * frequency_capture * mass / (reference_area * cz)
+        fade * -2.0 * damping_capture * frequency_capture * mass / (reference_area * cz)
     } else {
         0.0
     };
 
     let gain_dynamic_pressure = if (pressure_coeff * reference_area * cz).abs() > 1e-30 {
-        -frequency_capture * frequency_capture * mass / (pressure_coeff * reference_area * cz)
+        fade * -frequency_capture * frequency_capture * mass
+            / (pressure_coeff * reference_area * cz)
     } else {
         0.0
     };

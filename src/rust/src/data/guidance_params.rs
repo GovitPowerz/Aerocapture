@@ -147,10 +147,10 @@ pub struct GuidanceParams {
     pub pdyn_min: f64,         // minimum dynamic pressure for tracking (Pa)
 
     // Analytical gain model (replaces pdyn altitude table)
-    pub pressure_coeff_base: f64,         // base pressure coefficient for exponential decay
+    pub pressure_coeff_base: f64, // base pressure coefficient for exponential decay
     pub pressure_coeff_scale_height: f64, // exponential decay scale height (km)
-    pub gain_fade_start_km: f64,          // altitude where gain fade begins (km)
-    pub gain_fade_end_km: f64,            // altitude where gains reach zero (km)
+    pub gain_fade_start_km: f64,  // altitude where gain fade begins (km)
+    pub gain_fade_end_km: f64,    // altitude where gains reach zero (km)
 
     // Reference trajectory tables (from tables_energie_gains file)
     pub ref_trajectory: ReferenceTrajectory,
