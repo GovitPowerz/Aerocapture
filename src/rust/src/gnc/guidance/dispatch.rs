@@ -31,7 +31,6 @@ pub struct GuidanceState {
     // Bank angle command
     pub bank_angle_commanded: f64, // current commanded bank angle (rad)
     pub bank_angle_realized: f64,  // pilot-realized bank angle (rad)
-    pub pilot_bank_angle_realized: f64, // previous pilot bank angle (rad)
     pub aoa_commanded: f64,        // commanded AoA (rad)
     pub command_shaper: CommandShaper,
 
@@ -60,7 +59,6 @@ impl GuidanceState {
         Self {
             bank_angle_commanded: initial_bank,
             bank_angle_realized: initial_bank,
-            pilot_bank_angle_realized: initial_bank,
             aoa_commanded: initial_aoa,
             command_shaper: CommandShaper::new(),
             lateral_state: LateralState::new(initial_bank),
@@ -102,7 +100,6 @@ pub fn guidance_step(
 ) -> GuidanceOutput {
     let mut out = GuidanceOutput::default();
 
-    state.pilot_bank_angle_realized = pilot_bank_angle;
     state.bank_angle_realized = pilot_bank_angle;
 
     // === Angle of attack guidance ===
