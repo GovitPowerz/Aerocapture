@@ -820,6 +820,7 @@ pub struct TomlThermalLimiterParams {
 pub struct TomlCommandShapingParams {
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default)]
     pub max_bank_acceleration: f64, // deg/s^2 (converted to rad/s^2 at load time)
 }
 

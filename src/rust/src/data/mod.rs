@@ -490,15 +490,20 @@ impl SimData {
                 } else {
                     ThermalLimiterParams::default()
                 },
-                command_shaping: toml.guidance.command_shaping.as_ref().and_then(|cs| {
-                    if cs.enabled {
+                command_shaping: match toml.guidance.command_shaping.as_ref() {
+                    Some(cs) if cs.enabled => {
+                        if cs.max_bank_acceleration <= 0.0 {
+                            return Err(DataError(format!(
+                                "command_shaping.max_bank_acceleration must be > 0 when enabled (got {})",
+                                cs.max_bank_acceleration
+                            )));
+                        }
                         Some(guidance_params::CommandShapingConfig {
                             max_bank_acceleration: cs.max_bank_acceleration.to_radians(),
                         })
-                    } else {
-                        None
                     }
-                }),
+                    _ => None,
+                },
             }
         } else {
             // No FTC params — load from file if guidance suffix available, else defaults
@@ -561,15 +566,20 @@ impl SimData {
                 } else {
                     ThermalLimiterParams::default()
                 },
-                command_shaping: toml.guidance.command_shaping.as_ref().and_then(|cs| {
-                    if cs.enabled {
+                command_shaping: match toml.guidance.command_shaping.as_ref() {
+                    Some(cs) if cs.enabled => {
+                        if cs.max_bank_acceleration <= 0.0 {
+                            return Err(DataError(format!(
+                                "command_shaping.max_bank_acceleration must be > 0 when enabled (got {})",
+                                cs.max_bank_acceleration
+                            )));
+                        }
                         Some(guidance_params::CommandShapingConfig {
                             max_bank_acceleration: cs.max_bank_acceleration.to_radians(),
                         })
-                    } else {
-                        None
                     }
-                }),
+                    _ => None,
+                },
             }
         };
 
