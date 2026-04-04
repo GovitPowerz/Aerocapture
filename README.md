@@ -105,7 +105,7 @@ Seven guidance algorithms, all GA-optimizable:
 | **Equilibrium Glide** | Balances gravity, centrifugal, and lift forces | 7 | Independent |
 | **Energy Controller** | Tracks reference energy dissipation profile | 3 | Requires ref trajectory |
 | **PredGuid** | Apollo/Shuttle-heritage drag tracking | 3 | Requires ref trajectory |
-| **FNPAG** | Lu's numerical predictor-corrector | 5 | Requires ref trajectory |
+| **FNPAG** | Lu's numerical predictor-corrector (3D predictor with J2 gravity, RK4) | 5 | Requires ref trajectory |
 
 **Training order:** Run `piecewise_constant` first — it produces `ref_trajectory.dat` (optimized reference) and `corridor_boundaries.npz` (4-layer corridor envelopes from GA population history). Schemes marked "Requires ref trajectory" will error at startup if it's missing.
 
