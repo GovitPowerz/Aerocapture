@@ -188,8 +188,8 @@ mod tests {
                 initial_date: 0.0,
             },
             guidance: GuidanceParams {
-                pressure_coeff_base: -0.001,
-                pressure_coeff_scale_height: 10.0,
+                pressure_coeff_base: -134.4,
+                pressure_coeff_scale_height: 6.9,
                 gain_fade_start_km: 80.0,
                 gain_fade_end_km: 100.0,
                 capture_damping: 0.7,

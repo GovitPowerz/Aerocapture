@@ -111,6 +111,13 @@ impl Default for PiecewiseConstantParams {
     }
 }
 
+/// Command shaping: acceleration-limited rate shaping in the dispatch layer.
+/// When `None`, dispatch falls back to hard-clamp rate saturation.
+#[derive(Debug, Clone, Copy)]
+pub struct CommandShapingConfig {
+    pub max_bank_acceleration: f64, // rad/s^2
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct GuidanceParams {
@@ -162,6 +169,7 @@ pub struct GuidanceParams {
     pub fnpag: FnpagParams,
     pub piecewise_constant: PiecewiseConstantParams,
     pub thermal_limiter: ThermalLimiterParams,
+    pub command_shaping: Option<CommandShapingConfig>,
 }
 
 /// Reference trajectory tables loaded from the reference trajectory data file.
@@ -306,8 +314,8 @@ impl Default for GuidanceParams {
             longi_activation: 0.0,
             longi_inhibition: 0.0,
             pdyn_min: 0.0,
-            pressure_coeff_base: -0.001,
-            pressure_coeff_scale_height: 10.0,
+            pressure_coeff_base: -134.4,
+            pressure_coeff_scale_height: 6.9,
             gain_fade_start_km: 80.0,
             gain_fade_end_km: 100.0,
             ref_trajectory: ReferenceTrajectory::default(),
@@ -317,6 +325,7 @@ impl Default for GuidanceParams {
             fnpag: FnpagParams::default(),
             piecewise_constant: PiecewiseConstantParams::default(),
             thermal_limiter: ThermalLimiterParams::default(),
+            command_shaping: None,
         }
     }
 }

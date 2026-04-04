@@ -90,6 +90,10 @@ def test_toml_roundtrip_params_present(scheme: str, tmp_path: Path) -> None:
         elif name.startswith("thermal."):
             bare = name.removeprefix("thermal.")
             assert bare in thermal_sub, f"scheme={scheme}: thermal param '{bare}' missing from guidance.thermal_limiter"
+        elif name.startswith("shaping."):
+            shaping_sub = guidance.get("command_shaping", {})
+            bare = name.removeprefix("shaping.")
+            assert bare in shaping_sub, f"scheme={scheme}: shaping param '{bare}' missing from guidance.command_shaping"
         else:
             assert name in sub, f"scheme={scheme}: param '{name}' missing from guidance.{section_name}"
 
@@ -136,6 +140,10 @@ def test_toml_roundtrip_values_close(scheme: str, tmp_path: Path) -> None:
         elif name.startswith("thermal."):
             bare = name.removeprefix("thermal.")
             actual = thermal_sub[bare]
+        elif name.startswith("shaping."):
+            shaping_sub = parsed["guidance"].get("command_shaping", {})
+            bare = name.removeprefix("shaping.")
+            actual = shaping_sub[bare]
         else:
             actual = sub[name]
         assert abs(actual - expected) <= 1e-9 * max(abs(expected), 1.0), f"scheme={scheme} param={name}: written={expected}, read back={actual}"

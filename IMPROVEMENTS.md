@@ -24,12 +24,7 @@ This document lists physics, GNC, and software improvements for the aerocapture 
 
 ## 4. Guidance
 
-### 4.1 Fix gain discontinuity at altitude table boundary
-
-The altitude-dependent gain table (`compute_gains()` in `ftc.rs`) has entries up to a maximum altitude. Above this ceiling, extrapolation can cause gain discontinuities.
-
-- **Improvement**: Extend the gain table to cover the full altitude range, or implement smooth gain scheduling that fades to zero above the sensible atmosphere.
-- **Impact**: Prevents transient bank angle spikes during initial entry and final exit.
+*(4.1 FTC gain discontinuity fix -- see Done section below.)*
 
 ### 4.2 FNPAG predictor fidelity
 
@@ -38,12 +33,7 @@ FNPAG uses simplified dynamics for prediction (planar, no J2, constant bank, exp
 - **Improvement**: Add J2 gravity and 3D trajectory propagation to the predictor. Use the actual atmosphere table instead of an exponential fit. Consider adaptive prediction horizon.
 - **Impact**: Better convergence and accuracy for challenging entry conditions.
 
-### 4.3 Bank angle rate and acceleration limits
-
-Guidance computes bank angle without considering how fast the vehicle can actually rotate. The pilot model (`gnc/control/pilot.rs`) enforces rate limits, but guidance doesn't anticipate this.
-
-- **Improvement**: Add bank angle rate and acceleration constraints to guidance command generation. Use rate-limited command shaping.
-- **Impact**: Reduces guidance-pilot lag, improves tracking during rapid maneuvers.
+*(4.3 Bank angle rate/acceleration limits -- see Done section below.)*
 
 ---
 
@@ -146,6 +136,8 @@ Items completed and merged.
 | 4.2 Exit phase guidance | 2026-04-01 | Shared pdyn-feedback exit controller for ascending leg after trajectory nadir (PR #22) |
 | 3.1 Density filter hardening | 2026-04-02 | Legacy bias-mode filter: rate-of-change limiting (configurable `density_gain_max_delta`, default 0.1) + gain saturation [0.1, 10.0] matching EKF bounds. GA-optimizable for all unsigned-magnitude schemes via `nav.` prefix routing. |
 | 3.2 Lift-corrected drag extraction | 2026-04-02 | Both nav modes use `Cx*cos(alpha) + Cz*sin(alpha)` denominator instead of `Cx`-only. Corrects ~4% density estimation error at AoA=10 deg. Activates previously unused `run_cz_bias` MC dispersion. |
+| 4.1 FTC gain discontinuity fix | 2026-04-03 | Replaced altitude-dependent gain table (`compute_gains()`) with analytical exponential decay model + cosine fade. Gains smoothly taper to zero between `gain_fade_start_km` (80) and `gain_fade_end_km` (100). GA-optimizable params: `pressure_coeff_base`, `pressure_coeff_scale_height`, `gain_fade_start_km`, `gain_fade_end_km`. |
+| 4.3 Bank angle rate/acceleration limits | 2026-04-04 | Dispatch-layer S-curve command shaper: uses pilot-realized bank angle as feedback baseline (not last commanded), applies acceleration-limited rate shaping (`max_bank_acceleration` in deg/s^2) producing trapezoidal rate profiles. Falls back to legacy hard-clamp when `[guidance.command_shaping]` absent. GA-optimizable via `shaping.` prefix. Also fixed pre-existing `nav.`/`thermal.` routing bug in `train.py` `_batch_eval`, and added checkpoint chromosome padding for backward compatibility when param space grows. |
 
 ---
 

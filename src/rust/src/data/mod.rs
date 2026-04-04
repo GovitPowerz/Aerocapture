@@ -490,6 +490,20 @@ impl SimData {
                 } else {
                     ThermalLimiterParams::default()
                 },
+                command_shaping: match toml.guidance.command_shaping.as_ref() {
+                    Some(cs) if cs.enabled => {
+                        if cs.max_bank_acceleration <= 0.0 {
+                            return Err(DataError(format!(
+                                "command_shaping.max_bank_acceleration must be > 0 when enabled (got {})",
+                                cs.max_bank_acceleration
+                            )));
+                        }
+                        Some(guidance_params::CommandShapingConfig {
+                            max_bank_acceleration: cs.max_bank_acceleration.to_radians(),
+                        })
+                    }
+                    _ => None,
+                },
             }
         } else {
             // No FTC params — load from file if guidance suffix available, else defaults
@@ -532,8 +546,8 @@ impl SimData {
                 longi_activation: 1e9,
                 longi_inhibition: -1e9,
                 pdyn_min: 0.0,
-                pressure_coeff_base: -0.001,
-                pressure_coeff_scale_height: 10.0,
+                pressure_coeff_base: -134.4,
+                pressure_coeff_scale_height: 6.9,
                 gain_fade_start_km: 80.0,
                 gain_fade_end_km: 100.0,
                 ref_trajectory: ref_traj,
@@ -551,6 +565,20 @@ impl SimData {
                     }
                 } else {
                     ThermalLimiterParams::default()
+                },
+                command_shaping: match toml.guidance.command_shaping.as_ref() {
+                    Some(cs) if cs.enabled => {
+                        if cs.max_bank_acceleration <= 0.0 {
+                            return Err(DataError(format!(
+                                "command_shaping.max_bank_acceleration must be > 0 when enabled (got {})",
+                                cs.max_bank_acceleration
+                            )));
+                        }
+                        Some(guidance_params::CommandShapingConfig {
+                            max_bank_acceleration: cs.max_bank_acceleration.to_radians(),
+                        })
+                    }
+                    _ => None,
                 },
             }
         };

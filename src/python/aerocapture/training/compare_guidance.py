@@ -113,6 +113,9 @@ def run_scheme(
                     toml_data.setdefault("navigation", {})[k.removeprefix("nav.")] = v
                 elif k.startswith("thermal."):
                     toml_data["guidance"].setdefault("thermal_limiter", {})[k.removeprefix("thermal.")] = v
+                elif k.startswith("shaping."):
+                    toml_data["guidance"].setdefault("command_shaping", {})[k.removeprefix("shaping.")] = v
+                    toml_data["guidance"]["command_shaping"].setdefault("enabled", True)
                 else:
                     toml_data["guidance"].setdefault(section, {})[k] = v
             print(f"  Using optimized params from {params_file}")
