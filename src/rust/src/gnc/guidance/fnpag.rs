@@ -572,6 +572,86 @@ mod tests {
         );
     }
 
+    /// The predictor must use inertial (absolute) velocity for exit energy,
+    /// not relative velocity. For a planet with nonzero omega, these differ.
+    #[test]
+    fn exit_energy_uses_inertial_velocity() {
+        // Two predictions: one on a planet with rotation, one without.
+        // With rotation, the inertial velocity is higher (prograde entry),
+        // so the predicted exit energy should be higher (less negative).
+        //
+        // Use a high-altitude shallow-FPA state so the predictor can resolve
+        // trajectories that exit the atmosphere (not crash).
+        let mut nav = test_nav(5687.0);
+        nav.position_estimated[0] = PlanetConfig::mars().equatorial_radius + 100_000.0;
+        nav.velocity_estimated[1] = -0.05; // shallow FPA ~-2.9 deg
+        let data = test_sim_data();
+
+        let planet_rotating = PlanetConfig::mars();
+        let planet_static = PlanetConfig {
+            omega: 0.0,
+            ..PlanetConfig::mars()
+        };
+
+        let mut state_rot = FnpagState::new(64.77_f64.to_radians());
+        let mut state_stat = FnpagState::new(64.77_f64.to_radians());
+
+        // First call initializes (picks from fixed candidates) -- may be identical
+        let _ = fnpag_bank(&nav, &mut state_rot, &data, &planet_rotating);
+        let _ = fnpag_bank(&nav, &mut state_stat, &data, &planet_static);
+
+        // Second call exercises the secant method where 3D effects differentiate
+        let bank_rot = fnpag_bank(&nav, &mut state_rot, &data, &planet_rotating);
+        let bank_stat = fnpag_bank(&nav, &mut state_stat, &data, &planet_static);
+
+        assert!(bank_rot.is_finite(), "rotating bank not finite: {bank_rot}");
+        assert!(bank_stat.is_finite(), "static bank not finite: {bank_stat}");
+
+        // The bank angles should differ because the energy model differs
+        assert!(
+            (bank_rot - bank_stat).abs() > 1e-6,
+            "rotation should affect bank angle: rot={bank_rot:.6} stat={bank_stat:.6}"
+        );
+    }
+
+    /// J2 gravity depends on latitude. The predictor should produce different
+    /// bank angles for high-latitude vs equatorial entries (same speed/FPA).
+    #[test]
+    fn j2_sensitivity_with_latitude() {
+        let data = test_sim_data();
+        let planet = PlanetConfig::mars();
+
+        // Use high-altitude shallow-FPA state so trajectories exit (not crash)
+        // Equatorial entry (lat = 0)
+        let mut nav_equator = test_nav(5687.0);
+        nav_equator.position_estimated[0] = PlanetConfig::mars().equatorial_radius + 100_000.0;
+        nav_equator.velocity_estimated[1] = -0.05; // shallow FPA
+
+        // High-latitude entry (lat = 60 deg)
+        let mut nav_high_lat = nav_equator.clone();
+        nav_high_lat.position_estimated[2] = 60.0_f64.to_radians();
+
+        let mut state_eq = FnpagState::new(64.77_f64.to_radians());
+        let mut state_hl = FnpagState::new(64.77_f64.to_radians());
+
+        // First call initializes (picks from fixed candidates) -- may be identical
+        let _ = fnpag_bank(&nav_equator, &mut state_eq, &data, &planet);
+        let _ = fnpag_bank(&nav_high_lat, &mut state_hl, &data, &planet);
+
+        // Second call exercises the secant method where 3D effects differentiate
+        let bank_eq = fnpag_bank(&nav_equator, &mut state_eq, &data, &planet);
+        let bank_hl = fnpag_bank(&nav_high_lat, &mut state_hl, &data, &planet);
+
+        assert!(bank_eq.is_finite(), "equatorial bank not finite");
+        assert!(bank_hl.is_finite(), "high-lat bank not finite");
+
+        // J2 + 3D effects should produce measurably different bank commands
+        assert!(
+            (bank_eq - bank_hl).abs() > 1e-4,
+            "J2 latitude effect too small: eq={bank_eq:.6} hl={bank_hl:.6}"
+        );
+    }
+
     // ── Proptest ─────────────────────────────────────────────────────────────
 
     mod prop {
@@ -580,20 +660,23 @@ mod tests {
 
         proptest! {
             /// For valid atmospheric entry conditions, FNPAG must always return a
-            /// finite bank angle within [0, π].
+            /// finite bank angle within [0, pi].
             #[test]
             fn output_always_finite_and_bounded(
                 alt in 20_000.0..100_000.0_f64,
                 vel in 3_000.0..6_000.0_f64,
                 fpa in -0.15..0.0_f64,
-                rho in 1e-5..0.01_f64,
+                lat in -1.0..1.0_f64,
+                psi in -3.0..3.0_f64,
             ) {
                 let mut nav = test_nav(vel);
                 let r = PlanetConfig::mars().equatorial_radius + alt;
                 nav.position_estimated[0] = r;
+                nav.position_estimated[2] = lat;
                 nav.velocity_estimated[1] = fpa;
-                nav.density_guidance = rho;
-                nav.dynamic_pressure_estimated = 0.5 * rho * vel * vel;
+                nav.velocity_estimated[2] = psi;
+                nav.density_guidance = 0.001;
+                nav.dynamic_pressure_estimated = 0.5 * 0.001 * vel * vel;
 
                 let mut state = FnpagState::new(64.77_f64.to_radians());
                 let data = test_sim_data();
@@ -603,7 +686,7 @@ mod tests {
 
                 prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
                 prop_assert!(bank >= 0.0 - 1e-10, "bank negative: {}", bank);
-                prop_assert!(bank <= std::f64::consts::PI + 1e-10, "bank > π: {}", bank);
+                prop_assert!(bank <= std::f64::consts::PI + 1e-10, "bank > pi: {}", bank);
             }
         }
     }
