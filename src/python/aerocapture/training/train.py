@@ -460,6 +460,13 @@ def train(
                                         base_overrides[f"guidance.lateral.{k.removeprefix('lateral.')}"] = v
                                     elif k.startswith("exit."):
                                         base_overrides[f"guidance.ftc.{k.removeprefix('exit.')}"] = v
+                                    elif k.startswith("nav."):
+                                        base_overrides[f"navigation.{k.removeprefix('nav.')}"] = v
+                                    elif k.startswith("thermal."):
+                                        base_overrides[f"guidance.thermal_limiter.{k.removeprefix('thermal.')}"] = v
+                                    elif k.startswith("shaping."):
+                                        base_overrides[f"guidance.command_shaping.{k.removeprefix('shaping.')}"] = v
+                                        base_overrides["guidance.command_shaping.enabled"] = True
                                     else:
                                         base_overrides[f"guidance.{section}.{k}"] = v
                                 base_overrides["guidance.type"] = cfg.guidance_type
@@ -974,6 +981,9 @@ if __name__ == "__main__":
                 best_ovr[f"navigation.{k_.removeprefix('nav.')}"] = v
             elif k_.startswith("thermal."):
                 best_ovr[f"guidance.thermal_limiter.{k_.removeprefix('thermal.')}"] = v
+            elif k_.startswith("shaping."):
+                best_ovr[f"guidance.command_shaping.{k_.removeprefix('shaping.')}"] = v
+                best_ovr["guidance.command_shaping.enabled"] = True
             else:
                 best_ovr[f"guidance.{_pc_section}.{k_}"] = v
         best_ovr["guidance.type"] = cfg.guidance_type
