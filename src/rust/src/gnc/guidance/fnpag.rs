@@ -74,7 +74,9 @@ fn pred_derivatives(
     data: &SimData,
 ) -> [f64; 6] {
     let (altitude, _) = geodetic_from_spherical(s.r, s.lon, s.lat, planet);
-    let rho = data.atmosphere_onboard.density_at(altitude, &data.atmosphere);
+    let rho = data
+        .atmosphere_onboard
+        .density_at(altitude, &data.atmosphere);
 
     let cx = data.aero.interpolate_cx(data.entry.initial_aoa);
     let cz = data.aero.interpolate_cz(data.entry.initial_aoa).abs();
@@ -105,14 +107,16 @@ fn pred_derivatives(
     let dlat = s.v * cos_gamma * cos_psi / s.r;
 
     let dv = -drag - gravtr * sin_gamma - gravtl * cos_gamma * cos_psi
-        + omega * omega * s.r * cos_lat
-            * (cos_lat * sin_gamma - sin_lat * cos_gamma * cos_psi);
+        + omega * omega * s.r * cos_lat * (cos_lat * sin_gamma - sin_lat * cos_gamma * cos_psi);
 
     let dgamma = if s.v.abs() > 1.0 {
         (lift * cos_bank / s.v) + (s.v * cos_gamma / s.r)
             - ((gravtr * cos_gamma - gravtl * sin_gamma * cos_psi) / s.v)
             + (2.0 * omega * sin_psi * cos_lat)
-            + (omega * omega * s.r * cos_lat
+            + (omega
+                * omega
+                * s.r
+                * cos_lat
                 * (sin_lat * sin_gamma * cos_psi + cos_lat * cos_gamma)
                 / s.v)
     } else {
