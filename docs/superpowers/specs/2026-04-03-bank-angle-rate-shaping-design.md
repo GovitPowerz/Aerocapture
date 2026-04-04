@@ -116,7 +116,7 @@ Added to all scheme param spaces (shaper is universal).
 **Proptest properties:**
 - Shaped rate always in `[-max_bank_rate, max_bank_rate]`
 - Rate change between ticks always in `[-max_bank_acceleration * dt, +max_bank_acceleration * dt]`
-- Shaped angle always finite and in `[-pi, pi]`
+- Shaped angle always finite
 
 **Integration/E2E:** Existing golden configs with `[guidance.command_shaping]` added -- verify no NaN/divergence. Golden files unchanged (shaping disabled by default).
 
