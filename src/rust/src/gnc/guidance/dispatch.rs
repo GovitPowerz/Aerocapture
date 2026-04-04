@@ -419,6 +419,14 @@ mod tests {
         }
     }
 
+    fn test_sim_data_with_shaping(max_bank_acceleration_deg: f64) -> SimData {
+        let mut data = test_sim_data();
+        data.guidance.command_shaping = Some(crate::data::guidance_params::CommandShapingConfig {
+            max_bank_acceleration: max_bank_acceleration_deg.to_radians(),
+        });
+        data
+    }
+
     // ─── Deterministic tests ─────────────────────────────────────────────────
 
     /// guidance_step should return a finite bank angle for a typical MSR state
@@ -563,6 +571,264 @@ mod tests {
         );
     }
 
+    // ─── Command shaper tests ────────────────────────────────────────────────
+
+    /// Without shaping config, the legacy hard-clamp path fires and output is finite.
+    #[test]
+    fn shaper_disabled_matches_legacy_hardclamp() {
+        let nav = test_nav();
+        let data = test_sim_data(); // command_shaping = None
+        let planet = PlanetConfig::mars();
+        // Start at 0, target 90 deg — would saturate the rate
+        let realized = 0.0_f64;
+        let target = 90.0_f64.to_radians();
+        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+        state.bank_angle_realized = realized;
+
+        let out = guidance_step(
+            &nav,
+            realized,
+            0.0,
+            target,
+            &mut state,
+            &data,
+            &planet,
+            true, // reference mode: sets bank_angle_commanded = target before shaping
+            GuidanceType::Ftc,
+        );
+
+        assert!(
+            out.bank_angle_commanded.is_finite(),
+            "legacy path must produce finite output"
+        );
+    }
+
+    /// Shaper uses bank_angle_realized (pilot lag) as the baseline, not a stale commanded value.
+    #[test]
+    fn realized_baseline_detects_pilot_lag() {
+        let nav = test_nav();
+        let data = test_sim_data_with_shaping(30.0); // plenty of accel
+        let planet = PlanetConfig::mars();
+        let realized = 5.0_f64.to_radians();
+        let target = 10.0_f64.to_radians();
+        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+        state.bank_angle_realized = realized;
+
+        let out = guidance_step(
+            &nav,
+            realized, // pilot_bank_angle = realized
+            0.0,
+            target,
+            &mut state,
+            &data,
+            &planet,
+            true, // reference mode
+            GuidanceType::Ftc,
+        );
+
+        assert!(out.bank_angle_commanded.is_finite());
+        // Commanded should be > realized (moving toward target)
+        assert!(
+            out.bank_angle_commanded > realized - 1e-9,
+            "commanded ({}) should be >= realized ({})",
+            out.bank_angle_commanded,
+            realized
+        );
+    }
+
+    /// With 5 deg/s^2 acceleration and 0->90 deg step, shaped_rate stays near 5 deg/s after 1 tick.
+    #[test]
+    fn shaper_acceleration_limits_large_step() {
+        let nav = test_nav();
+        let data = test_sim_data_with_shaping(5.0);
+        let planet = PlanetConfig::mars();
+        let realized = 0.0_f64;
+        let target = 90.0_f64.to_radians();
+        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+        state.bank_angle_realized = realized;
+
+        let out = guidance_step(
+            &nav,
+            realized,
+            0.0,
+            target,
+            &mut state,
+            &data,
+            &planet,
+            true,
+            GuidanceType::Ftc,
+        );
+
+        let guidance_period = 1.0_f64; // TimePeriods::default()
+        let expected_rate = 5.0_f64.to_radians(); // max_accel * dt, starting from 0
+        assert!(
+            (out.bank_rate - expected_rate).abs() < 1e-9,
+            "shaped_rate should be ~5 deg/s, got {:.4} deg/s",
+            out.bank_rate.to_degrees()
+        );
+        // Rate-limited by acceleration, so saturation flag should be set
+        assert_eq!(out.rate_saturated, 1, "rate_saturated should be 1");
+        // Commanded angle = realized + shaped_rate * dt
+        let expected_commanded = realized + expected_rate * guidance_period;
+        assert!(
+            (out.bank_angle_commanded - expected_commanded).abs() < 1e-9,
+            "commanded should be {:.4} rad, got {:.4} rad",
+            expected_commanded,
+            out.bank_angle_commanded
+        );
+    }
+
+    /// With very high acceleration (100 deg/s^2), shaped_rate is capped at max_bank_rate (15 deg/s).
+    #[test]
+    fn shaper_rate_capped_by_max_bank_rate() {
+        let nav = test_nav();
+        let data = test_sim_data_with_shaping(100.0); // accel >> max_rate
+        let planet = PlanetConfig::mars();
+        let realized = 0.0_f64;
+        let target = 90.0_f64.to_radians();
+        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+        state.bank_angle_realized = realized;
+
+        let out = guidance_step(
+            &nav,
+            realized,
+            0.0,
+            target,
+            &mut state,
+            &data,
+            &planet,
+            true,
+            GuidanceType::Ftc,
+        );
+
+        let max_bank_rate = 15.0_f64.to_radians();
+        assert!(
+            out.bank_rate.abs() <= max_bank_rate + 1e-10,
+            "shaped_rate ({:.4} deg/s) exceeds max_bank_rate (15 deg/s)",
+            out.bank_rate.to_degrees()
+        );
+        assert_eq!(out.rate_saturated, 1, "rate_saturated should be 1");
+    }
+
+    /// After reversing the commanded direction, shaped_rate should decelerate (not immediately flip).
+    #[test]
+    fn shaper_decelerates_before_reversal() {
+        let nav = test_nav();
+        let data = test_sim_data_with_shaping(5.0);
+        let planet = PlanetConfig::mars();
+        let realized = 0.0_f64;
+        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+        state.bank_angle_realized = realized;
+
+        // Tick 1: command +90 deg
+        let out1 = guidance_step(
+            &nav,
+            realized,
+            0.0,
+            90.0_f64.to_radians(),
+            &mut state,
+            &data,
+            &planet,
+            true,
+            GuidanceType::Ftc,
+        );
+        let rate_after_tick1 = out1.bank_rate;
+
+        // Tick 2: update realized to commanded position from tick 1, then reverse to -90 deg
+        let new_realized = out1.bank_angle_commanded;
+        state.bank_angle_realized = new_realized;
+
+        let out2 = guidance_step(
+            &nav,
+            new_realized,
+            1.0,
+            -90.0_f64.to_radians(),
+            &mut state,
+            &data,
+            &planet,
+            true,
+            GuidanceType::Ftc,
+        );
+        let rate_after_tick2 = out2.bank_rate;
+
+        // The shaper should be decelerating: |rate| after tick 2 < |rate| after tick 1
+        assert!(
+            rate_after_tick2.abs() < rate_after_tick1.abs(),
+            "shaped_rate should decelerate after reversal: tick1={:.4} deg/s, tick2={:.4} deg/s",
+            rate_after_tick1.to_degrees(),
+            rate_after_tick2.to_degrees()
+        );
+    }
+
+    /// From +170 deg to -170 deg: shaper should take the short path through +180.
+    #[test]
+    fn shaper_wraparound_shortest_path() {
+        let nav = test_nav();
+        let data = test_sim_data_with_shaping(100.0); // high accel so rate matters
+        let planet = PlanetConfig::mars();
+        let realized = 170.0_f64.to_radians();
+        let target = -170.0_f64.to_radians();
+        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+        state.bank_angle_realized = realized;
+
+        let out = guidance_step(
+            &nav,
+            realized,
+            0.0,
+            target,
+            &mut state,
+            &data,
+            &planet,
+            true,
+            GuidanceType::Ftc,
+        );
+
+        // Shortest path from +170 to -170 is +20 deg (through +180), so rate should be positive
+        assert!(
+            out.bank_rate > 0.0,
+            "rate should be positive (shortest path through +180), got {:.4} deg/s",
+            out.bank_rate.to_degrees()
+        );
+    }
+
+    /// Small correction (2 deg) with 5 deg/s^2 accel: no saturation, commanded ≈ target.
+    #[test]
+    fn shaper_small_correction_passes_through() {
+        let nav = test_nav();
+        let data = test_sim_data_with_shaping(5.0);
+        let planet = PlanetConfig::mars();
+        let realized = 60.0_f64.to_radians();
+        let target = 62.0_f64.to_radians();
+        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+        state.bank_angle_realized = realized;
+
+        let out = guidance_step(
+            &nav,
+            realized,
+            0.0,
+            target,
+            &mut state,
+            &data,
+            &planet,
+            true,
+            GuidanceType::Ftc,
+        );
+
+        // raw_rate = 2 deg/s; max_rate_delta = 5 deg/s*s * 1s = 5 deg/s > 2 => no accel saturation
+        // shaped_rate goes from 0 to 2 deg/s in one step; max_bank_rate=15 => no rate cap
+        assert_eq!(
+            out.rate_saturated, 0,
+            "small correction should not saturate"
+        );
+        // commanded should be close to target
+        assert!(
+            (out.bank_angle_commanded - target).abs() < 1e-9,
+            "commanded ({:.4} deg) should equal target ({:.4} deg)",
+            out.bank_angle_commanded.to_degrees(),
+            target.to_degrees()
+        );
+    }
+
     // ─── Property-based tests ────────────────────────────────────────────────
 
     mod prop {
@@ -617,6 +883,118 @@ mod tests {
                     "bank_angle_commanded = {} outside [-π, π]",
                     out.bank_angle_commanded
                 );
+            }
+
+            /// Shaped rate never exceeds max_bank_rate regardless of accel config.
+            #[test]
+            fn shaped_rate_bounded(
+                bank_deg in -180.0..180.0_f64,
+                target_deg in -180.0..180.0_f64,
+                accel_deg in 1.0..20.0_f64,
+            ) {
+                let data = test_sim_data_with_shaping(accel_deg);
+                let planet = PlanetConfig::mars();
+                let max_bank_rate = data.capsule.max_bank_rate;
+                let realized = bank_deg.to_radians();
+                let target = target_deg.to_radians();
+                let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+                state.bank_angle_realized = realized;
+                let nav = NavigationOutput {
+                    position_estimated: [PlanetConfig::mars().equatorial_radius + 50_000.0, 0.0, 0.0],
+                    velocity_estimated: [5000.0, -0.15, 0.6],
+                    acceleration_estimated: [50.0, -8.0],
+                    aero_coefficients: [1.269, -0.205],
+                    density_guidance: 0.001,
+                    density_exit: 1e-6,
+                    dynamic_pressure_estimated: 0.5 * 0.001 * 5000.0 * 5000.0,
+                    energy_estimated: -1e6,
+                    ..Default::default()
+                };
+
+                let out = guidance_step(
+                    &nav, realized, 0.0, target, &mut state, &data, &planet, true, GuidanceType::Ftc,
+                );
+
+                prop_assert!(
+                    out.bank_rate.abs() <= max_bank_rate + 1e-10,
+                    "shaped_rate ({}) exceeds max_bank_rate ({})",
+                    out.bank_rate, max_bank_rate
+                );
+            }
+
+            /// From shaped_rate=0, rate change after 1 tick is bounded by accel*dt.
+            #[test]
+            fn shaped_rate_change_bounded(
+                bank_deg in -180.0..180.0_f64,
+                target_deg in -180.0..180.0_f64,
+                accel_deg in 1.0..20.0_f64,
+            ) {
+                let data = test_sim_data_with_shaping(accel_deg);
+                let planet = PlanetConfig::mars();
+                let guidance_period = data.periods.guidance;
+                let max_rate_change = accel_deg.to_radians() * guidance_period;
+                let realized = bank_deg.to_radians();
+                let target = target_deg.to_radians();
+                let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+                state.bank_angle_realized = realized;
+                // shaped_rate starts at 0 (new state)
+                let nav = NavigationOutput {
+                    position_estimated: [PlanetConfig::mars().equatorial_radius + 50_000.0, 0.0, 0.0],
+                    velocity_estimated: [5000.0, -0.15, 0.6],
+                    acceleration_estimated: [50.0, -8.0],
+                    aero_coefficients: [1.269, -0.205],
+                    density_guidance: 0.001,
+                    density_exit: 1e-6,
+                    dynamic_pressure_estimated: 0.5 * 0.001 * 5000.0 * 5000.0,
+                    energy_estimated: -1e6,
+                    ..Default::default()
+                };
+
+                let out = guidance_step(
+                    &nav, realized, 0.0, target, &mut state, &data, &planet, true, GuidanceType::Ftc,
+                );
+
+                // |shaped_rate| <= |max_rate_change| (since starting at 0, capped by accel*dt)
+                // also capped by max_bank_rate but we only need the accel bound here
+                let effective_bound = max_rate_change.min(data.capsule.max_bank_rate);
+                prop_assert!(
+                    out.bank_rate.abs() <= effective_bound + 1e-10,
+                    "shaped_rate change ({}) exceeds accel*dt ({})",
+                    out.bank_rate.abs(), effective_bound
+                );
+            }
+
+            /// Shaper output is always finite for any starting angle, target, and accel config.
+            #[test]
+            fn shaped_output_always_finite(
+                bank_deg in -180.0..180.0_f64,
+                target_deg in -180.0..180.0_f64,
+                accel_deg in 1.0..20.0_f64,
+            ) {
+                let data = test_sim_data_with_shaping(accel_deg);
+                let planet = PlanetConfig::mars();
+                let realized = bank_deg.to_radians();
+                let target = target_deg.to_radians();
+                let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+                state.bank_angle_realized = realized;
+                let nav = NavigationOutput {
+                    position_estimated: [PlanetConfig::mars().equatorial_radius + 50_000.0, 0.0, 0.0],
+                    velocity_estimated: [5000.0, -0.15, 0.6],
+                    acceleration_estimated: [50.0, -8.0],
+                    aero_coefficients: [1.269, -0.205],
+                    density_guidance: 0.001,
+                    density_exit: 1e-6,
+                    dynamic_pressure_estimated: 0.5 * 0.001 * 5000.0 * 5000.0,
+                    energy_estimated: -1e6,
+                    ..Default::default()
+                };
+
+                let out = guidance_step(
+                    &nav, realized, 0.0, target, &mut state, &data, &planet, true, GuidanceType::Ftc,
+                );
+
+                prop_assert!(out.bank_angle_commanded.is_finite(), "bank_angle_commanded is not finite");
+                prop_assert!(out.bank_rate.is_finite(), "bank_rate is not finite");
             }
         }
     }
