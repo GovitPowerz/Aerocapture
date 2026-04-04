@@ -12,15 +12,28 @@ use crate::gnc::guidance::{
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
 use crate::gnc::navigation::estimator::NavigationOutput;
 
+/// Acceleration-limited command shaper state.
+#[derive(Debug, Clone, Copy)]
+pub struct CommandShaper {
+    pub shaped_rate: f64, // current shaped bank rate (rad/s)
+}
+
+impl CommandShaper {
+    pub fn new() -> Self {
+        Self { shaped_rate: 0.0 }
+    }
+}
+
 /// Guidance dispatcher persistent state.
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct GuidanceState {
     // Bank angle command
     pub bank_angle_commanded: f64, // current commanded bank angle (rad)
-    pub bank_angle_previous: f64,  // previous commanded bank angle (rad)
-    pub pilot_bank_angle_previous: f64, // previous pilot bank angle (rad)
+    pub bank_angle_realized: f64,  // pilot-realized bank angle (rad)
+    pub pilot_bank_angle_realized: f64, // previous pilot bank angle (rad)
     pub aoa_commanded: f64,        // commanded AoA (rad)
+    pub command_shaper: CommandShaper,
 
     // Roll sign and reversal tracking
     pub lateral_state: LateralState,
@@ -46,9 +59,10 @@ impl GuidanceState {
     pub fn new(initial_bank: f64, initial_aoa: f64) -> Self {
         Self {
             bank_angle_commanded: initial_bank,
-            bank_angle_previous: initial_bank,
-            pilot_bank_angle_previous: initial_bank,
+            bank_angle_realized: initial_bank,
+            pilot_bank_angle_realized: initial_bank,
             aoa_commanded: initial_aoa,
+            command_shaper: CommandShaper::new(),
             lateral_state: LateralState::new(initial_bank),
             cumulative_bank_change: 0.0,
             longi_active: 1,
@@ -88,7 +102,8 @@ pub fn guidance_step(
 ) -> GuidanceOutput {
     let mut out = GuidanceOutput::default();
 
-    state.pilot_bank_angle_previous = pilot_bank_angle;
+    state.pilot_bank_angle_realized = pilot_bank_angle;
+    state.bank_angle_realized = pilot_bank_angle;
 
     // === Angle of attack guidance ===
     // proalf returns altitude as scheduling parameter
@@ -222,25 +237,51 @@ pub fn guidance_step(
         state.bank_angle_commanded = bank_angle_longitudinal * state.lateral_state.roll_sign;
     }
 
-    // === Roll rate saturation (wrap-aware) ===
+    // === Roll rate / acceleration shaping (wrap-aware) ===
     let max_bank_rate = data.capsule.max_bank_rate;
     let guidance_period = data.periods.guidance;
-    let angle_diff = shortest_angle_diff(state.bank_angle_previous, state.bank_angle_commanded);
-    let bank_rate = angle_diff / guidance_period;
+    // Use pilot-realized angle as baseline (feedback fix)
+    let angle_diff = shortest_angle_diff(state.bank_angle_realized, state.bank_angle_commanded);
+    let raw_rate = angle_diff / guidance_period;
     let mut rate_saturated = 0;
 
-    if bank_rate.abs() - max_bank_rate > 1e-10 {
-        rate_saturated = 1;
+    let bank_rate;
+    if let Some(ref shaping) = data.guidance.command_shaping {
+        // S-curve command shaper: acceleration-limited rate
+        let rate_delta = raw_rate - state.command_shaper.shaped_rate;
+        let max_rate_delta = shaping.max_bank_acceleration * guidance_period;
+        let clamped_delta = rate_delta.clamp(-max_rate_delta, max_rate_delta);
+        state.command_shaper.shaped_rate += clamped_delta;
+        state.command_shaper.shaped_rate = state
+            .command_shaper
+            .shaped_rate
+            .clamp(-max_bank_rate, max_bank_rate);
+
+        if clamped_delta.abs() < rate_delta.abs() - 1e-10
+            || state.command_shaper.shaped_rate.abs() >= max_bank_rate - 1e-10
+        {
+            rate_saturated = 1;
+        }
+
         state.bank_angle_commanded =
-            state.bank_angle_previous + max_bank_rate.copysign(angle_diff) * guidance_period;
+            state.bank_angle_realized + state.command_shaper.shaped_rate * guidance_period;
+        bank_rate = state.command_shaper.shaped_rate;
+    } else {
+        // Legacy hard-clamp (backward compatible when shaping absent)
+        bank_rate = raw_rate;
+        if raw_rate.abs() - max_bank_rate > 1e-10 {
+            rate_saturated = 1;
+            state.bank_angle_commanded =
+                state.bank_angle_realized + max_bank_rate.copysign(angle_diff) * guidance_period;
+        }
     }
 
     // Cumulative bank angle tracking (shortest path)
-    if bank_rate.abs() > 1e-10 {
-        state.cumulative_bank_change += angle_diff.abs();
+    let cumulative_diff =
+        shortest_angle_diff(state.bank_angle_realized, state.bank_angle_commanded);
+    if cumulative_diff.abs() > 1e-10 {
+        state.cumulative_bank_change += cumulative_diff.abs();
     }
-
-    state.bank_angle_previous = state.bank_angle_commanded;
 
     out.bank_angle_commanded = state.bank_angle_commanded;
     out.bank_rate = bank_rate;
@@ -427,8 +468,8 @@ mod tests {
         let planet = PlanetConfig::mars();
         let reference_bank_angle = 45.0_f64.to_radians();
         let mut state = GuidanceState::new(reference_bank_angle, -0.48_f64.to_radians());
-        // Prime bank_angle_previous so rate saturation doesn't shift the value
-        state.bank_angle_previous = reference_bank_angle;
+        // Prime bank_angle_realized so rate saturation doesn't shift the value
+        state.bank_angle_realized = reference_bank_angle;
 
         let out = guidance_step(
             &nav,
@@ -493,7 +534,7 @@ mod tests {
         let planet = PlanetConfig::mars();
         let reference_bank_angle = 30.0_f64.to_radians();
         let mut state = GuidanceState::new(reference_bank_angle, -0.48_f64.to_radians());
-        state.bank_angle_previous = reference_bank_angle;
+        state.bank_angle_realized = reference_bank_angle;
 
         let out = guidance_step(
             &nav,

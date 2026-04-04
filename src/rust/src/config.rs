@@ -339,6 +339,9 @@ pub struct TomlGuidance {
     /// Thermal safety limiter parameters (shared by unsigned-magnitude schemes)
     #[serde(default)]
     pub thermal_limiter: Option<TomlThermalLimiterParams>,
+    /// Command shaping parameters (acceleration-limited rate shaping)
+    #[serde(default)]
+    pub command_shaping: Option<TomlCommandShapingParams>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -811,6 +814,13 @@ pub struct TomlThermalLimiterParams {
     pub heat_flux_ramp_exponent: f64,
     #[serde(default = "default_one")]
     pub heat_load_ramp_exponent: f64,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlCommandShapingParams {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub max_bank_acceleration: f64, // deg/s^2 (converted to rad/s^2 at load time)
 }
 
 // ─── Domain-based Monte Carlo TOML structs ───
