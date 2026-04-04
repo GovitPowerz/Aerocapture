@@ -29,7 +29,7 @@ from aerocapture.training.evaluate import (
     write_nn_json,
 )
 from aerocapture.training.migration import migrate
-from aerocapture.training.population import create_initial_population
+from aerocapture.training.population import create_initial_population, encode_params_to_chromosome
 from aerocapture.training.seed_pool import SeedPool
 from aerocapture.training.weight_stats import compute_weight_stats
 
@@ -37,6 +37,49 @@ from aerocapture.training.weight_stats import compute_weight_stats
 # 0° = full lift-up (hyperbolic boundary), 180° = full lift-down (crash boundary).
 # Only magnitude affects energy-vs-pdyn corridor; sign only affects lateral track.
 _SENTINEL_BANK_ANGLES = [0, 18, 36, 54, 72, 90, 108, 126, 144, 162, 180]
+
+
+def _pad_chromosomes_if_needed(
+    populations: list[npt.NDArray[np.int8]],
+    best_chrom: npt.NDArray[np.int8] | None,
+    config: TrainingConfig,
+) -> tuple[list[npt.NDArray[np.int8]], npt.NDArray[np.int8] | None]:
+    """Pad checkpoint chromosomes when param space has grown since the checkpoint was saved.
+
+    New params are encoded at their default values. Returns (populations, best_chrom) unchanged
+    if no padding is needed.
+    """
+    if config.guidance_type == "neural_network":
+        return populations, best_chrom
+
+    from aerocapture.training.param_spaces import PARAM_SPACES
+
+    specs = PARAM_SPACES[config.guidance_type]
+    expected_len = len(specs) * config.ga.n_bit
+    current_len = populations[0].shape[1] if populations else 0
+
+    if current_len == expected_len:
+        return populations, best_chrom
+    if current_len > expected_len:
+        print(f"  WARNING: checkpoint chromosome length ({current_len}) > expected ({expected_len}), cannot shrink", file=sys.stderr)
+        return populations, best_chrom
+
+    # Encode default values for ALL params, then take the trailing bits for new params
+    default_chrom = encode_params_to_chromosome({}, config)
+    pad_bits = default_chrom[current_len:]
+    n_new_params = (expected_len - current_len) // config.ga.n_bit
+    print(f"  Padding checkpoint chromosomes: {current_len} -> {expected_len} bits (+{n_new_params} new params, defaults applied)")
+
+    padded_pops = []
+    for pop in populations:
+        pad = np.tile(pad_bits, (pop.shape[0], 1))
+        padded_pops.append(np.hstack([pop, pad]))
+
+    padded_best = None
+    if best_chrom is not None:
+        padded_best = np.concatenate([best_chrom, pad_bits])
+
+    return padded_pops, padded_best
 
 
 def roulette_selection(
@@ -358,6 +401,10 @@ def train(
             except Exception as e:
                 if verbose:
                     print(f"Could not load seed weights: {e}")
+
+    # Pad checkpoint chromosomes if param space has grown since checkpoint was saved
+    if resumed is not None:
+        resumed["populations"], resumed["best_chromosome"] = _pad_chromosomes_if_needed(resumed["populations"], resumed["best_chromosome"], config)
 
     best_overall_cost = resumed["best_cost"] if resumed else np.inf
     best_overall_chrom = resumed["best_chromosome"] if resumed else None
