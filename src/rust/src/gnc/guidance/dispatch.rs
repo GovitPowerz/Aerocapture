@@ -600,6 +600,51 @@ mod tests {
         );
     }
 
+    /// `enabled = false` at config layer produces `command_shaping = None` at runtime.
+    /// This test verifies that `None` (the output of that conversion) triggers the legacy
+    /// hard-clamp path: rate clamped to max_bank_rate, `rate_saturated = 1`, shaped_rate untouched.
+    #[test]
+    fn shaper_config_disabled_uses_legacy_hardclamp() {
+        let nav = test_nav();
+        let data = test_sim_data(); // command_shaping = None (simulates enabled=false)
+        let planet = PlanetConfig::mars();
+
+        let mut state = GuidanceState::new(0.0, -0.48_f64.to_radians());
+        state.bank_angle_realized = 0.0;
+
+        // 0 -> 90 deg step in reference mode; raw_rate = 90 deg/s >> max_bank_rate (15 deg/s)
+        let out = guidance_step(
+            &nav,
+            0.0,
+            0.0,
+            90.0_f64.to_radians(),
+            &mut state,
+            &data,
+            &planet,
+            true,
+            GuidanceType::Ftc,
+        );
+
+        let max_bank_rate = data.capsule.max_bank_rate;
+        let guidance_period = data.periods.guidance;
+        let expected = max_bank_rate * guidance_period;
+
+        assert!(
+            (out.bank_angle_commanded - expected).abs() < 1e-10,
+            "legacy clamp: expected {:.6} rad ({:.4} deg), got {:.6} rad ({:.4} deg)",
+            expected,
+            expected.to_degrees(),
+            out.bank_angle_commanded,
+            out.bank_angle_commanded.to_degrees(),
+        );
+        assert_eq!(out.rate_saturated, 1, "rate_saturated should be 1");
+        assert!(
+            state.command_shaper.shaped_rate.abs() < 1e-10,
+            "shaped_rate should remain 0 when shaping is disabled (enabled=false), got {:.2e}",
+            state.command_shaper.shaped_rate
+        );
+    }
+
     /// Shaper uses bank_angle_realized (pilot lag) as the baseline, not a stale commanded value.
     #[test]
     fn realized_baseline_detects_pilot_lag() {
