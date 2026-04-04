@@ -13,7 +13,7 @@ use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy}
 use crate::gnc::navigation::estimator::NavigationOutput;
 
 /// Acceleration-limited command shaper state.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct CommandShaper {
     pub shaped_rate: f64, // current shaped bank rate (rad/s)
 }

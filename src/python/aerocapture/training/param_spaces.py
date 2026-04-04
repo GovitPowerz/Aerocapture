@@ -49,6 +49,12 @@ _THERMAL_LIMITER_PARAMS: list[ParamSpec] = [
     ParamSpec("thermal.heat_load_ramp_exponent", 0.5, 3.0, 1.0),
 ]
 
+# Command shaping params shared by all schemes.
+# Prefixed with "shaping." so evaluate.py routes them to [guidance.command_shaping] in TOML.
+_SHAPING_PARAMS: list[ParamSpec] = [
+    ParamSpec("shaping.max_bank_acceleration", 2.0, 15.0, 5.0),  # deg/s^2
+]
+
 # Navigation density filter params shared by all unsigned-magnitude schemes.
 # Prefixed with "nav." so evaluate.py routes them to [guidance.ftc] in TOML
 # (density filter config lives in the FTC TOML section but affects all schemes).
@@ -71,6 +77,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
         *_THERMAL_LIMITER_PARAMS,
+        *_SHAPING_PARAMS,
     ],
     "energy_controller": [
         ParamSpec("gain", 1e-8, 1e-5, 5e-7, log_scale=True),
@@ -80,6 +87,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
         *_THERMAL_LIMITER_PARAMS,
+        *_SHAPING_PARAMS,
     ],
     "pred_guid": [
         ParamSpec("k_drag_high", 0.1, 3.0, 0.8),
@@ -89,6 +97,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
         *_THERMAL_LIMITER_PARAMS,
+        *_SHAPING_PARAMS,
     ],
     "fnpag": [
         ParamSpec("energy_tol", 1e2, 1e5, 1e4, log_scale=True),
@@ -100,6 +109,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
         *_THERMAL_LIMITER_PARAMS,
+        *_SHAPING_PARAMS,
     ],
     "ftc": [
         ParamSpec("capture_damping", 0.3, 1.5, 0.7),
@@ -115,6 +125,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         *_LATERAL_PARAMS,
         *_EXIT_PARAMS,
         *_THERMAL_LIMITER_PARAMS,
+        *_SHAPING_PARAMS,
     ],
     "piecewise_constant": [
         ParamSpec("bank_angle_0", -180.0, 180.0, 65.0),
@@ -127,6 +138,7 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         ParamSpec("bank_angle_7", -180.0, 180.0, 65.0),
         ParamSpec("bank_angle_8", -180.0, 180.0, 65.0),
         ParamSpec("bank_angle_9", -180.0, 180.0, 65.0),
+        *_SHAPING_PARAMS,
     ],
 }
 

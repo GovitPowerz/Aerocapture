@@ -363,10 +363,15 @@ def write_guidance_toml(
     exit_params = {k.removeprefix("exit."): v for k, v in params.items() if k.startswith("exit.")}
     nav_params = {k.removeprefix("nav."): v for k, v in params.items() if k.startswith("nav.")}
     thermal_params = {k.removeprefix("thermal."): v for k, v in params.items() if k.startswith("thermal.")}
+    shaping_params = {k.removeprefix("shaping."): v for k, v in params.items() if k.startswith("shaping.")}
     scheme_params = {
         k: v
         for k, v in params.items()
-        if not k.startswith("lateral.") and not k.startswith("exit.") and not k.startswith("nav.") and not k.startswith("thermal.")
+        if not k.startswith("lateral.")
+        and not k.startswith("exit.")
+        and not k.startswith("nav.")
+        and not k.startswith("thermal.")
+        and not k.startswith("shaping.")
     }
 
     # Round max_reversals to integer
@@ -393,6 +398,11 @@ def write_guidance_toml(
     # Merge thermal limiter params into [guidance.thermal_limiter]
     if thermal_params:
         toml_data["guidance"].setdefault("thermal_limiter", {}).update(thermal_params)
+
+    # Merge command shaping params into [guidance.command_shaping]
+    if shaping_params:
+        toml_data["guidance"].setdefault("command_shaping", {}).update(shaping_params)
+        toml_data["guidance"]["command_shaping"].setdefault("enabled", True)
 
     if mc_seed is not None:
         toml_data.setdefault("monte_carlo", {})["seed"] = mc_seed

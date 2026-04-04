@@ -46,3 +46,8 @@ dv_threshold = 1000.0
 g_load_weight = 1000.0
 heat_flux_weight = 1000.0
 heat_load_weight = 1000.0
+
+# ── Command shaping (acceleration-limited rate shaping) ──
+[guidance.command_shaping]
+enabled = true
+max_bank_acceleration = 5.0  # deg/s^2 (GA range: 2-15)
