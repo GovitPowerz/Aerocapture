@@ -632,7 +632,7 @@ mod tests {
         nav_equator.velocity_estimated[1] = -0.05; // shallow FPA
 
         // High-latitude entry (lat = 60 deg)
-        let mut nav_high_lat = nav_equator.clone();
+        let mut nav_high_lat = nav_equator;
         nav_high_lat.position_estimated[2] = 60.0_f64.to_radians();
 
         let mut state_eq = FnpagState::new(64.77_f64.to_radians());
