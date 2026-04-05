@@ -90,7 +90,7 @@ pub struct GuidanceOutput {
 pub fn guidance_step(
     nav: &NavigationOutput,
     pilot_bank_angle: f64, // pilot-realized bank angle
-    _sim_time: f64,
+    sim_time: f64,
     reference_bank_angle: f64, // reference bank angle (from config, rad)
     state: &mut GuidanceState,
     data: &SimData,
@@ -226,6 +226,7 @@ pub fn guidance_step(
             data.target_orbit.inclination,
             energy,
             bank_angle_longitudinal,
+            sim_time,
             planet,
         );
     }
@@ -369,9 +370,8 @@ mod tests {
                 lateral: LateralParams {
                     lateral_activation: -1e12, // disable lateral for simple tests
                     lateral_inhibition: -1e12,
-                    corridor_slope: 13080.458,
-                    corridor_intercept: 0.0,
                     max_reversals: 5,
+                    ..LateralParams::default()
                 },
                 density_filter_gain: 0.8,
                 exit_velocity_threshold: 4400.0,
