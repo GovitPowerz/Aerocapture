@@ -34,12 +34,7 @@ This document lists physics, GNC, and software improvements for the aerocapture 
 
 ## 5. Lateral Guidance
 
-### 5.1 Improved roll reversal logic
-
-The current roll sign management uses a velocity-dependent inclination error corridor: `i_max(V) = (V/corridor_slope)^4 + corridor_intercept`. This can cause unnecessary reversals.
-
-- **Improvement**: Predictive roll reversal that accounts for the remaining trajectory and total delta-inclination needed. Bank-angle-weighted heading error integration.
-- **Impact**: Fewer roll reversals = less propellant, less thermal exposure.
+*(5.1 Predictive roll reversal -- see Done section below.)*
 
 ---
 
@@ -134,6 +129,7 @@ Items completed and merged.
 | 4.1 FTC gain discontinuity fix | 2026-04-03 | Replaced altitude-dependent gain table (`compute_gains()`) with analytical exponential decay model + cosine fade. Gains smoothly taper to zero between `gain_fade_start_km` (80) and `gain_fade_end_km` (100). GA-optimizable params: `pressure_coeff_base`, `pressure_coeff_scale_height`, `gain_fade_start_km`, `gain_fade_end_km`. |
 | 4.2 FNPAG predictor fidelity | 2026-04-04 | Replaced planar 3-state Euler predictor with full 3D 6-DOF RK4 predictor. Adds J2/J3/J4 gravity via `gravity::gravity()`, Coriolis/centrifugal terms via `planet.omega`, and correct inertial exit energy via `total_energy()` (fixes ~30% systematic bias from using relative velocity). Uses onboard atmosphere model (no cheating). Zero lateral lift (roll sign unknown to predictor). Existing `FnpagParams` unchanged (GA-tunable `prediction_dt`, `energy_tol`, bank limits). |
 | 4.3 Bank angle rate/acceleration limits | 2026-04-04 | Dispatch-layer S-curve command shaper: uses pilot-realized bank angle as feedback baseline (not last commanded), applies acceleration-limited rate shaping (`max_bank_acceleration` in deg/s^2) producing trapezoidal rate profiles. Falls back to legacy hard-clamp when `[guidance.command_shaping]` absent. GA-optimizable via `shaping.` prefix. Also fixed pre-existing `nav.`/`thermal.` routing bug in `train.py` `_batch_eval`, and added checkpoint chromosome padding for backward compatibility when param space grows. |
+| 5.1 Predictive roll reversal | 2026-04-05 | Replaced reactive corridor-based lateral guidance (`(V/slope)^4 + intercept`) with first-order inclination projection. Algorithm projects inclination error forward by `tau` seconds using finite-difference rate estimation and reverses only when projected error exceeds `threshold`. Anti-chatter `min_reversal_interval` prevents rapid re-triggering. `[guidance.lateral]` params: `tau` (s), `threshold` (deg), `min_reversal_interval` (s), `lateral_activation`/`lateral_inhibition` (MJ/kg), `max_reversals`. GA-optimizable for all 5 unsigned-magnitude schemes. |
 
 ---
 
