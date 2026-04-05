@@ -198,15 +198,19 @@ mod tests {
 
     /// Helper: run two guidance ticks to seed the finite difference, then
     /// return a state ready for the third (decision) tick.
-    fn seeded_state(
-        params: &LateralParams,
-        target: f64,
-        t0: f64,
-        t1: f64,
-    ) -> (LateralState, f64) {
+    fn seeded_state(params: &LateralParams, target: f64, t0: f64, t1: f64) -> (LateralState, f64) {
         let mut state = LateralState::new(1.0);
         let nav = test_nav();
-        lateral_guidance(params, &mut state, &nav, target, -1e6, 1.0, t0, &PlanetConfig::mars());
+        lateral_guidance(
+            params,
+            &mut state,
+            &nav,
+            target,
+            -1e6,
+            1.0,
+            t0,
+            &PlanetConfig::mars(),
+        );
         assert!(state.prev_inclination_error.is_some());
         (state, t1)
     }
@@ -217,7 +221,14 @@ mod tests {
         let mut state = LateralState::new(1.0);
         let nav = test_nav();
         let reversed = lateral_guidance(
-            &params, &mut state, &nav, 10.0, -1e6, 1.0, 0.0, &PlanetConfig::mars(),
+            &params,
+            &mut state,
+            &nav,
+            10.0,
+            -1e6,
+            1.0,
+            0.0,
+            &PlanetConfig::mars(),
         );
         assert!(!reversed);
         assert_eq!(state.n_reversals, 0);
@@ -230,16 +241,19 @@ mod tests {
         let planet = PlanetConfig::mars();
         let nav = test_nav();
         let orbit = elements::from_spherical(
-            nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2],
-            nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2],
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
             &planet,
         );
         // Target inclination very close to actual: error ~ 0 < threshold
         let target = orbit.inclination + 0.001; // 0.001 rad < threshold 0.01
         let (mut state, time) = seeded_state(&params, target, 0.0, 1.0);
-        let reversed = lateral_guidance(
-            &params, &mut state, &nav, target, -1e6, 1.0, time, &planet,
-        );
+        let reversed =
+            lateral_guidance(&params, &mut state, &nav, target, -1e6, 1.0, time, &planet);
         assert!(!reversed);
         assert_eq!(state.n_reversals, 0);
     }
@@ -250,7 +264,14 @@ mod tests {
         let nav = test_nav();
         let (mut state, time) = seeded_state(&params, 10.0, 0.0, 1.0);
         let reversed = lateral_guidance(
-            &params, &mut state, &nav, 10.0, -1e6, 1.0, time, &PlanetConfig::mars(),
+            &params,
+            &mut state,
+            &nav,
+            10.0,
+            -1e6,
+            1.0,
+            time,
+            &PlanetConfig::mars(),
         );
         assert!(reversed);
         assert_eq!(state.roll_sign, -1.0); // positive error -> negative sign
@@ -264,7 +285,14 @@ mod tests {
         let (mut state, time) = seeded_state(&params, -10.0, 0.0, 1.0);
         state.roll_sign = -1.0; // start negative
         let reversed = lateral_guidance(
-            &params, &mut state, &nav, -10.0, -1e6, 1.0, time, &PlanetConfig::mars(),
+            &params,
+            &mut state,
+            &nav,
+            -10.0,
+            -1e6,
+            1.0,
+            time,
+            &PlanetConfig::mars(),
         );
         assert!(reversed);
         assert_eq!(state.roll_sign, 1.0); // negative error -> positive sign
@@ -278,21 +306,42 @@ mod tests {
         let (mut state, time) = seeded_state(&params, 10.0, 0.0, 1.0);
         // First reversal at t=1
         let r1 = lateral_guidance(
-            &params, &mut state, &nav, 10.0, -1e6, 1.0, time, &PlanetConfig::mars(),
+            &params,
+            &mut state,
+            &nav,
+            10.0,
+            -1e6,
+            1.0,
+            time,
+            &PlanetConfig::mars(),
         );
         assert!(r1);
         assert_eq!(state.last_reversal_time, 1.0);
 
         // Try second reversal at t=3 (only 2s after first, < 5s interval)
         let r2 = lateral_guidance(
-            &params, &mut state, &nav, -10.0, -1e6, 1.0, 3.0, &PlanetConfig::mars(),
+            &params,
+            &mut state,
+            &nav,
+            -10.0,
+            -1e6,
+            1.0,
+            3.0,
+            &PlanetConfig::mars(),
         );
         assert!(!r2);
         assert_eq!(state.n_reversals, 1);
 
         // Try at t=7 (6s after first reversal, > 5s interval)
         let r3 = lateral_guidance(
-            &params, &mut state, &nav, -10.0, -1e6, 1.0, 7.0, &PlanetConfig::mars(),
+            &params,
+            &mut state,
+            &nav,
+            -10.0,
+            -1e6,
+            1.0,
+            7.0,
+            &PlanetConfig::mars(),
         );
         assert!(r3);
         assert_eq!(state.n_reversals, 2);
@@ -308,14 +357,28 @@ mod tests {
         let nav = test_nav();
         let (mut state, time) = seeded_state(&params, 10.0, 0.0, 1.0);
         let r1 = lateral_guidance(
-            &params, &mut state, &nav, 10.0, -1e6, 1.0, time, &PlanetConfig::mars(),
+            &params,
+            &mut state,
+            &nav,
+            10.0,
+            -1e6,
+            1.0,
+            time,
+            &PlanetConfig::mars(),
         );
         assert!(r1);
         assert_eq!(state.n_reversals, 1);
 
         // Budget exhausted: second reversal blocked
         let r2 = lateral_guidance(
-            &params, &mut state, &nav, -10.0, -1e6, 1.0, 10.0, &PlanetConfig::mars(),
+            &params,
+            &mut state,
+            &nav,
+            -10.0,
+            -1e6,
+            1.0,
+            10.0,
+            &PlanetConfig::mars(),
         );
         assert!(!r2);
         assert_eq!(state.n_reversals, 1);
@@ -334,7 +397,14 @@ mod tests {
         let (mut state, time) = seeded_state(&active, 10.0, 0.0, 1.0);
         // Now call with narrow-window params and energy=1e6 (outside window)
         let reversed = lateral_guidance(
-            &params_narrow, &mut state, &nav, 10.0, 1e6, 1.0, time, &PlanetConfig::mars(),
+            &params_narrow,
+            &mut state,
+            &nav,
+            10.0,
+            1e6,
+            1.0,
+            time,
+            &PlanetConfig::mars(),
         );
         assert!(!reversed);
         assert_eq!(state.n_reversals, 0);
@@ -346,7 +416,14 @@ mod tests {
         let nav = test_nav();
         let (mut state, time) = seeded_state(&params, 10.0, 0.0, 1.0);
         let reversed = lateral_guidance(
-            &params, &mut state, &nav, 10.0, -1e6, 1e-15, time, &PlanetConfig::mars(),
+            &params,
+            &mut state,
+            &nav,
+            10.0,
+            -1e6,
+            1e-15,
+            time,
+            &PlanetConfig::mars(),
         );
         assert!(!reversed);
     }
@@ -357,7 +434,14 @@ mod tests {
         let nav = test_nav();
         let (mut state, time) = seeded_state(&params, 10.0, 0.0, 1.0);
         let reversed = lateral_guidance(
-            &params, &mut state, &nav, 10.0, -1e6, std::f64::consts::PI, time, &PlanetConfig::mars(),
+            &params,
+            &mut state,
+            &nav,
+            10.0,
+            -1e6,
+            std::f64::consts::PI,
+            time,
+            &PlanetConfig::mars(),
         );
         assert!(!reversed);
         assert_eq!(state.n_reversals, 0);
@@ -369,7 +453,14 @@ mod tests {
         let mut state = LateralState::new(1.0);
         let nav = test_nav();
         let reversed = lateral_guidance(
-            &params, &mut state, &nav, 10.0, -1e6, 1.0, 0.0, &PlanetConfig::mars(),
+            &params,
+            &mut state,
+            &nav,
+            10.0,
+            -1e6,
+            1.0,
+            0.0,
+            &PlanetConfig::mars(),
         );
         assert!(!reversed);
         assert_eq!(state.n_reversals, 0);
@@ -387,7 +478,14 @@ mod tests {
         // Positive error -> desired sign -1.0. Pre-set roll_sign = -1.0
         state.roll_sign = -1.0;
         let reversed = lateral_guidance(
-            &params, &mut state, &nav, 10.0, -1e6, 1.0, time, &PlanetConfig::mars(),
+            &params,
+            &mut state,
+            &nav,
+            10.0,
+            -1e6,
+            1.0,
+            time,
+            &PlanetConfig::mars(),
         );
         assert!(!reversed);
         assert_eq!(state.n_reversals, 0);
