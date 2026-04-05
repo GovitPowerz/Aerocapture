@@ -407,7 +407,7 @@ pub fn norm_ppf(p: f64) -> f64 {
         -3.969683028665376e1,
         2.209460984245205e2,
         -2.759285104469687e2,
-        1.383577518672690e2,
+        1.383_577_518_672_69e2,
         -3.066479806614716e1,
         2.506628277459239e0,
     ];
@@ -624,13 +624,31 @@ impl DispersionDraw {
     /// Deserialize all fields from a flat array in struct field order (inverse of `to_array()`).
     pub fn from_array(a: [f64; DISPERSION_DRAW_LEN]) -> Self {
         Self {
-            altitude: a[0], longitude: a[1], latitude: a[2], velocity: a[3],
-            flight_path: a[4], azimuth: a[5], density: a[6], drag_coeff: a[7],
-            lift_coeff: a[8], incidence: a[9], nav_altitude: a[10], nav_longitude: a[11],
-            nav_latitude: a[12], nav_velocity: a[13], nav_flight_path: a[14],
-            nav_azimuth: a[15], nav_drag_accel: a[16], mass: a[17], ref_area: a[18],
-            max_bank_rate: a[19], pilot_tau: a[20], pilot_damping: a[21],
-            pilot_frequency: a[22], filter_gain: a[23], wind_scale: a[24],
+            altitude: a[0],
+            longitude: a[1],
+            latitude: a[2],
+            velocity: a[3],
+            flight_path: a[4],
+            azimuth: a[5],
+            density: a[6],
+            drag_coeff: a[7],
+            lift_coeff: a[8],
+            incidence: a[9],
+            nav_altitude: a[10],
+            nav_longitude: a[11],
+            nav_latitude: a[12],
+            nav_velocity: a[13],
+            nav_flight_path: a[14],
+            nav_azimuth: a[15],
+            nav_drag_accel: a[16],
+            mass: a[17],
+            ref_area: a[18],
+            max_bank_rate: a[19],
+            pilot_tau: a[20],
+            pilot_damping: a[21],
+            pilot_frequency: a[22],
+            filter_gain: a[23],
+            wind_scale: a[24],
             wind_direction_bias: a[25],
         }
     }
@@ -647,23 +665,44 @@ impl DispersionConfig {
         // dims 0-5: initial state
         let (alt_sigma, lon_sigma, lat_sigma, vel_sigma, fpa_sigma, az_sigma) =
             if let Some(ref s) = self.initial_state {
-                (s.altitude * 1e3, s.longitude * DEG2RAD, s.latitude * DEG2RAD, s.velocity, s.flight_path * DEG2RAD, s.azimuth * DEG2RAD)
+                (
+                    s.altitude * 1e3,
+                    s.longitude * DEG2RAD,
+                    s.latitude * DEG2RAD,
+                    s.velocity,
+                    s.flight_path * DEG2RAD,
+                    s.azimuth * DEG2RAD,
+                )
             } else {
                 (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
             };
 
         // dim 6: atmosphere density
-        let atm_hw = self.atmosphere.as_ref().map(|s| s.density / 100.0).unwrap_or(0.0);
+        let atm_hw = self
+            .atmosphere
+            .as_ref()
+            .map(|s| s.density / 100.0)
+            .unwrap_or(0.0);
 
         // dims 7-9: aero drag, lift, incidence
-        let (drag_hw, lift_hw, inc_hw) = self.aerodynamics.as_ref()
+        let (drag_hw, lift_hw, inc_hw) = self
+            .aerodynamics
+            .as_ref()
             .map(|s| (s.drag / 100.0, s.lift / 100.0, s.incidence * DEG2RAD))
             .unwrap_or((0.0, 0.0, 0.0));
 
         // dims 10-16: navigation
         let (nav_alt, nav_lon, nav_lat, nav_vel, nav_fpa, nav_az, nav_drag) =
             if let Some(ref s) = self.navigation {
-                (s.altitude * 1e3, s.longitude * DEG2RAD, s.latitude * DEG2RAD, s.velocity, s.flight_path * DEG2RAD, s.azimuth * DEG2RAD, s.drag_accel)
+                (
+                    s.altitude * 1e3,
+                    s.longitude * DEG2RAD,
+                    s.latitude * DEG2RAD,
+                    s.velocity,
+                    s.flight_path * DEG2RAD,
+                    s.azimuth * DEG2RAD,
+                    s.drag_accel,
+                )
             } else {
                 (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
             };
@@ -672,22 +711,39 @@ impl DispersionConfig {
         let mass_hw = self.mass.as_ref().map(|s| s.mass / 100.0).unwrap_or(0.0);
 
         // dims 18-19: vehicle ref_area, max_bank_rate
-        let (area_hw, bank_rate_hw) = self.vehicle.as_ref()
+        let (area_hw, bank_rate_hw) = self
+            .vehicle
+            .as_ref()
             .map(|s| (s.ref_area / 100.0, s.max_bank_rate / 100.0))
             .unwrap_or((0.0, 0.0));
 
         // dims 20-22: pilot tau, damping, freq
-        let (tau_hw, damp_hw, freq_hw) = self.pilot.as_ref()
-            .map(|s| (s.time_constant / 100.0, s.damping / 100.0, s.frequency / 100.0))
+        let (tau_hw, damp_hw, freq_hw) = self
+            .pilot
+            .as_ref()
+            .map(|s| {
+                (
+                    s.time_constant / 100.0,
+                    s.damping / 100.0,
+                    s.frequency / 100.0,
+                )
+            })
             .unwrap_or((0.0, 0.0, 0.0));
 
         // dim 23: nav_filter (Gaussian)
-        let nav_filter_sigma = self.nav_filter.as_ref().map(|s| s.filter_gain).unwrap_or(0.0);
+        let nav_filter_sigma = self
+            .nav_filter
+            .as_ref()
+            .map(|s| s.filter_gain)
+            .unwrap_or(0.0);
 
         // dims 24-25: wind scale (UniformRange or Fixed), direction bias (Uniform or Fixed)
         let (wind_scale_tx, wind_dir_tx) = if let Some(ref w) = self.wind {
             (
-                DimTransform::UniformRange { min: w.scale_min, max: w.scale_max },
+                DimTransform::UniformRange {
+                    min: w.scale_min,
+                    max: w.scale_max,
+                },
                 unif(w.direction_bias_deg * DEG2RAD),
             )
         } else {
@@ -695,32 +751,32 @@ impl DispersionConfig {
         };
 
         [
-            gauss(alt_sigma),           // 0: altitude
-            gauss(lon_sigma),           // 1: longitude
-            gauss(lat_sigma),           // 2: latitude
-            gauss(vel_sigma),           // 3: velocity
-            gauss(fpa_sigma),           // 4: flight_path
-            gauss(az_sigma),            // 5: azimuth
-            unif(atm_hw),               // 6: density
-            unif(drag_hw),              // 7: drag_coeff
-            unif(lift_hw),              // 8: lift_coeff
-            unif(inc_hw),               // 9: incidence
-            gauss(nav_alt),             // 10: nav_altitude
-            gauss(nav_lon),             // 11: nav_longitude
-            gauss(nav_lat),             // 12: nav_latitude
-            gauss(nav_vel),             // 13: nav_velocity
-            gauss(nav_fpa),             // 14: nav_flight_path
-            gauss(nav_az),              // 15: nav_azimuth
-            gauss(nav_drag),            // 16: nav_drag_accel
-            unif(mass_hw),              // 17: mass
-            unif(area_hw),              // 18: ref_area
-            unif(bank_rate_hw),         // 19: max_bank_rate
-            unif(tau_hw),               // 20: pilot_tau
-            unif(damp_hw),              // 21: pilot_damping
-            unif(freq_hw),              // 22: pilot_frequency
-            gauss(nav_filter_sigma),    // 23: filter_gain
-            wind_scale_tx,              // 24: wind_scale
-            wind_dir_tx,                // 25: wind_direction_bias
+            gauss(alt_sigma),        // 0: altitude
+            gauss(lon_sigma),        // 1: longitude
+            gauss(lat_sigma),        // 2: latitude
+            gauss(vel_sigma),        // 3: velocity
+            gauss(fpa_sigma),        // 4: flight_path
+            gauss(az_sigma),         // 5: azimuth
+            unif(atm_hw),            // 6: density
+            unif(drag_hw),           // 7: drag_coeff
+            unif(lift_hw),           // 8: lift_coeff
+            unif(inc_hw),            // 9: incidence
+            gauss(nav_alt),          // 10: nav_altitude
+            gauss(nav_lon),          // 11: nav_longitude
+            gauss(nav_lat),          // 12: nav_latitude
+            gauss(nav_vel),          // 13: nav_velocity
+            gauss(nav_fpa),          // 14: nav_flight_path
+            gauss(nav_az),           // 15: nav_azimuth
+            gauss(nav_drag),         // 16: nav_drag_accel
+            unif(mass_hw),           // 17: mass
+            unif(area_hw),           // 18: ref_area
+            unif(bank_rate_hw),      // 19: max_bank_rate
+            unif(tau_hw),            // 20: pilot_tau
+            unif(damp_hw),           // 21: pilot_damping
+            unif(freq_hw),           // 22: pilot_frequency
+            gauss(nav_filter_sigma), // 23: filter_gain
+            wind_scale_tx,           // 24: wind_scale
+            wind_dir_tx,             // 25: wind_direction_bias
         ]
     }
 
@@ -757,24 +813,22 @@ impl DispersionConfig {
     pub fn generate_sobol_unit_samples(&self, n: usize) -> Vec<[f64; DISPERSION_DRAW_LEN]> {
         let seed = self.seed as u32;
         (0..n)
-            .map(|i| {
-                let mut sample = [0.0f64; DISPERSION_DRAW_LEN];
-                for d in 0..DISPERSION_DRAW_LEN {
-                    sample[d] = sobol_burley::sample(i as u32, d as u32, seed) as f64;
-                }
-                sample
-            })
+            .map(|i| std::array::from_fn(|d| sobol_burley::sample(i as u32, d as u32, seed) as f64))
             .collect()
     }
 
     /// Map a slice of unit samples (each row is one sim, 26 dims in [0,1]) through the
     /// per-dimension transforms to produce `DispersionDraw` values.
-    fn draws_from_unit_samples(&self, unit_samples: &[[f64; DISPERSION_DRAW_LEN]]) -> Vec<DispersionDraw> {
+    fn draws_from_unit_samples(
+        &self,
+        unit_samples: &[[f64; DISPERSION_DRAW_LEN]],
+    ) -> Vec<DispersionDraw> {
         let transforms = self.build_dim_transforms();
         unit_samples
             .iter()
             .map(|row| {
-                let arr: [f64; DISPERSION_DRAW_LEN] = std::array::from_fn(|d| transforms[d].apply(row[d]));
+                let arr: [f64; DISPERSION_DRAW_LEN] =
+                    std::array::from_fn(|d| transforms[d].apply(row[d]));
                 DispersionDraw::from_array(arr)
             })
             .collect()
@@ -1367,13 +1421,31 @@ mod tests {
 
     #[test]
     fn test_sampling_method_parsing() {
-        assert_eq!(SamplingMethod::from_str("random").unwrap(), SamplingMethod::Random);
-        assert_eq!(SamplingMethod::from_str("lhs").unwrap(), SamplingMethod::Lhs);
-        assert_eq!(SamplingMethod::from_str("sobol").unwrap(), SamplingMethod::Sobol);
+        assert_eq!(
+            SamplingMethod::from_str("random").unwrap(),
+            SamplingMethod::Random
+        );
+        assert_eq!(
+            SamplingMethod::from_str("lhs").unwrap(),
+            SamplingMethod::Lhs
+        );
+        assert_eq!(
+            SamplingMethod::from_str("sobol").unwrap(),
+            SamplingMethod::Sobol
+        );
         // case-insensitive
-        assert_eq!(SamplingMethod::from_str("LHS").unwrap(), SamplingMethod::Lhs);
-        assert_eq!(SamplingMethod::from_str("Random").unwrap(), SamplingMethod::Random);
-        assert_eq!(SamplingMethod::from_str("SOBOL").unwrap(), SamplingMethod::Sobol);
+        assert_eq!(
+            SamplingMethod::from_str("LHS").unwrap(),
+            SamplingMethod::Lhs
+        );
+        assert_eq!(
+            SamplingMethod::from_str("Random").unwrap(),
+            SamplingMethod::Random
+        );
+        assert_eq!(
+            SamplingMethod::from_str("SOBOL").unwrap(),
+            SamplingMethod::Sobol
+        );
         // unknown string errors
         assert!(SamplingMethod::from_str("invalid").is_err());
         assert!(SamplingMethod::from_str("").is_err());
@@ -1445,9 +1517,15 @@ mod tests {
         let tol = 1e-6;
         assert!((norm_ppf(0.5) - 0.0).abs() < tol, "p=0.5 -> 0");
         assert!((norm_ppf(0.841344746) - 1.0).abs() < tol, "p=0.841 -> 1");
-        assert!((norm_ppf(0.158655254) - (-1.0)).abs() < tol, "p=0.159 -> -1");
+        assert!(
+            (norm_ppf(0.158655254) - (-1.0)).abs() < tol,
+            "p=0.159 -> -1"
+        );
         assert!((norm_ppf(0.977249868) - 2.0).abs() < tol, "p=0.977 -> 2");
-        assert!((norm_ppf(0.022750132) - (-2.0)).abs() < tol, "p=0.023 -> -2");
+        assert!(
+            (norm_ppf(0.022750132) - (-2.0)).abs() < tol,
+            "p=0.023 -> -2"
+        );
         assert!((norm_ppf(0.998650102) - 3.0).abs() < tol, "p~0.99865 -> 3");
     }
 
@@ -1504,12 +1582,26 @@ mod tests {
         let cfg = medium_config(42);
         let txs = cfg.build_dim_transforms();
         // dim 0 (altitude) should be Gaussian
-        assert!(matches!(txs[0], DimTransform::Gaussian { .. }), "dim 0 should be Gaussian");
+        assert!(
+            matches!(txs[0], DimTransform::Gaussian { .. }),
+            "dim 0 should be Gaussian"
+        );
         // dim 6 (density) should be Uniform
-        assert!(matches!(txs[6], DimTransform::Uniform { .. }), "dim 6 should be Uniform");
+        assert!(
+            matches!(txs[6], DimTransform::Uniform { .. }),
+            "dim 6 should be Uniform"
+        );
         // wind=None -> dim 24 = Fixed(1.0), dim 25 = Fixed(0.0)
-        assert_eq!(txs[24], DimTransform::Fixed(1.0), "dim 24 wind=None should be Fixed(1.0)");
-        assert_eq!(txs[25], DimTransform::Fixed(0.0), "dim 25 wind=None should be Fixed(0.0)");
+        assert_eq!(
+            txs[24],
+            DimTransform::Fixed(1.0),
+            "dim 24 wind=None should be Fixed(1.0)"
+        );
+        assert_eq!(
+            txs[25],
+            DimTransform::Fixed(0.0),
+            "dim 25 wind=None should be Fixed(0.0)"
+        );
     }
 
     // ── Task 3: LHS tests ──────────────────────────────────────────────────
@@ -1525,7 +1617,12 @@ mod tests {
             let mut stratum_counts = vec![0u32; n];
             for row in &samples {
                 let v = row[d];
-                assert!(v >= 0.0 && v < 1.0, "dim {} value {} out of [0,1)", d, v);
+                assert!(
+                    (0.0..1.0).contains(&v),
+                    "dim {} value {} out of [0,1)",
+                    d,
+                    v
+                );
                 let k = (v * n as f64) as usize;
                 stratum_counts[k] += 1;
             }
@@ -1559,7 +1656,12 @@ mod tests {
         assert_eq!(samples.len(), 1000);
         for row in &samples {
             for (d, &v) in row.iter().enumerate() {
-                assert!(v >= 0.0 && v <= 1.0, "dim {} value {} out of [0,1]", d, v);
+                assert!(
+                    (0.0..=1.0).contains(&v),
+                    "dim {} value {} out of [0,1]",
+                    d,
+                    v
+                );
             }
         }
     }
@@ -1579,10 +1681,14 @@ mod tests {
     fn test_sobol_different_seeds() {
         let a = medium_config(1).generate_sobol_unit_samples(50);
         let b = medium_config(2).generate_sobol_unit_samples(50);
-        let any_differ = a.iter().zip(b.iter()).any(|(ra, rb)| {
-            ra.iter().zip(rb.iter()).any(|(va, vb)| va != vb)
-        });
-        assert!(any_differ, "different seeds should produce different Sobol samples");
+        let any_differ = a
+            .iter()
+            .zip(b.iter())
+            .any(|(ra, rb)| ra.iter().zip(rb.iter()).any(|(va, vb)| va != vb));
+        assert!(
+            any_differ,
+            "different seeds should produce different Sobol samples"
+        );
     }
 
     // ── Task 5: generate_draws() dispatch + from_array() tests ────────────
@@ -1590,13 +1696,31 @@ mod tests {
     #[test]
     fn test_from_array_roundtrip() {
         let draw = DispersionDraw {
-            altitude: 1.0, longitude: 2.0, latitude: 3.0, velocity: 4.0,
-            flight_path: 5.0, azimuth: 6.0, density: 7.0, drag_coeff: 8.0,
-            lift_coeff: 9.0, incidence: 10.0, nav_altitude: 11.0, nav_longitude: 12.0,
-            nav_latitude: 13.0, nav_velocity: 14.0, nav_flight_path: 15.0,
-            nav_azimuth: 16.0, nav_drag_accel: 17.0, mass: 18.0, ref_area: 19.0,
-            max_bank_rate: 20.0, pilot_tau: 21.0, pilot_damping: 22.0,
-            pilot_frequency: 23.0, filter_gain: 24.0, wind_scale: 25.0,
+            altitude: 1.0,
+            longitude: 2.0,
+            latitude: 3.0,
+            velocity: 4.0,
+            flight_path: 5.0,
+            azimuth: 6.0,
+            density: 7.0,
+            drag_coeff: 8.0,
+            lift_coeff: 9.0,
+            incidence: 10.0,
+            nav_altitude: 11.0,
+            nav_longitude: 12.0,
+            nav_latitude: 13.0,
+            nav_velocity: 14.0,
+            nav_flight_path: 15.0,
+            nav_azimuth: 16.0,
+            nav_drag_accel: 17.0,
+            mass: 18.0,
+            ref_area: 19.0,
+            max_bank_rate: 20.0,
+            pilot_tau: 21.0,
+            pilot_damping: 22.0,
+            pilot_frequency: 23.0,
+            filter_gain: 24.0,
+            wind_scale: 25.0,
             wind_direction_bias: 26.0,
         };
         let arr = draw.to_array();
