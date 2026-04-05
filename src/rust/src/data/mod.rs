@@ -890,8 +890,15 @@ fn build_dispersion_config(
         None
     };
 
+    let sampling = if let Some(s) = &mc.sampling {
+        dispersions::SamplingMethod::from_str(s)?
+    } else {
+        dispersions::SamplingMethod::Random
+    };
+
     Ok(DispersionConfig {
         seed: mc.seed,
+        sampling,
         initial_state,
         atmosphere,
         aerodynamics,

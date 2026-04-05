@@ -38,6 +38,27 @@ impl DispersionLevel {
     }
 }
 
+/// Sampling method for Monte Carlo draws.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum SamplingMethod {
+    #[default]
+    Random,
+    Lhs,
+    Sobol,
+}
+
+impl SamplingMethod {
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Result<Self, DataError> {
+        match s.to_lowercase().as_str() {
+            "random" => Ok(SamplingMethod::Random),
+            "lhs" => Ok(SamplingMethod::Lhs),
+            "sobol" => Ok(SamplingMethod::Sobol),
+            _ => Err(DataError(format!("Unknown sampling method: '{}'", s))),
+        }
+    }
+}
+
 /// Initial state dispersion sigmas (Gaussian, 1-sigma).
 /// Calibrated from MSR/ESR/ATPE mission files.
 #[derive(Debug, Clone, Copy)]
@@ -396,6 +417,7 @@ pub fn step_density_perturbation(x: f64, dt: f64, tau: f64, sigma: f64, normal_s
 #[derive(Debug, Clone)]
 pub struct DispersionConfig {
     pub seed: u64,
+    pub sampling: SamplingMethod,
     pub initial_state: Option<InitialStateSigmas>,
     pub atmosphere: Option<AtmosphereSigmas>,
     pub aerodynamics: Option<AerodynamicsSigmas>,
@@ -627,6 +649,7 @@ mod tests {
     fn medium_config(seed: u64) -> DispersionConfig {
         DispersionConfig {
             seed,
+            sampling: SamplingMethod::Random,
             initial_state: Some(InitialStateSigmas::from_level(DispersionLevel::Medium)),
             atmosphere: Some(AtmosphereSigmas::from_level(DispersionLevel::Medium)),
             aerodynamics: Some(AerodynamicsSigmas::from_level(DispersionLevel::Medium)),
@@ -681,6 +704,7 @@ mod tests {
     fn test_all_none_gives_zeros() {
         let config = DispersionConfig {
             seed: 42,
+            sampling: SamplingMethod::Random,
             initial_state: None,
             atmosphere: None,
             aerodynamics: None,
@@ -792,6 +816,7 @@ mod tests {
     fn test_uniform_fields_bounded() {
         let config = DispersionConfig {
             seed: 12345,
+            sampling: SamplingMethod::Random,
             initial_state: None,
             atmosphere: Some(AtmosphereSigmas { density: 50.0 }),
             aerodynamics: Some(AerodynamicsSigmas {
@@ -874,6 +899,7 @@ mod tests {
     fn test_filter_gain_gaussian_range() {
         let config = DispersionConfig {
             seed: 54321,
+            sampling: SamplingMethod::Random,
             initial_state: None,
             atmosphere: None,
             aerodynamics: None,
@@ -1086,6 +1112,25 @@ mod tests {
             sigma * sigma,
             variance
         );
+    }
+
+    #[test]
+    fn test_sampling_method_parsing() {
+        assert_eq!(SamplingMethod::from_str("random").unwrap(), SamplingMethod::Random);
+        assert_eq!(SamplingMethod::from_str("lhs").unwrap(), SamplingMethod::Lhs);
+        assert_eq!(SamplingMethod::from_str("sobol").unwrap(), SamplingMethod::Sobol);
+        // case-insensitive
+        assert_eq!(SamplingMethod::from_str("LHS").unwrap(), SamplingMethod::Lhs);
+        assert_eq!(SamplingMethod::from_str("Random").unwrap(), SamplingMethod::Random);
+        assert_eq!(SamplingMethod::from_str("SOBOL").unwrap(), SamplingMethod::Sobol);
+        // unknown string errors
+        assert!(SamplingMethod::from_str("invalid").is_err());
+        assert!(SamplingMethod::from_str("").is_err());
+    }
+
+    #[test]
+    fn test_sampling_method_default_is_random() {
+        assert_eq!(SamplingMethod::default(), SamplingMethod::Random);
     }
 
     mod proptests {
