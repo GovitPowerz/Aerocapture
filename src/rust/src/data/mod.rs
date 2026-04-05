@@ -447,21 +447,15 @@ impl SimData {
                 exit_apoapsis_threshold: ftc.exit_apoapsis_threshold,
                 lateral: if let Some(ref lat) = toml.guidance.lateral {
                     LateralParams {
-                        corridor_slope: lat.corridor_slope,
-                        corridor_intercept: lat.corridor_intercept * DEG2RAD,
+                        tau: lat.tau,
+                        threshold: lat.threshold * DEG2RAD,
+                        min_reversal_interval: lat.min_reversal_interval,
                         lateral_activation: lat.lateral_activation * energy_scale,
                         lateral_inhibition: lat.lateral_inhibition * energy_scale,
                         max_reversals: lat.max_reversals,
                     }
                 } else {
-                    // Backward compat: read from FTC section if present
-                    LateralParams {
-                        corridor_slope: ftc.corridor_slope,
-                        corridor_intercept: ftc.corridor_intercept * DEG2RAD,
-                        lateral_activation: ftc.lateral_activation * energy_scale,
-                        lateral_inhibition: ftc.lateral_inhibition * energy_scale,
-                        max_reversals: ftc.max_reversals,
-                    }
+                    LateralParams::default()
                 },
                 security_capture: ftc.security_capture,
                 security_exit: ftc.security_exit,
@@ -529,14 +523,15 @@ impl SimData {
                 exit_apoapsis_threshold: 100.0,
                 lateral: if let Some(ref lat) = toml.guidance.lateral {
                     LateralParams {
-                        corridor_slope: lat.corridor_slope,
-                        corridor_intercept: lat.corridor_intercept * DEG2RAD,
+                        tau: lat.tau,
+                        threshold: lat.threshold * DEG2RAD,
+                        min_reversal_interval: lat.min_reversal_interval,
                         lateral_activation: lat.lateral_activation * 1e6,
                         lateral_inhibition: lat.lateral_inhibition * 1e6,
                         max_reversals: lat.max_reversals,
                     }
                 } else {
-                    // No lateral config — inactive by default (zero-width energy window)
+                    // No lateral config — inactive by default (tau=0 disables)
                     LateralParams::default()
                 },
                 security_capture: 1,

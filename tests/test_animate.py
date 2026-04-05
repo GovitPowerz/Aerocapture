@@ -77,10 +77,10 @@ class TestBuildOverrides:
     def test_lateral_params_go_to_lateral_section(self) -> None:
         from aerocapture.training.animate import _build_overrides
 
-        params = {"gain_kp": 0.5, "lateral.corridor_slope": 100.0}
+        params = {"gain_kp": 0.5, "lateral.tau": 15.0}
         overrides = _build_overrides("equilibrium_glide", params, n_sims=50)
-        assert overrides["guidance.lateral.corridor_slope"] == 100.0
-        assert "guidance.equilibrium_glide.lateral.corridor_slope" not in overrides
+        assert overrides["guidance.lateral.tau"] == 15.0
+        assert "guidance.equilibrium_glide.lateral.tau" not in overrides
 
 
 class TestComputeAxisRanges:

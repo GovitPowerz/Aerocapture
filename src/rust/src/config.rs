@@ -586,12 +586,6 @@ pub struct TomlFtcParams {
     pub exit_radial_vel_gain: f64, // Pa/(m/s)
     #[serde(default)]
     pub exit_apoapsis_threshold: f64, // m
-    #[serde(default)]
-    pub corridor_slope: f64, // m/s
-    #[serde(default)]
-    pub corridor_intercept: f64, // deg
-    #[serde(default = "default_five_i32")]
-    pub max_reversals: i32,
     #[serde(default = "default_one_i32")]
     pub security_capture: i32,
     #[serde(default = "default_three_i32")]
@@ -600,10 +594,6 @@ pub struct TomlFtcParams {
     pub longi_activation: f64, // MJ/kg
     #[serde(default = "default_longi_inh")]
     pub longi_inhibition: f64, // MJ/kg
-    #[serde(default)]
-    pub lateral_activation: f64, // MJ/kg
-    #[serde(default = "default_longi_act")]
-    pub lateral_inhibition: f64, // MJ/kg
     #[serde(default)]
     pub pdyn_min: f64, // Pa
     #[serde(default = "default_pressure_coeff_base")]
@@ -788,20 +778,18 @@ fn default_energy_max() -> f64 {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlLateralParams {
-    #[serde(default = "default_lateral_corridor_slope")]
-    pub corridor_slope: f64, // m/s
     #[serde(default)]
-    pub corridor_intercept: f64, // deg (converted to rad)
+    pub tau: f64, // s (0.0 = inactive)
+    #[serde(default)]
+    pub threshold: f64, // deg (converted to rad)
+    #[serde(default)]
+    pub min_reversal_interval: f64, // s
     #[serde(default = "default_five_i32")]
     pub max_reversals: i32,
     #[serde(default)]
     pub lateral_activation: f64, // MJ/kg
     #[serde(default)]
     pub lateral_inhibition: f64, // MJ/kg
-}
-
-fn default_lateral_corridor_slope() -> f64 {
-    13080.458
 }
 
 #[derive(Debug, Deserialize, Clone)]

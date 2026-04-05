@@ -33,11 +33,12 @@ _EXIT_PARAMS: list[ParamSpec] = [
 # Lateral guidance params shared by all unsigned-magnitude schemes.
 # Prefixed with "lateral." so evaluate.py routes them to [guidance.lateral] in TOML.
 _LATERAL_PARAMS: list[ParamSpec] = [
-    ParamSpec("lateral.corridor_slope", 5000.0, 20000.0, 13080.458),
-    ParamSpec("lateral.corridor_intercept", 0.0, 0.1, 0.0),
-    ParamSpec("lateral.lateral_activation", -5.0, -0.5, -2.5),
-    ParamSpec("lateral.lateral_inhibition", -10.0, -2.0, -8.0),
-    ParamSpec("lateral.max_reversals", 1.0, 10.0, 5.0),
+    ParamSpec("lateral.tau", 2.0, 60.0, 15.0),  # seconds
+    ParamSpec("lateral.threshold", 0.01, 2.0, 0.5),  # degrees (TOML units)
+    ParamSpec("lateral.min_reversal_interval", 1.0, 30.0, 5.0),  # seconds
+    ParamSpec("lateral.lateral_activation", -5.0, -0.5, -2.5),  # MJ/kg
+    ParamSpec("lateral.lateral_inhibition", -10.0, -2.0, -8.0),  # MJ/kg
+    ParamSpec("lateral.max_reversals", 1.0, 10.0, 5.0),  # integer
 ]
 
 # Thermal safety limiter params shared by all unsigned-magnitude schemes.
