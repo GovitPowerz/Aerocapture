@@ -197,9 +197,14 @@ print(f"Trajectories: {len(mc.trajectories)} arrays")   # list of (N, 17)
 # Batch run with per-sim overrides (parallel via Rayon)
 overrides = [{"guidance.equilibrium_glide.gain_kp": v} for v in [0.1, 0.5, 1.0]]
 batch = aero.run_batch("config.toml", overrides)
+
+# Run with pre-computed draws (e.g. SALib sensitivity matrices)
+draws = np.zeros((100, 26), dtype=np.float64)  # shape (N, 26)
+result = aero.run_with_draws("config.toml", draws)
+print(f"Dispersions roundtrip: {result.dispersions.shape}")  # (100, 26)
 ```
 
-Build with: `cd src/rust/aerocapture-py && maturin develop --release`
+Build with: `uv run maturin develop --release --manifest-path src/rust/aerocapture-py/Cargo.toml`
 
 The training pipeline auto-detects PyO3 and falls back to subprocess if not installed.
 

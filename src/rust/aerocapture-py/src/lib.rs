@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
+use numpy::{PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
 
@@ -184,6 +185,64 @@ fn run_batch(
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }
 
+/// Run simulations with pre-computed dispersion draws from Python.
+///
+/// Accepts a numpy array of shape (N, 26) where each row is a dispersion draw.
+/// Bypasses internal draw generation entirely -- use this when you need
+/// deterministic or specially-structured draws (e.g. SALib sensitivity matrices).
+///
+/// Args:
+///     toml_path: Path to the TOML config file.
+///     draws: numpy array of shape (N, 26), dtype float64. Each row is one draw.
+///     overrides: Optional dict of "dotted.key" -> value overrides applied to all runs.
+///     include_trajectories: If True, keep per-timestep trajectory data.
+///     sim_timeout_secs: Optional wall-clock timeout per simulation in seconds.
+///
+/// Returns:
+///     BatchResults with final_records (N, 52), dispersions (N, 26), captured (N,).
+#[pyfunction]
+#[pyo3(signature = (toml_path, draws, overrides=None, include_trajectories=false, sim_timeout_secs=None))]
+fn run_with_draws(
+    toml_path: &str,
+    draws: PyReadonlyArray2<'_, f64>,
+    overrides: Option<&Bound<'_, PyDict>>,
+    include_trajectories: bool,
+    sim_timeout_secs: Option<f64>,
+) -> PyResult<BatchResults> {
+    let shape = draws.shape();
+    if shape.len() != 2 || shape[1] != 26 {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "draws must have 26 columns (got shape {:?})",
+            shape
+        )));
+    }
+    let n_rows = shape[0];
+
+    let draw_vec: Vec<[f64; 26]> = (0..n_rows)
+        .map(|i| {
+            let mut row = [0.0f64; 26];
+            for j in 0..26 {
+                row[j] = *draws.get([i, j]).unwrap();
+            }
+            row
+        })
+        .collect();
+
+    let overrides = extract_overrides(overrides)?;
+    let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
+
+    let outputs = batch::run_with_external_draws(
+        std::path::Path::new(toml_path),
+        overrides,
+        draw_vec,
+        include_trajectories,
+        wall_timeout,
+    )
+    .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+
+    Ok(BatchResults::from_outputs(outputs, include_trajectories))
+}
+
 /// Load and return a TOML config file as a plain Python dict.
 ///
 /// Useful for inspecting or modifying config before passing overrides.
@@ -245,6 +304,7 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run, m)?)?;
     m.add_function(wrap_pyfunction!(run_mc, m)?)?;
     m.add_function(wrap_pyfunction!(run_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(run_with_draws, m)?)?;
     m.add_function(wrap_pyfunction!(load_config, m)?)?;
     Ok(())
 }

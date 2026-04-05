@@ -182,3 +182,25 @@ class TestFallback:
         result = _run_via_subprocess(config)
         assert result is not None, "Subprocess path failed"
         assert result.shape[1] == 52
+
+
+class TestRunWithDraws:
+    def test_run_with_draws_returns_batch_results(self) -> None:
+        draws = np.zeros((5, 26), dtype=np.float64)
+        draws[:, 24] = 1.0  # wind_scale = 1.0
+        result = aero.run_with_draws(GOLDEN_TOML, draws)
+        assert len(result) == 5
+        assert result.final_records.shape == (5, 52)
+
+    def test_run_with_draws_wrong_columns(self) -> None:
+        draws = np.zeros((5, 10), dtype=np.float64)
+        with pytest.raises(ValueError, match="26 columns"):
+            aero.run_with_draws(GOLDEN_TOML, draws)
+
+    def test_run_with_draws_dispersions_roundtrip(self) -> None:
+        draws = np.zeros((3, 26), dtype=np.float64)
+        draws[:, 24] = 1.0
+        draws[0, 3] = 5.0   # velocity offset
+        draws[1, 6] = 0.1   # density bias
+        result = aero.run_with_draws(GOLDEN_TOML, draws)
+        np.testing.assert_allclose(result.dispersions, draws, atol=1e-12)

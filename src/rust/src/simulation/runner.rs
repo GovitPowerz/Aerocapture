@@ -279,6 +279,90 @@ pub fn run_for_api(
         .collect())
 }
 
+/// Run simulation with pre-computed dispersion draws (no file I/O).
+///
+/// Accepts a `Vec<DispersionDraw>` from the caller instead of generating
+/// draws internally. Each draw maps to exactly one simulation run.
+/// Used by the PyO3 `run_with_draws()` binding for external sampling.
+pub fn run_for_api_with_draws(
+    config: &SimInput,
+    data: &SimData,
+    external_draws: Vec<crate::data::dispersions::DispersionDraw>,
+    include_trajectories: bool,
+    wall_timeout: Option<Duration>,
+) -> Result<Vec<crate::RunOutput>, SimError> {
+    let n = external_draws.len();
+    let is_mc = n > 1;
+
+    let run_states: Vec<(init::RunState, [f64; DISPERSION_DRAW_LEN])> = external_draws
+        .iter()
+        .map(|draw| (init::init_run_from_draw(data, draw), draw.to_array()))
+        .collect();
+
+    let results: Vec<SimResult> = if is_mc {
+        run_states
+            .par_iter()
+            .enumerate()
+            .map(|(idx, (run_state, disp_array))| {
+                let mut result =
+                    run_single(config, data, run_state, idx as i32, include_trajectories, wall_timeout)?;
+                result.dispersions = *disp_array;
+                Ok(result)
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    } else if n == 1 {
+        let (run_state, disp_array) = &run_states[0];
+        let mut result = run_single(config, data, run_state, 0, include_trajectories, wall_timeout)?;
+        result.dispersions = *disp_array;
+        vec![result]
+    } else {
+        return Ok(Vec::new());
+    };
+
+    Ok(results
+        .into_iter()
+        .map(|r| {
+            let energy = r.final_line[7];
+            let ecc = r.final_line[9];
+            let trajectory = if include_trajectories {
+                r.photo_lines
+                    .iter()
+                    .map(|p| {
+                        [
+                            p[1],        // [0]  alt_km
+                            p[2],        // [1]  lon_deg
+                            p[3],        // [2]  lat_deg
+                            p[4],        // [3]  vel_m_s
+                            p[5],        // [4]  fpa_deg
+                            p[6],        // [5]  heading_deg
+                            p[24],       // [6]  heat_flux_kw_m2
+                            p[0],        // [7]  time_s
+                            p[18] / 1e6, // [8]  energy_mj_kg
+                            p[19] / 1e3, // [9]  pdyn_kpa
+                            p[14],       // [10] bank_angle_deg
+                            p[9],        // [11] inclination_deg
+                            p[25],       // [12] g_load_g
+                            p[26],       // [13] nav_density_ratio
+                            p[27],       // [14] truth_density_kg_m3
+                            p[28],       // [15] heat_load_kj_m2
+                            p[29],       // [16] density_perturbation
+                        ]
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let ifinal_val = r.final_line[31] as i32;
+            crate::RunOutput {
+                trajectory,
+                final_record: r.final_line,
+                captured: ifinal_val == 3 && ecc < 1.0 && energy < 0.0,
+                dispersions: r.dispersions,
+            }
+        })
+        .collect())
+}
+
 /// Write output in CSV format with named headers and clean schema.
 fn write_csv_output(
     config: &SimInput,
