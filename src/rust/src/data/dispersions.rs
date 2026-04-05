@@ -620,6 +620,20 @@ impl DispersionDraw {
             self.wind_direction_bias,
         ]
     }
+
+    /// Deserialize all fields from a flat array in struct field order (inverse of `to_array()`).
+    pub fn from_array(a: [f64; DISPERSION_DRAW_LEN]) -> Self {
+        Self {
+            altitude: a[0], longitude: a[1], latitude: a[2], velocity: a[3],
+            flight_path: a[4], azimuth: a[5], density: a[6], drag_coeff: a[7],
+            lift_coeff: a[8], incidence: a[9], nav_altitude: a[10], nav_longitude: a[11],
+            nav_latitude: a[12], nav_velocity: a[13], nav_flight_path: a[14],
+            nav_azimuth: a[15], nav_drag_accel: a[16], mass: a[17], ref_area: a[18],
+            max_bank_rate: a[19], pilot_tau: a[20], pilot_damping: a[21],
+            pilot_frequency: a[22], filter_gain: a[23], wind_scale: a[24],
+            wind_direction_bias: a[25],
+        }
+    }
 }
 
 impl DispersionConfig {
@@ -753,13 +767,51 @@ impl DispersionConfig {
             .collect()
     }
 
+    /// Map a slice of unit samples (each row is one sim, 26 dims in [0,1]) through the
+    /// per-dimension transforms to produce `DispersionDraw` values.
+    fn draws_from_unit_samples(&self, unit_samples: &[[f64; DISPERSION_DRAW_LEN]]) -> Vec<DispersionDraw> {
+        let transforms = self.build_dim_transforms();
+        unit_samples
+            .iter()
+            .map(|row| {
+                let arr: [f64; DISPERSION_DRAW_LEN] = std::array::from_fn(|d| transforms[d].apply(row[d]));
+                DispersionDraw::from_array(arr)
+            })
+            .collect()
+    }
+
     /// Generate all dispersion draws for a batch of simulations.
+    ///
+    /// Dispatches to the configured sampling method:
+    /// - `Random`: seeded PRNG (backward-compatible, same seed = same draws)
+    /// - `Lhs`: Latin Hypercube Sampling via `generate_lhs_unit_samples`
+    /// - `Sobol`: Sobol quasi-random sequence (limited to 65536 samples)
+    pub fn generate_draws(&self, n_sims: usize) -> Vec<DispersionDraw> {
+        match self.sampling {
+            SamplingMethod::Random => self.generate_draws_random(n_sims),
+            SamplingMethod::Lhs => {
+                let unit_samples = self.generate_lhs_unit_samples(n_sims);
+                self.draws_from_unit_samples(&unit_samples)
+            }
+            SamplingMethod::Sobol => {
+                assert!(
+                    n_sims <= 65_536,
+                    "Sobol sampling limited to 65536 samples, got {}",
+                    n_sims,
+                );
+                let unit_samples = self.generate_sobol_unit_samples(n_sims);
+                self.draws_from_unit_samples(&unit_samples)
+            }
+        }
+    }
+
+    /// Random draw generation (legacy PRNG path). Used by `generate_draws` for `SamplingMethod::Random`.
     ///
     /// Uses a seeded RNG for reproducibility. Draw order:
     /// initial state (Gaussian), atmosphere (Uniform), aero (Uniform),
     /// nav (Gaussian), mass (Uniform), vehicle (Uniform), pilot (Uniform),
     /// nav_filter (Gaussian), wind (Uniform scale + Uniform direction bias).
-    pub fn generate_draws(&self, n_sims: usize) -> Vec<DispersionDraw> {
+    fn generate_draws_random(&self, n_sims: usize) -> Vec<DispersionDraw> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(self.seed);
         let normal = Normal::new(0.0, 1.0).unwrap();
         let uniform = Uniform::new(-1.0_f64, 1.0).unwrap();
@@ -1348,6 +1400,41 @@ mod tests {
                 let result = step_density_perturbation(x, dt, tau, sigma, z);
                 prop_assert!(result.is_finite(), "got {}", result);
             }
+
+            #[test]
+            fn all_sampling_methods_produce_finite_draws(
+                seed in 0u64..10_000,
+                n_sims in 1usize..200,
+                method_idx in 0u32..3,
+            ) {
+                let method = match method_idx {
+                    0 => SamplingMethod::Random,
+                    1 => SamplingMethod::Lhs,
+                    _ => SamplingMethod::Sobol,
+                };
+                let config = DispersionConfig {
+                    seed,
+                    sampling: method,
+                    initial_state: Some(InitialStateSigmas::from_level(DispersionLevel::Medium)),
+                    atmosphere: Some(AtmosphereSigmas::from_level(DispersionLevel::Medium)),
+                    aerodynamics: Some(AerodynamicsSigmas::from_level(DispersionLevel::Medium)),
+                    navigation: Some(NavigationSigmas::from_level(DispersionLevel::Medium)),
+                    mass: Some(MassSigmas::from_level(DispersionLevel::Medium)),
+                    vehicle: Some(VehicleSigmas::from_level(DispersionLevel::Medium)),
+                    pilot: Some(PilotSigmas::from_level(DispersionLevel::Medium)),
+                    nav_filter: Some(NavFilterSigmas::from_level(DispersionLevel::Medium)),
+                    wind: None,
+                    density_perturbation: None,
+                };
+                let draws = config.generate_draws(n_sims);
+                prop_assert_eq!(draws.len(), n_sims);
+                for draw in &draws {
+                    let arr = draw.to_array();
+                    for &val in &arr {
+                        prop_assert!(val.is_finite(), "non-finite draw value: {}", val);
+                    }
+                }
+            }
         }
     }
 
@@ -1496,5 +1583,61 @@ mod tests {
             ra.iter().zip(rb.iter()).any(|(va, vb)| va != vb)
         });
         assert!(any_differ, "different seeds should produce different Sobol samples");
+    }
+
+    // ── Task 5: generate_draws() dispatch + from_array() tests ────────────
+
+    #[test]
+    fn test_from_array_roundtrip() {
+        let draw = DispersionDraw {
+            altitude: 1.0, longitude: 2.0, latitude: 3.0, velocity: 4.0,
+            flight_path: 5.0, azimuth: 6.0, density: 7.0, drag_coeff: 8.0,
+            lift_coeff: 9.0, incidence: 10.0, nav_altitude: 11.0, nav_longitude: 12.0,
+            nav_latitude: 13.0, nav_velocity: 14.0, nav_flight_path: 15.0,
+            nav_azimuth: 16.0, nav_drag_accel: 17.0, mass: 18.0, ref_area: 19.0,
+            max_bank_rate: 20.0, pilot_tau: 21.0, pilot_damping: 22.0,
+            pilot_frequency: 23.0, filter_gain: 24.0, wind_scale: 25.0,
+            wind_direction_bias: 26.0,
+        };
+        let arr = draw.to_array();
+        let roundtrip = DispersionDraw::from_array(arr);
+        let arr2 = roundtrip.to_array();
+        assert_eq!(arr, arr2);
+    }
+
+    #[test]
+    fn test_generate_draws_lhs_produces_valid_draws() {
+        let mut config = medium_config(42);
+        config.sampling = SamplingMethod::Lhs;
+        let draws = config.generate_draws(100);
+        assert_eq!(draws.len(), 100);
+        for draw in &draws {
+            assert!(draw.altitude.is_finite());
+            assert!(draw.velocity.is_finite());
+            assert!(draw.density.is_finite());
+            assert!(draw.wind_scale.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_generate_draws_sobol_produces_valid_draws() {
+        let mut config = medium_config(42);
+        config.sampling = SamplingMethod::Sobol;
+        let draws = config.generate_draws(100);
+        assert_eq!(draws.len(), 100);
+        for draw in &draws {
+            assert!(draw.altitude.is_finite());
+            assert!(draw.velocity.is_finite());
+            assert!(draw.density.is_finite());
+            assert!(draw.wind_scale.is_finite());
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Sobol sampling limited to 65536")]
+    fn test_sobol_rejects_too_many_sims() {
+        let mut config = medium_config(42);
+        config.sampling = SamplingMethod::Sobol;
+        config.generate_draws(70_000);
     }
 }
