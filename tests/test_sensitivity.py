@@ -1,7 +1,13 @@
 """Tests for aerocapture.training.sensitivity module."""
+
 from __future__ import annotations
 
+import importlib.util as _importlib_util
+
 import pytest
+
+# Training TOML that has a [monte_carlo] section (via base inheritance from common.toml)
+_TRAINING_TOML = "configs/training/msr_aller_eqglide_train.toml"
 
 
 class TestBuildProblem:
@@ -95,12 +101,11 @@ class TestBuildProblem:
         assert bounds[10] == [0.0, 0.0]  # nav_altitude
         assert bounds[23] == [0.0, 0.0]  # filter_gain
         # All Uniform bounds should be [0, 0]
-        assert bounds[6] == [0.0, 0.0]   # density
-        assert bounds[7] == [0.0, 0.0]   # drag_coeff
+        assert bounds[6] == [0.0, 0.0]  # density
+        assert bounds[7] == [0.0, 0.0]  # drag_coeff
         assert bounds[17] == [0.0, 0.0]  # mass
 
     def test_build_problem_medium_level_nonzero_bounds(self) -> None:
-        import math
         from aerocapture.training.sensitivity import build_problem
 
         mc_config: dict[str, object] = {
@@ -158,6 +163,7 @@ class TestBuildProblem:
 
     def test_build_problem_wind_level_medium(self) -> None:
         import math
+
         from aerocapture.training.sensitivity import build_problem
 
         mc_config: dict[str, object] = {
@@ -190,6 +196,77 @@ class TestBuildProblem:
         assert problem["num_vars"] == 26
         bounds = problem["bounds"]
         assert isinstance(bounds, list)
-        assert bounds[0] == [0.0, 0.0]   # altitude
-        assert bounds[6] == [0.0, 0.0]   # density
+        assert bounds[0] == [0.0, 0.0]  # altitude
+        assert bounds[6] == [0.0, 0.0]  # density
         assert bounds[23] == [0.0, 0.0]  # filter_gain
+
+
+# ── Simulation-dependent tests (require aerocapture_rs) ──────────────────────
+
+_aero_available = _importlib_util.find_spec("aerocapture_rs") is not None
+_requires_aero = pytest.mark.skipif(not _aero_available, reason="aerocapture_rs not installed")
+
+
+@_requires_aero
+class TestMorrisPipeline:
+    def test_run_morris_returns_indices(self) -> None:
+        from aerocapture.training.sensitivity import run_morris
+
+        result = run_morris(_TRAINING_TOML, n=10)
+        assert "mu_star" in result
+        assert "sigma" in result
+        assert "mu_star_conf" in result
+        assert "names" in result
+        assert len(result["mu_star"]) == 26
+        assert len(result["sigma"]) == 26
+        assert len(result["mu_star_conf"]) == 26
+        assert len(result["names"]) == 26
+
+    def test_run_morris_all_finite(self) -> None:
+        import math
+
+        from aerocapture.training.sensitivity import run_morris
+
+        result = run_morris(_TRAINING_TOML, n=10)
+        assert all(math.isfinite(v) for v in result["mu_star"])
+        assert all(math.isfinite(v) for v in result["sigma"])
+
+    def test_run_morris_mu_star_nonnegative(self) -> None:
+        from aerocapture.training.sensitivity import run_morris
+
+        result = run_morris(_TRAINING_TOML, n=10)
+        # mu_star is always >= 0 by definition (mean of absolute values)
+        assert all(v >= 0.0 for v in result["mu_star"])
+
+
+@_requires_aero
+class TestSobolPipeline:
+    def test_run_sobol_returns_indices(self) -> None:
+        from aerocapture.training.sensitivity import run_sobol
+
+        result = run_sobol(_TRAINING_TOML, n=64, param_indices=list(range(26)))
+        assert "S1" in result
+        assert "ST" in result
+        assert "S1_conf" in result
+        assert "ST_conf" in result
+        assert "names" in result
+        assert "param_indices" in result
+        assert len(result["S1"]) == 26
+        assert len(result["ST"]) == 26
+
+    def test_run_sobol_subset_params(self) -> None:
+        from aerocapture.training.sensitivity import run_sobol
+
+        subset = [3, 6, 7]  # velocity, density, drag_coeff
+        result = run_sobol(_TRAINING_TOML, n=64, param_indices=subset, calc_second_order=False)
+        assert len(result["S1"]) == 3
+        assert len(result["ST"]) == 3
+        assert result["param_indices"] == subset
+
+    def test_run_sobol_names_match_subset(self) -> None:
+        from aerocapture.training.sensitivity import DISPERSION_COLUMNS, run_sobol
+
+        subset = [0, 3, 6]
+        result = run_sobol(_TRAINING_TOML, n=64, param_indices=subset, calc_second_order=False)
+        expected_names = [DISPERSION_COLUMNS[i] for i in subset]
+        assert result["names"] == expected_names
