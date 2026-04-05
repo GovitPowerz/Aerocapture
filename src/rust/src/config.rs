@@ -778,11 +778,11 @@ fn default_energy_max() -> f64 {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlLateralParams {
-    #[serde(default = "default_lateral_tau")]
-    pub tau: f64, // s
-    #[serde(default = "default_lateral_threshold")]
+    #[serde(default)]
+    pub tau: f64, // s (0.0 = inactive)
+    #[serde(default)]
     pub threshold: f64, // deg (converted to rad)
-    #[serde(default = "default_lateral_min_reversal_interval")]
+    #[serde(default)]
     pub min_reversal_interval: f64, // s
     #[serde(default = "default_five_i32")]
     pub max_reversals: i32,
@@ -790,18 +790,6 @@ pub struct TomlLateralParams {
     pub lateral_activation: f64, // MJ/kg
     #[serde(default)]
     pub lateral_inhibition: f64, // MJ/kg
-}
-
-fn default_lateral_tau() -> f64 {
-    0.0
-}
-
-fn default_lateral_threshold() -> f64 {
-    0.0
-}
-
-fn default_lateral_min_reversal_interval() -> f64 {
-    0.0
 }
 
 #[derive(Debug, Deserialize, Clone)]

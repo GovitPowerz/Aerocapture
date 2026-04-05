@@ -92,13 +92,16 @@ pub fn lateral_guidance(
     }
 
     // Energy window gate: lateral_inhibition <= energy <= lateral_activation
+    // Reset rate estimator when gated out so re-entry gets a fresh baseline.
     if energy > params.lateral_activation || energy < params.lateral_inhibition {
+        state.prev_inclination_error = None;
         return false;
     }
 
     // Skip degenerate bank angles (near 0 or pi, where roll sign is physically meaningless)
     let pi = std::f64::consts::PI;
     if bank_magnitude.abs() < 1e-10 || (bank_magnitude.abs() - pi).abs() < 1e-10 {
+        state.prev_inclination_error = None;
         return false;
     }
 
@@ -196,8 +199,8 @@ mod tests {
         }
     }
 
-    /// Helper: run two guidance ticks to seed the finite difference, then
-    /// return a state ready for the third (decision) tick.
+    /// Helper: run one guidance tick at t0 to seed prev_inclination_error,
+    /// then return (state, t1) ready for the decision tick.
     fn seeded_state(params: &LateralParams, target: f64, t0: f64, t1: f64) -> (LateralState, f64) {
         let mut state = LateralState::new(1.0);
         let nav = test_nav();
