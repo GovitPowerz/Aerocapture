@@ -25,9 +25,13 @@ from aerocapture.training.charts import (
     chart_exit_conditions,
     chart_gload_time,
     chart_heat_flux_time,
+    chart_morris_scatter,
     chart_nav_density_ratio,
     chart_parameter_evolution,
     chart_seed_pool,
+    chart_sobol_bars,
+    chart_sobol_convergence,
+    chart_sobol_heatmap,
 )
 
 
@@ -341,3 +345,44 @@ class TestComparisonCharts:
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content
+
+
+class TestSensitivityCharts:
+    def test_morris_scatter_produces_svg(self, tmp_svg: Path) -> None:
+        morris_data = {
+            "names": [f"param_{i}" for i in range(5)],
+            "mu_star": [10.0, 5.0, 3.0, 1.0, 0.5],
+            "sigma": [8.0, 3.0, 2.0, 0.5, 0.2],
+            "mu_star_conf": [1.0, 0.5, 0.3, 0.1, 0.05],
+        }
+        chart_morris_scatter(morris_data, tmp_svg)
+        assert tmp_svg.exists()
+        assert tmp_svg.stat().st_size > 0
+
+    def test_sobol_bars_produces_svg(self, tmp_svg: Path) -> None:
+        sobol_data = {
+            "names": [f"param_{i}" for i in range(5)],
+            "S1": [0.4, 0.2, 0.1, 0.05, 0.02],
+            "ST": [0.5, 0.3, 0.15, 0.08, 0.04],
+            "S1_conf": [0.05, 0.03, 0.02, 0.01, 0.005],
+            "ST_conf": [0.06, 0.04, 0.03, 0.015, 0.008],
+        }
+        chart_sobol_bars(sobol_data, tmp_svg)
+        assert tmp_svg.exists()
+
+    def test_sobol_heatmap_produces_svg(self, tmp_svg: Path) -> None:
+        sobol_data = {
+            "names": [f"p{i}" for i in range(4)],
+            "S2": [[0.0, 0.1, 0.05, 0.02], [0.1, 0.0, 0.03, 0.01], [0.05, 0.03, 0.0, 0.005], [0.02, 0.01, 0.005, 0.0]],
+        }
+        chart_sobol_heatmap(sobol_data, tmp_svg)
+        assert tmp_svg.exists()
+
+    def test_sobol_convergence_produces_svg(self, tmp_svg: Path) -> None:
+        conv = {
+            "sample_sizes": [64, 128, 256],
+            "S1_series": {"p0": [0.3, 0.35, 0.38], "p1": [0.15, 0.18, 0.19]},
+            "ST_series": {"p0": [0.4, 0.45, 0.48], "p1": [0.25, 0.28, 0.29]},
+        }
+        chart_sobol_convergence(conv, tmp_svg)
+        assert tmp_svg.exists()
