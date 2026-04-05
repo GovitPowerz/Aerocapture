@@ -75,6 +75,7 @@ impl LateralState {
 /// minimum reversal interval has elapsed.
 ///
 /// Returns `true` if a reversal was triggered this step.
+#[allow(clippy::too_many_arguments)]
 pub fn lateral_guidance(
     params: &LateralParams,
     state: &mut LateralState,

@@ -586,12 +586,6 @@ pub struct TomlFtcParams {
     pub exit_radial_vel_gain: f64, // Pa/(m/s)
     #[serde(default)]
     pub exit_apoapsis_threshold: f64, // m
-    #[serde(default)]
-    pub corridor_slope: f64, // m/s
-    #[serde(default)]
-    pub corridor_intercept: f64, // deg
-    #[serde(default = "default_five_i32")]
-    pub max_reversals: i32,
     #[serde(default = "default_one_i32")]
     pub security_capture: i32,
     #[serde(default = "default_three_i32")]
@@ -600,10 +594,6 @@ pub struct TomlFtcParams {
     pub longi_activation: f64, // MJ/kg
     #[serde(default = "default_longi_inh")]
     pub longi_inhibition: f64, // MJ/kg
-    #[serde(default)]
-    pub lateral_activation: f64, // MJ/kg
-    #[serde(default = "default_longi_act")]
-    pub lateral_inhibition: f64, // MJ/kg
     #[serde(default)]
     pub pdyn_min: f64, // Pa
     #[serde(default = "default_pressure_coeff_base")]
