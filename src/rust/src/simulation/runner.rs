@@ -304,15 +304,28 @@ pub fn run_for_api_with_draws(
             .par_iter()
             .enumerate()
             .map(|(idx, (run_state, disp_array))| {
-                let mut result =
-                    run_single(config, data, run_state, idx as i32, include_trajectories, wall_timeout)?;
+                let mut result = run_single(
+                    config,
+                    data,
+                    run_state,
+                    idx as i32,
+                    include_trajectories,
+                    wall_timeout,
+                )?;
                 result.dispersions = *disp_array;
                 Ok(result)
             })
             .collect::<Result<Vec<_>, _>>()?
     } else if n == 1 {
         let (run_state, disp_array) = &run_states[0];
-        let mut result = run_single(config, data, run_state, 0, include_trajectories, wall_timeout)?;
+        let mut result = run_single(
+            config,
+            data,
+            run_state,
+            0,
+            include_trajectories,
+            wall_timeout,
+        )?;
         result.dispersions = *disp_array;
         vec![result]
     } else {
