@@ -200,7 +200,7 @@ class TestRunWithDraws:
     def test_run_with_draws_dispersions_roundtrip(self) -> None:
         draws = np.zeros((3, 26), dtype=np.float64)
         draws[:, 24] = 1.0
-        draws[0, 3] = 5.0   # velocity offset
-        draws[1, 6] = 0.1   # density bias
+        draws[0, 3] = 5.0  # velocity offset
+        draws[1, 6] = 0.1  # density bias
         result = aero.run_with_draws(GOLDEN_TOML, draws)
         np.testing.assert_allclose(result.dispersions, draws, atol=1e-12)

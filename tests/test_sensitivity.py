@@ -28,8 +28,10 @@ class TestBuildProblem:
         problem = build_problem(mc_config)
         assert problem["num_vars"] == 26
         assert problem["names"] == DISPERSION_COLUMNS
-        assert len(problem["bounds"]) == 26
-        assert len(problem["dists"]) == 26
+        bounds = problem["bounds"]
+        dists = problem["dists"]
+        assert isinstance(bounds, list) and len(bounds) == 26
+        assert isinstance(dists, list) and len(dists) == 26
 
     def test_build_problem_distribution_types(self) -> None:
         from aerocapture.training.sensitivity import build_problem
