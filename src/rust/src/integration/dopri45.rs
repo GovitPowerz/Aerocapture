@@ -105,6 +105,12 @@ impl Dopri45State {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Invalidate the FSAL cache, forcing the next step to recompute k1.
+    /// Call after externally modifying the state (e.g., rewinding to an event location).
+    pub fn invalidate_fsal(&mut self) {
+        self.fsal_valid = false;
+    }
 }
 
 /// Result of a single DOPRI45 step attempt.
