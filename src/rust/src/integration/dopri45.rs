@@ -162,14 +162,8 @@ fn compute_dt_next(dt: f64, err: f64, err_prev: f64, is_first_or_rejected: bool)
 
 /// Attempt one Dormand-Prince 4(5) step of size `dt`.
 ///
-/// On acceptance: `state` is updated to the 5th-order solution, `dopri.k_last` is set
-/// for FSAL reuse, and `dopri.err_prev` is updated for the PI controller.
-///
-/// On rejection: `state` is restored to its value before the call. The caller should
-/// retry with `result.dt_next`.
-///
-/// The `deriv_fn` closure computes state derivatives given the current state.
-/// It must not have side effects — it may be called up to 7 times per step attempt.
+/// Thin wrapper around `dopri45_step_with_stages` that discards the stage derivatives.
+/// See that function for full documentation.
 pub fn dopri45_step(
     state: &mut [f64; N],
     dt: f64,
@@ -178,116 +172,19 @@ pub fn dopri45_step(
     rtol: f64,
     deriv_fn: &mut impl FnMut(&[f64; N]) -> [f64; N],
 ) -> StepResult {
-    let y0 = *state; // save for restoration on rejection
-
-    // Stage 1: reuse from FSAL if available, otherwise evaluate
-    let k1 = if dopri.fsal_valid {
-        dopri.k_last
-    } else {
-        deriv_fn(state)
-    };
-
-    // Stage 2
-    let mut y_stage = [0.0; N];
-    for i in 0..N {
-        y_stage[i] = y0[i] + dt * tableau::A[0][0] * k1[i];
-    }
-    let k2 = deriv_fn(&y_stage);
-
-    // Stage 3
-    for i in 0..N {
-        y_stage[i] = y0[i] + dt * (tableau::A[1][0] * k1[i] + tableau::A[1][1] * k2[i]);
-    }
-    let k3 = deriv_fn(&y_stage);
-
-    // Stage 4
-    for i in 0..N {
-        y_stage[i] = y0[i]
-            + dt * (tableau::A[2][0] * k1[i] + tableau::A[2][1] * k2[i] + tableau::A[2][2] * k3[i]);
-    }
-    let k4 = deriv_fn(&y_stage);
-
-    // Stage 5
-    for i in 0..N {
-        y_stage[i] = y0[i]
-            + dt * (tableau::A[3][0] * k1[i]
-                + tableau::A[3][1] * k2[i]
-                + tableau::A[3][2] * k3[i]
-                + tableau::A[3][3] * k4[i]);
-    }
-    let k5 = deriv_fn(&y_stage);
-
-    // Stage 6
-    for i in 0..N {
-        y_stage[i] = y0[i]
-            + dt * (tableau::A[4][0] * k1[i]
-                + tableau::A[4][1] * k2[i]
-                + tableau::A[4][2] * k3[i]
-                + tableau::A[4][3] * k4[i]
-                + tableau::A[4][4] * k5[i]);
-    }
-    let k6 = deriv_fn(&y_stage);
-
-    // 5th-order solution (used as the accepted state)
-    let mut y5 = [0.0; N];
-    for i in 0..N {
-        y5[i] = y0[i]
-            + dt * (tableau::B5[0] * k1[i]
-                + tableau::B5[2] * k3[i]
-                + tableau::B5[3] * k4[i]
-                + tableau::B5[4] * k5[i]
-                + tableau::B5[5] * k6[i]);
-        // B5[1] = 0, B5[6] = 0 — skipped
-    }
-
-    // Stage 7 (FSAL — evaluated at the 5th-order solution)
-    let k7 = deriv_fn(&y5);
-
-    // 4th-order solution (for error estimation only)
-    let mut y4 = [0.0; N];
-    for i in 0..N {
-        y4[i] = y0[i]
-            + dt * (tableau::B4[0] * k1[i]
-                + tableau::B4[2] * k3[i]
-                + tableau::B4[3] * k4[i]
-                + tableau::B4[4] * k5[i]
-                + tableau::B4[5] * k6[i]
-                + tableau::B4[6] * k7[i]);
-        // B4[1] = 0 — skipped
-    }
-
-    let err = error_norm(&y0, &y4, &y5, atol, rtol);
-    let accepted = err <= 1.0;
-
-    let dt_next = compute_dt_next(dt, err, dopri.err_prev, !dopri.fsal_valid);
-
-    if accepted {
-        *state = y5;
-        dopri.k_last = k7;
-        dopri.fsal_valid = true;
-        dopri.err_prev = err;
-    } else {
-        *state = y0; // restore
-        dopri.fsal_valid = false;
-        // err_prev NOT updated on rejection — PI controller uses last accepted error
-    }
-
-    StepResult {
-        accepted,
-        error_norm: err,
-        dt_next,
-    }
+    let (result, _stages) = dopri45_step_with_stages(state, dt, dopri, atol, rtol, deriv_fn);
+    result
 }
 
-/// Same as `dopri45_step` but also returns all 7 stage derivatives.
+/// Attempt one Dormand-Prince 4(5) step of size `dt`, returning stage derivatives.
 ///
-/// The returned stages array `[[f64; N]; 7]` contains [k1, k2, k3, k4, k5, k6, k7].
-/// k7 is always evaluated (at y5 on acceptance; at y5 on rejection too — caller should
-/// discard stages when the step was rejected).
+/// On acceptance: `state` is updated to the 5th-order solution, `dopri.k_last` is set
+/// for FSAL reuse, and `dopri.err_prev` is updated for the PI controller.
+/// On rejection: `state` is restored to its value before the call.
 ///
-/// For dense output: pass `stages[0]` as k1 and `stages[6]` as k7 to `dopri45_dense`.
-/// Only accepted steps produce valid dense output; stages from rejected steps must not be used.
-/// Do not call `dopri45_step` from this function — stages are local and must be returned.
+/// The returned stages `[[f64; N]; 7]` = [k1..k7]. For dense output, pass
+/// `stages[0]` as k1 and `stages[6]` as k7 to `dopri45_dense`.
+/// Only valid for accepted steps -- discard stages on rejection.
 pub fn dopri45_step_with_stages(
     state: &mut [f64; N],
     dt: f64,

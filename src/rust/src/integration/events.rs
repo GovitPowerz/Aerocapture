@@ -113,8 +113,21 @@ pub enum EventType {
 #[derive(Debug, Clone)]
 pub struct EventContext {
     pub planet_radius: f64,
+    pub polar_radius: f64,
     pub exit_altitude: f64,
     pub exit_velocity_threshold: f64,
+}
+
+/// Geocentric radius of the reference ellipsoid at geocentric latitude `lat`.
+/// For a spherical planet (equatorial == polar), returns equatorial_radius.
+fn ellipsoid_radius(lat: f64, equatorial: f64, polar: f64) -> f64 {
+    let c = lat.cos();
+    let s = lat.sin();
+    let a2c = equatorial * equatorial * c;
+    let b2s = polar * polar * s;
+    let ac = equatorial * c;
+    let bs = polar * s;
+    ((a2c * a2c + b2s * b2s) / (ac * ac + bs * bs)).sqrt()
 }
 
 /// Definition of a trackable event.
@@ -135,12 +148,14 @@ pub struct EventRecord {
     pub event_type: EventType,
 }
 
-/// An event that was detected during a step (before root-finding).
+/// A located event with precise zero-crossing position from Brent's root-finding.
 pub struct TriggeredEvent {
     pub event_index: usize,
     /// Fractional step position in [0, 1] at the zero-crossing.
     pub theta: f64,
     pub state: [f64; 8],
+    /// Absolute simulation time at the zero-crossing.
+    pub time: f64,
 }
 
 // ── Event functions ──────────────────────────────────────────────────────────
@@ -150,14 +165,16 @@ fn event_bounce(state: &[f64; 8], _ctx: &EventContext) -> f64 {
     state[4].sin()
 }
 
-/// Altitude above atmosphere exit threshold.
+/// Altitude above atmosphere exit threshold (latitude-corrected for oblateness).
 fn event_atmosphere_exit(state: &[f64; 8], ctx: &EventContext) -> f64 {
-    (state[0] - ctx.planet_radius) - ctx.exit_altitude
+    let r_surface = ellipsoid_radius(state[2], ctx.planet_radius, ctx.polar_radius);
+    (state[0] - r_surface) - ctx.exit_altitude
 }
 
-/// Altitude above planet surface; falling through zero = impact.
+/// Altitude above planet surface (latitude-corrected); falling through zero = impact.
 fn event_crash(state: &[f64; 8], ctx: &EventContext) -> f64 {
-    state[0] - ctx.planet_radius
+    let r_surface = ellipsoid_radius(state[2], ctx.planet_radius, ctx.polar_radius);
+    state[0] - r_surface
 }
 
 /// threshold - V: rising through zero = V dropped below threshold.
@@ -223,6 +240,7 @@ pub fn check_events_and_locate(
     ctx: &EventContext,
     g_start: &[f64],
     tol: f64,
+    t_base: f64,
 ) -> Option<TriggeredEvent> {
     let tol_theta = tol / h;
     let mut earliest: Option<TriggeredEvent> = None;
@@ -260,6 +278,7 @@ pub fn check_events_and_locate(
                 event_index: i,
                 theta,
                 state,
+                time: t_base + theta * h,
             });
         }
     }
@@ -321,6 +340,7 @@ mod tests {
     fn event_functions_sign_correctness() {
         let ctx = EventContext {
             planet_radius: 3_396_200.0,
+            polar_radius: 3_376_200.0,
             exit_altitude: 200_000.0,
             exit_velocity_threshold: 5_500.0,
         };
@@ -386,6 +406,7 @@ mod tests {
 
         let ctx = EventContext {
             planet_radius: 0.0,
+            polar_radius: 0.0,
             exit_altitude: 1.5, // event at state[0] = 1.5
             exit_velocity_threshold: 0.0,
         };
@@ -420,7 +441,8 @@ mod tests {
         let k7 = &stages[6];
 
         let g_start = evaluate_events(&y0, &events, &ctx);
-        let triggered = check_events_and_locate(&y0, &y5, h, k1, k7, &events, &ctx, &g_start, 1e-3);
+        let triggered =
+            check_events_and_locate(&y0, &y5, h, k1, k7, &events, &ctx, &g_start, 1e-3, 0.0);
         assert!(triggered.is_some());
         let t = triggered.unwrap();
         assert_eq!(t.event_index, 0);
@@ -443,6 +465,7 @@ mod tests {
 
         let ctx = EventContext {
             planet_radius: 0.0,
+            polar_radius: 0.0,
             exit_altitude: 1.5,
             exit_velocity_threshold: 0.0,
         };
@@ -477,7 +500,8 @@ mod tests {
         let k7 = &stages[6];
 
         let g_start = evaluate_events(&y0, &events, &ctx);
-        let triggered = check_events_and_locate(&y0, &y5, h, k1, k7, &events, &ctx, &g_start, 1e-3);
+        let triggered =
+            check_events_and_locate(&y0, &y5, h, k1, k7, &events, &ctx, &g_start, 1e-3, 0.0);
         assert!(
             triggered.is_none(),
             "direction=-1 should not trigger on a rising crossing"
@@ -492,6 +516,7 @@ mod tests {
 
         let ctx = EventContext {
             planet_radius: 0.0,
+            polar_radius: 0.0,
             exit_altitude: 1.3,           // event 0 fires here
             exit_velocity_threshold: 1.7, // event 1 fires when state[0] reaches 1.7
         };
@@ -534,7 +559,8 @@ mod tests {
         let k7 = &stages[6];
 
         let g_start = evaluate_events(&y0, &events, &ctx);
-        let triggered = check_events_and_locate(&y0, &y5, h, k1, k7, &events, &ctx, &g_start, 1e-3);
+        let triggered =
+            check_events_and_locate(&y0, &y5, h, k1, k7, &events, &ctx, &g_start, 1e-3, 0.0);
         assert!(triggered.is_some());
         let t = triggered.unwrap();
         assert_eq!(t.event_index, 0, "should pick the earlier event (index 0)");

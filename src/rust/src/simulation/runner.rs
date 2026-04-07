@@ -106,13 +106,11 @@ pub enum TermReason {
 }
 
 /// Result from a single simulation run.
-#[allow(dead_code)]
 struct SimResult {
     sim_idx: i32,
     final_line: [f64; 52],
     photo_lines: Vec<[f64; 30]>,
     dispersions: [f64; DISPERSION_DRAW_LEN],
-    event_records: Vec<EventRecord>,
 }
 
 /// Shared simulation orchestration: build run states, dispatch parallel/sequential runs.
@@ -624,6 +622,7 @@ fn run_single(
     let event_defs = events::build_aerocapture_events();
     let event_ctx = EventContext {
         planet_radius: planet.equatorial_radius,
+        polar_radius: planet.polar_radius,
         exit_altitude,
         exit_velocity_threshold: data.guidance.exit_velocity_threshold,
     };
@@ -832,7 +831,7 @@ fn run_single(
         }
 
         // === Integration step ===
-        let mut adaptive_event: Option<events::TriggeredEvent> = None;
+        let mut adaptive_events: Vec<events::TriggeredEvent> = Vec::new();
         match &data.integration_mode {
             IntegrationMode::FixedGill => {
                 integrate_step(&mut sim, dt, planet, data, &run_state);
@@ -849,7 +848,7 @@ fn run_single(
                     &event_ctx,
                     sim_time,
                 );
-                adaptive_event = result.triggered;
+                adaptive_events = result.triggered;
             }
         }
 
@@ -858,28 +857,25 @@ fn run_single(
 
         track_peak_values(&mut sim, altitude, sim_time, data, &run_state);
 
-        // === Process adaptive integrator events ===
-        if let Some(ref triggered) = adaptive_event {
+        // === Process adaptive integrator events (in chronological order) ===
+        for triggered in &adaptive_events {
             let event = &event_defs[triggered.event_index];
             match event.event_type {
                 EventType::Bounce => {
                     if !sim.bounced {
-                        let evt = sim.event_records.last().unwrap();
                         sim.bounced = true;
-                        sim.bounce_alt = evt.state[0] - planet.equatorial_radius;
-                        sim.bounce_time = evt.time;
+                        sim.bounce_alt = triggered.state[0] - planet.equatorial_radius;
+                        sim.bounce_time = triggered.time;
                     }
                 }
                 EventType::AtmosphereExit => {
                     if sim.bounced {
-                        let evt = sim.event_records.last().unwrap();
-                        sim_time = evt.time;
+                        sim_time = triggered.time;
                         term = TermReason::AtmosphereExit;
                     }
                 }
                 EventType::Crash => {
-                    let evt = sim.event_records.last().unwrap();
-                    sim_time = evt.time;
+                    sim_time = triggered.time;
                     term = TermReason::Crash;
                 }
                 EventType::PhaseTransition => {
@@ -1143,7 +1139,6 @@ fn run_single(
         final_line: final_record,
         photo_lines,
         dispersions: [0.0; DISPERSION_DRAW_LEN],
-        event_records,
     })
 }
 
@@ -1365,20 +1360,8 @@ fn integrate_step(
     }
 }
 
-/// Diagnostics from one outer tick of adaptive sub-stepping.
-/// Fields are available for future telemetry/logging.
-#[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
-struct AdaptiveStepStats {
-    n_substeps: u32,
-    n_rejections: u32,
-    hit_limit: bool,
-}
-
 struct AdaptiveEventResult {
-    #[allow(dead_code)]
-    stats: AdaptiveStepStats,
-    triggered: Option<events::TriggeredEvent>,
+    triggered: Vec<events::TriggeredEvent>,
 }
 
 const EVENT_TOL: f64 = 1e-3; // 1 ms event location tolerance
@@ -1407,7 +1390,7 @@ fn integrate_adaptive_with_events(
     // Cache event guard values at beginning of tick
     let mut g_prev = events::evaluate_events(&sim.state, event_defs, event_ctx);
 
-    let mut last_triggered: Option<events::TriggeredEvent> = None;
+    let mut all_triggered: Vec<events::TriggeredEvent> = Vec::new();
 
     while t_remaining > 1e-14 {
         h = h.min(t_remaining).min(config.max_dt).max(config.min_dt);
@@ -1433,15 +1416,15 @@ fn integrate_adaptive_with_events(
             let k1 = &stages[0];
             let k7 = &stages[6];
 
+            let t_base = tick_start_time + (dt_outer - t_remaining);
             if let Some(triggered) = events::check_events_and_locate(
-                &y0, &sim.state, h, k1, k7, event_defs, event_ctx, &g_prev, EVENT_TOL,
+                &y0, &sim.state, h, k1, k7, event_defs, event_ctx, &g_prev, EVENT_TOL, t_base,
             ) {
                 let event = &event_defs[triggered.event_index];
-                let event_time = tick_start_time + (dt_outer - t_remaining) + triggered.theta * h;
 
                 // Record this event
                 sim.event_records.push(EventRecord {
-                    time: event_time,
+                    time: triggered.time,
                     state: triggered.state,
                     event_type: event.event_type,
                 });
@@ -1455,13 +1438,9 @@ fn integrate_adaptive_with_events(
                 match event.action {
                     EventAction::Terminate(_) => {
                         // Terminal event: return immediately
+                        all_triggered.push(triggered);
                         return AdaptiveEventResult {
-                            stats: AdaptiveStepStats {
-                                n_substeps: n_substeps + 1,
-                                n_rejections,
-                                hit_limit: false,
-                            },
-                            triggered: Some(triggered),
+                            triggered: all_triggered,
                         };
                     }
                     EventAction::Record | EventAction::PhaseTransition => {
@@ -1480,7 +1459,7 @@ fn integrate_adaptive_with_events(
                         // zero-crossing).
                         g_prev[triggered.event_index] = 0.0;
 
-                        last_triggered = Some(triggered);
+                        all_triggered.push(triggered);
                         continue;
                     }
                 }
@@ -1505,23 +1484,13 @@ fn integrate_adaptive_with_events(
                 MAX_SUBSTEPS, t_remaining, n_substeps, n_rejections,
             );
             return AdaptiveEventResult {
-                stats: AdaptiveStepStats {
-                    n_substeps,
-                    n_rejections,
-                    hit_limit: true,
-                },
-                triggered: last_triggered,
+                triggered: all_triggered,
             };
         }
     }
 
     AdaptiveEventResult {
-        stats: AdaptiveStepStats {
-            n_substeps,
-            n_rejections,
-            hit_limit: false,
-        },
-        triggered: last_triggered,
+        triggered: all_triggered,
     }
 }
 
