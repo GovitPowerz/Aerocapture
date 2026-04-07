@@ -76,3 +76,25 @@
     #v(2cm)
   ]
 }
+
+// Part 3: Sensitivity Analysis (optional)
+#if meta.at("has_sensitivity", default: false) {
+  pagebreak()
+  section-heading("Part 3: Sensitivity Analysis")
+
+  if meta.at("has_morris", default: false) {
+    full-width-chart(dir + "/morris_scatter.svg")
+
+    v(0.5cm)
+    text(size: 12pt, weight: "bold")[Morris Screening Results]
+    v(0.3cm)
+    let morris_data = json(dir + "/morris_table.json")
+    morris-table(morris_data.rows)
+  }
+  if meta.at("has_sobol", default: false) {
+    full-width-chart(dir + "/sobol_bars.svg")
+  }
+  if meta.at("has_sobol_heatmap", default: false) {
+    full-width-chart(dir + "/sobol_heatmap.svg")
+  }
+}

@@ -177,6 +177,30 @@ uv run python -m aerocapture.training.compare_guidance \
     --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network piecewise_constant
 ```
 
+### Sensitivity Analysis
+
+Variance-based sensitivity analysis to rank which MC dispersion parameters most influence DV cost. Uses SALib (Morris elementary effects + Sobol indices) via the `run_with_draws()` PyO3 API.
+
+```bash
+# Full analysis: Morris to rank top-10, then Sobol on those 10
+uv run python -m aerocapture.training.sensitivity \
+    configs/training/msr_aller_eqglide_train.toml \
+    --morris-n 1000 --sobol-n 1024 --top-k 10 \
+    --output-dir training_output/sensitivity/
+
+# Morris only (faster screening pass)
+uv run python -m aerocapture.training.sensitivity \
+    configs/training/msr_aller_eqglide_train.toml \
+    --morris-n 500 --morris-only
+
+# Sobol only on all 26 parameters
+uv run python -m aerocapture.training.sensitivity \
+    configs/training/msr_aller_eqglide_train.toml \
+    --sobol-n 1024 --sobol-only
+```
+
+Results saved to `output_dir/sensitivity_results.json` with mu_star/sigma (Morris) and S1/ST indices (Sobol).
+
 ## PyO3 Python Bindings
 
 The `aerocapture_rs` Python module provides direct access to the Rust simulator, eliminating subprocess overhead for GA training.
@@ -197,9 +221,14 @@ print(f"Trajectories: {len(mc.trajectories)} arrays")   # list of (N, 17)
 # Batch run with per-sim overrides (parallel via Rayon)
 overrides = [{"guidance.equilibrium_glide.gain_kp": v} for v in [0.1, 0.5, 1.0]]
 batch = aero.run_batch("config.toml", overrides)
+
+# Run with pre-computed draws (e.g. SALib sensitivity matrices)
+draws = np.zeros((100, 26), dtype=np.float64)  # shape (N, 26)
+result = aero.run_with_draws("config.toml", draws)
+print(f"Dispersions roundtrip: {result.dispersions.shape}")  # (100, 26)
 ```
 
-Build with: `cd src/rust/aerocapture-py && maturin develop --release`
+Build with: `uv run maturin develop --release --manifest-path src/rust/aerocapture-py/Cargo.toml`
 
 The training pipeline auto-detects PyO3 and falls back to subprocess if not installed.
 
@@ -212,10 +241,10 @@ The Rust simulator has been validated against a reference implementation across 
 ## Testing
 
 ```bash
-# Rust tests (~334 tests)
+# Rust tests (~386 tests)
 cargo test --release --manifest-path src/rust/Cargo.toml
 
-# Python tests (~322 tests)
+# Python tests (~356 tests)
 uv run pytest tests/
 
 # Linting + type checking
@@ -227,7 +256,7 @@ uv run pytest tests/
 
 **Rust tests** cover: physics (J2/J3/J4 gravity with proptest), all 7 guidance schemes, exit phase guidance (pdyn feedback with proptest), phase dispatch, lateral guidance, navigation (bias + EKF, SimPhase gating), wind model, control (pilot dynamics, angle utils), DOPRI45 adaptive integrator, TOML base inheritance, virtual DV ranges, trajectory heat load, density perturbation (OU config presets, step function statistics, TOML parsing, E2E backward compat).
 
-**Python tests** cover: parsers, regression, GA pipeline, training visualization, training animation, NN weight initialization, adaptive seed pool, graceful interrupt, TOML base inheritance, PyO3 integration (bit-identical regression), corridor accumulator, unified cost function.
+**Python tests** cover: parsers, regression, GA pipeline, training visualization, training animation, NN weight initialization, adaptive seed pool, graceful interrupt, TOML base inheritance, PyO3 integration (bit-identical regression), corridor accumulator, unified cost function, sensitivity analysis (build_problem structure + Morris/Sobol pipeline shape/correctness).
 
 ## CI
 

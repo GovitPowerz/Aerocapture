@@ -10,6 +10,7 @@ use std::time::Duration;
 use aerocapture::RunOutput;
 use aerocapture::config::SimInput;
 use aerocapture::data::SimData;
+use aerocapture::data::dispersions::DispersionDraw;
 use aerocapture::simulation::runner::SimError;
 use toml::{Table, Value};
 
@@ -94,4 +95,30 @@ pub fn run_batch(
         // Collect results, returning the first error encountered.
         results.into_iter().collect()
     })
+}
+
+/// Run simulations with pre-computed dispersion draws supplied by the caller.
+///
+/// Loads config once, converts `[f64; 26]` arrays to `DispersionDraw`, then
+/// delegates to `run_for_api_with_draws()` which runs in parallel via Rayon.
+pub fn run_with_external_draws(
+    toml_path: &Path,
+    overrides: Vec<(String, crate::config::OverrideValue)>,
+    draws: Vec<[f64; 26]>,
+    include_trajectories: bool,
+    wall_timeout: Option<Duration>,
+) -> Result<Vec<RunOutput>, String> {
+    let (sim_input, sim_data) = crate::config::load_and_override(toml_path, &overrides)?;
+
+    let dispersion_draws: Vec<DispersionDraw> =
+        draws.into_iter().map(DispersionDraw::from_array).collect();
+
+    aerocapture::simulation::runner::run_for_api_with_draws(
+        &sim_input,
+        &sim_data,
+        dispersion_draws,
+        include_trajectories,
+        wall_timeout,
+    )
+    .map_err(|e: SimError| format!("Simulation error: {}", e))
 }

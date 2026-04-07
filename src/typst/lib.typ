@@ -89,3 +89,23 @@
     table.hline(stroke: 1.2pt),
   )
 }
+
+#let morris-table(data) = {
+  let headers = ("Rank", "Parameter", "mu*", "sigma", "mu* conf")
+  let n-cols = headers.len()
+
+  table(
+    columns: (auto, 1fr, auto, auto, auto),
+    stroke: none,
+    inset: (x: 6pt, y: 4pt),
+    align: (right, left, right, right, right),
+
+    table.hline(stroke: 1.2pt),
+    ..headers.map(h => text(weight: "bold", size: 8pt)[#h]),
+    table.hline(stroke: 0.6pt),
+
+    ..data.flatten().map(cell => text(size: 8pt)[#cell]),
+
+    table.hline(stroke: 1.2pt),
+  )
+}

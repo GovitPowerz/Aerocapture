@@ -440,6 +440,41 @@ def _find_best_trajectory(
     return result
 
 
+def _generate_sensitivity_charts(sensitivity_dir: Path, out_dir: Path) -> dict[str, bool]:
+    """Generate Part 3 (sensitivity) SVG charts from pre-computed results."""
+    results_path = sensitivity_dir / "sensitivity_results.json"
+    if not results_path.exists():
+        return {"has_sensitivity": False, "has_morris": False, "has_sobol": False, "has_sobol_heatmap": False}
+
+    results = json.loads(results_path.read_text())
+    flags: dict[str, bool] = {"has_sensitivity": True, "has_morris": False, "has_sobol": False, "has_sobol_heatmap": False}
+
+    if "morris" in results:
+        morris = results["morris"]
+        charts.chart_morris_scatter(morris, out_dir / "morris_scatter.svg")
+        flags["has_morris"] = True
+
+        # Write ranked table for Typst
+        names = morris["names"]
+        mu_star = morris["mu_star"]
+        sigma = morris["sigma"]
+        mu_star_conf = morris.get("mu_star_conf", [0.0] * len(names))
+        order = sorted(range(len(names)), key=lambda i: mu_star[i], reverse=True)
+        rows = []
+        for rank, i in enumerate(order, 1):
+            rows.append([str(rank), names[i], f"{mu_star[i]:.1f}", f"{sigma[i]:.1f}", f"{mu_star_conf[i]:.1f}"])
+        (out_dir / "morris_table.json").write_text(json.dumps({"rows": rows}, indent=2))
+
+    if "sobol" in results:
+        charts.chart_sobol_bars(results["sobol"], out_dir / "sobol_bars.svg")
+        flags["has_sobol"] = True
+        if "S2" in results["sobol"]:
+            charts.chart_sobol_heatmap(results["sobol"], out_dir / "sobol_heatmap.svg")
+            flags["has_sobol_heatmap"] = True
+
+    return flags
+
+
 def _generate_trajectory_charts(
     final_records: npt.NDArray[np.float64],
     trajectories: list[npt.NDArray[np.float64]],
@@ -504,6 +539,7 @@ def generate_report(
     keep_artifacts: bool = False,
     n_sims_override: int | None = None,
     sim_timeout_secs: float | None = None,
+    sensitivity: bool = False,
 ) -> Path | None:
     """Generate a PDF training report for a single guidance scheme.
 
@@ -551,6 +587,14 @@ def generate_report(
                 )
                 final_records = final_records_arr
 
+        # Part 3: Sensitivity Analysis
+        sensitivity_flags: dict[str, bool] = {"has_sensitivity": False, "has_morris": False, "has_sobol": False, "has_sobol_heatmap": False}
+        if sensitivity:
+            sensitivity_dir = scheme_dir / "sensitivity"
+            sensitivity_flags = _generate_sensitivity_charts(sensitivity_dir, tmp_dir)
+            if not sensitivity_flags["has_sensitivity"]:
+                print(f"No sensitivity data found in {sensitivity_dir} -- skipping Part 3")
+
         # Write metadata.json
         metadata = _build_metadata(
             records,
@@ -562,6 +606,7 @@ def generate_report(
             toml_path=toml_path,
             has_cost_distribution=has_cost_distribution,
         )
+        metadata.update(sensitivity_flags)
         (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
 
         # Write summary_table.json
@@ -727,6 +772,7 @@ def main() -> None:
     parser.add_argument("--schemes", nargs="*", help="Filter by scheme names (comparison mode)")
     parser.add_argument("--keep-artifacts", action="store_true", help="Keep temporary SVG/JSON artifacts after PDF generation")
     parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds")
+    parser.add_argument("--sensitivity", action="store_true", help="Include Part 3: Sensitivity Analysis (requires pre-computed data)")
     args = parser.parse_args()
 
     path = Path(args.path)
@@ -738,7 +784,7 @@ def main() -> None:
         generate_comparison_report(path, schemes=args.schemes, keep_artifacts=args.keep_artifacts)
     else:
         toml_path = Path(args.toml) if args.toml else None
-        generate_report(path, toml_path=toml_path, keep_artifacts=args.keep_artifacts, sim_timeout_secs=args.sim_timeout)
+        generate_report(path, toml_path=toml_path, keep_artifacts=args.keep_artifacts, sim_timeout_secs=args.sim_timeout, sensitivity=args.sensitivity)
 
 
 if __name__ == "__main__":

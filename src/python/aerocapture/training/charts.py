@@ -1191,3 +1191,99 @@ def chart_comparison_convergence(all_data: dict[str, list[dict[str, Any]]], outp
     ax.legend(fontsize="small")
     sns.despine(fig=fig)
     _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Sensitivity Analysis charts (Part 3)
+# ---------------------------------------------------------------------------
+def chart_morris_scatter(morris_data: dict[str, Any], output: Path) -> None:
+    """Morris mu* horizontal bar chart sorted by importance."""
+    names = morris_data["names"]
+    mu_star = np.asarray(morris_data["mu_star"], dtype=float)
+    sigma = np.asarray(morris_data["sigma"], dtype=float)
+
+    # Sort by mu_star descending (plot bottom-to-top so largest is at the top)
+    order = np.argsort(mu_star)
+    sorted_names = [names[i] for i in order]
+    sorted_mu = mu_star[order]
+    sorted_sigma = sigma[order]
+
+    n = len(names)
+    fig, ax = plt.subplots(figsize=(10, max(4, n * 0.28)), dpi=DPI)
+    y = np.arange(n)
+    ax.barh(y, sorted_mu, height=0.6, color=COLOR_BEST, alpha=0.85, label="mu* (importance)")
+    ax.barh(y, sorted_sigma, height=0.6, color=COLOR_MEAN, alpha=0.5, label="sigma (nonlinearity)")
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(sorted_names, fontsize=8)
+    ax.set_xlabel("Elementary effect magnitude")
+    ax.set_title("Morris Screening: Parameter Importance")
+    ax.legend(fontsize=8, loc="lower right")
+    sns.despine(fig=fig)
+    fig.tight_layout()
+    _save_svg(fig, output)
+
+
+def chart_sobol_bars(sobol_data: dict[str, Any], output: Path) -> None:
+    """Grouped bar chart of Sobol S1 and ST indices."""
+    names = sobol_data["names"]
+    s1 = np.asarray(sobol_data["S1"], dtype=float)
+    st = np.asarray(sobol_data["ST"], dtype=float)
+    s1_conf = np.asarray(sobol_data["S1_conf"], dtype=float)
+    st_conf = np.asarray(sobol_data["ST_conf"], dtype=float)
+
+    n = len(names)
+    width = max(10, n * 0.6)
+    fig, ax = plt.subplots(figsize=(width, 4), dpi=DPI)
+
+    x = np.arange(n)
+    bar_w = 0.35
+    ax.bar(x - bar_w / 2, s1, bar_w, yerr=s1_conf, color=COLOR_BEST, label="S1", capsize=3)
+    ax.bar(x + bar_w / 2, st, bar_w, yerr=st_conf, color=COLOR_MEAN, label="ST", capsize=3)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(names, rotation=45, ha="right", fontsize=8)
+    ax.set_ylabel("Sensitivity index")
+    ax.set_title("Sobol Sensitivity Indices")
+    ax.legend(fontsize="small")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)
+
+
+def chart_sobol_heatmap(sobol_data: dict[str, Any], output: Path) -> None:
+    """Heatmap of Sobol S2 interaction matrix."""
+    names = sobol_data["names"]
+    s2 = np.asarray(sobol_data["S2"], dtype=float)
+
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
+    sns.heatmap(s2, annot=True, fmt=".2f", cmap="YlOrRd", square=True, xticklabels=names, yticklabels=names, ax=ax)
+    ax.set_title("Sobol S2: Parameter Interactions")
+    _save_svg(fig, output)
+
+
+def chart_sobol_convergence(convergence_data: dict[str, Any], output: Path) -> None:
+    """Convergence of Sobol S1 and ST indices vs sample size."""
+    sample_sizes = convergence_data["sample_sizes"]
+    s1_series: dict[str, list[float]] = convergence_data["S1_series"]
+    st_series: dict[str, list[float]] = convergence_data["ST_series"]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4), dpi=DPI)
+
+    for name, values in s1_series.items():
+        ax1.plot(sample_sizes, values, marker="o", markersize=3, linewidth=1.2, label=name)
+    ax1.set_xlabel("Sample size")
+    ax1.set_ylabel("S1")
+    ax1.set_title("First-Order Index Convergence")
+    ax1.legend(fontsize="small")
+    sns.despine(fig=fig, ax=ax1)
+
+    for name, values in st_series.items():
+        ax2.plot(sample_sizes, values, marker="o", markersize=3, linewidth=1.2, label=name)
+    ax2.set_xlabel("Sample size")
+    ax2.set_ylabel("ST")
+    ax2.set_title("Total-Order Index Convergence")
+    ax2.legend(fontsize="small")
+    sns.despine(fig=fig, ax=ax2)
+
+    fig.tight_layout()
+    _save_svg(fig, output)

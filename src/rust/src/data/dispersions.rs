@@ -38,6 +38,27 @@ impl DispersionLevel {
     }
 }
 
+/// Sampling method for Monte Carlo draws.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum SamplingMethod {
+    #[default]
+    Random,
+    Lhs,
+    Sobol,
+}
+
+impl SamplingMethod {
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Result<Self, DataError> {
+        match s.to_lowercase().as_str() {
+            "random" => Ok(SamplingMethod::Random),
+            "lhs" => Ok(SamplingMethod::Lhs),
+            "sobol" => Ok(SamplingMethod::Sobol),
+            _ => Err(DataError(format!("Unknown sampling method: '{}'", s))),
+        }
+    }
+}
+
 /// Initial state dispersion sigmas (Gaussian, 1-sigma).
 /// Calibrated from MSR/ESR/ATPE mission files.
 #[derive(Debug, Clone, Copy)]
@@ -379,6 +400,79 @@ impl DensityPerturbationConfig {
     }
 }
 
+/// Inverse standard normal CDF via Peter Acklam's rational approximation.
+/// Accurate to ~1.15e-9. Input p in (0,1); output z such that P(Z<=z)=p.
+pub fn norm_ppf(p: f64) -> f64 {
+    // Guard: clamp to avoid -inf/+inf at the boundaries.
+    // LHS can produce p=0.0 (stratum 0 + jitter exactly 0.0); Sobol can too.
+    let p = p.clamp(1e-300, 1.0 - 1e-15);
+
+    const A: [f64; 6] = [
+        -3.969683028665376e1,
+        2.209460984245205e2,
+        -2.759285104469687e2,
+        1.383_577_518_672_69e2,
+        -3.066479806614716e1,
+        2.506628277459239e0,
+    ];
+    const B: [f64; 5] = [
+        -5.447609879822406e1,
+        1.615858368580409e2,
+        -1.556989798598866e2,
+        6.680131188771972e1,
+        -1.328068155288572e1,
+    ];
+    const C: [f64; 6] = [
+        -7.784894002430293e-3,
+        -3.223964580411365e-1,
+        -2.400758277161838e0,
+        -2.549732539343734e0,
+        4.374664141464968e0,
+        2.938163982698783e0,
+    ];
+    const D: [f64; 4] = [
+        7.784695709041462e-3,
+        3.224671290700398e-1,
+        2.445134137142996e0,
+        3.754408661907416e0,
+    ];
+    const P_LOW: f64 = 0.02425;
+    const P_HIGH: f64 = 1.0 - P_LOW;
+
+    if p < P_LOW {
+        let q = (-2.0 * p.ln()).sqrt();
+        (((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
+            / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
+    } else if p <= P_HIGH {
+        let q = p - 0.5;
+        let r = q * q;
+        (((((A[0] * r + A[1]) * r + A[2]) * r + A[3]) * r + A[4]) * r + A[5]) * q
+            / (((((B[0] * r + B[1]) * r + B[2]) * r + B[3]) * r + B[4]) * r + 1.0)
+    } else {
+        -norm_ppf(1.0 - p)
+    }
+}
+
+/// Per-dimension transform: maps a unit uniform sample u in [0,1) to the draw value.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DimTransform {
+    Gaussian { sigma: f64 },
+    Uniform { half_width: f64 },
+    UniformRange { min: f64, max: f64 },
+    Fixed(f64),
+}
+
+impl DimTransform {
+    pub fn apply(&self, u: f64) -> f64 {
+        match self {
+            DimTransform::Gaussian { sigma } => norm_ppf(u) * sigma,
+            DimTransform::Uniform { half_width } => (2.0 * u - 1.0) * half_width,
+            DimTransform::UniformRange { min, max } => min + u * (max - min),
+            DimTransform::Fixed(v) => *v,
+        }
+    }
+}
+
 /// Advance the Ornstein-Uhlenbeck density perturbation by one timestep.
 ///
 /// Exact transition: x(t+dt) = x(t)*exp(-dt/tau) + sigma*sqrt(1 - exp(-2*dt/tau))*N(0,1)
@@ -396,6 +490,7 @@ pub fn step_density_perturbation(x: f64, dt: f64, tau: f64, sigma: f64, normal_s
 #[derive(Debug, Clone)]
 pub struct DispersionConfig {
     pub seed: u64,
+    pub sampling: SamplingMethod,
     pub initial_state: Option<InitialStateSigmas>,
     pub atmosphere: Option<AtmosphereSigmas>,
     pub aerodynamics: Option<AerodynamicsSigmas>,
@@ -529,16 +624,252 @@ impl DispersionDraw {
             self.wind_direction_bias,
         ]
     }
+
+    /// Deserialize all fields from a flat array in struct field order (inverse of `to_array()`).
+    pub fn from_array(a: [f64; DISPERSION_DRAW_LEN]) -> Self {
+        Self {
+            altitude: a[0],
+            longitude: a[1],
+            latitude: a[2],
+            velocity: a[3],
+            flight_path: a[4],
+            azimuth: a[5],
+            density: a[6],
+            drag_coeff: a[7],
+            lift_coeff: a[8],
+            incidence: a[9],
+            nav_altitude: a[10],
+            nav_longitude: a[11],
+            nav_latitude: a[12],
+            nav_velocity: a[13],
+            nav_flight_path: a[14],
+            nav_azimuth: a[15],
+            nav_drag_accel: a[16],
+            mass: a[17],
+            ref_area: a[18],
+            max_bank_rate: a[19],
+            pilot_tau: a[20],
+            pilot_damping: a[21],
+            pilot_frequency: a[22],
+            filter_gain: a[23],
+            wind_scale: a[24],
+            wind_direction_bias: a[25],
+        }
+    }
 }
 
 impl DispersionConfig {
+    /// Build per-dimension transforms from the sigma config.
+    /// Index order matches `DispersionDraw::to_array()` / `DISPERSION_DRAW_LEN`.
+    pub fn build_dim_transforms(&self) -> [DimTransform; DISPERSION_DRAW_LEN] {
+        // Helper closures
+        let gauss = |sigma: f64| DimTransform::Gaussian { sigma };
+        let unif = |hw: f64| DimTransform::Uniform { half_width: hw };
+
+        // dims 0-5: initial state
+        let (alt_sigma, lon_sigma, lat_sigma, vel_sigma, fpa_sigma, az_sigma) =
+            if let Some(ref s) = self.initial_state {
+                (
+                    s.altitude * 1e3,
+                    s.longitude * DEG2RAD,
+                    s.latitude * DEG2RAD,
+                    s.velocity,
+                    s.flight_path * DEG2RAD,
+                    s.azimuth * DEG2RAD,
+                )
+            } else {
+                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            };
+
+        // dim 6: atmosphere density
+        let atm_hw = self
+            .atmosphere
+            .as_ref()
+            .map(|s| s.density / 100.0)
+            .unwrap_or(0.0);
+
+        // dims 7-9: aero drag, lift, incidence
+        let (drag_hw, lift_hw, inc_hw) = self
+            .aerodynamics
+            .as_ref()
+            .map(|s| (s.drag / 100.0, s.lift / 100.0, s.incidence * DEG2RAD))
+            .unwrap_or((0.0, 0.0, 0.0));
+
+        // dims 10-16: navigation
+        let (nav_alt, nav_lon, nav_lat, nav_vel, nav_fpa, nav_az, nav_drag) =
+            if let Some(ref s) = self.navigation {
+                (
+                    s.altitude * 1e3,
+                    s.longitude * DEG2RAD,
+                    s.latitude * DEG2RAD,
+                    s.velocity,
+                    s.flight_path * DEG2RAD,
+                    s.azimuth * DEG2RAD,
+                    s.drag_accel,
+                )
+            } else {
+                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            };
+
+        // dim 17: mass
+        let mass_hw = self.mass.as_ref().map(|s| s.mass / 100.0).unwrap_or(0.0);
+
+        // dims 18-19: vehicle ref_area, max_bank_rate
+        let (area_hw, bank_rate_hw) = self
+            .vehicle
+            .as_ref()
+            .map(|s| (s.ref_area / 100.0, s.max_bank_rate / 100.0))
+            .unwrap_or((0.0, 0.0));
+
+        // dims 20-22: pilot tau, damping, freq
+        let (tau_hw, damp_hw, freq_hw) = self
+            .pilot
+            .as_ref()
+            .map(|s| {
+                (
+                    s.time_constant / 100.0,
+                    s.damping / 100.0,
+                    s.frequency / 100.0,
+                )
+            })
+            .unwrap_or((0.0, 0.0, 0.0));
+
+        // dim 23: nav_filter (Gaussian)
+        let nav_filter_sigma = self
+            .nav_filter
+            .as_ref()
+            .map(|s| s.filter_gain)
+            .unwrap_or(0.0);
+
+        // dims 24-25: wind scale (UniformRange or Fixed), direction bias (Uniform or Fixed)
+        let (wind_scale_tx, wind_dir_tx) = if let Some(ref w) = self.wind {
+            (
+                DimTransform::UniformRange {
+                    min: w.scale_min,
+                    max: w.scale_max,
+                },
+                unif(w.direction_bias_deg * DEG2RAD),
+            )
+        } else {
+            (DimTransform::Fixed(1.0), DimTransform::Fixed(0.0))
+        };
+
+        [
+            gauss(alt_sigma),        // 0: altitude
+            gauss(lon_sigma),        // 1: longitude
+            gauss(lat_sigma),        // 2: latitude
+            gauss(vel_sigma),        // 3: velocity
+            gauss(fpa_sigma),        // 4: flight_path
+            gauss(az_sigma),         // 5: azimuth
+            unif(atm_hw),            // 6: density
+            unif(drag_hw),           // 7: drag_coeff
+            unif(lift_hw),           // 8: lift_coeff
+            unif(inc_hw),            // 9: incidence
+            gauss(nav_alt),          // 10: nav_altitude
+            gauss(nav_lon),          // 11: nav_longitude
+            gauss(nav_lat),          // 12: nav_latitude
+            gauss(nav_vel),          // 13: nav_velocity
+            gauss(nav_fpa),          // 14: nav_flight_path
+            gauss(nav_az),           // 15: nav_azimuth
+            gauss(nav_drag),         // 16: nav_drag_accel
+            unif(mass_hw),           // 17: mass
+            unif(area_hw),           // 18: ref_area
+            unif(bank_rate_hw),      // 19: max_bank_rate
+            unif(tau_hw),            // 20: pilot_tau
+            unif(damp_hw),           // 21: pilot_damping
+            unif(freq_hw),           // 22: pilot_frequency
+            gauss(nav_filter_sigma), // 23: filter_gain
+            wind_scale_tx,           // 24: wind_scale
+            wind_dir_tx,             // 25: wind_direction_bias
+        ]
+    }
+
+    /// Generate LHS unit samples: N samples x 26 dimensions, values in [0,1).
+    /// Each stratum [k/N, (k+1)/N) contains exactly one sample per dimension.
+    pub fn generate_lhs_unit_samples(&self, n: usize) -> Vec<[f64; DISPERSION_DRAW_LEN]> {
+        use rand::RngExt;
+        if n == 0 {
+            return Vec::new();
+        }
+        let mut rng = rand::rngs::StdRng::seed_from_u64(self.seed);
+        // Build one permutation per dimension via Fisher-Yates
+        let dim_perms: Vec<Vec<usize>> = (0..DISPERSION_DRAW_LEN)
+            .map(|_| {
+                let mut perm: Vec<usize> = (0..n).collect();
+                for i in (1..n).rev() {
+                    let j = rng.random_range(0..=i);
+                    perm.swap(i, j);
+                }
+                perm
+            })
+            .collect();
+
+        let mut samples: Vec<[f64; DISPERSION_DRAW_LEN]> = vec![[0.0; DISPERSION_DRAW_LEN]; n];
+        for (i, row) in samples.iter_mut().enumerate() {
+            for (d, perm) in dim_perms.iter().enumerate() {
+                row[d] = (perm[i] as f64 + rng.random::<f64>()) / n as f64;
+            }
+        }
+        samples
+    }
+
+    /// Generate Sobol quasi-random unit samples: N samples x 26 dimensions, values in [0,1].
+    pub fn generate_sobol_unit_samples(&self, n: usize) -> Vec<[f64; DISPERSION_DRAW_LEN]> {
+        let seed = self.seed as u32;
+        (0..n)
+            .map(|i| std::array::from_fn(|d| sobol_burley::sample(i as u32, d as u32, seed) as f64))
+            .collect()
+    }
+
+    /// Map a slice of unit samples (each row is one sim, 26 dims in [0,1]) through the
+    /// per-dimension transforms to produce `DispersionDraw` values.
+    fn draws_from_unit_samples(
+        &self,
+        unit_samples: &[[f64; DISPERSION_DRAW_LEN]],
+    ) -> Vec<DispersionDraw> {
+        let transforms = self.build_dim_transforms();
+        unit_samples
+            .iter()
+            .map(|row| {
+                let arr: [f64; DISPERSION_DRAW_LEN] =
+                    std::array::from_fn(|d| transforms[d].apply(row[d]));
+                DispersionDraw::from_array(arr)
+            })
+            .collect()
+    }
+
     /// Generate all dispersion draws for a batch of simulations.
+    ///
+    /// Dispatches to the configured sampling method:
+    /// - `Random`: seeded PRNG (backward-compatible, same seed = same draws)
+    /// - `Lhs`: Latin Hypercube Sampling via `generate_lhs_unit_samples`
+    /// - `Sobol`: Sobol quasi-random sequence (limited to 65536 samples)
+    pub fn generate_draws(&self, n_sims: usize) -> Vec<DispersionDraw> {
+        match self.sampling {
+            SamplingMethod::Random => self.generate_draws_random(n_sims),
+            SamplingMethod::Lhs => {
+                let unit_samples = self.generate_lhs_unit_samples(n_sims);
+                self.draws_from_unit_samples(&unit_samples)
+            }
+            SamplingMethod::Sobol => {
+                assert!(
+                    n_sims <= 65_536,
+                    "Sobol sampling limited to 65536 samples, got {}",
+                    n_sims,
+                );
+                let unit_samples = self.generate_sobol_unit_samples(n_sims);
+                self.draws_from_unit_samples(&unit_samples)
+            }
+        }
+    }
+
+    /// Random draw generation (legacy PRNG path). Used by `generate_draws` for `SamplingMethod::Random`.
     ///
     /// Uses a seeded RNG for reproducibility. Draw order:
     /// initial state (Gaussian), atmosphere (Uniform), aero (Uniform),
     /// nav (Gaussian), mass (Uniform), vehicle (Uniform), pilot (Uniform),
     /// nav_filter (Gaussian), wind (Uniform scale + Uniform direction bias).
-    pub fn generate_draws(&self, n_sims: usize) -> Vec<DispersionDraw> {
+    fn generate_draws_random(&self, n_sims: usize) -> Vec<DispersionDraw> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(self.seed);
         let normal = Normal::new(0.0, 1.0).unwrap();
         let uniform = Uniform::new(-1.0_f64, 1.0).unwrap();
@@ -627,6 +958,7 @@ mod tests {
     fn medium_config(seed: u64) -> DispersionConfig {
         DispersionConfig {
             seed,
+            sampling: SamplingMethod::Random,
             initial_state: Some(InitialStateSigmas::from_level(DispersionLevel::Medium)),
             atmosphere: Some(AtmosphereSigmas::from_level(DispersionLevel::Medium)),
             aerodynamics: Some(AerodynamicsSigmas::from_level(DispersionLevel::Medium)),
@@ -681,6 +1013,7 @@ mod tests {
     fn test_all_none_gives_zeros() {
         let config = DispersionConfig {
             seed: 42,
+            sampling: SamplingMethod::Random,
             initial_state: None,
             atmosphere: None,
             aerodynamics: None,
@@ -792,6 +1125,7 @@ mod tests {
     fn test_uniform_fields_bounded() {
         let config = DispersionConfig {
             seed: 12345,
+            sampling: SamplingMethod::Random,
             initial_state: None,
             atmosphere: Some(AtmosphereSigmas { density: 50.0 }),
             aerodynamics: Some(AerodynamicsSigmas {
@@ -874,6 +1208,7 @@ mod tests {
     fn test_filter_gain_gaussian_range() {
         let config = DispersionConfig {
             seed: 54321,
+            sampling: SamplingMethod::Random,
             initial_state: None,
             atmosphere: None,
             aerodynamics: None,
@@ -1088,6 +1423,43 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_sampling_method_parsing() {
+        assert_eq!(
+            SamplingMethod::from_str("random").unwrap(),
+            SamplingMethod::Random
+        );
+        assert_eq!(
+            SamplingMethod::from_str("lhs").unwrap(),
+            SamplingMethod::Lhs
+        );
+        assert_eq!(
+            SamplingMethod::from_str("sobol").unwrap(),
+            SamplingMethod::Sobol
+        );
+        // case-insensitive
+        assert_eq!(
+            SamplingMethod::from_str("LHS").unwrap(),
+            SamplingMethod::Lhs
+        );
+        assert_eq!(
+            SamplingMethod::from_str("Random").unwrap(),
+            SamplingMethod::Random
+        );
+        assert_eq!(
+            SamplingMethod::from_str("SOBOL").unwrap(),
+            SamplingMethod::Sobol
+        );
+        // unknown string errors
+        assert!(SamplingMethod::from_str("invalid").is_err());
+        assert!(SamplingMethod::from_str("").is_err());
+    }
+
+    #[test]
+    fn test_sampling_method_default_is_random() {
+        assert_eq!(SamplingMethod::default(), SamplingMethod::Random);
+    }
+
     mod proptests {
         use super::*;
         use proptest::prelude::*;
@@ -1104,6 +1476,296 @@ mod tests {
                 let result = step_density_perturbation(x, dt, tau, sigma, z);
                 prop_assert!(result.is_finite(), "got {}", result);
             }
+
+            #[test]
+            fn all_sampling_methods_produce_finite_draws(
+                seed in 0u64..10_000,
+                n_sims in 1usize..200,
+                method_idx in 0u32..3,
+            ) {
+                let method = match method_idx {
+                    0 => SamplingMethod::Random,
+                    1 => SamplingMethod::Lhs,
+                    _ => SamplingMethod::Sobol,
+                };
+                let config = DispersionConfig {
+                    seed,
+                    sampling: method,
+                    initial_state: Some(InitialStateSigmas::from_level(DispersionLevel::Medium)),
+                    atmosphere: Some(AtmosphereSigmas::from_level(DispersionLevel::Medium)),
+                    aerodynamics: Some(AerodynamicsSigmas::from_level(DispersionLevel::Medium)),
+                    navigation: Some(NavigationSigmas::from_level(DispersionLevel::Medium)),
+                    mass: Some(MassSigmas::from_level(DispersionLevel::Medium)),
+                    vehicle: Some(VehicleSigmas::from_level(DispersionLevel::Medium)),
+                    pilot: Some(PilotSigmas::from_level(DispersionLevel::Medium)),
+                    nav_filter: Some(NavFilterSigmas::from_level(DispersionLevel::Medium)),
+                    wind: None,
+                    density_perturbation: None,
+                };
+                let draws = config.generate_draws(n_sims);
+                prop_assert_eq!(draws.len(), n_sims);
+                for draw in &draws {
+                    let arr = draw.to_array();
+                    for &val in &arr {
+                        prop_assert!(val.is_finite(), "non-finite draw value: {}", val);
+                    }
+                }
+            }
         }
+    }
+
+    // ── Task 2: norm_ppf + DimTransform tests ──────────────────────────────
+
+    #[test]
+    fn test_norm_ppf_known_values() {
+        let tol = 1e-6;
+        assert!((norm_ppf(0.5) - 0.0).abs() < tol, "p=0.5 -> 0");
+        assert!((norm_ppf(0.841344746) - 1.0).abs() < tol, "p=0.841 -> 1");
+        assert!(
+            (norm_ppf(0.158655254) - (-1.0)).abs() < tol,
+            "p=0.159 -> -1"
+        );
+        assert!((norm_ppf(0.977249868) - 2.0).abs() < tol, "p=0.977 -> 2");
+        assert!(
+            (norm_ppf(0.022750132) - (-2.0)).abs() < tol,
+            "p=0.023 -> -2"
+        );
+        assert!((norm_ppf(0.998650102) - 3.0).abs() < tol, "p~0.99865 -> 3");
+    }
+
+    #[test]
+    fn test_norm_ppf_symmetry() {
+        let tol = 1e-12;
+        for p in [0.01, 0.1, 0.25, 0.4] {
+            let sum = norm_ppf(p) + norm_ppf(1.0 - p);
+            assert!(sum.abs() < tol, "symmetry failed at p={}: sum={}", p, sum);
+        }
+    }
+
+    #[test]
+    fn test_dim_transform_gaussian() {
+        let tx = DimTransform::Gaussian { sigma: 2.0 };
+        // u=0.5 -> norm_ppf(0.5)=0.0 -> 0.0*2.0=0.0
+        assert!((tx.apply(0.5) - 0.0).abs() < 1e-12);
+        // u=0.841344746 -> ~1.0 * 2.0 = ~2.0
+        assert!((tx.apply(0.841344746) - 2.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_dim_transform_uniform() {
+        let tx = DimTransform::Uniform { half_width: 5.0 };
+        // u=0.5 -> (2*0.5-1)*5 = 0.0
+        assert_eq!(tx.apply(0.5), 0.0);
+        // u=1.0 -> (2*1.0-1)*5 = 5.0
+        assert_eq!(tx.apply(1.0), 5.0);
+        // u=0.0 -> (2*0.0-1)*5 = -5.0
+        assert_eq!(tx.apply(0.0), -5.0);
+    }
+
+    #[test]
+    fn test_dim_transform_uniform_range() {
+        let tx = DimTransform::UniformRange { min: 0.5, max: 1.5 };
+        // u=0.0 -> 0.5 + 0.0*1.0 = 0.5
+        assert_eq!(tx.apply(0.0), 0.5);
+        // u=1.0 -> 0.5 + 1.0*1.0 = 1.5
+        assert_eq!(tx.apply(1.0), 1.5);
+        // u=0.5 -> 1.0
+        assert_eq!(tx.apply(0.5), 1.0);
+    }
+
+    #[test]
+    fn test_dim_transform_fixed() {
+        let tx = DimTransform::Fixed(42.0);
+        assert_eq!(tx.apply(0.0), 42.0);
+        assert_eq!(tx.apply(0.5), 42.0);
+        assert_eq!(tx.apply(1.0), 42.0);
+    }
+
+    #[test]
+    fn test_build_dim_transforms_medium_config() {
+        let cfg = medium_config(42);
+        let txs = cfg.build_dim_transforms();
+        // dim 0 (altitude) should be Gaussian
+        assert!(
+            matches!(txs[0], DimTransform::Gaussian { .. }),
+            "dim 0 should be Gaussian"
+        );
+        // dim 6 (density) should be Uniform
+        assert!(
+            matches!(txs[6], DimTransform::Uniform { .. }),
+            "dim 6 should be Uniform"
+        );
+        // wind=None -> dim 24 = Fixed(1.0), dim 25 = Fixed(0.0)
+        assert_eq!(
+            txs[24],
+            DimTransform::Fixed(1.0),
+            "dim 24 wind=None should be Fixed(1.0)"
+        );
+        assert_eq!(
+            txs[25],
+            DimTransform::Fixed(0.0),
+            "dim 25 wind=None should be Fixed(0.0)"
+        );
+    }
+
+    // ── Task 3: LHS tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_lhs_stratification() {
+        let cfg = medium_config(42);
+        let n = 100usize;
+        let samples = cfg.generate_lhs_unit_samples(n);
+        assert_eq!(samples.len(), n);
+        // Each stratum [k/n, (k+1)/n) must contain exactly one sample per dimension
+        for d in 0..DISPERSION_DRAW_LEN {
+            let mut stratum_counts = vec![0u32; n];
+            for row in &samples {
+                let v = row[d];
+                assert!(
+                    (0.0..1.0).contains(&v),
+                    "dim {} value {} out of [0,1)",
+                    d,
+                    v
+                );
+                let k = (v * n as f64) as usize;
+                stratum_counts[k] += 1;
+            }
+            for (k, &count) in stratum_counts.iter().enumerate() {
+                assert_eq!(
+                    count, 1,
+                    "dim {} stratum {} has {} samples (expected 1)",
+                    d, k, count
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_lhs_deterministic() {
+        let a = medium_config(7).generate_lhs_unit_samples(50);
+        let b = medium_config(7).generate_lhs_unit_samples(50);
+        for (row_a, row_b) in a.iter().zip(b.iter()) {
+            for (va, vb) in row_a.iter().zip(row_b.iter()) {
+                assert_eq!(va, vb);
+            }
+        }
+    }
+
+    // ── Task 4: Sobol tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_sobol_bounds() {
+        let cfg = medium_config(0);
+        let samples = cfg.generate_sobol_unit_samples(1000);
+        assert_eq!(samples.len(), 1000);
+        for row in &samples {
+            for (d, &v) in row.iter().enumerate() {
+                assert!(
+                    (0.0..=1.0).contains(&v),
+                    "dim {} value {} out of [0,1]",
+                    d,
+                    v
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_sobol_deterministic() {
+        let a = medium_config(123).generate_sobol_unit_samples(100);
+        let b = medium_config(123).generate_sobol_unit_samples(100);
+        for (row_a, row_b) in a.iter().zip(b.iter()) {
+            for (va, vb) in row_a.iter().zip(row_b.iter()) {
+                assert_eq!(va, vb);
+            }
+        }
+    }
+
+    #[test]
+    fn test_sobol_different_seeds() {
+        let a = medium_config(1).generate_sobol_unit_samples(50);
+        let b = medium_config(2).generate_sobol_unit_samples(50);
+        let any_differ = a
+            .iter()
+            .zip(b.iter())
+            .any(|(ra, rb)| ra.iter().zip(rb.iter()).any(|(va, vb)| va != vb));
+        assert!(
+            any_differ,
+            "different seeds should produce different Sobol samples"
+        );
+    }
+
+    // ── Task 5: generate_draws() dispatch + from_array() tests ────────────
+
+    #[test]
+    fn test_from_array_roundtrip() {
+        let draw = DispersionDraw {
+            altitude: 1.0,
+            longitude: 2.0,
+            latitude: 3.0,
+            velocity: 4.0,
+            flight_path: 5.0,
+            azimuth: 6.0,
+            density: 7.0,
+            drag_coeff: 8.0,
+            lift_coeff: 9.0,
+            incidence: 10.0,
+            nav_altitude: 11.0,
+            nav_longitude: 12.0,
+            nav_latitude: 13.0,
+            nav_velocity: 14.0,
+            nav_flight_path: 15.0,
+            nav_azimuth: 16.0,
+            nav_drag_accel: 17.0,
+            mass: 18.0,
+            ref_area: 19.0,
+            max_bank_rate: 20.0,
+            pilot_tau: 21.0,
+            pilot_damping: 22.0,
+            pilot_frequency: 23.0,
+            filter_gain: 24.0,
+            wind_scale: 25.0,
+            wind_direction_bias: 26.0,
+        };
+        let arr = draw.to_array();
+        let roundtrip = DispersionDraw::from_array(arr);
+        let arr2 = roundtrip.to_array();
+        assert_eq!(arr, arr2);
+    }
+
+    #[test]
+    fn test_generate_draws_lhs_produces_valid_draws() {
+        let mut config = medium_config(42);
+        config.sampling = SamplingMethod::Lhs;
+        let draws = config.generate_draws(100);
+        assert_eq!(draws.len(), 100);
+        for draw in &draws {
+            assert!(draw.altitude.is_finite());
+            assert!(draw.velocity.is_finite());
+            assert!(draw.density.is_finite());
+            assert!(draw.wind_scale.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_generate_draws_sobol_produces_valid_draws() {
+        let mut config = medium_config(42);
+        config.sampling = SamplingMethod::Sobol;
+        let draws = config.generate_draws(100);
+        assert_eq!(draws.len(), 100);
+        for draw in &draws {
+            assert!(draw.altitude.is_finite());
+            assert!(draw.velocity.is_finite());
+            assert!(draw.density.is_finite());
+            assert!(draw.wind_scale.is_finite());
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Sobol sampling limited to 65536")]
+    fn test_sobol_rejects_too_many_sims() {
+        let mut config = medium_config(42);
+        config.sampling = SamplingMethod::Sobol;
+        config.generate_draws(70_000);
     }
 }
