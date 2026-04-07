@@ -26,7 +26,11 @@ fn bounce_time_is_sub_tick() {
     let bounce_time = results[0].final_record[26];
 
     // bounce_time must be positive and finite
-    assert!(bounce_time > 0.0 && bounce_time.is_finite(), "invalid bounce_time: {}", bounce_time);
+    assert!(
+        bounce_time > 0.0 && bounce_time.is_finite(),
+        "invalid bounce_time: {}",
+        bounce_time
+    );
 
     // With event detection the bounce is located between ticks (dt=1.0 s outer cadence),
     // so remainder must not be essentially 0 or essentially 1.
@@ -46,7 +50,10 @@ fn adaptive_with_events_still_captures() {
     let results = run_for_api(&config, &data, false, None).expect("run simulation");
     let r = &results[0];
 
-    assert!(r.captured, "adaptive mode with event detection must capture");
+    assert!(
+        r.captured,
+        "adaptive mode with event detection must capture"
+    );
     assert!(
         r.final_record[9] < 1.0,
         "eccentricity must be < 1.0 for a captured orbit, got {}",
@@ -64,7 +71,10 @@ fn fixed_rk4_unchanged() {
 
     let ifinal = r.final_record[31] as i32;
     assert_eq!(ifinal, 3, "fixed Gill RK4 must produce ifinal=3 (captured)");
-    assert!(r.captured, "captured flag must be true for Gill RK4 reference run");
+    assert!(
+        r.captured,
+        "captured flag must be true for Gill RK4 reference run"
+    );
 }
 
 /// With trajectories enabled, event rows are injected into the photo stream.
@@ -77,7 +87,10 @@ fn trajectory_includes_event_rows() {
     let r = &results[0];
 
     let traj = &r.trajectory;
-    assert!(!traj.is_empty(), "trajectory must not be empty when include_trajectories=true");
+    assert!(
+        !traj.is_empty(),
+        "trajectory must not be empty when include_trajectories=true"
+    );
 
     // Times (column 7) must be monotonically non-decreasing
     for i in 1..traj.len() {
@@ -102,7 +115,10 @@ fn trajectory_includes_event_rows() {
             "bounce_time={} not found in trajectory times (tolerance={}, first few: {:?})",
             bounce_time,
             tol,
-            &traj[..traj.len().min(5)].iter().map(|r| r[7]).collect::<Vec<_>>(),
+            &traj[..traj.len().min(5)]
+                .iter()
+                .map(|r| r[7])
+                .collect::<Vec<_>>(),
         );
     }
 }

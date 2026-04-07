@@ -256,7 +256,11 @@ pub fn check_events_and_locate(
         let is_earlier = earliest.as_ref().is_none_or(|e| theta < e.theta);
         if is_earlier {
             let state = dopri45_dense(y0, y5, h, k1, k7, theta);
-            earliest = Some(TriggeredEvent { event_index: i, theta, state });
+            earliest = Some(TriggeredEvent {
+                event_index: i,
+                theta,
+                state,
+            });
         }
     }
 
@@ -338,8 +342,8 @@ mod tests {
             ctx.planet_radius + 50_000.0, // r = inside atmosphere
             0.0,
             0.0,
-            5_000.0,  // V < threshold
-            0.1_f64,  // gamma (positive = ascending)
+            5_000.0, // V < threshold
+            0.1_f64, // gamma (positive = ascending)
             0.0,
             0.0,
             0.0,
@@ -378,7 +382,7 @@ mod tests {
 
     #[test]
     fn check_events_locates_zero_crossing() {
-        use crate::integration::dopri45::{dopri45_step_with_stages, Dopri45State};
+        use crate::integration::dopri45::{Dopri45State, dopri45_step_with_stages};
 
         let ctx = EventContext {
             planet_radius: 0.0,
@@ -420,14 +424,22 @@ mod tests {
         assert!(triggered.is_some());
         let t = triggered.unwrap();
         assert_eq!(t.event_index, 0);
-        assert!((t.theta - 0.5).abs() < 0.01, "theta={} expected ~0.5", t.theta);
-        assert!((t.state[0] - 1.5).abs() < 0.01, "state[0]={} expected ~1.5", t.state[0]);
+        assert!(
+            (t.theta - 0.5).abs() < 0.01,
+            "theta={} expected ~0.5",
+            t.theta
+        );
+        assert!(
+            (t.state[0] - 1.5).abs() < 0.01,
+            "state[0]={} expected ~1.5",
+            t.state[0]
+        );
     }
 
     #[test]
     fn check_events_respects_direction_filter() {
         // Rising crossing (state[0] goes from 1.0 to 2.0), but direction=-1 means only falling.
-        use crate::integration::dopri45::{dopri45_step_with_stages, Dopri45State};
+        use crate::integration::dopri45::{Dopri45State, dopri45_step_with_stages};
 
         let ctx = EventContext {
             planet_radius: 0.0,
@@ -466,18 +478,21 @@ mod tests {
 
         let g_start = evaluate_events(&y0, &events, &ctx);
         let triggered = check_events_and_locate(&y0, &y5, h, k1, k7, &events, &ctx, &g_start, 1e-3);
-        assert!(triggered.is_none(), "direction=-1 should not trigger on a rising crossing");
+        assert!(
+            triggered.is_none(),
+            "direction=-1 should not trigger on a rising crossing"
+        );
     }
 
     #[test]
     fn check_events_picks_earliest_of_two() {
         // Two events: one at state[0] = 1.3 (theta~0.3), one at state[0] = 1.7 (theta~0.7).
         // Both rising. Should pick the first (theta~0.3).
-        use crate::integration::dopri45::{dopri45_step_with_stages, Dopri45State};
+        use crate::integration::dopri45::{Dopri45State, dopri45_step_with_stages};
 
         let ctx = EventContext {
             planet_radius: 0.0,
-            exit_altitude: 1.3, // event 0 fires here
+            exit_altitude: 1.3,           // event 0 fires here
             exit_velocity_threshold: 1.7, // event 1 fires when state[0] reaches 1.7
         };
         let events = vec![
@@ -523,7 +538,15 @@ mod tests {
         assert!(triggered.is_some());
         let t = triggered.unwrap();
         assert_eq!(t.event_index, 0, "should pick the earlier event (index 0)");
-        assert!((t.theta - 0.3).abs() < 0.01, "theta={} expected ~0.3", t.theta);
-        assert!((t.state[0] - 1.3).abs() < 0.01, "state[0]={} expected ~1.3", t.state[0]);
+        assert!(
+            (t.theta - 0.3).abs() < 0.01,
+            "theta={} expected ~0.3",
+            t.theta
+        );
+        assert!(
+            (t.state[0] - 1.3).abs() < 0.01,
+            "state[0]={} expected ~1.3",
+            t.state[0]
+        );
     }
 }

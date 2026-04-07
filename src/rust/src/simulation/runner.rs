@@ -1268,20 +1268,15 @@ fn build_event_photo_values(
     data: &SimData,
     run_state: &init::RunState,
 ) -> [f64; 30] {
-    let (altitude, latitude) =
-        geodetic_from_spherical(state[0], state[1], state[2], planet);
+    let (altitude, latitude) = geodetic_from_spherical(state[0], state[1], state[2], planet);
 
     let orbit = elements::from_spherical(
-        state[0], state[1], state[2],
-        state[3], state[4], state[5],
-        planet,
+        state[0], state[1], state[2], state[3], state[4], state[5], planet,
     );
 
     let mu = planet.mu;
     let (_position_abs, velocity_abs) = to_absolute_cartesian(
-        state[0], state[1], state[2],
-        state[3], state[4], state[5],
-        planet,
+        state[0], state[1], state[2], state[3], state[4], state[5], planet,
     );
     let speed_abs = norm(&velocity_abs);
     let energy = speed_abs * speed_abs / 2.0 - mu / state[0];
@@ -1295,8 +1290,7 @@ fn build_event_photo_values(
         run_state.density_perturbation,
     );
     let v_eff = effective_airspeed(
-        state[3], state[4], state[5], state[2],
-        altitude, data, run_state,
+        state[3], state[4], state[5], state[2], altitude, data, run_state,
     );
     let heat_flux = data.capsule.cq * rho_dispersed.sqrt() * v_eff.powf(3.05);
     let pdyn = 0.5 * rho_dispersed * v_eff * v_eff;
@@ -1313,35 +1307,35 @@ fn build_event_photo_values(
     let cumulative_flux = state[6];
 
     [
-        event_time,               // [0]  time_s
-        altitude / 1e3,           // [1]  altitude_km
-        state[1] / DEG_TO_RAD,   // [2]  longitude_deg
-        latitude / DEG_TO_RAD,   // [3]  latitude_deg
-        state[3],                 // [4]  velocity_m_s
-        state[4] / DEG_TO_RAD,   // [5]  flight_path_deg
-        state[5] / DEG_TO_RAD,   // [6]  azimuth_deg
-        orbit.semi_major_axis / 1e3, // [7]  semi_major_axis_km
-        orbit.eccentricity,       // [8]  eccentricity
+        event_time,                     // [0]  time_s
+        altitude / 1e3,                 // [1]  altitude_km
+        state[1] / DEG_TO_RAD,          // [2]  longitude_deg
+        latitude / DEG_TO_RAD,          // [3]  latitude_deg
+        state[3],                       // [4]  velocity_m_s
+        state[4] / DEG_TO_RAD,          // [5]  flight_path_deg
+        state[5] / DEG_TO_RAD,          // [6]  azimuth_deg
+        orbit.semi_major_axis / 1e3,    // [7]  semi_major_axis_km
+        orbit.eccentricity,             // [8]  eccentricity
         orbit.inclination / DEG_TO_RAD, // [9]  inclination_deg
-        orbit.raan / DEG_TO_RAD, // [10] raan_deg
-        orbit.periapsis_alt / 1e3, // [11] periapsis_alt_km
-        orbit.apoapsis_alt / 1e3, // [12] apoapsis_alt_km
-        0.0,                      // [13] phase (unknown between ticks)
-        0.0,                      // [14] bank_angle_deg (unknown between ticks)
-        velocity_radial,          // [15] radial_velocity_m_s
-        0.0,                      // [16] aoa_deg (unknown between ticks)
-        0.0,                      // [17] cumulative_bank_change_deg (not tracked at event)
-        energy,                   // [18] energy_j_kg
-        pdyn,                     // [19] dynamic_pressure_pa
-        velocity_radial,          // [20] radial_velocity_2 (duplicate, matches build_photo_values)
-        0.0,                      // [21] dynamic_pressure_onboard_kpa (no nav estimate at event)
-        0.0,                      // [22] sim_index (not applicable for event rows)
-        0.0,                      // [23] reserved
-        heat_flux / 1e3,          // [24] heat_flux_kw_m2
-        load_factor / G0,         // [25] g_load_g
-        0.0,                      // [26] nav_density_ratio (no nav at event)
-        rho_truth,                // [27] truth_density_kg_m3
-        cumulative_flux / 1e3,    // [28] heat_load_kj_m2
+        orbit.raan / DEG_TO_RAD,        // [10] raan_deg
+        orbit.periapsis_alt / 1e3,      // [11] periapsis_alt_km
+        orbit.apoapsis_alt / 1e3,       // [12] apoapsis_alt_km
+        0.0,                            // [13] phase (unknown between ticks)
+        0.0,                            // [14] bank_angle_deg (unknown between ticks)
+        velocity_radial,                // [15] radial_velocity_m_s
+        0.0,                            // [16] aoa_deg (unknown between ticks)
+        0.0,                            // [17] cumulative_bank_change_deg (not tracked at event)
+        energy,                         // [18] energy_j_kg
+        pdyn,                           // [19] dynamic_pressure_pa
+        velocity_radial, // [20] radial_velocity_2 (duplicate, matches build_photo_values)
+        0.0,             // [21] dynamic_pressure_onboard_kpa (no nav estimate at event)
+        0.0,             // [22] sim_index (not applicable for event rows)
+        0.0,             // [23] reserved
+        heat_flux / 1e3, // [24] heat_flux_kw_m2
+        load_factor / G0, // [25] g_load_g
+        0.0,             // [26] nav_density_ratio (no nav at event)
+        rho_truth,       // [27] truth_density_kg_m3
+        cumulative_flux / 1e3, // [28] heat_load_kj_m2
         run_state.density_perturbation, // [29] density_perturbation
     ]
 }
