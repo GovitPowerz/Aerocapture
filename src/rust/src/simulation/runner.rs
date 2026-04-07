@@ -92,7 +92,7 @@ struct SimState {
 
 /// Termination reason
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum TermReason {
+pub enum TermReason {
     None,
     Crash,
     Timeout,
