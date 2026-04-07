@@ -404,7 +404,7 @@ def run_full_analysis(
 
         cfg = load_toml_with_bases(Path(toml_path))
         guidance_type = str(cfg.get("guidance", {}).get("type", "unknown"))  # type: ignore[union-attr]
-        output_dir = Path("training_output") / guidance_type
+        output_dir = Path("training_output") / guidance_type / "sensitivity"
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
