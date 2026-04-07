@@ -212,6 +212,7 @@ pub fn evaluate_events(state: &[f64; 8], events: &[EventDef], ctx: &EventContext
 /// - `tol`: root-finding tolerance in seconds (e.g. 1e-3); converted internally to theta
 ///
 /// Returns `None` if no event triggered, or `Some(TriggeredEvent)` for the earliest.
+#[allow(clippy::too_many_arguments)]
 pub fn check_events_and_locate(
     y0: &[f64; 8],
     y5: &[f64; 8],
@@ -252,7 +253,7 @@ pub fn check_events_and_locate(
             (event.eval)(&y, ctx)
         });
 
-        let is_earlier = earliest.as_ref().map_or(true, |e| theta < e.theta);
+        let is_earlier = earliest.as_ref().is_none_or(|e| theta < e.theta);
         if is_earlier {
             let state = dopri45_dense(y0, y5, h, k1, k7, theta);
             earliest = Some(TriggeredEvent { event_index: i, theta, state });

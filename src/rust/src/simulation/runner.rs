@@ -11,6 +11,9 @@ use crate::gnc::guidance::dispatch::{self as dispatch, GuidanceState};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
 use crate::gnc::navigation::estimator::{self, NavigationFilter};
 use crate::integration::dopri45::{self, Dopri45State};
+use crate::integration::events::{
+    self, EventAction, EventContext, EventDef, EventRecord, EventType,
+};
 use crate::integration::rk4;
 use crate::integration::sequencer::SequencerState;
 use crate::orbit::maneuver::DeltaV;
@@ -88,6 +91,8 @@ struct SimState {
     time_max_flux: f64,
     time_max_load: f64,
     time_max_pdyn: f64,
+    // Event detection records (adaptive integrator only)
+    event_records: Vec<EventRecord>,
 }
 
 /// Termination reason
@@ -562,6 +567,7 @@ fn run_single(
         time_max_flux: 0.0,
         time_max_load: 0.0,
         time_max_pdyn: 0.0,
+        event_records: Vec::new(),
     };
 
     let reference_bank_angle = config.reference_bank_angle.to_radians();
@@ -611,6 +617,14 @@ fn run_single(
     let mut guidance_phase_for_photo = 1_i32;
 
     let wall_start = Instant::now();
+
+    // Event detection setup (used by adaptive integrator)
+    let event_defs = events::build_aerocapture_events();
+    let event_ctx = EventContext {
+        planet_radius: planet.equatorial_radius,
+        exit_altitude,
+        exit_velocity_threshold: data.guidance.exit_velocity_threshold,
+    };
 
     // Main simulation loop
     let mut sim_time = entry.initial_date;
@@ -816,12 +830,24 @@ fn run_single(
         }
 
         // === Integration step ===
+        let mut adaptive_event: Option<events::TriggeredEvent> = None;
         match &data.integration_mode {
             IntegrationMode::FixedGill => {
                 integrate_step(&mut sim, dt, planet, data, &run_state);
             }
             IntegrationMode::AdaptiveDopri45(adaptive_config) => {
-                let _ = integrate_adaptive(&mut sim, dt, adaptive_config, planet, data, &run_state);
+                let result = integrate_adaptive_with_events(
+                    &mut sim,
+                    dt,
+                    adaptive_config,
+                    planet,
+                    data,
+                    &run_state,
+                    &event_defs,
+                    &event_ctx,
+                    sim_time,
+                );
+                adaptive_event = result.triggered;
             }
         }
 
@@ -829,6 +855,36 @@ fn run_single(
             geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
 
         track_peak_values(&mut sim, altitude, sim_time, data, &run_state);
+
+        // === Process adaptive integrator events ===
+        if let Some(ref triggered) = adaptive_event {
+            let event = &event_defs[triggered.event_index];
+            match event.event_type {
+                EventType::Bounce => {
+                    if !sim.bounced {
+                        let evt = sim.event_records.last().unwrap();
+                        sim.bounced = true;
+                        sim.bounce_alt = evt.state[0] - planet.equatorial_radius;
+                        sim.bounce_time = evt.time;
+                    }
+                }
+                EventType::AtmosphereExit => {
+                    if sim.bounced {
+                        let evt = sim.event_records.last().unwrap();
+                        sim_time = evt.time;
+                        term = TermReason::AtmosphereExit;
+                    }
+                }
+                EventType::Crash => {
+                    let evt = sim.event_records.last().unwrap();
+                    sim_time = evt.time;
+                    term = TermReason::Crash;
+                }
+                EventType::PhaseTransition => {
+                    // Phase transition: nav layer picks up on next tick
+                }
+            }
+        }
 
         // NaN/Inf safety net: extreme GA parameters can blow up numerically.
         // All termination checks evaluate to false on NaN, so the loop would spin forever.
@@ -844,22 +900,26 @@ fn run_single(
             break;
         }
 
-        // === Termination checks ===
-        if altitude <= 0.0 {
-            term = TermReason::Crash;
-        }
-        if sim_time >= max_time {
-            term = TermReason::Timeout;
-        }
-        if sim.bounced && altitude >= exit_altitude {
-            term = TermReason::AtmosphereExit;
+        // === Termination checks (simple event-based: FixedGill only) ===
+        if matches!(data.integration_mode, IntegrationMode::FixedGill) {
+            if altitude <= 0.0 {
+                term = TermReason::Crash;
+            }
+            if sim.bounced && altitude >= exit_altitude {
+                term = TermReason::AtmosphereExit;
+            }
+
+            // Bounce detection
+            if !sim.bounced && sim.state[4].sin() >= 0.0 {
+                sim.bounced = true;
+                sim.bounce_alt = altitude;
+                sim.bounce_time = sim_time;
+            }
         }
 
-        // Bounce detection
-        if !sim.bounced && sim.state[4].sin() >= 0.0 {
-            sim.bounced = true;
-            sim.bounce_alt = altitude;
-            sim.bounce_time = sim_time;
+        // === Checks that run for both integration modes ===
+        if sim_time >= max_time {
+            term = TermReason::Timeout;
         }
 
         // Atmospheric apoapsis crash: bounced, now descending again, still inside atmosphere
@@ -1211,19 +1271,26 @@ struct AdaptiveStepStats {
     hit_limit: bool,
 }
 
-/// Advance the state by `dt_outer` using adaptive DOPRI45 sub-stepping.
-///
-/// The integrator takes variable-size sub-steps within the outer tick,
-/// controlled by local error estimation. The outer tick duration is covered
-/// exactly (final sub-step is clamped to land on the tick boundary).
-fn integrate_adaptive(
+struct AdaptiveEventResult {
+    #[allow(dead_code)]
+    stats: AdaptiveStepStats,
+    triggered: Option<events::TriggeredEvent>,
+}
+
+const EVENT_TOL: f64 = 1e-3; // 1 ms event location tolerance
+
+#[allow(clippy::too_many_arguments)]
+fn integrate_adaptive_with_events(
     sim: &mut SimState,
     dt_outer: f64,
     config: &AdaptiveConfig,
     planet: &PlanetConfig,
     data: &SimData,
     run_state: &init::RunState,
-) -> AdaptiveStepStats {
+    event_defs: &[EventDef],
+    event_ctx: &EventContext,
+    tick_start_time: f64,
+) -> AdaptiveEventResult {
     const MAX_SUBSTEPS: u32 = 1000;
 
     let bank_angle = sim.bank_angle;
@@ -1233,6 +1300,11 @@ fn integrate_adaptive(
     let mut n_substeps: u32 = 0;
     let mut n_rejections: u32 = 0;
 
+    // Cache event guard values at beginning of tick
+    let mut g_prev = events::evaluate_events(&sim.state, event_defs, event_ctx);
+
+    let mut last_triggered: Option<events::TriggeredEvent> = None;
+
     while t_remaining > 1e-14 {
         h = h.min(t_remaining).min(config.max_dt).max(config.min_dt);
 
@@ -1241,7 +1313,9 @@ fn integrate_adaptive(
             h = t_remaining;
         }
 
-        let result = dopri45::dopri45_step(
+        let y0 = sim.state;
+
+        let (result, stages) = dopri45::dopri45_step_with_stages(
             &mut sim.state,
             h,
             &mut sim.dopri,
@@ -1251,10 +1325,72 @@ fn integrate_adaptive(
         );
 
         if result.accepted {
+            // Check for events in this accepted substep
+            let k1 = &stages[0];
+            let k7 = &stages[6];
+
+            if let Some(triggered) = events::check_events_and_locate(
+                &y0, &sim.state, h, k1, k7, event_defs, event_ctx, &g_prev, EVENT_TOL,
+            ) {
+                let event = &event_defs[triggered.event_index];
+                let event_time = tick_start_time + (dt_outer - t_remaining) + triggered.theta * h;
+
+                // Record this event
+                sim.event_records.push(EventRecord {
+                    time: event_time,
+                    state: triggered.state,
+                    event_type: event.event_type,
+                });
+
+                // Rewind state to the event location
+                sim.state = triggered.state;
+
+                // Invalidate FSAL -- state was rewound, cached derivative is stale
+                sim.dopri.invalidate_fsal();
+
+                match event.action {
+                    EventAction::Terminate(_) => {
+                        // Terminal event: return immediately
+                        return AdaptiveEventResult {
+                            stats: AdaptiveStepStats {
+                                n_substeps: n_substeps + 1,
+                                n_rejections,
+                                hit_limit: false,
+                            },
+                            triggered: Some(triggered),
+                        };
+                    }
+                    EventAction::Record | EventAction::PhaseTransition => {
+                        // Non-terminal: adjust t_remaining for partial step consumed
+                        let consumed = triggered.theta * h;
+                        t_remaining -= consumed;
+                        n_substeps += 1;
+                        h = result.dt_next;
+
+                        // Re-evaluate guard values at the new (event) state
+                        g_prev = events::evaluate_events(&sim.state, event_defs, event_ctx);
+
+                        // Force g_prev to exactly 0.0 for the fired event so it won't
+                        // re-trigger on the next substep (the g0 == 0.0 skip in
+                        // check_events_and_locate prevents re-detection at the same
+                        // zero-crossing).
+                        g_prev[triggered.event_index] = 0.0;
+
+                        last_triggered = Some(triggered);
+                        continue;
+                    }
+                }
+            }
+
+            // No event: normal accepted step
             t_remaining -= h;
             n_substeps += 1;
             h = result.dt_next;
+
+            // Update guard values for next substep
+            g_prev = events::evaluate_events(&sim.state, event_defs, event_ctx);
         } else {
+            // Rejected step: dopri45_step_with_stages restores state to y0 internally
             n_rejections += 1;
             h = result.dt_next;
         }
@@ -1264,18 +1400,24 @@ fn integrate_adaptive(
                 "WARNING: adaptive integrator hit {} step limit with t_remaining={:.2e}s ({} accepted, {} rejected)",
                 MAX_SUBSTEPS, t_remaining, n_substeps, n_rejections,
             );
-            return AdaptiveStepStats {
-                n_substeps,
-                n_rejections,
-                hit_limit: true,
+            return AdaptiveEventResult {
+                stats: AdaptiveStepStats {
+                    n_substeps,
+                    n_rejections,
+                    hit_limit: true,
+                },
+                triggered: last_triggered,
             };
         }
     }
 
-    AdaptiveStepStats {
-        n_substeps,
-        n_rejections,
-        hit_limit: false,
+    AdaptiveEventResult {
+        stats: AdaptiveStepStats {
+            n_substeps,
+            n_rejections,
+            hit_limit: false,
+        },
+        triggered: last_triggered,
     }
 }
 
