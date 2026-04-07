@@ -9,6 +9,7 @@ max_time = 2000.0
 # ── Domain-based Monte Carlo dispersions ──
 [monte_carlo]
 seed = 42
+sampling = "lhs"
 
 [monte_carlo.initial_state]
 level = "medium"
