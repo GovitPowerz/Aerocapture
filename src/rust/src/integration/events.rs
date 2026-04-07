@@ -4,6 +4,7 @@
 //! zero-crossings (bounce, atmosphere exit, crash, phase transition) within
 //! DOPRI45 sub-steps using dense output.
 
+use crate::integration::dopri45::dopri45_dense;
 use crate::simulation::runner::TermReason;
 
 // ── Brent's root-finder ──────────────────────────────────────────────────────
@@ -194,6 +195,73 @@ pub fn build_aerocapture_events() -> Vec<EventDef> {
     ]
 }
 
+// ── Event evaluation helpers ─────────────────────────────────────────────────
+
+/// Evaluate all event functions at `state` and return cached values.
+pub fn evaluate_events(state: &[f64; 8], events: &[EventDef], ctx: &EventContext) -> Vec<f64> {
+    events.iter().map(|e| (e.eval)(state, ctx)).collect()
+}
+
+/// Detect and locate the earliest zero-crossing in a DOPRI45 substep.
+///
+/// After each accepted substep `[y0, y5]` with step size `h`, evaluates all events,
+/// checks for sign changes that match direction filters, and uses Brent's method on
+/// the dense output interpolant to locate the earliest crossing.
+///
+/// - `g_start`: cached event values at `y0` (from `evaluate_events`)
+/// - `tol`: root-finding tolerance in seconds (e.g. 1e-3); converted internally to theta
+///
+/// Returns `None` if no event triggered, or `Some(TriggeredEvent)` for the earliest.
+pub fn check_events_and_locate(
+    y0: &[f64; 8],
+    y5: &[f64; 8],
+    h: f64,
+    k1: &[f64; 8],
+    k7: &[f64; 8],
+    events: &[EventDef],
+    ctx: &EventContext,
+    g_start: &[f64],
+    tol: f64,
+) -> Option<TriggeredEvent> {
+    let tol_theta = tol / h;
+    let mut earliest: Option<TriggeredEvent> = None;
+
+    for (i, event) in events.iter().enumerate() {
+        let g0 = g_start[i];
+        let g1 = (event.eval)(y5, ctx);
+
+        // No crossing if same sign; also skip if already at zero at start
+        if g0 == 0.0 || g0 * g1 > 0.0 {
+            continue;
+        }
+
+        // Direction filter
+        let rising = g0 < 0.0 && g1 >= 0.0;
+        let falling = g0 > 0.0 && g1 <= 0.0;
+        let triggered = match event.direction {
+            1 => rising,
+            -1 => falling,
+            _ => rising || falling,
+        };
+        if !triggered {
+            continue;
+        }
+
+        let theta = brent(0.0, 1.0, tol_theta, &mut |th| {
+            let y = dopri45_dense(y0, y5, h, k1, k7, th);
+            (event.eval)(&y, ctx)
+        });
+
+        let is_earlier = earliest.as_ref().map_or(true, |e| theta < e.theta);
+        if is_earlier {
+            let state = dopri45_dense(y0, y5, h, k1, k7, theta);
+            earliest = Some(TriggeredEvent { event_index: i, theta, state });
+        }
+    }
+
+    earliest
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -303,5 +371,158 @@ mod tests {
         assert_eq!(events[1].event_type, EventType::AtmosphereExit);
         assert_eq!(events[2].event_type, EventType::Crash);
         assert_eq!(events[3].event_type, EventType::PhaseTransition);
+    }
+
+    // check_events_and_locate tests
+
+    #[test]
+    fn check_events_locates_zero_crossing() {
+        use crate::integration::dopri45::{dopri45_step_with_stages, Dopri45State};
+
+        let ctx = EventContext {
+            planet_radius: 0.0,
+            exit_altitude: 1.5, // event at state[0] = 1.5
+            exit_velocity_threshold: 0.0,
+        };
+        let events = vec![EventDef {
+            eval: |state: &[f64; 8], ctx: &EventContext| state[0] - ctx.exit_altitude,
+            direction: 1,
+            action: EventAction::Terminate(TermReason::AtmosphereExit),
+            event_type: EventType::AtmosphereExit,
+        }];
+
+        let atol = [1e-12; 8];
+        let rtol = 1e-12;
+        let mut state = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let y0 = state;
+        let h = 1.0;
+        let (result, stages) = dopri45_step_with_stages(
+            &mut state,
+            h,
+            &mut Dopri45State::new(),
+            &atol,
+            rtol,
+            &mut |_| {
+                let mut d = [0.0; 8];
+                d[0] = 1.0;
+                d[7] = 1.0;
+                d
+            },
+        );
+        assert!(result.accepted);
+        let y5 = state;
+        let k1 = &stages[0];
+        let k7 = &stages[6];
+
+        let g_start = evaluate_events(&y0, &events, &ctx);
+        let triggered = check_events_and_locate(&y0, &y5, h, k1, k7, &events, &ctx, &g_start, 1e-3);
+        assert!(triggered.is_some());
+        let t = triggered.unwrap();
+        assert_eq!(t.event_index, 0);
+        assert!((t.theta - 0.5).abs() < 0.01, "theta={} expected ~0.5", t.theta);
+        assert!((t.state[0] - 1.5).abs() < 0.01, "state[0]={} expected ~1.5", t.state[0]);
+    }
+
+    #[test]
+    fn check_events_respects_direction_filter() {
+        // Rising crossing (state[0] goes from 1.0 to 2.0), but direction=-1 means only falling.
+        use crate::integration::dopri45::{dopri45_step_with_stages, Dopri45State};
+
+        let ctx = EventContext {
+            planet_radius: 0.0,
+            exit_altitude: 1.5,
+            exit_velocity_threshold: 0.0,
+        };
+        let events = vec![EventDef {
+            eval: |state: &[f64; 8], ctx: &EventContext| state[0] - ctx.exit_altitude,
+            direction: -1, // only falling -- should NOT fire on a rising crossing
+            action: EventAction::Terminate(TermReason::Crash),
+            event_type: EventType::Crash,
+        }];
+
+        let atol = [1e-12; 8];
+        let rtol = 1e-12;
+        let mut state = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let y0 = state;
+        let h = 1.0;
+        let (result, stages) = dopri45_step_with_stages(
+            &mut state,
+            h,
+            &mut Dopri45State::new(),
+            &atol,
+            rtol,
+            &mut |_| {
+                let mut d = [0.0; 8];
+                d[0] = 1.0;
+                d[7] = 1.0;
+                d
+            },
+        );
+        assert!(result.accepted);
+        let y5 = state;
+        let k1 = &stages[0];
+        let k7 = &stages[6];
+
+        let g_start = evaluate_events(&y0, &events, &ctx);
+        let triggered = check_events_and_locate(&y0, &y5, h, k1, k7, &events, &ctx, &g_start, 1e-3);
+        assert!(triggered.is_none(), "direction=-1 should not trigger on a rising crossing");
+    }
+
+    #[test]
+    fn check_events_picks_earliest_of_two() {
+        // Two events: one at state[0] = 1.3 (theta~0.3), one at state[0] = 1.7 (theta~0.7).
+        // Both rising. Should pick the first (theta~0.3).
+        use crate::integration::dopri45::{dopri45_step_with_stages, Dopri45State};
+
+        let ctx = EventContext {
+            planet_radius: 0.0,
+            exit_altitude: 1.3, // event 0 fires here
+            exit_velocity_threshold: 1.7, // event 1 fires when state[0] reaches 1.7
+        };
+        let events = vec![
+            EventDef {
+                eval: |state: &[f64; 8], ctx: &EventContext| state[0] - ctx.exit_altitude,
+                direction: 1,
+                action: EventAction::Terminate(TermReason::AtmosphereExit),
+                event_type: EventType::AtmosphereExit,
+            },
+            EventDef {
+                eval: |state: &[f64; 8], ctx: &EventContext| state[0] - ctx.exit_velocity_threshold,
+                direction: 1,
+                action: EventAction::PhaseTransition,
+                event_type: EventType::PhaseTransition,
+            },
+        ];
+
+        let atol = [1e-12; 8];
+        let rtol = 1e-12;
+        let mut state = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let y0 = state;
+        let h = 1.0;
+        let (result, stages) = dopri45_step_with_stages(
+            &mut state,
+            h,
+            &mut Dopri45State::new(),
+            &atol,
+            rtol,
+            &mut |_| {
+                let mut d = [0.0; 8];
+                d[0] = 1.0;
+                d[7] = 1.0;
+                d
+            },
+        );
+        assert!(result.accepted);
+        let y5 = state;
+        let k1 = &stages[0];
+        let k7 = &stages[6];
+
+        let g_start = evaluate_events(&y0, &events, &ctx);
+        let triggered = check_events_and_locate(&y0, &y5, h, k1, k7, &events, &ctx, &g_start, 1e-3);
+        assert!(triggered.is_some());
+        let t = triggered.unwrap();
+        assert_eq!(t.event_index, 0, "should pick the earlier event (index 0)");
+        assert!((t.theta - 0.3).abs() < 0.01, "theta={} expected ~0.3", t.theta);
+        assert!((t.state[0] - 1.3).abs() < 0.01, "state[0]={} expected ~1.3", t.state[0]);
     }
 }
