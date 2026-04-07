@@ -40,19 +40,7 @@ This document lists physics, GNC, and software improvements for the aerocapture 
 
 ## 6. Monte Carlo Framework
 
-### 6.1 Advanced sampling methods
-
-Current Monte Carlo uses Gaussian (initial state, navigation) and uniform (atmosphere, aero, pilot) random draws (`data/dispersions.rs`).
-
-- **Improvement**: Latin Hypercube Sampling (LHS), Sobol quasi-random sequences, or importance sampling for rare-event analysis (e.g., TPS failure probability).
-- **Impact**: Better coverage of the dispersion space with fewer runs (10x efficiency improvement typical for LHS vs random).
-
-### 6.2 Sensitivity analysis
-
-No built-in sensitivity analysis (which dispersions matter most?).
-
-- **Improvement**: Add Sobol indices computation, tornado diagrams, or Morris method screening to identify dominant uncertainty contributors.
-- **Impact**: Focuses engineering effort on the uncertainties that actually matter.
+*(No open items -- see Done section below.)*
 
 ---
 
@@ -130,6 +118,8 @@ Items completed and merged.
 | 4.2 FNPAG predictor fidelity | 2026-04-04 | Replaced planar 3-state Euler predictor with full 3D 6-DOF RK4 predictor. Adds J2/J3/J4 gravity via `gravity::gravity()`, Coriolis/centrifugal terms via `planet.omega`, and correct inertial exit energy via `total_energy()` (fixes ~30% systematic bias from using relative velocity). Uses onboard atmosphere model (no cheating). Zero lateral lift (roll sign unknown to predictor). Existing `FnpagParams` unchanged (GA-tunable `prediction_dt`, `energy_tol`, bank limits). |
 | 4.3 Bank angle rate/acceleration limits | 2026-04-04 | Dispatch-layer S-curve command shaper: uses pilot-realized bank angle as feedback baseline (not last commanded), applies acceleration-limited rate shaping (`max_bank_acceleration` in deg/s^2) producing trapezoidal rate profiles. Falls back to legacy hard-clamp when `[guidance.command_shaping]` absent. GA-optimizable via `shaping.` prefix. Also fixed pre-existing `nav.`/`thermal.` routing bug in `train.py` `_batch_eval`, and added checkpoint chromosome padding for backward compatibility when param space grows. |
 | 5.1 Predictive roll reversal | 2026-04-05 | Replaced reactive corridor-based lateral guidance (`(V/slope)^4 + intercept`) with first-order inclination projection. Algorithm projects inclination error forward by `tau` seconds using finite-difference rate estimation and reverses only when projected error exceeds `threshold`. Anti-chatter `min_reversal_interval` prevents rapid re-triggering. `[guidance.lateral]` params: `tau` (s), `threshold` (deg), `min_reversal_interval` (s), `lateral_activation`/`lateral_inhibition` (MJ/kg), `max_reversals`. GA-optimizable for all 5 unsigned-magnitude schemes. |
+| 6.1 Advanced sampling methods | 2026-04-07 | LHS (Latin Hypercube Sampling) and Sobol quasi-random sequences added to `dispersions.rs`. 26-dim `DimTransform` system maps unit samples to per-dimension distributions (Gaussian/Uniform/UniformRange/Fixed). `[monte_carlo] sampling = "lhs"/"sobol"/"random"` TOML key. Sobol uses Owen-scrambled `sobol_burley` crate (max 65536 samples). LHS uses stratified Fisher-Yates shuffle. Training configs default to LHS. PyO3 `run_with_draws()` API accepts external (N, 26) draw matrices for SALib integration. |
+| 6.2 Sensitivity analysis | 2026-04-07 | SALib-based sensitivity analysis: Morris elementary effects (screening all 26 dispersion dims) + Sobol variance decomposition (S1/ST/S2 on top-k parameters). `build_problem()` converts `[monte_carlo]` config to SALib problem dict with per-dimension distribution types and SI-unit bounds mirroring Rust `build_dim_transforms()`. CLI: `python -m aerocapture.training.sensitivity`. Report Part 3 integration (Morris bar chart + ranked table, Sobol bars, S2 heatmap, convergence plot). |
 
 ---
 
