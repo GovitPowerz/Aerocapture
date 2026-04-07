@@ -403,6 +403,10 @@ impl DensityPerturbationConfig {
 /// Inverse standard normal CDF via Peter Acklam's rational approximation.
 /// Accurate to ~1.15e-9. Input p in (0,1); output z such that P(Z<=z)=p.
 pub fn norm_ppf(p: f64) -> f64 {
+    // Guard: clamp to avoid -inf/+inf at the boundaries.
+    // LHS can produce p=0.0 (stratum 0 + jitter exactly 0.0); Sobol can too.
+    let p = p.clamp(1e-300, 1.0 - 1e-15);
+
     const A: [f64; 6] = [
         -3.969683028665376e1,
         2.209460984245205e2,
