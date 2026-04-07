@@ -46,12 +46,11 @@ This document lists physics, GNC, and software improvements for the aerocapture 
 
 ## 7. Integration
 
-### 7.1 Event detection
+### 7.1 Event detection -- DONE
 
-No proper event detection (atmosphere entry/exit, bounce, crash). Currently uses altitude threshold checks at fixed intervals.
+~~No proper event detection (atmosphere entry/exit, bounce, crash). Currently uses altitude threshold checks at fixed intervals.~~
 
-- **Improvement**: Implement root-finding-based event detection (e.g., Brent's method on altitude - threshold = 0) to precisely locate atmosphere boundaries and extrema.
-- **Impact**: More accurate entry/exit timing, cleaner phase transitions.
+Implemented in `feature/advanced-sampling-sensitivity`: DOPRI45 dense output (Hermite continuous extension) + Brent's root-finding locates bounce, atmosphere exit, crash, and phase transition events to ~1 ms precision within adaptive substeps. Fixed RK4 path unchanged. Event records interleaved into trajectory output. See `integration/events.rs` and `integration/dopri45.rs`.
 
 ---
 
