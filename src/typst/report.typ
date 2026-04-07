@@ -84,6 +84,12 @@
 
   if meta.at("has_morris", default: false) {
     full-width-chart(dir + "/morris_scatter.svg")
+
+    v(0.5cm)
+    text(size: 12pt, weight: "bold")[Morris Screening Results]
+    v(0.3cm)
+    let morris_data = json(dir + "/morris_table.json")
+    morris-table(morris_data.rows)
   }
   if meta.at("has_sobol", default: false) {
     full-width-chart(dir + "/sobol_bars.svg")

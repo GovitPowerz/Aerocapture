@@ -1197,26 +1197,30 @@ def chart_comparison_convergence(all_data: dict[str, list[dict[str, Any]]], outp
 # Sensitivity Analysis charts (Part 3)
 # ---------------------------------------------------------------------------
 def chart_morris_scatter(morris_data: dict[str, Any], output: Path) -> None:
-    """Morris mu* vs sigma scatter plot."""
+    """Morris mu* horizontal bar chart sorted by importance."""
     names = morris_data["names"]
     mu_star = np.asarray(morris_data["mu_star"], dtype=float)
     sigma = np.asarray(morris_data["sigma"], dtype=float)
 
-    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    ax.scatter(mu_star, sigma, color=COLOR_BEST, s=60, zorder=5)
+    # Sort by mu_star descending (plot bottom-to-top so largest is at the top)
+    order = np.argsort(mu_star)
+    sorted_names = [names[i] for i in order]
+    sorted_mu = mu_star[order]
+    sorted_sigma = sigma[order]
 
-    for name, x, y in zip(names, mu_star, sigma, strict=True):
-        ax.annotate(name, (x, y), textcoords="offset points", xytext=(5, 3), fontsize=7)
+    n = len(names)
+    fig, ax = plt.subplots(figsize=(10, max(4, n * 0.28)), dpi=DPI)
+    y = np.arange(n)
+    ax.barh(y, sorted_mu, height=0.6, color=COLOR_BEST, alpha=0.85, label="mu* (importance)")
+    ax.barh(y, sorted_sigma, height=0.6, color=COLOR_MEAN, alpha=0.5, label="sigma (nonlinearity)")
 
-    # Diagonal sigma = mu* line
-    lim = max(np.max(mu_star), np.max(sigma)) * 1.1
-    ax.plot([0, lim], [0, lim], color="grey", linestyle="--", linewidth=0.8, alpha=0.6)
-    ax.set_xlim(left=0)
-    ax.set_ylim(bottom=0)
-    ax.set_xlabel("mu* (mean absolute elementary effect)")
-    ax.set_ylabel("sigma (std of elementary effects)")
+    ax.set_yticks(y)
+    ax.set_yticklabels(sorted_names, fontsize=8)
+    ax.set_xlabel("Elementary effect magnitude")
     ax.set_title("Morris Screening: Parameter Importance")
+    ax.legend(fontsize=8, loc="lower right")
     sns.despine(fig=fig)
+    fig.tight_layout()
     _save_svg(fig, output)
 
 

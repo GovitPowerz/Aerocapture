@@ -450,8 +450,20 @@ def _generate_sensitivity_charts(sensitivity_dir: Path, out_dir: Path) -> dict[s
     flags: dict[str, bool] = {"has_sensitivity": True, "has_morris": False, "has_sobol": False, "has_sobol_heatmap": False}
 
     if "morris" in results:
-        charts.chart_morris_scatter(results["morris"], out_dir / "morris_scatter.svg")
+        morris = results["morris"]
+        charts.chart_morris_scatter(morris, out_dir / "morris_scatter.svg")
         flags["has_morris"] = True
+
+        # Write ranked table for Typst
+        names = morris["names"]
+        mu_star = morris["mu_star"]
+        sigma = morris["sigma"]
+        mu_star_conf = morris.get("mu_star_conf", [0.0] * len(names))
+        order = sorted(range(len(names)), key=lambda i: mu_star[i], reverse=True)
+        rows = []
+        for rank, i in enumerate(order, 1):
+            rows.append([str(rank), names[i], f"{mu_star[i]:.1f}", f"{sigma[i]:.1f}", f"{mu_star_conf[i]:.1f}"])
+        (out_dir / "morris_table.json").write_text(json.dumps({"rows": rows}, indent=2))
 
     if "sobol" in results:
         charts.chart_sobol_bars(results["sobol"], out_dir / "sobol_bars.svg")
