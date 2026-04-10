@@ -35,6 +35,8 @@ pytest tests/test_foo.py::test_bar -v
 ./lint_code.sh                     # Run ruff (imports, format, lint) + mypy
 ./check_all.sh                     # Rust: test + fmt --check + clippy + release build
 ./upgrade_dependencies.sh          # uv sync --upgrade
+./train_all.sh                     # Train all 7 guidance schemes with optimized GA settings
+./train_all.sh eqglide             # Train a single scheme (aliases: pc, eq, ec, pg, nn, etc.)
 ```
 
 ## Architecture
@@ -147,7 +149,7 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, deap, scipy, SALib)
 - Output file parsers (photo, final, CSV files)
 - Visualization (corridor plots, MC ensembles, CDF of correction cost)
 - GA training pipeline: optimizes any guidance scheme's parameters (not just NN weights)
-  - `train.py` — Main GA loop with checkpoint save/resume (`<config.toml> [--no-tui] [--rotate-seeds | --adaptive-seeds] [--seed-pool-cap N] [--cost-alpha F] [--cvar-percentile P] [--skip-report] [--final-n-sims N]`). Auto-resumes from existing checkpoint when output dir exists (no `--resume` needed); `--resume` only needed to specify a non-default directory. On resume, `--n-gen` means "N additional generations" (not total). A checkpoint is always saved at end of training (not just at interval multiples). Graceful KeyboardInterrupt handling: Ctrl+C saves checkpoint and returns cleanly with `interrupted: True`. At end of training, generates a single PDF report (convergence + final MC evaluation) via `report.py` unless `--skip-report` is passed.
+  - `train.py` — Main GA loop with checkpoint save/resume (`<config.toml> [--no-tui] [--rotate-seeds | --adaptive-seeds] [--seed-pool-cap N] [--cost-alpha F] [--cvar-percentile P] [--skip-report] [--final-n-sims N] [--mutation-rate F] [--train-n-sims N]`). Auto-resumes from existing checkpoint when output dir exists (no `--resume` needed); `--resume` only needed to specify a non-default directory. On resume, `--n-gen` means "N additional generations" (not total). A checkpoint is always saved at end of training (not just at interval multiples). Graceful KeyboardInterrupt handling: Ctrl+C saves checkpoint and returns cleanly with `interrupted: True`. At end of training, generates a single PDF report (convergence + final MC evaluation) via `report.py` unless `--skip-report` is passed. `--mutation-rate` overrides GAConfig default (0.02); `--train-n-sims` overrides TOML n_sims during GA evaluations only (final eval uses `--final-n-sims`).
   - `param_spaces.py` — Per-scheme parameter bounds (with optional log-scale encoding)
   - `evaluate.py` — Decode chromosome -> write params (NN JSON or patched TOML) -> run sim -> cost. Uses PyO3 direct call when `aerocapture_rs` is available, subprocess fallback otherwise. Cost function uses `log_cap(dv)` — a C1-continuous log-capped function (linear below `dv_threshold`, logarithmic above) — as primary objective, with TOML-configurable normalized soft constraint penalties for g-load, heat flux, and heat load (integrated heat flux) exceedances. All termination outcomes (captured, hyperbolic, crash, pending crash, timeout) produce meaningful DV values from Rust, so no branching on capture status is needed.
   - `compare_guidance.py` — Fair head-to-head comparison on identical MC scenarios
@@ -181,20 +183,24 @@ External dependency: `typst` CLI (install via `brew install typst` or `cargo ins
 ## GA Training & Comparison
 
 ```bash
+# ── Train all schemes with optimized settings (see train_all.sh) ──
+./train_all.sh                     # all schemes in dependency order
+./train_all.sh eqglide fnpag       # specific schemes only
+
 # ── Optimize a guidance scheme (with Rich TUI) ──
 uv run python -m aerocapture.training.train \
     configs/training/msr_aller_eqglide_train.toml \
-    --n-gen 50 --n-pop 20
+    --n-gen 2500 --n-pop 60 --train-n-sims 300 --mutation-rate 0.05
 
 # ── Disable TUI (e.g. in CI or when piping output) ──
 uv run python -m aerocapture.training.train \
     configs/training/msr_aller_eqglide_train.toml \
-    --n-gen 50 --n-pop 20 --no-tui
+    --n-gen 2500 --n-pop 60 --no-tui
 
 # ── Adaptive seed pool (curates MC seeds by difficulty) ──
 uv run python -m aerocapture.training.train \
     configs/training/msr_aller_eqglide_train.toml \
-    --n-gen 50 --n-pop 20 --adaptive-seeds
+    --n-gen 2500 --n-pop 60 --adaptive-seeds --cost-alpha 0.6
 
 # ── Resume training (auto-detects checkpoint; --n-gen means "N additional") ──
 uv run python -m aerocapture.training.train \
