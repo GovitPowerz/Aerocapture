@@ -893,8 +893,15 @@ if __name__ == "__main__":
     cfg.ga.stress_probes = args.stress_probes
     cfg.ga.stress_inject = args.stress_inject
     if args.mutation_rate is not None:
+        if not 0.0 < args.mutation_rate <= 1.0:
+            print(f"ERROR: --mutation-rate must be in (0.0, 1.0], got {args.mutation_rate}")
+            raise SystemExit(1)
         cfg.ga.mutation_rate = args.mutation_rate
-    cfg.sim.train_n_sims = args.train_n_sims
+    if args.train_n_sims is not None:
+        if args.train_n_sims < 1:
+            print(f"ERROR: --train-n-sims must be >= 1, got {args.train_n_sims}")
+            raise SystemExit(1)
+        cfg.sim.train_n_sims = args.train_n_sims
 
     # Load TOML and extract guidance type
     from aerocapture.training.toml_utils import load_toml_with_bases
