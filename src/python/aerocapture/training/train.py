@@ -876,6 +876,8 @@ if __name__ == "__main__":
     parser.add_argument("--skip-report", "--skip-final-report", action="store_true", dest="skip_report", help="Skip PDF report generation at end of training")
     parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
     parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds (default: no limit)")
+    parser.add_argument("--mutation-rate", type=float, default=None, help="Override mutation rate (default: 0.02 from GAConfig)")
+    parser.add_argument("--train-n-sims", type=int, default=None, help="Override n_sims during GA training evaluations (default: use TOML value)")
     args = parser.parse_args()
 
     cfg = TrainingConfig()
@@ -890,6 +892,9 @@ if __name__ == "__main__":
     cfg.ga.stress_interval = args.stress_interval
     cfg.ga.stress_probes = args.stress_probes
     cfg.ga.stress_inject = args.stress_inject
+    if args.mutation_rate is not None:
+        cfg.ga.mutation_rate = args.mutation_rate
+    cfg.sim.train_n_sims = args.train_n_sims
 
     # Load TOML and extract guidance type
     from aerocapture.training.toml_utils import load_toml_with_bases
