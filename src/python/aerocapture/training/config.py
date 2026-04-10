@@ -89,6 +89,7 @@ class SimConfig:
     n_sims: int = 10
     toml_config: str | None = None  # TOML config path (relative to exec_dir); if set, passed as CLI arg
     sim_timeout_secs: float | None = None  # wall-clock timeout per simulation (seconds); None = no limit
+    train_n_sims: int | None = None  # override n_sims during GA training; None = use TOML value
 
 
 @dataclass
