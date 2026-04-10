@@ -12,74 +12,80 @@ set -euo pipefail
 
 TRAIN="uv run python -m aerocapture.training.train"
 
+# Suppress adaptive integrator step-limit warnings (expected during GA exploration
+# when the optimizer tries degenerate parameter combos that make the ODE stiff).
+run_train() {
+    $TRAIN "$@" 2> >(grep -v "WARNING: adaptive integrator hit" >&2)
+}
+
 train_piecewise_constant() {
     echo "=== piecewise_constant (11 params, ~35 min) ==="
-    $TRAIN configs/training/msr_aller_piecewise_constant_train.toml \
+    run_train configs/training/msr_aller_piecewise_constant_train.toml \
         --n-gen 3000 --n-pop 40 --train-n-sims 300 \
         --mutation-rate 0.03 \
         --adaptive-seeds --cost-alpha 0.65 --cvar-percentile 15 \
         --seed-pool-cap 120 --stress-interval 15 --stress-probes 200 --stress-inject 10 \
-        --final-n-sims 2000 --from-scratch
+        --final-n-sims 2000 --from-scratch --sim-timeout 1
 }
 
 train_ftc() {
     echo "=== ftc (26 params, ~37 min) ==="
-    $TRAIN configs/training/msr_aller_ftc_train.toml \
+    run_train configs/training/msr_aller_ftc_train.toml \
         --n-gen 2500 --n-pop 50 --train-n-sims 300 \
         --mutation-rate 0.03 \
         --adaptive-seeds --cost-alpha 0.65 --cvar-percentile 15 \
         --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
-        --final-n-sims 2000 --from-scratch
+        --final-n-sims 2000 --from-scratch --sim-timeout 1
 }
 
 train_eqglide() {
     echo "=== equilibrium_glide (24 params, ~46 min) ==="
-    $TRAIN configs/training/msr_aller_eqglide_train.toml \
+    run_train configs/training/msr_aller_eqglide_train.toml \
         --n-gen 2500 --n-pop 60 --train-n-sims 300 \
         --mutation-rate 0.05 \
         --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
         --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
-        --final-n-sims 2000 --from-scratch
+        --final-n-sims 2000 --from-scratch --sim-timeout 1
 }
 
 train_energy_controller() {
     echo "=== energy_controller (20 params, ~46 min) ==="
-    $TRAIN configs/training/msr_aller_energy_controller_train.toml \
+    run_train configs/training/msr_aller_energy_controller_train.toml \
         --n-gen 2500 --n-pop 60 --train-n-sims 300 \
         --mutation-rate 0.05 \
         --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
         --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
-        --final-n-sims 2000 --from-scratch
+        --final-n-sims 2000 --from-scratch --sim-timeout 1
 }
 
 train_pred_guid() {
     echo "=== pred_guid (20 params, ~46 min) ==="
-    $TRAIN configs/training/msr_aller_pred_guid_train.toml \
+    run_train configs/training/msr_aller_pred_guid_train.toml \
         --n-gen 2500 --n-pop 60 --train-n-sims 300 \
         --mutation-rate 0.05 \
         --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
         --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
-        --final-n-sims 2000 --from-scratch
+        --final-n-sims 2000 --from-scratch --sim-timeout 1
 }
 
 train_fnpag() {
     echo "=== fnpag (22 params, ~50 min) ==="
-    $TRAIN configs/training/msr_aller_fnpag_train.toml \
+    run_train configs/training/msr_aller_fnpag_train.toml \
         --n-gen 600 --n-pop 50 --train-n-sims 200 \
         --mutation-rate 0.05 \
         --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
         --seed-pool-cap 100 --stress-interval 15 --stress-probes 150 --stress-inject 10 \
-        --final-n-sims 2000 --from-scratch
+        --final-n-sims 2000 --from-scratch --sim-timeout 1
 }
 
 train_neural_network() {
     echo "=== neural_network (1106 params, ~35 min) ==="
-    $TRAIN configs/training/msr_aller_nn_train_consolidated.toml \
+    run_train configs/training/msr_aller_nn_train_consolidated.toml \
         --n-gen 1500 --n-pop 120 --train-n-sims 200 \
         --mutation-rate 0.03 \
         --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
         --seed-pool-cap 100 --stress-interval 15 --stress-probes 200 --stress-inject 10 \
-        --final-n-sims 2000 --from-scratch
+        --final-n-sims 2000 --from-scratch --sim-timeout 1
 }
 
 train_all() {
