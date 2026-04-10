@@ -1460,6 +1460,17 @@ fn integrate_adaptive_with_events(
                         g_prev[triggered.event_index] = 0.0;
 
                         all_triggered.push(triggered);
+
+                        // Check substep cap BEFORE continuing — the old `continue`
+                        // bypassed the cap check at the bottom of the loop, allowing
+                        // unbounded event accumulation when trajectories oscillate
+                        // near an event boundary (e.g. FPA ≈ 0 at bounce).
+                        if n_substeps + n_rejections >= MAX_SUBSTEPS {
+                            return AdaptiveEventResult {
+                                triggered: all_triggered,
+                            };
+                        }
+
                         continue;
                     }
                 }
