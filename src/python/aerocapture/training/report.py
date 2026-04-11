@@ -587,6 +587,18 @@ def generate_report(
                 )
                 final_records = final_records_arr
 
+                # Write Parquet output for analysis
+                try:
+                    from aerocapture.training.parquet_output import write_parquet
+                    from aerocapture.training.toml_utils import load_toml_with_bases
+
+                    resolved_config = load_toml_with_bases(toml_path)
+                    parquet_path = scheme_dir / "final_eval.parquet"
+                    write_parquet(parquet_path, final_records_arr, dispersions, resolved_config, toml_path=str(toml_path))
+                    print(f"Parquet output: {parquet_path}")
+                except ImportError:
+                    pass  # pyarrow not installed
+
         # Part 3: Sensitivity Analysis
         sensitivity_flags: dict[str, bool] = {"has_sensitivity": False, "has_morris": False, "has_sobol": False, "has_sobol_heatmap": False}
         if sensitivity:
