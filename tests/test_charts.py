@@ -333,6 +333,25 @@ class TestDistributionCharts:
         content = tmp_svg.read_text()
         assert "<svg" in content
 
+    def test_dispersion_grid_classification(
+        self,
+        final_records: npt.NDArray[np.float64],
+        dispersions: npt.NDArray[np.float64],
+        tmp_svg: Path,
+    ) -> None:
+        """Panel 20: dispersion grid uses three-way classification markers."""
+        n = final_records.shape[0]
+        tc = np.zeros(n, dtype=np.int8)
+        tc[n - 3] = 1  # TRAJ_CONSTRAINED
+        tc[n - 2 :] = 2  # TRAJ_FAILED
+        chart_dispersion_grid(final_records, dispersions, tmp_svg, traj_class=tc)
+        assert tmp_svg.exists()
+        content = tmp_svg.read_text()
+        assert "<svg" in content
+        assert "#1f77b4" in content  # blue
+        assert "#ff7f0e" in content  # orange
+        assert "#d62728" in content  # red
+
 
 class TestComparisonCharts:
     def test_comparison_convergence(self, tmp_svg: Path) -> None:
