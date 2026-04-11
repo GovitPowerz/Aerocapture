@@ -119,7 +119,7 @@ def write_parquet(
     table = pa.table({name: arr for name, arr in zip(field_names, arrays, strict=True)})
 
     guidance = config.get("guidance")
-    guidance_scheme = guidance.get("type", "unknown") if isinstance(guidance, dict) else "unknown"
+    guidance_scheme = (guidance.get("type") or guidance.get("scheme") or "unknown") if isinstance(guidance, dict) else "unknown"
     n_sims = len(final_records)
 
     metadata = {
