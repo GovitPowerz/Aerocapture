@@ -11,6 +11,9 @@ use crate::gnc::guidance::dispatch::{self as dispatch, GuidanceState};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
 use crate::gnc::navigation::estimator::{self, NavigationFilter};
 use crate::integration::dopri45::{self, Dopri45State};
+use crate::integration::events::{
+    self, EventAction, EventContext, EventDef, EventRecord, EventType,
+};
 use crate::integration::rk4;
 use crate::integration::sequencer::SequencerState;
 use crate::orbit::maneuver::DeltaV;
@@ -88,11 +91,13 @@ struct SimState {
     time_max_flux: f64,
     time_max_load: f64,
     time_max_pdyn: f64,
+    // Event detection records (adaptive integrator only)
+    event_records: Vec<EventRecord>,
 }
 
 /// Termination reason
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum TermReason {
+pub enum TermReason {
     None,
     Crash,
     Timeout,
@@ -562,6 +567,7 @@ fn run_single(
         time_max_flux: 0.0,
         time_max_load: 0.0,
         time_max_pdyn: 0.0,
+        event_records: Vec::new(),
     };
 
     let reference_bank_angle = config.reference_bank_angle.to_radians();
@@ -611,6 +617,15 @@ fn run_single(
     let mut guidance_phase_for_photo = 1_i32;
 
     let wall_start = Instant::now();
+
+    // Event detection setup (used by adaptive integrator)
+    let event_defs = events::build_aerocapture_events();
+    let event_ctx = EventContext {
+        planet_radius: planet.equatorial_radius,
+        polar_radius: planet.polar_radius,
+        exit_altitude,
+        exit_velocity_threshold: data.guidance.exit_velocity_threshold,
+    };
 
     // Main simulation loop
     let mut sim_time = entry.initial_date;
@@ -816,12 +831,24 @@ fn run_single(
         }
 
         // === Integration step ===
+        let mut adaptive_events: Vec<events::TriggeredEvent> = Vec::new();
         match &data.integration_mode {
             IntegrationMode::FixedGill => {
                 integrate_step(&mut sim, dt, planet, data, &run_state);
             }
             IntegrationMode::AdaptiveDopri45(adaptive_config) => {
-                let _ = integrate_adaptive(&mut sim, dt, adaptive_config, planet, data, &run_state);
+                let result = integrate_adaptive_with_events(
+                    &mut sim,
+                    dt,
+                    adaptive_config,
+                    planet,
+                    data,
+                    &run_state,
+                    &event_defs,
+                    &event_ctx,
+                    sim_time,
+                );
+                adaptive_events = result.triggered;
             }
         }
 
@@ -829,6 +856,33 @@ fn run_single(
             geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
 
         track_peak_values(&mut sim, altitude, sim_time, data, &run_state);
+
+        // === Process adaptive integrator events (in chronological order) ===
+        for triggered in &adaptive_events {
+            let event = &event_defs[triggered.event_index];
+            match event.event_type {
+                EventType::Bounce => {
+                    if !sim.bounced {
+                        sim.bounced = true;
+                        sim.bounce_alt = triggered.state[0] - planet.equatorial_radius;
+                        sim.bounce_time = triggered.time;
+                    }
+                }
+                EventType::AtmosphereExit => {
+                    if sim.bounced {
+                        sim_time = triggered.time;
+                        term = TermReason::AtmosphereExit;
+                    }
+                }
+                EventType::Crash => {
+                    sim_time = triggered.time;
+                    term = TermReason::Crash;
+                }
+                EventType::PhaseTransition => {
+                    // Phase transition: nav layer picks up on next tick
+                }
+            }
+        }
 
         // NaN/Inf safety net: extreme GA parameters can blow up numerically.
         // All termination checks evaluate to false on NaN, so the loop would spin forever.
@@ -844,22 +898,26 @@ fn run_single(
             break;
         }
 
-        // === Termination checks ===
-        if altitude <= 0.0 {
-            term = TermReason::Crash;
-        }
-        if sim_time >= max_time {
-            term = TermReason::Timeout;
-        }
-        if sim.bounced && altitude >= exit_altitude {
-            term = TermReason::AtmosphereExit;
+        // === Termination checks (simple event-based: FixedGill only) ===
+        if matches!(data.integration_mode, IntegrationMode::FixedGill) {
+            if altitude <= 0.0 {
+                term = TermReason::Crash;
+            }
+            if sim.bounced && altitude >= exit_altitude {
+                term = TermReason::AtmosphereExit;
+            }
+
+            // Bounce detection
+            if !sim.bounced && sim.state[4].sin() >= 0.0 {
+                sim.bounced = true;
+                sim.bounce_alt = altitude;
+                sim.bounce_time = sim_time;
+            }
         }
 
-        // Bounce detection
-        if !sim.bounced && sim.state[4].sin() >= 0.0 {
-            sim.bounced = true;
-            sim.bounce_alt = altitude;
-            sim.bounce_time = sim_time;
+        // === Checks that run for both integration modes ===
+        if sim_time >= max_time {
+            term = TermReason::Timeout;
         }
 
         // Atmospheric apoapsis crash: bounced, now descending again, still inside atmosphere
@@ -1060,6 +1118,22 @@ fn run_single(
     final_record[46] = orbit.inclination / DEG_TO_RAD - data.target_orbit.inclination / DEG_TO_RAD;
     final_record[48] = guidance_state.lateral_state.n_reversals as f64;
 
+    let event_records = std::mem::take(&mut sim.event_records);
+
+    // Append event records as photo rows and sort by time (column 0)
+    if write_photo {
+        for record in &event_records {
+            photo_lines.push(build_event_photo_values(
+                &record.state,
+                record.time,
+                planet,
+                data,
+                &run_state,
+            ));
+        }
+        photo_lines.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal));
+    }
+
     Ok(SimResult {
         sim_idx,
         final_line: final_record,
@@ -1176,6 +1250,91 @@ fn build_photo_values(
     ]
 }
 
+/// Build a photo row from an event record's state.
+///
+/// Computes the same physics quantities as `build_photo_values` but uses the event
+/// state directly. GNC-dependent values (bank_angle, aoa, cumulative_bank_change,
+/// phase, density_gain, density_estimate) are zeroed because events occur between
+/// GNC ticks and those quantities are not available.
+fn build_event_photo_values(
+    state: &[f64; 8],
+    event_time: f64,
+    planet: &PlanetConfig,
+    data: &SimData,
+    run_state: &init::RunState,
+) -> [f64; 30] {
+    let (altitude, latitude) = geodetic_from_spherical(state[0], state[1], state[2], planet);
+
+    let orbit = elements::from_spherical(
+        state[0], state[1], state[2], state[3], state[4], state[5], planet,
+    );
+
+    let mu = planet.mu;
+    let (_position_abs, velocity_abs) = to_absolute_cartesian(
+        state[0], state[1], state[2], state[3], state[4], state[5], planet,
+    );
+    let speed_abs = norm(&velocity_abs);
+    let energy = speed_abs * speed_abs / 2.0 - mu / state[0];
+    let velocity_radial = state[3] * state[4].sin();
+
+    let rho_truth = data.atmosphere.density_at(altitude);
+    let rho_dispersed = atmosphere::density(
+        &data.atmosphere,
+        altitude,
+        run_state.density_bias,
+        run_state.density_perturbation,
+    );
+    let v_eff = effective_airspeed(
+        state[3], state[4], state[5], state[2], altitude, data, run_state,
+    );
+    let heat_flux = data.capsule.cq * rho_dispersed.sqrt() * v_eff.powf(3.05);
+    let pdyn = 0.5 * rho_dispersed * v_eff * v_eff;
+
+    let aoa_dispersed = run_state.incidence_bias; // aoa=0 + bias
+    let cx = data.aero.interpolate_cx(aoa_dispersed) * (1.0 + run_state.cx_bias);
+    let cz = data.aero.interpolate_cz(aoa_dispersed) * (1.0 + run_state.cz_bias);
+    let mass = data.capsule.mass * (1.0 + run_state.mass_bias);
+    let ref_area = data.capsule.reference_area * (1.0 + run_state.ref_area_bias);
+    let aero_accel = rho_dispersed * ref_area * v_eff * v_eff / (2.0 * mass);
+    let load_factor = aero_accel * (cx * cx + cz * cz).sqrt();
+
+    // cumulative heat load: state[6] is integrated flux in J/m²
+    let cumulative_flux = state[6];
+
+    [
+        event_time,                     // [0]  time_s
+        altitude / 1e3,                 // [1]  altitude_km
+        state[1] / DEG_TO_RAD,          // [2]  longitude_deg
+        latitude / DEG_TO_RAD,          // [3]  latitude_deg
+        state[3],                       // [4]  velocity_m_s
+        state[4] / DEG_TO_RAD,          // [5]  flight_path_deg
+        state[5] / DEG_TO_RAD,          // [6]  azimuth_deg
+        orbit.semi_major_axis / 1e3,    // [7]  semi_major_axis_km
+        orbit.eccentricity,             // [8]  eccentricity
+        orbit.inclination / DEG_TO_RAD, // [9]  inclination_deg
+        orbit.raan / DEG_TO_RAD,        // [10] raan_deg
+        orbit.periapsis_alt / 1e3,      // [11] periapsis_alt_km
+        orbit.apoapsis_alt / 1e3,       // [12] apoapsis_alt_km
+        0.0,                            // [13] phase (unknown between ticks)
+        0.0,                            // [14] bank_angle_deg (unknown between ticks)
+        velocity_radial,                // [15] radial_velocity_m_s
+        0.0,                            // [16] aoa_deg (unknown between ticks)
+        0.0,                            // [17] cumulative_bank_change_deg (not tracked at event)
+        energy,                         // [18] energy_j_kg
+        pdyn,                           // [19] dynamic_pressure_pa
+        velocity_radial, // [20] radial_velocity_2 (duplicate, matches build_photo_values)
+        0.0,             // [21] dynamic_pressure_onboard_kpa (no nav estimate at event)
+        0.0,             // [22] sim_index (not applicable for event rows)
+        0.0,             // [23] reserved
+        heat_flux / 1e3, // [24] heat_flux_kw_m2
+        load_factor / G0, // [25] g_load_g
+        0.0,             // [26] nav_density_ratio (no nav at event)
+        rho_truth,       // [27] truth_density_kg_m3
+        cumulative_flux / 1e3, // [28] heat_load_kj_m2
+        run_state.density_perturbation, // [29] density_perturbation
+    ]
+}
+
 /// Perform one integration step using Gill's RK4.
 fn integrate_step(
     sim: &mut SimState,
@@ -1201,29 +1360,24 @@ fn integrate_step(
     }
 }
 
-/// Diagnostics from one outer tick of adaptive sub-stepping.
-/// Fields are available for future telemetry/logging.
-#[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
-struct AdaptiveStepStats {
-    n_substeps: u32,
-    n_rejections: u32,
-    hit_limit: bool,
+struct AdaptiveEventResult {
+    triggered: Vec<events::TriggeredEvent>,
 }
 
-/// Advance the state by `dt_outer` using adaptive DOPRI45 sub-stepping.
-///
-/// The integrator takes variable-size sub-steps within the outer tick,
-/// controlled by local error estimation. The outer tick duration is covered
-/// exactly (final sub-step is clamped to land on the tick boundary).
-fn integrate_adaptive(
+const EVENT_TOL: f64 = 1e-3; // 1 ms event location tolerance
+
+#[allow(clippy::too_many_arguments)]
+fn integrate_adaptive_with_events(
     sim: &mut SimState,
     dt_outer: f64,
     config: &AdaptiveConfig,
     planet: &PlanetConfig,
     data: &SimData,
     run_state: &init::RunState,
-) -> AdaptiveStepStats {
+    event_defs: &[EventDef],
+    event_ctx: &EventContext,
+    tick_start_time: f64,
+) -> AdaptiveEventResult {
     const MAX_SUBSTEPS: u32 = 1000;
 
     let bank_angle = sim.bank_angle;
@@ -1233,6 +1387,11 @@ fn integrate_adaptive(
     let mut n_substeps: u32 = 0;
     let mut n_rejections: u32 = 0;
 
+    // Cache event guard values at beginning of tick
+    let mut g_prev = events::evaluate_events(&sim.state, event_defs, event_ctx);
+
+    let mut all_triggered: Vec<events::TriggeredEvent> = Vec::new();
+
     while t_remaining > 1e-14 {
         h = h.min(t_remaining).min(config.max_dt).max(config.min_dt);
 
@@ -1241,7 +1400,9 @@ fn integrate_adaptive(
             h = t_remaining;
         }
 
-        let result = dopri45::dopri45_step(
+        let y0 = sim.state;
+
+        let (result, stages) = dopri45::dopri45_step_with_stages(
             &mut sim.state,
             h,
             &mut sim.dopri,
@@ -1251,10 +1412,79 @@ fn integrate_adaptive(
         );
 
         if result.accepted {
+            // Check for events in this accepted substep
+            let k1 = &stages[0];
+            let k7 = &stages[6];
+
+            let t_base = tick_start_time + (dt_outer - t_remaining);
+            if let Some(triggered) = events::check_events_and_locate(
+                &y0, &sim.state, h, k1, k7, event_defs, event_ctx, &g_prev, EVENT_TOL, t_base,
+            ) {
+                let event = &event_defs[triggered.event_index];
+
+                // Record this event
+                sim.event_records.push(EventRecord {
+                    time: triggered.time,
+                    state: triggered.state,
+                    event_type: event.event_type,
+                });
+
+                // Rewind state to the event location
+                sim.state = triggered.state;
+
+                // Invalidate FSAL -- state was rewound, cached derivative is stale
+                sim.dopri.invalidate_fsal();
+
+                match event.action {
+                    EventAction::Terminate(_) => {
+                        // Terminal event: return immediately
+                        all_triggered.push(triggered);
+                        return AdaptiveEventResult {
+                            triggered: all_triggered,
+                        };
+                    }
+                    EventAction::Record | EventAction::PhaseTransition => {
+                        // Non-terminal: adjust t_remaining for partial step consumed
+                        let consumed = triggered.theta * h;
+                        t_remaining -= consumed;
+                        n_substeps += 1;
+                        h = result.dt_next;
+
+                        // Re-evaluate guard values at the new (event) state
+                        g_prev = events::evaluate_events(&sim.state, event_defs, event_ctx);
+
+                        // Force g_prev to exactly 0.0 for the fired event so it won't
+                        // re-trigger on the next substep (the g0 == 0.0 skip in
+                        // check_events_and_locate prevents re-detection at the same
+                        // zero-crossing).
+                        g_prev[triggered.event_index] = 0.0;
+
+                        all_triggered.push(triggered);
+
+                        // Check substep cap BEFORE continuing — the old `continue`
+                        // bypassed the cap check at the bottom of the loop, allowing
+                        // unbounded event accumulation when trajectories oscillate
+                        // near an event boundary (e.g. FPA ≈ 0 at bounce).
+                        if n_substeps + n_rejections >= MAX_SUBSTEPS {
+                            return AdaptiveEventResult {
+                                triggered: all_triggered,
+                            };
+                        }
+
+                        continue;
+                    }
+                }
+            }
+
+            // No event: normal accepted step
             t_remaining -= h;
             n_substeps += 1;
             h = result.dt_next;
+
+            // Update guard values for next substep
+            g_prev = events::evaluate_events(&sim.state, event_defs, event_ctx);
         } else {
+            // Rejected step: dopri45_step_with_stages restores state to y0 internally
             n_rejections += 1;
             h = result.dt_next;
         }
@@ -1264,18 +1494,14 @@ fn integrate_adaptive(
                 "WARNING: adaptive integrator hit {} step limit with t_remaining={:.2e}s ({} accepted, {} rejected)",
                 MAX_SUBSTEPS, t_remaining, n_substeps, n_rejections,
             );
-            return AdaptiveStepStats {
-                n_substeps,
-                n_rejections,
-                hit_limit: true,
+            return AdaptiveEventResult {
+                triggered: all_triggered,
             };
         }
     }
 
-    AdaptiveStepStats {
-        n_substeps,
-        n_rejections,
-        hit_limit: false,
+    AdaptiveEventResult {
+        triggered: all_triggered,
     }
 }
 

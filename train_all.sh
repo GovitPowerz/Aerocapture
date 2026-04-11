@@ -1,74 +1,128 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-COMMON="--n-gen 100 --n-pop 50 --adaptive-seeds -fs --sim-timeout 2"
+# Train all guidance schemes with optimized GA settings.
+# Usage:
+#   ./train_all.sh                    # train all schemes in order
+#   ./train_all.sh eqglide            # train a single scheme
+#   ./train_all.sh ftc fnpag          # train specific schemes
+#
+# Piecewise constant must run first (produces ref trajectory + corridor).
+# All others can run in any order.
 
-BOLD='\033[1m'
-DIM='\033[2m'
-GREEN='\033[32m'
-CYAN='\033[36m'
-YELLOW='\033[33m'
-RED='\033[31m'
-RESET='\033[0m'
+TRAIN="uv run python -m aerocapture.training.train"
 
-SCHEMES=(
-    "piecewise_constant|configs/training/msr_aller_piecewise_constant_train.toml"
-    "neural_network|configs/training/msr_aller_nn_train_consolidated.toml"
-    "equilibrium_glide|configs/training/msr_aller_eqglide_train.toml"
-    "energy_controller|configs/training/msr_aller_energy_controller_train.toml"
-    "pred_guid|configs/training/msr_aller_pred_guid_train.toml"
-    "fnpag|configs/training/msr_aller_fnpag_train.toml"
-    "ftc|configs/training/msr_aller_ftc_train.toml"
-)
-TOTAL=${#SCHEMES[@]}
-
-fmt_duration() {
-    local secs=$1
-    if (( secs >= 3600 )); then
-        printf "%dh %02dm %02ds" $((secs/3600)) $((secs%3600/60)) $((secs%60))
-    elif (( secs >= 60 )); then
-        printf "%dm %02ds" $((secs/60)) $((secs%60))
-    else
-        printf "%ds" "$secs"
-    fi
+# Suppress adaptive integrator step-limit warnings (expected during GA exploration
+# when the optimizer tries degenerate parameter combos that make the ODE stiff).
+run_train() {
+    $TRAIN "$@" 2> >(grep -v "WARNING: adaptive integrator hit" >&2)
 }
 
-separator() {
-    printf "${DIM}%.0s-${RESET}" {1..60}
-    echo
+train_piecewise_constant() {
+    echo "=== piecewise_constant (11 params, ~35 min) ==="
+    run_train configs/training/msr_aller_piecewise_constant_train.toml \
+        --n-gen 3000 --n-pop 40 --train-n-sims 300 \
+        --mutation-rate 0.03 \
+        --adaptive-seeds --cost-alpha 0.65 --cvar-percentile 15 \
+        --seed-pool-cap 120 --stress-interval 15 --stress-probes 200 --stress-inject 10 \
+        --final-n-sims 2000 --from-scratch --sim-timeout 1
 }
 
-echo -e "${BOLD}Aerocapture GA Training Pipeline${RESET}"
-echo -e "${DIM}Schemes: ${TOTAL} | Args: ${COMMON}${RESET}"
-separator
+train_ftc() {
+    echo "=== ftc (26 params, ~37 min) ==="
+    run_train configs/training/msr_aller_ftc_train.toml \
+        --n-gen 2500 --n-pop 50 --train-n-sims 300 \
+        --mutation-rate 0.03 \
+        --adaptive-seeds --cost-alpha 0.65 --cvar-percentile 15 \
+        --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
+        --final-n-sims 2000 --from-scratch --sim-timeout 1
+}
 
-SCRIPT_START=$SECONDS
-RESULTS=()
+train_eqglide() {
+    echo "=== equilibrium_glide (24 params, ~46 min) ==="
+    run_train configs/training/msr_aller_eqglide_train.toml \
+        --n-gen 2500 --n-pop 60 --train-n-sims 300 \
+        --mutation-rate 0.05 \
+        --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
+        --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
+        --final-n-sims 2000 --from-scratch --sim-timeout 1
+}
 
-for i in "${!SCHEMES[@]}"; do
-    IFS='|' read -r name toml <<< "${SCHEMES[$i]}"
-    step=$((i + 1))
+train_energy_controller() {
+    echo "=== energy_controller (20 params, ~46 min) ==="
+    run_train configs/training/msr_aller_energy_controller_train.toml \
+        --n-gen 2500 --n-pop 60 --train-n-sims 300 \
+        --mutation-rate 0.05 \
+        --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
+        --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
+        --final-n-sims 2000 --from-scratch --sim-timeout 1
+}
 
-    echo -e "\n${CYAN}[${step}/${TOTAL}]${RESET} ${BOLD}${name}${RESET} ${DIM}(${toml})${RESET}"
-    STEP_START=$SECONDS
+train_pred_guid() {
+    echo "=== pred_guid (20 params, ~46 min) ==="
+    run_train configs/training/msr_aller_pred_guid_train.toml \
+        --n-gen 2500 --n-pop 60 --train-n-sims 300 \
+        --mutation-rate 0.05 \
+        --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
+        --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
+        --final-n-sims 2000 --from-scratch --sim-timeout 1
+}
 
-    if uv run python -m aerocapture.training.train "$toml" $COMMON; then
-        elapsed=$((SECONDS - STEP_START))
-        echo -e "${GREEN}  done${RESET} ${DIM}$(fmt_duration $elapsed)${RESET}"
-        RESULTS+=("${GREEN}  ok${RESET}  $(fmt_duration $elapsed)  ${name}")
-    else
-        elapsed=$((SECONDS - STEP_START))
-        echo -e "${RED}  FAILED${RESET} ${DIM}$(fmt_duration $elapsed)${RESET}"
-        RESULTS+=("${RED}FAIL${RESET}  $(fmt_duration $elapsed)  ${name}")
-    fi
+train_fnpag() {
+    echo "=== fnpag (22 params, ~50 min) ==="
+    run_train configs/training/msr_aller_fnpag_train.toml \
+        --n-gen 600 --n-pop 50 --train-n-sims 200 \
+        --mutation-rate 0.05 \
+        --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
+        --seed-pool-cap 100 --stress-interval 15 --stress-probes 150 --stress-inject 10 \
+        --final-n-sims 2000 --from-scratch --sim-timeout 1
+}
 
-    separator
-done
+train_neural_network() {
+    echo "=== neural_network (1106 params, ~35 min) ==="
+    run_train configs/training/msr_aller_nn_train_consolidated.toml \
+        --n-gen 1500 --n-pop 120 --train-n-sims 200 \
+        --mutation-rate 0.03 \
+        --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
+        --seed-pool-cap 100 --stress-interval 15 --stress-probes 200 --stress-inject 10 \
+        --final-n-sims 2000 --from-scratch --sim-timeout 1
+}
 
-TOTAL_ELAPSED=$((SECONDS - SCRIPT_START))
+train_all() {
+    train_piecewise_constant
+    echo ""
+    train_ftc
+    echo ""
+    train_eqglide
+    echo ""
+    train_energy_controller
+    echo ""
+    train_pred_guid
+    echo ""
+    train_fnpag
+    echo ""
+    train_neural_network
+}
 
-echo -e "\n${BOLD}Summary${RESET} ${DIM}(total: $(fmt_duration $TOTAL_ELAPSED))${RESET}\n"
-for line in "${RESULTS[@]}"; do
-    echo -e "  $line"
-done
-echo
+# Dispatch: no args = all, otherwise run named schemes
+if [ $# -eq 0 ]; then
+    train_all
+else
+    for scheme in "$@"; do
+        case "$scheme" in
+            piecewise_constant|piecewise|pc)  train_piecewise_constant ;;
+            ftc)                               train_ftc ;;
+            eqglide|equilibrium_glide|eq)      train_eqglide ;;
+            energy_controller|energy|ec)       train_energy_controller ;;
+            pred_guid|predguid|pg)             train_pred_guid ;;
+            fnpag)                             train_fnpag ;;
+            neural_network|nn)                 train_neural_network ;;
+            all)                               train_all ;;
+            *)
+                echo "Unknown scheme: $scheme"
+                echo "Valid: piecewise_constant ftc eqglide energy_controller pred_guid fnpag neural_network all"
+                exit 1
+                ;;
+        esac
+    done
+fi

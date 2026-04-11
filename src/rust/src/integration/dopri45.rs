@@ -105,6 +105,12 @@ impl Dopri45State {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Invalidate the FSAL cache, forcing the next step to recompute k1.
+    /// Call after externally modifying the state (e.g., rewinding to an event location).
+    pub fn invalidate_fsal(&mut self) {
+        self.fsal_valid = false;
+    }
 }
 
 /// Result of a single DOPRI45 step attempt.
@@ -156,14 +162,8 @@ fn compute_dt_next(dt: f64, err: f64, err_prev: f64, is_first_or_rejected: bool)
 
 /// Attempt one Dormand-Prince 4(5) step of size `dt`.
 ///
-/// On acceptance: `state` is updated to the 5th-order solution, `dopri.k_last` is set
-/// for FSAL reuse, and `dopri.err_prev` is updated for the PI controller.
-///
-/// On rejection: `state` is restored to its value before the call. The caller should
-/// retry with `result.dt_next`.
-///
-/// The `deriv_fn` closure computes state derivatives given the current state.
-/// It must not have side effects — it may be called up to 7 times per step attempt.
+/// Thin wrapper around `dopri45_step_with_stages` that discards the stage derivatives.
+/// See that function for full documentation.
 pub fn dopri45_step(
     state: &mut [f64; N],
     dt: f64,
@@ -172,36 +172,52 @@ pub fn dopri45_step(
     rtol: f64,
     deriv_fn: &mut impl FnMut(&[f64; N]) -> [f64; N],
 ) -> StepResult {
-    let y0 = *state; // save for restoration on rejection
+    let (result, _stages) = dopri45_step_with_stages(state, dt, dopri, atol, rtol, deriv_fn);
+    result
+}
 
-    // Stage 1: reuse from FSAL if available, otherwise evaluate
+/// Attempt one Dormand-Prince 4(5) step of size `dt`, returning stage derivatives.
+///
+/// On acceptance: `state` is updated to the 5th-order solution, `dopri.k_last` is set
+/// for FSAL reuse, and `dopri.err_prev` is updated for the PI controller.
+/// On rejection: `state` is restored to its value before the call.
+///
+/// The returned stages `[[f64; N]; 7]` = [k1..k7]. For dense output, pass
+/// `stages[0]` as k1 and `stages[6]` as k7 to `dopri45_dense`.
+/// Only valid for accepted steps -- discard stages on rejection.
+pub fn dopri45_step_with_stages(
+    state: &mut [f64; N],
+    dt: f64,
+    dopri: &mut Dopri45State,
+    atol: &[f64; N],
+    rtol: f64,
+    deriv_fn: &mut impl FnMut(&[f64; N]) -> [f64; N],
+) -> (StepResult, [[f64; N]; 7]) {
+    let y0 = *state;
+
     let k1 = if dopri.fsal_valid {
         dopri.k_last
     } else {
         deriv_fn(state)
     };
 
-    // Stage 2
     let mut y_stage = [0.0; N];
     for i in 0..N {
         y_stage[i] = y0[i] + dt * tableau::A[0][0] * k1[i];
     }
     let k2 = deriv_fn(&y_stage);
 
-    // Stage 3
     for i in 0..N {
         y_stage[i] = y0[i] + dt * (tableau::A[1][0] * k1[i] + tableau::A[1][1] * k2[i]);
     }
     let k3 = deriv_fn(&y_stage);
 
-    // Stage 4
     for i in 0..N {
         y_stage[i] = y0[i]
             + dt * (tableau::A[2][0] * k1[i] + tableau::A[2][1] * k2[i] + tableau::A[2][2] * k3[i]);
     }
     let k4 = deriv_fn(&y_stage);
 
-    // Stage 5
     for i in 0..N {
         y_stage[i] = y0[i]
             + dt * (tableau::A[3][0] * k1[i]
@@ -211,7 +227,6 @@ pub fn dopri45_step(
     }
     let k5 = deriv_fn(&y_stage);
 
-    // Stage 6
     for i in 0..N {
         y_stage[i] = y0[i]
             + dt * (tableau::A[4][0] * k1[i]
@@ -222,7 +237,6 @@ pub fn dopri45_step(
     }
     let k6 = deriv_fn(&y_stage);
 
-    // 5th-order solution (used as the accepted state)
     let mut y5 = [0.0; N];
     for i in 0..N {
         y5[i] = y0[i]
@@ -231,13 +245,10 @@ pub fn dopri45_step(
                 + tableau::B5[3] * k4[i]
                 + tableau::B5[4] * k5[i]
                 + tableau::B5[5] * k6[i]);
-        // B5[1] = 0, B5[6] = 0 — skipped
     }
 
-    // Stage 7 (FSAL — evaluated at the 5th-order solution)
     let k7 = deriv_fn(&y5);
 
-    // 4th-order solution (for error estimation only)
     let mut y4 = [0.0; N];
     for i in 0..N {
         y4[i] = y0[i]
@@ -247,12 +258,10 @@ pub fn dopri45_step(
                 + tableau::B4[4] * k5[i]
                 + tableau::B4[5] * k6[i]
                 + tableau::B4[6] * k7[i]);
-        // B4[1] = 0 — skipped
     }
 
     let err = error_norm(&y0, &y4, &y5, atol, rtol);
     let accepted = err <= 1.0;
-
     let dt_next = compute_dt_next(dt, err, dopri.err_prev, !dopri.fsal_valid);
 
     if accepted {
@@ -261,16 +270,62 @@ pub fn dopri45_step(
         dopri.fsal_valid = true;
         dopri.err_prev = err;
     } else {
-        *state = y0; // restore
+        *state = y0;
         dopri.fsal_valid = false;
-        // err_prev NOT updated on rejection — PI controller uses last accepted error
     }
 
-    StepResult {
-        accepted,
-        error_norm: err,
-        dt_next,
+    let stages = [k1, k2, k3, k4, k5, k6, k7];
+    (
+        StepResult {
+            accepted,
+            error_norm: err,
+            dt_next,
+        },
+        stages,
+    )
+}
+
+/// Evaluate the cubic Hermite dense output at fractional position `theta` in [0, 1].
+///
+/// Implements the standard cubic Hermite interpolant through (theta=0, y0) and (theta=1, y5),
+/// with derivative conditions u'(0) = h*k1 and u'(1) = h*k7 (FSAL stage).
+/// This is 4th-order accurate in h for smooth ODEs.
+///
+/// Parameters:
+/// - `y0`: state at the beginning of the accepted step
+/// - `y5`: accepted 5th-order state at the end of the step (= `state` after acceptance)
+/// - `h`: accepted step size
+/// - `k1`: first stage derivative (= deriv(y0), available from `stages[0]`)
+/// - `k7`: seventh stage derivative (FSAL, = deriv(y5), available from `stages[6]`)
+/// - `theta`: fractional position in [0, 1] (0 = start, 1 = end of step)
+///
+/// Only valid for accepted steps. Stages k2..k6 are not needed.
+///
+/// Basis polynomials (standard Hermite):
+///   h1(t) = 2t^3 - 3t^2 + 1
+///   h2(t) = t^3 - 2t^2 + t
+///   h3(t) = -2t^3 + 3t^2
+///   h4(t) = t^3 - t^2
+pub fn dopri45_dense(
+    y0: &[f64; N],
+    y5: &[f64; N],
+    h: f64,
+    k1: &[f64; N],
+    k7: &[f64; N],
+    theta: f64,
+) -> [f64; N] {
+    let t = theta;
+    let t2 = t * t;
+    let t3 = t2 * t;
+    let h1 = 2.0 * t3 - 3.0 * t2 + 1.0;
+    let h2 = t3 - 2.0 * t2 + t;
+    let h3 = -2.0 * t3 + 3.0 * t2;
+    let h4 = t3 - t2;
+    let mut result = [0.0; N];
+    for i in 0..N {
+        result[i] = h1 * y0[i] + h2 * h * k1[i] + h3 * y5[i] + h4 * h * k7[i];
     }
+    result
 }
 
 #[cfg(test)]
@@ -518,6 +573,100 @@ mod tests {
 
     use proptest::prelude::*;
 
+    /// Dense output boundary conditions:
+    /// - theta=0 must return y0 exactly (no advance)
+    /// - theta=1 must match the accepted 5th-order solution
+    #[test]
+    fn dense_output_boundary_conditions() {
+        let atol = [1e-8; 8];
+        let rtol = 1e-8;
+        // Exponential ODE: dy/dt = y, y(0) = 1.0 => y(h) = e^h
+        let mut state = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let y0 = state;
+        let mut dopri = Dopri45State::new();
+        let h = 0.1;
+
+        let (result, stages) =
+            dopri45_step_with_stages(&mut state, h, &mut dopri, &atol, rtol, &mut |s| {
+                let mut d = [0.0; 8];
+                d[0] = s[0]; // dy/dt = y
+                d[7] = 1.0;
+                d
+            });
+        assert!(result.accepted, "Step must be accepted");
+        let y5 = state; // accepted state
+
+        // theta=0: must return y0 exactly
+        let at_start = dopri45_dense(&y0, &y5, h, &stages[0], &stages[6], 0.0);
+        for i in 0..8 {
+            assert_eq!(
+                at_start[i], y0[i],
+                "theta=0 must return y0 at component {}",
+                i
+            );
+        }
+
+        // theta=1: must match the accepted state (exact by construction of Hermite basis)
+        let at_end = dopri45_dense(&y0, &y5, h, &stages[0], &stages[6], 1.0);
+        for i in 0..8 {
+            assert!(
+                (at_end[i] - y5[i]).abs() < 1e-12,
+                "theta=1 mismatch at component {}: dense={}, accepted={}",
+                i,
+                at_end[i],
+                y5[i],
+            );
+        }
+    }
+
+    /// Dense output midpoint accuracy: harmonic oscillator (dx/dt=v, dv/dt=-x).
+    /// Check theta=0.25, 0.5, 0.75 against analytical cos/sin to 1e-6.
+    /// Cubic Hermite gives O(h^4) accuracy; h=0.1 yields ~1e-7 error.
+    #[test]
+    fn dense_output_midpoint_accuracy() {
+        let atol = [1e-8; 8];
+        let rtol = 1e-8;
+        // x(0) = 1, v(0) = 0 => x(t) = cos(t), v(t) = -sin(t)
+        let mut state = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let y0 = state;
+        let mut dopri = Dopri45State::new();
+        let h = 0.1;
+
+        let (result, stages) =
+            dopri45_step_with_stages(&mut state, h, &mut dopri, &atol, rtol, &mut |s| {
+                let mut d = [0.0; 8];
+                d[0] = s[1]; // dx/dt = v
+                d[1] = -s[0]; // dv/dt = -x
+                d[7] = 1.0;
+                d
+            });
+        assert!(result.accepted, "Step must be accepted");
+        let y5 = state;
+
+        for &theta in &[0.25_f64, 0.5, 0.75] {
+            let t = h * theta;
+            let interp = dopri45_dense(&y0, &y5, h, &stages[0], &stages[6], theta);
+            let x_exact = t.cos();
+            let v_exact = -t.sin();
+            assert!(
+                (interp[0] - x_exact).abs() < 1e-6,
+                "theta={}: x={}, exact={}, err={}",
+                theta,
+                interp[0],
+                x_exact,
+                (interp[0] - x_exact).abs(),
+            );
+            assert!(
+                (interp[1] - v_exact).abs() < 1e-6,
+                "theta={}: v={}, exact={}, err={}",
+                theta,
+                interp[1],
+                v_exact,
+                (interp[1] - v_exact).abs(),
+            );
+        }
+    }
+
     proptest! {
         /// For any reasonable initial state, a DOPRI45 step should:
         /// 1. Always produce finite state values (no NaN/Inf)
@@ -568,6 +717,42 @@ mod tests {
                 // State must be exactly restored on rejection
                 for i in 0..8 {
                     prop_assert_eq!(state[i], state_before[i], "state[{}] not restored", i);
+                }
+            }
+        }
+
+        /// For Mars-like initial conditions and theta in [0,1], dense output must be finite.
+        #[test]
+        fn dense_output_always_finite(
+            r in 3.3e6_f64..3.5e6,
+            v in 3000.0_f64..7000.0,
+            gamma in -0.15_f64..0.05,
+            dt in 0.001_f64..2.0,
+            theta in 0.0_f64..=1.0,
+        ) {
+            let atol = [1.0, 1e-8, 1e-8, 1e-3, 1e-8, 1e-8, 1e-2, 1e-6];
+            let rtol = 1e-6;
+            let mut state = [r, 0.0, 0.0, v, gamma, 0.0, 0.0, 0.0];
+            let y0 = state;
+            let mut dopri = Dopri45State::new();
+
+            let mu = 4.2828e13_f64;
+            let mut deriv = |s: &[f64; 8]| -> [f64; 8] {
+                let mut d = [0.0; 8];
+                d[0] = s[3] * s[4].sin();
+                d[3] = -mu / (s[0] * s[0]) * s[4].sin();
+                d[4] = (s[3] / s[0] - mu / (s[0] * s[0] * s[3])) * s[4].cos();
+                d[7] = 1.0;
+                d
+            };
+
+            let (result, stages) = dopri45_step_with_stages(&mut state, dt, &mut dopri, &atol, rtol, &mut deriv);
+
+            if result.accepted {
+                let y5 = state;
+                let interp = dopri45_dense(&y0, &y5, dt, &stages[0], &stages[6], theta);
+                for (i, &val) in interp.iter().enumerate() {
+                    prop_assert!(val.is_finite(), "dense output[{}] = {} is not finite (theta={})", i, val, theta);
                 }
             }
         }

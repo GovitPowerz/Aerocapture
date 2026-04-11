@@ -340,6 +340,7 @@ def write_guidance_toml(
     params: dict[str, float],
     output_path: str | Path | None = None,
     mc_seed: int | None = None,
+    n_sims_override: int | None = None,
 ) -> Path:
     """Patch a base TOML config with optimized guidance parameters.
 
@@ -406,6 +407,9 @@ def write_guidance_toml(
 
     if mc_seed is not None:
         toml_data.setdefault("monte_carlo", {})["seed"] = mc_seed
+
+    if n_sims_override is not None:
+        toml_data.setdefault("simulation", {})["n_sims"] = n_sims_override
 
     # Write TOML (minimal writer — machine-consumed only)
     if output_path is None:
@@ -515,7 +519,7 @@ def _toml_value(value: object) -> str:
     return str(value)
 
 
-def patch_toml_mc_seed(base_toml_path: str | Path, mc_seed: int) -> Path:
+def patch_toml_mc_seed(base_toml_path: str | Path, mc_seed: int, n_sims_override: int | None = None) -> Path:
     """Create a temp TOML with [monte_carlo].seed overridden.
 
     Args:
@@ -533,6 +537,9 @@ def patch_toml_mc_seed(base_toml_path: str | Path, mc_seed: int) -> Path:
     toml_data = load_toml_with_bases(base_toml_path)
 
     toml_data.setdefault("monte_carlo", {})["seed"] = mc_seed
+
+    if n_sims_override is not None:
+        toml_data.setdefault("simulation", {})["n_sims"] = n_sims_override
 
     fd, path_str = tempfile.mkstemp(suffix=".toml", prefix="mc_seed_")
     output_path = Path(path_str)
@@ -576,7 +583,7 @@ def evaluate_chromosome(
             if config.sim.toml_config is None:
                 msg = "mc_seed requires toml_config to be set for neural_network guidance"
                 raise ValueError(msg)
-            patched_toml = patch_toml_mc_seed(Path(cwd) / config.sim.toml_config, mc_seed)
+            patched_toml = patch_toml_mc_seed(Path(cwd) / config.sim.toml_config, mc_seed, n_sims_override=config.sim.train_n_sims)
             try:
                 orig_toml = config.sim.toml_config
                 config.sim.toml_config = str(patched_toml)
@@ -585,7 +592,10 @@ def evaluate_chromosome(
                 config.sim.toml_config = orig_toml
                 patched_toml.unlink(missing_ok=True)
         else:
-            final = run_simulation(config, cwd=cwd)
+            nn_overrides: dict[str, object] | None = None
+            if config.sim.train_n_sims is not None:
+                nn_overrides = {"simulation.n_sims": config.sim.train_n_sims}
+            final = run_simulation(config, cwd=cwd, overrides=nn_overrides)
     else:
         # Generic guidance param path: decode params, patch TOML, run sim
         params = decode_params_from_chromosome(xbit, config)
@@ -593,7 +603,7 @@ def evaluate_chromosome(
             msg = f"toml_config must be set for guidance_type={config.guidance_type}"
             raise ValueError(msg)
         base_toml = Path(cwd) / config.sim.toml_config
-        patched_toml = write_guidance_toml(base_toml, config.guidance_type, params, mc_seed=mc_seed)
+        patched_toml = write_guidance_toml(base_toml, config.guidance_type, params, mc_seed=mc_seed, n_sims_override=config.sim.train_n_sims)
         try:
             # Temporarily override TOML config to use patched file
             orig_toml = config.sim.toml_config

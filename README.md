@@ -121,19 +121,25 @@ Training features:
 - Graceful Ctrl+C (saves checkpoint and returns cleanly)
 - Rich TUI with sparklines, ETA, progress bar
 - Rotating or adaptive MC dispersion seeds (prevents overfitting)
+- `--mutation-rate` overrides GA mutation rate (default 0.02)
+- `--train-n-sims` overrides n_sims during GA evaluations only (TOML unchanged)
 - PDF report auto-generated at end of training
 
 ```bash
-# Optimize any guidance scheme
+# Train all schemes with optimized settings (piecewise_constant first for ref trajectory)
+./train_all.sh                     # all 7 schemes in dependency order
+./train_all.sh eqglide fnpag       # specific schemes only
+
+# Optimize a single guidance scheme
 uv run python -m aerocapture.training.train \
     configs/training/msr_aller_eqglide_train.toml \
-    --n-gen 50 --n-pop 20
+    --n-gen 2500 --n-pop 60 --train-n-sims 300 --mutation-rate 0.05
 
 # Disable TUI (CI / piped output)
 uv run python -m aerocapture.training.train <config.toml> --no-tui
 
 # Adaptive seed pool (curates seeds by difficulty, CVaR-blended fitness)
-uv run python -m aerocapture.training.train <config.toml> --adaptive-seeds
+uv run python -m aerocapture.training.train <config.toml> --adaptive-seeds --cost-alpha 0.6
 ```
 
 ## Reports and Visualization
