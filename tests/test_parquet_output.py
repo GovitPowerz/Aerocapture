@@ -5,7 +5,7 @@ import json
 import numpy as np
 import pyarrow.parquet as pq
 import pytest
-from aerocapture.training.parquet_output import DISPERSION_COLUMNS, FINAL_COLUMNS, FINAL_RECORD_INDICES, write_parquet
+from aerocapture.training.parquet_output import DISPERSION_COLUMNS, FINAL_COLUMNS, FINAL_RECORD_INDICES, read_parquet, write_parquet
 from aerocapture.training.sensitivity import DISPERSION_COLUMNS as SENSITIVITY_DISPERSION_COLUMNS
 
 N_SIMS = 10
@@ -178,3 +178,34 @@ def test_guidance_scheme_fallback_when_missing(tmp_path):
     write_parquet(out, final_records, dispersions, config)
     meta = pq.read_schema(out).metadata
     assert meta[b"aerocapture.guidance_scheme"] == b"unknown"
+
+
+class TestReadParquet:
+    def test_roundtrip(self, fake_data, tmp_path: Path) -> None:
+        """write_parquet -> read_parquet returns same data and metadata."""
+        import pandas as pd
+
+        final_records, dispersions, config = fake_data
+        out = tmp_path / "output.parquet"
+        write_parquet(out, final_records, dispersions, config, toml_path="/configs/foo.toml")
+
+        df, meta = read_parquet(out)
+
+        assert isinstance(df, pd.DataFrame)
+        assert df.shape == (N_SIMS, N_FINAL_COLS + N_DISP)
+        assert meta["n_sims"] == str(N_SIMS)
+        assert meta["toml_path"] == "/configs/foo.toml"
+        assert meta["guidance_scheme"] == "equilibrium_glide"
+        assert "timestamp" in meta
+        assert isinstance(meta["config"], dict)
+
+    def test_metadata_config_deserialized(self, fake_data, tmp_path: Path) -> None:
+        """Config metadata is deserialized back to a dict."""
+        final_records, dispersions, config = fake_data
+        out = tmp_path / "output.parquet"
+        write_parquet(out, final_records, dispersions, config)
+
+        _, meta = read_parquet(out)
+
+        assert meta["config"] == config
+        assert meta["config"]["guidance"]["type"] == "equilibrium_glide"

@@ -134,3 +134,22 @@ def write_parquet(
     table = table.cast(schema)
 
     pq.write_table(table, path)
+
+
+def read_parquet(path: str | Path) -> tuple[Any, dict[str, Any]]:
+    import pandas as pd
+
+    path = Path(path)
+    table = pq.read_table(path)
+    df = table.to_pandas()
+
+    raw_meta: dict[bytes, bytes] = table.schema.metadata or {}
+    meta: dict[str, Any] = {
+        "config": json.loads(raw_meta.get(b"aerocapture.config", b"{}")),
+        "toml_path": raw_meta.get(b"aerocapture.toml_path", b"").decode(),
+        "timestamp": raw_meta.get(b"aerocapture.timestamp", b"").decode(),
+        "guidance_scheme": raw_meta.get(b"aerocapture.guidance_scheme", b"").decode(),
+        "n_sims": raw_meta.get(b"aerocapture.n_sims", b"").decode(),
+    }
+
+    return df, meta
