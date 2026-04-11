@@ -526,7 +526,7 @@ def _generate_trajectory_charts(
     charts.chart_exit_conditions(final_records, out_dir / "exit_conditions.svg")
 
     # Dispersion grid
-    charts.chart_dispersion_grid(final_records, dispersions, out_dir / "dispersion_grid.svg")
+    charts.chart_dispersion_grid(final_records, dispersions, out_dir / "dispersion_grid.svg", traj_class=traj_class)
 
 
 # ---------------------------------------------------------------------------
