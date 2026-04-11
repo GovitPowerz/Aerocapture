@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from typing import Any
 
 import numpy as np
-import pyarrow.parquet as pq
+import numpy.typing as npt
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import pytest
 from aerocapture.training.parquet_output import DISPERSION_COLUMNS, FINAL_COLUMNS, FINAL_RECORD_INDICES, read_parquet, write_parquet
 from aerocapture.training.sensitivity import DISPERSION_COLUMNS as SENSITIVITY_DISPERSION_COLUMNS
@@ -13,51 +16,53 @@ N_FINAL = 52
 N_DISP = 26
 N_FINAL_COLS = 39
 
+FakeData = tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[str, Any]]
+
 
 @pytest.fixture()
-def fake_data():
+def fake_data() -> FakeData:
     rng = np.random.default_rng(42)
     final_records = rng.random((N_SIMS, N_FINAL))
     dispersions = rng.random((N_SIMS, N_DISP))
-    config = {"guidance": {"type": "equilibrium_glide"}, "monte_carlo": {"n_sims": N_SIMS}}
+    config: dict[str, Any] = {"guidance": {"type": "equilibrium_glide"}, "monte_carlo": {"n_sims": N_SIMS}}
     return final_records, dispersions, config
 
 
-def test_final_record_indices_length():
+def test_final_record_indices_length() -> None:
     assert len(FINAL_RECORD_INDICES) == N_FINAL_COLS
 
 
-def test_final_columns_length():
+def test_final_columns_length() -> None:
     assert len(FINAL_COLUMNS) == N_FINAL_COLS
 
 
-def test_dispersion_columns_match_sensitivity():
+def test_dispersion_columns_match_sensitivity() -> None:
     assert DISPERSION_COLUMNS == SENSITIVITY_DISPERSION_COLUMNS
 
 
-def test_final_record_indices_within_bounds():
+def test_final_record_indices_within_bounds() -> None:
     assert all(0 <= i < N_FINAL for i in FINAL_RECORD_INDICES)
 
 
-def test_final_record_indices_no_duplicates():
+def test_final_record_indices_no_duplicates() -> None:
     assert len(set(FINAL_RECORD_INDICES)) == len(FINAL_RECORD_INDICES)
 
 
-def test_write_parquet_creates_file(fake_data, tmp_path):
+def test_write_parquet_creates_file(fake_data: FakeData, tmp_path: Path) -> None:
     final_records, dispersions, config = fake_data
     out = tmp_path / "output.parquet"
     write_parquet(out, final_records, dispersions, config)
     assert out.exists()
 
 
-def test_write_parquet_creates_parent_dirs(fake_data, tmp_path):
+def test_write_parquet_creates_parent_dirs(fake_data: FakeData, tmp_path: Path) -> None:
     final_records, dispersions, config = fake_data
     out = tmp_path / "nested" / "deep" / "output.parquet"
     write_parquet(out, final_records, dispersions, config)
     assert out.exists()
 
 
-def test_roundtrip_row_count(fake_data, tmp_path):
+def test_roundtrip_row_count(fake_data: FakeData, tmp_path: Path) -> None:
     final_records, dispersions, config = fake_data
     out = tmp_path / "output.parquet"
     write_parquet(out, final_records, dispersions, config)
@@ -65,7 +70,7 @@ def test_roundtrip_row_count(fake_data, tmp_path):
     assert table.num_rows == N_SIMS
 
 
-def test_roundtrip_column_count(fake_data, tmp_path):
+def test_roundtrip_column_count(fake_data: FakeData, tmp_path: Path) -> None:
     final_records, dispersions, config = fake_data
     out = tmp_path / "output.parquet"
     write_parquet(out, final_records, dispersions, config)
@@ -73,7 +78,7 @@ def test_roundtrip_column_count(fake_data, tmp_path):
     assert table.num_columns == N_FINAL_COLS + N_DISP
 
 
-def test_column_names_final(fake_data, tmp_path):
+def test_column_names_final(fake_data: FakeData, tmp_path: Path) -> None:
     final_records, dispersions, config = fake_data
     out = tmp_path / "output.parquet"
     write_parquet(out, final_records, dispersions, config)
@@ -83,7 +88,7 @@ def test_column_names_final(fake_data, tmp_path):
         assert name in cols, f"missing final column: {name}"
 
 
-def test_column_names_dispersion(fake_data, tmp_path):
+def test_column_names_dispersion(fake_data: FakeData, tmp_path: Path) -> None:
     final_records, dispersions, config = fake_data
     out = tmp_path / "output.parquet"
     write_parquet(out, final_records, dispersions, config)
@@ -93,7 +98,7 @@ def test_column_names_dispersion(fake_data, tmp_path):
         assert f"disp_{name}" in cols, f"missing dispersion column: disp_{name}"
 
 
-def test_column_order(fake_data, tmp_path):
+def test_column_order(fake_data: FakeData, tmp_path: Path) -> None:
     final_records, dispersions, config = fake_data
     out = tmp_path / "output.parquet"
     write_parquet(out, final_records, dispersions, config)
@@ -102,7 +107,7 @@ def test_column_order(fake_data, tmp_path):
     assert table.schema.names == expected
 
 
-def test_metadata_keys_present(fake_data, tmp_path):
+def test_metadata_keys_present(fake_data: FakeData, tmp_path: Path) -> None:
     final_records, dispersions, config = fake_data
     out = tmp_path / "output.parquet"
     write_parquet(out, final_records, dispersions, config, toml_path="/some/path.toml")
@@ -114,7 +119,7 @@ def test_metadata_keys_present(fake_data, tmp_path):
     assert b"aerocapture.n_sims" in meta
 
 
-def test_metadata_config_is_valid_json(fake_data, tmp_path):
+def test_metadata_config_is_valid_json(fake_data: FakeData, tmp_path: Path) -> None:
     final_records, dispersions, config = fake_data
     out = tmp_path / "output.parquet"
     write_parquet(out, final_records, dispersions, config)
@@ -123,7 +128,7 @@ def test_metadata_config_is_valid_json(fake_data, tmp_path):
     assert parsed == config
 
 
-def test_metadata_guidance_scheme(fake_data, tmp_path):
+def test_metadata_guidance_scheme(fake_data: FakeData, tmp_path: Path) -> None:
     final_records, dispersions, config = fake_data
     out = tmp_path / "output.parquet"
     write_parquet(out, final_records, dispersions, config)
@@ -131,7 +136,7 @@ def test_metadata_guidance_scheme(fake_data, tmp_path):
     assert meta[b"aerocapture.guidance_scheme"] == b"equilibrium_glide"
 
 
-def test_metadata_n_sims(fake_data, tmp_path):
+def test_metadata_n_sims(fake_data: FakeData, tmp_path: Path) -> None:
     final_records, dispersions, config = fake_data
     out = tmp_path / "output.parquet"
     write_parquet(out, final_records, dispersions, config)
@@ -139,7 +144,7 @@ def test_metadata_n_sims(fake_data, tmp_path):
     assert meta[b"aerocapture.n_sims"] == str(N_SIMS).encode()
 
 
-def test_metadata_toml_path_none(fake_data, tmp_path):
+def test_metadata_toml_path_none(fake_data: FakeData, tmp_path: Path) -> None:
     final_records, dispersions, config = fake_data
     out = tmp_path / "output.parquet"
     write_parquet(out, final_records, dispersions, config, toml_path=None)
@@ -147,7 +152,7 @@ def test_metadata_toml_path_none(fake_data, tmp_path):
     assert meta[b"aerocapture.toml_path"] == b""
 
 
-def test_data_integrity_final_columns(fake_data, tmp_path):
+def test_data_integrity_final_columns(fake_data: FakeData, tmp_path: Path) -> None:
     final_records, dispersions, config = fake_data
     out = tmp_path / "output.parquet"
     write_parquet(out, final_records, dispersions, config)
@@ -158,7 +163,7 @@ def test_data_integrity_final_columns(fake_data, tmp_path):
         assert col_data == pytest.approx(expected, rel=1e-10), f"mismatch in column {col_name}"
 
 
-def test_data_integrity_dispersion_columns(fake_data, tmp_path):
+def test_data_integrity_dispersion_columns(fake_data: FakeData, tmp_path: Path) -> None:
     final_records, dispersions, config = fake_data
     out = tmp_path / "output.parquet"
     write_parquet(out, final_records, dispersions, config)
@@ -169,11 +174,11 @@ def test_data_integrity_dispersion_columns(fake_data, tmp_path):
         assert col_data == pytest.approx(expected, rel=1e-10), f"mismatch in disp_{disp_name}"
 
 
-def test_guidance_scheme_fallback_when_missing(tmp_path):
+def test_guidance_scheme_fallback_when_missing(tmp_path: Path) -> None:
     rng = np.random.default_rng(0)
     final_records = rng.random((3, N_FINAL))
     dispersions = rng.random((3, N_DISP))
-    config = {"monte_carlo": {"n_sims": 3}}  # no guidance key
+    config: dict[str, Any] = {"monte_carlo": {"n_sims": 3}}
     out = tmp_path / "output.parquet"
     write_parquet(out, final_records, dispersions, config)
     meta = pq.read_schema(out).metadata
@@ -181,8 +186,7 @@ def test_guidance_scheme_fallback_when_missing(tmp_path):
 
 
 class TestReadParquet:
-    def test_roundtrip(self, fake_data, tmp_path: Path) -> None:
-        """write_parquet -> read_parquet returns same data and metadata."""
+    def test_roundtrip(self, fake_data: FakeData, tmp_path: Path) -> None:
         import pandas as pd
 
         final_records, dispersions, config = fake_data
@@ -199,8 +203,7 @@ class TestReadParquet:
         assert "timestamp" in meta
         assert isinstance(meta["config"], dict)
 
-    def test_metadata_config_deserialized(self, fake_data, tmp_path: Path) -> None:
-        """Config metadata is deserialized back to a dict."""
+    def test_metadata_config_deserialized(self, fake_data: FakeData, tmp_path: Path) -> None:
         final_records, dispersions, config = fake_data
         out = tmp_path / "output.parquet"
         write_parquet(out, final_records, dispersions, config)

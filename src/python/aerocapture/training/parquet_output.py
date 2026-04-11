@@ -7,8 +7,8 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-import pyarrow as pa
-import pyarrow.parquet as pq
+import pyarrow as pa  # type: ignore[import-untyped]
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from aerocapture.training.sensitivity import DISPERSION_COLUMNS
 
