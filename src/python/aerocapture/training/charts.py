@@ -1148,12 +1148,14 @@ def chart_dispersion_grid(
         x = dispersions[:, i]
 
         if traj_class is not None:
+            _cls_labels = {TRAJ_OK: "Captured", TRAJ_CONSTRAINED: "Constrained", TRAJ_FAILED: "Failed"}
             for cls in (TRAJ_OK, TRAJ_CONSTRAINED, TRAJ_FAILED):
                 mask = traj_class == cls
                 if not np.any(mask):
                     continue
                 marker = "x" if cls == TRAJ_FAILED else "o"
-                ax.scatter(x[mask], log_dv[mask], s=8, alpha=0.5, color=_TRAJ_COLORS[cls], marker=marker)
+                label = _cls_labels[cls] if i == 0 else None
+                ax.scatter(x[mask], log_dv[mask], s=8, alpha=0.5, color=_TRAJ_COLORS[cls], marker=marker, label=label)
             # Regression on captured points only
             captured_mask = (traj_class == TRAJ_OK) | (traj_class == TRAJ_CONSTRAINED)
             reg_x = x[captured_mask]
@@ -1182,6 +1184,8 @@ def chart_dispersion_grid(
 
     fig.supylabel("log10(DV)", fontsize=9)
     fig.suptitle("Dispersion Correlation Grid", fontsize=11)
+    if traj_class is not None:
+        fig.legend(loc="upper right", fontsize=7, markerscale=1.5)
     fig.tight_layout()
     _save_svg(fig, output)
 

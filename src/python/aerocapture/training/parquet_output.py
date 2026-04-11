@@ -137,8 +137,6 @@ def write_parquet(
 
 
 def read_parquet(path: str | Path) -> tuple[Any, dict[str, Any]]:
-    import pandas as pd
-
     path = Path(path)
     table = pq.read_table(path)
     df = table.to_pandas()

@@ -598,6 +598,8 @@ def generate_report(
                     print(f"Parquet output: {parquet_path}")
                 except ImportError:
                     pass  # pyarrow not installed
+                except Exception as exc:  # noqa: BLE001
+                    print(f"Warning: Parquet write failed: {exc}")
 
         # Part 3: Sensitivity Analysis
         sensitivity_flags: dict[str, bool] = {"has_sensitivity": False, "has_morris": False, "has_sobol": False, "has_sobol_heatmap": False}
