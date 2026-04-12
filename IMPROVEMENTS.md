@@ -46,23 +46,13 @@ This document lists physics, GNC, and software improvements for the aerocapture 
 
 ## 7. Integration
 
-### 7.1 Event detection -- DONE
-
-~~No proper event detection (atmosphere entry/exit, bounce, crash). Currently uses altitude threshold checks at fixed intervals.~~
-
-Implemented in `feature/advanced-sampling-sensitivity`: DOPRI45 dense output (Hermite continuous extension) + Brent's root-finding locates bounce, atmosphere exit, crash, and phase transition events to ~1 ms precision within adaptive substeps. Fixed RK4 path unchanged. Event records interleaved into trajectory output. See `integration/events.rs` and `integration/dopri45.rs`.
+*(7.1 Event detection -- see Done section below.)*
 
 ---
 
 ## 8. Output & Analysis
 
-### 8.1 Output formats
-
-Output is clean CSV with named column headers — photo CSV and final CSV with 10 significant figures. Remaining improvements:
-
-- Add HDF5 or Parquet output for large MC campaigns (smaller files, faster I/O)
-- Embed config/dispersions/random seed metadata in the output file for reproducibility
-- Add per-run dispersion values to the final CSV
+*(8.1 Output formats -- see Done section below.)*
 
 ---
 
@@ -119,6 +109,8 @@ Items completed and merged.
 | 5.1 Predictive roll reversal | 2026-04-05 | Replaced reactive corridor-based lateral guidance (`(V/slope)^4 + intercept`) with first-order inclination projection. Algorithm projects inclination error forward by `tau` seconds using finite-difference rate estimation and reverses only when projected error exceeds `threshold`. Anti-chatter `min_reversal_interval` prevents rapid re-triggering. `[guidance.lateral]` params: `tau` (s), `threshold` (deg), `min_reversal_interval` (s), `lateral_activation`/`lateral_inhibition` (MJ/kg), `max_reversals`. GA-optimizable for all 5 unsigned-magnitude schemes. |
 | 6.1 Advanced sampling methods | 2026-04-07 | LHS (Latin Hypercube Sampling) and Sobol quasi-random sequences added to `dispersions.rs`. 26-dim `DimTransform` system maps unit samples to per-dimension distributions (Gaussian/Uniform/UniformRange/Fixed). `[monte_carlo] sampling = "lhs"/"sobol"/"random"` TOML key. Sobol uses Owen-scrambled `sobol_burley` crate (max 65536 samples). LHS uses stratified Fisher-Yates shuffle. Training configs default to LHS. PyO3 `run_with_draws()` API accepts external (N, 26) draw matrices for SALib integration. |
 | 6.2 Sensitivity analysis | 2026-04-07 | SALib-based sensitivity analysis: Morris elementary effects (screening all 26 dispersion dims) + Sobol variance decomposition (S1/ST/S2 on top-k parameters). `build_problem()` converts `[monte_carlo]` config to SALib problem dict with per-dimension distribution types and SI-unit bounds mirroring Rust `build_dim_transforms()`. CLI: `python -m aerocapture.training.sensitivity`. Report Part 3 integration (Morris bar chart + ranked table, Sobol bars, S2 heatmap, convergence plot). |
+| 7.1 Event detection | 2026-04-07 | DOPRI45 dense output (Hermite continuous extension) + Brent's root-finding locates bounce, atmosphere exit, crash, and phase transition events to ~1 ms precision within adaptive substeps. Fixed RK4 path unchanged. Event records interleaved into trajectory output. See `integration/events.rs` and `integration/dopri45.rs`. |
+| 8.1 Output formats | 2026-04-12 | Parquet output module (`parquet_output.py`): 65-column files (39 final-record + 26 dispersion) with full resolved config metadata. Auto-written alongside PDF reports. Dispersion grid chart now uses three-way trajectory classification (blue/orange/red) with regression on captured only. CSV unchanged. |
 
 ---
 

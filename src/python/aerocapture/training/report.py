@@ -526,7 +526,7 @@ def _generate_trajectory_charts(
     charts.chart_exit_conditions(final_records, out_dir / "exit_conditions.svg")
 
     # Dispersion grid
-    charts.chart_dispersion_grid(final_records, dispersions, out_dir / "dispersion_grid.svg")
+    charts.chart_dispersion_grid(final_records, dispersions, out_dir / "dispersion_grid.svg", traj_class=traj_class)
 
 
 # ---------------------------------------------------------------------------
@@ -586,6 +586,20 @@ def generate_report(
                     cost_kwargs=cost_kwargs,
                 )
                 final_records = final_records_arr
+
+                # Write Parquet output for analysis
+                try:
+                    from aerocapture.training.parquet_output import write_parquet
+                    from aerocapture.training.toml_utils import load_toml_with_bases
+
+                    resolved_config = load_toml_with_bases(toml_path)
+                    parquet_path = scheme_dir / "final_eval.parquet"
+                    write_parquet(parquet_path, final_records_arr, dispersions, resolved_config, toml_path=str(toml_path))
+                    print(f"Parquet output: {parquet_path}")
+                except ImportError:
+                    pass  # pyarrow not installed
+                except Exception as exc:  # noqa: BLE001
+                    print(f"Warning: Parquet write failed: {exc}")
 
         # Part 3: Sensitivity Analysis
         sensitivity_flags: dict[str, bool] = {"has_sensitivity": False, "has_morris": False, "has_sobol": False, "has_sobol_heatmap": False}

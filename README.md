@@ -158,7 +158,7 @@ uv run python -m aerocapture.training.report \
 uv run python -m aerocapture.training.report --compare training_output/
 ```
 
-Reports include: cost convergence curves, population diversity, corridor plots with zone fills, altitude/heat flux/g-load/bank angle vs time spaghetti with constraint limit lines, DV distributions, entry/exit conditions, performance summary tables. Compiled via `typst` (install with `brew install typst`). Degrades gracefully if Typst is not installed — charts are still generated as SVGs.
+Reports include: cost convergence curves, population diversity, corridor plots with zone fills, altitude/heat flux/g-load/bank angle vs time spaghetti with constraint limit lines, DV distributions, entry/exit conditions, performance summary tables, dispersion correlation grids with three-way trajectory classification. Compiled via `typst` (install with `brew install typst`). Degrades gracefully if Typst is not installed -- charts are still generated as SVGs. A `final_eval.parquet` file (65 columns: 39 final-record + 26 dispersions, with embedded config metadata) is auto-written alongside the PDF when `pyarrow` is available.
 
 ### Training Animation
 
@@ -262,7 +262,7 @@ uv run pytest tests/
 
 **Rust tests** cover: physics (J2/J3/J4 gravity with proptest), all 7 guidance schemes, exit phase guidance (pdyn feedback with proptest), phase dispatch, lateral guidance, navigation (bias + EKF, SimPhase gating), wind model, control (pilot dynamics, angle utils), DOPRI45 adaptive integrator, TOML base inheritance, virtual DV ranges, trajectory heat load, density perturbation (OU config presets, step function statistics, TOML parsing, E2E backward compat).
 
-**Python tests** cover: parsers, regression, GA pipeline, training visualization, training animation, NN weight initialization, adaptive seed pool, graceful interrupt, TOML base inheritance, PyO3 integration (bit-identical regression), corridor accumulator, unified cost function, sensitivity analysis (build_problem structure + Morris/Sobol pipeline shape/correctness).
+**Python tests** cover: parsers, regression, GA pipeline, training visualization, training animation, NN weight initialization, adaptive seed pool, graceful interrupt, TOML base inheritance, PyO3 integration (bit-identical regression), corridor accumulator, unified cost function, sensitivity analysis (build_problem structure + Morris/Sobol pipeline shape/correctness), Parquet output (write/read roundtrip, schema, metadata, data integrity).
 
 ## CI
 

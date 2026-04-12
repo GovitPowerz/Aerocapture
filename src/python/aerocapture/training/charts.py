@@ -1130,6 +1130,7 @@ def chart_dispersion_grid(
     final_records: npt.NDArray[np.float64],
     dispersions: npt.NDArray[np.float64],
     output: Path,
+    traj_class: npt.NDArray[np.int8] | None = None,
 ) -> None:
     """Panel 20: subplot grid — each dispersion field vs log10(DV) with linear regression."""
     n_fields = dispersions.shape[1]
@@ -1145,13 +1146,30 @@ def chart_dispersion_grid(
     for i in range(n_fields):
         ax = axes_flat[i]
         x = dispersions[:, i]
-        ax.scatter(x, log_dv, s=8, alpha=0.5, color=COLOR_CAPTURE)
+
+        if traj_class is not None:
+            _cls_labels = {TRAJ_OK: "Captured", TRAJ_CONSTRAINED: "Constrained", TRAJ_FAILED: "Failed"}
+            for cls in (TRAJ_OK, TRAJ_CONSTRAINED, TRAJ_FAILED):
+                mask = traj_class == cls
+                if not np.any(mask):
+                    continue
+                marker = "x" if cls == TRAJ_FAILED else "o"
+                label = _cls_labels[cls] if i == 0 else None
+                ax.scatter(x[mask], log_dv[mask], s=8, alpha=0.5, color=_TRAJ_COLORS[cls], marker=marker, label=label)
+            # Regression on captured points only
+            captured_mask = (traj_class == TRAJ_OK) | (traj_class == TRAJ_CONSTRAINED)
+            reg_x = x[captured_mask]
+            reg_y = log_dv[captured_mask]
+        else:
+            ax.scatter(x, log_dv, s=8, alpha=0.5, color=COLOR_CAPTURE)
+            reg_x = x
+            reg_y = log_dv
 
         # Linear regression (skip if all x values are identical — e.g. a zero-variance dispersion field)
-        finite = np.isfinite(x) & np.isfinite(log_dv)
-        if np.sum(finite) > 2 and np.ptp(x[finite]) > 0:
-            result = stats.linregress(x[finite], log_dv[finite])
-            x_range = np.array([float(np.min(x[finite])), float(np.max(x[finite]))])
+        finite = np.isfinite(reg_x) & np.isfinite(reg_y)
+        if np.sum(finite) > 2 and np.ptp(reg_x[finite]) > 0:
+            result = stats.linregress(reg_x[finite], reg_y[finite])
+            x_range = np.array([float(np.min(reg_x[finite])), float(np.max(reg_x[finite]))])
             ax.plot(x_range, result.slope * x_range + result.intercept, color=COLOR_WORST, linewidth=1.0)
             label_txt = f"R\u00b2={result.rvalue**2:.2f}\np={result.pvalue:.1e}"
             ax.annotate(label_txt, xy=(0.05, 0.95), xycoords="axes fraction", fontsize=6, verticalalignment="top")
@@ -1166,6 +1184,8 @@ def chart_dispersion_grid(
 
     fig.supylabel("log10(DV)", fontsize=9)
     fig.suptitle("Dispersion Correlation Grid", fontsize=11)
+    if traj_class is not None:
+        fig.legend(loc="upper right", fontsize=7, markerscale=1.5)
     fig.tight_layout()
     _save_svg(fig, output)
 
