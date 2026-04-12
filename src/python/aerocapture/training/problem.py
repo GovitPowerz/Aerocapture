@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -53,7 +54,11 @@ class AerocaptureProblem(Problem):
         self.seeds = seeds
 
     def _evaluate(self, X: npt.NDArray[np.float64], out: dict, *args: object, **kwargs: object) -> None:  # type: ignore[override]
-        costs = self._run_batch(X)
+        try:
+            costs = self._run_batch(X)
+        except Exception:
+            # Return high penalty cost so the optimizer can continue
+            costs = np.full(X.shape[0], 1e9)
         out["F"] = costs.reshape(-1, 1)
 
     def _run_batch(self, X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
@@ -93,7 +98,9 @@ class AerocaptureProblem(Problem):
                     [s.p_min + float(X[i, j]) * (s.p_max - s.p_min) for j, s in enumerate(self.param_specs)],
                     dtype=np.float64,
                 )
-                tmp = Path(tempfile.mktemp(suffix=".json", prefix=f"nn_{i}_"))
+                fd, tmp_str = tempfile.mkstemp(suffix=".json", prefix=f"nn_{i}_")
+                os.close(fd)
+                tmp = Path(tmp_str)
                 write_nn_json(weights, nn_cfg, tmp)
                 nn_tmp_paths.append(tmp)
 
@@ -159,7 +166,9 @@ class AerocaptureProblem(Problem):
                 [s.p_min + float(x[j]) * (s.p_max - s.p_min) for j, s in enumerate(self.param_specs)],
                 dtype=np.float64,
             )
-            nn_tmp = Path(tempfile.mktemp(suffix=".json", prefix="nn_eval_"))
+            fd, tmp_str = tempfile.mkstemp(suffix=".json", prefix="nn_eval_")
+            os.close(fd)
+            nn_tmp = Path(tmp_str)
             write_nn_json(weights, nn_cfg, nn_tmp)
 
         try:
@@ -211,7 +220,9 @@ class AerocaptureProblem(Problem):
                     [s.p_min + float(X[i, j]) * (s.p_max - s.p_min) for j, s in enumerate(self.param_specs)],
                     dtype=np.float64,
                 )
-                tmp = Path(tempfile.mktemp(suffix=".json", prefix=f"nn_{i}_"))
+                fd, tmp_str = tempfile.mkstemp(suffix=".json", prefix=f"nn_{i}_")
+                os.close(fd)
+                tmp = Path(tmp_str)
                 write_nn_json(weights, nn_cfg, tmp)
                 nn_tmp_paths.append(tmp)
 

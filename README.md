@@ -120,9 +120,8 @@ Training features:
 - `--n-gen` means "N additional generations" when resuming
 - Graceful Ctrl+C (saves checkpoint and returns cleanly)
 - Rich TUI with sparklines, ETA, progress bar
-- Rotating or adaptive MC dispersion seeds (prevents overfitting)
-- `--mutation-rate` overrides GA mutation rate (default 0.02)
-- `--train-n-sims` overrides n_sims during GA evaluations only (TOML unchanged)
+- Adaptive MC dispersion seeds (prevents overfitting)
+- Supports GA (SBX + polynomial mutation), CMA-ES, DE, PSO via `--algorithm` or TOML `[optimizer]`
 - PDF report auto-generated at end of training
 
 ```bash
@@ -133,7 +132,7 @@ Training features:
 # Optimize a single guidance scheme
 uv run python -m aerocapture.training.train \
     configs/training/msr_aller_eqglide_train.toml \
-    --n-gen 2500 --n-pop 60 --train-n-sims 300 --mutation-rate 0.05
+    --n-gen 2500 --n-pop 60
 
 # Disable TUI (CI / piped output)
 uv run python -m aerocapture.training.train <config.toml> --no-tui

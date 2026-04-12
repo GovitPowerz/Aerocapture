@@ -243,6 +243,7 @@ def train(
             cvar_percentile=config.optimizer.cvar_percentile,
             excluded_seeds={pool_base_seed},
         )
+        seed_pool.add_seeds(0)  # Bootstrap 5 seeds
 
     # Build parameter specifications
     from aerocapture.training.param_spaces import PARAM_SPACES
@@ -394,6 +395,10 @@ def train(
     )
 
     gen_best_costs: list[float] = []
+    # Pre-bind for KeyboardInterrupt handler safety (in case interrupt fires during algorithm.next())
+    X = pop_array
+    costs = np.full(config.optimizer.n_pop, np.inf)
+    gen = start_gen
 
     with display:
         try:
@@ -417,14 +422,15 @@ def train(
                 # Seed pool update: add seeds, score difficulty, evict, re-evaluate
                 if seed_pool is not None and (gen + 1) % config.optimizer.seed_pool_interval == 0:
                     seed_pool.add_seeds(gen + 1)
+                    # Sync problem seeds BEFORE evaluating so cost_matrix columns match pool size
+                    problem.update_seeds(seed_pool.seeds)
 
                     # Build cost matrix (n_pop, n_seeds) for difficulty scoring
                     cost_matrix = problem.evaluate_population_per_seed(X)
                     best_idx = int(np.argmin(aggregate_fitness(cost_matrix, seed_pool.alpha, seed_pool.cvar_percentile)))
                     seed_pool.score_difficulty(cost_matrix, best_idx)
                     seed_pool.evict_redundant()
-
-                    # Update problem seeds and re-evaluate population with new pool
+                    # Re-sync after eviction (pool may have shrunk)
                     problem.update_seeds(seed_pool.seeds)
                     fitness = aggregate_fitness(cost_matrix, seed_pool.alpha, seed_pool.cvar_percentile)
                     pop.set("F", fitness.reshape(-1, 1))
@@ -461,6 +467,7 @@ def train(
                         config,
                         corridor_acc,
                         toml_abs_path,
+                        problem=problem,
                     )
 
                 # Common logging
@@ -589,6 +596,7 @@ def _accumulate_corridor(
     config: TrainingConfig,
     corridor_acc: CorridorAccumulator,
     toml_path: str,
+    problem: object | None = None,
 ) -> None:
     """Run corridor accumulation for piecewise_constant training."""
     from aerocapture.training.corridor import classify_trajectories as classify_traj
@@ -598,9 +606,12 @@ def _accumulate_corridor(
     pop_overrides: list[dict[str, object]] = []
     for i in range(X.shape[0]):
         params = decode_normalized(X[i], param_specs)
-        ovr: dict[str, object] = {f"guidance.{section}.{k_}": v for k_, v in params.items()}
+        if problem is not None and hasattr(problem, "_build_overrides"):
+            ovr = problem._build_overrides(params)
+        else:
+            ovr = {f"guidance.{section}.{k_}": v for k_, v in params.items()}
+            ovr["simulation.n_sims"] = 1
         ovr["guidance.type"] = config.guidance_type
-        ovr["simulation.n_sims"] = 1
         pop_overrides.append(ovr)
 
     batch_results = _aero_rs.run_batch(  # type: ignore[union-attr]
@@ -648,12 +659,12 @@ if __name__ == "__main__":
     parser.add_argument("-fs", "--from-scratch", action="store_true", help="Wipe existing training output and start fresh (deletes checkpoints, logs, reports)")
     parser.add_argument("--no-tui", action="store_true", help="Disable Rich TUI (use plain-text output)")
     parser.add_argument("--adaptive-seeds", action="store_true", help="Use adaptive seed pool with difficulty-based eviction")
-    parser.add_argument("--seed-pool-cap", type=int, default=100, help="Maximum adaptive seed pool size (default: 100)")
-    parser.add_argument("--cost-alpha", type=float, default=0.7, help="Mean/CVaR blend weight: 1.0=pure mean, 0.0=pure CVaR (default: 0.7)")
-    parser.add_argument("--cvar-percentile", type=int, default=20, help="CVaR tail fraction in percent (default: 20)")
-    parser.add_argument("--stress-interval", type=int, default=5, help="Run stress test every N generations (default: 5, only with --adaptive-seeds)")
-    parser.add_argument("--stress-probes", type=int, default=200, help="Number of fresh seeds to probe per stress test (default: 200)")
-    parser.add_argument("--stress-inject", type=int, default=20, help="Number of worst seeds to inject from each stress test (default: 20)")
+    parser.add_argument("--seed-pool-cap", type=int, default=None, help="Maximum adaptive seed pool size (default: from TOML or 100)")
+    parser.add_argument("--cost-alpha", type=float, default=None, help="Mean/CVaR blend weight: 1.0=pure mean, 0.0=pure CVaR (default: from TOML or 0.7)")
+    parser.add_argument("--cvar-percentile", type=int, default=None, help="CVaR tail fraction in percent (default: from TOML or 20)")
+    parser.add_argument("--stress-interval", type=int, default=None, help="Run stress test every N generations (default: from TOML or 5)")
+    parser.add_argument("--stress-probes", type=int, default=None, help="Number of fresh seeds to probe per stress test (default: from TOML or 200)")
+    parser.add_argument("--stress-inject", type=int, default=None, help="Number of worst seeds to inject from each stress test (default: from TOML or 20)")
     parser.add_argument("--skip-report", "--skip-final-report", action="store_true", dest="skip_report", help="Skip PDF report generation at end of training")
     parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
     parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds (default: no limit)")
@@ -679,12 +690,18 @@ if __name__ == "__main__":
         cfg.optimizer.algorithm = args.algorithm
     if args.adaptive_seeds:
         cfg.optimizer.adaptive_seeds = True
-    cfg.optimizer.seed_pool_cap = args.seed_pool_cap
-    cfg.optimizer.cost_alpha = args.cost_alpha
-    cfg.optimizer.cvar_percentile = args.cvar_percentile
-    cfg.optimizer.stress_interval = args.stress_interval
-    cfg.optimizer.stress_probes = args.stress_probes
-    cfg.optimizer.stress_inject = args.stress_inject
+    if args.seed_pool_cap is not None:
+        cfg.optimizer.seed_pool_cap = args.seed_pool_cap
+    if args.cost_alpha is not None:
+        cfg.optimizer.cost_alpha = args.cost_alpha
+    if args.cvar_percentile is not None:
+        cfg.optimizer.cvar_percentile = args.cvar_percentile
+    if args.stress_interval is not None:
+        cfg.optimizer.stress_interval = args.stress_interval
+    if args.stress_probes is not None:
+        cfg.optimizer.stress_probes = args.stress_probes
+    if args.stress_inject is not None:
+        cfg.optimizer.stress_inject = args.stress_inject
     guidance_type = _toml_data.get("guidance", {}).get("type")
     if guidance_type is None:
         print("ERROR: TOML config must contain [guidance] type = '<scheme>'")

@@ -2,7 +2,7 @@
 
 Provides Xavier (Glorot), He (Kaiming), and LeCun uniform initialization
 bounds, auto-selected by activation function. Generates flat weight vectors
-compatible with the GA binary chromosome encoding.
+compatible with the real-valued normalized encoding used by the pymoo optimizer.
 """
 
 from __future__ import annotations

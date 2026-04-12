@@ -58,8 +58,8 @@ _SHAPING_PARAMS: list[ParamSpec] = [
 ]
 
 # Navigation density filter params shared by all unsigned-magnitude schemes.
-# Prefixed with "nav." so evaluate.py routes them to [guidance.ftc] in TOML
-# (density filter config lives in the FTC TOML section but affects all schemes).
+# Prefixed with "nav." so routing sends them to [navigation] in TOML
+# (density filter config lives in [navigation], not [guidance], and affects all schemes).
 _NAV_PARAMS: list[ParamSpec] = [
     ParamSpec("nav.density_filter_gain", 0.3, 1.0, 0.8),
     ParamSpec("nav.density_gain_max_delta", 0.01, 0.5, 0.1),
