@@ -319,12 +319,6 @@ def train(
     mc_seed_val = _toml.get("monte_carlo", {}).get("seed")
     problem_seeds = [mc_seed_val] if mc_seed_val is not None else [42]
 
-    # Validation gate: fixed seeds for honest generalization monitoring
-    val_seeds: list[int] | None = None
-    if config.optimizer.validation_n_sims > 0:
-        val_rng = np.random.default_rng((mc_seed_val or 42) + 999)
-        val_seeds = val_rng.integers(0, 2**31, size=config.optimizer.validation_n_sims).tolist()
-
     # Set up problem
     toml_abs_path = str((Path(cwd or config.sim.exec_dir) / config.sim.toml_config).resolve()) if config.sim.toml_config else ""
 
@@ -337,6 +331,12 @@ def train(
         sim_timeout=config.sim.sim_timeout_secs,
         nn_config=config.network if config.guidance_type == "neural_network" else None,
     )
+
+    # Validation gate: fixed seeds for honest generalization monitoring
+    val_seeds: list[int] | None = None
+    if config.optimizer.validation_n_sims > 0 and toml_abs_path:
+        val_rng = np.random.default_rng((mc_seed_val or 42) + 999)
+        val_seeds = val_rng.integers(0, 2**31, size=config.optimizer.validation_n_sims).tolist()
 
     # Create initial population
     if resumed is not None:
