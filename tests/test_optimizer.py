@@ -30,6 +30,10 @@ class TestOptimizerConfig:
         with pytest.raises(ValueError, match="Unknown algorithm"):
             OptimizerConfig(algorithm="bees")
 
+    def test_validation_interval_zero_rejected(self):
+        with pytest.raises(ValueError, match="validation_interval must be > 0"):
+            OptimizerConfig(validation_interval=0)
+
     def test_default_fields(self):
         cfg = OptimizerConfig()
         assert cfg.n_pop == 60
@@ -42,6 +46,9 @@ class TestOptimizerConfig:
         assert cfg.stress_interval == 5
         assert cfg.stress_probes == 200
         assert cfg.stress_inject == 20
+        assert cfg.training_n_sims == 1
+        assert cfg.validation_n_sims == 1000
+        assert cfg.validation_interval == 50
 
     def test_from_toml_dict_ga(self):
         d = {

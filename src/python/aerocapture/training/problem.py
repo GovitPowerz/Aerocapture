@@ -172,17 +172,22 @@ class AerocaptureProblem(Problem):
             write_nn_json(weights, nn_cfg, nn_tmp)
 
         try:
-            for i, seed in enumerate(seeds):
+            overrides_list = []
+            for seed in seeds:
                 ovr = self._build_overrides(params, mc_seed=seed)
                 if nn_tmp is not None:
                     ovr["data.neural_network"] = str(nn_tmp)
-                result = _aero_rs.run(  # type: ignore[union-attr]
-                    toml_path=self.toml_path,
-                    overrides=ovr,
-                    sim_timeout_secs=self.sim_timeout,
-                )
-                fr = result.final_record.reshape(1, 52)
-                costs[i] = compute_cost(fr, **self.cost_kwargs)
+                overrides_list.append(ovr)
+            result = _aero_rs.run_batch(  # type: ignore[union-attr, attr-defined]
+                self.toml_path,
+                overrides_list,
+                n_threads=None,
+                include_trajectories=False,
+                sim_timeout_secs=self.sim_timeout,
+            )
+            final_records = result.final_records
+            for i in range(len(seeds)):
+                costs[i] = compute_cost(final_records[i].reshape(1, 52), **self.cost_kwargs)
         finally:
             if nn_tmp is not None:
                 nn_tmp.unlink(missing_ok=True)

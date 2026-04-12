@@ -66,6 +66,8 @@ class OptimizerConfig:
     def __post_init__(self) -> None:
         if self.algorithm not in _VALID_ALGORITHMS:
             raise ValueError(f"Unknown algorithm '{self.algorithm}'. Must be one of: {_VALID_ALGORITHMS}")
+        if self.validation_interval <= 0:
+            raise ValueError(f"validation_interval must be > 0, got {self.validation_interval}")
 
     @classmethod
     def from_dict(cls, d: dict) -> OptimizerConfig:
