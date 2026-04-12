@@ -19,6 +19,7 @@ class ParamSpec:
     p_max: float
     default: float
     log_scale: bool = False
+    is_integer: bool = False
 
 
 # Exit phase params shared by all unsigned-magnitude schemes.
@@ -38,7 +39,7 @@ _LATERAL_PARAMS: list[ParamSpec] = [
     ParamSpec("lateral.min_reversal_interval", 1.0, 30.0, 5.0),  # seconds
     ParamSpec("lateral.lateral_activation", -5.0, -0.5, -2.5),  # MJ/kg
     ParamSpec("lateral.lateral_inhibition", -10.0, -2.0, -8.0),  # MJ/kg
-    ParamSpec("lateral.max_reversals", 1.0, 10.0, 5.0),  # integer
+    ParamSpec("lateral.max_reversals", 1.0, 10.0, 5.0, is_integer=True),
 ]
 
 # Thermal safety limiter params shared by all unsigned-magnitude schemes.

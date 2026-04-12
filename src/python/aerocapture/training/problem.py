@@ -38,7 +38,6 @@ class AerocaptureProblem(Problem):
         scheme: str,
         sim_timeout: float | None = None,
         nn_config: object | None = None,
-        n_sims_override: int | None = None,
     ) -> None:
         super().__init__(n_var=len(param_specs), n_obj=1, xl=0.0, xu=1.0)
         self.param_specs = param_specs
@@ -48,7 +47,7 @@ class AerocaptureProblem(Problem):
         self.scheme = scheme
         self.sim_timeout = sim_timeout
         self.nn_config = nn_config
-        self.n_sims_override = n_sims_override
+        self._integer_params = {s.name for s in param_specs if s.is_integer}
 
     def update_seeds(self, seeds: list[int]) -> None:
         self.seeds = seeds
@@ -257,6 +256,9 @@ class AerocaptureProblem(Problem):
         for key, value in params.items():
             if skip_nn_weights and (key.startswith("w") or key.startswith("bias")):
                 continue
+            # Round integer-typed params so Rust TOML parser accepts them
+            if key in self._integer_params:
+                value = int(round(value))
             if key.startswith("lateral."):
                 overrides[f"guidance.lateral.{key.removeprefix('lateral.')}"] = value
             elif key.startswith("exit."):
@@ -273,7 +275,7 @@ class AerocaptureProblem(Problem):
         if mc_seed is not None:
             overrides["monte_carlo.seed"] = mc_seed
 
-        if self.n_sims_override is not None:
-            overrides["monte_carlo.n_sims"] = self.n_sims_override
+        # Always n_sims=1: each run_batch call evaluates one individual on one seed.
+        overrides["simulation.n_sims"] = 1
 
         return overrides

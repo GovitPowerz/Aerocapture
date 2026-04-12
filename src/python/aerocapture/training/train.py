@@ -319,7 +319,6 @@ def train(
     problem_seeds = [mc_seed_val] if mc_seed_val is not None else [42]
 
     # Set up problem
-    assert config.sim.toml_config is not None or not _HAS_PYO3
     toml_abs_path = str((Path(cwd or config.sim.exec_dir) / config.sim.toml_config).resolve()) if config.sim.toml_config else ""
 
     problem = AerocaptureProblem(
@@ -330,7 +329,6 @@ def train(
         scheme=config.guidance_type,
         sim_timeout=config.sim.sim_timeout_secs,
         nn_config=config.network if config.guidance_type == "neural_network" else None,
-        n_sims_override=config.sim.train_n_sims,
     )
 
     # Create initial population

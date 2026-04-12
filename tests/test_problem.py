@@ -180,15 +180,14 @@ class TestBuildOverrides:
         overrides = p._build_overrides({"hdot_gain": 1.5})
         assert overrides["guidance.equilibrium_glide.hdot_gain"] == 1.5
 
-    def test_n_sims_override(self):
+    def test_n_sims_always_one(self):
         p = AerocaptureProblem(
             param_specs=_make_specs(),
             toml_path="dummy.toml",
             seeds=[42],
             cost_kwargs={},
             scheme="equilibrium_glide",
-            n_sims_override=50,
         )
         overrides = p._build_overrides({"hdot_gain": 1.5}, mc_seed=99)
-        assert overrides["monte_carlo.n_sims"] == 50
+        assert overrides["simulation.n_sims"] == 1
         assert overrides["monte_carlo.seed"] == 99
