@@ -407,6 +407,11 @@ def train(
             for gen in range(start_gen, config.optimizer.n_gen):
                 gen_wall_start = time.perf_counter()
 
+                # Epoch seed rotation: fresh random seeds each generation
+                if config.optimizer.training_n_sims > 1 and seed_pool is None:
+                    epoch_seeds = rng.integers(0, 2**31, size=config.optimizer.training_n_sims).tolist()
+                    problem.update_seeds(epoch_seeds)
+
                 # Advance one generation via pymoo
                 algorithm.next()
                 pop = algorithm.pop
