@@ -112,10 +112,10 @@ class TestCreateAlgorithm:
         alg = create_algorithm(cfg, n_params=10)
         assert isinstance(alg.mating.mutation, PM)
 
-    def test_ga_mutation_prob_defaults_to_1_over_n(self):
+    def test_ga_mutation_prob_default(self):
         cfg = OptimizerConfig(algorithm="ga")
         alg = create_algorithm(cfg, n_params=20)
-        assert alg.mating.mutation.prob.value == pytest.approx(1.0 / 20)
+        assert alg.mating.mutation.prob.value == pytest.approx(0.15)
 
     def test_ga_explicit_mutation_prob(self):
         cfg = OptimizerConfig(algorithm="ga", ga=GASettings(mutation_prob=0.05))

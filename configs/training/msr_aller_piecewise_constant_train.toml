@@ -5,7 +5,7 @@ type = "piecewise_constant"
 
 [guidance.piecewise_constant]
 energy_min = -8.0
-energy_max = 5.0
+energy_max = 6.0
 
 [data]
 results_suffix = ".piecewise_constant"

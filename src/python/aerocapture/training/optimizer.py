@@ -17,9 +17,9 @@ _CMAES_MAX_PARAMS = 200
 
 @dataclass
 class GASettings:
-    crossover_eta: float = 15.0
-    mutation_eta: float = 20.0
-    mutation_prob: float | None = None  # None = 1/n_params
+    crossover_eta: float = 3.0
+    mutation_eta: float = 5.0
+    mutation_prob: float | None = 0.15
 
 
 @dataclass
@@ -31,15 +31,15 @@ class CMAESSettings:
 @dataclass
 class DESettings:
     variant: str = "DE/rand/1/bin"
-    crossover_prob: float = 0.7
-    scaling_factor: float = 0.5
+    crossover_prob: float = 0.8
+    scaling_factor: float = 0.6
 
 
 @dataclass
 class PSOSettings:
-    w: float = 0.9
-    c1: float = 2.0
-    c2: float = 2.0
+    w: float = 0.7
+    c1: float = 1.5
+    c2: float = 1.5
 
 
 @dataclass
