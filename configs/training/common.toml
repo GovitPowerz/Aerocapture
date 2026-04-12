@@ -7,7 +7,7 @@ n_sims = 1000
 max_time = 2000.0
 
 [integration]
-mode = "adaptive"
+mode = "fixed"
 
 # ── Domain-based Monte Carlo dispersions ──
 [monte_carlo]
@@ -52,10 +52,13 @@ heat_flux_weight = 1000.0
 heat_load_weight = 1000.0
 
 [optimizer]
-algorithm = "cma_es"
+algorithm = "ga"
 n_pop = 60
 n_gen = 2500
 seed_pool_interval = 50
+training_n_sims = 20          # fresh random seeds per individual per generation (epoch rotation)
+validation_n_sims = 1000      # sims for validation gate (fixed seeds, honest generalization metric)
+validation_interval = 50      # periodic validation every N gens (also triggers on new best)
 
 # ── GA: SBX crossover + polynomial mutation ──
 # Lower eta = more exploratory (uniform-crossover-like). Higher eta = offspring closer to parents.
