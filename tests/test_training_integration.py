@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+
 from tests.fixtures.factories import make_training_config
 
 

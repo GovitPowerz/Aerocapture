@@ -1,21 +1,19 @@
 import warnings
 
 import pytest
-from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
-from pymoo.algorithms.soo.nonconvex.de import DE
-from pymoo.algorithms.soo.nonconvex.ga import GA
-from pymoo.algorithms.soo.nonconvex.pso import PSO
-from pymoo.operators.crossover.sbx import SBX
-from pymoo.operators.mutation.pm import PM
-
 from aerocapture.training.optimizer import (
-    CMAESSettings,
     DESettings,
     GASettings,
     OptimizerConfig,
     PSOSettings,
     create_algorithm,
 )
+from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
+from pymoo.algorithms.soo.nonconvex.de import DE
+from pymoo.algorithms.soo.nonconvex.ga import GA
+from pymoo.algorithms.soo.nonconvex.pso import PSO
+from pymoo.operators.crossover.sbx import SBX
+from pymoo.operators.mutation.pm import PM
 
 
 class TestOptimizerConfig:

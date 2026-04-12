@@ -6,7 +6,6 @@ import math
 
 import numpy as np
 import pytest
-
 from aerocapture.training.encoding import decode_normalized, encode_to_normalized, nn_param_specs_from_architecture
 from aerocapture.training.param_spaces import ParamSpec
 
