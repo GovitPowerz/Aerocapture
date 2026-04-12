@@ -15,6 +15,8 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
+from aerocapture.training.metrics import CAPTURE_COST_THRESHOLD
+
 
 def _pool_seed(base: int, index: int) -> int:
     """Generate a well-spread seed from (base, index) using SHA-256."""
@@ -194,7 +196,7 @@ class SeedPool:
 
         costs = evaluator(probe_seeds)
 
-        capture_rate = float(np.mean(costs < 10000.0))
+        capture_rate = float(np.mean(costs < CAPTURE_COST_THRESHOLD))
 
         worst_indices = np.argsort(costs)[::-1][:n_inject]
         n_injected = 0

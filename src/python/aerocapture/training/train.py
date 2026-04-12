@@ -26,6 +26,7 @@ from aerocapture.training.evaluate import (
     _aero_rs,
     write_nn_json,
 )
+from aerocapture.training.metrics import CAPTURE_COST_THRESHOLD
 from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
 from aerocapture.training.param_spaces import ParamSpec
 from aerocapture.training.population import create_initial_population, create_nn_initial_population
@@ -334,9 +335,11 @@ def train(
 
     # Validation gate: fixed seeds for honest generalization monitoring
     val_seeds: list[int] | None = None
+    val_seeds_set: set[int] = set()
     if config.optimizer.validation_n_sims > 0 and toml_abs_path:
         val_rng = np.random.default_rng((mc_seed_val or 42) + 999)
         val_seeds = val_rng.integers(0, 2**31, size=config.optimizer.validation_n_sims).tolist()
+        val_seeds_set = set(val_seeds)
 
     # Create initial population
     if resumed is not None:
@@ -414,9 +417,13 @@ def train(
                 gen_wall_start = time.perf_counter()
 
                 # Epoch seed rotation: fresh random seeds each generation
+                # Exclude validation seeds so training and validation never overlap.
                 if config.optimizer.training_n_sims > 1 and seed_pool is None:
-                    epoch_seeds = rng.integers(0, 2**31, size=config.optimizer.training_n_sims).tolist()
-                    problem.update_seeds(epoch_seeds)
+                    epoch_seeds: list[int] = []
+                    while len(epoch_seeds) < config.optimizer.training_n_sims:
+                        candidates = rng.integers(0, 2**31, size=config.optimizer.training_n_sims - len(epoch_seeds)).tolist()
+                        epoch_seeds.extend(s for s in candidates if s not in val_seeds_set)
+                    problem.update_seeds(epoch_seeds[: config.optimizer.training_n_sims])
 
                 # Advance one generation via pymoo
                 algorithm.next()
@@ -491,7 +498,7 @@ def train(
                     should_validate = new_best_this_gen or (gen + 1) % config.optimizer.validation_interval == 0
                     if should_validate:
                         val_costs = problem.evaluate_individual_per_seed(best_overall_individual, val_seeds)
-                        val_captured = val_costs < 10000.0
+                        val_captured = val_costs < CAPTURE_COST_THRESHOLD
                         validation_metrics = {
                             "mean_cost": float(np.mean(val_costs)),
                             "median_cost": float(np.median(val_costs)),
@@ -516,7 +523,7 @@ def train(
                 if seed_pool is not None:
                     d_min, d_max = seed_pool.difficulty_range
                     difficulty_scores = sorted(seed_pool.difficulty.values())
-                    n_captured = sum(1 for d in seed_pool.difficulty.values() if d < 10000.0)
+                    n_captured = sum(1 for d in seed_pool.difficulty.values() if d < CAPTURE_COST_THRESHOLD)
                     pool_capture_rate = n_captured / len(seed_pool.difficulty) if seed_pool.difficulty else 0.0
                     pool_metrics = {
                         "pool_size": len(seed_pool.seeds),

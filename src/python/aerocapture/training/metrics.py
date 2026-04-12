@@ -10,6 +10,10 @@ import math
 import numpy as np
 import numpy.typing as npt
 
+# Cost above this threshold indicates a non-capture (crash, hyperbolic escape, timeout).
+# Rust virtual DV assigns >= 10000 m/s to all non-capture outcomes.
+CAPTURE_COST_THRESHOLD = 10000.0
+
 
 def cost_stats(costs: npt.NDArray[np.float64]) -> dict[str, float]:
     """Compute best/mean/worst/median/std cost, filtering np.inf and np.nan.

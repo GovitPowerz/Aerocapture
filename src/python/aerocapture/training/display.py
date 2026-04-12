@@ -126,6 +126,7 @@ class LiveDisplay:
 
         # Validation metrics (show most recent, not just current gen)
         val = None
+        val_gen = 0
         for r in reversed(buf):
             if "validation" in r:
                 val = r["validation"]
