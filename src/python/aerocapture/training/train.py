@@ -319,6 +319,12 @@ def train(
     mc_seed_val = _toml.get("monte_carlo", {}).get("seed")
     problem_seeds = [mc_seed_val] if mc_seed_val is not None else [42]
 
+    # Validation gate: fixed seeds for honest generalization monitoring
+    val_seeds: list[int] | None = None
+    if config.optimizer.validation_n_sims > 0:
+        val_rng = np.random.default_rng((mc_seed_val or 42) + 999)
+        val_seeds = val_rng.integers(0, 2**31, size=config.optimizer.validation_n_sims).tolist()
+
     # Set up problem
     toml_abs_path = str((Path(cwd or config.sim.exec_dir) / config.sim.toml_config).resolve()) if config.sim.toml_config else ""
 
@@ -422,7 +428,8 @@ def train(
                 # Track best
                 gen_best_idx = int(np.argmin(costs))
                 gen_best_cost = float(costs[gen_best_idx])
-                if gen_best_cost < best_overall_cost:
+                new_best_this_gen = gen_best_cost < best_overall_cost
+                if new_best_this_gen:
                     best_overall_cost = gen_best_cost
                     best_overall_individual = X[gen_best_idx].copy()
 
@@ -449,6 +456,7 @@ def train(
                     if gen_best_cost < best_overall_cost:
                         best_overall_cost = gen_best_cost
                         best_overall_individual = X[gen_best_idx].copy()
+                        new_best_this_gen = True
 
                 # Stress test: probe fresh seeds and inject hardest
                 if seed_pool is not None and (gen + 1) % config.optimizer.stress_interval == 0:
@@ -476,6 +484,23 @@ def train(
                         toml_abs_path,
                         problem=problem,
                     )
+
+                # Validation gate: periodic + on-new-best
+                validation_metrics: dict | None = None
+                if val_seeds is not None and best_overall_individual is not None:
+                    should_validate = new_best_this_gen or (gen + 1) % config.optimizer.validation_interval == 0
+                    if should_validate:
+                        val_costs = problem.evaluate_individual_per_seed(best_overall_individual, val_seeds)
+                        val_captured = val_costs < 10000.0
+                        validation_metrics = {
+                            "mean_cost": float(np.mean(val_costs)),
+                            "median_cost": float(np.median(val_costs)),
+                            "std_cost": float(np.std(val_costs)),
+                            "p95_cost": float(np.percentile(val_costs, 95)),
+                            "worst_cost": float(np.max(val_costs)),
+                            "capture_rate": float(np.mean(val_captured)),
+                            "n_sims": len(val_seeds),
+                        }
 
                 # Common logging
                 gen_best_costs.append(best_overall_cost)
@@ -515,6 +540,7 @@ def train(
                     pool_metrics=pool_metrics,
                     gen_elapsed_s=gen_elapsed_s,
                     gen_best_individual=gen_best_individual,
+                    validation=validation_metrics,
                 )
                 display.update(logger, current_run=0)
 
