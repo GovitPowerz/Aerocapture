@@ -52,7 +52,7 @@ heat_flux_weight = 1000.0
 heat_load_weight = 1000.0
 
 [optimizer]
-algorithm = "ga"
+algorithm = "cma_es"
 n_pop = 60
 n_gen = 2500
 seed_pool_interval = 50

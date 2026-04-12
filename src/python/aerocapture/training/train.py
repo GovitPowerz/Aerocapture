@@ -358,6 +358,8 @@ def train(
 
     # Set up algorithm
     algorithm = create_algorithm(config.optimizer, n_params=n_params)
+    if verbose:
+        print(f"  Algorithm: {type(algorithm).__name__} ({config.optimizer.algorithm}), n_params={n_params}, n_pop={config.optimizer.n_pop}")
 
     # Inject initial population into pymoo
     initial_pop = Population.new("X", pop_array)
