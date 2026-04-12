@@ -1,8 +1,8 @@
-"""Tests for chromosome encode/decode roundtrip.
+"""Tests for real-valued encoding roundtrip.
 
 Covers:
-- encode_params_to_chromosome / decode_params_from_chromosome roundtrip
-- boundary conditions (all-zeros → p_min, all-ones → p_max)
+- encode_to_normalized / decode_normalized roundtrip
+- boundary conditions (all-zeros -> p_min, all-ones -> p_max)
 - property: decoded values always within [p_min, p_max]
 """
 
@@ -10,84 +10,82 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from aerocapture.training.evaluate import decode_params_from_chromosome
+from aerocapture.training.encoding import decode_normalized, encode_to_normalized
 from aerocapture.training.param_spaces import PARAM_SPACES
-from aerocapture.training.population import encode_params_to_chromosome
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from tests.fixtures.factories import make_chromosome, make_training_config
+from tests.fixtures.factories import make_normalized_individual
 
 ALL_SCHEMES = list(PARAM_SPACES.keys())
 
 
-class TestChromosomeRoundtrip:
+class TestEncodingRoundtrip:
     @pytest.mark.parametrize("scheme", ALL_SCHEMES)
     def test_roundtrip_preserves_values(self, scheme: str) -> None:
-        """Encode default params → decode → values match within 1% relative tolerance."""
-        config = make_training_config(scheme)
+        """Encode default params -> decode -> values match exactly."""
         specs = PARAM_SPACES[scheme]
         defaults = {s.name: s.default for s in specs}
 
-        chrom = encode_params_to_chromosome(defaults, config)
-        decoded = decode_params_from_chromosome(chrom, config)
+        x = encode_to_normalized(defaults, specs)
+        decoded = decode_normalized(x, specs)
 
         for spec in specs:
             expected = defaults[spec.name]
             actual = decoded[spec.name]
-            # Relative tolerance 1% plus absolute floor — handles params whose default is 0.
-            # Quantisation error from n_bit=16 is ~0.002% of the full range.
-            p_range = spec.p_max - spec.p_min
-            abs_tol = max(0.01 * abs(expected), 0.001 * p_range)
-            assert abs(actual - expected) <= abs_tol, f"scheme={scheme} param={spec.name}: expected {expected}, got {actual} (tol={abs_tol:.2e})"
+            # Real-valued encoding should be exact (no quantization)
+            rel_tol = 1e-10
+            abs_tol = max(rel_tol * abs(expected), 1e-12)
+            assert abs(actual - expected) <= abs_tol, f"scheme={scheme} param={spec.name}: expected {expected}, got {actual}"
 
     @pytest.mark.parametrize("scheme", ALL_SCHEMES)
     def test_all_zeros_gives_minimum(self, scheme: str) -> None:
-        """All-zero chromosome should decode to (near) p_min for each parameter."""
-        config = make_training_config(scheme)
+        """All-zero normalized vector should decode to p_min for each parameter."""
         specs = PARAM_SPACES[scheme]
-        chrom_len = len(specs) * config.ga.n_bit
-        chrom = make_chromosome(chrom_len, strategy="zeros")
+        n_params = len(specs)
+        x = make_normalized_individual(n_params, strategy="zeros")
 
-        decoded = decode_params_from_chromosome(chrom, config)
+        decoded = decode_normalized(x, specs)
 
         for spec in specs:
-            expected = spec.p_min  # log-scale: 10^log_min = p_min
+            expected = spec.p_min
             actual = decoded[spec.name]
-            assert abs(actual - expected) <= 0.01 * abs(expected) + 1e-12, f"scheme={scheme} param={spec.name}: zeros → expected p_min={expected}, got {actual}"
+            assert abs(actual - expected) <= 1e-12 + 1e-10 * abs(expected), (
+                f"scheme={scheme} param={spec.name}: zeros -> expected p_min={expected}, got {actual}"
+            )
 
     @pytest.mark.parametrize("scheme", ALL_SCHEMES)
     def test_all_ones_gives_maximum(self, scheme: str) -> None:
-        """All-one chromosome should decode to (near) p_max for each parameter."""
-        config = make_training_config(scheme)
+        """All-one normalized vector should decode to p_max for each parameter."""
         specs = PARAM_SPACES[scheme]
-        chrom_len = len(specs) * config.ga.n_bit
-        chrom = make_chromosome(chrom_len, strategy="ones")
+        n_params = len(specs)
+        x = make_normalized_individual(n_params, strategy="ones")
 
-        decoded = decode_params_from_chromosome(chrom, config)
+        decoded = decode_normalized(x, specs)
 
         for spec in specs:
             expected = spec.p_max
             actual = decoded[spec.name]
-            assert abs(actual - expected) <= 0.01 * abs(expected) + 1e-12, f"scheme={scheme} param={spec.name}: ones → expected p_max={expected}, got {actual}"
+            assert abs(actual - expected) <= 1e-12 + 1e-10 * abs(expected), (
+                f"scheme={scheme} param={spec.name}: ones -> expected p_max={expected}, got {actual}"
+            )
 
 
-class TestChromosomeProperties:
+class TestEncodingProperties:
     @pytest.mark.parametrize("scheme", ALL_SCHEMES)
     @given(data=st.data())
     @settings(max_examples=30)
     def test_decoded_params_respect_bounds(self, scheme: str, data: st.DataObject) -> None:
-        """Any binary chromosome decodes to values within [p_min, p_max]."""
-        config = make_training_config(scheme)
+        """Any normalized vector in [0, 1] decodes to values within [p_min, p_max]."""
         specs = PARAM_SPACES[scheme]
-        chrom_len = len(specs) * config.ga.n_bit
+        n_params = len(specs)
 
-        bits = data.draw(
-            st.lists(st.integers(0, 1), min_size=chrom_len, max_size=chrom_len),
+        values = data.draw(
+            st.lists(st.floats(min_value=0.0, max_value=1.0), min_size=n_params, max_size=n_params),
         )
-        chrom = np.array(bits, dtype=np.int8)
+        x = np.array(values, dtype=np.float64)
 
-        decoded = decode_params_from_chromosome(chrom, config)
+        decoded = decode_normalized(x, specs)
 
         for spec in specs:
             val = decoded[spec.name]

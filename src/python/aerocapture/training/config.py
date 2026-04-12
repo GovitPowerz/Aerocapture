@@ -1,4 +1,4 @@
-"""GA hyperparameters for aerocapture guidance training.
+"""Training configuration for aerocapture guidance optimization.
 
 Supports both NN weight optimization and generic guidance parameter optimization.
 """
@@ -10,6 +10,8 @@ from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
+
+from aerocapture.training.optimizer import OptimizerConfig
 
 
 @dataclass
@@ -54,31 +56,6 @@ class NetworkConfig:
 
 
 @dataclass
-class GAConfig:
-    """Genetic algorithm configuration."""
-
-    n_bit: int = 16
-    p_max: float = 3.0
-    p_min: float = -3.0
-    variation: float = 0.1
-    direct_encoding: bool = True
-    n_pop: int = 20
-    n_subpop: int = 1
-    migration_interval: int = 10
-    n_gen: int = 100
-    mutation_rate: float = 0.02
-    n_runs: int = 100
-    rotate_seeds: bool = False
-    adaptive_seeds: bool = False
-    seed_pool_cap: int = 100
-    cost_alpha: float = 0.7
-    cvar_percentile: int = 20
-    stress_interval: int = 5
-    stress_probes: int = 200
-    stress_inject: int = 20
-
-
-@dataclass
 class SimConfig:
     """Simulation configuration for cost evaluation."""
 
@@ -89,7 +66,7 @@ class SimConfig:
     n_sims: int = 10
     toml_config: str | None = None  # TOML config path (relative to exec_dir); if set, passed as CLI arg
     sim_timeout_secs: float | None = None  # wall-clock timeout per simulation (seconds); None = no limit
-    train_n_sims: int | None = None  # override n_sims during GA training; None = use TOML value
+    train_n_sims: int | None = None  # override n_sims during training; None = use TOML value
 
 
 @dataclass
@@ -97,7 +74,7 @@ class TrainingConfig:
     """Complete training configuration."""
 
     network: NetworkConfig = field(default_factory=NetworkConfig)
-    ga: GAConfig = field(default_factory=GAConfig)
+    optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     sim: SimConfig = field(default_factory=SimConfig)
     save_dir: str = "training_output"
     guidance_type: str = "neural_network"
@@ -110,26 +87,6 @@ class TrainingConfig:
         from aerocapture.training.param_spaces import PARAM_SPACES
 
         return len(PARAM_SPACES[self.guidance_type])
-
-    @property
-    def chrom_length(self) -> int:
-        """Binary chromosome length."""
-        return self.n_params * self.ga.n_bit
-
-    def build_conversion_matrix(self) -> npt.NDArray[np.float64]:
-        """Build binary-to-decimal conversion matrix.
-
-        Returns:
-            Array of shape (n_coef, n_bit) for converting binary chromosomes
-            to decimal parameter values.
-        """
-        n_coef = self.network.n_coef
-        n_bit = self.ga.n_bit
-        p_range = self.ga.p_max - self.ga.p_min
-        # Each row: [2^(nbit-1), 2^(nbit-2), ..., 2^0] / (2^nbit - 1) * range
-        bit_weights = np.power(2.0, np.arange(n_bit - 1, -1, -1))
-        conv: npt.NDArray[np.float64] = np.tile(bit_weights, (n_coef, 1)) / (2**n_bit - 1) * p_range
-        return conv
 
     def random_network(self, rng: np.random.Generator | None = None) -> npt.NDArray[np.float64]:
         """Generate random initial network weights.

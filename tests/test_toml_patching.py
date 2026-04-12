@@ -1,21 +1,21 @@
 """Tests for write_guidance_toml TOML patching roundtrip.
 
-For each non-NN scheme, decodes a mid-range chromosome, patches the
+For each non-NN scheme, decodes a mid-range normalized vector, patches the
 training TOML, parses it back with tomllib, and asserts the guidance
 section is present and contains the expected keys.
 """
 
 from __future__ import annotations
 
-import inspect
 import tomllib
 from pathlib import Path
 
 import pytest
-from aerocapture.training.evaluate import decode_params_from_chromosome, patch_toml_mc_seed, write_guidance_toml
+from aerocapture.training.encoding import decode_normalized
+from aerocapture.training.evaluate import patch_toml_mc_seed, write_guidance_toml
 from aerocapture.training.param_spaces import PARAM_SPACES
 
-from tests.fixtures.factories import make_chromosome, make_training_config
+from tests.fixtures.factories import make_normalized_individual
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -28,15 +28,17 @@ TRAINING_CONFIGS: dict[str, Path] = {
 }
 
 
+def _decode_mid(scheme: str) -> dict[str, float]:
+    """Decode a mid-range normalized vector for the given scheme."""
+    specs = PARAM_SPACES[scheme]
+    x = make_normalized_individual(len(specs), strategy="mid")
+    return decode_normalized(x, specs)
+
+
 @pytest.mark.parametrize("scheme", list(TRAINING_CONFIGS.keys()))
 def test_toml_roundtrip_guidance_section_exists(scheme: str, tmp_path: Path) -> None:
-    """Decode mid-range chromosome → write TOML → parse back → guidance section exists."""
-    config = make_training_config(scheme)
-    specs = PARAM_SPACES[scheme]
-    chrom_len = len(specs) * config.ga.n_bit
-    chrom = make_chromosome(chrom_len, strategy="mid")
-
-    params = decode_params_from_chromosome(chrom, config)
+    """Decode mid-range individual -> write TOML -> parse back -> guidance section exists."""
+    params = _decode_mid(scheme)
 
     base_toml = TRAINING_CONFIGS[scheme]
     out_path = tmp_path / f"{scheme}_patched.toml"
@@ -51,12 +53,7 @@ def test_toml_roundtrip_guidance_section_exists(scheme: str, tmp_path: Path) -> 
 @pytest.mark.parametrize("scheme", list(TRAINING_CONFIGS.keys()))
 def test_toml_roundtrip_params_present(scheme: str, tmp_path: Path) -> None:
     """All decoded parameter keys appear inside the guidance sub-section."""
-    config = make_training_config(scheme)
-    specs = PARAM_SPACES[scheme]
-    chrom_len = len(specs) * config.ga.n_bit
-    chrom = make_chromosome(chrom_len, strategy="mid")
-
-    params = decode_params_from_chromosome(chrom, config)
+    params = _decode_mid(scheme)
 
     base_toml = TRAINING_CONFIGS[scheme]
     out_path = tmp_path / f"{scheme}_params.toml"
@@ -101,12 +98,7 @@ def test_toml_roundtrip_params_present(scheme: str, tmp_path: Path) -> None:
 @pytest.mark.parametrize("scheme", list(TRAINING_CONFIGS.keys()))
 def test_toml_roundtrip_values_close(scheme: str, tmp_path: Path) -> None:
     """Values written to TOML round-trip to within float repr precision."""
-    config = make_training_config(scheme)
-    specs = PARAM_SPACES[scheme]
-    chrom_len = len(specs) * config.ga.n_bit
-    chrom = make_chromosome(chrom_len, strategy="mid")
-
-    params = decode_params_from_chromosome(chrom, config)
+    params = _decode_mid(scheme)
 
     base_toml = TRAINING_CONFIGS[scheme]
     out_path = tmp_path / f"{scheme}_values.toml"
@@ -152,12 +144,7 @@ def test_toml_roundtrip_values_close(scheme: str, tmp_path: Path) -> None:
 @pytest.mark.parametrize("scheme", list(TRAINING_CONFIGS.keys()))
 def test_toml_roundtrip_temp_file(scheme: str) -> None:
     """write_guidance_toml without output_path creates a valid temp file."""
-    config = make_training_config(scheme)
-    specs = PARAM_SPACES[scheme]
-    chrom_len = len(specs) * config.ga.n_bit
-    chrom = make_chromosome(chrom_len, strategy="zeros")
-
-    params = decode_params_from_chromosome(chrom, config)
+    params = _decode_mid(scheme)
     base_toml = TRAINING_CONFIGS[scheme]
 
     written = write_guidance_toml(base_toml, scheme, params)
@@ -192,14 +179,6 @@ class TestPatchTomlMcSeed:
             assert data["monte_carlo"]["seed"] == 55
         finally:
             patched.unlink(missing_ok=True)
-
-
-class TestEvaluateChromosomeMcSeed:
-    def test_mc_seed_param_exists(self) -> None:
-        from aerocapture.training.evaluate import evaluate_chromosome
-
-        sig = inspect.signature(evaluate_chromosome)
-        assert "mc_seed" in sig.parameters
 
 
 class TestWriteGuidanceTomlMcSeed:
@@ -260,12 +239,7 @@ class TestThermalLimiterParams:
     @pytest.mark.parametrize("scheme", UNSIGNED_SCHEMES)
     def test_thermal_params_route_to_toml_section(self, scheme: str, tmp_path: Path) -> None:
         """thermal.* params end up in [guidance.thermal_limiter] in the patched TOML."""
-        config = make_training_config(scheme)
-        specs = PARAM_SPACES[scheme]
-        chrom_len = len(specs) * config.ga.n_bit
-        chrom = make_chromosome(chrom_len, strategy="mid")
-
-        params = decode_params_from_chromosome(chrom, config)
+        params = _decode_mid(scheme)
         base_toml = TRAINING_CONFIGS[scheme]
         out_path = tmp_path / f"{scheme}_thermal.toml"
         written = write_guidance_toml(base_toml, scheme, params, output_path=out_path)
@@ -288,12 +262,7 @@ class TestExitParamsSafety:
     @pytest.mark.parametrize("scheme", NON_FTC_SCHEMES)
     def test_density_filter_params_written_for_non_ftc(self, scheme: str, tmp_path: Path) -> None:
         """Non-FTC schemes must have density_filter_gain and density_gain_max_delta in [navigation]."""
-        config = make_training_config(scheme)
-        specs = PARAM_SPACES[scheme]
-        chrom_len = len(specs) * config.ga.n_bit
-        chrom = make_chromosome(chrom_len, strategy="mid")
-
-        params = decode_params_from_chromosome(chrom, config)
+        params = _decode_mid(scheme)
         base_toml = TRAINING_CONFIGS[scheme]
         out_path = tmp_path / f"{scheme}_nav_params.toml"
         written = write_guidance_toml(base_toml, scheme, params, output_path=out_path)

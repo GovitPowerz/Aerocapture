@@ -50,28 +50,30 @@ class TestCostStats:
 
 class TestPopulationDiversity:
     def test_identical_population_zero_diversity(self) -> None:
-        pop = np.array([[1, 0, 1, 0], [1, 0, 1, 0], [1, 0, 1, 0]], dtype=np.int8)
+        pop = np.array([[0.5, 0.3, 0.7], [0.5, 0.3, 0.7], [0.5, 0.3, 0.7]], dtype=np.float64)
         assert population_diversity(pop) == 0.0
 
     def test_maximally_diverse_pair(self) -> None:
-        pop = np.array([[0, 0, 0, 0], [1, 1, 1, 1]], dtype=np.int8)
-        assert population_diversity(pop) == 1.0
+        # Corners of unit hypercube: distance = sqrt(4) = 2, max_distance = sqrt(4) = 2
+        pop = np.array([[0.0, 0.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0]], dtype=np.float64)
+        assert population_diversity(pop) == pytest.approx(1.0)
 
     def test_partial_diversity(self) -> None:
-        pop = np.array([[0, 0, 0, 0], [1, 0, 0, 0]], dtype=np.int8)
-        assert population_diversity(pop) == pytest.approx(0.25)
+        # Distance = sqrt(1) = 1, max = sqrt(4) = 2, normalized = 0.5
+        pop = np.array([[0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]], dtype=np.float64)
+        assert population_diversity(pop) == pytest.approx(0.5)
 
     def test_single_individual(self) -> None:
-        pop = np.array([[1, 0, 1]], dtype=np.int8)
+        pop = np.array([[0.5, 0.3, 0.7]], dtype=np.float64)
         assert population_diversity(pop) == 0.0
 
     @given(
-        arrays(dtype=np.int8, shape=st.tuples(st.integers(2, 20), st.integers(1, 50)), elements=st.integers(0, 1)),
+        arrays(dtype=np.float64, shape=st.tuples(st.integers(2, 20), st.integers(1, 50)), elements=st.floats(0.0, 1.0)),
     )
     @settings(max_examples=50)
     def test_diversity_in_unit_range(self, pop: np.ndarray) -> None:
         d = population_diversity(pop)
-        assert 0.0 <= d <= 1.0
+        assert 0.0 <= d <= 1.0 + 1e-10
 
 
 class TestCaptureRate:

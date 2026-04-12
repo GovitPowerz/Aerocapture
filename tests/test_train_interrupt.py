@@ -28,29 +28,20 @@ class TestKeyboardInterrupt:
         dummy_exe.chmod(dummy_exe.stat().st_mode | stat.S_IEXEC)
 
         cfg = TrainingConfig()
-        cfg.ga.n_gen = 100
-        cfg.ga.n_pop = 2
-        cfg.ga.n_runs = 1
+        cfg.optimizer.n_gen = 100
+        cfg.optimizer.n_pop = 4
         cfg.save_dir = str(tmp_path / "training_output")
 
         call_count = 0
 
-        def mock_evaluate(*args: object, **kwargs: object) -> tuple[float, None]:
+        def mock_evaluate(self_prob, X, out, *args, **kwargs):  # type: ignore[no-untyped-def]
             nonlocal call_count
             call_count += 1
-            if call_count > 10:
+            if call_count > 3:
                 raise KeyboardInterrupt
-            return 1e6 + call_count, None
+            out["F"] = np.random.default_rng(call_count).random((X.shape[0], 1)) * 1e6
 
-        mock_pop = np.zeros((2, cfg.chrom_length), dtype=np.int8)
-        mock_costs = np.array([1e6, 1e6 + 1])
-        mock_offspring = np.ones((2, cfg.chrom_length), dtype=np.int8)
-
-        with (
-            patch("aerocapture.training.train.create_initial_population", return_value=(mock_pop, mock_costs)),
-            patch("aerocapture.training.train.crossover_and_mutate", return_value=mock_offspring),
-            patch("aerocapture.training.train.evaluate_chromosome", side_effect=mock_evaluate),
-        ):
+        with patch("aerocapture.training.problem.AerocaptureProblem._evaluate", mock_evaluate):
             result = train(cfg, seed=42, cwd=str(tmp_path), verbose=False, no_tui=True)
 
         assert result["interrupted"] is True

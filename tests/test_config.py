@@ -1,13 +1,13 @@
 """Tests for TrainingConfig invariants.
 
-Verifies that n_params, chrom_length, and other derived properties
+Verifies that n_params and other derived properties
 stay consistent with the underlying PARAM_SPACES definitions.
 """
 
 from __future__ import annotations
 
 import pytest
-from aerocapture.training.config import GAConfig, NetworkConfig, TrainingConfig
+from aerocapture.training.config import NetworkConfig, TrainingConfig
 from aerocapture.training.param_spaces import PARAM_SPACES
 
 from tests.fixtures.factories import make_training_config
@@ -26,13 +26,10 @@ class TestNParamsConsistency:
 
     def test_nn_n_params_uses_network_config(self) -> None:
         """For neural_network, n_params == network.n_base_coef."""
-        config = make_training_config("neural_network") if "neural_network" in PARAM_SPACES else TrainingConfig()
-        # Build explicitly for NN
         config = TrainingConfig(
             network=NetworkConfig(layer_sizes=[16, 24, 2]),
             guidance_type="neural_network",
         )
-        # n_base_coef = (16*24 + 24) + (24*2 + 2) = 408 + 50 = 458
         expected = config.network.n_base_coef
         assert config.n_params == expected, f"NN n_params={config.n_params} != n_base_coef={expected}"
 
@@ -55,44 +52,15 @@ class TestNParamsConsistency:
         assert config.n_params == expected
 
 
-class TestChromLengthConsistency:
-    @pytest.mark.parametrize("scheme", ALL_NON_NN_SCHEMES)
-    def test_chrom_length_is_n_params_times_n_bit(self, scheme: str) -> None:
-        """chrom_length == n_params * n_bit for all schemes."""
-        config = make_training_config(scheme)
-        expected = config.n_params * config.ga.n_bit
-        assert config.chrom_length == expected, f"scheme={scheme}: chrom_length={config.chrom_length}, expected={expected}"
-
-    @pytest.mark.parametrize("n_bit", [8, 12, 16, 24])
-    def test_chrom_length_scales_with_n_bit(self, n_bit: int) -> None:
-        """chrom_length scales linearly with n_bit."""
-        config = TrainingConfig(
-            ga=GAConfig(n_bit=n_bit),
-            guidance_type="equilibrium_glide",
-        )
-        expected = len(PARAM_SPACES["equilibrium_glide"]) * n_bit
-        assert config.chrom_length == expected
-
-    def test_nn_chrom_length_is_n_base_coef_times_n_bit(self) -> None:
-        """For NN, chrom_length == n_base_coef * n_bit (direct encoding)."""
-        config = TrainingConfig(
-            network=NetworkConfig(layer_sizes=[16, 24, 2]),
-            ga=GAConfig(n_bit=16),
-            guidance_type="neural_network",
-        )
-        expected = config.network.n_base_coef * 16
-        assert config.chrom_length == expected
-
-
 class TestNetworkConfigProperties:
     def test_n_base_coef_matches_layer_computation(self) -> None:
         """n_base_coef: sum of (n_in * n_out + n_out) for each layer transition."""
         net = NetworkConfig(layer_sizes=[16, 24, 2])
-        # Layer 0→1: 16*24 + 24 = 408; Layer 1→2: 24*2 + 2 = 50
+        # Layer 0->1: 16*24 + 24 = 408; Layer 1->2: 24*2 + 2 = 50
         assert net.n_base_coef == 458
 
     def test_n_coef_is_double_n_base_coef(self) -> None:
-        """n_coef includes sign bits — it is 2 * n_base_coef."""
+        """n_coef includes sign bits -- it is 2 * n_base_coef."""
         net = NetworkConfig(layer_sizes=[16, 24, 2])
         assert net.n_coef == 2 * net.n_base_coef
 

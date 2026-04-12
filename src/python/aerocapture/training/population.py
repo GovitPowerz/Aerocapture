@@ -1,192 +1,96 @@
-"""GA initial population generation.
-
-Replaces MATLAB Initial_Population_Aerocap.m.
-"""
+"""Real-valued initial population generation for pymoo optimization."""
 
 from __future__ import annotations
-
-from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
 
-from aerocapture.training.config import TrainingConfig
-from aerocapture.training.evaluate import evaluate_chromosome
+from aerocapture.training.encoding import encode_to_normalized, nn_param_specs_from_architecture
 from aerocapture.training.initialization import generate_initialized_weights
-from aerocapture.training.local_search import improve_chromosome
-
-
-def encode_weights_to_chromosome(
-    weights: npt.NDArray[np.float64],
-    config: TrainingConfig,
-) -> npt.NDArray[np.int8]:
-    """Encode real-valued weights into a binary chromosome (direct encoding).
-
-    Inverse of decode_direct: maps weights from [p_min, p_max] to binary.
-    """
-    n_base = config.network.n_base_coef
-    n_bit = config.ga.n_bit
-    p_range = config.ga.p_max - config.ga.p_min
-
-    # Clip and normalize to [0, 1]
-    clipped = np.clip(weights[:n_base], config.ga.p_min, config.ga.p_max)
-    normalized = (clipped - config.ga.p_min) / p_range
-    int_vals = np.round(normalized * (2**n_bit - 1)).astype(np.int64)
-
-    # Convert each integer to n_bit binary digits
-    chrom = np.zeros(n_base * n_bit, dtype=np.int8)
-    for i in range(n_base):
-        for b in range(n_bit):
-            chrom[i * n_bit + b] = (int_vals[i] >> (n_bit - 1 - b)) & 1
-    return chrom
-
-
-def encode_params_to_chromosome(
-    params: dict[str, float],
-    config: TrainingConfig,
-) -> npt.NDArray[np.int8]:
-    """Encode guidance parameter values into a binary chromosome.
-
-    Inverse of decode_params_from_chromosome: maps named params to binary.
-    """
-    from aerocapture.training.param_spaces import PARAM_SPACES
-
-    specs = PARAM_SPACES[config.guidance_type]
-    n_bit = config.ga.n_bit
-    max_val = 2**n_bit - 1
-    chrom = np.zeros(len(specs) * n_bit, dtype=np.int8)
-
-    for i, spec in enumerate(specs):
-        value = params.get(spec.name, spec.default)
-
-        if spec.log_scale:
-            log_min = np.log10(spec.p_min)
-            log_max = np.log10(spec.p_max)
-            log_val = np.log10(np.clip(value, spec.p_min, spec.p_max))
-            normalized = (log_val - log_min) / (log_max - log_min)
-        else:
-            clipped = np.clip(value, spec.p_min, spec.p_max)
-            normalized = (clipped - spec.p_min) / (spec.p_max - spec.p_min)
-
-        int_val = int(np.round(normalized * max_val))
-        for b in range(n_bit):
-            chrom[i * n_bit + b] = (int_val >> (n_bit - 1 - b)) & 1
-
-    return chrom
+from aerocapture.training.param_spaces import ParamSpec
 
 
 def create_initial_population(
-    config: TrainingConfig,
-    base_network: npt.NDArray[np.float64],
-    rng: np.random.Generator | None = None,
-    cwd: str | Path | None = None,
-    verbose: bool = True,
-    seed_weights: npt.NDArray[np.float64] | None = None,
-    cost_kwargs: dict[str, float] | None = None,
-) -> tuple[npt.NDArray[np.int8], npt.NDArray[np.float64]]:
-    """Generate and evaluate initial GA population.
-
-    Creates 3x oversized population, evaluates all, keeps best.
-    Optionally seeds population with encoded versions of known weights
-    (NN) or default parameter values (guidance params).
+    specs: list[ParamSpec],
+    n_pop: int,
+    rng: np.random.Generator,
+    seed_defaults: bool = True,
+    seed_params: dict[str, float] | None = None,
+    perturbation_scale: float = 0.05,
+) -> npt.NDArray[np.float64]:
+    """Create real-valued initial population in [0, 1] for non-NN schemes.
 
     Args:
-        config: Training configuration.
-        base_network: Base network weights (ignored in direct encoding and non-NN).
+        specs: Parameter specifications with bounds.
+        n_pop: Population size.
         rng: Random number generator.
-        cwd: Working directory for simulation.
-        verbose: Print progress.
-        seed_weights: Known weight vector to seed population (NN direct encoding only).
+        seed_defaults: If True, seed first individual from defaults.
+        seed_params: Optional known-good params to seed first individual.
+        perturbation_scale: Scale of perturbation around seeded individual.
 
     Returns:
-        (population, costs) where population has shape (n_pop, chromosome_length)
-        and costs has shape (n_pop,).
+        Array of shape (n_pop, n_params) with values in [0, 1].
     """
-    if rng is None:
-        rng = np.random.default_rng()
+    n_params = len(specs)
+    pop = rng.random((n_pop, n_params))
 
-    n_pop = config.ga.n_pop
-    chrom_len = config.chrom_length
-    n_candidates = 3 * n_pop
-
-    if verbose:
-        print(f"Generating {n_candidates} candidate chromosomes ({config.guidance_type}, {config.n_params} params)...")
-
-    # Generate initial chromosomes
-    if config.guidance_type == "neural_network" and config.ga.direct_encoding:
-        # Smart initialization: per-layer Xavier/He/LeCun uniform
-        candidates = np.zeros((n_candidates, chrom_len), dtype=np.int8)
-        for i in range(n_candidates):
-            weights = generate_initialized_weights(config.network.layer_sizes, config.network.activations, rng)
-            candidates[i] = encode_weights_to_chromosome(weights, config)
-    else:
-        # Random binary chromosomes (non-NN schemes)
-        candidates = rng.integers(0, 2, size=(n_candidates, chrom_len), dtype=np.int8)
-
-    # Seed population from known values
-    if config.guidance_type == "neural_network":
-        # NN: seed from known weights
-        if seed_weights is not None and config.ga.direct_encoding:
-            seed_chrom = encode_weights_to_chromosome(seed_weights, config)
-            candidates[0] = seed_chrom
-            n_seeded = min(n_pop // 2, n_candidates - 1)
-            for i in range(1, 1 + n_seeded):
-                mutant = seed_chrom.copy()
-                flip_mask = rng.random(chrom_len) < 0.05
-                mutant[flip_mask] = 1 - mutant[flip_mask]
-                candidates[i] = mutant
-            if verbose:
-                print(f"  Seeded {1 + n_seeded} chromosomes from known weights")
-    else:
-        # Guidance params: seed from defaults
-        from aerocapture.training.param_spaces import PARAM_SPACES
-
-        defaults = {s.name: s.default for s in PARAM_SPACES[config.guidance_type]}
-        seed_chrom = encode_params_to_chromosome(defaults, config)
-        candidates[0] = seed_chrom
-        n_seeded = min(n_pop // 2, n_candidates - 1)
+    if seed_params is not None:
+        seed_x = encode_to_normalized(seed_params, specs)
+        pop[0] = np.clip(seed_x, 0.0, 1.0)
+        n_seeded = min(n_pop // 2, n_pop - 1)
         for i in range(1, 1 + n_seeded):
-            mutant = seed_chrom.copy()
-            flip_mask = rng.random(chrom_len) < 0.05
-            mutant[flip_mask] = 1 - mutant[flip_mask]
-            candidates[i] = mutant
-        if verbose:
-            print(f"  Seeded {1 + n_seeded} chromosomes from default params")
+            noise = rng.normal(0.0, perturbation_scale, size=n_params)
+            pop[i] = np.clip(seed_x + noise, 0.0, 1.0)
+    elif seed_defaults:
+        defaults = {s.name: s.default for s in specs}
+        seed_x = encode_to_normalized(defaults, specs)
+        pop[0] = np.clip(seed_x, 0.0, 1.0)
+        n_seeded = min(n_pop // 2, n_pop - 1)
+        for i in range(1, 1 + n_seeded):
+            noise = rng.normal(0.0, perturbation_scale, size=n_params)
+            pop[i] = np.clip(seed_x + noise, 0.0, 1.0)
 
-    costs = np.full(n_candidates, np.inf)
+    return pop
 
-    # Evaluate all candidates
-    for i in range(n_candidates):
-        cost, _ = evaluate_chromosome(candidates[i], base_network, config, cwd=cwd, cost_kwargs=cost_kwargs)
-        costs[i] = cost
-        if verbose and (i + 1) % 10 == 0:
-            print(f"  Evaluated {i + 1}/{n_candidates}, best so far: {np.min(costs[: i + 1]):.4e}")
 
-    # Sort by cost and keep best n_pop
-    order = np.argsort(costs)
-    population = candidates[order[:n_pop]]
-    pop_costs = costs[order[:n_pop]]
+def create_nn_initial_population(
+    layer_sizes: list[int],
+    activations: list[str],
+    n_pop: int,
+    rng: np.random.Generator,
+    bound_multiplier: float = 2.0,
+    seed_weights: npt.NDArray[np.float64] | None = None,
+) -> npt.NDArray[np.float64]:
+    """Create real-valued initial population in [0, 1] for NN weight optimization.
 
-    if verbose:
-        print(f"Best initial cost: {pop_costs[0]:.4e}")
+    Uses activation-aware weight initialization (Xavier/He/LeCun) to generate
+    weights that are well-scaled for each layer, then normalizes to [0, 1].
 
-    # Local improvement on best chromosome (skip if all costs are identical — no gradient)
-    if pop_costs[0] < pop_costs[-1]:
-        improved, improved_cost, gain = improve_chromosome(
-            population[0],
-            base_network,
-            config,
-            mode=0,
-            cwd=cwd,
-            cost_kwargs=cost_kwargs,
-        )
-        if improved_cost < pop_costs[-1]:
-            population[-1] = improved
-            pop_costs[-1] = improved_cost
-            order = np.argsort(pop_costs)
-            population = population[order]
-            pop_costs = pop_costs[order]
-            if verbose:
-                print(f"Local improvement gain: {gain:.2f}%")
+    Args:
+        layer_sizes: NN layer sizes.
+        activations: Activation functions per layer transition.
+        n_pop: Population size.
+        rng: Random number generator.
+        bound_multiplier: Multiplier for weight bounds (default: 2.0).
+        seed_weights: Optional known-good weights to seed first individual.
 
-    return population, pop_costs
+    Returns:
+        Array of shape (n_pop, n_params) with values in [0, 1].
+    """
+    specs = nn_param_specs_from_architecture(layer_sizes, activations, bound_multiplier)
+    n_params = len(specs)
+    pop = np.empty((n_pop, n_params), dtype=np.float64)
+
+    for i in range(n_pop):
+        weights = generate_initialized_weights(layer_sizes, activations, rng)
+        # Normalize each weight to [0, 1] using its ParamSpec bounds
+        for j, s in enumerate(specs):
+            pop[i, j] = np.clip((weights[j] - s.p_min) / (s.p_max - s.p_min), 0.0, 1.0)
+
+    if seed_weights is not None:
+        # Encode known weights as first individual
+        for j, s in enumerate(specs):
+            if j < len(seed_weights):
+                pop[0, j] = np.clip((seed_weights[j] - s.p_min) / (s.p_max - s.p_min), 0.0, 1.0)
+
+    return pop

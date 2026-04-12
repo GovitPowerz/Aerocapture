@@ -58,17 +58,20 @@ def _discover_checkpoints(training_dir: Path, every: int) -> list[dict]:
         with open(json_path) as f:
             meta = json.load(f)
 
-        # Load population costs from npz
+        # Load population costs from npz (supports both new flat and legacy subpop formats)
         with np.load(npz_path, allow_pickle=False) as data:
-            costs_arrays: list[npt.NDArray[np.float64]] = []
-            n_subpops = int(data["n_subpops"][0]) if "n_subpops" in data else 1
-            for k in range(n_subpops):
-                key = f"costs_{k}"
-                if key in data:
-                    costs_arrays.append(data[key])
-            all_costs = np.concatenate(costs_arrays) if costs_arrays else np.array([])
+            if "costs" in data:
+                all_costs = data["costs"]
+            else:
+                costs_arrays: list[npt.NDArray[np.float64]] = []
+                n_subpops = int(data["n_subpops"][0]) if "n_subpops" in data else 1
+                for k in range(n_subpops):
+                    key = f"costs_{k}"
+                    if key in data:
+                        costs_arrays.append(data[key])
+                all_costs = np.concatenate(costs_arrays) if costs_arrays else np.array([])
 
-            best_chrom = data.get("best_chromosome", None)
+            best_chrom = data.get("best_individual", data.get("best_chromosome", None))
             npz_data = dict(data)
 
         result.append(
@@ -281,45 +284,45 @@ def _load_pyo3():  # type: ignore[no-untyped-def]
 
 
 def _decode_and_build_overrides(
-    best_chromosome: npt.NDArray[np.int8],
+    best_individual: npt.NDArray,
     guidance_type: str,
     toml_data: dict,
     n_sims: int,
 ) -> dict[str, object]:
-    """Decode a checkpoint's best chromosome into TOML overrides.
+    """Decode a checkpoint's best individual into TOML overrides.
 
     Handles both neural_network (writes JSON file, returns minimal overrides)
     and guidance-parameter schemes (returns full dot-path overrides).
+    Supports both new real-valued (float64) and legacy binary (int8) checkpoints.
     """
     from aerocapture.training.config import TrainingConfig
+    from aerocapture.training.encoding import decode_normalized, nn_param_specs_from_architecture
 
     cfg = TrainingConfig()
     cfg.guidance_type = guidance_type
-    ga = toml_data.get("ga", {})
-    if "n_bit" in ga:
-        cfg.ga.n_bit = ga["n_bit"]
+
+    net = toml_data.get("network", {})
+    if "layer_sizes" in net:
+        cfg.network.layer_sizes = net["layer_sizes"]
+    if "activations" in net:
+        cfg.network.activations = net["activations"]
 
     if guidance_type == "neural_network":
-        # NN requires writing weights to disk; return minimal overrides
-        # NOTE: Writes NN weights to a shared file path derived from the TOML config.
-        # Not safe for concurrent animation runs on the same config.
-        from aerocapture.training.evaluate import decode_direct, write_nn_json
+        from aerocapture.training.evaluate import write_nn_json
 
-        net = toml_data.get("network", {})
-        if "layer_sizes" in net:
-            cfg.network.layer_sizes = net["layer_sizes"]
-        if "activations" in net:
-            cfg.network.activations = net["activations"]
         cfg.sim.nn_param_file = toml_data.get("data", {}).get("neural_network", "data/neural_network/nn_model.json")
-
-        weights = decode_direct(best_chromosome, cfg)
+        specs = nn_param_specs_from_architecture(cfg.network.layer_sizes, cfg.network.activations)
+        x = best_individual.astype(np.float64)
+        weights = np.array([s.p_min + float(x[i]) * (s.p_max - s.p_min) for i, s in enumerate(specs)])
         nn_path = Path(cfg.sim.nn_param_file)
         write_nn_json(weights, cfg.network, nn_path)
         return {"simulation.n_sims": n_sims}
 
-    from aerocapture.training.evaluate import decode_params_from_chromosome
+    from aerocapture.training.param_spaces import PARAM_SPACES
 
-    params = decode_params_from_chromosome(best_chromosome, cfg)
+    specs = PARAM_SPACES[guidance_type]
+    x = best_individual.astype(np.float64)
+    params = decode_normalized(x, specs)
     return _build_overrides(guidance_type, params, n_sims)
 
 

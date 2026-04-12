@@ -5,12 +5,16 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
-from aerocapture.training.config import GAConfig, SimConfig
+from aerocapture.training.config import SimConfig
+from aerocapture.training.optimizer import OptimizerConfig
 
 
-def test_ga_config_rotate_seeds_default_false() -> None:
-    ga = GAConfig()
-    assert ga.rotate_seeds is False
+def test_optimizer_config_defaults() -> None:
+    opt = OptimizerConfig()
+    assert opt.algorithm == "ga"
+    assert opt.n_pop == 60
+    assert opt.n_gen == 2500
+    assert opt.adaptive_seeds is False
 
 
 def test_dv_threshold_parsed_from_toml(tmp_path: Path) -> None:
