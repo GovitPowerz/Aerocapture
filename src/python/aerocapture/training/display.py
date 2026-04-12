@@ -124,6 +124,11 @@ class LiveDisplay:
         else:
             lines.append("No improvement yet")
 
+        # Validation metrics (shown when present)
+        val = latest.get("validation")
+        if val is not None:
+            lines.append(f"Val: mean={_format_cost(val['mean_cost'])} p95={_format_cost(val['p95_cost'])} cap={val['capture_rate']:.0%}")
+
         # Best params
         params = latest.get("best_params")
         if params is not None:
