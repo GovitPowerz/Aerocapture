@@ -51,8 +51,8 @@ class NetworkConfig:
 
     @property
     def n_coef(self) -> int:
-        """Total coefficients including sign bits (doubled)."""
-        return self.n_base_coef * 2
+        """Total coefficients (same as n_base_coef; sign bits removed in pymoo migration)."""
+        return self.n_base_coef
 
 
 @dataclass
@@ -92,17 +92,17 @@ class TrainingConfig:
         """Generate random initial network weights.
 
         Returns:
-            Array of shape (n_coef,) with values in [-0.1, 0.1].
+            Array of shape (n_base_coef,) with values in [-0.1, 0.1].
         """
         if rng is None:
             rng = np.random.default_rng()
-        return 0.1 * (2 * rng.random(self.network.n_coef) - 1)
+        return 0.1 * (2 * rng.random(self.network.n_base_coef) - 1)
 
     def load_base_network(self, filepath: str | Path) -> npt.NDArray[np.float64]:
         """Load base network weights from a JSON nn_param file.
 
         Returns:
-            Array of shape (n_coef,) with loaded weights (padded with 1.0).
+            Array of shape (n_base_coef,) with loaded weights.
         """
         import json
 
@@ -110,7 +110,7 @@ class TrainingConfig:
         content = filepath.read_text().strip()
 
         data = json.loads(content)
-        weights = []
+        weights: list[float] = []
         for i in range(len(data["architecture"]["layers"]) - 1):
             layer = data["weights"][f"layer_{i}"]
             for row in layer["w"]:
@@ -118,7 +118,4 @@ class TrainingConfig:
             weights.extend(layer["b"])
 
         n_base = self.network.n_base_coef
-        base = np.array(weights[:n_base], dtype=np.float64)
-        padded = np.ones(self.network.n_coef, dtype=np.float64)
-        padded[:n_base] = base
-        return padded
+        return np.array(weights[:n_base], dtype=np.float64)

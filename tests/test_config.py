@@ -59,10 +59,10 @@ class TestNetworkConfigProperties:
         # Layer 0->1: 16*24 + 24 = 408; Layer 1->2: 24*2 + 2 = 50
         assert net.n_base_coef == 458
 
-    def test_n_coef_is_double_n_base_coef(self) -> None:
-        """n_coef includes sign bits -- it is 2 * n_base_coef."""
+    def test_n_coef_equals_n_base_coef(self) -> None:
+        """n_coef equals n_base_coef (sign bits removed in pymoo migration)."""
         net = NetworkConfig(layer_sizes=[16, 24, 2])
-        assert net.n_coef == 2 * net.n_base_coef
+        assert net.n_coef == net.n_base_coef
 
     def test_input_output_properties(self) -> None:
         """n_input and n_output reflect the first and last layer sizes."""

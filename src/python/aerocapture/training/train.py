@@ -30,7 +30,7 @@ from aerocapture.training.optimizer import create_algorithm
 from aerocapture.training.param_spaces import ParamSpec
 from aerocapture.training.population import create_initial_population, create_nn_initial_population
 from aerocapture.training.problem import AerocaptureProblem
-from aerocapture.training.seed_pool import SeedPool
+from aerocapture.training.seed_pool import SeedPool, aggregate_fitness
 from aerocapture.training.weight_stats import compute_weight_stats
 
 # Constant bank angles for corridor boundary sentinels (degrees).
@@ -41,7 +41,6 @@ _SENTINEL_BANK_ANGLES = [0, 18, 36, 54, 72, 90, 108, 126, 144, 162, 180]
 
 def save_checkpoint(
     save_dir: Path,
-    run: int,
     generation: int,
     population: npt.NDArray[np.float64],
     costs: npt.NDArray[np.float64],
@@ -56,7 +55,7 @@ def save_checkpoint(
     corridor_acc: CorridorAccumulator | None = None,
 ) -> None:
     """Save full training state for later resumption."""
-    prefix = f"checkpoint_r{run:03d}_g{generation:05d}"
+    prefix = f"checkpoint_g{generation:05d}"
 
     # Serialize RNG state -- convert large ints to strings for JSON compatibility
     raw_state = rng.bit_generator.state
@@ -67,7 +66,6 @@ def save_checkpoint(
         "uinteger": raw_state["uinteger"],
     }
     meta = {
-        "run": run,
         "generation": generation,
         "best_cost": best_cost,
         "cost_history": [float(c) for c in cost_history],
@@ -107,10 +105,13 @@ def load_checkpoint(
 ) -> dict | None:
     """Find and load the latest checkpoint from save_dir.
 
-    Returns dict with: run, generation, population, costs, best_cost,
+    Returns dict with: generation, population, costs, best_cost,
     best_individual, cost_history, rng_state. Or None if no checkpoint found.
     """
-    json_files = sorted(save_dir.glob("checkpoint_r*_g*.json"))
+    # Support both new (checkpoint_g*.json) and old (checkpoint_r*_g*.json) naming
+    json_files = sorted(save_dir.glob("checkpoint_g*.json"))
+    if not json_files:
+        json_files = sorted(save_dir.glob("checkpoint_r*_g*.json"))
     if not json_files:
         return None
 
@@ -124,19 +125,12 @@ def load_checkpoint(
 
     data = np.load(npz_path)
 
-    # Support both old (list-of-subpops) and new (flat) checkpoint formats
-    if "population" in data:
-        population = data["population"]
-        costs = data["costs"]
-    else:
-        # Legacy checkpoint: reconstruct from subpop format
-        n_subpops = int(data["n_subpops"][0])
-        pops = [data[f"pop_{k}"] for k in range(n_subpops)]
-        population = np.vstack(pops)
-        cost_lists = [data[f"costs_{k}"] for k in range(n_subpops)]
-        costs = np.concatenate(cost_lists)
+    if "population" not in data:
+        return None  # Incompatible legacy checkpoint; start fresh
 
-    best_individual = data.get("best_individual", data.get("best_chromosome", None))
+    population = data["population"]
+    costs = data["costs"]
+    best_individual = data.get("best_individual", None)
 
     # Restore corridor accumulator if present in checkpoint
     corridor_acc_restored: CorridorAccumulator | None = None
@@ -145,7 +139,6 @@ def load_checkpoint(
         corridor_acc_restored = CorridorAccumulator.from_checkpoint(corridor_state)
 
     return {
-        "run": meta["run"],
         "generation": meta["generation"],
         "population": population,
         "costs": costs,
@@ -282,7 +275,7 @@ def train(
                 except Exception:
                     pass  # Fall back to seeded RNG if state restore fails
             if verbose:
-                print(f"Resumed from run {resumed['run']}, gen {resumed['generation']}, best={resumed['best_cost']:.4e}")
+                print(f"Resumed from gen {resumed['generation']}, best={resumed['best_cost']:.4e}")
             if seed_pool is not None and resumed.get("seed_pool") is not None:
                 seed_pool = SeedPool.from_dict(resumed["seed_pool"], excluded_seeds={pool_base_seed})
             if corridor_acc is not None and resumed.get("corridor_acc") is not None:
@@ -296,8 +289,7 @@ def train(
         nn_param_path = Path(cwd or config.sim.exec_dir) / config.sim.nn_param_file
         if nn_param_path.exists():
             try:
-                loaded = config.load_base_network(str(nn_param_path))
-                seed_weights = loaded[: config.network.n_base_coef]
+                seed_weights = config.load_base_network(str(nn_param_path))
                 if verbose:
                     print(f"Loaded seed weights from {nn_param_path} ({len(seed_weights)} params)")
             except Exception as e:
@@ -424,6 +416,45 @@ def train(
                     best_overall_cost = gen_best_cost
                     best_overall_individual = X[gen_best_idx].copy()
 
+                # Seed pool update: add seeds, score difficulty, evict, re-evaluate
+                if seed_pool is not None and (gen + 1) % config.optimizer.seed_pool_interval == 0:
+                    seed_pool.add_seeds(gen + 1)
+
+                    # Build cost matrix (n_pop, n_seeds) for difficulty scoring
+                    cost_matrix = problem.evaluate_population_per_seed(X)
+                    best_idx = int(np.argmin(aggregate_fitness(cost_matrix, seed_pool.alpha, seed_pool.cvar_percentile)))
+                    seed_pool.score_difficulty(cost_matrix, best_idx)
+                    seed_pool.evict_redundant()
+
+                    # Update problem seeds and re-evaluate population with new pool
+                    problem.update_seeds(seed_pool.seeds)
+                    fitness = aggregate_fitness(cost_matrix, seed_pool.alpha, seed_pool.cvar_percentile)
+                    pop.set("F", fitness.reshape(-1, 1))
+                    costs = fitness
+
+                    # Re-track best after re-evaluation
+                    gen_best_idx = int(np.argmin(costs))
+                    gen_best_cost = float(costs[gen_best_idx])
+                    if gen_best_cost < best_overall_cost:
+                        best_overall_cost = gen_best_cost
+                        best_overall_individual = X[gen_best_idx].copy()
+
+                # Stress test: probe fresh seeds and inject hardest
+                if seed_pool is not None and (gen + 1) % config.optimizer.stress_interval == 0:
+                    assert best_overall_individual is not None
+                    _best_for_stress = best_overall_individual
+
+                    def _stress_evaluator(probe_seeds: list[int], _ind: npt.NDArray[np.float64] = _best_for_stress) -> npt.NDArray[np.float64]:
+                        return problem.evaluate_individual_per_seed(_ind, probe_seeds)
+
+                    seed_pool.stress_test(
+                        generation=gen + 1,
+                        evaluator=_stress_evaluator,
+                        n_probes=config.optimizer.stress_probes,
+                        n_inject=config.optimizer.stress_inject,
+                    )
+                    problem.update_seeds(seed_pool.seeds)
+
                 # Corridor accumulation for piecewise_constant
                 if config.guidance_type == "piecewise_constant" and corridor_acc is not None and _HAS_PYO3 and config.sim.toml_config:
                     _accumulate_corridor(
@@ -482,7 +513,6 @@ def train(
                 if (gen + 1) % checkpoint_interval == 0:
                     save_checkpoint(
                         save_dir,
-                        0,
                         gen + 1,
                         X,
                         costs,
@@ -497,7 +527,7 @@ def train(
                         corridor_acc=corridor_acc,
                     )
                     if verbose:
-                        print(f"  Checkpoint saved: r000_g{gen + 1:05d}")
+                        print(f"  Checkpoint saved: g{gen + 1:05d}")
 
             cost_history.extend(gen_best_costs)
 
@@ -506,7 +536,6 @@ def train(
             if last_gen % checkpoint_interval != 0:
                 save_checkpoint(
                     save_dir,
-                    0,
                     last_gen,
                     X,
                     costs,
@@ -521,7 +550,7 @@ def train(
                     corridor_acc=corridor_acc,
                 )
                 if verbose:
-                    print(f"  Final checkpoint saved: r000_g{last_gen:05d}")
+                    print(f"  Final checkpoint saved: g{last_gen:05d}")
 
             logger.close()
 
@@ -531,7 +560,6 @@ def train(
             print(f"\nInterrupted at gen {gen + 1}. Saving checkpoint...")
             save_checkpoint(
                 save_dir,
-                0,
                 gen + 1,
                 X,
                 costs,
