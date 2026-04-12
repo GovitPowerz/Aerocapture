@@ -72,6 +72,29 @@ class TestOptimizerConfig:
         assert isinstance(cfg.ga, GASettings)
         assert isinstance(cfg.pso, PSOSettings)
 
+    def test_default_training_n_sims(self):
+        cfg = OptimizerConfig()
+        assert cfg.training_n_sims == 1
+
+    def test_default_validation_n_sims(self):
+        cfg = OptimizerConfig()
+        assert cfg.validation_n_sims == 1000
+
+    def test_default_validation_interval(self):
+        cfg = OptimizerConfig()
+        assert cfg.validation_interval == 50
+
+    def test_from_dict_training_n_sims(self):
+        d = {"algorithm": "ga", "training_n_sims": 20}
+        cfg = OptimizerConfig.from_dict(d)
+        assert cfg.training_n_sims == 20
+
+    def test_from_dict_validation_fields(self):
+        d = {"algorithm": "ga", "validation_n_sims": 500, "validation_interval": 25}
+        cfg = OptimizerConfig.from_dict(d)
+        assert cfg.validation_n_sims == 500
+        assert cfg.validation_interval == 25
+
 
 class TestCreateAlgorithm:
     def test_ga_returns_ga(self):

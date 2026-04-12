@@ -55,6 +55,9 @@ class OptimizerConfig:
     stress_interval: int = 5
     stress_probes: int = 200
     stress_inject: int = 20
+    training_n_sims: int = 1
+    validation_n_sims: int = 1000
+    validation_interval: int = 50
     ga: GASettings = field(default_factory=GASettings)
     cma_es: CMAESSettings = field(default_factory=CMAESSettings)
     de: DESettings = field(default_factory=DESettings)
