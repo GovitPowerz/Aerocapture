@@ -22,7 +22,7 @@ train_piecewise_constant() {
     echo "=== piecewise_constant (11 params) ==="
     run_train configs/training/msr_aller_piecewise_constant_train.toml \
         --n-gen 3000 --n-pop 40 \
-        --adaptive-seeds --cost-alpha 0.65 --cvar-percentile 15 \
+        --adaptive-seeds --cost-alpha 0.85 --cvar-percentile 5 \
         --seed-pool-cap 120 --stress-interval 15 --stress-probes 200 --stress-inject 10 \
         --final-n-sims 2000 --from-scratch --sim-timeout 1
 }

@@ -62,28 +62,65 @@ This document lists physics, GNC, and software improvements for the aerocapture 
 
 *(Done -- see Done section below.)*
 
-### 9.2 Bayesian optimization for low-dimensional schemes
+### 9.2 Representative seed curation
+
+When a new best is found, run a large MC campaign (e.g. 1000 sims) and select the N training seeds whose cost distribution best represents the full 1000-sim distribution. Gives coverage of 1000 sims at the cost of N.
+
+- **Pro:** Efficient -- full difficulty spectrum in few seeds.
+- **Con:** Seeds that are representative for the current best may not be representative for a different individual ("representative for whom?" problem). Expensive trigger early in training. Non-trivial to define "representative" (match CDF? percentiles? tail weight?).
+- **When:** After epoch rotation proves its value as a refinement.
+
+### 9.3 Multi-objective optimization (mean vs CVaR)
+
+Replace the scalar blended fitness with a 2-objective Pareto front: minimize mean DV and minimize CVaR (worst-tail DV). pymoo's NSGA-II handles this natively.
+
+- **Pro:** No arbitrary alpha blending. Maintains population diversity naturally via Pareto pressure. Gives a menu of solutions from "best average" to "most robust."
+- **Con:** Harder to pick "the" best solution afterward (need a selection criterion on the Pareto front). More complex reporting.
+
+### 9.4 Population restarts / island model
+
+Periodically reinitialize part of the population to escape local basins. Or run multiple independent populations that occasionally exchange best individuals (island model with migration).
+
+- **Pro:** Directly combats convergence to a single basin. Island model adds diversity without losing exploitation.
+- **Con:** Slower overall convergence. Could layer on top of epoch rotation if basin trapping is still observed after the landscape is made dynamic.
+
+### 9.5 Validation-gated best selection
+
+Instead of log-only validation, use validation as a filter: reject a "new best" if its validation cost is worse than the previous best's validation cost.
+
+- **Pro:** Stronger generalization guarantee.
+- **Con:** Adds coupling between validation and training signals. Could slow convergence if validation is noisy. Revisit if overfitting is observed in validation logs.
+
+### 9.6 Validation charts in PDF reports
+
+Add validation cost curves to the training report PDF (`report.py` / `charts.py`). Plot training cost vs validation cost over generations to visualize overfitting. The JSONL data is already there -- just needs chart functions and Typst template updates.
+
+### 9.7 Adaptive training_n_sims
+
+Start with fewer seeds per generation (e.g. 5) and increase as training progresses (e.g. ramp to 20 by gen 100). Early gens benefit from faster iteration; later gens benefit from more robust evaluation when differences between individuals are smaller.
+
+### 9.8 Bayesian optimization for low-dimensional schemes
 
 Surrogate-model-based optimization using Gaussian Processes or Random Forests as a surrogate for the expensive MC fitness function. Promising for guidance parameter schemes (10-26 params) where each evaluation is costly.
 
 - **Investigation**: Evaluate BoTorch (PyTorch-based, state of the art) or scikit-optimize as a pymoo-compatible backend. Key challenge: noisy fitness from MC evaluation requires noise-aware acquisition functions (e.g., noisy Expected Improvement).
 - **Impact**: Could dramatically reduce the number of evaluations needed for convergence on smooth parameter landscapes, at the cost of surrogate model overhead.
 
-### 9.3 Reinforcement learning for neural network guidance
+### 9.9 Reinforcement learning for neural network guidance
 
 Train the NN guidance controller as an RL policy rather than optimizing static weights via evolutionary algorithms. The simulator is already step-able (state -> action -> next state).
 
 - **Investigation**: Wrap the Rust simulator as a Gym-compatible environment via a PyO3 step API (expose per-timestep state/action interface, not just full-trajectory evaluation). Evaluate PPO, SAC, or TD3 for continuous bank-angle control.
 - **Impact**: Fundamentally different paradigm from weight optimization -- RL can learn temporal strategies that static weight optimization cannot express. Separate effort from the pymoo framework.
 
-### 9.4 Recurrent and transformer architectures
+### 9.10 Recurrent and transformer architectures
 
 The neural network guidance uses a feedforward architecture (`gnc/guidance/neural.rs`). This cannot exploit temporal correlations in the trajectory.
 
 - **Improvement**: Implement LSTM or Transformer-based guidance that conditions on trajectory history (previous states, density estimates, bank angle commands). Requires backpropagation through time for training but can also be trained with GA.
 - **Impact**: Could learn more sophisticated strategies that adapt to evolving conditions during the pass, rather than reacting to instantaneous state only.
 
-### 9.5 Neural navigation and control
+### 9.11 Neural navigation and control
 
 Only guidance uses neural networks. Navigation and control use classical algorithms.
 
