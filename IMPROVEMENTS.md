@@ -60,19 +60,30 @@ This document lists physics, GNC, and software improvements for the aerocapture 
 
 ### 9.1 Alternative optimization algorithms and real-valued encoding
 
-The current GA uses binary-encoded chromosomes with roulette wheel selection, uniform crossover, and bit-flip mutation. This is functional but has known limitations: scale-blind bit-flip mutation doesn't respect parameter sensitivity, and binary encoding wastes resolution.
+*(Done -- see Done section below.)*
 
-- **Improvement**: Switch from binary GA to real-valued GA: SBX crossover + polynomial mutation (DEAP built-in), normalize all parameters to [0,1] internally, adaptive mutation rates per parameter. Also consider CMA-ES (excellent for continuous optimization), PSO, differential evolution, or Bayesian optimization. Investigate Reinforcement Learning for NN training.
-- **Impact**: Potentially faster convergence, especially for smooth parameter landscapes. Real-valued encoding eliminates the scale-blind bit-flip problem entirely.
+### 9.2 Bayesian optimization for low-dimensional schemes
 
-### 9.2 Recurrent and transformer architectures
+Surrogate-model-based optimization using Gaussian Processes or Random Forests as a surrogate for the expensive MC fitness function. Promising for guidance parameter schemes (10-26 params) where each evaluation is costly.
+
+- **Investigation**: Evaluate BoTorch (PyTorch-based, state of the art) or scikit-optimize as a pymoo-compatible backend. Key challenge: noisy fitness from MC evaluation requires noise-aware acquisition functions (e.g., noisy Expected Improvement).
+- **Impact**: Could dramatically reduce the number of evaluations needed for convergence on smooth parameter landscapes, at the cost of surrogate model overhead.
+
+### 9.3 Reinforcement learning for neural network guidance
+
+Train the NN guidance controller as an RL policy rather than optimizing static weights via evolutionary algorithms. The simulator is already step-able (state -> action -> next state).
+
+- **Investigation**: Wrap the Rust simulator as a Gym-compatible environment via a PyO3 step API (expose per-timestep state/action interface, not just full-trajectory evaluation). Evaluate PPO, SAC, or TD3 for continuous bank-angle control.
+- **Impact**: Fundamentally different paradigm from weight optimization -- RL can learn temporal strategies that static weight optimization cannot express. Separate effort from the pymoo framework.
+
+### 9.4 Recurrent and transformer architectures
 
 The neural network guidance uses a feedforward architecture (`gnc/guidance/neural.rs`). This cannot exploit temporal correlations in the trajectory.
 
 - **Improvement**: Implement LSTM or Transformer-based guidance that conditions on trajectory history (previous states, density estimates, bank angle commands). Requires backpropagation through time for training but can also be trained with GA.
 - **Impact**: Could learn more sophisticated strategies that adapt to evolving conditions during the pass, rather than reacting to instantaneous state only.
 
-### 9.3 Neural navigation and control
+### 9.5 Neural navigation and control
 
 Only guidance uses neural networks. Navigation and control use classical algorithms.
 
@@ -111,6 +122,7 @@ Items completed and merged.
 | 6.2 Sensitivity analysis | 2026-04-07 | SALib-based sensitivity analysis: Morris elementary effects (screening all 26 dispersion dims) + Sobol variance decomposition (S1/ST/S2 on top-k parameters). `build_problem()` converts `[monte_carlo]` config to SALib problem dict with per-dimension distribution types and SI-unit bounds mirroring Rust `build_dim_transforms()`. CLI: `python -m aerocapture.training.sensitivity`. Report Part 3 integration (Morris bar chart + ranked table, Sobol bars, S2 heatmap, convergence plot). |
 | 7.1 Event detection | 2026-04-07 | DOPRI45 dense output (Hermite continuous extension) + Brent's root-finding locates bounce, atmosphere exit, crash, and phase transition events to ~1 ms precision within adaptive substeps. Fixed RK4 path unchanged. Event records interleaved into trajectory output. See `integration/events.rs` and `integration/dopri45.rs`. |
 | 8.1 Output formats | 2026-04-12 | Parquet output module (`parquet_output.py`): 65-column files (39 final-record + 26 dispersion) with full resolved config metadata. Auto-written alongside PDF reports. Dispersion grid chart now uses three-way trajectory classification (blue/orange/red) with regression on captured only. CSV unchanged. |
+| 9.1 Real-valued optimization | 2026-04-12 | Replaced binary GA (16-bit chromosomes, roulette selection, bit-flip mutation) with pymoo-based real-valued optimization. All algorithms work on normalized [0,1] float arrays. Four algorithms: GA (SBX + polynomial mutation), CMA-ES, DE, PSO -- selectable via `[optimizer] algorithm` in TOML or `--algorithm` CLI. Hybrid loop: pymoo `algorithm.next()` stepping with custom outer loop for adaptive seed pool (K-generation checkpoint updates with full re-evaluation), stress testing, Rich TUI, JSONL logging, and corridor accumulation. `AerocaptureProblem(pymoo.Problem)` subclass handles batch PyO3 evaluation with per-seed cost aggregation (RMS). NN path writes temp JSON weight files per individual. Deleted: `local_search.py`, `migration.py`, binary encoding in `evaluate.py`, `GAConfig`. |
 
 ---
 
