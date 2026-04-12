@@ -124,10 +124,15 @@ class LiveDisplay:
         else:
             lines.append("No improvement yet")
 
-        # Validation metrics (shown when present)
-        val = latest.get("validation")
+        # Validation metrics (show most recent, not just current gen)
+        val = None
+        for r in reversed(buf):
+            if "validation" in r:
+                val = r["validation"]
+                val_gen = r["generation"]
+                break
         if val is not None:
-            lines.append(f"Val: mean={_format_cost(val['mean_cost'])} p95={_format_cost(val['p95_cost'])} cap={val['capture_rate']:.0%}")
+            lines.append(f"Val (g{val_gen}): mean={_format_cost(val['mean_cost'])} p95={_format_cost(val['p95_cost'])} cap={val['capture_rate']:.0%}")
 
         # Best params
         params = latest.get("best_params")
