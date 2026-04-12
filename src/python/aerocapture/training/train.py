@@ -26,7 +26,7 @@ from aerocapture.training.evaluate import (
     _aero_rs,
     write_nn_json,
 )
-from aerocapture.training.optimizer import create_algorithm
+from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
 from aerocapture.training.param_spaces import ParamSpec
 from aerocapture.training.population import create_initial_population, create_nn_initial_population
 from aerocapture.training.problem import AerocaptureProblem
@@ -644,8 +644,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train guidance parameters via pymoo optimization")
     parser.add_argument("toml", type=str, help="TOML training config path (must contain [guidance] type)")
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--n-gen", type=int, default=100, help="Number of generations (additional when resuming)")
-    parser.add_argument("--n-pop", type=int, default=50)
+    parser.add_argument("--n-gen", type=int, default=None, help="Number of generations (additional when resuming; default: from TOML [optimizer])")
+    parser.add_argument("--n-pop", type=int, default=None, help="Population size (default: from TOML [optimizer])")
     parser.add_argument("--resume", type=str, default=None, help="Checkpoint directory to resume from (auto-detected if omitted and checkpoint exists)")
     parser.add_argument("-fs", "--from-scratch", action="store_true", help="Wipe existing training output and start fresh (deletes checkpoints, logs, reports)")
     parser.add_argument("--no-tui", action="store_true", help="Disable Rich TUI (use plain-text output)")
@@ -660,14 +660,28 @@ if __name__ == "__main__":
     parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
     parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds (default: no limit)")
     parser.add_argument("--train-n-sims", type=int, default=None, help="Override n_sims during training evaluations (default: use TOML value)")
-    parser.add_argument("--algorithm", type=str, default="ga", help="Optimization algorithm: ga, cma_es, de, pso (default: ga)")
+    parser.add_argument("--algorithm", type=str, default=None, help="Optimization algorithm: ga, cma_es, de, pso (default: from TOML [optimizer])")
     args = parser.parse_args()
 
     cfg = TrainingConfig()
-    cfg.optimizer.n_gen = args.n_gen
-    cfg.optimizer.n_pop = args.n_pop
-    cfg.optimizer.algorithm = args.algorithm
-    cfg.optimizer.adaptive_seeds = args.adaptive_seeds
+
+    # Load TOML first -- optimizer config comes from TOML, CLI overrides on top
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    _toml_data = load_toml_with_bases(Path(args.toml))
+
+    # Parse optimizer config from TOML (uses OptimizerConfig defaults for missing keys)
+    cfg.optimizer = OptimizerConfig.from_dict(_toml_data.get("optimizer", {}))
+
+    # CLI overrides -- only when explicitly provided (not None / default False)
+    if args.n_gen is not None:
+        cfg.optimizer.n_gen = args.n_gen
+    if args.n_pop is not None:
+        cfg.optimizer.n_pop = args.n_pop
+    if args.algorithm is not None:
+        cfg.optimizer.algorithm = args.algorithm
+    if args.adaptive_seeds:
+        cfg.optimizer.adaptive_seeds = True
     cfg.optimizer.seed_pool_cap = args.seed_pool_cap
     cfg.optimizer.cost_alpha = args.cost_alpha
     cfg.optimizer.cvar_percentile = args.cvar_percentile
@@ -679,11 +693,6 @@ if __name__ == "__main__":
             print(f"ERROR: --train-n-sims must be >= 1, got {args.train_n_sims}")
             raise SystemExit(1)
         cfg.sim.train_n_sims = args.train_n_sims
-
-    # Load TOML and extract guidance type
-    from aerocapture.training.toml_utils import load_toml_with_bases
-
-    _toml_data = load_toml_with_bases(Path(args.toml))
     guidance_type = _toml_data.get("guidance", {}).get("type")
     if guidance_type is None:
         print("ERROR: TOML config must contain [guidance] type = '<scheme>'")

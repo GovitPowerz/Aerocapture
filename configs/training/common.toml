@@ -51,6 +51,16 @@ g_load_weight = 1000.0
 heat_flux_weight = 1000.0
 heat_load_weight = 1000.0
 
+[optimizer]
+algorithm = "ga"
+n_pop = 60
+n_gen = 2500
+seed_pool_interval = 50
+
+[optimizer.ga]
+crossover_eta = 15
+mutation_eta = 20
+
 # ── Command shaping (acceleration-limited rate shaping) ──
 [guidance.command_shaping]
 enabled = true
