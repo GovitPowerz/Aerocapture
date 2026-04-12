@@ -657,7 +657,6 @@ if __name__ == "__main__":
     parser.add_argument("--skip-report", "--skip-final-report", action="store_true", dest="skip_report", help="Skip PDF report generation at end of training")
     parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
     parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds (default: no limit)")
-    parser.add_argument("--train-n-sims", type=int, default=None, help="Override n_sims during training evaluations (default: use TOML value)")
     parser.add_argument("--algorithm", type=str, default=None, help="Optimization algorithm: ga, cma_es, de, pso (default: from TOML [optimizer])")
     args = parser.parse_args()
 
@@ -686,11 +685,6 @@ if __name__ == "__main__":
     cfg.optimizer.stress_interval = args.stress_interval
     cfg.optimizer.stress_probes = args.stress_probes
     cfg.optimizer.stress_inject = args.stress_inject
-    if args.train_n_sims is not None:
-        if args.train_n_sims < 1:
-            print(f"ERROR: --train-n-sims must be >= 1, got {args.train_n_sims}")
-            raise SystemExit(1)
-        cfg.sim.train_n_sims = args.train_n_sims
     guidance_type = _toml_data.get("guidance", {}).get("type")
     if guidance_type is None:
         print("ERROR: TOML config must contain [guidance] type = '<scheme>'")

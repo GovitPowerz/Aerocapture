@@ -18,17 +18,6 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def test_train_n_sims_default_none() -> None:
-    parser = _build_parser()
-    args = parser.parse_args(["dummy.toml"])
-    assert args.train_n_sims is None
-
-
-def test_train_n_sims_override() -> None:
-    parser = _build_parser()
-    args = parser.parse_args(["dummy.toml", "--train-n-sims", "300"])
-    assert args.train_n_sims == 300
-
 
 def test_algorithm_default_ga() -> None:
     parser = _build_parser()

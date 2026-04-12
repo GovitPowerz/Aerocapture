@@ -59,13 +59,3 @@ g_load_limit = 15.0
     cost_cfg = _toml.get("cost_function", {})
     dv_threshold = float(cost_cfg.get("dv_threshold", 1000.0))
     assert dv_threshold == 1000.0
-
-
-def test_sim_config_train_n_sims_default_none() -> None:
-    sc = SimConfig()
-    assert sc.train_n_sims is None
-
-
-def test_sim_config_train_n_sims_override() -> None:
-    sc = SimConfig(train_n_sims=300)
-    assert sc.train_n_sims == 300

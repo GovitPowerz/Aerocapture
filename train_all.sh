@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Train all guidance schemes with optimized GA settings.
+# Train all guidance schemes with optimized pymoo settings (real-valued GA by default).
 # Usage:
 #   ./train_all.sh                    # train all schemes in order
 #   ./train_all.sh eqglide            # train a single scheme
@@ -19,70 +19,63 @@ run_train() {
 }
 
 train_piecewise_constant() {
-    echo "=== piecewise_constant (11 params, ~35 min) ==="
+    echo "=== piecewise_constant (11 params) ==="
     run_train configs/training/msr_aller_piecewise_constant_train.toml \
-        --n-gen 3000 --n-pop 40 --train-n-sims 300 \
-        --mutation-rate 0.03 \
+        --n-gen 3000 --n-pop 40 \
         --adaptive-seeds --cost-alpha 0.65 --cvar-percentile 15 \
         --seed-pool-cap 120 --stress-interval 15 --stress-probes 200 --stress-inject 10 \
         --final-n-sims 2000 --from-scratch --sim-timeout 1
 }
 
 train_ftc() {
-    echo "=== ftc (26 params, ~37 min) ==="
+    echo "=== ftc (26 params) ==="
     run_train configs/training/msr_aller_ftc_train.toml \
-        --n-gen 2500 --n-pop 50 --train-n-sims 300 \
-        --mutation-rate 0.03 \
+        --n-gen 2500 --n-pop 50 \
         --adaptive-seeds --cost-alpha 0.65 --cvar-percentile 15 \
         --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
         --final-n-sims 2000 --from-scratch --sim-timeout 1
 }
 
 train_eqglide() {
-    echo "=== equilibrium_glide (24 params, ~46 min) ==="
+    echo "=== equilibrium_glide (24 params) ==="
     run_train configs/training/msr_aller_eqglide_train.toml \
-        --n-gen 2500 --n-pop 60 --train-n-sims 300 \
-        --mutation-rate 0.05 \
+        --n-gen 2500 --n-pop 60 \
         --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
         --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
         --final-n-sims 2000 --from-scratch --sim-timeout 1
 }
 
 train_energy_controller() {
-    echo "=== energy_controller (20 params, ~46 min) ==="
+    echo "=== energy_controller (20 params) ==="
     run_train configs/training/msr_aller_energy_controller_train.toml \
-        --n-gen 2500 --n-pop 60 --train-n-sims 300 \
-        --mutation-rate 0.05 \
+        --n-gen 2500 --n-pop 60 \
         --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
         --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
         --final-n-sims 2000 --from-scratch --sim-timeout 1
 }
 
 train_pred_guid() {
-    echo "=== pred_guid (20 params, ~46 min) ==="
+    echo "=== pred_guid (20 params) ==="
     run_train configs/training/msr_aller_pred_guid_train.toml \
-        --n-gen 2500 --n-pop 60 --train-n-sims 300 \
-        --mutation-rate 0.05 \
+        --n-gen 2500 --n-pop 60 \
         --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
         --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
         --final-n-sims 2000 --from-scratch --sim-timeout 1
 }
 
 train_fnpag() {
-    echo "=== fnpag (22 params, ~50 min) ==="
+    echo "=== fnpag (22 params) ==="
     run_train configs/training/msr_aller_fnpag_train.toml \
-        --n-gen 600 --n-pop 50 --train-n-sims 200 \
-        --mutation-rate 0.05 \
+        --n-gen 600 --n-pop 50 \
         --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
         --seed-pool-cap 100 --stress-interval 15 --stress-probes 150 --stress-inject 10 \
         --final-n-sims 2000 --from-scratch --sim-timeout 1
 }
 
 train_neural_network() {
-    echo "=== neural_network (1106 params, ~35 min) ==="
+    echo "=== neural_network (458 params) ==="
     run_train configs/training/msr_aller_nn_train_consolidated.toml \
-        --n-gen 1500 --n-pop 120 --train-n-sims 200 \
-        --mutation-rate 0.03 \
+        --n-gen 1500 --n-pop 120 \
         --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
         --seed-pool-cap 100 --stress-interval 15 --stress-probes 200 --stress-inject 10 \
         --final-n-sims 2000 --from-scratch --sim-timeout 1
