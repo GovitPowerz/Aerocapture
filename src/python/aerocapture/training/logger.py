@@ -49,6 +49,7 @@ class TrainingLogger:
         pool_metrics: dict | None = None,
         gen_elapsed_s: float | None = None,
         gen_best_individual: npt.NDArray[np.float64] | None = None,
+        validation: dict | None = None,
     ) -> None:
         """Log metrics for one generation."""
         stats = cost_stats(costs)
@@ -98,6 +99,9 @@ class TrainingLogger:
 
         if gen_elapsed_s is not None:
             record["gen_elapsed_s"] = round(gen_elapsed_s, 3)
+
+        if validation is not None:
+            record["validation"] = validation
 
         self._buffer.append(record)
         self._file.write(json.dumps(record) + "\n")

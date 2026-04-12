@@ -119,3 +119,30 @@ class TestTrainingLogger:
         jsonl_file = list(tmp_path.glob("*.jsonl"))[0]
         record = json.loads(jsonl_file.read_text().strip())
         assert record["mc_seed"] == 77
+
+    def test_validation_recorded(self, logger: TrainingLogger) -> None:
+        val = {
+            "mean_cost": 42.3,
+            "median_cost": 38.1,
+            "std_cost": 15.2,
+            "p95_cost": 112.5,
+            "worst_cost": 8432.0,
+            "capture_rate": 0.97,
+            "n_sims": 1000,
+        }
+        logger.log_generation(1, _make_population(), _make_costs(), np.full(7, 0.5), _decode_fn, validation=val)
+        assert logger.buffer[0]["validation"] == val
+        logger.close()
+
+    def test_validation_absent_by_default(self, logger: TrainingLogger) -> None:
+        logger.log_generation(1, _make_population(), _make_costs(), np.full(7, 0.5), _decode_fn)
+        assert "validation" not in logger.buffer[0]
+        logger.close()
+
+    def test_validation_written_to_jsonl(self, logger: TrainingLogger, tmp_path: Path) -> None:
+        val = {"mean_cost": 42.3, "capture_rate": 0.97, "n_sims": 1000}
+        logger.log_generation(1, _make_population(), _make_costs(), np.full(7, 0.5), _decode_fn, validation=val)
+        logger.close()
+        jsonl_file = list(tmp_path.glob("*.jsonl"))[0]
+        record = json.loads(jsonl_file.read_text().strip())
+        assert record["validation"]["mean_cost"] == 42.3
