@@ -26,7 +26,7 @@ from aerocapture.training.evaluate import (
     _aero_rs,
     write_nn_json,
 )
-from aerocapture.training.metrics import CAPTURE_COST_THRESHOLD
+from aerocapture.training.metrics import CAPTURE_COST_THRESHOLD, capture_rate
 from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
 from aerocapture.training.param_spaces import ParamSpec
 from aerocapture.training.population import create_initial_population, create_nn_initial_population
@@ -509,14 +509,17 @@ def train(
                     should_validate = new_best_this_gen or (gen + 1) % config.optimizer.validation_interval == 0
                     if should_validate:
                         val_costs = problem.evaluate_individual_per_seed(best_overall_individual, val_seeds)
-                        val_captured = val_costs < CAPTURE_COST_THRESHOLD
+                        # capture_rate uses threshold=3000 which separates captured
+                        # (cost < ~2600 after log-cap) from non-captures (cost > ~3300).
+                        # CAPTURE_COST_THRESHOLD (10000) is for raw DV, not log-capped costs.
+                        val_cap_rate = capture_rate(val_costs)
                         validation_metrics = {
                             "mean_cost": float(np.mean(val_costs)),
                             "median_cost": float(np.median(val_costs)),
                             "std_cost": float(np.std(val_costs)),
                             "p95_cost": float(np.percentile(val_costs, 95)),
                             "worst_cost": float(np.max(val_costs)),
-                            "capture_rate": float(np.mean(val_captured)),
+                            "capture_rate": val_cap_rate,
                             "n_sims": len(val_seeds),
                         }
 
