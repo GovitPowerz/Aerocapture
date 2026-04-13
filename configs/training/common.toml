@@ -7,7 +7,7 @@ n_sims = 1000
 max_time = 2000.0
 
 [integration]
-mode = "adaptive"
+mode = "fixed"
 
 # ── Domain-based Monte Carlo dispersions ──
 [monte_carlo]
@@ -50,6 +50,49 @@ dv_threshold = 1000.0
 g_load_weight = 1000.0
 heat_flux_weight = 1000.0
 heat_load_weight = 1000.0
+
+[optimizer]
+algorithm = "ga"
+n_pop = 60
+n_gen = 2500
+seed_pool_interval = 50
+training_n_sims = 20          # fresh random seeds per individual per generation (epoch rotation)
+validation_n_sims = 1000      # sims for validation gate (fixed seeds, honest generalization metric)
+validation_interval = 50      # periodic validation every N gens (also triggers on new best)
+
+# ── GA: SBX crossover + polynomial mutation ──
+# Lower eta = more exploratory (uniform-crossover-like). Higher eta = offspring closer to parents.
+# Old binary GA was maximally exploratory; eta=2-5 is the closest real-valued equivalent.
+# mutation_prob = null means 1/n_params (pymoo default). Set higher for more exploration.
+[optimizer.ga]
+crossover_eta = 3
+mutation_eta = 5
+mutation_prob = 0.15
+
+# ── CMA-ES: covariance matrix adaptation (best for 10-50 params) ──
+# sigma0 = initial step size in normalized [0,1] space. 0.3 is a good starting point.
+# Falls back to GA automatically when n_params > 200 (NN).
+# To use: set algorithm = "cma_es" in scheme-specific TOML or --algorithm cma_es
+[optimizer.cma_es]
+sigma0 = 0.3
+restart_strategy = "ipop"
+
+# ── DE: differential evolution (robust, good for noisy fitness) ──
+# variant: DE/rand/1/bin is the classic. DE/best/1/bin converges faster but less diverse.
+# CR (crossover prob) 0.7-0.9, F (scaling factor) 0.5-0.8 are typical.
+# To use: set algorithm = "de" or --algorithm de
+[optimizer.de]
+variant = "DE/rand/1/bin"
+crossover_prob = 0.8
+scaling_factor = 0.6
+
+# ── PSO: particle swarm (fast convergence, can stagnate) ──
+# w = inertia (0.4-0.9, lower = more local search), c1 = cognitive, c2 = social.
+# To use: set algorithm = "pso" or --algorithm pso
+[optimizer.pso]
+w = 0.7
+c1 = 1.5
+c2 = 1.5
 
 # ── Command shaping (acceleration-limited rate shaping) ──
 [guidance.command_shaping]

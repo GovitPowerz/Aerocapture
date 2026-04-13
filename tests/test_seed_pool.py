@@ -220,9 +220,9 @@ class TestSeedPoolEvaluation:
         pool.seeds = [0, 1, 2]
         pool.generation_added = {0: 0, 1: 0, 2: 0}
 
-        population = np.array([[1, 0, 1], [0, 1, 0]], dtype=np.int8)
+        population = np.array([[1, 0, 1], [0, 1, 0]], dtype=np.float64)
 
-        def evaluator(chrom: npt.NDArray[np.int8], seed: int) -> float:
+        def evaluator(chrom: npt.NDArray[np.float64], seed: int) -> float:
             return float(seed) + float(chrom[0])
 
         fitness = pool.evaluate_population(population, evaluator)
@@ -235,9 +235,9 @@ class TestSeedPoolEvaluation:
         pool.seeds = [0, 1]
         pool.generation_added = {0: 0, 1: 0}
 
-        population = np.array([[0, 1, 0], [1, 0, 1]], dtype=np.int8)
+        population = np.array([[0, 1, 0], [1, 0, 1]], dtype=np.float64)
 
-        def evaluator(chrom: npt.NDArray[np.int8], seed: int) -> float:
+        def evaluator(chrom: npt.NDArray[np.float64], seed: int) -> float:
             return float(seed) * 10.0
 
         pool.evaluate_population(population, evaluator)
@@ -250,16 +250,16 @@ class TestSeedPoolEvaluation:
         pool.seeds = [0, 1, 2]
         pool.generation_added = {0: 0, 1: 0, 2: 0}
 
-        population = np.array([[1, 0], [0, 1]], dtype=np.int8)
+        population = np.array([[1, 0], [0, 1]], dtype=np.float64)
 
         scalar_called = False
 
-        def scalar_eval(chrom: npt.NDArray[np.int8], seed: int) -> float:
+        def scalar_eval(chrom: npt.NDArray[np.float64], seed: int) -> float:
             nonlocal scalar_called
             scalar_called = True
             return 0.0
 
-        def batch_eval(chrom: npt.NDArray[np.int8], seeds: list[int]) -> npt.NDArray[np.float64]:
+        def batch_eval(chrom: npt.NDArray[np.float64], seeds: list[int]) -> npt.NDArray[np.float64]:
             return np.array([float(s) + float(chrom[0]) for s in seeds])
 
         fitness = pool.evaluate_population(population, scalar_eval, batch_evaluator=batch_eval)
@@ -275,9 +275,9 @@ class TestAdaptiveSeedIntegration:
         pool = SeedPool(base_seed=0, max_size=8, alpha=0.7, cvar_percentile=20)
 
         rng = np.random.default_rng(42)
-        pop = rng.integers(0, 2, size=(4, 10), dtype=np.int8)
+        pop = rng.random((4, 10))
 
-        def evaluator(chrom: npt.NDArray[np.int8], seed: int) -> float:
+        def evaluator(chrom: npt.NDArray[np.float64], seed: int) -> float:
             quality = float(np.sum(chrom)) / len(chrom)
             return float(seed % 1000) * 10.0 + quality * 5.0
 

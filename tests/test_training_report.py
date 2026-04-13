@@ -280,21 +280,20 @@ class TestResumeGenerationOffset:
     """Verify --n-gen means 'N additional' when resuming."""
 
     def test_resumed_n_gen_is_offset(self) -> None:
-        """After resume from gen 100 with --n-gen 50, config.ga.n_gen should be 150."""
+        """After resume from gen 100 with --n-gen 50, config.optimizer.n_gen should be 150."""
         from aerocapture.training.config import TrainingConfig
 
         config = TrainingConfig()
-        config.ga.n_gen = 50
-        config.ga.n_runs = 1
+        config.optimizer.n_gen = 50
 
-        start_gen = 100
         resumed = {"generation": 100}
 
-        if resumed is not None and config.ga.n_runs == 1:
-            config.ga.n_gen += resumed["generation"]
+        if resumed is not None:
+            config.optimizer.n_gen += resumed["generation"]
 
-        assert config.ga.n_gen == 150
-        loop_gens = list(range(start_gen, config.ga.n_gen))
+        assert config.optimizer.n_gen == 150
+        start_gen = 100
+        loop_gens = list(range(start_gen, config.optimizer.n_gen))
         assert loop_gens[0] == 100
         assert loop_gens[-1] == 149
         assert len(loop_gens) == 50
@@ -304,29 +303,14 @@ class TestResumeGenerationOffset:
         from aerocapture.training.config import TrainingConfig
 
         config = TrainingConfig()
-        config.ga.n_gen = 100
+        config.optimizer.n_gen = 100
 
         resumed = None
 
-        if resumed is not None and config.ga.n_runs == 1:
-            config.ga.n_gen += resumed["generation"]
+        if resumed is not None:
+            config.optimizer.n_gen += resumed["generation"]
 
-        assert config.ga.n_gen == 100
-
-    def test_multi_run_no_offset(self) -> None:
-        """With n_runs > 1, offset is not applied (would inflate subsequent runs)."""
-        from aerocapture.training.config import TrainingConfig
-
-        config = TrainingConfig()
-        config.ga.n_gen = 50
-        config.ga.n_runs = 3
-
-        resumed = {"generation": 100}
-
-        if resumed is not None and config.ga.n_runs == 1:
-            config.ga.n_gen += resumed["generation"]
-
-        assert config.ga.n_gen == 50
+        assert config.optimizer.n_gen == 100
 
 
 class TestConditionalPanels:

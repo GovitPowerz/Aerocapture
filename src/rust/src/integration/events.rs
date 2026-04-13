@@ -141,11 +141,17 @@ pub struct EventDef {
 }
 
 /// A located event with its time, state, and type.
+/// GNC context is captured from the enclosing tick (constant within a tick).
 #[derive(Debug, Clone)]
 pub struct EventRecord {
     pub time: f64,
     pub state: [f64; 8],
     pub event_type: EventType,
+    pub bank_angle_deg: f64,
+    pub aoa_deg: f64,
+    pub cumulative_bank_change_deg: f64,
+    pub guidance_phase: f64,
+    pub density_gain: f64,
 }
 
 /// A located event with precise zero-crossing position from Brent's root-finding.

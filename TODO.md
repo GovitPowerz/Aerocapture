@@ -1,5 +1,7 @@
 # TODO
 
+- [ ] Add some input analysis for nn to prune useless inputs. In fact, a global pruning would be interesting to improve nn training and inference
+
 ## Seed Pool: Adversarial Curriculum Collapse
 
 The keep-hardest eviction strategy in `seed_pool.py` creates a difficulty ratchet --

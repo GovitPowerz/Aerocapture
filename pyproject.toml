@@ -7,7 +7,7 @@ dependencies = [
     "numpy>=2.4",
     "pandas>=3.0",
     "matplotlib>=3.10",
-    "deap>=1.4",
+    "pymoo>=0.6",
     "scipy>=1.17.1",
     "rich>=14.3",
     "seaborn>=0.13",
@@ -59,3 +59,7 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 mypy_path = "src/python"
 exclude = ["tests/fixtures/"]
+
+[[tool.mypy.overrides]]
+module = ["pymoo.*", "aerocapture_rs"]
+ignore_missing_imports = true

@@ -1,6 +1,5 @@
 """Cost function evaluation: write NN/guidance params, run simulator, compute cost.
 
-Replaces MATLAB ComputeCost_Aerocap.m.
 Supports both NN weight optimization and generic guidance parameter optimization.
 """
 
@@ -24,64 +23,6 @@ try:
 except ImportError:
     _aero_rs = None  # type: ignore[assignment]
     _HAS_PYO3 = False
-
-
-def binary_to_decimal(
-    xbit: npt.NDArray[np.int8],
-    conv_bd: npt.NDArray[np.float64],
-    p_min: float,
-) -> npt.NDArray[np.float64]:
-    """Convert binary chromosome to decimal parameter values.
-
-    Args:
-        xbit: Binary chromosome array of shape (n_coef * n_bit,).
-        conv_bd: Conversion matrix of shape (n_coef, n_bit).
-        p_min: Minimum parameter value.
-
-    Returns:
-        Array of shape (n_coef,) with decimal values in [p_min, p_max].
-    """
-    n_coef, n_bit = conv_bd.shape
-    bits = xbit[: n_coef * n_bit].reshape(n_coef, n_bit)
-    result: npt.NDArray[np.float64] = np.sum(bits * conv_bd, axis=1) + p_min
-    return result
-
-
-def perturb_network(
-    xbit: npt.NDArray[np.int8],
-    base_network: npt.NDArray[np.float64],
-    config: TrainingConfig,
-) -> npt.NDArray[np.float64]:
-    """Apply binary-encoded perturbation to base network weights.
-
-    Args:
-        xbit: Full binary chromosome (coefficients + sign bits).
-        base_network: Base network weight vector.
-        config: Training configuration.
-
-    Returns:
-        Perturbed network weight vector.
-    """
-    conv_bd = config.build_conversion_matrix()
-    n_coef = config.network.n_coef
-    n_bit = config.ga.n_bit
-
-    # Decode decimal values from binary
-    params = binary_to_decimal(xbit, conv_bd, config.ga.p_min)
-
-    # Extract sign bits (second half of chromosome)
-    sign_bits = xbit[n_bit * n_coef :]
-    signs = np.where(sign_bits[:n_coef], 1.0, -1.0)
-
-    # Perturbation: sign * base_weight * (1 + Var * normalized_mid * first_third)
-    third = n_coef // 3
-    first_third = params[:third]
-    mid_section = (params[third : 2 * third] + 1) / 2  # normalize to [0, 1]
-
-    perturbation = np.ones(n_coef)
-    perturbation[:third] = 1 + config.ga.variation * mid_section * first_third
-
-    return signs * base_network * perturbation
 
 
 def write_nn_json(
@@ -213,7 +154,7 @@ def _run_via_subprocess(config: TrainingConfig, cwd: str | Path | None = None) -
     except (subprocess.TimeoutExpired, FileNotFoundError):  # fmt: skip
         return None
 
-    # Parse final conditions — auto-detect CSV vs legacy text
+    # Parse final conditions -- auto-detect CSV vs legacy text
     final_file = cwd / config.sim.final_file
     csv_final = Path(str(final_file) + ".csv")
     if csv_final.exists():
@@ -230,10 +171,9 @@ def _run_via_subprocess(config: TrainingConfig, cwd: str | Path | None = None) -
 def log_cap(dv: npt.NDArray[np.float64], threshold: float = 1000.0) -> npt.NDArray[np.float64]:
     """C1-continuous log-capped cost: linear below threshold, log above.
 
-    Properties:
-        - C0 continuous at threshold: both sides evaluate to T
-        - C1 continuous at threshold: both sides have derivative 1
-        - Monotonically increasing for all dv > 0
+    DEPRECATED: kept for backward compatibility. Use dv_cost() instead.
+    log_cap compresses the non-capture range (10000-20000) into 3302-3996,
+    creating a near-flat plateau that starves the optimizer of gradient.
     """
     dv = np.maximum(dv, 1e-6)  # safety floor
     below = dv <= threshold
@@ -243,6 +183,51 @@ def log_cap(dv: npt.NDArray[np.float64], threshold: float = 1000.0) -> npt.NDArr
     return result
 
 
+# Scale for the quadratic growth above threshold. Controls how fast the
+# cost grows on the non-capture side.
+_DV_PENALTY_SCALE = 10000.0
+
+# Sharpness of the softplus knee at the DV threshold. Larger = sharper wall.
+# k=0.01 gives ~200 m/s transition width (captures < 500 m/s are untouched).
+_DV_KNEE_SHARPNESS = 0.01
+
+# Sharpness of the softplus knee for constraint penalties. Operates on
+# normalized fractions (val-limit)/limit, so k=100 means ~1% transition.
+_CONSTRAINT_KNEE_SHARPNESS = 100.0
+
+
+def _softplus(x: npt.NDArray[np.float64], k: float) -> npt.NDArray[np.float64]:
+    """Numerically stable softplus: ln(1 + exp(k*x)) / k."""
+    kx = k * x
+    return np.where(kx > 20.0, x, np.log1p(np.exp(kx)) / k)
+
+
+def dv_cost(dv: npt.NDArray[np.float64], threshold: float = 1000.0) -> npt.NDArray[np.float64]:
+    """C-infinity softplus-quadratic DV cost function.
+
+    Uses softplus to smoothly transition from linear (captures) to
+    quadratic penalty (non-captures). The softplus replaces the hard
+    max(0, dv-T) knee with a C-infinity smooth version, while the
+    quadratic term provides strong, always-increasing gradient on the
+    non-capture side.
+
+    cost(dv) = dv + sp(dv-T) + sp(dv-T)^2 / (2*S)
+
+    where sp(x) = ln(1 + exp(k*x)) / k  (softplus with sharpness k).
+
+    Properties:
+        - C-infinity everywhere (no kinks or discontinuities)
+        - Captures nearly untouched: dv=200 -> cost=200.0, dv=500 -> cost=500.7
+        - Wall at threshold: slope rises from 1.0 to 1.5 across ~200 m/s
+        - Strong far gradient: slope=2.9 at dv=10000, slope=3.9 at dv=20000
+        - Wide non-capture spread: dv=10000 -> 23050, dv=20000 -> 57050
+    """
+    dv = np.maximum(dv, 1e-6)  # safety floor
+    s = _DV_PENALTY_SCALE
+    x = _softplus(dv - threshold, _DV_KNEE_SHARPNESS)
+    return dv + x + x**2 / (2.0 * s)
+
+
 def compute_cost(
     final_conditions: npt.NDArray[np.float64],
     *,
@@ -250,13 +235,13 @@ def compute_cost(
     g_load_limit: float = 15.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
     heat_flux_limit: float = 200.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
     heat_load_limit: float = 25000.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
-    g_load_weight: float = 1000.0,
-    heat_flux_weight: float = 1000.0,
-    heat_load_weight: float = 1000.0,
+    g_load_weight: float = 10000.0,
+    heat_flux_weight: float = 10000.0,
+    heat_load_weight: float = 10000.0,
 ) -> float:
     """Compute RMS cost from simulation final conditions.
 
-    Uses log-capped delta-V as the primary objective with normalized
+    Uses quadratic-penalty DV cost as the primary objective with normalized
     soft constraint penalties for g-load, heat flux, and heat load exceedances.
 
     All termination outcomes produce meaningful DV values from Rust:
@@ -271,67 +256,15 @@ def compute_cost(
     g_max = final_conditions[:, 17]
     q_max = final_conditions[:, 16]
 
-    costs = log_cap(dv_total, threshold=dv_threshold)
+    costs = dv_cost(dv_total, threshold=dv_threshold)
 
-    g_penalty = g_load_weight * np.maximum((g_max - g_load_limit) / g_load_limit, 0) ** 2
-    q_penalty = heat_flux_weight * np.maximum((q_max - heat_flux_limit) / heat_flux_limit, 0) ** 2
-    heat_load = final_conditions[:, 28] * 1e3  # MJ/m² → kJ/m²
-    hl_penalty = heat_load_weight * np.maximum((heat_load - heat_load_limit) / heat_load_limit, 0) ** 2
+    g_penalty = g_load_weight * _softplus((g_max - g_load_limit) / g_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
+    q_penalty = heat_flux_weight * _softplus((q_max - heat_flux_limit) / heat_flux_limit, _CONSTRAINT_KNEE_SHARPNESS)
+    heat_load = final_conditions[:, 28] * 1e3  # MJ/m2 -> kJ/m2
+    hl_penalty = heat_load_weight * _softplus((heat_load - heat_load_limit) / heat_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
     costs = costs + g_penalty + q_penalty + hl_penalty
 
     return float(np.sqrt(np.mean(costs**2)))
-
-
-def decode_direct(
-    xbit: npt.NDArray[np.int8],
-    config: TrainingConfig,
-) -> npt.NDArray[np.float64]:
-    """Decode chromosome directly to weight values (no base network needed).
-
-    Maps n_base_coef groups of n_bit binary digits to values in [p_min, p_max].
-    """
-    n_base = config.network.n_base_coef
-    n_bit = config.ga.n_bit
-    p_range = config.ga.p_max - config.ga.p_min
-
-    bit_weights = np.power(2.0, np.arange(n_bit - 1, -1, -1))
-    bits = xbit[: n_base * n_bit].reshape(n_base, n_bit)
-    result: npt.NDArray[np.float64] = np.sum(bits * bit_weights, axis=1) / (2**n_bit - 1) * p_range + config.ga.p_min
-    return result
-
-
-def decode_params_from_chromosome(
-    xbit: npt.NDArray[np.int8],
-    config: TrainingConfig,
-) -> dict[str, float]:
-    """Decode binary chromosome to named guidance parameter values.
-
-    Each parameter has its own [p_min, p_max] bounds. Parameters with
-    log_scale=True are decoded in log space then exponentiated.
-
-    Returns:
-        Dict mapping parameter name to decoded float value.
-    """
-    from aerocapture.training.param_spaces import PARAM_SPACES
-
-    specs = PARAM_SPACES[config.guidance_type]
-    n_bit = config.ga.n_bit
-    bit_weights = np.power(2.0, np.arange(n_bit - 1, -1, -1))
-    max_val = 2**n_bit - 1
-
-    result = {}
-    for i, spec in enumerate(specs):
-        bits = xbit[i * n_bit : (i + 1) * n_bit]
-        normalized = float(np.sum(bits * bit_weights)) / max_val  # [0, 1]
-
-        if spec.log_scale:
-            log_min = np.log10(spec.p_min)
-            log_max = np.log10(spec.p_max)
-            result[spec.name] = 10.0 ** (log_min + normalized * (log_max - log_min))
-        else:
-            result[spec.name] = spec.p_min + normalized * (spec.p_max - spec.p_min)
-
-    return result
 
 
 def write_guidance_toml(
@@ -411,7 +344,7 @@ def write_guidance_toml(
     if n_sims_override is not None:
         toml_data.setdefault("simulation", {})["n_sims"] = n_sims_override
 
-    # Write TOML (minimal writer — machine-consumed only)
+    # Write TOML (minimal writer -- machine-consumed only)
     if output_path is None:
         fd, path_str = tempfile.mkstemp(suffix=".toml", prefix="guidance_")
         output_path = Path(path_str)
@@ -509,7 +442,7 @@ def _toml_value(value: object) -> str:
         return f'"{value}"'
     if isinstance(value, list):
         if value and isinstance(value[0], dict):
-            # Inline table array — should be handled as [[section]]
+            # Inline table array -- should be handled as [[section]]
             items = []
             for item in value:
                 fields = ", ".join(f"{k} = {_toml_value(v)}" for k, v in item.items())
@@ -546,76 +479,3 @@ def patch_toml_mc_seed(base_toml_path: str | Path, mc_seed: int, n_sims_override
     os.close(fd)
     _write_toml(toml_data, output_path)
     return output_path
-
-
-def evaluate_chromosome(
-    xbit: npt.NDArray[np.int8],
-    base_network: npt.NDArray[np.float64],
-    config: TrainingConfig,
-    cwd: str | Path | None = None,
-    mc_seed: int | None = None,
-    cost_kwargs: dict[str, float] | None = None,
-) -> tuple[float, npt.NDArray[np.float64] | None]:
-    """Full evaluation pipeline: decode, simulate, score.
-
-    Dispatches between NN weight optimization and generic guidance
-    parameter optimization based on config.guidance_type.
-
-    Args:
-        xbit: Binary chromosome.
-        base_network: Base network weights (ignored for non-NN schemes).
-        config: Training configuration.
-        cwd: Working directory.
-        mc_seed: Optional Monte Carlo seed to inject into the TOML config.
-
-    Returns:
-        (cost, final_conditions) tuple.
-    """
-    if cwd is None:
-        cwd = config.sim.exec_dir
-
-    if config.guidance_type == "neural_network":
-        # NN path: decode weights, write JSON, run sim
-        weights = decode_direct(xbit, config) if config.ga.direct_encoding else perturb_network(xbit, base_network, config)
-        nn_path = Path(cwd) / config.sim.nn_param_file
-        write_nn_json(weights, config.network, nn_path)
-        if mc_seed is not None:
-            if config.sim.toml_config is None:
-                msg = "mc_seed requires toml_config to be set for neural_network guidance"
-                raise ValueError(msg)
-            patched_toml = patch_toml_mc_seed(Path(cwd) / config.sim.toml_config, mc_seed, n_sims_override=config.sim.train_n_sims)
-            try:
-                orig_toml = config.sim.toml_config
-                config.sim.toml_config = str(patched_toml)
-                final = run_simulation(config, cwd=cwd)
-            finally:
-                config.sim.toml_config = orig_toml
-                patched_toml.unlink(missing_ok=True)
-        else:
-            nn_overrides: dict[str, object] | None = None
-            if config.sim.train_n_sims is not None:
-                nn_overrides = {"simulation.n_sims": config.sim.train_n_sims}
-            final = run_simulation(config, cwd=cwd, overrides=nn_overrides)
-    else:
-        # Generic guidance param path: decode params, patch TOML, run sim
-        params = decode_params_from_chromosome(xbit, config)
-        if config.sim.toml_config is None:
-            msg = f"toml_config must be set for guidance_type={config.guidance_type}"
-            raise ValueError(msg)
-        base_toml = Path(cwd) / config.sim.toml_config
-        patched_toml = write_guidance_toml(base_toml, config.guidance_type, params, mc_seed=mc_seed, n_sims_override=config.sim.train_n_sims)
-        try:
-            # Temporarily override TOML config to use patched file
-            orig_toml = config.sim.toml_config
-            config.sim.toml_config = str(patched_toml)
-            final = run_simulation(config, cwd=cwd)
-        finally:
-            config.sim.toml_config = orig_toml
-            # Clean up temp file
-            patched_toml.unlink(missing_ok=True)
-
-    if final is None:
-        return 1e30, None
-
-    cost = compute_cost(final, **(cost_kwargs or {}))
-    return cost, final

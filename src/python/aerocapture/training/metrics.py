@@ -10,6 +10,10 @@ import math
 import numpy as np
 import numpy.typing as npt
 
+# Cost above this threshold indicates a non-capture (crash, hyperbolic escape, timeout).
+# Rust virtual DV assigns >= 10000 m/s to all non-capture outcomes.
+CAPTURE_COST_THRESHOLD = 10000.0
+
 
 def cost_stats(costs: npt.NDArray[np.float64]) -> dict[str, float]:
     """Compute best/mean/worst/median/std cost, filtering np.inf and np.nan.
@@ -28,22 +32,25 @@ def cost_stats(costs: npt.NDArray[np.float64]) -> dict[str, float]:
     }
 
 
-def population_diversity(chromosomes: npt.NDArray[np.int8]) -> float:
-    """Mean pairwise Hamming distance, normalized 0-1.
+def population_diversity(population: npt.NDArray[np.floating]) -> float:
+    """Mean pairwise L2 distance normalized to [0, 1].
 
-    Assumes binary {0, 1} input. For a single individual, returns 0.0.
+    For real-valued populations in [0, 1]^n, max pairwise distance is sqrt(n).
+    Returns 0.0 for a single individual.
     """
-    n = len(chromosomes)
+    n = len(population)
     if n < 2:
         return 0.0
-    chrom_len: int = chromosomes.shape[1]
-    total_distance: int = 0
-    n_pairs: int = 0
+    n_dims = population.shape[1]
+    total_distance = 0.0
+    n_pairs = 0
     for i in range(n):
-        diffs = np.sum(chromosomes[i] != chromosomes[i + 1 :], axis=1)
-        total_distance += int(np.sum(diffs))
-        n_pairs += len(diffs)
-    return float(total_distance) / float(n_pairs * chrom_len)
+        diffs = population[i] - population[i + 1 :]
+        distances = np.sqrt(np.sum(diffs**2, axis=1))
+        total_distance += float(np.sum(distances))
+        n_pairs += len(distances)
+    max_distance = np.sqrt(float(n_dims))
+    return total_distance / (n_pairs * max_distance) if n_pairs > 0 else 0.0
 
 
 def capture_rate(costs: npt.NDArray[np.float64], capture_threshold: float = 3000.0) -> float:

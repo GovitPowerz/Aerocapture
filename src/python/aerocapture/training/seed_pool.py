@@ -15,6 +15,8 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
+from aerocapture.training.metrics import CAPTURE_COST_THRESHOLD
+
 
 def _pool_seed(base: int, index: int) -> int:
     """Generate a well-spread seed from (base, index) using SHA-256."""
@@ -136,9 +138,9 @@ class SeedPool:
 
     def evaluate_population(
         self,
-        population: npt.NDArray[np.int8],
-        evaluator: Callable[[npt.NDArray[np.int8], int], float],
-        batch_evaluator: Callable[[npt.NDArray[np.int8], list[int]], npt.NDArray[np.float64]] | None = None,
+        population: npt.NDArray[np.float64],
+        evaluator: Callable[[npt.NDArray[np.float64], int], float],
+        batch_evaluator: Callable[[npt.NDArray[np.float64], list[int]], npt.NDArray[np.float64]] | None = None,
     ) -> npt.NDArray[np.float64]:
         """Evaluate all individuals on all pool seeds.
 
@@ -146,9 +148,9 @@ class SeedPool:
         evaluation. Falls back to the scalar evaluator otherwise.
 
         Args:
-            population: Shape (n_pop, chrom_length).
-            evaluator: Callable(chromosome, mc_seed) -> cost (scalar fallback).
-            batch_evaluator: Callable(chromosome, seeds) -> costs array (n_seeds,).
+            population: Shape (n_pop, n_params), normalized [0, 1].
+            evaluator: Callable(individual, mc_seed) -> cost (scalar fallback).
+            batch_evaluator: Callable(individual, seeds) -> costs array (n_seeds,).
 
         Returns:
             1D fitness array (n_pop,) with aggregated fitness values.
@@ -194,7 +196,7 @@ class SeedPool:
 
         costs = evaluator(probe_seeds)
 
-        capture_rate = float(np.mean(costs < 10000.0))
+        capture_rate = float(np.mean(costs < CAPTURE_COST_THRESHOLD))
 
         worst_indices = np.argsort(costs)[::-1][:n_inject]
         n_injected = 0

@@ -5,12 +5,12 @@ base = ["../missions/mars.toml", "common.toml"]
 type = "neural_network"
 
 [navigation]
-density_filter_gain = 0.6
-density_gain_max_delta = 0.3
+density_filter_gain = 0.6914060018624361
+density_gain_max_delta = 0.10161760731237457
 
 [network]
-layer_sizes = [16, 8, 2]
-activations = ["tanh", "asinh"]
+layer_sizes = [16, 8, 32, 8, 2]
+activations = ["tanh", "tanh", "tanh", "asinh"]
 
 [data]
 neural_network = "data/neural_network/nn_model.json"

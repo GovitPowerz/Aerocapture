@@ -19,6 +19,7 @@ class ParamSpec:
     p_max: float
     default: float
     log_scale: bool = False
+    is_integer: bool = False
 
 
 # Exit phase params shared by all unsigned-magnitude schemes.
@@ -38,7 +39,7 @@ _LATERAL_PARAMS: list[ParamSpec] = [
     ParamSpec("lateral.min_reversal_interval", 1.0, 30.0, 5.0),  # seconds
     ParamSpec("lateral.lateral_activation", -5.0, -0.5, -2.5),  # MJ/kg
     ParamSpec("lateral.lateral_inhibition", -10.0, -2.0, -8.0),  # MJ/kg
-    ParamSpec("lateral.max_reversals", 1.0, 10.0, 5.0),  # integer
+    ParamSpec("lateral.max_reversals", 1.0, 10.0, 5.0, is_integer=True),
 ]
 
 # Thermal safety limiter params shared by all unsigned-magnitude schemes.
@@ -57,8 +58,8 @@ _SHAPING_PARAMS: list[ParamSpec] = [
 ]
 
 # Navigation density filter params shared by all unsigned-magnitude schemes.
-# Prefixed with "nav." so evaluate.py routes them to [guidance.ftc] in TOML
-# (density filter config lives in the FTC TOML section but affects all schemes).
+# Prefixed with "nav." so routing sends them to [navigation] in TOML
+# (density filter config lives in [navigation], not [guidance], and affects all schemes).
 _NAV_PARAMS: list[ParamSpec] = [
     ParamSpec("nav.density_filter_gain", 0.3, 1.0, 0.8),
     ParamSpec("nav.density_gain_max_delta", 0.01, 0.5, 0.1),

@@ -211,6 +211,14 @@ def chart_convergence(records: list[dict[str, Any]], output: Path, resume_gens: 
     if improvement_gens:
         ax.scatter(improvement_gens, improvement_costs, color=COLOR_BEST, marker="v", s=30, zorder=5, label="Improvement")
 
+    # Validation gate results (sparse: only on gens where validation fired)
+    val_gens = [r["generation"] for r in records if r.get("validation")]
+    val_means = [r["validation"]["mean_cost"] for r in records if r.get("validation")]
+    val_p95s = [r["validation"]["p95_cost"] for r in records if r.get("validation")]
+    if val_gens:
+        ax.semilogy(val_gens, val_means, color="#2ca02c", linewidth=1.2, marker="o", markersize=3, label="Val mean")
+        ax.semilogy(val_gens, val_p95s, color="#2ca02c", linewidth=0.7, linestyle="--", alpha=0.6, label="Val p95")
+
     _add_log_minor_ticks(ax, axis="y")
     _add_resume_markers(ax, resume_gens)
     ax.set_xlabel("Generation")

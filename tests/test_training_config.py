@@ -5,12 +5,15 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
-from aerocapture.training.config import GAConfig, SimConfig
+from aerocapture.training.optimizer import OptimizerConfig
 
 
-def test_ga_config_rotate_seeds_default_false() -> None:
-    ga = GAConfig()
-    assert ga.rotate_seeds is False
+def test_optimizer_config_defaults() -> None:
+    opt = OptimizerConfig()
+    assert opt.algorithm == "ga"
+    assert opt.n_pop == 60
+    assert opt.n_gen == 2500
+    assert opt.adaptive_seeds is False
 
 
 def test_dv_threshold_parsed_from_toml(tmp_path: Path) -> None:
@@ -55,13 +58,3 @@ g_load_limit = 15.0
     cost_cfg = _toml.get("cost_function", {})
     dv_threshold = float(cost_cfg.get("dv_threshold", 1000.0))
     assert dv_threshold == 1000.0
-
-
-def test_sim_config_train_n_sims_default_none() -> None:
-    sc = SimConfig()
-    assert sc.train_n_sims is None
-
-
-def test_sim_config_train_n_sims_override() -> None:
-    sc = SimConfig(train_n_sims=300)
-    assert sc.train_n_sims == 300

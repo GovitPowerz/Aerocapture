@@ -3,18 +3,15 @@
 from __future__ import annotations
 
 import math
-from unittest.mock import patch
 
 import numpy as np
 import pytest
-from aerocapture.training.evaluate import decode_direct
+from aerocapture.training.encoding import nn_param_specs_from_architecture
 from aerocapture.training.initialization import compute_layer_bound, generate_initialized_weights
-from aerocapture.training.population import create_initial_population, encode_weights_to_chromosome
+from aerocapture.training.population import create_nn_initial_population
 from aerocapture.training.weight_stats import compute_weight_stats
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
-from tests.fixtures.factories import make_training_config
 
 
 class TestComputeLayerBound:
@@ -138,48 +135,38 @@ class TestComputeWeightStats:
         assert stats["layer_0_b"]["std"] == 0.0
 
 
-class TestEncodeDecodeRoundtrip:
-    def test_initialized_weights_survive_roundtrip(self) -> None:
-        """generate_initialized_weights -> encode -> decode ≈ original (within quantization)."""
-        config = make_training_config("neural_network")
-        rng = np.random.default_rng(42)
-        original = generate_initialized_weights(config.network.layer_sizes, config.network.activations, rng)
-        chrom = encode_weights_to_chromosome(original, config)
-        decoded = decode_direct(chrom, config)
-        # 16-bit quantization over [-3, 3]: max error = 6 / 65535 ≈ 9.15e-5
-        np.testing.assert_allclose(decoded, original, atol=1e-4)
-
-
-class TestPopulationSmartInit:
-    def test_nn_population_uses_smart_init(self) -> None:
-        """create_initial_population for NN produces weights with std << 1.73 (uniform [-3,3])."""
-        config = make_training_config("neural_network")
-        config.ga.n_pop = 4
+class TestNNPopulationInit:
+    def test_nn_population_shape_and_bounds(self) -> None:
+        """create_nn_initial_population returns correct shape in [0, 1]."""
+        layer_sizes = [6, 12, 2]
+        activations = ["tanh", "asinh"]
+        n_pop = 10
         rng = np.random.default_rng(42)
 
-        # Mock evaluate_chromosome to avoid running the actual simulator
-        with (
-            patch("aerocapture.training.population.evaluate_chromosome", return_value=(1.0, None)),
-            patch("aerocapture.training.population.improve_chromosome", return_value=(np.zeros(config.chrom_length, dtype=np.int8), 1.0, 0.0)),
-        ):
-            population, costs = create_initial_population(config, np.zeros(config.network.n_coef), rng=rng, verbose=False)
+        pop = create_nn_initial_population(layer_sizes, activations, n_pop, rng)
 
-        # Decode all chromosomes and check weight distribution
-        all_decoded = np.array([decode_direct(chrom, config) for chrom in population])
-        # Xavier init for [6,12,2] produces std ~0.3-0.4, far below uniform [-3,3] std ~1.73
-        assert all_decoded.std() < 0.5, f"Expected std < 0.5 for Xavier init, got {all_decoded.std():.3f}"
+        specs = nn_param_specs_from_architecture(layer_sizes, activations)
+        assert pop.shape == (n_pop, len(specs))
+        assert np.all(pop >= 0.0)
+        assert np.all(pop <= 1.0)
 
-    def test_non_nn_uses_random_init(self) -> None:
-        """Non-NN guidance still uses random binary chromosomes."""
-        config = make_training_config("equilibrium_glide")
-        config.ga.n_pop = 4
+    def test_nn_population_with_seed_weights(self) -> None:
+        """Seed weights are used for the first individual."""
+        layer_sizes = [6, 12, 2]
+        activations = ["tanh", "asinh"]
         rng = np.random.default_rng(42)
+        seed_w = generate_initialized_weights(layer_sizes, activations, rng)
 
-        with (
-            patch("aerocapture.training.population.evaluate_chromosome", return_value=(1.0, None)),
-            patch("aerocapture.training.population.improve_chromosome", return_value=(np.zeros(config.chrom_length, dtype=np.int8), 1.0, 0.0)),
-        ):
-            population, costs = create_initial_population(config, np.zeros(config.network.n_coef), rng=rng, verbose=False)
-
-        # Non-NN: random bits decode to values spread across [-3, 3]
-        assert population.shape == (4, config.chrom_length)
+        pop = create_nn_initial_population(
+            layer_sizes,
+            activations,
+            5,
+            np.random.default_rng(0),
+            seed_weights=seed_w,
+        )
+        # First individual should be close to seed_weights when decoded
+        specs = nn_param_specs_from_architecture(layer_sizes, activations)
+        for j, s in enumerate(specs):
+            decoded = s.p_min + pop[0, j] * (s.p_max - s.p_min)
+            if j < len(seed_w):
+                assert abs(decoded - seed_w[j]) < 1e-10, f"param {j}: decoded={decoded}, seed={seed_w[j]}"

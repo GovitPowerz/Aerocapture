@@ -10,33 +10,48 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("toml", type=str)
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--n-gen", type=int, default=100)
-    parser.add_argument("--n-pop", type=int, default=50)
-    parser.add_argument("--mutation-rate", type=float, default=None)
-    parser.add_argument("--train-n-sims", type=int, default=None)
+    parser.add_argument("--n-gen", type=int, default=None)
+    parser.add_argument("--n-pop", type=int, default=None)
     parser.add_argument("--final-n-sims", type=int, default=1000)
+    parser.add_argument("--algorithm", type=str, default=None)
+    parser.add_argument("--adaptive-seeds", action="store_true")
+    parser.add_argument("--seed-pool-cap", type=int, default=None)
+    parser.add_argument("--cost-alpha", type=float, default=None)
+    parser.add_argument("--sim-timeout", type=float, default=None)
     return parser
 
 
-def test_mutation_rate_default_none() -> None:
+def test_algorithm_default_none() -> None:
     parser = _build_parser()
     args = parser.parse_args(["dummy.toml"])
-    assert args.mutation_rate is None
+    assert args.algorithm is None
 
 
-def test_mutation_rate_override() -> None:
+def test_algorithm_override() -> None:
     parser = _build_parser()
-    args = parser.parse_args(["dummy.toml", "--mutation-rate", "0.05"])
-    assert args.mutation_rate == 0.05
+    args = parser.parse_args(["dummy.toml", "--algorithm", "de"])
+    assert args.algorithm == "de"
 
 
-def test_train_n_sims_default_none() -> None:
+def test_n_gen_default_none() -> None:
     parser = _build_parser()
     args = parser.parse_args(["dummy.toml"])
-    assert args.train_n_sims is None
+    assert args.n_gen is None
 
 
-def test_train_n_sims_override() -> None:
+def test_n_pop_default_none() -> None:
     parser = _build_parser()
-    args = parser.parse_args(["dummy.toml", "--train-n-sims", "300"])
-    assert args.train_n_sims == 300
+    args = parser.parse_args(["dummy.toml"])
+    assert args.n_pop is None
+
+
+def test_seed_pool_cap_default_none() -> None:
+    parser = _build_parser()
+    args = parser.parse_args(["dummy.toml"])
+    assert args.seed_pool_cap is None
+
+
+def test_adaptive_seeds_default_false() -> None:
+    parser = _build_parser()
+    args = parser.parse_args(["dummy.toml"])
+    assert args.adaptive_seeds is False

@@ -40,35 +40,33 @@ class TrainingLogger:
     def log_generation(
         self,
         generation: int,
-        populations: list[npt.NDArray[np.int8]],
-        costs: list[npt.NDArray[np.float64]],
-        best_chromosome: npt.NDArray[np.int8],
-        decode_fn: Callable[[npt.NDArray[np.int8]], dict[str, float]] | None,
+        population: npt.NDArray[np.float64],
+        costs: npt.NDArray[np.float64],
+        best_individual: npt.NDArray[np.float64],
+        decode_fn: Callable[[npt.NDArray[np.float64]], dict[str, float]] | None,
         weight_stats: dict[str, dict[str, float]] | None = None,
         mc_seed: int | None = None,
         pool_metrics: dict | None = None,
         gen_elapsed_s: float | None = None,
-        gen_best_chromosome: npt.NDArray[np.int8] | None = None,
+        gen_best_individual: npt.NDArray[np.float64] | None = None,
+        validation: dict | None = None,
     ) -> None:
         """Log metrics for one generation."""
-        all_chroms = np.vstack(populations)
-        all_costs = np.concatenate(costs)
-
-        stats = cost_stats(all_costs)
+        stats = cost_stats(costs)
         # In adaptive-seed mode, use pool's per-seed capture rate (honest metric).
-        # The default capture_rate(all_costs) is meaningless when costs are aggregated fitness.
-        cap_rate = pool_metrics["capture_rate"] if pool_metrics is not None and "capture_rate" in pool_metrics else capture_rate(all_costs)
-        diversity = population_diversity(all_chroms)
+        # The default capture_rate(costs) is meaningless when costs are aggregated fitness.
+        cap_rate = pool_metrics["capture_rate"] if pool_metrics is not None and "capture_rate" in pool_metrics else capture_rate(costs)
+        diversity = population_diversity(population)
 
         gen_best = stats["best"]
         improved = gen_best < self._best_cost
         if improved:
             self._best_cost = gen_best
 
-        best_params = decode_fn(best_chromosome) if decode_fn is not None else None
-        gen_best_params = decode_fn(gen_best_chromosome) if decode_fn is not None and gen_best_chromosome is not None else None
+        best_params = decode_fn(best_individual) if decode_fn is not None else None
+        gen_best_params = decode_fn(gen_best_individual) if decode_fn is not None and gen_best_individual is not None else None
 
-        constraint_violation_rate = float(np.mean(all_costs > np.median(all_costs) * 2)) if len(all_costs) > 0 else 0.0
+        constraint_violation_rate = float(np.mean(costs > np.median(costs) * 2)) if len(costs) > 0 else 0.0
 
         record = {
             "generation": generation,
@@ -87,7 +85,7 @@ class TrainingLogger:
             "improvement": improved,
             "scheme": self._scheme,
             "config_hash": self._config_hash,
-            "all_costs": all_costs.tolist(),
+            "all_costs": costs.tolist(),
         }
 
         if weight_stats is not None:
@@ -101,6 +99,9 @@ class TrainingLogger:
 
         if gen_elapsed_s is not None:
             record["gen_elapsed_s"] = round(gen_elapsed_s, 3)
+
+        if validation is not None:
+            record["validation"] = validation
 
         self._buffer.append(record)
         self._file.write(json.dumps(record) + "\n")
