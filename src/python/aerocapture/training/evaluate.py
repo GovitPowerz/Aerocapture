@@ -187,9 +187,13 @@ def log_cap(dv: npt.NDArray[np.float64], threshold: float = 1000.0) -> npt.NDArr
 # cost grows on the non-capture side.
 _DV_PENALTY_SCALE = 10000.0
 
-# Sharpness of the softplus knee at the threshold. Larger = sharper wall.
+# Sharpness of the softplus knee at the DV threshold. Larger = sharper wall.
 # k=0.01 gives ~200 m/s transition width (captures < 500 m/s are untouched).
 _DV_KNEE_SHARPNESS = 0.01
+
+# Sharpness of the softplus knee for constraint penalties. Operates on
+# normalized fractions (val-limit)/limit, so k=100 means ~1% transition.
+_CONSTRAINT_KNEE_SHARPNESS = 100.0
 
 
 def _softplus(x: npt.NDArray[np.float64], k: float) -> npt.NDArray[np.float64]:
@@ -254,10 +258,10 @@ def compute_cost(
 
     costs = dv_cost(dv_total, threshold=dv_threshold)
 
-    g_penalty = np.sqrt(g_load_weight * np.maximum((g_max - g_load_limit) / g_load_limit, 0) ** 2)
-    q_penalty = np.sqrt(heat_flux_weight * np.maximum((q_max - heat_flux_limit) / heat_flux_limit, 0) ** 2)
+    g_penalty = np.sqrt(g_load_weight) * _softplus((g_max - g_load_limit) / g_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
+    q_penalty = np.sqrt(heat_flux_weight) * _softplus((q_max - heat_flux_limit) / heat_flux_limit, _CONSTRAINT_KNEE_SHARPNESS)
     heat_load = final_conditions[:, 28] * 1e3  # MJ/m2 -> kJ/m2
-    hl_penalty = np.sqrt(heat_load_weight * np.maximum((heat_load - heat_load_limit) / heat_load_limit, 0) ** 2)
+    hl_penalty = np.sqrt(heat_load_weight) * _softplus((heat_load - heat_load_limit) / heat_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
     costs = costs + g_penalty + q_penalty + hl_penalty
 
     return float(np.sqrt(np.mean(costs**2)))
