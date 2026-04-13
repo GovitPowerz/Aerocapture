@@ -212,7 +212,7 @@ def dv_cost(dv: npt.NDArray[np.float64], threshold: float = 1000.0) -> npt.NDArr
     result = np.empty_like(dv)
     result[below] = dv[below]
     x = dv[~below] - threshold
-    result[~below] = threshold + x + x**2 / (2.0 * s)
+    result[~below] = threshold + np.sqrt(x + x**2 / (2.0 * s))
     return result
 
 
@@ -246,10 +246,10 @@ def compute_cost(
 
     costs = dv_cost(dv_total, threshold=dv_threshold)
 
-    g_penalty = g_load_weight * np.maximum((g_max - g_load_limit) / g_load_limit, 0) ** 2
-    q_penalty = heat_flux_weight * np.maximum((q_max - heat_flux_limit) / heat_flux_limit, 0) ** 2
+    g_penalty = np.sqrt(g_load_weight * np.maximum((g_max - g_load_limit) / g_load_limit, 0) ** 2)
+    q_penalty = np.sqrt(heat_flux_weight * np.maximum((q_max - heat_flux_limit) / heat_flux_limit, 0) ** 2)
     heat_load = final_conditions[:, 28] * 1e3  # MJ/m2 -> kJ/m2
-    hl_penalty = heat_load_weight * np.maximum((heat_load - heat_load_limit) / heat_load_limit, 0) ** 2
+    hl_penalty = np.sqrt(heat_load_weight * np.maximum((heat_load - heat_load_limit) / heat_load_limit, 0) ** 2)
     costs = costs + g_penalty + q_penalty + hl_penalty
 
     return float(np.sqrt(np.mean(costs**2)))
