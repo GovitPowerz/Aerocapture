@@ -436,10 +436,12 @@ def train(
                 # carry parent fitness from the previous generation's seeds.
                 # Re-evaluate the full population on the current seeds so all
                 # costs are comparable within this generation.
+                # Note: Evaluator().eval() skips individuals that already have F,
+                # so we call _run_batch directly and write F back to the population.
                 if config.optimizer.training_n_sims > 1 and seed_pool is None:
-                    Evaluator().eval(problem, pop)
+                    costs = problem._run_batch(X)
+                    pop.set("F", costs.reshape(-1, 1))
                     F = pop.get("F")
-                    costs = F[:, 0]
 
                 # Track best
                 gen_best_idx = int(np.argmin(costs))
