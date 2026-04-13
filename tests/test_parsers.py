@@ -133,4 +133,4 @@ class TestComputeCost:
         final[0, 41] = 12000.0  # Rust assigns 10000 + excess_velocity for hyperbolic
 
         cost = compute_cost(final)
-        assert cost > 3000  # Log-capped but still high
+        assert cost > 1000  # Above threshold, penalized for non-capture

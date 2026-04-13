@@ -190,21 +190,18 @@ _DV_PENALTY_SCALE = 10000.0
 
 
 def dv_cost(dv: npt.NDArray[np.float64], threshold: float = 1000.0) -> npt.NDArray[np.float64]:
-    """C1-continuous quadratic-penalty DV cost: linear below threshold, quadratic above.
+    """Square-root penalty DV cost: linear below threshold, sqrt-compressed above.
 
     Below threshold (captured trajectories): cost = dv (linear, slope = 1).
-    Above threshold (non-captures): cost = T + x + x^2/(2*S), where x = dv - T.
-    The linear term ensures C1 continuity (slope = 1 at the join); the
-    quadratic term adds accelerating growth so non-captures have strong,
-    always-increasing gradient -- unlike log_cap which flattens to near-zero.
+    Above threshold (non-captures): cost = T + sqrt(x + x^2/(2*S)), where x = dv - T.
+    The sqrt provides moderate compression of non-capture costs while maintaining
+    monotonicity and nonzero gradient everywhere above threshold.
 
     Properties:
         - C0 continuous at threshold: both sides evaluate to T
-        - C1 continuous at threshold: both sides have derivative 1
         - Monotonically increasing for all dv > 0
-        - Derivative: 1 + (dv - T) / S for dv > T (always >= 1)
-        - dv=10000: cost=14050, slope=1.9 (vs log_cap: 3302, slope=0.1)
-        - dv=20000: cost=38050, slope=2.9 (vs log_cap: 3996, slope=0.05)
+        - dv=10000: cost~1114 (vs log_cap: 3302)
+        - dv=20000: cost~1193 (vs log_cap: 3996)
     """
     dv = np.maximum(dv, 1e-6)  # safety floor
     s = _DV_PENALTY_SCALE

@@ -852,6 +852,17 @@ fn run_single(
             }
         }
 
+        // Populate GNC context on event records from this tick's state
+        // (GNC quantities are constant within a tick, so the current values apply)
+        let n_prev_events = sim.event_records.len() - adaptive_events.len();
+        for rec in sim.event_records[n_prev_events..].iter_mut() {
+            rec.bank_angle_deg = sim.bank_angle / DEG_TO_RAD;
+            rec.aoa_deg = sim.aoa / DEG_TO_RAD;
+            rec.cumulative_bank_change_deg = cumulative_bank_change_deg;
+            rec.guidance_phase = guidance_phase_for_photo as f64;
+            rec.density_gain = nav_filter.density_gain();
+        }
+
         let (altitude, _lat_geo) =
             geodetic_from_spherical(sim.state[0], sim.state[1], sim.state[2], planet);
 
@@ -1129,6 +1140,11 @@ fn run_single(
                 planet,
                 data,
                 &run_state,
+                record.bank_angle_deg,
+                record.aoa_deg,
+                record.cumulative_bank_change_deg,
+                record.guidance_phase,
+                record.density_gain,
             ));
         }
         photo_lines.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal));
@@ -1254,14 +1270,20 @@ fn build_photo_values(
 ///
 /// Computes the same physics quantities as `build_photo_values` but uses the event
 /// state directly. GNC-dependent values (bank_angle, aoa, cumulative_bank_change,
-/// phase, density_gain, density_estimate) are zeroed because events occur between
-/// GNC ticks and those quantities are not available.
+/// phase, density_gain) are carried from the enclosing tick because events occur
+/// mid-tick and GNC quantities are constant within a tick.
+#[allow(clippy::too_many_arguments)]
 fn build_event_photo_values(
     state: &[f64; 8],
     event_time: f64,
     planet: &PlanetConfig,
     data: &SimData,
     run_state: &init::RunState,
+    bank_angle_deg: f64,
+    aoa_deg: f64,
+    cumulative_bank_change_deg: f64,
+    guidance_phase: f64,
+    density_gain: f64,
 ) -> [f64; 30] {
     let (altitude, latitude) = geodetic_from_spherical(state[0], state[1], state[2], planet);
 
@@ -1315,20 +1337,20 @@ fn build_event_photo_values(
         orbit.raan / DEG_TO_RAD,        // [10] raan_deg
         orbit.periapsis_alt / 1e3,      // [11] periapsis_alt_km
         orbit.apoapsis_alt / 1e3,       // [12] apoapsis_alt_km
-        0.0,                            // [13] phase (unknown between ticks)
-        0.0,                            // [14] bank_angle_deg (unknown between ticks)
+        guidance_phase,                  // [13] phase (from enclosing tick)
+        bank_angle_deg,                 // [14] bank_angle_deg (from enclosing tick)
         velocity_radial,                // [15] radial_velocity_m_s
-        0.0,                            // [16] aoa_deg (unknown between ticks)
-        0.0,                            // [17] cumulative_bank_change_deg (not tracked at event)
+        aoa_deg,                        // [16] aoa_deg (from enclosing tick)
+        cumulative_bank_change_deg,     // [17] cumulative_bank_change_deg (from enclosing tick)
         energy,                         // [18] energy_j_kg
         pdyn,                           // [19] dynamic_pressure_pa
         velocity_radial, // [20] radial_velocity_2 (duplicate, matches build_photo_values)
-        0.0,             // [21] dynamic_pressure_onboard_kpa (no nav estimate at event)
+        0.0,             // [21] dynamic_pressure_onboard_kpa (no nav estimate at event time)
         0.0,             // [22] sim_index (not applicable for event rows)
         0.0,             // [23] reserved
         heat_flux / 1e3, // [24] heat_flux_kw_m2
         load_factor / G0, // [25] g_load_g
-        0.0,             // [26] nav_density_ratio (no nav at event)
+        density_gain,    // [26] nav_density_ratio (from enclosing tick)
         rho_truth,       // [27] truth_density_kg_m3
         cumulative_flux / 1e3, // [28] heat_load_kj_m2
         run_state.density_perturbation, // [29] density_perturbation
@@ -1422,11 +1444,16 @@ fn integrate_adaptive_with_events(
             ) {
                 let event = &event_defs[triggered.event_index];
 
-                // Record this event
+                // Record this event (GNC fields populated by caller after return)
                 sim.event_records.push(EventRecord {
                     time: triggered.time,
                     state: triggered.state,
                     event_type: event.event_type,
+                    bank_angle_deg: 0.0,
+                    aoa_deg: 0.0,
+                    cumulative_bank_change_deg: 0.0,
+                    guidance_phase: 0.0,
+                    density_gain: 0.0,
                 });
 
                 // Rewind state to the event location
