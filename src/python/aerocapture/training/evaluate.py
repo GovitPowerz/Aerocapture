@@ -171,16 +171,48 @@ def _run_via_subprocess(config: TrainingConfig, cwd: str | Path | None = None) -
 def log_cap(dv: npt.NDArray[np.float64], threshold: float = 1000.0) -> npt.NDArray[np.float64]:
     """C1-continuous log-capped cost: linear below threshold, log above.
 
-    Properties:
-        - C0 continuous at threshold: both sides evaluate to T
-        - C1 continuous at threshold: both sides have derivative 1
-        - Monotonically increasing for all dv > 0
+    DEPRECATED: kept for backward compatibility. Use dv_cost() instead.
+    log_cap compresses the non-capture range (10000-20000) into 3302-3996,
+    creating a near-flat plateau that starves the optimizer of gradient.
     """
     dv = np.maximum(dv, 1e-6)  # safety floor
     below = dv <= threshold
     result = np.empty_like(dv)
     result[below] = dv[below]
     result[~below] = threshold * (1.0 + np.log(dv[~below] / threshold))
+    return result
+
+
+# Scale for the quadratic growth above threshold. Controls how fast the
+# cost grows on the non-capture side. With S=10000, slope at dv=10000
+# is 1.9 and at dv=20000 is 2.9 (vs 0.1/0.05 for log_cap).
+_DV_PENALTY_SCALE = 10000.0
+
+
+def dv_cost(dv: npt.NDArray[np.float64], threshold: float = 1000.0) -> npt.NDArray[np.float64]:
+    """C1-continuous quadratic-penalty DV cost: linear below threshold, quadratic above.
+
+    Below threshold (captured trajectories): cost = dv (linear, slope = 1).
+    Above threshold (non-captures): cost = T + x + x^2/(2*S), where x = dv - T.
+    The linear term ensures C1 continuity (slope = 1 at the join); the
+    quadratic term adds accelerating growth so non-captures have strong,
+    always-increasing gradient -- unlike log_cap which flattens to near-zero.
+
+    Properties:
+        - C0 continuous at threshold: both sides evaluate to T
+        - C1 continuous at threshold: both sides have derivative 1
+        - Monotonically increasing for all dv > 0
+        - Derivative: 1 + (dv - T) / S for dv > T (always >= 1)
+        - dv=10000: cost=14050, slope=1.9 (vs log_cap: 3302, slope=0.1)
+        - dv=20000: cost=38050, slope=2.9 (vs log_cap: 3996, slope=0.05)
+    """
+    dv = np.maximum(dv, 1e-6)  # safety floor
+    s = _DV_PENALTY_SCALE
+    below = dv <= threshold
+    result = np.empty_like(dv)
+    result[below] = dv[below]
+    x = dv[~below] - threshold
+    result[~below] = threshold + x + x**2 / (2.0 * s)
     return result
 
 
@@ -191,13 +223,13 @@ def compute_cost(
     g_load_limit: float = 15.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
     heat_flux_limit: float = 200.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
     heat_load_limit: float = 25000.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
-    g_load_weight: float = 1000.0,
-    heat_flux_weight: float = 1000.0,
-    heat_load_weight: float = 1000.0,
+    g_load_weight: float = 10000.0,
+    heat_flux_weight: float = 10000.0,
+    heat_load_weight: float = 10000.0,
 ) -> float:
     """Compute RMS cost from simulation final conditions.
 
-    Uses log-capped delta-V as the primary objective with normalized
+    Uses quadratic-penalty DV cost as the primary objective with normalized
     soft constraint penalties for g-load, heat flux, and heat load exceedances.
 
     All termination outcomes produce meaningful DV values from Rust:
@@ -212,7 +244,7 @@ def compute_cost(
     g_max = final_conditions[:, 17]
     q_max = final_conditions[:, 16]
 
-    costs = log_cap(dv_total, threshold=dv_threshold)
+    costs = dv_cost(dv_total, threshold=dv_threshold)
 
     g_penalty = g_load_weight * np.maximum((g_max - g_load_limit) / g_load_limit, 0) ** 2
     q_penalty = heat_flux_weight * np.maximum((q_max - heat_flux_limit) / heat_flux_limit, 0) ** 2

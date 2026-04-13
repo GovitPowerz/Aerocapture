@@ -47,9 +47,9 @@ level = "medium"
 [cost_function]
 dv_threshold = 1000.0
 # Constraint limits come from [flight.constraints] in the mission TOML
-g_load_weight = 1000.0
-heat_flux_weight = 1000.0
-heat_load_weight = 1000.0
+g_load_weight = 10000.0
+heat_flux_weight = 10000.0
+heat_load_weight = 10000.0
 
 [optimizer]
 algorithm = "ga"
