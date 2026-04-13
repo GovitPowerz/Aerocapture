@@ -12,7 +12,7 @@ from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
 
 _VALID_ALGORITHMS = ("ga", "cma_es", "de", "pso")
-_CMAES_MAX_PARAMS = 200
+_CMAES_MAX_PARAMS = 2000
 
 
 @dataclass
