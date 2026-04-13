@@ -38,8 +38,8 @@ while [ $# -gt 0 ]; do
         --n-pop)         OPT_N_POP="$2"; shift 2 ;;
         --final-n-sims)  OPT_FINAL_N_SIMS="$2"; shift 2 ;;
         --sim-timeout)   OPT_SIM_TIMEOUT="$2"; shift 2 ;;
-        --algorithm)     OPT_ALGORITHM="$2"; shift 2 ;;
-        --from-scratch)  OPT_FROM_SCRATCH="1"; shift ;;
+        --algorithm|-alg) OPT_ALGORITHM="$2"; shift 2 ;;
+        --from-scratch|-fs) OPT_FROM_SCRATCH="1"; shift ;;
         *)               SCHEMES+=("$1"); shift ;;
     esac
 done
