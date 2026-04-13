@@ -26,53 +26,44 @@ class TestLogCap:
 
 
 class TestDvCost:
-    """Tests for the C1-continuous quadratic-penalty DV cost function."""
+    """Tests for the C-infinity softplus-quadratic DV cost function."""
 
-    def test_linear_below_threshold(self) -> None:
-        dv = np.array([100.0, 500.0, 999.0])
-        result = dv_cost(dv, threshold=1000.0)
-        np.testing.assert_array_almost_equal(result, dv)
+    def test_captures_nearly_untouched(self) -> None:
+        """Low DV values (captures) should be barely affected by the softplus tail."""
+        for dv_val in [50.0, 100.0, 200.0]:
+            result = dv_cost(np.array([dv_val]), threshold=1000.0)[0]
+            assert abs(result - dv_val) < 1.0
 
-    def test_above_threshold(self) -> None:
-        dv = np.array([10000.0])
-        result = dv_cost(dv, threshold=1000.0)[0]
-        x = 9000.0
-        expected = 1000.0 + np.sqrt(x + x**2 / 20000.0)
-        assert abs(result - expected) < 1e-6
+    def test_strong_gradient_above_threshold(self) -> None:
+        """Non-capture cost should be much higher than threshold."""
+        result = dv_cost(np.array([10000.0]), threshold=1000.0)[0]
+        assert result > 20000  # ~23050 expected
 
-    def test_c0_continuity_at_threshold(self) -> None:
+    def test_c_infinity_at_threshold(self) -> None:
+        """Slope should be continuous through the threshold (no kink)."""
         t = 1000.0
-        below = dv_cost(np.array([t - 1e-4]), threshold=t)[0]
-        above = dv_cost(np.array([t + 1e-4]), threshold=t)[0]
-        assert abs(below - above) < 0.1
-
-    def test_c0_but_not_c1_at_threshold(self) -> None:
-        """sqrt formula is C0 continuous but has infinite right derivative at threshold."""
-        t = 1000.0
-        eps = 1e-6
-        left_deriv = (dv_cost(np.array([t]), t)[0] - dv_cost(np.array([t - eps]), t)[0]) / eps
-        assert abs(left_deriv - 1.0) < 1e-3
-        # Right derivative is very large (sqrt singularity at x=0)
-        right_deriv = (dv_cost(np.array([t + eps]), t)[0] - dv_cost(np.array([t]), t)[0]) / eps
-        assert right_deriv > 100  # infinite in the limit
+        eps = 0.01
+        left_slope = (dv_cost(np.array([t]), t)[0] - dv_cost(np.array([t - eps]), t)[0]) / eps
+        right_slope = (dv_cost(np.array([t + eps]), t)[0] - dv_cost(np.array([t]), t)[0]) / eps
+        assert abs(left_slope - right_slope) < 0.01  # smooth transition
 
     def test_safety_floor(self) -> None:
         result = dv_cost(np.array([0.0, -1.0]), threshold=1000.0)
         assert np.all(np.isfinite(result))
 
-    def test_nonzero_gradient_at_non_capture(self) -> None:
-        """Slope should be positive everywhere above threshold."""
+    def test_strong_far_gradient(self) -> None:
+        """Slope at dv=10000 should be ~2.9, much stronger than log_cap's 0.1."""
         eps = 1.0
-        for dv in [2000.0, 5000.0, 10000.0, 20000.0]:
-            v1 = dv_cost(np.array([dv]))[0]
-            v2 = dv_cost(np.array([dv + eps]))[0]
-            assert v2 > v1
+        v1 = dv_cost(np.array([10000.0]))[0]
+        v2 = dv_cost(np.array([10000.0 + eps]))[0]
+        slope = v2 - v1
+        assert slope > 2.5
 
-    def test_cost_spread_for_non_captures(self) -> None:
-        """Non-capture range should have meaningful cost spread."""
+    def test_wide_cost_spread_for_non_captures(self) -> None:
+        """Non-capture range should span >30000 cost (vs ~700 for log_cap)."""
         barely_hyper = dv_cost(np.array([10000.0]))[0]
         early_crash = dv_cost(np.array([20000.0]))[0]
-        assert early_crash > barely_hyper
+        assert early_crash - barely_hyper > 30000
 
     @given(st.floats(min_value=0.01, max_value=1e6))
     @settings(max_examples=200)
@@ -102,14 +93,14 @@ class TestUnifiedComputeCost:
     def test_non_capture_has_high_cost(self) -> None:
         final = self._make_final(5, dv=10000.0, g=5.0, q=50.0)
         cost = compute_cost(final)
-        # dv_cost(10000) = 1000 + sqrt(9000 + 9000^2/20000) = 1000 + sqrt(13050) ~ 1114
-        assert 1100 < cost < 1200
+        # dv_cost(10000) ~ 23050 (softplus-quadratic)
+        assert 22000 < cost < 24000
 
     def test_crash_dv_produces_very_high_cost(self) -> None:
         final = self._make_final(5, dv=20000.0, g=5.0, q=50.0)
         cost = compute_cost(final)
-        # dv_cost(20000) = 1000 + sqrt(19000 + 19000^2/20000) = 1000 + sqrt(37050) ~ 1192
-        assert 1150 < cost < 1250
+        # dv_cost(20000) ~ 57050 (softplus-quadratic)
+        assert 56000 < cost < 58000
 
     def test_cost_ordering(self) -> None:
         good = compute_cost(self._make_final(5, dv=200.0))
@@ -145,11 +136,11 @@ class TestUnifiedComputeCost:
         assert abs(cost_no_hl - cost_with_hl) < 1e-10
 
     def test_custom_dv_threshold(self) -> None:
-        """Higher threshold means more of the DV is in the linear regime."""
+        """Lower threshold activates penalty earlier, so cost is higher."""
         final = self._make_final(5, dv=5000.0, g=5.0, q=50.0)
         cost_low_t = compute_cost(final, dv_threshold=500.0)
         cost_high_t = compute_cost(final, dv_threshold=2000.0)
-        assert cost_low_t < cost_high_t
+        assert cost_low_t > cost_high_t
 
     def test_zero_dv_produces_finite_cost(self) -> None:
         """DV=0 (safety floor) should produce a near-zero finite cost."""

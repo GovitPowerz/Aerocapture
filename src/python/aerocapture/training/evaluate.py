@@ -184,33 +184,44 @@ def log_cap(dv: npt.NDArray[np.float64], threshold: float = 1000.0) -> npt.NDArr
 
 
 # Scale for the quadratic growth above threshold. Controls how fast the
-# cost grows on the non-capture side. With S=10000, slope at dv=10000
-# is 1.9 and at dv=20000 is 2.9 (vs 0.1/0.05 for log_cap).
+# cost grows on the non-capture side.
 _DV_PENALTY_SCALE = 10000.0
+
+# Sharpness of the softplus knee at the threshold. Larger = sharper wall.
+# k=0.01 gives ~200 m/s transition width (captures < 500 m/s are untouched).
+_DV_KNEE_SHARPNESS = 0.01
+
+
+def _softplus(x: npt.NDArray[np.float64], k: float) -> npt.NDArray[np.float64]:
+    """Numerically stable softplus: ln(1 + exp(k*x)) / k."""
+    kx = k * x
+    return np.where(kx > 20.0, x, np.log1p(np.exp(kx)) / k)
 
 
 def dv_cost(dv: npt.NDArray[np.float64], threshold: float = 1000.0) -> npt.NDArray[np.float64]:
-    """Square-root penalty DV cost: linear below threshold, sqrt-compressed above.
+    """C-infinity softplus-quadratic DV cost function.
 
-    Below threshold (captured trajectories): cost = dv (linear, slope = 1).
-    Above threshold (non-captures): cost = T + sqrt(x + x^2/(2*S)), where x = dv - T.
-    The sqrt provides moderate compression of non-capture costs while maintaining
-    monotonicity and nonzero gradient everywhere above threshold.
+    Uses softplus to smoothly transition from linear (captures) to
+    quadratic penalty (non-captures). The softplus replaces the hard
+    max(0, dv-T) knee with a C-infinity smooth version, while the
+    quadratic term provides strong, always-increasing gradient on the
+    non-capture side.
+
+    cost(dv) = dv + sp(dv-T) + sp(dv-T)^2 / (2*S)
+
+    where sp(x) = ln(1 + exp(k*x)) / k  (softplus with sharpness k).
 
     Properties:
-        - C0 continuous at threshold: both sides evaluate to T
-        - Monotonically increasing for all dv > 0
-        - dv=10000: cost~1114 (vs log_cap: 3302)
-        - dv=20000: cost~1193 (vs log_cap: 3996)
+        - C-infinity everywhere (no kinks or discontinuities)
+        - Captures nearly untouched: dv=200 -> cost=200.0, dv=500 -> cost=500.7
+        - Wall at threshold: slope rises from 1.0 to 1.5 across ~200 m/s
+        - Strong far gradient: slope=2.9 at dv=10000, slope=3.9 at dv=20000
+        - Wide non-capture spread: dv=10000 -> 23050, dv=20000 -> 57050
     """
     dv = np.maximum(dv, 1e-6)  # safety floor
     s = _DV_PENALTY_SCALE
-    below = dv <= threshold
-    result = np.empty_like(dv)
-    result[below] = dv[below]
-    x = dv[~below] - threshold
-    result[~below] = threshold + np.sqrt(x + x**2 / (2.0 * s))
-    return result
+    x = _softplus(dv - threshold, _DV_KNEE_SHARPNESS)
+    return dv + x + x**2 / (2.0 * s)
 
 
 def compute_cost(
