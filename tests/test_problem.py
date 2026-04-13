@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 import numpy as np
@@ -18,7 +19,7 @@ def _make_specs() -> list[ParamSpec]:
 
 
 class TestProblemShape:
-    def test_n_var(self):
+    def test_n_var(self) -> None:
         p = AerocaptureProblem(
             param_specs=_make_specs(),
             toml_path="dummy.toml",
@@ -28,7 +29,7 @@ class TestProblemShape:
         )
         assert p.n_var == 3
 
-    def test_bounds_zero_one(self):
+    def test_bounds_zero_one(self) -> None:
         p = AerocaptureProblem(
             param_specs=_make_specs(),
             toml_path="dummy.toml",
@@ -39,7 +40,7 @@ class TestProblemShape:
         assert np.all(p.xl == 0.0)
         assert np.all(p.xu == 1.0)
 
-    def test_single_objective(self):
+    def test_single_objective(self) -> None:
         p = AerocaptureProblem(
             param_specs=_make_specs(),
             toml_path="dummy.toml",
@@ -51,7 +52,7 @@ class TestProblemShape:
 
 
 class TestProblemEvaluation:
-    def test_evaluate_returns_correct_shape(self):
+    def test_evaluate_returns_correct_shape(self) -> None:
         specs = _make_specs()
         p = AerocaptureProblem(
             param_specs=specs,
@@ -69,12 +70,12 @@ class TestProblemEvaluation:
             scheme="equilibrium_glide",
         )
         X = np.random.default_rng(0).random((5, 3))
-        out = {}
+        out: dict[str, Any] = {}
         with patch.object(p, "_run_batch", return_value=np.array([100.0, 200.0, 150.0, 300.0, 50.0])):
             p._evaluate(X, out)
         assert out["F"].shape == (5, 1)
 
-    def test_evaluate_values_are_finite(self):
+    def test_evaluate_values_are_finite(self) -> None:
         specs = _make_specs()
         p = AerocaptureProblem(
             param_specs=specs,
@@ -92,14 +93,14 @@ class TestProblemEvaluation:
             scheme="equilibrium_glide",
         )
         X = np.random.default_rng(1).random((3, 3))
-        out = {}
+        out: dict[str, Any] = {}
         with patch.object(p, "_run_batch", return_value=np.array([100.0, 200.0, 150.0])):
             p._evaluate(X, out)
         assert np.all(np.isfinite(out["F"]))
 
 
 class TestSeedUpdate:
-    def test_update_seeds(self):
+    def test_update_seeds(self) -> None:
         p = AerocaptureProblem(
             param_specs=_make_specs(),
             toml_path="dummy.toml",
@@ -113,7 +114,7 @@ class TestSeedUpdate:
 
 
 class TestBuildOverrides:
-    def test_lateral_prefix(self):
+    def test_lateral_prefix(self) -> None:
         p = AerocaptureProblem(
             param_specs=_make_specs(),
             toml_path="dummy.toml",
@@ -125,7 +126,7 @@ class TestBuildOverrides:
         assert overrides["guidance.lateral.tau"] == 30.0
         assert overrides["monte_carlo.seed"] == 42
 
-    def test_nav_prefix(self):
+    def test_nav_prefix(self) -> None:
         p = AerocaptureProblem(
             param_specs=_make_specs(),
             toml_path="dummy.toml",
@@ -136,7 +137,7 @@ class TestBuildOverrides:
         overrides = p._build_overrides({"nav.density_filter_gain": 0.5})
         assert overrides["navigation.density_filter_gain"] == 0.5
 
-    def test_exit_prefix(self):
+    def test_exit_prefix(self) -> None:
         p = AerocaptureProblem(
             param_specs=_make_specs(),
             toml_path="dummy.toml",
@@ -147,7 +148,7 @@ class TestBuildOverrides:
         overrides = p._build_overrides({"exit.exit_velocity_threshold": 4000.0})
         assert overrides["guidance.ftc.exit_velocity_threshold"] == 4000.0
 
-    def test_thermal_prefix(self):
+    def test_thermal_prefix(self) -> None:
         p = AerocaptureProblem(
             param_specs=_make_specs(),
             toml_path="dummy.toml",
@@ -158,7 +159,7 @@ class TestBuildOverrides:
         overrides = p._build_overrides({"thermal.heat_flux_activation": 0.8})
         assert overrides["guidance.thermal_limiter.heat_flux_activation"] == 0.8
 
-    def test_shaping_prefix(self):
+    def test_shaping_prefix(self) -> None:
         p = AerocaptureProblem(
             param_specs=_make_specs(),
             toml_path="dummy.toml",
@@ -169,7 +170,7 @@ class TestBuildOverrides:
         overrides = p._build_overrides({"shaping.max_bank_acceleration": 5.0})
         assert overrides["guidance.command_shaping.max_bank_acceleration"] == 5.0
 
-    def test_unprefixed_goes_to_scheme(self):
+    def test_unprefixed_goes_to_scheme(self) -> None:
         p = AerocaptureProblem(
             param_specs=_make_specs(),
             toml_path="dummy.toml",
@@ -180,7 +181,7 @@ class TestBuildOverrides:
         overrides = p._build_overrides({"hdot_gain": 1.5})
         assert overrides["guidance.equilibrium_glide.hdot_gain"] == 1.5
 
-    def test_n_sims_always_one(self):
+    def test_n_sims_always_one(self) -> None:
         p = AerocaptureProblem(
             param_specs=_make_specs(),
             toml_path="dummy.toml",

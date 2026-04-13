@@ -13,19 +13,19 @@ from aerocapture.training.param_spaces import ParamSpec
 class TestLinearRoundtrip:
     """Normalized [0,1] <-> physical value roundtrip for linear params."""
 
-    def test_midpoint(self):
+    def test_midpoint(self) -> None:
         specs = [ParamSpec("x", 10.0, 20.0, 15.0)]
         physical = decode_normalized(np.array([0.5]), specs)
         assert physical["x"] == pytest.approx(15.0)
 
-    def test_boundaries(self):
+    def test_boundaries(self) -> None:
         specs = [ParamSpec("x", -5.0, 5.0, 0.0)]
         lo = decode_normalized(np.array([0.0]), specs)
         hi = decode_normalized(np.array([1.0]), specs)
         assert lo["x"] == pytest.approx(-5.0)
         assert hi["x"] == pytest.approx(5.0)
 
-    def test_roundtrip(self):
+    def test_roundtrip(self) -> None:
         specs = [ParamSpec("a", 1.0, 100.0, 50.0), ParamSpec("b", -10.0, 10.0, 0.0)]
         original = {"a": 73.5, "b": -3.2}
         normalized = encode_to_normalized(original, specs)
@@ -37,20 +37,20 @@ class TestLinearRoundtrip:
 class TestLogScaleRoundtrip:
     """Normalized [0,1] <-> physical value roundtrip for log-scale params."""
 
-    def test_midpoint_log(self):
+    def test_midpoint_log(self) -> None:
         specs = [ParamSpec("g", 1e-8, 1e-5, 1e-6, log_scale=True)]
         physical = decode_normalized(np.array([0.5]), specs)
         # Midpoint in log10 space: 10^((-8 + -5) / 2) = 10^-6.5
         assert physical["g"] == pytest.approx(10**-6.5)
 
-    def test_boundaries_log(self):
+    def test_boundaries_log(self) -> None:
         specs = [ParamSpec("g", 1e-8, 1e-5, 1e-6, log_scale=True)]
         lo = decode_normalized(np.array([0.0]), specs)
         hi = decode_normalized(np.array([1.0]), specs)
         assert lo["g"] == pytest.approx(1e-8)
         assert hi["g"] == pytest.approx(1e-5)
 
-    def test_roundtrip_log(self):
+    def test_roundtrip_log(self) -> None:
         specs = [ParamSpec("g", 1e-8, 1e-5, 1e-6, log_scale=True)]
         original = {"g": 3.7e-7}
         normalized = encode_to_normalized(original, specs)
@@ -61,7 +61,7 @@ class TestLogScaleRoundtrip:
 class TestMixedParams:
     """Mixed linear + log-scale parameter vectors."""
 
-    def test_multi_param_decode(self):
+    def test_multi_param_decode(self) -> None:
         specs = [
             ParamSpec("tau", 2.0, 60.0, 30.0),
             ParamSpec("gain", 1e-8, 1e-5, 1e-6, log_scale=True),
@@ -73,7 +73,7 @@ class TestMixedParams:
         assert result["gain"] == pytest.approx(1e-5)
         assert result["angle"] == pytest.approx(0.0)
 
-    def test_encode_defaults(self):
+    def test_encode_defaults(self) -> None:
         specs = [
             ParamSpec("tau", 2.0, 60.0, 30.0),
             ParamSpec("gain", 1e-8, 1e-5, 1e-6, log_scale=True),
@@ -90,7 +90,7 @@ class TestMixedParams:
 class TestNNParamSpecs:
     """NN weight bound computation from architecture."""
 
-    def test_layer_count(self):
+    def test_layer_count(self) -> None:
         layer_sizes = [16, 24, 2]
         activations = ["tanh", "tanh"]
         specs = nn_param_specs_from_architecture(layer_sizes, activations, bound_multiplier=2.0)
@@ -98,7 +98,7 @@ class TestNNParamSpecs:
         # Layer 1: 24*2 weights + 2 biases = 50
         assert len(specs) == 458
 
-    def test_weight_bounds_symmetric(self):
+    def test_weight_bounds_symmetric(self) -> None:
         layer_sizes = [16, 24, 2]
         activations = ["tanh", "tanh"]
         specs = nn_param_specs_from_architecture(layer_sizes, activations, bound_multiplier=2.0)
@@ -106,7 +106,7 @@ class TestNNParamSpecs:
             assert s.p_min == pytest.approx(-s.p_max)
             assert s.p_max > 0.0
 
-    def test_xavier_bound_layer0(self):
+    def test_xavier_bound_layer0(self) -> None:
         layer_sizes = [16, 24, 2]
         activations = ["tanh", "tanh"]
         specs = nn_param_specs_from_architecture(layer_sizes, activations, bound_multiplier=1.0)
@@ -115,7 +115,7 @@ class TestNNParamSpecs:
         # First spec is a weight for layer 0
         assert specs[0].p_max == pytest.approx(expected_bound)
 
-    def test_bias_bounds(self):
+    def test_bias_bounds(self) -> None:
         layer_sizes = [16, 24, 2]
         activations = ["tanh", "tanh"]
         specs = nn_param_specs_from_architecture(layer_sizes, activations, bound_multiplier=2.0)
