@@ -128,7 +128,7 @@ class TestCreateAlgorithm:
         cfg = OptimizerConfig(algorithm="cma_es")
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            alg = create_algorithm(cfg, n_params=400)
+            alg = create_algorithm(cfg, n_params=2500)
         assert isinstance(alg, GA)
         assert any("Falling back to GA" in str(w.message) for w in caught)
 
