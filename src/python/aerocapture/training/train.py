@@ -858,7 +858,7 @@ if __name__ == "__main__":
         corridor_acc_init = CorridorAccumulator(energy_min, energy_max, delta_za_restricted=delta_za_r, delta_za_low=delta_za_low, delta_za_high=delta_za_high)
 
     result = train(cfg, seed=args.seed, cwd=cwd, resume_dir=resume_dir, no_tui=args.no_tui, corridor_acc=corridor_acc_init, from_scratch=args.from_scratch)
-    print(f"\nFinal best cost: {result['best_cost']:.4e}")
+    print(f"\nFinal best training cost (RMS over {cfg.optimizer.training_n_sims} seeds): {result['best_cost']:.4e}")
 
     param_specs = result["param_specs"]
 
