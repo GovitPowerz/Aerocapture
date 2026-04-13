@@ -93,7 +93,7 @@ Instead of log-only validation, use validation as a filter: reject a "new best" 
 
 ### 9.6 Validation charts in PDF reports
 
-Add validation cost curves to the training report PDF (`report.py` / `charts.py`). Plot training cost vs validation cost over generations to visualize overfitting. The JSONL data is already there -- just needs chart functions and Typst template updates.
+*(Done -- see Done section below.)*
 
 ### 9.7 Adaptive training_n_sims
 
@@ -160,6 +160,9 @@ Items completed and merged.
 | 7.1 Event detection | 2026-04-07 | DOPRI45 dense output (Hermite continuous extension) + Brent's root-finding locates bounce, atmosphere exit, crash, and phase transition events to ~1 ms precision within adaptive substeps. Fixed RK4 path unchanged. Event records interleaved into trajectory output. See `integration/events.rs` and `integration/dopri45.rs`. |
 | 8.1 Output formats | 2026-04-12 | Parquet output module (`parquet_output.py`): 65-column files (39 final-record + 26 dispersion) with full resolved config metadata. Auto-written alongside PDF reports. Dispersion grid chart now uses three-way trajectory classification (blue/orange/red) with regression on captured only. CSV unchanged. |
 | 9.1 Real-valued optimization | 2026-04-12 | Replaced binary GA (16-bit chromosomes, roulette selection, bit-flip mutation) with pymoo-based real-valued optimization. All algorithms work on normalized [0,1] float arrays. Four algorithms: GA (SBX + polynomial mutation), CMA-ES, DE, PSO -- selectable via `[optimizer] algorithm` in TOML or `--algorithm` CLI. Hybrid loop: pymoo `algorithm.next()` stepping with custom outer loop for adaptive seed pool (K-generation checkpoint updates with full re-evaluation), stress testing, Rich TUI, JSONL logging, and corridor accumulation. `AerocaptureProblem(pymoo.Problem)` subclass handles batch PyO3 evaluation with per-seed cost aggregation (RMS). NN path writes temp JSON weight files per individual. Deleted: `local_search.py`, `migration.py`, binary encoding in `evaluate.py`, `GAConfig`. |
+| 9.1b Epoch seed rotation + validation gate | 2026-04-13 | Each generation draws `training_n_sims` (default 20) fresh random MC seeds. Full population re-evaluated via `_run_batch()` after `algorithm.next()` (pymoo `Evaluator` skips existing F). Validation gate: fixed 1000-seed set (separate RNG) fires periodically + on new best, logs mean/median/std/p95/worst cost + capture rate to JSONL, shown persistently in TUI. Validation cost curves (mean + p95) overlaid on convergence chart in PDF report. `[optimizer]` TOML keys: `training_n_sims`, `validation_n_sims`, `validation_interval`. |
+| 9.1c C-infinity cost function | 2026-04-13 | Replaced log_cap (flat gradient on non-captures: slope 0.1 at dv=10000) with softplus-quadratic `dv_cost`: `cost = dv + sp(dv-T, k=0.01) + sp^2/(2S)`. C-infinity, slope 2.9 at dv=10000 (29x stronger), 34000 cost spread on non-captures (vs 694). Constraint penalties also use softplus (k=100) instead of hard max(0,x) kink. Event photo rows now carry GNC context from enclosing tick (was zeroed, causing trajectory discontinuities). |
+| 9.6 Validation charts | 2026-04-13 | Validation mean (solid green) and p95 (dashed green) overlaid on training convergence chart. Sparse points at gens where validation fired. |
 
 ---
 
