@@ -1,16 +1,48 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Train all guidance schemes with optimized pymoo settings (real-valued GA by default).
+# Train all guidance schemes with optimized pymoo settings.
 # Usage:
-#   ./train_all.sh                    # train all schemes in order
-#   ./train_all.sh eqglide            # train a single scheme
-#   ./train_all.sh ftc fnpag          # train specific schemes
+#   ./train_all.sh                              # train all schemes in order
+#   ./train_all.sh eqglide                      # train a single scheme
+#   ./train_all.sh ftc fnpag                    # train specific schemes
+#   ./train_all.sh --algorithm de               # train all with DE optimizer
+#   ./train_all.sh eqglide --n-gen 500          # override n-gen for eqglide
+#   ./train_all.sh --n-pop 80 --algorithm pso   # all schemes, PSO, pop=80
+#
+# Optional flags (override per-scheme defaults when provided):
+#   --n-gen N           Override generation count
+#   --n-pop N           Override population size
+#   --final-n-sims N    Override final evaluation sims
+#   --sim-timeout N     Override per-sim timeout (seconds)
+#   --algorithm ALG     Override optimizer (ga, de, cma_es, pso)
+#   --from-scratch      Start fresh (no checkpoint resume)
 #
 # Piecewise constant must run first (produces ref trajectory + corridor).
 # All others can run in any order.
 
 TRAIN="uv run python -m aerocapture.training.train"
+
+# Parse optional flags and scheme names from arguments
+SCHEMES=()
+OPT_N_GEN=""
+OPT_N_POP=""
+OPT_FINAL_N_SIMS=""
+OPT_SIM_TIMEOUT=""
+OPT_ALGORITHM=""
+OPT_FROM_SCRATCH=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --n-gen)         OPT_N_GEN="$2"; shift 2 ;;
+        --n-pop)         OPT_N_POP="$2"; shift 2 ;;
+        --final-n-sims)  OPT_FINAL_N_SIMS="$2"; shift 2 ;;
+        --sim-timeout)   OPT_SIM_TIMEOUT="$2"; shift 2 ;;
+        --algorithm)     OPT_ALGORITHM="$2"; shift 2 ;;
+        --from-scratch)  OPT_FROM_SCRATCH="1"; shift ;;
+        *)               SCHEMES+=("$1"); shift ;;
+    esac
+done
 
 # Suppress adaptive integrator step-limit warnings (expected during GA exploration
 # when the optimizer tries degenerate parameter combos that make the ODE stiff).
@@ -18,67 +50,66 @@ run_train() {
     $TRAIN "$@" 2> >(grep -v "WARNING: adaptive integrator hit" >&2)
 }
 
+# Build the extra flags string from overrides
+build_extra_flags() {
+    local extra=""
+    [ -n "$OPT_ALGORITHM" ]     && extra="$extra --algorithm $OPT_ALGORITHM"
+    [ -n "$OPT_FROM_SCRATCH" ]  && extra="$extra --from-scratch"
+    echo "$extra"
+}
+
+# Run a training command with per-scheme defaults, overridable by CLI flags
+run_scheme() {
+    local toml="$1"
+    local default_n_gen="$2"
+    local default_n_pop="$3"
+    local default_final_n_sims="$4"
+    local default_sim_timeout="$5"
+
+    local n_gen="${OPT_N_GEN:-$default_n_gen}"
+    local n_pop="${OPT_N_POP:-$default_n_pop}"
+    local final_n_sims="${OPT_FINAL_N_SIMS:-$default_final_n_sims}"
+    local sim_timeout="${OPT_SIM_TIMEOUT:-$default_sim_timeout}"
+
+    run_train "$toml" \
+        --n-gen "$n_gen" --n-pop "$n_pop" \
+        --final-n-sims "$final_n_sims" --sim-timeout "$sim_timeout" \
+        $(build_extra_flags)
+}
+
 train_piecewise_constant() {
     echo "=== piecewise_constant (11 params) ==="
-    run_train configs/training/msr_aller_piecewise_constant_train.toml \
-        --n-gen 3000 --n-pop 40 \
-        --adaptive-seeds --cost-alpha 0.85 --cvar-percentile 5 \
-        --seed-pool-cap 120 --stress-interval 15 --stress-probes 200 --stress-inject 10 \
-        --final-n-sims 2000 --from-scratch --sim-timeout 1
+    run_scheme configs/training/msr_aller_piecewise_constant_train.toml 3000 40 2000 1
 }
 
 train_ftc() {
     echo "=== ftc (26 params) ==="
-    run_train configs/training/msr_aller_ftc_train.toml \
-        --n-gen 2500 --n-pop 50 \
-        --adaptive-seeds --cost-alpha 0.65 --cvar-percentile 15 \
-        --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
-        --final-n-sims 2000 --from-scratch --sim-timeout 1
+    run_scheme configs/training/msr_aller_ftc_train.toml 2500 50 2000 1
 }
 
 train_eqglide() {
     echo "=== equilibrium_glide (24 params) ==="
-    run_train configs/training/msr_aller_eqglide_train.toml \
-        --n-gen 2500 --n-pop 60 \
-        --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
-        --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
-        --final-n-sims 2000 --from-scratch --sim-timeout 1
+    run_scheme configs/training/msr_aller_eqglide_train.toml 2500 60 2000 1
 }
 
 train_energy_controller() {
     echo "=== energy_controller (20 params) ==="
-    run_train configs/training/msr_aller_energy_controller_train.toml \
-        --n-gen 2500 --n-pop 60 \
-        --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
-        --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
-        --final-n-sims 2000 --from-scratch --sim-timeout 1
+    run_scheme configs/training/msr_aller_energy_controller_train.toml 2500 60 2000 1
 }
 
 train_pred_guid() {
     echo "=== pred_guid (20 params) ==="
-    run_train configs/training/msr_aller_pred_guid_train.toml \
-        --n-gen 2500 --n-pop 60 \
-        --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
-        --seed-pool-cap 150 --stress-interval 10 --stress-probes 300 --stress-inject 15 \
-        --final-n-sims 2000 --from-scratch --sim-timeout 1
+    run_scheme configs/training/msr_aller_pred_guid_train.toml 2500 60 2000 1
 }
 
 train_fnpag() {
     echo "=== fnpag (22 params) ==="
-    run_train configs/training/msr_aller_fnpag_train.toml \
-        --n-gen 600 --n-pop 50 \
-        --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
-        --seed-pool-cap 100 --stress-interval 15 --stress-probes 150 --stress-inject 10 \
-        --final-n-sims 2000 --from-scratch --sim-timeout 1
+    run_scheme configs/training/msr_aller_fnpag_train.toml 600 50 2000 1
 }
 
 train_neural_network() {
     echo "=== neural_network (458 params) ==="
-    run_train configs/training/msr_aller_nn_train_consolidated.toml \
-        --n-gen 1500 --n-pop 120 \
-        --adaptive-seeds --cost-alpha 0.6 --cvar-percentile 15 \
-        --seed-pool-cap 100 --stress-interval 15 --stress-probes 200 --stress-inject 10 \
-        --final-n-sims 2000 --from-scratch --sim-timeout 1
+    run_scheme configs/training/msr_aller_nn_train_consolidated.toml 1500 120 2000 1
 }
 
 train_all() {
@@ -97,11 +128,11 @@ train_all() {
     train_neural_network
 }
 
-# Dispatch: no args = all, otherwise run named schemes
-if [ $# -eq 0 ]; then
+# Dispatch: no schemes = all, otherwise run named schemes
+if [ ${#SCHEMES[@]} -eq 0 ]; then
     train_all
 else
-    for scheme in "$@"; do
+    for scheme in "${SCHEMES[@]}"; do
         case "$scheme" in
             piecewise_constant|piecewise|pc)  train_piecewise_constant ;;
             ftc)                               train_ftc ;;
