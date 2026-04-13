@@ -258,10 +258,10 @@ def compute_cost(
 
     costs = dv_cost(dv_total, threshold=dv_threshold)
 
-    g_penalty = np.sqrt(g_load_weight) * _softplus((g_max - g_load_limit) / g_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
-    q_penalty = np.sqrt(heat_flux_weight) * _softplus((q_max - heat_flux_limit) / heat_flux_limit, _CONSTRAINT_KNEE_SHARPNESS)
+    g_penalty = g_load_weight * _softplus((g_max - g_load_limit) / g_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
+    q_penalty = heat_flux_weight * _softplus((q_max - heat_flux_limit) / heat_flux_limit, _CONSTRAINT_KNEE_SHARPNESS)
     heat_load = final_conditions[:, 28] * 1e3  # MJ/m2 -> kJ/m2
-    hl_penalty = np.sqrt(heat_load_weight) * _softplus((heat_load - heat_load_limit) / heat_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
+    hl_penalty = heat_load_weight * _softplus((heat_load - heat_load_limit) / heat_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
     costs = costs + g_penalty + q_penalty + hl_penalty
 
     return float(np.sqrt(np.mean(costs**2)))

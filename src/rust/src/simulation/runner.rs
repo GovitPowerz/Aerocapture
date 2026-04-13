@@ -1337,7 +1337,7 @@ fn build_event_photo_values(
         orbit.raan / DEG_TO_RAD,        // [10] raan_deg
         orbit.periapsis_alt / 1e3,      // [11] periapsis_alt_km
         orbit.apoapsis_alt / 1e3,       // [12] apoapsis_alt_km
-        guidance_phase,                  // [13] phase (from enclosing tick)
+        guidance_phase,                 // [13] phase (from enclosing tick)
         bank_angle_deg,                 // [14] bank_angle_deg (from enclosing tick)
         velocity_radial,                // [15] radial_velocity_m_s
         aoa_deg,                        // [16] aoa_deg (from enclosing tick)

@@ -108,7 +108,7 @@ train_fnpag() {
 }
 
 train_neural_network() {
-    echo "=== neural_network (458 params) ==="
+    echo "=== neural_network (a lot of params) ==="
     run_scheme configs/training/msr_aller_nn_train_consolidated.toml 1500 120 2000 1
 }
 
