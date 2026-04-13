@@ -59,3 +59,7 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 mypy_path = "src/python"
 exclude = ["tests/fixtures/"]
+
+[[tool.mypy.overrides]]
+module = ["pymoo.*", "aerocapture_rs"]
+ignore_missing_imports = true

@@ -92,38 +92,38 @@ def create_algorithm(config: OptimizerConfig, n_params: int) -> Algorithm:
         algorithm = "ga"
 
     if algorithm == "ga":
-        s = config.ga
-        mut_prob = s.mutation_prob if s.mutation_prob is not None else 1.0 / n_params
+        ga = config.ga
+        mut_prob = ga.mutation_prob if ga.mutation_prob is not None else 1.0 / n_params
         return GA(
             pop_size=config.n_pop,
-            crossover=SBX(eta=s.crossover_eta),
-            mutation=PM(eta=s.mutation_eta, prob=mut_prob),
+            crossover=SBX(eta=ga.crossover_eta),
+            mutation=PM(eta=ga.mutation_eta, prob=mut_prob),
         )
 
     if algorithm == "cma_es":
-        s = config.cma_es
+        cma = config.cma_es
         return CMAES(
             pop_size=config.n_pop,
-            sigma=s.sigma0,
-            restarts=1 if s.restart_strategy == "ipop" else 0,
+            sigma=cma.sigma0,
+            restarts=1 if cma.restart_strategy == "ipop" else 0,
         )
 
     if algorithm == "de":
-        s = config.de
+        de = config.de
         return DE(
             pop_size=config.n_pop,
-            variant=s.variant,
-            CR=s.crossover_prob,
-            F=s.scaling_factor,
+            variant=de.variant,
+            CR=de.crossover_prob,
+            F=de.scaling_factor,
         )
 
     if algorithm == "pso":
-        s = config.pso
+        pso = config.pso
         return PSO(
             pop_size=config.n_pop,
-            w=s.w,
-            c1=s.c1,
-            c2=s.c2,
+            w=pso.w,
+            c1=pso.c1,
+            c2=pso.c2,
         )
 
     raise ValueError(f"Unhandled algorithm: {algorithm}")  # unreachable
