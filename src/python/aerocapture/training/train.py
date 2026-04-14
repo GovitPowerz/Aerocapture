@@ -29,12 +29,12 @@ from aerocapture.training.evaluate import (
     make_reserved_seeds,
     write_nn_json,
 )
-from aerocapture.training.metrics import CAPTURE_COST_THRESHOLD, capture_rate
+from aerocapture.training.metrics import capture_rate
 from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
 from aerocapture.training.param_spaces import ParamSpec
 from aerocapture.training.population import create_initial_population, create_nn_initial_population
 from aerocapture.training.problem import AerocaptureProblem
-from aerocapture.training.seed_pool import SeedPool, aggregate_fitness
+from aerocapture.training.seed_curator import SeedCurator
 from aerocapture.training.weight_stats import compute_weight_stats
 
 # Constant bank angles for corridor boundary sentinels (degrees).
@@ -55,7 +55,7 @@ def save_checkpoint(
     config: TrainingConfig,
     cwd: str | Path | None,
     param_specs: list[ParamSpec],
-    seed_pool: SeedPool | None = None,
+    seed_curator: SeedCurator | None = None,
     corridor_acc: CorridorAccumulator | None = None,
     best_val_cost: float = np.inf,
 ) -> None:
@@ -77,8 +77,8 @@ def save_checkpoint(
         "cost_history": [float(c) for c in cost_history],
         "rng_state": rng_state_json,
     }
-    if seed_pool is not None:
-        meta["seed_pool"] = seed_pool.to_dict()
+    if seed_curator is not None:
+        meta["seed_curator"] = seed_curator.to_dict()
     with open(save_dir / f"{prefix}.json", "w") as f:
         json.dump(meta, f, indent=2)
 
@@ -233,24 +233,15 @@ def train(
             "heat_load_weight": float(cost_cfg.get("heat_load_weight", 1000.0)),
         }
 
-    # Initialize adaptive seed pool
-    seed_pool: SeedPool | None = None
-    if config.optimizer.adaptive_seeds:
-        if not config.sim.toml_config:
-            msg = "adaptive_seeds requires a TOML config with [monte_carlo].seed"
-            raise ValueError(msg)
-        pool_base_seed = _toml.get("monte_carlo", {}).get("seed")
-        if pool_base_seed is None:
-            msg = "adaptive_seeds requires [monte_carlo].seed in the TOML config"
-            raise ValueError(msg)
-        seed_pool = SeedPool(
-            base_seed=pool_base_seed,
-            max_size=config.optimizer.seed_pool_cap,
-            alpha=config.optimizer.cost_alpha,
-            cvar_percentile=config.optimizer.cvar_percentile,
-            excluded_seeds={pool_base_seed},
+    # Seed curator: maintains the training seed list across generations.
+    seed_curator: SeedCurator | None = None
+    if config.optimizer.training_n_sims > 1:
+        seed_curator = SeedCurator(
+            sample_size=config.optimizer.curation_sample_size,
+            n_bins=config.optimizer.training_n_sims,
+            excluded_seeds=set(),  # populated once val/final-eval sets are computed
+            rng=rng,
         )
-        seed_pool.add_seeds(0)
 
     # Build parameter specifications
     from aerocapture.training.param_spaces import PARAM_SPACES
@@ -284,8 +275,12 @@ def train(
                     pass  # Fall back to seeded RNG if state restore fails
             if verbose:
                 print(f"Resumed from gen {resumed['generation']}, best={resumed['best_cost']:.4e}")
-            if seed_pool is not None and resumed.get("seed_pool") is not None:
-                seed_pool = SeedPool.from_dict(resumed["seed_pool"], excluded_seeds={pool_base_seed})
+            if seed_curator is not None and resumed.get("seed_curator") is not None:
+                seed_curator = SeedCurator.from_dict(
+                    resumed["seed_curator"],
+                    excluded_seeds=seed_curator.excluded_seeds,
+                    rng=rng,
+                )
             if corridor_acc is not None and resumed.get("corridor_acc") is not None:
                 corridor_acc = resumed["corridor_acc"]
             # Make --n-gen mean "N additional" on resume
@@ -361,8 +356,8 @@ def train(
         if overlap:
             msg = f"BUG: {len(overlap)} seeds overlap between validation and final eval sets"
             raise RuntimeError(msg)
-        if seed_pool is not None:
-            seed_pool.excluded_seeds |= excluded_seeds
+        if seed_curator is not None:
+            seed_curator.excluded_seeds = excluded_seeds
 
     # Create initial population
     if resumed is not None:
@@ -429,6 +424,7 @@ def train(
     )
 
     gen_best_costs: list[float] = []
+    pending_seed_change = False
     # Pre-bind for KeyboardInterrupt handler safety (in case interrupt fires during algorithm.next())
     X = pop_array
     costs = np.full(config.optimizer.n_pop, np.inf)
@@ -467,24 +463,24 @@ def train(
             for gen in range(start_gen, config.optimizer.n_gen):
                 gen_wall_start = time.perf_counter()
 
-                # Epoch seed rotation: fresh random seeds each generation.
-                # Exclude both validation and final eval seeds.
-                if config.optimizer.training_n_sims > 1 and seed_pool is None:
-                    epoch_seeds: list[int] = []
-                    while len(epoch_seeds) < config.optimizer.training_n_sims:
-                        candidates = rng.integers(0, 2**31, size=config.optimizer.training_n_sims - len(epoch_seeds)).tolist()
-                        epoch_seeds.extend(s for s in candidates if s not in excluded_seeds)
-                    problem.update_seeds(epoch_seeds[: config.optimizer.training_n_sims])
-                    # Re-evaluate the current pop on the new seeds BEFORE algorithm.next()
-                    # for algorithms that carry F across generations (GA survival, DE
-                    # ImprovementReplacement, PSO pbest comparison). Otherwise pymoo
-                    # compares pop F (stale from prev seeds) vs offspring F (fresh from
-                    # current seeds) -- unfair, causing the true elite to be dropped in
-                    # large-param schemes where offspring F variance is high.
-                    # CMA-ES samples a fresh population each gen via es.ask() and
-                    # doesn't carry F, so the re-eval would be pure waste. Check by
-                    # instance (not config string) because CMA-ES falls back to GA
-                    # when n_params > 2000 (typical NN case).
+                seeds_changed_this_gen = pending_seed_change
+                pending_seed_change = False
+
+                # Bootstrap: first iteration draws a random seed list if curator has none.
+                if seed_curator is not None and seed_curator.seed_list is None:
+                    bootstrap: list[int] = []
+                    while len(bootstrap) < config.optimizer.training_n_sims:
+                        batch = rng.integers(
+                            0, 2**31, size=config.optimizer.training_n_sims - len(bootstrap)
+                        ).tolist()
+                        bootstrap.extend(s for s in batch if s not in excluded_seeds)
+                    problem.update_seeds(bootstrap[: config.optimizer.training_n_sims])
+                    # Note: intentionally do NOT set seed_curator.seed_list -- the first
+                    # real curation will set it. Bootstrap means "no curation has run yet".
+                    seeds_changed_this_gen = True
+
+                # Pre-next re-eval: only fire when seeds changed. Skip for CMA-ES.
+                if seeds_changed_this_gen:
                     from pymoo.algorithms.soo.nonconvex.cmaes import CMAES, SimpleCMAES  # noqa: PLC0415
 
                     if not isinstance(algorithm, (CMAES, SimpleCMAES)) and algorithm.pop is not None:
@@ -505,46 +501,6 @@ def train(
                 gen_best_individual = X[gen_best_idx].copy()
                 gen_best_cost = float(costs[gen_best_idx])
                 new_gen_best = last_validated_individual is None or not np.array_equal(gen_best_individual, last_validated_individual)
-
-                # Seed pool update: on new gen best, or periodic fallback to prevent stagnation
-                pool_periodic = (gen + 1) % config.optimizer.seed_pool_interval == 0
-                if seed_pool is not None and (new_gen_best or pool_periodic):
-                    seed_pool.add_seeds(gen + 1)
-                    # Sync problem seeds BEFORE evaluating so cost_matrix columns match pool size
-                    problem.update_seeds(seed_pool.seeds)
-
-                    # Build cost matrix (n_pop, n_seeds) for difficulty scoring
-                    cost_matrix = problem.evaluate_population_per_seed(X)
-                    best_idx = int(np.argmin(aggregate_fitness(cost_matrix, seed_pool.alpha, seed_pool.cvar_percentile)))
-                    seed_pool.score_difficulty(cost_matrix, best_idx)
-                    seed_pool.evict_redundant()
-                    # Re-sync after eviction (pool may have shrunk)
-                    problem.update_seeds(seed_pool.seeds)
-                    fitness = aggregate_fitness(cost_matrix, seed_pool.alpha, seed_pool.cvar_percentile)
-                    pop.set("F", fitness.reshape(-1, 1))
-                    costs = fitness
-
-                    # Re-identify gen best after re-evaluation
-                    gen_best_idx = int(np.argmin(costs))
-                    gen_best_individual = X[gen_best_idx].copy()
-                    gen_best_cost = float(costs[gen_best_idx])
-                    new_gen_best = last_validated_individual is None or not np.array_equal(gen_best_individual, last_validated_individual)
-
-                # Stress test: probe fresh seeds and inject hardest
-                if seed_pool is not None and (gen + 1) % config.optimizer.stress_interval == 0:
-                    assert best_overall_individual is not None
-                    _best_for_stress = best_overall_individual
-
-                    def _stress_evaluator(probe_seeds: list[int], _ind: npt.NDArray[np.float64] = _best_for_stress) -> npt.NDArray[np.float64]:
-                        return problem.evaluate_individual_per_seed(_ind, probe_seeds)
-
-                    seed_pool.stress_test(
-                        generation=gen + 1,
-                        evaluator=_stress_evaluator,
-                        n_probes=config.optimizer.stress_probes,
-                        n_inject=config.optimizer.stress_inject,
-                    )
-                    problem.update_seeds(seed_pool.seeds)
 
                 # Corridor accumulation for piecewise_constant
                 if config.guidance_type == "piecewise_constant" and corridor_acc is not None and _HAS_PYO3 and config.sim.toml_config:
@@ -582,6 +538,18 @@ def train(
                         best_overall_cost = gen_best_cost
                         validated_improvement = True
 
+                # Curation trigger: on validated promotion OR periodic fallback.
+                if seed_curator is not None:
+                    periodic = (gen + 1) % config.optimizer.seed_pool_interval == 0
+                    if validated_improvement or periodic:
+                        k = min(config.optimizer.curation_top_k, len(costs))
+                        top_k_idx = np.argsort(costs)[:k]
+                        top_k_X = X[top_k_idx]
+                        new_seeds = seed_curator.curate(problem, top_k_X)
+                        seed_curator.last_curation_gen = gen + 1
+                        problem.update_seeds(new_seeds)
+                        pending_seed_change = True  # next gen's pre-next re-eval picks up
+
                 # Common logging
                 gen_best_costs.append(best_overall_cost)
 
@@ -593,18 +561,10 @@ def train(
 
                 # Pool metrics for logger
                 pool_metrics: dict | None = None
-                if seed_pool is not None:
-                    d_min, d_max = seed_pool.difficulty_range
-                    difficulty_scores = sorted(seed_pool.difficulty.values())
-                    n_captured = sum(1 for d in seed_pool.difficulty.values() if d < CAPTURE_COST_THRESHOLD)
-                    pool_capture_rate = n_captured / len(seed_pool.difficulty) if seed_pool.difficulty else 0.0
+                if seed_curator is not None and seed_curator.seed_list is not None:
                     pool_metrics = {
-                        "pool_size": len(seed_pool.seeds),
-                        "difficulty_min": d_min,
-                        "difficulty_max": d_max,
-                        "n_evictions": seed_pool.n_evictions,
-                        "difficulty_scores": difficulty_scores,
-                        "capture_rate": pool_capture_rate,
+                        "pool_size": len(seed_curator.seed_list),
+                        "last_curation_gen": seed_curator.last_curation_gen,
                     }
 
                 # Log metrics
@@ -641,7 +601,7 @@ def train(
                         config,
                         cwd,
                         param_specs,
-                        seed_pool=seed_pool,
+                        seed_curator=seed_curator,
                         corridor_acc=corridor_acc,
                         best_val_cost=best_val_cost,
                     )
@@ -665,7 +625,7 @@ def train(
                     config,
                     cwd,
                     param_specs,
-                    seed_pool=seed_pool,
+                    seed_curator=seed_curator,
                     corridor_acc=corridor_acc,
                     best_val_cost=best_val_cost,
                 )
@@ -690,7 +650,7 @@ def train(
                 config,
                 cwd,
                 param_specs,
-                seed_pool=seed_pool,
+                seed_curator=seed_curator,
                 corridor_acc=corridor_acc,
                 best_val_cost=best_val_cost,
             )
@@ -804,20 +764,8 @@ if __name__ == "__main__":
         cfg.optimizer.n_pop = args.n_pop
     if args.algorithm is not None:
         cfg.optimizer.algorithm = args.algorithm
-    if args.adaptive_seeds:
-        cfg.optimizer.adaptive_seeds = True
-    if args.seed_pool_cap is not None:
-        cfg.optimizer.seed_pool_cap = args.seed_pool_cap
-    if args.cost_alpha is not None:
-        cfg.optimizer.cost_alpha = args.cost_alpha
-    if args.cvar_percentile is not None:
-        cfg.optimizer.cvar_percentile = args.cvar_percentile
-    if args.stress_interval is not None:
-        cfg.optimizer.stress_interval = args.stress_interval
-    if args.stress_probes is not None:
-        cfg.optimizer.stress_probes = args.stress_probes
-    if args.stress_inject is not None:
-        cfg.optimizer.stress_inject = args.stress_inject
+    # TODO(Task 7): remove deprecated CLI flags (adaptive_seeds, seed_pool_cap,
+    # cost_alpha, cvar_percentile, stress_interval, stress_probes, stress_inject)
     guidance_type = _toml_data.get("guidance", {}).get("type")
     if guidance_type is None:
         print("ERROR: TOML config must contain [guidance] type = '<scheme>'")
