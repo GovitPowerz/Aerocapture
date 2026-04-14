@@ -136,10 +136,9 @@ uv run python -m aerocapture.training.train \
 
 # Disable TUI (CI / piped output)
 uv run python -m aerocapture.training.train <config.toml> --no-tui
-
-# Adaptive seed pool (curates seeds by difficulty, CVaR-blended fitness)
-uv run python -m aerocapture.training.train <config.toml> --adaptive-seeds --cost-alpha 0.6
 ```
+
+The training loop uses a curated-CDF seed framework (`training_n_sims > 1`): a fixed-size seed list is refreshed on validated-best promotion or every `seed_pool_interval` gens by sampling 1000 probe seeds, scoring the top-`curation_top_k` individuals on them, and picking one random seed per cost quantile bin. See `CLAUDE.md` for details.
 
 ## Reports and Visualization
 
@@ -261,7 +260,7 @@ uv run pytest tests/
 
 **Rust tests** cover: physics (J2/J3/J4 gravity with proptest), all 7 guidance schemes, exit phase guidance (pdyn feedback with proptest), phase dispatch, lateral guidance, navigation (bias + EKF, SimPhase gating), wind model, control (pilot dynamics, angle utils), DOPRI45 adaptive integrator, TOML base inheritance, virtual DV ranges, trajectory heat load, density perturbation (OU config presets, step function statistics, TOML parsing, E2E backward compat).
 
-**Python tests** cover: parsers, regression, GA pipeline, training visualization, training animation, NN weight initialization, adaptive seed pool, graceful interrupt, TOML base inheritance, PyO3 integration (bit-identical regression), corridor accumulator, unified cost function, sensitivity analysis (build_problem structure + Morris/Sobol pipeline shape/correctness), Parquet output (write/read roundtrip, schema, metadata, data integrity).
+**Python tests** cover: parsers, regression, GA pipeline, training visualization, training animation, NN weight initialization, curated-CDF seed framework (stratified picking, curation probe, checkpoint roundtrip), graceful interrupt, TOML base inheritance, PyO3 integration (bit-identical regression), corridor accumulator, unified cost function, sensitivity analysis (build_problem structure + Morris/Sobol pipeline shape/correctness), Parquet output (write/read roundtrip, schema, metadata, data integrity).
 
 ## CI
 
