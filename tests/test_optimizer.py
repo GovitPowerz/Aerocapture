@@ -176,13 +176,22 @@ class TestCurationKnobs:
         with pytest.raises(ValueError, match="curation_sample_size"):
             OptimizerConfig(curation_top_k=10, curation_sample_size=5)
 
-    def test_obsolete_keys_emit_deprecation_warning(self) -> None:
+    def test_obsolete_keys_emit_warning(self) -> None:
+        obsolete = {
+            "adaptive_seeds": True,
+            "seed_pool_cap": 100,
+            "cost_alpha": 0.7,
+            "cvar_percentile": 20,
+            "stress_interval": 5,
+            "stress_probes": 200,
+            "stress_inject": 20,
+        }
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            OptimizerConfig.from_dict({"cost_alpha": 0.7, "cvar_percentile": 20})
+            OptimizerConfig.from_dict(dict(obsolete))
             messages = [str(x.message) for x in w]
-            assert any("cost_alpha" in m for m in messages)
-            assert any("cvar_percentile" in m for m in messages)
+            for key in obsolete:
+                assert any(key in m for m in messages), f"no warning emitted for {key}"
 
     def test_obsolete_keys_do_not_raise(self) -> None:
         """All legacy SeedPool knobs are silently dropped (with warning) so existing TOMLs still load."""

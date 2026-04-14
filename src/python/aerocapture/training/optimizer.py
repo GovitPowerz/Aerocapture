@@ -81,7 +81,7 @@ class OptimizerConfig:
         for key in _obsolete & d.keys():
             warnings.warn(
                 f"[optimizer].{key} is deprecated and ignored (replaced by curated-CDF seed framework)",
-                DeprecationWarning,
+                UserWarning,
                 stacklevel=2,
             )
         top_level = {k: v for k, v in d.items() if k not in ("ga", "cma_es", "de", "pso") and k not in _obsolete}
