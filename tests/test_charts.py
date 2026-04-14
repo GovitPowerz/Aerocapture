@@ -28,7 +28,6 @@ from aerocapture.training.charts import (
     chart_morris_scatter,
     chart_nav_density_ratio,
     chart_parameter_evolution,
-    chart_seed_pool,
     chart_sobol_bars,
     chart_sobol_convergence,
     chart_sobol_heatmap,
@@ -106,29 +105,6 @@ class TestTrainingCharts:
         assert tmp_svg.exists()
         content = tmp_svg.read_text()
         assert "<svg" in content
-
-    def test_seed_pool_creates_svg(self, training_records: list[dict[str, Any]], tmp_svg: Path) -> None:
-        """Panel 6: seed pool chart creates SVG when pool_metrics with difficulty_scores present."""
-        for r in training_records:
-            gen = r["generation"]
-            scores = [0.3 + 0.01 * gen + 0.05 * i for i in range(10)]
-            r["pool_metrics"] = {
-                "pool_size": 10 + gen,
-                "difficulty_min": min(scores),
-                "difficulty_max": max(scores),
-                "difficulty_scores": scores,
-            }
-        result = chart_seed_pool(training_records, tmp_svg)
-        assert result is True
-        assert tmp_svg.exists()
-        content = tmp_svg.read_text()
-        assert "<svg" in content
-
-    def test_seed_pool_skipped_when_no_data(self, training_records: list[dict[str, Any]], tmp_svg: Path) -> None:
-        """Panel 6: returns False and creates no file when pool_metrics absent."""
-        result = chart_seed_pool(training_records, tmp_svg)
-        assert result is False
-        assert not tmp_svg.exists()
 
 
 # ---------------------------------------------------------------------------

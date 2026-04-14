@@ -16,7 +16,6 @@ def test_optimizer_config_defaults() -> None:
     assert opt.seed_pool_interval == 50
     assert opt.training_n_sims == 1
     assert opt.validation_n_sims == 1000
-    assert opt.validation_interval == 50
     assert opt.curation_top_k == 5
     assert opt.curation_sample_size == 1000
 

@@ -58,7 +58,6 @@ n_gen = 2500
 seed_pool_interval = 50       # curation periodic-fallback interval (gens) -- also fires on validated best
 training_n_sims = 20          # fresh random seeds per individual per generation (epoch rotation)
 validation_n_sims = 1000      # sims for validation gate (fixed seeds, honest generalization metric)
-validation_interval = 50      # periodic validation every N gens (also triggers on new best)
 curation_top_k = 5            # top-K individuals whose cost CDF is averaged at each curation
 curation_sample_size = 1000   # seeds drawn per curation to sample the cost distribution
 

@@ -30,10 +30,6 @@ class TestOptimizerConfig:
         with pytest.raises(ValueError, match="Unknown algorithm"):
             OptimizerConfig(algorithm="bees")
 
-    def test_validation_interval_zero_rejected(self) -> None:
-        with pytest.raises(ValueError, match="validation_interval must be > 0"):
-            OptimizerConfig(validation_interval=0)
-
     def test_default_fields(self) -> None:
         cfg = OptimizerConfig()
         assert cfg.n_pop == 60
@@ -41,7 +37,6 @@ class TestOptimizerConfig:
         assert cfg.seed_pool_interval == 50
         assert cfg.training_n_sims == 1
         assert cfg.validation_n_sims == 1000
-        assert cfg.validation_interval == 50
 
     def test_from_toml_dict_ga(self) -> None:
         d = {
@@ -80,20 +75,15 @@ class TestOptimizerConfig:
         cfg = OptimizerConfig()
         assert cfg.validation_n_sims == 1000
 
-    def test_default_validation_interval(self) -> None:
-        cfg = OptimizerConfig()
-        assert cfg.validation_interval == 50
-
     def test_from_dict_training_n_sims(self) -> None:
         d = {"algorithm": "ga", "training_n_sims": 20}
         cfg = OptimizerConfig.from_dict(d)
         assert cfg.training_n_sims == 20
 
     def test_from_dict_validation_fields(self) -> None:
-        d = {"algorithm": "ga", "validation_n_sims": 500, "validation_interval": 25}
+        d = {"algorithm": "ga", "validation_n_sims": 500}
         cfg = OptimizerConfig.from_dict(d)
         assert cfg.validation_n_sims == 500
-        assert cfg.validation_interval == 25
 
 
 class TestCreateAlgorithm:

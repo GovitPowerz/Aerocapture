@@ -50,7 +50,6 @@ class OptimizerConfig:
     seed_pool_interval: int = 50
     training_n_sims: int = 1
     validation_n_sims: int = 1000
-    validation_interval: int = 50
     curation_top_k: int = 5
     curation_sample_size: int = 1000
     ga: GASettings = field(default_factory=GASettings)
@@ -61,14 +60,10 @@ class OptimizerConfig:
     def __post_init__(self) -> None:
         if self.algorithm not in _VALID_ALGORITHMS:
             raise ValueError(f"Unknown algorithm '{self.algorithm}'. Must be one of: {_VALID_ALGORITHMS}")
-        if self.validation_interval <= 0:
-            raise ValueError(f"validation_interval must be > 0, got {self.validation_interval}")
         if self.curation_top_k < 1:
             raise ValueError(f"curation_top_k must be >= 1, got {self.curation_top_k}")
         if self.curation_sample_size < self.curation_top_k:
-            raise ValueError(
-                f"curation_sample_size ({self.curation_sample_size}) must be >= curation_top_k ({self.curation_top_k})"
-            )
+            raise ValueError(f"curation_sample_size ({self.curation_sample_size}) must be >= curation_top_k ({self.curation_top_k})")
 
     @classmethod
     def from_dict(cls, d: dict) -> OptimizerConfig:
@@ -77,7 +72,10 @@ class OptimizerConfig:
         de = DESettings(**d["de"]) if "de" in d else DESettings()
         pso = PSOSettings(**d["pso"]) if "pso" in d else PSOSettings()
 
-        _obsolete = {"adaptive_seeds", "seed_pool_cap", "cost_alpha", "cvar_percentile", "stress_interval", "stress_probes", "stress_inject"}
+        _obsolete = {
+            "adaptive_seeds", "seed_pool_cap", "cost_alpha", "cvar_percentile",
+            "stress_interval", "stress_probes", "stress_inject", "validation_interval",
+        }
         for key in _obsolete & d.keys():
             warnings.warn(
                 f"[optimizer].{key} is deprecated and ignored (replaced by curated-CDF seed framework)",

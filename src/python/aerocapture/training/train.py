@@ -211,7 +211,7 @@ def train(
     save_dir = Path(config.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load TOML config once (used for cost function params, adaptive seeds)
+    # Load TOML config once (used for cost function params, curator config)
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     _toml: dict = {}
@@ -305,7 +305,7 @@ def train(
     cost_history: list[float] = resumed["cost_history"] if resumed else []
     # Identity of the last individual we ran validation on. Used to detect
     # "new best individual" by parameter comparison -- cost comparison is
-    # unreliable with rotating epoch seeds or adaptive seed pools.
+    # unreliable under rotating or curated seeds.
     last_validated_individual: npt.NDArray[np.float64] | None = (
         resumed["best_individual"].copy() if resumed and resumed["best_individual"] is not None else None
     )
@@ -358,6 +358,8 @@ def train(
             raise RuntimeError(msg)
         if seed_curator is not None:
             seed_curator.excluded_seeds = excluded_seeds
+            if seed_curator.seed_list is not None:
+                problem.update_seeds(seed_curator.seed_list)
 
     # Create initial population
     if resumed is not None:
@@ -494,7 +496,7 @@ def train(
                 costs = F[:, 0]
 
                 # Gen best by parameter identity -- cost comparison across gens is
-                # unreliable with rotating epoch seeds or adaptive seed pools.
+                # unreliable under rotating or curated seeds.
                 gen_best_idx = int(np.argmin(costs))
                 gen_best_individual = X[gen_best_idx].copy()
                 gen_best_cost = float(costs[gen_best_idx])
