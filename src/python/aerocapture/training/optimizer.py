@@ -66,9 +66,7 @@ class OptimizerConfig:
         # allowed so bare TrainingConfig() works. `from_dict` enforces that
         # TOML-loaded configs include the key; `train()` re-checks at entry.
         if self.seed_strategy and self.seed_strategy not in _VALID_SEED_STRATEGIES:
-            raise ValueError(
-                f"seed_strategy must be one of {_VALID_SEED_STRATEGIES}, got {self.seed_strategy!r}"
-            )
+            raise ValueError(f"seed_strategy must be one of {_VALID_SEED_STRATEGIES}, got {self.seed_strategy!r}")
         if self.curation_top_k < 1:
             raise ValueError(f"curation_top_k must be >= 1, got {self.curation_top_k}")
         if self.curation_sample_size < self.curation_top_k:
@@ -77,10 +75,7 @@ class OptimizerConfig:
     @classmethod
     def from_dict(cls, d: dict) -> OptimizerConfig:
         if "seed_strategy" not in d:
-            raise ValueError(
-                "[optimizer].seed_strategy is required. Add one of "
-                f"{_VALID_SEED_STRATEGIES} (e.g. `seed_strategy = \"adaptive\"`)."
-            )
+            raise ValueError(f'[optimizer].seed_strategy is required. Add one of {_VALID_SEED_STRATEGIES} (e.g. `seed_strategy = "adaptive"`).')
 
         ga = GASettings(**d["ga"]) if "ga" in d else GASettings()
         cma_es = CMAESSettings(**d["cma_es"]) if "cma_es" in d else CMAESSettings()
@@ -88,8 +83,14 @@ class OptimizerConfig:
         pso = PSOSettings(**d["pso"]) if "pso" in d else PSOSettings()
 
         _obsolete = {
-            "adaptive_seeds", "seed_pool_cap", "cost_alpha", "cvar_percentile",
-            "stress_interval", "stress_probes", "stress_inject", "validation_interval",
+            "adaptive_seeds",
+            "seed_pool_cap",
+            "cost_alpha",
+            "cvar_percentile",
+            "stress_interval",
+            "stress_probes",
+            "stress_inject",
+            "validation_interval",
         }
         for key in _obsolete & d.keys():
             warnings.warn(

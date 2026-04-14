@@ -64,10 +64,7 @@ def _compute_fixed_seeds(base_mc_seed: int, n_sims: int, excluded: set[int]) -> 
     seeds = [base_mc_seed + i for i in range(n_sims)]
     overlap = set(seeds) & excluded
     if overlap:
-        msg = (
-            f"fixed seed range [{base_mc_seed}..{base_mc_seed + n_sims - 1}] "
-            f"overlaps {len(overlap)} validation/final-eval reserved seeds"
-        )
+        msg = f"fixed seed range [{base_mc_seed}..{base_mc_seed + n_sims - 1}] overlaps {len(overlap)} validation/final-eval reserved seeds"
         raise ValueError(msg)
     return seeds
 
