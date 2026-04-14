@@ -112,3 +112,23 @@ class TestCurate:
         curator = SeedCurator(sample_size=50, n_bins=5, excluded_seeds=set(), rng=_rng(0))
         new_seeds = curator.curate(self._FakeProblem(), top_k_X)
         assert len(new_seeds) == 5
+
+
+class TestCheckpointRoundtrip:
+    def test_to_dict_from_dict_preserves_state(self) -> None:
+        a = SeedCurator(sample_size=100, n_bins=10, excluded_seeds={1, 2}, rng=_rng(0))
+        a.seed_list = [10, 20, 30]
+        a.last_curation_gen = 42
+        d = a.to_dict()
+        b = SeedCurator.from_dict(d, excluded_seeds={1, 2}, rng=_rng(0))
+        assert b.sample_size == a.sample_size
+        assert b.n_bins == a.n_bins
+        assert b.seed_list == a.seed_list
+        assert b.last_curation_gen == a.last_curation_gen
+        assert b.excluded_seeds == {1, 2}
+
+    def test_from_dict_with_empty_state(self) -> None:
+        d = {"sample_size": 100, "n_bins": 10, "seed_list": None, "last_curation_gen": -1}
+        c = SeedCurator.from_dict(d, excluded_seeds=set(), rng=_rng(0))
+        assert c.seed_list is None
+        assert c.last_curation_gen == -1

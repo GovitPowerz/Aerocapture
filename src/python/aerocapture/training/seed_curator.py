@@ -78,3 +78,27 @@ class SeedCurator:
         new_seeds = self._stratified_pick(sample_seeds, avg_cost)
         self.seed_list = new_seeds
         return new_seeds
+
+    def to_dict(self) -> dict:
+        return {
+            "sample_size": self.sample_size,
+            "n_bins": self.n_bins,
+            "seed_list": self.seed_list,
+            "last_curation_gen": self.last_curation_gen,
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        d: dict,
+        excluded_seeds: set[int],
+        rng: np.random.Generator,
+    ) -> SeedCurator:
+        return cls(
+            sample_size=int(d["sample_size"]),
+            n_bins=int(d["n_bins"]),
+            excluded_seeds=excluded_seeds,
+            rng=rng,
+            seed_list=list(d["seed_list"]) if d.get("seed_list") is not None else None,
+            last_curation_gen=int(d.get("last_curation_gen", -1)),
+        )
