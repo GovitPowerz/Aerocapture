@@ -105,27 +105,36 @@ def run_final_evaluation(
     n_sims: int = 1000,
     sim_timeout_secs: float | None = None,
 ) -> tuple[npt.NDArray[np.float64], list[npt.NDArray[np.float64]], npt.NDArray[np.float64]] | None:
-    """Run final MC evaluation using PyO3 bindings.
+    """Run final MC evaluation using reserved seeds that never overlap with training or validation.
 
     Uses optimized TOML if it exists (``scheme_dir / f"optimized_{scheme_dir.name}.toml"``),
-    otherwise the provided *toml_path*.
+    otherwise the provided *toml_path*.  Seeds are generated deterministically from the
+    TOML's ``[monte_carlo].seed`` via :func:`make_reserved_seeds` with
+    ``FINAL_EVAL_SEED_OFFSET``, guaranteeing disjointness from training and validation.
 
     Returns ``(final_records, trajectories, dispersions)`` or None on failure.
     """
     try:
         import aerocapture_rs  # type: ignore[import-not-found, import-untyped]
     except ImportError:
-        print("PyO3 bindings not available — skipping final evaluation")
+        print("PyO3 bindings not available -- skipping final evaluation")
         return None
 
-    # Prefer optimized TOML if it exists
+    from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
     optimized = scheme_dir / f"optimized_{scheme_dir.name}.toml"
     eval_toml = optimized if optimized.exists() else toml_path
 
+    toml_data = load_toml_with_bases(eval_toml)
+    base_mc_seed = toml_data.get("monte_carlo", {}).get("seed", 42)
+    reserved_seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
+
     try:
-        results = aerocapture_rs.run_mc(
+        overrides_list = [{"monte_carlo.seed": s, "simulation.n_sims": 1} for s in reserved_seeds]
+        results = aerocapture_rs.run_batch(
             toml_path=str(eval_toml.resolve()),
-            overrides={"simulation.n_sims": n_sims},
+            overrides_list=overrides_list,
             include_trajectories=True,
             sim_timeout_secs=sim_timeout_secs,
         )
