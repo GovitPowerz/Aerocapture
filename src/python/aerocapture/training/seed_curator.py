@@ -39,6 +39,9 @@ class SeedCurator:
         Non-finite costs are replaced with a large sentinel so their seeds sort
         to the tail bin.
         """
+        if self.n_bins > len(seeds):
+            msg = f"n_bins ({self.n_bins}) must be <= len(seeds) ({len(seeds)})"
+            raise ValueError(msg)
         arr = np.asarray(costs, dtype=np.float64)
         sentinel = np.finfo(np.float64).max / 2
         arr = np.where(np.isfinite(arr), arr, sentinel)
