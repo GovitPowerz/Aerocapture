@@ -633,6 +633,23 @@ impl SimData {
             None
         };
 
+        // Apply TOML [network] overrides to loaded NN model
+        let neural_net = match (neural_net, &toml.network) {
+            (Some(mut nn), Some(net_cfg)) => {
+                if let Some(ref mask) = net_cfg.input_mask {
+                    nn.input_mask = Some(mask.clone());
+                }
+                if let Some(ablated) = net_cfg.ablated_input {
+                    nn.ablated_input = Some(ablated);
+                }
+                // Re-validate after override
+                neural::NeuralNetModel::validate_mask(&nn.input_mask, nn.layer_sizes[0])?;
+                neural::NeuralNetModel::validate_ablated_input(&nn.ablated_input)?;
+                Some(nn)
+            }
+            (nn, _) => nn,
+        };
+
         // Domain-based Monte Carlo config (replaces lottery files)
         let dispersion_config = if let Some(ref mc) = toml.monte_carlo {
             Some(build_dispersion_config(mc)?)

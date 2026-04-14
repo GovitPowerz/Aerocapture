@@ -24,11 +24,15 @@ class NetworkConfig:
 
     layer_sizes: list[int] = field(default_factory=lambda: [16, 24, 2])
     activations: list[str] = field(default_factory=lambda: ["tanh", "asinh"])
+    input_mask: list[int] | None = None
 
     def __post_init__(self) -> None:
         n_layers = len(self.layer_sizes) - 1
         if len(self.activations) != n_layers:
             msg = f"activations length ({len(self.activations)}) must equal len(layer_sizes)-1 ({n_layers})"
+            raise ValueError(msg)
+        if self.input_mask is not None and len(self.input_mask) != self.layer_sizes[0]:
+            msg = f"input_mask length ({len(self.input_mask)}) must equal layer_sizes[0] ({self.layer_sizes[0]})"
             raise ValueError(msg)
 
     @property

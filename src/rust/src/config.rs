@@ -184,6 +184,19 @@ pub struct TomlConfig {
     pub onboard_atmosphere: Option<TomlAtmosphereOnboard>,
     /// Integration method config (adaptive DOPRI45 vs fixed Gill RK4)
     pub integration: Option<TomlIntegration>,
+    /// Neural network architecture/mask overrides
+    #[serde(default)]
+    pub network: Option<TomlNetwork>,
+}
+
+// ─── Network TOML struct ───
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct TomlNetwork {
+    #[serde(default)]
+    pub input_mask: Option<Vec<usize>>,
+    #[serde(default)]
+    pub ablated_input: Option<usize>,
 }
 
 // ─── Onboard Atmosphere TOML structs ───

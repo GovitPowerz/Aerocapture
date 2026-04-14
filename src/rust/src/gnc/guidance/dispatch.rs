@@ -167,7 +167,14 @@ pub fn guidance_step(
             }
             GuidanceType::NeuralNetwork => {
                 let nn = data.neural_net.as_ref().expect("NN params not loaded");
-                neural::nn_bank_angle(nav, nn, planet, data.target_orbit.inclination)
+                neural::nn_bank_angle(
+                    nav,
+                    nn,
+                    data,
+                    planet,
+                    data.target_orbit.inclination,
+                    state.reference_velocity,
+                )
             }
             GuidanceType::EquilibriumGlide => {
                 equilibrium_glide::equilibrium_glide_bank(nav, data, planet)
