@@ -73,13 +73,6 @@ Replace the scalar blended fitness with a 2-objective Pareto front: minimize mea
 - **Pro:** No arbitrary alpha blending. Maintains population diversity naturally via Pareto pressure. Gives a menu of solutions from "best average" to "most robust."
 - **Con:** Harder to pick "the" best solution afterward (need a selection criterion on the Pareto front). More complex reporting.
 
-### 9.4 Population restarts / island model
-
-Periodically reinitialize part of the population to escape local basins. Or run multiple independent populations that occasionally exchange best individuals (island model with migration).
-
-- **Pro:** Directly combats convergence to a single basin. Island model adds diversity without losing exploitation.
-- **Con:** Slower overall convergence. Could layer on top of epoch rotation if basin trapping is still observed after the landscape is made dynamic.
-
 ### 9.5 Validation-gated best selection
 
 *(Done -- see Done section below.)*
@@ -87,10 +80,6 @@ Periodically reinitialize part of the population to escape local basins. Or run 
 ### 9.6 Validation charts in PDF reports
 
 *(Done -- see Done section below.)*
-
-### 9.7 Adaptive training_n_sims
-
-Start with fewer seeds per generation (e.g. 5) and increase as training progresses (e.g. ramp to 20 by gen 100). Early gens benefit from faster iteration; later gens benefit from more robust evaluation when differences between individuals are smaller.
 
 ### 9.8 Bayesian optimization for low-dimensional schemes
 
@@ -182,3 +171,5 @@ Items deferred because they require unavailable data, external dependencies, or 
 | Multi-pass aerocapture | Large scope expansion |
 | Drag modulation | No drag device data |
 | Venus/Titan applications | Atmosphere data not available |
+| Population restarts / island model (was 9.4) | Rotating/curated seeds + validation gate cover the basin-escape need; CMA-ES already supports IPOP. Revisit if persistent stagnation is observed across schemes. |
+| Adaptive `training_n_sims` ramping (was 9.7) | Marginal payoff with per-gen seed refresh as the dominant variance source; validation gate is the authoritative quality signal. |
