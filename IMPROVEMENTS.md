@@ -64,11 +64,7 @@ This document lists physics, GNC, and software improvements for the aerocapture 
 
 ### 9.2 Representative seed curation
 
-When a new best is found, run a large MC campaign (e.g. 1000 sims) and select the N training seeds whose cost distribution best represents the full 1000-sim distribution. Gives coverage of 1000 sims at the cost of N.
-
-- **Pro:** Efficient -- full difficulty spectrum in few seeds.
-- **Con:** Seeds that are representative for the current best may not be representative for a different individual ("representative for whom?" problem). Expensive trigger early in training. Non-trivial to define "representative" (match CDF? percentiles? tail weight?).
-- **When:** After epoch rotation proves its value as a refinement.
+*(Done -- see Done section below.)*
 
 ### 9.3 Multi-objective optimization (mean vs CVaR)
 
@@ -86,10 +82,7 @@ Periodically reinitialize part of the population to escape local basins. Or run 
 
 ### 9.5 Validation-gated best selection
 
-Instead of log-only validation, use validation as a filter: reject a "new best" if its validation cost is worse than the previous best's validation cost.
-
-- **Pro:** Stronger generalization guarantee.
-- **Con:** Adds coupling between validation and training signals. Could slow convergence if validation is noisy. Revisit if overfitting is observed in validation logs.
+*(Done -- see Done section below.)*
 
 ### 9.6 Validation charts in PDF reports
 
@@ -163,6 +156,9 @@ Items completed and merged.
 | 9.1b Epoch seed rotation + validation gate | 2026-04-13 | Each generation draws `training_n_sims` (default 20) fresh random MC seeds. Full population re-evaluated via `_run_batch()` after `algorithm.next()` (pymoo `Evaluator` skips existing F). Validation gate: fixed 1000-seed set (separate RNG) fires periodically + on new best, logs mean/median/std/p95/worst cost + capture rate to JSONL, shown persistently in TUI. Validation cost curves (mean + p95) overlaid on convergence chart in PDF report. `[optimizer]` TOML keys: `training_n_sims`, `validation_n_sims`, `validation_interval`. |
 | 9.1c C-infinity cost function | 2026-04-13 | Replaced log_cap (flat gradient on non-captures: slope 0.1 at dv=10000) with softplus-quadratic `dv_cost`: `cost = dv + sp(dv-T, k=0.01) + sp^2/(2S)`. C-infinity, slope 2.9 at dv=10000 (29x stronger), 34000 cost spread on non-captures (vs 694). Constraint penalties also use softplus (k=100) instead of hard max(0,x) kink. Event photo rows now carry GNC context from enclosing tick (was zeroed, causing trajectory discontinuities). |
 | 9.6 Validation charts | 2026-04-13 | Validation mean (solid green) and p95 (dashed green) overlaid on training convergence chart. Sparse points at gens where validation fired. |
+| 9.2 Representative seed curation | 2026-04-14 | `SeedCurator` class in `seed_curator.py`: draws `curation_sample_size` probe seeds (default 1000), runs the top `curation_top_k` individuals (default 5), averages per-seed costs, splits into `training_n_sims` equal-count quantile bins, picks one random seed per bin via stratified-random selection. Triggers: validated best promotion OR every `seed_pool_interval` gens (measured from `last_curation_gen`). Replaces old `SeedPool` / `aggregate_fitness` / `compute_cvar` / stress-test machinery. `[optimizer]` keys: `curation_top_k`, `curation_sample_size`. |
+| 9.5 Validation-gated best selection | 2026-04-14 | Validation gate triggers on parameter identity (`np.array_equal` vs `last_validated_individual`). `best_overall_individual` is promoted only when `val_rms < best_val_cost`. Logger's `improvement` flag reflects validation promotions, keeping the TUI's "Stagnant for N gens" counter honest under rotating/curated seeds. TUI shows "Last val" (PROMOTED/REJECTED outcome) + "Best val" (lowest-RMS validated, permanent). Identity-based trigger because cost-based new-best detection is unreliable under non-static seeds. |
+| 9.2b Explicit seed_strategy | 2026-04-15 | `[optimizer] seed_strategy` required key with three values: `"fixed"` (deterministic `[mc_seed + i]` range, never changes), `"rotating"` (fresh random seeds drawn each gen via `_draw_disjoint_seeds`, disjoint from validation/final-eval reserved sets), `"adaptive"` (curated-CDF path from 9.2). Pre-`algorithm.next()` re-eval gated on `seeds_changed_this_gen` so GA/DE/PSO survival/`ImprovementReplacement`/`pbest` comparisons see parents and offspring on the same seed set; CMA-ES skips the re-eval. Empty-string sentinel default in `OptimizerConfig` allows bare construction; `from_dict` raises on missing key, `train()` runtime guard rejects sentinel at entry. |
 
 ---
 
