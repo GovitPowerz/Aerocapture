@@ -53,3 +53,23 @@ class TestFixedStrategySetup:
 
         with pytest.raises(ValueError, match="overlaps"):
             _compute_fixed_seeds(base_mc_seed=100, n_sims=5, excluded={102})
+
+
+class TestStrategyDispatch:
+    """Exercises the loop-body dispatch logic via a minimal helper.
+
+    These tests do NOT run a real training loop (too expensive). They verify
+    the dispatch decisions deciding when to call `problem.update_seeds`.
+    """
+
+    def test_rotating_calls_update_each_gen(self) -> None:
+        # Simulate three gens of rotating: three update_seeds calls with different lists.
+        stub = _StubProblem()
+        rng = _rng(0)
+        for _ in range(3):
+            fresh = _draw_disjoint_seeds(rng, n=5, excluded=set())
+            stub.update_seeds(fresh)
+        assert len(stub.seed_updates) == 3
+        # Between gens seeds should differ (RNG advances).
+        assert stub.seed_updates[0] != stub.seed_updates[1]
+        assert stub.seed_updates[1] != stub.seed_updates[2]

@@ -509,15 +509,13 @@ def train(
                 seeds_changed_this_gen = pending_seed_change
                 pending_seed_change = False
 
-                # Bootstrap: first iteration draws a random seed list if curator has none.
-                if seed_curator is not None and seed_curator.seed_list is None:
-                    bootstrap: list[int] = []
-                    while len(bootstrap) < config.optimizer.training_n_sims:
-                        batch = rng.integers(0, 2**31, size=config.optimizer.training_n_sims - len(bootstrap)).tolist()
-                        bootstrap.extend(s for s in batch if s not in excluded_seeds)
-                    problem.update_seeds(bootstrap[: config.optimizer.training_n_sims])
-                    # Note: intentionally do NOT set seed_curator.seed_list -- the first
-                    # real curation will set it. Bootstrap means "no curation has run yet".
+                if strategy == "rotating":
+                    fresh = _draw_disjoint_seeds(rng, n=config.optimizer.training_n_sims, excluded=excluded_seeds)
+                    problem.update_seeds(fresh)
+                    seeds_changed_this_gen = True
+                elif strategy == "adaptive" and seed_curator is not None and seed_curator.seed_list is None:
+                    bootstrap = _draw_disjoint_seeds(rng, n=config.optimizer.training_n_sims, excluded=excluded_seeds)
+                    problem.update_seeds(bootstrap)
                     seeds_changed_this_gen = True
 
                 # Pre-next re-eval: only fire when seeds changed. Skip for CMA-ES.
