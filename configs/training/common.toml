@@ -53,6 +53,7 @@ heat_load_weight = 1000.0
 
 [optimizer]
 algorithm = "ga"
+seed_strategy = "adaptive"    # fixed | rotating | adaptive
 n_pop = 60
 n_gen = 2500
 seed_pool_interval = 50       # curation periodic-fallback interval (gens) -- also fires on validated best
