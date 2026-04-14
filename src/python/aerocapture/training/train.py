@@ -268,7 +268,7 @@ def train(
     #   adaptive -- bootstrap random + curated-CDF refreshes (SeedCurator).
     seed_curator: SeedCurator | None = None
     strategy = config.optimizer.seed_strategy
-    if strategy == "adaptive" and config.optimizer.training_n_sims > 1:
+    if strategy == "adaptive":
         seed_curator = SeedCurator(
             sample_size=config.optimizer.curation_sample_size,
             n_bins=config.optimizer.training_n_sims,
