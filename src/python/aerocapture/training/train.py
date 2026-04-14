@@ -538,14 +538,14 @@ def train(
 
                 # Curation trigger: on validated promotion OR periodic fallback.
                 if seed_curator is not None:
-                    last = seed_curator.last_curation_gen if seed_curator.last_curation_gen >= 0 else gen
-                    periodic = (gen + 1 - last) >= config.optimizer.seed_pool_interval
+                    elapsed = gen - seed_curator.last_curation_gen
+                    periodic = elapsed >= config.optimizer.seed_pool_interval
                     if validated_improvement or periodic:
                         k = min(config.optimizer.curation_top_k, len(costs))
                         top_k_idx = np.argsort(costs)[:k]
                         top_k_X = X[top_k_idx]
                         new_seeds = seed_curator.curate(problem, top_k_X)
-                        seed_curator.last_curation_gen = gen + 1
+                        seed_curator.last_curation_gen = gen
                         problem.update_seeds(new_seeds)
                         pending_seed_change = True  # next gen's pre-next re-eval picks up
 
