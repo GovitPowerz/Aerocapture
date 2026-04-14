@@ -229,6 +229,16 @@ def train(
     if config is None:
         config = TrainingConfig()
 
+    from aerocapture.training.optimizer import _VALID_SEED_STRATEGIES
+
+    if config.optimizer.seed_strategy not in _VALID_SEED_STRATEGIES:
+        msg = (
+            f"config.optimizer.seed_strategy must be one of {_VALID_SEED_STRATEGIES}, "
+            f"got {config.optimizer.seed_strategy!r}. Did the TOML [optimizer] section "
+            f"set it, or did you pass a TrainingConfig without overriding the default?"
+        )
+        raise ValueError(msg)
+
     # Fail fast if Rust binary is missing
     exe = Path(cwd or config.sim.exec_dir) / config.sim.executable
     if not exe.exists():

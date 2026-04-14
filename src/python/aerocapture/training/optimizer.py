@@ -62,10 +62,12 @@ class OptimizerConfig:
     def __post_init__(self) -> None:
         if self.algorithm not in _VALID_ALGORITHMS:
             raise ValueError(f"Unknown algorithm '{self.algorithm}'. Must be one of: {_VALID_ALGORITHMS}")
-        if self.seed_strategy not in _VALID_SEED_STRATEGIES:
+        # Reject invalid non-empty values at construction; empty sentinel is
+        # allowed so bare TrainingConfig() works. `from_dict` enforces that
+        # TOML-loaded configs include the key; `train()` re-checks at entry.
+        if self.seed_strategy and self.seed_strategy not in _VALID_SEED_STRATEGIES:
             raise ValueError(
-                f"seed_strategy must be one of {_VALID_SEED_STRATEGIES}, got {self.seed_strategy!r}. "
-                f"Add `seed_strategy = \"adaptive\"` (or another valid value) under [optimizer]."
+                f"seed_strategy must be one of {_VALID_SEED_STRATEGIES}, got {self.seed_strategy!r}"
             )
         if self.curation_top_k < 1:
             raise ValueError(f"curation_top_k must be >= 1, got {self.curation_top_k}")
@@ -74,6 +76,12 @@ class OptimizerConfig:
 
     @classmethod
     def from_dict(cls, d: dict) -> OptimizerConfig:
+        if "seed_strategy" not in d:
+            raise ValueError(
+                "[optimizer].seed_strategy is required. Add one of "
+                f"{_VALID_SEED_STRATEGIES} (e.g. `seed_strategy = \"adaptive\"`)."
+            )
+
         ga = GASettings(**d["ga"]) if "ga" in d else GASettings()
         cma_es = CMAESSettings(**d["cma_es"]) if "cma_es" in d else CMAESSettings()
         de = DESettings(**d["de"]) if "de" in d else DESettings()
