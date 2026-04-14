@@ -114,6 +114,32 @@ class LiveDisplay:
         lines.append(f"{bar}  {progress:.0%}{eta_str}")
         lines.append("")
 
+        # Validation metrics: show the most recent validation attempt and the
+        # best-ever validated candidate (permanent).
+        best_val_r: dict | None = None
+        last_val_r: dict | None = None
+        for r in buf:
+            if "validation" not in r:
+                continue
+            if last_val_r is None or r["generation"] >= last_val_r["generation"]:
+                last_val_r = r
+            rms = r["validation"].get("rms_cost")
+            if rms is None:
+                continue
+            if best_val_r is None or rms < best_val_r["validation"].get("rms_cost", float("inf")):
+                best_val_r = r
+        if last_val_r is not None and last_val_r is not best_val_r:
+            lv = last_val_r["validation"]
+            outcome = "PROMOTED" if last_val_r.get("improvement") else "REJECTED"
+            rms_str = _format_cost(lv["rms_cost"]) if lv.get("rms_cost") is not None else "n/a"
+            lines.append(f"Last val  g{last_val_r['generation']}: RMS={rms_str} cap={lv['capture_rate']:.0%} -> {outcome}")
+        if best_val_r is not None:
+            bv = best_val_r["validation"]
+            lines.append(
+                f"Best val  g{best_val_r['generation']}: RMS={_format_cost(bv['rms_cost'])} "
+                f"mean={_format_cost(bv['mean_cost'])} p95={_format_cost(bv['p95_cost'])} cap={bv['capture_rate']:.0%}"
+            )
+
         # Stagnation
         improvements = [i for i, r in enumerate(buf) if r["improvement"]]
         if improvements:
@@ -123,17 +149,6 @@ class LiveDisplay:
                 lines.append(f"Stagnant for {stag} gens \u00b7 Last improvement: gen {last_imp_gen}")
         else:
             lines.append("No improvement yet")
-
-        # Validation metrics (show most recent, not just current gen)
-        val = None
-        val_gen = 0
-        for r in reversed(buf):
-            if "validation" in r:
-                val = r["validation"]
-                val_gen = r["generation"]
-                break
-        if val is not None:
-            lines.append(f"Val (g{val_gen}): mean={_format_cost(val['mean_cost'])} p95={_format_cost(val['p95_cost'])} cap={val['capture_rate']:.0%}")
 
         # Best params
         params = latest.get("best_params")

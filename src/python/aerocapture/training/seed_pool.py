@@ -79,12 +79,14 @@ class SeedPool:
         alpha: float = 0.7,
         cvar_percentile: int = 20,
         excluded_seeds: set[int] | None = None,
+        bootstrap_size: int = 10,
     ) -> None:
         self.base_seed = base_seed
         self.max_size = max_size
         self.alpha = alpha
         self.cvar_percentile = cvar_percentile
         self.excluded_seeds: set[int] = excluded_seeds or set()
+        self.bootstrap_size = bootstrap_size
         self.seeds: list[int] = []
         self.difficulty: dict[int, float] = {}
         self.generation_added: dict[int, int] = {}
@@ -97,7 +99,7 @@ class SeedPool:
         Generation 0 bootstraps 5 seeds; subsequent generations add 1 per call.
         Seeds are generated via hash-based spread. Excluded seeds are skipped.
         """
-        n_to_add = 5 if generation == 0 and self._next_index == 0 else 1
+        n_to_add = self.bootstrap_size if generation == 0 and self._next_index == 0 else 1
         added = 0
         while added < n_to_add:
             seed = _pool_seed(self.base_seed, self._next_index)
@@ -125,15 +127,29 @@ class SeedPool:
     def evict_redundant(self) -> None:
         """Evict seeds until pool size <= max_size.
 
-        Keep-hardest strategy: drop the seed with the lowest difficulty
-        score (easiest for the best individual). Hard seeds survive
-        unconditionally.
+        Gap-closure strategy: find the pair of adjacent seeds (by difficulty)
+        with the smallest gap, then evict the more recently added one. This
+        preserves coverage across the full difficulty spectrum, preventing
+        adversarial curriculum collapse.
         """
         while len(self.seeds) > self.max_size:
-            easiest = min(self.seeds, key=lambda s: self.difficulty.get(s, 0.0))
-            self.seeds.remove(easiest)
-            del self.difficulty[easiest]
-            del self.generation_added[easiest]
+            if len(self.seeds) <= 1:
+                break
+            sorted_seeds = sorted(self.seeds, key=lambda s: self.difficulty.get(s, 0.0))
+            # Find adjacent pair with smallest difficulty gap
+            min_gap = float("inf")
+            min_pair = (sorted_seeds[0], sorted_seeds[1])
+            for i in range(len(sorted_seeds) - 1):
+                gap = self.difficulty.get(sorted_seeds[i + 1], 0.0) - self.difficulty.get(sorted_seeds[i], 0.0)
+                if gap < min_gap:
+                    min_gap = gap
+                    min_pair = (sorted_seeds[i], sorted_seeds[i + 1])
+            # Evict the more recently added seed from the pair
+            s0, s1 = min_pair
+            victim = s1 if self.generation_added.get(s1, 0) >= self.generation_added.get(s0, 0) else s0
+            self.seeds.remove(victim)
+            self.difficulty.pop(victim, None)
+            self.generation_added.pop(victim, None)
             self.n_evictions += 1
 
     def evaluate_population(
@@ -233,6 +249,7 @@ class SeedPool:
             "max_size": self.max_size,
             "alpha": self.alpha,
             "cvar_percentile": self.cvar_percentile,
+            "bootstrap_size": self.bootstrap_size,
             "seeds": self.seeds,
             "difficulty": {str(k): v for k, v in self.difficulty.items()},
             "generation_added": {str(k): v for k, v in self.generation_added.items()},
@@ -249,6 +266,7 @@ class SeedPool:
             alpha=float(data.get("alpha", 0.7)),
             cvar_percentile=int(data.get("cvar_percentile", 20)),
             excluded_seeds=excluded_seeds,
+            bootstrap_size=int(data.get("bootstrap_size", 10)),
         )
         pool.seeds = list(data["seeds"])
         pool.difficulty = {int(k): float(v) for k, v in dict(data["difficulty"]).items()}

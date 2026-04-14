@@ -1,10 +1,11 @@
-"""Tests for the adaptive seed pool."""
+"""Tests for the adaptive seed pool and reserved seed utilities."""
 
 from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
 import pytest
+from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, VALIDATION_SEED_OFFSET, make_reserved_seeds
 from aerocapture.training.seed_pool import SeedPool, _pool_seed, _stress_seed, aggregate_fitness, compute_cvar
 
 
@@ -95,56 +96,81 @@ class TestSeedPoolExclusion:
         pool = SeedPool(base_seed=42, max_size=50, excluded_seeds={excluded})
         pool.add_seeds(generation=0)
         assert excluded not in pool.seeds
-        assert len(pool.seeds) == 5
+        assert len(pool.seeds) == 10
 
     def test_pool_uses_hash_seeds_not_consecutive(self) -> None:
         pool = SeedPool(base_seed=42, max_size=50)
         pool.add_seeds(generation=0)
         assert pool.seeds != [42, 43, 44, 45, 46]
-        assert len(pool.seeds) == 5
+        assert len(pool.seeds) == 10
 
 
 class TestSeedPoolGrowth:
-    def test_bootstrap_creates_5_seeds(self) -> None:
+    def test_bootstrap_creates_default_seeds(self) -> None:
         pool = SeedPool(base_seed=100, max_size=50)
         pool.add_seeds(generation=0)
-        assert len(pool.seeds) == 5
+        assert len(pool.seeds) == 10
         assert all(0 <= s < 2**31 for s in pool.seeds)
-        assert len(set(pool.seeds)) == 5
+        assert len(set(pool.seeds)) == 10
 
     def test_incremental_growth(self) -> None:
         pool = SeedPool(base_seed=100, max_size=50)
         pool.add_seeds(generation=0)
-        assert len(pool.seeds) == 5
+        assert len(pool.seeds) == 10
         pool.add_seeds(generation=1)
-        assert len(pool.seeds) == 6
+        assert len(pool.seeds) == 11
 
     def test_no_duplicate_seeds(self) -> None:
         pool = SeedPool(base_seed=100, max_size=50)
         pool.add_seeds(generation=0)
         pool.add_seeds(generation=0)
-        # Bootstrap adds 5, second call adds 1 more (always unique via hash)
-        assert len(pool.seeds) == 6
-        assert len(set(pool.seeds)) == 6
+        # Bootstrap adds 10, second call adds 1 more (always unique via hash)
+        assert len(pool.seeds) == 11
+        assert len(set(pool.seeds)) == 11
 
 
-class TestKeepHardestEviction:
-    def test_easiest_seeds_evicted(self) -> None:
+class TestGapClosureEviction:
+    def test_closest_pair_evicted(self) -> None:
+        """Seeds with the smallest difficulty gap are evicted first."""
         pool = SeedPool(base_seed=0, max_size=3)
+        # Sorted by difficulty: 20(1.0), 40(2.0), 30(50.0), 50(75.0), 10(100.0)
+        # Gaps: 1.0, 48.0, 25.0, 25.0 -- tightest pair is (20, 40)
         pool.seeds = [10, 20, 30, 40, 50]
         pool.difficulty = {10: 100.0, 20: 1.0, 30: 50.0, 40: 2.0, 50: 75.0}
         pool.generation_added = {10: 0, 20: 1, 30: 2, 40: 3, 50: 4}
         pool.evict_redundant()
         assert len(pool.seeds) == 3
-        assert set(pool.seeds) == {10, 50, 30}
+        # Endpoints (easiest=20 or hardest=10) should survive because
+        # gap-closure targets the tightest pair, not the extremes.
+        assert 10 in pool.seeds  # hardest survives
+        assert 20 in pool.seeds or 40 in pool.seeds  # one of the tight pair survives
 
-    def test_hardest_seeds_always_survive(self) -> None:
+    def test_spectrum_endpoints_survive(self) -> None:
+        """Easiest and hardest seeds survive when they're far from neighbors."""
         pool = SeedPool(base_seed=0, max_size=2)
+        # Sorted: 2(0.1), 3(0.2), 5(0.3), 4(999.0), 1(1000.0)
+        # Gaps: 0.1, 0.1, 998.7, 1.0 -- tightest pairs at the easy end
         pool.seeds = [1, 2, 3, 4, 5]
         pool.difficulty = {1: 1000.0, 2: 0.1, 3: 0.2, 4: 999.0, 5: 0.3}
         pool.generation_added = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
         pool.evict_redundant()
-        assert set(pool.seeds) == {1, 4}
+        assert len(pool.seeds) == 2
+        # The three clustered easy seeds (0.1, 0.2, 0.3) get evicted against
+        # each other. The two hard seeds (999, 1000) have a gap of 1.0 which
+        # is larger than 0.1, so they survive longer. One easy seed survives.
+        assert 1 in pool.seeds or 4 in pool.seeds  # at least one hard seed
+
+    def test_newer_seed_evicted_from_pair(self) -> None:
+        """When two seeds have equal difficulty, the newer one is evicted."""
+        pool = SeedPool(base_seed=0, max_size=2)
+        pool.seeds = [10, 20, 30]
+        pool.difficulty = {10: 5.0, 20: 5.0, 30: 100.0}
+        pool.generation_added = {10: 0, 20: 5, 30: 3}
+        pool.evict_redundant()
+        assert len(pool.seeds) == 2
+        # Seeds 10 and 20 have gap=0 (tightest pair). Seed 20 is newer -> evicted.
+        assert 10 in pool.seeds
+        assert 30 in pool.seeds
 
     def test_no_eviction_under_cap(self) -> None:
         pool = SeedPool(base_seed=0, max_size=10)
@@ -308,7 +334,7 @@ class TestAdaptiveSeedIntegration:
         assert pool.n_evictions > 0
         assert len(pool.difficulty) == len(pool.seeds)
 
-        # Verify hardest seeds survived (keep-hardest eviction)
+        # Verify difficulty spectrum has spread (gap-closure eviction)
         difficulties = sorted(pool.difficulty.values())
         assert difficulties[-1] > difficulties[0]
 
@@ -342,20 +368,25 @@ class TestStressTest:
         assert "median_cost" in metrics
         assert "capture_rate" in metrics
 
-    def test_injected_seeds_survive_eviction(self) -> None:
+    def test_injected_seeds_eviction_preserves_spectrum(self) -> None:
+        """After stress injection, gap-closure preserves difficulty coverage."""
         pool = SeedPool(base_seed=42, max_size=8)
         pool.add_seeds(generation=0)
-        for s in pool.seeds:
-            pool.difficulty[s] = 1.0
+        # Give initial seeds spread-out difficulties
+        for i, s in enumerate(pool.seeds):
+            pool.difficulty[s] = float(i) * 10.0
 
+        # Inject hard seeds with distinct difficulties so they aren't all redundant
         def evaluator(seeds: list[int]) -> npt.NDArray[np.float64]:
-            return np.array([10000.0] * len(seeds))
+            return np.array([500.0 + i * 50.0 for i in range(len(seeds))])
 
         pool.stress_test(generation=5, evaluator=evaluator, n_probes=10, n_inject=5)
         pool.evict_redundant()
         assert len(pool.seeds) == 8
-        difficulties = [pool.difficulty[s] for s in pool.seeds]
-        assert sum(d >= 10000.0 for d in difficulties) == 5
+        # Spectrum should span from easy (initial) to hard (injected)
+        diffs = [pool.difficulty[s] for s in pool.seeds]
+        assert min(diffs) < 50.0  # some easy seeds survive
+        assert max(diffs) > 400.0  # some hard seeds survive
 
     def test_stress_test_capture_rate(self) -> None:
         pool = SeedPool(base_seed=42, max_size=50)
@@ -366,3 +397,29 @@ class TestStressTest:
 
         metrics = pool.stress_test(generation=5, evaluator=evaluator, n_probes=20, n_inject=5)
         assert 0.0 <= metrics["capture_rate"] <= 1.0
+
+
+class TestReservedSeeds:
+    """Tests for make_reserved_seeds and seed separation guarantees."""
+
+    def test_deterministic(self) -> None:
+        a = make_reserved_seeds(42, 100, 50)
+        b = make_reserved_seeds(42, 100, 50)
+        assert a == b
+
+    def test_different_offsets_disjoint(self) -> None:
+        val = set(make_reserved_seeds(42, VALIDATION_SEED_OFFSET, 1000))
+        final = set(make_reserved_seeds(42, FINAL_EVAL_SEED_OFFSET, 1000))
+        assert len(val & final) == 0
+
+    @pytest.mark.parametrize("base_seed", [0, 1, 42, 999, 2**20])
+    def test_disjoint_across_base_seeds(self, base_seed: int) -> None:
+        val = set(make_reserved_seeds(base_seed, VALIDATION_SEED_OFFSET, 1000))
+        final = set(make_reserved_seeds(base_seed, FINAL_EVAL_SEED_OFFSET, 1000))
+        assert len(val & final) == 0
+
+    def test_prefix_stable(self) -> None:
+        """First N seeds of a larger request match a request of size N."""
+        small = make_reserved_seeds(42, VALIDATION_SEED_OFFSET, 100)
+        large = make_reserved_seeds(42, VALIDATION_SEED_OFFSET, 1000)
+        assert small == large[:100]

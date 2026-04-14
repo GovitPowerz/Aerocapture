@@ -23,7 +23,10 @@ from aerocapture.training.corridor import CorridorAccumulator
 from aerocapture.training.encoding import decode_normalized, nn_param_specs_from_architecture
 from aerocapture.training.evaluate import (
     _HAS_PYO3,
+    FINAL_EVAL_SEED_OFFSET,
+    VALIDATION_SEED_OFFSET,
     _aero_rs,
+    make_reserved_seeds,
     write_nn_json,
 )
 from aerocapture.training.metrics import CAPTURE_COST_THRESHOLD, capture_rate
@@ -54,6 +57,7 @@ def save_checkpoint(
     param_specs: list[ParamSpec],
     seed_pool: SeedPool | None = None,
     corridor_acc: CorridorAccumulator | None = None,
+    best_val_cost: float = np.inf,
 ) -> None:
     """Save full training state for later resumption."""
     prefix = f"checkpoint_g{generation:05d}"
@@ -69,6 +73,7 @@ def save_checkpoint(
     meta = {
         "generation": generation,
         "best_cost": best_cost,
+        "best_val_cost": best_val_cost,
         "cost_history": [float(c) for c in cost_history],
         "rng_state": rng_state_json,
     }
@@ -91,10 +96,10 @@ def save_checkpoint(
     if best_individual is not None:
         if config.guidance_type == "neural_network":
             weights = _decode_nn_weights(best_individual, param_specs)
-            write_nn_json(weights, config.network, save_dir / "best_model.json")
+            write_nn_json(weights, config.network, save_dir / "best_model.json", input_mask=config.network.input_mask)
             if cwd is not None:
                 nn_path = Path(cwd) / config.sim.nn_param_file
-                write_nn_json(weights, config.network, nn_path)
+                write_nn_json(weights, config.network, nn_path, input_mask=config.network.input_mask)
         else:
             params = decode_normalized(best_individual, param_specs)
             with open(save_dir / "best_params.json", "w") as fp:
@@ -147,6 +152,7 @@ def load_checkpoint(
         "best_individual": best_individual,
         "cost_history": meta["cost_history"],
         "rng_state": meta.get("rng_state"),
+        "best_val_cost": meta.get("best_val_cost", float("inf")),
         "seed_pool": meta.get("seed_pool"),
         "corridor_acc": corridor_acc_restored,
     }
@@ -244,7 +250,7 @@ def train(
             cvar_percentile=config.optimizer.cvar_percentile,
             excluded_seeds={pool_base_seed},
         )
-        seed_pool.add_seeds(0)  # Bootstrap 5 seeds
+        seed_pool.add_seeds(0)
 
     # Build parameter specifications
     from aerocapture.training.param_spaces import PARAM_SPACES
@@ -300,7 +306,14 @@ def train(
 
     best_overall_cost = resumed["best_cost"] if resumed else np.inf
     best_overall_individual: npt.NDArray[np.float64] | None = resumed["best_individual"] if resumed else None
+    best_val_cost: float = resumed["best_val_cost"] if resumed else np.inf
     cost_history: list[float] = resumed["cost_history"] if resumed else []
+    # Identity of the last individual we ran validation on. Used to detect
+    # "new best individual" by parameter comparison -- cost comparison is
+    # unreliable with rotating epoch seeds or adaptive seed pools.
+    last_validated_individual: npt.NDArray[np.float64] | None = (
+        resumed["best_individual"].copy() if resumed and resumed["best_individual"] is not None else None
+    )
 
     start_gen = resumed["generation"] if resumed else 0
 
@@ -333,13 +346,23 @@ def train(
         nn_config=config.network if config.guidance_type == "neural_network" else None,
     )
 
-    # Validation gate: fixed seeds for honest generalization monitoring
+    # Reserved seed sets for validation and final evaluation.
+    # Uses well-separated RNG streams so training, validation, and final eval
+    # never share seeds.
+    base_mc_seed = mc_seed_val if mc_seed_val is not None else 42
     val_seeds: list[int] | None = None
-    val_seeds_set: set[int] = set()
+    excluded_seeds: set[int] = set()
     if config.optimizer.validation_n_sims > 0 and toml_abs_path:
-        val_rng = np.random.default_rng((mc_seed_val or 42) + 999)
-        val_seeds = val_rng.integers(0, 2**31, size=config.optimizer.validation_n_sims).tolist()
-        val_seeds_set = set(val_seeds)
+        val_seeds = make_reserved_seeds(base_mc_seed, VALIDATION_SEED_OFFSET, config.optimizer.validation_n_sims)
+        final_eval_n = max(config.optimizer.validation_n_sims, 10000)
+        final_eval_seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, final_eval_n)
+        excluded_seeds = set(val_seeds) | set(final_eval_seeds)
+        overlap = set(val_seeds) & set(final_eval_seeds)
+        if overlap:
+            msg = f"BUG: {len(overlap)} seeds overlap between validation and final eval sets"
+            raise RuntimeError(msg)
+        if seed_pool is not None:
+            seed_pool.excluded_seeds |= excluded_seeds
 
     # Create initial population
     if resumed is not None:
@@ -413,17 +436,61 @@ def train(
 
     with display:
         try:
+            # Validate gen-0 best (first candidate) on fresh starts
+            if val_seeds is not None and best_overall_individual is not None and start_gen == 0:
+                gen0_val_costs = problem.evaluate_individual_per_seed(best_overall_individual, val_seeds)
+                best_val_cost = float(np.sqrt(np.mean(gen0_val_costs**2)))
+                last_validated_individual = best_overall_individual.copy()
+                gen0_val_metrics = {
+                    "rms_cost": best_val_cost,
+                    "mean_cost": float(np.mean(gen0_val_costs)),
+                    "median_cost": float(np.median(gen0_val_costs)),
+                    "std_cost": float(np.std(gen0_val_costs)),
+                    "p95_cost": float(np.percentile(gen0_val_costs, 95)),
+                    "worst_cost": float(np.max(gen0_val_costs)),
+                    "capture_rate": capture_rate(gen0_val_costs),
+                    "n_sims": len(val_seeds),
+                }
+                logger.log_generation(
+                    0,
+                    pop_array,
+                    pop_costs if pop_costs is not None else np.full(config.optimizer.n_pop, np.inf),
+                    best_overall_individual,
+                    decode_fn,
+                    validation=gen0_val_metrics,
+                    improved=True,
+                )
+                display.update(logger, current_run=0)
+                if verbose:
+                    print(f"  Gen 0 validation: mean={best_val_cost:.4e} cap={gen0_val_metrics['capture_rate']:.0%}")
+
             for gen in range(start_gen, config.optimizer.n_gen):
                 gen_wall_start = time.perf_counter()
 
-                # Epoch seed rotation: fresh random seeds each generation
-                # Exclude validation seeds so training and validation never overlap.
+                # Epoch seed rotation: fresh random seeds each generation.
+                # Exclude both validation and final eval seeds.
                 if config.optimizer.training_n_sims > 1 and seed_pool is None:
                     epoch_seeds: list[int] = []
                     while len(epoch_seeds) < config.optimizer.training_n_sims:
                         candidates = rng.integers(0, 2**31, size=config.optimizer.training_n_sims - len(epoch_seeds)).tolist()
-                        epoch_seeds.extend(s for s in candidates if s not in val_seeds_set)
+                        epoch_seeds.extend(s for s in candidates if s not in excluded_seeds)
                     problem.update_seeds(epoch_seeds[: config.optimizer.training_n_sims])
+                    # Re-evaluate the current pop on the new seeds BEFORE algorithm.next()
+                    # for algorithms that carry F across generations (GA survival, DE
+                    # ImprovementReplacement, PSO pbest comparison). Otherwise pymoo
+                    # compares pop F (stale from prev seeds) vs offspring F (fresh from
+                    # current seeds) -- unfair, causing the true elite to be dropped in
+                    # large-param schemes where offspring F variance is high.
+                    # CMA-ES samples a fresh population each gen via es.ask() and
+                    # doesn't carry F, so the re-eval would be pure waste. Check by
+                    # instance (not config string) because CMA-ES falls back to GA
+                    # when n_params > 2000 (typical NN case).
+                    from pymoo.algorithms.soo.nonconvex.cmaes import CMAES, SimpleCMAES  # noqa: PLC0415
+
+                    if not isinstance(algorithm, (CMAES, SimpleCMAES)) and algorithm.pop is not None:
+                        parent_X = algorithm.pop.get("X")
+                        fresh_F = problem._run_batch(parent_X)
+                        algorithm.pop.set("F", fresh_F.reshape(-1, 1))
 
                 # Advance one generation via pymoo
                 algorithm.next()
@@ -432,27 +499,16 @@ def train(
                 F = pop.get("F")
                 costs = F[:, 0]
 
-                # With epoch rotation, pymoo's elitist algorithms (GA, DE, PSO)
-                # carry parent fitness from the previous generation's seeds.
-                # Re-evaluate the full population on the current seeds so all
-                # costs are comparable within this generation.
-                # Note: Evaluator().eval() skips individuals that already have F,
-                # so we call _run_batch directly and write F back to the population.
-                if config.optimizer.training_n_sims > 1 and seed_pool is None:
-                    costs = problem._run_batch(X)
-                    pop.set("F", costs.reshape(-1, 1))
-                    F = pop.get("F")
-
-                # Track best
+                # Gen best by parameter identity -- cost comparison across gens is
+                # unreliable with rotating epoch seeds or adaptive seed pools.
                 gen_best_idx = int(np.argmin(costs))
+                gen_best_individual = X[gen_best_idx].copy()
                 gen_best_cost = float(costs[gen_best_idx])
-                new_best_this_gen = gen_best_cost < best_overall_cost
-                if new_best_this_gen:
-                    best_overall_cost = gen_best_cost
-                    best_overall_individual = X[gen_best_idx].copy()
+                new_gen_best = last_validated_individual is None or not np.array_equal(gen_best_individual, last_validated_individual)
 
-                # Seed pool update: add seeds, score difficulty, evict, re-evaluate
-                if seed_pool is not None and (gen + 1) % config.optimizer.seed_pool_interval == 0:
+                # Seed pool update: on new gen best, or periodic fallback to prevent stagnation
+                pool_periodic = (gen + 1) % config.optimizer.seed_pool_interval == 0
+                if seed_pool is not None and (new_gen_best or pool_periodic):
                     seed_pool.add_seeds(gen + 1)
                     # Sync problem seeds BEFORE evaluating so cost_matrix columns match pool size
                     problem.update_seeds(seed_pool.seeds)
@@ -468,13 +524,11 @@ def train(
                     pop.set("F", fitness.reshape(-1, 1))
                     costs = fitness
 
-                    # Re-track best after re-evaluation
+                    # Re-identify gen best after re-evaluation
                     gen_best_idx = int(np.argmin(costs))
+                    gen_best_individual = X[gen_best_idx].copy()
                     gen_best_cost = float(costs[gen_best_idx])
-                    if gen_best_cost < best_overall_cost:
-                        best_overall_cost = gen_best_cost
-                        best_overall_individual = X[gen_best_idx].copy()
-                        new_best_this_gen = True
+                    new_gen_best = last_validated_individual is None or not np.array_equal(gen_best_individual, last_validated_individual)
 
                 # Stress test: probe fresh seeds and inject hardest
                 if seed_pool is not None and (gen + 1) % config.optimizer.stress_interval == 0:
@@ -503,25 +557,30 @@ def train(
                         problem=problem,
                     )
 
-                # Validation gate: periodic + on-new-best
+                # Validation gate: fires whenever the gen-best individual differs
+                # (by parameter identity) from the last validated individual.
+                # Promotion to best_overall_individual gated on validation improvement.
                 validation_metrics: dict | None = None
-                if val_seeds is not None and best_overall_individual is not None:
-                    should_validate = new_best_this_gen or (gen + 1) % config.optimizer.validation_interval == 0
-                    if should_validate:
-                        val_costs = problem.evaluate_individual_per_seed(best_overall_individual, val_seeds)
-                        # capture_rate uses threshold=3000 which separates captured
-                        # (cost < ~2600 after log-cap) from non-captures (cost > ~3300).
-                        # CAPTURE_COST_THRESHOLD (10000) is for raw DV, not log-capped costs.
-                        val_cap_rate = capture_rate(val_costs)
-                        validation_metrics = {
-                            "mean_cost": float(np.mean(val_costs)),
-                            "median_cost": float(np.median(val_costs)),
-                            "std_cost": float(np.std(val_costs)),
-                            "p95_cost": float(np.percentile(val_costs, 95)),
-                            "worst_cost": float(np.max(val_costs)),
-                            "capture_rate": val_cap_rate,
-                            "n_sims": len(val_seeds),
-                        }
+                validated_improvement = False
+                if val_seeds is not None and new_gen_best:
+                    val_costs = problem.evaluate_individual_per_seed(gen_best_individual, val_seeds)
+                    val_rms = float(np.sqrt(np.mean(val_costs**2)))
+                    validation_metrics = {
+                        "rms_cost": val_rms,
+                        "mean_cost": float(np.mean(val_costs)),
+                        "median_cost": float(np.median(val_costs)),
+                        "std_cost": float(np.std(val_costs)),
+                        "p95_cost": float(np.percentile(val_costs, 95)),
+                        "worst_cost": float(np.max(val_costs)),
+                        "capture_rate": capture_rate(val_costs),
+                        "n_sims": len(val_seeds),
+                    }
+                    last_validated_individual = gen_best_individual
+                    if val_rms < best_val_cost:
+                        best_val_cost = val_rms
+                        best_overall_individual = gen_best_individual
+                        best_overall_cost = gen_best_cost
+                        validated_improvement = True
 
                 # Common logging
                 gen_best_costs.append(best_overall_cost)
@@ -550,7 +609,6 @@ def train(
 
                 # Log metrics
                 gen_elapsed_s = time.perf_counter() - gen_wall_start
-                gen_best_individual = X[gen_best_idx]
                 logger.log_generation(
                     gen + 1,
                     X,
@@ -562,6 +620,7 @@ def train(
                     gen_elapsed_s=gen_elapsed_s,
                     gen_best_individual=gen_best_individual,
                     validation=validation_metrics,
+                    improved=validated_improvement if val_seeds is not None else None,
                 )
                 display.update(logger, current_run=0)
 
@@ -584,6 +643,7 @@ def train(
                         param_specs,
                         seed_pool=seed_pool,
                         corridor_acc=corridor_acc,
+                        best_val_cost=best_val_cost,
                     )
                     if verbose:
                         print(f"  Checkpoint saved: g{gen + 1:05d}")
@@ -607,6 +667,7 @@ def train(
                     param_specs,
                     seed_pool=seed_pool,
                     corridor_acc=corridor_acc,
+                    best_val_cost=best_val_cost,
                 )
                 if verbose:
                     print(f"  Final checkpoint saved: g{last_gen:05d}")
@@ -631,6 +692,7 @@ def train(
                 param_specs,
                 seed_pool=seed_pool,
                 corridor_acc=corridor_acc,
+                best_val_cost=best_val_cost,
             )
             logger.close()
 
@@ -781,6 +843,8 @@ if __name__ == "__main__":
         cfg.network.layer_sizes = _net["layer_sizes"]
     if "activations" in _net:
         cfg.network.activations = _net["activations"]
+    if "input_mask" in _net:
+        cfg.network.input_mask = _net["input_mask"]
     cfg.sim.final_file = "output/final.train_nn_temp"
     cfg.sim.exec_dir = "."
     cwd = "."
@@ -939,7 +1003,7 @@ if __name__ == "__main__":
         if cfg.guidance_type == "neural_network":
             weights = _decode_nn_weights(result["best_individual"], param_specs)
             nn_path = Path(cwd) / cfg.sim.nn_param_file
-            write_nn_json(weights, cfg.network, nn_path)
+            write_nn_json(weights, cfg.network, nn_path, input_mask=cfg.network.input_mask)
             print(f"Best weights saved to {nn_path}")
         else:
             params = decode_normalized(result["best_individual"], param_specs)

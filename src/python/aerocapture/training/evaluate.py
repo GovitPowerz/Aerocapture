@@ -24,11 +24,27 @@ except ImportError:
     _aero_rs = None  # type: ignore[assignment]
     _HAS_PYO3 = False
 
+# Reserved seed offsets -- guarantees training, validation, and final eval
+# never share the same RNG stream.
+VALIDATION_SEED_OFFSET = 1_000_000
+FINAL_EVAL_SEED_OFFSET = 2_000_000
+
+
+def make_reserved_seeds(base_mc_seed: int, offset: int, n: int) -> list[int]:
+    """Generate a deterministic, reproducible list of MC seeds from a reserved RNG stream.
+
+    Given the same (base_mc_seed, offset, n), always returns the same seeds.
+    Different offsets produce independent streams.
+    """
+    seeds: list[int] = np.random.default_rng(base_mc_seed + offset).integers(0, 2**31, size=n).tolist()
+    return seeds
+
 
 def write_nn_json(
     weights: npt.NDArray[np.float64],
     network: NetworkConfig,
     filepath: str | Path,
+    input_mask: list[int] | None = None,
 ) -> None:
     """Write neural network weights in JSON format readable by Rust.
 
@@ -51,15 +67,17 @@ def write_nn_json(
 
         layer_weights[f"layer_{i}"] = {"w": w, "b": b}
 
-    data = {
+    data: dict = {
         "format_version": 1,
         "architecture": {
             "layers": network.layer_sizes,
             "activations": network.activations,
         },
         "weights": layer_weights,
-        "output_interpretation": "atan2",
+        "output_interpretation": "direct" if network.layer_sizes[-1] == 1 else "atan2",
     }
+    if input_mask is not None:
+        data["input_mask"] = input_mask
 
     Path(filepath).parent.mkdir(parents=True, exist_ok=True)
     with open(filepath, "w") as f:

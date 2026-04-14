@@ -47,6 +47,10 @@ struct NnJsonFile {
     architecture: NnArchitecture,
     weights: std::collections::BTreeMap<String, NnLayerWeights>,
     output_interpretation: String,
+    #[serde(default)]
+    input_mask: Option<Vec<usize>>,
+    #[serde(default)]
+    ablated_input: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,6 +65,9 @@ struct NnLayerWeights {
     b: Vec<f64>,
 }
 
+/// Total number of candidate NN inputs (16 existing + 7 new).
+pub const NN_FULL_INPUT_SIZE: usize = 23;
+
 /// Modular neural network model.
 ///
 /// Replaces the fixed-size `NeuralNetParams`. Supports arbitrary depth and width.
@@ -72,9 +79,59 @@ pub struct NeuralNetModel {
     pub layers: Vec<Layer>,
     /// Output interpretation (e.g. "atan2").
     pub output_interpretation: String,
+    /// Optional input selection mask: indices into the full 23-input vector.
+    /// Length must equal layer_sizes[0]. None means use inputs as-is.
+    pub input_mask: Option<Vec<usize>>,
+    /// Optional index of a single input to zero out (ablation analysis).
+    /// Must be in [0, NN_FULL_INPUT_SIZE). None means no ablation.
+    pub ablated_input: Option<usize>,
 }
 
 impl NeuralNetModel {
+    /// Validate that the input mask is consistent with the expected layer-0 size and NN_FULL_INPUT_SIZE.
+    pub fn validate_mask(mask: &Option<Vec<usize>>, expected_len: usize) -> Result<(), DataError> {
+        if let Some(m) = mask {
+            if m.len() != expected_len {
+                return Err(DataError(format!(
+                    "input_mask length ({}) does not match layer_sizes[0] ({})",
+                    m.len(),
+                    expected_len
+                )));
+            }
+            for &idx in m {
+                if idx >= NN_FULL_INPUT_SIZE {
+                    return Err(DataError(format!(
+                        "input_mask index {} out of range [0, {})",
+                        idx, NN_FULL_INPUT_SIZE
+                    )));
+                }
+            }
+            let mut seen = std::collections::HashSet::new();
+            for &idx in m {
+                if !seen.insert(idx) {
+                    return Err(DataError(format!(
+                        "input_mask contains duplicate index {}",
+                        idx
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Validate that ablated_input is within [0, NN_FULL_INPUT_SIZE).
+    pub fn validate_ablated_input(ablated: &Option<usize>) -> Result<(), DataError> {
+        if let Some(idx) = ablated
+            && *idx >= NN_FULL_INPUT_SIZE
+        {
+            return Err(DataError(format!(
+                "ablated_input index {} out of range [0, {})",
+                idx, NN_FULL_INPUT_SIZE
+            )));
+        }
+        Ok(())
+    }
+
     /// Load NN model from a JSON file.
     pub fn load(path: &str) -> Result<Self, DataError> {
         let content = std::fs::read_to_string(path)
@@ -127,10 +184,23 @@ impl NeuralNetModel {
             });
         }
 
+        Self::validate_mask(&file.input_mask, file.architecture.layers[0])?;
+        Self::validate_ablated_input(&file.ablated_input)?;
+
+        let output_size = *file.architecture.layers.last().unwrap_or(&0);
+        if file.output_interpretation != "direct" && output_size < 2 {
+            return Err(DataError(format!(
+                "output_interpretation '{}' requires >= 2 outputs, got {} in {}",
+                file.output_interpretation, output_size, path
+            )));
+        }
+
         Ok(NeuralNetModel {
             layer_sizes: file.architecture.layers,
             layers,
             output_interpretation: file.output_interpretation,
+            input_mask: file.input_mask,
+            ablated_input: file.ablated_input,
         })
     }
 
@@ -158,6 +228,8 @@ impl NeuralNetModel {
             },
             weights,
             output_interpretation: self.output_interpretation.clone(),
+            input_mask: self.input_mask.clone(),
+            ablated_input: self.ablated_input,
         };
 
         let json = serde_json::to_string_pretty(&file)
@@ -255,6 +327,104 @@ impl NeuralNetModel {
             layer_sizes: layer_sizes.to_vec(),
             layers,
             output_interpretation: "atan2".to_string(),
+            input_mask: None,
+            ablated_input: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a minimal valid NeuralNetModel with a given input size.
+    fn make_model(input_size: usize) -> NeuralNetModel {
+        NeuralNetModel {
+            layer_sizes: vec![input_size, 4, 2],
+            layers: vec![
+                Layer {
+                    w: vec![vec![0.1; input_size]; 4],
+                    b: vec![0.0; 4],
+                    activation: Activation::Tanh,
+                },
+                Layer {
+                    w: vec![vec![0.1; 4]; 2],
+                    b: vec![0.0; 2],
+                    activation: Activation::Linear,
+                },
+            ],
+            output_interpretation: "atan2".to_string(),
+            input_mask: None,
+            ablated_input: None,
+        }
+    }
+
+    #[test]
+    fn input_mask_stored_on_model() {
+        let mask = Some(vec![0usize, 1, 2]);
+        let model = NeuralNetModel {
+            input_mask: mask.clone(),
+            ..make_model(3)
+        };
+        assert_eq!(model.input_mask, mask);
+    }
+
+    #[test]
+    fn input_mask_none_by_default() {
+        let model = make_model(3);
+        assert!(model.input_mask.is_none());
+    }
+
+    #[test]
+    fn validate_mask_length_mismatch() {
+        // mask has 2 entries but expected_len is 3
+        let mask = Some(vec![0usize, 1]);
+        let result = NeuralNetModel::validate_mask(&mask, 3);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().0.contains("length"));
+    }
+
+    #[test]
+    fn validate_mask_out_of_range() {
+        // index 23 == NN_FULL_INPUT_SIZE, which is out of range
+        let mask = Some(vec![0usize, NN_FULL_INPUT_SIZE]);
+        let result = NeuralNetModel::validate_mask(&mask, 2);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().0.contains("out of range"));
+    }
+
+    #[test]
+    fn validate_mask_duplicates() {
+        let mask = Some(vec![0usize, 1, 0]);
+        let result = NeuralNetModel::validate_mask(&mask, 3);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().0.contains("duplicate"));
+    }
+
+    #[test]
+    fn validate_mask_valid() {
+        let mask = Some(vec![0usize, 5, 10]);
+        let result = NeuralNetModel::validate_mask(&mask, 3);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_mask_none_is_ok() {
+        let result = NeuralNetModel::validate_mask(&None, 16);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_ablated_input_out_of_range() {
+        let result = NeuralNetModel::validate_ablated_input(&Some(NN_FULL_INPUT_SIZE));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().0.contains("out of range"));
+    }
+
+    #[test]
+    fn validate_ablated_input_valid() {
+        // index 22 is the last valid index (NN_FULL_INPUT_SIZE - 1)
+        let result = NeuralNetModel::validate_ablated_input(&Some(22));
+        assert!(result.is_ok());
     }
 }

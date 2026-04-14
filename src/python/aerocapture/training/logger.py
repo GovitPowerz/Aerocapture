@@ -50,8 +50,15 @@ class TrainingLogger:
         gen_elapsed_s: float | None = None,
         gen_best_individual: npt.NDArray[np.float64] | None = None,
         validation: dict | None = None,
+        improved: bool | None = None,
     ) -> None:
-        """Log metrics for one generation."""
+        """Log metrics for one generation.
+
+        `improved`: explicit flag set by the training loop when a new validated
+        best individual was promoted. When None, falls back to cost-based
+        detection (gen_best < best_cost_so_far) -- unreliable under rotating
+        seeds but kept for callers that don't track validation state.
+        """
         stats = cost_stats(costs)
         # In adaptive-seed mode, use pool's per-seed capture rate (honest metric).
         # The default capture_rate(costs) is meaningless when costs are aggregated fitness.
@@ -59,9 +66,10 @@ class TrainingLogger:
         diversity = population_diversity(population)
 
         gen_best = stats["best"]
-        improved = gen_best < self._best_cost
+        if improved is None:
+            improved = gen_best < self._best_cost
         if improved:
-            self._best_cost = gen_best
+            self._best_cost = min(self._best_cost, gen_best)
 
         best_params = decode_fn(best_individual) if decode_fn is not None else None
         gen_best_params = decode_fn(gen_best_individual) if decode_fn is not None and gen_best_individual is not None else None

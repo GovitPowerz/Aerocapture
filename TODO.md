@@ -1,6 +1,6 @@
 # TODO
 
-- [ ] Add some input analysis for nn to prune useless inputs. In fact, a global pruning would be interesting to improve nn training and inference
+- [ ] compare rotating seeds with adaptive seeds
 
 ## Seed Pool: Adversarial Curriculum Collapse
 
@@ -25,8 +25,6 @@ routes to `[navigation]`. Comment needs updating.
 
 ## Backlog
 
-- [ ] Output format improvements (HDF5/Parquet, metadata, dispersions in final CSV)
-- [ ] Switch to real-valued GA + alternative optimizers (CMA-ES, PSO, RL)
 - [ ] Explore LSTM / Transformer architectures for guidance
 - [ ] Add neural counterparts for navigation and control
 - [ ] Develop ESR (Earth Sample Return) mission profiles
