@@ -470,9 +470,7 @@ def train(
                 if seed_curator is not None and seed_curator.seed_list is None:
                     bootstrap: list[int] = []
                     while len(bootstrap) < config.optimizer.training_n_sims:
-                        batch = rng.integers(
-                            0, 2**31, size=config.optimizer.training_n_sims - len(bootstrap)
-                        ).tolist()
+                        batch = rng.integers(0, 2**31, size=config.optimizer.training_n_sims - len(bootstrap)).tolist()
                         bootstrap.extend(s for s in batch if s not in excluded_seeds)
                     problem.update_seeds(bootstrap[: config.optimizer.training_n_sims])
                     # Note: intentionally do NOT set seed_curator.seed_list -- the first
@@ -735,13 +733,6 @@ if __name__ == "__main__":
     parser.add_argument("--resume", type=str, default=None, help="Checkpoint directory to resume from (auto-detected if omitted and checkpoint exists)")
     parser.add_argument("-fs", "--from-scratch", action="store_true", help="Wipe existing training output and start fresh (deletes checkpoints, logs, reports)")
     parser.add_argument("--no-tui", action="store_true", help="Disable Rich TUI (use plain-text output)")
-    parser.add_argument("--adaptive-seeds", action="store_true", help="Use adaptive seed pool with difficulty-based eviction")
-    parser.add_argument("--seed-pool-cap", type=int, default=None, help="Maximum adaptive seed pool size (default: from TOML or 100)")
-    parser.add_argument("--cost-alpha", type=float, default=None, help="Mean/CVaR blend weight: 1.0=pure mean, 0.0=pure CVaR (default: from TOML or 0.7)")
-    parser.add_argument("--cvar-percentile", type=int, default=None, help="CVaR tail fraction in percent (default: from TOML or 20)")
-    parser.add_argument("--stress-interval", type=int, default=None, help="Run stress test every N generations (default: from TOML or 5)")
-    parser.add_argument("--stress-probes", type=int, default=None, help="Number of fresh seeds to probe per stress test (default: from TOML or 200)")
-    parser.add_argument("--stress-inject", type=int, default=None, help="Number of worst seeds to inject from each stress test (default: from TOML or 20)")
     parser.add_argument("--skip-report", "--skip-final-report", action="store_true", dest="skip_report", help="Skip PDF report generation at end of training")
     parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
     parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds (default: no limit)")
@@ -765,8 +756,6 @@ if __name__ == "__main__":
         cfg.optimizer.n_pop = args.n_pop
     if args.algorithm is not None:
         cfg.optimizer.algorithm = args.algorithm
-    # TODO(Task 7): remove deprecated CLI flags (adaptive_seeds, seed_pool_cap,
-    # cost_alpha, cvar_percentile, stress_interval, stress_probes, stress_inject)
     guidance_type = _toml_data.get("guidance", {}).get("type")
     if guidance_type is None:
         print("ERROR: TOML config must contain [guidance] type = '<scheme>'")
