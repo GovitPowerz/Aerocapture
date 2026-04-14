@@ -77,3 +77,38 @@ class TestStratifiedPick:
         curator = SeedCurator(sample_size=100, n_bins=20, excluded_seeds=set(), rng=_rng(0))
         with pytest.raises(ValueError, match="n_bins .* must be <=.*"):
             curator._stratified_pick([1, 2, 3, 4, 5], np.array([0.1, 0.2, 0.3, 0.4, 0.5]))
+
+
+class TestCurate:
+    """Tests for the end-to-end curate() method with a fake problem."""
+
+    class _FakeProblem:
+        """Stand-in for AerocaptureProblem: returns deterministic per-seed costs."""
+
+        def evaluate_individual_per_seed(
+            self, x: np.ndarray, seeds: list[int]
+        ) -> np.ndarray:
+            # Cost is seed-dependent: higher seed -> higher cost, plus small x offset.
+            return np.array([float(s) + 0.01 * float(x[0]) for s in seeds])
+
+    def test_returns_n_bins_seeds_disjoint_from_excluded(self) -> None:
+        excluded = {1, 2, 3, 42, 999}
+        curator = SeedCurator(sample_size=100, n_bins=10, excluded_seeds=excluded, rng=_rng(7))
+        top_k_X = np.random.default_rng(0).random((5, 4))
+        new_seeds = curator.curate(self._FakeProblem(), top_k_X)
+        assert len(new_seeds) == 10
+        assert not (set(new_seeds) & excluded)
+        assert curator.seed_list == new_seeds
+
+    def test_deterministic_same_rng_and_inputs(self) -> None:
+        top_k_X = np.random.default_rng(0).random((5, 4))
+        a = SeedCurator(sample_size=100, n_bins=10, excluded_seeds=set(), rng=_rng(0)).curate(self._FakeProblem(), top_k_X)
+        b = SeedCurator(sample_size=100, n_bins=10, excluded_seeds=set(), rng=_rng(0)).curate(self._FakeProblem(), top_k_X)
+        assert a == b
+
+    def test_k_min_one(self) -> None:
+        """K=1 (only one individual) still works: averaging over 1 is identity."""
+        top_k_X = np.random.default_rng(0).random((1, 4))
+        curator = SeedCurator(sample_size=50, n_bins=5, excluded_seeds=set(), rng=_rng(0))
+        new_seeds = curator.curate(self._FakeProblem(), top_k_X)
+        assert len(new_seeds) == 5

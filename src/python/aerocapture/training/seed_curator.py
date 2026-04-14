@@ -9,6 +9,7 @@ individuals. See
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -50,3 +51,30 @@ class SeedCurator:
 
         bins = np.array_split(sorted_seeds, self.n_bins)
         return [int(self.rng.choice(b)) for b in bins]
+
+    def _draw_sample_seeds(self) -> list[int]:
+        """Draw `sample_size` fresh random seeds disjoint from `excluded_seeds`."""
+        drawn: list[int] = []
+        while len(drawn) < self.sample_size:
+            batch = self.rng.integers(0, 2**31, size=self.sample_size - len(drawn)).tolist()
+            drawn.extend(s for s in batch if s not in self.excluded_seeds)
+        return drawn[: self.sample_size]
+
+    def curate(
+        self,
+        problem: Any,  # AerocaptureProblem-like (duck-typed for testability)
+        top_k_X: npt.NDArray[np.float64],
+    ) -> list[int]:
+        """Run K individuals on `sample_size` seeds, pick `n_bins` via stratified random.
+
+        Updates ``self.seed_list`` and returns the new list.
+        """
+        sample_seeds = self._draw_sample_seeds()
+        costs_per_ind = [
+            problem.evaluate_individual_per_seed(top_k_X[i], sample_seeds)
+            for i in range(top_k_X.shape[0])
+        ]
+        avg_cost = np.mean(np.stack(costs_per_ind, axis=0), axis=0)
+        new_seeds = self._stratified_pick(sample_seeds, avg_cost)
+        self.seed_list = new_seeds
+        return new_seeds
