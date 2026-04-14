@@ -60,9 +60,7 @@ class TrainingLogger:
         seeds but kept for callers that don't track validation state.
         """
         stats = cost_stats(costs)
-        # In adaptive-seed mode, use pool's per-seed capture rate (honest metric).
-        # The default capture_rate(costs) is meaningless when costs are aggregated fitness.
-        cap_rate = pool_metrics["capture_rate"] if pool_metrics is not None and "capture_rate" in pool_metrics else capture_rate(costs)
+        cap_rate = capture_rate(costs)
         diversity = population_diversity(population)
 
         gen_best = stats["best"]

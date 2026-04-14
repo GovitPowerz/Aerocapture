@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 import numpy as np
 from aerocapture.training.config import TrainingConfig
+from aerocapture.training.optimizer import OptimizerConfig
+from aerocapture.training.problem import AerocaptureProblem
 from aerocapture.training.train import train
 
 
@@ -27,7 +29,7 @@ class TestKeyboardInterrupt:
         dummy_exe.write_text("#!/bin/sh\nexit 0\n")
         dummy_exe.chmod(dummy_exe.stat().st_mode | stat.S_IEXEC)
 
-        cfg = TrainingConfig()
+        cfg = TrainingConfig(optimizer=OptimizerConfig(seed_strategy="adaptive"))
         cfg.optimizer.n_gen = 100
         cfg.optimizer.n_pop = 4
         cfg.save_dir = str(tmp_path / "training_output")
@@ -41,7 +43,10 @@ class TestKeyboardInterrupt:
                 raise KeyboardInterrupt
             out["F"] = np.random.default_rng(call_count).random((X.shape[0], 1)) * 1e6
 
-        with patch("aerocapture.training.problem.AerocaptureProblem._evaluate", mock_evaluate):
+        with (
+            patch("aerocapture.training.problem.AerocaptureProblem._evaluate", mock_evaluate),
+            patch.object(AerocaptureProblem, "_run_batch", return_value=np.full(cfg.optimizer.n_pop, 1000.0)),
+        ):
             result = train(cfg, seed=42, cwd=str(tmp_path), verbose=False, no_tui=True)
 
         assert result["interrupted"] is True

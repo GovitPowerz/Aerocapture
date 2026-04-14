@@ -136,10 +136,31 @@ uv run python -m aerocapture.training.train \
 
 # Disable TUI (CI / piped output)
 uv run python -m aerocapture.training.train <config.toml> --no-tui
-
-# Adaptive seed pool (curates seeds by difficulty, CVaR-blended fitness)
-uv run python -m aerocapture.training.train <config.toml> --adaptive-seeds --cost-alpha 0.6
 ```
+
+### Training seed strategies
+
+The `[optimizer] seed_strategy` key (required) controls how Monte Carlo seeds are picked across generations. All three strategies use the same `training_n_sims` size knob.
+
+| Strategy    | What it does                                                                           | When to use |
+| ----------- | -------------------------------------------------------------------------------------- | ----------- |
+| `"fixed"`   | Deterministic `[mc_seed + 0, ..., mc_seed + (n_sims-1)]`; seeds never change.          | Debugging, A/B comparisons where the cost landscape must be identical across runs. |
+| `"rotating"`| Fresh random seeds drawn every generation, disjoint from reserved sets.                | Production default candidate: landscape shifts each gen so the optimizer can't overfit to a fixed scenario set. |
+| `"adaptive"`| Random bootstrap, then curated-CDF: refreshed on validated-best or every `seed_pool_interval` gens. Each curation draws `curation_sample_size` probes, runs the top `curation_top_k` individuals, and picks one seed per cost quantile bin. | When you want a lower-variance fitness signal than rotating; pairs well with a strong `validation_n_sims`. |
+
+Typical TOML snippet:
+
+```toml
+[optimizer]
+algorithm = "ga"
+seed_strategy = "adaptive"
+training_n_sims = 20
+seed_pool_interval = 50
+curation_top_k = 5
+curation_sample_size = 1000
+```
+
+Override per-scheme by adding `seed_strategy = "..."` in a leaf training TOML. See `CLAUDE.md` for full details.
 
 ## Reports and Visualization
 
@@ -261,7 +282,7 @@ uv run pytest tests/
 
 **Rust tests** cover: physics (J2/J3/J4 gravity with proptest), all 7 guidance schemes, exit phase guidance (pdyn feedback with proptest), phase dispatch, lateral guidance, navigation (bias + EKF, SimPhase gating), wind model, control (pilot dynamics, angle utils), DOPRI45 adaptive integrator, TOML base inheritance, virtual DV ranges, trajectory heat load, density perturbation (OU config presets, step function statistics, TOML parsing, E2E backward compat).
 
-**Python tests** cover: parsers, regression, GA pipeline, training visualization, training animation, NN weight initialization, adaptive seed pool, graceful interrupt, TOML base inheritance, PyO3 integration (bit-identical regression), corridor accumulator, unified cost function, sensitivity analysis (build_problem structure + Morris/Sobol pipeline shape/correctness), Parquet output (write/read roundtrip, schema, metadata, data integrity).
+**Python tests** cover: parsers, regression, GA pipeline, training visualization, training animation, NN weight initialization, curated-CDF seed framework (stratified picking, curation probe, checkpoint roundtrip), graceful interrupt, TOML base inheritance, PyO3 integration (bit-identical regression), corridor accumulator, unified cost function, sensitivity analysis (build_problem structure + Morris/Sobol pipeline shape/correctness), Parquet output (write/read roundtrip, schema, metadata, data integrity).
 
 ## CI
 

@@ -449,67 +449,6 @@ def _chart_weight_stats_evolution(records: list[dict[str, Any]], output: Path, r
 
 
 # ---------------------------------------------------------------------------
-# Panel 6: Seed pool evolution (conditional)
-# ---------------------------------------------------------------------------
-def chart_seed_pool(records: list[dict[str, Any]], output: Path, resume_gens: list[int] | None = None) -> bool:
-    """Panel 6: Seed pool difficulty distribution over generations.
-
-    Shows percentile curves (p1, p10, p25, p50, p75, p90, p99) of per-seed
-    difficulty scores. Falls back to min/max lines if difficulty_scores arrays
-    are not available in the JSONL data.
-
-    Returns False if no ``pool_metrics`` data is available.
-    """
-    with_pool = [r for r in records if r.get("pool_metrics")]
-    if not with_pool:
-        return False
-
-    gens = [r["generation"] for r in with_pool]
-    has_scores = any(r["pool_metrics"].get("difficulty_scores") for r in with_pool)
-
-    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-
-    if has_scores:
-        percentiles = [1, 10, 25, 50, 75, 90, 99]
-        pct_colors = ["#d62728", "#ff7f0e", "#bcbd22", "#1f77b4", "#bcbd22", "#ff7f0e", "#d62728"]
-        pct_widths = [0.6, 0.8, 1.0, 1.5, 1.0, 0.8, 0.6]
-        pct_styles = [":", "--", "-.", "-", "-.", "--", ":"]
-
-        pct_data: dict[int, list[float]] = {p: [] for p in percentiles}
-        for r in with_pool:
-            scores = r["pool_metrics"].get("difficulty_scores", [])
-            if scores:
-                arr = np.array(scores)
-                for p in percentiles:
-                    pct_data[p].append(float(np.percentile(arr, p)))
-            else:
-                for p in percentiles:
-                    pct_data[p].append(float("nan"))
-
-        for p, color, lw, ls in zip(percentiles, pct_colors, pct_widths, pct_styles, strict=True):
-            ax.plot(gens, pct_data[p], color=color, linewidth=lw, linestyle=ls, label=f"p{p}")
-
-        # Fill between p25-p75
-        ax.fill_between(gens, pct_data[25], pct_data[75], alpha=0.15, color="#1f77b4")
-    else:
-        # Fallback: only min/max available
-        d_min = [r["pool_metrics"].get("difficulty_min", 0.0) for r in with_pool]
-        d_max = [r["pool_metrics"].get("difficulty_max", 0.0) for r in with_pool]
-        ax.plot(gens, d_min, color=COLOR_CAPTURE, linewidth=1.0, label="Min difficulty")
-        ax.plot(gens, d_max, color=COLOR_WORST, linewidth=1.0, label="Max difficulty")
-        ax.fill_between(gens, d_min, d_max, alpha=0.15, color="#1f77b4")
-
-    _add_resume_markers(ax, resume_gens)
-    ax.set_xlabel("Generation")
-    ax.set_ylabel("Difficulty (cost of best individual)")
-    ax.set_title("Seed Pool Difficulty Distribution")
-    ax.legend(fontsize="x-small", ncol=4)
-    sns.despine(fig=fig)
-    _save_svg(fig, output)
-    return True
-
-
-# ---------------------------------------------------------------------------
 # Corridor / energy helpers
 # ---------------------------------------------------------------------------
 def _compute_envelope(

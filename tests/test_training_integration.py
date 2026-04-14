@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+from aerocapture.training.problem import AerocaptureProblem
 
 from tests.fixtures.factories import make_training_config
 
@@ -38,6 +39,7 @@ class TestTrainLoggerIntegration:
         with (
             patch("aerocapture.training.logger.TrainingLogger", MockLoggerClass),
             patch("aerocapture.training.problem.AerocaptureProblem._evaluate", mock_evaluate),
+            patch.object(AerocaptureProblem, "_run_batch", return_value=np.full(config.optimizer.n_pop, 1000.0)),
         ):
             from aerocapture.training.train import train
 

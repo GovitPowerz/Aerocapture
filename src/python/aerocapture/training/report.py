@@ -240,7 +240,6 @@ def _build_metadata(
     records: list[dict],
     scheme_dir: Path,
     n_sims: int,
-    has_seed_pool: bool,
     has_trajectories: bool,
     has_final_eval: bool,
     toml_path: Path | None,
@@ -274,7 +273,6 @@ def _build_metadata(
         "stagnation": str(stag),
         "n_sims": str(n_sims),
         "config_hash": config_hash,
-        "has_seed_pool": has_seed_pool,
         "has_trajectories": has_trajectories,
         "has_final_eval": has_final_eval,
         "has_cost_distribution": has_cost_distribution,
@@ -371,15 +369,14 @@ def _generate_training_charts(
     records: list[dict],
     resume_gens: list[int],
     out_dir: Path,
-) -> tuple[bool, bool]:
-    """Generate Part 1 (training convergence) SVG charts. Returns (has_cost_distribution, has_seed_pool)."""
+) -> bool:
+    """Generate Part 1 (training convergence) SVG charts. Returns has_cost_distribution."""
     charts.chart_convergence(records, out_dir / "convergence.svg", resume_gens=resume_gens)
     charts.chart_diversity_cost(records, out_dir / "diversity_cost.svg", resume_gens=resume_gens)
     has_cost_distribution = charts.chart_cost_distribution(records, out_dir / "cost_distribution.svg")
     charts.chart_parameter_evolution(records, out_dir / "parameter_evolution.svg", resume_gens=resume_gens)
-    has_seed_pool = charts.chart_seed_pool(records, out_dir / "seed_pool.svg", resume_gens=resume_gens)
 
-    return has_cost_distribution, has_seed_pool
+    return has_cost_distribution
 
 
 def _load_corridor_data(scheme_dir: Path) -> dict[str, Any] | None:
@@ -569,7 +566,7 @@ def generate_report(
 
     try:
         # Part 1: training convergence charts
-        has_cost_distribution, has_seed_pool = _generate_training_charts(records, resume_gens, tmp_dir)
+        has_cost_distribution = _generate_training_charts(records, resume_gens, tmp_dir)
 
         # Read cost function config from TOML (needed for cost stats)
         cost_kwargs = _read_cost_kwargs(toml_path) if toml_path is not None else None
@@ -623,7 +620,6 @@ def generate_report(
             records,
             scheme_dir,
             n_sims=n_sims,
-            has_seed_pool=has_seed_pool,
             has_trajectories=has_trajectories,
             has_final_eval=final_records is not None,
             toml_path=toml_path,

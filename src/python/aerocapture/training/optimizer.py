@@ -12,6 +12,7 @@ from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
 
 _VALID_ALGORITHMS = ("ga", "cma_es", "de", "pso")
+_VALID_SEED_STRATEGIES = ("fixed", "rotating", "adaptive")
 _CMAES_MAX_PARAMS = 2000
 
 
@@ -45,19 +46,14 @@ class PSOSettings:
 @dataclass
 class OptimizerConfig:
     algorithm: str = "ga"
+    seed_strategy: str = ""  # required; validated in __post_init__
     n_pop: int = 60
     n_gen: int = 2500
     seed_pool_interval: int = 50
-    adaptive_seeds: bool = False
-    seed_pool_cap: int = 100
-    cost_alpha: float = 0.7
-    cvar_percentile: int = 20
-    stress_interval: int = 5
-    stress_probes: int = 200
-    stress_inject: int = 20
     training_n_sims: int = 1
     validation_n_sims: int = 1000
-    validation_interval: int = 50
+    curation_top_k: int = 5
+    curation_sample_size: int = 1000
     ga: GASettings = field(default_factory=GASettings)
     cma_es: CMAESSettings = field(default_factory=CMAESSettings)
     de: DESettings = field(default_factory=DESettings)
@@ -66,17 +62,43 @@ class OptimizerConfig:
     def __post_init__(self) -> None:
         if self.algorithm not in _VALID_ALGORITHMS:
             raise ValueError(f"Unknown algorithm '{self.algorithm}'. Must be one of: {_VALID_ALGORITHMS}")
-        if self.validation_interval <= 0:
-            raise ValueError(f"validation_interval must be > 0, got {self.validation_interval}")
+        # Reject invalid non-empty values at construction; empty sentinel is
+        # allowed so bare TrainingConfig() works. `from_dict` enforces that
+        # TOML-loaded configs include the key; `train()` re-checks at entry.
+        if self.seed_strategy and self.seed_strategy not in _VALID_SEED_STRATEGIES:
+            raise ValueError(f"seed_strategy must be one of {_VALID_SEED_STRATEGIES}, got {self.seed_strategy!r}")
+        if self.curation_top_k < 1:
+            raise ValueError(f"curation_top_k must be >= 1, got {self.curation_top_k}")
+        if self.curation_sample_size < self.curation_top_k:
+            raise ValueError(f"curation_sample_size ({self.curation_sample_size}) must be >= curation_top_k ({self.curation_top_k})")
 
     @classmethod
     def from_dict(cls, d: dict) -> OptimizerConfig:
+        if "seed_strategy" not in d:
+            raise ValueError(f'[optimizer].seed_strategy is required. Add one of {_VALID_SEED_STRATEGIES} (e.g. `seed_strategy = "adaptive"`).')
+
         ga = GASettings(**d["ga"]) if "ga" in d else GASettings()
         cma_es = CMAESSettings(**d["cma_es"]) if "cma_es" in d else CMAESSettings()
         de = DESettings(**d["de"]) if "de" in d else DESettings()
         pso = PSOSettings(**d["pso"]) if "pso" in d else PSOSettings()
 
-        top_level = {k: v for k, v in d.items() if k not in ("ga", "cma_es", "de", "pso")}
+        _obsolete = {
+            "adaptive_seeds",
+            "seed_pool_cap",
+            "cost_alpha",
+            "cvar_percentile",
+            "stress_interval",
+            "stress_probes",
+            "stress_inject",
+            "validation_interval",
+        }
+        for key in _obsolete & d.keys():
+            warnings.warn(
+                f"[optimizer].{key} is deprecated and ignored (replaced by curated-CDF seed framework)",
+                UserWarning,
+                stacklevel=2,
+            )
+        top_level = {k: v for k, v in d.items() if k not in ("ga", "cma_es", "de", "pso") and k not in _obsolete}
         return cls(**top_level, ga=ga, cma_es=cma_es, de=de, pso=pso)
 
 

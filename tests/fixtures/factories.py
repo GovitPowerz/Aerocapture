@@ -10,7 +10,7 @@ def make_training_config(guidance_type: str = "equilibrium_glide") -> TrainingCo
     """Build a minimal TrainingConfig for the given guidance type."""
     return TrainingConfig(
         network=NetworkConfig(),
-        optimizer=OptimizerConfig(),
+        optimizer=OptimizerConfig(seed_strategy="adaptive"),
         sim=SimConfig(
             executable="dummy",
             nn_param_file="dummy.json",
