@@ -66,13 +66,6 @@ This document lists physics, GNC, and software improvements for the aerocapture 
 
 *(Done -- see Done section below.)*
 
-### 9.3 Multi-objective optimization (mean vs CVaR)
-
-Replace the scalar blended fitness with a 2-objective Pareto front: minimize mean DV and minimize CVaR (worst-tail DV). pymoo's NSGA-II handles this natively.
-
-- **Pro:** No arbitrary alpha blending. Maintains population diversity naturally via Pareto pressure. Gives a menu of solutions from "best average" to "most robust."
-- **Con:** Harder to pick "the" best solution afterward (need a selection criterion on the Pareto front). More complex reporting.
-
 ### 9.5 Validation-gated best selection
 
 *(Done -- see Done section below.)*
@@ -173,3 +166,4 @@ Items deferred because they require unavailable data, external dependencies, or 
 | Venus/Titan applications | Atmosphere data not available |
 | Population restarts / island model (was 9.4) | Rotating/curated seeds + validation gate cover the basin-escape need; CMA-ES already supports IPOP. Revisit if persistent stagnation is observed across schemes. |
 | Adaptive `training_n_sims` ramping (was 9.7) | Marginal payoff with per-gen seed refresh as the dominant variance source; validation gate is the authoritative quality signal. |
+| Multi-objective optimization mean vs CVaR (was 9.3) | Original "remove alpha blending" motivation already addressed (single-objective RMS, no `cost_alpha`/`cvar_percentile`). NSGA-II would re-architect the validation gate (single-scalar promotion no longer applies) and reports for marginal benefit. Cheaper alternative if explicit tail control is ever needed: add a `tail_penalty_weight` knob applied to `p95` in the cost function (~5 lines, no Pareto machinery). |
