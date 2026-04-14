@@ -43,6 +43,19 @@ from aerocapture.training.weight_stats import compute_weight_stats
 _SENTINEL_BANK_ANGLES = [0, 18, 36, 54, 72, 90, 108, 126, 144, 162, 180]
 
 
+def _draw_disjoint_seeds(
+    rng: np.random.Generator,
+    n: int,
+    excluded: set[int],
+) -> list[int]:
+    """Draw `n` random seeds disjoint from `excluded`."""
+    drawn: list[int] = []
+    while len(drawn) < n:
+        batch = rng.integers(0, 2**31, size=n - len(drawn)).tolist()
+        drawn.extend(s for s in batch if s not in excluded)
+    return drawn[:n]
+
+
 def save_checkpoint(
     save_dir: Path,
     generation: int,
