@@ -12,6 +12,7 @@ from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
 
 _VALID_ALGORITHMS = ("ga", "cma_es", "de", "pso")
+_VALID_SEED_STRATEGIES = ("fixed", "rotating", "adaptive")
 _CMAES_MAX_PARAMS = 2000
 
 
@@ -45,6 +46,7 @@ class PSOSettings:
 @dataclass
 class OptimizerConfig:
     algorithm: str = "ga"
+    seed_strategy: str = ""  # required; validated in __post_init__
     n_pop: int = 60
     n_gen: int = 2500
     seed_pool_interval: int = 50
@@ -60,6 +62,11 @@ class OptimizerConfig:
     def __post_init__(self) -> None:
         if self.algorithm not in _VALID_ALGORITHMS:
             raise ValueError(f"Unknown algorithm '{self.algorithm}'. Must be one of: {_VALID_ALGORITHMS}")
+        if self.seed_strategy not in _VALID_SEED_STRATEGIES:
+            raise ValueError(
+                f"seed_strategy must be one of {_VALID_SEED_STRATEGIES}, got {self.seed_strategy!r}. "
+                f"Add `seed_strategy = \"adaptive\"` (or another valid value) under [optimizer]."
+            )
         if self.curation_top_k < 1:
             raise ValueError(f"curation_top_k must be >= 1, got {self.curation_top_k}")
         if self.curation_sample_size < self.curation_top_k:

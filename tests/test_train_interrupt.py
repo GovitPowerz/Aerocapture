@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import numpy as np
 from aerocapture.training.config import TrainingConfig
+from aerocapture.training.optimizer import OptimizerConfig
 from aerocapture.training.train import train
 
 
@@ -27,7 +28,7 @@ class TestKeyboardInterrupt:
         dummy_exe.write_text("#!/bin/sh\nexit 0\n")
         dummy_exe.chmod(dummy_exe.stat().st_mode | stat.S_IEXEC)
 
-        cfg = TrainingConfig()
+        cfg = TrainingConfig(optimizer=OptimizerConfig(seed_strategy="adaptive"))
         cfg.optimizer.n_gen = 100
         cfg.optimizer.n_pop = 4
         cfg.save_dir = str(tmp_path / "training_output")

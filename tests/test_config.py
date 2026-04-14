@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 from aerocapture.training.config import NetworkConfig, TrainingConfig
+from aerocapture.training.optimizer import OptimizerConfig
 from aerocapture.training.param_spaces import PARAM_SPACES
 
 from tests.fixtures.factories import make_training_config
@@ -28,6 +29,7 @@ class TestNParamsConsistency:
         """For neural_network, n_params == network.n_base_coef."""
         config = TrainingConfig(
             network=NetworkConfig(layer_sizes=[16, 24, 2]),
+            optimizer=OptimizerConfig(seed_strategy="adaptive"),
             guidance_type="neural_network",
         )
         expected = config.network.n_base_coef
@@ -45,6 +47,7 @@ class TestNParamsConsistency:
         """n_params reflects the actual NN architecture."""
         config = TrainingConfig(
             network=NetworkConfig(layer_sizes=layer_sizes, activations=activations),
+            optimizer=OptimizerConfig(seed_strategy="adaptive"),
             guidance_type="neural_network",
         )
         # Manual calculation

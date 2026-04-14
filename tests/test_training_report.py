@@ -282,8 +282,9 @@ class TestResumeGenerationOffset:
     def test_resumed_n_gen_is_offset(self) -> None:
         """After resume from gen 100 with --n-gen 50, config.optimizer.n_gen should be 150."""
         from aerocapture.training.config import TrainingConfig
+        from aerocapture.training.optimizer import OptimizerConfig
 
-        config = TrainingConfig()
+        config = TrainingConfig(optimizer=OptimizerConfig(seed_strategy="adaptive"))
         config.optimizer.n_gen = 50
 
         resumed = {"generation": 100}
@@ -301,8 +302,9 @@ class TestResumeGenerationOffset:
     def test_no_resume_n_gen_unchanged(self) -> None:
         """Without resume, --n-gen means total generations."""
         from aerocapture.training.config import TrainingConfig
+        from aerocapture.training.optimizer import OptimizerConfig
 
-        config = TrainingConfig()
+        config = TrainingConfig(optimizer=OptimizerConfig(seed_strategy="adaptive"))
         config.optimizer.n_gen = 100
 
         resumed = None

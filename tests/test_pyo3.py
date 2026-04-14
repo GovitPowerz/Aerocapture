@@ -101,12 +101,14 @@ class TestBitIdenticalRegression:
     def test_pyo3_matches_subprocess(self, rust_binary: Path) -> None:
         from aerocapture.training.config import SimConfig, TrainingConfig
         from aerocapture.training.evaluate import _run_via_subprocess
+        from aerocapture.training.optimizer import OptimizerConfig
 
         config = TrainingConfig(
             sim=SimConfig(
                 toml_config=GOLDEN_TOML,
                 final_file="output/final.test_ref_orig",
             ),
+            optimizer=OptimizerConfig(seed_strategy="adaptive"),
         )
         sub_result = _run_via_subprocess(config)
         assert sub_result is not None, "Subprocess path failed"
@@ -172,12 +174,14 @@ class TestFallback:
     def test_subprocess_fallback_works(self, rust_binary: Path) -> None:
         from aerocapture.training.config import SimConfig, TrainingConfig
         from aerocapture.training.evaluate import _run_via_subprocess
+        from aerocapture.training.optimizer import OptimizerConfig
 
         config = TrainingConfig(
             sim=SimConfig(
                 toml_config=GOLDEN_TOML,
                 final_file="output/final.test_ref_orig",
             ),
+            optimizer=OptimizerConfig(seed_strategy="adaptive"),
         )
         result = _run_via_subprocess(config)
         assert result is not None, "Subprocess path failed"

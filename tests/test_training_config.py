@@ -9,7 +9,7 @@ from aerocapture.training.optimizer import OptimizerConfig
 
 
 def test_optimizer_config_defaults() -> None:
-    opt = OptimizerConfig()
+    opt = OptimizerConfig(seed_strategy="adaptive")
     assert opt.algorithm == "ga"
     assert opt.n_pop == 60
     assert opt.n_gen == 2500
