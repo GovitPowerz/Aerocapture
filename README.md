@@ -138,7 +138,29 @@ uv run python -m aerocapture.training.train \
 uv run python -m aerocapture.training.train <config.toml> --no-tui
 ```
 
-The training loop uses a curated-CDF seed framework (`training_n_sims > 1`): a fixed-size seed list is refreshed on validated-best promotion or every `seed_pool_interval` gens by sampling 1000 probe seeds, scoring the top-`curation_top_k` individuals on them, and picking one random seed per cost quantile bin. See `CLAUDE.md` for details.
+### Training seed strategies
+
+The `[optimizer] seed_strategy` key (required) controls how Monte Carlo seeds are picked across generations. All three strategies use the same `training_n_sims` size knob.
+
+| Strategy    | What it does                                                                           | When to use |
+| ----------- | -------------------------------------------------------------------------------------- | ----------- |
+| `"fixed"`   | Deterministic `[mc_seed + 0, ..., mc_seed + (n_sims-1)]`; seeds never change.          | Debugging, A/B comparisons where the cost landscape must be identical across runs. |
+| `"rotating"`| Fresh random seeds drawn every generation, disjoint from reserved sets.                | Production default candidate: landscape shifts each gen so the optimizer can't overfit to a fixed scenario set. |
+| `"adaptive"`| Random bootstrap, then curated-CDF: refreshed on validated-best or every `seed_pool_interval` gens. Each curation draws `curation_sample_size` probes, runs the top `curation_top_k` individuals, and picks one seed per cost quantile bin. | When you want a lower-variance fitness signal than rotating; pairs well with a strong `validation_n_sims`. |
+
+Typical TOML snippet:
+
+```toml
+[optimizer]
+algorithm = "ga"
+seed_strategy = "adaptive"
+training_n_sims = 20
+seed_pool_interval = 50
+curation_top_k = 5
+curation_sample_size = 1000
+```
+
+Override per-scheme by adding `seed_strategy = "..."` in a leaf training TOML. See `CLAUDE.md` for full details.
 
 ## Reports and Visualization
 
