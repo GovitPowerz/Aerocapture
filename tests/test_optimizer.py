@@ -39,13 +39,6 @@ class TestOptimizerConfig:
         assert cfg.n_pop == 60
         assert cfg.n_gen == 2500
         assert cfg.seed_pool_interval == 50
-        assert cfg.adaptive_seeds is False
-        assert cfg.seed_pool_cap == 100
-        assert cfg.cost_alpha == 0.7
-        assert cfg.cvar_percentile == 20
-        assert cfg.stress_interval == 5
-        assert cfg.stress_probes == 200
-        assert cfg.stress_inject == 20
         assert cfg.training_n_sims == 1
         assert cfg.validation_n_sims == 1000
         assert cfg.validation_interval == 50
@@ -162,3 +155,46 @@ class TestCreateAlgorithm:
         cfg = OptimizerConfig(algorithm="ga", n_pop=42)
         alg = create_algorithm(cfg, n_params=5)
         assert alg.pop_size == 42
+
+
+class TestCurationKnobs:
+    def test_defaults(self) -> None:
+        cfg = OptimizerConfig()
+        assert cfg.curation_top_k == 5
+        assert cfg.curation_sample_size == 1000
+
+    def test_from_dict_parses_curation_keys(self) -> None:
+        cfg = OptimizerConfig.from_dict({"curation_top_k": 3, "curation_sample_size": 500})
+        assert cfg.curation_top_k == 3
+        assert cfg.curation_sample_size == 500
+
+    def test_curation_top_k_must_be_positive(self) -> None:
+        with pytest.raises(ValueError, match="curation_top_k"):
+            OptimizerConfig(curation_top_k=0)
+
+    def test_sample_size_must_be_at_least_top_k(self) -> None:
+        with pytest.raises(ValueError, match="curation_sample_size"):
+            OptimizerConfig(curation_top_k=10, curation_sample_size=5)
+
+    def test_obsolete_keys_emit_deprecation_warning(self) -> None:
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            OptimizerConfig.from_dict({"cost_alpha": 0.7, "cvar_percentile": 20})
+            messages = [str(x.message) for x in w]
+            assert any("cost_alpha" in m for m in messages)
+            assert any("cvar_percentile" in m for m in messages)
+
+    def test_obsolete_keys_do_not_raise(self) -> None:
+        """All legacy SeedPool knobs are silently dropped (with warning) so existing TOMLs still load."""
+        cfg = OptimizerConfig.from_dict(
+            {
+                "adaptive_seeds": True,
+                "seed_pool_cap": 100,
+                "cost_alpha": 0.5,
+                "cvar_percentile": 10,
+                "stress_interval": 5,
+                "stress_probes": 200,
+                "stress_inject": 20,
+            }
+        )
+        assert isinstance(cfg, OptimizerConfig)

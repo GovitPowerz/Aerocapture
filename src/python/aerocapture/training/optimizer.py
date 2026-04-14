@@ -48,16 +48,11 @@ class OptimizerConfig:
     n_pop: int = 60
     n_gen: int = 2500
     seed_pool_interval: int = 50
-    adaptive_seeds: bool = False
-    seed_pool_cap: int = 100
-    cost_alpha: float = 0.7
-    cvar_percentile: int = 20
-    stress_interval: int = 5
-    stress_probes: int = 200
-    stress_inject: int = 20
     training_n_sims: int = 1
     validation_n_sims: int = 1000
     validation_interval: int = 50
+    curation_top_k: int = 5
+    curation_sample_size: int = 1000
     ga: GASettings = field(default_factory=GASettings)
     cma_es: CMAESSettings = field(default_factory=CMAESSettings)
     de: DESettings = field(default_factory=DESettings)
@@ -68,6 +63,12 @@ class OptimizerConfig:
             raise ValueError(f"Unknown algorithm '{self.algorithm}'. Must be one of: {_VALID_ALGORITHMS}")
         if self.validation_interval <= 0:
             raise ValueError(f"validation_interval must be > 0, got {self.validation_interval}")
+        if self.curation_top_k < 1:
+            raise ValueError(f"curation_top_k must be >= 1, got {self.curation_top_k}")
+        if self.curation_sample_size < self.curation_top_k:
+            raise ValueError(
+                f"curation_sample_size ({self.curation_sample_size}) must be >= curation_top_k ({self.curation_top_k})"
+            )
 
     @classmethod
     def from_dict(cls, d: dict) -> OptimizerConfig:
@@ -76,7 +77,14 @@ class OptimizerConfig:
         de = DESettings(**d["de"]) if "de" in d else DESettings()
         pso = PSOSettings(**d["pso"]) if "pso" in d else PSOSettings()
 
-        top_level = {k: v for k, v in d.items() if k not in ("ga", "cma_es", "de", "pso")}
+        _obsolete = {"adaptive_seeds", "seed_pool_cap", "cost_alpha", "cvar_percentile", "stress_interval", "stress_probes", "stress_inject"}
+        for key in _obsolete & d.keys():
+            warnings.warn(
+                f"[optimizer].{key} is deprecated and ignored (replaced by curated-CDF seed framework)",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        top_level = {k: v for k, v in d.items() if k not in ("ga", "cma_es", "de", "pso") and k not in _obsolete}
         return cls(**top_level, ga=ga, cma_es=cma_es, de=de, pso=pso)
 
 
