@@ -56,6 +56,22 @@ def _draw_disjoint_seeds(
     return drawn[:n]
 
 
+def _compute_fixed_seeds(base_mc_seed: int, n_sims: int, excluded: set[int]) -> list[int]:
+    """Deterministic seed list for the `fixed` strategy.
+
+    Raises ValueError if any seed in the range overlaps `excluded`.
+    """
+    seeds = [base_mc_seed + i for i in range(n_sims)]
+    overlap = set(seeds) & excluded
+    if overlap:
+        msg = (
+            f"fixed seed range [{base_mc_seed}..{base_mc_seed + n_sims - 1}] "
+            f"overlaps {len(overlap)} validation/final-eval reserved seeds"
+        )
+        raise ValueError(msg)
+    return seeds
+
+
 def save_checkpoint(
     save_dir: Path,
     generation: int,
@@ -246,9 +262,13 @@ def train(
             "heat_load_weight": float(cost_cfg.get("heat_load_weight", 1000.0)),
         }
 
-    # Seed curator: maintains the training seed list across generations.
+    # Seed strategy: three mutually exclusive training seed paths.
+    #   fixed    -- deterministic [mc_seed + i]; seeds never change.
+    #   rotating -- fresh random seeds drawn each generation (handled in loop body).
+    #   adaptive -- bootstrap random + curated-CDF refreshes (SeedCurator).
     seed_curator: SeedCurator | None = None
-    if config.optimizer.training_n_sims > 1:
+    strategy = config.optimizer.seed_strategy
+    if strategy == "adaptive" and config.optimizer.training_n_sims > 1:
         seed_curator = SeedCurator(
             sample_size=config.optimizer.curation_sample_size,
             n_bins=config.optimizer.training_n_sims,
@@ -373,6 +393,14 @@ def train(
             seed_curator.excluded_seeds = excluded_seeds
             if seed_curator.seed_list is not None:
                 problem.update_seeds(seed_curator.seed_list)
+
+    if strategy == "fixed":
+        fixed_seeds = _compute_fixed_seeds(
+            base_mc_seed=base_mc_seed,
+            n_sims=config.optimizer.training_n_sims,
+            excluded=excluded_seeds,
+        )
+        problem.update_seeds(fixed_seeds)
 
     # Create initial population
     if resumed is not None:
