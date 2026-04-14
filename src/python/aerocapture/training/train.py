@@ -540,7 +540,8 @@ def train(
 
                 # Curation trigger: on validated promotion OR periodic fallback.
                 if seed_curator is not None:
-                    periodic = (gen + 1) % config.optimizer.seed_pool_interval == 0
+                    last = seed_curator.last_curation_gen if seed_curator.last_curation_gen >= 0 else gen
+                    periodic = (gen + 1 - last) >= config.optimizer.seed_pool_interval
                     if validated_improvement or periodic:
                         k = min(config.optimizer.curation_top_k, len(costs))
                         top_k_idx = np.argsort(costs)[:k]
