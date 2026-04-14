@@ -153,7 +153,7 @@ def load_checkpoint(
         "cost_history": meta["cost_history"],
         "rng_state": meta.get("rng_state"),
         "best_val_cost": meta.get("best_val_cost", float("inf")),
-        "seed_pool": meta.get("seed_pool"),
+        "seed_curator": meta.get("seed_curator"),
         "corridor_acc": corridor_acc_restored,
     }
 
