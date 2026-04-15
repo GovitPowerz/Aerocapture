@@ -15,6 +15,8 @@ pub enum Activation {
     Sigmoid,
     Asinh,
     Linear,
+    Swish,
+    Mish,
 }
 
 impl Activation {
@@ -25,6 +27,8 @@ impl Activation {
             Activation::Sigmoid => 1.0 / (1.0 + (-x).exp()),
             Activation::Asinh => x.asinh(),
             Activation::Linear => x,
+            Activation::Swish => x / (1.0 + (-x).exp()),
+            Activation::Mish => x * (1.0_f64 + x.exp()).ln().tanh(),
         }
     }
 }

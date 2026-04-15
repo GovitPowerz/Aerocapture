@@ -56,6 +56,28 @@ def _dict_to_toml(d: dict[str, Any], prefix: str = "") -> str:
     return "\n".join(parts) + ("\n" if parts else "")
 
 
+def _parse_network_config(cfg: RLConfig) -> tuple[list[int], list[int], list[str], int]:
+    """Extract (input_mask, layer_sizes, activations, input_dim) from TOML [network].
+
+    TOML layer_sizes includes the input dim (e.g. [23, 32, 16, 8, 2]),
+    but GaussianPolicy expects hidden+output only (e.g. [32, 16, 8, 2]).
+    """
+    network_cfg = cfg.raw_toml.get("network", {})
+    input_mask: list[int] = network_cfg.get("input_mask", list(range(16)))
+    toml_layers: list[int] = network_cfg.get("layer_sizes", [16, 64, 64, 2])
+    activations: list[str] = network_cfg.get("activations", ["tanh", "tanh", "linear"])
+    input_dim = len(input_mask)
+    layer_sizes = toml_layers[1:] if toml_layers[0] == input_dim and len(toml_layers) - 1 == len(activations) else toml_layers
+    return input_mask, layer_sizes, activations, input_dim
+
+
+def _generate_seed_model(cfg: RLConfig, path: Path) -> None:
+    """Export a randomly-initialized policy as a seed model JSON for BatchedSimulation."""
+    input_mask, layer_sizes, activations, input_dim = _parse_network_config(cfg)
+    policy = GaussianPolicy(input_dim, layer_sizes, activations)
+    export_policy_to_json(policy, path, input_mask)
+
+
 # Column indices in the 52-element final_record array (verified against
 # src/rust/src/simulation/runner.rs final_record layout):
 #   index 9  = eccentricity
@@ -74,6 +96,7 @@ def main() -> None:
     ap.add_argument("--validation-n-sims", type=int, default=None)
     ap.add_argument("--validation-interval-updates", type=int, default=None)
     ap.add_argument("--data-neural-network", type=Path, default=None, help="Override path to neural network model JSON")
+    ap.add_argument("--from-scratch", "-fs", action="store_true", help="Initialize with random weights (no seed model required)")
     ap.add_argument("--no-tui", action="store_true")
     ap.add_argument("--skip-report", action="store_true")
     ap.add_argument("--resume", type=Path, default=None)
@@ -103,6 +126,17 @@ def main() -> None:
         env_overrides = {"data.neural_network": str(args.data_neural_network)}
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    if args.from_scratch:
+        for stale in ("checkpoint.pt", "best_model.json"):
+            p = args.output_dir / stale
+            if p.exists():
+                p.unlink()
+        seed_model_path = args.output_dir / "seed_model.json"
+        _generate_seed_model(cfg, seed_model_path)
+        print(f"Generated seed model: {seed_model_path}", file=sys.stderr)
+        env_overrides = env_overrides or {}
+        env_overrides["data.neural_network"] = str(seed_model_path)
+
     config_hash = hashlib.sha256(json.dumps(cfg.raw_toml, sort_keys=True).encode()).hexdigest()[:12]
     (args.output_dir / "config_resolved.toml").write_text(_dict_to_toml(cfg.raw_toml))
 
@@ -119,7 +153,7 @@ def main() -> None:
         if cfg.algorithm == "ppo":
             _run_ppo(cfg, Path(args.toml_path), args.output_dir, logger, display, interrupted, args.resume, env_overrides)
         elif cfg.algorithm == "sac":
-            _run_sac(cfg, Path(args.toml_path), args.output_dir, logger, display, interrupted)
+            _run_sac(cfg, Path(args.toml_path), args.output_dir, logger, display, interrupted, env_overrides)
         else:
             raise NotImplementedError(f"algorithm {cfg.algorithm!r} not supported")
     finally:
@@ -155,11 +189,7 @@ def _run_ppo(
     # exposes a side channel for the raw sim state scalars.
     shaper = PBRSShaper(enabled=False)
 
-    network_cfg = cfg.raw_toml.get("network", {})
-    input_mask = network_cfg.get("input_mask", list(range(16)))
-    layer_sizes = network_cfg.get("layer_sizes", [64, 64, 2])
-    activations = network_cfg.get("activations", ["tanh", "tanh", "linear"])
-    input_dim = len(input_mask)
+    input_mask, layer_sizes, activations, input_dim = _parse_network_config(cfg)
 
     env = AerocaptureVecEnv(
         toml_path=str(toml_path),
@@ -373,7 +403,7 @@ def _validate_deterministic(
     base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("mc_seed", 42))
     seeds = make_reserved_seeds(base_seed, VALIDATION_SEED_OFFSET, cfg.validation_n_sims)
 
-    overrides_list = [{"data.neural_network": str(tmp_json), "monte_carlo.mc_seed": s} for s in seeds]
+    overrides_list = [{"data.neural_network": str(tmp_json), "monte_carlo.mc_seed": s, "simulation.n_sims": 1} for s in seeds]
     results = aerocapture_rs.run_batch(str(toml_path), overrides_list)
     fr = results.final_records  # (N, 52)
 
@@ -393,18 +423,16 @@ def _run_sac(
     logger: RLLogger,
     display: Any,
     interrupted: dict[str, bool],
+    env_overrides: dict[str, Any] | None = None,
 ) -> None:
     """SAC outer loop (experimental). Shares GaussianPolicy + export path with PPO."""
-    network_cfg = cfg.raw_toml.get("network", {})
-    input_mask = network_cfg.get("input_mask", list(range(16)))
-    layer_sizes = network_cfg.get("layer_sizes", [64, 64, 2])
-    activations = network_cfg.get("activations", ["tanh", "tanh", "linear"])
-    input_dim = len(input_mask)
+    input_mask, layer_sizes, activations, input_dim = _parse_network_config(cfg)
 
     env = AerocaptureVecEnv(
         toml_path=str(toml_path),
         n_envs=cfg.n_envs,
         seed_base=cfg.seed_base,
+        overrides=env_overrides,
     )
 
     sac_cfg = cfg.sac

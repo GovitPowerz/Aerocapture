@@ -22,6 +22,8 @@ _ACT: dict[str, type[nn.Module]] = {
     "sigmoid": nn.Sigmoid,
     "linear": nn.Identity,
     "identity": nn.Identity,
+    "swish": nn.SiLU,
+    "mish": nn.Mish,
 }
 
 

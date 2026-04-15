@@ -13,7 +13,7 @@ import numpy as np
 import numpy.typing as npt
 
 # Activation -> scheme mapping
-_XAVIER_ACTIVATIONS = frozenset({"tanh", "sigmoid", "asinh"})
+_XAVIER_ACTIVATIONS = frozenset({"tanh", "sigmoid", "asinh", "swish", "mish"})
 _HE_ACTIVATIONS = frozenset({"relu"})
 _LECUN_ACTIVATIONS = frozenset({"linear"})
 
@@ -40,7 +40,7 @@ def compute_layer_bound(fan_in: int, fan_out: int, activation: str) -> float:
         return math.sqrt(6.0 / fan_in)
     if activation in _LECUN_ACTIVATIONS:
         return math.sqrt(3.0 / fan_in)
-    msg = f"Unknown activation: {activation!r}. Expected one of: tanh, sigmoid, asinh, relu, linear"
+    msg = f"Unknown activation: {activation!r}. Expected one of: tanh, sigmoid, asinh, relu, linear, swish, mish"
     raise ValueError(msg)
 
 

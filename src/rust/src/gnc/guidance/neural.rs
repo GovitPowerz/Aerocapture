@@ -155,7 +155,7 @@ pub fn nn_bank_angle(
 
     // Interpret output based on model configuration
     match nn.output_interpretation.as_str() {
-        "direct" => output[0],
+        "direct" => output[0] * 2.0 * std::f64::consts::PI,
         _ => output[0].atan2(output[1]), // "atan2" (legacy default)
     }
 }
@@ -164,6 +164,7 @@ pub fn nn_bank_angle(
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
+    use std::f64::consts::PI;
 
     use crate::data::aerodynamics::AeroTables;
     use crate::data::atmosphere::{AtmosphereModel, DensityProfile};
@@ -342,13 +343,12 @@ mod tests {
     }
 
     #[test]
-    fn direct_output_returns_raw_value() {
-        // Single-output network with "direct" interpretation: output = bias directly
+    fn direct_output_scales_by_pi() {
         let nn = NeuralNetModel {
             layer_sizes: vec![16, 1],
             layers: vec![Layer {
                 w: vec![vec![0.0; 16]],
-                b: vec![1.5],
+                b: vec![0.5],
                 activation: Activation::Linear,
             }],
             output_interpretation: "direct".to_string(),
@@ -360,18 +360,17 @@ mod tests {
         let planet = PlanetConfig::mars();
 
         let bank = nn_bank_angle(&nav, &nn, &data, &planet, 50.0_f64.to_radians(), 0.0);
-        assert_relative_eq!(bank, 1.5, epsilon = 1e-12);
+        assert_relative_eq!(bank, 1.0 * PI, epsilon = 1e-12);
     }
 
     #[test]
-    fn direct_output_unbounded() {
-        // Verify direct output can exceed [-PI, PI]
+    fn direct_output_full_range() {
         let nn = NeuralNetModel {
             layer_sizes: vec![16, 1],
             layers: vec![Layer {
                 w: vec![vec![0.0; 16]],
-                b: vec![10.0], // > PI
-                activation: Activation::Linear,
+                b: vec![-1.0],
+                activation: Activation::Tanh,
             }],
             output_interpretation: "direct".to_string(),
             input_mask: None,
@@ -382,7 +381,7 @@ mod tests {
         let planet = PlanetConfig::mars();
 
         let bank = nn_bank_angle(&nav, &nn, &data, &planet, 50.0_f64.to_radians(), 0.0);
-        assert_relative_eq!(bank, 10.0, epsilon = 1e-12);
+        assert_relative_eq!(bank, (-1.0_f64).tanh() * 2.0 * PI, epsilon = 1e-12);
     }
 
     #[test]

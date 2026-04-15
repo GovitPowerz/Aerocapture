@@ -22,7 +22,7 @@
     align: (left, right),
     table.hline(stroke: 1.2pt),
     [*Updates*], [#meta.at("n_updates", default: "N/A")],
-    [*Final Eval Sims*], [#if meta.has("has_final_eval") and meta.has_final_eval { "1000" } else { "skipped" }],
+    [*Final Eval Sims*], [#if meta.at("has_final_eval", default: false) { meta.at("final_eval_n_sims", default: "1000") } else { "skipped" }],
     table.hline(stroke: 1.2pt),
   )
 ]
