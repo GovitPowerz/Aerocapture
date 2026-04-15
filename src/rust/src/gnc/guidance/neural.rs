@@ -23,22 +23,22 @@ use crate::gnc::navigation::coordinates::total_energy;
 use crate::gnc::navigation::estimator::NavigationOutput;
 use crate::orbit::elements;
 
-/// Compute NN-guided longitudinal bank angle.
+/// Build the masked NN input vector from navigation state.
 ///
-/// Builds a 23-element candidate input vector, applies the model's input_mask
-/// (or legacy [0..16] default), runs a forward pass, and interprets the output
-/// as either atan2(out[0], out[1]) or direct out[0] depending on the model config.
+/// Constructs the full 23-element candidate input vector, applies ablation zeroing
+/// (if configured), then applies the model's input_mask (or legacy [0..16] default).
+/// Returns the masked `Vec<f64>` ready for `nn.forward()`.
 ///
-/// Returns the **signed** bank angle in radians.
-/// Lateral guidance is bypassed for this scheme -- the NN controls roll direction directly.
-pub fn nn_bank_angle(
+/// Extracted from `nn_bank_angle` so `BatchedSimulation` can build the same observation
+/// vector the runtime uses.
+pub fn build_nn_input(
     nav: &NavigationOutput,
     nn: &NeuralNetModel,
     data: &SimData,
     planet: &PlanetConfig,
-    target_inclination: f64, // radians
+    target_inclination: f64,
     ref_velocity_latched: f64,
-) -> f64 {
+) -> Vec<f64> {
     let mu = planet.mu;
 
     // Radial velocity: V * sin(gamma)
@@ -121,11 +121,29 @@ pub fn nn_bank_angle(
     }
 
     // Apply input mask: select subset of inputs, or default to first 16 for backward compat
-    let masked: Vec<f64> = match &nn.input_mask {
+    match &nn.input_mask {
         Some(mask) => mask.iter().map(|&i| full_input[i]).collect(),
         None => full_input[..16].to_vec(),
-    };
+    }
+}
 
+/// Compute NN-guided longitudinal bank angle.
+///
+/// Builds the masked input vector via `build_nn_input`, runs a forward pass,
+/// and interprets the output as either atan2(out[0], out[1]) or direct out[0]
+/// depending on the model config.
+///
+/// Returns the **signed** bank angle in radians.
+/// Lateral guidance is bypassed for this scheme -- the NN controls roll direction directly.
+pub fn nn_bank_angle(
+    nav: &NavigationOutput,
+    nn: &NeuralNetModel,
+    data: &SimData,
+    planet: &PlanetConfig,
+    target_inclination: f64, // radians
+    ref_velocity_latched: f64,
+) -> f64 {
+    let masked = build_nn_input(nav, nn, data, planet, target_inclination, ref_velocity_latched);
     let output = nn.forward(&masked);
 
     // Interpret output based on model configuration
