@@ -52,7 +52,9 @@ impl BatchedSimulation {
         seed_base: u64,
     ) -> PyResult<Self> {
         if n_envs == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err("n_envs must be > 0"));
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "n_envs must be > 0",
+            ));
         }
         let overrides = extract_overrides(overrides)?;
         let (sim_input, sim_data) = config::load_and_override(Path::new(toml_path), &overrides)
@@ -62,7 +64,11 @@ impl BatchedSimulation {
             .neural_net
             .as_ref()
             .expect("neural_net model required for RL env");
-        let obs_dim = nn.input_mask.as_ref().map(|m: &Vec<usize>| m.len()).unwrap_or(16);
+        let obs_dim = nn
+            .input_mask
+            .as_ref()
+            .map(|m: &Vec<usize>| m.len())
+            .unwrap_or(16);
 
         let sim_data = Arc::new(sim_data);
 
@@ -225,7 +231,8 @@ impl BatchedSimulation {
                 self.episode_counter[i] += self.n_envs as u64;
                 let seed = self.seed_base + self.episode_counter[i];
                 let draw = draw_from_seed(&self.sim_data, seed);
-                let run_state = aerocapture::simulation::init::init_run_from_draw(&self.sim_data, &draw);
+                let run_state =
+                    aerocapture::simulation::init::init_run_from_draw(&self.sim_data, &draw);
                 self.envs[i] = build_sim_state(&self.sim_input, &self.sim_data, run_state, seed);
                 self.episode_ids[i] = seed;
                 self.step_counts[i] = 0;
@@ -321,7 +328,11 @@ fn draw_from_seed(data: &SimData, seed: u64) -> DispersionDraw {
         Some(cfg) => {
             let mut seeded = cfg.clone();
             seeded.seed = seed;
-            seeded.generate_draws(1).into_iter().next().unwrap_or_default()
+            seeded
+                .generate_draws(1)
+                .into_iter()
+                .next()
+                .unwrap_or_default()
         }
         None => DispersionDraw::default(),
     }

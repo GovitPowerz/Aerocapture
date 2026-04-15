@@ -439,5 +439,9 @@ pub fn step_one_tick(
         None
     };
 
-    TickOutcome { bank_commanded: state.bank_angle, done, ifinal }
+    TickOutcome {
+        bank_commanded: state.bank_angle,
+        done,
+        ifinal,
+    }
 }

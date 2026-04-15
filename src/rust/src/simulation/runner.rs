@@ -158,6 +158,11 @@ impl SimState {
         self.term
     }
 
+    /// Return the raw physics state vector: [r, lon, lat, V, gamma, psi, flux, time].
+    pub fn physics_state(&self) -> [f64; 8] {
+        self.state
+    }
+
     /// True if any flight constraint was violated during this trajectory.
     /// Constraint limits are in SI units as stored in `SimData::constraints`.
     pub fn any_constraint_violated(&self, data: &SimData) -> bool {
@@ -1141,9 +1146,17 @@ fn run_single(
 ///
 /// Mirrors the block at the end of `run_single`. Requires `term != TermReason::None`.
 /// Called by `BatchedSimulation::step()` on terminal steps.
-pub fn build_final_record(sim_state: &SimState, data: &SimData, planet: &PlanetConfig) -> [f64; 52] {
-    let (alt_final, lat_final) =
-        geodetic_from_spherical(sim_state.state[0], sim_state.state[1], sim_state.state[2], planet);
+pub fn build_final_record(
+    sim_state: &SimState,
+    data: &SimData,
+    planet: &PlanetConfig,
+) -> [f64; 52] {
+    let (alt_final, lat_final) = geodetic_from_spherical(
+        sim_state.state[0],
+        sim_state.state[1],
+        sim_state.state[2],
+        planet,
+    );
 
     let orbit = elements::from_spherical(
         sim_state.state[0],
@@ -1184,11 +1197,21 @@ pub fn build_final_record(sim_state: &SimState, data: &SimData, planet: &PlanetC
     } else if sim_state.term == TermReason::AtmosphereExit {
         let v_escape = (2.0 * mu / sim_state.state[0]).sqrt();
         let v_excess = (speed_abs - v_escape).max(0.0);
-        DeltaV { dv1: 0.0, dv2: 0.0, dv3: 0.0, total: HYPERBOLIC_BASE + v_excess }
+        DeltaV {
+            dv1: 0.0,
+            dv2: 0.0,
+            dv3: 0.0,
+            total: HYPERBOLIC_BASE + v_excess,
+        }
     } else {
         let t_ratio = (sim_state.sim_time / sim_state.max_time).min(1.0);
         let virtual_dv = CRASH_BASE * (1.0 - 0.5 * t_ratio);
-        DeltaV { dv1: 0.0, dv2: 0.0, dv3: 0.0, total: virtual_dv }
+        DeltaV {
+            dv1: 0.0,
+            dv2: 0.0,
+            dv3: 0.0,
+            total: virtual_dv,
+        }
     };
 
     let mut fr = [0.0_f64; 52];
@@ -1233,6 +1256,40 @@ pub fn build_final_record(sim_state: &SimState, data: &SimData, planet: &PlanetC
     fr[46] = orbit.inclination / DEG_TO_RAD - data.target_orbit.inclination / DEG_TO_RAD;
     fr[48] = sim_state.guidance_state.lateral_state.n_reversals as f64;
     fr
+}
+
+/// Build the standard aerocapture event definitions.
+///
+/// Convenience wrapper around `events::build_aerocapture_events()` for tests
+/// and external callers that need to drive `step_one_tick` directly.
+pub fn build_event_defs() -> Vec<events::EventDef> {
+    events::build_aerocapture_events()
+}
+
+/// Build the standard `EventContext` from a config + data pair.
+///
+/// Matches the construction in `run_single`. Use alongside `build_event_defs()`
+/// when calling `step_one_tick` outside the normal runner loop.
+pub fn build_event_ctx(config: &SimInput, data: &SimData) -> events::EventContext {
+    let planet = &config.planet;
+    let exit_altitude = data.final_conditions.altitude;
+    events::EventContext {
+        planet_radius: planet.equatorial_radius,
+        polar_radius: planet.polar_radius,
+        exit_altitude,
+        exit_velocity_threshold: data.guidance.exit_velocity_threshold,
+    }
+}
+
+/// Run a single simulation and return the 52-element final record in memory.
+///
+/// Equivalent to `run_single` but skips file I/O and returns the final record
+/// directly. Intended for tests that need to compare against the step-API path.
+pub fn run_single_collect(config: &SimInput, data: &SimData) -> Result<[f64; 52], SimError> {
+    let draw = crate::data::dispersions::DispersionDraw::default();
+    let run_state = init::init_run_from_draw(data, &draw);
+    let result = run_single(config, data, &run_state, 0, false, None)?;
+    Ok(result.final_line)
 }
 
 /// Build a photo snapshot line.

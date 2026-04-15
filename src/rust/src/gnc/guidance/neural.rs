@@ -143,7 +143,14 @@ pub fn nn_bank_angle(
     target_inclination: f64, // radians
     ref_velocity_latched: f64,
 ) -> f64 {
-    let masked = build_nn_input(nav, nn, data, planet, target_inclination, ref_velocity_latched);
+    let masked = build_nn_input(
+        nav,
+        nn,
+        data,
+        planet,
+        target_inclination,
+        ref_velocity_latched,
+    );
     let output = nn.forward(&masked);
 
     // Interpret output based on model configuration
