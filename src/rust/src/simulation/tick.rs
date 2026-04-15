@@ -24,7 +24,7 @@ use crate::simulation::runner::{
 /// accumulated in `SimState::event_records`. Consumers (e.g. `BatchedSimulation`) can drain
 /// them between ticks via `std::mem::take(&mut state.event_records)`.
 #[allow(dead_code)]
-pub(crate) struct TickOutcome {
+pub struct TickOutcome {
     /// Commanded bank angle used this tick (rad). Echoed from caller for BatchedSimulation;
     /// computed from guidance dispatch for the existing runner path.
     pub bank_commanded: f64,
@@ -46,7 +46,7 @@ pub(crate) struct TickOutcome {
 /// command. Used by `BatchedSimulation` to inject RL policy actions. The existing
 /// `run_single` call site always passes `None`.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn step_one_tick(
+pub fn step_one_tick(
     state: &mut SimState,
     config: &SimInput,
     data: &SimData,

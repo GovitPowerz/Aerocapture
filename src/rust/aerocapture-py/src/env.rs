@@ -4,19 +4,21 @@
 //! each env one outer guidance tick via Rayon, auto-resets on done, and
 //! returns the stacked (obs, reward, done, info) payload.
 //!
-//! step() is implemented in Task 1.4. Calling it now raises AttributeError.
+//! step() is implemented in Task 1.4.
 
 use std::path::Path;
 use std::sync::Arc;
 
-use numpy::{PyArray2, PyArrayMethods, PyReadonlyArray1, PyUntypedArrayMethods};
+use numpy::{PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray1, PyUntypedArrayMethods};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use rayon::prelude::*;
 
 use aerocapture::config::SimInput;
 use aerocapture::data::SimData;
 use aerocapture::data::dispersions::DispersionDraw;
-use aerocapture::simulation::runner::{SimState, build_sim_state};
+use aerocapture::integration::events::{EventContext, EventDef};
+use aerocapture::simulation::runner::{SimState, TermReason, build_final_record, build_sim_state};
 
 use crate::config;
 use crate::extract_overrides;
@@ -35,6 +37,8 @@ pub struct BatchedSimulation {
     episode_counter: Vec<u64>,
     episode_ids: Vec<u64>,
     step_counts: Vec<u64>,
+    event_defs: Vec<EventDef>,
+    event_ctx: EventContext,
 }
 
 #[pymethods]
@@ -61,6 +65,15 @@ impl BatchedSimulation {
         let obs_dim = nn.input_mask.as_ref().map(|m: &Vec<usize>| m.len()).unwrap_or(16);
 
         let sim_data = Arc::new(sim_data);
+
+        let event_defs = aerocapture::integration::events::build_aerocapture_events();
+        let event_ctx = EventContext {
+            planet_radius: sim_input.planet.equatorial_radius,
+            polar_radius: sim_input.planet.polar_radius,
+            exit_altitude: sim_data.final_conditions.altitude,
+            exit_velocity_threshold: sim_data.guidance.exit_velocity_threshold,
+        };
+
         let mut envs = Vec::with_capacity(n_envs);
         let mut episode_ids = Vec::with_capacity(n_envs);
         let mut episode_counter = Vec::with_capacity(n_envs);
@@ -85,6 +98,8 @@ impl BatchedSimulation {
             episode_counter,
             episode_ids,
             step_counts: vec![0u64; n_envs],
+            event_defs,
+            event_ctx,
         })
     }
 
@@ -125,6 +140,119 @@ impl BatchedSimulation {
         }
 
         Ok(self.build_obs(py))
+    }
+
+    fn step<'py>(
+        &mut self,
+        py: Python<'py>,
+        actions: PyReadonlyArray1<'py, f32>,
+    ) -> PyResult<(
+        Bound<'py, PyArray2<f32>>,
+        Bound<'py, PyArray1<f32>>,
+        Bound<'py, PyArray1<bool>>,
+        Vec<Py<PyDict>>,
+    )> {
+        if actions.len() != self.n_envs {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "actions length {} does not match n_envs {}",
+                actions.len(),
+                self.n_envs
+            )));
+        }
+        let actions_vec: Vec<f64> = actions.as_array().iter().map(|&v| v as f64).collect();
+
+        let sim_input = &self.sim_input;
+        let sim_data = &self.sim_data;
+        let event_defs = &self.event_defs;
+        let event_ctx = &self.event_ctx;
+
+        // Advance all envs one tick in parallel; collect terminal info where done.
+        let outcomes: Vec<(bool, Option<TerminalOutcome>)> = {
+            let _ = py; // GIL held; unsendable class so no ungil needed
+            self.envs
+                .par_iter_mut()
+                .zip(actions_vec.par_iter())
+                .map(|(state, &action)| {
+                    let bank = action.clamp(-std::f64::consts::PI, std::f64::consts::PI);
+                    aerocapture::simulation::tick::step_one_tick(
+                        state,
+                        sim_input,
+                        sim_data,
+                        &sim_input.planet,
+                        Some(bank),
+                        event_defs,
+                        event_ctx,
+                    );
+                    if state.term() != TermReason::None {
+                        let fr = build_final_record(state, sim_data, &sim_input.planet);
+                        let ifinal = match state.term() {
+                            TermReason::AtmosphereExit => 3i32,
+                            TermReason::Crash => 1,
+                            TermReason::PendingCrash => 4,
+                            TermReason::Timeout => 2,
+                            TermReason::None => unreachable!(),
+                        };
+                        let ecc = fr[9];
+                        let energy = fr[7]; // MJ/kg; negative = captured
+                        let captured = ifinal == 3 && ecc < 1.0 && energy < 0.0;
+                        let violated = state.any_constraint_violated(sim_data);
+                        let term = TerminalOutcome {
+                            ifinal,
+                            captured,
+                            ecc,
+                            dv_m_s: fr[41],
+                            peak_heat_flux_kw_m2: fr[16],
+                            peak_g_load: fr[17],
+                            peak_heat_load_kj_m2: fr[28] * 1e3, // MJ/m2 -> kJ/m2
+                            violated_constraints: violated,
+                            final_record: fr,
+                        };
+                        (true, Some(term))
+                    } else {
+                        (false, None)
+                    }
+                })
+                .collect()
+        };
+
+        // Auto-reset terminated envs with advancing seeds.
+        for (i, (done, _)) in outcomes.iter().enumerate() {
+            if *done {
+                self.episode_counter[i] += self.n_envs as u64;
+                let seed = self.seed_base + self.episode_counter[i];
+                let draw = draw_from_seed(&self.sim_data, seed);
+                let run_state = aerocapture::simulation::init::init_run_from_draw(&self.sim_data, &draw);
+                self.envs[i] = build_sim_state(&self.sim_input, &self.sim_data, run_state, seed);
+                self.episode_ids[i] = seed;
+                self.step_counts[i] = 0;
+            } else {
+                self.step_counts[i] += 1;
+            }
+        }
+
+        // Build return arrays.
+        let obs = self.build_obs(py);
+        let reward_arr = PyArray1::<f32>::from_iter(py, outcomes.iter().map(|_| 0.0f32));
+        let done_arr = PyArray1::<bool>::from_iter(py, outcomes.iter().map(|(d, _)| *d));
+
+        let mut info_list: Vec<Py<PyDict>> = Vec::with_capacity(self.n_envs);
+        for (_, term) in &outcomes {
+            let dict = PyDict::new(py);
+            if let Some(t) = term {
+                dict.set_item("ifinal", t.ifinal)?;
+                dict.set_item("captured", t.captured)?;
+                dict.set_item("ecc", t.ecc)?;
+                dict.set_item("dv_m_s", t.dv_m_s)?;
+                dict.set_item("peak_heat_flux_kW_m2", t.peak_heat_flux_kw_m2)?;
+                dict.set_item("peak_g_load", t.peak_g_load)?;
+                dict.set_item("peak_heat_load_kJ_m2", t.peak_heat_load_kj_m2)?;
+                dict.set_item("violated_constraints", t.violated_constraints)?;
+                dict.set_item("final_record", t.final_record.to_vec())?;
+            }
+            info_list.push(dict.unbind());
+        }
+
+        Ok((obs, reward_arr, done_arr, info_list))
     }
 
     fn close(&mut self) {
@@ -185,4 +313,17 @@ fn draw_from_seed(data: &SimData, _seed: u64) -> DispersionDraw {
     // Use the zero draw for now; Task 1.4 can add seeded MC draws.
     let _ = data;
     DispersionDraw::default()
+}
+
+/// Terminal step payload for one env slot.
+struct TerminalOutcome {
+    ifinal: i32,
+    captured: bool,
+    ecc: f64,
+    dv_m_s: f64,
+    peak_heat_flux_kw_m2: f64,
+    peak_g_load: f64,
+    peak_heat_load_kj_m2: f64,
+    violated_constraints: bool,
+    final_record: [f64; 52],
 }
