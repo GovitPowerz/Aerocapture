@@ -101,7 +101,7 @@ Seven guidance algorithms, all GA-optimizable:
 |---|---|---|---|
 | **Piecewise Constant** | 10-segment bank angle profile | 10 | Train first — produces ref trajectory + corridor |
 | **FTC** | Predictor-corrector with reference trajectory tracking | 8 | Requires ref trajectory |
-| **Neural Network** | Trained NN maps 16-input nav state to signed bank angle (atan2) | arch-dependent | Independent, signed bank, full-envelope (capture + exit) |
+| **Neural Network** | Trained NN maps 16-input nav state to signed bank angle (atan2). Trainable via GA (pymoo) or RL (PPO / experimental SAC). | arch-dependent | Independent, signed bank, full-envelope (capture + exit) |
 | **Equilibrium Glide** | Balances gravity, centrifugal, and lift forces | 7 | Independent |
 | **Energy Controller** | Tracks reference energy dissipation profile | 3 | Requires ref trajectory |
 | **PredGuid** | Apollo/Shuttle-heritage drag tracking | 3 | Requires ref trajectory |
@@ -126,7 +126,7 @@ Training features:
 
 ```bash
 # Train all schemes with optimized settings (piecewise_constant first for ref trajectory)
-./train_all.sh                     # all 7 schemes in dependency order
+./train_all.sh                     # all schemes in dependency order (incl. nn_rl)
 ./train_all.sh eqglide fnpag       # specific schemes only
 
 # Optimize a single guidance scheme
@@ -137,6 +137,28 @@ uv run python -m aerocapture.training.train \
 # Disable TUI (CI / piped output)
 uv run python -m aerocapture.training.train <config.toml> --no-tui
 ```
+
+### RL Training (PPO)
+
+Parallel track to the GA for the `neural_network` guidance scheme. PPO-trained policies export to the same `best_model.json` format the GA produces and deploy via the Rust `neural_network` runtime — `compare_guidance` treats RL as just another scheme (`neural_network_rl`).
+
+```bash
+# Train a PPO policy
+uv run python -m aerocapture.training.rl.train \
+    configs/training/msr_aller_rl_train.toml \
+    --algorithm ppo --total-steps 5000000
+
+# Head-to-head RL vs GA on identical MC scenarios
+uv run python -m aerocapture.training.compare_guidance \
+    --n-sims 500 --schemes neural_network neural_network_rl
+
+# train_all.sh alias
+./train_all.sh nn_rl
+```
+
+Architecture: step-able `BatchedSimulation` pyclass (Rayon-parallel per-tick advance over N SimStates, GIL released via `py.detach()`, auto-reset on episode end), CleanRL-style PPO in `src/python/aerocapture/training/rl/` (PyTorch MLP mirroring `NeuralNetModel` JSON, `RolloutBuffer` + GAE + clipped surrogate update, reserved-seed validation gate, graceful Ctrl+C, three-part PDF report with RL convergence in Part 1 and Parts 2/3 reused from the GA report). SAC is also built but experimental; PPO is the validated v1 baseline.
+
+CLI flags: `--algorithm {ppo|sac}`, `--total-steps`, `--n-envs`, `--rollout-steps`, `--validation-n-sims`, `--validation-interval-updates`, `--data-neural-network`, `--no-tui`, `--skip-report`, `--resume`, `--output-dir`. Full spec at `docs/superpowers/specs/2026-04-15-rl-nn-guidance-design.md`.
 
 ### Training seed strategies
 
@@ -267,10 +289,10 @@ The Rust simulator has been validated against a reference implementation across 
 ## Testing
 
 ```bash
-# Rust tests (~386 tests)
+# Rust tests (~420 tests)
 cargo test --release --manifest-path src/rust/Cargo.toml
 
-# Python tests (~356 tests)
+# Python tests (~447 tests)
 uv run pytest tests/
 
 # Linting + type checking
@@ -282,7 +304,7 @@ uv run pytest tests/
 
 **Rust tests** cover: physics (J2/J3/J4 gravity with proptest), all 7 guidance schemes, exit phase guidance (pdyn feedback with proptest), phase dispatch, lateral guidance, navigation (bias + EKF, SimPhase gating), wind model, control (pilot dynamics, angle utils), DOPRI45 adaptive integrator, TOML base inheritance, virtual DV ranges, trajectory heat load, density perturbation (OU config presets, step function statistics, TOML parsing, E2E backward compat).
 
-**Python tests** cover: parsers, regression, GA pipeline, training visualization, training animation, NN weight initialization, curated-CDF seed framework (stratified picking, curation probe, checkpoint roundtrip), graceful interrupt, TOML base inheritance, PyO3 integration (bit-identical regression), corridor accumulator, unified cost function, sensitivity analysis (build_problem structure + Morris/Sobol pipeline shape/correctness), Parquet output (write/read roundtrip, schema, metadata, data integrity).
+**Python tests** cover: parsers, regression, GA pipeline, training visualization, training animation, NN weight initialization, curated-CDF seed framework (stratified picking, curation probe, checkpoint roundtrip), graceful interrupt, TOML base inheritance, PyO3 integration (bit-identical regression), corridor accumulator, unified cost function, sensitivity analysis (build_problem structure + Morris/Sobol pipeline shape/correctness), Parquet output (write/read roundtrip, schema, metadata, data integrity), RL training (GaussianPolicy / ValueNetwork, PyTorch→JSON export roundtrip, AerocaptureVecEnv wrapper, PBRS telescoping identity + terminal cost parity with GA, PPO GAE/update rule, SAC update rule, config parser with nested ppo overrides, RL-flavored PDF report charts, end-to-end PPO smoke test).
 
 ## CI
 
