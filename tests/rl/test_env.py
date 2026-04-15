@@ -1,0 +1,48 @@
+"""VectorEnv wrapper tests."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+pytest.importorskip("aerocapture_rs")
+
+from aerocapture.training.rl.env import AerocaptureVecEnv  # noqa: E402
+
+TOML = "configs/test/test_neural_golden.toml"
+
+
+def test_reset_returns_expected_shape() -> None:
+    env = AerocaptureVecEnv(TOML, n_envs=4, seed_base=3_000_000)
+    obs = env.reset()
+    assert obs.shape == (4, env.obs_dim)
+    assert obs.dtype == np.float32
+    env.close()
+
+
+def test_step_shapes() -> None:
+    env = AerocaptureVecEnv(TOML, n_envs=4, seed_base=3_000_000)
+    env.reset()
+    obs, reward, done, info = env.step(np.zeros(4, dtype=np.float32))
+    assert obs.shape == (4, env.obs_dim)
+    assert reward.shape == (4,)
+    assert done.shape == (4,)
+    assert len(info) == 4
+    env.close()
+
+
+def test_done_info_contains_terminal_keys() -> None:
+    env = AerocaptureVecEnv(TOML, n_envs=2, seed_base=3_000_000)
+    env.reset()
+    for _ in range(2000):
+        _, _, done, info = env.step(np.zeros(2, dtype=np.float32))
+        for i, d in enumerate(done):
+            if d:
+                assert "final_record" in info[i]
+                assert "captured" in info[i]
+                assert "dv_m_s" in info[i]
+                assert "terminal_observation" in info[i]
+                env.close()
+                return
+    env.close()
+    pytest.fail("no episode terminated within 2000 steps")
