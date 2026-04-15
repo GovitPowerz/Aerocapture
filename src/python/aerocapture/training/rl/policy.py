@@ -52,16 +52,18 @@ class GaussianPolicy(nn.Module):
         layer_sizes: Sequence[int],
         activations: Sequence[str],
         initial_log_std: float = -0.5,
+        min_log_std: float = -2.0,
     ) -> None:
         super().__init__()
         if layer_sizes[-1] != 2:
             raise ValueError(f"GaussianPolicy requires out_dim=2 (atan2), got {layer_sizes[-1]}")
         self.trunk = _build_mlp(input_dim, layer_sizes, activations)
         self.log_std = nn.Parameter(torch.full((2,), initial_log_std))
+        self.min_log_std = min_log_std
 
     def forward_mean_logstd(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         mean = self.trunk(obs)
-        return mean, self.log_std
+        return mean, self.log_std.clamp(min=self.min_log_std)
 
     def deterministic_bank(self, obs: torch.Tensor) -> torch.Tensor:
         mean, _ = self.forward_mean_logstd(obs)

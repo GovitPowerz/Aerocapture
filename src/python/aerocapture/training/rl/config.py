@@ -32,10 +32,12 @@ class PPOConfig:
     gamma: float = 0.99
     gae_lambda: float = 0.95
     clip_range: float = 0.2
-    entropy_coef: float = 0.0
+    entropy_coef: float = 0.01
     value_coef: float = 0.5
     max_grad_norm: float = 0.5
     initial_log_std: float = -0.5
+    min_log_std: float = -2.0
+    lr_anneal_start: float = 0.7
 
 
 @dataclass

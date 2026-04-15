@@ -198,7 +198,7 @@ def _run_ppo(
         overrides=env_overrides,
     )
 
-    policy = GaussianPolicy(input_dim, layer_sizes, activations, cfg.ppo.initial_log_std)
+    policy = GaussianPolicy(input_dim, layer_sizes, activations, cfg.ppo.initial_log_std, cfg.ppo.min_log_std)
     value = ValueNetwork(input_dim, layer_sizes[:-1], activations)
     optim = torch.optim.Adam(
         list(policy.parameters()) + list(value.parameters()),
@@ -291,6 +291,13 @@ def _run_ppo(
             advantages[:, e] = adv
             returns[:, e] = ret
 
+        # --- LR anneal (constant until lr_anneal_start, then linear decay to 0) ---
+        frac_done = env_steps / cfg.total_env_steps
+        anneal_start = cfg.ppo.lr_anneal_start
+        lr = cfg.ppo.learning_rate if frac_done <= anneal_start else cfg.ppo.learning_rate * max((1.0 - frac_done) / (1.0 - anneal_start), 0.0)
+        for pg in optim.param_groups:
+            pg["lr"] = lr
+
         flat_obs = torch.from_numpy(buf.obs.reshape(-1, env.obs_dim)).float()
         flat_actions = torch.from_numpy(buf.actions.reshape(-1)).float()
         flat_old_lp = torch.from_numpy(buf.log_probs.reshape(-1)).float()
@@ -343,7 +350,7 @@ def _run_ppo(
             "entropy": metrics["entropy"],
             "approx_kl": metrics["approx_kl"],
             "clip_frac": metrics["clip_frac"],
-            "learning_rate": cfg.ppo.learning_rate,
+            "learning_rate": lr,
             "val_attempted": val_attempted,
             "val_promoted": val_record.get("val_promoted", False),
             "val_rms_cost": val_record.get("val_rms_cost"),
