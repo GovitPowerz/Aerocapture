@@ -253,6 +253,37 @@ Guidance schemes and their TOML training configs:
 
 Optimized params saved to `training_output/<scheme>/best_params.json` (or `best_model.json` for NN).
 
+## RL Training (PPO)
+
+Reinforcement-learning training for the `neural_network` guidance scheme, running as a parallel track to the pymoo GA. RL-trained weights deploy via the same `best_model.json` format the GA produces; `compare_guidance` treats RL as just another scheme (`neural_network_rl`) that feeds the Rust `neural_network` runtime.
+
+```bash
+# Train a PPO policy
+uv run python -m aerocapture.training.rl.train \
+    configs/training/msr_aller_rl_train.toml \
+    --algorithm ppo --total-steps 5000000
+
+# Head-to-head RL vs GA on identical MC scenarios
+uv run python -m aerocapture.training.compare_guidance \
+    --n-sims 500 \
+    --schemes neural_network neural_network_rl
+
+# All schemes (train_all.sh): nn_rl runs after piecewise_constant
+./train_all.sh nn_rl
+```
+
+Training CLI flags: `--algorithm {ppo|sac}`, `--total-steps N`, `--n-envs N`, `--rollout-steps N`, `--validation-n-sims N`, `--validation-interval-updates N`, `--data-neural-network PATH`, `--no-tui`, `--skip-report`, `--resume DIR`, `--output-dir DIR`.
+
+**Architecture:** step-able `BatchedSimulation` pyclass (N `SimState`s sharing one `Arc<SimData>`, Rayon parallel ticks, auto-reset on episode end, GIL released via `py.detach()`). CleanRL-style PPO outer loop (`src/python/aerocapture/training/rl/`): `env.py` wraps the pyclass, `policy.py` is a PyTorch MLP mirroring `NeuralNetModel` JSON (`GaussianPolicy` with `atan2(out[0], out[1])` bank mapping), `export.py` writes to `best_model.json` in the Rust loader's format (format_version=1, architecture + per-layer `w`/`b`), `ppo.py` provides `RolloutBuffer` + `compute_gae` + `ppo_update` (clipped surrogate + value + entropy), `train.py` is the CLI and outer loop with reserved-seed validation gate + checkpoint save/resume + graceful Ctrl+C, `report_rl.py` produces a three-part PDF (Part 1 RL convergence panels, Parts 2/3 reused from the GA report), `logger.py`/`display.py` provide JSONL + Rich TUI mirroring the GA contract.
+
+**Artifacts** under `training_output/neural_network_rl/`: `best_model.json` (drop-in for Rust runtime), `rl_training_*.jsonl` (per-update metrics), `config_resolved.toml`, `checkpoint.pt`, `final_eval.parquet`, `report.pdf`.
+
+**Seed pools:** `RL_TRAINING_SEED_OFFSET = 3_000_000` (default `seed_base`), plus the existing `VALIDATION_SEED_OFFSET = 1_000_000` and `FINAL_EVAL_SEED_OFFSET = 2_000_000` — all disjoint by construction.
+
+**v1 limitations:** PBRS shaping is wired but disabled by default (needs an `(energy, pdyn)` side channel from `BatchedSimulation`; pure terminal reward still trains, just slower). SAC is planned in Phase 7 — currently only PPO ships.
+
+Full spec: `docs/superpowers/specs/2026-04-15-rl-nn-guidance-design.md`.
+
 ## Key Lessons & Pitfalls
 
 ### Historical: Density Filter Gain Clamping

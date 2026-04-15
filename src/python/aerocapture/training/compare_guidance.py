@@ -22,7 +22,7 @@ import numpy as np
 
 from aerocapture.training.evaluate import compute_cost
 
-SCHEMES = ["equilibrium_glide", "energy_controller", "pred_guid", "fnpag", "ftc", "neural_network", "piecewise_constant"]
+SCHEMES = ["equilibrium_glide", "energy_controller", "pred_guid", "fnpag", "ftc", "neural_network", "neural_network_rl", "piecewise_constant"]
 
 # Each scheme's training TOML (relative to repo root).
 # These inherit from missions/ and common.toml, so they carry the full
@@ -34,8 +34,13 @@ SCHEME_TRAINING_CONFIGS: dict[str, str] = {
     "fnpag": "configs/training/msr_aller_fnpag_train.toml",
     "ftc": "configs/training/msr_aller_ftc_train.toml",
     "neural_network": "configs/training/msr_aller_nn_train_consolidated.toml",
+    "neural_network_rl": "configs/training/msr_aller_rl_train.toml",
     "piecewise_constant": "configs/training/msr_aller_piecewise_constant_train.toml",
 }
+
+# Schemes that deploy via the Rust `neural_network` runtime (they provide a
+# best_model.json but the guidance scheme name the Rust sim knows is "neural_network").
+_NN_DEPLOY_SCHEMES = {"neural_network", "neural_network_rl"}
 
 
 def run_scheme(
@@ -75,12 +80,16 @@ def run_scheme(
     toml_data.setdefault("simulation", {})["n_sims"] = n_sims
     toml_data.setdefault("data", {})["results_suffix"] = results_suffix
 
-    # Set guidance type
-    toml_data.setdefault("guidance", {})["type"] = scheme
+    # Set guidance type. NN-deploying schemes (neural_network, neural_network_rl)
+    # both route through the Rust `neural_network` guidance runtime.
+    if scheme in _NN_DEPLOY_SCHEMES:
+        toml_data.setdefault("guidance", {})["type"] = "neural_network"
+    else:
+        toml_data.setdefault("guidance", {})["type"] = scheme
 
     # Handle NN: always prefer best_model.json from training output
-    if scheme == "neural_network":
-        nn_path = params_dir / "neural_network" / "best_model.json" if params_dir else None
+    if scheme in _NN_DEPLOY_SCHEMES:
+        nn_path = params_dir / scheme / "best_model.json" if params_dir else None
         if nn_path and nn_path.exists():
             toml_data.setdefault("data", {})["neural_network"] = str(nn_path)
             print(f"  Using optimized NN from {nn_path}")
@@ -92,7 +101,7 @@ def run_scheme(
         toml_data.get("data", {}).pop("neural_network", None)
 
     # Load optimized params if available
-    if params_dir and scheme != "neural_network":
+    if params_dir and scheme not in _NN_DEPLOY_SCHEMES:
         params_file = params_dir / scheme / "best_params.json"
         if params_file.exists():
             with open(params_file) as f:
