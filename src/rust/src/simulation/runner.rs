@@ -136,7 +136,7 @@ pub(crate) struct SimState {
 
 /// Termination reason
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum TermReason {
+pub(crate) enum TermReason {
     None,
     Crash,
     Timeout,

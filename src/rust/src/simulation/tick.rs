@@ -11,7 +11,7 @@ use crate::gnc::control::pilot;
 use crate::gnc::guidance::dispatch;
 use crate::gnc::navigation::coordinates::geodetic_from_spherical;
 use crate::gnc::navigation::estimator::{self, NavigationFilter};
-use crate::integration::events::{self, EventContext, EventDef, EventRecord, EventType};
+use crate::integration::events::{self, EventContext, EventDef, EventType};
 use crate::physics::atmosphere;
 use crate::simulation::runner::{
     DEG_TO_RAD, SimState, TermReason, build_photo_values, effective_airspeed,
@@ -19,13 +19,15 @@ use crate::simulation::runner::{
 };
 
 /// Outcome of one outer guidance tick.
+///
+/// Events triggered during a tick (bounce, atmosphere_exit, crash, phase_transition) are
+/// accumulated in `SimState::event_records`. Consumers (e.g. `BatchedSimulation`) can drain
+/// them between ticks via `std::mem::take(&mut state.event_records)`.
 #[allow(dead_code)]
 pub(crate) struct TickOutcome {
     /// Commanded bank angle used this tick (rad). Echoed from caller for BatchedSimulation;
     /// computed from guidance dispatch for the existing runner path.
     pub bank_commanded: f64,
-    /// Events triggered during this tick (bounce, atmosphere_exit, crash, phase_transition).
-    pub events: Vec<EventRecord>,
     /// True if simulation should terminate after this tick (atmosphere exit, crash, pending
     /// crash, NaN/Inf, or max_time reached).
     pub done: bool,
@@ -434,10 +436,5 @@ pub(crate) fn step_one_tick(
         None
     };
 
-    TickOutcome {
-        bank_commanded: state.bank_angle,
-        events: Vec::new(), // populated from state.event_records by caller if needed
-        done,
-        ifinal,
-    }
+    TickOutcome { bank_commanded: state.bank_angle, done, ifinal }
 }
