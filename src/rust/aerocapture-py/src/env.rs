@@ -94,6 +94,7 @@ impl BatchedSimulation {
         py: Python<'py>,
         seeds: Option<PyReadonlyArray1<'py, i64>>,
     ) -> PyResult<Bound<'py, PyArray2<f32>>> {
+        let explicit_seeds = seeds.is_some();
         let seeds_vec: Vec<u64> = match seeds {
             Some(arr) => {
                 let n = arr.len();
@@ -117,6 +118,10 @@ impl BatchedSimulation {
             self.envs[i] = build_sim_state(&self.sim_input, &self.sim_data, run_state, seed);
             self.episode_ids[i] = seed;
             self.step_counts[i] = 0;
+            if !explicit_seeds {
+                // Advance so next default-seed reset draws a fresh, distinct seed per env.
+                self.episode_counter[i] += self.n_envs as u64;
+            }
         }
 
         Ok(self.build_obs(py))
@@ -124,6 +129,11 @@ impl BatchedSimulation {
 
     fn close(&mut self) {
         self.envs.clear();
+    }
+
+    /// Current episode seed for each env slot (advances each default-seed reset).
+    fn current_seeds<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray1<u64>> {
+        numpy::PyArray1::from_slice(py, &self.episode_ids)
     }
 }
 

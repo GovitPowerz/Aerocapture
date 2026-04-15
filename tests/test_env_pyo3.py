@@ -23,3 +23,22 @@ def test_batched_simulation_reset_shape() -> None:
     assert obs.dtype == np.float32
     assert np.isfinite(obs).all()
     env.close()
+
+
+def test_reset_wrong_seed_length_raises() -> None:
+    env = aerocapture_rs.BatchedSimulation(TOML, n_envs=4)
+    env.reset()  # first reset works
+    with pytest.raises(ValueError, match="seeds length"):
+        env.reset(seeds=np.array([0, 1], dtype=np.int64))
+    env.close()
+
+
+def test_reset_default_draws_distinct_seeds() -> None:
+    env = aerocapture_rs.BatchedSimulation(TOML, n_envs=2, seed_base=3_000_000)
+    env.reset()
+    seeds_after_first = env.current_seeds().copy()
+    env.reset()
+    seeds_after_second = env.current_seeds().copy()
+    # episode_ids must advance by n_envs each default reset
+    assert (seeds_after_second == seeds_after_first + 2).all()
+    env.close()
