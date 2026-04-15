@@ -1,4 +1,4 @@
-base = ["../missions/mars.toml", "rl_common.toml"]
+base = ["../missions/mars.toml", "common.toml", "rl_common.toml"]
 
 [mission]
 mission_type = "msr_aller"

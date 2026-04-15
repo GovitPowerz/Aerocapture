@@ -1,5 +1,6 @@
-# Shared RL training defaults. Leaf configs override only what differs.
-base = "common.toml"
+# Shared RL training defaults. Fragment — leaf configs should list common.toml
+# and a mission TOML in their `base` alongside this file (which is no-base so
+# that the config_loading.rs::all_configs_are_consolidated test skips it).
 
 [rl]
 algorithm                   = "ppo"
