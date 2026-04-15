@@ -30,6 +30,7 @@ from aerocapture.training.rl.logger import RLLogger
 from aerocapture.training.rl.policy import GaussianPolicy, ValueNetwork
 from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, ppo_update
 from aerocapture.training.rl.rewards import PBRSShaper
+from aerocapture.training.rl.sac import SACAgent
 
 OUT_DIR_DEFAULT = Path("training_output/neural_network_rl")
 
@@ -100,9 +101,6 @@ def main() -> None:
     env_overrides: dict[str, Any] | None = None
     if args.data_neural_network is not None:
         env_overrides = {"data.neural_network": str(args.data_neural_network)}
-    if cfg.algorithm != "ppo":
-        raise NotImplementedError(f"algorithm {cfg.algorithm!r} not yet implemented (SAC planned for Phase 7)")
-
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     config_hash = hashlib.sha256(json.dumps(cfg.raw_toml, sort_keys=True).encode()).hexdigest()[:12]
@@ -118,7 +116,12 @@ def main() -> None:
 
     prev_handler = signal.signal(signal.SIGINT, _on_sigint)
     try:
-        _run_ppo(cfg, Path(args.toml_path), args.output_dir, logger, display, interrupted, args.resume, env_overrides)
+        if cfg.algorithm == "ppo":
+            _run_ppo(cfg, Path(args.toml_path), args.output_dir, logger, display, interrupted, args.resume, env_overrides)
+        elif cfg.algorithm == "sac":
+            _run_sac(cfg, Path(args.toml_path), args.output_dir, logger, display, interrupted)
+        else:
+            raise NotImplementedError(f"algorithm {cfg.algorithm!r} not supported")
     finally:
         signal.signal(signal.SIGINT, prev_handler)
         display.close()
@@ -381,6 +384,168 @@ def _validate_deterministic(
     capture_rate = float(np.mean((fr[:, _IDX_IFINAL] == 3) & (fr[:, _IDX_ECC] < 1.0)))
 
     return {"val_rms_cost": rms_cost, "val_capture_rate": capture_rate}
+
+
+def _run_sac(
+    cfg: RLConfig,
+    toml_path: Path,
+    output_dir: Path,
+    logger: RLLogger,
+    display: Any,
+    interrupted: dict[str, bool],
+) -> None:
+    """SAC outer loop (experimental). Shares GaussianPolicy + export path with PPO."""
+    network_cfg = cfg.raw_toml.get("network", {})
+    input_mask = network_cfg.get("input_mask", list(range(16)))
+    layer_sizes = network_cfg.get("layer_sizes", [64, 64, 2])
+    activations = network_cfg.get("activations", ["tanh", "tanh", "linear"])
+    input_dim = len(input_mask)
+
+    env = AerocaptureVecEnv(
+        toml_path=str(toml_path),
+        n_envs=cfg.n_envs,
+        seed_base=cfg.seed_base,
+    )
+
+    sac_cfg = cfg.sac
+    agent = SACAgent(
+        obs_dim=input_dim,
+        layer_sizes=layer_sizes,
+        activations=activations,
+        buffer_size=sac_cfg.buffer_size,
+        batch_size=sac_cfg.batch_size,
+        gamma=sac_cfg.gamma,
+        tau=sac_cfg.tau,
+        learning_rate=sac_cfg.learning_rate,
+        target_entropy=sac_cfg.target_entropy,
+        initial_alpha=sac_cfg.initial_alpha,
+    )
+
+    # --- Checkpoint resume ---
+    env_steps = 0
+    update_idx = 0
+    best_val_cost = float("inf")
+    ckpt_path = output_dir / "checkpoint.pt"
+    if ckpt_path.exists():
+        ckpt = torch.load(ckpt_path, weights_only=False)
+        agent.policy.load_state_dict(ckpt["policy"])
+        agent.q1.load_state_dict(ckpt["q1"])
+        agent.q2.load_state_dict(ckpt["q2"])
+        agent.q1_target.load_state_dict(ckpt["q1_target"])
+        agent.q2_target.load_state_dict(ckpt["q2_target"])
+        agent.log_alpha.data.copy_(ckpt["log_alpha"])
+        update_idx = int(ckpt["update_idx"])
+        env_steps = int(ckpt["env_steps"])
+        best_val_cost = float(ckpt["best_val_cost"])
+        print(f"SAC resumed from checkpoint: update {update_idx}, {env_steps} env steps", file=sys.stderr)
+
+    obs = env.reset()
+    episodic_returns: list[float] = []
+    episodic_dvs: list[float] = []
+    episodic_captures: list[bool] = []
+    start_time = time.time()
+
+    while env_steps < cfg.total_env_steps and not interrupted["v"]:
+        # --- Collect one step per env ---
+        obs_t = torch.from_numpy(obs).float()
+        with torch.no_grad():
+            bank_t, _ = agent.policy.sample(obs_t)
+        actions_np = bank_t.cpu().numpy().astype(np.float32)
+
+        next_obs, _rust_reward, done, info = env.step(actions_np)
+
+        rewards_np = np.zeros(cfg.n_envs, dtype=np.float32)
+        for i, d in enumerate(done):
+            if d:
+                fr = np.array(info[i]["final_record"], dtype=np.float64)
+                from aerocapture.training.rl.rewards import compute_terminal_cost
+
+                term_cost = compute_terminal_cost(fr)
+                rewards_np[i] = float(-term_cost)
+                episodic_returns.append(float(-term_cost))
+                episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
+                episodic_captures.append(bool(info[i].get("captured", False)))
+
+        agent.replay_buffer.push(obs, actions_np, rewards_np, next_obs, done)
+        obs = next_obs
+        env_steps += cfg.n_envs
+
+        # --- Update every train_every steps if buffer warm ---
+        if len(agent.replay_buffer) >= sac_cfg.batch_size and env_steps % (sac_cfg.train_every * cfg.n_envs) == 0:
+            for _ in range(sac_cfg.gradient_steps):
+                batch_obs, batch_act, batch_rew, batch_next, batch_done = agent.replay_buffer.sample(sac_cfg.batch_size)
+                metrics = agent.update(batch_obs, batch_act, batch_rew, batch_next, batch_done)
+            update_idx += 1
+
+            # --- Validation gate ---
+            val_attempted = update_idx % cfg.validation_interval_updates == 0
+            val_record: dict[str, Any] = {}
+            if val_attempted:
+                val_record = _validate_deterministic(agent.policy, toml_path, output_dir, cfg, input_mask)
+                if val_record["val_rms_cost"] < best_val_cost:
+                    best_val_cost = val_record["val_rms_cost"]
+                    export_policy_to_json(agent.policy, output_dir / "best_model.json", input_mask)
+                    val_record["val_promoted"] = True
+                else:
+                    val_record["val_promoted"] = False
+
+            # --- Periodic checkpoint ---
+            if update_idx % cfg.checkpoint_interval_updates == 0:
+                torch.save(
+                    {
+                        "policy": agent.policy.state_dict(),
+                        "q1": agent.q1.state_dict(),
+                        "q2": agent.q2.state_dict(),
+                        "q1_target": agent.q1_target.state_dict(),
+                        "q2_target": agent.q2_target.state_dict(),
+                        "log_alpha": agent.log_alpha.data,
+                        "update_idx": update_idx,
+                        "env_steps": env_steps,
+                        "best_val_cost": best_val_cost,
+                    },
+                    output_dir / "checkpoint.pt",
+                )
+
+            record: dict[str, Any] = {
+                "update_idx": update_idx,
+                "env_steps": env_steps,
+                "episodic_return_mean": float(np.mean(episodic_returns[-64:])) if episodic_returns else float("nan"),
+                "episodic_dv_m_s_mean": float(np.mean(episodic_dvs[-64:])) if episodic_dvs else float("nan"),
+                "episodic_capture_rate": float(np.mean(episodic_captures[-64:])) if episodic_captures else float("nan"),
+                "policy_loss": metrics.get("policy_loss", float("nan")),
+                "value_loss": metrics.get("q_loss", float("nan")),  # map q_loss to value_loss for display compat
+                "entropy": metrics.get("mean_log_prob", float("nan")),
+                "alpha": metrics.get("alpha", float("nan")),
+                "learning_rate": sac_cfg.learning_rate,
+                "val_attempted": val_attempted,
+                "val_promoted": val_record.get("val_promoted", False),
+                "val_rms_cost": val_record.get("val_rms_cost"),
+                "val_capture_rate": val_record.get("val_capture_rate"),
+                "best_val_cost": best_val_cost,
+                "wallclock_seconds": time.time() - start_time,
+            }
+            logger.log_update(record)
+            display.update(record)
+
+    # --- Final checkpoint + export ---
+    torch.save(
+        {
+            "policy": agent.policy.state_dict(),
+            "q1": agent.q1.state_dict(),
+            "q2": agent.q2.state_dict(),
+            "q1_target": agent.q1_target.state_dict(),
+            "q2_target": agent.q2_target.state_dict(),
+            "log_alpha": agent.log_alpha.data,
+            "update_idx": update_idx,
+            "env_steps": env_steps,
+            "best_val_cost": best_val_cost,
+        },
+        output_dir / "checkpoint.pt",
+    )
+    if best_val_cost == float("inf"):
+        export_policy_to_json(agent.policy, output_dir / "best_model.json", input_mask)
+
+    env.close()
 
 
 if __name__ == "__main__":
