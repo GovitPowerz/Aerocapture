@@ -1,0 +1,20 @@
+base = ["../missions/mars.toml", "rl_common.toml"]
+
+[mission]
+mission_type = "msr_aller"
+
+[guidance]
+type = "neural_network"
+
+[network]
+layer_sizes  = [64, 64, 2]
+activations  = ["tanh", "tanh", "linear"]
+input_mask   = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+
+[monte_carlo]
+level    = "medium"
+sampling = "random"
+
+[data]
+neural_network       = "training_output/neural_network_rl/best_model.json"
+reference_trajectory = "training_output/msr_aller/ref_trajectory.dat"
