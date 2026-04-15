@@ -66,7 +66,7 @@ impl std::error::Error for SimError {}
 /// Expanded to include all mutable loop-local variables from `run_single` so that
 /// `tick::step_one_tick` can take a single `&mut SimState` argument.
 #[allow(dead_code)]
-pub(crate) struct SimState {
+pub struct SimState {
     // ── Physics state vector: [r, lon, lat, V, gamma, psi, flux, time] ──
     pub(crate) state: [f64; 8],
     // RK4 internals
@@ -96,7 +96,7 @@ pub(crate) struct SimState {
 
     // ── GNC subsystem state (initialized before the loop) ──
     pub(crate) nav_filter: NavigationFilter,
-    pub(crate) guidance_state: GuidanceState,
+    pub guidance_state: GuidanceState,
     pub(crate) pilot_state: PilotState,
     pub(crate) sequencer: SequencerState,
 
@@ -122,6 +122,9 @@ pub(crate) struct SimState {
     pub(crate) gm_rng: Option<rand::rngs::StdRng>,
     pub(crate) gm_normal: Option<rand_distr::Normal<f64>>,
 
+    // ── Last navigation output (cached for RL observation building) ──
+    pub(crate) last_nav: crate::gnc::navigation::estimator::NavigationOutput,
+
     // ── Pre-loop constants (read-only within the tick, stored here for single-arg dispatch) ──
     pub(crate) dt: f64,
     pub(crate) max_time: f64,
@@ -136,12 +139,208 @@ pub(crate) struct SimState {
 
 /// Termination reason
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum TermReason {
+pub enum TermReason {
     None,
     Crash,
     Timeout,
     AtmosphereExit,
     PendingCrash,
+}
+
+impl SimState {
+    /// Return the most recent navigation output, used by RL observation builders.
+    pub fn last_nav_output(&self) -> crate::gnc::navigation::estimator::NavigationOutput {
+        self.last_nav
+    }
+}
+
+/// Construct a fresh `SimState` for env `i` without running the simulation loop.
+///
+/// Used by `BatchedSimulation` to initialize and reset individual environments.
+/// The `sim_idx` is set to `env_idx as i32` for per-env RNG seeding.
+pub fn build_sim_state(
+    config: &SimInput,
+    data: &SimData,
+    run_state: init::RunState,
+    env_idx: u64,
+) -> SimState {
+    let planet = &config.planet;
+    let req = planet.equatorial_radius;
+
+    let r0 = run_state.entry.state.altitude + req;
+    let entry_longitude = run_state.entry.state.longitude;
+    let entry_latitude = run_state.entry.state.latitude;
+    let entry_velocity = run_state.entry.state.velocity;
+    let entry_flight_path = run_state.entry.state.flight_path;
+    let entry_azimuth = run_state.entry.state.azimuth;
+    let entry_initial_date = run_state.entry.initial_date;
+    let entry_initial_bank = run_state.entry.initial_bank;
+    let entry_initial_aoa = run_state.entry.initial_aoa;
+
+    let reference_bank_angle = config.reference_bank_angle.to_radians();
+    let initial_bank_angle = if config.reference_trajectory {
+        reference_bank_angle
+    } else {
+        entry_initial_bank
+    };
+
+    let dt = data.periods.integration;
+    let max_time = config.max_time;
+    let exit_altitude = data.final_conditions.altitude;
+
+    let nav_filter = match data.nav_mode {
+        crate::data::NavMode::Bias => NavigationFilter::new_bias(),
+        crate::data::NavMode::Ekf => {
+            let nav_toml = data
+                .nav_config
+                .as_ref()
+                .expect("EKF mode requires [navigation] config");
+            let (imu_cfg, st_cfg, ekf_cfg) = estimator::build_ekf_configs(nav_toml);
+            let seed = config.random_seed as u64 + env_idx * 10_000;
+            NavigationFilter::new_ekf(imu_cfg, st_cfg, ekf_cfg, seed)
+        }
+    };
+
+    let nav_biases = run_state.nav_biases;
+    let gm_config = data.density_perturbation.filter(|g| !g.is_disabled());
+    let (gm_rng, gm_normal) = if gm_config.is_some() {
+        use rand::SeedableRng;
+        let rng = rand::rngs::StdRng::seed_from_u64(
+            config.random_seed as u64 + env_idx * 10_000 + 0xDE45,
+        );
+        let normal = rand_distr::Normal::new(0.0, 1.0).unwrap();
+        (Some(rng), Some(normal))
+    } else {
+        (None, None)
+    };
+
+    let guidance_state = GuidanceState::new(entry_initial_bank, entry_initial_aoa);
+    let pilot_state = PilotState {
+        bank_angle: initial_bank_angle,
+        bank_rate: 0.0,
+    };
+    let sequencer = SequencerState::new();
+
+    let mut s = SimState {
+        state: [
+            r0,
+            entry_longitude,
+            entry_latitude,
+            entry_velocity,
+            entry_flight_path,
+            entry_azimuth,
+            0.0,
+            entry_initial_date,
+        ],
+        accumulator: [0.0; 8],
+        gill_toggle: 0,
+        dopri: Dopri45State::new(),
+        bank_angle: initial_bank_angle,
+        aoa: entry_initial_aoa,
+        bounced: false,
+        bounce_alt: 1e34,
+        bounce_time: 1e30,
+        max_heat_flux: 0.0,
+        max_load_factor: 0.0,
+        max_dyn_pressure: 0.0,
+        alt_max_flux: 0.0,
+        alt_max_load: 0.0,
+        alt_max_pdyn: 0.0,
+        time_max_flux: 0.0,
+        time_max_load: 0.0,
+        time_max_pdyn: 0.0,
+        event_records: Vec::new(),
+        nav_filter,
+        guidance_state,
+        pilot_state,
+        sequencer,
+        sim_time: entry_initial_date,
+        term: TermReason::None,
+        step: 0,
+        first_iter: true,
+        run_state,
+        nav_biases,
+        photo_lines: Vec::new(),
+        cumulative_bank_change_deg: 0.0,
+        dynamic_pressure_for_photo: 0.0,
+        density_estimate_for_photo: 0.0,
+        guidance_phase_for_photo: 1,
+        gm_config,
+        gm_rng,
+        gm_normal,
+        last_nav: crate::gnc::navigation::estimator::NavigationOutput::default(),
+        dt,
+        max_time,
+        exit_altitude,
+        reference_bank_angle,
+        write_photo: false,
+        sim_idx: env_idx as i32,
+        wall_timeout: None,
+        wall_start: Instant::now(),
+        is_single: false,
+    };
+
+    // Run one navigation pass to populate last_nav with valid orbital data.
+    // Without this, last_nav holds all-zeros which produces NaN in RL observations.
+    // Always run even in reference_trajectory mode so the RL env gets valid initial obs.
+    {
+        let position_true = [s.state[0], s.state[1], s.state[2]];
+        let velocity_true = [s.state[3], s.state[4], s.state[5]];
+        let initial_nav = match &mut s.nav_filter {
+            NavigationFilter::Bias(nav_state) => estimator::navigate(
+                &position_true,
+                &velocity_true,
+                s.guidance_state.aoa_commanded,
+                s.sim_time,
+                &s.nav_biases,
+                nav_state,
+                data,
+                planet,
+                s.run_state.density_bias,
+                s.run_state.density_perturbation,
+                s.run_state.cx_bias,
+                s.run_state.cz_bias,
+                s.run_state.mass_bias,
+                s.run_state.incidence_bias,
+                s.run_state.ref_area_bias,
+                s.run_state.filter_gain_bias,
+            ),
+            NavigationFilter::Ekf {
+                ekf,
+                imu,
+                star_tracker,
+                st_config,
+                ekf_config,
+                legacy,
+                ..
+            } => estimator::navigate_ekf(
+                &position_true,
+                &velocity_true,
+                s.guidance_state.aoa_commanded,
+                s.sim_time,
+                data.periods.navigation,
+                &s.nav_biases,
+                legacy,
+                ekf,
+                imu,
+                star_tracker,
+                st_config,
+                ekf_config,
+                data,
+                planet,
+                s.run_state.density_bias,
+                s.run_state.density_perturbation,
+                s.run_state.cx_bias,
+                s.run_state.cz_bias,
+                s.run_state.mass_bias,
+                s.run_state.incidence_bias,
+                s.run_state.ref_area_bias,
+            ),
+        };
+        s.last_nav = initial_nav;
+    }
+
+    s
 }
 
 /// Result from a single simulation run.
@@ -682,6 +881,8 @@ fn run_single(
         gm_config,
         gm_rng,
         gm_normal,
+        // Last navigation output (populated on first tick)
+        last_nav: crate::gnc::navigation::estimator::NavigationOutput::default(),
         // Pre-loop constants
         dt,
         max_time,

@@ -127,6 +127,52 @@ pub fn build_nn_input(
     }
 }
 
+/// Build the 16-element base observation vector without a NeuralNetModel.
+///
+/// Returns inputs[0..16] from the full 23-element candidate vector.
+/// Used by `BatchedSimulation` when no neural_net is configured (e.g. test configs).
+pub fn build_obs_base16(
+    nav: &NavigationOutput,
+    planet: &PlanetConfig,
+    target_inclination: f64,
+) -> Vec<f64> {
+    let mu = planet.mu;
+    let velocity_radial = nav.velocity_estimated[0] * nav.velocity_estimated[1].sin();
+    let orbit = elements::from_spherical(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
+        planet,
+    );
+    let accel_mag = (nav.acceleration_estimated[0] * nav.acceleration_estimated[0]
+        + nav.acceleration_estimated[1] * nav.acceleration_estimated[1])
+        .sqrt();
+    let altitude_km = (nav.position_estimated[0] - planet.equatorial_radius) / 1e3;
+
+    let mut v = Vec::with_capacity(16);
+    v.push(orbit.eccentricity - 1.0);
+    v.push((orbit.inclination - target_inclination).to_degrees() * 3.0 / 5.0);
+    v.push(2.0 * (velocity_radial / 1e3 + 1.2) / 1.5 - 1.0);
+    v.push(-mu / (2.0 * orbit.semi_major_axis) / 6e6);
+    v.push((nav.velocity_estimated[0] / 3e3 - 1.5) * 2.0);
+    v.push(accel_mag / 20.0 - 1.0);
+    v.push(nav.heat_flux_fraction * 2.0 - 1.0);
+    v.push(nav.heat_load_fraction * 2.0 - 1.0);
+    v.push((altitude_km - 65.0) / 65.0);
+    v.push(nav.velocity_estimated[1] / 0.3);
+    v.push(nav.position_estimated[2] / std::f64::consts::FRAC_PI_2);
+    v.push(nav.acceleration_estimated[0] / 50.0 - 1.0);
+    v.push(nav.acceleration_estimated[1] / 10.0);
+    v.push(nav.orbital_errors[0] / 5e5);
+    v.push(orbit.apoapsis_alt.clamp(-10e6, 10e6) / 1e6 - 1.0);
+    v.push(nav.bounce_flag as f64 * 2.0 - 1.0);
+
+    v
+}
+
 /// Compute NN-guided longitudinal bank angle.
 ///
 /// Builds the masked input vector via `build_nn_input`, runs a forward pass,

@@ -9,6 +9,7 @@ use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
 
 mod batch;
 mod config;
+mod env;
 mod results;
 
 use config::OverrideValue;
@@ -301,6 +302,7 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", "0.1.0")?;
     m.add_class::<SimResult>()?;
     m.add_class::<BatchResults>()?;
+    m.add_class::<env::BatchedSimulation>()?;
     m.add_function(wrap_pyfunction!(run, m)?)?;
     m.add_function(wrap_pyfunction!(run_mc, m)?)?;
     m.add_function(wrap_pyfunction!(run_batch, m)?)?;

@@ -181,6 +181,9 @@ pub(crate) fn step_one_tick(
             };
         }
 
+        // Cache for RL observation building (build_nn_input reads this via last_nav_output())
+        state.last_nav = nav_out;
+
         let guidance_out = dispatch::guidance_step(
             &nav_out,
             state.bank_angle,
