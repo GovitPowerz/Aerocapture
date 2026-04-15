@@ -66,7 +66,12 @@ class RLConfig:
     raw_toml: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_toml(cls, path: Path, overrides: dict[str, Any] | None = None) -> RLConfig:
+    def from_toml(
+        cls,
+        path: Path,
+        overrides: dict[str, Any] | None = None,
+        ppo_overrides: dict[str, Any] | None = None,
+    ) -> RLConfig:
         resolved = load_toml_with_bases(path)
         rl = resolved.get("rl", {})
         if overrides:
@@ -75,7 +80,10 @@ class RLConfig:
         if algo not in _VALID_ALGOS:
             raise ValueError(f"[rl] algorithm must be one of {_VALID_ALGOS}, got {algo!r}")
         reward = RewardConfig(**rl.get("reward", {}))
-        ppo = PPOConfig(**rl.get("ppo", {}))
+        ppo_src = rl.get("ppo", {})
+        if ppo_overrides:
+            ppo_src = {**ppo_src, **ppo_overrides}
+        ppo = PPOConfig(**ppo_src)
         sac = SACConfig(**rl.get("sac", {}))
         return cls(
             algorithm=algo,

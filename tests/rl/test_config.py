@@ -32,3 +32,11 @@ def test_rejects_unknown_algorithm() -> None:
             Path("configs/training/msr_aller_rl_train.toml"),
             overrides={"algorithm": "dqn"},
         )
+
+
+def test_ppo_override() -> None:
+    cfg = RLConfig.from_toml(
+        Path("configs/training/msr_aller_rl_train.toml"),
+        ppo_overrides={"rollout_steps": 128},
+    )
+    assert cfg.ppo.rollout_steps == 128

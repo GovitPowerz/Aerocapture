@@ -27,7 +27,7 @@ class RolloutBuffer:
     dones: npt.NDArray[np.bool_]
 
     @classmethod
-    def create(cls, n_steps: int, n_envs: int, obs_dim: int) -> "RolloutBuffer":
+    def create(cls, n_steps: int, n_envs: int, obs_dim: int) -> RolloutBuffer:
         return cls(
             n_steps=n_steps,
             n_envs=n_envs,

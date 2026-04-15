@@ -33,6 +33,28 @@ from aerocapture.training.rl.rewards import PBRSShaper
 
 OUT_DIR_DEFAULT = Path("training_output/neural_network_rl")
 
+
+def _dict_to_toml(d: dict[str, Any], prefix: str = "") -> str:
+    """Minimal recursive TOML serializer (no tomli_w dependency)."""
+    scalars: list[str] = []
+    sections: list[str] = []
+    for k, v in d.items():
+        if isinstance(v, dict):
+            header = f"[{prefix}{k}]" if prefix else f"[{k}]"
+            body = _dict_to_toml(v, prefix=f"{prefix}{k}.")
+            sections.append(f"{header}\n{body}")
+        elif isinstance(v, bool):
+            scalars.append(f"{k} = {'true' if v else 'false'}")
+        elif isinstance(v, str):
+            scalars.append(f'{k} = "{v}"')
+        elif isinstance(v, list):
+            scalars.append(f"{k} = {json.dumps(v)}")
+        else:
+            scalars.append(f"{k} = {v}")
+    parts = scalars + ([""] if scalars and sections else []) + sections
+    return "\n".join(parts) + ("\n" if parts else "")
+
+
 # Column indices in the 52-element final_record array (verified against
 # src/rust/src/simulation/runner.rs final_record layout):
 #   index 9  = eccentricity
@@ -46,6 +68,11 @@ def main() -> None:
     ap.add_argument("toml_path")
     ap.add_argument("--algorithm", choices=["ppo", "sac"], default=None)
     ap.add_argument("--total-steps", type=int, default=None)
+    ap.add_argument("--n-envs", type=int, default=None)
+    ap.add_argument("--rollout-steps", type=int, default=None)
+    ap.add_argument("--validation-n-sims", type=int, default=None)
+    ap.add_argument("--validation-interval-updates", type=int, default=None)
+    ap.add_argument("--data-neural-network", type=Path, default=None, help="Override path to neural network model JSON")
     ap.add_argument("--no-tui", action="store_true")
     ap.add_argument("--skip-report", action="store_true")
     ap.add_argument("--resume", type=Path, default=None)
@@ -55,17 +82,31 @@ def main() -> None:
     overrides: dict[str, Any] = {}
     if args.algorithm:
         overrides["algorithm"] = args.algorithm
-    if args.total_steps:
+    if args.total_steps is not None:
         overrides["total_env_steps"] = args.total_steps
+    if args.n_envs is not None:
+        overrides["n_envs"] = args.n_envs
+    if args.validation_n_sims is not None:
+        overrides["validation_n_sims"] = args.validation_n_sims
+    if args.validation_interval_updates is not None:
+        overrides["validation_interval_updates"] = args.validation_interval_updates
 
-    cfg = RLConfig.from_toml(Path(args.toml_path), overrides=overrides or None)
+    ppo_overrides: dict[str, Any] = {}
+    if args.rollout_steps is not None:
+        ppo_overrides["rollout_steps"] = args.rollout_steps
+
+    cfg = RLConfig.from_toml(Path(args.toml_path), overrides=overrides or None, ppo_overrides=ppo_overrides or None)
+
+    env_overrides: dict[str, Any] | None = None
+    if args.data_neural_network is not None:
+        env_overrides = {"data.neural_network": str(args.data_neural_network)}
     if cfg.algorithm != "ppo":
         raise NotImplementedError(f"algorithm {cfg.algorithm!r} not yet implemented (SAC planned for Phase 7)")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     config_hash = hashlib.sha256(json.dumps(cfg.raw_toml, sort_keys=True).encode()).hexdigest()[:12]
-    (args.output_dir / "config_resolved.json").write_text(json.dumps(cfg.raw_toml, indent=2))
+    (args.output_dir / "config_resolved.toml").write_text(_dict_to_toml(cfg.raw_toml))
 
     logger = RLLogger(args.output_dir, config_hash)
     display = make_display(cfg.total_env_steps, enabled=not args.no_tui and sys.stdout.isatty())
@@ -77,7 +118,7 @@ def main() -> None:
 
     prev_handler = signal.signal(signal.SIGINT, _on_sigint)
     try:
-        _run_ppo(cfg, Path(args.toml_path), args.output_dir, logger, display, interrupted, args.resume)
+        _run_ppo(cfg, Path(args.toml_path), args.output_dir, logger, display, interrupted, args.resume, env_overrides)
     finally:
         signal.signal(signal.SIGINT, prev_handler)
         display.close()
@@ -100,6 +141,7 @@ def _run_ppo(
     display: Any,
     interrupted: dict[str, bool],
     resume_dir: Path | None,
+    env_overrides: dict[str, Any] | None = None,
 ) -> None:
     # Note: v1 uses pure terminal-cost rewards (no PBRS shaping). The shaper
     # needs a side channel from BatchedSimulation to extract (energy, pdyn)
@@ -120,6 +162,7 @@ def _run_ppo(
         toml_path=str(toml_path),
         n_envs=cfg.n_envs,
         seed_base=cfg.seed_base,
+        overrides=env_overrides,
     )
 
     policy = GaussianPolicy(input_dim, layer_sizes, activations, cfg.ppo.initial_log_std)
