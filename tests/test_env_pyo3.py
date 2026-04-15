@@ -8,7 +8,7 @@ import pytest
 aerocapture_rs = pytest.importorskip("aerocapture_rs")
 
 
-TOML = "configs/test/test_ref_orig.toml"
+TOML = "configs/test/test_neural_golden.toml"
 
 
 def test_batched_simulation_construct_and_close() -> None:

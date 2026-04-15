@@ -54,11 +54,11 @@ impl BatchedSimulation {
         let (sim_input, sim_data) = config::load_and_override(Path::new(toml_path), &overrides)
             .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
-        let obs_dim = sim_data
+        let nn = sim_data
             .neural_net
             .as_ref()
-            .and_then(|nn| nn.input_mask.as_ref().map(|m: &Vec<usize>| m.len()))
-            .unwrap_or(16);
+            .expect("neural_net model required for RL env");
+        let obs_dim = nn.input_mask.as_ref().map(|m: &Vec<usize>| m.len()).unwrap_or(16);
 
         let sim_data = Arc::new(sim_data);
         let mut envs = Vec::with_capacity(n_envs);
@@ -143,31 +143,27 @@ impl BatchedSimulation {
 
 /// Build the observation vector for a single env state.
 ///
-/// When a NeuralNetModel is present, delegates to `build_nn_input` so the RL
-/// observation matches exactly what the runtime NN guidance sees. When absent
-/// (e.g. non-NN training configs), returns the 16-element base observation via
-/// `build_obs_base16`.
+/// Delegates to `build_nn_input` so the RL observation matches exactly what the
+/// runtime NN guidance sees. Panics if no neural_net model is loaded -- callers
+/// must use a config with `[data] neural_network` set.
 fn build_obs_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -> Vec<f64> {
     let nav = state.last_nav_output();
     let planet = &config.planet;
     let target_inclination = data.target_orbit.inclination;
     let ref_velocity_latched = state.guidance_state.reference_velocity;
+    let nn = data
+        .neural_net
+        .as_ref()
+        .expect("neural_net model required for RL env");
 
-    match data.neural_net.as_ref() {
-        Some(nn) => aerocapture::gnc::guidance::neural::build_nn_input(
-            &nav,
-            nn,
-            data,
-            planet,
-            target_inclination,
-            ref_velocity_latched,
-        ),
-        None => aerocapture::gnc::guidance::neural::build_obs_base16(
-            &nav,
-            planet,
-            target_inclination,
-        ),
-    }
+    aerocapture::gnc::guidance::neural::build_nn_input(
+        &nav,
+        nn,
+        data,
+        planet,
+        target_inclination,
+        ref_velocity_latched,
+    )
 }
 
 /// Generate a deterministic dispersion draw for a given seed.
