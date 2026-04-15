@@ -167,8 +167,9 @@ impl BatchedSimulation {
         let event_ctx = &self.event_ctx;
 
         // Advance all envs one tick in parallel; collect terminal info where done.
-        let outcomes: Vec<(bool, Option<TerminalOutcome>)> = {
-            let _ = py; // GIL held; unsendable class so no ungil needed
+        // Release the GIL during the Rayon block so other Python threads can run
+        // and Ctrl-C is responsive.
+        let outcomes: Vec<(bool, Option<TerminalOutcome>)> = py.detach(|| {
             self.envs
                 .par_iter_mut()
                 .zip(actions_vec.par_iter())
@@ -184,6 +185,8 @@ impl BatchedSimulation {
                         event_ctx,
                     );
                     if state.term() != TermReason::None {
+                        // Capture terminal obs BEFORE the env state is reset.
+                        let terminal_obs = build_obs_for_env(state, sim_data, sim_input);
                         let fr = build_final_record(state, sim_data, &sim_input.planet);
                         let ifinal = match state.term() {
                             TermReason::AtmosphereExit => 3i32,
@@ -206,6 +209,7 @@ impl BatchedSimulation {
                             peak_heat_load_kj_m2: fr[28] * 1e3, // MJ/m2 -> kJ/m2
                             violated_constraints: violated,
                             final_record: fr,
+                            terminal_obs,
                         };
                         (true, Some(term))
                     } else {
@@ -213,7 +217,7 @@ impl BatchedSimulation {
                     }
                 })
                 .collect()
-        };
+        });
 
         // Auto-reset terminated envs with advancing seeds.
         for (i, (done, _)) in outcomes.iter().enumerate() {
@@ -248,6 +252,9 @@ impl BatchedSimulation {
                 dict.set_item("peak_heat_load_kJ_m2", t.peak_heat_load_kj_m2)?;
                 dict.set_item("violated_constraints", t.violated_constraints)?;
                 dict.set_item("final_record", t.final_record.to_vec())?;
+                // Pre-reset obs of the terminated episode; PPO needs this for value bootstrap.
+                let term_obs: Vec<f32> = t.terminal_obs.iter().map(|&v| v as f32).collect();
+                dict.set_item("terminal_observation", term_obs)?;
             }
             info_list.push(dict.unbind());
         }
@@ -306,13 +313,18 @@ fn build_obs_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -
 
 /// Generate a deterministic dispersion draw for a given seed.
 ///
-/// For RL training we want each env to start with a reproducible but varied
-/// scenario. We use the seed to pick from the configured dispersion distribution.
-/// When no dispersion config is present (nominal runs), returns the zero draw.
-fn draw_from_seed(data: &SimData, _seed: u64) -> DispersionDraw {
-    // Use the zero draw for now; Task 1.4 can add seeded MC draws.
-    let _ = data;
-    DispersionDraw::default()
+/// Clones the DispersionConfig with the given seed so each env gets a
+/// distinct, reproducible MC scenario. Falls back to the zero draw when
+/// no dispersion config is present (nominal runs).
+fn draw_from_seed(data: &SimData, seed: u64) -> DispersionDraw {
+    match &data.dispersion_config {
+        Some(cfg) => {
+            let mut seeded = cfg.clone();
+            seeded.seed = seed;
+            seeded.generate_draws(1).into_iter().next().unwrap_or_default()
+        }
+        None => DispersionDraw::default(),
+    }
 }
 
 /// Terminal step payload for one env slot.
@@ -326,4 +338,6 @@ struct TerminalOutcome {
     peak_heat_load_kj_m2: f64,
     violated_constraints: bool,
     final_record: [f64; 52],
+    /// Last observation of the terminated episode (pre-reset), for PPO value bootstrap.
+    terminal_obs: Vec<f64>,
 }

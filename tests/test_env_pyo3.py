@@ -72,3 +72,44 @@ def test_step_eventually_terminates() -> None:
             break
     assert dones_seen.all(), "both envs should have terminated at least once"
     env.close()
+
+
+def test_step_seed_determinism() -> None:
+    """Two envs constructed with the same seed_base produce identical first-obs + first-step results."""
+    env_a = aerocapture_rs.BatchedSimulation(TOML, n_envs=2, seed_base=7_777_777)
+    env_b = aerocapture_rs.BatchedSimulation(TOML, n_envs=2, seed_base=7_777_777)
+    obs_a = env_a.reset()
+    obs_b = env_b.reset()
+    assert np.allclose(obs_a, obs_b, atol=0.0)
+
+    act = np.full(2, 0.25, dtype=np.float32)
+    o_a, r_a, d_a, _ = env_a.step(act)
+    o_b, r_b, d_b, _ = env_b.step(act)
+    assert np.allclose(o_a, o_b, atol=0.0)
+    assert np.allclose(r_a, r_b, atol=0.0)
+    assert np.array_equal(d_a, d_b)
+    env_a.close()
+    env_b.close()
+
+
+def test_step_action_clipping() -> None:
+    """Actions outside [-pi, pi] must be clipped and still produce finite obs."""
+    env = aerocapture_rs.BatchedSimulation(TOML, n_envs=2, seed_base=3_000_000)
+    env.reset()
+    obs, _, _, _ = env.step(np.array([10.0, -10.0], dtype=np.float32))
+    assert np.isfinite(obs).all()
+    env.close()
+
+
+def test_terminal_observation_in_info() -> None:
+    """On done, info must contain 'terminal_observation' matching the pre-reset obs_dim."""
+    env = aerocapture_rs.BatchedSimulation(TOML, n_envs=1, seed_base=3_000_000)
+    env.reset()
+    for _ in range(2000):
+        obs, _, done, info = env.step(np.zeros(1, dtype=np.float32))
+        if done[0]:
+            assert "terminal_observation" in info[0]
+            t = info[0]["terminal_observation"]
+            assert len(t) == env.obs_dim
+            return
+    pytest.fail("env did not terminate within 2000 steps")
