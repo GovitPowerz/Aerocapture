@@ -17,10 +17,19 @@ _VALID_ALGOS: tuple[str, ...] = ("ppo", "sac")
 
 @dataclass
 class RewardConfig:
-    shaping_enabled: bool = True
-    shaping_alpha: float = 1.0
+    # Capture phase weights
+    corridor_weight: float = 0.1
+    energy_rate_weight: float = 0.05
+    constraint_weight: float = 0.2
+    # Exit phase weights
+    apoapsis_weight: float = 0.2
+    eccentricity_weight: float = 0.1
+    # Normalization scales
     energy_scale: float = 1.0e6
-    pdyn_scale: float = 1.0e3
+    # Return and obs normalization
+    normalize_returns: bool = True
+    normalize_obs: bool = True
+    norm_warmup_episodes: int = 64
 
 
 @dataclass

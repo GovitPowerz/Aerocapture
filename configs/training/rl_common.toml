@@ -12,10 +12,15 @@ validation_interval_updates = 20
 checkpoint_interval_updates = 50
 
 [rl.reward]
-shaping_enabled = true
-shaping_alpha   = 1.0
-energy_scale    = 1.0e6
-pdyn_scale      = 1.0e3
+corridor_weight     = 0.1
+energy_rate_weight  = 0.05
+constraint_weight   = 0.2
+apoapsis_weight     = 0.2
+eccentricity_weight = 0.1
+energy_scale        = 1.0e6
+normalize_returns   = true
+normalize_obs       = true
+norm_warmup_episodes = 64
 
 [rl.ppo]
 learning_rate     = 3.0e-4

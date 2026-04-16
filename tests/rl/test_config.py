@@ -14,7 +14,8 @@ def test_loads_common_defaults() -> None:
     assert cfg.n_envs == 64
     assert cfg.seed_base == 3_000_000
     assert cfg.ppo.learning_rate == 3.0e-4
-    assert cfg.reward.shaping_enabled is True
+    assert cfg.reward.corridor_weight == 0.1
+    assert cfg.reward.normalize_returns is True
 
 
 def test_cli_override() -> None:
