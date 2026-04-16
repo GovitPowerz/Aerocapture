@@ -24,7 +24,7 @@ import torch
 
 from aerocapture.training.rl.policy import GaussianPolicy
 
-_ACT_NAMES = {"Tanh": "tanh", "ReLU": "relu", "Sigmoid": "sigmoid", "Identity": "linear"}
+_ACT_NAMES = {"Tanh": "tanh", "ReLU": "relu", "Sigmoid": "sigmoid", "Identity": "linear", "SiLU": "swish", "Mish": "mish"}
 
 
 def export_policy_to_json(

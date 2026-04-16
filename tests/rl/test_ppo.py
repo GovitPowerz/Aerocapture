@@ -24,7 +24,7 @@ def test_gae_known_values() -> None:
 def test_rollout_buffer_create() -> None:
     buf = RolloutBuffer.create(n_steps=8, n_envs=4, obs_dim=16)
     assert buf.obs.shape == (8, 4, 16)
-    assert buf.actions.shape == (8, 4)
+    assert buf.raw_actions.shape == (8, 4, 2)
     assert buf.log_probs.shape == (8, 4)
     assert buf.rewards.shape == (8, 4)
     assert buf.values.shape == (8, 4)
@@ -39,7 +39,7 @@ def test_ppo_update_runs_without_crashing() -> None:
 
     n = 256
     obs = torch.randn(n, 16)
-    actions = torch.rand(n) * (2 * torch.pi) - torch.pi
+    raw_actions = torch.randn(n, 2)
     old_log_probs = torch.randn(n) * 0.1
     advantages = torch.randn(n)
     returns = torch.randn(n)
@@ -49,7 +49,7 @@ def test_ppo_update_runs_without_crashing() -> None:
         value,
         optim,
         obs,
-        actions,
+        raw_actions,
         old_log_probs,
         advantages,
         returns,
@@ -65,3 +65,15 @@ def test_ppo_update_runs_without_crashing() -> None:
     assert "entropy" in metrics
     assert "approx_kl" in metrics
     assert "clip_frac" in metrics
+
+
+def test_value_network_gradient_flows() -> None:
+    """Verify ValueNetwork.forward() preserves autograd graph (not detached)."""
+    value = ValueNetwork(4, [8], ["tanh", "linear"])
+    obs = torch.randn(2, 4, requires_grad=False)
+    out = value(obs)
+    loss = out.sum()
+    loss.backward()
+    for p in value.parameters():
+        assert p.grad is not None, "ValueNetwork parameter has no gradient"
+        assert p.grad.abs().sum() > 0, "ValueNetwork gradient is all zeros"

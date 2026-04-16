@@ -82,7 +82,7 @@ def _generate_seed_model(cfg: RLConfig, path: Path) -> None:
 # Column indices in the 52-element final_record array (verified against
 # src/rust/src/simulation/runner.rs final_record layout):
 #   index 9  = eccentricity
-#   index 31 = ifinal (1=hyperbolic, 2=crash, 3=captured, 4=pending_crash, 5=timeout)
+#   index 31 = ifinal (1=crash, 2=timeout, 3=atmosphere_exit, 4=pending_crash)
 _IDX_ECC = 9
 _IDX_IFINAL = 31
 
@@ -319,7 +319,7 @@ def _run_ppo(
                     episodic_captures.append(bool(info[i].get("captured", False)))
 
             buf.obs[t] = obs
-            buf.actions[t] = actions_np
+            buf.raw_actions[t] = raw.cpu().numpy()
             buf.log_probs[t] = log_prob.cpu().numpy()
             buf.rewards[t] = shaped
             buf.values[t] = v_pred.squeeze(-1).cpu().numpy()
@@ -356,7 +356,7 @@ def _run_ppo(
             pg["lr"] = lr
 
         flat_obs = torch.from_numpy(buf.obs.reshape(-1, env.obs_dim)).float()
-        flat_actions = torch.from_numpy(buf.actions.reshape(-1)).float()
+        flat_raw = torch.from_numpy(buf.raw_actions.reshape(-1, 2)).float()
         flat_old_lp = torch.from_numpy(buf.log_probs.reshape(-1)).float()
         flat_adv = torch.from_numpy(advantages.reshape(-1)).float()
         flat_ret = torch.from_numpy(returns.reshape(-1)).float()
@@ -366,7 +366,7 @@ def _run_ppo(
             value,
             optim,
             flat_obs,
-            flat_actions,
+            flat_raw,
             flat_old_lp,
             flat_adv,
             flat_ret,

@@ -14,13 +14,18 @@ from aerocapture.training.rl.policy import GaussianPolicy, ValueNetwork
 
 @dataclass
 class RolloutBuffer:
-    """Fixed-size per-env rollout buffer; (n_steps, n_envs) tensors."""
+    """Fixed-size per-env rollout buffer; (n_steps, n_envs, ...) tensors.
+
+    ``raw_actions`` stores the 2D Gaussian sample (n_steps, n_envs, 2) so that
+    ``ppo_update`` replays the *exact* point at which ``old_log_probs`` were
+    evaluated. The scalar bank angle sent to the env is atan2(raw[0], raw[1]).
+    """
 
     n_steps: int
     n_envs: int
     obs_dim: int
     obs: npt.NDArray[np.float32]
-    actions: npt.NDArray[np.float32]
+    raw_actions: npt.NDArray[np.float32]
     log_probs: npt.NDArray[np.float32]
     rewards: npt.NDArray[np.float32]
     values: npt.NDArray[np.float32]
@@ -33,7 +38,7 @@ class RolloutBuffer:
             n_envs=n_envs,
             obs_dim=obs_dim,
             obs=np.zeros((n_steps, n_envs, obs_dim), dtype=np.float32),
-            actions=np.zeros((n_steps, n_envs), dtype=np.float32),
+            raw_actions=np.zeros((n_steps, n_envs, 2), dtype=np.float32),
             log_probs=np.zeros((n_steps, n_envs), dtype=np.float32),
             rewards=np.zeros((n_steps, n_envs), dtype=np.float32),
             values=np.zeros((n_steps, n_envs), dtype=np.float32),
@@ -66,7 +71,7 @@ def ppo_update(
     value: ValueNetwork,
     optim: torch.optim.Optimizer,
     obs: torch.Tensor,  # (N, obs_dim)
-    actions: torch.Tensor,  # (N,) bank angles in [-pi, pi]
+    raw_actions: torch.Tensor,  # (N, 2) original Gaussian samples
     old_log_probs: torch.Tensor,  # (N,)
     advantages: torch.Tensor,  # (N,)
     returns: torch.Tensor,  # (N,)
@@ -97,17 +102,15 @@ def ppo_update(
         for start in range(0, n, batch_size):
             mb = indices[start : start + batch_size]
             mb_obs = obs[mb]
-            mb_actions = actions[mb]
+            mb_raw = raw_actions[mb]
             mb_old_lp = old_log_probs[mb]
             mb_adv = adv_norm[mb]
             mb_ret = returns[mb]
 
             mean, log_std = policy.forward_mean_logstd(mb_obs)
-            # Unit-magnitude raw reconstruction: atan2(sin(b), cos(b)) = b.
-            raw = torch.stack([torch.sin(mb_actions), torch.cos(mb_actions)], dim=-1)
             std = log_std.exp()
             dist = torch.distributions.Normal(mean, std)
-            new_lp = dist.log_prob(raw).sum(-1)
+            new_lp = dist.log_prob(mb_raw).sum(-1)
             ratio = (new_lp - mb_old_lp).exp()
 
             s1 = ratio * mb_adv
