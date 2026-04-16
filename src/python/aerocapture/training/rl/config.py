@@ -60,6 +60,7 @@ class SACConfig:
     gradient_steps: int = 1
     target_entropy: str | float = "auto"
     initial_alpha: float = 0.2
+    warmup_steps: int = 0
 
 
 @dataclass

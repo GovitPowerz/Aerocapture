@@ -47,3 +47,4 @@ train_every      = 1
 gradient_steps   = 1
 target_entropy   = "auto"
 initial_alpha    = 0.2
+warmup_steps     = 50_000

@@ -624,8 +624,9 @@ def _run_sac(
         aux_cur = aux_next
         env_steps += cfg.n_envs
 
-        # --- Update every train_every steps if buffer warm ---
-        if len(agent.replay_buffer) >= sac_cfg.batch_size and env_steps % (sac_cfg.train_every * cfg.n_envs) == 0:
+        # --- Update every train_every steps if buffer warm (skip during warmup) ---
+        buffer_ready = len(agent.replay_buffer) >= max(sac_cfg.batch_size, sac_cfg.warmup_steps)
+        if buffer_ready and env_steps % (sac_cfg.train_every * cfg.n_envs) == 0:
             for _ in range(sac_cfg.gradient_steps):
                 batch_obs, batch_act, batch_rew, batch_next, batch_done = agent.replay_buffer.sample(sac_cfg.batch_size)
                 metrics = agent.update(batch_obs, batch_act, batch_rew, batch_next, batch_done)
