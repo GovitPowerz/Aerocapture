@@ -517,6 +517,24 @@ def _run_sac(
     """SAC outer loop (experimental). Shares GaussianPolicy + export path with PPO."""
     input_mask, layer_sizes, activations, input_dim = _parse_network_config(cfg)
 
+    # PBRS: same setup as PPO -- load reference trajectory for pdyn potential.
+    ref_fn: Callable | None = None
+    if cfg.reward.shaping_enabled:
+        ref_path_str = cfg.raw_toml.get("data", {}).get("reference_trajectory", "")
+        ref_path = Path(ref_path_str) if ref_path_str else None
+        if ref_path and ref_path.exists():
+            ref_fn = load_reference_pdyn(ref_path)
+            print(f"PBRS: loaded reference trajectory from {ref_path}", file=sys.stderr)
+        else:
+            print(f"PBRS: ref trajectory not found at {ref_path}, shaping disabled", file=sys.stderr)
+    shaper = PBRSShaper(
+        enabled=cfg.reward.shaping_enabled and ref_fn is not None,
+        alpha=cfg.reward.shaping_alpha,
+        energy_scale=cfg.reward.energy_scale,
+        pdyn_scale=cfg.reward.pdyn_scale,
+        ref_fn=ref_fn,
+    )
+
     env = AerocaptureVecEnv(
         toml_path=str(toml_path),
         n_envs=cfg.n_envs,
@@ -571,19 +589,25 @@ def _run_sac(
 
         next_obs, _rust_reward, done, info, aux_next = env.step(actions_np)
 
-        rewards_np = np.zeros(cfg.n_envs, dtype=np.float32)
+        # PBRS step shaping (same logic as PPO).
+        shaped = shaper.step_reward(aux_cur, aux_next, sac_cfg.gamma).astype(np.float32)
+
         for i, d in enumerate(done):
             if d:
                 fr = np.array(info[i]["final_record"], dtype=np.float64)
                 term_cost = compute_terminal_cost(fr)
-                rewards_np[i] = float(-term_cost)
+                phi_cur = float(shaper.phi(
+                    aux_cur[i:i+1, 0].astype(np.float64),
+                    aux_cur[i:i+1, 1].astype(np.float64),
+                )[0]) if shaper.enabled else 0.0
+                shaped[i] = float(-term_cost) - phi_cur
                 episodic_returns.append(float(-term_cost))
                 episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
                 episodic_captures.append(bool(info[i].get("captured", False)))
 
-        agent.replay_buffer.push(obs, actions_np, rewards_np, next_obs, done)
+        agent.replay_buffer.push(obs, actions_np, shaped, next_obs, done)
         obs = next_obs
-        # aux_cur = aux_next  # SAC doesn't use PBRS yet (needs shaped replay buffer)
+        aux_cur = aux_next
         env_steps += cfg.n_envs
 
         # --- Update every train_every steps if buffer warm ---
