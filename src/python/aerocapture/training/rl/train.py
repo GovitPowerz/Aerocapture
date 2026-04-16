@@ -16,7 +16,6 @@ import json
 import signal
 import sys
 import time
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -28,9 +27,10 @@ from aerocapture.training.rl.display import make_display
 from aerocapture.training.rl.env import AerocaptureVecEnv
 from aerocapture.training.rl.export import export_policy_to_json
 from aerocapture.training.rl.logger import RLLogger
+from aerocapture.training.rl.normalizers import ObsNormalizer, ReturnNormalizer
 from aerocapture.training.rl.policy import GaussianPolicy, ValueNetwork
 from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, ppo_update
-from aerocapture.training.rl.rewards import PBRSShaper, compute_terminal_cost, load_reference_pdyn
+from aerocapture.training.rl.rewards import StepRewardCalculator, compute_terminal_cost
 from aerocapture.training.rl.sac import SACAgent
 
 OUT_DIR_DEFAULT = Path("training_output/neural_network_rl")
@@ -228,23 +228,17 @@ def _run_ppo(
 ) -> None:
     input_mask, layer_sizes, activations, input_dim = _parse_network_config(cfg)
 
-    # PBRS: load reference trajectory for pdyn potential function.
-    ref_fn: Callable | None = None
-    if cfg.reward.shaping_enabled:
-        ref_path_str = cfg.raw_toml.get("data", {}).get("reference_trajectory", "")
-        ref_path = Path(ref_path_str) if ref_path_str else None
-        if ref_path and ref_path.exists():
-            ref_fn = load_reference_pdyn(ref_path)
-            print(f"PBRS: loaded reference trajectory from {ref_path}", file=sys.stderr)
-        else:
-            print(f"PBRS: ref trajectory not found at {ref_path}, shaping disabled", file=sys.stderr)
-    shaper = PBRSShaper(
-        enabled=cfg.reward.shaping_enabled and ref_fn is not None,
-        alpha=cfg.reward.shaping_alpha,
+    step_calc = StepRewardCalculator(
+        input_mask=input_mask,
+        corridor_weight=cfg.reward.corridor_weight,
+        energy_rate_weight=cfg.reward.energy_rate_weight,
+        constraint_weight=cfg.reward.constraint_weight,
+        apoapsis_weight=cfg.reward.apoapsis_weight,
+        eccentricity_weight=cfg.reward.eccentricity_weight,
         energy_scale=cfg.reward.energy_scale,
-        pdyn_scale=cfg.reward.pdyn_scale,
-        ref_fn=ref_fn,
     )
+    ret_norm = ReturnNormalizer(warmup_episodes=cfg.reward.norm_warmup_episodes) if cfg.reward.normalize_returns else None
+    obs_norm = ObsNormalizer(obs_dim=input_dim) if cfg.reward.normalize_obs else None
 
     env = AerocaptureVecEnv(
         toml_path=str(toml_path),
@@ -276,6 +270,10 @@ def _run_ppo(
         update_idx = int(ckpt["update_idx"])
         env_steps = int(ckpt["env_steps"])
         best_val_cost = float(ckpt["best_val_cost"])
+        if ret_norm is not None and ckpt.get("ret_norm") is not None:
+            ret_norm.load_state_dict(ckpt["ret_norm"])
+        if obs_norm is not None and ckpt.get("obs_norm") is not None:
+            obs_norm.load_state_dict(ckpt["obs_norm"])
         print(f"Resumed from checkpoint: update {update_idx}, {env_steps} env steps", file=sys.stderr)
 
     buf = RolloutBuffer.create(cfg.ppo.rollout_steps, cfg.n_envs, env.obs_dim)
@@ -289,7 +287,13 @@ def _run_ppo(
     while env_steps < cfg.total_env_steps and not interrupted["v"]:
         # --- Rollout collection ---
         for t in range(cfg.ppo.rollout_steps):
-            obs_t = torch.from_numpy(obs).float()
+            # Update obs stats, normalize for policy forward pass.
+            if obs_norm is not None:
+                obs_norm.update(obs)
+                obs_policy = obs_norm.normalize(obs)
+            else:
+                obs_policy = obs
+            obs_t = torch.from_numpy(obs_policy).float()
             with torch.no_grad():
                 mean, log_std = policy.forward_mean_logstd(obs_t)
                 std = log_std.exp()
@@ -303,27 +307,20 @@ def _run_ppo(
             actions_np = bank.cpu().numpy().astype(np.float32)
             next_obs, _rust_reward, done, info, aux_next = env.step(actions_np)
 
-            # PBRS step shaping: gamma*phi(s') - phi(s) using (energy, pdyn).
-            shaped = shaper.step_reward(aux_cur, aux_next, cfg.ppo.gamma).astype(np.float32)
+            shaped = step_calc.step_reward(obs, aux_cur, aux_next).astype(np.float32)
 
-            # On terminal steps, add terminal cost + PBRS boundary correction.
             for i, d in enumerate(done):
                 if d:
                     fr = np.array(info[i]["final_record"], dtype=np.float64)
                     term_cost = compute_terminal_cost(fr)
-                    # Terminal PBRS boundary: gamma*phi(absorbing=0) - phi(s_T).
-                    # The step_reward above already computed gamma*phi(s_{T+1}) - phi(s_T),
-                    # but s_{T+1} is the post-reset state, not the absorbing state.
-                    # Correct: replace with -phi(s_T) (absorbing phi=0) + terminal cost.
-                    phi_cur = float(shaper.phi(
-                        aux_cur[i:i+1, 0].astype(np.float64),
-                        aux_cur[i:i+1, 1].astype(np.float64),
-                    )[0]) if shaper.enabled else 0.0
-                    shaped[i] = float(-term_cost) - phi_cur
+                    shaped[i] += float(-term_cost)
                     episodic_returns.append(float(-term_cost))
                     episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
                     episodic_captures.append(bool(info[i].get("captured", False)))
+                    if ret_norm is not None:
+                        ret_norm.update_episode_return(float(-term_cost))
 
+            # Store raw obs in buffer; normalize at update time.
             buf.obs[t] = obs
             buf.raw_actions[t] = raw.cpu().numpy()
             buf.log_probs[t] = log_prob.cpu().numpy()
@@ -336,8 +333,13 @@ def _run_ppo(
             env_steps += cfg.n_envs
 
         # --- Bootstrap value for last obs ---
+        last_obs_policy = obs_norm.normalize(obs) if obs_norm is not None else obs
         with torch.no_grad():
-            last_v = value(torch.from_numpy(obs).float()).squeeze(-1).cpu().numpy()
+            last_v = value(torch.from_numpy(last_obs_policy).float()).squeeze(-1).cpu().numpy()
+
+        # --- Normalize rewards before GAE ---
+        if ret_norm is not None:
+            buf.rewards = ret_norm.normalize(buf.rewards.astype(np.float64)).astype(np.float32)
 
         # --- GAE per env ---
         advantages = np.zeros_like(buf.rewards)
@@ -361,7 +363,10 @@ def _run_ppo(
         for pg in optim.param_groups:
             pg["lr"] = lr
 
-        flat_obs = torch.from_numpy(buf.obs.reshape(-1, env.obs_dim)).float()
+        raw_obs_flat = buf.obs.reshape(-1, env.obs_dim)
+        if obs_norm is not None:
+            raw_obs_flat = obs_norm.normalize(raw_obs_flat)
+        flat_obs = torch.from_numpy(raw_obs_flat).float()
         flat_raw = torch.from_numpy(buf.raw_actions.reshape(-1, 2)).float()
         flat_old_lp = torch.from_numpy(buf.log_probs.reshape(-1)).float()
         flat_adv = torch.from_numpy(advantages.reshape(-1)).float()
@@ -390,17 +395,17 @@ def _run_ppo(
         val_attempted = update_idx % cfg.validation_interval_updates == 0
         val_record: dict[str, Any] = {}
         if val_attempted:
-            val_record = _validate_deterministic(policy, toml_path, output_dir, cfg, input_mask)
+            val_record = _validate_deterministic(policy, toml_path, output_dir, cfg, input_mask, obs_norm=obs_norm)
             if val_record["val_rms_cost"] < best_val_cost:
                 best_val_cost = val_record["val_rms_cost"]
-                export_policy_to_json(policy, output_dir / "best_model.json", input_mask)
+                export_policy_to_json(policy, output_dir / "best_model.json", input_mask, obs_normalizer=obs_norm)
                 val_record["val_promoted"] = True
             else:
                 val_record["val_promoted"] = False
 
         # --- Periodic checkpoint ---
         if update_idx % cfg.checkpoint_interval_updates == 0:
-            _save_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost)
+            _save_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost, ret_norm=ret_norm, obs_norm=obs_norm)
 
         record: dict[str, Any] = {
             "update_idx": update_idx,
@@ -425,10 +430,10 @@ def _run_ppo(
         display.update(record)
 
     # --- Final checkpoint + export ---
-    _save_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost)
+    _save_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost, ret_norm=ret_norm, obs_norm=obs_norm)
     if best_val_cost == float("inf"):
         # No validation fired yet; export current policy so the caller has something.
-        export_policy_to_json(policy, output_dir / "best_model.json", input_mask)
+        export_policy_to_json(policy, output_dir / "best_model.json", input_mask, obs_normalizer=obs_norm)
 
     env.close()
 
@@ -441,6 +446,8 @@ def _save_checkpoint(
     update_idx: int,
     env_steps: int,
     best_val_cost: float,
+    ret_norm: ReturnNormalizer | None = None,
+    obs_norm: ObsNormalizer | None = None,
 ) -> None:
     torch.save(
         {
@@ -450,6 +457,8 @@ def _save_checkpoint(
             "update_idx": update_idx,
             "env_steps": env_steps,
             "best_val_cost": best_val_cost,
+            "ret_norm": ret_norm.state_dict() if ret_norm is not None else None,
+            "obs_norm": obs_norm.state_dict() if obs_norm is not None else None,
         },
         output_dir / "checkpoint.pt",
     )
@@ -461,6 +470,7 @@ def _validate_deterministic(
     output_dir: Path,
     cfg: RLConfig,
     input_mask: list[int],
+    obs_norm: ObsNormalizer | None = None,
 ) -> dict[str, Any]:
     """Export deterministic policy to JSON, run validation batch, return RMS cost + capture rate."""
     import aerocapture_rs  # type: ignore[import]
@@ -468,7 +478,7 @@ def _validate_deterministic(
     from aerocapture.training.evaluate import VALIDATION_SEED_OFFSET, compute_cost, make_reserved_seeds
 
     tmp_json = output_dir / "gen_current_model.json"
-    export_policy_to_json(policy, tmp_json, input_mask)
+    export_policy_to_json(policy, tmp_json, input_mask, obs_normalizer=obs_norm)
 
     base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("seed", 42))
     seeds = make_reserved_seeds(base_seed, VALIDATION_SEED_OFFSET, cfg.validation_n_sims)
@@ -517,23 +527,17 @@ def _run_sac(
     """SAC outer loop (experimental). Shares GaussianPolicy + export path with PPO."""
     input_mask, layer_sizes, activations, input_dim = _parse_network_config(cfg)
 
-    # PBRS: same setup as PPO -- load reference trajectory for pdyn potential.
-    ref_fn: Callable | None = None
-    if cfg.reward.shaping_enabled:
-        ref_path_str = cfg.raw_toml.get("data", {}).get("reference_trajectory", "")
-        ref_path = Path(ref_path_str) if ref_path_str else None
-        if ref_path and ref_path.exists():
-            ref_fn = load_reference_pdyn(ref_path)
-            print(f"PBRS: loaded reference trajectory from {ref_path}", file=sys.stderr)
-        else:
-            print(f"PBRS: ref trajectory not found at {ref_path}, shaping disabled", file=sys.stderr)
-    shaper = PBRSShaper(
-        enabled=cfg.reward.shaping_enabled and ref_fn is not None,
-        alpha=cfg.reward.shaping_alpha,
+    step_calc = StepRewardCalculator(
+        input_mask=input_mask,
+        corridor_weight=cfg.reward.corridor_weight,
+        energy_rate_weight=cfg.reward.energy_rate_weight,
+        constraint_weight=cfg.reward.constraint_weight,
+        apoapsis_weight=cfg.reward.apoapsis_weight,
+        eccentricity_weight=cfg.reward.eccentricity_weight,
         energy_scale=cfg.reward.energy_scale,
-        pdyn_scale=cfg.reward.pdyn_scale,
-        ref_fn=ref_fn,
     )
+    ret_norm = ReturnNormalizer(warmup_episodes=cfg.reward.norm_warmup_episodes) if cfg.reward.normalize_returns else None
+    obs_norm = ObsNormalizer(obs_dim=input_dim) if cfg.reward.normalize_obs else None
 
     env = AerocaptureVecEnv(
         toml_path=str(toml_path),
@@ -572,6 +576,10 @@ def _run_sac(
         update_idx = int(ckpt["update_idx"])
         env_steps = int(ckpt["env_steps"])
         best_val_cost = float(ckpt["best_val_cost"])
+        if ret_norm is not None and ckpt.get("ret_norm") is not None:
+            ret_norm.load_state_dict(ckpt["ret_norm"])
+        if obs_norm is not None and ckpt.get("obs_norm") is not None:
+            obs_norm.load_state_dict(ckpt["obs_norm"])
         print(f"SAC resumed from checkpoint: update {update_idx}, {env_steps} env steps", file=sys.stderr)
 
     obs, aux_cur = env.reset()
@@ -582,30 +590,36 @@ def _run_sac(
 
     while env_steps < cfg.total_env_steps and not interrupted["v"]:
         # --- Collect one step per env ---
-        obs_t = torch.from_numpy(obs).float()
+        if obs_norm is not None:
+            obs_norm.update(obs)
+            obs_policy = obs_norm.normalize(obs)
+        else:
+            obs_policy = obs
+        obs_t = torch.from_numpy(obs_policy).float()
         with torch.no_grad():
             bank_t, _ = agent.policy.sample(obs_t)
         actions_np = bank_t.cpu().numpy().astype(np.float32)
 
         next_obs, _rust_reward, done, info, aux_next = env.step(actions_np)
 
-        # PBRS step shaping (same logic as PPO).
-        shaped = shaper.step_reward(aux_cur, aux_next, sac_cfg.gamma).astype(np.float32)
+        shaped = step_calc.step_reward(obs, aux_cur, aux_next).astype(np.float32)
 
         for i, d in enumerate(done):
             if d:
                 fr = np.array(info[i]["final_record"], dtype=np.float64)
                 term_cost = compute_terminal_cost(fr)
-                phi_cur = float(shaper.phi(
-                    aux_cur[i:i+1, 0].astype(np.float64),
-                    aux_cur[i:i+1, 1].astype(np.float64),
-                )[0]) if shaper.enabled else 0.0
-                shaped[i] = float(-term_cost) - phi_cur
+                shaped[i] += float(-term_cost)
                 episodic_returns.append(float(-term_cost))
                 episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
                 episodic_captures.append(bool(info[i].get("captured", False)))
+                if ret_norm is not None:
+                    ret_norm.update_episode_return(float(-term_cost))
 
-        agent.replay_buffer.push(obs, actions_np, shaped, next_obs, done)
+        # Normalize rewards per step before pushing to replay buffer.
+        shaped_norm = ret_norm.normalize(shaped.astype(np.float64)).astype(np.float32) if ret_norm is not None else shaped
+        # SAC stores normalized obs in replay buffer.
+        next_obs_policy = obs_norm.normalize(next_obs) if obs_norm is not None else next_obs
+        agent.replay_buffer.push(obs_policy, actions_np, shaped_norm, next_obs_policy, done)
         obs = next_obs
         aux_cur = aux_next
         env_steps += cfg.n_envs
@@ -621,10 +635,10 @@ def _run_sac(
             val_attempted = update_idx % cfg.validation_interval_updates == 0
             val_record: dict[str, Any] = {}
             if val_attempted:
-                val_record = _validate_deterministic(agent.policy, toml_path, output_dir, cfg, input_mask)
+                val_record = _validate_deterministic(agent.policy, toml_path, output_dir, cfg, input_mask, obs_norm=obs_norm)
                 if val_record["val_rms_cost"] < best_val_cost:
                     best_val_cost = val_record["val_rms_cost"]
-                    export_policy_to_json(agent.policy, output_dir / "best_model.json", input_mask)
+                    export_policy_to_json(agent.policy, output_dir / "best_model.json", input_mask, obs_normalizer=obs_norm)
                     val_record["val_promoted"] = True
                 else:
                     val_record["val_promoted"] = False
@@ -642,6 +656,8 @@ def _run_sac(
                         "update_idx": update_idx,
                         "env_steps": env_steps,
                         "best_val_cost": best_val_cost,
+                        "ret_norm": ret_norm.state_dict() if ret_norm is not None else None,
+                        "obs_norm": obs_norm.state_dict() if obs_norm is not None else None,
                     },
                     output_dir / "checkpoint.pt",
                 )
@@ -679,11 +695,13 @@ def _run_sac(
             "update_idx": update_idx,
             "env_steps": env_steps,
             "best_val_cost": best_val_cost,
+            "ret_norm": ret_norm.state_dict() if ret_norm is not None else None,
+            "obs_norm": obs_norm.state_dict() if obs_norm is not None else None,
         },
         output_dir / "checkpoint.pt",
     )
     if best_val_cost == float("inf"):
-        export_policy_to_json(agent.policy, output_dir / "best_model.json", input_mask)
+        export_policy_to_json(agent.policy, output_dir / "best_model.json", input_mask, obs_normalizer=obs_norm)
 
     env.close()
 
