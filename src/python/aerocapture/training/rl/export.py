@@ -17,6 +17,10 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from aerocapture.training.rl.normalizers import ObsNormalizer
 
 import numpy as np
 import numpy.typing as npt
@@ -32,13 +36,25 @@ def export_policy_to_json(
     output_path: Path,
     input_mask: Sequence[int],
     output_interpretation: str = "atan2",
+    obs_normalizer: ObsNormalizer | None = None,
 ) -> None:
+    import copy
+
+    if obs_normalizer is not None:
+        trunk = copy.deepcopy(policy.trunk)
+        for module in trunk:
+            if isinstance(module, torch.nn.Linear):
+                obs_normalizer.bake_into_linear(module)
+                break
+    else:
+        trunk = policy.trunk
+
     layer_sizes: list[int] = [len(input_mask)]
     activations: list[str] = []
     weights_dict: dict[str, dict[str, list[list[float]] | list[float]]] = {}
     layer_idx = 0
 
-    for module in policy.trunk:
+    for module in trunk:
         if isinstance(module, torch.nn.Linear):
             layer_sizes.append(module.out_features)
             w = module.weight.detach().cpu().numpy().astype(np.float64)  # (out, in)
