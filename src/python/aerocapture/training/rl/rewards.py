@@ -37,8 +37,7 @@ class StepRewardCalculator:
 
     def __post_init__(self) -> None:
         self._rev: dict[int, int] = {v: i for i, v in enumerate(self.input_mask)}
-        required = [_IDX_ECC_EXCESS, _IDX_HEAT_FLUX_FRAC, _IDX_HEAT_LOAD_FRAC,
-                     _IDX_SMA_ERROR, _IDX_BOUNCE_FLAG, _IDX_PDYN_ERROR]
+        required = [_IDX_ECC_EXCESS, _IDX_HEAT_FLUX_FRAC, _IDX_HEAT_LOAD_FRAC, _IDX_SMA_ERROR, _IDX_BOUNCE_FLAG, _IDX_PDYN_ERROR]
         missing = [r for r in required if r not in self._rev]
         if missing:
             raise ValueError(f"input_mask missing required indices: {missing}")
@@ -64,12 +63,12 @@ class StepRewardCalculator:
         # obs[6] = heat_flux_fraction * 2.0 - 1.0, so frac = (obs[6] + 1) / 2
         hf_frac = (obs[:, self._col(_IDX_HEAT_FLUX_FRAC)].astype(np.float64) + 1.0) / 2.0
         hl_frac = (obs[:, self._col(_IDX_HEAT_LOAD_FRAC)].astype(np.float64) + 1.0) / 2.0
-        reward -= self.constraint_weight * (hf_frac ** 2 + hl_frac ** 2)
+        reward -= self.constraint_weight * (hf_frac**2 + hl_frac**2)
 
         # -- Capture phase --
         if np.any(in_capture):
             pdyn_err = obs[:, self._col(_IDX_PDYN_ERROR)].astype(np.float64)
-            reward -= np.where(in_capture, self.corridor_weight * pdyn_err ** 2, 0.0)
+            reward -= np.where(in_capture, self.corridor_weight * pdyn_err**2, 0.0)
 
             delta_e = (aux_next[:, 0] - aux_cur[:, 0]).astype(np.float64) / self.energy_scale
             reward -= np.where(in_capture, self.energy_rate_weight * np.maximum(delta_e, 0.0), 0.0)
@@ -77,7 +76,7 @@ class StepRewardCalculator:
         # -- Exit phase --
         if np.any(in_exit):
             sma_err = obs[:, self._col(_IDX_SMA_ERROR)].astype(np.float64)
-            reward -= np.where(in_exit, self.apoapsis_weight * sma_err ** 2, 0.0)
+            reward -= np.where(in_exit, self.apoapsis_weight * sma_err**2, 0.0)
 
             ecc_excess = obs[:, self._col(_IDX_ECC_EXCESS)].astype(np.float64)
             reward -= np.where(in_exit, self.eccentricity_weight * np.maximum(ecc_excess, 0.0) ** 2, 0.0)

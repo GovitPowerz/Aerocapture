@@ -25,7 +25,7 @@ def test_capture_phase_corridor_penalty(default_calc: StepRewardCalculator) -> N
     n = 4
     obs = np.zeros((n, 23), dtype=np.float32)
     obs[:, 15] = -1.0  # bounce_flag = pre-bounce (capture phase)
-    obs[:, 19] = 0.5   # pdyn_error (normalized)
+    obs[:, 19] = 0.5  # pdyn_error (normalized)
     aux_cur = np.zeros((n, 2), dtype=np.float32)
     aux_next = np.zeros((n, 2), dtype=np.float32)
     r = default_calc.step_reward(obs, aux_cur, aux_next)
@@ -36,8 +36,8 @@ def test_exit_phase_apoapsis_penalty(default_calc: StepRewardCalculator) -> None
     """Non-zero sma_error during exit produces negative reward."""
     n = 4
     obs = np.zeros((n, 23), dtype=np.float32)
-    obs[:, 15] = 1.0   # bounce_flag = post-bounce (exit phase)
-    obs[:, 13] = 0.5   # sma_error (normalized)
+    obs[:, 15] = 1.0  # bounce_flag = post-bounce (exit phase)
+    obs[:, 13] = 0.5  # sma_error (normalized)
     aux_cur = np.zeros((n, 2), dtype=np.float32)
     aux_next = np.zeros((n, 2), dtype=np.float32)
     r = default_calc.step_reward(obs, aux_cur, aux_next)
@@ -63,8 +63,8 @@ def test_energy_dissipation_not_penalized(default_calc: StepRewardCalculator) ->
     n = 2
     obs = np.zeros((n, 23), dtype=np.float32)
     obs[:, 15] = -1.0
-    obs[:, 6] = -1.0   # zero heat flux frac
-    obs[:, 7] = -1.0   # zero heat load frac
+    obs[:, 6] = -1.0  # zero heat flux frac
+    obs[:, 7] = -1.0  # zero heat load frac
     aux_cur = np.array([[5e6, 0.0]] * n, dtype=np.float32)
     aux_next = np.array([[4.9e6, 0.0]] * n, dtype=np.float32)
     r = default_calc.step_reward(obs, aux_cur, aux_next)
@@ -89,7 +89,7 @@ def test_constraint_penalty_scales_quadratically(default_calc: StepRewardCalcula
     n = 1
     obs_low = np.zeros((n, 23), dtype=np.float32)
     obs_low[:, 15] = -1.0
-    obs_low[:, 6] = 0.0   # frac = 0.5
+    obs_low[:, 6] = 0.0  # frac = 0.5
     obs_low[:, 7] = -1.0  # frac = 0
     obs_high = np.zeros((n, 23), dtype=np.float32)
     obs_high[:, 15] = -1.0
@@ -108,7 +108,7 @@ def test_phase_gating(default_calc: StepRewardCalculator) -> None:
     obs_cap[:, 15] = -1.0
     obs_cap[:, 6] = -1.0
     obs_cap[:, 7] = -1.0
-    obs_cap[:, 19] = 1.0   # pdyn_error active in capture
+    obs_cap[:, 19] = 1.0  # pdyn_error active in capture
     obs_exit = np.zeros((n, 23), dtype=np.float32)
     obs_exit[:, 15] = 1.0
     obs_exit[:, 6] = -1.0
@@ -128,6 +128,7 @@ def test_missing_mask_raises() -> None:
 
 def test_terminal_cost_matches_evaluate_module() -> None:
     from aerocapture.training.evaluate import compute_cost
+
     fc = np.zeros((1, 52))
     fc[0, 41] = 100.0
     fc[0, 17] = 5.0

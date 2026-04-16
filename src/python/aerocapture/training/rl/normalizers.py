@@ -28,7 +28,7 @@ class ReturnNormalizer:
     def std(self) -> float:
         if self._count < 2:
             return 1.0
-        return max(np.sqrt(self._m2 / self._count), 1e-8)
+        return float(max(np.sqrt(self._m2 / self._count), 1e-8))
 
     def update_episode_return(self, episode_return: float) -> None:
         self._count += 1
@@ -43,8 +43,7 @@ class ReturnNormalizer:
         return rewards / self.std
 
     def state_dict(self) -> dict[str, Any]:
-        return {"count": self._count, "mean": self._mean, "m2": self._m2,
-                "warmup_episodes": self.warmup_episodes}
+        return {"count": self._count, "mean": self._mean, "m2": self._m2, "warmup_episodes": self.warmup_episodes}
 
     def load_state_dict(self, d: dict[str, Any]) -> None:
         self._count = d["count"]
@@ -96,6 +95,7 @@ class ObsNormalizer:
         W_new = W / std,  b_new = b - W @ (mean / std)
         """
         import torch
+
         mean = torch.from_numpy(self._mean).float()
         std = torch.from_numpy(self.std).float()
         with torch.no_grad():
@@ -103,9 +103,14 @@ class ObsNormalizer:
             linear.weight.data /= std.unsqueeze(0)
 
     def state_dict(self) -> dict[str, Any]:
-        return {"count": self._count, "mean": self._mean.tolist(),
-                "m2": self._m2.tolist(), "obs_dim": self.obs_dim,
-                "warmup_steps": self.warmup_steps, "clip": self.clip}
+        return {
+            "count": self._count,
+            "mean": self._mean.tolist(),
+            "m2": self._m2.tolist(),
+            "obs_dim": self.obs_dim,
+            "warmup_steps": self.warmup_steps,
+            "clip": self.clip,
+        }
 
     def load_state_dict(self, d: dict[str, Any]) -> None:
         self._count = d["count"]

@@ -104,4 +104,5 @@ class ValueNetwork(nn.Module):
         self.net = _build_mlp(input_dim, layer_sizes, act_list)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        return self.net(obs).squeeze(-1)
+        out: torch.Tensor = self.net(obs).squeeze(-1)
+        return out
