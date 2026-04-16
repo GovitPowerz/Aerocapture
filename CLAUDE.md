@@ -280,9 +280,9 @@ Training CLI flags: `--algorithm {ppo|sac}`, `--total-steps N`, `--n-envs N`, `-
 
 **Seed pools:** `RL_TRAINING_SEED_OFFSET = 3_000_000` (default `seed_base`), plus the existing `VALIDATION_SEED_OFFSET = 1_000_000` and `FINAL_EVAL_SEED_OFFSET = 2_000_000` — all disjoint by construction.
 
-**Reward shaping:** PBRS (potential-based reward shaping) uses pdyn-deviation from the reference trajectory as the potential function. Enabled by default when `[rl.reward] shaping_enabled = true` and `[data] reference_trajectory` exists. The `BatchedSimulation` aux channel provides `(energy, pdyn)` per env per step; terminal steps include a boundary correction (`-cost - phi(s_T)`). PBRS is policy-invariant by construction -- it only affects sample efficiency, not the optimum. SAC does not use PBRS yet (would need shaped rewards in the replay buffer).
+**Reward structure:** Phase-aware per-step rewards (`StepRewardCalculator`) gated by the bounce flag (obs[15]). Capture phase: corridor tracking (pdyn_error^2), energy dissipation rate (penalize energy gain), constraint proximity (heat_flux_frac^2 + heat_load_frac^2). Exit phase: apoapsis targeting (sma_error^2), eccentricity reduction (max(ecc_excess, 0)^2), constraint proximity. Terminal: raw `compute_cost` (DV + constraint penalties). All component weights TOML-configurable in `[rl.reward]`. Running return normalization (`ReturnNormalizer`, Welford's algorithm) scales rewards by return std after warmup. Running observation normalization (`ObsNormalizer`) tracks per-feature mean/std; at export time, the affine transform is baked into the first linear layer (`W_new = W/std`, `b_new = b - W@(mean/std)`) so the Rust runtime needs no changes. Both normalizers checkpoint with model weights. The `BatchedSimulation` aux channel provides `(energy, pdyn)` per env per step for the energy rate component.
 
-Full spec: `docs/superpowers/specs/2026-04-15-rl-nn-guidance-design.md`.
+Full spec: `docs/superpowers/specs/2026-04-16-rl-reward-redesign.md`, `docs/superpowers/specs/2026-04-15-rl-nn-guidance-design.md`.
 
 ## Key Lessons & Pitfalls
 
