@@ -60,15 +60,21 @@ def _dict_to_toml(d: dict[str, Any], prefix: str = "") -> str:
 def _parse_network_config(cfg: RLConfig) -> tuple[list[int], list[int], list[str], int]:
     """Extract (input_mask, layer_sizes, activations, input_dim) from TOML [network].
 
-    TOML layer_sizes includes the input dim (e.g. [23, 32, 16, 8, 2]),
-    but GaussianPolicy expects hidden+output only (e.g. [32, 16, 8, 2]).
+    TOML layer_sizes always includes the input dim as the first element
+    (e.g. [23, 16, 8, 2] = 23 inputs, hidden 16, hidden 8, output 2).
+    GaussianPolicy expects hidden+output only, so we strip the first element.
+    activations has one entry per hidden/output layer (len = len(layer_sizes) - 1).
     """
     network_cfg = cfg.raw_toml.get("network", {})
     input_mask: list[int] = network_cfg.get("input_mask", list(range(16)))
     toml_layers: list[int] = network_cfg.get("layer_sizes", [16, 64, 64, 2])
     activations: list[str] = network_cfg.get("activations", ["tanh", "tanh", "linear"])
     input_dim = len(input_mask)
-    layer_sizes = toml_layers[1:] if toml_layers[0] == input_dim and len(toml_layers) - 1 == len(activations) else toml_layers
+    if toml_layers[0] != input_dim:
+        raise ValueError(f"layer_sizes[0]={toml_layers[0]} must equal len(input_mask)={input_dim}")
+    layer_sizes = toml_layers[1:]
+    if len(layer_sizes) != len(activations):
+        raise ValueError(f"len(layer_sizes[1:])={len(layer_sizes)} must equal len(activations)={len(activations)}")
     return input_mask, layer_sizes, activations, input_dim
 
 
