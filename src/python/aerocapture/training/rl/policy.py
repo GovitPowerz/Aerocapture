@@ -11,8 +11,11 @@ runtime's atan2 interpretation when out_dim == 2.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
+from pathlib import Path
 
+import numpy as np
 import torch
 from torch import nn
 
@@ -68,6 +71,18 @@ class GaussianPolicy(nn.Module):
     def deterministic_bank(self, obs: torch.Tensor) -> torch.Tensor:
         mean, _ = self.forward_mean_logstd(obs)
         return torch.atan2(mean[..., 0], mean[..., 1])
+
+    def load_weights_from_json(self, path: Path) -> None:
+        """Load weights from a NeuralNetModel JSON file into the trunk."""
+        with path.open() as f:
+            doc = json.load(f)
+        linear_idx = 0
+        for module in self.trunk:
+            if isinstance(module, nn.Linear):
+                lw = doc["weights"][f"layer_{linear_idx}"]
+                module.weight.data = torch.tensor(np.array(lw["w"], dtype=np.float64), dtype=torch.float32)
+                module.bias.data = torch.tensor(np.array(lw["b"], dtype=np.float64), dtype=torch.float32)
+                linear_idx += 1
 
     def sample(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Sample action from Gaussian, return (bank_angle, log_prob)."""

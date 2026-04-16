@@ -4,7 +4,7 @@
 
 [rl]
 algorithm                   = "ppo"
-total_env_steps             = 5_000_000
+total_env_steps             = 15_000_000
 n_envs                      = 64
 seed_base                   = 3_000_000
 validation_n_sims           = 1000

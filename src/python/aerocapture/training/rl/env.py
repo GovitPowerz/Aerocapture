@@ -31,8 +31,9 @@ class AerocaptureVecEnv:
         self.n_envs = n_envs
         self.obs_dim = int(self._env.obs_dim)
 
-    def reset(self, seeds: npt.NDArray[np.int64] | None = None) -> npt.NDArray[np.float32]:
-        return np.asarray(self._env.reset(seeds), dtype=np.float32)
+    def reset(self, seeds: npt.NDArray[np.int64] | None = None) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+        obs, aux = self._env.reset(seeds)
+        return np.asarray(obs, dtype=np.float32), np.asarray(aux, dtype=np.float32)
 
     def step(
         self, actions: npt.NDArray[np.float32]
@@ -41,14 +42,16 @@ class AerocaptureVecEnv:
         npt.NDArray[np.float32],
         npt.NDArray[np.bool_],
         list[dict[str, Any]],
+        npt.NDArray[np.float32],
     ]:
         actions = np.ascontiguousarray(actions, dtype=np.float32)
-        obs, reward, done, info = self._env.step(actions)
+        obs, reward, done, info, aux = self._env.step(actions)
         return (
             np.asarray(obs, dtype=np.float32),
             np.asarray(reward, dtype=np.float32),
             np.asarray(done, dtype=np.bool_),
             info,
+            np.asarray(aux, dtype=np.float32),
         )
 
     def close(self) -> None:

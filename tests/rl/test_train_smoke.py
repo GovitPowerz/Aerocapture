@@ -15,12 +15,13 @@ pytest.importorskip("torch")
 def _make_dummy_model(path: Path) -> None:
     """Write a minimal valid NeuralNetModel JSON matching the rl_train TOML architecture.
 
-    Architecture: [16, 64, 64, 2] (16 inputs), tanh/tanh/linear activations.
+    Architecture: [23, 16, 8, 2] (23 inputs), mish/mish/linear activations.
+    Must match the [network] section in msr_aller_rl_train.toml.
     Uses the Rust NnJsonFile format. Weights are all zeros.
     """
-    input_dim = 16
-    layer_sizes = [64, 64, 2]
-    activations = ["tanh", "tanh", "linear"]
+    input_dim = 23
+    layer_sizes = [16, 8, 2]
+    activations = ["mish", "mish", "linear"]
     input_mask = list(range(input_dim))
 
     weights_dict: dict[str, object] = {}

@@ -114,7 +114,7 @@ impl BatchedSimulation {
         &mut self,
         py: Python<'py>,
         seeds: Option<PyReadonlyArray1<'py, i64>>,
-    ) -> PyResult<Bound<'py, PyArray2<f32>>> {
+    ) -> PyResult<(Bound<'py, PyArray2<f32>>, Bound<'py, PyArray2<f32>>)> {
         let explicit_seeds = seeds.is_some();
         let seeds_vec: Vec<u64> = match seeds {
             Some(arr) => {
@@ -145,7 +145,9 @@ impl BatchedSimulation {
             }
         }
 
-        Ok(self.build_obs(py))
+        let obs = self.build_obs(py);
+        let aux = self.build_aux(py);
+        Ok((obs, aux))
     }
 
     fn step<'py>(
@@ -157,6 +159,7 @@ impl BatchedSimulation {
         Bound<'py, PyArray1<f32>>,
         Bound<'py, PyArray1<bool>>,
         Vec<Py<PyDict>>,
+        Bound<'py, PyArray2<f32>>,
     )> {
         if actions.len() != self.n_envs {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -173,9 +176,11 @@ impl BatchedSimulation {
         let event_ctx = &self.event_ctx;
 
         // Advance all envs one tick in parallel; collect terminal info where done.
+        // Also capture (energy, pdyn) from nav output BEFORE auto-reset so PBRS
+        // gets the pre-reset values for terminal steps.
         // Release the GIL during the Rayon block so other Python threads can run
         // and Ctrl-C is responsive.
-        let outcomes: Vec<(bool, Option<TerminalOutcome>)> = py.detach(|| {
+        let outcomes: Vec<(bool, Option<TerminalOutcome>, [f64; 2])> = py.detach(|| {
             self.envs
                 .par_iter_mut()
                 .zip(actions_vec.par_iter())
@@ -190,6 +195,9 @@ impl BatchedSimulation {
                         event_defs,
                         event_ctx,
                     );
+                    // Capture aux (energy, pdyn) from nav output before potential reset.
+                    let nav = state.last_nav_output();
+                    let aux = [nav.energy_estimated, nav.dynamic_pressure_estimated];
                     if state.term() != TermReason::None {
                         // Capture terminal obs BEFORE the env state is reset.
                         let terminal_obs = build_obs_for_env(state, sim_data, sim_input);
@@ -217,16 +225,16 @@ impl BatchedSimulation {
                             final_record: fr,
                             terminal_obs,
                         };
-                        (true, Some(term))
+                        (true, Some(term), aux)
                     } else {
-                        (false, None)
+                        (false, None, aux)
                     }
                 })
                 .collect()
         });
 
         // Auto-reset terminated envs with advancing seeds.
-        for (i, (done, _)) in outcomes.iter().enumerate() {
+        for (i, (done, _, _)) in outcomes.iter().enumerate() {
             if *done {
                 self.episode_counter[i] += self.n_envs as u64;
                 let seed = self.seed_base + self.episode_counter[i];
@@ -244,10 +252,21 @@ impl BatchedSimulation {
         // Build return arrays.
         let obs = self.build_obs(py);
         let reward_arr = PyArray1::<f32>::from_iter(py, outcomes.iter().map(|_| 0.0f32));
-        let done_arr = PyArray1::<bool>::from_iter(py, outcomes.iter().map(|(d, _)| *d));
+        let done_arr = PyArray1::<bool>::from_iter(py, outcomes.iter().map(|(d, _, _)| *d));
+
+        // Aux array: (n_envs, 2) with [energy_estimated, dynamic_pressure_estimated].
+        // Values are from the pre-reset nav output (terminal steps get their final-tick values).
+        let aux = PyArray2::<f32>::zeros(py, [self.n_envs, 2], false);
+        {
+            let mut aux_view = unsafe { aux.as_array_mut() };
+            for (i, (_, _, a)) in outcomes.iter().enumerate() {
+                aux_view[[i, 0]] = a[0] as f32;
+                aux_view[[i, 1]] = a[1] as f32;
+            }
+        }
 
         let mut info_list: Vec<Py<PyDict>> = Vec::with_capacity(self.n_envs);
-        for (_, term) in &outcomes {
+        for (_, term, _) in &outcomes {
             let dict = PyDict::new(py);
             if let Some(t) = term {
                 dict.set_item("ifinal", t.ifinal)?;
@@ -266,7 +285,7 @@ impl BatchedSimulation {
             info_list.push(dict.unbind());
         }
 
-        Ok((obs, reward_arr, done_arr, info_list))
+        Ok((obs, reward_arr, done_arr, info_list, aux))
     }
 
     fn close(&mut self) {
@@ -288,6 +307,18 @@ impl BatchedSimulation {
             for (j, &v) in obs.iter().enumerate() {
                 view[[i, j]] = v as f32;
             }
+        }
+        arr
+    }
+
+    /// Auxiliary array (n_envs, 2): [energy_estimated, dynamic_pressure_estimated] per env.
+    fn build_aux<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f32>> {
+        let arr = PyArray2::<f32>::zeros(py, [self.n_envs, 2], false);
+        let mut view = unsafe { arr.as_array_mut() };
+        for (i, env) in self.envs.iter().enumerate() {
+            let nav = env.last_nav_output();
+            view[[i, 0]] = nav.energy_estimated as f32;
+            view[[i, 1]] = nav.dynamic_pressure_estimated as f32;
         }
         arr
     }

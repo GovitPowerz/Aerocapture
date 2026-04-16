@@ -18,10 +18,13 @@ def test_batched_simulation_construct_and_close() -> None:
 
 def test_batched_simulation_reset_shape() -> None:
     env = aerocapture_rs.BatchedSimulation(TOML, n_envs=4, seed_base=3_000_000)
-    obs = env.reset()
+    obs, aux = env.reset()
     assert obs.shape == (4, 16)  # default input_mask is 16 elements
     assert obs.dtype == np.float32
     assert np.isfinite(obs).all()
+    assert aux.shape == (4, 2)
+    assert aux.dtype == np.float32
+    assert np.isfinite(aux).all()
     env.close()
 
 
@@ -46,9 +49,9 @@ def test_reset_default_draws_distinct_seeds() -> None:
 
 def test_step_advances_and_returns_correct_shapes() -> None:
     env = aerocapture_rs.BatchedSimulation(TOML, n_envs=4, seed_base=3_000_000)
-    obs = env.reset()
+    obs, _ = env.reset()
     actions = np.zeros(4, dtype=np.float32)  # bank = 0 rad
-    obs2, reward, done, info = env.step(actions)
+    obs2, reward, done, info, aux = env.step(actions)
     assert obs2.shape == obs.shape
     assert reward.shape == (4,)
     assert reward.dtype == np.float32
@@ -58,6 +61,8 @@ def test_step_advances_and_returns_correct_shapes() -> None:
     assert len(info) == 4
     assert np.isfinite(obs2).all()
     assert np.isfinite(reward).all()
+    assert aux.shape == (4, 2)
+    assert np.isfinite(aux).all()
     env.close()
 
 
@@ -66,7 +71,7 @@ def test_step_eventually_terminates() -> None:
     env.reset()
     dones_seen = np.zeros(2, dtype=np.bool_)
     for _ in range(2000):
-        _, _, done, _ = env.step(np.zeros(2, dtype=np.float32))
+        _, _, done, _, _ = env.step(np.zeros(2, dtype=np.float32))
         dones_seen |= done
         if dones_seen.all():
             break
@@ -78,16 +83,18 @@ def test_step_seed_determinism() -> None:
     """Two envs constructed with the same seed_base produce identical first-obs + first-step results."""
     env_a = aerocapture_rs.BatchedSimulation(TOML, n_envs=2, seed_base=7_777_777)
     env_b = aerocapture_rs.BatchedSimulation(TOML, n_envs=2, seed_base=7_777_777)
-    obs_a = env_a.reset()
-    obs_b = env_b.reset()
+    obs_a, aux_a = env_a.reset()
+    obs_b, aux_b = env_b.reset()
     assert np.allclose(obs_a, obs_b, atol=0.0)
+    assert np.allclose(aux_a, aux_b, atol=0.0)
 
     act = np.full(2, 0.25, dtype=np.float32)
-    o_a, r_a, d_a, _ = env_a.step(act)
-    o_b, r_b, d_b, _ = env_b.step(act)
+    o_a, r_a, d_a, _, a_a = env_a.step(act)
+    o_b, r_b, d_b, _, a_b = env_b.step(act)
     assert np.allclose(o_a, o_b, atol=0.0)
     assert np.allclose(r_a, r_b, atol=0.0)
     assert np.array_equal(d_a, d_b)
+    assert np.allclose(a_a, a_b, atol=0.0)
     env_a.close()
     env_b.close()
 
@@ -96,8 +103,9 @@ def test_step_action_clipping() -> None:
     """Actions outside [-pi, pi] must be clipped and still produce finite obs."""
     env = aerocapture_rs.BatchedSimulation(TOML, n_envs=2, seed_base=3_000_000)
     env.reset()
-    obs, _, _, _ = env.step(np.array([10.0, -10.0], dtype=np.float32))
+    obs, _, _, _, aux = env.step(np.array([10.0, -10.0], dtype=np.float32))
     assert np.isfinite(obs).all()
+    assert np.isfinite(aux).all()
     env.close()
 
 
@@ -106,7 +114,7 @@ def test_terminal_observation_in_info() -> None:
     env = aerocapture_rs.BatchedSimulation(TOML, n_envs=1, seed_base=3_000_000)
     env.reset()
     for _ in range(2000):
-        obs, _, done, info = env.step(np.zeros(1, dtype=np.float32))
+        obs, _, done, info, _ = env.step(np.zeros(1, dtype=np.float32))
         if done[0]:
             assert "terminal_observation" in info[0]
             t = info[0]["terminal_observation"]

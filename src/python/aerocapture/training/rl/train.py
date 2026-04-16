@@ -16,6 +16,7 @@ import json
 import signal
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,7 @@ from aerocapture.training.rl.export import export_policy_to_json
 from aerocapture.training.rl.logger import RLLogger
 from aerocapture.training.rl.policy import GaussianPolicy, ValueNetwork
 from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, ppo_update
-from aerocapture.training.rl.rewards import PBRSShaper
+from aerocapture.training.rl.rewards import PBRSShaper, compute_terminal_cost, load_reference_pdyn
 from aerocapture.training.rl.sac import SACAgent
 
 OUT_DIR_DEFAULT = Path("training_output/neural_network_rl")
@@ -97,6 +98,12 @@ def main() -> None:
     ap.add_argument("--validation-interval-updates", type=int, default=None)
     ap.add_argument("--data-neural-network", type=Path, default=None, help="Override path to neural network model JSON")
     ap.add_argument("--from-scratch", "-fs", action="store_true", help="Initialize with random weights (no seed model required)")
+    ap.add_argument("--learning-rate", type=float, default=None, help="Override PPO/SAC learning rate")
+    ap.add_argument("--clip-range", type=float, default=None, help="Override PPO clip range")
+    ap.add_argument("--entropy-coef", type=float, default=None, help="Override PPO entropy coefficient")
+    ap.add_argument("--min-log-std", type=float, default=None, help="Override PPO min_log_std floor")
+    ap.add_argument("--update-epochs", type=int, default=None, help="Override PPO update epochs per rollout")
+    ap.add_argument("--lr-anneal-start", type=float, default=None, help="Override PPO LR anneal start fraction")
     ap.add_argument("--no-tui", action="store_true")
     ap.add_argument("--skip-report", action="store_true")
     ap.add_argument("--resume", type=Path, default=None)
@@ -118,13 +125,40 @@ def main() -> None:
     ppo_overrides: dict[str, Any] = {}
     if args.rollout_steps is not None:
         ppo_overrides["rollout_steps"] = args.rollout_steps
+    if args.learning_rate is not None:
+        ppo_overrides["learning_rate"] = args.learning_rate
+    if args.clip_range is not None:
+        ppo_overrides["clip_range"] = args.clip_range
+    if args.entropy_coef is not None:
+        ppo_overrides["entropy_coef"] = args.entropy_coef
+    if args.min_log_std is not None:
+        ppo_overrides["min_log_std"] = args.min_log_std
+    if args.update_epochs is not None:
+        ppo_overrides["update_epochs"] = args.update_epochs
+    if args.lr_anneal_start is not None:
+        ppo_overrides["lr_anneal_start"] = args.lr_anneal_start
 
     cfg = RLConfig.from_toml(Path(args.toml_path), overrides=overrides or None, ppo_overrides=ppo_overrides or None)
+
+    if args.from_scratch and args.data_neural_network is not None:
+        ap.error("--from-scratch and --data-neural-network are mutually exclusive")
 
     env_overrides: dict[str, Any] | None = None
     if args.data_neural_network is not None:
         env_overrides = {"data.neural_network": str(args.data_neural_network)}
     args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    warmstart_json: Path | None = None
+    if args.data_neural_network is not None and not args.from_scratch:
+        # Warm-start: load GA-trained weights into the policy. Clear stale
+        # checkpoint/best_model so the optimizer, value network, and counters
+        # start fresh (keeping the old checkpoint would mix incompatible state).
+        warmstart_json = args.data_neural_network
+        for stale in ("checkpoint.pt", "best_model.json"):
+            p = args.output_dir / stale
+            if p.exists():
+                p.unlink()
+                print(f"Cleared stale {stale} for warm-start", file=sys.stderr)
 
     if args.from_scratch:
         for stale in ("checkpoint.pt", "best_model.json"):
@@ -151,7 +185,7 @@ def main() -> None:
     prev_handler = signal.signal(signal.SIGINT, _on_sigint)
     try:
         if cfg.algorithm == "ppo":
-            _run_ppo(cfg, Path(args.toml_path), args.output_dir, logger, display, interrupted, args.resume, env_overrides)
+            _run_ppo(cfg, Path(args.toml_path), args.output_dir, logger, display, interrupted, args.resume, env_overrides, warmstart_json)
         elif cfg.algorithm == "sac":
             _run_sac(cfg, Path(args.toml_path), args.output_dir, logger, display, interrupted, env_overrides)
         else:
@@ -160,6 +194,11 @@ def main() -> None:
         signal.signal(signal.SIGINT, prev_handler)
         display.close()
         logger.close()
+
+    # --- Final evaluation summary (same as GA training) ---
+    best_model = args.output_dir / "best_model.json"
+    if best_model.exists():
+        _run_final_eval(Path(args.toml_path), best_model, cfg)
 
     if not args.skip_report:
         try:
@@ -179,17 +218,27 @@ def _run_ppo(
     interrupted: dict[str, bool],
     resume_dir: Path | None,
     env_overrides: dict[str, Any] | None = None,
+    warmstart_json: Path | None = None,
 ) -> None:
-    # Note: v1 uses pure terminal-cost rewards (no PBRS shaping). The shaper
-    # needs a side channel from BatchedSimulation to extract (energy, pdyn)
-    # from the env state — not wired up yet. Training will converge more
-    # slowly but the optimum is unchanged (PBRS is policy-invariant by
-    # construction; disabling it only affects sample efficiency).
-    # TODO: wire up obs -> (energy, pdyn) extraction once BatchedSimulation
-    # exposes a side channel for the raw sim state scalars.
-    shaper = PBRSShaper(enabled=False)
-
     input_mask, layer_sizes, activations, input_dim = _parse_network_config(cfg)
+
+    # PBRS: load reference trajectory for pdyn potential function.
+    ref_fn: Callable | None = None
+    if cfg.reward.shaping_enabled:
+        ref_path_str = cfg.raw_toml.get("data", {}).get("reference_trajectory", "")
+        ref_path = Path(ref_path_str) if ref_path_str else None
+        if ref_path and ref_path.exists():
+            ref_fn = load_reference_pdyn(ref_path)
+            print(f"PBRS: loaded reference trajectory from {ref_path}", file=sys.stderr)
+        else:
+            print(f"PBRS: ref trajectory not found at {ref_path}, shaping disabled", file=sys.stderr)
+    shaper = PBRSShaper(
+        enabled=cfg.reward.shaping_enabled and ref_fn is not None,
+        alpha=cfg.reward.shaping_alpha,
+        energy_scale=cfg.reward.energy_scale,
+        pdyn_scale=cfg.reward.pdyn_scale,
+        ref_fn=ref_fn,
+    )
 
     env = AerocaptureVecEnv(
         toml_path=str(toml_path),
@@ -199,6 +248,9 @@ def _run_ppo(
     )
 
     policy = GaussianPolicy(input_dim, layer_sizes, activations, cfg.ppo.initial_log_std, cfg.ppo.min_log_std)
+    if warmstart_json is not None:
+        policy.load_weights_from_json(warmstart_json)
+        print(f"Warm-started policy from {warmstart_json}", file=sys.stderr)
     value = ValueNetwork(input_dim, layer_sizes[:-1], activations)
     optim = torch.optim.Adam(
         list(policy.parameters()) + list(value.parameters()),
@@ -222,7 +274,7 @@ def _run_ppo(
 
     buf = RolloutBuffer.create(cfg.ppo.rollout_steps, cfg.n_envs, env.obs_dim)
 
-    obs = env.reset()
+    obs, aux_cur = env.reset()
     episodic_returns: list[float] = []
     episodic_dvs: list[float] = []
     episodic_captures: list[bool] = []
@@ -243,21 +295,25 @@ def _run_ppo(
                 v_pred = value(obs_t)
 
             actions_np = bank.cpu().numpy().astype(np.float32)
-            next_obs, _rust_reward, done, info = env.step(actions_np)
+            next_obs, _rust_reward, done, info, aux_next = env.step(actions_np)
 
-            # Step shaping (disabled in v1 — returns zeros).
-            shaped = shaper.step_reward(obs, next_obs, cfg.ppo.gamma).astype(np.float32)
+            # PBRS step shaping: gamma*phi(s') - phi(s) using (energy, pdyn).
+            shaped = shaper.step_reward(aux_cur, aux_next, cfg.ppo.gamma).astype(np.float32)
 
-            # On terminal steps, write the episode cost as reward.
+            # On terminal steps, add terminal cost + PBRS boundary correction.
             for i, d in enumerate(done):
                 if d:
                     fr = np.array(info[i]["final_record"], dtype=np.float64)
-                    from aerocapture.training.rl.rewards import compute_terminal_cost
-
                     term_cost = compute_terminal_cost(fr)
-                    # boundary PBRS term: gamma*phi(s_{T+1}=0) - phi(s_T);
-                    # with shaping disabled phi=0 so this collapses to -term_cost.
-                    shaped[i] = float(-term_cost)
+                    # Terminal PBRS boundary: gamma*phi(absorbing=0) - phi(s_T).
+                    # The step_reward above already computed gamma*phi(s_{T+1}) - phi(s_T),
+                    # but s_{T+1} is the post-reset state, not the absorbing state.
+                    # Correct: replace with -phi(s_T) (absorbing phi=0) + terminal cost.
+                    phi_cur = float(shaper.phi(
+                        aux_cur[i:i+1, 0].astype(np.float64),
+                        aux_cur[i:i+1, 1].astype(np.float64),
+                    )[0]) if shaper.enabled else 0.0
+                    shaped[i] = float(-term_cost) - phi_cur
                     episodic_returns.append(float(-term_cost))
                     episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
                     episodic_captures.append(bool(info[i].get("captured", False)))
@@ -270,6 +326,7 @@ def _run_ppo(
             buf.dones[t] = done
 
             obs = next_obs
+            aux_cur = aux_next
             env_steps += cfg.n_envs
 
         # --- Bootstrap value for last obs ---
@@ -423,6 +480,25 @@ def _validate_deterministic(
     return {"val_rms_cost": rms_cost, "val_capture_rate": capture_rate}
 
 
+def _run_final_eval(toml_path: Path, best_model: Path, cfg: RLConfig) -> None:
+    """Run final MC evaluation on the best model and print summary stats."""
+    import aerocapture_rs  # type: ignore[import]
+
+    from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
+    from aerocapture.training.report import _print_eval_summary, _read_cost_kwargs
+
+    n_sims = cfg.validation_n_sims
+    base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("mc_seed", 42))
+    seeds = make_reserved_seeds(base_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
+
+    overrides_list = [{"data.neural_network": str(best_model), "monte_carlo.mc_seed": s, "simulation.n_sims": 1} for s in seeds]
+    print(f"\nRunning {n_sims}-sim final evaluation...", file=sys.stderr)
+    results = aerocapture_rs.run_batch(str(toml_path), overrides_list)
+
+    cost_kwargs = _read_cost_kwargs(toml_path)
+    _print_eval_summary(results.final_records, n_sims, cost_kwargs=cost_kwargs)
+
+
 def _run_sac(
     cfg: RLConfig,
     toml_path: Path,
@@ -474,7 +550,7 @@ def _run_sac(
         best_val_cost = float(ckpt["best_val_cost"])
         print(f"SAC resumed from checkpoint: update {update_idx}, {env_steps} env steps", file=sys.stderr)
 
-    obs = env.reset()
+    obs, aux_cur = env.reset()
     episodic_returns: list[float] = []
     episodic_dvs: list[float] = []
     episodic_captures: list[bool] = []
@@ -487,14 +563,12 @@ def _run_sac(
             bank_t, _ = agent.policy.sample(obs_t)
         actions_np = bank_t.cpu().numpy().astype(np.float32)
 
-        next_obs, _rust_reward, done, info = env.step(actions_np)
+        next_obs, _rust_reward, done, info, aux_next = env.step(actions_np)
 
         rewards_np = np.zeros(cfg.n_envs, dtype=np.float32)
         for i, d in enumerate(done):
             if d:
                 fr = np.array(info[i]["final_record"], dtype=np.float64)
-                from aerocapture.training.rl.rewards import compute_terminal_cost
-
                 term_cost = compute_terminal_cost(fr)
                 rewards_np[i] = float(-term_cost)
                 episodic_returns.append(float(-term_cost))
@@ -503,6 +577,7 @@ def _run_sac(
 
         agent.replay_buffer.push(obs, actions_np, rewards_np, next_obs, done)
         obs = next_obs
+        # aux_cur = aux_next  # SAC doesn't use PBRS yet (needs shaped replay buffer)
         env_steps += cfg.n_envs
 
         # --- Update every train_every steps if buffer warm ---

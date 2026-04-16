@@ -6,9 +6,13 @@ mission_type = "msr_aller"
 [guidance]
 type = "neural_network"
 
+[navigation]
+density_filter_gain = 0.6914060018624361
+density_gain_max_delta = 0.10161760731237457
+
 [network]
-layer_sizes = [23, 32, 16, 8, 2]
-activations = ["tanh", "tanh", "tanh", "linear"]
+layer_sizes = [23, 16, 8, 2]
+activations = ["mish", "mish", "linear"]
 input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 [monte_carlo]
@@ -17,4 +21,4 @@ sampling = "random"
 
 [data]
 neural_network       = "training_output/neural_network_rl/best_model.json"
-reference_trajectory = "training_output/msr_aller/ref_trajectory.dat"
+reference_trajectory = "training_output/mars/ref_trajectory.dat"

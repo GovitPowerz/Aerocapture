@@ -21,7 +21,6 @@ class PBRSShaper:
     ref_fn: Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]] | None = None
 
     def phi(self, energy: npt.NDArray[np.float64], pdyn: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        # v1: pdyn-deviation-against-reference only; energy is the lookup axis.
         if not self.enabled or self.ref_fn is None:
             return np.zeros_like(energy)
         pdyn_ref = self.ref_fn(energy)
@@ -30,18 +29,17 @@ class PBRSShaper:
 
     def step_reward(
         self,
-        obs: npt.NDArray[np.float32],
-        next_obs: npt.NDArray[np.float32],
+        aux_cur: npt.NDArray[np.float32],
+        aux_next: npt.NDArray[np.float32],
         gamma: float,
     ) -> npt.NDArray[np.float64]:
+        """PBRS step reward from aux arrays (n_envs, 2): [energy, pdyn]."""
         if not self.enabled:
-            return np.zeros(obs.shape[0], dtype=np.float64)
-        # In tests: obs[..., 0] = energy, obs[..., 1] = pdyn. The training
-        # loop passes a similar extraction; see Task 4.2 for the real wiring.
-        e_cur = obs[..., 0].astype(np.float64)
-        p_cur = obs[..., 1].astype(np.float64)
-        e_nxt = next_obs[..., 0].astype(np.float64)
-        p_nxt = next_obs[..., 1].astype(np.float64)
+            return np.zeros(aux_cur.shape[0], dtype=np.float64)
+        e_cur = aux_cur[..., 0].astype(np.float64)
+        p_cur = aux_cur[..., 1].astype(np.float64)
+        e_nxt = aux_next[..., 0].astype(np.float64)
+        p_nxt = aux_next[..., 1].astype(np.float64)
         return gamma * self.phi(e_nxt, p_nxt) - self.phi(e_cur, p_cur)
 
 

@@ -10,9 +10,9 @@ from aerocapture.training.rl.rewards import PBRSShaper, compute_terminal_cost
 
 def test_disabled_shaper_returns_zero() -> None:
     shaper = PBRSShaper(enabled=False)
-    obs = np.zeros((4, 16), dtype=np.float32)
-    next_obs = np.ones((4, 16), dtype=np.float32)
-    r = shaper.step_reward(obs, next_obs, gamma=0.99)
+    aux = np.zeros((4, 2), dtype=np.float32)
+    aux_next = np.ones((4, 2), dtype=np.float32)
+    r = shaper.step_reward(aux, aux_next, gamma=0.99)
     assert np.allclose(r, 0.0)
 
 
@@ -24,7 +24,8 @@ def test_enabled_shaper_telescoping_identity() -> None:
     """
     rng = np.random.default_rng(0)
     n_steps = 20
-    obs_seq = rng.standard_normal((n_steps + 1, 16)).astype(np.float32)
+    # aux sequence: (n_steps+1, 2) with [energy, pdyn]
+    aux_seq = rng.standard_normal((n_steps + 1, 2)).astype(np.float32)
 
     shaper = PBRSShaper(
         enabled=True,
@@ -33,13 +34,14 @@ def test_enabled_shaper_telescoping_identity() -> None:
         ref_fn=lambda e: np.zeros_like(e),
     )
 
-    def phi(s: npt.NDArray[np.float32]) -> npt.NDArray[np.float64]:  # matches shaper.phi with pdyn_ref=0
-        return -np.abs(s[..., 1].astype(np.float64))
+    def phi(a: npt.NDArray[np.float32]) -> npt.NDArray[np.float64]:
+        # matches shaper.phi with pdyn_ref=0: -|pdyn|
+        return -np.abs(a[..., 1].astype(np.float64))
 
     total = np.zeros(1)
     for t in range(n_steps):
-        total += shaper.step_reward(obs_seq[t : t + 1], obs_seq[t + 1 : t + 2], gamma=1.0)
-    expected = phi(obs_seq[n_steps]) - phi(obs_seq[0])
+        total += shaper.step_reward(aux_seq[t : t + 1], aux_seq[t + 1 : t + 2], gamma=1.0)
+    expected = phi(aux_seq[n_steps]) - phi(aux_seq[0])
     assert np.allclose(total, expected, atol=1e-6)
 
 

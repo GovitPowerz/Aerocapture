@@ -140,13 +140,24 @@ uv run python -m aerocapture.training.train <config.toml> --no-tui
 
 ### RL Training (PPO)
 
-Parallel track to the GA for the `neural_network` guidance scheme. PPO-trained policies export to the same `best_model.json` format the GA produces and deploy via the Rust `neural_network` runtime — `compare_guidance` treats RL as just another scheme (`neural_network_rl`).
+Parallel track to the GA for the `neural_network` guidance scheme. PPO-trained policies export to the same `best_model.json` format the GA produces and deploy via the Rust `neural_network` runtime -- `compare_guidance` treats RL as just another scheme (`neural_network_rl`). Supports warm-starting from GA-trained weights (`--data-neural-network`) and PBRS reward shaping (pdyn-deviation from reference trajectory).
 
 ```bash
-# Train a PPO policy
+# Train PPO from scratch
 uv run python -m aerocapture.training.rl.train \
     configs/training/msr_aller_rl_train.toml \
-    --algorithm ppo --total-steps 5000000
+    --algorithm ppo --from-scratch
+
+# Warm-start from GA-trained model (recommended)
+uv run python -m aerocapture.training.rl.train \
+    configs/training/msr_aller_rl_train.toml \
+    --algorithm ppo --data-neural-network training_output/neural_network/best_model.json
+
+# Fine-tune with conservative hyperparameters
+uv run python -m aerocapture.training.rl.train \
+    configs/training/msr_aller_rl_train.toml \
+    --algorithm ppo --data-neural-network training_output/neural_network/best_model.json \
+    --learning-rate 3e-5 --clip-range 0.1 --entropy-coef 0.001 --min-log-std -4.0
 
 # Head-to-head RL vs GA on identical MC scenarios
 uv run python -m aerocapture.training.compare_guidance \
@@ -156,9 +167,9 @@ uv run python -m aerocapture.training.compare_guidance \
 ./train_all.sh nn_rl
 ```
 
-Architecture: step-able `BatchedSimulation` pyclass (Rayon-parallel per-tick advance over N SimStates, GIL released via `py.detach()`, auto-reset on episode end), CleanRL-style PPO in `src/python/aerocapture/training/rl/` (PyTorch MLP mirroring `NeuralNetModel` JSON, `RolloutBuffer` + GAE + clipped surrogate update, reserved-seed validation gate, graceful Ctrl+C, three-part PDF report with RL convergence in Part 1 and Parts 2/3 reused from the GA report). SAC is also built but experimental; PPO is the validated v1 baseline.
+Architecture: step-able `BatchedSimulation` pyclass (Rayon-parallel per-tick advance over N SimStates, GIL released via `py.detach()`, auto-reset on episode end). `step()` returns `(obs, reward, done, info, aux)` where `aux` provides `(energy, pdyn)` per env for PBRS. CleanRL-style PPO in `src/python/aerocapture/training/rl/` (PyTorch MLP with GA warm-start via `load_weights_from_json()`, `RolloutBuffer` + GAE + clipped surrogate update, PBRS shaping, reserved-seed validation gate, graceful Ctrl+C, final MC evaluation summary, three-part PDF report). SAC is also built but experimental; PPO is the validated baseline.
 
-CLI flags: `--algorithm {ppo|sac}`, `--total-steps`, `--n-envs`, `--rollout-steps`, `--validation-n-sims`, `--validation-interval-updates`, `--data-neural-network`, `--no-tui`, `--skip-report`, `--resume`, `--output-dir`. Full spec at `docs/superpowers/specs/2026-04-15-rl-nn-guidance-design.md`.
+CLI flags: `--algorithm {ppo|sac}`, `--total-steps`, `--n-envs`, `--rollout-steps`, `--validation-n-sims`, `--validation-interval-updates`, `--data-neural-network`, `--from-scratch`, `--learning-rate`, `--clip-range`, `--entropy-coef`, `--min-log-std`, `--update-epochs`, `--lr-anneal-start`, `--no-tui`, `--skip-report`, `--resume`, `--output-dir`. `--from-scratch` and `--data-neural-network` are mutually exclusive. Full spec at `docs/superpowers/specs/2026-04-15-rl-nn-guidance-design.md`.
 
 ### Training seed strategies
 
