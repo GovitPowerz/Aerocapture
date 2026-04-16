@@ -12,6 +12,7 @@ from typing import Any
 from aerocapture.training import charts
 from aerocapture.training import report as ga_report
 from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
+from aerocapture.training.toml_utils import load_toml_with_bases
 
 # Typst template is in src/typst/, two levels up from src/python/aerocapture/training/rl/
 _TYPST_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "typst"
@@ -56,8 +57,6 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
 
         try:
             import aerocapture_rs  # type: ignore[import-not-found, import-untyped]
-
-            from aerocapture.training.toml_utils import load_toml_with_bases
 
             toml_data = load_toml_with_bases(toml_path)
             base_seed = int(toml_data.get("monte_carlo", {}).get("seed", 42))
@@ -116,8 +115,11 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
 
         # Write metadata.json
         n_updates = len(records)
+        resolved_cfg = load_toml_with_bases(toml_path) if toml_path is not None else {}
+        rl_algo = resolved_cfg.get("rl", {}).get("algorithm", "ppo")
         metadata: dict[str, Any] = {
             "scheme": "neural_network_rl",
+            "algorithm": rl_algo.upper(),
             "mission": "RL Training",
             "date": _today(),
             "n_updates": str(n_updates),

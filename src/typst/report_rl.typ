@@ -11,7 +11,7 @@
 #align(center)[
   #text(size: 28pt, weight: "bold")[Aerocapture RL Training Report]
   #v(0.5cm)
-  #text(size: 18pt)[neural_network (PPO)]
+  #text(size: 18pt)[neural_network (#meta.at("algorithm", default: "PPO"))]
   #v(0.3cm)
   #text(size: 12pt, fill: luma(100))[#meta.at("mission", default: "RL") -- #meta.at("date", default: "")]
   #v(1cm)

@@ -12,17 +12,22 @@ pytest.importorskip("aerocapture_rs")
 pytest.importorskip("torch")
 
 
-def _make_dummy_model(path: Path) -> None:
+def _make_dummy_model(path: Path, config_path: Path) -> None:
     """Write a minimal valid NeuralNetModel JSON matching the rl_train TOML architecture.
 
-    Architecture: [23, 16, 8, 2] (23 inputs), mish/mish/linear activations.
-    Must match the [network] section in msr_aller_rl_train.toml.
-    Uses the Rust NnJsonFile format. Weights are all zeros.
+    Reads [network] from the resolved TOML so the dummy stays in sync
+    when the config changes.
     """
-    input_dim = 23
-    layer_sizes = [16, 8, 2]
-    activations = ["mish", "mish", "linear"]
-    input_mask = list(range(input_dim))
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    cfg = load_toml_with_bases(config_path)
+    net = cfg.get("network", {})
+    toml_layers: list[int] = net.get("layer_sizes", [16, 64, 64, 2])
+    activations: list[str] = net.get("activations", ["tanh", "tanh", "linear"])
+    input_mask: list[int] = net.get("input_mask", list(range(toml_layers[0])))
+
+    input_dim = toml_layers[0]
+    layer_sizes = toml_layers[1:]
 
     weights_dict: dict[str, object] = {}
     prev = input_dim
@@ -36,7 +41,7 @@ def _make_dummy_model(path: Path) -> None:
     doc = {
         "format_version": 1,
         "architecture": {
-            "layers": [input_dim] + layer_sizes,
+            "layers": toml_layers,
             "activations": activations,
         },
         "weights": weights_dict,
@@ -53,7 +58,7 @@ def test_ppo_smoke_produces_artifacts(tmp_path: Path, monkeypatch: pytest.Monkey
     config_path = Path("configs/training/msr_aller_rl_train.toml")
     out = tmp_path / "rl_smoke"
     dummy_model = tmp_path / "dummy_model.json"
-    _make_dummy_model(dummy_model)
+    _make_dummy_model(dummy_model, config_path)
 
     from aerocapture.training.rl.train import main
 
