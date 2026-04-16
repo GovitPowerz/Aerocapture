@@ -464,10 +464,10 @@ def _validate_deterministic(
     tmp_json = output_dir / "gen_current_model.json"
     export_policy_to_json(policy, tmp_json, input_mask)
 
-    base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("mc_seed", 42))
+    base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("seed", 42))
     seeds = make_reserved_seeds(base_seed, VALIDATION_SEED_OFFSET, cfg.validation_n_sims)
 
-    overrides_list = [{"data.neural_network": str(tmp_json), "monte_carlo.mc_seed": s, "simulation.n_sims": 1} for s in seeds]
+    overrides_list = [{"data.neural_network": str(tmp_json), "monte_carlo.seed": s, "simulation.n_sims": 1} for s in seeds]
     results = aerocapture_rs.run_batch(str(toml_path), overrides_list)
     fr = results.final_records  # (N, 52)
 
@@ -488,10 +488,10 @@ def _run_final_eval(toml_path: Path, best_model: Path, cfg: RLConfig) -> None:
     from aerocapture.training.report import _print_eval_summary, _read_cost_kwargs
 
     n_sims = cfg.validation_n_sims
-    base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("mc_seed", 42))
+    base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("seed", 42))
     seeds = make_reserved_seeds(base_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
 
-    overrides_list = [{"data.neural_network": str(best_model), "monte_carlo.mc_seed": s, "simulation.n_sims": 1} for s in seeds]
+    overrides_list = [{"data.neural_network": str(best_model), "monte_carlo.seed": s, "simulation.n_sims": 1} for s in seeds]
     print(f"\nRunning {n_sims}-sim final evaluation...", file=sys.stderr)
     results = aerocapture_rs.run_batch(str(toml_path), overrides_list)
 
