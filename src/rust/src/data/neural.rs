@@ -52,6 +52,11 @@ pub struct Layer {
 /// (see Phase 1+ for those). Order MUST match the PyTorch mirror in
 /// src/python/aerocapture/training/rl/layers/<type>.py for PSO chromosome
 /// compatibility.
+///
+/// Callers MUST ensure `flat.len() >= self.n_params()` before invoking
+/// `from_flat`; it may panic otherwise. Length validation lives at the
+/// caller (see `NeuralNetModel::from_flat_weights`) so the trait method
+/// stays infallible and later impls don't invent per-layer error dialects.
 pub trait LayerWeights {
     fn to_flat(&self) -> Vec<f64>;
     // `from_flat` takes `&mut self` by design: it overwrites this layer's
@@ -670,10 +675,12 @@ mod tests {
         };
 
         let flat = original.to_flat_weights();
+        assert_eq!(flat.len(), original.n_params());
         let layer_sizes: Vec<usize> = original.layer_sizes.clone();
         let activations = vec![Activation::Tanh, Activation::Linear];
         let reconstructed =
             NeuralNetModel::from_flat_weights(&flat, &layer_sizes, &activations).unwrap();
+        assert_eq!(reconstructed.n_params(), original.n_params());
 
         let input = vec![0.5, -0.3, 0.1, 0.7];
         let mut s0 = NnState::for_model(&original);
