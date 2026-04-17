@@ -26,7 +26,8 @@ import numpy as np
 import numpy.typing as npt
 import torch
 
-from aerocapture.training.rl.policy import GaussianPolicy
+from aerocapture.training.rl.layers import DenseLayer
+from aerocapture.training.rl.policy import GaussianPolicy, V2Policy
 
 _ACT_NAMES = {"Tanh": "tanh", "ReLU": "relu", "Sigmoid": "sigmoid", "Identity": "linear", "SiLU": "swish", "Mish": "mish"}
 
@@ -81,6 +82,62 @@ def export_policy_to_json(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w") as f:
         json.dump(doc, f, indent=2)
+
+
+def export_v2_policy_to_json(
+    policy: V2Policy,
+    path: str,
+    obs_normalizer: ObsNormalizer | None = None,
+) -> None:
+    """Write a V2Policy as JSON v2.
+
+    Optional `obs_normalizer` bakes the affine transform into the first dense
+    layer: `W_new = W / std`, `b_new = b - W @ (mean / std)`. log_std is an
+    exploration-noise parameter and is never exported.
+    """
+    architecture: list[dict[str, object]] = []
+    weights: dict[str, dict[str, list[list[float]] | list[float]]] = {}
+
+    # For Phase 0, first layer is always dense (no window-MLP variant yet).
+    # Phase 2 will add the window-first branch here.
+
+    for i, layer in enumerate(policy.layers):
+        assert isinstance(layer, DenseLayer)
+        lin = layer.linear
+        w = lin.weight.detach().cpu().numpy().astype(np.float64)
+        b = lin.bias.detach().cpu().numpy().astype(np.float64)
+
+        if i == 0 and obs_normalizer is not None:
+            mean = obs_normalizer._mean.astype(np.float64)
+            std = obs_normalizer.std.astype(np.float64)
+            w_new = w / std  # broadcasting over columns (inputs)
+            b_new = b - w @ (mean / std)
+            w, b = w_new, b_new
+
+        architecture.append(
+            {
+                "type": "dense",
+                "input_size": lin.in_features,
+                "output_size": lin.out_features,
+                "activation": layer.activation_name,
+            }
+        )
+        weights[f"layer_{i}"] = {
+            "w": w.tolist(),
+            "b": b.tolist(),
+        }
+
+    out = {
+        "format_version": 2,
+        "architecture": architecture,
+        "weights": weights,
+        "output_interpretation": policy.output_interpretation,
+        "input_mask": policy.input_mask,
+        "ablated_input": None,
+    }
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(out, f, indent=2)
 
 
 @dataclass
