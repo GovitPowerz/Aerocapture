@@ -4,7 +4,7 @@
 //! with per-layer activation function choice. Loads from JSON format.
 
 use super::DataError;
-use crate::gnc::guidance::nn_state::NnState;
+use crate::data::nn_state::NnState;
 use serde::{Deserialize, Serialize};
 
 /// Activation function for a layer.

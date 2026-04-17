@@ -2,10 +2,10 @@
 
 use crate::config::{GuidanceType, PlanetConfig};
 use crate::data::SimData;
+use crate::data::nn_state::NnState;
 use crate::gnc::control::angle_utils::shortest_angle_diff;
 use crate::gnc::guidance::ftc::{self as ftc_capture, FtcCaptureState};
 use crate::gnc::guidance::lateral::{self, LateralState};
-use crate::gnc::guidance::nn_state::NnState;
 use crate::gnc::guidance::{
     energy_controller, equilibrium_glide, exit, fnpag, neural, piecewise_constant, predguid,
     thermal_limiter,

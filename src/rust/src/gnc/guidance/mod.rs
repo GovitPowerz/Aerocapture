@@ -8,7 +8,6 @@ pub mod fnpag;
 pub mod ftc;
 pub mod lateral;
 pub mod neural;
-pub mod nn_state;
 pub mod piecewise_constant;
 pub mod predguid;
 pub mod reference;

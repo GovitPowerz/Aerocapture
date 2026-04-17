@@ -18,8 +18,8 @@
 use crate::config::PlanetConfig;
 use crate::data::SimData;
 use crate::data::neural::{NN_FULL_INPUT_SIZE, NeuralNetModel};
+use crate::data::nn_state::NnState;
 use crate::gnc::guidance::exit;
-use crate::gnc::guidance::nn_state::NnState;
 use crate::gnc::navigation::coordinates::total_energy;
 use crate::gnc::navigation::estimator::NavigationOutput;
 use crate::orbit::elements;
@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn stateful_forward_with_empty_state_matches_stateless() {
-        use crate::gnc::guidance::nn_state::NnState;
+        use crate::data::nn_state::NnState;
 
         let nn = zero_weight_nn(0.5, 0.5);
         let nav = test_nav();
