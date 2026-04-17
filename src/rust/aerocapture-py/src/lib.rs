@@ -244,6 +244,28 @@ fn run_with_draws(
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }
 
+/// Load a v2 NN JSON in Rust and run a stateful forward pass on a single input.
+///
+/// Used exclusively by the Rust<>Python cross-language equivalence test
+/// (Phase 0 integration gate). Applies `input_mask` when present; otherwise
+/// passes the input through unchanged. Per-call `NnState` is fresh, so this
+/// helper is stateless across calls (Phase 0 dense-only; Phase 1+ stateful
+/// layer equivalence tests will need a state-carrying variant).
+#[pyfunction]
+fn nn_forward(json_path: String, input: Vec<f64>) -> PyResult<Vec<f64>> {
+    use aerocapture::data::neural::NeuralNetModel;
+    use aerocapture::data::nn_state::NnState;
+
+    let model = NeuralNetModel::load(&json_path)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{:?}", e)))?;
+    let masked: Vec<f64> = match &model.input_mask {
+        Some(mask) => mask.iter().map(|&i| input[i]).collect(),
+        None => input,
+    };
+    let mut state = NnState::for_model(&model);
+    Ok(model.forward(&mut state, &masked))
+}
+
 /// Load and return a TOML config file as a plain Python dict.
 ///
 /// Useful for inspecting or modifying config before passing overrides.
@@ -308,5 +330,6 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_batch, m)?)?;
     m.add_function(wrap_pyfunction!(run_with_draws, m)?)?;
     m.add_function(wrap_pyfunction!(load_config, m)?)?;
+    m.add_function(wrap_pyfunction!(nn_forward, m)?)?;
     Ok(())
 }
