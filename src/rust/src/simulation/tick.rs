@@ -10,12 +10,12 @@ use crate::gnc::control::angle_utils::{shortest_angle_diff, wrap_to_pi};
 use crate::gnc::control::pilot;
 use crate::gnc::guidance::dispatch;
 use crate::gnc::navigation::coordinates::geodetic_from_spherical;
-use crate::gnc::navigation::estimator::{self, NavigationFilter};
 use crate::integration::events::{self, EventContext, EventDef, EventType};
 use crate::physics::atmosphere;
 use crate::simulation::runner::{
     DEG_TO_RAD, SimState, TermReason, build_photo_values, effective_airspeed,
-    integrate_adaptive_with_events, integrate_step, track_peak_values,
+    integrate_adaptive_with_events, integrate_step, navigate_from_state,
+    promote_pending_crash_if_applicable, track_peak_values,
 };
 
 /// Outcome of one outer guidance tick.
@@ -83,60 +83,7 @@ pub fn step_one_tick(
 
     // === Navigation + Guidance + Pilot ===
     if !config.reference_trajectory {
-        let position_true = [state.state[0], state.state[1], state.state[2]];
-        let velocity_true = [state.state[3], state.state[4], state.state[5]];
-
-        let mut nav_out = match &mut state.nav_filter {
-            NavigationFilter::Bias(nav_state) => estimator::navigate(
-                &position_true,
-                &velocity_true,
-                state.guidance_state.aoa_commanded,
-                state.sim_time,
-                &state.nav_biases,
-                nav_state,
-                data,
-                planet,
-                state.run_state.density_bias,
-                state.run_state.density_perturbation,
-                state.run_state.cx_bias,
-                state.run_state.cz_bias,
-                state.run_state.mass_bias,
-                state.run_state.incidence_bias,
-                state.run_state.ref_area_bias,
-                state.run_state.filter_gain_bias,
-            ),
-            NavigationFilter::Ekf {
-                ekf,
-                imu,
-                star_tracker,
-                st_config,
-                ekf_config,
-                legacy,
-                ..
-            } => estimator::navigate_ekf(
-                &position_true,
-                &velocity_true,
-                state.guidance_state.aoa_commanded,
-                state.sim_time,
-                data.periods.navigation,
-                &state.nav_biases,
-                legacy,
-                ekf,
-                imu,
-                star_tracker,
-                st_config,
-                ekf_config,
-                data,
-                planet,
-                state.run_state.density_bias,
-                state.run_state.density_perturbation,
-                state.run_state.cx_bias,
-                state.run_state.cz_bias,
-                state.run_state.mass_bias,
-                state.run_state.incidence_bias,
-                state.run_state.ref_area_bias,
-            ),
-        };
+        let mut nav_out = navigate_from_state(state, data, planet);
 
         state.dynamic_pressure_for_photo = nav_out.dynamic_pressure_estimated;
         state.density_estimate_for_photo = nav_out.density_guidance;
@@ -427,6 +374,9 @@ pub fn step_one_tick(
     state.step += 1;
 
     let done = state.term != TermReason::None;
+    if done {
+        promote_pending_crash_if_applicable(state, planet);
+    }
     let ifinal = if done {
         Some(match state.term {
             TermReason::AtmosphereExit => 3,

@@ -48,6 +48,10 @@ def test_done_info_contains_terminal_keys() -> None:
                 assert "captured" in info[i]
                 assert "dv_m_s" in info[i]
                 assert "terminal_observation" in info[i]
+                assert "truncated" in info[i], "RL training relies on truncation vs termination distinction"
+                # truncated == (ifinal == Timeout == 2); must agree with the final_record.
+                ifinal = int(info[i]["final_record"][31])
+                assert info[i]["truncated"] == (ifinal == 2)
                 env.close()
                 return
     env.close()

@@ -13,6 +13,7 @@ dependencies = [
     "seaborn>=0.13",
     "SALib>=1.5",
     "pyarrow>=19.0",
+    "tomli-w>=1.2",
 ]
 
 [dependency-groups]

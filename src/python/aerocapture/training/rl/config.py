@@ -17,19 +17,19 @@ _VALID_ALGOS: tuple[str, ...] = ("ppo", "sac")
 
 @dataclass
 class RewardConfig:
-    # Capture phase weights
+    # Potential-based shaping weights (capture phase: corridor + energy; shared: constraint)
     corridor_weight: float = 0.1
     energy_rate_weight: float = 0.05
     constraint_weight: float = 0.2
-    # Exit phase weights
+    # Exit-phase shaping weights
     apoapsis_weight: float = 0.2
     eccentricity_weight: float = 0.1
-    # Normalization scales
     energy_scale: float = 1.0e6
-    # Return and obs normalization
+    # Running normalization
     normalize_returns: bool = True
     normalize_obs: bool = True
-    norm_warmup_episodes: int = 64
+    # Return normalizer warms up over this many per-step updates (per-env, summed).
+    norm_warmup_steps: int = 1000
 
 
 @dataclass
@@ -47,6 +47,9 @@ class PPOConfig:
     initial_log_std: float = -0.5
     min_log_std: float = -2.0
     lr_anneal_start: float = 0.7
+    # Early-stop the update epoch when mean approx_kl exceeds this threshold.
+    # None disables early-stop.
+    target_kl: float | None = 0.03
 
 
 @dataclass
@@ -60,7 +63,7 @@ class SACConfig:
     gradient_steps: int = 1
     target_entropy: str | float = "auto"
     initial_alpha: float = 0.2
-    warmup_steps: int = 0
+    warmup_steps: int = 50_000
 
 
 @dataclass

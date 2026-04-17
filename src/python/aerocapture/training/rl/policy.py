@@ -30,7 +30,7 @@ _ACT: dict[str, type[nn.Module]] = {
 }
 
 
-def _build_mlp(input_dim: int, layer_sizes: Sequence[int], activations: Sequence[str]) -> nn.Sequential:
+def build_mlp(input_dim: int, layer_sizes: Sequence[int], activations: Sequence[str]) -> nn.Sequential:
     if len(layer_sizes) != len(activations):
         raise ValueError(f"len(layer_sizes)={len(layer_sizes)} must equal len(activations)={len(activations)}")
     layers: list[nn.Module] = []
@@ -60,7 +60,7 @@ class GaussianPolicy(nn.Module):
         super().__init__()
         if layer_sizes[-1] != 2:
             raise ValueError(f"GaussianPolicy requires out_dim=2 (atan2), got {layer_sizes[-1]}")
-        self.trunk = _build_mlp(input_dim, layer_sizes, activations)
+        self.trunk = build_mlp(input_dim, layer_sizes, activations)
         self.log_std = nn.Parameter(torch.full((2,), initial_log_std))
         self.min_log_std = min_log_std
 
@@ -84,8 +84,14 @@ class GaussianPolicy(nn.Module):
                 module.bias.data = torch.tensor(np.array(lw["b"], dtype=np.float64), dtype=torch.float32)
                 linear_idx += 1
 
-    def sample(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Sample action from Gaussian, return (bank_angle, log_prob)."""
+    def sample(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Reparameterized sample; return (bank, raw, log_prob).
+
+        The raw 2D latent is the true action space of the Gaussian. The bank
+        angle `atan2(raw[0], raw[1])` is what the environment sees. Returning
+        `raw` makes SAC's critic and entropy objective consistent with the
+        density the policy actually regularizes (target_entropy = -2).
+        """
         mean, log_std = self.forward_mean_logstd(obs)
         std = log_std.exp()
         eps = torch.randn_like(mean)
@@ -93,7 +99,7 @@ class GaussianPolicy(nn.Module):
         bank = torch.atan2(raw[..., 0], raw[..., 1])
         dist = torch.distributions.Normal(mean, std)
         log_prob = dist.log_prob(raw).sum(-1)
-        return bank, log_prob
+        return bank, raw, log_prob
 
 
 class ValueNetwork(nn.Module):
@@ -101,7 +107,7 @@ class ValueNetwork(nn.Module):
         super().__init__()
         layer_sizes = list(hidden_sizes) + [1]
         act_list = list(activations[:-1]) + ["linear"]
-        self.net = _build_mlp(input_dim, layer_sizes, act_list)
+        self.net = build_mlp(input_dim, layer_sizes, act_list)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         out: torch.Tensor = self.net(obs).squeeze(-1)

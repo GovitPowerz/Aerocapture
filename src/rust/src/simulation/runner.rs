@@ -300,67 +300,83 @@ pub fn build_sim_state(
         is_single: false,
     };
 
-    // Run one navigation pass to populate last_nav with valid orbital data.
-    // Without this, last_nav holds all-zeros which produces NaN in RL observations.
-    // Always run even in reference_trajectory mode so the RL env gets valid initial obs.
-    {
-        let position_true = [s.state[0], s.state[1], s.state[2]];
-        let velocity_true = [s.state[3], s.state[4], s.state[5]];
-        let initial_nav = match &mut s.nav_filter {
-            NavigationFilter::Bias(nav_state) => estimator::navigate(
-                &position_true,
-                &velocity_true,
-                s.guidance_state.aoa_commanded,
-                s.sim_time,
-                &s.nav_biases,
-                nav_state,
-                data,
-                planet,
-                s.run_state.density_bias,
-                s.run_state.density_perturbation,
-                s.run_state.cx_bias,
-                s.run_state.cz_bias,
-                s.run_state.mass_bias,
-                s.run_state.incidence_bias,
-                s.run_state.ref_area_bias,
-                s.run_state.filter_gain_bias,
-            ),
-            NavigationFilter::Ekf {
-                ekf,
-                imu,
-                star_tracker,
-                st_config,
-                ekf_config,
-                legacy,
-                ..
-            } => estimator::navigate_ekf(
-                &position_true,
-                &velocity_true,
-                s.guidance_state.aoa_commanded,
-                s.sim_time,
-                data.periods.navigation,
-                &s.nav_biases,
-                legacy,
-                ekf,
-                imu,
-                star_tracker,
-                st_config,
-                ekf_config,
-                data,
-                planet,
-                s.run_state.density_bias,
-                s.run_state.density_perturbation,
-                s.run_state.cx_bias,
-                s.run_state.cz_bias,
-                s.run_state.mass_bias,
-                s.run_state.incidence_bias,
-                s.run_state.ref_area_bias,
-            ),
-        };
-        s.last_nav = initial_nav;
+    // Prime last_nav so the RL env's reset() returns a valid initial observation
+    // instead of a zeroed-out NavigationOutput. Bias mode is stateless (the call is
+    // a pure function of the truth state + biases), so priming costs nothing. EKF
+    // mode advances the filter via `ekf.predict(nav_dt, ...)` on every call; since
+    // tick.rs also navigates on first_iter, priming there would predict the filter
+    // twice before any physics advance. Skip priming for EKF; the first tick will
+    // populate `last_nav` before the policy's second action. The initial RL action
+    // (step 0) is based on a default NavigationOutput under EKF mode.
+    if matches!(data.nav_mode, crate::data::NavMode::Bias) {
+        s.last_nav = navigate_from_state(&mut s, data, planet);
     }
-
     s
+}
+
+/// Run one navigation pass on a `SimState`, returning the `NavigationOutput`.
+///
+/// Shared between `build_sim_state` (primes `last_nav` so the RL env has a
+/// valid initial observation) and `tick::step_one_tick` (invoked every outer
+/// GNC tick). Dispatches on the state's `nav_filter` variant.
+pub(crate) fn navigate_from_state(
+    state: &mut SimState,
+    data: &SimData,
+    planet: &PlanetConfig,
+) -> crate::gnc::navigation::estimator::NavigationOutput {
+    let position_true = [state.state[0], state.state[1], state.state[2]];
+    let velocity_true = [state.state[3], state.state[4], state.state[5]];
+    match &mut state.nav_filter {
+        NavigationFilter::Bias(nav_state) => estimator::navigate(
+            &position_true,
+            &velocity_true,
+            state.guidance_state.aoa_commanded,
+            state.sim_time,
+            &state.nav_biases,
+            nav_state,
+            data,
+            planet,
+            state.run_state.density_bias,
+            state.run_state.density_perturbation,
+            state.run_state.cx_bias,
+            state.run_state.cz_bias,
+            state.run_state.mass_bias,
+            state.run_state.incidence_bias,
+            state.run_state.ref_area_bias,
+            state.run_state.filter_gain_bias,
+        ),
+        NavigationFilter::Ekf {
+            ekf,
+            imu,
+            star_tracker,
+            st_config,
+            ekf_config,
+            legacy,
+            ..
+        } => estimator::navigate_ekf(
+            &position_true,
+            &velocity_true,
+            state.guidance_state.aoa_commanded,
+            state.sim_time,
+            data.periods.navigation,
+            &state.nav_biases,
+            legacy,
+            ekf,
+            imu,
+            star_tracker,
+            st_config,
+            ekf_config,
+            data,
+            planet,
+            state.run_state.density_bias,
+            state.run_state.density_perturbation,
+            state.run_state.cx_bias,
+            state.run_state.cz_bias,
+            state.run_state.mass_bias,
+            state.run_state.incidence_bias,
+            state.run_state.ref_area_bias,
+        ),
+    }
 }
 
 /// Result from a single simulation run.
@@ -1008,14 +1024,8 @@ fn run_single(
     let energy = speed_abs * speed_abs / 2.0 - mu / sim_state.state[0];
     let velocity_radial = sim_state.state[3] * sim_state.state[4].sin();
 
-    // Pending crash: captured orbit with apoapsis below atmosphere ceiling
+    promote_pending_crash_if_applicable(&mut sim_state, planet);
     let captured = orbit.eccentricity < 1.0 && energy < 0.0;
-    if sim_state.term == TermReason::AtmosphereExit
-        && captured
-        && orbit.apoapsis_alt < sim_state.exit_altitude
-    {
-        sim_state.term = TermReason::PendingCrash;
-    }
 
     let ifinal = match sim_state.term {
         TermReason::AtmosphereExit => 3,
@@ -1146,6 +1156,59 @@ fn run_single(
 ///
 /// Mirrors the block at the end of `run_single`. Requires `term != TermReason::None`.
 /// Called by `BatchedSimulation::step()` on terminal steps.
+/// Pure predicate: would this orbit be a "pending crash" -- captured (bound + e<1)
+/// but with apoapsis below the atmospheric ceiling, so guaranteed to re-enter?
+///
+/// Extracted so it can be unit-tested without constructing a full `SimState`.
+pub fn is_pending_crash(
+    eccentricity: f64,
+    energy: f64,
+    apoapsis_alt: f64,
+    exit_altitude: f64,
+) -> bool {
+    let captured = eccentricity < 1.0 && energy < 0.0;
+    captured && apoapsis_alt < exit_altitude
+}
+
+/// Promote `AtmosphereExit` to `PendingCrash` when the resulting orbit has
+/// apoapsis below the atmospheric ceiling (captured but doomed to re-entry).
+///
+/// Called both by `finalize_run` (CLI path) and `tick.rs` (RL per-step path)
+/// so both sources of `ifinal`/`final_record` see the same terminal classification.
+pub fn promote_pending_crash_if_applicable(sim_state: &mut SimState, planet: &PlanetConfig) {
+    if sim_state.term != TermReason::AtmosphereExit {
+        return;
+    }
+    let orbit = elements::from_spherical(
+        sim_state.state[0],
+        sim_state.state[1],
+        sim_state.state[2],
+        sim_state.state[3],
+        sim_state.state[4],
+        sim_state.state[5],
+        planet,
+    );
+    let (_, velocity_abs) = to_absolute_cartesian(
+        sim_state.state[0],
+        sim_state.state[1],
+        sim_state.state[2],
+        sim_state.state[3],
+        sim_state.state[4],
+        sim_state.state[5],
+        planet,
+    );
+    let speed_abs = norm(&velocity_abs);
+    let energy = speed_abs * speed_abs / 2.0 - planet.mu / sim_state.state[0];
+    if is_pending_crash(
+        orbit.eccentricity,
+        energy,
+        orbit.apoapsis_alt,
+        sim_state.exit_altitude,
+    ) {
+        sim_state.term = TermReason::PendingCrash;
+    }
+}
+
 pub fn build_final_record(
     sim_state: &SimState,
     data: &SimData,
@@ -2044,5 +2107,56 @@ mod virtual_dv_tests {
             hyperbolic_dv,
             capture_dv
         );
+    }
+}
+
+#[cfg(test)]
+mod pending_crash_tests {
+    use super::is_pending_crash;
+
+    // exit_altitude in meters matches the field's unit.
+    const EXIT_ALT: f64 = 125_000.0;
+
+    #[test]
+    fn hyperbolic_orbit_is_not_pending_crash() {
+        // e >= 1 -> not captured -> not pending crash regardless of apoapsis.
+        assert!(!is_pending_crash(1.1, 1.0e6, 0.0, EXIT_ALT));
+    }
+
+    #[test]
+    fn positive_energy_is_not_pending_crash() {
+        // energy > 0 -> unbound -> not captured even if e < 1.
+        assert!(!is_pending_crash(0.5, 1.0e6, 100_000.0, EXIT_ALT));
+    }
+
+    #[test]
+    fn captured_with_high_apoapsis_is_not_pending_crash() {
+        // Bound + apoapsis well above exit altitude -> clean capture.
+        assert!(!is_pending_crash(
+            0.5,
+            -1.0e6,
+            EXIT_ALT + 10_000.0,
+            EXIT_ALT
+        ));
+    }
+
+    #[test]
+    fn captured_with_apoapsis_below_ceiling_is_pending_crash() {
+        // Bound but apoapsis under the atmosphere -> guaranteed re-entry.
+        assert!(is_pending_crash(0.5, -1.0e6, EXIT_ALT - 10_000.0, EXIT_ALT));
+    }
+
+    #[test]
+    fn boundary_apoapsis_equal_exit_is_not_pending_crash() {
+        // Strict inequality -> apoapsis == exit is a clean edge.
+        assert!(!is_pending_crash(0.5, -1.0e6, EXIT_ALT, EXIT_ALT));
+    }
+
+    #[test]
+    fn nan_inputs_do_not_promote() {
+        // NaN comparisons are false -> no spurious promotion on numerical blow-up.
+        assert!(!is_pending_crash(f64::NAN, -1.0e6, 0.0, EXIT_ALT));
+        assert!(!is_pending_crash(0.5, f64::NAN, 0.0, EXIT_ALT));
+        assert!(!is_pending_crash(0.5, -1.0e6, f64::NAN, EXIT_ALT));
     }
 }

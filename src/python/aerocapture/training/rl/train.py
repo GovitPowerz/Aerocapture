@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
+import tomli_w
 import torch
 
 from aerocapture.training.rl.config import RLConfig
@@ -35,35 +37,21 @@ from aerocapture.training.rl.sac import SACAgent
 
 OUT_DIR_DEFAULT = Path("training_output/neural_network_rl")
 
+# Column indices in the 52-element final_record array (see runner.rs).
+_IDX_ECC = 9
+_IDX_IFINAL = 31
 
-def _dict_to_toml(d: dict[str, Any], prefix: str = "") -> str:
-    """Minimal recursive TOML serializer (no tomli_w dependency)."""
-    scalars: list[str] = []
-    sections: list[str] = []
-    for k, v in d.items():
-        if isinstance(v, dict):
-            header = f"[{prefix}{k}]" if prefix else f"[{k}]"
-            body = _dict_to_toml(v, prefix=f"{prefix}{k}.")
-            sections.append(f"{header}\n{body}")
-        elif isinstance(v, bool):
-            scalars.append(f"{k} = {'true' if v else 'false'}")
-        elif isinstance(v, str):
-            scalars.append(f'{k} = "{v}"')
-        elif isinstance(v, list):
-            scalars.append(f"{k} = {json.dumps(v)}")
-        else:
-            scalars.append(f"{k} = {v}")
-    parts = scalars + ([""] if scalars and sections else []) + sections
-    return "\n".join(parts) + ("\n" if parts else "")
+
+# ---------------------------------------------------------------------------
+# Shared helpers (used by both PPO and SAC loops)
+# ---------------------------------------------------------------------------
 
 
 def _parse_network_config(cfg: RLConfig) -> tuple[list[int], list[int], list[str], int]:
     """Extract (input_mask, layer_sizes, activations, input_dim) from TOML [network].
 
-    TOML layer_sizes always includes the input dim as the first element
-    (e.g. [23, 16, 8, 2] = 23 inputs, hidden 16, hidden 8, output 2).
-    GaussianPolicy expects hidden+output only, so we strip the first element.
-    activations has one entry per hidden/output layer (len = len(layer_sizes) - 1).
+    TOML layer_sizes always includes the input dim as the first element; the
+    policy expects hidden+output only, so the first element is stripped.
     """
     network_cfg = cfg.raw_toml.get("network", {})
     input_mask: list[int] = network_cfg.get("input_mask", list(range(16)))
@@ -85,16 +73,84 @@ def _generate_seed_model(cfg: RLConfig, path: Path) -> None:
     export_policy_to_json(policy, path, input_mask)
 
 
-# Column indices in the 52-element final_record array (verified against
-# src/rust/src/simulation/runner.rs final_record layout):
-#   index 9  = eccentricity
-#   index 31 = ifinal (1=crash, 2=timeout, 3=atmosphere_exit, 4=pending_crash)
-_IDX_ECC = 9
-_IDX_IFINAL = 31
+def _build_shaper_and_norms(cfg: RLConfig, input_mask: list[int], gamma: float) -> tuple[StepRewardCalculator, ReturnNormalizer | None, ObsNormalizer | None]:
+    step_calc = StepRewardCalculator(
+        input_mask=input_mask,
+        gamma=gamma,
+        corridor_weight=cfg.reward.corridor_weight,
+        energy_rate_weight=cfg.reward.energy_rate_weight,
+        constraint_weight=cfg.reward.constraint_weight,
+        apoapsis_weight=cfg.reward.apoapsis_weight,
+        eccentricity_weight=cfg.reward.eccentricity_weight,
+        energy_scale=cfg.reward.energy_scale,
+    )
+    ret_norm = ReturnNormalizer(gamma=gamma, warmup_steps=cfg.reward.norm_warmup_steps) if cfg.reward.normalize_returns else None
+    obs_norm = ObsNormalizer(obs_dim=len(input_mask)) if cfg.reward.normalize_obs else None
+    return step_calc, ret_norm, obs_norm
+
+
+def _terminal_observations(info: list[dict[str, Any]], done: npt.NDArray[np.bool_], obs_dim: int) -> npt.NDArray[np.float32]:
+    """Extract per-env terminal observation from info dicts. Fallback: zeros."""
+    out = np.zeros((len(info), obs_dim), dtype=np.float32)
+    for i, d in enumerate(done):
+        if d and "terminal_observation" in info[i]:
+            out[i] = np.asarray(info[i]["terminal_observation"], dtype=np.float32)
+    return out
+
+
+def _validate_deterministic(
+    policy: GaussianPolicy,
+    toml_path: Path,
+    output_dir: Path,
+    cfg: RLConfig,
+    input_mask: list[int],
+    obs_norm: ObsNormalizer | None = None,
+) -> dict[str, Any]:
+    """Export deterministic policy + run validation batch; return RMS cost + capture rate."""
+    import aerocapture_rs  # type: ignore[import]
+
+    from aerocapture.training.evaluate import VALIDATION_SEED_OFFSET, compute_cost, make_reserved_seeds
+
+    tmp_json = output_dir / "gen_current_model.json"
+    export_policy_to_json(policy, tmp_json, input_mask, obs_normalizer=obs_norm)
+
+    base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("seed", 42))
+    seeds = make_reserved_seeds(base_seed, VALIDATION_SEED_OFFSET, cfg.validation_n_sims)
+
+    overrides_list = [{"data.neural_network": str(tmp_json), "monte_carlo.seed": s, "simulation.n_sims": 1} for s in seeds]
+    results = aerocapture_rs.run_batch(str(toml_path), overrides_list)
+    fr = results.final_records
+
+    rms_cost = float(compute_cost(fr))
+    capture_rate = float(np.mean((fr[:, _IDX_IFINAL] == 3) & (fr[:, _IDX_ECC] < 1.0)))
+    return {"val_rms_cost": rms_cost, "val_capture_rate": capture_rate}
+
+
+def _run_final_eval(toml_path: Path, best_model: Path, cfg: RLConfig) -> None:
+    import aerocapture_rs  # type: ignore[import]
+
+    from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
+    from aerocapture.training.report import print_eval_summary, read_cost_kwargs
+
+    n_sims = cfg.validation_n_sims
+    base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("seed", 42))
+    seeds = make_reserved_seeds(base_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
+
+    overrides_list = [{"data.neural_network": str(best_model), "monte_carlo.seed": s, "simulation.n_sims": 1} for s in seeds]
+    print(f"\nRunning {n_sims}-sim final evaluation...", file=sys.stderr)
+    results = aerocapture_rs.run_batch(str(toml_path), overrides_list)
+
+    cost_kwargs = read_cost_kwargs(toml_path)
+    print_eval_summary(results.final_records, n_sims, cost_kwargs=cost_kwargs)
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Train neural_network guidance via PPO.")
+    ap = argparse.ArgumentParser(description="Train neural_network guidance via PPO or SAC.")
     ap.add_argument("toml_path")
     ap.add_argument("--algorithm", choices=["ppo", "sac"], default=None)
     ap.add_argument("--total-steps", type=int, default=None)
@@ -110,6 +166,7 @@ def main() -> None:
     ap.add_argument("--min-log-std", type=float, default=None, help="Override PPO min_log_std floor")
     ap.add_argument("--update-epochs", type=int, default=None, help="Override PPO update epochs per rollout")
     ap.add_argument("--lr-anneal-start", type=float, default=None, help="Override PPO LR anneal start fraction")
+    ap.add_argument("--target-kl", type=float, default=None, help="Override PPO target_kl early-stop threshold")
     ap.add_argument("--no-tui", action="store_true")
     ap.add_argument("--skip-report", action="store_true")
     ap.add_argument("--resume", type=Path, default=None)
@@ -143,6 +200,8 @@ def main() -> None:
         ppo_overrides["update_epochs"] = args.update_epochs
     if args.lr_anneal_start is not None:
         ppo_overrides["lr_anneal_start"] = args.lr_anneal_start
+    if args.target_kl is not None:
+        ppo_overrides["target_kl"] = args.target_kl
 
     cfg = RLConfig.from_toml(Path(args.toml_path), overrides=overrides or None, ppo_overrides=ppo_overrides or None)
 
@@ -156,9 +215,6 @@ def main() -> None:
 
     warmstart_json: Path | None = None
     if args.data_neural_network is not None and not args.from_scratch:
-        # Warm-start: load GA-trained weights into the policy. Clear stale
-        # checkpoint/best_model so the optimizer, value network, and counters
-        # start fresh (keeping the old checkpoint would mix incompatible state).
         warmstart_json = args.data_neural_network
         for stale in ("checkpoint.pt", "best_model.json"):
             p = args.output_dir / stale
@@ -178,7 +234,7 @@ def main() -> None:
         env_overrides["data.neural_network"] = str(seed_model_path)
 
     config_hash = hashlib.sha256(json.dumps(cfg.raw_toml, sort_keys=True).encode()).hexdigest()[:12]
-    (args.output_dir / "config_resolved.toml").write_text(_dict_to_toml(cfg.raw_toml))
+    (args.output_dir / "config_resolved.toml").write_bytes(tomli_w.dumps(cfg.raw_toml).encode())
 
     logger = RLLogger(args.output_dir, config_hash)
     display = make_display(cfg.total_env_steps, enabled=not args.no_tui and sys.stdout.isatty())
@@ -201,18 +257,45 @@ def main() -> None:
         display.close()
         logger.close()
 
-    # --- Final evaluation summary (same as GA training) ---
     best_model = args.output_dir / "best_model.json"
     if best_model.exists():
         _run_final_eval(Path(args.toml_path), best_model, cfg)
 
     if not args.skip_report:
-        try:
-            from aerocapture.training.rl.report_rl import generate_report  # type: ignore[import]
+        from aerocapture.training.rl.report_rl import generate_report
 
-            generate_report(args.output_dir, Path(args.toml_path))
-        except ImportError:
-            print("report_rl not yet implemented — skipping PDF generation", file=sys.stderr)
+        generate_report(args.output_dir, Path(args.toml_path))
+
+
+# ---------------------------------------------------------------------------
+# PPO
+# ---------------------------------------------------------------------------
+
+
+def _save_ppo_checkpoint(
+    output_dir: Path,
+    policy: GaussianPolicy,
+    value: ValueNetwork,
+    optim: torch.optim.Optimizer,
+    update_idx: int,
+    env_steps: int,
+    best_val_cost: float,
+    ret_norm: ReturnNormalizer | None,
+    obs_norm: ObsNormalizer | None,
+) -> None:
+    torch.save(
+        {
+            "policy": policy.state_dict(),
+            "value": value.state_dict(),
+            "optim": optim.state_dict(),
+            "update_idx": update_idx,
+            "env_steps": env_steps,
+            "best_val_cost": best_val_cost,
+            "ret_norm": ret_norm.state_dict() if ret_norm is not None else None,
+            "obs_norm": obs_norm.state_dict() if obs_norm is not None else None,
+        },
+        output_dir / "checkpoint.pt",
+    )
 
 
 def _run_ppo(
@@ -227,18 +310,7 @@ def _run_ppo(
     warmstart_json: Path | None = None,
 ) -> None:
     input_mask, layer_sizes, activations, input_dim = _parse_network_config(cfg)
-
-    step_calc = StepRewardCalculator(
-        input_mask=input_mask,
-        corridor_weight=cfg.reward.corridor_weight,
-        energy_rate_weight=cfg.reward.energy_rate_weight,
-        constraint_weight=cfg.reward.constraint_weight,
-        apoapsis_weight=cfg.reward.apoapsis_weight,
-        eccentricity_weight=cfg.reward.eccentricity_weight,
-        energy_scale=cfg.reward.energy_scale,
-    )
-    ret_norm = ReturnNormalizer(warmup_episodes=cfg.reward.norm_warmup_episodes) if cfg.reward.normalize_returns else None
-    obs_norm = ObsNormalizer(obs_dim=input_dim) if cfg.reward.normalize_obs else None
+    step_calc, ret_norm, obs_norm = _build_shaper_and_norms(cfg, input_mask, gamma=cfg.ppo.gamma)
 
     env = AerocaptureVecEnv(
         toml_path=str(toml_path),
@@ -257,7 +329,6 @@ def _run_ppo(
         lr=cfg.ppo.learning_rate,
     )
 
-    # --- Checkpoint resume ---
     env_steps = 0
     update_idx = 0
     best_val_cost = float("inf")
@@ -277,6 +348,10 @@ def _run_ppo(
         print(f"Resumed from checkpoint: update {update_idx}, {env_steps} env steps", file=sys.stderr)
 
     buf = RolloutBuffer.create(cfg.ppo.rollout_steps, cfg.n_envs, env.obs_dim)
+    # Bootstrap values for each step: value network's estimate of V(next_obs) per env.
+    # We store this alongside the rollout so GAE can use V(terminal_obs) on truncated
+    # episodes instead of V(reset_obs) which would leak across episode boundaries.
+    next_values = np.zeros((cfg.ppo.rollout_steps, cfg.n_envs), dtype=np.float32)
 
     obs, aux_cur = env.reset()
     episodic_returns: list[float] = []
@@ -285,9 +360,7 @@ def _run_ppo(
     start_time = time.time()
 
     while env_steps < cfg.total_env_steps and not interrupted["v"]:
-        # --- Rollout collection ---
         for t in range(cfg.ppo.rollout_steps):
-            # Update obs stats, normalize for policy forward pass.
             if obs_norm is not None:
                 obs_norm.update(obs)
                 obs_policy = obs_norm.normalize(obs)
@@ -307,7 +380,12 @@ def _run_ppo(
             actions_np = bank.cpu().numpy().astype(np.float32)
             next_obs, _rust_reward, done, info, aux_next = env.step(actions_np)
 
-            shaped = step_calc.step_reward(obs, aux_cur, aux_next).astype(np.float32)
+            # Terminal-obs-aware next obs: for done envs, use the pre-reset obs
+            # so PBRS and value bootstrap see the final physical state.
+            term_obs = _terminal_observations(info, done, env.obs_dim)
+            next_obs_for_shape = np.where(done[:, None], term_obs, next_obs)
+
+            shaped = step_calc.step_reward(obs, next_obs_for_shape, aux_cur, aux_next).astype(np.float32)
 
             for i, d in enumerate(done):
                 if d:
@@ -317,38 +395,46 @@ def _run_ppo(
                     episodic_returns.append(float(-term_cost))
                     episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
                     episodic_captures.append(bool(info[i].get("captured", False)))
-                    if ret_norm is not None:
-                        ret_norm.update_episode_return(float(-term_cost))
 
-            # Store raw obs in buffer; normalize at update time.
+            # Update return normalizer with raw shaped rewards + per-env done mask.
+            # Rewards are normalized per-step (same as SAC) using the just-updated std,
+            # so advantages at GAE time use a stable scale within each rollout.
+            if ret_norm is not None:
+                ret_norm.update(shaped.astype(np.float64), done)
+                shaped = ret_norm.normalize(shaped.astype(np.float64)).astype(np.float32)
+
+            # Per-env bootstrap value: for truncated envs bootstrap off terminal obs;
+            # for proper terminations bootstrap is zeroed by `done` mask in GAE below.
+            with torch.no_grad():
+                nv_obs = term_obs.copy()
+                # Non-done envs: next_obs is the actual next state.
+                nv_obs = np.where(done[:, None], nv_obs, next_obs)
+                nv_obs_policy = obs_norm.normalize(nv_obs) if obs_norm is not None else nv_obs
+                nv = value(torch.from_numpy(nv_obs_policy).float()).cpu().numpy()
+
+            # Distinguish truncation (keep bootstrap) from termination (zero bootstrap).
+            truncated = np.array([bool(info[i].get("truncated", False)) for i in range(cfg.n_envs)], dtype=np.bool_)
+
             buf.obs[t] = obs
             buf.raw_actions[t] = raw.cpu().numpy()
             buf.log_probs[t] = log_prob.cpu().numpy()
             buf.rewards[t] = shaped
-            buf.values[t] = v_pred.squeeze(-1).cpu().numpy()
-            buf.dones[t] = done
+            buf.values[t] = v_pred.cpu().numpy()
+            # Zero bootstrap on true terminations; keep on truncations and normal transitions.
+            buf.dones[t] = done & ~truncated
+            next_values[t] = nv
 
             obs = next_obs
             aux_cur = aux_next
             env_steps += cfg.n_envs
 
-        # --- Bootstrap value for last obs ---
-        last_obs_policy = obs_norm.normalize(obs) if obs_norm is not None else obs
-        with torch.no_grad():
-            last_v = value(torch.from_numpy(last_obs_policy).float()).squeeze(-1).cpu().numpy()
-
-        # --- Normalize rewards before GAE ---
-        if ret_norm is not None:
-            buf.rewards = ret_norm.normalize(buf.rewards.astype(np.float64)).astype(np.float32)
-
-        # --- GAE per env ---
         advantages = np.zeros_like(buf.rewards)
         returns = np.zeros_like(buf.rewards)
         for e in range(cfg.n_envs):
-            vs = np.concatenate([buf.values[:, e], last_v[e : e + 1]])
             adv, ret = compute_gae(
                 buf.rewards[:, e],
-                vs,
+                buf.values[:, e],
+                next_values[:, e],
                 buf.dones[:, e],
                 gamma=cfg.ppo.gamma,
                 lam=cfg.ppo.gae_lambda,
@@ -356,7 +442,6 @@ def _run_ppo(
             advantages[:, e] = adv
             returns[:, e] = ret
 
-        # --- LR anneal (constant until lr_anneal_start, then linear decay to 0) ---
         frac_done = env_steps / cfg.total_env_steps
         anneal_start = cfg.ppo.lr_anneal_start
         lr = cfg.ppo.learning_rate if frac_done <= anneal_start else cfg.ppo.learning_rate * max((1.0 - frac_done) / (1.0 - anneal_start), 0.0)
@@ -387,11 +472,11 @@ def _run_ppo(
             entropy_coef=cfg.ppo.entropy_coef,
             value_coef=cfg.ppo.value_coef,
             max_grad_norm=cfg.ppo.max_grad_norm,
+            target_kl=cfg.ppo.target_kl,
         )
 
         update_idx += 1
 
-        # --- Validation gate ---
         val_attempted = update_idx % cfg.validation_interval_updates == 0
         val_record: dict[str, Any] = {}
         if val_attempted:
@@ -403,9 +488,8 @@ def _run_ppo(
             else:
                 val_record["val_promoted"] = False
 
-        # --- Periodic checkpoint ---
         if update_idx % cfg.checkpoint_interval_updates == 0:
-            _save_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost, ret_norm=ret_norm, obs_norm=obs_norm)
+            _save_ppo_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost, ret_norm, obs_norm)
 
         record: dict[str, Any] = {
             "update_idx": update_idx,
@@ -418,6 +502,7 @@ def _run_ppo(
             "entropy": metrics["entropy"],
             "approx_kl": metrics["approx_kl"],
             "clip_frac": metrics["clip_frac"],
+            "epochs_run": metrics.get("epochs_run", float(cfg.ppo.update_epochs)),
             "learning_rate": lr,
             "val_attempted": val_attempted,
             "val_promoted": val_record.get("val_promoted", False),
@@ -429,31 +514,36 @@ def _run_ppo(
         logger.log_update(record)
         display.update(record)
 
-    # --- Final checkpoint + export ---
-    _save_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost, ret_norm=ret_norm, obs_norm=obs_norm)
+    _save_ppo_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost, ret_norm, obs_norm)
     if best_val_cost == float("inf"):
-        # No validation fired yet; export current policy so the caller has something.
         export_policy_to_json(policy, output_dir / "best_model.json", input_mask, obs_normalizer=obs_norm)
 
     env.close()
 
 
-def _save_checkpoint(
+# ---------------------------------------------------------------------------
+# SAC
+# ---------------------------------------------------------------------------
+
+
+def _save_sac_checkpoint(
     output_dir: Path,
-    policy: GaussianPolicy,
-    value: ValueNetwork,
-    optim: torch.optim.Optimizer,
+    agent: SACAgent,
     update_idx: int,
     env_steps: int,
     best_val_cost: float,
-    ret_norm: ReturnNormalizer | None = None,
-    obs_norm: ObsNormalizer | None = None,
+    ret_norm: ReturnNormalizer | None,
+    obs_norm: ObsNormalizer | None,
 ) -> None:
     torch.save(
         {
-            "policy": policy.state_dict(),
-            "value": value.state_dict(),
-            "optim": optim.state_dict(),
+            "policy": agent.policy.state_dict(),
+            "q1": agent.q1.state_dict(),
+            "q2": agent.q2.state_dict(),
+            "q1_target": agent.q1_target.state_dict(),
+            "q2_target": agent.q2_target.state_dict(),
+            "log_alpha": agent.log_alpha.data,
+            "replay_buffer": agent.replay_buffer.state_dict(),
             "update_idx": update_idx,
             "env_steps": env_steps,
             "best_val_cost": best_val_cost,
@@ -462,57 +552,6 @@ def _save_checkpoint(
         },
         output_dir / "checkpoint.pt",
     )
-
-
-def _validate_deterministic(
-    policy: GaussianPolicy,
-    toml_path: Path,
-    output_dir: Path,
-    cfg: RLConfig,
-    input_mask: list[int],
-    obs_norm: ObsNormalizer | None = None,
-) -> dict[str, Any]:
-    """Export deterministic policy to JSON, run validation batch, return RMS cost + capture rate."""
-    import aerocapture_rs  # type: ignore[import]
-
-    from aerocapture.training.evaluate import VALIDATION_SEED_OFFSET, compute_cost, make_reserved_seeds
-
-    tmp_json = output_dir / "gen_current_model.json"
-    export_policy_to_json(policy, tmp_json, input_mask, obs_normalizer=obs_norm)
-
-    base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("seed", 42))
-    seeds = make_reserved_seeds(base_seed, VALIDATION_SEED_OFFSET, cfg.validation_n_sims)
-
-    overrides_list = [{"data.neural_network": str(tmp_json), "monte_carlo.seed": s, "simulation.n_sims": 1} for s in seeds]
-    results = aerocapture_rs.run_batch(str(toml_path), overrides_list)
-    fr = results.final_records  # (N, 52)
-
-    rms_cost = float(compute_cost(fr))
-    # Captured: ifinal==3 AND ecc<1.0 (energy<0 implicit for valid orbits).
-    # Indices verified against runner.rs final_record layout:
-    #   _IDX_IFINAL=31, _IDX_ECC=9
-    capture_rate = float(np.mean((fr[:, _IDX_IFINAL] == 3) & (fr[:, _IDX_ECC] < 1.0)))
-
-    return {"val_rms_cost": rms_cost, "val_capture_rate": capture_rate}
-
-
-def _run_final_eval(toml_path: Path, best_model: Path, cfg: RLConfig) -> None:
-    """Run final MC evaluation on the best model and print summary stats."""
-    import aerocapture_rs  # type: ignore[import]
-
-    from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
-    from aerocapture.training.report import _print_eval_summary, _read_cost_kwargs
-
-    n_sims = cfg.validation_n_sims
-    base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("seed", 42))
-    seeds = make_reserved_seeds(base_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
-
-    overrides_list = [{"data.neural_network": str(best_model), "monte_carlo.seed": s, "simulation.n_sims": 1} for s in seeds]
-    print(f"\nRunning {n_sims}-sim final evaluation...", file=sys.stderr)
-    results = aerocapture_rs.run_batch(str(toml_path), overrides_list)
-
-    cost_kwargs = _read_cost_kwargs(toml_path)
-    _print_eval_summary(results.final_records, n_sims, cost_kwargs=cost_kwargs)
 
 
 def _run_sac(
@@ -524,20 +563,8 @@ def _run_sac(
     interrupted: dict[str, bool],
     env_overrides: dict[str, Any] | None = None,
 ) -> None:
-    """SAC outer loop (experimental). Shares GaussianPolicy + export path with PPO."""
     input_mask, layer_sizes, activations, input_dim = _parse_network_config(cfg)
-
-    step_calc = StepRewardCalculator(
-        input_mask=input_mask,
-        corridor_weight=cfg.reward.corridor_weight,
-        energy_rate_weight=cfg.reward.energy_rate_weight,
-        constraint_weight=cfg.reward.constraint_weight,
-        apoapsis_weight=cfg.reward.apoapsis_weight,
-        eccentricity_weight=cfg.reward.eccentricity_weight,
-        energy_scale=cfg.reward.energy_scale,
-    )
-    ret_norm = ReturnNormalizer(warmup_episodes=cfg.reward.norm_warmup_episodes) if cfg.reward.normalize_returns else None
-    obs_norm = ObsNormalizer(obs_dim=input_dim) if cfg.reward.normalize_obs else None
+    step_calc, ret_norm, obs_norm = _build_shaper_and_norms(cfg, input_mask, gamma=cfg.sac.gamma)
 
     env = AerocaptureVecEnv(
         toml_path=str(toml_path),
@@ -560,7 +587,6 @@ def _run_sac(
         initial_alpha=sac_cfg.initial_alpha,
     )
 
-    # --- Checkpoint resume ---
     env_steps = 0
     update_idx = 0
     best_val_cost = float("inf")
@@ -573,6 +599,8 @@ def _run_sac(
         agent.q1_target.load_state_dict(ckpt["q1_target"])
         agent.q2_target.load_state_dict(ckpt["q2_target"])
         agent.log_alpha.data.copy_(ckpt["log_alpha"])
+        if ckpt.get("replay_buffer") is not None:
+            agent.replay_buffer.load_state_dict(ckpt["replay_buffer"])
         update_idx = int(ckpt["update_idx"])
         env_steps = int(ckpt["env_steps"])
         best_val_cost = float(ckpt["best_val_cost"])
@@ -580,16 +608,16 @@ def _run_sac(
             ret_norm.load_state_dict(ckpt["ret_norm"])
         if obs_norm is not None and ckpt.get("obs_norm") is not None:
             obs_norm.load_state_dict(ckpt["obs_norm"])
-        print(f"SAC resumed from checkpoint: update {update_idx}, {env_steps} env steps", file=sys.stderr)
+        print(f"SAC resumed: update {update_idx}, {env_steps} env steps, buffer={len(agent.replay_buffer)}", file=sys.stderr)
 
     obs, aux_cur = env.reset()
     episodic_returns: list[float] = []
     episodic_dvs: list[float] = []
     episodic_captures: list[bool] = []
     start_time = time.time()
+    metrics: dict[str, Any] = {}
 
     while env_steps < cfg.total_env_steps and not interrupted["v"]:
-        # --- Collect one step per env ---
         if obs_norm is not None:
             obs_norm.update(obs)
             obs_policy = obs_norm.normalize(obs)
@@ -597,12 +625,15 @@ def _run_sac(
             obs_policy = obs
         obs_t = torch.from_numpy(obs_policy).float()
         with torch.no_grad():
-            bank_t, _ = agent.policy.sample(obs_t)
+            bank_t, raw_t, _ = agent.policy.sample(obs_t)
         actions_np = bank_t.cpu().numpy().astype(np.float32)
+        raw_np = raw_t.cpu().numpy().astype(np.float32)
 
         next_obs, _rust_reward, done, info, aux_next = env.step(actions_np)
 
-        shaped = step_calc.step_reward(obs, aux_cur, aux_next).astype(np.float32)
+        term_obs = _terminal_observations(info, done, env.obs_dim)
+        next_obs_for_shape = np.where(done[:, None], term_obs, next_obs)
+        shaped = step_calc.step_reward(obs, next_obs_for_shape, aux_cur, aux_next).astype(np.float32)
 
         for i, d in enumerate(done):
             if d:
@@ -612,27 +643,33 @@ def _run_sac(
                 episodic_returns.append(float(-term_cost))
                 episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
                 episodic_captures.append(bool(info[i].get("captured", False)))
-                if ret_norm is not None:
-                    ret_norm.update_episode_return(float(-term_cost))
 
-        # Normalize rewards per step before pushing to replay buffer.
-        shaped_norm = ret_norm.normalize(shaped.astype(np.float64)).astype(np.float32) if ret_norm is not None else shaped
-        # SAC stores normalized obs in replay buffer.
-        next_obs_policy = obs_norm.normalize(next_obs) if obs_norm is not None else next_obs
-        agent.replay_buffer.push(obs_policy, actions_np, shaped_norm, next_obs_policy, done)
+        if ret_norm is not None:
+            ret_norm.update(shaped.astype(np.float64), done)
+            shaped_norm = ret_norm.normalize(shaped.astype(np.float64)).astype(np.float32)
+        else:
+            shaped_norm = shaped
+
+        # SAC stores normalized obs in replay buffer for policy/critic consistency.
+        # For truncated steps, the Q-target bootstraps via (1-done)*Q(next), so
+        # `next_obs` must be the *terminal* observation (pre-reset), not the reset
+        # observation of a freshly-drawn episode (which would leak cross-episode state).
+        truncated = np.array([bool(info[i].get("truncated", False)) for i in range(cfg.n_envs)], dtype=np.bool_)
+        true_next = np.where(done[:, None], term_obs, next_obs)
+        next_obs_policy = obs_norm.normalize(true_next) if obs_norm is not None else true_next
+        done_for_buffer = done & ~truncated
+        agent.replay_buffer.push(obs_policy, raw_np, shaped_norm, next_obs_policy, done_for_buffer)
         obs = next_obs
         aux_cur = aux_next
         env_steps += cfg.n_envs
 
-        # --- Update every train_every steps if buffer warm (skip during warmup) ---
         buffer_ready = len(agent.replay_buffer) >= max(sac_cfg.batch_size, sac_cfg.warmup_steps)
         if buffer_ready and env_steps % (sac_cfg.train_every * cfg.n_envs) == 0:
             for _ in range(sac_cfg.gradient_steps):
-                batch_obs, batch_act, batch_rew, batch_next, batch_done = agent.replay_buffer.sample(sac_cfg.batch_size)
-                metrics = agent.update(batch_obs, batch_act, batch_rew, batch_next, batch_done)
+                batch_obs, batch_raw, batch_rew, batch_next, batch_done = agent.replay_buffer.sample(sac_cfg.batch_size)
+                metrics = agent.update(batch_obs, batch_raw, batch_rew, batch_next, batch_done)
             update_idx += 1
 
-            # --- Validation gate ---
             val_attempted = update_idx % cfg.validation_interval_updates == 0
             val_record: dict[str, Any] = {}
             if val_attempted:
@@ -644,24 +681,8 @@ def _run_sac(
                 else:
                     val_record["val_promoted"] = False
 
-            # --- Periodic checkpoint ---
             if update_idx % cfg.checkpoint_interval_updates == 0:
-                torch.save(
-                    {
-                        "policy": agent.policy.state_dict(),
-                        "q1": agent.q1.state_dict(),
-                        "q2": agent.q2.state_dict(),
-                        "q1_target": agent.q1_target.state_dict(),
-                        "q2_target": agent.q2_target.state_dict(),
-                        "log_alpha": agent.log_alpha.data,
-                        "update_idx": update_idx,
-                        "env_steps": env_steps,
-                        "best_val_cost": best_val_cost,
-                        "ret_norm": ret_norm.state_dict() if ret_norm is not None else None,
-                        "obs_norm": obs_norm.state_dict() if obs_norm is not None else None,
-                    },
-                    output_dir / "checkpoint.pt",
-                )
+                _save_sac_checkpoint(output_dir, agent, update_idx, env_steps, best_val_cost, ret_norm, obs_norm)
 
             record: dict[str, Any] = {
                 "update_idx": update_idx,
@@ -670,7 +691,7 @@ def _run_sac(
                 "episodic_dv_m_s_mean": float(np.mean(episodic_dvs[-64:])) if episodic_dvs else float("nan"),
                 "episodic_capture_rate": float(np.mean(episodic_captures[-64:])) if episodic_captures else float("nan"),
                 "policy_loss": metrics.get("policy_loss", float("nan")),
-                "value_loss": metrics.get("q_loss", float("nan")),  # map q_loss to value_loss for display compat
+                "value_loss": metrics.get("q_loss", float("nan")),
                 "entropy": metrics.get("mean_log_prob", float("nan")),
                 "alpha": metrics.get("alpha", float("nan")),
                 "learning_rate": sac_cfg.learning_rate,
@@ -684,23 +705,7 @@ def _run_sac(
             logger.log_update(record)
             display.update(record)
 
-    # --- Final checkpoint + export ---
-    torch.save(
-        {
-            "policy": agent.policy.state_dict(),
-            "q1": agent.q1.state_dict(),
-            "q2": agent.q2.state_dict(),
-            "q1_target": agent.q1_target.state_dict(),
-            "q2_target": agent.q2_target.state_dict(),
-            "log_alpha": agent.log_alpha.data,
-            "update_idx": update_idx,
-            "env_steps": env_steps,
-            "best_val_cost": best_val_cost,
-            "ret_norm": ret_norm.state_dict() if ret_norm is not None else None,
-            "obs_norm": obs_norm.state_dict() if obs_norm is not None else None,
-        },
-        output_dir / "checkpoint.pt",
-    )
+    _save_sac_checkpoint(output_dir, agent, update_idx, env_steps, best_val_cost, ret_norm, obs_norm)
     if best_val_cost == float("inf"):
         export_policy_to_json(agent.policy, output_dir / "best_model.json", input_mask, obs_normalizer=obs_norm)
 

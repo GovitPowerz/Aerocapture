@@ -12,30 +12,32 @@ from aerocapture.training.rl.normalizers import ObsNormalizer, ReturnNormalizer 
 
 class TestReturnNormalizer:
     def test_warmup_returns_unscaled(self) -> None:
-        norm = ReturnNormalizer(warmup_episodes=10)
+        norm = ReturnNormalizer(warmup_steps=100)
+        rewards = np.array([-10.0, -10.0], dtype=np.float64)
+        dones = np.zeros(2, dtype=bool)
         for _ in range(5):
-            norm.update_episode_return(-500.0)
-        raw = np.array([-400.0, -600.0], dtype=np.float64)
-        out = norm.normalize(raw)
-        np.testing.assert_array_equal(out, raw)
+            norm.update(rewards, dones)
+        out = norm.normalize(rewards)
+        np.testing.assert_array_equal(out, rewards)
 
     def test_post_warmup_scales_by_std(self) -> None:
-        norm = ReturnNormalizer(warmup_episodes=2)
-        norm.update_episode_return(-100.0)
-        norm.update_episode_return(-300.0)
-        # mean=-200, var=10000, std=100
+        norm = ReturnNormalizer(gamma=0.0, warmup_steps=2)
+        # With gamma=0, the running return equals the instantaneous reward,
+        # so std(returns) = std(rewards) = 100 for [-100, -300].
+        norm.update(np.array([-100.0], dtype=np.float64), np.zeros(1, dtype=bool))
+        norm.update(np.array([-300.0], dtype=np.float64), np.zeros(1, dtype=bool))
         raw = np.array([-200.0], dtype=np.float64)
         out = norm.normalize(raw)
         assert abs(out[0] - (-200.0 / 100.0)) < 0.1
 
     def test_checkpoint_roundtrip(self) -> None:
-        norm = ReturnNormalizer(warmup_episodes=2)
-        for v in [-100.0, -200.0, -300.0]:
-            norm.update_episode_return(v)
+        norm = ReturnNormalizer(gamma=0.99, warmup_steps=2)
+        for v in [-10.0, -20.0, -30.0]:
+            norm.update(np.array([v], dtype=np.float64), np.zeros(1, dtype=bool))
         state = norm.state_dict()
-        norm2 = ReturnNormalizer(warmup_episodes=2)
+        norm2 = ReturnNormalizer(warmup_steps=2)
         norm2.load_state_dict(state)
-        raw = np.array([-250.0], dtype=np.float64)
+        raw = np.array([-25.0], dtype=np.float64)
         np.testing.assert_allclose(norm.normalize(raw), norm2.normalize(raw))
 
 

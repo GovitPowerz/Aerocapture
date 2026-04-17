@@ -49,20 +49,28 @@ class RolloutBuffer:
 def compute_gae(
     rewards: npt.NDArray[np.float32],
     values: npt.NDArray[np.float32],
+    next_values: npt.NDArray[np.float32],
     dones: npt.NDArray[np.bool_],
     gamma: float,
     lam: float,
 ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
-    """Standard GAE-lambda. `values` has length n_steps+1 (trailing bootstrap)."""
+    """GAE-lambda with per-step next-value bootstrap.
+
+    `values[t]`: V(s_t). `next_values[t]`: V(s_{t+1}) -- caller supplies
+    V(terminal_obs) for truncated steps and V(reset_obs) for continuing
+    steps where the episode did not end. `dones[t]` should be True *only*
+    for true terminations; truncation sets `done=False` so the bootstrap
+    is kept.
+    """
     n = rewards.shape[0]
     adv = np.zeros_like(rewards, dtype=np.float32)
     gae = 0.0
     for t in reversed(range(n)):
         not_done = 1.0 - float(dones[t])
-        delta = rewards[t] + gamma * values[t + 1] * not_done - values[t]
+        delta = rewards[t] + gamma * next_values[t] * not_done - values[t]
         gae = delta + gamma * lam * not_done * gae
         adv[t] = gae
-    ret = adv + values[:-1]
+    ret = adv + values
     return adv, ret
 
 
@@ -81,8 +89,13 @@ def ppo_update(
     entropy_coef: float,
     value_coef: float,
     max_grad_norm: float,
+    target_kl: float | None = None,
 ) -> dict[str, float]:
-    """PPO clipped-surrogate update. Mean metrics across all minibatches returned."""
+    """PPO clipped-surrogate update. Mean metrics across all minibatches returned.
+
+    If `target_kl` is set, the epoch loop breaks when mean per-epoch approx_kl
+    exceeds the threshold; the returned `epochs_run` reflects how many ran.
+    """
     n = obs.shape[0]
     batch_size = max(1, n // minibatches)
     indices = np.arange(n)
@@ -96,9 +109,11 @@ def ppo_update(
         "approx_kl": [],
         "clip_frac": [],
     }
+    epochs_run = 0
 
     for _ in range(update_epochs):
         np.random.shuffle(indices)
+        epoch_kls: list[float] = []
         for start in range(0, n, batch_size):
             mb = indices[start : start + batch_size]
             mb_obs = obs[mb]
@@ -136,5 +151,11 @@ def ppo_update(
             metrics_acc["entropy"].append(entropy.item())
             metrics_acc["approx_kl"].append(approx_kl)
             metrics_acc["clip_frac"].append(clip_frac)
+            epoch_kls.append(approx_kl)
+        epochs_run += 1
+        if target_kl is not None and epoch_kls and float(np.mean(epoch_kls)) > target_kl:
+            break
 
-    return {k: float(np.mean(v)) for k, v in metrics_acc.items()}
+    result = {k: float(np.mean(v)) for k, v in metrics_acc.items()}
+    result["epochs_run"] = float(epochs_run)
+    return result

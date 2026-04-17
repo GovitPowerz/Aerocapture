@@ -213,6 +213,10 @@ impl BatchedSimulation {
                         let energy = fr[7]; // MJ/kg; negative = captured
                         let captured = ifinal == 3 && ecc < 1.0 && energy < 0.0;
                         let violated = state.any_constraint_violated(sim_data);
+                        // Truncation vs termination: ifinal=2 (Timeout) is a max_time cutoff
+                        // where the trajectory is still physically valid -- the value
+                        // function should bootstrap V(terminal_obs), not 0.
+                        let truncated = ifinal == 2;
                         let term = TerminalOutcome {
                             ifinal,
                             captured,
@@ -222,6 +226,7 @@ impl BatchedSimulation {
                             peak_g_load: fr[17],
                             peak_heat_load_kj_m2: fr[28] * 1e3, // MJ/m2 -> kJ/m2
                             violated_constraints: violated,
+                            truncated,
                             final_record: fr,
                             terminal_obs,
                         };
@@ -277,6 +282,7 @@ impl BatchedSimulation {
                 dict.set_item("peak_g_load", t.peak_g_load)?;
                 dict.set_item("peak_heat_load_kJ_m2", t.peak_heat_load_kj_m2)?;
                 dict.set_item("violated_constraints", t.violated_constraints)?;
+                dict.set_item("truncated", t.truncated)?;
                 dict.set_item("final_record", t.final_record.to_vec())?;
                 // Pre-reset obs of the terminated episode; PPO needs this for value bootstrap.
                 let term_obs: Vec<f32> = t.terminal_obs.iter().map(|&v| v as f32).collect();
@@ -379,6 +385,7 @@ struct TerminalOutcome {
     peak_g_load: f64,
     peak_heat_load_kj_m2: f64,
     violated_constraints: bool,
+    truncated: bool,
     final_record: [f64; 52],
     /// Last observation of the terminated episode (pre-reset), for PPO value bootstrap.
     terminal_obs: Vec<f64>,

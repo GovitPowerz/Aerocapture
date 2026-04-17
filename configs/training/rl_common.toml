@@ -1,6 +1,8 @@
-# Shared RL training defaults. Fragment — leaf configs should list common.toml
-# and a mission TOML in their `base` alongside this file (which is no-base so
-# that the config_loading.rs::all_configs_are_consolidated test skips it).
+# Shared RL training defaults. Leaf training configs list this file (along
+# with a mission TOML and common.toml) in their `base` array. This file is
+# itself baseless: it is a fragment meant to be merged into a fully-consolidated
+# leaf config, so the config_loading.rs::all_configs_are_consolidated check
+# does not apply to it.
 
 [rl]
 algorithm                   = "ppo"
@@ -20,7 +22,7 @@ eccentricity_weight = 0.1
 energy_scale        = 1.0e6
 normalize_returns   = true
 normalize_obs       = true
-norm_warmup_episodes = 64
+norm_warmup_steps   = 1000
 
 [rl.ppo]
 learning_rate     = 3.0e-4

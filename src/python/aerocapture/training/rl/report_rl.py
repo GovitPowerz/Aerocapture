@@ -92,10 +92,8 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
                 print(f"Warning: Parquet write failed: {exc}")
 
             # Part 2: Mission performance charts
-            from aerocapture.training.report import _read_cost_kwargs
-
-            cost_kwargs = _read_cost_kwargs(toml_path)
-            ga_report._render_mission_performance_charts(  # type: ignore[attr-defined]
+            cost_kwargs = ga_report.read_cost_kwargs(toml_path)
+            ga_report.render_mission_performance_charts(
                 final_records,
                 trajectories,
                 dispersions,
@@ -108,7 +106,7 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
             has_final_eval = True
 
             # Part 3: Sensitivity (if available)
-            sensitivity_flags = ga_report._maybe_render_sensitivity_charts(output_dir, tmp_dir)  # type: ignore[attr-defined]
+            sensitivity_flags = ga_report.maybe_render_sensitivity_charts(output_dir, tmp_dir)
 
         except ImportError:
             print("aerocapture_rs not available -- skipping final evaluation and Part 2/3")

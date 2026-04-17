@@ -13,12 +13,36 @@ from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, ppo_update  
 
 def test_gae_known_values() -> None:
     rewards = np.array([1.0, 1.0, 1.0], dtype=np.float32)
-    values = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    values = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+    next_values = np.array([0.0, 0.0, 0.0], dtype=np.float32)
     dones = np.array([False, False, True], dtype=np.bool_)
-    adv, ret = compute_gae(rewards, values, dones, gamma=0.99, lam=0.95)
+    adv, ret = compute_gae(rewards, values, next_values, dones, gamma=0.99, lam=0.95)
     assert adv.shape == (3,)
     assert np.isfinite(adv).all()
     assert np.isfinite(ret).all()
+
+
+def test_gae_truncation_keeps_bootstrap() -> None:
+    """Truncation sets done=False + provides V(terminal_obs) in next_values so
+    the advantage uses r + gamma*V(term) - V(s) instead of masking to 0."""
+    rewards = np.array([0.0], dtype=np.float32)
+    values = np.array([5.0], dtype=np.float32)
+    next_values = np.array([10.0], dtype=np.float32)  # V(terminal_obs)
+    dones = np.array([False], dtype=np.bool_)
+    adv, _ = compute_gae(rewards, values, next_values, dones, gamma=1.0, lam=1.0)
+    # delta = 0 + 1.0 * 10.0 - 5.0 = 5.0
+    assert adv[0] == 5.0
+
+
+def test_gae_true_termination_zeros_bootstrap() -> None:
+    """Termination sets done=True so the bootstrap is masked, no matter what
+    V(next) is; advantage = r - V(s)."""
+    rewards = np.array([0.0], dtype=np.float32)
+    values = np.array([5.0], dtype=np.float32)
+    next_values = np.array([10.0], dtype=np.float32)
+    dones = np.array([True], dtype=np.bool_)
+    adv, _ = compute_gae(rewards, values, next_values, dones, gamma=1.0, lam=1.0)
+    assert adv[0] == -5.0
 
 
 def test_rollout_buffer_create() -> None:
@@ -65,6 +89,42 @@ def test_ppo_update_runs_without_crashing() -> None:
     assert "entropy" in metrics
     assert "approx_kl" in metrics
     assert "clip_frac" in metrics
+
+
+def test_target_kl_early_stops_epochs() -> None:
+    """When policy updates cause mean approx_kl to exceed target_kl, the outer
+    epoch loop breaks early and `epochs_run` is less than the configured budget.
+    Forcing a large KL per update by combining zero clip_range with a huge
+    learning rate reliably trips the early-stop."""
+    torch.manual_seed(0)
+    policy = GaussianPolicy(8, [16, 2], ["tanh", "linear"])
+    value = ValueNetwork(8, [16], ["tanh", "linear"])
+    optim = torch.optim.Adam(list(policy.parameters()) + list(value.parameters()), lr=1.0)
+    n = 64
+    obs = torch.randn(n, 8)
+    raw = torch.randn(n, 2)
+    old_lp = torch.randn(n) * 0.1
+    adv = torch.randn(n)
+    ret = torch.randn(n)
+    metrics = ppo_update(
+        policy,
+        value,
+        optim,
+        obs,
+        raw,
+        old_lp,
+        adv,
+        ret,
+        clip_range=0.2,
+        update_epochs=10,
+        minibatches=4,
+        entropy_coef=0.0,
+        value_coef=0.5,
+        max_grad_norm=1.0,
+        target_kl=0.001,  # trivially small threshold
+    )
+    assert "epochs_run" in metrics
+    assert metrics["epochs_run"] < 10, "target_kl should have triggered early stop"
 
 
 def test_value_network_gradient_flows() -> None:
