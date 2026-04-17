@@ -5,6 +5,7 @@ use crate::data::SimData;
 use crate::gnc::control::angle_utils::shortest_angle_diff;
 use crate::gnc::guidance::ftc::{self as ftc_capture, FtcCaptureState};
 use crate::gnc::guidance::lateral::{self, LateralState};
+use crate::gnc::guidance::nn_state::NnState;
 use crate::gnc::guidance::{
     energy_controller, equilibrium_glide, exit, fnpag, neural, piecewise_constant, predguid,
     thermal_limiter,
@@ -167,9 +168,12 @@ pub fn guidance_step(
             }
             GuidanceType::NeuralNetwork => {
                 let nn = data.neural_net.as_ref().expect("NN params not loaded");
+                // TODO(Task 4): replace with guidance_state.nn_state once GuidanceState owns it.
+                let mut temp_nn_state = NnState::for_model(nn);
                 neural::nn_bank_angle(
                     nav,
                     nn,
+                    &mut temp_nn_state,
                     data,
                     planet,
                     data.target_orbit.inclination,

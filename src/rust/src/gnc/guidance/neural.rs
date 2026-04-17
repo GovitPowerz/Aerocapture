@@ -19,6 +19,7 @@ use crate::config::PlanetConfig;
 use crate::data::SimData;
 use crate::data::neural::{NN_FULL_INPUT_SIZE, NeuralNetModel};
 use crate::gnc::guidance::exit;
+use crate::gnc::guidance::nn_state::NnState;
 use crate::gnc::navigation::coordinates::total_energy;
 use crate::gnc::navigation::estimator::NavigationOutput;
 use crate::orbit::elements;
@@ -138,6 +139,7 @@ pub fn build_nn_input(
 pub fn nn_bank_angle(
     nav: &NavigationOutput,
     nn: &NeuralNetModel,
+    nn_state: &mut NnState,
     data: &SimData,
     planet: &PlanetConfig,
     target_inclination: f64, // radians
@@ -151,7 +153,7 @@ pub fn nn_bank_angle(
         target_inclination,
         ref_velocity_latched,
     );
-    let output = nn.forward(&masked);
+    let output = nn.forward(nn_state, &masked);
 
     // Interpret output based on model configuration
     match nn.output_interpretation.as_str() {
@@ -330,9 +332,40 @@ mod tests {
 
         // With zero weights + linear activation: output = [bias0, bias1]
         // Bank angle = atan2(1.0, 1.0) = PI/4
-        let bank = nn_bank_angle(&nav, &nn, &data, &planet, 50.0_f64.to_radians(), 0.0);
+        let mut state = NnState::for_model(&nn);
+        let bank = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut state,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+        );
         let expected = bias0.atan2(bias1); // PI/4
         assert_relative_eq!(bank, expected, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn stateful_forward_with_empty_state_matches_stateless() {
+        use crate::gnc::guidance::nn_state::NnState;
+
+        let nn = zero_weight_nn(0.5, 0.5);
+        let nav = test_nav();
+        let data = test_sim_data();
+        let planet = PlanetConfig::mars();
+        let mut state = NnState::for_model(&nn);
+
+        let bank = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut state,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+        );
+        assert_relative_eq!(bank, 0.5_f64.atan2(0.5), epsilon = 1e-12);
     }
 
     #[test]
@@ -343,7 +376,16 @@ mod tests {
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
 
-        let bank = nn_bank_angle(&nav, &nn, &data, &planet, 50.0_f64.to_radians(), 0.0);
+        let mut state = NnState::for_model(&nn);
+        let bank = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut state,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+        );
         assert_relative_eq!(bank, (-1.0_f64).atan2(1.0), epsilon = 1e-12);
     }
 
@@ -369,7 +411,16 @@ mod tests {
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
 
-        let bank = nn_bank_angle(&nav, &nn, &data, &planet, 50.0_f64.to_radians(), 0.0);
+        let mut state = NnState::for_model(&nn);
+        let bank = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut state,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+        );
         assert_relative_eq!(bank, 1.0 * PI, epsilon = 1e-12);
     }
 
@@ -395,7 +446,16 @@ mod tests {
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
 
-        let bank = nn_bank_angle(&nav, &nn, &data, &planet, 50.0_f64.to_radians(), 0.0);
+        let mut state = NnState::for_model(&nn);
+        let bank = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut state,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+        );
         assert_relative_eq!(bank, (-1.0_f64).tanh() * 2.0 * PI, epsilon = 1e-12);
     }
 
@@ -448,7 +508,16 @@ mod tests {
         let nav = test_nav();
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
-        let bank = nn_bank_angle(&nav, &nn, &data, &planet, 50.0_f64.to_radians(), 0.0);
+        let mut state = NnState::for_model(&nn);
+        let bank = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut state,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+        );
 
         assert!(bank.is_finite(), "bank angle must be finite, got: {}", bank);
         // atan2 always produces values in (-PI, PI]
@@ -512,7 +581,16 @@ mod tests {
         let nav = test_nav();
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
-        let bank = nn_bank_angle(&nav, &nn, &data, &planet, 50.0_f64.to_radians(), 0.0);
+        let mut state = NnState::for_model(&nn);
+        let bank = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut state,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+        );
 
         assert!(bank.is_finite(), "bank angle must be finite, got: {bank}");
         assert!(
@@ -549,7 +627,16 @@ mod tests {
         let nav = test_nav();
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
-        let bank = nn_bank_angle(&nav, &nn, &data, &planet, 50.0_f64.to_radians(), -50.0);
+        let mut state = NnState::for_model(&nn);
+        let bank = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut state,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            -50.0,
+        );
 
         assert!(
             bank.is_finite(),
@@ -580,7 +667,16 @@ mod tests {
         let nav = test_nav();
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
-        let bank = nn_bank_angle(&nav, &nn, &data, &planet, 50.0_f64.to_radians(), 0.0);
+        let mut state = NnState::for_model(&nn);
+        let bank = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut state,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+        );
 
         assert!(
             bank.is_finite(),
@@ -634,8 +730,26 @@ mod tests {
         let planet = PlanetConfig::mars();
         let target_inc = 50.0_f64.to_radians();
 
-        let bank_normal = nn_bank_angle(&nav, &nn_normal, &data, &planet, target_inc, 0.0);
-        let bank_ablated = nn_bank_angle(&nav, &nn_ablated, &data, &planet, target_inc, 0.0);
+        let mut state_normal = NnState::for_model(&nn_normal);
+        let mut state_ablated = NnState::for_model(&nn_ablated);
+        let bank_normal = nn_bank_angle(
+            &nav,
+            &nn_normal,
+            &mut state_normal,
+            &data,
+            &planet,
+            target_inc,
+            0.0,
+        );
+        let bank_ablated = nn_bank_angle(
+            &nav,
+            &nn_ablated,
+            &mut state_ablated,
+            &data,
+            &planet,
+            target_inc,
+            0.0,
+        );
 
         // Ablated version zeros input 0, so output[0] = 0.0, bank = atan2(0, 1) = 0
         assert_relative_eq!(bank_ablated, 0.0, epsilon = 1e-12);
@@ -666,9 +780,11 @@ mod tests {
         let nav = test_nav();
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
+        let mut state = NnState::for_model(&nn_explicit);
         let bank = nn_bank_angle(
             &nav,
             &nn_explicit,
+            &mut state,
             &data,
             &planet,
             50.0_f64.to_radians(),
@@ -711,7 +827,16 @@ mod tests {
         nav.bounce_flag = 0; // pre-bounce
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
-        let bank = nn_bank_angle(&nav, &nn, &data, &planet, 50.0_f64.to_radians(), -50.0);
+        let mut state = NnState::for_model(&nn);
+        let bank = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut state,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            -50.0,
+        );
 
         // With bounce_flag=0, inputs 20-22 are zero, so output[0] = 0.0, bank = atan2(0, 1) = 0
         assert_relative_eq!(bank, 0.0, epsilon = 1e-12,);
@@ -772,7 +897,8 @@ mod tests {
                 let nn = fixed_small_nn();
                 let data = test_sim_data();
                 let planet = PlanetConfig::mars();
-                let bank = nn_bank_angle(&nav, &nn, &data, &planet, 50.0_f64.to_radians(), 0.0);
+                let mut state = NnState::for_model(&nn);
+                let bank = nn_bank_angle(&nav, &nn, &mut state, &data, &planet, 50.0_f64.to_radians(), 0.0);
 
                 prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
             }

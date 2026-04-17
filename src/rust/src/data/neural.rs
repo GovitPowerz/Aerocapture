@@ -4,6 +4,7 @@
 //! with per-layer activation function choice. Loads from JSON format.
 
 use super::DataError;
+use crate::gnc::guidance::nn_state::NnState;
 use serde::{Deserialize, Serialize};
 
 /// Activation function for a layer.
@@ -371,7 +372,10 @@ impl NeuralNetModel {
     }
 
     /// Generic forward pass through all layers.
-    pub fn forward(&self, input: &[f64]) -> Vec<f64> {
+    ///
+    /// Takes `&mut NnState` so stateful layers (Phase 1+: GRU/LSTM/Window/SSM) can mutate
+    /// their per-sim hidden state. Phase 0 dense layers ignore the state slot.
+    pub fn forward(&self, state: &mut NnState, input: &[f64]) -> Vec<f64> {
         assert_eq!(
             input.len(),
             self.layer_sizes[0],
@@ -379,8 +383,15 @@ impl NeuralNetModel {
             input.len(),
             self.layer_sizes[0],
         );
+        assert_eq!(
+            state.layer_states.len(),
+            self.layers.len(),
+            "NnState layer count ({}) does not match model layer count ({})",
+            state.layer_states.len(),
+            self.layers.len(),
+        );
         let mut current = input.to_vec();
-        for layer in &self.layers {
+        for (layer, _layer_state) in self.layers.iter().zip(state.layer_states.iter_mut()) {
             let n_out = layer.b.len();
             let mut next = Vec::with_capacity(n_out);
             for j in 0..n_out {
@@ -600,8 +611,10 @@ mod tests {
         assert_eq!(m1.layer_sizes, m2.layer_sizes);
         assert_eq!(m1.n_params(), m2.n_params());
         let input = vec![1.0, 2.0, 3.0];
-        let o1 = m1.forward(&input);
-        let o2 = m2.forward(&input);
+        let mut s1 = NnState::for_model(&m1);
+        let mut s2 = NnState::for_model(&m2);
+        let o1 = m1.forward(&mut s1, &input);
+        let o2 = m2.forward(&mut s2, &input);
         assert_eq!(o1, o2);
     }
 }
