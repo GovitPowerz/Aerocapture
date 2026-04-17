@@ -2,6 +2,7 @@
 
 use crate::config::{GuidanceType, PlanetConfig};
 use crate::data::SimData;
+use crate::data::neural::NeuralNetModel;
 use crate::data::nn_state::NnState;
 use crate::gnc::control::angle_utils::shortest_angle_diff;
 use crate::gnc::guidance::ftc::{self as ftc_capture, FtcCaptureState};
@@ -53,10 +54,14 @@ pub struct GuidanceState {
     pub energy_ctrl: energy_controller::EnergyControllerState,
     pub predguid: predguid::PredGuidState,
     pub fnpag: fnpag::FnpagState,
+
+    // Per-sim mutable NN state (`Some` only when the active scheme loads a NeuralNetModel).
+    pub nn_state: Option<NnState>,
 }
 
 impl GuidanceState {
-    pub fn new(initial_bank: f64, initial_aoa: f64) -> Self {
+    pub fn new(initial_bank: f64, initial_aoa: f64, nn_model: Option<&NeuralNetModel>) -> Self {
+        let nn_state = nn_model.map(NnState::for_model);
         Self {
             bank_angle_commanded: initial_bank,
             bank_angle_realized: initial_bank,
@@ -71,6 +76,7 @@ impl GuidanceState {
             energy_ctrl: energy_controller::EnergyControllerState::new(),
             predguid: predguid::PredGuidState::new(),
             fnpag: fnpag::FnpagState::new(initial_bank),
+            nn_state,
         }
     }
 }
@@ -168,12 +174,13 @@ pub fn guidance_step(
             }
             GuidanceType::NeuralNetwork => {
                 let nn = data.neural_net.as_ref().expect("NN params not loaded");
-                // TODO(Task 4): replace with guidance_state.nn_state once GuidanceState owns it.
-                let mut temp_nn_state = NnState::for_model(nn);
+                let nn_state = state.nn_state.as_mut().expect(
+                    "neural_network scheme requires nn_state initialized by GuidanceState::new",
+                );
                 neural::nn_bank_angle(
                     nav,
                     nn,
-                    &mut temp_nn_state,
+                    nn_state,
                     data,
                     planet,
                     data.target_orbit.inclination,
@@ -445,7 +452,7 @@ mod tests {
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
         let initial_bank = 64.77_f64.to_radians();
-        let mut state = GuidanceState::new(initial_bank, -0.48_f64.to_radians());
+        let mut state = GuidanceState::new(initial_bank, -0.48_f64.to_radians(), None);
 
         let out = guidance_step(
             &nav,
@@ -483,7 +490,7 @@ mod tests {
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
         let reference_bank_angle = 45.0_f64.to_radians();
-        let mut state = GuidanceState::new(reference_bank_angle, -0.48_f64.to_radians());
+        let mut state = GuidanceState::new(reference_bank_angle, -0.48_f64.to_radians(), None);
         // Prime bank_angle_realized so rate saturation doesn't shift the value
         state.bank_angle_realized = reference_bank_angle;
 
@@ -514,7 +521,7 @@ mod tests {
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
         let initial_bank = 64.77_f64.to_radians();
-        let mut state = GuidanceState::new(initial_bank, -0.48_f64.to_radians());
+        let mut state = GuidanceState::new(initial_bank, -0.48_f64.to_radians(), None);
 
         let out = guidance_step(
             &nav,
@@ -549,7 +556,7 @@ mod tests {
 
         let planet = PlanetConfig::mars();
         let reference_bank_angle = 30.0_f64.to_radians();
-        let mut state = GuidanceState::new(reference_bank_angle, -0.48_f64.to_radians());
+        let mut state = GuidanceState::new(reference_bank_angle, -0.48_f64.to_radians(), None);
         state.bank_angle_realized = reference_bank_angle;
 
         let out = guidance_step(
@@ -590,7 +597,7 @@ mod tests {
         // Start at 0, target 90 deg — would saturate the rate
         let realized = 0.0_f64;
         let target = 90.0_f64.to_radians();
-        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians(), None);
         state.bank_angle_realized = realized;
 
         let out = guidance_step(
@@ -620,7 +627,7 @@ mod tests {
         let data = test_sim_data(); // command_shaping = None (simulates enabled=false)
         let planet = PlanetConfig::mars();
 
-        let mut state = GuidanceState::new(0.0, -0.48_f64.to_radians());
+        let mut state = GuidanceState::new(0.0, -0.48_f64.to_radians(), None);
         state.bank_angle_realized = 0.0;
 
         // 0 -> 90 deg step in reference mode; raw_rate = 90 deg/s >> max_bank_rate (15 deg/s)
@@ -664,7 +671,7 @@ mod tests {
         let planet = PlanetConfig::mars();
         let realized = 5.0_f64.to_radians();
         let target = 10.0_f64.to_radians();
-        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians(), None);
         state.bank_angle_realized = realized;
 
         let out = guidance_step(
@@ -697,7 +704,7 @@ mod tests {
         let planet = PlanetConfig::mars();
         let realized = 0.0_f64;
         let target = 90.0_f64.to_radians();
-        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians(), None);
         state.bank_angle_realized = realized;
 
         let out = guidance_step(
@@ -739,7 +746,7 @@ mod tests {
         let planet = PlanetConfig::mars();
         let realized = 0.0_f64;
         let target = 90.0_f64.to_radians();
-        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians(), None);
         state.bank_angle_realized = realized;
 
         let out = guidance_step(
@@ -770,7 +777,7 @@ mod tests {
         let data = test_sim_data_with_shaping(5.0);
         let planet = PlanetConfig::mars();
         let realized = 0.0_f64;
-        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians(), None);
         state.bank_angle_realized = realized;
 
         // Tick 1: command +90 deg
@@ -821,7 +828,7 @@ mod tests {
         let planet = PlanetConfig::mars();
         let realized = 170.0_f64.to_radians();
         let target = -170.0_f64.to_radians();
-        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians(), None);
         state.bank_angle_realized = realized;
 
         let out = guidance_step(
@@ -852,7 +859,7 @@ mod tests {
         let planet = PlanetConfig::mars();
         let realized = 60.0_f64.to_radians();
         let target = 62.0_f64.to_radians();
-        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+        let mut state = GuidanceState::new(realized, -0.48_f64.to_radians(), None);
         state.bank_angle_realized = realized;
 
         let out = guidance_step(
@@ -913,7 +920,7 @@ mod tests {
 
                 let data = test_sim_data();
                 let planet = PlanetConfig::mars();
-                let mut state = GuidanceState::new(initial_bank, -0.48_f64.to_radians());
+                let mut state = GuidanceState::new(initial_bank, -0.48_f64.to_radians(), None);
 
                 let out = guidance_step(
                     &nav,
@@ -950,7 +957,7 @@ mod tests {
                 let max_bank_rate = data.capsule.max_bank_rate;
                 let realized = bank_deg.to_radians();
                 let target = target_deg.to_radians();
-                let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+                let mut state = GuidanceState::new(realized, -0.48_f64.to_radians(), None);
                 state.bank_angle_realized = realized;
                 let nav = NavigationOutput {
                     position_estimated: [PlanetConfig::mars().equatorial_radius + 50_000.0, 0.0, 0.0],
@@ -988,7 +995,7 @@ mod tests {
                 let max_rate_change = accel_deg.to_radians() * guidance_period;
                 let realized = bank_deg.to_radians();
                 let target = target_deg.to_radians();
-                let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+                let mut state = GuidanceState::new(realized, -0.48_f64.to_radians(), None);
                 state.bank_angle_realized = realized;
                 // shaped_rate starts at 0 (new state)
                 let nav = NavigationOutput {
@@ -1028,7 +1035,7 @@ mod tests {
                 let planet = PlanetConfig::mars();
                 let realized = bank_deg.to_radians();
                 let target = target_deg.to_radians();
-                let mut state = GuidanceState::new(realized, -0.48_f64.to_radians());
+                let mut state = GuidanceState::new(realized, -0.48_f64.to_radians(), None);
                 state.bank_angle_realized = realized;
                 let nav = NavigationOutput {
                     position_estimated: [PlanetConfig::mars().equatorial_radius + 50_000.0, 0.0, 0.0],
@@ -1069,7 +1076,7 @@ mod tests {
 
         let planet = PlanetConfig::mars();
         let initial_bank = 64.77_f64.to_radians();
-        let mut state = GuidanceState::new(initial_bank, -0.48_f64.to_radians());
+        let mut state = GuidanceState::new(initial_bank, -0.48_f64.to_radians(), None);
         state.reference_velocity = 50.0;
 
         let out = guidance_step(
@@ -1107,7 +1114,7 @@ mod tests {
 
         let planet = PlanetConfig::mars();
         let initial_bank = 0.5;
-        let mut state = GuidanceState::new(initial_bank, -0.48_f64.to_radians());
+        let mut state = GuidanceState::new(initial_bank, -0.48_f64.to_radians(), None);
 
         let out = guidance_step(
             &nav,
