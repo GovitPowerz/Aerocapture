@@ -30,6 +30,20 @@ class TestComputeLayerBound:
     def test_lecun_linear(self) -> None:
         assert compute_layer_bound(32, 2, "linear") == pytest.approx(math.sqrt(3 / 32))
 
+    def test_xavier_swish_unchanged(self) -> None:
+        # Swish keeps gain=1.0; documents the backward-compat contract.
+        assert compute_layer_bound(16, 24, "swish") == pytest.approx(math.sqrt(6 / 40))
+
+    def test_xavier_mish_has_0_87_gain(self) -> None:
+        # Mish is calibrated down (see _ACTIVATION_GAIN) so its effective
+        # activation magnitude matches swish under Xavier init.
+        base = math.sqrt(6 / 40)
+        assert compute_layer_bound(16, 24, "mish") == pytest.approx(base * 0.87)
+
+    def test_mish_bound_is_smaller_than_swish_bound(self) -> None:
+        # Regression guard for the mish-vs-swish training gap.
+        assert compute_layer_bound(16, 24, "mish") < compute_layer_bound(16, 24, "swish")
+
     def test_unknown_activation_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown activation"):
             compute_layer_bound(6, 12, "gelu")
