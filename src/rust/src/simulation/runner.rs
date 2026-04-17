@@ -239,7 +239,7 @@ pub fn build_sim_state(
         entry_initial_aoa,
         data.neural_net.as_ref(),
     );
-    debug_assert_eq!(
+    assert_eq!(
         data.neural_net.is_some(),
         guidance_state.nn_state.is_some(),
         "nn_state presence must match neural_net presence",
@@ -862,7 +862,7 @@ fn run_single(
         entry_initial_aoa,
         data.neural_net.as_ref(),
     );
-    debug_assert_eq!(
+    assert_eq!(
         data.neural_net.is_some(),
         guidance_state.nn_state.is_some(),
         "nn_state presence must match neural_net presence",
