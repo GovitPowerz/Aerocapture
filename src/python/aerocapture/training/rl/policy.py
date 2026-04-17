@@ -14,12 +14,13 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
 from torch import Tensor, nn
 
-from aerocapture.training.rl.layers import DenseLayer, build_layer
+from aerocapture.training.rl.layers import build_layer
 from aerocapture.training.rl.schemas import LayerSpec
 
 _ACT: dict[str, type[nn.Module]] = {
@@ -129,18 +130,18 @@ class V2Policy(nn.Module):
         action_dim = 2 if output_interpretation == "atan2" else 1
         self.log_std = nn.Parameter(torch.zeros(action_dim))
 
-    def forward(self, x: Tensor, state: list[None]) -> tuple[Tensor, list[None]]:
-        new_state: list[None] = [None] * len(self.layers)
+    def forward(self, x: Tensor, state: list[Any]) -> tuple[Tensor, list[Any]]:
+        new_state: list[Any] = [None] * len(self.layers)
         for i, layer in enumerate(self.layers):
             x, new_state[i] = layer(x, state[i])
         return x, new_state
 
-    def new_state(self, batch_size: int, device: object) -> list[None]:
-        # Phase 0: all layers are DenseLayer whose state is None.
-        # Phase 1+ will dispatch on each layer's own new_state() method.
-        for layer in self.layers:
-            assert isinstance(layer, DenseLayer)
-        return [None] * len(self.layers)
+    def new_state(self, batch_size: int, device: object) -> list[Any]:
+        # Each layer defines its own new_state() so Phase 1+ layer types
+        # (gru/lstm/window/ssm) plug in without touching this method.
+        # nn.ModuleList typing is `Module | Tensor`; all our layer modules
+        # implement new_state by contract (see layers/ subpackage).
+        return [layer.new_state(batch_size, device) for layer in self.layers]  # type: ignore[union-attr,operator]
 
 
 class ValueNetwork(nn.Module):

@@ -34,8 +34,11 @@ def load_policy_from_json(path: str, device: str | torch.device) -> V2Policy:
         if layer_spec.type == "dense":
             if lw.w is None or lw.b is None:
                 raise ValueError(f"Dense layer {key} missing w/b in {path}")
-            w = torch.tensor(lw.w, dtype=torch.float32, device=device)
-            b = torch.tensor(lw.b, dtype=torch.float32, device=device)
+            # JSON stores Python floats (f64). Load at f64 and let `.copy_`
+            # cast to the destination policy's dtype -- preserves precision
+            # for f64 policies, safely downcasts for f32 policies.
+            w = torch.tensor(lw.w, dtype=torch.float64, device=device)
+            b = torch.tensor(lw.b, dtype=torch.float64, device=device)
             layer = policy.layers[i]
             assert isinstance(layer, DenseLayer)
             with torch.no_grad():

@@ -352,11 +352,15 @@ impl NeuralNetModel {
                             path
                         )));
                     }
-                    for row in &lw.w {
+                    for (row_idx, row) in lw.w.iter().enumerate() {
                         if row.len() != *input_size {
                             return Err(DataError(format!(
-                                "Layer {} weight row length mismatch in {}",
-                                i, path
+                                "Layer {} weight row {} length mismatch: expected {}, got {} in {}",
+                                i,
+                                row_idx,
+                                input_size,
+                                row.len(),
+                                path
                             )));
                         }
                     }
