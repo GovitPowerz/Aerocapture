@@ -17,7 +17,10 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch import nn
+from torch import Tensor, nn
+
+from aerocapture.training.rl.layers import DenseLayer, build_layer
+from aerocapture.training.rl.schemas import LayerSpec
 
 _ACT: dict[str, type[nn.Module]] = {
     "tanh": nn.Tanh,
@@ -100,6 +103,44 @@ class GaussianPolicy(nn.Module):
         dist = torch.distributions.Normal(mean, std)
         log_prob = dist.log_prob(raw).sum(-1)
         return bank, raw, log_prob
+
+
+class V2Policy(nn.Module):
+    """Step-wise stateful policy matching the Rust NeuralNetModel contract.
+
+    Forward pass: `(x_t, state_t-1) -> (y_t, state_t)`. BPTT over sequences
+    is an explicit Python loop in the training code.
+
+    The final dense layer produces the pre-interpretation output (2 values for
+    atan2, 1 for direct). log_std is a separate learnable parameter (not a layer,
+    not exported to JSON) used only for PPO/SAC exploration noise.
+    """
+
+    def __init__(
+        self,
+        architecture: list[LayerSpec],
+        output_interpretation: str,
+        input_mask: list[int] | None,
+    ) -> None:
+        super().__init__()
+        self.layers = nn.ModuleList([build_layer(spec) for spec in architecture])
+        self.output_interpretation = output_interpretation
+        self.input_mask = input_mask
+        action_dim = 2 if output_interpretation == "atan2" else 1
+        self.log_std = nn.Parameter(torch.zeros(action_dim))
+
+    def forward(self, x: Tensor, state: list[None]) -> tuple[Tensor, list[None]]:
+        new_state: list[None] = [None] * len(self.layers)
+        for i, layer in enumerate(self.layers):
+            x, new_state[i] = layer(x, state[i])
+        return x, new_state
+
+    def new_state(self, batch_size: int, device: object) -> list[None]:
+        # Phase 0: all layers are DenseLayer whose state is None.
+        # Phase 1+ will dispatch on each layer's own new_state() method.
+        for layer in self.layers:
+            assert isinstance(layer, DenseLayer)
+        return [None] * len(self.layers)
 
 
 class ValueNetwork(nn.Module):
