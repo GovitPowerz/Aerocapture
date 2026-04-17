@@ -13,6 +13,7 @@ dependencies = [
     "seaborn>=0.13",
     "SALib>=1.5",
     "pyarrow>=19.0",
+    "tomli-w>=1.2",
 ]
 
 [dependency-groups]
@@ -28,6 +29,7 @@ dev = [
     "types-xlrd>=2.0.0.20251020",
     "hypothesis>=6.100",
     "maturin>=1.12.6",
+    "torch>=2.4",
     "types-seaborn>=0.13.2.20251221",
     "types-pygments>=2.19.0.20251121",
     "types-pexpect>=4.9.0.20260127",
@@ -44,6 +46,7 @@ packages = ["src/python/aerocapture"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src/python", "."]
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 
 [tool.ruff]
 line-length = 160

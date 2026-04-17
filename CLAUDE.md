@@ -253,6 +253,37 @@ Guidance schemes and their TOML training configs:
 
 Optimized params saved to `training_output/<scheme>/best_params.json` (or `best_model.json` for NN).
 
+## RL Training (PPO)
+
+Reinforcement-learning training for the `neural_network` guidance scheme, running as a parallel track to the pymoo GA. RL-trained weights deploy via the same `best_model.json` format the GA produces; `compare_guidance` treats RL as just another scheme (`neural_network_rl`) that feeds the Rust `neural_network` runtime.
+
+```bash
+# Train a PPO policy
+uv run python -m aerocapture.training.rl.train \
+    configs/training/msr_aller_rl_train.toml \
+    --algorithm ppo --total-steps 5000000
+
+# Head-to-head RL vs GA on identical MC scenarios
+uv run python -m aerocapture.training.compare_guidance \
+    --n-sims 500 \
+    --schemes neural_network neural_network_rl
+
+# All schemes (train_all.sh): nn_rl runs after piecewise_constant
+./train_all.sh nn_rl
+```
+
+Training CLI flags: `--algorithm {ppo|sac}`, `--total-steps N`, `--n-envs N`, `--rollout-steps N`, `--validation-n-sims N`, `--validation-interval-updates N`, `--data-neural-network PATH`, `--from-scratch`, `--learning-rate F`, `--clip-range F`, `--entropy-coef F`, `--min-log-std F`, `--update-epochs N`, `--lr-anneal-start F`, `--target-kl F`, `--no-tui`, `--skip-report`, `--resume DIR`, `--output-dir DIR`. `--from-scratch` and `--data-neural-network` are mutually exclusive; `--data-neural-network` (warm-start) clears stale checkpoints automatically.
+
+**Architecture:** step-able `BatchedSimulation` pyclass (N `SimState`s sharing one `Arc<SimData>`, Rayon parallel ticks, auto-reset on episode end, GIL released via `py.detach()`, sub-tick events via `promote_pending_crash_if_applicable` so truncation vs termination is surfaced via `info["truncated"]`). `step()` returns `(obs, reward, done, info, aux)` where `aux` is `(N, 2)` with `[energy_estimated, dynamic_pressure_estimated]` per env (consumed by `StepRewardCalculator` for the capture-phase energy component of the PBRS potential). CleanRL-style PPO outer loop (`src/python/aerocapture/training/rl/`): `env.py` wraps the pyclass, `policy.py` is a PyTorch MLP mirroring `NeuralNetModel` JSON (`GaussianPolicy` with `atan2(out[0], out[1])` bank mapping, `sample()` returns `(bank, raw, log_prob)` so SAC can Q-bootstrap on the 2D latent, + `load_weights_from_json()` for GA warm-start), `export.py` writes to `best_model.json` in the Rust loader's format (format_version=1, architecture + per-layer `w`/`b`), `ppo.py` provides `RolloutBuffer` + `compute_gae` (per-step `next_values` bootstrap so truncated episodes use `V(terminal_obs)`) + `ppo_update` (clipped surrogate + value + entropy + optional `target_kl` early-stop), `sac.py` runs SAC with twin Q networks on the 2D Gaussian latent (entropy target `-dim(A)=-2` aligned with the density the policy actually regularizes, `ReplayBuffer` with `state_dict/load_state_dict` for checkpoint resume), `train.py` is the CLI and outer loop with reserved-seed validation gate + checkpoint save/resume + graceful Ctrl+C + final MC evaluation summary, `report_rl.py` produces a three-part PDF (Part 1 RL convergence panels, Parts 2/3 reused from the GA report), `logger.py`/`display.py` provide JSONL + Rich TUI mirroring the GA contract.
+
+**Artifacts** under `training_output/neural_network_rl/`: `best_model.json` (drop-in for Rust runtime), `rl_training_*.jsonl` (per-update metrics), `config_resolved.toml`, `checkpoint.pt`, `final_eval.parquet`, `report.pdf`.
+
+**Seed pools:** `RL_TRAINING_SEED_OFFSET = 3_000_000` (default `seed_base`), plus the existing `VALIDATION_SEED_OFFSET = 1_000_000` and `FINAL_EVAL_SEED_OFFSET = 2_000_000` — all disjoint by construction.
+
+**Reward structure:** Potential-based per-step shaping (Ng, Harada & Russell 1999): `r_shape = gamma * Phi(s') - Phi(s)` computed by `StepRewardCalculator` so the optimal policy is provably preserved. `Phi` is phase-aware via the bounce flag (obs[15]): capture phase potential combines corridor tracking (`corridor_weight * pdyn_error^2`), energy-gain penalty (`energy_rate_weight * max(delta_energy, 0)`), and constraint proximity (`constraint_weight * (heat_flux_frac^2 + heat_load_frac^2)`); exit phase replaces corridor/energy terms with apoapsis targeting (`apoapsis_weight * sma_error^2`) and eccentricity reduction (`eccentricity_weight * max(ecc_excess, 0)^2`). Terminal adds the raw `compute_cost` (DV + constraint penalties) as a sparse signal. All weights are TOML-configurable in `[rl.reward]`. The `BatchedSimulation` aux channel provides `(energy, pdyn)` per env per step for the capture-phase energy component. Running return normalization (`ReturnNormalizer`, Chan's parallel Welford over per-env discounted-return streams) scales per-step rewards by return std after `norm_warmup_steps`; PPO applies this normalization *during* rollout collection (per step) so advantages see a stable scale at GAE time. Running observation normalization (`ObsNormalizer`, Chan's parallel Welford) tracks per-feature mean/std; at export time, the affine transform is baked into the first linear layer (`W_new = W/std`, `b_new = b - W@(mean/std)`) so the Rust runtime needs no changes. Both normalizers checkpoint with model weights; SAC's replay buffer state is also persisted so resume retains off-policy experience.
+
+Full spec: `docs/superpowers/specs/2026-04-16-rl-reward-redesign.md`, `docs/superpowers/specs/2026-04-15-rl-nn-guidance-design.md`.
+
 ## Key Lessons & Pitfalls
 
 ### Historical: Density Filter Gain Clamping

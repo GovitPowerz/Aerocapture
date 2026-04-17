@@ -146,7 +146,7 @@ def run_final_evaluation(
         return None
 
 
-def _print_eval_summary(final_records: npt.NDArray[np.float64], n_sims: int, cost_kwargs: dict[str, float] | None = None) -> None:
+def print_eval_summary(final_records: npt.NDArray[np.float64], n_sims: int, cost_kwargs: dict[str, float] | None = None) -> None:
     """Print a human-readable summary of the final MC evaluation to stdout."""
     from aerocapture.training.evaluate import compute_cost
 
@@ -215,7 +215,7 @@ def _read_constraint_limits(toml_path: Path) -> tuple[float | None, float | None
     return heat_flux, g_load
 
 
-def _read_cost_kwargs(toml_path: Path) -> dict[str, float]:
+def read_cost_kwargs(toml_path: Path) -> dict[str, float]:
     """Read cost function parameters from TOML for objective cost computation."""
     from aerocapture.training.toml_utils import load_toml_with_bases
 
@@ -569,7 +569,7 @@ def generate_report(
         has_cost_distribution = _generate_training_charts(records, resume_gens, tmp_dir)
 
         # Read cost function config from TOML (needed for cost stats)
-        cost_kwargs = _read_cost_kwargs(toml_path) if toml_path is not None else None
+        cost_kwargs = read_cost_kwargs(toml_path) if toml_path is not None else None
 
         # Part 2: final evaluation (optional)
         has_trajectories = False
@@ -580,7 +580,7 @@ def generate_report(
             if eval_result is not None:
                 final_records_arr, trajectories, dispersions = eval_result
                 has_trajectories = True
-                _print_eval_summary(final_records_arr, n_sims, cost_kwargs=cost_kwargs)
+                print_eval_summary(final_records_arr, n_sims, cost_kwargs=cost_kwargs)
                 _generate_trajectory_charts(
                     final_records_arr,
                     trajectories,
@@ -675,8 +675,44 @@ def generate_report(
 
 
 # ---------------------------------------------------------------------------
-# Backward compatibility alias (used by train.py)
+# RL reuse helpers — thin wrappers so report_rl.py avoids code duplication
 # ---------------------------------------------------------------------------
+def render_mission_performance_charts(
+    final_records: npt.NDArray[np.float64],
+    trajectories: list[npt.NDArray[np.float64]],
+    dispersions: npt.NDArray[np.float64],
+    tmp_dir: Path,
+    toml_path: Path | None = None,
+    scheme_dir: Path | None = None,
+    cost_kwargs: dict[str, float] | None = None,
+    sim_timeout_secs: float | None = None,
+) -> tuple[bool, dict]:
+    """Generate Part 2 SVG charts and summary_table.json into *tmp_dir*.
+
+    Returns (has_trajectories, summary_table_dict).
+    """
+    heat_flux_limit, g_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None)
+    _generate_trajectory_charts(
+        final_records,
+        trajectories,
+        dispersions,
+        tmp_dir,
+        scheme_dir=scheme_dir,
+        toml_path=toml_path,
+        sim_timeout_secs=sim_timeout_secs,
+        cost_kwargs=cost_kwargs,
+    )
+    summary = _build_summary_table(final_records, heat_flux_limit=heat_flux_limit, g_load_limit=g_load_limit, cost_kwargs=cost_kwargs)
+    (tmp_dir / "summary_table.json").write_text(json.dumps(summary, indent=2))
+    return True, summary
+
+
+def maybe_render_sensitivity_charts(scheme_dir: Path, tmp_dir: Path) -> dict[str, bool]:
+    """Generate Part 3 SVG charts if sensitivity results exist. Returns sensitivity flags."""
+    sensitivity_dir = scheme_dir / "sensitivity"
+    return _generate_sensitivity_charts(sensitivity_dir, tmp_dir)
+
+
 # ---------------------------------------------------------------------------
 # Cross-scheme comparison report
 # ---------------------------------------------------------------------------

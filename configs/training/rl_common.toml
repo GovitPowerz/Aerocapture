@@ -1,0 +1,52 @@
+# Shared RL training defaults. Leaf training configs list this file (along
+# with a mission TOML and common.toml) in their `base` array. This file is
+# itself baseless: it is a fragment meant to be merged into a fully-consolidated
+# leaf config, so the config_loading.rs::all_configs_are_consolidated check
+# does not apply to it.
+
+[rl]
+algorithm                   = "ppo"
+total_env_steps             = 15_000_000
+n_envs                      = 64
+seed_base                   = 3_000_000
+validation_n_sims           = 1000
+validation_interval_updates = 20
+checkpoint_interval_updates = 50
+
+[rl.reward]
+corridor_weight     = 0.1
+energy_rate_weight  = 0.05
+constraint_weight   = 0.2
+apoapsis_weight     = 0.2
+eccentricity_weight = 0.1
+energy_scale        = 1.0e6
+normalize_returns   = true
+normalize_obs       = true
+norm_warmup_steps   = 1000
+
+[rl.ppo]
+learning_rate     = 3.0e-4
+rollout_steps     = 2048
+update_epochs     = 10
+minibatches       = 32
+gamma             = 0.99
+gae_lambda        = 0.95
+clip_range        = 0.2
+entropy_coef      = 0.01
+value_coef        = 0.5
+max_grad_norm     = 0.5
+initial_log_std   = -0.5
+min_log_std       = -2.0
+lr_anneal_start   = 0.7
+
+[rl.sac]
+learning_rate    = 3.0e-4
+buffer_size      = 1_000_000
+batch_size       = 256
+gamma            = 0.99
+tau              = 0.005
+train_every      = 1
+gradient_steps   = 1
+target_entropy   = "auto"
+initial_alpha    = 0.2
+warmup_steps     = 50_000

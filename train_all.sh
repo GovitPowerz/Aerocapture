@@ -112,8 +112,17 @@ train_neural_network() {
     run_scheme configs/training/msr_aller_nn_train_consolidated.toml 1500 120 2000 1
 }
 
+train_nn_rl() {
+    echo "=== neural_network_rl (RL/PPO) ==="
+    uv run python -m aerocapture.training.rl.train \
+        configs/training/msr_aller_rl_train.toml \
+        --algorithm ppo --total-steps 5000000
+}
+
 train_all() {
     train_piecewise_constant
+    echo ""
+    train_nn_rl
     echo ""
     train_ftc
     echo ""
@@ -141,10 +150,11 @@ else
             pred_guid|predguid|pg)             train_pred_guid ;;
             fnpag)                             train_fnpag ;;
             neural_network|nn)                 train_neural_network ;;
+            neural_network_rl|nn_rl|rl)        train_nn_rl ;;
             all)                               train_all ;;
             *)
                 echo "Unknown scheme: $scheme"
-                echo "Valid: piecewise_constant ftc eqglide energy_controller pred_guid fnpag neural_network all"
+                echo "Valid: piecewise_constant ftc eqglide energy_controller pred_guid fnpag neural_network neural_network_rl all"
                 exit 1
                 ;;
         esac

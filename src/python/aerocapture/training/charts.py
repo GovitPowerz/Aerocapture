@@ -1254,3 +1254,25 @@ def chart_sobol_convergence(convergence_data: dict[str, Any], output: Path) -> N
 
     fig.tight_layout()
     _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Generic line chart helper (used by RL report)
+# ---------------------------------------------------------------------------
+def _save_line_chart(
+    x: list[float],
+    y: list[float],
+    xlabel: str,
+    ylabel: str,
+    title: str,
+    output_path: Path,
+) -> None:
+    """Write a simple line chart SVG (seaborn-themed, full width)."""
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
+    ax.plot(x, y, linewidth=1.5, color=COLOR_BEST)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    sns.despine(fig=fig, ax=ax)
+    fig.tight_layout()
+    _save_svg(fig, output_path)

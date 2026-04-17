@@ -32,7 +32,7 @@ class TestComputeLayerBound:
 
     def test_unknown_activation_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown activation"):
-            compute_layer_bound(6, 12, "swish")
+            compute_layer_bound(6, 12, "gelu")
 
 
 class TestGenerateInitializedWeights:

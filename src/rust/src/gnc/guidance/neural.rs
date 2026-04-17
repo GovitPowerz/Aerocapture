@@ -23,22 +23,22 @@ use crate::gnc::navigation::coordinates::total_energy;
 use crate::gnc::navigation::estimator::NavigationOutput;
 use crate::orbit::elements;
 
-/// Compute NN-guided longitudinal bank angle.
+/// Build the masked NN input vector from navigation state.
 ///
-/// Builds a 23-element candidate input vector, applies the model's input_mask
-/// (or legacy [0..16] default), runs a forward pass, and interprets the output
-/// as either atan2(out[0], out[1]) or direct out[0] depending on the model config.
+/// Constructs the full 23-element candidate input vector, applies ablation zeroing
+/// (if configured), then applies the model's input_mask (or legacy [0..16] default).
+/// Returns the masked `Vec<f64>` ready for `nn.forward()`.
 ///
-/// Returns the **signed** bank angle in radians.
-/// Lateral guidance is bypassed for this scheme -- the NN controls roll direction directly.
-pub fn nn_bank_angle(
+/// Extracted from `nn_bank_angle` so `BatchedSimulation` can build the same observation
+/// vector the runtime uses.
+pub fn build_nn_input(
     nav: &NavigationOutput,
     nn: &NeuralNetModel,
     data: &SimData,
     planet: &PlanetConfig,
-    target_inclination: f64, // radians
+    target_inclination: f64,
     ref_velocity_latched: f64,
-) -> f64 {
+) -> Vec<f64> {
     let mu = planet.mu;
 
     // Radial velocity: V * sin(gamma)
@@ -121,16 +121,41 @@ pub fn nn_bank_angle(
     }
 
     // Apply input mask: select subset of inputs, or default to first 16 for backward compat
-    let masked: Vec<f64> = match &nn.input_mask {
+    match &nn.input_mask {
         Some(mask) => mask.iter().map(|&i| full_input[i]).collect(),
         None => full_input[..16].to_vec(),
-    };
+    }
+}
 
+/// Compute NN-guided longitudinal bank angle.
+///
+/// Builds the masked input vector via `build_nn_input`, runs a forward pass,
+/// and interprets the output as either atan2(out[0], out[1]) or direct out[0]
+/// depending on the model config.
+///
+/// Returns the **signed** bank angle in radians.
+/// Lateral guidance is bypassed for this scheme -- the NN controls roll direction directly.
+pub fn nn_bank_angle(
+    nav: &NavigationOutput,
+    nn: &NeuralNetModel,
+    data: &SimData,
+    planet: &PlanetConfig,
+    target_inclination: f64, // radians
+    ref_velocity_latched: f64,
+) -> f64 {
+    let masked = build_nn_input(
+        nav,
+        nn,
+        data,
+        planet,
+        target_inclination,
+        ref_velocity_latched,
+    );
     let output = nn.forward(&masked);
 
     // Interpret output based on model configuration
     match nn.output_interpretation.as_str() {
-        "direct" => output[0],
+        "direct" => output[0] * 2.0 * std::f64::consts::PI,
         _ => output[0].atan2(output[1]), // "atan2" (legacy default)
     }
 }
@@ -139,6 +164,7 @@ pub fn nn_bank_angle(
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
+    use std::f64::consts::PI;
 
     use crate::data::aerodynamics::AeroTables;
     use crate::data::atmosphere::{AtmosphereModel, DensityProfile};
@@ -317,13 +343,12 @@ mod tests {
     }
 
     #[test]
-    fn direct_output_returns_raw_value() {
-        // Single-output network with "direct" interpretation: output = bias directly
+    fn direct_output_scales_by_pi() {
         let nn = NeuralNetModel {
             layer_sizes: vec![16, 1],
             layers: vec![Layer {
                 w: vec![vec![0.0; 16]],
-                b: vec![1.5],
+                b: vec![0.5],
                 activation: Activation::Linear,
             }],
             output_interpretation: "direct".to_string(),
@@ -335,18 +360,17 @@ mod tests {
         let planet = PlanetConfig::mars();
 
         let bank = nn_bank_angle(&nav, &nn, &data, &planet, 50.0_f64.to_radians(), 0.0);
-        assert_relative_eq!(bank, 1.5, epsilon = 1e-12);
+        assert_relative_eq!(bank, 1.0 * PI, epsilon = 1e-12);
     }
 
     #[test]
-    fn direct_output_unbounded() {
-        // Verify direct output can exceed [-PI, PI]
+    fn direct_output_full_range() {
         let nn = NeuralNetModel {
             layer_sizes: vec![16, 1],
             layers: vec![Layer {
                 w: vec![vec![0.0; 16]],
-                b: vec![10.0], // > PI
-                activation: Activation::Linear,
+                b: vec![-1.0],
+                activation: Activation::Tanh,
             }],
             output_interpretation: "direct".to_string(),
             input_mask: None,
@@ -357,7 +381,7 @@ mod tests {
         let planet = PlanetConfig::mars();
 
         let bank = nn_bank_angle(&nav, &nn, &data, &planet, 50.0_f64.to_radians(), 0.0);
-        assert_relative_eq!(bank, 10.0, epsilon = 1e-12);
+        assert_relative_eq!(bank, (-1.0_f64).tanh() * 2.0 * PI, epsilon = 1e-12);
     }
 
     #[test]
