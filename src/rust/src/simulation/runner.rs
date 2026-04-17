@@ -234,7 +234,16 @@ pub fn build_sim_state(
         (None, None)
     };
 
-    let guidance_state = GuidanceState::new(entry_initial_bank, entry_initial_aoa);
+    let guidance_state = GuidanceState::new(
+        entry_initial_bank,
+        entry_initial_aoa,
+        data.neural_net.as_ref(),
+    );
+    assert_eq!(
+        data.neural_net.is_some(),
+        guidance_state.nn_state.is_some(),
+        "nn_state presence must match neural_net presence",
+    );
     let pilot_state = PilotState {
         bank_angle: initial_bank_angle,
         bank_rate: 0.0,
@@ -848,7 +857,16 @@ fn run_single(
     let nav_biases = run_state.nav_biases;
     let is_single = config.n_sims <= 1 && config.screen_output;
 
-    let guidance_state = GuidanceState::new(entry_initial_bank, entry_initial_aoa);
+    let guidance_state = GuidanceState::new(
+        entry_initial_bank,
+        entry_initial_aoa,
+        data.neural_net.as_ref(),
+    );
+    assert_eq!(
+        data.neural_net.is_some(),
+        guidance_state.nn_state.is_some(),
+        "nn_state presence must match neural_net presence",
+    );
     let pilot_state = PilotState {
         bank_angle: initial_bank_angle,
         bank_rate: 0.0,

@@ -7,6 +7,7 @@ pub mod dispersions;
 pub mod guidance_params;
 pub mod incidence;
 pub mod neural;
+pub mod nn_state;
 pub mod pilot;
 
 use crate::config::{

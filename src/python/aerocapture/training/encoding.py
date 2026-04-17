@@ -13,6 +13,7 @@ import numpy.typing as npt
 
 from aerocapture.training.initialization import compute_layer_bound
 from aerocapture.training.param_spaces import ParamSpec
+from aerocapture.training.rl.schemas import DenseSpec, LayerSpec
 
 
 def decode_normalized(x: npt.NDArray[np.float64], specs: list[ParamSpec]) -> dict[str, float]:
@@ -75,4 +76,43 @@ def nn_param_specs_from_architecture(
         for j in range(fan_out):
             specs.append(ParamSpec(f"bias{layer_idx}_{j}", -bound, bound, 0.0))
 
+    return specs
+
+
+def nn_param_specs_from_v2(
+    architecture: list[LayerSpec],
+    bound_multiplier: float = 1.0,
+) -> list[ParamSpec]:
+    """Generate per-parameter ParamSpecs from a v2 architecture list.
+
+    Dispatches per layer type. Phase 0 implements only `dense`.
+    For v2 all-dense architectures, output must be numerically identical to
+    nn_param_specs_from_architecture(layer_sizes, activations, bound_multiplier).
+    """
+    specs: list[ParamSpec] = []
+    for layer_idx, layer in enumerate(architecture):
+        specs.extend(_layer_param_specs(layer, layer_idx, bound_multiplier))
+    return specs
+
+
+def _layer_param_specs(layer: LayerSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
+    if isinstance(layer, DenseSpec):
+        return _dense_specs(layer, layer_idx, bound_multiplier)
+    msg = f"Unknown layer type for PSO specs: {layer.type}"
+    raise ValueError(msg)
+
+
+def _dense_specs(layer: DenseSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
+    # Mirrors nn_param_specs_from_architecture: activation-aware bound via
+    # compute_layer_bound (Xavier/He/LeCun), biases use the same bound as weights.
+    fan_in = layer.input_size
+    fan_out = layer.output_size
+    bound = bound_multiplier * compute_layer_bound(fan_in, fan_out, layer.activation)
+
+    specs: list[ParamSpec] = []
+    for j in range(fan_out):
+        for k in range(fan_in):
+            specs.append(ParamSpec(f"w{layer_idx}_{j}_{k}", -bound, bound, 0.0))
+    for j in range(fan_out):
+        specs.append(ParamSpec(f"bias{layer_idx}_{j}", -bound, bound, 0.0))
     return specs
