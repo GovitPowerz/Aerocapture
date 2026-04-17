@@ -257,7 +257,20 @@ fn nn_forward(json_path: String, input: Vec<f64>) -> PyResult<Vec<f64>> {
     use aerocapture::data::nn_state::NnState;
 
     let model = NeuralNetModel::load(&json_path)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{:?}", e)))?;
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+    let expected_len = match &model.input_mask {
+        Some(mask) => mask.iter().copied().max().map(|m| m + 1).unwrap_or(0),
+        None => model.layer_sizes[0],
+    };
+    if input.len() < expected_len {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "nn_forward: input length {} < expected {}",
+            input.len(),
+            expected_len
+        )));
+    }
+
     let masked: Vec<f64> = match &model.input_mask {
         Some(mask) => mask.iter().map(|&i| input[i]).collect(),
         None => input,

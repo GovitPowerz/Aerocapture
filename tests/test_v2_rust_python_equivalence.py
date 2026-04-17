@@ -6,13 +6,11 @@ Subsequent phases extend this test with their new layer types.
 
 from __future__ import annotations
 
+# Phase 0 integration gate MUST NOT skip on missing bindings -- a stale build
+# is exactly the failure mode this test exists to catch. Hard import.
+import aerocapture_rs
 import numpy as np
-import pytest
 import torch
-
-pytest.importorskip("aerocapture_rs")
-import aerocapture_rs  # noqa: E402
-
 from aerocapture.training.rl.export import export_v2_policy_to_json
 from aerocapture.training.rl.policy import V2Policy
 from aerocapture.training.rl.schemas import DenseSpec
