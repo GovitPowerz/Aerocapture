@@ -8,8 +8,16 @@ from pathlib import Path
 import torch
 from aerocapture.training.model_io import load_policy_from_json
 from aerocapture.training.rl.export import export_v2_policy_to_json
+from aerocapture.training.rl.layers.dense import DenseLayer
 from aerocapture.training.rl.policy import V2Policy
 from aerocapture.training.rl.schemas import DenseSpec
+
+
+def _dense(policy: V2Policy, i: int) -> DenseLayer:
+    """Typed accessor for mypy strict (nn.ModuleList returns Tensor | Module)."""
+    layer = policy.layers[i]
+    assert isinstance(layer, DenseLayer)
+    return layer
 
 
 def _policy() -> V2Policy:
@@ -19,10 +27,10 @@ def _policy() -> V2Policy:
     ]
     p = V2Policy(architecture=architecture, output_interpretation="atan2", input_mask=None)
     with torch.no_grad():
-        p.layers[0].linear.weight.data.fill_(0.1)
-        p.layers[0].linear.bias.data.fill_(0.01)
-        p.layers[1].linear.weight.data.fill_(-0.1)
-        p.layers[1].linear.bias.data.fill_(-0.01)
+        _dense(p, 0).linear.weight.data.fill_(0.1)
+        _dense(p, 0).linear.bias.data.fill_(0.01)
+        _dense(p, 1).linear.weight.data.fill_(-0.1)
+        _dense(p, 1).linear.bias.data.fill_(-0.01)
     return p
 
 
@@ -44,7 +52,9 @@ def test_export_load_roundtrip_preserves_weights(tmp_path: Path) -> None:
     q = load_policy_from_json(str(path), device="cpu")
 
     # Weights match bit-for-bit on the linear layer parameters.
-    for la, lb in zip(p.layers, q.layers, strict=True):
+    for i in range(len(p.layers)):
+        la = _dense(p, i)
+        lb = _dense(q, i)
         torch.testing.assert_close(la.linear.weight, lb.linear.weight, rtol=0, atol=0)
         torch.testing.assert_close(la.linear.bias, lb.linear.bias, rtol=0, atol=0)
 

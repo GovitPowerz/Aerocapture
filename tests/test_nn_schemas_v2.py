@@ -5,7 +5,7 @@ from aerocapture.training.rl.schemas import ArchitectureV2, DenseSpec
 from pydantic import ValidationError
 
 
-def test_v2_dense_json_roundtrip():
+def test_v2_dense_json_roundtrip() -> None:
     raw = {
         "format_version": 2,
         "architecture": [{"type": "dense", "input_size": 3, "output_size": 2, "activation": "linear"}],
@@ -21,7 +21,7 @@ def test_v2_dense_json_roundtrip():
     assert json.dumps(roundtrip, sort_keys=True) == json.dumps(raw, sort_keys=True)
 
 
-def test_v2_rejects_unknown_layer_type():
+def test_v2_rejects_unknown_layer_type() -> None:
     raw = {
         "format_version": 2,
         "architecture": [{"type": "mystery", "foo": 42}],
@@ -32,7 +32,7 @@ def test_v2_rejects_unknown_layer_type():
         ArchitectureV2.model_validate(raw)
 
 
-def test_v2_rejects_wrong_format_version():
+def test_v2_rejects_wrong_format_version() -> None:
     raw = {
         "format_version": 3,
         "architecture": [],

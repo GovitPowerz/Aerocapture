@@ -6,12 +6,15 @@ Subsequent phases extend this test with their new layer types.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 # Phase 0 integration gate MUST NOT skip on missing bindings -- a stale build
 # is exactly the failure mode this test exists to catch. Hard import.
 import aerocapture_rs
 import numpy as np
 import torch
 from aerocapture.training.rl.export import export_v2_policy_to_json
+from aerocapture.training.rl.layers.dense import DenseLayer
 from aerocapture.training.rl.policy import V2Policy
 from aerocapture.training.rl.schemas import DenseSpec
 
@@ -21,7 +24,7 @@ def _rust_forward_single(json_path: str, inputs: np.ndarray) -> np.ndarray:
     return np.array([aerocapture_rs.nn_forward(json_path, input_row.tolist()) for input_row in inputs])
 
 
-def test_rust_python_dense_equivalence(tmp_path):
+def test_rust_python_dense_equivalence(tmp_path: Path) -> None:
     architecture = [
         DenseSpec(type="dense", input_size=5, output_size=8, activation="tanh"),
         DenseSpec(type="dense", input_size=8, output_size=2, activation="linear"),
@@ -30,6 +33,7 @@ def test_rust_python_dense_equivalence(tmp_path):
     torch.manual_seed(42)
     with torch.no_grad():
         for layer in policy.layers:
+            assert isinstance(layer, DenseLayer)
             layer.linear.weight.data = torch.randn_like(layer.linear.weight) * 0.3
             layer.linear.bias.data = torch.randn_like(layer.linear.bias) * 0.1
 

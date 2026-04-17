@@ -59,6 +59,8 @@ src/rust/src/
     navigation.rs                  — Navigation error profiles
     incidence.rs                   — AoA profile tables
     pilot.rs                       — Pilot dynamics parameters
+    neural.rs                      — NeuralNetModel with JSON v2 (tagged-layer list: `dense` variant; Phase 1+ adds gru/lstm/attention/ssm/window) + v1 backward-compat loader; stateful `forward(&mut NnState, &[f64])`; LayerWeights trait (`to_flat`/`from_flat`/`n_params`) for PSO chromosome round-trip with canonical per-layer ordering matching the PyTorch mirror
+    nn_state.rs                    — `NnState { layer_states: Vec<LayerState> }` per-sim mutable state for stateful NN layers; lives outside NeuralNetModel (model is Arc-shared immutable); `LayerState::None` in Phase 0 (Gru/Lstm/Window/Ssm variants land in later phases); `Clone` for RL rollout snapshots; reset at episode start via `GuidanceState::new` reconstruction
   physics/
     gravity.rs                     — J2/J3/J4 zonal harmonic gravity
     atmosphere.rs                  — Density lookup
@@ -72,12 +74,12 @@ src/rust/src/
       star_tracker.rs              — Star tracker model (position updates with dynamic pressure blackout)
       coordinates.rs               — Spherical<>Cartesian, geodetic, total energy
     guidance/
-      dispatch.rs                  — Central guidance dispatch (phase-aware: routes to exit guidance when guidance_phase=2), GuidanceState, GuidanceOutput; CommandShaper (acceleration-limited S-curve rate shaping with realized-angle feedback; falls back to legacy hard-clamp when config absent)
+      dispatch.rs                  — Central guidance dispatch (phase-aware: routes to exit guidance when guidance_phase=2), GuidanceState (carries `nn_state: Option<NnState>` for stateful NN layers), GuidanceOutput; CommandShaper (acceleration-limited S-curve rate shaping with realized-angle feedback; falls back to legacy hard-clamp when config absent)
       ftc.rs                       — FTC capture-phase guidance: altitude-gain predictor-corrector (FtcCaptureState, ftc_bank_angle)
       exit.rs                      — Exit phase guidance: shared pdyn-feedback controller for ascending leg (FTC + 4 unsigned-magnitude schemes)
       lateral.rs                   — Lateral guidance (roll reversal): LateralParams, LateralState, predictive first-order inclination projection (shared by unsigned-magnitude schemes)
       reference.rs                 — Constant bank angle mode
-      neural.rs                    — NN guidance (modular JSON architecture, GA-trained, signed bank via atan2, 23 candidate inputs with configurable input mask: 16 orbital/aero/thermal + 4 ref trajectory + 3 bounce-gated exit signals; ablation analysis support via ablated_input)
+      neural.rs                    — NN guidance (modular JSON architecture v1 or v2, GA-trained, signed bank via atan2, 23 candidate inputs with configurable input mask: 16 orbital/aero/thermal + 4 ref trajectory + 3 bounce-gated exit signals; ablation analysis support via ablated_input); `nn_bank_angle(nav, nn, &mut NnState, ...)` threads stateful layer state from GuidanceState (Phase 0 dense-only; Phase 1+ adds Gru/Lstm/Attention/Ssm)
       equilibrium_glide.rs         — Equilibrium glide with hdot damping + velocity bias
       energy_controller.rs         — Energy dissipation tracking via pdyn/hdot feedback
       predguid.rs                  — Apollo/Shuttle-heritage drag tracking guidance
@@ -110,7 +112,7 @@ Separate workspace member crate providing Python bindings via PyO3. Built with `
 
 ```
 src/rust/aerocapture-py/src/
-  lib.rs         — Module entry: run(), run_mc(), run_batch(), run_with_draws(), load_config()
+  lib.rs         — Module entry: run(), run_mc(), run_batch(), run_with_draws(), load_config(), nn_forward() (load v2 JSON + stateful forward; used by the Rust<>Python equivalence test)
   config.rs      — TOML loading with base inheritance resolution + dot-path override merging
   results.rs     — SimResult/BatchResults pyclasses with numpy getters
   batch.rs       — Rayon parallel batch execution
@@ -144,7 +146,7 @@ Each config specifies planet, mission, guidance scheme, vehicle, entry condition
 
 ### Python Tools (`src/python/`, `pyproject.toml`)
 
-Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib, pyarrow) for:
+Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib, pyarrow, pydantic) for:
 
 - Output file parsers (photo, final, CSV files)
 - Visualization (corridor plots, MC ensembles, CDF of correction cost)
@@ -283,6 +285,28 @@ Training CLI flags: `--algorithm {ppo|sac}`, `--total-steps N`, `--n-envs N`, `-
 **Reward structure:** Potential-based per-step shaping (Ng, Harada & Russell 1999): `r_shape = gamma * Phi(s') - Phi(s)` computed by `StepRewardCalculator` so the optimal policy is provably preserved. `Phi` is phase-aware via the bounce flag (obs[15]): capture phase potential combines corridor tracking (`corridor_weight * pdyn_error^2`), energy-gain penalty (`energy_rate_weight * max(delta_energy, 0)`), and constraint proximity (`constraint_weight * (heat_flux_frac^2 + heat_load_frac^2)`); exit phase replaces corridor/energy terms with apoapsis targeting (`apoapsis_weight * sma_error^2`) and eccentricity reduction (`eccentricity_weight * max(ecc_excess, 0)^2`). Terminal adds the raw `compute_cost` (DV + constraint penalties) as a sparse signal. All weights are TOML-configurable in `[rl.reward]`. The `BatchedSimulation` aux channel provides `(energy, pdyn)` per env per step for the capture-phase energy component. Running return normalization (`ReturnNormalizer`, Chan's parallel Welford over per-env discounted-return streams) scales per-step rewards by return std after `norm_warmup_steps`; PPO applies this normalization *during* rollout collection (per step) so advantages see a stable scale at GAE time. Running observation normalization (`ObsNormalizer`, Chan's parallel Welford) tracks per-feature mean/std; at export time, the affine transform is baked into the first linear layer (`W_new = W/std`, `b_new = b - W@(mean/std)`) so the Rust runtime needs no changes. Both normalizers checkpoint with model weights; SAC's replay buffer state is also persisted so resume retains off-policy experience.
 
 Full spec: `docs/superpowers/specs/2026-04-16-rl-reward-redesign.md`, `docs/superpowers/specs/2026-04-15-rl-nn-guidance-design.md`.
+
+## Stateful NN Runtime Infrastructure (Phase 0)
+
+Phase 0 of the multi-phase effort to land recurrent / attention / SSM architectures for NN guidance (paper goal; see `TODO.md`). Ships infrastructure only -- no new layer types beyond `dense` -- but makes stateful forward, per-sim state, and a heterogeneous layer enum Phase-1-ready. JSON format v2 (tagged-layer list, `format_version: 2`) loads alongside v1; v1 files produce bit-identical output.
+
+**Rust side:**
+- `data/neural.rs` -- `LayerSpec` tagged enum (`#[serde(tag = "type")]`), `LayerWeights` trait for flat-weight round-trip, `NeuralNetModel::forward(&self, &mut NnState, &[f64])` stateful signature, `from_json_str` dispatches on `format_version`.
+- `data/nn_state.rs` -- `NnState`, `LayerState` enum; `NnState::for_model` eager init from model shape; `Clone` for RL rollout snapshots.
+- `gnc/guidance/dispatch.rs` -- `GuidanceState::nn_state: Option<NnState>`, `GuidanceState::new(initial_bank, initial_aoa, nn_model: Option<&NeuralNetModel>)`.
+- `simulation/runner.rs` -- `build_sim_state` passes `data.neural_net.as_ref()`; `assert_eq!` verifies `nn_state.is_some() == neural_net.is_some()`.
+
+**Python side:**
+- `training/rl/schemas.py` -- Pydantic v2 schemas (`DenseSpec`, `ArchitectureV2`); Phase 1+ appends `GruSpec`, `LstmSpec`, `AttentionSpec`, `LayerNormSpec`, `SsmSpec`, `WindowSpec` to a discriminated union on the `type` field.
+- `training/rl/layers/` -- one file per layer variant. Phase 0 ships `dense.py` (`DenseLayer` torch module with the step-wise `forward(x, state) -> (y, new_state)` API). `__init__.py` exposes `build_layer(spec)` dispatching per `spec.type`.
+- `training/rl/policy.py` -- `V2Policy` (alongside the pre-existing `GaussianPolicy`) iterates layers with per-layer state; `log_std` is a non-exported `nn.Parameter` (exploration-noise only).
+- `training/rl/export.py` -- `export_v2_policy_to_json(policy, path, obs_normalizer=None)` writes format v2 with the obs-normalizer transform baked into layer 0 (`W_new = W/std`, `b_new = b - W @ (mean/std)`). Existing v1 `export_policy_to_json` for `GaussianPolicy` is unchanged.
+- `training/model_io.py` -- `load_policy_from_json(path, device) -> V2Policy`; round-trips with the exporter bit-for-bit.
+- `training/encoding.py` -- `nn_param_specs_from_v2(architecture, bound_multiplier)` dispatches per layer type via `_layer_param_specs`; produces PSO bounds identical to the v1 `nn_param_specs_from_architecture` for all-dense architectures (via the shared `compute_layer_bound` helper).
+
+**Cross-language gate** (`tests/test_v2_rust_python_equivalence.py`): builds a 2-layer `V2Policy` in f64 (via `policy.double()`), exports to JSON v2, loads in Rust through `aerocapture_rs.nn_forward`, feeds 100 random f64 inputs, asserts max abs diff < 1e-10. Actual result: **4.4e-16** (machine epsilon).
+
+Full spec: `docs/superpowers/specs/2026-04-17-stateful-nn-runtime-infrastructure-design.md`. Multi-phase roadmap (GRU, LSTM, Window-MLP, Transformer, Mamba; PSO × BPTT training axes): `TODO.md`.
 
 ## Key Lessons & Pitfalls
 
