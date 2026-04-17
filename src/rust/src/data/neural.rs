@@ -44,7 +44,7 @@ pub struct Layer {
     pub activation: Activation,
 }
 
-/// JSON file structure for neural network models.
+/// JSON file structure for neural network models (v1 schema).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct NnJsonFile {
     format_version: u32,
@@ -69,6 +69,31 @@ struct NnLayerWeights {
     b: Vec<f64>,
 }
 
+/// v2 layer spec: tagged-union over the layer type.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LayerSpec {
+    Dense {
+        input_size: usize,
+        output_size: usize,
+        activation: Activation,
+    },
+    // Phase 1+: Gru, Lstm, Attention, LayerNorm, Ssm, Window
+}
+
+/// JSON file structure for neural network models (v2 schema).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NnJsonFileV2 {
+    format_version: u32,
+    architecture: Vec<LayerSpec>,
+    weights: std::collections::BTreeMap<String, NnLayerWeights>,
+    output_interpretation: String,
+    #[serde(default)]
+    input_mask: Option<Vec<usize>>,
+    #[serde(default)]
+    ablated_input: Option<usize>,
+}
+
 /// Total number of candidate NN inputs (16 existing + 7 new).
 pub const NN_FULL_INPUT_SIZE: usize = 23;
 
@@ -77,6 +102,8 @@ pub const NN_FULL_INPUT_SIZE: usize = 23;
 /// Replaces the fixed-size `NeuralNetParams`. Supports arbitrary depth and width.
 #[derive(Debug, Clone)]
 pub struct NeuralNetModel {
+    /// Canonical v2-shaped architecture spec (one entry per layer).
+    pub architecture: Vec<LayerSpec>,
     /// Layer sizes: [input_size, hidden1, ..., output_size].
     pub layer_sizes: Vec<usize>,
     /// Network layers (len = layer_sizes.len() - 1).
@@ -140,11 +167,29 @@ impl NeuralNetModel {
     pub fn load(path: &str) -> Result<Self, DataError> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| DataError(format!("Cannot read {}: {}", path, e)))?;
-        Self::from_json(&content, path)
+        Self::from_json_str(&content, path)
     }
 
-    /// Load from JSON format.
-    fn from_json(content: &str, path: &str) -> Result<Self, DataError> {
+    /// Load from a JSON string. Dispatches by `format_version` (1 or 2).
+    pub fn from_json_str(content: &str, path: &str) -> Result<Self, DataError> {
+        let v: serde_json::Value = serde_json::from_str(content)
+            .map_err(|e| DataError(format!("JSON parse error in {}: {}", path, e)))?;
+        let fmt = v
+            .get("format_version")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0);
+        match fmt {
+            1 => Self::from_v1_json(content, path),
+            2 => Self::from_v2_json(content, path),
+            other => Err(DataError(format!(
+                "Unsupported format_version {} in {} (expected 1 or 2)",
+                other, path
+            ))),
+        }
+    }
+
+    /// Load v1 JSON schema (architecture object with layers + activations).
+    fn from_v1_json(content: &str, path: &str) -> Result<Self, DataError> {
         let file: NnJsonFile = serde_json::from_str(content)
             .map_err(|e| DataError(format!("JSON parse error in {}: {}", path, e)))?;
 
@@ -199,8 +244,18 @@ impl NeuralNetModel {
             )));
         }
 
+        let layer_sizes = file.architecture.layers;
+        let architecture: Vec<LayerSpec> = (0..layers.len())
+            .map(|i| LayerSpec::Dense {
+                input_size: layer_sizes[i],
+                output_size: layer_sizes[i + 1],
+                activation: layers[i].activation,
+            })
+            .collect();
+
         Ok(NeuralNetModel {
-            layer_sizes: file.architecture.layers,
+            architecture,
+            layer_sizes,
             layers,
             output_interpretation: file.output_interpretation,
             input_mask: file.input_mask,
@@ -208,10 +263,76 @@ impl NeuralNetModel {
         })
     }
 
-    /// Save to JSON format.
+    /// Load v2 JSON schema (architecture is a tagged-layer list).
+    fn from_v2_json(content: &str, path: &str) -> Result<Self, DataError> {
+        let file: NnJsonFileV2 = serde_json::from_str(content)
+            .map_err(|e| DataError(format!("JSON parse error in {}: {}", path, e)))?;
+
+        let mut layers = Vec::with_capacity(file.architecture.len());
+        let mut layer_sizes = Vec::with_capacity(file.architecture.len() + 1);
+
+        for (i, spec) in file.architecture.iter().enumerate() {
+            match spec {
+                LayerSpec::Dense {
+                    input_size,
+                    output_size,
+                    activation,
+                } => {
+                    if i == 0 {
+                        layer_sizes.push(*input_size);
+                    }
+                    layer_sizes.push(*output_size);
+
+                    let key = format!("layer_{}", i);
+                    let lw = file.weights.get(&key).ok_or_else(|| {
+                        DataError(format!("Missing {} in weights in {}", key, path))
+                    })?;
+
+                    if lw.w.len() != *output_size || lw.b.len() != *output_size {
+                        return Err(DataError(format!("Layer {} size mismatch in {}", i, path)));
+                    }
+                    for row in &lw.w {
+                        if row.len() != *input_size {
+                            return Err(DataError(format!(
+                                "Layer {} weight row length mismatch in {}",
+                                i, path
+                            )));
+                        }
+                    }
+
+                    layers.push(Layer {
+                        w: lw.w.clone(),
+                        b: lw.b.clone(),
+                        activation: *activation,
+                    });
+                }
+            }
+        }
+
+        Self::validate_mask(&file.input_mask, layer_sizes[0])?;
+        Self::validate_ablated_input(&file.ablated_input)?;
+
+        let output_size = *layer_sizes.last().unwrap_or(&0);
+        if file.output_interpretation != "direct" && output_size < 2 {
+            return Err(DataError(format!(
+                "output_interpretation '{}' requires >= 2 outputs, got {} in {}",
+                file.output_interpretation, output_size, path
+            )));
+        }
+
+        Ok(NeuralNetModel {
+            architecture: file.architecture,
+            layer_sizes,
+            layers,
+            output_interpretation: file.output_interpretation,
+            input_mask: file.input_mask,
+            ablated_input: file.ablated_input,
+        })
+    }
+
+    /// Save to JSON format (v2 schema: tagged-layer list).
     pub fn save_json(&self, path: &str) -> Result<(), DataError> {
         let mut weights = std::collections::BTreeMap::new();
-        let mut activations = Vec::new();
 
         for (i, layer) in self.layers.iter().enumerate() {
             weights.insert(
@@ -221,15 +342,11 @@ impl NeuralNetModel {
                     b: layer.b.clone(),
                 },
             );
-            activations.push(layer.activation);
         }
 
-        let file = NnJsonFile {
-            format_version: 1,
-            architecture: NnArchitecture {
-                layers: self.layer_sizes.clone(),
-                activations,
-            },
+        let file = NnJsonFileV2 {
+            format_version: 2,
+            architecture: self.architecture.clone(),
             weights,
             output_interpretation: self.output_interpretation.clone(),
             input_mask: self.input_mask.clone(),
@@ -327,7 +444,16 @@ impl NeuralNetModel {
             });
         }
 
+        let architecture: Vec<LayerSpec> = (0..layers.len())
+            .map(|i| LayerSpec::Dense {
+                input_size: layer_sizes[i],
+                output_size: layer_sizes[i + 1],
+                activation: activations[i],
+            })
+            .collect();
+
         Ok(NeuralNetModel {
+            architecture,
             layer_sizes: layer_sizes.to_vec(),
             layers,
             output_interpretation: "atan2".to_string(),
@@ -344,6 +470,18 @@ mod tests {
     /// Build a minimal valid NeuralNetModel with a given input size.
     fn make_model(input_size: usize) -> NeuralNetModel {
         NeuralNetModel {
+            architecture: vec![
+                LayerSpec::Dense {
+                    input_size,
+                    output_size: 4,
+                    activation: Activation::Tanh,
+                },
+                LayerSpec::Dense {
+                    input_size: 4,
+                    output_size: 2,
+                    activation: Activation::Linear,
+                },
+            ],
             layer_sizes: vec![input_size, 4, 2],
             layers: vec![
                 Layer {
@@ -430,5 +568,31 @@ mod tests {
         // index 22 is the last valid index (NN_FULL_INPUT_SIZE - 1)
         let result = NeuralNetModel::validate_ablated_input(&Some(22));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn v2_json_parses_to_same_layers_as_v1() {
+        let v1 = r#"{
+          "format_version": 1,
+          "architecture": { "layers": [3, 2], "activations": ["linear"] },
+          "weights": { "layer_0": { "w": [[0.1,0.2,0.3],[0.4,0.5,0.6]], "b": [0.01,0.02] } },
+          "output_interpretation": "atan2"
+        }"#;
+        let v2 = r#"{
+          "format_version": 2,
+          "architecture": [
+            { "type": "dense", "input_size": 3, "output_size": 2, "activation": "linear" }
+          ],
+          "weights": { "layer_0": { "w": [[0.1,0.2,0.3],[0.4,0.5,0.6]], "b": [0.01,0.02] } },
+          "output_interpretation": "atan2"
+        }"#;
+        let m1 = NeuralNetModel::from_json_str(v1, "v1").unwrap();
+        let m2 = NeuralNetModel::from_json_str(v2, "v2").unwrap();
+        assert_eq!(m1.layer_sizes, m2.layer_sizes);
+        assert_eq!(m1.n_params(), m2.n_params());
+        let input = vec![1.0, 2.0, 3.0];
+        let o1 = m1.forward(&input);
+        let o2 = m2.forward(&input);
+        assert_eq!(o1, o2);
     }
 }

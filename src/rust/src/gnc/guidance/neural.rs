@@ -171,7 +171,7 @@ mod tests {
     use crate::data::capsule::Capsule;
     use crate::data::guidance_params::{GuidanceParams, ReferenceTrajectory};
     use crate::data::incidence::IncidenceProfile;
-    use crate::data::neural::{Activation, Layer, NN_FULL_INPUT_SIZE, NeuralNetModel};
+    use crate::data::neural::{Activation, Layer, LayerSpec, NN_FULL_INPUT_SIZE, NeuralNetModel};
     use crate::data::pilot::{PilotModel, PilotType};
     use crate::data::{
         Constraints, EntryConditions, FinalConditions, OrbitalTarget, ParkingOrbit, SimData,
@@ -302,6 +302,11 @@ mod tests {
     /// Bank angle = atan2(b[0], b[1])
     fn zero_weight_nn(bias0: f64, bias1: f64) -> NeuralNetModel {
         NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: 16,
+                output_size: 2,
+                activation: Activation::Linear,
+            }],
             layer_sizes: vec![16, 2],
             layers: vec![Layer {
                 w: vec![vec![0.0; 16], vec![0.0; 16]],
@@ -345,6 +350,11 @@ mod tests {
     #[test]
     fn direct_output_scales_by_pi() {
         let nn = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: 16,
+                output_size: 1,
+                activation: Activation::Linear,
+            }],
             layer_sizes: vec![16, 1],
             layers: vec![Layer {
                 w: vec![vec![0.0; 16]],
@@ -366,6 +376,11 @@ mod tests {
     #[test]
     fn direct_output_full_range() {
         let nn = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: 16,
+                output_size: 1,
+                activation: Activation::Tanh,
+            }],
             layer_sizes: vec![16, 1],
             layers: vec![Layer {
                 w: vec![vec![0.0; 16]],
@@ -411,6 +426,18 @@ mod tests {
             activation: Activation::Asinh,
         };
         let nn = NeuralNetModel {
+            architecture: vec![
+                LayerSpec::Dense {
+                    input_size: 16,
+                    output_size: 3,
+                    activation: Activation::Tanh,
+                },
+                LayerSpec::Dense {
+                    input_size: 3,
+                    output_size: 2,
+                    activation: Activation::Asinh,
+                },
+            ],
             layer_sizes: vec![16, 3, 2],
             layers: vec![layer0, layer1],
             output_interpretation: "atan2".to_string(),
@@ -463,6 +490,18 @@ mod tests {
             activation: Activation::Asinh,
         };
         let nn = NeuralNetModel {
+            architecture: vec![
+                LayerSpec::Dense {
+                    input_size: 16,
+                    output_size: 24,
+                    activation: Activation::Tanh,
+                },
+                LayerSpec::Dense {
+                    input_size: 24,
+                    output_size: 2,
+                    activation: Activation::Asinh,
+                },
+            ],
             layer_sizes: vec![16, 24, 2],
             layers: vec![layer0, layer1],
             output_interpretation: "atan2".to_string(),
@@ -488,6 +527,11 @@ mod tests {
     fn full_23_input_vector_is_finite() {
         // 23->2 network with explicit full mask
         let nn = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: NN_FULL_INPUT_SIZE,
+                output_size: 2,
+                activation: Activation::Linear,
+            }],
             layer_sizes: vec![NN_FULL_INPUT_SIZE, 2],
             layers: vec![Layer {
                 w: vec![
@@ -517,6 +561,11 @@ mod tests {
     fn mask_selects_correct_inputs() {
         // 3->2 network with mask [0, 8, 15]
         let nn = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: 3,
+                output_size: 2,
+                activation: Activation::Linear,
+            }],
             layer_sizes: vec![3, 2],
             layers: vec![Layer {
                 w: vec![vec![0.1; 3], vec![0.1; 3]],
@@ -547,6 +596,11 @@ mod tests {
         w_row[0] = 5.0; // large weight on input 0
 
         let nn_normal = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: 16,
+                output_size: 2,
+                activation: Activation::Linear,
+            }],
             layer_sizes: vec![16, 2],
             layers: vec![Layer {
                 w: vec![w_row.clone(), vec![0.0; 16]],
@@ -559,6 +613,11 @@ mod tests {
         };
 
         let nn_ablated = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: 16,
+                output_size: 2,
+                activation: Activation::Linear,
+            }],
             layer_sizes: vec![16, 2],
             layers: vec![Layer {
                 w: vec![w_row, vec![0.0; 16]],
@@ -588,6 +647,11 @@ mod tests {
     fn backward_compat_16_input_mask() {
         // 16->2 network with explicit mask [0..16] should behave same as None
         let nn_explicit = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: 16,
+                output_size: 2,
+                activation: Activation::Linear,
+            }],
             layer_sizes: vec![16, 2],
             layers: vec![Layer {
                 w: vec![vec![0.01; 16], vec![-0.01; 16]],
@@ -627,6 +691,11 @@ mod tests {
         w0[21] = 10.0;
         w0[22] = 10.0;
         let nn = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: NN_FULL_INPUT_SIZE,
+                output_size: 2,
+                activation: Activation::Linear,
+            }],
             layer_sizes: vec![NN_FULL_INPUT_SIZE, 2],
             layers: vec![Layer {
                 w: vec![w0, vec![0.0; NN_FULL_INPUT_SIZE]],
@@ -654,6 +723,11 @@ mod tests {
 
         fn fixed_small_nn() -> NeuralNetModel {
             NeuralNetModel {
+                architecture: vec![LayerSpec::Dense {
+                    input_size: 16,
+                    output_size: 2,
+                    activation: Activation::Tanh,
+                }],
                 layer_sizes: vec![16, 2],
                 layers: vec![Layer {
                     w: vec![
