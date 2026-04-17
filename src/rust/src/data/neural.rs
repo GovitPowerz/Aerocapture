@@ -45,6 +45,52 @@ pub struct Layer {
     pub activation: Activation,
 }
 
+/// Trait for flattening and reconstructing a layer's parameters.
+///
+/// Each layer type implements its own canonical flat ordering:
+/// dense = W (row-major) then b; gru/lstm/attention/ssm defined per variant
+/// (see Phase 1+ for those). Order MUST match the PyTorch mirror in
+/// src/python/aerocapture/training/rl/layers/<type>.py for PSO chromosome
+/// compatibility.
+pub trait LayerWeights {
+    fn to_flat(&self) -> Vec<f64>;
+    // `from_flat` takes `&mut self` by design: it overwrites this layer's
+    // weights in place from a flat slice and returns elements consumed.
+    #[allow(clippy::wrong_self_convention)]
+    fn from_flat(&mut self, flat: &[f64]) -> usize;
+    fn n_params(&self) -> usize;
+}
+
+impl LayerWeights for Layer {
+    fn to_flat(&self) -> Vec<f64> {
+        let mut v = Vec::with_capacity(self.n_params());
+        for row in &self.w {
+            v.extend_from_slice(row);
+        }
+        v.extend_from_slice(&self.b);
+        v
+    }
+
+    fn from_flat(&mut self, flat: &[f64]) -> usize {
+        let n_out = self.w.len();
+        let n_in = if n_out > 0 { self.w[0].len() } else { 0 };
+        let mut idx = 0;
+        for j in 0..n_out {
+            self.w[j].copy_from_slice(&flat[idx..idx + n_in]);
+            idx += n_in;
+        }
+        self.b.copy_from_slice(&flat[idx..idx + n_out]);
+        idx += n_out;
+        idx
+    }
+
+    fn n_params(&self) -> usize {
+        let n_out = self.w.len();
+        let n_in = if n_out > 0 { self.w[0].len() } else { 0 };
+        n_out * n_in + n_out
+    }
+}
+
 /// JSON file structure for neural network models (v1 schema).
 #[derive(Debug, Clone, Deserialize)]
 struct NnJsonFile {
@@ -417,10 +463,7 @@ impl NeuralNetModel {
     pub fn to_flat_weights(&self) -> Vec<f64> {
         let mut flat = Vec::with_capacity(self.n_params());
         for layer in &self.layers {
-            for row in &layer.w {
-                flat.extend_from_slice(row);
-            }
-            flat.extend_from_slice(&layer.b);
+            flat.extend(layer.to_flat());
         }
         flat
     }
@@ -434,44 +477,41 @@ impl NeuralNetModel {
         if activations.len() != layer_sizes.len() - 1 {
             return Err(DataError("Activation count != layer count - 1".to_string()));
         }
-
-        let mut idx = 0;
-        let mut layers = Vec::new();
-
-        for i in 0..layer_sizes.len() - 1 {
+        let mut architecture = Vec::with_capacity(activations.len());
+        let mut layers = Vec::with_capacity(activations.len());
+        let mut offset = 0;
+        for i in 0..activations.len() {
             let n_in = layer_sizes[i];
             let n_out = layer_sizes[i + 1];
-
-            let mut w = Vec::with_capacity(n_out);
-            for _ in 0..n_out {
-                if idx + n_in > weights.len() {
-                    return Err(DataError("Weight vector too short".to_string()));
-                }
-                w.push(weights[idx..idx + n_in].to_vec());
-                idx += n_in;
-            }
-
-            if idx + n_out > weights.len() {
-                return Err(DataError("Weight vector too short for biases".to_string()));
-            }
-            let b = weights[idx..idx + n_out].to_vec();
-            idx += n_out;
-
-            layers.push(Layer {
-                w,
-                b,
+            architecture.push(LayerSpec::Dense {
+                input_size: n_in,
+                output_size: n_out,
                 activation: activations[i],
             });
-        }
-
-        let architecture: Vec<LayerSpec> = (0..layers.len())
-            .map(|i| LayerSpec::Dense {
-                input_size: layer_sizes[i],
-                output_size: layer_sizes[i + 1],
+            let mut layer = Layer {
+                w: vec![vec![0.0; n_in]; n_out],
+                b: vec![0.0; n_out],
                 activation: activations[i],
-            })
-            .collect();
-
+            };
+            let needed = layer.n_params();
+            if offset + needed > weights.len() {
+                return Err(DataError(format!(
+                    "Weight vector length mismatch: consumed {} of {}",
+                    offset + needed,
+                    weights.len()
+                )));
+            }
+            let consumed = layer.from_flat(&weights[offset..]);
+            offset += consumed;
+            layers.push(layer);
+        }
+        if offset != weights.len() {
+            return Err(DataError(format!(
+                "Weight vector length mismatch: consumed {} of {}",
+                offset,
+                weights.len()
+            )));
+        }
         Ok(NeuralNetModel {
             architecture,
             layer_sizes: layer_sizes.to_vec(),
@@ -588,6 +628,59 @@ mod tests {
         // index 22 is the last valid index (NN_FULL_INPUT_SIZE - 1)
         let result = NeuralNetModel::validate_ablated_input(&Some(22));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn flat_weights_roundtrip_dense() {
+        use crate::data::nn_state::NnState;
+
+        let original = NeuralNetModel {
+            architecture: vec![
+                LayerSpec::Dense {
+                    input_size: 4,
+                    output_size: 3,
+                    activation: Activation::Tanh,
+                },
+                LayerSpec::Dense {
+                    input_size: 3,
+                    output_size: 2,
+                    activation: Activation::Linear,
+                },
+            ],
+            layer_sizes: vec![4, 3, 2],
+            layers: vec![
+                Layer {
+                    w: vec![
+                        vec![0.1, 0.2, 0.3, 0.4],
+                        vec![0.5, 0.6, 0.7, 0.8],
+                        vec![-0.1, -0.2, -0.3, -0.4],
+                    ],
+                    b: vec![0.01, 0.02, 0.03],
+                    activation: Activation::Tanh,
+                },
+                Layer {
+                    w: vec![vec![0.1, 0.2, 0.3], vec![-0.1, -0.2, -0.3]],
+                    b: vec![0.1, -0.1],
+                    activation: Activation::Linear,
+                },
+            ],
+            output_interpretation: "atan2".to_string(),
+            input_mask: None,
+            ablated_input: None,
+        };
+
+        let flat = original.to_flat_weights();
+        let layer_sizes: Vec<usize> = original.layer_sizes.clone();
+        let activations = vec![Activation::Tanh, Activation::Linear];
+        let reconstructed =
+            NeuralNetModel::from_flat_weights(&flat, &layer_sizes, &activations).unwrap();
+
+        let input = vec![0.5, -0.3, 0.1, 0.7];
+        let mut s0 = NnState::for_model(&original);
+        let mut s1 = NnState::for_model(&reconstructed);
+        let o0 = original.forward(&mut s0, &input);
+        let o1 = reconstructed.forward(&mut s1, &input);
+        assert_eq!(o0, o1);
     }
 
     #[test]
