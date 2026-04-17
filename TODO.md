@@ -1,5 +1,7 @@
 # TODO
 
+- [ ] explore JEPA guidance
+
 ---
 
 ## Backlog
