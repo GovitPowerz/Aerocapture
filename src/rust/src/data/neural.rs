@@ -45,8 +45,9 @@ pub struct Layer {
 }
 
 /// JSON file structure for neural network models (v1 schema).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct NnJsonFile {
+    #[allow(dead_code)]
     format_version: u32,
     architecture: NnArchitecture,
     weights: std::collections::BTreeMap<String, NnLayerWeights>,
@@ -57,7 +58,7 @@ struct NnJsonFile {
     ablated_input: Option<usize>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct NnArchitecture {
     layers: Vec<usize>,
     activations: Vec<Activation>,
@@ -289,7 +290,15 @@ impl NeuralNetModel {
                     })?;
 
                     if lw.w.len() != *output_size || lw.b.len() != *output_size {
-                        return Err(DataError(format!("Layer {} size mismatch in {}", i, path)));
+                        return Err(DataError(format!(
+                            "Layer {} size mismatch: expected {}x{}, got w={}x?, b={} in {}",
+                            i,
+                            output_size,
+                            input_size,
+                            lw.w.len(),
+                            lw.b.len(),
+                            path
+                        )));
                     }
                     for row in &lw.w {
                         if row.len() != *input_size {
