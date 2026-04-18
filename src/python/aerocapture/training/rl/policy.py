@@ -106,6 +106,32 @@ class GaussianPolicy(nn.Module):
         return bank, raw, log_prob
 
 
+def _zero_state_where_done(state: list[Any], done_mask: Tensor) -> list[Any]:
+    """Return a new state list where the entries for `done_mask` envs are zeroed.
+
+    Contract:
+      - `None` entries (dense / stateless layers) pass through unchanged.
+      - Tensor entries of shape `(B, *)` get `done_mask` rows multiplied by 0.
+      - Non-tensor, non-None entries raise TypeError. When Phase 2+ introduces
+        layer types whose state is a tuple (e.g. LSTM `(h, c)`), extend this
+        helper to recurse into the container rather than silently matmul-erroring.
+    """
+    new_state: list[Any] = []
+    keep_bool = (~done_mask).unsqueeze(-1)  # (B, 1), bool
+    for s in state:
+        if s is None:
+            new_state.append(None)
+        elif isinstance(s, Tensor):
+            new_state.append(s * keep_bool.to(dtype=s.dtype, device=s.device))
+        else:
+            raise TypeError(
+                f"_zero_state_where_done: unsupported state entry type {type(s).__name__!r}; "
+                "only None or Tensor supported. Multi-tensor recurrent states (e.g. LSTM (h, c)) "
+                "need an explicit extension of this helper."
+            )
+    return new_state
+
+
 class V2Policy(nn.Module):
     """Step-wise stateful policy matching the Rust NeuralNetModel contract.
 
@@ -122,13 +148,16 @@ class V2Policy(nn.Module):
         architecture: Sequence[LayerSpec],
         output_interpretation: str,
         input_mask: list[int] | None,
+        initial_log_std: float = 0.0,
+        min_log_std: float = -2.0,
     ) -> None:
         super().__init__()
         self.layers = nn.ModuleList([build_layer(spec) for spec in architecture])
         self.output_interpretation = output_interpretation
         self.input_mask = input_mask
         action_dim = 2 if output_interpretation == "atan2" else 1
-        self.log_std = nn.Parameter(torch.zeros(action_dim))
+        self.log_std = nn.Parameter(torch.full((action_dim,), initial_log_std))
+        self.min_log_std = min_log_std
 
     def forward(self, x: Tensor, state: list[Any]) -> tuple[Tensor, list[Any]]:
         new_state: list[Any] = [None] * len(self.layers)
@@ -142,6 +171,77 @@ class V2Policy(nn.Module):
         # nn.ModuleList typing is `Module | Tensor`; all our layer modules
         # implement new_state by contract (see layers/ subpackage).
         return [layer.new_state(batch_size, device) for layer in self.layers]  # type: ignore[union-attr,operator]
+
+    def forward_mean_logstd(self, obs: Tensor, state: list[Any]) -> tuple[Tensor, Tensor, list[Any]]:
+        """Single-step forward producing policy mean + log_std + new state.
+
+        Mirrors GaussianPolicy.forward_mean_logstd but threads per-layer state.
+        The final layer's output becomes `mean`. `log_std` is the state-independent
+        parameter clamped at `min_log_std`.
+        """
+        mean, new_state = self.forward(obs, state)
+        log_std = self.log_std.clamp(min=self.min_log_std)
+        return mean, log_std, new_state
+
+    def sample(self, obs: Tensor, state: list[Any]) -> tuple[Tensor, Tensor, Tensor, list[Any]]:
+        """Reparameterized sample. Returns (bank, raw, log_prob, new_state).
+
+        `raw` is the unconstrained 2D Gaussian sample (for output_interpretation='atan2'),
+        `bank` is `atan2(raw[..., 0], raw[..., 1])`, `log_prob` is the Normal density at
+        `raw` summed over the action axis.
+        """
+        mean, log_std, new_state = self.forward_mean_logstd(obs, state)
+        std = log_std.exp()
+        eps = torch.randn_like(mean)
+        raw = mean + std * eps
+        # "direct" -> raw is 1D; the environment expects the first element.
+        bank = torch.atan2(raw[..., 0], raw[..., 1]) if self.output_interpretation == "atan2" else raw[..., 0]
+        dist = torch.distributions.Normal(mean, std)
+        log_prob = dist.log_prob(raw).sum(-1)
+        return bank, raw, log_prob, new_state
+
+    def evaluate(
+        self,
+        obs_seq: Tensor,
+        state_0: list[Any],
+        dones_seq: Tensor,
+        raw_seq: Tensor,
+    ) -> tuple[Tensor, Tensor]:
+        """BPTT forward over a time chunk.
+
+        Inputs:
+            obs_seq    (T, B, obs_dim)
+            state_0    list of per-layer state tensors; caller is responsible for
+                       `.detach()` before passing in when crossing chunk boundaries.
+            dones_seq  (T, B) bool. When True at time t, the per-env state entering
+                       step t+1 is zeroed (matches the Rust auto-reset + collect-loop
+                       behavior).
+            raw_seq    (T, B, action_dim). The raw Gaussian samples whose log_prob
+                       we are re-evaluating under the current policy.
+
+        Returns:
+            log_probs_seq (T, B)
+            entropy_seq   (T, B)
+        """
+        T = obs_seq.shape[0]
+        log_probs = []
+        entropies = []
+        state = state_0
+        log_std = self.log_std.clamp(min=self.min_log_std)
+        std = log_std.exp()
+        for t in range(T):
+            mean, state = self.forward(obs_seq[t], state)
+            dist = torch.distributions.Normal(mean, std)
+            lp = dist.log_prob(raw_seq[t]).sum(-1)
+            ent = dist.entropy().sum(-1)
+            log_probs.append(lp)
+            entropies.append(ent)
+            # Zero the state per-env when done[t] is True, before next step.
+            if t + 1 < T:
+                done_mask = dones_seq[t]  # (B,)
+                if done_mask.any():
+                    state = _zero_state_where_done(state, done_mask)
+        return torch.stack(log_probs, dim=0), torch.stack(entropies, dim=0)
 
 
 class ValueNetwork(nn.Module):

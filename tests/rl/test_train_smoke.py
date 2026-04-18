@@ -13,10 +13,12 @@ pytest.importorskip("torch")
 
 
 def _make_dummy_model(path: Path, config_path: Path) -> None:
-    """Write a minimal valid NeuralNetModel JSON matching the rl_train TOML architecture.
+    """Write a minimal valid NeuralNetModel JSON v2 matching the rl_train TOML architecture.
 
     Reads [network] from the resolved TOML so the dummy stays in sync
-    when the config changes.
+    when the config changes. Post-Task-5, PPO warm-start uses the v2 loader
+    (aerocapture.training.model_io.load_policy_from_json), so the dummy must
+    be format_version=2.
     """
     from aerocapture.training.toml_utils import load_toml_with_bases
 
@@ -29,9 +31,18 @@ def _make_dummy_model(path: Path, config_path: Path) -> None:
     input_dim = toml_layers[0]
     layer_sizes = toml_layers[1:]
 
+    architecture: list[dict[str, object]] = []
     weights_dict: dict[str, object] = {}
     prev = input_dim
-    for i, out_dim in enumerate(layer_sizes):
+    for i, (out_dim, act) in enumerate(zip(layer_sizes, activations, strict=True)):
+        architecture.append(
+            {
+                "type": "dense",
+                "input_size": prev,
+                "output_size": out_dim,
+                "activation": act,
+            }
+        )
         weights_dict[f"layer_{i}"] = {
             "w": [[0.0] * prev for _ in range(out_dim)],
             "b": [0.0] * out_dim,
@@ -39,14 +50,12 @@ def _make_dummy_model(path: Path, config_path: Path) -> None:
         prev = out_dim
 
     doc = {
-        "format_version": 1,
-        "architecture": {
-            "layers": toml_layers,
-            "activations": activations,
-        },
+        "format_version": 2,
+        "architecture": architecture,
         "weights": weights_dict,
         "output_interpretation": "atan2",
         "input_mask": input_mask,
+        "ablated_input": None,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as f:

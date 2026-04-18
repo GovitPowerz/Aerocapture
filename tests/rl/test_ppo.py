@@ -7,8 +7,23 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from aerocapture.training.rl.policy import GaussianPolicy, ValueNetwork  # noqa: E402
+from aerocapture.training.rl.policy import V2Policy, ValueNetwork  # noqa: E402
 from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, ppo_update  # noqa: E402
+from aerocapture.training.rl.schemas import Activation, DenseSpec  # noqa: E402
+
+
+def _make_v2_policy(input_dim: int, layer_sizes: list[int], activations: list[Activation]) -> V2Policy:
+    """Build a dense-only V2Policy from (input_dim, layer_sizes, activations) like GaussianPolicy."""
+    specs: list[DenseSpec] = []
+    prev = input_dim
+    for out_dim, act in zip(layer_sizes, activations, strict=True):
+        specs.append(DenseSpec(type="dense", input_size=prev, output_size=out_dim, activation=act))
+        prev = out_dim
+    return V2Policy(
+        architecture=specs,
+        output_interpretation="atan2",
+        input_mask=list(range(input_dim)),
+    )
 
 
 def test_gae_known_values() -> None:
@@ -57,7 +72,7 @@ def test_rollout_buffer_create() -> None:
 
 def test_ppo_update_runs_without_crashing() -> None:
     torch.manual_seed(0)
-    policy = GaussianPolicy(16, [32, 32, 2], ["tanh", "tanh", "linear"])
+    policy = _make_v2_policy(16, [32, 32, 2], ["tanh", "tanh", "linear"])
     value = ValueNetwork(16, [32, 32], ["tanh", "tanh", "linear"])
     optim = torch.optim.Adam(list(policy.parameters()) + list(value.parameters()), lr=3e-4)
 
@@ -97,7 +112,7 @@ def test_target_kl_early_stops_epochs() -> None:
     Forcing a large KL per update by combining zero clip_range with a huge
     learning rate reliably trips the early-stop."""
     torch.manual_seed(0)
-    policy = GaussianPolicy(8, [16, 2], ["tanh", "linear"])
+    policy = _make_v2_policy(8, [16, 2], ["tanh", "linear"])
     value = ValueNetwork(8, [16], ["tanh", "linear"])
     optim = torch.optim.Adam(list(policy.parameters()) + list(value.parameters()), lr=1.0)
     n = 64

@@ -36,6 +36,7 @@ class RewardConfig:
 class PPOConfig:
     learning_rate: float = 3.0e-4
     rollout_steps: int = 2048
+    bptt_length: int = 32
     update_epochs: int = 10
     minibatches: int = 32
     gamma: float = 0.99
@@ -99,6 +100,12 @@ class RLConfig:
         if ppo_overrides:
             ppo_src = {**ppo_src, **ppo_overrides}
         ppo = PPOConfig(**ppo_src)
+        if ppo.rollout_steps % ppo.bptt_length != 0:
+            raise ValueError(
+                f"[rl.ppo].rollout_steps ({ppo.rollout_steps}) must be divisible by "
+                f"[rl.ppo].bptt_length ({ppo.bptt_length}); chunked BPTT requires "
+                f"evenly-sized chunks."
+            )
         sac = SACConfig(**rl.get("sac", {}))
         return cls(
             algorithm=algo,

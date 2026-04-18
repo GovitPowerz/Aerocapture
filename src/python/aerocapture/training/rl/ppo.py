@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
 import torch
 from torch import nn
 
-from aerocapture.training.rl.policy import GaussianPolicy, ValueNetwork
+from aerocapture.training.rl.policy import V2Policy, ValueNetwork
+
+if TYPE_CHECKING:
+    from aerocapture.training.rl.normalizers import ObsNormalizer
 
 
 @dataclass
@@ -19,6 +23,14 @@ class RolloutBuffer:
     ``raw_actions`` stores the 2D Gaussian sample (n_steps, n_envs, 2) so that
     ``ppo_update`` replays the *exact* point at which ``old_log_probs`` were
     evaluated. The scalar bank angle sent to the env is atan2(raw[0], raw[1]).
+
+    Hidden-state fields (Phase 1.5):
+        h_initial: list[ndarray | None], one entry per layer. Dense layers have
+                   entry == None; recurrent layers have shape (n_envs, H).
+        h_final:   same shape as h_initial; state at t=n_steps (seed for next rollout).
+        states:    list[ndarray | None], one per layer. Dense layers None;
+                   recurrent layers have shape (n_steps, n_envs, H). states[t]
+                   stores the state *before* step t was computed.
     """
 
     n_steps: int
@@ -30,9 +42,30 @@ class RolloutBuffer:
     rewards: npt.NDArray[np.float32]
     values: npt.NDArray[np.float32]
     dones: npt.NDArray[np.bool_]
+    h_initial: list[npt.NDArray[np.float32] | None]
+    h_final: list[npt.NDArray[np.float32] | None]
+    states: list[npt.NDArray[np.float32] | None]
 
     @classmethod
-    def create(cls, n_steps: int, n_envs: int, obs_dim: int) -> RolloutBuffer:
+    def create(
+        cls,
+        n_steps: int,
+        n_envs: int,
+        obs_dim: int,
+        hidden_shapes: list[tuple[int, ...] | None] | None = None,
+    ) -> RolloutBuffer:
+        """Create a rollout buffer.
+
+        hidden_shapes: list of per-layer hidden-state shapes (excluding the
+                       batch axis). None entries are dense/stateless layers.
+                       If hidden_shapes is None, defaults to a zero-length
+                       list (feedforward-only, no state tracking).
+        """
+        if hidden_shapes is None:
+            hidden_shapes = []
+        h_initial: list[npt.NDArray[np.float32] | None] = [None if s is None else np.zeros((n_envs,) + s, dtype=np.float32) for s in hidden_shapes]
+        h_final: list[npt.NDArray[np.float32] | None] = [None if s is None else np.zeros((n_envs,) + s, dtype=np.float32) for s in hidden_shapes]
+        states: list[npt.NDArray[np.float32] | None] = [None if s is None else np.zeros((n_steps, n_envs) + s, dtype=np.float32) for s in hidden_shapes]
         return cls(
             n_steps=n_steps,
             n_envs=n_envs,
@@ -43,6 +76,9 @@ class RolloutBuffer:
             rewards=np.zeros((n_steps, n_envs), dtype=np.float32),
             values=np.zeros((n_steps, n_envs), dtype=np.float32),
             dones=np.zeros((n_steps, n_envs), dtype=np.bool_),
+            h_initial=h_initial,
+            h_final=h_final,
+            states=states,
         )
 
 
@@ -75,7 +111,7 @@ def compute_gae(
 
 
 def ppo_update(
-    policy: GaussianPolicy,
+    policy: V2Policy,
     value: ValueNetwork,
     optim: torch.optim.Optimizer,
     obs: torch.Tensor,  # (N, obs_dim)
@@ -122,7 +158,11 @@ def ppo_update(
             mb_adv = adv_norm[mb]
             mb_ret = returns[mb]
 
-            mean, log_std = policy.forward_mean_logstd(mb_obs)
+            # Task 5 migration: V2Policy threads per-layer state. For the update
+            # loop we still do feedforward replays (no BPTT); proper state-aware
+            # replay lands in Task 7 via policy.evaluate().
+            mb_state = policy.new_state(batch_size=mb_obs.shape[0], device=mb_obs.device)
+            mean, log_std, _ = policy.forward_mean_logstd(mb_obs, mb_state)
             std = log_std.exp()
             dist = torch.distributions.Normal(mean, std)
             new_lp = dist.log_prob(mb_raw).sum(-1)
@@ -152,6 +192,139 @@ def ppo_update(
             metrics_acc["approx_kl"].append(approx_kl)
             metrics_acc["clip_frac"].append(clip_frac)
             epoch_kls.append(approx_kl)
+        epochs_run += 1
+        if target_kl is not None and epoch_kls and float(np.mean(epoch_kls)) > target_kl:
+            break
+
+    result = {k: float(np.mean(v)) for k, v in metrics_acc.items()}
+    result["epochs_run"] = float(epochs_run)
+    return result
+
+
+def ppo_update_bptt(
+    policy: V2Policy,
+    value: ValueNetwork,
+    optim: torch.optim.Optimizer,
+    buf: RolloutBuffer,
+    advantages: npt.NDArray[np.float32],
+    returns: npt.NDArray[np.float32],
+    bptt_length: int,
+    clip_range: float,
+    update_epochs: int,
+    minibatches: int,
+    entropy_coef: float,
+    value_coef: float,
+    max_grad_norm: float,
+    target_kl: float | None = None,
+    obs_norm: ObsNormalizer | None = None,
+) -> dict[str, float]:
+    """Chunked truncated-BPTT PPO update.
+
+    Splits each env's rollout into rollout_steps // bptt_length chunks.
+    Minibatches partition the env axis; within each minibatch, the time axis
+    stays intact and gradients flow through `bptt_length` timesteps per chunk.
+    """
+    n_steps, n_envs = buf.rewards.shape
+    assert n_steps % bptt_length == 0, "rollout_steps must be divisible by bptt_length"
+    n_chunks = n_steps // bptt_length
+
+    envs_per_minibatch = max(1, n_envs // minibatches)
+
+    # Normalize advantages once over the full rollout.
+    adv = advantages.astype(np.float32)
+    adv_norm = (adv - adv.mean()) / (adv.std() + 1e-8)
+
+    # Pre-normalize observations if an ObsNormalizer is active (same as feedforward path).
+    obs_for_eval = buf.obs
+    if obs_norm is not None:
+        obs_for_eval = obs_norm.normalize(obs_for_eval.reshape(-1, buf.obs_dim)).reshape(buf.obs.shape)
+
+    metrics_acc: dict[str, list[float]] = {
+        "policy_loss": [],
+        "value_loss": [],
+        "entropy": [],
+        "approx_kl": [],
+        "clip_frac": [],
+    }
+    epochs_run = 0
+
+    for _ in range(update_epochs):
+        env_indices = np.arange(n_envs)
+        np.random.shuffle(env_indices)
+        epoch_kls: list[float] = []
+
+        for mb_start in range(0, n_envs, envs_per_minibatch):
+            mb = env_indices[mb_start : mb_start + envs_per_minibatch]
+            if len(mb) == 0:
+                continue
+
+            # Seed state for chunk 0 from buf.h_initial (numpy -> torch).
+            h_chunk: list = []
+            for layer_s in buf.h_initial:
+                if layer_s is None:
+                    h_chunk.append(None)
+                else:
+                    h_chunk.append(torch.from_numpy(layer_s[mb]).float())
+
+            for c in range(n_chunks):
+                lo, hi = c * bptt_length, (c + 1) * bptt_length
+                mb_obs = torch.from_numpy(obs_for_eval[lo:hi, mb]).float()
+                mb_raw = torch.from_numpy(buf.raw_actions[lo:hi, mb]).float()
+                mb_old_lp = torch.from_numpy(buf.log_probs[lo:hi, mb]).float()
+                mb_adv = torch.from_numpy(adv_norm[lo:hi, mb]).float()
+                mb_ret = torch.from_numpy(returns[lo:hi, mb].astype(np.float32)).float()
+                mb_dones = torch.from_numpy(buf.dones[lo:hi, mb])
+
+                # Detach chunk-seed state to stop gradient flow across chunks.
+                h_chunk_detached = [None if s is None else s.detach() for s in h_chunk]
+
+                new_lp_seq, entropy_seq = policy.evaluate(
+                    mb_obs,
+                    h_chunk_detached,
+                    mb_dones,
+                    mb_raw,
+                )  # shapes (L, |mb|) each
+
+                # Feedforward critic -- flatten time x env for the value predictions.
+                mb_obs_flat = mb_obs.reshape(-1, buf.obs_dim)
+                v_pred_flat = value(mb_obs_flat)
+                v_pred = v_pred_flat.reshape(bptt_length, -1)
+
+                # PPO clipped surrogate across the (L, |mb|) sample axis.
+                ratio = (new_lp_seq - mb_old_lp).exp()
+                s1 = ratio * mb_adv
+                s2 = torch.clamp(ratio, 1 - clip_range, 1 + clip_range) * mb_adv
+                policy_loss = -torch.min(s1, s2).mean()
+                value_loss = 0.5 * ((v_pred - mb_ret) ** 2).mean()
+                entropy = entropy_seq.mean()
+
+                loss = policy_loss + value_coef * value_loss - entropy_coef * entropy
+                optim.zero_grad()
+                loss.backward()
+                nn.utils.clip_grad_norm_(list(policy.parameters()) + list(value.parameters()), max_grad_norm)
+                optim.step()
+
+                with torch.no_grad():
+                    approx_kl = (mb_old_lp - new_lp_seq).mean().item()
+                    clip_frac = ((ratio - 1.0).abs() > clip_range).float().mean().item()
+                metrics_acc["policy_loss"].append(policy_loss.item())
+                metrics_acc["value_loss"].append(value_loss.item())
+                metrics_acc["entropy"].append(entropy.item())
+                metrics_acc["approx_kl"].append(approx_kl)
+                metrics_acc["clip_frac"].append(clip_frac)
+                epoch_kls.append(approx_kl)
+
+                # Advance h_chunk from states stored by the rollout collect loop.
+                if c < n_chunks - 1:
+                    next_h: list = []
+                    for layer_s in buf.states:
+                        if layer_s is None:
+                            next_h.append(None)
+                        else:
+                            # states[hi] holds the state before step hi = chunk c+1's seed.
+                            next_h.append(torch.from_numpy(layer_s[hi, mb]).float())
+                    h_chunk = next_h
+
         epochs_run += 1
         if target_kl is not None and epoch_kls and float(np.mean(epoch_kls)) > target_kl:
             break
