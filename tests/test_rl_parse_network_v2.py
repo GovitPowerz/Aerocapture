@@ -4,8 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aerocapture.training.rl.config import RLConfig
-from aerocapture.training.rl.schemas import DenseSpec, GruSpec
+import pytest
+
+# Importing aerocapture.training.rl.train transitively loads aerocapture_rs via
+# env.py's top-level import. Skip when the PyO3 bindings aren't installed.
+pytest.importorskip("aerocapture_rs")
+
+from aerocapture.training.rl.config import RLConfig  # noqa: E402
+from aerocapture.training.rl.schemas import DenseSpec, GruSpec  # noqa: E402
 
 
 def test_parse_network_config_v2_gru_arch(tmp_path: Path) -> None:

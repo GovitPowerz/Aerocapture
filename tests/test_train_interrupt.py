@@ -7,10 +7,18 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
-from aerocapture.training.config import TrainingConfig
-from aerocapture.training.optimizer import OptimizerConfig
-from aerocapture.training.problem import AerocaptureProblem
-from aerocapture.training.train import train
+import pytest
+
+# train() checkpoints via write_nn_json, which (post Phase 1 Task 9) routes NN
+# chromosome serialization through aerocapture_rs.flat_weights_to_json -- the
+# Rust-side LayerWeights trait is the single source of truth. Skip when the
+# PyO3 bindings aren't installed (matches test_rl_parse_network_v2.py).
+pytest.importorskip("aerocapture_rs")
+
+from aerocapture.training.config import TrainingConfig  # noqa: E402
+from aerocapture.training.optimizer import OptimizerConfig  # noqa: E402
+from aerocapture.training.problem import AerocaptureProblem  # noqa: E402
+from aerocapture.training.train import train  # noqa: E402
 
 
 class TestKeyboardInterrupt:
