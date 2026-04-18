@@ -9,9 +9,9 @@ from torch import nn
 
 def test_lstm_layer_matches_nn_lstmcell() -> None:
     torch.manual_seed(0)
-    I, H = 5, 4
-    ours = LstmLayer(input_size=I, hidden_size=H).double()
-    theirs = nn.LSTMCell(input_size=I, hidden_size=H).double()
+    in_size, H = 5, 4
+    ours = LstmLayer(input_size=in_size, hidden_size=H).double()
+    theirs = nn.LSTMCell(input_size=in_size, hidden_size=H).double()
 
     # Copy parameters: torch.nn.LSTMCell uses gate order (i, f, g, o) — matches ours.
     with torch.no_grad():
@@ -21,7 +21,7 @@ def test_lstm_layer_matches_nn_lstmcell() -> None:
         ours.bias_hh.copy_(theirs.bias_hh)
 
     B = 3
-    x = torch.randn(B, I, dtype=torch.float64)
+    x = torch.randn(B, in_size, dtype=torch.float64)
     h = torch.randn(B, H, dtype=torch.float64)
     c = torch.randn(B, H, dtype=torch.float64)
 
@@ -34,8 +34,8 @@ def test_lstm_layer_matches_nn_lstmcell() -> None:
 
 
 def test_lstm_layer_new_state_matches_dtype() -> None:
-    I, H = 4, 6
-    layer = LstmLayer(I, H).double()
+    in_size, H = 4, 6
+    layer = LstmLayer(in_size, H).double()
     state = layer.new_state(batch_size=2, device="cpu")
     assert isinstance(state, tuple)
     assert len(state) == 2

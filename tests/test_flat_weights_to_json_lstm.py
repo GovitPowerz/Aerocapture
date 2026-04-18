@@ -8,6 +8,7 @@ through to a valid JSON v2 file.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -15,7 +16,7 @@ import pytest
 aerocapture_rs = pytest.importorskip("aerocapture_rs")
 
 
-def test_flat_weights_to_json_lstm_roundtrip(tmp_path) -> None:
+def test_flat_weights_to_json_lstm_roundtrip(tmp_path: Path) -> None:
     architecture = [
         {"type": "dense", "input_size": 3, "output_size": 4, "activation": "tanh"},
         {"type": "lstm", "input_size": 4, "hidden_size": 2},
