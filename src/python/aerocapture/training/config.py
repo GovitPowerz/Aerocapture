@@ -18,15 +18,31 @@ from aerocapture.training.optimizer import OptimizerConfig
 class NetworkConfig:
     """Neural network architecture configuration.
 
-    Supports arbitrary layer configurations via `layer_sizes` and `activations`.
-    Default [16, 24, 2] with ["tanh", "asinh"] matches the 16-input Rust architecture.
+    Supports two encodings:
+      - v1 (dense-only, backward compat): `layer_sizes` + `activations` fields.
+      - v2 (heterogeneous): `architecture` list of dicts with per-layer type+shape,
+        mirroring the Rust `LayerSpec` enum and the TOML `[[network.architecture]]`
+        array-of-tables (dense | gru | ...). When set, `architecture` takes
+        precedence over `layer_sizes`/`activations`.
     """
 
     layer_sizes: list[int] = field(default_factory=lambda: [16, 24, 2])
     activations: list[str] = field(default_factory=lambda: ["tanh", "asinh"])
     input_mask: list[int] | None = None
+    architecture: list[dict] | None = None
 
     def __post_init__(self) -> None:
+        if self.architecture is not None:
+            # v2: validate shapes via _layer_n_params (raises on unknown type).
+            for entry in self.architecture:
+                _layer_n_params(entry)
+            first_input = self.architecture[0].get("input_size")
+            if self.input_mask is not None and first_input is not None:
+                first_input_int = int(first_input)
+                if len(self.input_mask) != first_input_int:
+                    msg = f"input_mask length ({len(self.input_mask)}) must equal architecture[0].input_size ({first_input_int})"
+                    raise ValueError(msg)
+            return
         n_layers = len(self.layer_sizes) - 1
         if len(self.activations) != n_layers:
             msg = f"activations length ({len(self.activations)}) must equal len(layer_sizes)-1 ({n_layers})"
@@ -37,10 +53,17 @@ class NetworkConfig:
 
     @property
     def n_input(self) -> int:
+        if self.architecture is not None:
+            return int(self.architecture[0]["input_size"])
         return self.layer_sizes[0]
 
     @property
     def n_output(self) -> int:
+        if self.architecture is not None:
+            last = self.architecture[-1]
+            size: object = last["output_size"] if "output_size" in last else last["hidden_size"]
+            assert isinstance(size, int)
+            return size
         return self.layer_sizes[-1]
 
     @property
@@ -51,12 +74,26 @@ class NetworkConfig:
     @property
     def n_base_coef(self) -> int:
         """Total weights + biases across all layers."""
+        if self.architecture is not None:
+            return sum(_layer_n_params(entry) for entry in self.architecture)
         return sum(self.layer_sizes[i] * self.layer_sizes[i + 1] + self.layer_sizes[i + 1] for i in range(len(self.layer_sizes) - 1))
 
     @property
     def n_coef(self) -> int:
         """Total coefficients (same as n_base_coef; sign bits removed in pymoo migration)."""
         return self.n_base_coef
+
+
+def _layer_n_params(entry: dict) -> int:
+    """Parameter count for a single v2 architecture entry. Mirrors Rust LayerWeights::n_params."""
+    ltype = entry["type"]
+    if ltype == "dense":
+        return int(entry["input_size"]) * int(entry["output_size"]) + int(entry["output_size"])
+    if ltype == "gru":
+        h = int(entry["hidden_size"])
+        i = int(entry["input_size"])
+        return 3 * h * i + 3 * h * h + 2 * 3 * h
+    raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
 @dataclass

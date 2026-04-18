@@ -7,7 +7,7 @@ then prints a summary table of performance metrics.
 Usage:
     uv run python -m aerocapture.training.compare_guidance \
         --n-sims 500 \
-        --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network piecewise_constant
+        --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network neural_network_gru_pso piecewise_constant
 """
 
 from __future__ import annotations
@@ -22,7 +22,17 @@ import numpy as np
 
 from aerocapture.training.evaluate import compute_cost
 
-SCHEMES = ["equilibrium_glide", "energy_controller", "pred_guid", "fnpag", "ftc", "neural_network", "neural_network_rl", "piecewise_constant"]
+SCHEMES = [
+    "equilibrium_glide",
+    "energy_controller",
+    "pred_guid",
+    "fnpag",
+    "ftc",
+    "neural_network",
+    "neural_network_rl",
+    "neural_network_gru_pso",
+    "piecewise_constant",
+]
 
 # Each scheme's training TOML (relative to repo root).
 # These inherit from missions/ and common.toml, so they carry the full
@@ -35,12 +45,13 @@ SCHEME_TRAINING_CONFIGS: dict[str, str] = {
     "ftc": "configs/training/msr_aller_ftc_train.toml",
     "neural_network": "configs/training/msr_aller_nn_train_consolidated.toml",
     "neural_network_rl": "configs/training/msr_aller_rl_train.toml",
+    "neural_network_gru_pso": "configs/training/msr_aller_gru_pso_train.toml",
     "piecewise_constant": "configs/training/msr_aller_piecewise_constant_train.toml",
 }
 
 # Schemes that deploy via the Rust `neural_network` runtime (they provide a
 # best_model.json but the guidance scheme name the Rust sim knows is "neural_network").
-_NN_DEPLOY_SCHEMES = {"neural_network", "neural_network_rl"}
+_NN_DEPLOY_SCHEMES = {"neural_network", "neural_network_rl", "neural_network_gru_pso"}
 
 
 def run_scheme(

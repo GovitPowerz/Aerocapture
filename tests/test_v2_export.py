@@ -10,7 +10,7 @@ from aerocapture.training.model_io import load_policy_from_json
 from aerocapture.training.rl.export import export_v2_policy_to_json
 from aerocapture.training.rl.layers.dense import DenseLayer
 from aerocapture.training.rl.policy import V2Policy
-from aerocapture.training.rl.schemas import DenseSpec
+from aerocapture.training.rl.schemas import DenseSpec, GruSpec
 
 
 def _dense(policy: V2Policy, i: int) -> DenseLayer:
@@ -65,3 +65,27 @@ def test_export_load_roundtrip_preserves_weights(tmp_path: Path) -> None:
     ya, _ = p(x, sa)
     yb, _ = q(x, sb)
     torch.testing.assert_close(ya, yb, rtol=0, atol=0)
+
+
+def test_export_load_roundtrip_mixed_dense_gru(tmp_path: Path) -> None:
+    architecture: list[DenseSpec | GruSpec] = [
+        DenseSpec(type="dense", input_size=3, output_size=4, activation="tanh"),
+        GruSpec(type="gru", input_size=4, hidden_size=4),
+        DenseSpec(type="dense", input_size=4, output_size=2, activation="linear"),
+    ]
+    p = V2Policy(architecture=architecture, output_interpretation="atan2", input_mask=None)
+    with torch.no_grad():
+        for name, pp in p.named_parameters():
+            # log_std is exploration-noise, never serialized (see export.py).
+            if name == "log_std":
+                continue
+            pp.data = torch.randn_like(pp.data) * 0.1
+
+    path = tmp_path / "mixed.json"
+    export_v2_policy_to_json(p, str(path), obs_normalizer=None)
+    q = load_policy_from_json(str(path), device="cpu")
+
+    # Every layer parameter round-trips bit-for-bit. log_std is excluded from
+    # JSON by design and starts at zeros on both sides, so it also matches.
+    for (_, a), (_, b) in zip(p.state_dict().items(), q.state_dict().items(), strict=True):
+        torch.testing.assert_close(a, b, rtol=0, atol=0)

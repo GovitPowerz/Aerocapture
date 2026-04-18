@@ -46,42 +46,47 @@ def write_nn_json(
     filepath: str | Path,
     input_mask: list[int] | None = None,
 ) -> None:
-    """Write neural network weights in JSON format readable by Rust.
+    """Write PSO chromosome weights as v2 NN JSON via the Rust LayerWeights trait.
 
-    Partitions the flat weight vector into layers according to network.layer_sizes.
+    Routes through `aerocapture_rs.flat_weights_to_json` so the Rust side is the
+    single source of truth for weight serialization (closes Phase 0 review
+    carry-over #2). Legacy dense-only `NetworkConfig` is translated into a v2
+    architecture list before the call.
     """
+    if not _HAS_PYO3 or _aero_rs is None:
+        raise RuntimeError(
+            "write_nn_json now requires the aerocapture_rs PyO3 module. "
+            "Build it with `maturin develop --release --manifest-path src/rust/aerocapture-py/Cargo.toml`."
+        )
+
     filepath = Path(filepath)
-    layer_weights: dict[str, dict] = {}
-    idx = 0
+    filepath.parent.mkdir(parents=True, exist_ok=True)
 
-    for i in range(len(network.layer_sizes) - 1):
-        n_in = network.layer_sizes[i]
-        n_out = network.layer_sizes[i + 1]
-
-        w = []
-        for _ in range(n_out):
-            w.append(weights[idx : idx + n_in].tolist())
-            idx += n_in
-        b = weights[idx : idx + n_out].tolist()
-        idx += n_out
-
-        layer_weights[f"layer_{i}"] = {"w": w, "b": b}
-
-    data: dict = {
-        "format_version": 1,
-        "architecture": {
-            "layers": network.layer_sizes,
-            "activations": network.activations,
-        },
-        "weights": layer_weights,
-        "output_interpretation": "direct" if network.layer_sizes[-1] == 1 else "atan2",
-    }
-    if input_mask is not None:
-        data["input_mask"] = input_mask
-
-    Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-    with open(filepath, "w") as f:
-        json.dump(data, f)
+    if network.architecture is not None:
+        arch: list[dict[str, object]] = [dict(entry) for entry in network.architecture]
+        last = arch[-1]
+        last_size: object = last["output_size"] if "output_size" in last else last["hidden_size"]
+        assert isinstance(last_size, int)
+        output_interpretation = "direct" if last_size == 1 else "atan2"
+    else:
+        arch = []
+        for i in range(len(network.layer_sizes) - 1):
+            arch.append(
+                {
+                    "type": "dense",
+                    "input_size": network.layer_sizes[i],
+                    "output_size": network.layer_sizes[i + 1],
+                    "activation": network.activations[i],
+                }
+            )
+        output_interpretation = "direct" if network.layer_sizes[-1] == 1 else "atan2"
+    _aero_rs.flat_weights_to_json(
+        flat=weights.astype(np.float64).tolist(),
+        architecture_json=json.dumps(arch),
+        path=str(filepath),
+        output_interpretation=output_interpretation,
+        input_mask=input_mask,
+    )
 
 
 def _parse_final_to_legacy_array(filepath: Path) -> npt.NDArray[np.float64] | None:

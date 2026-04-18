@@ -11,9 +11,9 @@ import json
 
 import torch
 
-from aerocapture.training.rl.layers import DenseLayer
+from aerocapture.training.rl.layers import DenseLayer, GruLayer
 from aerocapture.training.rl.policy import V2Policy
-from aerocapture.training.rl.schemas import ArchitectureV2
+from aerocapture.training.rl.schemas import ArchitectureV2, DenseSpec, GruSpec
 
 
 def load_policy_from_json(path: str, device: str | torch.device) -> V2Policy:
@@ -31,7 +31,7 @@ def load_policy_from_json(path: str, device: str | torch.device) -> V2Policy:
     for i, layer_spec in enumerate(arch.architecture):
         key = f"layer_{i}"
         lw = arch.weights[key]
-        if layer_spec.type == "dense":
+        if isinstance(layer_spec, DenseSpec):
             if lw.w is None or lw.b is None:
                 raise ValueError(f"Dense layer {key} missing w/b in {path}")
             # JSON stores Python floats (f64). Load at f64 and let `.copy_`
@@ -44,6 +44,25 @@ def load_policy_from_json(path: str, device: str | torch.device) -> V2Policy:
             with torch.no_grad():
                 layer.linear.weight.copy_(w)
                 layer.linear.bias.copy_(b)
-        # Phase 1+ layer types dispatch here.
+        elif isinstance(layer_spec, GruSpec):
+            # Gru weights land in LayerWeights.model_extra (extra="allow").
+            extra = lw.model_extra or {}
+            required = ("weight_ih", "weight_hh", "bias_ih", "bias_hh")
+            missing = [k for k in required if k not in extra]
+            if missing:
+                raise ValueError(f"Gru layer {key} missing {missing} in {path}")
+            w_ih = torch.tensor(extra["weight_ih"], dtype=torch.float64, device=device)
+            w_hh = torch.tensor(extra["weight_hh"], dtype=torch.float64, device=device)
+            b_ih = torch.tensor(extra["bias_ih"], dtype=torch.float64, device=device)
+            b_hh = torch.tensor(extra["bias_hh"], dtype=torch.float64, device=device)
+            layer = policy.layers[i]
+            assert isinstance(layer, GruLayer)
+            with torch.no_grad():
+                layer.weight_ih.copy_(w_ih)
+                layer.weight_hh.copy_(w_hh)
+                layer.bias_ih.copy_(b_ih)
+                layer.bias_hh.copy_(b_hh)
+        else:
+            raise ValueError(f"Unknown layer spec type: {type(layer_spec).__name__}")
 
     return policy

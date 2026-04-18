@@ -114,4 +114,4 @@ jobs:
         run: uv run maturin develop --release --manifest-path src/rust/aerocapture-py/Cargo.toml
 
       - name: Run PyO3 tests
-        run: uv run pytest tests/test_pyo3.py tests/test_v2_rust_python_equivalence.py -v
+        run: uv run pytest tests/test_pyo3.py tests/test_v2_rust_python_equivalence.py tests/test_gru_pso_smoke.py -v

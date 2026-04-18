@@ -26,7 +26,7 @@ import numpy as np
 import numpy.typing as npt
 import torch
 
-from aerocapture.training.rl.layers import DenseLayer
+from aerocapture.training.rl.layers import DenseLayer, GruLayer
 from aerocapture.training.rl.policy import GaussianPolicy, V2Policy
 
 _ACT_NAMES = {"Tanh": "tanh", "ReLU": "relu", "Sigmoid": "sigmoid", "Identity": "linear", "SiLU": "swish", "Mish": "mish"}
@@ -98,34 +98,55 @@ def export_v2_policy_to_json(
     architecture: list[dict[str, object]] = []
     weights: dict[str, dict[str, list[list[float]] | list[float]]] = {}
 
-    # For Phase 0, first layer is always dense (no window-MLP variant yet).
-    # Phase 2 will add the window-first branch here.
-
     for i, layer in enumerate(policy.layers):
-        assert isinstance(layer, DenseLayer)
-        lin = layer.linear
-        w = lin.weight.detach().cpu().numpy().astype(np.float64)
-        b = lin.bias.detach().cpu().numpy().astype(np.float64)
+        if isinstance(layer, DenseLayer):
+            lin = layer.linear
+            w = lin.weight.detach().cpu().numpy().astype(np.float64)
+            b = lin.bias.detach().cpu().numpy().astype(np.float64)
 
-        if i == 0 and obs_normalizer is not None:
-            mean = obs_normalizer._mean.astype(np.float64)
-            std = obs_normalizer.std.astype(np.float64)
-            w_new = w / std  # broadcasting over columns (inputs)
-            b_new = b - w @ (mean / std)
-            w, b = w_new, b_new
+            if i == 0 and obs_normalizer is not None:
+                mean = obs_normalizer._mean.astype(np.float64)
+                std = obs_normalizer.std.astype(np.float64)
+                w_new = w / std  # broadcasting over columns (inputs)
+                b_new = b - w @ (mean / std)
+                w, b = w_new, b_new
 
-        architecture.append(
-            {
-                "type": "dense",
-                "input_size": lin.in_features,
-                "output_size": lin.out_features,
-                "activation": layer.activation_name,
+            architecture.append(
+                {
+                    "type": "dense",
+                    "input_size": lin.in_features,
+                    "output_size": lin.out_features,
+                    "activation": layer.activation_name,
+                }
+            )
+            weights[f"layer_{i}"] = {
+                "w": w.tolist(),
+                "b": b.tolist(),
             }
-        )
-        weights[f"layer_{i}"] = {
-            "w": w.tolist(),
-            "b": b.tolist(),
-        }
+        elif isinstance(layer, GruLayer):
+            if i == 0 and obs_normalizer is not None:
+                raise NotImplementedError(
+                    "obs_normalizer bake-in not supported when layer 0 is Gru. Add a Dense embedding as layer 0 (Phase 0 spec section 3.5 invariant)."
+                )
+            w_ih = layer.weight_ih.detach().cpu().numpy().astype(np.float64)
+            w_hh = layer.weight_hh.detach().cpu().numpy().astype(np.float64)
+            b_ih = layer.bias_ih.detach().cpu().numpy().astype(np.float64)
+            b_hh = layer.bias_hh.detach().cpu().numpy().astype(np.float64)
+            architecture.append(
+                {
+                    "type": "gru",
+                    "input_size": layer.input_size,
+                    "hidden_size": layer.hidden_size,
+                }
+            )
+            weights[f"layer_{i}"] = {
+                "weight_ih": w_ih.tolist(),
+                "weight_hh": w_hh.tolist(),
+                "bias_ih": b_ih.tolist(),
+                "bias_hh": b_hh.tolist(),
+            }
+        else:
+            raise ValueError(f"Unknown layer type in export: {type(layer).__name__}")
 
     out = {
         "format_version": 2,

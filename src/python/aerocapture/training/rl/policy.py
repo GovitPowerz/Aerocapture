@@ -119,7 +119,7 @@ class V2Policy(nn.Module):
 
     def __init__(
         self,
-        architecture: list[LayerSpec],
+        architecture: Sequence[LayerSpec],
         output_interpretation: str,
         input_mask: list[int] | None,
     ) -> None:
