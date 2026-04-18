@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import torch
 from aerocapture.training.model_io import load_policy_from_json
 from aerocapture.training.rl.export import export_v2_policy_to_json
 from aerocapture.training.rl.policy import V2Policy
