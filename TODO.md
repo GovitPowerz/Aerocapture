@@ -40,20 +40,33 @@ Shipped on branch `feature/stateful-nn-runtime` (21 commits).
 Cross-language equivalence: max abs diff = 4.4e-16 (machine epsilon).
 Full spec: `docs/superpowers/specs/2026-04-17-stateful-nn-runtime-infrastructure-design.md`.
 
-### Phase 1 -- GRU MVP (validates the Phase 0 stack on one architecture)
-- [ ] Rust GRU layer (3 gates, h state)
-- [ ] PyTorch `GruPolicy` with manual unroll (1-for-1 with Rust)
-- [ ] PSO training config `configs/training/msr_aller_gru_pso_train.toml`
-- [ ] PPO-GRU: rollout buffer carries hidden state; truncation-aware bootstrap uses `V(terminal_obs)` with terminal h
-- [ ] Register `neural_network_gru_pso` / `neural_network_gru_rl` in `compare_guidance.py`
-- [ ] Validation gate + final MC eval on reserved seeds
+### Phase 1 -- GRU MVP (validates the Phase 0 stack on one architecture) [DONE 2026-04-18]
 
-**Carried over from Phase 0 review (scaffolding tidy-ups to land alongside Phase 1):**
-- [ ] Widen `load_policy_from_json` to accept v1 -- currently v2-only, so any Phase 1 analysis code that points it at a legacy `training_output/*/best_model.json` fails. Map v1's `layer_sizes`+`activations` arrays onto `list[DenseSpec]` internally.
-- [ ] Adopt `LayerWeights` trait in the PSO write path or delete the trait. Today `evaluate.py` writes JSON v1 directly; `to_flat_weights` / `from_flat_weights` are exercised only by a unit test. Pick one: route the Python PSO chromosome through the Rust trait (unlocks PSO on GRU/LSTM/etc.), or drop the trait and extend `evaluate.py` with per-layer-type writers.
-- [ ] Extend `tests/test_v2_rust_python_equivalence.py` with a non-None `input_mask` case. The mask-validation branch in `nn_forward` (`src/rust/aerocapture-py/src/lib.rs`) is uncovered; a 5-input with mask `[0, 2, 4]` routed into a 3-input first layer closes it.
-- [ ] Promote `NnState::Clone` coverage from structural to behavioral once a stateful `LayerState` variant lands (Gru/Lstm/Window/Ssm). Current test only asserts `layer_states.len()` equivalence, which is meaningless while the only variant is `None`.
-- [ ] Fix pre-existing `cargo clippy --workspace` warnings in `src/rust/aerocapture-py/src/lib.rs` (2x `type_complexity`, 1x `needless_range_loop`). Out of Phase 0 scope, but `check_all.sh` passes only because it scopes to `-p aerocapture`; a workspace-wide clippy gate would flag them.
+Shipped on branch `feature/gru-mvp` (20 commits on top of the Phase 0 merge).
+486 Python tests + full Rust suite pass, 0 failures. 6/6 guidance golden regressions bit-identical.
+PSO-GRU training smoke test lives in the python-pyo3 CI job.
+
+- [x] Task 1-7: Rust-side GRU (enum layers, GruLayer, LayerState::Gru, LayerWeights, JSON v2 read/write, `[[network.architecture]]` TOML parser, `aerocapture_rs.flat_weights_to_json` PyO3 helper)
+- [x] Task 8: Python GruLayer torch module + GruSpec Pydantic + restored LayerSpec discriminated union
+- [x] Task 9: Python export/load/encoding Gru branches + `evaluate.write_nn_json` routes through `aerocapture_rs.flat_weights_to_json` (Rust is now the single source of truth for NN weight serialization)
+- [x] Task 10: Cross-language equivalence extensions (GRU case + input_mask case; closes Phase 0 carry-over #3)
+- [x] Task 11: Training config `configs/training/msr_aller_gru_pso_train.toml` + `compare_guidance` registration (`neural_network_gru_pso`)
+- [x] Task 12: Training smoke test (2 PSO gens on minimal Dense->GRU->Dense arch, 586 params; verifies v2 JSON + `nn_forward` roundtrip; wired into the python-pyo3 CI job)
+- [x] Task 13: Full verification + smart-commit
+
+Enabling Task 12 also threaded `[[network.architecture]]` through the Python training pipeline (one-time v2 plumbing): `NetworkConfig.architecture` + `_layer_n_params`, `train.py` dispatch to `nn_param_specs_from_v2` when the v2 arch is set, `create_nn_initial_population` / `compute_weight_stats` skipped for v2, `evaluate.write_nn_json` passes the v2 arch list through directly. After this payment, Phase 2+ layer types land by touching only the files enumerated in the Phase 0 extensibility contract -- no more changes to `train.py`, `problem.py`, `dispatch.rs`, or `runner.rs`.
+
+Spec: `docs/superpowers/specs/2026-04-17-phase-1-gru-mvp-design.md`.
+Plan: `docs/superpowers/plans/2026-04-17-phase-1-gru-mvp-plan.md`.
+
+**Out-of-Phase-1 carry-overs (still deferred):**
+- [ ] Widen `load_policy_from_json` to accept v1 JSON (currently v2-only). Materialize when Phase 1.5+ analysis code needs a legacy-artifact loader.
+- [ ] Fix pre-existing `cargo clippy --workspace` warnings in `src/rust/aerocapture-py/src/lib.rs` (2x `type_complexity`, 1x `needless_range_loop`). `check_all.sh` scopes to `-p aerocapture`; separate one-line fix.
+- [ ] Per-layer activation-aware initialization for GRU (currently uniform-in-[0,1] via ParamSpec bounds; the dense-only `create_nn_initial_population` path with Xavier/He/LeCun is bypassed for v2 arches).
+
+**Not in Phase 1 (explicit non-goals, landing in Phase 1.5+):**
+- [ ] PPO-GRU (Phase 1.5: rollout-buffer hidden-state snapshots, truncation-aware bootstrap)
+- [ ] LSTM / Window-MLP / Transformer / Mamba (Phases 2-4)
 
 ### Phase 2 -- LSTM + Window-MLP (cheap extensions on Phase 0/1 infra)
 - [ ] LSTM: 4 gates, h+c state; PyTorch mirror; PSO + PPO configs
