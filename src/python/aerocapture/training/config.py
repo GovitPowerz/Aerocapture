@@ -33,9 +33,21 @@ class NetworkConfig:
 
     def __post_init__(self) -> None:
         if self.architecture is not None:
-            # v2: validate shapes via _layer_n_params (raises on unknown type).
+            # v2: validate per-entry shapes + chain consistency (layer i's output size
+            # must equal layer i+1's input size).
             for entry in self.architecture:
                 _layer_n_params(entry)
+            for i in range(len(self.architecture) - 1):
+                prev_out = _layer_output_size(self.architecture[i])
+                next_in = _layer_input_size(self.architecture[i + 1])
+                if prev_out != next_in:
+                    msg = (
+                        f"architecture chain mismatch at layer {i}->{i + 1}: "
+                        f"layer {i} ({self.architecture[i]['type']}) produces "
+                        f"output_size={prev_out}, but layer {i + 1} "
+                        f"({self.architecture[i + 1]['type']}) expects input_size={next_in}"
+                    )
+                    raise ValueError(msg)
             first_input = self.architecture[0].get("input_size")
             if self.input_mask is not None and first_input is not None:
                 first_input_int = int(first_input)
@@ -50,6 +62,19 @@ class NetworkConfig:
         if self.input_mask is not None and len(self.input_mask) != self.layer_sizes[0]:
             msg = f"input_mask length ({len(self.input_mask)}) must equal layer_sizes[0] ({self.layer_sizes[0]})"
             raise ValueError(msg)
+
+    def describe(self) -> str:
+        """Human-readable multi-line architecture summary.
+
+        Example:
+            Network architecture (6946 params):
+              layer 0: dense   23 -> 32   tanh
+              layer 1: gru     32 -> 32   hidden_size=32
+              layer 2: dense   32 -> 2    linear
+            input_mask: [0..22] (23 inputs)
+            output: atan2 (bank angle from (out0, out1))
+        """
+        return describe_architecture(self)
 
     @property
     def n_input(self) -> int:
@@ -94,6 +119,53 @@ def _layer_n_params(entry: dict) -> int:
         i = int(entry["input_size"])
         return 3 * h * i + 3 * h * h + 2 * 3 * h
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
+
+
+def _layer_input_size(entry: dict) -> int:
+    """Input size of a v2 layer entry."""
+    return int(entry["input_size"])
+
+
+def _layer_output_size(entry: dict) -> int:
+    """Output size of a v2 layer entry. Dense: output_size. GRU: hidden_size (the cell
+    emits its hidden state, which feeds the next layer)."""
+    ltype = entry["type"]
+    if ltype == "dense":
+        return int(entry["output_size"])
+    if ltype == "gru":
+        return int(entry["hidden_size"])
+    raise ValueError(f"Unknown v2 layer type: {ltype!r}")
+
+
+def describe_architecture(network: NetworkConfig, output_interpretation: str = "atan2") -> str:
+    """Format a human-readable architecture summary for stdout at training start."""
+    lines = [f"Network architecture ({network.n_base_coef} params):"]
+
+    if network.architecture is not None:
+        for i, entry in enumerate(network.architecture):
+            ltype = entry["type"]
+            in_size = _layer_input_size(entry)
+            out_size = _layer_output_size(entry)
+            if ltype == "dense":
+                tail = entry.get("activation", "?")
+            elif ltype == "gru":
+                tail = f"hidden_size={entry['hidden_size']}"
+            else:
+                tail = ltype
+            lines.append(f"  layer {i}: {ltype:<6} {in_size:>4} -> {out_size:<4} {tail}")
+    else:
+        # v1 dense-only
+        for i, act in enumerate(network.activations):
+            fan_in = network.layer_sizes[i]
+            fan_out = network.layer_sizes[i + 1]
+            lines.append(f"  layer {i}: dense  {fan_in:>4} -> {fan_out:<4} {act}")
+
+    if network.input_mask is not None:
+        n = len(network.input_mask)
+        lines.append(f"  input_mask: {n} indices {network.input_mask if n <= 8 else f'[{network.input_mask[0]}..{network.input_mask[-1]}]'}")
+
+    lines.append(f"  output: {output_interpretation}")
+    return "\n".join(lines)
 
 
 @dataclass

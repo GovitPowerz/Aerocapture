@@ -21,8 +21,10 @@ def test_gru_pso_smoke_2_gens(tmp_path: Path) -> None:
     from aerocapture.training.optimizer import OptimizerConfig, PSOSettings
     from aerocapture.training.train import train
 
+    # Input dimension must match the TOML's [network] input_mask; user's
+    # msr_aller_gru_pso_train.toml uses all 23 candidate inputs.
     architecture = [
-        {"type": "dense", "input_size": 16, "output_size": 8, "activation": "tanh"},
+        {"type": "dense", "input_size": 23, "output_size": 8, "activation": "tanh"},
         {"type": "gru", "input_size": 8, "hidden_size": 8},
         {"type": "dense", "input_size": 8, "output_size": 2, "activation": "linear"},
     ]
@@ -30,7 +32,7 @@ def test_gru_pso_smoke_2_gens(tmp_path: Path) -> None:
 
     nn_cfg = NetworkConfig(
         architecture=architecture,
-        input_mask=list(range(16)),
+        input_mask=list(range(23)),
     )
     sim_cfg = SimConfig(
         executable="src/rust/target/release/aerocapture",
@@ -70,7 +72,7 @@ def test_gru_pso_smoke_2_gens(tmp_path: Path) -> None:
     assert layer_types == ["dense", "gru", "dense"], f"unexpected arch: {layer_types}"
 
     # Rust nn_forward consumes the produced JSON.
-    zeros_input = [0.0] * 16
+    zeros_input = [0.0] * 23
     output = aerocapture_rs.nn_forward(str(best_model), zeros_input)
     assert len(output) == 2
     assert all(isinstance(v, float) for v in output)

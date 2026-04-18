@@ -125,6 +125,54 @@ def _generate_seed_model(cfg: RLConfig, path: Path) -> None:
     export_v2_policy_to_json(policy, str(path), obs_normalizer=None)
 
 
+def _describe_rl_architecture(cfg: RLConfig) -> None:
+    """Fail-fast chain check + stdout description of the RL architecture.
+
+    _parse_network_config already Pydantic-validates per-spec; this helper
+    adds the chain check (layer i output -> layer i+1 input) and prints a
+    human-readable summary for operator feedback at training start.
+    """
+    from aerocapture.training.rl.schemas import DenseSpec, GruSpec
+
+    input_mask, architecture, _input_dim, output_interpretation = _parse_network_config(cfg)
+
+    def _in_size(s: DenseSpec | GruSpec) -> int:
+        return s.input_size
+
+    def _out_size(s: DenseSpec | GruSpec) -> int:
+        return s.output_size if isinstance(s, DenseSpec) else s.hidden_size
+
+    # Chain consistency: prev.output == next.input.
+    for i in range(len(architecture) - 1):
+        prev_out = _out_size(architecture[i])
+        next_in = _in_size(architecture[i + 1])
+        if prev_out != next_in:
+            raise ValueError(
+                f"[network.architecture] chain mismatch at layer {i}->{i + 1}: "
+                f"layer {i} ({architecture[i].type}) produces output={prev_out}, "
+                f"but layer {i + 1} ({architecture[i + 1].type}) expects input={next_in}"
+            )
+
+    # Parameter count (mirrors config._layer_n_params).
+    def _n_params(s: DenseSpec | GruSpec) -> int:
+        if isinstance(s, DenseSpec):
+            return s.input_size * s.output_size + s.output_size
+        h = s.hidden_size
+        return 3 * h * s.input_size + 3 * h * h + 6 * h
+
+    total = sum(_n_params(s) for s in architecture)
+
+    lines = [f"Network architecture ({total} params):"]
+    for i, s in enumerate(architecture):
+        in_size = _in_size(s)
+        out_size = _out_size(s)
+        tail: str = s.activation if isinstance(s, DenseSpec) else f"hidden_size={s.hidden_size}"
+        lines.append(f"  layer {i}: {s.type:<6} {in_size:>4} -> {out_size:<4} {tail}")
+    lines.append(f"  input_mask: {len(input_mask)} indices")
+    lines.append(f"  output: {output_interpretation}")
+    print("\n".join(lines), file=sys.stderr)
+
+
 def _build_shaper_and_norms(cfg: RLConfig, input_mask: list[int], gamma: float) -> tuple[StepRewardCalculator, ReturnNormalizer | None, ObsNormalizer | None]:
     step_calc = StepRewardCalculator(
         input_mask=input_mask,
@@ -340,6 +388,9 @@ def main() -> None:
         env_overrides = env_overrides or {}
         env_overrides["data.neural_network"] = str(seed_model_path)
 
+    # Architecture summary (fail-fast chain check + stdout description).
+    _describe_rl_architecture(cfg)
+
     config_hash = hashlib.sha256(json.dumps(cfg.raw_toml, sort_keys=True).encode()).hexdigest()[:12]
     (args.output_dir / "config_resolved.toml").write_bytes(tomli_w.dumps(cfg.raw_toml).encode())
 
@@ -443,6 +494,17 @@ def _run_ppo(
                 f"{len(warm_loaded.layers)} layers, TOML [[network.architecture]] "
                 f"declares {len(policy.layers)}. Either update the TOML to match the "
                 f"checkpoint, or train from scratch."
+            )
+        type_mismatches = [
+            (i, type(a).__name__, type(b).__name__) for i, (a, b) in enumerate(zip(warm_loaded.layers, policy.layers, strict=True)) if type(a) is not type(b)
+        ]
+        if type_mismatches:
+            diffs = ", ".join(f"layer {i}: checkpoint={a} vs TOML={b}" for i, a, b in type_mismatches)
+            raise ValueError(
+                f"Warm-start layer-type mismatch: {warmstart_json} has incompatible "
+                f"layer types -- {diffs}. load_state_dict would silently write mismatched "
+                f"weight tensors. Either update the TOML to match the checkpoint, or train "
+                f"from scratch."
             )
         policy.load_state_dict(warm_loaded.state_dict())
         print(f"Warm-started policy from {warmstart_json}", file=sys.stderr)

@@ -110,97 +110,6 @@ def compute_gae(
     return adv, ret
 
 
-def ppo_update(
-    policy: V2Policy,
-    value: ValueNetwork,
-    optim: torch.optim.Optimizer,
-    obs: torch.Tensor,  # (N, obs_dim)
-    raw_actions: torch.Tensor,  # (N, 2) original Gaussian samples
-    old_log_probs: torch.Tensor,  # (N,)
-    advantages: torch.Tensor,  # (N,)
-    returns: torch.Tensor,  # (N,)
-    clip_range: float,
-    update_epochs: int,
-    minibatches: int,
-    entropy_coef: float,
-    value_coef: float,
-    max_grad_norm: float,
-    target_kl: float | None = None,
-) -> dict[str, float]:
-    """PPO clipped-surrogate update. Mean metrics across all minibatches returned.
-
-    If `target_kl` is set, the epoch loop breaks when mean per-epoch approx_kl
-    exceeds the threshold; the returned `epochs_run` reflects how many ran.
-    """
-    n = obs.shape[0]
-    batch_size = max(1, n // minibatches)
-    indices = np.arange(n)
-
-    adv_norm = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-
-    metrics_acc: dict[str, list[float]] = {
-        "policy_loss": [],
-        "value_loss": [],
-        "entropy": [],
-        "approx_kl": [],
-        "clip_frac": [],
-    }
-    epochs_run = 0
-
-    for _ in range(update_epochs):
-        np.random.shuffle(indices)
-        epoch_kls: list[float] = []
-        for start in range(0, n, batch_size):
-            mb = indices[start : start + batch_size]
-            mb_obs = obs[mb]
-            mb_raw = raw_actions[mb]
-            mb_old_lp = old_log_probs[mb]
-            mb_adv = adv_norm[mb]
-            mb_ret = returns[mb]
-
-            # Task 5 migration: V2Policy threads per-layer state. For the update
-            # loop we still do feedforward replays (no BPTT); proper state-aware
-            # replay lands in Task 7 via policy.evaluate().
-            mb_state = policy.new_state(batch_size=mb_obs.shape[0], device=mb_obs.device)
-            mean, log_std, _ = policy.forward_mean_logstd(mb_obs, mb_state)
-            std = log_std.exp()
-            dist = torch.distributions.Normal(mean, std)
-            new_lp = dist.log_prob(mb_raw).sum(-1)
-            ratio = (new_lp - mb_old_lp).exp()
-
-            s1 = ratio * mb_adv
-            s2 = torch.clamp(ratio, 1 - clip_range, 1 + clip_range) * mb_adv
-            policy_loss = -torch.min(s1, s2).mean()
-
-            v_pred = value(mb_obs)
-            value_loss = 0.5 * ((v_pred - mb_ret) ** 2).mean()
-
-            entropy = dist.entropy().sum(-1).mean()
-
-            loss = policy_loss + value_coef * value_loss - entropy_coef * entropy
-            optim.zero_grad()
-            loss.backward()
-            nn.utils.clip_grad_norm_(list(policy.parameters()) + list(value.parameters()), max_grad_norm)
-            optim.step()
-
-            with torch.no_grad():
-                approx_kl = (mb_old_lp - new_lp).mean().item()
-                clip_frac = ((ratio - 1.0).abs() > clip_range).float().mean().item()
-            metrics_acc["policy_loss"].append(policy_loss.item())
-            metrics_acc["value_loss"].append(value_loss.item())
-            metrics_acc["entropy"].append(entropy.item())
-            metrics_acc["approx_kl"].append(approx_kl)
-            metrics_acc["clip_frac"].append(clip_frac)
-            epoch_kls.append(approx_kl)
-        epochs_run += 1
-        if target_kl is not None and epoch_kls and float(np.mean(epoch_kls)) > target_kl:
-            break
-
-    result = {k: float(np.mean(v)) for k, v in metrics_acc.items()}
-    result["epochs_run"] = float(epochs_run)
-    return result
-
-
 def ppo_update_bptt(
     policy: V2Policy,
     value: ValueNetwork,
@@ -249,8 +158,14 @@ def ppo_update_bptt(
     epochs_run = 0
 
     for _ in range(update_epochs):
+        # Shuffle both axes each epoch to decorrelate gradient updates (Ni et al. 2021
+        # recommend joint env+chunk shuffle for recurrent PPO). Chunks are independent
+        # under truncated BPTT because each chunk's seed state is detached from the
+        # stored snapshot, so chunk order is free to vary.
         env_indices = np.arange(n_envs)
         np.random.shuffle(env_indices)
+        chunk_indices = np.arange(n_chunks)
+        np.random.shuffle(chunk_indices)
         epoch_kls: list[float] = []
 
         for mb_start in range(0, n_envs, envs_per_minibatch):
@@ -258,15 +173,7 @@ def ppo_update_bptt(
             if len(mb) == 0:
                 continue
 
-            # Seed state for chunk 0 from buf.h_initial (numpy -> torch).
-            h_chunk: list = []
-            for layer_s in buf.h_initial:
-                if layer_s is None:
-                    h_chunk.append(None)
-                else:
-                    h_chunk.append(torch.from_numpy(layer_s[mb]).float())
-
-            for c in range(n_chunks):
+            for c in chunk_indices:
                 lo, hi = c * bptt_length, (c + 1) * bptt_length
                 mb_obs = torch.from_numpy(obs_for_eval[lo:hi, mb]).float()
                 mb_raw = torch.from_numpy(buf.raw_actions[lo:hi, mb]).float()
@@ -275,8 +182,16 @@ def ppo_update_bptt(
                 mb_ret = torch.from_numpy(returns[lo:hi, mb].astype(np.float32)).float()
                 mb_dones = torch.from_numpy(buf.dones[lo:hi, mb])
 
-                # Detach chunk-seed state to stop gradient flow across chunks.
-                h_chunk_detached = [None if s is None else s.detach() for s in h_chunk]
+                # Seed chunk c's initial state from the snapshot stored during rollout.
+                # buf.states[li][lo] is the state *before* step `lo`, which is exactly
+                # what chunk c (starting at timestep `lo`) needs. Detach to stop
+                # gradient flow across chunks.
+                h_chunk_detached: list = []
+                for layer_s in buf.states:
+                    if layer_s is None:
+                        h_chunk_detached.append(None)
+                    else:
+                        h_chunk_detached.append(torch.from_numpy(layer_s[lo, mb]).float().detach())
 
                 new_lp_seq, entropy_seq = policy.evaluate(
                     mb_obs,
@@ -313,17 +228,6 @@ def ppo_update_bptt(
                 metrics_acc["approx_kl"].append(approx_kl)
                 metrics_acc["clip_frac"].append(clip_frac)
                 epoch_kls.append(approx_kl)
-
-                # Advance h_chunk from states stored by the rollout collect loop.
-                if c < n_chunks - 1:
-                    next_h: list = []
-                    for layer_s in buf.states:
-                        if layer_s is None:
-                            next_h.append(None)
-                        else:
-                            # states[hi] holds the state before step hi = chunk c+1's seed.
-                            next_h.append(torch.from_numpy(layer_s[hi, mb]).float())
-                    h_chunk = next_h
 
         epochs_run += 1
         if target_kl is not None and epoch_kls and float(np.mean(epoch_kls)) > target_kl:

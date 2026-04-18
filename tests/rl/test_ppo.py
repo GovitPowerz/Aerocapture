@@ -8,7 +8,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from aerocapture.training.rl.policy import V2Policy, ValueNetwork  # noqa: E402
-from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, ppo_update  # noqa: E402
+from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, ppo_update_bptt  # noqa: E402
 from aerocapture.training.rl.schemas import Activation, DenseSpec  # noqa: E402
 
 
@@ -70,28 +70,35 @@ def test_rollout_buffer_create() -> None:
     assert buf.dones.shape == (8, 4)
 
 
-def test_ppo_update_runs_without_crashing() -> None:
+def _fill_buffer_random(buf: RolloutBuffer, rng: np.random.Generator) -> None:
+    """Fill a RolloutBuffer with random data (feedforward-path smoke input)."""
+    buf.obs[:] = rng.standard_normal(buf.obs.shape).astype(np.float32)
+    buf.raw_actions[:] = rng.standard_normal(buf.raw_actions.shape).astype(np.float32)
+    buf.log_probs[:] = (rng.standard_normal(buf.log_probs.shape) * 0.1).astype(np.float32)
+
+
+def test_ppo_update_bptt_runs_without_crashing() -> None:
     torch.manual_seed(0)
+    rng = np.random.default_rng(0)
     policy = _make_v2_policy(16, [32, 32, 2], ["tanh", "tanh", "linear"])
     value = ValueNetwork(16, [32, 32], ["tanh", "tanh", "linear"])
     optim = torch.optim.Adam(list(policy.parameters()) + list(value.parameters()), lr=3e-4)
 
-    n = 256
-    obs = torch.randn(n, 16)
-    raw_actions = torch.randn(n, 2)
-    old_log_probs = torch.randn(n) * 0.1
-    advantages = torch.randn(n)
-    returns = torch.randn(n)
+    T, N = 32, 8  # T * N = 256 samples total, matching the pre-BPTT test scale.
+    # Dense-only policy -> per-layer hidden_shapes = [None, None, None].
+    buf = RolloutBuffer.create(n_steps=T, n_envs=N, obs_dim=16, hidden_shapes=[None] * len(policy.layers))
+    _fill_buffer_random(buf, rng)
+    advantages = rng.standard_normal((T, N)).astype(np.float32)
+    returns = rng.standard_normal((T, N)).astype(np.float32)
 
-    metrics = ppo_update(
+    metrics = ppo_update_bptt(
         policy,
         value,
         optim,
-        obs,
-        raw_actions,
-        old_log_probs,
+        buf,
         advantages,
         returns,
+        bptt_length=T,  # single chunk = feedforward equivalent
         clip_range=0.2,
         update_epochs=2,
         minibatches=4,
@@ -109,27 +116,28 @@ def test_ppo_update_runs_without_crashing() -> None:
 def test_target_kl_early_stops_epochs() -> None:
     """When policy updates cause mean approx_kl to exceed target_kl, the outer
     epoch loop breaks early and `epochs_run` is less than the configured budget.
-    Forcing a large KL per update by combining zero clip_range with a huge
-    learning rate reliably trips the early-stop."""
+    Forcing a large KL per update by combining a huge learning rate with a tiny
+    target_kl reliably trips the early-stop."""
     torch.manual_seed(0)
+    rng = np.random.default_rng(0)
     policy = _make_v2_policy(8, [16, 2], ["tanh", "linear"])
     value = ValueNetwork(8, [16], ["tanh", "linear"])
     optim = torch.optim.Adam(list(policy.parameters()) + list(value.parameters()), lr=1.0)
-    n = 64
-    obs = torch.randn(n, 8)
-    raw = torch.randn(n, 2)
-    old_lp = torch.randn(n) * 0.1
-    adv = torch.randn(n)
-    ret = torch.randn(n)
-    metrics = ppo_update(
+
+    T, N = 16, 4  # T * N = 64 samples, matching the pre-BPTT test scale.
+    buf = RolloutBuffer.create(n_steps=T, n_envs=N, obs_dim=8, hidden_shapes=[None] * len(policy.layers))
+    _fill_buffer_random(buf, rng)
+    advantages = rng.standard_normal((T, N)).astype(np.float32)
+    returns = rng.standard_normal((T, N)).astype(np.float32)
+
+    metrics = ppo_update_bptt(
         policy,
         value,
         optim,
-        obs,
-        raw,
-        old_lp,
-        adv,
-        ret,
+        buf,
+        advantages,
+        returns,
+        bptt_length=T,
         clip_range=0.2,
         update_epochs=10,
         minibatches=4,

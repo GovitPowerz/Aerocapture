@@ -511,6 +511,37 @@ impl NeuralNetModel {
         let file: NnJsonFileV2 = serde_json::from_str(content)
             .map_err(|e| DataError(format!("JSON parse error in {}: {}", path, e)))?;
 
+        // Chain consistency: layer i's output must feed layer i+1's input.
+        // Dense: output_size -> next.input_size; Gru: hidden_size -> next.input_size.
+        for i in 0..file.architecture.len().saturating_sub(1) {
+            let prev_out = match &file.architecture[i] {
+                LayerSpec::Dense { output_size, .. } => *output_size,
+                LayerSpec::Gru { hidden_size, .. } => *hidden_size,
+            };
+            let (next_in, next_label) = match &file.architecture[i + 1] {
+                LayerSpec::Dense { input_size, .. } => (*input_size, "dense"),
+                LayerSpec::Gru { input_size, .. } => (*input_size, "gru"),
+            };
+            let prev_label = match &file.architecture[i] {
+                LayerSpec::Dense { .. } => "dense",
+                LayerSpec::Gru { .. } => "gru",
+            };
+            if prev_out != next_in {
+                return Err(DataError(format!(
+                    "architecture chain mismatch at layer {}->{} in {}: layer {} ({}) produces output={}, but layer {} ({}) expects input={}",
+                    i,
+                    i + 1,
+                    path,
+                    i,
+                    prev_label,
+                    prev_out,
+                    i + 1,
+                    next_label,
+                    next_in
+                )));
+            }
+        }
+
         let mut layers = Vec::with_capacity(file.architecture.len());
         let mut layer_sizes = Vec::with_capacity(file.architecture.len() + 1);
 
@@ -1323,6 +1354,36 @@ mod tests {
                 b
             );
         }
+    }
+
+    #[test]
+    fn from_v2_json_chain_mismatch_raises() {
+        // Dense(23->32) -> Dense(16->2) -- second layer expects 16, first produces 32.
+        let bad = r#"{
+            "format_version": 2,
+            "architecture": [
+                {"type": "dense", "input_size": 23, "output_size": 32, "activation": "tanh"},
+                {"type": "dense", "input_size": 16, "output_size": 2, "activation": "linear"}
+            ],
+            "weights": {
+                "layer_0": {"w": [], "b": []},
+                "layer_1": {"w": [], "b": []}
+            },
+            "output_interpretation": "atan2"
+        }"#;
+        let err = NeuralNetModel::from_v2_json(bad, "<test>");
+        assert!(err.is_err(), "expected chain-mismatch error");
+        let msg = err.err().unwrap().0;
+        assert!(
+            msg.contains("chain mismatch"),
+            "error message should mention chain mismatch, got: {}",
+            msg
+        );
+        assert!(
+            msg.contains("output=32") && msg.contains("input=16"),
+            "error message should quote the mismatched sizes, got: {}",
+            msg
+        );
     }
 
     #[test]

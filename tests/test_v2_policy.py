@@ -159,3 +159,22 @@ def test_v2_policy_evaluate_resets_state_on_done() -> None:
     torch.testing.assert_close(lp_with_done[:, 1], lp_no_done[:, 1], rtol=0, atol=0)
     # env 0 after done: log_prob at step 2 differs from the baseline (state was zeroed).
     assert (lp_with_done[2, 0] - lp_no_done[2, 0]).abs().item() > 1e-6
+
+
+def test_zero_state_where_done_rejects_multi_tensor_state() -> None:
+    """`_zero_state_where_done` must fail loudly on non-Tensor, non-None state
+    entries. Phase 2+ layer types with tuple/list states (e.g. LSTM `(h, c)`)
+    need to extend this helper; a silent matmul crash mid-rollout would hide the
+    gap until the first LSTM training run. The explicit TypeError locks the
+    deferred-obligation contract.
+    """
+    import pytest
+    from aerocapture.training.rl.policy import _zero_state_where_done
+
+    # Simulate a future LSTM state: tuple of (h, c) tensors.
+    h = torch.zeros(2, 4)
+    c = torch.zeros(2, 4)
+    state = [None, (h, c)]  # dense layer + hypothetical LSTM layer
+    done_mask = torch.tensor([True, False])
+    with pytest.raises(TypeError, match="unsupported state entry type"):
+        _zero_state_where_done(state, done_mask)

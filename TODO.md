@@ -1,7 +1,6 @@
 # TODO
 
 - [ ] explore JEPA guidance
-- [ ] add checks about nn layers graph and input/output consistency (output of previous layer must match input size). Also add a stdout desciption of architecture at beggining of training
 
 ---
 

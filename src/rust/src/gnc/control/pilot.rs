@@ -122,6 +122,41 @@ mod tests {
     }
 
     #[test]
+    fn first_order_handles_beyond_2pi_command_via_modulo() {
+        // A bank command beyond [-π, π] (e.g. from direct NN output = 2.5 -> 5π) must
+        // be realized modulo 2π via shortest_angle_diff, NEVER absolute-clamped.
+        // Physical orientation of 5π is identical to π; the pilot must route through
+        // the shortest path.
+        use std::f64::consts::PI;
+
+        let model = make_model(PilotType::FirstOrder, 1.0, 0.0, 0.0);
+        let state = PilotState::default(); // bank_angle = 0
+        // Command = 5π (two full turns plus π). Equivalent to π mod 2π.
+        let result = apply_pilot(
+            &model,
+            5.0 * PI,
+            &state,
+            0.1,
+            100.0,
+            &PilotBiases::default(),
+        );
+        // shortest_angle_diff(0, 5π) = π, unclamped rate = π/1.0 = π, within max_rate=100.
+        // New bank = 0 + π * 0.1 = 0.1π.
+        assert!(
+            (result.bank_angle - 0.1 * PI).abs() < EPS,
+            "pilot must route 5π command through modulo 2π (expected 0.1π, got {})",
+            result.bank_angle,
+        );
+        // Explicitly assert NO absolute clamp to [-π, π]: rate reflects full π error,
+        // not a saturated rate from |5π| > π.
+        assert!(
+            (result.bank_rate - PI).abs() < EPS,
+            "rate must come from shortest-path error (π), not from |5π|: got {}",
+            result.bank_rate,
+        );
+    }
+
+    #[test]
     fn first_order_wraps_through_pi_shortest_path() {
         use std::f64::consts::PI;
         let deg = PI / 180.0;
