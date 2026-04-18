@@ -20,7 +20,7 @@ aerocapture_rs = pytest.importorskip("aerocapture_rs")
 from aerocapture.training.rl.export import export_v2_policy_to_json  # noqa: E402
 from aerocapture.training.rl.layers.dense import DenseLayer  # noqa: E402
 from aerocapture.training.rl.policy import V2Policy  # noqa: E402
-from aerocapture.training.rl.schemas import DenseSpec, GruSpec  # noqa: E402
+from aerocapture.training.rl.schemas import DenseSpec, GruSpec, LstmSpec  # noqa: E402
 
 
 def _rust_forward_single(json_path: str, inputs: np.ndarray) -> np.ndarray:
@@ -97,6 +97,45 @@ def test_rust_python_gru_equivalence(tmp_path: Path) -> None:
 
     max_diff = np.max(np.abs(rust_out - py_single_out))
     assert max_diff < 1e-10, f"gru single-step max abs diff {max_diff}"
+
+
+def test_rust_python_lstm_equivalence(tmp_path: Path) -> None:
+    """Dense -> LSTM -> Dense, f64: Rust nn_forward matches PyTorch V2Policy forward
+    at machine epsilon. LSTM's (h, c) tuple state is the first multi-tensor state
+    exercise of the cross-language contract.
+    """
+    architecture: list[DenseSpec | LstmSpec] = [
+        DenseSpec(type="dense", input_size=5, output_size=4, activation="tanh"),
+        LstmSpec(type="lstm", input_size=4, hidden_size=4),
+        DenseSpec(type="dense", input_size=4, output_size=2, activation="linear"),
+    ]
+    policy = V2Policy(architecture=architecture, output_interpretation="atan2", input_mask=None)
+    torch.manual_seed(1337)
+    with torch.no_grad():
+        for name, p in policy.named_parameters():
+            if name == "log_std":
+                continue
+            p.data = torch.randn_like(p.data) * 0.3
+    policy.double()
+
+    json_path = tmp_path / "lstm_model.json"
+    export_v2_policy_to_json(policy, str(json_path), obs_normalizer=None)
+
+    rng = np.random.default_rng(17)
+    inputs = rng.standard_normal((100, 5)).astype(np.float64)
+
+    # Rust nn_forward is stateless per-call (fresh NnState each call). For a
+    # fair Rust<->Python equivalence, reset Python state per step too.
+    py_single_out = np.zeros((100, 2), dtype=np.float64)
+    for i, x in enumerate(inputs):
+        single_state = policy.new_state(1, "cpu")
+        y, _ = policy(torch.from_numpy(x).unsqueeze(0), single_state)
+        py_single_out[i] = y.detach().numpy()[0]
+
+    rust_out = _rust_forward_single(str(json_path), inputs)
+
+    max_diff = np.max(np.abs(rust_out - py_single_out))
+    assert max_diff < 1e-10, f"lstm single-step max abs diff {max_diff}"
 
 
 def test_rust_python_dense_equivalence_with_input_mask(tmp_path: Path) -> None:
