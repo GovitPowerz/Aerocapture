@@ -1,6 +1,7 @@
 # TODO
 
 - [ ] explore JEPA guidance
+- [ ] add checks about nn layers graph and input/output consistency (output of previous layer must match input size). Also add a stdout desciption of architecture at beggining of training
 
 ---
 
@@ -64,11 +65,40 @@ Plan: `docs/superpowers/plans/2026-04-17-phase-1-gru-mvp-plan.md`.
 - [ ] Fix pre-existing `cargo clippy --workspace` warnings in `src/rust/aerocapture-py/src/lib.rs` (2x `type_complexity`, 1x `needless_range_loop`). `check_all.sh` scopes to `-p aerocapture`; separate one-line fix.
 - [ ] Per-layer activation-aware initialization for GRU (currently uniform-in-[0,1] via ParamSpec bounds; the dense-only `create_nn_initial_population` path with Xavier/He/LeCun is bypassed for v2 arches).
 
-**Not in Phase 1 (explicit non-goals, landing in Phase 1.5+):**
-- [ ] PPO-GRU (Phase 1.5: rollout-buffer hidden-state snapshots, truncation-aware bootstrap)
+**Not in Phase 1 (explicit non-goals, landed or landing later):**
+- [x] PPO-GRU (Phase 1.5: rollout-buffer hidden-state snapshots, truncation-aware bootstrap) [DONE 2026-04-18]
 - [ ] LSTM / Window-MLP / Transformer / Mamba (Phases 2-4)
 
-### Phase 2 -- LSTM + Window-MLP (cheap extensions on Phase 0/1 infra)
+### Phase 1.5 -- PPO-GRU + truncated BPTT [DONE 2026-04-18]
+
+Shipped on branch `feature/gru-mvp` (16 commits on top of the Phase 1 payload, 32 total on the branch).
+505 Python tests + full Rust suite pass, 0 failures. 6/6 guidance golden regressions bit-identical.
+PPO-GRU training smoke test + feedforward PPO regression gate wired into the python-pyo3 CI job.
+
+- [x] Task 1: V2Policy state-threaded methods (`forward_mean_logstd`, `sample`, `evaluate`); `_zero_state_where_done` helper with TypeError guard for future multi-tensor states.
+- [x] Task 2: `RolloutBuffer` gains `h_initial`, `h_final`, `states` per-layer lists (None entries = zero-overhead dense fast path).
+- [x] Task 3: `[rl.ppo] bptt_length` knob (default 32) + `RLConfig.from_toml` divisibility guard.
+- [x] Task 4: `_parse_network_config` returns `(input_mask, architecture, input_dim, output_interpretation)`; accepts `[[network.architecture]]` in the RL path.
+- [x] Task 5: PPO seed-model / validate / train_ppo migrated to `V2Policy`; warm-start via `model_io.load_policy_from_json` + layer-count pre-check. SAC stays on `GaussianPolicy` (Phase 1.6).
+- [x] Task 6: Rollout collect loop threads per-env hidden state, zeros on done (mirrors Rust auto-reset), snapshots `buf.states[t]` for chunked BPTT seeding.
+- [x] Task 7: `ppo_update_bptt` chunks the rollout into `rollout_steps // bptt_length` segments, minibatches on the env axis, detaches state at chunk boundaries. Chunk-size invariant test proves forward values are bit-identical across chunk counts; only gradients differ.
+- [x] Task 8: `configs/training/msr_aller_gru_ppo_train.toml` (Dense(23->32) -> Gru(32,32) -> Dense(32->2), `bptt_length = 32`, PPO+BPTT). `compare_guidance` + `train_all.sh` register `neural_network_gru_ppo` with `gru_ppo` / `nn_gru_ppo` aliases.
+- [x] Task 9: Cross-language equivalence extended with PPO-GRU export roundtrip (max abs diff 5.55e-17, machine epsilon).
+- [x] Task 10: `@slow` PPO-GRU smoke test (~2s wall-clock) + CI registration.
+- [x] Task 11: Feedforward PPO regression gate confirms V2Policy + `bptt_length = rollout_steps` preserves the dense-only training path.
+- [x] Task 12: Full verification (Rust check_all, Python lint+tests, guidance golden regressions).
+- [x] Task 13: smart-commit.
+
+Spec: `docs/superpowers/specs/2026-04-18-phase-1-5-ppo-gru-bptt-design.md`.
+Plan: `docs/superpowers/plans/2026-04-18-phase-1-5-ppo-gru-bptt-plan.md`.
+
+**Out-of-Phase-1.5 carry-overs (deferred):**
+- [ ] SAC-GRU (Phase 1.6: R2D2-style sequence replay + burn-in; `_validate_deterministic_v1` twin helper deletable once SAC migrates to V2Policy).
+- [ ] Recurrent critic (deferred; feedforward critic mirroring policy trunk widths is fine for GRU-at-32-hidden).
+- [ ] Per-layer activation-aware init for GRU (Phase 1 carry-over; still deferred).
+- [ ] Widen `load_policy_from_json` to accept v1 JSON (Phase 0 carry-over; still deferred).
+
+### Phase 2 -- LSTM + Window-MLP (cheap extensions on Phase 0/1/1.5 infra)
 - [ ] LSTM: 4 gates, h+c state; PyTorch mirror; PSO + PPO configs
 - [ ] Window-MLP: ring buffer via `NnState.window`, no new matmul; window-size ablation N in {4, 8, 16}
 
