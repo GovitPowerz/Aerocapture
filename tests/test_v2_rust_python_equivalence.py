@@ -132,3 +132,44 @@ def test_rust_python_dense_equivalence_with_input_mask(tmp_path: Path) -> None:
 
     max_diff = np.max(np.abs(rust_out - py_out))
     assert max_diff < 1e-10, f"dense+mask max abs diff {max_diff}"
+
+
+def test_rust_python_ppo_gru_export_equivalence(tmp_path: Path) -> None:
+    """A V2Policy with GRU, trained under PPO code (simulated by random init here),
+    exports to v2 JSON and the Rust runtime's nn_forward matches the Python
+    single-step forward at machine epsilon."""
+    from aerocapture.training.rl.export import export_v2_policy_to_json
+    from aerocapture.training.rl.policy import V2Policy
+    from aerocapture.training.rl.schemas import DenseSpec, GruSpec
+
+    architecture: list[DenseSpec | GruSpec] = [
+        DenseSpec(type="dense", input_size=5, output_size=8, activation="tanh"),
+        GruSpec(type="gru", input_size=8, hidden_size=8),
+        DenseSpec(type="dense", input_size=8, output_size=2, activation="linear"),
+    ]
+    policy = V2Policy(architecture=architecture, output_interpretation="atan2", input_mask=None)
+    torch.manual_seed(2026)
+    with torch.no_grad():
+        for name, p in policy.named_parameters():
+            if name == "log_std":
+                continue
+            p.data = torch.randn_like(p.data) * 0.2
+    policy.double()
+
+    json_path = tmp_path / "ppo_gru_model.json"
+    export_v2_policy_to_json(policy, str(json_path), obs_normalizer=None)
+
+    rng = np.random.default_rng(13)
+    inputs = rng.standard_normal((50, 5)).astype(np.float64)
+
+    # Stateless comparison: Python resets state per call; Rust's nn_forward is stateless.
+    py_out = np.zeros((50, 2), dtype=np.float64)
+    for i, x in enumerate(inputs):
+        fresh = policy.new_state(1, "cpu")
+        y, _ = policy(torch.from_numpy(x).unsqueeze(0), fresh)
+        py_out[i] = y.detach().numpy()[0]
+
+    rust_out = np.array([aerocapture_rs.nn_forward(str(json_path), x.tolist()) for x in inputs])
+
+    max_diff = np.max(np.abs(rust_out - py_out))
+    assert max_diff < 1e-10, f"ppo-gru export max abs diff {max_diff}"
