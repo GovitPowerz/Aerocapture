@@ -173,7 +173,9 @@ mod tests {
     use crate::data::capsule::Capsule;
     use crate::data::guidance_params::{GuidanceParams, ReferenceTrajectory};
     use crate::data::incidence::IncidenceProfile;
-    use crate::data::neural::{Activation, Layer, LayerSpec, NN_FULL_INPUT_SIZE, NeuralNetModel};
+    use crate::data::neural::{
+        Activation, DenseLayer, Layer, LayerSpec, NN_FULL_INPUT_SIZE, NeuralNetModel,
+    };
     use crate::data::pilot::{PilotModel, PilotType};
     use crate::data::{
         Constraints, EntryConditions, FinalConditions, OrbitalTarget, ParkingOrbit, SimData,
@@ -310,11 +312,11 @@ mod tests {
                 activation: Activation::Linear,
             }],
             layer_sizes: vec![16, 2],
-            layers: vec![Layer {
+            layers: vec![Layer::Dense(DenseLayer {
                 w: vec![vec![0.0; 16], vec![0.0; 16]],
                 b: vec![bias0, bias1],
                 activation: Activation::Linear,
-            }],
+            })],
             output_interpretation: "atan2".to_string(),
             input_mask: None,
             ablated_input: None,
@@ -398,11 +400,11 @@ mod tests {
                 activation: Activation::Linear,
             }],
             layer_sizes: vec![16, 1],
-            layers: vec![Layer {
+            layers: vec![Layer::Dense(DenseLayer {
                 w: vec![vec![0.0; 16]],
                 b: vec![0.5],
                 activation: Activation::Linear,
-            }],
+            })],
             output_interpretation: "direct".to_string(),
             input_mask: None,
             ablated_input: None,
@@ -433,11 +435,11 @@ mod tests {
                 activation: Activation::Tanh,
             }],
             layer_sizes: vec![16, 1],
-            layers: vec![Layer {
+            layers: vec![Layer::Dense(DenseLayer {
                 w: vec![vec![0.0; 16]],
                 b: vec![-1.0],
                 activation: Activation::Tanh,
-            }],
+            })],
             output_interpretation: "direct".to_string(),
             input_mask: None,
             ablated_input: None,
@@ -462,7 +464,7 @@ mod tests {
     #[test]
     fn output_in_valid_range() {
         // Small 16->3->2 network with tanh hidden layer and asinh output
-        let layer0 = Layer {
+        let layer0 = Layer::Dense(DenseLayer {
             w: vec![
                 vec![
                     0.1, -0.2, 0.3, -0.1, 0.2, -0.3, 0.05, -0.05, 0.02, -0.03, 0.04, -0.01, 0.03,
@@ -479,12 +481,12 @@ mod tests {
             ],
             b: vec![0.1, -0.1, 0.0],
             activation: Activation::Tanh,
-        };
-        let layer1 = Layer {
+        });
+        let layer1 = Layer::Dense(DenseLayer {
             w: vec![vec![0.5, -0.5, 0.2], vec![-0.3, 0.3, -0.1]],
             b: vec![0.0, 0.0],
             activation: Activation::Asinh,
-        };
+        });
         let nn = NeuralNetModel {
             architecture: vec![
                 LayerSpec::Dense {
@@ -541,12 +543,12 @@ mod tests {
                 .collect();
             layer0_weights.push(w);
         }
-        let layer0 = Layer {
+        let layer0 = Layer::Dense(DenseLayer {
             w: layer0_weights,
             b: vec![0.0; 24],
             activation: Activation::Tanh,
-        };
-        let layer1 = Layer {
+        });
+        let layer1 = Layer::Dense(DenseLayer {
             w: vec![
                 (0..24)
                     .map(|i| 0.1 * if i % 2 == 0 { 1.0 } else { -1.0 })
@@ -557,7 +559,7 @@ mod tests {
             ],
             b: vec![0.0, 0.0],
             activation: Activation::Asinh,
-        };
+        });
         let nn = NeuralNetModel {
             architecture: vec![
                 LayerSpec::Dense {
@@ -611,14 +613,14 @@ mod tests {
                 activation: Activation::Linear,
             }],
             layer_sizes: vec![NN_FULL_INPUT_SIZE, 2],
-            layers: vec![Layer {
+            layers: vec![Layer::Dense(DenseLayer {
                 w: vec![
                     vec![0.01; NN_FULL_INPUT_SIZE],
                     vec![0.01; NN_FULL_INPUT_SIZE],
                 ],
                 b: vec![0.1, 0.2],
                 activation: Activation::Linear,
-            }],
+            })],
             output_interpretation: "atan2".to_string(),
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
@@ -654,11 +656,11 @@ mod tests {
                 activation: Activation::Linear,
             }],
             layer_sizes: vec![3, 2],
-            layers: vec![Layer {
+            layers: vec![Layer::Dense(DenseLayer {
                 w: vec![vec![0.1; 3], vec![0.1; 3]],
                 b: vec![0.0, 1.0],
                 activation: Activation::Linear,
-            }],
+            })],
             output_interpretation: "atan2".to_string(),
             input_mask: Some(vec![0, 8, 15]),
             ablated_input: None,
@@ -698,11 +700,11 @@ mod tests {
                 activation: Activation::Linear,
             }],
             layer_sizes: vec![16, 2],
-            layers: vec![Layer {
+            layers: vec![Layer::Dense(DenseLayer {
                 w: vec![w_row.clone(), vec![0.0; 16]],
                 b: vec![0.0, 1.0],
                 activation: Activation::Linear,
-            }],
+            })],
             output_interpretation: "atan2".to_string(),
             input_mask: None,
             ablated_input: None,
@@ -715,11 +717,11 @@ mod tests {
                 activation: Activation::Linear,
             }],
             layer_sizes: vec![16, 2],
-            layers: vec![Layer {
+            layers: vec![Layer::Dense(DenseLayer {
                 w: vec![w_row, vec![0.0; 16]],
                 b: vec![0.0, 1.0],
                 activation: Activation::Linear,
-            }],
+            })],
             output_interpretation: "atan2".to_string(),
             input_mask: None,
             ablated_input: Some(0),
@@ -767,11 +769,11 @@ mod tests {
                 activation: Activation::Linear,
             }],
             layer_sizes: vec![16, 2],
-            layers: vec![Layer {
+            layers: vec![Layer::Dense(DenseLayer {
                 w: vec![vec![0.01; 16], vec![-0.01; 16]],
                 b: vec![0.1, 0.2],
                 activation: Activation::Linear,
-            }],
+            })],
             output_interpretation: "atan2".to_string(),
             input_mask: Some((0..16).collect()),
             ablated_input: None,
@@ -813,11 +815,11 @@ mod tests {
                 activation: Activation::Linear,
             }],
             layer_sizes: vec![NN_FULL_INPUT_SIZE, 2],
-            layers: vec![Layer {
+            layers: vec![Layer::Dense(DenseLayer {
                 w: vec![w0, vec![0.0; NN_FULL_INPUT_SIZE]],
                 b: vec![0.0, 1.0],
                 activation: Activation::Linear,
-            }],
+            })],
             output_interpretation: "atan2".to_string(),
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
@@ -854,7 +856,7 @@ mod tests {
                     activation: Activation::Tanh,
                 }],
                 layer_sizes: vec![16, 2],
-                layers: vec![Layer {
+                layers: vec![Layer::Dense(DenseLayer {
                     w: vec![
                         vec![
                             0.1, -0.1, 0.2, -0.2, 0.05, -0.05, 0.1, -0.1, 0.02, -0.03, 0.04, -0.01,
@@ -867,7 +869,7 @@ mod tests {
                     ],
                     b: vec![0.3, -0.2],
                     activation: Activation::Tanh,
-                }],
+                })],
                 output_interpretation: "atan2".to_string(),
                 input_mask: None,
                 ablated_input: None,

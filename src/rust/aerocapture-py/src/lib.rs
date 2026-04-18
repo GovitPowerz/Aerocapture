@@ -279,6 +279,42 @@ fn nn_forward(json_path: String, input: Vec<f64>) -> PyResult<Vec<f64>> {
     Ok(model.forward(&mut state, &masked))
 }
 
+/// Construct a NeuralNetModel from flat PSO weights + v2 architecture (JSON string)
+/// and write it as v2 JSON. All PSO NN output flows through this helper so the
+/// Rust LayerWeights trait is the single source of truth for weight serialization.
+///
+/// Args:
+///     flat: flat weight vector (length must equal sum of per-layer n_params).
+///     architecture_json: JSON-serialized list of LayerSpec dicts, e.g.
+///         '[{"type":"dense","input_size":16,"output_size":32,"activation":"tanh"},...]'.
+///     path: output JSON file path.
+///     output_interpretation: "atan2" or "direct".
+///     input_mask: optional list of input indices (length == layer[0] input_size).
+#[pyfunction]
+fn flat_weights_to_json(
+    flat: Vec<f64>,
+    architecture_json: String,
+    path: String,
+    output_interpretation: String,
+    input_mask: Option<Vec<usize>>,
+) -> PyResult<()> {
+    use aerocapture::data::neural::{LayerSpec, NeuralNetModel};
+
+    let specs: Vec<LayerSpec> = serde_json::from_str(&architecture_json).map_err(|e| {
+        pyo3::exceptions::PyValueError::new_err(format!(
+            "flat_weights_to_json: architecture_json parse error: {}",
+            e
+        ))
+    })?;
+    let model =
+        NeuralNetModel::from_flat_weights_v2(&flat, &specs, &output_interpretation, input_mask)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    model
+        .save_json(&path)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    Ok(())
+}
+
 /// Load and return a TOML config file as a plain Python dict.
 ///
 /// Useful for inspecting or modifying config before passing overrides.
@@ -344,5 +380,6 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_with_draws, m)?)?;
     m.add_function(wrap_pyfunction!(load_config, m)?)?;
     m.add_function(wrap_pyfunction!(nn_forward, m)?)?;
+    m.add_function(wrap_pyfunction!(flat_weights_to_json, m)?)?;
     Ok(())
 }

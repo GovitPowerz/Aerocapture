@@ -9,19 +9,29 @@ use crate::data::neural::{Layer, NeuralNetModel};
 #[derive(Debug, Clone)]
 pub enum LayerState {
     None,
-    // Phase 1+: Gru { h: Vec<f64> }, Lstm { h: Vec<f64>, c: Vec<f64> },
+    Gru { h: Vec<f64> },
+    // Phase 2+: Lstm { h: Vec<f64>, c: Vec<f64> },
     // Window { buffer: std::collections::VecDeque<Vec<f64>> }, Ssm { h: Vec<f64> },
 }
 
 impl LayerState {
     pub fn for_layer(layer: &Layer) -> Self {
-        let _ = layer; // all Phase 0 layers are stateless
-        LayerState::None
+        match layer {
+            Layer::Dense(_) => LayerState::None,
+            Layer::Gru(g) => LayerState::Gru {
+                h: vec![0.0; g.hidden_size],
+            },
+        }
     }
 
     pub fn reset(&mut self) {
         match self {
             LayerState::None => {}
+            LayerState::Gru { h } => {
+                for v in h.iter_mut() {
+                    *v = 0.0;
+                }
+            }
         }
     }
 }
@@ -47,7 +57,7 @@ impl NnState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::neural::{Activation, Layer, LayerSpec, NeuralNetModel};
+    use crate::data::neural::{Activation, DenseLayer, Layer, LayerSpec, NeuralNetModel};
 
     fn two_layer_model() -> NeuralNetModel {
         NeuralNetModel {
@@ -65,16 +75,16 @@ mod tests {
             ],
             layer_sizes: vec![3, 2, 1],
             layers: vec![
-                Layer {
+                Layer::Dense(DenseLayer {
                     w: vec![vec![0.1; 3]; 2],
                     b: vec![0.0; 2],
                     activation: Activation::Tanh,
-                },
-                Layer {
+                }),
+                Layer::Dense(DenseLayer {
                     w: vec![vec![0.1; 2]; 1],
                     b: vec![0.0; 1],
                     activation: Activation::Linear,
-                },
+                }),
             ],
             output_interpretation: "direct".to_string(),
             input_mask: None,
@@ -109,5 +119,37 @@ mod tests {
         state.reset();
         state.reset();
         assert_eq!(state.layer_states.len(), 2);
+    }
+
+    #[test]
+    fn clone_is_behaviorally_independent_with_gru_state() {
+        use crate::data::neural::{GruLayer, Layer};
+
+        let gru = GruLayer {
+            input_size: 2,
+            hidden_size: 3,
+            weight_ih: vec![vec![0.0; 2]; 9],
+            weight_hh: vec![vec![0.0; 3]; 9],
+            bias_ih: vec![0.0; 9],
+            bias_hh: vec![0.0; 9],
+        };
+        let layer = Layer::Gru(gru);
+        let original_state = LayerState::for_layer(&layer);
+        let mut cloned_state = original_state.clone();
+
+        if let LayerState::Gru { h } = &mut cloned_state {
+            h[0] = 42.0;
+        } else {
+            panic!("expected LayerState::Gru");
+        }
+
+        // Mutating clone must not affect original.
+        if let LayerState::Gru { h } = &original_state {
+            assert_eq!(h[0], 0.0);
+            assert_eq!(h[1], 0.0);
+            assert_eq!(h[2], 0.0);
+        } else {
+            panic!("expected LayerState::Gru");
+        }
     }
 }
