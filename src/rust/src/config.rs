@@ -191,12 +191,64 @@ pub struct TomlConfig {
 
 // ─── Network TOML struct ───
 
+/// v2 layer spec mirrored into TOML via [[network.architecture]] array-of-tables.
+/// Mirrors the Rust `LayerSpec` in `data/neural.rs`; kept separate to keep the
+/// TOML layer Activation-as-string (TOML parsing) vs the data layer Activation-enum
+/// (runtime typing). `to_layer_spec()` bridges them.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TomlLayerSpec {
+    Dense {
+        input_size: usize,
+        output_size: usize,
+        activation: String,
+    },
+    Gru {
+        input_size: usize,
+        hidden_size: usize,
+    },
+}
+
+impl TomlLayerSpec {
+    pub fn to_layer_spec(&self) -> Result<crate::data::neural::LayerSpec, ParseError> {
+        use crate::data::neural::LayerSpec;
+        match self {
+            TomlLayerSpec::Dense {
+                input_size,
+                output_size,
+                activation,
+            } => {
+                let act = crate::data::neural::parse_activation(activation).map_err(|e| {
+                    ParseError(format!("unknown activation {:?}: {}", activation, e))
+                })?;
+                Ok(LayerSpec::Dense {
+                    input_size: *input_size,
+                    output_size: *output_size,
+                    activation: act,
+                })
+            }
+            TomlLayerSpec::Gru {
+                input_size,
+                hidden_size,
+            } => Ok(LayerSpec::Gru {
+                input_size: *input_size,
+                hidden_size: *hidden_size,
+            }),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct TomlNetwork {
     #[serde(default)]
     pub input_mask: Option<Vec<usize>>,
     #[serde(default)]
     pub ablated_input: Option<usize>,
+    /// v2 path: heterogeneous architecture spec as [[network.architecture]] TOML array-of-tables.
+    /// When present, downstream consumers use it to describe the network shape;
+    /// when absent, the existing v1 JSON-file-driven path applies (backward compatible).
+    #[serde(default)]
+    pub architecture: Option<Vec<TomlLayerSpec>>,
 }
 
 // ─── Onboard Atmosphere TOML structs ───
@@ -1461,5 +1513,131 @@ mod tests {
         "#;
         let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
         assert!(mc.wind.is_none());
+    }
+
+    // ─── v2 [[network.architecture]] parser tests ───
+
+    #[test]
+    fn network_architecture_v2_parses() {
+        let toml = r#"
+[network]
+input_mask = [0, 1, 2]
+
+[[network.architecture]]
+type = "dense"
+input_size = 3
+output_size = 4
+activation = "tanh"
+
+[[network.architecture]]
+type = "gru"
+input_size = 4
+hidden_size = 4
+
+[[network.architecture]]
+type = "dense"
+input_size = 4
+output_size = 2
+activation = "linear"
+"#;
+        #[derive(Deserialize)]
+        struct Wrapper {
+            network: TomlNetwork,
+        }
+        let wrapper: Wrapper = toml::from_str(toml).expect("TOML parse");
+        let arch = wrapper
+            .network
+            .architecture
+            .expect("architecture v2 path present");
+        assert_eq!(arch.len(), 3);
+        match &arch[1] {
+            TomlLayerSpec::Gru {
+                input_size,
+                hidden_size,
+            } => {
+                assert_eq!(*input_size, 4);
+                assert_eq!(*hidden_size, 4);
+            }
+            _ => panic!("expected Gru at index 1"),
+        }
+        match &arch[0] {
+            TomlLayerSpec::Dense {
+                input_size,
+                output_size,
+                activation,
+            } => {
+                assert_eq!(*input_size, 3);
+                assert_eq!(*output_size, 4);
+                assert_eq!(activation, "tanh");
+            }
+            _ => panic!("expected Dense at index 0"),
+        }
+    }
+
+    #[test]
+    fn network_architecture_v2_absent_stays_none() {
+        // v1 path: no [[network.architecture]] block, existing configs must still parse
+        let toml = r#"
+[network]
+input_mask = [0, 1, 2]
+"#;
+        #[derive(Deserialize)]
+        struct Wrapper {
+            network: TomlNetwork,
+        }
+        let wrapper: Wrapper = toml::from_str(toml).expect("TOML parse");
+        assert!(wrapper.network.architecture.is_none());
+        assert_eq!(wrapper.network.input_mask, Some(vec![0, 1, 2]));
+    }
+
+    #[test]
+    fn toml_layer_spec_to_layer_spec_dense() {
+        use crate::data::neural::{Activation, LayerSpec};
+        let toml_spec = TomlLayerSpec::Dense {
+            input_size: 3,
+            output_size: 4,
+            activation: "tanh".to_string(),
+        };
+        match toml_spec.to_layer_spec().unwrap() {
+            LayerSpec::Dense {
+                input_size,
+                output_size,
+                activation,
+            } => {
+                assert_eq!(input_size, 3);
+                assert_eq!(output_size, 4);
+                assert_eq!(activation, Activation::Tanh);
+            }
+            _ => panic!("expected Dense"),
+        }
+    }
+
+    #[test]
+    fn toml_layer_spec_to_layer_spec_gru() {
+        use crate::data::neural::LayerSpec;
+        let toml_spec = TomlLayerSpec::Gru {
+            input_size: 4,
+            hidden_size: 8,
+        };
+        match toml_spec.to_layer_spec().unwrap() {
+            LayerSpec::Gru {
+                input_size,
+                hidden_size,
+            } => {
+                assert_eq!(input_size, 4);
+                assert_eq!(hidden_size, 8);
+            }
+            _ => panic!("expected Gru"),
+        }
+    }
+
+    #[test]
+    fn toml_layer_spec_dense_unknown_activation_errors() {
+        let toml_spec = TomlLayerSpec::Dense {
+            input_size: 3,
+            output_size: 4,
+            activation: "not_an_activation".to_string(),
+        };
+        assert!(toml_spec.to_layer_spec().is_err());
     }
 }

@@ -7,9 +7,9 @@ add the matching Rust variant. No other file in this module changes.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Discriminator, Field
 
 Activation = Literal["tanh", "relu", "sigmoid", "asinh", "linear", "swish", "mish"]
 
@@ -22,12 +22,14 @@ class DenseSpec(BaseModel):
     activation: Activation
 
 
-# Phase 0 has a single layer type. Phase 1+ variants (GruSpec, LstmSpec, AttentionSpec,
-# LayerNormSpec, SsmSpec, WindowSpec) will turn this into a discriminated union:
-#   LayerSpec = Annotated[DenseSpec | GruSpec | ..., Discriminator("type")]
-# Until a second variant exists, the Discriminator wrapper is semantically a no-op and
-# ruff (UP007) rejects `Union[DenseSpec]` — so we use the bare type alias for now.
-LayerSpec = DenseSpec
+class GruSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["gru"]
+    input_size: int = Field(ge=1)
+    hidden_size: int = Field(ge=1)
+
+
+LayerSpec = Annotated[DenseSpec | GruSpec, Discriminator("type")]
 
 
 class LayerWeights(BaseModel):

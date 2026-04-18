@@ -7,13 +7,14 @@ Decoding to physical values happens at evaluation time.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 
 import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.initialization import compute_layer_bound
 from aerocapture.training.param_spaces import ParamSpec
-from aerocapture.training.rl.schemas import DenseSpec, LayerSpec
+from aerocapture.training.rl.schemas import DenseSpec, GruSpec, LayerSpec
 
 
 def decode_normalized(x: npt.NDArray[np.float64], specs: list[ParamSpec]) -> dict[str, float]:
@@ -80,7 +81,7 @@ def nn_param_specs_from_architecture(
 
 
 def nn_param_specs_from_v2(
-    architecture: list[LayerSpec],
+    architecture: Sequence[LayerSpec],
     bound_multiplier: float = 1.0,
 ) -> list[ParamSpec]:
     """Generate per-parameter ParamSpecs from a v2 architecture list.
@@ -98,7 +99,9 @@ def nn_param_specs_from_v2(
 def _layer_param_specs(layer: LayerSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
     if isinstance(layer, DenseSpec):
         return _dense_specs(layer, layer_idx, bound_multiplier)
-    msg = f"Unknown layer type for PSO specs: {layer.type}"
+    if isinstance(layer, GruSpec):
+        return _gru_specs(layer, layer_idx, bound_multiplier)
+    msg = f"Unknown layer type for PSO specs: {layer!r}"
     raise ValueError(msg)
 
 
@@ -115,4 +118,26 @@ def _dense_specs(layer: DenseSpec, layer_idx: int, bound_multiplier: float) -> l
             specs.append(ParamSpec(f"w{layer_idx}_{j}_{k}", -bound, bound, 0.0))
     for j in range(fan_out):
         specs.append(ParamSpec(f"bias{layer_idx}_{j}", -bound, bound, 0.0))
+    return specs
+
+
+def _gru_specs(layer: GruSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
+    """Flat-weight spec order matches the Rust `LayerWeights for GruLayer`:
+    weight_ih (row-major [3H, I]) -> weight_hh (row-major [3H, H]) -> bias_ih -> bias_hh.
+    """
+    h = layer.hidden_size
+    three_h = 3 * h
+    w_ih_bound = bound_multiplier * compute_layer_bound(layer.input_size, three_h, "tanh")
+    w_hh_bound = bound_multiplier * compute_layer_bound(h, three_h, "tanh")
+    b_bound = 0.1 * bound_multiplier
+
+    specs: list[ParamSpec] = []
+    for j in range(three_h * layer.input_size):
+        specs.append(ParamSpec(f"w_ih{layer_idx}_{j}", -w_ih_bound, w_ih_bound, 0.0))
+    for j in range(three_h * h):
+        specs.append(ParamSpec(f"w_hh{layer_idx}_{j}", -w_hh_bound, w_hh_bound, 0.0))
+    for j in range(three_h):
+        specs.append(ParamSpec(f"b_ih{layer_idx}_{j}", -b_bound, b_bound, 0.0))
+    for j in range(three_h):
+        specs.append(ParamSpec(f"b_hh{layer_idx}_{j}", -b_bound, b_bound, 0.0))
     return specs

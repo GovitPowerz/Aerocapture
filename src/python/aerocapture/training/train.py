@@ -20,7 +20,7 @@ from pymoo.core.population import Population  # type: ignore[import-untyped]
 
 from aerocapture.training.config import TrainingConfig
 from aerocapture.training.corridor import CorridorAccumulator
-from aerocapture.training.encoding import decode_normalized, nn_param_specs_from_architecture
+from aerocapture.training.encoding import decode_normalized, nn_param_specs_from_architecture, nn_param_specs_from_v2
 from aerocapture.training.evaluate import (
     _HAS_PYO3,
     FINAL_EVAL_SEED_OFFSET,
@@ -287,10 +287,19 @@ def train(
     from aerocapture.training.param_spaces import PARAM_SPACES
 
     if config.guidance_type == "neural_network":
-        param_specs = nn_param_specs_from_architecture(
-            config.network.layer_sizes,
-            config.network.activations,
-        )
+        if config.network.architecture is not None:
+            from pydantic import TypeAdapter
+
+            from aerocapture.training.rl.schemas import LayerSpec
+
+            specs_adapter = TypeAdapter(list[LayerSpec])
+            validated = specs_adapter.validate_python(config.network.architecture)
+            param_specs = nn_param_specs_from_v2(validated)
+        else:
+            param_specs = nn_param_specs_from_architecture(
+                config.network.layer_sizes,
+                config.network.activations,
+            )
     else:
         param_specs = PARAM_SPACES[config.guidance_type]
 
@@ -417,7 +426,7 @@ def train(
         if pop_array.dtype != np.float64:
             pop_array = pop_array.astype(np.float64)
     else:
-        if config.guidance_type == "neural_network":
+        if config.guidance_type == "neural_network" and config.network.architecture is None:
             pop_array = create_nn_initial_population(
                 config.network.layer_sizes,
                 config.network.activations,
@@ -426,6 +435,8 @@ def train(
                 seed_weights=seed_weights,
             )
         else:
+            # v2 heterogeneous arch (or non-NN scheme): uniform in [0,1] via ParamSpec bounds.
+            # Activation-aware NN init is dense-only; GRU/LSTM seeded uniformly.
             pop_array = create_initial_population(
                 param_specs,
                 config.optimizer.n_pop,
@@ -600,9 +611,10 @@ def train(
                 # Common logging
                 gen_best_costs.append(best_overall_cost)
 
-                # Compute per-layer weight stats for NN
+                # Compute per-layer weight stats for NN (dense-only; v2 heterogeneous
+                # architectures skip -- stats are TUI decoration, not load-bearing).
                 ws = None
-                if config.guidance_type == "neural_network" and best_overall_individual is not None:
+                if config.guidance_type == "neural_network" and best_overall_individual is not None and config.network.architecture is None:
                     best_weights = _decode_nn_weights(best_overall_individual, param_specs)
                     ws = compute_weight_stats(best_weights, config.network.layer_sizes)
 
@@ -825,12 +837,17 @@ if __name__ == "__main__":
     cfg.sim.nn_param_file = _toml_data.get("data", {}).get("neural_network", "data/neural_network/nn_model.json")
     # Override NN architecture from TOML [network] section if present
     _net = _toml_data.get("network", {})
+    if "architecture" in _net:
+        # v2 heterogeneous arch (list of per-layer dicts, e.g. dense + gru + dense).
+        cfg.network.architecture = list(_net["architecture"])
     if "layer_sizes" in _net:
         cfg.network.layer_sizes = _net["layer_sizes"]
     if "activations" in _net:
         cfg.network.activations = _net["activations"]
     if "input_mask" in _net:
         cfg.network.input_mask = _net["input_mask"]
+    if cfg.network.architecture is not None:
+        cfg.network.__post_init__()  # re-validate once all fields are set
     cfg.sim.final_file = "output/final.train_nn_temp"
     cfg.sim.exec_dir = "."
     cwd = "."
@@ -893,6 +910,13 @@ if __name__ == "__main__":
             print("  uv run python -m aerocapture.training.train configs/training/msr_aller_piecewise_constant_train.toml")
             sys.exit(1)
         print(f"  Using reference trajectory: {ref_traj_path}")
+
+    # Architecture summary (NN schemes only).
+    if cfg.guidance_type == "neural_network":
+        from aerocapture.training.config import describe_architecture
+
+        output_interpretation = _toml_data.get("network", {}).get("output_interpretation", "atan2")
+        print(describe_architecture(cfg.network, output_interpretation=output_interpretation))
 
     # Initialize corridor accumulator for piecewise_constant training
     corridor_acc_init: CorridorAccumulator | None = None

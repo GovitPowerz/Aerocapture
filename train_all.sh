@@ -119,10 +119,27 @@ train_nn_rl() {
         --algorithm ppo --total-steps 5000000
 }
 
+train_neural_network_gru_ppo() {
+    echo "=== neural_network_gru_ppo (Dense -> GRU -> Dense, PPO+BPTT) ==="
+    uv run python -m aerocapture.training.rl.train \
+        configs/training/msr_aller_gru_ppo_train.toml \
+        --algorithm ppo --total-steps 5000000
+}
+
+train_neural_network_gru_pso() {
+    echo "=== neural_network_gru_pso (Dense -> GRU -> Dense, PSO) ==="
+    # TOML carries [optimizer] algorithm/n_pop/n_gen defaults; CLI flags still override.
+    run_scheme configs/training/msr_aller_gru_pso_train.toml 5000 64 2000 1
+}
+
 train_all() {
     train_piecewise_constant
     echo ""
     train_nn_rl
+    echo ""
+    train_neural_network_gru_ppo
+    echo ""
+    train_neural_network_gru_pso
     echo ""
     train_ftc
     echo ""
@@ -151,10 +168,12 @@ else
             fnpag)                             train_fnpag ;;
             neural_network|nn)                 train_neural_network ;;
             neural_network_rl|nn_rl|rl)        train_nn_rl ;;
+            neural_network_gru_ppo|nn_gru_ppo|gru_ppo)  train_neural_network_gru_ppo ;;
+            neural_network_gru_pso|nn_gru_pso|gru_pso|gru)  train_neural_network_gru_pso ;;
             all)                               train_all ;;
             *)
                 echo "Unknown scheme: $scheme"
-                echo "Valid: piecewise_constant ftc eqglide energy_controller pred_guid fnpag neural_network neural_network_rl all"
+                echo "Valid: piecewise_constant ftc eqglide energy_controller pred_guid fnpag neural_network neural_network_rl neural_network_gru_pso neural_network_gru_ppo all"
                 exit 1
                 ;;
         esac
