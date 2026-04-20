@@ -112,24 +112,29 @@ def _zero_state_where_done(state: list[Any], done_mask: Tensor) -> list[Any]:
     Contract:
       - `None` entries (dense / stateless layers) pass through unchanged.
       - Tensor entries of shape `(B, *)` get `done_mask` rows multiplied by 0.
-      - Non-tensor, non-None entries raise TypeError. When Phase 2+ introduces
-        layer types whose state is a tuple (e.g. LSTM `(h, c)`), extend this
-        helper to recurse into the container rather than silently matmul-erroring.
+      - Tuple entries (e.g. LSTM `(h, c)`) recurse into each element.
+        Recursion terminates at the Tensor branch.
+      - Any other non-None, non-Tensor, non-tuple entry raises TypeError.
+        Future multi-tensor state types that aren't expressible as a tuple
+        (e.g. Mamba's SSM state dict, Transformer KV cache) must add an
+        explicit branch here rather than silently matmul-erroring downstream.
     """
-    new_state: list[Any] = []
     keep_bool = (~done_mask).unsqueeze(-1)  # (B, 1), bool
-    for s in state:
-        if s is None:
-            new_state.append(None)
-        elif isinstance(s, Tensor):
-            new_state.append(s * keep_bool.to(dtype=s.dtype, device=s.device))
-        else:
-            raise TypeError(
-                f"_zero_state_where_done: unsupported state entry type {type(s).__name__!r}; "
-                "only None or Tensor supported. Multi-tensor recurrent states (e.g. LSTM (h, c)) "
-                "need an explicit extension of this helper."
-            )
-    return new_state
+    return [_zero_entry(s, keep_bool) for s in state]
+
+
+def _zero_entry(s: Any, keep_bool: Tensor) -> Any:
+    if s is None:
+        return None
+    if isinstance(s, Tensor):
+        return s * keep_bool.to(dtype=s.dtype, device=s.device)
+    if isinstance(s, tuple):
+        return tuple(_zero_entry(sub, keep_bool) for sub in s)
+    raise TypeError(
+        f"_zero_state_where_done: unsupported state entry type {type(s).__name__!r}; "
+        "only None, Tensor, or tuple supported. Non-tuple multi-tensor states "
+        "(e.g. Mamba SSM, Transformer KV cache) need an explicit extension."
+    )
 
 
 class V2Policy(nn.Module):

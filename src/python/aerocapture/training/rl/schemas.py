@@ -29,7 +29,14 @@ class GruSpec(BaseModel):
     hidden_size: int = Field(ge=1)
 
 
-LayerSpec = Annotated[DenseSpec | GruSpec, Discriminator("type")]
+class LstmSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["lstm"]
+    input_size: int = Field(ge=1)
+    hidden_size: int = Field(ge=1)
+
+
+LayerSpec = Annotated[DenseSpec | GruSpec | LstmSpec, Discriminator("type")]
 
 
 class LayerWeights(BaseModel):

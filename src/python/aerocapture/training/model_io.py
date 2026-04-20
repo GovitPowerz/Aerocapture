@@ -11,9 +11,9 @@ import json
 
 import torch
 
-from aerocapture.training.rl.layers import DenseLayer, GruLayer
+from aerocapture.training.rl.layers import DenseLayer, GruLayer, LstmLayer
 from aerocapture.training.rl.policy import V2Policy
-from aerocapture.training.rl.schemas import ArchitectureV2, DenseSpec, GruSpec
+from aerocapture.training.rl.schemas import ArchitectureV2, DenseSpec, GruSpec, LstmSpec
 
 
 def load_policy_from_json(path: str, device: str | torch.device) -> V2Policy:
@@ -57,6 +57,24 @@ def load_policy_from_json(path: str, device: str | torch.device) -> V2Policy:
             b_hh = torch.tensor(extra["bias_hh"], dtype=torch.float64, device=device)
             layer = policy.layers[i]
             assert isinstance(layer, GruLayer)
+            with torch.no_grad():
+                layer.weight_ih.copy_(w_ih)
+                layer.weight_hh.copy_(w_hh)
+                layer.bias_ih.copy_(b_ih)
+                layer.bias_hh.copy_(b_hh)
+        elif isinstance(layer_spec, LstmSpec):
+            # Lstm weights land in LayerWeights.model_extra (extra="allow").
+            extra = lw.model_extra or {}
+            required = ("weight_ih", "weight_hh", "bias_ih", "bias_hh")
+            missing = [k for k in required if k not in extra]
+            if missing:
+                raise ValueError(f"Lstm layer {key} missing {missing} in {path}")
+            w_ih = torch.tensor(extra["weight_ih"], dtype=torch.float64, device=device)
+            w_hh = torch.tensor(extra["weight_hh"], dtype=torch.float64, device=device)
+            b_ih = torch.tensor(extra["bias_ih"], dtype=torch.float64, device=device)
+            b_hh = torch.tensor(extra["bias_hh"], dtype=torch.float64, device=device)
+            layer = policy.layers[i]
+            assert isinstance(layer, LstmLayer)
             with torch.no_grad():
                 layer.weight_ih.copy_(w_ih)
                 layer.weight_hh.copy_(w_hh)

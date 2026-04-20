@@ -14,7 +14,7 @@ import numpy.typing as npt
 
 from aerocapture.training.initialization import compute_layer_bound
 from aerocapture.training.param_spaces import ParamSpec
-from aerocapture.training.rl.schemas import DenseSpec, GruSpec, LayerSpec
+from aerocapture.training.rl.schemas import DenseSpec, GruSpec, LayerSpec, LstmSpec
 
 
 def decode_normalized(x: npt.NDArray[np.float64], specs: list[ParamSpec]) -> dict[str, float]:
@@ -101,6 +101,8 @@ def _layer_param_specs(layer: LayerSpec, layer_idx: int, bound_multiplier: float
         return _dense_specs(layer, layer_idx, bound_multiplier)
     if isinstance(layer, GruSpec):
         return _gru_specs(layer, layer_idx, bound_multiplier)
+    if isinstance(layer, LstmSpec):
+        return _lstm_specs(layer, layer_idx, bound_multiplier)
     msg = f"Unknown layer type for PSO specs: {layer!r}"
     raise ValueError(msg)
 
@@ -139,5 +141,30 @@ def _gru_specs(layer: GruSpec, layer_idx: int, bound_multiplier: float) -> list[
     for j in range(three_h):
         specs.append(ParamSpec(f"b_ih{layer_idx}_{j}", -b_bound, b_bound, 0.0))
     for j in range(three_h):
+        specs.append(ParamSpec(f"b_hh{layer_idx}_{j}", -b_bound, b_bound, 0.0))
+    return specs
+
+
+def _lstm_specs(layer: LstmSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
+    """Flat-weight spec order matches the Rust `LayerWeights for LstmLayer`:
+    weight_ih (row-major [4H, I]) -> weight_hh (row-major [4H, H]) -> bias_ih -> bias_hh.
+
+    Gate ordering on the 4H axis: (i, f, g, o). Forget-bias init to 1.0 is
+    applied in init_v2_population (Task 11), not reflected in these symmetric bounds.
+    """
+    h = layer.hidden_size
+    four_h = 4 * h
+    w_ih_bound = bound_multiplier * compute_layer_bound(layer.input_size, four_h, "tanh")
+    w_hh_bound = bound_multiplier * compute_layer_bound(h, four_h, "tanh")
+    b_bound = 0.1 * bound_multiplier
+
+    specs: list[ParamSpec] = []
+    for j in range(four_h * layer.input_size):
+        specs.append(ParamSpec(f"w_ih{layer_idx}_{j}", -w_ih_bound, w_ih_bound, 0.0))
+    for j in range(four_h * h):
+        specs.append(ParamSpec(f"w_hh{layer_idx}_{j}", -w_hh_bound, w_hh_bound, 0.0))
+    for j in range(four_h):
+        specs.append(ParamSpec(f"b_ih{layer_idx}_{j}", -b_bound, b_bound, 0.0))
+    for j in range(four_h):
         specs.append(ParamSpec(f"b_hh{layer_idx}_{j}", -b_bound, b_bound, 0.0))
     return specs

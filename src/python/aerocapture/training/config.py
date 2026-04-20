@@ -118,6 +118,10 @@ def _layer_n_params(entry: dict) -> int:
         h = int(entry["hidden_size"])
         i = int(entry["input_size"])
         return 3 * h * i + 3 * h * h + 2 * 3 * h
+    if ltype == "lstm":
+        h = int(entry["hidden_size"])
+        i = int(entry["input_size"])
+        return 4 * h * i + 4 * h * h + 2 * 4 * h
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
@@ -134,6 +138,8 @@ def _layer_output_size(entry: dict) -> int:
         return int(entry["output_size"])
     if ltype == "gru":
         return int(entry["hidden_size"])
+    if ltype == "lstm":
+        return int(entry["hidden_size"])
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
@@ -148,7 +154,7 @@ def describe_architecture(network: NetworkConfig, output_interpretation: str = "
             out_size = _layer_output_size(entry)
             if ltype == "dense":
                 tail = entry.get("activation", "?")
-            elif ltype == "gru":
+            elif ltype in ("gru", "lstm"):
                 tail = f"hidden_size={entry['hidden_size']}"
             else:
                 tail = ltype
