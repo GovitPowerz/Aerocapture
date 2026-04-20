@@ -97,9 +97,17 @@ Plan: `docs/superpowers/plans/2026-04-18-phase-1-5-ppo-gru-bptt-plan.md`.
 - [ ] Per-layer activation-aware init for GRU (Phase 1 carry-over; still deferred).
 - [ ] Widen `load_policy_from_json` to accept v1 JSON (Phase 0 carry-over; still deferred).
 
-### Phase 2 -- LSTM + Window-MLP (cheap extensions on Phase 0/1/1.5 infra)
-- [ ] LSTM: 4 gates, h+c state; PyTorch mirror; PSO + PPO configs
-- [ ] Window-MLP: ring buffer via `NnState.window`, no new matmul; window-size ablation N in {4, 8, 16}
+### Phase 2a -- LSTM MVP (PSO + PPO-BPTT) + activation-aware init [IN PROGRESS on feature/lstm-mvp]
+- [ ] Rust `LstmLayer` + `Layer::Lstm` + `LayerState::Lstm { h, c }` + `TomlLayerSpec::Lstm`
+- [ ] `LayerWeights for LstmLayer` 4H flat ordering + JSON v2 + PyO3 `flat_weights_to_json` branch
+- [ ] Python `LstmLayer` torch module + `LstmSpec` pydantic + `_zero_state_where_done` tuple branch
+- [ ] `_lstm_specs` + `config.py::_layer_n_params` lstm arm + export / load Lstm branches
+- [ ] `init_v2_population`: dense Xavier/He/LeCun, GRU tanh-Xavier, LSTM tanh-Xavier + forget-bias 1.0
+- [ ] Training configs `msr_aller_lstm_pso_train.toml` + `msr_aller_lstm_ppo_train.toml`
+- [ ] Cross-language equivalence test + PSO-LSTM + PPO-LSTM smoke tests (@slow, python-pyo3 CI)
+
+### Phase 2b -- Window-MLP (ring buffer, no new matmul)
+- [ ] Deferred; separate spec + plan after Phase 2a lands
 
 ### Phase 3 -- Transformer
 - [ ] Rust multi-head attention + layer norm + sinusoidal position encoding
