@@ -20,8 +20,8 @@ Compare feedforward (2008-style) against stateful architectures on identical MC 
 
 |                | MLP (baseline) | Window-MLP | GRU | LSTM | Transformer | Mamba |
 |----------------|:--------------:|:----------:|:---:|:----:|:-----------:|:-----:|
-| PSO            | yes (existing) |    yes     | yes |  yes |     yes     |  yes  |
-| BPTT (PPO)     |       --       |     --     | yes |  yes |     yes     |  yes  |
+| PSO            | yes (existing) |    yes     | ✅  |  ✅  |     yes     |  yes  |
+| BPTT (PPO)     |       --       |     --     | ✅  |  ✅  |     yes     |  yes  |
 
 Primary trainer is PSO (shown to outperform PPO/SAC on this problem).
 BPTT axis is an ablation on the four stateful architectures.
@@ -62,11 +62,12 @@ Plan: `docs/superpowers/plans/2026-04-17-phase-1-gru-mvp-plan.md`.
 **Out-of-Phase-1 carry-overs (still deferred):**
 - [ ] Widen `load_policy_from_json` to accept v1 JSON (currently v2-only). Materialize when Phase 1.5+ analysis code needs a legacy-artifact loader.
 - [ ] Fix pre-existing `cargo clippy --workspace` warnings in `src/rust/aerocapture-py/src/lib.rs` (2x `type_complexity`, 1x `needless_range_loop`). `check_all.sh` scopes to `-p aerocapture`; separate one-line fix.
-- [ ] Per-layer activation-aware initialization for GRU (currently uniform-in-[0,1] via ParamSpec bounds; the dense-only `create_nn_initial_population` path with Xavier/He/LeCun is bypassed for v2 arches).
+- [x] Per-layer activation-aware initialization for GRU (closed by Phase 2a: `init_v2_population` in `training/initialization_v2.py` retroactively applies tanh-Xavier gate matrices + small bias noise to GRU).
 
 **Not in Phase 1 (explicit non-goals, landed or landing later):**
 - [x] PPO-GRU (Phase 1.5: rollout-buffer hidden-state snapshots, truncation-aware bootstrap) [DONE 2026-04-18]
-- [ ] LSTM / Window-MLP / Transformer / Mamba (Phases 2-4)
+- [x] LSTM (Phase 2a: PSO + PPO-BPTT + activation-aware init + forget-bias-1) [DONE 2026-04-18]
+- [ ] Window-MLP / Transformer / Mamba (Phases 2b-4)
 
 ### Phase 1.5 -- PPO-GRU + truncated BPTT [DONE 2026-04-18]
 
@@ -94,12 +95,38 @@ Plan: `docs/superpowers/plans/2026-04-18-phase-1-5-ppo-gru-bptt-plan.md`.
 **Out-of-Phase-1.5 carry-overs (deferred):**
 - [ ] SAC-GRU (Phase 1.6: R2D2-style sequence replay + burn-in; `_validate_deterministic_v1` twin helper deletable once SAC migrates to V2Policy).
 - [ ] Recurrent critic (deferred; feedforward critic mirroring policy trunk widths is fine for GRU-at-32-hidden).
-- [ ] Per-layer activation-aware init for GRU (Phase 1 carry-over; still deferred).
+- [x] Per-layer activation-aware init for GRU and LSTM (closed by Phase 2a).
 - [ ] Widen `load_policy_from_json` to accept v1 JSON (Phase 0 carry-over; still deferred).
 
-### Phase 2 -- LSTM + Window-MLP (cheap extensions on Phase 0/1/1.5 infra)
-- [ ] LSTM: 4 gates, h+c state; PyTorch mirror; PSO + PPO configs
-- [ ] Window-MLP: ring buffer via `NnState.window`, no new matmul; window-size ablation N in {4, 8, 16}
+### Phase 2a -- LSTM MVP (PSO + PPO-BPTT) + activation-aware init [DONE 2026-04-18]
+
+Shipped on branch `feature/lstm-mvp` (13+ substantive commits + 2 hygiene commits on top of main).
+Cross-language equivalence: LSTM forward matches at machine epsilon (same ~1e-16 ceiling as Phase 1 GRU).
+PSO-LSTM + PPO-LSTM + BPTT chunk-invariant LSTM smoke tests wired into the python-pyo3 CI job.
+
+- [x] Rust `LstmLayer` + `Layer::Lstm` + `LayerState::Lstm { h, c }` + `TomlLayerSpec::Lstm`
+- [x] `LayerWeights for LstmLayer` 4H flat ordering + JSON v2 + PyO3 verification (no Rust change needed -- delegated through from_flat_weights_v2)
+- [x] Python `LstmLayer` torch module + `LstmSpec` pydantic + `_zero_state_where_done` tuple branch
+- [x] `_lstm_specs` (asymmetric bias bounds for forget slice) + `config.py::_layer_n_params` + `_layer_output_size` lstm arms + export / load Lstm branches
+- [x] `init_v2_population`: dense Xavier/He/LeCun, GRU tanh-Xavier + small bias noise, LSTM tanh-Xavier + forget-bias 1.0 on bias_ih only
+- [x] Training configs `msr_aller_lstm_pso_train.toml` + `msr_aller_lstm_ppo_train.toml`
+- [x] Cross-language equivalence test + PSO-LSTM + PPO-LSTM smoke tests (@slow, python-pyo3 CI)
+- [x] PPO rollout buffer tuple state packing (`hidden_shapes` / _np_state_to_torch / _torch_state_to_np / ppo_update_bptt ndim==3 paths)
+
+Spec: `docs/superpowers/specs/2026-04-18-phase-2a-lstm-mvp-design.md`.
+Plan: `docs/superpowers/plans/2026-04-18-phase-2a-lstm-mvp-plan.md`.
+
+**Out-of-Phase-2a carry-overs (still deferred):**
+- [ ] SAC-GRU / SAC-LSTM (Phase 1.6; SAC stays on GaussianPolicy).
+- [ ] Recurrent critic (Phase 1.5 carry-over).
+- [ ] Widen `load_policy_from_json` to accept v1 JSON (Phase 0 carry-over).
+- [ ] Fix pre-existing clippy warnings in `src/rust/aerocapture-py/src/lib.rs` (3 warnings).
+
+**Closed by Phase 2a:**
+- [x] Per-layer activation-aware initialization for GRU and LSTM (Phase 1 carry-over).
+
+### Phase 2b -- Window-MLP (ring buffer, no new matmul)
+- [ ] Deferred; separate spec + plan after Phase 2a lands
 
 ### Phase 3 -- Transformer
 - [ ] Rust multi-head attention + layer norm + sinusoidal position encoding

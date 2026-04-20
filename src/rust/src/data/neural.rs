@@ -125,12 +125,84 @@ impl GruLayer {
     }
 }
 
-/// Layer variant. Phase 1 ships Dense and Gru (added in Task 2).
+/// LSTM cell matching PyTorch nn.LSTMCell convention (two biases, no peepholes).
+///
+/// Forward equations with gate ordering (i, f, g, o):
+///   i_t = sigmoid(W_ii @ x_t + b_ii + W_hi @ h_{t-1} + b_hi)
+///   f_t = sigmoid(W_if @ x_t + b_if + W_hf @ h_{t-1} + b_hf)
+///   g_t =    tanh(W_ig @ x_t + b_ig + W_hg @ h_{t-1} + b_hg)
+///   o_t = sigmoid(W_io @ x_t + b_io + W_ho @ h_{t-1} + b_ho)
+///   c_t = f_t * c_{t-1} + i_t * g_t
+///   h_t = o_t * tanh(c_t)
+///
+/// Weight storage matches torch.nn.LSTMCell:
+///   weight_ih: [4H, input_size] with rows 0..H = W_ii, H..2H = W_if, 2H..3H = W_ig, 3H..4H = W_io
+///   weight_hh: [4H, H]          with rows 0..H = W_hi, H..2H = W_hf, 2H..3H = W_hg, 3H..4H = W_ho
+///   bias_ih:   [4H] in order b_ii, b_if, b_ig, b_io
+///   bias_hh:   [4H] in order b_hi, b_hf, b_hg, b_ho
+#[derive(Debug, Clone)]
+pub struct LstmLayer {
+    pub input_size: usize,
+    pub hidden_size: usize,
+    pub weight_ih: Vec<Vec<f64>>,
+    pub weight_hh: Vec<Vec<f64>>,
+    pub bias_ih: Vec<f64>,
+    pub bias_hh: Vec<f64>,
+}
+
+impl LstmLayer {
+    /// Compute one forward step: (h_prev, c_prev, x) -> (h_new, c_new).
+    pub fn forward(&self, h_prev: &[f64], c_prev: &[f64], x: &[f64]) -> (Vec<f64>, Vec<f64>) {
+        assert_eq!(h_prev.len(), self.hidden_size);
+        assert_eq!(c_prev.len(), self.hidden_size);
+        assert_eq!(x.len(), self.input_size);
+        let h = self.hidden_size;
+        let mut h_new = vec![0.0; h];
+        let mut c_new = vec![0.0; h];
+
+        for idx in 0..h {
+            // i gate: row idx
+            let i = Activation::Sigmoid.apply(
+                dot_plus_bias(&self.weight_ih[idx], x, self.bias_ih[idx])
+                    + dot_plus_bias(&self.weight_hh[idx], h_prev, self.bias_hh[idx]),
+            );
+            // f gate: row idx + H
+            let f = Activation::Sigmoid.apply(
+                dot_plus_bias(&self.weight_ih[idx + h], x, self.bias_ih[idx + h])
+                    + dot_plus_bias(&self.weight_hh[idx + h], h_prev, self.bias_hh[idx + h]),
+            );
+            // g gate (tanh, the "cell candidate"): row idx + 2H
+            let g = (dot_plus_bias(&self.weight_ih[idx + 2 * h], x, self.bias_ih[idx + 2 * h])
+                + dot_plus_bias(
+                    &self.weight_hh[idx + 2 * h],
+                    h_prev,
+                    self.bias_hh[idx + 2 * h],
+                ))
+            .tanh();
+            // o gate: row idx + 3H
+            let o = Activation::Sigmoid.apply(
+                dot_plus_bias(&self.weight_ih[idx + 3 * h], x, self.bias_ih[idx + 3 * h])
+                    + dot_plus_bias(
+                        &self.weight_hh[idx + 3 * h],
+                        h_prev,
+                        self.bias_hh[idx + 3 * h],
+                    ),
+            );
+
+            c_new[idx] = f * c_prev[idx] + i * g;
+            h_new[idx] = o * c_new[idx].tanh();
+        }
+        (h_new, c_new)
+    }
+}
+
+/// Layer variant. Phase 1 ships Dense and Gru; Phase 2a adds Lstm.
 #[derive(Debug, Clone)]
 pub enum Layer {
     Dense(DenseLayer),
     Gru(GruLayer),
-    // Phases 2-4 add: Lstm, Attention, LayerNorm, Ssm, Window
+    Lstm(LstmLayer),
+    // Phases 2b-4 add: Window, Attention, LayerNorm, Ssm
 }
 
 impl Layer {
@@ -145,6 +217,7 @@ impl Layer {
                 }
             }
             Layer::Gru(g) => g.input_size,
+            Layer::Lstm(l) => l.input_size,
         }
     }
 }
@@ -240,11 +313,52 @@ impl LayerWeights for GruLayer {
     }
 }
 
+impl LayerWeights for LstmLayer {
+    fn to_flat(&self) -> Vec<f64> {
+        let mut v = Vec::with_capacity(self.n_params());
+        for row in &self.weight_ih {
+            v.extend_from_slice(row);
+        }
+        for row in &self.weight_hh {
+            v.extend_from_slice(row);
+        }
+        v.extend_from_slice(&self.bias_ih);
+        v.extend_from_slice(&self.bias_hh);
+        v
+    }
+
+    #[allow(clippy::wrong_self_convention)]
+    fn from_flat(&mut self, flat: &[f64]) -> usize {
+        let four_h = 4 * self.hidden_size;
+        let mut idx = 0;
+        for row in self.weight_ih.iter_mut() {
+            row.copy_from_slice(&flat[idx..idx + self.input_size]);
+            idx += self.input_size;
+        }
+        for row in self.weight_hh.iter_mut() {
+            row.copy_from_slice(&flat[idx..idx + self.hidden_size]);
+            idx += self.hidden_size;
+        }
+        self.bias_ih.copy_from_slice(&flat[idx..idx + four_h]);
+        idx += four_h;
+        self.bias_hh.copy_from_slice(&flat[idx..idx + four_h]);
+        idx += four_h;
+        idx
+    }
+
+    fn n_params(&self) -> usize {
+        4 * self.hidden_size * self.input_size
+            + 4 * self.hidden_size * self.hidden_size
+            + 2 * 4 * self.hidden_size
+    }
+}
+
 impl LayerWeights for Layer {
     fn to_flat(&self) -> Vec<f64> {
         match self {
             Layer::Dense(d) => d.to_flat(),
             Layer::Gru(g) => g.to_flat(),
+            Layer::Lstm(l) => l.to_flat(),
         }
     }
 
@@ -253,6 +367,7 @@ impl LayerWeights for Layer {
         match self {
             Layer::Dense(d) => d.from_flat(flat),
             Layer::Gru(g) => g.from_flat(flat),
+            Layer::Lstm(l) => l.from_flat(flat),
         }
     }
 
@@ -260,6 +375,7 @@ impl LayerWeights for Layer {
         match self {
             Layer::Dense(d) => d.n_params(),
             Layer::Gru(g) => g.n_params(),
+            Layer::Lstm(l) => l.n_params(),
         }
     }
 }
@@ -313,7 +429,11 @@ pub enum LayerSpec {
         input_size: usize,
         hidden_size: usize,
     },
-    // Phases 2+: Lstm, Attention, LayerNorm, Ssm, Window
+    Lstm {
+        input_size: usize,
+        hidden_size: usize,
+    },
+    // Phases 2b+: Window, Attention, LayerNorm, Ssm
 }
 
 /// JSON file structure for neural network models (v2 schema).
@@ -512,19 +632,22 @@ impl NeuralNetModel {
             .map_err(|e| DataError(format!("JSON parse error in {}: {}", path, e)))?;
 
         // Chain consistency: layer i's output must feed layer i+1's input.
-        // Dense: output_size -> next.input_size; Gru: hidden_size -> next.input_size.
+        // Dense: output_size -> next.input_size; Gru/Lstm: hidden_size -> next.input_size.
         for i in 0..file.architecture.len().saturating_sub(1) {
             let prev_out = match &file.architecture[i] {
                 LayerSpec::Dense { output_size, .. } => *output_size,
                 LayerSpec::Gru { hidden_size, .. } => *hidden_size,
+                LayerSpec::Lstm { hidden_size, .. } => *hidden_size,
             };
             let (next_in, next_label) = match &file.architecture[i + 1] {
                 LayerSpec::Dense { input_size, .. } => (*input_size, "dense"),
                 LayerSpec::Gru { input_size, .. } => (*input_size, "gru"),
+                LayerSpec::Lstm { input_size, .. } => (*input_size, "lstm"),
             };
             let prev_label = match &file.architecture[i] {
                 LayerSpec::Dense { .. } => "dense",
                 LayerSpec::Gru { .. } => "gru",
+                LayerSpec::Lstm { .. } => "lstm",
             };
             if prev_out != next_in {
                 return Err(DataError(format!(
@@ -691,6 +814,96 @@ impl NeuralNetModel {
                         bias_hh: b_hh.clone(),
                     }));
                 }
+                LayerSpec::Lstm {
+                    input_size,
+                    hidden_size,
+                } => {
+                    if i == 0 {
+                        layer_sizes.push(*input_size);
+                    }
+                    layer_sizes.push(*hidden_size);
+                    let four_h = 4 * hidden_size;
+
+                    let key = format!("layer_{}", i);
+                    let lw = file.weights.get(&key).ok_or_else(|| {
+                        DataError(format!("Missing {} in weights in {}", key, path))
+                    })?;
+
+                    let w_ih = lw.weight_ih.as_ref().ok_or_else(|| {
+                        DataError(format!("Layer {} (lstm) missing weight_ih in {}", i, path))
+                    })?;
+                    let w_hh = lw.weight_hh.as_ref().ok_or_else(|| {
+                        DataError(format!("Layer {} (lstm) missing weight_hh in {}", i, path))
+                    })?;
+                    let b_ih = lw.bias_ih.as_ref().ok_or_else(|| {
+                        DataError(format!("Layer {} (lstm) missing bias_ih in {}", i, path))
+                    })?;
+                    let b_hh = lw.bias_hh.as_ref().ok_or_else(|| {
+                        DataError(format!("Layer {} (lstm) missing bias_hh in {}", i, path))
+                    })?;
+
+                    if w_ih.len() != four_h {
+                        return Err(DataError(format!(
+                            "Layer {} (lstm) weight_ih must have {} rows, got {} in {}",
+                            i,
+                            four_h,
+                            w_ih.len(),
+                            path
+                        )));
+                    }
+                    if w_hh.len() != four_h {
+                        return Err(DataError(format!(
+                            "Layer {} (lstm) weight_hh must have {} rows, got {} in {}",
+                            i,
+                            four_h,
+                            w_hh.len(),
+                            path
+                        )));
+                    }
+                    if b_ih.len() != four_h || b_hh.len() != four_h {
+                        return Err(DataError(format!(
+                            "Layer {} (lstm) biases must each have {} elements in {} (got bias_ih={}, bias_hh={})",
+                            i,
+                            four_h,
+                            path,
+                            b_ih.len(),
+                            b_hh.len()
+                        )));
+                    }
+                    for (r, row) in w_ih.iter().enumerate() {
+                        if row.len() != *input_size {
+                            return Err(DataError(format!(
+                                "Layer {} (lstm) weight_ih row {} length: expected {}, got {} in {}",
+                                i,
+                                r,
+                                input_size,
+                                row.len(),
+                                path
+                            )));
+                        }
+                    }
+                    for (r, row) in w_hh.iter().enumerate() {
+                        if row.len() != *hidden_size {
+                            return Err(DataError(format!(
+                                "Layer {} (lstm) weight_hh row {} length: expected {}, got {} in {}",
+                                i,
+                                r,
+                                hidden_size,
+                                row.len(),
+                                path
+                            )));
+                        }
+                    }
+
+                    layers.push(Layer::Lstm(LstmLayer {
+                        input_size: *input_size,
+                        hidden_size: *hidden_size,
+                        weight_ih: w_ih.clone(),
+                        weight_hh: w_hh.clone(),
+                        bias_ih: b_ih.clone(),
+                        bias_hh: b_hh.clone(),
+                    }));
+                }
             }
         }
 
@@ -736,6 +949,14 @@ impl NeuralNetModel {
                     weight_hh: Some(g.weight_hh.clone()),
                     bias_ih: Some(g.bias_ih.clone()),
                     bias_hh: Some(g.bias_hh.clone()),
+                },
+                Layer::Lstm(l) => NnLayerWeights {
+                    w: None,
+                    b: None,
+                    weight_ih: Some(l.weight_ih.clone()),
+                    weight_hh: Some(l.weight_hh.clone()),
+                    bias_ih: Some(l.bias_ih.clone()),
+                    bias_hh: Some(l.bias_hh.clone()),
                 },
             };
             weights.insert(format!("layer_{}", i), entry);
@@ -798,8 +1019,14 @@ impl NeuralNetModel {
                     *h = h_new.clone();
                     current = h_new;
                 }
+                (Layer::Lstm(l), LayerState::Lstm { h, c }) => {
+                    let (h_new, c_new) = l.forward(h, c, &current);
+                    *h = h_new.clone();
+                    *c = c_new;
+                    current = h_new;
+                }
                 _ => unreachable!(
-                    "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None and Layer::Gru -> Gru)"
+                    "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None, Layer::Gru -> Gru, Layer::Lstm -> Lstm)"
                 ),
             }
         }
@@ -928,6 +1155,24 @@ impl NeuralNetModel {
                         weight_hh: vec![vec![0.0; *hidden_size]; three_h],
                         bias_ih: vec![0.0; three_h],
                         bias_hh: vec![0.0; three_h],
+                    })
+                }
+                LayerSpec::Lstm {
+                    input_size,
+                    hidden_size,
+                } => {
+                    if i == 0 {
+                        layer_sizes.push(*input_size);
+                    }
+                    layer_sizes.push(*hidden_size);
+                    let four_h = 4 * hidden_size;
+                    Layer::Lstm(LstmLayer {
+                        input_size: *input_size,
+                        hidden_size: *hidden_size,
+                        weight_ih: vec![vec![0.0; *input_size]; four_h],
+                        weight_hh: vec![vec![0.0; *hidden_size]; four_h],
+                        bias_ih: vec![0.0; four_h],
+                        bias_hh: vec![0.0; four_h],
                     })
                 }
             };
@@ -1244,6 +1489,42 @@ mod tests {
     }
 
     #[test]
+    fn lstm_flat_weights_roundtrip() {
+        let original = LstmLayer {
+            input_size: 3,
+            hidden_size: 2,
+            weight_ih: (0..8)
+                .map(|i| (0..3).map(|j| (i * 3 + j) as f64 * 0.01).collect())
+                .collect(),
+            weight_hh: (0..8)
+                .map(|i| (0..2).map(|j| 100.0 + (i * 2 + j) as f64 * 0.01).collect())
+                .collect(),
+            bias_ih: (0..8).map(|i| 200.0 + i as f64).collect(),
+            bias_hh: (0..8).map(|i| 300.0 + i as f64).collect(),
+        };
+
+        let flat = original.to_flat();
+        assert_eq!(flat.len(), 56); // 4H*I + 4H*H + 2*4H = 24 + 16 + 16
+        assert_eq!(flat.len(), original.n_params());
+
+        let mut reconstructed = LstmLayer {
+            input_size: 3,
+            hidden_size: 2,
+            weight_ih: vec![vec![0.0; 3]; 8],
+            weight_hh: vec![vec![0.0; 2]; 8],
+            bias_ih: vec![0.0; 8],
+            bias_hh: vec![0.0; 8],
+        };
+        let consumed = reconstructed.from_flat(&flat);
+        assert_eq!(consumed, 56);
+
+        assert_eq!(reconstructed.weight_ih, original.weight_ih);
+        assert_eq!(reconstructed.weight_hh, original.weight_hh);
+        assert_eq!(reconstructed.bias_ih, original.bias_ih);
+        assert_eq!(reconstructed.bias_hh, original.bias_hh);
+    }
+
+    #[test]
     fn v2_gru_json_roundtrip() {
         let input_size = 2;
         let hidden_size = 3;
@@ -1401,5 +1682,109 @@ mod tests {
         let flat = vec![0.0; 20];
         let err = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, "atan2", None);
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn lstm_json_v2_roundtrip() {
+        use crate::data::nn_state::NnState;
+
+        let input_size = 3;
+        let hidden_size = 4;
+        let four_h = 16;
+        let lstm = LstmLayer {
+            input_size,
+            hidden_size,
+            weight_ih: (0..four_h)
+                .map(|i| {
+                    (0..input_size)
+                        .map(|j| (i * input_size + j) as f64 * 0.001)
+                        .collect()
+                })
+                .collect(),
+            weight_hh: (0..four_h)
+                .map(|i| {
+                    (0..hidden_size)
+                        .map(|j| 1.0 + (i * hidden_size + j) as f64 * 0.001)
+                        .collect()
+                })
+                .collect(),
+            bias_ih: (0..four_h).map(|i| 2.0 + i as f64 * 0.01).collect(),
+            bias_hh: (0..four_h).map(|i| 3.0 + i as f64 * 0.01).collect(),
+        };
+        let dense_out = DenseLayer {
+            w: vec![vec![0.5, -0.5, 0.25, 0.1]; 2],
+            b: vec![0.0, 0.1],
+            activation: Activation::Linear,
+        };
+        let original = NeuralNetModel {
+            architecture: vec![
+                LayerSpec::Lstm {
+                    input_size,
+                    hidden_size,
+                },
+                LayerSpec::Dense {
+                    input_size: hidden_size,
+                    output_size: 2,
+                    activation: Activation::Linear,
+                },
+            ],
+            layer_sizes: vec![input_size, hidden_size, 2],
+            layers: vec![Layer::Lstm(lstm), Layer::Dense(dense_out)],
+            output_interpretation: "atan2".to_string(),
+            input_mask: None,
+            ablated_input: None,
+        };
+
+        let tmpdir = std::env::temp_dir();
+        let path = tmpdir.join("lstm_v2_roundtrip.json");
+        original.save_json(path.to_str().unwrap()).unwrap();
+
+        let loaded = NeuralNetModel::load(path.to_str().unwrap()).unwrap();
+        assert_eq!(loaded.layers.len(), 2);
+        match &loaded.layers[0] {
+            Layer::Lstm(l) => {
+                assert_eq!(l.input_size, input_size);
+                assert_eq!(l.hidden_size, hidden_size);
+            }
+            _ => panic!("expected Lstm layer at index 0"),
+        }
+
+        // Forward parity over multiple steps (stateful)
+        let mut s0 = NnState::for_model(&original);
+        let mut s1 = NnState::for_model(&loaded);
+        let x = vec![0.1, -0.2, 0.3];
+        for _ in 0..5 {
+            let o0 = original.forward(&mut s0, &x);
+            let o1 = loaded.forward(&mut s1, &x);
+            for (a, b) in o0.iter().zip(o1.iter()) {
+                assert!((a - b).abs() < 1e-14, "{} vs {}", a, b);
+            }
+        }
+    }
+
+    #[test]
+    fn lstm_forward_known_output_zero_weights() {
+        // Minimal 2-input, 2-hidden LSTM with all weights=0, all biases=0.
+        // Then gates are all sigmoid(0)=0.5 (for i, f, o) and tanh(0)=0 (for g).
+        // c_new = 0.5 * c_prev + 0.5 * 0 = 0.5 * c_prev
+        // h_new = 0.5 * tanh(c_new)
+        let lstm = LstmLayer {
+            input_size: 2,
+            hidden_size: 2,
+            weight_ih: vec![vec![0.0, 0.0]; 8], // 4H=8 rows, 2 cols
+            weight_hh: vec![vec![0.0, 0.0]; 8],
+            bias_ih: vec![0.0; 8],
+            bias_hh: vec![0.0; 8],
+        };
+        let h_prev = vec![0.0, 0.0];
+        let c_prev = vec![2.0, -4.0];
+        let x = vec![0.5, -0.5];
+        let (h_new, c_new) = lstm.forward(&h_prev, &c_prev, &x);
+        // c_new = f*c + i*g = 0.5*c_prev + 0.5*0 = 0.5*c_prev
+        assert!((c_new[0] - 1.0).abs() < 1e-12);
+        assert!((c_new[1] - (-2.0)).abs() < 1e-12);
+        // h_new = o*tanh(c_new) = 0.5*tanh(c_new)
+        assert!((h_new[0] - 0.5 * 1.0_f64.tanh()).abs() < 1e-12);
+        assert!((h_new[1] - 0.5 * (-2.0_f64).tanh()).abs() < 1e-12);
     }
 }

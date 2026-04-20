@@ -132,6 +132,18 @@ train_neural_network_gru_pso() {
     run_scheme configs/training/msr_aller_gru_pso_train.toml 5000 64 2000 1
 }
 
+train_neural_network_lstm_ppo() {
+    echo "=== neural_network_lstm_ppo (Dense -> LSTM -> Dense, PPO+BPTT) ==="
+    uv run python -m aerocapture.training.rl.train \
+        configs/training/msr_aller_lstm_ppo_train.toml \
+        --algorithm ppo --total-steps 5000000
+}
+
+train_neural_network_lstm_pso() {
+    echo "=== neural_network_lstm_pso (Dense -> LSTM -> Dense, PSO) ==="
+    run_scheme configs/training/msr_aller_lstm_pso_train.toml 5000 64 2000 1
+}
+
 train_all() {
     train_piecewise_constant
     echo ""
@@ -140,6 +152,10 @@ train_all() {
     train_neural_network_gru_ppo
     echo ""
     train_neural_network_gru_pso
+    echo ""
+    train_neural_network_lstm_ppo
+    echo ""
+    train_neural_network_lstm_pso
     echo ""
     train_ftc
     echo ""
@@ -170,10 +186,12 @@ else
             neural_network_rl|nn_rl|rl)        train_nn_rl ;;
             neural_network_gru_ppo|nn_gru_ppo|gru_ppo)  train_neural_network_gru_ppo ;;
             neural_network_gru_pso|nn_gru_pso|gru_pso|gru)  train_neural_network_gru_pso ;;
+            neural_network_lstm_ppo|nn_lstm_ppo|lstm_ppo)  train_neural_network_lstm_ppo ;;
+            neural_network_lstm_pso|nn_lstm_pso|lstm_pso|lstm)  train_neural_network_lstm_pso ;;
             all)                               train_all ;;
             *)
                 echo "Unknown scheme: $scheme"
-                echo "Valid: piecewise_constant ftc eqglide energy_controller pred_guid fnpag neural_network neural_network_rl neural_network_gru_pso neural_network_gru_ppo all"
+                echo "Valid: piecewise_constant ftc eqglide energy_controller pred_guid fnpag neural_network neural_network_rl neural_network_gru_pso neural_network_gru_ppo neural_network_lstm_pso neural_network_lstm_ppo all"
                 exit 1
                 ;;
         esac

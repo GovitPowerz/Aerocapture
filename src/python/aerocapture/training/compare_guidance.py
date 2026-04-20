@@ -7,7 +7,9 @@ then prints a summary table of performance metrics.
 Usage:
     uv run python -m aerocapture.training.compare_guidance \
         --n-sims 500 \
-        --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network neural_network_gru_pso neural_network_gru_ppo piecewise_constant
+        --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network \
+            neural_network_gru_pso neural_network_gru_ppo \
+            neural_network_lstm_pso neural_network_lstm_ppo piecewise_constant
 """
 
 from __future__ import annotations
@@ -32,6 +34,8 @@ SCHEMES = [
     "neural_network_rl",
     "neural_network_gru_pso",
     "neural_network_gru_ppo",
+    "neural_network_lstm_pso",
+    "neural_network_lstm_ppo",
     "piecewise_constant",
 ]
 
@@ -48,6 +52,8 @@ SCHEME_TRAINING_CONFIGS: dict[str, str] = {
     "neural_network_rl": "configs/training/msr_aller_rl_train.toml",
     "neural_network_gru_pso": "configs/training/msr_aller_gru_pso_train.toml",
     "neural_network_gru_ppo": "configs/training/msr_aller_gru_ppo_train.toml",
+    "neural_network_lstm_pso": "configs/training/msr_aller_lstm_pso_train.toml",
+    "neural_network_lstm_ppo": "configs/training/msr_aller_lstm_ppo_train.toml",
     "piecewise_constant": "configs/training/msr_aller_piecewise_constant_train.toml",
 }
 
@@ -58,6 +64,8 @@ _NN_DEPLOY_SCHEMES = {
     "neural_network_rl",
     "neural_network_gru_pso",
     "neural_network_gru_ppo",
+    "neural_network_lstm_pso",
+    "neural_network_lstm_ppo",
 }
 
 

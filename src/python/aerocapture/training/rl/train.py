@@ -199,22 +199,39 @@ def _terminal_observations(info: list[dict[str, Any]], done: npt.NDArray[np.bool
 
 
 def _np_state_to_torch(np_state: list) -> list[Any]:
-    """Convert per-layer numpy state list to torch tensors (no grad)."""
+    """Convert per-layer numpy state list to torch tensors (no grad).
+
+    GRU: s is (B, H) ndarray -> Tensor(B, H).
+    LSTM: s is (B, 2, H) ndarray -> tuple(Tensor(B, H), Tensor(B, H)).
+    """
     out: list[Any] = []
     for s in np_state:
         if s is None:
             out.append(None)
+        elif s.ndim == 3:
+            # LSTM: (B, 2, H) -> (h, c) tuple
+            t = torch.from_numpy(s).float()
+            out.append((t[:, 0, :], t[:, 1, :]))
         else:
             out.append(torch.from_numpy(s).float())
     return out
 
 
 def _torch_state_to_np(torch_state: list[Any]) -> list:
-    """Convert per-layer torch state list back to numpy (no grad)."""
+    """Convert per-layer torch state list back to numpy (no grad).
+
+    GRU: Tensor(B, H) -> (B, H) ndarray.
+    LSTM: tuple(Tensor(B, H), Tensor(B, H)) -> (B, 2, H) ndarray.
+    """
     out: list = []
     for s in torch_state:
         if s is None:
             out.append(None)
+        elif isinstance(s, tuple):
+            # LSTM: (h, c) -> stack to (B, 2, H)
+            h, c = s
+            stacked = torch.stack([h, c], dim=1)  # (B, 2, H)
+            out.append(stacked.detach().cpu().numpy().astype(np.float32))
         else:
             out.append(s.detach().cpu().numpy().astype(np.float32))
     return out
@@ -560,8 +577,10 @@ def _run_ppo(
             obs_norm.load_state_dict(ckpt["obs_norm"])
         print(f"Resumed from checkpoint: update {update_idx}, {env_steps} env steps", file=sys.stderr)
 
-    # Derive per-layer hidden shapes from the architecture (None for dense, (H,) for gru).
+    # Derive per-layer hidden shapes from the architecture.
+    # Dense: None (stateless). GRU: (H,). LSTM: (2, H) -- packs (h, c) as a single array.
     from aerocapture.training.rl.schemas import GruSpec as _GS
+    from aerocapture.training.rl.schemas import LstmSpec as _LS
 
     hidden_shapes: list = []
     for spec in architecture:
@@ -569,6 +588,8 @@ def _run_ppo(
             hidden_shapes.append(None)
         elif isinstance(spec, _GS):
             hidden_shapes.append((spec.hidden_size,))
+        elif isinstance(spec, _LS):
+            hidden_shapes.append((2, spec.hidden_size))
         else:
             raise ValueError(f"Unknown layer spec type in hidden_shapes derivation: {type(spec).__name__}")
 

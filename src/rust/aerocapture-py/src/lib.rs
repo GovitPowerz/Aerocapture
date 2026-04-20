@@ -279,6 +279,56 @@ fn nn_forward(json_path: String, input: Vec<f64>) -> PyResult<Vec<f64>> {
     Ok(model.forward(&mut state, &masked))
 }
 
+/// Load a v2 NN JSON and run a **stateful** forward pass over a sequence of inputs.
+///
+/// A single `NnState` is constructed once and threaded across all inputs, so
+/// recurrent layers (GRU, LSTM, future SSM/attention) carry hidden state from
+/// step `t-1` into step `t`. This is the cross-language equivalence driver for
+/// stateful layers: Python runs its own multi-step forward with persistent
+/// state, this helper runs Rust's multi-step forward with persistent state,
+/// and the two output sequences must match to machine epsilon.
+///
+/// Args:
+///     json_path: path to v2 JSON model.
+///     inputs: list of input vectors, one per time step. Each vector must have
+///             the same length (the model's layer-0 input size or mask span).
+///
+/// Returns: list of output vectors, one per time step (same length as inputs).
+#[pyfunction]
+fn nn_forward_sequence(json_path: String, inputs: Vec<Vec<f64>>) -> PyResult<Vec<Vec<f64>>> {
+    use aerocapture::data::neural::NeuralNetModel;
+    use aerocapture::data::nn_state::NnState;
+
+    let model = NeuralNetModel::load(&json_path)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+    let expected_len = match &model.input_mask {
+        Some(mask) => mask.iter().copied().max().map(|m| m + 1).unwrap_or(0),
+        None => model.layer_sizes[0],
+    };
+    for (t, input) in inputs.iter().enumerate() {
+        if input.len() < expected_len {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "nn_forward_sequence: input[{}] length {} < expected {}",
+                t,
+                input.len(),
+                expected_len
+            )));
+        }
+    }
+
+    let mut state = NnState::for_model(&model);
+    let mut outputs = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        let masked: Vec<f64> = match &model.input_mask {
+            Some(mask) => mask.iter().map(|&i| input[i]).collect(),
+            None => input,
+        };
+        outputs.push(model.forward(&mut state, &masked));
+    }
+    Ok(outputs)
+}
+
 /// Construct a NeuralNetModel from flat PSO weights + v2 architecture (JSON string)
 /// and write it as v2 JSON. All PSO NN output flows through this helper so the
 /// Rust LayerWeights trait is the single source of truth for weight serialization.
@@ -380,6 +430,7 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_with_draws, m)?)?;
     m.add_function(wrap_pyfunction!(load_config, m)?)?;
     m.add_function(wrap_pyfunction!(nn_forward, m)?)?;
+    m.add_function(wrap_pyfunction!(nn_forward_sequence, m)?)?;
     m.add_function(wrap_pyfunction!(flat_weights_to_json, m)?)?;
     Ok(())
 }

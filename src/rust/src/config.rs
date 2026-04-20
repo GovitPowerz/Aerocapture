@@ -207,6 +207,10 @@ pub enum TomlLayerSpec {
         input_size: usize,
         hidden_size: usize,
     },
+    Lstm {
+        input_size: usize,
+        hidden_size: usize,
+    },
 }
 
 impl TomlLayerSpec {
@@ -231,6 +235,13 @@ impl TomlLayerSpec {
                 input_size,
                 hidden_size,
             } => Ok(LayerSpec::Gru {
+                input_size: *input_size,
+                hidden_size: *hidden_size,
+            }),
+            TomlLayerSpec::Lstm {
+                input_size,
+                hidden_size,
+            } => Ok(LayerSpec::Lstm {
                 input_size: *input_size,
                 hidden_size: *hidden_size,
             }),
@@ -1628,6 +1639,61 @@ input_mask = [0, 1, 2]
                 assert_eq!(hidden_size, 8);
             }
             _ => panic!("expected Gru"),
+        }
+    }
+
+    #[test]
+    fn network_architecture_v2_parses_lstm() {
+        let toml = r#"
+[[network.architecture]]
+type = "dense"
+input_size = 3
+output_size = 4
+activation = "tanh"
+
+[[network.architecture]]
+type = "lstm"
+input_size = 4
+hidden_size = 8
+
+[[network.architecture]]
+type = "dense"
+input_size = 8
+output_size = 2
+activation = "linear"
+"#;
+        #[derive(Deserialize)]
+        struct Wrapper {
+            network: TomlNetwork,
+        }
+        let wrapper: Wrapper = toml::from_str(toml).expect("TOML parse");
+        let arch = wrapper
+            .network
+            .architecture
+            .expect("architecture v2 path present");
+        assert_eq!(arch.len(), 3);
+        match &arch[1] {
+            TomlLayerSpec::Lstm {
+                input_size,
+                hidden_size,
+            } => {
+                assert_eq!(*input_size, 4);
+                assert_eq!(*hidden_size, 8);
+            }
+            _ => panic!("expected Lstm at index 1"),
+        }
+
+        // Also verify to_layer_spec() converts correctly
+        let converted = arch[1].to_layer_spec().unwrap();
+        match converted {
+            crate::data::neural::LayerSpec::Lstm {
+                input_size,
+                hidden_size,
+            } => {
+                assert_eq!(input_size, 4);
+                assert_eq!(hidden_size, 8);
+            }
+            _ => panic!("expected LayerSpec::Lstm"),
         }
     }
 

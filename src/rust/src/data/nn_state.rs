@@ -10,8 +10,8 @@ use crate::data::neural::{Layer, NeuralNetModel};
 pub enum LayerState {
     None,
     Gru { h: Vec<f64> },
-    // Phase 2+: Lstm { h: Vec<f64>, c: Vec<f64> },
-    // Window { buffer: std::collections::VecDeque<Vec<f64>> }, Ssm { h: Vec<f64> },
+    Lstm { h: Vec<f64>, c: Vec<f64> },
+    // Phase 2b+: Window { buffer: std::collections::VecDeque<Vec<f64>> }, Ssm { h: Vec<f64> },
 }
 
 impl LayerState {
@@ -21,6 +21,10 @@ impl LayerState {
             Layer::Gru(g) => LayerState::Gru {
                 h: vec![0.0; g.hidden_size],
             },
+            Layer::Lstm(l) => LayerState::Lstm {
+                h: vec![0.0; l.hidden_size],
+                c: vec![0.0; l.hidden_size],
+            },
         }
     }
 
@@ -29,6 +33,14 @@ impl LayerState {
             LayerState::None => {}
             LayerState::Gru { h } => {
                 for v in h.iter_mut() {
+                    *v = 0.0;
+                }
+            }
+            LayerState::Lstm { h, c } => {
+                for v in h.iter_mut() {
+                    *v = 0.0;
+                }
+                for v in c.iter_mut() {
                     *v = 0.0;
                 }
             }
@@ -150,6 +162,41 @@ mod tests {
             assert_eq!(h[2], 0.0);
         } else {
             panic!("expected LayerState::Gru");
+        }
+    }
+
+    #[test]
+    fn clone_is_behaviorally_independent_with_lstm_state() {
+        use crate::data::neural::{Layer, LstmLayer};
+
+        let lstm = LstmLayer {
+            input_size: 2,
+            hidden_size: 2,
+            weight_ih: vec![vec![0.0, 0.0]; 8],
+            weight_hh: vec![vec![0.0, 0.0]; 8],
+            bias_ih: vec![0.0; 8],
+            bias_hh: vec![0.0; 8],
+        };
+        let layer = Layer::Lstm(lstm);
+        let original_state = LayerState::for_layer(&layer);
+        let mut cloned_state = original_state.clone();
+
+        // Mutate the clone
+        if let LayerState::Lstm { h, c } = &mut cloned_state {
+            h[0] = 1.0;
+            h[1] = 2.0;
+            c[0] = 3.0;
+            c[1] = 4.0;
+        } else {
+            panic!("expected LayerState::Lstm");
+        }
+
+        // Original must remain zeroed
+        if let LayerState::Lstm { h, c } = &original_state {
+            assert_eq!(h, &vec![0.0, 0.0]);
+            assert_eq!(c, &vec![0.0, 0.0]);
+        } else {
+            panic!("expected LayerState::Lstm");
         }
     }
 }

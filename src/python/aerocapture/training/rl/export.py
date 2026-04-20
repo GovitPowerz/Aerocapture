@@ -26,7 +26,7 @@ import numpy as np
 import numpy.typing as npt
 import torch
 
-from aerocapture.training.rl.layers import DenseLayer, GruLayer
+from aerocapture.training.rl.layers import DenseLayer, GruLayer, LstmLayer
 from aerocapture.training.rl.policy import GaussianPolicy, V2Policy
 
 _ACT_NAMES = {"Tanh": "tanh", "ReLU": "relu", "Sigmoid": "sigmoid", "Identity": "linear", "SiLU": "swish", "Mish": "mish"}
@@ -135,6 +135,28 @@ def export_v2_policy_to_json(
             architecture.append(
                 {
                     "type": "gru",
+                    "input_size": layer.input_size,
+                    "hidden_size": layer.hidden_size,
+                }
+            )
+            weights[f"layer_{i}"] = {
+                "weight_ih": w_ih.tolist(),
+                "weight_hh": w_hh.tolist(),
+                "bias_ih": b_ih.tolist(),
+                "bias_hh": b_hh.tolist(),
+            }
+        elif isinstance(layer, LstmLayer):
+            if i == 0 and obs_normalizer is not None:
+                raise NotImplementedError(
+                    "obs_normalizer bake-in not supported when layer 0 is Lstm. Add a Dense embedding as layer 0 (Phase 0 spec section 3.5 invariant)."
+                )
+            w_ih = layer.weight_ih.detach().cpu().numpy().astype(np.float64)
+            w_hh = layer.weight_hh.detach().cpu().numpy().astype(np.float64)
+            b_ih = layer.bias_ih.detach().cpu().numpy().astype(np.float64)
+            b_hh = layer.bias_hh.detach().cpu().numpy().astype(np.float64)
+            architecture.append(
+                {
+                    "type": "lstm",
                     "input_size": layer.input_size,
                     "hidden_size": layer.hidden_size,
                 }
