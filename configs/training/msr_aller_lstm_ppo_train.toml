@@ -1,0 +1,47 @@
+base = ["../missions/mars.toml", "common.toml"]
+
+[guidance]
+type = "neural_network"
+
+[data]
+neural_network = "training_output/neural_network_lstm_ppo/best_model.json"
+results_suffix = ".train_lstm_ppo"
+
+[network]
+input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+output_interpretation = "atan2"
+
+[[network.architecture]]
+type = "dense"
+input_size = 23
+output_size = 32
+activation = "tanh"
+
+[[network.architecture]]
+type = "lstm"
+input_size = 32
+hidden_size = 32
+
+[[network.architecture]]
+type = "dense"
+input_size = 32
+output_size = 2
+activation = "linear"
+
+[rl]
+n_envs = 64
+total_env_steps = 5_000_000
+
+[rl.ppo]
+rollout_steps = 2048
+bptt_length = 32
+update_epochs = 10
+minibatches = 4
+gamma = 0.99
+gae_lambda = 0.95
+clip_range = 0.2
+entropy_coef = 0.001
+value_coef = 0.5
+max_grad_norm = 0.5
+target_kl = 0.02
+learning_rate = 3e-4

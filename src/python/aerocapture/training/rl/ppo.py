@@ -186,12 +186,19 @@ def ppo_update_bptt(
                 # buf.states[li][lo] is the state *before* step `lo`, which is exactly
                 # what chunk c (starting at timestep `lo`) needs. Detach to stop
                 # gradient flow across chunks.
+                # Shape convention: GRU stores (n_steps, n_envs, H), LSTM stores
+                # (n_steps, n_envs, 2, H). The LSTM case is unpacked to a (h, c) tuple.
                 h_chunk_detached: list = []
                 for layer_s in buf.states:
                     if layer_s is None:
                         h_chunk_detached.append(None)
                     else:
-                        h_chunk_detached.append(torch.from_numpy(layer_s[lo, mb]).float().detach())
+                        t = torch.from_numpy(layer_s[lo, mb]).float().detach()
+                        if t.ndim == 3:
+                            # LSTM: (|mb|, 2, H) -> (h, c) tuple each (|mb|, H)
+                            h_chunk_detached.append((t[:, 0, :], t[:, 1, :]))
+                        else:
+                            h_chunk_detached.append(t)
 
                 new_lp_seq, entropy_seq = policy.evaluate(
                     mb_obs,
