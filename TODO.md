@@ -1,5 +1,7 @@
 # TODO
 
+- [ ] check the output_interpretation field utility
+- [ ] check why ppo degrades a pso solution for gru and lstm.
 - [ ] explore JEPA guidance
 
 ---
@@ -125,8 +127,16 @@ Plan: `docs/superpowers/plans/2026-04-18-phase-2a-lstm-mvp-plan.md`.
 **Closed by Phase 2a:**
 - [x] Per-layer activation-aware initialization for GRU and LSTM (Phase 1 carry-over).
 
-### Phase 2b -- Window-MLP (ring buffer, no new matmul)
-- [ ] Deferred; separate spec + plan after Phase 2a lands
+### Phase 2b -- Window-MLP (ring buffer, no new matmul) [DOING 2026-04-20 on feature/window-mlp]
+- [ ] Rust `WindowLayer` + `Layer::Window` + `LayerSpec::Window { input_size, n_steps }` + `LayerState::Window { buffer: VecDeque<Vec<f64>> }` + `TomlLayerSpec::Window`
+- [ ] `LayerWeights for WindowLayer` zero-param impl + JSON v2 + PyO3 test
+- [ ] Python `WindowLayer` torch module + `WindowSpec` pydantic + `build_layer` PPO-rejection guard
+- [ ] `_layer_param_specs` / `_layer_n_params` / `_layer_output_size` Window arms + `init_v2_population` no-op continue
+- [ ] Training config `msr_aller_window_pso_train.toml` + `compare_guidance` + `train_all.sh` registration
+- [ ] Cross-language equivalence test + PSO smoke test + PPO-rejection test (@slow python-pyo3 CI + @fast main CI)
+
+Spec: `docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md`.
+Plan: `docs/superpowers/plans/2026-04-20-phase-2b-window-mlp-plan.md`.
 
 ### Phase 3 -- Transformer
 - [ ] Rust multi-head attention + layer norm + sinusoidal position encoding
