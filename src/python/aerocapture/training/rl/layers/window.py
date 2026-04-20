@@ -27,10 +27,7 @@ class WindowLayer(nn.Module):
     def __init__(self, input_size: int, n_steps: int) -> None:
         super().__init__()
         if input_size <= 0 or n_steps <= 0:
-            raise ValueError(
-                f"WindowLayer input_size and n_steps must be positive "
-                f"(got input_size={input_size}, n_steps={n_steps})"
-            )
+            raise ValueError(f"WindowLayer input_size and n_steps must be positive (got input_size={input_size}, n_steps={n_steps})")
         self.input_size = input_size
         self.n_steps = n_steps
         # Zero-param layers still need a dtype/device anchor for new_state.
@@ -42,14 +39,9 @@ class WindowLayer(nn.Module):
         # x:     (batch, input_size)
         # state: (batch, n_steps, input_size)
         if x.shape[-1] != self.input_size:
-            raise AssertionError(
-                f"WindowLayer expected input_size={self.input_size}, got {x.shape[-1]}"
-            )
+            raise AssertionError(f"WindowLayer expected input_size={self.input_size}, got {x.shape[-1]}")
         if state.shape[1:] != (self.n_steps, self.input_size):
-            raise AssertionError(
-                f"WindowLayer expected state shape (_, {self.n_steps}, {self.input_size}), "
-                f"got {tuple(state.shape)}"
-            )
+            raise AssertionError(f"WindowLayer expected state shape (_, {self.n_steps}, {self.input_size}), got {tuple(state.shape)}")
         new_state = torch.cat([state[:, 1:], x.unsqueeze(1)], dim=1)
         out = new_state.reshape(x.shape[0], -1)
         return out, new_state

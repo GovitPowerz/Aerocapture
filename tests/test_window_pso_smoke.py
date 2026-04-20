@@ -34,7 +34,7 @@ def test_window_pso_two_gens_smoke(tmp_path: Path) -> None:
     from aerocapture.training.rl.schemas import DenseSpec, WindowSpec
 
     # Reduced arch: Window(4, 4) -> Dense(16, 4, swish) -> Dense(4, 2, linear).
-    architecture_specs = [
+    architecture_specs: list[DenseSpec | WindowSpec] = [
         WindowSpec(type="window", input_size=4, n_steps=4),
         DenseSpec(type="dense", input_size=16, output_size=4, activation="swish"),
         DenseSpec(type="dense", input_size=4, output_size=2, activation="linear"),
@@ -47,9 +47,7 @@ def test_window_pso_two_gens_smoke(tmp_path: Path) -> None:
 
     # Initial population.
     rng = np.random.default_rng(1234)
-    pop_physical = init_v2_population(
-        architecture_dicts, n_pop=4, bound_multiplier=2.0, rng=rng
-    )
+    pop_physical = init_v2_population(architecture_dicts, n_pop=4, bound_multiplier=2.0, rng=rng)
     assert pop_physical.shape == (4, 78)
     assert np.all(np.isfinite(pop_physical))
 

@@ -110,10 +110,13 @@ class TestCreateAlgorithm:
         assert isinstance(alg, PSO)
 
     def test_cma_es_high_dim_warns_and_falls_back(self) -> None:
+        # Phase 2a bumped _CMAES_MAX_PARAMS from 2000 to 20000 to accommodate
+        # LSTM-PSO / Window-PSO architectures. The fallback kicks in only
+        # when n_params strictly exceeds the cap.
         cfg = OptimizerConfig(algorithm="cma_es", seed_strategy="adaptive")
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            alg = create_algorithm(cfg, n_params=2500)
+            alg = create_algorithm(cfg, n_params=25_000)
         assert isinstance(alg, GA)
         assert any("Falling back to GA" in str(w.message) for w in caught)
 

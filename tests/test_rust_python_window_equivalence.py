@@ -22,7 +22,6 @@ import torch
 
 pytest.importorskip("aerocapture_rs")
 import aerocapture_rs
-
 from aerocapture.training.rl.layers.dense import DenseLayer
 from aerocapture.training.rl.layers.window import WindowLayer
 
@@ -41,20 +40,10 @@ def test_rust_python_window_stateful_equivalence(tmp_path: Path) -> None:
 
     # Randomize Dense weights (Window has no weights).
     with torch.no_grad():
-        dense1.linear.weight.copy_(
-            torch.tensor(
-                rng.normal(0.0, 0.3, (4, flat_size)), dtype=torch.float64
-            )
-        )
-        dense1.linear.bias.copy_(
-            torch.tensor(rng.normal(0.0, 0.1, (4,)), dtype=torch.float64)
-        )
-        dense2.linear.weight.copy_(
-            torch.tensor(rng.normal(0.0, 0.3, (2, 4)), dtype=torch.float64)
-        )
-        dense2.linear.bias.copy_(
-            torch.tensor(rng.normal(0.0, 0.1, (2,)), dtype=torch.float64)
-        )
+        dense1.linear.weight.copy_(torch.tensor(rng.normal(0.0, 0.3, (4, flat_size)), dtype=torch.float64))
+        dense1.linear.bias.copy_(torch.tensor(rng.normal(0.0, 0.1, (4,)), dtype=torch.float64))
+        dense2.linear.weight.copy_(torch.tensor(rng.normal(0.0, 0.3, (2, 4)), dtype=torch.float64))
+        dense2.linear.bias.copy_(torch.tensor(rng.normal(0.0, 0.1, (2,)), dtype=torch.float64))
 
     # Flat weights in the Rust-canonical order:
     #   (Window: 0 params)
@@ -99,9 +88,7 @@ def test_rust_python_window_stateful_equivalence(tmp_path: Path) -> None:
 
     # Rust: single NnState threaded through the full sequence.
     rust_out = np.asarray(
-        aerocapture_rs.nn_forward_sequence(
-            str(json_path), [row.tolist() for row in sequence]
-        ),
+        aerocapture_rs.nn_forward_sequence(str(json_path), [row.tolist() for row in sequence]),
         dtype=np.float64,
     )
     assert rust_out.shape == (100, 2)
@@ -131,7 +118,9 @@ def test_rust_python_window_buffer_warmup_zero_padded(tmp_path: Path) -> None:
     input_size = 2
     n_steps = 3
 
-    window = WindowLayer(input_size=input_size, n_steps=n_steps).double()
+    # WindowLayer module is instantiated solely to validate input/state shapes;
+    # the actual forward runs through the Rust side via nn_forward_sequence.
+    _ = WindowLayer(input_size=input_size, n_steps=n_steps).double()
     # Dense: identity on first input-size channels (picks the OLDEST buffer slot,
     # which is what zero-padding should produce for the first n_steps-1 ticks).
     dense = DenseLayer(input_size * n_steps, input_size, "linear").double()
@@ -157,9 +146,7 @@ def test_rust_python_window_buffer_warmup_zero_padded(tmp_path: Path) -> None:
         },
     ]
     json_path = tmp_path / "window_warmup.json"
-    aerocapture_rs.flat_weights_to_json(
-        flat.tolist(), json.dumps(architecture), str(json_path), "direct", None
-    )
+    aerocapture_rs.flat_weights_to_json(flat.tolist(), json.dumps(architecture), str(json_path), "direct", None)
 
     # Five ticks: t0..t4.
     inputs = np.array(
@@ -167,9 +154,7 @@ def test_rust_python_window_buffer_warmup_zero_padded(tmp_path: Path) -> None:
         dtype=np.float64,
     )
     rust_out = np.asarray(
-        aerocapture_rs.nn_forward_sequence(
-            str(json_path), [row.tolist() for row in inputs]
-        ),
+        aerocapture_rs.nn_forward_sequence(str(json_path), [row.tolist() for row in inputs]),
         dtype=np.float64,
     )
 

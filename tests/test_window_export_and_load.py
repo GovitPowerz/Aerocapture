@@ -16,7 +16,6 @@ from unittest.mock import MagicMock
 
 import pytest
 import torch
-
 from aerocapture.training.model_io import load_policy_from_json
 from aerocapture.training.rl.export import export_v2_policy_to_json
 from aerocapture.training.rl.layers import WindowLayer
@@ -38,9 +37,7 @@ def test_export_obs_norm_rejects_window_as_layer_0(tmp_path: Path) -> None:
     obs_normalizer = MagicMock()
 
     with pytest.raises(NotImplementedError) as exc_info:
-        export_v2_policy_to_json(
-            policy, str(tmp_path / "out.json"), obs_normalizer=obs_normalizer
-        )
+        export_v2_policy_to_json(policy, str(tmp_path / "out.json"), obs_normalizer=obs_normalizer)
     assert "Window" in str(exc_info.value)
 
 

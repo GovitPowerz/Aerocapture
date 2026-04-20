@@ -9,11 +9,9 @@ from __future__ import annotations
 
 import pytest
 import torch
-from pydantic import TypeAdapter, ValidationError
-
 from aerocapture.training.rl.layers import WindowLayer, build_layer
 from aerocapture.training.rl.schemas import LayerSpec, WindowSpec
-
+from pydantic import TypeAdapter, ValidationError
 
 # ── WindowSpec schema ───────────────────────────────────────────────────
 
@@ -37,7 +35,7 @@ def test_window_spec_rejects_extra_fields() -> None:
 
 
 def test_layer_spec_discriminator_dispatches_to_window() -> None:
-    adapter = TypeAdapter(LayerSpec)
+    adapter: TypeAdapter[LayerSpec] = TypeAdapter(LayerSpec)
     parsed = adapter.validate_python({"type": "window", "input_size": 4, "n_steps": 8})
     assert isinstance(parsed, WindowSpec)
     assert parsed.input_size == 4
@@ -56,21 +54,15 @@ def test_window_forward_rolls_buffer_and_concatenates() -> None:
     x0 = torch.tensor([[1.0, 2.0]], dtype=torch.float64)
     out0, state = layer.forward(x0, state)
     assert out0.shape == (1, 6)
-    assert torch.equal(
-        out0, torch.tensor([[0.0, 0.0, 0.0, 0.0, 1.0, 2.0]], dtype=torch.float64)
-    )
+    assert torch.equal(out0, torch.tensor([[0.0, 0.0, 0.0, 0.0, 1.0, 2.0]], dtype=torch.float64))
 
     x1 = torch.tensor([[3.0, 4.0]], dtype=torch.float64)
     out1, state = layer.forward(x1, state)
-    assert torch.equal(
-        out1, torch.tensor([[0.0, 0.0, 1.0, 2.0, 3.0, 4.0]], dtype=torch.float64)
-    )
+    assert torch.equal(out1, torch.tensor([[0.0, 0.0, 1.0, 2.0, 3.0, 4.0]], dtype=torch.float64))
 
     x2 = torch.tensor([[5.0, 6.0]], dtype=torch.float64)
     out2, state = layer.forward(x2, state)
-    assert torch.equal(
-        out2, torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], dtype=torch.float64)
-    )
+    assert torch.equal(out2, torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], dtype=torch.float64))
 
 
 def test_window_new_state_respects_module_dtype() -> None:

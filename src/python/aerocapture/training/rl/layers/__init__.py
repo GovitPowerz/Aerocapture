@@ -28,8 +28,5 @@ def build_layer(spec: LayerSpec) -> nn.Module:
     if isinstance(spec, LstmSpec):
         return LstmLayer(spec.input_size, spec.hidden_size)
     if isinstance(spec, WindowSpec):
-        raise NotImplementedError(
-            "Window-MLP is PSO-only in Phase 2b; PPO use deferred. "
-            "See docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md"
-        )
+        raise NotImplementedError("Window-MLP is PSO-only in Phase 2b; PPO use deferred. See docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md")
     raise ValueError(f"Unknown layer spec: {spec!r}")

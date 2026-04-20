@@ -8,7 +8,6 @@ _layer_param_specs returns [], init_v2_population handles mixed Window+Dense.
 from __future__ import annotations
 
 import numpy as np
-
 from aerocapture.training.config import (
     NetworkConfig,
     _layer_n_params,
@@ -59,7 +58,7 @@ def test_layer_param_specs_window_returns_empty() -> None:
 
 
 def test_nn_param_specs_from_v2_handles_mixed_window_dense() -> None:
-    architecture = [
+    architecture: list[DenseSpec | WindowSpec] = [
         WindowSpec(type="window", input_size=4, n_steps=3),
         DenseSpec(type="dense", input_size=12, output_size=2, activation="linear"),
     ]

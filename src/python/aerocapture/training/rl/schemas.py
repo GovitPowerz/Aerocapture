@@ -51,9 +51,7 @@ class WindowSpec(BaseModel):
     n_steps: int = Field(ge=1)
 
 
-LayerSpec = Annotated[
-    DenseSpec | GruSpec | LstmSpec | WindowSpec, Discriminator("type")
-]
+LayerSpec = Annotated[DenseSpec | GruSpec | LstmSpec | WindowSpec, Discriminator("type")]
 
 
 class LayerWeights(BaseModel):
