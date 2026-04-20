@@ -1,5 +1,7 @@
 # TODO
 
+- [ ] check the output_interpretation field utility
+- [ ] check why ppo degrades a pso solution for gru and lstm.
 - [ ] explore JEPA guidance
 
 ---
@@ -125,8 +127,32 @@ Plan: `docs/superpowers/plans/2026-04-18-phase-2a-lstm-mvp-plan.md`.
 **Closed by Phase 2a:**
 - [x] Per-layer activation-aware initialization for GRU and LSTM (Phase 1 carry-over).
 
-### Phase 2b -- Window-MLP (ring buffer, no new matmul)
-- [ ] Deferred; separate spec + plan after Phase 2a lands
+### Phase 2b -- Window-MLP (PSO only, ring buffer, no new matmul) [DONE 2026-04-20]
+
+Shipped on branch `feature/window-mlp` (4 substantive commits + 2 docs commits on top of Phase 2a).
+Cross-language Window equivalence matches at machine epsilon (max abs diff 2.78e-16).
+PSO-Window smoke + cross-language equivalence + PyO3 flat_weights_to_json tests
+wired into the python-pyo3 CI job.
+
+- [x] Rust `WindowLayer` + `Layer::Window` + `LayerSpec::Window { input_size, n_steps }` + `LayerState::Window { buffer: VecDeque<Vec<f64>> }` + `TomlLayerSpec::Window`
+- [x] `LayerWeights for WindowLayer` zero-param impl + JSON v2 + PyO3 test
+- [x] Python `WindowLayer` torch module + `WindowSpec` pydantic + `build_layer` PPO-rejection guard
+- [x] `_layer_param_specs` / `_layer_n_params` / `_layer_output_size` Window arms + `init_v2_population` no-op continue
+- [x] Training config `msr_aller_window_pso_train.toml` (Window(16,8) -> Dense trunk, 4410 params) + `compare_guidance` + `train_all.sh` registration
+- [x] Cross-language equivalence test + PSO smoke test + PPO-rejection test (@slow python-pyo3 CI + @fast main CI)
+
+Spec: `docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md`.
+Plan: `docs/superpowers/plans/2026-04-20-phase-2b-window-mlp-plan.md`.
+
+**Out-of-Phase-2b carry-overs (still deferred):**
+- [ ] PPO-BPTT for Window (Phase 2b.5 conditional on paper reviewer request; requires (T, B, n_steps, input_size) ndim dispatch in the rollout buffer).
+- [ ] SAC-GRU / SAC-LSTM / SAC-Window (Phase 1.6; SAC stays on GaussianPolicy).
+- [ ] Recurrent critic (Phase 1.5 carry-over).
+- [ ] Widen `load_policy_from_json` to accept v1 JSON (Phase 0 carry-over).
+- [ ] Fix pre-existing clippy warnings in `src/rust/aerocapture-py/src/lib.rs`.
+
+**Closed by Phase 2b:**
+- [x] Zero-trainable-parameter scalar-state layers supported end-to-end (`_layer_param_specs` empty-list arm, `LayerWeights::from_flat` no-op with tail-tolerant assertion, `init_v2_population` `elif == "window"` continue branch).
 
 ### Phase 3 -- Transformer
 - [ ] Rust multi-head attention + layer norm + sinusoidal position encoding

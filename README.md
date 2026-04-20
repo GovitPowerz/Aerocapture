@@ -323,7 +323,7 @@ GitHub Actions runs on PRs to `main` and manual dispatch:
 
 - **Rust**: `cargo fmt --check`, `cargo clippy`, `cargo test --release`
 - **Python**: `ruff check`, `ruff format --check`, `mypy`, `pytest`
-- **PyO3**: `maturin develop --release`, `pytest tests/test_pyo3.py tests/test_v2_rust_python_equivalence.py tests/test_gru_pso_smoke.py tests/test_gru_ppo_smoke.py tests/test_lstm_pso_smoke.py tests/test_lstm_ppo_smoke.py tests/test_flat_weights_to_json_lstm.py`
+- **PyO3**: `maturin develop --release`, `pytest tests/test_pyo3.py tests/test_v2_rust_python_equivalence.py tests/test_gru_pso_smoke.py tests/test_gru_ppo_smoke.py tests/test_lstm_pso_smoke.py tests/test_lstm_ppo_smoke.py tests/test_flat_weights_to_json_lstm.py tests/test_rust_python_window_equivalence.py tests/test_window_pso_smoke.py tests/test_flat_weights_to_json_window.py`
 
 ## Build Commands
 

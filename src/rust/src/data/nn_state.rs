@@ -2,7 +2,9 @@
 //!
 //! Lives outside NeuralNetModel (which is immutable and shared via Arc).
 //! Phase 0 ships only LayerState::None (dense layers are stateless).
-//! Phase 1+ adds Gru, Lstm, Window, Ssm variants.
+//! Phase 1+ adds Gru, Lstm, Window; Phase 3+ adds Ssm variants.
+
+use std::collections::VecDeque;
 
 use crate::data::neural::{Layer, NeuralNetModel};
 
@@ -11,7 +13,8 @@ pub enum LayerState {
     None,
     Gru { h: Vec<f64> },
     Lstm { h: Vec<f64>, c: Vec<f64> },
-    // Phase 2b+: Window { buffer: std::collections::VecDeque<Vec<f64>> }, Ssm { h: Vec<f64> },
+    Window { buffer: VecDeque<Vec<f64>> },
+    // Phase 3+: Ssm { h: Vec<f64> }
 }
 
 impl LayerState {
@@ -25,6 +28,13 @@ impl LayerState {
                 h: vec![0.0; l.hidden_size],
                 c: vec![0.0; l.hidden_size],
             },
+            Layer::Window(w) => {
+                let mut buffer = VecDeque::with_capacity(w.n_steps);
+                for _ in 0..w.n_steps {
+                    buffer.push_back(vec![0.0; w.input_size]);
+                }
+                LayerState::Window { buffer }
+            }
         }
     }
 
@@ -42,6 +52,13 @@ impl LayerState {
                 }
                 for v in c.iter_mut() {
                     *v = 0.0;
+                }
+            }
+            LayerState::Window { buffer } => {
+                for slot in buffer.iter_mut() {
+                    for v in slot.iter_mut() {
+                        *v = 0.0;
+                    }
                 }
             }
         }
@@ -197,6 +214,67 @@ mod tests {
             assert_eq!(c, &vec![0.0, 0.0]);
         } else {
             panic!("expected LayerState::Lstm");
+        }
+    }
+
+    #[test]
+    fn layer_state_window_for_layer_prefills_buffer_with_zero_vectors() {
+        let layer = Layer::Window(crate::data::neural::WindowLayer {
+            input_size: 4,
+            n_steps: 3,
+        });
+        let state = LayerState::for_layer(&layer);
+        if let LayerState::Window { buffer } = state {
+            assert_eq!(buffer.len(), 3);
+            for slot in buffer.iter() {
+                assert_eq!(slot.len(), 4);
+                assert!(slot.iter().all(|&v| v == 0.0));
+            }
+        } else {
+            panic!("expected LayerState::Window");
+        }
+    }
+
+    #[test]
+    fn layer_state_window_reset_clears_buffer_to_zeros() {
+        let mut state = LayerState::Window {
+            buffer: VecDeque::from(vec![vec![1.0, 2.0], vec![3.0, 4.0]]),
+        };
+        state.reset();
+        if let LayerState::Window { buffer } = state {
+            assert_eq!(buffer.len(), 2);
+            for slot in buffer.iter() {
+                assert!(slot.iter().all(|&v| v == 0.0));
+            }
+        } else {
+            panic!("expected LayerState::Window after reset");
+        }
+    }
+
+    #[test]
+    fn layer_state_window_clone_is_independent() {
+        let layer = Layer::Window(crate::data::neural::WindowLayer {
+            input_size: 2,
+            n_steps: 3,
+        });
+        let original = LayerState::for_layer(&layer);
+        let mut cloned = original.clone();
+
+        if let LayerState::Window { buffer } = &mut cloned {
+            buffer.pop_front();
+            buffer.push_back(vec![9.9, 8.8]);
+        } else {
+            panic!("expected LayerState::Window");
+        }
+
+        // Original remains zero-filled.
+        if let LayerState::Window { buffer } = &original {
+            assert_eq!(buffer.len(), 3);
+            for slot in buffer.iter() {
+                assert!(slot.iter().all(|&v| v == 0.0));
+            }
+        } else {
+            panic!("expected LayerState::Window");
         }
     }
 }

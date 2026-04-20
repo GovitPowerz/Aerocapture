@@ -122,6 +122,8 @@ def _layer_n_params(entry: dict) -> int:
         h = int(entry["hidden_size"])
         i = int(entry["input_size"])
         return 4 * h * i + 4 * h * h + 2 * 4 * h
+    if ltype == "window":
+        return 0  # zero trainable parameters
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
@@ -131,8 +133,9 @@ def _layer_input_size(entry: dict) -> int:
 
 
 def _layer_output_size(entry: dict) -> int:
-    """Output size of a v2 layer entry. Dense: output_size. GRU: hidden_size (the cell
-    emits its hidden state, which feeds the next layer)."""
+    """Output size of a v2 layer entry. Dense: output_size. GRU/LSTM: hidden_size
+    (the cell emits its hidden state to the next layer). Window: n_steps * input_size
+    (flattened ring buffer)."""
     ltype = entry["type"]
     if ltype == "dense":
         return int(entry["output_size"])
@@ -140,6 +143,8 @@ def _layer_output_size(entry: dict) -> int:
         return int(entry["hidden_size"])
     if ltype == "lstm":
         return int(entry["hidden_size"])
+    if ltype == "window":
+        return int(entry["input_size"]) * int(entry["n_steps"])
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
@@ -156,6 +161,8 @@ def describe_architecture(network: NetworkConfig, output_interpretation: str = "
                 tail = entry.get("activation", "?")
             elif ltype in ("gru", "lstm"):
                 tail = f"hidden_size={entry['hidden_size']}"
+            elif ltype == "window":
+                tail = f"n_steps={entry['n_steps']}"
             else:
                 tail = ltype
             lines.append(f"  layer {i}: {ltype:<6} {in_size:>4} -> {out_size:<4} {tail}")

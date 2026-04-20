@@ -14,7 +14,13 @@ import numpy.typing as npt
 
 from aerocapture.training.initialization import compute_layer_bound
 from aerocapture.training.param_spaces import ParamSpec
-from aerocapture.training.rl.schemas import DenseSpec, GruSpec, LayerSpec, LstmSpec
+from aerocapture.training.rl.schemas import (
+    DenseSpec,
+    GruSpec,
+    LayerSpec,
+    LstmSpec,
+    WindowSpec,
+)
 
 
 def decode_normalized(x: npt.NDArray[np.float64], specs: list[ParamSpec]) -> dict[str, float]:
@@ -103,6 +109,8 @@ def _layer_param_specs(layer: LayerSpec, layer_idx: int, bound_multiplier: float
         return _gru_specs(layer, layer_idx, bound_multiplier)
     if isinstance(layer, LstmSpec):
         return _lstm_specs(layer, layer_idx, bound_multiplier)
+    if isinstance(layer, WindowSpec):
+        return []  # zero trainable parameters
     msg = f"Unknown layer type for PSO specs: {layer!r}"
     raise ValueError(msg)
 

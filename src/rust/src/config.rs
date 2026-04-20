@@ -211,6 +211,10 @@ pub enum TomlLayerSpec {
         input_size: usize,
         hidden_size: usize,
     },
+    Window {
+        input_size: usize,
+        n_steps: usize,
+    },
 }
 
 impl TomlLayerSpec {
@@ -245,6 +249,21 @@ impl TomlLayerSpec {
                 input_size: *input_size,
                 hidden_size: *hidden_size,
             }),
+            TomlLayerSpec::Window {
+                input_size,
+                n_steps,
+            } => {
+                if *input_size == 0 || *n_steps == 0 {
+                    return Err(ParseError(format!(
+                        "Window layer input_size and n_steps must be positive (got input_size={}, n_steps={})",
+                        input_size, n_steps
+                    )));
+                }
+                Ok(LayerSpec::Window {
+                    input_size: *input_size,
+                    n_steps: *n_steps,
+                })
+            }
         }
     }
 }
@@ -1705,5 +1724,66 @@ activation = "linear"
             activation: "not_an_activation".to_string(),
         };
         assert!(toml_spec.to_layer_spec().is_err());
+    }
+
+    #[test]
+    fn toml_layer_spec_to_layer_spec_window() {
+        let toml_spec = TomlLayerSpec::Window {
+            input_size: 4,
+            n_steps: 8,
+        };
+        match toml_spec.to_layer_spec().unwrap() {
+            crate::data::neural::LayerSpec::Window {
+                input_size,
+                n_steps,
+            } => {
+                assert_eq!(input_size, 4);
+                assert_eq!(n_steps, 8);
+            }
+            _ => panic!("expected LayerSpec::Window"),
+        }
+    }
+
+    #[test]
+    fn toml_layer_spec_window_parses_from_toml_string() {
+        let toml_str = r#"
+[[network.architecture]]
+type = "window"
+input_size = 4
+n_steps = 8
+"#;
+        #[derive(serde::Deserialize)]
+        struct Wrapper {
+            network: NetworkArch,
+        }
+        #[derive(serde::Deserialize)]
+        struct NetworkArch {
+            architecture: Vec<TomlLayerSpec>,
+        }
+        let parsed: Wrapper = toml::from_str(toml_str).unwrap();
+        match &parsed.network.architecture[0] {
+            TomlLayerSpec::Window {
+                input_size,
+                n_steps,
+            } => {
+                assert_eq!(*input_size, 4);
+                assert_eq!(*n_steps, 8);
+            }
+            _ => panic!("expected TomlLayerSpec::Window"),
+        }
+    }
+
+    #[test]
+    fn toml_layer_spec_window_rejects_zero_fields() {
+        let zero_input = TomlLayerSpec::Window {
+            input_size: 0,
+            n_steps: 8,
+        };
+        assert!(zero_input.to_layer_spec().is_err());
+        let zero_n_steps = TomlLayerSpec::Window {
+            input_size: 4,
+            n_steps: 0,
+        };
+        assert!(zero_n_steps.to_layer_spec().is_err());
     }
 }

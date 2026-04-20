@@ -13,7 +13,13 @@ import torch
 
 from aerocapture.training.rl.layers import DenseLayer, GruLayer, LstmLayer
 from aerocapture.training.rl.policy import V2Policy
-from aerocapture.training.rl.schemas import ArchitectureV2, DenseSpec, GruSpec, LstmSpec
+from aerocapture.training.rl.schemas import (
+    ArchitectureV2,
+    DenseSpec,
+    GruSpec,
+    LstmSpec,
+    WindowSpec,
+)
 
 
 def load_policy_from_json(path: str, device: str | torch.device) -> V2Policy:
@@ -22,6 +28,18 @@ def load_policy_from_json(path: str, device: str | torch.device) -> V2Policy:
     if raw.get("format_version") != 2:
         raise ValueError(f"Expected format_version=2 in {path}, got {raw.get('format_version')}")
     arch = ArchitectureV2.model_validate(raw)
+
+    # Phase 2b: Window-MLP is PSO-only. V2Policy cannot be built with a Window
+    # layer (build_layer(WindowSpec) raises NotImplementedError), so we
+    # short-circuit here with the same message before V2Policy construction
+    # would fail more opaquely.
+    if any(isinstance(spec, WindowSpec) for spec in arch.architecture):
+        raise NotImplementedError(
+            "Window-MLP is PSO-only in Phase 2b; load_policy_from_json is a PPO/SAC "
+            "entry point that cannot construct V2Policy with Window layers. "
+            "See docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md"
+        )
+
     policy = V2Policy(
         architecture=list(arch.architecture),
         output_interpretation=arch.output_interpretation,
