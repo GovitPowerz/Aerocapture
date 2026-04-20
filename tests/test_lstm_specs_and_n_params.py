@@ -74,3 +74,40 @@ def test_nn_param_specs_from_v2_dispatches_lstm() -> None:
     specs = nn_param_specs_from_v2(architecture, bound_multiplier=1.0)
     # Lstm: 4*2*4 + 4*2*2 + 8*2 = 32 + 16 + 16 = 64
     assert len(specs) == 64
+
+
+def test_lstm_specs_forget_bias_bound_wider_than_other_biases() -> None:
+    """Forget-gate slice on bias_ih (rows [H:2H]) uses wider bound to accommodate
+    Jozefowicz forget-bias-1 init. Other biases stay tight.
+    """
+    I, H = 4, 6
+    spec = LstmSpec(type="lstm", input_size=I, hidden_size=H)
+    specs = _lstm_specs(spec, layer_idx=0, bound_multiplier=1.0)
+
+    # Offsets: weight_ih (4H*I) -> weight_hh (4H*H) -> bias_ih (4H) -> bias_hh (4H).
+    bias_ih_start = 4 * H * I + 4 * H * H
+    bias_hh_start = bias_ih_start + 4 * H
+
+    # i-gate bias_ih (rows [0:H]): tight
+    i_bias = specs[bias_ih_start]
+    assert math.isclose(i_bias.p_max, 0.1, abs_tol=1e-12)
+
+    # f-gate bias_ih (rows [H:2H]): WIDE (forget-bias-1 room)
+    f_bias = specs[bias_ih_start + H]
+    assert math.isclose(f_bias.p_max, 2.0, abs_tol=1e-12)
+    f_bias_last = specs[bias_ih_start + 2 * H - 1]
+    assert math.isclose(f_bias_last.p_max, 2.0, abs_tol=1e-12)
+
+    # g-gate bias_ih (rows [2H:3H]): tight
+    g_bias = specs[bias_ih_start + 2 * H]
+    assert math.isclose(g_bias.p_max, 0.1, abs_tol=1e-12)
+
+    # o-gate bias_ih (rows [3H:4H]): tight
+    o_bias = specs[bias_ih_start + 3 * H]
+    assert math.isclose(o_bias.p_max, 0.1, abs_tol=1e-12)
+
+    # bias_hh (all gates): tight
+    bias_hh_first = specs[bias_hh_start]
+    bias_hh_last = specs[-1]
+    assert math.isclose(bias_hh_first.p_max, 0.1, abs_tol=1e-12)
+    assert math.isclose(bias_hh_last.p_max, 0.1, abs_tol=1e-12)

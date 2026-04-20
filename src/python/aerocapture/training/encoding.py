@@ -149,22 +149,30 @@ def _lstm_specs(layer: LstmSpec, layer_idx: int, bound_multiplier: float) -> lis
     """Flat-weight spec order matches the Rust `LayerWeights for LstmLayer`:
     weight_ih (row-major [4H, I]) -> weight_hh (row-major [4H, H]) -> bias_ih -> bias_hh.
 
-    Gate ordering on the 4H axis: (i, f, g, o). Forget-bias init to 1.0 is
-    applied in init_v2_population (Task 11), not reflected in these symmetric bounds.
+    Gate ordering on the 4H axis: (i, f, g, o). The forget-gate slice on bias_ih
+    (rows [H:2H]) uses a wider ParamSpec bound (2.0 * bound_multiplier) to
+    accommodate the Jozefowicz forget-bias-1 init (value ~1.0) inside PSO's
+    search box. All other biases use the tight 0.1 * bound_multiplier bound.
     """
     h = layer.hidden_size
     four_h = 4 * h
     w_ih_bound = bound_multiplier * compute_layer_bound(layer.input_size, four_h, "tanh")
     w_hh_bound = bound_multiplier * compute_layer_bound(h, four_h, "tanh")
-    b_bound = 0.1 * bound_multiplier
+    tight_bias_bound = 0.1 * bound_multiplier
+    forget_bias_bound = 2.0 * bound_multiplier
 
     specs: list[ParamSpec] = []
     for j in range(four_h * layer.input_size):
         specs.append(ParamSpec(f"w_ih{layer_idx}_{j}", -w_ih_bound, w_ih_bound, 0.0))
     for j in range(four_h * h):
         specs.append(ParamSpec(f"w_hh{layer_idx}_{j}", -w_hh_bound, w_hh_bound, 0.0))
+    # bias_ih: forget slice (rows [H:2H]) uses wider bound; rest tight.
     for j in range(four_h):
-        specs.append(ParamSpec(f"b_ih{layer_idx}_{j}", -b_bound, b_bound, 0.0))
+        if h <= j < 2 * h:
+            specs.append(ParamSpec(f"b_ih{layer_idx}_{j}", -forget_bias_bound, forget_bias_bound, 0.0))
+        else:
+            specs.append(ParamSpec(f"b_ih{layer_idx}_{j}", -tight_bias_bound, tight_bias_bound, 0.0))
+    # bias_hh: all gates use tight bound.
     for j in range(four_h):
-        specs.append(ParamSpec(f"b_hh{layer_idx}_{j}", -b_bound, b_bound, 0.0))
+        specs.append(ParamSpec(f"b_hh{layer_idx}_{j}", -tight_bias_bound, tight_bias_bound, 0.0))
     return specs

@@ -29,6 +29,7 @@ from aerocapture.training.evaluate import (
     make_reserved_seeds,
     write_nn_json,
 )
+from aerocapture.training.initialization_v2 import init_v2_population
 from aerocapture.training.metrics import capture_rate
 from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
 from aerocapture.training.param_spaces import ParamSpec
@@ -67,6 +68,29 @@ def _compute_fixed_seeds(base_mc_seed: int, n_sims: int, excluded: set[int]) -> 
         msg = f"fixed seed range [{base_mc_seed}..{base_mc_seed + n_sims - 1}] overlaps {len(overlap)} validation/final-eval reserved seeds"
         raise ValueError(msg)
     return seeds
+
+
+def build_initial_population_for_v2(
+    architecture: list[dict],
+    n_pop: int,
+    bound_multiplier: float,
+    rng: np.random.Generator,
+    param_specs: list[ParamSpec],
+) -> npt.NDArray[np.float64]:
+    """Activation-aware initial population for v2 architectures.
+
+    Calls init_v2_population to draw physical weights per layer type
+    (dense uniform Xavier, gru/lstm tanh-Xavier gates + N(0, 0.01*mul) biases
+    + forget-bias-1 on LSTM bias_ih), then normalizes to PSO's [0, 1]
+    search space per ParamSpec bound.
+    """
+    physical = init_v2_population(architecture, n_pop, bound_multiplier, rng)
+    n_pop_actual, n_params = physical.shape
+    assert n_params == len(param_specs), f"init_v2_population produced {n_params} params, ParamSpec has {len(param_specs)}"
+    normalized = np.empty_like(physical)
+    for j, s in enumerate(param_specs):
+        normalized[:, j] = np.clip((physical[:, j] - s.p_min) / (s.p_max - s.p_min), 0.0, 1.0)
+    return normalized
 
 
 def save_checkpoint(
@@ -427,6 +451,7 @@ def train(
             pop_array = pop_array.astype(np.float64)
     else:
         if config.guidance_type == "neural_network" and config.network.architecture is None:
+            # v1 dense-only NN: existing activation-aware Xavier/He/LeCun init.
             pop_array = create_nn_initial_population(
                 config.network.layer_sizes,
                 config.network.activations,
@@ -434,9 +459,17 @@ def train(
                 rng,
                 seed_weights=seed_weights,
             )
+        elif config.guidance_type == "neural_network" and config.network.architecture is not None:
+            # v2 heterogeneous NN: per-layer activation-aware init with LSTM forget-bias-1.
+            pop_array = build_initial_population_for_v2(
+                config.network.architecture,
+                config.optimizer.n_pop,
+                bound_multiplier=2.0,
+                rng=rng,
+                param_specs=param_specs,
+            )
         else:
-            # v2 heterogeneous arch (or non-NN scheme): uniform in [0,1] via ParamSpec bounds.
-            # Activation-aware NN init is dense-only; GRU/LSTM seeded uniformly.
+            # Non-NN scheme: uniform [0, 1] with ParamSpec-defaults seeding.
             pop_array = create_initial_population(
                 param_specs,
                 config.optimizer.n_pop,
