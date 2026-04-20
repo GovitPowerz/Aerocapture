@@ -888,8 +888,24 @@ if __name__ == "__main__":
     cfg.sim.exec_dir = "."
     cwd = "."
 
-    # Save dir per scheme
-    cfg.save_dir = f"training_output/{cfg.guidance_type}"
+    # Save dir per (variant × algorithm). For NN schemes the scheme name is
+    # encoded in `[data] neural_network` (e.g. "training_output/neural_network_gru_pso/best_model.json"),
+    # so we derive save_dir from its parent -- that's the single source of truth
+    # and it lines up exactly with what compare_guidance / deploy paths expect.
+    # For non-NN schemes (ftc, eqglide, piecewise_constant, etc.), guidance_type
+    # already IS the scheme name, so training_output/{guidance_type} is correct.
+    if cfg.guidance_type == "neural_network":
+        nn_parent = Path(cfg.sim.nn_param_file).parent
+        if not str(nn_parent).startswith("training_output/"):
+            print(
+                f"ERROR: [data] neural_network = '{cfg.sim.nn_param_file}' must live "
+                f"under 'training_output/' so checkpoints and report artifacts land alongside the "
+                f"deploy JSON. Fix the TOML to point at e.g. 'training_output/neural_network_<variant>/best_model.json'."
+            )
+            raise SystemExit(1)
+        cfg.save_dir = str(nn_parent)
+    else:
+        cfg.save_dir = f"training_output/{cfg.guidance_type}"
 
     if args.resume:
         cfg.save_dir = args.resume

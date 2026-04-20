@@ -35,7 +35,7 @@ output_size = 2
 activation = "asinh"
 
 [data]
-neural_network = "data/neural_network/nn_model.json"
+neural_network = "training_output/neural_network/best_model.json"
 results_suffix = ".train_nn"
 
 [guidance.ftc]

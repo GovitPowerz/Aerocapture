@@ -35,7 +35,25 @@ from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, ppo_update_b
 from aerocapture.training.rl.rewards import StepRewardCalculator, compute_terminal_cost
 from aerocapture.training.rl.sac import SACAgent
 
-OUT_DIR_DEFAULT = Path("training_output/neural_network_rl")
+
+def _resolve_output_dir(cfg: RLConfig) -> Path:
+    """Derive the per-scheme output directory from the TOML's `[data] neural_network`
+    path. Mirrors `train.py`'s PSO/GA path so every (variant × algorithm) tuple
+    lands in its own folder automatically and compare_guidance / deploy paths
+    line up with where training actually wrote.
+    """
+    nn_path = cfg.raw_toml.get("data", {}).get("neural_network")
+    if not nn_path:
+        raise SystemExit(
+            'ERROR: RL TOML must set `[data] neural_network = "training_output/<scheme>/best_model.json"` so the output dir can be derived from it.'
+        )
+    parent = Path(nn_path).parent
+    if not str(parent).startswith("training_output/"):
+        raise SystemExit(
+            f"ERROR: [data] neural_network = '{nn_path}' must live under 'training_output/' so checkpoints and report artifacts land alongside the deploy JSON."
+        )
+    return parent
+
 
 # Column indices in the 52-element final_record array (see runner.rs).
 _IDX_ECC = 9
@@ -342,7 +360,12 @@ def main() -> None:
     ap.add_argument("--no-tui", action="store_true")
     ap.add_argument("--skip-report", action="store_true")
     ap.add_argument("--resume", type=Path, default=None)
-    ap.add_argument("--output-dir", type=Path, default=OUT_DIR_DEFAULT)
+    ap.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Override output dir. Default: derived from TOML [data] neural_network parent.",
+    )
     args = ap.parse_args()
 
     overrides: dict[str, Any] = {}
@@ -379,6 +402,11 @@ def main() -> None:
 
     if args.from_scratch and args.data_neural_network is not None:
         ap.error("--from-scratch and --data-neural-network are mutually exclusive")
+
+    # Derive output_dir from the TOML [data] neural_network parent if not overridden.
+    # Each (variant × algorithm) gets its own folder automatically.
+    if args.output_dir is None:
+        args.output_dir = _resolve_output_dir(cfg)
 
     env_overrides: dict[str, Any] | None = None
     if args.data_neural_network is not None:
