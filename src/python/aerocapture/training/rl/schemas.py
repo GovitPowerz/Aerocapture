@@ -36,7 +36,24 @@ class LstmSpec(BaseModel):
     hidden_size: int = Field(ge=1)
 
 
-LayerSpec = Annotated[DenseSpec | GruSpec | LstmSpec, Discriminator("type")]
+class WindowSpec(BaseModel):
+    """Zero-parameter FIFO ring-buffer layer (Phase 2b, PSO-only).
+
+    Maintains a buffer of the last `n_steps` inputs and concatenates them into
+    a vector of length `n_steps * input_size` for the next Dense layer.
+    `build_layer(WindowSpec)` raises NotImplementedError -- Window is PSO-only,
+    PPO deferred to a future phase.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["window"]
+    input_size: int = Field(ge=1)
+    n_steps: int = Field(ge=1)
+
+
+LayerSpec = Annotated[
+    DenseSpec | GruSpec | LstmSpec | WindowSpec, Discriminator("type")
+]
 
 
 class LayerWeights(BaseModel):

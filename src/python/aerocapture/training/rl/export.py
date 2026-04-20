@@ -26,7 +26,7 @@ import numpy as np
 import numpy.typing as npt
 import torch
 
-from aerocapture.training.rl.layers import DenseLayer, GruLayer, LstmLayer
+from aerocapture.training.rl.layers import DenseLayer, GruLayer, LstmLayer, WindowLayer
 from aerocapture.training.rl.policy import GaussianPolicy, V2Policy
 
 _ACT_NAMES = {"Tanh": "tanh", "ReLU": "relu", "Sigmoid": "sigmoid", "Identity": "linear", "SiLU": "swish", "Mish": "mish"}
@@ -167,6 +167,19 @@ def export_v2_policy_to_json(
                 "bias_ih": b_ih.tolist(),
                 "bias_hh": b_hh.tolist(),
             }
+        elif isinstance(layer, WindowLayer):
+            if i == 0 and obs_normalizer is not None:
+                raise NotImplementedError(
+                    "obs_normalizer bake-in not supported when layer 0 is Window. Add a Dense embedding as layer 0 (Phase 0 spec section 3.5 invariant)."
+                )
+            architecture.append(
+                {
+                    "type": "window",
+                    "input_size": layer.input_size,
+                    "n_steps": layer.n_steps,
+                }
+            )
+            # Window is zero-param: no weights entry for this layer.
         else:
             raise ValueError(f"Unknown layer type in export: {type(layer).__name__}")
 

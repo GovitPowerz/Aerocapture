@@ -61,6 +61,11 @@ def _fill_layer(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.
         _fill_gru(entry, slab, bound_multiplier, rng)
     elif t == "lstm":
         _fill_lstm(entry, slab, bound_multiplier, rng)
+    elif t == "window":
+        # Zero trainable params: slab has width 0, nothing to fill. The outer
+        # cursor advanced by _layer_n_params(window) == 0, so this branch only
+        # exists to stay off the "raise ValueError" path.
+        assert slab.shape[1] == 0, f"window slab expected 0-width, got {slab.shape[1]}"
     else:
         raise ValueError(f"init_v2_population: unknown layer type {t!r}")
 
