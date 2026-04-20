@@ -196,13 +196,57 @@ impl LstmLayer {
     }
 }
 
-/// Layer variant. Phase 1 ships Dense and Gru; Phase 2a adds Lstm.
+/// Window-MLP layer: FIFO ring buffer of the last `n_steps` inputs,
+/// concatenated into a vector of length `n_steps * input_size`.
+///
+/// Zero trainable parameters -- all trainable weight lives in the downstream
+/// Dense layer. Phase 2b MVP ships PSO-only; PPO use raises
+/// NotImplementedError at Python-side `build_layer(WindowSpec)`.
+#[derive(Debug, Clone)]
+pub struct WindowLayer {
+    pub input_size: usize,
+    pub n_steps: usize,
+}
+
+impl WindowLayer {
+    /// Push `input` onto the tail of the ring buffer, drop the oldest slot,
+    /// and return the flattened buffer (length = `n_steps * input_size`).
+    ///
+    /// Buffer is pre-filled with zero vectors at episode start (see
+    /// `LayerState::for_layer`) so every tick is branchless: one pop_front,
+    /// one push_back, one flatten. Takes the `VecDeque` directly (rather than
+    /// a `&mut LayerState`) so the caller can hold the match-destructured
+    /// buffer reference across the call without a double-borrow.
+    pub fn forward(
+        &self,
+        input: &[f64],
+        buffer: &mut std::collections::VecDeque<Vec<f64>>,
+    ) -> Vec<f64> {
+        assert_eq!(
+            input.len(),
+            self.input_size,
+            "WindowLayer expected input_size={}, got {}",
+            self.input_size,
+            input.len()
+        );
+        buffer.pop_front();
+        buffer.push_back(input.to_vec());
+        let mut out = Vec::with_capacity(self.n_steps * self.input_size);
+        for slot in buffer.iter() {
+            out.extend_from_slice(slot);
+        }
+        out
+    }
+}
+
+/// Layer variant. Phase 1 ships Dense and Gru; Phase 2a adds Lstm; Phase 2b adds Window.
 #[derive(Debug, Clone)]
 pub enum Layer {
     Dense(DenseLayer),
     Gru(GruLayer),
     Lstm(LstmLayer),
-    // Phases 2b-4 add: Window, Attention, LayerNorm, Ssm
+    Window(WindowLayer),
+    // Phases 3-4 add: Attention, LayerNorm, Ssm
 }
 
 impl Layer {
@@ -218,6 +262,7 @@ impl Layer {
             }
             Layer::Gru(g) => g.input_size,
             Layer::Lstm(l) => l.input_size,
+            Layer::Window(w) => w.input_size,
         }
     }
 }
@@ -353,12 +398,36 @@ impl LayerWeights for LstmLayer {
     }
 }
 
+impl LayerWeights for WindowLayer {
+    fn to_flat(&self) -> Vec<f64> {
+        Vec::new()
+    }
+
+    #[allow(clippy::wrong_self_convention)]
+    fn from_flat(&mut self, flat: &[f64]) -> usize {
+        assert!(
+            flat.is_empty() || {
+                // We may be handed a tail that still has remaining params for the
+                // next layer; only the prefix we consume (0 bytes) matters.
+                true
+            },
+            "WindowLayer takes no weights"
+        );
+        0
+    }
+
+    fn n_params(&self) -> usize {
+        0
+    }
+}
+
 impl LayerWeights for Layer {
     fn to_flat(&self) -> Vec<f64> {
         match self {
             Layer::Dense(d) => d.to_flat(),
             Layer::Gru(g) => g.to_flat(),
             Layer::Lstm(l) => l.to_flat(),
+            Layer::Window(w) => w.to_flat(),
         }
     }
 
@@ -368,6 +437,7 @@ impl LayerWeights for Layer {
             Layer::Dense(d) => d.from_flat(flat),
             Layer::Gru(g) => g.from_flat(flat),
             Layer::Lstm(l) => l.from_flat(flat),
+            Layer::Window(w) => w.from_flat(flat),
         }
     }
 
@@ -376,6 +446,7 @@ impl LayerWeights for Layer {
             Layer::Dense(d) => d.n_params(),
             Layer::Gru(g) => g.n_params(),
             Layer::Lstm(l) => l.n_params(),
+            Layer::Window(w) => w.n_params(),
         }
     }
 }
@@ -433,7 +504,11 @@ pub enum LayerSpec {
         input_size: usize,
         hidden_size: usize,
     },
-    // Phases 2b+: Window, Attention, LayerNorm, Ssm
+    Window {
+        input_size: usize,
+        n_steps: usize,
+    },
+    // Phases 3+: Attention, LayerNorm, Ssm
 }
 
 /// JSON file structure for neural network models (v2 schema).
@@ -632,22 +707,29 @@ impl NeuralNetModel {
             .map_err(|e| DataError(format!("JSON parse error in {}: {}", path, e)))?;
 
         // Chain consistency: layer i's output must feed layer i+1's input.
-        // Dense: output_size -> next.input_size; Gru/Lstm: hidden_size -> next.input_size.
+        // Dense: output_size -> next.input_size; Gru/Lstm: hidden_size -> next.input_size;
+        // Window: n_steps * input_size -> next.input_size (zero-param buffer flatten).
         for i in 0..file.architecture.len().saturating_sub(1) {
             let prev_out = match &file.architecture[i] {
                 LayerSpec::Dense { output_size, .. } => *output_size,
                 LayerSpec::Gru { hidden_size, .. } => *hidden_size,
                 LayerSpec::Lstm { hidden_size, .. } => *hidden_size,
+                LayerSpec::Window {
+                    input_size,
+                    n_steps,
+                } => *input_size * *n_steps,
             };
             let (next_in, next_label) = match &file.architecture[i + 1] {
                 LayerSpec::Dense { input_size, .. } => (*input_size, "dense"),
                 LayerSpec::Gru { input_size, .. } => (*input_size, "gru"),
                 LayerSpec::Lstm { input_size, .. } => (*input_size, "lstm"),
+                LayerSpec::Window { input_size, .. } => (*input_size, "window"),
             };
             let prev_label = match &file.architecture[i] {
                 LayerSpec::Dense { .. } => "dense",
                 LayerSpec::Gru { .. } => "gru",
                 LayerSpec::Lstm { .. } => "lstm",
+                LayerSpec::Window { .. } => "window",
             };
             if prev_out != next_in {
                 return Err(DataError(format!(
@@ -904,6 +986,29 @@ impl NeuralNetModel {
                         bias_hh: b_hh.clone(),
                     }));
                 }
+                LayerSpec::Window {
+                    input_size,
+                    n_steps,
+                } => {
+                    if *input_size == 0 || *n_steps == 0 {
+                        return Err(DataError(format!(
+                            "Layer {} (window) input_size and n_steps must be positive in {}",
+                            i, path
+                        )));
+                    }
+                    if i == 0 {
+                        layer_sizes.push(*input_size);
+                    }
+                    // Window's output is n_steps * input_size (flattened buffer).
+                    layer_sizes.push(*input_size * *n_steps);
+                    // Window has zero trainable parameters, so we don't look up
+                    // weights["layer_i"] here -- save_json skips the entry and
+                    // any present one (from a hand-crafted JSON) is ignored.
+                    layers.push(Layer::Window(WindowLayer {
+                        input_size: *input_size,
+                        n_steps: *n_steps,
+                    }));
+                }
             }
         }
 
@@ -958,6 +1063,8 @@ impl NeuralNetModel {
                     bias_ih: Some(l.bias_ih.clone()),
                     bias_hh: Some(l.bias_hh.clone()),
                 },
+                // Window is zero-param; skip the weights entry entirely.
+                Layer::Window(_) => continue,
             };
             weights.insert(format!("layer_{}", i), entry);
         }
@@ -1025,8 +1132,11 @@ impl NeuralNetModel {
                     *c = c_new;
                     current = h_new;
                 }
+                (Layer::Window(w), LayerState::Window { buffer }) => {
+                    current = w.forward(&current, buffer);
+                }
                 _ => unreachable!(
-                    "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None, Layer::Gru -> Gru, Layer::Lstm -> Lstm)"
+                    "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None, Layer::Gru -> Gru, Layer::Lstm -> Lstm, Layer::Window -> Window)"
                 ),
             }
         }
@@ -1173,6 +1283,25 @@ impl NeuralNetModel {
                         weight_hh: vec![vec![0.0; *hidden_size]; four_h],
                         bias_ih: vec![0.0; four_h],
                         bias_hh: vec![0.0; four_h],
+                    })
+                }
+                LayerSpec::Window {
+                    input_size,
+                    n_steps,
+                } => {
+                    if *input_size == 0 || *n_steps == 0 {
+                        return Err(DataError(format!(
+                            "from_flat_weights_v2: Window layer {} input_size and n_steps must be positive",
+                            i
+                        )));
+                    }
+                    if i == 0 {
+                        layer_sizes.push(*input_size);
+                    }
+                    layer_sizes.push(*input_size * *n_steps);
+                    Layer::Window(WindowLayer {
+                        input_size: *input_size,
+                        n_steps: *n_steps,
                     })
                 }
             };
@@ -1786,5 +1915,268 @@ mod tests {
         // h_new = o*tanh(c_new) = 0.5*tanh(c_new)
         assert!((h_new[0] - 0.5 * 1.0_f64.tanh()).abs() < 1e-12);
         assert!((h_new[1] - 0.5 * (-2.0_f64).tanh()).abs() < 1e-12);
+    }
+
+    // ── WindowLayer tests ─────────────────────────────────────────────
+
+    #[test]
+    fn window_layer_struct_and_spec_variants_construct() {
+        let spec = LayerSpec::Window {
+            input_size: 4,
+            n_steps: 3,
+        };
+        match spec {
+            LayerSpec::Window {
+                input_size,
+                n_steps,
+            } => {
+                assert_eq!(input_size, 4);
+                assert_eq!(n_steps, 3);
+            }
+            _ => panic!("expected LayerSpec::Window"),
+        }
+
+        let layer = WindowLayer {
+            input_size: 4,
+            n_steps: 3,
+        };
+        assert_eq!(layer.input_size, 4);
+        assert_eq!(layer.n_steps, 3);
+
+        let enum_layer = Layer::Window(layer);
+        match enum_layer {
+            Layer::Window(w) => {
+                assert_eq!(w.input_size, 4);
+                assert_eq!(w.n_steps, 3);
+            }
+            _ => panic!("expected Layer::Window"),
+        }
+    }
+
+    #[test]
+    fn window_layer_weights_trait_zero_params() {
+        let layer = WindowLayer {
+            input_size: 4,
+            n_steps: 8,
+        };
+        assert_eq!(layer.n_params(), 0);
+        assert_eq!(layer.to_flat(), Vec::<f64>::new());
+
+        let mut layer_mut = layer.clone();
+        // from_flat on Window consumes 0 params regardless of remaining slice length;
+        // this is load-bearing for from_flat_weights_v2's per-layer offset accounting.
+        let consumed = layer_mut.from_flat(&[]);
+        assert_eq!(consumed, 0);
+        let consumed_with_tail = layer_mut.from_flat(&[0.1, 0.2, 0.3]);
+        assert_eq!(consumed_with_tail, 0);
+    }
+
+    #[test]
+    fn window_layer_forward_push_pop_and_concat_zero_padded() {
+        use crate::data::nn_state::LayerState;
+
+        let layer = WindowLayer {
+            input_size: 2,
+            n_steps: 3,
+        };
+        let mut state = LayerState::for_layer(&Layer::Window(layer.clone()));
+
+        // Tick 0: first real input [1.0, 2.0]. Buffer becomes [[0,0], [0,0], [1,2]].
+        let buffer = match &mut state {
+            LayerState::Window { buffer } => buffer,
+            _ => panic!("expected Window state"),
+        };
+        let out0 = layer.forward(&[1.0, 2.0], buffer);
+        assert_eq!(out0, vec![0.0, 0.0, 0.0, 0.0, 1.0, 2.0]);
+
+        // Tick 1: [3.0, 4.0]. Buffer becomes [[0,0], [1,2], [3,4]].
+        let buffer = match &mut state {
+            LayerState::Window { buffer } => buffer,
+            _ => panic!("expected Window state"),
+        };
+        let out1 = layer.forward(&[3.0, 4.0], buffer);
+        assert_eq!(out1, vec![0.0, 0.0, 1.0, 2.0, 3.0, 4.0]);
+
+        // Tick 2: [5.0, 6.0]. Buffer becomes [[1,2], [3,4], [5,6]].
+        let buffer = match &mut state {
+            LayerState::Window { buffer } => buffer,
+            _ => panic!("expected Window state"),
+        };
+        let out2 = layer.forward(&[5.0, 6.0], buffer);
+        assert_eq!(out2, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+
+        // Buffer stays at steady-state capacity (always n_steps=3 entries).
+        if let LayerState::Window { buffer } = state {
+            assert_eq!(buffer.len(), 3);
+        } else {
+            panic!("expected Window state");
+        }
+    }
+
+    #[test]
+    fn window_layer_end_to_end_forward_through_neural_net_model() {
+        use crate::data::nn_state::NnState;
+
+        // Window(2, 3) -> Dense(6 -> 2, linear). Dense weights are the identity
+        // on the first two flat-buffer slots so we can verify the whole chain.
+        let arch = vec![
+            LayerSpec::Window {
+                input_size: 2,
+                n_steps: 3,
+            },
+            LayerSpec::Dense {
+                input_size: 6,
+                output_size: 2,
+                activation: Activation::Linear,
+            },
+        ];
+        // Dense weights: row 0 picks buffer[0][0], row 1 picks buffer[0][1].
+        let model = NeuralNetModel {
+            architecture: arch,
+            layer_sizes: vec![2, 6, 2],
+            layers: vec![
+                Layer::Window(WindowLayer {
+                    input_size: 2,
+                    n_steps: 3,
+                }),
+                Layer::Dense(DenseLayer {
+                    w: vec![
+                        vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                        vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+                    ],
+                    b: vec![0.0, 0.0],
+                    activation: Activation::Linear,
+                }),
+            ],
+            output_interpretation: "direct".into(),
+            input_mask: None,
+            ablated_input: None,
+        };
+        let mut state = NnState::for_model(&model);
+
+        // Tick 0: input [1.0, 2.0]. Buffer[0] is the oldest slot = zeros.
+        let out = model.forward(&mut state, &[1.0, 2.0]);
+        assert_eq!(out, vec![0.0, 0.0]);
+
+        // Tick 1: input [3.0, 4.0]. Buffer[0] is still zeros (popped).
+        let out = model.forward(&mut state, &[3.0, 4.0]);
+        assert_eq!(out, vec![0.0, 0.0]);
+
+        // Tick 2: input [5.0, 6.0]. Buffer[0] is now [1.0, 2.0].
+        let out = model.forward(&mut state, &[5.0, 6.0]);
+        assert_eq!(out, vec![1.0, 2.0]);
+
+        // Tick 3: input [7.0, 8.0]. Buffer[0] is now [3.0, 4.0].
+        let out = model.forward(&mut state, &[7.0, 8.0]);
+        assert_eq!(out, vec![3.0, 4.0]);
+    }
+
+    #[test]
+    fn window_json_v2_roundtrip_spec_only() {
+        let model = NeuralNetModel {
+            architecture: vec![
+                LayerSpec::Window {
+                    input_size: 4,
+                    n_steps: 3,
+                },
+                LayerSpec::Dense {
+                    input_size: 12,
+                    output_size: 2,
+                    activation: Activation::Linear,
+                },
+            ],
+            layer_sizes: vec![4, 12, 2],
+            layers: vec![
+                Layer::Window(WindowLayer {
+                    input_size: 4,
+                    n_steps: 3,
+                }),
+                Layer::Dense(DenseLayer {
+                    w: vec![vec![0.1; 12]; 2],
+                    b: vec![0.0; 2],
+                    activation: Activation::Linear,
+                }),
+            ],
+            output_interpretation: "atan2".into(),
+            input_mask: None,
+            ablated_input: None,
+        };
+
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        model.save_json(path).unwrap();
+        let content = std::fs::read_to_string(path).unwrap();
+
+        assert!(content.contains("\"type\": \"window\""));
+        assert!(content.contains("\"input_size\": 4"));
+        assert!(content.contains("\"n_steps\": 3"));
+        // Window has no weights entry in the weights dict (only Dense at index 1).
+        assert!(content.contains("\"layer_1\""));
+        assert!(!content.contains("\"layer_0\""));
+
+        let parsed = NeuralNetModel::from_json_str(&content, path).unwrap();
+        match &parsed.architecture[0] {
+            LayerSpec::Window {
+                input_size,
+                n_steps,
+            } => {
+                assert_eq!(*input_size, 4);
+                assert_eq!(*n_steps, 3);
+            }
+            _ => panic!("expected LayerSpec::Window"),
+        }
+        match &parsed.layers[0] {
+            Layer::Window(w) => {
+                assert_eq!(w.input_size, 4);
+                assert_eq!(w.n_steps, 3);
+            }
+            _ => panic!("expected Layer::Window"),
+        }
+    }
+
+    #[test]
+    fn window_from_flat_weights_v2_produces_zero_param_layer() {
+        let arch = vec![
+            LayerSpec::Window {
+                input_size: 4,
+                n_steps: 3,
+            },
+            LayerSpec::Dense {
+                input_size: 12,
+                output_size: 2,
+                activation: Activation::Linear,
+            },
+        ];
+        // Total param count = 0 (window) + 12*2 + 2 = 26.
+        let flat: Vec<f64> = (0..26).map(|i| i as f64 * 0.01).collect();
+        let model = NeuralNetModel::from_flat_weights_v2(&flat, &arch, "atan2", None).unwrap();
+
+        match &model.layers[0] {
+            Layer::Window(w) => {
+                assert_eq!(w.input_size, 4);
+                assert_eq!(w.n_steps, 3);
+            }
+            _ => panic!("expected Layer::Window"),
+        }
+        match &model.layers[1] {
+            Layer::Dense(d) => {
+                assert_eq!(d.w.len(), 2);
+                assert_eq!(d.w[0].len(), 12);
+                assert_eq!(d.b.len(), 2);
+            }
+            _ => panic!("expected Layer::Dense"),
+        }
+        assert_eq!(model.layer_sizes, vec![4, 12, 2]);
+    }
+
+    #[test]
+    fn window_from_flat_weights_v2_rejects_zero_fields() {
+        let arch = vec![LayerSpec::Window {
+            input_size: 0,
+            n_steps: 3,
+        }];
+        let flat: Vec<f64> = Vec::new();
+        let err = NeuralNetModel::from_flat_weights_v2(&flat, &arch, "direct", None);
+        assert!(err.is_err());
     }
 }
