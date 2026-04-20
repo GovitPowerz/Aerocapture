@@ -13,7 +13,7 @@ from pymoo.operators.mutation.pm import PM
 
 _VALID_ALGORITHMS = ("ga", "cma_es", "de", "pso")
 _VALID_SEED_STRATEGIES = ("fixed", "rotating", "adaptive")
-_CMAES_MAX_PARAMS = 2000
+_CMAES_MAX_PARAMS = 20000
 
 
 @dataclass

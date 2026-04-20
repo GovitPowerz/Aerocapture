@@ -34,7 +34,7 @@ The scientific purpose of the phase is to fill the second and third cells of the
   - GRU: tanh-Xavier on each of the 3H gate blocks, σ=0.01 Gaussian for biases.
   - LSTM: tanh-Xavier on each of the 4H gate blocks, σ=0.01 Gaussian for i/g/o biases, **forget-gate bias slice initialized to 1.0 + σ=0.01 Gaussian noise** (Jozefowicz et al 2015).
 - `train.py` routes PSO initial population through `init_v2_population` when `cfg.network.architecture` is set. GRU retroactively benefits.
-- Training configs: `msr_aller_lstm_pso_train.toml` (Dense(16->32, tanh) -> Lstm(32, 32) -> Dense(32->2, linear), PSO, 9058 params) and `msr_aller_lstm_ppo_train.toml` (Dense(23->32, tanh) -> Lstm(32, 32) -> Dense(32->2, linear), PPO `bptt_length=32`).
+- Training configs: `msr_aller_lstm_pso_train.toml` (mirrors the Phase 1 GRU-PSO convention: Dense(23->64, swish) -> Lstm(64, 32) -> Dense(32->8, swish) -> Dense(8->1, linear), `output_interpretation = "direct"`, 14353 params) and `msr_aller_lstm_ppo_train.toml` (Dense(23->32, tanh) -> Lstm(32, 32) -> Dense(32->2, linear), `output_interpretation = "atan2"`, PPO `bptt_length=32`, 9282 params).
 - `compare_guidance.SCHEMES` + `_NN_DEPLOY_SCHEMES` register `neural_network_lstm_pso` and `neural_network_lstm_ppo`, dispatching through the Rust `neural_network` runtime.
 - `train_all.sh` aliases: `lstm_pso`, `lstm_ppo`, `nn_lstm_pso`, `nn_lstm_ppo`.
 - Test coverage: cross-language LSTM equivalence (target machine epsilon), PSO smoke (2 gens, ~600-param arch), PPO smoke (5 updates, ~600-param arch), init statistics gate (Xavier std ± tolerance, LSTM forget-bias slice in [0.9, 1.1], GRU retroactively matches Xavier), feedforward PPO regression gate preserved, 6/6 guidance golden regressions bit-identical.
@@ -160,45 +160,51 @@ Named struct variant (not positional `LayerState::Lstm(Vec<f64>, Vec<f64>)`) bec
 ```rust
 pub enum TomlLayerSpec {
     Dense { input_size: usize, output_size: usize, activation: String },
-    Gru   { hidden_size: usize },
-    Lstm  { hidden_size: usize },
+    Gru   { input_size: usize, hidden_size: usize },
+    Lstm  { input_size: usize, hidden_size: usize },
 }
 
 impl TomlLayerSpec {
-    pub fn to_layer_spec(&self, prev_output: usize) -> LayerSpec {
+    pub fn to_layer_spec(&self) -> Result<LayerSpec, ParseError> {
         match self {
-            TomlLayerSpec::Dense { output_size, activation, .. } => LayerSpec::Dense {
-                input_size: prev_output,
-                output_size: *output_size,
-                activation: Activation::from_str(activation),
-            },
-            TomlLayerSpec::Gru { hidden_size } => LayerSpec::Gru {
-                input_size: prev_output,
+            TomlLayerSpec::Dense { input_size, output_size, activation } => {
+                let act = parse_activation(activation)?;
+                Ok(LayerSpec::Dense {
+                    input_size: *input_size,
+                    output_size: *output_size,
+                    activation: act,
+                })
+            }
+            TomlLayerSpec::Gru { input_size, hidden_size } => Ok(LayerSpec::Gru {
+                input_size: *input_size,
                 hidden_size: *hidden_size,
-            },
-            TomlLayerSpec::Lstm { hidden_size } => LayerSpec::Lstm {
-                input_size: prev_output,
+            }),
+            TomlLayerSpec::Lstm { input_size, hidden_size } => Ok(LayerSpec::Lstm {
+                input_size: *input_size,
                 hidden_size: *hidden_size,
-            },
+            }),
         }
     }
 }
 ```
 
-`input_size` is inferred from the previous layer (consistent with Phase 1 GRU), not specified in TOML. Example:
+`input_size` is an **explicit required field** in TOML (matches the Phase 1 GRU convention as implemented in `configs/training/msr_aller_gru_pso_train.toml`). The `to_layer_spec` trait method takes no arguments and copies `input_size` through verbatim. Example:
 
 ```toml
 [[network.architecture]]
 type = "dense"
+input_size = 23
 output_size = 32
 activation = "tanh"
 
 [[network.architecture]]
 type = "lstm"
+input_size = 32
 hidden_size = 32
 
 [[network.architecture]]
 type = "dense"
+input_size = 32
 output_size = 2
 activation = "linear"
 ```
@@ -371,93 +377,108 @@ Matrix elements serialize row-major (same as Dense `w` and GRU). `aerocapture_rs
 
 ### 4.1 `configs/training/msr_aller_lstm_pso_train.toml`
 
-Mirror of `msr_aller_gru_pso_train.toml` with the gate layer swapped:
+Mirror of `msr_aller_gru_pso_train.toml` with the gate layer swapped (4-layer swish/direct structure for parity with Phase 1 GRU-PSO, not the simpler 3-layer tanh/atan2 sketch used in the PPO config):
 
 ```toml
-base = "common.toml"
+base = ["../missions/mars.toml", "common.toml"]
 
 [guidance]
-scheme = "neural_network"
+type = "neural_network"
+
+[data]
+neural_network = "training_output/neural_network_lstm_pso/best_model.json"
+results_suffix = ".train_lstm_pso"
 
 [network]
-input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+output_interpretation = "direct"
 
 [[network.architecture]]
 type = "dense"
-output_size = 32
-activation = "tanh"
+input_size = 23
+output_size = 64
+activation = "swish"
 
 [[network.architecture]]
 type = "lstm"
+input_size = 64
 hidden_size = 32
 
 [[network.architecture]]
 type = "dense"
-output_size = 2
+input_size = 32
+output_size = 8
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 8
+output_size = 1
 activation = "linear"
-
-[optimizer]
-algorithm = "pso"
-n_pop = 64
-n_gen = 1000
-seed_strategy = "adaptive"
-training_n_sims = 20
-validation_n_sims = 1000
-
-[simulation]
-results_suffix = "lstm_pso"
 ```
 
-**Param count:** Dense(16->32) = 544, Lstm(32,32) = 4*(32*32 + 32*32 + 32 + 32) = 8448, Dense(32->2) = 66. Total = **9058**.
+(The `[optimizer]` block is inherited from `common.toml` -- the scheme-specific TOML only declares the architecture + data paths. `train_all.sh::train_neural_network_lstm_pso` overrides `n_pop=64 n_gen=2000 training_n_sims=1` on the CLI.)
+
+**Param count:** Dense(23->64) = 1536, Lstm(64, 32) = 4*32*(64 + 32) + 8*32 = 12288 + 256 = 12544, Dense(32->8) = 264, Dense(8->1) = 9. Total = **14353**.
+
+**Rationale for the 4-layer swish/direct architecture** (vs the simpler 3-layer tanh/atan2 shape used in PPO): Phase 1 GRU-PSO adopted this topology empirically during the 2008 paper reproduction work, and PSO converges notably faster on it. Keeping LSTM-PSO on the same topology gives an apples-to-apples architecture comparison with GRU-PSO on the paper grid. The PPO-LSTM config uses the simpler 3-layer tanh/atan2 shape because PPO has its own RL-specific tuning surface.
 
 ### 4.2 `configs/training/msr_aller_lstm_ppo_train.toml`
 
 Mirror of `msr_aller_gru_ppo_train.toml`:
 
 ```toml
-base = "common.toml"
+base = ["../missions/mars.toml", "common.toml"]
 
 [guidance]
-scheme = "neural_network"
+type = "neural_network"
+
+[data]
+neural_network = "training_output/neural_network_lstm_ppo/best_model.json"
+results_suffix = ".train_lstm_ppo"
 
 [network]
-# Full 23-input candidate vector for PPO (matches the existing RL convention)
+# Full 23-input candidate vector for PPO (matches the Phase 1.5 PPO-GRU convention)
 input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+output_interpretation = "atan2"
 
 [[network.architecture]]
 type = "dense"
+input_size = 23
 output_size = 32
 activation = "tanh"
 
 [[network.architecture]]
 type = "lstm"
+input_size = 32
 hidden_size = 32
 
 [[network.architecture]]
 type = "dense"
+input_size = 32
 output_size = 2
 activation = "linear"
 
 [rl]
-algorithm = "ppo"
-total_steps = 5_000_000
 n_envs = 64
-rollout_steps = 256
+total_env_steps = 5_000_000
 
 [rl.ppo]
+rollout_steps = 2048
 bptt_length = 32
-learning_rate = 3e-4
-clip_range = 0.2
-entropy_coef = 0.0
 update_epochs = 10
-target_kl = 0.015
-
-[rl.reward]
-# (inherit from common.toml or RL defaults)
-
-[simulation]
-results_suffix = "lstm_ppo"
+minibatches = 4
+gamma = 0.99
+gae_lambda = 0.95
+clip_range = 0.2
+entropy_coef = 0.001
+value_coef = 0.5
+max_grad_norm = 0.5
+target_kl = 0.02
+learning_rate = 3e-4
 ```
+
+**Param count:** Dense(23->32) = 768, Lstm(32, 32) = 4*32*(32 + 32) + 8*32 = 8192 + 256 = 8448, Dense(32->2) = 66. Total = **9282**.
 
 ## 5. Test plan
 

@@ -80,12 +80,12 @@ def test_lstm_specs_forget_bias_bound_wider_than_other_biases() -> None:
     """Forget-gate slice on bias_ih (rows [H:2H]) uses wider bound to accommodate
     Jozefowicz forget-bias-1 init. Other biases stay tight.
     """
-    I, H = 4, 6
-    spec = LstmSpec(type="lstm", input_size=I, hidden_size=H)
+    in_size, H = 4, 6
+    spec = LstmSpec(type="lstm", input_size=in_size, hidden_size=H)
     specs = _lstm_specs(spec, layer_idx=0, bound_multiplier=1.0)
 
-    # Offsets: weight_ih (4H*I) -> weight_hh (4H*H) -> bias_ih (4H) -> bias_hh (4H).
-    bias_ih_start = 4 * H * I + 4 * H * H
+    # Offsets: weight_ih (4H*in_size) -> weight_hh (4H*H) -> bias_ih (4H) -> bias_hh (4H).
+    bias_ih_start = 4 * H * in_size + 4 * H * H
     bias_hh_start = bias_ih_start + 4 * H
 
     # i-gate bias_ih (rows [0:H]): tight

@@ -318,7 +318,10 @@ def train(
 
             specs_adapter = TypeAdapter(list[LayerSpec])
             validated = specs_adapter.validate_python(config.network.architecture)
-            param_specs = nn_param_specs_from_v2(validated)
+            # bound_multiplier=2.0 matches create_nn_initial_population's Phase 1
+            # convention AND build_initial_population_for_v2 below. Keeping them
+            # aligned avoids ~49% boundary-saturation on the initial PSO population.
+            param_specs = nn_param_specs_from_v2(validated, bound_multiplier=2.0)
         else:
             param_specs = nn_param_specs_from_architecture(
                 config.network.layer_sizes,

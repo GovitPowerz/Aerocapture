@@ -45,10 +45,10 @@ def test_init_v2_population_forget_bias_slice_init_to_one() -> None:
 
     offsets = _layer_offsets(architecture)
     lstm_start, _ = offsets[1]
-    H, I = 32, 32
+    H, in_size = 32, 32
     four_h = 4 * H
 
-    bias_ih_start = lstm_start + four_h * I + four_h * H
+    bias_ih_start = lstm_start + four_h * in_size + four_h * H
     bias_hh_start = bias_ih_start + four_h
 
     # Forget slice on bias_ih is rows [H:2H] of the 4H axis.
@@ -69,10 +69,10 @@ def test_init_v2_population_non_forget_biases_small() -> None:
     ]
     rng = np.random.default_rng(1)
     pop = init_v2_population(architecture, n_pop=1024, bound_multiplier=1.0, rng=rng)
-    H, I = 8, 8
+    H, in_size = 8, 8
     four_h = 4 * H
 
-    bias_ih_start = four_h * I + four_h * H
+    bias_ih_start = four_h * in_size + four_h * H
     # Non-forget gates: i (rows [0:H]), g (rows [2H:3H]), o (rows [3H:4H])
     i_slice = pop[:, bias_ih_start : bias_ih_start + H]
     g_slice = pop[:, bias_ih_start + 2 * H : bias_ih_start + 3 * H]
@@ -85,9 +85,9 @@ def test_init_v2_population_non_forget_biases_small() -> None:
 
 def test_init_v2_population_dense_bounds_respected() -> None:
     """Dense layer with tanh activation: weights within Xavier bound."""
-    I, O = 10, 20
+    in_size, out_size = 10, 20
     architecture = [
-        {"type": "dense", "input_size": I, "output_size": O, "activation": "tanh"},
+        {"type": "dense", "input_size": in_size, "output_size": out_size, "activation": "tanh"},
     ]
     rng = np.random.default_rng(2)
     pop = init_v2_population(architecture, n_pop=2048, bound_multiplier=1.0, rng=rng)
@@ -99,14 +99,14 @@ def test_init_v2_population_dense_bounds_respected() -> None:
 
 def test_init_v2_population_gru_weight_bounds_respected() -> None:
     """GRU weight_ih block: Xavier bound = sqrt(6 / (I + 3H))."""
-    I, H = 16, 32
+    in_size, H = 16, 32
     architecture = [
-        {"type": "gru", "input_size": I, "hidden_size": H},
+        {"type": "gru", "input_size": in_size, "hidden_size": H},
     ]
     rng = np.random.default_rng(3)
     pop = init_v2_population(architecture, n_pop=256, bound_multiplier=1.0, rng=rng)
     three_h = 3 * H
-    n_w_ih = three_h * I
+    n_w_ih = three_h * in_size
     n_w_hh = three_h * H
     weight_ih = pop[:, :n_w_ih]
     weight_hh = pop[:, n_w_ih : n_w_ih + n_w_hh]
@@ -168,12 +168,63 @@ def test_build_initial_population_for_v2_normalizes_to_unit_cube() -> None:
 
     # Decode a sample forget-bias position and confirm it lands near 1.0.
     # Forget slice on bias_ih is rows [H:2H] of 4H.
-    H, I = 8, 8
+    H, in_size = 8, 8
     four_h = 4 * H
-    bias_ih_start = four_h * I + four_h * H  # within the LSTM block (single-layer arch)
+    bias_ih_start = four_h * in_size + four_h * H  # within the LSTM block (single-layer arch)
     forget_idx = bias_ih_start + H  # first f-gate entry
     # Decode: physical = p_min + normalized * (p_max - p_min)
     s = param_specs[forget_idx]
     decoded = s.p_min + pop[:, forget_idx] * (s.p_max - s.p_min)
     # Should cluster near 1.0 with small std (~ 0.01 * bound_multiplier = 0.02)
     assert 0.9 < float(decoded.mean()) < 1.1, f"forget-bias decoded mean {float(decoded.mean())}"
+
+
+def test_build_initial_population_for_v2_does_not_saturate_search_box() -> None:
+    """Regression guard for the bound_multiplier mismatch bug.
+
+    If train.py calls ``nn_param_specs_from_v2`` with a different
+    ``bound_multiplier`` than ``build_initial_population_for_v2``, ~49% of
+    initial values clip to the [0, 1] search-box edges, silently defeating
+    the activation-aware init. Assert the observed distribution stays
+    inside the box with room to spare.
+    """
+    from aerocapture.training.encoding import nn_param_specs_from_v2
+    from aerocapture.training.rl.schemas import LayerSpec
+    from aerocapture.training.train import build_initial_population_for_v2
+    from pydantic import TypeAdapter
+
+    # Mirror the real train.py call path for a dense+lstm architecture,
+    # ensuring nn_param_specs_from_v2 and build_initial_population_for_v2
+    # use the same bound_multiplier.
+    architecture = [
+        {"type": "dense", "input_size": 23, "output_size": 32, "activation": "tanh"},
+        {"type": "lstm", "input_size": 32, "hidden_size": 32},
+        {"type": "dense", "input_size": 32, "output_size": 2, "activation": "linear"},
+    ]
+    validated = TypeAdapter(list[LayerSpec]).validate_python(architecture)
+    param_specs = nn_param_specs_from_v2(validated, bound_multiplier=2.0)
+
+    rng = np.random.default_rng(123)
+    pop = build_initial_population_for_v2(
+        architecture=architecture,
+        n_pop=64,
+        bound_multiplier=2.0,
+        rng=rng,
+        param_specs=param_specs,
+    )
+
+    # Boundary saturation (values stuck at exactly 0.0 or 1.0) must be
+    # negligible -- if this rises above a few percent, the Xavier + forget-
+    # bias-1 init has been silently clipped by a bound mismatch.
+    saturated = ((pop == 0.0) | (pop == 1.0)).mean()
+    assert saturated < 0.01, (
+        f"{saturated:.1%} of init values saturate at search-box edges; "
+        "bound_multiplier likely mismatched between "
+        "nn_param_specs_from_v2 and build_initial_population_for_v2"
+    )
+
+    # Empirical std of a correctly sized uniform [0, 1] draw is ~0.289
+    # (= 1/sqrt(12)). Tolerate a modest drift (forget-bias slice pulls the
+    # global mean slightly off 0.5 because it sits near normalized 0.625).
+    empirical_std = float(pop.std())
+    assert 0.24 < empirical_std < 0.32, f"init std {empirical_std:.3f} outside expected uniform-[0,1] range"

@@ -9,27 +9,42 @@ results_suffix = ".train_gru_pso"
 
 [network]
 input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
-output_interpretation = "direct"
+output_interpretation = "atan2"
 
 [[network.architecture]]
 type = "dense"
 input_size = 23
-output_size = 64
+output_size = 32
 activation = "swish"
 
 [[network.architecture]]
 type = "gru"
-input_size = 64
-hidden_size = 32
-
-[[network.architecture]]
-type = "dense"
 input_size = 32
-output_size = 8
-activation = "swish"
+hidden_size = 16
 
 [[network.architecture]]
 type = "dense"
-input_size = 8
-output_size = 1
-activation = "linear"
+input_size = 16
+output_size = 2
+activation = "asinh"
+
+[guidance.ftc]
+capture_damping = 0.7
+capture_frequency = 0.072
+capture_pdyn_margin = 1.75
+altitude_damping = 0.7
+altitude_frequency = 0.08
+exit_velocity_threshold = 4400.0
+exit_pdyn_margin = 1.75
+exit_altitude_threshold = 60.0
+exit_radial_vel_gain = 10.0
+exit_apoapsis_threshold = 100.0
+security_capture = 1
+security_exit = 3
+longi_activation = 1000.0
+longi_inhibition = -1000.0
+pdyn_min = 0.0
+pressure_coeff_base = -134.4
+pressure_coeff_scale_height = 6.9
+gain_fade_start_km = 80.0
+gain_fade_end_km = 100.0
