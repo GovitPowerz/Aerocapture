@@ -1,6 +1,5 @@
 # TODO
 
-- [ ] check the output_interpretation field utility
 - [ ] explore JEPA guidance
 
 ---
