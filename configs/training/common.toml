@@ -50,6 +50,7 @@ dv_threshold = 1000.0
 g_load_weight = 1000.0
 heat_flux_weight = 1000.0
 heat_load_weight = 1000.0
+cost_transform = "cubed"
 
 [optimizer]
 algorithm = "ga"

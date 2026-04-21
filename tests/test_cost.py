@@ -142,6 +142,39 @@ class TestUnifiedComputeCost:
         cost_high_t = compute_cost(final, dv_threshold=2000.0)
         assert cost_low_t > cost_high_t
 
+    def test_cost_transforms_preserve_ordering(self) -> None:
+        """All transforms are monotonic: good < crash regardless of transform."""
+        good = self._make_final(5, dv=200.0)
+        crash = self._make_final(5, dv=20000.0)
+        for transform in ("linear", "sqrt", "squared", "cubed"):
+            g = compute_cost(good, cost_transform=transform)
+            c = compute_cost(crash, cost_transform=transform)
+            assert g < c, f"ordering broken under {transform}"
+
+    def test_sqrt_compresses_squared_and_cubed_expand_tail(self) -> None:
+        """sqrt shrinks crash/good ratio; squared and cubed blow it up."""
+        good = self._make_final(5, dv=200.0)
+        crash = self._make_final(5, dv=20000.0)
+        lin = compute_cost(crash) / compute_cost(good)
+        sqrt_r = compute_cost(crash, cost_transform="sqrt") / compute_cost(good, cost_transform="sqrt")
+        sq_r = compute_cost(crash, cost_transform="squared") / compute_cost(good, cost_transform="squared")
+        cb_r = compute_cost(crash, cost_transform="cubed") / compute_cost(good, cost_transform="cubed")
+        assert sqrt_r < lin < sq_r < cb_r
+
+    def test_cost_transform_identities_n1(self) -> None:
+        """For n=1 records, transform equals the elementwise op on the linear cost."""
+        final = self._make_final(1, dv=500.0)
+        lin = compute_cost(final)
+        assert abs(compute_cost(final, cost_transform="sqrt") - np.sqrt(lin)) < 1e-6
+        assert abs(compute_cost(final, cost_transform="squared") - lin**2) < 1e-3
+        assert abs(compute_cost(final, cost_transform="cubed") - lin**3) < 1.0
+
+    def test_unknown_cost_transform_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match="unknown cost_transform"):
+            compute_cost(self._make_final(1, dv=200.0), cost_transform="cbrt")
+
     def test_zero_dv_produces_finite_cost(self) -> None:
         """DV=0 (safety floor) should produce a near-zero finite cost."""
         final = self._make_final(3, dv=0.0, g=5.0, q=50.0)

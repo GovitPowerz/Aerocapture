@@ -867,6 +867,7 @@ def chart_cost_objective(
     g_load_weight: float = 1000.0,
     heat_flux_weight: float = 1000.0,
     heat_load_weight: float = 1000.0,
+    cost_transform: str = "linear",
 ) -> None:
     """Objective cost histogram with CDF overlay (all sims, including crashes)."""
     from aerocapture.training.evaluate import compute_cost
@@ -883,6 +884,7 @@ def chart_cost_objective(
                 g_load_weight=g_load_weight,
                 heat_flux_weight=heat_flux_weight,
                 heat_load_weight=heat_load_weight,
+                cost_transform=cost_transform,
             )
             for i in range(n)
         ]

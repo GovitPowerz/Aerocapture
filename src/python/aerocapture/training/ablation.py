@@ -13,6 +13,7 @@ import copy
 import json
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -59,12 +60,12 @@ def _resolve_nn_path(toml_path: str) -> Path:
     return Path(nn_path_str).resolve()
 
 
-def _load_cost_kwargs(toml_path: str) -> dict[str, float]:
+def _load_cost_kwargs(toml_path: str) -> dict[str, Any]:
     """Extract cost function kwargs from TOML config (mirrors training pipeline)."""
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     config = load_toml_with_bases(Path(toml_path))
-    kwargs: dict[str, float] = {}
+    kwargs: dict[str, Any] = {}
     cost_cfg = config.get("cost_function", {})
     if "dv_threshold" in cost_cfg:
         kwargs["dv_threshold"] = float(cost_cfg["dv_threshold"])
@@ -74,6 +75,8 @@ def _load_cost_kwargs(toml_path: str) -> dict[str, float]:
         kwargs["heat_flux_weight"] = float(cost_cfg["heat_flux_weight"])
     if "heat_load_weight" in cost_cfg:
         kwargs["heat_load_weight"] = float(cost_cfg["heat_load_weight"])
+    if "cost_transform" in cost_cfg:
+        kwargs["cost_transform"] = str(cost_cfg["cost_transform"])
     constraints = config.get("flight", {}).get("constraints", {})
     if "max_load_factor" in constraints:
         kwargs["g_load_limit"] = float(constraints["max_load_factor"])
@@ -84,7 +87,7 @@ def _load_cost_kwargs(toml_path: str) -> dict[str, float]:
     return kwargs
 
 
-def _mean_per_sim_cost(final_records: np.ndarray, cost_kwargs: dict[str, float]) -> float:
+def _mean_per_sim_cost(final_records: np.ndarray, cost_kwargs: dict[str, Any]) -> float:
     """Compute mean per-sim cost using the training cost function."""
     from aerocapture.training.evaluate import compute_cost
 

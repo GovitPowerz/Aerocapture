@@ -146,7 +146,7 @@ def run_final_evaluation(
         return None
 
 
-def print_eval_summary(final_records: npt.NDArray[np.float64], n_sims: int, cost_kwargs: dict[str, float] | None = None) -> None:
+def print_eval_summary(final_records: npt.NDArray[np.float64], n_sims: int, cost_kwargs: dict[str, Any] | None = None) -> None:
     """Print a human-readable summary of the final MC evaluation to stdout."""
     from aerocapture.training.evaluate import compute_cost
 
@@ -178,9 +178,12 @@ def print_eval_summary(final_records: npt.NDArray[np.float64], n_sims: int, cost
     all_q = final_records[:, charts._FR_MAX_HEAT_FLUX]
     all_g = final_records[:, charts._FR_MAX_G_LOAD]
     all_hl = final_records[:, charts._FR_INTEGRATED_FLUX] * 1e3  # MJ/m2 -> kJ/m2
-    q_limit = cost_kwargs.get("heat_flux_limit") if cost_kwargs else None
-    g_limit = cost_kwargs.get("g_load_limit") if cost_kwargs else None
-    hl_limit = cost_kwargs.get("heat_load_limit") if cost_kwargs else None
+    _q = cost_kwargs.get("heat_flux_limit") if cost_kwargs else None
+    _g = cost_kwargs.get("g_load_limit") if cost_kwargs else None
+    _hl = cost_kwargs.get("heat_load_limit") if cost_kwargs else None
+    q_limit = float(_q) if isinstance(_q, (int, float)) else None
+    g_limit = float(_g) if isinstance(_g, (int, float)) else None
+    hl_limit = float(_hl) if isinstance(_hl, (int, float)) else None
     q_viol = f"  {np.mean(all_q > q_limit) * 100:.1f}% > {q_limit:.0f}" if q_limit else ""
     g_viol = f"  {np.mean(all_g > g_limit) * 100:.1f}% > {g_limit:.1f}" if g_limit else ""
     hl_viol = f"  {np.mean(all_hl > hl_limit) * 100:.1f}% > {hl_limit:.0f}" if hl_limit else ""
@@ -215,7 +218,7 @@ def _read_constraint_limits(toml_path: Path) -> tuple[float | None, float | None
     return heat_flux, g_load
 
 
-def read_cost_kwargs(toml_path: Path) -> dict[str, float]:
+def read_cost_kwargs(toml_path: Path) -> dict[str, Any]:
     """Read cost function parameters from TOML for objective cost computation."""
     from aerocapture.training.toml_utils import load_toml_with_bases
 
@@ -230,6 +233,7 @@ def read_cost_kwargs(toml_path: Path) -> dict[str, float]:
         "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
         "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
         "heat_load_weight": float(cost_cfg.get("heat_load_weight", 1000.0)),
+        "cost_transform": str(cost_cfg.get("cost_transform", "linear")),
     }
 
 
@@ -286,7 +290,7 @@ def _build_summary_table(
     final_records: npt.NDArray[np.float64],
     heat_flux_limit: float | None = None,
     g_load_limit: float | None = None,
-    cost_kwargs: dict[str, float] | None = None,
+    cost_kwargs: dict[str, Any] | None = None,
 ) -> dict:
     """Build the performance summary table dict for Typst.
 
@@ -489,7 +493,7 @@ def _generate_trajectory_charts(
     scheme_dir: Path | None = None,
     toml_path: Path | None = None,
     sim_timeout_secs: float | None = None,
-    cost_kwargs: dict[str, float] | None = None,
+    cost_kwargs: dict[str, Any] | None = None,
 ) -> None:
     """Generate Part 2 (mission performance) SVG charts from final eval data."""
     # Load constraint limits and classify trajectories
@@ -684,7 +688,7 @@ def render_mission_performance_charts(
     tmp_dir: Path,
     toml_path: Path | None = None,
     scheme_dir: Path | None = None,
-    cost_kwargs: dict[str, float] | None = None,
+    cost_kwargs: dict[str, Any] | None = None,
     sim_timeout_secs: float | None = None,
 ) -> tuple[bool, dict]:
     """Generate Part 2 SVG charts and summary_table.json into *tmp_dir*.

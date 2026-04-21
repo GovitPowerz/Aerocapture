@@ -12,6 +12,7 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -275,7 +276,7 @@ def train(
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     _toml: dict = {}
-    cost_kwargs: dict[str, float] = {}
+    cost_kwargs: dict[str, Any] = {}
     if config.sim.toml_config:
         toml_path = Path(cwd or config.sim.exec_dir) / config.sim.toml_config
         _toml = load_toml_with_bases(toml_path)
@@ -291,6 +292,7 @@ def train(
             "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
             "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
             "heat_load_weight": float(cost_cfg.get("heat_load_weight", 1000.0)),
+            "cost_transform": str(cost_cfg.get("cost_transform", "linear")),
         }
 
     # Seed strategy: three mutually exclusive training seed paths.
