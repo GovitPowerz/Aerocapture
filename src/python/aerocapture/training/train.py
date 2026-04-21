@@ -971,8 +971,7 @@ if __name__ == "__main__":
     if cfg.guidance_type == "neural_network":
         from aerocapture.training.config import describe_architecture
 
-        output_interpretation = _toml_data.get("network", {}).get("output_interpretation", "atan2")
-        print(describe_architecture(cfg.network, output_interpretation=output_interpretation))
+        print(describe_architecture(cfg.network))
 
     # Initialize corridor accumulator for piecewise_constant training
     corridor_acc_init: CorridorAccumulator | None = None

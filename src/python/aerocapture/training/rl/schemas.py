@@ -61,10 +61,11 @@ class LayerWeights(BaseModel):
 
 
 class ArchitectureV2(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # `extra="ignore"` so legacy JSON files that still carry `output_interpretation`
+    # keep loading. The field is obsolete -- bank is always atan2(out[0], out[1]).
+    model_config = ConfigDict(extra="ignore")
     format_version: Literal[2]
     architecture: list[LayerSpec]
     weights: dict[str, LayerWeights]
-    output_interpretation: Literal["atan2", "direct"]
     input_mask: list[int] | None = None
     ablated_input: int | None = None

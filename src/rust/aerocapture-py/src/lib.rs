@@ -333,19 +333,19 @@ fn nn_forward_sequence(json_path: String, inputs: Vec<Vec<f64>>) -> PyResult<Vec
 /// and write it as v2 JSON. All PSO NN output flows through this helper so the
 /// Rust LayerWeights trait is the single source of truth for weight serialization.
 ///
+/// The network output_size is validated to equal 2 (bank = atan2(out[0], out[1])).
+///
 /// Args:
 ///     flat: flat weight vector (length must equal sum of per-layer n_params).
 ///     architecture_json: JSON-serialized list of LayerSpec dicts, e.g.
 ///         '[{"type":"dense","input_size":16,"output_size":32,"activation":"tanh"},...]'.
 ///     path: output JSON file path.
-///     output_interpretation: "atan2" or "direct".
 ///     input_mask: optional list of input indices (length == layer[0] input_size).
 #[pyfunction]
 fn flat_weights_to_json(
     flat: Vec<f64>,
     architecture_json: String,
     path: String,
-    output_interpretation: String,
     input_mask: Option<Vec<usize>>,
 ) -> PyResult<()> {
     use aerocapture::data::neural::{LayerSpec, NeuralNetModel};
@@ -356,9 +356,8 @@ fn flat_weights_to_json(
             e
         ))
     })?;
-    let model =
-        NeuralNetModel::from_flat_weights_v2(&flat, &specs, &output_interpretation, input_mask)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    let model = NeuralNetModel::from_flat_weights_v2(&flat, &specs, input_mask)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
     model
         .save_json(&path)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;

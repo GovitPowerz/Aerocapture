@@ -13,8 +13,9 @@ from __future__ import annotations
 import numpy as np
 import torch
 from aerocapture.training.rl.policy import V2Policy
+from aerocapture.training.rl.policy import np_state_to_torch as _np_state_to_torch
+from aerocapture.training.rl.policy import torch_state_to_np as _torch_state_to_np
 from aerocapture.training.rl.schemas import DenseSpec, LstmSpec
-from aerocapture.training.rl.train import _np_state_to_torch, _torch_state_to_np
 
 
 def test_stacked_lstm_state_roundtrip_is_lossless() -> None:
@@ -29,7 +30,7 @@ def test_stacked_lstm_state_roundtrip_is_lossless() -> None:
         LstmSpec(type="lstm", input_size=5, hidden_size=8),
         DenseSpec(type="dense", input_size=8, output_size=2, activation="linear"),
     ]
-    policy = V2Policy(architecture=arch, output_interpretation="atan2", input_mask=None)
+    policy = V2Policy(architecture=arch, input_mask=None)
     B = 4
 
     # Seed each layer state with distinguishable values so cross-slot leakage
@@ -127,7 +128,7 @@ def test_stacked_lstm_forward_keeps_layers_separate() -> None:
         LstmSpec(type="lstm", input_size=4, hidden_size=6),
         DenseSpec(type="dense", input_size=6, output_size=2, activation="linear"),
     ]
-    policy = V2Policy(architecture=arch, output_interpretation="atan2", input_mask=None)
+    policy = V2Policy(architecture=arch, input_mask=None)
     with torch.no_grad():
         # Scale LSTM1 weights up, LSTM2 weights down, so the two layers' state
         # magnitudes should end up very different after a few steps.

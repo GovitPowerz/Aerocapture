@@ -106,6 +106,43 @@ class GaussianPolicy(nn.Module):
         return bank, raw, log_prob
 
 
+def np_state_to_torch(np_state: list[Any]) -> list[Any]:
+    """Convert per-layer numpy state list to torch tensors (no grad).
+
+    GRU: s is (B, H) ndarray -> Tensor(B, H).
+    LSTM: s is (B, 2, H) ndarray -> tuple(Tensor(B, H), Tensor(B, H)).
+    """
+    out: list[Any] = []
+    for s in np_state:
+        if s is None:
+            out.append(None)
+        elif s.ndim == 3:
+            t = torch.from_numpy(s).float()
+            out.append((t[:, 0, :], t[:, 1, :]))
+        else:
+            out.append(torch.from_numpy(s).float())
+    return out
+
+
+def torch_state_to_np(torch_state: list[Any]) -> list[Any]:
+    """Convert per-layer torch state list back to numpy (no grad).
+
+    GRU: Tensor(B, H) -> (B, H) ndarray.
+    LSTM: tuple(Tensor(B, H), Tensor(B, H)) -> (B, 2, H) ndarray.
+    """
+    out: list[Any] = []
+    for s in torch_state:
+        if s is None:
+            out.append(None)
+        elif isinstance(s, tuple):
+            h, c = s
+            stacked = torch.stack([h, c], dim=1)
+            out.append(stacked.detach().cpu().numpy().astype(np.float32))
+        else:
+            out.append(s.detach().cpu().numpy().astype(np.float32))
+    return out
+
+
 def _zero_state_where_done(state: list[Any], done_mask: Tensor) -> list[Any]:
     """Return a new state list where the entries for `done_mask` envs are zeroed.
 
@@ -143,25 +180,22 @@ class V2Policy(nn.Module):
     Forward pass: `(x_t, state_t-1) -> (y_t, state_t)`. BPTT over sequences
     is an explicit Python loop in the training code.
 
-    The final dense layer produces the pre-interpretation output (2 values for
-    atan2, 1 for direct). log_std is a separate learnable parameter (not a layer,
-    not exported to JSON) used only for PPO/SAC exploration noise.
+    The final layer produces 2 outputs; bank is `atan2(out[0], out[1])`.
+    log_std is a separate learnable parameter (not a layer, not exported to JSON)
+    used only for PPO/SAC exploration noise.
     """
 
     def __init__(
         self,
         architecture: Sequence[LayerSpec],
-        output_interpretation: str,
         input_mask: list[int] | None,
         initial_log_std: float = 0.0,
         min_log_std: float = -2.0,
     ) -> None:
         super().__init__()
         self.layers = nn.ModuleList([build_layer(spec) for spec in architecture])
-        self.output_interpretation = output_interpretation
         self.input_mask = input_mask
-        action_dim = 2 if output_interpretation == "atan2" else 1
-        self.log_std = nn.Parameter(torch.full((action_dim,), initial_log_std))
+        self.log_std = nn.Parameter(torch.full((2,), initial_log_std))
         self.min_log_std = min_log_std
 
     def forward(self, x: Tensor, state: list[Any]) -> tuple[Tensor, list[Any]]:
@@ -191,16 +225,15 @@ class V2Policy(nn.Module):
     def sample(self, obs: Tensor, state: list[Any]) -> tuple[Tensor, Tensor, Tensor, list[Any]]:
         """Reparameterized sample. Returns (bank, raw, log_prob, new_state).
 
-        `raw` is the unconstrained 2D Gaussian sample (for output_interpretation='atan2'),
-        `bank` is `atan2(raw[..., 0], raw[..., 1])`, `log_prob` is the Normal density at
+        `raw` is the unconstrained 2D Gaussian sample, `bank` is
+        `atan2(raw[..., 0], raw[..., 1])`, `log_prob` is the Normal density at
         `raw` summed over the action axis.
         """
         mean, log_std, new_state = self.forward_mean_logstd(obs, state)
         std = log_std.exp()
         eps = torch.randn_like(mean)
         raw = mean + std * eps
-        # "direct" -> raw is 1D; the environment expects the first element.
-        bank = torch.atan2(raw[..., 0], raw[..., 1]) if self.output_interpretation == "atan2" else raw[..., 0]
+        bank = torch.atan2(raw[..., 0], raw[..., 1])
         dist = torch.distributions.Normal(mean, std)
         log_prob = dist.log_prob(raw).sum(-1)
         return bank, raw, log_prob, new_state

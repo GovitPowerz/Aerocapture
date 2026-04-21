@@ -58,7 +58,6 @@ def test_window_pso_two_gens_smoke(tmp_path: Path) -> None:
         best_flat.tolist(),
         json.dumps(architecture_dicts),
         str(json_path),
-        "atan2",
         None,
     )
 

@@ -115,7 +115,6 @@ mod tests {
                     activation: Activation::Linear,
                 }),
             ],
-            output_interpretation: "direct".to_string(),
             input_mask: None,
             ablated_input: None,
         }

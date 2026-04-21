@@ -452,13 +452,15 @@ impl LayerWeights for Layer {
 }
 
 /// JSON file structure for neural network models (v1 schema).
+/// `output_interpretation` is not modelled: the field is obsolete and silently
+/// ignored in legacy files. Bank is always derived from the 2-output vector
+/// via atan2 -- output_size is validated to be 2 at load time.
 #[derive(Debug, Clone, Deserialize)]
 struct NnJsonFile {
     #[allow(dead_code)]
     format_version: u32,
     architecture: NnArchitecture,
     weights: std::collections::BTreeMap<String, NnLayerWeights>,
-    output_interpretation: String,
     #[serde(default)]
     input_mask: Option<Vec<usize>>,
     #[serde(default)]
@@ -512,12 +514,13 @@ pub enum LayerSpec {
 }
 
 /// JSON file structure for neural network models (v2 schema).
+/// `output_interpretation` is not modelled: obsolete and silently ignored in
+/// legacy files. Bank is always derived from the 2-output vector via atan2.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct NnJsonFileV2 {
     format_version: u32,
     architecture: Vec<LayerSpec>,
     weights: std::collections::BTreeMap<String, NnLayerWeights>,
-    output_interpretation: String,
     #[serde(default)]
     input_mask: Option<Vec<usize>>,
     #[serde(default)]
@@ -538,8 +541,6 @@ pub struct NeuralNetModel {
     pub layer_sizes: Vec<usize>,
     /// Network layers (len = layer_sizes.len() - 1).
     pub layers: Vec<Layer>,
-    /// Output interpretation (e.g. "atan2").
-    pub output_interpretation: String,
     /// Optional input selection mask: indices into the full 23-input vector.
     /// Length must equal layer_sizes[0]. None means use inputs as-is.
     pub input_mask: Option<Vec<usize>>,
@@ -576,6 +577,19 @@ impl NeuralNetModel {
                     )));
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Validate that the network's final layer produces exactly 2 outputs.
+    /// Bank angle is always `atan2(out[0], out[1])`; a 1-output `direct`
+    /// interpretation existed historically but was dropped.
+    pub fn validate_output_size(output_size: usize, path: &str) -> Result<(), DataError> {
+        if output_size != 2 {
+            return Err(DataError(format!(
+                "network output_size must be 2 (atan2 over [out[0], out[1]]), got {} in {}",
+                output_size, path
+            )));
         }
         Ok(())
     }
@@ -674,12 +688,7 @@ impl NeuralNetModel {
         Self::validate_ablated_input(&file.ablated_input)?;
 
         let output_size = *file.architecture.layers.last().unwrap_or(&0);
-        if file.output_interpretation != "direct" && output_size < 2 {
-            return Err(DataError(format!(
-                "output_interpretation '{}' requires >= 2 outputs, got {} in {}",
-                file.output_interpretation, output_size, path
-            )));
-        }
+        Self::validate_output_size(output_size, path)?;
 
         let activations = file.architecture.activations;
         let layer_sizes = file.architecture.layers;
@@ -695,7 +704,6 @@ impl NeuralNetModel {
             architecture,
             layer_sizes,
             layers,
-            output_interpretation: file.output_interpretation,
             input_mask: file.input_mask,
             ablated_input: file.ablated_input,
         })
@@ -1016,18 +1024,12 @@ impl NeuralNetModel {
         Self::validate_ablated_input(&file.ablated_input)?;
 
         let output_size = *layer_sizes.last().unwrap_or(&0);
-        if file.output_interpretation != "direct" && output_size < 2 {
-            return Err(DataError(format!(
-                "output_interpretation '{}' requires >= 2 outputs, got {} in {}",
-                file.output_interpretation, output_size, path
-            )));
-        }
+        Self::validate_output_size(output_size, path)?;
 
         Ok(NeuralNetModel {
             architecture: file.architecture,
             layer_sizes,
             layers,
-            output_interpretation: file.output_interpretation,
             input_mask: file.input_mask,
             ablated_input: file.ablated_input,
         })
@@ -1073,7 +1075,6 @@ impl NeuralNetModel {
             format_version: 2,
             architecture: self.architecture.clone(),
             weights,
-            output_interpretation: self.output_interpretation.clone(),
             input_mask: self.input_mask.clone(),
             ablated_input: self.ablated_input,
         };
@@ -1207,7 +1208,6 @@ impl NeuralNetModel {
             architecture,
             layer_sizes: layer_sizes.to_vec(),
             layers,
-            output_interpretation: "atan2".to_string(),
             input_mask: None,
             ablated_input: None,
         })
@@ -1220,7 +1220,6 @@ impl NeuralNetModel {
     pub fn from_flat_weights_v2(
         flat: &[f64],
         architecture: &[LayerSpec],
-        output_interpretation: &str,
         input_mask: Option<Vec<usize>>,
     ) -> Result<Self, DataError> {
         if architecture.is_empty() {
@@ -1331,18 +1330,12 @@ impl NeuralNetModel {
         Self::validate_mask(&input_mask, layer_sizes[0])?;
 
         let output_size = *layer_sizes.last().unwrap();
-        if output_interpretation != "direct" && output_size < 2 {
-            return Err(DataError(format!(
-                "output_interpretation '{}' requires >= 2 outputs, got {}",
-                output_interpretation, output_size
-            )));
-        }
+        Self::validate_output_size(output_size, "<flat_weights_v2>")?;
 
         Ok(NeuralNetModel {
             architecture: architecture.to_vec(),
             layer_sizes,
             layers,
-            output_interpretation: output_interpretation.to_string(),
             input_mask,
             ablated_input: None,
         })
@@ -1381,7 +1374,6 @@ mod tests {
                     activation: Activation::Linear,
                 }),
             ],
-            output_interpretation: "atan2".to_string(),
             input_mask: None,
             ablated_input: None,
         }
@@ -1490,7 +1482,6 @@ mod tests {
                     activation: Activation::Linear,
                 }),
             ],
-            output_interpretation: "atan2".to_string(),
             input_mask: None,
             ablated_input: None,
         };
@@ -1655,9 +1646,11 @@ mod tests {
 
     #[test]
     fn v2_gru_json_roundtrip() {
+        // Use hidden_size=2 so the GRU's output is a valid network output
+        // (atan2 requires the final layer to produce exactly 2 values).
         let input_size = 2;
-        let hidden_size = 3;
-        let three_h = 9;
+        let hidden_size = 2;
+        let three_h = 6;
         let gru = GruLayer {
             input_size,
             hidden_size,
@@ -1677,7 +1670,6 @@ mod tests {
             }],
             layer_sizes: vec![input_size, hidden_size],
             layers: vec![Layer::Gru(gru)],
-            output_interpretation: "atan2".to_string(),
             input_mask: None,
             ablated_input: None,
         };
@@ -1734,8 +1726,7 @@ mod tests {
         //   Dense 4->2: 4*2 + 2 = 10
         // Total: 146
         let flat: Vec<f64> = (0..146).map(|i| 0.001 * i as f64).collect();
-        let model =
-            NeuralNetModel::from_flat_weights_v2(&flat, &architecture, "atan2", None).unwrap();
+        let model = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None).unwrap();
         assert_eq!(model.layers.len(), 3);
         assert_eq!(model.layer_sizes, vec![3, 4, 4, 2]);
 
@@ -1805,11 +1796,11 @@ mod tests {
         }];
         // Dense 3->4 needs 16 params. Too short should Err.
         let flat = vec![0.0; 10];
-        let err = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, "atan2", None);
+        let err = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None);
         assert!(err.is_err());
         // Too long should also Err.
         let flat = vec![0.0; 20];
-        let err = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, "atan2", None);
+        let err = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None);
         assert!(err.is_err());
     }
 
@@ -1859,7 +1850,6 @@ mod tests {
             ],
             layer_sizes: vec![input_size, hidden_size, 2],
             layers: vec![Layer::Lstm(lstm), Layer::Dense(dense_out)],
-            output_interpretation: "atan2".to_string(),
             input_mask: None,
             ablated_input: None,
         };
@@ -2048,7 +2038,6 @@ mod tests {
                     activation: Activation::Linear,
                 }),
             ],
-            output_interpretation: "direct".into(),
             input_mask: None,
             ablated_input: None,
         };
@@ -2097,7 +2086,6 @@ mod tests {
                     activation: Activation::Linear,
                 }),
             ],
-            output_interpretation: "atan2".into(),
             input_mask: None,
             ablated_input: None,
         };
@@ -2149,7 +2137,7 @@ mod tests {
         ];
         // Total param count = 0 (window) + 12*2 + 2 = 26.
         let flat: Vec<f64> = (0..26).map(|i| i as f64 * 0.01).collect();
-        let model = NeuralNetModel::from_flat_weights_v2(&flat, &arch, "atan2", None).unwrap();
+        let model = NeuralNetModel::from_flat_weights_v2(&flat, &arch, None).unwrap();
 
         match &model.layers[0] {
             Layer::Window(w) => {
@@ -2176,7 +2164,7 @@ mod tests {
             n_steps: 3,
         }];
         let flat: Vec<f64> = Vec::new();
-        let err = NeuralNetModel::from_flat_weights_v2(&flat, &arch, "direct", None);
+        let err = NeuralNetModel::from_flat_weights_v2(&flat, &arch, None);
         assert!(err.is_err());
     }
 }

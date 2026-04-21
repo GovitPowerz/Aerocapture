@@ -42,7 +42,6 @@ def load_policy_from_json(path: str, device: str | torch.device) -> V2Policy:
 
     policy = V2Policy(
         architecture=list(arch.architecture),
-        output_interpretation=arch.output_interpretation,
         input_mask=arch.input_mask,
     ).to(device)
 

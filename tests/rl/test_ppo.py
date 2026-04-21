@@ -21,7 +21,6 @@ def _make_v2_policy(input_dim: int, layer_sizes: list[int], activations: list[Ac
         prev = out_dim
     return V2Policy(
         architecture=specs,
-        output_interpretation="atan2",
         input_mask=list(range(input_dim)),
     )
 

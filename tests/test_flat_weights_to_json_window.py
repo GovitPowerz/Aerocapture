@@ -32,7 +32,6 @@ def test_flat_weights_to_json_window_roundtrip(tmp_path: Path) -> None:
         flat,
         json.dumps(architecture),
         str(out_path),
-        "atan2",
         None,  # input_mask
     )
     assert out_path.exists()
@@ -66,6 +65,5 @@ def test_flat_weights_to_json_window_rejects_zero_fields(tmp_path: Path) -> None
             [],
             json.dumps(architecture),
             str(out_path),
-            "direct",
             None,
         )

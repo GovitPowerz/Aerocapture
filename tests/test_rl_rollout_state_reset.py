@@ -21,7 +21,7 @@ def test_rollout_state_zeros_on_done_per_env() -> None:
         GruSpec(type="gru", input_size=4, hidden_size=4),
         DenseSpec(type="dense", input_size=4, output_size=2, activation="linear"),
     ]
-    policy = V2Policy(architecture=arch, output_interpretation="atan2", input_mask=None)
+    policy = V2Policy(architecture=arch, input_mask=None)
 
     # Drive the policy for 10 steps, dones[5, 0] = True.
     T, B = 10, 2

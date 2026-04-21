@@ -25,7 +25,6 @@ n_envs = 2
 
 [network]
 input_mask = [0, 1, 2]
-output_interpretation = "atan2"
 
 [[network.architecture]]
 type = "dense"
@@ -47,11 +46,9 @@ activation = "linear"
     )
     cfg = RLConfig.from_toml(toml)
     parsed = _parse_network_config(cfg)
-    # New contract: returns (input_mask, architecture, input_dim, output_interpretation)
-    input_mask, architecture, input_dim, output_interpretation = parsed
+    input_mask, architecture, input_dim = parsed
     assert input_mask == [0, 1, 2]
     assert input_dim == 3
-    assert output_interpretation == "atan2"
     assert len(architecture) == 3
     assert isinstance(architecture[0], DenseSpec)
     assert isinstance(architecture[1], GruSpec)
@@ -77,10 +74,9 @@ activations = ["tanh", "linear"]
     )
     cfg = RLConfig.from_toml(toml)
     parsed = _parse_network_config(cfg)
-    input_mask, architecture, input_dim, output_interpretation = parsed
+    input_mask, architecture, input_dim = parsed
     assert input_mask == [0, 1, 2]
     assert input_dim == 3
-    assert output_interpretation == "atan2"
     assert len(architecture) == 2
     assert all(isinstance(s, DenseSpec) for s in architecture)
     assert architecture[0].input_size == 3

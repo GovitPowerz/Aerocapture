@@ -25,7 +25,7 @@ def _policy() -> V2Policy:
         DenseSpec(type="dense", input_size=4, output_size=3, activation="tanh"),
         DenseSpec(type="dense", input_size=3, output_size=2, activation="linear"),
     ]
-    p = V2Policy(architecture=architecture, output_interpretation="atan2", input_mask=None)
+    p = V2Policy(architecture=architecture, input_mask=None)
     with torch.no_grad():
         _dense(p, 0).linear.weight.data.fill_(0.1)
         _dense(p, 0).linear.bias.data.fill_(0.01)
@@ -73,7 +73,7 @@ def test_export_load_roundtrip_mixed_dense_gru(tmp_path: Path) -> None:
         GruSpec(type="gru", input_size=4, hidden_size=4),
         DenseSpec(type="dense", input_size=4, output_size=2, activation="linear"),
     ]
-    p = V2Policy(architecture=architecture, output_interpretation="atan2", input_mask=None)
+    p = V2Policy(architecture=architecture, input_mask=None)
     with torch.no_grad():
         for name, pp in p.named_parameters():
             # log_std is exploration-noise, never serialized (see export.py).

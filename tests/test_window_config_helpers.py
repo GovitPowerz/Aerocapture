@@ -45,7 +45,7 @@ def test_describe_architecture_renders_window_layer() -> None:
         input_mask=None,
         architecture=architecture,
     )
-    s = describe_architecture(net, output_interpretation="atan2")
+    s = describe_architecture(net)
     assert "window" in s
     assert "n_steps=8" in s
     assert "128" in s  # output = n_steps * input_size

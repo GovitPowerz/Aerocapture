@@ -148,7 +148,7 @@ def _layer_output_size(entry: dict) -> int:
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
-def describe_architecture(network: NetworkConfig, output_interpretation: str = "atan2") -> str:
+def describe_architecture(network: NetworkConfig) -> str:
     """Format a human-readable architecture summary for stdout at training start."""
     lines = [f"Network architecture ({network.n_base_coef} params):"]
 
@@ -177,7 +177,6 @@ def describe_architecture(network: NetworkConfig, output_interpretation: str = "
         n = len(network.input_mask)
         lines.append(f"  input_mask: {n} indices {network.input_mask if n <= 8 else f'[{network.input_mask[0]}..{network.input_mask[-1]}]'}")
 
-    lines.append(f"  output: {output_interpretation}")
     return "\n".join(lines)
 
 
