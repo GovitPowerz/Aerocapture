@@ -64,10 +64,6 @@ def write_nn_json(
 
     if network.architecture is not None:
         arch: list[dict[str, object]] = [dict(entry) for entry in network.architecture]
-        last = arch[-1]
-        last_size: object = last["output_size"] if "output_size" in last else last["hidden_size"]
-        assert isinstance(last_size, int)
-        output_interpretation = "direct" if last_size == 1 else "atan2"
     else:
         arch = []
         for i in range(len(network.layer_sizes) - 1):
@@ -79,12 +75,10 @@ def write_nn_json(
                     "activation": network.activations[i],
                 }
             )
-        output_interpretation = "direct" if network.layer_sizes[-1] == 1 else "atan2"
     _aero_rs.flat_weights_to_json(
         flat=weights.astype(np.float64).tolist(),
         architecture_json=json.dumps(arch),
         path=str(filepath),
-        output_interpretation=output_interpretation,
         input_mask=input_mask,
     )
 

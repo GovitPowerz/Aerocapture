@@ -54,7 +54,6 @@ def test_load_policy_from_json_rejects_window_architecture(tmp_path: Path) -> No
                 "b": [0.0, 0.0],
             }
         },
-        "output_interpretation": "atan2",
         "input_mask": None,
         "ablated_input": None,
     }

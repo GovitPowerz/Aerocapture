@@ -17,7 +17,7 @@ from aerocapture.training.rl.schemas import DenseSpec, GruSpec
 
 
 def _make_policy(arch: list[DenseSpec | GruSpec]) -> V2Policy:
-    return V2Policy(architecture=arch, output_interpretation="atan2", input_mask=None)
+    return V2Policy(architecture=arch, input_mask=None)
 
 
 def _warmstart_check(warm_loaded: V2Policy, policy: V2Policy, path: str) -> None:

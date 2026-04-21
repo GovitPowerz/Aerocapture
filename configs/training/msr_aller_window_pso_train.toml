@@ -11,7 +11,6 @@ results_suffix = ".train_window_pso"
 # 16-input baseline (orbital + aero + thermal state). Window provides history;
 # the paper hypothesis isolates short-term memory from the baseline MLP inputs.
 input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-output_interpretation = "atan2"
 
 [[network.architecture]]
 type = "window"

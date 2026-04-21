@@ -79,7 +79,6 @@ def test_rust_python_window_stateful_equivalence(tmp_path: Path) -> None:
         flat.tolist(),
         json.dumps(architecture),
         str(json_path),
-        "atan2",
         None,
     )
 
@@ -146,7 +145,7 @@ def test_rust_python_window_buffer_warmup_zero_padded(tmp_path: Path) -> None:
         },
     ]
     json_path = tmp_path / "window_warmup.json"
-    aerocapture_rs.flat_weights_to_json(flat.tolist(), json.dumps(architecture), str(json_path), "direct", None)
+    aerocapture_rs.flat_weights_to_json(flat.tolist(), json.dumps(architecture), str(json_path), None)
 
     # Five ticks: t0..t4.
     inputs = np.array(

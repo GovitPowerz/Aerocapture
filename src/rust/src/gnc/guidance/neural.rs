@@ -13,7 +13,8 @@
 //!   6  heat_flux_fraction    14  apoapsis_alt           22 ref_velocity_latched
 //!   7  heat_load_fraction    15  bounce_flag
 //!
-//! Output modes: "atan2" (2 outputs, signed bank via atan2) or "direct" (1 output).
+//! Output mapping: the network emits 2 outputs and the signed bank angle is
+//! `atan2(out[0], out[1])`. No other interpretation is supported.
 
 use crate::config::PlanetConfig;
 use crate::data::SimData;
@@ -131,8 +132,7 @@ pub fn build_nn_input(
 /// Compute NN-guided longitudinal bank angle.
 ///
 /// Builds the masked input vector via `build_nn_input`, runs a forward pass,
-/// and interprets the output as either atan2(out[0], out[1]) or direct out[0]
-/// depending on the model config.
+/// and returns `atan2(out[0], out[1])`.
 ///
 /// Returns the **signed** bank angle in radians.
 /// Lateral guidance is bypassed for this scheme -- the NN controls roll direction directly.
@@ -154,19 +154,13 @@ pub fn nn_bank_angle(
         ref_velocity_latched,
     );
     let output = nn.forward(nn_state, &masked);
-
-    // Interpret output based on model configuration
-    match nn.output_interpretation.as_str() {
-        "direct" => output[0] * 2.0 * std::f64::consts::PI,
-        _ => output[0].atan2(output[1]), // "atan2" (legacy default)
-    }
+    output[0].atan2(output[1])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
-    use std::f64::consts::PI;
 
     use crate::data::aerodynamics::AeroTables;
     use crate::data::atmosphere::{AtmosphereModel, DensityProfile};
@@ -317,7 +311,6 @@ mod tests {
                 b: vec![bias0, bias1],
                 activation: Activation::Linear,
             })],
-            output_interpretation: "atan2".to_string(),
             input_mask: None,
             ablated_input: None,
         }
@@ -392,76 +385,6 @@ mod tests {
     }
 
     #[test]
-    fn direct_output_scales_by_pi() {
-        let nn = NeuralNetModel {
-            architecture: vec![LayerSpec::Dense {
-                input_size: 16,
-                output_size: 1,
-                activation: Activation::Linear,
-            }],
-            layer_sizes: vec![16, 1],
-            layers: vec![Layer::Dense(DenseLayer {
-                w: vec![vec![0.0; 16]],
-                b: vec![0.5],
-                activation: Activation::Linear,
-            })],
-            output_interpretation: "direct".to_string(),
-            input_mask: None,
-            ablated_input: None,
-        };
-        let nav = test_nav();
-        let data = test_sim_data();
-        let planet = PlanetConfig::mars();
-
-        let mut state = NnState::for_model(&nn);
-        let bank = nn_bank_angle(
-            &nav,
-            &nn,
-            &mut state,
-            &data,
-            &planet,
-            50.0_f64.to_radians(),
-            0.0,
-        );
-        assert_relative_eq!(bank, 1.0 * PI, epsilon = 1e-12);
-    }
-
-    #[test]
-    fn direct_output_full_range() {
-        let nn = NeuralNetModel {
-            architecture: vec![LayerSpec::Dense {
-                input_size: 16,
-                output_size: 1,
-                activation: Activation::Tanh,
-            }],
-            layer_sizes: vec![16, 1],
-            layers: vec![Layer::Dense(DenseLayer {
-                w: vec![vec![0.0; 16]],
-                b: vec![-1.0],
-                activation: Activation::Tanh,
-            })],
-            output_interpretation: "direct".to_string(),
-            input_mask: None,
-            ablated_input: None,
-        };
-        let nav = test_nav();
-        let data = test_sim_data();
-        let planet = PlanetConfig::mars();
-
-        let mut state = NnState::for_model(&nn);
-        let bank = nn_bank_angle(
-            &nav,
-            &nn,
-            &mut state,
-            &data,
-            &planet,
-            50.0_f64.to_radians(),
-            0.0,
-        );
-        assert_relative_eq!(bank, (-1.0_f64).tanh() * 2.0 * PI, epsilon = 1e-12);
-    }
-
-    #[test]
     fn output_in_valid_range() {
         // Small 16->3->2 network with tanh hidden layer and asinh output
         let layer0 = Layer::Dense(DenseLayer {
@@ -502,7 +425,6 @@ mod tests {
             ],
             layer_sizes: vec![16, 3, 2],
             layers: vec![layer0, layer1],
-            output_interpretation: "atan2".to_string(),
             input_mask: None,
             ablated_input: None,
         };
@@ -575,7 +497,6 @@ mod tests {
             ],
             layer_sizes: vec![16, 24, 2],
             layers: vec![layer0, layer1],
-            output_interpretation: "atan2".to_string(),
             input_mask: None,
             ablated_input: None,
         };
@@ -621,7 +542,6 @@ mod tests {
                 b: vec![0.1, 0.2],
                 activation: Activation::Linear,
             })],
-            output_interpretation: "atan2".to_string(),
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
         };
@@ -661,7 +581,6 @@ mod tests {
                 b: vec![0.0, 1.0],
                 activation: Activation::Linear,
             })],
-            output_interpretation: "atan2".to_string(),
             input_mask: Some(vec![0, 8, 15]),
             ablated_input: None,
         };
@@ -705,7 +624,6 @@ mod tests {
                 b: vec![0.0, 1.0],
                 activation: Activation::Linear,
             })],
-            output_interpretation: "atan2".to_string(),
             input_mask: None,
             ablated_input: None,
         };
@@ -722,7 +640,6 @@ mod tests {
                 b: vec![0.0, 1.0],
                 activation: Activation::Linear,
             })],
-            output_interpretation: "atan2".to_string(),
             input_mask: None,
             ablated_input: Some(0),
         };
@@ -774,7 +691,6 @@ mod tests {
                 b: vec![0.1, 0.2],
                 activation: Activation::Linear,
             })],
-            output_interpretation: "atan2".to_string(),
             input_mask: Some((0..16).collect()),
             ablated_input: None,
         };
@@ -820,7 +736,6 @@ mod tests {
                 b: vec![0.0, 1.0],
                 activation: Activation::Linear,
             })],
-            output_interpretation: "atan2".to_string(),
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
         };
@@ -870,7 +785,6 @@ mod tests {
                     b: vec![0.3, -0.2],
                     activation: Activation::Tanh,
                 })],
-                output_interpretation: "atan2".to_string(),
                 input_mask: None,
                 ablated_input: None,
             }

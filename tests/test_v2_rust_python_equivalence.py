@@ -33,7 +33,7 @@ def test_rust_python_dense_equivalence(tmp_path: Path) -> None:
         DenseSpec(type="dense", input_size=5, output_size=8, activation="tanh"),
         DenseSpec(type="dense", input_size=8, output_size=2, activation="linear"),
     ]
-    policy = V2Policy(architecture=architecture, output_interpretation="atan2", input_mask=None)
+    policy = V2Policy(architecture=architecture, input_mask=None)
     torch.manual_seed(42)
     with torch.no_grad():
         for layer in policy.layers:
@@ -69,7 +69,7 @@ def test_rust_python_gru_equivalence(tmp_path: Path) -> None:
         GruSpec(type="gru", input_size=8, hidden_size=8),
         DenseSpec(type="dense", input_size=8, output_size=2, activation="linear"),
     ]
-    policy = V2Policy(architecture=architecture, output_interpretation="atan2", input_mask=None)
+    policy = V2Policy(architecture=architecture, input_mask=None)
     torch.manual_seed(42)
     with torch.no_grad():
         for name, p in policy.named_parameters():
@@ -109,7 +109,7 @@ def test_rust_python_lstm_equivalence(tmp_path: Path) -> None:
         LstmSpec(type="lstm", input_size=4, hidden_size=4),
         DenseSpec(type="dense", input_size=4, output_size=2, activation="linear"),
     ]
-    policy = V2Policy(architecture=architecture, output_interpretation="atan2", input_mask=None)
+    policy = V2Policy(architecture=architecture, input_mask=None)
     torch.manual_seed(1337)
     with torch.no_grad():
         for name, p in policy.named_parameters():
@@ -153,7 +153,7 @@ def test_rust_python_lstm_stateful_equivalence(tmp_path: Path) -> None:
         LstmSpec(type="lstm", input_size=4, hidden_size=4),
         DenseSpec(type="dense", input_size=4, output_size=2, activation="linear"),
     ]
-    policy = V2Policy(architecture=architecture, output_interpretation="atan2", input_mask=None)
+    policy = V2Policy(architecture=architecture, input_mask=None)
     torch.manual_seed(2718)
     from aerocapture.training.rl.layers.lstm import LstmLayer
 
@@ -216,7 +216,7 @@ def test_rust_python_dense_equivalence_with_input_mask(tmp_path: Path) -> None:
         DenseSpec(type="dense", input_size=3, output_size=4, activation="tanh"),
         DenseSpec(type="dense", input_size=4, output_size=2, activation="linear"),
     ]
-    policy = V2Policy(architecture=architecture, output_interpretation="atan2", input_mask=[0, 2, 4])
+    policy = V2Policy(architecture=architecture, input_mask=[0, 2, 4])
     torch.manual_seed(7)
     with torch.no_grad():
         for layer in policy.layers:
@@ -258,7 +258,7 @@ def test_rust_python_ppo_gru_export_equivalence(tmp_path: Path) -> None:
         GruSpec(type="gru", input_size=8, hidden_size=8),
         DenseSpec(type="dense", input_size=8, output_size=2, activation="linear"),
     ]
-    policy = V2Policy(architecture=architecture, output_interpretation="atan2", input_mask=None)
+    policy = V2Policy(architecture=architecture, input_mask=None)
     torch.manual_seed(2026)
     with torch.no_grad():
         for name, p in policy.named_parameters():

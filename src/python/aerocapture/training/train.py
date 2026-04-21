@@ -529,33 +529,37 @@ def train(
 
     with display:
         try:
-            # Validate gen-0 best (first candidate) on fresh starts
-            if val_seeds is not None and best_overall_individual is not None and start_gen == 0:
-                gen0_val_costs = problem.evaluate_individual_per_seed(best_overall_individual, val_seeds)
-                best_val_cost = float(np.sqrt(np.mean(gen0_val_costs**2)))
+            # Validate the starting best: gen-0 individual on fresh starts,
+            # the checkpointed best on resume. Re-validating on resume keeps
+            # the TUI's "Best val" and stagnation counter honest (val_seeds
+            # are deterministic, so RMS is reproducible).
+            if val_seeds is not None and best_overall_individual is not None:
+                init_val_costs = problem.evaluate_individual_per_seed(best_overall_individual, val_seeds)
+                best_val_cost = float(np.sqrt(np.mean(init_val_costs**2)))
                 last_validated_individual = best_overall_individual.copy()
-                gen0_val_metrics = {
+                init_val_metrics = {
                     "rms_cost": best_val_cost,
-                    "mean_cost": float(np.mean(gen0_val_costs)),
-                    "median_cost": float(np.median(gen0_val_costs)),
-                    "std_cost": float(np.std(gen0_val_costs)),
-                    "p95_cost": float(np.percentile(gen0_val_costs, 95)),
-                    "worst_cost": float(np.max(gen0_val_costs)),
-                    "capture_rate": capture_rate(gen0_val_costs),
+                    "mean_cost": float(np.mean(init_val_costs)),
+                    "median_cost": float(np.median(init_val_costs)),
+                    "std_cost": float(np.std(init_val_costs)),
+                    "p95_cost": float(np.percentile(init_val_costs, 95)),
+                    "worst_cost": float(np.max(init_val_costs)),
+                    "capture_rate": capture_rate(init_val_costs),
                     "n_sims": len(val_seeds),
                 }
                 logger.log_generation(
-                    0,
+                    start_gen,
                     pop_array,
                     pop_costs if pop_costs is not None else np.full(config.optimizer.n_pop, np.inf),
                     best_overall_individual,
                     decode_fn,
-                    validation=gen0_val_metrics,
+                    validation=init_val_metrics,
                     improved=True,
                 )
                 display.update(logger, current_run=0)
                 if verbose:
-                    print(f"  Gen 0 validation: mean={best_val_cost:.4e} cap={gen0_val_metrics['capture_rate']:.0%}")
+                    label = f"Gen {start_gen}" if start_gen > 0 else "Gen 0"
+                    print(f"  {label} validation: mean={best_val_cost:.4e} cap={init_val_metrics['capture_rate']:.0%}")
 
             for gen in range(start_gen, config.optimizer.n_gen):
                 gen_wall_start = time.perf_counter()
@@ -888,8 +892,24 @@ if __name__ == "__main__":
     cfg.sim.exec_dir = "."
     cwd = "."
 
-    # Save dir per scheme
-    cfg.save_dir = f"training_output/{cfg.guidance_type}"
+    # Save dir per (variant × algorithm). For NN schemes the scheme name is
+    # encoded in `[data] neural_network` (e.g. "training_output/neural_network_gru_pso/best_model.json"),
+    # so we derive save_dir from its parent -- that's the single source of truth
+    # and it lines up exactly with what compare_guidance / deploy paths expect.
+    # For non-NN schemes (ftc, eqglide, piecewise_constant, etc.), guidance_type
+    # already IS the scheme name, so training_output/{guidance_type} is correct.
+    if cfg.guidance_type == "neural_network":
+        nn_parent = Path(cfg.sim.nn_param_file).parent
+        if not str(nn_parent).startswith("training_output/"):
+            print(
+                f"ERROR: [data] neural_network = '{cfg.sim.nn_param_file}' must live "
+                f"under 'training_output/' so checkpoints and report artifacts land alongside the "
+                f"deploy JSON. Fix the TOML to point at e.g. 'training_output/neural_network_<variant>/best_model.json'."
+            )
+            raise SystemExit(1)
+        cfg.save_dir = str(nn_parent)
+    else:
+        cfg.save_dir = f"training_output/{cfg.guidance_type}"
 
     if args.resume:
         cfg.save_dir = args.resume
@@ -951,8 +971,7 @@ if __name__ == "__main__":
     if cfg.guidance_type == "neural_network":
         from aerocapture.training.config import describe_architecture
 
-        output_interpretation = _toml_data.get("network", {}).get("output_interpretation", "atan2")
-        print(describe_architecture(cfg.network, output_interpretation=output_interpretation))
+        print(describe_architecture(cfg.network))
 
     # Initialize corridor accumulator for piecewise_constant training
     corridor_acc_init: CorridorAccumulator | None = None

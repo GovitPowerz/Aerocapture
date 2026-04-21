@@ -53,7 +53,6 @@ def _make_dummy_model(path: Path, config_path: Path) -> None:
         "format_version": 2,
         "architecture": architecture,
         "weights": weights_dict,
-        "output_interpretation": "atan2",
         "input_mask": input_mask,
         "ablated_input": None,
     }
@@ -105,4 +104,4 @@ def test_ppo_smoke_produces_artifacts(tmp_path: Path, monkeypatch: pytest.Monkey
         doc = json.load(f)
     assert "architecture" in doc
     assert "weights" in doc
-    assert doc["output_interpretation"] == "atan2"
+    assert "output_interpretation" not in doc

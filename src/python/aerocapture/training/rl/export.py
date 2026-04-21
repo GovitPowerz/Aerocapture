@@ -5,9 +5,10 @@ Rust format (from src/rust/src/data/neural.rs NnJsonFile):
   "format_version": 1,
   "architecture": {"layers": [input_dim, hidden1, ..., output_dim], "activations": ["tanh", ...]},
   "weights": {"layer_0": {"w": [[...]], "b": [...]}, "layer_1": {...}, ...},
-  "output_interpretation": "atan2",
   "input_mask": [0, ..., N-1]
 }
+
+The final layer must produce 2 outputs; bank is `atan2(out[0], out[1])`.
 """
 
 from __future__ import annotations
@@ -36,7 +37,6 @@ def export_policy_to_json(
     policy: GaussianPolicy,
     output_path: Path,
     input_mask: Sequence[int],
-    output_interpretation: str = "atan2",
     obs_normalizer: ObsNormalizer | None = None,
 ) -> None:
     import copy
@@ -76,7 +76,6 @@ def export_policy_to_json(
             "activations": activations,
         },
         "weights": weights_dict,
-        "output_interpretation": output_interpretation,
         "input_mask": list(input_mask),
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -187,7 +186,6 @@ def export_v2_policy_to_json(
         "format_version": 2,
         "architecture": architecture,
         "weights": weights,
-        "output_interpretation": policy.output_interpretation,
         "input_mask": policy.input_mask,
         "ablated_input": None,
     }
@@ -205,7 +203,6 @@ class _PyNN:
     layer_weights: list[npt.NDArray[np.float64]]
     layer_biases: list[npt.NDArray[np.float64]]
     input_mask: list[int]
-    output_interpretation: str
 
     def _act(self, name: str, x: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         if name == "tanh":
@@ -226,8 +223,6 @@ class _PyNN:
 
     def forward_bank(self, full_input: npt.NDArray[np.float64]) -> float:
         out = self.forward(full_input)
-        if self.output_interpretation == "direct":
-            return float(out[0])
         return float(math.atan2(out[0], out[1]))
 
 
@@ -255,5 +250,4 @@ def load_nn_model_json(path: Path) -> _PyNN:
         layer_weights=layer_weights,
         layer_biases=layer_biases,
         input_mask=input_mask,
-        output_interpretation=doc.get("output_interpretation", "atan2"),
     )

@@ -21,7 +21,7 @@ def test_bptt_chunk_size_invariant_forward_outputs() -> None:
         GruSpec(type="gru", input_size=4, hidden_size=4),
         DenseSpec(type="dense", input_size=4, output_size=2, activation="linear"),
     ]
-    p = V2Policy(architecture=arch, output_interpretation="atan2", input_mask=None)
+    p = V2Policy(architecture=arch, input_mask=None)
     T, B = 16, 2
     obs_seq = torch.randn(T, B, 3)
     raw_seq = torch.randn(T, B, 2)
@@ -76,7 +76,7 @@ def test_bptt_chunk_size_invariant_forward_outputs_lstm() -> None:
         LstmSpec(type="lstm", input_size=4, hidden_size=4),
         DenseSpec(type="dense", input_size=4, output_size=2, activation="linear"),
     ]
-    p = V2Policy(architecture=arch, output_interpretation="atan2", input_mask=None)
+    p = V2Policy(architecture=arch, input_mask=None)
     T, B = 16, 2
     obs_seq = torch.randn(T, B, 3)
     raw_seq = torch.randn(T, B, 2)
@@ -128,7 +128,7 @@ def test_bptt_chunk_size_invariant_forward_outputs_lstm_with_dones() -> None:
         LstmSpec(type="lstm", input_size=4, hidden_size=4),
         DenseSpec(type="dense", input_size=4, output_size=2, activation="linear"),
     ]
-    p = V2Policy(architecture=arch, output_interpretation="atan2", input_mask=None)
+    p = V2Policy(architecture=arch, input_mask=None)
     T, B = 16, 3
     obs_seq = torch.randn(T, B, 3)
     raw_seq = torch.randn(T, B, 2)

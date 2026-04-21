@@ -8,7 +8,7 @@ def _two_layer_policy() -> V2Policy:
         DenseSpec(type="dense", input_size=3, output_size=4, activation="tanh"),
         DenseSpec(type="dense", input_size=4, output_size=2, activation="linear"),
     ]
-    return V2Policy(architecture=architecture, output_interpretation="atan2", input_mask=None)
+    return V2Policy(architecture=architecture, input_mask=None)
 
 
 def test_v2_policy_forward_shape() -> None:
@@ -46,7 +46,7 @@ def test_v2_policy_forward_mean_logstd_dense_shapes() -> None:
         DenseSpec(type="dense", input_size=4, output_size=8, activation="tanh"),
         DenseSpec(type="dense", input_size=8, output_size=2, activation="linear"),
     ]
-    p = V2Policy(architecture=arch, output_interpretation="atan2", input_mask=None)
+    p = V2Policy(architecture=arch, input_mask=None)
     obs = torch.zeros(3, 4)
     state = p.new_state(3, "cpu")
     mean, log_std, new_state = p.forward_mean_logstd(obs, state)
@@ -63,7 +63,7 @@ def test_v2_policy_sample_dense_shapes() -> None:
         DenseSpec(type="dense", input_size=4, output_size=8, activation="tanh"),
         DenseSpec(type="dense", input_size=8, output_size=2, activation="linear"),
     ]
-    p = V2Policy(architecture=arch, output_interpretation="atan2", input_mask=None)
+    p = V2Policy(architecture=arch, input_mask=None)
     obs = torch.zeros(3, 4)
     state = p.new_state(3, "cpu")
     bank, raw, log_prob, new_state = p.sample(obs, state)
@@ -87,7 +87,7 @@ def test_v2_policy_evaluate_dense_shapes_and_grad() -> None:
         DenseSpec(type="dense", input_size=4, output_size=8, activation="tanh"),
         DenseSpec(type="dense", input_size=8, output_size=2, activation="linear"),
     ]
-    p = V2Policy(architecture=arch, output_interpretation="atan2", input_mask=None)
+    p = V2Policy(architecture=arch, input_mask=None)
     T, B = 5, 3
     obs_seq = torch.randn(T, B, 4)
     raw_seq = torch.randn(T, B, 2)
@@ -113,7 +113,7 @@ def test_v2_policy_evaluate_with_gru_grad_flows_through_time() -> None:
         GruSpec(type="gru", input_size=4, hidden_size=4),
         DenseSpec(type="dense", input_size=4, output_size=2, activation="linear"),
     ]
-    p = V2Policy(architecture=arch, output_interpretation="atan2", input_mask=None)
+    p = V2Policy(architecture=arch, input_mask=None)
     T, B = 6, 2
     obs_seq = torch.randn(T, B, 3)
     raw_seq = torch.randn(T, B, 2)
@@ -141,7 +141,7 @@ def test_v2_policy_evaluate_resets_state_on_done() -> None:
         GruSpec(type="gru", input_size=4, hidden_size=4),
         DenseSpec(type="dense", input_size=4, output_size=2, activation="linear"),
     ]
-    p = V2Policy(architecture=arch, output_interpretation="atan2", input_mask=None)
+    p = V2Policy(architecture=arch, input_mask=None)
 
     # Two env batch: env 0 sees done at t=1, env 1 never dones.
     # Build an observation sequence that would otherwise push GRU state far from zero.

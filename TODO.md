@@ -1,7 +1,5 @@
 # TODO
 
-- [ ] check the output_interpretation field utility
-- [ ] check why ppo degrades a pso solution for gru and lstm.
 - [ ] explore JEPA guidance
 
 ---

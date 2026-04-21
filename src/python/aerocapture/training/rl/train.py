@@ -31,11 +31,31 @@ from aerocapture.training.rl.export import export_policy_to_json, export_v2_poli
 from aerocapture.training.rl.logger import RLLogger
 from aerocapture.training.rl.normalizers import ObsNormalizer, ReturnNormalizer
 from aerocapture.training.rl.policy import GaussianPolicy, V2Policy, ValueNetwork
+from aerocapture.training.rl.policy import np_state_to_torch as _np_state_to_torch
+from aerocapture.training.rl.policy import torch_state_to_np as _torch_state_to_np
 from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, ppo_update_bptt
 from aerocapture.training.rl.rewards import StepRewardCalculator, compute_terminal_cost
 from aerocapture.training.rl.sac import SACAgent
 
-OUT_DIR_DEFAULT = Path("training_output/neural_network_rl")
+
+def _resolve_output_dir(cfg: RLConfig) -> Path:
+    """Derive the per-scheme output directory from the TOML's `[data] neural_network`
+    path. Mirrors `train.py`'s PSO/GA path so every (variant × algorithm) tuple
+    lands in its own folder automatically and compare_guidance / deploy paths
+    line up with where training actually wrote.
+    """
+    nn_path = cfg.raw_toml.get("data", {}).get("neural_network")
+    if not nn_path:
+        raise SystemExit(
+            'ERROR: RL TOML must set `[data] neural_network = "training_output/<scheme>/best_model.json"` so the output dir can be derived from it.'
+        )
+    parent = Path(nn_path).parent
+    if not str(parent).startswith("training_output/"):
+        raise SystemExit(
+            f"ERROR: [data] neural_network = '{nn_path}' must live under 'training_output/' so checkpoints and report artifacts land alongside the deploy JSON."
+        )
+    return parent
+
 
 # Column indices in the 52-element final_record array (see runner.rs).
 _IDX_ECC = 9
@@ -47,10 +67,10 @@ _IDX_IFINAL = 31
 # ---------------------------------------------------------------------------
 
 
-def _parse_network_config(cfg: RLConfig) -> tuple[list[int], list[Any], int, str]:
+def _parse_network_config(cfg: RLConfig) -> tuple[list[int], list[Any], int]:
     """Parse [network] from the RL TOML.
 
-    Returns (input_mask, architecture, input_dim, output_interpretation).
+    Returns (input_mask, architecture, input_dim).
 
     Supports both v1 (layer_sizes + activations, dense-only) and v2
     ([[network.architecture]] array-of-tables with dense + gru layers) formats.
@@ -61,7 +81,6 @@ def _parse_network_config(cfg: RLConfig) -> tuple[list[int], list[Any], int, str
     from aerocapture.training.rl.schemas import LayerSpec
 
     net = cfg.raw_toml.get("network", {})
-    output_interpretation: str = net.get("output_interpretation", "atan2")
     input_mask: list[int] = net.get("input_mask", list(range(16)))
 
     arch_raw = net.get("architecture")
@@ -71,7 +90,7 @@ def _parse_network_config(cfg: RLConfig) -> tuple[list[int], list[Any], int, str
         input_dim = architecture[0].input_size
         if len(input_mask) != input_dim:
             raise ValueError(f"[network] input_mask length ({len(input_mask)}) must equal architecture[0].input_size ({input_dim})")
-        return input_mask, architecture, input_dim, output_interpretation
+        return input_mask, architecture, input_dim
 
     # v1 path: layer_sizes + activations
     toml_layers: list[int] = net.get("layer_sizes", [16, 64, 64, 2])
@@ -93,7 +112,7 @@ def _parse_network_config(cfg: RLConfig) -> tuple[list[int], list[Any], int, str
             for i in range(len(toml_layers) - 1)
         ]
     )
-    return input_mask, architecture_v1, input_dim, output_interpretation
+    return input_mask, architecture_v1, input_dim
 
 
 def _dense_only_shapes(architecture: list[Any]) -> tuple[list[int], list[str]]:
@@ -114,10 +133,9 @@ def _dense_only_shapes(architecture: list[Any]) -> tuple[list[int], list[str]]:
 
 def _generate_seed_model(cfg: RLConfig, path: Path) -> None:
     """Export a randomly-initialized V2Policy as a seed model JSON for BatchedSimulation."""
-    input_mask, architecture, _input_dim, output_interpretation = _parse_network_config(cfg)
+    input_mask, architecture, _input_dim = _parse_network_config(cfg)
     policy = V2Policy(
         architecture=architecture,
-        output_interpretation=output_interpretation,
         input_mask=input_mask,
         initial_log_std=cfg.ppo.initial_log_std,
         min_log_std=cfg.ppo.min_log_std,
@@ -134,7 +152,7 @@ def _describe_rl_architecture(cfg: RLConfig) -> None:
     """
     from aerocapture.training.rl.schemas import DenseSpec, GruSpec
 
-    input_mask, architecture, _input_dim, output_interpretation = _parse_network_config(cfg)
+    input_mask, architecture, _input_dim = _parse_network_config(cfg)
 
     def _in_size(s: DenseSpec | GruSpec) -> int:
         return s.input_size
@@ -169,7 +187,6 @@ def _describe_rl_architecture(cfg: RLConfig) -> None:
         tail: str = s.activation if isinstance(s, DenseSpec) else f"hidden_size={s.hidden_size}"
         lines.append(f"  layer {i}: {s.type:<6} {in_size:>4} -> {out_size:<4} {tail}")
     lines.append(f"  input_mask: {len(input_mask)} indices")
-    lines.append(f"  output: {output_interpretation}")
     print("\n".join(lines), file=sys.stderr)
 
 
@@ -195,45 +212,6 @@ def _terminal_observations(info: list[dict[str, Any]], done: npt.NDArray[np.bool
     for i, d in enumerate(done):
         if d and "terminal_observation" in info[i]:
             out[i] = np.asarray(info[i]["terminal_observation"], dtype=np.float32)
-    return out
-
-
-def _np_state_to_torch(np_state: list) -> list[Any]:
-    """Convert per-layer numpy state list to torch tensors (no grad).
-
-    GRU: s is (B, H) ndarray -> Tensor(B, H).
-    LSTM: s is (B, 2, H) ndarray -> tuple(Tensor(B, H), Tensor(B, H)).
-    """
-    out: list[Any] = []
-    for s in np_state:
-        if s is None:
-            out.append(None)
-        elif s.ndim == 3:
-            # LSTM: (B, 2, H) -> (h, c) tuple
-            t = torch.from_numpy(s).float()
-            out.append((t[:, 0, :], t[:, 1, :]))
-        else:
-            out.append(torch.from_numpy(s).float())
-    return out
-
-
-def _torch_state_to_np(torch_state: list[Any]) -> list:
-    """Convert per-layer torch state list back to numpy (no grad).
-
-    GRU: Tensor(B, H) -> (B, H) ndarray.
-    LSTM: tuple(Tensor(B, H), Tensor(B, H)) -> (B, 2, H) ndarray.
-    """
-    out: list = []
-    for s in torch_state:
-        if s is None:
-            out.append(None)
-        elif isinstance(s, tuple):
-            # LSTM: (h, c) -> stack to (B, 2, H)
-            h, c = s
-            stacked = torch.stack([h, c], dim=1)  # (B, 2, H)
-            out.append(stacked.detach().cpu().numpy().astype(np.float32))
-        else:
-            out.append(s.detach().cpu().numpy().astype(np.float32))
     return out
 
 
@@ -342,7 +320,12 @@ def main() -> None:
     ap.add_argument("--no-tui", action="store_true")
     ap.add_argument("--skip-report", action="store_true")
     ap.add_argument("--resume", type=Path, default=None)
-    ap.add_argument("--output-dir", type=Path, default=OUT_DIR_DEFAULT)
+    ap.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Override output dir. Default: derived from TOML [data] neural_network parent.",
+    )
     args = ap.parse_args()
 
     overrides: dict[str, Any] = {}
@@ -379,6 +362,11 @@ def main() -> None:
 
     if args.from_scratch and args.data_neural_network is not None:
         ap.error("--from-scratch and --data-neural-network are mutually exclusive")
+
+    # Derive output_dir from the TOML [data] neural_network parent if not overridden.
+    # Each (variant × algorithm) gets its own folder automatically.
+    if args.output_dir is None:
+        args.output_dir = _resolve_output_dir(cfg)
 
     env_overrides: dict[str, Any] | None = None
     if args.data_neural_network is not None:
@@ -484,7 +472,7 @@ def _run_ppo(
     env_overrides: dict[str, Any] | None = None,
     warmstart_json: Path | None = None,
 ) -> None:
-    input_mask, architecture, input_dim, output_interpretation = _parse_network_config(cfg)
+    input_mask, architecture, input_dim = _parse_network_config(cfg)
     step_calc, ret_norm, obs_norm = _build_shaper_and_norms(cfg, input_mask, gamma=cfg.ppo.gamma)
 
     env = AerocaptureVecEnv(
@@ -496,7 +484,6 @@ def _run_ppo(
 
     policy = V2Policy(
         architecture=architecture,
-        output_interpretation=output_interpretation,
         input_mask=input_mask,
         initial_log_std=cfg.ppo.initial_log_std,
         min_log_std=cfg.ppo.min_log_std,
@@ -815,7 +802,7 @@ def _run_sac(
     interrupted: dict[str, bool],
     env_overrides: dict[str, Any] | None = None,
 ) -> None:
-    input_mask, architecture, input_dim, _output_interp = _parse_network_config(cfg)
+    input_mask, architecture, input_dim = _parse_network_config(cfg)
     layer_sizes, activations = _dense_only_shapes(architecture)
     step_calc, ret_norm, obs_norm = _build_shaper_and_norms(cfg, input_mask, gamma=cfg.sac.gamma)
 
