@@ -152,12 +152,19 @@ Plan: `docs/superpowers/plans/2026-04-20-phase-2b-window-mlp-plan.md`.
 **Closed by Phase 2b:**
 - [x] Zero-trainable-parameter scalar-state layers supported end-to-end (`_layer_param_specs` empty-list arm, `LayerWeights::from_flat` no-op with tail-tolerant assertion, `init_v2_population` `elif == "window"` continue branch).
 
-### Phase 3 -- Transformer
-- [ ] Rust multi-head attention + layer norm + sinusoidal position encoding
-- [ ] Causal window attention (fixed N=64 token buffer)
-- [ ] Small arch (~10k params): 1 layer, d_model=32, 4 heads, FFN 64
-- [ ] PyTorch mirror uses manual attention (not `nn.MultiheadAttention`) for 1-for-1 Rust equivalence
-- [ ] PSO + PPO-Transformer training configs
+### Phase 3a -- Transformer MVP (PSO only) [DOING 2026-04-22 on feature/transformer-mvp]
+- [ ] Rust `TransformerLayer` + `Layer::Transformer` + `LayerSpec::Transformer { d_model, n_heads, d_ffn, n_seq }` + `LayerState::Transformer { k_cache, v_cache }` + `TomlLayerSpec::Transformer`
+- [ ] `LayerWeights for TransformerLayer` + derived-at-load PE-offset pattern (`rebuild_pe_offsets` in both `from_flat_weights_v2` and `from_v2_json`)
+- [ ] Python `TransformerLayer` torch module (manual LN/GELU/softmax/MHA) + `TransformerSpec` pydantic + `build_layer` PPO-rejection guard
+- [ ] `_transformer_specs` (Xavier on projections + FFN, N(1,0.01) on LN gamma, near-zero on biases) + `_layer_n_params` / `_layer_output_size` / `init_v2_population` Transformer arms
+- [ ] Training config `msr_aller_transformer_pso_train.toml` + `compare_guidance` + `train_all.sh` registration
+- [ ] Cross-language equivalence + warm-up + PSO smoke + PPO-rejection tests (CI wiring)
+
+Spec: `docs/superpowers/specs/2026-04-22-phase-3a-transformer-mvp-design.md`.
+Plan: `docs/superpowers/plans/2026-04-22-phase-3a-transformer-mvp-plan.md`.
+
+### Phase 3b -- Transformer PPO-BPTT (follow-up)
+- [ ] Deferred from 3a. Requires `hidden_shapes` arm for stacked `(2, n_seq, d_model)` + per-env cache-length scalar, ndim-dispatch arm in `ppo_update_bptt`, PPO smoke + BPTT chunk-invariant tests, training TOML `msr_aller_transformer_ppo_train.toml`.
 
 ### Phase 4 -- Mamba (S6)
 - [ ] Rust SSM layer: input-dependent A, B, C; sequential scan at inference (no parallel scan needed)
