@@ -1,0 +1,66 @@
+base = ["../missions/mars.toml", "common.toml"]
+
+[guidance]
+type = "neural_network"
+
+[data]
+neural_network = "training_output/neural_network_transformer_pso/best_model.json"
+results_suffix = ".train_transformer_pso"
+
+[network]
+input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+
+[[network.architecture]]
+type = "dense"
+input_size = 23
+output_size = 32
+activation = "linear"
+
+[[network.architecture]]
+type = "transformer"
+d_model = 32
+n_heads = 4
+d_ffn = 64
+n_seq = 64
+
+[[network.architecture]]
+type = "dense"
+input_size = 32
+output_size = 2
+activation = "linear"
+
+[optimizer]
+algorithm = "pso"
+n_pop = 64
+n_gen = 2000
+seed_strategy = "adaptive"
+training_n_sims = 20
+validation_n_sims = 1000
+seed_pool_interval = 50
+curation_sample_size = 1000
+curation_top_k = 5
+
+[guidance.ftc]
+# Shared exit-phase controller params (unsigned-magnitude schemes; Transformer
+# bypasses exit guidance because it emits a signed bank angle via atan2).
+# Included for parity with the other neural_network_* configs; not used at
+# runtime for the Transformer guidance path.
+capture_damping = 0.7
+capture_frequency = 0.072
+capture_pdyn_margin = 1.75
+altitude_damping = 0.7
+altitude_frequency = 0.08
+exit_velocity_threshold = 4400.0
+exit_pdyn_margin = 1.75
+exit_altitude_threshold = 60.0
+exit_radial_vel_gain = 10.0
+exit_apoapsis_threshold = 100.0
+security_capture = 1
+security_exit = 3
+longi_activation = 1000.0
+longi_inhibition = -1000.0
+pdyn_min = 0.0
+pressure_coeff_base = -134.4
+pressure_coeff_scale_height = 6.9
+gain_fade_start_km = 80.0
+gain_fade_end_km = 100.0
