@@ -1,4 +1,4 @@
-"""load_policy_from_json raises NotImplementedError for Transformer layers."""
+"""Transformer is PSO-only in Phase 3a; PPO entry points must reject cleanly."""
 
 from __future__ import annotations
 
@@ -7,6 +7,14 @@ from pathlib import Path
 
 import pytest
 import torch
+from aerocapture.training.rl.layers import build_layer
+from aerocapture.training.rl.schemas import TransformerSpec
+
+
+def test_build_layer_rejects_transformer() -> None:
+    spec = TransformerSpec(type="transformer", d_model=4, n_heads=2, d_ffn=8, n_seq=4)
+    with pytest.raises(NotImplementedError, match="Transformer is PSO-only in Phase 3a"):
+        build_layer(spec)
 
 
 def test_load_policy_from_json_rejects_transformer(tmp_path: Path) -> None:
@@ -41,8 +49,6 @@ def test_load_policy_from_json_rejects_transformer(tmp_path: Path) -> None:
             },
             "layer_2": {"w": [[0.0] * 4] * 2, "b": [0.0] * 2},
         },
-        "input_mask": None,
-        "ablated_input": None,
     }
     path = tmp_path / "m.json"
     path.write_text(json.dumps(model_json))
