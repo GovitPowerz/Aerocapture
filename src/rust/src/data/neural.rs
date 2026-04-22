@@ -286,6 +286,62 @@ impl WindowLayer {
     }
 }
 
+/// 1-layer pre-norm Transformer block with causal window attention.
+///
+/// K/V cache lives in `LayerState::Transformer { k_cache, v_cache }`; this
+/// struct holds only the weights. `k_pe_offsets` and `v_pe_offsets` are
+/// derived at load time via `rebuild_pe_offsets`; they are NOT in the flat
+/// chromosome. Any mutation to `w_k` or `w_v` MUST be followed by a call
+/// to `rebuild_pe_offsets` before the next forward.
+#[derive(Debug, Clone)]
+pub struct TransformerLayer {
+    pub d_model: usize,
+    pub n_heads: usize,
+    pub d_head: usize,   // d_model / n_heads; validated at construction
+    pub d_ffn: usize,
+    pub n_seq: usize,
+
+    pub w_q: Vec<Vec<f64>>, pub b_q: Vec<f64>,
+    pub w_k: Vec<Vec<f64>>, pub b_k: Vec<f64>,
+    pub w_v: Vec<Vec<f64>>, pub b_v: Vec<f64>,
+    pub w_o: Vec<Vec<f64>>, pub b_o: Vec<f64>,
+
+    pub w_ffn1: Vec<Vec<f64>>, pub b_ffn1: Vec<f64>,
+    pub w_ffn2: Vec<Vec<f64>>, pub b_ffn2: Vec<f64>,
+
+    pub ln1_gamma: Vec<f64>, pub ln1_beta: Vec<f64>,
+    pub ln2_gamma: Vec<f64>, pub ln2_beta: Vec<f64>,
+
+    // Derived at load time; NOT part of the flat chromosome.
+    pub k_pe_offsets: Vec<Vec<f64>>,
+    pub v_pe_offsets: Vec<Vec<f64>>,
+}
+
+/// Sequential matrix-vector product: m is [rows][cols] (row-major), v is [cols].
+/// Deterministic FIFO reduction for cross-language bit-identity.
+pub(crate) fn matvec(m: &[Vec<f64>], v: &[f64]) -> Vec<f64> {
+    m.iter().map(|row| {
+        debug_assert_eq!(row.len(), v.len());
+        let mut acc = 0.0_f64;
+        for (a, b) in row.iter().zip(v) { acc += a * b; }
+        acc
+    }).collect()
+}
+
+impl TransformerLayer {
+    /// Recompute `k_pe_offsets[i] = W_K @ PE[i]` and `v_pe_offsets[i] = W_V @ PE[i]`
+    /// for i in 0..n_seq. Biases are NOT included in the PE offset (they are added
+    /// once per forward to the raw query/key projections, not through PE).
+    ///
+    /// Call this after any mutation to `w_k` or `w_v` -- specifically from both
+    /// `from_flat` and `from_v2_json` entry points.
+    pub fn rebuild_pe_offsets(&mut self) {
+        let pe = build_pe_table(self.n_seq, self.d_model);
+        self.k_pe_offsets = pe.iter().map(|p| matvec(&self.w_k, p)).collect();
+        self.v_pe_offsets = pe.iter().map(|p| matvec(&self.w_v, p)).collect();
+    }
+}
+
 /// Layer variant. Phase 1 ships Dense and Gru; Phase 2a adds Lstm; Phase 2b adds Window.
 #[derive(Debug, Clone)]
 pub enum Layer {
@@ -2269,5 +2325,37 @@ mod tests {
         // PE[1, 2] = sin(1.0 / 10000^(2/4)) = sin(1.0 / 100) = sin(0.01)
         assert!((pe[1][2] - 0.01_f64.sin()).abs() < 1e-14);
         assert!((pe[1][3] - 0.01_f64.cos()).abs() < 1e-14);
+    }
+
+    #[test]
+    fn transformer_layer_rebuild_pe_offsets_matches_matmul() {
+        // With W_K = W_V = identity, k_pe_offsets and v_pe_offsets should equal the raw PE table.
+        let d_model = 4;
+        let n_seq = 3;
+        let w_k: Vec<Vec<f64>> = (0..d_model).map(|i| {
+            (0..d_model).map(|j| if i == j { 1.0 } else { 0.0 }).collect()
+        }).collect();
+        let w_v: Vec<Vec<f64>> = w_k.clone();
+        let mut layer = TransformerLayer {
+            d_model, n_heads: 2, d_head: 2, d_ffn: 8, n_seq,
+            w_q: vec![vec![0.0; d_model]; d_model], b_q: vec![0.0; d_model],
+            w_k: w_k.clone(), b_k: vec![0.0; d_model],
+            w_v: w_v.clone(), b_v: vec![0.0; d_model],
+            w_o: vec![vec![0.0; d_model]; d_model], b_o: vec![0.0; d_model],
+            w_ffn1: vec![vec![0.0; d_model]; 8], b_ffn1: vec![0.0; 8],
+            w_ffn2: vec![vec![0.0; 8]; d_model], b_ffn2: vec![0.0; d_model],
+            ln1_gamma: vec![1.0; d_model], ln1_beta: vec![0.0; d_model],
+            ln2_gamma: vec![1.0; d_model], ln2_beta: vec![0.0; d_model],
+            k_pe_offsets: Vec::new(),
+            v_pe_offsets: Vec::new(),
+        };
+        layer.rebuild_pe_offsets();
+        let pe = build_pe_table(n_seq, d_model);
+        for i in 0..n_seq {
+            for j in 0..d_model {
+                assert!((layer.k_pe_offsets[i][j] - pe[i][j]).abs() < 1e-15);
+                assert!((layer.v_pe_offsets[i][j] - pe[i][j]).abs() < 1e-15);
+            }
+        }
     }
 }
