@@ -152,16 +152,33 @@ Plan: `docs/superpowers/plans/2026-04-20-phase-2b-window-mlp-plan.md`.
 **Closed by Phase 2b:**
 - [x] Zero-trainable-parameter scalar-state layers supported end-to-end (`_layer_param_specs` empty-list arm, `LayerWeights::from_flat` no-op with tail-tolerant assertion, `init_v2_population` `elif == "window"` continue branch).
 
-### Phase 3a -- Transformer MVP (PSO only) [DOING 2026-04-22 on feature/transformer-mvp]
-- [ ] Rust `TransformerLayer` + `Layer::Transformer` + `LayerSpec::Transformer { d_model, n_heads, d_ffn, n_seq }` + `LayerState::Transformer { k_cache, v_cache }` + `TomlLayerSpec::Transformer`
-- [ ] `LayerWeights for TransformerLayer` + derived-at-load PE-offset pattern (`rebuild_pe_offsets` in both `from_flat_weights_v2` and `from_v2_json`)
-- [ ] Python `TransformerLayer` torch module (manual LN/GELU/softmax/MHA) + `TransformerSpec` pydantic + `build_layer` PPO-rejection guard
-- [ ] `_transformer_specs` (Xavier on projections + FFN, N(1,0.01) on LN gamma, near-zero on biases) + `_layer_n_params` / `_layer_output_size` / `init_v2_population` Transformer arms
-- [ ] Training config `msr_aller_transformer_pso_train.toml` + `compare_guidance` + `train_all.sh` registration
-- [ ] Cross-language equivalence + warm-up + PSO smoke + PPO-rejection tests (CI wiring)
+### Phase 3a -- Transformer MVP (PSO only) [DONE 2026-04-22]
+
+Shipped on branch `feature/transformer-mvp` (~22 commits on top of main).
+Cross-language Transformer equivalence matches at sub machine epsilon (max abs diff 4.16e-17 -- tighter than GRU 4.4e-16 and Window 2.78e-16).
+PSO smoke + warm-up + equivalence + PyO3-flat-weights tests wired into the python-pyo3 CI job; PPO-rejection test in the main python job.
+
+- [x] Rust `TransformerLayer` + `Layer::Transformer(Box<TransformerLayer>)` + `LayerSpec::Transformer { d_model, n_heads, d_ffn, n_seq }` + `LayerState::Transformer { k_cache, v_cache }` + `TomlLayerSpec::Transformer`
+- [x] `LayerWeights for TransformerLayer` + derived-at-load PE-offset pattern (`rebuild_pe_offsets` in both `from_flat_weights_v2` and `from_v2_json`)
+- [x] Python `TransformerLayer` torch module (manual LN/GELU/softmax/MHA) + `TransformerSpec` pydantic + `build_layer` + `load_policy_from_json` PPO-rejection guards
+- [x] `_transformer_specs` (Xavier on projections + FFN, N(1,0.01) on LN gamma, near-zero on biases) + `_layer_n_params` / `_layer_output_size` / `init_v2_population` Transformer arms
+- [x] `export_v2_policy_to_json` writes 16-key flat weights dict matching Rust `NnLayerWeights`
+- [x] Training config `msr_aller_transformer_pso_train.toml` + `compare_guidance` + `train_all.sh` registration
+- [x] Cross-language equivalence + warm-up + PSO smoke + PPO-rejection tests (CI wiring)
 
 Spec: `docs/superpowers/specs/2026-04-22-phase-3a-transformer-mvp-design.md`.
 Plan: `docs/superpowers/plans/2026-04-22-phase-3a-transformer-mvp-plan.md`.
+
+**Out-of-Phase-3a carry-overs (still deferred):**
+- [ ] PPO-BPTT for Transformer (Phase 3b; requires `hidden_shapes` arm for stacked `(2, n_seq, d_model)` + per-env cache-length scalar, ndim-dispatch arm in `ppo_update_bptt`, PPO smoke + BPTT chunk-invariant tests, training TOML with `bptt_length = 32`).
+- [ ] SAC-Transformer (Phase 1.6 umbrella).
+- [ ] Recurrent critic (Phase 1.5 carry-over).
+- [ ] Widen `load_policy_from_json` to accept v1 JSON (Phase 0 carry-over).
+- [ ] Fix pre-existing clippy warnings in `src/rust/aerocapture-py/src/lib.rs`.
+- [ ] Multi-layer Transformer stacks (TOML-level; not exercised by 3a paper baseline).
+
+**Closed by Phase 3a:**
+- [x] Derived-at-load-time per-layer fields (PE-offset precompute) supported end-to-end for future Mamba / SSM layers.
 
 ### Phase 3b -- Transformer PPO-BPTT (follow-up)
 - [ ] Deferred from 3a. Requires `hidden_shapes` arm for stacked `(2, n_seq, d_model)` + per-env cache-length scalar, ndim-dispatch arm in `ppo_update_bptt`, PPO smoke + BPTT chunk-invariant tests, training TOML `msr_aller_transformer_ppo_train.toml`.
