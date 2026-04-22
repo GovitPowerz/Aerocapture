@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -109,8 +110,12 @@ class NetworkConfig:
         return self.n_base_coef
 
 
-def _layer_n_params(entry: dict) -> int:
+def _layer_n_params(entry: Any) -> int:
     """Parameter count for a single v2 architecture entry. Mirrors Rust LayerWeights::n_params."""
+    from aerocapture.training.rl.schemas import TransformerSpec
+
+    if isinstance(entry, TransformerSpec):
+        return 4 * entry.d_model * entry.d_model + 2 * entry.d_ffn * entry.d_model + entry.d_ffn + 9 * entry.d_model
     ltype = entry["type"]
     if ltype == "dense":
         return int(entry["input_size"]) * int(entry["output_size"]) + int(entry["output_size"])
@@ -124,6 +129,10 @@ def _layer_n_params(entry: dict) -> int:
         return 4 * h * i + 4 * h * h + 2 * 4 * h
     if ltype == "window":
         return 0  # zero trainable parameters
+    if ltype == "transformer":
+        d = int(entry["d_model"])
+        f = int(entry["d_ffn"])
+        return 4 * d * d + 2 * f * d + f + 9 * d
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
@@ -132,10 +141,14 @@ def _layer_input_size(entry: dict) -> int:
     return int(entry["input_size"])
 
 
-def _layer_output_size(entry: dict) -> int:
+def _layer_output_size(entry: Any) -> int:
     """Output size of a v2 layer entry. Dense: output_size. GRU/LSTM: hidden_size
     (the cell emits its hidden state to the next layer). Window: n_steps * input_size
-    (flattened ring buffer)."""
+    (flattened ring buffer). Transformer: d_model."""
+    from aerocapture.training.rl.schemas import TransformerSpec
+
+    if isinstance(entry, TransformerSpec):
+        return entry.d_model
     ltype = entry["type"]
     if ltype == "dense":
         return int(entry["output_size"])
@@ -145,6 +158,8 @@ def _layer_output_size(entry: dict) -> int:
         return int(entry["hidden_size"])
     if ltype == "window":
         return int(entry["input_size"]) * int(entry["n_steps"])
+    if ltype == "transformer":
+        return int(entry["d_model"])
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
@@ -163,6 +178,8 @@ def describe_architecture(network: NetworkConfig) -> str:
                 tail = f"hidden_size={entry['hidden_size']}"
             elif ltype == "window":
                 tail = f"n_steps={entry['n_steps']}"
+            elif ltype == "transformer":
+                tail = f"n_heads={entry['n_heads']}, d_ffn={entry['d_ffn']}, n_seq={entry['n_seq']}"
             else:
                 tail = ltype
             lines.append(f"  layer {i}: {ltype:<6} {in_size:>4} -> {out_size:<4} {tail}")
