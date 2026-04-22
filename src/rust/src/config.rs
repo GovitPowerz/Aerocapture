@@ -215,6 +215,12 @@ pub enum TomlLayerSpec {
         input_size: usize,
         n_steps: usize,
     },
+    Transformer {
+        d_model: usize,
+        n_heads: usize,
+        d_ffn: usize,
+        n_seq: usize,
+    },
 }
 
 impl TomlLayerSpec {
@@ -262,6 +268,29 @@ impl TomlLayerSpec {
                 Ok(LayerSpec::Window {
                     input_size: *input_size,
                     n_steps: *n_steps,
+                })
+            }
+            TomlLayerSpec::Transformer {
+                d_model,
+                n_heads,
+                d_ffn,
+                n_seq,
+            } => {
+                if *n_heads == 0 || *d_model % n_heads != 0 {
+                    return Err(ParseError(format!(
+                        "(transformer) d_model={d_model} not divisible by n_heads={n_heads}"
+                    )));
+                }
+                if *d_model == 0 || *d_ffn == 0 || *n_seq == 0 {
+                    return Err(ParseError(
+                        "(transformer) all shape fields must be positive".into(),
+                    ));
+                }
+                Ok(LayerSpec::Transformer {
+                    d_model: *d_model,
+                    n_heads: *n_heads,
+                    d_ffn: *d_ffn,
+                    n_seq: *n_seq,
                 })
             }
         }
@@ -1785,5 +1814,62 @@ n_steps = 8
             n_steps: 0,
         };
         assert!(zero_n_steps.to_layer_spec().is_err());
+    }
+
+    #[test]
+    fn toml_layer_spec_transformer_parses() {
+        let toml_str = r#"
+[[network.architecture]]
+type = "transformer"
+d_model = 32
+n_heads = 4
+d_ffn = 64
+n_seq = 64
+"#;
+        #[derive(serde::Deserialize)]
+        struct NetworkWrapper {
+            network: Network,
+        }
+        #[derive(serde::Deserialize)]
+        struct Network {
+            architecture: Vec<TomlLayerSpec>,
+        }
+        let w: NetworkWrapper = toml::from_str(toml_str).unwrap();
+        assert_eq!(w.network.architecture.len(), 1);
+        let spec = w.network.architecture[0].to_layer_spec().unwrap();
+        match spec {
+            crate::data::neural::LayerSpec::Transformer {
+                d_model,
+                n_heads,
+                d_ffn,
+                n_seq,
+            } => {
+                assert_eq!((d_model, n_heads, d_ffn, n_seq), (32, 4, 64, 64));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn toml_layer_spec_transformer_rejects_bad_heads() {
+        let toml_str = r#"
+[[network.architecture]]
+type = "transformer"
+d_model = 33
+n_heads = 4
+d_ffn = 64
+n_seq = 64
+"#;
+        #[derive(serde::Deserialize)]
+        struct NetworkWrapper {
+            network: Network,
+        }
+        #[derive(serde::Deserialize)]
+        struct Network {
+            architecture: Vec<TomlLayerSpec>,
+        }
+        let w: NetworkWrapper = toml::from_str(toml_str).unwrap();
+        let err = w.network.architecture[0].to_layer_spec().unwrap_err();
+        assert!(format!("{err}").contains("not divisible"));
     }
 }

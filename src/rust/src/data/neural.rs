@@ -32,7 +32,11 @@ pub(crate) fn layer_norm_biased(x: &[f64], gamma: &[f64], beta: &[f64], eps: f64
     }
     var /= n; // biased: 1/N, NOT Bessel 1/(N-1); matches torch nn.LayerNorm default.
     let inv_std = 1.0 / (var + eps).sqrt();
-    x.iter().zip(gamma).zip(beta).map(|((xi, g), b)| ((*xi - mean) * inv_std) * g + b).collect()
+    x.iter()
+        .zip(gamma)
+        .zip(beta)
+        .map(|((xi, g), b)| ((*xi - mean) * inv_std) * g + b)
+        .collect()
 }
 
 pub(crate) fn build_pe_table(n_seq: usize, d_model: usize) -> Vec<Vec<f64>> {
@@ -297,20 +301,28 @@ impl WindowLayer {
 pub struct TransformerLayer {
     pub d_model: usize,
     pub n_heads: usize,
-    pub d_head: usize,   // d_model / n_heads; validated at construction
+    pub d_head: usize, // d_model / n_heads; validated at construction
     pub d_ffn: usize,
     pub n_seq: usize,
 
-    pub w_q: Vec<Vec<f64>>, pub b_q: Vec<f64>,
-    pub w_k: Vec<Vec<f64>>, pub b_k: Vec<f64>,
-    pub w_v: Vec<Vec<f64>>, pub b_v: Vec<f64>,
-    pub w_o: Vec<Vec<f64>>, pub b_o: Vec<f64>,
+    pub w_q: Vec<Vec<f64>>,
+    pub b_q: Vec<f64>,
+    pub w_k: Vec<Vec<f64>>,
+    pub b_k: Vec<f64>,
+    pub w_v: Vec<Vec<f64>>,
+    pub b_v: Vec<f64>,
+    pub w_o: Vec<Vec<f64>>,
+    pub b_o: Vec<f64>,
 
-    pub w_ffn1: Vec<Vec<f64>>, pub b_ffn1: Vec<f64>,
-    pub w_ffn2: Vec<Vec<f64>>, pub b_ffn2: Vec<f64>,
+    pub w_ffn1: Vec<Vec<f64>>,
+    pub b_ffn1: Vec<f64>,
+    pub w_ffn2: Vec<Vec<f64>>,
+    pub b_ffn2: Vec<f64>,
 
-    pub ln1_gamma: Vec<f64>, pub ln1_beta: Vec<f64>,
-    pub ln2_gamma: Vec<f64>, pub ln2_beta: Vec<f64>,
+    pub ln1_gamma: Vec<f64>,
+    pub ln1_beta: Vec<f64>,
+    pub ln2_gamma: Vec<f64>,
+    pub ln2_beta: Vec<f64>,
 
     // Derived at load time; NOT part of the flat chromosome.
     pub k_pe_offsets: Vec<Vec<f64>>,
@@ -320,12 +332,16 @@ pub struct TransformerLayer {
 /// Sequential matrix-vector product: m is [rows][cols] (row-major), v is [cols].
 /// Deterministic FIFO reduction for cross-language bit-identity.
 pub(crate) fn matvec(m: &[Vec<f64>], v: &[f64]) -> Vec<f64> {
-    m.iter().map(|row| {
-        debug_assert_eq!(row.len(), v.len());
-        let mut acc = 0.0_f64;
-        for (a, b) in row.iter().zip(v) { acc += a * b; }
-        acc
-    }).collect()
+    m.iter()
+        .map(|row| {
+            debug_assert_eq!(row.len(), v.len());
+            let mut acc = 0.0_f64;
+            for (a, b) in row.iter().zip(v) {
+                acc += a * b;
+            }
+            acc
+        })
+        .collect()
 }
 
 /// Returns `(k_cached + k_pe_offset)[h_start..h_end]` element-wise.
@@ -334,7 +350,10 @@ pub(crate) fn matvec(m: &[Vec<f64>], v: &[f64]) -> Vec<f64> {
 /// d_model vector.
 #[inline]
 fn slot_k_eff_head(
-    k_cached: &[f64], k_pe_offset: &[f64], h_start: usize, h_end: usize,
+    k_cached: &[f64],
+    k_pe_offset: &[f64],
+    h_start: usize,
+    h_end: usize,
 ) -> Vec<f64> {
     let mut out = Vec::with_capacity(h_end - h_start);
     for j in h_start..h_end {
@@ -375,11 +394,17 @@ impl TransformerLayer {
 
         // 2. Q, K, V projections (with bias)
         let mut q = matvec(&self.w_q, &x_norm1);
-        for (qi, bi) in q.iter_mut().zip(&self.b_q) { *qi += bi; }
+        for (qi, bi) in q.iter_mut().zip(&self.b_q) {
+            *qi += bi;
+        }
         let mut k = matvec(&self.w_k, &x_norm1);
-        for (ki, bi) in k.iter_mut().zip(&self.b_k) { *ki += bi; }
+        for (ki, bi) in k.iter_mut().zip(&self.b_k) {
+            *ki += bi;
+        }
         let mut v = matvec(&self.w_v, &x_norm1);
-        for (vi, bi) in v.iter_mut().zip(&self.b_v) { *vi += bi; }
+        for (vi, bi) in v.iter_mut().zip(&self.b_v) {
+            *vi += bi;
+        }
 
         // 3. Push into cache, evict oldest if over capacity
         k_cache.push_back(k);
@@ -405,13 +430,19 @@ impl TransformerLayer {
             for (k_slot, k_pe) in k_cache.iter().zip(self.k_pe_offsets.iter()) {
                 let k_eff_h = slot_k_eff_head(k_slot, k_pe, h_start, h_end);
                 let mut s = 0.0;
-                for (a, b) in q_h.iter().zip(k_eff_h.iter()) { s += a * b; }
+                for (a, b) in q_h.iter().zip(k_eff_h.iter()) {
+                    s += a * b;
+                }
                 scores.push(s * inv_sqrt_d_head);
             }
 
             // Max-subtraction softmax, sequential FIFO
             let mut max_score = scores[0];
-            for s in &scores[1..] { if *s > max_score { max_score = *s; } }
+            for s in &scores[1..] {
+                if *s > max_score {
+                    max_score = *s;
+                }
+            }
             let mut exp_scores = Vec::with_capacity(cache_len);
             let mut exp_sum = 0.0;
             for s in &scores {
@@ -431,20 +462,32 @@ impl TransformerLayer {
 
         // 5. Output projection + residual
         let mut proj = matvec(&self.w_o, &attn_out);
-        for (pi, bi) in proj.iter_mut().zip(&self.b_o) { *pi += bi; }
+        for (pi, bi) in proj.iter_mut().zip(&self.b_o) {
+            *pi += bi;
+        }
         let mut x1 = vec![0.0; self.d_model];
-        for i in 0..self.d_model { x1[i] = x[i] + proj[i]; }
+        for i in 0..self.d_model {
+            x1[i] = x[i] + proj[i];
+        }
 
         // 6. LN2 + FFN + residual
         let x_norm2 = layer_norm_biased(&x1, &self.ln2_gamma, &self.ln2_beta, 1e-5);
         let mut hidden = matvec(&self.w_ffn1, &x_norm2);
-        for (hi, bi) in hidden.iter_mut().zip(&self.b_ffn1) { *hi += bi; }
-        for h in hidden.iter_mut() { *h = gelu_exact(*h); }
+        for (hi, bi) in hidden.iter_mut().zip(&self.b_ffn1) {
+            *hi += bi;
+        }
+        for h in hidden.iter_mut() {
+            *h = gelu_exact(*h);
+        }
         let mut ffn_out = matvec(&self.w_ffn2, &hidden);
-        for (fi, bi) in ffn_out.iter_mut().zip(&self.b_ffn2) { *fi += bi; }
+        for (fi, bi) in ffn_out.iter_mut().zip(&self.b_ffn2) {
+            *fi += bi;
+        }
 
         let mut out = vec![0.0; self.d_model];
-        for i in 0..self.d_model { out[i] = x1[i] + ffn_out[i]; }
+        for i in 0..self.d_model {
+            out[i] = x1[i] + ffn_out[i];
+        }
         out
     }
 }
@@ -643,15 +686,23 @@ impl LayerWeights for TransformerLayer {
 
     fn to_flat(&self) -> Vec<f64> {
         fn push_mat(out: &mut Vec<f64>, m: &[Vec<f64>]) {
-            for row in m { out.extend_from_slice(row); }
+            for row in m {
+                out.extend_from_slice(row);
+            }
         }
         let mut out = Vec::with_capacity(self.n_params());
-        push_mat(&mut out, &self.w_q);  out.extend_from_slice(&self.b_q);
-        push_mat(&mut out, &self.w_k);  out.extend_from_slice(&self.b_k);
-        push_mat(&mut out, &self.w_v);  out.extend_from_slice(&self.b_v);
-        push_mat(&mut out, &self.w_o);  out.extend_from_slice(&self.b_o);
-        push_mat(&mut out, &self.w_ffn1); out.extend_from_slice(&self.b_ffn1);
-        push_mat(&mut out, &self.w_ffn2); out.extend_from_slice(&self.b_ffn2);
+        push_mat(&mut out, &self.w_q);
+        out.extend_from_slice(&self.b_q);
+        push_mat(&mut out, &self.w_k);
+        out.extend_from_slice(&self.b_k);
+        push_mat(&mut out, &self.w_v);
+        out.extend_from_slice(&self.b_v);
+        push_mat(&mut out, &self.w_o);
+        out.extend_from_slice(&self.b_o);
+        push_mat(&mut out, &self.w_ffn1);
+        out.extend_from_slice(&self.b_ffn1);
+        push_mat(&mut out, &self.w_ffn2);
+        out.extend_from_slice(&self.b_ffn2);
         out.extend_from_slice(&self.ln1_gamma);
         out.extend_from_slice(&self.ln1_beta);
         out.extend_from_slice(&self.ln2_gamma);
@@ -679,14 +730,22 @@ impl LayerWeights for TransformerLayer {
         let f = self.d_ffn;
         let mut idx = 0;
 
-        self.w_q = read_mat(flat, &mut idx, d, d); self.b_q = read_vec(flat, &mut idx, d);
-        self.w_k = read_mat(flat, &mut idx, d, d); self.b_k = read_vec(flat, &mut idx, d);
-        self.w_v = read_mat(flat, &mut idx, d, d); self.b_v = read_vec(flat, &mut idx, d);
-        self.w_o = read_mat(flat, &mut idx, d, d); self.b_o = read_vec(flat, &mut idx, d);
-        self.w_ffn1 = read_mat(flat, &mut idx, f, d); self.b_ffn1 = read_vec(flat, &mut idx, f);
-        self.w_ffn2 = read_mat(flat, &mut idx, d, f); self.b_ffn2 = read_vec(flat, &mut idx, d);
-        self.ln1_gamma = read_vec(flat, &mut idx, d); self.ln1_beta = read_vec(flat, &mut idx, d);
-        self.ln2_gamma = read_vec(flat, &mut idx, d); self.ln2_beta = read_vec(flat, &mut idx, d);
+        self.w_q = read_mat(flat, &mut idx, d, d);
+        self.b_q = read_vec(flat, &mut idx, d);
+        self.w_k = read_mat(flat, &mut idx, d, d);
+        self.b_k = read_vec(flat, &mut idx, d);
+        self.w_v = read_mat(flat, &mut idx, d, d);
+        self.b_v = read_vec(flat, &mut idx, d);
+        self.w_o = read_mat(flat, &mut idx, d, d);
+        self.b_o = read_vec(flat, &mut idx, d);
+        self.w_ffn1 = read_mat(flat, &mut idx, f, d);
+        self.b_ffn1 = read_vec(flat, &mut idx, f);
+        self.w_ffn2 = read_mat(flat, &mut idx, d, f);
+        self.b_ffn2 = read_vec(flat, &mut idx, d);
+        self.ln1_gamma = read_vec(flat, &mut idx, d);
+        self.ln1_beta = read_vec(flat, &mut idx, d);
+        self.ln2_gamma = read_vec(flat, &mut idx, d);
+        self.ln2_beta = read_vec(flat, &mut idx, d);
 
         self.rebuild_pe_offsets();
         idx
@@ -1039,7 +1098,10 @@ impl NeuralNetModel {
                 LayerSpec::Dense { output_size, .. } => *output_size,
                 LayerSpec::Gru { hidden_size, .. } => *hidden_size,
                 LayerSpec::Lstm { hidden_size, .. } => *hidden_size,
-                LayerSpec::Window { input_size, n_steps } => *input_size * *n_steps,
+                LayerSpec::Window {
+                    input_size,
+                    n_steps,
+                } => *input_size * *n_steps,
                 LayerSpec::Transformer { d_model, .. } => *d_model,
             };
             let (next_in, next_label) = match &file.architecture[i + 1] {
@@ -1334,7 +1396,12 @@ impl NeuralNetModel {
                         n_steps: *n_steps,
                     }));
                 }
-                LayerSpec::Transformer { d_model, n_heads, d_ffn, n_seq } => {
+                LayerSpec::Transformer {
+                    d_model,
+                    n_heads,
+                    d_ffn,
+                    n_seq,
+                } => {
                     if *d_model == 0 || *n_heads == 0 || *d_ffn == 0 || *n_seq == 0 {
                         return Err(DataError(format!(
                             "Layer {} (transformer) all shape fields must be positive in {}",
@@ -1359,7 +1426,9 @@ impl NeuralNetModel {
                             lw.$field.as_ref().ok_or_else(|| {
                                 DataError(format!(
                                     "Layer {} (transformer) missing {} in {}",
-                                    i, stringify!($field), path
+                                    i,
+                                    stringify!($field),
+                                    path
                                 ))
                             })?
                         };
@@ -1369,26 +1438,43 @@ impl NeuralNetModel {
                             lw.$field.as_ref().ok_or_else(|| {
                                 DataError(format!(
                                     "Layer {} (transformer) missing {} in {}",
-                                    i, stringify!($field), path
+                                    i,
+                                    stringify!($field),
+                                    path
                                 ))
                             })?
                         };
                     }
 
-                    if i == 0 { layer_sizes.push(*d_model); }
+                    if i == 0 {
+                        layer_sizes.push(*d_model);
+                    }
                     layer_sizes.push(*d_model);
 
                     let mut layer = TransformerLayer {
-                        d_model: *d_model, n_heads: *n_heads, d_head, d_ffn: *d_ffn, n_seq: *n_seq,
-                        w_q: req_mat!(w_q).clone(), b_q: req_vec!(b_q).clone(),
-                        w_k: req_mat!(w_k).clone(), b_k: req_vec!(b_k).clone(),
-                        w_v: req_mat!(w_v).clone(), b_v: req_vec!(b_v).clone(),
-                        w_o: req_mat!(w_o).clone(), b_o: req_vec!(b_o).clone(),
-                        w_ffn1: req_mat!(w_ffn1).clone(), b_ffn1: req_vec!(b_ffn1).clone(),
-                        w_ffn2: req_mat!(w_ffn2).clone(), b_ffn2: req_vec!(b_ffn2).clone(),
-                        ln1_gamma: req_vec!(ln1_gamma).clone(), ln1_beta: req_vec!(ln1_beta).clone(),
-                        ln2_gamma: req_vec!(ln2_gamma).clone(), ln2_beta: req_vec!(ln2_beta).clone(),
-                        k_pe_offsets: Vec::new(), v_pe_offsets: Vec::new(),
+                        d_model: *d_model,
+                        n_heads: *n_heads,
+                        d_head,
+                        d_ffn: *d_ffn,
+                        n_seq: *n_seq,
+                        w_q: req_mat!(w_q).clone(),
+                        b_q: req_vec!(b_q).clone(),
+                        w_k: req_mat!(w_k).clone(),
+                        b_k: req_vec!(b_k).clone(),
+                        w_v: req_mat!(w_v).clone(),
+                        b_v: req_vec!(b_v).clone(),
+                        w_o: req_mat!(w_o).clone(),
+                        b_o: req_vec!(b_o).clone(),
+                        w_ffn1: req_mat!(w_ffn1).clone(),
+                        b_ffn1: req_vec!(b_ffn1).clone(),
+                        w_ffn2: req_mat!(w_ffn2).clone(),
+                        b_ffn2: req_vec!(b_ffn2).clone(),
+                        ln1_gamma: req_vec!(ln1_gamma).clone(),
+                        ln1_beta: req_vec!(ln1_beta).clone(),
+                        ln2_gamma: req_vec!(ln2_gamma).clone(),
+                        ln2_beta: req_vec!(ln2_beta).clone(),
+                        k_pe_offsets: Vec::new(),
+                        v_pe_offsets: Vec::new(),
                     };
                     layer.rebuild_pe_offsets();
                     layers.push(Layer::Transformer(Box::new(layer)));
@@ -1696,7 +1782,12 @@ impl NeuralNetModel {
                         n_steps: *n_steps,
                     })
                 }
-                LayerSpec::Transformer { d_model, n_heads, d_ffn, n_seq } => {
+                LayerSpec::Transformer {
+                    d_model,
+                    n_heads,
+                    d_ffn,
+                    n_seq,
+                } => {
                     if *n_heads == 0 || *d_model % *n_heads != 0 {
                         return Err(DataError(format!(
                             "from_flat_weights_v2: Transformer layer {} d_model={} not divisible by n_heads={}",
@@ -1711,16 +1802,29 @@ impl NeuralNetModel {
                     }
                     layer_sizes.push(d);
                     Layer::Transformer(Box::new(TransformerLayer {
-                        d_model: d, n_heads: *n_heads, d_head, d_ffn: f, n_seq: *n_seq,
-                        w_q: vec![vec![0.0; d]; d], b_q: vec![0.0; d],
-                        w_k: vec![vec![0.0; d]; d], b_k: vec![0.0; d],
-                        w_v: vec![vec![0.0; d]; d], b_v: vec![0.0; d],
-                        w_o: vec![vec![0.0; d]; d], b_o: vec![0.0; d],
-                        w_ffn1: vec![vec![0.0; d]; f], b_ffn1: vec![0.0; f],
-                        w_ffn2: vec![vec![0.0; f]; d], b_ffn2: vec![0.0; d],
-                        ln1_gamma: vec![1.0; d], ln1_beta: vec![0.0; d],
-                        ln2_gamma: vec![1.0; d], ln2_beta: vec![0.0; d],
-                        k_pe_offsets: Vec::new(), v_pe_offsets: Vec::new(),
+                        d_model: d,
+                        n_heads: *n_heads,
+                        d_head,
+                        d_ffn: f,
+                        n_seq: *n_seq,
+                        w_q: vec![vec![0.0; d]; d],
+                        b_q: vec![0.0; d],
+                        w_k: vec![vec![0.0; d]; d],
+                        b_k: vec![0.0; d],
+                        w_v: vec![vec![0.0; d]; d],
+                        b_v: vec![0.0; d],
+                        w_o: vec![vec![0.0; d]; d],
+                        b_o: vec![0.0; d],
+                        w_ffn1: vec![vec![0.0; d]; f],
+                        b_ffn1: vec![0.0; f],
+                        w_ffn2: vec![vec![0.0; f]; d],
+                        b_ffn2: vec![0.0; d],
+                        ln1_gamma: vec![1.0; d],
+                        ln1_beta: vec![0.0; d],
+                        ln2_gamma: vec![1.0; d],
+                        ln2_beta: vec![0.0; d],
+                        k_pe_offsets: Vec::new(),
+                        v_pe_offsets: Vec::new(),
                     }))
                 }
             };
@@ -2649,20 +2753,36 @@ mod tests {
         // With W_K = W_V = identity, k_pe_offsets and v_pe_offsets should equal the raw PE table.
         let d_model = 4;
         let n_seq = 3;
-        let w_k: Vec<Vec<f64>> = (0..d_model).map(|i| {
-            (0..d_model).map(|j| if i == j { 1.0 } else { 0.0 }).collect()
-        }).collect();
+        let w_k: Vec<Vec<f64>> = (0..d_model)
+            .map(|i| {
+                (0..d_model)
+                    .map(|j| if i == j { 1.0 } else { 0.0 })
+                    .collect()
+            })
+            .collect();
         let w_v: Vec<Vec<f64>> = w_k.clone();
         let mut layer = TransformerLayer {
-            d_model, n_heads: 2, d_head: 2, d_ffn: 8, n_seq,
-            w_q: vec![vec![0.0; d_model]; d_model], b_q: vec![0.0; d_model],
-            w_k: w_k.clone(), b_k: vec![0.0; d_model],
-            w_v: w_v.clone(), b_v: vec![0.0; d_model],
-            w_o: vec![vec![0.0; d_model]; d_model], b_o: vec![0.0; d_model],
-            w_ffn1: vec![vec![0.0; d_model]; 8], b_ffn1: vec![0.0; 8],
-            w_ffn2: vec![vec![0.0; 8]; d_model], b_ffn2: vec![0.0; d_model],
-            ln1_gamma: vec![1.0; d_model], ln1_beta: vec![0.0; d_model],
-            ln2_gamma: vec![1.0; d_model], ln2_beta: vec![0.0; d_model],
+            d_model,
+            n_heads: 2,
+            d_head: 2,
+            d_ffn: 8,
+            n_seq,
+            w_q: vec![vec![0.0; d_model]; d_model],
+            b_q: vec![0.0; d_model],
+            w_k: w_k.clone(),
+            b_k: vec![0.0; d_model],
+            w_v: w_v.clone(),
+            b_v: vec![0.0; d_model],
+            w_o: vec![vec![0.0; d_model]; d_model],
+            b_o: vec![0.0; d_model],
+            w_ffn1: vec![vec![0.0; d_model]; 8],
+            b_ffn1: vec![0.0; 8],
+            w_ffn2: vec![vec![0.0; 8]; d_model],
+            b_ffn2: vec![0.0; d_model],
+            ln1_gamma: vec![1.0; d_model],
+            ln1_beta: vec![0.0; d_model],
+            ln2_gamma: vec![1.0; d_model],
+            ln2_beta: vec![0.0; d_model],
             k_pe_offsets: Vec::new(),
             v_pe_offsets: Vec::new(),
         };
@@ -2685,14 +2805,24 @@ mod tests {
         //   x1 = x + W_O @ 0 + b_o = x
         //   ffn_out = 0
         //   out = x1 + 0 = x
-        let d_model = 4; let n_heads = 2; let d_ffn = 8; let n_seq = 3;
+        let d_model = 4;
+        let n_heads = 2;
+        let d_ffn = 8;
+        let n_seq = 3;
         let layer = make_zero_transformer(d_model, n_heads, d_ffn, n_seq);
         let mut k_cache = std::collections::VecDeque::new();
         let mut v_cache = std::collections::VecDeque::new();
         let x = vec![1.0, 2.0, 3.0, 4.0];
         let out = layer.forward(&x, &mut k_cache, &mut v_cache);
         for i in 0..d_model {
-            assert!((out[i] - x[i]).abs() < 1e-12, "out[{}]={} x[{}]={}", i, out[i], i, x[i]);
+            assert!(
+                (out[i] - x[i]).abs() < 1e-12,
+                "out[{}]={} x[{}]={}",
+                i,
+                out[i],
+                i,
+                x[i]
+            );
         }
         assert_eq!(k_cache.len(), 1);
         assert_eq!(v_cache.len(), 1);
@@ -2700,7 +2830,10 @@ mod tests {
 
     #[test]
     fn transformer_forward_cache_grows_then_saturates() {
-        let d_model = 4; let n_heads = 2; let d_ffn = 8; let n_seq = 3;
+        let d_model = 4;
+        let n_heads = 2;
+        let d_ffn = 8;
+        let n_seq = 3;
         let mut layer = make_zero_transformer(d_model, n_heads, d_ffn, n_seq);
         layer.w_k[0][0] = 1.0;
         layer.rebuild_pe_offsets();
@@ -2716,20 +2849,36 @@ mod tests {
         assert_eq!(k_cache.len(), 3);
     }
 
-    fn make_zero_transformer(d_model: usize, n_heads: usize, d_ffn: usize, n_seq: usize)
-        -> TransformerLayer
-    {
+    fn make_zero_transformer(
+        d_model: usize,
+        n_heads: usize,
+        d_ffn: usize,
+        n_seq: usize,
+    ) -> TransformerLayer {
         let mut layer = TransformerLayer {
-            d_model, n_heads, d_head: d_model / n_heads, d_ffn, n_seq,
-            w_q: vec![vec![0.0; d_model]; d_model], b_q: vec![0.0; d_model],
-            w_k: vec![vec![0.0; d_model]; d_model], b_k: vec![0.0; d_model],
-            w_v: vec![vec![0.0; d_model]; d_model], b_v: vec![0.0; d_model],
-            w_o: vec![vec![0.0; d_model]; d_model], b_o: vec![0.0; d_model],
-            w_ffn1: vec![vec![0.0; d_model]; d_ffn], b_ffn1: vec![0.0; d_ffn],
-            w_ffn2: vec![vec![0.0; d_ffn]; d_model], b_ffn2: vec![0.0; d_model],
-            ln1_gamma: vec![1.0; d_model], ln1_beta: vec![0.0; d_model],
-            ln2_gamma: vec![1.0; d_model], ln2_beta: vec![0.0; d_model],
-            k_pe_offsets: Vec::new(), v_pe_offsets: Vec::new(),
+            d_model,
+            n_heads,
+            d_head: d_model / n_heads,
+            d_ffn,
+            n_seq,
+            w_q: vec![vec![0.0; d_model]; d_model],
+            b_q: vec![0.0; d_model],
+            w_k: vec![vec![0.0; d_model]; d_model],
+            b_k: vec![0.0; d_model],
+            w_v: vec![vec![0.0; d_model]; d_model],
+            b_v: vec![0.0; d_model],
+            w_o: vec![vec![0.0; d_model]; d_model],
+            b_o: vec![0.0; d_model],
+            w_ffn1: vec![vec![0.0; d_model]; d_ffn],
+            b_ffn1: vec![0.0; d_ffn],
+            w_ffn2: vec![vec![0.0; d_ffn]; d_model],
+            b_ffn2: vec![0.0; d_model],
+            ln1_gamma: vec![1.0; d_model],
+            ln1_beta: vec![0.0; d_model],
+            ln2_gamma: vec![1.0; d_model],
+            ln2_beta: vec![0.0; d_model],
+            k_pe_offsets: Vec::new(),
+            v_pe_offsets: Vec::new(),
         };
         layer.rebuild_pe_offsets();
         layer
@@ -2738,14 +2887,22 @@ mod tests {
     #[test]
     fn layer_spec_transformer_variant_serializes() {
         let spec = LayerSpec::Transformer {
-            d_model: 32, n_heads: 4, d_ffn: 64, n_seq: 64,
+            d_model: 32,
+            n_heads: 4,
+            d_ffn: 64,
+            n_seq: 64,
         };
         let json = serde_json::to_string(&spec).unwrap();
         assert!(json.contains("\"type\":\"transformer\""));
         assert!(json.contains("\"d_model\":32"));
         let round: LayerSpec = serde_json::from_str(&json).unwrap();
         match round {
-            LayerSpec::Transformer { d_model, n_heads, d_ffn, n_seq } => {
+            LayerSpec::Transformer {
+                d_model,
+                n_heads,
+                d_ffn,
+                n_seq,
+            } => {
                 assert_eq!((d_model, n_heads, d_ffn, n_seq), (32, 4, 64, 64));
             }
             _ => panic!("wrong variant"),
@@ -2754,7 +2911,10 @@ mod tests {
 
     #[test]
     fn transformer_layer_weights_flat_roundtrip() {
-        let d_model = 4usize; let n_heads = 2; let d_ffn = 6; let n_seq = 3;
+        let d_model = 4usize;
+        let n_heads = 2;
+        let d_ffn = 6;
+        let n_seq = 3;
         // n_params = 4*d_model^2 + 2*d_ffn*d_model + d_ffn + 9*d_model
         //          = 4*16 + 2*24 + 6 + 36 = 64 + 48 + 6 + 36 = 154
         let n_params = 4 * d_model * d_model + 2 * d_ffn * d_model + d_ffn + 9 * d_model;
@@ -2763,20 +2923,33 @@ mod tests {
         let flat: Vec<f64> = (0..n_params).map(|i| (i as f64) * 0.01 + 0.5).collect();
 
         let mut layer = TransformerLayer {
-            d_model, n_heads, d_head: d_model / n_heads, d_ffn, n_seq,
-            w_q: vec![vec![0.0; d_model]; d_model], b_q: vec![0.0; d_model],
-            w_k: vec![vec![0.0; d_model]; d_model], b_k: vec![0.0; d_model],
-            w_v: vec![vec![0.0; d_model]; d_model], b_v: vec![0.0; d_model],
-            w_o: vec![vec![0.0; d_model]; d_model], b_o: vec![0.0; d_model],
-            w_ffn1: vec![vec![0.0; d_model]; d_ffn], b_ffn1: vec![0.0; d_ffn],
-            w_ffn2: vec![vec![0.0; d_ffn]; d_model], b_ffn2: vec![0.0; d_model],
-            ln1_gamma: vec![1.0; d_model], ln1_beta: vec![0.0; d_model],
-            ln2_gamma: vec![1.0; d_model], ln2_beta: vec![0.0; d_model],
-            k_pe_offsets: Vec::new(), v_pe_offsets: Vec::new(),
+            d_model,
+            n_heads,
+            d_head: d_model / n_heads,
+            d_ffn,
+            n_seq,
+            w_q: vec![vec![0.0; d_model]; d_model],
+            b_q: vec![0.0; d_model],
+            w_k: vec![vec![0.0; d_model]; d_model],
+            b_k: vec![0.0; d_model],
+            w_v: vec![vec![0.0; d_model]; d_model],
+            b_v: vec![0.0; d_model],
+            w_o: vec![vec![0.0; d_model]; d_model],
+            b_o: vec![0.0; d_model],
+            w_ffn1: vec![vec![0.0; d_model]; d_ffn],
+            b_ffn1: vec![0.0; d_ffn],
+            w_ffn2: vec![vec![0.0; d_ffn]; d_model],
+            b_ffn2: vec![0.0; d_model],
+            ln1_gamma: vec![1.0; d_model],
+            ln1_beta: vec![0.0; d_model],
+            ln2_gamma: vec![1.0; d_model],
+            ln2_beta: vec![0.0; d_model],
+            k_pe_offsets: Vec::new(),
+            v_pe_offsets: Vec::new(),
         };
         let consumed = layer.from_flat(&flat);
         assert_eq!(consumed, n_params);
-        assert_eq!(layer.k_pe_offsets.len(), n_seq);  // rebuild_pe_offsets ran
+        assert_eq!(layer.k_pe_offsets.len(), n_seq); // rebuild_pe_offsets ran
         assert_eq!(layer.v_pe_offsets.len(), n_seq);
 
         let round = layer.to_flat();
@@ -2795,10 +2968,22 @@ mod tests {
 
     #[test]
     fn transformer_from_flat_weights_v2_roundtrip() {
-        let d_model = 4; let n_heads = 2; let d_ffn = 6; let n_seq = 3;
+        let d_model = 4;
+        let n_heads = 2;
+        let d_ffn = 6;
+        let n_seq = 3;
         let arch = vec![
-            LayerSpec::Transformer { d_model, n_heads, d_ffn, n_seq },
-            LayerSpec::Dense { input_size: d_model, output_size: 2, activation: Activation::Linear },
+            LayerSpec::Transformer {
+                d_model,
+                n_heads,
+                d_ffn,
+                n_seq,
+            },
+            LayerSpec::Dense {
+                input_size: d_model,
+                output_size: 2,
+                activation: Activation::Linear,
+            },
         ];
         // Transformer: 154 params; Dense(4->2): 4*2 + 2 = 10 params
         let total = 154 + 10;
@@ -2825,7 +3010,12 @@ mod tests {
                 output_size: d_model,
                 activation: Activation::Linear,
             },
-            LayerSpec::Transformer { d_model, n_heads, d_ffn, n_seq },
+            LayerSpec::Transformer {
+                d_model,
+                n_heads,
+                d_ffn,
+                n_seq,
+            },
             LayerSpec::Dense {
                 input_size: d_model,
                 output_size: 2,
@@ -2854,7 +3044,9 @@ mod tests {
             //   = 4*16 + 2*8*4 + 8 + 9*4 = 64 + 64 + 8 + 36 = 172
             36 + 172 + 10
         };
-        let flat: Vec<f64> = (0..dummy_flat_len).map(|i| (i as f64) * 0.003 - 0.7).collect();
+        let flat: Vec<f64> = (0..dummy_flat_len)
+            .map(|i| (i as f64) * 0.003 - 0.7)
+            .collect();
         let model = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None).unwrap();
         assert_eq!(model.n_params(), dummy_flat_len);
 
@@ -2871,7 +3063,10 @@ mod tests {
         let loaded_flat = loaded.to_flat_weights();
         assert_eq!(orig_flat.len(), loaded_flat.len());
         for (i, (a, b)) in orig_flat.iter().zip(loaded_flat.iter()).enumerate() {
-            assert!((a - b).abs() < 1e-15, "roundtrip mismatch at {i}: {a} vs {b}");
+            assert!(
+                (a - b).abs() < 1e-15,
+                "roundtrip mismatch at {i}: {a} vs {b}"
+            );
         }
 
         // Architecture spec must be identical.
@@ -2900,9 +3095,22 @@ mod tests {
         // Dense(4->4) -> Transformer(d_model=4, n_heads=2, d_ffn=8, n_seq=3) -> Dense(4->2)
         // n_params: Dense=20, Transformer=4*4*4 + 2*8*4 + 8 + 9*4 = 172, Dense=10, total=202
         let architecture = vec![
-            LayerSpec::Dense { input_size: 4, output_size: 4, activation: Activation::Linear },
-            LayerSpec::Transformer { d_model: 4, n_heads: 2, d_ffn: 8, n_seq: 3 },
-            LayerSpec::Dense { input_size: 4, output_size: 2, activation: Activation::Linear },
+            LayerSpec::Dense {
+                input_size: 4,
+                output_size: 4,
+                activation: Activation::Linear,
+            },
+            LayerSpec::Transformer {
+                d_model: 4,
+                n_heads: 2,
+                d_ffn: 8,
+                n_seq: 3,
+            },
+            LayerSpec::Dense {
+                input_size: 4,
+                output_size: 2,
+                activation: Activation::Linear,
+            },
         ];
         let flat: Vec<f64> = (0..202).map(|i| ((i % 7) as f64) * 0.01).collect();
         let model = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None).unwrap();
