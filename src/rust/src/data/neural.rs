@@ -449,14 +449,15 @@ impl TransformerLayer {
     }
 }
 
-/// Layer variant. Phase 1 ships Dense and Gru; Phase 2a adds Lstm; Phase 2b adds Window.
+/// Layer variant. Phase 1 ships Dense and Gru; Phase 2a adds Lstm; Phase 2b adds Window; Phase 3a adds Transformer.
 #[derive(Debug, Clone)]
 pub enum Layer {
     Dense(DenseLayer),
     Gru(GruLayer),
     Lstm(LstmLayer),
     Window(WindowLayer),
-    // Phases 3-4 add: Attention, LayerNorm, Ssm
+    // Boxed: TransformerLayer is 472 bytes vs 112 for GruLayer; boxing keeps enum size uniform.
+    Transformer(Box<TransformerLayer>),
 }
 
 impl Layer {
@@ -473,6 +474,7 @@ impl Layer {
             Layer::Gru(g) => g.input_size,
             Layer::Lstm(l) => l.input_size,
             Layer::Window(w) => w.input_size,
+            Layer::Transformer(t) => t.d_model,
         }
     }
 }
@@ -638,6 +640,7 @@ impl LayerWeights for Layer {
             Layer::Gru(g) => g.to_flat(),
             Layer::Lstm(l) => l.to_flat(),
             Layer::Window(w) => w.to_flat(),
+            Layer::Transformer(_) => todo!("Phase 3a Task 5: LayerWeights for TransformerLayer"),
         }
     }
 
@@ -648,6 +651,7 @@ impl LayerWeights for Layer {
             Layer::Gru(g) => g.from_flat(flat),
             Layer::Lstm(l) => l.from_flat(flat),
             Layer::Window(w) => w.from_flat(flat),
+            Layer::Transformer(_) => todo!("Phase 3a Task 5: LayerWeights for TransformerLayer"),
         }
     }
 
@@ -657,6 +661,7 @@ impl LayerWeights for Layer {
             Layer::Gru(g) => g.n_params(),
             Layer::Lstm(l) => l.n_params(),
             Layer::Window(w) => w.n_params(),
+            Layer::Transformer(_) => todo!("Phase 3a Task 5: LayerWeights for TransformerLayer"),
         }
     }
 }
@@ -720,7 +725,12 @@ pub enum LayerSpec {
         input_size: usize,
         n_steps: usize,
     },
-    // Phases 3+: Attention, LayerNorm, Ssm
+    Transformer {
+        d_model: usize,
+        n_heads: usize,
+        d_ffn: usize,
+        n_seq: usize,
+    },
 }
 
 /// JSON file structure for neural network models (v2 schema).
@@ -932,22 +942,22 @@ impl NeuralNetModel {
                 LayerSpec::Dense { output_size, .. } => *output_size,
                 LayerSpec::Gru { hidden_size, .. } => *hidden_size,
                 LayerSpec::Lstm { hidden_size, .. } => *hidden_size,
-                LayerSpec::Window {
-                    input_size,
-                    n_steps,
-                } => *input_size * *n_steps,
+                LayerSpec::Window { input_size, n_steps } => *input_size * *n_steps,
+                LayerSpec::Transformer { d_model, .. } => *d_model,
             };
             let (next_in, next_label) = match &file.architecture[i + 1] {
                 LayerSpec::Dense { input_size, .. } => (*input_size, "dense"),
                 LayerSpec::Gru { input_size, .. } => (*input_size, "gru"),
                 LayerSpec::Lstm { input_size, .. } => (*input_size, "lstm"),
                 LayerSpec::Window { input_size, .. } => (*input_size, "window"),
+                LayerSpec::Transformer { d_model, .. } => (*d_model, "transformer"),
             };
             let prev_label = match &file.architecture[i] {
                 LayerSpec::Dense { .. } => "dense",
                 LayerSpec::Gru { .. } => "gru",
                 LayerSpec::Lstm { .. } => "lstm",
                 LayerSpec::Window { .. } => "window",
+                LayerSpec::Transformer { .. } => "transformer",
             };
             if prev_out != next_in {
                 return Err(DataError(format!(
@@ -1227,6 +1237,9 @@ impl NeuralNetModel {
                         n_steps: *n_steps,
                     }));
                 }
+                LayerSpec::Transformer { .. } => {
+                    todo!("Phase 3a Task 6: from_v2_json for TransformerLayer")
+                }
             }
         }
 
@@ -1277,6 +1290,7 @@ impl NeuralNetModel {
                 },
                 // Window is zero-param; skip the weights entry entirely.
                 Layer::Window(_) => continue,
+                Layer::Transformer(_) => todo!("Phase 3a Task 6: save_json for TransformerLayer"),
             };
             weights.insert(format!("layer_{}", i), entry);
         }
@@ -1346,8 +1360,11 @@ impl NeuralNetModel {
                 (Layer::Window(w), LayerState::Window { buffer }) => {
                     current = w.forward(&current, buffer);
                 }
+                (Layer::Transformer(_t), LayerState::Transformer { .. }) => {
+                    todo!("Phase 3a Task 7: forward dispatch for TransformerLayer")
+                }
                 _ => unreachable!(
-                    "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None, Layer::Gru -> Gru, Layer::Lstm -> Lstm, Layer::Window -> Window)"
+                    "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None, Layer::Gru -> Gru, Layer::Lstm -> Lstm, Layer::Window -> Window, Layer::Transformer -> Transformer)"
                 ),
             }
         }
@@ -1512,6 +1529,9 @@ impl NeuralNetModel {
                         input_size: *input_size,
                         n_steps: *n_steps,
                     })
+                }
+                LayerSpec::Transformer { .. } => {
+                    todo!("Phase 3a Task 5: from_flat_weights_v2 for TransformerLayer")
                 }
             };
             let needed = layer.n_params();
@@ -2523,5 +2543,22 @@ mod tests {
         };
         layer.rebuild_pe_offsets();
         layer
+    }
+
+    #[test]
+    fn layer_spec_transformer_variant_serializes() {
+        let spec = LayerSpec::Transformer {
+            d_model: 32, n_heads: 4, d_ffn: 64, n_seq: 64,
+        };
+        let json = serde_json::to_string(&spec).unwrap();
+        assert!(json.contains("\"type\":\"transformer\""));
+        assert!(json.contains("\"d_model\":32"));
+        let round: LayerSpec = serde_json::from_str(&json).unwrap();
+        match round {
+            LayerSpec::Transformer { d_model, n_heads, d_ffn, n_seq } => {
+                assert_eq!((d_model, n_heads, d_ffn, n_seq), (32, 4, 64, 64));
+            }
+            _ => panic!("wrong variant"),
+        }
     }
 }
