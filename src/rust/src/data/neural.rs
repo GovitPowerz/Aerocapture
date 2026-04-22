@@ -748,12 +748,14 @@ struct NnArchitecture {
     activations: Vec<Activation>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct NnLayerWeights {
+    // Dense fields
     #[serde(skip_serializing_if = "Option::is_none", default)]
     w: Option<Vec<Vec<f64>>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     b: Option<Vec<f64>>,
+    // GRU / LSTM fields
     #[serde(skip_serializing_if = "Option::is_none", default)]
     weight_ih: Option<Vec<Vec<f64>>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -762,6 +764,41 @@ struct NnLayerWeights {
     bias_ih: Option<Vec<f64>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     bias_hh: Option<Vec<f64>>,
+    // Transformer attention projection fields
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    w_q: Option<Vec<Vec<f64>>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    b_q: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    w_k: Option<Vec<Vec<f64>>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    b_k: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    w_v: Option<Vec<Vec<f64>>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    b_v: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    w_o: Option<Vec<Vec<f64>>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    b_o: Option<Vec<f64>>,
+    // Transformer FFN fields
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    w_ffn1: Option<Vec<Vec<f64>>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    b_ffn1: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    w_ffn2: Option<Vec<Vec<f64>>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    b_ffn2: Option<Vec<f64>>,
+    // Transformer LayerNorm fields (ln1 / ln2)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    ln1_gamma: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    ln1_beta: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    ln2_gamma: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    ln2_beta: Option<Vec<f64>>,
 }
 
 /// v2 layer spec: tagged-union over the layer type.
@@ -1297,8 +1334,64 @@ impl NeuralNetModel {
                         n_steps: *n_steps,
                     }));
                 }
-                LayerSpec::Transformer { .. } => {
-                    todo!("Phase 3a Task 6: from_v2_json for TransformerLayer")
+                LayerSpec::Transformer { d_model, n_heads, d_ffn, n_seq } => {
+                    if *d_model == 0 || *n_heads == 0 || *d_ffn == 0 || *n_seq == 0 {
+                        return Err(DataError(format!(
+                            "Layer {} (transformer) all shape fields must be positive in {}",
+                            i, path
+                        )));
+                    }
+                    if d_model % n_heads != 0 {
+                        return Err(DataError(format!(
+                            "Layer {} (transformer) d_model={} not divisible by n_heads={} in {}",
+                            i, d_model, n_heads, path
+                        )));
+                    }
+                    let d_head = d_model / n_heads;
+
+                    let key = format!("layer_{}", i);
+                    let lw = file.weights.get(&key).ok_or_else(|| {
+                        DataError(format!("Missing {} in weights in {}", key, path))
+                    })?;
+
+                    macro_rules! req_mat {
+                        ($field:ident) => {
+                            lw.$field.as_ref().ok_or_else(|| {
+                                DataError(format!(
+                                    "Layer {} (transformer) missing {} in {}",
+                                    i, stringify!($field), path
+                                ))
+                            })?
+                        };
+                    }
+                    macro_rules! req_vec {
+                        ($field:ident) => {
+                            lw.$field.as_ref().ok_or_else(|| {
+                                DataError(format!(
+                                    "Layer {} (transformer) missing {} in {}",
+                                    i, stringify!($field), path
+                                ))
+                            })?
+                        };
+                    }
+
+                    if i == 0 { layer_sizes.push(*d_model); }
+                    layer_sizes.push(*d_model);
+
+                    let mut layer = TransformerLayer {
+                        d_model: *d_model, n_heads: *n_heads, d_head, d_ffn: *d_ffn, n_seq: *n_seq,
+                        w_q: req_mat!(w_q).clone(), b_q: req_vec!(b_q).clone(),
+                        w_k: req_mat!(w_k).clone(), b_k: req_vec!(b_k).clone(),
+                        w_v: req_mat!(w_v).clone(), b_v: req_vec!(b_v).clone(),
+                        w_o: req_mat!(w_o).clone(), b_o: req_vec!(b_o).clone(),
+                        w_ffn1: req_mat!(w_ffn1).clone(), b_ffn1: req_vec!(b_ffn1).clone(),
+                        w_ffn2: req_mat!(w_ffn2).clone(), b_ffn2: req_vec!(b_ffn2).clone(),
+                        ln1_gamma: req_vec!(ln1_gamma).clone(), ln1_beta: req_vec!(ln1_beta).clone(),
+                        ln2_gamma: req_vec!(ln2_gamma).clone(), ln2_beta: req_vec!(ln2_beta).clone(),
+                        k_pe_offsets: Vec::new(), v_pe_offsets: Vec::new(),
+                    };
+                    layer.rebuild_pe_offsets();
+                    layers.push(Layer::Transformer(Box::new(layer)));
                 }
             }
         }
@@ -1327,30 +1420,43 @@ impl NeuralNetModel {
                 Layer::Dense(d) => NnLayerWeights {
                     w: Some(d.w.clone()),
                     b: Some(d.b.clone()),
-                    weight_ih: None,
-                    weight_hh: None,
-                    bias_ih: None,
-                    bias_hh: None,
+                    ..NnLayerWeights::default()
                 },
                 Layer::Gru(g) => NnLayerWeights {
-                    w: None,
-                    b: None,
                     weight_ih: Some(g.weight_ih.clone()),
                     weight_hh: Some(g.weight_hh.clone()),
                     bias_ih: Some(g.bias_ih.clone()),
                     bias_hh: Some(g.bias_hh.clone()),
+                    ..NnLayerWeights::default()
                 },
                 Layer::Lstm(l) => NnLayerWeights {
-                    w: None,
-                    b: None,
                     weight_ih: Some(l.weight_ih.clone()),
                     weight_hh: Some(l.weight_hh.clone()),
                     bias_ih: Some(l.bias_ih.clone()),
                     bias_hh: Some(l.bias_hh.clone()),
+                    ..NnLayerWeights::default()
                 },
                 // Window is zero-param; skip the weights entry entirely.
                 Layer::Window(_) => continue,
-                Layer::Transformer(_) => todo!("Phase 3a Task 6: save_json for TransformerLayer"),
+                Layer::Transformer(t) => NnLayerWeights {
+                    w_q: Some(t.w_q.clone()),
+                    b_q: Some(t.b_q.clone()),
+                    w_k: Some(t.w_k.clone()),
+                    b_k: Some(t.b_k.clone()),
+                    w_v: Some(t.w_v.clone()),
+                    b_v: Some(t.b_v.clone()),
+                    w_o: Some(t.w_o.clone()),
+                    b_o: Some(t.b_o.clone()),
+                    w_ffn1: Some(t.w_ffn1.clone()),
+                    b_ffn1: Some(t.b_ffn1.clone()),
+                    w_ffn2: Some(t.w_ffn2.clone()),
+                    b_ffn2: Some(t.b_ffn2.clone()),
+                    ln1_gamma: Some(t.ln1_gamma.clone()),
+                    ln1_beta: Some(t.ln1_beta.clone()),
+                    ln2_gamma: Some(t.ln2_gamma.clone()),
+                    ln2_beta: Some(t.ln2_beta.clone()),
+                    ..NnLayerWeights::default()
+                },
             };
             weights.insert(format!("layer_{}", i), entry);
         }
@@ -2702,6 +2808,90 @@ mod tests {
         assert_eq!(round.len(), total);
         for (i, (a, b)) in flat.iter().zip(round.iter()).enumerate() {
             assert!((a - b).abs() < 1e-15, "mismatch at index {i}: {a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn transformer_json_v2_save_load_roundtrip() {
+        // Dense(8->4,linear) -> Transformer(d_model=4, n_heads=2, d_ffn=8, n_seq=3) -> Dense(4->2,linear)
+        let d_model = 4usize;
+        let n_heads = 2usize;
+        let d_ffn = 8usize;
+        let n_seq = 3usize;
+
+        let architecture = vec![
+            LayerSpec::Dense {
+                input_size: 8,
+                output_size: d_model,
+                activation: Activation::Linear,
+            },
+            LayerSpec::Transformer { d_model, n_heads, d_ffn, n_seq },
+            LayerSpec::Dense {
+                input_size: d_model,
+                output_size: 2,
+                activation: Activation::Linear,
+            },
+        ];
+
+        // Dense(8->4): 8*4 + 4 = 36 params
+        // Transformer(d=4, f=8): 4*4*4 (QKV each d*d) + 4*4 (w_o, d*d) + 8*4 (w_ffn1, f*d)
+        //   + 4*8 (w_ffn2, d*f) + 4 biases each for b_q/b_k/b_v/b_o/b_ffn1/b_ffn2 + 2*4 ln params * 2
+        //   = LayerWeights::n_params = 4*4*4 + 2*8*4 + 8 + 9*4 = ...
+        // Use n_params() directly from the model.
+        let dummy_flat_len = {
+            // Build a zero model to get n_params without needing the exact formula.
+            let mut sizes = vec![0usize];
+            for spec in &architecture {
+                let out = match spec {
+                    LayerSpec::Dense { output_size, .. } => *output_size,
+                    LayerSpec::Transformer { d_model, .. } => *d_model,
+                    _ => 0,
+                };
+                sizes.push(out);
+            }
+            // Calculate: Dense 8->4 = 36, Transformer = n_params() by formula, Dense 4->2 = 10
+            // TransformerLayer::n_params: 4*d*d + 2*f*d + f + 9*d
+            //   = 4*16 + 2*8*4 + 8 + 9*4 = 64 + 64 + 8 + 36 = 172
+            36 + 172 + 10
+        };
+        let flat: Vec<f64> = (0..dummy_flat_len).map(|i| (i as f64) * 0.003 - 0.7).collect();
+        let model = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None).unwrap();
+        assert_eq!(model.n_params(), dummy_flat_len);
+
+        let tmpdir = std::env::temp_dir();
+        let path = tmpdir.join("transformer_v2_roundtrip.json");
+        model.save_json(path.to_str().unwrap()).unwrap();
+
+        let loaded = NeuralNetModel::load(path.to_str().unwrap()).unwrap();
+        assert_eq!(loaded.architecture.len(), 3);
+        assert_eq!(loaded.n_params(), model.n_params());
+
+        // Flat-weight round-trip must be bit-identical.
+        let orig_flat = model.to_flat_weights();
+        let loaded_flat = loaded.to_flat_weights();
+        assert_eq!(orig_flat.len(), loaded_flat.len());
+        for (i, (a, b)) in orig_flat.iter().zip(loaded_flat.iter()).enumerate() {
+            assert!((a - b).abs() < 1e-15, "roundtrip mismatch at {i}: {a} vs {b}");
+        }
+
+        // Architecture spec must be identical.
+        assert_eq!(
+            format!("{:?}", model.architecture),
+            format!("{:?}", loaded.architecture),
+        );
+
+        // Spot-check: middle layer is Transformer with correct shape.
+        match &loaded.layers[1] {
+            Layer::Transformer(t) => {
+                assert_eq!(t.d_model, d_model);
+                assert_eq!(t.n_heads, n_heads);
+                assert_eq!(t.d_ffn, d_ffn);
+                assert_eq!(t.n_seq, n_seq);
+                // PE offsets must be rebuilt (non-empty after load).
+                assert_eq!(t.k_pe_offsets.len(), n_seq);
+                assert_eq!(t.v_pe_offsets.len(), n_seq);
+            }
+            _ => panic!("expected Transformer at layer 1"),
         }
     }
 }
