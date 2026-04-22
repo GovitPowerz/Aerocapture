@@ -13,6 +13,7 @@ from aerocapture.training.rl.schemas import (
     GruSpec,
     LayerSpec,
     LstmSpec,
+    TransformerSpec,
     WindowSpec,
 )
 
@@ -29,4 +30,8 @@ def build_layer(spec: LayerSpec) -> nn.Module:
         return LstmLayer(spec.input_size, spec.hidden_size)
     if isinstance(spec, WindowSpec):
         raise NotImplementedError("Window-MLP is PSO-only in Phase 2b; PPO use deferred. See docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md")
+    if isinstance(spec, TransformerSpec):
+        raise NotImplementedError(
+            "Transformer is PSO-only in Phase 3a; PPO use deferred. See docs/superpowers/specs/2026-04-22-phase-3a-transformer-mvp-design.md"
+        )
     raise ValueError(f"Unknown layer spec: {spec!r}")
