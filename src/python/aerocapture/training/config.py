@@ -175,7 +175,7 @@ def _layer_output_size(entry: Any) -> int:
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
-def describe_architecture(network: NetworkConfig | list) -> str:
+def describe_architecture(network: NetworkConfig | list[Any]) -> str:
     """Format a human-readable architecture summary for stdout at training start.
 
     Accepts either a NetworkConfig or a bare list[dict|LayerSpec] (the latter

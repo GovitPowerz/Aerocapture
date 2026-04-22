@@ -7,6 +7,7 @@ from torch import nn
 from aerocapture.training.rl.layers.dense import DenseLayer
 from aerocapture.training.rl.layers.gru import GruLayer
 from aerocapture.training.rl.layers.lstm import LstmLayer
+from aerocapture.training.rl.layers.transformer import TransformerLayer
 from aerocapture.training.rl.layers.window import WindowLayer
 from aerocapture.training.rl.schemas import (
     DenseSpec,
@@ -17,7 +18,7 @@ from aerocapture.training.rl.schemas import (
     WindowSpec,
 )
 
-__all__ = ["DenseLayer", "GruLayer", "LstmLayer", "WindowLayer", "build_layer"]
+__all__ = ["DenseLayer", "GruLayer", "LstmLayer", "TransformerLayer", "WindowLayer", "build_layer"]
 
 
 def build_layer(spec: LayerSpec) -> nn.Module:

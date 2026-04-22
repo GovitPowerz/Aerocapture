@@ -1451,28 +1451,104 @@ impl NeuralNetModel {
                     }
                     layer_sizes.push(*d_model);
 
+                    // Read all weight tensors before shape validation (macros borrow lw).
+                    let w_q = req_mat!(w_q);
+                    let b_q = req_vec!(b_q);
+                    let w_k = req_mat!(w_k);
+                    let b_k = req_vec!(b_k);
+                    let w_v = req_mat!(w_v);
+                    let b_v = req_vec!(b_v);
+                    let w_o = req_mat!(w_o);
+                    let b_o = req_vec!(b_o);
+                    let w_ffn1 = req_mat!(w_ffn1);
+                    let b_ffn1 = req_vec!(b_ffn1);
+                    let w_ffn2 = req_mat!(w_ffn2);
+                    let b_ffn2 = req_vec!(b_ffn2);
+                    let ln1_gamma = req_vec!(ln1_gamma);
+                    let ln1_beta = req_vec!(ln1_beta);
+                    let ln2_gamma = req_vec!(ln2_gamma);
+                    let ln2_beta = req_vec!(ln2_beta);
+
+                    // Validate matrix shapes: (name, matrix, expected_rows, expected_cols).
+                    for (name, m, exp_rows, exp_cols) in [
+                        ("w_q", w_q, *d_model, *d_model),
+                        ("w_k", w_k, *d_model, *d_model),
+                        ("w_v", w_v, *d_model, *d_model),
+                        ("w_o", w_o, *d_model, *d_model),
+                        ("w_ffn1", w_ffn1, *d_ffn, *d_model),
+                        ("w_ffn2", w_ffn2, *d_model, *d_ffn),
+                    ] {
+                        if m.len() != exp_rows {
+                            return Err(DataError(format!(
+                                "Layer {} (transformer) {} must have {} rows, got {} in {}",
+                                i,
+                                name,
+                                exp_rows,
+                                m.len(),
+                                path
+                            )));
+                        }
+                        for (r, row) in m.iter().enumerate() {
+                            if row.len() != exp_cols {
+                                return Err(DataError(format!(
+                                    "Layer {} (transformer) {} row {} length: expected {}, got {} in {}",
+                                    i,
+                                    name,
+                                    r,
+                                    exp_cols,
+                                    row.len(),
+                                    path
+                                )));
+                            }
+                        }
+                    }
+                    // Validate vector lengths: (name, vector, expected_length).
+                    for (name, v, expected) in [
+                        ("b_q", b_q, *d_model),
+                        ("b_k", b_k, *d_model),
+                        ("b_v", b_v, *d_model),
+                        ("b_o", b_o, *d_model),
+                        ("b_ffn1", b_ffn1, *d_ffn),
+                        ("b_ffn2", b_ffn2, *d_model),
+                        ("ln1_gamma", ln1_gamma, *d_model),
+                        ("ln1_beta", ln1_beta, *d_model),
+                        ("ln2_gamma", ln2_gamma, *d_model),
+                        ("ln2_beta", ln2_beta, *d_model),
+                    ] {
+                        if v.len() != expected {
+                            return Err(DataError(format!(
+                                "Layer {} (transformer) {} length: expected {}, got {} in {}",
+                                i,
+                                name,
+                                expected,
+                                v.len(),
+                                path
+                            )));
+                        }
+                    }
+
                     let mut layer = TransformerLayer {
                         d_model: *d_model,
                         n_heads: *n_heads,
                         d_head,
                         d_ffn: *d_ffn,
                         n_seq: *n_seq,
-                        w_q: req_mat!(w_q).clone(),
-                        b_q: req_vec!(b_q).clone(),
-                        w_k: req_mat!(w_k).clone(),
-                        b_k: req_vec!(b_k).clone(),
-                        w_v: req_mat!(w_v).clone(),
-                        b_v: req_vec!(b_v).clone(),
-                        w_o: req_mat!(w_o).clone(),
-                        b_o: req_vec!(b_o).clone(),
-                        w_ffn1: req_mat!(w_ffn1).clone(),
-                        b_ffn1: req_vec!(b_ffn1).clone(),
-                        w_ffn2: req_mat!(w_ffn2).clone(),
-                        b_ffn2: req_vec!(b_ffn2).clone(),
-                        ln1_gamma: req_vec!(ln1_gamma).clone(),
-                        ln1_beta: req_vec!(ln1_beta).clone(),
-                        ln2_gamma: req_vec!(ln2_gamma).clone(),
-                        ln2_beta: req_vec!(ln2_beta).clone(),
+                        w_q: w_q.clone(),
+                        b_q: b_q.clone(),
+                        w_k: w_k.clone(),
+                        b_k: b_k.clone(),
+                        w_v: w_v.clone(),
+                        b_v: b_v.clone(),
+                        w_o: w_o.clone(),
+                        b_o: b_o.clone(),
+                        w_ffn1: w_ffn1.clone(),
+                        b_ffn1: b_ffn1.clone(),
+                        w_ffn2: w_ffn2.clone(),
+                        b_ffn2: b_ffn2.clone(),
+                        ln1_gamma: ln1_gamma.clone(),
+                        ln1_beta: ln1_beta.clone(),
+                        ln2_gamma: ln2_gamma.clone(),
+                        ln2_beta: ln2_beta.clone(),
                         k_pe_offsets: Vec::new(),
                         v_pe_offsets: Vec::new(),
                     };
@@ -3138,5 +3214,115 @@ mod tests {
             LayerState::Transformer { k_cache, .. } => assert_eq!(k_cache.len(), 3),
             _ => panic!("expected Transformer state at layer 1"),
         }
+    }
+
+    #[test]
+    fn transformer_from_v2_json_rejects_wrong_w_q_shape() {
+        let d_model = 4usize;
+        let d_ffn = 8usize;
+        let n_seq = 3usize;
+        let n_heads = 2usize;
+
+        let row_dm = vec![0.0_f64; d_model];
+        let row_ffn_in = vec![0.0_f64; d_model];
+        let row_ffn_out = vec![0.0_f64; d_ffn];
+        let zero_bias_dm = vec![0.0_f64; d_model];
+        let zero_bias_ffn = vec![0.0_f64; d_ffn];
+        let gamma = vec![1.0_f64; d_model];
+        let beta = vec![0.0_f64; d_model];
+
+        // CORRUPT: w_q has d_model+1 rows instead of d_model.
+        let bad_w_q: Vec<Vec<f64>> = (0..d_model + 1).map(|_| row_dm.clone()).collect();
+
+        let json = serde_json::json!({
+            "format_version": 2,
+            "architecture": [{"type": "transformer", "d_model": d_model, "n_heads": n_heads, "d_ffn": d_ffn, "n_seq": n_seq}],
+            "weights": {
+                "layer_0": {
+                    "w_q": bad_w_q,
+                    "b_q": zero_bias_dm.clone(),
+                    "w_k": (0..d_model).map(|_| row_dm.clone()).collect::<Vec<_>>(),
+                    "b_k": zero_bias_dm.clone(),
+                    "w_v": (0..d_model).map(|_| row_dm.clone()).collect::<Vec<_>>(),
+                    "b_v": zero_bias_dm.clone(),
+                    "w_o": (0..d_model).map(|_| row_dm.clone()).collect::<Vec<_>>(),
+                    "b_o": zero_bias_dm.clone(),
+                    "w_ffn1": (0..d_ffn).map(|_| row_ffn_in.clone()).collect::<Vec<_>>(),
+                    "b_ffn1": zero_bias_ffn.clone(),
+                    "w_ffn2": (0..d_model).map(|_| row_ffn_out.clone()).collect::<Vec<_>>(),
+                    "b_ffn2": zero_bias_dm.clone(),
+                    "ln1_gamma": gamma.clone(), "ln1_beta": beta.clone(),
+                    "ln2_gamma": gamma.clone(), "ln2_beta": beta.clone(),
+                }
+            }
+        });
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), serde_json::to_string(&json).unwrap()).unwrap();
+
+        let result = NeuralNetModel::load(tmp.path().to_str().unwrap());
+        assert!(
+            result.is_err(),
+            "expected error for wrong w_q row count, got Ok"
+        );
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("w_q") || err.contains("transformer"),
+            "expected error to mention w_q or transformer, got: {err}"
+        );
+    }
+
+    #[test]
+    fn transformer_from_v2_json_rejects_wrong_b_q_length() {
+        let d_model = 4usize;
+        let d_ffn = 8usize;
+        let n_seq = 3usize;
+        let n_heads = 2usize;
+
+        let row_dm = vec![0.0_f64; d_model];
+        let row_ffn_in = vec![0.0_f64; d_model];
+        let row_ffn_out = vec![0.0_f64; d_ffn];
+        let zero_bias_dm = vec![0.0_f64; d_model];
+        let zero_bias_ffn = vec![0.0_f64; d_ffn];
+        let gamma = vec![1.0_f64; d_model];
+        let beta = vec![0.0_f64; d_model];
+
+        // CORRUPT: b_q is one element too long.
+        let bad_b_q = vec![0.0_f64; d_model + 1];
+
+        let json = serde_json::json!({
+            "format_version": 2,
+            "architecture": [{"type": "transformer", "d_model": d_model, "n_heads": n_heads, "d_ffn": d_ffn, "n_seq": n_seq}],
+            "weights": {
+                "layer_0": {
+                    "w_q": (0..d_model).map(|_| row_dm.clone()).collect::<Vec<_>>(),
+                    "b_q": bad_b_q,
+                    "w_k": (0..d_model).map(|_| row_dm.clone()).collect::<Vec<_>>(),
+                    "b_k": zero_bias_dm.clone(),
+                    "w_v": (0..d_model).map(|_| row_dm.clone()).collect::<Vec<_>>(),
+                    "b_v": zero_bias_dm.clone(),
+                    "w_o": (0..d_model).map(|_| row_dm.clone()).collect::<Vec<_>>(),
+                    "b_o": zero_bias_dm.clone(),
+                    "w_ffn1": (0..d_ffn).map(|_| row_ffn_in.clone()).collect::<Vec<_>>(),
+                    "b_ffn1": zero_bias_ffn.clone(),
+                    "w_ffn2": (0..d_model).map(|_| row_ffn_out.clone()).collect::<Vec<_>>(),
+                    "b_ffn2": zero_bias_dm.clone(),
+                    "ln1_gamma": gamma.clone(), "ln1_beta": beta.clone(),
+                    "ln2_gamma": gamma.clone(), "ln2_beta": beta.clone(),
+                }
+            }
+        });
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), serde_json::to_string(&json).unwrap()).unwrap();
+
+        let result = NeuralNetModel::load(tmp.path().to_str().unwrap());
+        assert!(
+            result.is_err(),
+            "expected error for wrong b_q length, got Ok"
+        );
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("b_q") || err.contains("transformer"),
+            "expected error to mention b_q or transformer, got: {err}"
+        );
     }
 }
