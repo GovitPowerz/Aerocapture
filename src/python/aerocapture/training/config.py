@@ -116,6 +116,9 @@ def _layer_n_params(entry: Any) -> int:
 
     if isinstance(entry, TransformerSpec):
         return 4 * entry.d_model * entry.d_model + 2 * entry.d_ffn * entry.d_model + entry.d_ffn + 9 * entry.d_model
+    # Normalise other Pydantic models to plain dicts.
+    if hasattr(entry, "model_dump"):
+        entry = entry.model_dump()
     ltype = entry["type"]
     if ltype == "dense":
         return int(entry["input_size"]) * int(entry["output_size"]) + int(entry["output_size"])
