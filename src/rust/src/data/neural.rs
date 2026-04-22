@@ -7,6 +7,53 @@ use super::DataError;
 use crate::data::nn_state::{LayerState, NnState};
 use serde::{Deserialize, Serialize};
 
+#[inline]
+pub(crate) fn gelu_exact(z: f64) -> f64 {
+    // Exact GELU: 0.5 * z * (1 + erf(z / sqrt(2)))
+    // Uses libm::erf for IEEE-754 correct rounding; matches torch.special.erf.
+    const INV_SQRT2: f64 = 0.7071067811865475_f64;
+    0.5 * z * (1.0 + libm::erf(z * INV_SQRT2))
+}
+
+pub(crate) fn layer_norm_biased(x: &[f64], gamma: &[f64], beta: &[f64], eps: f64) -> Vec<f64> {
+    debug_assert_eq!(x.len(), gamma.len());
+    debug_assert_eq!(x.len(), beta.len());
+    let n = x.len() as f64;
+    // Sequential reduction for cross-language bit-identity.
+    let mut mean = 0.0;
+    for v in x {
+        mean += *v;
+    }
+    mean /= n;
+    let mut var = 0.0;
+    for v in x {
+        let d = *v - mean;
+        var += d * d;
+    }
+    var /= n; // biased: 1/N, NOT Bessel 1/(N-1); matches torch nn.LayerNorm default.
+    let inv_std = 1.0 / (var + eps).sqrt();
+    x.iter().zip(gamma).zip(beta).map(|((xi, g), b)| ((*xi - mean) * inv_std) * g + b).collect()
+}
+
+pub(crate) fn build_pe_table(n_seq: usize, d_model: usize) -> Vec<Vec<f64>> {
+    // Standard Vaswani et al. 2017 sinusoidal positional encoding.
+    // PE[pos, 2k]   = sin(pos / 10000^(2k / d_model))
+    // PE[pos, 2k+1] = cos(pos / 10000^(2k / d_model))
+    // Iteration order: pos outer, i inner. Matches Python mirror for bit-identity.
+    (0..n_seq)
+        .map(|pos| {
+            (0..d_model)
+                .map(|i| {
+                    let k = i / 2;
+                    let div = 10000.0_f64.powf((2.0 * k as f64) / d_model as f64);
+                    let angle = pos as f64 / div;
+                    if i % 2 == 0 { angle.sin() } else { angle.cos() }
+                })
+                .collect()
+        })
+        .collect()
+}
+
 /// Activation function for a layer.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -2166,5 +2213,60 @@ mod tests {
         let flat: Vec<f64> = Vec::new();
         let err = NeuralNetModel::from_flat_weights_v2(&flat, &arch, None);
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn gelu_exact_matches_spec_values() {
+        // Hand-computed f64 values of 0.5 * x * (1 + erf(x / sqrt(2))).
+        // Generated with Python: 0.5 * x * (1 + math.erf(x / math.sqrt(2)))
+        assert!((gelu_exact(0.0) - 0.0).abs() < 1e-15);
+        assert!((gelu_exact(1.0) - 0.8413447460685429).abs() < 1e-14);
+        assert!((gelu_exact(-1.0) - (-0.15865525393145707)).abs() < 1e-14);
+        assert!((gelu_exact(2.5) - 2.4844758366855597).abs() < 1e-13);
+    }
+
+    #[test]
+    fn layer_norm_biased_zero_mean_unit_var() {
+        // Symmetric 4-element vector around 0 -> mean=0, biased var = (1+4+9+16)/4 = 7.5,
+        // std = sqrt(7.5 + 1e-5), each output = x / std.
+        let x = [1.0_f64, 2.0, 3.0, 4.0];
+        let gamma = [1.0, 1.0, 1.0, 1.0];
+        let beta = [0.0, 0.0, 0.0, 0.0];
+        let out = layer_norm_biased(&x, &gamma, &beta, 1e-5);
+        let mean: f64 = out.iter().sum::<f64>() / 4.0;
+        assert!(mean.abs() < 1e-12); // output should be zero-mean
+        let var: f64 = out.iter().map(|v| v * v).sum::<f64>() / 4.0;
+        assert!((var - 1.0).abs() < 1e-4); // unit variance (up to eps floor)
+    }
+
+    #[test]
+    fn layer_norm_applies_gamma_beta() {
+        let x = [1.0, 2.0, 3.0, 4.0];
+        let gamma = [2.0, 2.0, 2.0, 2.0];
+        let beta = [1.0, 1.0, 1.0, 1.0];
+        let out = layer_norm_biased(&x, &gamma, &beta, 1e-5);
+        // Expected: 2 * normalized + 1
+        let plain = layer_norm_biased(&x, &[1.0; 4], &[0.0; 4], 1e-5);
+        for (i, v) in out.iter().enumerate() {
+            assert!((v - (2.0 * plain[i] + 1.0)).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn pe_table_shape_and_known_entries() {
+        let pe = build_pe_table(4, 4);
+        assert_eq!(pe.len(), 4);
+        assert_eq!(pe[0].len(), 4);
+        // PE[0, :] = [sin(0), cos(0), sin(0), cos(0)] = [0, 1, 0, 1]
+        assert!((pe[0][0] - 0.0).abs() < 1e-15);
+        assert!((pe[0][1] - 1.0).abs() < 1e-15);
+        assert!((pe[0][2] - 0.0).abs() < 1e-15);
+        assert!((pe[0][3] - 1.0).abs() < 1e-15);
+        // PE[1, 0] = sin(1.0), PE[1, 1] = cos(1.0)
+        assert!((pe[1][0] - 1.0_f64.sin()).abs() < 1e-15);
+        assert!((pe[1][1] - 1.0_f64.cos()).abs() < 1e-15);
+        // PE[1, 2] = sin(1.0 / 10000^(2/4)) = sin(1.0 / 100) = sin(0.01)
+        assert!((pe[1][2] - 0.01_f64.sin()).abs() < 1e-14);
+        assert!((pe[1][3] - 0.01_f64.cos()).abs() < 1e-14);
     }
 }
