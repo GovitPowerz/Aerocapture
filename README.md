@@ -113,7 +113,7 @@ Seven guidance algorithms, all GA-optimizable:
 
 All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load, heat flux, and integrated heat load exceedances.
 
-The cost function uses a C1-continuous log-capped compression (`log_cap`) that smoothly transitions from linear to logarithmic above a configurable threshold (default 1000 m/s), preventing outliers from dominating the RMS. The simulator returns meaningful DV values for all termination outcomes (captured, hyperbolic, crash, pending crash, timeout), so no branching on capture status is needed.
+The cost function is a C-infinity softplus-quadratic DV penalty (`dv_cost`) with a smooth knee at `dv_threshold` (default 500 m/s), plus TOML-configurable soft constraint penalties, optionally wrapped in a monotonic `cost_transform` (`"linear"` default | `"sqrt"` | `"squared"` | `"cubed"`) to reshape the landscape. The simulator returns meaningful DV values for all termination outcomes: captured -> real orbital-correction DV; hyperbolic -> `10000 + v_excess`; crash/pending-crash/timeout -> energy-proportional virtual DV `3000 + 1000 * min(|E_orb - E_target|_MJkg, 50) - 500 * t/t_max` (softened near the capture boundary so the optimizer explores closer to the crash limit, with a time-survival term for cold-start gradient).
 
 Training features:
 - Auto-resumes from existing checkpoints (use `-fs` to start fresh)

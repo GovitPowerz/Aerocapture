@@ -45,12 +45,12 @@ level = "low"
 level = "medium"
 
 [cost_function]
-dv_threshold = 1000.0
+dv_threshold = 500.0
 # Constraint limits come from [flight.constraints] in the mission TOML
 g_load_weight = 1000.0
 heat_flux_weight = 1000.0
 heat_load_weight = 1000.0
-cost_transform = "cubed"
+cost_transform = "linear"
 
 [optimizer]
 algorithm = "ga"
@@ -85,7 +85,7 @@ restart_strategy = "ipop"
 # CR (crossover prob) 0.7-0.9, F (scaling factor) 0.5-0.8 are typical.
 # To use: set algorithm = "de" or --algorithm de
 [optimizer.de]
-variant = "DE/rand/1/bin"
+variant = "DE/best/1/bin"
 crossover_prob = 0.8
 scaling_factor = 0.6
 

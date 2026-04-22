@@ -497,11 +497,18 @@ def train(
 
     algorithm.setup(problem, pop=initial_pop)
 
-    # Update best from initial evaluation
-    init_best_idx = int(np.argmin(pop_costs))
-    init_best_cost = float(pop_costs[init_best_idx])
-    if init_best_cost < best_overall_cost:
-        best_overall_cost = init_best_cost
+    # Initialize best from the first population eval -- but ONLY on a fresh
+    # start. On resume, `best_overall_{cost,individual}` are the checkpointed
+    # validated best; overwriting them with the current population's argmin
+    # would be wrong because the two training costs were computed under
+    # different seed lists (adaptive/rotating seeds evolve across gens), so
+    # the `<` comparison is meaningless. Swapping here would silently promote
+    # an un-validated individual and make the re-validation at line 539 run
+    # on the wrong chromosome -- drifting the "Best val" RMS and corrupting
+    # the best_model.json that the final eval reads.
+    if best_overall_individual is None:
+        init_best_idx = int(np.argmin(pop_costs))
+        best_overall_cost = float(pop_costs[init_best_idx])
         best_overall_individual = pop_array[init_best_idx].copy()
 
     # Set up decode function for logger

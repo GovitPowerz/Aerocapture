@@ -50,11 +50,11 @@ gain_fade_end_km = 100.0
 
 [rl]
 n_envs = 64
-total_env_steps = 15_000_000
+total_env_steps = 60_000_000
 
 [rl.ppo]
 rollout_steps = 2048
-bptt_length = 32
+bptt_length = 512
 update_epochs = 10
 minibatches = 4
 gamma = 0.99
@@ -63,5 +63,5 @@ clip_range = 0.2
 entropy_coef = 0.001
 value_coef = 0.5
 max_grad_norm = 0.5
-target_kl = 0.005
-learning_rate = 1e-5
+target_kl = 0.05
+learning_rate = 1e-4

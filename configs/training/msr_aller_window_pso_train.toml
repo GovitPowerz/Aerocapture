@@ -36,6 +36,7 @@ output_size = 2
 activation = "linear"
 
 [optimizer]
+
 algorithm = "pso"
 n_pop = 64
 n_gen = 2000

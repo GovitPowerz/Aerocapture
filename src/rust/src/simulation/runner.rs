@@ -29,13 +29,51 @@ pub(crate) const G0: f64 = 9.81;
 
 /// Virtual DV base for hyperbolic exits (m/s).
 /// Set above any realistic captured orbit correction DV.
-/// Note: at the boundary, a very late crash (t_ratio ≈ 1.0, DV ≈ CRASH_BASE * 0.5 = 10000)
-/// can equal a barely-hyperbolic exit (DV ≈ HYPERBOLIC_BASE = 10000). This overlap is
-/// acceptable — late crashes are near-captures and the GA naturally finds capture solutions.
 pub(crate) const HYPERBOLIC_BASE: f64 = 10_000.0;
-/// Virtual DV base for crash/timeout (m/s).
-/// Set above any hyperbolic virtual DV to maintain cost ordering for typical cases.
-pub(crate) const CRASH_BASE: f64 = 20_000.0;
+/// Minimum virtual DV for crash / pending-crash / timeout (m/s).
+/// Set above any realistic captured orbit correction DV so captures remain
+/// strictly preferable in cost space, but low enough that near-target
+/// crashes don't dwarf bad captures under the `squared` / `cubed`
+/// cost_transform. A near-miss crash should cost ~CRASH_FLOOR; a deep
+/// plunge scales up via |ΔE| so the optimizer still sees a gradient.
+pub(crate) const CRASH_FLOOR: f64 = 3_000.0;
+/// Energy-error weight (m/s per MJ/kg of |E_orb - E_target|).
+pub(crate) const CRASH_ENERGY_WEIGHT: f64 = 1_000.0;
+/// Max time-survival bonus (m/s) — subtracted linearly in t/t_max.
+pub(crate) const CRASH_TIME_BONUS: f64 = 500.0;
+
+/// Upper cap on |ΔE| (MJ/kg) when computing virtual DV.
+/// Real surface-crash energies rarely exceed ~15 MJ/kg at Mars; 50 is a
+/// generous cap that also absorbs Inf from degenerate states.
+pub(crate) const CRASH_ENERGY_CAP_MJKG: f64 = 50.0;
+
+/// Virtual DV for non-capturing terminations (Crash, PendingCrash, Timeout).
+///
+/// Penalizes energy distance from target; softens crashes near the capture
+/// boundary so PSO/GA will explore closer to the crash limit.
+///
+/// Non-finite inputs (NaN from degenerate-state MC dispersions) fall back
+/// to the worst-case cap — caller still gets a finite, large virtual DV.
+pub(crate) fn virtual_dv_non_capture(
+    orbital_energy_j_kg: f64,
+    target_sma_m: f64,
+    mu: f64,
+    sim_time: f64,
+    max_time: f64,
+) -> f64 {
+    let target_energy_j_kg = -mu / (2.0 * target_sma_m);
+    let delta_e_mj = if orbital_energy_j_kg.is_finite() && target_energy_j_kg.is_finite() {
+        ((orbital_energy_j_kg - target_energy_j_kg).abs() / 1e6).min(CRASH_ENERGY_CAP_MJKG)
+    } else {
+        CRASH_ENERGY_CAP_MJKG
+    };
+    let t_ratio = if max_time.is_finite() && max_time > 0.0 && sim_time.is_finite() {
+        (sim_time / max_time).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    CRASH_FLOOR + CRASH_ENERGY_WEIGHT * delta_e_mj - CRASH_TIME_BONUS * t_ratio
+}
 
 /// Default absolute tolerances for DOPRI45, one per state component.
 /// State = [r(m), lon(rad), lat(rad), V(m/s), gamma(rad), psi(rad), flux(kJ/m²), time(s)]
@@ -1066,9 +1104,14 @@ fn run_single(
             total: HYPERBOLIC_BASE + v_excess,
         }
     } else {
-        // Crash, PendingCrash, or Timeout: proportional time decay
-        let t_ratio = (sim_state.sim_time / sim_state.max_time).min(1.0);
-        let virtual_dv = CRASH_BASE * (1.0 - 0.5 * t_ratio);
+        // Crash, PendingCrash, or Timeout: energy-error + time-survival gradient.
+        let virtual_dv = virtual_dv_non_capture(
+            energy,
+            data.target_orbit.semi_major_axis,
+            mu,
+            sim_state.sim_time,
+            sim_state.max_time,
+        );
         DeltaV {
             dv1: 0.0,
             dv2: 0.0,
@@ -1285,8 +1328,13 @@ pub fn build_final_record(
             total: HYPERBOLIC_BASE + v_excess,
         }
     } else {
-        let t_ratio = (sim_state.sim_time / sim_state.max_time).min(1.0);
-        let virtual_dv = CRASH_BASE * (1.0 - 0.5 * t_ratio);
+        let virtual_dv = virtual_dv_non_capture(
+            energy,
+            data.target_orbit.semi_major_axis,
+            mu,
+            sim_state.sim_time,
+            sim_state.max_time,
+        );
         DeltaV {
             dv1: 0.0,
             dv2: 0.0,
@@ -2085,17 +2133,44 @@ mod virtual_dv_tests {
     use super::*;
     use proptest::prelude::*;
 
+    // Mars-ish constants for proptest scenarios.
+    const MU_MARS: f64 = 4.282837e13;
+    const TARGET_SMA: f64 = 2.0e7; // 20000 km → E_target ≈ -1.07 MJ/kg
+
     proptest! {
         #[test]
-        fn crash_virtual_dv_in_range(
+        fn crash_virtual_dv_finite_and_bounded_below(
+            energy_j_kg in -5.0e7f64..5.0e7,
             sim_time in 0.0f64..10000.0,
             max_time in 100.0f64..10000.0,
         ) {
-            let t_ratio = (sim_time / max_time).min(1.0);
-            let virtual_dv = CRASH_BASE * (1.0 - 0.5 * t_ratio);
-            prop_assert!(virtual_dv.is_finite());
-            prop_assert!(virtual_dv >= CRASH_BASE * 0.5, "virtual_dv={} < {}", virtual_dv, CRASH_BASE * 0.5);
-            prop_assert!(virtual_dv <= CRASH_BASE, "virtual_dv={} > {}", virtual_dv, CRASH_BASE);
+            let dv = virtual_dv_non_capture(energy_j_kg, TARGET_SMA, MU_MARS, sim_time, max_time);
+            prop_assert!(dv.is_finite());
+            // Lower bound: CRASH_FLOOR - CRASH_TIME_BONUS (when ΔE = 0 and t_ratio = 1).
+            prop_assert!(dv >= CRASH_FLOOR - CRASH_TIME_BONUS, "dv={} below floor", dv);
+        }
+
+        #[test]
+        fn crash_virtual_dv_monotonic_in_energy_error(
+            delta_e_mj in 0.0f64..20.0,
+        ) {
+            let e_target = -MU_MARS / (2.0 * TARGET_SMA);
+            let dv0 = virtual_dv_non_capture(e_target, TARGET_SMA, MU_MARS, 0.0, 1000.0);
+            let dv1 = virtual_dv_non_capture(e_target + delta_e_mj * 1e6, TARGET_SMA, MU_MARS, 0.0, 1000.0);
+            let dv2 = virtual_dv_non_capture(e_target - delta_e_mj * 1e6, TARGET_SMA, MU_MARS, 0.0, 1000.0);
+            // Symmetric: |+ΔE| and |-ΔE| produce identical cost.
+            prop_assert!((dv1 - dv2).abs() < 1e-9);
+            // Monotonic: bigger |ΔE| → bigger cost.
+            prop_assert!(dv1 >= dv0 - 1e-9);
+        }
+
+        #[test]
+        fn crash_virtual_dv_survival_reduces_cost(
+            energy_j_kg in -5.0e7f64..5.0e7,
+        ) {
+            let early = virtual_dv_non_capture(energy_j_kg, TARGET_SMA, MU_MARS, 0.0, 1000.0);
+            let late = virtual_dv_non_capture(energy_j_kg, TARGET_SMA, MU_MARS, 1000.0, 1000.0);
+            prop_assert!((early - late - CRASH_TIME_BONUS).abs() < 1e-9);
         }
 
         #[test]
@@ -2109,21 +2184,43 @@ mod virtual_dv_tests {
     }
 
     #[test]
-    fn cost_ordering_crash_gt_hyperbolic_gt_capture() {
-        let capture_dv = 500.0;
-        let hyperbolic_dv = HYPERBOLIC_BASE + 100.0;
-        let crash_dv = CRASH_BASE * 0.9;
+    fn non_finite_inputs_produce_finite_capped_output() {
+        // NaN energy (from degenerate state) must not propagate.
+        let dv_nan = virtual_dv_non_capture(f64::NAN, TARGET_SMA, MU_MARS, 0.0, 1000.0);
+        assert!(dv_nan.is_finite());
+        assert!(dv_nan >= CRASH_FLOOR);
+        // Expected: CRASH_FLOOR + CRASH_ENERGY_WEIGHT * CRASH_ENERGY_CAP_MJKG - 0.
+        let expected = CRASH_FLOOR + CRASH_ENERGY_WEIGHT * CRASH_ENERGY_CAP_MJKG;
+        assert!((dv_nan - expected).abs() < 1e-9);
+
+        // +Inf energy also capped.
+        let dv_inf = virtual_dv_non_capture(f64::INFINITY, TARGET_SMA, MU_MARS, 500.0, 1000.0);
+        assert!(dv_inf.is_finite());
+        assert!((dv_inf - (expected - CRASH_TIME_BONUS * 0.5)).abs() < 1e-9);
+
+        // NaN sim_time.
+        let dv_t_nan = virtual_dv_non_capture(0.0, TARGET_SMA, MU_MARS, f64::NAN, 1000.0);
+        assert!(dv_t_nan.is_finite());
+    }
+
+    #[test]
+    fn near_target_crash_stays_above_typical_capture_floor() {
+        // A crash with energy exactly at target (best possible crash) at max survival
+        // time must still cost more than typical captures (~500-2000 m/s) so the
+        // optimizer never prefers crashing over capturing.
+        let e_target = -MU_MARS / (2.0 * TARGET_SMA);
+        let best_possible_crash =
+            virtual_dv_non_capture(e_target, TARGET_SMA, MU_MARS, 1000.0, 1000.0);
         assert!(
-            crash_dv > hyperbolic_dv,
-            "crash {} should > hyperbolic {}",
-            crash_dv,
-            hyperbolic_dv
+            best_possible_crash >= 2500.0,
+            "best crash DV {} too close to captures",
+            best_possible_crash
         );
         assert!(
-            hyperbolic_dv > capture_dv,
-            "hyperbolic {} should > capture {}",
-            hyperbolic_dv,
-            capture_dv
+            best_possible_crash <= CRASH_FLOOR,
+            "best crash DV {} exceeds floor {}",
+            best_possible_crash,
+            CRASH_FLOOR
         );
     }
 }
