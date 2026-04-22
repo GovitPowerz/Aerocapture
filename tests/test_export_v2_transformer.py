@@ -30,7 +30,7 @@ def _make_policy(architecture: list, dtype: torch.dtype = torch.float64) -> Magi
     # export_v2_policy_to_json only reads policy.layers and policy.architecture.
     policy = MagicMock()
     policy.architecture = architecture
-    policy.layers = torch.nn.ModuleList([l.to(dtype=dtype) for l in layers])
+    policy.layers = torch.nn.ModuleList([layer.to(dtype=dtype) for layer in layers])
     policy.input_mask = None
     return policy
 

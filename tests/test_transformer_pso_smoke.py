@@ -74,9 +74,22 @@ def test_transformer_pso_two_gens_smoke(tmp_path: Path) -> None:
     # Transformer weight keys must all be present.
     layer_1 = loaded["weights"]["layer_1"]
     expected_keys = [
-        "w_q", "b_q", "w_k", "b_k", "w_v", "b_v", "w_o", "b_o",
-        "w_ffn1", "b_ffn1", "w_ffn2", "b_ffn2",
-        "ln1_gamma", "ln1_beta", "ln2_gamma", "ln2_beta",
+        "w_q",
+        "b_q",
+        "w_k",
+        "b_k",
+        "w_v",
+        "b_v",
+        "w_o",
+        "b_o",
+        "w_ffn1",
+        "b_ffn1",
+        "w_ffn2",
+        "b_ffn2",
+        "ln1_gamma",
+        "ln1_beta",
+        "ln2_gamma",
+        "ln2_beta",
     ]
     for key in expected_keys:
         assert key in layer_1, f"missing transformer weight key: {key}"

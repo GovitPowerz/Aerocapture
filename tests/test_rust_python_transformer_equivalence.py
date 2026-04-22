@@ -44,7 +44,16 @@ def test_transformer_rust_python_equivalence(tmp_path: Path) -> None:
     # Small range to keep outputs bounded and avoid softmax saturation that
     # could mask numerical drift.
     with torch.no_grad():
-        for lin in [dense_in.linear, transformer.w_q, transformer.w_k, transformer.w_v, transformer.w_o, transformer.w_ffn1, transformer.w_ffn2, dense_out.linear]:
+        for lin in [
+            dense_in.linear,
+            transformer.w_q,
+            transformer.w_k,
+            transformer.w_v,
+            transformer.w_o,
+            transformer.w_ffn1,
+            transformer.w_ffn2,
+            dense_out.linear,
+        ]:
             torch.nn.init.uniform_(lin.weight, -0.1, 0.1)
             torch.nn.init.uniform_(lin.bias, -0.05, 0.05)
         torch.nn.init.uniform_(transformer.ln1_gamma, 0.9, 1.1)

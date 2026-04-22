@@ -9,16 +9,16 @@ Dense(8 -> 2, linear). The nn_forward_sequence API enforces output_size==2
 (atan2 contract), so the trailing Dense is the minimal required wrapper.
 Cache-length assertions target only the Transformer state, as intended.
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
+import aerocapture_rs  # type: ignore[import-not-found]
 import numpy as np
 import pytest
 import torch
-
-import aerocapture_rs  # type: ignore[import-not-found]
 from aerocapture.training.rl.layers.dense import DenseLayer
 from aerocapture.training.rl.layers.transformer import TransformerLayer
 
@@ -28,12 +28,14 @@ def test_transformer_cache_warmup(tmp_path: Path) -> None:
     d_model, n_heads, d_ffn, n_seq = 8, 2, 16, 4
     torch.manual_seed(1)
     transformer = TransformerLayer(
-        d_model=d_model, n_heads=n_heads, d_ffn=d_ffn, n_seq=n_seq,
+        d_model=d_model,
+        n_heads=n_heads,
+        d_ffn=d_ffn,
+        n_seq=n_seq,
     ).double()
     dense_out = DenseLayer(input_size=d_model, output_size=2, activation="linear").double()
     with torch.no_grad():
-        for lin in [transformer.w_q, transformer.w_k, transformer.w_v, transformer.w_o,
-                    transformer.w_ffn1, transformer.w_ffn2]:
+        for lin in [transformer.w_q, transformer.w_k, transformer.w_v, transformer.w_o, transformer.w_ffn1, transformer.w_ffn2]:
             torch.nn.init.uniform_(lin.weight, -0.1, 0.1)
             torch.nn.init.uniform_(lin.bias, -0.05, 0.05)
         torch.nn.init.uniform_(dense_out.linear.weight, -0.1, 0.1)
@@ -44,8 +46,7 @@ def test_transformer_cache_warmup(tmp_path: Path) -> None:
     model_json = {
         "format_version": 2,
         "architecture": [
-            {"type": "transformer",
-             "d_model": d_model, "n_heads": n_heads, "d_ffn": d_ffn, "n_seq": n_seq},
+            {"type": "transformer", "d_model": d_model, "n_heads": n_heads, "d_ffn": d_ffn, "n_seq": n_seq},
             {"type": "dense", "input_size": d_model, "output_size": 2, "activation": "linear"},
         ],
         "weights": {
@@ -63,9 +64,9 @@ def test_transformer_cache_warmup(tmp_path: Path) -> None:
                 "w_ffn2": transformer.w_ffn2.weight.detach().tolist(),
                 "b_ffn2": transformer.w_ffn2.bias.detach().tolist(),
                 "ln1_gamma": transformer.ln1_gamma.detach().tolist(),
-                "ln1_beta":  transformer.ln1_beta.detach().tolist(),
+                "ln1_beta": transformer.ln1_beta.detach().tolist(),
                 "ln2_gamma": transformer.ln2_gamma.detach().tolist(),
-                "ln2_beta":  transformer.ln2_beta.detach().tolist(),
+                "ln2_beta": transformer.ln2_beta.detach().tolist(),
             },
             "layer_1": {
                 "w": dense_out.linear.weight.detach().tolist(),
@@ -89,14 +90,12 @@ def test_transformer_cache_warmup(tmp_path: Path) -> None:
     dense_out.eval()
     with torch.no_grad():
         for t in range(3):
-            x = torch.tensor(inputs[t:t+1], dtype=torch.float64)
+            x = torch.tensor(inputs[t : t + 1], dtype=torch.float64)
             t_out, t_state = transformer(x, t_state)
             out, _ = dense_out(t_out, None)
             py_outs[t] = out.squeeze(0).numpy()
             # Cache grows organically: after step t, len == t+1 (still < n_seq=4).
-            assert t_state[0].shape[1] == t + 1, (
-                f"step {t}: expected cache_len={t+1}, got {t_state[0].shape[1]} (zero-padding leaked?)"
-            )
+            assert t_state[0].shape[1] == t + 1, f"step {t}: expected cache_len={t + 1}, got {t_state[0].shape[1]} (zero-padding leaked?)"
             assert t_state[1].shape[1] == t + 1
 
     # Cross-language agreement during warm-up

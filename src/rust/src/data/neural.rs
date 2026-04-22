@@ -2788,10 +2788,10 @@ mod tests {
         };
         layer.rebuild_pe_offsets();
         let pe = build_pe_table(n_seq, d_model);
-        for i in 0..n_seq {
-            for j in 0..d_model {
-                assert!((layer.k_pe_offsets[i][j] - pe[i][j]).abs() < 1e-15);
-                assert!((layer.v_pe_offsets[i][j] - pe[i][j]).abs() < 1e-15);
+        for (i, pe_row) in pe.iter().enumerate() {
+            for (j, &pe_val) in pe_row.iter().enumerate() {
+                assert!((layer.k_pe_offsets[i][j] - pe_val).abs() < 1e-15);
+                assert!((layer.v_pe_offsets[i][j] - pe_val).abs() < 1e-15);
             }
         }
     }
