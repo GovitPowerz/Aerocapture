@@ -113,7 +113,7 @@ def _layer_param_specs(layer: LayerSpec, layer_idx: int = 0, bound_multiplier: f
     if isinstance(layer, WindowSpec):
         return []  # zero trainable parameters
     if isinstance(layer, TransformerSpec):
-        return _transformer_specs(layer, bound_multiplier)
+        return _transformer_specs(layer, layer_idx, bound_multiplier)
     msg = f"Unknown layer type for PSO specs: {layer!r}"
     raise ValueError(msg)
 
@@ -189,7 +189,7 @@ def _lstm_specs(layer: LstmSpec, layer_idx: int, bound_multiplier: float) -> lis
     return specs
 
 
-def _transformer_specs(layer: TransformerSpec, bound_multiplier: float) -> list[ParamSpec]:
+def _transformer_specs(layer: TransformerSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
     """ParamSpec list in canonical flat order matching Rust TransformerLayer::to_flat.
 
     INVARIANT: ordering MUST match Rust's to_flat / from_flat cursor advance order:
@@ -208,6 +208,7 @@ def _transformer_specs(layer: TransformerSpec, bound_multiplier: float) -> list[
     d = layer.d_model
     f = layer.d_ffn
     mul = bound_multiplier
+    li = layer_idx
 
     proj_bound = sqrt(6.0 / (2.0 * d)) * mul
     ffn_bound = sqrt(6.0 / (d + f)) * mul
@@ -217,19 +218,32 @@ def _transformer_specs(layer: TransformerSpec, bound_multiplier: float) -> list[
 
     specs: list[ParamSpec] = []
     # 4 projection matrices: w_q/b_q, w_k/b_k, w_v/b_v, w_o/b_o  (each [d,d] + [d])
-    for _ in range(4):
-        specs.extend(ParamSpec("", -proj_bound, proj_bound, 0.0) for _ in range(d * d))
-        specs.extend(ParamSpec("", -bias_bound, bias_bound, 0.0) for _ in range(d))
+    for proj_name, bias_name in (("w_q", "b_q"), ("w_k", "b_k"), ("w_v", "b_v"), ("w_o", "b_o")):
+        for j in range(d):
+            for k in range(d):
+                specs.append(ParamSpec(f"{proj_name}{li}_{j}_{k}", -proj_bound, proj_bound, 0.0))
+        for j in range(d):
+            specs.append(ParamSpec(f"{bias_name}{li}_{j}", -bias_bound, bias_bound, 0.0))
     # w_ffn1 [f, d] + b_ffn1 [f]
-    specs.extend(ParamSpec("", -ffn_bound, ffn_bound, 0.0) for _ in range(f * d))
-    specs.extend(ParamSpec("", -bias_bound, bias_bound, 0.0) for _ in range(f))
+    for j in range(f):
+        for k in range(d):
+            specs.append(ParamSpec(f"w_ffn1_{li}_{j}_{k}", -ffn_bound, ffn_bound, 0.0))
+    for j in range(f):
+        specs.append(ParamSpec(f"b_ffn1_{li}_{j}", -bias_bound, bias_bound, 0.0))
     # w_ffn2 [d, f] + b_ffn2 [d]
-    specs.extend(ParamSpec("", -ffn_bound, ffn_bound, 0.0) for _ in range(d * f))
-    specs.extend(ParamSpec("", -bias_bound, bias_bound, 0.0) for _ in range(d))
+    for j in range(d):
+        for k in range(f):
+            specs.append(ParamSpec(f"w_ffn2_{li}_{j}_{k}", -ffn_bound, ffn_bound, 0.0))
+    for j in range(d):
+        specs.append(ParamSpec(f"b_ffn2_{li}_{j}", -bias_bound, bias_bound, 0.0))
     # LN1: gamma [d] + beta [d]
-    specs.extend(ParamSpec("", gamma_lo, gamma_hi, 0.0) for _ in range(d))
-    specs.extend(ParamSpec("", -beta_bound, beta_bound, 0.0) for _ in range(d))
+    for j in range(d):
+        specs.append(ParamSpec(f"ln1_gamma{li}_{j}", gamma_lo, gamma_hi, 0.0))
+    for j in range(d):
+        specs.append(ParamSpec(f"ln1_beta{li}_{j}", -beta_bound, beta_bound, 0.0))
     # LN2: gamma [d] + beta [d]
-    specs.extend(ParamSpec("", gamma_lo, gamma_hi, 0.0) for _ in range(d))
-    specs.extend(ParamSpec("", -beta_bound, beta_bound, 0.0) for _ in range(d))
+    for j in range(d):
+        specs.append(ParamSpec(f"ln2_gamma{li}_{j}", gamma_lo, gamma_hi, 0.0))
+    for j in range(d):
+        specs.append(ParamSpec(f"ln2_beta{li}_{j}", -beta_bound, beta_bound, 0.0))
     return specs

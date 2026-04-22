@@ -139,9 +139,18 @@ def _layer_n_params(entry: Any) -> int:
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
-def _layer_input_size(entry: dict) -> int:
-    """Input size of a v2 layer entry."""
-    return int(entry["input_size"])
+def _layer_input_size(entry: Any) -> int:
+    """Input size of a v2 layer entry. Accepts dict OR Pydantic LayerSpec."""
+    from aerocapture.training.rl.schemas import TransformerSpec
+
+    if isinstance(entry, TransformerSpec):
+        return entry.d_model
+    if isinstance(entry, dict):
+        if entry.get("type") == "transformer":
+            return int(entry["d_model"])
+        return int(entry["input_size"])
+    # Other Pydantic specs (Dense/Gru/Lstm/Window): all have input_size.
+    return int(entry.input_size)
 
 
 def _layer_output_size(entry: Any) -> int:
@@ -166,36 +175,60 @@ def _layer_output_size(entry: Any) -> int:
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
-def describe_architecture(network: NetworkConfig) -> str:
-    """Format a human-readable architecture summary for stdout at training start."""
-    lines = [f"Network architecture ({network.n_base_coef} params):"]
+def describe_architecture(network: NetworkConfig | list) -> str:
+    """Format a human-readable architecture summary for stdout at training start.
 
-    if network.architecture is not None:
-        for i, entry in enumerate(network.architecture):
-            ltype = entry["type"]
+    Accepts either a NetworkConfig or a bare list[dict|LayerSpec] (the latter
+    is used by tests and callers that only have the raw architecture list).
+    """
+    from aerocapture.training.rl.schemas import TransformerSpec
+
+    arch: list[Any] | None
+    if isinstance(network, list):
+        arch = network
+        n_params = sum(_layer_n_params(e) for e in arch)
+        input_mask = None
+    else:
+        arch = network.architecture
+        n_params = network.n_base_coef
+        input_mask = network.input_mask
+
+    if arch is not None:
+        lines = [f"Network architecture ({n_params} params):"]
+        for i, entry in enumerate(arch):
+            # Normalise Pydantic models to a dict for uniform access, but keep
+            # TransformerSpec separate since it lacks input_size/output_size.
+            if isinstance(entry, TransformerSpec):
+                ltype = "transformer"
+                tail = f"d_model={entry.d_model}, n_heads={entry.n_heads}, d_ffn={entry.d_ffn}, n_seq={entry.n_seq}"
+            else:
+                if hasattr(entry, "model_dump"):
+                    entry = entry.model_dump()
+                ltype = entry["type"]
+                if ltype == "dense":
+                    tail = entry.get("activation", "?")
+                elif ltype in ("gru", "lstm"):
+                    tail = f"hidden_size={entry['hidden_size']}"
+                elif ltype == "window":
+                    tail = f"n_steps={entry['n_steps']}"
+                elif ltype == "transformer":
+                    tail = f"d_model={entry['d_model']}, n_heads={entry['n_heads']}, d_ffn={entry['d_ffn']}, n_seq={entry['n_seq']}"
+                else:
+                    tail = ltype
             in_size = _layer_input_size(entry)
             out_size = _layer_output_size(entry)
-            if ltype == "dense":
-                tail = entry.get("activation", "?")
-            elif ltype in ("gru", "lstm"):
-                tail = f"hidden_size={entry['hidden_size']}"
-            elif ltype == "window":
-                tail = f"n_steps={entry['n_steps']}"
-            elif ltype == "transformer":
-                tail = f"n_heads={entry['n_heads']}, d_ffn={entry['d_ffn']}, n_seq={entry['n_seq']}"
-            else:
-                tail = ltype
-            lines.append(f"  layer {i}: {ltype:<6} {in_size:>4} -> {out_size:<4} {tail}")
+            lines.append(f"  layer {i}: {ltype:<11} {in_size:>4} -> {out_size:<4} {tail}")
     else:
-        # v1 dense-only
+        assert not isinstance(network, list)
+        lines = [f"Network architecture ({n_params} params):"]
         for i, act in enumerate(network.activations):
             fan_in = network.layer_sizes[i]
             fan_out = network.layer_sizes[i + 1]
-            lines.append(f"  layer {i}: dense  {fan_in:>4} -> {fan_out:<4} {act}")
+            lines.append(f"  layer {i}: dense       {fan_in:>4} -> {fan_out:<4} {act}")
 
-    if network.input_mask is not None:
-        n = len(network.input_mask)
-        lines.append(f"  input_mask: {n} indices {network.input_mask if n <= 8 else f'[{network.input_mask[0]}..{network.input_mask[-1]}]'}")
+    if input_mask is not None:
+        n = len(input_mask)
+        lines.append(f"  input_mask: {n} indices {input_mask if n <= 8 else f'[{input_mask[0]}..{input_mask[-1]}]'}")
 
     return "\n".join(lines)
 
