@@ -2219,16 +2219,17 @@ mod tests {
     fn gelu_exact_matches_spec_values() {
         // Hand-computed f64 values of 0.5 * x * (1 + erf(x / sqrt(2))).
         // Generated with Python: 0.5 * x * (1 + math.erf(x / math.sqrt(2)))
+        // Both sides use IEEE-754 correctly-rounded erf, so results are bit-identical.
         assert!((gelu_exact(0.0) - 0.0).abs() < 1e-15);
-        assert!((gelu_exact(1.0) - 0.8413447460685429).abs() < 1e-14);
-        assert!((gelu_exact(-1.0) - (-0.15865525393145707)).abs() < 1e-14);
-        assert!((gelu_exact(2.5) - 2.4844758366855597).abs() < 1e-13);
+        assert!((gelu_exact(1.0) - 0.8413447460685429).abs() < 1e-15);
+        assert!((gelu_exact(-1.0) - (-0.15865525393145707)).abs() < 1e-15);
+        assert!((gelu_exact(2.5) - 2.4844758366855597).abs() < 1e-15);
     }
 
     #[test]
     fn layer_norm_biased_zero_mean_unit_var() {
-        // Symmetric 4-element vector around 0 -> mean=0, biased var = (1+4+9+16)/4 = 7.5,
-        // std = sqrt(7.5 + 1e-5), each output = x / std.
+        // Input [1,2,3,4]: mean=2.5, biased var=((-1.5)^2+(-0.5)^2+(0.5)^2+(1.5)^2)/4 = 1.25.
+        // After normalization the output should be zero-mean with unit variance (up to eps).
         let x = [1.0_f64, 2.0, 3.0, 4.0];
         let gamma = [1.0, 1.0, 1.0, 1.0];
         let beta = [0.0, 0.0, 0.0, 0.0];
