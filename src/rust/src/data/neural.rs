@@ -1526,8 +1526,8 @@ impl NeuralNetModel {
                 (Layer::Window(w), LayerState::Window { buffer }) => {
                     current = w.forward(&current, buffer);
                 }
-                (Layer::Transformer(_t), LayerState::Transformer { .. }) => {
-                    todo!("Phase 3a Task 7: forward dispatch for TransformerLayer")
+                (Layer::Transformer(t), LayerState::Transformer { k_cache, v_cache }) => {
+                    current = t.forward(&current, k_cache, v_cache);
                 }
                 _ => unreachable!(
                     "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None, Layer::Gru -> Gru, Layer::Lstm -> Lstm, Layer::Window -> Window, Layer::Transformer -> Transformer)"
@@ -2892,6 +2892,43 @@ mod tests {
                 assert_eq!(t.v_pe_offsets.len(), n_seq);
             }
             _ => panic!("expected Transformer at layer 1"),
+        }
+    }
+
+    #[test]
+    fn neural_net_model_forward_transformer_threads_state() {
+        // Dense(4->4) -> Transformer(d_model=4, n_heads=2, d_ffn=8, n_seq=3) -> Dense(4->2)
+        // n_params: Dense=20, Transformer=4*4*4 + 2*8*4 + 8 + 9*4 = 172, Dense=10, total=202
+        let architecture = vec![
+            LayerSpec::Dense { input_size: 4, output_size: 4, activation: Activation::Linear },
+            LayerSpec::Transformer { d_model: 4, n_heads: 2, d_ffn: 8, n_seq: 3 },
+            LayerSpec::Dense { input_size: 4, output_size: 2, activation: Activation::Linear },
+        ];
+        let flat: Vec<f64> = (0..202).map(|i| ((i % 7) as f64) * 0.01).collect();
+        let model = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None).unwrap();
+        assert_eq!(model.n_params(), 202);
+
+        let mut state = NnState::for_model(&model);
+        let x = vec![0.5, -0.3, 0.7, 0.1];
+
+        // Drive for 5 steps; cache should saturate at n_seq=3.
+        let mut outputs = Vec::new();
+        for _ in 0..5 {
+            outputs.push(model.forward(&mut state, &x));
+        }
+
+        // All finite, correct output shape.
+        for o in &outputs {
+            assert_eq!(o.len(), 2);
+            for v in o {
+                assert!(v.is_finite(), "output contains non-finite value: {v}");
+            }
+        }
+
+        // Cache saturated at n_seq=3 after 5 steps.
+        match &state.layer_states[1] {
+            LayerState::Transformer { k_cache, .. } => assert_eq!(k_cache.len(), 3),
+            _ => panic!("expected Transformer state at layer 1"),
         }
     }
 }
