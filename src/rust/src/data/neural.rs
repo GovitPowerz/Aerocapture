@@ -633,6 +633,66 @@ impl LayerWeights for WindowLayer {
     }
 }
 
+impl LayerWeights for TransformerLayer {
+    fn n_params(&self) -> usize {
+        4 * self.d_model * self.d_model
+            + 2 * self.d_ffn * self.d_model
+            + self.d_ffn
+            + 9 * self.d_model
+    }
+
+    fn to_flat(&self) -> Vec<f64> {
+        fn push_mat(out: &mut Vec<f64>, m: &[Vec<f64>]) {
+            for row in m { out.extend_from_slice(row); }
+        }
+        let mut out = Vec::with_capacity(self.n_params());
+        push_mat(&mut out, &self.w_q);  out.extend_from_slice(&self.b_q);
+        push_mat(&mut out, &self.w_k);  out.extend_from_slice(&self.b_k);
+        push_mat(&mut out, &self.w_v);  out.extend_from_slice(&self.b_v);
+        push_mat(&mut out, &self.w_o);  out.extend_from_slice(&self.b_o);
+        push_mat(&mut out, &self.w_ffn1); out.extend_from_slice(&self.b_ffn1);
+        push_mat(&mut out, &self.w_ffn2); out.extend_from_slice(&self.b_ffn2);
+        out.extend_from_slice(&self.ln1_gamma);
+        out.extend_from_slice(&self.ln1_beta);
+        out.extend_from_slice(&self.ln2_gamma);
+        out.extend_from_slice(&self.ln2_beta);
+        out
+    }
+
+    #[allow(clippy::wrong_self_convention)]
+    fn from_flat(&mut self, flat: &[f64]) -> usize {
+        fn read_mat(flat: &[f64], idx: &mut usize, rows: usize, cols: usize) -> Vec<Vec<f64>> {
+            let mut m = Vec::with_capacity(rows);
+            for _ in 0..rows {
+                m.push(flat[*idx..*idx + cols].to_vec());
+                *idx += cols;
+            }
+            m
+        }
+        fn read_vec(flat: &[f64], idx: &mut usize, n: usize) -> Vec<f64> {
+            let v = flat[*idx..*idx + n].to_vec();
+            *idx += n;
+            v
+        }
+
+        let d = self.d_model;
+        let f = self.d_ffn;
+        let mut idx = 0;
+
+        self.w_q = read_mat(flat, &mut idx, d, d); self.b_q = read_vec(flat, &mut idx, d);
+        self.w_k = read_mat(flat, &mut idx, d, d); self.b_k = read_vec(flat, &mut idx, d);
+        self.w_v = read_mat(flat, &mut idx, d, d); self.b_v = read_vec(flat, &mut idx, d);
+        self.w_o = read_mat(flat, &mut idx, d, d); self.b_o = read_vec(flat, &mut idx, d);
+        self.w_ffn1 = read_mat(flat, &mut idx, f, d); self.b_ffn1 = read_vec(flat, &mut idx, f);
+        self.w_ffn2 = read_mat(flat, &mut idx, d, f); self.b_ffn2 = read_vec(flat, &mut idx, d);
+        self.ln1_gamma = read_vec(flat, &mut idx, d); self.ln1_beta = read_vec(flat, &mut idx, d);
+        self.ln2_gamma = read_vec(flat, &mut idx, d); self.ln2_beta = read_vec(flat, &mut idx, d);
+
+        self.rebuild_pe_offsets();
+        idx
+    }
+}
+
 impl LayerWeights for Layer {
     fn to_flat(&self) -> Vec<f64> {
         match self {
@@ -640,7 +700,7 @@ impl LayerWeights for Layer {
             Layer::Gru(g) => g.to_flat(),
             Layer::Lstm(l) => l.to_flat(),
             Layer::Window(w) => w.to_flat(),
-            Layer::Transformer(_) => todo!("Phase 3a Task 5: LayerWeights for TransformerLayer"),
+            Layer::Transformer(t) => t.to_flat(),
         }
     }
 
@@ -651,7 +711,7 @@ impl LayerWeights for Layer {
             Layer::Gru(g) => g.from_flat(flat),
             Layer::Lstm(l) => l.from_flat(flat),
             Layer::Window(w) => w.from_flat(flat),
-            Layer::Transformer(_) => todo!("Phase 3a Task 5: LayerWeights for TransformerLayer"),
+            Layer::Transformer(t) => t.from_flat(flat),
         }
     }
 
@@ -661,7 +721,7 @@ impl LayerWeights for Layer {
             Layer::Gru(g) => g.n_params(),
             Layer::Lstm(l) => l.n_params(),
             Layer::Window(w) => w.n_params(),
-            Layer::Transformer(_) => todo!("Phase 3a Task 5: LayerWeights for TransformerLayer"),
+            Layer::Transformer(t) => t.n_params(),
         }
     }
 }
@@ -1530,8 +1590,32 @@ impl NeuralNetModel {
                         n_steps: *n_steps,
                     })
                 }
-                LayerSpec::Transformer { .. } => {
-                    todo!("Phase 3a Task 5: from_flat_weights_v2 for TransformerLayer")
+                LayerSpec::Transformer { d_model, n_heads, d_ffn, n_seq } => {
+                    if *n_heads == 0 || *d_model % *n_heads != 0 {
+                        return Err(DataError(format!(
+                            "from_flat_weights_v2: Transformer layer {} d_model={} not divisible by n_heads={}",
+                            i, d_model, n_heads
+                        )));
+                    }
+                    let d_head = d_model / n_heads;
+                    let f = *d_ffn;
+                    let d = *d_model;
+                    if i == 0 {
+                        layer_sizes.push(d);
+                    }
+                    layer_sizes.push(d);
+                    Layer::Transformer(Box::new(TransformerLayer {
+                        d_model: d, n_heads: *n_heads, d_head, d_ffn: f, n_seq: *n_seq,
+                        w_q: vec![vec![0.0; d]; d], b_q: vec![0.0; d],
+                        w_k: vec![vec![0.0; d]; d], b_k: vec![0.0; d],
+                        w_v: vec![vec![0.0; d]; d], b_v: vec![0.0; d],
+                        w_o: vec![vec![0.0; d]; d], b_o: vec![0.0; d],
+                        w_ffn1: vec![vec![0.0; d]; f], b_ffn1: vec![0.0; f],
+                        w_ffn2: vec![vec![0.0; f]; d], b_ffn2: vec![0.0; d],
+                        ln1_gamma: vec![1.0; d], ln1_beta: vec![0.0; d],
+                        ln2_gamma: vec![1.0; d], ln2_beta: vec![0.0; d],
+                        k_pe_offsets: Vec::new(), v_pe_offsets: Vec::new(),
+                    }))
                 }
             };
             let needed = layer.n_params();
@@ -2559,6 +2643,65 @@ mod tests {
                 assert_eq!((d_model, n_heads, d_ffn, n_seq), (32, 4, 64, 64));
             }
             _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn transformer_layer_weights_flat_roundtrip() {
+        let d_model = 4usize; let n_heads = 2; let d_ffn = 6; let n_seq = 3;
+        // n_params = 4*d_model^2 + 2*d_ffn*d_model + d_ffn + 9*d_model
+        //          = 4*16 + 2*24 + 6 + 36 = 64 + 48 + 6 + 36 = 154
+        let n_params = 4 * d_model * d_model + 2 * d_ffn * d_model + d_ffn + 9 * d_model;
+        assert_eq!(n_params, 154);
+
+        let flat: Vec<f64> = (0..n_params).map(|i| (i as f64) * 0.01 + 0.5).collect();
+
+        let mut layer = TransformerLayer {
+            d_model, n_heads, d_head: d_model / n_heads, d_ffn, n_seq,
+            w_q: vec![vec![0.0; d_model]; d_model], b_q: vec![0.0; d_model],
+            w_k: vec![vec![0.0; d_model]; d_model], b_k: vec![0.0; d_model],
+            w_v: vec![vec![0.0; d_model]; d_model], b_v: vec![0.0; d_model],
+            w_o: vec![vec![0.0; d_model]; d_model], b_o: vec![0.0; d_model],
+            w_ffn1: vec![vec![0.0; d_model]; d_ffn], b_ffn1: vec![0.0; d_ffn],
+            w_ffn2: vec![vec![0.0; d_ffn]; d_model], b_ffn2: vec![0.0; d_model],
+            ln1_gamma: vec![1.0; d_model], ln1_beta: vec![0.0; d_model],
+            ln2_gamma: vec![1.0; d_model], ln2_beta: vec![0.0; d_model],
+            k_pe_offsets: Vec::new(), v_pe_offsets: Vec::new(),
+        };
+        let consumed = layer.from_flat(&flat);
+        assert_eq!(consumed, n_params);
+        assert_eq!(layer.k_pe_offsets.len(), n_seq);  // rebuild_pe_offsets ran
+        assert_eq!(layer.v_pe_offsets.len(), n_seq);
+
+        let round = layer.to_flat();
+        assert_eq!(round.len(), n_params);
+        for (i, (a, b)) in flat.iter().zip(round.iter()).enumerate() {
+            assert!((a - b).abs() < 1e-15, "mismatch at index {i}: {a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn transformer_layer_weights_n_params_formula() {
+        let layer = make_zero_transformer(4, 2, 6, 3);
+        // 4*4*4 + 2*6*4 + 6 + 9*4 = 64 + 48 + 6 + 36 = 154
+        assert_eq!(layer.n_params(), 154);
+    }
+
+    #[test]
+    fn transformer_from_flat_weights_v2_roundtrip() {
+        let d_model = 4; let n_heads = 2; let d_ffn = 6; let n_seq = 3;
+        let arch = vec![
+            LayerSpec::Transformer { d_model, n_heads, d_ffn, n_seq },
+            LayerSpec::Dense { input_size: d_model, output_size: 2, activation: Activation::Linear },
+        ];
+        // Transformer: 154 params; Dense(4->2): 4*2 + 2 = 10 params
+        let total = 154 + 10;
+        let flat: Vec<f64> = (0..total).map(|i| (i as f64) * 0.01 + 0.5).collect();
+        let model = NeuralNetModel::from_flat_weights_v2(&flat, &arch, None).unwrap();
+        let round = model.to_flat_weights();
+        assert_eq!(round.len(), total);
+        for (i, (a, b)) in flat.iter().zip(round.iter()).enumerate() {
+            assert!((a - b).abs() < 1e-15, "mismatch at index {i}: {a} vs {b}");
         }
     }
 }
