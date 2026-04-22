@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Discriminator, Field
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
 
 Activation = Literal["tanh", "relu", "sigmoid", "asinh", "linear", "swish", "mish"]
 
@@ -51,7 +51,28 @@ class WindowSpec(BaseModel):
     n_steps: int = Field(ge=1)
 
 
-LayerSpec = Annotated[DenseSpec | GruSpec | LstmSpec | WindowSpec, Discriminator("type")]
+class TransformerSpec(BaseModel):
+    """Causal self-attention Transformer layer (Phase 3a, PSO-only initially).
+
+    d_model must be divisible by n_heads (multi-head attention constraint).
+    `build_layer(TransformerSpec)` raises NotImplementedError -- PPO support deferred.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["transformer"]
+    d_model: int = Field(ge=1)
+    n_heads: int = Field(ge=1)
+    d_ffn: int = Field(ge=1)
+    n_seq: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def _validate_head_divisibility(self) -> TransformerSpec:
+        if self.d_model % self.n_heads != 0:
+            raise ValueError(f"d_model={self.d_model} must be divisible by n_heads={self.n_heads}")
+        return self
+
+
+LayerSpec = Annotated[DenseSpec | GruSpec | LstmSpec | WindowSpec | TransformerSpec, Discriminator("type")]
 
 
 class LayerWeights(BaseModel):
