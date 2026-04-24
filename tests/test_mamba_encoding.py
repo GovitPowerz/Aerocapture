@@ -6,17 +6,17 @@ import math
 
 from aerocapture.training.config import _layer_n_params, _layer_output_size
 from aerocapture.training.encoding import _layer_param_specs, nn_param_specs_from_v2
-from aerocapture.training.rl.schemas import DenseSpec, MambaSpec
+from aerocapture.training.rl.schemas import DenseSpec, LayerSpec, MambaSpec
 
 
-def test_mamba_param_specs_total_count_matches_formula():
+def test_mamba_param_specs_total_count_matches_formula() -> None:
     spec = MambaSpec(type="mamba", input_size=32, d_state=16, dt_rank=2)
     specs = _layer_param_specs(spec, bound_multiplier=1.0)
     # Formula: input_size * (3*d_state + 2*dt_rank + 2) = 32 * (48 + 4 + 2) = 32 * 54 = 1728
     assert len(specs) == 1728
 
 
-def test_mamba_param_specs_layout_matches_canonical_order():
+def test_mamba_param_specs_layout_matches_canonical_order() -> None:
     spec = MambaSpec(type="mamba", input_size=4, d_state=2, dt_rank=1)
     specs = _layer_param_specs(spec, bound_multiplier=1.0)
     # Canonical order:
@@ -36,7 +36,7 @@ def test_mamba_param_specs_layout_matches_canonical_order():
     assert all(n.startswith("d_skip") for n in names[36:40])
 
 
-def test_mamba_param_specs_hippo_centers():
+def test_mamba_param_specs_hippo_centers() -> None:
     spec = MambaSpec(type="mamba", input_size=2, d_state=3, dt_rank=1)
     specs = _layer_param_specs(spec, bound_multiplier=1.0)
     x_proj_n = (1 + 2 * 3) * 2  # 14
@@ -51,7 +51,7 @@ def test_mamba_param_specs_hippo_centers():
         assert abs(specs[a_log_start + i].default - expected) < 1e-15, f"a_log spec {i}: got {specs[a_log_start + i].default}, expected {expected}"
 
 
-def test_mamba_param_specs_d_skip_centers_are_one():
+def test_mamba_param_specs_d_skip_centers_are_one() -> None:
     spec = MambaSpec(type="mamba", input_size=4, d_state=2, dt_rank=1)
     specs = _layer_param_specs(spec, bound_multiplier=1.0)
     d_skip_specs = [s for s in specs if s.name.startswith("d_skip")]
@@ -62,18 +62,18 @@ def test_mamba_param_specs_d_skip_centers_are_one():
         assert s.p_max == 2.0  # 1.0 + 1.0
 
 
-def test_layer_n_params_mamba():
+def test_layer_n_params_mamba() -> None:
     spec = MambaSpec(type="mamba", input_size=32, d_state=16, dt_rank=2)
     assert _layer_n_params(spec) == 1728
 
 
-def test_layer_output_size_mamba_equals_input_size():
+def test_layer_output_size_mamba_equals_input_size() -> None:
     spec = MambaSpec(type="mamba", input_size=32, d_state=16, dt_rank=2)
     assert _layer_output_size(spec) == 32
 
 
-def test_nn_param_specs_from_v2_handles_mamba():
-    arch = [
+def test_nn_param_specs_from_v2_handles_mamba() -> None:
+    arch: list[LayerSpec] = [
         DenseSpec(type="dense", input_size=23, output_size=8, activation="tanh"),
         MambaSpec(type="mamba", input_size=8, d_state=4, dt_rank=2),
         DenseSpec(type="dense", input_size=8, output_size=2, activation="linear"),

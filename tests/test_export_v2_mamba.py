@@ -8,7 +8,7 @@ from aerocapture.training.rl.layers.mamba import MambaLayer
 from aerocapture.training.rl.schemas import DenseSpec, MambaSpec
 
 
-def test_export_v2_mamba_layer_emits_flat_keys():
+def test_export_v2_mamba_layer_emits_flat_keys() -> None:
     """Export a hand-constructed MambaLayer, verify the JSON v2 weights dict
     has the 5 flat Mamba keys at layer level (not nested).
     """
@@ -37,7 +37,7 @@ def test_export_v2_mamba_layer_emits_flat_keys():
     assert len(weights_dict["d_skip"]) == 4
 
 
-def test_obs_norm_bake_in_rejects_mamba_as_layer_zero():
+def test_obs_norm_bake_in_rejects_mamba_as_layer_zero() -> None:
     """Phase 0 invariant: obs-normalizer bake-in is only safe into a Dense layer 0.
     Mamba's x_proj + softplus + A = -exp(a_log) nonlinearity means absorbing an
     affine input transform isn't closed-form.

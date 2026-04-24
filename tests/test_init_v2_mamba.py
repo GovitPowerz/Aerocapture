@@ -10,7 +10,7 @@ from aerocapture.training.initialization_v2 import init_v2_population
 from aerocapture.training.rl.schemas import MambaSpec
 
 
-def test_mamba_init_produces_correct_param_count():
+def test_mamba_init_produces_correct_param_count() -> None:
     arch = [MambaSpec(type="mamba", input_size=4, d_state=2, dt_rank=1)]
     rng = np.random.default_rng(0)
     pop = init_v2_population(arch, n_pop=8, bound_multiplier=1.0, rng=rng)
@@ -18,7 +18,7 @@ def test_mamba_init_produces_correct_param_count():
     assert pop.shape == (8, 40)
 
 
-def test_mamba_init_all_individuals_differ_on_every_slice():
+def test_mamba_init_all_individuals_differ_on_every_slice() -> None:
     """Regression test: dt_proj_b / a_log / d_skip must NOT be identical across
     the PSO population (would kill exploration).
     """
@@ -44,7 +44,7 @@ def test_mamba_init_all_individuals_differ_on_every_slice():
         assert (std_across_pop > 1e-9).all(), f"slice {name} has zero-variance columns: {std_across_pop}"
 
 
-def test_mamba_init_values_within_paramspec_bounds():
+def test_mamba_init_values_within_paramspec_bounds() -> None:
     """Load-bearing: each init value must fall inside [p_min, p_max] from _layer_param_specs."""
     spec = MambaSpec(type="mamba", input_size=4, d_state=2, dt_rank=1)
     arch = [spec]
@@ -61,7 +61,7 @@ def test_mamba_init_values_within_paramspec_bounds():
         assert (col <= param_spec.p_max + 1e-9).all(), f"param {i} ({param_spec.name}): {col.max()} above p_max {param_spec.p_max}"
 
 
-def test_mamba_init_a_log_mean_is_hippo():
+def test_mamba_init_a_log_mean_is_hippo() -> None:
     spec = MambaSpec(type="mamba", input_size=2, d_state=4, dt_rank=1)
     arch = [spec]
     rng = np.random.default_rng(7)
@@ -78,7 +78,7 @@ def test_mamba_init_a_log_mean_is_hippo():
     assert np.allclose(a_log_mean, expected, atol=0.01)  # jitter_std=0.01, 10000 samples
 
 
-def test_mamba_init_d_skip_mean_is_one():
+def test_mamba_init_d_skip_mean_is_one() -> None:
     spec = MambaSpec(type="mamba", input_size=4, d_state=2, dt_rank=1)
     arch = [spec]
     rng = np.random.default_rng(99)

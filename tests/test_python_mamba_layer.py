@@ -15,7 +15,7 @@ from aerocapture.training.rl.layers.mamba import MambaLayer
 
 
 @pytest.fixture
-def tiny_layer():
+def tiny_layer() -> MambaLayer:
     layer = MambaLayer(input_size=2, d_state=2, dt_rank=1)
     layer.double()
     # Match the Rust hand-verified test fixture exactly.
@@ -41,7 +41,7 @@ def tiny_layer():
     return layer
 
 
-def test_mamba_forward_step_zero_state(tiny_layer):
+def test_mamba_forward_step_zero_state(tiny_layer: MambaLayer) -> None:
     x = torch.tensor([1.0, 0.0], dtype=torch.float64)
     h = torch.zeros(2, 2, dtype=torch.float64)
     y, h_new = tiny_layer(x, h)
@@ -51,7 +51,7 @@ def test_mamba_forward_step_zero_state(tiny_layer):
     assert abs(y[1].item() - 0.0) < 1e-15
 
 
-def test_mamba_forward_two_step_state_evolution(tiny_layer):
+def test_mamba_forward_two_step_state_evolution(tiny_layer: MambaLayer) -> None:
     x1 = torch.tensor([1.0, 0.0], dtype=torch.float64)
     h0 = torch.zeros(2, 2, dtype=torch.float64)
     y1, h1 = tiny_layer(x1, h0)
@@ -66,7 +66,7 @@ def test_mamba_forward_two_step_state_evolution(tiny_layer):
     assert abs(h2[0, 0].item() - 0.2386512185411911) < 1e-12
 
 
-def test_mamba_new_state_dtype_matches_parameters():
+def test_mamba_new_state_dtype_matches_parameters() -> None:
     layer = MambaLayer(input_size=4, d_state=3, dt_rank=1)
     layer.double()
     state = layer.new_state()
@@ -75,7 +75,7 @@ def test_mamba_new_state_dtype_matches_parameters():
     assert bool(torch.all(state == 0.0))
 
 
-def test_mamba_deterministic_under_repeated_input():
+def test_mamba_deterministic_under_repeated_input() -> None:
     torch.manual_seed(0)
     layer = MambaLayer(input_size=4, d_state=3, dt_rank=1)
     layer.double()

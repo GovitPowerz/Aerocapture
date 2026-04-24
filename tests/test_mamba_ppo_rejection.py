@@ -16,35 +16,35 @@ from aerocapture.training.rl.layers import build_layer
 from aerocapture.training.rl.schemas import MambaSpec
 
 
-def test_mamba_spec_validates():
+def test_mamba_spec_validates() -> None:
     spec = MambaSpec(type="mamba", input_size=8, d_state=4, dt_rank=2)
     assert spec.input_size == 8
     assert spec.d_state == 4
     assert spec.dt_rank == 2
 
 
-def test_mamba_spec_auto_resolves_dt_rank():
+def test_mamba_spec_auto_resolves_dt_rank() -> None:
     spec = MambaSpec(type="mamba", input_size=32, d_state=16)
     assert spec.dt_rank == 2  # max(1, 32 // 16)
 
 
-def test_mamba_spec_auto_resolves_dt_rank_small_input():
+def test_mamba_spec_auto_resolves_dt_rank_small_input() -> None:
     spec = MambaSpec(type="mamba", input_size=8, d_state=4)
     assert spec.dt_rank == 1  # max(1, 8 // 16)
 
 
-def test_mamba_spec_rejects_dt_rank_larger_than_input():
+def test_mamba_spec_rejects_dt_rank_larger_than_input() -> None:
     with pytest.raises(ValueError, match="dt_rank"):
         MambaSpec(type="mamba", input_size=8, d_state=4, dt_rank=16)
 
 
-def test_build_layer_mamba_raises_not_implemented():
+def test_build_layer_mamba_raises_not_implemented() -> None:
     spec = MambaSpec(type="mamba", input_size=8, d_state=4, dt_rank=2)
     with pytest.raises(NotImplementedError, match="Mamba is PSO-only in Phase 4a"):
         build_layer(spec)
 
 
-def test_load_policy_from_json_with_mamba_raises():
+def test_load_policy_from_json_with_mamba_raises() -> None:
     from aerocapture.training.model_io import load_policy_from_json
 
     minimal_json = {
