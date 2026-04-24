@@ -3872,6 +3872,113 @@ mod tests {
     }
 
     #[test]
+    fn mamba_json_v2_save_load_roundtrip() {
+        // Dense(8 -> 4, linear) -> Mamba(4, 2, 1) -> Dense(4 -> 2, linear)
+        let architecture = vec![
+            LayerSpec::Dense {
+                input_size: 8,
+                output_size: 4,
+                activation: Activation::Linear,
+            },
+            LayerSpec::Mamba {
+                input_size: 4,
+                d_state: 2,
+                dt_rank: 1,
+            },
+            LayerSpec::Dense {
+                input_size: 4,
+                output_size: 2,
+                activation: Activation::Linear,
+            },
+        ];
+        // Dense(8->4) = 36, Mamba(4, 2, 1) = 4*(6+2+2) = 40, Dense(4->2) = 10; total 86.
+        let flat: Vec<f64> = (0..86).map(|i| (i as f64) * 0.017 - 0.9).collect();
+        let model = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None).unwrap();
+        assert_eq!(model.n_params(), 86);
+
+        let tmpdir = std::env::temp_dir();
+        let path = tmpdir.join("mamba_v2_roundtrip.json");
+        model.save_json(path.to_str().unwrap()).unwrap();
+
+        // Sanity-check: JSON always includes dt_rank for Mamba layers
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            raw.contains("\"dt_rank\""),
+            "save_json output must contain dt_rank field; got: {raw}"
+        );
+
+        let loaded = NeuralNetModel::load(path.to_str().unwrap()).unwrap();
+        assert_eq!(loaded.architecture.len(), 3);
+        assert_eq!(loaded.n_params(), model.n_params());
+
+        // Flat-weight round-trip must be bit-identical.
+        let orig_flat = model.to_flat_weights();
+        let loaded_flat = loaded.to_flat_weights();
+        assert_eq!(orig_flat.len(), loaded_flat.len());
+        for (i, (a, b)) in orig_flat.iter().zip(loaded_flat.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-15,
+                "roundtrip mismatch at {i}: {a} vs {b}"
+            );
+        }
+
+        // Architecture spec must be identical.
+        assert_eq!(
+            format!("{:?}", model.architecture),
+            format!("{:?}", loaded.architecture),
+        );
+
+        // Spot-check: middle layer is Mamba with correct shape.
+        match &loaded.layers[1] {
+            Layer::Mamba(m) => {
+                assert_eq!(m.input_size, 4);
+                assert_eq!(m.d_state, 2);
+                assert_eq!(m.dt_rank, 1);
+                assert_eq!(m.x_proj_w.nrows(), 1 + 2 * 2); // dt_rank + 2*d_state = 5
+                assert_eq!(m.x_proj_w.ncols(), 4); // input_size
+                assert_eq!(m.dt_proj_w.shape(), (4, 1));
+                assert_eq!(m.a_log.shape(), (4, 2));
+                assert_eq!(m.dt_proj_b.len(), 4);
+                assert_eq!(m.d_skip.len(), 4);
+            }
+            _ => panic!("expected Mamba at layer 1"),
+        }
+    }
+
+    #[test]
+    fn mamba_from_v2_json_rejects_zero_dt_rank() {
+        // Build a minimal v2 JSON by hand with dt_rank = 0 in the Mamba spec.
+        // The constructor validators in from_v2_json must reject this.
+        let dir = std::env::temp_dir();
+        let path = dir.join("mamba_zero_dt_rank.json");
+        let bad_json = r#"{
+            "format_version": 2,
+            "architecture": [
+                {"type": "dense", "input_size": 4, "output_size": 4, "activation": "linear"},
+                {"type": "mamba", "input_size": 4, "d_state": 2, "dt_rank": 0},
+                {"type": "dense", "input_size": 4, "output_size": 2, "activation": "linear"}
+            ],
+            "weights": {
+                "layer_0": {"w": [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]], "b": [0.0, 0.0, 0.0, 0.0]},
+                "layer_1": {
+                    "x_proj_w": [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+                    "dt_proj_w": [[], [], [], []],
+                    "dt_proj_b": [0.0, 0.0, 0.0, 0.0],
+                    "a_log": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                    "d_skip": [0.0, 0.0, 0.0, 0.0]
+                },
+                "layer_2": {"w": [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]], "b": [0.0, 0.0]}
+            }
+        }"#;
+        std::fs::write(&path, bad_json).unwrap();
+        let result = NeuralNetModel::load(path.to_str().unwrap());
+        assert!(
+            result.is_err(),
+            "from_v2_json must reject Mamba with dt_rank = 0"
+        );
+    }
+
+    #[test]
     fn mamba_forward_two_step_hand_verified() {
         use nalgebra::{DMatrix, DVector};
 
