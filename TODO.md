@@ -1,6 +1,8 @@
 # TODO
 
 - [ ] explore JEPA guidance
+- [ ] add some logging about optimizer settings at beginning of training
+- [ ] add some feedback on |orb_tag - orb_cur| for RL ? 
 
 ---
 
