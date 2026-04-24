@@ -221,6 +221,12 @@ pub enum TomlLayerSpec {
         d_ffn: usize,
         n_seq: usize,
     },
+    Mamba {
+        input_size: usize,
+        d_state: usize,
+        #[serde(default)]
+        dt_rank: Option<usize>,
+    },
 }
 
 impl TomlLayerSpec {
@@ -291,6 +297,28 @@ impl TomlLayerSpec {
                     n_heads: *n_heads,
                     d_ffn: *d_ffn,
                     n_seq: *n_seq,
+                })
+            }
+            TomlLayerSpec::Mamba { input_size, d_state, dt_rank } => {
+                if *input_size == 0 {
+                    return Err(ParseError("Mamba: input_size must be > 0".into()));
+                }
+                if *d_state == 0 {
+                    return Err(ParseError("Mamba: d_state must be > 0".into()));
+                }
+                let resolved = dt_rank.unwrap_or_else(|| (*input_size / 16).max(1));
+                if resolved == 0 {
+                    return Err(ParseError("Mamba: dt_rank must be > 0".into()));
+                }
+                if resolved > *input_size {
+                    return Err(ParseError(format!(
+                        "Mamba: dt_rank ({resolved}) must be <= input_size ({input_size})"
+                    )));
+                }
+                Ok(LayerSpec::Mamba {
+                    input_size: *input_size,
+                    d_state: *d_state,
+                    dt_rank: resolved,
                 })
             }
         }
@@ -1871,5 +1899,86 @@ n_seq = 64
         let w: NetworkWrapper = toml::from_str(toml_str).unwrap();
         let err = w.network.architecture[0].to_layer_spec().unwrap_err();
         assert!(format!("{err}").contains("not divisible"));
+    }
+
+    #[test]
+    fn mamba_toml_resolves_dt_rank_from_input_size() {
+        use crate::data::neural::LayerSpec;
+        // input_size=32, omitted dt_rank -> max(1, 32/16) = 2
+        let parsed: TomlLayerSpec = toml::from_str(
+            r#"type = "mamba"
+input_size = 32
+d_state = 16
+"#
+        ).unwrap();
+        let spec = parsed.to_layer_spec().unwrap();
+        match spec {
+            LayerSpec::Mamba { input_size, d_state, dt_rank } => {
+                assert_eq!(input_size, 32);
+                assert_eq!(d_state, 16);
+                assert_eq!(dt_rank, 2);
+            }
+            _ => panic!("expected Mamba spec"),
+        }
+    }
+
+    #[test]
+    fn mamba_toml_explicit_dt_rank_overrides_default() {
+        use crate::data::neural::LayerSpec;
+        let parsed: TomlLayerSpec = toml::from_str(
+            r#"type = "mamba"
+input_size = 32
+d_state = 16
+dt_rank = 8
+"#
+        ).unwrap();
+        let spec = parsed.to_layer_spec().unwrap();
+        match spec {
+            LayerSpec::Mamba { dt_rank, .. } => assert_eq!(dt_rank, 8),
+            _ => panic!("expected Mamba spec"),
+        }
+    }
+
+    #[test]
+    fn mamba_toml_rejects_dt_rank_larger_than_input_size() {
+        let parsed: TomlLayerSpec = toml::from_str(
+            r#"type = "mamba"
+input_size = 8
+d_state = 4
+dt_rank = 16
+"#
+        ).unwrap();
+        let result = parsed.to_layer_spec();
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.0.contains("dt_rank"), "error message should mention dt_rank: {msg}");
+    }
+
+    #[test]
+    fn mamba_toml_rejects_zero_dims() {
+        let parsed: TomlLayerSpec = toml::from_str(
+            r#"type = "mamba"
+input_size = 8
+d_state = 0
+"#
+        ).unwrap();
+        assert!(parsed.to_layer_spec().is_err());
+    }
+
+    #[test]
+    fn mamba_toml_defaults_dt_rank_to_one_for_small_input() {
+        use crate::data::neural::LayerSpec;
+        // input_size=8, omitted dt_rank -> max(1, 8/16) = max(1, 0) = 1
+        let parsed: TomlLayerSpec = toml::from_str(
+            r#"type = "mamba"
+input_size = 8
+d_state = 4
+"#
+        ).unwrap();
+        let spec = parsed.to_layer_spec().unwrap();
+        match spec {
+            LayerSpec::Mamba { dt_rank, .. } => assert_eq!(dt_rank, 1),
+            _ => panic!("expected Mamba"),
+        }
     }
 }
