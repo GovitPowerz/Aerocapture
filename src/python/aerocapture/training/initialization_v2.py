@@ -186,7 +186,9 @@ def _fill_mamba(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.
     """
     d_inner = int(entry["input_size"])
     d_state = int(entry["d_state"])
-    dt_rank = int(entry["dt_rank"])
+    # dt_rank is optional in TOML; resolve the same way MambaSpec does.
+    raw_dt_rank = entry.get("dt_rank")
+    dt_rank = int(raw_dt_rank) if raw_dt_rank is not None else max(1, d_inner // 16)
     pop_n = slab.shape[0]
     jitter_std = _INIT_JITTER_STD * bound_multiplier
 

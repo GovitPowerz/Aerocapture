@@ -34,6 +34,14 @@ class NetworkConfig:
 
     def __post_init__(self) -> None:
         if self.architecture is not None:
+            # v2: normalize Mamba entries (resolve optional dt_rank) so downstream
+            # consumers -- including the Rust `flat_weights_to_json` PyO3 call which
+            # deserializes into a strict `LayerSpec::Mamba { dt_rank: usize }` -- see
+            # the field present. Mirrors `MambaSpec` pydantic validator and Rust
+            # `TomlLayerSpec::to_layer_spec` resolution: `max(1, input_size // 16)`.
+            for entry in self.architecture:
+                if isinstance(entry, dict) and entry.get("type") == "mamba" and entry.get("dt_rank") is None:
+                    entry["dt_rank"] = max(1, int(entry["input_size"]) // 16)
             # v2: validate per-entry shapes + chain consistency (layer i's output size
             # must equal layer i+1's input size).
             for entry in self.architecture:
@@ -138,7 +146,10 @@ def _layer_n_params(entry: Any) -> int:
     if ltype == "mamba":
         d_inner = int(entry["input_size"])
         d_state = int(entry["d_state"])
-        dt_rank = int(entry["dt_rank"])
+        # dt_rank is optional in TOML; resolve to max(1, input_size // 16) when absent
+        # (mirrors MambaSpec model_validator and Rust TomlLayerSpec::to_layer_spec).
+        raw_dt_rank = entry.get("dt_rank")
+        dt_rank = int(raw_dt_rank) if raw_dt_rank is not None else max(1, d_inner // 16)
         return d_inner * (3 * d_state + 2 * dt_rank + 2)
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
@@ -225,7 +236,10 @@ def describe_architecture(network: NetworkConfig | list[Any]) -> str:
                 elif ltype == "transformer":
                     tail = f"d_model={entry['d_model']}, n_heads={entry['n_heads']}, d_ffn={entry['d_ffn']}, n_seq={entry['n_seq']}"
                 elif ltype == "mamba":
-                    tail = f"d_state={entry['d_state']}, dt_rank={entry['dt_rank']}"
+                    # dt_rank is optional in TOML; resolve the same way MambaSpec does.
+                    raw_dt_rank = entry.get("dt_rank")
+                    resolved_dt_rank = int(raw_dt_rank) if raw_dt_rank is not None else max(1, int(entry["input_size"]) // 16)
+                    tail = f"d_state={entry['d_state']}, dt_rank={resolved_dt_rank}"
                 else:
                     tail = ltype
             in_size = _layer_input_size(entry)
