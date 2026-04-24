@@ -557,9 +557,10 @@ pub enum Layer {
     Window(WindowLayer),
     // Boxed: TransformerLayer is 472 bytes vs 112 for GruLayer; boxing keeps enum size uniform.
     Transformer(Box<TransformerLayer>),
-    // Boxed: MambaLayer with typical dims (input_size=32, d_state=16, dt_rank=2)
-    // carries ~14 kB of weights (nalgebra DMatrix heap allocation). Boxing keeps
-    // enum size uniform, matching Phase 3a Transformer's `large_enum_variant` fix.
+    // Boxed: MambaLayer's stack footprint is ~200 bytes (3 DMatrix + 2 DVector
+    // headers); weight data lives on the heap behind those pointers regardless
+    // of boxing. The box is purely for enum-variant size uniformity against
+    // Transformer (472 bytes) -- same `large_enum_variant` clippy motivation.
     Mamba(Box<MambaLayer>),
 }
 
