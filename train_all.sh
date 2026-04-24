@@ -151,7 +151,7 @@ train_neural_network_window_pso() {
 
 train_neural_network_transformer_pso() {
     echo "=== neural_network_transformer_pso (Dense -> Transformer -> Dense, PSO) ==="
-    run_scheme configs/training/msr_aller_transformer_pso_train.toml 5000 64 2000 1
+    run_scheme configs/training/msr_aller_transformer_pso_train.toml 500 64 2000 1
 }
 
 train_all() {

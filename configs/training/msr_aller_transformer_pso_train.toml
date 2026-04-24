@@ -20,25 +20,21 @@ activation = "linear"
 type = "transformer"
 d_model = 32
 n_heads = 4
-d_ffn = 64
+d_ffn = 128
+n_seq = 64
+
+[[network.architecture]]
+type = "transformer"
+d_model = 32
+n_heads = 4
+d_ffn = 128
 n_seq = 64
 
 [[network.architecture]]
 type = "dense"
 input_size = 32
 output_size = 2
-activation = "linear"
-
-[optimizer]
-algorithm = "pso"
-n_pop = 64
-n_gen = 2000
-seed_strategy = "adaptive"
-training_n_sims = 20
-validation_n_sims = 1000
-seed_pool_interval = 50
-curation_sample_size = 1000
-curation_top_k = 5
+activation = "asinh"
 
 [guidance.ftc]
 # Shared exit-phase controller params (unsigned-magnitude schemes; Transformer
