@@ -135,6 +135,11 @@ def _layer_n_params(entry: Any) -> int:
         d = int(entry["d_model"])
         f = int(entry["d_ffn"])
         return 4 * d * d + 2 * f * d + f + 9 * d
+    if ltype == "mamba":
+        d_inner = int(entry["input_size"])
+        d_state = int(entry["d_state"])
+        dt_rank = int(entry["dt_rank"])
+        return d_inner * (3 * d_state + 2 * dt_rank + 2)
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
@@ -155,11 +160,16 @@ def _layer_input_size(entry: Any) -> int:
 def _layer_output_size(entry: Any) -> int:
     """Output size of a v2 layer entry. Dense: output_size. GRU/LSTM: hidden_size
     (the cell emits its hidden state to the next layer). Window: n_steps * input_size
-    (flattened ring buffer). Transformer: d_model."""
-    from aerocapture.training.rl.schemas import TransformerSpec
+    (flattened ring buffer). Transformer: d_model. Mamba: input_size (d_inner)."""
+    from aerocapture.training.rl.schemas import MambaSpec, TransformerSpec
 
     if isinstance(entry, TransformerSpec):
         return entry.d_model
+    if isinstance(entry, MambaSpec):
+        return entry.input_size
+    # Normalise other Pydantic models to plain dicts.
+    if hasattr(entry, "model_dump"):
+        entry = entry.model_dump()
     ltype = entry["type"]
     if ltype == "dense":
         return int(entry["output_size"])
@@ -171,6 +181,8 @@ def _layer_output_size(entry: Any) -> int:
         return int(entry["input_size"]) * int(entry["n_steps"])
     if ltype == "transformer":
         return int(entry["d_model"])
+    if ltype == "mamba":
+        return int(entry["input_size"])
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
@@ -212,6 +224,8 @@ def describe_architecture(network: NetworkConfig | list[Any]) -> str:
                     tail = f"n_steps={entry['n_steps']}"
                 elif ltype == "transformer":
                     tail = f"d_model={entry['d_model']}, n_heads={entry['n_heads']}, d_ffn={entry['d_ffn']}, n_seq={entry['n_seq']}"
+                elif ltype == "mamba":
+                    tail = f"d_state={entry['d_state']}, dt_rank={entry['dt_rank']}"
                 else:
                     tail = ltype
             in_size = _layer_input_size(entry)

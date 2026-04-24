@@ -19,9 +19,15 @@ from aerocapture.training.rl.schemas import (
     GruSpec,
     LayerSpec,
     LstmSpec,
+    MambaSpec,
     TransformerSpec,
     WindowSpec,
 )
+
+# Deterministic sub-seed for dt_proj_b center draw. Matched between _mamba_specs
+# (ParamSpec bounds) and _init_mamba_layer (initial population values) so both
+# agree on the center each ParamSpec window is centered around.
+_MAMBA_DT_BIAS_SEED: int = 0xDE17A  # arbitrary but stable
 
 
 def decode_normalized(x: npt.NDArray[np.float64], specs: list[ParamSpec]) -> dict[str, float]:
@@ -114,6 +120,8 @@ def _layer_param_specs(layer: LayerSpec, layer_idx: int = 0, bound_multiplier: f
         return []  # zero trainable parameters
     if isinstance(layer, TransformerSpec):
         return _transformer_specs(layer, layer_idx, bound_multiplier)
+    if isinstance(layer, MambaSpec):
+        return _mamba_specs(layer, layer_idx, bound_multiplier)
     msg = f"Unknown layer type for PSO specs: {layer!r}"
     raise ValueError(msg)
 
@@ -246,4 +254,60 @@ def _transformer_specs(layer: TransformerSpec, layer_idx: int, bound_multiplier:
         specs.append(ParamSpec(f"ln2_gamma{li}_{j}", gamma_lo, gamma_hi, 0.0))
     for j in range(d):
         specs.append(ParamSpec(f"ln2_beta{li}_{j}", -beta_bound, beta_bound, 0.0))
+    return specs
+
+
+def _mamba_specs(layer: MambaSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
+    """ParamSpec list in canonical flat order matching Rust `LayerWeights for MambaLayer::to_flat`.
+
+    INVARIANT: ordering MUST match Rust's to_flat / from_flat cursor advance order:
+      1. x_proj_w  [(dt_rank + 2*d_state), d_inner] row-major -- Xavier around 0
+      2. dt_proj_w [d_inner, dt_rank]                row-major -- Xavier * dt_rank^{-0.5} around 0
+      3. dt_proj_b [d_inner]                                   -- inv_softplus(U(1e-3, 1e-1)) centers
+      4. a_log     [d_inner, d_state]                row-major -- HiPPO log(n+1) centers (outer d, inner n)
+      5. d_skip    [d_inner]                                   -- 1.0 centers
+
+    dt_proj_b centers draw from _MAMBA_DT_BIAS_SEED so they match _init_mamba_layer (Task 11).
+    """
+    d_inner = layer.input_size
+    d_state = layer.d_state
+    dt_rank = layer.dt_rank
+    assert dt_rank is not None  # validator always resolves this
+    mul = bound_multiplier
+    li = layer_idx
+
+    specs: list[ParamSpec] = []
+
+    # 1. x_proj_w: [(dt_rank + 2*d_state), d_inner] -- Xavier around 0
+    fan_in_xp = d_inner
+    fan_out_xp = dt_rank + 2 * d_state
+    bound_xp = math.sqrt(6.0 / (fan_in_xp + fan_out_xp)) * mul
+    for j in range(fan_out_xp * d_inner):
+        specs.append(ParamSpec(f"x_proj_w{li}_{j}", -bound_xp, bound_xp, 0.0))
+
+    # 2. dt_proj_w: [d_inner, dt_rank] -- Xavier * dt_rank^{-0.5} around 0
+    fan_in_dt = dt_rank
+    fan_out_dt = d_inner
+    bound_dt = math.sqrt(6.0 / (fan_in_dt + fan_out_dt)) / math.sqrt(max(dt_rank, 1)) * mul
+    for j in range(d_inner * dt_rank):
+        specs.append(ParamSpec(f"dt_proj_w{li}_{j}", -bound_dt, bound_dt, 0.0))
+
+    # 3. dt_proj_b: [d_inner] -- per-channel inv_softplus(U(1e-3, 1e-1)) centers
+    local_rng = np.random.default_rng(_MAMBA_DT_BIAS_SEED)
+    dt_draws = local_rng.uniform(1e-3, 1e-1, size=d_inner)
+    for d in range(d_inner):
+        dt = float(dt_draws[d])
+        center = math.log(math.expm1(dt))
+        specs.append(ParamSpec(f"dt_proj_b{li}_{d}", center - mul, center + mul, center))
+
+    # 4. a_log: [d_inner, d_state] -- HiPPO log(n+1) centers; outer d, inner n (row-major)
+    for d in range(d_inner):
+        for n in range(d_state):
+            center = math.log(n + 1)
+            specs.append(ParamSpec(f"a_log{li}_{d}_{n}", center - mul, center + mul, center))
+
+    # 5. d_skip: [d_inner] -- 1.0 centers
+    for d in range(d_inner):
+        specs.append(ParamSpec(f"d_skip{li}_{d}", 1.0 - mul, 1.0 + mul, 1.0))
+
     return specs
