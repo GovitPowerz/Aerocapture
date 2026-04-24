@@ -49,11 +49,10 @@ class NetworkConfig:
                         f"({self.architecture[i + 1]['type']}) expects input_size={next_in}"
                     )
                     raise ValueError(msg)
-            first_input = self.architecture[0].get("input_size")
-            if self.input_mask is not None and first_input is not None:
-                first_input_int = int(first_input)
+            if self.input_mask is not None:
+                first_input_int = _layer_input_size(self.architecture[0])
                 if len(self.input_mask) != first_input_int:
-                    msg = f"input_mask length ({len(self.input_mask)}) must equal architecture[0].input_size ({first_input_int})"
+                    msg = f"input_mask length ({len(self.input_mask)}) must equal architecture[0] input size ({first_input_int})"
                     raise ValueError(msg)
             return
         n_layers = len(self.layer_sizes) - 1
