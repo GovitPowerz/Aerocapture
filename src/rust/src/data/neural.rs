@@ -58,6 +58,31 @@ pub(crate) fn build_pe_table(n_seq: usize, d_model: usize) -> Vec<Vec<f64>> {
         .collect()
 }
 
+/// Numerically stable softplus: `log(1 + exp(x))`.
+///
+/// Uses `max(x, 0) + log1p(exp(-|x|))` to avoid overflow for large positive x
+/// and underflow for large negative x. The Python mirror in `rl/layers/mamba.py`
+/// uses the identical manual form (NOT `torch.nn.functional.softplus`, which has a
+/// `threshold=20` linear-branch fallback we do not want for bit-equivalence).
+pub(crate) fn softplus(x: f64) -> f64 {
+    let a = x.abs();
+    x.max(0.0) + (-a).exp().ln_1p()
+}
+
+/// Stable `(exp(z) - 1) / z` with Taylor fallback for |z| < 1e-8.
+///
+/// For |z| < 1e-8 the exact form suffers from catastrophic cancellation and we
+/// use `1 + z/2 + z^2/6` (Taylor expansion, error ~ z^3/24 which is machine
+/// epsilon at |z| < 1e-5). The Python mirror uses `torch.where` to switch
+/// between the same two branches.
+pub(crate) fn expm1_over_x(z: f64) -> f64 {
+    if z.abs() < 1e-8 {
+        1.0 + z * 0.5 + z * z / 6.0
+    } else {
+        z.exp_m1() / z
+    }
+}
+
 /// Activation function for a layer.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -3324,5 +3349,62 @@ mod tests {
             err.contains("b_q") || err.contains("transformer"),
             "expected error to mention b_q or transformer, got: {err}"
         );
+    }
+
+    #[test]
+    fn softplus_matches_stable_form_small_x() {
+        // softplus(0) = log(2) ≈ 0.6931471805599453
+        assert!((softplus(0.0) - std::f64::consts::LN_2).abs() < 1e-15);
+        // softplus(1) = log(1 + e) ≈ 1.3132616875182228
+        assert!((softplus(1.0) - 1.3132616875182228).abs() < 1e-14);
+        // softplus(-1) = log(1 + 1/e) ≈ 0.3132616875182228
+        assert!((softplus(-1.0) - 0.3132616875182228).abs() < 1e-14);
+    }
+
+    #[test]
+    fn softplus_no_overflow_at_large_magnitude() {
+        // For x = 100, softplus(x) must stay finite and ≈ x (not Inf from naive exp).
+        let y = softplus(100.0);
+        assert!(y.is_finite());
+        assert!((y - 100.0).abs() < 1e-10);
+        // For x = -100, softplus(x) ≈ exp(-100) ≈ 3.72e-44, still finite.
+        let y_neg = softplus(-100.0);
+        assert!(y_neg.is_finite());
+        assert!(y_neg > 0.0);
+        assert!(y_neg < 1e-40);
+    }
+
+    #[test]
+    fn expm1_over_x_matches_exact_for_moderate_z() {
+        // For |z| >= 1e-8, use expm1(z) / z directly.
+        for &z in &[0.5_f64, -0.5, 1.0, -1.0, 5.0, -5.0, 0.01, -0.01] {
+            let expected = z.exp_m1() / z;
+            let got = expm1_over_x(z);
+            assert!((got - expected).abs() < 1e-15, "z={z}: got {got}, expected {expected}");
+        }
+    }
+
+    #[test]
+    fn expm1_over_x_taylor_branch_at_tiny_z() {
+        // Taylor: 1 + z/2 + z^2/6 (error ~ z^3/24)
+        // At z = 1e-10, Taylor and exact should agree to machine epsilon.
+        let z = 1e-10;
+        let taylor = 1.0 + z * 0.5 + z * z / 6.0;
+        let got = expm1_over_x(z);
+        assert!((got - taylor).abs() < 1e-16, "z=1e-10: got {got}, taylor {taylor}");
+        // At z = 0, result should be 1.0 (the limit).
+        assert_eq!(expm1_over_x(0.0), 1.0);
+    }
+
+    #[test]
+    fn expm1_over_x_crossover_is_smooth() {
+        // Adjacent values across the crossover should not jump.
+        let z1 = 0.99e-8;
+        let z2 = 1.01e-8;
+        let y1 = expm1_over_x(z1);
+        let y2 = expm1_over_x(z2);
+        // The two branches evaluate different formulas at z values ~1e-8 apart, so the
+        // maximum expected delta is O(z) ≈ O(1e-8). 1e-9 is well within that bound.
+        assert!((y1 - y2).abs() < 1e-9, "crossover jump: y1={y1}, y2={y2}");
     }
 }
