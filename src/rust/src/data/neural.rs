@@ -64,7 +64,6 @@ pub(crate) fn build_pe_table(n_seq: usize, d_model: usize) -> Vec<Vec<f64>> {
 /// and underflow for large negative x. The Python mirror in `rl/layers/mamba.py`
 /// uses the identical manual form (NOT `torch.nn.functional.softplus`, which has a
 /// `threshold=20` linear-branch fallback we do not want for bit-equivalence).
-#[allow(dead_code)] // used by MambaLayer::forward (Task 3)
 pub(crate) fn softplus(x: f64) -> f64 {
     let a = x.abs();
     x.max(0.0) + (-a).exp().ln_1p()
@@ -76,7 +75,6 @@ pub(crate) fn softplus(x: f64) -> f64 {
 /// use `1 + z/2 + z^2/6` (Taylor expansion, error ~ z^3/24 which is machine
 /// epsilon at |z| < 1e-5). The Python mirror uses `torch.where` to switch
 /// between the same two branches.
-#[allow(dead_code)] // used by MambaLayer::forward (Task 3)
 pub(crate) fn expm1_over_x(z: f64) -> f64 {
     if z.abs() < 1e-8 {
         1.0 + z * 0.5 + z * z / 6.0
@@ -872,6 +870,60 @@ impl LayerWeights for MambaLayer {
         self.d_skip = nalgebra::DVector::from_row_slice(&flat[cursor..cursor + self.input_size]);
         cursor += self.input_size;
         cursor
+    }
+}
+
+impl MambaLayer {
+    /// Single-tick forward. Mutates `h` in place (state update), returns `y`.
+    ///
+    /// Shapes: `x: [f64; input_size]`, `h: DMatrix<f64> (input_size, d_state)`,
+    /// returns `Vec<f64>` length `input_size`.
+    ///
+    /// Numerical contract: Python mirror (`rl/layers/mamba.py`) must produce
+    /// bit-identical f64 output. Uses `softplus` and `expm1_over_x` helpers
+    /// (free functions in this module).
+    pub fn forward(&self, x: &[f64], h: &mut nalgebra::DMatrix<f64>) -> Vec<f64> {
+        debug_assert_eq!(x.len(), self.input_size);
+        debug_assert_eq!(h.nrows(), self.input_size);
+        debug_assert_eq!(h.ncols(), self.d_state);
+
+        let x_vec = nalgebra::DVector::from_row_slice(x);
+
+        // 1. Fused x_proj: produces (dt_rank + 2*d_state,)
+        let proj = &self.x_proj_w * &x_vec;
+        let dt_pre: Vec<f64> = (0..self.dt_rank).map(|i| proj[i]).collect();
+        let b_vec: Vec<f64> = (0..self.d_state).map(|i| proj[self.dt_rank + i]).collect();
+        let c_vec: Vec<f64> = (0..self.d_state)
+            .map(|i| proj[self.dt_rank + self.d_state + i])
+            .collect();
+
+        // 2. dt_proj + softplus -> per-channel positive Δ
+        let dt_pre_v = nalgebra::DVector::from_row_slice(&dt_pre);
+        let dt_lifted = &self.dt_proj_w * &dt_pre_v + &self.dt_proj_b;
+        let delta: Vec<f64> = (0..self.input_size)
+            .map(|i| softplus(dt_lifted[i]))
+            .collect();
+
+        // 3. ZOH discretization + state update, per (d, n).
+        //    A = -exp(a_log), Ā = exp(Δ·A), B̄ = Δ·B · expm1_over_x(Δ·A)
+        //    h_new = Ā*h + B̄*x[d]
+        //    y[d]   = Σ_n h_new[d, n] * C[n] + D[d] * x[d]
+        let mut y = vec![0.0_f64; self.input_size];
+        for d in 0..self.input_size {
+            let delta_d = delta[d];
+            let x_d = x[d];
+            let mut acc = 0.0;
+            for n in 0..self.d_state {
+                let a_dn = -self.a_log[(d, n)].exp();
+                let za = delta_d * a_dn;
+                let a_bar = za.exp();
+                let b_bar = delta_d * b_vec[n] * expm1_over_x(za);
+                h[(d, n)] = a_bar * h[(d, n)] + b_bar * x_d;
+                acc += h[(d, n)] * c_vec[n];
+            }
+            y[d] = acc + self.d_skip[d] * x_d;
+        }
+        y
     }
 }
 
@@ -1960,8 +2012,8 @@ impl NeuralNetModel {
                 (Layer::Transformer(t), LayerState::Transformer { k_cache, v_cache }) => {
                     current = t.forward(&current, k_cache, v_cache);
                 }
-                (Layer::Mamba(_m), LayerState::Mamba { h: _h }) => {
-                    todo!("MambaLayer::forward lands in Task 3")
+                (Layer::Mamba(m), LayerState::Mamba { h }) => {
+                    current = m.forward(&current, h);
                 }
                 _ => unreachable!(
                     "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None, Layer::Gru -> Gru, Layer::Lstm -> Lstm, Layer::Window -> Window, Layer::Transformer -> Transformer)"
@@ -3778,6 +3830,62 @@ mod tests {
         layer.from_flat(&too_short); // must panic
     }
 
+    #[test]
+    fn mamba_forward_two_step_hand_verified() {
+        use nalgebra::{DMatrix, DVector};
+
+        // Minimal layer: d_inner=2, d_state=2, dt_rank=1
+        //
+        // x_proj: (5, 2) -- rows [dt_pre; B_0; B_1; C_0; C_1]
+        // For x = [1, 0]: proj = [0, 1, 0, 1, 0] -> dt_pre=0, B=[1, 0], C=[1, 0]
+        // For x = [0, 1]: proj = [0, 0, 1, 0, 1] -> dt_pre=0, B=[0, 1], C=[0, 1]
+        //
+        // dt_proj_w zero, bias such that softplus(b) = 0.5 -> b = log(exp(0.5) - 1)
+        // Δ = 0.5 (per channel, constant)
+        //
+        // a_log = 0 -> A = -exp(0) = -1 (per (d, n))
+        // Ā[d, n] = exp(Δ * A) = exp(-0.5) ≈ 0.6065306597126334
+        // expm1_over_x(Δ * A) = (exp(-0.5) - 1) / (-0.5) ≈ 0.7869386805747332
+        // B̄[d, n] = Δ * B[n] * expm1_over_x(Δ * A) = 0.5 * B[n] * 0.7869
+        //
+        // d_skip = 0 (no skip, isolate SSM)
+
+        let x_proj_w = DMatrix::from_row_slice(5, 2, &[
+            0.0, 0.0,   // dt_pre row
+            1.0, 0.0,   // B_0
+            0.0, 1.0,   // B_1
+            1.0, 0.0,   // C_0
+            0.0, 1.0,   // C_1
+        ]);
+        let dt_proj_w = DMatrix::from_row_slice(2, 1, &[0.0, 0.0]);
+        let b_val = (0.5_f64.exp() - 1.0).ln();  // inv_softplus(0.5)
+        let dt_proj_b = DVector::from_row_slice(&[b_val, b_val]);
+        let a_log = DMatrix::from_row_slice(2, 2, &[0.0, 0.0, 0.0, 0.0]);
+        let d_skip = DVector::from_row_slice(&[0.0, 0.0]);
+
+        let layer = MambaLayer {
+            input_size: 2, d_state: 2, dt_rank: 1,
+            x_proj_w, dt_proj_w, dt_proj_b, a_log, d_skip,
+        };
+
+        let mut h = DMatrix::<f64>::zeros(2, 2);
+
+        // Step 1: x = [1, 0]
+        let x1 = [1.0, 0.0];
+        let y1 = layer.forward(&x1, &mut h);
+        assert!((y1[0] - 0.3934693402873666).abs() < 1e-12, "step 1 y[0] = {}", y1[0]);
+        assert!((y1[1] - 0.0).abs() < 1e-15, "step 1 y[1] = {}", y1[1]);
+
+        // Step 2: x = [0, 1], h = [[0.39347, 0], [0, 0]]
+        let x2 = [0.0, 1.0];
+        let y2 = layer.forward(&x2, &mut h);
+        assert!((y2[0] - 0.0).abs() < 1e-15, "step 2 y[0] = {}", y2[0]);
+        assert!((y2[1] - 0.3934693402873666).abs() < 1e-12, "step 2 y[1] = {}", y2[1]);
+        // State h[0, 0] should now be ~0.23865 (exp(-0.5) * prev value)
+        // Exact: exp(-0.5) * B_bar_step1 = 0.6065306597126334 * 0.3934693402873666
+        assert!((h[(0, 0)] - 0.2386512185411911).abs() < 1e-12, "h[0, 0] = {}", h[(0, 0)]);
+    }
+
     mod mamba_proptest {
         use super::*;
         use proptest::prelude::*;
@@ -3814,6 +3922,48 @@ mod tests {
                 prop_assert_eq!(back.len(), n);
                 for i in 0..n {
                     prop_assert_eq!(back[i], flat[i]);
+                }
+            }
+        }
+
+        proptest! {
+            #[test]
+            fn mamba_forward_finite_on_finite_inputs(
+                d_inner in 1usize..=4,
+                d_state in 1usize..=4,
+                dt_rank in 1usize..=3,
+                seed in 0u64..1000,
+            ) {
+                use rand::{RngExt, SeedableRng};
+                let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+                let rand_vec = |n: usize, rng: &mut rand::rngs::StdRng| -> Vec<f64> {
+                    (0..n).map(|_| rng.random_range(-1.0..1.0)).collect()
+                };
+                let x_proj_w = nalgebra::DMatrix::from_row_slice(dt_rank + 2 * d_state, d_inner,
+                    &rand_vec((dt_rank + 2 * d_state) * d_inner, &mut rng));
+                let dt_proj_w = nalgebra::DMatrix::from_row_slice(d_inner, dt_rank,
+                    &rand_vec(d_inner * dt_rank, &mut rng));
+                let dt_proj_b = nalgebra::DVector::from_row_slice(&rand_vec(d_inner, &mut rng));
+                let a_log = nalgebra::DMatrix::from_row_slice(d_inner, d_state, &rand_vec(d_inner * d_state, &mut rng));
+                let d_skip = nalgebra::DVector::from_row_slice(&rand_vec(d_inner, &mut rng));
+
+                let layer = MambaLayer {
+                    input_size: d_inner, d_state, dt_rank,
+                    x_proj_w, dt_proj_w, dt_proj_b, a_log, d_skip,
+                };
+                let x: Vec<f64> = rand_vec(d_inner, &mut rng);
+                let mut h = nalgebra::DMatrix::<f64>::zeros(d_inner, d_state);
+
+                for _ in 0..50 {
+                    let y = layer.forward(&x, &mut h);
+                    for v in &y {
+                        prop_assert!(v.is_finite(), "y not finite: {v}");
+                    }
+                    for i in 0..d_inner {
+                        for j in 0..d_state {
+                            prop_assert!(h[(i, j)].is_finite(), "h[{i}, {j}] not finite");
+                        }
+                    }
                 }
             }
         }
