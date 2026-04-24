@@ -813,6 +813,66 @@ impl LayerWeights for TransformerLayer {
     }
 }
 
+impl LayerWeights for MambaLayer {
+    fn n_params(&self) -> usize {
+        self.input_size * (3 * self.d_state + 2 * self.dt_rank + 2)
+    }
+
+    fn to_flat(&self) -> Vec<f64> {
+        let mut out = Vec::with_capacity(self.n_params());
+        // 1. x_proj_w row-major: (dt_rank + 2*d_state, input_size)
+        for i in 0..self.x_proj_w.nrows() {
+            for j in 0..self.x_proj_w.ncols() {
+                out.push(self.x_proj_w[(i, j)]);
+            }
+        }
+        // 2. dt_proj_w row-major: (input_size, dt_rank)
+        for i in 0..self.dt_proj_w.nrows() {
+            for j in 0..self.dt_proj_w.ncols() {
+                out.push(self.dt_proj_w[(i, j)]);
+            }
+        }
+        // 3. dt_proj_b: (input_size,)
+        for i in 0..self.dt_proj_b.len() {
+            out.push(self.dt_proj_b[i]);
+        }
+        // 4. a_log row-major: (input_size, d_state)
+        for i in 0..self.a_log.nrows() {
+            for j in 0..self.a_log.ncols() {
+                out.push(self.a_log[(i, j)]);
+            }
+        }
+        // 5. d_skip: (input_size,)
+        for i in 0..self.d_skip.len() {
+            out.push(self.d_skip[i]);
+        }
+        out
+    }
+
+    #[allow(clippy::wrong_self_convention)]
+    fn from_flat(&mut self, flat: &[f64]) -> usize {
+        let mut cursor = 0;
+        // 1. x_proj_w: (dt_rank + 2*d_state, input_size) row-major
+        let rows = self.dt_rank + 2 * self.d_state;
+        let cols = self.input_size;
+        self.x_proj_w = nalgebra::DMatrix::from_row_slice(rows, cols, &flat[cursor..cursor + rows * cols]);
+        cursor += rows * cols;
+        // 2. dt_proj_w: (input_size, dt_rank) row-major
+        self.dt_proj_w = nalgebra::DMatrix::from_row_slice(self.input_size, self.dt_rank, &flat[cursor..cursor + self.input_size * self.dt_rank]);
+        cursor += self.input_size * self.dt_rank;
+        // 3. dt_proj_b: (input_size,)
+        self.dt_proj_b = nalgebra::DVector::from_row_slice(&flat[cursor..cursor + self.input_size]);
+        cursor += self.input_size;
+        // 4. a_log: (input_size, d_state) row-major
+        self.a_log = nalgebra::DMatrix::from_row_slice(self.input_size, self.d_state, &flat[cursor..cursor + self.input_size * self.d_state]);
+        cursor += self.input_size * self.d_state;
+        // 5. d_skip: (input_size,)
+        self.d_skip = nalgebra::DVector::from_row_slice(&flat[cursor..cursor + self.input_size]);
+        cursor += self.input_size;
+        cursor
+    }
+}
+
 impl LayerWeights for Layer {
     fn to_flat(&self) -> Vec<f64> {
         match self {
@@ -3453,5 +3513,130 @@ mod tests {
         // The two branches evaluate different formulas at z values ~1e-8 apart, so the
         // maximum expected delta is O(z) ≈ O(1e-8). 1e-9 is well within that bound.
         assert!((y1 - y2).abs() < 1e-9, "crossover jump: y1={y1}, y2={y2}");
+    }
+
+    #[test]
+    fn mamba_to_flat_from_flat_roundtrip() {
+        use rand::{Rng, SeedableRng};
+
+        let (input_size, d_state, dt_rank) = (8usize, 4usize, 2usize);
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        let mut rand_vec = |n: usize| -> Vec<f64> { (0..n).map(|_| rng.gen_range(-1.0..1.0)).collect() };
+
+        let x_proj_rows = dt_rank + 2 * d_state;
+        let original = MambaLayer {
+            input_size,
+            d_state,
+            dt_rank,
+            x_proj_w: nalgebra::DMatrix::from_row_slice(x_proj_rows, input_size, &rand_vec(x_proj_rows * input_size)),
+            dt_proj_w: nalgebra::DMatrix::from_row_slice(input_size, dt_rank, &rand_vec(input_size * dt_rank)),
+            dt_proj_b: nalgebra::DVector::from_row_slice(&rand_vec(input_size)),
+            a_log: nalgebra::DMatrix::from_row_slice(input_size, d_state, &rand_vec(input_size * d_state)),
+            d_skip: nalgebra::DVector::from_row_slice(&rand_vec(input_size)),
+        };
+
+        let expected_n = input_size * (3 * d_state + 2 * dt_rank + 2);
+        assert_eq!(original.n_params(), expected_n);
+
+        let flat = original.to_flat();
+        assert_eq!(flat.len(), expected_n);
+
+        // Build a zero-initialized MambaLayer with same shape, then from_flat in place.
+        let mut reconstructed = MambaLayer {
+            input_size,
+            d_state,
+            dt_rank,
+            x_proj_w: nalgebra::DMatrix::zeros(x_proj_rows, input_size),
+            dt_proj_w: nalgebra::DMatrix::zeros(input_size, dt_rank),
+            dt_proj_b: nalgebra::DVector::zeros(input_size),
+            a_log: nalgebra::DMatrix::zeros(input_size, d_state),
+            d_skip: nalgebra::DVector::zeros(input_size),
+        };
+        let cursor = reconstructed.from_flat(&flat);
+        assert_eq!(cursor, expected_n);
+
+        assert_eq!(reconstructed.input_size, original.input_size);
+        assert_eq!(reconstructed.d_state, original.d_state);
+        assert_eq!(reconstructed.dt_rank, original.dt_rank);
+        for i in 0..x_proj_rows {
+            for j in 0..input_size {
+                assert_eq!(reconstructed.x_proj_w[(i, j)], original.x_proj_w[(i, j)]);
+            }
+        }
+        for i in 0..input_size {
+            for j in 0..dt_rank {
+                assert_eq!(reconstructed.dt_proj_w[(i, j)], original.dt_proj_w[(i, j)]);
+            }
+        }
+        for i in 0..input_size {
+            assert_eq!(reconstructed.dt_proj_b[i], original.dt_proj_b[i]);
+            assert_eq!(reconstructed.d_skip[i], original.d_skip[i]);
+        }
+        for i in 0..input_size {
+            for j in 0..d_state {
+                assert_eq!(reconstructed.a_log[(i, j)], original.a_log[(i, j)]);
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn mamba_from_flat_panics_on_short_slice() {
+        // 4 * (3*2 + 2*1 + 2) == 4 * 10 == 40; one less = 39 should panic
+        let (input_size, d_state, dt_rank) = (4usize, 2usize, 1usize);
+        let x_proj_rows = dt_rank + 2 * d_state;
+        let mut layer = MambaLayer {
+            input_size,
+            d_state,
+            dt_rank,
+            x_proj_w: nalgebra::DMatrix::zeros(x_proj_rows, input_size),
+            dt_proj_w: nalgebra::DMatrix::zeros(input_size, dt_rank),
+            dt_proj_b: nalgebra::DVector::zeros(input_size),
+            a_log: nalgebra::DMatrix::zeros(input_size, d_state),
+            d_skip: nalgebra::DVector::zeros(input_size),
+        };
+        let too_short = vec![0.0_f64; 39]; // one less than 40
+        layer.from_flat(&too_short); // must panic
+    }
+
+    mod mamba_proptest {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn mamba_flat_roundtrip_proptest(
+                input_size in 1usize..=8,
+                d_state in 1usize..=8,
+                dt_rank in 1usize..=4,
+                seed in 0u64..200,
+            ) {
+                use rand::{Rng, SeedableRng};
+                let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+                let n = input_size * (3 * d_state + 2 * dt_rank + 2);
+                let flat: Vec<f64> = (0..n).map(|_| rng.gen_range(-5.0..5.0)).collect();
+
+                let x_proj_rows = dt_rank + 2 * d_state;
+                let mut layer = MambaLayer {
+                    input_size,
+                    d_state,
+                    dt_rank,
+                    x_proj_w: nalgebra::DMatrix::zeros(x_proj_rows, input_size),
+                    dt_proj_w: nalgebra::DMatrix::zeros(input_size, dt_rank),
+                    dt_proj_b: nalgebra::DVector::zeros(input_size),
+                    a_log: nalgebra::DMatrix::zeros(input_size, d_state),
+                    d_skip: nalgebra::DVector::zeros(input_size),
+                };
+                let cursor = layer.from_flat(&flat);
+                prop_assert_eq!(cursor, n);
+                prop_assert_eq!(layer.n_params(), n);
+
+                let back = layer.to_flat();
+                prop_assert_eq!(back.len(), n);
+                for i in 0..n {
+                    prop_assert_eq!(back[i], flat[i]);
+                }
+            }
+        }
     }
 }
