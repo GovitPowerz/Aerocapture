@@ -15,10 +15,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import aerocapture_rs  # type: ignore[import-not-found]
 import numpy as np
 import pytest
 import torch
+
+pytest.importorskip("aerocapture_rs")
+import aerocapture_rs  # type: ignore[import-not-found]
 from aerocapture.training.rl.layers.dense import DenseLayer
 from aerocapture.training.rl.layers.transformer import TransformerLayer
 

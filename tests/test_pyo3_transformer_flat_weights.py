@@ -6,8 +6,11 @@ Verifies Rust path end-to-end: flat -> from_flat_weights_v2 -> save_json.
 import json
 from pathlib import Path
 
-import aerocapture_rs
 import numpy as np
+import pytest
+
+pytest.importorskip("aerocapture_rs")
+import aerocapture_rs  # type: ignore[import-not-found]
 
 
 def test_flat_weights_to_json_transformer_roundtrip(tmp_path: Path) -> None:
