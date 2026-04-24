@@ -154,6 +154,11 @@ train_neural_network_transformer_pso() {
     run_scheme configs/training/msr_aller_transformer_pso_train.toml 500 64 2000 1
 }
 
+train_neural_network_mamba_pso() {
+    echo "=== neural_network_mamba_pso (Dense -> Mamba x2 -> Dense, PSO) ==="
+    run_scheme configs/training/msr_aller_mamba_pso_train.toml 5000 64 2000 1
+}
+
 train_all() {
     train_piecewise_constant
     echo ""
@@ -170,6 +175,8 @@ train_all() {
     train_neural_network_window_pso
     echo ""
     train_neural_network_transformer_pso
+    echo ""
+    train_neural_network_mamba_pso
     echo ""
     train_ftc
     echo ""
@@ -204,10 +211,11 @@ else
             neural_network_lstm_pso|nn_lstm_pso|lstm_pso|lstm)  train_neural_network_lstm_pso ;;
             neural_network_window_pso|nn_window_pso|window_pso|window)  train_neural_network_window_pso ;;
             neural_network_transformer_pso|nn_transformer_pso|transformer_pso|transformer)  train_neural_network_transformer_pso ;;
+            neural_network_mamba_pso|nn_mamba_pso|mamba_pso|mamba)  train_neural_network_mamba_pso ;;
             all)                               train_all ;;
             *)
                 echo "Unknown scheme: $scheme"
-                echo "Valid: piecewise_constant ftc eqglide energy_controller pred_guid fnpag neural_network neural_network_rl neural_network_gru_pso neural_network_gru_ppo neural_network_lstm_pso neural_network_lstm_ppo neural_network_window_pso neural_network_transformer_pso all"
+                echo "Valid: piecewise_constant ftc eqglide energy_controller pred_guid fnpag neural_network neural_network_rl neural_network_gru_pso neural_network_gru_ppo neural_network_lstm_pso neural_network_lstm_ppo neural_network_window_pso neural_network_transformer_pso neural_network_mamba_pso all"
                 exit 1
                 ;;
         esac
