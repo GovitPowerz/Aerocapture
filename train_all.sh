@@ -141,7 +141,7 @@ train_neural_network_lstm_ppo() {
 
 train_neural_network_lstm_pso() {
     echo "=== neural_network_lstm_pso (Dense -> LSTM -> Dense, PSO) ==="
-    run_scheme configs/training/msr_aller_lstm_pso_train.toml 500 64 2000 1
+    run_scheme configs/training/msr_aller_lstm_pso_train.toml 5000 64 2000 1
 }
 
 train_neural_network_window_pso() {

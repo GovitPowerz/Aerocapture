@@ -50,11 +50,11 @@ dv_threshold = 500.0
 g_load_weight = 1000.0
 heat_flux_weight = 1000.0
 heat_load_weight = 1000.0
-cost_transform = "linear"
+cost_transform = "sqrt"
 
 [optimizer]
 algorithm = "ga"
-seed_strategy = "adaptive"    # fixed | rotating | adaptive
+seed_strategy = "rotating"    # fixed | rotating | adaptive
 n_pop = 60
 n_gen = 2500
 seed_pool_interval = 50       # curation periodic-fallback interval (gens) -- also fires on validated best
