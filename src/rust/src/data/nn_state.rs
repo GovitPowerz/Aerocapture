@@ -11,10 +11,23 @@ use crate::data::neural::{Layer, NeuralNetModel};
 #[derive(Debug, Clone)]
 pub enum LayerState {
     None,
-    Gru { h: Vec<f64> },
-    Lstm { h: Vec<f64>, c: Vec<f64> },
-    Window { buffer: VecDeque<Vec<f64>> },
-    // Phase 3+: Ssm { h: Vec<f64> }
+    Gru {
+        h: Vec<f64>,
+    },
+    Lstm {
+        h: Vec<f64>,
+        c: Vec<f64>,
+    },
+    Window {
+        buffer: VecDeque<Vec<f64>>,
+    },
+    /// K/V cache for the causal Transformer block.
+    /// Starts empty (len=0) at episode start; grows organically 0 -> n_seq.
+    /// Reset clears both caches (next forward re-warms from scratch).
+    Transformer {
+        k_cache: VecDeque<Vec<f64>>,
+        v_cache: VecDeque<Vec<f64>>,
+    },
 }
 
 impl LayerState {
@@ -35,6 +48,12 @@ impl LayerState {
                 }
                 LayerState::Window { buffer }
             }
+            // K/V caches start empty and grow organically during the episode (unlike
+            // Window which pre-fills with zeros). Reset just clears them.
+            Layer::Transformer(_) => LayerState::Transformer {
+                k_cache: VecDeque::new(),
+                v_cache: VecDeque::new(),
+            },
         }
     }
 
@@ -60,6 +79,10 @@ impl LayerState {
                         *v = 0.0;
                     }
                 }
+            }
+            LayerState::Transformer { k_cache, v_cache } => {
+                k_cache.clear();
+                v_cache.clear();
             }
         }
     }
@@ -247,6 +270,99 @@ mod tests {
             }
         } else {
             panic!("expected LayerState::Window after reset");
+        }
+    }
+
+    #[test]
+    fn layer_state_transformer_for_layer_starts_empty() {
+        let spec = crate::data::neural::LayerSpec::Transformer {
+            d_model: 32,
+            n_heads: 4,
+            d_ffn: 64,
+            n_seq: 64,
+        };
+        // for_layer takes a Layer, not a LayerSpec -- construct a TransformerLayer.
+        use crate::data::neural::TransformerLayer;
+        let mut tl = TransformerLayer {
+            d_model: 32,
+            n_heads: 4,
+            d_head: 8,
+            d_ffn: 64,
+            n_seq: 64,
+            w_q: vec![vec![0.0; 32]; 32],
+            b_q: vec![0.0; 32],
+            w_k: vec![vec![0.0; 32]; 32],
+            b_k: vec![0.0; 32],
+            w_v: vec![vec![0.0; 32]; 32],
+            b_v: vec![0.0; 32],
+            w_o: vec![vec![0.0; 32]; 32],
+            b_o: vec![0.0; 32],
+            w_ffn1: vec![vec![0.0; 32]; 64],
+            b_ffn1: vec![0.0; 64],
+            w_ffn2: vec![vec![0.0; 64]; 32],
+            b_ffn2: vec![0.0; 32],
+            ln1_gamma: vec![1.0; 32],
+            ln1_beta: vec![0.0; 32],
+            ln2_gamma: vec![1.0; 32],
+            ln2_beta: vec![0.0; 32],
+            k_pe_offsets: Vec::new(),
+            v_pe_offsets: Vec::new(),
+        };
+        tl.rebuild_pe_offsets();
+        // Silence the spec -- just suppress the unused-variable warning.
+        let _ = spec;
+        let layer = Layer::Transformer(Box::new(tl));
+        let state = LayerState::for_layer(&layer);
+        match state {
+            LayerState::Transformer { k_cache, v_cache } => {
+                assert_eq!(k_cache.len(), 0);
+                assert_eq!(v_cache.len(), 0);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn layer_state_transformer_reset_clears_caches() {
+        use crate::data::neural::TransformerLayer;
+        let mut tl = TransformerLayer {
+            d_model: 4,
+            n_heads: 2,
+            d_head: 2,
+            d_ffn: 8,
+            n_seq: 3,
+            w_q: vec![vec![0.0; 4]; 4],
+            b_q: vec![0.0; 4],
+            w_k: vec![vec![0.0; 4]; 4],
+            b_k: vec![0.0; 4],
+            w_v: vec![vec![0.0; 4]; 4],
+            b_v: vec![0.0; 4],
+            w_o: vec![vec![0.0; 4]; 4],
+            b_o: vec![0.0; 4],
+            w_ffn1: vec![vec![0.0; 4]; 8],
+            b_ffn1: vec![0.0; 8],
+            w_ffn2: vec![vec![0.0; 8]; 4],
+            b_ffn2: vec![0.0; 4],
+            ln1_gamma: vec![1.0; 4],
+            ln1_beta: vec![0.0; 4],
+            ln2_gamma: vec![1.0; 4],
+            ln2_beta: vec![0.0; 4],
+            k_pe_offsets: Vec::new(),
+            v_pe_offsets: Vec::new(),
+        };
+        tl.rebuild_pe_offsets();
+        let mut state = LayerState::for_layer(&Layer::Transformer(Box::new(tl)));
+        if let LayerState::Transformer { k_cache, v_cache } = &mut state {
+            k_cache.push_back(vec![1.0, 2.0, 3.0, 4.0]);
+            v_cache.push_back(vec![5.0, 6.0, 7.0, 8.0]);
+        }
+        state.reset();
+        match state {
+            LayerState::Transformer { k_cache, v_cache } => {
+                assert_eq!(k_cache.len(), 0);
+                assert_eq!(v_cache.len(), 0);
+            }
+            _ => panic!("wrong variant"),
         }
     }
 

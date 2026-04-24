@@ -28,6 +28,7 @@ import numpy.typing as npt
 import torch
 
 from aerocapture.training.rl.layers import DenseLayer, GruLayer, LstmLayer, WindowLayer
+from aerocapture.training.rl.layers.transformer import TransformerLayer
 from aerocapture.training.rl.policy import GaussianPolicy, V2Policy
 
 _ACT_NAMES = {"Tanh": "tanh", "ReLU": "relu", "Sigmoid": "sigmoid", "Identity": "linear", "SiLU": "swish", "Mish": "mish"}
@@ -179,6 +180,39 @@ def export_v2_policy_to_json(
                 }
             )
             # Window is zero-param: no weights entry for this layer.
+        elif isinstance(layer, TransformerLayer):
+            if i == 0 and obs_normalizer is not None:
+                raise NotImplementedError(
+                    "obs_normalizer bake-in not supported when layer 0 is Transformer. Add a Dense embedding as layer 0 (Phase 0 spec section 3.5 invariant)."
+                )
+            architecture.append(
+                {
+                    "type": "transformer",
+                    "d_model": layer.d_model,
+                    "n_heads": layer.n_heads,
+                    "d_ffn": layer.d_ffn,
+                    "n_seq": layer.n_seq,
+                }
+            )
+            weights[f"layer_{i}"] = {
+                "w_q": layer.w_q.weight.detach().cpu().tolist(),
+                "b_q": layer.w_q.bias.detach().cpu().tolist(),
+                "w_k": layer.w_k.weight.detach().cpu().tolist(),
+                "b_k": layer.w_k.bias.detach().cpu().tolist(),
+                "w_v": layer.w_v.weight.detach().cpu().tolist(),
+                "b_v": layer.w_v.bias.detach().cpu().tolist(),
+                "w_o": layer.w_o.weight.detach().cpu().tolist(),
+                "b_o": layer.w_o.bias.detach().cpu().tolist(),
+                "w_ffn1": layer.w_ffn1.weight.detach().cpu().tolist(),
+                "b_ffn1": layer.w_ffn1.bias.detach().cpu().tolist(),
+                "w_ffn2": layer.w_ffn2.weight.detach().cpu().tolist(),
+                "b_ffn2": layer.w_ffn2.bias.detach().cpu().tolist(),
+                # Flat LN keys matching Rust NnLayerWeights schema
+                "ln1_gamma": layer.ln1_gamma.detach().cpu().tolist(),
+                "ln1_beta": layer.ln1_beta.detach().cpu().tolist(),
+                "ln2_gamma": layer.ln2_gamma.detach().cpu().tolist(),
+                "ln2_beta": layer.ln2_beta.detach().cpu().tolist(),
+            }
         else:
             raise ValueError(f"Unknown layer type in export: {type(layer).__name__}")
 

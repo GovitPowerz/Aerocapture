@@ -25,6 +25,8 @@ Bias init convention:
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 from aerocapture.training.config import _layer_n_params
@@ -34,7 +36,7 @@ BIAS_NOISE_STD = 0.01
 
 
 def init_v2_population(
-    architecture: list[dict],
+    architecture: list[Any],
     n_pop: int,
     bound_multiplier: float,
     rng: np.random.Generator,
@@ -44,16 +46,26 @@ def init_v2_population(
     pop = np.empty((n_pop, n_params), dtype=np.float64)
 
     cursor = 0
-    for entry in architecture:
+    for layer_idx, entry in enumerate(architecture):
         n = _layer_n_params(entry)
         slab = pop[:, cursor : cursor + n]
-        _fill_layer(entry, slab, bound_multiplier, rng)
+        _fill_layer(entry, slab, bound_multiplier, rng, layer_idx=layer_idx)
         cursor += n
 
     return pop
 
 
-def _fill_layer(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.random.Generator) -> None:
+def _fill_layer(entry: Any, slab: np.ndarray, bound_multiplier: float, rng: np.random.Generator, layer_idx: int = 0) -> None:
+    from aerocapture.training.rl.schemas import TransformerSpec
+
+    if isinstance(entry, TransformerSpec):
+        _fill_transformer(entry, slab, bound_multiplier, rng, layer_idx=layer_idx)
+        return
+
+    # Normalise Pydantic models to plain dicts so downstream helpers can use [].
+    if hasattr(entry, "model_dump"):
+        entry = entry.model_dump()
+
     t = entry["type"]
     if t == "dense":
         _fill_dense(entry, slab, bound_multiplier, rng)
@@ -66,6 +78,10 @@ def _fill_layer(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.
         # cursor advanced by _layer_n_params(window) == 0, so this branch only
         # exists to stay off the "raise ValueError" path.
         assert slab.shape[1] == 0, f"window slab expected 0-width, got {slab.shape[1]}"
+    elif t == "transformer":
+        # Should not reach here: TransformerSpec Pydantic path is handled above,
+        # but a raw dict entry with type="transformer" is also valid.
+        _fill_transformer_dict(entry, slab, bound_multiplier, rng, layer_idx=layer_idx)
     else:
         raise ValueError(f"init_v2_population: unknown layer type {t!r}")
 
@@ -128,3 +144,21 @@ def _fill_lstm(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.r
     # because the gate is sigmoid(bias_ih + bias_hh + ...) and we don't want
     # forget = sigmoid(2.0).
     slab[:, bias_ih_start + hidden : bias_ih_start + 2 * hidden] = 1.0 + rng.normal(0.0, bias_std, size=(pop_n, hidden))
+
+
+def _fill_transformer(entry: object, slab: np.ndarray, bound_multiplier: float, rng: np.random.Generator, layer_idx: int = 0) -> None:
+    """Fill a TransformerSpec Pydantic object by delegating to _transformer_specs ParamSpec bounds."""
+    from aerocapture.training.encoding import _transformer_specs
+
+    specs = _transformer_specs(entry, layer_idx, bound_multiplier)  # type: ignore[arg-type]
+    pop_n = slab.shape[0]
+    for j, ps in enumerate(specs):
+        slab[:, j] = rng.uniform(ps.p_min, ps.p_max, size=pop_n)
+
+
+def _fill_transformer_dict(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.random.Generator, layer_idx: int = 0) -> None:
+    """Fill a raw dict transformer entry by converting to TransformerSpec and delegating."""
+    from aerocapture.training.rl.schemas import TransformerSpec
+
+    spec = TransformerSpec(**entry)
+    _fill_transformer(spec, slab, bound_multiplier, rng, layer_idx=layer_idx)

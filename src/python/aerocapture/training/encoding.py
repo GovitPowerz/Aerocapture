@@ -19,6 +19,7 @@ from aerocapture.training.rl.schemas import (
     GruSpec,
     LayerSpec,
     LstmSpec,
+    TransformerSpec,
     WindowSpec,
 )
 
@@ -102,7 +103,7 @@ def nn_param_specs_from_v2(
     return specs
 
 
-def _layer_param_specs(layer: LayerSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
+def _layer_param_specs(layer: LayerSpec, layer_idx: int = 0, bound_multiplier: float = 1.0) -> list[ParamSpec]:
     if isinstance(layer, DenseSpec):
         return _dense_specs(layer, layer_idx, bound_multiplier)
     if isinstance(layer, GruSpec):
@@ -111,6 +112,8 @@ def _layer_param_specs(layer: LayerSpec, layer_idx: int, bound_multiplier: float
         return _lstm_specs(layer, layer_idx, bound_multiplier)
     if isinstance(layer, WindowSpec):
         return []  # zero trainable parameters
+    if isinstance(layer, TransformerSpec):
+        return _transformer_specs(layer, layer_idx, bound_multiplier)
     msg = f"Unknown layer type for PSO specs: {layer!r}"
     raise ValueError(msg)
 
@@ -183,4 +186,64 @@ def _lstm_specs(layer: LstmSpec, layer_idx: int, bound_multiplier: float) -> lis
     # bias_hh: all gates use tight bound.
     for j in range(four_h):
         specs.append(ParamSpec(f"b_hh{layer_idx}_{j}", -tight_bias_bound, tight_bias_bound, 0.0))
+    return specs
+
+
+def _transformer_specs(layer: TransformerSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
+    """ParamSpec list in canonical flat order matching Rust TransformerLayer::to_flat.
+
+    INVARIANT: ordering MUST match Rust's to_flat / from_flat cursor advance order:
+    w_q, b_q, w_k, b_k, w_v, b_v, w_o, b_o, w_ffn1, b_ffn1, w_ffn2, b_ffn2,
+    ln1_gamma, ln1_beta, ln2_gamma, ln2_beta.
+
+    Bounds:
+      - Projection matrices (Q/K/V/O): Xavier uniform sqrt(6 / (2*d_model)) * mul
+      - FFN1/FFN2:                     Xavier uniform sqrt(6 / (d_model + d_ffn)) * mul
+      - Biases:                        tight uniform [-0.1*mul, 0.1*mul]
+      - LN gamma:                      uniform [1 - 0.01*mul, 1 + 0.01*mul]
+      - LN beta:                       uniform [-0.01*mul, 0.01*mul]
+    """
+    from math import sqrt
+
+    d = layer.d_model
+    f = layer.d_ffn
+    mul = bound_multiplier
+    li = layer_idx
+
+    proj_bound = sqrt(6.0 / (2.0 * d)) * mul
+    ffn_bound = sqrt(6.0 / (d + f)) * mul
+    bias_bound = 0.1 * mul
+    gamma_lo, gamma_hi = 1.0 - 0.01 * mul, 1.0 + 0.01 * mul
+    beta_bound = 0.01 * mul
+
+    specs: list[ParamSpec] = []
+    # 4 projection matrices: w_q/b_q, w_k/b_k, w_v/b_v, w_o/b_o  (each [d,d] + [d])
+    for proj_name, bias_name in (("w_q", "b_q"), ("w_k", "b_k"), ("w_v", "b_v"), ("w_o", "b_o")):
+        for j in range(d):
+            for k in range(d):
+                specs.append(ParamSpec(f"{proj_name}{li}_{j}_{k}", -proj_bound, proj_bound, 0.0))
+        for j in range(d):
+            specs.append(ParamSpec(f"{bias_name}{li}_{j}", -bias_bound, bias_bound, 0.0))
+    # w_ffn1 [f, d] + b_ffn1 [f]
+    for j in range(f):
+        for k in range(d):
+            specs.append(ParamSpec(f"w_ffn1_{li}_{j}_{k}", -ffn_bound, ffn_bound, 0.0))
+    for j in range(f):
+        specs.append(ParamSpec(f"b_ffn1_{li}_{j}", -bias_bound, bias_bound, 0.0))
+    # w_ffn2 [d, f] + b_ffn2 [d]
+    for j in range(d):
+        for k in range(f):
+            specs.append(ParamSpec(f"w_ffn2_{li}_{j}_{k}", -ffn_bound, ffn_bound, 0.0))
+    for j in range(d):
+        specs.append(ParamSpec(f"b_ffn2_{li}_{j}", -bias_bound, bias_bound, 0.0))
+    # LN1: gamma [d] + beta [d]
+    for j in range(d):
+        specs.append(ParamSpec(f"ln1_gamma{li}_{j}", gamma_lo, gamma_hi, 0.0))
+    for j in range(d):
+        specs.append(ParamSpec(f"ln1_beta{li}_{j}", -beta_bound, beta_bound, 0.0))
+    # LN2: gamma [d] + beta [d]
+    for j in range(d):
+        specs.append(ParamSpec(f"ln2_gamma{li}_{j}", gamma_lo, gamma_hi, 0.0))
+    for j in range(d):
+        specs.append(ParamSpec(f"ln2_beta{li}_{j}", -beta_bound, beta_bound, 0.0))
     return specs
