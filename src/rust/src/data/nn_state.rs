@@ -28,6 +28,11 @@ pub enum LayerState {
         k_cache: VecDeque<Vec<f64>>,
         v_cache: VecDeque<Vec<f64>>,
     },
+    /// SSM hidden state for the Mamba S6 layer.
+    /// Shape: (input_size, d_state). Reset fills with zeros.
+    Mamba {
+        h: nalgebra::DMatrix<f64>,
+    },
 }
 
 impl LayerState {
@@ -53,6 +58,9 @@ impl LayerState {
             Layer::Transformer(_) => LayerState::Transformer {
                 k_cache: VecDeque::new(),
                 v_cache: VecDeque::new(),
+            },
+            Layer::Mamba(m) => LayerState::Mamba {
+                h: nalgebra::DMatrix::<f64>::zeros(m.input_size, m.d_state),
             },
         }
     }
@@ -83,6 +91,9 @@ impl LayerState {
             LayerState::Transformer { k_cache, v_cache } => {
                 k_cache.clear();
                 v_cache.clear();
+            }
+            LayerState::Mamba { h } => {
+                h.fill(0.0);
             }
         }
     }

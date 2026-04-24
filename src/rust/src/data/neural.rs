@@ -881,6 +881,7 @@ impl LayerWeights for Layer {
             Layer::Lstm(l) => l.to_flat(),
             Layer::Window(w) => w.to_flat(),
             Layer::Transformer(t) => t.to_flat(),
+            Layer::Mamba(m) => m.to_flat(),
         }
     }
 
@@ -892,6 +893,7 @@ impl LayerWeights for Layer {
             Layer::Lstm(l) => l.from_flat(flat),
             Layer::Window(w) => w.from_flat(flat),
             Layer::Transformer(t) => t.from_flat(flat),
+            Layer::Mamba(m) => m.from_flat(flat),
         }
     }
 
@@ -902,6 +904,7 @@ impl LayerWeights for Layer {
             Layer::Lstm(l) => l.n_params(),
             Layer::Window(w) => w.n_params(),
             Layer::Transformer(t) => t.n_params(),
+            Layer::Mamba(m) => m.n_params(),
         }
     }
 }
@@ -1816,6 +1819,9 @@ impl NeuralNetModel {
                 }
                 (Layer::Transformer(t), LayerState::Transformer { k_cache, v_cache }) => {
                     current = t.forward(&current, k_cache, v_cache);
+                }
+                (Layer::Mamba(_m), LayerState::Mamba { h: _h }) => {
+                    todo!("MambaLayer::forward lands in Task 3")
                 }
                 _ => unreachable!(
                     "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None, Layer::Gru -> Gru, Layer::Lstm -> Lstm, Layer::Window -> Window, Layer::Transformer -> Transformer)"
