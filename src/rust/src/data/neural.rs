@@ -64,6 +64,7 @@ pub(crate) fn build_pe_table(n_seq: usize, d_model: usize) -> Vec<Vec<f64>> {
 /// and underflow for large negative x. The Python mirror in `rl/layers/mamba.py`
 /// uses the identical manual form (NOT `torch.nn.functional.softplus`, which has a
 /// `threshold=20` linear-branch fallback we do not want for bit-equivalence).
+#[allow(dead_code)] // used by MambaLayer::forward (Task 3)
 pub(crate) fn softplus(x: f64) -> f64 {
     let a = x.abs();
     x.max(0.0) + (-a).exp().ln_1p()
@@ -75,6 +76,7 @@ pub(crate) fn softplus(x: f64) -> f64 {
 /// use `1 + z/2 + z^2/6` (Taylor expansion, error ~ z^3/24 which is machine
 /// epsilon at |z| < 1e-5). The Python mirror uses `torch.where` to switch
 /// between the same two branches.
+#[allow(dead_code)] // used by MambaLayer::forward (Task 3)
 pub(crate) fn expm1_over_x(z: f64) -> f64 {
     if z.abs() < 1e-8 {
         1.0 + z * 0.5 + z * z / 6.0
@@ -982,6 +984,17 @@ struct NnLayerWeights {
     ln2_gamma: Option<Vec<f64>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     ln2_beta: Option<Vec<f64>>,
+    // Mamba SSM fields (Phase 4a)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    x_proj_w: Option<Vec<Vec<f64>>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    dt_proj_w: Option<Vec<Vec<f64>>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    dt_proj_b: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    a_log: Option<Vec<Vec<f64>>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    d_skip: Option<Vec<f64>>,
 }
 
 /// v2 layer spec: tagged-union over the layer type.
@@ -1232,6 +1245,7 @@ impl NeuralNetModel {
                     n_steps,
                 } => *input_size * *n_steps,
                 LayerSpec::Transformer { d_model, .. } => *d_model,
+                LayerSpec::Mamba { input_size, .. } => *input_size,
             };
             let (next_in, next_label) = match &file.architecture[i + 1] {
                 LayerSpec::Dense { input_size, .. } => (*input_size, "dense"),
@@ -1239,6 +1253,7 @@ impl NeuralNetModel {
                 LayerSpec::Lstm { input_size, .. } => (*input_size, "lstm"),
                 LayerSpec::Window { input_size, .. } => (*input_size, "window"),
                 LayerSpec::Transformer { d_model, .. } => (*d_model, "transformer"),
+                LayerSpec::Mamba { input_size, .. } => (*input_size, "mamba"),
             };
             let prev_label = match &file.architecture[i] {
                 LayerSpec::Dense { .. } => "dense",
@@ -1246,6 +1261,7 @@ impl NeuralNetModel {
                 LayerSpec::Lstm { .. } => "lstm",
                 LayerSpec::Window { .. } => "window",
                 LayerSpec::Transformer { .. } => "transformer",
+                LayerSpec::Mamba { .. } => "mamba",
             };
             if prev_out != next_in {
                 return Err(DataError(format!(
@@ -1684,6 +1700,117 @@ impl NeuralNetModel {
                     layer.rebuild_pe_offsets();
                     layers.push(Layer::Transformer(Box::new(layer)));
                 }
+                LayerSpec::Mamba {
+                    input_size,
+                    d_state,
+                    dt_rank,
+                } => {
+                    if *input_size == 0 || *d_state == 0 || *dt_rank == 0 {
+                        return Err(DataError(format!(
+                            "Layer {} (mamba) input_size, d_state, and dt_rank must be positive in {}",
+                            i, path
+                        )));
+                    }
+                    if *dt_rank > *input_size {
+                        return Err(DataError(format!(
+                            "Layer {} (mamba) dt_rank={} must not exceed input_size={} in {}",
+                            i, dt_rank, input_size, path
+                        )));
+                    }
+
+                    if i == 0 {
+                        layer_sizes.push(*input_size);
+                    }
+                    layer_sizes.push(*input_size);
+
+                    let key = format!("layer_{}", i);
+                    let lw = file.weights.get(&key).ok_or_else(|| {
+                        DataError(format!("Missing {} in weights in {}", key, path))
+                    })?;
+
+                    macro_rules! req_mamba_mat {
+                        ($field:ident) => {
+                            lw.$field.as_ref().ok_or_else(|| {
+                                DataError(format!(
+                                    "Layer {} (mamba) missing {} in {}",
+                                    i,
+                                    stringify!($field),
+                                    path
+                                ))
+                            })?
+                        };
+                    }
+                    macro_rules! req_mamba_vec {
+                        ($field:ident) => {
+                            lw.$field.as_ref().ok_or_else(|| {
+                                DataError(format!(
+                                    "Layer {} (mamba) missing {} in {}",
+                                    i,
+                                    stringify!($field),
+                                    path
+                                ))
+                            })?
+                        };
+                    }
+
+                    let x_proj_w = req_mamba_mat!(x_proj_w);
+                    let dt_proj_w = req_mamba_mat!(dt_proj_w);
+                    let dt_proj_b = req_mamba_vec!(dt_proj_b);
+                    let a_log = req_mamba_mat!(a_log);
+                    let d_skip = req_mamba_vec!(d_skip);
+
+                    let rows_x = dt_rank + 2 * d_state;
+                    // Shape validation for matrices.
+                    for (name, m, exp_rows, exp_cols) in [
+                        ("x_proj_w", x_proj_w, rows_x, *input_size),
+                        ("dt_proj_w", dt_proj_w, *input_size, *dt_rank),
+                        ("a_log", a_log, *input_size, *d_state),
+                    ] {
+                        if m.len() != exp_rows {
+                            return Err(DataError(format!(
+                                "Layer {} (mamba) {} must have {} rows, got {} in {}",
+                                i, name, exp_rows, m.len(), path
+                            )));
+                        }
+                        for (r, row) in m.iter().enumerate() {
+                            if row.len() != exp_cols {
+                                return Err(DataError(format!(
+                                    "Layer {} (mamba) {} row {} length: expected {}, got {} in {}",
+                                    i, name, r, exp_cols, row.len(), path
+                                )));
+                            }
+                        }
+                    }
+                    // Shape validation for vectors.
+                    for (name, v, expected) in [
+                        ("dt_proj_b", dt_proj_b, *input_size),
+                        ("d_skip", d_skip, *input_size),
+                    ] {
+                        if v.len() != expected {
+                            return Err(DataError(format!(
+                                "Layer {} (mamba) {} length: expected {}, got {} in {}",
+                                i, name, expected, v.len(), path
+                            )));
+                        }
+                    }
+
+                    // Convert Vec<Vec<f64>> -> DMatrix (row-major).
+                    let to_dmatrix = |rows_data: &Vec<Vec<f64>>, nr: usize, nc: usize| -> nalgebra::DMatrix<f64> {
+                        let flat: Vec<f64> = rows_data.iter().flat_map(|r| r.iter().copied()).collect();
+                        nalgebra::DMatrix::from_row_slice(nr, nc, &flat)
+                    };
+
+                    layers.push(Layer::Mamba(Box::new(MambaLayer {
+                        input_size: *input_size,
+                        d_state: *d_state,
+                        dt_rank: *dt_rank,
+                        x_proj_w: to_dmatrix(x_proj_w, rows_x, *input_size),
+                        dt_proj_w: to_dmatrix(dt_proj_w, *input_size, *dt_rank),
+                        dt_proj_b: nalgebra::DVector::from_vec(dt_proj_b.clone()),
+                        a_log: to_dmatrix(a_log, *input_size, *d_state),
+                        d_skip: nalgebra::DVector::from_vec(d_skip.clone()),
+                    })));
+                }
             }
         }
 
@@ -1748,6 +1875,19 @@ impl NeuralNetModel {
                     ln2_beta: Some(t.ln2_beta.clone()),
                     ..NnLayerWeights::default()
                 },
+                Layer::Mamba(m) => {
+                    let dmatrix_rows = |mat: &nalgebra::DMatrix<f64>| -> Vec<Vec<f64>> {
+                        (0..mat.nrows()).map(|r| (0..mat.ncols()).map(|c| mat[(r, c)]).collect()).collect()
+                    };
+                    NnLayerWeights {
+                        x_proj_w: Some(dmatrix_rows(&m.x_proj_w)),
+                        dt_proj_w: Some(dmatrix_rows(&m.dt_proj_w)),
+                        dt_proj_b: Some(m.dt_proj_b.iter().copied().collect()),
+                        a_log: Some(dmatrix_rows(&m.a_log)),
+                        d_skip: Some(m.d_skip.iter().copied().collect()),
+                        ..NnLayerWeights::default()
+                    }
+                }
             };
             weights.insert(format!("layer_{}", i), entry);
         }
@@ -2033,6 +2173,39 @@ impl NeuralNetModel {
                         ln2_beta: vec![0.0; d],
                         k_pe_offsets: Vec::new(),
                         v_pe_offsets: Vec::new(),
+                    }))
+                }
+                LayerSpec::Mamba {
+                    input_size,
+                    d_state,
+                    dt_rank,
+                } => {
+                    if *dt_rank == 0 || *dt_rank > *input_size {
+                        return Err(DataError(format!(
+                            "from_flat_weights_v2: Mamba layer {} dt_rank={} invalid for input_size={}",
+                            i, dt_rank, input_size
+                        )));
+                    }
+                    if *d_state == 0 || *input_size == 0 {
+                        return Err(DataError(format!(
+                            "from_flat_weights_v2: Mamba layer {} input_size and d_state must be positive",
+                            i
+                        )));
+                    }
+                    if i == 0 {
+                        layer_sizes.push(*input_size);
+                    }
+                    layer_sizes.push(*input_size);
+                    let rows_x = dt_rank + 2 * d_state;
+                    Layer::Mamba(Box::new(MambaLayer {
+                        input_size: *input_size,
+                        d_state: *d_state,
+                        dt_rank: *dt_rank,
+                        x_proj_w: nalgebra::DMatrix::<f64>::zeros(rows_x, *input_size),
+                        dt_proj_w: nalgebra::DMatrix::<f64>::zeros(*input_size, *dt_rank),
+                        dt_proj_b: nalgebra::DVector::<f64>::zeros(*input_size),
+                        a_log: nalgebra::DMatrix::<f64>::zeros(*input_size, *d_state),
+                        d_skip: nalgebra::DVector::<f64>::zeros(*input_size),
                     }))
                 }
             };
@@ -3523,11 +3696,11 @@ mod tests {
 
     #[test]
     fn mamba_to_flat_from_flat_roundtrip() {
-        use rand::{Rng, SeedableRng};
+        use rand::{RngExt, SeedableRng};
 
         let (input_size, d_state, dt_rank) = (8usize, 4usize, 2usize);
         let mut rng = rand::rngs::StdRng::seed_from_u64(42);
-        let mut rand_vec = |n: usize| -> Vec<f64> { (0..n).map(|_| rng.gen_range(-1.0..1.0)).collect() };
+        let mut rand_vec = |n: usize| -> Vec<f64> { (0..n).map(|_| rng.random_range(-1.0..1.0)).collect() };
 
         let x_proj_rows = dt_rank + 2 * d_state;
         let original = MambaLayer {
@@ -3617,10 +3790,10 @@ mod tests {
                 dt_rank in 1usize..=4,
                 seed in 0u64..200,
             ) {
-                use rand::{Rng, SeedableRng};
+                use rand::{RngExt, SeedableRng};
                 let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
                 let n = input_size * (3 * d_state + 2 * dt_rank + 2);
-                let flat: Vec<f64> = (0..n).map(|_| rng.gen_range(-5.0..5.0)).collect();
+                let flat: Vec<f64> = (0..n).map(|_| rng.random_range(-5.0..5.0)).collect();
 
                 let x_proj_rows = dt_rank + 2 * d_state;
                 let mut layer = MambaLayer {
