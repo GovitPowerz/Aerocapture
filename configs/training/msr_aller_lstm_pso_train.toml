@@ -13,12 +13,6 @@ input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 
 [[network.architecture]]
 type = "dense"
 input_size = 23
-output_size = 64
-activation = "swish"
-
-[[network.architecture]]
-type = "dense"
-input_size = 64
 output_size = 32
 activation = "swish"
 
@@ -30,12 +24,6 @@ hidden_size = 16
 [[network.architecture]]
 type = "dense"
 input_size = 16
-output_size = 32
-activation = "asinh"
-
-[[network.architecture]]
-type = "dense"
-input_size = 32
 output_size = 2
 activation = "asinh"
 

@@ -255,6 +255,7 @@ def compute_cost(
     g_load_weight: float = 10000.0,
     heat_flux_weight: float = 10000.0,
     heat_load_weight: float = 10000.0,
+    cost_transform: str = "linear",
 ) -> float:
     """Compute RMS cost from simulation final conditions.
 
@@ -280,6 +281,15 @@ def compute_cost(
     heat_load = final_conditions[:, 28] * 1e3  # MJ/m2 -> kJ/m2
     hl_penalty = heat_load_weight * _softplus((heat_load - heat_load_limit) / heat_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
     costs = costs + g_penalty + q_penalty + hl_penalty
+
+    if cost_transform == "sqrt":
+        costs = np.sqrt(costs)
+    elif cost_transform == "squared":
+        costs = costs**2
+    elif cost_transform == "cubed":
+        costs = costs**3
+    elif cost_transform != "linear":
+        raise ValueError(f"unknown cost_transform={cost_transform!r} (expected 'linear', 'sqrt', 'squared', or 'cubed')")
 
     return float(np.sqrt(np.mean(costs**2)))
 

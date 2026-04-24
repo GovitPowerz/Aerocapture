@@ -19,6 +19,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -78,7 +79,7 @@ def run_scheme(
     executable: str,
     cwd: Path,
     params_dir: Path | None = None,
-    cost_kwargs: dict[str, float] | None = None,
+    cost_kwargs: dict[str, Any] | None = None,
     base_toml_override: Path | None = None,
 ) -> dict | None:
     """Run a single guidance scheme and return metrics.
@@ -292,12 +293,13 @@ def main() -> None:
 
     cost_cfg = _toml.get("cost_function", {})
     constraints = _toml.get("flight", {}).get("constraints", {})
-    cost_kwargs: dict[str, float] = {
+    cost_kwargs: dict[str, Any] = {
         "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
         "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
         "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
         "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
         "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
+        "cost_transform": str(cost_cfg.get("cost_transform", "linear")),
     }
 
     results: dict[str, dict] = {}

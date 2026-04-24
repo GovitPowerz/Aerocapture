@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -35,7 +36,7 @@ class AerocaptureProblem(Problem):
         param_specs: list[ParamSpec],
         toml_path: str,
         seeds: list[int],
-        cost_kwargs: dict[str, float],
+        cost_kwargs: dict[str, Any],
         scheme: str,
         sim_timeout: float | None = None,
         nn_config: object | None = None,

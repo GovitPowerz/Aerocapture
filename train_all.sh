@@ -146,7 +146,7 @@ train_neural_network_lstm_pso() {
 
 train_neural_network_window_pso() {
     echo "=== neural_network_window_pso (Window -> Dense trunk, PSO) ==="
-    run_scheme configs/training/msr_aller_window_pso_train.toml 5000 64 2000 1
+    run_scheme configs/training/msr_aller_window_pso_train.toml 500 64 2000 1
 }
 
 train_all() {
