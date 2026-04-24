@@ -14,6 +14,7 @@ from aerocapture.training.rl.schemas import (
     GruSpec,
     LayerSpec,
     LstmSpec,
+    MambaSpec,
     TransformerSpec,
     WindowSpec,
 )
@@ -34,5 +35,9 @@ def build_layer(spec: LayerSpec) -> nn.Module:
     if isinstance(spec, TransformerSpec):
         raise NotImplementedError(
             "Transformer is PSO-only in Phase 3a; PPO use deferred. See docs/superpowers/specs/2026-04-22-phase-3a-transformer-mvp-design.md"
+        )
+    if isinstance(spec, MambaSpec):
+        raise NotImplementedError(
+            "Mamba is PSO-only in Phase 4a; PPO use deferred. See docs/superpowers/specs/2026-04-24-phase-4a-mamba-ssm-mvp-design.md"
         )
     raise ValueError(f"Unknown layer spec: {spec!r}")

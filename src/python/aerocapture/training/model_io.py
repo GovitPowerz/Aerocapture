@@ -18,28 +18,30 @@ from aerocapture.training.rl.schemas import (
     DenseSpec,
     GruSpec,
     LstmSpec,
+    MambaSpec,
     TransformerSpec,
     WindowSpec,
 )
 
 
-def load_policy_from_json(path: str, device: str | torch.device) -> V2Policy:
+def load_policy_from_json(path: str, device: str | torch.device = "cpu") -> V2Policy:
     with open(path) as f:
         raw = json.load(f)
     if raw.get("format_version") != 2:
         raise ValueError(f"Expected format_version=2 in {path}, got {raw.get('format_version')}")
     arch = ArchitectureV2.model_validate(raw)
 
-    # Phase 2b / Phase 3a: Window-MLP and Transformer are PSO-only. V2Policy
-    # cannot be built with these layers (build_layer raises NotImplementedError),
+    # Phase 2b / Phase 3a / Phase 4a: Window-MLP, Transformer, and Mamba are PSO-only.
+    # V2Policy cannot be built with these layers (build_layer raises NotImplementedError),
     # so we short-circuit here before V2Policy construction would fail opaquely.
-    if any(isinstance(spec, (WindowSpec, TransformerSpec)) for spec in arch.architecture):
+    if any(isinstance(spec, (WindowSpec, TransformerSpec, MambaSpec)) for spec in arch.architecture):
         raise NotImplementedError(
-            "Window-MLP (Phase 2b) and Transformer (Phase 3a) are PSO-only; "
+            "Window-MLP (Phase 2b), Transformer (Phase 3a), and Mamba (Phase 4a) are PSO-only; "
             "load_policy_from_json is a PPO/SAC entry point that cannot construct "
             "V2Policy with these layers. "
-            "See docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md "
-            "and docs/superpowers/specs/2026-04-22-phase-3a-transformer-mvp-design.md"
+            "See docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md, "
+            "docs/superpowers/specs/2026-04-22-phase-3a-transformer-mvp-design.md, and "
+            "docs/superpowers/specs/2026-04-24-phase-4a-mamba-ssm-mvp-design.md"
         )
 
     policy = V2Policy(
