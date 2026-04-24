@@ -4,6 +4,7 @@ PSO training bypasses build_layer entirely (Rust direct). PPO path does call
 build_layer via V2Policy construction, so this rejection is load-bearing for
 the "PSO-only" Phase 4a scope.
 """
+
 from __future__ import annotations
 
 import json

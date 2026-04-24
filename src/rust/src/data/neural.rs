@@ -855,16 +855,25 @@ impl LayerWeights for MambaLayer {
         // 1. x_proj_w: (dt_rank + 2*d_state, input_size) row-major
         let rows = self.dt_rank + 2 * self.d_state;
         let cols = self.input_size;
-        self.x_proj_w = nalgebra::DMatrix::from_row_slice(rows, cols, &flat[cursor..cursor + rows * cols]);
+        self.x_proj_w =
+            nalgebra::DMatrix::from_row_slice(rows, cols, &flat[cursor..cursor + rows * cols]);
         cursor += rows * cols;
         // 2. dt_proj_w: (input_size, dt_rank) row-major
-        self.dt_proj_w = nalgebra::DMatrix::from_row_slice(self.input_size, self.dt_rank, &flat[cursor..cursor + self.input_size * self.dt_rank]);
+        self.dt_proj_w = nalgebra::DMatrix::from_row_slice(
+            self.input_size,
+            self.dt_rank,
+            &flat[cursor..cursor + self.input_size * self.dt_rank],
+        );
         cursor += self.input_size * self.dt_rank;
         // 3. dt_proj_b: (input_size,)
         self.dt_proj_b = nalgebra::DVector::from_row_slice(&flat[cursor..cursor + self.input_size]);
         cursor += self.input_size;
         // 4. a_log: (input_size, d_state) row-major
-        self.a_log = nalgebra::DMatrix::from_row_slice(self.input_size, self.d_state, &flat[cursor..cursor + self.input_size * self.d_state]);
+        self.a_log = nalgebra::DMatrix::from_row_slice(
+            self.input_size,
+            self.d_state,
+            &flat[cursor..cursor + self.input_size * self.d_state],
+        );
         cursor += self.input_size * self.d_state;
         // 5. d_skip: (input_size,)
         self.d_skip = nalgebra::DVector::from_row_slice(&flat[cursor..cursor + self.input_size]);
@@ -1821,14 +1830,23 @@ impl NeuralNetModel {
                         if m.len() != exp_rows {
                             return Err(DataError(format!(
                                 "Layer {} (mamba) {} must have {} rows, got {} in {}",
-                                i, name, exp_rows, m.len(), path
+                                i,
+                                name,
+                                exp_rows,
+                                m.len(),
+                                path
                             )));
                         }
                         for (r, row) in m.iter().enumerate() {
                             if row.len() != exp_cols {
                                 return Err(DataError(format!(
                                     "Layer {} (mamba) {} row {} length: expected {}, got {} in {}",
-                                    i, name, r, exp_cols, row.len(), path
+                                    i,
+                                    name,
+                                    r,
+                                    exp_cols,
+                                    row.len(),
+                                    path
                                 )));
                             }
                         }
@@ -1841,14 +1859,22 @@ impl NeuralNetModel {
                         if v.len() != expected {
                             return Err(DataError(format!(
                                 "Layer {} (mamba) {} length: expected {}, got {} in {}",
-                                i, name, expected, v.len(), path
+                                i,
+                                name,
+                                expected,
+                                v.len(),
+                                path
                             )));
                         }
                     }
 
                     // Convert Vec<Vec<f64>> -> DMatrix (row-major).
-                    let to_dmatrix = |rows_data: &Vec<Vec<f64>>, nr: usize, nc: usize| -> nalgebra::DMatrix<f64> {
-                        let flat: Vec<f64> = rows_data.iter().flat_map(|r| r.iter().copied()).collect();
+                    let to_dmatrix = |rows_data: &Vec<Vec<f64>>,
+                                      nr: usize,
+                                      nc: usize|
+                     -> nalgebra::DMatrix<f64> {
+                        let flat: Vec<f64> =
+                            rows_data.iter().flat_map(|r| r.iter().copied()).collect();
                         nalgebra::DMatrix::from_row_slice(nr, nc, &flat)
                     };
 
@@ -1929,7 +1955,9 @@ impl NeuralNetModel {
                 },
                 Layer::Mamba(m) => {
                     let dmatrix_rows = |mat: &nalgebra::DMatrix<f64>| -> Vec<Vec<f64>> {
-                        (0..mat.nrows()).map(|r| (0..mat.ncols()).map(|c| mat[(r, c)]).collect()).collect()
+                        (0..mat.nrows())
+                            .map(|r| (0..mat.ncols()).map(|c| mat[(r, c)]).collect())
+                            .collect()
                     };
                     NnLayerWeights {
                         x_proj_w: Some(dmatrix_rows(&m.x_proj_w)),
@@ -3752,17 +3780,30 @@ mod tests {
 
         let (input_size, d_state, dt_rank) = (8usize, 4usize, 2usize);
         let mut rng = rand::rngs::StdRng::seed_from_u64(42);
-        let mut rand_vec = |n: usize| -> Vec<f64> { (0..n).map(|_| rng.random_range(-1.0..1.0)).collect() };
+        let mut rand_vec =
+            |n: usize| -> Vec<f64> { (0..n).map(|_| rng.random_range(-1.0..1.0)).collect() };
 
         let x_proj_rows = dt_rank + 2 * d_state;
         let original = MambaLayer {
             input_size,
             d_state,
             dt_rank,
-            x_proj_w: nalgebra::DMatrix::from_row_slice(x_proj_rows, input_size, &rand_vec(x_proj_rows * input_size)),
-            dt_proj_w: nalgebra::DMatrix::from_row_slice(input_size, dt_rank, &rand_vec(input_size * dt_rank)),
+            x_proj_w: nalgebra::DMatrix::from_row_slice(
+                x_proj_rows,
+                input_size,
+                &rand_vec(x_proj_rows * input_size),
+            ),
+            dt_proj_w: nalgebra::DMatrix::from_row_slice(
+                input_size,
+                dt_rank,
+                &rand_vec(input_size * dt_rank),
+            ),
             dt_proj_b: nalgebra::DVector::from_row_slice(&rand_vec(input_size)),
-            a_log: nalgebra::DMatrix::from_row_slice(input_size, d_state, &rand_vec(input_size * d_state)),
+            a_log: nalgebra::DMatrix::from_row_slice(
+                input_size,
+                d_state,
+                &rand_vec(input_size * d_state),
+            ),
             d_skip: nalgebra::DVector::from_row_slice(&rand_vec(input_size)),
         };
 
@@ -3850,22 +3891,32 @@ mod tests {
         //
         // d_skip = 0 (no skip, isolate SSM)
 
-        let x_proj_w = DMatrix::from_row_slice(5, 2, &[
-            0.0, 0.0,   // dt_pre row
-            1.0, 0.0,   // B_0
-            0.0, 1.0,   // B_1
-            1.0, 0.0,   // C_0
-            0.0, 1.0,   // C_1
-        ]);
+        let x_proj_w = DMatrix::from_row_slice(
+            5,
+            2,
+            &[
+                0.0, 0.0, // dt_pre row
+                1.0, 0.0, // B_0
+                0.0, 1.0, // B_1
+                1.0, 0.0, // C_0
+                0.0, 1.0, // C_1
+            ],
+        );
         let dt_proj_w = DMatrix::from_row_slice(2, 1, &[0.0, 0.0]);
-        let b_val = (0.5_f64.exp() - 1.0).ln();  // inv_softplus(0.5)
+        let b_val = (0.5_f64.exp() - 1.0).ln(); // inv_softplus(0.5)
         let dt_proj_b = DVector::from_row_slice(&[b_val, b_val]);
         let a_log = DMatrix::from_row_slice(2, 2, &[0.0, 0.0, 0.0, 0.0]);
         let d_skip = DVector::from_row_slice(&[0.0, 0.0]);
 
         let layer = MambaLayer {
-            input_size: 2, d_state: 2, dt_rank: 1,
-            x_proj_w, dt_proj_w, dt_proj_b, a_log, d_skip,
+            input_size: 2,
+            d_state: 2,
+            dt_rank: 1,
+            x_proj_w,
+            dt_proj_w,
+            dt_proj_b,
+            a_log,
+            d_skip,
         };
 
         let mut h = DMatrix::<f64>::zeros(2, 2);
@@ -3873,17 +3924,29 @@ mod tests {
         // Step 1: x = [1, 0]
         let x1 = [1.0, 0.0];
         let y1 = layer.forward(&x1, &mut h);
-        assert!((y1[0] - 0.3934693402873666).abs() < 1e-12, "step 1 y[0] = {}", y1[0]);
+        assert!(
+            (y1[0] - 0.3934693402873666).abs() < 1e-12,
+            "step 1 y[0] = {}",
+            y1[0]
+        );
         assert!((y1[1] - 0.0).abs() < 1e-15, "step 1 y[1] = {}", y1[1]);
 
         // Step 2: x = [0, 1], h = [[0.39347, 0], [0, 0]]
         let x2 = [0.0, 1.0];
         let y2 = layer.forward(&x2, &mut h);
         assert!((y2[0] - 0.0).abs() < 1e-15, "step 2 y[0] = {}", y2[0]);
-        assert!((y2[1] - 0.3934693402873666).abs() < 1e-12, "step 2 y[1] = {}", y2[1]);
+        assert!(
+            (y2[1] - 0.3934693402873666).abs() < 1e-12,
+            "step 2 y[1] = {}",
+            y2[1]
+        );
         // State h[0, 0] should now be ~0.23865 (exp(-0.5) * prev value)
         // Exact: exp(-0.5) * B_bar_step1 = 0.6065306597126334 * 0.3934693402873666
-        assert!((h[(0, 0)] - 0.2386512185411911).abs() < 1e-12, "h[0, 0] = {}", h[(0, 0)]);
+        assert!(
+            (h[(0, 0)] - 0.2386512185411911).abs() < 1e-12,
+            "h[0, 0] = {}",
+            h[(0, 0)]
+        );
     }
 
     mod mamba_proptest {

@@ -14,6 +14,7 @@ If this test fails:
   - Any NaN / Inf                     -> numerical stability regression in softplus
                                          or expm1_over_x
 """
+
 from __future__ import annotations
 
 import json
@@ -25,7 +26,6 @@ import torch
 
 pytest.importorskip("aerocapture_rs")
 import aerocapture_rs  # type: ignore[import-not-found]  # noqa: E402
-
 from aerocapture.training.rl.layers.dense import DenseLayer  # noqa: E402
 from aerocapture.training.rl.layers.mamba import MambaLayer  # noqa: E402
 
@@ -47,8 +47,8 @@ def test_mamba_rust_python_equivalence_100_steps(tmp_path: Path) -> None:
             torch.nn.init.uniform_(lin.bias, -0.3, 0.3)
         torch.nn.init.uniform_(mamba.x_proj_w, -0.3, 0.3)
         torch.nn.init.uniform_(mamba.dt_proj_w, -0.3, 0.3)
-        torch.nn.init.uniform_(mamba.dt_proj_b, -0.5, 0.5)   # center matters for softplus
-        torch.nn.init.uniform_(mamba.a_log, 0.0, 2.0)         # HiPPO-ish range; A < 0 strongly
+        torch.nn.init.uniform_(mamba.dt_proj_b, -0.5, 0.5)  # center matters for softplus
+        torch.nn.init.uniform_(mamba.a_log, 0.0, 2.0)  # HiPPO-ish range; A < 0 strongly
         mamba.d_skip.fill_(1.0)
 
     # 2. Serialize to v2 JSON.
@@ -113,9 +113,9 @@ def test_mamba_rust_python_equivalence_100_steps(tmp_path: Path) -> None:
     with torch.no_grad():
         for t in range(100):
             x = torch.tensor(inputs[t], dtype=torch.float64)  # (4,)
-            y0, _ = dense_in(x, None)                          # (8,)
-            y1, h_mamba = mamba(y0, h_mamba)                   # (8,), (8, 4)
-            y2, _ = dense_out(y1, None)                        # (2,)
+            y0, _ = dense_in(x, None)  # (8,)
+            y1, h_mamba = mamba(y0, h_mamba)  # (8,), (8, 4)
+            y2, _ = dense_out(y1, None)  # (2,)
             py_outs[t] = y2.numpy()
 
     # 6. Assert cross-language bit-equivalence.
@@ -123,8 +123,8 @@ def test_mamba_rust_python_equivalence_100_steps(tmp_path: Path) -> None:
     max_diff = float(diff.max())
     print(f"Mamba cross-language max abs diff over 100 steps: {max_diff:.3e}")
     print(
-        f"  step  0 diff: {float(np.max(np.abs(rust_outs[0]  - py_outs[0]))):.3e}"
-        f"  step  1 diff: {float(np.max(np.abs(rust_outs[1]  - py_outs[1]))):.3e}"
+        f"  step  0 diff: {float(np.max(np.abs(rust_outs[0] - py_outs[0]))):.3e}"
+        f"  step  1 diff: {float(np.max(np.abs(rust_outs[1] - py_outs[1]))):.3e}"
         f"  step 99 diff: {float(np.max(np.abs(rust_outs[99] - py_outs[99]))):.3e}"
     )
     assert max_diff < 1e-14, (

@@ -18,6 +18,7 @@ Verifies:
     a_log, d_skip).
   - aerocapture_rs.nn_forward returns a finite (2,) tuple on a 23-element input.
 """
+
 from __future__ import annotations
 
 import json

@@ -1,4 +1,5 @@
 """Tests for init_v2_population Mamba arm diversity and center-agreement invariants."""
+
 from __future__ import annotations
 
 import math
@@ -25,25 +26,22 @@ def test_mamba_init_all_individuals_differ_on_every_slice():
     rng = np.random.default_rng(123)
     pop = init_v2_population(arch, n_pop=16, bound_multiplier=1.0, rng=rng)
 
-    x_proj_n = 5 * 4        # 20
-    dt_proj_w_n = 4 * 1     # 4
-    dt_proj_b_n = 4         # 4
-    a_log_n = 4 * 2         # 8
-    d_skip_n = 4            # 4
+    x_proj_n = 5 * 4  # 20
+    dt_proj_w_n = 4 * 1  # 4
+    dt_proj_b_n = 4  # 4
+    a_log_n = 4 * 2  # 8
+    d_skip_n = 4  # 4
 
     slices = {
-        "x_proj_w":  slice(0, x_proj_n),
+        "x_proj_w": slice(0, x_proj_n),
         "dt_proj_w": slice(x_proj_n, x_proj_n + dt_proj_w_n),
         "dt_proj_b": slice(x_proj_n + dt_proj_w_n, x_proj_n + dt_proj_w_n + dt_proj_b_n),
-        "a_log":     slice(x_proj_n + dt_proj_w_n + dt_proj_b_n,
-                           x_proj_n + dt_proj_w_n + dt_proj_b_n + a_log_n),
-        "d_skip":    slice(x_proj_n + dt_proj_w_n + dt_proj_b_n + a_log_n,
-                           x_proj_n + dt_proj_w_n + dt_proj_b_n + a_log_n + d_skip_n),
+        "a_log": slice(x_proj_n + dt_proj_w_n + dt_proj_b_n, x_proj_n + dt_proj_w_n + dt_proj_b_n + a_log_n),
+        "d_skip": slice(x_proj_n + dt_proj_w_n + dt_proj_b_n + a_log_n, x_proj_n + dt_proj_w_n + dt_proj_b_n + a_log_n + d_skip_n),
     }
     for name, sl in slices.items():
         std_across_pop = pop[:, sl].std(axis=0)
-        assert (std_across_pop > 1e-9).all(), \
-            f"slice {name} has zero-variance columns: {std_across_pop}"
+        assert (std_across_pop > 1e-9).all(), f"slice {name} has zero-variance columns: {std_across_pop}"
 
 
 def test_mamba_init_values_within_paramspec_bounds():
@@ -59,10 +57,8 @@ def test_mamba_init_values_within_paramspec_bounds():
     for i, param_spec in enumerate(ps):
         col = pop[:, i]
         # Allow a tiny tolerance for jitter tail draws + float precision
-        assert (col >= param_spec.p_min - 1e-9).all(), \
-            f"param {i} ({param_spec.name}): {col.min()} below p_min {param_spec.p_min}"
-        assert (col <= param_spec.p_max + 1e-9).all(), \
-            f"param {i} ({param_spec.name}): {col.max()} above p_max {param_spec.p_max}"
+        assert (col >= param_spec.p_min - 1e-9).all(), f"param {i} ({param_spec.name}): {col.min()} below p_min {param_spec.p_min}"
+        assert (col <= param_spec.p_max + 1e-9).all(), f"param {i} ({param_spec.name}): {col.max()} above p_max {param_spec.p_max}"
 
 
 def test_mamba_init_a_log_mean_is_hippo():

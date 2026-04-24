@@ -45,6 +45,7 @@ def _serialize_mamba_layer(layer: MambaLayer) -> dict:
 
     def to_list(t: torch.Tensor) -> list[float]:
         from typing import cast
+
         return cast(list[float], t.detach().cpu().numpy().astype(np.float64).tolist())
 
     return {

@@ -4,6 +4,7 @@ Validates the forward contract in isolation (Python-side only). The full
 cross-language equivalence test vs Rust runtime lives in
 test_rust_python_mamba_equivalence.py (Task 14).
 """
+
 from __future__ import annotations
 
 import math
@@ -19,18 +20,23 @@ def tiny_layer():
     layer.double()
     # Match the Rust hand-verified test fixture exactly.
     with torch.no_grad():
-        layer.x_proj_w.copy_(torch.tensor([
-            [0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 0.0],
-            [0.0, 1.0],
-        ], dtype=torch.float64))
+        layer.x_proj_w.copy_(
+            torch.tensor(
+                [
+                    [0.0, 0.0],
+                    [1.0, 0.0],
+                    [0.0, 1.0],
+                    [1.0, 0.0],
+                    [0.0, 1.0],
+                ],
+                dtype=torch.float64,
+            )
+        )
         layer.dt_proj_w.copy_(torch.zeros(2, 1, dtype=torch.float64))
         # inv_softplus(0.5) = log(e^0.5 - 1)
         b_val = math.log(math.exp(0.5) - 1.0)
         layer.dt_proj_b.copy_(torch.full((2,), b_val, dtype=torch.float64))
-        layer.a_log.zero_()   # A = -exp(0) = -1
+        layer.a_log.zero_()  # A = -exp(0) = -1
         layer.d_skip.zero_()  # no skip
     return layer
 

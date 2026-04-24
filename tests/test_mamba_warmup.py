@@ -7,6 +7,7 @@ Verifies:
 
 Architecture: Dense(4 -> 8, tanh) -> Mamba(8, d_state=4, dt_rank=2) -> Dense(8 -> 2, linear).
 """
+
 from __future__ import annotations
 
 import json
@@ -18,7 +19,6 @@ import torch
 
 pytest.importorskip("aerocapture_rs")
 import aerocapture_rs  # type: ignore[import-not-found]  # noqa: E402
-
 from aerocapture.training.rl.layers.dense import DenseLayer  # noqa: E402
 from aerocapture.training.rl.layers.mamba import MambaLayer  # noqa: E402
 
@@ -101,9 +101,7 @@ def test_mamba_warmup_cross_language_agreement(tmp_path: Path) -> None:
     rng = np.random.default_rng(7)
     inputs = rng.standard_normal((3, 4)).astype(np.float64)
 
-    rust_outs = np.asarray(
-        aerocapture_rs.nn_forward_sequence(str(path), inputs.tolist()), dtype=np.float64
-    )
+    rust_outs = np.asarray(aerocapture_rs.nn_forward_sequence(str(path), inputs.tolist()), dtype=np.float64)
 
     dense_in.eval()
     mamba.eval()

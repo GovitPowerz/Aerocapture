@@ -299,7 +299,11 @@ impl TomlLayerSpec {
                     n_seq: *n_seq,
                 })
             }
-            TomlLayerSpec::Mamba { input_size, d_state, dt_rank } => {
+            TomlLayerSpec::Mamba {
+                input_size,
+                d_state,
+                dt_rank,
+            } => {
                 if *input_size == 0 {
                     return Err(ParseError("Mamba: input_size must be > 0".into()));
                 }
@@ -1909,11 +1913,16 @@ n_seq = 64
             r#"type = "mamba"
 input_size = 32
 d_state = 16
-"#
-        ).unwrap();
+"#,
+        )
+        .unwrap();
         let spec = parsed.to_layer_spec().unwrap();
         match spec {
-            LayerSpec::Mamba { input_size, d_state, dt_rank } => {
+            LayerSpec::Mamba {
+                input_size,
+                d_state,
+                dt_rank,
+            } => {
                 assert_eq!(input_size, 32);
                 assert_eq!(d_state, 16);
                 assert_eq!(dt_rank, 2);
@@ -1930,8 +1939,9 @@ d_state = 16
 input_size = 32
 d_state = 16
 dt_rank = 8
-"#
-        ).unwrap();
+"#,
+        )
+        .unwrap();
         let spec = parsed.to_layer_spec().unwrap();
         match spec {
             LayerSpec::Mamba { dt_rank, .. } => assert_eq!(dt_rank, 8),
@@ -1946,12 +1956,16 @@ dt_rank = 8
 input_size = 8
 d_state = 4
 dt_rank = 16
-"#
-        ).unwrap();
+"#,
+        )
+        .unwrap();
         let result = parsed.to_layer_spec();
         assert!(result.is_err());
         let msg = result.unwrap_err();
-        assert!(msg.0.contains("dt_rank"), "error message should mention dt_rank: {msg}");
+        assert!(
+            msg.0.contains("dt_rank"),
+            "error message should mention dt_rank: {msg}"
+        );
     }
 
     #[test]
@@ -1960,8 +1974,9 @@ dt_rank = 16
             r#"type = "mamba"
 input_size = 8
 d_state = 0
-"#
-        ).unwrap();
+"#,
+        )
+        .unwrap();
         assert!(parsed.to_layer_spec().is_err());
     }
 
@@ -1973,8 +1988,9 @@ d_state = 0
             r#"type = "mamba"
 input_size = 8
 d_state = 4
-"#
-        ).unwrap();
+"#,
+        )
+        .unwrap();
         let spec = parsed.to_layer_spec().unwrap();
         match spec {
             LayerSpec::Mamba { dt_rank, .. } => assert_eq!(dt_rank, 1),

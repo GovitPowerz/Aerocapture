@@ -130,12 +130,12 @@ def test_init_v2_population_dispatches_by_type_not_input_order() -> None:
 
 
 def test_init_v2_population_unknown_type_raises() -> None:
-    architecture = [{"type": "mamba", "input_size": 4, "hidden_size": 4}]
+    architecture = [{"type": "s6_future", "input_size": 4, "hidden_size": 4}]
     rng = np.random.default_rng(5)
     try:
         init_v2_population(architecture, n_pop=4, bound_multiplier=1.0, rng=rng)
     except ValueError as e:
-        assert "mamba" in str(e) or "unknown" in str(e).lower()
+        assert "s6_future" in str(e) or "unknown" in str(e).lower()
     else:
         raise AssertionError("expected ValueError on unknown layer type")
 

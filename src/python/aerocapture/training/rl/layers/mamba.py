@@ -8,6 +8,7 @@ The manual `_softplus` / `_expm1_over_x` helpers are 1-for-1 equivalents of the
 Rust `pub(crate)` free functions in `src/rust/src/data/neural.rs`. Both sides
 must produce bit-identical f64 output (verified by Task 14's equivalence test).
 """
+
 from __future__ import annotations
 
 import torch
@@ -61,14 +62,9 @@ class MambaLayer(nn.Module):
     def __init__(self, input_size: int, d_state: int, dt_rank: int) -> None:
         super().__init__()
         if input_size <= 0 or d_state <= 0 or dt_rank <= 0:
-            raise ValueError(
-                f"MambaLayer: all dims must be positive; got "
-                f"input_size={input_size}, d_state={d_state}, dt_rank={dt_rank}"
-            )
+            raise ValueError(f"MambaLayer: all dims must be positive; got input_size={input_size}, d_state={d_state}, dt_rank={dt_rank}")
         if dt_rank > input_size:
-            raise ValueError(
-                f"MambaLayer: dt_rank ({dt_rank}) must be <= input_size ({input_size})"
-            )
+            raise ValueError(f"MambaLayer: dt_rank ({dt_rank}) must be <= input_size ({input_size})")
         self.input_size = input_size
         self.d_state = d_state
         self.dt_rank = dt_rank
@@ -82,7 +78,8 @@ class MambaLayer(nn.Module):
     def new_state(self) -> Tensor:
         """Return a zero-initialized state tensor with parameter dtype / device."""
         return torch.zeros(
-            self.input_size, self.d_state,
+            self.input_size,
+            self.d_state,
             dtype=self.x_proj_w.dtype,
             device=self.x_proj_w.device,
         )
@@ -99,9 +96,7 @@ class MambaLayer(nn.Module):
             h_new: (input_size, d_state) updated state.
         """
         assert x.shape == (self.input_size,), f"x shape {x.shape} != ({self.input_size},)"
-        assert h.shape == (self.input_size, self.d_state), (
-            f"h shape {h.shape} != ({self.input_size}, {self.d_state})"
-        )
+        assert h.shape == (self.input_size, self.d_state), f"h shape {h.shape} != ({self.input_size}, {self.d_state})"
 
         # 1. Fused x_proj -> split into (dt_pre, B, C)
         proj = self.x_proj_w @ x
@@ -114,8 +109,8 @@ class MambaLayer(nn.Module):
         delta = _softplus(dt_lifted)
 
         # 3. ZOH discretization + state update (fully vectorized over (d, n))
-        a = -torch.exp(self.a_log)                  # (input_size, d_state), A < 0
-        za = delta.unsqueeze(1) * a                  # (input_size, d_state)
+        a = -torch.exp(self.a_log)  # (input_size, d_state), A < 0
+        za = delta.unsqueeze(1) * a  # (input_size, d_state)
         a_bar = torch.exp(za)
         b_bar = delta.unsqueeze(1) * b_vec.unsqueeze(0) * _expm1_over_x(za)
         h_new = a_bar * h + b_bar * x.unsqueeze(1)

@@ -101,7 +101,7 @@ Seven guidance algorithms, all GA-optimizable:
 |---|---|---|---|
 | **Piecewise Constant** | 10-segment bank angle profile | 10 | Train first — produces ref trajectory + corridor |
 | **FTC** | Predictor-corrector with reference trajectory tracking | 8 | Requires ref trajectory |
-| **Neural Network** | Trained NN maps 16- or 23-input nav state to signed bank angle (atan2). v1 dense-only arch (`layer_sizes`/`activations`) or v2 heterogeneous arch (`[[network.architecture]]`, supports `dense` + `gru`). Trainable via GA/PSO (pymoo) or RL (PPO with chunked truncated BPTT for recurrent policies, experimental SAC). | arch-dependent | Independent, signed bank, full-envelope (capture + exit) |
+| **Neural Network** | Trained NN maps 16- or 23-input nav state to signed bank angle (atan2). v1 dense-only arch (`layer_sizes`/`activations`) or v2 heterogeneous arch (`[[network.architecture]]`, supports `dense` + `gru` + `lstm` + `window` + `transformer` + `mamba`). Trainable via GA/PSO (pymoo) or RL (PPO with chunked truncated BPTT for recurrent policies, experimental SAC). | arch-dependent | Independent, signed bank, full-envelope (capture + exit) |
 | **Equilibrium Glide** | Balances gravity, centrifugal, and lift forces | 7 | Independent |
 | **Energy Controller** | Tracks reference energy dissipation profile | 3 | Requires ref trajectory |
 | **PredGuid** | Apollo/Shuttle-heritage drag tracking | 3 | Requires ref trajectory |
