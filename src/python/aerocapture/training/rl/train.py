@@ -568,6 +568,8 @@ def _run_ppo(
     # Dense: None (stateless). GRU: (H,). LSTM: (2, H) -- packs (h, c) as a single array.
     from aerocapture.training.rl.schemas import GruSpec as _GS
     from aerocapture.training.rl.schemas import LstmSpec as _LS
+    from aerocapture.training.rl.schemas import TransformerSpec as _TS
+    from aerocapture.training.rl.schemas import WindowSpec as _WS
 
     hidden_shapes: list = []
     for spec in architecture:
@@ -577,6 +579,14 @@ def _run_ppo(
             hidden_shapes.append((spec.hidden_size,))
         elif isinstance(spec, _LS):
             hidden_shapes.append((2, spec.hidden_size))
+        elif isinstance(spec, _WS):
+            raise NotImplementedError(
+                "Window-MLP is PSO-only in Phase 2b; PPO use deferred. See docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md"
+            )
+        elif isinstance(spec, _TS):
+            raise NotImplementedError(
+                "Transformer is PSO-only in Phase 3a; PPO use deferred. See docs/superpowers/specs/2026-04-22-phase-3a-transformer-mvp-design.md"
+            )
         else:
             raise ValueError(f"Unknown layer spec type in hidden_shapes derivation: {type(spec).__name__}")
 
