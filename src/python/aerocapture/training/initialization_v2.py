@@ -86,7 +86,7 @@ def _fill_layer(entry: Any, slab: np.ndarray, bound_multiplier: float, rng: np.r
         # but a raw dict entry with type="transformer" is also valid.
         _fill_transformer_dict(entry, slab, bound_multiplier, rng, layer_idx=layer_idx)
     elif t == "mamba":
-        _fill_mamba(entry, slab, bound_multiplier, rng)
+        _fill_mamba(entry, slab, bound_multiplier, rng, layer_idx=layer_idx)
     else:
         raise ValueError(f"init_v2_population: unknown layer type {t!r}")
 
@@ -169,7 +169,7 @@ def _fill_transformer_dict(entry: dict, slab: np.ndarray, bound_multiplier: floa
     _fill_transformer(spec, slab, bound_multiplier, rng, layer_idx=layer_idx)
 
 
-def _fill_mamba(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.random.Generator) -> None:
+def _fill_mamba(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.random.Generator, layer_idx: int = 0) -> None:
     """Fill a Mamba layer slab in-place.
 
     Canonical flat order (matches Rust `LayerWeights for MambaLayer::to_flat`
@@ -182,18 +182,21 @@ def _fill_mamba(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.
 
     Per-individual `N(0, _INIT_JITTER_STD * bound_multiplier)` jitter on slices 3-5
     ensures PSO population diversity on the otherwise-shared-center parameters.
-    Sub-RNG seed for dt_proj_b matches `_mamba_specs` so ParamSpec bounds and init agree.
+    Sub-RNG seed for dt_proj_b mixes `_MAMBA_DT_BIAS_SEED` with `layer_idx` so
+    each stacked Mamba layer gets its own dt-bias centers (different timescales
+    per layer) while still agreeing with `_mamba_specs` bounds for the same layer.
     """
+    from aerocapture.training.config import resolve_mamba_dt_rank
+
     d_inner = int(entry["input_size"])
     d_state = int(entry["d_state"])
-    # dt_rank is optional in TOML; resolve the same way MambaSpec does.
-    raw_dt_rank = entry.get("dt_rank")
-    dt_rank = int(raw_dt_rank) if raw_dt_rank is not None else max(1, d_inner // 16)
+    dt_rank = resolve_mamba_dt_rank(entry)
     pop_n = slab.shape[0]
     jitter_std = _INIT_JITTER_STD * bound_multiplier
 
-    # Shared per-channel dt_proj_b centers (same sub-RNG seed as _mamba_specs)
-    local_rng = np.random.default_rng(_MAMBA_DT_BIAS_SEED)
+    # Shared per-channel dt_proj_b centers (same sub-RNG seed as _mamba_specs).
+    # Mix layer_idx into the seed so stacked Mamba layers diverge at init.
+    local_rng = np.random.default_rng(_MAMBA_DT_BIAS_SEED ^ layer_idx)
     dt_bias_centers = np.log(np.expm1(local_rng.uniform(1e-3, 1e-1, size=d_inner)))
 
     # HiPPO a_log centers: outer d_inner, inner d_state (row-major)

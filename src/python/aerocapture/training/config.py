@@ -34,14 +34,15 @@ class NetworkConfig:
 
     def __post_init__(self) -> None:
         if self.architecture is not None:
-            # v2: normalize Mamba entries (resolve optional dt_rank) so downstream
-            # consumers -- including the Rust `flat_weights_to_json` PyO3 call which
-            # deserializes into a strict `LayerSpec::Mamba { dt_rank: usize }` -- see
-            # the field present. Mirrors `MambaSpec` pydantic validator and Rust
-            # `TomlLayerSpec::to_layer_spec` resolution: `max(1, input_size // 16)`.
+            # v2: copy the architecture list and normalize Mamba entries (resolve
+            # optional dt_rank) so downstream consumers -- including the Rust
+            # `flat_weights_to_json` PyO3 call which deserializes into a strict
+            # `LayerSpec::Mamba { dt_rank: usize }` -- see the field present.
+            # The shallow copy keeps us from mutating the caller's dicts in place.
+            self.architecture = [dict(e) if isinstance(e, dict) else e for e in self.architecture]
             for entry in self.architecture:
                 if isinstance(entry, dict) and entry.get("type") == "mamba" and entry.get("dt_rank") is None:
-                    entry["dt_rank"] = max(1, int(entry["input_size"]) // 16)
+                    entry["dt_rank"] = resolve_mamba_dt_rank(entry)
             # v2: validate per-entry shapes + chain consistency (layer i's output size
             # must equal layer i+1's input size).
             for entry in self.architecture:
@@ -117,6 +118,21 @@ class NetworkConfig:
         return self.n_base_coef
 
 
+def resolve_mamba_dt_rank(entry: Any) -> int:
+    """Resolve the Mamba `dt_rank` field, applying the paper default when absent.
+
+    Accepts either a plain dict (pre-pydantic TOML entry) or a pydantic `MambaSpec`.
+    Returns `max(1, input_size // 16)` when `dt_rank` is None / missing, matching
+    `MambaSpec._resolve_and_validate_dt_rank` and Rust
+    `TomlLayerSpec::to_layer_spec`. Centralizing this here keeps all four callers
+    (config validation, describe_architecture, _fill_mamba, NetworkConfig.__post_init__)
+    in sync.
+    """
+    input_size = int(entry["input_size"]) if isinstance(entry, dict) else int(entry.input_size)
+    raw = entry.get("dt_rank") if isinstance(entry, dict) else getattr(entry, "dt_rank", None)
+    return int(raw) if raw is not None else max(1, input_size // 16)
+
+
 def _layer_n_params(entry: Any) -> int:
     """Parameter count for a single v2 architecture entry. Mirrors Rust LayerWeights::n_params."""
     from aerocapture.training.rl.schemas import TransformerSpec
@@ -146,10 +162,7 @@ def _layer_n_params(entry: Any) -> int:
     if ltype == "mamba":
         d_inner = int(entry["input_size"])
         d_state = int(entry["d_state"])
-        # dt_rank is optional in TOML; resolve to max(1, input_size // 16) when absent
-        # (mirrors MambaSpec model_validator and Rust TomlLayerSpec::to_layer_spec).
-        raw_dt_rank = entry.get("dt_rank")
-        dt_rank = int(raw_dt_rank) if raw_dt_rank is not None else max(1, d_inner // 16)
+        dt_rank = resolve_mamba_dt_rank(entry)
         return d_inner * (3 * d_state + 2 * dt_rank + 2)
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
@@ -236,10 +249,7 @@ def describe_architecture(network: NetworkConfig | list[Any]) -> str:
                 elif ltype == "transformer":
                     tail = f"d_model={entry['d_model']}, n_heads={entry['n_heads']}, d_ffn={entry['d_ffn']}, n_seq={entry['n_seq']}"
                 elif ltype == "mamba":
-                    # dt_rank is optional in TOML; resolve the same way MambaSpec does.
-                    raw_dt_rank = entry.get("dt_rank")
-                    resolved_dt_rank = int(raw_dt_rank) if raw_dt_rank is not None else max(1, int(entry["input_size"]) // 16)
-                    tail = f"d_state={entry['d_state']}, dt_rank={resolved_dt_rank}"
+                    tail = f"d_state={entry['d_state']}, dt_rank={resolve_mamba_dt_rank(entry)}"
                 else:
                     tail = ltype
             in_size = _layer_input_size(entry)

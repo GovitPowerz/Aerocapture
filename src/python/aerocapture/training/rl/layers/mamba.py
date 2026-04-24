@@ -27,15 +27,23 @@ def _softplus(x: Tensor) -> Tensor:
 def _expm1_over_x(z: Tensor) -> Tensor:
     """(exp(z) - 1) / z with Taylor fallback for |z| < 1e-8.
 
-    Matches Rust `expm1_over_x`. Uses `torch.where` for branchless dispatch
-    (autograd-compatible for Phase 4b PPO).
+    Matches Rust `expm1_over_x` bit-for-bit in the forward pass.
+
+    Implementation note: we compute `taylor + (exact - taylor) * gate`
+    rather than `torch.where(gate, taylor, exact)`. The plain-where form
+    suffers from the classic double-backward NaN pitfall: PyTorch still
+    propagates gradients through the unselected `exact = expm1(z) / z`
+    branch, and at z=0 that produces 0/0 in the backward pass. Computing
+    the blend as an additive mix preserves gradients cleanly (exact is
+    evaluated on a non-zero safe_z, and its contribution is gated to 0
+    whenever |z| < 1e-8). Branch point: `|z| < 1e-8` is strict, so at
+    exactly |z| == 1e-8 the exact branch wins.
     """
     taylor = 1.0 + 0.5 * z + (z * z) / 6.0
-    # Avoid div-by-zero in the exact branch by replacing z=0 with z=1
-    # (the where-mask selects the taylor branch there anyway).
-    safe_z = torch.where(z != 0.0, z, torch.ones_like(z))
+    safe_z = torch.where(z.abs() < 1e-8, torch.ones_like(z), z)
     exact = torch.expm1(z) / safe_z
-    return torch.where(z.abs() < 1e-8, taylor, exact)
+    gate = (z.abs() >= 1e-8).to(z.dtype)
+    return taylor + (exact - taylor) * gate
 
 
 class MambaLayer(nn.Module):

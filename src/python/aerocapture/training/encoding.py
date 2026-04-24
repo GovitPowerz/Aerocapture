@@ -267,7 +267,8 @@ def _mamba_specs(layer: MambaSpec, layer_idx: int, bound_multiplier: float) -> l
       4. a_log     [d_inner, d_state]                row-major -- HiPPO log(n+1) centers (outer d, inner n)
       5. d_skip    [d_inner]                                   -- 1.0 centers
 
-    dt_proj_b centers draw from _MAMBA_DT_BIAS_SEED so they match _init_mamba_layer (Task 11).
+    dt_proj_b centers draw from `_MAMBA_DT_BIAS_SEED ^ layer_idx` so each stacked
+    Mamba layer gets its own per-channel centers (matches `_init_mamba_layer`).
     """
     d_inner = layer.input_size
     d_state = layer.d_state
@@ -293,7 +294,8 @@ def _mamba_specs(layer: MambaSpec, layer_idx: int, bound_multiplier: float) -> l
         specs.append(ParamSpec(f"dt_proj_w{li}_{j}", -bound_dt, bound_dt, 0.0))
 
     # 3. dt_proj_b: [d_inner] -- per-channel inv_softplus(U(1e-3, 1e-1)) centers
-    local_rng = np.random.default_rng(_MAMBA_DT_BIAS_SEED)
+    #    Mix layer_idx into the seed so stacked Mamba layers diverge at init.
+    local_rng = np.random.default_rng(_MAMBA_DT_BIAS_SEED ^ li)
     dt_draws = local_rng.uniform(1e-3, 1e-1, size=d_inner)
     for d in range(d_inner):
         dt = float(dt_draws[d])
