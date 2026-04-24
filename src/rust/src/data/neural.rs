@@ -517,7 +517,38 @@ impl TransformerLayer {
     }
 }
 
-/// Layer variant. Phase 1 ships Dense and Gru; Phase 2a adds Lstm; Phase 2b adds Window; Phase 3a adds Transformer.
+/// Selective SSM core (Mamba S6) -- Phase 4a PSO-only MVP.
+///
+/// Per-tick forward computes input-dependent Δ, B, C from x via a fused `x_proj`
+/// linear projection, discretizes A via ZOH (`A = -exp(a_log)`, diagonal),
+/// updates per-channel state `h: (input_size, d_state)`, and emits
+/// `y = h @ C + D * x` (skip residual per channel).
+///
+/// No conv1d, no SiLU gating -- those are the full Mamba block, deferred to
+/// Phase 4c. No in/out expansion linears -- user stacks Dense before/after.
+#[derive(Debug, Clone)]
+pub struct MambaLayer {
+    /// d_inner in the paper. Layer fan-in = fan-out = input_size.
+    pub input_size: usize,
+    /// N in the paper. SSM state dim per channel.
+    pub d_state: usize,
+    /// Bottleneck rank for the Δ projection (paper default: max(1, input_size / 16)).
+    pub dt_rank: usize,
+
+    /// Fused (Δ_pre, B, C) projection. Shape: (dt_rank + 2*d_state, input_size).
+    pub x_proj_w: nalgebra::DMatrix<f64>,
+    /// Δ lift projection. Shape: (input_size, dt_rank).
+    pub dt_proj_w: nalgebra::DMatrix<f64>,
+    /// Δ bias (critical init: inv_softplus(uniform(dt_min, dt_max)) per channel).
+    pub dt_proj_b: nalgebra::DVector<f64>,
+    /// HiPPO log-space reparameterization of A. Physical A = -exp(a_log).
+    /// Shape: (input_size, d_state). Strictly negative A ensures stable contraction.
+    pub a_log: nalgebra::DMatrix<f64>,
+    /// Per-channel skip-residual scalar. Paper default init: 1.0.
+    pub d_skip: nalgebra::DVector<f64>,
+}
+
+/// Layer variant. Phase 1 ships Dense and Gru; Phase 2a adds Lstm; Phase 2b adds Window; Phase 3a adds Transformer; Phase 4a adds Mamba.
 #[derive(Debug, Clone)]
 pub enum Layer {
     Dense(DenseLayer),
@@ -526,6 +557,10 @@ pub enum Layer {
     Window(WindowLayer),
     // Boxed: TransformerLayer is 472 bytes vs 112 for GruLayer; boxing keeps enum size uniform.
     Transformer(Box<TransformerLayer>),
+    // Boxed: MambaLayer with typical dims (input_size=32, d_state=16, dt_rank=2)
+    // carries ~14 kB of weights (nalgebra DMatrix heap allocation). Boxing keeps
+    // enum size uniform, matching Phase 3a Transformer's `large_enum_variant` fix.
+    Mamba(Box<MambaLayer>),
 }
 
 impl Layer {
@@ -543,6 +578,7 @@ impl Layer {
             Layer::Lstm(l) => l.input_size,
             Layer::Window(w) => w.input_size,
             Layer::Transformer(t) => t.d_model,
+            Layer::Mamba(m) => m.input_size,
         }
     }
 }
@@ -911,6 +947,11 @@ pub enum LayerSpec {
         n_heads: usize,
         d_ffn: usize,
         n_seq: usize,
+    },
+    Mamba {
+        input_size: usize,
+        d_state: usize,
+        dt_rank: usize,
     },
 }
 
@@ -3380,7 +3421,10 @@ mod tests {
         for &z in &[0.5_f64, -0.5, 1.0, -1.0, 5.0, -5.0, 0.01, -0.01] {
             let expected = z.exp_m1() / z;
             let got = expm1_over_x(z);
-            assert!((got - expected).abs() < 1e-15, "z={z}: got {got}, expected {expected}");
+            assert!(
+                (got - expected).abs() < 1e-15,
+                "z={z}: got {got}, expected {expected}"
+            );
         }
     }
 
@@ -3391,7 +3435,10 @@ mod tests {
         let z = 1e-10;
         let taylor = 1.0 + z * 0.5 + z * z / 6.0;
         let got = expm1_over_x(z);
-        assert!((got - taylor).abs() < 1e-16, "z=1e-10: got {got}, taylor {taylor}");
+        assert!(
+            (got - taylor).abs() < 1e-16,
+            "z=1e-10: got {got}, taylor {taylor}"
+        );
         // At z = 0, result should be 1.0 (the limit).
         assert_eq!(expm1_over_x(0.0), 1.0);
     }
