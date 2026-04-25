@@ -1107,8 +1107,8 @@ struct NnJsonFileV2 {
     ablated_input: Option<usize>,
 }
 
-/// Total number of candidate NN inputs (16 existing + 7 new).
-pub const NN_FULL_INPUT_SIZE: usize = 23;
+/// Total number of candidate NN inputs (16 baseline + 4 reference trajectory + 1 exit-bank teacher).
+pub const NN_FULL_INPUT_SIZE: usize = 21;
 
 /// Modular neural network model.
 ///
@@ -1121,7 +1121,7 @@ pub struct NeuralNetModel {
     pub layer_sizes: Vec<usize>,
     /// Network layers (len = layer_sizes.len() - 1).
     pub layers: Vec<Layer>,
-    /// Optional input selection mask: indices into the full 23-input vector.
+    /// Optional input selection mask: indices into the full 21-input vector.
     /// Length must equal layer_sizes[0]. None means use inputs as-is.
     pub input_mask: Option<Vec<usize>>,
     /// Optional index of a single input to zero out (ablation analysis).
@@ -2392,7 +2392,7 @@ mod tests {
 
     #[test]
     fn validate_mask_out_of_range() {
-        // index 23 == NN_FULL_INPUT_SIZE, which is out of range
+        // index == NN_FULL_INPUT_SIZE is out of range
         let mask = Some(vec![0usize, NN_FULL_INPUT_SIZE]);
         let result = NeuralNetModel::validate_mask(&mask, 2);
         assert!(result.is_err());
@@ -2429,8 +2429,8 @@ mod tests {
 
     #[test]
     fn validate_ablated_input_valid() {
-        // index 22 is the last valid index (NN_FULL_INPUT_SIZE - 1)
-        let result = NeuralNetModel::validate_ablated_input(&Some(22));
+        // index 20 is the last valid index (NN_FULL_INPUT_SIZE - 1)
+        let result = NeuralNetModel::validate_ablated_input(&Some(20));
         assert!(result.is_ok());
     }
 

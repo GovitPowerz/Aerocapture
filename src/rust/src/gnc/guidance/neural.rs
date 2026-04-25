@@ -3,15 +3,19 @@
 //! Feedforward network computing bank angle from navigation state.
 //! Supports arbitrary layer architectures via NeuralNetModel.
 //!
-//! 23 candidate inputs (selected by configurable `input_mask`):
+//! 21 candidate inputs (selected by configurable `input_mask`):
 //!   0  eccentricity_excess    8  altitude              16 cos_bank_nominal
 //!   1  inclination_error      9  fpa                   17 pdyn_nominal
-//!   2  radial_velocity       10  latitude               18 hdot_nominal
-//!   3  orbital_energy        11  drag_accel             19 pdyn_error
-//!   4  velocity              12  lift_accel             20 exit_bank_angle
-//!   5  accel_magnitude       13  sma_error              21 density_exit
-//!   6  heat_flux_fraction    14  apoapsis_alt           22 ref_velocity_latched
+//!   2  radial_velocity       10  latitude              18 hdot_nominal
+//!   3  orbital_energy        11  drag_accel            19 pdyn_error
+//!   4  velocity              12  lift_accel            20 exit_bank_teacher
+//!   5  accel_magnitude       13  sma_error
+//!   6  heat_flux_fraction    14  apoapsis_alt
 //!   7  heat_load_fraction    15  bounce_flag
+//!
+//! Index 20 is the closed-loop FTC exit-phase pdyn-feedback law, fed every step
+//! as a teacher signal (always live, not bounce-gated). Pre-bounce, with
+//! `ref_velocity_latched = 0`, it degenerates to pure radial-velocity damping.
 //!
 //! Output mapping: the network emits 2 outputs and the signed bank angle is
 //! `atan2(out[0], out[1])`. No other interpretation is supported.
@@ -27,7 +31,7 @@ use crate::orbit::elements;
 
 /// Build the masked NN input vector from navigation state.
 ///
-/// Constructs the full 23-element candidate input vector, applies ablation zeroing
+/// Constructs the full 21-element candidate input vector, applies ablation zeroing
 /// (if configured), then applies the model's input_mask (or legacy [0..16] default).
 /// Returns the masked `Vec<f64>` ready for `nn.forward()`.
 ///
@@ -65,7 +69,7 @@ pub fn build_nn_input(
     // Altitude in km
     let altitude_km = (nav.position_estimated[0] - planet.equatorial_radius) / 1e3;
 
-    // Build full 23-element input vector
+    // Build full 21-element input vector
     let mut full_input = [0.0_f64; NN_FULL_INPUT_SIZE];
 
     // -- 16 existing inputs (indices 0-15) --
@@ -109,13 +113,12 @@ pub fn build_nn_input(
     full_input[18] = hdot_nominal / 500.0; // ref radial velocity
     full_input[19] = pdyn_error / 2e3; // dynamic pressure error
 
-    // -- 3 exit-related inputs (indices 20-22), gated by bounce flag --
-    let bf = nav.bounce_flag as f64;
+    // -- Exit-bank teacher signal (index 20), always live --
+    // Closed-loop FTC exit-phase pdyn-feedback law, fed every step as a
+    // teacher signal. Pre-bounce, ref_velocity_latched = 0 so this degenerates
+    // to pure radial-velocity damping.
     let exit_bank = exit::exit_guidance(nav, data, planet, ref_velocity_latched);
-
-    full_input[20] = (exit_bank / std::f64::consts::PI * 2.0 - 1.0) * bf; // exit bank angle
-    full_input[21] = ((nav.density_exit.max(1e-12).log10() + 7.0) / 5.0) * bf; // exit density
-    full_input[22] = (ref_velocity_latched / 500.0) * bf; // ref velocity
+    full_input[20] = exit_bank / std::f64::consts::PI * 2.0 - 1.0;
 
     // Apply ablation: zero out a single input for sensitivity analysis
     if let Some(idx) = nn.ablated_input {
@@ -522,10 +525,10 @@ mod tests {
         );
     }
 
-    // ── New tests for 23-input expansion, mask, and ablation ──
+    // ── Tests for full-input expansion, mask, and ablation ──
 
     #[test]
-    fn full_23_input_vector_is_finite() {
+    fn full_input_vector_is_finite() {
         // 23->2 network with explicit full mask
         let nn = NeuralNetModel {
             architecture: vec![LayerSpec::Dense {
@@ -562,7 +565,7 @@ mod tests {
 
         assert!(
             bank.is_finite(),
-            "bank angle must be finite with 23 inputs, got: {bank}"
+            "bank angle must be finite with full input, got: {bank}"
         );
     }
 
@@ -717,13 +720,13 @@ mod tests {
     }
 
     #[test]
-    fn bounce_gated_inputs_zero_pre_bounce() {
-        // 23->2 network with weights only on indices 20,21,22 and bias [0, 1].
-        // bounce_flag=0 should gate exit inputs to zero, so output = [0, 1], bank = 0.
+    fn exit_bank_teacher_signal_is_finite_pre_bounce() {
+        // Exit-bank teacher (index 20) is always live, including pre-bounce.
+        // With ref_velocity_latched = 0, exit_guidance degenerates to pure
+        // radial-velocity damping; verify the resulting input still produces a
+        // finite bank command.
         let mut w0 = vec![0.0; NN_FULL_INPUT_SIZE];
         w0[20] = 10.0;
-        w0[21] = 10.0;
-        w0[22] = 10.0;
         let nn = NeuralNetModel {
             architecture: vec![LayerSpec::Dense {
                 input_size: NN_FULL_INPUT_SIZE,
@@ -752,11 +755,13 @@ mod tests {
             &data,
             &planet,
             50.0_f64.to_radians(),
-            -50.0,
+            0.0, // ref_velocity_latched = 0 pre-bounce
         );
 
-        // With bounce_flag=0, inputs 20-22 are zero, so output[0] = 0.0, bank = atan2(0, 1) = 0
-        assert_relative_eq!(bank, 0.0, epsilon = 1e-12,);
+        assert!(
+            bank.is_finite(),
+            "exit-bank teacher signal must produce finite bank pre-bounce, got: {bank}"
+        );
     }
 
     mod prop {
