@@ -2,6 +2,7 @@
 
 use crate::config::{GuidanceType, PlanetConfig};
 use crate::data::SimData;
+use crate::data::guidance_params::NeuralNetMode;
 use crate::data::neural::NeuralNetModel;
 use crate::data::nn_state::NnState;
 use crate::gnc::control::angle_utils::shortest_angle_diff;
@@ -151,11 +152,13 @@ pub fn guidance_step(
     // reference_bank_angle passed as parameter from config.reference_bank_angle
     let mut bank_angle_longitudinal: f64;
 
-    // Schemes that produce signed bank angles bypass exit guidance entirely
-    let uses_exit_guidance = !matches!(
-        guidance_type,
-        GuidanceType::PiecewiseConstant | GuidanceType::NeuralNetwork
-    );
+    // Schemes that produce signed bank angles bypass exit, lateral, and thermal-limiter
+    // guidance entirely. NN bypasses only in FullNeural mode; MagnitudeOnly mode reuses
+    // the same unsigned-magnitude pipeline as FTC and the other parametric schemes.
+    let nn_full_neural = matches!(guidance_type, GuidanceType::NeuralNetwork)
+        && data.guidance.neural_mode == NeuralNetMode::FullNeural;
+    let uses_exit_guidance = !(matches!(guidance_type, GuidanceType::PiecewiseConstant)
+        || nn_full_neural);
 
     if is_reference {
         state.bank_angle_commanded = reference_bank_angle;
@@ -177,7 +180,7 @@ pub fn guidance_step(
                 let nn_state = state.nn_state.as_mut().expect(
                     "neural_network scheme requires nn_state initialized by GuidanceState::new",
                 );
-                neural::nn_bank_angle(
+                let signed = neural::nn_bank_angle(
                     nav,
                     nn,
                     nn_state,
@@ -185,7 +188,14 @@ pub fn guidance_step(
                     planet,
                     data.target_orbit.inclination,
                     state.reference_velocity,
-                )
+                );
+                // MagnitudeOnly: drop the sign and feed magnitude into the unsigned
+                // pipeline (thermal limiter + lateral guidance handle sign + safety).
+                if data.guidance.neural_mode == NeuralNetMode::MagnitudeOnly {
+                    signed.abs()
+                } else {
+                    signed
+                }
             }
             GuidanceType::EquilibriumGlide => {
                 equilibrium_glide::equilibrium_glide_bank(nav, data, planet)
@@ -205,10 +215,9 @@ pub fn guidance_step(
     }
 
     // === Thermal safety limiter (unsigned-magnitude schemes only) ===
-    let uses_thermal_limiter = !matches!(
-        guidance_type,
-        GuidanceType::PiecewiseConstant | GuidanceType::NeuralNetwork
-    );
+    // Same gating as exit: NN in MagnitudeOnly mode goes through the limiter.
+    let uses_thermal_limiter = !(matches!(guidance_type, GuidanceType::PiecewiseConstant)
+        || nn_full_neural);
     if uses_thermal_limiter && longitudinal_active == 1 && !is_reference {
         let cos_bank = bank_angle_longitudinal.cos();
         let cos_limited = thermal_limiter::apply_thermal_limit(
@@ -220,11 +229,9 @@ pub fn guidance_step(
         bank_angle_longitudinal = cos_limited.acos();
     }
 
-    // Schemes that provide signed bank angles — skip lateral guidance entirely
-    let skip_lateral = matches!(
-        guidance_type,
-        GuidanceType::PiecewiseConstant | GuidanceType::NeuralNetwork
-    );
+    // Schemes that provide signed bank angles — skip lateral guidance entirely.
+    // NN in MagnitudeOnly mode delegates sign selection to lateral.
+    let skip_lateral = matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural;
     if skip_lateral {
         state.bank_angle_commanded = bank_angle_longitudinal;
         state.lateral_state.roll_sign = if bank_angle_longitudinal >= 0.0 {
@@ -1095,6 +1102,86 @@ mod tests {
             out.bank_angle_commanded.is_finite(),
             "exit phase should produce finite bank: {}",
             out.bank_angle_commanded
+        );
+    }
+
+    /// `mode = magnitude_only` routes the NN through the thermal limiter, so a
+    /// high heat-flux fraction pulls the commanded bank toward lift-up
+    /// (smaller |bank|) compared to `mode = full_neural` which bypasses it.
+    #[test]
+    fn magnitude_only_mode_routes_through_thermal_limiter() {
+        use crate::data::guidance_params::NeuralNetMode;
+        use crate::data::neural::{
+            Activation, DenseLayer, Layer, LayerSpec, NeuralNetModel,
+        };
+        use crate::gnc::guidance::thermal_limiter::ThermalLimiterParams;
+
+        // 16 -> 2 NN with zero weights + biases tuned so atan2(b0, b1) = 0.5 rad
+        let target_bank = 0.5_f64;
+        let nn = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: 16,
+                output_size: 2,
+                activation: Activation::Linear,
+            }],
+            layer_sizes: vec![16, 2],
+            layers: vec![Layer::Dense(DenseLayer {
+                w: vec![vec![0.0; 16], vec![0.0; 16]],
+                b: vec![target_bank.sin(), target_bank.cos()],
+                activation: Activation::Linear,
+            })],
+            input_mask: None,
+            ablated_input: None,
+        };
+
+        // Heat flux at 99% of limit -> thermal limiter activates aggressively.
+        let mut nav = test_nav();
+        nav.heat_flux_fraction = 0.99;
+        nav.heat_load_fraction = 0.0;
+
+        let planet = PlanetConfig::mars();
+        let mut data = test_sim_data();
+        data.neural_net = Some(nn.clone());
+        data.guidance.thermal_limiter = ThermalLimiterParams {
+            heat_flux_activation: 0.5,
+            heat_load_activation: 1.0,
+            heat_flux_ramp_exponent: 1.0,
+            heat_load_ramp_exponent: 1.0,
+        };
+        // High max_bank_rate to keep rate clamp out of the picture.
+        data.capsule.max_bank_rate = 5.0_f64.to_radians() * 100.0;
+
+        let run = |mode: NeuralNetMode, data: &mut SimData| {
+            data.guidance.neural_mode = mode;
+            let mut state = GuidanceState::new(target_bank, -0.48_f64.to_radians(), Some(&nn));
+            // Prime realized = target so rate shaping is a no-op when not limited.
+            state.bank_angle_realized = target_bank;
+            let out = guidance_step(
+                &nav,
+                target_bank,
+                0.0,
+                target_bank,
+                &mut state,
+                data,
+                &planet,
+                false,
+                GuidanceType::NeuralNetwork,
+            );
+            out.bank_angle_commanded.abs()
+        };
+
+        let bank_full = run(NeuralNetMode::FullNeural, &mut data);
+        let bank_mag = run(NeuralNetMode::MagnitudeOnly, &mut data);
+
+        // FullNeural bypasses the limiter -> commanded magnitude is the raw NN output.
+        assert!(
+            (bank_full - target_bank).abs() < 1e-9,
+            "full_neural should pass NN bank through unchanged: expected {target_bank}, got {bank_full}"
+        );
+        // MagnitudeOnly + high heat flux: limiter pulls cos(bank) toward 1, so |bank| shrinks.
+        assert!(
+            bank_mag < bank_full - 1e-6,
+            "magnitude_only should shrink |bank| via thermal limiter: full={bank_full}, mag={bank_mag}"
         );
     }
 

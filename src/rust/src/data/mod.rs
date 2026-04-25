@@ -420,6 +420,23 @@ impl SimData {
             .as_ref()
             .map_or(0.1, |n| n.density_gain_max_delta);
 
+        // Neural network guidance mode (full_neural | magnitude_only)
+        let neural_mode = match toml
+            .guidance
+            .neural_network
+            .as_ref()
+            .and_then(|nn| nn.mode.as_deref())
+        {
+            None | Some("full_neural") => guidance_params::NeuralNetMode::FullNeural,
+            Some("magnitude_only") => guidance_params::NeuralNetMode::MagnitudeOnly,
+            Some(other) => {
+                return Err(DataError(format!(
+                    "guidance.neural_network.mode must be \"full_neural\" or \"magnitude_only\" (got \"{}\")",
+                    other
+                )));
+            }
+        };
+
         // FTC guidance params
         let guidance = if let Some(ref ftc) = toml.guidance.ftc {
             let energy_scale = 1e6;
@@ -499,6 +516,7 @@ impl SimData {
                     }
                     _ => None,
                 },
+                neural_mode,
             }
         } else {
             // No FTC params — load from file if guidance suffix available, else defaults
@@ -576,6 +594,7 @@ impl SimData {
                     }
                     _ => None,
                 },
+                neural_mode,
             }
         };
 

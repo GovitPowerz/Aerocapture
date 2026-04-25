@@ -498,6 +498,9 @@ pub struct TomlGuidance {
     /// Command shaping parameters (acceleration-limited rate shaping)
     #[serde(default)]
     pub command_shaping: Option<TomlCommandShapingParams>,
+    /// Neural network guidance section (mode, etc.). Architecture stays under [network].
+    #[serde(default)]
+    pub neural_network: Option<TomlNeuralNetworkParams>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -966,6 +969,13 @@ pub struct TomlCommandShapingParams {
     pub enabled: bool,
     #[serde(default)]
     pub max_bank_acceleration: f64, // deg/s^2 (converted to rad/s^2 at load time)
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct TomlNeuralNetworkParams {
+    /// "full_neural" (default) | "magnitude_only".
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 
 // ─── Domain-based Monte Carlo TOML structs ───
