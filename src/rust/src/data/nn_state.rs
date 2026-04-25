@@ -28,6 +28,11 @@ pub enum LayerState {
         k_cache: VecDeque<Vec<f64>>,
         v_cache: VecDeque<Vec<f64>>,
     },
+    /// SSM hidden state for the Mamba S6 layer.
+    /// Shape: (input_size, d_state). Reset fills with zeros.
+    Mamba {
+        h: nalgebra::DMatrix<f64>,
+    },
 }
 
 impl LayerState {
@@ -53,6 +58,9 @@ impl LayerState {
             Layer::Transformer(_) => LayerState::Transformer {
                 k_cache: VecDeque::new(),
                 v_cache: VecDeque::new(),
+            },
+            Layer::Mamba(m) => LayerState::Mamba {
+                h: nalgebra::DMatrix::<f64>::zeros(m.input_size, m.d_state),
             },
         }
     }
@@ -83,6 +91,9 @@ impl LayerState {
             LayerState::Transformer { k_cache, v_cache } => {
                 k_cache.clear();
                 v_cache.clear();
+            }
+            LayerState::Mamba { h } => {
+                h.fill(0.0);
             }
         }
     }
@@ -390,6 +401,70 @@ mod tests {
             }
         } else {
             panic!("expected LayerState::Window");
+        }
+    }
+
+    fn _make_mamba(input_size: usize, d_state: usize, dt_rank: usize) -> Layer {
+        use crate::data::neural::MambaLayer;
+        Layer::Mamba(Box::new(MambaLayer {
+            input_size,
+            d_state,
+            dt_rank,
+            x_proj_w: nalgebra::DMatrix::zeros(dt_rank + 2 * d_state, input_size),
+            dt_proj_w: nalgebra::DMatrix::zeros(input_size, dt_rank),
+            dt_proj_b: nalgebra::DVector::zeros(input_size),
+            a_log: nalgebra::DMatrix::zeros(input_size, d_state),
+            d_skip: nalgebra::DVector::zeros(input_size),
+        }))
+    }
+
+    #[test]
+    fn layer_state_mamba_for_layer_zero_init_shape() {
+        let layer = _make_mamba(8, 4, 2);
+        let state = LayerState::for_layer(&layer);
+        if let LayerState::Mamba { h } = state {
+            assert_eq!(h.nrows(), 8);
+            assert_eq!(h.ncols(), 4);
+            assert!(h.iter().all(|&v| v == 0.0));
+        } else {
+            panic!("expected LayerState::Mamba");
+        }
+    }
+
+    #[test]
+    fn layer_state_mamba_reset_zeros_h() {
+        let layer = _make_mamba(4, 2, 1);
+        let mut state = LayerState::for_layer(&layer);
+        if let LayerState::Mamba { h } = &mut state {
+            h.fill(1.5);
+        }
+        state.reset();
+        if let LayerState::Mamba { h } = state {
+            assert!(h.iter().all(|&v| v == 0.0));
+        } else {
+            panic!("expected LayerState::Mamba after reset");
+        }
+    }
+
+    #[test]
+    fn layer_state_mamba_clone_is_independent() {
+        let layer = _make_mamba(3, 2, 1);
+        let original = LayerState::for_layer(&layer);
+        let mut cloned = original.clone();
+
+        if let LayerState::Mamba { h } = &mut cloned {
+            h[(0, 0)] = 7.0;
+            h[(2, 1)] = -3.0;
+        } else {
+            panic!("expected LayerState::Mamba");
+        }
+
+        if let LayerState::Mamba { h } = &original {
+            assert_eq!(h.nrows(), 3);
+            assert_eq!(h.ncols(), 2);
+            assert!(h.iter().all(|&v| v == 0.0));
+        } else {
+            panic!("expected LayerState::Mamba (original)");
         }
     }
 }

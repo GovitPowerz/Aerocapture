@@ -185,11 +185,23 @@ Plan: `docs/superpowers/plans/2026-04-22-phase-3a-transformer-mvp-plan.md`.
 ### Phase 3b -- Transformer PPO-BPTT (follow-up)
 - [ ] Deferred from 3a. Requires `hidden_shapes` arm for stacked `(2, n_seq, d_model)` + per-env cache-length scalar, ndim-dispatch arm in `ppo_update_bptt`, PPO smoke + BPTT chunk-invariant tests, training TOML `msr_aller_transformer_ppo_train.toml`.
 
-### Phase 4 -- Mamba (S6)
-- [ ] Rust SSM layer: input-dependent A, B, C; sequential scan at inference (no parallel scan needed)
-- [ ] Arch (~15k params): 1 block, d_model=32, state=16
-- [ ] PyTorch mirror: naive sequential scan (correct, slow, fine for 600-step episodes)
-- [ ] PSO + PPO-Mamba training configs
+### Phase 4a -- Mamba Selective SSM MVP (PSO only) [DONE 2026-04-24]
+- [x] Rust `MambaLayer` + `Layer::Mamba(Box<MambaLayer>)` + `LayerSpec::Mamba { input_size, d_state, dt_rank }` + `LayerState::Mamba { h }` + `TomlLayerSpec::Mamba`
+- [x] `LayerWeights for MambaLayer` canonical flat order: x_proj_w, dt_proj_w, dt_proj_b, a_log, d_skip
+- [x] `softplus` + `expm1_over_x` pub(crate) helpers with Taylor crossover at |z| < 1e-8
+- [x] Python `MambaLayer` torch module (manual softplus / expm1_over_x / ZOH) + `MambaSpec` pydantic + `build_layer` PPO-rejection guard
+- [x] `_mamba_specs` (Xavier on x_proj + dt_proj with dt_rank^{-0.5} scaling, HiPPO log(n+1) on a_log, inv_softplus(U(1e-3, 1e-1)) on dt_proj_b, 1.0 on d_skip) + per-individual jitter in `_init_mamba_layer`
+- [x] Training config `msr_aller_mamba_pso_train.toml` (Dense(23 -> 32, swish) -> Mamba(32, 16) x2 -> Dense(32 -> 2, asinh), 4290 params) + `compare_guidance` + `train_all.sh` registration
+- [x] Cross-language equivalence + warm-up + PSO smoke + PPO-rejection tests (CI wiring). Cross-language max abs diff: 1.11e-16 (sub machine epsilon). All 6 Rust guidance golden regressions bit-identical.
+
+Spec: `docs/superpowers/specs/2026-04-24-phase-4a-mamba-ssm-mvp-design.md`.
+Plan: `docs/superpowers/plans/2026-04-24-phase-4a-mamba-ssm-mvp-plan.md`.
+
+### Phase 4b -- Mamba PPO-BPTT (follow-up)
+- [ ] Deferred from 4a. Requires `_zero_state_where_done` 2D-tensor branch, `hidden_shapes` arm returning `(d_inner, d_state)`, ndim==4 rollout-buffer dispatch in `ppo_update_bptt`, obs-norm bake-in for Mamba-as-layer-0, PPO smoke + BPTT chunk-invariant tests, training TOML `msr_aller_mamba_ppo_train.toml`.
+
+### Phase 4c -- Full Mamba block (deferred, not guaranteed)
+- [ ] Conv1d pre-filter + SiLU gating + in/out expansion linears + block residual. Would ship as `LayerSpec::MambaBlock` distinct from `LayerSpec::Mamba`.
 
 ### Phase 5 -- Paper artifact
 - [ ] Unified 10-cell comparison on identical MC seeds, same reward / cost function

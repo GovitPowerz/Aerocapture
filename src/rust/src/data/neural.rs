@@ -58,6 +58,31 @@ pub(crate) fn build_pe_table(n_seq: usize, d_model: usize) -> Vec<Vec<f64>> {
         .collect()
 }
 
+/// Numerically stable softplus: `log(1 + exp(x))`.
+///
+/// Uses `max(x, 0) + log1p(exp(-|x|))` to avoid overflow for large positive x
+/// and underflow for large negative x. The Python mirror in `rl/layers/mamba.py`
+/// uses the identical manual form (NOT `torch.nn.functional.softplus`, which has a
+/// `threshold=20` linear-branch fallback we do not want for bit-equivalence).
+pub(crate) fn softplus(x: f64) -> f64 {
+    let a = x.abs();
+    x.max(0.0) + (-a).exp().ln_1p()
+}
+
+/// Stable `(exp(z) - 1) / z` with Taylor fallback for |z| < 1e-8.
+///
+/// For |z| < 1e-8 the exact form suffers from catastrophic cancellation and we
+/// use `1 + z/2 + z^2/6` (Taylor expansion, error ~ z^3/24 which is machine
+/// epsilon at |z| < 1e-5). The Python mirror uses `torch.where` to switch
+/// between the same two branches.
+pub(crate) fn expm1_over_x(z: f64) -> f64 {
+    if z.abs() < 1e-8 {
+        1.0 + z * 0.5 + z * z / 6.0
+    } else {
+        z.exp_m1() / z
+    }
+}
+
 /// Activation function for a layer.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -492,7 +517,38 @@ impl TransformerLayer {
     }
 }
 
-/// Layer variant. Phase 1 ships Dense and Gru; Phase 2a adds Lstm; Phase 2b adds Window; Phase 3a adds Transformer.
+/// Selective SSM core (Mamba S6) -- Phase 4a PSO-only MVP.
+///
+/// Per-tick forward computes input-dependent Δ, B, C from x via a fused `x_proj`
+/// linear projection, discretizes A via ZOH (`A = -exp(a_log)`, diagonal),
+/// updates per-channel state `h: (input_size, d_state)`, and emits
+/// `y = h @ C + D * x` (skip residual per channel).
+///
+/// No conv1d, no SiLU gating -- those are the full Mamba block, deferred to
+/// Phase 4c. No in/out expansion linears -- user stacks Dense before/after.
+#[derive(Debug, Clone)]
+pub struct MambaLayer {
+    /// d_inner in the paper. Layer fan-in = fan-out = input_size.
+    pub input_size: usize,
+    /// N in the paper. SSM state dim per channel.
+    pub d_state: usize,
+    /// Bottleneck rank for the Δ projection (paper default: max(1, input_size / 16)).
+    pub dt_rank: usize,
+
+    /// Fused (Δ_pre, B, C) projection. Shape: (dt_rank + 2*d_state, input_size).
+    pub x_proj_w: nalgebra::DMatrix<f64>,
+    /// Δ lift projection. Shape: (input_size, dt_rank).
+    pub dt_proj_w: nalgebra::DMatrix<f64>,
+    /// Δ bias (critical init: inv_softplus(uniform(dt_min, dt_max)) per channel).
+    pub dt_proj_b: nalgebra::DVector<f64>,
+    /// HiPPO log-space reparameterization of A. Physical A = -exp(a_log).
+    /// Shape: (input_size, d_state). Strictly negative A ensures stable contraction.
+    pub a_log: nalgebra::DMatrix<f64>,
+    /// Per-channel skip-residual scalar. Paper default init: 1.0.
+    pub d_skip: nalgebra::DVector<f64>,
+}
+
+/// Layer variant. Phase 1 ships Dense and Gru; Phase 2a adds Lstm; Phase 2b adds Window; Phase 3a adds Transformer; Phase 4a adds Mamba.
 #[derive(Debug, Clone)]
 pub enum Layer {
     Dense(DenseLayer),
@@ -501,6 +557,11 @@ pub enum Layer {
     Window(WindowLayer),
     // Boxed: TransformerLayer is 472 bytes vs 112 for GruLayer; boxing keeps enum size uniform.
     Transformer(Box<TransformerLayer>),
+    // Boxed: MambaLayer's stack footprint is ~200 bytes (3 DMatrix + 2 DVector
+    // headers); weight data lives on the heap behind those pointers regardless
+    // of boxing. The box is purely for enum-variant size uniformity against
+    // Transformer (472 bytes) -- same `large_enum_variant` clippy motivation.
+    Mamba(Box<MambaLayer>),
 }
 
 impl Layer {
@@ -518,6 +579,7 @@ impl Layer {
             Layer::Lstm(l) => l.input_size,
             Layer::Window(w) => w.input_size,
             Layer::Transformer(t) => t.d_model,
+            Layer::Mamba(m) => m.input_size,
         }
     }
 }
@@ -752,6 +814,129 @@ impl LayerWeights for TransformerLayer {
     }
 }
 
+impl LayerWeights for MambaLayer {
+    fn n_params(&self) -> usize {
+        self.input_size * (3 * self.d_state + 2 * self.dt_rank + 2)
+    }
+
+    fn to_flat(&self) -> Vec<f64> {
+        let mut out = Vec::with_capacity(self.n_params());
+        // 1. x_proj_w row-major: (dt_rank + 2*d_state, input_size)
+        for i in 0..self.x_proj_w.nrows() {
+            for j in 0..self.x_proj_w.ncols() {
+                out.push(self.x_proj_w[(i, j)]);
+            }
+        }
+        // 2. dt_proj_w row-major: (input_size, dt_rank)
+        for i in 0..self.dt_proj_w.nrows() {
+            for j in 0..self.dt_proj_w.ncols() {
+                out.push(self.dt_proj_w[(i, j)]);
+            }
+        }
+        // 3. dt_proj_b: (input_size,)
+        for i in 0..self.dt_proj_b.len() {
+            out.push(self.dt_proj_b[i]);
+        }
+        // 4. a_log row-major: (input_size, d_state)
+        for i in 0..self.a_log.nrows() {
+            for j in 0..self.a_log.ncols() {
+                out.push(self.a_log[(i, j)]);
+            }
+        }
+        // 5. d_skip: (input_size,)
+        for i in 0..self.d_skip.len() {
+            out.push(self.d_skip[i]);
+        }
+        out
+    }
+
+    #[allow(clippy::wrong_self_convention)]
+    fn from_flat(&mut self, flat: &[f64]) -> usize {
+        let mut cursor = 0;
+        // 1. x_proj_w: (dt_rank + 2*d_state, input_size) row-major
+        let rows = self.dt_rank + 2 * self.d_state;
+        let cols = self.input_size;
+        self.x_proj_w =
+            nalgebra::DMatrix::from_row_slice(rows, cols, &flat[cursor..cursor + rows * cols]);
+        cursor += rows * cols;
+        // 2. dt_proj_w: (input_size, dt_rank) row-major
+        self.dt_proj_w = nalgebra::DMatrix::from_row_slice(
+            self.input_size,
+            self.dt_rank,
+            &flat[cursor..cursor + self.input_size * self.dt_rank],
+        );
+        cursor += self.input_size * self.dt_rank;
+        // 3. dt_proj_b: (input_size,)
+        self.dt_proj_b = nalgebra::DVector::from_row_slice(&flat[cursor..cursor + self.input_size]);
+        cursor += self.input_size;
+        // 4. a_log: (input_size, d_state) row-major
+        self.a_log = nalgebra::DMatrix::from_row_slice(
+            self.input_size,
+            self.d_state,
+            &flat[cursor..cursor + self.input_size * self.d_state],
+        );
+        cursor += self.input_size * self.d_state;
+        // 5. d_skip: (input_size,)
+        self.d_skip = nalgebra::DVector::from_row_slice(&flat[cursor..cursor + self.input_size]);
+        cursor += self.input_size;
+        cursor
+    }
+}
+
+impl MambaLayer {
+    /// Single-tick forward. Mutates `h` in place (state update), returns `y`.
+    ///
+    /// Shapes: `x: [f64; input_size]`, `h: DMatrix<f64> (input_size, d_state)`,
+    /// returns `Vec<f64>` length `input_size`.
+    ///
+    /// Numerical contract: Python mirror (`rl/layers/mamba.py`) must produce
+    /// bit-identical f64 output. Uses `softplus` and `expm1_over_x` helpers
+    /// (free functions in this module).
+    pub fn forward(&self, x: &[f64], h: &mut nalgebra::DMatrix<f64>) -> Vec<f64> {
+        debug_assert_eq!(x.len(), self.input_size);
+        debug_assert_eq!(h.nrows(), self.input_size);
+        debug_assert_eq!(h.ncols(), self.d_state);
+
+        let x_vec = nalgebra::DVector::from_row_slice(x);
+
+        // 1. Fused x_proj: produces (dt_rank + 2*d_state,)
+        let proj = &self.x_proj_w * &x_vec;
+        let dt_pre: Vec<f64> = (0..self.dt_rank).map(|i| proj[i]).collect();
+        let b_vec: Vec<f64> = (0..self.d_state).map(|i| proj[self.dt_rank + i]).collect();
+        let c_vec: Vec<f64> = (0..self.d_state)
+            .map(|i| proj[self.dt_rank + self.d_state + i])
+            .collect();
+
+        // 2. dt_proj + softplus -> per-channel positive Δ
+        let dt_pre_v = nalgebra::DVector::from_row_slice(&dt_pre);
+        let dt_lifted = &self.dt_proj_w * &dt_pre_v + &self.dt_proj_b;
+        let delta: Vec<f64> = (0..self.input_size)
+            .map(|i| softplus(dt_lifted[i]))
+            .collect();
+
+        // 3. ZOH discretization + state update, per (d, n).
+        //    A = -exp(a_log), Ā = exp(Δ·A), B̄ = Δ·B · expm1_over_x(Δ·A)
+        //    h_new = Ā*h + B̄*x[d]
+        //    y[d]   = Σ_n h_new[d, n] * C[n] + D[d] * x[d]
+        let mut y = vec![0.0_f64; self.input_size];
+        for d in 0..self.input_size {
+            let delta_d = delta[d];
+            let x_d = x[d];
+            let mut acc = 0.0;
+            for n in 0..self.d_state {
+                let a_dn = -self.a_log[(d, n)].exp();
+                let za = delta_d * a_dn;
+                let a_bar = za.exp();
+                let b_bar = delta_d * b_vec[n] * expm1_over_x(za);
+                h[(d, n)] = a_bar * h[(d, n)] + b_bar * x_d;
+                acc += h[(d, n)] * c_vec[n];
+            }
+            y[d] = acc + self.d_skip[d] * x_d;
+        }
+        y
+    }
+}
+
 impl LayerWeights for Layer {
     fn to_flat(&self) -> Vec<f64> {
         match self {
@@ -760,6 +945,7 @@ impl LayerWeights for Layer {
             Layer::Lstm(l) => l.to_flat(),
             Layer::Window(w) => w.to_flat(),
             Layer::Transformer(t) => t.to_flat(),
+            Layer::Mamba(m) => m.to_flat(),
         }
     }
 
@@ -771,6 +957,7 @@ impl LayerWeights for Layer {
             Layer::Lstm(l) => l.from_flat(flat),
             Layer::Window(w) => w.from_flat(flat),
             Layer::Transformer(t) => t.from_flat(flat),
+            Layer::Mamba(m) => m.from_flat(flat),
         }
     }
 
@@ -781,6 +968,7 @@ impl LayerWeights for Layer {
             Layer::Lstm(l) => l.n_params(),
             Layer::Window(w) => w.n_params(),
             Layer::Transformer(t) => t.n_params(),
+            Layer::Mamba(m) => m.n_params(),
         }
     }
 }
@@ -858,6 +1046,17 @@ struct NnLayerWeights {
     ln2_gamma: Option<Vec<f64>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     ln2_beta: Option<Vec<f64>>,
+    // Mamba SSM fields (Phase 4a)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    x_proj_w: Option<Vec<Vec<f64>>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    dt_proj_w: Option<Vec<Vec<f64>>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    dt_proj_b: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    a_log: Option<Vec<Vec<f64>>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    d_skip: Option<Vec<f64>>,
 }
 
 /// v2 layer spec: tagged-union over the layer type.
@@ -886,6 +1085,11 @@ pub enum LayerSpec {
         n_heads: usize,
         d_ffn: usize,
         n_seq: usize,
+    },
+    Mamba {
+        input_size: usize,
+        d_state: usize,
+        dt_rank: usize,
     },
 }
 
@@ -1103,6 +1307,7 @@ impl NeuralNetModel {
                     n_steps,
                 } => *input_size * *n_steps,
                 LayerSpec::Transformer { d_model, .. } => *d_model,
+                LayerSpec::Mamba { input_size, .. } => *input_size,
             };
             let (next_in, next_label) = match &file.architecture[i + 1] {
                 LayerSpec::Dense { input_size, .. } => (*input_size, "dense"),
@@ -1110,6 +1315,7 @@ impl NeuralNetModel {
                 LayerSpec::Lstm { input_size, .. } => (*input_size, "lstm"),
                 LayerSpec::Window { input_size, .. } => (*input_size, "window"),
                 LayerSpec::Transformer { d_model, .. } => (*d_model, "transformer"),
+                LayerSpec::Mamba { input_size, .. } => (*input_size, "mamba"),
             };
             let prev_label = match &file.architecture[i] {
                 LayerSpec::Dense { .. } => "dense",
@@ -1117,6 +1323,7 @@ impl NeuralNetModel {
                 LayerSpec::Lstm { .. } => "lstm",
                 LayerSpec::Window { .. } => "window",
                 LayerSpec::Transformer { .. } => "transformer",
+                LayerSpec::Mamba { .. } => "mamba",
             };
             if prev_out != next_in {
                 return Err(DataError(format!(
@@ -1555,6 +1762,134 @@ impl NeuralNetModel {
                     layer.rebuild_pe_offsets();
                     layers.push(Layer::Transformer(Box::new(layer)));
                 }
+                LayerSpec::Mamba {
+                    input_size,
+                    d_state,
+                    dt_rank,
+                } => {
+                    if *input_size == 0 || *d_state == 0 || *dt_rank == 0 {
+                        return Err(DataError(format!(
+                            "Layer {} (mamba) input_size, d_state, and dt_rank must be positive in {}",
+                            i, path
+                        )));
+                    }
+                    if *dt_rank > *input_size {
+                        return Err(DataError(format!(
+                            "Layer {} (mamba) dt_rank={} must not exceed input_size={} in {}",
+                            i, dt_rank, input_size, path
+                        )));
+                    }
+
+                    if i == 0 {
+                        layer_sizes.push(*input_size);
+                    }
+                    layer_sizes.push(*input_size);
+
+                    let key = format!("layer_{}", i);
+                    let lw = file.weights.get(&key).ok_or_else(|| {
+                        DataError(format!("Missing {} in weights in {}", key, path))
+                    })?;
+
+                    macro_rules! req_mamba_mat {
+                        ($field:ident) => {
+                            lw.$field.as_ref().ok_or_else(|| {
+                                DataError(format!(
+                                    "Layer {} (mamba) missing {} in {}",
+                                    i,
+                                    stringify!($field),
+                                    path
+                                ))
+                            })?
+                        };
+                    }
+                    macro_rules! req_mamba_vec {
+                        ($field:ident) => {
+                            lw.$field.as_ref().ok_or_else(|| {
+                                DataError(format!(
+                                    "Layer {} (mamba) missing {} in {}",
+                                    i,
+                                    stringify!($field),
+                                    path
+                                ))
+                            })?
+                        };
+                    }
+
+                    let x_proj_w = req_mamba_mat!(x_proj_w);
+                    let dt_proj_w = req_mamba_mat!(dt_proj_w);
+                    let dt_proj_b = req_mamba_vec!(dt_proj_b);
+                    let a_log = req_mamba_mat!(a_log);
+                    let d_skip = req_mamba_vec!(d_skip);
+
+                    let rows_x = dt_rank + 2 * d_state;
+                    // Shape validation for matrices.
+                    for (name, m, exp_rows, exp_cols) in [
+                        ("x_proj_w", x_proj_w, rows_x, *input_size),
+                        ("dt_proj_w", dt_proj_w, *input_size, *dt_rank),
+                        ("a_log", a_log, *input_size, *d_state),
+                    ] {
+                        if m.len() != exp_rows {
+                            return Err(DataError(format!(
+                                "Layer {} (mamba) {} must have {} rows, got {} in {}",
+                                i,
+                                name,
+                                exp_rows,
+                                m.len(),
+                                path
+                            )));
+                        }
+                        for (r, row) in m.iter().enumerate() {
+                            if row.len() != exp_cols {
+                                return Err(DataError(format!(
+                                    "Layer {} (mamba) {} row {} length: expected {}, got {} in {}",
+                                    i,
+                                    name,
+                                    r,
+                                    exp_cols,
+                                    row.len(),
+                                    path
+                                )));
+                            }
+                        }
+                    }
+                    // Shape validation for vectors.
+                    for (name, v, expected) in [
+                        ("dt_proj_b", dt_proj_b, *input_size),
+                        ("d_skip", d_skip, *input_size),
+                    ] {
+                        if v.len() != expected {
+                            return Err(DataError(format!(
+                                "Layer {} (mamba) {} length: expected {}, got {} in {}",
+                                i,
+                                name,
+                                expected,
+                                v.len(),
+                                path
+                            )));
+                        }
+                    }
+
+                    // Convert Vec<Vec<f64>> -> DMatrix (row-major).
+                    let to_dmatrix = |rows_data: &Vec<Vec<f64>>,
+                                      nr: usize,
+                                      nc: usize|
+                     -> nalgebra::DMatrix<f64> {
+                        let flat: Vec<f64> =
+                            rows_data.iter().flat_map(|r| r.iter().copied()).collect();
+                        nalgebra::DMatrix::from_row_slice(nr, nc, &flat)
+                    };
+
+                    layers.push(Layer::Mamba(Box::new(MambaLayer {
+                        input_size: *input_size,
+                        d_state: *d_state,
+                        dt_rank: *dt_rank,
+                        x_proj_w: to_dmatrix(x_proj_w, rows_x, *input_size),
+                        dt_proj_w: to_dmatrix(dt_proj_w, *input_size, *dt_rank),
+                        dt_proj_b: nalgebra::DVector::from_vec(dt_proj_b.clone()),
+                        a_log: to_dmatrix(a_log, *input_size, *d_state),
+                        d_skip: nalgebra::DVector::from_vec(d_skip.clone()),
+                    })));
+                }
             }
         }
 
@@ -1619,6 +1954,21 @@ impl NeuralNetModel {
                     ln2_beta: Some(t.ln2_beta.clone()),
                     ..NnLayerWeights::default()
                 },
+                Layer::Mamba(m) => {
+                    let dmatrix_rows = |mat: &nalgebra::DMatrix<f64>| -> Vec<Vec<f64>> {
+                        (0..mat.nrows())
+                            .map(|r| (0..mat.ncols()).map(|c| mat[(r, c)]).collect())
+                            .collect()
+                    };
+                    NnLayerWeights {
+                        x_proj_w: Some(dmatrix_rows(&m.x_proj_w)),
+                        dt_proj_w: Some(dmatrix_rows(&m.dt_proj_w)),
+                        dt_proj_b: Some(m.dt_proj_b.iter().copied().collect()),
+                        a_log: Some(dmatrix_rows(&m.a_log)),
+                        d_skip: Some(m.d_skip.iter().copied().collect()),
+                        ..NnLayerWeights::default()
+                    }
+                }
             };
             weights.insert(format!("layer_{}", i), entry);
         }
@@ -1690,6 +2040,9 @@ impl NeuralNetModel {
                 }
                 (Layer::Transformer(t), LayerState::Transformer { k_cache, v_cache }) => {
                     current = t.forward(&current, k_cache, v_cache);
+                }
+                (Layer::Mamba(m), LayerState::Mamba { h }) => {
+                    current = m.forward(&current, h);
                 }
                 _ => unreachable!(
                     "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None, Layer::Gru -> Gru, Layer::Lstm -> Lstm, Layer::Window -> Window, Layer::Transformer -> Transformer)"
@@ -1901,6 +2254,39 @@ impl NeuralNetModel {
                         ln2_beta: vec![0.0; d],
                         k_pe_offsets: Vec::new(),
                         v_pe_offsets: Vec::new(),
+                    }))
+                }
+                LayerSpec::Mamba {
+                    input_size,
+                    d_state,
+                    dt_rank,
+                } => {
+                    if *dt_rank == 0 || *dt_rank > *input_size {
+                        return Err(DataError(format!(
+                            "from_flat_weights_v2: Mamba layer {} dt_rank={} invalid for input_size={}",
+                            i, dt_rank, input_size
+                        )));
+                    }
+                    if *d_state == 0 || *input_size == 0 {
+                        return Err(DataError(format!(
+                            "from_flat_weights_v2: Mamba layer {} input_size and d_state must be positive",
+                            i
+                        )));
+                    }
+                    if i == 0 {
+                        layer_sizes.push(*input_size);
+                    }
+                    layer_sizes.push(*input_size);
+                    let rows_x = dt_rank + 2 * d_state;
+                    Layer::Mamba(Box::new(MambaLayer {
+                        input_size: *input_size,
+                        d_state: *d_state,
+                        dt_rank: *dt_rank,
+                        x_proj_w: nalgebra::DMatrix::<f64>::zeros(rows_x, *input_size),
+                        dt_proj_w: nalgebra::DMatrix::<f64>::zeros(*input_size, *dt_rank),
+                        dt_proj_b: nalgebra::DVector::<f64>::zeros(*input_size),
+                        a_log: nalgebra::DMatrix::<f64>::zeros(*input_size, *d_state),
+                        d_skip: nalgebra::DVector::<f64>::zeros(*input_size),
                     }))
                 }
             };
@@ -3324,5 +3710,433 @@ mod tests {
             err.contains("b_q") || err.contains("transformer"),
             "expected error to mention b_q or transformer, got: {err}"
         );
+    }
+
+    #[test]
+    fn softplus_matches_stable_form_small_x() {
+        // softplus(0) = log(2) ≈ 0.6931471805599453
+        assert!((softplus(0.0) - std::f64::consts::LN_2).abs() < 1e-15);
+        // softplus(1) = log(1 + e) ≈ 1.3132616875182228
+        assert!((softplus(1.0) - 1.3132616875182228).abs() < 1e-14);
+        // softplus(-1) = log(1 + 1/e) ≈ 0.3132616875182228
+        assert!((softplus(-1.0) - 0.3132616875182228).abs() < 1e-14);
+    }
+
+    #[test]
+    fn softplus_no_overflow_at_large_magnitude() {
+        // For x = 100, softplus(x) must stay finite and ≈ x (not Inf from naive exp).
+        let y = softplus(100.0);
+        assert!(y.is_finite());
+        assert!((y - 100.0).abs() < 1e-10);
+        // For x = -100, softplus(x) ≈ exp(-100) ≈ 3.72e-44, still finite.
+        let y_neg = softplus(-100.0);
+        assert!(y_neg.is_finite());
+        assert!(y_neg > 0.0);
+        assert!(y_neg < 1e-40);
+    }
+
+    #[test]
+    fn expm1_over_x_matches_exact_for_moderate_z() {
+        // For |z| >= 1e-8, use expm1(z) / z directly.
+        for &z in &[0.5_f64, -0.5, 1.0, -1.0, 5.0, -5.0, 0.01, -0.01] {
+            let expected = z.exp_m1() / z;
+            let got = expm1_over_x(z);
+            assert!(
+                (got - expected).abs() < 1e-15,
+                "z={z}: got {got}, expected {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn expm1_over_x_taylor_branch_at_tiny_z() {
+        // Taylor: 1 + z/2 + z^2/6 (error ~ z^3/24)
+        // At z = 1e-10, Taylor and exact should agree to machine epsilon.
+        let z = 1e-10;
+        let taylor = 1.0 + z * 0.5 + z * z / 6.0;
+        let got = expm1_over_x(z);
+        assert!(
+            (got - taylor).abs() < 1e-16,
+            "z=1e-10: got {got}, taylor {taylor}"
+        );
+        // At z = 0, result should be 1.0 (the limit).
+        assert_eq!(expm1_over_x(0.0), 1.0);
+    }
+
+    #[test]
+    fn expm1_over_x_crossover_is_smooth() {
+        // Adjacent values across the crossover should not jump.
+        let z1 = 0.99e-8;
+        let z2 = 1.01e-8;
+        let y1 = expm1_over_x(z1);
+        let y2 = expm1_over_x(z2);
+        // The two branches evaluate different formulas at z values ~1e-8 apart, so the
+        // maximum expected delta is O(z) ≈ O(1e-8). 1e-9 is well within that bound.
+        assert!((y1 - y2).abs() < 1e-9, "crossover jump: y1={y1}, y2={y2}");
+    }
+
+    #[test]
+    fn mamba_to_flat_from_flat_roundtrip() {
+        use rand::{RngExt, SeedableRng};
+
+        let (input_size, d_state, dt_rank) = (8usize, 4usize, 2usize);
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        let mut rand_vec =
+            |n: usize| -> Vec<f64> { (0..n).map(|_| rng.random_range(-1.0..1.0)).collect() };
+
+        let x_proj_rows = dt_rank + 2 * d_state;
+        let original = MambaLayer {
+            input_size,
+            d_state,
+            dt_rank,
+            x_proj_w: nalgebra::DMatrix::from_row_slice(
+                x_proj_rows,
+                input_size,
+                &rand_vec(x_proj_rows * input_size),
+            ),
+            dt_proj_w: nalgebra::DMatrix::from_row_slice(
+                input_size,
+                dt_rank,
+                &rand_vec(input_size * dt_rank),
+            ),
+            dt_proj_b: nalgebra::DVector::from_row_slice(&rand_vec(input_size)),
+            a_log: nalgebra::DMatrix::from_row_slice(
+                input_size,
+                d_state,
+                &rand_vec(input_size * d_state),
+            ),
+            d_skip: nalgebra::DVector::from_row_slice(&rand_vec(input_size)),
+        };
+
+        let expected_n = input_size * (3 * d_state + 2 * dt_rank + 2);
+        assert_eq!(original.n_params(), expected_n);
+
+        let flat = original.to_flat();
+        assert_eq!(flat.len(), expected_n);
+
+        // Build a zero-initialized MambaLayer with same shape, then from_flat in place.
+        let mut reconstructed = MambaLayer {
+            input_size,
+            d_state,
+            dt_rank,
+            x_proj_w: nalgebra::DMatrix::zeros(x_proj_rows, input_size),
+            dt_proj_w: nalgebra::DMatrix::zeros(input_size, dt_rank),
+            dt_proj_b: nalgebra::DVector::zeros(input_size),
+            a_log: nalgebra::DMatrix::zeros(input_size, d_state),
+            d_skip: nalgebra::DVector::zeros(input_size),
+        };
+        let cursor = reconstructed.from_flat(&flat);
+        assert_eq!(cursor, expected_n);
+
+        assert_eq!(reconstructed.input_size, original.input_size);
+        assert_eq!(reconstructed.d_state, original.d_state);
+        assert_eq!(reconstructed.dt_rank, original.dt_rank);
+        for i in 0..x_proj_rows {
+            for j in 0..input_size {
+                assert_eq!(reconstructed.x_proj_w[(i, j)], original.x_proj_w[(i, j)]);
+            }
+        }
+        for i in 0..input_size {
+            for j in 0..dt_rank {
+                assert_eq!(reconstructed.dt_proj_w[(i, j)], original.dt_proj_w[(i, j)]);
+            }
+        }
+        for i in 0..input_size {
+            assert_eq!(reconstructed.dt_proj_b[i], original.dt_proj_b[i]);
+            assert_eq!(reconstructed.d_skip[i], original.d_skip[i]);
+        }
+        for i in 0..input_size {
+            for j in 0..d_state {
+                assert_eq!(reconstructed.a_log[(i, j)], original.a_log[(i, j)]);
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn mamba_from_flat_panics_on_short_slice() {
+        // 4 * (3*2 + 2*1 + 2) == 4 * 10 == 40; one less = 39 should panic
+        let (input_size, d_state, dt_rank) = (4usize, 2usize, 1usize);
+        let x_proj_rows = dt_rank + 2 * d_state;
+        let mut layer = MambaLayer {
+            input_size,
+            d_state,
+            dt_rank,
+            x_proj_w: nalgebra::DMatrix::zeros(x_proj_rows, input_size),
+            dt_proj_w: nalgebra::DMatrix::zeros(input_size, dt_rank),
+            dt_proj_b: nalgebra::DVector::zeros(input_size),
+            a_log: nalgebra::DMatrix::zeros(input_size, d_state),
+            d_skip: nalgebra::DVector::zeros(input_size),
+        };
+        let too_short = vec![0.0_f64; 39]; // one less than 40
+        layer.from_flat(&too_short); // must panic
+    }
+
+    #[test]
+    fn mamba_json_v2_save_load_roundtrip() {
+        // Dense(8 -> 4, linear) -> Mamba(4, 2, 1) -> Dense(4 -> 2, linear)
+        let architecture = vec![
+            LayerSpec::Dense {
+                input_size: 8,
+                output_size: 4,
+                activation: Activation::Linear,
+            },
+            LayerSpec::Mamba {
+                input_size: 4,
+                d_state: 2,
+                dt_rank: 1,
+            },
+            LayerSpec::Dense {
+                input_size: 4,
+                output_size: 2,
+                activation: Activation::Linear,
+            },
+        ];
+        // Dense(8->4) = 36, Mamba(4, 2, 1) = 4*(6+2+2) = 40, Dense(4->2) = 10; total 86.
+        let flat: Vec<f64> = (0..86).map(|i| (i as f64) * 0.017 - 0.9).collect();
+        let model = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None).unwrap();
+        assert_eq!(model.n_params(), 86);
+
+        let tmpdir = std::env::temp_dir();
+        let path = tmpdir.join("mamba_v2_roundtrip.json");
+        model.save_json(path.to_str().unwrap()).unwrap();
+
+        // Sanity-check: JSON always includes dt_rank for Mamba layers
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            raw.contains("\"dt_rank\""),
+            "save_json output must contain dt_rank field; got: {raw}"
+        );
+
+        let loaded = NeuralNetModel::load(path.to_str().unwrap()).unwrap();
+        assert_eq!(loaded.architecture.len(), 3);
+        assert_eq!(loaded.n_params(), model.n_params());
+
+        // Flat-weight round-trip must be bit-identical.
+        let orig_flat = model.to_flat_weights();
+        let loaded_flat = loaded.to_flat_weights();
+        assert_eq!(orig_flat.len(), loaded_flat.len());
+        for (i, (a, b)) in orig_flat.iter().zip(loaded_flat.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-15,
+                "roundtrip mismatch at {i}: {a} vs {b}"
+            );
+        }
+
+        // Architecture spec must be identical.
+        assert_eq!(
+            format!("{:?}", model.architecture),
+            format!("{:?}", loaded.architecture),
+        );
+
+        // Spot-check: middle layer is Mamba with correct shape.
+        match &loaded.layers[1] {
+            Layer::Mamba(m) => {
+                assert_eq!(m.input_size, 4);
+                assert_eq!(m.d_state, 2);
+                assert_eq!(m.dt_rank, 1);
+                assert_eq!(m.x_proj_w.nrows(), 1 + 2 * 2); // dt_rank + 2*d_state = 5
+                assert_eq!(m.x_proj_w.ncols(), 4); // input_size
+                assert_eq!(m.dt_proj_w.shape(), (4, 1));
+                assert_eq!(m.a_log.shape(), (4, 2));
+                assert_eq!(m.dt_proj_b.len(), 4);
+                assert_eq!(m.d_skip.len(), 4);
+            }
+            _ => panic!("expected Mamba at layer 1"),
+        }
+    }
+
+    #[test]
+    fn mamba_from_v2_json_rejects_zero_dt_rank() {
+        // Build a minimal v2 JSON by hand with dt_rank = 0 in the Mamba spec.
+        // The constructor validators in from_v2_json must reject this.
+        let dir = std::env::temp_dir();
+        let path = dir.join("mamba_zero_dt_rank.json");
+        let bad_json = r#"{
+            "format_version": 2,
+            "architecture": [
+                {"type": "dense", "input_size": 4, "output_size": 4, "activation": "linear"},
+                {"type": "mamba", "input_size": 4, "d_state": 2, "dt_rank": 0},
+                {"type": "dense", "input_size": 4, "output_size": 2, "activation": "linear"}
+            ],
+            "weights": {
+                "layer_0": {"w": [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]], "b": [0.0, 0.0, 0.0, 0.0]},
+                "layer_1": {
+                    "x_proj_w": [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+                    "dt_proj_w": [[], [], [], []],
+                    "dt_proj_b": [0.0, 0.0, 0.0, 0.0],
+                    "a_log": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                    "d_skip": [0.0, 0.0, 0.0, 0.0]
+                },
+                "layer_2": {"w": [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]], "b": [0.0, 0.0]}
+            }
+        }"#;
+        std::fs::write(&path, bad_json).unwrap();
+        let result = NeuralNetModel::load(path.to_str().unwrap());
+        assert!(
+            result.is_err(),
+            "from_v2_json must reject Mamba with dt_rank = 0"
+        );
+    }
+
+    #[test]
+    fn mamba_forward_two_step_hand_verified() {
+        use nalgebra::{DMatrix, DVector};
+
+        // Minimal layer: d_inner=2, d_state=2, dt_rank=1
+        //
+        // x_proj: (5, 2) -- rows [dt_pre; B_0; B_1; C_0; C_1]
+        // For x = [1, 0]: proj = [0, 1, 0, 1, 0] -> dt_pre=0, B=[1, 0], C=[1, 0]
+        // For x = [0, 1]: proj = [0, 0, 1, 0, 1] -> dt_pre=0, B=[0, 1], C=[0, 1]
+        //
+        // dt_proj_w zero, bias such that softplus(b) = 0.5 -> b = log(exp(0.5) - 1)
+        // Δ = 0.5 (per channel, constant)
+        //
+        // a_log = 0 -> A = -exp(0) = -1 (per (d, n))
+        // Ā[d, n] = exp(Δ * A) = exp(-0.5) ≈ 0.6065306597126334
+        // expm1_over_x(Δ * A) = (exp(-0.5) - 1) / (-0.5) ≈ 0.7869386805747332
+        // B̄[d, n] = Δ * B[n] * expm1_over_x(Δ * A) = 0.5 * B[n] * 0.7869
+        //
+        // d_skip = 0 (no skip, isolate SSM)
+
+        let x_proj_w = DMatrix::from_row_slice(
+            5,
+            2,
+            &[
+                0.0, 0.0, // dt_pre row
+                1.0, 0.0, // B_0
+                0.0, 1.0, // B_1
+                1.0, 0.0, // C_0
+                0.0, 1.0, // C_1
+            ],
+        );
+        let dt_proj_w = DMatrix::from_row_slice(2, 1, &[0.0, 0.0]);
+        let b_val = (0.5_f64.exp() - 1.0).ln(); // inv_softplus(0.5)
+        let dt_proj_b = DVector::from_row_slice(&[b_val, b_val]);
+        let a_log = DMatrix::from_row_slice(2, 2, &[0.0, 0.0, 0.0, 0.0]);
+        let d_skip = DVector::from_row_slice(&[0.0, 0.0]);
+
+        let layer = MambaLayer {
+            input_size: 2,
+            d_state: 2,
+            dt_rank: 1,
+            x_proj_w,
+            dt_proj_w,
+            dt_proj_b,
+            a_log,
+            d_skip,
+        };
+
+        let mut h = DMatrix::<f64>::zeros(2, 2);
+
+        // Step 1: x = [1, 0]
+        let x1 = [1.0, 0.0];
+        let y1 = layer.forward(&x1, &mut h);
+        assert!(
+            (y1[0] - 0.3934693402873666).abs() < 1e-12,
+            "step 1 y[0] = {}",
+            y1[0]
+        );
+        assert!((y1[1] - 0.0).abs() < 1e-15, "step 1 y[1] = {}", y1[1]);
+
+        // Step 2: x = [0, 1], h = [[0.39347, 0], [0, 0]]
+        let x2 = [0.0, 1.0];
+        let y2 = layer.forward(&x2, &mut h);
+        assert!((y2[0] - 0.0).abs() < 1e-15, "step 2 y[0] = {}", y2[0]);
+        assert!(
+            (y2[1] - 0.3934693402873666).abs() < 1e-12,
+            "step 2 y[1] = {}",
+            y2[1]
+        );
+        // State h[0, 0] should now be ~0.23865 (exp(-0.5) * prev value)
+        // Exact: exp(-0.5) * B_bar_step1 = 0.6065306597126334 * 0.3934693402873666
+        assert!(
+            (h[(0, 0)] - 0.2386512185411911).abs() < 1e-12,
+            "h[0, 0] = {}",
+            h[(0, 0)]
+        );
+    }
+
+    mod mamba_proptest {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn mamba_flat_roundtrip_proptest(
+                input_size in 1usize..=8,
+                d_state in 1usize..=8,
+                dt_rank in 1usize..=4,
+                seed in 0u64..200,
+            ) {
+                use rand::{RngExt, SeedableRng};
+                let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+                let n = input_size * (3 * d_state + 2 * dt_rank + 2);
+                let flat: Vec<f64> = (0..n).map(|_| rng.random_range(-5.0..5.0)).collect();
+
+                let x_proj_rows = dt_rank + 2 * d_state;
+                let mut layer = MambaLayer {
+                    input_size,
+                    d_state,
+                    dt_rank,
+                    x_proj_w: nalgebra::DMatrix::zeros(x_proj_rows, input_size),
+                    dt_proj_w: nalgebra::DMatrix::zeros(input_size, dt_rank),
+                    dt_proj_b: nalgebra::DVector::zeros(input_size),
+                    a_log: nalgebra::DMatrix::zeros(input_size, d_state),
+                    d_skip: nalgebra::DVector::zeros(input_size),
+                };
+                let cursor = layer.from_flat(&flat);
+                prop_assert_eq!(cursor, n);
+                prop_assert_eq!(layer.n_params(), n);
+
+                let back = layer.to_flat();
+                prop_assert_eq!(back.len(), n);
+                for i in 0..n {
+                    prop_assert_eq!(back[i], flat[i]);
+                }
+            }
+        }
+
+        proptest! {
+            #[test]
+            fn mamba_forward_finite_on_finite_inputs(
+                d_inner in 1usize..=4,
+                d_state in 1usize..=4,
+                dt_rank in 1usize..=3,
+                seed in 0u64..1000,
+            ) {
+                use rand::{RngExt, SeedableRng};
+                let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+                let rand_vec = |n: usize, rng: &mut rand::rngs::StdRng| -> Vec<f64> {
+                    (0..n).map(|_| rng.random_range(-1.0..1.0)).collect()
+                };
+                let x_proj_w = nalgebra::DMatrix::from_row_slice(dt_rank + 2 * d_state, d_inner,
+                    &rand_vec((dt_rank + 2 * d_state) * d_inner, &mut rng));
+                let dt_proj_w = nalgebra::DMatrix::from_row_slice(d_inner, dt_rank,
+                    &rand_vec(d_inner * dt_rank, &mut rng));
+                let dt_proj_b = nalgebra::DVector::from_row_slice(&rand_vec(d_inner, &mut rng));
+                let a_log = nalgebra::DMatrix::from_row_slice(d_inner, d_state, &rand_vec(d_inner * d_state, &mut rng));
+                let d_skip = nalgebra::DVector::from_row_slice(&rand_vec(d_inner, &mut rng));
+
+                let layer = MambaLayer {
+                    input_size: d_inner, d_state, dt_rank,
+                    x_proj_w, dt_proj_w, dt_proj_b, a_log, d_skip,
+                };
+                let x: Vec<f64> = rand_vec(d_inner, &mut rng);
+                let mut h = nalgebra::DMatrix::<f64>::zeros(d_inner, d_state);
+
+                for _ in 0..50 {
+                    let y = layer.forward(&x, &mut h);
+                    for v in &y {
+                        prop_assert!(v.is_finite(), "y not finite: {v}");
+                    }
+                    for i in 0..d_inner {
+                        for j in 0..d_state {
+                            prop_assert!(h[(i, j)].is_finite(), "h[{i}, {j}] not finite");
+                        }
+                    }
+                }
+            }
+        }
     }
 }

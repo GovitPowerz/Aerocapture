@@ -72,7 +72,36 @@ class TransformerSpec(BaseModel):
         return self
 
 
-LayerSpec = Annotated[DenseSpec | GruSpec | LstmSpec | WindowSpec | TransformerSpec, Discriminator("type")]
+class MambaSpec(BaseModel):
+    """Selective SSM (Mamba S6) layer (Phase 4a, PSO-only).
+
+    Input/output dims are both `input_size` (d_inner). `dt_rank` is the
+    bottleneck rank for the delta projection; if None, resolves to
+    `max(1, input_size // 16)` (paper default). After validation, `spec.dt_rank`
+    is always the resolved int value.
+
+    `build_layer(MambaSpec)` raises NotImplementedError -- PPO support deferred
+    to Phase 4b (see docs/superpowers/specs/2026-04-24-phase-4a-mamba-ssm-mvp-design.md).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["mamba"]
+    input_size: int = Field(ge=1)
+    d_state: int = Field(ge=1)
+    dt_rank: int | None = None
+
+    @model_validator(mode="after")
+    def _resolve_and_validate_dt_rank(self) -> MambaSpec:
+        rank = self.dt_rank if self.dt_rank is not None else max(1, self.input_size // 16)
+        object.__setattr__(self, "dt_rank", rank)
+        if rank < 1:
+            raise ValueError(f"dt_rank must be >= 1, got {rank}")
+        if rank > self.input_size:
+            raise ValueError(f"dt_rank ({rank}) must be <= input_size ({self.input_size})")
+        return self
+
+
+LayerSpec = Annotated[DenseSpec | GruSpec | LstmSpec | WindowSpec | TransformerSpec | MambaSpec, Discriminator("type")]
 
 
 class LayerWeights(BaseModel):

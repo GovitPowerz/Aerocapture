@@ -4,8 +4,8 @@ base = ["../missions/mars.toml", "common.toml"]
 type = "neural_network"
 
 [data]
-neural_network = "training_output/neural_network_transformer_pso/best_model.json"
-results_suffix = ".train_transformer_pso"
+neural_network = "training_output/neural_network_mamba_pso/best_model.json"
+results_suffix = ".train_mamba_pso"
 
 [network]
 input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
@@ -14,14 +14,12 @@ input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 type = "dense"
 input_size = 16
 output_size = 32
-activation = "linear"
+activation = "swish"
 
 [[network.architecture]]
-type = "transformer"
-d_model = 32
-n_heads = 4
-d_ffn = 128
-n_seq = 64
+type = "mamba"
+input_size = 32
+d_state = 16
 
 [[network.architecture]]
 type = "dense"
@@ -30,10 +28,10 @@ output_size = 2
 activation = "asinh"
 
 [guidance.ftc]
-# Shared exit-phase controller params (unsigned-magnitude schemes; Transformer
+# Shared exit-phase controller params (unsigned-magnitude schemes; Mamba
 # bypasses exit guidance because it emits a signed bank angle via atan2).
 # Included for parity with the other neural_network_* configs; not used at
-# runtime for the Transformer guidance path.
+# runtime for the Mamba guidance path.
 capture_damping = 0.7
 capture_frequency = 0.072
 capture_pdyn_margin = 1.75
@@ -53,3 +51,14 @@ pressure_coeff_base = -134.4
 pressure_coeff_scale_height = 6.9
 gain_fade_start_km = 80.0
 gain_fade_end_km = 100.0
+
+[optimizer]
+algorithm = "pso"
+n_pop = 64
+n_gen = 2000
+seed_strategy = "rotating"
+training_n_sims = 20
+validation_n_sims = 1000
+seed_pool_interval = 50
+curation_sample_size = 1000
+curation_top_k = 5

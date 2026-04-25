@@ -34,6 +34,15 @@ class NetworkConfig:
 
     def __post_init__(self) -> None:
         if self.architecture is not None:
+            # v2: copy the architecture list and normalize Mamba entries (resolve
+            # optional dt_rank) so downstream consumers -- including the Rust
+            # `flat_weights_to_json` PyO3 call which deserializes into a strict
+            # `LayerSpec::Mamba { dt_rank: usize }` -- see the field present.
+            # The shallow copy keeps us from mutating the caller's dicts in place.
+            self.architecture = [dict(e) if isinstance(e, dict) else e for e in self.architecture]
+            for entry in self.architecture:
+                if isinstance(entry, dict) and entry.get("type") == "mamba" and entry.get("dt_rank") is None:
+                    entry["dt_rank"] = resolve_mamba_dt_rank(entry)
             # v2: validate per-entry shapes + chain consistency (layer i's output size
             # must equal layer i+1's input size).
             for entry in self.architecture:
@@ -109,6 +118,21 @@ class NetworkConfig:
         return self.n_base_coef
 
 
+def resolve_mamba_dt_rank(entry: Any) -> int:
+    """Resolve the Mamba `dt_rank` field, applying the paper default when absent.
+
+    Accepts either a plain dict (pre-pydantic TOML entry) or a pydantic `MambaSpec`.
+    Returns `max(1, input_size // 16)` when `dt_rank` is None / missing, matching
+    `MambaSpec._resolve_and_validate_dt_rank` and Rust
+    `TomlLayerSpec::to_layer_spec`. Centralizing this here keeps all four callers
+    (config validation, describe_architecture, _fill_mamba, NetworkConfig.__post_init__)
+    in sync.
+    """
+    input_size = int(entry["input_size"]) if isinstance(entry, dict) else int(entry.input_size)
+    raw = entry.get("dt_rank") if isinstance(entry, dict) else getattr(entry, "dt_rank", None)
+    return int(raw) if raw is not None else max(1, input_size // 16)
+
+
 def _layer_n_params(entry: Any) -> int:
     """Parameter count for a single v2 architecture entry. Mirrors Rust LayerWeights::n_params."""
     from aerocapture.training.rl.schemas import TransformerSpec
@@ -135,6 +159,11 @@ def _layer_n_params(entry: Any) -> int:
         d = int(entry["d_model"])
         f = int(entry["d_ffn"])
         return 4 * d * d + 2 * f * d + f + 9 * d
+    if ltype == "mamba":
+        d_inner = int(entry["input_size"])
+        d_state = int(entry["d_state"])
+        dt_rank = resolve_mamba_dt_rank(entry)
+        return d_inner * (3 * d_state + 2 * dt_rank + 2)
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
@@ -155,11 +184,16 @@ def _layer_input_size(entry: Any) -> int:
 def _layer_output_size(entry: Any) -> int:
     """Output size of a v2 layer entry. Dense: output_size. GRU/LSTM: hidden_size
     (the cell emits its hidden state to the next layer). Window: n_steps * input_size
-    (flattened ring buffer). Transformer: d_model."""
-    from aerocapture.training.rl.schemas import TransformerSpec
+    (flattened ring buffer). Transformer: d_model. Mamba: input_size (d_inner)."""
+    from aerocapture.training.rl.schemas import MambaSpec, TransformerSpec
 
     if isinstance(entry, TransformerSpec):
         return entry.d_model
+    if isinstance(entry, MambaSpec):
+        return entry.input_size
+    # Normalise other Pydantic models to plain dicts.
+    if hasattr(entry, "model_dump"):
+        entry = entry.model_dump()
     ltype = entry["type"]
     if ltype == "dense":
         return int(entry["output_size"])
@@ -171,6 +205,8 @@ def _layer_output_size(entry: Any) -> int:
         return int(entry["input_size"]) * int(entry["n_steps"])
     if ltype == "transformer":
         return int(entry["d_model"])
+    if ltype == "mamba":
+        return int(entry["input_size"])
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
@@ -212,6 +248,8 @@ def describe_architecture(network: NetworkConfig | list[Any]) -> str:
                     tail = f"n_steps={entry['n_steps']}"
                 elif ltype == "transformer":
                     tail = f"d_model={entry['d_model']}, n_heads={entry['n_heads']}, d_ffn={entry['d_ffn']}, n_seq={entry['n_seq']}"
+                elif ltype == "mamba":
+                    tail = f"d_state={entry['d_state']}, dt_rank={resolve_mamba_dt_rank(entry)}"
                 else:
                     tail = ltype
             in_size = _layer_input_size(entry)

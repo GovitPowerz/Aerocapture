@@ -28,10 +28,69 @@ import numpy.typing as npt
 import torch
 
 from aerocapture.training.rl.layers import DenseLayer, GruLayer, LstmLayer, WindowLayer
+from aerocapture.training.rl.layers.mamba import MambaLayer
 from aerocapture.training.rl.layers.transformer import TransformerLayer
 from aerocapture.training.rl.policy import GaussianPolicy, V2Policy
+from aerocapture.training.rl.schemas import MambaSpec, TransformerSpec, WindowSpec
 
 _ACT_NAMES = {"Tanh": "tanh", "ReLU": "relu", "Sigmoid": "sigmoid", "Identity": "linear", "SiLU": "swish", "Mish": "mish"}
+
+
+def _serialize_mamba_layer(layer: MambaLayer) -> dict:
+    """Serialize a MambaLayer to the flat-at-layer-level Mamba weights dict.
+
+    Keys match Rust NnLayerWeights schema: x_proj_w, dt_proj_w, dt_proj_b,
+    a_log, d_skip. All arrays are Python lists of f64 (JSON-serializable).
+    """
+
+    def to_list(t: torch.Tensor) -> list[float]:
+        from typing import cast
+
+        return cast(list[float], t.detach().cpu().numpy().astype(np.float64).tolist())
+
+    return {
+        "x_proj_w": to_list(layer.x_proj_w),  # (dt_rank + 2*d_state, input_size)
+        "dt_proj_w": to_list(layer.dt_proj_w),  # (input_size, dt_rank)
+        "dt_proj_b": to_list(layer.dt_proj_b),  # (input_size,)
+        "a_log": to_list(layer.a_log),  # (input_size, d_state)
+        "d_skip": to_list(layer.d_skip),  # (input_size,)
+    }
+
+
+def _check_obs_norm_bake_compatibility(
+    architecture: list,
+    obs_normalizer_active: bool,
+) -> None:
+    """Raise NotImplementedError when obs-norm bake-in cannot be applied to layer 0.
+
+    Bake-in is only safe when layer 0 is Dense (affine: W/std, b - W@(mean/std)).
+    All other layer types are rejected: their nonlinearities don't absorb a linear
+    input transform in closed form.
+
+    Accepts either torch module objects (from policy.layers) or schema spec objects
+    (MambaSpec, WindowSpec, TransformerSpec -- useful for unit tests).
+    """
+    if not obs_normalizer_active or not architecture:
+        return
+    first = architecture[0]
+    if isinstance(first, (MambaSpec, MambaLayer)):
+        raise NotImplementedError(
+            "obs_normalizer bake-in not supported when layer 0 is Mamba. "
+            "Mamba's x_proj + softplus + A = -exp(a_log) is nonlinear in x; absorbing "
+            "an affine input transform would require shifting dt_proj_b through softplus "
+            "(not closed-form). Deferred to Phase 4b. "
+            "Add a Dense embedding as layer 0 (Phase 0 spec section 3.5 invariant)."
+        )
+    if isinstance(first, (WindowSpec, WindowLayer, TransformerSpec, TransformerLayer)):
+        raise NotImplementedError(
+            f"obs_normalizer bake-in not supported when layer 0 is {type(first).__name__}. "
+            "Add a Dense embedding as layer 0 (Phase 0 spec section 3.5 invariant)."
+        )
+    if isinstance(first, (GruLayer, LstmLayer)):
+        raise NotImplementedError(
+            f"obs_normalizer bake-in not supported when layer 0 is {type(first).__name__}. "
+            "Add a Dense embedding as layer 0 (Phase 0 spec section 3.5 invariant)."
+        )
 
 
 def export_policy_to_json(
@@ -95,6 +154,11 @@ def export_v2_policy_to_json(
     layer: `W_new = W / std`, `b_new = b - W @ (mean / std)`. log_std is an
     exploration-noise parameter and is never exported.
     """
+    _check_obs_norm_bake_compatibility(
+        list(policy.layers),
+        obs_normalizer_active=(obs_normalizer is not None),
+    )
+
     architecture: list[dict[str, object]] = []
     weights: dict[str, dict[str, list[list[float]] | list[float]]] = {}
 
@@ -124,10 +188,6 @@ def export_v2_policy_to_json(
                 "b": b.tolist(),
             }
         elif isinstance(layer, GruLayer):
-            if i == 0 and obs_normalizer is not None:
-                raise NotImplementedError(
-                    "obs_normalizer bake-in not supported when layer 0 is Gru. Add a Dense embedding as layer 0 (Phase 0 spec section 3.5 invariant)."
-                )
             w_ih = layer.weight_ih.detach().cpu().numpy().astype(np.float64)
             w_hh = layer.weight_hh.detach().cpu().numpy().astype(np.float64)
             b_ih = layer.bias_ih.detach().cpu().numpy().astype(np.float64)
@@ -146,10 +206,6 @@ def export_v2_policy_to_json(
                 "bias_hh": b_hh.tolist(),
             }
         elif isinstance(layer, LstmLayer):
-            if i == 0 and obs_normalizer is not None:
-                raise NotImplementedError(
-                    "obs_normalizer bake-in not supported when layer 0 is Lstm. Add a Dense embedding as layer 0 (Phase 0 spec section 3.5 invariant)."
-                )
             w_ih = layer.weight_ih.detach().cpu().numpy().astype(np.float64)
             w_hh = layer.weight_hh.detach().cpu().numpy().astype(np.float64)
             b_ih = layer.bias_ih.detach().cpu().numpy().astype(np.float64)
@@ -168,10 +224,6 @@ def export_v2_policy_to_json(
                 "bias_hh": b_hh.tolist(),
             }
         elif isinstance(layer, WindowLayer):
-            if i == 0 and obs_normalizer is not None:
-                raise NotImplementedError(
-                    "obs_normalizer bake-in not supported when layer 0 is Window. Add a Dense embedding as layer 0 (Phase 0 spec section 3.5 invariant)."
-                )
             architecture.append(
                 {
                     "type": "window",
@@ -181,10 +233,6 @@ def export_v2_policy_to_json(
             )
             # Window is zero-param: no weights entry for this layer.
         elif isinstance(layer, TransformerLayer):
-            if i == 0 and obs_normalizer is not None:
-                raise NotImplementedError(
-                    "obs_normalizer bake-in not supported when layer 0 is Transformer. Add a Dense embedding as layer 0 (Phase 0 spec section 3.5 invariant)."
-                )
             architecture.append(
                 {
                     "type": "transformer",
@@ -213,6 +261,16 @@ def export_v2_policy_to_json(
                 "ln2_gamma": layer.ln2_gamma.detach().cpu().tolist(),
                 "ln2_beta": layer.ln2_beta.detach().cpu().tolist(),
             }
+        elif isinstance(layer, MambaLayer):
+            architecture.append(
+                {
+                    "type": "mamba",
+                    "input_size": layer.input_size,
+                    "d_state": layer.d_state,
+                    "dt_rank": layer.dt_rank,
+                }
+            )
+            weights[f"layer_{i}"] = _serialize_mamba_layer(layer)
         else:
             raise ValueError(f"Unknown layer type in export: {type(layer).__name__}")
 
