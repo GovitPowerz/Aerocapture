@@ -94,6 +94,53 @@ def build_initial_population_for_v2(
     return normalized
 
 
+def build_scaffolding_initial_slab(
+    ftc_params_path: str | Path,
+    scaffolding_specs: list[ParamSpec],
+    n_pop: int,
+    rng: np.random.Generator,
+    jitter: float = 0.02,
+) -> npt.NDArray[np.float64]:
+    """Seed the scaffolding slab of the PSO chromosome from FTC's GA optimum.
+
+    Reads `<ftc_params_path>` (a JSON file with the same keys FTC writes,
+    e.g. "lateral.tau", "exit.exit_pdyn_margin", ...), encodes each value
+    to its [0, 1] slot via `encode_to_normalized`, replicates `n_pop`
+    times, then adds `N(0, jitter)` per-individual noise clipped to [0, 1].
+
+    Raises FileNotFoundError if `ftc_params_path` does not exist.
+    Raises KeyError if any scaffolding spec name is missing from the JSON.
+    """
+    from aerocapture.training.encoding import encode_to_normalized
+
+    ftc_params_path = Path(ftc_params_path)
+    if not ftc_params_path.exists():
+        msg = (
+            f"optimize_scaffolding requires a source params file; '{ftc_params_path}' "
+            f"does not exist. Run FTC training first (./train_all.sh ftc) or correct the path."
+        )
+        raise FileNotFoundError(msg)
+
+    with open(ftc_params_path) as f:
+        ftc_params: dict[str, float] = json.load(f)
+
+    spec_names = {s.name for s in scaffolding_specs}
+    missing = spec_names - set(ftc_params.keys())
+    if missing:
+        msg = (
+            f"FTC params file '{ftc_params_path}' missing scaffolding keys: "
+            f"{sorted(missing)}. Re-run FTC training so its best_params.json includes them."
+        )
+        raise KeyError(msg)
+
+    center = encode_to_normalized(ftc_params, list(scaffolding_specs))
+    slab = np.tile(center, (n_pop, 1))
+    if jitter > 0.0:
+        slab = slab + rng.normal(0.0, jitter, size=slab.shape)
+        slab = np.clip(slab, 0.0, 1.0)
+    return slab
+
+
 def save_checkpoint(
     save_dir: Path,
     generation: int,
