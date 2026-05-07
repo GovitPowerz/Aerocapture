@@ -245,6 +245,46 @@ def test_rust_python_dense_equivalence_with_input_mask(tmp_path: Path) -> None:
     assert max_diff < 1e-10, f"dense+mask max abs diff {max_diff}"
 
 
+@pytest.mark.slow
+def test_acos_tanh_rust_python_equivalence(tmp_path: Path) -> None:
+    """V2Policy with last-layer (output_size=1, tanh) + output_param='acos_tanh'
+    exported to JSON: Rust nn_forward returns the tanh output bit-equivalent to
+    the Python V2Policy forward to machine epsilon.
+
+    nn_forward returns the raw NN output vector (length 1 for acos_tanh); the
+    acos is applied later in nn_bank_angle (Rust side) and is not tested here.
+    """
+    architecture = [
+        DenseSpec(type="dense", input_size=8, output_size=16, activation="swish"),
+        DenseSpec(type="dense", input_size=16, output_size=1, activation="tanh"),
+    ]
+    torch.manual_seed(0)
+    policy = V2Policy(architecture=architecture, input_mask=None)
+    with torch.no_grad():
+        for name, p in policy.named_parameters():
+            if name == "log_std":
+                continue
+            p.data = torch.randn_like(p.data) * 0.3
+    policy.double()
+
+    json_path = tmp_path / "acos_tanh_model.json"
+    export_v2_policy_to_json(policy, str(json_path), output_param="acos_tanh")
+
+    rng = np.random.default_rng(0)
+    inputs = rng.standard_normal((100, 8)).astype(np.float64)
+
+    rust_outputs = np.array([aerocapture_rs.nn_forward(str(json_path), x.tolist()) for x in inputs])
+
+    py_outputs = np.zeros((100, 1), dtype=np.float64)
+    for i, x in enumerate(inputs):
+        fresh = policy.new_state(1, "cpu")
+        y, _ = policy(torch.from_numpy(x).unsqueeze(0), fresh)
+        py_outputs[i] = y.detach().numpy()[0]
+
+    diff = np.max(np.abs(rust_outputs - py_outputs))
+    assert diff < 1e-10, f"acos_tanh max abs diff {diff} exceeds 1e-10"
+
+
 def test_rust_python_ppo_gru_export_equivalence(tmp_path: Path) -> None:
     """A V2Policy with GRU, trained under PPO code (simulated by random init here),
     exports to v2 JSON and the Rust runtime's nn_forward matches the Python
