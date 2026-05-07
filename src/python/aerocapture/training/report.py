@@ -130,8 +130,36 @@ def run_final_evaluation(
     base_mc_seed = toml_data.get("monte_carlo", {}).get("seed", 42)
     reserved_seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
 
+    # Build scaffolding overrides for NN schemes that ran with optimize_scaffolding=true.
+    # Non-NN schemes bake params into optimized_<scheme>.toml; NN schemes do not, so
+    # best_params.json (if present) must be injected here. Guard on optimized TOML absence
+    # to avoid double-applying params for non-NN schemes.
+    scaffolding_overrides: dict[str, object] = {}
+    if not optimized.exists():
+        scaff_path = scheme_dir / "best_params.json"
+        if scaff_path.exists():
+            scaff_params: dict[str, object] = json.loads(scaff_path.read_text())
+            for key, value in scaff_params.items():
+                if key.startswith("lateral."):
+                    bare = key.removeprefix("lateral.")
+                    if bare == "max_reversals":
+                        value = int(round(float(value)))  # type: ignore[arg-type]
+                    scaffolding_overrides[f"guidance.lateral.{bare}"] = value
+                elif key.startswith("exit."):
+                    scaffolding_overrides[f"guidance.ftc.{key.removeprefix('exit.')}"] = value
+                elif key.startswith("nav."):
+                    scaffolding_overrides[f"navigation.{key.removeprefix('nav.')}"] = value
+                elif key.startswith("thermal."):
+                    scaffolding_overrides[f"guidance.thermal_limiter.{key.removeprefix('thermal.')}"] = value
+                elif key.startswith("shaping."):
+                    scaffolding_overrides[f"guidance.command_shaping.{key.removeprefix('shaping.')}"] = value
+                    scaffolding_overrides["guidance.command_shaping.enabled"] = True
+            if scaffolding_overrides:
+                print(f"  Using optimized NN scaffolding from {scaff_path}")
+
     try:
-        overrides_list = [{"monte_carlo.seed": s, "simulation.n_sims": 1} for s in reserved_seeds]
+        base_overrides: dict[str, object] = {"simulation.n_sims": 1, **scaffolding_overrides}
+        overrides_list = [{**base_overrides, "monte_carlo.seed": s} for s in reserved_seeds]
         results = aerocapture_rs.run_batch(
             toml_path=str(eval_toml.resolve()),
             overrides_list=overrides_list,

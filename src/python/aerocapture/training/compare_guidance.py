@@ -133,6 +133,28 @@ def run_scheme(
             default_nn = "data/neural_network/nn_model.json"
             toml_data["data"]["neural_network"] = default_nn
             print(f"  Using default NN weights from {default_nn}")
+
+        # Load optimized scaffolding params if present (written when optimize_scaffolding=true)
+        scaff_path = params_dir / scheme / "best_params.json" if params_dir else None
+        if scaff_path and scaff_path.exists():
+            with open(scaff_path) as f:
+                scaff_params = json.load(f)
+            for key, value in scaff_params.items():
+                if key.startswith("lateral."):
+                    bare = key.removeprefix("lateral.")
+                    if bare == "max_reversals":
+                        value = int(round(value))
+                    toml_data["guidance"].setdefault("lateral", {})[bare] = value
+                elif key.startswith("exit."):
+                    toml_data["guidance"].setdefault("ftc", {})[key.removeprefix("exit.")] = value
+                elif key.startswith("nav."):
+                    toml_data.setdefault("navigation", {})[key.removeprefix("nav.")] = value
+                elif key.startswith("thermal."):
+                    toml_data["guidance"].setdefault("thermal_limiter", {})[key.removeprefix("thermal.")] = value
+                elif key.startswith("shaping."):
+                    toml_data["guidance"].setdefault("command_shaping", {})[key.removeprefix("shaping.")] = value
+                    toml_data["guidance"]["command_shaping"].setdefault("enabled", True)
+            print(f"  Using optimized NN scaffolding from {scaff_path}")
     else:
         toml_data.get("data", {}).pop("neural_network", None)
 
