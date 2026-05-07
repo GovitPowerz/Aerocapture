@@ -109,6 +109,16 @@ Seven guidance algorithms, all GA-optimizable:
 
 **Training order:** Run `piecewise_constant` first — it produces `ref_trajectory.dat` (optimized reference) and `corridor_boundaries.npz` (4-layer corridor envelopes from GA population history). Schemes marked "Requires ref trajectory" will error at startup if it's missing.
 
+### NN-vs-FTC Parity Bundle (`nn_joint`)
+
+A separate NN training mode (`./train_all.sh nn_joint`) flips three TOML opt-in knobs under `[guidance.neural_network]` to close the structural gap with FTC's joint-optimization advantage:
+
+- `optimize_scaffolding = true` extends the PSO chromosome with FTC's 17 scaffolding params (lateral / exit / nav / thermal / shaping), seeded at FTC's GA optimum + jitter, so the NN co-adapts the actuator pipeline rather than driving FTC-tuned frozen values.
+- `output_parameterization = "acos_tanh"` swaps the `atan2(out[0], out[1]).abs()` decoder (which wastes half the output range under `magnitude_only`) for `bank = acos(tanh(out[0]))` — single output, smooth `[0, π]` mapping that aligns with FTC's internal `cos_bank` representation. Validated at config load (requires `mode = "magnitude_only"`, last-layer `output_size = 1`, `activation = "tanh"`).
+- `warm_start_from = "training_output/ftc/best_params.json"` triggers a PyTorch supervised pre-train of a `V2Policy` mirror against FTC's per-tick `(state, |bank|)` traces, then encodes the cloned weights into the PSO initial population. Reserved seed offset `4_000_000` keeps the supervised data disjoint from validation / final-eval / RL pools.
+
+All three knobs default off; existing trained NNs and existing configs are bit-identical. Requires FTC training output (`./train_all.sh ftc` first). Spec: `docs/superpowers/specs/2026-05-07-nn-ftc-parity-bundle-design.md`.
+
 ## GA Optimization
 
 All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load, heat flux, and integrated heat load exceedances.
