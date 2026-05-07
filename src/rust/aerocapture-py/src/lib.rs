@@ -356,7 +356,8 @@ fn flat_weights_to_json(
             e
         ))
     })?;
-    let model = NeuralNetModel::from_flat_weights_v2(&flat, &specs, input_mask)
+    use aerocapture::data::neural::OutputParam;
+    let model = NeuralNetModel::from_flat_weights_v2(&flat, &specs, input_mask, OutputParam::default())
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
     model
         .save_json(&path)
