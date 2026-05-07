@@ -71,6 +71,27 @@ def _compute_fixed_seeds(base_mc_seed: int, n_sims: int, excluded: set[int]) -> 
     return seeds
 
 
+def _check_resume_chromosome_shape(
+    saved_population: npt.NDArray[np.float64],
+    expected_n_params: int,
+) -> None:
+    """Fail loudly if a resumed checkpoint's chromosome width disagrees with current ParamSpec count.
+
+    Catches the user flipping `optimize_scaffolding` (or `output_parameterization`,
+    which changes last-layer width) between training runs.
+    """
+    saved_n_params = saved_population.shape[1]
+    if saved_n_params != expected_n_params:
+        msg = (
+            f"checkpoint chromosome shape mismatch: saved {saved_n_params} params, "
+            f"current ParamSpec list has {expected_n_params}. This usually means "
+            f"`[guidance.neural_network] optimize_scaffolding` or "
+            f"`output_parameterization` was changed since the checkpoint was saved. "
+            f"To resume, revert the TOML knob; to start fresh, pass --from-scratch."
+        )
+        raise ValueError(msg)
+
+
 def build_initial_population_for_v2(
     architecture: list[dict],
     n_pop: int,
@@ -533,6 +554,7 @@ def train(
         # Ensure pop_array is float64 (legacy checkpoints may have int8)
         if pop_array.dtype != np.float64:
             pop_array = pop_array.astype(np.float64)
+        _check_resume_chromosome_shape(pop_array, expected_n_params=len(param_specs))
     else:
         if config.guidance_type == "neural_network" and config.network.architecture is None:
             # v1 dense-only NN: existing activation-aware Xavier/He/LeCun init.

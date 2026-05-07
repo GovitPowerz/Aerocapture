@@ -36,3 +36,18 @@ def test_specs_unchanged_when_knob_off():
     validated = TypeAdapter(list[LayerSpec]).validate_python(arch)
     base_specs = nn_param_specs_from_v2(validated, bound_multiplier=2.0)
     assert len(base_specs) > 0
+
+
+def test_resume_with_shape_mismatch_fails_loud():
+    import numpy as np
+
+    from aerocapture.training.train import _check_resume_chromosome_shape
+
+    saved_pop = np.zeros((4, 1266))
+    try:
+        _check_resume_chromosome_shape(saved_pop, expected_n_params=1283)
+    except ValueError as e:
+        assert "shape mismatch" in str(e).lower()
+        assert "1266" in str(e) and "1283" in str(e)
+        return
+    raise AssertionError("expected ValueError on shape mismatch")
