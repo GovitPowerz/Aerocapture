@@ -32,6 +32,7 @@ class NetworkConfig:
     input_mask: list[int] | None = None
     architecture: list[dict] | None = None
     optimize_scaffolding: bool = False
+    output_parameterization: str | None = None
 
     def __post_init__(self) -> None:
         if self.architecture is not None:

@@ -225,10 +225,10 @@ def save_checkpoint(
             n_scaff = 17 if config.network.optimize_scaffolding else 0
             n_weights = len(param_specs) - n_scaff
             weights = _decode_nn_weights(best_individual[:n_weights], param_specs[:n_weights])
-            write_nn_json(weights, config.network, save_dir / "best_model.json", input_mask=config.network.input_mask)
+            write_nn_json(weights, config.network, save_dir / "best_model.json", input_mask=config.network.input_mask, output_param=config.network.output_parameterization)
             if cwd is not None:
                 nn_path = Path(cwd) / config.sim.nn_param_file
-                write_nn_json(weights, config.network, nn_path, input_mask=config.network.input_mask)
+                write_nn_json(weights, config.network, nn_path, input_mask=config.network.input_mask, output_param=config.network.output_parameterization)
             if n_scaff > 0:
                 from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
 
@@ -1015,6 +1015,8 @@ if __name__ == "__main__":
     _gnn = _toml_data.get("guidance", {}).get("neural_network", {})
     if "optimize_scaffolding" in _gnn:
         cfg.network.optimize_scaffolding = bool(_gnn["optimize_scaffolding"])
+    if "output_parameterization" in _gnn:
+        cfg.network.output_parameterization = str(_gnn["output_parameterization"])
     if cfg.network.architecture is not None:
         cfg.network.__post_init__()  # re-validate once all fields are set
     cfg.sim.final_file = "output/final.train_nn_temp"
@@ -1199,7 +1201,7 @@ if __name__ == "__main__":
             n_weights = len(param_specs) - n_scaff
             weights = _decode_nn_weights(result["best_individual"][:n_weights], param_specs[:n_weights])
             nn_path = Path(cwd) / cfg.sim.nn_param_file
-            write_nn_json(weights, cfg.network, nn_path, input_mask=cfg.network.input_mask)
+            write_nn_json(weights, cfg.network, nn_path, input_mask=cfg.network.input_mask, output_param=cfg.network.output_parameterization)
             print(f"Best weights saved to {nn_path}")
             if n_scaff > 0:
                 from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS

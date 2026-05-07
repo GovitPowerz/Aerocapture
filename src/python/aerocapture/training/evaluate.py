@@ -45,6 +45,7 @@ def write_nn_json(
     network: NetworkConfig,
     filepath: str | Path,
     input_mask: list[int] | None = None,
+    output_param: str | None = None,
 ) -> None:
     """Write PSO chromosome weights as v2 NN JSON via the Rust LayerWeights trait.
 
@@ -80,6 +81,7 @@ def write_nn_json(
         architecture_json=json.dumps(arch),
         path=str(filepath),
         input_mask=input_mask,
+        output_param=output_param,
     )
 
 

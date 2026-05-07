@@ -341,14 +341,18 @@ fn nn_forward_sequence(json_path: String, inputs: Vec<Vec<f64>>) -> PyResult<Vec
 ///         '[{"type":"dense","input_size":16,"output_size":32,"activation":"tanh"},...]'.
 ///     path: output JSON file path.
 ///     input_mask: optional list of input indices (length == layer[0] input_size).
+///     output_param: optional output parameterization string. One of:
+///         "atan2_signed" (default) or "acos_tanh". None defaults to "atan2_signed".
 #[pyfunction]
+#[pyo3(signature = (flat, architecture_json, path, input_mask=None, output_param=None))]
 fn flat_weights_to_json(
     flat: Vec<f64>,
     architecture_json: String,
     path: String,
     input_mask: Option<Vec<usize>>,
+    output_param: Option<String>,
 ) -> PyResult<()> {
-    use aerocapture::data::neural::{LayerSpec, NeuralNetModel};
+    use aerocapture::data::neural::{LayerSpec, NeuralNetModel, OutputParam};
 
     let specs: Vec<LayerSpec> = serde_json::from_str(&architecture_json).map_err(|e| {
         pyo3::exceptions::PyValueError::new_err(format!(
@@ -356,8 +360,16 @@ fn flat_weights_to_json(
             e
         ))
     })?;
-    use aerocapture::data::neural::OutputParam;
-    let model = NeuralNetModel::from_flat_weights_v2(&flat, &specs, input_mask, OutputParam::default())
+    let output_param: OutputParam = match output_param.as_deref() {
+        None | Some("atan2_signed") => OutputParam::default(),
+        Some("acos_tanh") => OutputParam::AcosTanh,
+        Some(other) => {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "output_param must be 'atan2_signed' or 'acos_tanh' (got {other:?})"
+            )));
+        }
+    };
+    let model = NeuralNetModel::from_flat_weights_v2(&flat, &specs, input_mask, output_param)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
     model
         .save_json(&path)
