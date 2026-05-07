@@ -201,11 +201,24 @@ def save_checkpoint(
     # Save best model/params (immediately usable by Rust)
     if best_individual is not None:
         if config.guidance_type == "neural_network":
-            weights = _decode_nn_weights(best_individual, param_specs)
+            n_scaff = 17 if config.network.optimize_scaffolding else 0
+            n_weights = len(param_specs) - n_scaff
+            weights = _decode_nn_weights(best_individual[:n_weights], param_specs[:n_weights])
             write_nn_json(weights, config.network, save_dir / "best_model.json", input_mask=config.network.input_mask)
             if cwd is not None:
                 nn_path = Path(cwd) / config.sim.nn_param_file
                 write_nn_json(weights, config.network, nn_path, input_mask=config.network.input_mask)
+            if n_scaff > 0:
+                from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
+
+                scaff_params = decode_normalized(
+                    best_individual[n_weights:], list(_NN_SCAFFOLDING_PARAMS)
+                )
+                for s in _NN_SCAFFOLDING_PARAMS:
+                    if s.is_integer and s.name in scaff_params:
+                        scaff_params[s.name] = int(round(scaff_params[s.name]))
+                with open(save_dir / "best_params.json", "w") as fp:
+                    json.dump(scaff_params, fp, indent=2)
         else:
             params = decode_normalized(best_individual, param_specs)
             with open(save_dir / "best_params.json", "w") as fp:
@@ -1160,10 +1173,25 @@ if __name__ == "__main__":
     # Save best result and run final evaluation
     if result["best_individual"] is not None:
         if cfg.guidance_type == "neural_network":
-            weights = _decode_nn_weights(result["best_individual"], param_specs)
+            n_scaff = 17 if cfg.network.optimize_scaffolding else 0
+            n_weights = len(param_specs) - n_scaff
+            weights = _decode_nn_weights(result["best_individual"][:n_weights], param_specs[:n_weights])
             nn_path = Path(cwd) / cfg.sim.nn_param_file
             write_nn_json(weights, cfg.network, nn_path, input_mask=cfg.network.input_mask)
             print(f"Best weights saved to {nn_path}")
+            if n_scaff > 0:
+                from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
+
+                scaff_params = decode_normalized(
+                    result["best_individual"][n_weights:], list(_NN_SCAFFOLDING_PARAMS)
+                )
+                for s in _NN_SCAFFOLDING_PARAMS:
+                    if s.is_integer and s.name in scaff_params:
+                        scaff_params[s.name] = int(round(scaff_params[s.name]))
+                params_path = Path(cfg.save_dir) / "best_params.json"
+                with open(params_path, "w") as fp:
+                    json.dump(scaff_params, fp, indent=2)
+                print(f"Best scaffolding params saved to {params_path}")
         else:
             params = decode_normalized(result["best_individual"], param_specs)
             params_path = Path(cfg.save_dir) / "best_params.json"
