@@ -197,6 +197,15 @@ Plan: `docs/superpowers/plans/2026-04-22-phase-3a-transformer-mvp-plan.md`.
 Spec: `docs/superpowers/specs/2026-04-24-phase-4a-mamba-ssm-mvp-design.md`.
 Plan: `docs/superpowers/plans/2026-04-24-phase-4a-mamba-ssm-mvp-plan.md`.
 
+### NN-vs-FTC Parity Bundle (3 fixes, TOML opt-in) [DOING 2026-05-07 on feature/magnitude_only]
+- [ ] Fix A: `_NN_SCAFFOLDING_PARAMS` + `optimize_scaffolding` knob + FTC-optimum seeding for NN initial population
+- [ ] Fix B: `OutputParam::AcosTanh` enum + JSON v2 round trip + config validation (last-layer width=1, activation=tanh, mode=magnitude_only)
+- [ ] Fix C: `aerocapture_rs.collect_supervised` PyO3 + `warm_start.py` PyTorch supervised pre-train + chromosome cache (4M seed offset)
+- [ ] New training config `msr_aller_nn_joint_train.toml` flipping all three knobs + `train_all.sh` alias
+
+Spec: `docs/superpowers/specs/2026-05-07-nn-ftc-parity-bundle-design.md`.
+Plan: `docs/superpowers/plans/2026-05-07-nn-ftc-parity-bundle-plan.md`.
+
 ### Phase 4b -- Mamba PPO-BPTT (follow-up)
 - [ ] Deferred from 4a. Requires `_zero_state_where_done` 2D-tensor branch, `hidden_shapes` arm returning `(d_inner, d_state)`, ndim==4 rollout-buffer dispatch in `ppo_update_bptt`, obs-norm bake-in for Mamba-as-layer-0, PPO smoke + BPTT chunk-invariant tests, training TOML `msr_aller_mamba_ppo_train.toml`.
 
