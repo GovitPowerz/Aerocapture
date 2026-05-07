@@ -65,6 +65,17 @@ _NAV_PARAMS: list[ParamSpec] = [
     ParamSpec("nav.density_gain_max_delta", 0.01, 0.5, 0.1),
 ]
 
+# Combined scaffolding pack used when training a neural-network scheme with
+# `optimize_scaffolding = true`. Same specs FTC trains, same order. The
+# routing in `problem.py::_build_overrides` already handles every prefix.
+_NN_SCAFFOLDING_PARAMS: list[ParamSpec] = [
+    *_NAV_PARAMS,
+    *_LATERAL_PARAMS,
+    *_EXIT_PARAMS,
+    *_THERMAL_LIMITER_PARAMS,
+    *_SHAPING_PARAMS,
+]
+
 # TOML section key matches the guidance type name used in [guidance] type field
 PARAM_SPACES: dict[str, list[ParamSpec]] = {
     "equilibrium_glide": [
