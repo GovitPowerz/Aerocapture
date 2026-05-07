@@ -144,9 +144,12 @@ pub fn step_one_tick(
         );
 
         if config.collect_supervised {
+            // Explicit full mask: select all 21 inputs.
+            // Passing None would trigger the backward-compat default (first 16 only).
+            const FULL_MASK: [usize; 21] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
             let nn_input = crate::gnc::guidance::neural::build_nn_input(
                 &nav_out,
-                None, // full 21-element vector, no mask
+                Some(&FULL_MASK),
                 None, // no ablation
                 data,
                 planet,

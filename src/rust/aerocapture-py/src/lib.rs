@@ -377,6 +377,94 @@ fn flat_weights_to_json(
     Ok(())
 }
 
+/// Collect supervised training data from a non-NN guidance scheme.
+///
+/// Runs the simulator with `collect_supervised = true` over each seed and
+/// returns the per-tick (NN input vector, bank magnitude) pairs as numpy arrays.
+///
+/// Args:
+///     toml_path: Path to the TOML config file.
+///     seeds: List of MC seeds to run (one simulation per seed, n_sims=1 each).
+///     overrides: Optional dict of "dotted.key" -> value overrides applied to all runs.
+///     scheme: Non-NN unsigned-magnitude guidance scheme to use as teacher.
+///         One of: "ftc", "equilibrium_glide", "energy_controller", "pred_guid",
+///         "fnpag", "piecewise_constant".
+///     sim_timeout_secs: Optional wall-clock timeout per simulation in seconds.
+///
+/// Returns:
+///     Tuple (X, y) where X has shape (N, 21) and y has shape (N,).
+///     X contains the 21-element NN input vector at each tick; y contains the
+///     unsigned bank magnitude (radians) after the thermal limiter.
+#[pyfunction]
+#[pyo3(signature = (toml_path, seeds, overrides=None, scheme="ftc".to_string(), sim_timeout_secs=None))]
+fn collect_supervised(
+    py: Python<'_>,
+    toml_path: String,
+    seeds: Vec<u64>,
+    overrides: Option<&Bound<'_, PyDict>>,
+    scheme: String,
+    sim_timeout_secs: Option<f64>,
+) -> PyResult<(Py<numpy::PyArray2<f64>>, Py<numpy::PyArray1<f64>>)> {
+    use aerocapture::config::GuidanceType;
+
+    let scheme_enum = match scheme.as_str() {
+        "ftc" => GuidanceType::Ftc,
+        "equilibrium_glide" => GuidanceType::EquilibriumGlide,
+        "energy_controller" => GuidanceType::EnergyController,
+        "pred_guid" => GuidanceType::PredGuid,
+        "fnpag" => GuidanceType::Fnpag,
+        "piecewise_constant" => GuidanceType::PiecewiseConstant,
+        other => {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "scheme must be a non-NN unsigned-magnitude scheme; got '{other}'"
+            )));
+        }
+    };
+
+    let base_overrides = extract_overrides(overrides)?;
+    let wall_timeout = sim_timeout_secs.map(std::time::Duration::from_secs_f64);
+
+    let mut all_x_rows: Vec<Vec<f64>> = Vec::new();
+    let mut all_y: Vec<f64> = Vec::new();
+
+    py.detach(|| {
+        for seed in seeds {
+            // Build per-seed overrides: force n_sims=1, set seed.
+            let mut seed_overrides = base_overrides.clone();
+            seed_overrides.push(("monte_carlo.n_sims".to_string(), config::OverrideValue::Int(1)));
+            seed_overrides.push(("monte_carlo.seed".to_string(), config::OverrideValue::Int(seed as i64)));
+
+            let (mut sim_input, sim_data) =
+                config::load_and_override(std::path::Path::new(&toml_path), &seed_overrides)
+                    .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+
+            sim_input.collect_supervised = true;
+            sim_input.guidance_type = scheme_enum;
+
+            let outputs = aerocapture::simulation::runner::run_for_api(
+                &sim_input,
+                &sim_data,
+                false,
+                wall_timeout,
+            )
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {e}")))?;
+
+            for output in outputs {
+                for (nn_input, bank_mag) in output.supervised_trace {
+                    all_x_rows.push(nn_input);
+                    all_y.push(bank_mag);
+                }
+            }
+        }
+        Ok::<_, PyErr>(())
+    })?;
+
+    let x_array = numpy::PyArray2::from_vec2(py, &all_x_rows)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build X array: {e}")))?;
+    let y_array = numpy::PyArray1::from_vec(py, all_y);
+    Ok((x_array.unbind(), y_array.unbind()))
+}
+
 /// Load and return a TOML config file as a plain Python dict.
 ///
 /// Useful for inspecting or modifying config before passing overrides.
@@ -444,5 +532,6 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(nn_forward, m)?)?;
     m.add_function(wrap_pyfunction!(nn_forward_sequence, m)?)?;
     m.add_function(wrap_pyfunction!(flat_weights_to_json, m)?)?;
+    m.add_function(wrap_pyfunction!(collect_supervised, m)?)?;
     Ok(())
 }
