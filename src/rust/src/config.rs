@@ -976,6 +976,10 @@ pub struct TomlNeuralNetworkParams {
     /// "full_neural" (default) | "magnitude_only".
     #[serde(default)]
     pub mode: Option<String>,
+    /// Output parameterization: None (default, atan2 signed) | "acos_tanh" (magnitude via acos of tanh output).
+    /// "acos_tanh" requires mode = "magnitude_only" and a last Dense layer with output_size=1 and activation="tanh".
+    #[serde(default)]
+    pub output_parameterization: Option<String>,
 }
 
 // ─── Domain-based Monte Carlo TOML structs ───
