@@ -150,6 +150,7 @@ pub struct SimInput {
     pub screen_output: bool,
     pub random_seed: f64,
     pub reference_trajectory: bool,
+    pub collect_supervised: bool,
     pub reference_bank_angle: f64, // degrees
     pub base_dir: String,
     pub output_dir: String,
@@ -1184,6 +1185,7 @@ impl SimInput {
             screen_output: config.simulation.screen_output,
             random_seed: config.simulation.random_seed,
             reference_trajectory: config.guidance.reference_trajectory,
+            collect_supervised: false,
             reference_bank_angle: config.guidance.reference_bank_angle.unwrap_or_else(|| {
                 config
                     .entry

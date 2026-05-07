@@ -29,6 +29,9 @@ pub struct RunState {
     pub wind_direction_bias: f64,  // wind direction rotation (radians)
     pub nav_biases: NavigationBiases,
     pub pilot_biases: PilotBiases,
+    /// Per-tick supervised trace: (nn_input_21, bank_magnitude_post_thermal) pairs.
+    /// Populated only when `collect_supervised = true` in `SimInput`. Empty otherwise.
+    pub supervised_trace: Vec<(Vec<f64>, f64)>,
 }
 
 /// Initialize a simulation run by applying dispersion draws to entry conditions.
@@ -64,6 +67,7 @@ pub fn init_run_from_draw(sim_data: &SimData, draw: &DispersionDraw) -> RunState
             damping: draw.pilot_damping,
             frequency: draw.pilot_frequency,
         },
+        supervised_trace: Vec::new(),
     }
 }
 

@@ -19,4 +19,8 @@ pub struct RunOutput {
     pub captured: bool,
     /// Dispersion draws for this simulation (26 fields from DispersionDraw::to_array)
     pub dispersions: [f64; data::dispersions::DISPERSION_DRAW_LEN],
+    /// When the runner was invoked with `collect_supervised = true`, holds
+    /// per-tick (nn_input_21, bank_magnitude_post_thermal) pairs.
+    /// Empty otherwise.
+    pub supervised_trace: Vec<(Vec<f64>, f64)>,
 }

@@ -347,7 +347,8 @@ fn build_obs_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -
 
     aerocapture::gnc::guidance::neural::build_nn_input(
         &nav,
-        nn,
+        nn.input_mask.as_deref(),
+        nn.ablated_input,
         data,
         planet,
         target_inclination,

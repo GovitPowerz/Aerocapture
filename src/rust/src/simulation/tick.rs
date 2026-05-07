@@ -143,6 +143,22 @@ pub fn step_one_tick(
             config.guidance_type,
         );
 
+        if config.collect_supervised {
+            let nn_input = crate::gnc::guidance::neural::build_nn_input(
+                &nav_out,
+                None, // full 21-element vector, no mask
+                None, // no ablation
+                data,
+                planet,
+                data.target_orbit.inclination,
+                state.guidance_state.reference_velocity,
+            );
+            state
+                .run_state
+                .supervised_trace
+                .push((nn_input, guidance_out.pre_lateral_magnitude));
+        }
+
         let bank_angle_commanded = forced_bank.unwrap_or(guidance_out.bank_angle_commanded);
 
         let max_rate = data.capsule.max_bank_rate * (1.0 + state.run_state.max_bank_rate_bias);

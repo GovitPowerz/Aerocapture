@@ -91,6 +91,9 @@ pub struct GuidanceOutput {
     pub longitudinal_active: i32,  // longitudinal guidance active
     pub rate_saturated: i32,       // rate saturation occurred
     pub roll_reversal_active: i32, // roll reversal indicator
+    /// Bank magnitude after thermal limiter, before lateral sign selection.
+    /// Zero for signed-bank schemes (PiecewiseConstant, NN in FullNeural mode).
+    pub pre_lateral_magnitude: f64,
 }
 
 /// Run one guidance step (dispatches to the active scheme).
@@ -227,6 +230,12 @@ pub fn guidance_step(
             &data.guidance.thermal_limiter,
         );
         bank_angle_longitudinal = cos_limited.acos();
+    }
+
+    // Record the unsigned magnitude post-thermal-limiter, before lateral sign selection.
+    // For signed-bank schemes (PiecewiseConstant, NN FullNeural) this is 0.0 (not meaningful).
+    if !(matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural) {
+        out.pre_lateral_magnitude = bank_angle_longitudinal;
     }
 
     // Schemes that provide signed bank angles — skip lateral guidance entirely.

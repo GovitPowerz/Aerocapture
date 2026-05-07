@@ -32,14 +32,15 @@ use crate::orbit::elements;
 /// Build the masked NN input vector from navigation state.
 ///
 /// Constructs the full 21-element candidate input vector, applies ablation zeroing
-/// (if configured), then applies the model's input_mask (or legacy [0..16] default).
+/// (if configured), then applies the input_mask (or legacy [0..16] default).
 /// Returns the masked `Vec<f64>` ready for `nn.forward()`.
 ///
-/// Extracted from `nn_bank_angle` so `BatchedSimulation` can build the same observation
-/// vector the runtime uses.
+/// `input_mask` and `ablated_input` are taken directly so this function can be
+/// called without a `NeuralNetModel` (e.g. supervised-trace capture during FTC runs).
 pub fn build_nn_input(
     nav: &NavigationOutput,
-    nn: &NeuralNetModel,
+    input_mask: Option<&[usize]>,
+    ablated_input: Option<usize>,
     data: &SimData,
     planet: &PlanetConfig,
     target_inclination: f64,
@@ -121,12 +122,12 @@ pub fn build_nn_input(
     full_input[20] = exit_bank / std::f64::consts::PI * 2.0 - 1.0;
 
     // Apply ablation: zero out a single input for sensitivity analysis
-    if let Some(idx) = nn.ablated_input {
+    if let Some(idx) = ablated_input {
         full_input[idx] = 0.0;
     }
 
     // Apply input mask: select subset of inputs, or default to first 16 for backward compat
-    match &nn.input_mask {
+    match input_mask {
         Some(mask) => mask.iter().map(|&i| full_input[i]).collect(),
         None => full_input[..16].to_vec(),
     }
@@ -150,7 +151,8 @@ pub fn nn_bank_angle(
 ) -> f64 {
     let masked = build_nn_input(
         nav,
-        nn,
+        nn.input_mask.as_deref(),
+        nn.ablated_input,
         data,
         planet,
         target_inclination,

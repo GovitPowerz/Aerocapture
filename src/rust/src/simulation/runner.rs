@@ -432,6 +432,7 @@ struct SimResult {
     final_line: [f64; 52],
     photo_lines: Vec<[f64; 30]>,
     dispersions: [f64; DISPERSION_DRAW_LEN],
+    supervised_trace: Vec<(Vec<f64>, f64)>,
 }
 
 /// Shared simulation orchestration: build run states, dispatch parallel/sequential runs.
@@ -600,6 +601,7 @@ pub fn run_for_api(
                 final_record: r.final_line,
                 captured: ifinal_val == 3 && ecc < 1.0 && energy < 0.0,
                 dispersions: r.dispersions,
+                supervised_trace: r.supervised_trace,
             }
         })
         .collect())
@@ -697,6 +699,7 @@ pub fn run_for_api_with_draws(
                 final_record: r.final_line,
                 captured: ifinal_val == 3 && ecc < 1.0 && energy < 0.0,
                 dispersions: r.dispersions,
+                supervised_trace: r.supervised_trace,
             }
         })
         .collect())
@@ -1205,11 +1208,18 @@ fn run_single(
 
     let photo_lines = std::mem::take(&mut sim_state.photo_lines);
 
+    let supervised_trace = if config.collect_supervised {
+        std::mem::take(&mut sim_state.run_state.supervised_trace)
+    } else {
+        Vec::new()
+    };
+
     Ok(SimResult {
         sim_idx,
         final_line: final_record,
         photo_lines,
         dispersions: [0.0; DISPERSION_DRAW_LEN],
+        supervised_trace,
     })
 }
 
