@@ -1112,7 +1112,7 @@ mod tests {
     fn magnitude_only_mode_routes_through_thermal_limiter() {
         use crate::data::guidance_params::NeuralNetMode;
         use crate::data::neural::{
-            Activation, DenseLayer, Layer, LayerSpec, NeuralNetModel,
+            Activation, DenseLayer, Layer, LayerSpec, NeuralNetModel, OutputParam,
         };
         use crate::gnc::guidance::thermal_limiter::ThermalLimiterParams;
 
@@ -1132,6 +1132,7 @@ mod tests {
             })],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         // Heat flux at 99% of limit -> thermal limiter activates aggressively.

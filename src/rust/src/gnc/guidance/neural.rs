@@ -171,7 +171,7 @@ mod tests {
     use crate::data::guidance_params::{GuidanceParams, ReferenceTrajectory};
     use crate::data::incidence::IncidenceProfile;
     use crate::data::neural::{
-        Activation, DenseLayer, Layer, LayerSpec, NN_FULL_INPUT_SIZE, NeuralNetModel,
+        Activation, DenseLayer, Layer, LayerSpec, NN_FULL_INPUT_SIZE, NeuralNetModel, OutputParam,
     };
     use crate::data::pilot::{PilotModel, PilotType};
     use crate::data::{
@@ -316,6 +316,7 @@ mod tests {
             })],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         }
     }
 
@@ -430,6 +431,7 @@ mod tests {
             layers: vec![layer0, layer1],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let nav = test_nav();
@@ -502,6 +504,7 @@ mod tests {
             layers: vec![layer0, layer1],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let nav = test_nav();
@@ -547,6 +550,7 @@ mod tests {
             })],
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let nav = test_nav();
@@ -586,6 +590,7 @@ mod tests {
             })],
             input_mask: Some(vec![0, 8, 15]),
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let nav = test_nav();
@@ -629,6 +634,7 @@ mod tests {
             })],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let nn_ablated = NeuralNetModel {
@@ -645,6 +651,7 @@ mod tests {
             })],
             input_mask: None,
             ablated_input: Some(0),
+            output_param: OutputParam::default(),
         };
 
         let nav = test_nav();
@@ -696,6 +703,7 @@ mod tests {
             })],
             input_mask: Some((0..16).collect()),
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let nav = test_nav();
@@ -741,6 +749,7 @@ mod tests {
             })],
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let mut nav = test_nav();
@@ -792,6 +801,7 @@ mod tests {
                 })],
                 input_mask: None,
                 ablated_input: None,
+                output_param: OutputParam::default(),
             }
         }
 

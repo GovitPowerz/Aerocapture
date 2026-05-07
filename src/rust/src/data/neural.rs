@@ -96,6 +96,22 @@ pub enum Activation {
     Mish,
 }
 
+/// Output parameterization for the NN's bank-angle decoder.
+///
+/// `Atan2Signed` (default, backward-compatible): emits 2 outputs and
+/// `bank = atan2(out[0], out[1]) ∈ (-π, π]`.
+///
+/// `AcosTanh`: emits 1 output through `tanh` and `bank = acos(out[0]) ∈ [0, π]`.
+/// Only legal in `magnitude_only` mode (architecture validates last layer
+/// `output_size = 1` with activation `tanh`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputParam {
+    #[default]
+    Atan2Signed,
+    AcosTanh,
+}
+
 impl Activation {
     fn apply(self, x: f64) -> f64 {
         match self {
@@ -1127,6 +1143,9 @@ pub struct NeuralNetModel {
     /// Optional index of a single input to zero out (ablation analysis).
     /// Must be in [0, NN_FULL_INPUT_SIZE). None means no ablation.
     pub ablated_input: Option<usize>,
+    /// Output parameterization for the bank-angle decoder.
+    /// Default: `Atan2Signed` (2-output atan2, backward-compatible).
+    pub output_param: OutputParam,
 }
 
 impl NeuralNetModel {
@@ -1286,6 +1305,7 @@ impl NeuralNetModel {
             layers,
             input_mask: file.input_mask,
             ablated_input: file.ablated_input,
+            output_param: OutputParam::default(),
         })
     }
 
@@ -1905,6 +1925,7 @@ impl NeuralNetModel {
             layers,
             input_mask: file.input_mask,
             ablated_input: file.ablated_input,
+            output_param: OutputParam::default(),
         })
     }
 
@@ -2118,6 +2139,7 @@ impl NeuralNetModel {
             layers,
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         })
     }
 
@@ -2324,6 +2346,7 @@ impl NeuralNetModel {
             layers,
             input_mask,
             ablated_input: None,
+            output_param: OutputParam::default(),
         })
     }
 }
@@ -2362,6 +2385,7 @@ mod tests {
             ],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         }
     }
 
@@ -2470,6 +2494,7 @@ mod tests {
             ],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let flat = original.to_flat_weights();
@@ -2658,6 +2683,7 @@ mod tests {
             layers: vec![Layer::Gru(gru)],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let tmpdir = std::env::temp_dir();
@@ -2838,6 +2864,7 @@ mod tests {
             layers: vec![Layer::Lstm(lstm), Layer::Dense(dense_out)],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let tmpdir = std::env::temp_dir();
@@ -3026,6 +3053,7 @@ mod tests {
             ],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
         let mut state = NnState::for_model(&model);
 
@@ -3074,6 +3102,7 @@ mod tests {
             ],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let tmp = tempfile::NamedTempFile::new().unwrap();
@@ -4138,5 +4167,24 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn output_param_default_is_atan2_signed() {
+        let p: OutputParam = OutputParam::default();
+        assert_eq!(p, OutputParam::Atan2Signed);
+    }
+
+    #[test]
+    fn output_param_serde_round_trip() {
+        let p = OutputParam::AcosTanh;
+        let s = serde_json::to_string(&p).unwrap();
+        assert_eq!(s, "\"acos_tanh\"");
+        let back: OutputParam = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, p);
+
+        let p2 = OutputParam::Atan2Signed;
+        let s2 = serde_json::to_string(&p2).unwrap();
+        assert_eq!(s2, "\"atan2_signed\"");
     }
 }
