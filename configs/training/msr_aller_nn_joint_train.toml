@@ -1,0 +1,39 @@
+# MSR aller -- NN training with all three parity-bundle fixes ON.
+# Inherits FTC scaffolding values from training_output/ftc/best_params.json
+# at training start. PSO/GA jointly tunes scaffolding alongside the network weights.
+base = ["../missions/mars.toml", "common.toml"]
+
+[guidance]
+type = "neural_network"
+
+[guidance.neural_network]
+mode = "magnitude_only"
+optimize_scaffolding = true
+output_parameterization = "acos_tanh"
+warm_start_from = "training_output/ftc/best_params.json"
+
+[network]
+input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
+[[network.architecture]]
+type = "dense"
+input_size = 21
+output_size = 32
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 32
+output_size = 16
+activation = "swish"
+
+# Last layer: single output through tanh, fed into acos at runtime to emit [0, π] magnitude.
+[[network.architecture]]
+type = "dense"
+input_size = 16
+output_size = 1
+activation = "tanh"
+
+[data]
+neural_network = "training_output/neural_network_joint/best_model.json"
+results_suffix = ".train_nn_joint"
