@@ -26,6 +26,11 @@ activation = "swish"
 [[network.architecture]]
 type = "gru"
 input_size = 32
+hidden_size = 32
+
+[[network.architecture]]
+type = "gru"
+input_size = 32
 hidden_size = 16
 
 [[network.architecture]]
