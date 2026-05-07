@@ -24,10 +24,12 @@ except ImportError:
     _aero_rs = None  # type: ignore[assignment]
     _HAS_PYO3 = False
 
-# Reserved seed offsets -- guarantees training, validation, and final eval
-# never share the same RNG stream.
+# Reserved seed offsets — guarantees training, validation, final eval, RL
+# training, and supervised warm-start collection never share the same RNG stream.
 VALIDATION_SEED_OFFSET = 1_000_000
 FINAL_EVAL_SEED_OFFSET = 2_000_000
+RL_TRAINING_SEED_OFFSET = 3_000_000
+WARM_START_SEED_OFFSET = 4_000_000
 
 
 def make_reserved_seeds(base_mc_seed: int, offset: int, n: int) -> list[int]:
