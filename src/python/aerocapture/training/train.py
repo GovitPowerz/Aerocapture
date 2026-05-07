@@ -77,20 +77,28 @@ def build_initial_population_for_v2(
     bound_multiplier: float,
     rng: np.random.Generator,
     param_specs: list[ParamSpec],
+    scaffolding_slab: npt.NDArray[np.float64] | None = None,
 ) -> npt.NDArray[np.float64]:
     """Activation-aware initial population for v2 architectures.
 
-    Calls init_v2_population to draw physical weights per layer type
-    (dense uniform Xavier, gru/lstm tanh-Xavier gates + N(0, 0.01*mul) biases
-    + forget-bias-1 on LSTM bias_ih), then normalizes to PSO's [0, 1]
-    search space per ParamSpec bound.
+    When `scaffolding_slab` is provided (shape `(n_pop, n_scaffolding)`),
+    appends it as the trailing slab of every individual. Used when
+    `optimize_scaffolding = true` to seed scaffolding from FTC's optimum.
     """
     physical = init_v2_population(architecture, n_pop, bound_multiplier, rng)
     n_pop_actual, n_params = physical.shape
-    assert n_params == len(param_specs), f"init_v2_population produced {n_params} params, ParamSpec has {len(param_specs)}"
-    normalized = np.empty_like(physical)
-    for j, s in enumerate(param_specs):
+    n_scaff = 0 if scaffolding_slab is None else scaffolding_slab.shape[1]
+    n_weight_specs = len(param_specs) - n_scaff
+    assert n_params == n_weight_specs, (
+        f"init_v2_population produced {n_params} params, ParamSpec has "
+        f"{n_weight_specs} weight specs (total {len(param_specs)}, scaff {n_scaff})"
+    )
+    normalized = np.empty((n_pop_actual, len(param_specs)), dtype=np.float64)
+    for j in range(n_weight_specs):
+        s = param_specs[j]
         normalized[:, j] = np.clip((physical[:, j] - s.p_min) / (s.p_max - s.p_min), 0.0, 1.0)
+    if scaffolding_slab is not None:
+        normalized[:, n_weight_specs:] = scaffolding_slab
     return normalized
 
 
@@ -524,12 +532,28 @@ def train(
             )
         elif config.guidance_type == "neural_network" and config.network.architecture is not None:
             # v2 heterogeneous NN: per-layer activation-aware init with LSTM forget-bias-1.
+            scaffolding_slab = None
+            if config.network.optimize_scaffolding:
+                from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
+
+                ftc_params_path = (
+                    _toml.get("guidance", {}).get("neural_network", {}).get("warm_start_from")
+                    or "training_output/ftc/best_params.json"
+                )
+                scaffolding_slab = build_scaffolding_initial_slab(
+                    ftc_params_path,
+                    list(_NN_SCAFFOLDING_PARAMS),
+                    config.optimizer.n_pop,
+                    rng,
+                    jitter=0.02,
+                )
             pop_array = build_initial_population_for_v2(
                 config.network.architecture,
                 config.optimizer.n_pop,
                 bound_multiplier=2.0,
                 rng=rng,
                 param_specs=param_specs,
+                scaffolding_slab=scaffolding_slab,
             )
         else:
             # Non-NN scheme: uniform [0, 1] with ParamSpec-defaults seeding.
