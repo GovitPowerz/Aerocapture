@@ -895,6 +895,9 @@ if __name__ == "__main__":
         cfg.network.activations = _net["activations"]
     if "input_mask" in _net:
         cfg.network.input_mask = _net["input_mask"]
+    _gnn = _toml_data.get("guidance", {}).get("neural_network", {})
+    if "optimize_scaffolding" in _gnn:
+        cfg.network.optimize_scaffolding = bool(_gnn["optimize_scaffolding"])
     if cfg.network.architecture is not None:
         cfg.network.__post_init__()  # re-validate once all fields are set
     cfg.sim.final_file = "output/final.train_nn_temp"

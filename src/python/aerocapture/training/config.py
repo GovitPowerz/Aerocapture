@@ -31,6 +31,7 @@ class NetworkConfig:
     activations: list[str] = field(default_factory=lambda: ["tanh", "asinh"])
     input_mask: list[int] | None = None
     architecture: list[dict] | None = None
+    optimize_scaffolding: bool = False
 
     def __post_init__(self) -> None:
         if self.architecture is not None:
