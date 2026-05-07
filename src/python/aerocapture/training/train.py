@@ -572,7 +572,7 @@ def train(
                 from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
 
                 ftc_params_path = (
-                    _toml.get("guidance", {}).get("neural_network", {}).get("warm_start_from")
+                    config.network.warm_start_from
                     or "training_output/ftc/best_params.json"
                 )
                 scaffolding_slab = build_scaffolding_initial_slab(
@@ -582,14 +582,33 @@ def train(
                     rng,
                     jitter=0.02,
                 )
-            pop_array = build_initial_population_for_v2(
-                config.network.architecture,
-                config.optimizer.n_pop,
-                bound_multiplier=2.0,
-                rng=rng,
-                param_specs=param_specs,
-                scaffolding_slab=scaffolding_slab,
-            )
+
+            if config.network.warm_start_from:
+                from aerocapture.training.warm_start import build_warm_start_chromosome
+
+                warm_chromo = build_warm_start_chromosome(
+                    cfg=config,
+                    n_warm_seeds=200,
+                    n_epochs=10,
+                    rng=rng,
+                )
+                n_pop = config.optimizer.n_pop
+                pop_array = np.tile(warm_chromo, (n_pop, 1))
+                n_scaff = 17 if config.network.optimize_scaffolding else 0
+                n_weights = len(warm_chromo) - n_scaff
+                pop_array[:, :n_weights] += rng.normal(0.0, 0.02, size=(n_pop, n_weights))
+                pop_array[:, :n_weights] = np.clip(pop_array[:, :n_weights], 0.0, 1.0)
+                if scaffolding_slab is not None:
+                    pop_array[:, n_weights:] = scaffolding_slab
+            else:
+                pop_array = build_initial_population_for_v2(
+                    config.network.architecture,
+                    config.optimizer.n_pop,
+                    bound_multiplier=2.0,
+                    rng=rng,
+                    param_specs=param_specs,
+                    scaffolding_slab=scaffolding_slab,
+                )
         else:
             # Non-NN scheme: uniform [0, 1] with ParamSpec-defaults seeding.
             pop_array = create_initial_population(
@@ -1017,6 +1036,21 @@ if __name__ == "__main__":
         cfg.network.optimize_scaffolding = bool(_gnn["optimize_scaffolding"])
     if "output_parameterization" in _gnn:
         cfg.network.output_parameterization = str(_gnn["output_parameterization"])
+    if "warm_start_from" in _gnn:
+        cfg.network.warm_start_from = str(_gnn["warm_start_from"])
+    if cfg.network.warm_start_from is not None:
+        nn_mode = _gnn.get("mode", "full_neural")
+        if nn_mode != "magnitude_only":
+            print(
+                f"ERROR: warm_start_from is set but [guidance.neural_network] mode={nn_mode!r}. "
+                f"Behavioural-cloning targets unsigned bank magnitude; only magnitude_only mode "
+                f"can consume the cloned NN's output."
+            )
+            raise SystemExit(1)
+        warm_path = Path(cfg.network.warm_start_from)
+        if not warm_path.exists():
+            print(f"ERROR: warm_start_from='{warm_path}' does not exist")
+            raise SystemExit(1)
     if cfg.network.architecture is not None:
         cfg.network.__post_init__()  # re-validate once all fields are set
     cfg.sim.final_file = "output/final.train_nn_temp"
