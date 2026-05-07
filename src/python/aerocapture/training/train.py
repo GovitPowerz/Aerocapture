@@ -329,6 +329,17 @@ def train(
                 config.network.layer_sizes,
                 config.network.activations,
             )
+
+        if config.network.optimize_scaffolding:
+            if config.network.architecture is None:
+                msg = (
+                    "optimize_scaffolding=true requires v2 [[network.architecture]]; "
+                    "v1 layer_sizes/activations is not supported. Convert your config."
+                )
+                raise ValueError(msg)
+            from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
+
+            param_specs = [*param_specs, *_NN_SCAFFOLDING_PARAMS]
     else:
         param_specs = PARAM_SPACES[config.guidance_type]
 
