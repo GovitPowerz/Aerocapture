@@ -156,8 +156,12 @@ pub fn nn_bank_angle(
         target_inclination,
         ref_velocity_latched,
     );
+    use crate::data::neural::OutputParam;
     let output = nn.forward(nn_state, &masked);
-    output[0].atan2(output[1])
+    match nn.output_param {
+        OutputParam::Atan2Signed => output[0].atan2(output[1]),
+        OutputParam::AcosTanh => output[0].acos(),
+    }
 }
 
 #[cfg(test)]
@@ -833,6 +837,39 @@ mod tests {
 
                 prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
             }
+        }
+
+        #[test]
+        fn acos_tanh_parameterization_emits_acos_of_output() {
+            use crate::data::neural::{
+                Activation, DenseLayer, Layer, LayerSpec, NeuralNetModel, OutputParam,
+            };
+
+            let nn = NeuralNetModel {
+                architecture: vec![LayerSpec::Dense {
+                    input_size: 16,
+                    output_size: 1,
+                    activation: Activation::Tanh,
+                }],
+                layer_sizes: vec![16, 1],
+                layers: vec![Layer::Dense(DenseLayer {
+                    w: vec![vec![0.0; 16]],
+                    b: vec![0.5],
+                    activation: Activation::Tanh,
+                })],
+                input_mask: None,
+                ablated_input: None,
+                output_param: OutputParam::AcosTanh,
+            };
+
+            let nav = test_nav();
+            let data = test_sim_data();
+            let planet = PlanetConfig::mars();
+            let mut state = NnState::for_model(&nn);
+            let bank = nn_bank_angle(&nav, &nn, &mut state, &data, &planet, 50.0_f64.to_radians(), 0.0);
+
+            let expected = (0.5_f64).tanh().acos();
+            assert!((bank - expected).abs() < 1e-12, "bank={bank} expected={expected}");
         }
     }
 }
