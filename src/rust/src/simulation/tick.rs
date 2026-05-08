@@ -157,7 +157,6 @@ pub fn step_one_tick(
                 state.guidance_state.reference_velocity,
             );
             state
-                .run_state
                 .supervised_trace
                 .push((nn_input, guidance_out.pre_lateral_magnitude));
         }

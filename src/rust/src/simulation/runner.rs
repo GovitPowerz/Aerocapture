@@ -148,6 +148,12 @@ pub struct SimState {
     pub(crate) run_state: init::RunState,
     pub(crate) nav_biases: crate::gnc::navigation::estimator::NavigationBiases,
 
+    // ── Supervised trace (only populated when config.collect_supervised=true) ──
+    // Lives on SimState (not RunState) so that the per-tick run_state.clone()
+    // calls in tick.rs do NOT deep-copy the growing trace vector. This was
+    // O(N²) memory churn during supervised data collection.
+    pub(crate) supervised_trace: Vec<(Vec<f64>, f64)>,
+
     // ── Photo output accumulators ──
     pub(crate) photo_lines: Vec<[f64; 30]>,
     pub(crate) cumulative_bank_change_deg: f64,
@@ -327,6 +333,7 @@ pub fn build_sim_state(
         first_iter: true,
         run_state,
         nav_biases,
+        supervised_trace: Vec::new(),
         photo_lines: Vec::new(),
         cumulative_bank_change_deg: 0.0,
         dynamic_pressure_for_photo: 0.0,
@@ -966,6 +973,7 @@ fn run_single(
         // Dispersed run state
         run_state,
         nav_biases,
+        supervised_trace: Vec::new(),
         // Photo output accumulators
         photo_lines: Vec::new(),
         cumulative_bank_change_deg: 0.0,
@@ -1209,7 +1217,7 @@ fn run_single(
     let photo_lines = std::mem::take(&mut sim_state.photo_lines);
 
     let supervised_trace = if config.collect_supervised {
-        std::mem::take(&mut sim_state.run_state.supervised_trace)
+        std::mem::take(&mut sim_state.supervised_trace)
     } else {
         Vec::new()
     };
