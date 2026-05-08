@@ -585,7 +585,13 @@ mod tests {
 
     #[test]
     fn mask_selects_correct_inputs() {
-        // 3->2 network with mask [0, 8, 15]
+        // 3->2 network with mask [0, 8, 15] selecting inputs at those indices
+        // from the full 21-element candidate vector. Each output neuron has
+        // a UNIQUE weight per masked column so a misordered or wrong-index
+        // mask would produce a different result.
+        //
+        // We verify this by computing the expected output in closed form
+        // from the inputs we know `build_nn_input` produces for `test_nav()`.
         let nn = NeuralNetModel {
             architecture: vec![LayerSpec::Dense {
                 input_size: 3,
@@ -594,7 +600,10 @@ mod tests {
             }],
             layer_sizes: vec![3, 2],
             layers: vec![Layer::Dense(DenseLayer {
-                w: vec![vec![0.1; 3], vec![0.1; 3]],
+                // Distinct weights per column so any reordering / misindexing changes the output:
+                //   y[0] = 1.0 * x[0] + 2.0 * x[1] + 3.0 * x[2] + 0.0
+                //   y[1] = 4.0 * x[0] + 5.0 * x[1] + 6.0 * x[2] + 1.0
+                w: vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]],
                 b: vec![0.0, 1.0],
                 activation: Activation::Linear,
             })],
@@ -606,20 +615,35 @@ mod tests {
         let nav = test_nav();
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
-        let mut state = NnState::for_model(&nn);
-        let bank = nn_bank_angle(
+        let target_inc = 50.0_f64.to_radians();
+        let ref_velocity = 0.0;
+
+        // Compute the expected masked input vector by calling build_nn_input
+        // with the full mask first, then picking indices 0, 8, 15 manually.
+        let full_mask: Vec<usize> = (0..21).collect();
+        let full_input = build_nn_input(
             &nav,
-            &nn,
-            &mut state,
+            Some(&full_mask),
+            None,
             &data,
             &planet,
-            50.0_f64.to_radians(),
-            0.0,
+            target_inc,
+            ref_velocity,
         );
+        let x0 = full_input[0];
+        let x8 = full_input[8];
+        let x15 = full_input[15];
+        let expected_y0 = 1.0 * x0 + 2.0 * x8 + 3.0 * x15;
+        let expected_y1 = 4.0 * x0 + 5.0 * x8 + 6.0 * x15 + 1.0;
+        let expected_bank = expected_y0.atan2(expected_y1);
+
+        // Run the actual code path with the same nav state.
+        let mut state = NnState::for_model(&nn);
+        let bank = nn_bank_angle(&nav, &nn, &mut state, &data, &planet, target_inc, ref_velocity);
 
         assert!(
-            bank.is_finite(),
-            "bank angle must be finite with mask, got: {bank}"
+            (bank - expected_bank).abs() < 1e-12,
+            "mask must select inputs at [0, 8, 15] in order: expected atan2({expected_y0}, {expected_y1})={expected_bank}, got {bank}"
         );
     }
 
