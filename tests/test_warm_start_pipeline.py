@@ -138,3 +138,63 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
     baseline_mse = float(np.mean(target_cos**2))
     mse = float(np.mean((pred - target_cos) ** 2))
     print(f"  cloned NN MSE={mse:.4f}, baseline (predict 0) MSE={baseline_mse:.4f}")
+
+
+@pytest.mark.slow
+def test_warm_start_atan2_signed_with_optimize_scaffolding(tmp_path: Path):
+    """Coverage for the gru_pso production path: atan2_signed + scaffolding.
+
+    The original smoke covered only (acos_tanh, optimize_scaffolding=False).
+    The gru_pso production config uses (atan2_signed, optimize_scaffolding=True),
+    so it has been silently uncovered. This test exercises both knobs.
+
+    Asserts:
+    - chromosome shape includes the 17 scaffolding params at the tail
+    - all values in [0, 1]
+    - cache files exist
+    - cache key includes optimize_scaffolding (regression for fix #4)
+    """
+    repo_root = Path(__file__).parents[1]
+    ftc_params = repo_root / "training_output" / "ftc" / "best_params.json"
+    if not ftc_params.exists():
+        pytest.skip("FTC training output absent")
+
+    import json as _json
+
+    from aerocapture.training.config import NetworkConfig, TrainingConfig
+    from aerocapture.training.warm_start import build_warm_start_chromosome
+
+    cfg = TrainingConfig()
+    cfg.guidance_type = "neural_network"
+    cfg.network = NetworkConfig(
+        architecture=[
+            {"type": "dense", "input_size": 21, "output_size": 8, "activation": "swish"},
+            {"type": "dense", "input_size": 8, "output_size": 2, "activation": "asinh"},
+        ],
+        input_mask=list(range(21)),
+        output_parameterization="atan2_signed",
+        optimize_scaffolding=True,
+    )
+    cfg.sim.toml_config = "configs/training/msr_aller_ftc_train.toml"
+    cfg.sim.exec_dir = str(repo_root)
+    cfg.save_dir = str(tmp_path / "warm_atan2")
+    Path(cfg.save_dir).mkdir(parents=True, exist_ok=True)
+
+    rng = np.random.default_rng(0)
+    chromo = build_warm_start_chromosome(
+        cfg=cfg,
+        n_warm_seeds=4,
+        n_epochs=2,
+        rng=rng,
+    )
+    # 21*8 + 8 + 8*2 + 2 = 194 NN weights + 17 scaffolding = 211
+    assert chromo.shape == (211,), chromo.shape
+    assert (chromo >= 0.0).all() and (chromo <= 1.0).all()
+
+    cache_key_path = Path(cfg.save_dir) / "warm_start_cache_key.json"
+    assert cache_key_path.exists()
+    cache_key = _json.loads(cache_key_path.read_text())
+    # Regression for fix #4: optimize_scaffolding must appear in the cache key.
+    assert "optimize_scaffolding" in cache_key, f"cache key missing optimize_scaffolding: {cache_key}"
+    assert cache_key["optimize_scaffolding"] is True
+    assert cache_key["output_parameterization"] == "atan2_signed"
