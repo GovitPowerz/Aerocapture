@@ -17,8 +17,12 @@
 //! as a teacher signal (always live, not bounce-gated). Pre-bounce, with
 //! `ref_velocity_latched = 0`, it degenerates to pure radial-velocity damping.
 //!
-//! Output mapping: the network emits 2 outputs and the signed bank angle is
-//! `atan2(out[0], out[1])`. No other interpretation is supported.
+//! Output mapping: dispatched on `nn.output_param` (`OutputParam`).
+//! - `Atan2Signed` (default): network emits 2 outputs; signed bank is
+//!   `atan2(out[0], out[1]) ∈ (-π, π]`.
+//! - `AcosTanh`: network emits 1 output through a `tanh` last layer (so
+//!   `out[0] ∈ [-1, 1]`); bank magnitude is `out[0].acos() ∈ [0, π]`.
+//!   Only legal in `magnitude_only` mode.
 
 use crate::config::PlanetConfig;
 use crate::data::SimData;

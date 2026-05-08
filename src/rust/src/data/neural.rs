@@ -990,9 +990,10 @@ impl LayerWeights for Layer {
 }
 
 /// JSON file structure for neural network models (v1 schema).
-/// `output_interpretation` is not modelled: the field is obsolete and silently
-/// ignored in legacy files. Bank is always derived from the 2-output vector
-/// via atan2 -- output_size is validated to be 2 at load time.
+/// v1 always loads with `OutputParam::Atan2Signed` (the bank-decoder
+/// parameterization is a v2 feature; v1 files predate it). The legacy
+/// `output_interpretation` field is silently ignored. Output_size is
+/// validated to match the parameterization at load time.
 #[derive(Debug, Clone, Deserialize)]
 struct NnJsonFile {
     #[allow(dead_code)]
@@ -1110,8 +1111,11 @@ pub enum LayerSpec {
 }
 
 /// JSON file structure for neural network models (v2 schema).
-/// `output_interpretation` is not modelled: obsolete and silently ignored in
-/// legacy files. Bank is always derived from the 2-output vector via atan2.
+/// `output_param` selects the bank-angle decoder: `Atan2Signed` (default,
+/// 2-output `atan2`) or `AcosTanh` (1-output `acos(tanh(x))`, magnitude_only
+/// mode only). When absent in older v2 files, defaults to `Atan2Signed`
+/// for backward compat. The legacy `output_interpretation` field is silently
+/// ignored.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct NnJsonFileV2 {
     format_version: u32,
