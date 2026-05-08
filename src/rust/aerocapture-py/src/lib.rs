@@ -435,7 +435,7 @@ fn collect_supervised(
             // running collect_supervised on a TOML that points `[data] neural_network`
             // at a not-yet-trained best_model.json would error at SimData construction.
             let mut seed_overrides = base_overrides.clone();
-            seed_overrides.push(("monte_carlo.n_sims".to_string(), config::OverrideValue::Int(1)));
+            seed_overrides.push(("simulation.n_sims".to_string(), config::OverrideValue::Int(1)));
             seed_overrides.push(("monte_carlo.seed".to_string(), config::OverrideValue::Int(seed as i64)));
             seed_overrides.push(("guidance.type".to_string(), config::OverrideValue::Str(scheme.clone())));
 
