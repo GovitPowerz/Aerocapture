@@ -1200,6 +1200,27 @@ impl NeuralNetModel {
         Ok(())
     }
 
+    /// Validate that the last layer's activation matches the output_param
+    /// constraint. `AcosTanh` requires `Tanh` so that `output[0] ∈ [-1, 1]`
+    /// and `output[0].acos()` is well-defined. `Atan2Signed` has no constraint.
+    /// Without this guard a hand-crafted (or trainer-bug-produced) v2 JSON with
+    /// `output_param: "acos_tanh"` plus `linear`/`asinh`/`swish` last activation
+    /// loads silently and emits NaN at runtime when |out[0]| > 1.
+    pub fn validate_output_activation(
+        last_activation: Activation,
+        output_param: OutputParam,
+        path: &str,
+    ) -> Result<(), DataError> {
+        if output_param == OutputParam::AcosTanh && last_activation != Activation::Tanh {
+            return Err(DataError(format!(
+                "output_param=AcosTanh requires last-layer activation=Tanh, \
+                 got {:?} in {}. Without tanh, out[0] is unbounded and acos(>1) returns NaN.",
+                last_activation, path
+            )));
+        }
+        Ok(())
+    }
+
     /// Validate that ablated_input is within [0, NN_FULL_INPUT_SIZE).
     pub fn validate_ablated_input(ablated: &Option<usize>) -> Result<(), DataError> {
         if let Some(idx) = ablated
@@ -1925,6 +1946,15 @@ impl NeuralNetModel {
 
         let output_size = *layer_sizes.last().unwrap_or(&0);
         Self::validate_output_size(output_size, file.output_param, path)?;
+        let last_activation = match file.architecture.last() {
+            Some(LayerSpec::Dense { activation, .. }) => *activation,
+            // Non-dense final layer with AcosTanh would have failed
+            // validate_output_size when output_param=AcosTanh expects
+            // output_size=1 (only Dense exposes a configurable output_size+activation
+            // pair); for Atan2Signed the activation is irrelevant so default is fine.
+            _ => Activation::Tanh,
+        };
+        Self::validate_output_activation(last_activation, file.output_param, path)?;
 
         Ok(NeuralNetModel {
             architecture: file.architecture,
@@ -2348,6 +2378,11 @@ impl NeuralNetModel {
 
         let output_size = *layer_sizes.last().unwrap();
         Self::validate_output_size(output_size, output_param, "<flat_weights_v2>")?;
+        let last_activation = match architecture.last() {
+            Some(LayerSpec::Dense { activation, .. }) => *activation,
+            _ => Activation::Tanh,
+        };
+        Self::validate_output_activation(last_activation, output_param, "<flat_weights_v2>")?;
 
         Ok(NeuralNetModel {
             architecture: architecture.to_vec(),
@@ -4237,5 +4272,50 @@ mod tests {
         }"#;
         let m = NeuralNetModel::from_json_str(json, "<test>").unwrap();
         assert_eq!(m.output_param, OutputParam::Atan2Signed);
+    }
+
+    #[test]
+    fn acos_tanh_with_non_tanh_activation_rejected_at_v2_json_load() {
+        let json = r#"{
+            "format_version": 2,
+            "output_param": "acos_tanh",
+            "architecture": [{"type": "dense", "input_size": 2, "output_size": 1, "activation": "linear"}],
+            "weights": {
+                "layer_0": {"w": [[0.1, 0.2]], "b": [0.0]}
+            }
+        }"#;
+        let result = NeuralNetModel::from_json_str(json, "<test>");
+        assert!(result.is_err());
+        let msg = format!("{:?}", result.unwrap_err());
+        assert!(msg.contains("AcosTanh"), "expected AcosTanh in error, got: {}", msg);
+        assert!(msg.contains("Tanh"), "expected Tanh in error, got: {}", msg);
+    }
+
+    #[test]
+    fn acos_tanh_with_asinh_activation_rejected_at_v2_json_load() {
+        let json = r#"{
+            "format_version": 2,
+            "output_param": "acos_tanh",
+            "architecture": [{"type": "dense", "input_size": 2, "output_size": 1, "activation": "asinh"}],
+            "weights": {
+                "layer_0": {"w": [[0.1, 0.2]], "b": [0.0]}
+            }
+        }"#;
+        let result = NeuralNetModel::from_json_str(json, "<test>");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn acos_tanh_with_tanh_activation_accepted_at_v2_json_load() {
+        let json = r#"{
+            "format_version": 2,
+            "output_param": "acos_tanh",
+            "architecture": [{"type": "dense", "input_size": 2, "output_size": 1, "activation": "tanh"}],
+            "weights": {
+                "layer_0": {"w": [[0.1, 0.2]], "b": [0.0]}
+            }
+        }"#;
+        let m = NeuralNetModel::from_json_str(json, "<test>").unwrap();
+        assert_eq!(m.output_param, OutputParam::AcosTanh);
     }
 }
