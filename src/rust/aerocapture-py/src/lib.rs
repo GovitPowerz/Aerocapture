@@ -429,16 +429,23 @@ fn collect_supervised(
 
     py.detach(|| {
         for seed in seeds {
-            // Build per-seed overrides: force n_sims=1, set seed.
+            // Build per-seed overrides: force n_sims=1, set seed, force guidance type
+            // BEFORE config load so the TOML-driven NN-file load (gated on
+            // guidance.type == "neural_network") is skipped. Without this override,
+            // running collect_supervised on a TOML that points `[data] neural_network`
+            // at a not-yet-trained best_model.json would error at SimData construction.
             let mut seed_overrides = base_overrides.clone();
             seed_overrides.push(("monte_carlo.n_sims".to_string(), config::OverrideValue::Int(1)));
             seed_overrides.push(("monte_carlo.seed".to_string(), config::OverrideValue::Int(seed as i64)));
+            seed_overrides.push(("guidance.type".to_string(), config::OverrideValue::Str(scheme.clone())));
 
             let (mut sim_input, sim_data) =
                 config::load_and_override(std::path::Path::new(&toml_path), &seed_overrides)
                     .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
             sim_input.collect_supervised = true;
+            // guidance_type was already set by the TOML override above; this is belt-and-braces
+            // in case load_and_override's override resolution diverges from from_toml's gating.
             sim_input.guidance_type = scheme_enum;
 
             let outputs = aerocapture::simulation::runner::run_for_api(
