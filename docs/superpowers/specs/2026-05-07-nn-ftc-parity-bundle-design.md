@@ -340,15 +340,20 @@ Steps:
    JSON cache key:
    ```json
    {
-     "architecture": <list of layer dicts from cfg.network.architecture>,
-     "input_mask":   <list[int] from cfg.network.input_mask>,
-     "output_param": "atan2_signed" | "acos_tanh",
-     "source_path":  <warm_start_from value>,
-     "source_mtime": <float, mtime of warm_start_from>,
-     "n_warm_seeds": 200,
-     "n_epochs":     10
+     "architecture":             <list of layer dicts from cfg.network.architecture>,
+     "input_mask":               <list[int] from cfg.network.input_mask>,
+     "output_parameterization":  "atan2_signed" | "acos_tanh",
+     "optimize_scaffolding":     <bool>,
+     "toml_config":              <relative path to training TOML>,
+     "source_path":              <warm_start_from value>,
+     "source_mtime":             <float, mtime of warm_start_from>,
+     "n_warm_seeds":             200,
+     "n_epochs":                 10
    }
    ```
+   The field name `output_parameterization` matches the TOML knob name
+   for end-to-end consistency. `optimize_scaffolding` and `toml_config`
+   were added during a post-spec review to close cache-staleness paths.
    Cache hit requires every key to match. Architecture changes,
    re-running FTC, or flipping `output_parameterization` invalidate the
    cache automatically.
