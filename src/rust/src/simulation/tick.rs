@@ -143,7 +143,11 @@ pub fn step_one_tick(
             config.guidance_type,
         );
 
-        if config.collect_supervised {
+        // Supervised-trace push gates on guidance.longitudinal_active=1 so we
+        // don't pollute the dataset with inhibited-guidance ticks where the
+        // recorded magnitude is just |reference_bank_angle| (constant per
+        // config). Active-only rows give the regression target real signal.
+        if config.collect_supervised && guidance_out.longitudinal_active == 1 {
             // Explicit full mask: select all 21 inputs.
             // Passing None would trigger the backward-compat default (first 16 only).
             const FULL_MASK: [usize; 21] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];

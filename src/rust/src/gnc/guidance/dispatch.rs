@@ -234,7 +234,12 @@ pub fn guidance_step(
 
     // Record the unsigned magnitude post-thermal-limiter, before lateral sign selection.
     // For signed-bank schemes (PiecewiseConstant, NN FullNeural) this is 0.0 (not meaningful).
-    if !(matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural) {
+    // Also gate on `longitudinal_active == 1`: when guidance is inhibited the magnitude
+    // is just `|reference_bank_angle|` regardless of state — recording those ticks would
+    // pollute supervised datasets with constant rows that have zero variance vs. inputs.
+    if longitudinal_active == 1
+        && !(matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural)
+    {
         out.pre_lateral_magnitude = bank_angle_longitudinal;
     }
 
