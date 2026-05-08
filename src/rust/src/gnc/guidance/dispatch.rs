@@ -1200,6 +1200,90 @@ mod tests {
         );
     }
 
+    /// Acos_tanh end-to-end golden: a fixed 16->1 tanh-output NN with
+    /// known bias `b` produces commanded bank `acos(tanh(b))` after going
+    /// through the magnitude_only pipeline (signed.abs() is a no-op since
+    /// acos always returns [0, π], thermal limiter is benign at 0% heat
+    /// flux, lateral guidance picks +1 sign, command shaper is disabled).
+    /// This is the "trajectory golden" the spec required: a fixed-input
+    /// scenario where the bank command is computable in closed form, so
+    /// any regression in the new code paths (OutputParam dispatch, JSON
+    /// serde, validate_output_activation, magnitude_only routing) is
+    /// caught with a single assertion.
+    #[test]
+    fn acos_tanh_magnitude_only_end_to_end_golden() {
+        use crate::data::guidance_params::NeuralNetMode;
+        use crate::data::neural::{
+            Activation, DenseLayer, Layer, LayerSpec, NeuralNetModel, OutputParam,
+        };
+
+        // 16 -> 1 NN, weights all 0, bias = 0.7. tanh(0 * x + 0.7) = tanh(0.7) ≈ 0.604.
+        // acos(0.604) ≈ 0.9220 rad. This is the expected commanded magnitude.
+        let bias = 0.7_f64;
+        let expected_bank = bias.tanh().acos(); // ≈ 0.92204
+        let nn = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: 16,
+                output_size: 1,
+                activation: Activation::Tanh,
+            }],
+            layer_sizes: vec![16, 1],
+            layers: vec![Layer::Dense(DenseLayer {
+                w: vec![vec![0.0; 16]],
+                b: vec![bias],
+                activation: Activation::Tanh,
+            })],
+            input_mask: None,
+            ablated_input: None,
+            output_param: OutputParam::AcosTanh,
+        };
+
+        let mut nav = test_nav();
+        // Zero heat flux so thermal limiter is benign (cos_bank passes through).
+        nav.heat_flux_fraction = 0.0;
+        nav.heat_load_fraction = 0.0;
+
+        let planet = PlanetConfig::mars();
+        let mut data = test_sim_data();
+        data.neural_net = Some(nn.clone());
+        data.guidance.neural_mode = NeuralNetMode::MagnitudeOnly;
+        // Disable command shaper so we see the raw bank command (lateral may
+        // multiply by ±1 sign).
+        data.guidance.command_shaping = None;
+        // Wide rate cap to neutralize the rate clamp.
+        data.capsule.max_bank_rate = 10.0_f64.to_radians() * 100.0;
+
+        let mut state = GuidanceState::new(expected_bank, -0.48_f64.to_radians(), Some(&nn));
+        state.bank_angle_realized = expected_bank;
+
+        let out = guidance_step(
+            &nav,
+            expected_bank,
+            0.0,
+            expected_bank,
+            &mut state,
+            &data,
+            &planet,
+            false,
+            GuidanceType::NeuralNetwork,
+        );
+
+        // |bank_angle_commanded| should match acos(tanh(bias)). Lateral may have
+        // applied a sign of ±1 — strip it.
+        let actual_magnitude = out.bank_angle_commanded.abs();
+        assert!(
+            (actual_magnitude - expected_bank).abs() < 1e-9,
+            "acos_tanh magnitude_only golden: expected |bank|={expected_bank} (acos(tanh({bias}))), got {actual_magnitude}"
+        );
+        // pre_lateral_magnitude exposes the raw post-thermal-limiter magnitude
+        // before sign assignment — should equal expected_bank exactly.
+        assert!(
+            (out.pre_lateral_magnitude - expected_bank).abs() < 1e-9,
+            "pre_lateral_magnitude should equal acos(tanh(bias))={expected_bank}, got {}",
+            out.pre_lateral_magnitude
+        );
+    }
+
     /// PiecewiseConstant scheme should ignore phase 2 (produces its own signed bank).
     #[test]
     fn piecewise_constant_ignores_exit_phase() {
