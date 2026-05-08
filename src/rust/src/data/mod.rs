@@ -981,7 +981,15 @@ fn validate_output_parameterization(
                 .to_string(),
         ));
     }
-    if let Some(arch) = architecture {
+    let arch = architecture.ok_or_else(|| {
+        DataError(
+            "output_parameterization='acos_tanh' requires v2 [[network.architecture]] entries; \
+             v1 layer_sizes/activations is not supported. Convert your config to use \
+             [[network.architecture]] with last-layer output_size=1, activation='tanh'."
+                .to_string(),
+        )
+    })?;
+    {
         let last = arch.last().ok_or_else(|| {
             DataError(
                 "output_parameterization='acos_tanh' requires [[network.architecture]] entries"
@@ -1223,5 +1231,25 @@ mod tests {
         // None always passes regardless of mode or architecture.
         validate_output_parameterization(None, guidance_params::NeuralNetMode::FullNeural, None)
             .expect("None output_param should always be valid");
+    }
+
+    #[test]
+    fn acos_tanh_with_v1_architecture_is_rejected() {
+        // v1 path (architecture=None) used to silently accept acos_tanh,
+        // which combined with the JSON-load NaN bug produced silent runtime
+        // NaN trajectories. Now must error with a clear remediation message.
+        let err = validate_output_parameterization(
+            Some("acos_tanh"),
+            guidance_params::NeuralNetMode::MagnitudeOnly,
+            None,
+        )
+        .expect_err("acos_tanh + v1 architecture should be rejected");
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("v2"), "expected v2 hint, got: {}", msg);
+        assert!(
+            msg.contains("[[network.architecture]]"),
+            "expected architecture hint, got: {}",
+            msg
+        );
     }
 }
