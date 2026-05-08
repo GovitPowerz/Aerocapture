@@ -206,9 +206,27 @@ def build_warm_start_chromosome(
     validated = TypeAdapter(list[LayerSpec]).validate_python(cfg.network.architecture)
     weight_specs = nn_param_specs_from_v2(validated, bound_multiplier=2.0)
     weight_chromo = np.empty(len(weight_specs), dtype=np.float64)
+    n_clipped = 0
     for i, s in enumerate(weight_specs):
         v = float(flat_weights[i])
-        weight_chromo[i] = np.clip((v - s.p_min) / (s.p_max - s.p_min), 0.0, 1.0)
+        normalized = (v - s.p_min) / (s.p_max - s.p_min)
+        if normalized < 0.0 or normalized > 1.0:
+            n_clipped += 1
+        weight_chromo[i] = np.clip(normalized, 0.0, 1.0)
+
+    # The PSO chromosome bounds are 2× Xavier; Adam-trained weights routinely drift
+    # past that, especially on the last layer. Heavy clipping means the warm-started
+    # population starts piled at chromosome boundaries — defeating the warm-start.
+    # Log so the user can react (widen bound_multiplier, fewer epochs, lower LR).
+    clip_rate = n_clipped / max(len(weight_specs), 1)
+    if clip_rate > 0.05:
+        print(
+            f"  [warm_start] WARNING: {n_clipped}/{len(weight_specs)} weights "
+            f"({100 * clip_rate:.1f}%) clipped to chromosome bounds. "
+            f"Consider widening bound_multiplier or reducing n_epochs/lr."
+        )
+    elif n_clipped > 0:
+        print(f"  [warm_start] {n_clipped}/{len(weight_specs)} weights clipped ({100 * clip_rate:.2f}%).")
 
     chromo = weight_chromo
     if cfg.network.optimize_scaffolding:
