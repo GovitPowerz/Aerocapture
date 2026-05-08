@@ -26,10 +26,19 @@ except ImportError as e:
 
 
 def _cache_key(cfg: TrainingConfig, source_path: Path, n_warm_seeds: int, n_epochs: int) -> dict:
+    # `optimize_scaffolding` and `toml_config` MUST be in the key:
+    # - `optimize_scaffolding` flips the cached chromosome width (NN weights
+    #   alone vs NN weights + 17 scaffolding slots). Caching across the flip
+    #   silently corrupts the initial population in train.py.
+    # - `toml_config` drives the supervised dataset (mission, dispersions,
+    #   constraint limits). Different TOMLs with the same architecture would
+    #   otherwise collide on the cache.
     return {
         "architecture": cfg.network.architecture,
         "input_mask": cfg.network.input_mask,
         "output_parameterization": cfg.network.output_parameterization or "atan2_signed",
+        "optimize_scaffolding": bool(cfg.network.optimize_scaffolding),
+        "toml_config": str(cfg.sim.toml_config) if cfg.sim.toml_config else None,
         "source_path": str(source_path),
         "source_mtime": source_path.stat().st_mtime,
         "n_warm_seeds": n_warm_seeds,
