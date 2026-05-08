@@ -683,6 +683,36 @@ impl SimData {
             (nn, _) => nn,
         };
 
+        // Cross-check TOML `[guidance.neural_network] output_parameterization`
+        // against the loaded model's `output_param`. The TOML is a training-time
+        // knob; the JSON model file is the deploy-time source of truth. They MUST
+        // agree if both are set — silently ignoring a mismatched TOML would mean
+        // the user's intent is unrepresented at runtime.
+        if let (Some(nn), Some(tnn)) = (&neural_net, &toml.guidance.neural_network)
+            && let Some(toml_param) = &tnn.output_parameterization
+        {
+            let toml_enum = match toml_param.as_str() {
+                "atan2_signed" => neural::OutputParam::Atan2Signed,
+                "acos_tanh" => neural::OutputParam::AcosTanh,
+                other => {
+                    return Err(DataError(format!(
+                        "[guidance.neural_network] output_parameterization='{}' is not recognized; \
+                         expected 'atan2_signed' or 'acos_tanh'",
+                        other
+                    )));
+                }
+            };
+            if nn.output_param != toml_enum {
+                return Err(DataError(format!(
+                    "TOML output_parameterization='{}' disagrees with the loaded model's \
+                     output_param={:?}. Either retrain the model with the TOML knob set to \
+                     '{}' before training (the trainer embeds it into best_model.json) or \
+                     align the TOML to match the model.",
+                    toml_param, nn.output_param, toml_param
+                )));
+            }
+        }
+
         // Domain-based Monte Carlo config (replaces lottery files)
         let dispersion_config = if let Some(ref mc) = toml.monte_carlo {
             Some(build_dispersion_config(mc)?)
