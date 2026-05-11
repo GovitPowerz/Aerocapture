@@ -154,11 +154,18 @@ def _policy_to_flat_weights(policy, architecture: list[dict]) -> npt.NDArray[np.
 
 def build_warm_start_chromosome(
     cfg: TrainingConfig,
+    base_mc_seed: int,
     n_warm_seeds: int = 200,
     n_epochs: int = 10,
     rng: np.random.Generator | None = None,
 ) -> npt.NDArray[np.float64]:
-    """Run cfg's source scheme on n_warm_seeds, supervised-pretrain V2Policy, return chromosome."""
+    """Run cfg's source scheme on n_warm_seeds, supervised-pretrain V2Policy, return chromosome.
+
+    `base_mc_seed` MUST be the resolved value train.py uses for the
+    validation/final-eval pools (i.e. `monte_carlo.seed` or 42 if absent).
+    Drawing warm-start seeds from a different base would break the
+    disjointness contract with those reserved pools.
+    """
     if rng is None:
         rng = np.random.default_rng(0)
 
@@ -178,7 +185,6 @@ def build_warm_start_chromosome(
         source_params = json.load(f)
     overrides = _build_overrides_for_source(source_params)
 
-    base_mc_seed = 42
     seeds = make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, n_warm_seeds)
 
     X_full, y = _aero_rs.collect_supervised(

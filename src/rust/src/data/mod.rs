@@ -713,6 +713,25 @@ impl SimData {
             }
         }
 
+        // Defense-in-depth: regardless of whether the TOML sets
+        // `output_parameterization`, an `acos_tanh` model emits a non-negative
+        // magnitude in `[0, π]`. Running it under `full_neural` mode would feed
+        // an unsigned magnitude through the signed-bank dispatch path, silently
+        // suppressing roll reversals. The deployed JSON is the runtime source
+        // of truth, so reject this combo at data load even when the TOML key
+        // is absent.
+        if let Some(nn) = &neural_net
+            && nn.output_param == neural::OutputParam::AcosTanh
+            && neural_mode != guidance_params::NeuralNetMode::MagnitudeOnly
+        {
+            return Err(DataError(
+                "loaded model has output_param='acos_tanh' which requires \
+                 [guidance.neural_network] mode='magnitude_only'; the model emits an \
+                 unsigned bank magnitude and cannot drive the signed-bank dispatch path."
+                    .to_string(),
+            ));
+        }
+
         // Domain-based Monte Carlo config (replaces lottery files)
         let dispersion_config = if let Some(ref mc) = toml.monte_carlo {
             Some(build_dispersion_config(mc)?)

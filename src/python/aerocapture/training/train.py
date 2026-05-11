@@ -571,10 +571,11 @@ def train(
             if config.network.optimize_scaffolding:
                 from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
 
-                ftc_params_path = (
-                    config.network.warm_start_from
-                    or "training_output/ftc/best_params.json"
-                )
+                # _NN_SCAFFOLDING_PARAMS are FTC's bounds; the seed always comes
+                # from FTC's best_params.json. warm_start_from is independent --
+                # it points at a behavioural-cloning source (any unsigned-magnitude
+                # scheme), not at a scaffolding source.
+                ftc_params_path = "training_output/ftc/best_params.json"
                 scaffolding_slab = build_scaffolding_initial_slab(
                     ftc_params_path,
                     list(_NN_SCAFFOLDING_PARAMS),
@@ -588,6 +589,7 @@ def train(
 
                 warm_chromo = build_warm_start_chromosome(
                     cfg=config,
+                    base_mc_seed=base_mc_seed,
                     n_warm_seeds=200,
                     n_epochs=10,
                     rng=rng,

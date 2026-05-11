@@ -37,6 +37,7 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
     rng = np.random.default_rng(0)
     chromo = build_warm_start_chromosome(
         cfg=cfg,
+        base_mc_seed=42,
         n_warm_seeds=4,
         n_epochs=20,  # enough epochs for the supervised loss to converge meaningfully
         rng=rng,
@@ -183,6 +184,7 @@ def test_warm_start_atan2_signed_with_optimize_scaffolding(tmp_path: Path):
     rng = np.random.default_rng(0)
     chromo = build_warm_start_chromosome(
         cfg=cfg,
+        base_mc_seed=42,
         n_warm_seeds=4,
         n_epochs=2,
         rng=rng,
