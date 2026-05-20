@@ -1,4 +1,5 @@
 """Tests for flat_weights_to_json's output_param plumbing (PSO production path)."""
+
 from __future__ import annotations
 
 import json
@@ -8,7 +9,7 @@ from pathlib import Path
 import pytest
 
 
-def test_flat_weights_to_json_embeds_acos_tanh_into_v2_file():
+def test_flat_weights_to_json_embeds_acos_tanh_into_v2_file() -> None:
     import aerocapture_rs
 
     arch = json.dumps([{"type": "dense", "input_size": 2, "output_size": 1, "activation": "tanh"}])
@@ -29,7 +30,7 @@ def test_flat_weights_to_json_embeds_acos_tanh_into_v2_file():
         Path(path).unlink(missing_ok=True)
 
 
-def test_flat_weights_to_json_embeds_atan2_signed_when_requested():
+def test_flat_weights_to_json_embeds_atan2_signed_when_requested() -> None:
     import aerocapture_rs
 
     arch = json.dumps([{"type": "dense", "input_size": 2, "output_size": 2, "activation": "asinh"}])
@@ -51,7 +52,7 @@ def test_flat_weights_to_json_embeds_atan2_signed_when_requested():
         Path(path).unlink(missing_ok=True)
 
 
-def test_flat_weights_to_json_default_omits_or_writes_atan2_signed():
+def test_flat_weights_to_json_default_omits_or_writes_atan2_signed() -> None:
     import aerocapture_rs
 
     arch = json.dumps([{"type": "dense", "input_size": 2, "output_size": 2, "activation": "asinh"}])
@@ -68,7 +69,7 @@ def test_flat_weights_to_json_default_omits_or_writes_atan2_signed():
         Path(path).unlink(missing_ok=True)
 
 
-def test_flat_weights_to_json_rejects_invalid_output_param():
+def test_flat_weights_to_json_rejects_invalid_output_param() -> None:
     import aerocapture_rs
 
     arch = json.dumps([{"type": "dense", "input_size": 2, "output_size": 1, "activation": "tanh"}])
@@ -94,7 +95,7 @@ def test_flat_weights_to_json_rejects_invalid_output_param():
         Path(path).unlink(missing_ok=True)
 
 
-def test_flat_weights_to_json_acos_tanh_rejects_non_tanh_activation():
+def test_flat_weights_to_json_acos_tanh_rejects_non_tanh_activation() -> None:
     """Catches the case where a PSO trainer accidentally produces a v2 JSON
     with output_param=acos_tanh but the last layer's activation is not tanh.
     The Rust validator catches this at from_flat_weights_v2 (added via fix #2)."""

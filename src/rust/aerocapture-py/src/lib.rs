@@ -435,9 +435,18 @@ fn collect_supervised(
             // running collect_supervised on a TOML that points `[data] neural_network`
             // at a not-yet-trained best_model.json would error at SimData construction.
             let mut seed_overrides = base_overrides.clone();
-            seed_overrides.push(("simulation.n_sims".to_string(), config::OverrideValue::Int(1)));
-            seed_overrides.push(("monte_carlo.seed".to_string(), config::OverrideValue::Int(seed as i64)));
-            seed_overrides.push(("guidance.type".to_string(), config::OverrideValue::Str(scheme.clone())));
+            seed_overrides.push((
+                "simulation.n_sims".to_string(),
+                config::OverrideValue::Int(1),
+            ));
+            seed_overrides.push((
+                "monte_carlo.seed".to_string(),
+                config::OverrideValue::Int(seed as i64),
+            ));
+            seed_overrides.push((
+                "guidance.type".to_string(),
+                config::OverrideValue::Str(scheme.clone()),
+            ));
 
             let (mut sim_input, sim_data) =
                 config::load_and_override(std::path::Path::new(&toml_path), &seed_overrides)
@@ -454,7 +463,9 @@ fn collect_supervised(
                 false,
                 wall_timeout,
             )
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {e}")))?;
+            .map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {e}"))
+            })?;
 
             for output in outputs {
                 for (nn_input, bank_mag) in output.supervised_trace {
@@ -466,8 +477,9 @@ fn collect_supervised(
         Ok::<_, PyErr>(())
     })?;
 
-    let x_array = numpy::PyArray2::from_vec2(py, &all_x_rows)
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build X array: {e}")))?;
+    let x_array = numpy::PyArray2::from_vec2(py, &all_x_rows).map_err(|e| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build X array: {e}"))
+    })?;
     let y_array = numpy::PyArray1::from_vec(py, all_y);
     Ok((x_array.unbind(), y_array.unbind()))
 }

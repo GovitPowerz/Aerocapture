@@ -120,7 +120,9 @@ impl NnState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::neural::{Activation, DenseLayer, Layer, LayerSpec, NeuralNetModel, OutputParam};
+    use crate::data::neural::{
+        Activation, DenseLayer, Layer, LayerSpec, NeuralNetModel, OutputParam,
+    };
 
     fn two_layer_model() -> NeuralNetModel {
         NeuralNetModel {

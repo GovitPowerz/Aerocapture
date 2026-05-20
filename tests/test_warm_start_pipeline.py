@@ -9,7 +9,7 @@ import pytest
 
 
 @pytest.mark.slow
-def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(tmp_path: Path):
+def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(tmp_path: Path) -> None:
     repo_root = Path(__file__).parents[1]
     ftc_params = repo_root / "training_output" / "ftc" / "best_params.json"
     if not ftc_params.exists():
@@ -58,11 +58,10 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
     # network, we use a generous threshold.
     import aerocapture_rs
     import torch
-    from pydantic import TypeAdapter
-
     from aerocapture.training.encoding import nn_param_specs_from_v2
     from aerocapture.training.rl.policy import V2Policy
     from aerocapture.training.rl.schemas import LayerSpec
+    from pydantic import TypeAdapter
 
     X_full, y = aerocapture_rs.collect_supervised(
         toml_path=cfg.sim.toml_config,
@@ -84,13 +83,14 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
     validated = TypeAdapter(list[LayerSpec]).validate_python(cfg.network.architecture)
     weight_specs = nn_param_specs_from_v2(validated, bound_multiplier=2.0)
     n_weights = len(weight_specs)
-    physical_weights = np.array(
-        [s.p_min + cached[i] * (s.p_max - s.p_min) for i, s in enumerate(weight_specs[:n_weights])]
-    )
+    physical_weights = np.array([s.p_min + cached[i] * (s.p_max - s.p_min) for i, s in enumerate(weight_specs[:n_weights])])
+
+    from aerocapture.training.rl.layers.dense import DenseLayer
 
     policy = V2Policy(validated, input_mask=cfg.network.input_mask).double()
     cursor = 0
     for layer in policy.layers:
+        assert isinstance(layer, DenseLayer)
         linear = layer.linear
         out_size, in_size = linear.weight.shape
         n_w = out_size * in_size
@@ -122,14 +122,9 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
     # itself. Heavy clipping (a real risk) is already flagged via the
     # warm_start clip-rate logging from fix #10.
     assert np.isfinite(pred).all(), "cloned NN produced NaN/Inf — check chromosome round-trip"
-    assert (pred >= -1.0 - 1e-9).all() and (pred <= 1.0 + 1e-9).all(), (
-        f"cloned NN tanh output out of [-1, 1]: pred range [{pred.min():.4f}, {pred.max():.4f}]"
-    )
+    assert (pred >= -1.0 - 1e-9).all() and (pred <= 1.0 + 1e-9).all(), f"cloned NN tanh output out of [-1, 1]: pred range [{pred.min():.4f}, {pred.max():.4f}]"
     pred_std = float(np.std(pred))
-    assert pred_std > 0.01, (
-        f"cloned NN produced near-constant output (std={pred_std:.4f}); "
-        f"likely full saturation or zero weights — check clip rate."
-    )
+    assert pred_std > 0.01, f"cloned NN produced near-constant output (std={pred_std:.4f}); likely full saturation or zero weights — check clip rate."
 
     # Soft MSE check: log the cloned MSE versus the predict-zero baseline.
     # If the cloned NN beats the baseline, log a happy message. If not, just
@@ -142,7 +137,7 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
 
 
 @pytest.mark.slow
-def test_warm_start_atan2_signed_with_optimize_scaffolding(tmp_path: Path):
+def test_warm_start_atan2_signed_with_optimize_scaffolding(tmp_path: Path) -> None:
     """Coverage for the gru_pso production path: atan2_signed + scaffolding.
 
     The original smoke covered only (acos_tanh, optimize_scaffolding=False).

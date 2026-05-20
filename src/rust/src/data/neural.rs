@@ -1190,7 +1190,11 @@ impl NeuralNetModel {
     /// for the given `output_param`:
     /// - `Atan2Signed`: requires output_size == 2 (bank = atan2(out[0], out[1]))
     /// - `AcosTanh`:    requires output_size == 1 (bank = acos(tanh(out[0])))
-    pub fn validate_output_size(output_size: usize, output_param: OutputParam, path: &str) -> Result<(), DataError> {
+    pub fn validate_output_size(
+        output_size: usize,
+        output_param: OutputParam,
+        path: &str,
+    ) -> Result<(), DataError> {
         let expected = match output_param {
             OutputParam::Atan2Signed => 2,
             OutputParam::AcosTanh => 1,
@@ -2786,7 +2790,13 @@ mod tests {
         //   Dense 4->2: 4*2 + 2 = 10
         // Total: 146
         let flat: Vec<f64> = (0..146).map(|i| 0.001 * i as f64).collect();
-        let model = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None, OutputParam::default()).unwrap();
+        let model = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &architecture,
+            None,
+            OutputParam::default(),
+        )
+        .unwrap();
         assert_eq!(model.layers.len(), 3);
         assert_eq!(model.layer_sizes, vec![3, 4, 4, 2]);
 
@@ -2856,11 +2866,21 @@ mod tests {
         }];
         // Dense 3->4 needs 16 params. Too short should Err.
         let flat = vec![0.0; 10];
-        let err = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None, OutputParam::default());
+        let err = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &architecture,
+            None,
+            OutputParam::default(),
+        );
         assert!(err.is_err());
         // Too long should also Err.
         let flat = vec![0.0; 20];
-        let err = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None, OutputParam::default());
+        let err = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &architecture,
+            None,
+            OutputParam::default(),
+        );
         assert!(err.is_err());
     }
 
@@ -3200,7 +3220,9 @@ mod tests {
         ];
         // Total param count = 0 (window) + 12*2 + 2 = 26.
         let flat: Vec<f64> = (0..26).map(|i| i as f64 * 0.01).collect();
-        let model = NeuralNetModel::from_flat_weights_v2(&flat, &arch, None, OutputParam::default()).unwrap();
+        let model =
+            NeuralNetModel::from_flat_weights_v2(&flat, &arch, None, OutputParam::default())
+                .unwrap();
 
         match &model.layers[0] {
             Layer::Window(w) => {
@@ -3527,7 +3549,9 @@ mod tests {
         // Transformer: 154 params; Dense(4->2): 4*2 + 2 = 10 params
         let total = 154 + 10;
         let flat: Vec<f64> = (0..total).map(|i| (i as f64) * 0.01 + 0.5).collect();
-        let model = NeuralNetModel::from_flat_weights_v2(&flat, &arch, None, OutputParam::default()).unwrap();
+        let model =
+            NeuralNetModel::from_flat_weights_v2(&flat, &arch, None, OutputParam::default())
+                .unwrap();
         let round = model.to_flat_weights();
         assert_eq!(round.len(), total);
         for (i, (a, b)) in flat.iter().zip(round.iter()).enumerate() {
@@ -3586,7 +3610,13 @@ mod tests {
         let flat: Vec<f64> = (0..dummy_flat_len)
             .map(|i| (i as f64) * 0.003 - 0.7)
             .collect();
-        let model = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None, OutputParam::default()).unwrap();
+        let model = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &architecture,
+            None,
+            OutputParam::default(),
+        )
+        .unwrap();
         assert_eq!(model.n_params(), dummy_flat_len);
 
         let tmpdir = std::env::temp_dir();
@@ -3652,7 +3682,13 @@ mod tests {
             },
         ];
         let flat: Vec<f64> = (0..202).map(|i| ((i % 7) as f64) * 0.01).collect();
-        let model = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None, OutputParam::default()).unwrap();
+        let model = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &architecture,
+            None,
+            OutputParam::default(),
+        )
+        .unwrap();
         assert_eq!(model.n_params(), 202);
 
         let mut state = NnState::for_model(&model);
@@ -3971,7 +4007,13 @@ mod tests {
         ];
         // Dense(8->4) = 36, Mamba(4, 2, 1) = 4*(6+2+2) = 40, Dense(4->2) = 10; total 86.
         let flat: Vec<f64> = (0..86).map(|i| (i as f64) * 0.017 - 0.9).collect();
-        let model = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None, OutputParam::default()).unwrap();
+        let model = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &architecture,
+            None,
+            OutputParam::default(),
+        )
+        .unwrap();
         assert_eq!(model.n_params(), 86);
 
         let tmpdir = std::env::temp_dir();
@@ -4291,7 +4333,11 @@ mod tests {
         let result = NeuralNetModel::from_json_str(json, "<test>");
         assert!(result.is_err());
         let msg = format!("{:?}", result.unwrap_err());
-        assert!(msg.contains("AcosTanh"), "expected AcosTanh in error, got: {}", msg);
+        assert!(
+            msg.contains("AcosTanh"),
+            "expected AcosTanh in error, got: {}",
+            msg
+        );
         assert!(msg.contains("Tanh"), "expected Tanh in error, got: {}", msg);
     }
 

@@ -639,7 +639,15 @@ mod tests {
 
         // Run the actual code path with the same nav state.
         let mut state = NnState::for_model(&nn);
-        let bank = nn_bank_angle(&nav, &nn, &mut state, &data, &planet, target_inc, ref_velocity);
+        let bank = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut state,
+            &data,
+            &planet,
+            target_inc,
+            ref_velocity,
+        );
 
         assert!(
             (bank - expected_bank).abs() < 1e-12,
@@ -896,10 +904,21 @@ mod tests {
             let data = test_sim_data();
             let planet = PlanetConfig::mars();
             let mut state = NnState::for_model(&nn);
-            let bank = nn_bank_angle(&nav, &nn, &mut state, &data, &planet, 50.0_f64.to_radians(), 0.0);
+            let bank = nn_bank_angle(
+                &nav,
+                &nn,
+                &mut state,
+                &data,
+                &planet,
+                50.0_f64.to_radians(),
+                0.0,
+            );
 
             let expected = (0.5_f64).tanh().acos();
-            assert!((bank - expected).abs() < 1e-12, "bank={bank} expected={expected}");
+            assert!(
+                (bank - expected).abs() < 1e-12,
+                "bank={bank} expected={expected}"
+            );
         }
     }
 }

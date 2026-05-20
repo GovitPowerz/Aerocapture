@@ -1,11 +1,14 @@
 """Smoke test for the collect_supervised PyO3 helper."""
+
 from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 
 
 @pytest.mark.slow
-def test_collect_supervised_returns_finite_traces():
+def test_collect_supervised_returns_finite_traces() -> None:
     import aerocapture_rs
     import numpy as np
 
@@ -24,7 +27,7 @@ def test_collect_supervised_returns_finite_traces():
 
 
 @pytest.mark.slow
-def test_collect_supervised_overrides_neural_network_guidance_type(tmp_path):
+def test_collect_supervised_overrides_neural_network_guidance_type(tmp_path: Path) -> None:
     """Regression for commit 2539901: collect_supervised must push guidance.type
     into seed_overrides BEFORE load_and_override constructs SimData.
 
@@ -59,7 +62,7 @@ def test_collect_supervised_overrides_neural_network_guidance_type(tmp_path):
 
 
 @pytest.mark.slow
-def test_collect_supervised_rejects_nn_scheme():
+def test_collect_supervised_rejects_nn_scheme() -> None:
     """scheme='neural_network' is not allowed — collect_supervised is for non-NN
     schemes that produce unsigned magnitude bank commands.
     """

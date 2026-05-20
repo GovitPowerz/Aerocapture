@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
@@ -18,6 +19,9 @@ from aerocapture.training.config import NetworkConfig, TrainingConfig
 from aerocapture.training.encoding import encode_to_normalized, nn_param_specs_from_v2
 from aerocapture.training.evaluate import WARM_START_SEED_OFFSET, make_reserved_seeds
 from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
+
+if TYPE_CHECKING:
+    from aerocapture.training.rl.policy import V2Policy
 
 try:
     import aerocapture_rs as _aero_rs
@@ -54,7 +58,7 @@ def _cache_hit(save_dir: Path, expected_key: dict) -> npt.NDArray[np.float64] | 
     saved_key = json.loads(key_path.read_text())
     if saved_key != expected_key:
         return None
-    return np.load(chromo_path)
+    return np.asarray(np.load(chromo_path), dtype=np.float64)
 
 
 _INTEGER_PARAM_NAMES: frozenset[str] = frozenset(s.name for s in _NN_SCAFFOLDING_PARAMS if s.is_integer)
@@ -89,7 +93,7 @@ def _supervised_pretrain(
     n_epochs: int,
     batch_size: int = 256,
     lr: float = 1e-3,
-):
+) -> V2Policy:
     import torch
     from pydantic import TypeAdapter
     from torch import nn
@@ -129,7 +133,7 @@ def _supervised_pretrain(
     return policy
 
 
-def _policy_to_flat_weights(policy, architecture: list[dict]) -> npt.NDArray[np.float64]:
+def _policy_to_flat_weights(policy: V2Policy, architecture: list[dict]) -> npt.NDArray[np.float64]:
     """Extract physical weights in canonical flat order (row-major W then b per dense layer).
 
     V2Policy wraps each dense layer as a DenseLayer(nn.Linear), so we walk the
@@ -202,14 +206,18 @@ def build_warm_start_chromosome(
     mask = cfg.network.input_mask if cfg.network.input_mask is not None else list(range(16))
     X = X_full[:, mask]
 
+    if cfg.network.architecture is None:
+        raise ValueError("warm-start requires cfg.network.architecture; got None")
+    architecture = cfg.network.architecture
+
     policy = _supervised_pretrain(X, y, cfg.network, n_epochs)
-    flat_weights = _policy_to_flat_weights(policy, cfg.network.architecture)
+    flat_weights = _policy_to_flat_weights(policy, architecture)
 
     from pydantic import TypeAdapter
 
     from aerocapture.training.rl.schemas import LayerSpec
 
-    validated = TypeAdapter(list[LayerSpec]).validate_python(cfg.network.architecture)
+    validated = TypeAdapter(list[LayerSpec]).validate_python(architecture)
     weight_specs = nn_param_specs_from_v2(validated, bound_multiplier=2.0)
     weight_chromo = np.empty(len(weight_specs), dtype=np.float64)
     n_clipped = 0

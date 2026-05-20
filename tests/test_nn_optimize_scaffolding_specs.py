@@ -1,4 +1,5 @@
 """train.py NN-branch param-spec list must include scaffolding when knob is on."""
+
 from __future__ import annotations
 
 from aerocapture.training.encoding import nn_param_specs_from_v2
@@ -12,9 +13,9 @@ def _toy_arch() -> list[dict]:
     ]
 
 
-def test_specs_include_scaffolding_when_knob_on():
-    from pydantic import TypeAdapter
+def test_specs_include_scaffolding_when_knob_on() -> None:
     from aerocapture.training.rl.schemas import LayerSpec
+    from pydantic import TypeAdapter
 
     arch = _toy_arch()
     validated = TypeAdapter(list[LayerSpec]).validate_python(arch)
@@ -23,12 +24,12 @@ def test_specs_include_scaffolding_when_knob_on():
     full_specs = [*base_specs, *_NN_SCAFFOLDING_PARAMS]
 
     assert len(full_specs) == len(base_specs) + 17
-    tail_names = [s.name for s in full_specs[len(base_specs):]]
+    tail_names = [s.name for s in full_specs[len(base_specs) :]]
     expected_names = [s.name for s in _NN_SCAFFOLDING_PARAMS]
     assert tail_names == expected_names
 
 
-def test_specs_match_chromosome_widths_per_knob_state():
+def test_specs_match_chromosome_widths_per_knob_state() -> None:
     """Verify the chromosome width changes by exactly 17 when optimize_scaffolding
     flips. With the knob OFF, param_specs is just NN weights; with ON, the 17
     scaffolding params are appended at the tail.
@@ -36,8 +37,8 @@ def test_specs_match_chromosome_widths_per_knob_state():
     This was previously misnamed `test_specs_unchanged_when_knob_off` and only
     asserted `len(base_specs) > 0`. It now actually exercises both knob states.
     """
-    from pydantic import TypeAdapter
     from aerocapture.training.rl.schemas import LayerSpec
+    from pydantic import TypeAdapter
 
     arch = _toy_arch()
     validated = TypeAdapter(list[LayerSpec]).validate_python(arch)
@@ -52,14 +53,11 @@ def test_specs_match_chromosome_widths_per_knob_state():
     # Ensure no scaffolding leak when knob is off
     knob_off_names = {s.name for s in knob_off_full}
     scaff_names = {s.name for s in _NN_SCAFFOLDING_PARAMS}
-    assert knob_off_names.isdisjoint(scaff_names), (
-        "knob-off chromosome must not contain scaffolding params"
-    )
+    assert knob_off_names.isdisjoint(scaff_names), "knob-off chromosome must not contain scaffolding params"
 
 
-def test_resume_with_shape_mismatch_fails_loud():
+def test_resume_with_shape_mismatch_fails_loud() -> None:
     import numpy as np
-
     from aerocapture.training.train import _check_resume_chromosome_shape
 
     saved_pop = np.zeros((4, 1266))

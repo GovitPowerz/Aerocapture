@@ -46,7 +46,7 @@ _EXPECTED_SCAFFOLDING_NAMES: list[str] = [
 ]
 
 
-def test_nn_scaffolding_matches_expected_names_in_expected_order():
+def test_nn_scaffolding_matches_expected_names_in_expected_order() -> None:
     actual_names = [s.name for s in _NN_SCAFFOLDING_PARAMS]
     assert actual_names == _EXPECTED_SCAFFOLDING_NAMES, (
         "scaffolding chromosome layout drifted. If this is intentional, update "
@@ -57,11 +57,11 @@ def test_nn_scaffolding_matches_expected_names_in_expected_order():
     )
 
 
-def test_nn_scaffolding_has_seventeen_params():
+def test_nn_scaffolding_has_seventeen_params() -> None:
     assert len(_NN_SCAFFOLDING_PARAMS) == 17
 
 
-def test_nn_scaffolding_names_are_unique_and_prefixed():
+def test_nn_scaffolding_names_are_unique_and_prefixed() -> None:
     names = [s.name for s in _NN_SCAFFOLDING_PARAMS]
     assert len(set(names)) == len(names), "duplicate names"
     valid = ("nav.", "lateral.", "exit.", "thermal.", "shaping.")

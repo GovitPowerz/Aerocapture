@@ -160,8 +160,8 @@ pub fn guidance_step(
     // the same unsigned-magnitude pipeline as FTC and the other parametric schemes.
     let nn_full_neural = matches!(guidance_type, GuidanceType::NeuralNetwork)
         && data.guidance.neural_mode == NeuralNetMode::FullNeural;
-    let uses_exit_guidance = !(matches!(guidance_type, GuidanceType::PiecewiseConstant)
-        || nn_full_neural);
+    let uses_exit_guidance =
+        !(matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural);
 
     if is_reference {
         state.bank_angle_commanded = reference_bank_angle;
@@ -219,8 +219,8 @@ pub fn guidance_step(
 
     // === Thermal safety limiter (unsigned-magnitude schemes only) ===
     // Same gating as exit: NN in MagnitudeOnly mode goes through the limiter.
-    let uses_thermal_limiter = !(matches!(guidance_type, GuidanceType::PiecewiseConstant)
-        || nn_full_neural);
+    let uses_thermal_limiter =
+        !(matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural);
     if uses_thermal_limiter && longitudinal_active == 1 && !is_reference {
         let cos_bank = bank_angle_longitudinal.cos();
         let cos_limited = thermal_limiter::apply_thermal_limit(

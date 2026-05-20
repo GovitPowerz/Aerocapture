@@ -447,7 +447,9 @@ impl SimData {
         validate_output_parameterization(
             output_param_toml,
             neural_mode,
-            toml.network.as_ref().and_then(|n| n.architecture.as_deref()),
+            toml.network
+                .as_ref()
+                .and_then(|n| n.architecture.as_deref()),
         )?;
 
         // FTC guidance params

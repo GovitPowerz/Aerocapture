@@ -111,8 +111,7 @@ def build_initial_population_for_v2(
     n_scaff = 0 if scaffolding_slab is None else scaffolding_slab.shape[1]
     n_weight_specs = len(param_specs) - n_scaff
     assert n_params == n_weight_specs, (
-        f"init_v2_population produced {n_params} params, ParamSpec has "
-        f"{n_weight_specs} weight specs (total {len(param_specs)}, scaff {n_scaff})"
+        f"init_v2_population produced {n_params} params, ParamSpec has {n_weight_specs} weight specs (total {len(param_specs)}, scaff {n_scaff})"
     )
     normalized = np.empty((n_pop_actual, len(param_specs)), dtype=np.float64)
     for j in range(n_weight_specs):
@@ -156,10 +155,7 @@ def build_scaffolding_initial_slab(
     spec_names = {s.name for s in scaffolding_specs}
     missing = spec_names - set(ftc_params.keys())
     if missing:
-        msg = (
-            f"FTC params file '{ftc_params_path}' missing scaffolding keys: "
-            f"{sorted(missing)}. Re-run FTC training so its best_params.json includes them."
-        )
+        msg = f"FTC params file '{ftc_params_path}' missing scaffolding keys: {sorted(missing)}. Re-run FTC training so its best_params.json includes them."
         raise KeyError(msg)
 
     center = encode_to_normalized(ftc_params, list(scaffolding_specs))
@@ -225,16 +221,16 @@ def save_checkpoint(
             n_scaff = 17 if config.network.optimize_scaffolding else 0
             n_weights = len(param_specs) - n_scaff
             weights = _decode_nn_weights(best_individual[:n_weights], param_specs[:n_weights])
-            write_nn_json(weights, config.network, save_dir / "best_model.json", input_mask=config.network.input_mask, output_param=config.network.output_parameterization)
+            write_nn_json(
+                weights, config.network, save_dir / "best_model.json", input_mask=config.network.input_mask, output_param=config.network.output_parameterization
+            )
             if cwd is not None:
                 nn_path = Path(cwd) / config.sim.nn_param_file
                 write_nn_json(weights, config.network, nn_path, input_mask=config.network.input_mask, output_param=config.network.output_parameterization)
             if n_scaff > 0:
                 from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
 
-                scaff_params = decode_normalized(
-                    best_individual[n_weights:], list(_NN_SCAFFOLDING_PARAMS)
-                )
+                scaff_params = decode_normalized(best_individual[n_weights:], list(_NN_SCAFFOLDING_PARAMS))
                 for s in _NN_SCAFFOLDING_PARAMS:
                     if s.is_integer and s.name in scaff_params:
                         scaff_params[s.name] = int(round(scaff_params[s.name]))
@@ -421,10 +417,7 @@ def train(
 
         if config.network.optimize_scaffolding:
             if config.network.architecture is None:
-                msg = (
-                    "optimize_scaffolding=true requires v2 [[network.architecture]]; "
-                    "v1 layer_sizes/activations is not supported. Convert your config."
-                )
+                msg = "optimize_scaffolding=true requires v2 [[network.architecture]]; v1 layer_sizes/activations is not supported. Convert your config."
                 raise ValueError(msg)
             from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
 
@@ -1242,9 +1235,7 @@ if __name__ == "__main__":
             if n_scaff > 0:
                 from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
 
-                scaff_params = decode_normalized(
-                    result["best_individual"][n_weights:], list(_NN_SCAFFOLDING_PARAMS)
-                )
+                scaff_params = decode_normalized(result["best_individual"][n_weights:], list(_NN_SCAFFOLDING_PARAMS))
                 for s in _NN_SCAFFOLDING_PARAMS:
                     if s.is_integer and s.name in scaff_params:
                         scaff_params[s.name] = int(round(scaff_params[s.name]))
