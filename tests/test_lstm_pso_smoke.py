@@ -23,7 +23,7 @@ def test_lstm_pso_smoke_2_gens(tmp_path: Path) -> None:
 
     # Input dimension must match the TOML's [network] input_mask.
     architecture = [
-        {"type": "dense", "input_size": 23, "output_size": 8, "activation": "tanh"},
+        {"type": "dense", "input_size": 21, "output_size": 8, "activation": "tanh"},
         {"type": "lstm", "input_size": 8, "hidden_size": 8},
         {"type": "dense", "input_size": 8, "output_size": 2, "activation": "linear"},
     ]
@@ -31,7 +31,7 @@ def test_lstm_pso_smoke_2_gens(tmp_path: Path) -> None:
 
     nn_cfg = NetworkConfig(
         architecture=architecture,
-        input_mask=list(range(23)),
+        input_mask=list(range(21)),
     )
     sim_cfg = SimConfig(
         executable="src/rust/target/release/aerocapture",
@@ -70,7 +70,7 @@ def test_lstm_pso_smoke_2_gens(tmp_path: Path) -> None:
     assert layer_types == ["dense", "lstm", "dense"], f"unexpected arch: {layer_types}"
 
     # Rust nn_forward consumes the produced JSON.
-    zeros_input = [0.0] * 23
+    zeros_input = [0.0] * 21
     output = aerocapture_rs.nn_forward(str(best_model), zeros_input)
     assert len(output) == 2
     assert all(isinstance(v, float) for v in output)

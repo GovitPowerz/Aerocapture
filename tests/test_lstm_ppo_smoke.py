@@ -30,9 +30,9 @@ def test_lstm_ppo_smoke_5_updates(tmp_path: Path) -> None:
     # every dimension so the smoke test fits in CI (~60-90s).
     resolved = load_toml_with_bases(Path("configs/training/msr_aller_lstm_ppo_train.toml"))
 
-    # Shrink the architecture: Dense(23->8) -> LSTM(8, hidden=8) -> Dense(8->2).
+    # Shrink the architecture: Dense(21->8) -> LSTM(8, hidden=8) -> Dense(8->2).
     resolved["network"]["architecture"] = [
-        {"type": "dense", "input_size": 23, "output_size": 8, "activation": "tanh"},
+        {"type": "dense", "input_size": 21, "output_size": 8, "activation": "tanh"},
         {"type": "lstm", "input_size": 8, "hidden_size": 8},
         {"type": "dense", "input_size": 8, "output_size": 2, "activation": "linear"},
     ]
@@ -98,6 +98,6 @@ def test_lstm_ppo_smoke_5_updates(tmp_path: Path) -> None:
     assert "lstm" in layer_types
 
     # Rust nn_forward consumes the produced JSON and returns a finite 2-tuple.
-    output = aerocapture_rs.nn_forward(str(best_model), [0.0] * 23)
+    output = aerocapture_rs.nn_forward(str(best_model), [0.0] * 21)
     assert len(output) == 2
     assert all(isinstance(v, float) for v in output)

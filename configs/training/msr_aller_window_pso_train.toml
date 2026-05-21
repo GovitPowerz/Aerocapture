@@ -10,16 +10,16 @@ results_suffix = ".train_window_pso"
 [network]
 # 16-input baseline (orbital + aero + thermal state). Window provides history;
 # the paper hypothesis isolates short-term memory from the baseline MLP inputs.
-input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 
 [[network.architecture]]
 type = "window"
-input_size = 23
+input_size = 21
 n_steps = 8
 
 [[network.architecture]]
 type = "dense"
-input_size = 184
+input_size = 168
 output_size = 32
 activation = "swish"
 

@@ -46,7 +46,7 @@ TRAINING_OUTPUT_DIR = REPO_ROOT / "training_output" / "__pytest_mamba_e2e__"
 
 @pytest.mark.slow
 def test_mamba_pso_end_to_end_single_generation(tmp_path: Path) -> None:
-    # Minimal Mamba-containing TOML: Dense(23->8,tanh) -> Mamba(8, 4, 1) -> Dense(8->2,linear)
+    # Minimal Mamba-containing TOML: Dense(21->8,tanh) -> Mamba(8, 4, 1) -> Dense(8->2,linear)
     # n_pop=4, n_gen=1, training_n_sims=2, validation_n_sims=2, seed_strategy=fixed
     # -> roughly 4 individuals * (2 training + 2 validation) = ~16 MC sims total
     config = tmp_path / "mamba_e2e.toml"
@@ -64,11 +64,11 @@ def test_mamba_pso_end_to_end_single_generation(tmp_path: Path) -> None:
         results_suffix = ".test_mamba_e2e"
 
         [network]
-        input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+        input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 
         [[network.architecture]]
         type = "dense"
-        input_size = 23
+        input_size = 21
         output_size = 8
         activation = "tanh"
 
