@@ -38,9 +38,7 @@ NN_INPUT_NAMES: list[str] = [
     "pdyn_nominal",  # 17
     "hdot_nominal",  # 18
     "pdyn_error",  # 19
-    "exit_bank_angle",  # 20
-    "density_exit",  # 21
-    "ref_velocity_latched",  # 22
+    "exit_bank_teacher",  # 20
 ]
 
 # Index of dv_total_m_s in the 52-column final_record array (0-based, includes sim_number).

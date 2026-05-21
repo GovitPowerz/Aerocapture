@@ -51,6 +51,7 @@ EXPECTED_SAVE_DIRS = {
     "neural_network": Path("training_output/neural_network"),
     "neural_network_rl": Path("training_output/neural_network_rl"),
     "neural_network_gru_pso": Path("training_output/neural_network_gru_pso"),
+    "neural_network_gru_pso_magonly": Path("training_output/neural_network_gru_pso_magonly"),
     "neural_network_gru_ppo": Path("training_output/neural_network_gru_ppo"),
     "neural_network_lstm_pso": Path("training_output/neural_network_lstm_pso"),
     "neural_network_lstm_ppo": Path("training_output/neural_network_lstm_ppo"),

@@ -34,12 +34,14 @@ SCHEMES = [
     "neural_network",
     "neural_network_rl",
     "neural_network_gru_pso",
+    "neural_network_gru_pso_magonly",
     "neural_network_gru_ppo",
     "neural_network_lstm_pso",
     "neural_network_lstm_ppo",
     "neural_network_window_pso",
     "neural_network_transformer_pso",
     "neural_network_mamba_pso",
+    "neural_network_joint",
     "piecewise_constant",
 ]
 
@@ -55,12 +57,14 @@ SCHEME_TRAINING_CONFIGS: dict[str, str] = {
     "neural_network": "configs/training/msr_aller_nn_train_consolidated.toml",
     "neural_network_rl": "configs/training/msr_aller_rl_train.toml",
     "neural_network_gru_pso": "configs/training/msr_aller_gru_pso_train.toml",
+    "neural_network_gru_pso_magonly": "configs/training/msr_aller_gru_pso_magonly_train.toml",
     "neural_network_gru_ppo": "configs/training/msr_aller_gru_ppo_train.toml",
     "neural_network_lstm_pso": "configs/training/msr_aller_lstm_pso_train.toml",
     "neural_network_lstm_ppo": "configs/training/msr_aller_lstm_ppo_train.toml",
     "neural_network_window_pso": "configs/training/msr_aller_window_pso_train.toml",
     "neural_network_transformer_pso": "configs/training/msr_aller_transformer_pso_train.toml",
     "neural_network_mamba_pso": "configs/training/msr_aller_mamba_pso_train.toml",
+    "neural_network_joint": "configs/training/msr_aller_nn_joint_train.toml",
     "piecewise_constant": "configs/training/msr_aller_piecewise_constant_train.toml",
 }
 
@@ -70,12 +74,14 @@ _NN_DEPLOY_SCHEMES = {
     "neural_network",
     "neural_network_rl",
     "neural_network_gru_pso",
+    "neural_network_gru_pso_magonly",
     "neural_network_gru_ppo",
     "neural_network_lstm_pso",
     "neural_network_lstm_ppo",
     "neural_network_window_pso",
     "neural_network_transformer_pso",
     "neural_network_mamba_pso",
+    "neural_network_joint",
 }
 
 
@@ -133,6 +139,28 @@ def run_scheme(
             default_nn = "data/neural_network/nn_model.json"
             toml_data["data"]["neural_network"] = default_nn
             print(f"  Using default NN weights from {default_nn}")
+
+        # Load optimized scaffolding params if present (written when optimize_scaffolding=true)
+        scaff_path = params_dir / scheme / "best_params.json" if params_dir else None
+        if scaff_path and scaff_path.exists():
+            with open(scaff_path) as f:
+                scaff_params = json.load(f)
+            for key, value in scaff_params.items():
+                if key.startswith("lateral."):
+                    bare = key.removeprefix("lateral.")
+                    if bare == "max_reversals":
+                        value = int(round(value))
+                    toml_data["guidance"].setdefault("lateral", {})[bare] = value
+                elif key.startswith("exit."):
+                    toml_data["guidance"].setdefault("ftc", {})[key.removeprefix("exit.")] = value
+                elif key.startswith("nav."):
+                    toml_data.setdefault("navigation", {})[key.removeprefix("nav.")] = value
+                elif key.startswith("thermal."):
+                    toml_data["guidance"].setdefault("thermal_limiter", {})[key.removeprefix("thermal.")] = value
+                elif key.startswith("shaping."):
+                    toml_data["guidance"].setdefault("command_shaping", {})[key.removeprefix("shaping.")] = value
+                    toml_data["guidance"]["command_shaping"].setdefault("enabled", True)
+            print(f"  Using optimized NN scaffolding from {scaff_path}")
     else:
         toml_data.get("data", {}).pop("neural_network", None)
 

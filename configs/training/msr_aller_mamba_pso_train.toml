@@ -8,11 +8,11 @@ neural_network = "training_output/neural_network_mamba_pso/best_model.json"
 results_suffix = ".train_mamba_pso"
 
 [network]
-input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 
 [[network.architecture]]
 type = "dense"
-input_size = 16
+input_size = 21
 output_size = 32
 activation = "swish"
 
@@ -57,7 +57,7 @@ algorithm = "pso"
 n_pop = 64
 n_gen = 2000
 seed_strategy = "rotating"
-training_n_sims = 20
+training_n_sims = 50
 validation_n_sims = 1000
 seed_pool_interval = 50
 curation_sample_size = 1000

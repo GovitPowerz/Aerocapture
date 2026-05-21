@@ -51,6 +51,14 @@ class AerocaptureProblem(Problem):
         self.nn_config = nn_config
         self._integer_params = {s.name for s in param_specs if s.is_integer}
 
+        # NN+optimize_scaffolding: chromosome layout is [NN weights..., 17 scaffolding...].
+        # _n_nn_weight_specs caps the slice that gets fed to write_nn_json so the flat
+        # weight vector matches the network's actual parameter count. Without this,
+        # write_nn_json gets the full chromosome and from_flat_weights_v2 errors with
+        # "weight vector length mismatch".
+        opt_scaff = bool(getattr(nn_config, "optimize_scaffolding", False)) if nn_config is not None else False
+        self._n_nn_weight_specs = len(param_specs) - (17 if opt_scaff else 0)
+
     def update_seeds(self, seeds: list[int]) -> None:
         self.seeds = seeds
 
@@ -93,16 +101,20 @@ class AerocaptureProblem(Problem):
             nn_cfg = self.nn_config
             assert isinstance(nn_cfg, NetworkConfig)
             nn_tmp_paths = []
+            n_w = self._n_nn_weight_specs
             for i in range(n_pop):
-                # Decode normalized [0,1] to physical weight values in spec order
+                # Decode normalized [0,1] to physical weight values in spec order.
+                # Cap at n_w so the scaffolding-tail (when optimize_scaffolding=True)
+                # is excluded — those go into TOML overrides via _build_overrides,
+                # not into the NN JSON.
                 weights = np.array(
-                    [s.p_min + float(X[i, j]) * (s.p_max - s.p_min) for j, s in enumerate(self.param_specs)],
+                    [self.param_specs[j].p_min + float(X[i, j]) * (self.param_specs[j].p_max - self.param_specs[j].p_min) for j in range(n_w)],
                     dtype=np.float64,
                 )
                 fd, tmp_str = tempfile.mkstemp(suffix=".json", prefix=f"nn_{i}_")
                 os.close(fd)
                 tmp = Path(tmp_str)
-                write_nn_json(weights, nn_cfg, tmp)
+                write_nn_json(weights, nn_cfg, tmp, input_mask=nn_cfg.input_mask, output_param=nn_cfg.output_parameterization)
                 nn_tmp_paths.append(tmp)
 
         try:
@@ -163,14 +175,15 @@ class AerocaptureProblem(Problem):
 
             nn_cfg = self.nn_config
             assert isinstance(nn_cfg, NetworkConfig)
+            n_w = self._n_nn_weight_specs
             weights = np.array(
-                [s.p_min + float(x[j]) * (s.p_max - s.p_min) for j, s in enumerate(self.param_specs)],
+                [self.param_specs[j].p_min + float(x[j]) * (self.param_specs[j].p_max - self.param_specs[j].p_min) for j in range(n_w)],
                 dtype=np.float64,
             )
             fd, tmp_str = tempfile.mkstemp(suffix=".json", prefix="nn_eval_")
             os.close(fd)
             nn_tmp = Path(tmp_str)
-            write_nn_json(weights, nn_cfg, nn_tmp)
+            write_nn_json(weights, nn_cfg, nn_tmp, input_mask=nn_cfg.input_mask, output_param=nn_cfg.output_parameterization)
 
         try:
             overrides_list = []
@@ -221,15 +234,16 @@ class AerocaptureProblem(Problem):
             nn_cfg = self.nn_config
             assert isinstance(nn_cfg, NetworkConfig)
             nn_tmp_paths = []
+            n_w = self._n_nn_weight_specs
             for i in range(n_pop):
                 weights = np.array(
-                    [s.p_min + float(X[i, j]) * (s.p_max - s.p_min) for j, s in enumerate(self.param_specs)],
+                    [self.param_specs[j].p_min + float(X[i, j]) * (self.param_specs[j].p_max - self.param_specs[j].p_min) for j in range(n_w)],
                     dtype=np.float64,
                 )
                 fd, tmp_str = tempfile.mkstemp(suffix=".json", prefix=f"nn_{i}_")
                 os.close(fd)
                 tmp = Path(tmp_str)
-                write_nn_json(weights, nn_cfg, tmp)
+                write_nn_json(weights, nn_cfg, tmp, input_mask=nn_cfg.input_mask, output_param=nn_cfg.output_parameterization)
                 nn_tmp_paths.append(tmp)
 
         try:

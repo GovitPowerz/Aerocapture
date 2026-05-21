@@ -1,4 +1,3 @@
-# MSR outbound — NN training, 50 MC sims per evaluation, domain-based dispersions
 base = ["../missions/mars.toml", "common.toml"]
 
 [guidance]
@@ -11,10 +10,12 @@ type = "neural_network"
 # below are FTC's GA-tuned values frozen as scaffolding.
 mode = "magnitude_only"
 
+[data]
+neural_network = "training_output/neural_network_gru_pso_magonly/best_model.json"
+results_suffix = ".train_gru_pso_magonly"
+
 [network]
 input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
-# input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-# input_mask = [18, 12, 15, 0, 6, 14, 13, 11, 4, 3, 5]
 
 [[network.architecture]]
 type = "dense"
@@ -23,10 +24,14 @@ output_size = 32
 activation = "swish"
 
 [[network.architecture]]
-type = "dense"
+type = "gru"
 input_size = 32
-output_size = 16
-activation = "swish"
+hidden_size = 32
+
+[[network.architecture]]
+type = "gru"
+input_size = 32
+hidden_size = 16
 
 [[network.architecture]]
 type = "dense"
@@ -34,9 +39,10 @@ input_size = 16
 output_size = 2
 activation = "asinh"
 
-[data]
-neural_network = "training_output/neural_network/best_model.json"
-results_suffix = ".train_nn"
+# ── FTC scaffolding (GA-tuned values frozen, sourced from
+#    training_output/ftc/best_params.json). Capture-phase gains are placeholders
+#    only -- they're parsed but not used at runtime because the NN replaces the
+#    capture-phase predictor-corrector. Exit-phase params ARE used (phase 2). ──
 
 [guidance.ftc]
 # Capture-phase placeholders (ignored under mode = "magnitude_only").

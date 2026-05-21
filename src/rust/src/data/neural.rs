@@ -96,6 +96,22 @@ pub enum Activation {
     Mish,
 }
 
+/// Output parameterization for the NN's bank-angle decoder.
+///
+/// `Atan2Signed` (default, backward-compatible): emits 2 outputs and
+/// `bank = atan2(out[0], out[1]) ∈ (-π, π]`.
+///
+/// `AcosTanh`: emits 1 output through `tanh` and `bank = acos(out[0]) ∈ [0, π]`.
+/// Only legal in `magnitude_only` mode (architecture validates last layer
+/// `output_size = 1` with activation `tanh`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputParam {
+    #[default]
+    Atan2Signed,
+    AcosTanh,
+}
+
 impl Activation {
     fn apply(self, x: f64) -> f64 {
         match self {
@@ -974,9 +990,10 @@ impl LayerWeights for Layer {
 }
 
 /// JSON file structure for neural network models (v1 schema).
-/// `output_interpretation` is not modelled: the field is obsolete and silently
-/// ignored in legacy files. Bank is always derived from the 2-output vector
-/// via atan2 -- output_size is validated to be 2 at load time.
+/// v1 always loads with `OutputParam::Atan2Signed` (the bank-decoder
+/// parameterization is a v2 feature; v1 files predate it). The legacy
+/// `output_interpretation` field is silently ignored. Output_size is
+/// validated to match the parameterization at load time.
 #[derive(Debug, Clone, Deserialize)]
 struct NnJsonFile {
     #[allow(dead_code)]
@@ -1094,8 +1111,11 @@ pub enum LayerSpec {
 }
 
 /// JSON file structure for neural network models (v2 schema).
-/// `output_interpretation` is not modelled: obsolete and silently ignored in
-/// legacy files. Bank is always derived from the 2-output vector via atan2.
+/// `output_param` selects the bank-angle decoder: `Atan2Signed` (default,
+/// 2-output `atan2`) or `AcosTanh` (1-output `acos(tanh(x))`, magnitude_only
+/// mode only). When absent in older v2 files, defaults to `Atan2Signed`
+/// for backward compat. The legacy `output_interpretation` field is silently
+/// ignored.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct NnJsonFileV2 {
     format_version: u32,
@@ -1105,10 +1125,12 @@ struct NnJsonFileV2 {
     input_mask: Option<Vec<usize>>,
     #[serde(default)]
     ablated_input: Option<usize>,
+    #[serde(default)]
+    output_param: OutputParam,
 }
 
-/// Total number of candidate NN inputs (16 existing + 7 new).
-pub const NN_FULL_INPUT_SIZE: usize = 23;
+/// Total number of candidate NN inputs (16 baseline + 4 reference trajectory + 1 exit-bank teacher).
+pub const NN_FULL_INPUT_SIZE: usize = 21;
 
 /// Modular neural network model.
 ///
@@ -1121,12 +1143,15 @@ pub struct NeuralNetModel {
     pub layer_sizes: Vec<usize>,
     /// Network layers (len = layer_sizes.len() - 1).
     pub layers: Vec<Layer>,
-    /// Optional input selection mask: indices into the full 23-input vector.
+    /// Optional input selection mask: indices into the full 21-input vector.
     /// Length must equal layer_sizes[0]. None means use inputs as-is.
     pub input_mask: Option<Vec<usize>>,
     /// Optional index of a single input to zero out (ablation analysis).
     /// Must be in [0, NN_FULL_INPUT_SIZE). None means no ablation.
     pub ablated_input: Option<usize>,
+    /// Output parameterization for the bank-angle decoder.
+    /// Default: `Atan2Signed` (2-output atan2, backward-compatible).
+    pub output_param: OutputParam,
 }
 
 impl NeuralNetModel {
@@ -1161,14 +1186,44 @@ impl NeuralNetModel {
         Ok(())
     }
 
-    /// Validate that the network's final layer produces exactly 2 outputs.
-    /// Bank angle is always `atan2(out[0], out[1])`; a 1-output `direct`
-    /// interpretation existed historically but was dropped.
-    pub fn validate_output_size(output_size: usize, path: &str) -> Result<(), DataError> {
-        if output_size != 2 {
+    /// Validate that the network's final layer produces the right number of outputs
+    /// for the given `output_param`:
+    /// - `Atan2Signed`: requires output_size == 2 (bank = atan2(out[0], out[1]))
+    /// - `AcosTanh`:    requires output_size == 1 (bank = acos(tanh(out[0])))
+    pub fn validate_output_size(
+        output_size: usize,
+        output_param: OutputParam,
+        path: &str,
+    ) -> Result<(), DataError> {
+        let expected = match output_param {
+            OutputParam::Atan2Signed => 2,
+            OutputParam::AcosTanh => 1,
+        };
+        if output_size != expected {
             return Err(DataError(format!(
-                "network output_size must be 2 (atan2 over [out[0], out[1]]), got {} in {}",
-                output_size, path
+                "network output_size must be {} for output_param {:?}, got {} in {}",
+                expected, output_param, output_size, path
+            )));
+        }
+        Ok(())
+    }
+
+    /// Validate that the last layer's activation matches the output_param
+    /// constraint. `AcosTanh` requires `Tanh` so that `output[0] ∈ [-1, 1]`
+    /// and `output[0].acos()` is well-defined. `Atan2Signed` has no constraint.
+    /// Without this guard a hand-crafted (or trainer-bug-produced) v2 JSON with
+    /// `output_param: "acos_tanh"` plus `linear`/`asinh`/`swish` last activation
+    /// loads silently and emits NaN at runtime when |out[0]| > 1.
+    pub fn validate_output_activation(
+        last_activation: Activation,
+        output_param: OutputParam,
+        path: &str,
+    ) -> Result<(), DataError> {
+        if output_param == OutputParam::AcosTanh && last_activation != Activation::Tanh {
+            return Err(DataError(format!(
+                "output_param=AcosTanh requires last-layer activation=Tanh, \
+                 got {:?} in {}. Without tanh, out[0] is unbounded and acos(>1) returns NaN.",
+                last_activation, path
             )));
         }
         Ok(())
@@ -1268,7 +1323,7 @@ impl NeuralNetModel {
         Self::validate_ablated_input(&file.ablated_input)?;
 
         let output_size = *file.architecture.layers.last().unwrap_or(&0);
-        Self::validate_output_size(output_size, path)?;
+        Self::validate_output_size(output_size, OutputParam::default(), path)?;
 
         let activations = file.architecture.activations;
         let layer_sizes = file.architecture.layers;
@@ -1286,6 +1341,7 @@ impl NeuralNetModel {
             layers,
             input_mask: file.input_mask,
             ablated_input: file.ablated_input,
+            output_param: OutputParam::default(),
         })
     }
 
@@ -1897,7 +1953,16 @@ impl NeuralNetModel {
         Self::validate_ablated_input(&file.ablated_input)?;
 
         let output_size = *layer_sizes.last().unwrap_or(&0);
-        Self::validate_output_size(output_size, path)?;
+        Self::validate_output_size(output_size, file.output_param, path)?;
+        let last_activation = match file.architecture.last() {
+            Some(LayerSpec::Dense { activation, .. }) => *activation,
+            // Non-dense final layer with AcosTanh would have failed
+            // validate_output_size when output_param=AcosTanh expects
+            // output_size=1 (only Dense exposes a configurable output_size+activation
+            // pair); for Atan2Signed the activation is irrelevant so default is fine.
+            _ => Activation::Tanh,
+        };
+        Self::validate_output_activation(last_activation, file.output_param, path)?;
 
         Ok(NeuralNetModel {
             architecture: file.architecture,
@@ -1905,6 +1970,7 @@ impl NeuralNetModel {
             layers,
             input_mask: file.input_mask,
             ablated_input: file.ablated_input,
+            output_param: file.output_param,
         })
     }
 
@@ -1979,6 +2045,7 @@ impl NeuralNetModel {
             weights,
             input_mask: self.input_mask.clone(),
             ablated_input: self.ablated_input,
+            output_param: self.output_param,
         };
 
         let json = serde_json::to_string_pretty(&file)
@@ -2118,6 +2185,7 @@ impl NeuralNetModel {
             layers,
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         })
     }
 
@@ -2129,6 +2197,7 @@ impl NeuralNetModel {
         flat: &[f64],
         architecture: &[LayerSpec],
         input_mask: Option<Vec<usize>>,
+        output_param: OutputParam,
     ) -> Result<Self, DataError> {
         if architecture.is_empty() {
             return Err(DataError(
@@ -2316,7 +2385,12 @@ impl NeuralNetModel {
         Self::validate_mask(&input_mask, layer_sizes[0])?;
 
         let output_size = *layer_sizes.last().unwrap();
-        Self::validate_output_size(output_size, "<flat_weights_v2>")?;
+        Self::validate_output_size(output_size, output_param, "<flat_weights_v2>")?;
+        let last_activation = match architecture.last() {
+            Some(LayerSpec::Dense { activation, .. }) => *activation,
+            _ => Activation::Tanh,
+        };
+        Self::validate_output_activation(last_activation, output_param, "<flat_weights_v2>")?;
 
         Ok(NeuralNetModel {
             architecture: architecture.to_vec(),
@@ -2324,6 +2398,7 @@ impl NeuralNetModel {
             layers,
             input_mask,
             ablated_input: None,
+            output_param,
         })
     }
 }
@@ -2362,6 +2437,7 @@ mod tests {
             ],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         }
     }
 
@@ -2392,7 +2468,7 @@ mod tests {
 
     #[test]
     fn validate_mask_out_of_range() {
-        // index 23 == NN_FULL_INPUT_SIZE, which is out of range
+        // index == NN_FULL_INPUT_SIZE is out of range
         let mask = Some(vec![0usize, NN_FULL_INPUT_SIZE]);
         let result = NeuralNetModel::validate_mask(&mask, 2);
         assert!(result.is_err());
@@ -2429,8 +2505,8 @@ mod tests {
 
     #[test]
     fn validate_ablated_input_valid() {
-        // index 22 is the last valid index (NN_FULL_INPUT_SIZE - 1)
-        let result = NeuralNetModel::validate_ablated_input(&Some(22));
+        // index 20 is the last valid index (NN_FULL_INPUT_SIZE - 1)
+        let result = NeuralNetModel::validate_ablated_input(&Some(20));
         assert!(result.is_ok());
     }
 
@@ -2470,6 +2546,7 @@ mod tests {
             ],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let flat = original.to_flat_weights();
@@ -2658,6 +2735,7 @@ mod tests {
             layers: vec![Layer::Gru(gru)],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let tmpdir = std::env::temp_dir();
@@ -2712,7 +2790,13 @@ mod tests {
         //   Dense 4->2: 4*2 + 2 = 10
         // Total: 146
         let flat: Vec<f64> = (0..146).map(|i| 0.001 * i as f64).collect();
-        let model = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None).unwrap();
+        let model = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &architecture,
+            None,
+            OutputParam::default(),
+        )
+        .unwrap();
         assert_eq!(model.layers.len(), 3);
         assert_eq!(model.layer_sizes, vec![3, 4, 4, 2]);
 
@@ -2782,11 +2866,21 @@ mod tests {
         }];
         // Dense 3->4 needs 16 params. Too short should Err.
         let flat = vec![0.0; 10];
-        let err = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None);
+        let err = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &architecture,
+            None,
+            OutputParam::default(),
+        );
         assert!(err.is_err());
         // Too long should also Err.
         let flat = vec![0.0; 20];
-        let err = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None);
+        let err = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &architecture,
+            None,
+            OutputParam::default(),
+        );
         assert!(err.is_err());
     }
 
@@ -2838,6 +2932,7 @@ mod tests {
             layers: vec![Layer::Lstm(lstm), Layer::Dense(dense_out)],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let tmpdir = std::env::temp_dir();
@@ -3026,6 +3121,7 @@ mod tests {
             ],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
         let mut state = NnState::for_model(&model);
 
@@ -3074,6 +3170,7 @@ mod tests {
             ],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let tmp = tempfile::NamedTempFile::new().unwrap();
@@ -3123,7 +3220,9 @@ mod tests {
         ];
         // Total param count = 0 (window) + 12*2 + 2 = 26.
         let flat: Vec<f64> = (0..26).map(|i| i as f64 * 0.01).collect();
-        let model = NeuralNetModel::from_flat_weights_v2(&flat, &arch, None).unwrap();
+        let model =
+            NeuralNetModel::from_flat_weights_v2(&flat, &arch, None, OutputParam::default())
+                .unwrap();
 
         match &model.layers[0] {
             Layer::Window(w) => {
@@ -3150,7 +3249,7 @@ mod tests {
             n_steps: 3,
         }];
         let flat: Vec<f64> = Vec::new();
-        let err = NeuralNetModel::from_flat_weights_v2(&flat, &arch, None);
+        let err = NeuralNetModel::from_flat_weights_v2(&flat, &arch, None, OutputParam::default());
         assert!(err.is_err());
     }
 
@@ -3450,7 +3549,9 @@ mod tests {
         // Transformer: 154 params; Dense(4->2): 4*2 + 2 = 10 params
         let total = 154 + 10;
         let flat: Vec<f64> = (0..total).map(|i| (i as f64) * 0.01 + 0.5).collect();
-        let model = NeuralNetModel::from_flat_weights_v2(&flat, &arch, None).unwrap();
+        let model =
+            NeuralNetModel::from_flat_weights_v2(&flat, &arch, None, OutputParam::default())
+                .unwrap();
         let round = model.to_flat_weights();
         assert_eq!(round.len(), total);
         for (i, (a, b)) in flat.iter().zip(round.iter()).enumerate() {
@@ -3509,7 +3610,13 @@ mod tests {
         let flat: Vec<f64> = (0..dummy_flat_len)
             .map(|i| (i as f64) * 0.003 - 0.7)
             .collect();
-        let model = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None).unwrap();
+        let model = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &architecture,
+            None,
+            OutputParam::default(),
+        )
+        .unwrap();
         assert_eq!(model.n_params(), dummy_flat_len);
 
         let tmpdir = std::env::temp_dir();
@@ -3575,7 +3682,13 @@ mod tests {
             },
         ];
         let flat: Vec<f64> = (0..202).map(|i| ((i % 7) as f64) * 0.01).collect();
-        let model = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None).unwrap();
+        let model = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &architecture,
+            None,
+            OutputParam::default(),
+        )
+        .unwrap();
         assert_eq!(model.n_params(), 202);
 
         let mut state = NnState::for_model(&model);
@@ -3894,7 +4007,13 @@ mod tests {
         ];
         // Dense(8->4) = 36, Mamba(4, 2, 1) = 4*(6+2+2) = 40, Dense(4->2) = 10; total 86.
         let flat: Vec<f64> = (0..86).map(|i| (i as f64) * 0.017 - 0.9).collect();
-        let model = NeuralNetModel::from_flat_weights_v2(&flat, &architecture, None).unwrap();
+        let model = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &architecture,
+            None,
+            OutputParam::default(),
+        )
+        .unwrap();
         assert_eq!(model.n_params(), 86);
 
         let tmpdir = std::env::temp_dir();
@@ -4138,5 +4257,115 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn output_param_default_is_atan2_signed() {
+        let p: OutputParam = OutputParam::default();
+        assert_eq!(p, OutputParam::Atan2Signed);
+    }
+
+    #[test]
+    fn output_param_serde_round_trip() {
+        let p = OutputParam::AcosTanh;
+        let s = serde_json::to_string(&p).unwrap();
+        assert_eq!(s, "\"acos_tanh\"");
+        let back: OutputParam = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, p);
+
+        let p2 = OutputParam::Atan2Signed;
+        let s2 = serde_json::to_string(&p2).unwrap();
+        assert_eq!(s2, "\"atan2_signed\"");
+    }
+
+    #[test]
+    fn output_param_persists_through_v2_json_round_trip() {
+        let arch = vec![LayerSpec::Dense {
+            input_size: 3,
+            output_size: 1,
+            activation: Activation::Tanh,
+        }];
+        let layers = vec![Layer::Dense(DenseLayer {
+            w: vec![vec![0.1, 0.2, 0.3]],
+            b: vec![0.4],
+            activation: Activation::Tanh,
+        })];
+        let original = NeuralNetModel {
+            architecture: arch,
+            layer_sizes: vec![3, 1],
+            layers,
+            input_mask: None,
+            ablated_input: None,
+            output_param: OutputParam::AcosTanh,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("model.json");
+        original.save_json(path.to_str().unwrap()).unwrap();
+        let loaded = NeuralNetModel::load(path.to_str().unwrap()).unwrap();
+
+        assert_eq!(loaded.output_param, OutputParam::AcosTanh);
+    }
+
+    #[test]
+    fn output_param_absent_in_json_loads_as_atan2_signed() {
+        let json = r#"{
+            "format_version": 2,
+            "architecture": [{"type": "dense", "input_size": 2, "output_size": 2, "activation": "linear"}],
+            "weights": {
+                "layer_0": {"w": [[0.1, 0.2], [0.3, 0.4]], "b": [0.0, 0.0]}
+            }
+        }"#;
+        let m = NeuralNetModel::from_json_str(json, "<test>").unwrap();
+        assert_eq!(m.output_param, OutputParam::Atan2Signed);
+    }
+
+    #[test]
+    fn acos_tanh_with_non_tanh_activation_rejected_at_v2_json_load() {
+        let json = r#"{
+            "format_version": 2,
+            "output_param": "acos_tanh",
+            "architecture": [{"type": "dense", "input_size": 2, "output_size": 1, "activation": "linear"}],
+            "weights": {
+                "layer_0": {"w": [[0.1, 0.2]], "b": [0.0]}
+            }
+        }"#;
+        let result = NeuralNetModel::from_json_str(json, "<test>");
+        assert!(result.is_err());
+        let msg = format!("{:?}", result.unwrap_err());
+        assert!(
+            msg.contains("AcosTanh"),
+            "expected AcosTanh in error, got: {}",
+            msg
+        );
+        assert!(msg.contains("Tanh"), "expected Tanh in error, got: {}", msg);
+    }
+
+    #[test]
+    fn acos_tanh_with_asinh_activation_rejected_at_v2_json_load() {
+        let json = r#"{
+            "format_version": 2,
+            "output_param": "acos_tanh",
+            "architecture": [{"type": "dense", "input_size": 2, "output_size": 1, "activation": "asinh"}],
+            "weights": {
+                "layer_0": {"w": [[0.1, 0.2]], "b": [0.0]}
+            }
+        }"#;
+        let result = NeuralNetModel::from_json_str(json, "<test>");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn acos_tanh_with_tanh_activation_accepted_at_v2_json_load() {
+        let json = r#"{
+            "format_version": 2,
+            "output_param": "acos_tanh",
+            "architecture": [{"type": "dense", "input_size": 2, "output_size": 1, "activation": "tanh"}],
+            "weights": {
+                "layer_0": {"w": [[0.1, 0.2]], "b": [0.0]}
+            }
+        }"#;
+        let m = NeuralNetModel::from_json_str(json, "<test>").unwrap();
+        assert_eq!(m.output_param, OutputParam::AcosTanh);
     }
 }

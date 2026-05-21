@@ -11,7 +11,8 @@ pub mod nn_state;
 pub mod pilot;
 
 use crate::config::{
-    GuidanceType, IntegrationMode, SimInput, SimPhase, TomlConfig, TomlMonteCarlo, TomlNavigation,
+    GuidanceType, IntegrationMode, SimInput, SimPhase, TomlConfig, TomlLayerSpec, TomlMonteCarlo,
+    TomlNavigation,
 };
 use crate::gnc::guidance::lateral::LateralParams;
 use crate::gnc::guidance::thermal_limiter::ThermalLimiterParams;
@@ -420,6 +421,37 @@ impl SimData {
             .as_ref()
             .map_or(0.1, |n| n.density_gain_max_delta);
 
+        // Neural network guidance mode (full_neural | magnitude_only)
+        let neural_mode = match toml
+            .guidance
+            .neural_network
+            .as_ref()
+            .and_then(|nn| nn.mode.as_deref())
+        {
+            None | Some("full_neural") => guidance_params::NeuralNetMode::FullNeural,
+            Some("magnitude_only") => guidance_params::NeuralNetMode::MagnitudeOnly,
+            Some(other) => {
+                return Err(DataError(format!(
+                    "guidance.neural_network.mode must be \"full_neural\" or \"magnitude_only\" (got \"{}\")",
+                    other
+                )));
+            }
+        };
+
+        // Validate output_parameterization constraints.
+        let output_param_toml = toml
+            .guidance
+            .neural_network
+            .as_ref()
+            .and_then(|nn| nn.output_parameterization.as_deref());
+        validate_output_parameterization(
+            output_param_toml,
+            neural_mode,
+            toml.network
+                .as_ref()
+                .and_then(|n| n.architecture.as_deref()),
+        )?;
+
         // FTC guidance params
         let guidance = if let Some(ref ftc) = toml.guidance.ftc {
             let energy_scale = 1e6;
@@ -499,6 +531,7 @@ impl SimData {
                     }
                     _ => None,
                 },
+                neural_mode,
             }
         } else {
             // No FTC params — load from file if guidance suffix available, else defaults
@@ -576,6 +609,7 @@ impl SimData {
                     }
                     _ => None,
                 },
+                neural_mode,
             }
         };
 
@@ -650,6 +684,55 @@ impl SimData {
             }
             (nn, _) => nn,
         };
+
+        // Cross-check TOML `[guidance.neural_network] output_parameterization`
+        // against the loaded model's `output_param`. The TOML is a training-time
+        // knob; the JSON model file is the deploy-time source of truth. They MUST
+        // agree if both are set — silently ignoring a mismatched TOML would mean
+        // the user's intent is unrepresented at runtime.
+        if let (Some(nn), Some(tnn)) = (&neural_net, &toml.guidance.neural_network)
+            && let Some(toml_param) = &tnn.output_parameterization
+        {
+            let toml_enum = match toml_param.as_str() {
+                "atan2_signed" => neural::OutputParam::Atan2Signed,
+                "acos_tanh" => neural::OutputParam::AcosTanh,
+                other => {
+                    return Err(DataError(format!(
+                        "[guidance.neural_network] output_parameterization='{}' is not recognized; \
+                         expected 'atan2_signed' or 'acos_tanh'",
+                        other
+                    )));
+                }
+            };
+            if nn.output_param != toml_enum {
+                return Err(DataError(format!(
+                    "TOML output_parameterization='{}' disagrees with the loaded model's \
+                     output_param={:?}. Either retrain the model with the TOML knob set to \
+                     '{}' before training (the trainer embeds it into best_model.json) or \
+                     align the TOML to match the model.",
+                    toml_param, nn.output_param, toml_param
+                )));
+            }
+        }
+
+        // Defense-in-depth: regardless of whether the TOML sets
+        // `output_parameterization`, an `acos_tanh` model emits a non-negative
+        // magnitude in `[0, π]`. Running it under `full_neural` mode would feed
+        // an unsigned magnitude through the signed-bank dispatch path, silently
+        // suppressing roll reversals. The deployed JSON is the runtime source
+        // of truth, so reject this combo at data load even when the TOML key
+        // is absent.
+        if let Some(nn) = &neural_net
+            && nn.output_param == neural::OutputParam::AcosTanh
+            && neural_mode != guidance_params::NeuralNetMode::MagnitudeOnly
+        {
+            return Err(DataError(
+                "loaded model has output_param='acos_tanh' which requires \
+                 [guidance.neural_network] mode='magnitude_only'; the model emits an \
+                 unsigned bank magnitude and cannot drive the signed-bank dispatch path."
+                    .to_string(),
+            ));
+        }
 
         // Domain-based Monte Carlo config (replaces lottery files)
         let dispersion_config = if let Some(ref mc) = toml.monte_carlo {
@@ -932,6 +1015,69 @@ fn build_dispersion_config(
 
 /// Parse a data file, skipping comment/header lines.
 ///
+/// Validate `output_parameterization` against mode and architecture constraints.
+/// Extracted so tests can call it directly without a full `TomlConfig`.
+fn validate_output_parameterization(
+    output_param: Option<&str>,
+    neural_mode: guidance_params::NeuralNetMode,
+    architecture: Option<&[TomlLayerSpec]>,
+) -> Result<(), DataError> {
+    if !matches!(output_param, Some("acos_tanh")) {
+        return Ok(());
+    }
+    if neural_mode != guidance_params::NeuralNetMode::MagnitudeOnly {
+        return Err(DataError(
+            "output_parameterization='acos_tanh' is only legal with mode='magnitude_only' \
+             (it cannot emit signed bank); use 'atan2_signed' for full_neural mode"
+                .to_string(),
+        ));
+    }
+    let arch = architecture.ok_or_else(|| {
+        DataError(
+            "output_parameterization='acos_tanh' requires v2 [[network.architecture]] entries; \
+             v1 layer_sizes/activations is not supported. Convert your config to use \
+             [[network.architecture]] with last-layer output_size=1, activation='tanh'."
+                .to_string(),
+        )
+    })?;
+    {
+        let last = arch.last().ok_or_else(|| {
+            DataError(
+                "output_parameterization='acos_tanh' requires [[network.architecture]] entries"
+                    .to_string(),
+            )
+        })?;
+        match last {
+            TomlLayerSpec::Dense {
+                output_size,
+                activation,
+                ..
+            } => {
+                if *output_size != 1 {
+                    return Err(DataError(format!(
+                        "output_parameterization='acos_tanh' requires last layer \
+                         output_size=1, got {output_size}"
+                    )));
+                }
+                if activation.as_str() != "tanh" {
+                    return Err(DataError(format!(
+                        "output_parameterization='acos_tanh' requires last-layer \
+                         activation='tanh', got {:?}",
+                        activation
+                    )));
+                }
+            }
+            _ => {
+                return Err(DataError(
+                    "output_parameterization='acos_tanh' requires last layer to be dense"
+                        .to_string(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Lines whose first whitespace-delimited token parses as f64 are data lines.
 /// D-notation (1.23D+04) is handled by replacing D/d with E/e.
 pub fn parse_data_file(path: &str) -> Result<Vec<Vec<f64>>, DataError> {
@@ -1045,5 +1191,116 @@ mod tests {
         assert_eq!(s.velocity, 0.0);
         assert_eq!(s.flight_path, 0.0);
         assert_eq!(s.azimuth, 0.0);
+    }
+
+    // ─── output_parameterization validation tests ───
+
+    fn valid_arch_1out_tanh() -> Vec<TomlLayerSpec> {
+        vec![
+            TomlLayerSpec::Dense {
+                input_size: 16,
+                output_size: 32,
+                activation: "tanh".to_string(),
+            },
+            TomlLayerSpec::Dense {
+                input_size: 32,
+                output_size: 1,
+                activation: "tanh".to_string(),
+            },
+        ]
+    }
+
+    #[test]
+    fn acos_tanh_with_full_neural_mode_rejects() {
+        let arch = valid_arch_1out_tanh();
+        let err = validate_output_parameterization(
+            Some("acos_tanh"),
+            guidance_params::NeuralNetMode::FullNeural,
+            Some(&arch),
+        )
+        .unwrap_err();
+        assert!(
+            err.0.contains("acos_tanh") && err.0.contains("magnitude_only"),
+            "error should mention acos_tanh and magnitude_only, got: {}",
+            err.0
+        );
+    }
+
+    #[test]
+    fn acos_tanh_with_output_size_2_rejects() {
+        let arch = vec![TomlLayerSpec::Dense {
+            input_size: 16,
+            output_size: 2,
+            activation: "tanh".to_string(),
+        }];
+        let err = validate_output_parameterization(
+            Some("acos_tanh"),
+            guidance_params::NeuralNetMode::MagnitudeOnly,
+            Some(&arch),
+        )
+        .unwrap_err();
+        assert!(
+            err.0.contains("output_size=1"),
+            "error should mention output_size=1, got: {}",
+            err.0
+        );
+    }
+
+    #[test]
+    fn acos_tanh_with_wrong_activation_rejects() {
+        let arch = vec![TomlLayerSpec::Dense {
+            input_size: 16,
+            output_size: 1,
+            activation: "asinh".to_string(),
+        }];
+        let err = validate_output_parameterization(
+            Some("acos_tanh"),
+            guidance_params::NeuralNetMode::MagnitudeOnly,
+            Some(&arch),
+        )
+        .unwrap_err();
+        assert!(
+            err.0.contains("tanh"),
+            "error should mention tanh, got: {}",
+            err.0
+        );
+    }
+
+    #[test]
+    fn acos_tanh_with_valid_config_accepts() {
+        let arch = valid_arch_1out_tanh();
+        validate_output_parameterization(
+            Some("acos_tanh"),
+            guidance_params::NeuralNetMode::MagnitudeOnly,
+            Some(&arch),
+        )
+        .expect("valid acos_tanh config should pass validation");
+    }
+
+    #[test]
+    fn no_output_parameterization_always_accepts() {
+        // None always passes regardless of mode or architecture.
+        validate_output_parameterization(None, guidance_params::NeuralNetMode::FullNeural, None)
+            .expect("None output_param should always be valid");
+    }
+
+    #[test]
+    fn acos_tanh_with_v1_architecture_is_rejected() {
+        // v1 path (architecture=None) used to silently accept acos_tanh,
+        // which combined with the JSON-load NaN bug produced silent runtime
+        // NaN trajectories. Now must error with a clear remediation message.
+        let err = validate_output_parameterization(
+            Some("acos_tanh"),
+            guidance_params::NeuralNetMode::MagnitudeOnly,
+            None,
+        )
+        .expect_err("acos_tanh + v1 architecture should be rejected");
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("v2"), "expected v2 hint, got: {}", msg);
+        assert!(
+            msg.contains("[[network.architecture]]"),
+            "expected architecture hint, got: {}",
+            msg
+        );
     }
 }

@@ -3,18 +3,26 @@
 //! Feedforward network computing bank angle from navigation state.
 //! Supports arbitrary layer architectures via NeuralNetModel.
 //!
-//! 23 candidate inputs (selected by configurable `input_mask`):
+//! 21 candidate inputs (selected by configurable `input_mask`):
 //!   0  eccentricity_excess    8  altitude              16 cos_bank_nominal
 //!   1  inclination_error      9  fpa                   17 pdyn_nominal
-//!   2  radial_velocity       10  latitude               18 hdot_nominal
-//!   3  orbital_energy        11  drag_accel             19 pdyn_error
-//!   4  velocity              12  lift_accel             20 exit_bank_angle
-//!   5  accel_magnitude       13  sma_error              21 density_exit
-//!   6  heat_flux_fraction    14  apoapsis_alt           22 ref_velocity_latched
+//!   2  radial_velocity       10  latitude              18 hdot_nominal
+//!   3  orbital_energy        11  drag_accel            19 pdyn_error
+//!   4  velocity              12  lift_accel            20 exit_bank_teacher
+//!   5  accel_magnitude       13  sma_error
+//!   6  heat_flux_fraction    14  apoapsis_alt
 //!   7  heat_load_fraction    15  bounce_flag
 //!
-//! Output mapping: the network emits 2 outputs and the signed bank angle is
-//! `atan2(out[0], out[1])`. No other interpretation is supported.
+//! Index 20 is the closed-loop FTC exit-phase pdyn-feedback law, fed every step
+//! as a teacher signal (always live, not bounce-gated). Pre-bounce, with
+//! `ref_velocity_latched = 0`, it degenerates to pure radial-velocity damping.
+//!
+//! Output mapping: dispatched on `nn.output_param` (`OutputParam`).
+//! - `Atan2Signed` (default): network emits 2 outputs; signed bank is
+//!   `atan2(out[0], out[1]) ∈ (-π, π]`.
+//! - `AcosTanh`: network emits 1 output through a `tanh` last layer (so
+//!   `out[0] ∈ [-1, 1]`); bank magnitude is `out[0].acos() ∈ [0, π]`.
+//!   Only legal in `magnitude_only` mode.
 
 use crate::config::PlanetConfig;
 use crate::data::SimData;
@@ -27,15 +35,16 @@ use crate::orbit::elements;
 
 /// Build the masked NN input vector from navigation state.
 ///
-/// Constructs the full 23-element candidate input vector, applies ablation zeroing
-/// (if configured), then applies the model's input_mask (or legacy [0..16] default).
+/// Constructs the full 21-element candidate input vector, applies ablation zeroing
+/// (if configured), then applies the input_mask (or legacy [0..16] default).
 /// Returns the masked `Vec<f64>` ready for `nn.forward()`.
 ///
-/// Extracted from `nn_bank_angle` so `BatchedSimulation` can build the same observation
-/// vector the runtime uses.
+/// `input_mask` and `ablated_input` are taken directly so this function can be
+/// called without a `NeuralNetModel` (e.g. supervised-trace capture during FTC runs).
 pub fn build_nn_input(
     nav: &NavigationOutput,
-    nn: &NeuralNetModel,
+    input_mask: Option<&[usize]>,
+    ablated_input: Option<usize>,
     data: &SimData,
     planet: &PlanetConfig,
     target_inclination: f64,
@@ -65,7 +74,7 @@ pub fn build_nn_input(
     // Altitude in km
     let altitude_km = (nav.position_estimated[0] - planet.equatorial_radius) / 1e3;
 
-    // Build full 23-element input vector
+    // Build full 21-element input vector
     let mut full_input = [0.0_f64; NN_FULL_INPUT_SIZE];
 
     // -- 16 existing inputs (indices 0-15) --
@@ -109,21 +118,20 @@ pub fn build_nn_input(
     full_input[18] = hdot_nominal / 500.0; // ref radial velocity
     full_input[19] = pdyn_error / 2e3; // dynamic pressure error
 
-    // -- 3 exit-related inputs (indices 20-22), gated by bounce flag --
-    let bf = nav.bounce_flag as f64;
+    // -- Exit-bank teacher signal (index 20), always live --
+    // Closed-loop FTC exit-phase pdyn-feedback law, fed every step as a
+    // teacher signal. Pre-bounce, ref_velocity_latched = 0 so this degenerates
+    // to pure radial-velocity damping.
     let exit_bank = exit::exit_guidance(nav, data, planet, ref_velocity_latched);
-
-    full_input[20] = (exit_bank / std::f64::consts::PI * 2.0 - 1.0) * bf; // exit bank angle
-    full_input[21] = ((nav.density_exit.max(1e-12).log10() + 7.0) / 5.0) * bf; // exit density
-    full_input[22] = (ref_velocity_latched / 500.0) * bf; // ref velocity
+    full_input[20] = exit_bank / std::f64::consts::PI * 2.0 - 1.0;
 
     // Apply ablation: zero out a single input for sensitivity analysis
-    if let Some(idx) = nn.ablated_input {
+    if let Some(idx) = ablated_input {
         full_input[idx] = 0.0;
     }
 
     // Apply input mask: select subset of inputs, or default to first 16 for backward compat
-    match &nn.input_mask {
+    match input_mask {
         Some(mask) => mask.iter().map(|&i| full_input[i]).collect(),
         None => full_input[..16].to_vec(),
     }
@@ -147,14 +155,19 @@ pub fn nn_bank_angle(
 ) -> f64 {
     let masked = build_nn_input(
         nav,
-        nn,
+        nn.input_mask.as_deref(),
+        nn.ablated_input,
         data,
         planet,
         target_inclination,
         ref_velocity_latched,
     );
+    use crate::data::neural::OutputParam;
     let output = nn.forward(nn_state, &masked);
-    output[0].atan2(output[1])
+    match nn.output_param {
+        OutputParam::Atan2Signed => output[0].atan2(output[1]),
+        OutputParam::AcosTanh => output[0].acos(),
+    }
 }
 
 #[cfg(test)]
@@ -168,7 +181,7 @@ mod tests {
     use crate::data::guidance_params::{GuidanceParams, ReferenceTrajectory};
     use crate::data::incidence::IncidenceProfile;
     use crate::data::neural::{
-        Activation, DenseLayer, Layer, LayerSpec, NN_FULL_INPUT_SIZE, NeuralNetModel,
+        Activation, DenseLayer, Layer, LayerSpec, NN_FULL_INPUT_SIZE, NeuralNetModel, OutputParam,
     };
     use crate::data::pilot::{PilotModel, PilotType};
     use crate::data::{
@@ -313,6 +326,7 @@ mod tests {
             })],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         }
     }
 
@@ -427,6 +441,7 @@ mod tests {
             layers: vec![layer0, layer1],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let nav = test_nav();
@@ -499,6 +514,7 @@ mod tests {
             layers: vec![layer0, layer1],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let nav = test_nav();
@@ -522,10 +538,10 @@ mod tests {
         );
     }
 
-    // ── New tests for 23-input expansion, mask, and ablation ──
+    // ── Tests for full-input expansion, mask, and ablation ──
 
     #[test]
-    fn full_23_input_vector_is_finite() {
+    fn full_input_vector_is_finite() {
         // 23->2 network with explicit full mask
         let nn = NeuralNetModel {
             architecture: vec![LayerSpec::Dense {
@@ -544,6 +560,7 @@ mod tests {
             })],
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let nav = test_nav();
@@ -562,13 +579,19 @@ mod tests {
 
         assert!(
             bank.is_finite(),
-            "bank angle must be finite with 23 inputs, got: {bank}"
+            "bank angle must be finite with full input, got: {bank}"
         );
     }
 
     #[test]
     fn mask_selects_correct_inputs() {
-        // 3->2 network with mask [0, 8, 15]
+        // 3->2 network with mask [0, 8, 15] selecting inputs at those indices
+        // from the full 21-element candidate vector. Each output neuron has
+        // a UNIQUE weight per masked column so a misordered or wrong-index
+        // mask would produce a different result.
+        //
+        // We verify this by computing the expected output in closed form
+        // from the inputs we know `build_nn_input` produces for `test_nav()`.
         let nn = NeuralNetModel {
             architecture: vec![LayerSpec::Dense {
                 input_size: 3,
@@ -577,17 +600,44 @@ mod tests {
             }],
             layer_sizes: vec![3, 2],
             layers: vec![Layer::Dense(DenseLayer {
-                w: vec![vec![0.1; 3], vec![0.1; 3]],
+                // Distinct weights per column so any reordering / misindexing changes the output:
+                //   y[0] = 1.0 * x[0] + 2.0 * x[1] + 3.0 * x[2] + 0.0
+                //   y[1] = 4.0 * x[0] + 5.0 * x[1] + 6.0 * x[2] + 1.0
+                w: vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]],
                 b: vec![0.0, 1.0],
                 activation: Activation::Linear,
             })],
             input_mask: Some(vec![0, 8, 15]),
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let nav = test_nav();
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
+        let target_inc = 50.0_f64.to_radians();
+        let ref_velocity = 0.0;
+
+        // Compute the expected masked input vector by calling build_nn_input
+        // with the full mask first, then picking indices 0, 8, 15 manually.
+        let full_mask: Vec<usize> = (0..21).collect();
+        let full_input = build_nn_input(
+            &nav,
+            Some(&full_mask),
+            None,
+            &data,
+            &planet,
+            target_inc,
+            ref_velocity,
+        );
+        let x0 = full_input[0];
+        let x8 = full_input[8];
+        let x15 = full_input[15];
+        let expected_y0 = 1.0 * x0 + 2.0 * x8 + 3.0 * x15;
+        let expected_y1 = 4.0 * x0 + 5.0 * x8 + 6.0 * x15 + 1.0;
+        let expected_bank = expected_y0.atan2(expected_y1);
+
+        // Run the actual code path with the same nav state.
         let mut state = NnState::for_model(&nn);
         let bank = nn_bank_angle(
             &nav,
@@ -595,13 +645,13 @@ mod tests {
             &mut state,
             &data,
             &planet,
-            50.0_f64.to_radians(),
-            0.0,
+            target_inc,
+            ref_velocity,
         );
 
         assert!(
-            bank.is_finite(),
-            "bank angle must be finite with mask, got: {bank}"
+            (bank - expected_bank).abs() < 1e-12,
+            "mask must select inputs at [0, 8, 15] in order: expected atan2({expected_y0}, {expected_y1})={expected_bank}, got {bank}"
         );
     }
 
@@ -626,6 +676,7 @@ mod tests {
             })],
             input_mask: None,
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let nn_ablated = NeuralNetModel {
@@ -642,6 +693,7 @@ mod tests {
             })],
             input_mask: None,
             ablated_input: Some(0),
+            output_param: OutputParam::default(),
         };
 
         let nav = test_nav();
@@ -693,6 +745,7 @@ mod tests {
             })],
             input_mask: Some((0..16).collect()),
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let nav = test_nav();
@@ -717,13 +770,13 @@ mod tests {
     }
 
     #[test]
-    fn bounce_gated_inputs_zero_pre_bounce() {
-        // 23->2 network with weights only on indices 20,21,22 and bias [0, 1].
-        // bounce_flag=0 should gate exit inputs to zero, so output = [0, 1], bank = 0.
+    fn exit_bank_teacher_signal_is_finite_pre_bounce() {
+        // Exit-bank teacher (index 20) is always live, including pre-bounce.
+        // With ref_velocity_latched = 0, exit_guidance degenerates to pure
+        // radial-velocity damping; verify the resulting input still produces a
+        // finite bank command.
         let mut w0 = vec![0.0; NN_FULL_INPUT_SIZE];
         w0[20] = 10.0;
-        w0[21] = 10.0;
-        w0[22] = 10.0;
         let nn = NeuralNetModel {
             architecture: vec![LayerSpec::Dense {
                 input_size: NN_FULL_INPUT_SIZE,
@@ -738,6 +791,7 @@ mod tests {
             })],
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+            output_param: OutputParam::default(),
         };
 
         let mut nav = test_nav();
@@ -752,11 +806,13 @@ mod tests {
             &data,
             &planet,
             50.0_f64.to_radians(),
-            -50.0,
+            0.0, // ref_velocity_latched = 0 pre-bounce
         );
 
-        // With bounce_flag=0, inputs 20-22 are zero, so output[0] = 0.0, bank = atan2(0, 1) = 0
-        assert_relative_eq!(bank, 0.0, epsilon = 1e-12,);
+        assert!(
+            bank.is_finite(),
+            "exit-bank teacher signal must produce finite bank pre-bounce, got: {bank}"
+        );
     }
 
     mod prop {
@@ -787,6 +843,7 @@ mod tests {
                 })],
                 input_mask: None,
                 ablated_input: None,
+                output_param: OutputParam::default(),
             }
         }
 
@@ -818,6 +875,50 @@ mod tests {
 
                 prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
             }
+        }
+
+        #[test]
+        fn acos_tanh_parameterization_emits_acos_of_output() {
+            use crate::data::neural::{
+                Activation, DenseLayer, Layer, LayerSpec, NeuralNetModel, OutputParam,
+            };
+
+            let nn = NeuralNetModel {
+                architecture: vec![LayerSpec::Dense {
+                    input_size: 16,
+                    output_size: 1,
+                    activation: Activation::Tanh,
+                }],
+                layer_sizes: vec![16, 1],
+                layers: vec![Layer::Dense(DenseLayer {
+                    w: vec![vec![0.0; 16]],
+                    b: vec![0.5],
+                    activation: Activation::Tanh,
+                })],
+                input_mask: None,
+                ablated_input: None,
+                output_param: OutputParam::AcosTanh,
+            };
+
+            let nav = test_nav();
+            let data = test_sim_data();
+            let planet = PlanetConfig::mars();
+            let mut state = NnState::for_model(&nn);
+            let bank = nn_bank_angle(
+                &nav,
+                &nn,
+                &mut state,
+                &data,
+                &planet,
+                50.0_f64.to_radians(),
+                0.0,
+            );
+
+            let expected = (0.5_f64).tanh().acos();
+            assert!(
+                (bank - expected).abs() < 1e-12,
+                "bank={bank} expected={expected}"
+            );
         }
     }
 }

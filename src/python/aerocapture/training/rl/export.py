@@ -147,12 +147,17 @@ def export_v2_policy_to_json(
     policy: V2Policy,
     path: str,
     obs_normalizer: ObsNormalizer | None = None,
+    output_param: str | None = None,
 ) -> None:
     """Write a V2Policy as JSON v2.
 
     Optional `obs_normalizer` bakes the affine transform into the first dense
     layer: `W_new = W / std`, `b_new = b - W @ (mean / std)`. log_std is an
     exploration-noise parameter and is never exported.
+
+    Optional `output_param` sets the output parameterization field in the JSON
+    (e.g. ``"acos_tanh"``). When ``None`` (default), the field is omitted and
+    Rust loads it as ``Atan2Signed`` (backward compatible).
     """
     _check_obs_norm_bake_compatibility(
         list(policy.layers),
@@ -274,13 +279,15 @@ def export_v2_policy_to_json(
         else:
             raise ValueError(f"Unknown layer type in export: {type(layer).__name__}")
 
-    out = {
+    out: dict[str, object] = {
         "format_version": 2,
         "architecture": architecture,
         "weights": weights,
         "input_mask": policy.input_mask,
         "ablated_input": None,
     }
+    if output_param is not None:
+        out["output_param"] = output_param
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         json.dump(out, f, indent=2)

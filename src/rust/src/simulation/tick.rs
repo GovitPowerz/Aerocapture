@@ -143,6 +143,30 @@ pub fn step_one_tick(
             config.guidance_type,
         );
 
+        // Supervised-trace push gates on guidance.longitudinal_active=1 so we
+        // don't pollute the dataset with inhibited-guidance ticks where the
+        // recorded magnitude is just |reference_bank_angle| (constant per
+        // config). Active-only rows give the regression target real signal.
+        if config.collect_supervised && guidance_out.longitudinal_active == 1 {
+            // Explicit full mask: select all 21 inputs.
+            // Passing None would trigger the backward-compat default (first 16 only).
+            const FULL_MASK: [usize; 21] = [
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+            ];
+            let nn_input = crate::gnc::guidance::neural::build_nn_input(
+                &nav_out,
+                Some(&FULL_MASK),
+                None, // no ablation
+                data,
+                planet,
+                data.target_orbit.inclination,
+                state.guidance_state.reference_velocity,
+            );
+            state
+                .supervised_trace
+                .push((nn_input, guidance_out.pre_lateral_magnitude));
+        }
+
         let bank_angle_commanded = forced_bank.unwrap_or(guidance_out.bank_angle_commanded);
 
         let max_rate = data.capsule.max_bank_rate * (1.0 + state.run_state.max_bank_rate_bias);

@@ -10,8 +10,8 @@ from aerocapture.training.charts_ablation import chart_ablation_bar
 
 
 def test_input_names_length() -> None:
-    """23 inputs in the full superset."""
-    assert len(NN_INPUT_NAMES) == 23
+    """21 inputs in the full superset (16 baseline + 4 ref trajectory + 1 exit-bank teacher)."""
+    assert len(NN_INPUT_NAMES) == 21
 
 
 def test_input_names_unique() -> None:

@@ -24,10 +24,12 @@ except ImportError:
     _aero_rs = None  # type: ignore[assignment]
     _HAS_PYO3 = False
 
-# Reserved seed offsets -- guarantees training, validation, and final eval
-# never share the same RNG stream.
+# Reserved seed offsets — guarantees training, validation, final eval, RL
+# training, and supervised warm-start collection never share the same RNG stream.
 VALIDATION_SEED_OFFSET = 1_000_000
 FINAL_EVAL_SEED_OFFSET = 2_000_000
+RL_TRAINING_SEED_OFFSET = 3_000_000
+WARM_START_SEED_OFFSET = 4_000_000
 
 
 def make_reserved_seeds(base_mc_seed: int, offset: int, n: int) -> list[int]:
@@ -45,6 +47,7 @@ def write_nn_json(
     network: NetworkConfig,
     filepath: str | Path,
     input_mask: list[int] | None = None,
+    output_param: str | None = None,
 ) -> None:
     """Write PSO chromosome weights as v2 NN JSON via the Rust LayerWeights trait.
 
@@ -80,6 +83,7 @@ def write_nn_json(
         architecture_json=json.dumps(arch),
         path=str(filepath),
         input_mask=input_mask,
+        output_param=output_param,
     )
 
 

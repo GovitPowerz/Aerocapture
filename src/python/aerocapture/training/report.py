@@ -41,6 +41,40 @@ _PERCENTILES = [5, 25, 50, 75, 95]
 # ---------------------------------------------------------------------------
 # Typst availability check
 # ---------------------------------------------------------------------------
+def _load_nn_scaffolding_overrides(scheme_dir: Path, optimized_toml: Path) -> dict[str, object]:
+    """Build dot-path overrides from `best_params.json` (NN+optimize_scaffolding deploys).
+
+    Non-NN schemes bake params into `optimized_<scheme>.toml`, so when that file
+    exists we return empty (the optimized TOML already carries everything).
+    NN schemes do NOT write an optimized TOML — they write `best_model.json`
+    plus `best_params.json` (scaffolding). When `optimize_scaffolding=false`
+    is the only knob, `best_params.json` is absent and we return empty.
+    """
+    if optimized_toml.exists():
+        return {}
+    scaff_path = scheme_dir / "best_params.json"
+    if not scaff_path.exists():
+        return {}
+    scaff_params: dict[str, object] = json.loads(scaff_path.read_text())
+    overrides: dict[str, object] = {}
+    for key, value in scaff_params.items():
+        if key.startswith("lateral."):
+            bare = key.removeprefix("lateral.")
+            if bare == "max_reversals":
+                value = int(round(float(value)))  # type: ignore[arg-type]
+            overrides[f"guidance.lateral.{bare}"] = value
+        elif key.startswith("exit."):
+            overrides[f"guidance.ftc.{key.removeprefix('exit.')}"] = value
+        elif key.startswith("nav."):
+            overrides[f"navigation.{key.removeprefix('nav.')}"] = value
+        elif key.startswith("thermal."):
+            overrides[f"guidance.thermal_limiter.{key.removeprefix('thermal.')}"] = value
+        elif key.startswith("shaping."):
+            overrides[f"guidance.command_shaping.{key.removeprefix('shaping.')}"] = value
+            overrides["guidance.command_shaping.enabled"] = True
+    return overrides
+
+
 def _check_typst() -> bool:
     """Return True if the ``typst`` CLI is available on PATH."""
     return shutil.which("typst") is not None
@@ -130,8 +164,13 @@ def run_final_evaluation(
     base_mc_seed = toml_data.get("monte_carlo", {}).get("seed", 42)
     reserved_seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
 
+    scaffolding_overrides = _load_nn_scaffolding_overrides(scheme_dir, optimized)
+    if scaffolding_overrides:
+        print(f"  Using optimized NN scaffolding from {scheme_dir / 'best_params.json'}")
+
     try:
-        overrides_list = [{"monte_carlo.seed": s, "simulation.n_sims": 1} for s in reserved_seeds]
+        base_overrides: dict[str, object] = {"simulation.n_sims": 1, **scaffolding_overrides}
+        overrides_list = [{**base_overrides, "monte_carlo.seed": s} for s in reserved_seeds]
         results = aerocapture_rs.run_batch(
             toml_path=str(eval_toml.resolve()),
             overrides_list=overrides_list,
@@ -410,6 +449,11 @@ def _run_undispersed_nominal(toml_path: Path, scheme_dir: Path, sim_timeout_secs
     optimized = scheme_dir / f"optimized_{scheme_dir.name}.toml"
     eval_toml = optimized if optimized.exists() else toml_path
 
+    # NN+optimize_scaffolding schemes write best_params.json sibling to best_model.json;
+    # without loading it here, the nominal overlay would use TOML-default scaffolding
+    # while the dispersed MC corridor uses the GA-tuned values — visually inconsistent.
+    scaffolding_overrides = _load_nn_scaffolding_overrides(scheme_dir, optimized)
+
     overrides: dict[str, object] = {
         "simulation.n_sims": 1,
         "monte_carlo.initial_state.level": "off",
@@ -417,6 +461,7 @@ def _run_undispersed_nominal(toml_path: Path, scheme_dir: Path, sim_timeout_secs
         "monte_carlo.aerodynamics.level": "off",
         "monte_carlo.navigation.level": "off",
         "monte_carlo.mass.level": "off",
+        **scaffolding_overrides,
     }
 
     try:

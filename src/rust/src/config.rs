@@ -150,6 +150,7 @@ pub struct SimInput {
     pub screen_output: bool,
     pub random_seed: f64,
     pub reference_trajectory: bool,
+    pub collect_supervised: bool,
     pub reference_bank_angle: f64, // degrees
     pub base_dir: String,
     pub output_dir: String,
@@ -498,6 +499,9 @@ pub struct TomlGuidance {
     /// Command shaping parameters (acceleration-limited rate shaping)
     #[serde(default)]
     pub command_shaping: Option<TomlCommandShapingParams>,
+    /// Neural network guidance section (mode, etc.). Architecture stays under [network].
+    #[serde(default)]
+    pub neural_network: Option<TomlNeuralNetworkParams>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -968,6 +972,17 @@ pub struct TomlCommandShapingParams {
     pub max_bank_acceleration: f64, // deg/s^2 (converted to rad/s^2 at load time)
 }
 
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct TomlNeuralNetworkParams {
+    /// "full_neural" (default) | "magnitude_only".
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// Output parameterization: None (default, atan2 signed) | "acos_tanh" (magnitude via acos of tanh output).
+    /// "acos_tanh" requires mode = "magnitude_only" and a last Dense layer with output_size=1 and activation="tanh".
+    #[serde(default)]
+    pub output_parameterization: Option<String>,
+}
+
 // ─── Domain-based Monte Carlo TOML structs ───
 
 #[derive(Debug, Deserialize, Clone)]
@@ -1170,6 +1185,7 @@ impl SimInput {
             screen_output: config.simulation.screen_output,
             random_seed: config.simulation.random_seed,
             reference_trajectory: config.guidance.reference_trajectory,
+            collect_supervised: false,
             reference_bank_angle: config.guidance.reference_bank_angle.unwrap_or_else(|| {
                 config
                     .entry

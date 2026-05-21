@@ -118,6 +118,24 @@ pub struct CommandShapingConfig {
     pub max_bank_acceleration: f64, // rad/s^2
 }
 
+/// NN guidance routing mode.
+///
+/// `FullNeural` (default, backward compatible): the NN emits a signed bank
+/// angle via `atan2(out[0], out[1])` and bypasses the exit, lateral, and
+/// thermal-limiter modules entirely.
+///
+/// `MagnitudeOnly`: the NN's signed bank is reduced to its absolute value and
+/// fed into the unsigned-magnitude pipeline (exit guidance in phase 2,
+/// thermal limiter, lateral guidance for sign selection). Lets the NN replace
+/// only the capture-phase predictor-corrector while reusing the rest of the
+/// FTC stack.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum NeuralNetMode {
+    #[default]
+    FullNeural,
+    MagnitudeOnly,
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct GuidanceParams {
@@ -170,6 +188,9 @@ pub struct GuidanceParams {
     pub piecewise_constant: PiecewiseConstantParams,
     pub thermal_limiter: ThermalLimiterParams,
     pub command_shaping: Option<CommandShapingConfig>,
+
+    // Neural network guidance routing mode (FullNeural | MagnitudeOnly)
+    pub neural_mode: NeuralNetMode,
 }
 
 /// Reference trajectory tables loaded from the reference trajectory data file.
@@ -326,6 +347,7 @@ impl Default for GuidanceParams {
             piecewise_constant: PiecewiseConstantParams::default(),
             thermal_limiter: ThermalLimiterParams::default(),
             command_shaping: None,
+            neural_mode: NeuralNetMode::default(),
         }
     }
 }
