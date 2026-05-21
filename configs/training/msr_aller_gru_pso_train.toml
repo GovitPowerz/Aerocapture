@@ -3,16 +3,9 @@ base = ["../missions/mars.toml", "common.toml"]
 [guidance]
 type = "neural_network"
 
-[guidance.neural_network]
-# Path A: NN replaces only the capture-phase predictor-corrector. Magnitude is
-# routed through the FTC unsigned pipeline (thermal limiter + lateral guidance)
-# instead of bypassing it. The lateral / thermal / exit / nav / shaping params
-# below are FTC's GA-tuned values frozen as scaffolding.
-mode = "magnitude_only"
-
 [data]
-neural_network = "training_output/neural_network_gru_pso_magonly/best_model.json"
-results_suffix = ".train_gru_pso_magonly"
+neural_network = "training_output/neural_network_gru_pso/best_model.json"
+results_suffix = ".train_gru_pso"
 
 [network]
 input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
@@ -26,11 +19,6 @@ activation = "swish"
 [[network.architecture]]
 type = "gru"
 input_size = 32
-hidden_size = 32
-
-[[network.architecture]]
-type = "gru"
-input_size = 32
 hidden_size = 16
 
 [[network.architecture]]
@@ -39,52 +27,23 @@ input_size = 16
 output_size = 2
 activation = "asinh"
 
-# ── FTC scaffolding (GA-tuned values frozen, sourced from
-#    training_output/ftc/best_params.json). Capture-phase gains are placeholders
-#    only -- they're parsed but not used at runtime because the NN replaces the
-#    capture-phase predictor-corrector. Exit-phase params ARE used (phase 2). ──
-
 [guidance.ftc]
-# Capture-phase placeholders (ignored under mode = "magnitude_only").
 capture_damping = 0.7
 capture_frequency = 0.072
 capture_pdyn_margin = 1.75
 altitude_damping = 0.7
 altitude_frequency = 0.08
-pressure_coeff_base = -134.4
-pressure_coeff_scale_height = 6.9
-gain_fade_start_km = 80.0
-gain_fade_end_km = 100.0
-# Exit-phase params (live in phase 2; FTC-tuned).
-exit_velocity_threshold = 3548.8350669594774
-exit_pdyn_margin = 3.324353921236187
-exit_radial_vel_gain = 14.432026466531633
-exit_altitude_threshold = 57.353046636034556
+exit_velocity_threshold = 4400.0
+exit_pdyn_margin = 1.75
+exit_altitude_threshold = 60.0
+exit_radial_vel_gain = 10.0
 exit_apoapsis_threshold = 100.0
 security_capture = 1
 security_exit = 3
 longi_activation = 1000.0
 longi_inhibition = -1000.0
 pdyn_min = 0.0
-
-[guidance.lateral]
-tau = 20.30636755732464
-threshold = 0.04240186744633933              # degrees
-min_reversal_interval = 9.727705715865666    # seconds
-lateral_activation = -0.502758875982189      # MJ/kg
-lateral_inhibition = -7.635684306035069      # MJ/kg
-max_reversals = 8                            # int (FTC GA chose 8.46 -> floor)
-
-[guidance.thermal_limiter]
-heat_flux_activation = 0.6089212290967705
-heat_load_activation = 0.717933818269412
-heat_flux_ramp_exponent = 0.6031268922813253
-heat_load_ramp_exponent = 2.1835321784009065
-
-[guidance.command_shaping]
-enabled = true
-max_bank_acceleration = 12.674110367187794   # deg/s^2
-
-[navigation]
-density_filter_gain = 0.34888052188696395
-density_gain_max_delta = 0.13961756994200195
+pressure_coeff_base = -134.4
+pressure_coeff_scale_height = 6.9
+gain_fade_start_km = 80.0
+gain_fade_end_km = 100.0

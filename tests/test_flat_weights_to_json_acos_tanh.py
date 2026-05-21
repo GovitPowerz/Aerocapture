@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
+aerocapture_rs = pytest.importorskip("aerocapture_rs")
+
 
 def test_flat_weights_to_json_embeds_acos_tanh_into_v2_file() -> None:
-    import aerocapture_rs
-
     arch = json.dumps([{"type": "dense", "input_size": 2, "output_size": 1, "activation": "tanh"}])
     flat = [0.1, 0.2, 0.3]  # 2*1 weights + 1 bias
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
@@ -31,8 +31,6 @@ def test_flat_weights_to_json_embeds_acos_tanh_into_v2_file() -> None:
 
 
 def test_flat_weights_to_json_embeds_atan2_signed_when_requested() -> None:
-    import aerocapture_rs
-
     arch = json.dumps([{"type": "dense", "input_size": 2, "output_size": 2, "activation": "asinh"}])
     flat = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]  # 2*2 weights + 2 biases
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
@@ -53,8 +51,6 @@ def test_flat_weights_to_json_embeds_atan2_signed_when_requested() -> None:
 
 
 def test_flat_weights_to_json_default_omits_or_writes_atan2_signed() -> None:
-    import aerocapture_rs
-
     arch = json.dumps([{"type": "dense", "input_size": 2, "output_size": 2, "activation": "asinh"}])
     flat = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
@@ -70,8 +66,6 @@ def test_flat_weights_to_json_default_omits_or_writes_atan2_signed() -> None:
 
 
 def test_flat_weights_to_json_rejects_invalid_output_param() -> None:
-    import aerocapture_rs
-
     arch = json.dumps([{"type": "dense", "input_size": 2, "output_size": 1, "activation": "tanh"}])
     flat = [0.1, 0.2, 0.3]
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
@@ -99,8 +93,6 @@ def test_flat_weights_to_json_acos_tanh_rejects_non_tanh_activation() -> None:
     """Catches the case where a PSO trainer accidentally produces a v2 JSON
     with output_param=acos_tanh but the last layer's activation is not tanh.
     The Rust validator catches this at from_flat_weights_v2 (added via fix #2)."""
-    import aerocapture_rs
-
     arch = json.dumps([{"type": "dense", "input_size": 2, "output_size": 1, "activation": "linear"}])
     flat = [0.1, 0.2, 0.3]
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:

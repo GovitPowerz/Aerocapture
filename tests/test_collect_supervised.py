@@ -6,10 +6,11 @@ from pathlib import Path
 
 import pytest
 
+aerocapture_rs = pytest.importorskip("aerocapture_rs")
+
 
 @pytest.mark.slow
 def test_collect_supervised_returns_finite_traces() -> None:
-    import aerocapture_rs
     import numpy as np
 
     X, y = aerocapture_rs.collect_supervised(
@@ -44,7 +45,6 @@ def test_collect_supervised_overrides_neural_network_guidance_type(tmp_path: Pat
     succeeds because guidance.type=ftc is applied before the NN-file gate
     runs. Without the fix, it fails with "Cannot read <path>".
     """
-    import aerocapture_rs
     import numpy as np
 
     X, y = aerocapture_rs.collect_supervised(
@@ -66,8 +66,6 @@ def test_collect_supervised_rejects_nn_scheme() -> None:
     """scheme='neural_network' is not allowed — collect_supervised is for non-NN
     schemes that produce unsigned magnitude bank commands.
     """
-    import aerocapture_rs
-
     with pytest.raises(Exception, match="(?i)neural|scheme"):
         aerocapture_rs.collect_supervised(
             toml_path="configs/training/msr_aller_ftc_train.toml",
