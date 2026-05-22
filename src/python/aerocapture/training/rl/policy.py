@@ -291,6 +291,40 @@ class V2Policy(nn.Module):
                     state = _zero_state_where_done(state, done_mask)
         return torch.stack(log_probs, dim=0), torch.stack(entropies, dim=0)
 
+    def forward_seq_means(
+        self,
+        obs_seq: Tensor,
+        state_0: list[Any],
+        dones_seq: Tensor,
+    ) -> Tensor:
+        """Supervised-warm-start forward over a time chunk.
+
+        Returns the layer-stack final output (the policy mean) per step. Used by
+        the chunked-BPTT supervised pretraining loop in warm_start.py; this is the
+        autograd-friendly mirror of `evaluate` minus the Gaussian log-prob math.
+
+        Args:
+            obs_seq:   (T, B, obs_dim)
+            state_0:   list of per-layer state tensors. Caller is responsible for
+                       `.detach()` before passing across chunk boundaries.
+            dones_seq: (T, B) bool. When True at time t, the per-env state
+                       entering step t+1 is zeroed.
+
+        Returns:
+            means: (T, B, out_dim)
+        """
+        T = obs_seq.shape[0]
+        means_list: list[Tensor] = []
+        state = state_0
+        for t in range(T):
+            mean, state = self.forward(obs_seq[t], state)
+            means_list.append(mean)
+            if t + 1 < T:
+                done_mask = dones_seq[t]
+                if done_mask.any():
+                    state = _zero_state_where_done(state, done_mask)
+        return torch.stack(means_list, dim=0)
+
 
 class ValueNetwork(nn.Module):
     def __init__(self, input_dim: int, hidden_sizes: Sequence[int], activations: Sequence[str]) -> None:
