@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import torch
 from torch import Tensor, nn
 
@@ -47,6 +48,21 @@ class GruLayer(nn.Module):
         # naturally (torch.zeros(..., device=None) would silently fall back to CPU).
         target_device = device if device is not None else self.weight_ih.device
         return torch.zeros(batch_size, self.hidden_size, device=target_device, dtype=self.weight_ih.dtype)
+
+    def to_flat(self) -> np.ndarray:
+        """Canonical flat order: weight_ih row-major, weight_hh row-major, bias_ih, bias_hh.
+
+        Matches Rust `LayerWeights for GruLayer::to_flat` in
+        src/rust/src/data/neural.rs.
+        """
+        return np.concatenate(
+            [
+                self.weight_ih.detach().cpu().numpy().astype(np.float64).ravel(),
+                self.weight_hh.detach().cpu().numpy().astype(np.float64).ravel(),
+                self.bias_ih.detach().cpu().numpy().astype(np.float64),
+                self.bias_hh.detach().cpu().numpy().astype(np.float64),
+            ]
+        )
 
     def extra_repr(self) -> str:
         return f"input_size={self.input_size}, hidden_size={self.hidden_size}"

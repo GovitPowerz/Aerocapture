@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import torch
 from torch import Tensor, nn
 
@@ -57,3 +58,11 @@ class WindowLayer(nn.Module):
             dtype=self._dtype_anchor.dtype,
             device=device if device is not None else self._dtype_anchor.device,
         )
+
+    def to_flat(self) -> np.ndarray:
+        """Zero trainable parameters; flat representation is empty.
+
+        Matches Rust `LayerWeights for WindowLayer::to_flat` in
+        src/rust/src/data/neural.rs.
+        """
+        return np.array([], dtype=np.float64)

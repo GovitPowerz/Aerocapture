@@ -23,6 +23,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
+import numpy as np
 import torch
 from torch import Tensor, nn
 
@@ -150,3 +151,21 @@ class TransformerLayer(nn.Module):
         dtype = self.w_q.weight.dtype
         empty = torch.zeros(batch_size, 0, self.d_model, device=target_device, dtype=dtype)
         return (empty.clone(), empty.clone())
+
+    def to_flat(self) -> np.ndarray:
+        """Canonical flat order matching Rust LayerWeights<TransformerLayer>::to_flat:
+
+            w_q, b_q, w_k, b_k, w_v, b_v, w_o, b_o,
+            w_ffn1, b_ffn1, w_ffn2, b_ffn2,
+            ln1_gamma, ln1_beta, ln2_gamma, ln2_beta
+
+        All 2D weights row-major. PyTorch nn.Linear stores weight as
+        [out, in] row-major which matches the Rust serialization byte-for-byte.
+        """
+        parts: list[np.ndarray] = []
+        for linear in (self.w_q, self.w_k, self.w_v, self.w_o, self.w_ffn1, self.w_ffn2):
+            parts.append(linear.weight.detach().cpu().numpy().astype(np.float64).ravel())
+            parts.append(linear.bias.detach().cpu().numpy().astype(np.float64))
+        for ln in (self.ln1_gamma, self.ln1_beta, self.ln2_gamma, self.ln2_beta):
+            parts.append(ln.detach().cpu().numpy().astype(np.float64))
+        return np.concatenate(parts)

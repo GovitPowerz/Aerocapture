@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import torch
 from torch import Tensor, nn
 
@@ -175,3 +176,22 @@ class MambaLayer(nn.Module):
         # y: (B, input_size) = sum over d_state of (h_new(B,in,n) * c_vec(B,1,n)) + d_skip(in,) * x(B,in)
         y = (h_new * c_vec.unsqueeze(1)).sum(dim=-1) + self.d_skip * x
         return y, h_new
+
+    def to_flat(self) -> np.ndarray:
+        """Canonical flat order matching Rust `LayerWeights for MambaLayer::to_flat`:
+
+        x_proj_w row-major (dt_rank + 2*d_state, input_size)
+        dt_proj_w row-major (input_size, dt_rank)
+        dt_proj_b (input_size,)
+        a_log row-major (input_size, d_state)
+        d_skip (input_size,)
+        """
+        return np.concatenate(
+            [
+                self.x_proj_w.detach().cpu().numpy().astype(np.float64).ravel(),
+                self.dt_proj_w.detach().cpu().numpy().astype(np.float64).ravel(),
+                self.dt_proj_b.detach().cpu().numpy().astype(np.float64),
+                self.a_log.detach().cpu().numpy().astype(np.float64).ravel(),
+                self.d_skip.detach().cpu().numpy().astype(np.float64),
+            ]
+        )
