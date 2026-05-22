@@ -47,9 +47,12 @@ class LstmLayer(nn.Module):
         h_new = o * torch.tanh(c_new)
         return h_new, (h_new, c_new)
 
-    def new_state(self, batch_size: int, device: Any) -> tuple[Tensor, Tensor]:
-        # dtype tracks the parameter dtype so policy.double() / .float() propagates.
-        zeros = torch.zeros(batch_size, self.hidden_size, device=device, dtype=self.weight_ih.dtype)
+    def new_state(self, batch_size: int, device: Any | None = None) -> tuple[Tensor, Tensor]:
+        # dtype tracks the parameter dtype so policy.double() / .float() propagates;
+        # device defaults to the parameter's device so policy.to(device) propagates
+        # naturally (torch.zeros(..., device=None) would silently fall back to CPU).
+        target_device = device if device is not None else self.weight_ih.device
+        zeros = torch.zeros(batch_size, self.hidden_size, device=target_device, dtype=self.weight_ih.dtype)
         return (zeros, zeros.clone())
 
     def extra_repr(self) -> str:

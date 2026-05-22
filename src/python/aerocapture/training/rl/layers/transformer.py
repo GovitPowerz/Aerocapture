@@ -12,9 +12,10 @@ tests/test_rust_python_transformer_equivalence.py):
   no bias is included in the PE shift. Matches Rust's precomputed k_pe_offsets
   modulo iteration order (< 1e-10 tolerance, target machine epsilon).
 
-Note: this module is consumed ONLY by the cross-language equivalence test. The
-production PPO path raises NotImplementedError in build_layer; PSO bypasses this
-module entirely and drives the Rust runtime via aerocapture_rs.nn_forward.
+Note: constructible via `build_layer(TransformerSpec)` (used by warm-start BPTT
+and the cross-language equivalence test). The PPO runtime gate has moved to
+`rl/train.py::_derive_hidden_shapes`; PSO bypasses this module entirely and
+drives the Rust runtime via aerocapture_rs.nn_forward.
 """
 
 from __future__ import annotations

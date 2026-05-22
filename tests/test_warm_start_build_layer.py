@@ -42,4 +42,12 @@ def test_build_layer_constructs_all_types(spec):
 def test_new_state_accepts_batch_size_and_device(spec):
     layer = build_layer(spec)
     state = layer.new_state(batch_size=2, device=None)
-    assert state is None or state is not None  # contract: callable without error
+    # Dense returns None (no hidden state); others must produce batched (B, *) tensors
+    # or tuples thereof (LSTM returns (h, c)).
+    if state is None:
+        return  # Dense path
+    if isinstance(state, tuple):
+        for s in state:
+            assert s.shape[0] == 2, f"expected batch dim 2, got shape {tuple(s.shape)}"
+    else:
+        assert state.shape[0] == 2, f"expected batch dim 2, got shape {tuple(state.shape)}"

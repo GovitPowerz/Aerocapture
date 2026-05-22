@@ -41,9 +41,12 @@ class GruLayer(nn.Module):
         h_new = (1 - z) * n + z * h
         return h_new, h_new
 
-    def new_state(self, batch_size: int, device: Any) -> Tensor:
-        # dtype tracks the parameter dtype so policy.double() / .float() propagates.
-        return torch.zeros(batch_size, self.hidden_size, device=device, dtype=self.weight_ih.dtype)
+    def new_state(self, batch_size: int, device: Any | None = None) -> Tensor:
+        # dtype tracks the parameter dtype so policy.double() / .float() propagates;
+        # device defaults to the parameter's device so policy.to(device) propagates
+        # naturally (torch.zeros(..., device=None) would silently fall back to CPU).
+        target_device = device if device is not None else self.weight_ih.device
+        return torch.zeros(batch_size, self.hidden_size, device=target_device, dtype=self.weight_ih.dtype)
 
     def extra_repr(self) -> str:
         return f"input_size={self.input_size}, hidden_size={self.hidden_size}"
