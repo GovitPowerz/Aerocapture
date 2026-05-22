@@ -13,6 +13,8 @@ from typing import Any
 
 import numpy as np
 
+from aerocapture.training.parquet_output import DV_TOTAL_RAW_INDEX
+
 try:
     import aerocapture_rs as _aero_rs
 except ImportError as e:
@@ -24,7 +26,7 @@ def write_gen0_baseline(
     toml_path: str,
     overrides: list[dict[str, Any]],
     n_sims: int,
-    dv_column_index: int = 39,
+    dv_column_index: int = DV_TOTAL_RAW_INDEX,
 ) -> Path:
     """Run validation MC on a single warm-started overrides set and persist
     mean/RMS DV to `<save_dir>/warm_start_baseline.json`.
@@ -36,7 +38,8 @@ def write_gen0_baseline(
             decoded params should already be in the dict.
         n_sims: number of validation sims.
         dv_column_index: column index of dv_total_m_s in final_records.
-            Default 39 matches the current Rust FINAL_CSV_COLUMNS layout.
+            Default 41 matches the raw 52-element RunOutput.final_record layout
+            (BatchResults.final_records). Trimmed CSV indices are different.
 
     Returns:
         Path to the written JSON file.

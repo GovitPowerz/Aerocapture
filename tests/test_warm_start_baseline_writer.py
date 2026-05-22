@@ -16,7 +16,7 @@ def test_writes_baseline_file_with_mean_rms_n_sims(tmp_path):
     class _Result:
         final_records = np.zeros((n_sims, 52))
 
-    _Result.final_records[:, 39] = fake_dv  # dv_total_m_s index per plan
+    _Result.final_records[:, 41] = fake_dv  # dv_total_m_s in raw RunOutput layout
 
     def _fake_run_batch(toml_path, overrides_list, n_threads=None, include_trajectories=False, sim_timeout_secs=None):
         return _Result()
@@ -27,7 +27,6 @@ def test_writes_baseline_file_with_mean_rms_n_sims(tmp_path):
             toml_path="dummy.toml",
             overrides=[{}],
             n_sims=n_sims,
-            dv_column_index=39,
         )
 
     assert path == save_dir / "warm_start_baseline.json"

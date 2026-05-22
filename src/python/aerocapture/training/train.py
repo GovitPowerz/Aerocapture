@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -640,9 +642,6 @@ def train(
                 # chromosome on validation MC and persist mean/RMS DV so users
                 # get a "did warm-start help?" signal before generation 0.
                 # Best-effort: failure here must not block training.
-                import os as _os
-                import tempfile as _tempfile
-
                 from aerocapture.training._warm_start_baseline import write_gen0_baseline
 
                 _nn_tmp_path: Path | None = None
@@ -651,12 +650,15 @@ def train(
                     warm_overrides = problem._build_overrides(params_decoded, mc_seed=base_mc_seed)
                     # NN weights are written to a temp JSON, not TOML overrides.
                     if config.guidance_type == "neural_network":
-                        weights = np.array(
-                            [param_specs[j].p_min + float(warm_chromo[j]) * (param_specs[j].p_max - param_specs[j].p_min) for j in range(n_weights)],
+                        # decode_normalized already produced the full physical-space chromosome;
+                        # extract the first n_weights values (NN weight slab) by spec name.
+                        weights = np.fromiter(
+                            (params_decoded[param_specs[j].name] for j in range(n_weights)),
                             dtype=np.float64,
+                            count=n_weights,
                         )
-                        fd, tmp_str = _tempfile.mkstemp(suffix=".json", prefix="nn_warm_baseline_")
-                        _os.close(fd)
+                        fd, tmp_str = tempfile.mkstemp(suffix=".json", prefix="nn_warm_baseline_")
+                        os.close(fd)
                         _nn_tmp_path = Path(tmp_str)
                         write_nn_json(
                             weights,
