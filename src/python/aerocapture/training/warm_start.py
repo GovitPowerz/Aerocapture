@@ -133,27 +133,25 @@ def _supervised_pretrain(
     return policy
 
 
-def _policy_to_flat_weights(policy: V2Policy, architecture: list[dict]) -> npt.NDArray[np.float64]:
-    """Extract physical weights in canonical flat order (row-major W then b per dense layer).
+def _policy_to_flat_weights_v2(policy: V2Policy, architecture: list[dict]) -> npt.NDArray[np.float64]:
+    """Extract physical weights from a V2Policy in canonical flat order.
 
-    V2Policy wraps each dense layer as a DenseLayer(nn.Linear), so we walk the
-    architecture list and pull from policy.layers[i].linear rather than
-    collecting all nn.Linear via modules() (which would also catch non-dense
-    Linear submodules from recurrent layers).
+    Dispatches per-layer via each layer module's `to_flat()` method (which
+    mirrors Rust `LayerWeights::to_flat` for that variant). Concatenates the
+    per-layer flat slabs in architecture order.
+
+    Window contributes an empty slab (zero trainable params); the v2 chromosome
+    width is the sum across non-empty layers.
     """
-    from aerocapture.training.rl.layers.dense import DenseLayer
-
-    flat: list[float] = []
+    parts: list[npt.NDArray[np.float64]] = []
     for i, (entry, layer_module) in enumerate(zip(architecture, policy.layers, strict=True)):
-        if entry["type"] != "dense":
-            raise NotImplementedError(f"_policy_to_flat_weights supports dense only; got {entry['type']!r} at layer {i}")
-        if not isinstance(layer_module, DenseLayer):
-            raise RuntimeError(f"expected DenseLayer at index {i}; got {type(layer_module).__name__}")
-        w = layer_module.linear.weight.detach().cpu().numpy().astype(np.float64)
-        b = layer_module.linear.bias.detach().cpu().numpy().astype(np.float64)
-        flat.extend(w.ravel().tolist())
-        flat.extend(b.tolist())
-    return np.asarray(flat, dtype=np.float64)
+        if not hasattr(layer_module, "to_flat"):
+            raise RuntimeError(
+                f"layer {i} ({entry.get('type', '?')}) has no to_flat() method; "
+                "ensure the layer module mirrors Rust LayerWeights::to_flat"
+            )
+        parts.append(np.asarray(layer_module.to_flat(), dtype=np.float64))
+    return np.concatenate(parts) if parts else np.array([], dtype=np.float64)
 
 
 def build_warm_start_chromosome(
@@ -217,7 +215,7 @@ def build_warm_start_chromosome(
     architecture = cfg.network.architecture
 
     policy = _supervised_pretrain(X, y, cfg.network, n_epochs)
-    flat_weights = _policy_to_flat_weights(policy, architecture)
+    flat_weights = _policy_to_flat_weights_v2(policy, architecture)
 
     from pydantic import TypeAdapter
 
