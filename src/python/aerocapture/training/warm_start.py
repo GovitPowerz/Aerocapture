@@ -161,25 +161,19 @@ def _select_best_teacher_per_seed(
 
     Returns a list of dicts with the original (seed, X, y_signed, dv, captured)
     fields plus a "scheme" field naming the winner. Seeds where no scheme
-    captures are dropped (warm-start should teach winning behavior).
+    captures are dropped (warm-start should teach winning behavior). Ties on
+    DV broken by scheme iteration order in `results_by_scheme`.
     """
-    all_seeds: set[int] = set()
-    for results in results_by_scheme.values():
+    best: dict[int, tuple[str, dict]] = {}
+    for scheme, results in results_by_scheme.items():
         for r in results:
-            all_seeds.add(r["seed"])
+            if not r["captured"]:
+                continue
+            seed = int(r["seed"])
+            if seed not in best or float(r["dv"]) < float(best[seed][1]["dv"]):
+                best[seed] = (scheme, r)
 
-    selected: list[dict] = []
-    for seed in sorted(all_seeds):
-        candidates: list[tuple[str, dict]] = []
-        for scheme, results in results_by_scheme.items():
-            for r in results:
-                if r["seed"] == seed and r["captured"]:
-                    candidates.append((scheme, r))
-        if not candidates:
-            continue
-        scheme, r = min(candidates, key=lambda sr: float(sr[1]["dv"]))
-        selected.append({"scheme": scheme, **r})
-    return selected
+    return [{"scheme": scheme, **r} for seed, (scheme, r) in sorted(best.items())]
 
 
 def build_warm_start_chromosome(
