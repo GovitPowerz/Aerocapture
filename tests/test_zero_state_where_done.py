@@ -1,8 +1,8 @@
 """_zero_state_where_done handles Dense (None), GRU/LSTM (2D / tuple-2D),
 Window (3D), Mamba (3D), Transformer KV cache (tuple of 3D)."""
 
+import pytest
 import torch
-
 from aerocapture.training.rl.policy import _zero_state_where_done
 
 
@@ -51,5 +51,15 @@ def test_transformer_kv_cache_tuple_of_3d():
     v = torch.full((2, 5, 8), 2.0)
     done = torch.tensor([True, False])
     out_k, out_v = _zero_state_where_done([(k, v)], done)[0]
+    # k: done row zeroed, non-done row preserved
     assert torch.allclose(out_k[0], torch.zeros(5, 8))
+    assert torch.allclose(out_k[1], torch.ones(5, 8))
+    # v: done row zeroed, non-done row preserved
+    assert torch.allclose(out_v[0], torch.zeros(5, 8))
     assert torch.allclose(out_v[1], torch.full((5, 8), 2.0))
+
+
+def test_sub_2d_state_raises():
+    # 1D state is not a supported shape (no batch dim) -- must raise.
+    with pytest.raises(ValueError, match="ndim >= 2"):
+        _zero_state_where_done([torch.ones(4)], torch.tensor([True, False]))

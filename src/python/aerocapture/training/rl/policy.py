@@ -164,6 +164,8 @@ def _zero_entry(s: Any, keep_bool: Tensor) -> Any:
     if s is None:
         return None
     if isinstance(s, Tensor):
+        if s.ndim < 2:
+            raise ValueError(f"_zero_entry: expected Tensor with ndim >= 2 (batch dim + state dims), got ndim={s.ndim}")
         # keep_bool starts as (B, 1); reshape to (B, 1, 1, ..., 1) to broadcast
         # against any trailing dims (Mamba 3D, Window 3D, Transformer KV-cache 3D, ...).
         extra = s.ndim - keep_bool.ndim
