@@ -1,8 +1,8 @@
-"""Phase 4a gate: Mamba layer must reject PPO usage at build_layer / load_policy_from_json.
+"""Phase 4a gate: Mamba spec validation + load_policy_from_json PPO-rejection.
 
-PSO training bypasses build_layer entirely (Rust direct). PPO path does call
-build_layer via V2Policy construction, so this rejection is load-bearing for
-the "PSO-only" Phase 4a scope.
+build_layer now constructs MambaLayer (enabled in Task 2 for warm-start), so
+the remaining PPO gate lives in load_policy_from_json (V2Policy cannot host
+Mamba in Phase 4a) and in rl/train.py::_derive_hidden_shapes.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from aerocapture.training.rl.layers import build_layer
 from aerocapture.training.rl.schemas import MambaSpec
 
 
@@ -36,12 +35,6 @@ def test_mamba_spec_auto_resolves_dt_rank_small_input() -> None:
 def test_mamba_spec_rejects_dt_rank_larger_than_input() -> None:
     with pytest.raises(ValueError, match="dt_rank"):
         MambaSpec(type="mamba", input_size=8, d_state=4, dt_rank=16)
-
-
-def test_build_layer_mamba_raises_not_implemented() -> None:
-    spec = MambaSpec(type="mamba", input_size=8, d_state=4, dt_rank=2)
-    with pytest.raises(NotImplementedError, match="Mamba is PSO-only in Phase 4a"):
-        build_layer(spec)
 
 
 def test_load_policy_from_json_with_mamba_raises() -> None:

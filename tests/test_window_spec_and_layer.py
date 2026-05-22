@@ -2,14 +2,16 @@
 
 Covers: WindowSpec pydantic validation, LayerSpec discriminated union dispatch,
 WindowLayer torch module forward + new_state dtype tracking, zero-parameter
-invariant, build_layer PPO-rejection guard.
+invariant. The Task-2-era build_layer PPO-rejection guard was removed when
+build_layer was enabled for warm-start construction; the remaining PPO gates
+live in load_policy_from_json + rl/train.py::_derive_hidden_shapes.
 """
 
 from __future__ import annotations
 
 import pytest
 import torch
-from aerocapture.training.rl.layers import WindowLayer, build_layer
+from aerocapture.training.rl.layers import WindowLayer
 from aerocapture.training.rl.schemas import LayerSpec, WindowSpec
 from pydantic import TypeAdapter, ValidationError
 
@@ -104,18 +106,9 @@ def test_window_layer_rejects_zero_construction_fields() -> None:
         WindowLayer(input_size=4, n_steps=0)
 
 
-# ── build_layer PPO-rejection guard ─────────────────────────────────────
+# ── module exports ──────────────────────────────────────────────────────
 
 
 def test_window_layer_is_exported_from_layers_module() -> None:
     # Exposed for the cross-language equivalence test.
     assert WindowLayer is not None
-
-
-def test_build_layer_raises_on_window_spec() -> None:
-    spec = WindowSpec(type="window", input_size=4, n_steps=8)
-    with pytest.raises(NotImplementedError) as exc_info:
-        build_layer(spec)
-    msg = str(exc_info.value)
-    assert "Window-MLP is PSO-only" in msg
-    assert "docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md" in msg

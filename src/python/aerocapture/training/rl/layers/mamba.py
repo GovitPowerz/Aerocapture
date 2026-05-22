@@ -57,9 +57,9 @@ class MambaLayer(nn.Module):
         dt_rank:    Bottleneck rank for the Δ projection.
 
     State contract:
-        `new_state()` -> zero-initialized `Tensor` of shape (input_size, d_state),
-        dtype tracks parameter dtype (so `policy.double()` propagates).
-        `forward(x, h) -> (y, h_new)` where `x: (input_size,)` and `h: (input_size, d_state)`.
+        `new_state(batch_size, device=None)` -> zero-initialized Tensor (batch_size, input_size, d_state).
+        `forward(x, h) -> (y, h_new)` where x: (batch, input_size), h: (batch, input_size, d_state).
+        Unbatched fallback: pass x: (input_size,) and h: (input_size, d_state) — routes to forward_unbatched.
 
     Canonical parameter order (matches Rust `LayerWeights for MambaLayer::to_flat`):
       x_proj_w (dt_rank + 2*d_state, input_size) row-major
