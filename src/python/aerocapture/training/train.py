@@ -439,7 +439,11 @@ def train(
             # bound_multiplier=2.0 matches create_nn_initial_population's Phase 1
             # convention AND build_initial_population_for_v2 below. Keeping them
             # aligned avoids ~49% boundary-saturation on the initial PSO population.
-            param_specs = nn_param_specs_from_v2(validated, bound_multiplier=2.0)
+            # When warm-start is on, use the wider [warm_start] bound_multiplier
+            # (default 4.0) so the search space envelops the warm-started chromosome's
+            # post-supervised-training drift past Xavier bounds.
+            bound_mult = config.warm_start.bound_multiplier if config.network.warm_start_from else 2.0
+            param_specs = nn_param_specs_from_v2(validated, bound_multiplier=bound_mult)
         else:
             param_specs = nn_param_specs_from_architecture(
                 config.network.layer_sizes,
@@ -631,11 +635,57 @@ def train(
                 )
                 if scaffolding_slab is not None:
                     pop_array[:, n_weights:] = scaffolding_slab
+
+                # Gen-0 validation baseline: evaluate the bare warm-started
+                # chromosome on validation MC and persist mean/RMS DV so users
+                # get a "did warm-start help?" signal before generation 0.
+                # Best-effort: failure here must not block training.
+                import os as _os
+                import tempfile as _tempfile
+
+                from aerocapture.training._warm_start_baseline import write_gen0_baseline
+
+                _nn_tmp_path: Path | None = None
+                try:
+                    params_decoded = decode_normalized(warm_chromo, param_specs)
+                    warm_overrides = problem._build_overrides(params_decoded, mc_seed=base_mc_seed)
+                    # NN weights are written to a temp JSON, not TOML overrides.
+                    if config.guidance_type == "neural_network":
+                        weights = np.array(
+                            [param_specs[j].p_min + float(warm_chromo[j]) * (param_specs[j].p_max - param_specs[j].p_min) for j in range(n_weights)],
+                            dtype=np.float64,
+                        )
+                        fd, tmp_str = _tempfile.mkstemp(suffix=".json", prefix="nn_warm_baseline_")
+                        _os.close(fd)
+                        _nn_tmp_path = Path(tmp_str)
+                        write_nn_json(
+                            weights,
+                            config.network,
+                            _nn_tmp_path,
+                            input_mask=config.network.input_mask,
+                            output_param=config.network.output_parameterization,
+                        )
+                        warm_overrides["data.neural_network"] = str(_nn_tmp_path)
+                    baseline_path = write_gen0_baseline(
+                        save_dir=Path(config.save_dir),
+                        toml_path=toml_abs_path,
+                        overrides=[warm_overrides],
+                        n_sims=config.optimizer.validation_n_sims,
+                    )
+                    if verbose:
+                        baseline = json.loads(baseline_path.read_text())
+                        print(f"  [warm_start] gen-0 validation baseline: mean={baseline['mean']:.3f}, rms={baseline['rms']:.3f}, n_sims={baseline['n_sims']}")
+                except Exception as e:
+                    if verbose:
+                        print(f"  [warm_start] WARNING: gen-0 baseline write failed: {e}")
+                finally:
+                    if _nn_tmp_path is not None:
+                        _nn_tmp_path.unlink(missing_ok=True)
             else:
                 pop_array = build_initial_population_for_v2(
                     config.network.architecture,
                     config.optimizer.n_pop,
-                    bound_multiplier=2.0,
+                    bound_multiplier=bound_mult,
                     rng=rng,
                     param_specs=param_specs,
                     scaffolding_slab=scaffolding_slab,
