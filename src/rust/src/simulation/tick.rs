@@ -164,7 +164,7 @@ pub fn step_one_tick(
             );
             state
                 .supervised_trace
-                .push((nn_input, guidance_out.pre_lateral_magnitude));
+                .push((nn_input, guidance_out.bank_angle_commanded));
         }
 
         let bank_angle_commanded = forced_bank.unwrap_or(guidance_out.bank_angle_commanded);

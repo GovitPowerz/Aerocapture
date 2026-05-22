@@ -380,7 +380,7 @@ fn flat_weights_to_json(
 /// Collect supervised training data from a non-NN guidance scheme.
 ///
 /// Runs the simulator with `collect_supervised = true` over each seed and
-/// returns the per-tick (NN input vector, bank magnitude) pairs as numpy arrays.
+/// returns per-seed dicts preserving trajectory boundaries for downstream BPTT.
 ///
 /// Args:
 ///     toml_path: Path to the TOML config file.
@@ -392,9 +392,13 @@ fn flat_weights_to_json(
 ///     sim_timeout_secs: Optional wall-clock timeout per simulation in seconds.
 ///
 /// Returns:
-///     Tuple (X, y) where X has shape (N, 21) and y has shape (N,).
-///     X contains the 21-element NN input vector at each tick; y contains the
-///     unsigned bank magnitude (radians) after the thermal limiter.
+///     List of dicts (one per seed) with keys:
+///       - "seed": int, the MC seed.
+///       - "X": numpy.ndarray of shape (T, 21), per-tick NN input vectors.
+///       - "y_signed": numpy.ndarray of shape (T,), final signed bank command
+///         (radians) after thermal limiter, lateral, and command shaper.
+///       - "dv": float, total orbital-correction DV from the final record (m/s).
+///       - "captured": bool, whether the trajectory captured.
 #[pyfunction]
 #[pyo3(signature = (toml_path, seeds, overrides=None, scheme="ftc".to_string(), sim_timeout_secs=None))]
 fn collect_supervised(
@@ -404,7 +408,7 @@ fn collect_supervised(
     overrides: Option<&Bound<'_, PyDict>>,
     scheme: String,
     sim_timeout_secs: Option<f64>,
-) -> PyResult<(Py<numpy::PyArray2<f64>>, Py<numpy::PyArray1<f64>>)> {
+) -> PyResult<Py<PyList>> {
     use aerocapture::config::GuidanceType;
 
     let scheme_enum = match scheme.as_str() {
@@ -424,11 +428,11 @@ fn collect_supervised(
     let base_overrides = extract_overrides(overrides)?;
     let wall_timeout = sim_timeout_secs.map(std::time::Duration::from_secs_f64);
 
-    let mut all_x_rows: Vec<Vec<f64>> = Vec::new();
-    let mut all_y: Vec<f64> = Vec::new();
+    // Collected outside py.detach: (seed, supervised_trace, dv_total_m_s, captured).
+    let mut per_seed: Vec<(u64, Vec<(Vec<f64>, f64)>, f64, bool)> = Vec::with_capacity(seeds.len());
 
     py.detach(|| {
-        for seed in seeds {
+        for seed in &seeds {
             // Build per-seed overrides: force n_sims=1, set seed, force guidance type
             // BEFORE config load so the TOML-driven NN-file load (gated on
             // guidance.type == "neural_network") is skipped. Without this override,
@@ -441,7 +445,7 @@ fn collect_supervised(
             ));
             seed_overrides.push((
                 "monte_carlo.seed".to_string(),
-                config::OverrideValue::Int(seed as i64),
+                config::OverrideValue::Int(*seed as i64),
             ));
             seed_overrides.push((
                 "guidance.type".to_string(),
@@ -467,21 +471,52 @@ fn collect_supervised(
                 pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {e}"))
             })?;
 
+            // n_sims=1, so we expect exactly one output. Concatenate any extras
+            // defensively just in case (shouldn't happen, but keeps the contract robust).
+            let mut combined_trace: Vec<(Vec<f64>, f64)> = Vec::new();
+            let mut dv = f64::NAN;
+            let mut captured = false;
             for output in outputs {
-                for (nn_input, bank_mag) in output.supervised_trace {
-                    all_x_rows.push(nn_input);
-                    all_y.push(bank_mag);
-                }
+                combined_trace.extend(output.supervised_trace);
+                dv = output.final_record[41]; // dv_total_m_s column
+                captured = output.captured;
             }
+            per_seed.push((*seed, combined_trace, dv, captured));
         }
         Ok::<_, PyErr>(())
     })?;
 
-    let x_array = numpy::PyArray2::from_vec2(py, &all_x_rows).map_err(|e| {
-        pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build X array: {e}"))
-    })?;
-    let y_array = numpy::PyArray1::from_vec(py, all_y);
-    Ok((x_array.unbind(), y_array.unbind()))
+    // PyDict / PyArray construction requires the GIL, so it happens after py.detach() returns.
+    // NN input width is always 21 (the full FULL_MASK applied in tick.rs).
+    const NN_INPUT_WIDTH: usize = 21;
+    let result_list = PyList::empty(py);
+    for (seed, supervised_trace, dv, captured) in per_seed {
+        let n_steps = supervised_trace.len();
+        let mut x_rows: Vec<Vec<f64>> = Vec::with_capacity(n_steps);
+        let mut y_signed: Vec<f64> = Vec::with_capacity(n_steps);
+        for (nn_input, bank) in supervised_trace {
+            x_rows.push(nn_input);
+            y_signed.push(bank);
+        }
+        // Preserve shape (0, 21) on empty traces so downstream code can rely on width.
+        let x_array = if x_rows.is_empty() {
+            numpy::PyArray2::<f64>::zeros(py, [0, NN_INPUT_WIDTH], false)
+        } else {
+            numpy::PyArray2::from_vec2(py, &x_rows).map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build X array: {e}"))
+            })?
+        };
+        let y_array = numpy::PyArray1::from_vec(py, y_signed);
+
+        let dict = PyDict::new(py);
+        dict.set_item("seed", seed)?;
+        dict.set_item("X", x_array)?;
+        dict.set_item("y_signed", y_array)?;
+        dict.set_item("dv", dv)?;
+        dict.set_item("captured", captured)?;
+        result_list.append(dict)?;
+    }
+    Ok(result_list.unbind())
 }
 
 /// Load and return a TOML config file as a plain Python dict.
