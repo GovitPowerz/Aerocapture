@@ -4,12 +4,6 @@ base = ["../missions/mars.toml", "common.toml"]
 [guidance]
 type = "neural_network"
 
-[guidance.neural_network]
-# Path A: NN replaces only the capture-phase predictor-corrector. Magnitude is
-# routed through the FTC unsigned pipeline (thermal limiter + lateral guidance)
-# instead of bypassing it. The lateral / thermal / exit / nav / shaping params
-# below are FTC's GA-tuned values frozen as scaffolding.
-mode = "magnitude_only"
 
 [network]
 input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
@@ -82,3 +76,12 @@ max_bank_acceleration = 12.674110367187794   # deg/s^2
 [navigation]
 density_filter_gain = 0.34888052188696395
 density_gain_max_delta = 0.13961756994200195
+
+[warm_start]
+supervisor_schemes = ["ftc", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag"]
+bptt_length = 32
+n_warm_seeds = 200
+n_epochs = 10
+bound_multiplier = 4.0
+jitter = 0.02
+cmaes_sigma0 = 0.1

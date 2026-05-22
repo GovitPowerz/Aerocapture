@@ -88,3 +88,12 @@ max_bank_acceleration = 12.674110367187794   # deg/s^2
 [navigation]
 density_filter_gain = 0.34888052188696395
 density_gain_max_delta = 0.13961756994200195
+
+[warm_start]
+supervisor_schemes = ["ftc", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag"]
+bptt_length = 32
+n_warm_seeds = 200
+n_epochs = 10
+bound_multiplier = 4.0
+jitter = 0.02
+cmaes_sigma0 = 0.1
