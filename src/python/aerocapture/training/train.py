@@ -605,7 +605,7 @@ def train(
                     list(_NN_SCAFFOLDING_PARAMS),
                     config.optimizer.n_pop,
                     rng,
-                    jitter=0.02,
+                    jitter=config.warm_start.jitter,
                 )
 
             if config.network.warm_start_from:
@@ -619,6 +619,7 @@ def train(
                 n_weights = len(warm_chromo) - n_scaff
                 # CMA-ES: also shrink the initial step size for warm-started runs.
                 if config.optimizer.algorithm == "cma_es":
+                    # Override sigma0 for warm-started CMA-ES; persists in config for this run only.
                     config.optimizer.cma_es.sigma0 = config.warm_start.cmaes_sigma0
                 pop_array = _seed_initial_population(
                     algorithm_name=config.optimizer.algorithm,
