@@ -5,7 +5,7 @@ Supports both NN weight optimization and generic guidance parameter optimization
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -309,10 +309,7 @@ class WarmStartConfig:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> WarmStartConfig:
-        known = {
-            "supervisor_schemes", "bptt_length", "n_warm_seeds", "n_epochs",
-            "bound_multiplier", "jitter", "cmaes_sigma0", "params_paths",
-        }
+        known = {f.name for f in fields(cls)}
         unknown = set(d.keys()) - known
         if unknown:
             raise ValueError(f"unknown [warm_start] keys: {sorted(unknown)}")
