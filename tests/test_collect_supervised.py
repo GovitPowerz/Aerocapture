@@ -13,18 +13,24 @@ aerocapture_rs = pytest.importorskip("aerocapture_rs")
 def test_collect_supervised_returns_finite_traces() -> None:
     import numpy as np
 
-    X, y = aerocapture_rs.collect_supervised(
+    results = aerocapture_rs.collect_supervised(
         toml_path="configs/training/msr_aller_ftc_train.toml",
         seeds=[42],
         scheme="ftc",
     )
-    X = np.asarray(X)
-    y = np.asarray(y)
+    assert isinstance(results, list) and len(results) == 1
+    r = results[0]
+    assert set(r.keys()) == {"seed", "X", "y_signed", "dv", "captured"}
+    X = np.asarray(r["X"])
+    y = np.asarray(r["y_signed"])
     assert X.ndim == 2 and X.shape[1] == 21, X.shape
     assert y.ndim == 1 and y.shape[0] == X.shape[0], (X.shape, y.shape)
     assert np.isfinite(X).all()
     assert np.isfinite(y).all()
-    assert (y >= 0.0).all() and (y <= np.pi + 1e-9).all()
+    # Post-refactor: y is the signed final commanded bank after shaping.
+    # Values are typically in (-pi, pi] but rate-shaped commands can briefly
+    # exceed that range; tolerate +/- 2*pi.
+    assert (np.abs(y) <= 2.0 * np.pi).all()
 
 
 @pytest.mark.slow
@@ -47,14 +53,16 @@ def test_collect_supervised_overrides_neural_network_guidance_type(tmp_path: Pat
     """
     import numpy as np
 
-    X, y = aerocapture_rs.collect_supervised(
+    results = aerocapture_rs.collect_supervised(
         toml_path="configs/training/msr_aller_nn_joint_train.toml",
         seeds=[42],
         overrides={"data.neural_network": str(tmp_path / "does_not_exist.json")},
         scheme="ftc",
     )
-    X = np.asarray(X)
-    y = np.asarray(y)
+    assert isinstance(results, list) and len(results) == 1
+    r = results[0]
+    X = np.asarray(r["X"])
+    y = np.asarray(r["y_signed"])
     assert X.shape[0] > 0, "collect_supervised should succeed when scheme=ftc despite missing NN file"
     assert X.shape[1] == 21
     assert np.isfinite(X).all()
