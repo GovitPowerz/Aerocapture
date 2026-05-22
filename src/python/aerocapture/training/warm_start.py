@@ -170,6 +170,12 @@ def build_warm_start_chromosome(
     Drawing warm-start seeds from a different base would break the
     disjointness contract with those reserved pools.
     """
+    raise NotImplementedError(
+        "warm_start.build_warm_start_chromosome is in transit: collect_supervised "
+        "now returns list[dict] (post Task 1 of the warm-start-all-archs plan); "
+        "the multi-supervisor + BPTT rewrite lands in Task 11. See "
+        "docs/superpowers/plans/2026-05-22-warm-start-all-archs-plan.md."
+    )
     if rng is None:
         rng = np.random.default_rng(0)
 
