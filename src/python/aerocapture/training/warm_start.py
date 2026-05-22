@@ -94,15 +94,20 @@ def _chunked_bptt_train(
     lr: float = 1e-3,
     seed: int = 0,
 ) -> tuple[V2Policy, list[float]]:
-    """Chunked truncated-BPTT supervised pretraining.
+    """Chunked truncated-BPTT supervised pretraining (windowed variant).
 
     Each trajectory is split into `bptt_length`-sized chunks; per-chunk forward
-    is via `V2Policy.forward_seq_means`. Hidden state from chunk c is detached
-    and carried as the start state for chunk c+1. Loss is MSE between the
-    predicted output parameterization (cos(y) for acos_tanh, (sin,cos) for
-    atan2_signed) and the target.
+    is via `V2Policy.forward_seq_means`. Hidden state is zero-initialized at the
+    start of every chunk (no cross-chunk state carry) - chunks are shuffled and
+    batched across trajectories, so per-trajectory state continuity would not
+    align row-wise inside a minibatch. The cold-start bias this introduces in
+    recurrent layers is absorbed by downstream GA/PSO fine-tuning, which runs
+    against the actual Rust runtime that carries state correctly across the
+    full trajectory.
 
-    For magnitude_only mode, callers pre-process `y_signed -> abs(y_signed)`.
+    Loss is MSE between the predicted output parameterization (cos(y) for
+    acos_tanh, (sin,cos) for atan2_signed) and the target. For magnitude_only
+    mode, callers pre-process `y_signed -> abs(y_signed)`.
     """
     import torch
     from pydantic import TypeAdapter
@@ -155,11 +160,11 @@ def _chunked_bptt_train(
         order = rng.permutation(len(chunks))
         # Group into minibatches of up to 32 chunks; each minibatch is forwarded together.
         # Different trajectories' chunks can be batched freely because we re-init state per chunk.
-        batch_size = min(32, len(chunks))
+        chunk_batch_size = min(32, len(chunks))
         epoch_loss = 0.0
         n_batches = 0
-        for start in range(0, len(order), batch_size):
-            batch_idx = order[start : start + batch_size]
+        for start in range(0, len(order), chunk_batch_size):
+            batch_idx = order[start : start + chunk_batch_size]
             X_batch = np.stack([chunks[i][0] for i in batch_idx], axis=0)  # (B, T, in)
             y_batch = np.stack([chunks[i][1] for i in batch_idx], axis=0)  # (B, T)
             # Time-major

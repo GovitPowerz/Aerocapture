@@ -63,7 +63,7 @@ Rationale: A naive "union of all schemes on all seeds" introduces systematic per
 Sequence training mechanics:
 
 - Each per-seed trajectory is split into chunks of `warm_start.bptt_length` (default 32; must satisfy `bptt_length <= n_seq` for Transformer architectures — validated at config load).
-- Chunk c+1 begins with the detached hidden state from chunk c (mirrors the PPO-GRU `ppo_update_bptt` pattern).
+- Hidden state is zero-initialized at the start of every chunk (windowed-BPTT, no cross-chunk state carry). Chunks are shuffled and batched across trajectories, so per-trajectory state continuity would not align row-wise inside a minibatch. The cold-start bias this introduces is absorbed by downstream GA/PSO fine-tuning against the Rust runtime, which carries state correctly across the full trajectory.
 - Forward via the existing `V2Policy.evaluate(obs_seq, state_0, dones_seq, raw_seq)` contract, returning the predicted bank parameterization for each step in the chunk.
 - Loss is MSE between the predicted parameterization and the target encoding of `y_train`:
   - `output_parameterization = "acos_tanh"`: target = `cos(y_train)`, predicted = `tanh(out[0])`.
