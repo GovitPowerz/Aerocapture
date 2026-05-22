@@ -92,6 +92,37 @@ def _check_resume_chromosome_shape(
         raise ValueError(msg)
 
 
+def _seed_initial_population(
+    algorithm_name: str,
+    chromosome: np.ndarray,
+    n_pop: int,
+    jitter: float,
+    rng: np.random.Generator,
+    n_weights: int | None = None,
+) -> np.ndarray:
+    """Build the initial population from a warm-started chromosome.
+
+    GA / DE / PSO: tile chromosome to `n_pop` rows; add per-row N(0, jitter)
+    noise to the first `n_weights` columns (or all columns if `n_weights` is
+    None); clip to [0, 1]. The scaffolding tail (if optimize_scaffolding is on,
+    `chromosome[n_weights:]`) is NOT jittered here -- caller is responsible for
+    overwriting that slab with `scaffolding_slab` when applicable.
+
+    CMA-ES: tile chromosome to `n_pop` rows without jitter; pymoo's CMA-ES
+    uses the population mean as its initial mean. sigma0 is configured via
+    `OptimizerConfig.cma_es.sigma0` (separate path in create_algorithm).
+    """
+    pop = np.tile(chromosome, (n_pop, 1))
+    if algorithm_name == "cma_es":
+        return pop
+    if algorithm_name not in ("ga", "de", "pso"):
+        raise ValueError(f"unknown algorithm {algorithm_name!r} for warm-start seeding")
+    nw = n_weights if n_weights is not None else chromosome.size
+    pop[:, :nw] += rng.normal(0.0, jitter, size=(n_pop, nw))
+    pop[:, :nw] = np.clip(pop[:, :nw], 0.0, 1.0)
+    return pop
+
+
 def build_initial_population_for_v2(
     architecture: list[dict],
     n_pop: int,
@@ -584,12 +615,19 @@ def train(
                     cfg=config,
                     base_mc_seed=base_mc_seed,
                 )
-                n_pop = config.optimizer.n_pop
-                pop_array = np.tile(warm_chromo, (n_pop, 1))
                 n_scaff = 17 if config.network.optimize_scaffolding else 0
                 n_weights = len(warm_chromo) - n_scaff
-                pop_array[:, :n_weights] += rng.normal(0.0, 0.02, size=(n_pop, n_weights))
-                pop_array[:, :n_weights] = np.clip(pop_array[:, :n_weights], 0.0, 1.0)
+                # CMA-ES: also shrink the initial step size for warm-started runs.
+                if config.optimizer.algorithm == "cma_es":
+                    config.optimizer.cma_es.sigma0 = config.warm_start.cmaes_sigma0
+                pop_array = _seed_initial_population(
+                    algorithm_name=config.optimizer.algorithm,
+                    chromosome=warm_chromo,
+                    n_pop=config.optimizer.n_pop,
+                    jitter=config.warm_start.jitter,
+                    rng=rng,
+                    n_weights=n_weights,
+                )
                 if scaffolding_slab is not None:
                     pop_array[:, n_weights:] = scaffolding_slab
             else:
