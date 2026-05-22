@@ -1122,14 +1122,6 @@ if __name__ == "__main__":
     if "warm_start_from" in _gnn:
         cfg.network.warm_start_from = str(_gnn["warm_start_from"])
     if cfg.network.warm_start_from is not None:
-        nn_mode = _gnn.get("mode", "full_neural")
-        if nn_mode != "magnitude_only":
-            print(
-                f"ERROR: warm_start_from is set but [guidance.neural_network] mode={nn_mode!r}. "
-                f"Behavioural-cloning targets unsigned bank magnitude; only magnitude_only mode "
-                f"can consume the cloned NN's output."
-            )
-            raise SystemExit(1)
         warm_path = Path(cfg.network.warm_start_from)
         if not warm_path.exists():
             print(f"ERROR: warm_start_from='{warm_path}' does not exist")

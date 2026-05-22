@@ -28,7 +28,7 @@ def test_dense_runs_and_loss_decreases():
         input_mask=list(range(4)),
         output_parameterization="acos_tanh",
     )
-    policy, losses = _chunked_bptt_train(
+    policy, losses, _ = _chunked_bptt_train(
         trajectories=trajs,
         network=network,
         bptt_length=16,
@@ -51,7 +51,7 @@ def test_gru_runs_and_loss_finite():
         input_mask=list(range(4)),
         output_parameterization="acos_tanh",
     )
-    policy, losses = _chunked_bptt_train(
+    policy, losses, _ = _chunked_bptt_train(
         trajectories=trajs,
         network=network,
         bptt_length=8,

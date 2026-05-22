@@ -110,7 +110,7 @@ def _chunked_bptt_train(
     n_epochs: int,
     lr: float = 1e-3,
     seed: int = 0,
-) -> tuple[V2Policy, list[float]]:
+) -> tuple[V2Policy, list[float], int]:
     """Chunked truncated-BPTT supervised pretraining (windowed variant).
 
     Each trajectory is split into `bptt_length`-sized chunks; per-chunk forward
@@ -212,7 +212,7 @@ def _chunked_bptt_train(
             n_batches += 1
         losses.append(epoch_loss / max(n_batches, 1))
 
-    return policy, losses
+    return policy, losses, len(chunks)
 
 
 def _policy_to_flat_weights_v2(policy: V2Policy, architecture: list[dict]) -> npt.NDArray[np.float64]:
@@ -329,7 +329,7 @@ def build_warm_start_chromosome(
             traj["y_signed"] = np.abs(traj["y_signed"])
 
     # 6. Chunked-BPTT supervised pretraining
-    policy, losses = _chunked_bptt_train(
+    policy, losses, n_chunks = _chunked_bptt_train(
         trajectories=selected,
         network=network,
         bptt_length=ws.bptt_length,
@@ -337,7 +337,7 @@ def build_warm_start_chromosome(
     )
     (save_dir / "warm_start_loss.json").write_text(
         json.dumps(
-            [{"epoch": i, "mean_mse": float(loss)} for i, loss in enumerate(losses)],
+            [{"epoch": i, "mean_mse": float(loss), "n_chunks": n_chunks} for i, loss in enumerate(losses)],
             indent=2,
         )
     )
@@ -391,11 +391,13 @@ def build_warm_start_chromosome(
 
 
 def _resolve_nn_mode(cfg: TrainingConfig) -> str:
-    """Read [guidance.neural_network] mode from the TOML; default 'full_neural'."""
+    """Read [guidance.neural_network] mode from the resolved TOML; default 'full_neural'.
+
+    Uses load_toml_with_bases so the key is honored when set in a parent base TOML.
+    """
     if cfg.sim.toml_config is None:
         return "full_neural"
-    import tomllib
+    from aerocapture.training.toml_utils import load_toml_with_bases
 
-    with open(cfg.sim.toml_config, "rb") as f:
-        doc = tomllib.load(f)
+    doc = load_toml_with_bases(Path(cfg.sim.toml_config))
     return str(doc.get("guidance", {}).get("neural_network", {}).get("mode", "full_neural"))
