@@ -19,7 +19,7 @@ import numpy.typing as npt
 from pymoo.core.evaluator import Evaluator  # type: ignore[import-untyped]
 from pymoo.core.population import Population  # type: ignore[import-untyped]
 
-from aerocapture.training.config import TrainingConfig
+from aerocapture.training.config import TrainingConfig, WarmStartConfig
 from aerocapture.training.corridor import CorridorAccumulator
 from aerocapture.training.encoding import decode_normalized, nn_param_specs_from_architecture, nn_param_specs_from_v2
 from aerocapture.training.evaluate import (
@@ -1046,6 +1046,8 @@ if __name__ == "__main__":
         if not warm_path.exists():
             print(f"ERROR: warm_start_from='{warm_path}' does not exist")
             raise SystemExit(1)
+    if "warm_start" in _toml_data:
+        cfg.warm_start = WarmStartConfig.from_dict(_toml_data["warm_start"])
     if cfg.network.architecture is not None:
         cfg.network.__post_init__()  # re-validate once all fields are set
     cfg.sim.final_file = "output/final.train_nn_temp"

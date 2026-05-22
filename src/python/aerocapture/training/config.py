@@ -287,12 +287,46 @@ class SimConfig:
 
 
 @dataclass
+class WarmStartConfig:
+    """Multi-supervisor warm-start configuration.
+
+    All fields are optional with documented defaults. Activation of warm-start
+    itself is gated by `[guidance.neural_network] warm_start_from` being set;
+    this block only configures supervisor list, BPTT mechanics, and optimizer
+    seeding tunables.
+    """
+
+    supervisor_schemes: list[str] = field(
+        default_factory=lambda: ["ftc", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag"]
+    )
+    bptt_length: int = 32
+    n_warm_seeds: int = 200
+    n_epochs: int = 10
+    bound_multiplier: float = 4.0
+    jitter: float = 0.02
+    cmaes_sigma0: float = 0.1
+    params_paths: dict[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> WarmStartConfig:
+        known = {
+            "supervisor_schemes", "bptt_length", "n_warm_seeds", "n_epochs",
+            "bound_multiplier", "jitter", "cmaes_sigma0", "params_paths",
+        }
+        unknown = set(d.keys()) - known
+        if unknown:
+            raise ValueError(f"unknown [warm_start] keys: {sorted(unknown)}")
+        return cls(**d)
+
+
+@dataclass
 class TrainingConfig:
     """Complete training configuration."""
 
     network: NetworkConfig = field(default_factory=NetworkConfig)
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     sim: SimConfig = field(default_factory=SimConfig)
+    warm_start: WarmStartConfig = field(default_factory=WarmStartConfig)
     save_dir: str = "training_output"
     guidance_type: str = "neural_network"
 
