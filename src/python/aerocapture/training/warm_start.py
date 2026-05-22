@@ -33,6 +33,7 @@ def _cache_key(
     cfg: TrainingConfig,
     resolved_paths: dict[str, Path],
     scaffolding_source_path: Path,
+    mode: str,
 ) -> dict:
     # `optimize_scaffolding` and `toml_config` MUST be in the key:
     # - `optimize_scaffolding` flips the cached chromosome width (NN weights
@@ -41,6 +42,10 @@ def _cache_key(
     # - `toml_config` drives the supervised dataset (mission, dispersions,
     #   constraint limits). Different TOMLs with the same architecture would
     #   otherwise collide on the cache.
+    #
+    # Note: scaffolding_source_{path,mtime} are tracked even though train.py
+    # overwrites the cached scaffolding tail with build_scaffolding_initial_slab.
+    # Intentional: conservative cache invalidation; FTC retraining is rare.
     return {
         "architecture": cfg.network.architecture,
         "input_mask": cfg.network.input_mask,
@@ -58,7 +63,7 @@ def _cache_key(
         "n_epochs": cfg.warm_start.n_epochs,
         "bptt_length": cfg.warm_start.bptt_length,
         "bound_multiplier": cfg.warm_start.bound_multiplier,
-        "mode": _resolve_nn_mode(cfg),
+        "mode": mode,
     }
 
 
@@ -253,7 +258,6 @@ def _select_best_teacher_per_seed(
 def build_warm_start_chromosome(
     cfg: TrainingConfig,
     base_mc_seed: int,
-    rng: np.random.Generator | None = None,
 ) -> npt.NDArray[np.float64]:
     """Multi-supervisor warm-start: collect per-seed best teacher, chunked-BPTT, encode.
 
@@ -266,14 +270,12 @@ def build_warm_start_chromosome(
     validation/final-eval pools so warm-start seeds are disjoint
     (`WARM_START_SEED_OFFSET = 4M`).
     """
-    if rng is None:
-        rng = np.random.default_rng(0)
-
     save_dir = Path(cfg.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
     ws = cfg.warm_start
     network = cfg.network
+    mode = _resolve_nn_mode(cfg)
 
     # 1. Resolve supervisor paths
     resolved_paths: dict[str, Path] = {}
@@ -293,7 +295,7 @@ def build_warm_start_chromosome(
         raise FileNotFoundError(f"scaffolding source params not found at '{scaffolding_source_path}'")
 
     # 2. Cache check
-    cache_key = _cache_key(cfg, resolved_paths, scaffolding_source_path)
+    cache_key = _cache_key(cfg, resolved_paths, scaffolding_source_path, mode)
     cached = _cache_hit(save_dir, cache_key)
     if cached is not None:
         return cached
@@ -322,7 +324,6 @@ def build_warm_start_chromosome(
         )
 
     # 5. Magnitude_only mode: derive |y| Python-side
-    mode = _resolve_nn_mode(cfg)
     for traj in selected:
         if mode == "magnitude_only":
             traj["y_signed"] = np.abs(traj["y_signed"])
@@ -391,16 +392,10 @@ def build_warm_start_chromosome(
 
 def _resolve_nn_mode(cfg: TrainingConfig) -> str:
     """Read [guidance.neural_network] mode from the TOML; default 'full_neural'."""
-    mode = getattr(cfg.network, "neural_network_mode", None)
-    if mode is not None:
-        return str(mode)
     if cfg.sim.toml_config is None:
         return "full_neural"
-    try:
-        import tomllib
+    import tomllib
 
-        with open(cfg.sim.toml_config, "rb") as f:
-            doc = tomllib.load(f)
-        return str(doc.get("guidance", {}).get("neural_network", {}).get("mode", "full_neural"))
-    except Exception:
-        return "full_neural"
+    with open(cfg.sim.toml_config, "rb") as f:
+        doc = tomllib.load(f)
+    return str(doc.get("guidance", {}).get("neural_network", {}).get("mode", "full_neural"))

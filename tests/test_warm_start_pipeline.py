@@ -42,11 +42,9 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
     )
     Path(cfg.save_dir).mkdir(parents=True, exist_ok=True)
 
-    rng = np.random.default_rng(0)
     chromo = build_warm_start_chromosome(
         cfg=cfg,
         base_mc_seed=42,
-        rng=rng,
     )
     # 21*8 + 8 + 8*1 + 1 = 185
     assert chromo.shape == (185,), chromo.shape
@@ -202,11 +200,9 @@ def test_warm_start_atan2_signed_with_optimize_scaffolding(tmp_path: Path) -> No
     )
     Path(cfg.save_dir).mkdir(parents=True, exist_ok=True)
 
-    rng = np.random.default_rng(0)
     chromo = build_warm_start_chromosome(
         cfg=cfg,
         base_mc_seed=42,
-        rng=rng,
     )
     # 21*8 + 8 + 8*2 + 2 = 194 NN weights + 17 scaffolding = 211
     assert chromo.shape == (211,), chromo.shape
