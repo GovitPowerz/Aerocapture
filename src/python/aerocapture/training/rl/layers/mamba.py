@@ -11,6 +11,8 @@ must produce bit-identical f64 output (verified by Task 14's equivalence test).
 
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 from torch import Tensor, nn
 
@@ -83,13 +85,20 @@ class MambaLayer(nn.Module):
         self.a_log = nn.Parameter(torch.zeros(input_size, d_state))
         self.d_skip = nn.Parameter(torch.zeros(input_size))
 
-    def new_state(self) -> Tensor:
-        """Return a zero-initialized state tensor with parameter dtype / device."""
+    def new_state(self, batch_size: int, device: Any | None = None) -> Tensor:
+        """Return zero-initialized batched state (batch_size, input_size, d_state).
+
+        The unbatched forward signature `(x: (input_size,), h: (input_size, d_state))`
+        is preserved for the existing cross-language equivalence test (which calls it
+        directly without going through V2Policy). Task 3 adds the batched forward.
+        """
+        target_device = device if device is not None else self.x_proj_w.device
         return torch.zeros(
+            batch_size,
             self.input_size,
             self.d_state,
             dtype=self.x_proj_w.dtype,
-            device=self.x_proj_w.device,
+            device=target_device,
         )
 
     def forward(self, x: Tensor, h: Tensor) -> tuple[Tensor, Tensor]:

@@ -103,7 +103,9 @@ def test_mamba_rust_python_equivalence_100_steps(tmp_path: Path) -> None:
     assert rust_outs.shape == (100, 2), f"unexpected rust_out shape {rust_outs.shape}"
 
     # 5. Python: thread Mamba state h across all 100 steps.
-    h_mamba = mamba.new_state()
+    # new_state is batched (B, input_size, d_state); slice [0] for the unbatched
+    # cross-language forward contract still used here (Task 2/3 transition).
+    h_mamba = mamba.new_state(batch_size=1)[0]
     py_outs = np.empty((100, 2), dtype=np.float64)
 
     dense_in.eval()
@@ -206,8 +208,8 @@ def test_mamba_rust_python_equivalence_stacked_2_layers(tmp_path: Path) -> None:
     )
     assert rust_outs.shape == (100, 2)
 
-    h_a = mamba_a.new_state()
-    h_b = mamba_b.new_state()
+    h_a = mamba_a.new_state(batch_size=1)[0]
+    h_b = mamba_b.new_state(batch_size=1)[0]
     py_outs = np.empty((100, 2), dtype=np.float64)
     for layer in (dense_in, mamba_a, mamba_b, dense_out):
         layer.eval()
@@ -292,7 +294,7 @@ def test_mamba_high_a_log_numerical_stability(tmp_path: Path) -> None:
     assert np.all(np.isfinite(rust_outs)), f"Rust produced non-finite outputs under high a_log: {rust_outs}"
 
     # Python mirror must agree.
-    h = mamba.new_state()
+    h = mamba.new_state(batch_size=1)[0]
     py_outs = np.empty((50, 2), dtype=np.float64)
     for layer in (dense_in, mamba, dense_out):
         layer.eval()

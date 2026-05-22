@@ -20,6 +20,7 @@ module entirely and drives the Rust runtime via aerocapture_rs.nn_forward.
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import torch
 from torch import Tensor, nn
@@ -143,8 +144,8 @@ class TransformerLayer(nn.Module):
         out = x1 + ffn_out
         return out, (k_cache, v_cache)
 
-    def new_state(self, batch_size: int) -> tuple[Tensor, Tensor]:
-        device = self.w_q.weight.device
+    def new_state(self, batch_size: int, device: Any | None = None) -> tuple[Tensor, Tensor]:
+        target_device = device if device is not None else self.w_q.weight.device
         dtype = self.w_q.weight.dtype
-        empty = torch.zeros(batch_size, 0, self.d_model, device=device, dtype=dtype)
+        empty = torch.zeros(batch_size, 0, self.d_model, device=target_device, dtype=dtype)
         return (empty.clone(), empty.clone())

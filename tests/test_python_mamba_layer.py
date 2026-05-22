@@ -69,7 +69,9 @@ def test_mamba_forward_two_step_state_evolution(tiny_layer: MambaLayer) -> None:
 def test_mamba_new_state_dtype_matches_parameters() -> None:
     layer = MambaLayer(input_size=4, d_state=3, dt_rank=1)
     layer.double()
-    state = layer.new_state()
+    # new_state is now batched (batch_size, input_size, d_state); slice [0] for the
+    # unbatched cross-language forward contract still consumed by this test.
+    state = layer.new_state(batch_size=1)[0]
     assert state.dtype == torch.float64
     assert state.shape == (4, 3)
     assert bool(torch.all(state == 0.0))
@@ -80,8 +82,8 @@ def test_mamba_deterministic_under_repeated_input() -> None:
     layer = MambaLayer(input_size=4, d_state=3, dt_rank=1)
     layer.double()
     x = torch.randn(4, dtype=torch.float64)
-    h_a = layer.new_state()
-    h_b = layer.new_state()
+    h_a = layer.new_state(batch_size=1)[0]
+    h_b = layer.new_state(batch_size=1)[0]
     for _ in range(5):
         y_a, h_a = layer(x, h_a)
         y_b, h_b = layer(x, h_b)
