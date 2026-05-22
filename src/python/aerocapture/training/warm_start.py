@@ -86,51 +86,111 @@ def _build_overrides_for_source(source_params: dict[str, float]) -> dict[str, ob
     return overrides
 
 
-def _supervised_pretrain(
-    X: npt.NDArray[np.float64],
-    y: npt.NDArray[np.float64],
+def _chunked_bptt_train(
+    trajectories: list[dict],
     network: NetworkConfig,
+    bptt_length: int,
     n_epochs: int,
-    batch_size: int = 256,
     lr: float = 1e-3,
-) -> V2Policy:
+    seed: int = 0,
+) -> tuple[V2Policy, list[float]]:
+    """Chunked truncated-BPTT supervised pretraining.
+
+    Each trajectory is split into `bptt_length`-sized chunks; per-chunk forward
+    is via `V2Policy.forward_seq_means`. Hidden state from chunk c is detached
+    and carried as the start state for chunk c+1. Loss is MSE between the
+    predicted output parameterization (cos(y) for acos_tanh, (sin,cos) for
+    atan2_signed) and the target.
+
+    For magnitude_only mode, callers pre-process `y_signed -> abs(y_signed)`.
+    """
     import torch
     from pydantic import TypeAdapter
     from torch import nn
 
+    from aerocapture.training.rl.layers.transformer import TransformerLayer
     from aerocapture.training.rl.policy import V2Policy
     from aerocapture.training.rl.schemas import LayerSpec
 
-    validated = TypeAdapter(list[LayerSpec]).validate_python(network.architecture)
-    policy = V2Policy(architecture=validated, input_mask=network.input_mask).double()
+    if network.architecture is None:
+        raise ValueError("_chunked_bptt_train requires a v2 architecture (network.architecture is None)")
+
+    validated_arch = TypeAdapter(list[LayerSpec]).validate_python(network.architecture)
+    policy = V2Policy(architecture=validated_arch, input_mask=network.input_mask).double()
+
+    # Validate bptt_length <= n_seq for any Transformer layer
+    for i, layer in enumerate(policy.layers):
+        if isinstance(layer, TransformerLayer) and bptt_length > layer.n_seq:
+            raise ValueError(f"bptt_length={bptt_length} > layer {i} Transformer n_seq={layer.n_seq}; reduce bptt_length or increase n_seq")
 
     output_param = network.output_parameterization or "atan2_signed"
-    if output_param == "acos_tanh":
-        target = np.cos(y).reshape(-1, 1)
-    elif output_param == "atan2_signed":
-        target = np.stack([np.sin(y), np.cos(y)], axis=1)
-    else:
-        raise ValueError(f"unknown output_parameterization {output_param!r}")
+    input_mask = network.input_mask if network.input_mask is not None else list(range(21))
 
-    X_t = torch.tensor(X, dtype=torch.float64)
-    y_t = torch.tensor(target, dtype=torch.float64)
+    # Build chunks: list of (X_chunk[T_c, input_dim], y_chunk[T_c]) per trajectory.
+    chunks: list[tuple[np.ndarray, np.ndarray, int]] = []  # (X, y, traj_id)
+    for tid, traj in enumerate(trajectories):
+        X = np.asarray(traj["X"])[:, input_mask]
+        y = np.asarray(traj["y_signed"])
+        # Drop non-finite rows
+        finite = np.isfinite(X).all(axis=1) & np.isfinite(y)
+        X = X[finite]
+        y = y[finite]
+        T = X.shape[0]
+        # Slice into bptt_length chunks; trailing partial chunk dropped (clean BPTT)
+        n_chunks = T // bptt_length
+        for c in range(n_chunks):
+            s = c * bptt_length
+            e = s + bptt_length
+            chunks.append((X[s:e], y[s:e], tid))
+
+    if not chunks:
+        raise RuntimeError("no usable BPTT chunks; check bptt_length vs trajectory lengths")
 
     optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
-    n = X_t.shape[0]
-    for _ in range(n_epochs):
-        perm = torch.randperm(n)
-        for start in range(0, n, batch_size):
-            idx = perm[start : start + batch_size]
-            x_batch = X_t[idx]
-            # V2Policy needs a per-batch zero state (dense layers use None state,
-            # so this is free — no allocations beyond the list itself).
-            state = policy.new_state(batch_size=x_batch.shape[0], device=x_batch.device)
+    rng = np.random.default_rng(seed)
+    losses: list[float] = []
+
+    for _epoch in range(n_epochs):
+        # Shuffle chunks; minibatch as the chunk-batch dim
+        order = rng.permutation(len(chunks))
+        # Group into minibatches of up to 32 chunks; each minibatch is forwarded together.
+        # Different trajectories' chunks can be batched freely because we re-init state per chunk.
+        batch_size = min(32, len(chunks))
+        epoch_loss = 0.0
+        n_batches = 0
+        for start in range(0, len(order), batch_size):
+            batch_idx = order[start : start + batch_size]
+            X_batch = np.stack([chunks[i][0] for i in batch_idx], axis=0)  # (B, T, in)
+            y_batch = np.stack([chunks[i][1] for i in batch_idx], axis=0)  # (B, T)
+            # Time-major
+            obs_seq = torch.tensor(X_batch.transpose(1, 0, 2), dtype=torch.float64)  # (T, B, in)
+            y_t = torch.tensor(y_batch.transpose(1, 0), dtype=torch.float64)  # (T, B)
+
+            B = obs_seq.shape[1]
+            state_0 = policy.new_state(batch_size=B, device=None)
+            dones = torch.zeros(obs_seq.shape[0], B, dtype=torch.bool)  # no dones within a chunk
+
             optimizer.zero_grad()
-            pred, _ = policy(x_batch, state)
-            loss = nn.functional.mse_loss(pred, y_t[idx])
+            means = policy.forward_seq_means(obs_seq, state_0, dones)  # (T, B, out_dim)
+
+            if output_param == "acos_tanh":
+                pred = torch.tanh(means[..., 0])  # (T, B)
+                target = torch.cos(y_t)  # (T, B)
+                loss = nn.functional.mse_loss(pred, target)
+            elif output_param == "atan2_signed":
+                # means: (T, B, 2). Target = (sin(y), cos(y)).
+                target = torch.stack([torch.sin(y_t), torch.cos(y_t)], dim=-1)
+                loss = nn.functional.mse_loss(means, target)
+            else:
+                raise ValueError(f"unknown output_parameterization {output_param!r}")
+
             loss.backward()
             optimizer.step()
-    return policy
+            epoch_loss += float(loss.item())
+            n_batches += 1
+        losses.append(epoch_loss / max(n_batches, 1))
+
+    return policy, losses
 
 
 def _policy_to_flat_weights_v2(policy: V2Policy, architecture: list[dict]) -> npt.NDArray[np.float64]:
@@ -146,10 +206,7 @@ def _policy_to_flat_weights_v2(policy: V2Policy, architecture: list[dict]) -> np
     parts: list[npt.NDArray[np.float64]] = []
     for i, (entry, layer_module) in enumerate(zip(architecture, policy.layers, strict=True)):
         if not hasattr(layer_module, "to_flat"):
-            raise RuntimeError(
-                f"layer {i} ({entry.get('type', '?')}) has no to_flat() method; "
-                "ensure the layer module mirrors Rust LayerWeights::to_flat"
-            )
+            raise RuntimeError(f"layer {i} ({entry.get('type', '?')}) has no to_flat() method; ensure the layer module mirrors Rust LayerWeights::to_flat")
         parts.append(np.asarray(layer_module.to_flat(), dtype=np.float64))
     return np.concatenate(parts) if parts else np.array([], dtype=np.float64)
 
@@ -236,7 +293,7 @@ def build_warm_start_chromosome(
         raise ValueError("warm-start requires cfg.network.architecture; got None")
     architecture = cfg.network.architecture
 
-    policy = _supervised_pretrain(X, y, cfg.network, n_epochs)
+    policy = _chunked_bptt_train(X, y, cfg.network, n_epochs)
     flat_weights = _policy_to_flat_weights_v2(policy, architecture)
 
     from pydantic import TypeAdapter
