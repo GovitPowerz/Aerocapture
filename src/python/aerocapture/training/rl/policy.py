@@ -164,7 +164,15 @@ def _zero_entry(s: Any, keep_bool: Tensor) -> Any:
     if s is None:
         return None
     if isinstance(s, Tensor):
-        return s * keep_bool.to(dtype=s.dtype, device=s.device)
+        # keep_bool starts as (B, 1); reshape to (B, 1, 1, ..., 1) to broadcast
+        # against any trailing dims (Mamba 3D, Window 3D, Transformer KV-cache 3D, ...).
+        extra = s.ndim - keep_bool.ndim
+        if extra > 0:
+            shape = keep_bool.shape + (1,) * extra
+            broadcast = keep_bool.view(shape)
+        else:
+            broadcast = keep_bool
+        return s * broadcast.to(dtype=s.dtype, device=s.device)
     if isinstance(s, tuple):
         return tuple(_zero_entry(sub, keep_bool) for sub in s)
     raise TypeError(
