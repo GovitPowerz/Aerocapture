@@ -154,6 +154,34 @@ def _policy_to_flat_weights_v2(policy: V2Policy, architecture: list[dict]) -> np
     return np.concatenate(parts) if parts else np.array([], dtype=np.float64)
 
 
+def _select_best_teacher_per_seed(
+    results_by_scheme: dict[str, list[dict]],
+) -> list[dict]:
+    """Across schemes, pick the captured trajectory with the lowest DV per seed.
+
+    Returns a list of dicts with the original (seed, X, y_signed, dv, captured)
+    fields plus a "scheme" field naming the winner. Seeds where no scheme
+    captures are dropped (warm-start should teach winning behavior).
+    """
+    all_seeds: set[int] = set()
+    for results in results_by_scheme.values():
+        for r in results:
+            all_seeds.add(r["seed"])
+
+    selected: list[dict] = []
+    for seed in sorted(all_seeds):
+        candidates: list[tuple[str, dict]] = []
+        for scheme, results in results_by_scheme.items():
+            for r in results:
+                if r["seed"] == seed and r["captured"]:
+                    candidates.append((scheme, r))
+        if not candidates:
+            continue
+        scheme, r = min(candidates, key=lambda sr: float(sr[1]["dv"]))
+        selected.append({"scheme": scheme, **r})
+    return selected
+
+
 def build_warm_start_chromosome(
     cfg: TrainingConfig,
     base_mc_seed: int,
