@@ -29,7 +29,11 @@ except ImportError as e:
     raise ImportError("warm_start requires aerocapture_rs PyO3 module") from e
 
 
-def _cache_key(cfg: TrainingConfig, source_path: Path, n_warm_seeds: int, n_epochs: int) -> dict:
+def _cache_key(
+    cfg: TrainingConfig,
+    resolved_paths: dict[str, Path],
+    scaffolding_source_path: Path,
+) -> dict:
     # `optimize_scaffolding` and `toml_config` MUST be in the key:
     # - `optimize_scaffolding` flips the cached chromosome width (NN weights
     #   alone vs NN weights + 17 scaffolding slots). Caching across the flip
@@ -43,10 +47,18 @@ def _cache_key(cfg: TrainingConfig, source_path: Path, n_warm_seeds: int, n_epoc
         "output_parameterization": cfg.network.output_parameterization or "atan2_signed",
         "optimize_scaffolding": bool(cfg.network.optimize_scaffolding),
         "toml_config": str(cfg.sim.toml_config) if cfg.sim.toml_config else None,
-        "source_path": str(source_path),
-        "source_mtime": source_path.stat().st_mtime,
-        "n_warm_seeds": n_warm_seeds,
-        "n_epochs": n_epochs,
+        "supervisor_schemes": sorted(cfg.warm_start.supervisor_schemes),
+        "supervisor_params": {
+            scheme: {"path": str(p), "mtime": p.stat().st_mtime}
+            for scheme, p in sorted(resolved_paths.items())
+        },
+        "scaffolding_source_path": str(scaffolding_source_path),
+        "scaffolding_source_mtime": scaffolding_source_path.stat().st_mtime,
+        "n_warm_seeds": cfg.warm_start.n_warm_seeds,
+        "n_epochs": cfg.warm_start.n_epochs,
+        "bptt_length": cfg.warm_start.bptt_length,
+        "bound_multiplier": cfg.warm_start.bound_multiplier,
+        "mode": _resolve_nn_mode(cfg),
     }
 
 
@@ -241,72 +253,112 @@ def _select_best_teacher_per_seed(
 def build_warm_start_chromosome(
     cfg: TrainingConfig,
     base_mc_seed: int,
-    n_warm_seeds: int = 200,
-    n_epochs: int = 10,
     rng: np.random.Generator | None = None,
 ) -> npt.NDArray[np.float64]:
-    """Run cfg's source scheme on n_warm_seeds, supervised-pretrain V2Policy, return chromosome.
+    """Multi-supervisor warm-start: collect per-seed best teacher, chunked-BPTT, encode.
 
-    `base_mc_seed` MUST be the resolved value train.py uses for the
-    validation/final-eval pools (i.e. `monte_carlo.seed` or 42 if absent).
-    Drawing warm-start seeds from a different base would break the
-    disjointness contract with those reserved pools.
+    Configuration is fully read from cfg.warm_start (supervisor_schemes,
+    bptt_length, n_warm_seeds, n_epochs, bound_multiplier, params_paths)
+    and cfg.network (architecture, input_mask, output_parameterization,
+    optimize_scaffolding, warm_start_from for the scaffolding source).
+
+    `base_mc_seed` MUST be the resolved value train.py uses for
+    validation/final-eval pools so warm-start seeds are disjoint
+    (`WARM_START_SEED_OFFSET = 4M`).
     """
-    raise NotImplementedError(
-        "warm_start.build_warm_start_chromosome is in transit: collect_supervised "
-        "now returns list[dict] (post Task 1 of the warm-start-all-archs plan); "
-        "the multi-supervisor + BPTT rewrite lands in Task 11. See "
-        "docs/superpowers/plans/2026-05-22-warm-start-all-archs-plan.md."
-    )
     if rng is None:
         rng = np.random.default_rng(0)
 
     save_dir = Path(cfg.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    source_path = Path(getattr(cfg.network, "warm_start_from", None) or "training_output/ftc/best_params.json")
-    if not source_path.exists():
-        raise FileNotFoundError(f"warm-start source params not found at '{source_path}'. Run FTC training first or set warm_start_from.")
+    ws = cfg.warm_start
+    network = cfg.network
 
-    cache_key = _cache_key(cfg, source_path, n_warm_seeds, n_epochs)
+    # 1. Resolve supervisor paths
+    resolved_paths: dict[str, Path] = {}
+    for scheme in ws.supervisor_schemes:
+        override = ws.params_paths.get(scheme)
+        path = Path(override) if override else Path(f"training_output/{scheme}/best_params.json")
+        if not path.exists():
+            raise FileNotFoundError(
+                f"warm-start supervisor '{scheme}' params not found at '{path}'. "
+                f"Train {scheme} first or set [warm_start.params_paths].{scheme}."
+            )
+        resolved_paths[scheme] = path
+
+    # Scaffolding source (for the 17-slot tail when optimize_scaffolding)
+    scaffolding_source_path = Path(network.warm_start_from) if network.warm_start_from else resolved_paths[ws.supervisor_schemes[0]]
+    if not scaffolding_source_path.exists():
+        raise FileNotFoundError(f"scaffolding source params not found at '{scaffolding_source_path}'")
+
+    # 2. Cache check
+    cache_key = _cache_key(cfg, resolved_paths, scaffolding_source_path)
     cached = _cache_hit(save_dir, cache_key)
     if cached is not None:
         return cached
 
-    with open(source_path) as f:
-        source_params = json.load(f)
-    overrides = _build_overrides_for_source(source_params)
+    # 3. Collect per scheme
+    seeds = make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, ws.n_warm_seeds)
+    results_by_scheme: dict[str, list[dict]] = {}
+    for scheme, path in resolved_paths.items():
+        with open(path) as f:
+            source_params = json.load(f)
+        overrides = _build_overrides_for_source(source_params)
+        results_by_scheme[scheme] = _aero_rs.collect_supervised(
+            toml_path=cfg.sim.toml_config,
+            seeds=seeds,
+            overrides=overrides,
+            scheme=scheme,
+        )
 
-    seeds = make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, n_warm_seeds)
+    # 4. Pick best per seed
+    selected = _select_best_teacher_per_seed(results_by_scheme)
+    min_corpus = max(20, ws.n_warm_seeds // 4)
+    if len(selected) < min_corpus:
+        raise RuntimeError(
+            f"warm-start corpus too small: {len(selected)} captures across {ws.n_warm_seeds} seeds "
+            f"(threshold {min_corpus}). Widen MC dispersions, check the TOML, or revise supervisor_schemes."
+        )
 
-    X_full, y = _aero_rs.collect_supervised(
-        toml_path=cfg.sim.toml_config,
-        seeds=seeds,
-        overrides=overrides,
-        scheme="ftc",
+    # 5. Magnitude_only mode: derive |y| Python-side
+    mode = _resolve_nn_mode(cfg)
+    for traj in selected:
+        if mode == "magnitude_only":
+            traj["y_signed"] = np.abs(traj["y_signed"])
+
+    # 6. Chunked-BPTT supervised pretraining
+    policy, losses = _chunked_bptt_train(
+        trajectories=selected,
+        network=network,
+        bptt_length=ws.bptt_length,
+        n_epochs=ws.n_epochs,
     )
-    X_full = np.asarray(X_full)
-    y = np.asarray(y)
-    finite_mask = np.isfinite(X_full).all(axis=1) & np.isfinite(y)
-    X_full = X_full[finite_mask]
-    y = y[finite_mask]
+    (save_dir / "warm_start_loss.json").write_text(
+        json.dumps(
+            [{"epoch": i, "mean_mse": float(loss)} for i, loss in enumerate(losses)],
+            indent=2,
+        )
+    )
+    print(f"  [warm_start] supervised MSE: {losses[0]:.4f} -> {losses[-1]:.4f} over {len(losses)} epochs")
 
-    mask = cfg.network.input_mask if cfg.network.input_mask is not None else list(range(16))
-    X = X_full[:, mask]
-
-    if cfg.network.architecture is None:
-        raise ValueError("warm-start requires cfg.network.architecture; got None")
-    architecture = cfg.network.architecture
-
-    policy = _chunked_bptt_train(X, y, cfg.network, n_epochs)
-    flat_weights = _policy_to_flat_weights_v2(policy, architecture)
-
+    # 7. Extract flat weights and encode to normalized chromosome at warm-start bound_multiplier
+    assert network.architecture is not None  # validated by _chunked_bptt_train
+    flat_weights = _policy_to_flat_weights_v2(policy, network.architecture)
     from pydantic import TypeAdapter
 
     from aerocapture.training.rl.schemas import LayerSpec
 
-    validated = TypeAdapter(list[LayerSpec]).validate_python(architecture)
-    weight_specs = nn_param_specs_from_v2(validated, bound_multiplier=2.0)
+    validated_arch = TypeAdapter(list[LayerSpec]).validate_python(network.architecture)
+    weight_specs = nn_param_specs_from_v2(validated_arch, bound_multiplier=ws.bound_multiplier)
+
+    # Safety guard (per Task 7 code-quality review): zero-param layers must be
+    # skipped consistently by nn_param_specs_from_v2 and _policy_to_flat_weights_v2.
+    assert len(flat_weights) == len(weight_specs), (
+        f"flat_weights length ({len(flat_weights)}) != weight_specs length ({len(weight_specs)}); "
+        "zero-param layers (Window) must be skipped consistently in both encoders"
+    )
+
     weight_chromo = np.empty(len(weight_specs), dtype=np.float64)
     n_clipped = 0
     for i, s in enumerate(weight_specs):
@@ -316,26 +368,39 @@ def build_warm_start_chromosome(
             n_clipped += 1
         weight_chromo[i] = np.clip(normalized, 0.0, 1.0)
 
-    # The PSO chromosome bounds are 2× Xavier; Adam-trained weights routinely drift
-    # past that, especially on the last layer. Heavy clipping means the warm-started
-    # population starts piled at chromosome boundaries — defeating the warm-start.
-    # Log so the user can react (widen bound_multiplier, fewer epochs, lower LR).
     clip_rate = n_clipped / max(len(weight_specs), 1)
     if clip_rate > 0.05:
-        print(
-            f"  [warm_start] WARNING: {n_clipped}/{len(weight_specs)} weights "
-            f"({100 * clip_rate:.1f}%) clipped to chromosome bounds. "
-            f"Consider widening bound_multiplier or reducing n_epochs/lr."
+        raise RuntimeError(
+            f"warm-start clip rate {100 * clip_rate:.1f}% ({n_clipped}/{len(weight_specs)}) exceeds 5% threshold. "
+            "Widen [warm_start] bound_multiplier, reduce n_epochs, or lower lr."
         )
     elif n_clipped > 0:
         print(f"  [warm_start] {n_clipped}/{len(weight_specs)} weights clipped ({100 * clip_rate:.2f}%).")
 
     chromo = weight_chromo
-    if cfg.network.optimize_scaffolding:
-        scaff_chromo = encode_to_normalized(source_params, list(_NN_SCAFFOLDING_PARAMS))
+    if network.optimize_scaffolding:
+        with open(scaffolding_source_path) as f:
+            scaff_params = json.load(f)
+        scaff_chromo = encode_to_normalized(scaff_params, list(_NN_SCAFFOLDING_PARAMS))
         chromo = np.concatenate([weight_chromo, scaff_chromo])
 
     np.save(save_dir / "warm_start_chromosome.npy", chromo)
     (save_dir / "warm_start_cache_key.json").write_text(json.dumps(cache_key, indent=2))
-
     return chromo
+
+
+def _resolve_nn_mode(cfg: TrainingConfig) -> str:
+    """Read [guidance.neural_network] mode from the TOML; default 'full_neural'."""
+    mode = getattr(cfg.network, "neural_network_mode", None)
+    if mode is not None:
+        return str(mode)
+    if cfg.sim.toml_config is None:
+        return "full_neural"
+    try:
+        import tomllib
+
+        with open(cfg.sim.toml_config, "rb") as f:
+            doc = tomllib.load(f)
+        return str(doc.get("guidance", {}).get("neural_network", {}).get("mode", "full_neural"))
+    except Exception:
+        return "full_neural"

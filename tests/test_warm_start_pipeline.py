@@ -15,7 +15,7 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
     if not ftc_params.exists():
         pytest.skip("FTC training output absent")
 
-    from aerocapture.training.config import NetworkConfig, TrainingConfig
+    from aerocapture.training.config import NetworkConfig, TrainingConfig, WarmStartConfig
     from aerocapture.training.warm_start import build_warm_start_chromosome
 
     cfg = TrainingConfig()
@@ -28,18 +28,24 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
         input_mask=list(range(21)),
         output_parameterization="acos_tanh",
         optimize_scaffolding=False,
+        warm_start_from=str(ftc_params),
     )
     cfg.sim.toml_config = "configs/training/msr_aller_ftc_train.toml"
     cfg.sim.exec_dir = str(repo_root)
     cfg.save_dir = str(tmp_path / "warm")
+    cfg.warm_start = WarmStartConfig(
+        supervisor_schemes=["ftc"],
+        params_paths={"ftc": str(ftc_params)},
+        n_warm_seeds=24,  # > min_corpus threshold (max(20, n // 4))
+        n_epochs=20,
+        bptt_length=16,
+    )
     Path(cfg.save_dir).mkdir(parents=True, exist_ok=True)
 
     rng = np.random.default_rng(0)
     chromo = build_warm_start_chromosome(
         cfg=cfg,
         base_mc_seed=42,
-        n_warm_seeds=4,
-        n_epochs=20,  # enough epochs for the supervised loss to converge meaningfully
         rng=rng,
     )
     # 21*8 + 8 + 8*1 + 1 = 185
@@ -63,13 +69,25 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
     from aerocapture.training.rl.schemas import LayerSpec
     from pydantic import TypeAdapter
 
-    X_full, y = aerocapture_rs.collect_supervised(
+    # Task 1 changed collect_supervised to return list[dict] (one dict per seed
+    # with X/y_signed/dv/captured fields). Concatenate captured trajectories
+    # for the cloned-NN MSE sanity check.
+    results = aerocapture_rs.collect_supervised(
         toml_path=cfg.sim.toml_config,
         seeds=[42],
         scheme="ftc",
     )
-    X_full = np.asarray(X_full)
-    y = np.asarray(y)
+    X_parts = []
+    y_parts = []
+    for r in results:
+        if not r["captured"]:
+            continue
+        X_parts.append(np.asarray(r["X"]))
+        y_parts.append(np.asarray(r["y_signed"]))
+    if not X_parts:
+        pytest.skip("collect_supervised returned no captured trajectories")
+    X_full = np.concatenate(X_parts, axis=0)
+    y = np.concatenate(y_parts, axis=0)
     finite = np.isfinite(X_full).all(axis=1) & np.isfinite(y)
     X_full = X_full[finite]
     y = y[finite]
@@ -81,7 +99,7 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
     assert np.array_equal(cached, chromo), "cache roundtrip mismatch"
 
     validated = TypeAdapter(list[LayerSpec]).validate_python(cfg.network.architecture)
-    weight_specs = nn_param_specs_from_v2(validated, bound_multiplier=2.0)
+    weight_specs = nn_param_specs_from_v2(validated, bound_multiplier=cfg.warm_start.bound_multiplier)
     n_weights = len(weight_specs)
     physical_weights = np.array([s.p_min + cached[i] * (s.p_max - s.p_min) for i, s in enumerate(weight_specs[:n_weights])])
 
@@ -157,7 +175,7 @@ def test_warm_start_atan2_signed_with_optimize_scaffolding(tmp_path: Path) -> No
 
     import json as _json
 
-    from aerocapture.training.config import NetworkConfig, TrainingConfig
+    from aerocapture.training.config import NetworkConfig, TrainingConfig, WarmStartConfig
     from aerocapture.training.warm_start import build_warm_start_chromosome
 
     cfg = TrainingConfig()
@@ -170,18 +188,24 @@ def test_warm_start_atan2_signed_with_optimize_scaffolding(tmp_path: Path) -> No
         input_mask=list(range(21)),
         output_parameterization="atan2_signed",
         optimize_scaffolding=True,
+        warm_start_from=str(ftc_params),
     )
     cfg.sim.toml_config = "configs/training/msr_aller_ftc_train.toml"
     cfg.sim.exec_dir = str(repo_root)
     cfg.save_dir = str(tmp_path / "warm_atan2")
+    cfg.warm_start = WarmStartConfig(
+        supervisor_schemes=["ftc"],
+        params_paths={"ftc": str(ftc_params)},
+        n_warm_seeds=24,  # > min_corpus threshold (max(20, n // 4))
+        n_epochs=2,
+        bptt_length=16,
+    )
     Path(cfg.save_dir).mkdir(parents=True, exist_ok=True)
 
     rng = np.random.default_rng(0)
     chromo = build_warm_start_chromosome(
         cfg=cfg,
         base_mc_seed=42,
-        n_warm_seeds=4,
-        n_epochs=2,
         rng=rng,
     )
     # 21*8 + 8 + 8*2 + 2 = 194 NN weights + 17 scaffolding = 211

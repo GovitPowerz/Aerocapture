@@ -583,8 +583,6 @@ def train(
                 warm_chromo = build_warm_start_chromosome(
                     cfg=config,
                     base_mc_seed=base_mc_seed,
-                    n_warm_seeds=200,
-                    n_epochs=10,
                     rng=rng,
                 )
                 n_pop = config.optimizer.n_pop
