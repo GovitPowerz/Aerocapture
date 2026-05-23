@@ -425,10 +425,13 @@ def build_warm_start_chromosome(
             f"(threshold {min_corpus}). Widen MC dispersions, check the TOML, or revise supervisor_schemes."
         )
 
-    # 5. Magnitude_only mode: target is already unsigned (tick.rs captures
-    # `pre_lateral_magnitude`, in [0, pi]). The .abs() is defensive only --
-    # if a future change re-introduces a signed source value, this stays
-    # consistent with the magnitude_only routing contract.
+    # 5. Magnitude_only mode: collapse sign Python-side so the supervised
+    # target matches the runtime decoder. Under magnitude_only deploy, the
+    # NN's output is .abs()'d in dispatch.rs and routed through lateral
+    # guidance for sign re-selection -- so the warm-start target should be
+    # unsigned. Under full_neural deploy, no lateral guidance runs at
+    # runtime, so the signed target (the supervisor's lateral-chosen sign)
+    # is exactly what the NN must learn to emit.
     for traj in selected:
         if mode == "magnitude_only":
             traj["y_signed"] = np.abs(traj["y_signed"])

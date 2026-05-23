@@ -162,15 +162,16 @@ pub fn step_one_tick(
                 data.target_orbit.inclination,
                 state.guidance_state.reference_velocity,
             );
-            // Supervised target is the pre-lateral, pre-shaper magnitude so
-            // the warm-start cloned NN replaces ONLY the predictor-corrector.
-            // Under magnitude_only deploy the NN's output is fed BACK INTO
-            // lateral / thermal_limiter / command_shaper, so capturing the
-            // post-shaper signed command here would cause double-shaping (the
-            // shaper runs again at deploy time on the NN's own output).
+            // Supervised target is the post-lateral, PRE-shaper signed bank.
+            // - Sign preserved: full_neural deploy has no lateral guidance at
+            //   runtime, so the NN must emit signed banks itself; the signed
+            //   target teaches that.
+            // - Pre-shaper: the shaper runs exactly once at deploy (on the
+            //   NN's output). Capturing the post-shaper value would cause
+            //   double-shaping (the supervisor's command was already shaped).
             state
                 .supervised_trace
-                .push((nn_input, guidance_out.pre_lateral_magnitude));
+                .push((nn_input, guidance_out.pre_shaper_signed));
         }
 
         let bank_angle_commanded = forced_bank.unwrap_or(guidance_out.bank_angle_commanded);

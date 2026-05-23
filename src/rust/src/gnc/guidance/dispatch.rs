@@ -94,6 +94,14 @@ pub struct GuidanceOutput {
     /// Bank magnitude after thermal limiter, before lateral sign selection.
     /// Zero for signed-bank schemes (PiecewiseConstant, NN in FullNeural mode).
     pub pre_lateral_magnitude: f64,
+    /// Signed bank command after lateral sign selection, BEFORE command shaping.
+    /// This is the value the supervised warm-start path captures so that:
+    ///   1. the sign carries through (full_neural deploy has no lateral guidance to add signs),
+    ///   2. the command shaper runs exactly once at deploy on the NN's output, not twice
+    ///      (which `bank_angle_commanded` would cause, since it is post-shaper).
+    /// For signed-bank schemes (PiecewiseConstant, NN/FullNeural) this equals
+    /// `bank_angle_longitudinal` directly (no lateral sign multiply happens).
+    pub pre_shaper_signed: f64,
 }
 
 /// Run one guidance step (dispatches to the active scheme).
@@ -273,6 +281,14 @@ pub fn guidance_step(
     if !is_reference && !skip_lateral {
         state.bank_angle_commanded = bank_angle_longitudinal * state.lateral_state.roll_sign;
     }
+
+    // Snapshot the post-lateral, PRE-shaper signed bank command. This is the
+    // value the supervised warm-start path captures so the NN learns the bank
+    // that gets fed INTO the shaper (which then runs exactly once at deploy,
+    // not twice). For signed-bank schemes (PiecewiseConstant, NN/FullNeural)
+    // `state.bank_angle_commanded` already equals `bank_angle_longitudinal`
+    // via the `skip_lateral` branch above.
+    out.pre_shaper_signed = state.bank_angle_commanded;
 
     // === Roll rate / acceleration shaping (wrap-aware) ===
     let max_bank_rate = data.capsule.max_bank_rate;
