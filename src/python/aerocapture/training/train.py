@@ -444,7 +444,8 @@ def train(
             # When warm-start is on, use the wider [warm_start] bound_multiplier
             # (default 4.0) so the search space envelops the warm-started chromosome's
             # post-supervised-training drift past Xavier bounds.
-            bound_mult = config.warm_start.bound_multiplier if config.network.warm_start_from else 2.0
+            warm_start_active = bool(config.network.warm_start_from) or config.warm_start.enabled
+            bound_mult = config.warm_start.bound_multiplier if warm_start_active else 2.0
             param_specs = nn_param_specs_from_v2(validated, bound_multiplier=bound_mult)
         else:
             param_specs = nn_param_specs_from_architecture(
@@ -614,7 +615,7 @@ def train(
                     jitter=config.warm_start.jitter,
                 )
 
-            if config.network.warm_start_from:
+            if warm_start_active:
                 from aerocapture.training.warm_start import build_warm_start_chromosome
 
                 warm_chromo = build_warm_start_chromosome(
@@ -623,10 +624,6 @@ def train(
                 )
                 n_scaff = 17 if config.network.optimize_scaffolding else 0
                 n_weights = len(warm_chromo) - n_scaff
-                # CMA-ES: also shrink the initial step size for warm-started runs.
-                if config.optimizer.algorithm == "cma_es":
-                    # Override sigma0 for warm-started CMA-ES; persists in config for this run only.
-                    config.optimizer.cma_es.sigma0 = config.warm_start.cmaes_sigma0
                 pop_array = _seed_initial_population(
                     algorithm_name=config.optimizer.algorithm,
                     chromosome=warm_chromo,
@@ -671,15 +668,18 @@ def train(
                     baseline_path = write_gen0_baseline(
                         save_dir=Path(config.save_dir),
                         toml_path=toml_abs_path,
-                        overrides=[warm_overrides],
+                        overrides=warm_overrides,
                         n_sims=config.optimizer.validation_n_sims,
+                        sim_timeout_secs=config.sim.sim_timeout_secs,
                     )
                     if verbose:
                         baseline = json.loads(baseline_path.read_text())
                         print(f"  [warm_start] gen-0 validation baseline: mean={baseline['mean']:.3f}, rms={baseline['rms']:.3f}, n_sims={baseline['n_sims']}")
                 except Exception as e:
-                    if verbose:
-                        print(f"  [warm_start] WARNING: gen-0 baseline write failed: {e}")
+                    # Best-effort: failure here must not block training, but the
+                    # error is always logged so it does not silently mask real
+                    # bugs in problem._build_overrides / write_nn_json / run_mc.
+                    print(f"  [warm_start] WARNING: gen-0 baseline write failed: {type(e).__name__}: {e}")
                 finally:
                     if _nn_tmp_path is not None:
                         _nn_tmp_path.unlink(missing_ok=True)
@@ -700,6 +700,13 @@ def train(
                 rng,
             )
         pop_costs = None  # Will be evaluated by pymoo
+
+    # CMA-ES + warm-start: shrink the initial step size. Applied unconditionally
+    # (independent of resume vs fresh start) so the checkpointed CMA-ES sigma
+    # in `algorithm.next()` consistently reflects the warm-start tunable.
+    warm_start_active = bool(config.network.warm_start_from) or config.warm_start.enabled
+    if warm_start_active and config.optimizer.algorithm == "cma_es":
+        config.optimizer.cma_es.sigma0 = config.warm_start.cmaes_sigma0
 
     # Set up algorithm
     algorithm = create_algorithm(config.optimizer, n_params=n_params)
@@ -1128,6 +1135,31 @@ if __name__ == "__main__":
             raise SystemExit(1)
     if "warm_start" in _toml_data:
         cfg.warm_start = WarmStartConfig.from_dict(_toml_data["warm_start"])
+
+    # Warm-start contract: supervised targets are unsigned bank magnitudes
+    # (tick.rs captures `pre_lateral_magnitude`). The runtime decoder must
+    # therefore be `magnitude_only`, otherwise the NN would be trained to
+    # emit unsigned values but deployed under `full_neural` (signed) routing.
+    warm_start_active = bool(cfg.network.warm_start_from) or cfg.warm_start.enabled
+    if warm_start_active:
+        nn_mode = str(_gnn.get("mode", "full_neural"))
+        if nn_mode != "magnitude_only":
+            print(
+                f"ERROR: warm-start requires [guidance.neural_network] mode = 'magnitude_only' "
+                f"(found mode = '{nn_mode}'). The supervised target is the unsigned "
+                f"pre-lateral bank magnitude; full_neural deploy would lose the sign."
+            )
+            raise SystemExit(1)
+        # atan2_signed + magnitude_only is correct but uses half its codomain
+        # (sin|y|>=0 maps to bank in [0, pi] only). acos_tanh is the matched
+        # head -- single output through tanh -> acos in [0, pi] with full
+        # codomain use. Warn but don't reject.
+        out_param = cfg.network.output_parameterization or "atan2_signed"
+        if out_param != "acos_tanh":
+            print(
+                f"  [warm_start] WARNING: output_parameterization='{out_param}' under magnitude_only "
+                f"uses only half the atan2 codomain (sin|y|>=0). acos_tanh is the matched head."
+            )
     if cfg.network.architecture is not None:
         cfg.network.__post_init__()  # re-validate once all fields are set
     cfg.sim.final_file = "output/final.train_nn_temp"

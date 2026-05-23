@@ -27,10 +27,9 @@ def test_collect_supervised_returns_finite_traces() -> None:
     assert y.ndim == 1 and y.shape[0] == X.shape[0], (X.shape, y.shape)
     assert np.isfinite(X).all()
     assert np.isfinite(y).all()
-    # Post-refactor: y is the signed final commanded bank after shaping.
-    # Values are typically in (-pi, pi] but rate-shaped commands can briefly
-    # exceed that range; tolerate +/- 2*pi.
-    assert (np.abs(y) <= 2.0 * np.pi).all()
+    # Supervised target is the pre-lateral, pre-shaper magnitude:
+    # unsigned, in [0, pi].
+    assert (y >= 0.0).all() and (y <= np.pi).all()
 
 
 @pytest.mark.slow

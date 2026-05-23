@@ -115,9 +115,30 @@ A separate NN training mode (`./train_all.sh nn_joint`) flips three TOML opt-in 
 
 - `optimize_scaffolding = true` extends the PSO chromosome with FTC's 17 scaffolding params (lateral / exit / nav / thermal / shaping), seeded at FTC's GA optimum + jitter, so the NN co-adapts the actuator pipeline rather than driving FTC-tuned frozen values.
 - `output_parameterization = "acos_tanh"` swaps the `atan2(out[0], out[1]).abs()` decoder (which wastes half the output range under `magnitude_only`) for `bank = acos(tanh(out[0]))` — single output, smooth `[0, π]` mapping that aligns with FTC's internal `cos_bank` representation. Validated at config load (requires `mode = "magnitude_only"`, last-layer `output_size = 1`, `activation = "tanh"`).
-- `warm_start_from = "training_output/ftc/best_params.json"` triggers a PyTorch supervised pre-train of a `V2Policy` mirror against FTC's per-tick `(state, |bank|)` traces, then encodes the cloned weights into the PSO initial population. Reserved seed offset `4_000_000` keeps the supervised data disjoint from validation / final-eval / RL pools.
+- Warm-start: either the legacy `warm_start_from = "training_output/ftc/best_params.json"` (single supervisor) OR a `[warm_start]` TOML block (multi-supervisor BPTT for recurrent architectures). Both encode the cloned weights into the PSO initial population. Reserved seed offset `4_000_000` keeps the supervised data disjoint from validation / final-eval / RL pools.
 
-All three knobs default off; existing trained NNs and existing configs are bit-identical. Requires FTC training output (`./train_all.sh ftc` first). Spec: `docs/superpowers/specs/2026-05-07-nn-ftc-parity-bundle-design.md`.
+All three knobs default off; existing trained NNs and existing configs are bit-identical. Requires FTC training output (`./train_all.sh ftc` first). Spec: `docs/superpowers/specs/2026-05-07-nn-ftc-parity-bundle-design.md` (parity bundle); `docs/superpowers/specs/2026-05-22-warm-start-all-archs-design.md` (multi-supervisor BPTT for Dense/GRU/LSTM/Window/Transformer/Mamba).
+
+### Multi-Supervisor BPTT Warm-Start (`[warm_start]`)
+
+For recurrent NN architectures (GRU/LSTM/Mamba/Transformer), the warm-start path collects supervised traces from multiple non-NN schemes simultaneously, picks the best teacher per Monte Carlo seed (lowest-DV captured trajectory), and runs chunked truncated-BPTT supervised pre-training against the per-seed winners. Configured via a `[warm_start]` TOML block — presence of the block enables warm-start (no separate `warm_start_from` needed):
+
+```toml
+[guidance.neural_network]
+mode = "magnitude_only"               # required for warm-start
+output_parameterization = "acos_tanh" # recommended (atan2_signed only uses half the codomain under .abs())
+
+[warm_start]
+supervisor_schemes = ["ftc", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag"]
+bptt_length = 32
+n_warm_seeds = 200
+n_epochs = 10
+bound_multiplier = 4.0
+jitter = 0.02
+cmaes_sigma0 = 0.1
+```
+
+Pipeline: each supervisor scheme runs over the same `n_warm_seeds` reserved seed pool via `aerocapture_rs.collect_supervised` (Rust per-trajectory return); the unsigned bank target is `guidance_out.pre_lateral_magnitude` (in [0, π]); `_select_best_teacher_per_seed` picks the captured trajectory with lowest DV per seed; trajectories are split into `bptt_length` windows and forwarded through `V2Policy.forward_seq_means` (autograd-friendly mirror of `evaluate`); Adam MSE with reproducible `torch.manual_seed` for `n_epochs`. Mamba layers get HiPPO + LSTM forget-bias-1 init via `_seed_policy_init` before Adam runs (zero-init would start training at a degenerate fixed point). The cached chromosome is keyed on architecture + supervisor mtimes + `base_mc_seed`, so rerunning with a different `monte_carlo.seed` invalidates the cache. A gen-0 validation MC baseline is auto-written to `warm_start_baseline.json` via `run_mc` (honors `simulation.n_sims`, threads `sim_timeout_secs`) so you have a "did warm-start help?" signal before generation 0.
 
 ## GA Optimization
 

@@ -3,14 +3,15 @@ architecture, input_mask, output_param, mode each invalidate the cache."""
 
 import json
 import time
-
-import numpy as np
-import pytest
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 from aerocapture.training.config import (
-    NetworkConfig, SimConfig, TrainingConfig, WarmStartConfig,
+    NetworkConfig,
+    SimConfig,
+    TrainingConfig,
+    WarmStartConfig,
 )
 from aerocapture.training.warm_start import build_warm_start_chromosome
 
@@ -26,12 +27,17 @@ def _basic_cfg(tmp_path):
     ]
     return TrainingConfig(
         network=NetworkConfig(
-            architecture=arch, input_mask=[0, 1, 2, 3],
-            output_parameterization="atan2_signed", warm_start_from=str(p),
+            architecture=arch,
+            input_mask=[0, 1, 2, 3],
+            output_parameterization="atan2_signed",
+            warm_start_from=str(p),
         ),
         warm_start=WarmStartConfig(
-            supervisor_schemes=["ftc"], params_paths={"ftc": str(p)},
-            n_warm_seeds=24, n_epochs=1, bptt_length=8,
+            supervisor_schemes=["ftc"],
+            params_paths={"ftc": str(p)},
+            n_warm_seeds=24,
+            n_epochs=1,
+            bptt_length=8,
             bound_multiplier=10.0,
         ),
         sim=SimConfig(toml_config=str(stub_toml)),
@@ -41,12 +47,7 @@ def _basic_cfg(tmp_path):
 
 def _mock_collect(toml_path, seeds, overrides, scheme, sim_timeout_secs=None):
     rng = np.random.default_rng(int(seeds[0]) if len(seeds) else 0)
-    return [
-        {"seed": int(s), "X": rng.standard_normal((10, 21)),
-         "y_signed": np.sin(rng.standard_normal(10)),
-         "dv": 50.0, "captured": True}
-        for s in seeds
-    ]
+    return [{"seed": int(s), "X": rng.standard_normal((10, 21)), "y_signed": np.sin(rng.standard_normal(10)), "dv": 50.0, "captured": True} for s in seeds]
 
 
 def test_unchanged_cfg_hits_cache(tmp_path):

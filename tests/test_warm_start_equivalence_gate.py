@@ -40,19 +40,25 @@ def test_magnitude_only_at_least_as_good(tmp_path):
     """20-gen GA warm-start run achieves RMS within 5% of recorded baseline."""
     baseline_path = Path("tests/fixtures/warm_start_magonly_baseline.json")
     if not baseline_path.exists():
-        pytest.skip(
-            "baseline snapshot missing; record one with the pre-refactor pipeline "
-            "first (see this test file's module docstring)"
-        )
+        pytest.skip("baseline snapshot missing; record one with the pre-refactor pipeline first (see this test file's module docstring)")
     baseline = json.loads(baseline_path.read_text())["val_rms_after_20_gens"]
 
     out_dir = tmp_path / "training_run"
     cmd = [
-        "uv", "run", "python", "-m", "aerocapture.training.train",
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "aerocapture.training.train",
         "configs/training/msr_aller_nn_train_consolidated.toml",
-        "--n-gen", "20", "--n-pop", "32",
-        "--no-tui", "--skip-report",
-        "--output-dir", str(out_dir),
+        "--n-gen",
+        "20",
+        "--n-pop",
+        "32",
+        "--no-tui",
+        "--skip-report",
+        "--output-dir",
+        str(out_dir),
     ]
     env = dict(os.environ)
     env["PYTHONHASHSEED"] = "0"
@@ -69,6 +75,4 @@ def test_magnitude_only_at_least_as_good(tmp_path):
         if rms is not None and rms < best_rms:
             best_rms = rms
     assert best_rms != float("inf"), "no validation RMS in log"
-    assert best_rms <= baseline * 1.05, (
-        f"warm-start regression: post-refactor RMS {best_rms:.3f} > baseline {baseline:.3f} + 5% slack"
-    )
+    assert best_rms <= baseline * 1.05, f"warm-start regression: post-refactor RMS {best_rms:.3f} > baseline {baseline:.3f} + 5% slack"

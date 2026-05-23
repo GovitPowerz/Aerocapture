@@ -2,11 +2,10 @@
 
 import numpy as np
 import torch
-from pydantic import TypeAdapter
-
 from aerocapture.training.rl.policy import V2Policy
 from aerocapture.training.rl.schemas import LayerSpec
 from aerocapture.training.warm_start import _policy_to_flat_weights_v2
+from pydantic import TypeAdapter
 
 
 def _build(arch):

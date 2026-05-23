@@ -471,14 +471,27 @@ fn collect_supervised(
                 pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {e}"))
             })?;
 
-            // n_sims=1, so we expect exactly one output. Concatenate any extras
-            // defensively just in case (shouldn't happen, but keeps the contract robust).
+            // n_sims=1 contract: expect exactly one output. Erroring out on an
+            // empty Vec keeps the (seed, trace, dv, captured) tuple downstream
+            // from quietly carrying NaN -- which `_select_best_teacher_per_seed`
+            // would convert into "captured=false, drop the seed" without any
+            // signal that something went wrong.
+            if outputs.is_empty() {
+                return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "collect_supervised: run_for_api returned 0 outputs for seed {} (expected 1)",
+                    seed
+                )));
+            }
             let mut combined_trace: Vec<(Vec<f64>, f64)> = Vec::new();
             let mut dv = f64::NAN;
             let mut captured = false;
             for output in outputs {
                 combined_trace.extend(output.supervised_trace);
-                dv = output.final_record[41]; // dv_total_m_s column
+                dv = output
+                    .final_record
+                    .get(41) // dv_total_m_s column
+                    .copied()
+                    .unwrap_or(f64::NAN);
                 captured = output.captured;
             }
             per_seed.push((*seed, combined_trace, dv, captured));

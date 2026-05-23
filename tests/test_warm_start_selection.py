@@ -2,7 +2,6 @@
 drops seeds with no captures."""
 
 import numpy as np
-
 from aerocapture.training.warm_start import _select_best_teacher_per_seed
 
 
@@ -44,7 +43,7 @@ def test_mixed_capture_falls_back_to_captured_only():
     """A seed where one scheme captures and another fails: capture wins
     even if its DV is higher than the failure's nominal DV."""
     by_scheme = {
-        "ftc": [_traj(1, 999.0, False)],   # failed, high DV
+        "ftc": [_traj(1, 999.0, False)],  # failed, high DV
         "fnpag": [_traj(1, 500.0, True)],  # captured
     }
     selected = _select_best_teacher_per_seed(by_scheme)

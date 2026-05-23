@@ -34,6 +34,7 @@ def _cache_key(
     resolved_paths: dict[str, Path],
     scaffolding_source_path: Path,
     mode: str,
+    base_mc_seed: int,
 ) -> dict:
     # `optimize_scaffolding` and `toml_config` MUST be in the key:
     # - `optimize_scaffolding` flips the cached chromosome width (NN weights
@@ -53,10 +54,7 @@ def _cache_key(
         "optimize_scaffolding": bool(cfg.network.optimize_scaffolding),
         "toml_config": str(cfg.sim.toml_config) if cfg.sim.toml_config else None,
         "supervisor_schemes": sorted(cfg.warm_start.supervisor_schemes),
-        "supervisor_params": {
-            scheme: {"path": str(p), "mtime": p.stat().st_mtime}
-            for scheme, p in sorted(resolved_paths.items())
-        },
+        "supervisor_params": {scheme: {"path": str(p), "mtime": p.stat().st_mtime} for scheme, p in sorted(resolved_paths.items())},
         "scaffolding_source_path": str(scaffolding_source_path),
         "scaffolding_source_mtime": scaffolding_source_path.stat().st_mtime,
         "n_warm_seeds": cfg.warm_start.n_warm_seeds,
@@ -64,6 +62,11 @@ def _cache_key(
         "bptt_length": cfg.warm_start.bptt_length,
         "bound_multiplier": cfg.warm_start.bound_multiplier,
         "mode": mode,
+        # The supervised dataset is `make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, n)`.
+        # Different base_mc_seed produces a different seed pool, so cache hits
+        # must be gated on it -- otherwise rerunning with a different
+        # monte_carlo.seed silently reuses the previous chromosome.
+        "base_mc_seed": int(base_mc_seed),
     }
 
 
@@ -103,11 +106,79 @@ def _build_overrides_for_source(source_params: dict[str, float]) -> dict[str, ob
     return overrides
 
 
+def _seed_policy_init(policy: object, architecture: list, bound_multiplier: float, rng: np.random.Generator) -> None:
+    """Overwrite V2Policy parameter init with `init_v2_population` centers.
+
+    The default torch parameter init zero-initializes Mamba's a_log/dt_proj_b/d_skip
+    (Phase 4a spec calls these "load-bearing"), so without this step the warm-start
+    Adam pass starts from a degenerate fixed point: A = -exp(0) = -1 uniform, no
+    input projection, no skip. This helper draws a single chromosome row from
+    `init_v2_population` (which applies HiPPO log(n+1) on a_log, inv_softplus
+    centers on dt_proj_b, 1.0 on d_skip, LSTM forget-bias-1) and writes each
+    layer's slab into the corresponding torch module via per-type from_flat.
+
+    Dense/GRU layers inherit torch's defaults if not covered here -- those
+    defaults are already Xavier-style and don't suffer the Mamba/LSTM
+    init-collapse issue.
+    """
+    import torch
+
+    from aerocapture.training.config import _layer_n_params
+    from aerocapture.training.initialization_v2 import init_v2_population
+    from aerocapture.training.rl.layers import GruLayer, LstmLayer, MambaLayer
+
+    flat_pop = init_v2_population(architecture, n_pop=1, bound_multiplier=bound_multiplier, rng=rng)
+    flat = flat_pop[0]
+    cursor = 0
+    for module, entry in zip(policy.layers, architecture, strict=True):  # type: ignore[attr-defined]
+        n = _layer_n_params(entry)
+        slab = flat[cursor : cursor + n]
+        cursor += n
+        if hasattr(entry, "model_dump"):
+            entry = entry.model_dump()
+        ltype = entry["type"]
+        with torch.no_grad():
+            if ltype == "mamba" and isinstance(module, MambaLayer):
+                d_inner = int(entry["input_size"])
+                d_state = int(entry["d_state"])
+                dt_rank = int(entry["dt_rank"])
+                c = 0
+                n_xp = (dt_rank + 2 * d_state) * d_inner
+                module.x_proj_w.copy_(torch.from_numpy(slab[c : c + n_xp].reshape(dt_rank + 2 * d_state, d_inner)).to(module.x_proj_w.dtype))
+                c += n_xp
+                n_dw = d_inner * dt_rank
+                module.dt_proj_w.copy_(torch.from_numpy(slab[c : c + n_dw].reshape(d_inner, dt_rank)).to(module.dt_proj_w.dtype))
+                c += n_dw
+                module.dt_proj_b.copy_(torch.from_numpy(slab[c : c + d_inner]).to(module.dt_proj_b.dtype))
+                c += d_inner
+                n_al = d_inner * d_state
+                module.a_log.copy_(torch.from_numpy(slab[c : c + n_al].reshape(d_inner, d_state)).to(module.a_log.dtype))
+                c += n_al
+                module.d_skip.copy_(torch.from_numpy(slab[c : c + d_inner]).to(module.d_skip.dtype))
+            elif ltype == "lstm" and isinstance(module, LstmLayer):
+                # Apply only the forget-bias slice rewrite to bias_ih; leave weights
+                # at torch's default Kaiming init (which matches what GRU/LSTM gates expect).
+                hidden = int(entry["hidden_size"])
+                four_h = 4 * hidden
+                fan_in = int(entry["input_size"])
+                n_w_ih = four_h * fan_in
+                n_w_hh = four_h * hidden
+                bias_ih = slab[n_w_ih + n_w_hh : n_w_ih + n_w_hh + four_h]
+                module.bias_ih.copy_(torch.from_numpy(np.ascontiguousarray(bias_ih)).to(module.bias_ih.dtype))
+            elif ltype == "gru" and isinstance(module, GruLayer):
+                # GRU torch defaults are fine; no special-case init needed.
+                pass
+            # Dense / Window / Transformer: rely on torch defaults (which are
+            # already Xavier-style for nn.Linear and zero for Window's zero
+            # trainable params).
+
+
 def _chunked_bptt_train(
     trajectories: list[dict],
     network: NetworkConfig,
     bptt_length: int,
     n_epochs: int,
+    bound_multiplier: float = 4.0,
     lr: float = 1e-3,
     seed: int = 0,
 ) -> tuple[V2Policy, list[float], int]:
@@ -137,8 +208,22 @@ def _chunked_bptt_train(
     if network.architecture is None:
         raise ValueError("_chunked_bptt_train requires a v2 architecture (network.architecture is None)")
 
+    # Make policy init reproducible across cache-miss reruns. Without this,
+    # `nn.Linear.reset_parameters` and GRU/LSTM internal gate inits draw from
+    # torch's global RNG, which depends on whatever else has run in the
+    # interpreter -- so two cache-miss rebuilds with identical TOML produce
+    # different `warm_start_chromosome.npy` outputs.
+    torch.manual_seed(seed)
+    rng = np.random.default_rng(seed)
+
     validated_arch = TypeAdapter(list[LayerSpec]).validate_python(network.architecture)
     policy = V2Policy(architecture=validated_arch, input_mask=network.input_mask).double()
+
+    # Mirror the activation-aware init that init_v2_population applies to the
+    # PSO from-scratch path. Without this, Mamba layers start at all-zero
+    # (degenerate fixed point) and the LSTM forget bias never gets the
+    # Jozefowicz +1.0 lift.
+    _seed_policy_init(policy, list(validated_arch), bound_multiplier, rng)
 
     # Validate bptt_length <= n_seq for any Transformer layer
     for i, layer in enumerate(policy.layers):
@@ -146,10 +231,16 @@ def _chunked_bptt_train(
             raise ValueError(f"bptt_length={bptt_length} > layer {i} Transformer n_seq={layer.n_seq}; reduce bptt_length or increase n_seq")
 
     output_param = network.output_parameterization or "atan2_signed"
-    input_mask = network.input_mask if network.input_mask is not None else list(range(21))
+    # Default to architecture[0].input_size so legacy configs that omit
+    # input_mask keep working with whatever input width the first layer
+    # expects. Previous code hardcoded range(21) which silently broke
+    # configs with first-layer input_size != 21.
+    arch_first_in = int(network.architecture[0]["input_size"])
+    input_mask = network.input_mask if network.input_mask is not None else list(range(arch_first_in))
 
     # Build chunks: list of (X_chunk[T_c, input_dim], y_chunk[T_c]) per trajectory.
     chunks: list[tuple[np.ndarray, np.ndarray, int]] = []  # (X, y, traj_id)
+    n_short = 0
     for tid, traj in enumerate(trajectories):
         X = np.asarray(traj["X"])[:, input_mask]
         y = np.asarray(traj["y_signed"])
@@ -160,16 +251,20 @@ def _chunked_bptt_train(
         T = X.shape[0]
         # Slice into bptt_length chunks; trailing partial chunk dropped (clean BPTT)
         n_chunks = T // bptt_length
+        if n_chunks == 0:
+            n_short += 1
         for c in range(n_chunks):
             s = c * bptt_length
             e = s + bptt_length
             chunks.append((X[s:e], y[s:e], tid))
 
     if not chunks:
-        raise RuntimeError("no usable BPTT chunks; check bptt_length vs trajectory lengths")
+        raise RuntimeError(f"no usable BPTT chunks; bptt_length={bptt_length} but all {len(trajectories)} trajectories have T < bptt_length")
+
+    if n_short > 0:
+        print(f"  [warm_start] WARNING: {n_short}/{len(trajectories)} supervisor trajectories shorter than bptt_length={bptt_length}; dropped from corpus")
 
     optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
-    rng = np.random.default_rng(seed)
     losses: list[float] = []
 
     for _epoch in range(n_epochs):
@@ -196,7 +291,12 @@ def _chunked_bptt_train(
             means = policy.forward_seq_means(obs_seq, state_0, dones)  # (T, B, out_dim)
 
             if output_param == "acos_tanh":
-                pred = torch.tanh(means[..., 0])  # (T, B)
+                # V2Policy's last layer is required to have activation="tanh"
+                # (validated at config load), so means[..., 0] is already in
+                # [-1, 1]. Do NOT apply tanh again here -- the runtime decoder
+                # is `bank = acos(tanh(out[0]))` only because the network's
+                # *raw* linear-output is wrapped in tanh at the layer boundary.
+                pred = means[..., 0]  # (T, B), already tanh-activated
                 target = torch.cos(y_t)  # (T, B)
                 loss = nn.functional.mse_loss(pred, target)
             elif output_param == "atan2_signed":
@@ -226,10 +326,13 @@ def _policy_to_flat_weights_v2(policy: V2Policy, architecture: list[dict]) -> np
     width is the sum across non-empty layers.
     """
     parts: list[npt.NDArray[np.float64]] = []
-    for i, (entry, layer_module) in enumerate(zip(architecture, policy.layers, strict=True)):
+    # nn.ModuleList items are typed as `Module | Tensor`; our layer modules all
+    # implement `to_flat()` per the LayerWeights mirror contract, but mypy
+    # cannot prove that statically.
+    for i, (entry, layer_module) in enumerate(zip(architecture, policy.layers, strict=True)):  # type: ignore[union-attr]
         if not hasattr(layer_module, "to_flat"):
             raise RuntimeError(f"layer {i} ({entry.get('type', '?')}) has no to_flat() method; ensure the layer module mirrors Rust LayerWeights::to_flat")
-        parts.append(np.asarray(layer_module.to_flat(), dtype=np.float64))
+        parts.append(np.asarray(layer_module.to_flat(), dtype=np.float64))  # type: ignore[operator]
     return np.concatenate(parts) if parts else np.array([], dtype=np.float64)
 
 
@@ -284,8 +387,7 @@ def build_warm_start_chromosome(
         path = Path(override) if override else Path(f"training_output/{scheme}/best_params.json")
         if not path.exists():
             raise FileNotFoundError(
-                f"warm-start supervisor '{scheme}' params not found at '{path}'. "
-                f"Train {scheme} first or set [warm_start.params_paths].{scheme}."
+                f"warm-start supervisor '{scheme}' params not found at '{path}'. Train {scheme} first or set [warm_start.params_paths].{scheme}."
             )
         resolved_paths[scheme] = path
 
@@ -295,7 +397,7 @@ def build_warm_start_chromosome(
         raise FileNotFoundError(f"scaffolding source params not found at '{scaffolding_source_path}'")
 
     # 2. Cache check
-    cache_key = _cache_key(cfg, resolved_paths, scaffolding_source_path, mode)
+    cache_key = _cache_key(cfg, resolved_paths, scaffolding_source_path, mode, base_mc_seed)
     cached = _cache_hit(save_dir, cache_key)
     if cached is not None:
         return cached
@@ -323,7 +425,10 @@ def build_warm_start_chromosome(
             f"(threshold {min_corpus}). Widen MC dispersions, check the TOML, or revise supervisor_schemes."
         )
 
-    # 5. Magnitude_only mode: derive |y| Python-side
+    # 5. Magnitude_only mode: target is already unsigned (tick.rs captures
+    # `pre_lateral_magnitude`, in [0, pi]). The .abs() is defensive only --
+    # if a future change re-introduces a signed source value, this stays
+    # consistent with the magnitude_only routing contract.
     for traj in selected:
         if mode == "magnitude_only":
             traj["y_signed"] = np.abs(traj["y_signed"])
@@ -334,6 +439,7 @@ def build_warm_start_chromosome(
         network=network,
         bptt_length=ws.bptt_length,
         n_epochs=ws.n_epochs,
+        bound_multiplier=ws.bound_multiplier,
     )
     (save_dir / "warm_start_loss.json").write_text(
         json.dumps(

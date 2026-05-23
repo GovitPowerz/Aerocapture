@@ -66,6 +66,19 @@ class NetworkConfig:
                 if len(self.input_mask) != first_input_int:
                     msg = f"input_mask length ({len(self.input_mask)}) must equal architecture[0] input size ({first_input_int})"
                     raise ValueError(msg)
+                # Indices must be non-negative; the upper bound is the candidate
+                # input vector width, which depends on the Rust `build_nn_input`
+                # contract. Currently 21, but configs with architecture[0]
+                # input_size > 21 exist for tests of architecture chains. Use the
+                # larger of the two as the practical upper bound so typos like
+                # negative indices or grossly-out-of-range values still get
+                # rejected at config load.
+                _RUNTIME_CANDIDATE_WIDTH = 21
+                upper = max(_RUNTIME_CANDIDATE_WIDTH, first_input_int)
+                bad = [idx for idx in self.input_mask if not (0 <= idx < upper)]
+                if bad:
+                    msg = f"input_mask indices out of range [0, {upper}): {bad}"
+                    raise ValueError(msg)
             return
         n_layers = len(self.layer_sizes) - 1
         if len(self.activations) != n_layers:
@@ -290,15 +303,16 @@ class SimConfig:
 class WarmStartConfig:
     """Multi-supervisor warm-start configuration.
 
-    All fields are optional with documented defaults. Activation of warm-start
-    itself is gated by `[guidance.neural_network] warm_start_from` being set;
-    this block only configures supervisor list, BPTT mechanics, and optimizer
-    seeding tunables.
+    Activation of warm-start is gated by either:
+      - the legacy single-supervisor key `[guidance.neural_network] warm_start_from`, OR
+      - presence of a `[warm_start]` block in the TOML (which flips `enabled = True`).
+
+    When neither is set, training falls back to PSO/GA from-scratch initialization
+    and this block's fields are inert.
     """
 
-    supervisor_schemes: list[str] = field(
-        default_factory=lambda: ["ftc", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag"]
-    )
+    enabled: bool = False  # True when [warm_start] block was present in TOML
+    supervisor_schemes: list[str] = field(default_factory=lambda: ["ftc", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag"])
     bptt_length: int = 32
     n_warm_seeds: int = 200
     n_epochs: int = 10
@@ -309,11 +323,12 @@ class WarmStartConfig:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> WarmStartConfig:
-        known = {f.name for f in fields(cls)}
+        known = {f.name for f in fields(cls)} - {"enabled"}
         unknown = set(d.keys()) - known
         if unknown:
             raise ValueError(f"unknown [warm_start] keys: {sorted(unknown)}")
-        return cls(**d)
+        # Presence of the block implies enabled; user-set `enabled` in TOML is ignored.
+        return cls(enabled=True, **d)
 
 
 @dataclass

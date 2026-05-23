@@ -1,12 +1,15 @@
 """Failure modes from the spec: missing supervisor params, zero captures,
 clip rate > 5%, bptt_length > Transformer n_seq."""
 
-import numpy as np
-import pytest
 from unittest.mock import patch
 
+import numpy as np
+import pytest
 from aerocapture.training.config import (
-    NetworkConfig, SimConfig, TrainingConfig, WarmStartConfig,
+    NetworkConfig,
+    SimConfig,
+    TrainingConfig,
+    WarmStartConfig,
 )
 from aerocapture.training.warm_start import (
     build_warm_start_chromosome,
@@ -54,15 +57,10 @@ def test_zero_captures_raises(tmp_path):
     cfg.network.warm_start_from = str(p)
 
     def _all_fail(toml_path, seeds, overrides, scheme, sim_timeout_secs=None):
-        return [
-            {"seed": int(s), "X": np.zeros((5, 21)), "y_signed": np.zeros(5),
-             "dv": 999.0, "captured": False}
-            for s in seeds
-        ]
+        return [{"seed": int(s), "X": np.zeros((5, 21)), "y_signed": np.zeros(5), "dv": 999.0, "captured": False} for s in seeds]
 
-    with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_all_fail):
-        with pytest.raises(RuntimeError, match="too small"):
-            build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
+    with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_all_fail), pytest.raises(RuntimeError, match="too small"):
+        build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
 
 
 def test_clip_rate_above_threshold_raises(tmp_path):
@@ -73,21 +71,24 @@ def test_clip_rate_above_threshold_raises(tmp_path):
     cfg = _basic_cfg(tmp_path, params_paths={"ftc": str(p)})
     cfg.network.warm_start_from = str(p)
     cfg.warm_start.bound_multiplier = 0.01  # absurdly tight; will clip everything
-    cfg.warm_start.n_epochs = 50            # ensure weights drift
+    cfg.warm_start.n_epochs = 50  # ensure weights drift
 
     rng = np.random.default_rng(0)
+
     def _strong_targets(toml_path, seeds, overrides, scheme, sim_timeout_secs=None):
         return [
-            {"seed": int(s),
-             "X": rng.standard_normal((20, 21)),
-             "y_signed": rng.uniform(-3.0, 3.0, size=20),  # large bank values
-             "dv": 50.0, "captured": True}
+            {
+                "seed": int(s),
+                "X": rng.standard_normal((20, 21)),
+                "y_signed": rng.uniform(-3.0, 3.0, size=20),  # large bank values
+                "dv": 50.0,
+                "captured": True,
+            }
             for s in seeds
         ]
 
-    with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_strong_targets):
-        with pytest.raises(RuntimeError, match="clip rate"):
-            build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
+    with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_strong_targets), pytest.raises(RuntimeError, match="clip rate"):
+        build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
 
 
 def test_bptt_length_greater_than_n_seq_raises(tmp_path):
@@ -103,13 +104,9 @@ def test_bptt_length_greater_than_n_seq_raises(tmp_path):
     cfg.warm_start.bptt_length = 16  # > n_seq=4
 
     rng = np.random.default_rng(0)
-    def _ok(toml_path, seeds, overrides, scheme, sim_timeout_secs=None):
-        return [
-            {"seed": int(s), "X": rng.standard_normal((40, 21)),
-             "y_signed": np.zeros(40), "dv": 50.0, "captured": True}
-            for s in seeds
-        ]
 
-    with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_ok):
-        with pytest.raises(ValueError, match="bptt_length.*n_seq"):
-            build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
+    def _ok(toml_path, seeds, overrides, scheme, sim_timeout_secs=None):
+        return [{"seed": int(s), "X": rng.standard_normal((40, 21)), "y_signed": np.zeros(40), "dv": 50.0, "captured": True} for s in seeds]
+
+    with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_ok), pytest.raises(ValueError, match="bptt_length.*n_seq"):
+        build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)

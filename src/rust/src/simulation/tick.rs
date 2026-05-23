@@ -162,9 +162,15 @@ pub fn step_one_tick(
                 data.target_orbit.inclination,
                 state.guidance_state.reference_velocity,
             );
+            // Supervised target is the pre-lateral, pre-shaper magnitude so
+            // the warm-start cloned NN replaces ONLY the predictor-corrector.
+            // Under magnitude_only deploy the NN's output is fed BACK INTO
+            // lateral / thermal_limiter / command_shaper, so capturing the
+            // post-shaper signed command here would cause double-shaping (the
+            // shaper runs again at deploy time on the NN's own output).
             state
                 .supervised_trace
-                .push((nn_input, guidance_out.bank_angle_commanded));
+                .push((nn_input, guidance_out.pre_lateral_magnitude));
         }
 
         let bank_angle_commanded = forced_bank.unwrap_or(guidance_out.bank_angle_commanded);

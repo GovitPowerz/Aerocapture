@@ -18,19 +18,20 @@ def test_writes_baseline_file_with_mean_rms_n_sims(tmp_path):
 
     _Result.final_records[:, 41] = fake_dv  # dv_total_m_s in raw RunOutput layout
 
-    def _fake_run_batch(toml_path, overrides_list, n_threads=None, include_trajectories=False, sim_timeout_secs=None):
+    def _fake_run_mc(toml_path, overrides, include_trajectories=False, sim_timeout_secs=None):
         return _Result()
 
-    with patch("aerocapture.training._warm_start_baseline._aero_rs.run_batch", side_effect=_fake_run_batch):
+    with patch("aerocapture.training._warm_start_baseline._aero_rs.run_mc", side_effect=_fake_run_mc):
         path = write_gen0_baseline(
             save_dir=save_dir,
             toml_path="dummy.toml",
-            overrides=[{}],
+            overrides={},
             n_sims=n_sims,
         )
 
     assert path == save_dir / "warm_start_baseline.json"
     data = json.loads(path.read_text())
     assert data["n_sims"] == n_sims
+    assert data["n_returned"] == n_sims
     assert data["mean"] == pytest.approx(float(np.mean(fake_dv)))
     assert data["rms"] == pytest.approx(float(np.sqrt(np.mean(fake_dv**2))))

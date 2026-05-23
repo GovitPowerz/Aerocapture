@@ -1,8 +1,7 @@
 """MambaLayer.forward accepts batched (B, input_size) and matches unbatched."""
 
-import torch
 import pytest
-
+import torch
 from aerocapture.training.rl.layers import MambaLayer
 
 
