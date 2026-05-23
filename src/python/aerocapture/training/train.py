@@ -1137,28 +1137,33 @@ if __name__ == "__main__":
         cfg.warm_start = WarmStartConfig.from_dict(_toml_data["warm_start"])
 
     # Warm-start contract: supervised targets are unsigned bank magnitudes
-    # (tick.rs captures `pre_lateral_magnitude`). The runtime decoder must
-    # therefore be `magnitude_only`, otherwise the NN would be trained to
-    # emit unsigned values but deployed under `full_neural` (signed) routing.
+    # (tick.rs captures `pre_lateral_magnitude`). Two regimes:
+    #   - mode = "magnitude_only" (matched deploy): NN learns unsigned bank,
+    #     lateral guidance picks the sign at runtime.
+    #   - mode = "full_neural" (unmatched deploy): NN learns unsigned bank,
+    #     no lateral guidance at runtime, so the NN must learn signs from
+    #     PSO/GA fine-tuning. Warm-start is still a useful initialization
+    #     (gets the magnitude scale right), just not optimal.
     warm_start_active = bool(cfg.network.warm_start_from) or cfg.warm_start.enabled
     if warm_start_active:
         nn_mode = str(_gnn.get("mode", "full_neural"))
         if nn_mode != "magnitude_only":
             print(
-                f"ERROR: warm-start requires [guidance.neural_network] mode = 'magnitude_only' "
-                f"(found mode = '{nn_mode}'). The supervised target is the unsigned "
-                f"pre-lateral bank magnitude; full_neural deploy would lose the sign."
+                f"  [warm_start] WARNING: mode = '{nn_mode}' (warm-start supervised target "
+                f"is unsigned `pre_lateral_magnitude`; under full_neural deploy the NN will "
+                f"start emitting only non-negative banks, leaving sign discovery to PSO/GA "
+                f"fine-tuning). Use mode = 'magnitude_only' for the matched-deploy setup."
             )
-            raise SystemExit(1)
-        # atan2_signed + magnitude_only is correct but uses half its codomain
-        # (sin|y|>=0 maps to bank in [0, pi] only). acos_tanh is the matched
-        # head -- single output through tanh -> acos in [0, pi] with full
-        # codomain use. Warn but don't reject.
+        # atan2_signed + magnitude_only / full_neural with an unsigned target
+        # uses only half the atan2 codomain (sin|y|>=0 maps to bank in [0, pi]).
+        # acos_tanh is the matched head -- single output through tanh -> acos in
+        # [0, pi] with full codomain use. Warn but don't reject.
         out_param = cfg.network.output_parameterization or "atan2_signed"
         if out_param != "acos_tanh":
             print(
-                f"  [warm_start] WARNING: output_parameterization='{out_param}' under magnitude_only "
-                f"uses only half the atan2 codomain (sin|y|>=0). acos_tanh is the matched head."
+                f"  [warm_start] WARNING: output_parameterization='{out_param}' with an unsigned "
+                f"supervised target uses only half the atan2 codomain (sin|y|>=0). "
+                f"acos_tanh is the matched head."
             )
     if cfg.network.architecture is not None:
         cfg.network.__post_init__()  # re-validate once all fields are set
