@@ -4,7 +4,7 @@ import pytest
 from aerocapture.training.config import TrainingConfig, WarmStartConfig
 
 
-def test_defaults():
+def test_defaults() -> None:
     cfg = WarmStartConfig()
     assert cfg.enabled is False  # bare construction does NOT flip the gate
     assert cfg.supervisor_schemes == [
@@ -23,13 +23,13 @@ def test_defaults():
     assert cfg.params_paths == {}
 
 
-def test_training_config_has_warm_start_field():
+def test_training_config_has_warm_start_field() -> None:
     cfg = TrainingConfig()
     assert isinstance(cfg.warm_start, WarmStartConfig)
     assert cfg.warm_start.enabled is False  # default TrainingConfig: warm-start off
 
 
-def test_from_dict():
+def test_from_dict() -> None:
     d = {
         "supervisor_schemes": ["ftc", "fnpag"],
         "bptt_length": 16,
@@ -46,6 +46,6 @@ def test_from_dict():
     assert cfg.bound_multiplier == 4.0
 
 
-def test_from_dict_rejects_unknown_keys():
+def test_from_dict_rejects_unknown_keys() -> None:
     with pytest.raises(ValueError, match="unknown"):
         WarmStartConfig.from_dict({"typo_key": 5})

@@ -13,6 +13,7 @@ src/rust/src/data/neural.rs).
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -121,7 +122,7 @@ def test_mamba_to_flat_shape() -> None:
         ),
     ],
 )
-def test_to_flat_roundtrip_via_rust(architecture: list[dict], input_dim: int, tmp_path) -> None:
+def test_to_flat_roundtrip_via_rust(architecture: list[dict], input_dim: int, tmp_path: Path) -> None:
     """Build small V2Policy, extract via per-layer to_flat, write through the
     Rust flat_weights_to_json helper, load via nn_forward, and assert the Rust
     forward matches the Python V2Policy forward at <1e-10 (machine epsilon)."""
@@ -133,7 +134,7 @@ def test_to_flat_roundtrip_via_rust(architecture: list[dict], input_dim: int, tm
     policy = V2Policy(architecture=validated, input_mask=None).double()
     _randomize(policy)
 
-    flat_list: list[np.ndarray] = [layer.to_flat() for layer in policy.layers]
+    flat_list: list[np.ndarray] = [layer.to_flat() for layer in policy.layers]  # type: ignore[union-attr,operator]
     flat = np.concatenate(flat_list)
 
     json_path = tmp_path / "model.json"

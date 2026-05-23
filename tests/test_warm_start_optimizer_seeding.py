@@ -6,7 +6,7 @@ import pytest
 from aerocapture.training.train import _seed_initial_population
 
 
-def test_ga_replicate_and_jitter():
+def test_ga_replicate_and_jitter() -> None:
     chromo = np.full(50, 0.5)
     n_pop = 30
     rng = np.random.default_rng(0)
@@ -23,7 +23,7 @@ def test_ga_replicate_and_jitter():
     assert (pop >= 0.0).all() and (pop <= 1.0).all()
 
 
-def test_cma_es_singleton_seeded():
+def test_cma_es_singleton_seeded() -> None:
     """CMA-ES seeding tiles the chromosome without jitter; pymoo uses the
     population mean as initial mean. sigma0 applied separately via OptimizerConfig."""
     chromo = np.full(50, 0.5)
@@ -41,7 +41,7 @@ def test_cma_es_singleton_seeded():
     assert np.allclose(pop[-1], chromo)
 
 
-def test_de_and_pso_match_ga_contract():
+def test_de_and_pso_match_ga_contract() -> None:
     chromo = np.full(20, 0.7)
     n_pop = 10
     for algo in ("de", "pso"):
@@ -51,7 +51,7 @@ def test_de_and_pso_match_ga_contract():
         assert pop.mean(axis=0) == pytest.approx(0.7, abs=0.02)
 
 
-def test_n_weights_kwarg_restricts_jitter_to_weight_slab():
+def test_n_weights_kwarg_restricts_jitter_to_weight_slab() -> None:
     """When n_weights < chromosome.size, jitter only applies to the first n_weights
     columns (scaffolding tail is left intact for the caller to overwrite)."""
     chromo = np.full(50, 0.5)
@@ -71,7 +71,7 @@ def test_n_weights_kwarg_restricts_jitter_to_weight_slab():
     assert np.allclose(pop[:, 40:], 0.9)
 
 
-def test_unknown_algorithm_raises():
+def test_unknown_algorithm_raises() -> None:
     chromo = np.full(10, 0.5)
     rng = np.random.default_rng(0)
     with pytest.raises(ValueError, match="unknown algorithm"):

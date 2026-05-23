@@ -7,12 +7,12 @@ from aerocapture.training.rl.schemas import LayerSpec
 from pydantic import TypeAdapter
 
 
-def _build_policy(arch):
+def _build_policy(arch: list[dict]) -> V2Policy:
     validated = TypeAdapter(list[LayerSpec]).validate_python(arch)
     return V2Policy(architecture=validated, input_mask=None).double()
 
 
-def test_forward_seq_means_dense_shape_and_finite():
+def test_forward_seq_means_dense_shape_and_finite() -> None:
     arch = [{"type": "dense", "input_size": 4, "output_size": 2, "activation": "tanh"}]
     policy = _build_policy(arch)
     T, B = 5, 3
@@ -24,7 +24,7 @@ def test_forward_seq_means_dense_shape_and_finite():
     assert torch.isfinite(means).all()
 
 
-def test_forward_seq_means_gru_state_propagates():
+def test_forward_seq_means_gru_state_propagates() -> None:
     """Stateful sequence vs per-step-reset must differ at t>0 (proves state actually carries)."""
     arch = [
         {"type": "gru", "input_size": 4, "hidden_size": 8},
@@ -57,7 +57,7 @@ def test_forward_seq_means_gru_state_propagates():
     )
 
 
-def test_forward_seq_means_done_zeros_state():
+def test_forward_seq_means_done_zeros_state() -> None:
     """When done[t]=True, the GRU hidden state at t+1 is zeroed."""
     arch = [
         {"type": "gru", "input_size": 2, "hidden_size": 4},

@@ -1,6 +1,7 @@
 """Failure modes from the spec: missing supervisor params, zero captures,
 clip rate > 5%, bptt_length > Transformer n_seq."""
 
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
@@ -16,7 +17,7 @@ from aerocapture.training.warm_start import (
 )
 
 
-def _basic_cfg(tmp_path, supervisor_schemes=None, params_paths=None):
+def _basic_cfg(tmp_path: Path, supervisor_schemes: list[str] | None = None, params_paths: dict[str, str] | None = None) -> TrainingConfig:
     arch = [
         {"type": "dense", "input_size": 4, "output_size": 4, "activation": "tanh"},
         {"type": "dense", "input_size": 4, "output_size": 1, "activation": "tanh"},
@@ -43,27 +44,27 @@ def _basic_cfg(tmp_path, supervisor_schemes=None, params_paths=None):
     )
 
 
-def test_missing_supervisor_params_raises_filenotfound(tmp_path):
+def test_missing_supervisor_params_raises_filenotfound(tmp_path: Path) -> None:
     cfg = _basic_cfg(tmp_path, supervisor_schemes=["ftc"], params_paths={"ftc": str(tmp_path / "missing.json")})
     cfg.network.warm_start_from = str(tmp_path / "missing.json")
     with pytest.raises(FileNotFoundError, match="ftc"):
         build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
 
 
-def test_zero_captures_raises(tmp_path):
+def test_zero_captures_raises(tmp_path: Path) -> None:
     p = tmp_path / "ftc.json"
     p.write_text("{}")
     cfg = _basic_cfg(tmp_path, params_paths={"ftc": str(p)})
     cfg.network.warm_start_from = str(p)
 
-    def _all_fail(toml_path, seeds, overrides, scheme, sim_timeout_secs=None):
+    def _all_fail(toml_path: str, seeds: list[int], overrides: dict | None = None, scheme: str = "ftc", sim_timeout_secs: float | None = None) -> list[dict]:
         return [{"seed": int(s), "X": np.zeros((5, 21)), "y_signed": np.zeros(5), "dv": 999.0, "captured": False} for s in seeds]
 
     with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_all_fail), pytest.raises(RuntimeError, match="too small"):
         build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
 
 
-def test_clip_rate_above_threshold_raises(tmp_path):
+def test_clip_rate_above_threshold_raises(tmp_path: Path) -> None:
     """Force clip rate > 5% by training with extreme target values and
     a tiny bound_multiplier so weights blow out of bounds."""
     p = tmp_path / "ftc.json"
@@ -75,7 +76,13 @@ def test_clip_rate_above_threshold_raises(tmp_path):
 
     rng = np.random.default_rng(0)
 
-    def _strong_targets(toml_path, seeds, overrides, scheme, sim_timeout_secs=None):
+    def _strong_targets(
+        toml_path: str,
+        seeds: list[int],
+        overrides: dict | None = None,
+        scheme: str = "ftc",
+        sim_timeout_secs: float | None = None,
+    ) -> list[dict]:
         return [
             {
                 "seed": int(s),
@@ -91,7 +98,7 @@ def test_clip_rate_above_threshold_raises(tmp_path):
         build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
 
 
-def test_bptt_length_greater_than_n_seq_raises(tmp_path):
+def test_bptt_length_greater_than_n_seq_raises(tmp_path: Path) -> None:
     p = tmp_path / "ftc.json"
     p.write_text("{}")
     cfg = _basic_cfg(tmp_path, params_paths={"ftc": str(p)})
@@ -105,7 +112,7 @@ def test_bptt_length_greater_than_n_seq_raises(tmp_path):
 
     rng = np.random.default_rng(0)
 
-    def _ok(toml_path, seeds, overrides, scheme, sim_timeout_secs=None):
+    def _ok(toml_path: str, seeds: list[int], overrides: dict | None = None, scheme: str = "ftc", sim_timeout_secs: float | None = None) -> list[dict]:
         return [{"seed": int(s), "X": rng.standard_normal((40, 21)), "y_signed": np.zeros(40), "dv": 50.0, "captured": True} for s in seeds]
 
     with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_ok), pytest.raises(ValueError, match="bptt_length.*n_seq"):

@@ -23,7 +23,7 @@ from aerocapture.training.rl.schemas import (
         MambaSpec(type="mamba", input_size=8, d_state=4, dt_rank=2),
     ],
 )
-def test_build_layer_constructs_all_types(spec):
+def test_build_layer_constructs_all_types(spec: DenseSpec | GruSpec | LstmSpec | WindowSpec | TransformerSpec | MambaSpec) -> None:
     layer = build_layer(spec)
     assert layer is not None
 
@@ -39,9 +39,9 @@ def test_build_layer_constructs_all_types(spec):
         MambaSpec(type="mamba", input_size=8, d_state=4, dt_rank=2),
     ],
 )
-def test_new_state_accepts_batch_size_and_device(spec):
+def test_new_state_accepts_batch_size_and_device(spec: DenseSpec | GruSpec | LstmSpec | WindowSpec | TransformerSpec | MambaSpec) -> None:
     layer = build_layer(spec)
-    state = layer.new_state(batch_size=2, device=None)
+    state = layer.new_state(batch_size=2, device=None)  # type: ignore[operator]
     # Dense returns None (no hidden state); others must produce batched (B, *) tensors
     # or tuples thereof (LSTM returns (h, c)).
     if state is None:

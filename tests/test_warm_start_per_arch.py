@@ -2,6 +2,7 @@
 end-to-end on a tiny config and produces a valid chromosome."""
 
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 import aerocapture_rs as r
@@ -19,22 +20,22 @@ from aerocapture.training.warm_start import build_warm_start_chromosome
 from pydantic import TypeAdapter
 
 
-def _ftc_params(tmp_path):
+def _ftc_params(tmp_path: Path) -> Path:
     p = tmp_path / "ftc_params.json"
     p.write_text(json.dumps({"k_alt": 1.0}))
     return p
 
 
-def _stub_toml(tmp_path):
+def _stub_toml(tmp_path: Path) -> Path:
     p = tmp_path / "stub.toml"
     p.write_text('[guidance.neural_network]\nmode = "full_neural"\n')
     return p
 
 
-def _mock_collect_factory(traj_T=40, input_dim=21):
+def _mock_collect_factory(traj_T: int = 40, input_dim: int = 21) -> object:
     rng = np.random.default_rng(0)
 
-    def _inner(toml_path, seeds, overrides, scheme, sim_timeout_secs=None):
+    def _inner(toml_path: str, seeds: list[int], overrides: dict | None = None, scheme: str = "ftc", sim_timeout_secs: float | None = None) -> list[dict]:
         return [
             {"seed": int(s), "X": rng.standard_normal((traj_T, input_dim)), "y_signed": np.sin(rng.standard_normal(traj_T)), "dv": 50.0, "captured": True}
             for s in seeds
@@ -96,7 +97,7 @@ def _mock_collect_factory(traj_T=40, input_dim=21):
         ),
     ],
 )
-def test_warm_start_per_arch_smoke(arch_name, arch, tmp_path):
+def test_warm_start_per_arch_smoke(arch_name: str, arch: list[dict], tmp_path: Path) -> None:
     p = _ftc_params(tmp_path)
     stub_toml = _stub_toml(tmp_path)
     cfg = TrainingConfig(

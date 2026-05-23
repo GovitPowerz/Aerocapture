@@ -16,10 +16,10 @@ from aerocapture.training.warm_start import build_warm_start_chromosome
 
 
 @pytest.fixture
-def synthetic_supervisor_data():
+def synthetic_supervisor_data() -> object:
     rng = np.random.default_rng(0)
 
-    def _collect(toml_path, seeds, overrides, scheme, sim_timeout_secs=None):
+    def _collect(toml_path: str, seeds: list[int], overrides: dict | None = None, scheme: str = "ftc", sim_timeout_secs: float | None = None) -> list[dict]:
         results = []
         for seed in seeds:
             T = 50
@@ -38,7 +38,7 @@ def synthetic_supervisor_data():
 
 
 @pytest.fixture
-def temp_ftc_params(tmp_path):
+def temp_ftc_params(tmp_path: Path) -> Path:
     p = tmp_path / "ftc_best_params.json"
     p.write_text(
         json.dumps(
@@ -56,14 +56,14 @@ def temp_ftc_params(tmp_path):
 
 
 @pytest.fixture
-def stub_toml(tmp_path):
+def stub_toml(tmp_path: Path) -> Path:
     p = tmp_path / "stub.toml"
     p.write_text('[guidance.neural_network]\nmode = "full_neural"\n')
     return p
 
 
 @pytest.fixture
-def cfg(tmp_path, temp_ftc_params, stub_toml):
+def cfg(tmp_path: Path, temp_ftc_params: Path, stub_toml: Path) -> TrainingConfig:
     arch = [
         {"type": "dense", "input_size": 4, "output_size": 4, "activation": "tanh"},
         {"type": "dense", "input_size": 4, "output_size": 1, "activation": "tanh"},
@@ -88,7 +88,7 @@ def cfg(tmp_path, temp_ftc_params, stub_toml):
     )
 
 
-def test_end_to_end_with_mocked_collect(cfg, synthetic_supervisor_data):
+def test_end_to_end_with_mocked_collect(cfg: TrainingConfig, synthetic_supervisor_data: object) -> None:
     with patch(
         "aerocapture.training.warm_start._aero_rs.collect_supervised",
         side_effect=synthetic_supervisor_data,
@@ -104,7 +104,7 @@ def test_end_to_end_with_mocked_collect(cfg, synthetic_supervisor_data):
     assert (Path(cfg.save_dir) / "warm_start_cache_key.json").exists()
 
 
-def test_cache_hit_skips_recomputation(cfg, synthetic_supervisor_data):
+def test_cache_hit_skips_recomputation(cfg: TrainingConfig, synthetic_supervisor_data: object) -> None:
     with patch(
         "aerocapture.training.warm_start._aero_rs.collect_supervised",
         side_effect=synthetic_supervisor_data,
@@ -121,13 +121,13 @@ def test_cache_hit_skips_recomputation(cfg, synthetic_supervisor_data):
 
 
 @pytest.fixture
-def magnitude_only_toml(tmp_path):
+def magnitude_only_toml(tmp_path: Path) -> Path:
     p = tmp_path / "magnitude_only.toml"
     p.write_text('[guidance.neural_network]\nmode = "magnitude_only"\n')
     return p
 
 
-def test_magnitude_only_mode_runs_end_to_end(tmp_path, temp_ftc_params, magnitude_only_toml, synthetic_supervisor_data):
+def test_magnitude_only_mode_runs_end_to_end(tmp_path: Path, temp_ftc_params: Path, magnitude_only_toml: Path, synthetic_supervisor_data: object) -> None:
     """Magnitude_only mode (TOML-driven) runs warm-start without error and produces a finite chromosome."""
     arch = [
         {"type": "dense", "input_size": 4, "output_size": 4, "activation": "tanh"},
@@ -158,7 +158,7 @@ def test_magnitude_only_mode_runs_end_to_end(tmp_path, temp_ftc_params, magnitud
     assert (chromo >= 0.0).all() and (chromo <= 1.0).all()
 
 
-def test_resolve_nn_mode_reads_toml(tmp_path):
+def test_resolve_nn_mode_reads_toml(tmp_path: Path) -> None:
     from aerocapture.training.warm_start import _resolve_nn_mode
 
     toml_path = tmp_path / "test.toml"
@@ -167,7 +167,7 @@ def test_resolve_nn_mode_reads_toml(tmp_path):
     assert _resolve_nn_mode(cfg) == "magnitude_only"
 
 
-def test_resolve_nn_mode_defaults_to_full_neural_when_section_absent(tmp_path):
+def test_resolve_nn_mode_defaults_to_full_neural_when_section_absent(tmp_path: Path) -> None:
     from aerocapture.training.warm_start import _resolve_nn_mode
 
     toml_path = tmp_path / "no_section.toml"
@@ -176,7 +176,7 @@ def test_resolve_nn_mode_defaults_to_full_neural_when_section_absent(tmp_path):
     assert _resolve_nn_mode(cfg) == "full_neural"
 
 
-def test_resolve_nn_mode_raises_on_missing_file(tmp_path):
+def test_resolve_nn_mode_raises_on_missing_file(tmp_path: Path) -> None:
     from aerocapture.training.warm_start import _resolve_nn_mode
 
     cfg = TrainingConfig(sim=SimConfig(toml_config=str(tmp_path / "nonexistent.toml")))

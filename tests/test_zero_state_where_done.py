@@ -6,12 +6,12 @@ import torch
 from aerocapture.training.rl.policy import _zero_state_where_done
 
 
-def test_none_passthrough():
+def test_none_passthrough() -> None:
     out = _zero_state_where_done([None], torch.tensor([True, False]))
     assert out == [None]
 
 
-def test_gru_2d_zeros_done_rows():
+def test_gru_2d_zeros_done_rows() -> None:
     h = torch.ones(3, 4)
     done = torch.tensor([True, False, True])
     out = _zero_state_where_done([h], done)[0]
@@ -20,7 +20,7 @@ def test_gru_2d_zeros_done_rows():
     assert torch.allclose(out[2], torch.zeros(4))
 
 
-def test_lstm_tuple_of_2d():
+def test_lstm_tuple_of_2d() -> None:
     h = torch.ones(2, 4)
     c = torch.full((2, 4), 2.0)
     done = torch.tensor([False, True])
@@ -29,7 +29,7 @@ def test_lstm_tuple_of_2d():
     assert torch.allclose(out_c[1], torch.zeros(4))
 
 
-def test_mamba_3d_zeros_done_rows():
+def test_mamba_3d_zeros_done_rows() -> None:
     h = torch.ones(3, 4, 5)  # (B, input_size, d_state)
     done = torch.tensor([True, False, True])
     out = _zero_state_where_done([h], done)[0]
@@ -38,7 +38,7 @@ def test_mamba_3d_zeros_done_rows():
     assert torch.allclose(out[2], torch.zeros(4, 5))
 
 
-def test_window_3d_zeros_done_rows():
+def test_window_3d_zeros_done_rows() -> None:
     h = torch.ones(2, 3, 4)  # (B, n_steps, input_size)
     done = torch.tensor([True, False])
     out = _zero_state_where_done([h], done)[0]
@@ -46,7 +46,7 @@ def test_window_3d_zeros_done_rows():
     assert torch.allclose(out[1], torch.ones(3, 4))
 
 
-def test_transformer_kv_cache_tuple_of_3d():
+def test_transformer_kv_cache_tuple_of_3d() -> None:
     k = torch.ones(2, 5, 8)
     v = torch.full((2, 5, 8), 2.0)
     done = torch.tensor([True, False])
@@ -59,7 +59,7 @@ def test_transformer_kv_cache_tuple_of_3d():
     assert torch.allclose(out_v[1], torch.full((5, 8), 2.0))
 
 
-def test_sub_2d_state_raises():
+def test_sub_2d_state_raises() -> None:
     # 1D state is not a supported shape (no batch dim) -- must raise.
     with pytest.raises(ValueError, match="ndim >= 2"):
         _zero_state_where_done([torch.ones(4)], torch.tensor([True, False]))

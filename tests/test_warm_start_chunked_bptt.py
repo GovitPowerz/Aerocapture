@@ -7,7 +7,7 @@ from aerocapture.training.config import NetworkConfig
 from aerocapture.training.warm_start import _chunked_bptt_train
 
 
-def _make_trajectories(n_trajectories=2, T=64, input_dim=4):
+def _make_trajectories(n_trajectories: int = 2, T: int = 64, input_dim: int = 4) -> list[dict]:
     """Synthetic: y_signed = sin(X[:, 0]) so a small MLP can fit it quickly."""
     trajs = []
     rng = np.random.default_rng(0)
@@ -18,7 +18,7 @@ def _make_trajectories(n_trajectories=2, T=64, input_dim=4):
     return trajs
 
 
-def test_dense_runs_and_loss_decreases():
+def test_dense_runs_and_loss_decreases() -> None:
     trajs = _make_trajectories()
     network = NetworkConfig(
         architecture=[
@@ -40,7 +40,7 @@ def test_dense_runs_and_loss_decreases():
     assert losses[-1] < losses[0]  # loss decreased
 
 
-def test_gru_runs_and_loss_finite():
+def test_gru_runs_and_loss_finite() -> None:
     trajs = _make_trajectories(T=32)
     network = NetworkConfig(
         architecture=[
@@ -62,7 +62,7 @@ def test_gru_runs_and_loss_finite():
     assert all(np.isfinite(losses))
 
 
-def test_bptt_length_greater_than_n_seq_raises_for_transformer():
+def test_bptt_length_greater_than_n_seq_raises_for_transformer() -> None:
     trajs = _make_trajectories(T=32, input_dim=8)
     network = NetworkConfig(
         architecture=[

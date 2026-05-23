@@ -36,7 +36,7 @@ import pytest
     not Path("training_output/ftc/best_params.json").exists(),
     reason="requires trained FTC scheme at training_output/ftc/best_params.json",
 )
-def test_magnitude_only_at_least_as_good(tmp_path):
+def test_magnitude_only_at_least_as_good(tmp_path: Path) -> None:
     """20-gen GA warm-start run achieves RMS within 5% of recorded baseline."""
     baseline_path = Path("tests/fixtures/warm_start_magonly_baseline.json")
     if not baseline_path.exists():

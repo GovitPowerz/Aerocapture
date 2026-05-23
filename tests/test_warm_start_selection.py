@@ -5,7 +5,7 @@ import numpy as np
 from aerocapture.training.warm_start import _select_best_teacher_per_seed
 
 
-def _traj(seed, dv, captured, n_steps=10):
+def _traj(seed: int, dv: float, captured: bool, n_steps: int = 10) -> dict:
     return {
         "seed": seed,
         "X": np.zeros((n_steps, 21)),
@@ -15,7 +15,7 @@ def _traj(seed, dv, captured, n_steps=10):
     }
 
 
-def test_picks_lowest_dv_captured_per_seed():
+def test_picks_lowest_dv_captured_per_seed() -> None:
     by_scheme = {
         "ftc": [_traj(1, 100.0, True), _traj(2, 200.0, True)],
         "fnpag": [_traj(1, 50.0, True), _traj(2, 250.0, True)],
@@ -28,7 +28,7 @@ def test_picks_lowest_dv_captured_per_seed():
     assert by_seed[2]["dv"] == 200.0
 
 
-def test_drops_seeds_with_no_captures():
+def test_drops_seeds_with_no_captures() -> None:
     by_scheme = {
         "ftc": [_traj(1, 100.0, True), _traj(2, 999.0, False)],
         "fnpag": [_traj(1, 50.0, True), _traj(2, 888.0, False)],
@@ -39,7 +39,7 @@ def test_drops_seeds_with_no_captures():
     assert 2 not in by_seed
 
 
-def test_mixed_capture_falls_back_to_captured_only():
+def test_mixed_capture_falls_back_to_captured_only() -> None:
     """A seed where one scheme captures and another fails: capture wins
     even if its DV is higher than the failure's nominal DV."""
     by_scheme = {
@@ -51,7 +51,7 @@ def test_mixed_capture_falls_back_to_captured_only():
     assert selected[0]["scheme"] == "fnpag"
 
 
-def test_ignores_seeds_outside_intersection_gracefully():
+def test_ignores_seeds_outside_intersection_gracefully() -> None:
     """If schemes have different seed coverage, union is taken."""
     by_scheme = {
         "ftc": [_traj(1, 100.0, True)],

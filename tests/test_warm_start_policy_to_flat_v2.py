@@ -8,12 +8,12 @@ from aerocapture.training.warm_start import _policy_to_flat_weights_v2
 from pydantic import TypeAdapter
 
 
-def _build(arch):
+def _build(arch: list[dict]) -> V2Policy:
     validated = TypeAdapter(list[LayerSpec]).validate_python(arch)
     return V2Policy(architecture=validated, input_mask=None).double()
 
 
-def test_dense_only_matches_concat_of_to_flat():
+def test_dense_only_matches_concat_of_to_flat() -> None:
     arch = [
         {"type": "dense", "input_size": 4, "output_size": 8, "activation": "tanh"},
         {"type": "dense", "input_size": 8, "output_size": 2, "activation": "linear"},
@@ -22,12 +22,12 @@ def test_dense_only_matches_concat_of_to_flat():
     with torch.no_grad():
         for p in policy.parameters():
             p.uniform_(-0.1, 0.1)
-    expected = np.concatenate([layer.to_flat() for layer in policy.layers])
+    expected = np.concatenate([layer.to_flat() for layer in policy.layers])  # type: ignore[union-attr,operator]
     actual = _policy_to_flat_weights_v2(policy, arch)
     assert np.allclose(actual, expected, atol=0.0)  # bitwise equal
 
 
-def test_mixed_arch_dense_gru_dense():
+def test_mixed_arch_dense_gru_dense() -> None:
     arch = [
         {"type": "dense", "input_size": 4, "output_size": 8, "activation": "tanh"},
         {"type": "gru", "input_size": 8, "hidden_size": 8},
@@ -37,6 +37,6 @@ def test_mixed_arch_dense_gru_dense():
     with torch.no_grad():
         for p in policy.parameters():
             p.uniform_(-0.1, 0.1)
-    expected = np.concatenate([layer.to_flat() for layer in policy.layers])
+    expected = np.concatenate([layer.to_flat() for layer in policy.layers])  # type: ignore[union-attr,operator]
     actual = _policy_to_flat_weights_v2(policy, arch)
     assert np.allclose(actual, expected, atol=0.0)

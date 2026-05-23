@@ -6,7 +6,7 @@ from aerocapture.training.rl.layers import MambaLayer
 
 
 @pytest.fixture
-def mamba():
+def mamba() -> MambaLayer:
     torch.manual_seed(0)
     layer = MambaLayer(input_size=8, d_state=4, dt_rank=2).double()
     # Randomize params so the test exercises non-trivial weights
@@ -16,7 +16,7 @@ def mamba():
     return layer
 
 
-def test_batched_forward_matches_unbatched(mamba):
+def test_batched_forward_matches_unbatched(mamba: MambaLayer) -> None:
     B = 3
     xs = torch.randn(B, 8, dtype=torch.float64)
     h_batched = mamba.new_state(batch_size=B)

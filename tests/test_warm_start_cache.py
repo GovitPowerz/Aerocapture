@@ -16,7 +16,7 @@ from aerocapture.training.config import (
 from aerocapture.training.warm_start import build_warm_start_chromosome
 
 
-def _basic_cfg(tmp_path):
+def _basic_cfg(tmp_path: Path) -> TrainingConfig:
     p = tmp_path / "ftc_params.json"
     p.write_text(json.dumps({"k_alt": 1.0}))
     stub_toml = tmp_path / "stub.toml"
@@ -45,12 +45,12 @@ def _basic_cfg(tmp_path):
     )
 
 
-def _mock_collect(toml_path, seeds, overrides, scheme, sim_timeout_secs=None):
+def _mock_collect(toml_path: str, seeds: list[int], overrides: dict | None = None, scheme: str = "ftc", sim_timeout_secs: float | None = None) -> list[dict]:
     rng = np.random.default_rng(int(seeds[0]) if len(seeds) else 0)
     return [{"seed": int(s), "X": rng.standard_normal((10, 21)), "y_signed": np.sin(rng.standard_normal(10)), "dv": 50.0, "captured": True} for s in seeds]
 
 
-def test_unchanged_cfg_hits_cache(tmp_path):
+def test_unchanged_cfg_hits_cache(tmp_path: Path) -> None:
     cfg = _basic_cfg(tmp_path)
     with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_mock_collect) as mock:
         build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
@@ -60,7 +60,7 @@ def test_unchanged_cfg_hits_cache(tmp_path):
         assert mock.call_count == 0  # cache hit
 
 
-def test_supervisor_mtime_change_invalidates(tmp_path):
+def test_supervisor_mtime_change_invalidates(tmp_path: Path) -> None:
     cfg = _basic_cfg(tmp_path)
     with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_mock_collect):
         build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
@@ -72,7 +72,7 @@ def test_supervisor_mtime_change_invalidates(tmp_path):
         assert mock.call_count == 1  # cache miss
 
 
-def test_bound_multiplier_change_invalidates(tmp_path):
+def test_bound_multiplier_change_invalidates(tmp_path: Path) -> None:
     cfg = _basic_cfg(tmp_path)
     with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_mock_collect):
         build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
@@ -82,10 +82,11 @@ def test_bound_multiplier_change_invalidates(tmp_path):
         assert mock.call_count == 1
 
 
-def test_architecture_change_invalidates(tmp_path):
+def test_architecture_change_invalidates(tmp_path: Path) -> None:
     cfg = _basic_cfg(tmp_path)
     with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_mock_collect):
         build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
+    assert cfg.network.architecture is not None
     cfg.network.architecture[0]["output_size"] = 8
     cfg.network.architecture[1]["input_size"] = 8
     with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_mock_collect) as mock:
