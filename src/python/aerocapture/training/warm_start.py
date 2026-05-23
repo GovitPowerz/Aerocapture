@@ -9,6 +9,7 @@ encodes the trained weights to a normalized [0, 1] PSO chromosome.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -267,7 +268,9 @@ def _chunked_bptt_train(
     optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
     losses: list[float] = []
 
-    for _epoch in range(n_epochs):
+    epoch_width = len(str(n_epochs))  # zero-pad index for clean column alignment
+    print(f"  [warm_start] supervised pretrain: {len(chunks)} chunks, {n_epochs} epochs, bptt_length={bptt_length}")
+    for epoch in range(n_epochs):
         # Shuffle chunks; minibatch as the chunk-batch dim
         order = rng.permutation(len(chunks))
         # Group into minibatches of up to 32 chunks; each minibatch is forwarded together.
@@ -275,6 +278,7 @@ def _chunked_bptt_train(
         chunk_batch_size = min(32, len(chunks))
         epoch_loss = 0.0
         n_batches = 0
+        epoch_t0 = time.monotonic()
         for start in range(0, len(order), chunk_batch_size):
             batch_idx = order[start : start + chunk_batch_size]
             X_batch = np.stack([chunks[i][0] for i in batch_idx], axis=0)  # (B, T, in)
@@ -310,7 +314,22 @@ def _chunked_bptt_train(
             optimizer.step()
             epoch_loss += float(loss.item())
             n_batches += 1
-        losses.append(epoch_loss / max(n_batches, 1))
+        mean_mse = epoch_loss / max(n_batches, 1)
+        losses.append(mean_mse)
+        epoch_dt = time.monotonic() - epoch_t0
+        # Convergence delta vs previous epoch (skipped on epoch 0). Use relative
+        # change so the magnitude is interpretable across loss scales.
+        if epoch == 0:
+            trend = "          "
+        else:
+            prev = losses[epoch - 1]
+            if prev > 0.0:
+                rel = (mean_mse - prev) / prev * 100.0
+                arrow = "↓" if rel < 0 else "↑"
+                trend = f"  {arrow} {abs(rel):5.1f}%"
+            else:
+                trend = "          "
+        print(f"  [warm_start] epoch {epoch + 1:>{epoch_width}}/{n_epochs}: MSE = {mean_mse:.4e}{trend}  ({epoch_dt:5.1f}s)")
 
     return policy, losses, len(chunks)
 
@@ -450,7 +469,12 @@ def build_warm_start_chromosome(
             indent=2,
         )
     )
-    print(f"  [warm_start] supervised MSE: {losses[0]:.4f} -> {losses[-1]:.4f} over {len(losses)} epochs")
+    # End-of-pretrain summary line (also captured by the per-epoch log + warm_start_loss.json)
+    if len(losses) > 1 and losses[0] > 0.0:
+        reduction = (losses[0] - losses[-1]) / losses[0] * 100.0
+        print(f"  [warm_start] supervised MSE {losses[0]:.4e} -> {losses[-1]:.4e}  ({reduction:+.1f}%)")
+    else:
+        print(f"  [warm_start] supervised MSE: {losses[-1]:.4e}")
 
     # 7. Extract flat weights and encode to normalized chromosome at warm-start bound_multiplier
     assert network.architecture is not None  # validated by _chunked_bptt_train

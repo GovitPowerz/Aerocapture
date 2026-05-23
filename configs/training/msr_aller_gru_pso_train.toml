@@ -49,10 +49,10 @@ gain_fade_start_km = 80.0
 gain_fade_end_km = 100.0
 
 [warm_start]
-supervisor_schemes = ["ftc", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag"]
+supervisor_schemes = ["ftc"]
 bptt_length = 32
-n_warm_seeds = 200
-n_epochs = 10
-bound_multiplier = 4.0
+n_warm_seeds = 2000
+n_epochs = 100
+bound_multiplier = 20.0
 jitter = 0.02
 cmaes_sigma0 = 0.1
