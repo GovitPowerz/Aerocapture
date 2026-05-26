@@ -42,7 +42,7 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
     )
     Path(cfg.save_dir).mkdir(parents=True, exist_ok=True)
 
-    chromo = build_warm_start_chromosome(
+    chromo, _ = build_warm_start_chromosome(
         cfg=cfg,
         base_mc_seed=42,
     )
@@ -200,7 +200,7 @@ def test_warm_start_atan2_signed_with_optimize_scaffolding(tmp_path: Path) -> No
     )
     Path(cfg.save_dir).mkdir(parents=True, exist_ok=True)
 
-    chromo = build_warm_start_chromosome(
+    chromo, _ = build_warm_start_chromosome(
         cfg=cfg,
         base_mc_seed=42,
     )

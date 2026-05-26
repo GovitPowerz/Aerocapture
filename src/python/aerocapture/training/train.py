@@ -640,12 +640,21 @@ def train(
             if warm_start_active:
                 from aerocapture.training.warm_start import build_warm_start_chromosome
 
-                warm_chromo = build_warm_start_chromosome(
+                warm_chromo, warm_weight_specs = build_warm_start_chromosome(
                     cfg=config,
                     base_mc_seed=base_mc_seed,
                 )
                 n_scaff = 17 if config.network.optimize_scaffolding else 0
                 n_weights = len(warm_chromo) - n_scaff
+                # Propagate the warm-start bounds back into param_specs so PSO/GA/DE
+                # decode chromosomes under the same bounds they were encoded with.
+                # ParamSpec is frozen; replace entries in-place so Problem (which
+                # holds a reference to the same list) sees the new bounds at decode
+                # time. Length is preserved -- only the NN-weight slab [0..n_weights)
+                # is rewritten; scaffolding tail stays untouched.
+                assert len(warm_weight_specs) == n_weights, f"warm_weight_specs length ({len(warm_weight_specs)}) != n_weights ({n_weights})"
+                for j in range(n_weights):
+                    param_specs[j] = warm_weight_specs[j]
                 pop_array = _seed_initial_population(
                     algorithm_name=config.optimizer.algorithm,
                     chromosome=warm_chromo,

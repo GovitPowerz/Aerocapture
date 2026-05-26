@@ -93,7 +93,7 @@ def test_end_to_end_with_mocked_collect(cfg: TrainingConfig, synthetic_superviso
         "aerocapture.training.warm_start._aero_rs.collect_supervised",
         side_effect=synthetic_supervisor_data,
     ):
-        chromo = build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
+        chromo, _ = build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
     assert chromo.dtype == np.float64
     assert chromo.ndim == 1
     assert (chromo >= 0.0).all() and (chromo <= 1.0).all()
@@ -109,13 +109,13 @@ def test_cache_hit_skips_recomputation(cfg: TrainingConfig, synthetic_supervisor
         "aerocapture.training.warm_start._aero_rs.collect_supervised",
         side_effect=synthetic_supervisor_data,
     ) as mock:
-        chromo1 = build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
+        chromo1, _ = build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
         assert mock.call_count >= 1
     with patch(
         "aerocapture.training.warm_start._aero_rs.collect_supervised",
         side_effect=synthetic_supervisor_data,
     ) as mock2:
-        chromo2 = build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
+        chromo2, _ = build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
         assert mock2.call_count == 0  # cache hit, no calls
     assert np.array_equal(chromo1, chromo2)
 
@@ -152,7 +152,7 @@ def test_magnitude_only_mode_runs_end_to_end(tmp_path: Path, temp_ftc_params: Pa
         save_dir=str(tmp_path / "warm_out_magonly"),
     )
     with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=synthetic_supervisor_data):
-        chromo = build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
+        chromo, _ = build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
     assert chromo.dtype == np.float64
     assert chromo.ndim == 1
     assert (chromo >= 0.0).all() and (chromo <= 1.0).all()

@@ -80,6 +80,7 @@ def _cache_key(
         "n_epochs": cfg.warm_start.n_epochs,
         "bptt_length": cfg.warm_start.bptt_length,
         "bound_multiplier": cfg.warm_start.bound_multiplier,
+        "adaptive_bounds": bool(cfg.warm_start.adaptive_bounds),
         "mode": mode,
         # The supervised dataset is `make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, n)`.
         # Different base_mc_seed produces a different seed pool, so cache hits
@@ -89,7 +90,12 @@ def _cache_key(
     }
 
 
-def _cache_hit(save_dir: Path, expected_key: dict) -> npt.NDArray[np.float64] | None:
+def _cache_hit(save_dir: Path, expected_key: dict) -> tuple[npt.NDArray[np.float64], list | None] | None:
+    """Return (chromosome, weight_specs | None) on cache hit, else None.
+
+    `weight_specs` is None when the cache predates adaptive-bounds persistence;
+    callers should rebuild the specs via `nn_param_specs_from_v2` in that case.
+    """
     chromo_path = save_dir / "warm_start_chromosome.npy"
     key_path = save_dir / "warm_start_cache_key.json"
     if not (chromo_path.exists() and key_path.exists()):
@@ -97,7 +103,25 @@ def _cache_hit(save_dir: Path, expected_key: dict) -> npt.NDArray[np.float64] | 
     saved_key = json.loads(key_path.read_text())
     if saved_key != expected_key:
         return None
-    return np.asarray(np.load(chromo_path), dtype=np.float64)
+    chromo = np.asarray(np.load(chromo_path), dtype=np.float64)
+    weight_specs: list | None = None
+    bounds_path = save_dir / "warm_start_bounds.json"
+    if bounds_path.exists():
+        from aerocapture.training.param_spaces import ParamSpec
+
+        raw = json.loads(bounds_path.read_text())
+        weight_specs = [
+            ParamSpec(
+                name=str(e["name"]),
+                p_min=float(e["p_min"]),
+                p_max=float(e["p_max"]),
+                default=float(e.get("default", 0.0)),
+                log_scale=bool(e.get("log_scale", False)),
+                is_integer=bool(e.get("is_integer", False)),
+            )
+            for e in raw
+        ]
+    return chromo, weight_specs
 
 
 _INTEGER_PARAM_NAMES: frozenset[str] = frozenset(s.name for s in _NN_SCAFFOLDING_PARAMS if s.is_integer)
@@ -471,6 +495,65 @@ def _policy_to_flat_weights_v2(policy: V2Policy, architecture: list[dict]) -> np
     return np.concatenate(parts) if parts else np.array([], dtype=np.float64)
 
 
+def _adaptive_layer_slab_specs(
+    weight_specs: list,
+    flat_weights: np.ndarray,
+    architecture: list,
+) -> list:
+    """Replace each NN-weight ParamSpec with per-layer-slab data-driven bounds.
+
+    For each layer slab in `architecture`:
+      slab_bound = max(2.0 * max(|slab|), original_slab_max_abs_bound)
+
+    All ParamSpecs in that slab get symmetric `(-slab_bound, +slab_bound)`
+    around 0 (replacing the Xavier × bound_multiplier centers/asymmetric
+    structure). The floor at the original Xavier bound prevents the slab
+    from shrinking below the activation-aware scale when Adam barely
+    moved the weights.
+
+    Zero-param layers (Window) contribute no entries; the cursor stays in
+    sync via `_layer_n_params`.
+
+    Trades the per-parameter Xavier structure (which mattered for LSTM
+    forget-bias-2, Mamba dt_proj_b, Transformer LN gamma) for guaranteed
+    zero-clipping at chromosome encoding. The chromosome's centers shift
+    accordingly; encoded `normalized = (v - p_min) / (p_max - p_min)` is
+    always inside [0, 1] by construction.
+    """
+    from aerocapture.training.config import _layer_n_params
+    from aerocapture.training.param_spaces import ParamSpec
+
+    new_specs: list = []
+    cursor = 0
+    for entry in architecture:
+        n = _layer_n_params(entry)
+        if n == 0:
+            continue
+        slab = flat_weights[cursor : cursor + n]
+        slab_specs = weight_specs[cursor : cursor + n]
+        # Adaptive: 2x max-abs over the slab.
+        adaptive_bound = 2.0 * float(np.abs(slab).max()) if slab.size else 0.0
+        # Floor at the original max-abs bound across the slab (so trivially
+        # all-zero slabs don't collapse to a degenerate zero-width range,
+        # and PSO keeps the original Xavier room).
+        original_floor = max((max(abs(s.p_min), abs(s.p_max)) for s in slab_specs), default=0.0)
+        slab_bound = max(adaptive_bound, original_floor)
+        for s in slab_specs:
+            new_specs.append(
+                ParamSpec(
+                    name=s.name,
+                    p_min=-slab_bound,
+                    p_max=+slab_bound,
+                    default=s.default,
+                    log_scale=s.log_scale,
+                    is_integer=s.is_integer,
+                )
+            )
+        cursor += n
+    assert cursor == len(weight_specs), f"adaptive bound walk did not consume all weight_specs ({cursor} vs {len(weight_specs)})"
+    return new_specs
+
+
 def _select_best_teacher_per_seed(
     results_by_scheme: dict[str, list[dict]],
 ) -> list[dict]:
@@ -496,17 +579,30 @@ def _select_best_teacher_per_seed(
 def build_warm_start_chromosome(
     cfg: TrainingConfig,
     base_mc_seed: int,
-) -> npt.NDArray[np.float64]:
+) -> tuple[npt.NDArray[np.float64], list]:
     """Multi-supervisor warm-start: collect per-seed best teacher, chunked-BPTT, encode.
 
     Configuration is fully read from cfg.warm_start (supervisor_schemes,
-    bptt_length, n_warm_seeds, n_epochs, bound_multiplier, params_paths)
-    and cfg.network (architecture, input_mask, output_parameterization,
-    optimize_scaffolding, warm_start_from for the scaffolding source).
+    bptt_length, n_warm_seeds, n_epochs, bound_multiplier, adaptive_bounds,
+    params_paths) and cfg.network (architecture, input_mask,
+    output_parameterization, optimize_scaffolding, warm_start_from for the
+    scaffolding source).
 
     `base_mc_seed` MUST be the resolved value train.py uses for
     validation/final-eval pools so warm-start seeds are disjoint
     (`WARM_START_SEED_OFFSET = 4M`).
+
+    Returns:
+        Tuple of (chromosome, weight_specs) where:
+          - chromosome: normalized [0, 1] vector of length n_weights (+ 17 if
+            optimize_scaffolding). Row-0 anchor for the PSO/GA/DE initial
+            population.
+          - weight_specs: the ParamSpec list for the NN-WEIGHT slab (no
+            scaffolding). When `cfg.warm_start.adaptive_bounds` is True
+            (default), these carry per-layer-slab adaptive bounds derived
+            from the trained values; otherwise they carry the original
+            Xavier × bound_multiplier bounds. Caller must propagate these
+            into the outer param_specs so PSO decode matches the encoding.
     """
     save_dir = Path(cfg.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -535,7 +631,18 @@ def build_warm_start_chromosome(
     cache_key = _cache_key(cfg, resolved_paths, scaffolding_source_path, mode, base_mc_seed)
     cached = _cache_hit(save_dir, cache_key)
     if cached is not None:
-        return cached
+        chromo, cached_specs = cached
+        if cached_specs is not None:
+            return chromo, cached_specs
+        # Cache predates adaptive-bounds persistence: rebuild specs at the
+        # configured bound_multiplier so the chromosome decode matches.
+        from pydantic import TypeAdapter
+
+        from aerocapture.training.rl.schemas import LayerSpec
+
+        assert network.architecture is not None
+        validated_arch_cached = TypeAdapter(list[LayerSpec]).validate_python(network.architecture)
+        return chromo, nn_param_specs_from_v2(validated_arch_cached, bound_multiplier=ws.bound_multiplier)
 
     # 3. Collect per scheme. Thread sim_timeout_secs through so a NaN-state
     # supervisor sim can't hang the warm-start pipeline indefinitely (project
@@ -603,7 +710,7 @@ def build_warm_start_chromosome(
     else:
         print(f"  [warm_start] supervised MSE: {losses[-1]:.4e}")
 
-    # 7. Extract flat weights and encode to normalized chromosome at warm-start bound_multiplier
+    # 7. Extract flat weights and encode to normalized chromosome.
     assert network.architecture is not None  # validated by _chunked_bptt_train
     flat_weights = _policy_to_flat_weights_v2(policy, network.architecture)
     from pydantic import TypeAdapter
@@ -611,14 +718,19 @@ def build_warm_start_chromosome(
     from aerocapture.training.rl.schemas import LayerSpec
 
     validated_arch = TypeAdapter(list[LayerSpec]).validate_python(network.architecture)
-    weight_specs = nn_param_specs_from_v2(validated_arch, bound_multiplier=ws.bound_multiplier)
+    base_specs = nn_param_specs_from_v2(validated_arch, bound_multiplier=ws.bound_multiplier)
 
     # Safety guard (per Task 7 code-quality review): zero-param layers must be
     # skipped consistently by nn_param_specs_from_v2 and _policy_to_flat_weights_v2.
-    assert len(flat_weights) == len(weight_specs), (
-        f"flat_weights length ({len(flat_weights)}) != weight_specs length ({len(weight_specs)}); "
+    assert len(flat_weights) == len(base_specs), (
+        f"flat_weights length ({len(flat_weights)}) != weight_specs length ({len(base_specs)}); "
         "zero-param layers (Window) must be skipped consistently in both encoders"
     )
+
+    # adaptive_bounds (default True): per-layer-slab 2x max-abs bounds floored at
+    # the Xavier × bound_multiplier half-width. By construction every trained
+    # value lies inside its slab's [-bound, +bound] range, so encoding never clips.
+    weight_specs = _adaptive_layer_slab_specs(base_specs, flat_weights, list(validated_arch)) if ws.adaptive_bounds else base_specs
 
     weight_chromo = np.empty(len(weight_specs), dtype=np.float64)
     n_clipped = 0
@@ -630,10 +742,13 @@ def build_warm_start_chromosome(
         weight_chromo[i] = np.clip(normalized, 0.0, 1.0)
 
     clip_rate = n_clipped / max(len(weight_specs), 1)
-    if clip_rate > 0.05:
+    if ws.adaptive_bounds:
+        # Adaptive bounds guarantee 0% clipping by construction; anything > 0 is a bug.
+        assert clip_rate == 0.0, f"adaptive_bounds produced {n_clipped} clipped weights -- internal bug, bounds should always contain trained values"
+    elif clip_rate > 0.05:
         raise RuntimeError(
             f"warm-start clip rate {100 * clip_rate:.1f}% ({n_clipped}/{len(weight_specs)}) exceeds 5% threshold. "
-            "Widen [warm_start] bound_multiplier, reduce n_epochs, or lower lr."
+            "Set [warm_start] adaptive_bounds = true (default), or widen bound_multiplier, reduce n_epochs, or lower lr."
         )
     elif n_clipped > 0:
         print(f"  [warm_start] {n_clipped}/{len(weight_specs)} weights clipped ({100 * clip_rate:.2f}%).")
@@ -647,7 +762,18 @@ def build_warm_start_chromosome(
 
     np.save(save_dir / "warm_start_chromosome.npy", chromo)
     (save_dir / "warm_start_cache_key.json").write_text(json.dumps(cache_key, indent=2))
-    return chromo
+    # Persist the bounds so resume / cache-hit returns the same specs the
+    # chromosome was encoded under.
+    (save_dir / "warm_start_bounds.json").write_text(
+        json.dumps(
+            [
+                {"name": s.name, "p_min": s.p_min, "p_max": s.p_max, "default": s.default, "log_scale": s.log_scale, "is_integer": s.is_integer}
+                for s in weight_specs
+            ],
+            indent=2,
+        )
+    )
+    return chromo, weight_specs
 
 
 def _resolve_nn_mode(cfg: TrainingConfig) -> str:

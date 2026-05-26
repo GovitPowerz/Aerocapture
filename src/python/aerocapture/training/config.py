@@ -319,6 +319,16 @@ class WarmStartConfig:
     bound_multiplier: float = 4.0
     jitter: float = 0.02
     cmaes_sigma0: float = 0.1
+    # When True (default), PSO/GA/DE NN-weight ParamSpec bounds are derived
+    # post-Adam from the trained slab's max-abs value with 2x safety margin
+    # (floored at the Xavier × bound_multiplier value so PSO never shrinks
+    # below the activation-aware Xavier scale). Guarantees zero clipping at
+    # chromosome encoding regardless of how far Adam drifted past Xavier.
+    # When False, the static Xavier × bound_multiplier bounds are used and
+    # the >5% clip-rate guard raises if Adam went too far. Default True
+    # because clip-rate-as-error is a footgun for high-bound_multiplier
+    # configs where users have no easy reverse-engineering path.
+    adaptive_bounds: bool = True
     params_paths: dict[str, str] = field(default_factory=dict)
 
     @classmethod

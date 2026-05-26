@@ -66,12 +66,18 @@ def test_zero_captures_raises(tmp_path: Path) -> None:
 
 def test_clip_rate_above_threshold_raises(tmp_path: Path) -> None:
     """Force clip rate > 5% by training with extreme target values and
-    a tiny bound_multiplier so weights blow out of bounds."""
+    a tiny bound_multiplier so weights blow out of bounds.
+
+    Adaptive bounds are explicitly disabled here so the static Xavier ×
+    bound_multiplier guard fires. With adaptive_bounds=True (the default),
+    bounds expand to fit the trained values and the guard never triggers
+    -- that path is covered by test_adaptive_bounds_no_clipping below."""
     p = tmp_path / "ftc.json"
     p.write_text("{}")
     cfg = _basic_cfg(tmp_path, params_paths={"ftc": str(p)})
     cfg.network.warm_start_from = str(p)
     cfg.warm_start.bound_multiplier = 0.01  # absurdly tight; will clip everything
+    cfg.warm_start.adaptive_bounds = False  # disable auto-expand so the static guard fires
     cfg.warm_start.n_epochs = 50  # ensure weights drift
 
     rng = np.random.default_rng(0)
@@ -96,6 +102,53 @@ def test_clip_rate_above_threshold_raises(tmp_path: Path) -> None:
 
     with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_strong_targets), pytest.raises(RuntimeError, match="clip rate"):
         build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
+
+
+def test_adaptive_bounds_no_clipping(tmp_path: Path) -> None:
+    """Under the SAME adversarial conditions as test_clip_rate_above_threshold_raises
+    (tiny bound_multiplier + many epochs + extreme targets), adaptive_bounds=True
+    must produce ZERO clipping by expanding the per-layer-slab bounds to fit the
+    trained values. Guarantees the user-friendly path: no runtime error from
+    high-drift Adam runs."""
+    p = tmp_path / "ftc.json"
+    p.write_text("{}")
+    cfg = _basic_cfg(tmp_path, params_paths={"ftc": str(p)})
+    cfg.network.warm_start_from = str(p)
+    cfg.warm_start.bound_multiplier = 0.01  # absurdly tight under static bounds
+    cfg.warm_start.adaptive_bounds = True  # explicit (also the default)
+    cfg.warm_start.n_epochs = 50
+
+    rng = np.random.default_rng(0)
+
+    def _strong_targets(
+        toml_path: str,
+        seeds: list[int],
+        overrides: dict | None = None,
+        scheme: str = "ftc",
+        sim_timeout_secs: float | None = None,
+    ) -> list[dict]:
+        return [
+            {
+                "seed": int(s),
+                "X": rng.standard_normal((20, 21)),
+                "y_signed": rng.uniform(-3.0, 3.0, size=20),
+                "dv": 50.0,
+                "captured": True,
+            }
+            for s in seeds
+        ]
+
+    with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_strong_targets):
+        chromo, weight_specs = build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
+    # Encoding succeeded; every weight is in [0, 1] (no clipping at the boundary either).
+    assert chromo.dtype == np.float64
+    assert (chromo > 0.0).all() and (chromo < 1.0).all(), (
+        "adaptive_bounds should expand bounds with 2x safety margin so every encoded value is STRICTLY inside (0, 1), "
+        f"got min={chromo.min()}, max={chromo.max()}"
+    )
+    # Bounds widened beyond the absurdly tight 0.01 × Xavier configured value.
+    for s in weight_specs:
+        assert s.p_max > 0.01, f"adaptive bounds should be wider than the floor for {s.name}; got p_max={s.p_max}"
 
 
 def test_bptt_length_greater_than_n_seq_raises(tmp_path: Path) -> None:

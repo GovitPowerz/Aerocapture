@@ -120,7 +120,7 @@ def test_warm_start_per_arch_smoke(arch_name: str, arch: list[dict], tmp_path: P
     )
 
     with patch("aerocapture.training.warm_start._aero_rs.collect_supervised", side_effect=_mock_collect_factory()):
-        chromo = build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
+        chromo, _ = build_warm_start_chromosome(cfg=cfg, base_mc_seed=42)
 
     # Width matches param specs
     validated = TypeAdapter(list[LayerSpec]).validate_python(arch)
