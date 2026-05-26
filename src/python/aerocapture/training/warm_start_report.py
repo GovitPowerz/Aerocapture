@@ -68,6 +68,7 @@ def _load_artifacts(save_dir: Path) -> dict[str, Any]:
         "bounds": _load_json(save_dir / "warm_start_bounds.json"),
         "selection": _load_json(save_dir / "warm_start_selection.json"),
         "cache_key": _load_json(save_dir / "warm_start_cache_key.json"),
+        "eval_summary": _load_json(save_dir / "warm_start_eval_summary.json"),
     }
 
 
@@ -300,7 +301,18 @@ def _build_metadata(artifacts: dict[str, Any], save_dir: Path) -> dict[str, Any]
         "supervisors": supervisor_rows,
         "n_selected_total": selection.get("n_selected_total"),
         "min_corpus_required": selection.get("min_corpus_required"),
+        "eval_summary_lines": _eval_summary_lines(artifacts.get("eval_summary")),
     }
+
+
+def _eval_summary_lines(eval_summary: dict | None) -> list[str]:
+    """Render the structured eval-summary dict as a list of text lines for
+    the Typst template's raw-text block. Returns [] when no summary present."""
+    if not eval_summary:
+        return []
+    from aerocapture.training.report import format_eval_summary
+
+    return format_eval_summary(eval_summary, indent="    ")
 
 
 def _layer_summary(layer: dict) -> str:
@@ -415,6 +427,26 @@ to the validation gate later in training.
   [*p95 cost*],     [#meta.baseline.p95_cost],
   [*Worst cost*],   [#meta.baseline.worst_cost],
 )
+
+#if meta.eval_summary_lines.len() > 0 [
+  == Final evaluation (warm-started chromosome on val seeds)
+
+  Mirrors the end-of-training final-eval block so the warm-start metrics are
+  directly comparable. Numbers come from the SAME MC run as the baseline above
+  -- this view exposes per-axis DV / apoapsis / heat-flux statistics.
+
+  #block(
+    fill: luma(245),
+    inset: 8pt,
+    radius: 4pt,
+    width: 100%,
+    text(font: "Courier New", size: 9pt)[
+      #for line in meta.eval_summary_lines [
+        #line \
+      ]
+    ],
+  )
+]
 """
 
 
@@ -493,6 +525,7 @@ EXPECTED_SIDECARS: OrderedDict[str, str] = OrderedDict(
         ("warm_start_bounds.json", "Per-parameter ParamSpec bounds used to encode the chromosome"),
         ("warm_start_selection.json", "Per-supervisor selection counts + capture stats"),
         ("warm_start_cache_key.json", "Config snapshot used as the cache key"),
+        ("warm_start_eval_summary.json", "Final-evaluation statistics block (DV / apoapsis / heat-flux)"),
     ]
 )
 

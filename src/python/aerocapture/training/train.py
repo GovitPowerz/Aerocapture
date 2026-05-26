@@ -682,33 +682,44 @@ def train(
                 # line later printed by the validation gate. Best-effort:
                 # failure here must not block training.
                 from aerocapture.training._warm_start_baseline import write_gen0_baseline
+                from aerocapture.training.report import compute_eval_summary, format_eval_summary
 
                 try:
                     if val_seeds is None:
                         raise RuntimeError("val_seeds not initialized; gen-0 baseline requires the validation pool")
-                    baseline_costs = problem.evaluate_individual_per_seed(warm_chromo, val_seeds)
+                    # Single MC pass on val_seeds returning both per-seed costs
+                    # AND the (n, 52) final_records so we can derive DV / apo /
+                    # peri / heat-flux statistics without re-running.
+                    baseline_costs, baseline_records = problem.evaluate_individual_records_per_seed(warm_chromo, val_seeds)
+                    eval_summary = compute_eval_summary(baseline_records, len(val_seeds), problem.cost_kwargs)
                     baseline_path = write_gen0_baseline(
                         save_dir=Path(config.save_dir),
                         costs=baseline_costs,
-                        capture_rate=capture_rate(baseline_costs),
+                        capture_rate=eval_summary["capture_rate"],
                         n_sims=len(val_seeds),
                     )
+                    # Persist the structured eval summary so the warm-start
+                    # report PDF can embed it (and CLI re-render works).
+                    (Path(config.save_dir) / "warm_start_eval_summary.json").write_text(json.dumps(eval_summary, indent=2))
+                    # User-facing block: mirrors the end-of-training final-eval
+                    # summary so users can compare like-for-like.
                     if verbose:
+                        print()
+                        for line in format_eval_summary(eval_summary, indent="    "):
+                            print(f"  {line}" if not line.startswith(" ") else line)
                         baseline = json.loads(baseline_path.read_text())
-                        print(
-                            f"  [warm_start] gen-0 validation baseline (val seeds): "
-                            f"rms={baseline['rms_cost']:.4e} mean={baseline['mean_cost']:.4e} "
-                            f"p95={baseline['p95_cost']:.4e} cap={baseline['capture_rate']:.0%} n={baseline['n_sims']}"
-                        )
+                        print(f"  [warm_start] gen-0 baseline cost (val seeds): rms={baseline['rms_cost']:.4e} mean={baseline['mean_cost']:.4e}")
                 except Exception as e:
                     # Best-effort: failure here must not block training, but the
                     # error is always logged so it does not silently mask real
-                    # bugs in problem.evaluate_individual_per_seed / write_gen0_baseline.
+                    # bugs in problem.evaluate_individual_records_per_seed /
+                    # write_gen0_baseline / compute_eval_summary.
                     print(f"  [warm_start] WARNING: gen-0 baseline write failed: {type(e).__name__}: {e}")
 
                 # Intermediate warm-start report: charts + Typst PDF summarizing
                 # supervised MSE convergence, supervisor selection, search-space
-                # bounds, and the gen-0 validation baseline. Best-effort.
+                # bounds, and the gen-0 validation baseline + eval summary.
+                # Best-effort.
                 try:
                     from aerocapture.training.warm_start_report import render_report
 

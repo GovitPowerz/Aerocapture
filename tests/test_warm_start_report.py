@@ -102,7 +102,7 @@ def _write_artifacts(d: Path) -> None:
 
 def test_load_artifacts_missing_returns_none(tmp_path: Path) -> None:
     artifacts = _load_artifacts(tmp_path)
-    assert artifacts == {"loss": None, "baseline": None, "bounds": None, "selection": None, "cache_key": None}
+    assert artifacts == {"loss": None, "baseline": None, "bounds": None, "selection": None, "cache_key": None, "eval_summary": None}
 
 
 def test_load_artifacts_all_present(tmp_path: Path) -> None:
@@ -195,6 +195,42 @@ def test_build_metadata_handles_missing_artifacts(tmp_path: Path) -> None:
     assert "n_epochs=0" in meta["loss_summary"]
     assert meta["supervisors"] == []
     assert meta["baseline"]["rms_cost"] == "n/a"
+    assert meta["eval_summary_lines"] == []
+
+
+def test_build_metadata_includes_eval_summary_lines(tmp_path: Path) -> None:
+    """When warm_start_eval_summary.json is present, the metadata's
+    eval_summary_lines mirrors format_eval_summary's output."""
+    _write_artifacts(tmp_path)
+    (tmp_path / "warm_start_eval_summary.json").write_text(
+        json.dumps(
+            {
+                "n_sims": 1000,
+                "n_captured": 995,
+                "capture_rate": 0.995,
+                "cost": {"p50": 21.6, "p95": 33.3, "rms": 24.2},
+                "captured": {
+                    "dv": {"p50": 422.3, "p95": 794.1, "mean": 455.5},
+                    "apoapsis": {"p50": 1525.3, "p95": 6986.8, "mean": 2299.7},
+                    "periapsis": {"p50": -12.9, "p95": 17.3, "mean": -43.6},
+                    "inclination": {"p50": -0.72, "p95": 0.07, "mean": -0.73},
+                },
+                "constraints": {
+                    "heat_flux": {"p50": 173.1, "p95": 183.9, "max": 192.4, "limit": 200.0, "viol_pct": 0.0},
+                    "g_load": {"p50": 2.58, "p95": 3.19, "max": 3.59, "limit": 4.0, "viol_pct": 0.0},
+                    "heat_load": {"p50": 19067.0, "p95": 19625.0, "max": 19945.0, "limit": 25000.0, "viol_pct": 0.0},
+                },
+            }
+        )
+    )
+    artifacts = _load_artifacts(tmp_path)
+    meta = _build_metadata(artifacts, tmp_path)
+    lines = meta["eval_summary_lines"]
+    assert lines[0] == "Final evaluation (1000 sims):"
+    assert "Objective cost:     p50=21.6" in lines[1]
+    assert "Capture rate:       995/1000 (99.5%)" in lines[2]
+    assert "Delta-V (m/s):      p50=422.3" in lines[3]
+    assert "0.0% > 200" in next(line for line in lines if "Heat flux" in line)
 
 
 def test_render_report_writes_charts(tmp_path: Path) -> None:
@@ -215,5 +251,12 @@ def test_render_report_writes_charts(tmp_path: Path) -> None:
 
 def test_expected_sidecars_lists_all_loader_keys() -> None:
     """Documentation aid: EXPECTED_SIDECARS should mention every key _load_artifacts produces."""
-    artifact_keys = {"warm_start_loss.json", "warm_start_baseline.json", "warm_start_bounds.json", "warm_start_selection.json", "warm_start_cache_key.json"}
+    artifact_keys = {
+        "warm_start_loss.json",
+        "warm_start_baseline.json",
+        "warm_start_bounds.json",
+        "warm_start_selection.json",
+        "warm_start_cache_key.json",
+        "warm_start_eval_summary.json",
+    }
     assert set(EXPECTED_SIDECARS.keys()) == artifact_keys
