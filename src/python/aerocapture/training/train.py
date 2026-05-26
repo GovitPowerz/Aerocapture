@@ -19,7 +19,7 @@ import numpy.typing as npt
 from pymoo.core.evaluator import Evaluator  # type: ignore[import-untyped]
 from pymoo.core.population import Population  # type: ignore[import-untyped]
 
-from aerocapture.training.config import TrainingConfig, WarmStartConfig
+from aerocapture.training.config import CheckpointConfig, TrainingConfig, WarmStartConfig  # noqa: F401  (CheckpointConfig re-exported for downstream tests)
 from aerocapture.training.corridor import CorridorAccumulator
 from aerocapture.training.encoding import decode_normalized, nn_param_specs_from_architecture, nn_param_specs_from_v2
 from aerocapture.training.evaluate import (
@@ -271,6 +271,15 @@ def save_checkpoint(
             params = decode_normalized(best_individual, param_specs)
             with open(save_dir / "best_params.json", "w") as fp:
                 json.dump(params, fp, indent=2)
+
+    # Auto-prune older checkpoints when retention is configured. The JSONL
+    # log and all best_* / warm_start_* / report.pdf artifacts are untouched
+    # by `prune_checkpoints`, so post-training analysis still works.
+    keep_last = config.checkpoints.keep_last
+    if keep_last is not None and keep_last >= 1:
+        from aerocapture.training.cleanup_checkpoints import prune_checkpoints
+
+        prune_checkpoints(save_dir, keep_last=keep_last)
 
 
 def load_checkpoint(
@@ -1118,6 +1127,27 @@ if __name__ == "__main__":
             raise SystemExit(1)
     if "warm_start" in _toml_data:
         cfg.warm_start = WarmStartConfig.from_dict(_toml_data["warm_start"])
+
+    # `[checkpoints]` block: optional disk-retention policy. `keep_last = N`
+    # auto-prunes older `checkpoint_g*.{json,npz}` pairs after each save,
+    # keeping only the N most recent. The JSONL log + best_* artifacts are
+    # untouched.
+    if "checkpoints" in _toml_data:
+        _ckpt = _toml_data["checkpoints"]
+        known_keys = {"keep_last"}
+        unknown = set(_ckpt.keys()) - known_keys
+        if unknown:
+            print(f"ERROR: unknown [checkpoints] keys: {sorted(unknown)}")
+            raise SystemExit(1)
+        if "keep_last" in _ckpt:
+            kl_raw = _ckpt["keep_last"]
+            if kl_raw is not None and not isinstance(kl_raw, int):
+                print(f"ERROR: [checkpoints] keep_last must be an int or null, got {type(kl_raw).__name__}")
+                raise SystemExit(1)
+            if isinstance(kl_raw, int) and kl_raw < 1:
+                print(f"ERROR: [checkpoints] keep_last must be >= 1, got {kl_raw}")
+                raise SystemExit(1)
+            cfg.checkpoints.keep_last = kl_raw
 
     # Warm-start contract: supervised targets are the post-lateral, pre-shaper
     # SIGNED bank command (tick.rs captures `guidance_out.pre_shaper_signed`).

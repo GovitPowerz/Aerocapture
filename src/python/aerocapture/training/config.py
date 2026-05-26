@@ -335,6 +335,25 @@ class WarmStartConfig:
 
 
 @dataclass
+class CheckpointConfig:
+    """Disk-retention policy for `checkpoint_g{NNNNN}.{json,npz}` files.
+
+    Only the latest checkpoint is needed to resume training; the older pairs
+    are useful only for rollback / animation. Stateful NN architectures
+    produce 10-15 MB per `.npz`, so hundreds of generations easily fill a
+    multi-GB output dir.
+
+    `keep_last = None` (default) preserves the legacy behavior of keeping
+    every checkpoint. Set to an integer >= 1 to retain only the N most
+    recent pairs after each save. The per-generation JSONL log
+    (`run_*.jsonl`) is NOT touched, so post-training analysis charts and
+    reports work unchanged.
+    """
+
+    keep_last: int | None = None
+
+
+@dataclass
 class TrainingConfig:
     """Complete training configuration."""
 
@@ -342,6 +361,7 @@ class TrainingConfig:
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     sim: SimConfig = field(default_factory=SimConfig)
     warm_start: WarmStartConfig = field(default_factory=WarmStartConfig)
+    checkpoints: CheckpointConfig = field(default_factory=CheckpointConfig)
     save_dir: str = "training_output"
     guidance_type: str = "neural_network"
 

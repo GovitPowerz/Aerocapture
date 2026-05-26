@@ -226,6 +226,31 @@ curation_sample_size = 1000
 
 Override per-scheme by adding `seed_strategy = "..."` in a leaf training TOML. See `CLAUDE.md` for full details.
 
+### Checkpoint retention
+
+Stateful NN architectures write 10-15 MB per `checkpoint_g{NNNNN}.npz`, so a long PSO run easily fills several GB. Only the latest checkpoint is needed for resume; older ones are useful only for rollback or animation playback.
+
+**Opt in to auto-pruning** by setting `keep_last` in the TOML:
+
+```toml
+[checkpoints]
+keep_last = 10   # keep only the 10 most recent checkpoint pairs; null = keep all (default)
+```
+
+The per-generation JSONL log, `best_model.json`, `warm_start_*` cache, and PDF report are NOT touched, so post-training analysis works unchanged.
+
+**Clean up existing output dirs a posteriori:**
+
+```bash
+# Dry-run on one scheme
+uv run python -m aerocapture.training.cleanup_checkpoints \
+    training_output/neural_network_gru_pso --keep-last 10 --dry-run
+
+# Apply across every scheme directory at once
+uv run python -m aerocapture.training.cleanup_checkpoints \
+    training_output/ --recursive --keep-last 10
+```
+
 ## Reports and Visualization
 
 ### PDF Reports (Typst)
