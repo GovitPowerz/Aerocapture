@@ -102,24 +102,39 @@ def _seed_initial_population(
 ) -> np.ndarray:
     """Build the initial population from a warm-started chromosome.
 
+    Row 0 of the returned population is ALWAYS the exact warm-start
+    chromosome (no jitter), so the supervised-pretrained vector is
+    guaranteed to be evaluated by the optimizer at generation 0 regardless
+    of what jitter does on the other rows. This protects the warm-start
+    "anchor": even if every jittered draw turns out worse, the pristine
+    warm-start chromosome stays in the population and any reasonable
+    selection / elitism propagates it forward.
+
     GA / DE / PSO: tile chromosome to `n_pop` rows; add per-row N(0, jitter)
-    noise to the first `n_weights` columns (or all columns if `n_weights` is
-    None); clip to [0, 1]. The scaffolding tail (if optimize_scaffolding is on,
-    `chromosome[n_weights:]`) is NOT jittered here -- caller is responsible for
-    overwriting that slab with `scaffolding_slab` when applicable.
+    noise to the first `n_weights` columns of rows 1..n_pop-1 (or all
+    columns if `n_weights` is None); clip to [0, 1]. The scaffolding tail
+    (if optimize_scaffolding is on, `chromosome[n_weights:]`) is NOT
+    jittered here -- caller is responsible for overwriting that slab with
+    `scaffolding_slab` when applicable, AND restoring row 0's tail to the
+    un-jittered warm-start values afterward.
 
     CMA-ES: tile chromosome to `n_pop` rows without jitter; pymoo's CMA-ES
     uses the population mean as its initial mean. sigma0 is configured via
     `OptimizerConfig.cma_es.sigma0` (separate path in create_algorithm).
+    Row 0 is trivially the warm-start chromosome since the entire tile is.
     """
     pop = np.tile(chromosome, (n_pop, 1))
     if algorithm_name == "cma_es":
         return pop
     if algorithm_name not in ("ga", "de", "pso"):
         raise ValueError(f"unknown algorithm {algorithm_name!r} for warm-start seeding")
+    if n_pop < 1:
+        raise ValueError(f"n_pop must be >= 1, got {n_pop}")
     nw = n_weights if n_weights is not None else chromosome.size
-    pop[:, :nw] += rng.normal(0.0, jitter, size=(n_pop, nw))
-    pop[:, :nw] = np.clip(pop[:, :nw], 0.0, 1.0)
+    # Jitter rows 1..n_pop-1 only; row 0 stays as the exact warm-start chromosome.
+    if n_pop > 1:
+        pop[1:, :nw] += rng.normal(0.0, jitter, size=(n_pop - 1, nw))
+        pop[1:, :nw] = np.clip(pop[1:, :nw], 0.0, 1.0)
     return pop
 
 
@@ -641,6 +656,15 @@ def train(
                 )
                 if scaffolding_slab is not None:
                     pop_array[:, n_weights:] = scaffolding_slab
+                    # Restore row 0's scaffolding tail so the full warm-start
+                    # chromosome (NN weights + scaffolding) is present un-jittered
+                    # in the initial population. The slab overwrite above
+                    # replaced row 0's tail with the jittered FTC values from
+                    # `build_scaffolding_initial_slab`; the warm-start
+                    # chromosome's tail already encodes the un-jittered FTC
+                    # scaffolding (see warm_start.py:480 et seq.), so we copy
+                    # it back.
+                    pop_array[0, n_weights:] = warm_chromo[n_weights:]
 
                 # Gen-0 validation baseline: evaluate the bare warm-started
                 # chromosome on the RESERVED VALIDATION seed pool (same seeds

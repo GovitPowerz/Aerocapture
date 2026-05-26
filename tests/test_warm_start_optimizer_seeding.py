@@ -76,3 +76,55 @@ def test_unknown_algorithm_raises() -> None:
     rng = np.random.default_rng(0)
     with pytest.raises(ValueError, match="unknown algorithm"):
         _seed_initial_population("nonexistent", chromo, 5, jitter=0.02, rng=rng)
+
+
+def test_row_0_is_exact_warm_start_chromosome_ga_de_pso() -> None:
+    """Row 0 must be the un-jittered warm-start chromosome for every
+    jitter-applying algorithm. Guarantees the supervised-pretrained vector
+    is in the initial population even if jitter on rows 1..N happens to
+    produce worse children -- the optimizer evaluates row 0 at gen 0 and
+    propagates it via elitism / selection."""
+    chromo = np.linspace(0.1, 0.9, 50)  # non-trivial pattern so bit-exact check is meaningful
+    n_pop = 32
+    for algo in ("ga", "de", "pso"):
+        rng = np.random.default_rng(0)
+        pop = _seed_initial_population(algo, chromo, n_pop, jitter=0.2, rng=rng)
+        assert np.array_equal(pop[0], chromo), f"{algo}: row 0 should equal chromosome bit-for-bit"
+        # Some other row differs (jitter actually applied)
+        differs = [np.any(pop[i] != chromo) for i in range(1, n_pop)]
+        assert any(differs), f"{algo}: rows 1..N should be jittered"
+
+
+def test_row_0_preserved_with_n_weights_slab_split() -> None:
+    """When n_weights < chromosome.size (optimize_scaffolding=true), row 0
+    keeps the WEIGHT slab un-jittered. The scaffolding tail is left alone
+    by _seed_initial_population; the caller is responsible for restoring it
+    after the scaffolding_slab overwrite."""
+    chromo = np.full(50, 0.5)
+    chromo[40:] = 0.9  # last 10 = scaffolding tail
+    rng = np.random.default_rng(0)
+    pop = _seed_initial_population(
+        algorithm_name="ga",
+        chromosome=chromo,
+        n_pop=20,
+        jitter=0.05,
+        rng=rng,
+        n_weights=40,
+    )
+    assert np.array_equal(pop[0], chromo), "row 0 weight slab must equal chromosome bit-for-bit"
+
+
+def test_n_pop_1_returns_chromosome_unchanged() -> None:
+    """n_pop=1: row 0 is the chromosome; nothing to jitter."""
+    chromo = np.linspace(0.0, 1.0, 8)
+    rng = np.random.default_rng(0)
+    pop = _seed_initial_population("ga", chromo, n_pop=1, jitter=0.5, rng=rng)
+    assert pop.shape == (1, 8)
+    assert np.array_equal(pop[0], chromo)
+
+
+def test_n_pop_zero_raises() -> None:
+    chromo = np.full(5, 0.5)
+    rng = np.random.default_rng(0)
+    with pytest.raises(ValueError, match="n_pop must be >= 1"):
+        _seed_initial_population("ga", chromo, n_pop=0, jitter=0.02, rng=rng)
