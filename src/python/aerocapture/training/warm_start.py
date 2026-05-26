@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 
-from aerocapture.training.config import NetworkConfig, TrainingConfig
+from aerocapture.training.config import AdamConfig, NetworkConfig, TrainingConfig
 from aerocapture.training.encoding import encode_to_normalized, nn_param_specs_from_v2
 from aerocapture.training.evaluate import WARM_START_SEED_OFFSET, make_reserved_seeds
 from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
@@ -82,6 +82,14 @@ def _cache_key(
         "minibatch_size": cfg.warm_start.minibatch_size,
         "bound_multiplier": cfg.warm_start.bound_multiplier,
         "adaptive_bounds": bool(cfg.warm_start.adaptive_bounds),
+        "adam": {
+            "lr": cfg.warm_start.adam.lr,
+            "beta1": cfg.warm_start.adam.beta1,
+            "beta2": cfg.warm_start.adam.beta2,
+            "eps": cfg.warm_start.adam.eps,
+            "weight_decay": cfg.warm_start.adam.weight_decay,
+            "amsgrad": bool(cfg.warm_start.adam.amsgrad),
+        },
         "mode": mode,
         # The supervised dataset is `make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, n)`.
         # Different base_mc_seed produces a different seed pool, so cache hits
@@ -314,7 +322,7 @@ def _chunked_bptt_train(
     n_epochs: int,
     bound_multiplier: float = 4.0,
     minibatch_size: int = 128,
-    lr: float = 1e-3,
+    adam: AdamConfig | None = None,
     seed: int = 0,
 ) -> tuple[V2Policy, list[float], int]:
     """Chunked truncated-BPTT supervised pretraining (windowed variant).
@@ -331,6 +339,10 @@ def _chunked_bptt_train(
     Loss is MSE between the predicted output parameterization (cos(y) for
     acos_tanh, (sin,cos) for atan2_signed) and the target. For magnitude_only
     mode, callers pre-process `y_signed -> abs(y_signed)`.
+
+    `adam` overrides the Adam hyperparameters; defaults match
+    `torch.optim.Adam`'s defaults (lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+    weight_decay=0, amsgrad=False).
     """
     import torch
     from pydantic import TypeAdapter
@@ -422,13 +434,20 @@ def _chunked_bptt_train(
     effective_minibatch_size = max(1, min(minibatch_size, n_chunks_total))
     dones_max = torch.zeros(bptt_length, effective_minibatch_size, dtype=torch.bool)
 
-    optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
+    adam_cfg = adam if adam is not None else AdamConfig()
+    optimizer = torch.optim.Adam(
+        policy.parameters(),
+        lr=adam_cfg.lr,
+        betas=(adam_cfg.beta1, adam_cfg.beta2),
+        eps=adam_cfg.eps,
+        weight_decay=adam_cfg.weight_decay,
+        amsgrad=adam_cfg.amsgrad,
+    )
     losses: list[float] = []
 
     epoch_width = len(str(n_epochs))  # zero-pad index for clean column alignment
     print(
-        f"  [warm_start] supervised pretrain: {n_chunks_total} chunks, {n_epochs} epochs, "
-        f"bptt_length={bptt_length}, minibatch_size={effective_minibatch_size}"
+        f"  [warm_start] supervised pretrain: {n_chunks_total} chunks, {n_epochs} epochs, bptt_length={bptt_length}, minibatch_size={effective_minibatch_size}"
     )
     for epoch in range(n_epochs):
         # Shuffle chunks; minibatch as the chunk-batch dim. Different
@@ -745,6 +764,7 @@ def build_warm_start_chromosome(
         n_epochs=ws.n_epochs,
         bound_multiplier=ws.bound_multiplier,
         minibatch_size=ws.minibatch_size,
+        adam=ws.adam,
         seed=bptt_seed,
     )
     (save_dir / "warm_start_loss.json").write_text(

@@ -300,6 +300,35 @@ class SimConfig:
 
 
 @dataclass
+class AdamConfig:
+    """Adam optimizer hyperparameters for the warm-start supervised pretrain.
+
+    Matches `torch.optim.Adam` defaults: lr=1e-3, betas=(0.9, 0.999),
+    eps=1e-8, weight_decay=0.0, amsgrad=False. All fields are TOML-tunable
+    under `[warm_start.adam]`. The most common tweaks:
+
+      - `lr` -- raise to 3e-3 or 1e-2 if the loss is monotonically
+        decreasing but very slowly; lower to 3e-4 if loss oscillates.
+      - `weight_decay` -- L2 regularization in [1e-5, 1e-3] keeps weights
+        bounded so the PSO chromosome encoding sits in a narrower band
+        (less clip-rate pressure even without adaptive_bounds).
+      - `betas[0]` (momentum) -- lower to 0.5-0.8 if the loss surface is
+        noisy / non-stationary across chunks.
+      - `amsgrad = true` -- use the AMSGrad variant; helpful when convergence
+        gets stuck at a non-decreasing plateau.
+
+    All values are passed through to `torch.optim.Adam` unmodified.
+    """
+
+    lr: float = 1e-3
+    beta1: float = 0.9
+    beta2: float = 0.999
+    eps: float = 1e-8
+    weight_decay: float = 0.0
+    amsgrad: bool = False
+
+
+@dataclass
 class WarmStartConfig:
     """Multi-supervisor warm-start configuration.
 
@@ -336,6 +365,7 @@ class WarmStartConfig:
     # because clip-rate-as-error is a footgun for high-bound_multiplier
     # configs where users have no easy reverse-engineering path.
     adaptive_bounds: bool = True
+    adam: AdamConfig = field(default_factory=AdamConfig)
     params_paths: dict[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -348,6 +378,18 @@ class WarmStartConfig:
         # in TOML is accepted (no ValueError) but silently overridden so the
         # gating contract is a function of block presence, not contents.
         d_filtered = {k: v for k, v in d.items() if k != "enabled"}
+        # Nested [warm_start.adam] sub-block: validate known fields here so a
+        # typo (e.g. `learning_rate` instead of `lr`) doesn't silently fall
+        # through as Adam defaults.
+        if "adam" in d_filtered:
+            adam_raw = d_filtered["adam"]
+            if not isinstance(adam_raw, dict):
+                raise ValueError(f"[warm_start.adam] must be a table, got {type(adam_raw).__name__}")
+            adam_known = {f.name for f in fields(AdamConfig)}
+            adam_unknown = set(adam_raw.keys()) - adam_known
+            if adam_unknown:
+                raise ValueError(f"unknown [warm_start.adam] keys: {sorted(adam_unknown)} (known: {sorted(adam_known)})")
+            d_filtered["adam"] = AdamConfig(**adam_raw)
         return cls(enabled=True, **d_filtered)
 
 

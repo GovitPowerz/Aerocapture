@@ -1,7 +1,7 @@
 """WarmStartConfig defaults + TOML parsing."""
 
 import pytest
-from aerocapture.training.config import TrainingConfig, WarmStartConfig
+from aerocapture.training.config import AdamConfig, TrainingConfig, WarmStartConfig
 
 
 def test_defaults() -> None:
@@ -50,3 +50,41 @@ def test_from_dict() -> None:
 def test_from_dict_rejects_unknown_keys() -> None:
     with pytest.raises(ValueError, match="unknown"):
         WarmStartConfig.from_dict({"typo_key": 5})
+
+
+def test_adam_defaults_match_torch() -> None:
+    """AdamConfig defaults must match torch.optim.Adam's defaults so a bare
+    `[warm_start]` block (no `[warm_start.adam]`) doesn't silently change
+    optimizer behavior vs the pre-existing hardcoded `lr=1e-3`."""
+    adam = AdamConfig()
+    assert adam.lr == 1e-3
+    assert adam.beta1 == 0.9
+    assert adam.beta2 == 0.999
+    assert adam.eps == 1e-8
+    assert adam.weight_decay == 0.0
+    assert adam.amsgrad is False
+
+
+def test_warm_start_config_carries_adam_field() -> None:
+    cfg = WarmStartConfig()
+    assert isinstance(cfg.adam, AdamConfig)
+
+
+def test_from_dict_parses_nested_adam_block() -> None:
+    cfg = WarmStartConfig.from_dict({"adam": {"lr": 0.01, "beta1": 0.8, "amsgrad": True}})
+    assert cfg.enabled is True
+    assert isinstance(cfg.adam, AdamConfig)
+    assert cfg.adam.lr == 0.01
+    assert cfg.adam.beta1 == 0.8
+    assert cfg.adam.beta2 == 0.999  # defaulted
+    assert cfg.adam.amsgrad is True
+
+
+def test_from_dict_rejects_unknown_adam_keys() -> None:
+    with pytest.raises(ValueError, match=r"unknown \[warm_start.adam\] keys"):
+        WarmStartConfig.from_dict({"adam": {"learning_rate": 0.01}})  # typo for `lr`
+
+
+def test_from_dict_rejects_non_table_adam() -> None:
+    with pytest.raises(ValueError, match=r"\[warm_start.adam\] must be a table"):
+        WarmStartConfig.from_dict({"adam": 0.01})

@@ -3,7 +3,7 @@ returns a trained V2Policy + per-epoch losses."""
 
 import numpy as np
 import pytest
-from aerocapture.training.config import NetworkConfig
+from aerocapture.training.config import AdamConfig, NetworkConfig
 from aerocapture.training.warm_start import _chunked_bptt_train
 
 
@@ -33,7 +33,7 @@ def test_dense_runs_and_loss_decreases() -> None:
         network=network,
         bptt_length=16,
         n_epochs=5,
-        lr=1e-2,
+        adam=AdamConfig(lr=1e-2),
     )
     assert len(losses) == 5
     assert all(np.isfinite(losses))
@@ -56,7 +56,7 @@ def test_gru_runs_and_loss_finite() -> None:
         network=network,
         bptt_length=8,
         n_epochs=3,
-        lr=1e-2,
+        adam=AdamConfig(lr=1e-2),
     )
     assert len(losses) == 3
     assert all(np.isfinite(losses))
@@ -81,7 +81,7 @@ def test_minibatch_size_clamps_to_n_chunks() -> None:
         bptt_length=16,
         n_epochs=2,
         minibatch_size=512,
-        lr=1e-2,
+        adam=AdamConfig(lr=1e-2),
     )
     assert n_chunks == 4
     assert len(losses) == 2
@@ -103,17 +103,64 @@ def test_minibatch_size_changes_loss_path_but_keeps_shape() -> None:
         input_mask=list(range(4)),
         output_parameterization="acos_tanh",
     )
-    _, losses_small, _ = _chunked_bptt_train(
-        trajectories=trajs, network=network, bptt_length=16, n_epochs=3, minibatch_size=4, lr=1e-2
-    )
-    _, losses_big, _ = _chunked_bptt_train(
-        trajectories=trajs, network=network, bptt_length=16, n_epochs=3, minibatch_size=64, lr=1e-2
-    )
+    _, losses_small, _ = _chunked_bptt_train(trajectories=trajs, network=network, bptt_length=16, n_epochs=3, minibatch_size=4, adam=AdamConfig(lr=1e-2))
+    _, losses_big, _ = _chunked_bptt_train(trajectories=trajs, network=network, bptt_length=16, n_epochs=3, minibatch_size=64, adam=AdamConfig(lr=1e-2))
     assert all(np.isfinite(losses_small))
     assert all(np.isfinite(losses_big))
     # Both converge in the expected direction.
     assert losses_small[-1] < losses_small[0]
     assert losses_big[-1] < losses_big[0]
+
+
+def test_adam_config_overrides_threaded_to_optimizer() -> None:
+    """Non-default AdamConfig values must reach the underlying torch.optim.Adam.
+    Validate by asserting that high lr + weight_decay produces a noticeably
+    different loss trajectory than the defaults on the same toy data + seed."""
+    trajs = _make_trajectories(n_trajectories=4, T=64)
+    network = NetworkConfig(
+        architecture=[
+            {"type": "dense", "input_size": 4, "output_size": 8, "activation": "tanh"},
+            {"type": "dense", "input_size": 8, "output_size": 1, "activation": "tanh"},
+        ],
+        input_mask=list(range(4)),
+        output_parameterization="acos_tanh",
+    )
+    # Default Adam (lr=1e-3).
+    _, losses_default, _ = _chunked_bptt_train(trajectories=trajs, network=network, bptt_length=16, n_epochs=5)
+    # High lr + weight_decay.
+    _, losses_tuned, _ = _chunked_bptt_train(
+        trajectories=trajs,
+        network=network,
+        bptt_length=16,
+        n_epochs=5,
+        adam=AdamConfig(lr=1e-1, weight_decay=1e-2),
+    )
+    assert all(np.isfinite(losses_default))
+    assert all(np.isfinite(losses_tuned))
+    # Materially different trajectories (high lr should drive faster initial change).
+    assert losses_default != losses_tuned
+
+
+def test_amsgrad_variant_runs() -> None:
+    """The amsgrad=True path should also produce finite losses (smoke test that
+    the kwarg reaches torch.optim.Adam without TypeError)."""
+    trajs = _make_trajectories(n_trajectories=2, T=32)
+    network = NetworkConfig(
+        architecture=[
+            {"type": "dense", "input_size": 4, "output_size": 4, "activation": "tanh"},
+            {"type": "dense", "input_size": 4, "output_size": 1, "activation": "tanh"},
+        ],
+        input_mask=list(range(4)),
+        output_parameterization="acos_tanh",
+    )
+    _, losses, _ = _chunked_bptt_train(
+        trajectories=trajs,
+        network=network,
+        bptt_length=16,
+        n_epochs=2,
+        adam=AdamConfig(lr=1e-2, amsgrad=True),
+    )
+    assert all(np.isfinite(losses))
 
 
 def test_bptt_length_greater_than_n_seq_raises_for_transformer() -> None:
@@ -133,5 +180,5 @@ def test_bptt_length_greater_than_n_seq_raises_for_transformer() -> None:
             network=network,
             bptt_length=16,  # > n_seq=4
             n_epochs=1,
-            lr=1e-2,
+            adam=AdamConfig(lr=1e-2),
         )
