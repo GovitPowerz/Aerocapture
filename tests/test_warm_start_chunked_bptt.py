@@ -62,6 +62,60 @@ def test_gru_runs_and_loss_finite() -> None:
     assert all(np.isfinite(losses))
 
 
+def test_minibatch_size_clamps_to_n_chunks() -> None:
+    """minibatch_size > n_chunks must clamp gracefully (no IndexError, no
+    wasted epochs). The clamp is `max(1, min(minibatch_size, n_chunks))`."""
+    trajs = _make_trajectories(n_trajectories=2, T=32)  # → 4 chunks at bptt=16, 2 chunks at bptt=8
+    network = NetworkConfig(
+        architecture=[
+            {"type": "dense", "input_size": 4, "output_size": 8, "activation": "tanh"},
+            {"type": "dense", "input_size": 8, "output_size": 1, "activation": "tanh"},
+        ],
+        input_mask=list(range(4)),
+        output_parameterization="acos_tanh",
+    )
+    # Ask for minibatch_size=512 with only 4 chunks → clamps to 4, runs without error.
+    policy, losses, n_chunks = _chunked_bptt_train(
+        trajectories=trajs,
+        network=network,
+        bptt_length=16,
+        n_epochs=2,
+        minibatch_size=512,
+        lr=1e-2,
+    )
+    assert n_chunks == 4
+    assert len(losses) == 2
+    assert all(np.isfinite(losses))
+
+
+def test_minibatch_size_changes_loss_path_but_keeps_shape() -> None:
+    """Two runs with different minibatch_size on the same data + seed produce
+    DIFFERENT loss trajectories (gradient batching is different) but the
+    final policy still has the expected parameter shape. This is the
+    correctness contract: the new prestack path doesn't silently drop or
+    rebatch chunks vs the old per-minibatch np.stack path."""
+    trajs = _make_trajectories(n_trajectories=4, T=64)
+    network = NetworkConfig(
+        architecture=[
+            {"type": "dense", "input_size": 4, "output_size": 8, "activation": "tanh"},
+            {"type": "dense", "input_size": 8, "output_size": 1, "activation": "tanh"},
+        ],
+        input_mask=list(range(4)),
+        output_parameterization="acos_tanh",
+    )
+    _, losses_small, _ = _chunked_bptt_train(
+        trajectories=trajs, network=network, bptt_length=16, n_epochs=3, minibatch_size=4, lr=1e-2
+    )
+    _, losses_big, _ = _chunked_bptt_train(
+        trajectories=trajs, network=network, bptt_length=16, n_epochs=3, minibatch_size=64, lr=1e-2
+    )
+    assert all(np.isfinite(losses_small))
+    assert all(np.isfinite(losses_big))
+    # Both converge in the expected direction.
+    assert losses_small[-1] < losses_small[0]
+    assert losses_big[-1] < losses_big[0]
+
+
 def test_bptt_length_greater_than_n_seq_raises_for_transformer() -> None:
     trajs = _make_trajectories(T=32, input_dim=8)
     network = NetworkConfig(

@@ -316,6 +316,13 @@ class WarmStartConfig:
     bptt_length: int = 32
     n_warm_seeds: int = 200
     n_epochs: int = 10
+    # Minibatch size (chunks per Adam step). Bigger minibatches let PyTorch's
+    # CPU intra-op threading pay off on the small per-chunk matmuls (batch=32,
+    # hidden=16-32, float64 falls below torch's auto-threading threshold). The
+    # legacy hardcoded 32 leaves multi-core idle; 128 is a good default on
+    # Apple Silicon / multi-core x86 for typical NN architectures. Clamped to
+    # max(1, min(len(chunks), minibatch_size)) at runtime.
+    minibatch_size: int = 128
     bound_multiplier: float = 4.0
     jitter: float = 0.02
     cmaes_sigma0: float = 0.1

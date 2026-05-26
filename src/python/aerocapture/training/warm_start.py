@@ -79,6 +79,7 @@ def _cache_key(
         "n_warm_seeds": cfg.warm_start.n_warm_seeds,
         "n_epochs": cfg.warm_start.n_epochs,
         "bptt_length": cfg.warm_start.bptt_length,
+        "minibatch_size": cfg.warm_start.minibatch_size,
         "bound_multiplier": cfg.warm_start.bound_multiplier,
         "adaptive_bounds": bool(cfg.warm_start.adaptive_bounds),
         "mode": mode,
@@ -312,6 +313,7 @@ def _chunked_bptt_train(
     bptt_length: int,
     n_epochs: int,
     bound_multiplier: float = 4.0,
+    minibatch_size: int = 128,
     lr: float = 1e-3,
     seed: int = 0,
 ) -> tuple[V2Policy, list[float], int]:
@@ -378,10 +380,13 @@ def _chunked_bptt_train(
         )
     input_mask = network.input_mask if network.input_mask is not None else list(range(arch_first_in))
 
-    # Build chunks: list of (X_chunk[T_c, input_dim], y_chunk[T_c]) per trajectory.
-    chunks: list[tuple[np.ndarray, np.ndarray, int]] = []  # (X, y, traj_id)
+    # Build chunks. Per-trajectory windows of bptt_length; trailing partial
+    # chunk dropped. Collected into two flat lists so we can pre-stack into
+    # contiguous tensors once and reuse them across all epochs.
+    X_list: list[np.ndarray] = []
+    y_list: list[np.ndarray] = []
     n_short = 0
-    for tid, traj in enumerate(trajectories):
+    for traj in trajectories:
         X = np.asarray(traj["X"])[:, input_mask]
         y = np.asarray(traj["y_signed"])
         # Drop non-finite rows
@@ -389,46 +394,61 @@ def _chunked_bptt_train(
         X = X[finite]
         y = y[finite]
         T = X.shape[0]
-        # Slice into bptt_length chunks; trailing partial chunk dropped (clean BPTT)
         n_chunks = T // bptt_length
         if n_chunks == 0:
             n_short += 1
         for c in range(n_chunks):
             s = c * bptt_length
             e = s + bptt_length
-            chunks.append((X[s:e], y[s:e], tid))
+            X_list.append(X[s:e])
+            y_list.append(y[s:e])
 
-    if not chunks:
+    if not X_list:
         raise RuntimeError(f"no usable BPTT chunks; bptt_length={bptt_length} but all {len(trajectories)} trajectories have T < bptt_length")
 
     if n_short > 0:
         print(f"  [warm_start] WARNING: {n_short}/{len(trajectories)} supervisor trajectories shorter than bptt_length={bptt_length}; dropped from corpus")
 
+    n_chunks_total = len(X_list)
+
+    # Pre-stack ALL chunks into time-major tensors once. Cost: O(n_chunks * T * in)
+    # memory + a single copy. Pays off vs per-minibatch np.stack + torch.tensor
+    # (the previous hot path) by ~1-2 orders of magnitude on long training runs
+    # because every epoch then becomes pure indexing + matmul.
+    obs_all = torch.from_numpy(np.ascontiguousarray(np.stack(X_list, axis=0).transpose(1, 0, 2))).to(torch.float64)  # (T, N, in)
+    y_all = torch.from_numpy(np.ascontiguousarray(np.stack(y_list, axis=0).transpose(1, 0))).to(torch.float64)  # (T, N)
+    # dones is identical across all chunks (no done within a chunk by construction),
+    # so we build the (T, max_minibatch) tensor once and slice per minibatch.
+    effective_minibatch_size = max(1, min(minibatch_size, n_chunks_total))
+    dones_max = torch.zeros(bptt_length, effective_minibatch_size, dtype=torch.bool)
+
     optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
     losses: list[float] = []
 
     epoch_width = len(str(n_epochs))  # zero-pad index for clean column alignment
-    print(f"  [warm_start] supervised pretrain: {len(chunks)} chunks, {n_epochs} epochs, bptt_length={bptt_length}")
+    print(
+        f"  [warm_start] supervised pretrain: {n_chunks_total} chunks, {n_epochs} epochs, "
+        f"bptt_length={bptt_length}, minibatch_size={effective_minibatch_size}"
+    )
     for epoch in range(n_epochs):
-        # Shuffle chunks; minibatch as the chunk-batch dim
-        order = rng.permutation(len(chunks))
-        # Group into minibatches of up to 32 chunks; each minibatch is forwarded together.
-        # Different trajectories' chunks can be batched freely because we re-init state per chunk.
-        chunk_batch_size = min(32, len(chunks))
+        # Shuffle chunks; minibatch as the chunk-batch dim. Different
+        # trajectories' chunks can be batched freely because we re-init state
+        # per chunk.
+        order_np = rng.permutation(n_chunks_total)
+        order = torch.from_numpy(order_np.astype(np.int64))
         epoch_loss = 0.0
         n_batches = 0
         epoch_t0 = time.monotonic()
-        for start in range(0, len(order), chunk_batch_size):
-            batch_idx = order[start : start + chunk_batch_size]
-            X_batch = np.stack([chunks[i][0] for i in batch_idx], axis=0)  # (B, T, in)
-            y_batch = np.stack([chunks[i][1] for i in batch_idx], axis=0)  # (B, T)
-            # Time-major
-            obs_seq = torch.tensor(X_batch.transpose(1, 0, 2), dtype=torch.float64)  # (T, B, in)
-            y_t = torch.tensor(y_batch.transpose(1, 0), dtype=torch.float64)  # (T, B)
+        for start in range(0, n_chunks_total, effective_minibatch_size):
+            batch_idx = order[start : start + effective_minibatch_size]
+            obs_seq = obs_all.index_select(1, batch_idx)  # (T, B, in) -- no copy when contiguous along axis 0
+            y_t = y_all.index_select(1, batch_idx)  # (T, B)
 
             B = obs_seq.shape[1]
             state_0 = policy.new_state(batch_size=B, device=None)
-            dones = torch.zeros(obs_seq.shape[0], B, dtype=torch.bool)  # no dones within a chunk
+            # Trailing minibatch may be smaller than effective_minibatch_size;
+            # slice the pre-built dones tensor to match.
+            dones = dones_max[:, :B] if effective_minibatch_size != B else dones_max
 
             optimizer.zero_grad()
             means = policy.forward_seq_means(obs_seq, state_0, dones)  # (T, B, out_dim)
@@ -471,7 +491,7 @@ def _chunked_bptt_train(
                 trend = "          "
         print(f"  [warm_start] epoch {epoch + 1:>{epoch_width}}/{n_epochs}: MSE = {mean_mse:.4e}{trend}  ({epoch_dt:5.1f}s)")
 
-    return policy, losses, len(chunks)
+    return policy, losses, n_chunks_total
 
 
 def _policy_to_flat_weights_v2(policy: V2Policy, architecture: list[dict]) -> npt.NDArray[np.float64]:
@@ -724,6 +744,7 @@ def build_warm_start_chromosome(
         bptt_length=ws.bptt_length,
         n_epochs=ws.n_epochs,
         bound_multiplier=ws.bound_multiplier,
+        minibatch_size=ws.minibatch_size,
         seed=bptt_seed,
     )
     (save_dir / "warm_start_loss.json").write_text(
