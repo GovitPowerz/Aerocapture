@@ -670,6 +670,38 @@ def build_warm_start_chromosome(
             f"(threshold {min_corpus}). Widen MC dispersions, check the TOML, or revise supervisor_schemes."
         )
 
+    # Persist per-supervisor selection counts (and per-supervisor capture stats)
+    # so warm_start_report can show which scheme dominated the teaching corpus.
+    # Without this, an under-performing supervisor pool (e.g. all FTC wins
+    # because eqglide / fnpag never captured) is invisible.
+    selection_counts: dict[str, int] = dict.fromkeys(resolved_paths, 0)
+    for traj in selected:
+        selection_counts[str(traj["scheme"])] += 1
+    per_scheme_stats: dict[str, dict] = {}
+    for scheme, results in results_by_scheme.items():
+        n_total = len(results)
+        n_captured = sum(1 for r in results if r["captured"])
+        captured_dvs = [float(r["dv"]) for r in results if r["captured"] and np.isfinite(r["dv"])]
+        per_scheme_stats[scheme] = {
+            "n_supervised": n_total,
+            "n_captured": n_captured,
+            "capture_rate": n_captured / max(n_total, 1),
+            "n_selected": selection_counts.get(scheme, 0),
+            "mean_dv_captured": float(np.mean(captured_dvs)) if captured_dvs else None,
+            "median_dv_captured": float(np.median(captured_dvs)) if captured_dvs else None,
+        }
+    (save_dir / "warm_start_selection.json").write_text(
+        json.dumps(
+            {
+                "n_warm_seeds": int(ws.n_warm_seeds),
+                "n_selected_total": len(selected),
+                "min_corpus_required": min_corpus,
+                "per_scheme": per_scheme_stats,
+            },
+            indent=2,
+        )
+    )
+
     # 5. Magnitude_only mode: collapse sign Python-side so the supervised
     # target matches the runtime decoder. Under magnitude_only deploy, the
     # NN's output is .abs()'d in dispatch.rs and routed through lateral

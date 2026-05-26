@@ -705,6 +705,18 @@ def train(
                     # error is always logged so it does not silently mask real
                     # bugs in problem.evaluate_individual_per_seed / write_gen0_baseline.
                     print(f"  [warm_start] WARNING: gen-0 baseline write failed: {type(e).__name__}: {e}")
+
+                # Intermediate warm-start report: charts + Typst PDF summarizing
+                # supervised MSE convergence, supervisor selection, search-space
+                # bounds, and the gen-0 validation baseline. Best-effort.
+                try:
+                    from aerocapture.training.warm_start_report import render_report
+
+                    pdf = render_report(Path(config.save_dir))
+                    if verbose and pdf is not None:
+                        print(f"  [warm_start] report: {pdf}")
+                except Exception as e:
+                    print(f"  [warm_start] WARNING: report rendering failed: {type(e).__name__}: {e}")
             else:
                 pop_array = build_initial_population_for_v2(
                     config.network.architecture,
