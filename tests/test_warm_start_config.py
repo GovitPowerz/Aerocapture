@@ -18,6 +18,7 @@ def test_defaults() -> None:
     assert cfg.n_warm_seeds == 200
     assert cfg.n_epochs == 10
     assert cfg.minibatch_size == 128
+    assert cfg.eval_interval == 0  # disabled by default; opt in via TOML
     assert cfg.bound_multiplier == 4.0
     assert cfg.jitter == 0.02
     assert cfg.cmaes_sigma0 == 0.1

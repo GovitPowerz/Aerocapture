@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -324,6 +325,8 @@ def _chunked_bptt_train(
     minibatch_size: int = 128,
     adam: AdamConfig | None = None,
     seed: int = 0,
+    eval_callback: Callable[[int, V2Policy], None] | None = None,
+    eval_interval: int = 0,
 ) -> tuple[V2Policy, list[float], int]:
     """Chunked truncated-BPTT supervised pretraining (windowed variant).
 
@@ -510,6 +513,17 @@ def _chunked_bptt_train(
                 trend = "          "
         print(f"  [warm_start] epoch {epoch + 1:>{epoch_width}}/{n_epochs}: MSE = {mean_mse:.4e}{trend}  ({epoch_dt:5.1f}s)")
 
+        # Periodic in-training evaluation hook. Caller (train.py) injects the
+        # MC machinery so this function stays free of `problem` / `val_seeds`
+        # plumbing. Fires every `eval_interval` epochs AND on the last epoch
+        # so the final state is always reported.
+        if eval_callback is not None and eval_interval > 0 and ((epoch + 1) % eval_interval == 0 or (epoch + 1) == n_epochs):
+            try:
+                eval_callback(epoch + 1, policy)
+            except Exception as e:
+                # Best-effort: a failed eval must not abort training.
+                print(f"  [warm_start] WARNING: in-training eval at epoch {epoch + 1} failed: {type(e).__name__}: {e}")
+
     return policy, losses, n_chunks_total
 
 
@@ -618,6 +632,7 @@ def _select_best_teacher_per_seed(
 def build_warm_start_chromosome(
     cfg: TrainingConfig,
     base_mc_seed: int,
+    eval_callback: Callable[[int, V2Policy], None] | None = None,
 ) -> tuple[npt.NDArray[np.float64], list]:
     """Multi-supervisor warm-start: collect per-seed best teacher, chunked-BPTT, encode.
 
@@ -766,6 +781,8 @@ def build_warm_start_chromosome(
         minibatch_size=ws.minibatch_size,
         adam=ws.adam,
         seed=bptt_seed,
+        eval_callback=eval_callback,
+        eval_interval=ws.eval_interval,
     )
     (save_dir / "warm_start_loss.json").write_text(
         json.dumps(

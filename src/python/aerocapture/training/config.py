@@ -365,6 +365,13 @@ class WarmStartConfig:
     # because clip-rate-as-error is a footgun for high-bound_multiplier
     # configs where users have no easy reverse-engineering path.
     adaptive_bounds: bool = True
+    # Periodic in-training evaluation: every `eval_interval` epochs, write the
+    # current policy to a temp NN JSON and run MC on BOTH the warm-start seed
+    # pool AND the reserved validation seed pool, printing a per-pool
+    # `Final evaluation`-style stats block to stdout. 0 disables (legacy
+    # behavior). Each evaluation costs ~(n_warm_seeds + validation_n_sims)
+    # MC runs, so set this conservatively for long training runs.
+    eval_interval: int = 0
     adam: AdamConfig = field(default_factory=AdamConfig)
     params_paths: dict[str, str] = field(default_factory=dict)
 

@@ -212,6 +212,111 @@ def build_scaffolding_initial_slab(
     return slab
 
 
+def _make_warm_start_eval_callback(
+    problem: Any,
+    config: TrainingConfig,
+    warm_seeds: list[int],
+    val_seeds: list[int],
+) -> Callable[[int, Any], None]:
+    """Build the closure invoked by `_chunked_bptt_train` every
+    `eval_interval` epochs.
+
+    The closure:
+      1. Extracts the policy's current flat weights via `_policy_to_flat_weights_v2`.
+      2. Writes them to a temp NN JSON via `aerocapture_rs.flat_weights_to_json`.
+      3. Runs MC on both `warm_seeds` (training corpus) and `val_seeds`
+         (reserved validation pool) via `problem.evaluate_individual_records_per_seed`
+         -- adapted to a "weights from temp JSON" path.
+      4. Computes `compute_eval_summary` for each pool and prints
+         `format_eval_summary` lines with a clear pool header.
+
+    Two pools are evaluated separately because they answer different questions:
+      - warm seeds: "how well does the NN approximate the supervised target on
+        the EXACT seeds we trained on?" -- in-sample fit.
+      - val seeds: "how well does it generalize to unseen scenarios?" -- the
+        same metric the validation gate later uses for promotion decisions.
+    """
+    import tempfile
+
+    from aerocapture.training.report import compute_eval_summary, format_eval_summary
+    from aerocapture.training.warm_start import _policy_to_flat_weights_v2
+
+    save_dir = Path(config.save_dir)
+
+    def _evaluate_pool(label: str, seeds: list[int], temp_nn_json_path: Path) -> dict[str, Any]:
+        """Run MC on `seeds` with the current temp NN JSON; compute the eval summary."""
+        # Mirror evaluate_individual_records_per_seed's logic, but skip the
+        # chromosome -> weights step (we already have the weights on disk).
+        decoded_params: dict[str, float] = {}
+        if config.network.optimize_scaffolding:
+            # Pull the scaffolding values from FTC's best_params.json so the
+            # eval runs with the same scaffolding the chromosome will carry.
+            ftc_path = Path("training_output/ftc/best_params.json")
+            if ftc_path.exists():
+                ftc_params = json.loads(ftc_path.read_text())
+                from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
+
+                for spec in _NN_SCAFFOLDING_PARAMS:
+                    if spec.name in ftc_params:
+                        decoded_params[spec.name] = float(ftc_params[spec.name])
+
+        from aerocapture.training.evaluate import _aero_rs as _aero  # noqa: PLC0415
+
+        overrides_list = []
+        for seed in seeds:
+            ovr = problem._build_overrides(decoded_params, mc_seed=int(seed))
+            ovr["data.neural_network"] = str(temp_nn_json_path)
+            overrides_list.append(ovr)
+        result = _aero.run_batch(
+            problem.toml_path,
+            overrides_list,
+            n_threads=None,
+            include_trajectories=False,
+            sim_timeout_secs=problem.sim_timeout,
+        )
+        final_records = np.asarray(result.final_records, dtype=np.float64)
+        return compute_eval_summary(final_records, len(seeds), problem.cost_kwargs)
+
+    def _callback(epoch: int, policy: Any) -> None:
+        from aerocapture.training.evaluate import _aero_rs as _aero  # noqa: PLC0415
+
+        if config.network.architecture is None:
+            return  # v1 dense-only warm-start cannot use the v2 callback path
+
+        flat_weights = _policy_to_flat_weights_v2(policy, config.network.architecture)
+        fd, tmp_str = tempfile.mkstemp(suffix=".json", prefix=f"warm_eval_epoch_{epoch:04d}_")
+        import os
+
+        os.close(fd)
+        tmp_path = Path(tmp_str)
+        try:
+            _aero.flat_weights_to_json(
+                flat_weights.tolist(),
+                json.dumps(config.network.architecture),
+                str(tmp_path),
+                config.network.input_mask,
+                config.network.output_parameterization,
+            )
+            print()
+            print(f"  [warm_start] === In-training evaluation at epoch {epoch} ===")
+            for label, seeds in (("warm-start corpus (training seeds)", warm_seeds), ("validation pool (reserved val_seeds)", val_seeds)):
+                summary = _evaluate_pool(label, seeds, tmp_path)
+                print(f"  [warm_start] {label}:")
+                for line in format_eval_summary(summary, indent="      "):
+                    print(f"  {line}" if not line.startswith(" ") else line)
+                # Snapshot the val-pool summary to warm_start_eval_summary.json
+                # so the report has a fresh-state copy if training is interrupted
+                # between epochs. The post-warm-start gen-0 baseline path
+                # overwrites this with the FINAL chromosome's stats.
+                if label.startswith("validation"):
+                    (save_dir / "warm_start_eval_summary.json").write_text(json.dumps(summary, indent=2))
+            print()
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    return _callback
+
+
 def save_checkpoint(
     save_dir: Path,
     generation: int,
@@ -638,11 +743,29 @@ def train(
                 )
 
             if warm_start_active:
-                from aerocapture.training.warm_start import build_warm_start_chromosome
+                from aerocapture.training.warm_start import WARM_START_SEED_OFFSET, build_warm_start_chromosome
+
+                # Build the periodic in-training eval callback. When
+                # `[warm_start] eval_interval > 0`, this fires every N epochs
+                # AND on the final epoch (see _chunked_bptt_train) -- writes
+                # the current policy to a temp NN JSON, runs MC on BOTH the
+                # warm-start seed pool and the reserved validation pool, and
+                # prints two detailed stats blocks to stdout. Only built when
+                # the user actually opted in to avoid pointless MC work.
+                warm_eval_callback = None
+                if config.warm_start.eval_interval > 0 and val_seeds is not None:
+                    warm_seeds_for_eval = make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, config.warm_start.n_warm_seeds)
+                    warm_eval_callback = _make_warm_start_eval_callback(
+                        problem=problem,
+                        config=config,
+                        warm_seeds=warm_seeds_for_eval,
+                        val_seeds=val_seeds,
+                    )
 
                 warm_chromo, warm_weight_specs = build_warm_start_chromosome(
                     cfg=config,
                     base_mc_seed=base_mc_seed,
+                    eval_callback=warm_eval_callback,
                 )
                 n_scaff = 17 if config.network.optimize_scaffolding else 0
                 n_weights = len(warm_chromo) - n_scaff

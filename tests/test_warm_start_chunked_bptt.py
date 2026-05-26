@@ -163,6 +163,93 @@ def test_amsgrad_variant_runs() -> None:
     assert all(np.isfinite(losses))
 
 
+def test_eval_callback_fires_at_expected_epochs() -> None:
+    """eval_callback must fire at multiples of eval_interval AND on the final
+    epoch, regardless of whether the final epoch happens to be a multiple."""
+    trajs = _make_trajectories(n_trajectories=2, T=32)
+    network = NetworkConfig(
+        architecture=[
+            {"type": "dense", "input_size": 4, "output_size": 4, "activation": "tanh"},
+            {"type": "dense", "input_size": 4, "output_size": 1, "activation": "tanh"},
+        ],
+        input_mask=list(range(4)),
+        output_parameterization="acos_tanh",
+    )
+    fired_at: list[int] = []
+
+    def _cb(epoch: int, policy: object) -> None:  # noqa: ARG001
+        fired_at.append(epoch)
+
+    # eval_interval=2 over 5 epochs -> fires at 2, 4, AND 5 (final epoch)
+    _chunked_bptt_train(
+        trajectories=trajs,
+        network=network,
+        bptt_length=16,
+        n_epochs=5,
+        adam=AdamConfig(lr=1e-2),
+        eval_callback=_cb,
+        eval_interval=2,
+    )
+    assert fired_at == [2, 4, 5]
+
+
+def test_eval_callback_not_fired_when_interval_is_zero() -> None:
+    """eval_interval=0 (the default) disables the periodic eval entirely."""
+    trajs = _make_trajectories(n_trajectories=2, T=32)
+    network = NetworkConfig(
+        architecture=[
+            {"type": "dense", "input_size": 4, "output_size": 4, "activation": "tanh"},
+            {"type": "dense", "input_size": 4, "output_size": 1, "activation": "tanh"},
+        ],
+        input_mask=list(range(4)),
+        output_parameterization="acos_tanh",
+    )
+    fired: list[int] = []
+
+    def _cb(epoch: int, policy: object) -> None:  # noqa: ARG001
+        fired.append(epoch)
+
+    _chunked_bptt_train(
+        trajectories=trajs,
+        network=network,
+        bptt_length=16,
+        n_epochs=3,
+        adam=AdamConfig(lr=1e-2),
+        eval_callback=_cb,
+        eval_interval=0,
+    )
+    assert fired == []
+
+
+def test_eval_callback_failure_does_not_abort_training() -> None:
+    """A raising eval_callback prints a WARNING but training continues."""
+    trajs = _make_trajectories(n_trajectories=2, T=32)
+    network = NetworkConfig(
+        architecture=[
+            {"type": "dense", "input_size": 4, "output_size": 4, "activation": "tanh"},
+            {"type": "dense", "input_size": 4, "output_size": 1, "activation": "tanh"},
+        ],
+        input_mask=list(range(4)),
+        output_parameterization="acos_tanh",
+    )
+
+    def _cb(epoch: int, policy: object) -> None:  # noqa: ARG001
+        raise RuntimeError("simulated MC failure")
+
+    # 3 epochs, eval at each -> 3 simulated failures; training still returns.
+    _, losses, _ = _chunked_bptt_train(
+        trajectories=trajs,
+        network=network,
+        bptt_length=16,
+        n_epochs=3,
+        adam=AdamConfig(lr=1e-2),
+        eval_callback=_cb,
+        eval_interval=1,
+    )
+    assert len(losses) == 3
+    assert all(np.isfinite(losses))
+
+
 def test_bptt_length_greater_than_n_seq_raises_for_transformer() -> None:
     trajs = _make_trajectories(T=32, input_dim=8)
     network = NetworkConfig(
