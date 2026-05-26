@@ -48,13 +48,31 @@ def _cache_key(
     # Note: scaffolding_source_{path,mtime} are tracked even though train.py
     # overwrites the cached scaffolding tail with build_scaffolding_initial_slab.
     # Intentional: conservative cache invalidation; FTC retraining is rare.
+    # Track mtime of the leaf TOML so in-place edits invalidate the cache.
+    # In-place edits change `[monte_carlo]`, `[flight.constraints]`,
+    # `[onboard_atmosphere]`, `[navigation]`, etc., all of which affect the
+    # supervised dataset. Base TOMLs are not separately tracked -- the leaf's
+    # mtime is the only one Python sees from `cfg.sim.toml_config`. Users who
+    # edit a base TOML without touching the leaf can `touch` the leaf to force
+    # a cache miss.
+    toml_path_str = str(cfg.sim.toml_config) if cfg.sim.toml_config else None
+    toml_mtime: float | None = None
+    if toml_path_str:
+        toml_path_p = Path(toml_path_str)
+        if toml_path_p.exists():
+            toml_mtime = toml_path_p.stat().st_mtime
+
+    # Use list ordering (not sorted) so reordering supervisor_schemes invalidates
+    # the cache. _select_best_teacher_per_seed's tie-breaking depends on
+    # list order, and so does the scaffolding_source_path fallback.
     return {
         "architecture": cfg.network.architecture,
         "input_mask": cfg.network.input_mask,
         "output_parameterization": cfg.network.output_parameterization or "atan2_signed",
         "optimize_scaffolding": bool(cfg.network.optimize_scaffolding),
-        "toml_config": str(cfg.sim.toml_config) if cfg.sim.toml_config else None,
-        "supervisor_schemes": sorted(cfg.warm_start.supervisor_schemes),
+        "toml_config": toml_path_str,
+        "toml_config_mtime": toml_mtime,
+        "supervisor_schemes": list(cfg.warm_start.supervisor_schemes),
         "supervisor_params": {scheme: {"path": str(p), "mtime": p.stat().st_mtime} for scheme, p in sorted(resolved_paths.items())},
         "scaffolding_source_path": str(scaffolding_source_path),
         "scaffolding_source_mtime": scaffolding_source_path.stat().st_mtime,
@@ -85,8 +103,15 @@ def _cache_hit(save_dir: Path, expected_key: dict) -> npt.NDArray[np.float64] | 
 _INTEGER_PARAM_NAMES: frozenset[str] = frozenset(s.name for s in _NN_SCAFFOLDING_PARAMS if s.is_integer)
 
 
-def _build_overrides_for_source(source_params: dict[str, float]) -> dict[str, object]:
-    """Mirror problem.py::_build_overrides routing for the supervised data source."""
+def _build_overrides_for_source(source_params: dict[str, float], scheme: str) -> dict[str, object]:
+    """Mirror problem.py::_build_overrides routing for the supervised data source.
+
+    `scheme` is the supervisor scheme name (e.g. "ftc", "equilibrium_glide").
+    Unprefixed keys -- the scheme's primary parameters -- route to
+    `guidance.{scheme}.*` so each supervisor sees its OWN best_params.json values
+    rather than having them silently dropped under `guidance.ftc.*` (which would
+    leave non-FTC supervisors running with TOML-default parameters).
+    """
     overrides: dict[str, object] = {}
     for key, value in source_params.items():
         # Round integer-typed params so the Rust TOML parser accepts them (same as problem.py)
@@ -94,6 +119,9 @@ def _build_overrides_for_source(source_params: dict[str, float]) -> dict[str, ob
         if key.startswith("lateral."):
             overrides[f"guidance.lateral.{key.removeprefix('lateral.')}"] = coerced
         elif key.startswith("exit."):
+            # Exit-phase params live in the FTC block regardless of supervisor:
+            # the shared exit-phase controller (gnc/guidance/exit.rs) reads them
+            # from [guidance.ftc.exit_*] for all unsigned-magnitude schemes.
             overrides[f"guidance.ftc.{key.removeprefix('exit.')}"] = coerced
         elif key.startswith("nav."):
             overrides[f"navigation.{key.removeprefix('nav.')}"] = coerced
@@ -103,33 +131,48 @@ def _build_overrides_for_source(source_params: dict[str, float]) -> dict[str, ob
             overrides[f"guidance.command_shaping.{key.removeprefix('shaping.')}"] = coerced
             overrides["guidance.command_shaping.enabled"] = True
         else:
-            overrides[f"guidance.ftc.{key}"] = coerced
+            overrides[f"guidance.{scheme}.{key}"] = coerced
     return overrides
 
 
 def _seed_policy_init(policy: object, architecture: list, bound_multiplier: float, rng: np.random.Generator) -> None:
-    """Overwrite V2Policy parameter init with `init_v2_population` centers.
+    """Overwrite V2Policy parameter init with `init_v2_population` centers
+    for ALL layer types (Dense, GRU, LSTM, Window, Transformer, Mamba).
 
-    The default torch parameter init zero-initializes Mamba's a_log/dt_proj_b/d_skip
-    (Phase 4a spec calls these "load-bearing"), so without this step the warm-start
-    Adam pass starts from a degenerate fixed point: A = -exp(0) = -1 uniform, no
-    input projection, no skip. This helper draws a single chromosome row from
-    `init_v2_population` (which applies HiPPO log(n+1) on a_log, inv_softplus
-    centers on dt_proj_b, 1.0 on d_skip, LSTM forget-bias-1) and writes each
+    Without this step:
+      - Mamba's a_log/dt_proj_b/d_skip start at zero (degenerate fixed point:
+        A=-exp(0)=-1 uniform, no input projection, no skip).
+      - LSTM forget-bias slot misses the Jozefowicz +1.0 lift.
+      - Dense/GRU/Transformer keep torch's narrow uniform(-1/sqrt(H), +1/sqrt(H))
+        defaults instead of the Xavier × bound_multiplier (typically × 4) range
+        that the from-scratch PSO path uses -- so warm-start and PSO occupy
+        different init basins.
+
+    This helper draws one population row from init_v2_population (which holds
+    the canonical activation-aware init for every layer type) and writes each
     layer's slab into the corresponding torch module via per-type from_flat.
+    The slab layout must match each layer's `to_flat()` order (which mirrors
+    Rust LayerWeights::to_flat).
 
-    Dense/GRU layers inherit torch's defaults if not covered here -- those
-    defaults are already Xavier-style and don't suffer the Mamba/LSTM
-    init-collapse issue.
+    Init RNG is sourced from a fresh sub-rng so that warm-start architecture
+    width does NOT couple to the per-epoch chunk-shuffle order downstream.
     """
     import torch
 
     from aerocapture.training.config import _layer_n_params
     from aerocapture.training.initialization_v2 import init_v2_population
-    from aerocapture.training.rl.layers import GruLayer, LstmLayer, MambaLayer
+    from aerocapture.training.rl.layers import DenseLayer, GruLayer, LstmLayer, MambaLayer, TransformerLayer, WindowLayer
 
-    flat_pop = init_v2_population(architecture, n_pop=1, bound_multiplier=bound_multiplier, rng=rng)
+    # Sub-rng decouples init draws from outer rng's downstream uses (chunk
+    # shuffle); architecture-width changes don't affect shuffle reproducibility.
+    init_rng = np.random.default_rng(int(rng.integers(0, 2**63 - 1)))
+    flat_pop = init_v2_population(architecture, n_pop=1, bound_multiplier=bound_multiplier, rng=init_rng)
     flat = flat_pop[0]
+
+    def _copy(param: torch.Tensor, src: np.ndarray) -> None:
+        # Accepts any Tensor with .copy_ (nn.Parameter and nn.Linear.weight/bias both qualify).
+        param.copy_(torch.from_numpy(np.ascontiguousarray(src)).to(param.dtype))
+
     cursor = 0
     for module, entry in zip(policy.layers, architecture, strict=True):  # type: ignore[attr-defined]
         n = _layer_n_params(entry)
@@ -139,39 +182,104 @@ def _seed_policy_init(policy: object, architecture: list, bound_multiplier: floa
             entry = entry.model_dump()
         ltype = entry["type"]
         with torch.no_grad():
-            if ltype == "mamba" and isinstance(module, MambaLayer):
+            if ltype == "dense" and isinstance(module, DenseLayer):
+                fan_in = int(entry["input_size"])
+                fan_out = int(entry["output_size"])
+                n_w = fan_out * fan_in
+                _copy(module.linear.weight, slab[:n_w].reshape(fan_out, fan_in))
+                _copy(module.linear.bias, slab[n_w : n_w + fan_out])
+            elif ltype == "gru" and isinstance(module, GruLayer):
+                fan_in = int(entry["input_size"])
+                hidden = int(entry["hidden_size"])
+                three_h = 3 * hidden
+                n_w_ih = three_h * fan_in
+                n_w_hh = three_h * hidden
+                c = 0
+                _copy(module.weight_ih, slab[c : c + n_w_ih].reshape(three_h, fan_in))
+                c += n_w_ih
+                _copy(module.weight_hh, slab[c : c + n_w_hh].reshape(three_h, hidden))
+                c += n_w_hh
+                _copy(module.bias_ih, slab[c : c + three_h])
+                c += three_h
+                _copy(module.bias_hh, slab[c : c + three_h])
+            elif ltype == "lstm" and isinstance(module, LstmLayer):
+                fan_in = int(entry["input_size"])
+                hidden = int(entry["hidden_size"])
+                four_h = 4 * hidden
+                n_w_ih = four_h * fan_in
+                n_w_hh = four_h * hidden
+                c = 0
+                _copy(module.weight_ih, slab[c : c + n_w_ih].reshape(four_h, fan_in))
+                c += n_w_ih
+                _copy(module.weight_hh, slab[c : c + n_w_hh].reshape(four_h, hidden))
+                c += n_w_hh
+                # Write the FULL bias_ih AND bias_hh from the slab. init_v2_population
+                # already sets bias_ih's forget slot to 1.0 + noise and bias_hh's
+                # forget slot to ~0 -- preserving the Jozefowicz signal which would
+                # otherwise be diluted by torch's uniform(-1/sqrt(H), +1/sqrt(H))
+                # defaults on bias_hh.
+                _copy(module.bias_ih, slab[c : c + four_h])
+                c += four_h
+                _copy(module.bias_hh, slab[c : c + four_h])
+            elif ltype == "window" and isinstance(module, WindowLayer):
+                # Zero trainable params; slab is empty by construction.
+                assert n == 0 and slab.size == 0, f"window slab expected 0-width, got {slab.size}"
+            elif ltype == "transformer" and isinstance(module, TransformerLayer):
+                # Transformer flat order (matches to_flat in layers/transformer.py:155
+                # and Rust LayerWeights<TransformerLayer>::to_flat):
+                #   w_q, b_q, w_k, b_k, w_v, b_v, w_o, b_o,
+                #   w_ffn1, b_ffn1, w_ffn2, b_ffn2,
+                #   ln1_gamma, ln1_beta, ln2_gamma, ln2_beta
+                d_model = int(entry["d_model"])
+                d_ffn = int(entry["d_ffn"])
+                c = 0
+                # Q/K/V/O projections: each is (d_model x d_model) + (d_model,) bias.
+                for linear in (module.w_q, module.w_k, module.w_v, module.w_o):
+                    n_w = d_model * d_model
+                    _copy(linear.weight, slab[c : c + n_w].reshape(d_model, d_model))
+                    c += n_w
+                    _copy(linear.bias, slab[c : c + d_model])
+                    c += d_model
+                # FFN1: (d_ffn x d_model) + (d_ffn,)
+                n_ffn1_w = d_ffn * d_model
+                _copy(module.w_ffn1.weight, slab[c : c + n_ffn1_w].reshape(d_ffn, d_model))
+                c += n_ffn1_w
+                _copy(module.w_ffn1.bias, slab[c : c + d_ffn])
+                c += d_ffn
+                # FFN2: (d_model x d_ffn) + (d_model,)
+                n_ffn2_w = d_model * d_ffn
+                _copy(module.w_ffn2.weight, slab[c : c + n_ffn2_w].reshape(d_model, d_ffn))
+                c += n_ffn2_w
+                _copy(module.w_ffn2.bias, slab[c : c + d_model])
+                c += d_model
+                # Layer norms: (gamma, beta) x 2, each (d_model,)
+                _copy(module.ln1_gamma, slab[c : c + d_model])
+                c += d_model
+                _copy(module.ln1_beta, slab[c : c + d_model])
+                c += d_model
+                _copy(module.ln2_gamma, slab[c : c + d_model])
+                c += d_model
+                _copy(module.ln2_beta, slab[c : c + d_model])
+                # PE offsets are recomputed lazily on forward; no post-write step needed.
+            elif ltype == "mamba" and isinstance(module, MambaLayer):
                 d_inner = int(entry["input_size"])
                 d_state = int(entry["d_state"])
                 dt_rank = int(entry["dt_rank"])
                 c = 0
                 n_xp = (dt_rank + 2 * d_state) * d_inner
-                module.x_proj_w.copy_(torch.from_numpy(slab[c : c + n_xp].reshape(dt_rank + 2 * d_state, d_inner)).to(module.x_proj_w.dtype))
+                _copy(module.x_proj_w, slab[c : c + n_xp].reshape(dt_rank + 2 * d_state, d_inner))
                 c += n_xp
                 n_dw = d_inner * dt_rank
-                module.dt_proj_w.copy_(torch.from_numpy(slab[c : c + n_dw].reshape(d_inner, dt_rank)).to(module.dt_proj_w.dtype))
+                _copy(module.dt_proj_w, slab[c : c + n_dw].reshape(d_inner, dt_rank))
                 c += n_dw
-                module.dt_proj_b.copy_(torch.from_numpy(slab[c : c + d_inner]).to(module.dt_proj_b.dtype))
+                _copy(module.dt_proj_b, slab[c : c + d_inner])
                 c += d_inner
                 n_al = d_inner * d_state
-                module.a_log.copy_(torch.from_numpy(slab[c : c + n_al].reshape(d_inner, d_state)).to(module.a_log.dtype))
+                _copy(module.a_log, slab[c : c + n_al].reshape(d_inner, d_state))
                 c += n_al
-                module.d_skip.copy_(torch.from_numpy(slab[c : c + d_inner]).to(module.d_skip.dtype))
-            elif ltype == "lstm" and isinstance(module, LstmLayer):
-                # Apply only the forget-bias slice rewrite to bias_ih; leave weights
-                # at torch's default Kaiming init (which matches what GRU/LSTM gates expect).
-                hidden = int(entry["hidden_size"])
-                four_h = 4 * hidden
-                fan_in = int(entry["input_size"])
-                n_w_ih = four_h * fan_in
-                n_w_hh = four_h * hidden
-                bias_ih = slab[n_w_ih + n_w_hh : n_w_ih + n_w_hh + four_h]
-                module.bias_ih.copy_(torch.from_numpy(np.ascontiguousarray(bias_ih)).to(module.bias_ih.dtype))
-            elif ltype == "gru" and isinstance(module, GruLayer):
-                # GRU torch defaults are fine; no special-case init needed.
-                pass
-            # Dense / Window / Transformer: rely on torch defaults (which are
-            # already Xavier-style for nn.Linear and zero for Window's zero
-            # trainable params).
+                _copy(module.d_skip, slab[c : c + d_inner])
+            else:
+                raise ValueError(f"_seed_policy_init: unknown layer type {ltype!r} or module/spec mismatch")
 
 
 def _chunked_bptt_train(
@@ -232,11 +340,18 @@ def _chunked_bptt_train(
             raise ValueError(f"bptt_length={bptt_length} > layer {i} Transformer n_seq={layer.n_seq}; reduce bptt_length or increase n_seq")
 
     output_param = network.output_parameterization or "atan2_signed"
-    # Default to architecture[0].input_size so legacy configs that omit
-    # input_mask keep working with whatever input width the first layer
-    # expects. Previous code hardcoded range(21) which silently broke
-    # configs with first-layer input_size != 21.
+    # Default to architecture[0].input_size when input_mask is absent. Rust
+    # `collect_supervised` always emits X with shape (T, 21) (the
+    # FULL_MASK / build_nn_input contract). If the first layer wants more
+    # than 21 inputs the silent first-N slice would IndexError on the
+    # column select below, so reject explicitly here with a clear message.
+    _CANDIDATE_INPUT_WIDTH = 21  # must match Rust FULL_MASK width
     arch_first_in = int(network.architecture[0]["input_size"])
+    if arch_first_in > _CANDIDATE_INPUT_WIDTH:
+        raise ValueError(
+            f"architecture[0].input_size={arch_first_in} exceeds the {_CANDIDATE_INPUT_WIDTH}-wide "
+            f"supervised candidate vector; either pick a smaller first layer or extend Rust build_nn_input."
+        )
     input_mask = network.input_mask if network.input_mask is not None else list(range(arch_first_in))
 
     # Build chunks: list of (X_chunk[T_c, input_dim], y_chunk[T_c]) per trajectory.
@@ -318,15 +433,16 @@ def _chunked_bptt_train(
         losses.append(mean_mse)
         epoch_dt = time.monotonic() - epoch_t0
         # Convergence delta vs previous epoch (skipped on epoch 0). Use relative
-        # change so the magnitude is interpretable across loss scales.
+        # change so the magnitude is interpretable across loss scales. Emoji
+        # marks: green check on loss decrease, red cross on increase.
         if epoch == 0:
             trend = "          "
         else:
             prev = losses[epoch - 1]
             if prev > 0.0:
                 rel = (mean_mse - prev) / prev * 100.0
-                arrow = "↓" if rel < 0 else "↑"
-                trend = f"  {arrow} {abs(rel):5.1f}%"
+                marker = "✅" if rel < 0 else "❌"
+                trend = f"  {marker} {abs(rel):5.1f}%"
             else:
                 trend = "          "
         print(f"  [warm_start] epoch {epoch + 1:>{epoch_width}}/{n_epochs}: MSE = {mean_mse:.4e}{trend}  ({epoch_dt:5.1f}s)")
@@ -421,18 +537,21 @@ def build_warm_start_chromosome(
     if cached is not None:
         return cached
 
-    # 3. Collect per scheme
+    # 3. Collect per scheme. Thread sim_timeout_secs through so a NaN-state
+    # supervisor sim can't hang the warm-start pipeline indefinitely (project
+    # convention: every run_mc-equivalent path passes the timeout).
     seeds = make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, ws.n_warm_seeds)
     results_by_scheme: dict[str, list[dict]] = {}
     for scheme, path in resolved_paths.items():
         with open(path) as f:
             source_params = json.load(f)
-        overrides = _build_overrides_for_source(source_params)
+        overrides = _build_overrides_for_source(source_params, scheme)
         results_by_scheme[scheme] = _aero_rs.collect_supervised(
             toml_path=cfg.sim.toml_config,
             seeds=seeds,
             overrides=overrides,
             scheme=scheme,
+            sim_timeout_secs=cfg.sim.sim_timeout_secs,
         )
 
     # 4. Pick best per seed
@@ -455,13 +574,18 @@ def build_warm_start_chromosome(
         if mode == "magnitude_only":
             traj["y_signed"] = np.abs(traj["y_signed"])
 
-    # 6. Chunked-BPTT supervised pretraining
+    # 6. Chunked-BPTT supervised pretraining. Seed is derived from base_mc_seed
+    # xor'd with WARM_START_SEED_OFFSET so different `monte_carlo.seed` values
+    # produce both different supervised datasets AND different Adam init/shuffle
+    # trajectories (previously hardcoded seed=0 made Adam deterministic).
+    bptt_seed = int(base_mc_seed) ^ int(WARM_START_SEED_OFFSET)
     policy, losses, n_chunks = _chunked_bptt_train(
         trajectories=selected,
         network=network,
         bptt_length=ws.bptt_length,
         n_epochs=ws.n_epochs,
         bound_multiplier=ws.bound_multiplier,
+        seed=bptt_seed,
     )
     (save_dir / "warm_start_loss.json").write_text(
         json.dumps(
@@ -470,7 +594,10 @@ def build_warm_start_chromosome(
         )
     )
     # End-of-pretrain summary line (also captured by the per-epoch log + warm_start_loss.json)
-    if len(losses) > 1 and losses[0] > 0.0:
+    if not losses:
+        # n_epochs == 0: caller wants chromosome encoding without any supervised training.
+        print("  [warm_start] supervised MSE: (n_epochs=0, no epochs run)")
+    elif len(losses) > 1 and losses[0] > 0.0:
         reduction = (losses[0] - losses[-1]) / losses[0] * 100.0
         print(f"  [warm_start] supervised MSE {losses[0]:.4e} -> {losses[-1]:.4e}  ({reduction:+.1f}%)")
     else:

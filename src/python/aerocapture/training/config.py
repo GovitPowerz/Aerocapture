@@ -323,12 +323,15 @@ class WarmStartConfig:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> WarmStartConfig:
-        known = {f.name for f in fields(cls)} - {"enabled"}
+        known = {f.name for f in fields(cls)}
         unknown = set(d.keys()) - known
         if unknown:
             raise ValueError(f"unknown [warm_start] keys: {sorted(unknown)}")
-        # Presence of the block implies enabled; user-set `enabled` in TOML is ignored.
-        return cls(enabled=True, **d)
+        # Presence of the block always sets enabled=True; any user-set `enabled`
+        # in TOML is accepted (no ValueError) but silently overridden so the
+        # gating contract is a function of block presence, not contents.
+        d_filtered = {k: v for k, v in d.items() if k != "enabled"}
+        return cls(enabled=True, **d_filtered)
 
 
 @dataclass

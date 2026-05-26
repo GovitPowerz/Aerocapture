@@ -8,9 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import sys
-import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -636,53 +634,35 @@ def train(
                     pop_array[:, n_weights:] = scaffolding_slab
 
                 # Gen-0 validation baseline: evaluate the bare warm-started
-                # chromosome on validation MC and persist mean/RMS DV so users
-                # get a "did warm-start help?" signal before generation 0.
-                # Best-effort: failure here must not block training.
+                # chromosome on the RESERVED VALIDATION seed pool (same seeds
+                # the validation gate uses) so the persisted rms/mean/p95
+                # metrics are directly comparable to the `Gen N validation:`
+                # line later printed by the validation gate. Best-effort:
+                # failure here must not block training.
                 from aerocapture.training._warm_start_baseline import write_gen0_baseline
 
-                _nn_tmp_path: Path | None = None
                 try:
-                    params_decoded = decode_normalized(warm_chromo, param_specs)
-                    warm_overrides = problem._build_overrides(params_decoded, mc_seed=base_mc_seed)
-                    # NN weights are written to a temp JSON, not TOML overrides.
-                    if config.guidance_type == "neural_network":
-                        # decode_normalized already produced the full physical-space chromosome;
-                        # extract the first n_weights values (NN weight slab) by spec name.
-                        weights = np.fromiter(
-                            (params_decoded[param_specs[j].name] for j in range(n_weights)),
-                            dtype=np.float64,
-                            count=n_weights,
-                        )
-                        fd, tmp_str = tempfile.mkstemp(suffix=".json", prefix="nn_warm_baseline_")
-                        os.close(fd)
-                        _nn_tmp_path = Path(tmp_str)
-                        write_nn_json(
-                            weights,
-                            config.network,
-                            _nn_tmp_path,
-                            input_mask=config.network.input_mask,
-                            output_param=config.network.output_parameterization,
-                        )
-                        warm_overrides["data.neural_network"] = str(_nn_tmp_path)
+                    if val_seeds is None:
+                        raise RuntimeError("val_seeds not initialized; gen-0 baseline requires the validation pool")
+                    baseline_costs = problem.evaluate_individual_per_seed(warm_chromo, val_seeds)
                     baseline_path = write_gen0_baseline(
                         save_dir=Path(config.save_dir),
-                        toml_path=toml_abs_path,
-                        overrides=warm_overrides,
-                        n_sims=config.optimizer.validation_n_sims,
-                        sim_timeout_secs=config.sim.sim_timeout_secs,
+                        costs=baseline_costs,
+                        capture_rate=capture_rate(baseline_costs),
+                        n_sims=len(val_seeds),
                     )
                     if verbose:
                         baseline = json.loads(baseline_path.read_text())
-                        print(f"  [warm_start] gen-0 validation baseline: mean={baseline['mean']:.3f}, rms={baseline['rms']:.3f}, n_sims={baseline['n_sims']}")
+                        print(
+                            f"  [warm_start] gen-0 validation baseline (val seeds): "
+                            f"rms={baseline['rms_cost']:.4e} mean={baseline['mean_cost']:.4e} "
+                            f"p95={baseline['p95_cost']:.4e} cap={baseline['capture_rate']:.0%} n={baseline['n_sims']}"
+                        )
                 except Exception as e:
                     # Best-effort: failure here must not block training, but the
                     # error is always logged so it does not silently mask real
-                    # bugs in problem._build_overrides / write_nn_json / run_mc.
+                    # bugs in problem.evaluate_individual_per_seed / write_gen0_baseline.
                     print(f"  [warm_start] WARNING: gen-0 baseline write failed: {type(e).__name__}: {e}")
-                finally:
-                    if _nn_tmp_path is not None:
-                        _nn_tmp_path.unlink(missing_ok=True)
             else:
                 pop_array = build_initial_population_for_v2(
                     config.network.architecture,
@@ -704,8 +684,11 @@ def train(
     # CMA-ES + warm-start: shrink the initial step size. Applied unconditionally
     # (independent of resume vs fresh start) so the checkpointed CMA-ES sigma
     # in `algorithm.next()` consistently reflects the warm-start tunable.
+    # Gated on guidance_type == "neural_network" because [warm_start] is only
+    # meaningful for NN training; a non-NN config that picked up [warm_start]
+    # via base inheritance must NOT have its sigma0 silently overridden.
     warm_start_active = bool(config.network.warm_start_from) or config.warm_start.enabled
-    if warm_start_active and config.optimizer.algorithm == "cma_es":
+    if config.guidance_type == "neural_network" and warm_start_active and config.optimizer.algorithm == "cma_es":
         config.optimizer.cma_es.sigma0 = config.warm_start.cmaes_sigma0
 
     # Set up algorithm
@@ -1146,18 +1129,30 @@ if __name__ == "__main__":
     #   - mode = "full_neural" + output_parameterization = "atan2_signed":
     #     two-output atan2 head -> signed bank in [-pi, pi], no runtime
     #     lateral/thermal/shaping interception.
-    # Other combinations are allowed-but-suboptimal (we warn).
+    # acos_tanh + full_neural is REJECTED here because the Rust runtime
+    # (src/rust/src/data/mod.rs::validate_output_parameterization) hard-errors
+    # at config load: "output_parameterization=acos_tanh is only legal with
+    # mode=magnitude_only". Catching it before warm-start compute saves the
+    # ~10 minutes of supervised collection + BPTT pretrain that would
+    # otherwise be wasted on a config Rust will reject at gen-0.
     warm_start_active = bool(cfg.network.warm_start_from) or cfg.warm_start.enabled
     if warm_start_active:
         nn_mode = str(_gnn.get("mode", "full_neural"))
         out_param = cfg.network.output_parameterization or "atan2_signed"
+        if nn_mode == "full_neural" and out_param == "acos_tanh":
+            print(
+                "ERROR: output_parameterization='acos_tanh' requires mode='magnitude_only' "
+                "(Rust runtime enforces this at config load). Either set mode='magnitude_only' "
+                "or switch to output_parameterization='atan2_signed' for full_neural."
+            )
+            raise SystemExit(1)
         matched = (nn_mode == "magnitude_only" and out_param == "acos_tanh") or (nn_mode == "full_neural" and out_param == "atan2_signed")
         if not matched:
             print(
                 f"  [warm_start] WARNING: (mode='{nn_mode}', output_parameterization='{out_param}') "
                 f"is not a matched pair. The matched setups are "
                 f"(magnitude_only, acos_tanh) and (full_neural, atan2_signed). "
-                f"Training will still run, but the supervised target and runtime decoder are misaligned."
+                f"Training will still run, but the supervised target and runtime decoder may be suboptimal."
             )
     if cfg.network.architecture is not None:
         cfg.network.__post_init__()  # re-validate once all fields are set

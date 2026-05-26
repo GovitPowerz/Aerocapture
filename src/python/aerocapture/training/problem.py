@@ -276,16 +276,26 @@ class AerocaptureProblem(Problem):
     ) -> dict[str, object]:
         """Route param dict to TOML dot-path overrides.
 
-        For neural_network, NN weight keys (w*_*_*, bias*_*) are skipped here;
-        they are handled via temp JSON files in _run_batch_pyo3.
+        For neural_network, NN weight keys (anything not matching one of the
+        scaffolding routing prefixes) are skipped here; they are handled via
+        temp JSON files in _run_batch_pyo3. The whitelist must be a positive
+        match against the routing-prefix set, not a heuristic startswith()
+        check -- v2 stateful-layer weight names (b_ih*, x_proj_w*, a_log*,
+        ln1_gamma*, b_q*, ...) don't all start with "w" or "bias" and would
+        leak as phantom `guidance.neural_network.<weight>` overrides if the
+        skip filter were a denylist.
         """
         overrides: dict[str, object] = {}
 
-        # NN weights are written to JSON, not TOML overrides
+        # Scaffolding routing prefixes. Anything in `params` whose key starts
+        # with one of these is a tunable scaffolding param (lateral, exit,
+        # nav, thermal, shaping). For NN schemes, anything else is treated as
+        # an NN weight and skipped (the temp JSON path carries the values).
+        _SCAFFOLDING_PREFIXES = ("lateral.", "exit.", "nav.", "thermal.", "shaping.")
         skip_nn_weights = self.scheme == "neural_network" and self.nn_config is not None
 
         for key, value in params.items():
-            if skip_nn_weights and (key.startswith("w") or key.startswith("bias")):
+            if skip_nn_weights and not key.startswith(_SCAFFOLDING_PREFIXES):
                 continue
             # Round integer-typed params so Rust TOML parser accepts them
             if key in self._integer_params:
@@ -301,6 +311,10 @@ class AerocaptureProblem(Problem):
             elif key.startswith("shaping."):
                 overrides[f"guidance.command_shaping.{key.removeprefix('shaping.')}"] = value
             else:
+                # Non-NN schemes route unprefixed keys to their own
+                # `guidance.{scheme}.*` block. For NN schemes this branch is
+                # unreachable (skip_nn_weights eliminated all non-prefixed
+                # keys above).
                 overrides[f"guidance.{self.scheme}.{key}"] = value
 
         if mc_seed is not None:
