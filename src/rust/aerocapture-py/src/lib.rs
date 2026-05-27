@@ -394,7 +394,7 @@ fn flat_weights_to_json(
 /// Returns:
 ///     List of dicts (one per seed) with keys:
 ///       - "seed": int, the MC seed.
-///       - "X": numpy.ndarray of shape (T, 21), per-tick NN input vectors.
+///       - "X": numpy.ndarray of shape (T, 25), per-tick NN input vectors.
 ///       - "y_signed": numpy.ndarray of shape (T,), final signed bank command
 ///         (radians) after thermal limiter, lateral, and command shaper.
 ///       - "dv": float, total orbital-correction DV from the final record (m/s).
@@ -500,8 +500,8 @@ fn collect_supervised(
     })?;
 
     // PyDict / PyArray construction requires the GIL, so it happens after py.detach() returns.
-    // NN input width is always 21 (the full FULL_MASK applied in tick.rs).
-    const NN_INPUT_WIDTH: usize = 21;
+    // NN input width is always 25 (the full FULL_MASK applied in tick.rs).
+    const NN_INPUT_WIDTH: usize = 25;
     let result_list = PyList::empty(py);
     for (seed, supervised_trace, dv, captured) in per_seed {
         let n_steps = supervised_trace.len();

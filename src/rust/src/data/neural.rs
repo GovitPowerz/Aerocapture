@@ -1129,8 +1129,8 @@ struct NnJsonFileV2 {
     output_param: OutputParam,
 }
 
-/// Total number of candidate NN inputs (16 baseline + 4 reference trajectory + 1 exit-bank teacher).
-pub const NN_FULL_INPUT_SIZE: usize = 21;
+/// Total number of candidate NN inputs (16 baseline + 4 reference trajectory + 1 exit-bank teacher + 4 lateral-state telemetry).
+pub const NN_FULL_INPUT_SIZE: usize = 25;
 
 /// Modular neural network model.
 ///

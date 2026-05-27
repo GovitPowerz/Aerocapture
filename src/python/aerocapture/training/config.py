@@ -68,12 +68,13 @@ class NetworkConfig:
                     raise ValueError(msg)
                 # Indices must be non-negative; the upper bound is the candidate
                 # input vector width, which depends on the Rust `build_nn_input`
-                # contract. Currently 21, but configs with architecture[0]
-                # input_size > 21 exist for tests of architecture chains. Use the
+                # contract. Currently 25 (16 baseline + 4 ref-traj + 1 exit-bank
+                # teacher + 4 lateral telemetry), but configs with architecture[0]
+                # input_size > 25 exist for tests of architecture chains. Use the
                 # larger of the two as the practical upper bound so typos like
                 # negative indices or grossly-out-of-range values still get
                 # rejected at config load.
-                _RUNTIME_CANDIDATE_WIDTH = 21
+                _RUNTIME_CANDIDATE_WIDTH = 25
                 upper = max(_RUNTIME_CANDIDATE_WIDTH, first_input_int)
                 bad = [idx for idx in self.input_mask if not (0 <= idx < upper)]
                 if bad:

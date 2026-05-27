@@ -2,7 +2,6 @@
 
 - [ ] add some logging about optimizer settings at beginning of training
 - [ ] add some feedback on |orb_tag - orb_cur| for RL ?
-- [ ] for input/output (warm start) quickly train ftc with PSO to reach optimal performance
 - [ ] would a 3 islands (PSO, GA, DE) with episodic migration evolution strategy be better?
 
 ---

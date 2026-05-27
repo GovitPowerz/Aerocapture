@@ -102,7 +102,15 @@ def _write_artifacts(d: Path) -> None:
 
 def test_load_artifacts_missing_returns_none(tmp_path: Path) -> None:
     artifacts = _load_artifacts(tmp_path)
-    assert artifacts == {"loss": None, "baseline": None, "bounds": None, "selection": None, "cache_key": None, "eval_summary": None}
+    assert artifacts == {
+        "loss": None,
+        "baseline": None,
+        "bounds": None,
+        "selection": None,
+        "cache_key": None,
+        "eval_summary": None,
+        "compare_manifest": None,
+    }
 
 
 def test_load_artifacts_all_present(tmp_path: Path) -> None:

@@ -69,6 +69,10 @@ def _load_artifacts(save_dir: Path) -> dict[str, Any]:
         "selection": _load_json(save_dir / "warm_start_selection.json"),
         "cache_key": _load_json(save_dir / "warm_start_cache_key.json"),
         "eval_summary": _load_json(save_dir / "warm_start_eval_summary.json"),
+        # Manifest written by warm_start_compare.render_trajectory_comparison
+        # listing per-(pool, side, panel) SVG filenames. Absent when the
+        # comparison didn't run (older training output, or it errored out).
+        "compare_manifest": _load_json(save_dir / _REPORT_SUBDIR / "compare_manifest.json"),
     }
 
 
@@ -302,6 +306,80 @@ def _build_metadata(artifacts: dict[str, Any], save_dir: Path) -> dict[str, Any]
         "n_selected_total": selection.get("n_selected_total"),
         "min_corpus_required": selection.get("min_corpus_required"),
         "eval_summary_lines": _eval_summary_lines(artifacts.get("eval_summary")),
+        # Trajectory-comparison manifest (warm_start_compare.py). Empty dict when
+        # the comparison didn't run, so the Typst template can `if` on
+        # `meta.compare.has_data` without crashing.
+        "compare": _build_compare_section(artifacts.get("compare_manifest")),
+    }
+
+
+def _build_compare_section(manifest: dict | None) -> dict[str, Any]:
+    """Shape the comparison manifest for Typst consumption.
+
+    Output structure (Typst-friendly: lists instead of mixed dict/list nesting):
+      {
+        "has_data": bool,
+        "primary_supervisor": str,
+        "panels": [str, ...],             # 5 panel names
+        "side_labels": {sup: str, nn: str},
+        "rows": [                         # 4 rows (2 pools x 2 sides)
+            {"pool": str, "side": str, "side_label": str, "n_sims": int,
+             "n_captured": int, "capture_rate_pct": str,
+             "panels": [str, ...]},       # 5 SVG filenames in the same order as `panels`
+            ...
+        ],
+      }
+    """
+    if not manifest:
+        return {"has_data": False, "primary_supervisor": "", "panels": [], "side_labels": {}, "rows": []}
+    panels: list[str] = list(manifest.get("panels") or [])
+    side_labels: dict[str, str] = dict(manifest.get("side_labels") or {})
+    pools = manifest.get("pools") or {}
+    rows: list[dict[str, Any]] = []
+    for pool_name in ("train", "val"):
+        pool_entry = pools.get(pool_name) or {}
+        n_sims = int(pool_entry.get("n_sims", 0))
+        for side in ("supervisor", "nn"):
+            side_entry = (pool_entry.get("sides") or {}).get(side) or {}
+            if side_entry.get("error"):
+                # Surface the failure in the report rather than silently dropping
+                # the row -- helps diagnose missing supervisor params, NN
+                # write failures, etc.
+                rows.append(
+                    {
+                        "pool": pool_name,
+                        "side": side,
+                        "side_label": side_labels.get(side, side),
+                        "n_sims": n_sims,
+                        "n_captured": 0,
+                        "capture_rate_pct": "error",
+                        "error": str(side_entry["error"]),
+                        "panels": [],
+                    }
+                )
+                continue
+            n_captured = int(side_entry.get("n_captured", 0))
+            cap_rate = side_entry.get("capture_rate", 0.0) or 0.0
+            # Resolve to bare filenames (Typst paths are relative to the .typ).
+            panel_files = side_entry.get("panels") or {}
+            row_panels = [panel_files.get(p, "") for p in panels]
+            rows.append(
+                {
+                    "pool": pool_name,
+                    "side": side,
+                    "side_label": side_labels.get(side, side),
+                    "n_sims": n_sims,
+                    "n_captured": n_captured,
+                    "capture_rate_pct": f"{cap_rate:.1%}",
+                    "panels": row_panels,
+                }
+            )
+    return {
+        "has_data": bool(rows),
+        "primary_supervisor": str(manifest.get("primary_supervisor", "")),
+        "panels": panels,
+        "side_labels": side_labels,
+        "rows": rows,
     }
 
 
@@ -446,6 +524,64 @@ to the validation gate later in training.
       ]
     ],
   )
+]
+
+#if meta.compare.has_data [
+  #pagebreak()
+  == Trajectory comparison: supervisor vs warm-started NN
+
+  Side-by-side view of supervisor (`#meta.compare.primary_supervisor`)
+  trajectories vs the warm-started NN, on BOTH the training pool
+  (`WARM_START_SEED_OFFSET`) and the reserved validation pool
+  (`VALIDATION_SEED_OFFSET`). Same dispersion draws per seed within a pool, so
+  the only thing changing between supervisor and NN rows is the guidance scheme.
+
+  Spaghetti coloring: blue = captured + constraints OK, orange = captured +
+  constraint violation, red = crash / hyperbolic / timeout. Envelopes use ALL
+  trajectories; spaghetti alpha scales as 1/√n so dense pools stay readable.
+
+  #table(
+    columns: (auto, auto, auto, auto),
+    stroke: none,
+    inset: (x: 6pt, y: 4pt),
+    align: (left, left, right, right),
+    table.hline(stroke: 1.2pt),
+    [*Pool*], [*Side*], [*Captured*], [*Capture rate*],
+    table.hline(stroke: 0.4pt),
+    ..meta.compare.rows.map(r => (
+      [#r.pool], [#r.side_label], [#r.n_captured / #r.n_sims], [#r.capture_rate_pct],
+    )).flatten(),
+    table.hline(stroke: 1.2pt),
+  )
+
+  #for row in meta.compare.rows [
+    #if row.panels.len() > 0 [
+      === #row.pool pool -- #row.side_label
+
+      // 2x2 grid of corridor panels + altitude/heat-flux time below.
+      #grid(
+        columns: (1fr, 1fr),
+        gutter: 4pt,
+        image(row.panels.at(0), width: 100%),  // corridor_pdyn
+        image(row.panels.at(1), width: 100%),  // corridor_inclination
+      )
+      #v(4pt)
+      #image(row.panels.at(2), width: 100%)    // corridor_bank (full width)
+      #v(4pt)
+      #grid(
+        columns: (1fr, 1fr),
+        gutter: 4pt,
+        image(row.panels.at(3), width: 100%),  // altitude_time
+        image(row.panels.at(4), width: 100%),  // heat_flux_time
+      )
+      #v(10pt)
+    ] else if "error" in row [
+      === #row.pool pool -- #row.side_label
+
+      #text(fill: red)[Failed: #row.error]
+      #v(10pt)
+    ]
+  ]
 ]
 """
 

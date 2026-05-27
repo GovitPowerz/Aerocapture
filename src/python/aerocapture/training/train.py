@@ -839,9 +839,30 @@ def train(
                     # write_gen0_baseline / compute_eval_summary.
                     print(f"  [warm_start] WARNING: gen-0 baseline write failed: {type(e).__name__}: {e}")
 
+                # Trajectory comparison: supervisor vs warm-started NN on both
+                # training and validation pools. Runs ~2*(n_warm_seeds +
+                # validation_n_sims) MC sims (e.g. ~12k for n_warm_seeds=5000,
+                # validation_n_sims=1000) and renders 20 SVGs into the report
+                # dir. Best-effort: failure here must not block training, but
+                # the warm-start PDF will just omit the comparison section.
+                try:
+                    from aerocapture.training.warm_start_compare import render_trajectory_comparison
+
+                    render_trajectory_comparison(
+                        cfg=config,
+                        base_mc_seed=base_mc_seed,
+                        warm_chromo=warm_chromo,
+                        nn_weight_specs=warm_weight_specs,
+                    )
+                except Exception as e:
+                    print(
+                        f"  [warm_start] WARNING: trajectory comparison failed: {type(e).__name__}: {e}"
+                    )
+
                 # Intermediate warm-start report: charts + Typst PDF summarizing
                 # supervised MSE convergence, supervisor selection, search-space
-                # bounds, and the gen-0 validation baseline + eval summary.
+                # bounds, the gen-0 validation baseline + eval summary, and the
+                # supervisor-vs-NN trajectory comparison panels (if rendered).
                 # Best-effort.
                 try:
                     from aerocapture.training.warm_start_report import render_report

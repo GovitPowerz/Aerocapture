@@ -11,6 +11,7 @@ use crate::gnc::control::pilot;
 use crate::gnc::guidance::dispatch;
 use crate::gnc::navigation::coordinates::geodetic_from_spherical;
 use crate::integration::events::{self, EventContext, EventDef, EventType};
+use crate::orbit::elements;
 use crate::physics::atmosphere;
 use crate::simulation::runner::{
     DEG_TO_RAD, SimState, TermReason, build_photo_values, effective_airspeed,
@@ -143,16 +144,34 @@ pub fn step_one_tick(
             config.guidance_type,
         );
 
+        // Compute current inclination error once -- needed by both supervised collect
+        // (when active) and the post-guidance telemetry update for the next tick.
+        let current_orbit = elements::from_spherical(
+            nav_out.position_estimated[0],
+            nav_out.position_estimated[1],
+            nav_out.position_estimated[2],
+            nav_out.velocity_estimated[0],
+            nav_out.velocity_estimated[1],
+            nav_out.velocity_estimated[2],
+            planet,
+        );
+        let current_incl_err = current_orbit.inclination - data.target_orbit.inclination;
+
         // Supervised-trace push gates on guidance.longitudinal_active=1 so we
         // don't pollute the dataset with inhibited-guidance ticks where the
         // recorded magnitude is just |reference_bank_angle| (constant per
         // config). Active-only rows give the regression target real signal.
         if config.collect_supervised && guidance_out.longitudinal_active == 1 {
-            // Explicit full mask: select all 21 inputs.
+            // Explicit full mask: select all 25 inputs.
             // Passing None would trigger the backward-compat default (first 16 only).
-            const FULL_MASK: [usize; 21] = [
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+            const FULL_MASK: [usize; 25] = [
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                23, 24,
             ];
+            // Telemetry scalars sourced from GuidanceState -- these reflect the
+            // PREVIOUS-tick state (updated below after guidance_step), keeping
+            // the supervised collect's input vector consistent with deploy.
+            let time_since_flip = state.sim_time - state.guidance_state.last_sign_flip_time_for_nn;
             let nn_input = crate::gnc::guidance::neural::build_nn_input(
                 &nav_out,
                 Some(&FULL_MASK),
@@ -161,6 +180,10 @@ pub fn step_one_tick(
                 planet,
                 data.target_orbit.inclination,
                 state.guidance_state.reference_velocity,
+                state.guidance_state.prev_inclination_error_for_nn,
+                state.guidance_state.prev_bank_for_nn,
+                time_since_flip,
+                state.guidance_state.inclination_error_integral,
             );
             // Supervised target is the post-lateral, PRE-shaper signed bank.
             // - Sign preserved: full_neural deploy has no lateral guidance at
@@ -173,6 +196,24 @@ pub fn step_one_tick(
                 .supervised_trace
                 .push((nn_input, guidance_out.pre_shaper_signed));
         }
+
+        // ── Update NN-input telemetry for the NEXT tick ──
+        // These fields back input indices 21-24. Updated unconditionally so the
+        // state stays consistent regardless of guidance scheme / collect mode.
+        // Sign-flip detection compares the new bank command to the previous one;
+        // both must be non-zero for the flip to count (avoids spurious flips
+        // when bank is near 0 transitions).
+        let new_bank = guidance_out.bank_angle_commanded;
+        let prev_bank = state.guidance_state.prev_bank_for_nn;
+        let signs_differ = new_bank.signum() != prev_bank.signum();
+        if signs_differ && new_bank != 0.0 && prev_bank != 0.0 {
+            state.guidance_state.last_sign_flip_time_for_nn = state.sim_time;
+        }
+        state.guidance_state.prev_bank_for_nn = new_bank;
+        state.guidance_state.prev_inclination_error_for_nn = Some(current_incl_err);
+        // Simple Euler integration of the inclination error, dt = guidance period.
+        // No anti-windup -- the NN's tanh-bounded input 24 saturates naturally.
+        state.guidance_state.inclination_error_integral += data.periods.guidance * current_incl_err;
 
         let bank_angle_commanded = forced_bank.unwrap_or(guidance_out.bank_angle_commanded);
 

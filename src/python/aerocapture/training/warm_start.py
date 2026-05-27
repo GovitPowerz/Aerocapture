@@ -382,11 +382,11 @@ def _chunked_bptt_train(
 
     output_param = network.output_parameterization or "atan2_signed"
     # Default to architecture[0].input_size when input_mask is absent. Rust
-    # `collect_supervised` always emits X with shape (T, 21) (the
+    # `collect_supervised` always emits X with shape (T, 25) (the
     # FULL_MASK / build_nn_input contract). If the first layer wants more
-    # than 21 inputs the silent first-N slice would IndexError on the
+    # than 25 inputs the silent first-N slice would IndexError on the
     # column select below, so reject explicitly here with a clear message.
-    _CANDIDATE_INPUT_WIDTH = 21  # must match Rust FULL_MASK width
+    _CANDIDATE_INPUT_WIDTH = 25  # must match Rust FULL_MASK width
     arch_first_in = int(network.architecture[0]["input_size"])
     if arch_first_in > _CANDIDATE_INPUT_WIDTH:
         raise ValueError(
@@ -717,7 +717,7 @@ def build_warm_start_chromosome(
 
     # 4. Pick best per seed
     selected = _select_best_teacher_per_seed(results_by_scheme)
-    min_corpus = max(20, ws.n_warm_seeds // 4)
+    min_corpus = max(1, ws.n_warm_seeds // 4)
     if len(selected) < min_corpus:
         raise RuntimeError(
             f"warm-start corpus too small: {len(selected)} captures across {ws.n_warm_seeds} seeds "

@@ -39,6 +39,11 @@ NN_INPUT_NAMES: list[str] = [
     "hdot_nominal",  # 18
     "pdyn_error",  # 19
     "exit_bank_teacher",  # 20
+    # ── Lateral-state telemetry (Markovian state for the reversal decision) ──
+    "inclination_err_rate",  # 21 -- (current - prev) incl_err / guidance_period, scaled
+    "prev_bank_signed",  # 22 -- previous-tick bank command / π, in [-1, 1]
+    "time_since_sign_flip",  # 23 -- tanh(seconds_since_last_flip / 30)
+    "inclination_err_integral",  # 24 -- tanh(integral_deg_s / 100)
 ]
 
 # Index of dv_total_m_s in the 52-column final_record array (0-based, includes sim_number).
