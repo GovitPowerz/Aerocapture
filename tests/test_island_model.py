@@ -191,6 +191,12 @@ class _UnitCubeProblem(Problem):
     def _evaluate(self, X: np.ndarray, out: dict, *args: Any, **kwargs: Any) -> None:
         out["F"] = X.sum(axis=1).reshape(-1, 1)
 
+    def evaluate_individual_per_seed(
+        self, X: np.ndarray, seeds: list[int]
+    ) -> np.ndarray:
+        base = float(np.sum(X))
+        return np.array([base + 0.01 * s for s in seeds], dtype=np.float64)
+
 
 def _make_real_pso() -> PSO:
     """Construct and run-once a small pymoo PSO so V and pop[slot].X/.F are populated."""
@@ -420,3 +426,46 @@ def test_island_model_step_disabled_migration_never_fires() -> None:
     for g in range(5):
         model.step(g)
     assert model.migration_log == []
+
+
+def test_validate_each_fires_only_when_argmin_changes() -> None:
+    cfg = _make_islands_cfg()
+    problem = _UnitCubeProblem()
+    model = IslandModel(
+        config=cfg, problem=problem, n_params=4,
+        validation_seeds=[100, 101], final_eval_seeds=[200],
+        base_mc_seed=0, rng=np.random.default_rng(0),
+    )
+    for island in model.islands:
+        island.algorithm.setup(problem, seed=0)
+    # Advance once so each island's pop has valid F.
+    model.step(current_gen=0)
+
+    # First call: every island's argmin differs from None -> all 3 validate.
+    metrics = model.validate_each(current_gen=0)
+    assert len(metrics) == 3
+    for m in metrics:
+        assert m["validated"] is True
+
+    # Second call without changing pop: argmin unchanged -> no validation.
+    metrics2 = model.validate_each(current_gen=1)
+    assert all(m["validated"] is False for m in metrics2)
+
+
+def test_validate_each_promotes_best_overall_on_rms_improvement() -> None:
+    cfg = _make_islands_cfg()
+    problem = _UnitCubeProblem()
+    model = IslandModel(
+        config=cfg, problem=problem, n_params=4,
+        validation_seeds=[1, 2, 3], final_eval_seeds=[200],
+        base_mc_seed=0, rng=np.random.default_rng(0),
+    )
+    for island in model.islands:
+        island.algorithm.setup(problem, seed=0)
+    model.step(current_gen=0)
+
+    # Run first validation.
+    model.validate_each(current_gen=0)
+    initial_costs = [island.best_val_cost for island in model.islands]
+    assert all(c < float("inf") for c in initial_costs)
+    assert all(island.best_overall_individual is not None for island in model.islands)

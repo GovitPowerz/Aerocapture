@@ -218,6 +218,66 @@ class IslandModel:
             self.migration_log.extend(events)
         return events
 
+    def validate_each(self, current_gen: int) -> list[dict[str, Any]]:
+        """Run identity-trigger validation per island.
+
+        For each island, if its argmin differs from `last_validated_individual`,
+        run validation on the reserved validation seeds; promote `best_overall_*`
+        if val_rms < best_val_cost. Returns one summary dict per island for
+        logging (includes a "validated" bool flag).
+        """
+        results: list[dict[str, Any]] = []
+        for island in self.islands:
+            pop = island.algorithm.pop
+            X = pop.get("X")
+            F = pop.get("F").flatten()
+            argmin_idx = int(np.argmin(F))
+            argmin_X = X[argmin_idx].copy()
+            argmin_cost = float(F[argmin_idx])
+
+            unchanged = (
+                island.last_validated_individual is not None
+                and np.array_equal(argmin_X, island.last_validated_individual)
+            )
+            if unchanged:
+                island.stagnation_counter += 1
+                results.append({
+                    "island": island.name,
+                    "validated": False,
+                    "promoted": False,
+                    "argmin_train_cost": argmin_cost,
+                    "stagnation": island.stagnation_counter,
+                })
+                continue
+
+            val_costs = self.problem.evaluate_individual_per_seed(
+                argmin_X, self.validation_seeds,
+            )
+            val_rms = float(np.sqrt(np.mean(val_costs ** 2)))
+            island.last_validated_individual = argmin_X
+
+            promoted = val_rms < island.best_val_cost
+            if promoted:
+                island.best_val_cost = val_rms
+                island.best_overall_individual = argmin_X.copy()
+                island.best_overall_cost = argmin_cost
+                island.stagnation_counter = 0
+            else:
+                island.stagnation_counter += 1
+
+            results.append({
+                "island": island.name,
+                "validated": True,
+                "promoted": promoted,
+                "argmin_train_cost": argmin_cost,
+                "val_rms": val_rms,
+                "val_mean": float(np.mean(val_costs)),
+                "val_p95": float(np.percentile(val_costs, 95)),
+                "val_capture_rate": _capture_rate(np.asarray(val_costs)),
+                "stagnation": island.stagnation_counter,
+            })
+        return results
+
     def final_eval(self) -> list[dict[str, Any]]:
         """Re-evaluate each island's best_overall on the reserved final-eval seeds.
 
