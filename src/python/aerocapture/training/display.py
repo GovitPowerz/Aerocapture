@@ -36,11 +36,25 @@ def _format_cost(value: float) -> str:
     return f"{value:.4e}"
 
 
+def _format_duration(seconds: float) -> str:
+    if not (seconds == seconds and seconds != float("inf")):  # NaN or inf
+        return "--"
+    s = int(seconds)
+    h, s = divmod(s, 3600)
+    m, s = divmod(s, 60)
+    if h:
+        return f"{h}h {m:02d}m {s:02d}s"
+    if m:
+        return f"{m}m {s:02d}s"
+    return f"{s}s"
+
+
 class DisplayProtocol(Protocol):
     """Protocol for training display (allows NoopDisplay as substitute)."""
 
     def update(self, logger: TrainingLogger, current_run: int, island_records: dict[str, dict] | None = None) -> None: ...
     def stop(self) -> None: ...
+    def set_start_gen(self, start_gen: int) -> None: ...
     def __enter__(self) -> DisplayProtocol: ...
     def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None) -> None: ...
 
@@ -52,6 +66,9 @@ class NoopDisplay:
         pass
 
     def stop(self) -> None:
+        pass
+
+    def set_start_gen(self, start_gen: int) -> None:
         pass
 
     def __enter__(self) -> NoopDisplay:
@@ -70,6 +87,10 @@ class LiveDisplay:
         self._n_gens = n_generations
         self._live: Live | None = None
         self._start_time: float | None = None
+        self._start_gen: int = 0
+
+    def set_start_gen(self, start_gen: int) -> None:
+        self._start_gen = start_gen
 
     def _build_panel(self, logger: TrainingLogger, current_run: int) -> ConsoleRenderable:
         """Build a Rich Panel from logger buffer."""
@@ -164,21 +185,70 @@ class LiveDisplay:
         logger: TrainingLogger,
         island_records: dict[str, dict],
     ) -> None:
-        """Render a 3-column layout, one Panel per island."""
+        """Render a richer 3-column layout with header + migration summary."""
+        import time  # noqa: PLC0415
+
         from rich.columns import Columns  # noqa: PLC0415
+        from rich.console import Group  # noqa: PLC0415
         from rich.panel import Panel  # noqa: PLC0415
+        from rich.text import Text  # noqa: PLC0415
 
         assert self._live is not None, "_update_islands called before __enter__"
+
+        # Header: gen X/N | elapsed | rate | ETA
+        gen = int(island_records.get("_gen", 0))  # type: ignore[arg-type]
+        n_gen = int(island_records.get("_n_gen", self._n_gens))  # type: ignore[arg-type]
+        if self._start_time is None:
+            self._start_time = time.perf_counter()
+        elapsed = time.perf_counter() - self._start_time
+        rate = (gen - self._start_gen) / elapsed if elapsed > 0 and gen > self._start_gen else 0.0
+        remaining = (n_gen - gen) / rate if rate > 0 else float("inf")
+        header_text = (
+            f"Gen {gen}/{n_gen}  elapsed {_format_duration(elapsed)}  "
+            f"rate {rate:.2f} gens/s  ETA {_format_duration(remaining)}"
+        )
+        header = Panel(Text(header_text, style="bold"), title="Islands training", border_style="green")
+
+        # Migration log: last few events.
+        recent_events: list[dict] = list(island_records.get("_recent_migration_events", []))  # type: ignore[arg-type]
+        if recent_events:
+            ev_lines = []
+            for ev in recent_events[-6:]:  # last 6 events
+                ev_lines.append(
+                    f"  gen {ev['gen']}: {ev['src_island']} -> {ev['dst_island']}  "
+                    f"F_migrant={_format_cost(ev['F_migrant'])}  "
+                    f"F_displaced={_format_cost(ev['F_displaced'])}"
+                )
+            mig_panel = Panel(
+                Text("\n".join(ev_lines), style="dim"),
+                title=f"Recent migrations ({island_records.get('_total_migrations', 0)} total)",
+                border_style="cyan",
+            )
+        else:
+            mig_panel = Panel(
+                Text(f"No migrations yet ({island_records.get('_total_migrations', 0)} total)", style="dim"),
+                title="Recent migrations",
+                border_style="dim",
+            )
+
+        # Per-island panels with best_val added.
         panels = []
         for name in ("pso", "ga", "de"):
             rec = island_records.get(name, {})
-            best = rec.get("best_overall_cost", float("inf"))
-            val_rms = rec.get("val_rms", float("inf"))
+            best_val = rec.get("best_val", float("inf"))
+            last_val = rec.get("val_rms", float("inf"))
             stag = rec.get("stagnation", 0)
             argmin = rec.get("argmin_train_cost", float("inf"))
-            content = f"best: {_format_cost(best)}\nlast_val: {_format_cost(val_rms)}\nstag: {stag} gens\nargmin: {_format_cost(argmin)}"
+            content = (
+                f"best_val: {_format_cost(best_val)}\n"
+                f"last_val: {_format_cost(last_val)}\n"
+                f"argmin:   {_format_cost(argmin)}\n"
+                f"stag:     {stag} gens"
+            )
             panels.append(Panel(content, title=name.upper(), border_style="cyan"))
-        self._live.update(Columns(panels))
+
+        group = Group(header, Columns(panels), mig_panel)
+        self._live.update(group)
 
     def update(self, logger: TrainingLogger, current_run: int, island_records: dict[str, dict] | None = None) -> None:
         """Update the live display with current logger state."""

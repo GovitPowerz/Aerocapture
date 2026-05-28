@@ -1340,6 +1340,7 @@ def _train_islands(
         config_hash=config_hash,
     )
 
+    display.set_start_gen(start_gen)
     pending_seed_change = False
     interrupted = False
     gen = start_gen
@@ -1427,9 +1428,9 @@ def _train_islands(
                         island_name=island.name,
                     )
 
-                island_records = {
+                island_records: dict[str, Any] = {
                     island.name: {
-                        "best_overall_cost": island.best_overall_cost,
+                        "best_val": island.best_val_cost,
                         "val_rms": val_rec.get("val_rms", float("inf")),
                         "stagnation": island.stagnation_counter,
                         "argmin_train_cost": val_rec.get("argmin_train_cost", float("inf")),
@@ -1440,6 +1441,19 @@ def _train_islands(
                         strict=True,
                     )
                 }
+                island_records["_gen"] = gen
+                island_records["_n_gen"] = config.optimizer.n_gen
+                island_records["_total_migrations"] = len(island_model.migration_log)
+                island_records["_recent_migration_events"] = [
+                    {
+                        "gen": e.gen,
+                        "src_island": e.src_island,
+                        "dst_island": e.dst_island,
+                        "F_migrant": e.F_migrant,
+                        "F_displaced": e.F_displaced,
+                    }
+                    for e in island_model.migration_log
+                ]
                 display.update(logger, current_run=0, island_records=island_records)
 
                 if (gen + 1) % checkpoint_interval == 0 or gen == config.optimizer.n_gen - 1:
@@ -1466,7 +1480,12 @@ def _train_islands(
             print("  No island had a validated best — skipping final-eval / artifact write.")
         logger.close()
         return {
+            "best_cost": float("inf"),
+            "best_individual": None,
+            "cost_history": [],
             "interrupted": interrupted,
+            "corridor_acc": None,
+            "param_specs": param_specs,
             "winner": None,
             "results": [],
             "migration_log": island_model.migration_log,
@@ -1483,12 +1502,16 @@ def _train_islands(
         config=config,
         save_dir=save_dir,
         param_specs=param_specs,
-        cwd=cwd,
     )
 
     logger.close()
     return {
+        "best_cost": float(winner["rms"]),
+        "best_individual": winner["X"],
+        "cost_history": [],
         "interrupted": interrupted,
+        "corridor_acc": None,
+        "param_specs": param_specs,
         "winner": winner,
         "results": results,
         "migration_log": island_model.migration_log,
@@ -1501,11 +1524,10 @@ def _write_winner_artifacts(
     config: TrainingConfig,
     save_dir: Path,
     param_specs: list[ParamSpec],
-    cwd: str | Path | None,
 ) -> None:
     """Write best_model.json / best_params.json from the winning island's chromosome.
 
-    Mirrors the single-algorithm artifact-write block in train.py lines 370-393.
+    Writes only to save_dir. main() handles the deploy-path write to cwd.
     """
     best_individual = winner["X"]
 
@@ -1523,15 +1545,6 @@ def _write_winner_artifacts(
             input_mask=config.network.input_mask,
             output_param=config.network.output_parameterization,
         )
-        if cwd is not None:
-            nn_path = Path(cwd) / config.sim.nn_param_file
-            write_nn_json(
-                weights,
-                config.network,
-                nn_path,
-                input_mask=config.network.input_mask,
-                output_param=config.network.output_parameterization,
-            )
         if n_scaff > 0:
             from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS  # noqa: PLC0415
 

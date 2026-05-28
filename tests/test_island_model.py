@@ -886,3 +886,59 @@ def test_chart_migration_timeline_empty_renders_placeholder(tmp_path: Path) -> N
     chart_migration_timeline([], n_gen=100, output=output)
     assert output.exists()
     assert output.stat().st_size > 0
+
+
+def test_de_island_receives_migrants() -> None:
+    """Regression guard: DE destination's pop must contain the migrant after migrate(),
+    and the migrant survives DE's next() because it has better F than offspring."""
+    from pymoo.algorithms.soo.nonconvex.de import DE
+    from pymoo.algorithms.soo.nonconvex.ga import GA
+    from pymoo.algorithms.soo.nonconvex.pso import PSO
+
+    class _MinimizeSumX(Problem):
+        def __init__(self) -> None:
+            super().__init__(n_var=4, n_obj=1, xl=0.0, xu=1.0)
+
+        def _evaluate(self, X: np.ndarray, out: dict, *args: Any, **kwargs: Any) -> None:
+            out["F"] = X.sum(axis=1).reshape(-1, 1)
+
+    problem = _MinimizeSumX()
+    pso = PSO(pop_size=8, w=0.7, c1=1.5, c2=1.5)
+    ga = GA(pop_size=8)
+    de = DE(pop_size=8, variant="DE/rand/1/bin")
+    pso.setup(problem, seed=0)
+    pso.next()
+    ga.setup(problem, seed=0)
+    ga.next()
+    de.setup(problem, seed=0)
+    de.next()
+
+    islands = [
+        Island(name="pso", algorithm=pso),
+        Island(name="ga", algorithm=ga),
+        Island(name="de", algorithm=de),
+    ]
+
+    # Plant a super-low-F individual in PSO's slot 0 so it becomes the top-1 emigrant.
+    sentinel_X = np.array([0.001, 0.001, 0.001, 0.001])
+    pso.pop[0].X = sentinel_X.copy()
+    pso.pop[0].F = np.array([0.004])
+    pso.particles[0].X = sentinel_X.copy()
+    pso.particles[0].F = np.array([0.004])
+
+    events = migrate(islands, k_top=1, current_gen=10, rng=np.random.default_rng(0))
+
+    # There must be exactly one PSO -> DE migration event.
+    pso_to_de = [e for e in events if e.src_island == "pso" and e.dst_island == "de"]
+    assert len(pso_to_de) == 1
+    de_slot = pso_to_de[0].slot_idx
+    np.testing.assert_array_equal(de.pop[de_slot].X, sentinel_X)
+    assert float(de.pop[de_slot].F[0]) == 0.004
+
+    # Advance DE one generation. The migrant (F=0.004) is better than any
+    # offspring derivable from DE's current pop (sum-X around 1-3). It must survive.
+    de.next()
+    F_after = de.pop.get("F").flatten()
+    assert F_after.min() <= 0.004 + 1e-12, (
+        f"DE failed to retain migrant: min F is {F_after.min():.6e}, expected <= 0.004"
+    )
