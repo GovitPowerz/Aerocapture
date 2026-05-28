@@ -161,6 +161,41 @@ class TestLoadRunData:
         assert data == []
         assert resume_gens == []
 
+    def test_island_records_not_deduplicated_by_generation_alone(self, tmp_path: Path) -> None:
+        """Islands trainer writes 3 records per gen (one per island). The
+        dedup key must include island_name so all 3 survive — otherwise
+        2 of 3 islands' history is silently dropped before chart
+        rendering."""
+        scheme_dir = tmp_path / "islands_scheme"
+        scheme_dir.mkdir()
+        jsonl_path = scheme_dir / "run_0.jsonl"
+        with open(jsonl_path, "w") as f:
+            for gen in range(5):
+                for island in ("pso", "ga", "de"):
+                    record = {
+                        "generation": gen,
+                        "best_cost": 1.0 + gen + ("pso", "ga", "de").index(island) * 0.1,
+                        "mean_cost": 2.0,
+                        "median_cost": 2.0,
+                        "std_cost": 0.5,
+                        "min_cost": 1.0,
+                        "max_cost": 3.0,
+                        "capture_rate": 0.5,
+                        "population_diversity": 0.3,
+                        "improvement": False,
+                        "scheme": "neural_network",
+                        "config_hash": "abc",
+                        "mc_seed": 42 + gen,
+                        "island_name": island,
+                    }
+                    f.write(json.dumps(record) + "\n")
+        data, _ = load_run_data(scheme_dir)
+        assert len(data) == 15, "expected 15 records (5 gens × 3 islands)"
+        assert {r["island_name"] for r in data} == {"pso", "ga", "de"}
+        for gen in range(5):
+            gen_records = [r for r in data if r["generation"] == gen]
+            assert len(gen_records) == 3, f"gen {gen}: expected 3 island records, got {len(gen_records)}"
+
 
 class TestResumeDetection:
     def test_detects_resume_from_file_boundaries(self, tmp_path: Path) -> None:

@@ -17,62 +17,60 @@ input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 
 [[network.architecture]]
 type = "dense"
 input_size = 25
-output_size = 128
-activation = "swish"
-
-[[network.architecture]]
-type = "dense"
-input_size = 128
 output_size = 32
 activation = "swish"
 
 [[network.architecture]]
 type = "dense"
 input_size = 32
+output_size = 16
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 16
 output_size = 2
 activation = "asinh"
 
 [data]
-neural_network = "training_output/neural_network_warm/best_model.json"
+neural_network = "training_output/neural_network_islands/best_model.json"
 results_suffix = ".train_nn"
 
-[guidance.ftc]
-# Capture-phase placeholders (ignored under mode = "magnitude_only").
-capture_damping = 0.7
-capture_frequency = 0.072
-capture_pdyn_margin = 1.75
-altitude_damping = 0.7
-altitude_frequency = 0.08
-pressure_coeff_base = -134.4
-pressure_coeff_scale_height = 6.9
-gain_fade_start_km = 80.0
-gain_fade_end_km = 100.0
-# Exit-phase params (live in phase 2; FTC-tuned).
-exit_velocity_threshold = 3548.8350669594774
-exit_pdyn_margin = 3.324353921236187
-exit_radial_vel_gain = 14.432026466531633
-exit_altitude_threshold = 57.353046636034556
-exit_apoapsis_threshold = 100.0
-security_capture = 1
-security_exit = 3
-longi_activation = 1000.0
-longi_inhibition = -1000.0
-pdyn_min = 0.0
+# Default routing is mode = "full_neural": NN emits a signed bank via atan2 and
+# BYPASSES exit guidance, lateral guidance, and the thermal limiter. The blocks
+# below would only be consumed under [guidance.neural_network] mode = "magnitude_only"
+# (capture-phase FTC is dead in BOTH modes -- NN owns that phase).
+#
+# [guidance.ftc]
+# # Exit-phase params (phase 2; FTC-tuned). Used under magnitude_only via the
+# # shared pdyn-feedback exit controller.
+# exit_velocity_threshold = 3548.8350669594774
+# exit_pdyn_margin = 3.324353921236187
+# exit_radial_vel_gain = 14.432026466531633
+# exit_altitude_threshold = 57.353046636034556
+# exit_apoapsis_threshold = 100.0
+# security_capture = 1
+# security_exit = 3
+# longi_activation = 1000.0
+# longi_inhibition = -1000.0
+# pdyn_min = 0.0
+#
+# [guidance.lateral]
+# tau = 20.30636755732464
+# threshold = 0.04240186744633933              # degrees
+# min_reversal_interval = 9.727705715865666    # seconds
+# lateral_activation = -0.502758875982189      # MJ/kg
+# lateral_inhibition = -7.635684306035069      # MJ/kg
+# max_reversals = 8                            # int (FTC GA chose 8.46 -> floor)
+#
+# [guidance.thermal_limiter]
+# heat_flux_activation = 0.6089212290967705
+# heat_load_activation = 0.717933818269412
+# heat_flux_ramp_exponent = 0.6031268922813253
+# heat_load_ramp_exponent = 2.1835321784009065
 
-[guidance.lateral]
-tau = 20.30636755732464
-threshold = 0.04240186744633933              # degrees
-min_reversal_interval = 9.727705715865666    # seconds
-lateral_activation = -0.502758875982189      # MJ/kg
-lateral_inhibition = -7.635684306035069      # MJ/kg
-max_reversals = 8                            # int (FTC GA chose 8.46 -> floor)
-
-[guidance.thermal_limiter]
-heat_flux_activation = 0.6089212290967705
-heat_load_activation = 0.717933818269412
-heat_flux_ramp_exponent = 0.6031268922813253
-heat_load_ramp_exponent = 2.1835321784009065
-
+# Command shaper and navigation run for ALL guidance schemes (dispatch-layer
+# and upstream of guidance respectively), so these are live under full_neural.
 [guidance.command_shaping]
 enabled = true
 max_bank_acceleration = 12.674110367187794   # deg/s^2

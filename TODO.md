@@ -1,8 +1,7 @@
 # TODO
 
-- [ ] would a 3 islands (PSO, GA, DE) with episodic migration evolution strategy be better?
 - [ ] add a bounded delta command for nn alongside magonly and atan2 (also add input of previous guidance bank angle, previsou realized bank angle)
-
+- [ ] automatically tune together with nn weights all GNC parameters (nav, command shaping, control, ...)
 
 ---
 

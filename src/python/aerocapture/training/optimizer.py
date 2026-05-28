@@ -11,7 +11,7 @@ from pymoo.core.algorithm import Algorithm
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
 
-_VALID_ALGORITHMS = ("ga", "cma_es", "de", "pso")
+_VALID_ALGORITHMS = ("ga", "cma_es", "de", "pso", "islands")
 _VALID_SEED_STRATEGIES = ("fixed", "rotating", "adaptive")
 _CMAES_MAX_PARAMS = 20000
 
@@ -44,6 +44,22 @@ class PSOSettings:
 
 
 @dataclass
+class IslandSettings:
+    enabled: bool = True
+    k_period: int = 25
+    k_top: int = 3
+    pso_inject_velocity_scale: float = 0.05
+
+    def __post_init__(self) -> None:
+        if self.k_period < 1:
+            raise ValueError(f"k_period must be >= 1, got {self.k_period}")
+        if self.k_top < 1:
+            raise ValueError(f"k_top must be >= 1, got {self.k_top}")
+        if self.pso_inject_velocity_scale < 0.0:
+            raise ValueError(f"pso_inject_velocity_scale must be >= 0.0, got {self.pso_inject_velocity_scale}")
+
+
+@dataclass
 class OptimizerConfig:
     algorithm: str = "ga"
     seed_strategy: str = ""  # required; validated in __post_init__
@@ -58,6 +74,7 @@ class OptimizerConfig:
     cma_es: CMAESSettings = field(default_factory=CMAESSettings)
     de: DESettings = field(default_factory=DESettings)
     pso: PSOSettings = field(default_factory=PSOSettings)
+    islands: IslandSettings = field(default_factory=IslandSettings)
 
     def __post_init__(self) -> None:
         if self.algorithm not in _VALID_ALGORITHMS:
@@ -81,6 +98,7 @@ class OptimizerConfig:
         cma_es = CMAESSettings(**d["cma_es"]) if "cma_es" in d else CMAESSettings()
         de = DESettings(**d["de"]) if "de" in d else DESettings()
         pso = PSOSettings(**d["pso"]) if "pso" in d else PSOSettings()
+        islands = IslandSettings(**d["islands"]) if "islands" in d else IslandSettings()
 
         _obsolete = {
             "adaptive_seeds",
@@ -98,12 +116,19 @@ class OptimizerConfig:
                 UserWarning,
                 stacklevel=2,
             )
-        top_level = {k: v for k, v in d.items() if k not in ("ga", "cma_es", "de", "pso") and k not in _obsolete}
-        return cls(**top_level, ga=ga, cma_es=cma_es, de=de, pso=pso)
+        top_level = {k: v for k, v in d.items() if k not in ("ga", "cma_es", "de", "pso", "islands") and k not in _obsolete}
+        return cls(**top_level, ga=ga, cma_es=cma_es, de=de, pso=pso, islands=islands)
 
 
 def create_algorithm(config: OptimizerConfig, n_params: int) -> Algorithm:
     algorithm = config.algorithm
+
+    if algorithm == "islands":
+        raise ValueError(
+            "create_algorithm() must not be called with algorithm='islands'. "
+            "The island branch in train.py constructs each sub-algorithm "
+            "separately via IslandModel.__init__; use that path instead."
+        )
 
     if algorithm == "cma_es" and n_params > _CMAES_MAX_PARAMS:
         warnings.warn(

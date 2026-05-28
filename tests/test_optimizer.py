@@ -22,7 +22,7 @@ class TestOptimizerConfig:
         assert cfg.algorithm == "ga"
 
     def test_all_algorithms_accepted(self) -> None:
-        for algo in ("ga", "cma_es", "de", "pso"):
+        for algo in ("ga", "cma_es", "de", "pso", "islands"):
             cfg = OptimizerConfig(algorithm=algo, seed_strategy="adaptive")
             assert cfg.algorithm == algo
 

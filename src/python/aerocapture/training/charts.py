@@ -1278,3 +1278,119 @@ def _save_line_chart(
     sns.despine(fig=fig, ax=ax)
     fig.tight_layout()
     _save_svg(fig, output_path)
+
+
+# ---------------------------------------------------------------------------
+# Island-model charts (Part 0 of the multi-island report)
+# ---------------------------------------------------------------------------
+def chart_island_convergence_overlay(
+    records_by_island: dict[str, list[dict[str, Any]]],
+    output: Path,
+) -> None:
+    """Overlay per-island running-min cost vs generation.
+
+    Three colored lines (PSO=blue, GA=orange, DE=green) on a log-scale y-axis.
+    The series uses validated cost when present (`validation.rms_cost`,
+    promoted-best), else `best_cost` (the per-gen training argmin written by
+    TrainingLogger), computing a running min per-island so the chart is
+    meaningful even before any validation gate has fired. Islands with no
+    finite costs are skipped.
+    """
+    fig, ax = plt.subplots(figsize=(10, 5))
+    colors = {"pso": "tab:blue", "ga": "tab:orange", "de": "tab:green"}
+    plotted_any = False
+    for name in ("pso", "ga", "de"):
+        records = records_by_island.get(name, [])
+        if not records:
+            continue
+        gens: list[int] = []
+        running_costs: list[float] = []
+        running_min = float("inf")
+        for r in records:
+            # Prefer the validated cost (per-island promotion metric), then
+            # fall back to the per-gen training argmin (`best_cost`).
+            val = r.get("validation") or {}
+            candidate = val.get("rms_cost")
+            if candidate is None or not np.isfinite(candidate):
+                candidate = r.get("best_cost")
+            if candidate is None or not np.isfinite(candidate):
+                continue
+            running_min = min(running_min, float(candidate))
+            gens.append(r["generation"])
+            running_costs.append(running_min)
+        if not running_costs:
+            continue
+        ax.plot(
+            gens,
+            running_costs,
+            color=colors.get(name, "k"),
+            label=name.upper(),
+            linewidth=1.5,
+        )
+        plotted_any = True
+
+    ax.set_yscale("log")
+    ax.set_xlabel("Generation")
+    ax.set_ylabel("Running-min cost (RMS)")
+    ax.set_title("Per-island convergence")
+    if plotted_any:
+        ax.legend(loc="upper right")
+    else:
+        ax.text(0.5, 0.5, "No finite cost data yet", ha="center", va="center", transform=ax.transAxes)
+    ax.grid(visible=True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(output, format="svg")
+    plt.close(fig)
+
+
+def chart_migration_timeline(
+    migration_log: list[Any],
+    n_gen: int,
+    output: Path,
+) -> None:
+    """Scatter of migration events: x=generation, y=src->dst channel, color=F_migrant.
+
+    Accepts either `MigrationEvent` dataclass instances (the in-memory form
+    on `IslandModel.migration_log`) or dicts (the JSON-loaded form). Field
+    access goes through `_field` so both shapes work without coupling this
+    module to `island_model`.
+    """
+
+    def _field(event: Any, key: str) -> Any:
+        if isinstance(event, dict):
+            return event[key]
+        return getattr(event, key)
+
+    if not migration_log:
+        fig, ax = plt.subplots(figsize=(10, 3))
+        ax.text(
+            0.5,
+            0.5,
+            "No migration events",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+        ax.set_xlim(0, max(n_gen, 1))
+        fig.tight_layout()
+        fig.savefig(output, format="svg")
+        plt.close(fig)
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    channels = sorted({f"{_field(e, 'src_island')}->{_field(e, 'dst_island')}" for e in migration_log})
+    channel_y = {ch: i for i, ch in enumerate(channels)}
+    gens = [_field(e, "gen") for e in migration_log]
+    ys = [channel_y[f"{_field(e, 'src_island')}->{_field(e, 'dst_island')}"] for e in migration_log]
+    fs = [_field(e, "F_migrant") for e in migration_log]
+
+    sc = ax.scatter(gens, ys, c=fs, cmap="viridis", s=20)
+    fig.colorbar(sc, ax=ax, label="F_migrant")
+    ax.set_yticks(range(len(channels)))
+    ax.set_yticklabels(channels)
+    ax.set_xlabel("Generation")
+    ax.set_xlim(0, max(n_gen, max(gens) + 1))
+    ax.set_title(f"Migration events ({len(migration_log)} total)")
+    fig.tight_layout()
+    fig.savefig(output, format="svg")
+    plt.close(fig)

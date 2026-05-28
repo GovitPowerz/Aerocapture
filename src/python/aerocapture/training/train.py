@@ -71,6 +71,76 @@ def _compute_fixed_seeds(base_mc_seed: int, n_sims: int, excluded: set[int]) -> 
     return seeds
 
 
+def _apply_seed_strategy(
+    *,
+    strategy: str,
+    rng: np.random.Generator,
+    n_sims: int,
+    excluded_seeds: set[int],
+    problem: Any,
+    seed_curator: SeedCurator | None,
+    pending_seed_change: bool,
+) -> bool:
+    """Per-gen training-seed draw shared by the single-algorithm and islands loops.
+
+    `rotating` redraws a disjoint seed list every gen; `adaptive` draws a
+    one-time bootstrap list before the first curation has populated
+    `seed_curator.seed_list`. Returns `seeds_changed_this_gen` (OR'd with the
+    incoming `pending_seed_change`); `fixed` changes nothing and just echoes it.
+    """
+    seeds_changed = pending_seed_change
+    rotating = strategy == "rotating"
+    adaptive_bootstrap = strategy == "adaptive" and seed_curator is not None and seed_curator.seed_list is None
+    if rotating or adaptive_bootstrap:
+        problem.update_seeds(_draw_disjoint_seeds(rng, n=n_sims, excluded=excluded_seeds))
+        seeds_changed = True
+    return seeds_changed
+
+
+def _maybe_curate(
+    *,
+    seed_curator: SeedCurator | None,
+    problem: Any,
+    gen: int,
+    seed_pool_interval: int,
+    curation_top_k: int,
+    promoted: bool,
+    top_k_provider: Callable[[int], npt.NDArray[np.float64]],
+) -> bool:
+    """Adaptive curation trigger shared by both loops.
+
+    Fires on a validated promotion OR the periodic fallback interval. When it
+    fires, `top_k_provider(curation_top_k)` yields the search-space slice the
+    curator probes (single-algo: this gen's argmin slice; islands: the union
+    across all 3 populations). Returns True when seeds changed (the caller is
+    responsible for setting `pending_seed_change` so next gen re-evaluates).
+    """
+    if seed_curator is None:
+        return False
+    elapsed = gen - seed_curator.last_curation_gen
+    if promoted or elapsed >= seed_pool_interval:
+        new_seeds = seed_curator.curate(problem, top_k_provider(curation_top_k))
+        seed_curator.last_curation_gen = gen
+        problem.update_seeds(new_seeds)
+        return True
+    return False
+
+
+def _prune_old_checkpoints(save_dir: Path, keep_last: int | None) -> None:
+    """Retain only the `keep_last` most recent checkpoints; no-op when unset.
+
+    Shared by the single-algorithm `save_checkpoint` and the islands path.
+    `prune_checkpoints` matches both `checkpoint_g*.json` and `checkpoint_g*.npz`
+    (islands writes npz-only), and leaves JSONL logs / best_* / warm_start_* /
+    report.pdf untouched, so post-training analysis still works.
+    """
+    if keep_last is None or keep_last < 1:
+        return
+    from aerocapture.training.cleanup_checkpoints import prune_checkpoints  # noqa: PLC0415
+
+    prune_checkpoints(save_dir, keep_last=keep_last)
+
+
 def _check_resume_chromosome_shape(
     saved_population: npt.NDArray[np.float64],
     expected_n_params: int,
@@ -126,7 +196,7 @@ def _seed_initial_population(
     pop = np.tile(chromosome, (n_pop, 1))
     if algorithm_name == "cma_es":
         return pop
-    if algorithm_name not in ("ga", "de", "pso"):
+    if algorithm_name not in ("ga", "de", "pso", "islands"):
         raise ValueError(f"unknown algorithm {algorithm_name!r} for warm-start seeding")
     if n_pop < 1:
         raise ValueError(f"n_pop must be >= 1, got {n_pop}")
@@ -392,14 +462,8 @@ def save_checkpoint(
             with open(save_dir / "best_params.json", "w") as fp:
                 json.dump(params, fp, indent=2)
 
-    # Auto-prune older checkpoints when retention is configured. The JSONL
-    # log and all best_* / warm_start_* / report.pdf artifacts are untouched
-    # by `prune_checkpoints`, so post-training analysis still works.
-    keep_last = config.checkpoints.keep_last
-    if keep_last is not None and keep_last >= 1:
-        from aerocapture.training.cleanup_checkpoints import prune_checkpoints
-
-        prune_checkpoints(save_dir, keep_last=keep_last)
+    # Auto-prune older checkpoints when retention is configured.
+    _prune_old_checkpoints(save_dir, config.checkpoints.keep_last)
 
 
 def load_checkpoint(
@@ -460,6 +524,46 @@ def _decode_nn_weights(x: npt.NDArray[np.float64], specs: list[ParamSpec]) -> np
     for i, s in enumerate(specs):
         weights[i] = s.p_min + float(x[i]) * (s.p_max - s.p_min)
     return weights
+
+
+def warm_start_algorithm(
+    algorithm: Any,
+    problem: Any,
+    pop: Population,
+    *,
+    seed: int | None = None,
+    n_iter: int = 1,
+) -> None:
+    """Seed a pymoo Algorithm with a pre-evaluated population.
+
+    pymoo's `algorithm.setup(problem, pop=init_pop)` writes the pop onto the
+    algorithm but does NOT prevent the first `algorithm.next()` from calling
+    `_initialize()` (which wipes `self.pop`) and `_initialize_infill()` (which
+    resamples via LHS). The seeded population is then silently discarded.
+
+    This helper does the work `Algorithm.advance(infills=…)` does on the
+    first call, but with our pre-evaluated pop instead of LHS infills:
+    sets `self.pop`, runs `_initialize_advance` (which for PSO initializes
+    velocity + sets `self.particles = self.pop`), flips `is_initialized`,
+    and computes `self.opt`.
+
+    Use this in place of `algorithm.setup(problem, pop=init_pop)` whenever
+    the seeded chromosomes must survive into gen 0.
+    """
+    import time as _time  # noqa: PLC0415
+
+    algorithm.setup(problem, seed=seed)
+    algorithm.pop = pop
+    algorithm.n_iter = n_iter
+    # pymoo's `_initialize()` is what normally stamps `start_time`. We
+    # bypass it here, so set it explicitly — otherwise `algorithm.result()`
+    # (called by `advance()` when internal termination fires) crashes with
+    # `unsupported operand type(s) for -: 'float' and 'NoneType'` on
+    # `res.end_time - res.start_time`.
+    algorithm.start_time = _time.time()
+    algorithm._initialize_advance(infills=pop)
+    algorithm.is_initialized = True
+    algorithm._set_optimum()
 
 
 def train(
@@ -595,9 +699,12 @@ def train(
     # Compute config hash for experiment grouping
     config_hash = hashlib.sha256(repr(config).encode()).hexdigest()[:12]
 
-    # Try resuming from checkpoint
+    # Try resuming from checkpoint. The islands path manages its own .npz-only
+    # resume inside `_train_islands`; skip the single-algorithm `load_checkpoint`
+    # here so a stale single-algo `checkpoint.json` left in a shared save_dir
+    # can't bump `n_gen` a second time (it would also be bumped in _train_islands).
     resumed = None
-    if resume_dir is not None:
+    if resume_dir is not None and config.optimizer.algorithm != "islands":
         resumed = load_checkpoint(Path(resume_dir))
         if resumed is not None:
             # Restore RNG state
@@ -622,9 +729,16 @@ def train(
             # Make --n-gen mean "N additional" on resume
             config.optimizer.n_gen += resumed["generation"]
 
-    # Try loading existing NN weights for population seeding (NN only)
+    # Try loading existing NN weights for population seeding. Only meaningful
+    # under the v1 dense-only init path (`create_nn_initial_population`,
+    # which is the only consumer of `seed_weights`). v2 architectures use
+    # `init_v2_population` and discard seed_weights, AND `load_base_network`
+    # only knows the v1 JSON layout — calling it on a v2 best_model.json
+    # raises "list indices must be integers or slices, not str" because the
+    # v2 `architecture` key is a list of layer dicts, not a dict-with-"layers".
     seed_weights = None
-    if config.guidance_type == "neural_network" and resumed is None and not from_scratch:
+    is_v1_nn = config.guidance_type == "neural_network" and config.network.architecture is None
+    if is_v1_nn and resumed is None and not from_scratch:
         nn_param_path = Path(cwd or config.sim.exec_dir) / config.sim.nn_param_file
         if nn_param_path.exists():
             try:
@@ -898,6 +1012,31 @@ def train(
     if config.guidance_type == "neural_network" and warm_start_active and config.optimizer.algorithm == "cma_es":
         config.optimizer.cma_es.sigma0 = config.warm_start.cmaes_sigma0
 
+    # Islands dispatch: return early so the single-algorithm path below is untouched.
+    if config.optimizer.algorithm == "islands":
+        return _train_islands(
+            config=config,
+            cwd=cwd,
+            save_dir=save_dir,
+            problem=problem,
+            param_specs=param_specs,
+            n_params=n_params,
+            pop_array=pop_array,
+            pop_costs=pop_costs,
+            val_seeds=val_seeds,
+            base_mc_seed=base_mc_seed,
+            excluded_seeds=excluded_seeds,
+            rng=rng,
+            seed_curator=seed_curator,
+            strategy=strategy,
+            display=display,
+            verbose=verbose,
+            start_gen=start_gen,
+            config_hash=config_hash,
+            checkpoint_interval=checkpoint_interval,
+            toml_abs_path=toml_abs_path,
+        )
+
     # Set up algorithm
     algorithm = create_algorithm(config.optimizer, n_params=n_params)
     if verbose:
@@ -918,7 +1057,12 @@ def train(
         elif opt.algorithm == "pso":
             print(f"  PSO:       w={opt.pso.w}, c1={opt.pso.c1}, c2={opt.pso.c2}")
 
-    # Inject initial population into pymoo
+    # Inject initial population into pymoo. NOTE: `setup(pop=…)` alone is
+    # insufficient — pymoo's first `next()` would call `_initialize()` and
+    # `_initialize_infill()`, wiping the seeded pop with an LHS sample.
+    # `warm_start_algorithm` flips `is_initialized` and runs
+    # `_initialize_advance` so the seeded chromosomes survive into gen 0
+    # (and PSO's particles/V get initialized against them).
     initial_pop = Population.new("X", pop_array)
     if pop_costs is not None:
         initial_pop.set("F", pop_costs.reshape(-1, 1))
@@ -926,7 +1070,7 @@ def train(
         Evaluator().eval(problem, initial_pop)
         pop_costs = initial_pop.get("F").flatten()
 
-    algorithm.setup(problem, pop=initial_pop)
+    warm_start_algorithm(algorithm, problem, initial_pop)
 
     # Initialize best from the first population eval -- but ONLY on a fresh
     # start. On resume, `best_overall_{cost,individual}` are the checkpointed
@@ -1004,17 +1148,16 @@ def train(
             for gen in range(start_gen, config.optimizer.n_gen):
                 gen_wall_start = time.perf_counter()
 
-                seeds_changed_this_gen = pending_seed_change
+                seeds_changed_this_gen = _apply_seed_strategy(
+                    strategy=strategy,
+                    rng=rng,
+                    n_sims=config.optimizer.training_n_sims,
+                    excluded_seeds=excluded_seeds,
+                    problem=problem,
+                    seed_curator=seed_curator,
+                    pending_seed_change=pending_seed_change,
+                )
                 pending_seed_change = False
-
-                if strategy == "rotating":
-                    fresh = _draw_disjoint_seeds(rng, n=config.optimizer.training_n_sims, excluded=excluded_seeds)
-                    problem.update_seeds(fresh)
-                    seeds_changed_this_gen = True
-                elif strategy == "adaptive" and seed_curator is not None and seed_curator.seed_list is None:
-                    bootstrap = _draw_disjoint_seeds(rng, n=config.optimizer.training_n_sims, excluded=excluded_seeds)
-                    problem.update_seeds(bootstrap)
-                    seeds_changed_this_gen = True
 
                 # Pre-next re-eval: only fire when seeds changed. Skip for CMA-ES.
                 if seeds_changed_this_gen:
@@ -1076,17 +1219,26 @@ def train(
                         validated_improvement = True
 
                 # Curation trigger: on validated promotion OR periodic fallback.
-                if seed_curator is not None:
-                    elapsed = gen - seed_curator.last_curation_gen
-                    periodic = elapsed >= config.optimizer.seed_pool_interval
-                    if validated_improvement or periodic:
-                        k = min(config.optimizer.curation_top_k, len(costs))
-                        top_k_idx = np.argsort(costs)[:k]
-                        top_k_X = X[top_k_idx]
-                        new_seeds = seed_curator.curate(problem, top_k_X)
-                        seed_curator.last_curation_gen = gen
-                        problem.update_seeds(new_seeds)
-                        pending_seed_change = True  # next gen's pre-next re-eval picks up
+                # next gen's pre-next re-eval picks up the new seeds. Default-bind
+                # X/costs so the provider closes over THIS gen's pop (it's called
+                # synchronously, but binding also silences the loop-var lint).
+                def _single_top_k(
+                    k: int,
+                    X: npt.NDArray[np.float64] = X,
+                    costs: npt.NDArray[np.float64] = costs,
+                ) -> npt.NDArray[np.float64]:
+                    return X[np.argsort(costs)[: min(k, len(costs))]]
+
+                if _maybe_curate(
+                    seed_curator=seed_curator,
+                    problem=problem,
+                    gen=gen,
+                    seed_pool_interval=config.optimizer.seed_pool_interval,
+                    curation_top_k=config.optimizer.curation_top_k,
+                    promoted=validated_improvement,
+                    top_k_provider=_single_top_k,
+                ):
+                    pending_seed_change = True
 
                 # Common logging
                 gen_best_costs.append(best_overall_cost)
@@ -1203,6 +1355,407 @@ def train(
         "corridor_acc": corridor_acc,
         "param_specs": param_specs,
     }
+
+
+def _train_islands(
+    *,
+    config: TrainingConfig,
+    cwd: str | Path | None,
+    save_dir: Path,
+    problem: AerocaptureProblem,
+    param_specs: list[ParamSpec],
+    n_params: int,
+    pop_array: npt.NDArray[np.float64],
+    pop_costs: npt.NDArray[np.float64] | None,
+    val_seeds: list[int] | None,
+    base_mc_seed: int,
+    excluded_seeds: set[int],
+    rng: np.random.Generator,
+    seed_curator: SeedCurator | None,
+    strategy: str,
+    display: Any,
+    verbose: bool,
+    start_gen: int,
+    config_hash: str,
+    checkpoint_interval: int,
+    toml_abs_path: str,
+) -> dict[str, Any]:
+    """Outer loop for the 3-island PSO/GA/DE trainer.
+
+    Mirrors the single-algorithm path in train() but drives an IslandModel.
+    Per-island JSONL records (3 per gen) are written via TrainingLogger with
+    the `island_name` field set.
+    """
+    from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds  # noqa: PLC0415
+    from aerocapture.training.island_model import (  # noqa: PLC0415
+        IslandModel,
+        compute_migration_origin_stats,
+        summarize_latest_migration,
+    )
+    from aerocapture.training.logger import TrainingLogger  # noqa: PLC0415
+
+    # Reserved final-eval seeds (disjoint from training + validation pools).
+    # Match single-algorithm path: max(validation_n_sims, 10000).
+    final_eval_n = max(config.optimizer.validation_n_sims, 10000)
+    final_eval_seeds = make_reserved_seeds(
+        base_mc_seed,
+        FINAL_EVAL_SEED_OFFSET,
+        final_eval_n,
+    )
+
+    # Keep training-seed draws (rotating / adaptive) disjoint from the reserved
+    # final-eval and validation pools. train() only unions these into
+    # excluded_seeds when validation_n_sims > 0, so do it here unconditionally.
+    excluded_seeds = excluded_seeds | set(final_eval_seeds)
+    if val_seeds:
+        excluded_seeds = excluded_seeds | set(val_seeds)
+
+    island_model = IslandModel(
+        config=config.optimizer,
+        problem=problem,
+        n_params=n_params,
+        validation_seeds=val_seeds or [],
+        final_eval_seeds=final_eval_seeds,
+        base_mc_seed=base_mc_seed,
+        rng=rng,
+    )
+
+    # Probe for a resumable islands checkpoint FIRST, so the cold-start
+    # population evaluation below can be skipped on resume (from_checkpoint
+    # overwrites every island's pop, so evaluating the fresh pop would be
+    # wasted MC work). Pick the LATEST checkpoint that actually carries the
+    # islands v2 marker — not just the lexicographically-last .npz — so a
+    # foreign single-algorithm .npz sharing the directory (which has no
+    # "version" key) can't shadow a valid islands checkpoint.
+    ckpt_files = sorted(save_dir.glob("checkpoint_g*.npz"))
+    resume_ckpt: Path | None = None
+    for cand in reversed(ckpt_files):
+        try:
+            with np.load(cand, allow_pickle=True) as probe:
+                if "version" in probe and int(probe["version"]) == 2:
+                    resume_ckpt = cand
+                    break
+        except Exception:
+            continue
+    if resume_ckpt is None and ckpt_files and verbose:
+        print(
+            f"  Found {len(ckpt_files)} checkpoint_g*.npz in {save_dir} but none are islands v2 checkpoints; starting fresh.",
+        )
+
+    # Fan out the (possibly warm-started) initial population to all 3 islands.
+    # Each island gets the same starting chromosome but its algorithm's own
+    # internal state (e.g. PSO velocity init) is fresh. `warm_start_algorithm`
+    # is used instead of `setup(pop=…)` because pymoo would otherwise wipe the
+    # seeded pop via `_initialize()` on first `next()`; it also binds the
+    # problem via setup(), which is required even on resume.
+    if pop_costs is None:
+        if resume_ckpt is not None:
+            # Resuming: from_checkpoint overwrites pop.F immediately, so don't
+            # spend a full cold-start MC batch we're about to discard.
+            pop_costs = np.zeros(pop_array.shape[0], dtype=np.float64)
+        else:
+            # Evaluate once and share F across all islands (chromosomes are
+            # identical, so the costs are too — three Evaluator passes would
+            # triple the cold-start budget).
+            shared_eval_pop = Population.new("X", pop_array.copy())
+            Evaluator().eval(problem, shared_eval_pop)
+            pop_costs = shared_eval_pop.get("F").flatten()
+    for island in island_model.islands:
+        init_pop = Population.new("X", pop_array.copy())
+        init_pop.set("F", pop_costs.reshape(-1, 1).copy())
+        warm_start_algorithm(island.algorithm, problem, init_pop)
+
+    if resume_ckpt is not None:
+        resumed_gen, resumed_curator_state = island_model.from_checkpoint(resume_ckpt)
+        start_gen = resumed_gen + 1
+        # Mirror the single-algorithm convention: `--n-gen N` after resume
+        # means "N additional gens", so bump n_gen by the resumed
+        # generation count. Done inside `_train_islands` because the outer
+        # `train()` bump only runs when `load_checkpoint()` returns a
+        # non-None dict — which it can't for an npz-only islands checkpoint.
+        config.optimizer.n_gen += resumed_gen + 1
+        if resumed_curator_state is not None and seed_curator is not None:
+            from aerocapture.training.seed_curator import SeedCurator as _SeedCurator  # noqa: PLC0415
+
+            seed_curator = _SeedCurator.from_dict(
+                resumed_curator_state,
+                excluded_seeds=seed_curator.excluded_seeds,
+                rng=seed_curator.rng,
+            )
+            # Push the restored curated seed list into the problem so the
+            # first post-resume gen evaluates against the right seeds. The
+            # in-loop "adaptive bootstrap" branch is gated on `seed_list is
+            # None`, so without this push we would silently evaluate against
+            # the pre-islands-dispatch seed state.
+            if seed_curator.seed_list is not None:
+                problem.update_seeds(seed_curator.seed_list)
+        if verbose:
+            print(f"  Resumed islands from gen {resumed_gen}, continuing from {start_gen}")
+
+    # Decode function for logger (NN bypasses, analytic schemes use decode_normalized).
+    decode_fn: Callable[[npt.NDArray[np.float64]], dict[str, float]] | None = None
+    if config.guidance_type != "neural_network":
+
+        def _decode(x: npt.NDArray[np.float64]) -> dict[str, float]:
+            return decode_normalized(x, param_specs)
+
+        decode_fn = _decode
+
+    logger = TrainingLogger(
+        scheme=config.guidance_type,
+        run=0,
+        output_dir=save_dir,
+        config_hash=config_hash,
+    )
+
+    display.set_start_gen(start_gen)
+    pending_seed_change = False
+    interrupted = False
+    gen = start_gen
+
+    with display:
+        try:
+            for gen in range(start_gen, config.optimizer.n_gen):
+                seeds_changed_this_gen = _apply_seed_strategy(
+                    strategy=strategy,
+                    rng=rng,
+                    n_sims=config.optimizer.training_n_sims,
+                    excluded_seeds=excluded_seeds,
+                    problem=problem,
+                    seed_curator=seed_curator,
+                    pending_seed_change=pending_seed_change,
+                )
+                pending_seed_change = False
+
+                if seeds_changed_this_gen:
+                    island_model.re_evaluate_all_populations()
+
+                # Advance + (maybe) migrate.
+                events = island_model.step(current_gen=gen)
+
+                # Validate (identity-trigger per island).
+                if val_seeds:
+                    val_records = island_model.validate_each(current_gen=gen)
+                else:
+                    # No validation seeds — there is no validation gate to
+                    # promote best_overall_*, so promote each island's finite
+                    # training argmin directly. Without this no island ever sets
+                    # best_overall_individual, final_eval() returns [], and the
+                    # run produces zero artifacts while deleting any prior
+                    # best_model.json. final_eval re-ranks on the disjoint
+                    # final-eval pool, so the cross-gen incomparability is bounded
+                    # to which gen's argmin seeds each island's candidate.
+                    val_records = []
+                    for i in island_model.islands:
+                        F = i.algorithm.pop.get("F").flatten()
+                        finite_mask = np.isfinite(F)
+                        if finite_mask.any():
+                            X = i.algorithm.pop.get("X")
+                            amin = int(np.argmin(np.where(finite_mask, F, np.inf)))
+                            i.best_overall_individual = X[amin].copy()
+                            i.best_overall_cost = float(F[amin])
+                            argmin_cost = float(F[amin])
+                        else:
+                            argmin_cost = float("inf")
+                        val_records.append(
+                            {
+                                "island": i.name,
+                                "validated": False,
+                                "promoted": False,
+                                "argmin_train_cost": argmin_cost,
+                                "stagnation": i.stagnation_counter,
+                            }
+                        )
+
+                # Adaptive seed curation: probe a top-K slice pooled across all
+                # 3 islands (vs the single-algo per-gen argmin slice).
+                if _maybe_curate(
+                    seed_curator=seed_curator,
+                    problem=problem,
+                    gen=gen,
+                    seed_pool_interval=config.optimizer.seed_pool_interval,
+                    curation_top_k=config.optimizer.curation_top_k,
+                    promoted=any(r.get("promoted") for r in val_records),
+                    top_k_provider=island_model.pool_top_k_X,
+                ):
+                    pending_seed_change = True
+
+                # Per-island JSONL records.
+                for island, val_rec in zip(island_model.islands, val_records, strict=True):
+                    X = island.algorithm.pop.get("X")
+                    F = island.algorithm.pop.get("F").flatten()
+                    validation_dict: dict | None = None
+                    if val_rec["validated"]:
+                        validation_dict = {
+                            "rms_cost": val_rec["val_rms"],
+                            "mean_cost": val_rec["val_mean"],
+                            "p95_cost": val_rec["val_p95"],
+                            "capture_rate": val_rec["val_capture_rate"],
+                            "n_sims": len(val_seeds) if val_seeds else 0,
+                        }
+                    logger.log_generation(
+                        generation=gen,
+                        population=X,
+                        costs=F,
+                        best_individual=island.best_overall_individual,
+                        decode_fn=decode_fn,
+                        validation=validation_dict,
+                        improved=val_rec["promoted"],
+                        island_name=island.name,
+                    )
+
+                island_records: dict[str, Any] = {
+                    island.name: {
+                        "best_val": island.best_val_cost,
+                        "val_rms": val_rec.get("val_rms", float("inf")),
+                        "stagnation": island.stagnation_counter,
+                        "argmin_train_cost": val_rec.get("argmin_train_cost", float("inf")),
+                    }
+                    for island, val_rec in zip(
+                        island_model.islands,
+                        val_records,
+                        strict=True,
+                    )
+                }
+                island_records["_gen"] = gen
+                island_records["_n_gen"] = config.optimizer.n_gen
+                island_records["_total_migrations"] = len(island_model.migration_log)
+
+                # Migration summary: best/worst migrant per destination from THIS
+                # gen's events (if any). Only (re)computed on migration gens — the
+                # cached snapshot is reused on the other ~(k_period-1)/k_period
+                # gens so the per-gen display refresh doesn't re-scan the full
+                # migration_log every generation.
+                if events:
+                    island_model.latest_migration_summary = summarize_latest_migration(events)
+                    island_model.latest_migration_gen = gen
+                    island_model.origin_stats_cache = compute_migration_origin_stats(island_model.migration_log)
+
+                island_records["_latest_migration_summary"] = island_model.latest_migration_summary
+                island_records["_latest_migration_gen"] = island_model.latest_migration_gen
+                island_records["_origin_stats"] = island_model.origin_stats_cache
+
+                display.update(logger, current_run=0, island_records=island_records)
+
+                if (gen + 1) % checkpoint_interval == 0 or gen == config.optimizer.n_gen - 1:
+                    island_model.checkpoint(
+                        save_dir / f"checkpoint_g{gen:05d}.npz",
+                        generation=gen,
+                        seed_curator_state=seed_curator.to_dict() if seed_curator is not None else None,
+                    )
+                    _prune_old_checkpoints(save_dir, config.checkpoints.keep_last)
+
+        except KeyboardInterrupt:
+            interrupted = True
+            island_model.checkpoint(
+                save_dir / f"checkpoint_g{gen:05d}.npz",
+                generation=gen,
+                seed_curator_state=seed_curator.to_dict() if seed_curator is not None else None,
+            )
+            _prune_old_checkpoints(save_dir, config.checkpoints.keep_last)
+            if verbose:
+                print(f"\n  Interrupted at gen {gen}; checkpoint saved.")
+
+    # Final eval + winner selection.
+    results = island_model.final_eval()
+    if not results:
+        if verbose:
+            print("  No island had a validated best — skipping final-eval / artifact write.")
+        # Remove any best_model.json / best_params.json left over from a
+        # previous experiment so downstream tooling (compare_guidance,
+        # report.py, deploy paths) doesn't silently consume a stale model.
+        for stale in (
+            save_dir / "best_model.json",
+            save_dir / "best_params.json",
+            Path(cwd or ".") / config.sim.nn_param_file if config.guidance_type == "neural_network" else None,
+        ):
+            if stale is not None and stale.exists():
+                stale.unlink()
+                if verbose:
+                    print(f"  Removed stale {stale}")
+        logger.close()
+        return {
+            "best_cost": float("inf"),
+            "best_individual": None,
+            "cost_history": [],
+            "interrupted": interrupted,
+            "corridor_acc": None,
+            "param_specs": param_specs,
+            "winner": None,
+            "results": [],
+            "migration_log": island_model.migration_log,
+        }
+
+    winner = results[0]
+    if verbose:
+        print(
+            f"  Winner: {winner['island']} rms={winner['rms']:.4e} cap={winner['capture_rate']:.0%}",
+        )
+
+    _write_winner_artifacts(
+        winner=winner,
+        config=config,
+        save_dir=save_dir,
+        param_specs=param_specs,
+    )
+
+    logger.close()
+    return {
+        "best_cost": float(winner["rms"]),
+        "best_individual": winner["X"],
+        "cost_history": [],
+        "interrupted": interrupted,
+        "corridor_acc": None,
+        "param_specs": param_specs,
+        "winner": winner,
+        "results": results,
+        "migration_log": island_model.migration_log,
+    }
+
+
+def _write_winner_artifacts(
+    *,
+    winner: dict[str, Any],
+    config: TrainingConfig,
+    save_dir: Path,
+    param_specs: list[ParamSpec],
+) -> None:
+    """Write best_model.json / best_params.json from the winning island's chromosome.
+
+    Writes only to save_dir. main() handles the deploy-path write to cwd.
+    """
+    best_individual = winner["X"]
+
+    if config.guidance_type == "neural_network":
+        n_scaff = 17 if config.network.optimize_scaffolding else 0
+        n_weights = len(param_specs) - n_scaff
+        weights = _decode_nn_weights(
+            best_individual[:n_weights],
+            param_specs[:n_weights],
+        )
+        write_nn_json(
+            weights,
+            config.network,
+            save_dir / "best_model.json",
+            input_mask=config.network.input_mask,
+            output_param=config.network.output_parameterization,
+        )
+        if n_scaff > 0:
+            from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS  # noqa: PLC0415
+
+            scaff_params = decode_normalized(
+                best_individual[n_weights:],
+                list(_NN_SCAFFOLDING_PARAMS),
+            )
+            for s in _NN_SCAFFOLDING_PARAMS:
+                if s.is_integer and s.name in scaff_params:
+                    scaff_params[s.name] = int(round(scaff_params[s.name]))
+            with open(save_dir / "best_params.json", "w") as fp:
+                json.dump(scaff_params, fp, indent=2)
+    else:
+        params = decode_normalized(best_individual, param_specs)
+        with open(save_dir / "best_params.json", "w") as fp:
+            json.dump(params, fp, indent=2)
 
 
 def _accumulate_corridor(
@@ -1445,11 +1998,14 @@ if __name__ == "__main__":
                     stale_path.unlink()
                     print(f"  Removed stale {stale_path}")
 
-    # Auto-resume: if no --resume and no -fs, check for existing checkpoint
+    # Auto-resume: if no --resume and no -fs, check for existing checkpoint.
+    # Single-algorithm runs write paired checkpoint_g*.{json,npz}; the
+    # islands path writes .npz-only checkpoints. Glob both so islands runs
+    # auto-resume just like single-algo runs do.
     resume_dir = args.resume
     if resume_dir is None and not args.from_scratch:
         save_path = Path(cfg.save_dir)
-        if list(save_path.glob("checkpoint_*.json")):
+        if list(save_path.glob("checkpoint_*.json")) or list(save_path.glob("checkpoint_g*.npz")):
             resume_dir = cfg.save_dir
 
     # Derive mission name from the first base TOML (the mission config).

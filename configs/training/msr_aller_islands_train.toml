@@ -1,0 +1,43 @@
+# MSR outbound — 3-island PSO/GA/DE training with periodic migration.
+# Clean A/B against single-algorithm PSO on the same NN architecture and
+# per-island budget (n_pop=64 each, total 192 evals/gen).
+base = ["../missions/mars.toml", "common.toml"]
+
+[guidance]
+type = "neural_network"
+
+[network]
+input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+
+[[network.architecture]]
+type = "dense"
+input_size = 25
+output_size = 32
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 32
+output_size = 16
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 16
+output_size = 2
+activation = "asinh"
+
+[data]
+neural_network = "training_output/neural_network_islands/best_model.json"
+results_suffix = ".train_islands"
+
+[guidance.command_shaping]
+enabled = true
+max_bank_acceleration = 12.674110367187794   # deg/s^2
+
+[navigation]
+density_filter_gain = 0.34888052188696395
+density_gain_max_delta = 0.13961756994200195
+
+[optimizer]
+algorithm = "islands"

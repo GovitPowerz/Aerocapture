@@ -100,6 +100,17 @@ w = 0.7
 c1 = 1.5
 c2 = 1.5
 
+# ── Islands: 3-island PSO/GA/DE with episodic migration ──
+# k_period = gens between full-mesh top-k/worst-(k*(n-1)) migration events.
+# k_top = individuals exported per (src->dst) pair (so PSO receives 2*k_top per event).
+# pso_inject_velocity_scale = half-width of uniform velocity for migrants in normalized space.
+# To use: set algorithm = "islands"
+[optimizer.islands]
+enabled = true
+k_period = 25
+k_top = 3
+pso_inject_velocity_scale = 0.05
+
 # ── Command shaping (acceleration-limited rate shaping) ──
 [guidance.command_shaping]
 enabled = true
