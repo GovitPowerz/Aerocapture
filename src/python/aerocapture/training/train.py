@@ -855,9 +855,7 @@ def train(
                         nn_weight_specs=warm_weight_specs,
                     )
                 except Exception as e:
-                    print(
-                        f"  [warm_start] WARNING: trajectory comparison failed: {type(e).__name__}: {e}"
-                    )
+                    print(f"  [warm_start] WARNING: trajectory comparison failed: {type(e).__name__}: {e}")
 
                 # Intermediate warm-start report: charts + Typst PDF summarizing
                 # supervised MSE convergence, supervisor selection, search-space

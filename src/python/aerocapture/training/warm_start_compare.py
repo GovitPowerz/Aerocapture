@@ -83,10 +83,7 @@ def _run_one_pool_one_side(
     else:
         raise ValueError(f"unknown side {side!r}; expected 'supervisor' or 'nn'")
 
-    overrides_list = [
-        {**overrides_template, "monte_carlo.seed": int(s), "simulation.n_sims": 1}
-        for s in seeds
-    ]
+    overrides_list = [{**overrides_template, "monte_carlo.seed": int(s), "simulation.n_sims": 1} for s in seeds]
     results = _aero_rs.run_batch(
         toml_path=str(toml_path),
         overrides_list=overrides_list,
@@ -116,9 +113,7 @@ def _render_pool_panels(
     charts.chart_corridor_inclination(trajectories, traj_class, out_dir / f"{prefix}_corridor_inclination.svg")
     charts.chart_corridor_bank(trajectories, traj_class, out_dir / f"{prefix}_corridor_bank.svg")
     charts.chart_altitude_time(trajectories, traj_class, out_dir / f"{prefix}_altitude_time.svg")
-    charts.chart_heat_flux_time(
-        trajectories, traj_class, out_dir / f"{prefix}_heat_flux_time.svg", limit_kw_m2=heat_flux_limit
-    )
+    charts.chart_heat_flux_time(trajectories, traj_class, out_dir / f"{prefix}_heat_flux_time.svg", limit_kw_m2=heat_flux_limit)
 
 
 def _read_constraint_limits(toml_path: Path) -> tuple[float | None, float | None]:
@@ -150,8 +145,7 @@ def _decode_warm_start_weights(
     """
     if len(warm_chromo) != len(weight_specs):
         raise ValueError(
-            f"chromosome length ({len(warm_chromo)}) must match weight_specs length "
-            f"({len(weight_specs)}); did you forget to drop the scaffolding tail?"
+            f"chromosome length ({len(warm_chromo)}) must match weight_specs length ({len(weight_specs)}); did you forget to drop the scaffolding tail?"
         )
     weights = np.empty(len(weight_specs), dtype=np.float64)
     for j, s in enumerate(weight_specs):
@@ -182,10 +176,7 @@ def render_trajectory_comparison(
     # Resolve primary supervisor (first scheme in the list -- typically FTC).
     ws = cfg.warm_start
     primary_scheme = ws.supervisor_schemes[0]
-    primary_params_path = (
-        ws.params_paths.get(primary_scheme)
-        or f"training_output/{primary_scheme}/best_params.json"
-    )
+    primary_params_path = ws.params_paths.get(primary_scheme) or f"training_output/{primary_scheme}/best_params.json"
     primary_params_path = str(primary_params_path)
     if not Path(primary_params_path).exists():
         raise FileNotFoundError(
@@ -243,9 +234,7 @@ def render_trajectory_comparison(
             pool_entry: dict[str, Any] = {"n_sims": int(n_seeds), "sides": {}}
             for side in sides:
                 t0 = time.monotonic()
-                print(
-                    f"  [warm_start_compare] {side} on {pool_name} pool ({n_seeds} sims)..."
-                )
+                print(f"  [warm_start_compare] {side} on {pool_name} pool ({n_seeds} sims)...")
                 try:
                     final_records, trajectories = _run_one_pool_one_side(
                         toml_path=cfg.sim.toml_config,
@@ -261,9 +250,7 @@ def render_trajectory_comparison(
                         heat_flux_limit=heat_flux_limit,
                         g_load_limit=None,  # g-load violation already counted via heat-flux path
                     )
-                    n_captured = int(
-                        ((final_records[:, _charts._FR_IFINAL] == 3) & (final_records[:, _charts._FR_ECC] < 1.0)).sum()
-                    )
+                    n_captured = int(((final_records[:, _charts._FR_IFINAL] == 3) & (final_records[:, _charts._FR_ECC] < 1.0)).sum())
                     prefix = f"compare_{pool_name}_{side}"
                     _render_pool_panels(
                         trajectories=trajectories,
@@ -278,18 +265,13 @@ def render_trajectory_comparison(
                         "prefix": prefix,
                         "panels": {p: f"{prefix}_{p}.svg" for p in panels},
                     }
-                    print(
-                        f"  [warm_start_compare]   {side}/{pool_name}: "
-                        f"{n_captured}/{n_seeds} captured  ({time.monotonic() - t0:.1f}s)"
-                    )
+                    print(f"  [warm_start_compare]   {side}/{pool_name}: {n_captured}/{n_seeds} captured  ({time.monotonic() - t0:.1f}s)")
                     # Release memory before next pool/side -- 5000 trajectories
                     # at ~120 KB each is ~600 MB.
                     del trajectories, final_records
                 except Exception as e:
                     pool_entry["sides"][side] = {"error": f"{type(e).__name__}: {e}"}
-                    print(
-                        f"  [warm_start_compare] WARNING: {side}/{pool_name} failed: {type(e).__name__}: {e}"
-                    )
+                    print(f"  [warm_start_compare] WARNING: {side}/{pool_name} failed: {type(e).__name__}: {e}")
             manifest["pools"][pool_name] = pool_entry
     finally:
         nn_tmp_path.unlink(missing_ok=True)
