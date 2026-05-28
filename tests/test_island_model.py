@@ -5,11 +5,15 @@ See docs/superpowers/specs/2026-05-28-island-model-pso-ga-de-design.md.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pytest
-from aerocapture.training.island_model import Island, MigrationEvent, migrate
+from aerocapture.training.island_model import Island, MigrationEvent, inject_into_pso, migrate
 from aerocapture.training.optimizer import IslandSettings, OptimizerConfig
+from pymoo.algorithms.soo.nonconvex.pso import PSO
 from pymoo.core.population import Population
+from pymoo.core.problem import Problem
 
 
 def test_optimizer_config_islands_parses() -> None:
@@ -176,3 +180,83 @@ def test_migrate_logs_f_displaced() -> None:
     a_to_b = [e for e in events if e.src_island == "A" and e.dst_island == "B"]
     f_displaced_set = sorted(e.F_displaced for e in a_to_b)
     assert f_displaced_set == [400.0, 500.0]
+
+
+class _UnitCubeProblem(Problem):
+    """Trivial problem: f(x) = sum(x). 4 dims, [0,1] bounds, single objective."""
+
+    def __init__(self) -> None:
+        super().__init__(n_var=4, n_obj=1, xl=0.0, xu=1.0)
+
+    def _evaluate(self, X: np.ndarray, out: dict, *args: Any, **kwargs: Any) -> None:
+        out["F"] = X.sum(axis=1).reshape(-1, 1)
+
+
+def _make_real_pso() -> PSO:
+    """Construct and run-once a small pymoo PSO so its pop has V/pbest/pbest_F populated."""
+    problem = _UnitCubeProblem()
+    pso = PSO(pop_size=10, w=0.7, c1=1.5, c2=1.5)
+    pso.setup(problem, seed=0)
+    pso.next()  # advance one gen so V/pbest fields exist on every individual
+    return pso
+
+
+def test_inject_into_pso_writes_velocity_in_range() -> None:
+    pso = _make_real_pso()
+    rng = np.random.default_rng(0)
+    X_new = np.array([0.5, 0.5, 0.5, 0.5])
+    inject_into_pso(pso, slot=3, X=X_new, F=0.42, velocity_scale=0.05, rng=rng)
+
+    V = pso.pop.get("V")
+    assert V[3].shape == (4,)
+    assert np.all(np.abs(V[3]) <= 0.05)
+
+
+def test_inject_into_pso_sets_pbest_to_current_position() -> None:
+    pso = _make_real_pso()
+    rng = np.random.default_rng(0)
+    X_new = np.array([0.11, 0.22, 0.33, 0.44])
+    inject_into_pso(pso, slot=5, X=X_new, F=1.23, velocity_scale=0.05, rng=rng)
+
+    # Use to_numpy=False to avoid inhomogeneous-array error (other slots are None).
+    pbest = pso.pop.get("pbest", to_numpy=False)
+    pbest_F = pso.pop.get("pbest_F", to_numpy=False)
+    np.testing.assert_array_equal(pbest[5], X_new)
+    assert float(pbest_F[5][0]) == 1.23
+
+
+def test_inject_into_pso_does_not_corrupt_other_slots() -> None:
+    pso = _make_real_pso()
+    rng = np.random.default_rng(0)
+    V_before = pso.pop.get("V").copy()
+    # Snapshot pbest as a plain list to avoid inhomogeneous-array issues.
+    pbest_before = pso.pop.get("pbest", to_numpy=False)[:]
+
+    X_new = np.array([0.5, 0.5, 0.5, 0.5])
+    inject_into_pso(pso, slot=7, X=X_new, F=0.42, velocity_scale=0.05, rng=rng)
+
+    V_after = pso.pop.get("V")
+    pbest_after = pso.pop.get("pbest", to_numpy=False)
+    for i in range(10):
+        if i == 7:
+            continue
+        np.testing.assert_array_equal(V_before[i], V_after[i])
+        # None slots must remain None; non-None slots must be unchanged.
+        if pbest_before[i] is None:
+            assert pbest_after[i] is None
+        else:
+            np.testing.assert_array_equal(pbest_before[i], pbest_after[i])
+
+
+def test_inject_into_pso_velocity_seeded_rng_deterministic() -> None:
+    pso = _make_real_pso()
+    X_new = np.array([0.5, 0.5, 0.5, 0.5])
+    inject_into_pso(pso, slot=0, X=X_new, F=0.0, velocity_scale=0.05,
+                    rng=np.random.default_rng(42))
+    V_first = pso.pop.get("V")[0].copy()
+
+    pso2 = _make_real_pso()
+    inject_into_pso(pso2, slot=0, X=X_new, F=0.0, velocity_scale=0.05,
+                    rng=np.random.default_rng(42))
+    V_second = pso2.pop.get("V")[0]
+    np.testing.assert_array_equal(V_first, V_second)
