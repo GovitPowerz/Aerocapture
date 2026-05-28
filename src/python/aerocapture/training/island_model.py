@@ -52,8 +52,8 @@ def migrate(
 
     Snapshots emigrants from every island BEFORE any in-place replacement
     (so a destination's incoming pool is not corrupted by its own outgoing).
-    For PSO destinations, also resets V / pbest / pbest_F for the new slots
-    via `inject_into_pso`.
+    For PSO destinations, also resets V and the personal-best slot
+    (pop[slot].X / .F) via `inject_into_pso`.
     """
     # 1. Snapshot top-k emigrants from each island under current F.
     emigrants: dict[str, list[tuple[npt.NDArray[np.float64], float]]] = {}
@@ -117,22 +117,30 @@ def inject_into_pso(
     velocity_scale: float,
     rng: np.random.Generator,
 ) -> None:
-    """Write a fresh velocity and reset pbest/pbest_F for a migrant PSO slot.
+    """Place a migrant into a PSO slot: fresh velocity + pbest + current swarm pos.
 
-    Zero velocity is a trap: a collapsed swarm's gbest will pull the migrant
-    in within 2-3 ticks. A small uniform velocity gives the migrant a few
-    ticks to evaluate its neighborhood and (if better than gbest) become the
-    new attractor itself.
+    pymoo PSO maintains two Population objects:
+    - `algorithm.pop` is the PERSONAL-BEST population (`pop[i].X` is particle i's pbest).
+    - `algorithm.particles` is the CURRENT swarm position (identical to `pop` on
+      iteration 1, divergent after).
+
+    We must update both so the migrant lands at the slot in both reference frames.
+    Velocity gets a small uniform random kick: zero velocity is a trap because a
+    collapsed swarm's gbest will pull the migrant in within 2-3 ticks; the kick
+    gives 2-3 ticks of independent motion for the migrant to assert its own F.
     """
     n_params = X.shape[0]
-    V = algorithm.pop.get("V")
-    pbest = algorithm.pop.get("pbest")
-    pbest_F = algorithm.pop.get("pbest_F")
+    particles = getattr(algorithm, "particles", algorithm.pop)
 
+    # Velocity injection.
+    V = particles.get("V")
     V[slot] = rng.uniform(-velocity_scale, velocity_scale, size=n_params)
-    pbest[slot] = X.copy()
-    pbest_F[slot] = np.array([F])
+    particles.set("V", V)
 
-    algorithm.pop.set("V", V)
-    algorithm.pop.set("pbest", pbest)
-    algorithm.pop.set("pbest_F", pbest_F)
+    # Current swarm position (particles[slot]).
+    particles[slot].X = X.copy()
+    particles[slot].F = np.array([F])
+
+    # Personal best (pop[slot] in pymoo PSO).
+    algorithm.pop[slot].X = X.copy()
+    algorithm.pop[slot].F = np.array([F])

@@ -193,11 +193,11 @@ class _UnitCubeProblem(Problem):
 
 
 def _make_real_pso() -> PSO:
-    """Construct and run-once a small pymoo PSO so its pop has V/pbest/pbest_F populated."""
+    """Construct and run-once a small pymoo PSO so V and pop[slot].X/.F are populated."""
     problem = _UnitCubeProblem()
     pso = PSO(pop_size=10, w=0.7, c1=1.5, c2=1.5)
     pso.setup(problem, seed=0)
-    pso.next()  # advance one gen so V/pbest fields exist on every individual
+    pso.next()  # advance one gen so V and personal-best slots exist
     return pso
 
 
@@ -207,7 +207,7 @@ def test_inject_into_pso_writes_velocity_in_range() -> None:
     X_new = np.array([0.5, 0.5, 0.5, 0.5])
     inject_into_pso(pso, slot=3, X=X_new, F=0.42, velocity_scale=0.05, rng=rng)
 
-    V = pso.pop.get("V")
+    V = pso.particles.get("V")
     assert V[3].shape == (4,)
     assert np.all(np.abs(V[3]) <= 0.05)
 
@@ -218,34 +218,27 @@ def test_inject_into_pso_sets_pbest_to_current_position() -> None:
     X_new = np.array([0.11, 0.22, 0.33, 0.44])
     inject_into_pso(pso, slot=5, X=X_new, F=1.23, velocity_scale=0.05, rng=rng)
 
-    # Use to_numpy=False to avoid inhomogeneous-array error (other slots are None).
-    pbest = pso.pop.get("pbest", to_numpy=False)
-    pbest_F = pso.pop.get("pbest_F", to_numpy=False)
-    np.testing.assert_array_equal(pbest[5], X_new)
-    assert float(pbest_F[5][0]) == 1.23
+    np.testing.assert_array_equal(pso.pop[5].X, X_new)
+    assert float(pso.pop[5].F[0]) == 1.23
 
 
 def test_inject_into_pso_does_not_corrupt_other_slots() -> None:
     pso = _make_real_pso()
     rng = np.random.default_rng(0)
-    V_before = pso.pop.get("V").copy()
-    # Snapshot pbest as a plain list to avoid inhomogeneous-array issues.
-    pbest_before = pso.pop.get("pbest", to_numpy=False)[:]
+    V_before = pso.particles.get("V").copy()
+    X_before = [pso.pop[i].X.copy() for i in range(10)]
+    F_before = [pso.pop[i].F.copy() for i in range(10)]
 
     X_new = np.array([0.5, 0.5, 0.5, 0.5])
     inject_into_pso(pso, slot=7, X=X_new, F=0.42, velocity_scale=0.05, rng=rng)
 
-    V_after = pso.pop.get("V")
-    pbest_after = pso.pop.get("pbest", to_numpy=False)
+    V_after = pso.particles.get("V")
     for i in range(10):
         if i == 7:
             continue
         np.testing.assert_array_equal(V_before[i], V_after[i])
-        # None slots must remain None; non-None slots must be unchanged.
-        if pbest_before[i] is None:
-            assert pbest_after[i] is None
-        else:
-            np.testing.assert_array_equal(pbest_before[i], pbest_after[i])
+        np.testing.assert_array_equal(X_before[i], pso.pop[i].X)
+        np.testing.assert_array_equal(F_before[i], pso.pop[i].F)
 
 
 def test_inject_into_pso_velocity_seeded_rng_deterministic() -> None:
@@ -253,10 +246,26 @@ def test_inject_into_pso_velocity_seeded_rng_deterministic() -> None:
     X_new = np.array([0.5, 0.5, 0.5, 0.5])
     inject_into_pso(pso, slot=0, X=X_new, F=0.0, velocity_scale=0.05,
                     rng=np.random.default_rng(42))
-    V_first = pso.pop.get("V")[0].copy()
+    V_first = pso.particles.get("V")[0].copy()
 
     pso2 = _make_real_pso()
     inject_into_pso(pso2, slot=0, X=X_new, F=0.0, velocity_scale=0.05,
                     rng=np.random.default_rng(42))
-    V_second = pso2.pop.get("V")[0]
+    V_second = pso2.particles.get("V")[0]
     np.testing.assert_array_equal(V_first, V_second)
+
+
+def test_inject_into_pso_writes_both_particles_and_pop() -> None:
+    """After inject, BOTH algorithm.particles[slot].X and algorithm.pop[slot].X must equal X_new.
+
+    pymoo PSO has separate references for current swarm position vs personal best,
+    so the rescue mechanism requires writing both.
+    """
+    pso = _make_real_pso()
+    rng = np.random.default_rng(0)
+    X_new = np.array([0.91, 0.92, 0.93, 0.94])
+    inject_into_pso(pso, slot=2, X=X_new, F=0.0, velocity_scale=0.05, rng=rng)
+    np.testing.assert_array_equal(pso.pop[2].X, X_new)
+    np.testing.assert_array_equal(pso.particles[2].X, X_new)
+    assert float(pso.pop[2].F[0]) == 0.0
+    assert float(pso.particles[2].F[0]) == 0.0
