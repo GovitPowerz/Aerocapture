@@ -203,32 +203,35 @@ class LiveDisplay:
         elapsed = time.perf_counter() - self._start_time
         rate = (gen - self._start_gen) / elapsed if elapsed > 0 and gen > self._start_gen else 0.0
         remaining = (n_gen - gen) / rate if rate > 0 else float("inf")
-        header_text = (
-            f"Gen {gen}/{n_gen}  elapsed {_format_duration(elapsed)}  "
-            f"rate {rate:.2f} gens/s  ETA {_format_duration(remaining)}"
-        )
+        header_text = f"Gen {gen}/{n_gen}  elapsed {_format_duration(elapsed)}  rate {rate:.2f} gens/s  ETA {_format_duration(remaining)}"
         header = Panel(Text(header_text, style="bold"), title="Islands training", border_style="green")
 
-        # Migration log: last few events.
-        recent_events: list[dict] = list(island_records.get("_recent_migration_events", []))  # type: ignore[arg-type]
-        if recent_events:
-            ev_lines = []
-            for ev in recent_events[-6:]:  # last 6 events
-                ev_lines.append(
-                    f"  gen {ev['gen']}: {ev['src_island']} -> {ev['dst_island']}  "
-                    f"F_migrant={_format_cost(ev['F_migrant'])}  "
-                    f"F_displaced={_format_cost(ev['F_displaced'])}"
-                )
+        # Migration summary panel.
+        summary = island_records.get("_latest_migration_summary", {}) or {}
+        latest_gen = island_records.get("_latest_migration_gen")
+        total = island_records.get("_total_migrations", 0)
+        if not summary:
             mig_panel = Panel(
-                Text("\n".join(ev_lines), style="dim"),
-                title=f"Recent migrations ({island_records.get('_total_migrations', 0)} total)",
-                border_style="cyan",
+                Text(f"No migrations yet ({total} total)", style="dim"),
+                title="Migrations",
+                border_style="dim",
             )
         else:
+            lines: list[str] = []
+            for dst_name in ("pso", "ga", "de"):
+                rec = summary.get(dst_name)
+                if rec is None:
+                    continue
+                best = rec["best"]
+                worst = rec["worst"]
+                lines.append(
+                    f"{dst_name.upper():<4} ⬇ best:  {best['src']:<3} F={_format_cost(best['F_migrant'])} (displaced {_format_cost(best['F_displaced'])})"
+                )
+                lines.append(f"     ⬆ worst: {worst['src']:<3} F={_format_cost(worst['F_migrant'])} (displaced {_format_cost(worst['F_displaced'])})")
             mig_panel = Panel(
-                Text(f"No migrations yet ({island_records.get('_total_migrations', 0)} total)", style="dim"),
-                title="Recent migrations",
-                border_style="dim",
+                Text("\n".join(lines)),
+                title=f"Migrations (latest gen {latest_gen} · {total} total)",
+                border_style="cyan",
             )
 
         # Per-island panels with best_val added.
@@ -239,12 +242,7 @@ class LiveDisplay:
             last_val = rec.get("val_rms", float("inf"))
             stag = rec.get("stagnation", 0)
             argmin = rec.get("argmin_train_cost", float("inf"))
-            content = (
-                f"best_val: {_format_cost(best_val)}\n"
-                f"last_val: {_format_cost(last_val)}\n"
-                f"argmin:   {_format_cost(argmin)}\n"
-                f"stag:     {stag} gens"
-            )
+            content = f"best_val: {_format_cost(best_val)}\nlast_val: {_format_cost(last_val)}\nargmin:   {_format_cost(argmin)}\nstag:     {stag} gens"
             panels.append(Panel(content, title=name.upper(), border_style="cyan"))
 
         group = Group(header, Columns(panels), mig_panel)

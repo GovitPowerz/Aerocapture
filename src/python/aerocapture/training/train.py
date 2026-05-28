@@ -1372,7 +1372,7 @@ def _train_islands(
                     island_model.re_evaluate_all_populations()
 
                 # Advance + (maybe) migrate.
-                island_model.step(current_gen=gen)
+                events = island_model.step(current_gen=gen)
 
                 # Validate (identity-trigger per island).
                 if val_seeds:
@@ -1444,16 +1444,38 @@ def _train_islands(
                 island_records["_gen"] = gen
                 island_records["_n_gen"] = config.optimizer.n_gen
                 island_records["_total_migrations"] = len(island_model.migration_log)
-                island_records["_recent_migration_events"] = [
-                    {
-                        "gen": e.gen,
-                        "src_island": e.src_island,
-                        "dst_island": e.dst_island,
-                        "F_migrant": e.F_migrant,
-                        "F_displaced": e.F_displaced,
-                    }
-                    for e in island_model.migration_log
-                ]
+
+                # Migration summary: best and worst migrant per destination
+                # from THIS gen's migration event (if any).
+                if events:
+                    by_dst: dict[str, list] = {}
+                    for ev in events:
+                        by_dst.setdefault(ev.dst_island, []).append(ev)
+                    summary: dict[str, dict] = {}
+                    for dst_name, dst_events in by_dst.items():
+                        best = min(dst_events, key=lambda e: e.F_migrant)
+                        worst = max(dst_events, key=lambda e: e.F_migrant)
+                        summary[dst_name] = {
+                            "gen": best.gen,
+                            "best": {
+                                "src": best.src_island,
+                                "F_migrant": best.F_migrant,
+                                "F_displaced": best.F_displaced,
+                            },
+                            "worst": {
+                                "src": worst.src_island,
+                                "F_migrant": worst.F_migrant,
+                                "F_displaced": worst.F_displaced,
+                            },
+                        }
+                    # Persist into a long-lived attribute on island_model so the
+                    # panel keeps showing the latest snapshot between gens.
+                    island_model._latest_migration_summary = summary  # type: ignore[attr-defined]
+                    island_model._latest_migration_gen = gen  # type: ignore[attr-defined]
+
+                island_records["_latest_migration_summary"] = getattr(island_model, "_latest_migration_summary", {})
+                island_records["_latest_migration_gen"] = getattr(island_model, "_latest_migration_gen", None)
+
                 display.update(logger, current_run=0, island_records=island_records)
 
                 if (gen + 1) % checkpoint_interval == 0 or gen == config.optimizer.n_gen - 1:

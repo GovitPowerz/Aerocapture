@@ -939,6 +939,4 @@ def test_de_island_receives_migrants() -> None:
     # offspring derivable from DE's current pop (sum-X around 1-3). It must survive.
     de.next()
     F_after = de.pop.get("F").flatten()
-    assert F_after.min() <= 0.004 + 1e-12, (
-        f"DE failed to retain migrant: min F is {F_after.min():.6e}, expected <= 0.004"
-    )
+    assert F_after.min() <= 0.004 + 1e-12, f"DE failed to retain migrant: min F is {F_after.min():.6e}, expected <= 0.004"
