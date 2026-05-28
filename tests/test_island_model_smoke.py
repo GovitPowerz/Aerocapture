@@ -81,17 +81,12 @@ def test_islands_smoke_5_gens(tmp_path: Path) -> None:
 
     # Winner must be selected (all 3 islands should promote at least once in 5 gens).
     winner = result.get("winner")
-    assert winner is not None, (
-        "No winner selected — no island promoted a validated best in 5 gens. "
-        "Increase n_gen or validation_n_sims."
-    )
+    assert winner is not None, "No winner selected — no island promoted a validated best in 5 gens. Increase n_gen or validation_n_sims."
     assert winner["island"] in {"pso", "ga", "de"}
 
     # Migration must have fired: k_period=1 fires at gens 1, 2, 3, 4.
     migration_log = result.get("migration_log", [])
-    assert len(migration_log) > 0, (
-        "migration_log is empty — migrate() never fired even with k_period=1"
-    )
+    assert len(migration_log) > 0, "migration_log is empty — migrate() never fired even with k_period=1"
     # Spot-check a migration event has the expected fields.
     ev = migration_log[0]
     assert hasattr(ev, "gen") and hasattr(ev, "src_island") and hasattr(ev, "dst_island")
@@ -109,17 +104,11 @@ def test_islands_smoke_5_gens(tmp_path: Path) -> None:
     # Verify per-island JSONL records (3 per gen).
     jsonl_files = list(save_dir.glob("run_*.jsonl"))
     assert len(jsonl_files) == 1, f"Expected 1 JSONL file, found {len(jsonl_files)}: {jsonl_files}"
-    records = [
-        json.loads(line)
-        for line in jsonl_files[0].read_text().splitlines()
-        if line.strip()
-    ]
+    records = [json.loads(line) for line in jsonl_files[0].read_text().splitlines() if line.strip()]
 
     island_records = [r for r in records if "island_name" in r]
     island_names_seen = {r["island_name"] for r in island_records}
-    assert island_names_seen == {"pso", "ga", "de"}, (
-        f"Expected JSONL records for all 3 islands, got: {island_names_seen}"
-    )
+    assert island_names_seen == {"pso", "ga", "de"}, f"Expected JSONL records for all 3 islands, got: {island_names_seen}"
 
     # Each of gens 1..4 must have exactly 3 records (one per island).
     records_by_gen: dict[int, list[dict]] = {}

@@ -195,9 +195,7 @@ class _UnitCubeProblem(Problem):
     def _evaluate(self, X: np.ndarray, out: dict, *args: Any, **kwargs: Any) -> None:
         out["F"] = X.sum(axis=1).reshape(-1, 1)
 
-    def evaluate_individual_per_seed(
-        self, X: np.ndarray, seeds: list[int]
-    ) -> np.ndarray:
+    def evaluate_individual_per_seed(self, X: np.ndarray, seeds: list[int]) -> np.ndarray:
         base = float(np.sum(X))
         return np.array([base + 0.01 * s for s in seeds], dtype=np.float64)
 
@@ -258,13 +256,11 @@ def test_inject_into_pso_does_not_corrupt_other_slots() -> None:
 def test_inject_into_pso_velocity_seeded_rng_deterministic() -> None:
     pso = _make_real_pso()
     X_new = np.array([0.5, 0.5, 0.5, 0.5])
-    inject_into_pso(pso, slot=0, X=X_new, F=0.0, velocity_scale=0.05,
-                    rng=np.random.default_rng(42))
+    inject_into_pso(pso, slot=0, X=X_new, F=0.0, velocity_scale=0.05, rng=np.random.default_rng(42))
     V_first = pso.particles.get("V")[0].copy()
 
     pso2 = _make_real_pso()
-    inject_into_pso(pso2, slot=0, X=X_new, F=0.0, velocity_scale=0.05,
-                    rng=np.random.default_rng(42))
+    inject_into_pso(pso2, slot=0, X=X_new, F=0.0, velocity_scale=0.05, rng=np.random.default_rng(42))
     V_second = pso2.particles.get("V")[0]
     np.testing.assert_array_equal(V_first, V_second)
 
@@ -291,9 +287,7 @@ class _MockProblem:
     def __init__(self, n_var: int = 4) -> None:
         self.n_var = n_var
 
-    def evaluate_individual_per_seed(
-        self, X: np.ndarray, seeds: list[int]
-    ) -> np.ndarray:
+    def evaluate_individual_per_seed(self, X: np.ndarray, seeds: list[int]) -> np.ndarray:
         # F = sum(X) + 0.01 * seed_idx (so different islands get different rms).
         base = float(np.sum(X))
         return np.array([base + 0.01 * s for s in seeds], dtype=np.float64)
@@ -364,9 +358,13 @@ def test_island_model_final_eval_skips_islands_without_best() -> None:
     cfg = _make_islands_cfg()
     problem = _MockProblem(n_var=4)
     model = IslandModel(
-        config=cfg, problem=problem, n_params=4,
-        validation_seeds=[100, 101], final_eval_seeds=[200, 201],
-        base_mc_seed=0, rng=np.random.default_rng(0),
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100, 101],
+        final_eval_seeds=[200, 201],
+        base_mc_seed=0,
+        rng=np.random.default_rng(0),
     )
     model.islands[0].best_overall_individual = np.array([0.1, 0.2, 0.3, 0.4])
     # ga and de have no best_overall — they should be skipped.
@@ -380,9 +378,13 @@ def test_island_model_step_advances_all_three_islands() -> None:
     cfg = _make_islands_cfg()
     problem = _UnitCubeProblem()  # real pymoo problem so .next() works
     model = IslandModel(
-        config=cfg, problem=problem, n_params=4,
-        validation_seeds=[100, 101], final_eval_seeds=[200, 201],
-        base_mc_seed=0, rng=np.random.default_rng(0),
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100, 101],
+        final_eval_seeds=[200, 201],
+        base_mc_seed=0,
+        rng=np.random.default_rng(0),
     )
     for island in model.islands:
         island.algorithm.setup(problem, seed=0)
@@ -399,9 +401,13 @@ def test_island_model_step_fires_migration_at_k_period() -> None:
     cfg.islands.k_period = 2  # migrate every 2 gens
     problem = _UnitCubeProblem()
     model = IslandModel(
-        config=cfg, problem=problem, n_params=4,
-        validation_seeds=[100], final_eval_seeds=[200],
-        base_mc_seed=0, rng=np.random.default_rng(0),
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100],
+        final_eval_seeds=[200],
+        base_mc_seed=0,
+        rng=np.random.default_rng(0),
     )
     for island in model.islands:
         island.algorithm.setup(problem, seed=0)
@@ -421,9 +427,13 @@ def test_island_model_step_disabled_migration_never_fires() -> None:
     cfg.islands.k_period = 1  # would migrate every gen if enabled
     problem = _UnitCubeProblem()
     model = IslandModel(
-        config=cfg, problem=problem, n_params=4,
-        validation_seeds=[100], final_eval_seeds=[200],
-        base_mc_seed=0, rng=np.random.default_rng(0),
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100],
+        final_eval_seeds=[200],
+        base_mc_seed=0,
+        rng=np.random.default_rng(0),
     )
     for island in model.islands:
         island.algorithm.setup(problem, seed=0)
@@ -436,9 +446,13 @@ def test_validate_each_fires_only_when_argmin_changes() -> None:
     cfg = _make_islands_cfg()
     problem = _UnitCubeProblem()
     model = IslandModel(
-        config=cfg, problem=problem, n_params=4,
-        validation_seeds=[100, 101], final_eval_seeds=[200],
-        base_mc_seed=0, rng=np.random.default_rng(0),
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100, 101],
+        final_eval_seeds=[200],
+        base_mc_seed=0,
+        rng=np.random.default_rng(0),
     )
     for island in model.islands:
         island.algorithm.setup(problem, seed=0)
@@ -460,9 +474,13 @@ def test_validate_each_promotes_best_overall_on_rms_improvement() -> None:
     cfg = _make_islands_cfg()
     problem = _UnitCubeProblem()
     model = IslandModel(
-        config=cfg, problem=problem, n_params=4,
-        validation_seeds=[1, 2, 3], final_eval_seeds=[200],
-        base_mc_seed=0, rng=np.random.default_rng(0),
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[1, 2, 3],
+        final_eval_seeds=[200],
+        base_mc_seed=0,
+        rng=np.random.default_rng(0),
     )
     for island in model.islands:
         island.algorithm.setup(problem, seed=0)
@@ -481,9 +499,13 @@ def test_pool_top_k_across_islands_unions_populations() -> None:
     cfg = _make_islands_cfg()
     problem = _UnitCubeProblem()
     model = IslandModel(
-        config=cfg, problem=problem, n_params=4,
-        validation_seeds=[100], final_eval_seeds=[200],
-        base_mc_seed=0, rng=np.random.default_rng(0),
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100],
+        final_eval_seeds=[200],
+        base_mc_seed=0,
+        rng=np.random.default_rng(0),
     )
     for island in model.islands:
         island.algorithm.setup(problem, seed=0)
@@ -504,9 +526,13 @@ def test_re_evaluate_all_populations_updates_f() -> None:
     cfg = _make_islands_cfg()
     problem = _UnitCubeProblem()
     model = IslandModel(
-        config=cfg, problem=problem, n_params=4,
-        validation_seeds=[100], final_eval_seeds=[200],
-        base_mc_seed=0, rng=np.random.default_rng(0),
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100],
+        final_eval_seeds=[200],
+        base_mc_seed=0,
+        rng=np.random.default_rng(0),
     )
     for island in model.islands:
         island.algorithm.setup(problem, seed=0)
@@ -530,7 +556,10 @@ def test_logger_writes_island_name_field_when_provided() -> None:
 
     with tempfile.TemporaryDirectory() as td:
         logger = TrainingLogger(
-            scheme="islands", run=0, output_dir=Path(td), config_hash="dummy",
+            scheme="islands",
+            run=0,
+            output_dir=Path(td),
+            config_hash="dummy",
         )
         X = np.zeros((4, 2))
         costs = np.array([1.0, 2.0, 3.0, 4.0])
@@ -556,7 +585,10 @@ def test_logger_omits_island_name_when_not_provided() -> None:
 
     with tempfile.TemporaryDirectory() as td:
         logger = TrainingLogger(
-            scheme="ftc", run=0, output_dir=Path(td), config_hash="dummy",
+            scheme="ftc",
+            run=0,
+            output_dir=Path(td),
+            config_hash="dummy",
         )
         logger.log_generation(
             generation=0,
@@ -576,19 +608,29 @@ def test_island_model_checkpoint_roundtrip() -> None:
     cfg = _make_islands_cfg()
     problem = _UnitCubeProblem()
     model = IslandModel(
-        config=cfg, problem=problem, n_params=4,
-        validation_seeds=[100, 101], final_eval_seeds=[200, 201],
-        base_mc_seed=42, rng=np.random.default_rng(0),
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100, 101],
+        final_eval_seeds=[200, 201],
+        base_mc_seed=42,
+        rng=np.random.default_rng(0),
     )
     for island in model.islands:
         island.algorithm.setup(problem, seed=0)
     model.step(current_gen=0)
     model.validate_each(current_gen=0)
     # Force a fake migration event into the log.
-    model.migration_log.append(MigrationEvent(
-        gen=1, src_island="ga", dst_island="pso", slot_idx=0,
-        F_migrant=0.1, F_displaced=10.0,
-    ))
+    model.migration_log.append(
+        MigrationEvent(
+            gen=1,
+            src_island="ga",
+            dst_island="pso",
+            slot_idx=0,
+            F_migrant=0.1,
+            F_displaced=10.0,
+        )
+    )
 
     with tempfile.TemporaryDirectory() as td:
         ckpt_path = Path(td) / "checkpoint_g00005.npz"
@@ -597,9 +639,13 @@ def test_island_model_checkpoint_roundtrip() -> None:
 
         # Build a fresh model and restore from checkpoint.
         restored = IslandModel(
-            config=cfg, problem=problem, n_params=4,
-            validation_seeds=[100, 101], final_eval_seeds=[200, 201],
-            base_mc_seed=42, rng=np.random.default_rng(99),
+            config=cfg,
+            problem=problem,
+            n_params=4,
+            validation_seeds=[100, 101],
+            final_eval_seeds=[200, 201],
+            base_mc_seed=42,
+            rng=np.random.default_rng(99),
         )
         for island in restored.islands:
             island.algorithm.setup(problem, seed=0)
@@ -616,7 +662,8 @@ def test_island_model_checkpoint_roundtrip() -> None:
             assert rest.best_overall_individual is None
         else:
             np.testing.assert_array_equal(
-                orig.best_overall_individual, rest.best_overall_individual,
+                orig.best_overall_individual,
+                rest.best_overall_individual,
             )
     assert len(restored.migration_log) == 1
     assert restored.migration_log[0].src_island == "ga"
@@ -630,9 +677,13 @@ def test_island_model_resume_preserves_best_overall_per_island() -> None:
     cfg = _make_islands_cfg()
     problem = _UnitCubeProblem()
     model = IslandModel(
-        config=cfg, problem=problem, n_params=4,
-        validation_seeds=[100], final_eval_seeds=[200],
-        base_mc_seed=42, rng=np.random.default_rng(0),
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100],
+        final_eval_seeds=[200],
+        base_mc_seed=42,
+        rng=np.random.default_rng(0),
     )
     for island in model.islands:
         island.algorithm.setup(problem, seed=0)
@@ -648,9 +699,13 @@ def test_island_model_resume_preserves_best_overall_per_island() -> None:
         model.checkpoint(ckpt_path, generation=10)
 
         restored = IslandModel(
-            config=cfg, problem=problem, n_params=4,
-            validation_seeds=[100], final_eval_seeds=[200],
-            base_mc_seed=42, rng=np.random.default_rng(0),
+            config=cfg,
+            problem=problem,
+            n_params=4,
+            validation_seeds=[100],
+            final_eval_seeds=[200],
+            base_mc_seed=42,
+            rng=np.random.default_rng(0),
         )
         for island in restored.islands:
             island.algorithm.setup(problem, seed=0)
@@ -671,9 +726,13 @@ def test_island_model_checkpoint_roundtrips_seed_curator_state() -> None:
     cfg = _make_islands_cfg()
     problem = _UnitCubeProblem()
     model = IslandModel(
-        config=cfg, problem=problem, n_params=4,
-        validation_seeds=[100], final_eval_seeds=[200],
-        base_mc_seed=42, rng=np.random.default_rng(0),
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100],
+        final_eval_seeds=[200],
+        base_mc_seed=42,
+        rng=np.random.default_rng(0),
     )
     for island in model.islands:
         island.algorithm.setup(problem, seed=0)
@@ -691,9 +750,13 @@ def test_island_model_checkpoint_roundtrips_seed_curator_state() -> None:
         model.checkpoint(ckpt_path, generation=10, seed_curator_state=curator_state)
 
         restored = IslandModel(
-            config=cfg, problem=problem, n_params=4,
-            validation_seeds=[100], final_eval_seeds=[200],
-            base_mc_seed=42, rng=np.random.default_rng(0),
+            config=cfg,
+            problem=problem,
+            n_params=4,
+            validation_seeds=[100],
+            final_eval_seeds=[200],
+            base_mc_seed=42,
+            rng=np.random.default_rng(0),
         )
         for island in restored.islands:
             island.algorithm.setup(problem, seed=0)
@@ -708,9 +771,13 @@ def test_from_checkpoint_raises_on_base_mc_seed_mismatch() -> None:
     cfg = _make_islands_cfg()
     problem = _UnitCubeProblem()
     model = IslandModel(
-        config=cfg, problem=problem, n_params=4,
-        validation_seeds=[100], final_eval_seeds=[200],
-        base_mc_seed=42, rng=np.random.default_rng(0),
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100],
+        final_eval_seeds=[200],
+        base_mc_seed=42,
+        rng=np.random.default_rng(0),
     )
     for island in model.islands:
         island.algorithm.setup(problem, seed=0)
@@ -721,8 +788,11 @@ def test_from_checkpoint_raises_on_base_mc_seed_mismatch() -> None:
         model.checkpoint(ckpt_path, generation=1)
 
         wrong_seed_model = IslandModel(
-            config=cfg, problem=problem, n_params=4,
-            validation_seeds=[100], final_eval_seeds=[200],
+            config=cfg,
+            problem=problem,
+            n_params=4,
+            validation_seeds=[100],
+            final_eval_seeds=[200],
             base_mc_seed=999,  # different from saved 42
             rng=np.random.default_rng(0),
         )
@@ -744,9 +814,13 @@ def test_islands_use_warm_started_pop_array() -> None:
     pop_array = rng.uniform(0.0, 1.0, size=(n_pop, n_params))  # simulates jittered warm-start output
 
     model = IslandModel(
-        config=cfg, problem=problem, n_params=n_params,
-        validation_seeds=[100], final_eval_seeds=[200],
-        base_mc_seed=0, rng=np.random.default_rng(0),
+        config=cfg,
+        problem=problem,
+        n_params=n_params,
+        validation_seeds=[100],
+        final_eval_seeds=[200],
+        base_mc_seed=0,
+        rng=np.random.default_rng(0),
     )
 
     for island in model.islands:

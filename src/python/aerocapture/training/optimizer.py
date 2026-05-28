@@ -56,9 +56,7 @@ class IslandSettings:
         if self.k_top < 1:
             raise ValueError(f"k_top must be >= 1, got {self.k_top}")
         if self.pso_inject_velocity_scale < 0.0:
-            raise ValueError(
-                f"pso_inject_velocity_scale must be >= 0.0, got {self.pso_inject_velocity_scale}"
-            )
+            raise ValueError(f"pso_inject_velocity_scale must be >= 0.0, got {self.pso_inject_velocity_scale}")
 
 
 @dataclass

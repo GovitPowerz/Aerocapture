@@ -56,7 +56,6 @@ class MigrationEvent:
     slot_idx: int
     F_migrant: float
     F_displaced: float
-    rng_seed_used: int
 
 
 class IslandModel:
@@ -230,7 +229,6 @@ def migrate(islands: list[Island], k_top: int, rng) -> list[MigrationEvent]:
             events.append(MigrationEvent(
                 gen=current_gen, src_island=src_name, dst_island=dst.name,
                 slot_idx=int(slot), F_migrant=F_new, F_displaced=F_displaced,
-                rng_seed_used=int(rng.bit_generator.state["state"]["state"] & 0xFFFFFFFF),
             ))
     return events
 ```
@@ -293,7 +291,7 @@ mutation_eta = 20.0
 # ... existing DESettings fields ...
 ```
 
-`OptimizerConfig.from_dict` parses the new `algorithm = "islands"` and validates that the three sub-blocks (`pso`, `ga`, `de`) are present.
+`OptimizerConfig.from_dict` parses the new `algorithm = "islands"` exactly like the existing single-algorithm values. Sub-blocks (`pso`, `ga`, `de`) are optional — when absent, each island uses its algorithm-class defaults (`PSOSettings()` / `GASettings()` / `DESettings()`). `create_algorithm` itself rejects `"islands"` directly (with a clear error pointing to `IslandModel`), since the island branch in `train.py` constructs each sub-algorithm separately via `IslandModel.__init__`.
 
 ## 7. Failure Modes and Resume
 

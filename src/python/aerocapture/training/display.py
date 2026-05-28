@@ -168,6 +168,7 @@ class LiveDisplay:
         from rich.columns import Columns  # noqa: PLC0415
         from rich.panel import Panel  # noqa: PLC0415
 
+        assert self._live is not None, "_update_islands called before __enter__"
         panels = []
         for name in ("pso", "ga", "de"):
             rec = island_records.get(name, {})
@@ -175,12 +176,7 @@ class LiveDisplay:
             val_rms = rec.get("val_rms", float("inf"))
             stag = rec.get("stagnation", 0)
             argmin = rec.get("argmin_train_cost", float("inf"))
-            content = (
-                f"best: {_format_cost(best)}\n"
-                f"last_val: {_format_cost(val_rms)}\n"
-                f"stag: {stag} gens\n"
-                f"argmin: {_format_cost(argmin)}"
-            )
+            content = f"best: {_format_cost(best)}\nlast_val: {_format_cost(val_rms)}\nstag: {stag} gens\nargmin: {_format_cost(argmin)}"
             panels.append(Panel(content, title=name.upper(), border_style="cyan"))
         self._live.update(Columns(panels))
 

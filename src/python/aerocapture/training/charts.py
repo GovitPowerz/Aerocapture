@@ -1306,8 +1306,11 @@ def chart_island_convergence_overlay(
             continue
         finite_gens, finite_costs = zip(*finite, strict=True)
         ax.plot(
-            finite_gens, finite_costs,
-            color=colors.get(name, "k"), label=name.upper(), linewidth=1.5,
+            finite_gens,
+            finite_costs,
+            color=colors.get(name, "k"),
+            label=name.upper(),
+            linewidth=1.5,
         )
     ax.set_yscale("log")
     ax.set_xlabel("Generation")
@@ -1333,8 +1336,12 @@ def chart_migration_timeline(
     if not migration_log:
         fig, ax = plt.subplots(figsize=(10, 3))
         ax.text(
-            0.5, 0.5, "No migration events",
-            ha="center", va="center", transform=ax.transAxes,
+            0.5,
+            0.5,
+            "No migration events",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
         )
         ax.set_xlim(0, max(n_gen, 1))
         fig.tight_layout()

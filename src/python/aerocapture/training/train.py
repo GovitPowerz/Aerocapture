@@ -1267,7 +1267,9 @@ def _train_islands(
     # Match single-algorithm path: max(validation_n_sims, 10000).
     final_eval_n = max(config.optimizer.validation_n_sims, 10000)
     final_eval_seeds = make_reserved_seeds(
-        base_mc_seed, FINAL_EVAL_SEED_OFFSET, final_eval_n,
+        base_mc_seed,
+        FINAL_EVAL_SEED_OFFSET,
+        final_eval_n,
     )
 
     island_model = IslandModel(
@@ -1305,8 +1307,7 @@ def _train_islands(
         if not is_islands_ckpt:
             if verbose:
                 print(
-                    f"  Found checkpoint at {ckpt_files[-1]} but it's not an islands v2 "
-                    f"checkpoint; starting fresh.",
+                    f"  Found checkpoint at {ckpt_files[-1]} but it's not an islands v2 checkpoint; starting fresh.",
                 )
             ckpt_files = []
     if ckpt_files:
@@ -1326,6 +1327,7 @@ def _train_islands(
     # Decode function for logger (NN bypasses, analytic schemes use decode_normalized).
     decode_fn: Callable[[npt.NDArray[np.float64]], dict[str, float]] | None = None
     if config.guidance_type != "neural_network":
+
         def _decode(x: npt.NDArray[np.float64]) -> dict[str, float]:
             return decode_normalized(x, param_specs)
 
@@ -1350,17 +1352,17 @@ def _train_islands(
 
                 if strategy == "rotating":
                     fresh = _draw_disjoint_seeds(
-                        rng, n=config.optimizer.training_n_sims, excluded=excluded_seeds,
+                        rng,
+                        n=config.optimizer.training_n_sims,
+                        excluded=excluded_seeds,
                     )
                     problem.update_seeds(fresh)
                     seeds_changed_this_gen = True
-                elif (
-                    strategy == "adaptive"
-                    and seed_curator is not None
-                    and seed_curator.seed_list is None
-                ):
+                elif strategy == "adaptive" and seed_curator is not None and seed_curator.seed_list is None:
                     bootstrap = _draw_disjoint_seeds(
-                        rng, n=config.optimizer.training_n_sims, excluded=excluded_seeds,
+                        rng,
+                        n=config.optimizer.training_n_sims,
+                        excluded=excluded_seeds,
                     )
                     problem.update_seeds(bootstrap)
                     seeds_changed_this_gen = True
@@ -1433,7 +1435,9 @@ def _train_islands(
                         "argmin_train_cost": val_rec.get("argmin_train_cost", float("inf")),
                     }
                     for island, val_rec in zip(
-                        island_model.islands, val_records, strict=True,
+                        island_model.islands,
+                        val_records,
+                        strict=True,
                     )
                 }
                 display.update(logger, current_run=0, island_records=island_records)
@@ -1471,8 +1475,7 @@ def _train_islands(
     winner = results[0]
     if verbose:
         print(
-            f"  Winner: {winner['island']} rms={winner['rms']:.4e} "
-            f"cap={winner['capture_rate']:.0%}",
+            f"  Winner: {winner['island']} rms={winner['rms']:.4e} cap={winner['capture_rate']:.0%}",
         )
 
     _write_winner_artifacts(
@@ -1510,7 +1513,8 @@ def _write_winner_artifacts(
         n_scaff = 17 if config.network.optimize_scaffolding else 0
         n_weights = len(param_specs) - n_scaff
         weights = _decode_nn_weights(
-            best_individual[:n_weights], param_specs[:n_weights],
+            best_individual[:n_weights],
+            param_specs[:n_weights],
         )
         write_nn_json(
             weights,
@@ -1532,7 +1536,8 @@ def _write_winner_artifacts(
             from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS  # noqa: PLC0415
 
             scaff_params = decode_normalized(
-                best_individual[n_weights:], list(_NN_SCAFFOLDING_PARAMS),
+                best_individual[n_weights:],
+                list(_NN_SCAFFOLDING_PARAMS),
             )
             for s in _NN_SCAFFOLDING_PARAMS:
                 if s.is_integer and s.name in scaff_params:

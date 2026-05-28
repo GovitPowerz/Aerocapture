@@ -824,7 +824,7 @@ class IslandModel:
                 "rms": rms,
                 "mean": float(np.mean(costs)),
                 "p95": float(np.percentile(costs, 95)),
-                "capture_rate": float(np.mean(np.asarray(costs) < 1000.0)),
+                "capture_rate": float(np.mean(np.asarray(costs) < 3000.0)),
                 "n_sims": len(self.final_eval_seeds),
             })
         results.sort(key=lambda r: r["rms"])
@@ -1110,7 +1110,7 @@ In `IslandModel`:
                 "val_rms": val_rms,
                 "val_mean": float(np.mean(val_costs)),
                 "val_p95": float(np.percentile(val_costs, 95)),
-                "val_capture_rate": float(np.mean(np.asarray(val_costs) < 1000.0)),
+                "val_capture_rate": _capture_rate(np.asarray(val_costs)),
                 "stagnation": island.stagnation_counter,
             })
         return results
@@ -1712,8 +1712,15 @@ def _train_islands(
     # Try resume.
     ckpt_files = sorted(save_dir.glob("checkpoint_g*.npz"))
     if ckpt_files:
-        resumed_gen = island_model.from_checkpoint(ckpt_files[-1])
+        resumed_gen, resumed_curator_state = island_model.from_checkpoint(ckpt_files[-1])
         start_gen = resumed_gen + 1
+        if resumed_curator_state is not None and seed_curator is not None:
+            from aerocapture.training.seed_curator import SeedCurator  # noqa: PLC0415
+            seed_curator = SeedCurator.from_dict(
+                resumed_curator_state,
+                excluded_seeds=seed_curator.excluded_seeds,
+                rng=seed_curator.rng,
+            )
         if verbose:
             print(f"  Resumed islands from gen {resumed_gen}, continuing from {start_gen}")
 
@@ -1810,13 +1817,17 @@ def _train_islands(
 
                 if gen % checkpoint_interval == 0 or gen == config.optimizer.n_gen - 1:
                     island_model.checkpoint(
-                        save_dir / f"checkpoint_g{gen:05d}.npz", generation=gen,
+                        save_dir / f"checkpoint_g{gen:05d}.npz",
+                        generation=gen,
+                        seed_curator_state=seed_curator.to_dict() if seed_curator is not None else None,
                     )
 
         except KeyboardInterrupt:
             interrupted = True
             island_model.checkpoint(
-                save_dir / f"checkpoint_g{gen:05d}.npz", generation=gen,
+                save_dir / f"checkpoint_g{gen:05d}.npz",
+                generation=gen,
+                seed_curator_state=seed_curator.to_dict() if seed_curator is not None else None,
             )
             if verbose:
                 print(f"\n  Interrupted at gen {gen}; checkpoint saved.")

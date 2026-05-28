@@ -42,7 +42,7 @@ class TrainingLogger:
         generation: int,
         population: npt.NDArray[np.float64],
         costs: npt.NDArray[np.float64],
-        best_individual: npt.NDArray[np.float64],
+        best_individual: npt.NDArray[np.float64] | None,
         decode_fn: Callable[[npt.NDArray[np.float64]], dict[str, float]] | None,
         weight_stats: dict[str, dict[str, float]] | None = None,
         mc_seed: int | None = None,
@@ -70,7 +70,7 @@ class TrainingLogger:
         if improved:
             self._best_cost = min(self._best_cost, gen_best)
 
-        best_params = decode_fn(best_individual) if decode_fn is not None else None
+        best_params = decode_fn(best_individual) if decode_fn is not None and best_individual is not None else None
         gen_best_params = decode_fn(gen_best_individual) if decode_fn is not None and gen_best_individual is not None else None
 
         constraint_violation_rate = float(np.mean(costs > np.median(costs) * 2)) if len(costs) > 0 else 0.0

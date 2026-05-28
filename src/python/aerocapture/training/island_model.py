@@ -65,10 +65,7 @@ def migrate(
     for src in islands:
         F_src = src.algorithm.pop.get("F").flatten()
         top_idx = np.argsort(F_src, kind="stable")[:k_top]
-        emigrants[src.name] = [
-            (src.algorithm.pop[int(i)].X.copy(), float(F_src[int(i)]))
-            for i in top_idx
-        ]
+        emigrants[src.name] = [(src.algorithm.pop[int(i)].X.copy(), float(F_src[int(i)])) for i in top_idx]
 
     # 2. For each destination, apply replacements from all other islands.
     events: list[MigrationEvent] = []
@@ -185,9 +182,7 @@ class IslandModel:
         self.final_eval_seeds = final_eval_seeds
         self.base_mc_seed = base_mc_seed
         self.rng = rng
-        self.islands: list[Island] = [
-            _build_island(name, config, n_params) for name in _ISLAND_NAMES
-        ]
+        self.islands: list[Island] = [_build_island(name, config, n_params) for name in _ISLAND_NAMES]
         self.migration_log: list[MigrationEvent] = []
 
     def step(self, current_gen: int) -> list[MigrationEvent]:
@@ -204,11 +199,7 @@ class IslandModel:
 
         # 2. Migration step: every k_period gens, never at gen 0.
         events: list[MigrationEvent] = []
-        if (
-            self.config.islands.enabled
-            and current_gen > 0
-            and current_gen % self.config.islands.k_period == 0
-        ):
+        if self.config.islands.enabled and current_gen > 0 and current_gen % self.config.islands.k_period == 0:
             events = migrate(
                 self.islands,
                 k_top=self.config.islands.k_top,
@@ -236,25 +227,25 @@ class IslandModel:
             argmin_X = X[argmin_idx].copy()
             argmin_cost = float(F[argmin_idx])
 
-            unchanged = (
-                island.last_validated_individual is not None
-                and np.array_equal(argmin_X, island.last_validated_individual)
-            )
+            unchanged = island.last_validated_individual is not None and np.array_equal(argmin_X, island.last_validated_individual)
             if unchanged:
                 island.stagnation_counter += 1
-                results.append({
-                    "island": island.name,
-                    "validated": False,
-                    "promoted": False,
-                    "argmin_train_cost": argmin_cost,
-                    "stagnation": island.stagnation_counter,
-                })
+                results.append(
+                    {
+                        "island": island.name,
+                        "validated": False,
+                        "promoted": False,
+                        "argmin_train_cost": argmin_cost,
+                        "stagnation": island.stagnation_counter,
+                    }
+                )
                 continue
 
             val_costs = self.problem.evaluate_individual_per_seed(
-                argmin_X, self.validation_seeds,
+                argmin_X,
+                self.validation_seeds,
             )
-            val_rms = float(np.sqrt(np.mean(val_costs ** 2)))
+            val_rms = float(np.sqrt(np.mean(val_costs**2)))
             island.last_validated_individual = argmin_X
 
             promoted = val_rms < island.best_val_cost
@@ -266,17 +257,19 @@ class IslandModel:
             else:
                 island.stagnation_counter += 1
 
-            results.append({
-                "island": island.name,
-                "validated": True,
-                "promoted": promoted,
-                "argmin_train_cost": argmin_cost,
-                "val_rms": val_rms,
-                "val_mean": float(np.mean(val_costs)),
-                "val_p95": float(np.percentile(val_costs, 95)),
-                "val_capture_rate": _capture_rate(np.asarray(val_costs)),
-                "stagnation": island.stagnation_counter,
-            })
+            results.append(
+                {
+                    "island": island.name,
+                    "validated": True,
+                    "promoted": promoted,
+                    "argmin_train_cost": argmin_cost,
+                    "val_rms": val_rms,
+                    "val_mean": float(np.mean(val_costs)),
+                    "val_p95": float(np.percentile(val_costs, 95)),
+                    "val_capture_rate": _capture_rate(np.asarray(val_costs)),
+                    "stagnation": island.stagnation_counter,
+                }
+            )
         return results
 
     def pool_top_k_X(self, k: int) -> npt.NDArray[np.float64]:
@@ -337,19 +330,21 @@ class IslandModel:
         island_states = []
         for island in self.islands:
             pop = island.algorithm.pop
-            island_states.append({
-                "name": island.name,
-                "pop_X": pop.get("X") if pop is not None else None,
-                "pop_F": pop.get("F") if pop is not None else None,
-                "pop_V": pop.get("V") if pop is not None and pop.get("V") is not None else None,
-                "pop_pbest": pop.get("pbest") if pop is not None and pop.get("pbest") is not None else None,
-                "pop_pbest_F": pop.get("pbest_F") if pop is not None and pop.get("pbest_F") is not None else None,
-                "last_validated_individual": island.last_validated_individual,
-                "best_overall_individual": island.best_overall_individual,
-                "best_overall_cost": island.best_overall_cost,
-                "best_val_cost": island.best_val_cost,
-                "stagnation_counter": island.stagnation_counter,
-            })
+            island_states.append(
+                {
+                    "name": island.name,
+                    "pop_X": pop.get("X") if pop is not None else None,
+                    "pop_F": pop.get("F") if pop is not None else None,
+                    "pop_V": pop.get("V") if pop is not None and pop.get("V") is not None else None,
+                    "pop_pbest": pop.get("pbest") if pop is not None and pop.get("pbest") is not None else None,
+                    "pop_pbest_F": pop.get("pbest_F") if pop is not None and pop.get("pbest_F") is not None else None,
+                    "last_validated_individual": island.last_validated_individual,
+                    "best_overall_individual": island.best_overall_individual,
+                    "best_overall_cost": island.best_overall_cost,
+                    "best_val_cost": island.best_val_cost,
+                    "stagnation_counter": island.stagnation_counter,
+                }
+            )
 
         np.savez_compressed(
             tmp,
@@ -393,15 +388,11 @@ class IslandModel:
             seed_curator_state = pickle.loads(data["seed_curator_state"].item())
 
         if base_mc_seed != self.base_mc_seed:
-            raise ValueError(
-                f"checkpoint base_mc_seed {base_mc_seed} != current {self.base_mc_seed}"
-            )
+            raise ValueError(f"checkpoint base_mc_seed {base_mc_seed} != current {self.base_mc_seed}")
 
         for island, state in zip(self.islands, island_states, strict=True):
             if island.name != state["name"]:
-                raise ValueError(
-                    f"checkpoint island order mismatch: {island.name} != {state['name']}"
-                )
+                raise ValueError(f"checkpoint island order mismatch: {island.name} != {state['name']}")
             island.last_validated_individual = state["last_validated_individual"]
             island.best_overall_individual = state["best_overall_individual"]
             island.best_overall_cost = float(state["best_overall_cost"])
@@ -438,14 +429,16 @@ class IslandModel:
                 self.final_eval_seeds,
             )
             rms = float(np.sqrt(np.mean(costs**2)))
-            results.append({
-                "island": island.name,
-                "X": island.best_overall_individual.copy(),
-                "rms": rms,
-                "mean": float(np.mean(costs)),
-                "p95": float(np.percentile(costs, 95)),
-                "capture_rate": _capture_rate(np.asarray(costs)),
-                "n_sims": len(self.final_eval_seeds),
-            })
+            results.append(
+                {
+                    "island": island.name,
+                    "X": island.best_overall_individual.copy(),
+                    "rms": rms,
+                    "mean": float(np.mean(costs)),
+                    "p95": float(np.percentile(costs, 95)),
+                    "capture_rate": _capture_rate(np.asarray(costs)),
+                    "n_sims": len(self.final_eval_seeds),
+                }
+            )
         results.sort(key=lambda r: r["rms"])
         return results
