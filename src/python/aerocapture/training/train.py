@@ -126,7 +126,7 @@ def _seed_initial_population(
     pop = np.tile(chromosome, (n_pop, 1))
     if algorithm_name == "cma_es":
         return pop
-    if algorithm_name not in ("ga", "de", "pso"):
+    if algorithm_name not in ("ga", "de", "pso", "islands"):
         raise ValueError(f"unknown algorithm {algorithm_name!r} for warm-start seeding")
     if n_pop < 1:
         raise ValueError(f"n_pop must be >= 1, got {n_pop}")
@@ -1264,8 +1264,10 @@ def _train_islands(
     from aerocapture.training.logger import TrainingLogger  # noqa: PLC0415
 
     # Reserved final-eval seeds (disjoint from training + validation pools).
+    # Match single-algorithm path: max(validation_n_sims, 10000).
+    final_eval_n = max(config.optimizer.validation_n_sims, 10000)
     final_eval_seeds = make_reserved_seeds(
-        base_mc_seed, FINAL_EVAL_SEED_OFFSET, config.optimizer.validation_n_sims,
+        base_mc_seed, FINAL_EVAL_SEED_OFFSET, final_eval_n,
     )
 
     island_model = IslandModel(
@@ -1290,7 +1292,23 @@ def _train_islands(
         island.algorithm.setup(problem, pop=init_pop)
 
     # Try resume from latest .npz checkpoint in save_dir.
+    # Probe for the islands v2 version marker before calling from_checkpoint
+    # so a single-algorithm checkpoint sharing the directory doesn't cause a
+    # KeyError on the missing "version" field.
     ckpt_files = sorted(save_dir.glob("checkpoint_g*.npz"))
+    if ckpt_files:
+        try:
+            with np.load(ckpt_files[-1], allow_pickle=True) as probe:
+                is_islands_ckpt = "version" in probe and int(probe["version"]) == 2
+        except Exception:
+            is_islands_ckpt = False
+        if not is_islands_ckpt:
+            if verbose:
+                print(
+                    f"  Found checkpoint at {ckpt_files[-1]} but it's not an islands v2 "
+                    f"checkpoint; starting fresh.",
+                )
+            ckpt_files = []
     if ckpt_files:
         resumed_gen, resumed_curator_state = island_model.from_checkpoint(ckpt_files[-1])
         start_gen = resumed_gen + 1
@@ -1354,7 +1372,21 @@ def _train_islands(
                 island_model.step(current_gen=gen)
 
                 # Validate (identity-trigger per island).
-                val_records = island_model.validate_each(current_gen=gen)
+                if val_seeds:
+                    val_records = island_model.validate_each(current_gen=gen)
+                else:
+                    # No validation seeds — emit placeholder records so downstream
+                    # logging and curator-trigger still work without NaN promotions.
+                    val_records = [
+                        {
+                            "island": i.name,
+                            "validated": False,
+                            "promoted": False,
+                            "argmin_train_cost": float(i.algorithm.pop.get("F").min()),
+                            "stagnation": i.stagnation_counter,
+                        }
+                        for i in island_model.islands
+                    ]
 
                 # Adaptive seed curation: pool top-K across all 3 islands.
                 if seed_curator is not None:
@@ -1395,7 +1427,7 @@ def _train_islands(
 
                 display.update(logger, current_run=0)
 
-                if gen % checkpoint_interval == 0 or gen == config.optimizer.n_gen - 1:
+                if (gen + 1) % checkpoint_interval == 0 or gen == config.optimizer.n_gen - 1:
                     island_model.checkpoint(
                         save_dir / f"checkpoint_g{gen:05d}.npz",
                         generation=gen,
