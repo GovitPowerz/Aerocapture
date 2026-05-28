@@ -169,6 +169,14 @@ uv run python -m aerocapture.training.train \
 
 # Disable TUI (CI / piped output)
 uv run python -m aerocapture.training.train <config.toml> --no-tui
+
+# 3-island PSO / GA / DE with periodic top-3 / worst-6 migration (algorithm = "islands")
+# Targets PSO premature swarm-convergence: GA / DE migrants inject fresh search points every
+# k_period gens. Per-island n_pop=64 -> 192 total individuals / gen (3x single-algorithm cost).
+# Winning island's best_model.json / best_params.json drop into compare_guidance unchanged.
+uv run python -m aerocapture.training.train \
+    configs/training/msr_aller_islands_train.toml \
+    --n-gen 2500
 ```
 
 ### RL Training (PPO)
