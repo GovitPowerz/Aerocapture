@@ -469,3 +469,26 @@ def test_validate_each_promotes_best_overall_on_rms_improvement() -> None:
     initial_costs = [island.best_val_cost for island in model.islands]
     assert all(c < float("inf") for c in initial_costs)
     assert all(island.best_overall_individual is not None for island in model.islands)
+
+
+def test_pool_top_k_across_islands_unions_populations() -> None:
+    """`pool_top_k_X` returns the K lowest-F individuals from the UNION of all
+    island populations (search-space-wide signal, no per-island silo)."""
+    cfg = _make_islands_cfg()
+    problem = _UnitCubeProblem()
+    model = IslandModel(
+        config=cfg, problem=problem, n_params=4,
+        validation_seeds=[100], final_eval_seeds=[200],
+        base_mc_seed=0, rng=np.random.default_rng(0),
+    )
+    for island in model.islands:
+        island.algorithm.setup(problem, seed=0)
+    model.step(current_gen=0)
+
+    pooled = model.pool_top_k_X(k=5)
+    assert pooled.shape == (5, 4)
+    # The pooled cost values must be monotonically <= the worst individual in any
+    # single island (by definition of pool-then-rank-then-take-top-K).
+    pooled_costs = np.asarray([float(np.sum(x)) for x in pooled])
+    assert pooled_costs.shape == (5,)
+    assert np.all(pooled_costs == np.sort(pooled_costs))

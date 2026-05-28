@@ -278,6 +278,38 @@ class IslandModel:
             })
         return results
 
+    def pool_top_k_X(self, k: int) -> npt.NDArray[np.float64]:
+        """Concatenate all island populations and return the K lowest-F rows.
+
+        Used by the adaptive seed curator: the cost CDF is a search-space-wide
+        signal, so the curator probes a representative slice across islands
+        rather than per-island top-K (which would silo by algorithm).
+        """
+        all_X = []
+        all_F = []
+        for island in self.islands:
+            all_X.append(island.algorithm.pop.get("X"))
+            all_F.append(island.algorithm.pop.get("F").flatten())
+        X = np.concatenate(all_X, axis=0)
+        F = np.concatenate(all_F, axis=0)
+        k = min(k, F.shape[0])
+        top_idx = np.argsort(F, kind="stable")[:k]
+        return X[top_idx]
+
+    def re_evaluate_all_populations(self) -> None:
+        """Re-evaluate every island's algorithm.pop under the current seed list.
+
+        Called when the shared seed list changes (rotating strategy or adaptive
+        curation). Mirrors the pre-`next()` re-eval block in the single-algorithm
+        path in train.py.
+        """
+        for island in self.islands:
+            if island.algorithm.pop is None:
+                continue
+            parent_X = island.algorithm.pop.get("X")
+            fresh_F = self.problem._run_batch(parent_X)
+            island.algorithm.pop.set("F", fresh_F.reshape(-1, 1))
+
     def final_eval(self) -> list[dict[str, Any]]:
         """Re-evaluate each island's best_overall on the reserved final-eval seeds.
 
