@@ -228,6 +228,24 @@ class LiveDisplay:
                     f"{dst_name.upper():<4} ⬇ best:  {best['src']:<3} F={_format_cost(best['F_migrant'])} (displaced {_format_cost(best['F_displaced'])})"
                 )
                 lines.append(f"     ⬆ worst: {worst['src']:<3} F={_format_cost(worst['F_migrant'])} (displaced {_format_cost(worst['F_displaced'])})")
+            origin_stats = island_records.get("_origin_stats", {}) or {}
+            if origin_stats:
+                lines.append("")
+                lines.append("Origins (best-migrant wins per destination, cumulative)")
+                for dst_name in ("pso", "ga", "de"):
+                    src_map = origin_stats.get(dst_name, {})
+                    if not src_map:
+                        continue
+                    # Sort sources by win count desc, then by mean_F asc.
+                    sorted_srcs = sorted(
+                        src_map.items(),
+                        key=lambda kv: (-kv[1]["wins"], kv[1]["mean_F"]),
+                    )
+                    label_shown = False
+                    for src, st in sorted_srcs:
+                        prefix = f"  {dst_name.upper():<3} <- " if not label_shown else "       "
+                        label_shown = True
+                        lines.append(f"{prefix}{src:<3} : {int(st['wins']):>3d} wins  mean F={_format_cost(float(st['mean_F']))}  ({int(st['count'])} total)")
             mig_panel = Panel(
                 Text("\n".join(lines)),
                 title=f"Migrations (latest gen {latest_gen} · {total} total)",

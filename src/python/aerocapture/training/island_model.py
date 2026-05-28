@@ -111,6 +111,56 @@ def migrate(
     return events
 
 
+def compute_migration_origin_stats(
+    migration_log: list[MigrationEvent],
+) -> dict[str, dict[str, dict[str, float | int]]]:
+    """Per-destination, per-source migrant statistics.
+
+    Returns: {dst_name: {src_name: {"wins": int, "mean_F": float, "count": int}}}
+
+    `wins` = number of migration events in which `src_name` supplied the lowest-F
+    migrant arriving at `dst_name` (ties broken by first-seen).
+    `mean_F` = mean F_migrant across all events from src_name into dst_name.
+    `count` = total number of migrants from src_name into dst_name.
+
+    The migration_log is the flat MigrationEvent list maintained by IslandModel.
+    Events are grouped by (gen, dst) — that pair identifies one migration event.
+    """
+    if not migration_log:
+        return {}
+
+    # Group by (gen, dst) to recover per-event arrival sets.
+    by_event: dict[tuple[int, str], list[MigrationEvent]] = {}
+    for ev in migration_log:
+        by_event.setdefault((ev.gen, ev.dst_island), []).append(ev)
+
+    # Pre-compute: F lists per (dst, src) for mean.
+    fs_per_dst_src: dict[str, dict[str, list[float]]] = {}
+    for ev in migration_log:
+        fs_per_dst_src.setdefault(ev.dst_island, {}).setdefault(ev.src_island, []).append(
+            ev.F_migrant,
+        )
+
+    # Count "wins" per (dst, src): per event, which source supplied the lowest F.
+    wins: dict[str, dict[str, int]] = {}
+    for (_gen, dst), arrivals in by_event.items():
+        best = min(arrivals, key=lambda e: e.F_migrant)
+        wins.setdefault(dst, {}).setdefault(best.src_island, 0)
+        wins[dst][best.src_island] += 1
+
+    # Stitch together.
+    out: dict[str, dict[str, dict[str, float | int]]] = {}
+    for dst, src_map in fs_per_dst_src.items():
+        out[dst] = {}
+        for src, fs in src_map.items():
+            out[dst][src] = {
+                "wins": wins.get(dst, {}).get(src, 0),
+                "count": len(fs),
+                "mean_F": float(sum(fs) / len(fs)),
+            }
+    return out
+
+
 def inject_into_pso(
     algorithm: Algorithm,
     slot: int,

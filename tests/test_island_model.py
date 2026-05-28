@@ -888,6 +888,38 @@ def test_chart_migration_timeline_empty_renders_placeholder(tmp_path: Path) -> N
     assert output.stat().st_size > 0
 
 
+def test_compute_migration_origin_stats() -> None:
+    """Per-(dst, src) win counts and mean F_migrant from the migration log."""
+    from aerocapture.training.island_model import compute_migration_origin_stats
+
+    # Two migration events:
+    # Event 1 (gen=10): into PSO, ga arrival F=1, de arrival F=2. ga wins.
+    # Event 2 (gen=20): into PSO, ga arrival F=5, de arrival F=3. de wins.
+    log = [
+        MigrationEvent(gen=10, src_island="ga", dst_island="pso", slot_idx=0, F_migrant=1.0, F_displaced=10.0),
+        MigrationEvent(gen=10, src_island="de", dst_island="pso", slot_idx=1, F_migrant=2.0, F_displaced=11.0),
+        MigrationEvent(gen=20, src_island="ga", dst_island="pso", slot_idx=2, F_migrant=5.0, F_displaced=12.0),
+        MigrationEvent(gen=20, src_island="de", dst_island="pso", slot_idx=3, F_migrant=3.0, F_displaced=13.0),
+    ]
+    stats = compute_migration_origin_stats(log)
+    assert "pso" in stats
+    # ga: 1 win (event 1), 2 total arrivals, mean F = (1 + 5) / 2 = 3.0
+    assert stats["pso"]["ga"]["wins"] == 1
+    assert stats["pso"]["ga"]["count"] == 2
+    assert stats["pso"]["ga"]["mean_F"] == 3.0
+    # de: 1 win (event 2), 2 total arrivals, mean F = (2 + 3) / 2 = 2.5
+    assert stats["pso"]["de"]["wins"] == 1
+    assert stats["pso"]["de"]["count"] == 2
+    assert stats["pso"]["de"]["mean_F"] == 2.5
+
+
+def test_compute_migration_origin_stats_empty_log() -> None:
+    """Empty migration log returns empty dict."""
+    from aerocapture.training.island_model import compute_migration_origin_stats
+
+    assert compute_migration_origin_stats([]) == {}
+
+
 def test_de_island_receives_migrants() -> None:
     """Regression guard: DE destination's pop must contain the migrant after migrate(),
     and the migrant survives DE's next() because it has better F than offspring."""

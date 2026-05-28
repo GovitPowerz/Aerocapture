@@ -1476,6 +1476,14 @@ def _train_islands(
                 island_records["_latest_migration_summary"] = getattr(island_model, "_latest_migration_summary", {})
                 island_records["_latest_migration_gen"] = getattr(island_model, "_latest_migration_gen", None)
 
+                from aerocapture.training.island_model import (  # noqa: PLC0415
+                    compute_migration_origin_stats,
+                )
+
+                island_records["_origin_stats"] = compute_migration_origin_stats(
+                    island_model.migration_log,
+                )
+
                 display.update(logger, current_run=0, island_records=island_records)
 
                 if (gen + 1) % checkpoint_interval == 0 or gen == config.optimizer.n_gen - 1:
