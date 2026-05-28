@@ -193,6 +193,28 @@ def compute_migration_origin_stats(
     return out
 
 
+def summarize_latest_migration(events: list[MigrationEvent]) -> dict[str, dict]:
+    """Per-destination best/worst migrant for one gen's migration events.
+
+    Returns: {dst_name: {"gen", "best": {src, F_migrant, F_displaced},
+    "worst": {...}}}. Keeps MigrationEvent field access in this module rather
+    than inline in the train loop. Empty input -> empty dict.
+    """
+    by_dst: dict[str, list[MigrationEvent]] = {}
+    for ev in events:
+        by_dst.setdefault(ev.dst_island, []).append(ev)
+    summary: dict[str, dict] = {}
+    for dst_name, dst_events in by_dst.items():
+        best = min(dst_events, key=lambda e: e.F_migrant)
+        worst = max(dst_events, key=lambda e: e.F_migrant)
+        summary[dst_name] = {
+            "gen": best.gen,
+            "best": {"src": best.src_island, "F_migrant": best.F_migrant, "F_displaced": best.F_displaced},
+            "worst": {"src": worst.src_island, "F_migrant": worst.F_migrant, "F_displaced": worst.F_displaced},
+        }
+    return summary
+
+
 def inject_into_pso(
     algorithm: Algorithm,
     slot: int,
@@ -279,6 +301,11 @@ class IslandModel:
         self.rng = rng
         self.islands: list[Island] = [_build_island(name, config, n_params) for name in _ISLAND_NAMES]
         self.migration_log: list[MigrationEvent] = []
+        # Display-only snapshots, refreshed by the train loop on migration gens
+        # and reused (shown stale) between migrations.
+        self.latest_migration_summary: dict[str, dict] = {}
+        self.latest_migration_gen: int | None = None
+        self.origin_stats_cache: dict[str, dict[str, dict[str, float | int]]] = {}
 
     def step(self, current_gen: int) -> list[MigrationEvent]:
         """Advance every island one generation, then maybe migrate.
