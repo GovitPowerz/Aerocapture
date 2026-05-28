@@ -898,6 +898,31 @@ def train(
     if config.guidance_type == "neural_network" and warm_start_active and config.optimizer.algorithm == "cma_es":
         config.optimizer.cma_es.sigma0 = config.warm_start.cmaes_sigma0
 
+    # Islands dispatch: return early so the single-algorithm path below is untouched.
+    if config.optimizer.algorithm == "islands":
+        return _train_islands(
+            config=config,
+            cwd=cwd,
+            save_dir=save_dir,
+            problem=problem,
+            param_specs=param_specs,
+            n_params=n_params,
+            pop_array=pop_array,
+            pop_costs=pop_costs,
+            val_seeds=val_seeds,
+            base_mc_seed=base_mc_seed,
+            excluded_seeds=excluded_seeds,
+            rng=rng,
+            seed_curator=seed_curator,
+            strategy=strategy,
+            display=display,
+            verbose=verbose,
+            start_gen=start_gen,
+            config_hash=config_hash,
+            checkpoint_interval=checkpoint_interval,
+            toml_abs_path=toml_abs_path,
+        )
+
     # Set up algorithm
     algorithm = create_algorithm(config.optimizer, n_params=n_params)
     if verbose:
@@ -1203,6 +1228,278 @@ def train(
         "corridor_acc": corridor_acc,
         "param_specs": param_specs,
     }
+
+
+def _train_islands(
+    *,
+    config: TrainingConfig,
+    cwd: str | Path | None,
+    save_dir: Path,
+    problem: AerocaptureProblem,
+    param_specs: list[ParamSpec],
+    n_params: int,
+    pop_array: npt.NDArray[np.float64],
+    pop_costs: npt.NDArray[np.float64] | None,
+    val_seeds: list[int] | None,
+    base_mc_seed: int,
+    excluded_seeds: set[int],
+    rng: np.random.Generator,
+    seed_curator: SeedCurator | None,
+    strategy: str,
+    display: Any,
+    verbose: bool,
+    start_gen: int,
+    config_hash: str,
+    checkpoint_interval: int,
+    toml_abs_path: str,
+) -> dict[str, Any]:
+    """Outer loop for the 3-island PSO/GA/DE trainer.
+
+    Mirrors the single-algorithm path in train() but drives an IslandModel.
+    Per-island JSONL records (3 per gen) are written via TrainingLogger with
+    the `island_name` field set.
+    """
+    from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds  # noqa: PLC0415
+    from aerocapture.training.island_model import IslandModel  # noqa: PLC0415
+    from aerocapture.training.logger import TrainingLogger  # noqa: PLC0415
+
+    # Reserved final-eval seeds (disjoint from training + validation pools).
+    final_eval_seeds = make_reserved_seeds(
+        base_mc_seed, FINAL_EVAL_SEED_OFFSET, config.optimizer.validation_n_sims,
+    )
+
+    island_model = IslandModel(
+        config=config.optimizer,
+        problem=problem,
+        n_params=n_params,
+        validation_seeds=val_seeds or [],
+        final_eval_seeds=final_eval_seeds,
+        base_mc_seed=base_mc_seed,
+        rng=rng,
+    )
+
+    # Fan out the (possibly warm-started) initial population to all 3 islands.
+    # Each island gets the same starting chromosome but its algorithm's own
+    # internal state (e.g. PSO velocity init) is fresh.
+    for island in island_model.islands:
+        init_pop = Population.new("X", pop_array.copy())
+        if pop_costs is not None:
+            init_pop.set("F", pop_costs.reshape(-1, 1).copy())
+        else:
+            Evaluator().eval(problem, init_pop)
+        island.algorithm.setup(problem, pop=init_pop)
+
+    # Try resume from latest .npz checkpoint in save_dir.
+    ckpt_files = sorted(save_dir.glob("checkpoint_g*.npz"))
+    if ckpt_files:
+        resumed_gen, resumed_curator_state = island_model.from_checkpoint(ckpt_files[-1])
+        start_gen = resumed_gen + 1
+        if resumed_curator_state is not None and seed_curator is not None:
+            from aerocapture.training.seed_curator import SeedCurator as _SeedCurator  # noqa: PLC0415
+
+            seed_curator = _SeedCurator.from_dict(
+                resumed_curator_state,
+                excluded_seeds=seed_curator.excluded_seeds,
+                rng=seed_curator.rng,
+            )
+        if verbose:
+            print(f"  Resumed islands from gen {resumed_gen}, continuing from {start_gen}")
+
+    # Decode function for logger (NN bypasses, analytic schemes use decode_normalized).
+    decode_fn: Callable[[npt.NDArray[np.float64]], dict[str, float]] | None = None
+    if config.guidance_type != "neural_network":
+        def _decode(x: npt.NDArray[np.float64]) -> dict[str, float]:
+            return decode_normalized(x, param_specs)
+
+        decode_fn = _decode
+
+    logger = TrainingLogger(
+        scheme=config.guidance_type,
+        run=0,
+        output_dir=save_dir,
+        config_hash=config_hash,
+    )
+
+    pending_seed_change = False
+    interrupted = False
+    gen = start_gen
+
+    with display:
+        try:
+            for gen in range(start_gen, config.optimizer.n_gen):
+                seeds_changed_this_gen = pending_seed_change
+                pending_seed_change = False
+
+                if strategy == "rotating":
+                    fresh = _draw_disjoint_seeds(
+                        rng, n=config.optimizer.training_n_sims, excluded=excluded_seeds,
+                    )
+                    problem.update_seeds(fresh)
+                    seeds_changed_this_gen = True
+                elif (
+                    strategy == "adaptive"
+                    and seed_curator is not None
+                    and seed_curator.seed_list is None
+                ):
+                    bootstrap = _draw_disjoint_seeds(
+                        rng, n=config.optimizer.training_n_sims, excluded=excluded_seeds,
+                    )
+                    problem.update_seeds(bootstrap)
+                    seeds_changed_this_gen = True
+
+                if seeds_changed_this_gen:
+                    island_model.re_evaluate_all_populations()
+
+                # Advance + (maybe) migrate.
+                island_model.step(current_gen=gen)
+
+                # Validate (identity-trigger per island).
+                val_records = island_model.validate_each(current_gen=gen)
+
+                # Adaptive seed curation: pool top-K across all 3 islands.
+                if seed_curator is not None:
+                    elapsed = gen - seed_curator.last_curation_gen
+                    periodic = elapsed >= config.optimizer.seed_pool_interval
+                    any_promotion = any(r.get("promoted") for r in val_records)
+                    if any_promotion or periodic:
+                        k = config.optimizer.curation_top_k
+                        top_k_X = island_model.pool_top_k_X(k)
+                        new_seeds = seed_curator.curate(problem, top_k_X)
+                        seed_curator.last_curation_gen = gen
+                        problem.update_seeds(new_seeds)
+                        pending_seed_change = True
+
+                # Per-island JSONL records.
+                for island, val_rec in zip(island_model.islands, val_records, strict=True):
+                    X = island.algorithm.pop.get("X")
+                    F = island.algorithm.pop.get("F").flatten()
+                    validation_dict: dict | None = None
+                    if val_rec["validated"]:
+                        validation_dict = {
+                            "rms_cost": val_rec["val_rms"],
+                            "mean_cost": val_rec["val_mean"],
+                            "p95_cost": val_rec["val_p95"],
+                            "capture_rate": val_rec["val_capture_rate"],
+                            "n_sims": len(val_seeds) if val_seeds else 0,
+                        }
+                    logger.log_generation(
+                        generation=gen,
+                        population=X,
+                        costs=F,
+                        best_individual=island.best_overall_individual,
+                        decode_fn=decode_fn,
+                        validation=validation_dict,
+                        improved=val_rec["promoted"],
+                        island_name=island.name,
+                    )
+
+                display.update(logger, current_run=0)
+
+                if gen % checkpoint_interval == 0 or gen == config.optimizer.n_gen - 1:
+                    island_model.checkpoint(
+                        save_dir / f"checkpoint_g{gen:05d}.npz",
+                        generation=gen,
+                        seed_curator_state=seed_curator.to_dict() if seed_curator is not None else None,
+                    )
+
+        except KeyboardInterrupt:
+            interrupted = True
+            island_model.checkpoint(
+                save_dir / f"checkpoint_g{gen:05d}.npz",
+                generation=gen,
+                seed_curator_state=seed_curator.to_dict() if seed_curator is not None else None,
+            )
+            if verbose:
+                print(f"\n  Interrupted at gen {gen}; checkpoint saved.")
+
+    # Final eval + winner selection.
+    results = island_model.final_eval()
+    if not results:
+        if verbose:
+            print("  No island had a validated best — skipping final-eval / artifact write.")
+        logger.close()
+        return {
+            "interrupted": interrupted,
+            "winner": None,
+            "results": [],
+            "migration_log": island_model.migration_log,
+        }
+
+    winner = results[0]
+    if verbose:
+        print(
+            f"  Winner: {winner['island']} rms={winner['rms']:.4e} "
+            f"cap={winner['capture_rate']:.0%}",
+        )
+
+    _write_winner_artifacts(
+        winner=winner,
+        config=config,
+        save_dir=save_dir,
+        param_specs=param_specs,
+        cwd=cwd,
+    )
+
+    logger.close()
+    return {
+        "interrupted": interrupted,
+        "winner": winner,
+        "results": results,
+        "migration_log": island_model.migration_log,
+    }
+
+
+def _write_winner_artifacts(
+    *,
+    winner: dict[str, Any],
+    config: TrainingConfig,
+    save_dir: Path,
+    param_specs: list[ParamSpec],
+    cwd: str | Path | None,
+) -> None:
+    """Write best_model.json / best_params.json from the winning island's chromosome.
+
+    Mirrors the single-algorithm artifact-write block in train.py lines 370-393.
+    """
+    best_individual = winner["X"]
+
+    if config.guidance_type == "neural_network":
+        n_scaff = 17 if config.network.optimize_scaffolding else 0
+        n_weights = len(param_specs) - n_scaff
+        weights = _decode_nn_weights(
+            best_individual[:n_weights], param_specs[:n_weights],
+        )
+        write_nn_json(
+            weights,
+            config.network,
+            save_dir / "best_model.json",
+            input_mask=config.network.input_mask,
+            output_param=config.network.output_parameterization,
+        )
+        if cwd is not None:
+            nn_path = Path(cwd) / config.sim.nn_param_file
+            write_nn_json(
+                weights,
+                config.network,
+                nn_path,
+                input_mask=config.network.input_mask,
+                output_param=config.network.output_parameterization,
+            )
+        if n_scaff > 0:
+            from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS  # noqa: PLC0415
+
+            scaff_params = decode_normalized(
+                best_individual[n_weights:], list(_NN_SCAFFOLDING_PARAMS),
+            )
+            for s in _NN_SCAFFOLDING_PARAMS:
+                if s.is_integer and s.name in scaff_params:
+                    scaff_params[s.name] = int(round(scaff_params[s.name]))
+            with open(save_dir / "best_params.json", "w") as fp:
+                json.dump(scaff_params, fp, indent=2)
+    else:
+        params = decode_normalized(best_individual, param_specs)
+        with open(save_dir / "best_params.json", "w") as fp:
+            json.dump(params, fp, indent=2)
 
 
 def _accumulate_corridor(
