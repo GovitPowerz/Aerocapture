@@ -14,6 +14,7 @@ import numpy.typing as npt
 from pymoo.algorithms.soo.nonconvex.pso import PSO
 from pymoo.core.algorithm import Algorithm
 
+from aerocapture.training.metrics import capture_rate as _capture_rate
 from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
 
 
@@ -209,7 +210,7 @@ class IslandModel:
                 "rms": rms,
                 "mean": float(np.mean(costs)),
                 "p95": float(np.percentile(costs, 95)),
-                "capture_rate": float(np.mean(np.asarray(costs) < 1000.0)),
+                "capture_rate": _capture_rate(np.asarray(costs)),
                 "n_sims": len(self.final_eval_seeds),
             })
         results.sort(key=lambda r: r["rms"])

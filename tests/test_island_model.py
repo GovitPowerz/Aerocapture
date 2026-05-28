@@ -228,6 +228,8 @@ def test_inject_into_pso_does_not_corrupt_other_slots() -> None:
     V_before = pso.particles.get("V").copy()
     X_before = [pso.pop[i].X.copy() for i in range(10)]
     F_before = [pso.pop[i].F.copy() for i in range(10)]
+    particles_X_before = [pso.particles[i].X.copy() for i in range(10)]
+    particles_F_before = [pso.particles[i].F.copy() for i in range(10)]
 
     X_new = np.array([0.5, 0.5, 0.5, 0.5])
     inject_into_pso(pso, slot=7, X=X_new, F=0.42, velocity_scale=0.05, rng=rng)
@@ -239,6 +241,8 @@ def test_inject_into_pso_does_not_corrupt_other_slots() -> None:
         np.testing.assert_array_equal(V_before[i], V_after[i])
         np.testing.assert_array_equal(X_before[i], pso.pop[i].X)
         np.testing.assert_array_equal(F_before[i], pso.pop[i].F)
+        np.testing.assert_array_equal(pso.particles[i].X, particles_X_before[i])
+        np.testing.assert_array_equal(pso.particles[i].F, particles_F_before[i])
 
 
 def test_inject_into_pso_velocity_seeded_rng_deterministic() -> None:
