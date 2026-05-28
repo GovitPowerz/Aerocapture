@@ -125,6 +125,13 @@ class OptimizerConfig:
 def create_algorithm(config: OptimizerConfig, n_params: int) -> Algorithm:
     algorithm = config.algorithm
 
+    if algorithm == "islands":
+        raise ValueError(
+            "create_algorithm() must not be called with algorithm='islands'. "
+            "The island branch in train.py constructs each sub-algorithm "
+            "separately via IslandModel.__init__; use that path instead."
+        )
+
     if algorithm == "cma_es" and n_params > _CMAES_MAX_PARAMS:
         warnings.warn(
             f"CMA-ES is not recommended for n_params={n_params} > {_CMAES_MAX_PARAMS}. Falling back to GA.",

@@ -5,7 +5,6 @@ See docs/superpowers/specs/2026-05-28-island-model-pso-ga-de-design.md.
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 from aerocapture.training.optimizer import IslandSettings, OptimizerConfig
@@ -57,3 +56,14 @@ def test_optimizer_config_islands_invalid_k_period_raises() -> None:
 def test_optimizer_config_islands_invalid_velocity_scale_raises() -> None:
     with pytest.raises(ValueError, match="pso_inject_velocity_scale"):
         IslandSettings(pso_inject_velocity_scale=-0.01)
+
+
+def test_create_algorithm_raises_for_islands_value() -> None:
+    """Direct create_algorithm() call with 'islands' must fail loudly with a
+    pointer to IslandModel. The islands path goes through IslandModel.__init__,
+    not through create_algorithm."""
+    from aerocapture.training.optimizer import create_algorithm
+
+    cfg = OptimizerConfig(algorithm="islands", seed_strategy="fixed")
+    with pytest.raises(ValueError, match="IslandModel"):
+        create_algorithm(cfg, n_params=10)
