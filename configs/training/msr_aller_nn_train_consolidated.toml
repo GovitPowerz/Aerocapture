@@ -81,21 +81,21 @@ max_bank_acceleration = 12.674110367187794   # deg/s^2
 density_filter_gain = 0.34888052188696395
 density_gain_max_delta = 0.13961756994200195
 
-[warm_start]
-minibatch_size = 1024
-adaptive_bounds = true
-supervisor_schemes = ["ftc"]
-bptt_length = 64
-n_warm_seeds = 1
-n_epochs = 10000
-jitter = 0.02
-cmaes_sigma0 = 0.1
-eval_interval = 20   # 0 disables (default), N>0 = every N epochs + final epoch
+# [warm_start]
+# minibatch_size = 1024
+# adaptive_bounds = true
+# supervisor_schemes = ["ftc"]
+# bptt_length = 64
+# n_warm_seeds = 500
+# n_epochs = 1000
+# jitter = 0.02
+# cmaes_sigma0 = 0.1
+# eval_interval = 20   # 0 disables (default), N>0 = every N epochs + final epoch
 
-[warm_start.adam]
-lr = 3e-4
-beta1 = 0.6
-beta2 = 0.999
-eps = 1e-8
-weight_decay = 1e-4
-amsgrad = true
+# [warm_start.adam]
+# lr = 3e-4
+# beta1 = 0.6
+# beta2 = 0.999
+# eps = 1e-8
+# weight_decay = 1e-4
+# amsgrad = true

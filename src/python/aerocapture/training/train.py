@@ -901,7 +901,22 @@ def train(
     # Set up algorithm
     algorithm = create_algorithm(config.optimizer, n_params=n_params)
     if verbose:
-        print(f"  Algorithm: {type(algorithm).__name__} ({config.optimizer.algorithm}), n_params={n_params}, n_pop={config.optimizer.n_pop}")
+        opt = config.optimizer
+        print(f"  Algorithm: {type(algorithm).__name__} ({opt.algorithm}), n_params={n_params}, n_pop={opt.n_pop}, n_gen={opt.n_gen}")
+        print(f"  Seeds:     strategy={opt.seed_strategy}, training_n_sims={opt.training_n_sims}, validation_n_sims={opt.validation_n_sims}")
+        if opt.seed_strategy == "adaptive":
+            print(
+                f"  Curation:  seed_pool_interval={opt.seed_pool_interval}, "
+                f"curation_top_k={opt.curation_top_k}, curation_sample_size={opt.curation_sample_size}"
+            )
+        if opt.algorithm == "ga":
+            print(f"  GA:        crossover_eta={opt.ga.crossover_eta}, mutation_eta={opt.ga.mutation_eta}, mutation_prob={opt.ga.mutation_prob}")
+        elif opt.algorithm == "cma_es":
+            print(f"  CMA-ES:    sigma0={opt.cma_es.sigma0}, restart_strategy={opt.cma_es.restart_strategy}")
+        elif opt.algorithm == "de":
+            print(f"  DE:        variant={opt.de.variant}, crossover_prob={opt.de.crossover_prob}, scaling_factor={opt.de.scaling_factor}")
+        elif opt.algorithm == "pso":
+            print(f"  PSO:       w={opt.pso.w}, c1={opt.pso.c1}, c2={opt.pso.c2}")
 
     # Inject initial population into pymoo
     initial_pop = Population.new("X", pop_array)
