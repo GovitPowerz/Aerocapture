@@ -758,3 +758,57 @@ def test_islands_use_warm_started_pop_array() -> None:
     for island in model.islands:
         X = island.algorithm.pop.get("X")
         np.testing.assert_array_equal(X, pop_array)
+
+
+# ---------------------------------------------------------------------------
+# Chart function smoke tests
+# ---------------------------------------------------------------------------
+def test_chart_island_convergence_overlay_renders(tmp_path: Path) -> None:
+    """Smoke test: chart_island_convergence_overlay produces a valid SVG."""
+    from aerocapture.training.charts import chart_island_convergence_overlay
+
+    records_by_island = {
+        "pso": [
+            {"generation": 0, "best_overall_cost": 5.0},
+            {"generation": 1, "best_overall_cost": 4.0},
+            {"generation": 2, "best_overall_cost": 3.5},
+        ],
+        "ga": [
+            {"generation": 0, "best_overall_cost": 6.0},
+            {"generation": 1, "best_overall_cost": 5.5},
+        ],
+        "de": [
+            {"generation": 0, "best_overall_cost": float("nan")},
+            {"generation": 1, "best_overall_cost": 7.0},
+        ],
+    }
+    output = tmp_path / "overlay.svg"
+    chart_island_convergence_overlay(records_by_island, output)
+    assert output.exists()
+    assert output.stat().st_size > 0
+    assert output.read_text().startswith("<?xml") or "<svg" in output.read_text()
+
+
+def test_chart_migration_timeline_renders(tmp_path: Path) -> None:
+    """Smoke test: chart_migration_timeline produces a valid SVG with events."""
+    from aerocapture.training.charts import chart_migration_timeline
+
+    log = [
+        {"gen": 5, "src_island": "ga", "dst_island": "pso", "F_migrant": 0.1},
+        {"gen": 5, "src_island": "de", "dst_island": "pso", "F_migrant": 0.2},
+        {"gen": 10, "src_island": "pso", "dst_island": "ga", "F_migrant": 0.05},
+    ]
+    output = tmp_path / "timeline.svg"
+    chart_migration_timeline(log, n_gen=20, output=output)
+    assert output.exists()
+    assert output.stat().st_size > 0
+
+
+def test_chart_migration_timeline_empty_renders_placeholder(tmp_path: Path) -> None:
+    """When the migration log is empty, the chart still renders (placeholder)."""
+    from aerocapture.training.charts import chart_migration_timeline
+
+    output = tmp_path / "empty_timeline.svg"
+    chart_migration_timeline([], n_gen=100, output=output)
+    assert output.exists()
+    assert output.stat().st_size > 0

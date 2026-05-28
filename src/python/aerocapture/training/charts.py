@@ -1278,3 +1278,84 @@ def _save_line_chart(
     sns.despine(fig=fig, ax=ax)
     fig.tight_layout()
     _save_svg(fig, output_path)
+
+
+# ---------------------------------------------------------------------------
+# Island-model charts (Part 0 of the multi-island report)
+# ---------------------------------------------------------------------------
+def chart_island_convergence_overlay(
+    records_by_island: dict[str, list[dict[str, Any]]],
+    output: Path,
+) -> None:
+    """Overlay per-island best_overall_cost vs generation.
+
+    Three colored lines (PSO=blue, GA=orange, DE=green) on a log-scale y-axis.
+    For an island that never had a validated promotion, no line is drawn.
+    """
+    fig, ax = plt.subplots(figsize=(10, 5))
+    colors = {"pso": "tab:blue", "ga": "tab:orange", "de": "tab:green"}
+    for name in ("pso", "ga", "de"):
+        records = records_by_island.get(name, [])
+        if not records:
+            continue
+        gens = [r["generation"] for r in records]
+        costs = [r.get("best_overall_cost", float("nan")) for r in records]
+        # Filter out NaN/inf entries (gens before first promotion).
+        finite = [(g, c) for g, c in zip(gens, costs, strict=True) if np.isfinite(c)]
+        if not finite:
+            continue
+        finite_gens, finite_costs = zip(*finite, strict=True)
+        ax.plot(
+            finite_gens, finite_costs,
+            color=colors.get(name, "k"), label=name.upper(), linewidth=1.5,
+        )
+    ax.set_yscale("log")
+    ax.set_xlabel("Generation")
+    ax.set_ylabel("Validated best cost (RMS)")
+    ax.set_title("Per-island convergence")
+    ax.legend(loc="upper right")
+    ax.grid(visible=True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(output, format="svg")
+    plt.close(fig)
+
+
+def chart_migration_timeline(
+    migration_log: list[dict[str, Any]],
+    n_gen: int,
+    output: Path,
+) -> None:
+    """Scatter of migration events: x=generation, y=src->dst channel, color=F_migrant.
+
+    Shows which (src, dst) channels were most active and what fitness levels
+    migrants carried. If migration_log is empty, renders a placeholder.
+    """
+    if not migration_log:
+        fig, ax = plt.subplots(figsize=(10, 3))
+        ax.text(
+            0.5, 0.5, "No migration events",
+            ha="center", va="center", transform=ax.transAxes,
+        )
+        ax.set_xlim(0, max(n_gen, 1))
+        fig.tight_layout()
+        fig.savefig(output, format="svg")
+        plt.close(fig)
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    channels = sorted({f"{e['src_island']}->{e['dst_island']}" for e in migration_log})
+    channel_y = {ch: i for i, ch in enumerate(channels)}
+    gens = [e["gen"] for e in migration_log]
+    ys = [channel_y[f"{e['src_island']}->{e['dst_island']}"] for e in migration_log]
+    fs = [e["F_migrant"] for e in migration_log]
+
+    sc = ax.scatter(gens, ys, c=fs, cmap="viridis", s=20)
+    fig.colorbar(sc, ax=ax, label="F_migrant")
+    ax.set_yticks(range(len(channels)))
+    ax.set_yticklabels(channels)
+    ax.set_xlabel("Generation")
+    ax.set_xlim(0, max(n_gen, max(gens) + 1))
+    ax.set_title(f"Migration events ({len(migration_log)} total)")
+    fig.tight_layout()
+    fig.savefig(output, format="svg")
+    plt.close(fig)
