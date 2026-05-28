@@ -492,3 +492,29 @@ def test_pool_top_k_across_islands_unions_populations() -> None:
     pooled_costs = np.asarray([float(np.sum(x)) for x in pooled])
     assert pooled_costs.shape == (5,)
     assert np.all(pooled_costs == np.sort(pooled_costs))
+
+
+def test_re_evaluate_all_populations_updates_f() -> None:
+    """re_evaluate_all_populations calls problem._run_batch directly,
+    overwriting each island's pop.F with fresh values."""
+    cfg = _make_islands_cfg()
+    problem = _UnitCubeProblem()
+    model = IslandModel(
+        config=cfg, problem=problem, n_params=4,
+        validation_seeds=[100], final_eval_seeds=[200],
+        base_mc_seed=0, rng=np.random.default_rng(0),
+    )
+    for island in model.islands:
+        island.algorithm.setup(problem, seed=0)
+    model.step(current_gen=0)
+
+    # Inject a _run_batch stub that returns zeros.
+    def _stub_run_batch(X: np.ndarray) -> np.ndarray:
+        return np.zeros(X.shape[0], dtype=np.float64)
+
+    problem._run_batch = _stub_run_batch  # type: ignore[attr-defined]
+
+    model.re_evaluate_all_populations()
+    for island in model.islands:
+        F = island.algorithm.pop.get("F").flatten()
+        assert np.all(F == 0.0)

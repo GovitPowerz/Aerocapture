@@ -288,8 +288,12 @@ class IslandModel:
         all_X = []
         all_F = []
         for island in self.islands:
+            if island.algorithm.pop is None:
+                continue
             all_X.append(island.algorithm.pop.get("X"))
             all_F.append(island.algorithm.pop.get("F").flatten())
+        if not all_X:
+            return np.empty((0, self.n_params), dtype=np.float64)
         X = np.concatenate(all_X, axis=0)
         F = np.concatenate(all_F, axis=0)
         k = min(k, F.shape[0])
