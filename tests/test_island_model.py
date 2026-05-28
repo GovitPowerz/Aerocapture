@@ -363,3 +363,60 @@ def test_island_model_final_eval_skips_islands_without_best() -> None:
     results = model.final_eval()
     assert len(results) == 1
     assert results[0]["island"] == "pso"
+
+
+def test_island_model_step_advances_all_three_islands() -> None:
+    """One step() call must invoke .next() on each island's algorithm."""
+    cfg = _make_islands_cfg()
+    problem = _UnitCubeProblem()  # real pymoo problem so .next() works
+    model = IslandModel(
+        config=cfg, problem=problem, n_params=4,
+        validation_seeds=[100, 101], final_eval_seeds=[200, 201],
+        base_mc_seed=0, rng=np.random.default_rng(0),
+    )
+    for island in model.islands:
+        island.algorithm.setup(problem, seed=0)
+
+    model.step(current_gen=0)
+    # Each island should have a populated pop.
+    for island in model.islands:
+        assert island.algorithm.pop is not None
+        assert len(island.algorithm.pop) == cfg.n_pop
+
+
+def test_island_model_step_fires_migration_at_k_period() -> None:
+    cfg = _make_islands_cfg()
+    cfg.islands.k_period = 2  # migrate every 2 gens
+    problem = _UnitCubeProblem()
+    model = IslandModel(
+        config=cfg, problem=problem, n_params=4,
+        validation_seeds=[100], final_eval_seeds=[200],
+        base_mc_seed=0, rng=np.random.default_rng(0),
+    )
+    for island in model.islands:
+        island.algorithm.setup(problem, seed=0)
+
+    # gens 0, 1: no migration. gen 2: migration fires.
+    model.step(0)
+    model.step(1)
+    assert len(model.migration_log) == 0
+    model.step(2)
+    # k_top=2 with 3 islands -> 3 * 2 * 2 = 12 events.
+    assert len(model.migration_log) == 12
+
+
+def test_island_model_step_disabled_migration_never_fires() -> None:
+    cfg = _make_islands_cfg()
+    cfg.islands.enabled = False
+    cfg.islands.k_period = 1  # would migrate every gen if enabled
+    problem = _UnitCubeProblem()
+    model = IslandModel(
+        config=cfg, problem=problem, n_params=4,
+        validation_seeds=[100], final_eval_seeds=[200],
+        base_mc_seed=0, rng=np.random.default_rng(0),
+    )
+    for island in model.islands:
+        island.algorithm.setup(problem, seed=0)
+    for g in range(5):
+        model.step(g)
+    assert model.migration_log == []

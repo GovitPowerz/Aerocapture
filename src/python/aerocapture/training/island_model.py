@@ -189,6 +189,35 @@ class IslandModel:
         ]
         self.migration_log: list[MigrationEvent] = []
 
+    def step(self, current_gen: int) -> list[MigrationEvent]:
+        """Advance every island one generation, then maybe migrate.
+
+        Returns the migration events from this gen (empty list if no migration).
+        Validation is intentionally separate — see `validate_each` (Task 6).
+        """
+        # 1. Advance each island sequentially. Rayon parallelism inside each
+        #    algorithm.next() saturates the CPU; three sequential per-island
+        #    batches dominate the per-gen wall time.
+        for island in self.islands:
+            island.algorithm.next()
+
+        # 2. Migration step: every k_period gens, never at gen 0.
+        events: list[MigrationEvent] = []
+        if (
+            self.config.islands.enabled
+            and current_gen > 0
+            and current_gen % self.config.islands.k_period == 0
+        ):
+            events = migrate(
+                self.islands,
+                k_top=self.config.islands.k_top,
+                current_gen=current_gen,
+                rng=self.rng,
+                velocity_scale=self.config.islands.pso_inject_velocity_scale,
+            )
+            self.migration_log.extend(events)
+        return events
+
     def final_eval(self) -> list[dict[str, Any]]:
         """Re-evaluate each island's best_overall on the reserved final-eval seeds.
 
