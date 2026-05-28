@@ -602,7 +602,9 @@ def test_island_model_checkpoint_roundtrip() -> None:
         )
         for island in restored.islands:
             island.algorithm.setup(problem, seed=0)
-        restored.from_checkpoint(ckpt_path)
+        gen_restored, curator_state = restored.from_checkpoint(ckpt_path)
+        assert gen_restored == 5
+        assert curator_state is None  # we didn't pass a curator state at save time
 
     # Verify per-island state matches.
     for orig, rest in zip(model.islands, restored.islands, strict=True):
@@ -653,10 +655,78 @@ def test_island_model_resume_preserves_best_overall_per_island() -> None:
             island.algorithm.setup(problem, seed=0)
         # Advance to a fresh pop with potentially-better argmin.
         restored.step(current_gen=0)
-        restored.from_checkpoint(ckpt_path)
+        gen_restored, _ = restored.from_checkpoint(ckpt_path)
+        assert gen_restored == 10
 
     # The sentinel must survive across the resume; the restored model must NOT
     # have replaced it with the gen-0 argmin.
     for island in restored.islands:
         np.testing.assert_array_equal(island.best_overall_individual, sentinel)
         assert island.best_val_cost == 0.123
+
+
+def test_island_model_checkpoint_roundtrips_seed_curator_state() -> None:
+    """checkpoint() + from_checkpoint() round-trip the optional seed_curator_state dict."""
+    cfg = _make_islands_cfg()
+    problem = _UnitCubeProblem()
+    model = IslandModel(
+        config=cfg, problem=problem, n_params=4,
+        validation_seeds=[100], final_eval_seeds=[200],
+        base_mc_seed=42, rng=np.random.default_rng(0),
+    )
+    for island in model.islands:
+        island.algorithm.setup(problem, seed=0)
+    model.step(current_gen=0)
+
+    curator_state = {
+        "sample_size": 100,
+        "n_bins": 5,
+        "seed_list": [1, 2, 3, 4, 5],
+        "last_curation_gen": 7,
+    }
+
+    with tempfile.TemporaryDirectory() as td:
+        ckpt_path = Path(td) / "checkpoint_g00010.npz"
+        model.checkpoint(ckpt_path, generation=10, seed_curator_state=curator_state)
+
+        restored = IslandModel(
+            config=cfg, problem=problem, n_params=4,
+            validation_seeds=[100], final_eval_seeds=[200],
+            base_mc_seed=42, rng=np.random.default_rng(0),
+        )
+        for island in restored.islands:
+            island.algorithm.setup(problem, seed=0)
+        gen_restored, restored_curator_state = restored.from_checkpoint(ckpt_path)
+
+    assert gen_restored == 10
+    assert restored_curator_state == curator_state
+
+
+def test_from_checkpoint_raises_on_base_mc_seed_mismatch() -> None:
+    """ValueError (not AssertionError) when base_mc_seed disagrees on resume."""
+    cfg = _make_islands_cfg()
+    problem = _UnitCubeProblem()
+    model = IslandModel(
+        config=cfg, problem=problem, n_params=4,
+        validation_seeds=[100], final_eval_seeds=[200],
+        base_mc_seed=42, rng=np.random.default_rng(0),
+    )
+    for island in model.islands:
+        island.algorithm.setup(problem, seed=0)
+    model.step(current_gen=0)
+
+    with tempfile.TemporaryDirectory() as td:
+        ckpt_path = Path(td) / "checkpoint_g00001.npz"
+        model.checkpoint(ckpt_path, generation=1)
+
+        wrong_seed_model = IslandModel(
+            config=cfg, problem=problem, n_params=4,
+            validation_seeds=[100], final_eval_seeds=[200],
+            base_mc_seed=999,  # different from saved 42
+            rng=np.random.default_rng(0),
+        )
+        for island in wrong_seed_model.islands:
+            island.algorithm.setup(problem, seed=0)
+
+        with pytest.raises(ValueError, match="base_mc_seed"):
+            wrong_seed_model.from_checkpoint(ckpt_path)

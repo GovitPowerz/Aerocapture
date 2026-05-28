@@ -315,7 +315,12 @@ class IslandModel:
             fresh_F = self.problem._run_batch(parent_X)
             island.algorithm.pop.set("F", fresh_F.reshape(-1, 1))
 
-    def checkpoint(self, path: Path, generation: int) -> None:
+    def checkpoint(
+        self,
+        path: Path,
+        generation: int,
+        seed_curator_state: dict | None = None,
+    ) -> None:
         """Write a v2 atomic .npz checkpoint.
 
         Atomicity: writes to a tempfile in the same directory, then renames.
@@ -325,7 +330,7 @@ class IslandModel:
 
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        # np.savez appends .npz automatically; use a .tmp.npz sibling so the
+        # np.savez_compressed appends .npz automatically; use a .tmp.npz sibling so the
         # atomic rename moves exactly path.stem + ".tmp.npz" -> path.
         tmp = path.with_name(path.stem + ".tmp.npz")
 
@@ -346,7 +351,7 @@ class IslandModel:
                 "stagnation_counter": island.stagnation_counter,
             })
 
-        np.savez(
+        np.savez_compressed(
             tmp,
             version=2,
             generation=generation,
@@ -354,11 +359,18 @@ class IslandModel:
             island_states=np.array(pickle.dumps(island_states), dtype=object),
             migration_log=np.array(pickle.dumps(self.migration_log), dtype=object),
             rng_state=np.array(pickle.dumps(self.rng.bit_generator.state), dtype=object),
+            seed_curator_state=np.array(pickle.dumps(seed_curator_state), dtype=object),
         )
         tmp.rename(path)
 
-    def from_checkpoint(self, path: Path) -> int:
-        """Restore from a v2 checkpoint. Returns the generation at which it was saved.
+    def from_checkpoint(self, path: Path) -> tuple[int, dict | None]:
+        """Restore from a v2 checkpoint.
+
+        Returns:
+            (generation, seed_curator_state) — the saved generation and the
+            optional SeedCurator state dict (None if absent or if the curator
+            was not in use at save time). The caller is responsible for
+            re-hydrating the curator via `SeedCurator.from_dict(...)`.
 
         IMPORTANT: per-island best_overall_* are restored verbatim. The
         resumed population's gen-0 argmin must NOT be allowed to overwrite them
@@ -378,15 +390,18 @@ class IslandModel:
             island_states = pickle.loads(data["island_states"].item())
             migration_log = pickle.loads(data["migration_log"].item())
             rng_state = pickle.loads(data["rng_state"].item())
+            seed_curator_state = pickle.loads(data["seed_curator_state"].item())
 
-        assert base_mc_seed == self.base_mc_seed, (
-            f"checkpoint base_mc_seed {base_mc_seed} != current {self.base_mc_seed}"
-        )
+        if base_mc_seed != self.base_mc_seed:
+            raise ValueError(
+                f"checkpoint base_mc_seed {base_mc_seed} != current {self.base_mc_seed}"
+            )
 
         for island, state in zip(self.islands, island_states, strict=True):
-            assert island.name == state["name"], (
-                f"checkpoint island order mismatch: {island.name} != {state['name']}"
-            )
+            if island.name != state["name"]:
+                raise ValueError(
+                    f"checkpoint island order mismatch: {island.name} != {state['name']}"
+                )
             island.last_validated_individual = state["last_validated_individual"]
             island.best_overall_individual = state["best_overall_individual"]
             island.best_overall_cost = float(state["best_overall_cost"])
@@ -406,7 +421,7 @@ class IslandModel:
 
         self.migration_log = migration_log
         self.rng.bit_generator.state = rng_state
-        return generation
+        return generation, seed_curator_state
 
     def final_eval(self) -> list[dict[str, Any]]:
         """Re-evaluate each island's best_overall on the reserved final-eval seeds.
