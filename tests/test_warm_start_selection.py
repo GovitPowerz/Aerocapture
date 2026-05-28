@@ -2,7 +2,11 @@
 drops seeds with no captures."""
 
 import numpy as np
-from aerocapture.training.warm_start import _select_best_teacher_per_seed
+import pytest
+
+pytest.importorskip("aerocapture_rs")
+
+from aerocapture.training.warm_start import _select_best_teacher_per_seed  # noqa: E402
 
 
 def _traj(seed: int, dv: float, captured: bool, n_steps: int = 10) -> dict:

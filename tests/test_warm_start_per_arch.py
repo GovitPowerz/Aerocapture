@@ -5,19 +5,21 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-import aerocapture_rs as r
 import numpy as np
 import pytest
-from aerocapture.training.config import (
+
+r = pytest.importorskip("aerocapture_rs")
+
+from aerocapture.training.config import (  # noqa: E402
     NetworkConfig,
     SimConfig,
     TrainingConfig,
     WarmStartConfig,
 )
-from aerocapture.training.encoding import nn_param_specs_from_v2
-from aerocapture.training.rl.schemas import LayerSpec
-from aerocapture.training.warm_start import build_warm_start_chromosome
-from pydantic import TypeAdapter
+from aerocapture.training.encoding import nn_param_specs_from_v2  # noqa: E402
+from aerocapture.training.rl.schemas import LayerSpec  # noqa: E402
+from aerocapture.training.warm_start import build_warm_start_chromosome  # noqa: E402
+from pydantic import TypeAdapter  # noqa: E402
 
 
 def _ftc_params(tmp_path: Path) -> Path:

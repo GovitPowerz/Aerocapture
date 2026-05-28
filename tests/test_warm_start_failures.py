@@ -6,13 +6,16 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
-from aerocapture.training.config import (
+
+pytest.importorskip("aerocapture_rs")
+
+from aerocapture.training.config import (  # noqa: E402
     NetworkConfig,
     SimConfig,
     TrainingConfig,
     WarmStartConfig,
 )
-from aerocapture.training.warm_start import (
+from aerocapture.training.warm_start import (  # noqa: E402
     build_warm_start_chromosome,
 )
 

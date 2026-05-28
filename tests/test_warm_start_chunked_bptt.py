@@ -3,8 +3,11 @@ returns a trained V2Policy + per-epoch losses."""
 
 import numpy as np
 import pytest
-from aerocapture.training.config import AdamConfig, NetworkConfig
-from aerocapture.training.warm_start import _chunked_bptt_train
+
+pytest.importorskip("aerocapture_rs")
+
+from aerocapture.training.config import AdamConfig, NetworkConfig  # noqa: E402
+from aerocapture.training.warm_start import _chunked_bptt_train  # noqa: E402
 
 
 def _make_trajectories(n_trajectories: int = 2, T: int = 64, input_dim: int = 4) -> list[dict]:

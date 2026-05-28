@@ -7,13 +7,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
-from aerocapture.training.config import (
+import pytest
+
+pytest.importorskip("aerocapture_rs")
+
+from aerocapture.training.config import (  # noqa: E402
     NetworkConfig,
     SimConfig,
     TrainingConfig,
     WarmStartConfig,
 )
-from aerocapture.training.warm_start import build_warm_start_chromosome
+from aerocapture.training.warm_start import build_warm_start_chromosome  # noqa: E402
 
 
 def _basic_cfg(tmp_path: Path) -> TrainingConfig:
