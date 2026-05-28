@@ -838,29 +838,56 @@ def test_islands_use_warm_started_pop_array() -> None:
 # Chart function smoke tests
 # ---------------------------------------------------------------------------
 def test_chart_island_convergence_overlay_renders(tmp_path: Path) -> None:
-    """Smoke test: chart_island_convergence_overlay produces a valid SVG."""
+    """Smoke test: chart_island_convergence_overlay renders an SVG and emits
+    lines when records carry the realistic TrainingLogger schema (`best_cost`
+    / `gen_best_cost` / `validation.rms_cost`)."""
+    import warnings
+
     from aerocapture.training.charts import chart_island_convergence_overlay
 
-    records_by_island = {
+    records_by_island: dict[str, list[dict[str, Any]]] = {
         "pso": [
-            {"generation": 0, "best_overall_cost": 5.0},
-            {"generation": 1, "best_overall_cost": 4.0},
-            {"generation": 2, "best_overall_cost": 3.5},
+            {"generation": 0, "best_cost": float("inf"), "gen_best_cost": 5.0},
+            {"generation": 1, "best_cost": float("inf"), "gen_best_cost": 4.0},
+            {"generation": 2, "best_cost": 3.5, "gen_best_cost": 3.5, "validation": {"rms_cost": 3.5}},
         ],
         "ga": [
-            {"generation": 0, "best_overall_cost": 6.0},
-            {"generation": 1, "best_overall_cost": 5.5},
+            {"generation": 0, "best_cost": float("inf"), "gen_best_cost": 6.0},
+            {"generation": 1, "best_cost": float("inf"), "gen_best_cost": 5.5},
         ],
         "de": [
-            {"generation": 0, "best_overall_cost": float("nan")},
-            {"generation": 1, "best_overall_cost": 7.0},
+            {"generation": 0, "best_cost": float("inf"), "gen_best_cost": float("nan")},
+            {"generation": 1, "best_cost": float("inf"), "gen_best_cost": 7.0},
         ],
     }
     output = tmp_path / "overlay.svg"
-    chart_island_convergence_overlay(records_by_island, output)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # `ax.legend` warning -> test failure
+        chart_island_convergence_overlay(records_by_island, output)
     assert output.exists()
     assert output.stat().st_size > 0
-    assert output.read_text().startswith("<?xml") or "<svg" in output.read_text()
+    svg = output.read_text()
+    # All 3 island labels must be in the rendered SVG (label= → legend text).
+    assert "PSO" in svg and "GA" in svg and "DE" in svg
+
+
+def test_chart_island_convergence_overlay_empty_records_does_not_warn(tmp_path: Path) -> None:
+    """When no island has finite data, the chart renders a placeholder and
+    must NOT call `ax.legend()` (which would warn 'No artists with labels')."""
+    import warnings
+
+    from aerocapture.training.charts import chart_island_convergence_overlay
+
+    records_by_island: dict[str, list[dict[str, Any]]] = {
+        "pso": [{"generation": 0, "best_cost": float("inf")}],
+        "ga": [{"generation": 0, "best_cost": float("inf")}],
+        "de": [],
+    }
+    output = tmp_path / "empty.svg"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        chart_island_convergence_overlay(records_by_island, output)
+    assert output.exists()
 
 
 def test_chart_migration_timeline_renders(tmp_path: Path) -> None:
@@ -972,3 +999,255 @@ def test_de_island_receives_migrants() -> None:
     de.next()
     F_after = de.pop.get("F").flatten()
     assert F_after.min() <= 0.004 + 1e-12, f"DE failed to retain migrant: min F is {F_after.min():.6e}, expected <= 0.004"
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for fixes from the 2026-05-28 review
+# ---------------------------------------------------------------------------
+def test_migrate_orders_incoming_best_to_worst_slot() -> None:
+    """migrate places the BEST migrant (lowest F_em) in the absolute-worst
+    destination slot, not whichever migrant happened to come first in
+    source-iteration order."""
+    X = np.zeros((5, 2))
+    # A's top-2 (k_top=2) emigrants will be F = [1.0, 2.0] (asc by F).
+    F_a = np.array([1.0, 2.0, 10.0, 11.0, 12.0])
+    # B's top-2 emigrants will be F = [50.0, 60.0].
+    F_b = np.array([50.0, 60.0, 70.0, 80.0, 90.0])
+    # C's worst-4 slots will be at F = [400, 300, 200, 100] in dest-pop indices
+    # 4, 3, 2, 1 → argsort()[-4:] returns [1, 2, 3, 4] ASCENDING by F. The
+    # absolute-worst slot (highest F_dst) is index 4.
+    F_c = np.array([10.0, 100.0, 200.0, 300.0, 400.0])
+    islands = [
+        _make_island("A", X.copy(), F_a),
+        _make_island("B", X.copy(), F_b),
+        _make_island("C", X.copy(), F_c),
+    ]
+    migrate(islands, k_top=2, current_gen=0, rng=np.random.default_rng(0))
+    # The migrant placed in C's absolute-worst slot (index 4) must be the
+    # globally lowest-F migrant — which is A's F=1.0.
+    new_F_c = islands[2].algorithm.pop.get("F").flatten()
+    assert float(new_F_c[4]) == 1.0, f"expected best migrant (F=1.0) at C's worst slot, got {new_F_c[4]}"
+
+
+def test_migrate_rejects_k_top_exceeding_pop() -> None:
+    """migrate raises when k_top * (n_islands - 1) exceeds destination pop size."""
+    X = np.zeros((4, 2))
+    F = np.array([1.0, 2.0, 3.0, 4.0])
+    islands = [
+        _make_island("A", X.copy(), F.copy()),
+        _make_island("B", X.copy(), F.copy()),
+        _make_island("C", X.copy(), F.copy()),
+    ]
+    with pytest.raises(ValueError, match="k_top"):
+        migrate(islands, k_top=3, current_gen=0, rng=np.random.default_rng(0))
+
+
+def test_island_model_init_rejects_invalid_k_top() -> None:
+    """IslandModel.__init__ rejects configs where k_top * (n_islands - 1) > n_pop."""
+    problem = _UnitCubeProblem()
+    cfg = OptimizerConfig(
+        algorithm="islands",
+        seed_strategy="fixed",
+        n_pop=4,
+        training_n_sims=2,
+        validation_n_sims=2,
+        islands=IslandSettings(k_top=3),  # 3 * 2 = 6 > 4
+    )
+    with pytest.raises(ValueError, match="k_top"):
+        IslandModel(
+            config=cfg,
+            problem=problem,
+            n_params=4,
+            validation_seeds=[0],
+            final_eval_seeds=[1],
+            base_mc_seed=0,
+            rng=np.random.default_rng(0),
+        )
+
+
+def test_validate_each_skips_all_inf_population() -> None:
+    """validate_each does not promote a junk chromosome when every F is inf."""
+    cfg = _make_islands_cfg()
+    problem = _UnitCubeProblem()
+    model = IslandModel(
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100, 101],
+        final_eval_seeds=[200],
+        base_mc_seed=0,
+        rng=np.random.default_rng(0),
+    )
+    for island in model.islands:
+        island.algorithm.setup(problem, seed=0)
+    model.step(current_gen=0)
+    # Force every F to inf on every island.
+    for island in model.islands:
+        n = len(island.algorithm.pop)
+        island.algorithm.pop.set("F", np.full((n, 1), float("inf")))
+    metrics = model.validate_each(current_gen=1)
+    assert len(metrics) == 3
+    for m in metrics:
+        assert m["validated"] is False
+        assert m["promoted"] is False
+    # No island should have promoted a best_overall.
+    for island in model.islands:
+        assert island.best_overall_individual is None
+
+
+def test_pso_checkpoint_restores_particles_and_is_initialized() -> None:
+    """from_checkpoint restores PSO algorithm.particles (X+F+V) AND sets
+    is_initialized=True so the next .next() doesn't wipe the restored pop."""
+    cfg = _make_islands_cfg()
+    problem = _UnitCubeProblem()
+    model = IslandModel(
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100],
+        final_eval_seeds=[200],
+        base_mc_seed=42,
+        rng=np.random.default_rng(0),
+    )
+    for island in model.islands:
+        island.algorithm.setup(problem, seed=0)
+    model.step(current_gen=0)
+    model.step(current_gen=1)
+
+    pso_island = next(i for i in model.islands if i.name == "pso")
+    expected_pop_X = pso_island.algorithm.pop.get("X").copy()
+    expected_particles_X = pso_island.algorithm.particles.get("X").copy()
+    expected_particles_V = pso_island.algorithm.particles.get("V").copy()
+
+    with tempfile.TemporaryDirectory() as td:
+        ckpt = Path(td) / "checkpoint_g00001.npz"
+        model.checkpoint(ckpt, generation=1)
+
+        restored = IslandModel(
+            config=cfg,
+            problem=problem,
+            n_params=4,
+            validation_seeds=[100],
+            final_eval_seeds=[200],
+            base_mc_seed=42,
+            rng=np.random.default_rng(0),
+        )
+        for island in restored.islands:
+            island.algorithm.setup(problem, seed=0)
+        restored.from_checkpoint(ckpt)
+
+    restored_pso = next(i for i in restored.islands if i.name == "pso")
+    np.testing.assert_array_equal(restored_pso.algorithm.pop.get("X"), expected_pop_X)
+    assert restored_pso.algorithm.particles is not None
+    np.testing.assert_array_equal(restored_pso.algorithm.particles.get("X"), expected_particles_X)
+    np.testing.assert_array_equal(restored_pso.algorithm.particles.get("V"), expected_particles_V)
+    assert restored_pso.algorithm.is_initialized is True
+    # First post-resume next() must consume the restored pop, not wipe it.
+    pop_X_before_next = restored_pso.algorithm.pop.get("X").copy()
+    restored_pso.algorithm.next()
+    # PSO pop holds personal-bests; with restored pop+particles+V, the next
+    # iter's pbest can only improve, so dim count is preserved.
+    assert restored_pso.algorithm.pop.get("X").shape == pop_X_before_next.shape
+
+
+def test_warm_start_algorithm_seeds_pop_into_gen_0() -> None:
+    """Importing the helper from train.py, verify a seeded pop survives
+    `.next()` — pymoo's setup(pop=…) alone discards it via _initialize()."""
+    from aerocapture.training.train import warm_start_algorithm
+
+    problem = _UnitCubeProblem()
+    sentinel = np.array([0.7, 0.3, 0.1, 0.4])
+    init_X = np.tile(sentinel, (10, 1))
+    init = Population.new("X", init_X)
+    Evaluator().eval(problem, init)
+
+    pso = PSO(pop_size=10)
+    warm_start_algorithm(pso, problem, init, seed=0)
+    pso.next()
+    # All particles started at the sentinel; argmin of the post-next pop
+    # should still trace back to that origin (sentinel sum = 1.5).
+    F = pso.pop.get("F").flatten()
+    assert float(F.min()) <= 1.5 + 1e-12, f"warm-started best should be <= 1.5, got {F.min():.6e}"
+
+
+def test_de_resume_restores_rank_attribute() -> None:
+    """from_checkpoint must re-run FitnessSurvival so DE's `pop.get("rank")`
+    returns integer ranks; otherwise `_infill`'s
+    `np.where(pop.get("rank") == 0)` returns empty and crashes
+    `random_state.choice([], …)`."""
+    cfg = _make_islands_cfg()
+    problem = _UnitCubeProblem()
+    model = IslandModel(
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100],
+        final_eval_seeds=[200],
+        base_mc_seed=42,
+        rng=np.random.default_rng(0),
+    )
+    for island in model.islands:
+        island.algorithm.setup(problem, seed=0)
+    # Advance several gens so DE's pop has real ranks set.
+    for g in range(3):
+        model.step(current_gen=g)
+
+    with tempfile.TemporaryDirectory() as td:
+        ckpt = Path(td) / "checkpoint_g00002.npz"
+        model.checkpoint(ckpt, generation=2)
+
+        restored = IslandModel(
+            config=cfg,
+            problem=problem,
+            n_params=4,
+            validation_seeds=[100],
+            final_eval_seeds=[200],
+            base_mc_seed=42,
+            rng=np.random.default_rng(0),
+        )
+        for island in restored.islands:
+            island.algorithm.setup(problem, seed=0)
+        restored.from_checkpoint(ckpt)
+
+    de_pop = next(i for i in restored.islands if i.name == "de").algorithm.pop
+    ranks = de_pop.get("rank")
+    assert ranks is not None
+    # Rank must be a clean numeric array — not an object-dtype array of Nones.
+    assert all(r is not None for r in ranks), f"DE rank not restored: {ranks}"
+    assert sorted(int(r) for r in ranks) == list(range(len(de_pop)))
+    # Most important: the next gen must not crash.
+    restored.step(current_gen=3)
+
+
+def test_warm_start_algorithm_sets_start_time() -> None:
+    """`warm_start_algorithm` bypasses pymoo's `_initialize()` (which is
+    where `start_time` is normally stamped); without setting it explicitly,
+    pymoo's internal `default_termination` firing past `n_max_gen=1000`
+    causes `algorithm.result()` to crash on `end_time - None`."""
+    from aerocapture.training.train import warm_start_algorithm
+
+    problem = _UnitCubeProblem()
+    init = Population.new("X", np.zeros((6, 4)))
+    Evaluator().eval(problem, init)
+
+    pso = PSO(pop_size=6)
+    warm_start_algorithm(pso, problem, init, seed=0)
+    assert pso.start_time is not None, "warm_start_algorithm must stamp start_time"
+    # Run past pymoo's default n_max_gen=1000 — `result()` is invoked once
+    # termination fires, and it would crash on None start_time.
+    for _ in range(1005):
+        pso.next()
+
+
+def test_chart_migration_timeline_accepts_dataclass(tmp_path: Path) -> None:
+    """chart_migration_timeline accepts MigrationEvent instances directly,
+    not just dicts."""
+    from aerocapture.training.charts import chart_migration_timeline
+
+    log = [
+        MigrationEvent(gen=5, src_island="ga", dst_island="pso", slot_idx=0, F_migrant=0.1, F_displaced=10.0),
+        MigrationEvent(gen=10, src_island="de", dst_island="ga", slot_idx=1, F_migrant=0.2, F_displaced=20.0),
+    ]
+    output = tmp_path / "timeline.svg"
+    chart_migration_timeline(log, n_gen=20, output=output)
+    assert output.exists() and output.stat().st_size > 0

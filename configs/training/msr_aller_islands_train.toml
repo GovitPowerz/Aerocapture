@@ -31,23 +31,13 @@ activation = "asinh"
 neural_network = "training_output/neural_network_islands/best_model.json"
 results_suffix = ".train_islands"
 
+[guidance.command_shaping]
+enabled = true
+max_bank_acceleration = 12.674110367187794   # deg/s^2
+
+[navigation]
+density_filter_gain = 0.34888052188696395
+density_gain_max_delta = 0.13961756994200195
+
 [optimizer]
 algorithm = "islands"
-seed_strategy = "adaptive"
-n_pop = 64
-n_gen = 2500
-training_n_sims = 20
-validation_n_sims = 1000
-seed_pool_interval = 50
-curation_top_k = 5
-curation_sample_size = 1000
-
-# Per-island algorithm tunables (inherited from common.toml's
-# [optimizer.pso] / [optimizer.ga] / [optimizer.de]).
-# Override here if you want different per-island hyperparameters.
-
-[optimizer.islands]
-enabled = true
-k_period = 25
-k_top = 3
-pso_inject_velocity_scale = 0.05

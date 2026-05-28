@@ -193,16 +193,22 @@ class LiveDisplay:
         from rich.panel import Panel  # noqa: PLC0415
         from rich.text import Text  # noqa: PLC0415
 
-        assert self._live is not None, "_update_islands called before __enter__"
+        if self._live is None:  # defensive: assert is stripped under -O
+            return
 
-        # Header: gen X/N | elapsed | rate | ETA
+        # Header: gen X/N | elapsed | rate | ETA. Uses `time.monotonic`
+        # consistently with `_build_panel` so a LiveDisplay reused across
+        # both paths can't mix epochs from two distinct clocks.
         gen = int(island_records.get("_gen", 0))  # type: ignore[arg-type]
         n_gen = int(island_records.get("_n_gen", self._n_gens))  # type: ignore[arg-type]
         if self._start_time is None:
-            self._start_time = time.perf_counter()
-        elapsed = time.perf_counter() - self._start_time
+            self._start_time = time.monotonic()
+        elapsed = time.monotonic() - self._start_time
         rate = (gen - self._start_gen) / elapsed if elapsed > 0 and gen > self._start_gen else 0.0
-        remaining = (n_gen - gen) / rate if rate > 0 else float("inf")
+        # Cap the remaining-gen count at 0 so an overshoot resume (gen >
+        # n_gen) doesn't render a negative duration.
+        remaining_gens = max(n_gen - gen, 0)
+        remaining = remaining_gens / rate if rate > 0 else float("inf")
         header_text = f"Gen {gen}/{n_gen}  elapsed {_format_duration(elapsed)}  rate {rate:.2f} gens/s  ETA {_format_duration(remaining)}"
         header = Panel(Text(header_text, style="bold"), title="Islands training", border_style="green")
 

@@ -78,8 +78,19 @@ def migrate(
                 incoming.append((X_em, F_em, src.name))
 
         n_incoming = len(incoming)
+        pop_size = len(dst.algorithm.pop)
+        if n_incoming > pop_size:
+            raise ValueError(
+                f"migration would overwrite {n_incoming} slots in destination "
+                f"'{dst.name}' of size {pop_size}; reduce k_top or increase "
+                f"n_pop (k_top * (n_islands - 1) must be <= n_pop).",
+            )
         F_dst = dst.algorithm.pop.get("F").flatten()
+        # Sort incoming by descending F so the best migrant (smallest F_em)
+        # lands in the absolute-worst destination slot (`worst_slots[-1]`),
+        # and the worst migrant in the least-bad worst-slot.
         worst_slots = np.argsort(F_dst, kind="stable")[-n_incoming:]
+        incoming.sort(key=lambda triple: -triple[1])
 
         for slot_i, (X_new, F_new, src_name) in zip(worst_slots, incoming, strict=True):
             slot = int(slot_i)
@@ -107,6 +118,14 @@ def migrate(
                     F_displaced=F_displaced,
                 )
             )
+
+        # Refresh `self.opt` (the social/global attractor used by PSO's
+        # `_infill` for the next gen, and by `result()` consumers for GA/DE)
+        # so it reflects the post-migration pop. Without this, a migrant
+        # whose F is lower than the pre-migration gbest is not picked as
+        # the social-best for one full generation.
+        if hasattr(dst.algorithm, "_set_optimum"):
+            dst.algorithm._set_optimum()
 
     return events
 
@@ -225,6 +244,19 @@ class IslandModel:
         base_mc_seed: int,
         rng: np.random.Generator,
     ) -> None:
+        # Reject configs that would crash migrate() at the first migration tick
+        # because k_top * (n_islands - 1) > n_pop. Done here (vs in
+        # IslandSettings.__post_init__) because we need n_pop from the
+        # surrounding OptimizerConfig.
+        n_other = len(_ISLAND_NAMES) - 1
+        n_incoming_per_dst = config.islands.k_top * n_other
+        if n_incoming_per_dst > config.n_pop:
+            raise ValueError(
+                f"islands.k_top * (n_islands - 1) = {config.islands.k_top} * {n_other} = "
+                f"{n_incoming_per_dst} exceeds optimizer.n_pop = {config.n_pop}. "
+                f"Reduce islands.k_top or increase optimizer.n_pop.",
+            )
+
         self.config = config
         self.problem = problem
         self.n_params = n_params
@@ -273,7 +305,26 @@ class IslandModel:
             pop = island.algorithm.pop
             X = pop.get("X")
             F = pop.get("F").flatten()
-            argmin_idx = int(np.argmin(F))
+
+            # Skip validation when every F is non-finite (e.g. all sims
+            # timed out or returned NaN). `np.argmin` on an all-inf array
+            # silently returns 0, which would promote whatever junk
+            # chromosome happens to sit at pop[0] as last_validated /
+            # best_overall_individual.
+            if not np.any(np.isfinite(F)):
+                island.stagnation_counter += 1
+                results.append(
+                    {
+                        "island": island.name,
+                        "validated": False,
+                        "promoted": False,
+                        "argmin_train_cost": float("inf"),
+                        "stagnation": island.stagnation_counter,
+                    }
+                )
+                continue
+
+            argmin_idx = int(np.nanargmin(np.where(np.isfinite(F), F, np.inf)))
             argmin_X = X[argmin_idx].copy()
             argmin_cost = float(F[argmin_idx])
 
@@ -368,6 +419,15 @@ class IslandModel:
 
         Atomicity: writes to a tempfile in the same directory, then renames.
         Single file holds all 3 islands' state + migration log + RNG state.
+
+        PSO populations get their `algorithm.particles` (current swarm position
+        + velocity) saved separately from `algorithm.pop` (personal-best).
+        GA/DE only need `pop_X` / `pop_F`. We deliberately avoid `pop.get("V")`
+        / `.get("pbest")` as save guards because pymoo's `Population.get` returns
+        an object ndarray of `None` entries — not the literal `None` — when the
+        per-individual attribute was never set, so a naive `is not None` check
+        would persist junk and a later `pop.set("V", junk)` would corrupt the
+        restored algorithm state.
         """
         import pickle  # noqa: PLC0415
 
@@ -380,21 +440,26 @@ class IslandModel:
         island_states = []
         for island in self.islands:
             pop = island.algorithm.pop
-            island_states.append(
-                {
-                    "name": island.name,
-                    "pop_X": pop.get("X") if pop is not None else None,
-                    "pop_F": pop.get("F") if pop is not None else None,
-                    "pop_V": pop.get("V") if pop is not None and pop.get("V") is not None else None,
-                    "pop_pbest": pop.get("pbest") if pop is not None and pop.get("pbest") is not None else None,
-                    "pop_pbest_F": pop.get("pbest_F") if pop is not None and pop.get("pbest_F") is not None else None,
-                    "last_validated_individual": island.last_validated_individual,
-                    "best_overall_individual": island.best_overall_individual,
-                    "best_overall_cost": island.best_overall_cost,
-                    "best_val_cost": island.best_val_cost,
-                    "stagnation_counter": island.stagnation_counter,
-                }
-            )
+            n_iter_attr = getattr(island.algorithm, "n_iter", None)
+            state: dict[str, Any] = {
+                "name": island.name,
+                "pop_X": pop.get("X") if pop is not None else None,
+                "pop_F": pop.get("F") if pop is not None else None,
+                "n_iter": int(n_iter_attr) if n_iter_attr is not None else 1,
+                "is_initialized": bool(getattr(island.algorithm, "is_initialized", False)),
+                "last_validated_individual": island.last_validated_individual,
+                "best_overall_individual": island.best_overall_individual,
+                "best_overall_cost": island.best_overall_cost,
+                "best_val_cost": island.best_val_cost,
+                "stagnation_counter": island.stagnation_counter,
+            }
+            if isinstance(island.algorithm, PSO):
+                particles = getattr(island.algorithm, "particles", None)
+                if particles is not None:
+                    state["particles_X"] = particles.get("X")
+                    state["particles_F"] = particles.get("F")
+                    state["particles_V"] = particles.get("V")
+            island_states.append(state)
 
         np.savez_compressed(
             tmp,
@@ -452,13 +517,48 @@ class IslandModel:
             if state["pop_X"] is not None:
                 pop = Population.new("X", state["pop_X"])
                 pop.set("F", state["pop_F"])
-                if state["pop_V"] is not None:
-                    pop.set("V", state["pop_V"])
-                if state["pop_pbest"] is not None:
-                    pop.set("pbest", state["pop_pbest"])
-                if state["pop_pbest_F"] is not None:
-                    pop.set("pbest_F", state["pop_pbest_F"])
+
+                # GA/DE's `_advance` ends with `FitnessSurvival.do(...)`
+                # which stamps `rank` (and `crowding`) on the pop. DE
+                # specifically reads `pop.get("rank") == 0` in `_infill` to
+                # pick the "best" target; without rank, `np.where(...)`
+                # returns empty and `random_state.choice(empty)` raises
+                # ValueError. Re-running FitnessSurvival here leaves the
+                # restored pop in the same state as if `_advance` had just
+                # completed. Skipped for PSO because FitnessSurvival
+                # reorders the population, which would break PSO's
+                # slot-stable personal-best invariant (pop[i] is particle
+                # i's pbest, paired with particles[i]).
+                if not isinstance(island.algorithm, PSO):
+                    from pymoo.algorithms.soo.nonconvex.ga import FitnessSurvival  # noqa: PLC0415
+
+                    pop = FitnessSurvival().do(self.problem, pop, n_survive=len(pop))
                 island.algorithm.pop = pop
+
+                # Restore PSO's particles (current swarm position + velocity).
+                # Required for `_infill()` to reproduce the saved swarm
+                # dynamics; without this the next `next()` reads a None
+                # `particles` and crashes (or worse, silently reinitializes V).
+                if isinstance(island.algorithm, PSO) and "particles_X" in state:
+                    particles = Population.new("X", state["particles_X"])
+                    particles.set("F", state["particles_F"])
+                    particles.set("V", state["particles_V"])
+                    island.algorithm.particles = particles
+
+                # Bypass pymoo's `_initialize()` on the first post-resume
+                # `next()` — without `is_initialized=True` the restored pop
+                # would be discarded and replaced with a fresh LHS sample.
+                if state.get("is_initialized", False):
+                    import time as _time  # noqa: PLC0415
+
+                    island.algorithm.is_initialized = True
+                    island.algorithm.n_iter = int(state.get("n_iter", 1))
+                    # pymoo's `_initialize()` stamps `start_time`; we bypass
+                    # it, so set it explicitly. Without this, the eventual
+                    # `result()` call (triggered when internal termination
+                    # fires) crashes on `end_time - None`.
+                    island.algorithm.start_time = _time.time()
+                    island.algorithm._set_optimum()
 
         self.migration_log = migration_log
         self.rng.bit_generator.state = rng_state

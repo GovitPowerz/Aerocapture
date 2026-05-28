@@ -462,6 +462,61 @@ def _decode_nn_weights(x: npt.NDArray[np.float64], specs: list[ParamSpec]) -> np
     return weights
 
 
+def _prune_islands_checkpoints(save_dir: Path, keep_last: int | None) -> None:
+    """Gated wrapper around `prune_checkpoints` for the islands path.
+
+    Mirrors the call at line 398-402 in the single-algorithm `save_checkpoint`.
+    No-op when `keep_last is None` (legacy behavior: keep every checkpoint).
+    Islands checkpoints are `.npz`-only (no paired `.json`), and
+    `prune_checkpoints`'s regex handles either, so the call is identical.
+    """
+    if keep_last is None or keep_last < 1:
+        return
+    from aerocapture.training.cleanup_checkpoints import prune_checkpoints  # noqa: PLC0415
+
+    prune_checkpoints(save_dir, keep_last=keep_last)
+
+
+def warm_start_algorithm(
+    algorithm: Any,
+    problem: Any,
+    pop: Population,
+    *,
+    seed: int | None = None,
+    n_iter: int = 1,
+) -> None:
+    """Seed a pymoo Algorithm with a pre-evaluated population.
+
+    pymoo's `algorithm.setup(problem, pop=init_pop)` writes the pop onto the
+    algorithm but does NOT prevent the first `algorithm.next()` from calling
+    `_initialize()` (which wipes `self.pop`) and `_initialize_infill()` (which
+    resamples via LHS). The seeded population is then silently discarded.
+
+    This helper does the work `Algorithm.advance(infills=…)` does on the
+    first call, but with our pre-evaluated pop instead of LHS infills:
+    sets `self.pop`, runs `_initialize_advance` (which for PSO initializes
+    velocity + sets `self.particles = self.pop`), flips `is_initialized`,
+    and computes `self.opt`.
+
+    Use this in place of `algorithm.setup(problem, pop=init_pop)` whenever
+    the seeded chromosomes must survive into gen 0.
+    """
+    import time as _time  # noqa: PLC0415
+
+    algorithm.setup(problem, seed=seed)
+    algorithm.pop = pop
+    algorithm.n_iter = n_iter
+    # pymoo's `_initialize()` is what normally stamps `start_time`. We
+    # bypass it here, so set it explicitly — otherwise `algorithm.result()`
+    # (called by `advance()` when internal termination fires) crashes with
+    # `unsupported operand type(s) for -: 'float' and 'NoneType'` on
+    # `res.end_time - res.start_time`.
+    algorithm.start_time = _time.time()
+    algorithm._initialize_advance(infills=pop)
+    algorithm.is_initialized = True
+    algorithm._set_optimum()
+
+
 def train(
     config: TrainingConfig | None = None,
     seed: int | None = None,
@@ -622,9 +677,16 @@ def train(
             # Make --n-gen mean "N additional" on resume
             config.optimizer.n_gen += resumed["generation"]
 
-    # Try loading existing NN weights for population seeding (NN only)
+    # Try loading existing NN weights for population seeding. Only meaningful
+    # under the v1 dense-only init path (`create_nn_initial_population`,
+    # which is the only consumer of `seed_weights`). v2 architectures use
+    # `init_v2_population` and discard seed_weights, AND `load_base_network`
+    # only knows the v1 JSON layout — calling it on a v2 best_model.json
+    # raises "list indices must be integers or slices, not str" because the
+    # v2 `architecture` key is a list of layer dicts, not a dict-with-"layers".
     seed_weights = None
-    if config.guidance_type == "neural_network" and resumed is None and not from_scratch:
+    is_v1_nn = config.guidance_type == "neural_network" and config.network.architecture is None
+    if is_v1_nn and resumed is None and not from_scratch:
         nn_param_path = Path(cwd or config.sim.exec_dir) / config.sim.nn_param_file
         if nn_param_path.exists():
             try:
@@ -943,7 +1005,12 @@ def train(
         elif opt.algorithm == "pso":
             print(f"  PSO:       w={opt.pso.w}, c1={opt.pso.c1}, c2={opt.pso.c2}")
 
-    # Inject initial population into pymoo
+    # Inject initial population into pymoo. NOTE: `setup(pop=…)` alone is
+    # insufficient — pymoo's first `next()` would call `_initialize()` and
+    # `_initialize_infill()`, wiping the seeded pop with an LHS sample.
+    # `warm_start_algorithm` flips `is_initialized` and runs
+    # `_initialize_advance` so the seeded chromosomes survive into gen 0
+    # (and PSO's particles/V get initialized against them).
     initial_pop = Population.new("X", pop_array)
     if pop_costs is not None:
         initial_pop.set("F", pop_costs.reshape(-1, 1))
@@ -951,7 +1018,7 @@ def train(
         Evaluator().eval(problem, initial_pop)
         pop_costs = initial_pop.get("F").flatten()
 
-    algorithm.setup(problem, pop=initial_pop)
+    warm_start_algorithm(algorithm, problem, initial_pop)
 
     # Initialize best from the first population eval -- but ONLY on a fresh
     # start. On resume, `best_overall_{cost,individual}` are the checkpointed
@@ -1284,14 +1351,19 @@ def _train_islands(
 
     # Fan out the (possibly warm-started) initial population to all 3 islands.
     # Each island gets the same starting chromosome but its algorithm's own
-    # internal state (e.g. PSO velocity init) is fresh.
+    # internal state (e.g. PSO velocity init) is fresh. Evaluate once and
+    # share F across all islands (chromosomes are identical, so the costs are
+    # too — running Evaluator three times would triple the cold-start budget).
+    # `warm_start_algorithm` is used instead of `setup(pop=…)` because pymoo
+    # would otherwise wipe the seeded pop via `_initialize()` on first `next()`.
+    if pop_costs is None:
+        shared_eval_pop = Population.new("X", pop_array.copy())
+        Evaluator().eval(problem, shared_eval_pop)
+        pop_costs = shared_eval_pop.get("F").flatten()
     for island in island_model.islands:
         init_pop = Population.new("X", pop_array.copy())
-        if pop_costs is not None:
-            init_pop.set("F", pop_costs.reshape(-1, 1).copy())
-        else:
-            Evaluator().eval(problem, init_pop)
-        island.algorithm.setup(problem, pop=init_pop)
+        init_pop.set("F", pop_costs.reshape(-1, 1).copy())
+        warm_start_algorithm(island.algorithm, problem, init_pop)
 
     # Try resume from latest .npz checkpoint in save_dir.
     # Probe for the islands v2 version marker before calling from_checkpoint
@@ -1313,6 +1385,12 @@ def _train_islands(
     if ckpt_files:
         resumed_gen, resumed_curator_state = island_model.from_checkpoint(ckpt_files[-1])
         start_gen = resumed_gen + 1
+        # Mirror the single-algorithm convention: `--n-gen N` after resume
+        # means "N additional gens", so bump n_gen by the resumed
+        # generation count. Done inside `_train_islands` because the outer
+        # `train()` bump only runs when `load_checkpoint()` returns a
+        # non-None dict — which it can't for an npz-only islands checkpoint.
+        config.optimizer.n_gen += resumed_gen + 1
         if resumed_curator_state is not None and seed_curator is not None:
             from aerocapture.training.seed_curator import SeedCurator as _SeedCurator  # noqa: PLC0415
 
@@ -1321,6 +1399,13 @@ def _train_islands(
                 excluded_seeds=seed_curator.excluded_seeds,
                 rng=seed_curator.rng,
             )
+            # Push the restored curated seed list into the problem so the
+            # first post-resume gen evaluates against the right seeds. The
+            # in-loop "adaptive bootstrap" branch is gated on `seed_list is
+            # None`, so without this push we would silently evaluate against
+            # the pre-islands-dispatch seed state.
+            if seed_curator.seed_list is not None:
+                problem.update_seeds(seed_curator.seed_list)
         if verbose:
             print(f"  Resumed islands from gen {resumed_gen}, continuing from {start_gen}")
 
@@ -1492,6 +1577,7 @@ def _train_islands(
                         generation=gen,
                         seed_curator_state=seed_curator.to_dict() if seed_curator is not None else None,
                     )
+                    _prune_islands_checkpoints(save_dir, config.checkpoints.keep_last)
 
         except KeyboardInterrupt:
             interrupted = True
@@ -1500,6 +1586,7 @@ def _train_islands(
                 generation=gen,
                 seed_curator_state=seed_curator.to_dict() if seed_curator is not None else None,
             )
+            _prune_islands_checkpoints(save_dir, config.checkpoints.keep_last)
             if verbose:
                 print(f"\n  Interrupted at gen {gen}; checkpoint saved.")
 
@@ -1508,6 +1595,18 @@ def _train_islands(
     if not results:
         if verbose:
             print("  No island had a validated best — skipping final-eval / artifact write.")
+        # Remove any best_model.json / best_params.json left over from a
+        # previous experiment so downstream tooling (compare_guidance,
+        # report.py, deploy paths) doesn't silently consume a stale model.
+        for stale in (
+            save_dir / "best_model.json",
+            save_dir / "best_params.json",
+            Path(cwd or ".") / config.sim.nn_param_file if config.guidance_type == "neural_network" else None,
+        ):
+            if stale is not None and stale.exists():
+                stale.unlink()
+                if verbose:
+                    print(f"  Removed stale {stale}")
         logger.close()
         return {
             "best_cost": float("inf"),
@@ -1833,11 +1932,14 @@ if __name__ == "__main__":
                     stale_path.unlink()
                     print(f"  Removed stale {stale_path}")
 
-    # Auto-resume: if no --resume and no -fs, check for existing checkpoint
+    # Auto-resume: if no --resume and no -fs, check for existing checkpoint.
+    # Single-algorithm runs write paired checkpoint_g*.{json,npz}; the
+    # islands path writes .npz-only checkpoints. Glob both so islands runs
+    # auto-resume just like single-algo runs do.
     resume_dir = args.resume
     if resume_dir is None and not args.from_scratch:
         save_path = Path(cfg.save_dir)
-        if list(save_path.glob("checkpoint_*.json")):
+        if list(save_path.glob("checkpoint_*.json")) or list(save_path.glob("checkpoint_g*.npz")):
             resume_dir = cfg.save_dir
 
     # Derive mission name from the first base TOML (the mission config).

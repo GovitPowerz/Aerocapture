@@ -107,15 +107,21 @@ def load_run_data(scheme_dir: Path) -> tuple[list[dict], list[int]]:
         records.extend(file_recs)
     records.sort(key=lambda r: r["generation"])
 
-    # Deduplicate: last-writer-wins for same generation (safety net for legacy logs)
-    seen: dict[int, int] = {}
+    # Deduplicate: last-writer-wins keyed by (generation, island_name).
+    # The islands trainer emits one record per gen PER ISLAND (3 records
+    # at the same generation, distinguished only by `island_name`), so
+    # deduping by generation alone would keep only the last island's
+    # record and silently drop the other two. Single-algo records have no
+    # `island_name` field — they all hash to (gen, None), matching the
+    # previous gen-only behavior.
+    seen: dict[tuple[int, str | None], int] = {}
     deduped: list[dict] = []
     for r in records:
-        gen = r["generation"]
-        if gen in seen:
-            deduped[seen[gen]] = r
+        key = (r["generation"], r.get("island_name"))
+        if key in seen:
+            deduped[seen[key]] = r
         else:
-            seen[gen] = len(deduped)
+            seen[key] = len(deduped)
             deduped.append(r)
 
     # Detect resume points: first generation of each file after the first
@@ -485,12 +491,52 @@ def _generate_training_charts(
     out_dir: Path,
 ) -> bool:
     """Generate Part 1 (training convergence) SVG charts. Returns has_cost_distribution."""
+    # Detect islands mode by presence of `island_name` on any record. The
+    # islands trainer writes 3 records per gen (one per island); the
+    # existing single-algo charts assume one record per gen, so we render
+    # the islands-specific charts FROM the per-island slices, and feed the
+    # single-algo charts only the winning island's slice (lowest
+    # best_overall_cost) so they still produce a sensible single line.
+    island_records = [r for r in records if "island_name" in r]
+    if island_records:
+        by_island: dict[str, list[dict]] = {}
+        for r in island_records:
+            by_island.setdefault(r["island_name"], []).append(r)
+        for slice_ in by_island.values():
+            slice_.sort(key=lambda r: r["generation"])
+
+        charts.chart_island_convergence_overlay(by_island, out_dir / "island_convergence.svg")
+        # Migration log lives in the npz checkpoint, not the JSONL; charts
+        # function tolerates an empty list and renders a placeholder.
+        charts.chart_migration_timeline([], _max_gen(records), out_dir / "migration_timeline.svg")
+
+        # Pick the island with the lowest finite best_overall_cost across
+        # all its records as the "representative" series for the single-algo
+        # charts that take one cost curve.
+        def _best_finite(slice_: list[dict]) -> float:
+            vals = [r.get("best_overall_cost", float("inf")) for r in slice_]
+            finite = [v for v in vals if v == v and v != float("inf")]
+            return min(finite) if finite else float("inf")
+
+        winner_name = min(by_island, key=lambda name: _best_finite(by_island[name]))
+        slice_records = by_island[winner_name]
+        charts.chart_convergence(slice_records, out_dir / "convergence.svg", resume_gens=resume_gens)
+        charts.chart_diversity_cost(slice_records, out_dir / "diversity_cost.svg", resume_gens=resume_gens)
+        has_cost_distribution = charts.chart_cost_distribution(slice_records, out_dir / "cost_distribution.svg")
+        charts.chart_parameter_evolution(slice_records, out_dir / "parameter_evolution.svg", resume_gens=resume_gens)
+        return has_cost_distribution
+
     charts.chart_convergence(records, out_dir / "convergence.svg", resume_gens=resume_gens)
     charts.chart_diversity_cost(records, out_dir / "diversity_cost.svg", resume_gens=resume_gens)
     has_cost_distribution = charts.chart_cost_distribution(records, out_dir / "cost_distribution.svg")
     charts.chart_parameter_evolution(records, out_dir / "parameter_evolution.svg", resume_gens=resume_gens)
 
     return has_cost_distribution
+
+
+def _max_gen(records: list[dict]) -> int:
+    """Largest `generation` key across records (or 0 if empty)."""
+    return max((r["generation"] for r in records), default=0)
 
 
 def _load_corridor_data(scheme_dir: Path) -> dict[str, Any] | None:
