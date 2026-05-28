@@ -1,0 +1,53 @@
+# MSR outbound — 3-island PSO/GA/DE training with periodic migration.
+# Clean A/B against single-algorithm PSO on the same NN architecture and
+# per-island budget (n_pop=64 each, total 192 evals/gen).
+base = ["../missions/mars.toml", "common.toml"]
+
+[guidance]
+type = "neural_network"
+
+[network]
+input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+
+[[network.architecture]]
+type = "dense"
+input_size = 25
+output_size = 128
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 128
+output_size = 32
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 32
+output_size = 2
+activation = "asinh"
+
+[data]
+neural_network = "training_output/neural_network_warm/best_model.json"
+results_suffix = ".train_islands"
+
+[optimizer]
+algorithm = "islands"
+seed_strategy = "adaptive"
+n_pop = 64
+n_gen = 2500
+training_n_sims = 20
+validation_n_sims = 1000
+seed_pool_interval = 50
+curation_top_k = 5
+curation_sample_size = 1000
+
+# Per-island algorithm tunables (inherited from common.toml's
+# [optimizer.pso] / [optimizer.ga] / [optimizer.de]).
+# Override here if you want different per-island hyperparameters.
+
+[optimizer.islands]
+enabled = true
+k_period = 25
+k_top = 3
+pso_inject_velocity_scale = 0.05
