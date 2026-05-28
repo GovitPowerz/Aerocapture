@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+import numpy as np
 import torch
 from torch import Tensor, nn
 
@@ -35,6 +36,16 @@ class DenseLayer(nn.Module):
 
     def new_state(self, batch_size: int, device: Any) -> None:
         return None
+
+    def to_flat(self) -> np.ndarray:
+        """Canonical flat weight order: W (row-major, [out, in]) then b.
+
+        Matches Rust `LayerWeights for DenseLayer::to_flat` in
+        src/rust/src/data/neural.rs.
+        """
+        w = self.linear.weight.detach().cpu().numpy().astype(np.float64)
+        b = self.linear.bias.detach().cpu().numpy().astype(np.float64)
+        return np.concatenate([w.ravel(), b])
 
     def extra_repr(self) -> str:
         return f"activation={self.activation_name}"

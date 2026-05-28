@@ -4,16 +4,17 @@ Zero trainable parameters. Maintains a FIFO ring buffer of the last `n_steps`
 inputs and concatenates them into a vector of length `n_steps * input_size`
 for the next Dense layer.
 
-Used by the cross-language equivalence test only. V2Policy does NOT construct
-this layer: `build_layer(WindowSpec)` raises NotImplementedError because
-Window-MLP is PSO-only in Phase 2b (PSO bypasses V2Policy and invokes the
-Rust runtime directly via aerocapture_rs.nn_forward).
+Constructible via `build_layer(WindowSpec)` (used by warm-start BPTT and the
+cross-language equivalence test). The PPO runtime gate has moved to
+`rl/train.py::_derive_hidden_shapes`; PSO still bypasses V2Policy and drives
+the Rust runtime via aerocapture_rs.nn_forward.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import torch
 from torch import Tensor, nn
 
@@ -57,3 +58,11 @@ class WindowLayer(nn.Module):
             dtype=self._dtype_anchor.dtype,
             device=device if device is not None else self._dtype_anchor.device,
         )
+
+    def to_flat(self) -> np.ndarray:
+        """Zero trainable parameters; flat representation is empty.
+
+        Matches Rust `LayerWeights for WindowLayer::to_flat` in
+        src/rust/src/data/neural.rs.
+        """
+        return np.array([], dtype=np.float64)

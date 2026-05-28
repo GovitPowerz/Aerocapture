@@ -11,6 +11,9 @@ must produce bit-identical f64 output (verified by Task 14's equivalence test).
 
 from __future__ import annotations
 
+from typing import Any
+
+import numpy as np
 import torch
 from torch import Tensor, nn
 
@@ -55,9 +58,9 @@ class MambaLayer(nn.Module):
         dt_rank:    Bottleneck rank for the Δ projection.
 
     State contract:
-        `new_state()` -> zero-initialized `Tensor` of shape (input_size, d_state),
-        dtype tracks parameter dtype (so `policy.double()` propagates).
-        `forward(x, h) -> (y, h_new)` where `x: (input_size,)` and `h: (input_size, d_state)`.
+        `new_state(batch_size, device=None)` -> zero-initialized Tensor (batch_size, input_size, d_state).
+        `forward(x, h) -> (y, h_new)` where x: (batch, input_size), h: (batch, input_size, d_state).
+        Unbatched fallback: pass x: (input_size,) and h: (input_size, d_state) — routes to forward_unbatched.
 
     Canonical parameter order (matches Rust `LayerWeights for MambaLayer::to_flat`):
       x_proj_w (dt_rank + 2*d_state, input_size) row-major
@@ -83,17 +86,24 @@ class MambaLayer(nn.Module):
         self.a_log = nn.Parameter(torch.zeros(input_size, d_state))
         self.d_skip = nn.Parameter(torch.zeros(input_size))
 
-    def new_state(self) -> Tensor:
-        """Return a zero-initialized state tensor with parameter dtype / device."""
+    def new_state(self, batch_size: int, device: Any | None = None) -> Tensor:
+        """Return zero-initialized batched state (batch_size, input_size, d_state).
+
+        The unbatched forward signature `(x: (input_size,), h: (input_size, d_state))`
+        is preserved for the existing cross-language equivalence test (which calls it
+        directly without going through V2Policy). Task 3 adds the batched forward.
+        """
+        target_device = device if device is not None else self.x_proj_w.device
         return torch.zeros(
+            batch_size,
             self.input_size,
             self.d_state,
             dtype=self.x_proj_w.dtype,
-            device=self.x_proj_w.device,
+            device=target_device,
         )
 
-    def forward(self, x: Tensor, h: Tensor) -> tuple[Tensor, Tensor]:
-        """Single-step forward.
+    def forward_unbatched(self, x: Tensor, h: Tensor) -> tuple[Tensor, Tensor]:
+        """Single-step unbatched forward (preserved for cross-language equivalence).
 
         Args:
             x: (input_size,) input vector.
@@ -124,3 +134,64 @@ class MambaLayer(nn.Module):
         h_new = a_bar * h + b_bar * x.unsqueeze(1)
         y = h_new @ c_vec + self.d_skip * x
         return y, h_new
+
+    def forward(self, x: Tensor, h: Tensor) -> tuple[Tensor, Tensor]:
+        """Batched single-step forward.
+
+        Args:
+            x: (batch, input_size) input vectors.
+            h: (batch, input_size, d_state) per-env state.
+
+        Returns:
+            y:     (batch, input_size) output vectors.
+            h_new: (batch, input_size, d_state) updated state.
+        """
+        if x.ndim == 1:
+            # Unbatched fallback for the cross-language equivalence test.
+            return self.forward_unbatched(x, h)
+        B = x.shape[0]
+        assert x.shape == (B, self.input_size)
+        assert h.shape == (B, self.input_size, self.d_state)
+
+        # 1. x_proj: x(B, input_size) @ x_proj_w.T(input_size, dt_rank + 2*d_state) -> (B, dt_rank + 2*d_state)
+        proj = x @ self.x_proj_w.t()  # (B, dt_rank + 2*d_state)
+        dt_pre = proj[:, : self.dt_rank]  # (B, dt_rank)
+        b_vec = proj[:, self.dt_rank : self.dt_rank + self.d_state]  # (B, d_state)
+        c_vec = proj[:, self.dt_rank + self.d_state : self.dt_rank + 2 * self.d_state]  # (B, d_state)
+
+        # 2. dt_proj + softplus -> per-channel positive delta
+        # dt_pre(B, dt_rank) @ dt_proj_w.T(dt_rank, input_size) + dt_proj_b(input_size,) -> (B, input_size)
+        dt_lifted = dt_pre @ self.dt_proj_w.t() + self.dt_proj_b  # (B, input_size)
+        delta = _softplus(dt_lifted)  # (B, input_size)
+
+        # 3. ZOH discretization (broadcast over batch + (input_size, d_state))
+        a = -torch.exp(self.a_log)  # (input_size, d_state), A < 0
+        # za: (B, input_size, d_state) = delta(B, input_size, 1) * a(1, input_size, d_state)
+        za = delta.unsqueeze(-1) * a.unsqueeze(0)
+        a_bar = torch.exp(za)  # (B, input_size, d_state)
+        # b_bar: (B, input_size, d_state) = delta(B, in, 1) * b_vec(B, 1, d_state) * expm1_over_x(za)
+        b_bar = delta.unsqueeze(-1) * b_vec.unsqueeze(1) * _expm1_over_x(za)
+        # h_new: (B, input_size, d_state) = a_bar * h + b_bar * x.unsqueeze(-1)(B, input_size, 1)
+        h_new = a_bar * h + b_bar * x.unsqueeze(-1)
+        # y: (B, input_size) = sum over d_state of (h_new(B,in,n) * c_vec(B,1,n)) + d_skip(in,) * x(B,in)
+        y = (h_new * c_vec.unsqueeze(1)).sum(dim=-1) + self.d_skip * x
+        return y, h_new
+
+    def to_flat(self) -> np.ndarray:
+        """Canonical flat order matching Rust `LayerWeights for MambaLayer::to_flat`:
+
+        x_proj_w row-major (dt_rank + 2*d_state, input_size)
+        dt_proj_w row-major (input_size, dt_rank)
+        dt_proj_b (input_size,)
+        a_log row-major (input_size, d_state)
+        d_skip (input_size,)
+        """
+        return np.concatenate(
+            [
+                self.x_proj_w.detach().cpu().numpy().astype(np.float64).ravel(),
+                self.dt_proj_w.detach().cpu().numpy().astype(np.float64).ravel(),
+                self.dt_proj_b.detach().cpu().numpy().astype(np.float64),
+                self.a_log.detach().cpu().numpy().astype(np.float64).ravel(),
+                self.d_skip.detach().cpu().numpy().astype(np.float64),
+            ]
+        )

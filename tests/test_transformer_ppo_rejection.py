@@ -1,4 +1,8 @@
-"""Transformer is PSO-only in Phase 3a; PPO entry points must reject cleanly."""
+"""Transformer is PSO-only in Phase 3a; load_policy_from_json must reject cleanly.
+
+build_layer now constructs TransformerLayer (enabled in Task 2 for warm-start
+infrastructure); the remaining PPO gate lives in load_policy_from_json.
+"""
 
 from __future__ import annotations
 
@@ -7,14 +11,6 @@ from pathlib import Path
 
 import pytest
 import torch
-from aerocapture.training.rl.layers import build_layer
-from aerocapture.training.rl.schemas import TransformerSpec
-
-
-def test_build_layer_rejects_transformer() -> None:
-    spec = TransformerSpec(type="transformer", d_model=4, n_heads=2, d_ffn=8, n_seq=4)
-    with pytest.raises(NotImplementedError, match="Transformer is PSO-only in Phase 3a"):
-        build_layer(spec)
 
 
 def test_load_policy_from_json_rejects_transformer(tmp_path: Path) -> None:

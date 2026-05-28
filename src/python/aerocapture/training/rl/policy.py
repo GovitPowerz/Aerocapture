@@ -164,7 +164,17 @@ def _zero_entry(s: Any, keep_bool: Tensor) -> Any:
     if s is None:
         return None
     if isinstance(s, Tensor):
-        return s * keep_bool.to(dtype=s.dtype, device=s.device)
+        if s.ndim < 2:
+            raise ValueError(f"_zero_entry: expected Tensor with ndim >= 2 (batch dim + state dims), got ndim={s.ndim}")
+        # keep_bool starts as (B, 1); reshape to (B, 1, 1, ..., 1) to broadcast
+        # against any trailing dims (Mamba 3D, Window 3D, Transformer KV-cache 3D, ...).
+        extra = s.ndim - keep_bool.ndim
+        if extra > 0:
+            shape = keep_bool.shape + (1,) * extra
+            broadcast = keep_bool.view(shape)
+        else:
+            broadcast = keep_bool
+        return s * broadcast.to(dtype=s.dtype, device=s.device)
     if isinstance(s, tuple):
         return tuple(_zero_entry(sub, keep_bool) for sub in s)
     raise TypeError(
@@ -280,6 +290,40 @@ class V2Policy(nn.Module):
                 if done_mask.any():
                     state = _zero_state_where_done(state, done_mask)
         return torch.stack(log_probs, dim=0), torch.stack(entropies, dim=0)
+
+    def forward_seq_means(
+        self,
+        obs_seq: Tensor,
+        state_0: list[Any],
+        dones_seq: Tensor,
+    ) -> Tensor:
+        """Supervised-warm-start forward over a time chunk.
+
+        Returns the layer-stack final output (the policy mean) per step. Used by
+        the chunked-BPTT supervised pretraining loop in warm_start.py; this is the
+        autograd-friendly mirror of `evaluate` minus the Gaussian log-prob math.
+
+        Args:
+            obs_seq:   (T, B, obs_dim)
+            state_0:   list of per-layer state tensors. Caller is responsible for
+                       `.detach()` before passing across chunk boundaries.
+            dones_seq: (T, B) bool. When True at time t, the per-env state
+                       entering step t+1 is zeroed.
+
+        Returns:
+            means: (T, B, out_dim)
+        """
+        T = obs_seq.shape[0]
+        means_list: list[Tensor] = []
+        state = state_0
+        for t in range(T):
+            mean, state = self.forward(obs_seq[t], state)
+            means_list.append(mean)
+            if t + 1 < T:
+                done_mask = dones_seq[t]
+                if done_mask.any():
+                    state = _zero_state_where_done(state, done_mask)
+        return torch.stack(means_list, dim=0)
 
 
 class ValueNetwork(nn.Module):

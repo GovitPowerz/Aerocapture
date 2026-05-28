@@ -3,11 +3,11 @@
 //! Feedforward network computing bank angle from navigation state.
 //! Supports arbitrary layer architectures via NeuralNetModel.
 //!
-//! 21 candidate inputs (selected by configurable `input_mask`):
-//!   0  eccentricity_excess    8  altitude              16 cos_bank_nominal
-//!   1  inclination_error      9  fpa                   17 pdyn_nominal
-//!   2  radial_velocity       10  latitude              18 hdot_nominal
-//!   3  orbital_energy        11  drag_accel            19 pdyn_error
+//! 25 candidate inputs (selected by configurable `input_mask`):
+//!   0  eccentricity_excess    8  altitude              16 cos_bank_nominal       21 inclination_err_rate
+//!   1  inclination_error      9  fpa                   17 pdyn_nominal           22 prev_bank_signed
+//!   2  radial_velocity       10  latitude              18 hdot_nominal           23 time_since_sign_flip
+//!   3  orbital_energy        11  drag_accel            19 pdyn_error             24 inclination_err_integral
 //!   4  velocity              12  lift_accel            20 exit_bank_teacher
 //!   5  accel_magnitude       13  sma_error
 //!   6  heat_flux_fraction    14  apoapsis_alt
@@ -16,6 +16,13 @@
 //! Index 20 is the closed-loop FTC exit-phase pdyn-feedback law, fed every step
 //! as a teacher signal (always live, not bounce-gated). Pre-bounce, with
 //! `ref_velocity_latched = 0`, it degenerates to pure radial-velocity damping.
+//!
+//! Indices 21-24 expose the lateral-reversal state machine's Markovian state so
+//! the NN can learn (and reproduce) signed bank decisions from inputs alone --
+//! see GuidanceState::{prev_inclination_error_for_nn, prev_bank_for_nn,
+//! last_sign_flip_time_for_nn, inclination_error_integral}. Without these, the
+//! supervisor's signed target is bimodal for near-duplicate states (post-reversal
+//! pairs collapse under MSE to ~0).
 //!
 //! Output mapping: dispatched on `nn.output_param` (`OutputParam`).
 //! - `Atan2Signed` (default): network emits 2 outputs; signed bank is
@@ -35,12 +42,18 @@ use crate::orbit::elements;
 
 /// Build the masked NN input vector from navigation state.
 ///
-/// Constructs the full 21-element candidate input vector, applies ablation zeroing
+/// Constructs the full 25-element candidate input vector, applies ablation zeroing
 /// (if configured), then applies the input_mask (or legacy [0..16] default).
 /// Returns the masked `Vec<f64>` ready for `nn.forward()`.
 ///
 /// `input_mask` and `ablated_input` are taken directly so this function can be
 /// called without a `NeuralNetModel` (e.g. supervised-trace capture during FTC runs).
+///
+/// The last 4 parameters (`prev_inclination_error`, `prev_bank_signed`,
+/// `time_since_last_sign_flip`, `inclination_error_integral`) populate indices
+/// 21-24. They MUST be sourced from GuidanceState (telemetry updated each tick
+/// by `tick.rs`) so they reflect the previous-tick state at NN-evaluation time.
+#[allow(clippy::too_many_arguments)]
 pub fn build_nn_input(
     nav: &NavigationOutput,
     input_mask: Option<&[usize]>,
@@ -49,6 +62,10 @@ pub fn build_nn_input(
     planet: &PlanetConfig,
     target_inclination: f64,
     ref_velocity_latched: f64,
+    prev_inclination_error: Option<f64>,
+    prev_bank_signed: f64,
+    time_since_last_sign_flip: f64,
+    inclination_error_integral: f64,
 ) -> Vec<f64> {
     let mu = planet.mu;
 
@@ -74,7 +91,7 @@ pub fn build_nn_input(
     // Altitude in km
     let altitude_km = (nav.position_estimated[0] - planet.equatorial_radius) / 1e3;
 
-    // Build full 21-element input vector
+    // Build full 25-element input vector
     let mut full_input = [0.0_f64; NN_FULL_INPUT_SIZE];
 
     // -- 16 existing inputs (indices 0-15) --
@@ -125,6 +142,24 @@ pub fn build_nn_input(
     let exit_bank = exit::exit_guidance(nav, data, planet, ref_velocity_latched);
     full_input[20] = exit_bank / std::f64::consts::PI * 2.0 - 1.0;
 
+    // -- Lateral-state telemetry (indices 21-24) --
+    // These make the supervisor's signed-bank decision a Markovian function of
+    // inputs. Without them, post-reversal near-duplicate states collapse under
+    // MSE -> NN can't learn signed targets. See module doc-comment.
+    let current_inclination_error = orbit.inclination - target_inclination;
+    let di_err_dt = match prev_inclination_error {
+        Some(prev) => (current_inclination_error - prev) / data.periods.guidance,
+        None => 0.0,
+    };
+    // Index 21: inclination error rate (deg/s), scaled so typical ~ [-1, 1].
+    full_input[21] = di_err_dt.to_degrees() * 10.0;
+    // Index 22: previous bank command, normalized to [-1, 1].
+    full_input[22] = prev_bank_signed / std::f64::consts::PI;
+    // Index 23: time since last bank-command sign flip, tanh-bounded with 30s scale.
+    full_input[23] = (time_since_last_sign_flip / 30.0).tanh();
+    // Index 24: integrated inclination error (deg·s), tanh-bounded with 100 deg·s scale.
+    full_input[24] = (inclination_error_integral.to_degrees() / 100.0).tanh();
+
     // Apply ablation: zero out a single input for sensitivity analysis
     if let Some(idx) = ablated_input {
         full_input[idx] = 0.0;
@@ -140,10 +175,15 @@ pub fn build_nn_input(
 /// Compute NN-guided longitudinal bank angle.
 ///
 /// Builds the masked input vector via `build_nn_input`, runs a forward pass,
-/// and returns `atan2(out[0], out[1])`.
+/// and returns the decoded bank angle per `nn.output_param`.
 ///
 /// Returns the **signed** bank angle in radians.
 /// Lateral guidance is bypassed for this scheme -- the NN controls roll direction directly.
+///
+/// `prev_inclination_error`, `prev_bank_signed`, `time_since_last_sign_flip`, and
+/// `inclination_error_integral` are pulled from GuidanceState by the caller
+/// (dispatch.rs) and populate input indices 21-24 -- see build_nn_input.
+#[allow(clippy::too_many_arguments)]
 pub fn nn_bank_angle(
     nav: &NavigationOutput,
     nn: &NeuralNetModel,
@@ -152,6 +192,10 @@ pub fn nn_bank_angle(
     planet: &PlanetConfig,
     target_inclination: f64, // radians
     ref_velocity_latched: f64,
+    prev_inclination_error: Option<f64>,
+    prev_bank_signed: f64,
+    time_since_last_sign_flip: f64,
+    inclination_error_integral: f64,
 ) -> f64 {
     let masked = build_nn_input(
         nav,
@@ -161,6 +205,10 @@ pub fn nn_bank_angle(
         planet,
         target_inclination,
         ref_velocity_latched,
+        prev_inclination_error,
+        prev_bank_signed,
+        time_since_last_sign_flip,
+        inclination_error_integral,
     );
     use crate::data::neural::OutputParam;
     let output = nn.forward(nn_state, &masked);
@@ -350,6 +398,10 @@ mod tests {
             &planet,
             50.0_f64.to_radians(),
             0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
         );
         let expected = bias0.atan2(bias1); // PI/4
         assert_relative_eq!(bank, expected, epsilon = 1e-12);
@@ -373,6 +425,10 @@ mod tests {
             &planet,
             50.0_f64.to_radians(),
             0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
         );
         assert_relative_eq!(bank, 0.5_f64.atan2(0.5), epsilon = 1e-12);
     }
@@ -393,6 +449,10 @@ mod tests {
             &data,
             &planet,
             50.0_f64.to_radians(),
+            0.0,
+            None,
+            0.0,
+            0.0,
             0.0,
         );
         assert_relative_eq!(bank, (-1.0_f64).atan2(1.0), epsilon = 1e-12);
@@ -455,6 +515,10 @@ mod tests {
             &data,
             &planet,
             50.0_f64.to_radians(),
+            0.0,
+            None,
+            0.0,
+            0.0,
             0.0,
         );
 
@@ -529,6 +593,10 @@ mod tests {
             &planet,
             50.0_f64.to_radians(),
             0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
         );
 
         assert!(bank.is_finite(), "bank angle must be finite, got: {bank}");
@@ -575,6 +643,10 @@ mod tests {
             &planet,
             50.0_f64.to_radians(),
             -50.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
         );
 
         assert!(
@@ -629,6 +701,10 @@ mod tests {
             &planet,
             target_inc,
             ref_velocity,
+            None,
+            0.0,
+            0.0,
+            0.0,
         );
         let x0 = full_input[0];
         let x8 = full_input[8];
@@ -647,6 +723,10 @@ mod tests {
             &planet,
             target_inc,
             ref_velocity,
+            None,
+            0.0,
+            0.0,
+            0.0,
         );
 
         assert!(
@@ -711,6 +791,10 @@ mod tests {
             &planet,
             target_inc,
             0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
         );
         let bank_ablated = nn_bank_angle(
             &nav,
@@ -719,6 +803,10 @@ mod tests {
             &data,
             &planet,
             target_inc,
+            0.0,
+            None,
+            0.0,
+            0.0,
             0.0,
         );
 
@@ -759,6 +847,10 @@ mod tests {
             &data,
             &planet,
             50.0_f64.to_radians(),
+            0.0,
+            None,
+            0.0,
+            0.0,
             0.0,
         );
 
@@ -806,13 +898,232 @@ mod tests {
             &data,
             &planet,
             50.0_f64.to_radians(),
-            0.0, // ref_velocity_latched = 0 pre-bounce
+            0.0, // ref_velocity_latched = 0 pre-bounce,
+            None,
+            0.0,
+            0.0,
+            0.0,
         );
 
         assert!(
             bank.is_finite(),
             "exit-bank teacher signal must produce finite bank pre-bounce, got: {bank}"
         );
+    }
+
+    // ── Tests for indices 21-24 (Markovian lateral-state telemetry) ──
+
+    #[test]
+    fn input_21_rate_is_zero_when_prev_incl_err_is_none() {
+        // First tick of a trajectory: prev_inclination_error is None, so the
+        // finite-diff rate input MUST be exactly 0.0. Otherwise NaN from
+        // (current - None) would propagate.
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let inp = build_nn_input(
+            &nav,
+            Some(&full_mask),
+            None,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+            None, // first-tick: no prev incl err
+            0.0,
+            0.0,
+            0.0,
+        );
+        assert_eq!(inp[21], 0.0, "first-tick rate must be 0.0, got {}", inp[21]);
+    }
+
+    #[test]
+    fn input_21_rate_finite_diff_matches_formula() {
+        // Pass an explicit prev_inclination_error; verify input[21] equals
+        // ((current - prev) / guidance_period).to_degrees() * 10.0.
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let target = 50.0_f64.to_radians();
+        // Compute current inclination error to set up prev that produces a known rate
+        let orbit = elements::from_spherical(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
+            &planet,
+        );
+        let current_err = orbit.inclination - target;
+        // Choose prev so (current - prev) / guidance_period = 0.001 rad/s
+        let dt = data.periods.guidance;
+        let target_rate = 0.001_f64;
+        let prev_err = current_err - target_rate * dt;
+
+        let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let inp = build_nn_input(
+            &nav,
+            Some(&full_mask),
+            None,
+            &data,
+            &planet,
+            target,
+            0.0,
+            Some(prev_err),
+            0.0,
+            0.0,
+            0.0,
+        );
+        let expected = target_rate.to_degrees() * 10.0;
+        assert_relative_eq!(inp[21], expected, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn input_22_prev_bank_normalized_to_pm_one() {
+        // prev_bank_signed of PI must produce input[22] = 1.0;
+        // -PI/2 must produce -0.5; 0.0 must produce 0.0.
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let target = 50.0_f64.to_radians();
+        let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let cases = [
+            (std::f64::consts::PI, 1.0),
+            (-std::f64::consts::FRAC_PI_2, -0.5),
+            (0.0, 0.0),
+        ];
+        for (prev_bank, expected) in cases {
+            let inp = build_nn_input(
+                &nav,
+                Some(&full_mask),
+                None,
+                &data,
+                &planet,
+                target,
+                0.0,
+                None,
+                prev_bank,
+                0.0,
+                0.0,
+            );
+            assert_relative_eq!(inp[22], expected, epsilon = 1e-15);
+        }
+    }
+
+    #[test]
+    fn input_23_time_since_flip_tanh_bounded() {
+        // tanh(0/30) = 0; tanh(30/30) = tanh(1) ≈ 0.7616; tanh(very large) → 1.0
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let target = 50.0_f64.to_radians();
+        let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let cases = [(0.0, 0.0), (30.0, 1.0_f64.tanh()), (1e6, 1.0)];
+        for (t_since, expected) in cases {
+            let inp = build_nn_input(
+                &nav,
+                Some(&full_mask),
+                None,
+                &data,
+                &planet,
+                target,
+                0.0,
+                None,
+                0.0,
+                t_since,
+                0.0,
+            );
+            assert_relative_eq!(inp[23], expected, epsilon = 1e-10);
+        }
+    }
+
+    #[test]
+    fn input_24_integral_tanh_bounded() {
+        // tanh(integral_deg_s / 100); integral in radians, converted to deg internally.
+        // integral = 100 * pi/180 rad·s → 100 deg·s → tanh(1) ≈ 0.7616
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let target = 50.0_f64.to_radians();
+        let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let integral_rad_s = 100.0_f64.to_radians(); // 100 deg·s in rad·s
+        let inp = build_nn_input(
+            &nav,
+            Some(&full_mask),
+            None,
+            &data,
+            &planet,
+            target,
+            0.0,
+            None,
+            0.0,
+            0.0,
+            integral_rad_s,
+        );
+        assert_relative_eq!(inp[24], 1.0_f64.tanh(), epsilon = 1e-12);
+
+        // Negative integral → negative output (tanh is antisymmetric).
+        let inp_neg = build_nn_input(
+            &nav,
+            Some(&full_mask),
+            None,
+            &data,
+            &planet,
+            target,
+            0.0,
+            None,
+            0.0,
+            0.0,
+            -integral_rad_s,
+        );
+        assert_relative_eq!(inp_neg[24], -1.0_f64.tanh(), epsilon = 1e-12);
+    }
+
+    #[test]
+    fn legacy_mask_0_to_20_unchanged_by_new_inputs() {
+        // Backward compat: input_mask = [0..21] must yield identical values for
+        // indices 0-20 regardless of the new telemetry params (which only affect
+        // indices 21-24). This is the load-bearing guarantee for existing trained
+        // models with input_size=21.
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let target = 50.0_f64.to_radians();
+        let mask_21: Vec<usize> = (0..21).collect();
+
+        let inp_a = build_nn_input(
+            &nav,
+            Some(&mask_21),
+            None,
+            &data,
+            &planet,
+            target,
+            0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
+        );
+        let inp_b = build_nn_input(
+            &nav,
+            Some(&mask_21),
+            None,
+            &data,
+            &planet,
+            target,
+            0.0,
+            Some(0.1234), // arbitrary non-zero
+            std::f64::consts::PI,
+            42.5,
+            std::f64::consts::E,
+        );
+        assert_eq!(inp_a.len(), 21);
+        assert_eq!(inp_b.len(), 21);
+        for i in 0..21 {
+            assert_relative_eq!(inp_a[i], inp_b[i], epsilon = 1e-15);
+        }
     }
 
     mod prop {
@@ -848,34 +1159,39 @@ mod tests {
         }
 
         proptest! {
-            #[test]
-            fn output_always_finite(
-                alt in 10_000.0..130_000.0_f64,
-                vel in 2000.0..7000.0_f64,
-                fpa in -0.3..0.05_f64,
-                az  in -1.0..1.0_f64,
-            ) {
-                let r = PlanetConfig::mars().equatorial_radius + alt;
-                let nav = NavigationOutput {
-                    position_estimated: [r, 0.1, 0.05],
-                    velocity_estimated: [vel, fpa, az],
-                    acceleration_estimated: [50.0, -8.0],
-                    aero_coefficients: [1.269, -0.205],
-                    density_guidance: 0.001,
-                    dynamic_pressure_estimated: 0.5 * 0.001 * vel * vel,
-                    energy_estimated: -1e6,
-                    ..Default::default()
-                };
+                    #[test]
+                    fn output_always_finite(
+                        alt in 10_000.0..130_000.0_f64,
+                        vel in 2000.0..7000.0_f64,
+                        fpa in -0.3..0.05_f64,
+                        az  in -1.0..1.0_f64,
+                    ) {
+                        let r = PlanetConfig::mars().equatorial_radius + alt;
+                        let nav = NavigationOutput {
+                            position_estimated: [r, 0.1, 0.05],
+                            velocity_estimated: [vel, fpa, az],
+                            acceleration_estimated: [50.0, -8.0],
+                            aero_coefficients: [1.269, -0.205],
+                            density_guidance: 0.001,
+                            dynamic_pressure_estimated: 0.5 * 0.001 * vel * vel,
+                            energy_estimated: -1e6,
+                            ..Default::default()
+                        };
 
-                let nn = fixed_small_nn();
-                let data = test_sim_data();
-                let planet = PlanetConfig::mars();
-                let mut state = NnState::for_model(&nn);
-                let bank = nn_bank_angle(&nav, &nn, &mut state, &data, &planet, 50.0_f64.to_radians(), 0.0);
+                        let nn = fixed_small_nn();
+                        let data = test_sim_data();
+                        let planet = PlanetConfig::mars();
+                        let mut state = NnState::for_model(&nn);
+                        let bank = nn_bank_angle(&nav, &nn, &mut state, &data, &planet, 50.0_f64.to_radians(), 0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
+        );
 
-                prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
-            }
-        }
+                        prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
+                    }
+                }
 
         #[test]
         fn acos_tanh_parameterization_emits_acos_of_output() {
@@ -911,6 +1227,10 @@ mod tests {
                 &data,
                 &planet,
                 50.0_f64.to_radians(),
+                0.0,
+                None,
+                0.0,
+                0.0,
                 0.0,
             );
 

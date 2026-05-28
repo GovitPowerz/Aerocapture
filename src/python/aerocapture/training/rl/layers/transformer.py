@@ -12,15 +12,18 @@ tests/test_rust_python_transformer_equivalence.py):
   no bias is included in the PE shift. Matches Rust's precomputed k_pe_offsets
   modulo iteration order (< 1e-10 tolerance, target machine epsilon).
 
-Note: this module is consumed ONLY by the cross-language equivalence test. The
-production PPO path raises NotImplementedError in build_layer; PSO bypasses this
-module entirely and drives the Rust runtime via aerocapture_rs.nn_forward.
+Note: constructible via `build_layer(TransformerSpec)` (used by warm-start BPTT
+and the cross-language equivalence test). The PPO runtime gate has moved to
+`rl/train.py::_derive_hidden_shapes`; PSO bypasses this module entirely and
+drives the Rust runtime via aerocapture_rs.nn_forward.
 """
 
 from __future__ import annotations
 
 import math
+from typing import Any
 
+import numpy as np
 import torch
 from torch import Tensor, nn
 
@@ -143,8 +146,26 @@ class TransformerLayer(nn.Module):
         out = x1 + ffn_out
         return out, (k_cache, v_cache)
 
-    def new_state(self, batch_size: int) -> tuple[Tensor, Tensor]:
-        device = self.w_q.weight.device
+    def new_state(self, batch_size: int, device: Any | None = None) -> tuple[Tensor, Tensor]:
+        target_device = device if device is not None else self.w_q.weight.device
         dtype = self.w_q.weight.dtype
-        empty = torch.zeros(batch_size, 0, self.d_model, device=device, dtype=dtype)
+        empty = torch.zeros(batch_size, 0, self.d_model, device=target_device, dtype=dtype)
         return (empty.clone(), empty.clone())
+
+    def to_flat(self) -> np.ndarray:
+        """Canonical flat order matching Rust LayerWeights<TransformerLayer>::to_flat:
+
+            w_q, b_q, w_k, b_k, w_v, b_v, w_o, b_o,
+            w_ffn1, b_ffn1, w_ffn2, b_ffn2,
+            ln1_gamma, ln1_beta, ln2_gamma, ln2_beta
+
+        All 2D weights row-major. PyTorch nn.Linear stores weight as
+        [out, in] row-major which matches the Rust serialization byte-for-byte.
+        """
+        parts: list[np.ndarray] = []
+        for linear in (self.w_q, self.w_k, self.w_v, self.w_o, self.w_ffn1, self.w_ffn2):
+            parts.append(linear.weight.detach().cpu().numpy().astype(np.float64).ravel())
+            parts.append(linear.bias.detach().cpu().numpy().astype(np.float64))
+        for ln in (self.ln1_gamma, self.ln1_beta, self.ln2_gamma, self.ln2_beta):
+            parts.append(ln.detach().cpu().numpy().astype(np.float64))
+        return np.concatenate(parts)

@@ -208,6 +208,64 @@ class AerocaptureProblem(Problem):
 
         return costs
 
+    def evaluate_individual_records_per_seed(
+        self,
+        x: npt.NDArray[np.float64],
+        seeds: list[int],
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        """Evaluate a single individual on a list of seeds, returning per-seed
+        costs AND the full (n_seeds, 52) `final_records` matrix.
+
+        Same compute path as `evaluate_individual_per_seed`, but exposes the
+        raw records so downstream consumers (e.g. report.print_eval_summary)
+        can derive DV / apoapsis / heat-flux statistics without re-running
+        the MC.
+        """
+        from aerocapture.training.encoding import decode_normalized
+
+        params = decode_normalized(x, self.param_specs)
+        assert _HAS_PYO3 and _aero_rs is not None
+        costs = np.empty(len(seeds), dtype=np.float64)
+
+        nn_tmp: Path | None = None
+        if self.scheme == "neural_network" and self.nn_config is not None:
+            from aerocapture.training.config import NetworkConfig
+
+            nn_cfg = self.nn_config
+            assert isinstance(nn_cfg, NetworkConfig)
+            n_w = self._n_nn_weight_specs
+            weights = np.array(
+                [self.param_specs[j].p_min + float(x[j]) * (self.param_specs[j].p_max - self.param_specs[j].p_min) for j in range(n_w)],
+                dtype=np.float64,
+            )
+            fd, tmp_str = tempfile.mkstemp(suffix=".json", prefix="nn_eval_records_")
+            os.close(fd)
+            nn_tmp = Path(tmp_str)
+            write_nn_json(weights, nn_cfg, nn_tmp, input_mask=nn_cfg.input_mask, output_param=nn_cfg.output_parameterization)
+
+        try:
+            overrides_list = []
+            for seed in seeds:
+                ovr = self._build_overrides(params, mc_seed=seed)
+                if nn_tmp is not None:
+                    ovr["data.neural_network"] = str(nn_tmp)
+                overrides_list.append(ovr)
+            result = _aero_rs.run_batch(  # type: ignore[union-attr, attr-defined]
+                self.toml_path,
+                overrides_list,
+                n_threads=None,
+                include_trajectories=False,
+                sim_timeout_secs=self.sim_timeout,
+            )
+            final_records = np.asarray(result.final_records, dtype=np.float64)
+            for i in range(len(seeds)):
+                costs[i] = compute_cost(final_records[i].reshape(1, 52), **self.cost_kwargs)
+        finally:
+            if nn_tmp is not None:
+                nn_tmp.unlink(missing_ok=True)
+
+        return costs, final_records
+
     def evaluate_population_per_seed(
         self,
         X: npt.NDArray[np.float64],
@@ -276,16 +334,26 @@ class AerocaptureProblem(Problem):
     ) -> dict[str, object]:
         """Route param dict to TOML dot-path overrides.
 
-        For neural_network, NN weight keys (w*_*_*, bias*_*) are skipped here;
-        they are handled via temp JSON files in _run_batch_pyo3.
+        For neural_network, NN weight keys (anything not matching one of the
+        scaffolding routing prefixes) are skipped here; they are handled via
+        temp JSON files in _run_batch_pyo3. The whitelist must be a positive
+        match against the routing-prefix set, not a heuristic startswith()
+        check -- v2 stateful-layer weight names (b_ih*, x_proj_w*, a_log*,
+        ln1_gamma*, b_q*, ...) don't all start with "w" or "bias" and would
+        leak as phantom `guidance.neural_network.<weight>` overrides if the
+        skip filter were a denylist.
         """
         overrides: dict[str, object] = {}
 
-        # NN weights are written to JSON, not TOML overrides
+        # Scaffolding routing prefixes. Anything in `params` whose key starts
+        # with one of these is a tunable scaffolding param (lateral, exit,
+        # nav, thermal, shaping). For NN schemes, anything else is treated as
+        # an NN weight and skipped (the temp JSON path carries the values).
+        _SCAFFOLDING_PREFIXES = ("lateral.", "exit.", "nav.", "thermal.", "shaping.")
         skip_nn_weights = self.scheme == "neural_network" and self.nn_config is not None
 
         for key, value in params.items():
-            if skip_nn_weights and (key.startswith("w") or key.startswith("bias")):
+            if skip_nn_weights and not key.startswith(_SCAFFOLDING_PREFIXES):
                 continue
             # Round integer-typed params so Rust TOML parser accepts them
             if key in self._integer_params:
@@ -301,6 +369,10 @@ class AerocaptureProblem(Problem):
             elif key.startswith("shaping."):
                 overrides[f"guidance.command_shaping.{key.removeprefix('shaping.')}"] = value
             else:
+                # Non-NN schemes route unprefixed keys to their own
+                # `guidance.{scheme}.*` block. For NN schemes this branch is
+                # unreachable (skip_nn_weights eliminated all non-prefixed
+                # keys above).
                 overrides[f"guidance.{self.scheme}.{key}"] = value
 
         if mc_seed is not None:

@@ -58,6 +58,23 @@ pub struct GuidanceState {
 
     // Per-sim mutable NN state (`Some` only when the active scheme loads a NeuralNetModel).
     pub nn_state: Option<NnState>,
+
+    // ── NN-input telemetry (Markovian state for the lateral reversal decision) ──
+    // Updated by tick.rs every tick regardless of the active scheme so the NN's
+    // candidate input vector indices 21-24 stay consistent across supervisor
+    // collection (FTC/EqGlide/...) and runtime NN deploy.
+    /// Previous tick's inclination error (radians, None on first tick).
+    /// Used to compute `di_err_dt = (current - prev) / guidance_period` for input 21.
+    pub prev_inclination_error_for_nn: Option<f64>,
+    /// Previous tick's commanded bank angle (radians, signed in [-π, π]).
+    /// Surfaced as input 22 (normalized by /π) so the NN can see its own last command.
+    pub prev_bank_for_nn: f64,
+    /// Sim time of the most recent bank-command sign flip (seconds).
+    /// Surfaced via `tanh((sim_time - this) / 30)` as input 23 -- anti-chatter awareness.
+    pub last_sign_flip_time_for_nn: f64,
+    /// Running integral of inclination error (radian-seconds, simple Euler).
+    /// Surfaced via `tanh(integral_deg_s / 100)` as input 24 -- long-term tracking error.
+    pub inclination_error_integral: f64,
 }
 
 impl GuidanceState {
@@ -78,6 +95,10 @@ impl GuidanceState {
             predguid: predguid::PredGuidState::new(),
             fnpag: fnpag::FnpagState::new(initial_bank),
             nn_state,
+            prev_inclination_error_for_nn: None,
+            prev_bank_for_nn: initial_bank,
+            last_sign_flip_time_for_nn: 0.0,
+            inclination_error_integral: 0.0,
         }
     }
 }
@@ -94,6 +115,15 @@ pub struct GuidanceOutput {
     /// Bank magnitude after thermal limiter, before lateral sign selection.
     /// Zero for signed-bank schemes (PiecewiseConstant, NN in FullNeural mode).
     pub pre_lateral_magnitude: f64,
+    /// Signed bank command after lateral sign selection, BEFORE command shaping.
+    /// This is the value the supervised warm-start path captures so that:
+    ///   1. the sign carries through (full_neural deploy has no lateral guidance to add signs),
+    ///   2. the command shaper runs exactly once at deploy on the NN's output, not twice
+    ///      (which `bank_angle_commanded` would cause, since it is post-shaper).
+    ///
+    /// For signed-bank schemes (PiecewiseConstant, NN/FullNeural) this equals
+    /// `bank_angle_longitudinal` directly (no lateral sign multiply happens).
+    pub pre_shaper_signed: f64,
 }
 
 /// Run one guidance step (dispatches to the active scheme).
@@ -180,6 +210,13 @@ pub fn guidance_step(
             }
             GuidanceType::NeuralNetwork => {
                 let nn = data.neural_net.as_ref().expect("NN params not loaded");
+                // Snapshot telemetry scalars BEFORE the mut borrow of nn_state so
+                // rustc doesn't trip on simultaneous shared+mut borrows of `state`.
+                let prev_incl_err = state.prev_inclination_error_for_nn;
+                let prev_bank = state.prev_bank_for_nn;
+                let time_since_flip = sim_time - state.last_sign_flip_time_for_nn;
+                let integral = state.inclination_error_integral;
+                let ref_vel = state.reference_velocity;
                 let nn_state = state.nn_state.as_mut().expect(
                     "neural_network scheme requires nn_state initialized by GuidanceState::new",
                 );
@@ -190,7 +227,11 @@ pub fn guidance_step(
                     data,
                     planet,
                     data.target_orbit.inclination,
-                    state.reference_velocity,
+                    ref_vel,
+                    prev_incl_err,
+                    prev_bank,
+                    time_since_flip,
+                    integral,
                 );
                 // MagnitudeOnly: drop the sign and feed magnitude into the unsigned
                 // pipeline (thermal limiter + lateral guidance handle sign + safety).
@@ -273,6 +314,14 @@ pub fn guidance_step(
     if !is_reference && !skip_lateral {
         state.bank_angle_commanded = bank_angle_longitudinal * state.lateral_state.roll_sign;
     }
+
+    // Snapshot the post-lateral, PRE-shaper signed bank command. This is the
+    // value the supervised warm-start path captures so the NN learns the bank
+    // that gets fed INTO the shaper (which then runs exactly once at deploy,
+    // not twice). For signed-bank schemes (PiecewiseConstant, NN/FullNeural)
+    // `state.bank_angle_commanded` already equals `bank_angle_longitudinal`
+    // via the `skip_lateral` branch above.
+    out.pre_shaper_signed = state.bank_angle_commanded;
 
     // === Roll rate / acceleration shaping (wrap-aware) ===
     let max_bank_rate = data.capsule.max_bank_rate;

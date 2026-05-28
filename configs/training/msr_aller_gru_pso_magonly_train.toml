@@ -9,6 +9,9 @@ type = "neural_network"
 # instead of bypassing it. The lateral / thermal / exit / nav / shaping params
 # below are FTC's GA-tuned values frozen as scaffolding.
 mode = "magnitude_only"
+# acos_tanh head: single tanh-bounded output, decoder is bank = acos(tanh(out[0])) in [0, π].
+# Required by mode = "magnitude_only"; validated at config load (Rust + Python).
+output_parameterization = "acos_tanh"
 
 [data]
 neural_network = "training_output/neural_network_gru_pso_magonly/best_model.json"
@@ -36,8 +39,8 @@ hidden_size = 16
 [[network.architecture]]
 type = "dense"
 input_size = 16
-output_size = 2
-activation = "asinh"
+output_size = 1
+activation = "tanh"
 
 # ── FTC scaffolding (GA-tuned values frozen, sourced from
 #    training_output/ftc/best_params.json). Capture-phase gains are placeholders
@@ -88,3 +91,22 @@ max_bank_acceleration = 12.674110367187794   # deg/s^2
 [navigation]
 density_filter_gain = 0.34888052188696395
 density_gain_max_delta = 0.13961756994200195
+
+[warm_start]
+minibatch_size = 1024
+adaptive_bounds = true
+supervisor_schemes = ["ftc"]
+bptt_length = 64
+n_warm_seeds = 5000
+n_epochs = 200
+jitter = 0.02
+cmaes_sigma0 = 0.1
+eval_interval = 20   # 0 disables (default), N>0 = every N epochs + final epoch
+
+[warm_start.adam]
+lr = 3e-4
+beta1 = 0.6
+beta2 = 0.999
+eps = 1e-8
+weight_decay = 1e-4
+amsgrad = true

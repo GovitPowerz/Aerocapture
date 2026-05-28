@@ -185,50 +185,121 @@ def run_final_evaluation(
         return None
 
 
-def print_eval_summary(final_records: npt.NDArray[np.float64], n_sims: int, cost_kwargs: dict[str, Any] | None = None) -> None:
-    """Print a human-readable summary of the final MC evaluation to stdout."""
+def compute_eval_summary(
+    final_records: npt.NDArray[np.float64],
+    n_sims: int,
+    cost_kwargs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compute the same statistics `print_eval_summary` prints, as a dict.
+
+    Returns a structured payload so callers can render the stats in a PDF
+    table / JSON sidecar / TUI panel without re-parsing stdout. Keys:
+
+      n_sims, n_captured, capture_rate,
+      cost: {p50, p95, rms},
+      captured: {dv, apoapsis, periapsis, inclination} -> {p50, p95, mean}
+                  (None when n_captured == 0),
+      constraints: {heat_flux, g_load, heat_load} -> {p50, p95, max, limit, viol_pct}
+    """
     from aerocapture.training.evaluate import compute_cost
 
     ecc = final_records[:, charts._FR_ECC]
     ifinal = final_records[:, charts._FR_IFINAL]
-    captured = (ifinal == 3) & (ecc < 1.0)  # only AtmosphereExit on bound orbit
-    n_captured = int(np.sum(captured))
-    cap = final_records[captured]
+    captured_mask = (ifinal == 3) & (ecc < 1.0)
+    n_captured = int(np.sum(captured_mask))
+    cap = final_records[captured_mask]
 
-    # Objective cost (over all sims)
     per_sim_costs = np.array([compute_cost(final_records[i : i + 1], **(cost_kwargs or {})) for i in range(len(final_records))])
     rms_cost = float(np.sqrt(np.mean(per_sim_costs**2)))
 
-    print(f"\n  Final evaluation ({n_sims} sims):")
-    print(f"    Objective cost:     p50={np.median(per_sim_costs):.1f}  p95={np.percentile(per_sim_costs, 95):.1f}  RMS={rms_cost:.1f}")
-    print(f"    Capture rate:       {n_captured}/{n_sims} ({100 * n_captured / n_sims:.1f}%)")
-
+    captured_stats: dict[str, dict[str, float]] | None = None
     if n_captured > 0:
         dv = np.clip(cap[:, charts._FR_DV_TOTAL], charts.DV_FLOOR, charts.DV_CAP)
         apo = cap[:, charts._FR_APO_ERR]
         peri = cap[:, charts._FR_PERI_ERR]
         incl = cap[:, charts._FR_INCL_ERR]
-        print(f"    Delta-V (m/s):      p50={np.median(dv):.1f}  p95={np.percentile(dv, 95):.1f}  mean={np.mean(dv):.1f}")
-        print(f"    Apoapsis err (km):  p50={np.median(apo):.1f}  p95={np.percentile(apo, 95):.1f}  mean={np.mean(apo):.1f}")
-        print(f"    Periapsis err (km): p50={np.median(peri):.1f}  p95={np.percentile(peri, 95):.1f}  mean={np.mean(peri):.1f}")
-        print(f"    Inclin. err (deg):  p50={np.median(incl):.2f}  p95={np.percentile(incl, 95):.2f}  mean={np.mean(incl):.2f}")
+        captured_stats = {
+            "dv": {"p50": float(np.median(dv)), "p95": float(np.percentile(dv, 95)), "mean": float(np.mean(dv))},
+            "apoapsis": {"p50": float(np.median(apo)), "p95": float(np.percentile(apo, 95)), "mean": float(np.mean(apo))},
+            "periapsis": {"p50": float(np.median(peri)), "p95": float(np.percentile(peri, 95)), "mean": float(np.mean(peri))},
+            "inclination": {"p50": float(np.median(incl)), "p95": float(np.percentile(incl, 95)), "mean": float(np.mean(incl))},
+        }
 
-    # Constraint violation stats (over ALL sims)
     all_q = final_records[:, charts._FR_MAX_HEAT_FLUX]
     all_g = final_records[:, charts._FR_MAX_G_LOAD]
     all_hl = final_records[:, charts._FR_INTEGRATED_FLUX] * 1e3  # MJ/m2 -> kJ/m2
-    _q = cost_kwargs.get("heat_flux_limit") if cost_kwargs else None
-    _g = cost_kwargs.get("g_load_limit") if cost_kwargs else None
-    _hl = cost_kwargs.get("heat_load_limit") if cost_kwargs else None
-    q_limit = float(_q) if isinstance(_q, (int, float)) else None
-    g_limit = float(_g) if isinstance(_g, (int, float)) else None
-    hl_limit = float(_hl) if isinstance(_hl, (int, float)) else None
-    q_viol = f"  {np.mean(all_q > q_limit) * 100:.1f}% > {q_limit:.0f}" if q_limit else ""
-    g_viol = f"  {np.mean(all_g > g_limit) * 100:.1f}% > {g_limit:.1f}" if g_limit else ""
-    hl_viol = f"  {np.mean(all_hl > hl_limit) * 100:.1f}% > {hl_limit:.0f}" if hl_limit else ""
-    print(f"    Heat flux (kW/m2):  p50={np.median(all_q):.1f}  p95={np.percentile(all_q, 95):.1f}  max={np.max(all_q):.1f}{q_viol}")
-    print(f"    G-load (g):         p50={np.median(all_g):.2f}  p95={np.percentile(all_g, 95):.2f}  max={np.max(all_g):.2f}{g_viol}")
-    print(f"    Heat load (kJ/m2):  p50={np.median(all_hl):.0f}  p95={np.percentile(all_hl, 95):.0f}  max={np.max(all_hl):.0f}{hl_viol}")
+
+    def _limit(key: str) -> float | None:
+        v = (cost_kwargs or {}).get(key)
+        return float(v) if isinstance(v, (int, float)) else None
+
+    q_limit = _limit("heat_flux_limit")
+    g_limit = _limit("g_load_limit")
+    hl_limit = _limit("heat_load_limit")
+
+    def _con_block(arr: npt.NDArray[np.float64], lim: float | None) -> dict[str, float | None]:
+        return {
+            "p50": float(np.median(arr)),
+            "p95": float(np.percentile(arr, 95)),
+            "max": float(np.max(arr)),
+            "limit": lim,
+            "viol_pct": (float(np.mean(arr > lim) * 100.0) if lim is not None else None),
+        }
+
+    return {
+        "n_sims": int(n_sims),
+        "n_captured": n_captured,
+        "capture_rate": n_captured / max(n_sims, 1),
+        "cost": {"p50": float(np.median(per_sim_costs)), "p95": float(np.percentile(per_sim_costs, 95)), "rms": rms_cost},
+        "captured": captured_stats,
+        "constraints": {"heat_flux": _con_block(all_q, q_limit), "g_load": _con_block(all_g, g_limit), "heat_load": _con_block(all_hl, hl_limit)},
+    }
+
+
+def format_eval_summary(summary: dict[str, Any], indent: str = "    ") -> list[str]:
+    """Format `compute_eval_summary` output as the per-line text block
+    `print_eval_summary` produces. Returned as a list of lines so callers
+    can join with their own separator or embed in any output sink."""
+    lines: list[str] = []
+    n_sims = summary["n_sims"]
+    n_captured = summary["n_captured"]
+    cost = summary["cost"]
+    lines.append(f"Final evaluation ({n_sims} sims):")
+    lines.append(f"{indent}Objective cost:     p50={cost['p50']:.1f}  p95={cost['p95']:.1f}  RMS={cost['rms']:.1f}")
+    lines.append(f"{indent}Capture rate:       {n_captured}/{n_sims} ({100 * n_captured / n_sims:.1f}%)")
+    cap = summary["captured"]
+    if cap is not None:
+        d = cap["dv"]
+        lines.append(f"{indent}Delta-V (m/s):      p50={d['p50']:.1f}  p95={d['p95']:.1f}  mean={d['mean']:.1f}")
+        a = cap["apoapsis"]
+        lines.append(f"{indent}Apoapsis err (km):  p50={a['p50']:.1f}  p95={a['p95']:.1f}  mean={a['mean']:.1f}")
+        pe = cap["periapsis"]
+        lines.append(f"{indent}Periapsis err (km): p50={pe['p50']:.1f}  p95={pe['p95']:.1f}  mean={pe['mean']:.1f}")
+        i = cap["inclination"]
+        lines.append(f"{indent}Inclin. err (deg):  p50={i['p50']:.2f}  p95={i['p95']:.2f}  mean={i['mean']:.2f}")
+    con = summary["constraints"]
+
+    def _viol_suffix(block: dict[str, Any], fmt: str) -> str:
+        lim = block["limit"]
+        if lim is None or block["viol_pct"] is None:
+            return ""
+        return f"  {block['viol_pct']:.1f}% > {fmt.format(lim)}"
+
+    q = con["heat_flux"]
+    lines.append(f"{indent}Heat flux (kW/m2):  p50={q['p50']:.1f}  p95={q['p95']:.1f}  max={q['max']:.1f}{_viol_suffix(q, '{:.0f}')}")
+    g = con["g_load"]
+    lines.append(f"{indent}G-load (g):         p50={g['p50']:.2f}  p95={g['p95']:.2f}  max={g['max']:.2f}{_viol_suffix(g, '{:.1f}')}")
+    hl = con["heat_load"]
+    lines.append(f"{indent}Heat load (kJ/m2):  p50={hl['p50']:.0f}  p95={hl['p95']:.0f}  max={hl['max']:.0f}{_viol_suffix(hl, '{:.0f}')}")
+    return lines
+
+
+def print_eval_summary(final_records: npt.NDArray[np.float64], n_sims: int, cost_kwargs: dict[str, Any] | None = None) -> None:
+    """Print a human-readable summary of the final MC evaluation to stdout."""
+    summary = compute_eval_summary(final_records, n_sims, cost_kwargs)
+    print()  # blank line preserves the prior visual spacing
+    for line in format_eval_summary(summary, indent="    "):
+        print(f"  {line}" if not line.startswith(" ") else line)
 
 
 # ---------------------------------------------------------------------------

@@ -19,7 +19,7 @@ import numpy.typing as npt
 from pymoo.core.evaluator import Evaluator  # type: ignore[import-untyped]
 from pymoo.core.population import Population  # type: ignore[import-untyped]
 
-from aerocapture.training.config import TrainingConfig
+from aerocapture.training.config import CheckpointConfig, TrainingConfig, WarmStartConfig  # noqa: F401  (CheckpointConfig re-exported for downstream tests)
 from aerocapture.training.corridor import CorridorAccumulator
 from aerocapture.training.encoding import decode_normalized, nn_param_specs_from_architecture, nn_param_specs_from_v2
 from aerocapture.training.evaluate import (
@@ -90,6 +90,52 @@ def _check_resume_chromosome_shape(
             f"To resume, revert the TOML knob; to start fresh, pass --from-scratch."
         )
         raise ValueError(msg)
+
+
+def _seed_initial_population(
+    algorithm_name: str,
+    chromosome: np.ndarray,
+    n_pop: int,
+    jitter: float,
+    rng: np.random.Generator,
+    n_weights: int | None = None,
+) -> np.ndarray:
+    """Build the initial population from a warm-started chromosome.
+
+    Row 0 of the returned population is ALWAYS the exact warm-start
+    chromosome (no jitter), so the supervised-pretrained vector is
+    guaranteed to be evaluated by the optimizer at generation 0 regardless
+    of what jitter does on the other rows. This protects the warm-start
+    "anchor": even if every jittered draw turns out worse, the pristine
+    warm-start chromosome stays in the population and any reasonable
+    selection / elitism propagates it forward.
+
+    GA / DE / PSO: tile chromosome to `n_pop` rows; add per-row N(0, jitter)
+    noise to the first `n_weights` columns of rows 1..n_pop-1 (or all
+    columns if `n_weights` is None); clip to [0, 1]. The scaffolding tail
+    (if optimize_scaffolding is on, `chromosome[n_weights:]`) is NOT
+    jittered here -- caller is responsible for overwriting that slab with
+    `scaffolding_slab` when applicable, AND restoring row 0's tail to the
+    un-jittered warm-start values afterward.
+
+    CMA-ES: tile chromosome to `n_pop` rows without jitter; pymoo's CMA-ES
+    uses the population mean as its initial mean. sigma0 is configured via
+    `OptimizerConfig.cma_es.sigma0` (separate path in create_algorithm).
+    Row 0 is trivially the warm-start chromosome since the entire tile is.
+    """
+    pop = np.tile(chromosome, (n_pop, 1))
+    if algorithm_name == "cma_es":
+        return pop
+    if algorithm_name not in ("ga", "de", "pso"):
+        raise ValueError(f"unknown algorithm {algorithm_name!r} for warm-start seeding")
+    if n_pop < 1:
+        raise ValueError(f"n_pop must be >= 1, got {n_pop}")
+    nw = n_weights if n_weights is not None else chromosome.size
+    # Jitter rows 1..n_pop-1 only; row 0 stays as the exact warm-start chromosome.
+    if n_pop > 1:
+        pop[1:, :nw] += rng.normal(0.0, jitter, size=(n_pop - 1, nw))
+        pop[1:, :nw] = np.clip(pop[1:, :nw], 0.0, 1.0)
+    return pop
 
 
 def build_initial_population_for_v2(
@@ -166,6 +212,111 @@ def build_scaffolding_initial_slab(
     return slab
 
 
+def _make_warm_start_eval_callback(
+    problem: Any,
+    config: TrainingConfig,
+    warm_seeds: list[int],
+    val_seeds: list[int],
+) -> Callable[[int, Any], None]:
+    """Build the closure invoked by `_chunked_bptt_train` every
+    `eval_interval` epochs.
+
+    The closure:
+      1. Extracts the policy's current flat weights via `_policy_to_flat_weights_v2`.
+      2. Writes them to a temp NN JSON via `aerocapture_rs.flat_weights_to_json`.
+      3. Runs MC on both `warm_seeds` (training corpus) and `val_seeds`
+         (reserved validation pool) via `problem.evaluate_individual_records_per_seed`
+         -- adapted to a "weights from temp JSON" path.
+      4. Computes `compute_eval_summary` for each pool and prints
+         `format_eval_summary` lines with a clear pool header.
+
+    Two pools are evaluated separately because they answer different questions:
+      - warm seeds: "how well does the NN approximate the supervised target on
+        the EXACT seeds we trained on?" -- in-sample fit.
+      - val seeds: "how well does it generalize to unseen scenarios?" -- the
+        same metric the validation gate later uses for promotion decisions.
+    """
+    import tempfile
+
+    from aerocapture.training.report import compute_eval_summary, format_eval_summary
+    from aerocapture.training.warm_start import _policy_to_flat_weights_v2
+
+    save_dir = Path(config.save_dir)
+
+    def _evaluate_pool(label: str, seeds: list[int], temp_nn_json_path: Path) -> dict[str, Any]:
+        """Run MC on `seeds` with the current temp NN JSON; compute the eval summary."""
+        # Mirror evaluate_individual_records_per_seed's logic, but skip the
+        # chromosome -> weights step (we already have the weights on disk).
+        decoded_params: dict[str, float] = {}
+        if config.network.optimize_scaffolding:
+            # Pull the scaffolding values from FTC's best_params.json so the
+            # eval runs with the same scaffolding the chromosome will carry.
+            ftc_path = Path("training_output/ftc/best_params.json")
+            if ftc_path.exists():
+                ftc_params = json.loads(ftc_path.read_text())
+                from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
+
+                for spec in _NN_SCAFFOLDING_PARAMS:
+                    if spec.name in ftc_params:
+                        decoded_params[spec.name] = float(ftc_params[spec.name])
+
+        from aerocapture.training.evaluate import _aero_rs as _aero  # noqa: PLC0415
+
+        overrides_list = []
+        for seed in seeds:
+            ovr = problem._build_overrides(decoded_params, mc_seed=int(seed))
+            ovr["data.neural_network"] = str(temp_nn_json_path)
+            overrides_list.append(ovr)
+        result = _aero.run_batch(
+            problem.toml_path,
+            overrides_list,
+            n_threads=None,
+            include_trajectories=False,
+            sim_timeout_secs=problem.sim_timeout,
+        )
+        final_records = np.asarray(result.final_records, dtype=np.float64)
+        return compute_eval_summary(final_records, len(seeds), problem.cost_kwargs)
+
+    def _callback(epoch: int, policy: Any) -> None:
+        from aerocapture.training.evaluate import _aero_rs as _aero  # noqa: PLC0415
+
+        if config.network.architecture is None:
+            return  # v1 dense-only warm-start cannot use the v2 callback path
+
+        flat_weights = _policy_to_flat_weights_v2(policy, config.network.architecture)
+        fd, tmp_str = tempfile.mkstemp(suffix=".json", prefix=f"warm_eval_epoch_{epoch:04d}_")
+        import os
+
+        os.close(fd)
+        tmp_path = Path(tmp_str)
+        try:
+            _aero.flat_weights_to_json(
+                flat_weights.tolist(),
+                json.dumps(config.network.architecture),
+                str(tmp_path),
+                config.network.input_mask,
+                config.network.output_parameterization,
+            )
+            print()
+            print(f"  [warm_start] === In-training evaluation at epoch {epoch} ===")
+            for label, seeds in (("warm-start corpus (training seeds)", warm_seeds), ("validation pool (reserved val_seeds)", val_seeds)):
+                summary = _evaluate_pool(label, seeds, tmp_path)
+                print(f"  [warm_start] {label}:")
+                for line in format_eval_summary(summary, indent="      "):
+                    print(f"  {line}" if not line.startswith(" ") else line)
+                # Snapshot the val-pool summary to warm_start_eval_summary.json
+                # so the report has a fresh-state copy if training is interrupted
+                # between epochs. The post-warm-start gen-0 baseline path
+                # overwrites this with the FINAL chromosome's stats.
+                if label.startswith("validation"):
+                    (save_dir / "warm_start_eval_summary.json").write_text(json.dumps(summary, indent=2))
+            print()
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    return _callback
+
+
 def save_checkpoint(
     save_dir: Path,
     generation: int,
@@ -240,6 +391,15 @@ def save_checkpoint(
             params = decode_normalized(best_individual, param_specs)
             with open(save_dir / "best_params.json", "w") as fp:
                 json.dump(params, fp, indent=2)
+
+    # Auto-prune older checkpoints when retention is configured. The JSONL
+    # log and all best_* / warm_start_* / report.pdf artifacts are untouched
+    # by `prune_checkpoints`, so post-training analysis still works.
+    keep_last = config.checkpoints.keep_last
+    if keep_last is not None and keep_last >= 1:
+        from aerocapture.training.cleanup_checkpoints import prune_checkpoints
+
+        prune_checkpoints(save_dir, keep_last=keep_last)
 
 
 def load_checkpoint(
@@ -408,7 +568,12 @@ def train(
             # bound_multiplier=2.0 matches create_nn_initial_population's Phase 1
             # convention AND build_initial_population_for_v2 below. Keeping them
             # aligned avoids ~49% boundary-saturation on the initial PSO population.
-            param_specs = nn_param_specs_from_v2(validated, bound_multiplier=2.0)
+            # When warm-start is on, use the wider [warm_start] bound_multiplier
+            # (default 4.0) so the search space envelops the warm-started chromosome's
+            # post-supervised-training drift past Xavier bounds.
+            warm_start_active = bool(config.network.warm_start_from) or config.warm_start.enabled
+            bound_mult = config.warm_start.bound_multiplier if warm_start_active else 2.0
+            param_specs = nn_param_specs_from_v2(validated, bound_multiplier=bound_mult)
         else:
             param_specs = nn_param_specs_from_architecture(
                 config.network.layer_sizes,
@@ -574,32 +739,142 @@ def train(
                     list(_NN_SCAFFOLDING_PARAMS),
                     config.optimizer.n_pop,
                     rng,
-                    jitter=0.02,
+                    jitter=config.warm_start.jitter,
                 )
 
-            if config.network.warm_start_from:
-                from aerocapture.training.warm_start import build_warm_start_chromosome
+            if warm_start_active:
+                from aerocapture.training.warm_start import WARM_START_SEED_OFFSET, build_warm_start_chromosome
 
-                warm_chromo = build_warm_start_chromosome(
+                # Build the periodic in-training eval callback. When
+                # `[warm_start] eval_interval > 0`, this fires every N epochs
+                # AND on the final epoch (see _chunked_bptt_train) -- writes
+                # the current policy to a temp NN JSON, runs MC on BOTH the
+                # warm-start seed pool and the reserved validation pool, and
+                # prints two detailed stats blocks to stdout. Only built when
+                # the user actually opted in to avoid pointless MC work.
+                warm_eval_callback = None
+                if config.warm_start.eval_interval > 0 and val_seeds is not None:
+                    warm_seeds_for_eval = make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, config.warm_start.n_warm_seeds)
+                    warm_eval_callback = _make_warm_start_eval_callback(
+                        problem=problem,
+                        config=config,
+                        warm_seeds=warm_seeds_for_eval,
+                        val_seeds=val_seeds,
+                    )
+
+                warm_chromo, warm_weight_specs = build_warm_start_chromosome(
                     cfg=config,
                     base_mc_seed=base_mc_seed,
-                    n_warm_seeds=200,
-                    n_epochs=10,
-                    rng=rng,
+                    eval_callback=warm_eval_callback,
                 )
-                n_pop = config.optimizer.n_pop
-                pop_array = np.tile(warm_chromo, (n_pop, 1))
                 n_scaff = 17 if config.network.optimize_scaffolding else 0
                 n_weights = len(warm_chromo) - n_scaff
-                pop_array[:, :n_weights] += rng.normal(0.0, 0.02, size=(n_pop, n_weights))
-                pop_array[:, :n_weights] = np.clip(pop_array[:, :n_weights], 0.0, 1.0)
+                # Propagate the warm-start bounds back into param_specs so PSO/GA/DE
+                # decode chromosomes under the same bounds they were encoded with.
+                # ParamSpec is frozen; replace entries in-place so Problem (which
+                # holds a reference to the same list) sees the new bounds at decode
+                # time. Length is preserved -- only the NN-weight slab [0..n_weights)
+                # is rewritten; scaffolding tail stays untouched.
+                assert len(warm_weight_specs) == n_weights, f"warm_weight_specs length ({len(warm_weight_specs)}) != n_weights ({n_weights})"
+                for j in range(n_weights):
+                    param_specs[j] = warm_weight_specs[j]
+                pop_array = _seed_initial_population(
+                    algorithm_name=config.optimizer.algorithm,
+                    chromosome=warm_chromo,
+                    n_pop=config.optimizer.n_pop,
+                    jitter=config.warm_start.jitter,
+                    rng=rng,
+                    n_weights=n_weights,
+                )
                 if scaffolding_slab is not None:
                     pop_array[:, n_weights:] = scaffolding_slab
+                    # Restore row 0's scaffolding tail so the full warm-start
+                    # chromosome (NN weights + scaffolding) is present un-jittered
+                    # in the initial population. The slab overwrite above
+                    # replaced row 0's tail with the jittered FTC values from
+                    # `build_scaffolding_initial_slab`; the warm-start
+                    # chromosome's tail already encodes the un-jittered FTC
+                    # scaffolding (see warm_start.py:480 et seq.), so we copy
+                    # it back.
+                    pop_array[0, n_weights:] = warm_chromo[n_weights:]
+
+                # Gen-0 validation baseline: evaluate the bare warm-started
+                # chromosome on the RESERVED VALIDATION seed pool (same seeds
+                # the validation gate uses) so the persisted rms/mean/p95
+                # metrics are directly comparable to the `Gen N validation:`
+                # line later printed by the validation gate. Best-effort:
+                # failure here must not block training.
+                from aerocapture.training._warm_start_baseline import write_gen0_baseline
+                from aerocapture.training.report import compute_eval_summary, format_eval_summary
+
+                try:
+                    if val_seeds is None:
+                        raise RuntimeError("val_seeds not initialized; gen-0 baseline requires the validation pool")
+                    # Single MC pass on val_seeds returning both per-seed costs
+                    # AND the (n, 52) final_records so we can derive DV / apo /
+                    # peri / heat-flux statistics without re-running.
+                    baseline_costs, baseline_records = problem.evaluate_individual_records_per_seed(warm_chromo, val_seeds)
+                    eval_summary = compute_eval_summary(baseline_records, len(val_seeds), problem.cost_kwargs)
+                    baseline_path = write_gen0_baseline(
+                        save_dir=Path(config.save_dir),
+                        costs=baseline_costs,
+                        capture_rate=eval_summary["capture_rate"],
+                        n_sims=len(val_seeds),
+                    )
+                    # Persist the structured eval summary so the warm-start
+                    # report PDF can embed it (and CLI re-render works).
+                    (Path(config.save_dir) / "warm_start_eval_summary.json").write_text(json.dumps(eval_summary, indent=2))
+                    # User-facing block: mirrors the end-of-training final-eval
+                    # summary so users can compare like-for-like.
+                    if verbose:
+                        print()
+                        for line in format_eval_summary(eval_summary, indent="    "):
+                            print(f"  {line}" if not line.startswith(" ") else line)
+                        baseline = json.loads(baseline_path.read_text())
+                        print(f"  [warm_start] gen-0 baseline cost (val seeds): rms={baseline['rms_cost']:.4e} mean={baseline['mean_cost']:.4e}")
+                except Exception as e:
+                    # Best-effort: failure here must not block training, but the
+                    # error is always logged so it does not silently mask real
+                    # bugs in problem.evaluate_individual_records_per_seed /
+                    # write_gen0_baseline / compute_eval_summary.
+                    print(f"  [warm_start] WARNING: gen-0 baseline write failed: {type(e).__name__}: {e}")
+
+                # Trajectory comparison: supervisor vs warm-started NN on both
+                # training and validation pools. Runs ~2*(n_warm_seeds +
+                # validation_n_sims) MC sims (e.g. ~12k for n_warm_seeds=5000,
+                # validation_n_sims=1000) and renders 20 SVGs into the report
+                # dir. Best-effort: failure here must not block training, but
+                # the warm-start PDF will just omit the comparison section.
+                try:
+                    from aerocapture.training.warm_start_compare import render_trajectory_comparison
+
+                    render_trajectory_comparison(
+                        cfg=config,
+                        base_mc_seed=base_mc_seed,
+                        warm_chromo=warm_chromo,
+                        nn_weight_specs=warm_weight_specs,
+                    )
+                except Exception as e:
+                    print(f"  [warm_start] WARNING: trajectory comparison failed: {type(e).__name__}: {e}")
+
+                # Intermediate warm-start report: charts + Typst PDF summarizing
+                # supervised MSE convergence, supervisor selection, search-space
+                # bounds, the gen-0 validation baseline + eval summary, and the
+                # supervisor-vs-NN trajectory comparison panels (if rendered).
+                # Best-effort.
+                try:
+                    from aerocapture.training.warm_start_report import render_report
+
+                    pdf = render_report(Path(config.save_dir))
+                    if verbose and pdf is not None:
+                        print(f"  [warm_start] report: {pdf}")
+                except Exception as e:
+                    print(f"  [warm_start] WARNING: report rendering failed: {type(e).__name__}: {e}")
             else:
                 pop_array = build_initial_population_for_v2(
                     config.network.architecture,
                     config.optimizer.n_pop,
-                    bound_multiplier=2.0,
+                    bound_multiplier=bound_mult,
                     rng=rng,
                     param_specs=param_specs,
                     scaffolding_slab=scaffolding_slab,
@@ -613,10 +888,35 @@ def train(
             )
         pop_costs = None  # Will be evaluated by pymoo
 
+    # CMA-ES + warm-start: shrink the initial step size. Applied unconditionally
+    # (independent of resume vs fresh start) so the checkpointed CMA-ES sigma
+    # in `algorithm.next()` consistently reflects the warm-start tunable.
+    # Gated on guidance_type == "neural_network" because [warm_start] is only
+    # meaningful for NN training; a non-NN config that picked up [warm_start]
+    # via base inheritance must NOT have its sigma0 silently overridden.
+    warm_start_active = bool(config.network.warm_start_from) or config.warm_start.enabled
+    if config.guidance_type == "neural_network" and warm_start_active and config.optimizer.algorithm == "cma_es":
+        config.optimizer.cma_es.sigma0 = config.warm_start.cmaes_sigma0
+
     # Set up algorithm
     algorithm = create_algorithm(config.optimizer, n_params=n_params)
     if verbose:
-        print(f"  Algorithm: {type(algorithm).__name__} ({config.optimizer.algorithm}), n_params={n_params}, n_pop={config.optimizer.n_pop}")
+        opt = config.optimizer
+        print(f"  Algorithm: {type(algorithm).__name__} ({opt.algorithm}), n_params={n_params}, n_pop={opt.n_pop}, n_gen={opt.n_gen}")
+        print(f"  Seeds:     strategy={opt.seed_strategy}, training_n_sims={opt.training_n_sims}, validation_n_sims={opt.validation_n_sims}")
+        if opt.seed_strategy == "adaptive":
+            print(
+                f"  Curation:  seed_pool_interval={opt.seed_pool_interval}, "
+                f"curation_top_k={opt.curation_top_k}, curation_sample_size={opt.curation_sample_size}"
+            )
+        if opt.algorithm == "ga":
+            print(f"  GA:        crossover_eta={opt.ga.crossover_eta}, mutation_eta={opt.ga.mutation_eta}, mutation_prob={opt.ga.mutation_prob}")
+        elif opt.algorithm == "cma_es":
+            print(f"  CMA-ES:    sigma0={opt.cma_es.sigma0}, restart_strategy={opt.cma_es.restart_strategy}")
+        elif opt.algorithm == "de":
+            print(f"  DE:        variant={opt.de.variant}, crossover_prob={opt.de.crossover_prob}, scaling_factor={opt.de.scaling_factor}")
+        elif opt.algorithm == "pso":
+            print(f"  PSO:       w={opt.pso.w}, c1={opt.pso.c1}, c2={opt.pso.c2}")
 
     # Inject initial population into pymoo
     initial_pop = Population.new("X", pop_array)
@@ -1034,18 +1334,69 @@ if __name__ == "__main__":
     if "warm_start_from" in _gnn:
         cfg.network.warm_start_from = str(_gnn["warm_start_from"])
     if cfg.network.warm_start_from is not None:
-        nn_mode = _gnn.get("mode", "full_neural")
-        if nn_mode != "magnitude_only":
-            print(
-                f"ERROR: warm_start_from is set but [guidance.neural_network] mode={nn_mode!r}. "
-                f"Behavioural-cloning targets unsigned bank magnitude; only magnitude_only mode "
-                f"can consume the cloned NN's output."
-            )
-            raise SystemExit(1)
         warm_path = Path(cfg.network.warm_start_from)
         if not warm_path.exists():
             print(f"ERROR: warm_start_from='{warm_path}' does not exist")
             raise SystemExit(1)
+    if "warm_start" in _toml_data:
+        cfg.warm_start = WarmStartConfig.from_dict(_toml_data["warm_start"])
+
+    # `[checkpoints]` block: optional disk-retention policy. `keep_last = N`
+    # auto-prunes older `checkpoint_g*.{json,npz}` pairs after each save,
+    # keeping only the N most recent. The JSONL log + best_* artifacts are
+    # untouched.
+    if "checkpoints" in _toml_data:
+        _ckpt = _toml_data["checkpoints"]
+        known_keys = {"keep_last"}
+        unknown = set(_ckpt.keys()) - known_keys
+        if unknown:
+            print(f"ERROR: unknown [checkpoints] keys: {sorted(unknown)}")
+            raise SystemExit(1)
+        if "keep_last" in _ckpt:
+            kl_raw = _ckpt["keep_last"]
+            if kl_raw is not None and not isinstance(kl_raw, int):
+                print(f"ERROR: [checkpoints] keep_last must be an int or null, got {type(kl_raw).__name__}")
+                raise SystemExit(1)
+            if isinstance(kl_raw, int) and kl_raw < 1:
+                print(f"ERROR: [checkpoints] keep_last must be >= 1, got {kl_raw}")
+                raise SystemExit(1)
+            cfg.checkpoints.keep_last = kl_raw
+
+    # Warm-start contract: supervised targets are the post-lateral, pre-shaper
+    # SIGNED bank command (tick.rs captures `guidance_out.pre_shaper_signed`).
+    # warm_start.py collapses the sign to magnitude only when mode = "magnitude_only".
+    # Two matched setups:
+    #   - mode = "magnitude_only" + output_parameterization = "acos_tanh":
+    #     single-output tanh head -> acos in [0, pi], runtime decoder .abs()'s
+    #     the NN output and lateral guidance re-selects the sign.
+    #   - mode = "full_neural" + output_parameterization = "atan2_signed":
+    #     two-output atan2 head -> signed bank in [-pi, pi], no runtime
+    #     lateral/thermal/shaping interception.
+    # acos_tanh + full_neural is REJECTED here because the Rust runtime
+    # (src/rust/src/data/mod.rs::validate_output_parameterization) hard-errors
+    # at config load: "output_parameterization=acos_tanh is only legal with
+    # mode=magnitude_only". Catching it before warm-start compute saves the
+    # ~10 minutes of supervised collection + BPTT pretrain that would
+    # otherwise be wasted on a config Rust will reject at gen-0.
+    warm_start_active = bool(cfg.network.warm_start_from) or cfg.warm_start.enabled
+    if warm_start_active:
+        nn_mode = str(_gnn.get("mode", "full_neural"))
+        out_param = cfg.network.output_parameterization or "atan2_signed"
+        if nn_mode == "full_neural" and out_param == "acos_tanh":
+            print(
+                "ERROR: output_parameterization='acos_tanh' requires mode='magnitude_only' "
+                "(Rust runtime enforces this at config load). Either set mode='magnitude_only' "
+                "or switch to output_parameterization='atan2_signed' for full_neural."
+            )
+            raise SystemExit(1)
+        matched = (nn_mode == "magnitude_only" and out_param == "acos_tanh") or (nn_mode == "full_neural" and out_param == "atan2_signed")
+        if not matched:
+            print(
+                f"  [warm_start] WARNING: (mode='{nn_mode}', output_parameterization='{out_param}') "
+                f"is not a matched pair. The matched setups are "
+                f"(magnitude_only, acos_tanh) and (full_neural, atan2_signed). "
+                f"Training will still run, but the supervised target and runtime decoder may be suboptimal."
+            )
     if cfg.network.architecture is not None:
         cfg.network.__post_init__()  # re-validate once all fields are set
     cfg.sim.final_file = "output/final.train_nn_temp"

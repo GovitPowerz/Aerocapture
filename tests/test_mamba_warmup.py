@@ -106,7 +106,7 @@ def test_mamba_warmup_cross_language_agreement(tmp_path: Path) -> None:
     dense_in.eval()
     mamba.eval()
     dense_out.eval()
-    h = mamba.new_state()
+    h = mamba.new_state(batch_size=1)[0]
     py_outs = np.empty((3, 2), dtype=np.float64)
 
     with torch.no_grad():

@@ -197,6 +197,12 @@ impl SimState {
         self.last_nav
     }
 
+    /// Return the current sim time (seconds since trajectory start).
+    /// Used by RL observation builders for time-since-last-event inputs.
+    pub fn sim_time(&self) -> f64 {
+        self.sim_time
+    }
+
     /// Return the current termination reason.
     pub fn term(&self) -> TermReason {
         self.term

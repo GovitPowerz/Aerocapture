@@ -12,6 +12,11 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from aerocapture.training.sensitivity import DISPERSION_COLUMNS
 
+# Index of dv_total_m_s in the raw 52-element RunOutput.final_record array
+# (BatchResults.final_records exposes this raw layout, NOT the trimmed CSV layout).
+# Verified against src/rust/src/simulation/runner.rs:833.
+DV_TOTAL_RAW_INDEX: int = 41
+
 # Indices into the 52-element final_record array, matching extract_final_csv_values() in runner.rs
 # fmt: skip
 FINAL_RECORD_INDICES: list[int] = [

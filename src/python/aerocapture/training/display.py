@@ -32,8 +32,8 @@ def _sparkline(values: list[float], width: int = 30) -> str:
 
 
 def _format_cost(value: float) -> str:
-    """Format cost in scientific notation."""
-    return f"{value:.2e}"
+    """Format cost in scientific notation with 4 decimals."""
+    return f"{value:.4e}"
 
 
 class DisplayProtocol(Protocol):

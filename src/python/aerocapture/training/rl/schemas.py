@@ -37,12 +37,12 @@ class LstmSpec(BaseModel):
 
 
 class WindowSpec(BaseModel):
-    """Zero-parameter FIFO ring-buffer layer (Phase 2b, PSO-only).
+    """Zero-parameter FIFO ring-buffer layer (Phase 2b).
 
     Maintains a buffer of the last `n_steps` inputs and concatenates them into
     a vector of length `n_steps * input_size` for the next Dense layer.
-    `build_layer(WindowSpec)` raises NotImplementedError -- Window is PSO-only,
-    PPO deferred to a future phase.
+    Constructible via `build_layer(WindowSpec)` for warm-start BPTT; the PPO
+    runtime gate lives in `rl/train.py::_derive_hidden_shapes`.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -52,10 +52,11 @@ class WindowSpec(BaseModel):
 
 
 class TransformerSpec(BaseModel):
-    """Causal self-attention Transformer layer (Phase 3a, PSO-only initially).
+    """Causal self-attention Transformer layer (Phase 3a).
 
     d_model must be divisible by n_heads (multi-head attention constraint).
-    `build_layer(TransformerSpec)` raises NotImplementedError -- PPO support deferred.
+    Constructible via `build_layer(TransformerSpec)` for warm-start BPTT; the
+    PPO runtime gate lives in `rl/train.py::_derive_hidden_shapes`.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -73,15 +74,16 @@ class TransformerSpec(BaseModel):
 
 
 class MambaSpec(BaseModel):
-    """Selective SSM (Mamba S6) layer (Phase 4a, PSO-only).
+    """Selective SSM (Mamba S6) layer (Phase 4a).
 
     Input/output dims are both `input_size` (d_inner). `dt_rank` is the
     bottleneck rank for the delta projection; if None, resolves to
     `max(1, input_size // 16)` (paper default). After validation, `spec.dt_rank`
     is always the resolved int value.
 
-    `build_layer(MambaSpec)` raises NotImplementedError -- PPO support deferred
-    to Phase 4b (see docs/superpowers/specs/2026-04-24-phase-4a-mamba-ssm-mvp-design.md).
+    Constructible via `build_layer(MambaSpec)` for warm-start BPTT; the PPO
+    runtime gate lives in `rl/train.py::_derive_hidden_shapes` (see
+    docs/superpowers/specs/2026-04-24-phase-4a-mamba-ssm-mvp-design.md).
     """
 
     model_config = ConfigDict(extra="forbid")

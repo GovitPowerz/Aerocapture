@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import torch
 from torch import Tensor, nn
 
@@ -47,10 +48,28 @@ class LstmLayer(nn.Module):
         h_new = o * torch.tanh(c_new)
         return h_new, (h_new, c_new)
 
-    def new_state(self, batch_size: int, device: Any) -> tuple[Tensor, Tensor]:
-        # dtype tracks the parameter dtype so policy.double() / .float() propagates.
-        zeros = torch.zeros(batch_size, self.hidden_size, device=device, dtype=self.weight_ih.dtype)
+    def new_state(self, batch_size: int, device: Any | None = None) -> tuple[Tensor, Tensor]:
+        # dtype tracks the parameter dtype so policy.double() / .float() propagates;
+        # device defaults to the parameter's device so policy.to(device) propagates
+        # naturally (torch.zeros(..., device=None) would silently fall back to CPU).
+        target_device = device if device is not None else self.weight_ih.device
+        zeros = torch.zeros(batch_size, self.hidden_size, device=target_device, dtype=self.weight_ih.dtype)
         return (zeros, zeros.clone())
+
+    def to_flat(self) -> np.ndarray:
+        """Canonical flat order: weight_ih row-major, weight_hh row-major, bias_ih, bias_hh.
+
+        Matches Rust `LayerWeights for LstmLayer::to_flat` in
+        src/rust/src/data/neural.rs.
+        """
+        return np.concatenate(
+            [
+                self.weight_ih.detach().cpu().numpy().astype(np.float64).ravel(),
+                self.weight_hh.detach().cpu().numpy().astype(np.float64).ravel(),
+                self.bias_ih.detach().cpu().numpy().astype(np.float64),
+                self.bias_hh.detach().cpu().numpy().astype(np.float64),
+            ]
+        )
 
     def extra_repr(self) -> str:
         return f"input_size={self.input_size}, hidden_size={self.hidden_size}"

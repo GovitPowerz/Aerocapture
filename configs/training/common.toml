@@ -44,12 +44,15 @@ level = "low"
 [monte_carlo.nav_filter]
 level = "medium"
 
+[checkpoints]
+keep_last = 10   # null (default) keeps every checkpoint
+
 [cost_function]
 dv_threshold = 500.0
 # Constraint limits come from [flight.constraints] in the mission TOML
-g_load_weight = 1000.0
-heat_flux_weight = 1000.0
-heat_load_weight = 1000.0
+g_load_weight = 10.0
+heat_flux_weight = 10.0
+heat_load_weight = 10.0
 cost_transform = "sqrt"
 
 [optimizer]

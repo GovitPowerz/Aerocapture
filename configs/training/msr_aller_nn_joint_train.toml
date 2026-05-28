@@ -10,7 +10,6 @@ type = "neural_network"
 mode = "magnitude_only"
 optimize_scaffolding = true
 output_parameterization = "acos_tanh"
-warm_start_from = "training_output/ftc/best_params.json"
 
 [network]
 input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
@@ -22,10 +21,9 @@ output_size = 32
 activation = "swish"
 
 [[network.architecture]]
-type = "dense"
+type = "gru"
 input_size = 32
-output_size = 16
-activation = "swish"
+hidden_size = 16
 
 # Last layer: single output through tanh, fed into acos at runtime to emit [0, π] magnitude.
 [[network.architecture]]
@@ -35,5 +33,14 @@ output_size = 1
 activation = "tanh"
 
 [data]
-neural_network = "training_output/neural_network_joint/best_model.json"
-results_suffix = ".train_nn_joint"
+neural_network = "training_output/neural_gru_joint/best_model.json"
+results_suffix = ".train_gru_joint"
+
+[warm_start]
+supervisor_schemes = ["ftc", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag"]
+bptt_length = 32
+n_warm_seeds = 200
+n_epochs = 10
+bound_multiplier = 4.0
+jitter = 0.02
+cmaes_sigma0 = 0.1

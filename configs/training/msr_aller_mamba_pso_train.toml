@@ -62,3 +62,12 @@ validation_n_sims = 1000
 seed_pool_interval = 50
 curation_sample_size = 1000
 curation_top_k = 5
+
+[warm_start]
+supervisor_schemes = ["ftc", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag"]
+bptt_length = 32
+n_warm_seeds = 200
+n_epochs = 10
+bound_multiplier = 4.0
+jitter = 0.02
+cmaes_sigma0 = 0.1

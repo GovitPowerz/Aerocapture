@@ -115,9 +115,32 @@ A separate NN training mode (`./train_all.sh nn_joint`) flips three TOML opt-in 
 
 - `optimize_scaffolding = true` extends the PSO chromosome with FTC's 17 scaffolding params (lateral / exit / nav / thermal / shaping), seeded at FTC's GA optimum + jitter, so the NN co-adapts the actuator pipeline rather than driving FTC-tuned frozen values.
 - `output_parameterization = "acos_tanh"` swaps the `atan2(out[0], out[1]).abs()` decoder (which wastes half the output range under `magnitude_only`) for `bank = acos(tanh(out[0]))` — single output, smooth `[0, π]` mapping that aligns with FTC's internal `cos_bank` representation. Validated at config load (requires `mode = "magnitude_only"`, last-layer `output_size = 1`, `activation = "tanh"`).
-- `warm_start_from = "training_output/ftc/best_params.json"` triggers a PyTorch supervised pre-train of a `V2Policy` mirror against FTC's per-tick `(state, |bank|)` traces, then encodes the cloned weights into the PSO initial population. Reserved seed offset `4_000_000` keeps the supervised data disjoint from validation / final-eval / RL pools.
+- Warm-start: either the legacy `warm_start_from = "training_output/ftc/best_params.json"` (single supervisor) OR a `[warm_start]` TOML block (multi-supervisor BPTT for recurrent architectures). Both encode the cloned weights into the PSO initial population. Reserved seed offset `4_000_000` keeps the supervised data disjoint from validation / final-eval / RL pools.
 
-All three knobs default off; existing trained NNs and existing configs are bit-identical. Requires FTC training output (`./train_all.sh ftc` first). Spec: `docs/superpowers/specs/2026-05-07-nn-ftc-parity-bundle-design.md`.
+All three knobs default off; existing trained NNs and existing configs are bit-identical. Requires FTC training output (`./train_all.sh ftc` first). Spec: `docs/superpowers/specs/2026-05-07-nn-ftc-parity-bundle-design.md` (parity bundle); `docs/superpowers/specs/2026-05-22-warm-start-all-archs-design.md` (multi-supervisor BPTT for Dense/GRU/LSTM/Window/Transformer/Mamba).
+
+### Multi-Supervisor BPTT Warm-Start (`[warm_start]`)
+
+For recurrent NN architectures (GRU/LSTM/Mamba/Transformer), the warm-start path collects supervised traces from multiple non-NN schemes simultaneously, picks the best teacher per Monte Carlo seed (lowest-DV captured trajectory), and runs chunked truncated-BPTT supervised pre-training against the per-seed winners. Configured via a `[warm_start]` TOML block — presence of the block enables warm-start (no separate `warm_start_from` needed):
+
+```toml
+[guidance.neural_network]
+mode = "magnitude_only"               # required for warm-start
+output_parameterization = "acos_tanh" # recommended (atan2_signed only uses half the codomain under .abs())
+
+[warm_start]
+supervisor_schemes = ["ftc", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag"]
+bptt_length = 32
+n_warm_seeds = 200
+n_epochs = 10
+bound_multiplier = 4.0
+jitter = 0.02
+cmaes_sigma0 = 0.1
+```
+
+Pipeline: each supervisor scheme runs over the same `n_warm_seeds` reserved seed pool via `aerocapture_rs.collect_supervised` (Rust per-trajectory return); the unsigned bank target is `guidance_out.pre_lateral_magnitude` (in [0, π]); `_select_best_teacher_per_seed` picks the captured trajectory with lowest DV per seed; trajectories are split into `bptt_length` windows and forwarded through `V2Policy.forward_seq_means` (autograd-friendly mirror of `evaluate`); Adam MSE with reproducible `torch.manual_seed` for `n_epochs`. Mamba layers get HiPPO + LSTM forget-bias-1 init via `_seed_policy_init` before Adam runs (zero-init would start training at a degenerate fixed point). The cached chromosome is keyed on architecture + supervisor mtimes + `base_mc_seed`, so rerunning with a different `monte_carlo.seed` invalidates the cache. A gen-0 validation MC baseline is auto-written to `warm_start_baseline.json` via `run_mc` (honors `simulation.n_sims`, threads `sim_timeout_secs`) so you have a "did warm-start help?" signal before generation 0.
+
+After warm-start, `aerocapture.training.warm_start_compare.render_trajectory_comparison` runs the supervisor (primary scheme from `supervisor_schemes[0]`) and the warm-started NN on BOTH the training pool (`n_warm_seeds`) and the validation pool (`optimizer.validation_n_sims`), writes 20 SVG panels (5 quantities × 2 sides × 2 pools: corridor pdyn/inclination/bank, altitude vs time, heat flux vs time) under `<save_dir>/warm_start_report/compare_*.svg`, and the `warm_start_report.pdf` includes a side-by-side "Trajectory comparison" section so you can visually compare supervisor vs warm-started NN behaviour on identical dispersion draws -- before PSO even starts. Compute cost is ~2 × (`n_warm_seeds` + `validation_n_sims`) MC sims (~2-3 min for n_warm_seeds=5000, validation_n_sims=1000), best-effort: failure in any (pool, side) records the error in the manifest and the rest of the report still renders. The NN candidate input vector includes four "lateral-state telemetry" inputs (indices 21-24: inclination-error rate, previous bank command, time since last sign flip, integrated inclination error) that make the supervisor's signed-bank decision Markovian -- without them, post-reversal near-duplicate states collapse the supervised MSE target under bimodal sign disagreement (FTC measured ~20% sign-disagree on near-duplicates within radius 0.10).
 
 ## GA Optimization
 
@@ -204,6 +227,31 @@ curation_sample_size = 1000
 ```
 
 Override per-scheme by adding `seed_strategy = "..."` in a leaf training TOML. See `CLAUDE.md` for full details.
+
+### Checkpoint retention
+
+Stateful NN architectures write 10-15 MB per `checkpoint_g{NNNNN}.npz`, so a long PSO run easily fills several GB. Only the latest checkpoint is needed for resume; older ones are useful only for rollback or animation playback.
+
+**Opt in to auto-pruning** by setting `keep_last` in the TOML:
+
+```toml
+[checkpoints]
+keep_last = 10   # keep only the 10 most recent checkpoint pairs; null = keep all (default)
+```
+
+The per-generation JSONL log, `best_model.json`, `warm_start_*` cache, and PDF report are NOT touched, so post-training analysis works unchanged.
+
+**Clean up existing output dirs a posteriori:**
+
+```bash
+# Dry-run on one scheme
+uv run python -m aerocapture.training.cleanup_checkpoints \
+    training_output/neural_network_gru_pso --keep-last 10 --dry-run
+
+# Apply across every scheme directory at once
+uv run python -m aerocapture.training.cleanup_checkpoints \
+    training_output/ --recursive --keep-last 10
+```
 
 ## Reports and Visualization
 

@@ -5,7 +5,7 @@ Supports both NN weight optimization and generic guidance parameter optimization
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +65,20 @@ class NetworkConfig:
                 first_input_int = _layer_input_size(self.architecture[0])
                 if len(self.input_mask) != first_input_int:
                     msg = f"input_mask length ({len(self.input_mask)}) must equal architecture[0] input size ({first_input_int})"
+                    raise ValueError(msg)
+                # Indices must be non-negative; the upper bound is the candidate
+                # input vector width, which depends on the Rust `build_nn_input`
+                # contract. Currently 25 (16 baseline + 4 ref-traj + 1 exit-bank
+                # teacher + 4 lateral telemetry), but configs with architecture[0]
+                # input_size > 25 exist for tests of architecture chains. Use the
+                # larger of the two as the practical upper bound so typos like
+                # negative indices or grossly-out-of-range values still get
+                # rejected at config load.
+                _RUNTIME_CANDIDATE_WIDTH = 25
+                upper = max(_RUNTIME_CANDIDATE_WIDTH, first_input_int)
+                bad = [idx for idx in self.input_mask if not (0 <= idx < upper)]
+                if bad:
+                    msg = f"input_mask indices out of range [0, {upper}): {bad}"
                     raise ValueError(msg)
             return
         n_layers = len(self.layer_sizes) - 1
@@ -287,12 +301,134 @@ class SimConfig:
 
 
 @dataclass
+class AdamConfig:
+    """Adam optimizer hyperparameters for the warm-start supervised pretrain.
+
+    Matches `torch.optim.Adam` defaults: lr=1e-3, betas=(0.9, 0.999),
+    eps=1e-8, weight_decay=0.0, amsgrad=False. All fields are TOML-tunable
+    under `[warm_start.adam]`. The most common tweaks:
+
+      - `lr` -- raise to 3e-3 or 1e-2 if the loss is monotonically
+        decreasing but very slowly; lower to 3e-4 if loss oscillates.
+      - `weight_decay` -- L2 regularization in [1e-5, 1e-3] keeps weights
+        bounded so the PSO chromosome encoding sits in a narrower band
+        (less clip-rate pressure even without adaptive_bounds).
+      - `betas[0]` (momentum) -- lower to 0.5-0.8 if the loss surface is
+        noisy / non-stationary across chunks.
+      - `amsgrad = true` -- use the AMSGrad variant; helpful when convergence
+        gets stuck at a non-decreasing plateau.
+
+    All values are passed through to `torch.optim.Adam` unmodified.
+    """
+
+    lr: float = 1e-3
+    beta1: float = 0.9
+    beta2: float = 0.999
+    eps: float = 1e-8
+    weight_decay: float = 0.0
+    amsgrad: bool = False
+
+
+@dataclass
+class WarmStartConfig:
+    """Multi-supervisor warm-start configuration.
+
+    Activation of warm-start is gated by either:
+      - the legacy single-supervisor key `[guidance.neural_network] warm_start_from`, OR
+      - presence of a `[warm_start]` block in the TOML (which flips `enabled = True`).
+
+    When neither is set, training falls back to PSO/GA from-scratch initialization
+    and this block's fields are inert.
+    """
+
+    enabled: bool = False  # True when [warm_start] block was present in TOML
+    supervisor_schemes: list[str] = field(default_factory=lambda: ["ftc", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag"])
+    bptt_length: int = 32
+    n_warm_seeds: int = 200
+    n_epochs: int = 10
+    # Minibatch size (chunks per Adam step). Bigger minibatches let PyTorch's
+    # CPU intra-op threading pay off on the small per-chunk matmuls (batch=32,
+    # hidden=16-32, float64 falls below torch's auto-threading threshold). The
+    # legacy hardcoded 32 leaves multi-core idle; 128 is a good default on
+    # Apple Silicon / multi-core x86 for typical NN architectures. Clamped to
+    # max(1, min(len(chunks), minibatch_size)) at runtime.
+    minibatch_size: int = 128
+    bound_multiplier: float = 4.0
+    jitter: float = 0.02
+    cmaes_sigma0: float = 0.1
+    # When True (default), PSO/GA/DE NN-weight ParamSpec bounds are derived
+    # post-Adam from the trained slab's max-abs value with 2x safety margin
+    # (floored at the Xavier × bound_multiplier value so PSO never shrinks
+    # below the activation-aware Xavier scale). Guarantees zero clipping at
+    # chromosome encoding regardless of how far Adam drifted past Xavier.
+    # When False, the static Xavier × bound_multiplier bounds are used and
+    # the >5% clip-rate guard raises if Adam went too far. Default True
+    # because clip-rate-as-error is a footgun for high-bound_multiplier
+    # configs where users have no easy reverse-engineering path.
+    adaptive_bounds: bool = True
+    # Periodic in-training evaluation: every `eval_interval` epochs, write the
+    # current policy to a temp NN JSON and run MC on BOTH the warm-start seed
+    # pool AND the reserved validation seed pool, printing a per-pool
+    # `Final evaluation`-style stats block to stdout. 0 disables (legacy
+    # behavior). Each evaluation costs ~(n_warm_seeds + validation_n_sims)
+    # MC runs, so set this conservatively for long training runs.
+    eval_interval: int = 0
+    adam: AdamConfig = field(default_factory=AdamConfig)
+    params_paths: dict[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> WarmStartConfig:
+        known = {f.name for f in fields(cls)}
+        unknown = set(d.keys()) - known
+        if unknown:
+            raise ValueError(f"unknown [warm_start] keys: {sorted(unknown)}")
+        # Presence of the block always sets enabled=True; any user-set `enabled`
+        # in TOML is accepted (no ValueError) but silently overridden so the
+        # gating contract is a function of block presence, not contents.
+        d_filtered = {k: v for k, v in d.items() if k != "enabled"}
+        # Nested [warm_start.adam] sub-block: validate known fields here so a
+        # typo (e.g. `learning_rate` instead of `lr`) doesn't silently fall
+        # through as Adam defaults.
+        if "adam" in d_filtered:
+            adam_raw = d_filtered["adam"]
+            if not isinstance(adam_raw, dict):
+                raise ValueError(f"[warm_start.adam] must be a table, got {type(adam_raw).__name__}")
+            adam_known = {f.name for f in fields(AdamConfig)}
+            adam_unknown = set(adam_raw.keys()) - adam_known
+            if adam_unknown:
+                raise ValueError(f"unknown [warm_start.adam] keys: {sorted(adam_unknown)} (known: {sorted(adam_known)})")
+            d_filtered["adam"] = AdamConfig(**adam_raw)
+        return cls(enabled=True, **d_filtered)
+
+
+@dataclass
+class CheckpointConfig:
+    """Disk-retention policy for `checkpoint_g{NNNNN}.{json,npz}` files.
+
+    Only the latest checkpoint is needed to resume training; the older pairs
+    are useful only for rollback / animation. Stateful NN architectures
+    produce 10-15 MB per `.npz`, so hundreds of generations easily fill a
+    multi-GB output dir.
+
+    `keep_last = None` (default) preserves the legacy behavior of keeping
+    every checkpoint. Set to an integer >= 1 to retain only the N most
+    recent pairs after each save. The per-generation JSONL log
+    (`run_*.jsonl`) is NOT touched, so post-training analysis charts and
+    reports work unchanged.
+    """
+
+    keep_last: int | None = None
+
+
+@dataclass
 class TrainingConfig:
     """Complete training configuration."""
 
     network: NetworkConfig = field(default_factory=NetworkConfig)
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     sim: SimConfig = field(default_factory=SimConfig)
+    warm_start: WarmStartConfig = field(default_factory=WarmStartConfig)
+    checkpoints: CheckpointConfig = field(default_factory=CheckpointConfig)
     save_dir: str = "training_output"
     guidance_type: str = "neural_network"
 

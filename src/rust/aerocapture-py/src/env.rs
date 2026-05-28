@@ -345,6 +345,7 @@ fn build_obs_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -
         .as_ref()
         .expect("neural_net model required for RL env");
 
+    let time_since_flip = state.sim_time() - state.guidance_state.last_sign_flip_time_for_nn;
     aerocapture::gnc::guidance::neural::build_nn_input(
         &nav,
         nn.input_mask.as_deref(),
@@ -353,6 +354,10 @@ fn build_obs_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -
         planet,
         target_inclination,
         ref_velocity_latched,
+        state.guidance_state.prev_inclination_error_for_nn,
+        state.guidance_state.prev_bank_for_nn,
+        time_since_flip,
+        state.guidance_state.inclination_error_integral,
     )
 }
 

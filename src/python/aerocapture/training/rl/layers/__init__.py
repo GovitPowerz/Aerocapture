@@ -7,6 +7,7 @@ from torch import nn
 from aerocapture.training.rl.layers.dense import DenseLayer
 from aerocapture.training.rl.layers.gru import GruLayer
 from aerocapture.training.rl.layers.lstm import LstmLayer
+from aerocapture.training.rl.layers.mamba import MambaLayer
 from aerocapture.training.rl.layers.transformer import TransformerLayer
 from aerocapture.training.rl.layers.window import WindowLayer
 from aerocapture.training.rl.schemas import (
@@ -19,7 +20,15 @@ from aerocapture.training.rl.schemas import (
     WindowSpec,
 )
 
-__all__ = ["DenseLayer", "GruLayer", "LstmLayer", "TransformerLayer", "WindowLayer", "build_layer"]
+__all__ = [
+    "DenseLayer",
+    "GruLayer",
+    "LstmLayer",
+    "MambaLayer",
+    "TransformerLayer",
+    "WindowLayer",
+    "build_layer",
+]
 
 
 def build_layer(spec: LayerSpec) -> nn.Module:
@@ -31,11 +40,10 @@ def build_layer(spec: LayerSpec) -> nn.Module:
     if isinstance(spec, LstmSpec):
         return LstmLayer(spec.input_size, spec.hidden_size)
     if isinstance(spec, WindowSpec):
-        raise NotImplementedError("Window-MLP is PSO-only in Phase 2b; PPO use deferred. See docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md")
+        return WindowLayer(spec.input_size, spec.n_steps)
     if isinstance(spec, TransformerSpec):
-        raise NotImplementedError(
-            "Transformer is PSO-only in Phase 3a; PPO use deferred. See docs/superpowers/specs/2026-04-22-phase-3a-transformer-mvp-design.md"
-        )
+        return TransformerLayer(spec.d_model, spec.n_heads, spec.d_ffn, spec.n_seq)
     if isinstance(spec, MambaSpec):
-        raise NotImplementedError("Mamba is PSO-only in Phase 4a; PPO use deferred. See docs/superpowers/specs/2026-04-24-phase-4a-mamba-ssm-mvp-design.md")
+        assert spec.dt_rank is not None  # resolved by MambaSpec model_validator
+        return MambaLayer(spec.input_size, spec.d_state, spec.dt_rank)
     raise ValueError(f"Unknown layer spec: {spec!r}")
