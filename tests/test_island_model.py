@@ -840,24 +840,24 @@ def test_islands_use_warm_started_pop_array() -> None:
 def test_chart_island_convergence_overlay_renders(tmp_path: Path) -> None:
     """Smoke test: chart_island_convergence_overlay renders an SVG and emits
     lines when records carry the realistic TrainingLogger schema (`best_cost`
-    / `gen_best_cost` / `validation.rms_cost`)."""
+    is the per-gen training argmin; `validation.rms_cost` when a gate fired)."""
     import warnings
 
     from aerocapture.training.charts import chart_island_convergence_overlay
 
     records_by_island: dict[str, list[dict[str, Any]]] = {
         "pso": [
-            {"generation": 0, "best_cost": float("inf"), "gen_best_cost": 5.0},
-            {"generation": 1, "best_cost": float("inf"), "gen_best_cost": 4.0},
-            {"generation": 2, "best_cost": 3.5, "gen_best_cost": 3.5, "validation": {"rms_cost": 3.5}},
+            {"generation": 0, "best_cost": 5.0},
+            {"generation": 1, "best_cost": 4.0},
+            {"generation": 2, "best_cost": 3.5, "validation": {"rms_cost": 3.5}},
         ],
         "ga": [
-            {"generation": 0, "best_cost": float("inf"), "gen_best_cost": 6.0},
-            {"generation": 1, "best_cost": float("inf"), "gen_best_cost": 5.5},
+            {"generation": 0, "best_cost": 6.0},
+            {"generation": 1, "best_cost": 5.5},
         ],
         "de": [
-            {"generation": 0, "best_cost": float("inf"), "gen_best_cost": float("nan")},
-            {"generation": 1, "best_cost": float("inf"), "gen_best_cost": 7.0},
+            {"generation": 0, "best_cost": float("nan")},
+            {"generation": 1, "best_cost": 7.0},
         ],
     }
     output = tmp_path / "overlay.svg"
@@ -1251,3 +1251,97 @@ def test_chart_migration_timeline_accepts_dataclass(tmp_path: Path) -> None:
     output = tmp_path / "timeline.svg"
     chart_migration_timeline(log, n_gen=20, output=output)
     assert output.exists() and output.stat().st_size > 0
+
+
+def test_migrate_skips_non_finite_emigrants() -> None:
+    """An island whose population is entirely non-finite contributes no migrants
+    (its inf/NaN chromosomes must not overwrite finite individuals elsewhere)."""
+    X = np.zeros((5, 2))
+    F_healthy = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    F_collapsed = np.full(5, np.inf)
+    islands = [
+        _make_island("healthy", X.copy(), F_healthy.copy()),
+        _make_island("collapsed", X.copy(), F_collapsed.copy()),
+    ]
+    events = migrate(islands, k_top=2, current_gen=3, rng=np.random.default_rng(0))
+
+    # healthy -> collapsed must occur; collapsed -> healthy must NOT (no finite emigrants).
+    assert any(e.src_island == "healthy" and e.dst_island == "collapsed" for e in events)
+    assert not any(e.src_island == "collapsed" for e in events)
+    # The healthy island keeps all its finite individuals.
+    new_F_healthy = islands[0].algorithm.pop.get("F").flatten()
+    assert np.all(np.isfinite(new_F_healthy))
+
+
+def test_migrate_partially_finite_source_emits_only_finite() -> None:
+    """A source with fewer finite individuals than k_top emits only the finite ones."""
+    X = np.zeros((4, 2))
+    F_src = np.array([1.0, np.inf, np.inf, 2.0])  # 2 finite, k_top=3
+    F_dst = np.array([10.0, 20.0, 30.0, 40.0])
+    islands = [_make_island("A", X.copy(), F_src), _make_island("B", X.copy(), F_dst)]
+    events = migrate(islands, k_top=3, current_gen=0, rng=np.random.default_rng(0))
+    a_to_b = [e for e in events if e.src_island == "A"]
+    assert len(a_to_b) == 2
+    assert all(np.isfinite(e.F_migrant) for e in a_to_b)
+
+
+def test_migrate_does_not_alias_migrant_across_destinations() -> None:
+    """The same emigrant landing in two destinations must be distinct ndarrays
+    (mutating one destination's slot must not change the other's)."""
+    X = np.arange(10, dtype=float).reshape(5, 2)
+    F = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    islands = [
+        _make_island("pso_src", X.copy(), F.copy()),
+        _make_island("ga", X.copy() + 100.0, F.copy() + 100.0),
+        _make_island("de", X.copy() + 200.0, F.copy() + 200.0),
+    ]
+    migrate(islands, k_top=1, current_gen=2, rng=np.random.default_rng(0))
+
+    ga_pop = islands[1].algorithm.pop
+    de_pop = islands[2].algorithm.pop
+    # Find a slot in each that received the pso_src emigrant (worst slot).
+    ga_worst = int(np.argmax([100.0 + 1, 100.0 + 2, 100.0 + 3, 100.0 + 4, 100.0 + 5]))
+    de_worst = int(np.argmax([200.0 + 1, 200.0 + 2, 200.0 + 3, 200.0 + 4, 200.0 + 5]))
+    ga_slot_x = ga_pop[ga_worst].X
+    de_slot_x = de_pop[de_worst].X
+    assert ga_slot_x is not de_slot_x
+    ga_slot_x[0] = -999.0
+    assert de_slot_x[0] != -999.0
+
+
+def test_from_checkpoint_raises_on_chromosome_width_mismatch() -> None:
+    """Resuming after a chromosome-width change (e.g. optimize_scaffolding toggle)
+    must fail loudly instead of restoring a mis-sized population."""
+    cfg = _make_islands_cfg()
+    problem = _UnitCubeProblem()
+    model = IslandModel(
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100, 101],
+        final_eval_seeds=[200, 201],
+        base_mc_seed=42,
+        rng=np.random.default_rng(0),
+    )
+    for island in model.islands:
+        island.algorithm.setup(problem, seed=0)
+    model.step(current_gen=0)
+
+    with tempfile.TemporaryDirectory() as td:
+        ckpt_path = Path(td) / "checkpoint_g00003.npz"
+        model.checkpoint(ckpt_path, generation=3)
+
+        # Restore into a model expecting a DIFFERENT chromosome width.
+        mismatched = IslandModel(
+            config=cfg,
+            problem=problem,
+            n_params=7,  # != saved width of 4
+            validation_seeds=[100, 101],
+            final_eval_seeds=[200, 201],
+            base_mc_seed=42,
+            rng=np.random.default_rng(0),
+        )
+        for island in mismatched.islands:
+            island.algorithm.setup(problem, seed=0)
+        with pytest.raises(ValueError, match="chromosome width"):
+            mismatched.from_checkpoint(ckpt_path)

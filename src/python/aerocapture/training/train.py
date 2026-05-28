@@ -650,9 +650,12 @@ def train(
     # Compute config hash for experiment grouping
     config_hash = hashlib.sha256(repr(config).encode()).hexdigest()[:12]
 
-    # Try resuming from checkpoint
+    # Try resuming from checkpoint. The islands path manages its own .npz-only
+    # resume inside `_train_islands`; skip the single-algorithm `load_checkpoint`
+    # here so a stale single-algo `checkpoint.json` left in a shared save_dir
+    # can't bump `n_gen` a second time (it would also be bumped in _train_islands).
     resumed = None
-    if resume_dir is not None:
+    if resume_dir is not None and config.optimizer.algorithm != "islands":
         resumed = load_checkpoint(Path(resume_dir))
         if resumed is not None:
             # Restore RNG state
@@ -1339,6 +1342,13 @@ def _train_islands(
         final_eval_n,
     )
 
+    # Keep training-seed draws (rotating / adaptive) disjoint from the reserved
+    # final-eval and validation pools. train() only unions these into
+    # excluded_seeds when validation_n_sims > 0, so do it here unconditionally.
+    excluded_seeds = excluded_seeds | set(final_eval_seeds)
+    if val_seeds:
+        excluded_seeds = excluded_seeds | set(val_seeds)
+
     island_model = IslandModel(
         config=config.optimizer,
         problem=problem,
@@ -1349,41 +1359,54 @@ def _train_islands(
         rng=rng,
     )
 
+    # Probe for a resumable islands checkpoint FIRST, so the cold-start
+    # population evaluation below can be skipped on resume (from_checkpoint
+    # overwrites every island's pop, so evaluating the fresh pop would be
+    # wasted MC work). Pick the LATEST checkpoint that actually carries the
+    # islands v2 marker — not just the lexicographically-last .npz — so a
+    # foreign single-algorithm .npz sharing the directory (which has no
+    # "version" key) can't shadow a valid islands checkpoint.
+    ckpt_files = sorted(save_dir.glob("checkpoint_g*.npz"))
+    resume_ckpt: Path | None = None
+    for cand in reversed(ckpt_files):
+        try:
+            with np.load(cand, allow_pickle=True) as probe:
+                if "version" in probe and int(probe["version"]) == 2:
+                    resume_ckpt = cand
+                    break
+        except Exception:
+            continue
+    if resume_ckpt is None and ckpt_files and verbose:
+        print(
+            f"  Found {len(ckpt_files)} checkpoint_g*.npz in {save_dir} but none are "
+            f"islands v2 checkpoints; starting fresh.",
+        )
+
     # Fan out the (possibly warm-started) initial population to all 3 islands.
     # Each island gets the same starting chromosome but its algorithm's own
-    # internal state (e.g. PSO velocity init) is fresh. Evaluate once and
-    # share F across all islands (chromosomes are identical, so the costs are
-    # too — running Evaluator three times would triple the cold-start budget).
-    # `warm_start_algorithm` is used instead of `setup(pop=…)` because pymoo
-    # would otherwise wipe the seeded pop via `_initialize()` on first `next()`.
+    # internal state (e.g. PSO velocity init) is fresh. `warm_start_algorithm`
+    # is used instead of `setup(pop=…)` because pymoo would otherwise wipe the
+    # seeded pop via `_initialize()` on first `next()`; it also binds the
+    # problem via setup(), which is required even on resume.
     if pop_costs is None:
-        shared_eval_pop = Population.new("X", pop_array.copy())
-        Evaluator().eval(problem, shared_eval_pop)
-        pop_costs = shared_eval_pop.get("F").flatten()
+        if resume_ckpt is not None:
+            # Resuming: from_checkpoint overwrites pop.F immediately, so don't
+            # spend a full cold-start MC batch we're about to discard.
+            pop_costs = np.zeros(pop_array.shape[0], dtype=np.float64)
+        else:
+            # Evaluate once and share F across all islands (chromosomes are
+            # identical, so the costs are too — three Evaluator passes would
+            # triple the cold-start budget).
+            shared_eval_pop = Population.new("X", pop_array.copy())
+            Evaluator().eval(problem, shared_eval_pop)
+            pop_costs = shared_eval_pop.get("F").flatten()
     for island in island_model.islands:
         init_pop = Population.new("X", pop_array.copy())
         init_pop.set("F", pop_costs.reshape(-1, 1).copy())
         warm_start_algorithm(island.algorithm, problem, init_pop)
 
-    # Try resume from latest .npz checkpoint in save_dir.
-    # Probe for the islands v2 version marker before calling from_checkpoint
-    # so a single-algorithm checkpoint sharing the directory doesn't cause a
-    # KeyError on the missing "version" field.
-    ckpt_files = sorted(save_dir.glob("checkpoint_g*.npz"))
-    if ckpt_files:
-        try:
-            with np.load(ckpt_files[-1], allow_pickle=True) as probe:
-                is_islands_ckpt = "version" in probe and int(probe["version"]) == 2
-        except Exception:
-            is_islands_ckpt = False
-        if not is_islands_ckpt:
-            if verbose:
-                print(
-                    f"  Found checkpoint at {ckpt_files[-1]} but it's not an islands v2 checkpoint; starting fresh.",
-                )
-            ckpt_files = []
-    if ckpt_files:
-        resumed_gen, resumed_curator_state = island_model.from_checkpoint(ckpt_files[-1])
+    if resume_ckpt is not None:
+        resumed_gen, resumed_curator_state = island_model.from_checkpoint(resume_ckpt)
         start_gen = resumed_gen + 1
         # Mirror the single-algorithm convention: `--n-gen N` after resume
         # means "N additional gens", so bump n_gen by the resumed
@@ -1463,18 +1486,35 @@ def _train_islands(
                 if val_seeds:
                     val_records = island_model.validate_each(current_gen=gen)
                 else:
-                    # No validation seeds — emit placeholder records so downstream
-                    # logging and curator-trigger still work without NaN promotions.
-                    val_records = [
-                        {
-                            "island": i.name,
-                            "validated": False,
-                            "promoted": False,
-                            "argmin_train_cost": float(i.algorithm.pop.get("F").min()),
-                            "stagnation": i.stagnation_counter,
-                        }
-                        for i in island_model.islands
-                    ]
+                    # No validation seeds — there is no validation gate to
+                    # promote best_overall_*, so promote each island's finite
+                    # training argmin directly. Without this no island ever sets
+                    # best_overall_individual, final_eval() returns [], and the
+                    # run produces zero artifacts while deleting any prior
+                    # best_model.json. final_eval re-ranks on the disjoint
+                    # final-eval pool, so the cross-gen incomparability is bounded
+                    # to which gen's argmin seeds each island's candidate.
+                    val_records = []
+                    for i in island_model.islands:
+                        F = i.algorithm.pop.get("F").flatten()
+                        finite_mask = np.isfinite(F)
+                        if finite_mask.any():
+                            X = i.algorithm.pop.get("X")
+                            amin = int(np.argmin(np.where(finite_mask, F, np.inf)))
+                            i.best_overall_individual = X[amin].copy()
+                            i.best_overall_cost = float(F[amin])
+                            argmin_cost = float(F[amin])
+                        else:
+                            argmin_cost = float("inf")
+                        val_records.append(
+                            {
+                                "island": i.name,
+                                "validated": False,
+                                "promoted": False,
+                                "argmin_train_cost": argmin_cost,
+                                "stagnation": i.stagnation_counter,
+                            }
+                        )
 
                 # Adaptive seed curation: pool top-K across all 3 islands.
                 if seed_curator is not None:
@@ -1531,8 +1571,15 @@ def _train_islands(
                 island_records["_total_migrations"] = len(island_model.migration_log)
 
                 # Migration summary: best and worst migrant per destination
-                # from THIS gen's migration event (if any).
+                # from THIS gen's migration event (if any). Only (re)computed on
+                # migration gens — the cached snapshot is reused on the other
+                # ~(k_period-1)/k_period gens so the per-gen display refresh
+                # doesn't re-scan the full migration_log every generation.
                 if events:
+                    from aerocapture.training.island_model import (  # noqa: PLC0415
+                        compute_migration_origin_stats,
+                    )
+
                     by_dst: dict[str, list] = {}
                     for ev in events:
                         by_dst.setdefault(ev.dst_island, []).append(ev)
@@ -1553,21 +1600,17 @@ def _train_islands(
                                 "F_displaced": worst.F_displaced,
                             },
                         }
-                    # Persist into a long-lived attribute on island_model so the
+                    # Persist into long-lived attributes on island_model so the
                     # panel keeps showing the latest snapshot between gens.
                     island_model._latest_migration_summary = summary  # type: ignore[attr-defined]
                     island_model._latest_migration_gen = gen  # type: ignore[attr-defined]
+                    island_model._origin_stats_cache = compute_migration_origin_stats(  # type: ignore[attr-defined]
+                        island_model.migration_log,
+                    )
 
                 island_records["_latest_migration_summary"] = getattr(island_model, "_latest_migration_summary", {})
                 island_records["_latest_migration_gen"] = getattr(island_model, "_latest_migration_gen", None)
-
-                from aerocapture.training.island_model import (  # noqa: PLC0415
-                    compute_migration_origin_stats,
-                )
-
-                island_records["_origin_stats"] = compute_migration_origin_stats(
-                    island_model.migration_log,
-                )
+                island_records["_origin_stats"] = getattr(island_model, "_origin_stats_cache", {})
 
                 display.update(logger, current_run=0, island_records=island_records)
 

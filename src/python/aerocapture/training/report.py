@@ -489,14 +489,15 @@ def _generate_training_charts(
     records: list[dict],
     resume_gens: list[int],
     out_dir: Path,
+    scheme_dir: Path | None = None,
 ) -> bool:
     """Generate Part 1 (training convergence) SVG charts. Returns has_cost_distribution."""
     # Detect islands mode by presence of `island_name` on any record. The
     # islands trainer writes 3 records per gen (one per island); the
     # existing single-algo charts assume one record per gen, so we render
     # the islands-specific charts FROM the per-island slices, and feed the
-    # single-algo charts only the winning island's slice (lowest
-    # best_overall_cost) so they still produce a sensible single line.
+    # single-algo charts only the winning island's slice (lowest cost) so
+    # they still produce a sensible single line.
     island_records = [r for r in records if "island_name" in r]
     if island_records:
         by_island: dict[str, list[dict]] = {}
@@ -506,17 +507,27 @@ def _generate_training_charts(
             slice_.sort(key=lambda r: r["generation"])
 
         charts.chart_island_convergence_overlay(by_island, out_dir / "island_convergence.svg")
-        # Migration log lives in the npz checkpoint, not the JSONL; charts
-        # function tolerates an empty list and renders a placeholder.
-        charts.chart_migration_timeline([], _max_gen(records), out_dir / "migration_timeline.svg")
+        # The migration log lives only in the .npz checkpoint, not the JSONL;
+        # load it from the latest checkpoint so the timeline isn't a permanent
+        # "No migration events" placeholder. Falls back to [] (placeholder) when
+        # no checkpoint is present (e.g. report run on JSONL-only data).
+        migration_log = _load_migration_log(scheme_dir) if scheme_dir is not None else []
+        charts.chart_migration_timeline(migration_log, _max_gen(records), out_dir / "migration_timeline.svg")
 
-        # Pick the island with the lowest finite best_overall_cost across
-        # all its records as the "representative" series for the single-algo
-        # charts that take one cost curve.
+        # Pick the island with the lowest cost across all its records as the
+        # "representative" series for the single-algo charts that take one
+        # cost curve. Uses the validated rms when present (the per-island
+        # promotion metric), else the per-gen training argmin (`best_cost`) —
+        # the keys TrainingLogger actually writes.
         def _best_finite(slice_: list[dict]) -> float:
-            vals = [r.get("best_overall_cost", float("inf")) for r in slice_]
-            finite = [v for v in vals if v == v and v != float("inf")]
-            return min(finite) if finite else float("inf")
+            best = float("inf")
+            for r in slice_:
+                cand = (r.get("validation") or {}).get("rms_cost")
+                if cand is None or not np.isfinite(cand):
+                    cand = r.get("best_cost")
+                if cand is not None and np.isfinite(cand):
+                    best = min(best, float(cand))
+            return best
 
         winner_name = min(by_island, key=lambda name: _best_finite(by_island[name]))
         slice_records = by_island[winner_name]
@@ -537,6 +548,26 @@ def _generate_training_charts(
 def _max_gen(records: list[dict]) -> int:
     """Largest `generation` key across records (or 0 if empty)."""
     return max((r["generation"] for r in records), default=0)
+
+
+def _load_migration_log(scheme_dir: Path) -> list:
+    """Load the migration_log from the latest islands v2 checkpoint in scheme_dir.
+
+    Returns the unpickled `list[MigrationEvent]` (chart_migration_timeline
+    accepts the dataclass form), or `[]` when no islands checkpoint is present.
+    """
+    import pickle  # noqa: PLC0415
+
+    for cand in reversed(sorted(scheme_dir.glob("checkpoint_g*.npz"))):
+        try:
+            with np.load(cand, allow_pickle=True) as data:
+                if "migration_log" not in data:
+                    continue
+                log: list = pickle.loads(data["migration_log"].item())
+                return log
+        except Exception:
+            continue
+    return []
 
 
 def _load_corridor_data(scheme_dir: Path) -> dict[str, Any] | None:
@@ -732,7 +763,7 @@ def generate_report(
 
     try:
         # Part 1: training convergence charts
-        has_cost_distribution = _generate_training_charts(records, resume_gens, tmp_dir)
+        has_cost_distribution = _generate_training_charts(records, resume_gens, tmp_dir, scheme_dir)
 
         # Read cost function config from TOML (needed for cost stats)
         cost_kwargs = read_cost_kwargs(toml_path) if toml_path is not None else None

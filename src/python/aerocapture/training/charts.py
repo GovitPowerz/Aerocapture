@@ -1291,9 +1291,10 @@ def chart_island_convergence_overlay(
 
     Three colored lines (PSO=blue, GA=orange, DE=green) on a log-scale y-axis.
     The series uses validated cost when present (`validation.rms_cost`,
-    promoted-best), else `gen_best_cost`, else `best_cost`, computing a
-    running min per-island so the chart is meaningful even before any
-    validation gate has fired. Islands with no finite costs are skipped.
+    promoted-best), else `best_cost` (the per-gen training argmin written by
+    TrainingLogger), computing a running min per-island so the chart is
+    meaningful even before any validation gate has fired. Islands with no
+    finite costs are skipped.
     """
     fig, ax = plt.subplots(figsize=(10, 5))
     colors = {"pso": "tab:blue", "ga": "tab:orange", "de": "tab:green"}
@@ -1307,11 +1308,9 @@ def chart_island_convergence_overlay(
         running_min = float("inf")
         for r in records:
             # Prefer the validated cost (per-island promotion metric), then
-            # fall back to the per-gen training argmin.
+            # fall back to the per-gen training argmin (`best_cost`).
             val = r.get("validation") or {}
             candidate = val.get("rms_cost")
-            if candidate is None or not np.isfinite(candidate):
-                candidate = r.get("gen_best_cost")
             if candidate is None or not np.isfinite(candidate):
                 candidate = r.get("best_cost")
             if candidate is None or not np.isfinite(candidate):

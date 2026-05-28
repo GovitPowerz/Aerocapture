@@ -123,3 +123,66 @@ def test_islands_smoke_5_gens(tmp_path: Path) -> None:
     assert isinstance(output, (list, tuple))
     assert len(output) == 2
     assert all(isinstance(v, float) for v in output)
+
+
+@pytest.mark.slow
+def test_islands_resume_continues_from_checkpoint(tmp_path: Path) -> None:
+    """Auto-resume from an islands .npz checkpoint continues past the saved gen
+    without crashing or re-running from scratch (covers the latest-v2-npz probe
+    and the resume-skips-cold-start-eval restructure)."""
+    from aerocapture.training.config import NetworkConfig, SimConfig, TrainingConfig
+    from aerocapture.training.optimizer import IslandSettings, OptimizerConfig
+    from aerocapture.training.train import train
+
+    save_dir = tmp_path / "neural_network_islands_resume"
+
+    architecture = [
+        {"type": "dense", "input_size": 25, "output_size": 8, "activation": "swish"},
+        {"type": "dense", "input_size": 8, "output_size": 2, "activation": "linear"},
+    ]
+
+    def _make_cfg(n_gen: int) -> TrainingConfig:
+        return TrainingConfig(
+            network=NetworkConfig(architecture=architecture, input_mask=list(range(25))),
+            optimizer=OptimizerConfig(
+                algorithm="islands",
+                n_pop=8,
+                n_gen=n_gen,
+                seed_strategy="fixed",
+                training_n_sims=2,
+                validation_n_sims=4,
+                seed_pool_interval=1000,
+                islands=IslandSettings(enabled=True, k_period=1, k_top=2, pso_inject_velocity_scale=0.05),
+            ),
+            sim=SimConfig(
+                executable="src/rust/target/release/aerocapture",
+                nn_param_file=str(save_dir / "best_model.json"),
+                toml_config="configs/training/msr_aller_islands_train.toml",
+                n_sims=2,
+            ),
+            save_dir=str(save_dir),
+            guidance_type="neural_network",
+        )
+
+    # Run 1: 3 gens fresh -> checkpoint at g00002.
+    train(_make_cfg(3), seed=42, cwd=".", verbose=False, no_tui=True, from_scratch=True)
+    ckpts_after_run1 = sorted(save_dir.glob("checkpoint_g*.npz"))
+    assert ckpts_after_run1, "first run wrote no checkpoint"
+    assert ckpts_after_run1[-1].name == "checkpoint_g00002.npz"
+
+    # Run 2: auto-resume (no from_scratch). --n-gen=2 means 2 ADDITIONAL gens,
+    # so the loop runs gens 3 and 4 and writes checkpoint_g00004.npz.
+    result = train(_make_cfg(2), seed=42, cwd=".", verbose=False, no_tui=True, from_scratch=False)
+    assert not result.get("interrupted", False)
+
+    ckpts_after_run2 = sorted(save_dir.glob("checkpoint_g*.npz"))
+    assert any(c.name == "checkpoint_g00004.npz" for c in ckpts_after_run2), (
+        f"resume did not advance past gen 2; checkpoints: {[c.name for c in ckpts_after_run2]}"
+    )
+
+    # JSONL must carry records for gens 3 and 4 (proves the resumed loop ran).
+    # Each train() call opens its own timestamped run_*.jsonl, so aggregate all.
+    gens_seen: set[int] = set()
+    for jsonl in save_dir.glob("run_*.jsonl"):
+        gens_seen |= {json.loads(line)["generation"] for line in jsonl.read_text().splitlines() if line.strip()}
+    assert {3, 4} <= gens_seen, f"resumed gens 3,4 missing from JSONL; saw {sorted(gens_seen)}"

@@ -61,10 +61,17 @@ def migrate(
     (pop[slot].X / .F) via `inject_into_pso`.
     """
     # 1. Snapshot top-k emigrants from each island under current F.
+    #    Only FINITE-F individuals are eligible: an island whose population is
+    #    entirely non-finite (all sims timed out / returned NaN) contributes no
+    #    migrants. Without this guard a collapsed island would broadcast its
+    #    inf/NaN chromosomes into every healthy destination's worst slots,
+    #    destroying finite individuals exactly when the collapsed island most
+    #    needs rescue (mirrors the all-inf guard in validate_each).
     emigrants: dict[str, list[tuple[npt.NDArray[np.float64], float]]] = {}
     for src in islands:
         F_src = src.algorithm.pop.get("F").flatten()
-        top_idx = np.argsort(F_src, kind="stable")[:k_top]
+        finite_idx = np.flatnonzero(np.isfinite(F_src))
+        top_idx = finite_idx[np.argsort(F_src[finite_idx], kind="stable")[:k_top]]
         emigrants[src.name] = [(src.algorithm.pop[int(i)].X.copy(), float(F_src[int(i)])) for i in top_idx]
 
     # 2. For each destination, apply replacements from all other islands.
@@ -78,6 +85,9 @@ def migrate(
                 incoming.append((X_em, F_em, src.name))
 
         n_incoming = len(incoming)
+        # Every other island collapsed (no finite emigrants): nothing to inject.
+        if n_incoming == 0:
+            continue
         pop_size = len(dst.algorithm.pop)
         if n_incoming > pop_size:
             raise ValueError(
@@ -95,7 +105,10 @@ def migrate(
         for slot_i, (X_new, F_new, src_name) in zip(worst_slots, incoming, strict=True):
             slot = int(slot_i)
             F_displaced = float(F_dst[slot])
-            dst.algorithm.pop[slot].X = X_new
+            # Copy: one emigrant snapshot is shared across both destinations,
+            # so aliasing it would make two islands' slots reference the same
+            # ndarray (the PSO branch below already copies via inject_into_pso).
+            dst.algorithm.pop[slot].X = X_new.copy()
             dst.algorithm.pop[slot].F = np.array([F_new])
 
             if isinstance(dst.algorithm, PSO):
@@ -515,6 +528,20 @@ class IslandModel:
             island.stagnation_counter = int(state["stagnation_counter"])
 
             if state["pop_X"] is not None:
+                # Fail loudly when the saved chromosome width disagrees with the
+                # current ParamSpec count — the islands analogue of
+                # `_check_resume_chromosome_shape` in train.py. Catches the user
+                # flipping `optimize_scaffolding` / `output_parameterization` /
+                # `input_mask` (all change n_params) between runs; without it the
+                # old-width pop is restored and later mis-decoded into garbage.
+                saved_n_params = state["pop_X"].shape[1]
+                if saved_n_params != self.n_params:
+                    raise ValueError(
+                        f"checkpoint chromosome width {saved_n_params} != current {self.n_params}. "
+                        f"This usually means `optimize_scaffolding`, `output_parameterization`, "
+                        f"or `input_mask` changed since the checkpoint was saved. "
+                        f"Revert the TOML knob to resume, or pass --from-scratch.",
+                    )
                 pop = Population.new("X", state["pop_X"])
                 pop.set("F", state["pop_F"])
 
