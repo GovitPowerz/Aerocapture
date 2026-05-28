@@ -15,6 +15,7 @@ import pytest
 from aerocapture.training.island_model import Island, IslandModel, MigrationEvent, inject_into_pso, migrate
 from aerocapture.training.optimizer import DESettings, GASettings, IslandSettings, OptimizerConfig, PSOSettings
 from pymoo.algorithms.soo.nonconvex.pso import PSO
+from pymoo.core.evaluator import Evaluator
 from pymoo.core.population import Population
 from pymoo.core.problem import Problem
 
@@ -730,3 +731,30 @@ def test_from_checkpoint_raises_on_base_mc_seed_mismatch() -> None:
 
         with pytest.raises(ValueError, match="base_mc_seed"):
             wrong_seed_model.from_checkpoint(ckpt_path)
+
+
+def test_islands_use_warm_started_pop_array() -> None:
+    """With warm-start active, the (jittered) starting population is fanned
+    out to all 3 islands. Each island then sees the same X[0], same X[1], etc."""
+    cfg = _make_islands_cfg()
+    problem = _UnitCubeProblem()
+    n_pop = cfg.n_pop
+    n_params = 4
+    rng = np.random.default_rng(42)
+    pop_array = rng.uniform(0.0, 1.0, size=(n_pop, n_params))  # simulates jittered warm-start output
+
+    model = IslandModel(
+        config=cfg, problem=problem, n_params=n_params,
+        validation_seeds=[100], final_eval_seeds=[200],
+        base_mc_seed=0, rng=np.random.default_rng(0),
+    )
+
+    for island in model.islands:
+        init_pop = Population.new("X", pop_array.copy())
+        Evaluator().eval(problem, init_pop)
+        island.algorithm.setup(problem, pop=init_pop)
+
+    # All 3 islands' pre-`next()` X must equal pop_array.
+    for island in model.islands:
+        X = island.algorithm.pop.get("X")
+        np.testing.assert_array_equal(X, pop_array)
