@@ -5,9 +5,11 @@ See docs/superpowers/specs/2026-05-28-island-model-pso-ga-de-design.md.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
-
+from aerocapture.training.island_model import Island, MigrationEvent, migrate
 from aerocapture.training.optimizer import IslandSettings, OptimizerConfig
+from pymoo.core.population import Population
 
 
 def test_optimizer_config_islands_parses() -> None:
@@ -69,17 +71,6 @@ def test_create_algorithm_raises_for_islands_value() -> None:
         create_algorithm(cfg, n_params=10)
 
 
-import numpy as np
-from pymoo.core.population import Population
-
-from aerocapture.training.island_model import (
-    Island,
-    MigrationEvent,
-    inject_into_pso,
-    migrate,
-)
-
-
 class _FakeAlgo:
     """Minimal stand-in for pymoo Algorithm — only `.pop` is touched by migrate()."""
 
@@ -124,7 +115,7 @@ def test_migrate_top_k_selection() -> None:
     # B's worst slots (sorted by ascending F) are 3 then 2; migrants overwrite them.
     new_F_b = islands[1].algorithm.pop.get("F").flatten()
     # B's slots 3 and 2 should now hold the values from A's top-2 (F=1.0 and F=3.0)
-    migrant_F_values = sorted({float(new_F_b[3]), float(new_F_b[2])})
+    migrant_F_values = sorted([float(new_F_b[3]), float(new_F_b[2])])
     assert migrant_F_values == [1.0, 3.0]
 
 
