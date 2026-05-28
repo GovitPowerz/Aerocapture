@@ -569,3 +569,94 @@ def test_logger_omits_island_name_when_not_provided() -> None:
         record = json.loads(jsonl_files[0].read_text().strip().splitlines()[-1])
         # No island_name key when not provided (backwards compatibility).
         assert "island_name" not in record
+
+
+def test_island_model_checkpoint_roundtrip() -> None:
+    cfg = _make_islands_cfg()
+    problem = _UnitCubeProblem()
+    model = IslandModel(
+        config=cfg, problem=problem, n_params=4,
+        validation_seeds=[100, 101], final_eval_seeds=[200, 201],
+        base_mc_seed=42, rng=np.random.default_rng(0),
+    )
+    for island in model.islands:
+        island.algorithm.setup(problem, seed=0)
+    model.step(current_gen=0)
+    model.validate_each(current_gen=0)
+    # Force a fake migration event into the log.
+    model.migration_log.append(MigrationEvent(
+        gen=1, src_island="ga", dst_island="pso", slot_idx=0,
+        F_migrant=0.1, F_displaced=10.0,
+    ))
+
+    with tempfile.TemporaryDirectory() as td:
+        ckpt_path = Path(td) / "checkpoint_g00005.npz"
+        model.checkpoint(ckpt_path, generation=5)
+        assert ckpt_path.exists()
+
+        # Build a fresh model and restore from checkpoint.
+        restored = IslandModel(
+            config=cfg, problem=problem, n_params=4,
+            validation_seeds=[100, 101], final_eval_seeds=[200, 201],
+            base_mc_seed=42, rng=np.random.default_rng(99),
+        )
+        for island in restored.islands:
+            island.algorithm.setup(problem, seed=0)
+        restored.from_checkpoint(ckpt_path)
+
+    # Verify per-island state matches.
+    for orig, rest in zip(model.islands, restored.islands, strict=True):
+        assert orig.name == rest.name
+        assert orig.best_val_cost == rest.best_val_cost
+        assert orig.stagnation_counter == rest.stagnation_counter
+        if orig.best_overall_individual is None:
+            assert rest.best_overall_individual is None
+        else:
+            np.testing.assert_array_equal(
+                orig.best_overall_individual, rest.best_overall_individual,
+            )
+    assert len(restored.migration_log) == 1
+    assert restored.migration_log[0].src_island == "ga"
+
+
+def test_island_model_resume_preserves_best_overall_per_island() -> None:
+    """Regression guard: cross-gen training-cost incomparability rule must apply
+    per-island. Restoring a checkpoint must NOT overwrite best_overall_* with
+    the resumed population's gen-0 argmin (see project memory
+    project_resume_cost_incomparability)."""
+    cfg = _make_islands_cfg()
+    problem = _UnitCubeProblem()
+    model = IslandModel(
+        config=cfg, problem=problem, n_params=4,
+        validation_seeds=[100], final_eval_seeds=[200],
+        base_mc_seed=42, rng=np.random.default_rng(0),
+    )
+    for island in model.islands:
+        island.algorithm.setup(problem, seed=0)
+    # Stamp each island's best_overall as a sentinel different from any pop member.
+    sentinel = np.array([0.99, 0.99, 0.99, 0.99])
+    for island in model.islands:
+        island.best_overall_individual = sentinel.copy()
+        island.best_val_cost = 0.123
+        island.best_overall_cost = 0.456
+
+    with tempfile.TemporaryDirectory() as td:
+        ckpt_path = Path(td) / "checkpoint_g00010.npz"
+        model.checkpoint(ckpt_path, generation=10)
+
+        restored = IslandModel(
+            config=cfg, problem=problem, n_params=4,
+            validation_seeds=[100], final_eval_seeds=[200],
+            base_mc_seed=42, rng=np.random.default_rng(0),
+        )
+        for island in restored.islands:
+            island.algorithm.setup(problem, seed=0)
+        # Advance to a fresh pop with potentially-better argmin.
+        restored.step(current_gen=0)
+        restored.from_checkpoint(ckpt_path)
+
+    # The sentinel must survive across the resume; the restored model must NOT
+    # have replaced it with the gen-0 argmin.
+    for island in restored.islands:
+        np.testing.assert_array_equal(island.best_overall_individual, sentinel)
+        assert island.best_val_cost == 0.123

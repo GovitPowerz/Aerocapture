@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -313,6 +314,99 @@ class IslandModel:
             parent_X = island.algorithm.pop.get("X")
             fresh_F = self.problem._run_batch(parent_X)
             island.algorithm.pop.set("F", fresh_F.reshape(-1, 1))
+
+    def checkpoint(self, path: Path, generation: int) -> None:
+        """Write a v2 atomic .npz checkpoint.
+
+        Atomicity: writes to a tempfile in the same directory, then renames.
+        Single file holds all 3 islands' state + migration log + RNG state.
+        """
+        import pickle  # noqa: PLC0415
+
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # np.savez appends .npz automatically; use a .tmp.npz sibling so the
+        # atomic rename moves exactly path.stem + ".tmp.npz" -> path.
+        tmp = path.with_name(path.stem + ".tmp.npz")
+
+        island_states = []
+        for island in self.islands:
+            pop = island.algorithm.pop
+            island_states.append({
+                "name": island.name,
+                "pop_X": pop.get("X") if pop is not None else None,
+                "pop_F": pop.get("F") if pop is not None else None,
+                "pop_V": pop.get("V") if pop is not None and pop.get("V") is not None else None,
+                "pop_pbest": pop.get("pbest") if pop is not None and pop.get("pbest") is not None else None,
+                "pop_pbest_F": pop.get("pbest_F") if pop is not None and pop.get("pbest_F") is not None else None,
+                "last_validated_individual": island.last_validated_individual,
+                "best_overall_individual": island.best_overall_individual,
+                "best_overall_cost": island.best_overall_cost,
+                "best_val_cost": island.best_val_cost,
+                "stagnation_counter": island.stagnation_counter,
+            })
+
+        np.savez(
+            tmp,
+            version=2,
+            generation=generation,
+            base_mc_seed=self.base_mc_seed,
+            island_states=np.array(pickle.dumps(island_states), dtype=object),
+            migration_log=np.array(pickle.dumps(self.migration_log), dtype=object),
+            rng_state=np.array(pickle.dumps(self.rng.bit_generator.state), dtype=object),
+        )
+        tmp.rename(path)
+
+    def from_checkpoint(self, path: Path) -> int:
+        """Restore from a v2 checkpoint. Returns the generation at which it was saved.
+
+        IMPORTANT: per-island best_overall_* are restored verbatim. The
+        resumed population's gen-0 argmin must NOT be allowed to overwrite them
+        (cross-gen training-cost incomparability under adaptive/rotating
+        seeds -- see project memory project_resume_cost_incomparability).
+        """
+        import pickle  # noqa: PLC0415
+
+        from pymoo.core.population import Population  # noqa: PLC0415
+
+        with np.load(path, allow_pickle=True) as data:
+            version = int(data["version"])
+            if version != 2:
+                raise ValueError(f"checkpoint version {version} unsupported; expected 2")
+            generation = int(data["generation"])
+            base_mc_seed = int(data["base_mc_seed"])
+            island_states = pickle.loads(data["island_states"].item())
+            migration_log = pickle.loads(data["migration_log"].item())
+            rng_state = pickle.loads(data["rng_state"].item())
+
+        assert base_mc_seed == self.base_mc_seed, (
+            f"checkpoint base_mc_seed {base_mc_seed} != current {self.base_mc_seed}"
+        )
+
+        for island, state in zip(self.islands, island_states, strict=True):
+            assert island.name == state["name"], (
+                f"checkpoint island order mismatch: {island.name} != {state['name']}"
+            )
+            island.last_validated_individual = state["last_validated_individual"]
+            island.best_overall_individual = state["best_overall_individual"]
+            island.best_overall_cost = float(state["best_overall_cost"])
+            island.best_val_cost = float(state["best_val_cost"])
+            island.stagnation_counter = int(state["stagnation_counter"])
+
+            if state["pop_X"] is not None:
+                pop = Population.new("X", state["pop_X"])
+                pop.set("F", state["pop_F"])
+                if state["pop_V"] is not None:
+                    pop.set("V", state["pop_V"])
+                if state["pop_pbest"] is not None:
+                    pop.set("pbest", state["pop_pbest"])
+                if state["pop_pbest_F"] is not None:
+                    pop.set("pbest_F", state["pop_pbest_F"])
+                island.algorithm.pop = pop
+
+        self.migration_log = migration_log
+        self.rng.bit_generator.state = rng_state
+        return generation
 
     def final_eval(self) -> list[dict[str, Any]]:
         """Re-evaluate each island's best_overall on the reserved final-eval seeds.
