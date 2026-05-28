@@ -1114,7 +1114,7 @@ mod tests {
             &planet,
             target,
             0.0,
-            Some(0.1234),       // arbitrary non-zero
+            Some(0.1234), // arbitrary non-zero
             std::f64::consts::PI,
             42.5,
             std::f64::consts::E,
@@ -1159,39 +1159,39 @@ mod tests {
         }
 
         proptest! {
-            #[test]
-            fn output_always_finite(
-                alt in 10_000.0..130_000.0_f64,
-                vel in 2000.0..7000.0_f64,
-                fpa in -0.3..0.05_f64,
-                az  in -1.0..1.0_f64,
-            ) {
-                let r = PlanetConfig::mars().equatorial_radius + alt;
-                let nav = NavigationOutput {
-                    position_estimated: [r, 0.1, 0.05],
-                    velocity_estimated: [vel, fpa, az],
-                    acceleration_estimated: [50.0, -8.0],
-                    aero_coefficients: [1.269, -0.205],
-                    density_guidance: 0.001,
-                    dynamic_pressure_estimated: 0.5 * 0.001 * vel * vel,
-                    energy_estimated: -1e6,
-                    ..Default::default()
-                };
+                    #[test]
+                    fn output_always_finite(
+                        alt in 10_000.0..130_000.0_f64,
+                        vel in 2000.0..7000.0_f64,
+                        fpa in -0.3..0.05_f64,
+                        az  in -1.0..1.0_f64,
+                    ) {
+                        let r = PlanetConfig::mars().equatorial_radius + alt;
+                        let nav = NavigationOutput {
+                            position_estimated: [r, 0.1, 0.05],
+                            velocity_estimated: [vel, fpa, az],
+                            acceleration_estimated: [50.0, -8.0],
+                            aero_coefficients: [1.269, -0.205],
+                            density_guidance: 0.001,
+                            dynamic_pressure_estimated: 0.5 * 0.001 * vel * vel,
+                            energy_estimated: -1e6,
+                            ..Default::default()
+                        };
 
-                let nn = fixed_small_nn();
-                let data = test_sim_data();
-                let planet = PlanetConfig::mars();
-                let mut state = NnState::for_model(&nn);
-                let bank = nn_bank_angle(&nav, &nn, &mut state, &data, &planet, 50.0_f64.to_radians(), 0.0,
-    None,
-    0.0,
-    0.0,
-    0.0,
-);
+                        let nn = fixed_small_nn();
+                        let data = test_sim_data();
+                        let planet = PlanetConfig::mars();
+                        let mut state = NnState::for_model(&nn);
+                        let bank = nn_bank_angle(&nav, &nn, &mut state, &data, &planet, 50.0_f64.to_radians(), 0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
+        );
 
-                prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
-            }
-        }
+                        prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
+                    }
+                }
 
         #[test]
         fn acos_tanh_parameterization_emits_acos_of_output() {

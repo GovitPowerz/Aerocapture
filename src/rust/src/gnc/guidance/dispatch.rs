@@ -120,6 +120,7 @@ pub struct GuidanceOutput {
     ///   1. the sign carries through (full_neural deploy has no lateral guidance to add signs),
     ///   2. the command shaper runs exactly once at deploy on the NN's output, not twice
     ///      (which `bank_angle_commanded` would cause, since it is post-shaper).
+    ///
     /// For signed-bank schemes (PiecewiseConstant, NN/FullNeural) this equals
     /// `bank_angle_longitudinal` directly (no lateral sign multiply happens).
     pub pre_shaper_signed: f64,

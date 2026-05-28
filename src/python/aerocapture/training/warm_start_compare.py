@@ -173,6 +173,10 @@ def render_trajectory_comparison(
     report_dir = save_dir / "warm_start_report"
     report_dir.mkdir(parents=True, exist_ok=True)
 
+    toml_config = cfg.sim.toml_config
+    if toml_config is None:
+        raise ValueError("render_trajectory_comparison requires cfg.sim.toml_config to be set")
+
     # Resolve primary supervisor (first scheme in the list -- typically FTC).
     ws = cfg.warm_start
     primary_scheme = ws.supervisor_schemes[0]
@@ -195,7 +199,7 @@ def render_trajectory_comparison(
 
     # Write the warm-start NN to a temp JSON so the runtime can load it.
     # Cleanup happens unconditionally in the finally block.
-    heat_flux_limit, _ = _read_constraint_limits(Path(cfg.sim.toml_config))
+    heat_flux_limit, _ = _read_constraint_limits(Path(toml_config))
     panels = ["corridor_pdyn", "corridor_inclination", "corridor_bank", "altitude_time", "heat_flux_time"]
 
     manifest: dict[str, Any] = {
@@ -237,7 +241,7 @@ def render_trajectory_comparison(
                 print(f"  [warm_start_compare] {side} on {pool_name} pool ({n_seeds} sims)...")
                 try:
                     final_records, trajectories = _run_one_pool_one_side(
-                        toml_path=cfg.sim.toml_config,
+                        toml_path=toml_config,
                         seeds=seeds,
                         side=side,
                         primary_scheme=primary_scheme,

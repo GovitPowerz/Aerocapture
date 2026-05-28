@@ -9,7 +9,7 @@ description = "Trajectory simulation for aerocapture maneuvers"
 
 [dependencies]
 libm = "0.2"
-nalgebra = "0.34"
+nalgebra = "0.35"
 rand = "0.10"
 rand_distr = "0.6"
 rayon = "1.10"
