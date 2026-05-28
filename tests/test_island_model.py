@@ -5,6 +5,9 @@ See docs/superpowers/specs/2026-05-28-island-model-pso-ga-de-design.md.
 
 from __future__ import annotations
 
+import json
+import tempfile
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -518,3 +521,51 @@ def test_re_evaluate_all_populations_updates_f() -> None:
     for island in model.islands:
         F = island.algorithm.pop.get("F").flatten()
         assert np.all(F == 0.0)
+
+
+def test_logger_writes_island_name_field_when_provided() -> None:
+    """Backwards-compatible: when island_name is provided, it appears in the JSONL record."""
+    from aerocapture.training.logger import TrainingLogger
+
+    with tempfile.TemporaryDirectory() as td:
+        logger = TrainingLogger(
+            scheme="islands", run=0, output_dir=Path(td), config_hash="dummy",
+        )
+        X = np.zeros((4, 2))
+        costs = np.array([1.0, 2.0, 3.0, 4.0])
+        best = np.array([0.5, 0.5])
+        logger.log_generation(
+            generation=0,
+            population=X,
+            costs=costs,
+            best_individual=best,
+            decode_fn=None,
+            island_name="pso",
+        )
+        logger.close()
+        jsonl_files = list(Path(td).glob("*.jsonl"))
+        assert len(jsonl_files) == 1
+        record = json.loads(jsonl_files[0].read_text().strip().splitlines()[-1])
+        assert record["island_name"] == "pso"
+
+
+def test_logger_omits_island_name_when_not_provided() -> None:
+    """Backwards-compatible: when island_name is omitted, no island_name key is emitted."""
+    from aerocapture.training.logger import TrainingLogger
+
+    with tempfile.TemporaryDirectory() as td:
+        logger = TrainingLogger(
+            scheme="ftc", run=0, output_dir=Path(td), config_hash="dummy",
+        )
+        logger.log_generation(
+            generation=0,
+            population=np.zeros((4, 2)),
+            costs=np.array([1.0, 2.0, 3.0, 4.0]),
+            best_individual=np.array([0.5, 0.5]),
+            decode_fn=None,
+        )
+        logger.close()
+        jsonl_files = list(Path(td).glob("*.jsonl"))
+        record = json.loads(jsonl_files[0].read_text().strip().splitlines()[-1])
+        # No island_name key when not provided (backwards compatibility).
+        assert "island_name" not in record

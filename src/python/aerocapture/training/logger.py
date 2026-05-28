@@ -51,6 +51,7 @@ class TrainingLogger:
         gen_best_individual: npt.NDArray[np.float64] | None = None,
         validation: dict | None = None,
         improved: bool | None = None,
+        island_name: str | None = None,
     ) -> None:
         """Log metrics for one generation.
 
@@ -108,6 +109,9 @@ class TrainingLogger:
 
         if validation is not None:
             record["validation"] = validation
+
+        if island_name is not None:
+            record["island_name"] = island_name
 
         self._buffer.append(record)
         self._file.write(json.dumps(record) + "\n")
