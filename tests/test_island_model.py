@@ -9,8 +9,8 @@ from typing import Any
 
 import numpy as np
 import pytest
-from aerocapture.training.island_model import Island, MigrationEvent, inject_into_pso, migrate
-from aerocapture.training.optimizer import IslandSettings, OptimizerConfig
+from aerocapture.training.island_model import Island, IslandModel, MigrationEvent, inject_into_pso, migrate
+from aerocapture.training.optimizer import DESettings, GASettings, IslandSettings, OptimizerConfig, PSOSettings
 from pymoo.algorithms.soo.nonconvex.pso import PSO
 from pymoo.core.population import Population
 from pymoo.core.problem import Problem
@@ -269,3 +269,93 @@ def test_inject_into_pso_writes_both_particles_and_pop() -> None:
     np.testing.assert_array_equal(pso.particles[2].X, X_new)
     assert float(pso.pop[2].F[0]) == 0.0
     assert float(pso.particles[2].F[0]) == 0.0
+
+
+class _MockProblem:
+    """Stand-in for AerocaptureProblem that does deterministic per-seed eval."""
+
+    def __init__(self, n_var: int = 4) -> None:
+        self.n_var = n_var
+
+    def evaluate_individual_per_seed(
+        self, X: np.ndarray, seeds: list[int]
+    ) -> np.ndarray:
+        # F = sum(X) + 0.01 * seed_idx (so different islands get different rms).
+        base = float(np.sum(X))
+        return np.array([base + 0.01 * s for s in seeds], dtype=np.float64)
+
+    # AerocaptureProblem also exposes these — IslandModel.__init__ may call them.
+    n_obj = 1
+    n_ieq_constr = 0
+    n_eq_constr = 0
+    xl = None
+    xu = None
+
+
+def _make_islands_cfg() -> OptimizerConfig:
+    return OptimizerConfig(
+        algorithm="islands",
+        seed_strategy="fixed",
+        n_pop=8,
+        n_gen=5,
+        training_n_sims=2,
+        validation_n_sims=4,
+        ga=GASettings(),
+        pso=PSOSettings(),
+        de=DESettings(),
+        islands=IslandSettings(k_period=2, k_top=2),
+    )
+
+
+def test_island_model_init_creates_three_named_islands() -> None:
+    cfg = _make_islands_cfg()
+    problem = _MockProblem(n_var=4)
+    model = IslandModel(
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100, 101, 102, 103],
+        final_eval_seeds=[200, 201, 202, 203],
+        base_mc_seed=42,
+        rng=np.random.default_rng(0),
+    )
+    names = [i.name for i in model.islands]
+    assert names == ["pso", "ga", "de"]
+
+
+def test_island_model_final_eval_picks_lowest_rms_winner() -> None:
+    cfg = _make_islands_cfg()
+    problem = _MockProblem(n_var=4)
+    model = IslandModel(
+        config=cfg,
+        problem=problem,
+        n_params=4,
+        validation_seeds=[100, 101, 102, 103],
+        final_eval_seeds=[200, 201, 202, 203],
+        base_mc_seed=42,
+        rng=np.random.default_rng(0),
+    )
+    # Hand-set each island's best_overall_individual so final_eval has work to do.
+    model.islands[0].best_overall_individual = np.array([0.1, 0.1, 0.1, 0.1])  # sum=0.4
+    model.islands[1].best_overall_individual = np.array([0.5, 0.5, 0.5, 0.5])  # sum=2.0
+    model.islands[2].best_overall_individual = np.array([0.2, 0.2, 0.2, 0.2])  # sum=0.8
+
+    results = model.final_eval()
+    assert len(results) == 3
+    rms_by_island = {r["island"]: r["rms"] for r in results}
+    assert rms_by_island["pso"] < rms_by_island["de"] < rms_by_island["ga"]
+
+
+def test_island_model_final_eval_skips_islands_without_best() -> None:
+    cfg = _make_islands_cfg()
+    problem = _MockProblem(n_var=4)
+    model = IslandModel(
+        config=cfg, problem=problem, n_params=4,
+        validation_seeds=[100, 101], final_eval_seeds=[200, 201],
+        base_mc_seed=0, rng=np.random.default_rng(0),
+    )
+    model.islands[0].best_overall_individual = np.array([0.1, 0.2, 0.3, 0.4])
+    # ga and de have no best_overall — they should be skipped.
+    results = model.final_eval()
+    assert len(results) == 1
+    assert results[0]["island"] == "pso"

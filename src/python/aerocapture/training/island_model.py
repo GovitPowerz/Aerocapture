@@ -5,6 +5,7 @@ See docs/superpowers/specs/2026-05-28-island-model-pso-ga-de-design.md.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,6 +13,8 @@ import numpy as np
 import numpy.typing as npt
 from pymoo.algorithms.soo.nonconvex.pso import PSO
 from pymoo.core.algorithm import Algorithm
+
+from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
 
 
 @dataclass
@@ -144,3 +147,70 @@ def inject_into_pso(
     # Personal best (pop[slot] in pymoo PSO).
     algorithm.pop[slot].X = X.copy()
     algorithm.pop[slot].F = np.array([F])
+
+
+_ISLAND_NAMES = ("pso", "ga", "de")
+
+
+def _build_island(
+    name: str,
+    config: OptimizerConfig,
+    n_params: int,
+) -> Island:
+    sub_config = deepcopy(config)
+    sub_config.algorithm = name
+    algorithm = create_algorithm(sub_config, n_params=n_params)
+    return Island(name=name, algorithm=algorithm)
+
+
+class IslandModel:
+    """Owns 3 islands (PSO, GA, DE) and the migration / validation / final-eval flow."""
+
+    def __init__(
+        self,
+        config: OptimizerConfig,
+        problem: Any,
+        n_params: int,
+        validation_seeds: list[int],
+        final_eval_seeds: list[int],
+        base_mc_seed: int,
+        rng: np.random.Generator,
+    ) -> None:
+        self.config = config
+        self.problem = problem
+        self.n_params = n_params
+        self.validation_seeds = validation_seeds
+        self.final_eval_seeds = final_eval_seeds
+        self.base_mc_seed = base_mc_seed
+        self.rng = rng
+        self.islands: list[Island] = [
+            _build_island(name, config, n_params) for name in _ISLAND_NAMES
+        ]
+        self.migration_log: list[MigrationEvent] = []
+
+    def final_eval(self) -> list[dict[str, Any]]:
+        """Re-evaluate each island's best_overall on the reserved final-eval seeds.
+
+        Returns one record per island that had a validated best, sorted by rms ascending.
+        The lowest-rms record is the winner.
+        """
+        results: list[dict[str, Any]] = []
+        for island in self.islands:
+            if island.best_overall_individual is None:
+                continue
+            costs = self.problem.evaluate_individual_per_seed(
+                island.best_overall_individual,
+                self.final_eval_seeds,
+            )
+            rms = float(np.sqrt(np.mean(costs**2)))
+            results.append({
+                "island": island.name,
+                "X": island.best_overall_individual.copy(),
+                "rms": rms,
+                "mean": float(np.mean(costs)),
+                "p95": float(np.percentile(costs, 95)),
+                "capture_rate": float(np.mean(np.asarray(costs) < 1000.0)),
+                "n_sims": len(self.final_eval_seeds),
+            })
+        results.sort(key=lambda r: r["rms"])
+        return results
