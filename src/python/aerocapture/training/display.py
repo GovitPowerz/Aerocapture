@@ -39,7 +39,7 @@ def _format_cost(value: float) -> str:
 class DisplayProtocol(Protocol):
     """Protocol for training display (allows NoopDisplay as substitute)."""
 
-    def update(self, logger: TrainingLogger, current_run: int) -> None: ...
+    def update(self, logger: TrainingLogger, current_run: int, island_records: dict[str, dict] | None = None) -> None: ...
     def stop(self) -> None: ...
     def __enter__(self) -> DisplayProtocol: ...
     def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None) -> None: ...
@@ -48,7 +48,7 @@ class DisplayProtocol(Protocol):
 class NoopDisplay:
     """No-op display for non-interactive terminals or --no-tui mode."""
 
-    def update(self, logger: TrainingLogger, current_run: int) -> None:
+    def update(self, logger: TrainingLogger, current_run: int, island_records: dict[str, dict] | None = None) -> None:
         pass
 
     def stop(self) -> None:
@@ -159,9 +159,37 @@ class LiveDisplay:
         title = f"{self._scheme} \u00b7 Run {current_run + 1}/{self._n_runs} \u00b7 Gen {gen}/{self._n_gens}"
         return Panel(Text("\n".join(lines)), title=title)
 
-    def update(self, logger: TrainingLogger, current_run: int) -> None:
+    def _update_islands(
+        self,
+        logger: TrainingLogger,
+        island_records: dict[str, dict],
+    ) -> None:
+        """Render a 3-column layout, one Panel per island."""
+        from rich.columns import Columns  # noqa: PLC0415
+        from rich.panel import Panel  # noqa: PLC0415
+
+        panels = []
+        for name in ("pso", "ga", "de"):
+            rec = island_records.get(name, {})
+            best = rec.get("best_overall_cost", float("inf"))
+            val_rms = rec.get("val_rms", float("inf"))
+            stag = rec.get("stagnation", 0)
+            argmin = rec.get("argmin_train_cost", float("inf"))
+            content = (
+                f"best: {_format_cost(best)}\n"
+                f"last_val: {_format_cost(val_rms)}\n"
+                f"stag: {stag} gens\n"
+                f"argmin: {_format_cost(argmin)}"
+            )
+            panels.append(Panel(content, title=name.upper(), border_style="cyan"))
+        self._live.update(Columns(panels))
+
+    def update(self, logger: TrainingLogger, current_run: int, island_records: dict[str, dict] | None = None) -> None:
         """Update the live display with current logger state."""
         if self._live is None:
+            return
+        if island_records is not None:
+            self._update_islands(logger, island_records)
             return
         panel = self._build_panel(logger, current_run)
         self._live.update(panel)

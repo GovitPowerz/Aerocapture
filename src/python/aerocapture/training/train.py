@@ -1425,7 +1425,18 @@ def _train_islands(
                         island_name=island.name,
                     )
 
-                display.update(logger, current_run=0)
+                island_records = {
+                    island.name: {
+                        "best_overall_cost": island.best_overall_cost,
+                        "val_rms": val_rec.get("val_rms", float("inf")),
+                        "stagnation": island.stagnation_counter,
+                        "argmin_train_cost": val_rec.get("argmin_train_cost", float("inf")),
+                    }
+                    for island, val_rec in zip(
+                        island_model.islands, val_records, strict=True,
+                    )
+                }
+                display.update(logger, current_run=0, island_records=island_records)
 
                 if (gen + 1) % checkpoint_interval == 0 or gen == config.optimizer.n_gen - 1:
                     island_model.checkpoint(
