@@ -6,6 +6,7 @@ base = ["../missions/mars.toml", "common.toml", "nn_common.toml", "nn_ftc_scaffo
 # instead of bypassing it. The lateral / thermal / exit / nav / shaping params
 # below are FTC's GA-tuned values frozen as scaffolding.
 mode = "magnitude_only"
+scaffolding = "full"
 # acos_tanh head: single tanh-bounded output, decoder is bank = acos(tanh(out[0])) in [0, π].
 # Required by mode = "magnitude_only"; validated at config load (Rust + Python).
 output_parameterization = "acos_tanh"

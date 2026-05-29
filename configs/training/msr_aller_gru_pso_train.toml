@@ -1,5 +1,8 @@
 base = ["../missions/mars.toml", "common.toml", "nn_common.toml"]
 
+[guidance.neural_network]
+scaffolding = "live"
+
 [data]
 neural_network = "training_output/neural_network_gru_pso/best_model.json"
 results_suffix = ".train_gru_pso"
