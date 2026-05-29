@@ -280,9 +280,7 @@ def test_warm_start_with_live_scaffolding(tmp_path: Path) -> None:
     # Tail must encode the defaults of the live pack (nav + shaping, no FTC source).
     live_pack = active_scaffolding_specs("live")
     expected_tail = encode_to_normalized({s.name: s.default for s in live_pack}, list(live_pack))
-    assert np.allclose(chromo[n_weights:], expected_tail), (
-        f"live tail mismatch: got {chromo[n_weights:]}, expected {expected_tail}"
-    )
+    assert np.allclose(chromo[n_weights:], expected_tail), f"live tail mismatch: got {chromo[n_weights:]}, expected {expected_tail}"
 
     cache_key_path = Path(cfg.save_dir) / "warm_start_cache_key.json"
     assert cache_key_path.exists()
