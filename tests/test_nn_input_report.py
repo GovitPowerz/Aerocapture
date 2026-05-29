@@ -99,3 +99,44 @@ def test_run_report_smoke(tmp_path: Path) -> None:
     assert len(summary["inputs"]) == 31
     assert list(out_dir.glob("nn_input_*_time.svg"))
     assert list(out_dir.glob("nn_input_*_energy.svg"))
+
+
+def test_compile_pdf_from_minimal_report(tmp_path: Path) -> None:
+    import shutil
+
+    if shutil.which("typst") is None:
+        pytest.skip("typst not installed")
+    from aerocapture.training.nn_input_report import _compile_pdf
+
+    rd = tmp_path / "rep"
+    rd.mkdir()
+    svg = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"></svg>'
+    (rd / "nn_input_00_a_time.svg").write_text(svg)
+    (rd / "nn_input_00_a_energy.svg").write_text(svg)
+    (rd / "summary.json").write_text(
+        _json.dumps(
+            {
+                "scheme": "test_scheme",
+                "dv_threshold": 200.0,
+                "n_sims": 2,
+                "n_blue": 1,
+                "n_red": 1,
+                "inputs": [
+                    {
+                        "index": 0,
+                        "name": "a",
+                        "p1": -1.0,
+                        "p50": 0.0,
+                        "p99": 1.0,
+                        "frac_out_of_range": 0.1,
+                        "separation": 0.5,
+                        "in_mask": True,
+                        "time_svg": "nn_input_00_a_time.svg",
+                        "energy_svg": "nn_input_00_a_energy.svg",
+                    }
+                ],
+            }
+        )
+    )
+    pdf = _compile_pdf(rd)
+    assert pdf is not None and pdf.exists() and pdf.stat().st_size > 0
