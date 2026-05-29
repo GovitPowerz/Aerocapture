@@ -2,6 +2,7 @@ import json
 
 import aerocapture_rs
 import numpy as np
+import pytest
 from aerocapture.training.toml_utils import load_toml_with_bases
 
 
@@ -24,6 +25,7 @@ def _mint_zero_model(tmp_path):
     return path
 
 
+@pytest.mark.slow
 def test_collect_nn_inputs_runs_nn_and_returns_shapes(tmp_path):
     model = _mint_zero_model(tmp_path)
     out = aerocapture_rs.collect_nn_inputs(
@@ -43,9 +45,5 @@ def test_collect_nn_inputs_runs_nn_and_returns_shapes(tmp_path):
 
 
 def test_collect_nn_inputs_rejects_non_nn_config():
-    try:
+    with pytest.raises((ValueError, RuntimeError), match="(?i)neural_network"):
         aerocapture_rs.collect_nn_inputs("configs/training/msr_aller_ftc_train.toml", [1])
-    except (ValueError, RuntimeError) as ex:
-        assert "neural_network" in str(ex).lower()
-    else:
-        raise AssertionError("expected collect_nn_inputs to reject a non-NN config")
