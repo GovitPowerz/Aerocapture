@@ -50,10 +50,10 @@ keep_last = 10   # null (default) keeps every checkpoint
 [cost_function]
 dv_threshold = 500.0
 # Constraint limits come from [flight.constraints] in the mission TOML
-g_load_weight = 10.0
-heat_flux_weight = 10.0
-heat_load_weight = 10.0
-cost_transform = "sqrt"
+g_load_weight = 1.0
+heat_flux_weight = 1.0
+heat_load_weight = 1.0
+cost_transform = "squared"
 
 [optimizer]
 algorithm = "ga"
@@ -107,11 +107,11 @@ c2 = 1.5
 # To use: set algorithm = "islands"
 [optimizer.islands]
 enabled = true
-k_period = 50
-k_top = 3
+k_period = 20
+k_top = 2
 pso_inject_velocity_scale = 0.05
 
 # ── Command shaping (acceleration-limited rate shaping) ──
 [guidance.command_shaping]
 enabled = true
-max_bank_acceleration = 5.0  # deg/s^2 (GA range: 2-15)
+max_bank_acceleration = 15.0  # deg/s^2 (GA range: 2-15)
