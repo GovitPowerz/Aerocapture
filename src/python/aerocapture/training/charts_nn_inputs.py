@@ -82,8 +82,7 @@ def chart_nn_input_panel(
     alpha = max(0.03, min(0.5, 30.0 / max(1, len(X_list))))
     for i in range(len(X_list)):
         color = COLOR_BLUE if traj_class[i] == BLUE_LOW_DV else COLOR_RED
-        ax.plot(axis_list[i], np.asarray(X_list[i])[:, input_index], color=color,
-                alpha=alpha, linewidth=0.5)
+        ax.plot(axis_list[i], np.asarray(X_list[i])[:, input_index], color=color, alpha=alpha, linewidth=0.5)
     for cls, color in ((BLUE_LOW_DV, COLOR_BLUE), (RED_HIGH_DV, COLOR_RED)):
         cx, cy = _class_xy(X_list, axis_list, traj_class, input_index, cls)
         c, lo, hi = binned_band(cx, cy)

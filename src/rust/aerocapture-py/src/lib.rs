@@ -625,7 +625,9 @@ fn collect_nn_inputs(
             let mut captured = false;
             for output in outputs {
                 trace.extend(output.supervised_trace);
-                dv = output.final_record.get(41) // dv_total_m_s column
+                dv = output
+                    .final_record
+                    .get(41) // dv_total_m_s column
                     .copied()
                     .unwrap_or(f64::NAN);
                 captured = output.captured;

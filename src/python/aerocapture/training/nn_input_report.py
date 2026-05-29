@@ -119,12 +119,24 @@ def run_report(
 
     for j, nm in enumerate(NN_INPUT_NAMES):
         chart_nn_input_panel(
-            X_list, time_list, klass, j, nm, j in in_mask,
-            out_dir / f"nn_input_{j:02d}_{nm}_time.svg", x_label="time (s)",
+            X_list,
+            time_list,
+            klass,
+            j,
+            nm,
+            j in in_mask,
+            out_dir / f"nn_input_{j:02d}_{nm}_time.svg",
+            x_label="time (s)",
         )
         chart_nn_input_panel(
-            X_list, energy_list, klass, j, nm, j in in_mask,
-            out_dir / f"nn_input_{j:02d}_{nm}_energy.svg", x_label="energy (MJ/kg)",
+            X_list,
+            energy_list,
+            klass,
+            j,
+            nm,
+            j in in_mask,
+            out_dir / f"nn_input_{j:02d}_{nm}_energy.svg",
+            x_label="energy (MJ/kg)",
         )
     return out_dir
 
