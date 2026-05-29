@@ -1507,6 +1507,7 @@ def _train_islands(
         IslandModel,
         compute_migration_origin_stats,
         summarize_latest_migration,
+        val_generalization_gap,
     )
     from aerocapture.training.logger import TrainingLogger  # noqa: PLC0415
 
@@ -1808,8 +1809,14 @@ def _train_islands(
 
     winner = results[0]
     if verbose:
+        gap, overfit = val_generalization_gap(winner["val_rms"], winner["rms"])
+        # winner["val_rms"] is the validation rms the winner was selected on; a
+        # large positive gap to the fresh final-eval rms flags overfit to validation.
+        gap_detail = ""
+        if winner["val_rms"] < float("inf"):
+            gap_detail = f" (val_rms={winner['val_rms']:.4e}, gap={gap:+.1%}{'  [WARN: overfit to validation?]' if overfit else ''})"
         print(
-            f"  Winner: {winner['island']} rms={winner['rms']:.4e} cap={winner['capture_rate']:.0%}",
+            f"  Winner: {winner['island']} rms={winner['rms']:.4e} cap={winner['capture_rate']:.0%}{gap_detail}",
         )
 
     _write_winner_artifacts(

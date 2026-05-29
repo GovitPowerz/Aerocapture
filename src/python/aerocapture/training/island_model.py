@@ -5,6 +5,7 @@ See docs/superpowers/specs/2026-05-28-island-model-pso-ga-de-design.md.
 
 from __future__ import annotations
 
+import math
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,24 @@ from pymoo.core.algorithm import Algorithm
 
 from aerocapture.training.metrics import capture_rate as _capture_rate
 from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
+
+# A winner whose final-eval rms materially exceeds the validation rms it was
+# selected on has overfit the validation corpus (the within-island gate picked
+# it to minimize val_rms; a fresh held-out pool revealing a much higher rms means
+# that selection didn't generalize). Flag gaps above this relative threshold.
+VAL_GENERALIZATION_GAP_THRESHOLD = 0.15
+
+
+def val_generalization_gap(val_rms: float, final_rms: float) -> tuple[float, bool]:
+    """Relative gap between an island's validation rms (its selection metric) and
+    its final-eval rms (fresh held-out). Returns (relative_gap, overfit_flag),
+    gap = (final_rms - val_rms) / val_rms, flag True when gap exceeds
+    VAL_GENERALIZATION_GAP_THRESHOLD. Returns (nan, False) when val_rms is not
+    finite/positive (e.g. validation disabled, validation_n_sims=0)."""
+    if not math.isfinite(val_rms) or val_rms <= 0.0:
+        return float("nan"), False
+    gap = (final_rms - val_rms) / val_rms
+    return gap, gap > VAL_GENERALIZATION_GAP_THRESHOLD
 
 
 @dataclass
@@ -656,6 +675,10 @@ class IslandModel:
                     "island": island.name,
                     "X": island.best_overall_individual.copy(),
                     "rms": rms,
+                    # The validation rms this island's best_overall was promoted on
+                    # (see validate_each). Compared against `rms` (fresh held-out
+                    # final-eval) by val_generalization_gap to flag overfit.
+                    "val_rms": island.best_val_cost,
                     "mean": float(np.mean(costs)),
                     "p95": float(np.percentile(costs, 95)),
                     "capture_rate": _capture_rate(np.asarray(costs)),
