@@ -9,6 +9,7 @@ encodes the trained weights to a normalized [0, 1] PSO chromosome.
 from __future__ import annotations
 
 import json
+import math
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -23,12 +24,39 @@ from aerocapture.training.evaluate import WARM_START_SEED_OFFSET, make_reserved_
 from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
 
 if TYPE_CHECKING:
+    import torch
+
     from aerocapture.training.rl.policy import V2Policy
 
 try:
     import aerocapture_rs as _aero_rs
 except ImportError as e:
     raise ImportError("warm_start requires aerocapture_rs PyO3 module") from e
+
+
+def _wrap_to_pi(x: torch.Tensor) -> torch.Tensor:
+    import torch
+
+    return torch.remainder(x + math.pi, 2 * math.pi) - math.pi
+
+
+def encode_supervised_target(
+    output_param: str,
+    y: torch.Tensor,
+    prev_realized: torch.Tensor | None,
+    scaled_pi_n: float,
+    delta_max: float,
+) -> torch.Tensor:
+    """Per-decoder supervised target read directly from the tanh head (means[...,0])."""
+    import torch
+
+    if output_param == "scaled_pi":
+        return torch.clamp(y / (scaled_pi_n * math.pi), -1.0, 1.0)
+    if output_param == "delta":
+        assert prev_realized is not None, "delta decoder requires prev_realized"
+        diff = _wrap_to_pi(y - prev_realized)
+        return torch.clamp(diff / delta_max, -1.0, 1.0)
+    raise ValueError(f"encode_supervised_target: {output_param!r} is not delta/scaled_pi")
 
 
 def _cache_key(
@@ -383,11 +411,11 @@ def _chunked_bptt_train(
 
     output_param = network.output_parameterization or "atan2_signed"
     # Default to architecture[0].input_size when input_mask is absent. Rust
-    # `collect_supervised` always emits X with shape (T, 25) (the
+    # `collect_supervised` always emits X with shape (T, 31) (the
     # FULL_MASK / build_nn_input contract). If the first layer wants more
-    # than 25 inputs the silent first-N slice would IndexError on the
+    # than 31 inputs the silent first-N slice would IndexError on the
     # column select below, so reject explicitly here with a clear message.
-    _CANDIDATE_INPUT_WIDTH = 25  # must match Rust FULL_MASK width
+    _CANDIDATE_INPUT_WIDTH = 31  # must match Rust FULL_MASK width
     arch_first_in = int(network.architecture[0]["input_size"])
     if arch_first_in > _CANDIDATE_INPUT_WIDTH:
         raise ValueError(
@@ -401,14 +429,20 @@ def _chunked_bptt_train(
     # contiguous tensors once and reuse them across all epochs.
     X_list: list[np.ndarray] = []
     y_list: list[np.ndarray] = []
+    pr_list: list[np.ndarray] = []
     n_short = 0
     for traj in trajectories:
         X = np.asarray(traj["X"])[:, input_mask]
         y = np.asarray(traj["y_signed"])
+        # `prev_realized` (Task 6) is only consumed by the `delta` decoder; for
+        # all other decoders it is unused. Fall back to zeros (same shape as y)
+        # so trajectory dicts that omit it (e.g. legacy mocks) still work.
+        pr = np.asarray(traj["prev_realized"]) if "prev_realized" in traj else np.zeros_like(y)
         # Drop non-finite rows
         finite = np.isfinite(X).all(axis=1) & np.isfinite(y)
         X = X[finite]
         y = y[finite]
+        pr = pr[finite]
         T = X.shape[0]
         n_chunks = T // bptt_length
         if n_chunks == 0:
@@ -418,6 +452,7 @@ def _chunked_bptt_train(
             e = s + bptt_length
             X_list.append(X[s:e])
             y_list.append(y[s:e])
+            pr_list.append(pr[s:e])
 
     if not X_list:
         raise RuntimeError(f"no usable BPTT chunks; bptt_length={bptt_length} but all {len(trajectories)} trajectories have T < bptt_length")
@@ -433,6 +468,7 @@ def _chunked_bptt_train(
     # because every epoch then becomes pure indexing + matmul.
     obs_all = torch.from_numpy(np.ascontiguousarray(np.stack(X_list, axis=0).transpose(1, 0, 2))).to(torch.float64)  # (T, N, in)
     y_all = torch.from_numpy(np.ascontiguousarray(np.stack(y_list, axis=0).transpose(1, 0))).to(torch.float64)  # (T, N)
+    pr_all = torch.from_numpy(np.ascontiguousarray(np.stack(pr_list, axis=0).transpose(1, 0))).to(torch.float64)  # (T, N)
     # dones is identical across all chunks (no done within a chunk by construction),
     # so we build the (T, max_minibatch) tensor once and slice per minibatch.
     effective_minibatch_size = max(1, min(minibatch_size, n_chunks_total))
@@ -466,6 +502,7 @@ def _chunked_bptt_train(
             batch_idx = order[start : start + effective_minibatch_size]
             obs_seq = obs_all.index_select(1, batch_idx)  # (T, B, in) -- no copy when contiguous along axis 0
             y_t = y_all.index_select(1, batch_idx)  # (T, B)
+            pr_t = pr_all.index_select(1, batch_idx)  # (T, B)
 
             B = obs_seq.shape[1]
             state_0 = policy.new_state(batch_size=B, device=None)
@@ -489,6 +526,16 @@ def _chunked_bptt_train(
                 # means: (T, B, 2). Target = (sin(y), cos(y)).
                 target = torch.stack([torch.sin(y_t), torch.cos(y_t)], dim=-1)
                 loss = nn.functional.mse_loss(means, target)
+            elif output_param in ("scaled_pi", "delta"):
+                pred = means[..., 0]  # tanh head, already in [-1, 1]
+                target = encode_supervised_target(
+                    output_param,
+                    y_t,
+                    prev_realized=(pr_t if output_param == "delta" else None),
+                    scaled_pi_n=network.scaled_pi_n,
+                    delta_max=network.delta_max,
+                )
+                loss = nn.functional.mse_loss(pred, target)
             else:
                 raise ValueError(f"unknown output_parameterization {output_param!r}")
 

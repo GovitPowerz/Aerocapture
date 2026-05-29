@@ -33,6 +33,8 @@ class NetworkConfig:
     architecture: list[dict] | None = None
     scaffolding: str = "off"  # "off" | "live" | "full"
     output_parameterization: str | None = None
+    scaled_pi_n: float = 1.0
+    delta_max: float = 1.0
     warm_start_from: str | None = None
 
     def __post_init__(self) -> None:

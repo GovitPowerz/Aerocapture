@@ -2004,6 +2004,10 @@ if __name__ == "__main__":
         cfg.network.scaffolding = str(_gnn["scaffolding"])
     if "output_parameterization" in _gnn:
         cfg.network.output_parameterization = str(_gnn["output_parameterization"])
+    if "scaled_pi_n" in _gnn:
+        cfg.network.scaled_pi_n = float(_gnn["scaled_pi_n"])
+    if "delta_max" in _gnn:
+        cfg.network.delta_max = float(_gnn["delta_max"])
     if "warm_start_from" in _gnn:
         cfg.network.warm_start_from = str(_gnn["warm_start_from"])
     if cfg.network.warm_start_from is not None:
