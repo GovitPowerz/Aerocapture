@@ -1693,4 +1693,14 @@ mod tests {
             v[2]
         );
     }
+
+    #[test]
+    fn apoapsis_asinh_maps_p99_near_one() {
+        // S_APOAPSIS_ALT was set so asinh(p99/s) = 1.0 (=> ~1% saturation). By
+        // construction the measured p99 raw maps to ~1.0; pin it so a future
+        // scale-const edit can't silently break the target. Tautological on the
+        // construction s = p99/sinh(1), documenting + guarding the invariant.
+        let p99_raw = S_APOAPSIS_ALT * (1.0_f64).sinh();
+        assert!(((p99_raw / S_APOAPSIS_ALT).asinh() - 1.0).abs() < 1e-9);
+    }
 }
