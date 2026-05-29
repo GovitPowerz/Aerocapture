@@ -56,6 +56,25 @@ def test_specs_match_chromosome_widths_per_knob_state() -> None:
     assert knob_off_names.isdisjoint(scaff_names), "knob-off chromosome must not contain scaffolding params"
 
 
+def test_network_config_scaffolding_field_default() -> None:
+    from aerocapture.training.config import NetworkConfig
+
+    cfg = NetworkConfig(architecture=[{"type": "dense", "input_size": 4, "output_size": 2, "activation": "tanh"}])
+    assert cfg.scaffolding == "off"
+
+
+def test_network_config_rejects_unknown_scaffolding() -> None:
+    import pytest
+
+    from aerocapture.training.config import NetworkConfig
+
+    with pytest.raises(ValueError, match="scaffolding must be"):
+        NetworkConfig(
+            architecture=[{"type": "dense", "input_size": 4, "output_size": 2, "activation": "tanh"}],
+            scaffolding="partial",
+        )
+
+
 def test_resume_with_shape_mismatch_fails_loud() -> None:
     import numpy as np
     from aerocapture.training.train import _check_resume_chromosome_shape
