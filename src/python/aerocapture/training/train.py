@@ -449,6 +449,8 @@ def _make_warm_start_eval_callback(
                 str(tmp_path),
                 config.network.input_mask,
                 config.network.output_parameterization,
+                scaled_pi_n=config.network.scaled_pi_n,
+                delta_max=config.network.delta_max,
             )
             print()
             print(f"  [warm_start] === In-training evaluation at epoch {epoch} ===")
