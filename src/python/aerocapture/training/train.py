@@ -202,7 +202,7 @@ def _check_resume_chromosome_shape(
 ) -> None:
     """Fail loudly if a resumed checkpoint's chromosome width disagrees with current ParamSpec count.
 
-    Catches the user flipping `optimize_scaffolding` (or `output_parameterization`,
+    Catches the user flipping `scaffolding` (or `output_parameterization`,
     which changes last-layer width) between training runs.
     """
     saved_n_params = saved_population.shape[1]
@@ -210,7 +210,7 @@ def _check_resume_chromosome_shape(
         msg = (
             f"checkpoint chromosome shape mismatch: saved {saved_n_params} params, "
             f"current ParamSpec list has {expected_n_params}. This usually means "
-            f"`[guidance.neural_network] optimize_scaffolding` or "
+            f"`[guidance.neural_network] scaffolding` or "
             f"`output_parameterization` was changed since the checkpoint was saved. "
             f"To resume, revert the TOML knob; to start fresh, pass --from-scratch."
         )
@@ -238,7 +238,7 @@ def _seed_initial_population(
     GA / DE / PSO: tile chromosome to `n_pop` rows; add per-row N(0, jitter)
     noise to the first `n_weights` columns of rows 1..n_pop-1 (or all
     columns if `n_weights` is None); clip to [0, 1]. The scaffolding tail
-    (if optimize_scaffolding is on, `chromosome[n_weights:]`) is NOT
+    (if scaffolding != "off", `chromosome[n_weights:]`) is NOT
     jittered here -- caller is responsible for overwriting that slab with
     `scaffolding_slab` when applicable, AND restoring row 0's tail to the
     un-jittered warm-start values afterward.
@@ -275,7 +275,7 @@ def build_initial_population_for_v2(
 
     When `scaffolding_slab` is provided (shape `(n_pop, n_scaffolding)`),
     appends it as the trailing slab of every individual. Used when
-    `optimize_scaffolding = true` to seed scaffolding from FTC's optimum.
+    `scaffolding = "full"` to seed scaffolding from FTC's optimum.
     """
     physical = init_v2_population(architecture, n_pop, bound_multiplier, rng)
     n_pop_actual, n_params = physical.shape
@@ -315,7 +315,7 @@ def build_scaffolding_initial_slab(
     ftc_params_path = Path(ftc_params_path)
     if not ftc_params_path.exists():
         msg = (
-            f"optimize_scaffolding requires a source params file; '{ftc_params_path}' "
+            f"scaffolding='full' requires a source params file; '{ftc_params_path}' "
             f"does not exist. Run FTC training first (./train_all.sh ftc) or correct the path."
         )
         raise FileNotFoundError(msg)
@@ -396,17 +396,22 @@ def _make_warm_start_eval_callback(
         # Mirror evaluate_individual_records_per_seed's logic, but skip the
         # chromosome -> weights step (we already have the weights on disk).
         decoded_params: dict[str, float] = {}
-        if config.network.optimize_scaffolding:
+        from aerocapture.training.param_spaces import active_scaffolding_specs
+
+        _eval_pack = active_scaffolding_specs(config.network.scaffolding)
+        if config.network.scaffolding == "full":
             # Pull the scaffolding values from FTC's best_params.json so the
             # eval runs with the same scaffolding the chromosome will carry.
             ftc_path = Path("training_output/ftc/best_params.json")
             if ftc_path.exists():
                 ftc_params = json.loads(ftc_path.read_text())
-                from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
-
-                for spec in _NN_SCAFFOLDING_PARAMS:
+                for spec in _eval_pack:
                     if spec.name in ftc_params:
                         decoded_params[spec.name] = float(ftc_params[spec.name])
+        elif config.network.scaffolding == "live":
+            # live tail is seeded from defaults; eval with the same.
+            for spec in _eval_pack:
+                decoded_params[spec.name] = float(spec.default)
 
         from aerocapture.training.evaluate import _aero_rs as _aero  # noqa: PLC0415
 
@@ -517,7 +522,10 @@ def save_checkpoint(
     # Save best model/params (immediately usable by Rust)
     if best_individual is not None:
         if config.guidance_type == "neural_network":
-            n_scaff = 17 if config.network.optimize_scaffolding else 0
+            from aerocapture.training.param_spaces import active_scaffolding_specs
+
+            _pack = active_scaffolding_specs(config.network.scaffolding)
+            n_scaff = len(_pack)
             n_weights = len(param_specs) - n_scaff
             weights = _decode_nn_weights(best_individual[:n_weights], param_specs[:n_weights])
             write_nn_json(
@@ -527,10 +535,8 @@ def save_checkpoint(
                 nn_path = Path(cwd) / config.sim.nn_param_file
                 write_nn_json(weights, config.network, nn_path, input_mask=config.network.input_mask, output_param=config.network.output_parameterization)
             if n_scaff > 0:
-                from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
-
-                scaff_params = decode_normalized(best_individual[n_weights:], list(_NN_SCAFFOLDING_PARAMS))
-                for s in _NN_SCAFFOLDING_PARAMS:
+                scaff_params = decode_normalized(best_individual[n_weights:], list(_pack))
+                for s in _pack:
                     if s.is_integer and s.name in scaff_params:
                         scaff_params[s.name] = int(round(scaff_params[s.name]))
                 with open(save_dir / "best_params.json", "w") as fp:
@@ -762,13 +768,13 @@ def train(
                 config.network.activations,
             )
 
-        if config.network.optimize_scaffolding:
+        if config.network.scaffolding != "off":
             if config.network.architecture is None:
-                msg = "optimize_scaffolding=true requires v2 [[network.architecture]]; v1 layer_sizes/activations is not supported. Convert your config."
+                msg = "scaffolding != 'off' requires v2 [[network.architecture]]; v1 layer_sizes/activations is not supported. Convert your config."
                 raise ValueError(msg)
-            from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
+            from aerocapture.training.param_spaces import active_scaffolding_specs
 
-            param_specs = [*param_specs, *_NN_SCAFFOLDING_PARAMS]
+            param_specs = [*param_specs, *active_scaffolding_specs(config.network.scaffolding)]
     elif config.guidance_type == "piecewise_constant":
         from aerocapture.training.param_spaces import make_piecewise_constant_specs
 
@@ -936,21 +942,29 @@ def train(
         elif config.guidance_type == "neural_network" and config.network.architecture is not None:
             # v2 heterogeneous NN: per-layer activation-aware init with LSTM forget-bias-1.
             scaffolding_slab = None
-            if config.network.optimize_scaffolding:
-                from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
+            if config.network.scaffolding != "off":
+                from aerocapture.training.param_spaces import active_scaffolding_specs
 
-                # _NN_SCAFFOLDING_PARAMS are FTC's bounds; the seed always comes
-                # from FTC's best_params.json. warm_start_from is independent --
-                # it points at a behavioural-cloning source (any unsigned-magnitude
-                # scheme), not at a scaffolding source.
-                ftc_params_path = "training_output/ftc/best_params.json"
-                scaffolding_slab = build_scaffolding_initial_slab(
-                    ftc_params_path,
-                    list(_NN_SCAFFOLDING_PARAMS),
-                    config.optimizer.n_pop,
-                    rng,
-                    jitter=config.warm_start.jitter,
-                )
+                _slab_pack = active_scaffolding_specs(config.network.scaffolding)
+                if config.network.scaffolding == "full":
+                    # full pack is seeded from FTC's best_params.json (FTC's bounds,
+                    # FTC's optimum). warm_start_from is independent -- it points at
+                    # a behavioural-cloning source, not a scaffolding source.
+                    scaffolding_slab = build_scaffolding_initial_slab(
+                        "training_output/ftc/best_params.json",
+                        list(_slab_pack),
+                        config.optimizer.n_pop,
+                        rng,
+                        jitter=config.warm_start.jitter,
+                    )
+                else:
+                    # live pack: 3 params seeded from their defaults, no FTC dep.
+                    scaffolding_slab = build_default_scaffolding_slab(
+                        list(_slab_pack),
+                        config.optimizer.n_pop,
+                        rng,
+                        jitter=config.warm_start.jitter,
+                    )
 
             if warm_start_active:
                 from aerocapture.training.warm_start import WARM_START_SEED_OFFSET, build_warm_start_chromosome
@@ -977,7 +991,9 @@ def train(
                     base_mc_seed=base_mc_seed,
                     eval_callback=warm_eval_callback,
                 )
-                n_scaff = 17 if config.network.optimize_scaffolding else 0
+                from aerocapture.training.param_spaces import active_scaffolding_specs
+
+                n_scaff = len(active_scaffolding_specs(config.network.scaffolding))
                 n_weights = len(warm_chromo) - n_scaff
                 # Propagate the warm-start bounds back into param_specs so PSO/GA/DE
                 # decode chromosomes under the same bounds they were encoded with.
@@ -998,14 +1014,13 @@ def train(
                 )
                 if scaffolding_slab is not None:
                     pop_array[:, n_weights:] = scaffolding_slab
-                    # Restore row 0's scaffolding tail so the full warm-start
-                    # chromosome (NN weights + scaffolding) is present un-jittered
-                    # in the initial population. The slab overwrite above
-                    # replaced row 0's tail with the jittered FTC values from
-                    # `build_scaffolding_initial_slab`; the warm-start
-                    # chromosome's tail already encodes the un-jittered FTC
-                    # scaffolding (see warm_start.py:480 et seq.), so we copy
-                    # it back.
+                    # Restore row 0's scaffolding tail so the warm-start
+                    # chromosome is present un-jittered in the initial
+                    # population. The slab overwrite above replaced row 0's tail
+                    # with jittered values ("full": FTC-seeded via
+                    # build_scaffolding_initial_slab; "live": default-seeded via
+                    # build_default_scaffolding_slab). The warm-start chromosome
+                    # encodes the un-jittered center directly, so we copy it back.
                     pop_array[0, n_weights:] = warm_chromo[n_weights:]
 
                 # Gen-0 validation baseline: evaluate the bare warm-started
@@ -1822,7 +1837,10 @@ def _write_winner_artifacts(
     best_individual = winner["X"]
 
     if config.guidance_type == "neural_network":
-        n_scaff = 17 if config.network.optimize_scaffolding else 0
+        from aerocapture.training.param_spaces import active_scaffolding_specs
+
+        _pack = active_scaffolding_specs(config.network.scaffolding)
+        n_scaff = len(_pack)
         n_weights = len(param_specs) - n_scaff
         weights = _decode_nn_weights(
             best_individual[:n_weights],
@@ -1836,13 +1854,11 @@ def _write_winner_artifacts(
             output_param=config.network.output_parameterization,
         )
         if n_scaff > 0:
-            from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS  # noqa: PLC0415
-
             scaff_params = decode_normalized(
                 best_individual[n_weights:],
-                list(_NN_SCAFFOLDING_PARAMS),
+                list(_pack),
             )
-            for s in _NN_SCAFFOLDING_PARAMS:
+            for s in _pack:
                 if s.is_integer and s.name in scaff_params:
                     scaff_params[s.name] = int(round(scaff_params[s.name]))
             with open(save_dir / "best_params.json", "w") as fp:
@@ -1976,8 +1992,8 @@ if __name__ == "__main__":
     if "input_mask" in _net:
         cfg.network.input_mask = _net["input_mask"]
     _gnn = _toml_data.get("guidance", {}).get("neural_network", {})
-    if "optimize_scaffolding" in _gnn:
-        cfg.network.optimize_scaffolding = bool(_gnn["optimize_scaffolding"])
+    if "scaffolding" in _gnn:
+        cfg.network.scaffolding = str(_gnn["scaffolding"])
     if "output_parameterization" in _gnn:
         cfg.network.output_parameterization = str(_gnn["output_parameterization"])
     if "warm_start_from" in _gnn:
@@ -2229,17 +2245,18 @@ if __name__ == "__main__":
     # Save best result and run final evaluation
     if result["best_individual"] is not None:
         if cfg.guidance_type == "neural_network":
-            n_scaff = 17 if cfg.network.optimize_scaffolding else 0
+            from aerocapture.training.param_spaces import active_scaffolding_specs
+
+            _pack = active_scaffolding_specs(cfg.network.scaffolding)
+            n_scaff = len(_pack)
             n_weights = len(param_specs) - n_scaff
             weights = _decode_nn_weights(result["best_individual"][:n_weights], param_specs[:n_weights])
             nn_path = Path(cwd) / cfg.sim.nn_param_file
             write_nn_json(weights, cfg.network, nn_path, input_mask=cfg.network.input_mask, output_param=cfg.network.output_parameterization)
             print(f"Best weights saved to {nn_path}")
             if n_scaff > 0:
-                from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
-
-                scaff_params = decode_normalized(result["best_individual"][n_weights:], list(_NN_SCAFFOLDING_PARAMS))
-                for s in _NN_SCAFFOLDING_PARAMS:
+                scaff_params = decode_normalized(result["best_individual"][n_weights:], list(_pack))
+                for s in _pack:
                     if s.is_integer and s.name in scaff_params:
                         scaff_params[s.name] = int(round(scaff_params[s.name]))
                 params_path = Path(cfg.save_dir) / "best_params.json"
