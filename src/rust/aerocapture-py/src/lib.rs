@@ -342,15 +342,22 @@ fn nn_forward_sequence(json_path: String, inputs: Vec<Vec<f64>>) -> PyResult<Vec
 ///     path: output JSON file path.
 ///     input_mask: optional list of input indices (length == layer[0] input_size).
 ///     output_param: optional output parameterization string. One of:
-///         "atan2_signed" (default) or "acos_tanh". None defaults to "atan2_signed".
+///         "atan2_signed" (default), "acos_tanh", "scaled_pi", or "delta".
+///         None defaults to "atan2_signed".
+///     scaled_pi_n: optional half-range multiplier for the "scaled_pi" decoder
+///         (bank = scaled_pi_n * pi * tanh(out[0])). None defaults to 1.0.
+///     delta_max: optional per-step increment bound for the "delta" decoder
+///         (bank = prev_realized + delta_max * tanh(out[0])). None defaults to 0.35.
 #[pyfunction]
-#[pyo3(signature = (flat, architecture_json, path, input_mask=None, output_param=None))]
+#[pyo3(signature = (flat, architecture_json, path, input_mask=None, output_param=None, scaled_pi_n=None, delta_max=None))]
 fn flat_weights_to_json(
     flat: Vec<f64>,
     architecture_json: String,
     path: String,
     input_mask: Option<Vec<usize>>,
     output_param: Option<String>,
+    scaled_pi_n: Option<f64>,
+    delta_max: Option<f64>,
 ) -> PyResult<()> {
     use aerocapture::data::neural::{LayerSpec, NeuralNetModel, OutputParam};
 
@@ -363,14 +370,23 @@ fn flat_weights_to_json(
     let output_param: OutputParam = match output_param.as_deref() {
         None | Some("atan2_signed") => OutputParam::default(),
         Some("acos_tanh") => OutputParam::AcosTanh,
+        Some("scaled_pi") => OutputParam::ScaledPi,
+        Some("delta") => OutputParam::Delta,
         Some(other) => {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "output_param must be 'atan2_signed' or 'acos_tanh' (got {other:?})"
+                "output_param must be 'atan2_signed', 'acos_tanh', 'scaled_pi', or 'delta' (got {other:?})"
             )));
         }
     };
-    let model = NeuralNetModel::from_flat_weights_v2(&flat, &specs, input_mask, output_param)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    let model = NeuralNetModel::from_flat_weights_v2(
+        &flat,
+        &specs,
+        input_mask,
+        output_param,
+        scaled_pi_n.unwrap_or(1.0),
+        delta_max.unwrap_or(0.35),
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
     model
         .save_json(&path)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;

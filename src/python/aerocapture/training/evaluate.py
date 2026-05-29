@@ -84,6 +84,8 @@ def write_nn_json(
         path=str(filepath),
         input_mask=input_mask,
         output_param=output_param,
+        scaled_pi_n=getattr(network, "scaled_pi_n", 1.0),
+        delta_max=getattr(network, "delta_max", 0.35),
     )
 
 

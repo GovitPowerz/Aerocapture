@@ -2234,6 +2234,8 @@ impl NeuralNetModel {
         architecture: &[LayerSpec],
         input_mask: Option<Vec<usize>>,
         output_param: OutputParam,
+        scaled_pi_n: f64,
+        delta_max: f64,
     ) -> Result<Self, DataError> {
         if architecture.is_empty() {
             return Err(DataError(
@@ -2435,8 +2437,8 @@ impl NeuralNetModel {
             input_mask,
             ablated_input: None,
             output_param,
-            scaled_pi_n: default_scaled_pi_n(),
-            delta_max: default_delta_max(),
+            scaled_pi_n,
+            delta_max,
         })
     }
 }
@@ -2839,6 +2841,8 @@ mod tests {
             &architecture,
             None,
             OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
         )
         .unwrap();
         assert_eq!(model.layers.len(), 3);
@@ -2915,6 +2919,8 @@ mod tests {
             &architecture,
             None,
             OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
         );
         assert!(err.is_err());
         // Too long should also Err.
@@ -2924,8 +2930,33 @@ mod tests {
             &architecture,
             None,
             OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
         );
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn from_flat_weights_v2_carries_scaled_pi_knobs() {
+        // minimal 3->1 tanh dense arch: 3*1 + 1 = 4 params
+        let arch = vec![LayerSpec::Dense {
+            input_size: 3,
+            output_size: 1,
+            activation: Activation::Tanh,
+        }];
+        let flat = vec![0.0_f64; 4];
+        let m = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &arch,
+            None,
+            OutputParam::ScaledPi,
+            2.0,
+            0.7,
+        )
+        .unwrap();
+        assert_eq!(m.output_param, OutputParam::ScaledPi);
+        assert!((m.scaled_pi_n - 2.0).abs() < 1e-15);
+        assert!((m.delta_max - 0.7).abs() < 1e-15);
     }
 
     #[test]
@@ -3271,7 +3302,14 @@ mod tests {
         // Total param count = 0 (window) + 12*2 + 2 = 26.
         let flat: Vec<f64> = (0..26).map(|i| i as f64 * 0.01).collect();
         let model =
-            NeuralNetModel::from_flat_weights_v2(&flat, &arch, None, OutputParam::default())
+            NeuralNetModel::from_flat_weights_v2(
+                &flat,
+                &arch,
+                None,
+                OutputParam::default(),
+                default_scaled_pi_n(),
+                default_delta_max(),
+            )
                 .unwrap();
 
         match &model.layers[0] {
@@ -3299,7 +3337,14 @@ mod tests {
             n_steps: 3,
         }];
         let flat: Vec<f64> = Vec::new();
-        let err = NeuralNetModel::from_flat_weights_v2(&flat, &arch, None, OutputParam::default());
+        let err = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &arch,
+            None,
+            OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
+        );
         assert!(err.is_err());
     }
 
@@ -3600,7 +3645,14 @@ mod tests {
         let total = 154 + 10;
         let flat: Vec<f64> = (0..total).map(|i| (i as f64) * 0.01 + 0.5).collect();
         let model =
-            NeuralNetModel::from_flat_weights_v2(&flat, &arch, None, OutputParam::default())
+            NeuralNetModel::from_flat_weights_v2(
+                &flat,
+                &arch,
+                None,
+                OutputParam::default(),
+                default_scaled_pi_n(),
+                default_delta_max(),
+            )
                 .unwrap();
         let round = model.to_flat_weights();
         assert_eq!(round.len(), total);
@@ -3665,6 +3717,8 @@ mod tests {
             &architecture,
             None,
             OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
         )
         .unwrap();
         assert_eq!(model.n_params(), dummy_flat_len);
@@ -3737,6 +3791,8 @@ mod tests {
             &architecture,
             None,
             OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
         )
         .unwrap();
         assert_eq!(model.n_params(), 202);
@@ -4062,6 +4118,8 @@ mod tests {
             &architecture,
             None,
             OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
         )
         .unwrap();
         assert_eq!(model.n_params(), 86);
