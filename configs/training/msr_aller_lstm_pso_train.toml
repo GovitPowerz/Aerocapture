@@ -1,7 +1,7 @@
-base = ["../missions/mars.toml", "common.toml"]
+base = ["../missions/mars.toml", "common.toml", "nn_common.toml", "nn_ftc_scaffolding.toml"]
 
-[guidance]
-type = "neural_network"
+[guidance.neural_network]
+scaffolding = "live"
 
 [data]
 neural_network = "training_output/neural_network_lstm_pso/best_model.json"
@@ -27,26 +27,7 @@ input_size = 16
 output_size = 2
 activation = "asinh"
 
-[guidance.ftc]
-capture_damping = 0.7
-capture_frequency = 0.072
-capture_pdyn_margin = 1.75
-altitude_damping = 0.7
-altitude_frequency = 0.08
-exit_velocity_threshold = 4400.0
-exit_pdyn_margin = 1.75
-exit_altitude_threshold = 60.0
-exit_radial_vel_gain = 10.0
-exit_apoapsis_threshold = 100.0
-security_capture = 1
-security_exit = 3
-longi_activation = 1000.0
-longi_inhibition = -1000.0
-pdyn_min = 0.0
-pressure_coeff_base = -134.4
-pressure_coeff_scale_height = 6.9
-gain_fade_start_km = 80.0
-gain_fade_end_km = 100.0
+# FTC scaffolding inherited from nn_ftc_scaffolding.toml (full_neural -> inert).
 
 [warm_start]
 supervisor_schemes = ["ftc", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag"]

@@ -44,6 +44,11 @@ class Island:
     best_overall_cost: float = float("inf")
     best_val_cost: float = float("inf")
     stagnation_counter: int = 0
+    # Most recent `compute_eval_summary` payload (DV / apoapsis / heat-flux /
+    # g-load / heat-load percentiles + violation rates). Carried across gens
+    # so the TUI shows continuous per-island shape even when only one island
+    # validates per gen. None until the first validation pass.
+    latest_val_summary: dict | None = None
 
 
 def migrate(
@@ -382,7 +387,7 @@ class IslandModel:
                 )
                 continue
 
-            val_costs = self.problem.evaluate_individual_per_seed(
+            val_costs, val_records = self.problem.evaluate_individual_records_per_seed(
                 argmin_X,
                 self.validation_seeds,
             )
@@ -398,6 +403,18 @@ class IslandModel:
             else:
                 island.stagnation_counter += 1
 
+            # Rich per-island validation dashboard (DV / apoapsis / heat-flux /
+            # g-load / heat-load percentiles + violation rates) mirroring
+            # `compute_eval_summary`. Imported here to keep the report module
+            # out of the island_model import graph -- it pulls matplotlib.
+            from aerocapture.training.report import compute_eval_summary
+
+            val_summary = compute_eval_summary(
+                val_records,
+                len(self.validation_seeds),
+                getattr(self.problem, "cost_kwargs", None),
+            )
+            island.latest_val_summary = val_summary
             results.append(
                 {
                     "island": island.name,
@@ -408,6 +425,7 @@ class IslandModel:
                     "val_mean": float(np.mean(val_costs)),
                     "val_p95": float(np.percentile(val_costs, 95)),
                     "val_capture_rate": _capture_rate(np.asarray(val_costs)),
+                    "val_summary": val_summary,
                     "stagnation": island.stagnation_counter,
                 }
             )
@@ -558,14 +576,14 @@ class IslandModel:
                 # Fail loudly when the saved chromosome width disagrees with the
                 # current ParamSpec count — the islands analogue of
                 # `_check_resume_chromosome_shape` in train.py. Catches the user
-                # flipping `optimize_scaffolding` / `output_parameterization` /
+                # flipping `scaffolding` / `output_parameterization` /
                 # `input_mask` (all change n_params) between runs; without it the
                 # old-width pop is restored and later mis-decoded into garbage.
                 saved_n_params = state["pop_X"].shape[1]
                 if saved_n_params != self.n_params:
                     raise ValueError(
                         f"checkpoint chromosome width {saved_n_params} != current {self.n_params}. "
-                        f"This usually means `optimize_scaffolding`, `output_parameterization`, "
+                        f"This usually means `scaffolding`, `output_parameterization`, "
                         f"or `input_mask` changed since the checkpoint was saved. "
                         f"Revert the TOML knob to resume, or pass --from-scratch.",
                     )

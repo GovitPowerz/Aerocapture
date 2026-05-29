@@ -146,28 +146,37 @@ class TestUnifiedComputeCost:
         """All transforms are monotonic: good < crash regardless of transform."""
         good = self._make_final(5, dv=200.0)
         crash = self._make_final(5, dv=20000.0)
-        for transform in ("linear", "sqrt", "squared", "cubed"):
+        for transform in ("linear", "sqrt", "log", "squared", "cubed"):
             g = compute_cost(good, cost_transform=transform)
             c = compute_cost(crash, cost_transform=transform)
             assert g < c, f"ordering broken under {transform}"
 
     def test_sqrt_compresses_squared_and_cubed_expand_tail(self) -> None:
-        """sqrt shrinks crash/good ratio; squared and cubed blow it up."""
+        """log < sqrt shrinks crash/good ratio; squared and cubed blow it up."""
         good = self._make_final(5, dv=200.0)
         crash = self._make_final(5, dv=20000.0)
         lin = compute_cost(crash) / compute_cost(good)
+        log_r = compute_cost(crash, cost_transform="log") / compute_cost(good, cost_transform="log")
         sqrt_r = compute_cost(crash, cost_transform="sqrt") / compute_cost(good, cost_transform="sqrt")
         sq_r = compute_cost(crash, cost_transform="squared") / compute_cost(good, cost_transform="squared")
         cb_r = compute_cost(crash, cost_transform="cubed") / compute_cost(good, cost_transform="cubed")
-        assert sqrt_r < lin < sq_r < cb_r
+        assert log_r < sqrt_r < lin < sq_r < cb_r
 
     def test_cost_transform_identities_n1(self) -> None:
         """For n=1 records, transform equals the elementwise op on the linear cost."""
         final = self._make_final(1, dv=500.0)
         lin = compute_cost(final)
         assert abs(compute_cost(final, cost_transform="sqrt") - np.sqrt(lin)) < 1e-6
+        assert abs(compute_cost(final, cost_transform="log") - np.log1p(lin)) < 1e-6
         assert abs(compute_cost(final, cost_transform="squared") - lin**2) < 1e-3
         assert abs(compute_cost(final, cost_transform="cubed") - lin**3) < 1.0
+
+    def test_log_transform_handles_zero_cost(self) -> None:
+        """log1p(0) = 0; the safety floor must not produce NaN/Inf."""
+        final = self._make_final(3, dv=0.0)
+        c = compute_cost(final, cost_transform="log")
+        assert np.isfinite(c)
+        assert c >= 0.0
 
     def test_unknown_cost_transform_raises(self) -> None:
         import pytest
@@ -231,3 +240,47 @@ class TestSentinelOverrides:
         # Middle sentinel (index 5): all bank angles = 90.0
         for i in range(10):
             assert sentinel_overrides[5][f"guidance.piecewise_constant.bank_angle_{i}"] == 90.0
+
+
+class TestPiecewiseSegmentResolution:
+    """Resolve n_segments from TOML the same way Rust does."""
+
+    def test_default_when_unspecified(self) -> None:
+        from aerocapture.training.train import _resolve_piecewise_n_segments
+
+        assert _resolve_piecewise_n_segments({"guidance": {"piecewise_constant": {}}}) == 10
+        assert _resolve_piecewise_n_segments({}) == 10
+
+    def test_explicit_n_segments_wins(self) -> None:
+        from aerocapture.training.train import _resolve_piecewise_n_segments
+
+        toml = {"guidance": {"piecewise_constant": {"n_segments": 7}}}
+        assert _resolve_piecewise_n_segments(toml) == 7
+
+    def test_derived_from_bank_angles_array(self) -> None:
+        from aerocapture.training.train import _resolve_piecewise_n_segments
+
+        toml = {"guidance": {"piecewise_constant": {"bank_angles": [10.0, 20.0, 30.0, 40.0, 50.0]}}}
+        assert _resolve_piecewise_n_segments(toml) == 5
+
+    def test_derived_from_individual_keys(self) -> None:
+        from aerocapture.training.train import _resolve_piecewise_n_segments
+
+        toml = {"guidance": {"piecewise_constant": {f"bank_angle_{i}": 65.0 for i in range(4)}}}
+        assert _resolve_piecewise_n_segments(toml) == 4
+
+    def test_rejects_zero_segments(self) -> None:
+        import pytest
+        from aerocapture.training.train import _resolve_piecewise_n_segments
+
+        with pytest.raises(ValueError, match="n_segments must be >= 1"):
+            _resolve_piecewise_n_segments({"guidance": {"piecewise_constant": {"n_segments": 0}}})
+
+    def test_make_specs_factory(self) -> None:
+        from aerocapture.training.param_spaces import _SHAPING_PARAMS, make_piecewise_constant_specs
+
+        specs = make_piecewise_constant_specs(5)
+        bank_specs = [s for s in specs if s.name.startswith("bank_angle_")]
+        assert len(bank_specs) == 5
+        assert [s.name for s in bank_specs] == [f"bank_angle_{i}" for i in range(5)]
+        assert len(specs) == 5 + len(_SHAPING_PARAMS)

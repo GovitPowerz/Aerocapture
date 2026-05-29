@@ -99,7 +99,7 @@ Seven guidance algorithms, all GA-optimizable:
 
 | Scheme | Description | Params | Notes |
 |---|---|---|---|
-| **Piecewise Constant** | 10-segment bank angle profile | 10 | Train first — produces ref trajectory + corridor |
+| **Piecewise Constant** | N-segment bank angle profile (N tunable via TOML `n_segments` / `bank_angles = [...]`, default 10) | N | Train first — produces ref trajectory + corridor |
 | **FTC** | Predictor-corrector with reference trajectory tracking | 8 | Requires ref trajectory |
 | **Neural Network** | Trained NN maps 16- or 23-input nav state to signed bank angle (atan2). v1 dense-only arch (`layer_sizes`/`activations`) or v2 heterogeneous arch (`[[network.architecture]]`, supports `dense` + `gru` + `lstm` + `window` + `transformer` + `mamba`). Trainable via GA/PSO (pymoo) or RL (PPO with chunked truncated BPTT for recurrent policies, experimental SAC). | arch-dependent | Independent, signed bank, full-envelope (capture + exit) |
 | **Equilibrium Glide** | Balances gravity, centrifugal, and lift forces | 7 | Independent |
@@ -113,7 +113,7 @@ Seven guidance algorithms, all GA-optimizable:
 
 A separate NN training mode (`./train_all.sh nn_joint`) flips three TOML opt-in knobs under `[guidance.neural_network]` to close the structural gap with FTC's joint-optimization advantage:
 
-- `optimize_scaffolding = true` extends the PSO chromosome with FTC's 17 scaffolding params (lateral / exit / nav / thermal / shaping), seeded at FTC's GA optimum + jitter, so the NN co-adapts the actuator pipeline rather than driving FTC-tuned frozen values.
+- `scaffolding = "full"` extends the PSO chromosome with FTC's 17 scaffolding params (lateral / exit / nav / thermal / shaping), seeded at FTC's GA optimum + jitter, so the NN co-adapts the actuator pipeline rather than driving FTC-tuned frozen values. The knob is three-valued: `"off"` (default) optimizes NN weights only; `"live"` appends just the 3 params that are live in `full_neural` (nav density filter ×2 + command shaping), seeded from defaults with no FTC dependency; `"full"` is the parity-bundle setting here. It is declared per-leaf config (not in the shared `nn_common.toml` base) and the active mode is printed at training start.
 - `output_parameterization = "acos_tanh"` swaps the `atan2(out[0], out[1]).abs()` decoder (which wastes half the output range under `magnitude_only`) for `bank = acos(tanh(out[0]))` — single output, smooth `[0, π]` mapping that aligns with FTC's internal `cos_bank` representation. Validated at config load (requires `mode = "magnitude_only"`, last-layer `output_size = 1`, `activation = "tanh"`).
 - Warm-start: either the legacy `warm_start_from = "training_output/ftc/best_params.json"` (single supervisor) OR a `[warm_start]` TOML block (multi-supervisor BPTT for recurrent architectures). Both encode the cloned weights into the PSO initial population. Reserved seed offset `4_000_000` keeps the supervised data disjoint from validation / final-eval / RL pools.
 
@@ -146,7 +146,7 @@ After warm-start, `aerocapture.training.warm_start_compare.render_trajectory_com
 
 All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load, heat flux, and integrated heat load exceedances.
 
-The cost function is a C-infinity softplus-quadratic DV penalty (`dv_cost`) with a smooth knee at `dv_threshold` (default 500 m/s), plus TOML-configurable soft constraint penalties, optionally wrapped in a monotonic `cost_transform` (`"linear"` default | `"sqrt"` | `"squared"` | `"cubed"`) to reshape the landscape. The simulator returns meaningful DV values for all termination outcomes: captured -> real orbital-correction DV; hyperbolic -> `10000 + v_excess`; crash/pending-crash/timeout -> energy-proportional virtual DV `3000 + 1000 * min(|E_orb - E_target|_MJkg, 50) - 500 * t/t_max` (softened near the capture boundary so the optimizer explores closer to the crash limit, with a time-survival term for cold-start gradient).
+The cost function is a C-infinity softplus-quadratic DV penalty (`dv_cost`) with a smooth knee at `dv_threshold` (common-default 1000 m/s, code-default 500 m/s), plus TOML-configurable soft constraint penalties, optionally wrapped in a monotonic `cost_transform` (`"linear"` | `"sqrt"` | `"log"` | `"squared"` | `"cubed"`; `configs/training/common.toml` ships `"log"`) to reshape the landscape -- `"log"` (np.log1p) compresses the tail more aggressively than `"sqrt"` while preserving the zero-cost identity. The simulator returns meaningful DV values for all termination outcomes: captured -> real orbital-correction DV; hyperbolic -> `10000 + v_excess`; crash/pending-crash/timeout -> energy-proportional virtual DV `3000 + 1000 * min(|E_orb - E_target|_MJkg, 50) - 500 * t/t_max` (softened near the capture boundary so the optimizer explores closer to the crash limit, with a time-survival term for cold-start gradient).
 
 Training features:
 - Auto-resumes from existing checkpoints (use `-fs` to start fresh)

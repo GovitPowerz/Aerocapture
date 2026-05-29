@@ -96,7 +96,7 @@ def test_row_0_is_exact_warm_start_chromosome_ga_de_pso() -> None:
 
 
 def test_row_0_preserved_with_n_weights_slab_split() -> None:
-    """When n_weights < chromosome.size (optimize_scaffolding=true), row 0
+    """When n_weights < chromosome.size (scaffolding != "off"), row 0
     keeps the WEIGHT slab un-jittered. The scaffolding tail is left alone
     by _seed_initial_population; the caller is responsible for restoring it
     after the scaffolding_slab overwrite."""

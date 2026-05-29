@@ -1,9 +1,10 @@
 //! Piecewise-constant bank angle guidance.
 //!
-//! Divides the orbital energy range into 10 uniform segments, each with
-//! a constant bank angle in [-180deg, +180deg]. The bank angle sign is part
-//! of the profile (negative = implicit roll reversal). No navigation
-//! feedback, no lateral guidance — pure open-loop bank profile.
+//! Divides the orbital energy range into `bank_angles.len()` uniform
+//! segments, each with a constant bank angle in [-180deg, +180deg]. The
+//! bank angle sign is part of the profile (negative = implicit roll
+//! reversal). No navigation feedback, no lateral guidance -- pure
+//! open-loop bank profile.
 //!
 //! GA-optimized to produce reference trajectories and corridor envelopes.
 
@@ -11,9 +12,6 @@ use crate::config::PlanetConfig;
 use crate::data::guidance_params::PiecewiseConstantParams;
 use crate::gnc::navigation::coordinates::total_energy;
 use crate::gnc::navigation::estimator::NavigationOutput;
-
-/// Number of segments in the piecewise-constant bank profile.
-const N_SEGMENTS: usize = 10;
 
 /// Compute piecewise-constant bank angle from current orbital energy.
 ///
@@ -41,6 +39,12 @@ pub fn piecewise_constant_bank(
 /// Pure lookup: energy -> segment -> bank angle.
 /// Exposed for unit testing without needing a full NavigationOutput.
 pub fn segment_bank_angle(energy: f64, params: &PiecewiseConstantParams) -> f64 {
+    let n = params.bank_angles.len();
+    assert!(
+        n > 0,
+        "PiecewiseConstantParams.bank_angles must be non-empty"
+    );
+
     let e_min = params.energy_min;
     let e_max = params.energy_max;
 
@@ -48,11 +52,11 @@ pub fn segment_bank_angle(energy: f64, params: &PiecewiseConstantParams) -> f64 
         return params.bank_angles[0];
     }
 
-    // Segment 0 = highest energy (entry), segment 9 = lowest energy (deep capture)
+    // Segment 0 = highest energy (entry), segment n-1 = lowest energy (deep capture)
     // Energy DECREASES during flight, so segment index increases as energy drops
     let frac = (e_max - energy) / (e_max - e_min);
-    let seg = (frac * N_SEGMENTS as f64).floor() as i64;
-    let seg = seg.clamp(0, (N_SEGMENTS - 1) as i64) as usize;
+    let seg = (frac * n as f64).floor() as i64;
+    let seg = seg.clamp(0, (n - 1) as i64) as usize;
 
     params.bank_angles[seg]
 }
@@ -65,7 +69,7 @@ mod tests {
 
     fn test_params() -> PiecewiseConstantParams {
         PiecewiseConstantParams {
-            bank_angles: [
+            bank_angles: vec![
                 60.0_f64.to_radians(),
                 50.0_f64.to_radians(),
                 40.0_f64.to_radians(),
@@ -133,5 +137,48 @@ mod tests {
         let bank = segment_bank_angle(4.9e6, &params);
         assert!(bank < 0.0, "bank should be negative: {}", bank);
         assert_relative_eq!(bank.abs(), PI / 3.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn arbitrary_segment_count_partitions_energy_range() {
+        // 5-segment profile, distinct bank per segment.
+        let params = PiecewiseConstantParams {
+            bank_angles: vec![
+                10.0_f64.to_radians(),
+                20.0_f64.to_radians(),
+                30.0_f64.to_radians(),
+                40.0_f64.to_radians(),
+                50.0_f64.to_radians(),
+            ],
+            energy_min: 0.0,
+            energy_max: 5.0,
+        };
+        // frac=0 -> seg 0, frac=0.5 -> seg 2, frac~=1 -> seg 4
+        assert_relative_eq!(
+            segment_bank_angle(5.0, &params),
+            10.0_f64.to_radians(),
+            epsilon = 1e-10
+        );
+        assert_relative_eq!(
+            segment_bank_angle(2.5, &params),
+            30.0_f64.to_radians(),
+            epsilon = 1e-10
+        );
+        assert_relative_eq!(
+            segment_bank_angle(0.01, &params),
+            50.0_f64.to_radians(),
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    fn single_segment_returns_constant() {
+        let params = PiecewiseConstantParams {
+            bank_angles: vec![PI / 4.0],
+            energy_min: -1.0,
+            energy_max: 1.0,
+        };
+        assert_relative_eq!(segment_bank_angle(0.5, &params), PI / 4.0, epsilon = 1e-10);
+        assert_relative_eq!(segment_bank_angle(-0.5, &params), PI / 4.0, epsilon = 1e-10);
     }
 }

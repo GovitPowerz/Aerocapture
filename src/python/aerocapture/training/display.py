@@ -36,6 +36,58 @@ def _format_cost(value: float) -> str:
     return f"{value:.4e}"
 
 
+def _format_validation_summary(summary: dict, indent: str = "  ") -> list[str]:
+    """Compact one-line-per-metric rendering of `compute_eval_summary` for TUI.
+
+    Mirrors `report.format_eval_summary` but inlines the formatter to keep
+    display.py free of the matplotlib-heavy report import path.
+    """
+    nan = float("nan")
+
+    def _stat_line(label: str, block: dict, fmt: str, *, with_mean: bool = True) -> str:
+        p50 = fmt.format(block.get("p50", nan))
+        p95 = fmt.format(block.get("p95", nan))
+        tail = f"  mean={fmt.format(block.get('mean', nan))}" if with_mean else f"  RMS={fmt.format(block.get('rms', nan))}"
+        return f"{indent}{label}: p50={p50}  p95={p95}{tail}"
+
+    n_sims = summary.get("n_sims", 0)
+    n_cap = summary.get("n_captured", 0)
+    cost = summary.get("cost", {}) or {}
+    lines = [
+        f"Validation ({n_sims} sims)",
+        _stat_line("Cost       ", cost, "{:.1f}", with_mean=False),
+        f"{indent}Capture:      {n_cap}/{n_sims} ({100 * n_cap / max(n_sims, 1):.1f}%)",
+    ]
+    cap = summary.get("captured")
+    if cap:
+        lines.extend(
+            [
+                _stat_line("DV (m/s)   ", cap.get("dv", {}), "{:.1f}"),
+                _stat_line("Apo (km)   ", cap.get("apoapsis", {}), "{:.1f}"),
+                _stat_line("Peri (km)  ", cap.get("periapsis", {}), "{:.1f}"),
+                _stat_line("Incl (deg) ", cap.get("inclination", {}), "{:.2f}"),
+            ]
+        )
+    con = summary.get("constraints", {}) or {}
+
+    def _con_line(label: str, block: dict | None, val_fmt: str, lim_fmt: str) -> str:
+        if block is None:
+            return f"{indent}{label}: n/a"
+        suffix = ""
+        if block.get("limit") is not None and block.get("viol_pct") is not None:
+            suffix = f"  {block['viol_pct']:.1f}% > {lim_fmt.format(block['limit'])}"
+        return (
+            f"{indent}{label}: p50={val_fmt.format(block.get('p50', float('nan')))}  "
+            f"p95={val_fmt.format(block.get('p95', float('nan')))}  "
+            f"max={val_fmt.format(block.get('max', float('nan')))}{suffix}"
+        )
+
+    lines.append(_con_line("Q (kW/m²) ", con.get("heat_flux"), "{:.1f}", "{:.0f}"))
+    lines.append(_con_line("G (g)     ", con.get("g_load"), "{:.2f}", "{:.1f}"))
+    lines.append(_con_line("HL (kJ/m²)", con.get("heat_load"), "{:.0f}", "{:.0f}"))
+    return lines
+
+
 def _format_duration(seconds: float) -> str:
     if not (seconds == seconds and seconds != float("inf")):  # NaN or inf
         return "--"
@@ -160,6 +212,14 @@ class LiveDisplay:
                 f"Best val  g{best_val_r['generation']}: RMS={_format_cost(bv['rms_cost'])} "
                 f"mean={_format_cost(bv['mean_cost'])} p95={_format_cost(bv['p95_cost'])} cap={bv['capture_rate']:.0%}"
             )
+        # Rich validation dashboard from `compute_eval_summary`. Prefer the
+        # most-recently-collected summary so the operator sees current shape
+        # (DV / apoapsis / heat-flux / g-load) rather than the historical best.
+        detail_src = last_val_r if last_val_r is not None and last_val_r.get("validation_summary") else best_val_r
+        if detail_src is not None and detail_src.get("validation_summary"):
+            lines.append("")
+            lines.append(f"-- Validation detail (g{detail_src['generation']}) --")
+            lines.extend(_format_validation_summary(detail_src["validation_summary"]))
 
         # Stagnation
         improvements = [i for i, r in enumerate(buf) if r["improvement"]]
@@ -269,7 +329,19 @@ class LiveDisplay:
             content = f"best_val: {_format_cost(best_val)}\nlast_val: {_format_cost(last_val)}\nargmin:   {_format_cost(argmin)}\nstag:     {stag} gens"
             panels.append(Panel(content, title=name.upper(), border_style="cyan"))
 
-        group = Group(header, Columns(panels), mig_panel)
+        # Rich per-island validation dashboards (DV / apoapsis / heat-flux /
+        # g-load / heat-load percentiles + violation rates). Only the island(s)
+        # that validated THIS gen carry a fresh `val_summary`; render whichever
+        # are present so the operator can compare across PSO/GA/DE.
+        detail_panels: list[Panel] = []
+        for name in ("pso", "ga", "de"):
+            island_summary: dict | None = (island_records.get(name) or {}).get("val_summary")
+            if not island_summary:
+                continue
+            detail_lines = _format_validation_summary(island_summary)
+            detail_panels.append(Panel(Text("\n".join(detail_lines)), title=f"{name.upper()} validation", border_style="green"))
+
+        group = Group(header, Columns(panels), Columns(detail_panels), mig_panel) if detail_panels else Group(header, Columns(panels), mig_panel)
         self._live.update(group)
 
     def update(self, logger: TrainingLogger, current_run: int, island_records: dict[str, dict] | None = None) -> None:

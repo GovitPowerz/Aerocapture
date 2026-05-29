@@ -5,7 +5,7 @@ _NAV_PARAMS, _LATERAL_PARAMS, _EXIT_PARAMS, _THERMAL_LIMITER_PARAMS, or
 _SHAPING_PARAMS lists is detected — a comparison against `[*_NAV_PARAMS, ...]`
 would change on both sides simultaneously and silently allow the reorder.
 
-Why this matters: the chromosome layout for NN+optimize_scaffolding is
+Why this matters: the chromosome layout for NN with scaffolding != "off" is
 fixed by the order here. compare_guidance.py and report.py read
 best_params.json and route by name prefix; if the order shifts after a
 PSO run is checkpointed, the resume path's _check_resume_chromosome_shape
@@ -67,3 +67,34 @@ def test_nn_scaffolding_names_are_unique_and_prefixed() -> None:
     valid = ("nav.", "lateral.", "exit.", "thermal.", "shaping.")
     for name in names:
         assert name.startswith(valid), f"unexpected prefix in {name!r}"
+
+
+def test_active_scaffolding_specs_three_way() -> None:
+    from aerocapture.training.param_spaces import (
+        _NN_LIVE_PARAMS,
+        _NN_SCAFFOLDING_PARAMS,
+        active_scaffolding_specs,
+    )
+
+    assert active_scaffolding_specs("off") == []
+    assert active_scaffolding_specs("live") == _NN_LIVE_PARAMS
+    assert active_scaffolding_specs("full") == _NN_SCAFFOLDING_PARAMS
+
+
+def test_live_pack_is_nav_plus_shaping() -> None:
+    from aerocapture.training.param_spaces import _NN_LIVE_PARAMS
+
+    names = [s.name for s in _NN_LIVE_PARAMS]
+    assert names == [
+        "nav.density_filter_gain",
+        "nav.density_gain_max_delta",
+        "shaping.max_bank_acceleration",
+    ]
+
+
+def test_active_scaffolding_specs_rejects_unknown() -> None:
+    import pytest
+    from aerocapture.training.param_spaces import active_scaffolding_specs
+
+    with pytest.raises(KeyError):
+        active_scaffolding_specs("partial")

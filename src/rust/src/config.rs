@@ -1,7 +1,7 @@
 //! Parse TOML configuration files + data file suffixes.
 
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::path::Path;
 
@@ -898,37 +898,109 @@ fn default_140() -> f64 {
     140.0
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+/// Piecewise-constant guidance config. Three accepted shapes:
+///   1. `bank_angles = [...]` (canonical; `n_segments` derived from length).
+///   2. `n_segments = N` + individual `bank_angle_0..N-1` keys
+///      (override-friendly; the GA writes per-element overrides this way).
+///   3. Neither: defaults to 10 segments at 65 deg.
+///
+/// `n_segments` is validated against `bank_angles.len()` when both are
+/// present, and against the highest `bank_angle_N` index found.
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct TomlPiecewiseConstantParams {
-    #[serde(default = "default_bank_65")]
-    pub bank_angle_0: f64,
-    #[serde(default = "default_bank_65")]
-    pub bank_angle_1: f64,
-    #[serde(default = "default_bank_65")]
-    pub bank_angle_2: f64,
-    #[serde(default = "default_bank_65")]
-    pub bank_angle_3: f64,
-    #[serde(default = "default_bank_65")]
-    pub bank_angle_4: f64,
-    #[serde(default = "default_bank_65")]
-    pub bank_angle_5: f64,
-    #[serde(default = "default_bank_65")]
-    pub bank_angle_6: f64,
-    #[serde(default = "default_bank_65")]
-    pub bank_angle_7: f64,
-    #[serde(default = "default_bank_65")]
-    pub bank_angle_8: f64,
-    #[serde(default = "default_bank_65")]
-    pub bank_angle_9: f64,
+    #[serde(default)]
+    pub n_segments: Option<usize>,
+    #[serde(default)]
+    pub bank_angles: Option<Vec<f64>>,
     #[serde(default = "default_energy_min")]
     pub energy_min: f64, // MJ/kg in TOML, converted to J/kg at load time
     #[serde(default = "default_energy_max")]
     pub energy_max: f64, // MJ/kg in TOML, converted to J/kg at load time
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, toml::Value>,
 }
 
-fn default_bank_65() -> f64 {
-    65.0
+const DEFAULT_PIECEWISE_N_SEGMENTS: usize = 10;
+const DEFAULT_PIECEWISE_BANK_DEG: f64 = 65.0;
+
+impl TomlPiecewiseConstantParams {
+    /// Resolve the per-segment bank angles in degrees. Errors on
+    /// inconsistent `n_segments` / `bank_angles` / `bank_angle_N` inputs.
+    pub fn resolve_bank_angles_deg(&self) -> Result<Vec<f64>, String> {
+        // Highest index N referenced by any `bank_angle_N` extra key.
+        let max_idx_from_extras = self
+            .extra
+            .keys()
+            .filter_map(|k| {
+                k.strip_prefix("bank_angle_")
+                    .and_then(|s| s.parse::<usize>().ok())
+            })
+            .max();
+
+        let n_from_array = self.bank_angles.as_ref().map(|v| v.len());
+        let n_from_extras = max_idx_from_extras.map(|i| i + 1);
+
+        // Resolve n_segments: explicit > array length > extras count > default.
+        let n = self
+            .n_segments
+            .or(n_from_array)
+            .or(n_from_extras)
+            .unwrap_or(DEFAULT_PIECEWISE_N_SEGMENTS);
+
+        if n == 0 {
+            return Err("piecewise_constant: n_segments must be >= 1".to_string());
+        }
+        if let (Some(declared), Some(arr_len)) = (self.n_segments, n_from_array)
+            && declared != arr_len
+        {
+            return Err(format!(
+                "piecewise_constant: n_segments={} disagrees with bank_angles array length {}",
+                declared, arr_len
+            ));
+        }
+        if let (Some(declared), Some(extras_n)) = (self.n_segments, n_from_extras)
+            && extras_n > declared
+        {
+            return Err(format!(
+                "piecewise_constant: bank_angle_{} present but n_segments={}",
+                extras_n - 1,
+                declared
+            ));
+        }
+
+        // Base vector: explicit `bank_angles` array if present, else
+        // default-filled. Then overlay any `bank_angle_N` extras so per-element
+        // overrides ALWAYS win. The GA writes its chromosome as flat
+        // `bank_angle_N` keys, so an early return of the array would silently
+        // nullify GA optimization on array-seeded configs.
+        // Precedence: flat `bank_angle_N` keys > `bank_angles` array > default.
+        let mut angles = match &self.bank_angles {
+            Some(arr) => arr.clone(),
+            None => vec![DEFAULT_PIECEWISE_BANK_DEG; n],
+        };
+        for (key, val) in &self.extra {
+            let Some(idx_str) = key.strip_prefix("bank_angle_") else {
+                continue;
+            };
+            let Ok(idx) = idx_str.parse::<usize>() else {
+                continue;
+            };
+            let f = val
+                .as_float()
+                .or_else(|| val.as_integer().map(|i| i as f64))
+                .ok_or_else(|| format!("piecewise_constant: bank_angle_{} is not numeric", idx))?;
+            if idx >= n {
+                return Err(format!(
+                    "piecewise_constant: bank_angle_{} out of range (n_segments={})",
+                    idx, n
+                ));
+            }
+            angles[idx] = f;
+        }
+        Ok(angles)
+    }
 }
+
 fn default_energy_min() -> f64 {
     -6.0
 }
@@ -1232,6 +1304,32 @@ mod tests {
             .write_all(content.as_bytes())
             .unwrap();
         path
+    }
+
+    // ─── piecewise_constant resolver tests ───
+
+    #[test]
+    fn piecewise_flat_keys_override_bank_angles_array() {
+        // Regression: a `bank_angles = [...]` array used to early-return,
+        // silently ignoring `bank_angle_N` overrides. The GA writes its
+        // chromosome as flat `bank_angle_N` keys, so flat keys must overlay
+        // the array (precedence: flat keys > array > default).
+        let pc: TomlPiecewiseConstantParams =
+            toml::from_str("bank_angles = [10.0, 20.0, 30.0]\nbank_angle_1 = 99.0").unwrap();
+        assert_eq!(
+            pc.resolve_bank_angles_deg().unwrap(),
+            vec![10.0, 99.0, 30.0]
+        );
+    }
+
+    #[test]
+    fn piecewise_bank_angles_array_without_overrides_unchanged() {
+        let pc: TomlPiecewiseConstantParams =
+            toml::from_str("bank_angles = [10.0, 20.0, 30.0]").unwrap();
+        assert_eq!(
+            pc.resolve_bank_angles_deg().unwrap(),
+            vec![10.0, 20.0, 30.0]
+        );
     }
 
     // ─── deep_merge tests ───

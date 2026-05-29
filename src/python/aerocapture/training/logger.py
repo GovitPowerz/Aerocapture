@@ -50,6 +50,7 @@ class TrainingLogger:
         gen_elapsed_s: float | None = None,
         gen_best_individual: npt.NDArray[np.float64] | None = None,
         validation: dict | None = None,
+        validation_summary: dict | None = None,
         improved: bool | None = None,
         island_name: str | None = None,
     ) -> None:
@@ -109,6 +110,9 @@ class TrainingLogger:
 
         if validation is not None:
             record["validation"] = validation
+
+        if validation_summary is not None:
+            record["validation_summary"] = validation_summary
 
         if island_name is not None:
             record["island_name"] = island_name

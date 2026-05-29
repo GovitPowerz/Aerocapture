@@ -92,19 +92,19 @@ impl Default for FnpagParams {
 }
 
 /// Piecewise-constant bank angle guidance parameters.
-/// 10 segments uniformly distributed over the energy range.
+/// `bank_angles.len()` segments uniformly distributed over the energy range.
 /// Bank angles are signed (negative = implicit roll reversal).
 #[derive(Debug, Clone)]
 pub struct PiecewiseConstantParams {
-    pub bank_angles: [f64; 10], // radians, signed
-    pub energy_min: f64,        // J/kg (NOT MJ/kg)
-    pub energy_max: f64,        // J/kg (NOT MJ/kg)
+    pub bank_angles: Vec<f64>, // radians, signed; length = n_segments
+    pub energy_min: f64,       // J/kg (NOT MJ/kg)
+    pub energy_max: f64,       // J/kg (NOT MJ/kg)
 }
 
 impl Default for PiecewiseConstantParams {
     fn default() -> Self {
         Self {
-            bank_angles: [65.0_f64.to_radians(); 10],
+            bank_angles: vec![65.0_f64.to_radians(); 10],
             energy_min: -6.0e6,
             energy_max: 5.0e6,
         }

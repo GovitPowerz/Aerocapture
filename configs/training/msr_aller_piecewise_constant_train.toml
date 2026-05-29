@@ -4,8 +4,9 @@ base = ["../training/common.toml", "../missions/mars.toml"]
 type = "piecewise_constant"
 
 [guidance.piecewise_constant]
-energy_min = -8.0
-energy_max = 6.0
+energy_min = -7.0
+energy_max = 5.0
+n_segments = 25
 
 [data]
 results_suffix = ".piecewise_constant"

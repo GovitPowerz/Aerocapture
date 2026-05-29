@@ -199,6 +199,17 @@ class _UnitCubeProblem(Problem):
         base = float(np.sum(X))
         return np.array([base + 0.01 * s for s in seeds], dtype=np.float64)
 
+    def evaluate_individual_records_per_seed(self, X: np.ndarray, seeds: list[int]) -> tuple[np.ndarray, np.ndarray]:
+        # Tests don't care about the records' content; compute_eval_summary
+        # only needs ifinal=3 (captured) + finite DV/heat-flux/g-load columns
+        # to avoid crashes when IslandModel pipes the records through it.
+        costs = self.evaluate_individual_per_seed(X, seeds)
+        records = np.zeros((len(seeds), 52), dtype=np.float64)
+        records[:, 31] = 3.0  # ifinal: captured
+        records[:, 9] = 0.5  # eccentricity (captured -> ecc < 1)
+        records[:, 41] = 100.0  # DV total
+        return costs, records
+
 
 def _make_real_pso() -> PSO:
     """Construct and run-once a small pymoo PSO so V and pop[slot].X/.F are populated."""
@@ -291,6 +302,14 @@ class _MockProblem:
         # F = sum(X) + 0.01 * seed_idx (so different islands get different rms).
         base = float(np.sum(X))
         return np.array([base + 0.01 * s for s in seeds], dtype=np.float64)
+
+    def evaluate_individual_records_per_seed(self, X: np.ndarray, seeds: list[int]) -> tuple[np.ndarray, np.ndarray]:
+        costs = self.evaluate_individual_per_seed(X, seeds)
+        records = np.zeros((len(seeds), 52), dtype=np.float64)
+        records[:, 31] = 3.0  # ifinal: captured
+        records[:, 9] = 0.5  # eccentricity (captured -> ecc < 1)
+        records[:, 41] = 100.0  # DV total
+        return costs, records
 
     # AerocaptureProblem also exposes these — IslandModel.__init__ may call them.
     n_obj = 1
@@ -1310,7 +1329,7 @@ def test_migrate_does_not_alias_migrant_across_destinations() -> None:
 
 
 def test_from_checkpoint_raises_on_chromosome_width_mismatch() -> None:
-    """Resuming after a chromosome-width change (e.g. optimize_scaffolding toggle)
+    """Resuming after a chromosome-width change (e.g. scaffolding mode change)
     must fail loudly instead of restoring a mis-sized population."""
     cfg = _make_islands_cfg()
     problem = _UnitCubeProblem()

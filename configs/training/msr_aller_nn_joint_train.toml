@@ -8,7 +8,7 @@ type = "neural_network"
 
 [guidance.neural_network]
 mode = "magnitude_only"
-optimize_scaffolding = true
+scaffolding = "full"
 output_parameterization = "acos_tanh"
 
 [network]

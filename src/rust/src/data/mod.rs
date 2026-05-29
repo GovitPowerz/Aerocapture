@@ -347,19 +347,9 @@ impl SimData {
         // Per-scheme guidance params (with defaults if not in TOML)
         let piecewise_constant_params = {
             let pc = &toml.guidance.piecewise_constant;
+            let bank_angles_deg = pc.resolve_bank_angles_deg().map_err(DataError)?;
             guidance_params::PiecewiseConstantParams {
-                bank_angles: [
-                    pc.bank_angle_0.to_radians(),
-                    pc.bank_angle_1.to_radians(),
-                    pc.bank_angle_2.to_radians(),
-                    pc.bank_angle_3.to_radians(),
-                    pc.bank_angle_4.to_radians(),
-                    pc.bank_angle_5.to_radians(),
-                    pc.bank_angle_6.to_radians(),
-                    pc.bank_angle_7.to_radians(),
-                    pc.bank_angle_8.to_radians(),
-                    pc.bank_angle_9.to_radians(),
-                ],
+                bank_angles: bank_angles_deg.iter().map(|d| d.to_radians()).collect(),
                 energy_min: pc.energy_min * 1e6,
                 energy_max: pc.energy_max * 1e6,
             }

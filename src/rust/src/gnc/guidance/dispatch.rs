@@ -1342,7 +1342,7 @@ mod tests {
 
         let mut data = test_sim_data();
         data.guidance.piecewise_constant = crate::data::guidance_params::PiecewiseConstantParams {
-            bank_angles: [0.5; 10],
+            bank_angles: vec![0.5; 10],
             energy_min: -6.0e6,
             energy_max: 5.0e6,
         };

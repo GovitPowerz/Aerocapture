@@ -140,7 +140,7 @@ def run_scheme(
             toml_data["data"]["neural_network"] = default_nn
             print(f"  Using default NN weights from {default_nn}")
 
-        # Load optimized scaffolding params if present (written when optimize_scaffolding=true)
+        # Load optimized scaffolding params if present (written when scaffolding != "off")
         scaff_path = params_dir / scheme / "best_params.json" if params_dir else None
         if scaff_path and scaff_path.exists():
             with open(scaff_path) as f:

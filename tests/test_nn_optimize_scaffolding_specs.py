@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from aerocapture.training.encoding import nn_param_specs_from_v2
 from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
 
@@ -30,9 +31,9 @@ def test_specs_include_scaffolding_when_knob_on() -> None:
 
 
 def test_specs_match_chromosome_widths_per_knob_state() -> None:
-    """Verify the chromosome width changes by exactly 17 when optimize_scaffolding
-    flips. With the knob OFF, param_specs is just NN weights; with ON, the 17
-    scaffolding params are appended at the tail.
+    """Verify the chromosome width changes by exactly 17 when scaffolding flips
+    from "off" to "full". With "off", param_specs is just NN weights; with "full",
+    the 17 scaffolding params are appended at the tail.
 
     This was previously misnamed `test_specs_unchanged_when_knob_off` and only
     asserted `len(base_specs) > 0`. It now actually exercises both knob states.
@@ -54,6 +55,42 @@ def test_specs_match_chromosome_widths_per_knob_state() -> None:
     knob_off_names = {s.name for s in knob_off_full}
     scaff_names = {s.name for s in _NN_SCAFFOLDING_PARAMS}
     assert knob_off_names.isdisjoint(scaff_names), "knob-off chromosome must not contain scaffolding params"
+
+
+def test_network_config_scaffolding_field_default() -> None:
+    from aerocapture.training.config import NetworkConfig
+
+    cfg = NetworkConfig(architecture=[{"type": "dense", "input_size": 4, "output_size": 2, "activation": "tanh"}])
+    assert cfg.scaffolding == "off"
+
+
+def test_network_config_rejects_unknown_scaffolding() -> None:
+    import pytest
+    from aerocapture.training.config import NetworkConfig
+
+    with pytest.raises(ValueError, match="scaffolding must be"):
+        NetworkConfig(
+            architecture=[{"type": "dense", "input_size": 4, "output_size": 2, "activation": "tanh"}],
+            scaffolding="partial",
+        )
+
+
+def test_live_appends_three_specs_no_ftc(monkeypatch: pytest.MonkeyPatch) -> None:
+    """scaffolding='live' adds exactly 3 specs and never reads the FTC file."""
+    import numpy as np
+    from aerocapture.training.param_spaces import active_scaffolding_specs
+    from aerocapture.training.train import build_default_scaffolding_slab
+
+    # Guard: building the live slab must not touch the FTC seeding path.
+    def _boom(*a: object, **k: object) -> None:
+        raise AssertionError("live seeding must not read FTC best_params.json")
+
+    monkeypatch.setattr("aerocapture.training.train.build_scaffolding_initial_slab", _boom)
+
+    pack = active_scaffolding_specs("live")
+    assert len(pack) == 3
+    slab = build_default_scaffolding_slab(list(pack), n_pop=4, rng=np.random.default_rng(0), jitter=0.0)
+    assert slab.shape == (4, 3)
 
 
 def test_resume_with_shape_mismatch_fails_loud() -> None:

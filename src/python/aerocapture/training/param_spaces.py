@@ -66,7 +66,7 @@ _NAV_PARAMS: list[ParamSpec] = [
 ]
 
 # Combined scaffolding pack used when training a neural-network scheme with
-# `optimize_scaffolding = true`. Same specs FTC trains, same order. The
+# `scaffolding = "full"`. Same specs FTC trains, same order. The
 # routing in `problem.py::_build_overrides` already handles every prefix.
 _NN_SCAFFOLDING_PARAMS: list[ParamSpec] = [
     *_NAV_PARAMS,
@@ -75,6 +75,31 @@ _NN_SCAFFOLDING_PARAMS: list[ParamSpec] = [
     *_THERMAL_LIMITER_PARAMS,
     *_SHAPING_PARAMS,
 ]
+
+# Live-in-full_neural scaffolding params: nav density filter feeds the NN's
+# observation vector, command shaping shapes its output. These 3 have standalone
+# defaults, so they can be optimized without seeding from FTC. Used for
+# `scaffolding = "live"` (full_neural schemes that want nav/shaping tuned but
+# don't need the FTC-only lateral/exit/thermal pack).
+_NN_LIVE_PARAMS: list[ParamSpec] = [
+    *_NAV_PARAMS,
+    *_SHAPING_PARAMS,
+]
+
+
+def active_scaffolding_specs(scaffolding: str) -> list[ParamSpec]:
+    """Resolve the active scaffolding ParamSpec pack for a `scaffolding` value.
+
+    "off" -> [], "live" -> nav+shaping (3), "full" -> the 17-param FTC pack.
+    Raises KeyError on any other value (caught at config load with a clearer
+    message).
+    """
+    return {
+        "off": [],
+        "live": _NN_LIVE_PARAMS,
+        "full": _NN_SCAFFOLDING_PARAMS,
+    }[scaffolding]
+
 
 # TOML section key matches the guidance type name used in [guidance] type field
 PARAM_SPACES: dict[str, list[ParamSpec]] = {
@@ -141,19 +166,27 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         *_SHAPING_PARAMS,
     ],
     "piecewise_constant": [
-        ParamSpec("bank_angle_0", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_1", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_2", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_3", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_4", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_5", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_6", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_7", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_8", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_9", -180.0, 180.0, 65.0),
+        *(ParamSpec(f"bank_angle_{i}", -180.0, 180.0, 65.0) for i in range(10)),
         *_SHAPING_PARAMS,
     ],
 }
+
+
+def make_piecewise_constant_specs(n_segments: int) -> list[ParamSpec]:
+    """Build PARAM_SPACES['piecewise_constant'] for arbitrary segment count.
+
+    Mirrors the static entry above (which keeps the 10-segment default for
+    backward compat) but produces N bank_angle_* specs + the shared shaping
+    params. Used by train.py when [guidance.piecewise_constant] sets a
+    non-default n_segments / bank_angles length.
+    """
+    if n_segments < 1:
+        raise ValueError(f"n_segments must be >= 1, got {n_segments}")
+    return [
+        *(ParamSpec(f"bank_angle_{i}", -180.0, 180.0, 65.0) for i in range(n_segments)),
+        *_SHAPING_PARAMS,
+    ]
+
 
 # TOML section name for each guidance type (used in [guidance.<section>])
 GUIDANCE_TOML_SECTIONS: dict[str, str] = {

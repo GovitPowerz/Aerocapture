@@ -48,3 +48,29 @@ def test_missing_ftc_params_fails_loud(tmp_path: Path) -> None:
         assert "absent.json" in str(e)
         return
     raise AssertionError("expected FileNotFoundError for missing FTC params")
+
+
+def test_build_default_scaffolding_slab_no_file(tmp_path: Path) -> None:
+    """live seeding builds the slab from ParamSpec defaults, touching no file."""
+    from aerocapture.training.encoding import encode_to_normalized
+    from aerocapture.training.param_spaces import _NN_LIVE_PARAMS
+    from aerocapture.training.train import build_default_scaffolding_slab
+
+    rng = np.random.default_rng(0)
+    slab = build_default_scaffolding_slab(_NN_LIVE_PARAMS, n_pop=8, rng=rng, jitter=0.0)
+
+    assert slab.shape == (8, 3)
+    expected_row = encode_to_normalized({s.name: s.default for s in _NN_LIVE_PARAMS}, list(_NN_LIVE_PARAMS))
+    for row in slab:
+        np.testing.assert_allclose(row, expected_row)
+    assert slab.min() >= 0.0 and slab.max() <= 1.0
+
+
+def test_build_default_scaffolding_slab_jitter_bounds() -> None:
+    from aerocapture.training.param_spaces import _NN_LIVE_PARAMS
+    from aerocapture.training.train import build_default_scaffolding_slab
+
+    rng = np.random.default_rng(1)
+    slab = build_default_scaffolding_slab(_NN_LIVE_PARAMS, n_pop=100, rng=rng, jitter=0.02)
+    assert slab.shape == (100, 3)
+    assert slab.min() >= 0.0 and slab.max() <= 1.0
