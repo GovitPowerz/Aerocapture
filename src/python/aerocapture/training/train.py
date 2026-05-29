@@ -337,6 +337,29 @@ def build_scaffolding_initial_slab(
     return slab
 
 
+def build_default_scaffolding_slab(
+    scaffolding_specs: list[ParamSpec],
+    n_pop: int,
+    rng: np.random.Generator,
+    jitter: float = 0.02,
+) -> npt.NDArray[np.float64]:
+    """Seed a scaffolding slab from each spec's default (no FTC file read).
+
+    Mirrors `build_scaffolding_initial_slab`'s shape/jitter contract but sources
+    the center from `ParamSpec.default` instead of an FTC JSON. Used for
+    `scaffolding = "live"`, where the params have standalone defaults and no
+    FTC dependency.
+    """
+    from aerocapture.training.encoding import encode_to_normalized
+
+    center = encode_to_normalized({s.name: s.default for s in scaffolding_specs}, list(scaffolding_specs))
+    slab = np.tile(center, (n_pop, 1))
+    if jitter > 0.0:
+        slab = slab + rng.normal(0.0, jitter, size=slab.shape)
+        slab = np.clip(slab, 0.0, 1.0)
+    return slab
+
+
 def _make_warm_start_eval_callback(
     problem: Any,
     config: TrainingConfig,
