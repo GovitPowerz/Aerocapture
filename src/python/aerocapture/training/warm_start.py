@@ -437,7 +437,15 @@ def _chunked_bptt_train(
         # `prev_realized` (Task 6) is only consumed by the `delta` decoder; for
         # all other decoders it is unused. Fall back to zeros (same shape as y)
         # so trajectory dicts that omit it (e.g. legacy mocks) still work.
-        pr = np.asarray(traj["prev_realized"]) if "prev_realized" in traj else np.zeros_like(y)
+        if "prev_realized" in traj:
+            pr = np.asarray(traj["prev_realized"])
+        elif output_param == "delta":
+            raise ValueError(
+                "delta warm-start requires 'prev_realized' in the supervised trajectory; "
+                "collect_supervised must emit it"
+            )
+        else:
+            pr = np.zeros_like(y)
         # Drop non-finite rows
         finite = np.isfinite(X).all(axis=1) & np.isfinite(y)
         X = X[finite]
