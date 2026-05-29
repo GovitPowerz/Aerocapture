@@ -84,6 +84,7 @@ def _mint_zero_model_for_report(tmp_path: Path) -> str:
 
 @pytest.mark.slow
 def test_run_report_smoke(tmp_path: Path) -> None:
+    pytest.importorskip("aerocapture_rs")
     from aerocapture.training.nn_input_report import run_report
 
     model = _mint_zero_model_for_report(tmp_path)

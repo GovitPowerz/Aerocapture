@@ -10,7 +10,6 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import aerocapture_rs
 import numpy as np
 import numpy.typing as npt
 
@@ -89,7 +88,7 @@ def _resolve_mask(toml_path: str, model_path: str | None = None) -> set[int]:
             model_mask = json.loads(Path(nn_path).read_text()).get("input_mask")
             if model_mask is not None:
                 return set(model_mask)
-        except (OSError, json.JSONDecodeError):
+        except OSError, json.JSONDecodeError:
             pass
     mask = cfg.get("network", {}).get("input_mask")
     return set(mask) if mask is not None else set(range(16))
@@ -212,6 +211,8 @@ def run_report(
     in_mask = _resolve_mask(toml_path, str(override_model) if override_model is not None else None)
 
     seeds = [NN_INPUT_REPORT_SEED_OFFSET + i for i in range(n_sims)]
+    import aerocapture_rs
+
     recs = aerocapture_rs.collect_nn_inputs(toml_path, seeds, overrides=overrides)
 
     X_list = [r["X"] for r in recs]
