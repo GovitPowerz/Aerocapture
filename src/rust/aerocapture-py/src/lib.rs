@@ -449,7 +449,7 @@ fn collect_supervised(
     let wall_timeout = sim_timeout_secs.map(std::time::Duration::from_secs_f64);
 
     // Collected outside py.detach: (seed, supervised_trace, dv_total_m_s, captured).
-    let mut per_seed: Vec<(u64, Vec<(Vec<f64>, f64, f64)>, f64, bool)> =
+    let mut per_seed: Vec<(u64, Vec<(Vec<f64>, f64, f64, f64, f64)>, f64, bool)> =
         Vec::with_capacity(seeds.len());
 
     py.detach(|| {
@@ -503,7 +503,7 @@ fn collect_supervised(
                     seed
                 )));
             }
-            let mut combined_trace: Vec<(Vec<f64>, f64, f64)> = Vec::new();
+            let mut combined_trace: Vec<(Vec<f64>, f64, f64, f64, f64)> = Vec::new();
             let mut dv = f64::NAN;
             let mut captured = false;
             for output in outputs {
@@ -529,7 +529,7 @@ fn collect_supervised(
         let mut x_rows: Vec<Vec<f64>> = Vec::with_capacity(n_steps);
         let mut y_signed: Vec<f64> = Vec::with_capacity(n_steps);
         let mut prev_realized: Vec<f64> = Vec::with_capacity(n_steps);
-        for (nn_input, bank, realized) in supervised_trace {
+        for (nn_input, bank, realized, _t, _e) in supervised_trace {
             x_rows.push(nn_input);
             y_signed.push(bank);
             prev_realized.push(realized);
@@ -550,6 +550,118 @@ fn collect_supervised(
         dict.set_item("X", x_array)?;
         dict.set_item("y_signed", y_array)?;
         dict.set_item("prev_realized", pr_array)?;
+        dict.set_item("dv", dv)?;
+        dict.set_item("captured", captured)?;
+        result_list.append(dict)?;
+    }
+    Ok(result_list.unbind())
+}
+
+/// Collect the deployed NN's own per-tick candidate input vectors over an MC ensemble.
+///
+/// Runs the CONFIGURED guidance (must be neural_network) with the per-tick
+/// candidate-vector trace enabled. Unlike collect_supervised it does NOT override
+/// the guidance type -- it captures the inputs the NN actually drives itself into.
+///
+/// Returns a list of dicts (one per seed) with keys "seed", "X" (T,31),
+/// "time" (T,), "energy" (T,), "dv" (float), "captured" (bool).
+#[pyfunction]
+#[pyo3(signature = (toml_path, seeds, overrides=None, sim_timeout_secs=None))]
+fn collect_nn_inputs(
+    py: Python<'_>,
+    toml_path: String,
+    seeds: Vec<u64>,
+    overrides: Option<&Bound<'_, PyDict>>,
+    sim_timeout_secs: Option<f64>,
+) -> PyResult<Py<PyList>> {
+    use aerocapture::config::GuidanceType;
+
+    let base_overrides = extract_overrides(overrides)?;
+    let wall_timeout = sim_timeout_secs.map(std::time::Duration::from_secs_f64);
+
+    let mut per_seed: Vec<(u64, Vec<(Vec<f64>, f64, f64, f64, f64)>, f64, bool)> =
+        Vec::with_capacity(seeds.len());
+
+    py.detach(|| {
+        for seed in &seeds {
+            let mut seed_overrides = base_overrides.clone();
+            seed_overrides.push((
+                "simulation.n_sims".to_string(),
+                config::OverrideValue::Int(1),
+            ));
+            seed_overrides.push((
+                "monte_carlo.seed".to_string(),
+                config::OverrideValue::Int(*seed as i64),
+            ));
+
+            let (mut sim_input, sim_data) =
+                config::load_and_override(std::path::Path::new(&toml_path), &seed_overrides)
+                    .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+
+            if sim_input.guidance_type != GuidanceType::NeuralNetwork {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "collect_nn_inputs requires guidance.type = neural_network".to_string(),
+                ));
+            }
+            sim_input.collect_supervised = true;
+
+            let outputs = aerocapture::simulation::runner::run_for_api(
+                &sim_input,
+                &sim_data,
+                false,
+                wall_timeout,
+            )
+            .map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {e}"))
+            })?;
+            if outputs.is_empty() {
+                return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "collect_nn_inputs: run_for_api returned 0 outputs for seed {} (expected 1)",
+                    seed
+                )));
+            }
+            let mut trace: Vec<(Vec<f64>, f64, f64, f64, f64)> = Vec::new();
+            let mut dv = f64::NAN;
+            let mut captured = false;
+            for output in outputs {
+                trace.extend(output.supervised_trace);
+                dv = output
+                    .final_record
+                    .get(41) // dv_total_m_s column
+                    .copied()
+                    .unwrap_or(f64::NAN);
+                captured = output.captured;
+            }
+            per_seed.push((*seed, trace, dv, captured));
+        }
+        Ok::<_, PyErr>(())
+    })?;
+
+    const NN_INPUT_WIDTH: usize = 31;
+    let result_list = PyList::empty(py);
+    for (seed, trace, dv, captured) in per_seed {
+        let n = trace.len();
+        let mut x_rows: Vec<Vec<f64>> = Vec::with_capacity(n);
+        let mut time: Vec<f64> = Vec::with_capacity(n);
+        let mut energy: Vec<f64> = Vec::with_capacity(n);
+        for (nn_input, _bank, _realized, t, e) in trace {
+            x_rows.push(nn_input);
+            time.push(t);
+            energy.push(e);
+        }
+        // Mirror collect_supervised's X construction exactly (from_vec2 + empty guard).
+        let x_arr = if x_rows.is_empty() {
+            numpy::PyArray2::<f64>::zeros(py, [0, NN_INPUT_WIDTH], false)
+        } else {
+            numpy::PyArray2::from_vec2(py, &x_rows).map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to build X array: {e}"))
+            })?
+        };
+        let dict = PyDict::new(py);
+        dict.set_item("seed", seed)?;
+        dict.set_item("X", x_arr)?;
+        dict.set_item("time", numpy::PyArray1::from_vec(py, time))?;
+        dict.set_item("energy", numpy::PyArray1::from_vec(py, energy))?;
         dict.set_item("dv", dv)?;
         dict.set_item("captured", captured)?;
         result_list.append(dict)?;
@@ -625,5 +737,6 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(nn_forward_sequence, m)?)?;
     m.add_function(wrap_pyfunction!(flat_weights_to_json, m)?)?;
     m.add_function(wrap_pyfunction!(collect_supervised, m)?)?;
+    m.add_function(wrap_pyfunction!(collect_nn_inputs, m)?)?;
     Ok(())
 }

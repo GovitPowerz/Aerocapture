@@ -1,0 +1,53 @@
+import json
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+aerocapture_rs = pytest.importorskip("aerocapture_rs")
+
+from aerocapture.training.toml_utils import load_toml_with_bases  # noqa: E402
+
+
+def _mint_zero_model(tmp_path: Path) -> str:
+    """Mint a loadable zero-weight NN matching the delta config's arch (dense-only)."""
+    cfg = load_toml_with_bases(Path("configs/training/msr_aller_nn_delta_train.toml"))
+    arch = cfg["network"]["architecture"]
+    mask = cfg["network"]["input_mask"]
+
+    flat = [0.0] * sum(ly["input_size"] * ly["output_size"] + ly["output_size"] for ly in arch)
+    path = str(tmp_path / "zero_model.json")
+    aerocapture_rs.flat_weights_to_json(
+        flat,
+        json.dumps(arch),
+        path,
+        mask,
+        cfg["guidance"]["neural_network"]["output_parameterization"],
+        None,
+        cfg["guidance"]["neural_network"]["delta_max"],
+    )
+    return path
+
+
+@pytest.mark.slow
+def test_collect_nn_inputs_runs_nn_and_returns_shapes(tmp_path: Path) -> None:
+    model = _mint_zero_model(tmp_path)
+    out = aerocapture_rs.collect_nn_inputs(
+        "configs/training/msr_aller_nn_delta_train.toml",
+        [4_000_000],
+        overrides={"data.neural_network": model},
+    )
+    assert len(out) == 1
+    r = out[0]
+    assert set(r.keys()) == {"seed", "X", "time", "energy", "dv", "captured"}
+    X, t, e = r["X"], r["time"], r["energy"]
+    assert X.ndim == 2 and X.shape[1] == 31
+    assert t.shape == (X.shape[0],) and e.shape == (X.shape[0],)
+    assert np.all(np.diff(t) >= 0)
+    assert np.isfinite(X).all() and np.isfinite(t).all() and np.isfinite(e).all()
+    assert isinstance(r["captured"], bool)
+
+
+def test_collect_nn_inputs_rejects_non_nn_config() -> None:
+    with pytest.raises((ValueError, RuntimeError), match="(?i)neural_network"):
+        aerocapture_rs.collect_nn_inputs("configs/training/msr_aller_ftc_train.toml", [1])
