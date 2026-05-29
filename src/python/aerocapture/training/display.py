@@ -42,26 +42,30 @@ def _format_validation_summary(summary: dict, indent: str = "  ") -> list[str]:
     Mirrors `report.format_eval_summary` but inlines the formatter to keep
     display.py free of the matplotlib-heavy report import path.
     """
+    nan = float("nan")
+
+    def _stat_line(label: str, block: dict, fmt: str, *, with_mean: bool = True) -> str:
+        p50 = fmt.format(block.get("p50", nan))
+        p95 = fmt.format(block.get("p95", nan))
+        tail = f"  mean={fmt.format(block.get('mean', nan))}" if with_mean else f"  RMS={fmt.format(block.get('rms', nan))}"
+        return f"{indent}{label}: p50={p50}  p95={p95}{tail}"
+
     n_sims = summary.get("n_sims", 0)
     n_cap = summary.get("n_captured", 0)
     cost = summary.get("cost", {}) or {}
     lines = [
         f"Validation ({n_sims} sims)",
-        f"{indent}Cost:        p50={cost.get('p50', float('nan')):.1f}  p95={cost.get('p95', float('nan')):.1f}  RMS={cost.get('rms', float('nan')):.1f}",
-        f"{indent}Capture:     {n_cap}/{n_sims} ({100 * n_cap / max(n_sims, 1):.1f}%)",
+        _stat_line("Cost       ", cost, "{:.1f}", with_mean=False),
+        f"{indent}Capture:      {n_cap}/{n_sims} ({100 * n_cap / max(n_sims, 1):.1f}%)",
     ]
     cap = summary.get("captured")
     if cap:
-        dv = cap.get("dv", {})
-        apo = cap.get("apoapsis", {})
-        peri = cap.get("periapsis", {})
-        incl = cap.get("inclination", {})
         lines.extend(
             [
-                f"{indent}DV (m/s):    p50={dv.get('p50', float('nan')):.1f}  p95={dv.get('p95', float('nan')):.1f}  mean={dv.get('mean', float('nan')):.1f}",
-                f"{indent}Apo (km):    p50={apo.get('p50', float('nan')):.1f}  p95={apo.get('p95', float('nan')):.1f}  mean={apo.get('mean', float('nan')):.1f}",
-                f"{indent}Peri (km):   p50={peri.get('p50', float('nan')):.1f}  p95={peri.get('p95', float('nan')):.1f}  mean={peri.get('mean', float('nan')):.1f}",
-                f"{indent}Incl (deg):  p50={incl.get('p50', float('nan')):.2f}  p95={incl.get('p95', float('nan')):.2f}  mean={incl.get('mean', float('nan')):.2f}",
+                _stat_line("DV (m/s)   ", cap.get("dv", {}), "{:.1f}"),
+                _stat_line("Apo (km)   ", cap.get("apoapsis", {}), "{:.1f}"),
+                _stat_line("Peri (km)  ", cap.get("periapsis", {}), "{:.1f}"),
+                _stat_line("Incl (deg) ", cap.get("inclination", {}), "{:.2f}"),
             ]
         )
     con = summary.get("constraints", {}) or {}
@@ -331,16 +335,13 @@ class LiveDisplay:
         # are present so the operator can compare across PSO/GA/DE.
         detail_panels: list[Panel] = []
         for name in ("pso", "ga", "de"):
-            summary = (island_records.get(name) or {}).get("val_summary")
-            if not summary:
+            island_summary: dict | None = (island_records.get(name) or {}).get("val_summary")
+            if not island_summary:
                 continue
-            lines = _format_validation_summary(summary)
-            detail_panels.append(Panel(Text("\n".join(lines)), title=f"{name.upper()} validation", border_style="green"))
+            detail_lines = _format_validation_summary(island_summary)
+            detail_panels.append(Panel(Text("\n".join(detail_lines)), title=f"{name.upper()} validation", border_style="green"))
 
-        if detail_panels:
-            group = Group(header, Columns(panels), Columns(detail_panels), mig_panel)
-        else:
-            group = Group(header, Columns(panels), mig_panel)
+        group = Group(header, Columns(panels), Columns(detail_panels), mig_panel) if detail_panels else Group(header, Columns(panels), mig_panel)
         self._live.update(group)
 
     def update(self, logger: TrainingLogger, current_run: int, island_records: dict[str, dict] | None = None) -> None:
