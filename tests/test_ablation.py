@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
+
+import pytest
 
 from aerocapture.training.ablation import _DV_TOTAL_COL, NN_INPUT_NAMES
 from aerocapture.training.charts_ablation import chart_ablation_bar
@@ -50,3 +53,18 @@ def test_ablation_chart_negative_deltas() -> None:
         path = str(Path(tmpdir) / "neg.svg")
         chart_ablation_bar(ranked, path)
         assert Path(path).exists()
+
+
+@pytest.mark.slow
+def test_run_flip_ablation_structure() -> None:
+    model = "training_output/neural_network_scaledpi_pso/best_model.json"
+    if not os.path.exists(model):
+        pytest.skip("scaledpi model not present")
+    import aerocapture_rs  # noqa: F401  (skip cleanly if binding missing)
+
+    from aerocapture.training.ablation import run_flip_ablation
+
+    out = run_flip_ablation("configs/training/msr_aller_nn_scaledpi_train.toml", n_sims=8, flip_indices=(15,))
+    fv = sorted(r["frozen_value"] for r in out["results"])
+    assert fv == [-1.0, 1.0]  # bounce_flag frozen at both phases
+    assert all(isinstance(r["delta"], float) for r in out["results"])

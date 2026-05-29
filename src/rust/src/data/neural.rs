@@ -1139,6 +1139,8 @@ struct NnJsonFileV2 {
     #[serde(default)]
     ablated_input: Option<usize>,
     #[serde(default)]
+    ablated_value: f64,
+    #[serde(default)]
     output_param: OutputParam,
     #[serde(default = "default_scaled_pi_n")]
     scaled_pi_n: f64,
@@ -1164,9 +1166,15 @@ pub struct NeuralNetModel {
     /// Optional input selection mask: indices into the full 32-input vector.
     /// Length must equal layer_sizes[0]. None means use inputs as-is.
     pub input_mask: Option<Vec<usize>>,
-    /// Optional index of a single input to zero out (ablation analysis).
+    /// Optional index of a single input to freeze (ablation analysis).
     /// Must be in [0, NN_FULL_INPUT_SIZE). None means no ablation.
+    /// When set, `build_nn_input` overwrites `full_input[ablated_input]` with
+    /// `ablated_value` (default 0.0 => classic zero-ablation).
     pub ablated_input: Option<usize>,
+    /// Value to freeze the ablated input to. Default 0.0 (zero-ablation).
+    /// Used for flip-ablation: freeze a binary ±1 flag to -1 / +1 instead of
+    /// an out-of-distribution 0.
+    pub ablated_value: f64,
     /// Output parameterization for the bank-angle decoder.
     /// Default: `Atan2Signed` (2-output atan2, backward-compatible).
     pub output_param: OutputParam,
@@ -1369,6 +1377,8 @@ impl NeuralNetModel {
             layers,
             input_mask: file.input_mask,
             ablated_input: file.ablated_input,
+            // v1 schema has no ablated_value; classic zero-ablation.
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
@@ -2000,6 +2010,7 @@ impl NeuralNetModel {
             layers,
             input_mask: file.input_mask,
             ablated_input: file.ablated_input,
+            ablated_value: file.ablated_value,
             output_param: file.output_param,
             scaled_pi_n: file.scaled_pi_n,
             delta_max: file.delta_max,
@@ -2077,6 +2088,7 @@ impl NeuralNetModel {
             weights,
             input_mask: self.input_mask.clone(),
             ablated_input: self.ablated_input,
+            ablated_value: self.ablated_value,
             output_param: self.output_param,
             scaled_pi_n: self.scaled_pi_n,
             delta_max: self.delta_max,
@@ -2219,6 +2231,7 @@ impl NeuralNetModel {
             layers,
             input_mask: None,
             ablated_input: None,
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
@@ -2436,6 +2449,7 @@ impl NeuralNetModel {
             layers,
             input_mask,
             ablated_input: None,
+            ablated_value: 0.0,
             output_param,
             scaled_pi_n,
             delta_max,
@@ -2477,6 +2491,7 @@ mod tests {
             ],
             input_mask: None,
             ablated_input: None,
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
@@ -2588,6 +2603,7 @@ mod tests {
             ],
             input_mask: None,
             ablated_input: None,
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
@@ -2779,6 +2795,7 @@ mod tests {
             layers: vec![Layer::Gru(gru)],
             input_mask: None,
             ablated_input: None,
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
@@ -3007,6 +3024,7 @@ mod tests {
             layers: vec![Layer::Lstm(lstm), Layer::Dense(dense_out)],
             input_mask: None,
             ablated_input: None,
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
@@ -3198,6 +3216,7 @@ mod tests {
             ],
             input_mask: None,
             ablated_input: None,
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
@@ -3249,6 +3268,7 @@ mod tests {
             ],
             input_mask: None,
             ablated_input: None,
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
@@ -4436,6 +4456,7 @@ mod tests {
             layers,
             input_mask: None,
             ablated_input: None,
+            ablated_value: 0.0,
             output_param: OutputParam::AcosTanh,
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
@@ -4467,6 +4488,7 @@ mod tests {
             layers,
             input_mask: None,
             ablated_input: None,
+            ablated_value: 0.0,
             output_param: OutputParam::ScaledPi,
             scaled_pi_n: 2.0,
             delta_max: 0.7,

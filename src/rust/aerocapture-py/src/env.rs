@@ -350,6 +350,7 @@ fn build_obs_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -
         &nav,
         nn.input_mask.as_deref(),
         nn.ablated_input,
+        nn.ablated_value,
         data,
         planet,
         target_inclination,

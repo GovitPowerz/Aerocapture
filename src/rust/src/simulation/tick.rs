@@ -176,6 +176,7 @@ pub fn step_one_tick(
                 &nav_out,
                 Some(&FULL_MASK),
                 None, // no ablation
+                0.0,  // ablated_value (unused when ablated_input is None)
                 data,
                 planet,
                 data.target_orbit.inclination,

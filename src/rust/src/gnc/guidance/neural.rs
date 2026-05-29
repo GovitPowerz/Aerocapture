@@ -65,8 +65,10 @@ const S_PERIAPSIS_ALT: f64 = 9.158960e+05;
 /// (if configured), then applies the input_mask (or legacy [0..16] default).
 /// Returns the masked `Vec<f64>` ready for `nn.forward()`.
 ///
-/// `input_mask` and `ablated_input` are taken directly so this function can be
-/// called without a `NeuralNetModel` (e.g. supervised-trace capture during FTC runs).
+/// `input_mask`, `ablated_input`, and `ablated_value` are taken directly so this
+/// function can be called without a `NeuralNetModel` (e.g. supervised-trace capture
+/// during FTC runs). When `ablated_input = Some(idx)`, `full_input[idx]` is frozen
+/// to `ablated_value` (0.0 => classic zero-ablation; ±1 => flip-ablation).
 ///
 /// The last 4 parameters (`prev_inclination_error`, `prev_bank_signed`,
 /// `time_since_last_sign_flip`, `inclination_error_integral`) populate indices
@@ -81,6 +83,7 @@ pub fn build_nn_input(
     nav: &NavigationOutput,
     input_mask: Option<&[usize]>,
     ablated_input: Option<usize>,
+    ablated_value: f64,
     data: &SimData,
     planet: &PlanetConfig,
     target_inclination: f64,
@@ -197,9 +200,10 @@ pub fn build_nn_input(
     // -- Periapsis altitude (index 31), asinh signed-log scaled --
     full_input[31] = (orbit.periapsis_alt / S_PERIAPSIS_ALT).asinh(); // periapsis altitude
 
-    // Apply ablation: zero out a single input for sensitivity analysis
+    // Apply ablation: freeze a single input to `ablated_value` (default 0.0 =>
+    // classic zero-ablation; flip-ablation freezes a binary ±1 flag to -1 / +1).
     if let Some(idx) = ablated_input {
-        full_input[idx] = 0.0;
+        full_input[idx] = ablated_value;
     }
 
     // Apply input mask: select subset of inputs, or default to first 16 for backward compat
@@ -243,6 +247,7 @@ pub fn nn_bank_angle(
         nav,
         nn.input_mask.as_deref(),
         nn.ablated_input,
+        nn.ablated_value,
         data,
         planet,
         target_inclination,
@@ -421,6 +426,8 @@ mod tests {
             })],
             input_mask: None,
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
@@ -553,6 +560,8 @@ mod tests {
             layers: vec![layer0, layer1],
             input_mask: None,
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
@@ -633,6 +642,8 @@ mod tests {
             layers: vec![layer0, layer1],
             input_mask: None,
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
@@ -686,6 +697,8 @@ mod tests {
             })],
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
@@ -742,6 +755,8 @@ mod tests {
             })],
             input_mask: Some(vec![0, 8, 15]),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
@@ -760,6 +775,7 @@ mod tests {
             &nav,
             Some(&full_mask),
             None,
+            0.0,
             &data,
             &planet,
             target_inc,
@@ -821,6 +837,8 @@ mod tests {
             })],
             input_mask: None,
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
@@ -840,6 +858,8 @@ mod tests {
             })],
             input_mask: None,
             ablated_input: Some(0),
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
@@ -904,6 +924,8 @@ mod tests {
             })],
             input_mask: Some((0..16).collect()),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
@@ -957,6 +979,8 @@ mod tests {
             })],
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
@@ -1003,6 +1027,7 @@ mod tests {
             &nav,
             Some(&full_mask),
             None,
+            0.0,
             &data,
             &planet,
             50.0_f64.to_radians(),
@@ -1045,6 +1070,7 @@ mod tests {
             &nav,
             Some(&full_mask),
             None,
+            0.0,
             &data,
             &planet,
             target,
@@ -1078,6 +1104,7 @@ mod tests {
                 &nav,
                 Some(&full_mask),
                 None,
+                0.0,
                 &data,
                 &planet,
                 target,
@@ -1106,6 +1133,7 @@ mod tests {
                 &nav,
                 Some(&full_mask),
                 None,
+                0.0,
                 &data,
                 &planet,
                 target,
@@ -1134,6 +1162,7 @@ mod tests {
             &nav,
             Some(&full_mask),
             None,
+            0.0,
             &data,
             &planet,
             target,
@@ -1151,6 +1180,7 @@ mod tests {
             &nav,
             Some(&full_mask),
             None,
+            0.0,
             &data,
             &planet,
             target,
@@ -1180,6 +1210,7 @@ mod tests {
             &nav,
             Some(&mask_21),
             None,
+            0.0,
             &data,
             &planet,
             target,
@@ -1194,6 +1225,7 @@ mod tests {
             &nav,
             Some(&mask_21),
             None,
+            0.0,
             &data,
             &planet,
             target,
@@ -1223,6 +1255,7 @@ mod tests {
             &nav,
             None,
             None,
+            0.0,
             &data,
             &planet,
             0.0,
@@ -1251,6 +1284,7 @@ mod tests {
             &nav,
             Some(&mask),
             None,
+            0.0,
             &data,
             &planet,
             0.0,
@@ -1284,6 +1318,8 @@ mod tests {
             })],
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::ScaledPi,
             scaled_pi_n: 2.0,
             delta_max: 0.0,
@@ -1334,6 +1370,8 @@ mod tests {
             })],
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::ScaledPi,
             scaled_pi_n: 1.5,
             delta_max: 0.0,
@@ -1391,6 +1429,8 @@ mod tests {
             })],
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::Delta,
             scaled_pi_n: 1.0,
             delta_max: 0.2,
@@ -1448,6 +1488,8 @@ mod tests {
             })],
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::Delta,
             scaled_pi_n: 1.0,
             delta_max: 0.5,
@@ -1511,6 +1553,8 @@ mod tests {
                 })],
                 input_mask: None,
                 ablated_input: None,
+
+                ablated_value: 0.0,
                 output_param: OutputParam::default(),
                 scaled_pi_n: 1.0,
                 delta_max: 0.35,
@@ -1573,6 +1617,8 @@ mod tests {
                 })],
                 input_mask: None,
                 ablated_input: None,
+
+                ablated_value: 0.0,
                 output_param: OutputParam::AcosTanh,
                 scaled_pi_n: 1.0,
                 delta_max: 0.35,
@@ -1622,6 +1668,7 @@ mod tests {
             &nav,
             Some(&mask),
             None,
+            0.0,
             &data,
             &planet,
             0.0,
@@ -1644,6 +1691,55 @@ mod tests {
     }
 
     #[test]
+    fn ablated_value_freezes_input_to_constant() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        // freeze index 2 to 0.7
+        let v = build_nn_input(
+            &nav,
+            Some(&mask),
+            Some(2),
+            0.7,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            0.0,
+        );
+        assert!((v[2] - 0.7).abs() < 1e-12);
+    }
+
+    #[test]
+    fn ablated_value_default_zero_matches_old_zeroing() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let v = build_nn_input(
+            &nav,
+            Some(&mask),
+            Some(2),
+            0.0,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            0.0,
+        );
+        assert_eq!(v[2], 0.0);
+    }
+
+    #[test]
     fn default_mask_path_still_16() {
         let nav = test_nav();
         let data = test_sim_data_with_ref_traj();
@@ -1652,6 +1748,7 @@ mod tests {
             &nav,
             None,
             None,
+            0.0,
             &data,
             &planet,
             0.0,
@@ -1675,6 +1772,7 @@ mod tests {
             &nav,
             Some(&mask),
             None,
+            0.0,
             &data,
             &planet,
             0.0,

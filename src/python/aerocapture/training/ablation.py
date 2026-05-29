@@ -187,6 +187,57 @@ def run_ablation(
     }
 
 
+# bounce_flag is the canonical binary ±1 flag (index 15).
+_DEFAULT_FLIP_INDICES = (15,)
+
+
+def run_flip_ablation(
+    toml_path: str,
+    n_sims: int = 1000,
+    flip_indices: tuple[int, ...] = _DEFAULT_FLIP_INDICES,
+    sim_timeout_secs: float | None = None,
+) -> dict:
+    """Freeze each flip index to -1 and +1 (vs the network's normal ±1 flag),
+    measuring cost delta for each frozen value separately. Unlike zero-ablation,
+    this avoids feeding an out-of-distribution 0 to a binary flag, isolating the
+    phase-gating effect from the OOD-zero artifact."""
+    import aerocapture_rs
+
+    nn_path = _resolve_nn_path(toml_path)
+    model_json = json.loads(nn_path.read_text())
+    cost_kwargs = _load_cost_kwargs(toml_path)
+    common_overrides: dict = {"simulation.n_sims": n_sims}
+
+    baseline = aerocapture_rs.run_mc(toml_path, overrides=common_overrides, sim_timeout_secs=sim_timeout_secs)
+    baseline_mean = _mean_per_sim_cost(baseline.final_records, cost_kwargs)
+
+    active_mask = set(model_json["input_mask"]) if model_json.get("input_mask") else None
+    results = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_model_path = Path(tmpdir) / "flip_model.json"
+        for idx in flip_indices:
+            if active_mask is not None and idx not in active_mask:
+                continue  # input not consumed by this model
+            for frozen in (-1.0, 1.0):
+                fj = copy.deepcopy(model_json)
+                fj["ablated_input"] = idx
+                fj["ablated_value"] = frozen
+                tmp_model_path.write_text(json.dumps(fj))
+                overrides = {**common_overrides, "data.neural_network": str(tmp_model_path)}
+                run = aerocapture_rs.run_mc(toml_path, overrides=overrides, sim_timeout_secs=sim_timeout_secs)
+                mean = _mean_per_sim_cost(run.final_records, cost_kwargs)
+                results.append(
+                    {
+                        "index": idx,
+                        "name": NN_INPUT_NAMES[idx],
+                        "frozen_value": frozen,
+                        "cost": mean,
+                        "delta": mean - baseline_mean,
+                    }
+                )
+    return {"baseline_cost": baseline_mean, "n_sims": n_sims, "results": results}
+
+
 def main() -> None:
     import argparse
 
@@ -195,7 +246,21 @@ def main() -> None:
     parser.add_argument("--toml", required=True, help="TOML config path")
     parser.add_argument("--n-sims", type=int, default=1000, help="MC sims per ablation run")
     parser.add_argument("--sim-timeout", type=float, default=None, help="Per-sim timeout (seconds)")
+    parser.add_argument("--flip", action="store_true", help="freeze binary flags to -1/+1 instead of zero-ablation")
     args = parser.parse_args()
+
+    if args.flip:
+        print(f"Running flip-ablation with {args.n_sims} sims per frozen value...")
+        flip = run_flip_ablation(args.toml, args.n_sims, sim_timeout_secs=args.sim_timeout)
+        out_path = Path(args.training_dir) / "flip_ablation_results.json"
+        out_path.write_text(json.dumps(flip, indent=2))
+        print(f"\nBaseline mean cost: {flip['baseline_cost']:.4f}")
+        print(f"{'Index':<8}{'Name':<25}{'Frozen':>10}{'Delta':>12}")
+        print("-" * 55)
+        for r in flip["results"]:
+            print(f"{r['index']:<8}{r['name']:<25}{r['frozen_value']:>10.1f}{r['delta']:>12.4f}")
+        print(f"\nResults saved to {out_path}")
+        return
 
     print(f"Running ablation analysis with {args.n_sims} sims per input...")
     results = run_ablation(args.toml, args.n_sims, args.sim_timeout)
