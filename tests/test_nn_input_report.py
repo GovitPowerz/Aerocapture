@@ -16,10 +16,10 @@ def test_resolve_mask_prefers_model_json(tmp_path: Path) -> None:
 
 
 def test_resolve_mask_falls_back_to_toml(tmp_path: Path) -> None:
-    # A non-existent model path falls back to the TOML's input_mask (delta config = 29 indices).
+    # A non-existent model path falls back to the TOML's input_mask (delta config = 30 indices incl. periapsis 31).
     missing = str(tmp_path / "nope.json")
     out = _resolve_mask("configs/training/msr_aller_nn_delta_train.toml", missing)
-    assert len(out) == 29 and 30 in out
+    assert len(out) == 30 and 31 in out
 
 
 def test_classify_by_dv_threshold() -> None:
@@ -97,7 +97,7 @@ def test_run_report_smoke(tmp_path: Path) -> None:
     )
     assert (out_dir / "summary.json").exists()
     summary = _json.loads((out_dir / "summary.json").read_text())
-    assert len(summary["inputs"]) == 31
+    assert len(summary["inputs"]) == 32
     assert list(out_dir.glob("nn_input_*_time.svg"))
     assert list(out_dir.glob("nn_input_*_energy.svg"))
 
