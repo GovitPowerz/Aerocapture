@@ -210,6 +210,7 @@ pub fn step_one_tick(
             state.guidance_state.last_sign_flip_time_for_nn = state.sim_time;
         }
         state.guidance_state.prev_bank_for_nn = new_bank;
+        state.guidance_state.prev_realized_bank_for_nn = state.guidance_state.bank_angle_realized;
         state.guidance_state.prev_inclination_error_for_nn = Some(current_incl_err);
         // Simple Euler integration of the inclination error, dt = guidance period.
         // No anti-windup -- the NN's tanh-bounded input 24 saturates naturally.

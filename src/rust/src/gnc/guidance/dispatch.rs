@@ -69,6 +69,9 @@ pub struct GuidanceState {
     /// Previous tick's commanded bank angle (radians, signed in [-π, π]).
     /// Surfaced as input 22 (normalized by /π) so the NN can see its own last command.
     pub prev_bank_for_nn: f64,
+    /// Previous-tick pilot-realized bank (rad). Backs the `delta` decoder base
+    /// and the prev-realized (sin,cos) NN input. Updated post-guidance in tick.rs.
+    pub prev_realized_bank_for_nn: f64,
     /// Sim time of the most recent bank-command sign flip (seconds).
     /// Surfaced via `tanh((sim_time - this) / 30)` as input 23 -- anti-chatter awareness.
     pub last_sign_flip_time_for_nn: f64,
@@ -97,6 +100,7 @@ impl GuidanceState {
             nn_state,
             prev_inclination_error_for_nn: None,
             prev_bank_for_nn: initial_bank,
+            prev_realized_bank_for_nn: initial_bank,
             last_sign_flip_time_for_nn: 0.0,
             inclination_error_integral: 0.0,
         }
@@ -510,6 +514,14 @@ mod tests {
             max_bank_acceleration: max_bank_acceleration_deg.to_radians(),
         });
         data
+    }
+
+    // ─── GuidanceState field tests ───────────────────────────────────────────
+
+    #[test]
+    fn guidance_state_inits_prev_realized_bank() {
+        let s = GuidanceState::new(0.5, 0.1, None);
+        assert_eq!(s.prev_realized_bank_for_nn, 0.5);
     }
 
     // ─── Deterministic tests ─────────────────────────────────────────────────
