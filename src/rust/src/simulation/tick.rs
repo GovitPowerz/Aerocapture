@@ -193,9 +193,11 @@ pub fn step_one_tick(
             // - Pre-shaper: the shaper runs exactly once at deploy (on the
             //   NN's output). Capturing the post-shaper value would cause
             //   double-shaping (the supervisor's command was already shaped).
-            state
-                .supervised_trace
-                .push((nn_input, guidance_out.pre_shaper_signed));
+            state.supervised_trace.push((
+                nn_input,
+                guidance_out.pre_shaper_signed,
+                state.guidance_state.prev_realized_bank_for_nn,
+            ));
         }
 
         // ── Update NN-input telemetry for the NEXT tick ──
