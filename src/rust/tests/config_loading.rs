@@ -3,6 +3,17 @@ mod common;
 use aerocapture::config::SimInput;
 use std::path::Path;
 
+/// A fragment is a base-only config: no `[mission]` section and no top-level
+/// `base` key. The `base` check is line-anchored so it doesn't false-match
+/// config keys that merely end in "base" (e.g. `pressure_coeff_base = ...`).
+fn is_fragment(raw: &str) -> bool {
+    let has_mission = raw.contains("[mission]");
+    let has_base_key = raw
+        .lines()
+        .any(|l| matches!(l.trim_start().split_once('='), Some((k, _)) if k.trim() == "base"));
+    !has_mission && !has_base_key
+}
+
 #[test]
 fn parse_ftc_consolidated_toml() {
     let path = common::config_path("nominal/msr_aller_ftc_consolidated.toml");
@@ -46,7 +57,7 @@ fn parse_all_available_configs() {
             if path.extension().is_some_and(|e| e == "toml") {
                 // Skip base-only configs (no [mission] section — they're fragments)
                 let raw = std::fs::read_to_string(&path).expect("read config");
-                if !raw.contains("[mission]") && !raw.contains("base =") {
+                if is_fragment(&raw) {
                     continue;
                 }
                 let result = SimInput::from_toml_file(&path);
@@ -75,7 +86,7 @@ fn all_configs_are_consolidated() {
             }
             // Skip base-only configs (no [mission] section — they're fragments)
             let raw = std::fs::read_to_string(&path).expect("read config");
-            if !raw.contains("[mission]") && !raw.contains("base =") {
+            if is_fragment(&raw) {
                 continue;
             }
             // Use from_toml_file to resolve base inheritance before checking
