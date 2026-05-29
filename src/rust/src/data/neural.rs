@@ -4345,6 +4345,18 @@ mod tests {
         let p2 = OutputParam::Atan2Signed;
         let s2 = serde_json::to_string(&p2).unwrap();
         assert_eq!(s2, "\"atan2_signed\"");
+
+        let p3 = OutputParam::ScaledPi;
+        let s3 = serde_json::to_string(&p3).unwrap();
+        assert_eq!(s3, "\"scaled_pi\"");
+        let back3: OutputParam = serde_json::from_str(&s3).unwrap();
+        assert_eq!(back3, p3);
+
+        let p4 = OutputParam::Delta;
+        let s4 = serde_json::to_string(&p4).unwrap();
+        assert_eq!(s4, "\"delta\"");
+        let back4: OutputParam = serde_json::from_str(&s4).unwrap();
+        assert_eq!(back4, p4);
     }
 
     #[test]
@@ -4376,6 +4388,39 @@ mod tests {
         let loaded = NeuralNetModel::load(path.to_str().unwrap()).unwrap();
 
         assert_eq!(loaded.output_param, OutputParam::AcosTanh);
+    }
+
+    #[test]
+    fn scaled_pi_knobs_persist_through_v2_json_round_trip() {
+        let arch = vec![LayerSpec::Dense {
+            input_size: 3,
+            output_size: 1,
+            activation: Activation::Tanh,
+        }];
+        let layers = vec![Layer::Dense(DenseLayer {
+            w: vec![vec![0.1, 0.2, 0.3]],
+            b: vec![0.4],
+            activation: Activation::Tanh,
+        })];
+        let original = NeuralNetModel {
+            architecture: arch,
+            layer_sizes: vec![3, 1],
+            layers,
+            input_mask: None,
+            ablated_input: None,
+            output_param: OutputParam::ScaledPi,
+            scaled_pi_n: 2.0,
+            delta_max: 0.7,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("model.json");
+        original.save_json(path.to_str().unwrap()).unwrap();
+        let loaded = NeuralNetModel::load(path.to_str().unwrap()).unwrap();
+
+        assert_eq!(loaded.output_param, OutputParam::ScaledPi);
+        assert!((loaded.scaled_pi_n - 2.0).abs() < 1e-15, "scaled_pi_n: {}", loaded.scaled_pi_n);
+        assert!((loaded.delta_max - 0.7).abs() < 1e-15, "delta_max: {}", loaded.delta_max);
     }
 
     #[test]
