@@ -2,7 +2,9 @@ import json
 import os
 import tempfile
 
-import aerocapture_rs
+import pytest
+
+aerocapture_rs = pytest.importorskip("aerocapture_rs")
 
 
 def test_flat_weights_to_json_delta_roundtrip() -> None:

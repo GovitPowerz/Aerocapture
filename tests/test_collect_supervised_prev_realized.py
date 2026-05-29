@@ -1,5 +1,7 @@
-import aerocapture_rs
 import numpy as np
+import pytest
+
+aerocapture_rs = pytest.importorskip("aerocapture_rs")
 
 
 def test_collect_supervised_emits_prev_realized() -> None:

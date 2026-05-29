@@ -1,7 +1,11 @@
 import math
 
+import pytest
 import torch
-from aerocapture.training.warm_start import encode_supervised_target
+
+pytest.importorskip("aerocapture_rs")  # warm_start raises ImportError at module load without it
+
+from aerocapture.training.warm_start import encode_supervised_target  # noqa: E402
 
 
 def test_scaled_pi_target_is_y_over_n_pi_clamped() -> None:
