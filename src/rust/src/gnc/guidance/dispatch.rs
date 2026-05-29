@@ -221,6 +221,7 @@ pub fn guidance_step(
                 let time_since_flip = sim_time - state.last_sign_flip_time_for_nn;
                 let integral = state.inclination_error_integral;
                 let ref_vel = state.reference_velocity;
+                let prev_realized = state.prev_realized_bank_for_nn;
                 let nn_state = state.nn_state.as_mut().expect(
                     "neural_network scheme requires nn_state initialized by GuidanceState::new",
                 );
@@ -236,6 +237,7 @@ pub fn guidance_step(
                     prev_bank,
                     time_since_flip,
                     integral,
+                    prev_realized,
                 );
                 // MagnitudeOnly: drop the sign and feed magnitude into the unsigned
                 // pipeline (thermal limiter + lateral guidance handle sign + safety).

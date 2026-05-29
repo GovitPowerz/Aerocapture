@@ -1146,8 +1146,9 @@ struct NnJsonFileV2 {
     delta_max: f64,
 }
 
-/// Total number of candidate NN inputs (16 baseline + 4 reference trajectory + 1 exit-bank teacher + 4 lateral-state telemetry).
-pub const NN_FULL_INPUT_SIZE: usize = 25;
+/// Total number of candidate NN inputs (16 baseline + 4 reference trajectory + 1 exit-bank teacher + 4 lateral-state telemetry
+/// + 6 (sin,cos) bank-history pairs for exit teacher / prev commanded / prev realized).
+pub const NN_FULL_INPUT_SIZE: usize = 31;
 
 /// Modular neural network model.
 ///
