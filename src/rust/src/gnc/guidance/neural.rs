@@ -1275,7 +1275,18 @@ mod tests {
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
         let b = nn_bank_angle(
-            &nav, &nn, &mut st, &data, &planet, 0.0, 0.0, Some(0.0), 0.0, 0.0, 0.0, 0.0,
+            &nav,
+            &nn,
+            &mut st,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
         );
         assert_relative_eq!(b, 0.0, epsilon = 1e-12);
         assert!(
@@ -1314,7 +1325,18 @@ mod tests {
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
         let b = nn_bank_angle(
-            &nav, &nn, &mut st, &data, &planet, 0.0, 0.0, Some(0.0), 0.0, 0.0, 0.0, 0.0,
+            &nav,
+            &nn,
+            &mut st,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
         );
         let unwrapped = 1.5 * PI * bias.tanh();
         let expected = wrap_to_pi(unwrapped);
@@ -1436,12 +1458,11 @@ mod tests {
             "Delta wrap: expected {expected}, got {b}"
         );
         // The wrapped result must be negative (folded below 0).
-        assert!(b < 0.0, "Delta wrap: result should be negative after wrap, got {b}");
         assert!(
-            b > -PI && b <= PI,
-            "Delta output must be in (-π, π]: {}",
-            b
+            b < 0.0,
+            "Delta wrap: result should be negative after wrap, got {b}"
         );
+        assert!(b > -PI && b <= PI, "Delta output must be in (-π, π]: {}", b);
     }
 
     mod prop {

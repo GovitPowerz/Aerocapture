@@ -449,7 +449,8 @@ fn collect_supervised(
     let wall_timeout = sim_timeout_secs.map(std::time::Duration::from_secs_f64);
 
     // Collected outside py.detach: (seed, supervised_trace, dv_total_m_s, captured).
-    let mut per_seed: Vec<(u64, Vec<(Vec<f64>, f64, f64)>, f64, bool)> = Vec::with_capacity(seeds.len());
+    let mut per_seed: Vec<(u64, Vec<(Vec<f64>, f64, f64)>, f64, bool)> =
+        Vec::with_capacity(seeds.len());
 
     py.detach(|| {
         for seed in &seeds {

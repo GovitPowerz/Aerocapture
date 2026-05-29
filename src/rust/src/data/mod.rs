@@ -1398,12 +1398,14 @@ mod tests {
 
     #[test]
     fn scaled_pi_with_full_neural_and_tanh_accepts() {
-        assert!(validate_output_parameterization(
-            Some("scaled_pi"),
-            guidance_params::NeuralNetMode::FullNeural,
-            Some(&one_output_tanh_arch()),
-        )
-        .is_ok());
+        assert!(
+            validate_output_parameterization(
+                Some("scaled_pi"),
+                guidance_params::NeuralNetMode::FullNeural,
+                Some(&one_output_tanh_arch()),
+            )
+            .is_ok()
+        );
     }
 
     #[test]

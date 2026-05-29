@@ -3301,16 +3301,15 @@ mod tests {
         ];
         // Total param count = 0 (window) + 12*2 + 2 = 26.
         let flat: Vec<f64> = (0..26).map(|i| i as f64 * 0.01).collect();
-        let model =
-            NeuralNetModel::from_flat_weights_v2(
-                &flat,
-                &arch,
-                None,
-                OutputParam::default(),
-                default_scaled_pi_n(),
-                default_delta_max(),
-            )
-                .unwrap();
+        let model = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &arch,
+            None,
+            OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
+        )
+        .unwrap();
 
         match &model.layers[0] {
             Layer::Window(w) => {
@@ -3644,16 +3643,15 @@ mod tests {
         // Transformer: 154 params; Dense(4->2): 4*2 + 2 = 10 params
         let total = 154 + 10;
         let flat: Vec<f64> = (0..total).map(|i| (i as f64) * 0.01 + 0.5).collect();
-        let model =
-            NeuralNetModel::from_flat_weights_v2(
-                &flat,
-                &arch,
-                None,
-                OutputParam::default(),
-                default_scaled_pi_n(),
-                default_delta_max(),
-            )
-                .unwrap();
+        let model = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &arch,
+            None,
+            OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
+        )
+        .unwrap();
         let round = model.to_flat_weights();
         assert_eq!(round.len(), total);
         for (i, (a, b)) in flat.iter().zip(round.iter()).enumerate() {
@@ -4383,7 +4381,9 @@ mod tests {
     fn scaled_pi_and_delta_require_tanh_last_activation() {
         for p in [OutputParam::ScaledPi, OutputParam::Delta] {
             assert!(NeuralNetModel::validate_output_activation(Activation::Tanh, p, "<t>").is_ok());
-            assert!(NeuralNetModel::validate_output_activation(Activation::Linear, p, "<t>").is_err());
+            assert!(
+                NeuralNetModel::validate_output_activation(Activation::Linear, p, "<t>").is_err()
+            );
         }
     }
 
@@ -4478,8 +4478,16 @@ mod tests {
         let loaded = NeuralNetModel::load(path.to_str().unwrap()).unwrap();
 
         assert_eq!(loaded.output_param, OutputParam::ScaledPi);
-        assert!((loaded.scaled_pi_n - 2.0).abs() < 1e-15, "scaled_pi_n: {}", loaded.scaled_pi_n);
-        assert!((loaded.delta_max - 0.7).abs() < 1e-15, "delta_max: {}", loaded.delta_max);
+        assert!(
+            (loaded.scaled_pi_n - 2.0).abs() < 1e-15,
+            "scaled_pi_n: {}",
+            loaded.scaled_pi_n
+        );
+        assert!(
+            (loaded.delta_max - 0.7).abs() < 1e-15,
+            "delta_max: {}",
+            loaded.delta_max
+        );
     }
 
     #[test]
