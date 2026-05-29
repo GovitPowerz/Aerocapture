@@ -2,6 +2,7 @@ base = ["../missions/mars.toml", "common.toml", "nn_common.toml"]
 
 [guidance.neural_network]
 mode = "full_neural"
+scaffolding = "live"
 output_parameterization = "scaled_pi"
 scaled_pi_n = 2.0
 
@@ -26,6 +27,12 @@ activation = "swish"
 [[network.architecture]]
 type = "dense"
 input_size = 32
+output_size = 16
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 16
 output_size = 1
 activation = "tanh"
 
@@ -34,8 +41,8 @@ activation = "tanh"
 # adaptive_bounds = true
 # supervisor_schemes = ["ftc"]
 # bptt_length = 64
-# n_warm_seeds = 1
-# n_epochs = 10000
+# n_warm_seeds = 2000
+# n_epochs = 10
 # jitter = 0.02
 # cmaes_sigma0 = 0.1
 # eval_interval = 20   # 0 disables (default), N>0 = every N epochs + final epoch
