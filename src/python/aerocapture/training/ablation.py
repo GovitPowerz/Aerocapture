@@ -44,6 +44,13 @@ NN_INPUT_NAMES: list[str] = [
     "prev_bank_signed",  # 22 -- previous-tick bank command / π, in [-1, 1]
     "time_since_sign_flip",  # 23 -- tanh(seconds_since_last_flip / 30)
     "inclination_err_integral",  # 24 -- tanh(integral_deg_s / 100)
+    # ── Seam-free (sin,cos) bank-history pairs ──
+    "exit_bank_teacher_sin",  # 25
+    "exit_bank_teacher_cos",  # 26
+    "prev_bank_signed_sin",  # 27
+    "prev_bank_signed_cos",  # 28
+    "prev_realized_sin",  # 29
+    "prev_realized_cos",  # 30
 ]
 
 # Index of dv_total_m_s in the 52-column final_record array (0-based, includes sim_number).

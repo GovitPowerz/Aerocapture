@@ -1,9 +1,8 @@
+import aerocapture_rs
 import numpy as np
 
-import aerocapture_rs
 
-
-def test_collect_supervised_emits_prev_realized():
+def test_collect_supervised_emits_prev_realized() -> None:
     toml = "configs/training/msr_aller_ftc_train.toml"
     out = aerocapture_rs.collect_supervised(toml, [12345])
     assert len(out) >= 1

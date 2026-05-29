@@ -440,10 +440,7 @@ def _chunked_bptt_train(
         if "prev_realized" in traj:
             pr = np.asarray(traj["prev_realized"])
         elif output_param == "delta":
-            raise ValueError(
-                "delta warm-start requires 'prev_realized' in the supervised trajectory; "
-                "collect_supervised must emit it"
-            )
+            raise ValueError("delta warm-start requires 'prev_realized' in the supervised trajectory; collect_supervised must emit it")
         else:
             pr = np.zeros_like(y)
         # Drop non-finite rows
