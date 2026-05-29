@@ -659,7 +659,7 @@ impl SimData {
         };
 
         // Apply TOML [network] overrides to loaded NN model
-        let neural_net = match (neural_net, &toml.network) {
+        let mut neural_net = match (neural_net, &toml.network) {
             (Some(mut nn), Some(net_cfg)) => {
                 if let Some(ref mask) = net_cfg.input_mask {
                     nn.input_mask = Some(mask.clone());
@@ -675,6 +675,21 @@ impl SimData {
             (nn, _) => nn,
         };
 
+        // Apply TOML [guidance.neural_network] decoder-knob overrides onto the
+        // loaded model so the runtime honors the training-time knob even if the
+        // deployed JSON predates the field. Done before the immutable cross-check
+        // / defense-in-depth borrows below to satisfy the borrow checker.
+        if let Some(nn) = neural_net.as_mut()
+            && let Some(tnn) = &toml.guidance.neural_network
+        {
+            if let Some(n) = tnn.scaled_pi_n {
+                nn.scaled_pi_n = n;
+            }
+            if let Some(d) = tnn.delta_max {
+                nn.delta_max = d;
+            }
+        }
+
         // Cross-check TOML `[guidance.neural_network] output_parameterization`
         // against the loaded model's `output_param`. The TOML is a training-time
         // knob; the JSON model file is the deploy-time source of truth. They MUST
@@ -686,10 +701,12 @@ impl SimData {
             let toml_enum = match toml_param.as_str() {
                 "atan2_signed" => neural::OutputParam::Atan2Signed,
                 "acos_tanh" => neural::OutputParam::AcosTanh,
+                "scaled_pi" => neural::OutputParam::ScaledPi,
+                "delta" => neural::OutputParam::Delta,
                 other => {
                     return Err(DataError(format!(
                         "[guidance.neural_network] output_parameterization='{}' is not recognized; \
-                         expected 'atan2_signed' or 'acos_tanh'",
+                         expected 'atan2_signed', 'acos_tanh', 'scaled_pi', or 'delta'",
                         other
                     )));
                 }
@@ -712,16 +729,29 @@ impl SimData {
         // suppressing roll reversals. The deployed JSON is the runtime source
         // of truth, so reject this combo at data load even when the TOML key
         // is absent.
-        if let Some(nn) = &neural_net
-            && nn.output_param == neural::OutputParam::AcosTanh
-            && neural_mode != guidance_params::NeuralNetMode::MagnitudeOnly
-        {
-            return Err(DataError(
-                "loaded model has output_param='acos_tanh' which requires \
-                 [guidance.neural_network] mode='magnitude_only'; the model emits an \
-                 unsigned bank magnitude and cannot drive the signed-bank dispatch path."
-                    .to_string(),
-            ));
+        if let Some(nn) = &neural_net {
+            match nn.output_param {
+                neural::OutputParam::AcosTanh
+                    if neural_mode != guidance_params::NeuralNetMode::MagnitudeOnly =>
+                {
+                    return Err(DataError(
+                        "loaded model has output_param='acos_tanh' which requires \
+                         [guidance.neural_network] mode='magnitude_only'; the model emits an \
+                         unsigned bank magnitude and cannot drive the signed-bank dispatch path."
+                            .to_string(),
+                    ));
+                }
+                neural::OutputParam::ScaledPi | neural::OutputParam::Delta
+                    if neural_mode != guidance_params::NeuralNetMode::FullNeural =>
+                {
+                    return Err(DataError(format!(
+                        "loaded model output_param={:?} emits a signed bank and requires \
+                         [guidance.neural_network] mode='full_neural'.",
+                        nn.output_param
+                    )));
+                }
+                _ => {}
+            }
         }
 
         // Domain-based Monte Carlo config (replaces lottery files)
@@ -1012,30 +1042,50 @@ fn validate_output_parameterization(
     neural_mode: guidance_params::NeuralNetMode,
     architecture: Option<&[TomlLayerSpec]>,
 ) -> Result<(), DataError> {
-    if !matches!(output_param, Some("acos_tanh")) {
-        return Ok(());
-    }
-    if neural_mode != guidance_params::NeuralNetMode::MagnitudeOnly {
+    use guidance_params::NeuralNetMode::*;
+    let param = match output_param {
+        Some(p) => p,
+        None => return Ok(()),
+    };
+
+    // acos_tanh is a magnitude decoder; the new scaled_pi/delta are signed.
+    if param == "acos_tanh" && neural_mode != MagnitudeOnly {
         return Err(DataError(
             "output_parameterization='acos_tanh' is only legal with mode='magnitude_only' \
              (it cannot emit signed bank); use 'atan2_signed' for full_neural mode"
                 .to_string(),
         ));
     }
+    // atan2_signed has no architecture constraint and is the historical default;
+    // only the new signed decoders need the full_neural assertion here.
+    if matches!(param, "scaled_pi" | "delta") && neural_mode != FullNeural {
+        return Err(DataError(format!(
+            "output_parameterization='{}' is only legal with mode='full_neural' \
+             (it emits a signed bank; magnitude_only expects an unsigned magnitude)",
+            param
+        )));
+    }
+
+    // Single-output tanh-head decoders share the architecture constraints.
+    let needs_single_tanh = matches!(param, "acos_tanh" | "scaled_pi" | "delta");
+    if !needs_single_tanh {
+        return Ok(());
+    }
+
     let arch = architecture.ok_or_else(|| {
-        DataError(
-            "output_parameterization='acos_tanh' requires v2 [[network.architecture]] entries; \
+        DataError(format!(
+            "output_parameterization='{}' requires v2 [[network.architecture]] entries; \
              v1 layer_sizes/activations is not supported. Convert your config to use \
-             [[network.architecture]] with last-layer output_size=1, activation='tanh'."
-                .to_string(),
-        )
+             [[network.architecture]] with last-layer output_size=1, activation='tanh'.",
+            param
+        ))
     })?;
     {
         let last = arch.last().ok_or_else(|| {
-            DataError(
-                "output_parameterization='acos_tanh' requires [[network.architecture]] entries"
-                    .to_string(),
-            )
+            DataError(format!(
+                "output_parameterization='{}' requires [[network.architecture]] entries",
+                param
+            ))
         })?;
         match last {
             TomlLayerSpec::Dense {
@@ -1045,23 +1095,24 @@ fn validate_output_parameterization(
             } => {
                 if *output_size != 1 {
                     return Err(DataError(format!(
-                        "output_parameterization='acos_tanh' requires last layer \
-                         output_size=1, got {output_size}"
+                        "output_parameterization='{}' requires last layer \
+                         output_size=1, got {output_size}",
+                        param
                     )));
                 }
                 if activation.as_str() != "tanh" {
                     return Err(DataError(format!(
-                        "output_parameterization='acos_tanh' requires last-layer \
+                        "output_parameterization='{}' requires last-layer \
                          activation='tanh', got {:?}",
-                        activation
+                        param, activation
                     )));
                 }
             }
             _ => {
-                return Err(DataError(
-                    "output_parameterization='acos_tanh' requires last layer to be dense"
-                        .to_string(),
-                ));
+                return Err(DataError(format!(
+                    "output_parameterization='{}' requires last layer to be dense",
+                    param
+                )));
             }
         }
     }
@@ -1292,5 +1343,69 @@ mod tests {
             "expected architecture hint, got: {}",
             msg
         );
+    }
+
+    fn one_output_tanh_arch() -> Vec<TomlLayerSpec> {
+        valid_arch_1out_tanh()
+    }
+
+    fn one_output_linear_arch() -> Vec<TomlLayerSpec> {
+        vec![
+            TomlLayerSpec::Dense {
+                input_size: 16,
+                output_size: 32,
+                activation: "tanh".to_string(),
+            },
+            TomlLayerSpec::Dense {
+                input_size: 32,
+                output_size: 1,
+                activation: "linear".to_string(),
+            },
+        ]
+    }
+
+    #[test]
+    fn scaled_pi_with_magnitude_only_rejects() {
+        let err = validate_output_parameterization(
+            Some("scaled_pi"),
+            guidance_params::NeuralNetMode::MagnitudeOnly,
+            Some(&one_output_tanh_arch()),
+        )
+        .unwrap_err();
+        assert!(err.0.contains("scaled_pi") && err.0.contains("full_neural"));
+    }
+
+    #[test]
+    fn delta_with_magnitude_only_rejects() {
+        let err = validate_output_parameterization(
+            Some("delta"),
+            guidance_params::NeuralNetMode::MagnitudeOnly,
+            Some(&one_output_tanh_arch()),
+        )
+        .unwrap_err();
+        assert!(err.0.contains("delta") && err.0.contains("full_neural"));
+    }
+
+    #[test]
+    fn delta_with_full_neural_and_tanh_accepts() {
+        assert!(
+            validate_output_parameterization(
+                Some("delta"),
+                guidance_params::NeuralNetMode::FullNeural,
+                Some(&one_output_tanh_arch()),
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn scaled_pi_with_linear_last_activation_rejects() {
+        let err = validate_output_parameterization(
+            Some("scaled_pi"),
+            guidance_params::NeuralNetMode::FullNeural,
+            Some(&one_output_linear_arch()),
+        )
+        .unwrap_err();
+        assert!(err.0.contains("tanh") || err.0.contains("activation"));
     }
 }
