@@ -27,7 +27,7 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
         ],
         input_mask=list(range(21)),
         output_parameterization="acos_tanh",
-        optimize_scaffolding=False,
+        scaffolding="off",
         warm_start_from=str(ftc_params),
     )
     cfg.sim.toml_config = "configs/training/msr_aller_ftc_train.toml"
@@ -153,18 +153,17 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
 
 
 @pytest.mark.slow
-def test_warm_start_atan2_signed_with_optimize_scaffolding(tmp_path: Path) -> None:
-    """Coverage for the gru_pso production path: atan2_signed + scaffolding.
+def test_warm_start_atan2_signed_with_full_scaffolding(tmp_path: Path) -> None:
+    """Coverage for the gru_pso production path: atan2_signed + full scaffolding.
 
-    The original smoke covered only (acos_tanh, optimize_scaffolding=False).
-    The gru_pso production config uses (atan2_signed, optimize_scaffolding=True),
-    so it has been silently uncovered. This test exercises both knobs.
+    The original smoke covered only (acos_tanh, scaffolding="off").
+    This test exercises scaffolding="full" (17-param tail).
 
     Asserts:
     - chromosome shape includes the 17 scaffolding params at the tail
     - all values in [0, 1]
     - cache files exist
-    - cache key includes optimize_scaffolding (regression for fix #4)
+    - cache key includes scaffolding (regression for fix #4)
     """
     repo_root = Path(__file__).parents[1]
     ftc_params = repo_root / "training_output" / "ftc" / "best_params.json"
@@ -185,7 +184,7 @@ def test_warm_start_atan2_signed_with_optimize_scaffolding(tmp_path: Path) -> No
         ],
         input_mask=list(range(21)),
         output_parameterization="atan2_signed",
-        optimize_scaffolding=True,
+        scaffolding="full",
         warm_start_from=str(ftc_params),
     )
     cfg.sim.toml_config = "configs/training/msr_aller_ftc_train.toml"
@@ -211,7 +210,7 @@ def test_warm_start_atan2_signed_with_optimize_scaffolding(tmp_path: Path) -> No
     cache_key_path = Path(cfg.save_dir) / "warm_start_cache_key.json"
     assert cache_key_path.exists()
     cache_key = _json.loads(cache_key_path.read_text())
-    # Regression for fix #4: optimize_scaffolding must appear in the cache key.
-    assert "optimize_scaffolding" in cache_key, f"cache key missing optimize_scaffolding: {cache_key}"
-    assert cache_key["optimize_scaffolding"] is True
+    # Regression for fix #4: scaffolding must appear in the cache key.
+    assert "scaffolding" in cache_key, f"cache key missing scaffolding: {cache_key}"
+    assert cache_key["scaffolding"] == "full"
     assert cache_key["output_parameterization"] == "atan2_signed"

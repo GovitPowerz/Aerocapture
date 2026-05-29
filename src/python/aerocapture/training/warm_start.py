@@ -38,17 +38,18 @@ def _cache_key(
     mode: str,
     base_mc_seed: int,
 ) -> dict:
-    # `optimize_scaffolding` and `toml_config` MUST be in the key:
-    # - `optimize_scaffolding` flips the cached chromosome width (NN weights
-    #   alone vs NN weights + 17 scaffolding slots). Caching across the flip
-    #   silently corrupts the initial population in train.py.
+    # `scaffolding` and `toml_config` MUST be in the key:
+    # - `scaffolding` flips the cached chromosome width (off→NN weights only,
+    #   live→NN weights + 3 nav/shaping slots, full→NN weights + 17 slots).
+    #   Caching across a mode change silently corrupts the initial population in train.py.
     # - `toml_config` drives the supervised dataset (mission, dispersions,
     #   constraint limits). Different TOMLs with the same architecture would
     #   otherwise collide on the cache.
     #
     # Note: scaffolding_source_{path,mtime} are tracked even though train.py
-    # overwrites the cached scaffolding tail with build_scaffolding_initial_slab.
-    # Intentional: conservative cache invalidation; FTC retraining is rare.
+    # rebuilds the scaffolding tail from the source ("full":
+    # build_scaffolding_initial_slab; "live": build_default_scaffolding_slab) --
+    # the source mtime is still tracked for conservative cache invalidation.
     # Track mtime of the leaf TOML so in-place edits invalidate the cache.
     # In-place edits change `[monte_carlo]`, `[flight.constraints]`,
     # `[onboard_atmosphere]`, `[navigation]`, etc., all of which affect the
@@ -70,7 +71,7 @@ def _cache_key(
         "architecture": cfg.network.architecture,
         "input_mask": cfg.network.input_mask,
         "output_parameterization": cfg.network.output_parameterization or "atan2_signed",
-        "optimize_scaffolding": bool(cfg.network.optimize_scaffolding),
+        "scaffolding": cfg.network.scaffolding,
         "toml_config": toml_path_str,
         "toml_config_mtime": toml_mtime,
         "supervisor_schemes": list(cfg.warm_start.supervisor_schemes),
@@ -639,7 +640,7 @@ def build_warm_start_chromosome(
     Configuration is fully read from cfg.warm_start (supervisor_schemes,
     bptt_length, n_warm_seeds, n_epochs, bound_multiplier, adaptive_bounds,
     params_paths) and cfg.network (architecture, input_mask,
-    output_parameterization, optimize_scaffolding, warm_start_from for the
+    output_parameterization, scaffolding, warm_start_from for the
     scaffolding source).
 
     `base_mc_seed` MUST be the resolved value train.py uses for
@@ -648,9 +649,9 @@ def build_warm_start_chromosome(
 
     Returns:
         Tuple of (chromosome, weight_specs) where:
-          - chromosome: normalized [0, 1] vector of length n_weights (+ 17 if
-            optimize_scaffolding). Row-0 anchor for the PSO/GA/DE initial
-            population.
+          - chromosome: normalized [0, 1] vector of length n_weights (+ len(pack)
+            slots when scaffolding != "off": 3 for "live", 17 for "full").
+            Row-0 anchor for the PSO/GA/DE initial population.
           - weight_specs: the ParamSpec list for the NN-WEIGHT slab (no
             scaffolding). When `cfg.warm_start.adaptive_bounds` is True
             (default), these carry per-layer-slab adaptive bounds derived
@@ -676,7 +677,7 @@ def build_warm_start_chromosome(
             )
         resolved_paths[scheme] = path
 
-    # Scaffolding source (for the 17-slot tail when optimize_scaffolding)
+    # Scaffolding source (for the tail when scaffolding != "off")
     scaffolding_source_path = Path(network.warm_start_from) if network.warm_start_from else resolved_paths[ws.supervisor_schemes[0]]
     if not scaffolding_source_path.exists():
         raise FileNotFoundError(f"scaffolding source params not found at '{scaffolding_source_path}'")
@@ -844,10 +845,16 @@ def build_warm_start_chromosome(
         print(f"  [warm_start] {n_clipped}/{len(weight_specs)} weights clipped ({100 * clip_rate:.2f}%).")
 
     chromo = weight_chromo
-    if network.optimize_scaffolding:
-        with open(scaffolding_source_path) as f:
-            scaff_params = json.load(f)
-        scaff_chromo = encode_to_normalized(scaff_params, list(_NN_SCAFFOLDING_PARAMS))
+    if network.scaffolding != "off":
+        from aerocapture.training.param_spaces import active_scaffolding_specs
+
+        pack = active_scaffolding_specs(network.scaffolding)
+        if network.scaffolding == "full":
+            with open(scaffolding_source_path) as f:
+                scaff_params = json.load(f)
+        else:  # live: seed the 3-param tail from defaults, no FTC source needed.
+            scaff_params = {s.name: s.default for s in pack}
+        scaff_chromo = encode_to_normalized(scaff_params, list(pack))
         chromo = np.concatenate([weight_chromo, scaff_chromo])
 
     np.save(save_dir / "warm_start_chromosome.npy", chromo)
