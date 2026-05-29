@@ -226,14 +226,10 @@ def test_problem_n_nn_weight_specs_off_and_full() -> None:
     base_specs = [ParamSpec(f"w{i}", -1.0, 1.0, 0.0) for i in range(5)]
 
     net_off = NetworkConfig(architecture=arch, scaffolding="off")
-    prob_off = AerocaptureProblem(
-        param_specs=base_specs, toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="neural_network", nn_config=net_off
-    )
+    prob_off = AerocaptureProblem(param_specs=base_specs, toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="neural_network", nn_config=net_off)
     assert prob_off._n_nn_weight_specs == 5
 
     net_full = NetworkConfig(architecture=arch, scaffolding="full")
     full_specs = [*base_specs, *_NN_SCAFFOLDING_PARAMS]
-    prob_full = AerocaptureProblem(
-        param_specs=full_specs, toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="neural_network", nn_config=net_full
-    )
+    prob_full = AerocaptureProblem(param_specs=full_specs, toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="neural_network", nn_config=net_full)
     assert prob_full._n_nn_weight_specs == len(base_specs)
