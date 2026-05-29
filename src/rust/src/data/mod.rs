@@ -1033,8 +1033,6 @@ fn build_dispersion_config(
     })
 }
 
-/// Parse a data file, skipping comment/header lines.
-///
 /// Validate `output_parameterization` against mode and architecture constraints.
 /// Extracted so tests can call it directly without a full `TomlConfig`.
 fn validate_output_parameterization(
@@ -1396,6 +1394,16 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn scaled_pi_with_full_neural_and_tanh_accepts() {
+        assert!(validate_output_parameterization(
+            Some("scaled_pi"),
+            guidance_params::NeuralNetMode::FullNeural,
+            Some(&one_output_tanh_arch()),
+        )
+        .is_ok());
     }
 
     #[test]
