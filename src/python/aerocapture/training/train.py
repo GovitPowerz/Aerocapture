@@ -775,6 +775,14 @@ def train(
             from aerocapture.training.param_spaces import active_scaffolding_specs
 
             param_specs = [*param_specs, *active_scaffolding_specs(config.network.scaffolding)]
+            if verbose:
+                if config.network.scaffolding == "live":
+                    print("scaffolding optimization: LIVE — 3 params (nav density filter ×2, command shaping); no FTC dependency")
+                else:  # full
+                    print("scaffolding optimization: FULL — 17 params, seeded from training_output/ftc/best_params.json")
+        else:
+            if verbose and config.network.architecture is not None:
+                print("scaffolding optimization: OFF — NN weights only")
     elif config.guidance_type == "piecewise_constant":
         from aerocapture.training.param_spaces import make_piecewise_constant_specs
 
