@@ -30,6 +30,10 @@
 //! - `AcosTanh`: network emits 1 output through a `tanh` last layer (so
 //!   `out[0] ∈ [-1, 1]`); bank magnitude is `out[0].acos() ∈ [0, π]`.
 //!   Only legal in `magnitude_only` mode.
+//! - `ScaledPi`: 1 tanh output; `bank = wrap_to_pi(scaled_pi_n * π * out[0]) ∈ (-π, π]`.
+//!   Only legal in `full_neural` mode.
+//! - `Delta`: 1 tanh output; `bank = wrap_to_pi(prev_realized + delta_max * out[0]) ∈ (-π, π]`.
+//!   Only legal in `full_neural` mode.
 
 use crate::config::PlanetConfig;
 use crate::data::SimData;
@@ -42,7 +46,7 @@ use crate::orbit::elements;
 
 /// Build the masked NN input vector from navigation state.
 ///
-/// Constructs the full 25-element candidate input vector, applies ablation zeroing
+/// Constructs the full 31-element candidate input vector, applies ablation zeroing
 /// (if configured), then applies the input_mask (or legacy [0..16] default).
 /// Returns the masked `Vec<f64>` ready for `nn.forward()`.
 ///
@@ -1282,6 +1286,55 @@ mod tests {
     }
 
     #[test]
+    fn scaled_pi_wraps_when_product_exceeds_pi() {
+        use crate::gnc::control::angle_utils::wrap_to_pi;
+        use std::f64::consts::PI;
+        // n=1.5, large positive bias → tanh(bias) ≈ 1.0 → raw = 1.5*π ≈ 4.71 > π → must wrap.
+        let bias = 20.0_f64;
+        let nn = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: 31,
+                output_size: 1,
+                activation: Activation::Tanh,
+            }],
+            layer_sizes: vec![31, 1],
+            layers: vec![Layer::Dense(DenseLayer {
+                w: vec![vec![0.0; 31]],
+                b: vec![bias],
+                activation: Activation::Tanh,
+            })],
+            input_mask: Some((0..31).collect()),
+            ablated_input: None,
+            output_param: OutputParam::ScaledPi,
+            scaled_pi_n: 1.5,
+            delta_max: 0.0,
+        };
+        let mut st = NnState::for_model(&nn);
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let b = nn_bank_angle(
+            &nav, &nn, &mut st, &data, &planet, 0.0, 0.0, Some(0.0), 0.0, 0.0, 0.0, 0.0,
+        );
+        let unwrapped = 1.5 * PI * bias.tanh();
+        let expected = wrap_to_pi(unwrapped);
+        assert!(
+            (b - expected).abs() < 1e-9,
+            "ScaledPi wrap: expected {expected}, got {b}"
+        );
+        assert!(
+            b > -PI && b <= PI,
+            "ScaledPi output must be in (-π, π]: {}",
+            b
+        );
+        // Confirm wrapping actually changed the value (unwrapped > π, wrapped < 0).
+        assert!(
+            (b - unwrapped).abs() > 1e-9,
+            "wrap_to_pi did not change the value: unwrapped={unwrapped}, wrapped={b}"
+        );
+    }
+
+    #[test]
     fn delta_integrates_on_prev_realized_bounded_and_wrapped() {
         // delta_max=0.2, bias=5 → tanh(5)≈1 → step ≈ +0.2 added to prev_realized=1.0
         let nn = NeuralNetModel {
@@ -1329,6 +1382,64 @@ mod tests {
         assert!(
             b > -std::f64::consts::PI && b <= std::f64::consts::PI,
             "Delta output must be wrapped to (-π, π]: {}",
+            b
+        );
+    }
+
+    #[test]
+    fn delta_wraps_when_sum_exceeds_pi() {
+        use crate::gnc::control::angle_utils::wrap_to_pi;
+        use std::f64::consts::PI;
+        // prev_realized = π - 0.1, delta_max = 0.5, large bias → tanh ≈ 1.0
+        // raw sum ≈ π - 0.1 + 0.5 = π + 0.4 > π → must wrap to negative.
+        let bias = 20.0_f64;
+        let prev_realized = PI - 0.1;
+        let nn = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: 31,
+                output_size: 1,
+                activation: Activation::Tanh,
+            }],
+            layer_sizes: vec![31, 1],
+            layers: vec![Layer::Dense(DenseLayer {
+                w: vec![vec![0.0; 31]],
+                b: vec![bias],
+                activation: Activation::Tanh,
+            })],
+            input_mask: Some((0..31).collect()),
+            ablated_input: None,
+            output_param: OutputParam::Delta,
+            scaled_pi_n: 1.0,
+            delta_max: 0.5,
+        };
+        let mut st = NnState::for_model(&nn);
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let b = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut st,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.0,
+            0.0,
+            0.0,
+            prev_realized,
+        );
+        let expected = wrap_to_pi(prev_realized + 0.5 * bias.tanh());
+        assert!(
+            (b - expected).abs() < 1e-9,
+            "Delta wrap: expected {expected}, got {b}"
+        );
+        // The wrapped result must be negative (folded below 0).
+        assert!(b < 0.0, "Delta wrap: result should be negative after wrap, got {b}");
+        assert!(
+            b > -PI && b <= PI,
+            "Delta output must be in (-π, π]: {}",
             b
         );
     }
