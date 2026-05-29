@@ -1,0 +1,49 @@
+base = ["../missions/mars.toml", "common.toml", "nn_common.toml"]
+
+[guidance.neural_network]
+mode = "full_neural"
+output_parameterization = "delta"
+delta_max = 0.35
+
+[data]
+neural_network = "training_output/neural_network_delta_pso/best_model.json"
+results_suffix = ".train_delta_pso"
+
+[network]
+# 29 inputs: 16 baseline (0-15) + 4 ref-traj (16-19) + 3 lateral telemetry
+# (21 incl_err_rate, 23 time-since-flip, 24 incl_err_integral) + 6 seam-free
+# (sin,cos) bank-history pairs (25/26 exit-teacher, 27/28 prev-commanded,
+# 29/30 prev-realized). The seamed single-angle inputs 20/22 are intentionally
+# dropped in favor of their (sin,cos) pairs.
+input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 23, 24, 25, 26, 27, 28, 29, 30]
+
+[[network.architecture]]
+type = "dense"
+input_size = 29
+output_size = 32
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 32
+output_size = 1
+activation = "tanh"
+
+# [warm_start]
+# minibatch_size = 1024
+# adaptive_bounds = true
+# supervisor_schemes = ["ftc"]
+# bptt_length = 64
+# n_warm_seeds = 1
+# n_epochs = 10000
+# jitter = 0.02
+# cmaes_sigma0 = 0.1
+# eval_interval = 20   # 0 disables (default), N>0 = every N epochs + final epoch
+
+# [warm_start.adam]
+# lr = 3e-4
+# beta1 = 0.6
+# beta2 = 0.999
+# eps = 1e-8
+# weight_decay = 1e-4
+# amsgrad = true

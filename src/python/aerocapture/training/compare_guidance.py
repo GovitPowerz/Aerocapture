@@ -9,7 +9,8 @@ Usage:
         --n-sims 500 \
         --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network \
             neural_network_gru_pso neural_network_gru_ppo \
-            neural_network_lstm_pso neural_network_lstm_ppo piecewise_constant
+            neural_network_lstm_pso neural_network_lstm_ppo \
+            neural_network_scaledpi_pso neural_network_delta_pso piecewise_constant
 """
 
 from __future__ import annotations
@@ -41,6 +42,8 @@ SCHEMES = [
     "neural_network_window_pso",
     "neural_network_transformer_pso",
     "neural_network_mamba_pso",
+    "neural_network_scaledpi_pso",
+    "neural_network_delta_pso",
     "neural_network_joint",
     "piecewise_constant",
 ]
@@ -64,6 +67,8 @@ SCHEME_TRAINING_CONFIGS: dict[str, str] = {
     "neural_network_window_pso": "configs/training/msr_aller_window_pso_train.toml",
     "neural_network_transformer_pso": "configs/training/msr_aller_transformer_pso_train.toml",
     "neural_network_mamba_pso": "configs/training/msr_aller_mamba_pso_train.toml",
+    "neural_network_scaledpi_pso": "configs/training/msr_aller_nn_scaledpi_train.toml",
+    "neural_network_delta_pso": "configs/training/msr_aller_nn_delta_train.toml",
     "neural_network_joint": "configs/training/msr_aller_nn_joint_train.toml",
     "piecewise_constant": "configs/training/msr_aller_piecewise_constant_train.toml",
 }
@@ -81,6 +86,8 @@ _NN_DEPLOY_SCHEMES = {
     "neural_network_window_pso",
     "neural_network_transformer_pso",
     "neural_network_mamba_pso",
+    "neural_network_scaledpi_pso",
+    "neural_network_delta_pso",
     "neural_network_joint",
 }
 
