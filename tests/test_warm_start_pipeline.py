@@ -214,3 +214,78 @@ def test_warm_start_atan2_signed_with_full_scaffolding(tmp_path: Path) -> None:
     assert "scaffolding" in cache_key, f"cache key missing scaffolding: {cache_key}"
     assert cache_key["scaffolding"] == "full"
     assert cache_key["output_parameterization"] == "atan2_signed"
+
+
+@pytest.mark.slow
+def test_warm_start_with_live_scaffolding(tmp_path: Path) -> None:
+    """Coverage for full_neural + live scaffolding (3-param nav/shaping tail).
+
+    Mirrors test_warm_start_atan2_signed_with_full_scaffolding but with
+    scaffolding="live".  The chromosome tail must be the 3 encoded defaults
+    of _NN_LIVE_PARAMS (no FTC source read for the tail itself), but the
+    supervisor collect pass still requires the FTC params file.
+
+    Asserts:
+    - chromosome length == n_weights + 3
+    - tail encodes the active_scaffolding_specs("live") defaults
+    - all values in [0, 1]
+    - cache key carries scaffolding == "live"
+    """
+    repo_root = Path(__file__).parents[1]
+    ftc_params = repo_root / "training_output" / "ftc" / "best_params.json"
+    if not ftc_params.exists():
+        pytest.skip("FTC training output absent")
+
+    import json as _json
+
+    from aerocapture.training.config import NetworkConfig, TrainingConfig, WarmStartConfig
+    from aerocapture.training.encoding import encode_to_normalized
+    from aerocapture.training.param_spaces import active_scaffolding_specs
+    from aerocapture.training.warm_start import build_warm_start_chromosome
+
+    cfg = TrainingConfig()
+    cfg.guidance_type = "neural_network"
+    cfg.network = NetworkConfig(
+        architecture=[
+            {"type": "dense", "input_size": 21, "output_size": 8, "activation": "swish"},
+            {"type": "dense", "input_size": 8, "output_size": 2, "activation": "asinh"},
+        ],
+        input_mask=list(range(21)),
+        output_parameterization="atan2_signed",
+        scaffolding="live",
+        warm_start_from=str(ftc_params),
+    )
+    cfg.sim.toml_config = "configs/training/msr_aller_ftc_train.toml"
+    cfg.sim.exec_dir = str(repo_root)
+    cfg.save_dir = str(tmp_path / "warm_live")
+    cfg.warm_start = WarmStartConfig(
+        supervisor_schemes=["ftc"],
+        params_paths={"ftc": str(ftc_params)},
+        n_warm_seeds=24,
+        n_epochs=2,
+        bptt_length=16,
+    )
+    Path(cfg.save_dir).mkdir(parents=True, exist_ok=True)
+
+    chromo, weight_specs = build_warm_start_chromosome(
+        cfg=cfg,
+        base_mc_seed=42,
+    )
+
+    # 21*8 + 8 + 8*2 + 2 = 194 NN weights + 3 live scaffolding = 197
+    n_weights = len(weight_specs)
+    assert len(chromo) - n_weights == 3, f"expected 3-param live tail, got {len(chromo) - n_weights}"
+    assert (chromo >= 0.0).all() and (chromo <= 1.0).all()
+
+    # Tail must encode the defaults of the live pack (nav + shaping, no FTC source).
+    live_pack = active_scaffolding_specs("live")
+    expected_tail = encode_to_normalized({s.name: s.default for s in live_pack}, list(live_pack))
+    assert np.allclose(chromo[n_weights:], expected_tail), (
+        f"live tail mismatch: got {chromo[n_weights:]}, expected {expected_tail}"
+    )
+
+    cache_key_path = Path(cfg.save_dir) / "warm_start_cache_key.json"
+    assert cache_key_path.exists()
+    cache_key = _json.loads(cache_key_path.read_text())
+    assert "scaffolding" in cache_key, f"cache key missing scaffolding: {cache_key}"
+    assert cache_key["scaffolding"] == "live"
