@@ -76,6 +76,31 @@ _NN_SCAFFOLDING_PARAMS: list[ParamSpec] = [
     *_SHAPING_PARAMS,
 ]
 
+# Live-in-full_neural scaffolding params: nav density filter feeds the NN's
+# observation vector, command shaping shapes its output. These 3 have standalone
+# defaults, so they can be optimized without seeding from FTC. Used for
+# `scaffolding = "live"` (full_neural schemes that want nav/shaping tuned but
+# don't need the FTC-only lateral/exit/thermal pack).
+_NN_LIVE_PARAMS: list[ParamSpec] = [
+    *_NAV_PARAMS,
+    *_SHAPING_PARAMS,
+]
+
+
+def active_scaffolding_specs(scaffolding: str) -> list[ParamSpec]:
+    """Resolve the active scaffolding ParamSpec pack for a `scaffolding` value.
+
+    "off" -> [], "live" -> nav+shaping (3), "full" -> the 17-param FTC pack.
+    Raises KeyError on any other value (caught at config load with a clearer
+    message).
+    """
+    return {
+        "off": [],
+        "live": _NN_LIVE_PARAMS,
+        "full": _NN_SCAFFOLDING_PARAMS,
+    }[scaffolding]
+
+
 # TOML section key matches the guidance type name used in [guidance] type field
 PARAM_SPACES: dict[str, list[ParamSpec]] = {
     "equilibrium_glide": [
