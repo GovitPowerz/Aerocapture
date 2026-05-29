@@ -1147,7 +1147,7 @@ struct NnJsonFileV2 {
 }
 
 /// Total number of candidate NN inputs (16 baseline + 4 reference trajectory + 1 exit-bank teacher + 4 lateral-state telemetry
-/// + 6 (sin,cos) bank-history pairs for exit teacher / prev commanded / prev realized).
+/// + 6 (sin,cos) bank-history pairs for exit teacher / prev commanded / prev realized + 1 periapsis_alt).
 pub const NN_FULL_INPUT_SIZE: usize = 32;
 
 /// Modular neural network model.
@@ -1161,7 +1161,7 @@ pub struct NeuralNetModel {
     pub layer_sizes: Vec<usize>,
     /// Network layers (len = layer_sizes.len() - 1).
     pub layers: Vec<Layer>,
-    /// Optional input selection mask: indices into the full 21-input vector.
+    /// Optional input selection mask: indices into the full 32-input vector.
     /// Length must equal layer_sizes[0]. None means use inputs as-is.
     pub input_mask: Option<Vec<usize>>,
     /// Optional index of a single input to zero out (ablation analysis).
@@ -2547,8 +2547,8 @@ mod tests {
 
     #[test]
     fn validate_ablated_input_valid() {
-        // index 30 is the last valid index (NN_FULL_INPUT_SIZE - 1)
-        let result = NeuralNetModel::validate_ablated_input(&Some(30));
+        // index 31 is the last valid index (NN_FULL_INPUT_SIZE - 1)
+        let result = NeuralNetModel::validate_ablated_input(&Some(31));
         assert!(result.is_ok());
     }
 

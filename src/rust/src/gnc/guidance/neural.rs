@@ -1246,7 +1246,7 @@ mod tests {
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
         let prev_realized = 2.5_f64;
-        let mask: Vec<usize> = (0..31).collect();
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let v = build_nn_input(
             &nav,
             Some(&mask),
@@ -1261,7 +1261,7 @@ mod tests {
             0.0,
             prev_realized,
         );
-        assert_eq!(v.len(), 31);
+        assert_eq!(v.len(), NN_FULL_INPUT_SIZE);
         // sin at index 29, cos at index 30 — atan2(sin, cos) must recover the angle.
         let recovered = v[29].atan2(v[30]);
         assert_relative_eq!(recovered, prev_realized, epsilon = 1e-12);
@@ -1272,17 +1272,17 @@ mod tests {
         // n=2, single-output tanh net with zero weights, bias=0 → tanh(0)=0 → bank = 2π*0 = 0
         let nn = NeuralNetModel {
             architecture: vec![LayerSpec::Dense {
-                input_size: 31,
+                input_size: NN_FULL_INPUT_SIZE,
                 output_size: 1,
                 activation: Activation::Tanh,
             }],
-            layer_sizes: vec![31, 1],
+            layer_sizes: vec![NN_FULL_INPUT_SIZE, 1],
             layers: vec![Layer::Dense(DenseLayer {
-                w: vec![vec![0.0; 31]],
+                w: vec![vec![0.0; NN_FULL_INPUT_SIZE]],
                 b: vec![0.0],
                 activation: Activation::Tanh,
             })],
-            input_mask: Some((0..31).collect()),
+            input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
             output_param: OutputParam::ScaledPi,
             scaled_pi_n: 2.0,
@@ -1322,17 +1322,17 @@ mod tests {
         let bias = 20.0_f64;
         let nn = NeuralNetModel {
             architecture: vec![LayerSpec::Dense {
-                input_size: 31,
+                input_size: NN_FULL_INPUT_SIZE,
                 output_size: 1,
                 activation: Activation::Tanh,
             }],
-            layer_sizes: vec![31, 1],
+            layer_sizes: vec![NN_FULL_INPUT_SIZE, 1],
             layers: vec![Layer::Dense(DenseLayer {
-                w: vec![vec![0.0; 31]],
+                w: vec![vec![0.0; NN_FULL_INPUT_SIZE]],
                 b: vec![bias],
                 activation: Activation::Tanh,
             })],
-            input_mask: Some((0..31).collect()),
+            input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
             output_param: OutputParam::ScaledPi,
             scaled_pi_n: 1.5,
@@ -1379,17 +1379,17 @@ mod tests {
         // delta_max=0.2, bias=5 → tanh(5)≈1 → step ≈ +0.2 added to prev_realized=1.0
         let nn = NeuralNetModel {
             architecture: vec![LayerSpec::Dense {
-                input_size: 31,
+                input_size: NN_FULL_INPUT_SIZE,
                 output_size: 1,
                 activation: Activation::Tanh,
             }],
-            layer_sizes: vec![31, 1],
+            layer_sizes: vec![NN_FULL_INPUT_SIZE, 1],
             layers: vec![Layer::Dense(DenseLayer {
-                w: vec![vec![0.0; 31]],
+                w: vec![vec![0.0; NN_FULL_INPUT_SIZE]],
                 b: vec![5.0],
                 activation: Activation::Tanh,
             })],
-            input_mask: Some((0..31).collect()),
+            input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
             output_param: OutputParam::Delta,
             scaled_pi_n: 1.0,
@@ -1436,17 +1436,17 @@ mod tests {
         let prev_realized = PI - 0.1;
         let nn = NeuralNetModel {
             architecture: vec![LayerSpec::Dense {
-                input_size: 31,
+                input_size: NN_FULL_INPUT_SIZE,
                 output_size: 1,
                 activation: Activation::Tanh,
             }],
-            layer_sizes: vec![31, 1],
+            layer_sizes: vec![NN_FULL_INPUT_SIZE, 1],
             layers: vec![Layer::Dense(DenseLayer {
-                w: vec![vec![0.0; 31]],
+                w: vec![vec![0.0; NN_FULL_INPUT_SIZE]],
                 b: vec![bias],
                 activation: Activation::Tanh,
             })],
-            input_mask: Some((0..31).collect()),
+            input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
             output_param: OutputParam::Delta,
             scaled_pi_n: 1.0,
@@ -1663,5 +1663,34 @@ mod tests {
             9.9,
         );
         assert_eq!(v.len(), 16);
+    }
+
+    #[test]
+    fn radial_velocity_input_is_asinh_of_raw() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let v = build_nn_input(
+            &nav,
+            Some(&mask),
+            None,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            0.0,
+        );
+        let velocity_radial = nav.velocity_estimated[0] * nav.velocity_estimated[1].sin();
+        let expected = (velocity_radial / S_RADIAL_VELOCITY).asinh();
+        assert!(
+            (v[2] - expected).abs() < 1e-12,
+            "index 2 must be asinh(velocity_radial/S_RADIAL_VELOCITY): expected {expected}, got {}",
+            v[2]
+        );
     }
 }
