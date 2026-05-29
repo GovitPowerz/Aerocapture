@@ -5,7 +5,21 @@ from typing import cast
 import numpy as np
 import pytest
 from aerocapture.training.charts_nn_inputs import binned_band, chart_nn_input_panel
-from aerocapture.training.nn_input_report import classify_by_dv, input_summary
+from aerocapture.training.nn_input_report import _resolve_mask, classify_by_dv, input_summary
+
+
+def test_resolve_mask_prefers_model_json(tmp_path: Path) -> None:
+    model = tmp_path / "m.json"
+    model.write_text(_json.dumps({"input_mask": [1, 2, 3]}))
+    # model_path's embedded mask wins over the TOML config's mask.
+    assert _resolve_mask("configs/training/msr_aller_nn_delta_train.toml", str(model)) == {1, 2, 3}
+
+
+def test_resolve_mask_falls_back_to_toml(tmp_path: Path) -> None:
+    # A non-existent model path falls back to the TOML's input_mask (delta config = 29 indices).
+    missing = str(tmp_path / "nope.json")
+    out = _resolve_mask("configs/training/msr_aller_nn_delta_train.toml", missing)
+    assert len(out) == 29 and 30 in out
 
 
 def test_classify_by_dv_threshold() -> None:

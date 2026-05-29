@@ -74,8 +74,20 @@ def input_summary(
 NN_INPUT_REPORT_SEED_OFFSET = 5_000_000
 
 
-def _resolve_mask(toml_path: str) -> set[int]:
+def _resolve_mask(toml_path: str, model_path: str | None = None) -> set[int]:
+    """Resolve the deployed model's input_mask (which the Rust runtime actually
+    uses) for panel "(unused)" greying. Prefers the JSON model's embedded mask
+    over the TOML config -- the two can differ when --toml is not the training
+    config. Falls back to the TOML mask, then the [0..16) backward-compat default."""
     cfg = load_toml_with_bases(Path(toml_path))
+    nn_path = model_path or cfg.get("data", {}).get("neural_network")
+    if nn_path:
+        try:
+            model_mask = json.loads(Path(nn_path).read_text()).get("input_mask")
+            if model_mask is not None:
+                return set(model_mask)
+        except (OSError, json.JSONDecodeError):
+            pass
     mask = cfg.get("network", {}).get("input_mask")
     return set(mask) if mask is not None else set(range(16))
 
@@ -96,7 +108,9 @@ def run_report(
     out_dir = Path(output_dir) if output_dir else Path("nn_input_report")
     out_dir.mkdir(parents=True, exist_ok=True)
     thr = dv_threshold if dv_threshold is not None else _default_dv_threshold(toml_path)
-    in_mask = _resolve_mask(toml_path)
+    # Honor an overridden model path so panel greying reflects the model actually run.
+    override_model = overrides.get("data.neural_network") if overrides else None
+    in_mask = _resolve_mask(toml_path, str(override_model) if override_model is not None else None)
 
     seeds = [NN_INPUT_REPORT_SEED_OFFSET + i for i in range(n_sims)]
     recs = aerocapture_rs.collect_nn_inputs(toml_path, seeds, overrides=overrides)
@@ -136,7 +150,7 @@ def run_report(
             nm,
             j in in_mask,
             out_dir / f"nn_input_{j:02d}_{nm}_energy.svg",
-            x_label="energy (MJ/kg)",
+            x_label="energy estimated (MJ/kg)",
         )
     return out_dir
 
