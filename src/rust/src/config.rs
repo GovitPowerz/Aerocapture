@@ -968,11 +968,16 @@ impl TomlPiecewiseConstantParams {
             ));
         }
 
-        if let Some(ref arr) = self.bank_angles {
-            return Ok(arr.clone());
-        }
-        // Build from `bank_angle_N` extras (back-compat / override-friendly).
-        let mut angles = vec![DEFAULT_PIECEWISE_BANK_DEG; n];
+        // Base vector: explicit `bank_angles` array if present, else
+        // default-filled. Then overlay any `bank_angle_N` extras so per-element
+        // overrides ALWAYS win. The GA writes its chromosome as flat
+        // `bank_angle_N` keys, so an early return of the array would silently
+        // nullify GA optimization on array-seeded configs.
+        // Precedence: flat `bank_angle_N` keys > `bank_angles` array > default.
+        let mut angles = match &self.bank_angles {
+            Some(arr) => arr.clone(),
+            None => vec![DEFAULT_PIECEWISE_BANK_DEG; n],
+        };
         for (key, val) in &self.extra {
             let Some(idx_str) = key.strip_prefix("bank_angle_") else {
                 continue;
@@ -1299,6 +1304,32 @@ mod tests {
             .write_all(content.as_bytes())
             .unwrap();
         path
+    }
+
+    // ─── piecewise_constant resolver tests ───
+
+    #[test]
+    fn piecewise_flat_keys_override_bank_angles_array() {
+        // Regression: a `bank_angles = [...]` array used to early-return,
+        // silently ignoring `bank_angle_N` overrides. The GA writes its
+        // chromosome as flat `bank_angle_N` keys, so flat keys must overlay
+        // the array (precedence: flat keys > array > default).
+        let pc: TomlPiecewiseConstantParams =
+            toml::from_str("bank_angles = [10.0, 20.0, 30.0]\nbank_angle_1 = 99.0").unwrap();
+        assert_eq!(
+            pc.resolve_bank_angles_deg().unwrap(),
+            vec![10.0, 99.0, 30.0]
+        );
+    }
+
+    #[test]
+    fn piecewise_bank_angles_array_without_overrides_unchanged() {
+        let pc: TomlPiecewiseConstantParams =
+            toml::from_str("bank_angles = [10.0, 20.0, 30.0]").unwrap();
+        assert_eq!(
+            pc.resolve_bank_angles_deg().unwrap(),
+            vec![10.0, 20.0, 30.0]
+        );
     }
 
     // ─── deep_merge tests ───
