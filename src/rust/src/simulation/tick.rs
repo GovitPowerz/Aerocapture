@@ -193,10 +193,21 @@ pub fn step_one_tick(
             // - Pre-shaper: the shaper runs exactly once at deploy (on the
             //   NN's output). Capturing the post-shaper value would cause
             //   double-shaping (the supervisor's command was already shaped).
+            let energy_mj_kg = crate::gnc::navigation::coordinates::total_energy(
+                nav_out.position_estimated[0],
+                nav_out.position_estimated[1],
+                nav_out.position_estimated[2],
+                nav_out.velocity_estimated[0],
+                nav_out.velocity_estimated[1],
+                nav_out.velocity_estimated[2],
+                planet,
+            ) / 1e6;
             state.supervised_trace.push((
                 nn_input,
                 guidance_out.pre_shaper_signed,
                 state.guidance_state.prev_realized_bank_for_nn,
+                state.sim_time,
+                energy_mj_kg,
             ));
         }
 
