@@ -5,7 +5,7 @@ _NAV_PARAMS, _LATERAL_PARAMS, _EXIT_PARAMS, _THERMAL_LIMITER_PARAMS, or
 _SHAPING_PARAMS lists is detected — a comparison against `[*_NAV_PARAMS, ...]`
 would change on both sides simultaneously and silently allow the reorder.
 
-Why this matters: the chromosome layout for NN+optimize_scaffolding is
+Why this matters: the chromosome layout for NN with scaffolding != "off" is
 fixed by the order here. compare_guidance.py and report.py read
 best_params.json and route by name prefix; if the order shifts after a
 PSO run is checkpointed, the resume path's _check_resume_chromosome_shape
@@ -94,7 +94,6 @@ def test_live_pack_is_nav_plus_shaping() -> None:
 
 def test_active_scaffolding_specs_rejects_unknown() -> None:
     import pytest
-
     from aerocapture.training.param_spaces import active_scaffolding_specs
 
     with pytest.raises(KeyError):

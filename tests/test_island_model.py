@@ -1329,7 +1329,7 @@ def test_migrate_does_not_alias_migrant_across_destinations() -> None:
 
 
 def test_from_checkpoint_raises_on_chromosome_width_mismatch() -> None:
-    """Resuming after a chromosome-width change (e.g. optimize_scaffolding toggle)
+    """Resuming after a chromosome-width change (e.g. scaffolding mode change)
     must fail loudly instead of restoring a mis-sized population."""
     cfg = _make_islands_cfg()
     problem = _UnitCubeProblem()

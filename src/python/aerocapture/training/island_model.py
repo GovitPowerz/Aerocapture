@@ -576,14 +576,14 @@ class IslandModel:
                 # Fail loudly when the saved chromosome width disagrees with the
                 # current ParamSpec count — the islands analogue of
                 # `_check_resume_chromosome_shape` in train.py. Catches the user
-                # flipping `optimize_scaffolding` / `output_parameterization` /
+                # flipping `scaffolding` / `output_parameterization` /
                 # `input_mask` (all change n_params) between runs; without it the
                 # old-width pop is restored and later mis-decoded into garbage.
                 saved_n_params = state["pop_X"].shape[1]
                 if saved_n_params != self.n_params:
                     raise ValueError(
                         f"checkpoint chromosome width {saved_n_params} != current {self.n_params}. "
-                        f"This usually means `optimize_scaffolding`, `output_parameterization`, "
+                        f"This usually means `scaffolding`, `output_parameterization`, "
                         f"or `input_mask` changed since the checkpoint was saved. "
                         f"Revert the TOML knob to resume, or pass --from-scratch.",
                     )

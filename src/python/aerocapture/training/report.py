@@ -42,13 +42,13 @@ _PERCENTILES = [5, 25, 50, 75, 95]
 # Typst availability check
 # ---------------------------------------------------------------------------
 def _load_nn_scaffolding_overrides(scheme_dir: Path, optimized_toml: Path) -> dict[str, object]:
-    """Build dot-path overrides from `best_params.json` (NN+optimize_scaffolding deploys).
+    """Build dot-path overrides from `best_params.json` (NN scaffolding deploys).
 
     Non-NN schemes bake params into `optimized_<scheme>.toml`, so when that file
     exists we return empty (the optimized TOML already carries everything).
     NN schemes do NOT write an optimized TOML — they write `best_model.json`
-    plus `best_params.json` (scaffolding). When `optimize_scaffolding=false`
-    is the only knob, `best_params.json` is absent and we return empty.
+    plus `best_params.json` (scaffolding). When `scaffolding = "off"`,
+    `best_params.json` is absent and we return empty.
     """
     if optimized_toml.exists():
         return {}
@@ -597,7 +597,7 @@ def _run_undispersed_nominal(toml_path: Path, scheme_dir: Path, sim_timeout_secs
     optimized = scheme_dir / f"optimized_{scheme_dir.name}.toml"
     eval_toml = optimized if optimized.exists() else toml_path
 
-    # NN+optimize_scaffolding schemes write best_params.json sibling to best_model.json;
+    # NN schemes with scaffolding != "off" write best_params.json sibling to best_model.json;
     # without loading it here, the nominal overlay would use TOML-default scaffolding
     # while the dispersed MC corridor uses the GA-tuned values — visually inconsistent.
     scaffolding_overrides = _load_nn_scaffolding_overrides(scheme_dir, optimized)

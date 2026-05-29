@@ -66,7 +66,7 @@ _NAV_PARAMS: list[ParamSpec] = [
 ]
 
 # Combined scaffolding pack used when training a neural-network scheme with
-# `optimize_scaffolding = true`. Same specs FTC trains, same order. The
+# `scaffolding = "full"`. Same specs FTC trains, same order. The
 # routing in `problem.py::_build_overrides` already handles every prefix.
 _NN_SCAFFOLDING_PARAMS: list[ParamSpec] = [
     *_NAV_PARAMS,
