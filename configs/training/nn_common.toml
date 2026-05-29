@@ -5,3 +5,6 @@
 
 [guidance]
 type = "neural_network"
+
+[guidance.neural_network]
+optimize_scaffolding = true

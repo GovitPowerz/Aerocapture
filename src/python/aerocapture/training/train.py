@@ -39,10 +39,35 @@ from aerocapture.training.problem import AerocaptureProblem
 from aerocapture.training.seed_curator import SeedCurator
 from aerocapture.training.weight_stats import compute_weight_stats
 
+_DEFAULT_PIECEWISE_N_SEGMENTS = 10
+
 # Constant bank angles for corridor boundary sentinels (degrees).
 # 0 = full lift-up (hyperbolic boundary), 180 = full lift-down (crash boundary).
 # Only magnitude affects energy-vs-pdyn corridor; sign only affects lateral track.
 _SENTINEL_BANK_ANGLES = [0, 18, 36, 54, 72, 90, 108, 126, 144, 162, 180]
+
+
+def _resolve_piecewise_n_segments(toml: dict) -> int:
+    """Mirror of Rust TomlPiecewiseConstantParams::resolve_bank_angles_deg.
+
+    Order of precedence: explicit n_segments > bank_angles array length >
+    highest bank_angle_N key index + 1 > default (10).
+    """
+    pc = toml.get("guidance", {}).get("piecewise_constant", {})
+    if "n_segments" in pc:
+        n = int(pc["n_segments"])
+        if n < 1:
+            raise ValueError(f"[guidance.piecewise_constant] n_segments must be >= 1, got {n}")
+        return n
+    if "bank_angles" in pc:
+        return len(pc["bank_angles"])
+    max_idx = max(
+        (int(k.removeprefix("bank_angle_")) for k in pc if k.startswith("bank_angle_") and k.removeprefix("bank_angle_").isdigit()),
+        default=-1,
+    )
+    if max_idx >= 0:
+        return max_idx + 1
+    return _DEFAULT_PIECEWISE_N_SEGMENTS
 
 
 def _draw_disjoint_seeds(
@@ -56,6 +81,36 @@ def _draw_disjoint_seeds(
         batch = rng.integers(0, 2**31, size=n - len(drawn)).tolist()
         drawn.extend(s for s in batch if s not in excluded)
     return drawn[:n]
+
+
+def _build_validation_payload(
+    costs: npt.NDArray[np.float64],
+    final_records: npt.NDArray[np.float64] | None,
+    n_sims: int,
+    cost_kwargs: dict[str, Any] | None,
+) -> tuple[dict, dict | None]:
+    """Compose the flat metrics dict (back-compat for charts/report) and the
+    rich `compute_eval_summary` dashboard (consumed by the TUI).
+
+    The summary is None when `final_records` is unavailable (e.g. legacy
+    fallback paths or future callers that haven't switched yet).
+    """
+    metrics = {
+        "rms_cost": float(np.sqrt(np.mean(costs**2))),
+        "mean_cost": float(np.mean(costs)),
+        "median_cost": float(np.median(costs)),
+        "std_cost": float(np.std(costs)),
+        "p95_cost": float(np.percentile(costs, 95)),
+        "worst_cost": float(np.max(costs)),
+        "capture_rate": capture_rate(costs),
+        "n_sims": n_sims,
+    }
+    summary: dict | None = None
+    if final_records is not None:
+        from aerocapture.training.report import compute_eval_summary  # noqa: PLC0415
+
+        summary = compute_eval_summary(final_records, n_sims, cost_kwargs)
+    return metrics, summary
 
 
 def _compute_fixed_seeds(base_mc_seed: int, n_sims: int, excluded: set[int]) -> list[int]:
@@ -691,6 +746,24 @@ def train(
             from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
 
             param_specs = [*param_specs, *_NN_SCAFFOLDING_PARAMS]
+    elif config.guidance_type == "piecewise_constant":
+        from aerocapture.training.param_spaces import make_piecewise_constant_specs
+
+        n_segments = _resolve_piecewise_n_segments(_toml)
+        param_specs = make_piecewise_constant_specs(n_segments)
+        if verbose:
+            pc = _toml.get("guidance", {}).get("piecewise_constant", {})
+            e_min = float(pc.get("energy_min", -6.0))
+            e_max = float(pc.get("energy_max", 5.0))
+            seg_width = (e_max - e_min) / n_segments if n_segments > 0 else float("nan")
+            initial = pc.get("bank_angles")
+            init_label = f"seeded from TOML bank_angles ({len(initial)} values)" if initial is not None else "GA-initialized (no TOML bank_angles)"
+            n_shaping = len(param_specs) - n_segments
+            print(
+                f"piecewise_constant: {n_segments} segments over E in [{e_min:.2f}, {e_max:.2f}] MJ/kg "
+                f"(width {seg_width:.3f} MJ/kg), {init_label}; "
+                f"chromosome = {n_segments} bank + {n_shaping} shaping = {len(param_specs)} params"
+            )
     else:
         param_specs = PARAM_SPACES[config.guidance_type]
 
@@ -1118,19 +1191,15 @@ def train(
             # the TUI's "Best val" and stagnation counter honest (val_seeds
             # are deterministic, so RMS is reproducible).
             if val_seeds is not None and best_overall_individual is not None:
-                init_val_costs = problem.evaluate_individual_per_seed(best_overall_individual, val_seeds)
+                init_val_costs, init_val_records = problem.evaluate_individual_records_per_seed(best_overall_individual, val_seeds)
                 best_val_cost = float(np.sqrt(np.mean(init_val_costs**2)))
                 last_validated_individual = best_overall_individual.copy()
-                init_val_metrics = {
-                    "rms_cost": best_val_cost,
-                    "mean_cost": float(np.mean(init_val_costs)),
-                    "median_cost": float(np.median(init_val_costs)),
-                    "std_cost": float(np.std(init_val_costs)),
-                    "p95_cost": float(np.percentile(init_val_costs, 95)),
-                    "worst_cost": float(np.max(init_val_costs)),
-                    "capture_rate": capture_rate(init_val_costs),
-                    "n_sims": len(val_seeds),
-                }
+                init_val_metrics, init_val_summary = _build_validation_payload(
+                    init_val_costs,
+                    init_val_records,
+                    len(val_seeds),
+                    problem.cost_kwargs,
+                )
                 logger.log_generation(
                     start_gen,
                     pop_array,
@@ -1138,6 +1207,7 @@ def train(
                     best_overall_individual,
                     decode_fn,
                     validation=init_val_metrics,
+                    validation_summary=init_val_summary,
                     improved=True,
                 )
                 display.update(logger, current_run=0)
@@ -1197,20 +1267,17 @@ def train(
                 # (by parameter identity) from the last validated individual.
                 # Promotion to best_overall_individual gated on validation improvement.
                 validation_metrics: dict | None = None
+                validation_summary: dict | None = None
                 validated_improvement = False
                 if val_seeds is not None and new_gen_best:
-                    val_costs = problem.evaluate_individual_per_seed(gen_best_individual, val_seeds)
-                    val_rms = float(np.sqrt(np.mean(val_costs**2)))
-                    validation_metrics = {
-                        "rms_cost": val_rms,
-                        "mean_cost": float(np.mean(val_costs)),
-                        "median_cost": float(np.median(val_costs)),
-                        "std_cost": float(np.std(val_costs)),
-                        "p95_cost": float(np.percentile(val_costs, 95)),
-                        "worst_cost": float(np.max(val_costs)),
-                        "capture_rate": capture_rate(val_costs),
-                        "n_sims": len(val_seeds),
-                    }
+                    val_costs, val_records = problem.evaluate_individual_records_per_seed(gen_best_individual, val_seeds)
+                    validation_metrics, validation_summary = _build_validation_payload(
+                        val_costs,
+                        val_records,
+                        len(val_seeds),
+                        problem.cost_kwargs,
+                    )
+                    val_rms = validation_metrics["rms_cost"]
                     last_validated_individual = gen_best_individual
                     if val_rms < best_val_cost:
                         best_val_cost = val_rms
@@ -1271,6 +1338,7 @@ def train(
                     gen_elapsed_s=gen_elapsed_s,
                     gen_best_individual=gen_best_individual,
                     validation=validation_metrics,
+                    validation_summary=validation_summary,
                     improved=validated_improvement if val_seeds is not None else None,
                 )
                 display.update(logger, current_run=0)
@@ -1600,6 +1668,7 @@ def _train_islands(
                         best_individual=island.best_overall_individual,
                         decode_fn=decode_fn,
                         validation=validation_dict,
+                        validation_summary=val_rec.get("val_summary") if val_rec["validated"] else None,
                         improved=val_rec["promoted"],
                         island_name=island.name,
                     )
@@ -1610,6 +1679,9 @@ def _train_islands(
                         "val_rms": val_rec.get("val_rms", float("inf")),
                         "stagnation": island.stagnation_counter,
                         "argmin_train_cost": val_rec.get("argmin_train_cost", float("inf")),
+                        # Sticky: shows the last validated dashboard even on
+                        # gens where this island didn't re-validate.
+                        "val_summary": island.latest_val_summary,
                     }
                     for island, val_rec in zip(
                         island_model.islands,
@@ -1792,9 +1864,10 @@ def _accumulate_corridor(
     corridor_acc.update(batch_results.trajectories, labels)
 
     # Sentinel chromosomes: constant bank angles for corridor boundary resolution
+    n_segments = sum(1 for s in param_specs if s.name.startswith("bank_angle_"))
     sentinel_overrides: list[dict[str, object]] = []
     for bank in _SENTINEL_BANK_ANGLES:
-        ovr_s: dict[str, object] = {f"guidance.{section}.bank_angle_{i}": float(bank) for i in range(10)}
+        ovr_s: dict[str, object] = {f"guidance.{section}.bank_angle_{i}": float(bank) for i in range(n_segments)}
         ovr_s["guidance.type"] = config.guidance_type
         ovr_s["simulation.n_sims"] = 1
         sentinel_overrides.append(ovr_s)

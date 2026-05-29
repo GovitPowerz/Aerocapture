@@ -141,19 +141,27 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         *_SHAPING_PARAMS,
     ],
     "piecewise_constant": [
-        ParamSpec("bank_angle_0", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_1", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_2", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_3", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_4", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_5", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_6", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_7", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_8", -180.0, 180.0, 65.0),
-        ParamSpec("bank_angle_9", -180.0, 180.0, 65.0),
+        *(ParamSpec(f"bank_angle_{i}", -180.0, 180.0, 65.0) for i in range(10)),
         *_SHAPING_PARAMS,
     ],
 }
+
+
+def make_piecewise_constant_specs(n_segments: int) -> list[ParamSpec]:
+    """Build PARAM_SPACES['piecewise_constant'] for arbitrary segment count.
+
+    Mirrors the static entry above (which keeps the 10-segment default for
+    backward compat) but produces N bank_angle_* specs + the shared shaping
+    params. Used by train.py when [guidance.piecewise_constant] sets a
+    non-default n_segments / bank_angles length.
+    """
+    if n_segments < 1:
+        raise ValueError(f"n_segments must be >= 1, got {n_segments}")
+    return [
+        *(ParamSpec(f"bank_angle_{i}", -180.0, 180.0, 65.0) for i in range(n_segments)),
+        *_SHAPING_PARAMS,
+    ]
+
 
 # TOML section name for each guidance type (used in [guidance.<section>])
 GUIDANCE_TOML_SECTIONS: dict[str, str] = {
