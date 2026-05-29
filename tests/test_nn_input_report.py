@@ -1,7 +1,8 @@
+import json as _json
 from pathlib import Path
 
 import numpy as np
-
+import pytest
 from aerocapture.training.charts_nn_inputs import binned_band, chart_nn_input_panel
 from aerocapture.training.nn_input_report import classify_by_dv, input_summary
 
@@ -43,3 +44,40 @@ def test_chart_nn_input_panel_writes_svg(tmp_path: Path) -> None:
     chart_nn_input_panel(X_list, time_list, klass, input_index=5,
                          name="accel_magnitude", in_mask=True, output=out)
     assert out.exists() and out.stat().st_size > 0
+
+
+def _mint_zero_model_for_report(tmp_path):
+    """Mint a loadable zero-weight NN matching the delta config's arch."""
+    import aerocapture_rs
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    cfg = load_toml_with_bases("configs/training/msr_aller_nn_delta_train.toml")
+    arch = cfg["network"]["architecture"]
+    mask = cfg["network"]["input_mask"]
+    flat = [0.0] * sum(ly["input_size"] * ly["output_size"] + ly["output_size"] for ly in arch)
+    path = str(tmp_path / "zero_model.json")
+    aerocapture_rs.flat_weights_to_json(
+        flat, _json.dumps(arch), path, mask,
+        cfg["guidance"]["neural_network"]["output_parameterization"],
+        None, cfg["guidance"]["neural_network"]["delta_max"],
+    )
+    return path
+
+
+@pytest.mark.slow
+def test_run_report_smoke(tmp_path) -> None:
+    from aerocapture.training.nn_input_report import run_report
+
+    model = _mint_zero_model_for_report(tmp_path)
+    out_dir = tmp_path / "rep"
+    run_report(
+        toml_path="configs/training/msr_aller_nn_delta_train.toml",
+        n_sims=4,
+        output_dir=out_dir,
+        overrides={"data.neural_network": model},
+    )
+    assert (out_dir / "summary.json").exists()
+    summary = _json.loads((out_dir / "summary.json").read_text())
+    assert len(summary["inputs"]) == 31
+    assert list(out_dir.glob("nn_input_*_time.svg"))
+    assert list(out_dir.glob("nn_input_*_energy.svg"))
