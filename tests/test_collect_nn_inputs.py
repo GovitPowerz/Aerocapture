@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import aerocapture_rs
 import numpy as np
@@ -6,27 +7,28 @@ import pytest
 from aerocapture.training.toml_utils import load_toml_with_bases
 
 
-def _mint_zero_model(tmp_path):
-    """Mint a loadable zero-weight NN matching the delta config's arch."""
-    cfg = load_toml_with_bases("configs/training/msr_aller_nn_delta_train.toml")
+def _mint_zero_model(tmp_path: Path) -> str:
+    """Mint a loadable zero-weight NN matching the delta config's arch (dense-only)."""
+    cfg = load_toml_with_bases(Path("configs/training/msr_aller_nn_delta_train.toml"))
     arch = cfg["network"]["architecture"]
     mask = cfg["network"]["input_mask"]
 
-    def n_params(layer):  # dense only in this arch
-        return layer["input_size"] * layer["output_size"] + layer["output_size"]
-
-    flat = [0.0] * sum(n_params(l) for l in arch)
+    flat = [0.0] * sum(ly["input_size"] * ly["output_size"] + ly["output_size"] for ly in arch)
     path = str(tmp_path / "zero_model.json")
     aerocapture_rs.flat_weights_to_json(
-        flat, json.dumps(arch), path, mask,
+        flat,
+        json.dumps(arch),
+        path,
+        mask,
         cfg["guidance"]["neural_network"]["output_parameterization"],
-        None, cfg["guidance"]["neural_network"]["delta_max"],
+        None,
+        cfg["guidance"]["neural_network"]["delta_max"],
     )
     return path
 
 
 @pytest.mark.slow
-def test_collect_nn_inputs_runs_nn_and_returns_shapes(tmp_path):
+def test_collect_nn_inputs_runs_nn_and_returns_shapes(tmp_path: Path) -> None:
     model = _mint_zero_model(tmp_path)
     out = aerocapture_rs.collect_nn_inputs(
         "configs/training/msr_aller_nn_delta_train.toml",
@@ -44,6 +46,6 @@ def test_collect_nn_inputs_runs_nn_and_returns_shapes(tmp_path):
     assert isinstance(r["captured"], bool)
 
 
-def test_collect_nn_inputs_rejects_non_nn_config():
+def test_collect_nn_inputs_rejects_non_nn_config() -> None:
     with pytest.raises((ValueError, RuntimeError), match="(?i)neural_network"):
         aerocapture_rs.collect_nn_inputs("configs/training/msr_aller_ftc_train.toml", [1])

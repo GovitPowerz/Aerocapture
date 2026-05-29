@@ -1,5 +1,6 @@
 import json as _json
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
@@ -16,13 +17,13 @@ def test_classify_by_dv_threshold() -> None:
 def test_input_summary_saturation_and_separation() -> None:
     X = [
         np.array([[0.0, -2.0], [0.5, -2.0], [2.0, -2.0]]),  # blue traj
-        np.array([[0.0, 2.0], [0.5, 2.0], [2.0, 2.0]]),     # red traj
+        np.array([[0.0, 2.0], [0.5, 2.0], [2.0, 2.0]]),  # red traj
     ]
     klass = np.array([0, 1])
     rows = input_summary(X, klass, names=["a", "b"], in_mask={0, 1})
     by = {r["name"]: r for r in rows}
-    assert abs(by["a"]["frac_out_of_range"] - 2 / 6) < 1e-9  # |2.0|>1 on 2/6 samples
-    assert by["b"]["separation"] > by["a"]["separation"]     # b separates classes, a doesn't
+    assert abs(cast(float, by["a"]["frac_out_of_range"]) - 2 / 6) < 1e-9  # |2.0|>1 on 2/6 samples
+    assert cast(float, by["b"]["separation"]) > cast(float, by["a"]["separation"])  # b separates classes
     assert by["a"]["in_mask"] is True
 
 
@@ -41,31 +42,34 @@ def test_chart_nn_input_panel_writes_svg(tmp_path: Path) -> None:
     time_list = [np.arange(20.0) for _ in range(6)]
     klass = np.array([0, 0, 0, 1, 1, 1], dtype=np.int8)
     out = tmp_path / "panel.svg"
-    chart_nn_input_panel(X_list, time_list, klass, input_index=5,
-                         name="accel_magnitude", in_mask=True, output=out)
+    chart_nn_input_panel(X_list, time_list, klass, input_index=5, name="accel_magnitude", in_mask=True, output=out)
     assert out.exists() and out.stat().st_size > 0
 
 
-def _mint_zero_model_for_report(tmp_path):
+def _mint_zero_model_for_report(tmp_path: Path) -> str:
     """Mint a loadable zero-weight NN matching the delta config's arch."""
     import aerocapture_rs
     from aerocapture.training.toml_utils import load_toml_with_bases
 
-    cfg = load_toml_with_bases("configs/training/msr_aller_nn_delta_train.toml")
+    cfg = load_toml_with_bases(Path("configs/training/msr_aller_nn_delta_train.toml"))
     arch = cfg["network"]["architecture"]
     mask = cfg["network"]["input_mask"]
     flat = [0.0] * sum(ly["input_size"] * ly["output_size"] + ly["output_size"] for ly in arch)
     path = str(tmp_path / "zero_model.json")
     aerocapture_rs.flat_weights_to_json(
-        flat, _json.dumps(arch), path, mask,
+        flat,
+        _json.dumps(arch),
+        path,
+        mask,
         cfg["guidance"]["neural_network"]["output_parameterization"],
-        None, cfg["guidance"]["neural_network"]["delta_max"],
+        None,
+        cfg["guidance"]["neural_network"]["delta_max"],
     )
     return path
 
 
 @pytest.mark.slow
-def test_run_report_smoke(tmp_path) -> None:
+def test_run_report_smoke(tmp_path: Path) -> None:
     from aerocapture.training.nn_input_report import run_report
 
     model = _mint_zero_model_for_report(tmp_path)
