@@ -107,7 +107,7 @@ c2 = 1.5
 # To use: set algorithm = "islands"
 [optimizer.islands]
 enabled = true
-k_period = 25
+k_period = 50
 k_top = 3
 pso_inject_velocity_scale = 0.05
 

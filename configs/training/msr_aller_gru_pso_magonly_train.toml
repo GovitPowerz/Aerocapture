@@ -1,7 +1,4 @@
-base = ["../missions/mars.toml", "common.toml"]
-
-[guidance]
-type = "neural_network"
+base = ["../missions/mars.toml", "common.toml", "nn_common.toml", "nn_ftc_scaffolding.toml"]
 
 [guidance.neural_network]
 # Path A: NN replaces only the capture-phase predictor-corrector. Magnitude is
@@ -42,33 +39,15 @@ input_size = 16
 output_size = 1
 activation = "tanh"
 
-# ── FTC scaffolding (GA-tuned values frozen, sourced from
-#    training_output/ftc/best_params.json). Capture-phase gains are placeholders
-#    only -- they're parsed but not used at runtime because the NN replaces the
-#    capture-phase predictor-corrector. Exit-phase params ARE used (phase 2). ──
-
+# FTC scaffolding defaults inherited from nn_ftc_scaffolding.toml. Only the
+# exit-phase gains are overridden here with FTC-GA-tuned values (sourced from
+# training_output/ftc/best_params.json); these are live in phase 2. Capture-phase
+# gains stay at the inherited defaults (ignored under mode = "magnitude_only").
 [guidance.ftc]
-# Capture-phase placeholders (ignored under mode = "magnitude_only").
-capture_damping = 0.7
-capture_frequency = 0.072
-capture_pdyn_margin = 1.75
-altitude_damping = 0.7
-altitude_frequency = 0.08
-pressure_coeff_base = -134.4
-pressure_coeff_scale_height = 6.9
-gain_fade_start_km = 80.0
-gain_fade_end_km = 100.0
-# Exit-phase params (live in phase 2; FTC-tuned).
 exit_velocity_threshold = 3548.8350669594774
 exit_pdyn_margin = 3.324353921236187
 exit_radial_vel_gain = 14.432026466531633
 exit_altitude_threshold = 57.353046636034556
-exit_apoapsis_threshold = 100.0
-security_capture = 1
-security_exit = 3
-longi_activation = 1000.0
-longi_inhibition = -1000.0
-pdyn_min = 0.0
 
 [guidance.lateral]
 tau = 20.30636755732464

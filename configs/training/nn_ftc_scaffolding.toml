@@ -1,0 +1,26 @@
+# Frozen FTC scaffolding defaults for NN guidance configs.
+# Capture-phase gains are placeholders (parsed, but ignored at runtime when the
+# NN replaces the capture-phase predictor-corrector). Exit-phase params ARE live
+# in phase 2. Tables merge key-by-key, so a leaf overrides only the keys it tunes
+# (e.g. magnitude_only schemes overwrite the exit gains with FTC-GA-tuned values).
+
+[guidance.ftc]
+capture_damping = 0.7
+capture_frequency = 0.072
+capture_pdyn_margin = 1.75
+altitude_damping = 0.7
+altitude_frequency = 0.08
+exit_velocity_threshold = 4400.0
+exit_pdyn_margin = 1.75
+exit_altitude_threshold = 60.0
+exit_radial_vel_gain = 10.0
+exit_apoapsis_threshold = 100.0
+security_capture = 1
+security_exit = 3
+longi_activation = 1000.0
+longi_inhibition = -1000.0
+pdyn_min = 0.0
+pressure_coeff_base = -134.4
+pressure_coeff_scale_height = 6.9
+gain_fade_start_km = 80.0
+gain_fade_end_km = 100.0

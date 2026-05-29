@@ -1,7 +1,4 @@
-base = ["../missions/mars.toml", "common.toml"]
-
-[guidance]
-type = "neural_network"
+base = ["../missions/mars.toml", "common.toml", "nn_common.toml", "nn_ftc_scaffolding.toml", "rl_common.toml"]
 
 [data]
 neural_network = "training_output/neural_network_gru_ppo/best_model.json"
@@ -27,41 +24,16 @@ input_size = 16
 output_size = 2
 activation = "asinh"
 
-[guidance.ftc]
-capture_damping = 0.7
-capture_frequency = 0.072
-capture_pdyn_margin = 1.75
-altitude_damping = 0.7
-altitude_frequency = 0.08
-exit_velocity_threshold = 4400.0
-exit_pdyn_margin = 1.75
-exit_altitude_threshold = 60.0
-exit_radial_vel_gain = 10.0
-exit_apoapsis_threshold = 100.0
-security_capture = 1
-security_exit = 3
-longi_activation = 1000.0
-longi_inhibition = -1000.0
-pdyn_min = 0.0
-pressure_coeff_base = -134.4
-pressure_coeff_scale_height = 6.9
-gain_fade_start_km = 80.0
-gain_fade_end_km = 100.0
+# FTC scaffolding inherited from nn_ftc_scaffolding.toml (full_neural -> inert,
+# but kept for parity with the magnitude_only sibling).
 
+# RL defaults inherited from rl_common.toml; only the deltas below.
 [rl]
-n_envs = 64
 total_env_steps = 60_000_000
 
 [rl.ppo]
-rollout_steps = 2048
 bptt_length = 512
-update_epochs = 10
 minibatches = 4
-gamma = 0.99
-gae_lambda = 0.95
-clip_range = 0.2
 entropy_coef = 0.001
-value_coef = 0.5
-max_grad_norm = 0.5
 target_kl = 0.05
 learning_rate = 1e-4

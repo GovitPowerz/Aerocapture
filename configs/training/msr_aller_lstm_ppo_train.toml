@@ -1,7 +1,4 @@
-base = ["../missions/mars.toml", "common.toml"]
-
-[guidance]
-type = "neural_network"
+base = ["../missions/mars.toml", "common.toml", "nn_common.toml", "rl_common.toml"]
 
 [data]
 neural_network = "training_output/neural_network_lstm_ppo/best_model.json"
@@ -27,20 +24,12 @@ input_size = 32
 output_size = 2
 activation = "linear"
 
+# RL defaults inherited from rl_common.toml; only the deltas below.
 [rl]
-n_envs = 64
 total_env_steps = 5_000_000
 
 [rl.ppo]
-rollout_steps = 2048
 bptt_length = 32
-update_epochs = 10
 minibatches = 4
-gamma = 0.99
-gae_lambda = 0.95
-clip_range = 0.2
 entropy_coef = 0.001
-value_coef = 0.5
-max_grad_norm = 0.5
 target_kl = 0.02
-learning_rate = 3e-4

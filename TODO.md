@@ -1,7 +1,6 @@
 # TODO
 
-- [ ] add a bounded delta command for nn alongside magonly and atan2 (also add input of previous guidance bank angle, previsou realized bank angle)
-- [ ] automatically tune together with nn weights all GNC parameters (nav, command shaping, control, ...)
+- [ ] add a bounded delta command for nn alongside magonly and atan2 (also add input of previous guidance bank angle, previous realized bank angle)
 
 ---
 

@@ -1,0 +1,7 @@
+# Shared base for neural_network guidance training configs.
+# Architecture (`[[network.architecture]]`) and `input_mask` stay per-leaf:
+# arrays REPLACE (not merge) under base inheritance, and they are the defining
+# difference between schemes anyway.
+
+[guidance]
+type = "neural_network"
