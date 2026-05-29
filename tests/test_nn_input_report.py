@@ -52,7 +52,7 @@ def test_binned_band_shapes_and_values() -> None:
 
 def test_chart_nn_input_panel_writes_svg(tmp_path: Path) -> None:
     rng = np.random.default_rng(0)
-    X_list = [rng.uniform(-1.5, 1.5, size=(20, 31)) for _ in range(6)]
+    X_list = [rng.uniform(-1.5, 1.5, size=(20, 32)) for _ in range(6)]
     time_list = [np.arange(20.0) for _ in range(6)]
     klass = np.array([0, 0, 0, 1, 1, 1], dtype=np.int8)
     out = tmp_path / "panel.svg"

@@ -411,9 +411,9 @@ def _chunked_bptt_train(
 
     output_param = network.output_parameterization or "atan2_signed"
     # Default to architecture[0].input_size when input_mask is absent. Rust
-    # `collect_supervised` always emits X with shape (T, 31) (the
+    # `collect_supervised` always emits X with shape (T, 32) (the
     # FULL_MASK / build_nn_input contract). If the first layer wants more
-    # than 31 inputs the silent first-N slice would IndexError on the
+    # than 32 inputs the silent first-N slice would IndexError on the
     # column select below, so reject explicitly here with a clear message.
     _CANDIDATE_INPUT_WIDTH = 32  # must match Rust FULL_MASK width (32)
     arch_first_in = int(network.architecture[0]["input_size"])
