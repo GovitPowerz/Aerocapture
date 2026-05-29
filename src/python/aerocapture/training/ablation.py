@@ -51,6 +51,7 @@ NN_INPUT_NAMES: list[str] = [
     "prev_bank_signed_cos",  # 28
     "prev_realized_sin",  # 29
     "prev_realized_cos",  # 30
+    "periapsis_alt",  # 31
 ]
 
 # Index of dv_total_m_s in the 52-column final_record array (0-based, includes sim_number).

@@ -80,7 +80,7 @@ class NetworkConfig:
                 # chains. Use the larger of the two as the practical upper bound
                 # so typos like negative indices or grossly-out-of-range values
                 # still get rejected at config load.
-                _RUNTIME_CANDIDATE_WIDTH = 31
+                _RUNTIME_CANDIDATE_WIDTH = 32
                 upper = max(_RUNTIME_CANDIDATE_WIDTH, first_input_int)
                 bad = [idx for idx in self.input_mask if not (0 <= idx < upper)]
                 if bad:

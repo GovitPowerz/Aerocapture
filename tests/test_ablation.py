@@ -10,8 +10,9 @@ from aerocapture.training.charts_ablation import chart_ablation_bar
 
 
 def test_input_names_length() -> None:
-    """31 inputs: 16 baseline + 4 ref trajectory + 1 exit-bank teacher + 4 lateral telemetry + 6 (sin,cos) bank-history pairs."""
-    assert len(NN_INPUT_NAMES) == 31
+    """32 inputs: 16 baseline + 4 ref + 1 exit-teacher + 4 lateral telemetry + 6 (sin,cos) pairs + periapsis_alt."""
+    assert len(NN_INPUT_NAMES) == 32
+    assert "periapsis_alt" in NN_INPUT_NAMES
 
 
 def test_input_names_unique() -> None:

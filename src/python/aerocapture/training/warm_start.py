@@ -415,7 +415,7 @@ def _chunked_bptt_train(
     # FULL_MASK / build_nn_input contract). If the first layer wants more
     # than 31 inputs the silent first-N slice would IndexError on the
     # column select below, so reject explicitly here with a clear message.
-    _CANDIDATE_INPUT_WIDTH = 31  # must match Rust FULL_MASK width
+    _CANDIDATE_INPUT_WIDTH = 32  # must match Rust FULL_MASK width (32)
     arch_first_in = int(network.architecture[0]["input_size"])
     if arch_first_in > _CANDIDATE_INPUT_WIDTH:
         raise ValueError(
