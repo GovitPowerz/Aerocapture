@@ -192,3 +192,48 @@ class TestBuildOverrides:
         overrides = p._build_overrides({"hdot_gain": 1.5}, mc_seed=99)
         assert overrides["simulation.n_sims"] == 1
         assert overrides["monte_carlo.seed"] == 99
+
+
+def test_problem_n_nn_weight_specs_live_pack() -> None:
+    """A live-scaffolding NN problem caps weights at len(param_specs) - 3."""
+    from aerocapture.training.config import NetworkConfig
+
+    arch = [{"type": "dense", "input_size": 2, "output_size": 1, "activation": "tanh"}]
+    net = NetworkConfig(architecture=arch, scaffolding="live")
+    # 3 placeholder weight specs + 3 live scaffolding specs
+    specs = [ParamSpec(f"w{i}", -1.0, 1.0, 0.0) for i in range(3)] + [
+        ParamSpec("nav.density_filter_gain", 0.3, 1.0, 0.8),
+        ParamSpec("nav.density_gain_max_delta", 0.01, 0.5, 0.1),
+        ParamSpec("shaping.max_bank_acceleration", 2.0, 15.0, 5.0),
+    ]
+    prob = AerocaptureProblem(
+        param_specs=specs,
+        toml_path="x.toml",
+        seeds=[0],
+        cost_kwargs={},
+        scheme="neural_network",
+        nn_config=net,
+    )
+    assert prob._n_nn_weight_specs == 3
+
+
+def test_problem_n_nn_weight_specs_off_and_full() -> None:
+    """off subtracts 0; full subtracts 17."""
+    from aerocapture.training.config import NetworkConfig
+    from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
+
+    arch = [{"type": "dense", "input_size": 2, "output_size": 1, "activation": "tanh"}]
+    base_specs = [ParamSpec(f"w{i}", -1.0, 1.0, 0.0) for i in range(5)]
+
+    net_off = NetworkConfig(architecture=arch, scaffolding="off")
+    prob_off = AerocaptureProblem(
+        param_specs=base_specs, toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="neural_network", nn_config=net_off
+    )
+    assert prob_off._n_nn_weight_specs == 5
+
+    net_full = NetworkConfig(architecture=arch, scaffolding="full")
+    full_specs = [*base_specs, *_NN_SCAFFOLDING_PARAMS]
+    prob_full = AerocaptureProblem(
+        param_specs=full_specs, toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="neural_network", nn_config=net_full
+    )
+    assert prob_full._n_nn_weight_specs == len(base_specs)

@@ -13,7 +13,7 @@ from pymoo.core.problem import Problem
 
 from aerocapture.training.encoding import decode_normalized_array
 from aerocapture.training.evaluate import compute_cost, write_nn_json
-from aerocapture.training.param_spaces import ParamSpec
+from aerocapture.training.param_spaces import ParamSpec, active_scaffolding_specs
 
 try:
     import aerocapture_rs as _aero_rs  # type: ignore[import-not-found, import-untyped]
@@ -51,13 +51,13 @@ class AerocaptureProblem(Problem):
         self.nn_config = nn_config
         self._integer_params = {s.name for s in param_specs if s.is_integer}
 
-        # NN+optimize_scaffolding: chromosome layout is [NN weights..., 17 scaffolding...].
-        # _n_nn_weight_specs caps the slice that gets fed to write_nn_json so the flat
-        # weight vector matches the network's actual parameter count. Without this,
+        # NN scaffolding: chromosome layout is [NN weights..., scaffolding tail...].
+        # _n_nn_weight_specs caps the slice fed to write_nn_json so the flat weight
+        # vector matches the network's actual parameter count. Without this,
         # write_nn_json gets the full chromosome and from_flat_weights_v2 errors with
-        # "weight vector length mismatch".
-        opt_scaff = bool(getattr(nn_config, "optimize_scaffolding", False)) if nn_config is not None else False
-        self._n_nn_weight_specs = len(param_specs) - (17 if opt_scaff else 0)
+        # "weight vector length mismatch". Tail width = len(active scaffolding pack).
+        _scaffolding = getattr(nn_config, "scaffolding", "off") if nn_config is not None else "off"
+        self._n_nn_weight_specs = len(param_specs) - len(active_scaffolding_specs(_scaffolding))
 
     def update_seeds(self, seeds: list[int]) -> None:
         self.seeds = seeds
@@ -104,7 +104,7 @@ class AerocaptureProblem(Problem):
             n_w = self._n_nn_weight_specs
             for i in range(n_pop):
                 # Decode normalized [0,1] to physical weight values in spec order.
-                # Cap at n_w so the scaffolding-tail (when optimize_scaffolding=True)
+                # Cap at n_w so the scaffolding-tail (when scaffolding != "off")
                 # is excluded — those go into TOML overrides via _build_overrides,
                 # not into the NN JSON.
                 weights = np.array(
