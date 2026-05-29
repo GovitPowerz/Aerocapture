@@ -521,8 +521,8 @@ fn collect_supervised(
     })?;
 
     // PyDict / PyArray construction requires the GIL, so it happens after py.detach() returns.
-    // NN input width is always 31 (the full FULL_MASK applied in tick.rs).
-    const NN_INPUT_WIDTH: usize = 31;
+    // NN input width is always 32 (the full FULL_MASK applied in tick.rs).
+    const NN_INPUT_WIDTH: usize = 32;
     let result_list = PyList::empty(py);
     for (seed, supervised_trace, dv, captured) in per_seed {
         let n_steps = supervised_trace.len();
@@ -637,7 +637,7 @@ fn collect_nn_inputs(
         Ok::<_, PyErr>(())
     })?;
 
-    const NN_INPUT_WIDTH: usize = 31;
+    const NN_INPUT_WIDTH: usize = 32;
     let result_list = PyList::empty(py);
     for (seed, trace, dv, captured) in per_seed {
         let n = trace.len();

@@ -3,7 +3,7 @@
 //! Feedforward network computing bank angle from navigation state.
 //! Supports arbitrary layer architectures via NeuralNetModel.
 //!
-//! 31 candidate inputs (selected by configurable `input_mask`):
+//! 32 candidate inputs (selected by configurable `input_mask`):
 //!   0  eccentricity_excess    8  altitude              16 cos_bank_nominal       21 inclination_err_rate
 //!   1  inclination_error      9  fpa                   17 pdyn_nominal           22 prev_bank_signed
 //!   2  radial_velocity       10  latitude              18 hdot_nominal           23 time_since_sign_flip
@@ -11,7 +11,12 @@
 //!   4  velocity              12  lift_accel            20 exit_bank_teacher      25 exit_bank_sin
 //!   5  accel_magnitude       13  sma_error             26 exit_bank_cos          27 prev_bank_signed_sin
 //!   6  heat_flux_fraction    14  apoapsis_alt          28 prev_bank_signed_cos   29 prev_realized_sin
-//!   7  heat_load_fraction    15  bounce_flag           30 prev_realized_cos
+//!   7  heat_load_fraction    15  bounce_flag           30 prev_realized_cos      31 periapsis_alt
+//!
+//! Indices 2, 3, 13, 14, 18 use a signed-log `asinh(raw / s)` transform (scales `S_*`
+//! measured from an MC ensemble) instead of the old clamps / linear scalings, so the
+//! operating range sits in ~[-1, 1] with compressed tails rather than saturating.
+//! Index 31 (`periapsis_alt`) is also `asinh`-scaled.
 //!
 //! Index 20 is the closed-loop FTC exit-phase pdyn-feedback law, fed every step
 //! as a teacher signal (always live, not bounce-gated). Pre-bounce, with
@@ -44,9 +49,19 @@ use crate::gnc::navigation::coordinates::total_energy;
 use crate::gnc::navigation::estimator::NavigationOutput;
 use crate::orbit::elements;
 
+// asinh signed-log scale factors: s = max(|p1|,|p99|)/sinh(1.0), measured from a
+// representative MC ensemble (plan Task 1). asinh(raw/s) keeps the operating range
+// within ~[-1,1] without clamping; tails compress.
+const S_RADIAL_VELOCITY: f64 = 8.802043e+02;
+const S_ORBITAL_ENERGY: f64 = 5.554906e+06;
+const S_SMA_ERROR: f64 = 3.259362e+07;
+const S_APOAPSIS_ALT: f64 = 6.626041e+07;
+const S_HDOT_NOMINAL: f64 = 7.333648e+02;
+const S_PERIAPSIS_ALT: f64 = 9.158960e+05;
+
 /// Build the masked NN input vector from navigation state.
 ///
-/// Constructs the full 31-element candidate input vector, applies ablation zeroing
+/// Constructs the full 32-element candidate input vector, applies ablation zeroing
 /// (if configured), then applies the input_mask (or legacy [0..16] default).
 /// Returns the masked `Vec<f64>` ready for `nn.forward()`.
 ///
@@ -100,14 +115,14 @@ pub fn build_nn_input(
     // Altitude in km
     let altitude_km = (nav.position_estimated[0] - planet.equatorial_radius) / 1e3;
 
-    // Build full 25-element input vector
+    // Build full 32-element input vector
     let mut full_input = [0.0_f64; NN_FULL_INPUT_SIZE];
 
     // -- 16 existing inputs (indices 0-15) --
     full_input[0] = orbit.eccentricity - 1.0; // eccentricity excess
     full_input[1] = (orbit.inclination - target_inclination).to_degrees() * 3.0 / 5.0; // inclination error
-    full_input[2] = 2.0 * (velocity_radial / 1e3 + 1.2) / 1.5 - 1.0; // radial velocity
-    full_input[3] = -mu / (2.0 * orbit.semi_major_axis) / 6e6; // orbital energy
+    full_input[2] = (velocity_radial / S_RADIAL_VELOCITY).asinh(); // radial velocity
+    full_input[3] = (-mu / (2.0 * orbit.semi_major_axis) / S_ORBITAL_ENERGY).asinh(); // orbital energy
     full_input[4] = (nav.velocity_estimated[0] / 3e3 - 1.5) * 2.0; // velocity
     full_input[5] = accel_mag / 20.0 - 1.0; // accel magnitude
     full_input[6] = nav.heat_flux_fraction * 2.0 - 1.0; // heat flux fraction
@@ -117,8 +132,8 @@ pub fn build_nn_input(
     full_input[10] = nav.position_estimated[2] / std::f64::consts::FRAC_PI_2; // latitude
     full_input[11] = nav.acceleration_estimated[0] / 50.0 - 1.0; // drag acceleration
     full_input[12] = nav.acceleration_estimated[1] / 10.0; // lift acceleration
-    full_input[13] = nav.orbital_errors[0] / 5e5; // SMA error
-    full_input[14] = orbit.apoapsis_alt.clamp(-10e6, 10e6) / 1e6 - 1.0; // apoapsis altitude
+    full_input[13] = (nav.orbital_errors[0] / S_SMA_ERROR).asinh(); // SMA error
+    full_input[14] = (orbit.apoapsis_alt / S_APOAPSIS_ALT).asinh(); // apoapsis altitude
     full_input[15] = nav.bounce_flag as f64 * 2.0 - 1.0; // bounce flag
 
     // -- 4 reference trajectory inputs (indices 16-19) --
@@ -141,7 +156,7 @@ pub fn build_nn_input(
 
     full_input[16] = cos_bank_nominal; // ref cos(bank)
     full_input[17] = pdyn_nominal / 2e3 - 1.0; // ref dynamic pressure
-    full_input[18] = hdot_nominal / 500.0; // ref radial velocity
+    full_input[18] = (hdot_nominal / S_HDOT_NOMINAL).asinh(); // ref radial velocity
     full_input[19] = pdyn_error / 2e3; // dynamic pressure error
 
     // -- Exit-bank teacher signal (index 20), always live --
@@ -178,6 +193,9 @@ pub fn build_nn_input(
     full_input[28] = prev_bank_signed.cos();
     full_input[29] = prev_realized_bank.sin();
     full_input[30] = prev_realized_bank.cos();
+
+    // -- Periapsis altitude (index 31), asinh signed-log scaled --
+    full_input[31] = (orbit.periapsis_alt / S_PERIAPSIS_ALT).asinh(); // periapsis altitude
 
     // Apply ablation: zero out a single input for sensitivity analysis
     if let Some(idx) = ablated_input {
@@ -1585,5 +1603,65 @@ mod tests {
                 "bank={bank} expected={expected}"
             );
         }
+    }
+
+    // ── Task 1: asinh-rescaled inputs + periapsis_alt at index 31 ──
+
+    #[test]
+    fn nn_full_input_size_is_32() {
+        assert_eq!(NN_FULL_INPUT_SIZE, 32);
+    }
+
+    #[test]
+    fn rescaled_inputs_use_asinh_and_periapsis_present() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let mask: Vec<usize> = (0..32).collect();
+        let v = build_nn_input(
+            &nav,
+            Some(&mask),
+            None,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            0.0,
+        );
+        assert_eq!(v.len(), 32);
+        assert!(v.iter().all(|x| x.is_finite()));
+        assert!(v[14].abs() < 5.0); // apoapsis now asinh-scaled, not pinned at the old ±9 clamp
+        assert!(v[31].is_finite()); // periapsis present
+    }
+
+    #[test]
+    fn asinh_rescale_bounds_huge_values() {
+        assert!((100.0_f64).asinh() < 6.0);
+    }
+
+    #[test]
+    fn default_mask_path_still_16() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let v = build_nn_input(
+            &nav,
+            None,
+            None,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            9.9,
+        );
+        assert_eq!(v.len(), 16);
     }
 }
