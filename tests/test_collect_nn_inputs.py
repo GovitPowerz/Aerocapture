@@ -1,10 +1,12 @@
 import json
 from pathlib import Path
 
-import aerocapture_rs
 import numpy as np
 import pytest
-from aerocapture.training.toml_utils import load_toml_with_bases
+
+aerocapture_rs = pytest.importorskip("aerocapture_rs")
+
+from aerocapture.training.toml_utils import load_toml_with_bases  # noqa: E402
 
 
 def _mint_zero_model(tmp_path: Path) -> str:
