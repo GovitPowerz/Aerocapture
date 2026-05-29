@@ -1,6 +1,9 @@
 # TODO
 
-- [ ] add a bounded delta command for nn alongside magonly and atan2 (also add input of previous guidance bank angle, previous realized bank angle)
+- [ ] add a report on nn inputs during simulation with enveloppe graphs (blue spaghetti for final dv correction and red for high final delta_v corrections)
+- [ ] I'd like to first optimize a small population (both single algo or islands) and then resume this optimization using a much bigger population using the small population as seeds.
+- [ ] After all the PRs we did recently, I think it's time for a thorough codebase review (critical on architecture, maintainability, code duplication, code quality, respect of functional specifications) or our Rust codebase.
+- [ ] After all the PRs we did recently, I think it's time for a thorough codebase review (critical on architecture, maintainability, code duplication, code quality, respect of functional specifications) or our Python codebase.
 
 ---
 

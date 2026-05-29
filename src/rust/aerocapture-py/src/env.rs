@@ -358,6 +358,7 @@ fn build_obs_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -
         state.guidance_state.prev_bank_for_nn,
         time_since_flip,
         state.guidance_state.inclination_error_integral,
+        state.guidance_state.prev_realized_bank_for_nn,
     )
 }
 

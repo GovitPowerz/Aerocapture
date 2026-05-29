@@ -342,15 +342,22 @@ fn nn_forward_sequence(json_path: String, inputs: Vec<Vec<f64>>) -> PyResult<Vec
 ///     path: output JSON file path.
 ///     input_mask: optional list of input indices (length == layer[0] input_size).
 ///     output_param: optional output parameterization string. One of:
-///         "atan2_signed" (default) or "acos_tanh". None defaults to "atan2_signed".
+///         "atan2_signed" (default), "acos_tanh", "scaled_pi", or "delta".
+///         None defaults to "atan2_signed".
+///     scaled_pi_n: optional half-range multiplier for the "scaled_pi" decoder
+///         (bank = scaled_pi_n * pi * tanh(out[0])). None defaults to 1.0.
+///     delta_max: optional per-step increment bound for the "delta" decoder
+///         (bank = prev_realized + delta_max * tanh(out[0])). None defaults to 0.35.
 #[pyfunction]
-#[pyo3(signature = (flat, architecture_json, path, input_mask=None, output_param=None))]
+#[pyo3(signature = (flat, architecture_json, path, input_mask=None, output_param=None, scaled_pi_n=None, delta_max=None))]
 fn flat_weights_to_json(
     flat: Vec<f64>,
     architecture_json: String,
     path: String,
     input_mask: Option<Vec<usize>>,
     output_param: Option<String>,
+    scaled_pi_n: Option<f64>,
+    delta_max: Option<f64>,
 ) -> PyResult<()> {
     use aerocapture::data::neural::{LayerSpec, NeuralNetModel, OutputParam};
 
@@ -363,14 +370,23 @@ fn flat_weights_to_json(
     let output_param: OutputParam = match output_param.as_deref() {
         None | Some("atan2_signed") => OutputParam::default(),
         Some("acos_tanh") => OutputParam::AcosTanh,
+        Some("scaled_pi") => OutputParam::ScaledPi,
+        Some("delta") => OutputParam::Delta,
         Some(other) => {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "output_param must be 'atan2_signed' or 'acos_tanh' (got {other:?})"
+                "output_param must be 'atan2_signed', 'acos_tanh', 'scaled_pi', or 'delta' (got {other:?})"
             )));
         }
     };
-    let model = NeuralNetModel::from_flat_weights_v2(&flat, &specs, input_mask, output_param)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    let model = NeuralNetModel::from_flat_weights_v2(
+        &flat,
+        &specs,
+        input_mask,
+        output_param,
+        scaled_pi_n.unwrap_or(1.0),
+        delta_max.unwrap_or(0.35),
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
     model
         .save_json(&path)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
@@ -394,9 +410,13 @@ fn flat_weights_to_json(
 /// Returns:
 ///     List of dicts (one per seed) with keys:
 ///       - "seed": int, the MC seed.
-///       - "X": numpy.ndarray of shape (T, 25), per-tick NN input vectors.
+///       - "X": numpy.ndarray of shape (T, 31), per-tick NN input vectors.
 ///       - "y_signed": numpy.ndarray of shape (T,), final signed bank command
 ///         (radians) after thermal limiter, lateral, and command shaper.
+///       - "prev_realized": numpy.ndarray of shape (T,), the previous-tick
+///         pilot-realized bank (radians), consistent with the X row at each
+///         step (captured before the per-tick telemetry update). Supervised
+///         target for the `delta` bank decoder warm-start.
 ///       - "dv": float, total orbital-correction DV from the final record (m/s).
 ///       - "captured": bool, whether the trajectory captured.
 #[pyfunction]
@@ -429,7 +449,8 @@ fn collect_supervised(
     let wall_timeout = sim_timeout_secs.map(std::time::Duration::from_secs_f64);
 
     // Collected outside py.detach: (seed, supervised_trace, dv_total_m_s, captured).
-    let mut per_seed: Vec<(u64, Vec<(Vec<f64>, f64)>, f64, bool)> = Vec::with_capacity(seeds.len());
+    let mut per_seed: Vec<(u64, Vec<(Vec<f64>, f64, f64)>, f64, bool)> =
+        Vec::with_capacity(seeds.len());
 
     py.detach(|| {
         for seed in &seeds {
@@ -482,7 +503,7 @@ fn collect_supervised(
                     seed
                 )));
             }
-            let mut combined_trace: Vec<(Vec<f64>, f64)> = Vec::new();
+            let mut combined_trace: Vec<(Vec<f64>, f64, f64)> = Vec::new();
             let mut dv = f64::NAN;
             let mut captured = false;
             for output in outputs {
@@ -500,18 +521,20 @@ fn collect_supervised(
     })?;
 
     // PyDict / PyArray construction requires the GIL, so it happens after py.detach() returns.
-    // NN input width is always 25 (the full FULL_MASK applied in tick.rs).
-    const NN_INPUT_WIDTH: usize = 25;
+    // NN input width is always 31 (the full FULL_MASK applied in tick.rs).
+    const NN_INPUT_WIDTH: usize = 31;
     let result_list = PyList::empty(py);
     for (seed, supervised_trace, dv, captured) in per_seed {
         let n_steps = supervised_trace.len();
         let mut x_rows: Vec<Vec<f64>> = Vec::with_capacity(n_steps);
         let mut y_signed: Vec<f64> = Vec::with_capacity(n_steps);
-        for (nn_input, bank) in supervised_trace {
+        let mut prev_realized: Vec<f64> = Vec::with_capacity(n_steps);
+        for (nn_input, bank, realized) in supervised_trace {
             x_rows.push(nn_input);
             y_signed.push(bank);
+            prev_realized.push(realized);
         }
-        // Preserve shape (0, 21) on empty traces so downstream code can rely on width.
+        // Preserve shape (0, 31) on empty traces so downstream code can rely on width.
         let x_array = if x_rows.is_empty() {
             numpy::PyArray2::<f64>::zeros(py, [0, NN_INPUT_WIDTH], false)
         } else {
@@ -520,11 +543,13 @@ fn collect_supervised(
             })?
         };
         let y_array = numpy::PyArray1::from_vec(py, y_signed);
+        let pr_array = numpy::PyArray1::from_vec(py, prev_realized);
 
         let dict = PyDict::new(py);
         dict.set_item("seed", seed)?;
         dict.set_item("X", x_array)?;
         dict.set_item("y_signed", y_array)?;
+        dict.set_item("prev_realized", pr_array)?;
         dict.set_item("dv", dv)?;
         dict.set_item("captured", captured)?;
         result_list.append(dict)?;

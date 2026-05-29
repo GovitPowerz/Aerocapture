@@ -449,6 +449,8 @@ def _make_warm_start_eval_callback(
                 str(tmp_path),
                 config.network.input_mask,
                 config.network.output_parameterization,
+                scaled_pi_n=config.network.scaled_pi_n,
+                delta_max=config.network.delta_max,
             )
             print()
             print(f"  [warm_start] === In-training evaluation at epoch {epoch} ===")
@@ -2004,6 +2006,10 @@ if __name__ == "__main__":
         cfg.network.scaffolding = str(_gnn["scaffolding"])
     if "output_parameterization" in _gnn:
         cfg.network.output_parameterization = str(_gnn["output_parameterization"])
+    if "scaled_pi_n" in _gnn:
+        cfg.network.scaled_pi_n = float(_gnn["scaled_pi_n"])
+    if "delta_max" in _gnn:
+        cfg.network.delta_max = float(_gnn["delta_max"])
     if "warm_start_from" in _gnn:
         cfg.network.warm_start_from = str(_gnn["warm_start_from"])
     if cfg.network.warm_start_from is not None:
@@ -2042,9 +2048,12 @@ if __name__ == "__main__":
     #   - mode = "magnitude_only" + output_parameterization = "acos_tanh":
     #     single-output tanh head -> acos in [0, pi], runtime decoder .abs()'s
     #     the NN output and lateral guidance re-selects the sign.
-    #   - mode = "full_neural" + output_parameterization = "atan2_signed":
-    #     two-output atan2 head -> signed bank in [-pi, pi], no runtime
-    #     lateral/thermal/shaping interception.
+    #   - mode = "full_neural" + output_parameterization in
+    #     {"atan2_signed", "scaled_pi", "delta"}: signed bank with no runtime
+    #     lateral/thermal/shaping interception. atan2_signed uses a two-output
+    #     atan2 head; scaled_pi/delta use a single-output tanh head decoded via
+    #     wrap_to_pi(n*pi*tanh) and wrap_to_pi(prev_realized + delta_max*tanh)
+    #     respectively (both hard-required to be full_neural by the Rust runtime).
     # acos_tanh + full_neural is REJECTED here because the Rust runtime
     # (src/rust/src/data/mod.rs::validate_output_parameterization) hard-errors
     # at config load: "output_parameterization=acos_tanh is only legal with
@@ -2062,12 +2071,14 @@ if __name__ == "__main__":
                 "or switch to output_parameterization='atan2_signed' for full_neural."
             )
             raise SystemExit(1)
-        matched = (nn_mode == "magnitude_only" and out_param == "acos_tanh") or (nn_mode == "full_neural" and out_param == "atan2_signed")
+        matched = (nn_mode == "magnitude_only" and out_param == "acos_tanh") or (
+            nn_mode == "full_neural" and out_param in ("atan2_signed", "scaled_pi", "delta")
+        )
         if not matched:
             print(
                 f"  [warm_start] WARNING: (mode='{nn_mode}', output_parameterization='{out_param}') "
                 f"is not a matched pair. The matched setups are "
-                f"(magnitude_only, acos_tanh) and (full_neural, atan2_signed). "
+                f"(magnitude_only, acos_tanh) and (full_neural, {{atan2_signed, scaled_pi, delta}}). "
                 f"Training will still run, but the supervised target and runtime decoder may be suboptimal."
             )
     if cfg.network.architecture is not None:

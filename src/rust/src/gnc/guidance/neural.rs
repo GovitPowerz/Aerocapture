@@ -3,15 +3,15 @@
 //! Feedforward network computing bank angle from navigation state.
 //! Supports arbitrary layer architectures via NeuralNetModel.
 //!
-//! 25 candidate inputs (selected by configurable `input_mask`):
+//! 31 candidate inputs (selected by configurable `input_mask`):
 //!   0  eccentricity_excess    8  altitude              16 cos_bank_nominal       21 inclination_err_rate
 //!   1  inclination_error      9  fpa                   17 pdyn_nominal           22 prev_bank_signed
 //!   2  radial_velocity       10  latitude              18 hdot_nominal           23 time_since_sign_flip
 //!   3  orbital_energy        11  drag_accel            19 pdyn_error             24 inclination_err_integral
-//!   4  velocity              12  lift_accel            20 exit_bank_teacher
-//!   5  accel_magnitude       13  sma_error
-//!   6  heat_flux_fraction    14  apoapsis_alt
-//!   7  heat_load_fraction    15  bounce_flag
+//!   4  velocity              12  lift_accel            20 exit_bank_teacher      25 exit_bank_sin
+//!   5  accel_magnitude       13  sma_error             26 exit_bank_cos          27 prev_bank_signed_sin
+//!   6  heat_flux_fraction    14  apoapsis_alt          28 prev_bank_signed_cos   29 prev_realized_sin
+//!   7  heat_load_fraction    15  bounce_flag           30 prev_realized_cos
 //!
 //! Index 20 is the closed-loop FTC exit-phase pdyn-feedback law, fed every step
 //! as a teacher signal (always live, not bounce-gated). Pre-bounce, with
@@ -30,6 +30,10 @@
 //! - `AcosTanh`: network emits 1 output through a `tanh` last layer (so
 //!   `out[0] ∈ [-1, 1]`); bank magnitude is `out[0].acos() ∈ [0, π]`.
 //!   Only legal in `magnitude_only` mode.
+//! - `ScaledPi`: 1 tanh output; `bank = wrap_to_pi(scaled_pi_n * π * out[0]) ∈ (-π, π]`.
+//!   Only legal in `full_neural` mode.
+//! - `Delta`: 1 tanh output; `bank = wrap_to_pi(prev_realized + delta_max * out[0]) ∈ (-π, π]`.
+//!   Only legal in `full_neural` mode.
 
 use crate::config::PlanetConfig;
 use crate::data::SimData;
@@ -42,7 +46,7 @@ use crate::orbit::elements;
 
 /// Build the masked NN input vector from navigation state.
 ///
-/// Constructs the full 25-element candidate input vector, applies ablation zeroing
+/// Constructs the full 31-element candidate input vector, applies ablation zeroing
 /// (if configured), then applies the input_mask (or legacy [0..16] default).
 /// Returns the masked `Vec<f64>` ready for `nn.forward()`.
 ///
@@ -53,6 +57,10 @@ use crate::orbit::elements;
 /// `time_since_last_sign_flip`, `inclination_error_integral`) populate indices
 /// 21-24. They MUST be sourced from GuidanceState (telemetry updated each tick
 /// by `tick.rs`) so they reflect the previous-tick state at NN-evaluation time.
+///
+/// `prev_realized_bank` (radians) is the pilot-realized bank angle from the
+/// PREVIOUS tick. It populates indices 29-30 as a (sin, cos) pair and also
+/// serves as the base for the `Delta` output decoder in `nn_bank_angle`.
 #[allow(clippy::too_many_arguments)]
 pub fn build_nn_input(
     nav: &NavigationOutput,
@@ -66,6 +74,7 @@ pub fn build_nn_input(
     prev_bank_signed: f64,
     time_since_last_sign_flip: f64,
     inclination_error_integral: f64,
+    prev_realized_bank: f64,
 ) -> Vec<f64> {
     let mu = planet.mu;
 
@@ -160,6 +169,16 @@ pub fn build_nn_input(
     // Index 24: integrated inclination error (deg·s), tanh-bounded with 100 deg·s scale.
     full_input[24] = (inclination_error_integral.to_degrees() / 100.0).tanh();
 
+    // -- (sin, cos) bank-history pairs (indices 25-30), seam-free cyclic encoding --
+    // Bank angles fed as (sin, cos) pairs avoid the +π/-π representation seam.
+    // `exit_bank` is the raw radian value already computed above (before its normalization at index 20).
+    full_input[25] = exit_bank.sin();
+    full_input[26] = exit_bank.cos();
+    full_input[27] = prev_bank_signed.sin();
+    full_input[28] = prev_bank_signed.cos();
+    full_input[29] = prev_realized_bank.sin();
+    full_input[30] = prev_realized_bank.cos();
+
     // Apply ablation: zero out a single input for sensitivity analysis
     if let Some(idx) = ablated_input {
         full_input[idx] = 0.0;
@@ -183,6 +202,10 @@ pub fn build_nn_input(
 /// `prev_inclination_error`, `prev_bank_signed`, `time_since_last_sign_flip`, and
 /// `inclination_error_integral` are pulled from GuidanceState by the caller
 /// (dispatch.rs) and populate input indices 21-24 -- see build_nn_input.
+///
+/// `prev_realized_bank` (radians) is the pilot-realized bank angle from the
+/// PREVIOUS tick. Populates input indices 29-30 and serves as the base for
+/// the `Delta` output decoder.
 #[allow(clippy::too_many_arguments)]
 pub fn nn_bank_angle(
     nav: &NavigationOutput,
@@ -196,6 +219,7 @@ pub fn nn_bank_angle(
     prev_bank_signed: f64,
     time_since_last_sign_flip: f64,
     inclination_error_integral: f64,
+    prev_realized_bank: f64,
 ) -> f64 {
     let masked = build_nn_input(
         nav,
@@ -209,12 +233,17 @@ pub fn nn_bank_angle(
         prev_bank_signed,
         time_since_last_sign_flip,
         inclination_error_integral,
+        prev_realized_bank,
     );
     use crate::data::neural::OutputParam;
+    use crate::gnc::control::angle_utils::wrap_to_pi;
+    use std::f64::consts::PI;
     let output = nn.forward(nn_state, &masked);
     match nn.output_param {
         OutputParam::Atan2Signed => output[0].atan2(output[1]),
         OutputParam::AcosTanh => output[0].acos(),
+        OutputParam::ScaledPi => wrap_to_pi(nn.scaled_pi_n * PI * output[0]),
+        OutputParam::Delta => wrap_to_pi(prev_realized_bank + nn.delta_max * output[0]),
     }
 }
 
@@ -375,6 +404,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         }
     }
 
@@ -399,6 +430,7 @@ mod tests {
             50.0_f64.to_radians(),
             0.0,
             None,
+            0.0,
             0.0,
             0.0,
             0.0,
@@ -429,6 +461,7 @@ mod tests {
             0.0,
             0.0,
             0.0,
+            0.0,
         );
         assert_relative_eq!(bank, 0.5_f64.atan2(0.5), epsilon = 1e-12);
     }
@@ -451,6 +484,7 @@ mod tests {
             50.0_f64.to_radians(),
             0.0,
             None,
+            0.0,
             0.0,
             0.0,
             0.0,
@@ -502,6 +536,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let nav = test_nav();
@@ -517,6 +553,7 @@ mod tests {
             50.0_f64.to_radians(),
             0.0,
             None,
+            0.0,
             0.0,
             0.0,
             0.0,
@@ -579,6 +616,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let nav = test_nav();
@@ -594,6 +633,7 @@ mod tests {
             50.0_f64.to_radians(),
             0.0,
             None,
+            0.0,
             0.0,
             0.0,
             0.0,
@@ -629,6 +669,8 @@ mod tests {
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let nav = test_nav();
@@ -644,6 +686,7 @@ mod tests {
             50.0_f64.to_radians(),
             -50.0,
             None,
+            0.0,
             0.0,
             0.0,
             0.0,
@@ -682,6 +725,8 @@ mod tests {
             input_mask: Some(vec![0, 8, 15]),
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let nav = test_nav();
@@ -705,6 +750,7 @@ mod tests {
             0.0,
             0.0,
             0.0,
+            0.0,
         );
         let x0 = full_input[0];
         let x8 = full_input[8];
@@ -724,6 +770,7 @@ mod tests {
             target_inc,
             ref_velocity,
             None,
+            0.0,
             0.0,
             0.0,
             0.0,
@@ -757,6 +804,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let nn_ablated = NeuralNetModel {
@@ -774,6 +823,8 @@ mod tests {
             input_mask: None,
             ablated_input: Some(0),
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let nav = test_nav();
@@ -795,6 +846,7 @@ mod tests {
             0.0,
             0.0,
             0.0,
+            0.0,
         );
         let bank_ablated = nn_bank_angle(
             &nav,
@@ -805,6 +857,7 @@ mod tests {
             target_inc,
             0.0,
             None,
+            0.0,
             0.0,
             0.0,
             0.0,
@@ -834,6 +887,8 @@ mod tests {
             input_mask: Some((0..16).collect()),
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let nav = test_nav();
@@ -849,6 +904,7 @@ mod tests {
             50.0_f64.to_radians(),
             0.0,
             None,
+            0.0,
             0.0,
             0.0,
             0.0,
@@ -884,6 +940,8 @@ mod tests {
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let mut nav = test_nav();
@@ -900,6 +958,7 @@ mod tests {
             50.0_f64.to_radians(),
             0.0, // ref_velocity_latched = 0 pre-bounce,
             None,
+            0.0,
             0.0,
             0.0,
             0.0,
@@ -931,6 +990,7 @@ mod tests {
             50.0_f64.to_radians(),
             0.0,
             None, // first-tick: no prev incl err
+            0.0,
             0.0,
             0.0,
             0.0,
@@ -975,6 +1035,7 @@ mod tests {
             0.0,
             0.0,
             0.0,
+            0.0,
         );
         let expected = target_rate.to_degrees() * 10.0;
         assert_relative_eq!(inp[21], expected, epsilon = 1e-12);
@@ -1007,6 +1068,7 @@ mod tests {
                 prev_bank,
                 0.0,
                 0.0,
+                0.0,
             );
             assert_relative_eq!(inp[22], expected, epsilon = 1e-15);
         }
@@ -1033,6 +1095,7 @@ mod tests {
                 None,
                 0.0,
                 t_since,
+                0.0,
                 0.0,
             );
             assert_relative_eq!(inp[23], expected, epsilon = 1e-10);
@@ -1061,6 +1124,7 @@ mod tests {
             0.0,
             0.0,
             integral_rad_s,
+            0.0,
         );
         assert_relative_eq!(inp[24], 1.0_f64.tanh(), epsilon = 1e-12);
 
@@ -1077,6 +1141,7 @@ mod tests {
             0.0,
             0.0,
             -integral_rad_s,
+            0.0,
         );
         assert_relative_eq!(inp_neg[24], -1.0_f64.tanh(), epsilon = 1e-12);
     }
@@ -1105,6 +1170,7 @@ mod tests {
             0.0,
             0.0,
             0.0,
+            0.0,
         );
         let inp_b = build_nn_input(
             &nav,
@@ -1118,12 +1184,285 @@ mod tests {
             std::f64::consts::PI,
             42.5,
             std::f64::consts::E,
+            0.0,
         );
         assert_eq!(inp_a.len(), 21);
         assert_eq!(inp_b.len(), 21);
         for i in 0..21 {
             assert_relative_eq!(inp_a[i], inp_b[i], epsilon = 1e-15);
         }
+    }
+
+    // ── Tests for Tasks 3 & 4: prev_realized_bank param + (sin,cos) pairs + ScaledPi/Delta decoders ──
+
+    #[test]
+    fn full_input_default_mask_is_16_and_ignores_prev_realized() {
+        let nav = test_nav();
+        let data = test_sim_data();
+        let planet = PlanetConfig::mars();
+        // A wild prev_realized (9.9 rad) must never leak into the default [..16] slice.
+        let v = build_nn_input(
+            &nav,
+            None,
+            None,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            /*prev_realized*/ 9.9,
+        );
+        assert_eq!(v.len(), 16, "default mask must return exactly 16 inputs");
+        assert!(
+            v.iter().all(|x| x.is_finite()),
+            "wild prev_realized must never leak in"
+        );
+    }
+
+    #[test]
+    fn prev_realized_sincos_roundtrips() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let prev_realized = 2.5_f64;
+        let mask: Vec<usize> = (0..31).collect();
+        let v = build_nn_input(
+            &nav,
+            Some(&mask),
+            None,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            prev_realized,
+        );
+        assert_eq!(v.len(), 31);
+        // sin at index 29, cos at index 30 — atan2(sin, cos) must recover the angle.
+        let recovered = v[29].atan2(v[30]);
+        assert_relative_eq!(recovered, prev_realized, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn scaled_pi_scales_by_n_pi_and_wraps() {
+        // n=2, single-output tanh net with zero weights, bias=0 → tanh(0)=0 → bank = 2π*0 = 0
+        let nn = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: 31,
+                output_size: 1,
+                activation: Activation::Tanh,
+            }],
+            layer_sizes: vec![31, 1],
+            layers: vec![Layer::Dense(DenseLayer {
+                w: vec![vec![0.0; 31]],
+                b: vec![0.0],
+                activation: Activation::Tanh,
+            })],
+            input_mask: Some((0..31).collect()),
+            ablated_input: None,
+            output_param: OutputParam::ScaledPi,
+            scaled_pi_n: 2.0,
+            delta_max: 0.0,
+        };
+        let mut st = NnState::for_model(&nn);
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let b = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut st,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        );
+        assert_relative_eq!(b, 0.0, epsilon = 1e-12);
+        assert!(
+            b > -std::f64::consts::PI && b <= std::f64::consts::PI,
+            "ScaledPi output must be in (-π, π]: {}",
+            b
+        );
+    }
+
+    #[test]
+    fn scaled_pi_wraps_when_product_exceeds_pi() {
+        use crate::gnc::control::angle_utils::wrap_to_pi;
+        use std::f64::consts::PI;
+        // n=1.5, large positive bias → tanh(bias) ≈ 1.0 → raw = 1.5*π ≈ 4.71 > π → must wrap.
+        let bias = 20.0_f64;
+        let nn = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: 31,
+                output_size: 1,
+                activation: Activation::Tanh,
+            }],
+            layer_sizes: vec![31, 1],
+            layers: vec![Layer::Dense(DenseLayer {
+                w: vec![vec![0.0; 31]],
+                b: vec![bias],
+                activation: Activation::Tanh,
+            })],
+            input_mask: Some((0..31).collect()),
+            ablated_input: None,
+            output_param: OutputParam::ScaledPi,
+            scaled_pi_n: 1.5,
+            delta_max: 0.0,
+        };
+        let mut st = NnState::for_model(&nn);
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let b = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut st,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        );
+        let unwrapped = 1.5 * PI * bias.tanh();
+        let expected = wrap_to_pi(unwrapped);
+        assert!(
+            (b - expected).abs() < 1e-9,
+            "ScaledPi wrap: expected {expected}, got {b}"
+        );
+        assert!(
+            b > -PI && b <= PI,
+            "ScaledPi output must be in (-π, π]: {}",
+            b
+        );
+        // Confirm wrapping actually changed the value (unwrapped > π, wrapped < 0).
+        assert!(
+            (b - unwrapped).abs() > 1e-9,
+            "wrap_to_pi did not change the value: unwrapped={unwrapped}, wrapped={b}"
+        );
+    }
+
+    #[test]
+    fn delta_integrates_on_prev_realized_bounded_and_wrapped() {
+        // delta_max=0.2, bias=5 → tanh(5)≈1 → step ≈ +0.2 added to prev_realized=1.0
+        let nn = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: 31,
+                output_size: 1,
+                activation: Activation::Tanh,
+            }],
+            layer_sizes: vec![31, 1],
+            layers: vec![Layer::Dense(DenseLayer {
+                w: vec![vec![0.0; 31]],
+                b: vec![5.0],
+                activation: Activation::Tanh,
+            })],
+            input_mask: Some((0..31).collect()),
+            ablated_input: None,
+            output_param: OutputParam::Delta,
+            scaled_pi_n: 1.0,
+            delta_max: 0.2,
+        };
+        let mut st = NnState::for_model(&nn);
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let prev_realized = 1.0_f64;
+        let b = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut st,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.0,
+            0.0,
+            0.0,
+            prev_realized,
+        );
+        let expected_raw = prev_realized + 0.2 * 5.0_f64.tanh();
+        assert!(
+            (b - expected_raw).abs() < 1e-9,
+            "Delta decoder: expected {expected_raw}, got {b}"
+        );
+        assert!(
+            b > -std::f64::consts::PI && b <= std::f64::consts::PI,
+            "Delta output must be wrapped to (-π, π]: {}",
+            b
+        );
+    }
+
+    #[test]
+    fn delta_wraps_when_sum_exceeds_pi() {
+        use crate::gnc::control::angle_utils::wrap_to_pi;
+        use std::f64::consts::PI;
+        // prev_realized = π - 0.1, delta_max = 0.5, large bias → tanh ≈ 1.0
+        // raw sum ≈ π - 0.1 + 0.5 = π + 0.4 > π → must wrap to negative.
+        let bias = 20.0_f64;
+        let prev_realized = PI - 0.1;
+        let nn = NeuralNetModel {
+            architecture: vec![LayerSpec::Dense {
+                input_size: 31,
+                output_size: 1,
+                activation: Activation::Tanh,
+            }],
+            layer_sizes: vec![31, 1],
+            layers: vec![Layer::Dense(DenseLayer {
+                w: vec![vec![0.0; 31]],
+                b: vec![bias],
+                activation: Activation::Tanh,
+            })],
+            input_mask: Some((0..31).collect()),
+            ablated_input: None,
+            output_param: OutputParam::Delta,
+            scaled_pi_n: 1.0,
+            delta_max: 0.5,
+        };
+        let mut st = NnState::for_model(&nn);
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let b = nn_bank_angle(
+            &nav,
+            &nn,
+            &mut st,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.0,
+            0.0,
+            0.0,
+            prev_realized,
+        );
+        let expected = wrap_to_pi(prev_realized + 0.5 * bias.tanh());
+        assert!(
+            (b - expected).abs() < 1e-9,
+            "Delta wrap: expected {expected}, got {b}"
+        );
+        // The wrapped result must be negative (folded below 0).
+        assert!(
+            b < 0.0,
+            "Delta wrap: result should be negative after wrap, got {b}"
+        );
+        assert!(b > -PI && b <= PI, "Delta output must be in (-π, π]: {}", b);
     }
 
     mod prop {
@@ -1155,6 +1494,8 @@ mod tests {
                 input_mask: None,
                 ablated_input: None,
                 output_param: OutputParam::default(),
+                scaled_pi_n: 1.0,
+                delta_max: 0.35,
             }
         }
 
@@ -1187,6 +1528,7 @@ mod tests {
             0.0,
             0.0,
             0.0,
+            0.0,
         );
 
                         prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
@@ -1214,6 +1556,8 @@ mod tests {
                 input_mask: None,
                 ablated_input: None,
                 output_param: OutputParam::AcosTanh,
+                scaled_pi_n: 1.0,
+                delta_max: 0.35,
             };
 
             let nav = test_nav();
@@ -1229,6 +1573,7 @@ mod tests {
                 50.0_f64.to_radians(),
                 0.0,
                 None,
+                0.0,
                 0.0,
                 0.0,
                 0.0,

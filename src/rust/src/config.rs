@@ -1053,6 +1053,12 @@ pub struct TomlNeuralNetworkParams {
     /// "acos_tanh" requires mode = "magnitude_only" and a last Dense layer with output_size=1 and activation="tanh".
     #[serde(default)]
     pub output_parameterization: Option<String>,
+    /// Half-range multiplier for output_parameterization="scaled_pi".
+    #[serde(default)]
+    pub scaled_pi_n: Option<f64>,
+    /// Per-step increment bound (rad) for output_parameterization="delta".
+    #[serde(default)]
+    pub delta_max: Option<f64>,
 }
 
 // ─── Domain-based Monte Carlo TOML structs ───

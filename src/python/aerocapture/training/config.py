@@ -33,6 +33,8 @@ class NetworkConfig:
     architecture: list[dict] | None = None
     scaffolding: str = "off"  # "off" | "live" | "full"
     output_parameterization: str | None = None
+    scaled_pi_n: float = 1.0
+    delta_max: float = 0.35
     warm_start_from: str | None = None
 
     def __post_init__(self) -> None:
@@ -71,13 +73,14 @@ class NetworkConfig:
                     raise ValueError(msg)
                 # Indices must be non-negative; the upper bound is the candidate
                 # input vector width, which depends on the Rust `build_nn_input`
-                # contract. Currently 25 (16 baseline + 4 ref-traj + 1 exit-bank
-                # teacher + 4 lateral telemetry), but configs with architecture[0]
-                # input_size > 25 exist for tests of architecture chains. Use the
-                # larger of the two as the practical upper bound so typos like
-                # negative indices or grossly-out-of-range values still get
-                # rejected at config load.
-                _RUNTIME_CANDIDATE_WIDTH = 25
+                # contract. Currently 31 (16 baseline + 4 ref-traj + 1 exit-bank
+                # teacher + 4 lateral telemetry + 6 seam-free (sin,cos)
+                # bank-history pairs at indices 25-30), but configs with
+                # architecture[0] input_size > 31 exist for tests of architecture
+                # chains. Use the larger of the two as the practical upper bound
+                # so typos like negative indices or grossly-out-of-range values
+                # still get rejected at config load.
+                _RUNTIME_CANDIDATE_WIDTH = 31
                 upper = max(_RUNTIME_CANDIDATE_WIDTH, first_input_int)
                 bad = [idx for idx in self.input_mask if not (0 <= idx < upper)]
                 if bad:

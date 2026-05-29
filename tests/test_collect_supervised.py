@@ -20,10 +20,10 @@ def test_collect_supervised_returns_finite_traces() -> None:
     )
     assert isinstance(results, list) and len(results) == 1
     r = results[0]
-    assert set(r.keys()) == {"seed", "X", "y_signed", "dv", "captured"}
+    assert set(r.keys()) == {"seed", "X", "y_signed", "prev_realized", "dv", "captured"}
     X = np.asarray(r["X"])
     y = np.asarray(r["y_signed"])
-    assert X.ndim == 2 and X.shape[1] == 25, X.shape
+    assert X.ndim == 2 and X.shape[1] == 31, X.shape
     assert y.ndim == 1 and y.shape[0] == X.shape[0], (X.shape, y.shape)
     assert np.isfinite(X).all()
     assert np.isfinite(y).all()
@@ -64,7 +64,7 @@ def test_collect_supervised_overrides_neural_network_guidance_type(tmp_path: Pat
     X = np.asarray(r["X"])
     y = np.asarray(r["y_signed"])
     assert X.shape[0] > 0, "collect_supervised should succeed when scheme=ftc despite missing NN file"
-    assert X.shape[1] == 25
+    assert X.shape[1] == 31
     assert np.isfinite(X).all()
     assert np.isfinite(y).all()
 

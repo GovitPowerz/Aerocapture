@@ -162,11 +162,11 @@ pub fn step_one_tick(
         // recorded magnitude is just |reference_bank_angle| (constant per
         // config). Active-only rows give the regression target real signal.
         if config.collect_supervised && guidance_out.longitudinal_active == 1 {
-            // Explicit full mask: select all 25 inputs.
+            // Explicit full mask: select all 31 inputs.
             // Passing None would trigger the backward-compat default (first 16 only).
-            const FULL_MASK: [usize; 25] = [
+            const FULL_MASK: [usize; 31] = [
                 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-                23, 24,
+                23, 24, 25, 26, 27, 28, 29, 30,
             ];
             // Telemetry scalars sourced from GuidanceState -- these reflect the
             // PREVIOUS-tick state (updated below after guidance_step), keeping
@@ -184,6 +184,7 @@ pub fn step_one_tick(
                 state.guidance_state.prev_bank_for_nn,
                 time_since_flip,
                 state.guidance_state.inclination_error_integral,
+                state.guidance_state.prev_realized_bank_for_nn,
             );
             // Supervised target is the post-lateral, PRE-shaper signed bank.
             // - Sign preserved: full_neural deploy has no lateral guidance at
@@ -192,9 +193,11 @@ pub fn step_one_tick(
             // - Pre-shaper: the shaper runs exactly once at deploy (on the
             //   NN's output). Capturing the post-shaper value would cause
             //   double-shaping (the supervisor's command was already shaped).
-            state
-                .supervised_trace
-                .push((nn_input, guidance_out.pre_shaper_signed));
+            state.supervised_trace.push((
+                nn_input,
+                guidance_out.pre_shaper_signed,
+                state.guidance_state.prev_realized_bank_for_nn,
+            ));
         }
 
         // ── Update NN-input telemetry for the NEXT tick ──
@@ -210,6 +213,7 @@ pub fn step_one_tick(
             state.guidance_state.last_sign_flip_time_for_nn = state.sim_time;
         }
         state.guidance_state.prev_bank_for_nn = new_bank;
+        state.guidance_state.prev_realized_bank_for_nn = state.guidance_state.bank_angle_realized;
         state.guidance_state.prev_inclination_error_for_nn = Some(current_incl_err);
         // Simple Euler integration of the inclination error, dt = guidance period.
         // No anti-windup -- the NN's tanh-bounded input 24 saturates naturally.

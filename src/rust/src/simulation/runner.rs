@@ -152,7 +152,7 @@ pub struct SimState {
     // Lives on SimState (not RunState) so that the per-tick run_state.clone()
     // calls in tick.rs do NOT deep-copy the growing trace vector. This was
     // O(N²) memory churn during supervised data collection.
-    pub(crate) supervised_trace: Vec<(Vec<f64>, f64)>,
+    pub(crate) supervised_trace: Vec<(Vec<f64>, f64, f64)>,
 
     // ── Photo output accumulators ──
     pub(crate) photo_lines: Vec<[f64; 30]>,
@@ -445,7 +445,7 @@ struct SimResult {
     final_line: [f64; 52],
     photo_lines: Vec<[f64; 30]>,
     dispersions: [f64; DISPERSION_DRAW_LEN],
-    supervised_trace: Vec<(Vec<f64>, f64)>,
+    supervised_trace: Vec<(Vec<f64>, f64, f64)>,
 }
 
 /// Shared simulation orchestration: build run states, dispatch parallel/sequential runs.

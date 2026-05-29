@@ -69,6 +69,9 @@ pub struct GuidanceState {
     /// Previous tick's commanded bank angle (radians, signed in [-π, π]).
     /// Surfaced as input 22 (normalized by /π) so the NN can see its own last command.
     pub prev_bank_for_nn: f64,
+    /// Previous-tick pilot-realized bank (rad). Backs the `delta` decoder base
+    /// and the prev-realized (sin,cos) NN input. Updated post-guidance in tick.rs.
+    pub prev_realized_bank_for_nn: f64,
     /// Sim time of the most recent bank-command sign flip (seconds).
     /// Surfaced via `tanh((sim_time - this) / 30)` as input 23 -- anti-chatter awareness.
     pub last_sign_flip_time_for_nn: f64,
@@ -97,6 +100,7 @@ impl GuidanceState {
             nn_state,
             prev_inclination_error_for_nn: None,
             prev_bank_for_nn: initial_bank,
+            prev_realized_bank_for_nn: initial_bank,
             last_sign_flip_time_for_nn: 0.0,
             inclination_error_integral: 0.0,
         }
@@ -217,6 +221,7 @@ pub fn guidance_step(
                 let time_since_flip = sim_time - state.last_sign_flip_time_for_nn;
                 let integral = state.inclination_error_integral;
                 let ref_vel = state.reference_velocity;
+                let prev_realized = state.prev_realized_bank_for_nn;
                 let nn_state = state.nn_state.as_mut().expect(
                     "neural_network scheme requires nn_state initialized by GuidanceState::new",
                 );
@@ -232,6 +237,7 @@ pub fn guidance_step(
                     prev_bank,
                     time_since_flip,
                     integral,
+                    prev_realized,
                 );
                 // MagnitudeOnly: drop the sign and feed magnitude into the unsigned
                 // pipeline (thermal limiter + lateral guidance handle sign + safety).
@@ -510,6 +516,14 @@ mod tests {
             max_bank_acceleration: max_bank_acceleration_deg.to_radians(),
         });
         data
+    }
+
+    // ─── GuidanceState field tests ───────────────────────────────────────────
+
+    #[test]
+    fn guidance_state_inits_prev_realized_bank() {
+        let s = GuidanceState::new(0.5, 0.1, None);
+        assert_eq!(s.prev_realized_bank_for_nn, 0.5);
     }
 
     // ─── Deterministic tests ─────────────────────────────────────────────────
@@ -1196,6 +1210,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         // Heat flux at 99% of limit -> thermal limiter activates aggressively.
@@ -1285,6 +1301,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::AcosTanh,
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let mut nav = test_nav();
