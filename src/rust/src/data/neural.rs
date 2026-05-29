@@ -104,12 +104,18 @@ pub enum Activation {
 /// `AcosTanh`: emits 1 output through `tanh` and `bank = acos(out[0]) ∈ [0, π]`.
 /// Only legal in `magnitude_only` mode (architecture validates last layer
 /// `output_size = 1` with activation `tanh`).
+///
+/// `ScaledPi`: emits 1 tanh output; `bank = scaled_pi_n * π * out[0] ∈ [-n·π, n·π]`.
+///
+/// `Delta`: emits 1 tanh output; `bank = prev_realized + delta_max * out[0]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputParam {
     #[default]
     Atan2Signed,
     AcosTanh,
+    ScaledPi,
+    Delta,
 }
 
 impl Activation {
@@ -1110,6 +1116,13 @@ pub enum LayerSpec {
     },
 }
 
+fn default_scaled_pi_n() -> f64 {
+    1.0
+}
+fn default_delta_max() -> f64 {
+    0.35
+}
+
 /// JSON file structure for neural network models (v2 schema).
 /// `output_param` selects the bank-angle decoder: `Atan2Signed` (default,
 /// 2-output `atan2`) or `AcosTanh` (1-output `acos(tanh(x))`, magnitude_only
@@ -1127,6 +1140,10 @@ struct NnJsonFileV2 {
     ablated_input: Option<usize>,
     #[serde(default)]
     output_param: OutputParam,
+    #[serde(default = "default_scaled_pi_n")]
+    scaled_pi_n: f64,
+    #[serde(default = "default_delta_max")]
+    delta_max: f64,
 }
 
 /// Total number of candidate NN inputs (16 baseline + 4 reference trajectory + 1 exit-bank teacher + 4 lateral-state telemetry).
@@ -1152,6 +1169,10 @@ pub struct NeuralNetModel {
     /// Output parameterization for the bank-angle decoder.
     /// Default: `Atan2Signed` (2-output atan2, backward-compatible).
     pub output_param: OutputParam,
+    /// Half-range multiplier for `ScaledPi`: `bank = scaled_pi_n * π * out[0]`.
+    pub scaled_pi_n: f64,
+    /// Per-step increment bound for `Delta`: `bank = prev_realized + delta_max * out[0]`.
+    pub delta_max: f64,
 }
 
 impl NeuralNetModel {
@@ -1190,6 +1211,8 @@ impl NeuralNetModel {
     /// for the given `output_param`:
     /// - `Atan2Signed`: requires output_size == 2 (bank = atan2(out[0], out[1]))
     /// - `AcosTanh`:    requires output_size == 1 (bank = acos(tanh(out[0])))
+    /// - `ScaledPi`:    requires output_size == 1 (bank = scaled_pi_n * π * tanh(out[0]))
+    /// - `Delta`:       requires output_size == 1 (bank = prev_realized + delta_max * tanh(out[0]))
     pub fn validate_output_size(
         output_size: usize,
         output_param: OutputParam,
@@ -1197,7 +1220,7 @@ impl NeuralNetModel {
     ) -> Result<(), DataError> {
         let expected = match output_param {
             OutputParam::Atan2Signed => 2,
-            OutputParam::AcosTanh => 1,
+            OutputParam::AcosTanh | OutputParam::ScaledPi | OutputParam::Delta => 1,
         };
         if output_size != expected {
             return Err(DataError(format!(
@@ -1209,8 +1232,8 @@ impl NeuralNetModel {
     }
 
     /// Validate that the last layer's activation matches the output_param
-    /// constraint. `AcosTanh` requires `Tanh` so that `output[0] ∈ [-1, 1]`
-    /// and `output[0].acos()` is well-defined. `Atan2Signed` has no constraint.
+    /// constraint. `AcosTanh`, `ScaledPi`, and `Delta` require `Tanh` so that
+    /// `output[0] ∈ [-1, 1]`. `Atan2Signed` has no constraint.
     /// Without this guard a hand-crafted (or trainer-bug-produced) v2 JSON with
     /// `output_param: "acos_tanh"` plus `linear`/`asinh`/`swish` last activation
     /// loads silently and emits NaN at runtime when |out[0]| > 1.
@@ -1219,11 +1242,15 @@ impl NeuralNetModel {
         output_param: OutputParam,
         path: &str,
     ) -> Result<(), DataError> {
-        if output_param == OutputParam::AcosTanh && last_activation != Activation::Tanh {
+        let needs_tanh = matches!(
+            output_param,
+            OutputParam::AcosTanh | OutputParam::ScaledPi | OutputParam::Delta
+        );
+        if needs_tanh && last_activation != Activation::Tanh {
             return Err(DataError(format!(
-                "output_param=AcosTanh requires last-layer activation=Tanh, \
-                 got {:?} in {}. Without tanh, out[0] is unbounded and acos(>1) returns NaN.",
-                last_activation, path
+                "output_param={:?} requires last-layer activation=Tanh, got {:?} in {}. \
+                 Without tanh, out[0] is unbounded.",
+                output_param, last_activation, path
             )));
         }
         Ok(())
@@ -1342,6 +1369,8 @@ impl NeuralNetModel {
             input_mask: file.input_mask,
             ablated_input: file.ablated_input,
             output_param: OutputParam::default(),
+            scaled_pi_n: default_scaled_pi_n(),
+            delta_max: default_delta_max(),
         })
     }
 
@@ -1971,6 +2000,8 @@ impl NeuralNetModel {
             input_mask: file.input_mask,
             ablated_input: file.ablated_input,
             output_param: file.output_param,
+            scaled_pi_n: file.scaled_pi_n,
+            delta_max: file.delta_max,
         })
     }
 
@@ -2046,6 +2077,8 @@ impl NeuralNetModel {
             input_mask: self.input_mask.clone(),
             ablated_input: self.ablated_input,
             output_param: self.output_param,
+            scaled_pi_n: self.scaled_pi_n,
+            delta_max: self.delta_max,
         };
 
         let json = serde_json::to_string_pretty(&file)
@@ -2186,6 +2219,8 @@ impl NeuralNetModel {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: default_scaled_pi_n(),
+            delta_max: default_delta_max(),
         })
     }
 
@@ -2399,6 +2434,8 @@ impl NeuralNetModel {
             input_mask,
             ablated_input: None,
             output_param,
+            scaled_pi_n: default_scaled_pi_n(),
+            delta_max: default_delta_max(),
         })
     }
 }
@@ -2438,6 +2475,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: default_scaled_pi_n(),
+            delta_max: default_delta_max(),
         }
     }
 
@@ -2547,6 +2586,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: default_scaled_pi_n(),
+            delta_max: default_delta_max(),
         };
 
         let flat = original.to_flat_weights();
@@ -2736,6 +2777,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: default_scaled_pi_n(),
+            delta_max: default_delta_max(),
         };
 
         let tmpdir = std::env::temp_dir();
@@ -2933,6 +2976,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: default_scaled_pi_n(),
+            delta_max: default_delta_max(),
         };
 
         let tmpdir = std::env::temp_dir();
@@ -3122,6 +3167,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: default_scaled_pi_n(),
+            delta_max: default_delta_max(),
         };
         let mut state = NnState::for_model(&model);
 
@@ -3171,6 +3218,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: default_scaled_pi_n(),
+            delta_max: default_delta_max(),
         };
 
         let tmp = tempfile::NamedTempFile::new().unwrap();
@@ -4260,6 +4309,26 @@ mod tests {
     }
 
     #[test]
+    fn scaled_pi_requires_output_size_1() {
+        assert!(NeuralNetModel::validate_output_size(1, OutputParam::ScaledPi, "<t>").is_ok());
+        assert!(NeuralNetModel::validate_output_size(2, OutputParam::ScaledPi, "<t>").is_err());
+    }
+
+    #[test]
+    fn delta_requires_output_size_1() {
+        assert!(NeuralNetModel::validate_output_size(1, OutputParam::Delta, "<t>").is_ok());
+        assert!(NeuralNetModel::validate_output_size(2, OutputParam::Delta, "<t>").is_err());
+    }
+
+    #[test]
+    fn scaled_pi_and_delta_require_tanh_last_activation() {
+        for p in [OutputParam::ScaledPi, OutputParam::Delta] {
+            assert!(NeuralNetModel::validate_output_activation(Activation::Tanh, p, "<t>").is_ok());
+            assert!(NeuralNetModel::validate_output_activation(Activation::Linear, p, "<t>").is_err());
+        }
+    }
+
+    #[test]
     fn output_param_default_is_atan2_signed() {
         let p: OutputParam = OutputParam::default();
         assert_eq!(p, OutputParam::Atan2Signed);
@@ -4297,6 +4366,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::AcosTanh,
+            scaled_pi_n: default_scaled_pi_n(),
+            delta_max: default_delta_max(),
         };
 
         let dir = tempfile::tempdir().unwrap();

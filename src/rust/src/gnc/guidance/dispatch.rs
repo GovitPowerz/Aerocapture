@@ -1196,6 +1196,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         // Heat flux at 99% of limit -> thermal limiter activates aggressively.
@@ -1285,6 +1287,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::AcosTanh,
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let mut nav = test_nav();

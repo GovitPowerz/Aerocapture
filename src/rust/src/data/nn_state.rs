@@ -154,6 +154,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         }
     }
 

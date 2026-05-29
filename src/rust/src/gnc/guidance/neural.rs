@@ -215,6 +215,7 @@ pub fn nn_bank_angle(
     match nn.output_param {
         OutputParam::Atan2Signed => output[0].atan2(output[1]),
         OutputParam::AcosTanh => output[0].acos(),
+        OutputParam::ScaledPi | OutputParam::Delta => unimplemented!("decoder added in Task 4"),
     }
 }
 
@@ -375,6 +376,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         }
     }
 
@@ -502,6 +505,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let nav = test_nav();
@@ -579,6 +584,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let nav = test_nav();
@@ -629,6 +636,8 @@ mod tests {
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let nav = test_nav();
@@ -682,6 +691,8 @@ mod tests {
             input_mask: Some(vec![0, 8, 15]),
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let nav = test_nav();
@@ -757,6 +768,8 @@ mod tests {
             input_mask: None,
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let nn_ablated = NeuralNetModel {
@@ -774,6 +787,8 @@ mod tests {
             input_mask: None,
             ablated_input: Some(0),
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let nav = test_nav();
@@ -834,6 +849,8 @@ mod tests {
             input_mask: Some((0..16).collect()),
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let nav = test_nav();
@@ -884,6 +901,8 @@ mod tests {
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
             output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
         };
 
         let mut nav = test_nav();
@@ -1155,6 +1174,8 @@ mod tests {
                 input_mask: None,
                 ablated_input: None,
                 output_param: OutputParam::default(),
+                scaled_pi_n: 1.0,
+                delta_max: 0.35,
             }
         }
 
@@ -1214,6 +1235,8 @@ mod tests {
                 input_mask: None,
                 ablated_input: None,
                 output_param: OutputParam::AcosTanh,
+                scaled_pi_n: 1.0,
+                delta_max: 0.35,
             };
 
             let nav = test_nav();
