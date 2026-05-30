@@ -4,19 +4,23 @@ base = ["../missions/mars.toml", "common.toml"]
 [guidance]
 type = "neural_network"
 
+[guidance.neural_network]
+mode = "full_neural"
+scaffolding = "live"
+output_parameterization = "atan2_signed"
 
 [network]
-# All 25 candidate inputs including 21-24 lateral telemetry (incl_err rate,
-# prev_bank, time-since-sign-flip, incl_err integral). These make the
-# supervisor's signed-bank decision Markovian from the NN's POV -- without them,
-# post-reversal near-duplicate states collapse the supervised MSE target.
-input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+# 18 inputs: atan2 24-mask minus sma_error(13), apoapsis_alt(14),
+# cos_bank_nominal(16), inclination_err_rate(21), time_since_sign_flip(23),
+# inclination_err_integral(24) -- leaner-observation experiment (drops 2
+# orbit-state + 1 reference + 3 lateral-telemetry inputs; applied to all 3 decoders).
+input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 9, 11, 12, 17, 18, 19, 27, 28, 29, 30]
 # input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 # input_mask = [18, 12, 15, 0, 6, 14, 13, 11, 4, 3, 5]
 
 [[network.architecture]]
 type = "dense"
-input_size = 25
+input_size = 18
 output_size = 32
 activation = "swish"
 
