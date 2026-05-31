@@ -11,15 +11,16 @@ neural_network = "training_output/neural_network_scaledpi_pso/best_model.json"
 results_suffix = ".train_scaledpi_pso"
 
 [network]
-# 18 inputs: atan2 24-mask minus sma_error(13), apoapsis_alt(14),
-# cos_bank_nominal(16), inclination_err_rate(21), time_since_sign_flip(23),
-# inclination_err_integral(24) -- leaner-observation experiment (drops 2
-# orbit-state + 1 reference + 3 lateral-telemetry inputs; applied to all 3 decoders).
-input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 9, 11, 12, 17, 18, 19, 27, 28, 29, 30]
+# 11 inputs: 18-mask minus union of per-decoder low-importance prunes
+# {inclination_error(1), velocity(4), accel_magnitude(5), fpa(9), pdyn_error(19)}
+# + pdyn_nominal(17) + heat_load_fraction(7). Aggressive shared cut -- NOTE some
+# removed inputs ablated HIGH for specific decoders (accel_magnitude=atan2 3.32,
+# heat_load_fraction=delta 3.22, pdyn_nominal=delta 2.87); bet that retraining compensates.
+input_mask = [0, 2, 3, 6, 11, 12, 18, 27, 28, 29, 30]
 
 [[network.architecture]]
 type = "dense"
-input_size = 18
+input_size = 11
 output_size = 32
 activation = "swish"
 
