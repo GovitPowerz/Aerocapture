@@ -7,20 +7,19 @@ output_parameterization = "delta"
 delta_max = 0.35
 
 [data]
-neural_network = "training_output/neural_network_delta_pso/best_model.json"
+neural_network = "training_output/neural_network_delta_pso_pruned/best_model.json"
 results_suffix = ".train_delta_pso"
 
 [network]
-# 11 inputs: 18-mask minus union of per-decoder low-importance prunes
-# {inclination_error(1), velocity(4), accel_magnitude(5), fpa(9), pdyn_error(19)}
-# + pdyn_nominal(17) + heat_load_fraction(7). Aggressive shared cut -- NOTE some
-# removed inputs ablated HIGH for specific decoders (accel_magnitude=atan2 3.32,
-# heat_load_fraction=delta 3.22, pdyn_nominal=delta 2.87); bet that retraining compensates.
-input_mask = [0, 2, 3, 6, 11, 12, 18, 27, 28, 29, 30]
+# 13 inputs: 11-mask + accel_magnitude(5) + heat_load_fraction(7) restored --
+# the two high-importance removals that degraded atan2/delta in the 11-input run
+# (accel_magnitude=atan2 3.32, heat_load_fraction=delta 3.22). pdyn_nominal(17)
+# stays dropped (delta ablated it at 2.87, so delta may not fully recover to 18-input DV).
+input_mask = [0, 2, 3, 5, 6, 7, 11, 12, 18, 27, 28, 29, 30]
 
 [[network.architecture]]
 type = "dense"
-input_size = 11
+input_size = 13
 output_size = 32
 activation = "swish"
 
