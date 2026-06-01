@@ -1957,6 +1957,155 @@ mod tests {
     }
 
     #[test]
+    fn pdyn_error_input_is_asinh_of_raw() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let v = build_nn_input(
+            &nav,
+            Some(&mask),
+            None,
+            0.0,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            0.0,
+        );
+        // Recompute pdyn_error the same way build_nn_input does.
+        let energy = total_energy(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
+            &planet,
+        );
+        let ref_traj = &data.guidance.ref_trajectory;
+        let pdyn_nominal = ref_traj.interpolate(energy, &ref_traj.pressure);
+        let pdyn_current =
+            0.5 * nav.density_guidance * nav.velocity_estimated[0] * nav.velocity_estimated[0];
+        let pdyn_error = pdyn_current - pdyn_nominal;
+        let expected = (pdyn_error / S_PDYN_ERROR).asinh();
+        assert!(
+            (v[19] - expected).abs() < 1e-9,
+            "index 19 must be asinh(pdyn_error/S_PDYN_ERROR): expected {expected}, got {}",
+            v[19]
+        );
+    }
+
+    #[test]
+    fn ecc_excess_input_is_calibrated_affine() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let v = build_nn_input(
+            &nav,
+            Some(&mask),
+            None,
+            0.0,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            0.0,
+        );
+        let orbit = elements::from_spherical(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
+            &planet,
+        );
+        let expected = (orbit.eccentricity - C_ECC_EXCESS) / H_ECC_EXCESS;
+        assert!(
+            (v[0] - expected).abs() < 1e-9,
+            "index 0 must be (eccentricity - C_ECC_EXCESS) / H_ECC_EXCESS: expected {expected}, got {}",
+            v[0]
+        );
+    }
+
+    #[test]
+    fn dv_inputs_sentinel_when_compute_deltav_non_finite() {
+        // Elliptical orbit (e < 1.0, so the outer hyperbolic sentinel branch is
+        // NOT taken) but a degenerate target geometry forces compute_deltav to
+        // emit a non-finite dv3, exercising the inner is_finite backstop.
+        let mut nav = test_nav();
+        let mut data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+
+        // Make the osculating orbit provably elliptical (same trick as
+        // dv_inputs_live_when_elliptical).
+        let v_circ = (planet.mu / nav.position_estimated[0]).sqrt();
+        nav.velocity_estimated[0] = v_circ * 0.9;
+
+        // Negative target semi-major axis: rayneu < 0 makes
+        // (1/rayneu - 1/(2*target_sma)) negative -> sqrt of negative -> NaN in
+        // the maneuver-3 node-velocity term, so dv3 is non-finite while the
+        // orbit stays elliptical.
+        data.target_orbit.semi_major_axis = -3.77e6;
+
+        let orbit = elements::from_spherical(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
+            &planet,
+        );
+        assert!(
+            orbit.eccentricity < 1.0,
+            "fixture must stay elliptical to test the is_finite backstop (got e={})",
+            orbit.eccentricity
+        );
+        let dv = maneuver::compute_deltav(&orbit, &data.target_orbit, &data.parking_orbit, &planet);
+        assert!(
+            !(dv.dv1.is_finite() && dv.dv2.is_finite() && dv.dv3.is_finite()),
+            "degenerate target must force a non-finite dv component (dv1={}, dv2={}, dv3={})",
+            dv.dv1,
+            dv.dv2,
+            dv.dv3
+        );
+
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let inp = build_nn_input(
+            &nav,
+            Some(&mask),
+            None,
+            0.0,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        );
+        for (idx, &val) in inp.iter().enumerate().skip(32).take(3) {
+            assert!(
+                (val - DV_SENTINEL_NORM).abs() < 1e-9,
+                "input[{idx}] = {val} must fall back to sentinel {DV_SENTINEL_NORM}",
+            );
+        }
+    }
+
+    #[test]
     fn apoapsis_asinh_maps_p99_near_one() {
         // S_APOAPSIS_ALT was set so asinh(p99/s) = 1.0 (=> ~1% saturation). By
         // construction the measured p99 raw maps to ~1.0; pin it so a future
