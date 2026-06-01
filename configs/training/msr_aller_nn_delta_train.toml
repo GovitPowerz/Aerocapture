@@ -11,15 +11,16 @@ neural_network = "training_output/neural_network_delta_pso_pruned/best_model.jso
 results_suffix = ".train_delta_pso"
 
 [network]
-# 13 inputs: 11-mask + accel_magnitude(5) + heat_load_fraction(7) restored --
-# the two high-importance removals that degraded atan2/delta in the 11-input run
-# (accel_magnitude=atan2 3.32, heat_load_fraction=delta 3.22). pdyn_nominal(17)
-# stays dropped (delta ablated it at 2.87, so delta may not fully recover to 18-input DV).
-input_mask = [0, 2, 3, 5, 6, 7, 11, 12, 18, 27, 28, 29, 30]
+# 17 inputs: 13-mask + pdyn_error(19) + live correction-DV predicted_dv1/2/3 (32,33,34).
+# All inputs renormalized data-driven (calibrate_inputs.py): asinh on accelerations /
+# pdyn_error / DV, calibrated affine on bounded inputs, per-component sentinel-excluded DV
+# scales. predicted_dv* = per-tick compute_deltav on the current osculating orbit (asinh,
+# +1.5 sentinel pre-capture).
+input_mask = [0, 2, 3, 5, 6, 7, 11, 12, 18, 19, 27, 28, 29, 30, 32, 33, 34]
 
 [[network.architecture]]
 type = "dense"
-input_size = 13
+input_size = 17
 output_size = 32
 activation = "swish"
 
