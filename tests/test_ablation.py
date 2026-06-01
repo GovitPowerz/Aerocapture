@@ -71,6 +71,8 @@ def test_run_flip_ablation_structure() -> None:
     mask_len = len(cfg["network"]["input_mask"])
     if layer0_in != mask_len:
         pytest.skip(f"deployed model stale: input_size {layer0_in} != mask {mask_len} (awaiting retrain)")
+    if 15 not in cfg["network"]["input_mask"]:
+        pytest.skip("bounce_flag (15) not in mask -- flip-ablation has no binary-flag target")
     import aerocapture_rs  # noqa: F401  (skip cleanly if binding missing)
     from aerocapture.training.ablation import run_flip_ablation
 
