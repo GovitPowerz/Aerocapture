@@ -47,6 +47,26 @@ def test_v2_gru_to_dense_mismatch_raises() -> None:
         NetworkConfig(architecture=arch, input_mask=list(range(10)))
 
 
+def test_input_mask_index_34_accepted() -> None:
+    """predicted_dv inputs land at candidate indices 32-34; index 34 must validate."""
+    arch = [
+        {"type": "dense", "input_size": 3, "output_size": 8, "activation": "tanh"},
+        {"type": "dense", "input_size": 8, "output_size": 2, "activation": "linear"},
+    ]
+    cfg = NetworkConfig(architecture=arch, input_mask=[0, 1, 34])
+    assert cfg.input_mask == [0, 1, 34]
+
+
+def test_input_mask_index_35_rejected() -> None:
+    """35 is one past the candidate width (35); must be rejected at config load."""
+    arch = [
+        {"type": "dense", "input_size": 3, "output_size": 8, "activation": "tanh"},
+        {"type": "dense", "input_size": 8, "output_size": 2, "activation": "linear"},
+    ]
+    with pytest.raises(ValueError, match="input_mask indices out of range"):
+        NetworkConfig(architecture=arch, input_mask=[0, 1, 35])
+
+
 def test_describe_architecture_v2() -> None:
     arch = [
         {"type": "dense", "input_size": 23, "output_size": 32, "activation": "tanh"},
