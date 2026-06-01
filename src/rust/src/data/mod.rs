@@ -667,6 +667,16 @@ impl SimData {
                 if let Some(ablated) = net_cfg.ablated_input {
                     nn.ablated_input = Some(ablated);
                 }
+                if let Some(norm) = net_cfg.normalization.clone() {
+                    if norm.len() != neural::NN_FULL_INPUT_SIZE {
+                        return Err(DataError(format!(
+                            "[network.normalization] has {} entries, expected {}",
+                            norm.len(),
+                            neural::NN_FULL_INPUT_SIZE
+                        )));
+                    }
+                    nn.normalization = norm;
+                }
                 // Re-validate after override
                 neural::NeuralNetModel::validate_mask(&nn.input_mask, nn.layer_sizes[0])?;
                 neural::NeuralNetModel::validate_ablated_input(&nn.ablated_input)?;

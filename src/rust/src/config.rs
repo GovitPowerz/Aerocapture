@@ -341,6 +341,10 @@ pub struct TomlNetwork {
     /// when absent, the existing v1 JSON-file-driven path applies (backward compatible).
     #[serde(default)]
     pub architecture: Option<Vec<TomlLayerSpec>>,
+    /// Optional per-input normalization override. When present, REPLACES the loaded
+    /// model's normalization table (must be exactly NN_FULL_INPUT_SIZE entries).
+    #[serde(default)]
+    pub normalization: Option<Vec<crate::data::neural::NormSpec>>,
 }
 
 // ─── Onboard Atmosphere TOML structs ───
@@ -1783,6 +1787,24 @@ activation = "linear"
             }
             _ => panic!("expected Dense at index 0"),
         }
+    }
+
+    #[test]
+    fn toml_normalization_override_parses() {
+        let toml_str = r#"
+[network]
+normalization = [ { transform = "asinh", scale = 10.0, center = 0.0 }, { transform = "none", scale = 2.0, center = 1.0 } ]
+"#;
+        #[derive(Deserialize)]
+        struct Wrapper {
+            network: TomlNetwork,
+        }
+        let parsed: Wrapper = toml::from_str(toml_str).unwrap();
+        let n = parsed.network.normalization.expect("normalization parsed");
+        assert_eq!(n.len(), 2);
+        assert_eq!(n[0].scale, 10.0);
+        assert_eq!(n[0].transform, crate::data::neural::NormTransform::Asinh);
+        assert_eq!(n[1].center, 1.0);
     }
 
     #[test]
