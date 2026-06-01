@@ -73,3 +73,27 @@ def test_write_model_normalization_roundtrip(tmp_path: Path) -> None:
     # Existing fields preserved.
     assert reloaded["format_version"] == 2
     assert reloaded["input_mask"] == [0, 1]
+
+
+def test_format_toml_normalization_roundtrips() -> None:
+    import tomllib
+
+    from aerocapture.training.calibrate_inputs import format_toml_normalization
+
+    entries: list[dict] = [
+        {"transform": "none", "scale": 0.8754754, "center": 0.9125593},
+        {"transform": "asinh", "scale": 1919.853, "center": 0.0},
+        {"transform": "tanh", "scale": 30.0, "center": -1.5},
+    ]
+    names = ["ecc_excess", "predicted_dv1", "time_since_flip"]
+    snippet = format_toml_normalization(entries, names)
+    # The snippet must be a `normalization = [...]` assignment that parses under [network].
+    parsed = tomllib.loads("[network]\n" + snippet)
+    got: list[dict] = parsed["network"]["normalization"]
+    assert len(got) == 3
+    for g, e in zip(got, entries, strict=True):
+        assert g["transform"] == e["transform"]
+        assert abs(float(g["scale"]) - float(e["scale"])) <= 1e-9 * max(1.0, abs(float(e["scale"])))
+        assert abs(float(g["center"]) - float(e["center"])) <= 1e-9 * max(1.0, abs(float(e["center"])))
+    # Readability: each entry annotated with its index+name as a trailing comment.
+    assert "# 1 predicted_dv1" in snippet
