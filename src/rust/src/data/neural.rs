@@ -2563,8 +2563,8 @@ mod tests {
 
     #[test]
     fn validate_ablated_input_valid() {
-        // index 31 is the last valid index (NN_FULL_INPUT_SIZE - 1)
-        let result = NeuralNetModel::validate_ablated_input(&Some(31));
+        // index 34 is the last valid index (NN_FULL_INPUT_SIZE - 1)
+        let result = NeuralNetModel::validate_ablated_input(&Some(34));
         assert!(result.is_ok());
     }
 

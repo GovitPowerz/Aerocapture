@@ -64,11 +64,11 @@ const S_PERIAPSIS_ALT: f64 = 9.158960e+05;
 // ~150 m/s typical component => 150/sinh(1) ~= 128.
 const S_DV: f64 = 1.28e+02;
 // Hyperbolic / open-orbit sentinel: maps to asinh = 1.5 (out-of-band, bounded).
-const DV_SENTINEL: f64 = S_DV * 2.129279; // sinh(1.5) = 2.129279...
+const DV_SENTINEL: f64 = S_DV * 2.129_279_455_094_817; // sinh(1.5), maps to asinh(x/S_DV) = 1.5
 
 /// Build the masked NN input vector from navigation state.
 ///
-/// Constructs the full 32-element candidate input vector, applies ablation zeroing
+/// Constructs the full 35-element candidate input vector, applies ablation zeroing
 /// (if configured), then applies the input_mask (or legacy [0..16] default).
 /// Returns the masked `Vec<f64>` ready for `nn.forward()`.
 ///
@@ -125,7 +125,7 @@ pub fn build_nn_input(
     // Altitude in km
     let altitude_km = (nav.position_estimated[0] - planet.equatorial_radius) / 1e3;
 
-    // Build full 32-element input vector
+    // Build full 35-element input vector
     let mut full_input = [0.0_f64; NN_FULL_INPUT_SIZE];
 
     // -- 16 existing inputs (indices 0-15) --
@@ -529,9 +529,11 @@ mod tests {
     #[test]
     fn dv_inputs_live_when_elliptical() {
         let mut nav = test_nav();
-        nav.velocity_estimated[0] *= 0.45; // bleed energy -> elliptical
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
+        // Set radial speed below escape so the osculating orbit is provably elliptical.
+        let v_circ = (planet.mu / nav.position_estimated[0]).sqrt();
+        nav.velocity_estimated[0] = v_circ * 0.9;
         let orbit = elements::from_spherical(
             nav.position_estimated[0],
             nav.position_estimated[1],
