@@ -410,7 +410,7 @@ fn flat_weights_to_json(
 /// Returns:
 ///     List of dicts (one per seed) with keys:
 ///       - "seed": int, the MC seed.
-///       - "X": numpy.ndarray of shape (T, 31), per-tick NN input vectors.
+///       - "X": numpy.ndarray of shape (T, 35), per-tick NN input vectors.
 ///       - "y_signed": numpy.ndarray of shape (T,), final signed bank command
 ///         (radians) after thermal limiter, lateral, and command shaper.
 ///       - "prev_realized": numpy.ndarray of shape (T,), the previous-tick
@@ -521,8 +521,8 @@ fn collect_supervised(
     })?;
 
     // PyDict / PyArray construction requires the GIL, so it happens after py.detach() returns.
-    // NN input width is always 32 (the full FULL_MASK applied in tick.rs).
-    const NN_INPUT_WIDTH: usize = 32;
+    // NN input width is always NN_FULL_INPUT_SIZE (35) -- the full mask applied in tick.rs.
+    const NN_INPUT_WIDTH: usize = aerocapture::data::neural::NN_FULL_INPUT_SIZE;
     let result_list = PyList::empty(py);
     for (seed, supervised_trace, dv, captured) in per_seed {
         let n_steps = supervised_trace.len();
@@ -534,7 +534,7 @@ fn collect_supervised(
             y_signed.push(bank);
             prev_realized.push(realized);
         }
-        // Preserve shape (0, 31) on empty traces so downstream code can rely on width.
+        // Preserve shape (0, NN_FULL_INPUT_SIZE) on empty traces so downstream code can rely on width.
         let x_array = if x_rows.is_empty() {
             numpy::PyArray2::<f64>::zeros(py, [0, NN_INPUT_WIDTH], false)
         } else {
@@ -563,7 +563,7 @@ fn collect_supervised(
 /// candidate-vector trace enabled. Unlike collect_supervised it does NOT override
 /// the guidance type -- it captures the inputs the NN actually drives itself into.
 ///
-/// Returns a list of dicts (one per seed) with keys "seed", "X" (T,31),
+/// Returns a list of dicts (one per seed) with keys "seed", "X" (T,35),
 /// "time" (T,), "energy" (T,), "dv" (float), "captured" (bool).
 #[pyfunction]
 #[pyo3(signature = (toml_path, seeds, overrides=None, sim_timeout_secs=None))]
@@ -637,7 +637,7 @@ fn collect_nn_inputs(
         Ok::<_, PyErr>(())
     })?;
 
-    const NN_INPUT_WIDTH: usize = 32;
+    const NN_INPUT_WIDTH: usize = aerocapture::data::neural::NN_FULL_INPUT_SIZE;
     let result_list = PyList::empty(py);
     for (seed, trace, dv, captured) in per_seed {
         let n = trace.len();
