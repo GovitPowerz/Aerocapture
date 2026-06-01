@@ -16,10 +16,13 @@ def test_resolve_mask_prefers_model_json(tmp_path: Path) -> None:
 
 
 def test_resolve_mask_falls_back_to_toml(tmp_path: Path) -> None:
-    # A non-existent model path falls back to the TOML's input_mask (delta config = 30 indices incl. periapsis 31).
+    # A non-existent model path falls back to the TOML's input_mask.
+    # Delta config now uses the shared 17-input mask (incl. predicted_dv 32-34, excl. periapsis 31).
     missing = str(tmp_path / "nope.json")
     out = _resolve_mask("configs/training/msr_aller_nn_delta_train.toml", missing)
-    assert len(out) == 30 and 31 in out
+    assert len(out) == 17
+    assert 32 in out and 33 in out and 34 in out  # new DV inputs
+    assert 31 not in out  # periapsis dropped in the pruned mask
 
 
 def test_classify_by_dv_threshold() -> None:

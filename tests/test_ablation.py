@@ -56,13 +56,25 @@ def test_ablation_chart_negative_deltas() -> None:
 
 @pytest.mark.slow
 def test_run_flip_ablation_structure() -> None:
-    model = "training_output/neural_network_scaledpi_pso/best_model.json"
-    if not os.path.exists(model):
-        pytest.skip("scaledpi model not present")
+    import json
+
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    toml = "configs/training/msr_aller_nn_scaledpi_train.toml"
+    cfg = load_toml_with_bases(Path(toml))
+    model_path = cfg.get("data", {}).get("neural_network")
+    if not model_path or not os.path.exists(model_path):
+        pytest.skip(f"deployed model not present: {model_path}")
+    model = json.loads(Path(model_path).read_text())
+    arch = model.get("architecture")
+    layer0_in = arch[0]["input_size"] if arch else model.get("layer_sizes", [None])[0]
+    mask_len = len(cfg["network"]["input_mask"])
+    if layer0_in != mask_len:
+        pytest.skip(f"deployed model stale: input_size {layer0_in} != mask {mask_len} (awaiting retrain)")
     import aerocapture_rs  # noqa: F401  (skip cleanly if binding missing)
     from aerocapture.training.ablation import run_flip_ablation
 
-    out = run_flip_ablation("configs/training/msr_aller_nn_scaledpi_train.toml", n_sims=8, flip_indices=(15,))
+    out = run_flip_ablation(toml, n_sims=8, flip_indices=(15,))
     fv = sorted(r["frozen_value"] for r in out["results"])
     assert fv == [-1.0, 1.0]  # bounce_flag frozen at both phases
     assert all(isinstance(r["delta"], float) for r in out["results"])
