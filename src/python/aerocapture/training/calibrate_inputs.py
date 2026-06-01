@@ -4,6 +4,8 @@ Runs the deployed NN over a reserved seed pool, collects the normalized 35-wide
 candidate trace, inverts each input's KNOWN current transform to recover the raw
 distribution, then emits new scale constants so each input's [p1, p99] fills
 ~[-1, 1]. Heavy-tailed / acceleration / DV inputs -> asinh; bounded -> affine.
+The 3 live correction-DV inputs (32/33/34) get per-component asinh scales with
+pre-capture sentinel ticks (normalized == 1.5) excluded before percentiles.
 
 One-time tool: paste the emitted Rust const block into neural.rs (Task 5), then
 re-run nn_input_report to verify ~1% saturation.
@@ -38,6 +40,11 @@ _FORCE_ASINH = {
 }
 # Bounded inputs to skip entirely (binary / tanh / sin-cos already in [-1,1]).
 _SKIP = {15, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30}
+
+# DV inputs (live correction-DV components) -- per-component scales, sentinel-excluded.
+_DV_INDICES = {32, 33, 34}
+# Pre-capture sentinel saturates the asinh output to exactly 1.5 (asinh(sinh(1.5))).
+_SENTINEL_NORM = 1.5
 
 # Current transform per index (must mirror build_nn_input at calibration time).
 # Forms: ("asinh", s) | ("affine", a, b) meaning norm = a*raw + b | ("raw",).
@@ -79,10 +86,17 @@ _ASINH_CONST_NAME = {
     18: "S_HDOT_NOMINAL",
     19: "S_PDYN_ERROR",
     31: "S_PERIAPSIS_ALT",
-    32: "S_DV",
-    33: "S_DV",
-    34: "S_DV",
+    32: "S_DV1",
+    33: "S_DV2",
+    34: "S_DV3",
 }
+
+
+def drop_sentinel(norm: np.ndarray, idx: int) -> np.ndarray:
+    """Drop pre-capture sentinel ticks (norm == 1.5) for DV inputs; pass others through."""
+    if idx in _DV_INDICES:
+        return norm[np.abs(norm - _SENTINEL_NORM) > 1e-6]
+    return norm
 
 
 def invert_transform(norm: np.ndarray, transform: tuple) -> np.ndarray:
@@ -126,6 +140,7 @@ def _collect_raw(toml_path: str, n_sims: int) -> dict[int, np.ndarray]:
     for idx, parts in cols.items():
         norm = np.concatenate(parts)
         norm = norm[np.isfinite(norm)]
+        norm = drop_sentinel(norm, idx)
         if idx in CURRENT_TRANSFORMS:
             raw[idx] = invert_transform(norm, CURRENT_TRANSFORMS[idx])
     return raw

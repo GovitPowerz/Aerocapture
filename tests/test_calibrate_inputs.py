@@ -43,3 +43,19 @@ def test_invert_raw_passthrough() -> None:
     arr = np.array([0.3, -0.7, 1.0])
     back = invert_transform(arr, ("raw",))
     assert np.array_equal(back, arr)
+
+
+def test_drop_sentinel_removes_dv_sentinel_ticks() -> None:
+    from aerocapture.training.calibrate_inputs import drop_sentinel
+
+    norm = np.array([0.2, 1.5, -0.3, 1.5, 0.8])
+    out = drop_sentinel(norm, 32)  # DV index -> drop the two 1.5 sentinels
+    assert np.allclose(out, [0.2, -0.3, 0.8])
+
+
+def test_drop_sentinel_passthrough_non_dv() -> None:
+    from aerocapture.training.calibrate_inputs import drop_sentinel
+
+    norm = np.array([0.2, 1.5, -0.3])
+    out = drop_sentinel(norm, 11)  # non-DV index -> unchanged (1.5 is a legit value)
+    assert np.allclose(out, norm)
