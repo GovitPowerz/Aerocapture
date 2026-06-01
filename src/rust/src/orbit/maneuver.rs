@@ -95,6 +95,8 @@ pub fn predicted_dv_for_nn(
     let ra_t = req + parking.apoapsis;
     let rp_t = req + parking.periapsis;
 
+    // Guards below also absorb non-finite rp/apoapsis (NaN comparisons are false in IEEE-754),
+    // so a degenerate/uninitialized orbit yields 0.0 rather than NaN -- keeps the contract "always-defined".
     let dv1 = if rp > 0.0 && a.abs() > 0.0 {
         let v_cur = (mu * (2.0 / rp - 1.0 / a)).max(0.0).sqrt();
         let a_t1 = (rp + ra_t) / 2.0;
@@ -119,8 +121,15 @@ pub fn predicted_dv_for_nn(
     let anoneu = [2.0 * pi - orbit.arg_periapsis, pi - orbit.arg_periapsis];
     let mut vitneu = [0.0_f64; 2];
     for i in 0..2 {
-        let rayneu = target_sma * (1.0 - target_ecc * target_ecc) / (1.0 + target_ecc * anoneu[i].cos());
-        vitneu[i] = (2.0 * mu * (1.0 / rayneu - 1.0 / (2.0 * target_sma))).sqrt();
+        let rayneu =
+            target_sma * (1.0 - target_ecc * target_ecc) / (1.0 + target_ecc * anoneu[i].cos());
+        vitneu[i] = if rayneu > 0.0 {
+            (2.0 * mu * (1.0 / rayneu - 1.0 / (2.0 * target_sma)))
+                .max(0.0)
+                .sqrt()
+        } else {
+            0.0
+        };
     }
     let dincli = (target.inclination - orbit.inclination).abs();
     let dv3 = 2.0 * vitneu[0].min(vitneu[1]) * (dincli / 2.0).sin();
@@ -277,7 +286,7 @@ mod tests {
     /// continuity sweep.
     fn mk_orbit_from_rp(rp: f64, ecc: f64, incl: f64, planet: &PlanetConfig) -> OrbitalElements {
         let a = rp / (1.0 - ecc); // a>0 for e<1, a<0 for e>1, ±inf at e=1
-        let ra = if ecc < 1.0 { a * (1.0 + ecc) } else { f64::INFINITY };
+        let ra = a * (1.0 + ecc); // negative (finite) for hyperbolic, matching elements.rs
         OrbitalElements {
             semi_major_axis: a,
             eccentricity: ecc,
@@ -342,5 +351,18 @@ mod tests {
             }
             prev = Some(dv1);
         }
+    }
+    #[test]
+    fn predicted_dv3_finite_for_pathological_target() {
+        let p = PlanetConfig::mars();
+        let o = mk_orbit(5.0e6, 0.3, 0.8, &p);
+        let mut t = target();
+        t.eccentricity = 1.2; // hyperbolic target -> rayneu can go <= 0
+        let dv = predicted_dv_for_nn(&o, &t, &parking(), &p);
+        assert!(
+            dv[2].is_finite(),
+            "dv3 must stay finite for pathological target, got {}",
+            dv[2]
+        );
     }
 }
