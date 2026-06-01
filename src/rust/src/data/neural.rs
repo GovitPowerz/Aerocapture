@@ -7,6 +7,44 @@ use super::DataError;
 use crate::data::nn_state::{LayerState, NnState};
 use serde::{Deserialize, Serialize};
 
+/// Per-input normalization transform applied after the affine `(raw - center)/scale`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NormTransform {
+    #[default]
+    None,
+    Asinh,
+    Tanh,
+}
+
+/// Uniform per-input normalization: `norm = transform((raw - center) / scale)`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct NormSpec {
+    pub transform: NormTransform,
+    pub scale: f64,
+    pub center: f64,
+}
+
+impl Default for NormSpec {
+    fn default() -> Self {
+        Self { transform: NormTransform::None, scale: 1.0, center: 0.0 }
+    }
+}
+
+#[inline]
+pub fn apply_norm(raw: f64, spec: &NormSpec) -> f64 {
+    let v = (raw - spec.center) / spec.scale;
+    match spec.transform {
+        NormTransform::None => v,
+        NormTransform::Asinh => v.asinh(),
+        NormTransform::Tanh => v.tanh(),
+    }
+}
+
+/// TEMPORARY all-default normalization table (real values filled in a later task).
+pub const DEFAULT_NORMALIZATION: [NormSpec; NN_FULL_INPUT_SIZE] =
+    [NormSpec { transform: NormTransform::None, scale: 1.0, center: 0.0 }; NN_FULL_INPUT_SIZE];
+
 #[inline]
 pub(crate) fn gelu_exact(z: f64) -> f64 {
     // Exact GELU: 0.5 * z * (1 + erf(z / sqrt(2)))
@@ -2461,6 +2499,21 @@ impl NeuralNetModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn apply_norm_divisor_forms() {
+        assert!((apply_norm(50.0, &NormSpec { transform: NormTransform::None, scale: 0.5, center: 0.5 }) - 99.0).abs() < 1e-12);
+        let got = apply_norm(880.0, &NormSpec { transform: NormTransform::Asinh, scale: 880.0, center: 0.0 });
+        assert!((got - 1.0_f64.asinh()).abs() < 1e-12); // asinh(1.0)
+        let got = apply_norm(30.0, &NormSpec { transform: NormTransform::Tanh, scale: 30.0, center: 0.0 });
+        assert!((got - 1.0_f64.tanh()).abs() < 1e-12);
+        assert!((apply_norm(0.3, &NormSpec { transform: NormTransform::None, scale: 1.0, center: 0.0 }) - 0.3).abs() < 1e-12);
+    }
+
+    #[test]
+    fn default_normalization_has_full_width() {
+        assert_eq!(DEFAULT_NORMALIZATION.len(), NN_FULL_INPUT_SIZE);
+    }
 
     /// Build a minimal valid NeuralNetModel with a given input size.
     fn make_model(input_size: usize) -> NeuralNetModel {
