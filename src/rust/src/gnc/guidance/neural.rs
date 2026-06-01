@@ -545,11 +545,10 @@ mod tests {
             0.0,
         );
         let expected = DV_SENTINEL_NORM; // == 1.5, emitted directly
-        for idx in 32..35 {
+        for (idx, &v) in inp.iter().enumerate().skip(32).take(3) {
             assert!(
-                (inp[idx] - expected).abs() < 1e-9,
-                "input[{idx}] = {} != sentinel {expected}",
-                inp[idx]
+                (v - expected).abs() < 1e-9,
+                "input[{idx}] = {v} != sentinel {expected}",
             );
         }
     }
