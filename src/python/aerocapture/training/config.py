@@ -14,6 +14,14 @@ import numpy.typing as npt
 
 from aerocapture.training.optimizer import OptimizerConfig
 
+# Candidate input vector width, mirroring the Rust `build_nn_input` /
+# `NN_FULL_INPUT_SIZE` contract (data/neural.rs). Currently 35 (16 baseline + 4
+# ref-traj + 1 exit-bank teacher + 4 lateral telemetry + 6 seam-free (sin,cos)
+# bank-history pairs at indices 25-30 + 1 periapsis_alt at 31 + 3
+# predicted_dv1/2/3 at indices 32-34). Single Python source of truth, imported
+# by warm_start.py and asserted against Rust by tests/test_nn_scale_parity.py.
+_RUNTIME_CANDIDATE_WIDTH = 35
+
 
 @dataclass
 class NetworkConfig:
@@ -72,16 +80,12 @@ class NetworkConfig:
                     msg = f"input_mask length ({len(self.input_mask)}) must equal architecture[0] input size ({first_input_int})"
                     raise ValueError(msg)
                 # Indices must be non-negative; the upper bound is the candidate
-                # input vector width, which depends on the Rust `build_nn_input`
-                # contract. Currently 35 (16 baseline + 4 ref-traj + 1 exit-bank
-                # teacher + 4 lateral telemetry + 6 seam-free (sin,cos)
-                # bank-history pairs at indices 25-30 + 1 periapsis_alt at 31 +
-                # 3 predicted_dv1/2/3 at indices 32-34), but configs with
-                # architecture[0] input_size > 35 exist for tests of architecture
-                # chains. Use the larger of the two as the practical upper bound
-                # so typos like negative indices or grossly-out-of-range values
-                # still get rejected at config load.
-                _RUNTIME_CANDIDATE_WIDTH = 35
+                # input vector width (_RUNTIME_CANDIDATE_WIDTH, the Rust
+                # `build_nn_input` contract), but configs with architecture[0]
+                # input_size > that exist for tests of architecture chains. Use
+                # the larger of the two as the practical upper bound so typos
+                # like negative indices or grossly-out-of-range values still get
+                # rejected at config load.
                 upper = max(_RUNTIME_CANDIDATE_WIDTH, first_input_int)
                 bad = [idx for idx in self.input_mask if not (0 <= idx < upper)]
                 if bad:

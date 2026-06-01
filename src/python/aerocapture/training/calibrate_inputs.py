@@ -91,6 +91,19 @@ _ASINH_CONST_NAME = {
     34: "S_DV3",
 }
 
+# Rust const (center, half) name per affine index (for the emitted block + parity test).
+_AFFINE_CONST_NAME = {
+    0: ("C_ECC_EXCESS", "H_ECC_EXCESS"),
+    1: ("C_INCL_ERR", "H_INCL_ERR"),
+    4: ("C_VELOCITY", "H_VELOCITY"),
+    6: ("C_HEAT_FLUX", "H_HEAT_FLUX"),
+    7: ("C_HEAT_LOAD", "H_HEAT_LOAD"),
+    8: ("C_ALTITUDE", "H_ALTITUDE"),
+    9: ("C_FPA", "H_FPA"),
+    10: ("C_LATITUDE", "H_LATITUDE"),
+    17: ("C_PDYN_NOMINAL", "H_PDYN_NOMINAL"),
+}
+
 
 def drop_sentinel(norm: np.ndarray, idx: int) -> np.ndarray:
     """Drop pre-capture sentinel ticks (norm == 1.5) for DV inputs; pass others through."""
@@ -175,6 +188,13 @@ def calibrate(toml_path: str, n_sims: int) -> str:
             table.append(f"  [{idx:2d}] {name:22s} asinh  p1={p1:11.4g} p50={p50:11.4g} p99={p99:11.4g} -> s={s:.4e}")
         else:
             center, half = derive_affine(p1, p99)
+            names = _AFFINE_CONST_NAME.get(idx)
+            if names:
+                cn, hn = names
+                if cn not in seen_const:
+                    lines.append(f"const {cn}: f64 = {center:.6e}; // {name} center: p1={p1:.3g} p99={p99:.3g}")
+                    lines.append(f"const {hn}: f64 = {half:.6e}; // {name} half")
+                    seen_const.add(cn)
             table.append(f"  [{idx:2d}] {name:22s} affine p1={p1:11.4g} p50={p50:11.4g} p99={p99:11.4g} -> center={center:.6e} half={half:.6e}")
     report = "\n".join(["RAW DISTRIBUTION TABLE:", *table, "", *lines])
     return report
