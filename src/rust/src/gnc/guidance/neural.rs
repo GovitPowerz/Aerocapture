@@ -3,7 +3,7 @@
 //! Feedforward network computing bank angle from navigation state.
 //! Supports arbitrary layer architectures via NeuralNetModel.
 //!
-//! 32 candidate inputs (selected by configurable `input_mask`):
+//! 35 candidate inputs (selected by configurable `input_mask`):
 //!   0  eccentricity_excess    8  altitude              16 cos_bank_nominal       21 inclination_err_rate
 //!   1  inclination_error      9  fpa                   17 pdyn_nominal           22 prev_bank_signed
 //!   2  radial_velocity       10  latitude              18 hdot_nominal           23 time_since_sign_flip
@@ -12,6 +12,7 @@
 //!   5  accel_magnitude       13  sma_error             26 exit_bank_cos          27 prev_bank_signed_sin
 //!   6  heat_flux_fraction    14  apoapsis_alt          28 prev_bank_signed_cos   29 prev_realized_sin
 //!   7  heat_load_fraction    15  bounce_flag           30 prev_realized_cos      31 periapsis_alt
+//!  32 predicted_dv1          33 predicted_dv2          34 predicted_dv3
 //!
 //! Indices 2, 3, 13, 14, 18 use a signed-log `asinh(raw / s)` transform (scales `S_*`
 //! measured from an MC ensemble) instead of the old clamps / linear scalings, so the
@@ -47,7 +48,7 @@ use crate::data::nn_state::NnState;
 use crate::gnc::guidance::exit;
 use crate::gnc::navigation::coordinates::total_energy;
 use crate::gnc::navigation::estimator::NavigationOutput;
-use crate::orbit::elements;
+use crate::orbit::{elements, maneuver};
 
 // asinh signed-log scale factors: s = max(|p1|,|p99|)/sinh(1.0), measured from a
 // representative MC ensemble (plan Task 1). asinh(raw/s) keeps the operating range
@@ -58,6 +59,12 @@ const S_SMA_ERROR: f64 = 3.259362e+07;
 const S_APOAPSIS_ALT: f64 = 6.626041e+07;
 const S_HDOT_NOMINAL: f64 = 7.333648e+02;
 const S_PERIAPSIS_ALT: f64 = 9.158960e+05;
+
+// Live correction-DV scale (provisional; finalized by calibrate_inputs.py later).
+// ~150 m/s typical component => 150/sinh(1) ~= 128.
+const S_DV: f64 = 1.28e+02;
+// Hyperbolic / open-orbit sentinel: maps to asinh = 1.5 (out-of-band, bounded).
+const DV_SENTINEL: f64 = S_DV * 2.129279; // sinh(1.5) = 2.129279...
 
 /// Build the masked NN input vector from navigation state.
 ///
@@ -199,6 +206,23 @@ pub fn build_nn_input(
 
     // -- Periapsis altitude (index 31), asinh signed-log scaled --
     full_input[31] = (orbit.periapsis_alt / S_PERIAPSIS_ALT).asinh(); // periapsis altitude
+
+    // -- Live correction-DV inputs (indices 32-34) --
+    // compute_deltav is only valid for a closed (elliptical) osculating orbit;
+    // pre-capture the orbit is hyperbolic (apoapsis undefined) -> saturate to sentinel.
+    let (dv1, dv2, dv3) = if orbit.eccentricity < 1.0 {
+        let dv = maneuver::compute_deltav(&orbit, &data.target_orbit, &data.parking_orbit, planet);
+        if dv.dv1.is_finite() && dv.dv2.is_finite() && dv.dv3.is_finite() {
+            (dv.dv1, dv.dv2, dv.dv3)
+        } else {
+            (DV_SENTINEL, DV_SENTINEL, DV_SENTINEL)
+        }
+    } else {
+        (DV_SENTINEL, DV_SENTINEL, DV_SENTINEL)
+    };
+    full_input[32] = (dv1 / S_DV).asinh();
+    full_input[33] = (dv2 / S_DV).asinh();
+    full_input[34] = (dv3 / S_DV).asinh();
 
     // Apply ablation: freeze a single input to `ablated_value` (default 0.0 =>
     // classic zero-ablation; flip-ablation freezes a binary ±1 flag to -1 / +1).
@@ -432,6 +456,117 @@ mod tests {
             scaled_pi_n: 1.0,
             delta_max: 0.35,
         }
+    }
+
+    #[test]
+    fn full_vector_is_35_wide() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let inp = build_nn_input(
+            &nav,
+            Some(&full_mask),
+            None,
+            0.0,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        );
+        assert_eq!(inp.len(), 35, "candidate vector must be 35 wide");
+    }
+
+    #[test]
+    fn dv_inputs_sentinel_when_hyperbolic() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let orbit = elements::from_spherical(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
+            &planet,
+        );
+        assert!(
+            orbit.eccentricity >= 1.0,
+            "fixture must be hyperbolic for this test"
+        );
+        let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let inp = build_nn_input(
+            &nav,
+            Some(&full_mask),
+            None,
+            0.0,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        );
+        let expected = (DV_SENTINEL / S_DV).asinh(); // == 1.5
+        for idx in 32..35 {
+            assert!(
+                (inp[idx] - expected).abs() < 1e-9,
+                "input[{idx}] = {} != sentinel {expected}",
+                inp[idx]
+            );
+        }
+    }
+
+    #[test]
+    fn dv_inputs_live_when_elliptical() {
+        let mut nav = test_nav();
+        nav.velocity_estimated[0] *= 0.45; // bleed energy -> elliptical
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let orbit = elements::from_spherical(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
+            &planet,
+        );
+        assert!(
+            orbit.eccentricity < 1.0,
+            "fixture must be elliptical (got e={})",
+            orbit.eccentricity
+        );
+        let dv = maneuver::compute_deltav(&orbit, &data.target_orbit, &data.parking_orbit, &planet);
+        let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let inp = build_nn_input(
+            &nav,
+            Some(&full_mask),
+            None,
+            0.0,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        );
+        assert!((inp[32] - (dv.dv1 / S_DV).asinh()).abs() < 1e-9);
+        assert!((inp[33] - (dv.dv2 / S_DV).asinh()).abs() < 1e-9);
+        assert!((inp[34] - (dv.dv3 / S_DV).asinh()).abs() < 1e-9);
+        assert!(inp[32].is_finite() && inp[33].is_finite() && inp[34].is_finite());
     }
 
     #[test]
@@ -1654,8 +1789,8 @@ mod tests {
     // ── Task 1: asinh-rescaled inputs + periapsis_alt at index 31 ──
 
     #[test]
-    fn nn_full_input_size_is_32() {
-        assert_eq!(NN_FULL_INPUT_SIZE, 32);
+    fn nn_full_input_size_is_35() {
+        assert_eq!(NN_FULL_INPUT_SIZE, 35);
     }
 
     #[test]
@@ -1663,7 +1798,7 @@ mod tests {
         let nav = test_nav();
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
-        let mask: Vec<usize> = (0..32).collect();
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let v = build_nn_input(
             &nav,
             Some(&mask),
@@ -1679,7 +1814,7 @@ mod tests {
             0.0,
             0.0,
         );
-        assert_eq!(v.len(), 32);
+        assert_eq!(v.len(), NN_FULL_INPUT_SIZE);
         assert!(v.iter().all(|x| x.is_finite()));
         assert!(v[14].abs() < 5.0); // apoapsis now asinh-scaled, not pinned at the old ±9 clamp
         assert!(v[31].is_finite()); // periapsis present

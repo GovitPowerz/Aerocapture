@@ -1149,8 +1149,9 @@ struct NnJsonFileV2 {
 }
 
 /// Total number of candidate NN inputs (16 baseline + 4 reference trajectory + 1 exit-bank teacher + 4 lateral-state telemetry
-/// + 6 (sin,cos) bank-history pairs for exit teacher / prev commanded / prev realized + 1 periapsis_alt).
-pub const NN_FULL_INPUT_SIZE: usize = 32;
+/// + 6 (sin,cos) bank-history pairs for exit teacher / prev commanded / prev realized + 1 periapsis_alt
+/// + 3 live correction-DV components).
+pub const NN_FULL_INPUT_SIZE: usize = 35;
 
 /// Modular neural network model.
 ///
@@ -1163,7 +1164,7 @@ pub struct NeuralNetModel {
     pub layer_sizes: Vec<usize>,
     /// Network layers (len = layer_sizes.len() - 1).
     pub layers: Vec<Layer>,
-    /// Optional input selection mask: indices into the full 32-input vector.
+    /// Optional input selection mask: indices into the full 35-input vector.
     /// Length must equal layer_sizes[0]. None means use inputs as-is.
     pub input_mask: Option<Vec<usize>>,
     /// Optional index of a single input to freeze (ablation analysis).
