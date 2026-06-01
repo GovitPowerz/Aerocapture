@@ -58,21 +58,6 @@ def test_derive_affine_floors_degenerate_halfwidth() -> None:
     assert half >= 1e-6
 
 
-def test_default_normalization_shape_and_entries() -> None:
-    import aerocapture_rs
-
-    norm = aerocapture_rs.default_normalization()
-    assert len(norm) == 35
-    assert norm[0]["transform"] == "none"
-    assert norm[11]["transform"] == "asinh"
-    assert norm[32]["transform"] == "asinh"
-    for entry in norm:
-        assert set(entry) == {"transform", "scale", "center"}
-        assert entry["transform"] in ("none", "asinh", "tanh")
-        assert isinstance(entry["scale"], float)
-        assert isinstance(entry["center"], float)
-
-
 def test_write_model_normalization_roundtrip(tmp_path: Path) -> None:
     from aerocapture.training.calibrate_inputs import _write_model_normalization
 

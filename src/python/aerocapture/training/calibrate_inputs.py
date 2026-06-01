@@ -22,6 +22,7 @@ import argparse
 import json
 import math
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 
@@ -55,7 +56,7 @@ def _current_transforms() -> list[dict]:
     """
     import aerocapture_rs  # type: ignore[import-not-found]
 
-    return list(aerocapture_rs.default_normalization())
+    return cast("list[dict]", aerocapture_rs.default_normalization())
 
 
 def invert_transform(norm: np.ndarray, spec: dict) -> np.ndarray:
