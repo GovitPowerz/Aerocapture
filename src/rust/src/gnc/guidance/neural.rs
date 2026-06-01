@@ -50,21 +50,44 @@ use crate::gnc::navigation::coordinates::total_energy;
 use crate::gnc::navigation::estimator::NavigationOutput;
 use crate::orbit::{elements, maneuver};
 
-// asinh signed-log scale factors: s = max(|p1|,|p99|)/sinh(1.0), measured from a
-// representative MC ensemble (plan Task 1). asinh(raw/s) keeps the operating range
-// within ~[-1,1] without clamping; tails compress.
-const S_RADIAL_VELOCITY: f64 = 8.802043e+02;
-const S_ORBITAL_ENERGY: f64 = 5.554906e+06;
-const S_SMA_ERROR: f64 = 3.259362e+07;
-const S_APOAPSIS_ALT: f64 = 6.626041e+07;
-const S_HDOT_NOMINAL: f64 = 7.333648e+02;
-const S_PERIAPSIS_ALT: f64 = 9.158960e+05;
-
-// Live correction-DV scale (provisional; finalized by calibrate_inputs.py later).
-// ~150 m/s typical component => 150/sinh(1) ~= 128.
-const S_DV: f64 = 1.28e+02;
-// Hyperbolic / open-orbit sentinel: maps to asinh = 1.5 (out-of-band, bounded).
-const DV_SENTINEL: f64 = S_DV * 2.129_279_455_094_817; // sinh(1.5), maps to asinh(x/S_DV) = 1.5
+// === Calibrated input normalization scales (calibrate_inputs.py, 500-sim pool) ===
+// asinh signed-log scales: s = max(|p1|,|p99|)/sinh(1), so p99 maps to ~1.0 (no clamp).
+const S_RADIAL_VELOCITY: f64 = 8.794982e+02;
+const S_ORBITAL_ENERGY: f64 = 5.180226e+06;
+const S_ACCEL_MAGNITUDE: f64 = 2.494108e+01;
+const S_DRAG_ACCEL: f64 = 2.367649e+01;
+const S_LIFT_ACCEL: f64 = 7.841004e+00;
+const S_SMA_ERROR: f64 = 2.396120e+07;
+const S_APOAPSIS_ALT: f64 = 4.752185e+07;
+const S_HDOT_NOMINAL: f64 = 7.416992e+02;
+const S_PDYN_ERROR: f64 = 3.373053e+02;
+const S_PERIAPSIS_ALT: f64 = 3.750782e+04;
+// Per-component live correction-DV scales (calibrated on elliptical-phase values, sentinel-excluded).
+const S_DV1: f64 = 1.052305e+02;
+const S_DV2: f64 = 1.046783e+03;
+const S_DV3: f64 = 1.254637e+02;
+// Pre-capture / non-finite DV sentinel, emitted directly as the normalized out-of-band value
+// (asinh of the live value never reaches 1.5 within the calibrated [p1,p99] range).
+const DV_SENTINEL_NORM: f64 = 1.5;
+// Affine (center, half-width): norm = (raw - center) / half, mapping [p1,p99] -> [-1,1].
+const C_ECC_EXCESS: f64 = 9.125593e-01;
+const H_ECC_EXCESS: f64 = 8.754754e-01;
+const C_INCL_ERR: f64 = -1.167222e+00;
+const H_INCL_ERR: f64 = 1.443277e+00;
+const C_VELOCITY: f64 = 4.534045e+03;
+const H_VELOCITY: f64 = 1.178859e+03;
+const C_HEAT_FLUX: f64 = 4.533209e-01;
+const H_HEAT_FLUX: f64 = 4.524197e-01;
+const C_HEAT_LOAD: f64 = 4.366122e-01;
+const H_HEAT_LOAD: f64 = 4.363704e-01;
+const C_ALTITUDE: f64 = 8.293086e+01;
+const H_ALTITUDE: f64 = 4.324290e+01;
+const C_FPA: f64 = -5.801090e-02;
+const H_FPA: f64 = 1.246266e-01;
+const C_LATITUDE: f64 = 2.875094e-01;
+const H_LATITUDE: f64 = 2.803614e-01;
+const C_PDYN_NOMINAL: f64 = 8.123864e+02;
+const H_PDYN_NOMINAL: f64 = 8.088315e+02;
 
 /// Build the masked NN input vector from navigation state.
 ///
@@ -129,19 +152,20 @@ pub fn build_nn_input(
     let mut full_input = [0.0_f64; NN_FULL_INPUT_SIZE];
 
     // -- 16 existing inputs (indices 0-15) --
-    full_input[0] = orbit.eccentricity - 1.0; // eccentricity excess
-    full_input[1] = (orbit.inclination - target_inclination).to_degrees() * 3.0 / 5.0; // inclination error
+    full_input[0] = (orbit.eccentricity - C_ECC_EXCESS) / H_ECC_EXCESS; // eccentricity excess
+    full_input[1] =
+        ((orbit.inclination - target_inclination).to_degrees() - C_INCL_ERR) / H_INCL_ERR; // inclination error
     full_input[2] = (velocity_radial / S_RADIAL_VELOCITY).asinh(); // radial velocity
     full_input[3] = (-mu / (2.0 * orbit.semi_major_axis) / S_ORBITAL_ENERGY).asinh(); // orbital energy
-    full_input[4] = (nav.velocity_estimated[0] / 3e3 - 1.5) * 2.0; // velocity
-    full_input[5] = accel_mag / 20.0 - 1.0; // accel magnitude
-    full_input[6] = nav.heat_flux_fraction * 2.0 - 1.0; // heat flux fraction
-    full_input[7] = nav.heat_load_fraction * 2.0 - 1.0; // heat load fraction
-    full_input[8] = (altitude_km - 65.0) / 65.0; // altitude
-    full_input[9] = nav.velocity_estimated[1] / 0.3; // flight path angle
-    full_input[10] = nav.position_estimated[2] / std::f64::consts::FRAC_PI_2; // latitude
-    full_input[11] = nav.acceleration_estimated[0] / 50.0 - 1.0; // drag acceleration
-    full_input[12] = nav.acceleration_estimated[1] / 10.0; // lift acceleration
+    full_input[4] = (nav.velocity_estimated[0] - C_VELOCITY) / H_VELOCITY; // velocity
+    full_input[5] = (accel_mag / S_ACCEL_MAGNITUDE).asinh(); // accel magnitude
+    full_input[6] = (nav.heat_flux_fraction - C_HEAT_FLUX) / H_HEAT_FLUX; // heat flux fraction
+    full_input[7] = (nav.heat_load_fraction - C_HEAT_LOAD) / H_HEAT_LOAD; // heat load fraction
+    full_input[8] = (altitude_km - C_ALTITUDE) / H_ALTITUDE; // altitude
+    full_input[9] = (nav.velocity_estimated[1] - C_FPA) / H_FPA; // flight path angle
+    full_input[10] = (nav.position_estimated[2] - C_LATITUDE) / H_LATITUDE; // latitude
+    full_input[11] = (nav.acceleration_estimated[0] / S_DRAG_ACCEL).asinh(); // drag acceleration
+    full_input[12] = (nav.acceleration_estimated[1] / S_LIFT_ACCEL).asinh(); // lift acceleration
     full_input[13] = (nav.orbital_errors[0] / S_SMA_ERROR).asinh(); // SMA error
     full_input[14] = (orbit.apoapsis_alt / S_APOAPSIS_ALT).asinh(); // apoapsis altitude
     full_input[15] = nav.bounce_flag as f64 * 2.0 - 1.0; // bounce flag
@@ -165,9 +189,9 @@ pub fn build_nn_input(
     let pdyn_error = pdyn_current - pdyn_nominal;
 
     full_input[16] = cos_bank_nominal; // ref cos(bank)
-    full_input[17] = pdyn_nominal / 2e3 - 1.0; // ref dynamic pressure
+    full_input[17] = (pdyn_nominal - C_PDYN_NOMINAL) / H_PDYN_NOMINAL; // ref dynamic pressure
     full_input[18] = (hdot_nominal / S_HDOT_NOMINAL).asinh(); // ref radial velocity
-    full_input[19] = pdyn_error / 2e3; // dynamic pressure error
+    full_input[19] = (pdyn_error / S_PDYN_ERROR).asinh(); // dynamic pressure error
 
     // -- Exit-bank teacher signal (index 20), always live --
     // Closed-loop FTC exit-phase pdyn-feedback law, fed every step as a
@@ -207,22 +231,26 @@ pub fn build_nn_input(
     // -- Periapsis altitude (index 31), asinh signed-log scaled --
     full_input[31] = (orbit.periapsis_alt / S_PERIAPSIS_ALT).asinh(); // periapsis altitude
 
-    // -- Live correction-DV inputs (indices 32-34) --
-    // compute_deltav is only valid for a closed (elliptical) osculating orbit;
-    // pre-capture the orbit is hyperbolic (apoapsis undefined) -> saturate to sentinel.
-    let (dv1, dv2, dv3) = if orbit.eccentricity < 1.0 {
+    // -- Live correction-DV inputs (indices 32-34): per-component asinh, hyperbolic-guarded --
+    // compute_deltav is only valid for a closed (elliptical) osculating orbit; pre-capture
+    // (e >= 1, apoapsis undefined) or non-finite -> emit the normalized sentinel directly.
+    let (dv_n1, dv_n2, dv_n3) = if orbit.eccentricity < 1.0 {
         let dv = maneuver::compute_deltav(&orbit, &data.target_orbit, &data.parking_orbit, planet);
         if dv.dv1.is_finite() && dv.dv2.is_finite() && dv.dv3.is_finite() {
-            (dv.dv1, dv.dv2, dv.dv3)
+            (
+                (dv.dv1 / S_DV1).asinh(),
+                (dv.dv2 / S_DV2).asinh(),
+                (dv.dv3 / S_DV3).asinh(),
+            )
         } else {
-            (DV_SENTINEL, DV_SENTINEL, DV_SENTINEL)
+            (DV_SENTINEL_NORM, DV_SENTINEL_NORM, DV_SENTINEL_NORM)
         }
     } else {
-        (DV_SENTINEL, DV_SENTINEL, DV_SENTINEL)
+        (DV_SENTINEL_NORM, DV_SENTINEL_NORM, DV_SENTINEL_NORM)
     };
-    full_input[32] = (dv1 / S_DV).asinh();
-    full_input[33] = (dv2 / S_DV).asinh();
-    full_input[34] = (dv3 / S_DV).asinh();
+    full_input[32] = dv_n1;
+    full_input[33] = dv_n2;
+    full_input[34] = dv_n3;
 
     // Apply ablation: freeze a single input to `ablated_value` (default 0.0 =>
     // classic zero-ablation; flip-ablation freezes a binary ±1 flag to -1 / +1).
@@ -516,7 +544,7 @@ mod tests {
             0.0,
             0.0,
         );
-        let expected = (DV_SENTINEL / S_DV).asinh(); // == 1.5
+        let expected = DV_SENTINEL_NORM; // == 1.5, emitted directly
         for idx in 32..35 {
             assert!(
                 (inp[idx] - expected).abs() < 1e-9,
@@ -565,9 +593,9 @@ mod tests {
             0.0,
             0.0,
         );
-        assert!((inp[32] - (dv.dv1 / S_DV).asinh()).abs() < 1e-9);
-        assert!((inp[33] - (dv.dv2 / S_DV).asinh()).abs() < 1e-9);
-        assert!((inp[34] - (dv.dv3 / S_DV).asinh()).abs() < 1e-9);
+        assert!((inp[32] - (dv.dv1 / S_DV1).asinh()).abs() < 1e-9);
+        assert!((inp[33] - (dv.dv2 / S_DV2).asinh()).abs() < 1e-9);
+        assert!((inp[34] - (dv.dv3 / S_DV3).asinh()).abs() < 1e-9);
         assert!(inp[32].is_finite() && inp[33].is_finite() && inp[34].is_finite());
     }
 
