@@ -37,3 +37,9 @@ def test_derive_affine_maps_p1_p99_to_pm1() -> None:
 def test_derive_affine_floors_degenerate_halfwidth() -> None:
     center, half = derive_affine(p1=5.0, p99=5.0)
     assert half >= 1e-6
+
+
+def test_invert_raw_passthrough() -> None:
+    arr = np.array([0.3, -0.7, 1.0])
+    back = invert_transform(arr, ("raw",))
+    assert np.array_equal(back, arr)

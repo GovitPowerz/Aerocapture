@@ -143,8 +143,11 @@ def calibrate(toml_path: str, n_sims: int) -> str:
         if idx in _SKIP:
             continue
         vals = raw[idx]
-        p1, p50, p99 = np.percentile(vals, [1, 50, 99])
         name = NN_INPUT_NAMES[idx] if idx < len(NN_INPUT_NAMES) else f"idx{idx}"
+        if len(vals) == 0:
+            table.append(f"  [{idx:2d}] {name:22s} SKIPPED (no finite values)")
+            continue
+        p1, p50, p99 = np.percentile(vals, [1, 50, 99])
         if idx in _FORCE_ASINH:
             s = derive_asinh_scale(p1, p99)
             const = _ASINH_CONST_NAME.get(idx, f"S_IDX{idx}")
