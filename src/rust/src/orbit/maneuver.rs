@@ -301,7 +301,6 @@ mod tests {
         ParkingOrbit {
             apoapsis: 500_000.0,
             periapsis: 300_000.0,
-            ..Default::default()
         }
     }
     fn target() -> OrbitalTarget {
