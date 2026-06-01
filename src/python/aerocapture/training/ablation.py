@@ -52,6 +52,9 @@ NN_INPUT_NAMES: list[str] = [
     "prev_realized_sin",  # 29
     "prev_realized_cos",  # 30
     "periapsis_alt",  # 31
+    "predicted_dv1",  # 32
+    "predicted_dv2",  # 33
+    "predicted_dv3",  # 34
 ]
 
 # Index of dv_total_m_s in the 52-column final_record array (0-based, includes sim_number).
