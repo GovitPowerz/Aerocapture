@@ -14,10 +14,12 @@
 //!   7  heat_load_fraction    15  bounce_flag           30 prev_realized_cos      31 periapsis_alt
 //!  32 predicted_dv1          33 predicted_dv2          34 predicted_dv3
 //!
-//! Wide-range inputs (2,3,5,11,12,13,14,18,19,31) and the 3 live correction-DV inputs
-//! (32,33,34) use signed-log `asinh(raw/S_*)`; bounded numeric inputs (0,1,4,6,7,8,9,10,17)
-//! use calibrated affine `(raw - C_*)/H_*`. All scales are data-driven from a 500-sim MC
-//! ensemble via `calibrate_inputs.py` (sentinel-excluded for the DV inputs).
+//! Wide-range inputs (2,3,5,11,12,13,14,18,19,31) and the 3 live correction-DV
+//! inputs (32,33,34) use `asinh((raw - center)/scale)`; bounded inputs use affine
+//! `(raw - center)/scale`. Per-input transforms live in `DEFAULT_NORMALIZATION`
+//! (data/neural.rs) or the model's embedded `normalization` block; scales are
+//! data-driven via `calibrate_inputs.py`. The DV inputs are computed by the smooth
+//! `maneuver::predicted_dv_for_nn` (no pre-capture sentinel).
 //!
 //! Index 20 is the closed-loop FTC exit-phase pdyn-feedback law, fed every step
 //! as a teacher signal (always live, not bounce-gated). Pre-bounce, with
@@ -2077,12 +2079,12 @@ mod tests {
 
     #[test]
     fn apoapsis_asinh_maps_p99_near_one() {
-        // The apoapsis scale (DEFAULT_NORMALIZATION[14]) was set so asinh(p99/s) = 1.0
-        // (=> ~1% saturation). Tautological on s = p99/sinh(1); pins the invariant so
-        // a future table edit can't silently break the target.
-        let s = crate::data::neural::DEFAULT_NORMALIZATION[14].scale;
-        let p99_raw = s * (1.0_f64).sinh();
-        assert!(((p99_raw / s).asinh() - 1.0).abs() < 1e-9);
+        // Index 14 (apoapsis_alt) must keep its calibrated asinh scale; a silent table
+        // edit would shift the input. Pin the scale + transform.
+        let spec = &crate::data::neural::DEFAULT_NORMALIZATION[14];
+        assert_eq!(spec.transform, crate::data::neural::NormTransform::Asinh);
+        assert!((spec.scale - 4.752185e7).abs() < 1.0, "S_APOAPSIS_ALT drifted: {}", spec.scale);
+        assert_eq!(spec.center, 0.0);
     }
 
     #[test]
