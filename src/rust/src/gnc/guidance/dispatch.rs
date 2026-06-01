@@ -1214,6 +1214,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         // Heat flux at 99% of limit -> thermal limiter activates aggressively.
@@ -1307,6 +1308,7 @@ mod tests {
             output_param: OutputParam::AcosTanh,
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let mut nav = test_nav();

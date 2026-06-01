@@ -50,45 +50,6 @@ use crate::gnc::navigation::coordinates::total_energy;
 use crate::gnc::navigation::estimator::NavigationOutput;
 use crate::orbit::{elements, maneuver};
 
-// === Calibrated input normalization scales (calibrate_inputs.py, 500-sim pool) ===
-// asinh signed-log scales: s = max(|p1|,|p99|)/sinh(1), so p99 maps to ~1.0 (no clamp).
-const S_RADIAL_VELOCITY: f64 = 8.794982e+02;
-const S_ORBITAL_ENERGY: f64 = 5.180226e+06;
-const S_ACCEL_MAGNITUDE: f64 = 2.494108e+01;
-const S_DRAG_ACCEL: f64 = 2.367649e+01;
-const S_LIFT_ACCEL: f64 = 7.841004e+00;
-const S_SMA_ERROR: f64 = 2.396120e+07;
-const S_APOAPSIS_ALT: f64 = 4.752185e+07;
-const S_HDOT_NOMINAL: f64 = 7.416992e+02;
-const S_PDYN_ERROR: f64 = 3.373053e+02; // note: heavy negative tail; ~59% beyond [-1,1] in deploy pool -- benign (asinh, no clamp)
-const S_PERIAPSIS_ALT: f64 = 3.750782e+04;
-// Per-component live correction-DV scales (calibrated on elliptical-phase values, sentinel-excluded).
-const S_DV1: f64 = 1.052305e+02;
-const S_DV2: f64 = 1.046783e+03;
-const S_DV3: f64 = 1.254637e+02;
-// Pre-capture / non-finite DV sentinel, emitted directly as the normalized out-of-band value
-// (asinh of the live value never reaches 1.5 within the calibrated [p1,p99] range).
-const DV_SENTINEL_NORM: f64 = 1.5;
-// Affine (center, half-width): norm = (raw - center) / half, mapping [p1,p99] -> [-1,1].
-const C_ECC_EXCESS: f64 = 9.125593e-01;
-const H_ECC_EXCESS: f64 = 8.754754e-01;
-const C_INCL_ERR: f64 = -1.167222e+00;
-const H_INCL_ERR: f64 = 1.443277e+00;
-const C_VELOCITY: f64 = 4.534045e+03;
-const H_VELOCITY: f64 = 1.178859e+03;
-const C_HEAT_FLUX: f64 = 4.533209e-01;
-const H_HEAT_FLUX: f64 = 4.524197e-01;
-const C_HEAT_LOAD: f64 = 4.366122e-01;
-const H_HEAT_LOAD: f64 = 4.363704e-01;
-const C_ALTITUDE: f64 = 8.293086e+01;
-const H_ALTITUDE: f64 = 4.324290e+01;
-const C_FPA: f64 = -5.801090e-02;
-const H_FPA: f64 = 1.246266e-01;
-const C_LATITUDE: f64 = 2.875094e-01;
-const H_LATITUDE: f64 = 2.803614e-01;
-const C_PDYN_NOMINAL: f64 = 8.123864e+02;
-const H_PDYN_NOMINAL: f64 = 8.088315e+02;
-
 /// Build the masked NN input vector from navigation state.
 ///
 /// Constructs the full 35-element candidate input vector, applies ablation zeroing
@@ -148,27 +109,27 @@ pub fn build_nn_input(
     // Altitude in km
     let altitude_km = (nav.position_estimated[0] - planet.equatorial_radius) / 1e3;
 
-    // Build full 35-element input vector
-    let mut full_input = [0.0_f64; NN_FULL_INPUT_SIZE];
+    // Extract RAW physical values into raw[]; normalization is applied uniformly
+    // below from a per-input NormSpec table (model's or DEFAULT_NORMALIZATION).
+    let mut raw = [0.0_f64; NN_FULL_INPUT_SIZE];
 
     // -- 16 existing inputs (indices 0-15) --
-    full_input[0] = (orbit.eccentricity - C_ECC_EXCESS) / H_ECC_EXCESS; // eccentricity excess
-    full_input[1] =
-        ((orbit.inclination - target_inclination).to_degrees() - C_INCL_ERR) / H_INCL_ERR; // inclination error
-    full_input[2] = (velocity_radial / S_RADIAL_VELOCITY).asinh(); // radial velocity
-    full_input[3] = (-mu / (2.0 * orbit.semi_major_axis) / S_ORBITAL_ENERGY).asinh(); // orbital energy
-    full_input[4] = (nav.velocity_estimated[0] - C_VELOCITY) / H_VELOCITY; // velocity
-    full_input[5] = (accel_mag / S_ACCEL_MAGNITUDE).asinh(); // accel magnitude
-    full_input[6] = (nav.heat_flux_fraction - C_HEAT_FLUX) / H_HEAT_FLUX; // heat flux fraction
-    full_input[7] = (nav.heat_load_fraction - C_HEAT_LOAD) / H_HEAT_LOAD; // heat load fraction
-    full_input[8] = (altitude_km - C_ALTITUDE) / H_ALTITUDE; // altitude
-    full_input[9] = (nav.velocity_estimated[1] - C_FPA) / H_FPA; // flight path angle
-    full_input[10] = (nav.position_estimated[2] - C_LATITUDE) / H_LATITUDE; // latitude
-    full_input[11] = (nav.acceleration_estimated[0] / S_DRAG_ACCEL).asinh(); // drag acceleration
-    full_input[12] = (nav.acceleration_estimated[1] / S_LIFT_ACCEL).asinh(); // lift acceleration
-    full_input[13] = (nav.orbital_errors[0] / S_SMA_ERROR).asinh(); // SMA error
-    full_input[14] = (orbit.apoapsis_alt / S_APOAPSIS_ALT).asinh(); // apoapsis altitude
-    full_input[15] = nav.bounce_flag as f64 * 2.0 - 1.0; // bounce flag
+    raw[0] = orbit.eccentricity; // eccentricity excess
+    raw[1] = (orbit.inclination - target_inclination).to_degrees(); // inclination error
+    raw[2] = velocity_radial; // radial velocity
+    raw[3] = -mu / (2.0 * orbit.semi_major_axis); // orbital energy
+    raw[4] = nav.velocity_estimated[0]; // velocity
+    raw[5] = accel_mag; // accel magnitude
+    raw[6] = nav.heat_flux_fraction; // heat flux fraction
+    raw[7] = nav.heat_load_fraction; // heat load fraction
+    raw[8] = altitude_km; // altitude
+    raw[9] = nav.velocity_estimated[1]; // flight path angle
+    raw[10] = nav.position_estimated[2]; // latitude
+    raw[11] = nav.acceleration_estimated[0]; // drag acceleration
+    raw[12] = nav.acceleration_estimated[1]; // lift acceleration
+    raw[13] = nav.orbital_errors[0]; // SMA error
+    raw[14] = orbit.apoapsis_alt; // apoapsis altitude
+    raw[15] = nav.bounce_flag as f64; // bounce flag
 
     // -- 4 reference trajectory inputs (indices 16-19) --
     let energy = total_energy(
@@ -188,17 +149,17 @@ pub fn build_nn_input(
         0.5 * nav.density_guidance * nav.velocity_estimated[0] * nav.velocity_estimated[0];
     let pdyn_error = pdyn_current - pdyn_nominal;
 
-    full_input[16] = cos_bank_nominal; // ref cos(bank)
-    full_input[17] = (pdyn_nominal - C_PDYN_NOMINAL) / H_PDYN_NOMINAL; // ref dynamic pressure
-    full_input[18] = (hdot_nominal / S_HDOT_NOMINAL).asinh(); // ref radial velocity
-    full_input[19] = (pdyn_error / S_PDYN_ERROR).asinh(); // dynamic pressure error
+    raw[16] = cos_bank_nominal; // ref cos(bank)
+    raw[17] = pdyn_nominal; // ref dynamic pressure
+    raw[18] = hdot_nominal; // ref radial velocity
+    raw[19] = pdyn_error; // dynamic pressure error
 
     // -- Exit-bank teacher signal (index 20), always live --
     // Closed-loop FTC exit-phase pdyn-feedback law, fed every step as a
     // teacher signal. Pre-bounce, ref_velocity_latched = 0 so this degenerates
     // to pure radial-velocity damping.
     let exit_bank = exit::exit_guidance(nav, data, planet, ref_velocity_latched);
-    full_input[20] = exit_bank / std::f64::consts::PI * 2.0 - 1.0;
+    raw[20] = exit_bank;
 
     // -- Lateral-state telemetry (indices 21-24) --
     // These make the supervisor's signed-bank decision a Markovian function of
@@ -209,48 +170,42 @@ pub fn build_nn_input(
         Some(prev) => (current_inclination_error - prev) / data.periods.guidance,
         None => 0.0,
     };
-    // Index 21: inclination error rate (deg/s), scaled so typical ~ [-1, 1].
-    full_input[21] = di_err_dt.to_degrees() * 10.0;
-    // Index 22: previous bank command, normalized to [-1, 1].
-    full_input[22] = prev_bank_signed / std::f64::consts::PI;
-    // Index 23: time since last bank-command sign flip, tanh-bounded with 30s scale.
-    full_input[23] = (time_since_last_sign_flip / 30.0).tanh();
-    // Index 24: integrated inclination error (deg·s), tanh-bounded with 100 deg·s scale.
-    full_input[24] = (inclination_error_integral.to_degrees() / 100.0).tanh();
+    raw[21] = di_err_dt.to_degrees(); // inclination error rate (deg/s)
+    raw[22] = prev_bank_signed; // previous bank command (rad)
+    raw[23] = time_since_last_sign_flip; // time since last sign flip (s)
+    raw[24] = inclination_error_integral.to_degrees(); // integrated inclination error (deg·s)
 
     // -- (sin, cos) bank-history pairs (indices 25-30), seam-free cyclic encoding --
     // Bank angles fed as (sin, cos) pairs avoid the +π/-π representation seam.
-    // `exit_bank` is the raw radian value already computed above (before its normalization at index 20).
-    full_input[25] = exit_bank.sin();
-    full_input[26] = exit_bank.cos();
-    full_input[27] = prev_bank_signed.sin();
-    full_input[28] = prev_bank_signed.cos();
-    full_input[29] = prev_realized_bank.sin();
-    full_input[30] = prev_realized_bank.cos();
+    // `exit_bank` is the raw radian value already computed above.
+    raw[25] = exit_bank.sin();
+    raw[26] = exit_bank.cos();
+    raw[27] = prev_bank_signed.sin();
+    raw[28] = prev_bank_signed.cos();
+    raw[29] = prev_realized_bank.sin();
+    raw[30] = prev_realized_bank.cos();
 
-    // -- Periapsis altitude (index 31), asinh signed-log scaled --
-    full_input[31] = (orbit.periapsis_alt / S_PERIAPSIS_ALT).asinh(); // periapsis altitude
+    // -- Periapsis altitude (index 31) --
+    raw[31] = orbit.periapsis_alt;
 
-    // -- Live correction-DV inputs (indices 32-34): per-component asinh, hyperbolic-guarded --
-    // compute_deltav is only valid for a closed (elliptical) osculating orbit; pre-capture
-    // (e >= 1, apoapsis undefined) or non-finite -> emit the normalized sentinel directly.
-    let (dv_n1, dv_n2, dv_n3) = if orbit.eccentricity < 1.0 {
-        let dv = maneuver::compute_deltav(&orbit, &data.target_orbit, &data.parking_orbit, planet);
-        if dv.dv1.is_finite() && dv.dv2.is_finite() && dv.dv3.is_finite() {
-            (
-                (dv.dv1 / S_DV1).asinh(),
-                (dv.dv2 / S_DV2).asinh(),
-                (dv.dv3 / S_DV3).asinh(),
-            )
-        } else {
-            (DV_SENTINEL_NORM, DV_SENTINEL_NORM, DV_SENTINEL_NORM)
-        }
-    } else {
-        (DV_SENTINEL_NORM, DV_SENTINEL_NORM, DV_SENTINEL_NORM)
-    };
-    full_input[32] = dv_n1;
-    full_input[33] = dv_n2;
-    full_input[34] = dv_n3;
+    // -- Live correction-DV inputs (indices 32-34): smooth, always-defined --
+    // `predicted_dv_for_nn` is guarded to return 0.0 for degenerate/hyperbolic
+    // orbits, so no sentinel branch is needed.
+    let dv = maneuver::predicted_dv_for_nn(&orbit, &data.target_orbit, &data.parking_orbit, planet);
+    raw[32] = dv[0];
+    raw[33] = dv[1];
+    raw[34] = dv[2];
+
+    // -- Uniform normalization: full_input[i] = apply_norm(raw[i], &norm[i]) --
+    let norm: &[crate::data::neural::NormSpec] = data
+        .neural_net
+        .as_ref()
+        .map(|m| m.normalization.as_slice())
+        .unwrap_or(&crate::data::neural::DEFAULT_NORMALIZATION);
+    let mut full_input = [0.0_f64; NN_FULL_INPUT_SIZE];
+    for i in 0..NN_FULL_INPUT_SIZE {
+        full_input[i] = crate::data::neural::apply_norm(raw[i], &norm[i]);
+    }
 
     // Apply ablation: freeze a single input to `ablated_value` (default 0.0 =>
     // classic zero-ablation; flip-ablation freezes a binary ±1 flag to -1 / +1).
@@ -483,6 +438,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         }
     }
 
@@ -511,7 +467,8 @@ mod tests {
     }
 
     #[test]
-    fn dv_inputs_sentinel_when_hyperbolic() {
+    fn dv_inputs_hyperbolic_dv2_zero() {
+        use crate::data::neural::{DEFAULT_NORMALIZATION, apply_norm};
         let nav = test_nav();
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
@@ -528,6 +485,11 @@ mod tests {
             orbit.eccentricity >= 1.0,
             "fixture must be hyperbolic for this test"
         );
+        // No sentinel anymore: predicted_dv_for_nn guards dv2 to 0.0 for non-elliptical
+        // orbits, so the normalized dv2 input is asinh(0) = 0.
+        let dv =
+            maneuver::predicted_dv_for_nn(&orbit, &data.target_orbit, &data.parking_orbit, &planet);
+        assert_eq!(dv[1], 0.0, "dv2 must vanish for hyperbolic orbit");
         let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let inp = build_nn_input(
             &nav,
@@ -544,17 +506,19 @@ mod tests {
             0.0,
             0.0,
         );
-        let expected = DV_SENTINEL_NORM; // == 1.5, emitted directly
-        for (idx, &v) in inp.iter().enumerate().skip(32).take(3) {
-            assert!(
-                (v - expected).abs() < 1e-9,
-                "input[{idx}] = {v} != sentinel {expected}",
-            );
-        }
+        let expected_dv2 = apply_norm(0.0, &DEFAULT_NORMALIZATION[33]); // asinh(0) = 0
+        assert!(
+            (inp[33] - expected_dv2).abs() < 1e-12,
+            "input[33] = {} != {} (asinh of zeroed dv2)",
+            inp[33],
+            expected_dv2
+        );
+        assert!(inp[32].is_finite() && inp[33].is_finite() && inp[34].is_finite());
     }
 
     #[test]
     fn dv_inputs_live_when_elliptical() {
+        use crate::data::neural::{DEFAULT_NORMALIZATION, apply_norm};
         let mut nav = test_nav();
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
@@ -575,7 +539,8 @@ mod tests {
             "fixture must be elliptical (got e={})",
             orbit.eccentricity
         );
-        let dv = maneuver::compute_deltav(&orbit, &data.target_orbit, &data.parking_orbit, &planet);
+        let dv =
+            maneuver::predicted_dv_for_nn(&orbit, &data.target_orbit, &data.parking_orbit, &planet);
         let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let inp = build_nn_input(
             &nav,
@@ -592,9 +557,9 @@ mod tests {
             0.0,
             0.0,
         );
-        assert!((inp[32] - (dv.dv1 / S_DV1).asinh()).abs() < 1e-9);
-        assert!((inp[33] - (dv.dv2 / S_DV2).asinh()).abs() < 1e-9);
-        assert!((inp[34] - (dv.dv3 / S_DV3).asinh()).abs() < 1e-9);
+        assert!((inp[32] - apply_norm(dv[0], &DEFAULT_NORMALIZATION[32])).abs() < 1e-9);
+        assert!((inp[33] - apply_norm(dv[1], &DEFAULT_NORMALIZATION[33])).abs() < 1e-9);
+        assert!((inp[34] - apply_norm(dv[2], &DEFAULT_NORMALIZATION[34])).abs() < 1e-9);
         assert!(inp[32].is_finite() && inp[33].is_finite() && inp[34].is_finite());
     }
 
@@ -729,6 +694,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let nav = test_nav();
@@ -811,6 +777,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let nav = test_nav();
@@ -866,6 +833,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let nav = test_nav();
@@ -924,6 +892,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let nav = test_nav();
@@ -1006,6 +975,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let nn_ablated = NeuralNetModel {
@@ -1027,6 +997,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let nav = test_nav();
@@ -1093,6 +1064,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let nav = test_nav();
@@ -1148,6 +1120,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let mut nav = test_nav();
@@ -1487,6 +1460,7 @@ mod tests {
             output_param: OutputParam::ScaledPi,
             scaled_pi_n: 2.0,
             delta_max: 0.0,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
         let mut st = NnState::for_model(&nn);
         let nav = test_nav();
@@ -1539,6 +1513,7 @@ mod tests {
             output_param: OutputParam::ScaledPi,
             scaled_pi_n: 1.5,
             delta_max: 0.0,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
         let mut st = NnState::for_model(&nn);
         let nav = test_nav();
@@ -1598,6 +1573,7 @@ mod tests {
             output_param: OutputParam::Delta,
             scaled_pi_n: 1.0,
             delta_max: 0.2,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
         let mut st = NnState::for_model(&nn);
         let nav = test_nav();
@@ -1657,6 +1633,7 @@ mod tests {
             output_param: OutputParam::Delta,
             scaled_pi_n: 1.0,
             delta_max: 0.5,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
         let mut st = NnState::for_model(&nn);
         let nav = test_nav();
@@ -1722,6 +1699,7 @@ mod tests {
                 output_param: OutputParam::default(),
                 scaled_pi_n: 1.0,
                 delta_max: 0.35,
+                normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
             }
         }
 
@@ -1786,6 +1764,7 @@ mod tests {
                 output_param: OutputParam::AcosTanh,
                 scaled_pi_n: 1.0,
                 delta_max: 0.35,
+                normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
             };
 
             let nav = test_nav();
@@ -1947,11 +1926,12 @@ mod tests {
             0.0,
             0.0,
         );
+        use crate::data::neural::{DEFAULT_NORMALIZATION, apply_norm};
         let velocity_radial = nav.velocity_estimated[0] * nav.velocity_estimated[1].sin();
-        let expected = (velocity_radial / S_RADIAL_VELOCITY).asinh();
+        let expected = apply_norm(velocity_radial, &DEFAULT_NORMALIZATION[2]);
         assert!(
             (v[2] - expected).abs() < 1e-12,
-            "index 2 must be asinh(velocity_radial/S_RADIAL_VELOCITY): expected {expected}, got {}",
+            "index 2 must be apply_norm(velocity_radial, norm[2]): expected {expected}, got {}",
             v[2]
         );
     }
@@ -1992,10 +1972,11 @@ mod tests {
         let pdyn_current =
             0.5 * nav.density_guidance * nav.velocity_estimated[0] * nav.velocity_estimated[0];
         let pdyn_error = pdyn_current - pdyn_nominal;
-        let expected = (pdyn_error / S_PDYN_ERROR).asinh();
+        use crate::data::neural::{DEFAULT_NORMALIZATION, apply_norm};
+        let expected = apply_norm(pdyn_error, &DEFAULT_NORMALIZATION[19]);
         assert!(
             (v[19] - expected).abs() < 1e-9,
-            "index 19 must be asinh(pdyn_error/S_PDYN_ERROR): expected {expected}, got {}",
+            "index 19 must be apply_norm(pdyn_error, norm[19]): expected {expected}, got {}",
             v[19]
         );
     }
@@ -2030,32 +2011,30 @@ mod tests {
             nav.velocity_estimated[2],
             &planet,
         );
-        let expected = (orbit.eccentricity - C_ECC_EXCESS) / H_ECC_EXCESS;
+        use crate::data::neural::{DEFAULT_NORMALIZATION, apply_norm};
+        let expected = apply_norm(orbit.eccentricity, &DEFAULT_NORMALIZATION[0]);
         assert!(
             (v[0] - expected).abs() < 1e-9,
-            "index 0 must be (eccentricity - C_ECC_EXCESS) / H_ECC_EXCESS: expected {expected}, got {}",
+            "index 0 must be apply_norm(eccentricity, norm[0]): expected {expected}, got {}",
             v[0]
         );
     }
 
     #[test]
-    fn dv_inputs_sentinel_when_compute_deltav_non_finite() {
-        // Elliptical orbit (e < 1.0, so the outer hyperbolic sentinel branch is
-        // NOT taken) but a degenerate target geometry forces compute_deltav to
-        // emit a non-finite dv3, exercising the inner is_finite backstop.
+    fn dv_inputs_finite_under_degenerate_target() {
+        // The old sentinel/is_finite backstop is gone: predicted_dv_for_nn guards
+        // every term (NaN comparisons are false), so even a degenerate target
+        // geometry yields finite DV inputs after asinh normalization.
         let mut nav = test_nav();
         let mut data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
 
-        // Make the osculating orbit provably elliptical (same trick as
-        // dv_inputs_live_when_elliptical).
+        // Make the osculating orbit provably elliptical.
         let v_circ = (planet.mu / nav.position_estimated[0]).sqrt();
         nav.velocity_estimated[0] = v_circ * 0.9;
 
-        // Negative target semi-major axis: rayneu < 0 makes
-        // (1/rayneu - 1/(2*target_sma)) negative -> sqrt of negative -> NaN in
-        // the maneuver-3 node-velocity term, so dv3 is non-finite while the
-        // orbit stays elliptical.
+        // Negative target semi-major axis: the old compute_deltav produced a
+        // non-finite dv3 here; predicted_dv_for_nn's rayneu > 0.0 guard absorbs it.
         data.target_orbit.semi_major_axis = -3.77e6;
 
         let orbit = elements::from_spherical(
@@ -2067,18 +2046,12 @@ mod tests {
             nav.velocity_estimated[2],
             &planet,
         );
+        assert!(orbit.eccentricity < 1.0, "fixture must stay elliptical");
+        let dv =
+            maneuver::predicted_dv_for_nn(&orbit, &data.target_orbit, &data.parking_orbit, &planet);
         assert!(
-            orbit.eccentricity < 1.0,
-            "fixture must stay elliptical to test the is_finite backstop (got e={})",
-            orbit.eccentricity
-        );
-        let dv = maneuver::compute_deltav(&orbit, &data.target_orbit, &data.parking_orbit, &planet);
-        assert!(
-            !(dv.dv1.is_finite() && dv.dv2.is_finite() && dv.dv3.is_finite()),
-            "degenerate target must force a non-finite dv component (dv1={}, dv2={}, dv3={})",
-            dv.dv1,
-            dv.dv2,
-            dv.dv3
+            dv[0].is_finite() && dv[1].is_finite() && dv[2].is_finite(),
+            "predicted_dv_for_nn must be always-defined (dv={dv:?})"
         );
 
         let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
@@ -2098,21 +2071,18 @@ mod tests {
             0.0,
         );
         for (idx, &val) in inp.iter().enumerate().skip(32).take(3) {
-            assert!(
-                (val - DV_SENTINEL_NORM).abs() < 1e-9,
-                "input[{idx}] = {val} must fall back to sentinel {DV_SENTINEL_NORM}",
-            );
+            assert!(val.is_finite(), "input[{idx}] = {val} must be finite");
         }
     }
 
     #[test]
     fn apoapsis_asinh_maps_p99_near_one() {
-        // S_APOAPSIS_ALT was set so asinh(p99/s) = 1.0 (=> ~1% saturation). By
-        // construction the measured p99 raw maps to ~1.0; pin it so a future
-        // scale-const edit can't silently break the target. Tautological on the
-        // construction s = p99/sinh(1), documenting + guarding the invariant.
-        let p99_raw = S_APOAPSIS_ALT * (1.0_f64).sinh();
-        assert!(((p99_raw / S_APOAPSIS_ALT).asinh() - 1.0).abs() < 1e-9);
+        // The apoapsis scale (DEFAULT_NORMALIZATION[14]) was set so asinh(p99/s) = 1.0
+        // (=> ~1% saturation). Tautological on s = p99/sinh(1); pins the invariant so
+        // a future table edit can't silently break the target.
+        let s = crate::data::neural::DEFAULT_NORMALIZATION[14].scale;
+        let p99_raw = s * (1.0_f64).sinh();
+        assert!(((p99_raw / s).asinh() - 1.0).abs() < 1e-9);
     }
 
     #[test]
@@ -2120,7 +2090,80 @@ mod tests {
         let planet = PlanetConfig::mars();
         let data = test_sim_data_with_ref_traj();
         let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
-        for scale_v in [1.0_f64, 0.45] {
+        // Pre-refactor snapshot (Task 3). The extract-then-normalize refactor must
+        // reproduce indices 0-31 bit-identically. Do NOT update these; they are
+        // the source of truth -- a mismatch means a table/extraction discrepancy.
+        let reference: [[f64; 32]; 2] = [
+            [
+                0.22447169631260513,
+                7.0358932144230915,
+                -0.5408086717617567,
+                0.13165560835515322,
+                0.3952593143030676,
+                1.8927422991740266,
+                -1.001991955699542,
+                -1.0005541164111957,
+                -0.7092692673248093,
+                -0.3369192451691694,
+                -0.8471544228271083,
+                1.9319026050223655,
+                -1.2115175534389817,
+                4.173413684246659e-5,
+                -1.1728867754548997,
+                -1.0,
+                0.4,
+                -0.38621937943811535,
+                -0.26648580721762305,
+                4.265018121679815,
+                -0.40880361226959894,
+                84.14563055702091,
+                0.06366197723675814,
+                0.3799489622552249,
+                0.9377272292777562,
+                0.8008116042937332,
+                0.5989163334126874,
+                0.19866933079506122,
+                0.9800665778412416,
+                0.14943813247359922,
+                0.9887710779360422,
+                0.5370177298445907,
+            ],
+            [
+                -0.41249149830047394,
+                5.1093447970496815,
+                -0.25270336733156135,
+                -1.3764310073711454,
+                -1.9375048245803783,
+                1.8927422991740266,
+                -1.001991955699542,
+                -1.0005541164111957,
+                -0.7092692673248093,
+                -0.3369192451691694,
+                -0.8471544228271083,
+                1.9319026050223655,
+                -1.2115175534389817,
+                4.173413684246659e-5,
+                0.001368058947726381,
+                -1.0,
+                0.8,
+                -0.38621937943811535,
+                0.13442037732181647,
+                2.4953889717039646,
+                -0.07070941013841248,
+                56.3402003552065,
+                0.06366197723675814,
+                0.3799489622552249,
+                0.9377272292777562,
+                0.9938380571496344,
+                0.11084185202819419,
+                0.19866933079506122,
+                0.9800665778412416,
+                0.14943813247359922,
+                0.9887710779360422,
+                -4.849317659520808,
+            ],
+        ];
+        for (fi, scale_v) in [1.0_f64, 0.45].iter().enumerate() {
             let mut nav = test_nav();
             nav.velocity_estimated[0] *= scale_v;
             let inp = build_nn_input(
@@ -2138,9 +2181,13 @@ mod tests {
                 3.0,
                 0.15,
             );
-            eprintln!("CHAR scale_v={scale_v}: {:?}", &inp[0..32]);
-            for (i, v) in inp[0..32].iter().enumerate() {
-                assert!(v.is_finite(), "input[{i}] not finite");
+            for i in 0..32 {
+                assert!(
+                    (inp[i] - reference[fi][i]).abs() < 1e-12,
+                    "fixture {fi} index {i}: {} != {} (refactor must be bit-identical for 0-31)",
+                    inp[i],
+                    reference[fi][i]
+                );
             }
         }
     }

@@ -27,7 +27,11 @@ pub struct NormSpec {
 
 impl Default for NormSpec {
     fn default() -> Self {
-        Self { transform: NormTransform::None, scale: 1.0, center: 0.0 }
+        Self {
+            transform: NormTransform::None,
+            scale: 1.0,
+            center: 0.0,
+        }
     }
 }
 
@@ -41,9 +45,185 @@ pub fn apply_norm(raw: f64, spec: &NormSpec) -> f64 {
     }
 }
 
-/// TEMPORARY all-default normalization table (real values filled in a later task).
-pub const DEFAULT_NORMALIZATION: [NormSpec; NN_FULL_INPUT_SIZE] =
-    [NormSpec { transform: NormTransform::None, scale: 1.0, center: 0.0 }; NN_FULL_INPUT_SIZE];
+/// Default per-input normalization table (divisor form `(raw - center) / scale`).
+/// Encodes the historical inline transforms; DV entries 32-34 are provisional.
+pub const DEFAULT_NORMALIZATION: [NormSpec; NN_FULL_INPUT_SIZE] = [
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 0.8754754,
+        center: 0.9125593,
+    }, // 0  ecc_excess
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 1.443277,
+        center: -1.167222,
+    }, // 1  inclination_error
+    NormSpec {
+        transform: NormTransform::Asinh,
+        scale: 8.794982e2,
+        center: 0.0,
+    }, // 2  radial_velocity
+    NormSpec {
+        transform: NormTransform::Asinh,
+        scale: 5.180226e6,
+        center: 0.0,
+    }, // 3  orbital_energy
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 1178.859,
+        center: 4534.045,
+    }, // 4  velocity
+    NormSpec {
+        transform: NormTransform::Asinh,
+        scale: 2.494108e1,
+        center: 0.0,
+    }, // 5  accel_magnitude
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 0.4524197,
+        center: 0.4533209,
+    }, // 6  heat_flux_fraction
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 0.4363704,
+        center: 0.4366122,
+    }, // 7  heat_load_fraction
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 43.24290,
+        center: 82.93086,
+    }, // 8  altitude
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 0.1246266,
+        center: -0.05801090,
+    }, // 9 fpa
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 0.2803614,
+        center: 0.2875094,
+    }, // 10 latitude
+    NormSpec {
+        transform: NormTransform::Asinh,
+        scale: 2.367649e1,
+        center: 0.0,
+    }, // 11 drag_accel
+    NormSpec {
+        transform: NormTransform::Asinh,
+        scale: 7.841004e0,
+        center: 0.0,
+    }, // 12 lift_accel
+    NormSpec {
+        transform: NormTransform::Asinh,
+        scale: 2.396120e7,
+        center: 0.0,
+    }, // 13 sma_error
+    NormSpec {
+        transform: NormTransform::Asinh,
+        scale: 4.752185e7,
+        center: 0.0,
+    }, // 14 apoapsis_alt
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 0.5,
+        center: 0.5,
+    }, // 15 bounce_flag
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 1.0,
+        center: 0.0,
+    }, // 16 cos_bank_nominal
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 808.8315,
+        center: 812.3864,
+    }, // 17 pdyn_nominal
+    NormSpec {
+        transform: NormTransform::Asinh,
+        scale: 7.416992e2,
+        center: 0.0,
+    }, // 18 hdot_nominal
+    NormSpec {
+        transform: NormTransform::Asinh,
+        scale: 3.373053e2,
+        center: 0.0,
+    }, // 19 pdyn_error
+    NormSpec {
+        transform: NormTransform::None,
+        scale: std::f64::consts::FRAC_PI_2,
+        center: std::f64::consts::FRAC_PI_2,
+    }, // 20 exit_bank_teacher
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 0.1,
+        center: 0.0,
+    }, // 21 inclination_err_rate
+    NormSpec {
+        transform: NormTransform::None,
+        scale: std::f64::consts::PI,
+        center: 0.0,
+    }, // 22 prev_bank_signed
+    NormSpec {
+        transform: NormTransform::Tanh,
+        scale: 30.0,
+        center: 0.0,
+    }, // 23 time_since_sign_flip
+    NormSpec {
+        transform: NormTransform::Tanh,
+        scale: 100.0,
+        center: 0.0,
+    }, // 24 inclination_err_integral
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 1.0,
+        center: 0.0,
+    }, // 25 exit_bank_teacher_sin
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 1.0,
+        center: 0.0,
+    }, // 26 exit_bank_teacher_cos
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 1.0,
+        center: 0.0,
+    }, // 27 prev_bank_signed_sin
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 1.0,
+        center: 0.0,
+    }, // 28 prev_bank_signed_cos
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 1.0,
+        center: 0.0,
+    }, // 29 prev_realized_sin
+    NormSpec {
+        transform: NormTransform::None,
+        scale: 1.0,
+        center: 0.0,
+    }, // 30 prev_realized_cos
+    NormSpec {
+        transform: NormTransform::Asinh,
+        scale: 3.750782e4,
+        center: 0.0,
+    }, // 31 periapsis_alt
+    NormSpec {
+        transform: NormTransform::Asinh,
+        scale: 1.052305e2,
+        center: 0.0,
+    }, // 32 predicted_dv1 (provisional)
+    NormSpec {
+        transform: NormTransform::Asinh,
+        scale: 1.046783e3,
+        center: 0.0,
+    }, // 33 predicted_dv2 (provisional)
+    NormSpec {
+        transform: NormTransform::Asinh,
+        scale: 1.254637e2,
+        center: 0.0,
+    }, // 34 predicted_dv3 (provisional)
+];
 
 #[inline]
 pub(crate) fn gelu_exact(z: f64) -> f64 {
@@ -1184,6 +1364,8 @@ struct NnJsonFileV2 {
     scaled_pi_n: f64,
     #[serde(default = "default_delta_max")]
     delta_max: f64,
+    #[serde(default)]
+    normalization: Option<Vec<NormSpec>>,
 }
 
 /// Total number of candidate NN inputs (16 baseline + 4 reference trajectory + 1 exit-bank teacher + 4 lateral-state telemetry
@@ -1221,6 +1403,9 @@ pub struct NeuralNetModel {
     pub scaled_pi_n: f64,
     /// Per-step increment bound for `Delta`: `bank = prev_realized + delta_max * out[0]`.
     pub delta_max: f64,
+    /// Per-input normalization table (len == NN_FULL_INPUT_SIZE). Resolved from the
+    /// JSON `normalization` block when present and well-sized, else `DEFAULT_NORMALIZATION`.
+    pub normalization: Vec<NormSpec>,
 }
 
 impl NeuralNetModel {
@@ -1324,6 +1509,15 @@ impl NeuralNetModel {
         Self::from_json_str(&content, path)
     }
 
+    /// Resolve the per-input normalization table: use the JSON block when present
+    /// and correctly sized, else fall back to `DEFAULT_NORMALIZATION`.
+    fn resolve_normalization(block: Option<Vec<NormSpec>>) -> Vec<NormSpec> {
+        match block {
+            Some(v) if v.len() == NN_FULL_INPUT_SIZE => v,
+            _ => DEFAULT_NORMALIZATION.to_vec(),
+        }
+    }
+
     /// Load from a JSON string. Dispatches by `format_version` (1 or 2).
     pub fn from_json_str(content: &str, path: &str) -> Result<Self, DataError> {
         let v: serde_json::Value = serde_json::from_str(content)
@@ -1421,6 +1615,8 @@ impl NeuralNetModel {
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
+            // v1 schema has no normalization block; use the default table.
+            normalization: Self::resolve_normalization(None),
         })
     }
 
@@ -2043,6 +2239,8 @@ impl NeuralNetModel {
         };
         Self::validate_output_activation(last_activation, file.output_param, path)?;
 
+        let normalization = Self::resolve_normalization(file.normalization);
+
         Ok(NeuralNetModel {
             architecture: file.architecture,
             layer_sizes,
@@ -2053,6 +2251,7 @@ impl NeuralNetModel {
             output_param: file.output_param,
             scaled_pi_n: file.scaled_pi_n,
             delta_max: file.delta_max,
+            normalization,
         })
     }
 
@@ -2131,6 +2330,7 @@ impl NeuralNetModel {
             output_param: self.output_param,
             scaled_pi_n: self.scaled_pi_n,
             delta_max: self.delta_max,
+            normalization: Some(self.normalization.clone()),
         };
 
         let json = serde_json::to_string_pretty(&file)
@@ -2274,6 +2474,7 @@ impl NeuralNetModel {
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
+            normalization: DEFAULT_NORMALIZATION.to_vec(),
         })
     }
 
@@ -2492,6 +2693,7 @@ impl NeuralNetModel {
             output_param,
             scaled_pi_n,
             delta_max,
+            normalization: DEFAULT_NORMALIZATION.to_vec(),
         })
     }
 }
@@ -2502,12 +2704,48 @@ mod tests {
 
     #[test]
     fn apply_norm_divisor_forms() {
-        assert!((apply_norm(50.0, &NormSpec { transform: NormTransform::None, scale: 0.5, center: 0.5 }) - 99.0).abs() < 1e-12);
-        let got = apply_norm(880.0, &NormSpec { transform: NormTransform::Asinh, scale: 880.0, center: 0.0 });
+        assert!(
+            (apply_norm(
+                50.0,
+                &NormSpec {
+                    transform: NormTransform::None,
+                    scale: 0.5,
+                    center: 0.5
+                }
+            ) - 99.0)
+                .abs()
+                < 1e-12
+        );
+        let got = apply_norm(
+            880.0,
+            &NormSpec {
+                transform: NormTransform::Asinh,
+                scale: 880.0,
+                center: 0.0,
+            },
+        );
         assert!((got - 1.0_f64.asinh()).abs() < 1e-12); // asinh(1.0)
-        let got = apply_norm(30.0, &NormSpec { transform: NormTransform::Tanh, scale: 30.0, center: 0.0 });
+        let got = apply_norm(
+            30.0,
+            &NormSpec {
+                transform: NormTransform::Tanh,
+                scale: 30.0,
+                center: 0.0,
+            },
+        );
         assert!((got - 1.0_f64.tanh()).abs() < 1e-12);
-        assert!((apply_norm(0.3, &NormSpec { transform: NormTransform::None, scale: 1.0, center: 0.0 }) - 0.3).abs() < 1e-12);
+        assert!(
+            (apply_norm(
+                0.3,
+                &NormSpec {
+                    transform: NormTransform::None,
+                    scale: 1.0,
+                    center: 0.0
+                }
+            ) - 0.3)
+                .abs()
+                < 1e-12
+        );
     }
 
     #[test]
@@ -2549,6 +2787,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
+            normalization: DEFAULT_NORMALIZATION.to_vec(),
         }
     }
 
@@ -2661,6 +2900,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
+            normalization: DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let flat = original.to_flat_weights();
@@ -2853,6 +3093,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
+            normalization: DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let tmpdir = std::env::temp_dir();
@@ -3082,6 +3323,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
+            normalization: DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let tmpdir = std::env::temp_dir();
@@ -3274,6 +3516,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
+            normalization: DEFAULT_NORMALIZATION.to_vec(),
         };
         let mut state = NnState::for_model(&model);
 
@@ -3326,6 +3569,7 @@ mod tests {
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
+            normalization: DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let tmp = tempfile::NamedTempFile::new().unwrap();
@@ -4514,6 +4758,7 @@ mod tests {
             output_param: OutputParam::AcosTanh,
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
+            normalization: DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let dir = tempfile::tempdir().unwrap();
@@ -4546,6 +4791,7 @@ mod tests {
             output_param: OutputParam::ScaledPi,
             scaled_pi_n: 2.0,
             delta_max: 0.7,
+            normalization: DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let dir = tempfile::tempdir().unwrap();
