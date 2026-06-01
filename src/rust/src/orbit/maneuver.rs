@@ -77,6 +77,57 @@ pub fn compute_deltav(
     }
 }
 
+/// NN-input correction-DV: signed components, defined + smooth across e=1.
+/// Distinct from `compute_deltav` (the terminal maneuver plan).
+/// - dv1: energy-closing burn at current periapsis (vis-viva) -> "Δv to close the orbit".
+/// - dv2: periapsis-correction at apoapsis; 0 when hyperbolic (continuous limit).
+/// - dv3: inclination plane change (same as compute_deltav).
+pub fn predicted_dv_for_nn(
+    orbit: &OrbitalElements,
+    target: &OrbitalTarget,
+    parking: &ParkingOrbit,
+    planet: &PlanetConfig,
+) -> [f64; 3] {
+    let mu = planet.mu;
+    let req = planet.equatorial_radius;
+    let a = orbit.semi_major_axis;
+    let rp = req + orbit.periapsis_alt;
+    let ra_t = req + parking.apoapsis;
+    let rp_t = req + parking.periapsis;
+
+    let dv1 = if rp > 0.0 && a.abs() > 0.0 {
+        let v_cur = (mu * (2.0 / rp - 1.0 / a)).max(0.0).sqrt();
+        let a_t1 = (rp + ra_t) / 2.0;
+        let v_tgt = (mu * (2.0 / rp - 1.0 / a_t1)).max(0.0).sqrt();
+        v_cur - v_tgt
+    } else {
+        0.0
+    };
+
+    let rapoge = req + orbit.apoapsis_alt;
+    let dv2 = if orbit.eccentricity < 1.0 && rapoge.is_finite() && rapoge > 0.0 {
+        let vitfin1 = (2.0 * mu * rp_t / (rapoge * (rapoge + rp_t))).sqrt();
+        let vitini1 = (2.0 * mu * rp / (rapoge * (rapoge + rp))).sqrt();
+        vitfin1 - vitini1
+    } else {
+        0.0
+    };
+
+    let target_sma = target.semi_major_axis;
+    let target_ecc = target.eccentricity;
+    let pi = std::f64::consts::PI;
+    let anoneu = [2.0 * pi - orbit.arg_periapsis, pi - orbit.arg_periapsis];
+    let mut vitneu = [0.0_f64; 2];
+    for i in 0..2 {
+        let rayneu = target_sma * (1.0 - target_ecc * target_ecc) / (1.0 + target_ecc * anoneu[i].cos());
+        vitneu[i] = (2.0 * mu * (1.0 / rayneu - 1.0 / (2.0 * target_sma))).sqrt();
+    }
+    let dincli = (target.inclination - orbit.inclination).abs();
+    let dv3 = 2.0 * vitneu[0].min(vitneu[1]) * (dincli / 2.0).sin();
+
+    [dv1, dv2, dv3]
+}
+
 /// Compute optimal delta-V (from target orbit to parking orbit).
 #[allow(dead_code)]
 pub fn compute_deltav_optimal(
@@ -200,5 +251,96 @@ mod tests {
             "dv3 ({}) should be < 1 m/s for ~0.006 deg inclination error",
             dv2.dv3
         );
+    }
+
+    // ─── predicted_dv_for_nn: smooth, always-defined NN-input correction DV ───
+
+    fn mk_orbit(sma: f64, ecc: f64, incl: f64, planet: &PlanetConfig) -> OrbitalElements {
+        let a = sma;
+        let rp = a * (1.0 - ecc);
+        let ra = a * (1.0 + ecc);
+        OrbitalElements {
+            semi_major_axis: a,
+            eccentricity: ecc,
+            inclination: incl,
+            periapsis_alt: rp - planet.equatorial_radius,
+            apoapsis_alt: ra - planet.equatorial_radius,
+            arg_periapsis: 0.0,
+            ..Default::default()
+        }
+    }
+
+    /// Build an orbit from a FIXED periapsis radius `rp` and eccentricity `ecc`.
+    /// Unlike `mk_orbit` (which derives rp from sma and so hits `inf * 0 = NaN`
+    /// exactly at e=1 since `a = rp/(1-e) -> inf`), this keeps rp finite and
+    /// well-defined across the parabolic boundary -- the right fixture for the
+    /// continuity sweep.
+    fn mk_orbit_from_rp(rp: f64, ecc: f64, incl: f64, planet: &PlanetConfig) -> OrbitalElements {
+        let a = rp / (1.0 - ecc); // a>0 for e<1, a<0 for e>1, ±inf at e=1
+        let ra = if ecc < 1.0 { a * (1.0 + ecc) } else { f64::INFINITY };
+        OrbitalElements {
+            semi_major_axis: a,
+            eccentricity: ecc,
+            inclination: incl,
+            periapsis_alt: rp - planet.equatorial_radius,
+            apoapsis_alt: ra - planet.equatorial_radius,
+            arg_periapsis: 0.0,
+            ..Default::default()
+        }
+    }
+    fn parking() -> ParkingOrbit {
+        ParkingOrbit {
+            apoapsis: 500_000.0,
+            periapsis: 300_000.0,
+            ..Default::default()
+        }
+    }
+    fn target() -> OrbitalTarget {
+        OrbitalTarget {
+            semi_major_axis: 3.796e6 + 400_000.0,
+            eccentricity: 0.05,
+            inclination: 0.9,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn predicted_dv_finite_for_elliptical_and_hyperbolic() {
+        let p = PlanetConfig::mars();
+        for ecc in [0.2_f64, 0.8, 1.2, 2.0] {
+            let sma = if ecc < 1.0 { 5.0e6 } else { -5.0e6 };
+            let o = mk_orbit(sma, ecc, 0.8, &p);
+            let dv = predicted_dv_for_nn(&o, &target(), &parking(), &p);
+            assert!(
+                dv[0].is_finite() && dv[1].is_finite() && dv[2].is_finite(),
+                "ecc={ecc} -> {dv:?}"
+            );
+        }
+    }
+    #[test]
+    fn predicted_dv2_is_zero_when_hyperbolic() {
+        let p = PlanetConfig::mars();
+        let o = mk_orbit(-5.0e6, 1.5, 0.8, &p);
+        let dv = predicted_dv_for_nn(&o, &target(), &parking(), &p);
+        assert_eq!(dv[1], 0.0, "dv2 must be 0 for hyperbolic, got {}", dv[1]);
+    }
+    #[test]
+    fn predicted_dv1_continuous_across_e1() {
+        let p = PlanetConfig::mars();
+        let rp = 3.796e6 + 50_000.0;
+        let mut prev: Option<f64> = None;
+        for k in 0..=40 {
+            let e = 0.98 + 0.001 * k as f64;
+            // Fixed periapsis across the sweep: a = rp/(1-e) -> ±inf at e=1, but
+            // rp stays finite so the orbit is well-defined through the parabolic
+            // boundary (mk_orbit would produce NaN periapsis_alt here).
+            let o = mk_orbit_from_rp(rp, e, 0.8, &p);
+            let dv1 = predicted_dv_for_nn(&o, &target(), &parking(), &p)[0];
+            assert!(dv1.is_finite(), "e={e} dv1 not finite");
+            if let Some(pv) = prev {
+                assert!((dv1 - pv).abs() < 50.0, "dv1 jump at e={e}: {pv} -> {dv1}");
+            }
+            prev = Some(dv1);
+        }
     }
 }
