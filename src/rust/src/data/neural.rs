@@ -210,19 +210,19 @@ pub const DEFAULT_NORMALIZATION: [NormSpec; NN_FULL_INPUT_SIZE] = [
     }, // 31 periapsis_alt
     NormSpec {
         transform: NormTransform::Asinh,
-        scale: 1.052305e2,
+        scale: 1.919853e3,
         center: 0.0,
-    }, // 32 predicted_dv1 (provisional)
+    }, // 32 predicted_dv1 (energy-close; calibrated on the redefined smooth DV)
     NormSpec {
         transform: NormTransform::Asinh,
-        scale: 1.046783e3,
+        scale: 3.846528e2,
         center: 0.0,
-    }, // 33 predicted_dv2 (provisional)
+    }, // 33 predicted_dv2 (periapsis; calibrated)
     NormSpec {
         transform: NormTransform::Asinh,
-        scale: 1.254637e2,
+        scale: 3.486664e2,
         center: 0.0,
-    }, // 34 predicted_dv3 (provisional)
+    }, // 34 predicted_dv3 (inclination; calibrated)
 ];
 
 #[inline]
