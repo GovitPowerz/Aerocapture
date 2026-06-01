@@ -17,7 +17,7 @@ Two coupled cleanups, validated by the v2 work + the post-deploy review:
 
 | Decision | Choice |
 | --- | --- |
-| Normalization schema | Uniform `{transform, scale, offset}` per input, **divisor form** `norm = transform((raw − offset) / scale)`, `transform ∈ {none, asinh, tanh}` |
+| Normalization schema | Uniform `{transform, scale, center}` per input, **divisor form** `norm = transform((raw − center) / scale)`, `transform ∈ {none, asinh, tanh}` |
 | Where it lives | Embedded in the model JSON (self-describing, like `output_param`); optional TOML `[network.normalization]` override; absent → baked defaults (backward-compatible) |
 | DV sentinel | **Removed.** All three DV components redefined to be defined + smooth across `e=1`; they become plain `asinh` inputs in the schema |
 | `predicted_dv1` | Energy-closing burn at current periapsis (vis-viva) — "Δv to shed excess energy and close the orbit" |
@@ -30,14 +30,14 @@ Two coupled cleanups, validated by the v2 work + the post-deploy review:
 For every numeric candidate input, after its input-specific *extraction* produces a raw scalar:
 
 ```
-norm = transform((raw - offset) / scale)
+norm = transform((raw - center) / scale)
 ```
 
-with `transform ∈ {none, asinh, tanh}`. The affine `(raw - offset)/scale` is always present (degenerate = `offset 0, scale 1`); the nonlinearity is optional on top. `scale` is the characteristic magnitude (the data-driven divisor), `offset` the center.
+with `transform ∈ {none, asinh, tanh}`. The affine `(raw - center)/scale` is always present (degenerate = `center 0, scale 1`); the nonlinearity is optional on top. `scale` is the characteristic magnitude (the data-driven divisor), `center` the value subtracted before scaling.
 
 This subsumes every current transform:
 
-| current expression | `{transform, scale, offset}` |
+| current expression | `{transform, scale, center}` |
 | --- | --- |
 | `asinh(raw / S)` | `{asinh, S, 0}` |
 | `(raw − center) / half` | `{none, half, center}` |
@@ -49,7 +49,7 @@ This subsumes every current transform:
 
 ### A.2 Where it lives — model JSON + TOML override
 
-- **Model JSON (`NnModelFile`):** add `#[serde(default)] normalization: Option<Vec<NormSpec>>` — a per-candidate-input list of length `NN_FULL_INPUT_SIZE` (indices align with the candidate vector, NOT the mask). `NormSpec { transform: NormTransform, scale: f64, offset: f64 }` with `NormTransform` a `#[serde(rename_all="snake_case")]` enum `{ None, Asinh, Tanh }`. Absent (`None`) → fall back to the baked default table (backward-compat for existing/legacy models).
+- **Model JSON (`NnModelFile`):** add `#[serde(default)] normalization: Option<Vec<NormSpec>>` — a per-candidate-input list of length `NN_FULL_INPUT_SIZE` (indices align with the candidate vector, NOT the mask). `NormSpec { transform: NormTransform, scale: f64, center: f64 }` with `NormTransform` a `#[serde(rename_all="snake_case")]` enum `{ None, Asinh, Tanh }`. Absent (`None`) → fall back to the baked default table (backward-compat for existing/legacy models).
 - **TOML override:** optional `[network.normalization]` (or `[[network.normalization]]` list) parsed in `config.rs`, overlaid onto the loaded model's block (same precedence pattern as `input_mask`/`output_parameterization` overrides).
 - **Single source of truth:** with the block embedded, `calibrate_inputs.py::CURRENT_TRANSFORMS` and the `neural.rs` const block both go away; the parity test (`tests/test_nn_scale_parity.py`) is retired.
 
@@ -60,7 +60,7 @@ Split `build_nn_input` into two phases:
 1. **Extraction** (input-specific, unchanged logic): compute each candidate's *raw* scalar into a `[f64; NN_FULL_INPUT_SIZE]` — orbit elements, nav fields, ref-traj interpolations, `compute_deltav` (see Part B), and the angle→(sin,cos) pairs. The sin/cos extraction stays special (one angle → two raw outputs, each already in [−1,1]).
 2. **Normalization** (uniform loop): `for i in 0..N { norm[i] = apply_norm(raw[i], &norm_spec[i]); }` where `apply_norm` matches on `transform`. `norm_spec` comes from the model (or the baked default table when absent). Then mask-select as today.
 
-`apply_norm` is a small pure function: `match transform { None => v, Asinh => v.asinh(), Tanh => v.tanh() }` applied to `(raw - offset)/scale`.
+`apply_norm` is a small pure function: `match transform { None => v, Asinh => v.asinh(), Tanh => v.tanh() }` applied to `(raw - center)/scale`.
 
 ### A.4 Baked default table (backward-compat)
 
@@ -107,8 +107,8 @@ Removing the sentinel deletes from `build_nn_input` / `neural.rs`: `DV_SENTINEL_
 - `tests/test_nn_scale_parity.py`: **retire** (single source of truth makes it moot) — or repoint it to assert the model block matches the default table only when absent.
 
 **Tests**
-- Rust: `apply_norm` unit tests (each transform, divisor+offset); DV continuity test across `e=1` (sweep eccentricity through 1.0, assert `predicted_dv*` continuous, no jump > tolerance); `dv2 == 0` for hyperbolic; `dv1` = energy-closing sign/magnitude sanity; model with explicit `normalization` block overrides the default; model without it uses the default (bit-identical to current output for the legacy 16-input golden).
-- `neural` golden: it uses a 16-input model (`input_mask=None` → indices 0-15), so the DV redefinition (indices 32-34) does NOT touch it. The normalization refactor must keep 0-15 **bit-identical** (the divisor form `(raw-offset)/scale` must equal the old `raw/S` and `(raw-center)/half` expressions exactly — they do algebraically). So the expectation is the golden stays unchanged; regenerate ONLY if a float reassociation shifts it (investigate first — an unexpected golden change signals a refactor bug, not an intended change).
+- Rust: `apply_norm` unit tests (each transform, divisor+center); DV continuity test across `e=1` (sweep eccentricity through 1.0, assert `predicted_dv*` continuous, no jump > tolerance); `dv2 == 0` for hyperbolic; `dv1` = energy-closing sign/magnitude sanity; model with explicit `normalization` block overrides the default; model without it uses the default (bit-identical to current output for the legacy 16-input golden).
+- `neural` golden: it uses a 16-input model (`input_mask=None` → indices 0-15), so the DV redefinition (indices 32-34) does NOT touch it. The normalization refactor must keep 0-15 **bit-identical** (the divisor form `(raw-center)/scale` must equal the old `raw/S` and `(raw-center)/half` expressions exactly — they do algebraically). So the expectation is the golden stays unchanged; regenerate ONLY if a float reassociation shifts it (investigate first — an unexpected golden change signals a refactor bug, not an intended change).
 - Python: `calibrate_inputs` emits a valid normalization block; round-trip export/load.
 
 **Configs / models**
