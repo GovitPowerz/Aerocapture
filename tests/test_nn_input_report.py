@@ -97,7 +97,7 @@ def test_run_report_smoke(tmp_path: Path) -> None:
     )
     assert (out_dir / "summary.json").exists()
     summary = _json.loads((out_dir / "summary.json").read_text())
-    assert len(summary["inputs"]) == 32
+    assert len(summary["inputs"]) == 35
     assert list(out_dir.glob("nn_input_*_time.svg"))
     assert list(out_dir.glob("nn_input_*_energy.svg"))
 
