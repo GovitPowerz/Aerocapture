@@ -59,3 +59,14 @@ def test_drop_sentinel_passthrough_non_dv() -> None:
     norm = np.array([0.2, 1.5, -0.3])
     out = drop_sentinel(norm, 11)  # non-DV index -> unchanged (1.5 is a legit value)
     assert np.allclose(out, norm)
+
+
+def test_invert_affine_ch_roundtrip() -> None:
+    import numpy as np
+    from aerocapture.training.calibrate_inputs import invert_transform
+
+    raw = np.array([0.0, 0.5, 1.0])
+    center, half = 0.45, 0.4
+    norm = (raw - center) / half
+    back = invert_transform(norm, ("affine_ch", center, half))
+    assert np.allclose(back, raw, atol=1e-9)

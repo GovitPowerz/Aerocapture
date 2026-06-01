@@ -46,32 +46,32 @@ _DV_INDICES = {32, 33, 34}
 # Pre-capture sentinel saturates the asinh output to exactly 1.5 (asinh(sinh(1.5))).
 _SENTINEL_NORM = 1.5
 
-# Current transform per index (must mirror build_nn_input at calibration time).
-# Forms: ("asinh", s) | ("affine", a, b) meaning norm = a*raw + b | ("raw",).
+# MUST mirror build_nn_input in neural.rs EXACTLY -- update both together or recalibration emits garbage.
+# Forms: ("asinh", s) | ("affine", a, b) meaning norm = a*raw + b | ("affine_ch", center, half) meaning norm = (raw-center)/half | ("raw",).
 CURRENT_TRANSFORMS: dict[int, tuple] = {
-    0: ("affine", 1.0, -1.0),  # ecc - 1
-    1: ("affine", 3.0 / 5.0, 0.0),  # deg * 3/5
-    2: ("asinh", 8.802043e02),
-    3: ("asinh", 5.554906e06),
-    4: ("affine", 2.0 / 3e3, -3.0),  # (raw/3e3 - 1.5)*2
-    5: ("affine", 1.0 / 20.0, -1.0),  # raw/20 - 1
-    6: ("affine", 2.0, -1.0),  # frac*2 - 1
-    7: ("affine", 2.0, -1.0),
-    8: ("affine", 1.0 / 65.0, -1.0),  # (raw-65)/65
-    9: ("affine", 1.0 / 0.3, 0.0),
-    10: ("affine", 2.0 / math.pi, 0.0),
-    11: ("affine", 1.0 / 50.0, -1.0),  # raw/50 - 1
-    12: ("affine", 1.0 / 10.0, 0.0),  # raw/10
-    13: ("asinh", 3.259362e07),
-    14: ("asinh", 6.626041e07),
+    0: ("affine_ch", 9.125593e-01, 8.754754e-01),
+    1: ("affine_ch", -1.167222e00, 1.443277e00),
+    2: ("asinh", 8.794982e02),
+    3: ("asinh", 5.180226e06),
+    4: ("affine_ch", 4.534045e03, 1.178859e03),
+    5: ("asinh", 2.494108e01),
+    6: ("affine_ch", 4.533209e-01, 4.524197e-01),
+    7: ("affine_ch", 4.366122e-01, 4.363704e-01),
+    8: ("affine_ch", 8.293086e01, 4.324290e01),
+    9: ("affine_ch", -5.801090e-02, 1.246266e-01),
+    10: ("affine_ch", 2.875094e-01, 2.803614e-01),
+    11: ("asinh", 2.367649e01),
+    12: ("asinh", 7.841004e00),
+    13: ("asinh", 2.396120e07),
+    14: ("asinh", 4.752185e07),
     16: ("raw",),
-    17: ("affine", 1.0 / 2e3, -1.0),  # raw/2e3 - 1
-    18: ("asinh", 7.333648e02),
-    19: ("affine", 1.0 / 2e3, 0.0),  # raw/2e3
-    31: ("asinh", 9.158960e05),
-    32: ("asinh", 1.28e02),  # provisional S_DV
-    33: ("asinh", 1.28e02),
-    34: ("asinh", 1.28e02),
+    17: ("affine_ch", 8.123864e02, 8.088315e02),
+    18: ("asinh", 7.416992e02),
+    19: ("asinh", 3.373053e02),
+    31: ("asinh", 3.750782e04),
+    32: ("asinh", 1.052305e02),
+    33: ("asinh", 1.046783e03),
+    34: ("asinh", 1.254637e02),
 }
 
 # Rust const name per asinh index (for the emitted block).
@@ -107,6 +107,9 @@ def invert_transform(norm: np.ndarray, transform: tuple) -> np.ndarray:
     if kind == "affine":
         (_, a, b) = transform
         return np.asarray((norm - b) / a)
+    if kind == "affine_ch":
+        (_, center, half) = transform
+        return np.asarray(norm * half + center)
     if kind == "raw":
         return norm
     raise ValueError(f"unknown transform {transform!r}")

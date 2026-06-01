@@ -14,10 +14,10 @@
 //!   7  heat_load_fraction    15  bounce_flag           30 prev_realized_cos      31 periapsis_alt
 //!  32 predicted_dv1          33 predicted_dv2          34 predicted_dv3
 //!
-//! Indices 2, 3, 13, 14, 18 use a signed-log `asinh(raw / s)` transform (scales `S_*`
-//! measured from an MC ensemble) instead of the old clamps / linear scalings, so the
-//! operating range sits in ~[-1, 1] with compressed tails rather than saturating.
-//! Index 31 (`periapsis_alt`) is also `asinh`-scaled.
+//! Wide-range inputs (2,3,5,11,12,13,14,18,19,31) and the 3 live correction-DV inputs
+//! (32,33,34) use signed-log `asinh(raw/S_*)`; bounded numeric inputs (0,1,4,6,7,8,9,10,17)
+//! use calibrated affine `(raw - C_*)/H_*`. All scales are data-driven from a 500-sim MC
+//! ensemble via `calibrate_inputs.py` (sentinel-excluded for the DV inputs).
 //!
 //! Index 20 is the closed-loop FTC exit-phase pdyn-feedback law, fed every step
 //! as a teacher signal (always live, not bounce-gated). Pre-bounce, with
@@ -60,7 +60,7 @@ const S_LIFT_ACCEL: f64 = 7.841004e+00;
 const S_SMA_ERROR: f64 = 2.396120e+07;
 const S_APOAPSIS_ALT: f64 = 4.752185e+07;
 const S_HDOT_NOMINAL: f64 = 7.416992e+02;
-const S_PDYN_ERROR: f64 = 3.373053e+02;
+const S_PDYN_ERROR: f64 = 3.373053e+02; // note: heavy negative tail; ~59% beyond [-1,1] in deploy pool -- benign (asinh, no clamp)
 const S_PERIAPSIS_ALT: f64 = 3.750782e+04;
 // Per-component live correction-DV scales (calibrated on elliptical-phase values, sentinel-excluded).
 const S_DV1: f64 = 1.052305e+02;
