@@ -1,4 +1,6 @@
+import json
 import math
+from pathlib import Path
 
 import numpy as np
 from aerocapture.training.calibrate_inputs import (
@@ -12,15 +14,32 @@ def test_invert_asinh_roundtrip() -> None:
     raw = np.array([-500.0, 0.0, 880.0, 3000.0])
     s = 880.0
     norm = np.arcsinh(raw / s)
-    back = invert_transform(norm, ("asinh", s))
+    back = invert_transform(norm, {"transform": "asinh", "scale": s, "center": 0.0})
     assert np.allclose(back, raw, atol=1e-9)
 
 
-def test_invert_affine_roundtrip() -> None:
-    raw = np.array([0.0, 25.0, 50.0])
-    norm = raw / 50.0 - 1.0
-    back = invert_transform(norm, ("affine", 1.0 / 50.0, -1.0))
+def test_invert_asinh_with_center_roundtrip() -> None:
+    raw = np.array([10.0, 100.0, 1000.0])
+    s, center = 50.0, 5.0
+    norm = np.arcsinh((raw - center) / s)
+    back = invert_transform(norm, {"transform": "asinh", "scale": s, "center": center})
     assert np.allclose(back, raw, atol=1e-9)
+
+
+def test_invert_none_affine_roundtrip() -> None:
+    raw = np.array([0.0, 0.5, 1.0])
+    center, half = 0.45, 0.4
+    norm = (raw - center) / half
+    back = invert_transform(norm, {"transform": "none", "scale": half, "center": center})
+    assert np.allclose(back, raw, atol=1e-9)
+
+
+def test_invert_tanh_roundtrip() -> None:
+    raw = np.array([-30.0, 0.0, 30.0])
+    s, center = 20.0, 0.0
+    norm = np.tanh((raw - center) / s)
+    back = invert_transform(norm, {"transform": "tanh", "scale": s, "center": center})
+    assert np.allclose(back, raw, atol=1e-6)
 
 
 def test_derive_asinh_scale_puts_p99_at_one() -> None:
@@ -39,34 +58,33 @@ def test_derive_affine_floors_degenerate_halfwidth() -> None:
     assert half >= 1e-6
 
 
-def test_invert_raw_passthrough() -> None:
-    arr = np.array([0.3, -0.7, 1.0])
-    back = invert_transform(arr, ("raw",))
-    assert np.array_equal(back, arr)
+def test_default_normalization_shape_and_entries() -> None:
+    import aerocapture_rs
+
+    norm = aerocapture_rs.default_normalization()
+    assert len(norm) == 35
+    assert norm[0]["transform"] == "none"
+    assert norm[11]["transform"] == "asinh"
+    assert norm[32]["transform"] == "asinh"
+    for entry in norm:
+        assert set(entry) == {"transform", "scale", "center"}
+        assert entry["transform"] in ("none", "asinh", "tanh")
+        assert isinstance(entry["scale"], float)
+        assert isinstance(entry["center"], float)
 
 
-def test_drop_sentinel_removes_dv_sentinel_ticks() -> None:
-    from aerocapture.training.calibrate_inputs import drop_sentinel
+def test_write_model_normalization_roundtrip(tmp_path: Path) -> None:
+    from aerocapture.training.calibrate_inputs import _write_model_normalization
 
-    norm = np.array([0.2, 1.5, -0.3, 1.5, 0.8])
-    out = drop_sentinel(norm, 32)  # DV index -> drop the two 1.5 sentinels
-    assert np.allclose(out, [0.2, -0.3, 0.8])
+    model = tmp_path / "model.json"
+    doc = {"format_version": 2, "architecture": [], "weights": {}, "input_mask": [0, 1]}
+    model.write_text(json.dumps(doc))
 
+    proposed = [{"transform": "asinh", "scale": float(i + 1), "center": 0.0} for i in range(35)]
+    _write_model_normalization(str(model), proposed)
 
-def test_drop_sentinel_passthrough_non_dv() -> None:
-    from aerocapture.training.calibrate_inputs import drop_sentinel
-
-    norm = np.array([0.2, 1.5, -0.3])
-    out = drop_sentinel(norm, 11)  # non-DV index -> unchanged (1.5 is a legit value)
-    assert np.allclose(out, norm)
-
-
-def test_invert_affine_ch_roundtrip() -> None:
-    import numpy as np
-    from aerocapture.training.calibrate_inputs import invert_transform
-
-    raw = np.array([0.0, 0.5, 1.0])
-    center, half = 0.45, 0.4
-    norm = (raw - center) / half
-    back = invert_transform(norm, ("affine_ch", center, half))
-    assert np.allclose(back, raw, atol=1e-9)
+    reloaded = json.loads(model.read_text())
+    assert reloaded["normalization"] == proposed
+    # Existing fields preserved.
+    assert reloaded["format_version"] == 2
+    assert reloaded["input_mask"] == [0, 1]

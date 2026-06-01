@@ -1,19 +1,25 @@
 """Calibrate NN input normalization scales from observed raw distributions.
 
 Runs the deployed NN over a reserved seed pool, collects the normalized 35-wide
-candidate trace, inverts each input's KNOWN current transform to recover the raw
-distribution, then emits new scale constants so each input's [p1, p99] fills
-~[-1, 1]. Heavy-tailed / acceleration / DV inputs -> asinh; bounded -> affine.
-The 3 live correction-DV inputs (32/33/34) get per-component asinh scales with
-pre-capture sentinel ticks (normalized == 1.5) excluded before percentiles.
+candidate trace, inverts each input's CURRENT transform to recover the raw
+distribution, then proposes new normalization entries so each input's [p1, p99]
+fills ~[-1, 1]. Heavy-tailed / acceleration / DV inputs -> asinh; bounded -> affine.
 
-One-time tool: paste the emitted Rust const block into neural.rs (Task 5), then
-re-run nn_input_report to verify ~1% saturation.
+Single source of truth for the current transforms is the Rust
+`aerocapture_rs.default_normalization()` table (a list of 35
+`{transform, scale, center}` dicts) -- there is no hand-mirrored Python copy.
+The DV inputs (32/33/34) are ordinary asinh inputs (no sentinel); they are
+calibrated over their full distribution like any other heavy-tailed input.
+
+The proposed normalization is emitted in the model-JSON form (a list of 35
+`{transform, scale, center}` entries) and can be written into a model JSON's
+top-level `"normalization"` field via `--write-model PATH`.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import math
 from pathlib import Path
 
@@ -41,91 +47,36 @@ _FORCE_ASINH = {
 # Bounded inputs to skip entirely (binary / tanh / sin-cos already in [-1,1]).
 _SKIP = {15, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30}
 
-# DV inputs (live correction-DV components) -- per-component scales, sentinel-excluded.
-_DV_INDICES = {32, 33, 34}
-# Pre-capture sentinel saturates the asinh output to exactly 1.5 (asinh(sinh(1.5))).
-_SENTINEL_NORM = 1.5
 
-# MUST mirror build_nn_input in neural.rs EXACTLY -- update both together or recalibration emits garbage.
-# Forms: ("asinh", s) | ("affine", a, b) meaning norm = a*raw + b | ("affine_ch", center, half) meaning norm = (raw-center)/half | ("raw",).
-CURRENT_TRANSFORMS: dict[int, tuple] = {
-    0: ("affine_ch", 9.125593e-01, 8.754754e-01),
-    1: ("affine_ch", -1.167222e00, 1.443277e00),
-    2: ("asinh", 8.794982e02),
-    3: ("asinh", 5.180226e06),
-    4: ("affine_ch", 4.534045e03, 1.178859e03),
-    5: ("asinh", 2.494108e01),
-    6: ("affine_ch", 4.533209e-01, 4.524197e-01),
-    7: ("affine_ch", 4.366122e-01, 4.363704e-01),
-    8: ("affine_ch", 8.293086e01, 4.324290e01),
-    9: ("affine_ch", -5.801090e-02, 1.246266e-01),
-    10: ("affine_ch", 2.875094e-01, 2.803614e-01),
-    11: ("asinh", 2.367649e01),
-    12: ("asinh", 7.841004e00),
-    13: ("asinh", 2.396120e07),
-    14: ("asinh", 4.752185e07),
-    16: ("raw",),
-    17: ("affine_ch", 8.123864e02, 8.088315e02),
-    18: ("asinh", 7.416992e02),
-    19: ("asinh", 3.373053e02),
-    31: ("asinh", 3.750782e04),
-    32: ("asinh", 1.052305e02),
-    33: ("asinh", 1.046783e03),
-    34: ("asinh", 1.254637e02),
-}
+def _current_transforms() -> list[dict]:
+    """Return the Rust DEFAULT_NORMALIZATION table (single source of truth).
 
-# Rust const name per asinh index (for the emitted block).
-_ASINH_CONST_NAME = {
-    2: "S_RADIAL_VELOCITY",
-    3: "S_ORBITAL_ENERGY",
-    5: "S_ACCEL_MAGNITUDE",
-    11: "S_DRAG_ACCEL",
-    12: "S_LIFT_ACCEL",
-    13: "S_SMA_ERROR",
-    14: "S_APOAPSIS_ALT",
-    18: "S_HDOT_NOMINAL",
-    19: "S_PDYN_ERROR",
-    31: "S_PERIAPSIS_ALT",
-    32: "S_DV1",
-    33: "S_DV2",
-    34: "S_DV3",
-}
+    Each entry is `{"transform": "none"|"asinh"|"tanh", "scale": float, "center": float}`.
+    """
+    import aerocapture_rs  # type: ignore[import-not-found]
 
-# Rust const (center, half) name per affine index (for the emitted block + parity test).
-_AFFINE_CONST_NAME = {
-    0: ("C_ECC_EXCESS", "H_ECC_EXCESS"),
-    1: ("C_INCL_ERR", "H_INCL_ERR"),
-    4: ("C_VELOCITY", "H_VELOCITY"),
-    6: ("C_HEAT_FLUX", "H_HEAT_FLUX"),
-    7: ("C_HEAT_LOAD", "H_HEAT_LOAD"),
-    8: ("C_ALTITUDE", "H_ALTITUDE"),
-    9: ("C_FPA", "H_FPA"),
-    10: ("C_LATITUDE", "H_LATITUDE"),
-    17: ("C_PDYN_NOMINAL", "H_PDYN_NOMINAL"),
-}
+    return list(aerocapture_rs.default_normalization())
 
 
-def drop_sentinel(norm: np.ndarray, idx: int) -> np.ndarray:
-    """Drop pre-capture sentinel ticks (norm == 1.5) for DV inputs; pass others through."""
-    if idx in _DV_INDICES:
-        return norm[np.abs(norm - _SENTINEL_NORM) > 1e-6]
-    return norm
+def invert_transform(norm: np.ndarray, spec: dict) -> np.ndarray:
+    """Invert a `{transform, scale, center}` normalization back to raw values.
 
-
-def invert_transform(norm: np.ndarray, transform: tuple) -> np.ndarray:
-    kind = transform[0]
+    Forward is `norm = transform((raw - center) / scale)`, so:
+      none/affine -> raw = norm * scale + center
+      asinh       -> raw = scale * sinh(norm) + center
+      tanh        -> raw = scale * atanh(norm) + center  (guarded |norm| < 1)
+    """
+    kind = spec["transform"]
+    scale = float(spec["scale"])
+    center = float(spec["center"])
+    if kind == "none":
+        return np.asarray(norm * scale + center)
     if kind == "asinh":
-        (_, s) = transform
-        return np.asarray(s * np.sinh(norm))
-    if kind == "affine":
-        (_, a, b) = transform
-        return np.asarray((norm - b) / a)
-    if kind == "affine_ch":
-        (_, center, half) = transform
-        return np.asarray(norm * half + center)
-    if kind == "raw":
-        return norm
-    raise ValueError(f"unknown transform {transform!r}")
+        return np.asarray(scale * np.sinh(norm) + center)
+    if kind == "tanh":
+        clamped = np.clip(norm, -1.0 + 1e-12, 1.0 - 1e-12)
+        return np.asarray(scale * np.arctanh(clamped) + center)
+    raise ValueError(f"unknown transform {kind!r}")
 
 
 def derive_asinh_scale(p1: float, p99: float) -> float:
@@ -141,10 +92,11 @@ def derive_affine(p1: float, p99: float) -> tuple[float, float]:
 
 
 def _collect_raw(toml_path: str, n_sims: int) -> dict[int, np.ndarray]:
-    import aerocapture_rs
+    import aerocapture_rs  # type: ignore[import-not-found]
 
     from aerocapture.training.evaluate import make_reserved_seeds
 
+    transforms = _current_transforms()
     seeds = make_reserved_seeds(0, CALIBRATION_SEED_OFFSET, n_sims)
     recs = aerocapture_rs.collect_nn_inputs(toml_path, seeds, overrides=None)
     cols: dict[int, list[np.ndarray]] = {}
@@ -156,60 +108,70 @@ def _collect_raw(toml_path: str, n_sims: int) -> dict[int, np.ndarray]:
     for idx, parts in cols.items():
         norm = np.concatenate(parts)
         norm = norm[np.isfinite(norm)]
-        norm = drop_sentinel(norm, idx)
-        if idx in CURRENT_TRANSFORMS:
-            raw[idx] = invert_transform(norm, CURRENT_TRANSFORMS[idx])
+        if idx < len(transforms):
+            raw[idx] = invert_transform(norm, transforms[idx])
     return raw
 
 
-def calibrate(toml_path: str, n_sims: int) -> str:
+def _propose_normalization(toml_path: str, n_sims: int) -> tuple[list[dict], list[str]]:
+    """Return (proposed normalization entries, human-readable table lines).
+
+    The proposed list has 35 entries (model-JSON form). Inputs in `_SKIP` and any
+    input not observed keep their CURRENT transform unchanged.
+    """
     from aerocapture.training.ablation import NN_INPUT_NAMES
 
+    current = _current_transforms()
     raw = _collect_raw(toml_path, n_sims)
-    lines: list[str] = []
-    lines.append("// === calibrated input scales (calibrate_inputs.py) ===")
-    seen_const: set[str] = set()
+    proposed = [dict(spec) for spec in current]
     table: list[str] = []
-    for idx in sorted(raw):
+    for idx in range(len(current)):
+        name = NN_INPUT_NAMES[idx] if idx < len(NN_INPUT_NAMES) else f"idx{idx}"
         if idx in _SKIP:
             continue
-        vals = raw[idx]
-        name = NN_INPUT_NAMES[idx] if idx < len(NN_INPUT_NAMES) else f"idx{idx}"
-        if len(vals) == 0:
+        vals = raw.get(idx)
+        if vals is None or len(vals) == 0:
             table.append(f"  [{idx:2d}] {name:22s} SKIPPED (no finite values)")
             continue
         p1, p50, p99 = np.percentile(vals, [1, 50, 99])
         if idx in _FORCE_ASINH:
             s = derive_asinh_scale(p1, p99)
-            const = _ASINH_CONST_NAME.get(idx, f"S_IDX{idx}")
-            if const not in seen_const:
-                lines.append(f"const {const}: f64 = {s:.6e}; // {name}: p1={p1:.3g} p99={p99:.3g}")
-                seen_const.add(const)
-            table.append(f"  [{idx:2d}] {name:22s} asinh  p1={p1:11.4g} p50={p50:11.4g} p99={p99:11.4g} -> s={s:.4e}")
+            proposed[idx] = {"transform": "asinh", "scale": s, "center": 0.0}
+            table.append(f"  [{idx:2d}] {name:22s} asinh  p1={p1:11.4g} p50={p50:11.4g} p99={p99:11.4g} -> scale={s:.6e}")
         else:
             center, half = derive_affine(p1, p99)
-            names = _AFFINE_CONST_NAME.get(idx)
-            if names:
-                cn, hn = names
-                if cn not in seen_const:
-                    lines.append(f"const {cn}: f64 = {center:.6e}; // {name} center: p1={p1:.3g} p99={p99:.3g}")
-                    lines.append(f"const {hn}: f64 = {half:.6e}; // {name} half")
-                    seen_const.add(cn)
-            table.append(f"  [{idx:2d}] {name:22s} affine p1={p1:11.4g} p50={p50:11.4g} p99={p99:11.4g} -> center={center:.6e} half={half:.6e}")
-    report = "\n".join(["RAW DISTRIBUTION TABLE:", *table, "", *lines])
-    return report
+            proposed[idx] = {"transform": "none", "scale": half, "center": center}
+            table.append(f"  [{idx:2d}] {name:22s} none   p1={p1:11.4g} p50={p50:11.4g} p99={p99:11.4g} -> scale={half:.6e} center={center:.6e}")
+    return proposed, table
+
+
+def calibrate(toml_path: str, n_sims: int) -> tuple[list[dict], str]:
+    proposed, table = _propose_normalization(toml_path, n_sims)
+    report = "\n".join(["RAW DISTRIBUTION TABLE:", *table])
+    return proposed, report
+
+
+def _write_model_normalization(model_path: str, normalization: list[dict]) -> None:
+    path = Path(model_path)
+    doc = json.loads(path.read_text())
+    doc["normalization"] = normalization
+    path.write_text(json.dumps(doc, indent=2))
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Calibrate NN input normalization scales")
     ap.add_argument("--toml", required=True)
     ap.add_argument("--n-sims", type=int, default=300)
-    ap.add_argument("--output", default=None, help="optional path to write the report")
+    ap.add_argument("--output", default=None, help="optional path to write the readable report")
+    ap.add_argument("--write-model", default=None, help="optional model JSON path to write the proposed normalization array into")
     args = ap.parse_args()
-    report = calibrate(args.toml, args.n_sims)
+    proposed, report = calibrate(args.toml, args.n_sims)
     print(report)
     if args.output:
         Path(args.output).write_text(report)
+    if args.write_model:
+        _write_model_normalization(args.write_model, proposed)
+        print(f"\nWrote {len(proposed)} normalization entries to {args.write_model}")
 
 
 if __name__ == "__main__":

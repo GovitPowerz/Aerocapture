@@ -158,6 +158,18 @@ class TestAdaptiveIntegration:
         assert energy_err < 0.01, f"Energy mismatch: {energy_err:.4f}"
 
 
+class TestDefaultNormalization:
+    def test_returns_35_entries(self) -> None:
+        norm = aero.default_normalization()
+        assert len(norm) == 35
+        assert norm[0]["transform"] == "none"
+        assert norm[11]["transform"] == "asinh"
+        assert norm[32]["transform"] == "asinh"
+        for entry in norm:
+            assert set(entry) == {"transform", "scale", "center"}
+            assert entry["transform"] in ("none", "asinh", "tanh")
+
+
 class TestLoadConfig:
     def test_load_config_returns_dict(self) -> None:
         config = aero.load_config(GOLDEN_TOML)

@@ -721,6 +721,29 @@ fn toml_to_py(py: Python<'_>, value: &toml::Value) -> PyResult<Py<PyAny>> {
     }
 }
 
+/// Return the Rust `DEFAULT_NORMALIZATION` table as a list of dicts.
+///
+/// Each entry is `{"transform": "none"|"asinh"|"tanh", "scale": f64, "center": f64}`.
+/// This is the single source of truth for inverting NN normalized inputs back to raw.
+#[pyfunction]
+fn default_normalization(py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+    use aerocapture::data::neural::{DEFAULT_NORMALIZATION, NormTransform};
+    let mut out: Vec<Py<PyAny>> = Vec::with_capacity(DEFAULT_NORMALIZATION.len());
+    for spec in DEFAULT_NORMALIZATION.iter() {
+        let dict = PyDict::new(py);
+        let transform = match spec.transform {
+            NormTransform::None => "none",
+            NormTransform::Asinh => "asinh",
+            NormTransform::Tanh => "tanh",
+        };
+        dict.set_item("transform", transform)?;
+        dict.set_item("scale", spec.scale)?;
+        dict.set_item("center", spec.center)?;
+        out.push(dict.into_any().unbind());
+    }
+    Ok(out)
+}
+
 /// Aerocapture trajectory simulator Python bindings.
 #[pymodule]
 fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -738,5 +761,6 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(flat_weights_to_json, m)?)?;
     m.add_function(wrap_pyfunction!(collect_supervised, m)?)?;
     m.add_function(wrap_pyfunction!(collect_nn_inputs, m)?)?;
+    m.add_function(wrap_pyfunction!(default_normalization, m)?)?;
     Ok(())
 }
