@@ -2114,4 +2114,34 @@ mod tests {
         let p99_raw = S_APOAPSIS_ALT * (1.0_f64).sinh();
         assert!(((p99_raw / S_APOAPSIS_ALT).asinh() - 1.0).abs() < 1e-9);
     }
+
+    #[test]
+    fn build_nn_input_characterization_0_to_31() {
+        let planet = PlanetConfig::mars();
+        let data = test_sim_data_with_ref_traj();
+        let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        for scale_v in [1.0_f64, 0.45] {
+            let mut nav = test_nav();
+            nav.velocity_estimated[0] *= scale_v;
+            let inp = build_nn_input(
+                &nav,
+                Some(&full_mask),
+                None,
+                0.0,
+                &data,
+                &planet,
+                50.0_f64.to_radians(),
+                0.0,
+                Some(0.01),
+                0.2,
+                12.0,
+                3.0,
+                0.15,
+            );
+            eprintln!("CHAR scale_v={scale_v}: {:?}", &inp[0..32]);
+            for (i, v) in inp[0..32].iter().enumerate() {
+                assert!(v.is_finite(), "input[{i}] not finite");
+            }
+        }
+    }
 }
