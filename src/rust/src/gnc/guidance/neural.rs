@@ -2083,7 +2083,11 @@ mod tests {
         // edit would shift the input. Pin the scale + transform.
         let spec = &crate::data::neural::DEFAULT_NORMALIZATION[14];
         assert_eq!(spec.transform, crate::data::neural::NormTransform::Asinh);
-        assert!((spec.scale - 4.752185e7).abs() < 1.0, "S_APOAPSIS_ALT drifted: {}", spec.scale);
+        assert!(
+            (spec.scale - 4.752185e7).abs() < 1.0,
+            "S_APOAPSIS_ALT drifted: {}",
+            spec.scale
+        );
         assert_eq!(spec.center, 0.0);
     }
 
