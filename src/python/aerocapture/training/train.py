@@ -508,6 +508,7 @@ def save_checkpoint(
     seed_curator: SeedCurator | None = None,
     corridor_acc: CorridorAccumulator | None = None,
     best_val_cost: float = np.inf,
+    cost_transform: str = "linear",
 ) -> None:
     """Save full training state for later resumption."""
     prefix = f"checkpoint_g{generation:05d}"
@@ -524,6 +525,7 @@ def save_checkpoint(
         "generation": generation,
         "best_cost": best_cost,
         "best_val_cost": best_val_cost,
+        "cost_transform": cost_transform,
         "cost_history": [float(c) for c in cost_history],
         "rng_state": rng_state_json,
     }
@@ -592,7 +594,7 @@ def load_checkpoint(
     """Find and load the latest checkpoint from save_dir.
 
     Returns dict with: generation, population, costs, best_cost,
-    best_individual, cost_history, rng_state. Or None if no checkpoint found.
+    best_individual, cost_history, rng_state, cost_transform. Or None if no checkpoint found.
     """
     # Support both new (checkpoint_g*.json) and old (checkpoint_r*_g*.json) naming
     json_files = sorted(save_dir.glob("checkpoint_g*.json"))
@@ -633,6 +635,7 @@ def load_checkpoint(
         "cost_history": meta["cost_history"],
         "rng_state": meta.get("rng_state"),
         "best_val_cost": meta.get("best_val_cost", float("inf")),
+        "cost_transform": meta.get("cost_transform", None),
         "seed_curator": meta.get("seed_curator"),
         "corridor_acc": corridor_acc_restored,
     }
