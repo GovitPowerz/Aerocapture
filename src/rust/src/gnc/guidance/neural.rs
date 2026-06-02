@@ -199,10 +199,16 @@ pub fn build_nn_input(
     raw[34] = dv[2];
 
     // -- Uniform normalization: full_input[i] = apply_norm(raw[i], &norm[i]) --
+    // Precedence mirrors deploy-time resolution: loaded model's table (already
+    // carries the [network.normalization] override) > the config override on
+    // SimData (used when no model is loaded, e.g. supervised-collect teacher
+    // runs) > the baked DEFAULT. Keeping the supervised trace on the same scales
+    // as inference avoids a warm-start train/inference mismatch.
     let norm: &[crate::data::neural::NormSpec] = data
         .neural_net
         .as_ref()
         .map(|m| m.normalization.as_slice())
+        .or(data.nn_normalization_override.as_deref())
         .unwrap_or(&crate::data::neural::DEFAULT_NORMALIZATION);
     let mut full_input = [0.0_f64; NN_FULL_INPUT_SIZE];
     for i in 0..NN_FULL_INPUT_SIZE {
@@ -397,6 +403,7 @@ mod tests {
             integration_mode: crate::config::IntegrationMode::FixedGill,
             sim_phase: crate::config::SimPhase::Full,
             density_perturbation: None,
+            nn_normalization_override: None,
         }
     }
 

@@ -507,6 +507,7 @@ mod tests {
             integration_mode: crate::config::IntegrationMode::FixedGill,
             sim_phase: crate::config::SimPhase::Full,
             density_perturbation: None,
+            nn_normalization_override: None,
         }
     }
 

@@ -80,3 +80,43 @@ def test_collect_supervised_rejects_nn_scheme() -> None:
             seeds=[42],
             scheme="neural_network",
         )
+
+
+@pytest.mark.slow
+def test_collect_supervised_honors_normalization_override(tmp_path: Path) -> None:
+    """collect_supervised runs a TEACHER scheme, so SimData.neural_net is None.
+    The recorded trace's per-input normalization must still honor a config
+    [network.normalization] override -- otherwise warm-start BPTT trains on
+    DEFAULT-scaled inputs while the deployed NN uses the override scales, a
+    silent train/inference mismatch. Regression for that latent bug.
+    """
+    import numpy as np
+    from aerocapture.training.calibrate_inputs import _current_transforms, invert_transform
+
+    ftc = (Path("configs/training/msr_aller_ftc_train.toml")).resolve()
+    # Identity override: norm == raw for every input. Differs from DEFAULT on
+    # every asinh/affine column, so a trace that ignores it (uses DEFAULT) is
+    # detectably wrong.
+    ident = "\n".join('  { transform = "none", scale = 1.0, center = 0.0 },' for _ in range(35))
+    cfg = tmp_path / "ftc_ident_norm.toml"
+    cfg.write_text(f'base = ["{ftc}"]\n\n[network]\nnormalization = [\n{ident}\n]\n')
+
+    seeds = [42]
+    x_def = np.asarray(aerocapture_rs.collect_supervised(toml_path=str(ftc), seeds=seeds, scheme="ftc")[0]["X"])
+    x_id = np.asarray(aerocapture_rs.collect_supervised(toml_path=str(cfg), seeds=seeds, scheme="ftc")[0]["X"])
+    assert x_def.shape == x_id.shape and x_def.shape[1] == 35
+
+    # FTC control is identical between runs (it never reads NN inputs), so the
+    # raw per-tick values match. Under the identity override, x_id IS the raw,
+    # which must equal the raw recovered by inverting the DEFAULT-normalized run.
+    # Skip tanh columns: tanh saturates, so the DEFAULT-normalized trace pins to
+    # ~+-1 at the tail and atanh cannot recover the true raw -- a lossy-inverse
+    # artifact of the cross-check, not of the override path under test.
+    default = _current_transforms()
+    for i in range(35):
+        if default[i]["transform"] == "tanh":
+            continue
+        raw_i = invert_transform(x_def[:, i], default[i])
+        np.testing.assert_allclose(x_id[:, i], raw_i, rtol=1e-6, atol=1e-6, err_msg=f"input {i} ignored the override")
+    # Sanity: the override actually changed the trace (DEFAULT != identity).
+    assert not np.allclose(x_id, x_def)
