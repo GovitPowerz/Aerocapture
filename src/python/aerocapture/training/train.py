@@ -41,6 +41,27 @@ from aerocapture.training.weight_stats import compute_weight_stats
 
 _DEFAULT_PIECEWISE_N_SEGMENTS = 10
 
+
+def _resolve_config_normalization(config: TrainingConfig, cwd: str | Path | None) -> list[dict] | None:
+    """Read the config's `[network.normalization]` override (35 dicts) or None.
+
+    Threaded into the deployed `best_model.json` write so the model is
+    self-describing under a normalization override (otherwise the PSO write path
+    embeds DEFAULT_NORMALIZATION and the deployed model ships the wrong scales).
+    """
+    if not config.sim.toml_config:
+        return None
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    toml_path = Path(cwd or config.sim.exec_dir) / config.sim.toml_config
+    try:
+        toml_data = load_toml_with_bases(toml_path)
+    except OSError, ValueError:
+        return None
+    norm = toml_data.get("network", {}).get("normalization")
+    return norm if isinstance(norm, list) else None
+
+
 # Constant bank angles for corridor boundary sentinels (degrees).
 # 0 = full lift-up (hyperbolic boundary), 180 = full lift-down (crash boundary).
 # Only magnitude affects energy-vs-pdyn corridor; sign only affects lateral track.
@@ -530,12 +551,25 @@ def save_checkpoint(
             n_scaff = len(_pack)
             n_weights = len(param_specs) - n_scaff
             weights = _decode_nn_weights(best_individual[:n_weights], param_specs[:n_weights])
+            cfg_norm = _resolve_config_normalization(config, cwd)
             write_nn_json(
-                weights, config.network, save_dir / "best_model.json", input_mask=config.network.input_mask, output_param=config.network.output_parameterization
+                weights,
+                config.network,
+                save_dir / "best_model.json",
+                input_mask=config.network.input_mask,
+                output_param=config.network.output_parameterization,
+                normalization=cfg_norm,
             )
             if cwd is not None:
                 nn_path = Path(cwd) / config.sim.nn_param_file
-                write_nn_json(weights, config.network, nn_path, input_mask=config.network.input_mask, output_param=config.network.output_parameterization)
+                write_nn_json(
+                    weights,
+                    config.network,
+                    nn_path,
+                    input_mask=config.network.input_mask,
+                    output_param=config.network.output_parameterization,
+                    normalization=cfg_norm,
+                )
             if n_scaff > 0:
                 scaff_params = decode_normalized(best_individual[n_weights:], list(_pack))
                 for s in _pack:
@@ -1869,6 +1903,7 @@ def _write_winner_artifacts(
             save_dir / "best_model.json",
             input_mask=config.network.input_mask,
             output_param=config.network.output_parameterization,
+            normalization=_resolve_config_normalization(config, None),
         )
         if n_scaff > 0:
             scaff_params = decode_normalized(
@@ -2278,7 +2313,14 @@ if __name__ == "__main__":
             n_weights = len(param_specs) - n_scaff
             weights = _decode_nn_weights(result["best_individual"][:n_weights], param_specs[:n_weights])
             nn_path = Path(cwd) / cfg.sim.nn_param_file
-            write_nn_json(weights, cfg.network, nn_path, input_mask=cfg.network.input_mask, output_param=cfg.network.output_parameterization)
+            write_nn_json(
+                weights,
+                cfg.network,
+                nn_path,
+                input_mask=cfg.network.input_mask,
+                output_param=cfg.network.output_parameterization,
+                normalization=_resolve_config_normalization(cfg, cwd),
+            )
             print(f"Best weights saved to {nn_path}")
             if n_scaff > 0:
                 scaff_params = decode_normalized(result["best_individual"][n_weights:], list(_pack))

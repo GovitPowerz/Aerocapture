@@ -348,8 +348,14 @@ fn nn_forward_sequence(json_path: String, inputs: Vec<Vec<f64>>) -> PyResult<Vec
 ///         (bank = scaled_pi_n * pi * tanh(out[0])). None defaults to 1.0.
 ///     delta_max: optional per-step increment bound for the "delta" decoder
 ///         (bank = prev_realized + delta_max * tanh(out[0])). None defaults to 0.35.
+///     normalization_json: optional JSON-serialized array of NN_FULL_INPUT_SIZE
+///         `{transform, scale, center}` objects. When Some, it is parsed and
+///         embedded into the model's normalization table BEFORE save (so the
+///         deployed model is self-describing under a `[network.normalization]`
+///         config override). When None, the model keeps the baked
+///         `DEFAULT_NORMALIZATION` (backward-compatible).
 #[pyfunction]
-#[pyo3(signature = (flat, architecture_json, path, input_mask=None, output_param=None, scaled_pi_n=None, delta_max=None))]
+#[pyo3(signature = (flat, architecture_json, path, input_mask=None, output_param=None, scaled_pi_n=None, delta_max=None, normalization_json=None))]
 fn flat_weights_to_json(
     flat: Vec<f64>,
     architecture_json: String,
@@ -358,8 +364,11 @@ fn flat_weights_to_json(
     output_param: Option<String>,
     scaled_pi_n: Option<f64>,
     delta_max: Option<f64>,
+    normalization_json: Option<String>,
 ) -> PyResult<()> {
-    use aerocapture::data::neural::{LayerSpec, NeuralNetModel, OutputParam};
+    use aerocapture::data::neural::{
+        LayerSpec, NN_FULL_INPUT_SIZE, NeuralNetModel, NormSpec, OutputParam,
+    };
 
     let specs: Vec<LayerSpec> = serde_json::from_str(&architecture_json).map_err(|e| {
         pyo3::exceptions::PyValueError::new_err(format!(
@@ -378,7 +387,7 @@ fn flat_weights_to_json(
             )));
         }
     };
-    let model = NeuralNetModel::from_flat_weights_v2(
+    let mut model = NeuralNetModel::from_flat_weights_v2(
         &flat,
         &specs,
         input_mask,
@@ -387,6 +396,22 @@ fn flat_weights_to_json(
         delta_max.unwrap_or(0.35),
     )
     .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    if let Some(norm_json) = normalization_json {
+        let parsed: Vec<NormSpec> = serde_json::from_str(&norm_json).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "flat_weights_to_json: normalization_json parse error: {}",
+                e
+            ))
+        })?;
+        if parsed.len() != NN_FULL_INPUT_SIZE {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "normalization must have {} entries (got {})",
+                NN_FULL_INPUT_SIZE,
+                parsed.len()
+            )));
+        }
+        model.normalization = parsed;
+    }
     model
         .save_json(&path)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;

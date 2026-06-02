@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+
+if TYPE_CHECKING:
+    from aerocapture.training.config import NetworkConfig
 
 aero = pytest.importorskip("aerocapture_rs")
 
@@ -168,6 +172,89 @@ class TestDefaultNormalization:
         for entry in norm:
             assert set(entry) == {"transform", "scale", "center"}
             assert entry["transform"] in ("none", "asinh", "tanh")
+
+
+class TestFlatWeightsNormalization:
+    def _write(self, tmp_path: Path, normalization_json: str | None) -> dict:
+        import json
+
+        arch = [{"type": "dense", "input_size": 17, "output_size": 2, "activation": "linear"}]
+        flat = np.zeros(17 * 2 + 2, dtype=np.float64).tolist()
+        out = tmp_path / "model.json"
+        aero.flat_weights_to_json(
+            flat,
+            json.dumps(arch),
+            str(out),
+            list(range(17)),
+            "atan2_signed",
+            None,
+            None,
+            normalization_json,
+        )
+        with open(out) as fp:
+            result: dict = json.load(fp)
+        return result
+
+    def test_custom_normalization_is_embedded(self, tmp_path: Path) -> None:
+        import json
+
+        custom = [{"transform": "none", "scale": 2.0, "center": 1.0}] * 35
+        d = self._write(tmp_path, json.dumps(custom))
+        assert d["normalization"] == custom
+
+    def test_none_normalization_uses_default(self, tmp_path: Path) -> None:
+        d = self._write(tmp_path, None)
+        assert d["normalization"] == aero.default_normalization()
+
+    def test_wrong_length_raises(self, tmp_path: Path) -> None:
+        import json
+
+        bad = [{"transform": "none", "scale": 1.0, "center": 0.0}] * 10
+        with pytest.raises(ValueError):
+            self._write(tmp_path, json.dumps(bad))
+
+
+class TestWriteNnJsonNormalization:
+    def _network(self) -> NetworkConfig:
+        from aerocapture.training.config import NetworkConfig
+
+        return NetworkConfig(layer_sizes=[17, 2], activations=["linear"])
+
+    def test_custom_normalization_threaded(self, tmp_path: Path) -> None:
+        import json
+
+        from aerocapture.training.evaluate import write_nn_json
+
+        net = self._network()
+        custom = [{"transform": "none", "scale": 3.0, "center": 0.5}] * 35
+        out = tmp_path / "model.json"
+        write_nn_json(
+            np.zeros(17 * 2 + 2, dtype=np.float64),
+            net,
+            out,
+            input_mask=list(range(17)),
+            normalization=custom,
+        )
+        with open(out) as fp:
+            d = json.load(fp)
+        assert d["normalization"] == custom
+
+    def test_none_normalization_uses_default(self, tmp_path: Path) -> None:
+        import json
+
+        from aerocapture.training.evaluate import write_nn_json
+
+        net = self._network()
+        out = tmp_path / "model.json"
+        write_nn_json(
+            np.zeros(17 * 2 + 2, dtype=np.float64),
+            net,
+            out,
+            input_mask=list(range(17)),
+        )
+        with open(out) as fp:
+            d = json.load(fp)
+        assert d["normalization"] == aero.default_normalization()
 
 
 class TestLoadConfig:
