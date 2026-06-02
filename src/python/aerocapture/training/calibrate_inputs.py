@@ -2,8 +2,20 @@
 
 Runs the deployed NN over a reserved seed pool, collects the normalized 35-wide
 candidate trace, inverts each input's CURRENT transform to recover the raw
-distribution, then proposes new normalization entries so each input's [p1, p99]
-fills ~[-1, 1]. Heavy-tailed / acceleration / DV inputs -> asinh; bounded -> affine.
+distribution, then proposes new normalization entries so each input's
+[p_lo, p_hi] (default [5, 95], tunable via --target-percentiles) maps exactly to
+[-1, 1].
+
+The transform is chosen FROM THE DATA: a tail-heaviness statistic
+(tail_ratio = (p99.9 - p0.1) / (p_hi - p_lo)) decides between affine ("none",
+unbounded linear -- good for near-bounded inputs) and asinh (log-compressed
+tails -- good for heavy-tailed inputs). Both use a two-parameter endpoint fit
+(center + scale) so the chosen percentiles land on +-1 exactly, even for
+one-sided / skewed inputs. `_FORCE_ASINH` is an OPTIONAL override (respected
+unless --no-force-asinh): inputs known a priori heavy-tailed (DV, energy,
+accelerations) stay asinh even if a thin MC sample under-estimates their tail.
+`tanh` is never auto-selected (asinh dominates it for heavy tails, affine for
+bounded); it survives only on `_SKIP` inputs that already carry it.
 
 Single source of truth for the current transforms is the Rust
 `aerocapture_rs.default_normalization()` table (a list of 35
@@ -31,7 +43,9 @@ import numpy as np
 # Reserved seed pool, disjoint from train/val/final-eval/report streams.
 CALIBRATION_SEED_OFFSET = 6_000_000
 
-# Inputs that always use asinh (heavy-tailed / spiky), regardless of tail ratio.
+# Inputs forced to asinh regardless of the observed tail ratio (known heavy-tailed:
+# velocities, energy, accelerations, DV). Optional override -- disable with
+# --no-force-asinh to let the data-driven selector decide every non-skip input.
 _FORCE_ASINH = {
     2,
     3,
@@ -94,6 +108,52 @@ def derive_affine(p1: float, p99: float) -> tuple[float, float]:
     return center, half
 
 
+def derive_asinh_endpoints(p_lo: float, p_hi: float) -> tuple[float, float]:
+    """Two-parameter asinh fit mapping (p_lo, p_hi) -> (-1, +1) exactly.
+
+    Solving asinh((p_lo - c)/s) = -1 and asinh((p_hi - c)/s) = +1 gives
+    c = (p_lo + p_hi)/2, s = (p_hi - p_lo)/(2 sinh 1). Unlike the legacy
+    `derive_asinh_scale` (center pinned at 0), this hits BOTH endpoints even for
+    one-sided inputs (e.g. always-positive DV: p_lo would otherwise map to 0).
+    """
+    center = (p_lo + p_hi) / 2.0
+    scale = max((p_hi - p_lo) / (2.0 * math.sinh(1.0)), 1e-12)
+    return center, scale
+
+
+def tail_ratio(vals: np.ndarray, lo_pct: float, hi_pct: float) -> float:
+    """Heavy-tailedness: outer (p0.1..p99.9) span over core (p_lo..p_hi) span.
+
+    ~1.05 for uniform, ~1.5 for Gaussian, >3 for lognormal / spiky inputs.
+    """
+    p_lo, p_hi = np.percentile(vals, [lo_pct, hi_pct])
+    core = max(float(p_hi - p_lo), 1e-12)
+    o_lo, o_hi = np.percentile(vals, [0.1, 99.9])
+    return float(o_hi - o_lo) / core
+
+
+def choose_transform(
+    vals: np.ndarray,
+    *,
+    lo_pct: float,
+    hi_pct: float,
+    tail_threshold: float,
+    force_asinh: bool = False,
+) -> tuple[dict, float]:
+    """Pick {none, asinh} from the data and fit it so (p_lo, p_hi) -> (-1, +1).
+
+    asinh when the input is heavy-tailed (tail_ratio >= threshold) or forced;
+    affine ("none") otherwise. Returns (spec, observed_tail_ratio).
+    """
+    p_lo, p_hi = (float(v) for v in np.percentile(vals, [lo_pct, hi_pct]))
+    tr = tail_ratio(vals, lo_pct, hi_pct)
+    if force_asinh or tr >= tail_threshold:
+        center, scale = derive_asinh_endpoints(p_lo, p_hi)
+        return {"transform": "asinh", "scale": scale, "center": center}, tr
+    center, half = derive_affine(p_lo, p_hi)
+    return {"transform": "none", "scale": half, "center": center}, tr
+
+
 def _collect_raw(toml_path: str, n_sims: int) -> dict[int, np.ndarray]:
     import aerocapture_rs  # type: ignore[import-not-found]
 
@@ -116,11 +176,21 @@ def _collect_raw(toml_path: str, n_sims: int) -> dict[int, np.ndarray]:
     return raw
 
 
-def _propose_normalization(toml_path: str, n_sims: int) -> tuple[list[dict], list[str]]:
+def _propose_normalization(
+    toml_path: str,
+    n_sims: int,
+    *,
+    lo_pct: float = 5.0,
+    hi_pct: float = 95.0,
+    tail_threshold: float = 1.6,
+    respect_force_asinh: bool = True,
+) -> tuple[list[dict], list[str]]:
     """Return (proposed normalization entries, human-readable table lines).
 
     The proposed list has 35 entries (model-JSON form). Inputs in `_SKIP` and any
-    input not observed keep their CURRENT transform unchanged.
+    input not observed keep their CURRENT transform unchanged. Every other input
+    is fit so its (p_lo, p_hi) maps to (-1, +1), with the transform chosen by
+    `choose_transform` (data-driven, with the `_FORCE_ASINH` override).
     """
     from aerocapture.training.ablation import NN_INPUT_NAMES
 
@@ -136,21 +206,38 @@ def _propose_normalization(toml_path: str, n_sims: int) -> tuple[list[dict], lis
         if vals is None or len(vals) == 0:
             table.append(f"  [{idx:2d}] {name:22s} SKIPPED (no finite values)")
             continue
-        p1, p50, p99 = np.percentile(vals, [1, 50, 99])
-        if idx in _FORCE_ASINH:
-            s = derive_asinh_scale(p1, p99)
-            proposed[idx] = {"transform": "asinh", "scale": s, "center": 0.0}
-            table.append(f"  [{idx:2d}] {name:22s} asinh  p1={p1:11.4g} p50={p50:11.4g} p99={p99:11.4g} -> scale={s:.6e}")
-        else:
-            center, half = derive_affine(p1, p99)
-            proposed[idx] = {"transform": "none", "scale": half, "center": center}
-            table.append(f"  [{idx:2d}] {name:22s} none   p1={p1:11.4g} p50={p50:11.4g} p99={p99:11.4g} -> scale={half:.6e} center={center:.6e}")
+        force = respect_force_asinh and idx in _FORCE_ASINH
+        spec, tr = choose_transform(vals, lo_pct=lo_pct, hi_pct=hi_pct, tail_threshold=tail_threshold, force_asinh=force)
+        proposed[idx] = spec
+        p_lo, p50, p_hi = np.percentile(vals, [lo_pct, 50, hi_pct])
+        forced = " (forced)" if force and spec["transform"] == "asinh" and tr < tail_threshold else ""
+        table.append(
+            f"  [{idx:2d}] {name:22s} {spec['transform']:5s} "
+            f"p{lo_pct:g}={p_lo:11.4g} p50={p50:11.4g} p{hi_pct:g}={p_hi:11.4g} "
+            f"tail={tr:5.2f} -> scale={spec['scale']:.6e} center={spec['center']:.6e}{forced}"
+        )
     return proposed, table
 
 
-def calibrate(toml_path: str, n_sims: int) -> tuple[list[dict], str]:
-    proposed, table = _propose_normalization(toml_path, n_sims)
-    report = "\n".join(["RAW DISTRIBUTION TABLE:", *table])
+def calibrate(
+    toml_path: str,
+    n_sims: int,
+    *,
+    lo_pct: float = 5.0,
+    hi_pct: float = 95.0,
+    tail_threshold: float = 1.6,
+    respect_force_asinh: bool = True,
+) -> tuple[list[dict], str]:
+    proposed, table = _propose_normalization(
+        toml_path,
+        n_sims,
+        lo_pct=lo_pct,
+        hi_pct=hi_pct,
+        tail_threshold=tail_threshold,
+        respect_force_asinh=respect_force_asinh,
+    )
+    header = f"RAW DISTRIBUTION TABLE (target p{lo_pct:g}/p{hi_pct:g} -> -1/+1, asinh when tail_ratio >= {tail_threshold:g}):"
+    report = "\n".join([header, *table])
     return proposed, report
 
 
@@ -178,6 +265,25 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Calibrate NN input normalization scales")
     ap.add_argument("--toml", required=True)
     ap.add_argument("--n-sims", type=int, default=300)
+    ap.add_argument(
+        "--target-percentiles",
+        type=float,
+        nargs=2,
+        metavar=("LO", "HI"),
+        default=(5.0, 95.0),
+        help="percentiles mapped to (-1, +1). Default 5 95.",
+    )
+    ap.add_argument(
+        "--tail-threshold",
+        type=float,
+        default=1.6,
+        help="tail_ratio (p99.9-p0.1)/(p_hi-p_lo) above which asinh is chosen over affine. Default 1.6.",
+    )
+    ap.add_argument(
+        "--no-force-asinh",
+        action="store_true",
+        help="ignore the _FORCE_ASINH override list and let tail_ratio decide every non-skip input.",
+    )
     ap.add_argument("--output", default=None, help="optional path to write the readable report")
     ap.add_argument("--write-model", default=None, help="optional model JSON path to write the proposed normalization array into")
     ap.add_argument(
@@ -186,7 +292,17 @@ def main() -> None:
         help="optional path to write a paste-ready [network.normalization] TOML snippet",
     )
     args = ap.parse_args()
-    proposed, report = calibrate(args.toml, args.n_sims)
+    lo_pct, hi_pct = args.target_percentiles
+    if not 0.0 <= lo_pct < hi_pct <= 100.0:
+        ap.error(f"--target-percentiles must satisfy 0 <= LO < HI <= 100 (got {lo_pct} {hi_pct})")
+    proposed, report = calibrate(
+        args.toml,
+        args.n_sims,
+        lo_pct=lo_pct,
+        hi_pct=hi_pct,
+        tail_threshold=args.tail_threshold,
+        respect_force_asinh=not args.no_force_asinh,
+    )
     print(report)
     if args.output:
         Path(args.output).write_text(report)
