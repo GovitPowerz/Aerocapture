@@ -54,3 +54,27 @@ def test_load_checkpoint_legacy_cost_transform_defaults_none(tmp_path: Path) -> 
     loaded = load_checkpoint(tmp_path)
     assert loaded is not None
     assert loaded["cost_transform"] is None
+
+
+def test_islands_from_checkpoint_returns_cost_transform(tmp_path: Path) -> None:
+    # Verify the islands npz carries cost_transform at top level.
+    import pickle
+
+    npz = tmp_path / "checkpoint_g00000.npz"
+    tmp = npz.with_name(npz.stem + ".tmp.npz")
+    np.savez_compressed(
+        tmp,
+        version=2,
+        generation=0,
+        base_mc_seed=42,
+        cost_transform="log",
+        island_states=np.array(pickle.dumps([]), dtype=object),
+        migration_log=np.array(pickle.dumps([]), dtype=object),
+        rng_state=np.array(pickle.dumps(np.random.default_rng(0).bit_generator.state), dtype=object),
+        seed_curator_state=np.array(pickle.dumps(None), dtype=object),
+    )
+    tmp.rename(npz)
+
+    with np.load(npz, allow_pickle=True) as data:
+        assert "cost_transform" in data
+        assert str(data["cost_transform"]) == "log"

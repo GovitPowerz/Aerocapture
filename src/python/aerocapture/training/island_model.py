@@ -543,6 +543,7 @@ class IslandModel:
             version=2,
             generation=generation,
             base_mc_seed=self.base_mc_seed,
+            cost_transform=str(self.problem.cost_kwargs.get("cost_transform", "linear")),
             island_states=np.array(pickle.dumps(island_states), dtype=object),
             migration_log=np.array(pickle.dumps(self.migration_log), dtype=object),
             rng_state=np.array(pickle.dumps(self.rng.bit_generator.state), dtype=object),
@@ -550,14 +551,16 @@ class IslandModel:
         )
         tmp.rename(path)
 
-    def from_checkpoint(self, path: Path) -> tuple[int, dict | None]:
+    def from_checkpoint(self, path: Path) -> tuple[int, dict | None, str | None]:
         """Restore from a v2 checkpoint.
 
         Returns:
-            (generation, seed_curator_state) — the saved generation and the
-            optional SeedCurator state dict (None if absent or if the curator
-            was not in use at save time). The caller is responsible for
-            re-hydrating the curator via `SeedCurator.from_dict(...)`.
+            (generation, seed_curator_state, saved_cost_transform) — the saved
+            generation, the optional SeedCurator state dict (None if absent or
+            if the curator was not in use at save time), and the persisted
+            cost_transform string (None for legacy checkpoints that predate
+            this field). The caller is responsible for re-hydrating the curator
+            via `SeedCurator.from_dict(...)`.
 
         IMPORTANT: per-island best_overall_* are restored verbatim. The
         resumed population's gen-0 argmin must NOT be allowed to overwrite them
@@ -574,6 +577,7 @@ class IslandModel:
                 raise ValueError(f"checkpoint version {version} unsupported; expected 2")
             generation = int(data["generation"])
             base_mc_seed = int(data["base_mc_seed"])
+            saved_cost_transform = str(data["cost_transform"]) if "cost_transform" in data else None
             island_states = pickle.loads(data["island_states"].item())
             migration_log = pickle.loads(data["migration_log"].item())
             rng_state = pickle.loads(data["rng_state"].item())
@@ -653,7 +657,7 @@ class IslandModel:
 
         self.migration_log = migration_log
         self.rng.bit_generator.state = rng_state
-        return generation, seed_curator_state
+        return generation, seed_curator_state, saved_cost_transform
 
     def final_eval(self) -> list[dict[str, Any]]:
         """Re-evaluate each island's best_overall on the reserved final-eval seeds.

@@ -192,6 +192,7 @@ class _UnitCubeProblem(Problem):
 
     def __init__(self) -> None:
         super().__init__(n_var=4, n_obj=1, xl=0.0, xu=1.0)
+        self.cost_kwargs: dict[str, Any] = {}
 
     def _evaluate(self, X: np.ndarray, out: dict, *args: Any, **kwargs: Any) -> None:
         out["F"] = X.sum(axis=1).reshape(-1, 1)
@@ -298,6 +299,7 @@ class _MockProblem:
 
     def __init__(self, n_var: int = 4) -> None:
         self.n_var = n_var
+        self.cost_kwargs: dict[str, Any] = {}
 
     def evaluate_individual_per_seed(self, X: np.ndarray, seeds: list[int]) -> np.ndarray:
         # F = sum(X) + 0.01 * seed_idx (so different islands get different rms).
@@ -699,7 +701,7 @@ def test_island_model_checkpoint_roundtrip() -> None:
         )
         for island in restored.islands:
             island.algorithm.setup(problem, seed=0)
-        gen_restored, curator_state = restored.from_checkpoint(ckpt_path)
+        gen_restored, curator_state, _ = restored.from_checkpoint(ckpt_path)
         assert gen_restored == 5
         assert curator_state is None  # we didn't pass a curator state at save time
 
@@ -761,7 +763,7 @@ def test_island_model_resume_preserves_best_overall_per_island() -> None:
             island.algorithm.setup(problem, seed=0)
         # Advance to a fresh pop with potentially-better argmin.
         restored.step(current_gen=0)
-        gen_restored, _ = restored.from_checkpoint(ckpt_path)
+        gen_restored, _, _ = restored.from_checkpoint(ckpt_path)
         assert gen_restored == 10
 
     # The sentinel must survive across the resume; the restored model must NOT
@@ -810,7 +812,7 @@ def test_island_model_checkpoint_roundtrips_seed_curator_state() -> None:
         )
         for island in restored.islands:
             island.algorithm.setup(problem, seed=0)
-        gen_restored, restored_curator_state = restored.from_checkpoint(ckpt_path)
+        gen_restored, restored_curator_state, _ = restored.from_checkpoint(ckpt_path)
 
     assert gen_restored == 10
     assert restored_curator_state == curator_state

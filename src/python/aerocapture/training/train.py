@@ -1649,7 +1649,7 @@ def _train_islands(
         warm_start_algorithm(island.algorithm, problem, init_pop)
 
     if resume_ckpt is not None:
-        resumed_gen, resumed_curator_state = island_model.from_checkpoint(resume_ckpt)
+        resumed_gen, resumed_curator_state, resumed_cost_transform = island_model.from_checkpoint(resume_ckpt)
         start_gen = resumed_gen + 1
         # Mirror the single-algorithm convention: `--n-gen N` after resume
         # means "N additional gens", so bump n_gen by the resumed
