@@ -20,41 +20,41 @@ input_mask = [0, 2, 3, 5, 6, 7, 11, 12, 18, 19, 27, 28, 29, 30, 32, 33, 34]
 # Per-input normalization override (MUST be under [network] and BEFORE the
 # [[network.architecture]] blocks -- a bare key attaches to the preceding table).
 normalization = [
-  { transform = "none", scale = 0.8730409229868937, center = 0.9149564895556043 }, # 0 eccentricity_excess
-  { transform = "none", scale = 1.1432045117410243, center = -0.9241339559394429 }, # 1 inclination_error (DEPRECATED)
-  { transform = "asinh", scale = 877.5458707900136, center = 0.0 }, # 2 radial_velocity
-  { transform = "asinh", scale = 5107350.059266905, center = 0.0 }, # 3 orbital_energy
-  { transform = "none", scale = 1171.6096590002699, center = 4541.198481477868 }, # 4 velocity (DEPRECATED)
-  { transform = "asinh", scale = 25.63226307937518, center = 0.0 }, # 5 accel_magnitude
-  { transform = "none", scale = 0.4639485371683034, center = 0.4648366777549048 }, # 6 heat_flux_fraction
-  { transform = "none", scale = 0.445633514891268, center = 0.4458912841846717 }, # 7 heat_load_fraction
-  { transform = "none", scale = 43.008167207939316, center = 82.90858606103268 }, # 8 altitude (DEPRECATED)
-  { transform = "none", scale = 0.12463312743644997, center = -0.05759564639330958 }, # 9 fpa (DEPRECATED)
-  { transform = "none", scale = 0.30452056872939987, center = 0.31221248594680456 }, # 10 latitude (DEPRECATED)
-  { transform = "asinh", scale = 24.332626407125364, center = 0.0 }, # 11 drag_accel
-  { transform = "asinh", scale = 8.058300236499358, center = 0.0 }, # 12 lift_accel
-  { transform = "asinh", scale = 22051645.404117864, center = 0.0 }, # 13 sma_error (DEPRECATED)
-  { transform = "asinh", scale = 43699777.754723296, center = 0.0 }, # 14 apoapsis_alt (DEPRECATED)
-  { transform = "none", scale = 0.5, center = 0.5 }, # 15 bounce_flag (DEPRECATED)
-  { transform = "none", scale = 1e-06, center = 0.4262529995153208 }, # 16 cos_bank_nominal (DEPRECATED)
-  { transform = "none", scale = 807.78240697168, center = 811.7654756650323 }, # 17 pdyn_nominal (DEPRECATED)
-  { transform = "asinh", scale = 737.042911082299, center = 0.0 }, # 18 hdot_nominal
-  { transform = "asinh", scale = 369.61519505915936, center = 0.0 }, # 19 pdyn_error
-  { transform = "none", scale = 1.5707963267948966, center = 1.5707963267948966 }, # 20 exit_bank_teacher (DEPRECATED)
-  { transform = "none", scale = 0.1, center = 0.0 }, # 21 inclination_err_rate (DEPRECATED)
-  { transform = "none", scale = 3.141592653589793, center = 0.0 }, # 22 prev_bank_signed (DEPRECATED)
-  { transform = "tanh", scale = 30.0, center = 0.0 }, # 23 time_since_sign_flip (DEPRECATED)
-  { transform = "tanh", scale = 100.0, center = 0.0 }, # 24 inclination_err_integral (DEPRECATED)
-  { transform = "none", scale = 1.0, center = 0.0 }, # 25 exit_bank_teacher_sin (DEPRECATED)
-  { transform = "none", scale = 1.0, center = 0.0 }, # 26 exit_bank_teacher_cos (DEPRECATED)
-  { transform = "none", scale = 1.0, center = 0.0 }, # 27 prev_bank_signed_sin
-  { transform = "none", scale = 1.0, center = 0.0 }, # 28 prev_bank_signed_cos
-  { transform = "none", scale = 1.0, center = 0.0 }, # 29 prev_realized_sin
-  { transform = "none", scale = 1.0, center = 0.0 }, # 30 prev_realized_cos
-  { transform = "asinh", scale = 39162.10535170852, center = 0.0 }, # 31 periapsis_alt (DEPRECATED)
-  { transform = "asinh", scale = 100.0, center = 100.0 }, # 32 predicted_dv1
-  { transform = "none", scale = 25.0, center = 25.0 }, # 33 predicted_dv2
-  { transform = "none", scale = 25.0, center = 25.0 }, # 34 predicted_dv3
+    { transform = "none", scale = 0.8655390346546353, center = 0.9204641308303162 }, # 0 eccentricity_excess
+    { transform = "asinh", scale = 0.8175600848274288, center = 0.8867681772014051 }, # 1 inclination_error
+    { transform = "asinh", scale = 462.6300273768903, center = -333.1697854608212 }, # 2 radial_velocity
+    { transform = "none", scale = 5413222.0902614985, center = -508770.60939412704 }, # 3 orbital_energy
+    { transform = "none", scale = 1157.3507227945558, center = 4549.679429911598 }, # 4 velocity
+    { transform = "asinh", scale = 10.358129862795693, center = 12.17320223341297 }, # 5 accel_magnitude
+    { transform = "asinh", scale = 0.33924629426269115, center = 0.40005844701414567 }, # 6 heat_flux_fraction
+    { transform = "none", scale = 0.42411593596120784, center = 0.42858041580763234 }, # 7 heat_load_fraction
+    { transform = "asinh", scale = 33.09832239288295, center = 82.65759631477488 }, # 8 altitude
+    { transform = "asinh", scale = 0.0911362193061205, center = -0.04718278665783951 }, # 9 fpa
+    { transform = "asinh", scale = 0.2151370816795333, center = 0.29274513397808116 }, # 10 latitude
+    { transform = "asinh", scale = 9.832939972853932, center = 11.55598244317186 }, # 11 drag_accel
+    { transform = "asinh", scale = 3.256400734674897, center = 3.827025266270693 }, # 12 lift_accel
+    { transform = "asinh", scale = 5107742.117847206, center = -3590633.2113008387 }, # 13 sma_error
+    { transform = "asinh", scale = 10217099.16686349, center = -6706141.091617538 }, # 14 apoapsis_alt
+    { transform = "none", scale = 0.5, center = 0.5 }, # 15 bounce_flag
+    { transform = "none", scale = 1e-06, center = 0.4262529995153208 }, # 16 cos_bank_nominal
+    { transform = "asinh", scale = 594.4827404994671, center = 716.3429422450554 }, # 17 pdyn_nominal
+    { transform = "asinh", scale = 412.89140647256187, center = -302.7939124482325 }, # 18 hdot_nominal
+    { transform = "asinh", scale = 154.12675819494976, center = -169.7611160606572 }, # 19 pdyn_error
+    { transform = "none", scale = 1.5707963267948966, center = 1.5707963267948966 }, # 20 exit_bank_teacher
+    { transform = "none", scale = 0.1, center = 0.0 }, # 21 inclination_err_rate
+    { transform = "none", scale = 3.141592653589793, center = 0.0 }, # 22 prev_bank_signed
+    { transform = "tanh", scale = 30.0, center = 0.0 }, # 23 time_since_sign_flip
+    { transform = "tanh", scale = 100.0, center = 0.0 }, # 24 inclination_err_integral
+    { transform = "none", scale = 1.0, center = 0.0 }, # 25 exit_bank_teacher_sin
+    { transform = "none", scale = 1.0, center = 0.0 }, # 26 exit_bank_teacher_cos
+    { transform = "none", scale = 1.0, center = 0.0 }, # 27 prev_bank_signed_sin
+    { transform = "none", scale = 1.0, center = 0.0 }, # 28 prev_bank_signed_cos
+    { transform = "none", scale = 1.0, center = 0.0 }, # 29 prev_realized_sin
+    { transform = "none", scale = 1.0, center = 0.0 }, # 30 prev_realized_cos
+    { transform = "asinh", scale = 17774.23743300369, center = 20521.130577512882 }, # 31 periapsis_alt
+    { transform = "asinh", scale = 500.0, center = 500.0 }, # 32 predicted_dv1
+    { transform = "none", scale = 60.0, center = 60.0 }, # 33 predicted_dv2
+    { transform = "none", scale = 100.0, center = 0.0 }, # 34 predicted_dv3
 ]
 # input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 # input_mask = [18, 12, 15, 0, 6, 14, 13, 11, 4, 3, 5]
@@ -78,7 +78,7 @@ output_size = 2
 activation = "asinh"
 
 [data]
-neural_network = "training_output/neural_network_pruned_dv2/best_model.json"
+neural_network = "training_output/neural_network_pruned_dv3/best_model.json"
 results_suffix = ".train_nn"
 
 # Default routing is mode = "full_neural": NN emits a signed bank via atan2 and
