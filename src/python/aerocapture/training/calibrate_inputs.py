@@ -17,9 +17,12 @@ accelerations) stay asinh even if a thin MC sample under-estimates their tail.
 `tanh` is never auto-selected (asinh dominates it for heavy tails, affine for
 bounded); it survives only on `_SKIP` inputs that already carry it.
 
-Single source of truth for the current transforms is the Rust
-`aerocapture_rs.default_normalization()` table (a list of 35
-`{transform, scale, center}` dicts) -- there is no hand-mirrored Python copy.
+The trace is inverted with the normalization the SIM ACTUALLY used, resolved by
+`_resolve_normalization` (`[network.normalization]` override > embedded model >
+Rust DEFAULT). Inverting with a transform that differs from the forward pass
+distorts the recovered raw by `s_forward/s_invert` -- inverting with the fixed
+DEFAULT against a moving deployed scale makes the proposed scale oscillate
+across retrain+recalibrate cycles instead of converging.
 The DV inputs (32/33/34) are ordinary asinh inputs (no sentinel); they are
 calibrated over their full distribution like any other heavy-tailed input.
 
@@ -46,33 +49,47 @@ CALIBRATION_SEED_OFFSET = 6_000_000
 # Inputs forced to asinh regardless of the observed tail ratio (known heavy-tailed:
 # velocities, energy, accelerations, DV). Optional override -- disable with
 # --no-force-asinh to let the data-driven selector decide every non-skip input.
-_FORCE_ASINH = {
-    2,
-    3,
-    5,
-    11,
-    12,
-    13,
-    14,
-    18,
-    19,
-    31,
-    32,
-    33,
-    34,
-}
+_FORCE_ASINH: set[int] = set()
 # Bounded inputs to skip entirely (binary / tanh / sin-cos already in [-1,1]).
-_SKIP = {15, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30}
+_SKIP: set[int] = {15, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30}
 
 
 def _current_transforms() -> list[dict]:
-    """Return the Rust DEFAULT_NORMALIZATION table (single source of truth).
+    """Return the Rust DEFAULT_NORMALIZATION table.
 
     Each entry is `{"transform": "none"|"asinh"|"tanh", "scale": float, "center": float}`.
     """
     import aerocapture_rs  # type: ignore[import-not-found]
 
     return cast("list[dict]", aerocapture_rs.default_normalization())
+
+
+def _resolve_normalization(toml_path: str) -> list[dict]:
+    """Resolve the normalization the SIM ACTUALLY applies for this config.
+
+    Mirrors Rust precedence (config.rs / data/mod.rs): `[network.normalization]`
+    override REPLACES the model's table; absent that, the embedded model
+    `normalization` block; absent that, the Rust DEFAULT.
+
+    This MUST match what `collect_nn_inputs` used to produce the trace -- the
+    inversion `raw = invert(norm)` only recovers the true raw when it uses the
+    same constants as the forward pass. Inverting with DEFAULT against a trace
+    normalized with a deployed override gives `recovered = (s_default/s_deployed)
+    * raw_true`, a scale-dependent distortion that makes the proposed scale
+    oscillate across retrain+recalibrate cycles.
+    """
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    cfg = load_toml_with_bases(Path(toml_path))
+    override = cfg.get("network", {}).get("normalization")
+    if override is not None:
+        return [dict(e) for e in override]
+    model_path = cfg.get("data", {}).get("neural_network")
+    if model_path and Path(model_path).exists():
+        emb = json.loads(Path(model_path).read_text()).get("normalization")
+        if emb:
+            return [dict(e) for e in emb]
+    return _current_transforms()
 
 
 def invert_transform(norm: np.ndarray, spec: dict) -> np.ndarray:
@@ -154,12 +171,16 @@ def choose_transform(
     return {"transform": "none", "scale": half, "center": center}, tr
 
 
-def _collect_raw(toml_path: str, n_sims: int) -> dict[int, np.ndarray]:
+def _collect_raw(toml_path: str, n_sims: int, transforms: list[dict] | None = None) -> dict[int, np.ndarray]:
     import aerocapture_rs  # type: ignore[import-not-found]
 
     from aerocapture.training.evaluate import make_reserved_seeds
 
-    transforms = _current_transforms()
+    # Invert with the normalization the SIM actually used, not the Rust DEFAULT
+    # (see _resolve_normalization); otherwise the recovered raw is distorted by
+    # s_default/s_deployed and the proposed scale oscillates between retrains.
+    if transforms is None:
+        transforms = _resolve_normalization(toml_path)
     seeds = make_reserved_seeds(0, CALIBRATION_SEED_OFFSET, n_sims)
     recs = aerocapture_rs.collect_nn_inputs(toml_path, seeds, overrides=None)
     cols: dict[int, list[np.ndarray]] = {}
@@ -194,8 +215,8 @@ def _propose_normalization(
     """
     from aerocapture.training.ablation import NN_INPUT_NAMES
 
-    current = _current_transforms()
-    raw = _collect_raw(toml_path, n_sims)
+    current = _resolve_normalization(toml_path)
+    raw = _collect_raw(toml_path, n_sims, transforms=current)
     proposed = [dict(spec) for spec in current]
     table: list[str] = []
     for idx in range(len(current)):

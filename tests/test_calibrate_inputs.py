@@ -103,6 +103,27 @@ def test_choose_transform_force_asinh_overrides_bounded() -> None:
     assert spec["transform"] == "asinh"
 
 
+def test_resolve_normalization_prefers_toml_override(tmp_path: Path) -> None:
+    from aerocapture.training.calibrate_inputs import _resolve_normalization
+
+    cfg = tmp_path / "c.toml"
+    cfg.write_text('[network]\nnormalization = [ { transform = "asinh", scale = 7.0, center = -3.0 } ]\n')
+    got = _resolve_normalization(str(cfg))
+    assert got == [{"transform": "asinh", "scale": 7.0, "center": -3.0}]
+
+
+def test_resolve_normalization_falls_back_to_embedded_model(tmp_path: Path) -> None:
+    from aerocapture.training.calibrate_inputs import _resolve_normalization
+
+    model = tmp_path / "m.json"
+    emb = [{"transform": "none", "scale": 2.0, "center": 1.0}]
+    model.write_text(json.dumps({"normalization": emb}))
+    cfg = tmp_path / "c.toml"
+    cfg.write_text(f'[data]\nneural_network = "{model}"\n')
+    got = _resolve_normalization(str(cfg))
+    assert got == emb
+
+
 def test_write_model_normalization_roundtrip(tmp_path: Path) -> None:
     from aerocapture.training.calibrate_inputs import _write_model_normalization
 
