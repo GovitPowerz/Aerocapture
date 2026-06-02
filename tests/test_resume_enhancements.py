@@ -174,3 +174,68 @@ def test_resize_populations_noop_when_size_matches() -> None:
 
     changed = model.resize_populations(target_n=5, rng=rng, fresh_fraction=0.2, velocity_scale=0.05)
     assert changed is False
+
+
+def test_islands_resume_grow_and_revalidate(tmp_path: Path) -> None:
+    from aerocapture.training.island_model import IslandModel
+    from aerocapture.training.optimizer import IslandSettings, OptimizerConfig
+    from pymoo.core.population import Population
+
+    class _P:
+        def __init__(self) -> None:
+            self.cost_kwargs = {"cost_transform": "linear"}
+
+        def _run_batch(self, X):  # type: ignore[no-untyped-def]
+            return np.linspace(1.0, 2.0, X.shape[0])
+
+        def evaluate_individual_records_per_seed(self, x, seeds):  # type: ignore[no-untyped-def]
+            return np.full(len(seeds), 1.23, dtype=np.float64), [{} for _ in seeds]
+
+    rng = np.random.default_rng(0)
+
+    # k_top=1 so k_top*(n_islands-1)=2 <= n_pop=4 (IslandModel.__init__ guard).
+    cfg = OptimizerConfig(seed_strategy="fixed", algorithm="islands", n_pop=4, validation_n_sims=3, islands=IslandSettings(k_top=1))
+    model = IslandModel(
+        config=cfg,
+        problem=_P(),
+        n_params=2,
+        validation_seeds=[1, 2, 3],
+        final_eval_seeds=[10, 11, 12],
+        base_mc_seed=42,
+        rng=rng,
+    )
+    # Seed each island with a real pop so checkpoint has something to write.
+    for isl in model.islands:
+        pop = Population.new("X", rng.random((4, 2)))
+        pop.set("F", np.arange(4.0).reshape(-1, 1))
+        isl.algorithm.pop = pop
+        isl.algorithm.is_initialized = True
+        isl.algorithm.n_iter = 1
+        isl.best_overall_individual = pop.get("X")[0].copy()
+        isl.best_val_cost = 999.0
+    ckpt = tmp_path / "checkpoint_g00000.npz"
+    model.checkpoint(ckpt, generation=0)
+
+    # Resume into a BIGGER model with a changed transform.
+    cfg2 = OptimizerConfig(seed_strategy="fixed", algorithm="islands", n_pop=12, validation_n_sims=3, islands=IslandSettings(k_top=1))
+    p2 = _P()
+    p2.cost_kwargs = {"cost_transform": "log"}
+    model2 = IslandModel(
+        config=cfg2,
+        problem=p2,
+        n_params=2,
+        validation_seeds=[1, 2, 3],
+        final_eval_seeds=[10, 11, 12],
+        base_mc_seed=42,
+        rng=np.random.default_rng(1),
+    )
+    gen, _curator, saved_transform = model2.from_checkpoint(ckpt)
+    assert gen == 0
+    assert saved_transform == "linear"
+
+    model2.resize_populations(target_n=12, rng=np.random.default_rng(2), fresh_fraction=0.2, velocity_scale=0.05)
+    model2.revalidate_each()
+
+    for isl in model2.islands:
+        assert isl.algorithm.pop.get("X").shape == (12, 2)
+        assert isl.best_val_cost == 1.23  # re-validated under new metric, not the stale 999.0

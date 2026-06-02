@@ -1672,6 +1672,32 @@ def _train_islands(
             # the pre-islands-dispatch seed state.
             if seed_curator.seed_list is not None:
                 problem.update_seeds(seed_curator.seed_list)
+        # Reconcile population size to the configured n_pop (supports resuming a
+        # small-pop run with a bigger pop). Done AFTER the curated seeds are
+        # pushed so the re-eval of new individuals uses the right seeds.
+        if config.optimizer.n_pop != island_model.islands[0].algorithm.pop.get("X").shape[0]:
+            if verbose:
+                old_n = island_model.islands[0].algorithm.pop.get("X").shape[0]
+                print(f"  Resizing islands populations {old_n} -> {config.optimizer.n_pop}")
+            island_model.resize_populations(
+                target_n=config.optimizer.n_pop,
+                rng=rng,
+                fresh_fraction=config.optimizer.grow_fresh_fraction,
+                velocity_scale=config.optimizer.islands.pso_inject_velocity_scale,
+            )
+
+        # Re-validate each island's best under the current config (refreshes
+        # best_val_cost; auto-handles a changed cost_transform).
+        if val_seeds:
+            island_model.revalidate_each()
+
+        # cost_transform change notice + stagnation reset.
+        current_transform = problem.cost_kwargs.get("cost_transform", "linear")
+        if resumed_cost_transform is None or resumed_cost_transform != current_transform:
+            if verbose:
+                print(f"  cost_transform changed {resumed_cost_transform!r} -> {current_transform!r}; re-validated best under new metric")
+            for island in island_model.islands:
+                island.stagnation_counter = 0
         if verbose:
             print(f"  Resumed islands from gen {resumed_gen}, continuing from {start_gen}")
 
