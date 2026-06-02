@@ -1858,6 +1858,7 @@ def _train_islands(
         config=config,
         save_dir=save_dir,
         param_specs=param_specs,
+        cwd=cwd,
     )
 
     logger.close()
@@ -1880,6 +1881,7 @@ def _write_winner_artifacts(
     config: TrainingConfig,
     save_dir: Path,
     param_specs: list[ParamSpec],
+    cwd: str | Path | None = None,
 ) -> None:
     """Write best_model.json / best_params.json from the winning island's chromosome.
 
@@ -1903,7 +1905,7 @@ def _write_winner_artifacts(
             save_dir / "best_model.json",
             input_mask=config.network.input_mask,
             output_param=config.network.output_parameterization,
-            normalization=_resolve_config_normalization(config, None),
+            normalization=_resolve_config_normalization(config, cwd),
         )
         if n_scaff > 0:
             scaff_params = decode_normalized(
