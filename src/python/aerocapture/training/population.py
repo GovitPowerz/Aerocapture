@@ -115,7 +115,7 @@ def resize_population(
     n = pop_X.shape[0]
     n_params = pop_X.shape[1]
     if target_n == n:
-        return pop_X
+        return pop_X.copy()
     if target_n < n:
         if pop_F is None:
             return pop_X[:target_n].copy()

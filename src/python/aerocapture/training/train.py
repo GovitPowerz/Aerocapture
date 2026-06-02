@@ -944,9 +944,14 @@ def train(
     if resumed is not None:
         saved_transform = resumed.get("cost_transform")
         current_transform = problem.cost_kwargs.get("cost_transform", "linear")
+        # Single-algo only uses this for the notice below; the existing resume
+        # re-validation (gated on val_seeds) recomputes best_val_cost under the
+        # new transform automatically. The islands path handles its own reset.
         cost_transform_changed = saved_transform is None or saved_transform != current_transform
         if cost_transform_changed and verbose:
-            print(f"  cost_transform changed {saved_transform!r} -> {current_transform!r}; re-validating best under new metric")
+            will_revalidate = config.optimizer.validation_n_sims > 0 and bool(toml_abs_path)
+            suffix = "; re-validating best under new metric" if will_revalidate else ""
+            print(f"  cost_transform changed {saved_transform!r} -> {current_transform!r}{suffix}")
 
     # Reserved seed sets for validation and final evaluation.
     # Uses well-separated RNG streams so training, validation, and final eval
