@@ -94,3 +94,44 @@ def create_nn_initial_population(
                 pop[0, j] = np.clip((seed_weights[j] - s.p_min) / (s.p_max - s.p_min), 0.0, 1.0)
 
     return pop
+
+
+def resize_population(
+    pop_X: npt.NDArray[np.float64],
+    pop_F: npt.NDArray[np.float64] | None,
+    target_n: int,
+    rng: np.random.Generator,
+    fresh_fraction: float = 0.2,
+    jitter_sigma: float = 0.02,
+) -> npt.NDArray[np.float64]:
+    """Resize a normalized [0,1] population to ``target_n`` rows.
+
+    Grow: keep all resumed rows verbatim, fill the rest with a
+    ``fresh_fraction`` of fresh-random individuals and the remainder as
+    clone+jitter of the resumed pool (round-robin). Shrink: keep the
+    ``target_n`` lowest-``pop_F`` rows (first ``target_n`` rows when costs are
+    unavailable). Equal: return ``pop_X`` unchanged.
+    """
+    n = pop_X.shape[0]
+    n_params = pop_X.shape[1]
+    if target_n == n:
+        return pop_X
+    if target_n < n:
+        if pop_F is None:
+            return pop_X[:target_n].copy()
+        order = np.argsort(np.asarray(pop_F, dtype=np.float64))
+        return pop_X[order[:target_n]].copy()
+
+    n_new = target_n - n
+    n_fresh = int(round(fresh_fraction * n_new))
+    n_clone = n_new - n_fresh
+
+    out = np.empty((target_n, n_params), dtype=np.float64)
+    out[:n] = pop_X
+    if n_clone > 0:
+        src = pop_X[np.arange(n_clone) % n]
+        jitter = rng.normal(0.0, jitter_sigma, size=(n_clone, n_params))
+        out[n : n + n_clone] = np.clip(src + jitter, 0.0, 1.0)
+    if n_fresh > 0:
+        out[n + n_clone :] = rng.random((n_fresh, n_params))
+    return out
