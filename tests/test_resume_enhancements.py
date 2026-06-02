@@ -57,7 +57,8 @@ def test_load_checkpoint_legacy_cost_transform_defaults_none(tmp_path: Path) -> 
     assert loaded["cost_transform"] is None
 
 
-def test_islands_from_checkpoint_returns_cost_transform(tmp_path: Path) -> None:
+def test_islands_checkpoint_npz_schema_has_cost_transform(tmp_path: Path) -> None:
+    # Schema canary: from_checkpoint's read is covered by test_islands_resume_grow_and_revalidate.
     # Verify the islands npz carries cost_transform at top level.
     import pickle
 

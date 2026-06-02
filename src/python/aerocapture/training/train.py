@@ -940,15 +940,14 @@ def train(
         nn_config=config.network if config.guidance_type == "neural_network" else None,
     )
 
-    cost_transform_changed = False
-    if resumed is not None:
+    if resumed is not None and verbose:
+        # Single-algo re-validates the checkpointed best unconditionally on
+        # resume (gated on val_seeds), so best_val_cost is already recomputed
+        # under the current transform; this is just an informative notice. The
+        # islands path handles its own reset in _train_islands.
         saved_transform = resumed.get("cost_transform")
         current_transform = problem.cost_kwargs.get("cost_transform", "linear")
-        # Single-algo only uses this for the notice below; the existing resume
-        # re-validation (gated on val_seeds) recomputes best_val_cost under the
-        # new transform automatically. The islands path handles its own reset.
-        cost_transform_changed = saved_transform is None or saved_transform != current_transform
-        if cost_transform_changed and verbose:
+        if saved_transform is None or saved_transform != current_transform:
             will_revalidate = config.optimizer.validation_n_sims > 0 and bool(toml_abs_path)
             suffix = "; re-validating best under new metric" if will_revalidate else ""
             print(f"  cost_transform changed {saved_transform!r} -> {current_transform!r}{suffix}")
@@ -1675,9 +1674,9 @@ def _train_islands(
         # Reconcile population size to the configured n_pop (supports resuming a
         # small-pop run with a bigger pop). Done AFTER the curated seeds are
         # pushed so the re-eval of new individuals uses the right seeds.
-        if config.optimizer.n_pop != island_model.islands[0].algorithm.pop.get("X").shape[0]:
+        old_n = island_model.islands[0].algorithm.pop.get("X").shape[0]
+        if config.optimizer.n_pop != old_n:
             if verbose:
-                old_n = island_model.islands[0].algorithm.pop.get("X").shape[0]
                 print(f"  Resizing islands populations {old_n} -> {config.optimizer.n_pop}")
             island_model.resize_populations(
                 target_n=config.optimizer.n_pop,

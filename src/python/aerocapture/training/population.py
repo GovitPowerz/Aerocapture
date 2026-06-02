@@ -110,7 +110,7 @@ def resize_population(
     ``fresh_fraction`` of fresh-random individuals and the remainder as
     clone+jitter of the resumed pool (round-robin). Shrink: keep the
     ``target_n`` lowest-``pop_F`` rows (first ``target_n`` rows when costs are
-    unavailable). Equal: return ``pop_X`` unchanged.
+    unavailable). Equal: return a copy of ``pop_X``.
     """
     n = pop_X.shape[0]
     n_params = pop_X.shape[1]
