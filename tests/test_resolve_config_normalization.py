@@ -42,8 +42,13 @@ def test_config_with_normalization_override_returns_len_35() -> None:
     assert len(norm) == 35
 
 
-def test_config_without_override_returns_none() -> None:
-    cfg = _stub("configs/training/msr_aller_nn_delta_train.toml")
+def test_config_without_override_returns_none(tmp_path: Path) -> None:
+    # Self-contained: a config with a [network] table but no `normalization`
+    # key must resolve to None. Don't rely on a real training config staying
+    # override-free -- they accrue calibrated [network.normalization] blocks.
+    cfg_toml = tmp_path / "no_override.toml"
+    cfg_toml.write_text('[guidance]\ntype = "neural_network"\n\n[network]\ninput_mask = [0, 1, 2]\n')
+    cfg = _stub(str(cfg_toml))
     assert _resolve_config_normalization(cfg, REPO_ROOT) is None
 
 

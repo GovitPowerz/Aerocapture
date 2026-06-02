@@ -48,7 +48,7 @@ EXPECTED_SAVE_DIRS = {
     "pred_guid": Path("training_output/pred_guid"),
     "fnpag": Path("training_output/fnpag"),
     "ftc": Path("training_output/ftc"),
-    "neural_network": Path("training_output/neural_network_islands"),
+    "neural_network": Path("training_output/neural_network"),
     "neural_network_rl": Path("training_output/neural_network_rl"),
     "neural_network_gru_pso": Path("training_output/neural_network_gru_pso"),
     "neural_network_gru_pso_magonly": Path("training_output/neural_network_gru_pso_magonly"),

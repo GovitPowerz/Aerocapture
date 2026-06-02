@@ -78,7 +78,7 @@ output_size = 2
 activation = "asinh"
 
 [data]
-neural_network = "training_output/neural_network_pruned_dv3/best_model.json"
+neural_network = "training_output/neural_network/best_model.json"
 results_suffix = ".train_nn"
 
 # Default routing is mode = "full_neural": NN emits a signed bank via atan2 and
