@@ -120,3 +120,57 @@ def test_revalidate_each_recomputes_best_val_cost() -> None:
     # Island with no best_overall_individual is untouched.
     assert model.islands[1].best_val_cost == 999.0
     assert model.islands[1].last_validated_individual is None
+
+
+def test_resize_populations_grows_each_island() -> None:
+    from aerocapture.training.island_model import IslandModel
+    from pymoo.core.population import Population
+
+    class _P:
+        def __init__(self) -> None:
+            self.cost_kwargs = {"cost_transform": "linear"}
+
+        def _run_batch(self, X):  # type: ignore[no-untyped-def]
+            return np.arange(X.shape[0], dtype=np.float64)
+
+    rng = np.random.default_rng(0)
+
+    def _island(name: str):  # type: ignore[no-untyped-def]
+        pop = Population.new("X", rng.random((4, 2)))
+        pop.set("F", np.arange(4.0).reshape(-1, 1))
+        algo = types.SimpleNamespace(pop=pop)
+        return types.SimpleNamespace(name=name, algorithm=algo)
+
+    model = IslandModel.__new__(IslandModel)
+    model.islands = [_island("ga"), _island("de")]
+    model.problem = _P()
+    model.n_params = 2
+
+    changed = model.resize_populations(target_n=10, rng=rng, fresh_fraction=0.2, velocity_scale=0.05)
+    assert changed is True
+    for isl in model.islands:
+        assert isl.algorithm.pop.get("X").shape == (10, 2)
+        assert isl.algorithm.pop.get("F").shape[0] == 10
+
+
+def test_resize_populations_noop_when_size_matches() -> None:
+    from aerocapture.training.island_model import IslandModel
+    from pymoo.core.population import Population
+
+    class _P:
+        cost_kwargs = {"cost_transform": "linear"}
+
+        def _run_batch(self, X):  # type: ignore[no-untyped-def]
+            return np.zeros(X.shape[0])
+
+    rng = np.random.default_rng(0)
+    pop = Population.new("X", rng.random((5, 1)))
+    pop.set("F", np.zeros((5, 1)))
+    island = types.SimpleNamespace(name="ga", algorithm=types.SimpleNamespace(pop=pop))
+    model = IslandModel.__new__(IslandModel)
+    model.islands = [island]  # type: ignore[list-item]
+    model.problem = _P()
+    model.n_params = 1
+
+    changed = model.resize_populations(target_n=5, rng=rng, fresh_fraction=0.2, velocity_scale=0.05)
+    assert changed is False

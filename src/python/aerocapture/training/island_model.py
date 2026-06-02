@@ -471,6 +471,54 @@ class IslandModel:
             island.best_val_cost = float(np.sqrt(np.mean(val_costs**2)))
             island.last_validated_individual = island.best_overall_individual.copy()
 
+    def resize_populations(
+        self,
+        target_n: int,
+        rng: np.random.Generator,
+        fresh_fraction: float,
+        velocity_scale: float,
+    ) -> bool:
+        """Resize every island's restored population to ``target_n``.
+
+        Grows (clone+jitter + fresh-random) or shrinks (best-N by F) each
+        island's pop, re-evaluates the resized pop under the problem's CURRENT
+        seeds, re-stamps GA/DE ``rank`` via FitnessSurvival, and rebuilds PSO
+        ``particles`` (positions = new pop, fresh velocity). Returns True if any
+        island changed size.
+        """
+        from pymoo.algorithms.soo.nonconvex.ga import FitnessSurvival  # noqa: PLC0415
+        from pymoo.core.population import Population  # noqa: PLC0415
+
+        from aerocapture.training.population import resize_population  # noqa: PLC0415
+
+        # NOTE: resize_population needs no ParamSpec list -- the population is
+        # already in normalized [0,1] space, so fresh fill is rng.random.
+        any_changed = False
+        for island in self.islands:
+            pop = island.algorithm.pop
+            if pop is None:
+                continue
+            cur_X = pop.get("X")
+            if cur_X.shape[0] == target_n:
+                continue
+            any_changed = True
+            cur_F = pop.get("F").flatten()
+            new_X = resize_population(cur_X, cur_F, target_n, rng, fresh_fraction=fresh_fraction)
+            new_F = self.problem._run_batch(new_X)
+            new_pop = Population.new("X", new_X)
+            new_pop.set("F", new_F.reshape(-1, 1))
+            if not isinstance(island.algorithm, PSO):
+                new_pop = FitnessSurvival().do(self.problem, new_pop, n_survive=len(new_pop))
+            island.algorithm.pop = new_pop
+            if isinstance(island.algorithm, PSO):
+                particles = Population.new("X", new_X.copy())
+                particles.set("F", new_F.reshape(-1, 1).copy())
+                particles.set("V", rng.uniform(-velocity_scale, velocity_scale, size=new_X.shape))
+                island.algorithm.particles = particles
+            if hasattr(island.algorithm, "_set_optimum"):
+                island.algorithm._set_optimum()
+        return any_changed
+
     def pool_top_k_X(self, k: int) -> npt.NDArray[np.float64]:
         """Concatenate all island populations and return the K lowest-F rows.
 
