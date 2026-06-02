@@ -504,6 +504,10 @@ class IslandModel:
             any_changed = True
             cur_F = pop.get("F").flatten()
             new_X = resize_population(cur_X, cur_F, target_n, rng, fresh_fraction=fresh_fraction)
+            # Re-eval the whole resized pop under the CURRENT seeds. On shrink the
+            # survivors already had checkpoint-era F, but those were under a
+            # possibly-different seed list, so a fresh batch keeps all costs
+            # comparable (mirrors re_evaluate_all_populations).
             new_F = self.problem._run_batch(new_X)
             new_pop = Population.new("X", new_X)
             new_pop.set("F", new_F.reshape(-1, 1))
