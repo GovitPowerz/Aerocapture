@@ -115,7 +115,6 @@ def resize_population(
     pop_X: npt.NDArray[np.float64],
     pop_F: npt.NDArray[np.float64] | None,
     target_n: int,
-    specs: list[ParamSpec],
     rng: np.random.Generator,
     fresh_fraction: float = 0.2,
     jitter_sigma: float = 0.02,
@@ -396,7 +395,6 @@ In the resume restore branch (`train.py:969-975`), after `_check_resume_chromoso
                 pop_array,
                 pop_costs,
                 config.optimizer.n_pop,
-                param_specs,
                 rng,
                 fresh_fraction=config.optimizer.grow_fresh_fraction,
             )
@@ -649,7 +647,6 @@ def test_resize_populations_grows_each_island():
     from pymoo.core.population import Population
 
     from aerocapture.training.island_model import IslandModel
-    from aerocapture.training.param_spaces import ParamSpec
 
     class _P:
         def __init__(self):
@@ -659,7 +656,6 @@ def test_resize_populations_grows_each_island():
             return np.arange(X.shape[0], dtype=np.float64)
 
     rng = np.random.default_rng(0)
-    specs = [ParamSpec(name=f"p{i}", p_min=0.0, p_max=1.0, default=0.5) for i in range(2)]
 
     def _island(name):
         pop = Population.new("X", rng.random((4, 2)))
@@ -673,7 +669,7 @@ def test_resize_populations_grows_each_island():
     model.n_params = 2
 
     changed = model.resize_populations(
-        target_n=10, specs=specs, rng=rng, fresh_fraction=0.2, velocity_scale=0.05
+        target_n=10, rng=rng, fresh_fraction=0.2, velocity_scale=0.05
     )
     assert changed is True
     for isl in model.islands:
@@ -685,7 +681,6 @@ def test_resize_populations_noop_when_size_matches():
     from pymoo.core.population import Population
 
     from aerocapture.training.island_model import IslandModel
-    from aerocapture.training.param_spaces import ParamSpec
 
     class _P:
         cost_kwargs = {"cost_transform": "linear"}
@@ -694,7 +689,6 @@ def test_resize_populations_noop_when_size_matches():
             return np.zeros(X.shape[0])
 
     rng = np.random.default_rng(0)
-    specs = [ParamSpec(name="p0", p_min=0.0, p_max=1.0, default=0.5)]
     pop = Population.new("X", rng.random((5, 1)))
     pop.set("F", np.zeros((5, 1)))
     island = types.SimpleNamespace(name="ga", algorithm=types.SimpleNamespace(pop=pop))
@@ -703,7 +697,7 @@ def test_resize_populations_noop_when_size_matches():
     model.problem = _P()
     model.n_params = 1
 
-    changed = model.resize_populations(target_n=5, specs=specs, rng=rng, fresh_fraction=0.2, velocity_scale=0.05)
+    changed = model.resize_populations(target_n=5, rng=rng, fresh_fraction=0.2, velocity_scale=0.05)
     assert changed is False
 ```
 
@@ -722,7 +716,6 @@ In `island_model.py`, add to `IslandModel` after `revalidate_each`. Confirm `Pop
     def resize_populations(
         self,
         target_n: int,
-        specs: list[ParamSpec],
         rng: np.random.Generator,
         fresh_fraction: float,
         velocity_scale: float,
@@ -740,6 +733,8 @@ In `island_model.py`, add to `IslandModel` after `revalidate_each`. Confirm `Pop
 
         from aerocapture.training.population import resize_population  # noqa: PLC0415
 
+        # NOTE: resize_population needs no ParamSpec list -- the population is
+        # already in normalized [0,1] space, so fresh fill is rng.random.
         any_changed = False
         for island in self.islands:
             pop = island.algorithm.pop
@@ -750,7 +745,7 @@ In `island_model.py`, add to `IslandModel` after `revalidate_each`. Confirm `Pop
                 continue
             any_changed = True
             cur_F = pop.get("F").flatten()
-            new_X = resize_population(cur_X, cur_F, target_n, specs, rng, fresh_fraction=fresh_fraction)
+            new_X = resize_population(cur_X, cur_F, target_n, rng, fresh_fraction=fresh_fraction)
             new_F = self.problem._run_batch(new_X)
             new_pop = Population.new("X", new_X)
             new_pop.set("F", new_F.reshape(-1, 1))
@@ -767,7 +762,7 @@ In `island_model.py`, add to `IslandModel` after `revalidate_each`. Confirm `Pop
         return any_changed
 ```
 
-Add `from aerocapture.training.param_spaces import ParamSpec` to the module-level imports if not already present (check first: `rg -n "import ParamSpec|param_spaces import" src/python/aerocapture/training/island_model.py`). If absent, add it to avoid a NameError in the method signature annotation under `from __future__ import annotations` (annotations are strings, so a missing import only fails if evaluated; still import it for clarity and mypy).
+`resize_populations` takes no `ParamSpec` argument (resize_population needs none), so no new import is required for it.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -808,7 +803,6 @@ In `train.py`, inside `if resume_ckpt is not None:` (the block starting `train.p
                 print(f"  Resizing islands populations {old_n} -> {config.optimizer.n_pop}")
             island_model.resize_populations(
                 target_n=config.optimizer.n_pop,
-                specs=param_specs,
                 rng=rng,
                 fresh_fraction=config.optimizer.grow_fresh_fraction,
                 velocity_scale=config.optimizer.islands.pso_inject_velocity_scale,
@@ -840,7 +834,6 @@ def test_islands_resume_grow_and_revalidate(tmp_path):
 
     from aerocapture.training.island_model import IslandModel
     from aerocapture.training.optimizer import IslandSettings, OptimizerConfig
-    from aerocapture.training.param_spaces import ParamSpec
 
     class _P:
         def __init__(self):
@@ -852,7 +845,6 @@ def test_islands_resume_grow_and_revalidate(tmp_path):
         def evaluate_individual_records_per_seed(self, x, seeds):
             return np.full(len(seeds), 1.23, dtype=np.float64), [{} for _ in seeds]
 
-    specs = [ParamSpec(name=f"p{i}", p_min=0.0, p_max=1.0, default=0.5) for i in range(2)]
     rng = np.random.default_rng(0)
 
     # k_top=1 so k_top*(n_islands-1)=2 <= n_pop=4 (IslandModel.__init__ guard).
@@ -885,7 +877,7 @@ def test_islands_resume_grow_and_revalidate(tmp_path):
     assert gen == 0
     assert saved_transform == "linear"
 
-    model2.resize_populations(target_n=12, specs=specs, rng=np.random.default_rng(2), fresh_fraction=0.2, velocity_scale=0.05)
+    model2.resize_populations(target_n=12, rng=np.random.default_rng(2), fresh_fraction=0.2, velocity_scale=0.05)
     model2.revalidate_each()
 
     for isl in model2.islands:
@@ -951,5 +943,5 @@ Invoke the `smart-commit` skill, instructing it to take the WHOLE git branch (`f
 ## Self-Review Notes
 
 - **Spec coverage:** Feature #1 islands re-validation -> Task 6 + Task 8. Feature #2 pop growth/shrink -> Task 1 (helper), Task 4 (single-algo), Task 7 + Task 8 (islands). Feature #3 cost_transform persist+detect+reset -> Task 3 + Task 5 (persist), Task 4 (single-algo detect/log), Task 8 (islands detect/reset). `grow_fresh_fraction` TOML knob -> Task 2. Shrink-to-best-N -> Task 1. PSO velocity extension -> Task 7. All spec sections mapped.
-- **Type consistency:** `resize_population(pop_X, pop_F, target_n, specs, rng, fresh_fraction=0.2, jitter_sigma=0.02)` used identically in Tasks 1, 4, 7. `from_checkpoint` returns a 3-tuple everywhere after Task 5 (defined Task 5, consumed Task 8). `resize_populations(target_n, specs, rng, fresh_fraction, velocity_scale)` consistent Tasks 7/8. `revalidate_each()` no-arg consistent Tasks 6/8.
+- **Type consistency:** `resize_population(pop_X, pop_F, target_n, rng, fresh_fraction=0.2, jitter_sigma=0.02)` used identically in Tasks 1, 4, 7 (no ParamSpec arg -- population is normalized [0,1]). `from_checkpoint` returns a 3-tuple everywhere after Task 5 (defined Task 5, consumed Task 8). `resize_populations(target_n, rng, fresh_fraction, velocity_scale)` consistent Tasks 7/8. `revalidate_each()` no-arg consistent Tasks 6/8.
 - **Single-algo cost_transform:** existing resume re-validation (`train.py:1275-1298`) already recomputes `best_val_cost` under the current transform, so feature #3 for single-algo is the persist + log notice only (no functional reset beyond that), as documented in Task 4 Step 4.
