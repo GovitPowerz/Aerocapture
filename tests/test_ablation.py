@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 
+import pytest
 from aerocapture.training.ablation import _DV_TOTAL_COL, NN_INPUT_NAMES
 from aerocapture.training.charts_ablation import chart_ablation_bar
 
 
 def test_input_names_length() -> None:
-    """31 inputs: 16 baseline + 4 ref trajectory + 1 exit-bank teacher + 4 lateral telemetry + 6 (sin,cos) bank-history pairs."""
-    assert len(NN_INPUT_NAMES) == 31
+    """35 inputs: 16 baseline + 4 ref + 1 exit-teacher + 4 lateral telemetry + 6 (sin,cos) pairs + periapsis_alt + 3 predicted_dv."""
+    assert len(NN_INPUT_NAMES) == 35
+    assert "periapsis_alt" in NN_INPUT_NAMES
 
 
 def test_input_names_unique() -> None:
@@ -49,3 +52,59 @@ def test_ablation_chart_negative_deltas() -> None:
         path = str(Path(tmpdir) / "neg.svg")
         chart_ablation_bar(ranked, path)
         assert Path(path).exists()
+
+
+@pytest.mark.slow
+def test_run_flip_ablation_structure() -> None:
+    import json
+
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    toml = "configs/training/msr_aller_nn_scaledpi_train.toml"
+    cfg = load_toml_with_bases(Path(toml))
+    model_path = cfg.get("data", {}).get("neural_network")
+    if not model_path or not os.path.exists(model_path):
+        pytest.skip(f"deployed model not present: {model_path}")
+    model = json.loads(Path(model_path).read_text())
+    arch = model.get("architecture")
+    layer0_in = arch[0]["input_size"] if arch else model.get("layer_sizes", [None])[0]
+    mask_len = len(cfg["network"]["input_mask"])
+    if layer0_in != mask_len:
+        pytest.skip(f"deployed model stale: input_size {layer0_in} != mask {mask_len} (awaiting retrain)")
+    if 15 not in cfg["network"]["input_mask"]:
+        pytest.skip("bounce_flag (15) not in mask -- flip-ablation has no binary-flag target")
+    import aerocapture_rs  # noqa: F401  (skip cleanly if binding missing)
+    from aerocapture.training.ablation import run_flip_ablation
+
+    out = run_flip_ablation(toml, n_sims=8, flip_indices=(15,))
+    fv = sorted(r["frozen_value"] for r in out["results"])
+    assert fv == [-1.0, 1.0]  # bounce_flag frozen at both phases
+    assert all(isinstance(r["delta"], float) for r in out["results"])
+
+
+def test_nn_input_names_has_35_with_dv() -> None:
+    from aerocapture.training.ablation import NN_INPUT_NAMES
+
+    assert len(NN_INPUT_NAMES) == 35
+    assert NN_INPUT_NAMES[32] == "predicted_dv1"
+    assert NN_INPUT_NAMES[33] == "predicted_dv2"
+    assert NN_INPUT_NAMES[34] == "predicted_dv3"
+
+
+def test_cost_transform_override() -> None:
+    """--cost-transform override replaces the config's cost_transform in cost_kwargs."""
+    from aerocapture.training.ablation import _load_cost_kwargs
+
+    toml = "configs/training/msr_aller_nn_train_consolidated.toml"
+    base = _load_cost_kwargs(toml)
+    assert base["cost_transform"] == "cubed"  # inherited from common.toml
+    overridden = _load_cost_kwargs(toml, cost_transform="log")
+    assert overridden["cost_transform"] == "log"
+
+
+def test_cost_transform_override_rejects_unknown() -> None:
+    from aerocapture.training.ablation import _load_cost_kwargs
+
+    toml = "configs/training/msr_aller_nn_train_consolidated.toml"
+    with pytest.raises(ValueError):
+        _load_cost_kwargs(toml, cost_transform="bogus")

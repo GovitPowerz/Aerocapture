@@ -183,6 +183,13 @@ pub struct SimData {
     pub sim_phase: SimPhase,
     /// Gauss-Markov density perturbation config (None = disabled)
     pub density_perturbation: Option<dispersions::DensityPerturbationConfig>,
+    /// Config-level `[network.normalization]` override, resolved independently
+    /// of whether an NN model is loaded. When `neural_net` is `None` (e.g.
+    /// supervised-collect runs a teacher scheme), `build_nn_input` falls back to
+    /// this so the recorded candidate trace is normalized with the SAME scales
+    /// the deployed NN will use -- otherwise warm-start trains on DEFAULT-scaled
+    /// inputs while inference uses the override (silent train/inference mismatch).
+    pub nn_normalization_override: Option<Vec<neural::NormSpec>>,
 }
 
 const G0: f64 = 9.81;
@@ -658,6 +665,25 @@ impl SimData {
             None
         };
 
+        // Resolve the [network.normalization] override once, length-validated,
+        // independent of whether an NN model is loaded. The supervised-collect
+        // path runs a teacher scheme (neural_net is None) but must still apply
+        // this override to the recorded trace, so it lives on SimData directly.
+        let nn_normalization_override =
+            match toml.network.as_ref().and_then(|n| n.normalization.clone()) {
+                Some(norm) => {
+                    if norm.len() != neural::NN_FULL_INPUT_SIZE {
+                        return Err(DataError(format!(
+                            "[network.normalization] has {} entries, expected {}",
+                            norm.len(),
+                            neural::NN_FULL_INPUT_SIZE
+                        )));
+                    }
+                    Some(norm)
+                }
+                None => None,
+            };
+
         // Apply TOML [network] overrides to loaded NN model
         let mut neural_net = match (neural_net, &toml.network) {
             (Some(mut nn), Some(net_cfg)) => {
@@ -666,6 +692,9 @@ impl SimData {
                 }
                 if let Some(ablated) = net_cfg.ablated_input {
                     nn.ablated_input = Some(ablated);
+                }
+                if let Some(ref norm) = nn_normalization_override {
+                    nn.normalization = norm.clone();
                 }
                 // Re-validate after override
                 neural::NeuralNetModel::validate_mask(&nn.input_mask, nn.layer_sizes[0])?;
@@ -795,6 +824,7 @@ impl SimData {
             integration_mode: IntegrationMode::from_toml(&toml.integration, v.periods.integration),
             sim_phase: config.sim_phase,
             density_perturbation,
+            nn_normalization_override,
         })
     }
 }

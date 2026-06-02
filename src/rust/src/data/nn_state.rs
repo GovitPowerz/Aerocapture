@@ -153,9 +153,12 @@ mod tests {
             ],
             input_mask: None,
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         }
     }
 

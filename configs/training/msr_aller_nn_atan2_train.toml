@@ -1,14 +1,13 @@
-base = ["../missions/mars.toml", "common.toml", "nn_common.toml"]
+# MSR outbound — NN training, 50 MC sims per evaluation, domain-based dispersions
+base = ["../missions/mars.toml", "common.toml"]
+
+[guidance]
+type = "neural_network"
 
 [guidance.neural_network]
 mode = "full_neural"
 scaffolding = "live"
-output_parameterization = "scaled_pi"
-scaled_pi_n = 3.0
-
-[data]
-neural_network = "training_output/neural_network_scaledpi_pso_pruned_dv3/best_model.json"
-results_suffix = ".train_scaledpi_pso"
+output_parameterization = "atan2_signed"
 
 [network]
 # 17 inputs: 13-mask + pdyn_error(19) + live correction-DV predicted_dv1/2/3 (32,33,34).
@@ -18,6 +17,8 @@ results_suffix = ".train_scaledpi_pso"
 # +1.5 sentinel pre-capture).
 input_mask = [0, 2, 3, 5, 6, 7, 11, 12, 18, 19, 27, 28, 29, 30, 32, 33, 34]
 
+# Per-input normalization override (MUST be under [network] and BEFORE the
+# [[network.architecture]] blocks -- a bare key attaches to the preceding table).
 normalization = [
     { transform = "none", scale = 0.8655390346546353, center = 0.9204641308303162 }, # 0 eccentricity_excess
     { transform = "asinh", scale = 0.8175600848274288, center = 0.8867681772014051 }, # 1 inclination_error
@@ -55,6 +56,8 @@ normalization = [
     { transform = "none", scale = 60.0, center = 60.0 }, # 33 predicted_dv2
     { transform = "none", scale = 100.0, center = 0.0 }, # 34 predicted_dv3
 ]
+# input_mask = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+# input_mask = [18, 12, 15, 0, 6, 14, 13, 11, 4, 3, 5]
 
 [[network.architecture]]
 type = "dense"
@@ -71,16 +74,63 @@ activation = "swish"
 [[network.architecture]]
 type = "dense"
 input_size = 16
-output_size = 1
-activation = "tanh"
+output_size = 2
+activation = "asinh"
+
+[data]
+neural_network = "training_output/neural_network_atan2/best_model.json"
+results_suffix = ".train_nn_atan2"
+
+# Default routing is mode = "full_neural": NN emits a signed bank via atan2 and
+# BYPASSES exit guidance, lateral guidance, and the thermal limiter. The blocks
+# below would only be consumed under [guidance.neural_network] mode = "magnitude_only"
+# (capture-phase FTC is dead in BOTH modes -- NN owns that phase).
+#
+# [guidance.ftc]
+# # Exit-phase params (phase 2; FTC-tuned). Used under magnitude_only via the
+# # shared pdyn-feedback exit controller.
+# exit_velocity_threshold = 3548.8350669594774
+# exit_pdyn_margin = 3.324353921236187
+# exit_radial_vel_gain = 14.432026466531633
+# exit_altitude_threshold = 57.353046636034556
+# exit_apoapsis_threshold = 100.0
+# security_capture = 1
+# security_exit = 3
+# longi_activation = 1000.0
+# longi_inhibition = -1000.0
+# pdyn_min = 0.0
+#
+# [guidance.lateral]
+# tau = 20.30636755732464
+# threshold = 0.04240186744633933              # degrees
+# min_reversal_interval = 9.727705715865666    # seconds
+# lateral_activation = -0.502758875982189      # MJ/kg
+# lateral_inhibition = -7.635684306035069      # MJ/kg
+# max_reversals = 8                            # int (FTC GA chose 8.46 -> floor)
+#
+# [guidance.thermal_limiter]
+# heat_flux_activation = 0.6089212290967705
+# heat_load_activation = 0.717933818269412
+# heat_flux_ramp_exponent = 0.6031268922813253
+# heat_load_ramp_exponent = 2.1835321784009065
+
+# Command shaper and navigation run for ALL guidance schemes (dispatch-layer
+# and upstream of guidance respectively), so these are live under full_neural.
+[guidance.command_shaping]
+enabled = true
+max_bank_acceleration = 12.674110367187794   # deg/s^2
+
+[navigation]
+density_filter_gain = 0.34888052188696395
+density_gain_max_delta = 0.13961756994200195
 
 # [warm_start]
 # minibatch_size = 1024
 # adaptive_bounds = true
 # supervisor_schemes = ["ftc"]
 # bptt_length = 64
-# n_warm_seeds = 2000
-# n_epochs = 10
+# n_warm_seeds = 500
+# n_epochs = 1000
 # jitter = 0.02
 # cmaes_sigma0 = 0.1
 # eval_interval = 20   # 0 disables (default), N>0 = every N epochs + final epoch

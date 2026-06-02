@@ -348,8 +348,14 @@ fn nn_forward_sequence(json_path: String, inputs: Vec<Vec<f64>>) -> PyResult<Vec
 ///         (bank = scaled_pi_n * pi * tanh(out[0])). None defaults to 1.0.
 ///     delta_max: optional per-step increment bound for the "delta" decoder
 ///         (bank = prev_realized + delta_max * tanh(out[0])). None defaults to 0.35.
+///     normalization_json: optional JSON-serialized array of NN_FULL_INPUT_SIZE
+///         `{transform, scale, center}` objects. When Some, it is parsed and
+///         embedded into the model's normalization table BEFORE save (so the
+///         deployed model is self-describing under a `[network.normalization]`
+///         config override). When None, the model keeps the baked
+///         `DEFAULT_NORMALIZATION` (backward-compatible).
 #[pyfunction]
-#[pyo3(signature = (flat, architecture_json, path, input_mask=None, output_param=None, scaled_pi_n=None, delta_max=None))]
+#[pyo3(signature = (flat, architecture_json, path, input_mask=None, output_param=None, scaled_pi_n=None, delta_max=None, normalization_json=None))]
 fn flat_weights_to_json(
     flat: Vec<f64>,
     architecture_json: String,
@@ -358,8 +364,11 @@ fn flat_weights_to_json(
     output_param: Option<String>,
     scaled_pi_n: Option<f64>,
     delta_max: Option<f64>,
+    normalization_json: Option<String>,
 ) -> PyResult<()> {
-    use aerocapture::data::neural::{LayerSpec, NeuralNetModel, OutputParam};
+    use aerocapture::data::neural::{
+        LayerSpec, NN_FULL_INPUT_SIZE, NeuralNetModel, NormSpec, OutputParam,
+    };
 
     let specs: Vec<LayerSpec> = serde_json::from_str(&architecture_json).map_err(|e| {
         pyo3::exceptions::PyValueError::new_err(format!(
@@ -378,7 +387,7 @@ fn flat_weights_to_json(
             )));
         }
     };
-    let model = NeuralNetModel::from_flat_weights_v2(
+    let mut model = NeuralNetModel::from_flat_weights_v2(
         &flat,
         &specs,
         input_mask,
@@ -387,6 +396,22 @@ fn flat_weights_to_json(
         delta_max.unwrap_or(0.35),
     )
     .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    if let Some(norm_json) = normalization_json {
+        let parsed: Vec<NormSpec> = serde_json::from_str(&norm_json).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "flat_weights_to_json: normalization_json parse error: {}",
+                e
+            ))
+        })?;
+        if parsed.len() != NN_FULL_INPUT_SIZE {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "normalization must have {} entries (got {})",
+                NN_FULL_INPUT_SIZE,
+                parsed.len()
+            )));
+        }
+        model.normalization = parsed;
+    }
     model
         .save_json(&path)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
@@ -410,7 +435,7 @@ fn flat_weights_to_json(
 /// Returns:
 ///     List of dicts (one per seed) with keys:
 ///       - "seed": int, the MC seed.
-///       - "X": numpy.ndarray of shape (T, 31), per-tick NN input vectors.
+///       - "X": numpy.ndarray of shape (T, 35), per-tick NN input vectors.
 ///       - "y_signed": numpy.ndarray of shape (T,), final signed bank command
 ///         (radians) after thermal limiter, lateral, and command shaper.
 ///       - "prev_realized": numpy.ndarray of shape (T,), the previous-tick
@@ -521,8 +546,8 @@ fn collect_supervised(
     })?;
 
     // PyDict / PyArray construction requires the GIL, so it happens after py.detach() returns.
-    // NN input width is always 31 (the full FULL_MASK applied in tick.rs).
-    const NN_INPUT_WIDTH: usize = 31;
+    // NN input width is always NN_FULL_INPUT_SIZE (35) -- the full mask applied in tick.rs.
+    const NN_INPUT_WIDTH: usize = aerocapture::data::neural::NN_FULL_INPUT_SIZE;
     let result_list = PyList::empty(py);
     for (seed, supervised_trace, dv, captured) in per_seed {
         let n_steps = supervised_trace.len();
@@ -534,7 +559,7 @@ fn collect_supervised(
             y_signed.push(bank);
             prev_realized.push(realized);
         }
-        // Preserve shape (0, 31) on empty traces so downstream code can rely on width.
+        // Preserve shape (0, NN_FULL_INPUT_SIZE) on empty traces so downstream code can rely on width.
         let x_array = if x_rows.is_empty() {
             numpy::PyArray2::<f64>::zeros(py, [0, NN_INPUT_WIDTH], false)
         } else {
@@ -563,7 +588,7 @@ fn collect_supervised(
 /// candidate-vector trace enabled. Unlike collect_supervised it does NOT override
 /// the guidance type -- it captures the inputs the NN actually drives itself into.
 ///
-/// Returns a list of dicts (one per seed) with keys "seed", "X" (T,31),
+/// Returns a list of dicts (one per seed) with keys "seed", "X" (T,35),
 /// "time" (T,), "energy" (T,), "dv" (float), "captured" (bool).
 #[pyfunction]
 #[pyo3(signature = (toml_path, seeds, overrides=None, sim_timeout_secs=None))]
@@ -637,7 +662,7 @@ fn collect_nn_inputs(
         Ok::<_, PyErr>(())
     })?;
 
-    const NN_INPUT_WIDTH: usize = 31;
+    const NN_INPUT_WIDTH: usize = aerocapture::data::neural::NN_FULL_INPUT_SIZE;
     let result_list = PyList::empty(py);
     for (seed, trace, dv, captured) in per_seed {
         let n = trace.len();
@@ -721,6 +746,29 @@ fn toml_to_py(py: Python<'_>, value: &toml::Value) -> PyResult<Py<PyAny>> {
     }
 }
 
+/// Return the Rust `DEFAULT_NORMALIZATION` table as a list of dicts.
+///
+/// Each entry is `{"transform": "none"|"asinh"|"tanh", "scale": f64, "center": f64}`.
+/// This is the single source of truth for inverting NN normalized inputs back to raw.
+#[pyfunction]
+fn default_normalization(py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+    use aerocapture::data::neural::{DEFAULT_NORMALIZATION, NormTransform};
+    let mut out: Vec<Py<PyAny>> = Vec::with_capacity(DEFAULT_NORMALIZATION.len());
+    for spec in DEFAULT_NORMALIZATION.iter() {
+        let dict = PyDict::new(py);
+        let transform = match spec.transform {
+            NormTransform::None => "none",
+            NormTransform::Asinh => "asinh",
+            NormTransform::Tanh => "tanh",
+        };
+        dict.set_item("transform", transform)?;
+        dict.set_item("scale", spec.scale)?;
+        dict.set_item("center", spec.center)?;
+        out.push(dict.into_any().unbind());
+    }
+    Ok(out)
+}
+
 /// Aerocapture trajectory simulator Python bindings.
 #[pymodule]
 fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -738,5 +786,6 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(flat_weights_to_json, m)?)?;
     m.add_function(wrap_pyfunction!(collect_supervised, m)?)?;
     m.add_function(wrap_pyfunction!(collect_nn_inputs, m)?)?;
+    m.add_function(wrap_pyfunction!(default_normalization, m)?)?;
     Ok(())
 }

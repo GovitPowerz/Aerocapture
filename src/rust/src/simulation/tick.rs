@@ -162,20 +162,18 @@ pub fn step_one_tick(
         // recorded magnitude is just |reference_bank_angle| (constant per
         // config). Active-only rows give the regression target real signal.
         if config.collect_supervised && guidance_out.longitudinal_active == 1 {
-            // Explicit full mask: select all 31 inputs.
+            // Explicit full mask: select ALL candidate inputs (NN_FULL_INPUT_SIZE wide).
             // Passing None would trigger the backward-compat default (first 16 only).
-            const FULL_MASK: [usize; 31] = [
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-                23, 24, 25, 26, 27, 28, 29, 30,
-            ];
+            let full_mask: Vec<usize> = (0..crate::data::neural::NN_FULL_INPUT_SIZE).collect();
             // Telemetry scalars sourced from GuidanceState -- these reflect the
             // PREVIOUS-tick state (updated below after guidance_step), keeping
             // the supervised collect's input vector consistent with deploy.
             let time_since_flip = state.sim_time - state.guidance_state.last_sign_flip_time_for_nn;
             let nn_input = crate::gnc::guidance::neural::build_nn_input(
                 &nav_out,
-                Some(&FULL_MASK),
+                Some(&full_mask),
                 None, // no ablation
+                0.0,  // ablated_value (unused when ablated_input is None)
                 data,
                 planet,
                 data.target_orbit.inclination,

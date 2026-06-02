@@ -507,6 +507,7 @@ mod tests {
             integration_mode: crate::config::IntegrationMode::FixedGill,
             sim_phase: crate::config::SimPhase::Full,
             density_perturbation: None,
+            nn_normalization_override: None,
         }
     }
 
@@ -1209,9 +1210,12 @@ mod tests {
             })],
             input_mask: None,
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         // Heat flux at 99% of limit -> thermal limiter activates aggressively.
@@ -1300,9 +1304,12 @@ mod tests {
             })],
             input_mask: None,
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::AcosTanh,
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let mut nav = test_nav();

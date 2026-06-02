@@ -16,10 +16,13 @@ def test_resolve_mask_prefers_model_json(tmp_path: Path) -> None:
 
 
 def test_resolve_mask_falls_back_to_toml(tmp_path: Path) -> None:
-    # A non-existent model path falls back to the TOML's input_mask (delta config = 29 indices).
+    # A non-existent model path falls back to the TOML's input_mask.
+    # Delta config now uses the shared 17-input mask (incl. predicted_dv 32-34, excl. periapsis 31).
     missing = str(tmp_path / "nope.json")
     out = _resolve_mask("configs/training/msr_aller_nn_delta_train.toml", missing)
-    assert len(out) == 29 and 30 in out
+    assert len(out) == 17
+    assert 32 in out and 33 in out and 34 in out  # new DV inputs
+    assert 31 not in out  # periapsis dropped in the pruned mask
 
 
 def test_classify_by_dv_threshold() -> None:
@@ -52,7 +55,7 @@ def test_binned_band_shapes_and_values() -> None:
 
 def test_chart_nn_input_panel_writes_svg(tmp_path: Path) -> None:
     rng = np.random.default_rng(0)
-    X_list = [rng.uniform(-1.5, 1.5, size=(20, 31)) for _ in range(6)]
+    X_list = [rng.uniform(-1.5, 1.5, size=(20, 32)) for _ in range(6)]
     time_list = [np.arange(20.0) for _ in range(6)]
     klass = np.array([0, 0, 0, 1, 1, 1], dtype=np.int8)
     out = tmp_path / "panel.svg"
@@ -97,7 +100,7 @@ def test_run_report_smoke(tmp_path: Path) -> None:
     )
     assert (out_dir / "summary.json").exists()
     summary = _json.loads((out_dir / "summary.json").read_text())
-    assert len(summary["inputs"]) == 31
+    assert len(summary["inputs"]) == 35
     assert list(out_dir.glob("nn_input_*_time.svg"))
     assert list(out_dir.glob("nn_input_*_energy.svg"))
 

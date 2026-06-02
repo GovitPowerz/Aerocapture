@@ -3,7 +3,7 @@
 //! Feedforward network computing bank angle from navigation state.
 //! Supports arbitrary layer architectures via NeuralNetModel.
 //!
-//! 31 candidate inputs (selected by configurable `input_mask`):
+//! 35 candidate inputs (selected by configurable `input_mask`):
 //!   0  eccentricity_excess    8  altitude              16 cos_bank_nominal       21 inclination_err_rate
 //!   1  inclination_error      9  fpa                   17 pdyn_nominal           22 prev_bank_signed
 //!   2  radial_velocity       10  latitude              18 hdot_nominal           23 time_since_sign_flip
@@ -11,7 +11,15 @@
 //!   4  velocity              12  lift_accel            20 exit_bank_teacher      25 exit_bank_sin
 //!   5  accel_magnitude       13  sma_error             26 exit_bank_cos          27 prev_bank_signed_sin
 //!   6  heat_flux_fraction    14  apoapsis_alt          28 prev_bank_signed_cos   29 prev_realized_sin
-//!   7  heat_load_fraction    15  bounce_flag           30 prev_realized_cos
+//!   7  heat_load_fraction    15  bounce_flag           30 prev_realized_cos      31 periapsis_alt
+//!  32 predicted_dv1          33 predicted_dv2          34 predicted_dv3
+//!
+//! Wide-range inputs (2,3,5,11,12,13,14,18,19,31) and the 3 live correction-DV
+//! inputs (32,33,34) use `asinh((raw - center)/scale)`; bounded inputs use affine
+//! `(raw - center)/scale`. Per-input transforms live in `DEFAULT_NORMALIZATION`
+//! (data/neural.rs) or the model's embedded `normalization` block; scales are
+//! data-driven via `calibrate_inputs.py`. The DV inputs are computed by the smooth
+//! `maneuver::predicted_dv_for_nn` (no pre-capture sentinel).
 //!
 //! Index 20 is the closed-loop FTC exit-phase pdyn-feedback law, fed every step
 //! as a teacher signal (always live, not bounce-gated). Pre-bounce, with
@@ -42,16 +50,18 @@ use crate::data::nn_state::NnState;
 use crate::gnc::guidance::exit;
 use crate::gnc::navigation::coordinates::total_energy;
 use crate::gnc::navigation::estimator::NavigationOutput;
-use crate::orbit::elements;
+use crate::orbit::{elements, maneuver};
 
 /// Build the masked NN input vector from navigation state.
 ///
-/// Constructs the full 31-element candidate input vector, applies ablation zeroing
+/// Constructs the full 35-element candidate input vector, applies ablation zeroing
 /// (if configured), then applies the input_mask (or legacy [0..16] default).
 /// Returns the masked `Vec<f64>` ready for `nn.forward()`.
 ///
-/// `input_mask` and `ablated_input` are taken directly so this function can be
-/// called without a `NeuralNetModel` (e.g. supervised-trace capture during FTC runs).
+/// `input_mask`, `ablated_input`, and `ablated_value` are taken directly so this
+/// function can be called without a `NeuralNetModel` (e.g. supervised-trace capture
+/// during FTC runs). When `ablated_input = Some(idx)`, `full_input[idx]` is frozen
+/// to `ablated_value` (0.0 => classic zero-ablation; ±1 => flip-ablation).
 ///
 /// The last 4 parameters (`prev_inclination_error`, `prev_bank_signed`,
 /// `time_since_last_sign_flip`, `inclination_error_integral`) populate indices
@@ -66,6 +76,7 @@ pub fn build_nn_input(
     nav: &NavigationOutput,
     input_mask: Option<&[usize]>,
     ablated_input: Option<usize>,
+    ablated_value: f64,
     data: &SimData,
     planet: &PlanetConfig,
     target_inclination: f64,
@@ -100,26 +111,27 @@ pub fn build_nn_input(
     // Altitude in km
     let altitude_km = (nav.position_estimated[0] - planet.equatorial_radius) / 1e3;
 
-    // Build full 25-element input vector
-    let mut full_input = [0.0_f64; NN_FULL_INPUT_SIZE];
+    // Extract RAW physical values into raw[]; normalization is applied uniformly
+    // below from a per-input NormSpec table (model's or DEFAULT_NORMALIZATION).
+    let mut raw = [0.0_f64; NN_FULL_INPUT_SIZE];
 
     // -- 16 existing inputs (indices 0-15) --
-    full_input[0] = orbit.eccentricity - 1.0; // eccentricity excess
-    full_input[1] = (orbit.inclination - target_inclination).to_degrees() * 3.0 / 5.0; // inclination error
-    full_input[2] = 2.0 * (velocity_radial / 1e3 + 1.2) / 1.5 - 1.0; // radial velocity
-    full_input[3] = -mu / (2.0 * orbit.semi_major_axis) / 6e6; // orbital energy
-    full_input[4] = (nav.velocity_estimated[0] / 3e3 - 1.5) * 2.0; // velocity
-    full_input[5] = accel_mag / 20.0 - 1.0; // accel magnitude
-    full_input[6] = nav.heat_flux_fraction * 2.0 - 1.0; // heat flux fraction
-    full_input[7] = nav.heat_load_fraction * 2.0 - 1.0; // heat load fraction
-    full_input[8] = (altitude_km - 65.0) / 65.0; // altitude
-    full_input[9] = nav.velocity_estimated[1] / 0.3; // flight path angle
-    full_input[10] = nav.position_estimated[2] / std::f64::consts::FRAC_PI_2; // latitude
-    full_input[11] = nav.acceleration_estimated[0] / 50.0 - 1.0; // drag acceleration
-    full_input[12] = nav.acceleration_estimated[1] / 10.0; // lift acceleration
-    full_input[13] = nav.orbital_errors[0] / 5e5; // SMA error
-    full_input[14] = orbit.apoapsis_alt.clamp(-10e6, 10e6) / 1e6 - 1.0; // apoapsis altitude
-    full_input[15] = nav.bounce_flag as f64 * 2.0 - 1.0; // bounce flag
+    raw[0] = orbit.eccentricity; // eccentricity excess
+    raw[1] = (orbit.inclination - target_inclination).to_degrees(); // inclination error
+    raw[2] = velocity_radial; // radial velocity
+    raw[3] = -mu / (2.0 * orbit.semi_major_axis); // orbital energy
+    raw[4] = nav.velocity_estimated[0]; // velocity
+    raw[5] = accel_mag; // accel magnitude
+    raw[6] = nav.heat_flux_fraction; // heat flux fraction
+    raw[7] = nav.heat_load_fraction; // heat load fraction
+    raw[8] = altitude_km; // altitude
+    raw[9] = nav.velocity_estimated[1]; // flight path angle
+    raw[10] = nav.position_estimated[2]; // latitude
+    raw[11] = nav.acceleration_estimated[0]; // drag acceleration
+    raw[12] = nav.acceleration_estimated[1]; // lift acceleration
+    raw[13] = nav.orbital_errors[0]; // SMA error
+    raw[14] = orbit.apoapsis_alt; // apoapsis altitude
+    raw[15] = nav.bounce_flag as f64; // bounce flag
 
     // -- 4 reference trajectory inputs (indices 16-19) --
     let energy = total_energy(
@@ -139,17 +151,17 @@ pub fn build_nn_input(
         0.5 * nav.density_guidance * nav.velocity_estimated[0] * nav.velocity_estimated[0];
     let pdyn_error = pdyn_current - pdyn_nominal;
 
-    full_input[16] = cos_bank_nominal; // ref cos(bank)
-    full_input[17] = pdyn_nominal / 2e3 - 1.0; // ref dynamic pressure
-    full_input[18] = hdot_nominal / 500.0; // ref radial velocity
-    full_input[19] = pdyn_error / 2e3; // dynamic pressure error
+    raw[16] = cos_bank_nominal; // ref cos(bank)
+    raw[17] = pdyn_nominal; // ref dynamic pressure
+    raw[18] = hdot_nominal; // ref radial velocity
+    raw[19] = pdyn_error; // dynamic pressure error
 
     // -- Exit-bank teacher signal (index 20), always live --
     // Closed-loop FTC exit-phase pdyn-feedback law, fed every step as a
     // teacher signal. Pre-bounce, ref_velocity_latched = 0 so this degenerates
     // to pure radial-velocity damping.
     let exit_bank = exit::exit_guidance(nav, data, planet, ref_velocity_latched);
-    full_input[20] = exit_bank / std::f64::consts::PI * 2.0 - 1.0;
+    raw[20] = exit_bank;
 
     // -- Lateral-state telemetry (indices 21-24) --
     // These make the supervisor's signed-bank decision a Markovian function of
@@ -160,28 +172,53 @@ pub fn build_nn_input(
         Some(prev) => (current_inclination_error - prev) / data.periods.guidance,
         None => 0.0,
     };
-    // Index 21: inclination error rate (deg/s), scaled so typical ~ [-1, 1].
-    full_input[21] = di_err_dt.to_degrees() * 10.0;
-    // Index 22: previous bank command, normalized to [-1, 1].
-    full_input[22] = prev_bank_signed / std::f64::consts::PI;
-    // Index 23: time since last bank-command sign flip, tanh-bounded with 30s scale.
-    full_input[23] = (time_since_last_sign_flip / 30.0).tanh();
-    // Index 24: integrated inclination error (deg·s), tanh-bounded with 100 deg·s scale.
-    full_input[24] = (inclination_error_integral.to_degrees() / 100.0).tanh();
+    raw[21] = di_err_dt.to_degrees(); // inclination error rate (deg/s)
+    raw[22] = prev_bank_signed; // previous bank command (rad)
+    raw[23] = time_since_last_sign_flip; // time since last sign flip (s)
+    raw[24] = inclination_error_integral.to_degrees(); // integrated inclination error (deg·s)
 
     // -- (sin, cos) bank-history pairs (indices 25-30), seam-free cyclic encoding --
     // Bank angles fed as (sin, cos) pairs avoid the +π/-π representation seam.
-    // `exit_bank` is the raw radian value already computed above (before its normalization at index 20).
-    full_input[25] = exit_bank.sin();
-    full_input[26] = exit_bank.cos();
-    full_input[27] = prev_bank_signed.sin();
-    full_input[28] = prev_bank_signed.cos();
-    full_input[29] = prev_realized_bank.sin();
-    full_input[30] = prev_realized_bank.cos();
+    // `exit_bank` is the raw radian value already computed above.
+    raw[25] = exit_bank.sin();
+    raw[26] = exit_bank.cos();
+    raw[27] = prev_bank_signed.sin();
+    raw[28] = prev_bank_signed.cos();
+    raw[29] = prev_realized_bank.sin();
+    raw[30] = prev_realized_bank.cos();
 
-    // Apply ablation: zero out a single input for sensitivity analysis
+    // -- Periapsis altitude (index 31) --
+    raw[31] = orbit.periapsis_alt;
+
+    // -- Live correction-DV inputs (indices 32-34): smooth, always-defined --
+    // `predicted_dv_for_nn` is guarded to return 0.0 for degenerate/hyperbolic
+    // orbits, so no sentinel branch is needed.
+    let dv = maneuver::predicted_dv_for_nn(&orbit, &data.target_orbit, &data.parking_orbit, planet);
+    raw[32] = dv[0];
+    raw[33] = dv[1];
+    raw[34] = dv[2];
+
+    // -- Uniform normalization: full_input[i] = apply_norm(raw[i], &norm[i]) --
+    // Precedence mirrors deploy-time resolution: loaded model's table (already
+    // carries the [network.normalization] override) > the config override on
+    // SimData (used when no model is loaded, e.g. supervised-collect teacher
+    // runs) > the baked DEFAULT. Keeping the supervised trace on the same scales
+    // as inference avoids a warm-start train/inference mismatch.
+    let norm: &[crate::data::neural::NormSpec] = data
+        .neural_net
+        .as_ref()
+        .map(|m| m.normalization.as_slice())
+        .or(data.nn_normalization_override.as_deref())
+        .unwrap_or(&crate::data::neural::DEFAULT_NORMALIZATION);
+    let mut full_input = [0.0_f64; NN_FULL_INPUT_SIZE];
+    for i in 0..NN_FULL_INPUT_SIZE {
+        full_input[i] = crate::data::neural::apply_norm(raw[i], &norm[i]);
+    }
+
+    // Apply ablation: freeze a single input to `ablated_value` (default 0.0 =>
+    // classic zero-ablation; flip-ablation freezes a binary ±1 flag to -1 / +1).
     if let Some(idx) = ablated_input {
-        full_input[idx] = 0.0;
+        full_input[idx] = ablated_value;
     }
 
     // Apply input mask: select subset of inputs, or default to first 16 for backward compat
@@ -225,6 +262,7 @@ pub fn nn_bank_angle(
         nav,
         nn.input_mask.as_deref(),
         nn.ablated_input,
+        nn.ablated_value,
         data,
         planet,
         target_inclination,
@@ -365,6 +403,7 @@ mod tests {
             integration_mode: crate::config::IntegrationMode::FixedGill,
             sim_phase: crate::config::SimPhase::Full,
             density_perturbation: None,
+            nn_normalization_override: None,
         }
     }
 
@@ -403,10 +442,134 @@ mod tests {
             })],
             input_mask: None,
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         }
+    }
+
+    #[test]
+    fn full_vector_is_35_wide() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let inp = build_nn_input(
+            &nav,
+            Some(&full_mask),
+            None,
+            0.0,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        );
+        assert_eq!(inp.len(), 35, "candidate vector must be 35 wide");
+    }
+
+    #[test]
+    fn dv_inputs_hyperbolic_dv2_zero() {
+        use crate::data::neural::{DEFAULT_NORMALIZATION, apply_norm};
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let orbit = elements::from_spherical(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
+            &planet,
+        );
+        assert!(
+            orbit.eccentricity >= 1.0,
+            "fixture must be hyperbolic for this test"
+        );
+        // No sentinel anymore: predicted_dv_for_nn guards dv2 to 0.0 for non-elliptical
+        // orbits, so the normalized dv2 input is asinh(0) = 0.
+        let dv =
+            maneuver::predicted_dv_for_nn(&orbit, &data.target_orbit, &data.parking_orbit, &planet);
+        assert_eq!(dv[1], 0.0, "dv2 must vanish for hyperbolic orbit");
+        let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let inp = build_nn_input(
+            &nav,
+            Some(&full_mask),
+            None,
+            0.0,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        );
+        let expected_dv2 = apply_norm(0.0, &DEFAULT_NORMALIZATION[33]); // asinh(0) = 0
+        assert!(
+            (inp[33] - expected_dv2).abs() < 1e-12,
+            "input[33] = {} != {} (asinh of zeroed dv2)",
+            inp[33],
+            expected_dv2
+        );
+        assert!(inp[32].is_finite() && inp[33].is_finite() && inp[34].is_finite());
+    }
+
+    #[test]
+    fn dv_inputs_live_when_elliptical() {
+        use crate::data::neural::{DEFAULT_NORMALIZATION, apply_norm};
+        let mut nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        // Set radial speed below escape so the osculating orbit is provably elliptical.
+        let v_circ = (planet.mu / nav.position_estimated[0]).sqrt();
+        nav.velocity_estimated[0] = v_circ * 0.9;
+        let orbit = elements::from_spherical(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
+            &planet,
+        );
+        assert!(
+            orbit.eccentricity < 1.0,
+            "fixture must be elliptical (got e={})",
+            orbit.eccentricity
+        );
+        let dv =
+            maneuver::predicted_dv_for_nn(&orbit, &data.target_orbit, &data.parking_orbit, &planet);
+        let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let inp = build_nn_input(
+            &nav,
+            Some(&full_mask),
+            None,
+            0.0,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        );
+        assert!((inp[32] - apply_norm(dv[0], &DEFAULT_NORMALIZATION[32])).abs() < 1e-9);
+        assert!((inp[33] - apply_norm(dv[1], &DEFAULT_NORMALIZATION[33])).abs() < 1e-9);
+        assert!((inp[34] - apply_norm(dv[2], &DEFAULT_NORMALIZATION[34])).abs() < 1e-9);
+        assert!(inp[32].is_finite() && inp[33].is_finite() && inp[34].is_finite());
     }
 
     #[test]
@@ -535,9 +698,12 @@ mod tests {
             layers: vec![layer0, layer1],
             input_mask: None,
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let nav = test_nav();
@@ -615,9 +781,12 @@ mod tests {
             layers: vec![layer0, layer1],
             input_mask: None,
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let nav = test_nav();
@@ -668,9 +837,12 @@ mod tests {
             })],
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let nav = test_nav();
@@ -724,9 +896,12 @@ mod tests {
             })],
             input_mask: Some(vec![0, 8, 15]),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let nav = test_nav();
@@ -742,6 +917,7 @@ mod tests {
             &nav,
             Some(&full_mask),
             None,
+            0.0,
             &data,
             &planet,
             target_inc,
@@ -803,9 +979,12 @@ mod tests {
             })],
             input_mask: None,
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let nn_ablated = NeuralNetModel {
@@ -822,9 +1001,12 @@ mod tests {
             })],
             input_mask: None,
             ablated_input: Some(0),
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let nav = test_nav();
@@ -886,9 +1068,12 @@ mod tests {
             })],
             input_mask: Some((0..16).collect()),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let nav = test_nav();
@@ -939,9 +1124,12 @@ mod tests {
             })],
             input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::default(),
             scaled_pi_n: 1.0,
             delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
 
         let mut nav = test_nav();
@@ -985,6 +1173,7 @@ mod tests {
             &nav,
             Some(&full_mask),
             None,
+            0.0,
             &data,
             &planet,
             50.0_f64.to_radians(),
@@ -1027,6 +1216,7 @@ mod tests {
             &nav,
             Some(&full_mask),
             None,
+            0.0,
             &data,
             &planet,
             target,
@@ -1060,6 +1250,7 @@ mod tests {
                 &nav,
                 Some(&full_mask),
                 None,
+                0.0,
                 &data,
                 &planet,
                 target,
@@ -1088,6 +1279,7 @@ mod tests {
                 &nav,
                 Some(&full_mask),
                 None,
+                0.0,
                 &data,
                 &planet,
                 target,
@@ -1116,6 +1308,7 @@ mod tests {
             &nav,
             Some(&full_mask),
             None,
+            0.0,
             &data,
             &planet,
             target,
@@ -1133,6 +1326,7 @@ mod tests {
             &nav,
             Some(&full_mask),
             None,
+            0.0,
             &data,
             &planet,
             target,
@@ -1162,6 +1356,7 @@ mod tests {
             &nav,
             Some(&mask_21),
             None,
+            0.0,
             &data,
             &planet,
             target,
@@ -1176,6 +1371,7 @@ mod tests {
             &nav,
             Some(&mask_21),
             None,
+            0.0,
             &data,
             &planet,
             target,
@@ -1205,6 +1401,7 @@ mod tests {
             &nav,
             None,
             None,
+            0.0,
             &data,
             &planet,
             0.0,
@@ -1228,11 +1425,12 @@ mod tests {
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
         let prev_realized = 2.5_f64;
-        let mask: Vec<usize> = (0..31).collect();
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let v = build_nn_input(
             &nav,
             Some(&mask),
             None,
+            0.0,
             &data,
             &planet,
             0.0,
@@ -1243,7 +1441,7 @@ mod tests {
             0.0,
             prev_realized,
         );
-        assert_eq!(v.len(), 31);
+        assert_eq!(v.len(), NN_FULL_INPUT_SIZE);
         // sin at index 29, cos at index 30 — atan2(sin, cos) must recover the angle.
         let recovered = v[29].atan2(v[30]);
         assert_relative_eq!(recovered, prev_realized, epsilon = 1e-12);
@@ -1254,21 +1452,24 @@ mod tests {
         // n=2, single-output tanh net with zero weights, bias=0 → tanh(0)=0 → bank = 2π*0 = 0
         let nn = NeuralNetModel {
             architecture: vec![LayerSpec::Dense {
-                input_size: 31,
+                input_size: NN_FULL_INPUT_SIZE,
                 output_size: 1,
                 activation: Activation::Tanh,
             }],
-            layer_sizes: vec![31, 1],
+            layer_sizes: vec![NN_FULL_INPUT_SIZE, 1],
             layers: vec![Layer::Dense(DenseLayer {
-                w: vec![vec![0.0; 31]],
+                w: vec![vec![0.0; NN_FULL_INPUT_SIZE]],
                 b: vec![0.0],
                 activation: Activation::Tanh,
             })],
-            input_mask: Some((0..31).collect()),
+            input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::ScaledPi,
             scaled_pi_n: 2.0,
             delta_max: 0.0,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
         let mut st = NnState::for_model(&nn);
         let nav = test_nav();
@@ -1304,21 +1505,24 @@ mod tests {
         let bias = 20.0_f64;
         let nn = NeuralNetModel {
             architecture: vec![LayerSpec::Dense {
-                input_size: 31,
+                input_size: NN_FULL_INPUT_SIZE,
                 output_size: 1,
                 activation: Activation::Tanh,
             }],
-            layer_sizes: vec![31, 1],
+            layer_sizes: vec![NN_FULL_INPUT_SIZE, 1],
             layers: vec![Layer::Dense(DenseLayer {
-                w: vec![vec![0.0; 31]],
+                w: vec![vec![0.0; NN_FULL_INPUT_SIZE]],
                 b: vec![bias],
                 activation: Activation::Tanh,
             })],
-            input_mask: Some((0..31).collect()),
+            input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::ScaledPi,
             scaled_pi_n: 1.5,
             delta_max: 0.0,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
         let mut st = NnState::for_model(&nn);
         let nav = test_nav();
@@ -1361,21 +1565,24 @@ mod tests {
         // delta_max=0.2, bias=5 → tanh(5)≈1 → step ≈ +0.2 added to prev_realized=1.0
         let nn = NeuralNetModel {
             architecture: vec![LayerSpec::Dense {
-                input_size: 31,
+                input_size: NN_FULL_INPUT_SIZE,
                 output_size: 1,
                 activation: Activation::Tanh,
             }],
-            layer_sizes: vec![31, 1],
+            layer_sizes: vec![NN_FULL_INPUT_SIZE, 1],
             layers: vec![Layer::Dense(DenseLayer {
-                w: vec![vec![0.0; 31]],
+                w: vec![vec![0.0; NN_FULL_INPUT_SIZE]],
                 b: vec![5.0],
                 activation: Activation::Tanh,
             })],
-            input_mask: Some((0..31).collect()),
+            input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::Delta,
             scaled_pi_n: 1.0,
             delta_max: 0.2,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
         let mut st = NnState::for_model(&nn);
         let nav = test_nav();
@@ -1418,21 +1625,24 @@ mod tests {
         let prev_realized = PI - 0.1;
         let nn = NeuralNetModel {
             architecture: vec![LayerSpec::Dense {
-                input_size: 31,
+                input_size: NN_FULL_INPUT_SIZE,
                 output_size: 1,
                 activation: Activation::Tanh,
             }],
-            layer_sizes: vec![31, 1],
+            layer_sizes: vec![NN_FULL_INPUT_SIZE, 1],
             layers: vec![Layer::Dense(DenseLayer {
-                w: vec![vec![0.0; 31]],
+                w: vec![vec![0.0; NN_FULL_INPUT_SIZE]],
                 b: vec![bias],
                 activation: Activation::Tanh,
             })],
-            input_mask: Some((0..31).collect()),
+            input_mask: Some((0..NN_FULL_INPUT_SIZE).collect()),
             ablated_input: None,
+
+            ablated_value: 0.0,
             output_param: OutputParam::Delta,
             scaled_pi_n: 1.0,
             delta_max: 0.5,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
         };
         let mut st = NnState::for_model(&nn);
         let nav = test_nav();
@@ -1493,9 +1703,12 @@ mod tests {
                 })],
                 input_mask: None,
                 ablated_input: None,
+
+                ablated_value: 0.0,
                 output_param: OutputParam::default(),
                 scaled_pi_n: 1.0,
                 delta_max: 0.35,
+                normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
             }
         }
 
@@ -1555,9 +1768,12 @@ mod tests {
                 })],
                 input_mask: None,
                 ablated_input: None,
+
+                ablated_value: 0.0,
                 output_param: OutputParam::AcosTanh,
                 scaled_pi_n: 1.0,
                 delta_max: 0.35,
+                normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
             };
 
             let nav = test_nav();
@@ -1584,6 +1800,408 @@ mod tests {
                 (bank - expected).abs() < 1e-12,
                 "bank={bank} expected={expected}"
             );
+        }
+    }
+
+    // ── Task 1: asinh-rescaled inputs + periapsis_alt at index 31 ──
+
+    #[test]
+    fn nn_full_input_size_is_35() {
+        assert_eq!(NN_FULL_INPUT_SIZE, 35);
+    }
+
+    #[test]
+    fn rescaled_inputs_use_asinh_and_periapsis_present() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let v = build_nn_input(
+            &nav,
+            Some(&mask),
+            None,
+            0.0,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            0.0,
+        );
+        assert_eq!(v.len(), NN_FULL_INPUT_SIZE);
+        assert!(v.iter().all(|x| x.is_finite()));
+        assert!(v[14].abs() < 5.0); // apoapsis now asinh-scaled, not pinned at the old ±9 clamp
+        assert!(v[31].is_finite()); // periapsis present
+    }
+
+    #[test]
+    fn asinh_rescale_bounds_huge_values() {
+        assert!((100.0_f64).asinh() < 6.0);
+    }
+
+    #[test]
+    fn ablated_value_freezes_input_to_constant() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        // freeze index 2 to 0.7
+        let v = build_nn_input(
+            &nav,
+            Some(&mask),
+            Some(2),
+            0.7,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            0.0,
+        );
+        assert!((v[2] - 0.7).abs() < 1e-12);
+    }
+
+    #[test]
+    fn ablated_value_default_zero_matches_old_zeroing() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let v = build_nn_input(
+            &nav,
+            Some(&mask),
+            Some(2),
+            0.0,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            0.0,
+        );
+        assert_eq!(v[2], 0.0);
+    }
+
+    #[test]
+    fn default_mask_path_still_16() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let v = build_nn_input(
+            &nav,
+            None,
+            None,
+            0.0,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            9.9,
+        );
+        assert_eq!(v.len(), 16);
+    }
+
+    #[test]
+    fn radial_velocity_input_is_asinh_of_raw() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let v = build_nn_input(
+            &nav,
+            Some(&mask),
+            None,
+            0.0,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            0.0,
+        );
+        use crate::data::neural::{DEFAULT_NORMALIZATION, apply_norm};
+        let velocity_radial = nav.velocity_estimated[0] * nav.velocity_estimated[1].sin();
+        let expected = apply_norm(velocity_radial, &DEFAULT_NORMALIZATION[2]);
+        assert!(
+            (v[2] - expected).abs() < 1e-12,
+            "index 2 must be apply_norm(velocity_radial, norm[2]): expected {expected}, got {}",
+            v[2]
+        );
+    }
+
+    #[test]
+    fn pdyn_error_input_is_asinh_of_raw() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let v = build_nn_input(
+            &nav,
+            Some(&mask),
+            None,
+            0.0,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            0.0,
+        );
+        // Recompute pdyn_error the same way build_nn_input does.
+        let energy = total_energy(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
+            &planet,
+        );
+        let ref_traj = &data.guidance.ref_trajectory;
+        let pdyn_nominal = ref_traj.interpolate(energy, &ref_traj.pressure);
+        let pdyn_current =
+            0.5 * nav.density_guidance * nav.velocity_estimated[0] * nav.velocity_estimated[0];
+        let pdyn_error = pdyn_current - pdyn_nominal;
+        use crate::data::neural::{DEFAULT_NORMALIZATION, apply_norm};
+        let expected = apply_norm(pdyn_error, &DEFAULT_NORMALIZATION[19]);
+        assert!(
+            (v[19] - expected).abs() < 1e-9,
+            "index 19 must be apply_norm(pdyn_error, norm[19]): expected {expected}, got {}",
+            v[19]
+        );
+    }
+
+    #[test]
+    fn ecc_excess_input_is_calibrated_affine() {
+        let nav = test_nav();
+        let data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let v = build_nn_input(
+            &nav,
+            Some(&mask),
+            None,
+            0.0,
+            &data,
+            &planet,
+            0.0,
+            0.0,
+            Some(0.0),
+            0.3,
+            0.0,
+            0.0,
+            0.0,
+        );
+        let orbit = elements::from_spherical(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
+            &planet,
+        );
+        use crate::data::neural::{DEFAULT_NORMALIZATION, apply_norm};
+        let expected = apply_norm(orbit.eccentricity, &DEFAULT_NORMALIZATION[0]);
+        assert!(
+            (v[0] - expected).abs() < 1e-9,
+            "index 0 must be apply_norm(eccentricity, norm[0]): expected {expected}, got {}",
+            v[0]
+        );
+    }
+
+    #[test]
+    fn dv_inputs_finite_under_degenerate_target() {
+        // The old sentinel/is_finite backstop is gone: predicted_dv_for_nn guards
+        // every term (NaN comparisons are false), so even a degenerate target
+        // geometry yields finite DV inputs after asinh normalization.
+        let mut nav = test_nav();
+        let mut data = test_sim_data_with_ref_traj();
+        let planet = PlanetConfig::mars();
+
+        // Make the osculating orbit provably elliptical.
+        let v_circ = (planet.mu / nav.position_estimated[0]).sqrt();
+        nav.velocity_estimated[0] = v_circ * 0.9;
+
+        // Negative target semi-major axis: the old compute_deltav produced a
+        // non-finite dv3 here; predicted_dv_for_nn's rayneu > 0.0 guard absorbs it.
+        data.target_orbit.semi_major_axis = -3.77e6;
+
+        let orbit = elements::from_spherical(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
+            &planet,
+        );
+        assert!(orbit.eccentricity < 1.0, "fixture must stay elliptical");
+        let dv =
+            maneuver::predicted_dv_for_nn(&orbit, &data.target_orbit, &data.parking_orbit, &planet);
+        assert!(
+            dv[0].is_finite() && dv[1].is_finite() && dv[2].is_finite(),
+            "predicted_dv_for_nn must be always-defined (dv={dv:?})"
+        );
+
+        let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let inp = build_nn_input(
+            &nav,
+            Some(&mask),
+            None,
+            0.0,
+            &data,
+            &planet,
+            50.0_f64.to_radians(),
+            0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        );
+        for (idx, &val) in inp.iter().enumerate().skip(32).take(3) {
+            assert!(val.is_finite(), "input[{idx}] = {val} must be finite");
+        }
+    }
+
+    #[test]
+    fn apoapsis_asinh_maps_p99_near_one() {
+        // Index 14 (apoapsis_alt) must keep its calibrated asinh scale; a silent table
+        // edit would shift the input. Pin the scale + transform.
+        let spec = &crate::data::neural::DEFAULT_NORMALIZATION[14];
+        assert_eq!(spec.transform, crate::data::neural::NormTransform::Asinh);
+        assert!(
+            (spec.scale - 4.752185e7).abs() < 1.0,
+            "S_APOAPSIS_ALT drifted: {}",
+            spec.scale
+        );
+        assert_eq!(spec.center, 0.0);
+    }
+
+    #[test]
+    fn build_nn_input_characterization_0_to_31() {
+        let planet = PlanetConfig::mars();
+        let data = test_sim_data_with_ref_traj();
+        let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        // Pre-refactor snapshot (Task 3). The extract-then-normalize refactor must
+        // reproduce indices 0-31 bit-identically. Do NOT update these; they are
+        // the source of truth -- a mismatch means a table/extraction discrepancy.
+        let reference: [[f64; 32]; 2] = [
+            [
+                0.22447169631260513,
+                7.0358932144230915,
+                -0.5408086717617567,
+                0.13165560835515322,
+                0.3952593143030676,
+                1.8927422991740266,
+                -1.001991955699542,
+                -1.0005541164111957,
+                -0.7092692673248093,
+                -0.3369192451691694,
+                -0.8471544228271083,
+                1.9319026050223655,
+                -1.2115175534389817,
+                4.173413684246659e-5,
+                -1.1728867754548997,
+                -1.0,
+                0.4,
+                -0.38621937943811535,
+                -0.26648580721762305,
+                4.265018121679815,
+                -0.40880361226959894,
+                84.14563055702091,
+                0.06366197723675814,
+                0.3799489622552249,
+                0.9377272292777562,
+                0.8008116042937332,
+                0.5989163334126874,
+                0.19866933079506122,
+                0.9800665778412416,
+                0.14943813247359922,
+                0.9887710779360422,
+                0.5370177298445907,
+            ],
+            [
+                -0.41249149830047394,
+                5.1093447970496815,
+                -0.25270336733156135,
+                -1.3764310073711454,
+                -1.9375048245803783,
+                1.8927422991740266,
+                -1.001991955699542,
+                -1.0005541164111957,
+                -0.7092692673248093,
+                -0.3369192451691694,
+                -0.8471544228271083,
+                1.9319026050223655,
+                -1.2115175534389817,
+                4.173413684246659e-5,
+                0.001368058947726381,
+                -1.0,
+                0.8,
+                -0.38621937943811535,
+                0.13442037732181647,
+                2.4953889717039646,
+                -0.07070941013841248,
+                56.3402003552065,
+                0.06366197723675814,
+                0.3799489622552249,
+                0.9377272292777562,
+                0.9938380571496344,
+                0.11084185202819419,
+                0.19866933079506122,
+                0.9800665778412416,
+                0.14943813247359922,
+                0.9887710779360422,
+                -4.849317659520808,
+            ],
+        ];
+        for (fi, scale_v) in [1.0_f64, 0.45].iter().enumerate() {
+            let mut nav = test_nav();
+            nav.velocity_estimated[0] *= scale_v;
+            let inp = build_nn_input(
+                &nav,
+                Some(&full_mask),
+                None,
+                0.0,
+                &data,
+                &planet,
+                50.0_f64.to_radians(),
+                0.0,
+                Some(0.01),
+                0.2,
+                12.0,
+                3.0,
+                0.15,
+            );
+            for i in 0..32 {
+                assert!(
+                    (inp[i] - reference[fi][i]).abs() < 1e-12,
+                    "fixture {fi} index {i}: {} != {} (refactor must be bit-identical for 0-31)",
+                    inp[i],
+                    reference[fi][i]
+                );
+            }
         }
     }
 }

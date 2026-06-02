@@ -41,7 +41,7 @@ def test_collect_nn_inputs_runs_nn_and_returns_shapes(tmp_path: Path) -> None:
     r = out[0]
     assert set(r.keys()) == {"seed", "X", "time", "energy", "dv", "captured"}
     X, t, e = r["X"], r["time"], r["energy"]
-    assert X.ndim == 2 and X.shape[1] == 31
+    assert X.ndim == 2 and X.shape[1] == 35
     assert t.shape == (X.shape[0],) and e.shape == (X.shape[0],)
     assert np.all(np.diff(t) >= 0)
     assert np.isfinite(X).all() and np.isfinite(t).all() and np.isfinite(e).all()

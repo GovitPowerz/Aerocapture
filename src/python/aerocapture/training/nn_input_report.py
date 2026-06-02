@@ -88,7 +88,7 @@ def _resolve_mask(toml_path: str, model_path: str | None = None) -> set[int]:
             model_mask = json.loads(Path(nn_path).read_text()).get("input_mask")
             if model_mask is not None:
                 return set(model_mask)
-        except OSError, json.JSONDecodeError:
+        except (OSError, json.JSONDecodeError):  # fmt: skip  # ruff fmt strips the parens -> invalid syntax
             pass
     mask = cfg.get("network", {}).get("input_mask")
     return set(mask) if mask is not None else set(range(16))

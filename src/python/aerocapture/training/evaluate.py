@@ -48,6 +48,7 @@ def write_nn_json(
     filepath: str | Path,
     input_mask: list[int] | None = None,
     output_param: str | None = None,
+    normalization: list[dict] | None = None,
 ) -> None:
     """Write PSO chromosome weights as v2 NN JSON via the Rust LayerWeights trait.
 
@@ -55,6 +56,12 @@ def write_nn_json(
     single source of truth for weight serialization (closes Phase 0 review
     carry-over #2). Legacy dense-only `NetworkConfig` is translated into a v2
     architecture list before the call.
+
+    When `normalization` is provided (the config's `[network.normalization]`
+    override, a list of NN_FULL_INPUT_SIZE `{transform, scale, center}` dicts),
+    it is embedded into the written model so the deployed JSON is self-describing
+    and matches the scales the model trained under. When None, the model keeps
+    the baked `DEFAULT_NORMALIZATION` (backward-compatible).
     """
     if not _HAS_PYO3 or _aero_rs is None:
         raise RuntimeError(
@@ -86,6 +93,7 @@ def write_nn_json(
         output_param=output_param,
         scaled_pi_n=getattr(network, "scaled_pi_n", 1.0),
         delta_max=getattr(network, "delta_max", 0.35),
+        normalization_json=json.dumps(normalization) if normalization is not None else None,
     )
 
 

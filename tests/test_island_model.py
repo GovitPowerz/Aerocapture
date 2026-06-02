@@ -6,6 +6,7 @@ See docs/superpowers/specs/2026-05-28-island-model-pso-ga-de-design.md.
 from __future__ import annotations
 
 import json
+import math
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -371,6 +372,36 @@ def test_island_model_final_eval_picks_lowest_rms_winner() -> None:
     assert len(results) == 3
     rms_by_island = {r["island"]: r["rms"] for r in results}
     assert rms_by_island["pso"] < rms_by_island["de"] < rms_by_island["ga"]
+
+
+def test_final_eval_record_includes_val_rms() -> None:
+    cfg = _make_islands_cfg()
+    model = IslandModel(
+        config=cfg,
+        problem=_MockProblem(n_var=4),
+        n_params=4,
+        validation_seeds=[100, 101],
+        final_eval_seeds=[200, 201],
+        base_mc_seed=42,
+        rng=np.random.default_rng(0),
+    )
+    model.islands[0].best_overall_individual = np.array([0.1, 0.1, 0.1, 0.1])
+    model.islands[0].best_val_cost = 4.2  # validation rms it was promoted on
+    rec = next(r for r in model.final_eval() if r["island"] == model.islands[0].name)
+    assert rec["val_rms"] == 4.2
+
+
+def test_val_generalization_gap() -> None:
+    from aerocapture.training.island_model import val_generalization_gap
+
+    g, flag = val_generalization_gap(5.0, 5.0)
+    assert abs(g) < 1e-9 and not flag
+    g, flag = val_generalization_gap(5.0, 6.0)  # +20% > 15% threshold
+    assert abs(g - 0.2) < 1e-9 and flag
+    g, flag = val_generalization_gap(5.0, 5.5)  # +10% under threshold
+    assert abs(g - 0.1) < 1e-9 and not flag
+    g, flag = val_generalization_gap(float("inf"), 5.0)  # validation disabled
+    assert math.isnan(g) and not flag
 
 
 def test_island_model_final_eval_skips_islands_without_best() -> None:
