@@ -56,7 +56,7 @@ def _resolve_config_normalization(config: TrainingConfig, cwd: str | Path | None
     toml_path = Path(cwd or config.sim.exec_dir) / config.sim.toml_config
     try:
         toml_data = load_toml_with_bases(toml_path)
-    except OSError, ValueError:
+    except (OSError, ValueError):  # fmt: skip
         return None
     norm = toml_data.get("network", {}).get("normalization")
     return norm if isinstance(norm, list) else None
