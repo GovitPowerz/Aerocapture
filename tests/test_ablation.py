@@ -89,3 +89,22 @@ def test_nn_input_names_has_35_with_dv() -> None:
     assert NN_INPUT_NAMES[32] == "predicted_dv1"
     assert NN_INPUT_NAMES[33] == "predicted_dv2"
     assert NN_INPUT_NAMES[34] == "predicted_dv3"
+
+
+def test_cost_transform_override() -> None:
+    """--cost-transform override replaces the config's cost_transform in cost_kwargs."""
+    from aerocapture.training.ablation import _load_cost_kwargs
+
+    toml = "configs/training/msr_aller_nn_train_consolidated.toml"
+    base = _load_cost_kwargs(toml)
+    assert base["cost_transform"] == "cubed"  # inherited from common.toml
+    overridden = _load_cost_kwargs(toml, cost_transform="log")
+    assert overridden["cost_transform"] == "log"
+
+
+def test_cost_transform_override_rejects_unknown() -> None:
+    from aerocapture.training.ablation import _load_cost_kwargs
+
+    toml = "configs/training/msr_aller_nn_train_consolidated.toml"
+    with pytest.raises(ValueError):
+        _load_cost_kwargs(toml, cost_transform="bogus")

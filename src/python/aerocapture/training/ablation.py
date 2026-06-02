@@ -61,6 +61,8 @@ NN_INPUT_NAMES: list[str] = [
 # Verified against FINAL_CSV_COLUMNS in output.rs and results.rs comment (final_record[41]).
 _DV_TOTAL_COL = 41
 
+_COST_TRANSFORMS = ("linear", "sqrt", "log", "squared", "cubed")
+
 
 def _resolve_nn_path(toml_path: str) -> Path:
     """Return the absolute path to the neural network JSON model file."""
@@ -74,9 +76,16 @@ def _resolve_nn_path(toml_path: str) -> Path:
     return Path(nn_path_str).resolve()
 
 
-def _load_cost_kwargs(toml_path: str) -> dict[str, Any]:
-    """Extract cost function kwargs from TOML config (mirrors training pipeline)."""
+def _load_cost_kwargs(toml_path: str, cost_transform: str | None = None) -> dict[str, Any]:
+    """Extract cost function kwargs from TOML config (mirrors training pipeline).
+
+    `cost_transform`, when not None, overrides the config's [cost_function] cost_transform
+    (e.g. to avoid an inherited "cubed" blowing up the ablation cost ranking).
+    """
     from aerocapture.training.toml_utils import load_toml_with_bases
+
+    if cost_transform is not None and cost_transform not in _COST_TRANSFORMS:
+        raise ValueError(f"unknown cost_transform={cost_transform!r} (expected one of {_COST_TRANSFORMS})")
 
     config = load_toml_with_bases(Path(toml_path))
     kwargs: dict[str, Any] = {}
@@ -91,6 +100,8 @@ def _load_cost_kwargs(toml_path: str) -> dict[str, Any]:
         kwargs["heat_load_weight"] = float(cost_cfg["heat_load_weight"])
     if "cost_transform" in cost_cfg:
         kwargs["cost_transform"] = str(cost_cfg["cost_transform"])
+    if cost_transform is not None:
+        kwargs["cost_transform"] = cost_transform
     constraints = config.get("flight", {}).get("constraints", {})
     if "max_load_factor" in constraints:
         kwargs["g_load_limit"] = float(constraints["max_load_factor"])
@@ -113,6 +124,7 @@ def run_ablation(
     toml_path: str,
     n_sims: int = 1000,
     sim_timeout_secs: float | None = None,
+    cost_transform: str | None = None,
 ) -> dict:
     """Run ablation analysis on a trained NN model.
 
@@ -126,7 +138,7 @@ def run_ablation(
 
     nn_path = _resolve_nn_path(toml_path)
     model_json = json.loads(nn_path.read_text())
-    cost_kwargs = _load_cost_kwargs(toml_path)
+    cost_kwargs = _load_cost_kwargs(toml_path, cost_transform=cost_transform)
 
     common_overrides: dict = {"simulation.n_sims": n_sims}
 
@@ -199,6 +211,7 @@ def run_flip_ablation(
     n_sims: int = 1000,
     flip_indices: tuple[int, ...] = _DEFAULT_FLIP_INDICES,
     sim_timeout_secs: float | None = None,
+    cost_transform: str | None = None,
 ) -> dict:
     """Freeze each flip index to -1 and +1 (vs the network's normal ±1 flag),
     measuring cost delta for each frozen value separately. Unlike zero-ablation,
@@ -208,7 +221,7 @@ def run_flip_ablation(
 
     nn_path = _resolve_nn_path(toml_path)
     model_json = json.loads(nn_path.read_text())
-    cost_kwargs = _load_cost_kwargs(toml_path)
+    cost_kwargs = _load_cost_kwargs(toml_path, cost_transform=cost_transform)
     common_overrides: dict = {"simulation.n_sims": n_sims}
 
     baseline = aerocapture_rs.run_mc(toml_path, overrides=common_overrides, sim_timeout_secs=sim_timeout_secs)
@@ -250,11 +263,17 @@ def main() -> None:
     parser.add_argument("--n-sims", type=int, default=1000, help="MC sims per ablation run")
     parser.add_argument("--sim-timeout", type=float, default=None, help="Per-sim timeout (seconds)")
     parser.add_argument("--flip", action="store_true", help="freeze binary flags to -1/+1 instead of zero-ablation")
+    parser.add_argument(
+        "--cost-transform",
+        choices=list(_COST_TRANSFORMS),
+        default=None,
+        help="override [cost_function] cost_transform for this ablation run (e.g. log -- avoids cubed corrupting the ranking)",
+    )
     args = parser.parse_args()
 
     if args.flip:
         print(f"Running flip-ablation with {args.n_sims} sims per frozen value...")
-        flip = run_flip_ablation(args.toml, args.n_sims, sim_timeout_secs=args.sim_timeout)
+        flip = run_flip_ablation(args.toml, args.n_sims, sim_timeout_secs=args.sim_timeout, cost_transform=args.cost_transform)
         out_path = Path(args.training_dir) / "flip_ablation_results.json"
         out_path.write_text(json.dumps(flip, indent=2))
         print(f"\nBaseline mean cost: {flip['baseline_cost']:.4f}")
@@ -266,7 +285,7 @@ def main() -> None:
         return
 
     print(f"Running ablation analysis with {args.n_sims} sims per input...")
-    results = run_ablation(args.toml, args.n_sims, args.sim_timeout)
+    results = run_ablation(args.toml, args.n_sims, args.sim_timeout, cost_transform=args.cost_transform)
 
     # Print table
     print(f"\nBaseline mean cost: {results['baseline_cost']:.4f}")
