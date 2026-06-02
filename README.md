@@ -151,6 +151,8 @@ The cost function is a C-infinity softplus-quadratic DV penalty (`dv_cost`) with
 Training features:
 - Auto-resumes from existing checkpoints (use `-fs` to start fresh)
 - `--n-gen` means "N additional generations" when resuming
+- Resume with a larger/smaller `[optimizer] n_pop`: the resumed population is grown (keep originals + `grow_fresh_fraction` fresh-random + clone+jitter) or shrunk (best-N), in both the single-algorithm and islands paths
+- `cost_transform` is recorded in checkpoints; changing it on resume re-validates the best under the new metric (single-algo and per-island)
 - Graceful Ctrl+C (saves checkpoint and returns cleanly)
 - Rich TUI with sparklines, ETA, progress bar
 - Adaptive MC dispersion seeds (prevents overfitting)
