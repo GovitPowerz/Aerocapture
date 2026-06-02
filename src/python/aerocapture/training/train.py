@@ -940,6 +940,14 @@ def train(
         nn_config=config.network if config.guidance_type == "neural_network" else None,
     )
 
+    cost_transform_changed = False
+    if resumed is not None:
+        saved_transform = resumed.get("cost_transform")
+        current_transform = problem.cost_kwargs.get("cost_transform", "linear")
+        cost_transform_changed = saved_transform is None or saved_transform != current_transform
+        if cost_transform_changed and verbose:
+            print(f"  cost_transform changed {saved_transform!r} -> {current_transform!r}; re-validating best under new metric")
+
     # Reserved seed sets for validation and final evaluation.
     # Uses well-separated RNG streams so training, validation, and final eval
     # never share seeds.
@@ -976,6 +984,19 @@ def train(
         if pop_array.dtype != np.float64:
             pop_array = pop_array.astype(np.float64)
         _check_resume_chromosome_shape(pop_array, expected_n_params=len(param_specs))
+        if config.optimizer.n_pop != pop_array.shape[0]:
+            from aerocapture.training.population import resize_population  # noqa: PLC0415
+
+            if verbose:
+                print(f"  Resizing resumed population {pop_array.shape[0]} -> {config.optimizer.n_pop}")
+            pop_array = resize_population(
+                pop_array,
+                pop_costs,
+                config.optimizer.n_pop,
+                rng,
+                fresh_fraction=config.optimizer.grow_fresh_fraction,
+            )
+            pop_costs = None  # force a single re-eval of the resized pop
     else:
         if config.guidance_type == "neural_network" and config.network.architecture is None:
             # v1 dense-only NN: existing activation-aware Xavier/He/LeCun init.
@@ -1448,6 +1469,7 @@ def train(
                         seed_curator=seed_curator,
                         corridor_acc=corridor_acc,
                         best_val_cost=best_val_cost,
+                        cost_transform=problem.cost_kwargs.get("cost_transform", "linear"),
                     )
                     if verbose:
                         print(f"  Checkpoint saved: g{gen + 1:05d}")
@@ -1472,6 +1494,7 @@ def train(
                     seed_curator=seed_curator,
                     corridor_acc=corridor_acc,
                     best_val_cost=best_val_cost,
+                    cost_transform=problem.cost_kwargs.get("cost_transform", "linear"),
                 )
                 if verbose:
                     print(f"  Final checkpoint saved: g{last_gen:05d}")
@@ -1497,6 +1520,7 @@ def train(
                 seed_curator=seed_curator,
                 corridor_acc=corridor_acc,
                 best_val_cost=best_val_cost,
+                cost_transform=problem.cost_kwargs.get("cost_transform", "linear"),
             )
             logger.close()
 
