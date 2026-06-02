@@ -1,0 +1,33 @@
+# Transformer decoder on the atan2 input pipeline. Inherits the 17-input mask,
+# the calibrated [network.normalization] (35 entries), full_neural /
+# atan2_signed, scaffolding = "live", command shaping and navigation from the
+# atan2 config; overrides only the architecture (Dense -> Transformer -> Dense)
+# and the deploy path.
+base = ["msr_aller_nn_atan2_train.toml"]
+
+[data]
+neural_network = "training_output/neural_network_transformer_atan2/best_model.json"
+results_suffix = ".train_nn_transformer_atan2"
+
+# Architecture arrays REPLACE (not merge) under deep-merge, so this fully
+# supersedes atan2's 3-dense stack. Linear frontend projects the 17 masked
+# inputs to d_model=32 (d_model % n_heads == 0); final Dense(32->2) feeds the
+# atan2_signed decoder. Causal window attention over an n_seq=64 KV ring buffer.
+[[network.architecture]]
+type = "dense"
+input_size = 17
+output_size = 32
+activation = "linear"
+
+[[network.architecture]]
+type = "transformer"
+d_model = 32
+n_heads = 4
+d_ffn = 128
+n_seq = 64
+
+[[network.architecture]]
+type = "dense"
+input_size = 32
+output_size = 2
+activation = "asinh"
