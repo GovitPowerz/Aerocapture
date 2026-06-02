@@ -450,6 +450,27 @@ class IslandModel:
             )
         return results
 
+    def revalidate_each(self) -> None:
+        """Re-validate each island's best_overall_individual under the current config.
+
+        Called once after `from_checkpoint` on resume so each island's
+        `best_val_cost` reflects the CURRENT cost_kwargs (notably a changed
+        `cost_transform`) rather than the stale value baked into the checkpoint.
+        Keeps the individual; only refreshes the metric baseline. Islands with no
+        `best_overall_individual` (or with no validation seeds) are skipped.
+        """
+        if not self.validation_seeds:
+            return
+        for island in self.islands:
+            if island.best_overall_individual is None:
+                continue
+            val_costs, _ = self.problem.evaluate_individual_records_per_seed(
+                island.best_overall_individual,
+                self.validation_seeds,
+            )
+            island.best_val_cost = float(np.sqrt(np.mean(val_costs**2)))
+            island.last_validated_individual = island.best_overall_individual.copy()
+
     def pool_top_k_X(self, k: int) -> npt.NDArray[np.float64]:
         """Concatenate all island populations and return the K lowest-F rows.
 

@@ -1,4 +1,5 @@
 import json
+import types
 from pathlib import Path
 
 import numpy as np
@@ -78,3 +79,44 @@ def test_islands_from_checkpoint_returns_cost_transform(tmp_path: Path) -> None:
     with np.load(npz, allow_pickle=True) as data:
         assert "cost_transform" in data
         assert str(data["cost_transform"]) == "log"
+
+
+class _FakeProblem:
+    def __init__(self, rms: float) -> None:
+        self._rms = rms
+        self.cost_kwargs = {"cost_transform": "linear"}
+
+    def evaluate_individual_records_per_seed(self, x, seeds):  # type: ignore[no-untyped-def]
+        # costs whose RMS == self._rms regardless of x
+        return np.full(len(seeds), self._rms, dtype=np.float64), [{} for _ in seeds]
+
+
+def _fake_island(name: str, best_indiv, best_val_cost: float):  # type: ignore[no-untyped-def]
+    return types.SimpleNamespace(
+        name=name,
+        best_overall_individual=best_indiv,
+        best_val_cost=best_val_cost,
+        last_validated_individual=None,
+    )
+
+
+def test_revalidate_each_recomputes_best_val_cost() -> None:
+    from aerocapture.training.island_model import IslandModel
+
+    model = IslandModel.__new__(IslandModel)  # bypass __init__
+    model.islands = [
+        _fake_island("pso", np.array([0.1, 0.2]), best_val_cost=999.0),
+        _fake_island("ga", None, best_val_cost=999.0),  # no best -> skipped
+    ]
+    model.problem = _FakeProblem(rms=3.5)
+    model.validation_seeds = [1, 2, 3]
+
+    model.revalidate_each()
+
+    assert model.islands[0].best_val_cost == 3.5
+    last_validated = model.islands[0].last_validated_individual
+    assert last_validated is not None
+    assert np.array_equal(last_validated, np.array([0.1, 0.2]))
+    # Island with no best_overall_individual is untouched.
+    assert model.islands[1].best_val_cost == 999.0
+    assert model.islands[1].last_validated_individual is None
