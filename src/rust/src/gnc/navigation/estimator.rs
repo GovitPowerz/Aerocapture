@@ -149,9 +149,11 @@ pub fn navigate(
     // Density estimation via inverse dynamics (lift-corrected)
     // a_body_x = (rho*S*V^2 / 2m) * (Cx*cos(alpha) + Cz*sin(alpha))
     // => rho = 2*m*|a| / (S*V^2 * (Cx*cos(alpha) + Cz*sin(alpha)))
+    // Valid only for a POSITIVE denominator; a lift-dominated (negative) denom
+    // yields a non-physical negative density, so reject it (hold at 0).
     let aoa_est = aoa_commanded;
     let denom = cx_est * aoa_est.cos() + cz_est * aoa_est.sin();
-    let density_estimated = if denom.abs() > 1e-10 && velocity_relative.abs() > 1e-10 {
+    let density_estimated = if denom > 1e-10 && velocity_relative.abs() > 1e-10 {
         2.0 * accel_measured.abs() * data.capsule.mass
             / (denom * data.capsule.reference_area * velocity_relative * velocity_relative)
     } else {
@@ -500,11 +502,13 @@ pub fn navigate_ekf(
     out.aero_coefficients[0] = cx_est;
     out.aero_coefficients[1] = cz_est;
 
-    // Density estimation via inverse dynamics (lift-corrected)
+    // Density estimation via inverse dynamics (lift-corrected).
+    // Valid only for a POSITIVE denominator; a lift-dominated (negative) denom
+    // yields a non-physical negative density, so reject it (hold at 0).
     let accel_measured_ekf = accel_meas[0];
     let aoa_est = aoa_commanded;
     let denom = cx_est * aoa_est.cos() + cz_est * aoa_est.sin();
-    let density_estimated = if denom.abs() > 1e-10 && velocity_relative.abs() > 1e-10 {
+    let density_estimated = if denom > 1e-10 && velocity_relative.abs() > 1e-10 {
         2.0 * accel_measured_ekf.abs() * data.capsule.mass
             / (denom * data.capsule.reference_area * velocity_relative * velocity_relative)
     } else {
@@ -1439,6 +1443,58 @@ mod tests {
             out.density_guidance.is_finite(),
             "density_guidance should be finite when denom guard triggers, got {}",
             out.density_guidance
+        );
+    }
+
+    // ── Fix 4.2: density-inversion positive-denominator guard ──
+
+    /// When `Cx*cos(alpha) + Cz*sin(alpha) < 0` (lift-dominated), the inverse-
+    /// dynamics density is non-physical (negative). The guard must reject it
+    /// (density_estimated = 0), not admit a negative estimate through `.abs()`.
+    #[test]
+    fn negative_denom_rejected_in_density_inversion() {
+        let mut data = test_sim_data();
+        // Loose rate limiter so the single-step gain is the un-clamped filter value
+        // (default 0.1 would mask the old-vs-new difference behind the rate cap).
+        data.guidance.density_gain_max_delta = 100.0;
+        // aoa = 1.4 rad: denom = 1.0*cos(1.4) + (-5.0)*sin(1.4) ≈ 0.170 - 4.927 < 0.
+        data.aero.incidence = vec![0.0, 1.57];
+        data.aero.cx = vec![1.0, 1.0];
+        data.aero.cz = vec![-5.0, -5.0];
+        data.aero.n_points = 2;
+        data.entry.initial_aoa = 1.4;
+
+        // Sanity: confirm the constructed denominator is actually negative.
+        let denom = 1.0 * 1.4_f64.cos() + (-5.0) * 1.4_f64.sin();
+        assert!(
+            denom < 0.0,
+            "test setup invalid: denom={denom} not negative"
+        );
+
+        let r = MARS_REQ + 40_000.0;
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, -0.10, 1.0];
+        let biases = zero_biases();
+        let mut nav_state = NavigationState::new(); // density_gain = 1.0
+
+        let _out = call_navigate(
+            &position_true,
+            &velocity_true,
+            &biases,
+            &mut nav_state,
+            &data,
+            &no_run_biases(),
+        );
+
+        // With density_estimated rejected (= 0), the filter step from gain=1.0 is
+        // (1-λ)*1.0 + λ*0 = 1 - 0.8 = 0.2 (λ = clamp(0.8) = 0.8), inside [0.1, 10].
+        // The OLD abs-guarded code admits a large NEGATIVE estimate, driving raw_gain
+        // below the 0.1 floor.
+        assert_relative_eq!(nav_state.density_gain, 0.2, max_relative = 1e-12);
+        assert!(
+            nav_state.density_gain >= 0.1,
+            "density_gain must not go negative / below floor, got {}",
+            nav_state.density_gain
         );
     }
 
