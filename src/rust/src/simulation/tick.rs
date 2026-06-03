@@ -15,7 +15,7 @@ use crate::orbit::elements;
 use crate::physics::atmosphere;
 use crate::simulation::runner::{
     DEG_TO_RAD, SimState, TermReason, build_photo_values, effective_airspeed,
-    integrate_adaptive_with_events, integrate_step, navigate_from_state,
+    ifinal_for, integrate_adaptive_with_events, integrate_step, navigate_from_state,
     promote_pending_crash_if_applicable, track_peak_values,
 };
 
@@ -455,13 +455,7 @@ pub fn step_one_tick(
         promote_pending_crash_if_applicable(state, planet);
     }
     let ifinal = if done {
-        Some(match state.term {
-            TermReason::AtmosphereExit => 3,
-            TermReason::Crash => 1,
-            TermReason::PendingCrash => 4,
-            TermReason::Timeout => 2,
-            TermReason::None => unreachable!(),
-        })
+        Some(ifinal_for(state.term))
     } else {
         None
     };

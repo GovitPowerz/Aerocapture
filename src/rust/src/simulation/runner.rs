@@ -1055,7 +1055,7 @@ fn run_single(
     }
 
     // === Final conditions ===
-    let (alt_final, lat_final) = geodetic_from_spherical(
+    let (alt_final, _lat_final) = geodetic_from_spherical(
         sim_state.state[0],
         sim_state.state[1],
         sim_state.state[2],
@@ -1073,129 +1073,12 @@ fn run_single(
         );
     }
 
-    let orbit = elements::from_spherical(
-        sim_state.state[0],
-        sim_state.state[1],
-        sim_state.state[2],
-        sim_state.state[3],
-        sim_state.state[4],
-        sim_state.state[5],
-        planet,
-    );
-
-    let mu = planet.mu;
-    let (_position_abs, velocity_abs) = to_absolute_cartesian(
-        sim_state.state[0],
-        sim_state.state[1],
-        sim_state.state[2],
-        sim_state.state[3],
-        sim_state.state[4],
-        sim_state.state[5],
-        planet,
-    );
-    let speed_abs = norm(&velocity_abs);
-    let energy = speed_abs * speed_abs / 2.0 - mu / sim_state.state[0];
-    let velocity_radial = sim_state.state[3] * sim_state.state[4].sin();
-
     promote_pending_crash_if_applicable(&mut sim_state, planet);
-    let captured = orbit.eccentricity < 1.0 && energy < 0.0;
 
-    let ifinal = match sim_state.term {
-        TermReason::AtmosphereExit => 3,
-        TermReason::Crash => 1,
-        TermReason::PendingCrash => 4,
-        TermReason::Timeout => 2,
-        TermReason::None => unreachable!("simulation loop exits only on non-None termination"),
-    };
-
-    let deltav = if sim_state.term == TermReason::AtmosphereExit && captured {
-        maneuver::compute_deltav(&orbit, &data.target_orbit, &data.parking_orbit, planet)
-    } else if sim_state.term == TermReason::AtmosphereExit {
-        // Hyperbolic exit: excess velocity over escape speed
-        let v_escape = (2.0 * mu / sim_state.state[0]).sqrt();
-        let v_excess = (speed_abs - v_escape).max(0.0);
-        DeltaV {
-            dv1: 0.0,
-            dv2: 0.0,
-            dv3: 0.0,
-            total: HYPERBOLIC_BASE + v_excess,
-        }
-    } else {
-        // Crash, PendingCrash, or Timeout: energy-error + time-survival gradient.
-        let virtual_dv = virtual_dv_non_capture(
-            energy,
-            data.target_orbit.semi_major_axis,
-            mu,
-            sim_state.sim_time,
-            sim_state.max_time,
-        );
-        DeltaV {
-            dv1: 0.0,
-            dv2: 0.0,
-            dv3: 0.0,
-            total: virtual_dv,
-        }
-    };
-
-    // final_record layout (52 slots):
-    //   0  altitude (km)           16 max heat flux (kW/m²)     32-36 UNUSED
-    //   1  longitude (deg)         17 max g-load (g)             37 dv1 (m/s)
-    //   2  latitude (deg)          18 max pdyn (kPa)             38 dv2 (m/s)
-    //   3  velocity (m/s)          19 alt at max flux (km)       39 dv3 (m/s)
-    //   4  FPA (deg)               20 alt at max load (km)       40 dv1+dv2 (m/s)
-    //   5  heading (deg)           21 alt at max pdyn (km)       41 dv total (m/s)
-    //   6  radial velocity (m/s)   22 time at max flux (s)       42-44 UNUSED
-    //   7  energy (MJ/kg)          23 time at max load (s)       45 bank consumption (deg)
-    //   8  SMA (km)                24 time at max pdyn (s)       46 incl error (deg)
-    //                                                              47 UNUSED
-    //   9  eccentricity            25 bounce alt (km)            48 n_reversals
-    //  10  inclination (deg)       26 bounce time (s)            49-51 UNUSED
-    //  11  RAAN (deg)              27 sim time (s)
-    //  12  arg periapsis (deg)     28 cumulative flux (MJ/m²)
-    //  13  true anomaly (deg)      29 periapsis error (km)
-    //  14  periapsis alt (km)      30 apoapsis error (km)
-    //  15  apoapsis alt (km)       31 final phase
-    let mut final_record = [0.0_f64; 52];
-    final_record[0] = alt_final / 1e3;
-    final_record[1] = sim_state.state[1] / DEG_TO_RAD;
-    final_record[2] = lat_final / DEG_TO_RAD;
-    final_record[3] = sim_state.state[3];
-    final_record[4] = sim_state.state[4] / DEG_TO_RAD;
-    final_record[5] = sim_state.state[5] / DEG_TO_RAD;
-    final_record[6] = velocity_radial;
-    final_record[7] = energy / 1e6;
-    final_record[8] = orbit.semi_major_axis / 1e3;
-    final_record[9] = orbit.eccentricity;
-    final_record[10] = orbit.inclination / DEG_TO_RAD;
-    final_record[11] = orbit.raan / DEG_TO_RAD;
-    final_record[12] = orbit.arg_periapsis / DEG_TO_RAD;
-    final_record[13] = orbit.true_anomaly / DEG_TO_RAD;
-    final_record[14] = orbit.periapsis_alt / 1e3;
-    final_record[15] = orbit.apoapsis_alt / 1e3;
-    final_record[16] = sim_state.max_heat_flux / 1e3;
-    final_record[17] = sim_state.max_load_factor / G0;
-    final_record[18] = sim_state.max_dyn_pressure / 1e3;
-    final_record[19] = sim_state.alt_max_flux / 1e3;
-    final_record[20] = sim_state.alt_max_load / 1e3;
-    final_record[21] = sim_state.alt_max_pdyn / 1e3;
-    final_record[22] = sim_state.time_max_flux;
-    final_record[23] = sim_state.time_max_load;
-    final_record[24] = sim_state.time_max_pdyn;
-    final_record[25] = sim_state.bounce_alt / 1e3;
-    final_record[26] = sim_state.bounce_time;
-    final_record[27] = sim_state.sim_time;
-    final_record[28] = sim_state.state[6] / 1e6;
-    final_record[29] = orbit.periapsis_alt / 1e3 - data.target_orbit.periapsis / 1e3;
-    final_record[30] = orbit.apoapsis_alt / 1e3 - data.target_orbit.apoapsis / 1e3;
-    final_record[31] = ifinal as f64;
-    final_record[37] = deltav.dv1;
-    final_record[38] = deltav.dv2;
-    final_record[39] = deltav.dv3;
-    final_record[40] = deltav.dv1.abs() + deltav.dv2.abs();
-    final_record[41] = deltav.total;
-    final_record[45] = sim_state.cumulative_bank_change_deg;
-    final_record[46] = orbit.inclination / DEG_TO_RAD - data.target_orbit.inclination / DEG_TO_RAD;
-    final_record[48] = sim_state.guidance_state.lateral_state.n_reversals as f64;
+    // The 52-element final record / termination classification / virtual-DV is
+    // assembled by `build_final_record` (the same path the RL per-step env API
+    // takes via `tick.rs`), keeping CLI and env outputs bit-identical.
+    let final_record = build_final_record(&sim_state, data, planet);
 
     let event_records = std::mem::take(&mut sim_state.event_records);
 
@@ -1294,6 +1177,22 @@ pub fn promote_pending_crash_if_applicable(sim_state: &mut SimState, planet: &Pl
     }
 }
 
+/// Map a terminal `TermReason` to the `ifinal` classification code written to
+/// `final_record[31]`.
+///
+/// Single source of truth shared by `run_single`, `build_final_record`, and the
+/// RL per-step path in `tick.rs`. Genuinely unreachable on `None`: every caller
+/// is reached only after the simulation has terminated.
+pub(crate) fn ifinal_for(term: TermReason) -> i32 {
+    match term {
+        TermReason::AtmosphereExit => 3,
+        TermReason::Crash => 1,
+        TermReason::PendingCrash => 4,
+        TermReason::Timeout => 2,
+        TermReason::None => unreachable!("ifinal requested for a non-terminated state"),
+    }
+}
+
 pub fn build_final_record(
     sim_state: &SimState,
     data: &SimData,
@@ -1332,13 +1231,7 @@ pub fn build_final_record(
 
     let captured = orbit.eccentricity < 1.0 && energy < 0.0;
 
-    let ifinal = match sim_state.term {
-        TermReason::AtmosphereExit => 3,
-        TermReason::Crash => 1,
-        TermReason::PendingCrash => 4,
-        TermReason::Timeout => 2,
-        TermReason::None => 0, // should not happen; caller must check term != None
-    };
+    let ifinal = ifinal_for(sim_state.term);
 
     let deltav = if sim_state.term == TermReason::AtmosphereExit && captured {
         maneuver::compute_deltav(&orbit, &data.target_orbit, &data.parking_orbit, planet)
