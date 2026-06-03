@@ -92,8 +92,14 @@ class TestBatchRun:
         assert len(results) == 4
 
     def test_run_batch_rejects_multi_sim(self) -> None:
+        # Contract violation: n_sims > 1 must raise ValueError (not RuntimeError).
         with pytest.raises(ValueError, match="n_sims"):
             aero.run_batch(GOLDEN_TOML, [{"simulation.n_sims": 3}])
+
+    def test_run_batch_bad_config_raises_runtimeerror(self) -> None:
+        # Runtime failure: nonexistent TOML path must raise RuntimeError (not ValueError).
+        with pytest.raises(RuntimeError):
+            aero.run_batch("configs/test/does_not_exist_xyz.toml", [{}])
 
 
 class TestCostCompat:
@@ -313,15 +319,3 @@ class TestRunWithDraws:
         draws[1, 6] = 0.1  # density bias
         result = aero.run_with_draws(GOLDEN_TOML, draws)
         np.testing.assert_allclose(result.dispersions, draws, atol=1e-12)
-
-
-class TestBatchRun:
-    def test_run_batch_rejects_multi_sim(self) -> None:
-        # Contract violation: n_sims > 1 must raise ValueError (not RuntimeError).
-        with pytest.raises(ValueError, match="n_sims"):
-            aero.run_batch(GOLDEN_TOML, [{"simulation.n_sims": 3}])
-
-    def test_run_batch_bad_config_raises_runtimeerror(self) -> None:
-        # Runtime failure: nonexistent TOML path must raise RuntimeError (not ValueError).
-        with pytest.raises(RuntimeError):
-            aero.run_batch("configs/test/does_not_exist_xyz.toml", [{}])
