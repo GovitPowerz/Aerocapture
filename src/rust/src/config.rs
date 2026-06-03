@@ -107,18 +107,19 @@ pub enum IntegrationMode {
 
 impl IntegrationMode {
     /// Build from TOML config. `integration_period` is the outer tick dt from [vehicle.periods].
-    pub fn from_toml(toml: &Option<TomlIntegration>, integration_period: f64) -> Self {
+    pub fn from_toml(toml: &Option<TomlIntegration>, integration_period: f64) -> Result<Self, String> {
         let Some(cfg) = toml else {
-            return Self::FixedGill;
+            return Ok(Self::FixedGill);
         };
         match cfg.mode.as_str() {
-            "adaptive" => Self::AdaptiveDopri45(AdaptiveConfig {
+            "fixed" => Ok(Self::FixedGill),
+            "adaptive" => Ok(Self::AdaptiveDopri45(AdaptiveConfig {
                 rtol: cfg.rtol.unwrap_or(1e-6),
                 initial_dt: cfg.initial_dt.unwrap_or(0.1),
                 min_dt: cfg.min_dt.unwrap_or(1e-6),
                 max_dt: cfg.max_dt.unwrap_or(integration_period),
-            }),
-            _ => Self::FixedGill, // "fixed" or unrecognized => default
+            })),
+            other => Err(format!("unknown integration mode: {other:?} (expected \"fixed\" or \"adaptive\")")),
         }
     }
 }
@@ -1590,7 +1591,7 @@ mod tests {
 
     #[test]
     fn integration_mode_from_toml_none_gives_fixed() {
-        let mode = IntegrationMode::from_toml(&None, 1.0);
+        let mode = IntegrationMode::from_toml(&None, 1.0).unwrap();
         assert!(matches!(mode, IntegrationMode::FixedGill));
     }
 
@@ -1603,7 +1604,7 @@ mod tests {
             min_dt: None,
             max_dt: None,
         });
-        let mode = IntegrationMode::from_toml(&cfg, 1.0);
+        let mode = IntegrationMode::from_toml(&cfg, 1.0).unwrap();
         assert!(matches!(mode, IntegrationMode::FixedGill));
     }
 
@@ -1616,7 +1617,7 @@ mod tests {
             min_dt: None,
             max_dt: None,
         });
-        let mode = IntegrationMode::from_toml(&cfg, 2.0);
+        let mode = IntegrationMode::from_toml(&cfg, 2.0).unwrap();
         match mode {
             IntegrationMode::AdaptiveDopri45(ac) => {
                 assert!((ac.rtol - 1e-6).abs() < 1e-15);
@@ -1629,6 +1630,18 @@ mod tests {
     }
 
     #[test]
+    fn unknown_integration_mode_errors() {
+        let cfg = Some(TomlIntegration {
+            mode: "adaptiv".to_string(),
+            rtol: None,
+            initial_dt: None,
+            min_dt: None,
+            max_dt: None,
+        });
+        assert!(IntegrationMode::from_toml(&cfg, 1.0).is_err());
+    }
+
+    #[test]
     fn integration_mode_from_toml_adaptive_explicit() {
         let cfg = Some(TomlIntegration {
             mode: "adaptive".to_string(),
@@ -1637,7 +1650,7 @@ mod tests {
             min_dt: Some(1e-8),
             max_dt: Some(1.5),
         });
-        let mode = IntegrationMode::from_toml(&cfg, 2.0);
+        let mode = IntegrationMode::from_toml(&cfg, 2.0).unwrap();
         match mode {
             IntegrationMode::AdaptiveDopri45(ac) => {
                 assert!((ac.rtol - 1e-8).abs() < 1e-15);
