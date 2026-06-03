@@ -13,7 +13,7 @@ use crate::gnc::navigation::estimator::NavigationBiases;
 /// Setting it to `0.0` silently zeroes out all wind. Use `init_run_from_draw()`
 /// for production; for tests, set `wind_scale: 1.0` explicitly.
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct RunState {
     pub entry: EntryConditions,
     pub cx_bias: f64,              // drag coefficient bias (fractional)

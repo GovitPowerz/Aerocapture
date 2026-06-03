@@ -151,12 +151,12 @@ pub struct SimState {
     pub(crate) step: usize,
     pub(crate) first_iter: bool,
 
-    // ── Dispersed run state (cloned from init::RunState; density_perturbation mutated each tick) ──
+    // ── Dispersed run state (copied from init::RunState; density_perturbation mutated each tick) ──
     pub(crate) run_state: init::RunState,
     pub(crate) nav_biases: crate::gnc::navigation::estimator::NavigationBiases,
 
     // ── Supervised trace (only populated when config.collect_supervised=true) ──
-    // Lives on SimState (not RunState) so that the per-tick run_state.clone()
+    // Lives on SimState (not RunState) so that the per-tick run_state copy
     // calls in tick.rs do NOT deep-copy the growing trace vector. This was
     // O(N²) memory churn during supervised data collection.
     pub(crate) supervised_trace: Vec<(Vec<f64>, f64, f64, f64, f64)>,
@@ -836,7 +836,7 @@ fn run_single(
     // derivation, GNC init, and bias-mode last_nav priming as the RL env path);
     // `sim_idx as u64` reproduces the historical per-sim seeds exactly:
     // EKF `random_seed + sim_idx*10_000`, GM-RNG `... + 0xDE45`.
-    let mut sim_state = build_sim_state(config, data, run_state.clone(), sim_idx as u64);
+    let mut sim_state = build_sim_state(config, data, *run_state, sim_idx as u64);
 
     // CLI-specific overrides not produced by `build_sim_state` (which targets the
     // RL env defaults: no photo, no wall timeout, not the single-run banner).
@@ -879,7 +879,7 @@ fn run_single(
         let sim_idx = sim_state.sim_idx;
         let cumulative_bank_change_deg = sim_state.cumulative_bank_change_deg;
         let density_gain = sim_state.nav_filter.density_gain();
-        let run_state_snap = sim_state.run_state.clone();
+        let run_state_snap = sim_state.run_state;
         let cumulative_flux = sim_state.state[6];
         let guidance_phase_for_photo = sim_state.guidance_phase_for_photo;
         let photo_line = build_photo_values(

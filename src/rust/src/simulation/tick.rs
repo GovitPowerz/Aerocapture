@@ -240,6 +240,7 @@ pub fn step_one_tick(
         state.bank_angle = wrap_to_pi(state.pilot_state.bank_angle);
         state.aoa = guidance_out.aoa_commanded;
 
+        #[cfg(debug_assertions)]
         if state.is_single && (state.step < 5 || state.step.is_multiple_of(50)) {
             let (dbg_alt, _) =
                 geodetic_from_spherical(state.state[0], state.state[1], state.state[2], planet);
@@ -276,7 +277,7 @@ pub fn step_one_tick(
         let sim_idx = state.sim_idx;
         let cumulative_bank_change_deg = state.cumulative_bank_change_deg;
         let density_gain = state.nav_filter.density_gain();
-        let run_state_snap = state.run_state.clone();
+        let run_state_snap = state.run_state;
         let cumulative_flux = state.state[6];
         let guidance_phase_for_photo = state.guidance_phase_for_photo;
         let photo_line = build_photo_values(
@@ -300,11 +301,11 @@ pub fn step_one_tick(
     let mut adaptive_events: Vec<events::TriggeredEvent> = Vec::new();
     match &data.integration_mode {
         IntegrationMode::FixedGill => {
-            let run_state_snap = state.run_state.clone();
+            let run_state_snap = state.run_state;
             integrate_step(state, dt, planet, data, &run_state_snap);
         }
         IntegrationMode::AdaptiveDopri45(adaptive_config) => {
-            let run_state_snap = state.run_state.clone();
+            let run_state_snap = state.run_state;
             let sim_time = state.sim_time;
             let result = integrate_adaptive_with_events(
                 state,
@@ -336,7 +337,7 @@ pub fn step_one_tick(
     let (altitude, _lat_geo) =
         geodetic_from_spherical(state.state[0], state.state[1], state.state[2], planet);
 
-    let run_state_snap = state.run_state.clone();
+    let run_state_snap = state.run_state;
     let sim_time = state.sim_time;
     track_peak_values(state, altitude, sim_time, data, &run_state_snap);
 
