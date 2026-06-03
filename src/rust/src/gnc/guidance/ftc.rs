@@ -72,7 +72,7 @@ pub fn ftc_bank_angle(
         bank_angle_longitudinal = cos_bank_commanded.acos();
         is_securized = 1;
     } else {
-        bank_angle_longitudinal = cos_bank_commanded.acos().abs();
+        bank_angle_longitudinal = cos_bank_commanded.acos();
         is_securized = 0;
     }
 
