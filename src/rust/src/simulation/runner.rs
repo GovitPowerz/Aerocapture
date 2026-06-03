@@ -563,6 +563,56 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
     Ok(())
 }
 
+/// Project each 30-element photo line onto the 17-element trajectory row exposed
+/// by the PyO3 API. Index mapping and unit scaling (energy J->MJ, pdyn Pa->kPa)
+/// are the contract documented on `BatchResults` trajectory columns.
+fn project_trajectory(photo_lines: &[[f64; 30]]) -> Vec<[f64; 17]> {
+    photo_lines
+        .iter()
+        .map(|p| {
+            [
+                p[1],        // [0]  alt_km
+                p[2],        // [1]  lon_deg
+                p[3],        // [2]  lat_deg
+                p[4],        // [3]  vel_m_s
+                p[5],        // [4]  fpa_deg
+                p[6],        // [5]  heading_deg
+                p[24],       // [6]  heat_flux_kw_m2
+                p[0],        // [7]  time_s
+                p[18] / 1e6, // [8]  energy_mj_kg
+                p[19] / 1e3, // [9]  pdyn_kpa
+                p[14],       // [10] bank_angle_deg
+                p[9],        // [11] inclination_deg
+                p[25],       // [12] g_load_g
+                p[26],       // [13] nav_density_ratio
+                p[27],       // [14] truth_density_kg_m3
+                p[28],       // [15] heat_load_kj_m2
+                p[29],       // [16] density_perturbation
+            ]
+        })
+        .collect()
+}
+
+/// Assemble a `RunOutput` from one `SimResult`: project the trajectory (only when
+/// requested), extract energy/ecc, and apply the capture predicate.
+fn assemble_run_output(r: SimResult, include_trajectories: bool) -> crate::RunOutput {
+    let energy = r.final_line[7]; // MJ/kg
+    let ecc = r.final_line[9];
+    let trajectory = if include_trajectories {
+        project_trajectory(&r.photo_lines)
+    } else {
+        Vec::new()
+    };
+    let ifinal_val = r.final_line[31] as i32;
+    crate::RunOutput {
+        trajectory,
+        final_record: r.final_line,
+        captured: ifinal_val == 3 && ecc < 1.0 && energy < 0.0,
+        dispersions: r.dispersions,
+        supervised_trace: r.supervised_trace,
+    }
+}
+
 /// Run simulation and return structured results (no file I/O).
 ///
 /// Same physics as `run()`, but returns `Vec<RunOutput>` instead of writing files.
@@ -577,46 +627,7 @@ pub fn run_for_api(
 
     Ok(results
         .into_iter()
-        .map(|r| {
-            let energy = r.final_line[7]; // MJ/kg
-            let ecc = r.final_line[9];
-            let trajectory = if include_trajectories {
-                r.photo_lines
-                    .iter()
-                    .map(|p| {
-                        [
-                            p[1],        // [0]  alt_km
-                            p[2],        // [1]  lon_deg
-                            p[3],        // [2]  lat_deg
-                            p[4],        // [3]  vel_m_s
-                            p[5],        // [4]  fpa_deg
-                            p[6],        // [5]  heading_deg
-                            p[24],       // [6]  heat_flux_kw_m2
-                            p[0],        // [7]  time_s
-                            p[18] / 1e6, // [8]  energy_mj_kg
-                            p[19] / 1e3, // [9]  pdyn_kpa
-                            p[14],       // [10] bank_angle_deg
-                            p[9],        // [11] inclination_deg
-                            p[25],       // [12] g_load_g
-                            p[26],       // [13] nav_density_ratio
-                            p[27],       // [14] truth_density_kg_m3
-                            p[28],       // [15] heat_load_kj_m2
-                            p[29],       // [16] density_perturbation
-                        ]
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            let ifinal_val = r.final_line[31] as i32;
-            crate::RunOutput {
-                trajectory,
-                final_record: r.final_line,
-                captured: ifinal_val == 3 && ecc < 1.0 && energy < 0.0,
-                dispersions: r.dispersions,
-                supervised_trace: r.supervised_trace,
-            }
-        })
+        .map(|r| assemble_run_output(r, include_trajectories))
         .collect())
 }
 
@@ -675,46 +686,7 @@ pub fn run_for_api_with_draws(
 
     Ok(results
         .into_iter()
-        .map(|r| {
-            let energy = r.final_line[7];
-            let ecc = r.final_line[9];
-            let trajectory = if include_trajectories {
-                r.photo_lines
-                    .iter()
-                    .map(|p| {
-                        [
-                            p[1],        // [0]  alt_km
-                            p[2],        // [1]  lon_deg
-                            p[3],        // [2]  lat_deg
-                            p[4],        // [3]  vel_m_s
-                            p[5],        // [4]  fpa_deg
-                            p[6],        // [5]  heading_deg
-                            p[24],       // [6]  heat_flux_kw_m2
-                            p[0],        // [7]  time_s
-                            p[18] / 1e6, // [8]  energy_mj_kg
-                            p[19] / 1e3, // [9]  pdyn_kpa
-                            p[14],       // [10] bank_angle_deg
-                            p[9],        // [11] inclination_deg
-                            p[25],       // [12] g_load_g
-                            p[26],       // [13] nav_density_ratio
-                            p[27],       // [14] truth_density_kg_m3
-                            p[28],       // [15] heat_load_kj_m2
-                            p[29],       // [16] density_perturbation
-                        ]
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            let ifinal_val = r.final_line[31] as i32;
-            crate::RunOutput {
-                trajectory,
-                final_record: r.final_line,
-                captured: ifinal_val == 3 && ecc < 1.0 && energy < 0.0,
-                dispersions: r.dispersions,
-                supervised_trace: r.supervised_trace,
-            }
-        })
+        .map(|r| assemble_run_output(r, include_trajectories))
         .collect())
 }
 
