@@ -185,7 +185,10 @@ fn run_batch(
         include_trajectories,
         wall_timeout,
     )
-    .map_err(pyo3::exceptions::PyValueError::new_err)?;
+    .map_err(|e| match e {
+        batch::BatchError::Contract(m) => pyo3::exceptions::PyValueError::new_err(m),
+        batch::BatchError::Runtime(m) => pyo3::exceptions::PyRuntimeError::new_err(m),
+    })?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }
