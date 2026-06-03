@@ -178,10 +178,12 @@ pub fn navigate(
         let max_delta = data.guidance.density_gain_max_delta;
         let delta = (raw_gain - nav_state.density_gain).clamp(-max_delta, max_delta);
         nav_state.density_gain += delta;
-
-        // Gain saturation (hardcoded safety bounds, matches EKF [0.1, 10.0])
-        nav_state.density_gain = nav_state.density_gain.clamp(0.1, 10.0);
     }
+
+    // Gain saturation (hardcoded safety bounds, matches EKF [0.1, 10.0]) — applied
+    // unconditionally every tick as a safety net, even when the filter is skipped.
+    nav_state.density_gain = nav_state.density_gain.clamp(0.1, 10.0);
+
     if alt_est > 100e3 {
         nav_state.density_gain = 1.0;
     }
@@ -1537,6 +1539,43 @@ mod tests {
         // would run the filter with density_estimated=0: raw = (1-0.8)*5.0 = 1.0,
         // dragging the gain down toward the floor.
         assert_relative_eq!(nav_state.density_gain, 5.0, max_relative = 1e-12);
+    }
+
+    // ── Fix 4.4: unconditional density-gain clamp ──
+
+    /// The gain saturation clamp is a safety net and must run EVERY tick, even when
+    /// the filter trigger is false. With the filter skipped (guard-tripped step) a
+    /// pre-set out-of-range gain must still be clamped to [0.1, 10.0].
+    #[test]
+    fn density_gain_clamped_when_filter_skipped() {
+        let mut data = test_sim_data();
+        data.guidance.density_gain_max_delta = 100.0;
+        // Negative denom → density_estimated = 0 → filter `if` body is skipped (Fix 4.3).
+        data.aero.incidence = vec![0.0, 1.57];
+        data.aero.cx = vec![1.0, 1.0];
+        data.aero.cz = vec![-5.0, -5.0];
+        data.aero.n_points = 2;
+        data.entry.initial_aoa = 1.4;
+
+        let r = MARS_REQ + 40_000.0;
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, -0.10, 1.0];
+        let biases = zero_biases();
+        let mut nav_state = NavigationState::new();
+        nav_state.density_gain = 50.0; // out-of-range; must be clamped to 10.0
+
+        let _out = call_navigate(
+            &position_true,
+            &velocity_true,
+            &biases,
+            &mut nav_state,
+            &data,
+            &no_run_biases(),
+        );
+
+        // Clamp hoisted out of the filter `if` → runs unconditionally. The OLD code
+        // left the clamp inside the (skipped) filter block, so 50.0 survived.
+        assert_relative_eq!(nav_state.density_gain, 10.0, max_relative = 1e-12);
     }
 
     // ── Test 9: SimPhase gating in navigate() ──
