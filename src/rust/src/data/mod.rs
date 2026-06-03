@@ -828,12 +828,15 @@ impl SimData {
     }
 }
 
+/// A single custom-override field: (TOML key, setter writing the parsed value in).
+type CustomField<S> = (&'static str, fn(&mut S, f64));
+
 /// Resolve one dispersion domain: `None` if absent or Off, else `from_level` seeded
 /// with optional Custom overrides. Rejects unknown custom keys.
 fn resolve_domain<S>(
     d: Option<&TomlMcDomain>,
     from_level: impl Fn(dispersions::DispersionLevel) -> S,
-    custom_fields: &[(&str, fn(&mut S, f64))],
+    custom_fields: &[CustomField<S>],
 ) -> Result<Option<S>, DataError> {
     let Some(d) = d else { return Ok(None) };
     let level = dispersions::DispersionLevel::from_str(&d.level)?;
