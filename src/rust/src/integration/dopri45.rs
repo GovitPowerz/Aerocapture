@@ -129,7 +129,7 @@ pub struct StepResult {
 fn error_norm(y: &[f64; N], y4: &[f64; N], y5: &[f64; N], atol: &[f64; N], rtol: f64) -> f64 {
     let mut sum_sq = 0.0;
     for i in 0..N {
-        let scale = atol[i] + rtol * y[i].abs();
+        let scale = (atol[i] + rtol * y[i].abs()).max(1e-300);
         let err = (y4[i] - y5[i]) / scale;
         sum_sq += err * err;
     }
@@ -665,6 +665,25 @@ mod tests {
                 (interp[1] - v_exact).abs(),
             );
         }
+    }
+
+    /// Zero atol + zero y with zero error must not produce NaN in error_norm (floor guards 0/0).
+    #[test]
+    fn error_norm_zero_atol_zero_y_is_finite() {
+        // atol=0, rtol=0, y=0 => scale = 0 without the floor => 0/0 = NaN.
+        // With the floor at 1e-300: scale = 1e-300, err = 0/1e-300 = 0, norm = 0.
+        let atol = [0.0; 8];
+        let rtol = 0.0;
+        let y = [0.0; 8];
+        let y4 = [0.0; 8]; // no error — tests 0/0 guard specifically
+        let y5 = [0.0; 8];
+        let norm = error_norm(&y, &y4, &y5, &atol, rtol);
+        assert!(
+            norm.is_finite(),
+            "error_norm must be finite with zero atol+rtol*|y| and zero error, got {}",
+            norm
+        );
+        assert_eq!(norm, 0.0, "zero error with floored scale must yield norm=0");
     }
 
     proptest! {
