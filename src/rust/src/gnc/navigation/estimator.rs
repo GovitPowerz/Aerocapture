@@ -586,13 +586,14 @@ pub fn navigate_ekf(
 
     if legacy.bounce_flag == 0 {
         legacy.guidance_phase = 1;
-    } else {
+    } else if !legacy.exit_phase_locked {
         let vphase = data.guidance.exit_velocity_threshold;
         if velocity_relative >= vphase && velocity_radial < 0.0 {
             legacy.guidance_phase = 1;
         }
         if velocity_relative <= vphase && legacy.guidance_phase == 1 {
             legacy.guidance_phase = 2;
+            legacy.exit_phase_locked = true;
             legacy.capture_time = sim_time;
             out.phase_transition_flag = 1;
             out.reference_velocity = velocity_radial;
@@ -716,6 +717,72 @@ mod tests {
 
     fn no_run_biases() -> [f64; 7] {
         [0.0; 7] // density, cx, cz, mass, incidence, ref_area, filter_gain
+    }
+
+    /// Build EKF/IMU/StarTracker state with noise-free configs for deterministic
+    /// phase-logic tests (no sensor noise perturbs `velocity_estimated`).
+    fn quiet_ekf_states() -> (
+        EkfState,
+        ImuState,
+        StarTrackerState,
+        StarTrackerConfig,
+        EkfConfig,
+    ) {
+        let imu_config = ImuConfig {
+            accel_bias_sigma: 0.0,
+            accel_noise_sigma: 0.0,
+            accel_scale_factor_sigma: 0.0,
+            gyro_bias_sigma: 0.0,
+            gyro_noise_sigma: 0.0,
+        };
+        let st_config = StarTrackerConfig::default();
+        let ekf_config = EkfConfig::default();
+        (
+            EkfState::new(&ekf_config),
+            ImuState::new(&imu_config, 0),
+            StarTrackerState::new(&st_config, 0),
+            st_config,
+            ekf_config,
+        )
+    }
+
+    /// Helper: call navigate_ekf with zero run biases.
+    #[allow(clippy::too_many_arguments)]
+    fn call_navigate_ekf(
+        position_true: &[f64; 3],
+        velocity_true: &[f64; 3],
+        sim_time: f64,
+        legacy: &mut NavigationState,
+        ekf: &mut EkfState,
+        imu: &mut ImuState,
+        star_tracker: &mut StarTrackerState,
+        st_config: &StarTrackerConfig,
+        ekf_config: &EkfConfig,
+        data: &SimData,
+    ) -> NavigationOutput {
+        navigate_ekf(
+            position_true,
+            velocity_true,
+            data.entry.initial_aoa,
+            sim_time,
+            data.periods.navigation,
+            &NavigationBiases::default(),
+            legacy,
+            ekf,
+            imu,
+            star_tracker,
+            st_config,
+            ekf_config,
+            data,
+            &PlanetConfig::mars(),
+            0.0, // density
+            0.0, // density_perturbation
+            0.0, // cx
+            0.0, // cz
+            0.0, // mass
+            0.0, // incidence
+            0.0, // ref_area
+        )
     }
 
     /// Helper: call navigate with a convenient tuple of run biases.
@@ -1562,5 +1629,69 @@ mod tests {
             run_biases[6],
         );
         assert_eq!(out.guidance_phase, 2, "ExitOnly must force phase 2");
+    }
+
+    // ── Fix 4.1: EKF exit-phase irreversibility ──
+
+    /// Once `navigate_ekf` transitions to exit phase (1 → 2), a later step with
+    /// `velocity_relative >= vphase && velocity_radial < 0` must NOT revert to phase 1.
+    /// This mirrors the bias path's `exit_phase_locked` invariant.
+    #[test]
+    fn ekf_exit_phase_does_not_revert() {
+        let mut data = test_sim_data();
+        data.sim_phase = SimPhase::Full;
+        data.guidance.exit_velocity_threshold = 4400.0;
+        let r = MARS_REQ + 40_000.0;
+
+        let mut legacy = NavigationState::new();
+        let (mut ekf, mut imu, mut st, st_config, ekf_config) = quiet_ekf_states();
+
+        // Step 1: ascending (γ>0 → bounce) and below threshold → transition 1 → 2.
+        // radial ≈ 4000*sin(0.02) ≈ +80 m/s; prev_radial starts 0 → delta>0, no crash.
+        let out1 = call_navigate_ekf(
+            &[r, 0.0, 0.0],
+            &[4000.0, 0.02, 0.6],
+            10.0,
+            &mut legacy,
+            &mut ekf,
+            &mut imu,
+            &mut st,
+            &st_config,
+            &ekf_config,
+            &data,
+        );
+        assert_eq!(
+            out1.guidance_phase, 2,
+            "below threshold after bounce → exit phase"
+        );
+        assert_eq!(
+            out1.phase_transition_flag, 1,
+            "transition flag should be set"
+        );
+
+        // Disarm the crash detector for the revert step (orthogonal to the phase-lock
+        // bug under test): force prev_radial very negative so the next (negative) radial
+        // is an increase, not a crash-triggering decrease.
+        legacy.previous_radial_velocity = -1e9;
+
+        // Step 2: velocity_relative (5000) >= vphase (4400) AND velocity_radial < 0
+        // (γ<0). In the buggy EKF path this re-enters capture (phase 2 → 1); with the
+        // fix, `exit_phase_locked` guards it and the phase stays 2.
+        let out2 = call_navigate_ekf(
+            &[r, 0.0, 0.0],
+            &[5000.0, -0.01, 0.6],
+            20.0,
+            &mut legacy,
+            &mut ekf,
+            &mut imu,
+            &mut st,
+            &st_config,
+            &ekf_config,
+            &data,
+        );
+        assert_eq!(
+            out2.guidance_phase, 2,
+            "exit phase must not revert to capture once latched (EKF parity with bias)"
+        );
     }
 }
