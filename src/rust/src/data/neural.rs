@@ -1328,6 +1328,25 @@ pub enum LayerSpec {
     },
 }
 
+impl LayerSpec {
+    /// Returns `(input_size, output_size, kind_label)` for chain-consistency validation.
+    /// - Dense:       (input_size, output_size, "dense")
+    /// - Gru/Lstm:    (input_size, hidden_size, "gru"/"lstm")
+    /// - Window:      (input_size, n_steps * input_size, "window")
+    /// - Transformer: (d_model,    d_model,              "transformer")
+    /// - Mamba:       (input_size, input_size,            "mamba")
+    fn io(&self) -> (usize, usize, &'static str) {
+        match self {
+            LayerSpec::Dense { input_size, output_size, .. } => (*input_size, *output_size, "dense"),
+            LayerSpec::Gru { input_size, hidden_size } => (*input_size, *hidden_size, "gru"),
+            LayerSpec::Lstm { input_size, hidden_size } => (*input_size, *hidden_size, "lstm"),
+            LayerSpec::Window { input_size, n_steps } => (*input_size, n_steps * input_size, "window"),
+            LayerSpec::Transformer { d_model, .. } => (*d_model, *d_model, "transformer"),
+            LayerSpec::Mamba { input_size, .. } => (*input_size, *input_size, "mamba"),
+        }
+    }
+}
+
 fn default_scaled_pi_n() -> f64 {
     1.0
 }
@@ -1623,33 +1642,8 @@ impl NeuralNetModel {
         // Dense: output_size -> next.input_size; Gru/Lstm: hidden_size -> next.input_size;
         // Window: n_steps * input_size -> next.input_size (zero-param buffer flatten).
         for i in 0..file.architecture.len().saturating_sub(1) {
-            let prev_out = match &file.architecture[i] {
-                LayerSpec::Dense { output_size, .. } => *output_size,
-                LayerSpec::Gru { hidden_size, .. } => *hidden_size,
-                LayerSpec::Lstm { hidden_size, .. } => *hidden_size,
-                LayerSpec::Window {
-                    input_size,
-                    n_steps,
-                } => *input_size * *n_steps,
-                LayerSpec::Transformer { d_model, .. } => *d_model,
-                LayerSpec::Mamba { input_size, .. } => *input_size,
-            };
-            let (next_in, next_label) = match &file.architecture[i + 1] {
-                LayerSpec::Dense { input_size, .. } => (*input_size, "dense"),
-                LayerSpec::Gru { input_size, .. } => (*input_size, "gru"),
-                LayerSpec::Lstm { input_size, .. } => (*input_size, "lstm"),
-                LayerSpec::Window { input_size, .. } => (*input_size, "window"),
-                LayerSpec::Transformer { d_model, .. } => (*d_model, "transformer"),
-                LayerSpec::Mamba { input_size, .. } => (*input_size, "mamba"),
-            };
-            let prev_label = match &file.architecture[i] {
-                LayerSpec::Dense { .. } => "dense",
-                LayerSpec::Gru { .. } => "gru",
-                LayerSpec::Lstm { .. } => "lstm",
-                LayerSpec::Window { .. } => "window",
-                LayerSpec::Transformer { .. } => "transformer",
-                LayerSpec::Mamba { .. } => "mamba",
-            };
+            let (_, prev_out, prev_label) = file.architecture[i].io();
+            let (next_in, _, next_label) = file.architecture[i + 1].io();
             if prev_out != next_in {
                 return Err(DataError(format!(
                     "architecture chain mismatch at layer {}->{} in {}: layer {} ({}) produces output={}, but layer {} ({}) expects input={}",
@@ -2571,6 +2565,12 @@ impl NeuralNetModel {
                     d_ffn,
                     n_seq,
                 } => {
+                    if *d_model == 0 || *d_ffn == 0 || *n_seq == 0 {
+                        return Err(DataError(format!(
+                            "from_flat_weights_v2: Transformer layer {} d_model, d_ffn, and n_seq must be positive (got d_model={}, d_ffn={}, n_seq={})",
+                            i, d_model, d_ffn, n_seq
+                        )));
+                    }
                     if *n_heads == 0 || *d_model % *n_heads != 0 {
                         return Err(DataError(format!(
                             "from_flat_weights_v2: Transformer layer {} d_model={} not divisible by n_heads={}",
@@ -3969,6 +3969,76 @@ mod tests {
         for (i, (a, b)) in flat.iter().zip(round.iter()).enumerate() {
             assert!((a - b).abs() < 1e-15, "mismatch at index {i}: {a} vs {b}");
         }
+    }
+
+    #[test]
+    fn from_flat_weights_v2_transformer_rejects_zero_d_model() {
+        // from_flat_weights_v2 must reject Transformer with d_model=0 (parity with from_v2_json).
+        let arch = vec![LayerSpec::Transformer {
+            d_model: 0,
+            n_heads: 1,
+            d_ffn: 8,
+            n_seq: 4,
+        }];
+        let err = NeuralNetModel::from_flat_weights_v2(
+            &[],
+            &arch,
+            None,
+            OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
+        )
+        .unwrap_err();
+        assert!(
+            err.0.contains("d_model") || err.0.contains("positive"),
+            "expected positivity error, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn from_flat_weights_v2_transformer_rejects_zero_d_ffn() {
+        let arch = vec![LayerSpec::Transformer {
+            d_model: 4,
+            n_heads: 2,
+            d_ffn: 0,
+            n_seq: 4,
+        }];
+        let err = NeuralNetModel::from_flat_weights_v2(
+            &[],
+            &arch,
+            None,
+            OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
+        )
+        .unwrap_err();
+        assert!(
+            err.0.contains("d_ffn") || err.0.contains("positive"),
+            "expected positivity error, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn from_flat_weights_v2_transformer_rejects_zero_n_seq() {
+        let arch = vec![LayerSpec::Transformer {
+            d_model: 4,
+            n_heads: 2,
+            d_ffn: 8,
+            n_seq: 0,
+        }];
+        let err = NeuralNetModel::from_flat_weights_v2(
+            &[],
+            &arch,
+            None,
+            OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
+        )
+        .unwrap_err();
+        assert!(
+            err.0.contains("n_seq") || err.0.contains("positive"),
+            "expected positivity error, got: {err:?}"
+        );
     }
 
     #[test]
