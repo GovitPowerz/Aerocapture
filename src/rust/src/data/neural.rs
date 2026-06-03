@@ -961,15 +961,8 @@ impl LayerWeights for WindowLayer {
     }
 
     #[allow(clippy::wrong_self_convention)]
-    fn from_flat(&mut self, flat: &[f64]) -> usize {
-        assert!(
-            flat.is_empty() || {
-                // We may be handed a tail that still has remaining params for the
-                // next layer; only the prefix we consume (0 bytes) matters.
-                true
-            },
-            "WindowLayer takes no weights"
-        );
+    fn from_flat(&mut self, _flat: &[f64]) -> usize {
+        // WindowLayer is parameter-free: consume nothing, tolerate any tail slice.
         0
     }
 
