@@ -137,39 +137,6 @@ pub fn predicted_dv_for_nn(
     [dv1, dv2, dv3]
 }
 
-/// Compute optimal delta-V (from target orbit to parking orbit).
-#[allow(dead_code)]
-pub fn compute_deltav_optimal(
-    target: &OrbitalTarget,
-    parking: &ParkingOrbit,
-    planet: &PlanetConfig,
-) -> DeltaV {
-    let mu = planet.mu;
-    let req = planet.equatorial_radius;
-
-    let rapoge = req + target.apoapsis;
-    let rperig = req + target.periapsis;
-    let rapotf = req + parking.apoapsis;
-    let rpertf = req + parking.periapsis;
-
-    let vitfin1 = (2.0 * mu * rpertf / (rapoge * (rapoge + rpertf))).sqrt();
-    let vitini1 = (2.0 * mu * rperig / (rapoge * (rapoge + rperig))).sqrt();
-    let dv1 = vitfin1 - vitini1;
-
-    let vitfin2 = (2.0 * mu * rapotf / (rpertf * (rapotf + rpertf))).sqrt();
-    let vitini2 = (2.0 * mu * rapoge / (rpertf * (rapoge + rpertf))).sqrt();
-    let dv2 = vitfin2 - vitini2;
-
-    let dv3 = 0.0_f64; // inclination correction not computed for optimal case
-    let total = dv1.abs() + dv2.abs() + dv3.abs();
-
-    DeltaV {
-        dv1,
-        dv2,
-        dv3,
-        total,
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -224,19 +191,6 @@ mod tests {
             "total ({}) should equal |dv1|+|dv2|+|dv3| ({})",
             dv.total,
             expected
-        );
-    }
-
-    #[test]
-    fn optimal_has_zero_dv3() {
-        let (_, target, parking, planet) = mars_test_fixtures();
-        let dv = compute_deltav_optimal(&target, &parking, &planet);
-        assert_eq!(dv.dv3, 0.0, "optimal dv3 should be exactly zero");
-        assert!(dv.total.is_finite(), "optimal total should be finite");
-        let expected = dv.dv1.abs() + dv.dv2.abs();
-        assert!(
-            (dv.total - expected).abs() < 1e-10,
-            "optimal total should equal |dv1|+|dv2|"
         );
     }
 
