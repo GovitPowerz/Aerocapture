@@ -240,3 +240,101 @@ def test_islands_resume_grow_and_revalidate(tmp_path: Path) -> None:
     for isl in model2.islands:
         assert isl.algorithm.pop.get("X").shape == (12, 2)
         assert isl.best_val_cost == 1.23  # re-validated under new metric, not the stale 999.0
+
+    from pymoo.algorithms.soo.nonconvex.pso import PSO
+
+    for isl in model2.islands:
+        if isinstance(isl.algorithm, PSO):
+            assert isl.algorithm.particles.get("X").shape == (12, 2)
+            assert isl.algorithm.particles.get("V").shape == (12, 2)
+
+
+def test_resize_populations_shrinks_each_island() -> None:
+    from aerocapture.training.island_model import IslandModel
+    from pymoo.core.population import Population
+
+    class _P:
+        cost_kwargs = {"cost_transform": "linear"}
+
+        def _run_batch(self, X):  # type: ignore[no-untyped-def]
+            return np.zeros(X.shape[0])
+
+    rng = np.random.default_rng(0)
+
+    def _island(name: str):  # type: ignore[no-untyped-def]
+        pop = Population.new("X", rng.random((6, 2)))
+        pop.set("F", np.array([5.0, 1.0, 4.0, 2.0, 3.0, 0.0]).reshape(-1, 1))
+        return types.SimpleNamespace(name=name, algorithm=types.SimpleNamespace(pop=pop))
+
+    model = IslandModel.__new__(IslandModel)
+    model.islands = [_island("ga")]
+    model.problem = _P()
+    model.n_params = 2
+
+    changed = model.resize_populations(target_n=3, rng=rng, fresh_fraction=0.2, velocity_scale=0.05)
+    assert changed is True
+    assert model.islands[0].algorithm.pop.get("X").shape == (3, 2)
+
+
+def test_grow_fresh_fraction_out_of_range_raises() -> None:
+    import pytest
+    from aerocapture.training.optimizer import OptimizerConfig
+
+    with pytest.raises(ValueError, match="grow_fresh_fraction"):
+        OptimizerConfig(seed_strategy="fixed", grow_fresh_fraction=1.5)
+    with pytest.raises(ValueError, match="grow_fresh_fraction"):
+        OptimizerConfig(seed_strategy="fixed", grow_fresh_fraction=-0.1)
+
+
+def test_islands_from_checkpoint_legacy_missing_cost_transform(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from aerocapture.training.island_model import IslandModel
+    from aerocapture.training.optimizer import IslandSettings, OptimizerConfig
+    from pymoo.core.population import Population
+
+    class _P:
+        cost_kwargs = {"cost_transform": "linear"}
+
+        def _run_batch(self, X):  # type: ignore[no-untyped-def]
+            return np.linspace(1.0, 2.0, X.shape[0])
+
+        def evaluate_individual_records_per_seed(self, x, seeds):  # type: ignore[no-untyped-def]
+            return np.full(len(seeds), 1.0, dtype=np.float64), [{} for _ in seeds]
+
+    rng = np.random.default_rng(0)
+    cfg = OptimizerConfig(seed_strategy="fixed", algorithm="islands", n_pop=4, validation_n_sims=3, islands=IslandSettings(k_top=1))
+    model = IslandModel(
+        config=cfg,
+        problem=_P(),
+        n_params=2,
+        validation_seeds=[1, 2, 3],
+        final_eval_seeds=[10, 11, 12],
+        base_mc_seed=42,
+        rng=rng,
+    )
+    for isl in model.islands:
+        pop = Population.new("X", rng.random((4, 2)))
+        pop.set("F", np.arange(4.0).reshape(-1, 1))
+        isl.algorithm.pop = pop
+        isl.algorithm.is_initialized = True
+        isl.algorithm.n_iter = 1
+        isl.best_overall_individual = pop.get("X")[0].copy()
+    ckpt = tmp_path / "checkpoint_g00000.npz"
+    model.checkpoint(ckpt, generation=0)
+
+    # Strip the cost_transform key to simulate a legacy (pre-feature) checkpoint.
+    with np.load(ckpt, allow_pickle=True) as d:
+        arrays = {k: d[k] for k in d.files if k != "cost_transform"}
+    legacy = tmp_path / "checkpoint_legacy.npz"
+    np.savez_compressed(legacy, **arrays)
+
+    model2 = IslandModel(
+        config=cfg,
+        problem=_P(),
+        n_params=2,
+        validation_seeds=[1, 2, 3],
+        final_eval_seeds=[10, 11, 12],
+        base_mc_seed=42,
+        rng=np.random.default_rng(1),
+    )
+    _gen, _curator, saved_transform = model2.from_checkpoint(legacy)
+    assert saved_transform is None

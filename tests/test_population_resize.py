@@ -46,3 +46,12 @@ def test_shrink_none_costs_keeps_first_n() -> None:
     pop = rng.random((6, 2))
     out = resize_population(pop, None, 3, rng)
     assert np.array_equal(out, pop[:3])
+
+
+def test_shrink_handles_2d_column_costs() -> None:
+    rng = np.random.default_rng(7)
+    pop = rng.random((6, 2))
+    costs = np.array([5.0, 1.0, 4.0, 2.0, 3.0, 0.0])
+    out = resize_population(pop, costs.reshape(-1, 1), 3, rng)
+    assert out.shape == (3, 2)
+    assert np.array_equal(out, pop[[5, 1, 3]])  # best-3 by cost, same as the 1-D case

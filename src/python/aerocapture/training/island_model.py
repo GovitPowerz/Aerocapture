@@ -481,8 +481,12 @@ class IslandModel:
         """Resize every island's restored population to ``target_n``.
 
         Grows (clone+jitter + fresh-random) or shrinks (best-N by F) each
-        island's pop, re-evaluates the resized pop under the problem's CURRENT
-        seeds, re-stamps GA/DE ``rank`` via FitnessSurvival, and rebuilds PSO
+        island's pop, re-evaluates the resized pop via ``_run_batch`` (under
+        whatever seeds the problem currently holds -- correct for ``fixed`` /
+        restored-curator ``adaptive``; for ``rotating`` / bootstrap ``adaptive``
+        the first post-resume gen re-evals under proper seeds before any
+        selection, so the transient F here is never selection-relevant),
+        re-stamps GA/DE ``rank`` via FitnessSurvival, and rebuilds PSO
         ``particles`` (positions = new pop, fresh velocity). Returns True if any
         island changed size.
         """

@@ -119,7 +119,7 @@ def resize_population(
     if target_n < n:
         if pop_F is None:
             return pop_X[:target_n].copy()
-        order = np.argsort(np.asarray(pop_F, dtype=np.float64))
+        order = np.argsort(np.asarray(pop_F, dtype=np.float64).ravel())
         return pop_X[order[:target_n]].copy()
 
     n_new = target_n - n
