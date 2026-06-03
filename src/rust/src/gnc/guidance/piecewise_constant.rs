@@ -8,9 +8,7 @@
 //!
 //! GA-optimized to produce reference trajectories and corridor envelopes.
 
-use crate::config::PlanetConfig;
 use crate::data::guidance_params::PiecewiseConstantParams;
-use crate::gnc::navigation::coordinates::total_energy;
 use crate::gnc::navigation::estimator::NavigationOutput;
 
 /// Compute piecewise-constant bank angle from current orbital energy.
@@ -19,20 +17,10 @@ use crate::gnc::navigation::estimator::NavigationOutput;
 /// that return magnitude only (with roll sign applied by lateral guidance),
 /// piecewise_constant encodes the sign directly in the bank profile.
 pub fn piecewise_constant_bank(
-    nav: &NavigationOutput,
+    _nav: &NavigationOutput,
     params: &PiecewiseConstantParams,
-    planet: &PlanetConfig,
+    energy: f64,
 ) -> f64 {
-    let energy = total_energy(
-        nav.position_estimated[0],
-        nav.position_estimated[1],
-        nav.position_estimated[2],
-        nav.velocity_estimated[0],
-        nav.velocity_estimated[1],
-        nav.velocity_estimated[2],
-        planet,
-    );
-
     segment_bank_angle(energy, params)
 }
 

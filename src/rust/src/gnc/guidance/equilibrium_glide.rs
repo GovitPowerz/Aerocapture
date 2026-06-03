@@ -18,7 +18,6 @@
 
 use crate::config::PlanetConfig;
 use crate::data::SimData;
-use crate::gnc::navigation::coordinates::geodetic_from_spherical;
 use crate::gnc::navigation::estimator::NavigationOutput;
 
 /// Compute equilibrium glide bank angle.
@@ -29,6 +28,7 @@ pub fn equilibrium_glide_bank(
     nav: &NavigationOutput,
     data: &SimData,
     planet: &PlanetConfig,
+    altitude: f64,
 ) -> f64 {
     let r = nav.position_estimated[0];
     let v = nav.velocity_estimated[0];
@@ -41,12 +41,6 @@ pub fn equilibrium_glide_bank(
     let v2_over_r = v * v / r;
 
     // Lift force per unit mass: L/m = 0.5 * rho * V² * S * Cz / m
-    let (altitude, _) = geodetic_from_spherical(
-        r,
-        nav.position_estimated[1],
-        nav.position_estimated[2],
-        planet,
-    );
     let rho = data
         .atmosphere_onboard
         .density_at(altitude, &data.atmosphere);
@@ -216,6 +210,17 @@ mod tests {
         }
     }
 
+    fn test_altitude(nav: &NavigationOutput, planet: &PlanetConfig) -> f64 {
+        use crate::gnc::navigation::coordinates::geodetic_from_spherical;
+        let (alt, _) = geodetic_from_spherical(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            planet,
+        );
+        alt
+    }
+
     #[rstest]
     #[case(3000.0)]
     #[case(4500.0)]
@@ -224,8 +229,9 @@ mod tests {
         let nav = test_nav(velocity);
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
+        let altitude = test_altitude(&nav, &planet);
 
-        let bank = equilibrium_glide_bank(&nav, &data, &planet);
+        let bank = equilibrium_glide_bank(&nav, &data, &planet, altitude);
 
         let min_bank = 15.0_f64.to_radians();
         let max_bank = 120.0_f64.to_radians();
@@ -249,7 +255,8 @@ mod tests {
         data.aero.cz = vec![0.0, 0.0];
 
         let planet = PlanetConfig::mars();
-        let bank = equilibrium_glide_bank(&nav, &data, &planet);
+        let altitude = test_altitude(&nav, &planet);
+        let bank = equilibrium_glide_bank(&nav, &data, &planet, altitude);
 
         assert_relative_eq!(bank, 60.0_f64.to_radians(), epsilon = 1e-10);
     }
@@ -259,8 +266,12 @@ mod tests {
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
 
-        let bank_slow = equilibrium_glide_bank(&test_nav(3000.0), &data, &planet);
-        let bank_fast = equilibrium_glide_bank(&test_nav(5687.0), &data, &planet);
+        let nav_slow = test_nav(3000.0);
+        let nav_fast = test_nav(5687.0);
+        let alt_slow = test_altitude(&nav_slow, &planet);
+        let alt_fast = test_altitude(&nav_fast, &planet);
+        let bank_slow = equilibrium_glide_bank(&nav_slow, &data, &planet, alt_slow);
+        let bank_fast = equilibrium_glide_bank(&nav_fast, &data, &planet, alt_fast);
 
         assert!(
             bank_fast > bank_slow,
@@ -291,7 +302,8 @@ mod tests {
 
                 let data = test_sim_data();
                 let planet = PlanetConfig::mars();
-                let bank = equilibrium_glide_bank(&nav, &data, &planet);
+                let altitude = test_altitude(&nav, &planet);
+                let bank = equilibrium_glide_bank(&nav, &data, &planet, altitude);
 
                 let min_bank = 15.0_f64.to_radians();
                 let max_bank = 120.0_f64.to_radians();

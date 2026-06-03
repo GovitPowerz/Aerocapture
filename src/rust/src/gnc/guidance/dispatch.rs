@@ -214,7 +214,7 @@ pub fn guidance_step(
         // Capture phase: scheme-specific longitudinal guidance
         bank_angle_longitudinal = match guidance_type {
             GuidanceType::Ftc => {
-                ftc_capture::ftc_bank_angle(nav, &mut state.ftc_capture, data, planet)
+                ftc_capture::ftc_bank_angle(nav, &mut state.ftc_capture, data, altitude, energy)
             }
             GuidanceType::NeuralNetwork => {
                 let nn = data.neural_net.as_ref().expect("NN params not loaded");
@@ -252,17 +252,17 @@ pub fn guidance_step(
                 }
             }
             GuidanceType::EquilibriumGlide => {
-                equilibrium_glide::equilibrium_glide_bank(nav, data, planet)
+                equilibrium_glide::equilibrium_glide_bank(nav, data, planet, altitude)
             }
             GuidanceType::EnergyController => {
-                energy_controller::energy_controller_bank(nav, &state.energy_ctrl, data, planet)
+                energy_controller::energy_controller_bank(nav, &state.energy_ctrl, data, energy)
             }
-            GuidanceType::PredGuid => predguid::predguid_bank(nav, &state.predguid, data, planet),
+            GuidanceType::PredGuid => predguid::predguid_bank(nav, &state.predguid, data, energy),
             GuidanceType::Fnpag => fnpag::fnpag_bank(nav, &mut state.fnpag, data, planet),
             GuidanceType::PiecewiseConstant => piecewise_constant::piecewise_constant_bank(
                 nav,
                 &data.guidance.piecewise_constant,
-                planet,
+                energy,
             ),
         };
         state.n_active += 1;

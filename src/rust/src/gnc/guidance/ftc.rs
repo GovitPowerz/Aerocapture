@@ -1,8 +1,6 @@
 //! FTC capture-phase longitudinal guidance: altitude-gain predictor-corrector.
 
-use crate::config::PlanetConfig;
 use crate::data::SimData;
-use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
 use crate::gnc::navigation::estimator::NavigationOutput;
 
 /// FTC capture-phase persistent state.
@@ -17,23 +15,9 @@ pub fn ftc_bank_angle(
     nav: &NavigationOutput,
     capture_state: &mut FtcCaptureState,
     data: &SimData,
-    planet: &PlanetConfig,
+    altitude: f64,
+    energy: f64,
 ) -> f64 {
-    let (altitude, _) = geodetic_from_spherical(
-        nav.position_estimated[0],
-        nav.position_estimated[1],
-        nav.position_estimated[2],
-        planet,
-    );
-    let energy = total_energy(
-        nav.position_estimated[0],
-        nav.position_estimated[1],
-        nav.position_estimated[2],
-        nav.velocity_estimated[0],
-        nav.velocity_estimated[1],
-        nav.velocity_estimated[2],
-        planet,
-    );
 
     let ref_traj = &data.guidance.ref_trajectory;
 
