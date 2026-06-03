@@ -516,7 +516,7 @@ pub struct TomlGuidance {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct TomlSimulation {
-    #[serde(default = "default_one_i32")]
+    #[serde(default = "default_n_sims")]
     pub n_sims: i32,
     #[serde(default)]
     pub random_seed: f64,
@@ -524,7 +524,7 @@ pub struct TomlSimulation {
     pub screen_output: bool,
     #[serde(default)]
     pub stats_only: bool,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_save_results")]
     pub save_results: bool,
     #[serde(default)]
     pub visualize_sim: i32,
@@ -536,13 +536,13 @@ fn default_max_time() -> f64 {
     3000.0
 }
 
-fn default_one_i32() -> i32 {
+fn default_n_sims() -> i32 {
     1
 }
 fn default_one() -> f64 {
     1.0
 }
-fn default_true() -> bool {
+fn default_save_results() -> bool {
     true
 }
 
@@ -615,7 +615,7 @@ impl Default for TomlPeriods {
 pub struct TomlPilot {
     #[serde(default = "default_pilot_model")]
     pub model: String,
-    #[serde(default = "default_one")]
+    #[serde(default = "default_pilot_time_constant")]
     pub time_constant: f64,
     #[serde(default = "default_pilot_damping")]
     pub damping: f64,
@@ -625,6 +625,9 @@ pub struct TomlPilot {
 
 fn default_pilot_model() -> String {
     "perfect".to_string()
+}
+fn default_pilot_time_constant() -> f64 {
+    1.0
 }
 fn default_pilot_damping() -> f64 {
     0.7
@@ -754,7 +757,7 @@ pub struct TomlFtcParams {
     pub exit_altitude_threshold: f64, // km
     #[serde(default)]
     pub exit_radial_vel_gain: f64, // Pa/(m/s)
-    #[serde(default = "default_one_i32")]
+    #[serde(default = "default_security_capture")]
     pub security_capture: i32,
     #[serde(default = "default_three_i32")]
     pub security_exit: i32,
@@ -779,6 +782,9 @@ fn default_five_i32() -> i32 {
 }
 fn default_three_i32() -> i32 {
     3
+}
+fn default_security_capture() -> i32 {
+    1
 }
 fn default_exit_altitude_km() -> f64 {
     60.0
@@ -810,13 +816,13 @@ fn default_gain_fade_end_km() -> f64 {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlEqGlideParams {
-    #[serde(default = "default_0_3")]
+    #[serde(default = "default_k_hdot_scale")]
     pub k_hdot_scale: f64,
     #[serde(default = "default_1_1")]
     pub v_ratio_threshold: f64,
     #[serde(default = "default_0_15")]
     pub velocity_bias_high: f64,
-    #[serde(default = "default_0_3")]
+    #[serde(default = "default_velocity_bias_low")]
     pub velocity_bias_low: f64,
     #[serde(default = "default_40")]
     pub alt_bias_threshold: f64,
@@ -826,7 +832,10 @@ pub struct TomlEqGlideParams {
     pub cos_bank_max: f64,
 }
 
-fn default_0_3() -> f64 {
+fn default_k_hdot_scale() -> f64 {
+    0.3
+}
+fn default_velocity_bias_low() -> f64 {
     0.3
 }
 fn default_1_1() -> f64 {
@@ -849,7 +858,7 @@ fn default_0_95() -> f64 {
 pub struct TomlEnergyCtrlParams {
     #[serde(default = "default_5e_7")]
     pub gain: f64,
-    #[serde(default = "default_one")]
+    #[serde(default = "default_kp")]
     pub kp: f64,
     #[serde(default = "default_0_5")]
     pub kd: f64,
@@ -857,6 +866,9 @@ pub struct TomlEnergyCtrlParams {
 
 fn default_5e_7() -> f64 {
     5e-7
+}
+fn default_kp() -> f64 {
+    1.0
 }
 fn default_0_5() -> f64 {
     0.5
@@ -866,16 +878,19 @@ fn default_0_5() -> f64 {
 pub struct TomlPredGuidParams {
     #[serde(default = "default_0_8")]
     pub k_drag_high: f64,
-    #[serde(default = "default_0_3")]
+    #[serde(default = "default_k_drag_low")]
     pub k_drag_low: f64,
-    #[serde(default = "default_100")]
+    #[serde(default = "default_pdyn_threshold")]
     pub pdyn_threshold: f64,
 }
 
 fn default_0_8() -> f64 {
     0.8
 }
-fn default_100() -> f64 {
+fn default_k_drag_low() -> f64 {
+    0.3
+}
+fn default_pdyn_threshold() -> f64 {
     100.0
 }
 
@@ -889,7 +904,7 @@ pub struct TomlFnpagParams {
     pub bank_min_deg: f64,
     #[serde(default = "default_140")]
     pub bank_max_high_deg: f64,
-    #[serde(default = "default_100")]
+    #[serde(default = "default_bank_max_low_deg")]
     pub bank_max_low_deg: f64,
 }
 
@@ -904,6 +919,9 @@ fn default_20() -> f64 {
 }
 fn default_140() -> f64 {
     140.0
+}
+fn default_bank_max_low_deg() -> f64 {
+    100.0
 }
 
 /// Piecewise-constant guidance config. Three accepted shapes:
@@ -1016,6 +1034,22 @@ fn default_energy_max() -> f64 {
     5.0
 }
 
+fn default_heat_flux_activation() -> f64 {
+    1.0
+}
+fn default_heat_load_activation() -> f64 {
+    1.0
+}
+fn default_heat_flux_ramp_exponent() -> f64 {
+    1.0
+}
+fn default_heat_load_ramp_exponent() -> f64 {
+    1.0
+}
+fn default_command_shaping_enabled() -> bool {
+    true
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlLateralParams {
     #[serde(default)]
@@ -1034,19 +1068,19 @@ pub struct TomlLateralParams {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlThermalLimiterParams {
-    #[serde(default = "default_one")]
+    #[serde(default = "default_heat_flux_activation")]
     pub heat_flux_activation: f64,
-    #[serde(default = "default_one")]
+    #[serde(default = "default_heat_load_activation")]
     pub heat_load_activation: f64,
-    #[serde(default = "default_one")]
+    #[serde(default = "default_heat_flux_ramp_exponent")]
     pub heat_flux_ramp_exponent: f64,
-    #[serde(default = "default_one")]
+    #[serde(default = "default_heat_load_ramp_exponent")]
     pub heat_load_ramp_exponent: f64,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlCommandShapingParams {
-    #[serde(default = "default_true")]
+    #[serde(default = "default_command_shaping_enabled")]
     pub enabled: bool,
     #[serde(default)]
     pub max_bank_acceleration: f64, // deg/s^2 (converted to rad/s^2 at load time)

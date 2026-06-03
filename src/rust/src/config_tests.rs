@@ -853,3 +853,69 @@ d_state = 4
         _ => panic!("expected Mamba"),
     }
 }
+
+// ─── per-field default value regression tests (Fix 7.3a) ───
+// Pin each de-shared default so a future value change must update BOTH
+// the default fn AND this test.
+
+#[test]
+fn defaults_simulation_fields() {
+    let sim: TomlSimulation = toml::from_str("").unwrap();
+    assert_eq!(sim.n_sims, 1);
+    assert!(sim.save_results);
+}
+
+#[test]
+fn defaults_ftc_security_capture() {
+    let ftc: TomlFtcParams = toml::from_str("").unwrap();
+    assert_eq!(ftc.security_capture, 1);
+}
+
+#[test]
+fn defaults_pilot_time_constant() {
+    // TomlPilot only deserializes as part of [vehicle.pilot], but we can use
+    // the stand-alone Default impl as a proxy for the serde default.
+    let p = TomlPilot::default();
+    assert!((p.time_constant - 1.0).abs() < 1e-15);
+}
+
+#[test]
+fn defaults_eq_glide_params() {
+    let eg: TomlEqGlideParams = toml::from_str("").unwrap();
+    assert!((eg.k_hdot_scale - 0.3).abs() < 1e-15);
+    assert!((eg.velocity_bias_low - 0.3).abs() < 1e-15);
+}
+
+#[test]
+fn defaults_energy_ctrl_kp() {
+    let ec: TomlEnergyCtrlParams = toml::from_str("").unwrap();
+    assert!((ec.kp - 1.0).abs() < 1e-15);
+}
+
+#[test]
+fn defaults_pred_guid_params() {
+    let pg: TomlPredGuidParams = toml::from_str("").unwrap();
+    assert!((pg.k_drag_low - 0.3).abs() < 1e-15);
+    assert!((pg.pdyn_threshold - 100.0).abs() < 1e-15);
+}
+
+#[test]
+fn defaults_fnpag_bank_max_low_deg() {
+    let fn_: TomlFnpagParams = toml::from_str("").unwrap();
+    assert!((fn_.bank_max_low_deg - 100.0).abs() < 1e-15);
+}
+
+#[test]
+fn defaults_thermal_limiter_all_one() {
+    let tl: TomlThermalLimiterParams = toml::from_str("").unwrap();
+    assert!((tl.heat_flux_activation - 1.0).abs() < 1e-15);
+    assert!((tl.heat_load_activation - 1.0).abs() < 1e-15);
+    assert!((tl.heat_flux_ramp_exponent - 1.0).abs() < 1e-15);
+    assert!((tl.heat_load_ramp_exponent - 1.0).abs() < 1e-15);
+}
+
+#[test]
+fn defaults_command_shaping_enabled() {
+    let cs: TomlCommandShapingParams = toml::from_str("max_bank_acceleration = 5.0").unwrap();
+    assert!(cs.enabled);
+}
