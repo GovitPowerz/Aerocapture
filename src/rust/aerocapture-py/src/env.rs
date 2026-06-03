@@ -72,12 +72,11 @@ impl BatchedSimulation {
         let (sim_input, sim_data) = config::load_and_override(Path::new(toml_path), &overrides)
             .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
-        let nn = sim_data
-            .neural_net
-            .as_ref()
-            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err(
+        let nn = sim_data.neural_net.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(
                 "RL env requires a neural_network model ([data] neural_network)",
-            ))?;
+            )
+        })?;
         let obs_dim = nn
             .input_mask
             .as_ref()

@@ -445,19 +445,13 @@ fn collect_trace<F>(
     caller_name: &str,
 ) -> PyResult<PerSeedTrace>
 where
-    F: Fn(
-        &mut aerocapture::config::SimInput,
-        &aerocapture::data::SimData,
-    ) -> PyResult<()>,
+    F: Fn(&mut aerocapture::config::SimInput, &aerocapture::data::SimData) -> PyResult<()>,
 {
     let mut per_seed: PerSeedTrace = Vec::with_capacity(seeds.len());
 
     for seed in seeds {
         let mut seed_overrides = base_overrides.clone();
-        seed_overrides.push((
-            "simulation.n_sims".to_string(),
-            OverrideValue::Int(1),
-        ));
+        seed_overrides.push(("simulation.n_sims".to_string(), OverrideValue::Int(1)));
         seed_overrides.push((
             "monte_carlo.seed".to_string(),
             OverrideValue::Int(*seed as i64),
@@ -480,9 +474,7 @@ where
             false,
             wall_timeout,
         )
-        .map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {e}"))
-        })?;
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {e}")))?;
 
         if outputs.is_empty() {
             return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
