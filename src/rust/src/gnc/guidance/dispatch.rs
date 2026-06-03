@@ -194,8 +194,12 @@ pub fn guidance_step(
     // the same unsigned-magnitude pipeline as FTC and the other parametric schemes.
     let nn_full_neural = matches!(guidance_type, GuidanceType::NeuralNetwork)
         && data.guidance.neural_mode == NeuralNetMode::FullNeural;
-    let uses_exit_guidance =
-        !(matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural);
+    // Schemes that produce signed bank angles bypass exit/lateral/thermal-limiter entirely.
+    // PiecewiseConstant always; NN only in FullNeural mode (MagnitudeOnly routes through
+    // the unsigned-magnitude pipeline just like FTC).
+    let is_signed_bank_scheme =
+        matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural;
+    let uses_exit_guidance = !is_signed_bank_scheme;
 
     if is_reference {
         state.bank_angle_commanded = reference_bank_angle;
@@ -266,8 +270,7 @@ pub fn guidance_step(
 
     // === Thermal safety limiter (unsigned-magnitude schemes only) ===
     // Same gating as exit: NN in MagnitudeOnly mode goes through the limiter.
-    let uses_thermal_limiter =
-        !(matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural);
+    let uses_thermal_limiter = !is_signed_bank_scheme;
     if uses_thermal_limiter && longitudinal_active == 1 && !is_reference {
         let cos_bank = bank_angle_longitudinal.cos();
         let cos_limited = thermal_limiter::apply_thermal_limit(
@@ -284,15 +287,13 @@ pub fn guidance_step(
     // Also gate on `longitudinal_active == 1`: when guidance is inhibited the magnitude
     // is just `|reference_bank_angle|` regardless of state — recording those ticks would
     // pollute supervised datasets with constant rows that have zero variance vs. inputs.
-    if longitudinal_active == 1
-        && !(matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural)
-    {
+    if longitudinal_active == 1 && !is_signed_bank_scheme {
         out.pre_lateral_magnitude = bank_angle_longitudinal;
     }
 
     // Schemes that provide signed bank angles — skip lateral guidance entirely.
     // NN in MagnitudeOnly mode delegates sign selection to lateral.
-    let skip_lateral = matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural;
+    let skip_lateral = is_signed_bank_scheme;
     if skip_lateral {
         state.bank_angle_commanded = bank_angle_longitudinal;
         state.lateral_state.roll_sign = if bank_angle_longitudinal >= 0.0 {
