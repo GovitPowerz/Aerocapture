@@ -138,7 +138,7 @@ pub fn predicted_dv_for_nn(
     for i in 0..2 {
         let rayneu =
             target_sma * (1.0 - target_ecc * target_ecc) / (1.0 + target_ecc * anoneu[i].cos());
-        // Guard + clamp kept here (differs from compute_deltav's unguarded path).
+        // Guard + clamp on the vis-viva term (negative under extreme eccentricity).
         vitneu[i] = if rayneu > 0.0 {
             (2.0 * mu * (1.0 / rayneu - 1.0 / (2.0 * target_sma)))
                 .max(0.0)

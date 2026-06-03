@@ -5,12 +5,12 @@
 
 pub(crate) mod helpers;
 
-pub mod dense;
-pub mod gru;
-pub mod lstm;
-pub mod mamba;
-pub mod transformer;
-pub mod window;
+pub(crate) mod dense;
+pub(crate) mod gru;
+pub(crate) mod lstm;
+pub(crate) mod mamba;
+pub(crate) mod transformer;
+pub(crate) mod window;
 
 pub use dense::DenseLayer;
 pub use gru::GruLayer;

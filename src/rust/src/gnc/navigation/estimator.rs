@@ -290,9 +290,9 @@ fn compute_energy_and_orbital_errors(
 
 /// Crash detection, SimPhase gating, capture-time accumulation, and final output population.
 ///
-/// Shared by both the bias and EKF navigation paths. The divergent phase-management block
-/// (bias has `exit_phase_locked` guard; EKF does not) is left inline in each caller — only
-/// the post-phase tail is extracted here.
+/// Shared by both the bias and EKF navigation paths. Both callers now share the same
+/// guarded phase-management block (with `exit_phase_locked` guard); only the post-phase
+/// tail is extracted here.
 fn finalize_crash_phase_and_output(
     out: &mut NavigationOutput,
     ns: &mut NavigationState,

@@ -160,6 +160,8 @@ pub fn build_sim_state(
     // twice before any physics advance. Skip priming for EKF; the first tick will
     // populate `last_nav` before the policy's second action. The initial RL action
     // (step 0) is based on a default NavigationOutput under EKF mode.
+    // CLI path: benign — at nominal entry (>100 km) density_gain is force-reset,
+    // bounce_flag/phase are unchanged, and last_nav is overwritten on the first tick.
     if matches!(data.nav_mode, crate::data::NavMode::Bias) {
         s.last_nav = navigate_from_state(&mut s, data, planet);
     }
