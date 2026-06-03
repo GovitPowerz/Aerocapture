@@ -853,162 +853,28 @@ fn run_single(
 ) -> Result<SimResult, SimError> {
     let planet = &config.planet;
 
-    // Clone run_state so we can mutate density_perturbation each tick
-    let run_state = run_state.clone();
+    // Construct the base SimState via the shared constructor (identical seed
+    // derivation, GNC init, and bias-mode last_nav priming as the RL env path);
+    // `sim_idx as u64` reproduces the historical per-sim seeds exactly:
+    // EKF `random_seed + sim_idx*10_000`, GM-RNG `... + 0xDE45`.
+    let mut sim_state = build_sim_state(config, data, run_state.clone(), sim_idx as u64);
 
-    // Gauss-Markov density perturbation RNG (deterministic per sim, only allocated when enabled)
-    let gm_config = data.density_perturbation.filter(|g| !g.is_disabled());
-    let (gm_rng, gm_normal) = if gm_config.is_some() {
-        use rand::SeedableRng;
-        // Offset by 0xDE45 to avoid correlation with EKF RNG (which uses sim_idx * 10_000)
-        let rng = rand::rngs::StdRng::seed_from_u64(
-            config.random_seed as u64 + sim_idx as u64 * 10_000 + 0xDE45,
-        );
-        let normal = rand_distr::Normal::new(0.0, 1.0).unwrap();
-        (Some(rng), Some(normal))
-    } else {
-        (None, None)
-    };
-
-    let req = planet.equatorial_radius;
-
-    // Extract entry values before moving run_state into SimState
-    let r0 = run_state.entry.state.altitude + req;
-    let entry_longitude = run_state.entry.state.longitude;
-    let entry_latitude = run_state.entry.state.latitude;
-    let entry_velocity = run_state.entry.state.velocity;
-    let entry_flight_path = run_state.entry.state.flight_path;
-    let entry_azimuth = run_state.entry.state.azimuth;
-    let entry_initial_date = run_state.entry.initial_date;
-    let entry_initial_bank = run_state.entry.initial_bank;
-    let entry_initial_aoa = run_state.entry.initial_aoa;
-
-    let reference_bank_angle = config.reference_bank_angle.to_radians();
-
-    let initial_bank_angle = if config.reference_trajectory {
-        reference_bank_angle
-    } else {
-        entry_initial_bank
-    };
-
-    let dt = data.periods.integration;
-    let max_time = config.max_time;
-    let exit_altitude = data.final_conditions.altitude;
-
-    // === GNC subsystem initialization ===
-    let nav_filter = match data.nav_mode {
-        crate::data::NavMode::Bias => NavigationFilter::new_bias(),
-        crate::data::NavMode::Ekf => {
-            let nav_toml = data
-                .nav_config
-                .as_ref()
-                .expect("EKF mode requires [navigation] config");
-            let (imu_cfg, st_cfg, ekf_cfg) = estimator::build_ekf_configs(nav_toml);
-            let seed = config.random_seed as u64 + sim_idx as u64 * 10_000;
-            NavigationFilter::new_ekf(imu_cfg, st_cfg, ekf_cfg, seed)
-        }
-    };
-    let nav_biases = run_state.nav_biases;
-    let is_single = config.n_sims <= 1 && config.screen_output;
-
-    let guidance_state = GuidanceState::new(
-        entry_initial_bank,
-        entry_initial_aoa,
-        data.neural_net.as_ref(),
-    );
-    assert_eq!(
-        data.neural_net.is_some(),
-        guidance_state.nn_state.is_some(),
-        "nn_state presence must match neural_net presence",
-    );
-    let pilot_state = PilotState {
-        bank_angle: initial_bank_angle,
-        bank_rate: 0.0,
-    };
-    let sequencer = SequencerState::new();
+    // CLI-specific overrides not produced by `build_sim_state` (which targets the
+    // RL env defaults: no photo, no wall timeout, not the single-run banner).
+    sim_state.write_photo = write_photo;
+    sim_state.wall_timeout = wall_timeout;
+    sim_state.is_single = config.n_sims <= 1 && config.screen_output;
+    let is_single = sim_state.is_single;
 
     // Event detection setup (used by adaptive integrator)
-    let event_defs = events::build_aerocapture_events();
-    let event_ctx = EventContext {
-        planet_radius: planet.equatorial_radius,
-        polar_radius: planet.polar_radius,
-        exit_altitude,
-        exit_velocity_threshold: data.guidance.exit_velocity_threshold,
-    };
-
-    let mut sim_state = SimState {
-        // Physics state vector
-        state: [
-            r0,
-            entry_longitude,
-            entry_latitude,
-            entry_velocity,
-            entry_flight_path,
-            entry_azimuth,
-            0.0,
-            entry_initial_date,
-        ],
-        accumulator: [0.0; 8],
-        gill_toggle: 0,
-        dopri: Dopri45State::new(),
-        bank_angle: initial_bank_angle,
-        aoa: entry_initial_aoa,
-        bounced: false,
-        bounce_alt: 1e34,
-        bounce_time: 1e30,
-        max_heat_flux: 0.0,
-        max_load_factor: 0.0,
-        max_dyn_pressure: 0.0,
-        alt_max_flux: 0.0,
-        alt_max_load: 0.0,
-        alt_max_pdyn: 0.0,
-        time_max_flux: 0.0,
-        time_max_load: 0.0,
-        time_max_pdyn: 0.0,
-        event_records: Vec::new(),
-        // GNC subsystem state
-        nav_filter,
-        guidance_state,
-        pilot_state,
-        sequencer,
-        // Loop control
-        sim_time: entry_initial_date,
-        term: TermReason::None,
-        step: 0,
-        first_iter: true,
-        // Dispersed run state
-        run_state,
-        nav_biases,
-        supervised_trace: Vec::new(),
-        // Photo output accumulators
-        photo_lines: Vec::new(),
-        cumulative_bank_change_deg: 0.0,
-        dynamic_pressure_for_photo: 0.0,
-        density_estimate_for_photo: 0.0,
-        guidance_phase_for_photo: 1,
-        // Gauss-Markov density perturbation RNG
-        gm_config,
-        gm_rng,
-        gm_normal,
-        // Last navigation output (populated on first tick)
-        last_nav: crate::gnc::navigation::estimator::NavigationOutput::default(),
-        // Pre-loop constants
-        dt,
-        max_time,
-        exit_altitude,
-        reference_bank_angle,
-        write_photo,
-        sim_idx,
-        wall_timeout,
-        wall_start: Instant::now(),
-        is_single,
-    };
+    let event_defs = build_event_defs();
+    let event_ctx = build_event_ctx(config, data);
 
     if is_single {
         eprintln!(
             "  Init: entry.initial_bank={:.5}deg, reference_bank_angle={:.5}deg, sim.bank_angle={:.5}deg",
-            entry_initial_bank.to_degrees(),
-            reference_bank_angle.to_degrees(),
+            run_state.entry.initial_bank.to_degrees(),
+            sim_state.reference_bank_angle.to_degrees(),
             sim_state.bank_angle.to_degrees()
         );
     }
