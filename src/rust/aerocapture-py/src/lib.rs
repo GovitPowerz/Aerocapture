@@ -136,10 +136,14 @@ fn run_mc(
 
 /// Run a batch of simulations with per-run overrides, in parallel.
 ///
+/// Each entry in overrides_list produces exactly one simulation result.
+/// n_sims must be 1 (per override set); use run_mc for multi-sim per config.
+/// Raises ValueError if any resolved override set has n_sims > 1.
+///
 /// Args:
 ///     toml_path: Path to the base TOML config file.
 ///     overrides_list: List of dicts, one per run. Each dict maps
-///         "dotted.key" -> value.
+///         "dotted.key" -> value. n_sims must equal 1 for each resolved config.
 ///     n_threads: Number of Rayon threads (default: number of CPUs).
 ///     include_trajectories: If True, keep per-timestep trajectory data
 ///         (default: False to save memory).
@@ -181,7 +185,7 @@ fn run_batch(
         include_trajectories,
         wall_timeout,
     )
-    .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+    .map_err(pyo3::exceptions::PyValueError::new_err)?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }

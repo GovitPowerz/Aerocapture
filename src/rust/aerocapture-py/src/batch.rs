@@ -22,8 +22,12 @@ use crate::config::{OverrideValue, apply_override};
 /// 2. For each entry in `overrides_list`, clone the resolved tree, apply
 ///    overrides, serialize back, parse via `SimInput::from_toml` +
 ///    `SimData::from_toml`, and run `run_for_api`.
-/// 3. Returns the first `RunOutput` per batch item (if `n_sims > 1` in
-///    the config, only the first result is kept and a warning is printed).
+/// 3. Returns exactly one `RunOutput` per batch item.
+///
+/// **Contract:** `n_sims` must equal 1 for every resolved override set.
+/// `run_batch` is designed for one-trajectory-per-override evaluation (e.g.
+/// the GA training loop). Use `run_mc` for multi-sim Monte Carlo per config.
+/// Passing `n_sims > 1` in the base config or an override returns an error.
 ///
 /// Uses a scoped Rayon thread pool with `n_threads` threads.
 pub fn run_batch(
@@ -71,10 +75,11 @@ pub fn run_batch(
                     .map_err(|e| format!("Data load error: {}", e))?;
 
                 if sim_input.n_sims > 1 {
-                    eprintln!(
-                        "Warning: n_sims={} in config, but batch runner only keeps first result",
+                    return Err(format!(
+                        "run_batch expects one sim per override (n_sims must be 1 per override); \
+                         got n_sims={} — use run_mc for multi-sim per config",
                         sim_input.n_sims
-                    );
+                    ));
                 }
 
                 let outputs = aerocapture::simulation::runner::run_for_api(
