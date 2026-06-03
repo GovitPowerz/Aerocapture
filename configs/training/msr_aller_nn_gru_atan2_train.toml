@@ -9,21 +9,23 @@ neural_network = "training_output/neural_network_gru_atan2/best_model.json"
 results_suffix = ".train_nn_gru_atan2"
 
 # Architecture arrays REPLACE (not merge) under deep-merge, so this fully
-# supersedes atan2's 3-dense stack. Frontend Dense(17->32) matches input_mask
-# length (17); final Dense(32->2) feeds the atan2_signed decoder.
+# supersedes atan2's 3-dense stack. Sized under the 758-param plain-atan2 budget
+# (<1000 weights): frontend Dense(17->12) compresses the 17 masked inputs, GRU
+# hidden=10 carries the temporal memory, final Dense(10->2) feeds atan2_signed.
+# Params: 216 + gru(12,10)=720 + 22 = 958.
 [[network.architecture]]
 type = "dense"
 input_size = 17
-output_size = 16
+output_size = 12
 activation = "swish"
 
 [[network.architecture]]
 type = "gru"
-input_size = 16
-hidden_size = 16
+input_size = 12
+hidden_size = 10
 
 [[network.architecture]]
 type = "dense"
-input_size = 16
+input_size = 10
 output_size = 2
 activation = "asinh"
