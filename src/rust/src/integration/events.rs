@@ -15,15 +15,18 @@ use crate::simulation::runner::TermReason;
 /// convergence. 50-iteration cap. `tol` is the half-width tolerance on the
 /// root interval.
 ///
-/// Panics if `f(a)` and `f(b)` have the same sign.
+/// If `f(a)` and `f(b)` have the same sign (no bracket), returns the endpoint
+/// with the smaller `|f|` instead of panicking.
 pub fn brent(mut a: f64, mut b: f64, tol: f64, f: &mut impl FnMut(f64) -> f64) -> f64 {
     let mut fa = f(a);
     let mut fb = f(b);
 
-    assert!(
-        fa * fb <= 0.0,
-        "brent: f(a) and f(b) must have opposite signs (f(a)={fa}, f(b)={fb})"
-    );
+    // If the bracket endpoints don't straddle zero (e.g. a near-tangent crossing
+    // where the dense interpolant grazes the axis), fall back to the endpoint with
+    // the smaller |f| instead of panicking — keeps a Rayon worker alive.
+    if fa * fb > 0.0 {
+        return if fa.abs() <= fb.abs() { a } else { b };
+    }
 
     // Ensure |f(b)| <= |f(a)| so b is always the better end
     if fa.abs() < fb.abs() {
@@ -335,9 +338,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn brent_panics_on_same_sign() {
-        brent(1.0, 2.0, 1e-12, &mut |x| x * x + 1.0);
+    fn brent_same_sign_returns_endpoint() {
+        // f(1) = 2, f(2) = 5 — both positive, no zero in [1, 2].
+        // Should return 1.0 (smaller |f|) without panicking.
+        let result = brent(1.0, 2.0, 1e-12, &mut |x| x * x + 1.0);
+        assert_eq!(
+            result, 1.0,
+            "expected endpoint a=1.0 (smaller |f|=2 vs |f|=5)"
+        );
     }
 
     // Event function tests
