@@ -20,7 +20,7 @@
 //! without the altitude-rate damping term.
 
 use crate::data::SimData;
-use crate::gnc::guidance::dispatch::securize_cos_bank;
+use crate::gnc::guidance::dispatch::{securize_cos_bank, DEFAULT_FALLBACK_BANK_RAD};
 use crate::gnc::navigation::estimator::NavigationOutput;
 
 /// PredGuid persistent state (runtime-only, no tunable params).
@@ -53,7 +53,7 @@ pub fn predguid_bank(
 ) -> f64 {
     let ref_traj = &data.guidance.ref_trajectory;
     if ref_traj.n_points == 0 {
-        return 60.0_f64.to_radians();
+        return DEFAULT_FALLBACK_BANK_RAD;
     }
 
     // Reference values

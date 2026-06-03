@@ -18,6 +18,7 @@
 
 use crate::config::PlanetConfig;
 use crate::data::SimData;
+use crate::gnc::guidance::dispatch::DEFAULT_FALLBACK_BANK_RAD;
 use crate::gnc::navigation::estimator::NavigationOutput;
 
 /// Compute equilibrium glide bank angle.
@@ -51,7 +52,7 @@ pub fn equilibrium_glide_bank(
 
     if lift_accel.abs() < 1e-10 {
         // No lift available — hold moderate bank angle
-        return 60.0_f64.to_radians();
+        return DEFAULT_FALLBACK_BANK_RAD;
     }
 
     // Base equilibrium: cos(bank) = (g - V²/r) / lift_accel

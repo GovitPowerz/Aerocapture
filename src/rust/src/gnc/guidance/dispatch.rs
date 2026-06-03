@@ -15,6 +15,12 @@ use crate::gnc::guidance::{
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
 use crate::gnc::navigation::estimator::NavigationOutput;
 
+/// Default fallback bank angle (60°) for schemes with no valid reference trajectory.
+///
+/// Defined as `60.0_f64.to_radians()` via const-eval so every use is the
+/// same f64 bit-pattern as the literal expression.
+pub(crate) const DEFAULT_FALLBACK_BANK_RAD: f64 = 60.0_f64.to_radians();
+
 /// Convert a (possibly out-of-range) cos(bank) into a valid bank magnitude.
 ///
 /// Clamps to [-1, 1] so acos stays in [0, π].  Only the clamp+acos tail is
@@ -399,6 +405,12 @@ mod tests {
     use super::*;
 
     use crate::config::{GuidanceType, PlanetConfig};
+
+    /// DEFAULT_FALLBACK_BANK_RAD must be bit-identical to 60.0_f64.to_radians().
+    #[test]
+    fn fallback_bank_rad_bit_identity() {
+        assert_eq!(DEFAULT_FALLBACK_BANK_RAD, 60.0_f64.to_radians());
+    }
     use crate::data::aerodynamics::AeroTables;
     use crate::data::atmosphere::{AtmosphereModel, DensityProfile};
     use crate::data::capsule::Capsule;
