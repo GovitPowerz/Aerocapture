@@ -199,31 +199,7 @@ pub fn navigate(
         .density_at(alt_exit, &data.atmosphere);
     out.density_exit = nav_state.density_gain * rho_exit_model;
 
-    // Total energy
-    out.energy_estimated = total_energy(
-        out.position_estimated[0],
-        out.position_estimated[1],
-        out.position_estimated[2],
-        out.velocity_estimated[0],
-        out.velocity_estimated[1],
-        out.velocity_estimated[2],
-        planet,
-    );
-
-    // Orbital elements
-    let orbit = elements::from_spherical(
-        out.position_estimated[0],
-        out.position_estimated[1],
-        out.position_estimated[2],
-        out.velocity_estimated[0],
-        out.velocity_estimated[1],
-        out.velocity_estimated[2],
-        planet,
-    );
-    out.orbital_errors[0] = orbit.semi_major_axis - data.target_orbit.semi_major_axis;
-    out.orbital_errors[1] = orbit.eccentricity - data.target_orbit.eccentricity;
-    out.orbital_errors[2] = orbit.inclination - data.target_orbit.inclination;
-    out.orbital_errors[3] = orbit.raan - data.target_orbit.raan;
+    compute_energy_and_orbital_errors(&mut out, planet, data);
 
     // Bounce detection
     if nav_state.bounce_flag == 0 && out.velocity_estimated[1].sin() > 0.0 {
@@ -249,41 +225,86 @@ pub fn navigate(
         }
     }
 
+    finalize_crash_phase_and_output(&mut out, nav_state, velocity_radial, data.periods.navigation, data);
+
+    out
+}
+
+/// Compute total energy and orbital element errors into `out`.
+///
+/// Shared by both the bias and EKF navigation paths. Reads `out.position_estimated`
+/// and `out.velocity_estimated`; writes `out.energy_estimated` and `out.orbital_errors`.
+fn compute_energy_and_orbital_errors(out: &mut NavigationOutput, planet: &PlanetConfig, data: &SimData) {
+    out.energy_estimated = total_energy(
+        out.position_estimated[0],
+        out.position_estimated[1],
+        out.position_estimated[2],
+        out.velocity_estimated[0],
+        out.velocity_estimated[1],
+        out.velocity_estimated[2],
+        planet,
+    );
+
+    let orbit = elements::from_spherical(
+        out.position_estimated[0],
+        out.position_estimated[1],
+        out.position_estimated[2],
+        out.velocity_estimated[0],
+        out.velocity_estimated[1],
+        out.velocity_estimated[2],
+        planet,
+    );
+    out.orbital_errors[0] = orbit.semi_major_axis - data.target_orbit.semi_major_axis;
+    out.orbital_errors[1] = orbit.eccentricity - data.target_orbit.eccentricity;
+    out.orbital_errors[2] = orbit.inclination - data.target_orbit.inclination;
+    out.orbital_errors[3] = orbit.raan - data.target_orbit.raan;
+}
+
+/// Crash detection, SimPhase gating, capture-time accumulation, and final output population.
+///
+/// Shared by both the bias and EKF navigation paths. The divergent phase-management block
+/// (bias has `exit_phase_locked` guard; EKF does not) is left inline in each caller — only
+/// the post-phase tail is extracted here.
+fn finalize_crash_phase_and_output(
+    out: &mut NavigationOutput,
+    ns: &mut NavigationState,
+    velocity_radial: f64,
+    nav_dt: f64,
+    data: &SimData,
+) {
     // Crash detection after bounce
-    if nav_state.bounce_flag >= 1 {
-        let delta_radial_velocity = velocity_radial - nav_state.previous_radial_velocity;
-        nav_state.previous_radial_velocity = velocity_radial;
+    if ns.bounce_flag >= 1 {
+        let delta_radial_velocity = velocity_radial - ns.previous_radial_velocity;
+        ns.previous_radial_velocity = velocity_radial;
         if delta_radial_velocity < 0.0 {
             out.crash_flag = 1;
         }
     }
 
     if out.crash_flag == 1 {
-        nav_state.guidance_phase = 3;
+        ns.guidance_phase = 3;
     }
 
     // Apply SimPhase gating
     match data.sim_phase {
         SimPhase::CaptureOnly => {
-            nav_state.guidance_phase = 1;
+            ns.guidance_phase = 1;
         }
         SimPhase::ExitOnly => {
-            nav_state.guidance_phase = 2;
+            ns.guidance_phase = 2;
         }
         SimPhase::Full | SimPhase::Preprogrammed => {
             // Phase logic above already computed the correct phase
         }
     }
 
-    if nav_state.guidance_phase == 1 {
-        nav_state.capture_time += data.periods.navigation;
+    if ns.guidance_phase == 1 {
+        ns.capture_time += nav_dt;
     }
 
-    out.bounce_flag = nav_state.bounce_flag;
-    out.guidance_phase = nav_state.guidance_phase;
-    out.capture_time = nav_state.capture_time;
-
-    out
+    out.bounce_flag = ns.bounce_flag;
+    out.guidance_phase = ns.guidance_phase;
+    out.capture_time = ns.capture_time;
 }
 
 /// Full navigation system state: bias (legacy) or EKF.
@@ -544,29 +565,7 @@ pub fn navigate_ekf(
     out.density_exit = ekf.density_correction() * rho_exit_model;
 
     // ── Step 10: Energy + orbital elements (same as legacy) ──
-    out.energy_estimated = total_energy(
-        out.position_estimated[0],
-        out.position_estimated[1],
-        out.position_estimated[2],
-        out.velocity_estimated[0],
-        out.velocity_estimated[1],
-        out.velocity_estimated[2],
-        planet,
-    );
-
-    let orbit = elements::from_spherical(
-        out.position_estimated[0],
-        out.position_estimated[1],
-        out.position_estimated[2],
-        out.velocity_estimated[0],
-        out.velocity_estimated[1],
-        out.velocity_estimated[2],
-        planet,
-    );
-    out.orbital_errors[0] = orbit.semi_major_axis - data.target_orbit.semi_major_axis;
-    out.orbital_errors[1] = orbit.eccentricity - data.target_orbit.eccentricity;
-    out.orbital_errors[2] = orbit.inclination - data.target_orbit.inclination;
-    out.orbital_errors[3] = orbit.raan - data.target_orbit.raan;
+    compute_energy_and_orbital_errors(&mut out, planet, data);
 
     // ── Step 11: Bounce/phase management (delegated to legacy) ──
     if legacy.bounce_flag == 0 && out.velocity_estimated[1].sin() > 0.0 {
@@ -590,38 +589,7 @@ pub fn navigate_ekf(
         }
     }
 
-    if legacy.bounce_flag >= 1 {
-        let delta_radial_velocity = velocity_radial - legacy.previous_radial_velocity;
-        legacy.previous_radial_velocity = velocity_radial;
-        if delta_radial_velocity < 0.0 {
-            out.crash_flag = 1;
-        }
-    }
-
-    if out.crash_flag == 1 {
-        legacy.guidance_phase = 3;
-    }
-
-    // Apply SimPhase gating
-    match data.sim_phase {
-        SimPhase::CaptureOnly => {
-            legacy.guidance_phase = 1;
-        }
-        SimPhase::ExitOnly => {
-            legacy.guidance_phase = 2;
-        }
-        SimPhase::Full | SimPhase::Preprogrammed => {
-            // Phase logic above already computed the correct phase
-        }
-    }
-
-    if legacy.guidance_phase == 1 {
-        legacy.capture_time += nav_dt;
-    }
-
-    out.bounce_flag = legacy.bounce_flag;
-    out.guidance_phase = legacy.guidance_phase;
-    out.capture_time = legacy.capture_time;
+    finalize_crash_phase_and_output(&mut out, legacy, velocity_radial, nav_dt, data);
 
     out
 }
