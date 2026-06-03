@@ -142,7 +142,6 @@ pub enum GuidanceType {
 }
 
 /// Parsed simulation input configuration
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SimInput {
     pub mission_type: MissionType,
@@ -150,8 +149,6 @@ pub struct SimInput {
     pub n_sims: i32,
     pub sim_phase: SimPhase,
     pub guidance_type: GuidanceType,
-    pub stats_only: bool,
-    pub save_results: bool,
     pub visualize_sim: i32,
     pub screen_output: bool,
     pub random_seed: f64,
@@ -523,10 +520,6 @@ pub struct TomlSimulation {
     #[serde(default)]
     pub screen_output: bool,
     #[serde(default)]
-    pub stats_only: bool,
-    #[serde(default = "default_save_results")]
-    pub save_results: bool,
-    #[serde(default)]
     pub visualize_sim: i32,
     #[serde(default = "default_max_time")]
     pub max_time: f64,
@@ -541,9 +534,6 @@ fn default_n_sims() -> i32 {
 }
 fn default_one() -> f64 {
     1.0
-}
-fn default_save_results() -> bool {
-    true
 }
 
 #[derive(Debug, Deserialize)]
@@ -1299,8 +1289,6 @@ impl SimInput {
             n_sims: config.simulation.n_sims,
             sim_phase,
             guidance_type,
-            stats_only: config.simulation.stats_only,
-            save_results: config.simulation.save_results,
             visualize_sim: config.simulation.visualize_sim,
             screen_output: config.simulation.screen_output,
             random_seed: config.simulation.random_seed,

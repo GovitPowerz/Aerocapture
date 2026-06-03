@@ -862,7 +862,6 @@ d_state = 4
 fn defaults_simulation_fields() {
     let sim: TomlSimulation = toml::from_str("").unwrap();
     assert_eq!(sim.n_sims, 1);
-    assert!(sim.save_results);
 }
 
 #[test]
