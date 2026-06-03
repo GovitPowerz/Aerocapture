@@ -49,8 +49,9 @@ pub fn run_batch(
     wall_timeout: Option<Duration>,
 ) -> Result<Vec<RunOutput>, BatchError> {
     // Read and parse the base config once.
-    let toml_content = std::fs::read_to_string(toml_path)
-        .map_err(|e| BatchError::Runtime(format!("Cannot read '{}': {}", toml_path.display(), e)))?;
+    let toml_content = std::fs::read_to_string(toml_path).map_err(|e| {
+        BatchError::Runtime(format!("Cannot read '{}': {}", toml_path.display(), e))
+    })?;
     let base_table: Table = toml::from_str(&toml_content)
         .map_err(|e| BatchError::Runtime(format!("TOML parse error: {}", e)))?;
     let base_value = Value::Table(base_table);
@@ -74,8 +75,7 @@ pub fn run_batch(
                 // Clone base tree, apply overrides.
                 let mut patched = base_value.clone();
                 for (key, value) in &overrides {
-                    apply_override(&mut patched, key, value)
-                        .map_err(BatchError::Runtime)?;
+                    apply_override(&mut patched, key, value).map_err(BatchError::Runtime)?;
                 }
 
                 let toml_str = toml::to_string(&patched)
@@ -102,10 +102,9 @@ pub fn run_batch(
                 )
                 .map_err(|e: SimError| BatchError::Runtime(format!("Simulation error: {}", e)))?;
 
-                outputs
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| BatchError::Runtime("Simulation produced no results".to_string()))
+                outputs.into_iter().next().ok_or_else(|| {
+                    BatchError::Runtime("Simulation produced no results".to_string())
+                })
             })
             .collect();
 
