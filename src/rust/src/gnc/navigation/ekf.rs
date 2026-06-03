@@ -101,9 +101,10 @@ impl EkfState {
     /// TODO: Incorporate IMU measurements into the prediction step for proper
     /// strapdown inertial navigation. Currently the state transition matrix F
     /// is time-invariant and does not depend on the measured accelerations or
-    /// angular rates. The filter still provides value through its density
-    /// estimation and covariance tracking, but the error-state propagation
-    /// is open-loop with respect to flight dynamics.
+    /// angular rates (specific force). This makes the EKF a density estimator
+    /// and position-error scaffold rather than a full strapdown INS error model:
+    /// the filter's primary value is its density correction state and the
+    /// star-tracker position updates, not tight inertial propagation.
     pub fn predict(
         &mut self,
         dt: f64,
