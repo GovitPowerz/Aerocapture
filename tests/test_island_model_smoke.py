@@ -186,3 +186,69 @@ def test_islands_resume_continues_from_checkpoint(tmp_path: Path) -> None:
     for jsonl in save_dir.glob("run_*.jsonl"):
         gens_seen |= {json.loads(line)["generation"] for line in jsonl.read_text().splitlines() if line.strip()}
     assert {3, 4} <= gens_seen, f"resumed gens 3,4 missing from JSONL; saw {sorted(gens_seen)}"
+
+
+@pytest.mark.slow
+def test_islands_resume_with_larger_n_pop_grows(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Auto-resume from an islands checkpoint with a LARGER [optimizer] n_pop
+    grows every island's population through the wired _train_islands resume path
+    (resize_populations), then continues training. Exercises the resize branch
+    end-to-end, not just the helper in isolation."""
+    from aerocapture.training.config import NetworkConfig, SimConfig, TrainingConfig
+    from aerocapture.training.optimizer import IslandSettings, OptimizerConfig
+    from aerocapture.training.train import train
+
+    save_dir = tmp_path / "neural_network_islands_grow"
+    architecture = [
+        {"type": "dense", "input_size": 25, "output_size": 8, "activation": "swish"},
+        {"type": "dense", "input_size": 8, "output_size": 2, "activation": "linear"},
+    ]
+
+    def _make_cfg(n_pop: int, n_gen: int) -> TrainingConfig:
+        return TrainingConfig(
+            network=NetworkConfig(architecture=architecture, input_mask=list(range(25))),
+            optimizer=OptimizerConfig(
+                algorithm="islands",
+                n_pop=n_pop,
+                n_gen=n_gen,
+                seed_strategy="fixed",  # problem.seeds set before dispatch -> resize re-eval seeds correct
+                training_n_sims=2,
+                validation_n_sims=4,
+                seed_pool_interval=1000,
+                islands=IslandSettings(enabled=True, k_period=1, k_top=2, pso_inject_velocity_scale=0.05),
+            ),
+            sim=SimConfig(
+                executable="src/rust/target/release/aerocapture",
+                nn_param_file=str(save_dir / "best_model.json"),
+                toml_config="configs/training/msr_aller_islands_train.toml",
+                n_sims=2,
+            ),
+            save_dir=str(save_dir),
+            guidance_type="neural_network",
+        )
+
+    # Run 1: 3 gens fresh at n_pop=8 -> checkpoint at g00002.
+    train(_make_cfg(8, 3), seed=42, cwd=".", verbose=False, no_tui=True, from_scratch=True)
+    assert sorted(save_dir.glob("checkpoint_g*.npz"))[-1].name == "checkpoint_g00002.npz"
+
+    # Run 2: resume at n_pop=12 (verbose to capture the resize notice).
+    result = train(_make_cfg(12, 2), seed=42, cwd=".", verbose=True, no_tui=True, from_scratch=False)
+    assert not result.get("interrupted", False)
+
+    out = capsys.readouterr().out
+    assert "Resizing islands populations 8 -> 12" in out, f"islands resize wiring did not fire; stdout tail:\n{out[-2000:]}"
+
+    # The resumed loop advanced past the checkpoint (gens 3,4 ran at the new size).
+    ckpts = sorted(save_dir.glob("checkpoint_g*.npz"))
+    assert any(c.name == "checkpoint_g00004.npz" for c in ckpts), f"resume did not advance; checkpoints: {[c.name for c in ckpts]}"
+
+    # The latest checkpoint carries the grown 12-individual populations.
+    import numpy as np
+
+    latest = ckpts[-1]
+    with np.load(latest, allow_pickle=True) as data:
+        import pickle
+
+        island_states = pickle.loads(data["island_states"].item())
+    for st in island_states:
+        assert st["pop_X"].shape[0] == 12, f"island {st['name']} pop not grown to 12: {st['pop_X'].shape}"

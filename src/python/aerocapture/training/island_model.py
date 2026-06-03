@@ -450,6 +450,83 @@ class IslandModel:
             )
         return results
 
+    def revalidate_each(self) -> None:
+        """Re-validate each island's best_overall_individual under the current config.
+
+        Called once after `from_checkpoint` on resume so each island's
+        `best_val_cost` reflects the CURRENT cost_kwargs (notably a changed
+        `cost_transform`) rather than the stale value baked into the checkpoint.
+        Keeps the individual; only refreshes the metric baseline. Islands with no
+        `best_overall_individual` (or with no validation seeds) are skipped.
+        """
+        if not self.validation_seeds:
+            return
+        for island in self.islands:
+            if island.best_overall_individual is None:
+                continue
+            val_costs, _ = self.problem.evaluate_individual_records_per_seed(
+                island.best_overall_individual,
+                self.validation_seeds,
+            )
+            island.best_val_cost = float(np.sqrt(np.mean(val_costs**2)))
+            island.last_validated_individual = island.best_overall_individual.copy()
+
+    def resize_populations(
+        self,
+        target_n: int,
+        rng: np.random.Generator,
+        fresh_fraction: float,
+        velocity_scale: float,
+    ) -> bool:
+        """Resize every island's restored population to ``target_n``.
+
+        Grows (clone+jitter + fresh-random) or shrinks (best-N by F) each
+        island's pop, re-evaluates the resized pop via ``_run_batch`` (under
+        whatever seeds the problem currently holds -- correct for ``fixed`` /
+        restored-curator ``adaptive``; for ``rotating`` / bootstrap ``adaptive``
+        the first post-resume gen re-evals under proper seeds before any
+        selection, so the transient F here is never selection-relevant),
+        re-stamps GA/DE ``rank`` via FitnessSurvival, and rebuilds PSO
+        ``particles`` (positions = new pop, fresh velocity). Returns True if any
+        island changed size.
+        """
+        from pymoo.algorithms.soo.nonconvex.ga import FitnessSurvival  # noqa: PLC0415
+        from pymoo.core.population import Population  # noqa: PLC0415
+
+        from aerocapture.training.population import resize_population  # noqa: PLC0415
+
+        # NOTE: resize_population needs no ParamSpec list -- the population is
+        # already in normalized [0,1] space, so fresh fill is rng.random.
+        any_changed = False
+        for island in self.islands:
+            pop = island.algorithm.pop
+            if pop is None:
+                continue
+            cur_X = pop.get("X")
+            if cur_X.shape[0] == target_n:
+                continue
+            any_changed = True
+            cur_F = pop.get("F").flatten()
+            new_X = resize_population(cur_X, cur_F, target_n, rng, fresh_fraction=fresh_fraction)
+            # Re-eval the whole resized pop under the CURRENT seeds. On shrink the
+            # survivors already had checkpoint-era F, but those were under a
+            # possibly-different seed list, so a fresh batch keeps all costs
+            # comparable (mirrors re_evaluate_all_populations).
+            new_F = self.problem._run_batch(new_X)
+            new_pop = Population.new("X", new_X)
+            new_pop.set("F", new_F.reshape(-1, 1))
+            if not isinstance(island.algorithm, PSO):
+                new_pop = FitnessSurvival().do(self.problem, new_pop, n_survive=len(new_pop))
+            island.algorithm.pop = new_pop
+            if isinstance(island.algorithm, PSO):
+                particles = Population.new("X", new_X.copy())
+                particles.set("F", new_F.reshape(-1, 1).copy())
+                particles.set("V", rng.uniform(-velocity_scale, velocity_scale, size=new_X.shape))
+                island.algorithm.particles = particles
+            if hasattr(island.algorithm, "_set_optimum"):
+                island.algorithm._set_optimum()
+        return any_changed
+
     def pool_top_k_X(self, k: int) -> npt.NDArray[np.float64]:
         """Concatenate all island populations and return the K lowest-F rows.
 
@@ -543,6 +620,7 @@ class IslandModel:
             version=2,
             generation=generation,
             base_mc_seed=self.base_mc_seed,
+            cost_transform=str(self.problem.cost_kwargs.get("cost_transform", "linear")),
             island_states=np.array(pickle.dumps(island_states), dtype=object),
             migration_log=np.array(pickle.dumps(self.migration_log), dtype=object),
             rng_state=np.array(pickle.dumps(self.rng.bit_generator.state), dtype=object),
@@ -550,14 +628,16 @@ class IslandModel:
         )
         tmp.rename(path)
 
-    def from_checkpoint(self, path: Path) -> tuple[int, dict | None]:
+    def from_checkpoint(self, path: Path) -> tuple[int, dict | None, str | None]:
         """Restore from a v2 checkpoint.
 
         Returns:
-            (generation, seed_curator_state) — the saved generation and the
-            optional SeedCurator state dict (None if absent or if the curator
-            was not in use at save time). The caller is responsible for
-            re-hydrating the curator via `SeedCurator.from_dict(...)`.
+            (generation, seed_curator_state, saved_cost_transform) — the saved
+            generation, the optional SeedCurator state dict (None if absent or
+            if the curator was not in use at save time), and the persisted
+            cost_transform string (None for legacy checkpoints that predate
+            this field). The caller is responsible for re-hydrating the curator
+            via `SeedCurator.from_dict(...)`.
 
         IMPORTANT: per-island best_overall_* are restored verbatim. The
         resumed population's gen-0 argmin must NOT be allowed to overwrite them
@@ -574,6 +654,7 @@ class IslandModel:
                 raise ValueError(f"checkpoint version {version} unsupported; expected 2")
             generation = int(data["generation"])
             base_mc_seed = int(data["base_mc_seed"])
+            saved_cost_transform = str(data["cost_transform"]) if "cost_transform" in data else None
             island_states = pickle.loads(data["island_states"].item())
             migration_log = pickle.loads(data["migration_log"].item())
             rng_state = pickle.loads(data["rng_state"].item())
@@ -653,7 +734,7 @@ class IslandModel:
 
         self.migration_log = migration_log
         self.rng.bit_generator.state = rng_state
-        return generation, seed_curator_state
+        return generation, seed_curator_state, saved_cost_transform
 
     def final_eval(self) -> list[dict[str, Any]]:
         """Re-evaluate each island's best_overall on the reserved final-eval seeds.

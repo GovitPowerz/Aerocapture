@@ -508,6 +508,7 @@ def save_checkpoint(
     seed_curator: SeedCurator | None = None,
     corridor_acc: CorridorAccumulator | None = None,
     best_val_cost: float = np.inf,
+    cost_transform: str = "linear",
 ) -> None:
     """Save full training state for later resumption."""
     prefix = f"checkpoint_g{generation:05d}"
@@ -524,6 +525,7 @@ def save_checkpoint(
         "generation": generation,
         "best_cost": best_cost,
         "best_val_cost": best_val_cost,
+        "cost_transform": cost_transform,
         "cost_history": [float(c) for c in cost_history],
         "rng_state": rng_state_json,
     }
@@ -592,7 +594,7 @@ def load_checkpoint(
     """Find and load the latest checkpoint from save_dir.
 
     Returns dict with: generation, population, costs, best_cost,
-    best_individual, cost_history, rng_state. Or None if no checkpoint found.
+    best_individual, cost_history, rng_state, cost_transform. Or None if no checkpoint found.
     """
     # Support both new (checkpoint_g*.json) and old (checkpoint_r*_g*.json) naming
     json_files = sorted(save_dir.glob("checkpoint_g*.json"))
@@ -633,6 +635,7 @@ def load_checkpoint(
         "cost_history": meta["cost_history"],
         "rng_state": meta.get("rng_state"),
         "best_val_cost": meta.get("best_val_cost", float("inf")),
+        "cost_transform": meta.get("cost_transform", None),
         "seed_curator": meta.get("seed_curator"),
         "corridor_acc": corridor_acc_restored,
     }
@@ -937,6 +940,18 @@ def train(
         nn_config=config.network if config.guidance_type == "neural_network" else None,
     )
 
+    if resumed is not None and verbose:
+        # Single-algo re-validates the checkpointed best unconditionally on
+        # resume (gated on val_seeds), so best_val_cost is already recomputed
+        # under the current transform; this is just an informative notice. The
+        # islands path handles its own reset in _train_islands.
+        saved_transform = resumed.get("cost_transform")
+        current_transform = problem.cost_kwargs.get("cost_transform", "linear")
+        if saved_transform is None or saved_transform != current_transform:
+            will_revalidate = config.optimizer.validation_n_sims > 0 and bool(toml_abs_path)
+            suffix = "; re-validating best under new metric" if will_revalidate else ""
+            print(f"  cost_transform changed {saved_transform!r} -> {current_transform!r}{suffix}")
+
     # Reserved seed sets for validation and final evaluation.
     # Uses well-separated RNG streams so training, validation, and final eval
     # never share seeds.
@@ -973,6 +988,19 @@ def train(
         if pop_array.dtype != np.float64:
             pop_array = pop_array.astype(np.float64)
         _check_resume_chromosome_shape(pop_array, expected_n_params=len(param_specs))
+        if config.optimizer.n_pop != pop_array.shape[0]:
+            from aerocapture.training.population import resize_population  # noqa: PLC0415
+
+            if verbose:
+                print(f"  Resizing resumed population {pop_array.shape[0]} -> {config.optimizer.n_pop}")
+            pop_array = resize_population(
+                pop_array,
+                pop_costs,
+                config.optimizer.n_pop,
+                rng,
+                fresh_fraction=config.optimizer.grow_fresh_fraction,
+            )
+            pop_costs = None  # force a single re-eval of the resized pop
     else:
         if config.guidance_type == "neural_network" and config.network.architecture is None:
             # v1 dense-only NN: existing activation-aware Xavier/He/LeCun init.
@@ -1445,6 +1473,7 @@ def train(
                         seed_curator=seed_curator,
                         corridor_acc=corridor_acc,
                         best_val_cost=best_val_cost,
+                        cost_transform=problem.cost_kwargs.get("cost_transform", "linear"),
                     )
                     if verbose:
                         print(f"  Checkpoint saved: g{gen + 1:05d}")
@@ -1469,6 +1498,7 @@ def train(
                     seed_curator=seed_curator,
                     corridor_acc=corridor_acc,
                     best_val_cost=best_val_cost,
+                    cost_transform=problem.cost_kwargs.get("cost_transform", "linear"),
                 )
                 if verbose:
                     print(f"  Final checkpoint saved: g{last_gen:05d}")
@@ -1494,6 +1524,7 @@ def train(
                 seed_curator=seed_curator,
                 corridor_acc=corridor_acc,
                 best_val_cost=best_val_cost,
+                cost_transform=problem.cost_kwargs.get("cost_transform", "linear"),
             )
             logger.close()
 
@@ -1617,7 +1648,7 @@ def _train_islands(
         warm_start_algorithm(island.algorithm, problem, init_pop)
 
     if resume_ckpt is not None:
-        resumed_gen, resumed_curator_state = island_model.from_checkpoint(resume_ckpt)
+        resumed_gen, resumed_curator_state, resumed_cost_transform = island_model.from_checkpoint(resume_ckpt)
         start_gen = resumed_gen + 1
         # Mirror the single-algorithm convention: `--n-gen N` after resume
         # means "N additional gens", so bump n_gen by the resumed
@@ -1640,6 +1671,32 @@ def _train_islands(
             # the pre-islands-dispatch seed state.
             if seed_curator.seed_list is not None:
                 problem.update_seeds(seed_curator.seed_list)
+        # Reconcile population size to the configured n_pop (supports resuming a
+        # small-pop run with a bigger pop). Done AFTER the curated seeds are
+        # pushed so the re-eval of new individuals uses the right seeds.
+        old_n = island_model.islands[0].algorithm.pop.get("X").shape[0]
+        if config.optimizer.n_pop != old_n:
+            if verbose:
+                print(f"  Resizing islands populations {old_n} -> {config.optimizer.n_pop}")
+            island_model.resize_populations(
+                target_n=config.optimizer.n_pop,
+                rng=rng,
+                fresh_fraction=config.optimizer.grow_fresh_fraction,
+                velocity_scale=config.optimizer.islands.pso_inject_velocity_scale,
+            )
+
+        # Re-validate each island's best under the current config (refreshes
+        # best_val_cost; auto-handles a changed cost_transform).
+        if val_seeds:
+            island_model.revalidate_each()
+
+        # cost_transform change notice + stagnation reset.
+        current_transform = problem.cost_kwargs.get("cost_transform", "linear")
+        if resumed_cost_transform is None or resumed_cost_transform != current_transform:
+            if verbose:
+                print(f"  cost_transform changed {resumed_cost_transform!r} -> {current_transform!r}; re-validated best under new metric")
+            for island in island_model.islands:
+                island.stagnation_counter = 0
         if verbose:
             print(f"  Resumed islands from gen {resumed_gen}, continuing from {start_gen}")
 

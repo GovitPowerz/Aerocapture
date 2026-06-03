@@ -1,8 +1,5 @@
 # TODO
 
-- [ ] when resuming the best val of all optimizer should be reevaluated
-- [ ] I'd like to first optimize a small population (both single algo or islands) and then resume this optimization using a much bigger population using the small population as seeds.
-- [ ] I'd like to resume the optimization using a different cost transform which means resetting the validation best value.
 - [ ] After all the PRs we did recently, I think it's time for a thorough codebase review (critical on architecture, maintainability, code duplication, code quality, respect of functional specifications) or our Rust codebase.
 - [ ] After all the PRs we did recently, I think it's time for a thorough codebase review (critical on architecture, maintainability, code duplication, code quality, respect of functional specifications) or our Python codebase.
 
