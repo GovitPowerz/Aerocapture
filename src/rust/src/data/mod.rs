@@ -11,8 +11,8 @@ pub mod nn_state;
 pub mod pilot;
 
 use crate::config::{
-    GuidanceType, IntegrationMode, SimInput, SimPhase, TomlConfig, TomlLayerSpec, TomlMonteCarlo,
-    TomlNavigation,
+    GuidanceType, IntegrationMode, SimInput, SimPhase, TomlConfig, TomlLayerSpec, TomlMcDomain,
+    TomlMonteCarlo, TomlNavigation,
 };
 use crate::gnc::guidance::lateral::LateralParams;
 use crate::gnc::guidance::thermal_limiter::ThermalLimiterParams;
@@ -828,6 +828,38 @@ impl SimData {
     }
 }
 
+/// Resolve one dispersion domain: `None` if absent or Off, else `from_level` seeded
+/// with optional Custom overrides. Rejects unknown custom keys.
+fn resolve_domain<S>(
+    d: Option<&TomlMcDomain>,
+    from_level: impl Fn(dispersions::DispersionLevel) -> S,
+    custom_fields: &[(&str, fn(&mut S, f64))],
+) -> Result<Option<S>, DataError> {
+    let Some(d) = d else { return Ok(None) };
+    let level = dispersions::DispersionLevel::from_str(&d.level)?;
+    if level == dispersions::DispersionLevel::Off {
+        return Ok(None);
+    }
+    let mut s = from_level(level);
+    if level == dispersions::DispersionLevel::Custom {
+        let allowed: Vec<&str> = custom_fields.iter().map(|(k, _)| *k).collect();
+        // Reject misspelled custom-dispersion keys instead of silently dropping them.
+        for k in d.custom.keys() {
+            if !allowed.contains(&k.as_str()) {
+                return Err(DataError(format!(
+                    "unknown custom dispersion key: {k:?} (allowed: {allowed:?})"
+                )));
+            }
+        }
+        for (key, setter) in custom_fields {
+            if let Some(&v) = d.custom.get(*key) {
+                setter(&mut s, v);
+            }
+        }
+    }
+    Ok(Some(s))
+}
+
 /// Build a DispersionConfig from TOML [monte_carlo] section.
 fn build_dispersion_config(
     mc: &TomlMonteCarlo,
@@ -856,226 +888,83 @@ fn build_dispersion_config(
         Ok(())
     }
 
-    let initial_state = match mc.initial_state.as_ref() {
-        None => None,
-        Some(d) => {
-            let level = resolve_level(&d.level)?;
-            if level == DispersionLevel::Off {
-                None
-            } else {
-                let mut s = InitialStateSigmas::from_level(level);
-                if level == DispersionLevel::Custom {
-                    take_custom(
-                        &d.custom,
-                        &[
-                            "altitude",
-                            "longitude",
-                            "latitude",
-                            "velocity",
-                            "flight_path_angle",
-                            "azimuth",
-                        ],
-                    )?;
-                    if let Some(&v) = d.custom.get("altitude") {
-                        s.altitude = v;
-                    }
-                    if let Some(&v) = d.custom.get("longitude") {
-                        s.longitude = v;
-                    }
-                    if let Some(&v) = d.custom.get("latitude") {
-                        s.latitude = v;
-                    }
-                    if let Some(&v) = d.custom.get("velocity") {
-                        s.velocity = v;
-                    }
-                    if let Some(&v) = d.custom.get("flight_path_angle") {
-                        s.flight_path = v;
-                    }
-                    if let Some(&v) = d.custom.get("azimuth") {
-                        s.azimuth = v;
-                    }
-                }
-                Some(s)
-            }
-        }
-    };
+    let initial_state = resolve_domain(
+        mc.initial_state.as_ref(),
+        InitialStateSigmas::from_level,
+        &[
+            ("altitude", |s, v| s.altitude = v),
+            ("longitude", |s, v| s.longitude = v),
+            ("latitude", |s, v| s.latitude = v),
+            ("velocity", |s, v| s.velocity = v),
+            ("flight_path_angle", |s: &mut InitialStateSigmas, v| {
+                s.flight_path = v
+            }),
+            ("azimuth", |s, v| s.azimuth = v),
+        ],
+    )?;
 
-    let atmosphere = match mc.atmosphere.as_ref() {
-        None => None,
-        Some(d) => {
-            let level = resolve_level(&d.level)?;
-            if level == DispersionLevel::Off {
-                None
-            } else {
-                let mut s = AtmosphereSigmas::from_level(level);
-                if level == DispersionLevel::Custom {
-                    take_custom(&d.custom, &["density"])?;
-                    if let Some(&v) = d.custom.get("density") {
-                        s.density = v;
-                    }
-                }
-                Some(s)
-            }
-        }
-    };
+    let atmosphere = resolve_domain(
+        mc.atmosphere.as_ref(),
+        AtmosphereSigmas::from_level,
+        &[("density", |s, v| s.density = v)],
+    )?;
 
-    let aerodynamics = match mc.aerodynamics.as_ref() {
-        None => None,
-        Some(d) => {
-            let level = resolve_level(&d.level)?;
-            if level == DispersionLevel::Off {
-                None
-            } else {
-                let mut s = AerodynamicsSigmas::from_level(level);
-                if level == DispersionLevel::Custom {
-                    take_custom(&d.custom, &["drag", "lift", "incidence"])?;
-                    if let Some(&v) = d.custom.get("drag") {
-                        s.drag = v;
-                    }
-                    if let Some(&v) = d.custom.get("lift") {
-                        s.lift = v;
-                    }
-                    if let Some(&v) = d.custom.get("incidence") {
-                        s.incidence = v;
-                    }
-                }
-                Some(s)
-            }
-        }
-    };
+    let aerodynamics = resolve_domain(
+        mc.aerodynamics.as_ref(),
+        AerodynamicsSigmas::from_level,
+        &[
+            ("drag", |s, v| s.drag = v),
+            ("lift", |s, v| s.lift = v),
+            ("incidence", |s, v| s.incidence = v),
+        ],
+    )?;
 
-    let navigation = match mc.navigation.as_ref() {
-        None => None,
-        Some(d) => {
-            let level = resolve_level(&d.level)?;
-            if level == DispersionLevel::Off {
-                None
-            } else {
-                let mut s = NavigationSigmas::from_level(level);
-                if level == DispersionLevel::Custom {
-                    take_custom(
-                        &d.custom,
-                        &[
-                            "altitude",
-                            "longitude",
-                            "latitude",
-                            "velocity",
-                            "flight_path_angle",
-                            "azimuth",
-                            "drag_accel",
-                        ],
-                    )?;
-                    if let Some(&v) = d.custom.get("altitude") {
-                        s.altitude = v;
-                    }
-                    if let Some(&v) = d.custom.get("longitude") {
-                        s.longitude = v;
-                    }
-                    if let Some(&v) = d.custom.get("latitude") {
-                        s.latitude = v;
-                    }
-                    if let Some(&v) = d.custom.get("velocity") {
-                        s.velocity = v;
-                    }
-                    if let Some(&v) = d.custom.get("flight_path_angle") {
-                        s.flight_path = v;
-                    }
-                    if let Some(&v) = d.custom.get("azimuth") {
-                        s.azimuth = v;
-                    }
-                    if let Some(&v) = d.custom.get("drag_accel") {
-                        s.drag_accel = v;
-                    }
-                }
-                Some(s)
-            }
-        }
-    };
+    let navigation = resolve_domain(
+        mc.navigation.as_ref(),
+        NavigationSigmas::from_level,
+        &[
+            ("altitude", |s, v| s.altitude = v),
+            ("longitude", |s, v| s.longitude = v),
+            ("latitude", |s, v| s.latitude = v),
+            ("velocity", |s, v| s.velocity = v),
+            ("flight_path_angle", |s: &mut NavigationSigmas, v| {
+                s.flight_path = v
+            }),
+            ("azimuth", |s, v| s.azimuth = v),
+            ("drag_accel", |s, v| s.drag_accel = v),
+        ],
+    )?;
 
-    let mass = match mc.mass.as_ref() {
-        None => None,
-        Some(d) => {
-            let level = resolve_level(&d.level)?;
-            if level == DispersionLevel::Off {
-                None
-            } else {
-                let mut s = MassSigmas::from_level(level);
-                if level == DispersionLevel::Custom {
-                    take_custom(&d.custom, &["mass"])?;
-                    if let Some(&v) = d.custom.get("mass") {
-                        s.mass = v;
-                    }
-                }
-                Some(s)
-            }
-        }
-    };
+    let mass = resolve_domain(
+        mc.mass.as_ref(),
+        MassSigmas::from_level,
+        &[("mass", |s, v| s.mass = v)],
+    )?;
 
-    let vehicle = match mc.vehicle.as_ref() {
-        None => None,
-        Some(d) => {
-            let level = resolve_level(&d.level)?;
-            if level == DispersionLevel::Off {
-                None
-            } else {
-                let mut s = VehicleSigmas::from_level(level);
-                if level == DispersionLevel::Custom {
-                    take_custom(&d.custom, &["ref_area", "max_bank_rate"])?;
-                    if let Some(&v) = d.custom.get("ref_area") {
-                        s.ref_area = v;
-                    }
-                    if let Some(&v) = d.custom.get("max_bank_rate") {
-                        s.max_bank_rate = v;
-                    }
-                }
-                Some(s)
-            }
-        }
-    };
+    let vehicle = resolve_domain(
+        mc.vehicle.as_ref(),
+        VehicleSigmas::from_level,
+        &[
+            ("ref_area", |s, v| s.ref_area = v),
+            ("max_bank_rate", |s, v| s.max_bank_rate = v),
+        ],
+    )?;
 
-    let pilot = match mc.pilot.as_ref() {
-        None => None,
-        Some(d) => {
-            let level = resolve_level(&d.level)?;
-            if level == DispersionLevel::Off {
-                None
-            } else {
-                let mut s = PilotSigmas::from_level(level);
-                if level == DispersionLevel::Custom {
-                    take_custom(&d.custom, &["time_constant", "damping", "frequency"])?;
-                    if let Some(&v) = d.custom.get("time_constant") {
-                        s.time_constant = v;
-                    }
-                    if let Some(&v) = d.custom.get("damping") {
-                        s.damping = v;
-                    }
-                    if let Some(&v) = d.custom.get("frequency") {
-                        s.frequency = v;
-                    }
-                }
-                Some(s)
-            }
-        }
-    };
+    let pilot = resolve_domain(
+        mc.pilot.as_ref(),
+        PilotSigmas::from_level,
+        &[
+            ("time_constant", |s, v| s.time_constant = v),
+            ("damping", |s, v| s.damping = v),
+            ("frequency", |s, v| s.frequency = v),
+        ],
+    )?;
 
-    let nav_filter = match mc.nav_filter.as_ref() {
-        None => None,
-        Some(d) => {
-            let level = resolve_level(&d.level)?;
-            if level == DispersionLevel::Off {
-                None
-            } else {
-                let mut s = NavFilterSigmas::from_level(level);
-                if level == DispersionLevel::Custom {
-                    take_custom(&d.custom, &["filter_gain"])?;
-                    if let Some(&v) = d.custom.get("filter_gain") {
-                        s.filter_gain = v;
-                    }
-                }
-                Some(s)
-            }
-        }
-    };
+    let nav_filter = resolve_domain(
+        mc.nav_filter.as_ref(),
+        NavFilterSigmas::from_level,
+        &[("filter_gain", |s, v| s.filter_gain = v)],
+    )?;
 
     let wind = match mc.wind.as_ref() {
         None => None,
