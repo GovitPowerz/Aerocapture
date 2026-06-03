@@ -13,7 +13,8 @@ use crate::gnc::navigation::estimator::{self, NavigationFilter};
 use crate::integration::dopri45::Dopri45State;
 use crate::integration::sequencer::SequencerState;
 use crate::simulation::init;
-use crate::simulation::runner::{BOUNCE_ALT_UNSET, SimState, TermReason, navigate_from_state};
+use crate::simulation::runner::navigate_from_state;
+use crate::simulation::sim_types::{BOUNCE_ALT_UNSET, SimState, TermReason};
 use std::time::Instant;
 
 /// Construct a fresh `SimState` for env `i` without running the simulation loop.

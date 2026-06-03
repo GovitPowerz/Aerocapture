@@ -11,7 +11,7 @@ use crate::data::SimData;
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
 use crate::orbit::maneuver::DeltaV;
 use crate::orbit::{elements, maneuver};
-use crate::simulation::runner::{
+use crate::simulation::sim_types::{
     CRASH_ENERGY_CAP_MJKG, CRASH_ENERGY_WEIGHT, CRASH_FLOOR, CRASH_TIME_BONUS, DEG_TO_RAD, G0,
     HYPERBOLIC_BASE, SimState, TermReason,
 };
