@@ -71,7 +71,6 @@ pub fn geodetic_from_spherical(
     }
 }
 
-
 /// Convert spherical position to Cartesian.
 ///
 /// Input: [r, longitude, latitude]

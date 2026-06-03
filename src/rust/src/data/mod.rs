@@ -819,7 +819,8 @@ impl SimData {
             dispersion_config,
             nav_mode,
             nav_config: toml.navigation.clone(),
-            integration_mode: IntegrationMode::from_toml(&toml.integration, v.periods.integration).map_err(DataError)?,
+            integration_mode: IntegrationMode::from_toml(&toml.integration, v.periods.integration)
+                .map_err(DataError)?,
             sim_phase: config.sim_phase,
             density_perturbation,
             nn_normalization_override,

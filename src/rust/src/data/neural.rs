@@ -1337,10 +1337,23 @@ impl LayerSpec {
     /// - Mamba:       (input_size, input_size,            "mamba")
     fn io(&self) -> (usize, usize, &'static str) {
         match self {
-            LayerSpec::Dense { input_size, output_size, .. } => (*input_size, *output_size, "dense"),
-            LayerSpec::Gru { input_size, hidden_size } => (*input_size, *hidden_size, "gru"),
-            LayerSpec::Lstm { input_size, hidden_size } => (*input_size, *hidden_size, "lstm"),
-            LayerSpec::Window { input_size, n_steps } => (*input_size, n_steps * input_size, "window"),
+            LayerSpec::Dense {
+                input_size,
+                output_size,
+                ..
+            } => (*input_size, *output_size, "dense"),
+            LayerSpec::Gru {
+                input_size,
+                hidden_size,
+            } => (*input_size, *hidden_size, "gru"),
+            LayerSpec::Lstm {
+                input_size,
+                hidden_size,
+            } => (*input_size, *hidden_size, "lstm"),
+            LayerSpec::Window {
+                input_size,
+                n_steps,
+            } => (*input_size, n_steps * input_size, "window"),
             LayerSpec::Transformer { d_model, .. } => (*d_model, *d_model, "transformer"),
             LayerSpec::Mamba { input_size, .. } => (*input_size, *input_size, "mamba"),
         }

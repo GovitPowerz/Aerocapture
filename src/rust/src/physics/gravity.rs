@@ -317,7 +317,10 @@ mod tests {
             let p3 = (5.0 * x * x * x - 3.0 * x) / 2.0;
             let p4 = (35.0 * x.powi(4) - 30.0 * x * x + 3.0) / 8.0;
             (mu / r)
-                * (1.0 - j2 * (re / r).powi(2) * p2 - j3 * (re / r).powi(3) * p3 - j4 * (re / r).powi(4) * p4)
+                * (1.0
+                    - j2 * (re / r).powi(2) * p2
+                    - j3 * (re / r).powi(3) * p3
+                    - j4 * (re / r).powi(4) * p4)
         };
         for &(r_mult, lat) in &[(1.05_f64, 0.3_f64), (1.2, -0.7), (1.5, 1.1)] {
             let r = re * r_mult;

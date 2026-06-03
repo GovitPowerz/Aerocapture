@@ -148,7 +148,6 @@ pub fn predicted_dv_for_nn(
     [dv1, dv2, dv3]
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,7 +356,10 @@ mod tests {
             inclination: 0.45,
             raan: 1.0,
         };
-        let parking_a = ParkingOrbit { apoapsis: 500_000.0, periapsis: 250_000.0 };
+        let parking_a = ParkingOrbit {
+            apoapsis: 500_000.0,
+            periapsis: 250_000.0,
+        };
 
         let dv_a = compute_deltav(&orbit_a, &target_a, &parking_a, &p);
         assert_eq!(dv_a.dv1, 35.56978761992332_f64);
@@ -389,7 +391,10 @@ mod tests {
             inclination: 0.45,
             raan: 0.5,
         };
-        let parking_b = ParkingOrbit { apoapsis: 500_000.0, periapsis: 250_000.0 };
+        let parking_b = ParkingOrbit {
+            apoapsis: 500_000.0,
+            periapsis: 250_000.0,
+        };
 
         let dv_b = compute_deltav(&orbit_b, &target_b, &parking_b, &p);
         assert_eq!(dv_b.dv1, -2.991416330771699_f64);
@@ -421,7 +426,10 @@ mod tests {
             inclination: 0.9,
             raan: 0.0,
         };
-        let parking_c = ParkingOrbit { apoapsis: 500_000.0, periapsis: 300_000.0 };
+        let parking_c = ParkingOrbit {
+            apoapsis: 500_000.0,
+            periapsis: 300_000.0,
+        };
 
         let nn_c = predicted_dv_for_nn(&orbit_c, &target_c, &parking_c, &p);
         assert_eq!(nn_c[0], 1976.3893027170516_f64);

@@ -18,7 +18,6 @@ pub fn ftc_bank_angle(
     altitude: f64,
     energy: f64,
 ) -> f64 {
-
     let ref_traj = &data.guidance.ref_trajectory;
 
     let velocity_relative = nav.velocity_estimated[0];

@@ -107,7 +107,10 @@ pub enum IntegrationMode {
 
 impl IntegrationMode {
     /// Build from TOML config. `integration_period` is the outer tick dt from [vehicle.periods].
-    pub fn from_toml(toml: &Option<TomlIntegration>, integration_period: f64) -> Result<Self, String> {
+    pub fn from_toml(
+        toml: &Option<TomlIntegration>,
+        integration_period: f64,
+    ) -> Result<Self, String> {
         let Some(cfg) = toml else {
             return Ok(Self::FixedGill);
         };
@@ -119,7 +122,9 @@ impl IntegrationMode {
                 min_dt: cfg.min_dt.unwrap_or(1e-6),
                 max_dt: cfg.max_dt.unwrap_or(integration_period),
             })),
-            other => Err(format!("unknown integration mode: {other:?} (expected \"fixed\" or \"adaptive\")")),
+            other => Err(format!(
+                "unknown integration mode: {other:?} (expected \"fixed\" or \"adaptive\")"
+            )),
         }
     }
 }

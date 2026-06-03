@@ -20,7 +20,7 @@
 //! without the altitude-rate damping term.
 
 use crate::data::SimData;
-use crate::gnc::guidance::dispatch::{securize_cos_bank, DEFAULT_FALLBACK_BANK_RAD};
+use crate::gnc::guidance::dispatch::{DEFAULT_FALLBACK_BANK_RAD, securize_cos_bank};
 use crate::gnc::navigation::estimator::NavigationOutput;
 
 /// PredGuid persistent state (runtime-only, no tunable params).
@@ -107,12 +107,12 @@ mod tests {
     use approx::assert_relative_eq;
     use rstest::rstest;
 
+    use crate::config::PlanetConfig;
     use crate::data::aerodynamics::AeroTables;
     use crate::data::atmosphere::{AtmosphereModel, DensityProfile};
     use crate::data::capsule::Capsule;
     use crate::data::guidance_params::{GuidanceParams, ReferenceTrajectory};
     use crate::data::incidence::IncidenceProfile;
-    use crate::config::PlanetConfig;
     use crate::data::pilot::{PilotModel, PilotType};
     use crate::data::{
         Constraints, EntryConditions, FinalConditions, OrbitalTarget, ParkingOrbit, SimData,
@@ -238,8 +238,12 @@ mod tests {
         let data = test_sim_data(); // ref_trajectory.n_points == 0
         let planet = PlanetConfig::mars();
         let energy = crate::gnc::navigation::coordinates::total_energy(
-            nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2],
-            nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2],
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
             &planet,
         );
 
@@ -258,8 +262,12 @@ mod tests {
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
         let energy = crate::gnc::navigation::coordinates::total_energy(
-            nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2],
-            nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2],
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
             &planet,
         );
 

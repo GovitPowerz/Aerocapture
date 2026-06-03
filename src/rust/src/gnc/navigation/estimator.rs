@@ -225,7 +225,13 @@ pub fn navigate(
         }
     }
 
-    finalize_crash_phase_and_output(&mut out, nav_state, velocity_radial, data.periods.navigation, data);
+    finalize_crash_phase_and_output(
+        &mut out,
+        nav_state,
+        velocity_radial,
+        data.periods.navigation,
+        data,
+    );
 
     out
 }
@@ -234,7 +240,11 @@ pub fn navigate(
 ///
 /// Shared by both the bias and EKF navigation paths. Reads `out.position_estimated`
 /// and `out.velocity_estimated`; writes `out.energy_estimated` and `out.orbital_errors`.
-fn compute_energy_and_orbital_errors(out: &mut NavigationOutput, planet: &PlanetConfig, data: &SimData) {
+fn compute_energy_and_orbital_errors(
+    out: &mut NavigationOutput,
+    planet: &PlanetConfig,
+    data: &SimData,
+) {
     out.energy_estimated = total_energy(
         out.position_estimated[0],
         out.position_estimated[1],

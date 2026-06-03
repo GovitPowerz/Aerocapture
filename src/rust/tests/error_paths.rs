@@ -39,7 +39,12 @@ fn eq_glide_zero_velocity() {
     let nav = nav_from_state(60_000.0, 0.0, -10.0_f64.to_radians(), 1e-4, 0.0, 0.0);
     let data = minimal_sim_data();
     let p = planet();
-    let (alt, _) = geodetic_from_spherical(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], &p);
+    let (alt, _) = geodetic_from_spherical(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        &p,
+    );
     let bank = equilibrium_glide_bank(&nav, &data, &p, alt);
     assert!(
         bank.is_finite(),
@@ -54,7 +59,12 @@ fn eq_glide_zero_density() {
     // so we use a very high altitude to get near-zero density from the table.
     let nav_high = nav_from_state(300_000.0, 5_000.0, -10.0_f64.to_radians(), 0.0, 0.0, 0.0);
     let p = planet();
-    let (alt, _) = geodetic_from_spherical(nav_high.position_estimated[0], nav_high.position_estimated[1], nav_high.position_estimated[2], &p);
+    let (alt, _) = geodetic_from_spherical(
+        nav_high.position_estimated[0],
+        nav_high.position_estimated[1],
+        nav_high.position_estimated[2],
+        &p,
+    );
     let bank = equilibrium_glide_bank(&nav_high, &data, &p, alt);
     assert!(
         bank.is_finite(),
@@ -75,7 +85,12 @@ fn eq_glide_extreme_fpa_down() {
     );
     let data = minimal_sim_data();
     let p = planet();
-    let (alt, _) = geodetic_from_spherical(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], &p);
+    let (alt, _) = geodetic_from_spherical(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        &p,
+    );
     let bank = equilibrium_glide_bank(&nav, &data, &p, alt);
     assert!(
         bank.is_finite(),
@@ -96,7 +111,12 @@ fn eq_glide_extreme_fpa_up() {
     );
     let data = minimal_sim_data();
     let p = planet();
-    let (alt, _) = geodetic_from_spherical(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], &p);
+    let (alt, _) = geodetic_from_spherical(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        &p,
+    );
     let bank = equilibrium_glide_bank(&nav, &data, &p, alt);
     assert!(
         bank.is_finite(),
@@ -110,7 +130,12 @@ fn eq_glide_very_high_altitude() {
     let nav = nav_from_state(300_000.0, 5_000.0, -10.0_f64.to_radians(), 0.0, 0.0, 0.0);
     let data = minimal_sim_data();
     let p = planet();
-    let (alt, _) = geodetic_from_spherical(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], &p);
+    let (alt, _) = geodetic_from_spherical(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        &p,
+    );
     let bank = equilibrium_glide_bank(&nav, &data, &p, alt);
     assert!(
         bank.is_finite(),
@@ -210,7 +235,15 @@ fn energy_ctrl_zero_velocity() {
     let data = minimal_sim_data();
     let state = EnergyControllerState::new();
     let p = planet();
-    let energy = total_energy(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2], &p);
+    let energy = total_energy(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
+        &p,
+    );
     let bank = energy_controller_bank(&nav, &state, &data, energy);
     assert!(
         bank.is_finite(),
@@ -224,7 +257,15 @@ fn energy_ctrl_zero_density() {
     let data = minimal_sim_data();
     let state = EnergyControllerState::new();
     let p = planet();
-    let energy = total_energy(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2], &p);
+    let energy = total_energy(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
+        &p,
+    );
     let bank = energy_controller_bank(&nav, &state, &data, energy);
     assert!(
         bank.is_finite(),
@@ -245,7 +286,15 @@ fn energy_ctrl_extreme_fpa_down() {
     let data = minimal_sim_data();
     let state = EnergyControllerState::new();
     let p = planet();
-    let energy = total_energy(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2], &p);
+    let energy = total_energy(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
+        &p,
+    );
     let bank = energy_controller_bank(&nav, &state, &data, energy);
     assert!(
         bank.is_finite(),
@@ -266,7 +315,15 @@ fn energy_ctrl_extreme_fpa_up() {
     let data = minimal_sim_data();
     let state = EnergyControllerState::new();
     let p = planet();
-    let energy = total_energy(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2], &p);
+    let energy = total_energy(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
+        &p,
+    );
     let bank = energy_controller_bank(&nav, &state, &data, energy);
     assert!(
         bank.is_finite(),
@@ -280,7 +337,15 @@ fn energy_ctrl_very_high_altitude() {
     let data = minimal_sim_data();
     let state = EnergyControllerState::new();
     let p = planet();
-    let energy = total_energy(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2], &p);
+    let energy = total_energy(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
+        &p,
+    );
     let bank = energy_controller_bank(&nav, &state, &data, energy);
     assert!(
         bank.is_finite(),
@@ -299,7 +364,15 @@ fn predguid_zero_velocity() {
     let data = minimal_sim_data();
     let state = PredGuidState::new();
     let p = planet();
-    let energy = total_energy(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2], &p);
+    let energy = total_energy(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
+        &p,
+    );
     let bank = predguid_bank(&nav, &state, &data, energy);
     assert!(
         bank.is_finite(),
@@ -313,7 +386,15 @@ fn predguid_zero_density() {
     let data = minimal_sim_data();
     let state = PredGuidState::new();
     let p = planet();
-    let energy = total_energy(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2], &p);
+    let energy = total_energy(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
+        &p,
+    );
     let bank = predguid_bank(&nav, &state, &data, energy);
     assert!(
         bank.is_finite(),
@@ -334,7 +415,15 @@ fn predguid_extreme_fpa_down() {
     let data = minimal_sim_data();
     let state = PredGuidState::new();
     let p = planet();
-    let energy = total_energy(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2], &p);
+    let energy = total_energy(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
+        &p,
+    );
     let bank = predguid_bank(&nav, &state, &data, energy);
     assert!(
         bank.is_finite(),
@@ -355,7 +444,15 @@ fn predguid_extreme_fpa_up() {
     let data = minimal_sim_data();
     let state = PredGuidState::new();
     let p = planet();
-    let energy = total_energy(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2], &p);
+    let energy = total_energy(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
+        &p,
+    );
     let bank = predguid_bank(&nav, &state, &data, energy);
     assert!(
         bank.is_finite(),
@@ -369,7 +466,15 @@ fn predguid_very_high_altitude() {
     let data = minimal_sim_data();
     let state = PredGuidState::new();
     let p = planet();
-    let energy = total_energy(nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2], nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2], &p);
+    let energy = total_energy(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
+        &p,
+    );
     let bank = predguid_bank(&nav, &state, &data, energy);
     assert!(
         bank.is_finite(),

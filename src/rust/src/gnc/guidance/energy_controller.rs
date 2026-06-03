@@ -13,7 +13,7 @@
 //! energy level, and K_e is a tunable gain.
 
 use crate::data::SimData;
-use crate::gnc::guidance::dispatch::{securize_cos_bank, DEFAULT_FALLBACK_BANK_RAD};
+use crate::gnc::guidance::dispatch::{DEFAULT_FALLBACK_BANK_RAD, securize_cos_bank};
 use crate::gnc::navigation::estimator::NavigationOutput;
 
 /// Energy controller persistent state (runtime-only, no tunable params).
@@ -211,8 +211,12 @@ mod tests {
         let data = test_sim_data(); // ref_trajectory.n_points == 0
         let planet = PlanetConfig::mars();
         let energy = crate::gnc::navigation::coordinates::total_energy(
-            nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2],
-            nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2],
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
             &planet,
         );
 
@@ -231,8 +235,12 @@ mod tests {
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
         let energy = crate::gnc::navigation::coordinates::total_energy(
-            nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2],
-            nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2],
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
             &planet,
         );
 

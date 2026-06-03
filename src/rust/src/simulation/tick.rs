@@ -14,8 +14,8 @@ use crate::integration::events::{self, EventContext, EventDef, EventType};
 use crate::orbit::elements;
 use crate::physics::atmosphere;
 use crate::simulation::runner::{
-    DEG_TO_RAD, SimState, TermReason, build_photo_values, effective_airspeed,
-    ifinal_for, integrate_adaptive_with_events, integrate_step, navigate_from_state,
+    DEG_TO_RAD, SimState, TermReason, build_photo_values, effective_airspeed, ifinal_for,
+    integrate_adaptive_with_events, integrate_step, navigate_from_state,
     promote_pending_crash_if_applicable, track_peak_values,
 };
 
