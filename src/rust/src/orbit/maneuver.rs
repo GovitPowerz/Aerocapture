@@ -62,7 +62,6 @@ pub fn compute_deltav(
 
     // Maneuver 3: inclination correction at ascending/descending node
     // Uses target orbit parameters for node velocity computation.
-    // NOTE: no positivity guard on rayneu -- current behavior preserved exactly.
     let target_sma = target.semi_major_axis;
     let target_ecc = target.eccentricity;
     let pi = std::f64::consts::PI;
@@ -72,7 +71,13 @@ pub fn compute_deltav(
     for i in 0..2 {
         let rayneu =
             target_sma * (1.0 - target_ecc * target_ecc) / (1.0 + target_ecc * anoneu[i].cos());
-        vitneu[i] = (2.0 * mu * (1.0 / rayneu - 1.0 / (2.0 * target_sma))).sqrt();
+        vitneu[i] = if rayneu > 0.0 {
+            (2.0 * mu * (1.0 / rayneu - 1.0 / (2.0 * target_sma)))
+                .max(0.0)
+                .sqrt()
+        } else {
+            0.0
+        };
     }
     let dincli = (target.inclination - orbit.inclination).abs();
     let dv3 = 2.0 * vitneu[0].min(vitneu[1]) * (dincli / 2.0).sin();
@@ -326,6 +331,57 @@ mod tests {
             dv[2].is_finite(),
             "dv3 must stay finite for pathological target, got {}",
             dv[2]
+        );
+    }
+
+    /// Pathological target: eccentricity > 1 makes rayneu <= 0 for some node angles,
+    /// which previously produced NaN via sqrt of negative.
+    /// The guard must clamp to 0.0 so dv3 (and total) is finite.
+    #[test]
+    fn compute_deltav_inclination_finite_on_pathological_target() {
+        let p = PlanetConfig::mars();
+        // Use arg_periapsis = 0.0 so anoneu[0] = 2pi, anoneu[1] = pi.
+        // With target_ecc = 1.2 (hyperbolic target), the denominator
+        // 1 + 1.2*cos(2pi) = 2.2 -> rayneu > 0, but
+        // 1 + 1.2*cos(pi)  = 1 - 1.2 = -0.2 -> rayneu < 0.
+        // Previously: vitneu[1] = sqrt(negative) = NaN -> dv3 = NaN.
+        let orbit = OrbitalElements {
+            semi_major_axis: 4.0e6,
+            eccentricity: 0.3,
+            inclination: 0.3,
+            raan: 0.0,
+            arg_periapsis: 0.0,
+            true_anomaly: 0.0,
+            periapsis_alt: 100_000.0,
+            apoapsis_alt: 500_000.0,
+        };
+        let target = OrbitalTarget {
+            apoapsis: 500_000.0,
+            periapsis: 250_000.0,
+            semi_major_axis: 3.77e6,
+            eccentricity: 1.2, // hyperbolic -> rayneu <= 0 for node angle pi
+            inclination: 0.8,  // non-zero dincli so dv3 would normally be non-trivial
+            raan: 0.0,
+        };
+        let parking = ParkingOrbit {
+            apoapsis: 500_000.0,
+            periapsis: 250_000.0,
+        };
+        let dv = compute_deltav(&orbit, &target, &parking, &p);
+        assert!(
+            dv.dv3.is_finite(),
+            "dv3 must be finite for pathological target (rayneu <= 0), got {}",
+            dv.dv3
+        );
+        assert!(
+            dv.total.is_finite(),
+            "total must be finite for pathological target, got {}",
+            dv.total
+        );
+        assert!(
+            dv.dv3 >= 0.0,
+            "dv3 must be non-negative (it is 2*v*sin(half-angle)), got {}",
+            dv.dv3
         );
     }
 
