@@ -136,10 +136,14 @@ fn run_mc(
 
 /// Run a batch of simulations with per-run overrides, in parallel.
 ///
+/// Each entry in overrides_list produces exactly one simulation result.
+/// n_sims must be 1 (per override set); use run_mc for multi-sim per config.
+/// Raises ValueError if any resolved override set has n_sims > 1.
+///
 /// Args:
 ///     toml_path: Path to the base TOML config file.
 ///     overrides_list: List of dicts, one per run. Each dict maps
-///         "dotted.key" -> value.
+///         "dotted.key" -> value. n_sims must equal 1 for each resolved config.
 ///     n_threads: Number of Rayon threads (default: number of CPUs).
 ///     include_trajectories: If True, keep per-timestep trajectory data
 ///         (default: False to save memory).
@@ -181,7 +185,10 @@ fn run_batch(
         include_trajectories,
         wall_timeout,
     )
-    .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+    .map_err(|e| match e {
+        batch::BatchError::Contract(m) => pyo3::exceptions::PyValueError::new_err(m),
+        batch::BatchError::Runtime(m) => pyo3::exceptions::PyRuntimeError::new_err(m),
+    })?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }
@@ -222,8 +229,8 @@ fn run_with_draws(
     let draw_vec: Vec<[f64; 26]> = (0..n_rows)
         .map(|i| {
             let mut row = [0.0f64; 26];
-            for j in 0..26 {
-                row[j] = *draws.get([i, j]).unwrap();
+            for (j, x) in row.iter_mut().enumerate() {
+                *x = *draws.get([i, j]).unwrap();
             }
             row
         })
@@ -249,8 +256,8 @@ fn run_with_draws(
 /// Used exclusively by the Rust<>Python cross-language equivalence test
 /// (Phase 0 integration gate). Applies `input_mask` when present; otherwise
 /// passes the input through unchanged. Per-call `NnState` is fresh, so this
-/// helper is stateless across calls (Phase 0 dense-only; Phase 1+ stateful
-/// layer equivalence tests will need a state-carrying variant).
+/// helper is stateless across calls (fresh NnState per call); stateful-layer
+/// (GRU/LSTM/Window/Transformer/Mamba) equivalence tests use nn_forward_sequence.
 #[pyfunction]
 fn nn_forward(json_path: String, input: Vec<f64>) -> PyResult<Vec<f64>> {
     use aerocapture::data::neural::NeuralNetModel;
@@ -356,6 +363,9 @@ fn nn_forward_sequence(json_path: String, inputs: Vec<Vec<f64>>) -> PyResult<Vec
 ///         `DEFAULT_NORMALIZATION` (backward-compatible).
 #[pyfunction]
 #[pyo3(signature = (flat, architecture_json, path, input_mask=None, output_param=None, scaled_pi_n=None, delta_max=None, normalization_json=None))]
+// PyO3 ABI boundary: 8 Python-visible arguments is unavoidable without breaking the
+// Python call signature; suppressing here is the least-invasive option.
+#[allow(clippy::too_many_arguments)]
 fn flat_weights_to_json(
     flat: Vec<f64>,
     architecture_json: String,
@@ -418,6 +428,80 @@ fn flat_weights_to_json(
     Ok(())
 }
 
+// ── Per-seed trace type used by collect_supervised and collect_nn_inputs ──
+// (seed, per-tick trace entries, dv_total_m_s, captured)
+type PerSeedTrace = Vec<(u64, Vec<(Vec<f64>, f64, f64, f64, f64)>, f64, bool)>;
+
+/// Shared inner loop for collect_supervised and collect_nn_inputs.
+///
+/// Runs one simulation per seed (n_sims=1) and accumulates the per-tick
+/// supervised_trace into `per_seed`. The caller supplies `extra_overrides`
+/// (e.g. `guidance.type`) and a `post_load` hook that can inspect/mutate
+/// `sim_input` and reject invalid configs (e.g. ensure guidance == NN).
+fn collect_trace<F>(
+    toml_path: &str,
+    seeds: &[u64],
+    base_overrides: Vec<(String, OverrideValue)>,
+    wall_timeout: Option<Duration>,
+    extra_seed_overrides: &[(String, OverrideValue)],
+    post_load: F,
+    caller_name: &str,
+) -> PyResult<PerSeedTrace>
+where
+    F: Fn(&mut aerocapture::config::SimInput, &aerocapture::data::SimData) -> PyResult<()>,
+{
+    let mut per_seed: PerSeedTrace = Vec::with_capacity(seeds.len());
+
+    for seed in seeds {
+        let mut seed_overrides = base_overrides.clone();
+        seed_overrides.push(("simulation.n_sims".to_string(), OverrideValue::Int(1)));
+        seed_overrides.push((
+            "monte_carlo.seed".to_string(),
+            OverrideValue::Int(*seed as i64),
+        ));
+        for (k, v) in extra_seed_overrides {
+            seed_overrides.push((k.clone(), v.clone()));
+        }
+
+        let (mut sim_input, sim_data) =
+            config::load_and_override(std::path::Path::new(toml_path), &seed_overrides)
+                .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+
+        post_load(&mut sim_input, &sim_data)?;
+
+        sim_input.collect_supervised = true;
+
+        let outputs = aerocapture::simulation::runner::run_for_api(
+            &sim_input,
+            &sim_data,
+            false,
+            wall_timeout,
+        )
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {e}")))?;
+
+        if outputs.is_empty() {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "{}: run_for_api returned 0 outputs for seed {} (expected 1)",
+                caller_name, seed
+            )));
+        }
+        let mut trace: Vec<(Vec<f64>, f64, f64, f64, f64)> = Vec::new();
+        let mut dv = f64::NAN;
+        let mut captured = false;
+        for output in outputs {
+            trace.extend(output.supervised_trace);
+            dv = output
+                .final_record
+                .get(41) // dv_total_m_s column
+                .copied()
+                .unwrap_or(f64::NAN);
+            captured = output.captured;
+        }
+        per_seed.push((*seed, trace, dv, captured));
+    }
+    Ok(per_seed)
+}
+
 /// Collect supervised training data from a non-NN guidance scheme.
 ///
 /// Runs the simulator with `collect_supervised = true` over each seed and
@@ -473,76 +557,28 @@ fn collect_supervised(
     let base_overrides = extract_overrides(overrides)?;
     let wall_timeout = sim_timeout_secs.map(std::time::Duration::from_secs_f64);
 
-    // Collected outside py.detach: (seed, supervised_trace, dv_total_m_s, captured).
-    let mut per_seed: Vec<(u64, Vec<(Vec<f64>, f64, f64, f64, f64)>, f64, bool)> =
-        Vec::with_capacity(seeds.len());
+    // Force guidance type via TOML override so the NN-file load (gated on
+    // guidance.type == "neural_network") is skipped at config load time.
+    let extra: Vec<(String, OverrideValue)> = vec![(
+        "guidance.type".to_string(),
+        OverrideValue::Str(scheme.clone()),
+    )];
 
-    py.detach(|| {
-        for seed in &seeds {
-            // Build per-seed overrides: force n_sims=1, set seed, force guidance type
-            // BEFORE config load so the TOML-driven NN-file load (gated on
-            // guidance.type == "neural_network") is skipped. Without this override,
-            // running collect_supervised on a TOML that points `[data] neural_network`
-            // at a not-yet-trained best_model.json would error at SimData construction.
-            let mut seed_overrides = base_overrides.clone();
-            seed_overrides.push((
-                "simulation.n_sims".to_string(),
-                config::OverrideValue::Int(1),
-            ));
-            seed_overrides.push((
-                "monte_carlo.seed".to_string(),
-                config::OverrideValue::Int(*seed as i64),
-            ));
-            seed_overrides.push((
-                "guidance.type".to_string(),
-                config::OverrideValue::Str(scheme.clone()),
-            ));
-
-            let (mut sim_input, sim_data) =
-                config::load_and_override(std::path::Path::new(&toml_path), &seed_overrides)
-                    .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
-
-            sim_input.collect_supervised = true;
-            // guidance_type was already set by the TOML override above; this is belt-and-braces
-            // in case load_and_override's override resolution diverges from from_toml's gating.
-            sim_input.guidance_type = scheme_enum;
-
-            let outputs = aerocapture::simulation::runner::run_for_api(
-                &sim_input,
-                &sim_data,
-                false,
-                wall_timeout,
-            )
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {e}"))
-            })?;
-
-            // n_sims=1 contract: expect exactly one output. Erroring out on an
-            // empty Vec keeps the (seed, trace, dv, captured) tuple downstream
-            // from quietly carrying NaN -- which `_select_best_teacher_per_seed`
-            // would convert into "captured=false, drop the seed" without any
-            // signal that something went wrong.
-            if outputs.is_empty() {
-                return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
-                    "collect_supervised: run_for_api returned 0 outputs for seed {} (expected 1)",
-                    seed
-                )));
-            }
-            let mut combined_trace: Vec<(Vec<f64>, f64, f64, f64, f64)> = Vec::new();
-            let mut dv = f64::NAN;
-            let mut captured = false;
-            for output in outputs {
-                combined_trace.extend(output.supervised_trace);
-                dv = output
-                    .final_record
-                    .get(41) // dv_total_m_s column
-                    .copied()
-                    .unwrap_or(f64::NAN);
-                captured = output.captured;
-            }
-            per_seed.push((*seed, combined_trace, dv, captured));
-        }
-        Ok::<_, PyErr>(())
+    let per_seed = py.detach(|| {
+        collect_trace(
+            &toml_path,
+            &seeds,
+            base_overrides,
+            wall_timeout,
+            &extra,
+            |sim_input, _sim_data| {
+                // Belt-and-braces: ensure the resolved guidance type matches the
+                // teacher scheme even if override resolution diverges from from_toml.
+                sim_input.guidance_type = scheme_enum;
+                Ok(())
+            },
+            "collect_supervised",
+        )
     })?;
 
     // PyDict / PyArray construction requires the GIL, so it happens after py.detach() returns.
@@ -604,62 +640,24 @@ fn collect_nn_inputs(
     let base_overrides = extract_overrides(overrides)?;
     let wall_timeout = sim_timeout_secs.map(std::time::Duration::from_secs_f64);
 
-    let mut per_seed: Vec<(u64, Vec<(Vec<f64>, f64, f64, f64, f64)>, f64, bool)> =
-        Vec::with_capacity(seeds.len());
-
-    py.detach(|| {
-        for seed in &seeds {
-            let mut seed_overrides = base_overrides.clone();
-            seed_overrides.push((
-                "simulation.n_sims".to_string(),
-                config::OverrideValue::Int(1),
-            ));
-            seed_overrides.push((
-                "monte_carlo.seed".to_string(),
-                config::OverrideValue::Int(*seed as i64),
-            ));
-
-            let (mut sim_input, sim_data) =
-                config::load_and_override(std::path::Path::new(&toml_path), &seed_overrides)
-                    .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
-
-            if sim_input.guidance_type != GuidanceType::NeuralNetwork {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "collect_nn_inputs requires guidance.type = neural_network".to_string(),
-                ));
-            }
-            sim_input.collect_supervised = true;
-
-            let outputs = aerocapture::simulation::runner::run_for_api(
-                &sim_input,
-                &sim_data,
-                false,
-                wall_timeout,
-            )
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {e}"))
-            })?;
-            if outputs.is_empty() {
-                return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
-                    "collect_nn_inputs: run_for_api returned 0 outputs for seed {} (expected 1)",
-                    seed
-                )));
-            }
-            let mut trace: Vec<(Vec<f64>, f64, f64, f64, f64)> = Vec::new();
-            let mut dv = f64::NAN;
-            let mut captured = false;
-            for output in outputs {
-                trace.extend(output.supervised_trace);
-                dv = output
-                    .final_record
-                    .get(41) // dv_total_m_s column
-                    .copied()
-                    .unwrap_or(f64::NAN);
-                captured = output.captured;
-            }
-            per_seed.push((*seed, trace, dv, captured));
-        }
-        Ok::<_, PyErr>(())
+    // No guidance type override: collect_nn_inputs must run the configured NN.
+    let per_seed = py.detach(|| {
+        collect_trace(
+            &toml_path,
+            &seeds,
+            base_overrides,
+            wall_timeout,
+            &[], // no extra overrides
+            |sim_input, _sim_data| {
+                if sim_input.guidance_type != GuidanceType::NeuralNetwork {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "collect_nn_inputs requires guidance.type = neural_network".to_string(),
+                    ));
+                }
+                Ok(())
+            },
+            "collect_nn_inputs",
+        )
     })?;
 
     const NN_INPUT_WIDTH: usize = aerocapture::data::neural::NN_FULL_INPUT_SIZE;

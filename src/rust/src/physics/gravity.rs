@@ -31,6 +31,8 @@ pub fn gravity(radius: f64, latitude: f64, planet: &PlanetConfig) -> (f64, f64) 
     let sin4 = sin2 * sin2;
 
     // ── Radial component (positive inward): gravtr = -g_r ──
+    // Zonal harmonic acceleration expansion (J2-J4), Vallado,
+    // Fundamentals of Astrodynamics and Applications, ch. 8.
     // Keplerian + J2
     let mut gravtr = mu / r2 + 1.5 * mu * j2 * req2 * (1.0 - 3.0 * sin2) / r4;
 
@@ -293,6 +295,42 @@ mod tests {
             prop_assert!(gravtl.is_finite(), "gravtl is not finite at alt={alt_km} lat={lat_deg}");
             prop_assert!(gravtr.is_finite(), "gravtr is not finite at alt={alt_km} lat={lat_deg}");
             prop_assert!(gravtr > 0.0, "gravtr should be positive (inward pull)");
+        }
+    }
+
+    #[test]
+    fn gravity_matches_potential_gradient() {
+        // Independent oracle: the analytic (gravtl, gravtr) expansion must equal the
+        // numerical gradient of the geopotential U(r,phi) = (mu/r)[1 - sum Jn (Re/r)^n Pn(sin phi)].
+        // Legendre: P2=(3x^2-1)/2, P3=(5x^3-3x)/2, P4=(35x^4-30x^2+3)/8.
+        // gravtr = -dU/dr ; gravtl = -(1/r) dU/dlat.
+        let mut planet = PlanetConfig::mars();
+        planet.j2 = 1.96e-3;
+        planet.j3 = 3.1e-5;
+        planet.j4 = -1.5e-5; // force all three terms non-trivial
+        let re = planet.equatorial_radius;
+        let mu = planet.mu;
+        let (j2, j3, j4) = (planet.j2, planet.j3, planet.j4);
+        let potential = |r: f64, lat: f64| -> f64 {
+            let x = lat.sin();
+            let p2 = (3.0 * x * x - 1.0) / 2.0;
+            let p3 = (5.0 * x * x * x - 3.0 * x) / 2.0;
+            let p4 = (35.0 * x.powi(4) - 30.0 * x * x + 3.0) / 8.0;
+            (mu / r)
+                * (1.0
+                    - j2 * (re / r).powi(2) * p2
+                    - j3 * (re / r).powi(3) * p3
+                    - j4 * (re / r).powi(4) * p4)
+        };
+        for &(r_mult, lat) in &[(1.05_f64, 0.3_f64), (1.2, -0.7), (1.5, 1.1)] {
+            let r = re * r_mult;
+            let (gravtl, gravtr) = gravity(r, lat, &planet);
+            let hr = r * 1e-6;
+            let hl = 1e-6;
+            let dudr = (potential(r + hr, lat) - potential(r - hr, lat)) / (2.0 * hr);
+            let dudlat = (potential(r, lat + hl) - potential(r, lat - hl)) / (2.0 * hl);
+            assert_relative_eq!(gravtr, -dudr, max_relative = 1e-5);
+            assert_relative_eq!(gravtl, -dudlat / r, max_relative = 1e-5);
         }
     }
 }

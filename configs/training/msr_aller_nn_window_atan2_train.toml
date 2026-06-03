@@ -1,0 +1,40 @@
+# Window-MLP decoder on the atan2 input pipeline. Inherits the 17-input mask, the
+# calibrated [network.normalization] (35 entries), full_neural / atan2_signed,
+# scaffolding = "live", command shaping and navigation from the atan2 config;
+# overrides only the architecture (Window -> Dense -> Dense -> Dense) and the
+# deploy path.
+base = ["msr_aller_nn_atan2_train.toml"]
+
+[data]
+neural_network = "training_output/neural_network_window_atan2/best_model.json"
+results_suffix = ".train_nn_window_atan2"
+
+# Architecture arrays REPLACE (not merge) under deep-merge, so this fully
+# supersedes atan2's 3-dense stack. The Window layer is zero-trainable-parameter:
+# a 4-step FIFO ring buffer that flattens the 17 masked inputs into 17*4=68, so
+# the whole 4-tick history is visible to a contracting Dense MLP. Sized under the
+# 758-param plain-atan2 budget (<1000 weights): Dense(68->12)->Dense(12->8)->
+# Dense(8->2) mirrors plain-atan2's two-hidden-layer depth; final Dense(8->2)
+# feeds atan2_signed. Params: 0 + 828 + 104 + 18 = 950.
+[[network.architecture]]
+type = "window"
+input_size = 17
+n_steps = 4
+
+[[network.architecture]]
+type = "dense"
+input_size = 68
+output_size = 12
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 12
+output_size = 8
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 8
+output_size = 2
+activation = "asinh"

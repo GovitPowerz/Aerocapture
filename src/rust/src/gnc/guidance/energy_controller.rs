@@ -12,9 +12,8 @@
 //! where E_ref is interpolated from the reference trajectory at the current
 //! energy level, and K_e is a tunable gain.
 
-use crate::config::PlanetConfig;
 use crate::data::SimData;
-use crate::gnc::navigation::coordinates::total_energy;
+use crate::gnc::guidance::dispatch::{DEFAULT_FALLBACK_BANK_RAD, securize_cos_bank};
 use crate::gnc::navigation::estimator::NavigationOutput;
 
 /// Energy controller persistent state (runtime-only, no tunable params).
@@ -43,24 +42,13 @@ pub fn energy_controller_bank(
     nav: &NavigationOutput,
     _state: &EnergyControllerState,
     data: &SimData,
-    planet: &PlanetConfig,
+    energy: f64,
 ) -> f64 {
     let ref_traj = &data.guidance.ref_trajectory;
     if ref_traj.n_points == 0 {
         // No reference trajectory loaded — fall back to 60° bank
-        return 60.0_f64.to_radians();
+        return DEFAULT_FALLBACK_BANK_RAD;
     }
-
-    // Current energy
-    let energy = total_energy(
-        nav.position_estimated[0],
-        nav.position_estimated[1],
-        nav.position_estimated[2],
-        nav.velocity_estimated[0],
-        nav.velocity_estimated[1],
-        nav.velocity_estimated[2],
-        planet,
-    );
 
     // Reference values at current energy
     let cos_bank_ref = ref_traj.interpolate(energy, &ref_traj.cos_bank);
@@ -83,8 +71,7 @@ pub fn energy_controller_bank(
         + params.kp * (pdyn - pdyn_ref) / pdyn_safe
         + params.kd * (hdot - hdot_ref) / pdyn_safe;
 
-    let cos_bank = cos_bank.clamp(-1.0, 1.0);
-    cos_bank.acos()
+    securize_cos_bank(cos_bank)
 }
 
 #[cfg(test)]
@@ -93,6 +80,7 @@ mod tests {
     use approx::assert_relative_eq;
     use rstest::rstest;
 
+    use crate::config::PlanetConfig;
     use crate::data::aerodynamics::AeroTables;
     use crate::data::atmosphere::{AtmosphereModel, DensityProfile};
     use crate::data::capsule::Capsule;
@@ -222,8 +210,17 @@ mod tests {
         let state = EnergyControllerState::new();
         let data = test_sim_data(); // ref_trajectory.n_points == 0
         let planet = PlanetConfig::mars();
+        let energy = crate::gnc::navigation::coordinates::total_energy(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
+            &planet,
+        );
 
-        let bank = energy_controller_bank(&nav, &state, &data, &planet);
+        let bank = energy_controller_bank(&nav, &state, &data, energy);
 
         assert_relative_eq!(bank, 60.0_f64.to_radians(), epsilon = 1e-10);
     }
@@ -237,8 +234,17 @@ mod tests {
         let state = EnergyControllerState::new();
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
+        let energy = crate::gnc::navigation::coordinates::total_energy(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
+            &planet,
+        );
 
-        let bank = energy_controller_bank(&nav, &state, &data, &planet);
+        let bank = energy_controller_bank(&nav, &state, &data, energy);
 
         assert!(
             bank.is_finite(),
@@ -275,7 +281,12 @@ mod tests {
                 let state = EnergyControllerState::new();
                 let data = test_sim_data_with_ref_traj();
                 let planet = PlanetConfig::mars();
-                let bank = energy_controller_bank(&nav, &state, &data, &planet);
+                let energy = crate::gnc::navigation::coordinates::total_energy(
+                    nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2],
+                    nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2],
+                    &planet,
+                );
+                let bank = energy_controller_bank(&nav, &state, &data, energy);
 
                 prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
                 prop_assert!(bank >= 0.0 - 1e-10, "bank negative: {}", bank);

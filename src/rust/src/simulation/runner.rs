@@ -5,374 +5,54 @@
 use crate::config::{AdaptiveConfig, PlanetConfig, SimInput};
 use crate::data::SimData;
 use crate::data::dispersions::DISPERSION_DRAW_LEN;
-use crate::gnc::control::pilot::PilotState;
-use crate::gnc::guidance::dispatch::GuidanceState;
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
 use crate::gnc::navigation::estimator::{self, NavigationFilter};
-use crate::integration::dopri45::{self, Dopri45State};
+use crate::integration::dopri45;
 use crate::integration::events::{self, EventAction, EventContext, EventDef, EventRecord};
 use crate::integration::rk4;
-use crate::integration::sequencer::SequencerState;
-use crate::orbit::maneuver::DeltaV;
-use crate::orbit::{elements, maneuver};
+use crate::orbit::elements;
 use crate::physics::{atmosphere, gravity};
 use crate::simulation::init;
 use crate::simulation::output;
 use rayon::prelude::*;
-use std::fmt;
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-pub(crate) const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
-pub(crate) const G0: f64 = 9.81;
+// Foundational simulation types and constants now live in `sim_types` (a leaf
+// module). Re-exported / imported here so every existing `runner::X` path keeps
+// resolving: `tick.rs`, `events.rs`, the `#[path]`-included test modules, and
+// the external `aerocapture-py` crate all reach these symbols via `runner::`.
+// Types are `pub` (aerocapture-py + events.rs consume them externally).
+pub use super::sim_types::{SimError, SimState, TermReason};
+// `DEG_TO_RAD` / `MIN_BOUNCE_ALT_FOR_CRASH_M` are both used inside this module
+// AND re-consumed by `tick.rs` via `runner::`, so the re-export is `pub(crate)`.
+// The remaining consts are used only inside this module's free functions.
+pub(crate) use super::sim_types::{DEG_TO_RAD, MIN_BOUNCE_ALT_FOR_CRASH_M};
+use super::sim_types::{DOPRI45_ATOL, EVENT_TOL, G0};
+// These consts are consumed only by the `#[path]`-included `virtual_dv_tests`
+// module (via `use super::*`); gate the re-export to test builds so non-test
+// builds don't flag them unused (mirrors `virtual_dv_non_capture` below).
+#[cfg(test)]
+pub(crate) use super::sim_types::{
+    CRASH_ENERGY_CAP_MJKG, CRASH_ENERGY_WEIGHT, CRASH_FLOOR, CRASH_TIME_BONUS, HYPERBOLIC_BASE,
+};
 
-/// Virtual DV base for hyperbolic exits (m/s).
-/// Set above any realistic captured orbit correction DV.
-pub(crate) const HYPERBOLIC_BASE: f64 = 10_000.0;
-/// Minimum virtual DV for crash / pending-crash / timeout (m/s).
-/// Set above any realistic captured orbit correction DV so captures remain
-/// strictly preferable in cost space, but low enough that near-target
-/// crashes don't dwarf bad captures under the `squared` / `cubed`
-/// cost_transform. A near-miss crash should cost ~CRASH_FLOOR; a deep
-/// plunge scales up via |ΔE| so the optimizer still sees a gradient.
-pub(crate) const CRASH_FLOOR: f64 = 3_000.0;
-/// Energy-error weight (m/s per MJ/kg of |E_orb - E_target|).
-pub(crate) const CRASH_ENERGY_WEIGHT: f64 = 1_000.0;
-/// Max time-survival bonus (m/s) — subtracted linearly in t/t_max.
-pub(crate) const CRASH_TIME_BONUS: f64 = 500.0;
+// Termination classification, virtual-DV cost, and final-record assembly live in
+// `finalize`. Re-exported below so existing `runner::*` paths and the
+// `#[path]`-included test modules keep resolving these symbols.
+pub use super::finalize::{
+    build_final_record, ifinal_for, is_pending_crash, promote_pending_crash_if_applicable,
+};
+// Only the `#[path]`-included `virtual_dv_tests` module (via `use super::*`)
+// consumes this symbol from runner's namespace; gate the re-export to test builds
+// so non-test builds don't flag it unused.
+#[cfg(test)]
+pub(crate) use super::finalize::virtual_dv_non_capture;
 
-/// Upper cap on |ΔE| (MJ/kg) when computing virtual DV.
-/// Real surface-crash energies rarely exceed ~15 MJ/kg at Mars; 50 is a
-/// generous cap that also absorbs Inf from degenerate states.
-pub(crate) const CRASH_ENERGY_CAP_MJKG: f64 = 50.0;
-
-/// Virtual DV for non-capturing terminations (Crash, PendingCrash, Timeout).
-///
-/// Penalizes energy distance from target; softens crashes near the capture
-/// boundary so PSO/GA will explore closer to the crash limit.
-///
-/// Non-finite inputs (NaN from degenerate-state MC dispersions) fall back
-/// to the worst-case cap — caller still gets a finite, large virtual DV.
-pub(crate) fn virtual_dv_non_capture(
-    orbital_energy_j_kg: f64,
-    target_sma_m: f64,
-    mu: f64,
-    sim_time: f64,
-    max_time: f64,
-) -> f64 {
-    let target_energy_j_kg = -mu / (2.0 * target_sma_m);
-    let delta_e_mj = if orbital_energy_j_kg.is_finite() && target_energy_j_kg.is_finite() {
-        ((orbital_energy_j_kg - target_energy_j_kg).abs() / 1e6).min(CRASH_ENERGY_CAP_MJKG)
-    } else {
-        CRASH_ENERGY_CAP_MJKG
-    };
-    let t_ratio = if max_time.is_finite() && max_time > 0.0 && sim_time.is_finite() {
-        (sim_time / max_time).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-    CRASH_FLOOR + CRASH_ENERGY_WEIGHT * delta_e_mj - CRASH_TIME_BONUS * t_ratio
-}
-
-/// Default absolute tolerances for DOPRI45, one per state component.
-/// State = [r(m), lon(rad), lat(rad), V(m/s), gamma(rad), psi(rad), flux(kJ/m²), time(s)]
-pub(crate) const DOPRI45_ATOL: [f64; 8] = [
-    1.0,  // r: 1 m on ~3.4e6 m
-    1e-8, // lon: ~0.03 m at Mars equator
-    1e-8, // lat: ~0.03 m
-    1e-3, // V: 1 mm/s on ~5700 m/s
-    1e-8, // gamma: ~0.03 m position equiv
-    1e-8, // psi: ~0.03 m
-    1e-2, // flux: 0.01 kJ/m² on O(1000) total
-    1e-6, // time: machine-level for identity derivative
-];
-
-#[derive(Debug)]
-pub struct SimError(pub String);
-
-impl fmt::Display for SimError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl std::error::Error for SimError {}
-
-/// Simulation state — mutable per-tick data plus pre-loop constants.
-///
-/// Expanded to include all mutable loop-local variables from `run_single` so that
-/// `tick::step_one_tick` can take a single `&mut SimState` argument.
-#[allow(dead_code)]
-pub struct SimState {
-    // ── Physics state vector: [r, lon, lat, V, gamma, psi, flux, time] ──
-    pub(crate) state: [f64; 8],
-    // RK4 internals
-    pub(crate) accumulator: [f64; 8],
-    pub(crate) gill_toggle: i32,
-    // DOPRI45 adaptive integrator state (only used in adaptive mode)
-    pub(crate) dopri: Dopri45State,
-    // Guidance
-    pub(crate) bank_angle: f64, // realized bank angle (rad)
-    pub(crate) aoa: f64,        // realized AoA (rad)
-    // Tracking
-    pub(crate) bounced: bool,
-    pub(crate) bounce_alt: f64,
-    pub(crate) bounce_time: f64,
-    pub(crate) max_heat_flux: f64,
-    pub(crate) max_load_factor: f64, // m/s², divided by G0 when written to final_record
-    pub(crate) max_dyn_pressure: f64,
-    // Max-value altitudes and times (for carltf output)
-    pub(crate) alt_max_flux: f64,
-    pub(crate) alt_max_load: f64,
-    pub(crate) alt_max_pdyn: f64,
-    pub(crate) time_max_flux: f64,
-    pub(crate) time_max_load: f64,
-    pub(crate) time_max_pdyn: f64,
-    // Event detection records (adaptive integrator only)
-    pub(crate) event_records: Vec<EventRecord>,
-
-    // ── GNC subsystem state (initialized before the loop) ──
-    pub(crate) nav_filter: NavigationFilter,
-    pub guidance_state: GuidanceState,
-    pub(crate) pilot_state: PilotState,
-    pub(crate) sequencer: SequencerState,
-
-    // ── Loop control ──
-    pub(crate) sim_time: f64,
-    pub(crate) term: TermReason,
-    pub(crate) step: usize,
-    pub(crate) first_iter: bool,
-
-    // ── Dispersed run state (cloned from init::RunState; density_perturbation mutated each tick) ──
-    pub(crate) run_state: init::RunState,
-    pub(crate) nav_biases: crate::gnc::navigation::estimator::NavigationBiases,
-
-    // ── Supervised trace (only populated when config.collect_supervised=true) ──
-    // Lives on SimState (not RunState) so that the per-tick run_state.clone()
-    // calls in tick.rs do NOT deep-copy the growing trace vector. This was
-    // O(N²) memory churn during supervised data collection.
-    pub(crate) supervised_trace: Vec<(Vec<f64>, f64, f64, f64, f64)>,
-
-    // ── Photo output accumulators ──
-    pub(crate) photo_lines: Vec<[f64; 30]>,
-    pub(crate) cumulative_bank_change_deg: f64,
-    pub(crate) dynamic_pressure_for_photo: f64,
-    pub(crate) density_estimate_for_photo: f64,
-    pub(crate) guidance_phase_for_photo: i32,
-
-    // ── Gauss-Markov density perturbation RNG (None when disabled) ──
-    pub(crate) gm_config: Option<crate::data::dispersions::DensityPerturbationConfig>,
-    pub(crate) gm_rng: Option<rand::rngs::StdRng>,
-    pub(crate) gm_normal: Option<rand_distr::Normal<f64>>,
-
-    // ── Last navigation output (cached for RL observation building) ──
-    pub(crate) last_nav: crate::gnc::navigation::estimator::NavigationOutput,
-
-    // ── Pre-loop constants (read-only within the tick, stored here for single-arg dispatch) ──
-    pub(crate) dt: f64,
-    pub(crate) max_time: f64,
-    pub(crate) exit_altitude: f64,
-    pub(crate) reference_bank_angle: f64,
-    pub(crate) write_photo: bool,
-    pub(crate) sim_idx: i32,
-    pub(crate) wall_timeout: Option<Duration>,
-    pub(crate) wall_start: Instant,
-    pub(crate) is_single: bool,
-}
-
-/// Termination reason
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum TermReason {
-    None,
-    Crash,
-    Timeout,
-    AtmosphereExit,
-    PendingCrash,
-}
-
-impl SimState {
-    /// Return the most recent navigation output, used by RL observation builders.
-    pub fn last_nav_output(&self) -> crate::gnc::navigation::estimator::NavigationOutput {
-        self.last_nav
-    }
-
-    /// Return the current sim time (seconds since trajectory start).
-    /// Used by RL observation builders for time-since-last-event inputs.
-    pub fn sim_time(&self) -> f64 {
-        self.sim_time
-    }
-
-    /// Return the current termination reason.
-    pub fn term(&self) -> TermReason {
-        self.term
-    }
-
-    /// Return the raw physics state vector: [r, lon, lat, V, gamma, psi, flux, time].
-    pub fn physics_state(&self) -> [f64; 8] {
-        self.state
-    }
-
-    /// True if any flight constraint was violated during this trajectory.
-    /// Constraint limits are in SI units as stored in `SimData::constraints`.
-    pub fn any_constraint_violated(&self, data: &SimData) -> bool {
-        let c = &data.constraints;
-        self.max_heat_flux > c.max_heat_flux
-            || self.max_load_factor > c.max_load_factor
-            || self.max_dyn_pressure > c.max_dynamic_pressure
-            || self.state[6] > c.max_heat_load
-    }
-}
-
-/// Construct a fresh `SimState` for env `i` without running the simulation loop.
-///
-/// Used by `BatchedSimulation` to initialize and reset individual environments.
-/// The `sim_idx` is set to `env_idx as i32` for per-env RNG seeding.
-pub fn build_sim_state(
-    config: &SimInput,
-    data: &SimData,
-    run_state: init::RunState,
-    env_idx: u64,
-) -> SimState {
-    let planet = &config.planet;
-    let req = planet.equatorial_radius;
-
-    let r0 = run_state.entry.state.altitude + req;
-    let entry_longitude = run_state.entry.state.longitude;
-    let entry_latitude = run_state.entry.state.latitude;
-    let entry_velocity = run_state.entry.state.velocity;
-    let entry_flight_path = run_state.entry.state.flight_path;
-    let entry_azimuth = run_state.entry.state.azimuth;
-    let entry_initial_date = run_state.entry.initial_date;
-    let entry_initial_bank = run_state.entry.initial_bank;
-    let entry_initial_aoa = run_state.entry.initial_aoa;
-
-    let reference_bank_angle = config.reference_bank_angle.to_radians();
-    let initial_bank_angle = if config.reference_trajectory {
-        reference_bank_angle
-    } else {
-        entry_initial_bank
-    };
-
-    let dt = data.periods.integration;
-    let max_time = config.max_time;
-    let exit_altitude = data.final_conditions.altitude;
-
-    let nav_filter = match data.nav_mode {
-        crate::data::NavMode::Bias => NavigationFilter::new_bias(),
-        crate::data::NavMode::Ekf => {
-            let nav_toml = data
-                .nav_config
-                .as_ref()
-                .expect("EKF mode requires [navigation] config");
-            let (imu_cfg, st_cfg, ekf_cfg) = estimator::build_ekf_configs(nav_toml);
-            let seed = config.random_seed as u64 + env_idx * 10_000;
-            NavigationFilter::new_ekf(imu_cfg, st_cfg, ekf_cfg, seed)
-        }
-    };
-
-    let nav_biases = run_state.nav_biases;
-    let gm_config = data.density_perturbation.filter(|g| !g.is_disabled());
-    let (gm_rng, gm_normal) = if gm_config.is_some() {
-        use rand::SeedableRng;
-        let rng = rand::rngs::StdRng::seed_from_u64(
-            config.random_seed as u64 + env_idx * 10_000 + 0xDE45,
-        );
-        let normal = rand_distr::Normal::new(0.0, 1.0).unwrap();
-        (Some(rng), Some(normal))
-    } else {
-        (None, None)
-    };
-
-    let guidance_state = GuidanceState::new(
-        entry_initial_bank,
-        entry_initial_aoa,
-        data.neural_net.as_ref(),
-    );
-    assert_eq!(
-        data.neural_net.is_some(),
-        guidance_state.nn_state.is_some(),
-        "nn_state presence must match neural_net presence",
-    );
-    let pilot_state = PilotState {
-        bank_angle: initial_bank_angle,
-        bank_rate: 0.0,
-    };
-    let sequencer = SequencerState::new();
-
-    let mut s = SimState {
-        state: [
-            r0,
-            entry_longitude,
-            entry_latitude,
-            entry_velocity,
-            entry_flight_path,
-            entry_azimuth,
-            0.0,
-            entry_initial_date,
-        ],
-        accumulator: [0.0; 8],
-        gill_toggle: 0,
-        dopri: Dopri45State::new(),
-        bank_angle: initial_bank_angle,
-        aoa: entry_initial_aoa,
-        bounced: false,
-        bounce_alt: 1e34,
-        bounce_time: 1e30,
-        max_heat_flux: 0.0,
-        max_load_factor: 0.0,
-        max_dyn_pressure: 0.0,
-        alt_max_flux: 0.0,
-        alt_max_load: 0.0,
-        alt_max_pdyn: 0.0,
-        time_max_flux: 0.0,
-        time_max_load: 0.0,
-        time_max_pdyn: 0.0,
-        event_records: Vec::new(),
-        nav_filter,
-        guidance_state,
-        pilot_state,
-        sequencer,
-        sim_time: entry_initial_date,
-        term: TermReason::None,
-        step: 0,
-        first_iter: true,
-        run_state,
-        nav_biases,
-        supervised_trace: Vec::new(),
-        photo_lines: Vec::new(),
-        cumulative_bank_change_deg: 0.0,
-        dynamic_pressure_for_photo: 0.0,
-        density_estimate_for_photo: 0.0,
-        guidance_phase_for_photo: 1,
-        gm_config,
-        gm_rng,
-        gm_normal,
-        last_nav: crate::gnc::navigation::estimator::NavigationOutput::default(),
-        dt,
-        max_time,
-        exit_altitude,
-        reference_bank_angle,
-        write_photo: false,
-        sim_idx: env_idx as i32,
-        wall_timeout: None,
-        wall_start: Instant::now(),
-        is_single: false,
-    };
-
-    // Prime last_nav so the RL env's reset() returns a valid initial observation
-    // instead of a zeroed-out NavigationOutput. Bias mode is stateless (the call is
-    // a pure function of the truth state + biases), so priming costs nothing. EKF
-    // mode advances the filter via `ekf.predict(nav_dt, ...)` on every call; since
-    // tick.rs also navigates on first_iter, priming there would predict the filter
-    // twice before any physics advance. Skip priming for EKF; the first tick will
-    // populate `last_nav` before the policy's second action. The initial RL action
-    // (step 0) is based on a default NavigationOutput under EKF mode.
-    if matches!(data.nav_mode, crate::data::NavMode::Bias) {
-        s.last_nav = navigate_from_state(&mut s, data, planet);
-    }
-    s
-}
+// `SimState` construction lives in `run_init`. Re-exported so existing
+// `runner::build_sim_state` callers (CLI path + `aerocapture-py` env) keep working.
+pub use super::run_init::build_sim_state;
 
 /// Run one navigation pass on a `SimState`, returning the `NavigationOutput`.
 ///
@@ -563,6 +243,56 @@ pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
     Ok(())
 }
 
+/// Project each 30-element photo line onto the 17-element trajectory row exposed
+/// by the PyO3 API. Index mapping and unit scaling (energy J->MJ, pdyn Pa->kPa)
+/// are the contract documented on `BatchResults` trajectory columns.
+fn project_trajectory(photo_lines: &[[f64; 30]]) -> Vec<[f64; 17]> {
+    photo_lines
+        .iter()
+        .map(|p| {
+            [
+                p[1],        // [0]  alt_km
+                p[2],        // [1]  lon_deg
+                p[3],        // [2]  lat_deg
+                p[4],        // [3]  vel_m_s
+                p[5],        // [4]  fpa_deg
+                p[6],        // [5]  heading_deg
+                p[24],       // [6]  heat_flux_kw_m2
+                p[0],        // [7]  time_s
+                p[18] / 1e6, // [8]  energy_mj_kg
+                p[19] / 1e3, // [9]  pdyn_kpa
+                p[14],       // [10] bank_angle_deg
+                p[9],        // [11] inclination_deg
+                p[25],       // [12] g_load_g
+                p[26],       // [13] nav_density_ratio
+                p[27],       // [14] truth_density_kg_m3
+                p[28],       // [15] heat_load_kj_m2
+                p[29],       // [16] density_perturbation
+            ]
+        })
+        .collect()
+}
+
+/// Assemble a `RunOutput` from one `SimResult`: project the trajectory (only when
+/// requested), extract energy/ecc, and apply the capture predicate.
+fn assemble_run_output(r: SimResult, include_trajectories: bool) -> crate::RunOutput {
+    let energy = r.final_line[7]; // MJ/kg
+    let ecc = r.final_line[9];
+    let trajectory = if include_trajectories {
+        project_trajectory(&r.photo_lines)
+    } else {
+        Vec::new()
+    };
+    let ifinal_val = r.final_line[31] as i32;
+    crate::RunOutput {
+        trajectory,
+        final_record: r.final_line,
+        captured: ifinal_val == 3 && ecc < 1.0 && energy < 0.0,
+        dispersions: r.dispersions,
+        supervised_trace: r.supervised_trace,
+    }
+}
+
 /// Run simulation and return structured results (no file I/O).
 ///
 /// Same physics as `run()`, but returns `Vec<RunOutput>` instead of writing files.
@@ -577,46 +307,7 @@ pub fn run_for_api(
 
     Ok(results
         .into_iter()
-        .map(|r| {
-            let energy = r.final_line[7]; // MJ/kg
-            let ecc = r.final_line[9];
-            let trajectory = if include_trajectories {
-                r.photo_lines
-                    .iter()
-                    .map(|p| {
-                        [
-                            p[1],        // [0]  alt_km
-                            p[2],        // [1]  lon_deg
-                            p[3],        // [2]  lat_deg
-                            p[4],        // [3]  vel_m_s
-                            p[5],        // [4]  fpa_deg
-                            p[6],        // [5]  heading_deg
-                            p[24],       // [6]  heat_flux_kw_m2
-                            p[0],        // [7]  time_s
-                            p[18] / 1e6, // [8]  energy_mj_kg
-                            p[19] / 1e3, // [9]  pdyn_kpa
-                            p[14],       // [10] bank_angle_deg
-                            p[9],        // [11] inclination_deg
-                            p[25],       // [12] g_load_g
-                            p[26],       // [13] nav_density_ratio
-                            p[27],       // [14] truth_density_kg_m3
-                            p[28],       // [15] heat_load_kj_m2
-                            p[29],       // [16] density_perturbation
-                        ]
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            let ifinal_val = r.final_line[31] as i32;
-            crate::RunOutput {
-                trajectory,
-                final_record: r.final_line,
-                captured: ifinal_val == 3 && ecc < 1.0 && energy < 0.0,
-                dispersions: r.dispersions,
-                supervised_trace: r.supervised_trace,
-            }
-        })
+        .map(|r| assemble_run_output(r, include_trajectories))
         .collect())
 }
 
@@ -675,46 +366,7 @@ pub fn run_for_api_with_draws(
 
     Ok(results
         .into_iter()
-        .map(|r| {
-            let energy = r.final_line[7];
-            let ecc = r.final_line[9];
-            let trajectory = if include_trajectories {
-                r.photo_lines
-                    .iter()
-                    .map(|p| {
-                        [
-                            p[1],        // [0]  alt_km
-                            p[2],        // [1]  lon_deg
-                            p[3],        // [2]  lat_deg
-                            p[4],        // [3]  vel_m_s
-                            p[5],        // [4]  fpa_deg
-                            p[6],        // [5]  heading_deg
-                            p[24],       // [6]  heat_flux_kw_m2
-                            p[0],        // [7]  time_s
-                            p[18] / 1e6, // [8]  energy_mj_kg
-                            p[19] / 1e3, // [9]  pdyn_kpa
-                            p[14],       // [10] bank_angle_deg
-                            p[9],        // [11] inclination_deg
-                            p[25],       // [12] g_load_g
-                            p[26],       // [13] nav_density_ratio
-                            p[27],       // [14] truth_density_kg_m3
-                            p[28],       // [15] heat_load_kj_m2
-                            p[29],       // [16] density_perturbation
-                        ]
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            let ifinal_val = r.final_line[31] as i32;
-            crate::RunOutput {
-                trajectory,
-                final_record: r.final_line,
-                captured: ifinal_val == 3 && ecc < 1.0 && energy < 0.0,
-                dispersions: r.dispersions,
-                supervised_trace: r.supervised_trace,
-            }
-        })
+        .map(|r| assemble_run_output(r, include_trajectories))
         .collect())
 }
 
@@ -853,162 +505,28 @@ fn run_single(
 ) -> Result<SimResult, SimError> {
     let planet = &config.planet;
 
-    // Clone run_state so we can mutate density_perturbation each tick
-    let run_state = run_state.clone();
+    // Construct the base SimState via the shared constructor (identical seed
+    // derivation, GNC init, and bias-mode last_nav priming as the RL env path);
+    // `sim_idx as u64` reproduces the historical per-sim seeds exactly:
+    // EKF `random_seed + sim_idx*10_000`, GM-RNG `... + 0xDE45`.
+    let mut sim_state = build_sim_state(config, data, *run_state, sim_idx as u64);
 
-    // Gauss-Markov density perturbation RNG (deterministic per sim, only allocated when enabled)
-    let gm_config = data.density_perturbation.filter(|g| !g.is_disabled());
-    let (gm_rng, gm_normal) = if gm_config.is_some() {
-        use rand::SeedableRng;
-        // Offset by 0xDE45 to avoid correlation with EKF RNG (which uses sim_idx * 10_000)
-        let rng = rand::rngs::StdRng::seed_from_u64(
-            config.random_seed as u64 + sim_idx as u64 * 10_000 + 0xDE45,
-        );
-        let normal = rand_distr::Normal::new(0.0, 1.0).unwrap();
-        (Some(rng), Some(normal))
-    } else {
-        (None, None)
-    };
-
-    let req = planet.equatorial_radius;
-
-    // Extract entry values before moving run_state into SimState
-    let r0 = run_state.entry.state.altitude + req;
-    let entry_longitude = run_state.entry.state.longitude;
-    let entry_latitude = run_state.entry.state.latitude;
-    let entry_velocity = run_state.entry.state.velocity;
-    let entry_flight_path = run_state.entry.state.flight_path;
-    let entry_azimuth = run_state.entry.state.azimuth;
-    let entry_initial_date = run_state.entry.initial_date;
-    let entry_initial_bank = run_state.entry.initial_bank;
-    let entry_initial_aoa = run_state.entry.initial_aoa;
-
-    let reference_bank_angle = config.reference_bank_angle.to_radians();
-
-    let initial_bank_angle = if config.reference_trajectory {
-        reference_bank_angle
-    } else {
-        entry_initial_bank
-    };
-
-    let dt = data.periods.integration;
-    let max_time = config.max_time;
-    let exit_altitude = data.final_conditions.altitude;
-
-    // === GNC subsystem initialization ===
-    let nav_filter = match data.nav_mode {
-        crate::data::NavMode::Bias => NavigationFilter::new_bias(),
-        crate::data::NavMode::Ekf => {
-            let nav_toml = data
-                .nav_config
-                .as_ref()
-                .expect("EKF mode requires [navigation] config");
-            let (imu_cfg, st_cfg, ekf_cfg) = estimator::build_ekf_configs(nav_toml);
-            let seed = config.random_seed as u64 + sim_idx as u64 * 10_000;
-            NavigationFilter::new_ekf(imu_cfg, st_cfg, ekf_cfg, seed)
-        }
-    };
-    let nav_biases = run_state.nav_biases;
-    let is_single = config.n_sims <= 1 && config.screen_output;
-
-    let guidance_state = GuidanceState::new(
-        entry_initial_bank,
-        entry_initial_aoa,
-        data.neural_net.as_ref(),
-    );
-    assert_eq!(
-        data.neural_net.is_some(),
-        guidance_state.nn_state.is_some(),
-        "nn_state presence must match neural_net presence",
-    );
-    let pilot_state = PilotState {
-        bank_angle: initial_bank_angle,
-        bank_rate: 0.0,
-    };
-    let sequencer = SequencerState::new();
+    // CLI-specific overrides not produced by `build_sim_state` (which targets the
+    // RL env defaults: no photo, no wall timeout, not the single-run banner).
+    sim_state.write_photo = write_photo;
+    sim_state.wall_timeout = wall_timeout;
+    sim_state.is_single = config.n_sims <= 1 && config.screen_output;
+    let is_single = sim_state.is_single;
 
     // Event detection setup (used by adaptive integrator)
-    let event_defs = events::build_aerocapture_events();
-    let event_ctx = EventContext {
-        planet_radius: planet.equatorial_radius,
-        polar_radius: planet.polar_radius,
-        exit_altitude,
-        exit_velocity_threshold: data.guidance.exit_velocity_threshold,
-    };
-
-    let mut sim_state = SimState {
-        // Physics state vector
-        state: [
-            r0,
-            entry_longitude,
-            entry_latitude,
-            entry_velocity,
-            entry_flight_path,
-            entry_azimuth,
-            0.0,
-            entry_initial_date,
-        ],
-        accumulator: [0.0; 8],
-        gill_toggle: 0,
-        dopri: Dopri45State::new(),
-        bank_angle: initial_bank_angle,
-        aoa: entry_initial_aoa,
-        bounced: false,
-        bounce_alt: 1e34,
-        bounce_time: 1e30,
-        max_heat_flux: 0.0,
-        max_load_factor: 0.0,
-        max_dyn_pressure: 0.0,
-        alt_max_flux: 0.0,
-        alt_max_load: 0.0,
-        alt_max_pdyn: 0.0,
-        time_max_flux: 0.0,
-        time_max_load: 0.0,
-        time_max_pdyn: 0.0,
-        event_records: Vec::new(),
-        // GNC subsystem state
-        nav_filter,
-        guidance_state,
-        pilot_state,
-        sequencer,
-        // Loop control
-        sim_time: entry_initial_date,
-        term: TermReason::None,
-        step: 0,
-        first_iter: true,
-        // Dispersed run state
-        run_state,
-        nav_biases,
-        supervised_trace: Vec::new(),
-        // Photo output accumulators
-        photo_lines: Vec::new(),
-        cumulative_bank_change_deg: 0.0,
-        dynamic_pressure_for_photo: 0.0,
-        density_estimate_for_photo: 0.0,
-        guidance_phase_for_photo: 1,
-        // Gauss-Markov density perturbation RNG
-        gm_config,
-        gm_rng,
-        gm_normal,
-        // Last navigation output (populated on first tick)
-        last_nav: crate::gnc::navigation::estimator::NavigationOutput::default(),
-        // Pre-loop constants
-        dt,
-        max_time,
-        exit_altitude,
-        reference_bank_angle,
-        write_photo,
-        sim_idx,
-        wall_timeout,
-        wall_start: Instant::now(),
-        is_single,
-    };
+    let event_defs = build_event_defs();
+    let event_ctx = build_event_ctx(config, data);
 
     if is_single {
         eprintln!(
             "  Init: entry.initial_bank={:.5}deg, reference_bank_angle={:.5}deg, sim.bank_angle={:.5}deg",
-            entry_initial_bank.to_degrees(),
-            reference_bank_angle.to_degrees(),
+            run_state.entry.initial_bank.to_degrees(),
+            sim_state.reference_bank_angle.to_degrees(),
             sim_state.bank_angle.to_degrees()
         );
     }
@@ -1034,7 +552,7 @@ fn run_single(
         let sim_idx = sim_state.sim_idx;
         let cumulative_bank_change_deg = sim_state.cumulative_bank_change_deg;
         let density_gain = sim_state.nav_filter.density_gain();
-        let run_state_snap = sim_state.run_state.clone();
+        let run_state_snap = sim_state.run_state;
         let cumulative_flux = sim_state.state[6];
         let guidance_phase_for_photo = sim_state.guidance_phase_for_photo;
         let photo_line = build_photo_values(
@@ -1055,7 +573,7 @@ fn run_single(
     }
 
     // === Final conditions ===
-    let (alt_final, lat_final) = geodetic_from_spherical(
+    let (alt_final, _lat_final) = geodetic_from_spherical(
         sim_state.state[0],
         sim_state.state[1],
         sim_state.state[2],
@@ -1073,129 +591,12 @@ fn run_single(
         );
     }
 
-    let orbit = elements::from_spherical(
-        sim_state.state[0],
-        sim_state.state[1],
-        sim_state.state[2],
-        sim_state.state[3],
-        sim_state.state[4],
-        sim_state.state[5],
-        planet,
-    );
-
-    let mu = planet.mu;
-    let (_position_abs, velocity_abs) = to_absolute_cartesian(
-        sim_state.state[0],
-        sim_state.state[1],
-        sim_state.state[2],
-        sim_state.state[3],
-        sim_state.state[4],
-        sim_state.state[5],
-        planet,
-    );
-    let speed_abs = norm(&velocity_abs);
-    let energy = speed_abs * speed_abs / 2.0 - mu / sim_state.state[0];
-    let velocity_radial = sim_state.state[3] * sim_state.state[4].sin();
-
     promote_pending_crash_if_applicable(&mut sim_state, planet);
-    let captured = orbit.eccentricity < 1.0 && energy < 0.0;
 
-    let ifinal = match sim_state.term {
-        TermReason::AtmosphereExit => 3,
-        TermReason::Crash => 1,
-        TermReason::PendingCrash => 4,
-        TermReason::Timeout => 2,
-        TermReason::None => unreachable!("simulation loop exits only on non-None termination"),
-    };
-
-    let deltav = if sim_state.term == TermReason::AtmosphereExit && captured {
-        maneuver::compute_deltav(&orbit, &data.target_orbit, &data.parking_orbit, planet)
-    } else if sim_state.term == TermReason::AtmosphereExit {
-        // Hyperbolic exit: excess velocity over escape speed
-        let v_escape = (2.0 * mu / sim_state.state[0]).sqrt();
-        let v_excess = (speed_abs - v_escape).max(0.0);
-        DeltaV {
-            dv1: 0.0,
-            dv2: 0.0,
-            dv3: 0.0,
-            total: HYPERBOLIC_BASE + v_excess,
-        }
-    } else {
-        // Crash, PendingCrash, or Timeout: energy-error + time-survival gradient.
-        let virtual_dv = virtual_dv_non_capture(
-            energy,
-            data.target_orbit.semi_major_axis,
-            mu,
-            sim_state.sim_time,
-            sim_state.max_time,
-        );
-        DeltaV {
-            dv1: 0.0,
-            dv2: 0.0,
-            dv3: 0.0,
-            total: virtual_dv,
-        }
-    };
-
-    // final_record layout (52 slots):
-    //   0  altitude (km)           16 max heat flux (kW/m²)     32-36 UNUSED
-    //   1  longitude (deg)         17 max g-load (g)             37 dv1 (m/s)
-    //   2  latitude (deg)          18 max pdyn (kPa)             38 dv2 (m/s)
-    //   3  velocity (m/s)          19 alt at max flux (km)       39 dv3 (m/s)
-    //   4  FPA (deg)               20 alt at max load (km)       40 dv1+dv2 (m/s)
-    //   5  heading (deg)           21 alt at max pdyn (km)       41 dv total (m/s)
-    //   6  radial velocity (m/s)   22 time at max flux (s)       42-44 UNUSED
-    //   7  energy (MJ/kg)          23 time at max load (s)       45 bank consumption (deg)
-    //   8  SMA (km)                24 time at max pdyn (s)       46 incl error (deg)
-    //                                                              47 UNUSED
-    //   9  eccentricity            25 bounce alt (km)            48 n_reversals
-    //  10  inclination (deg)       26 bounce time (s)            49-51 UNUSED
-    //  11  RAAN (deg)              27 sim time (s)
-    //  12  arg periapsis (deg)     28 cumulative flux (MJ/m²)
-    //  13  true anomaly (deg)      29 periapsis error (km)
-    //  14  periapsis alt (km)      30 apoapsis error (km)
-    //  15  apoapsis alt (km)       31 final phase
-    let mut final_record = [0.0_f64; 52];
-    final_record[0] = alt_final / 1e3;
-    final_record[1] = sim_state.state[1] / DEG_TO_RAD;
-    final_record[2] = lat_final / DEG_TO_RAD;
-    final_record[3] = sim_state.state[3];
-    final_record[4] = sim_state.state[4] / DEG_TO_RAD;
-    final_record[5] = sim_state.state[5] / DEG_TO_RAD;
-    final_record[6] = velocity_radial;
-    final_record[7] = energy / 1e6;
-    final_record[8] = orbit.semi_major_axis / 1e3;
-    final_record[9] = orbit.eccentricity;
-    final_record[10] = orbit.inclination / DEG_TO_RAD;
-    final_record[11] = orbit.raan / DEG_TO_RAD;
-    final_record[12] = orbit.arg_periapsis / DEG_TO_RAD;
-    final_record[13] = orbit.true_anomaly / DEG_TO_RAD;
-    final_record[14] = orbit.periapsis_alt / 1e3;
-    final_record[15] = orbit.apoapsis_alt / 1e3;
-    final_record[16] = sim_state.max_heat_flux / 1e3;
-    final_record[17] = sim_state.max_load_factor / G0;
-    final_record[18] = sim_state.max_dyn_pressure / 1e3;
-    final_record[19] = sim_state.alt_max_flux / 1e3;
-    final_record[20] = sim_state.alt_max_load / 1e3;
-    final_record[21] = sim_state.alt_max_pdyn / 1e3;
-    final_record[22] = sim_state.time_max_flux;
-    final_record[23] = sim_state.time_max_load;
-    final_record[24] = sim_state.time_max_pdyn;
-    final_record[25] = sim_state.bounce_alt / 1e3;
-    final_record[26] = sim_state.bounce_time;
-    final_record[27] = sim_state.sim_time;
-    final_record[28] = sim_state.state[6] / 1e6;
-    final_record[29] = orbit.periapsis_alt / 1e3 - data.target_orbit.periapsis / 1e3;
-    final_record[30] = orbit.apoapsis_alt / 1e3 - data.target_orbit.apoapsis / 1e3;
-    final_record[31] = ifinal as f64;
-    final_record[37] = deltav.dv1;
-    final_record[38] = deltav.dv2;
-    final_record[39] = deltav.dv3;
-    final_record[40] = deltav.dv1.abs() + deltav.dv2.abs();
-    final_record[41] = deltav.total;
-    final_record[45] = sim_state.cumulative_bank_change_deg;
-    final_record[46] = orbit.inclination / DEG_TO_RAD - data.target_orbit.inclination / DEG_TO_RAD;
-    final_record[48] = sim_state.guidance_state.lateral_state.n_reversals as f64;
+    // The 52-element final record / termination classification / virtual-DV is
+    // assembled by `build_final_record` (the same path the RL per-step env API
+    // takes via `tick.rs`), keeping CLI and env outputs bit-identical.
+    let final_record = build_final_record(&sim_state, data, planet);
 
     let event_records = std::mem::take(&mut sim_state.event_records);
 
@@ -1235,180 +636,6 @@ fn run_single(
         dispersions: [0.0; DISPERSION_DRAW_LEN],
         supervised_trace,
     })
-}
-
-/// Assemble the 52-element final record from a terminated `SimState`.
-///
-/// Mirrors the block at the end of `run_single`. Requires `term != TermReason::None`.
-/// Called by `BatchedSimulation::step()` on terminal steps.
-/// Pure predicate: would this orbit be a "pending crash" -- captured (bound + e<1)
-/// but with apoapsis below the atmospheric ceiling, so guaranteed to re-enter?
-///
-/// Extracted so it can be unit-tested without constructing a full `SimState`.
-pub fn is_pending_crash(
-    eccentricity: f64,
-    energy: f64,
-    apoapsis_alt: f64,
-    exit_altitude: f64,
-) -> bool {
-    let captured = eccentricity < 1.0 && energy < 0.0;
-    captured && apoapsis_alt < exit_altitude
-}
-
-/// Promote `AtmosphereExit` to `PendingCrash` when the resulting orbit has
-/// apoapsis below the atmospheric ceiling (captured but doomed to re-entry).
-///
-/// Called both by `finalize_run` (CLI path) and `tick.rs` (RL per-step path)
-/// so both sources of `ifinal`/`final_record` see the same terminal classification.
-pub fn promote_pending_crash_if_applicable(sim_state: &mut SimState, planet: &PlanetConfig) {
-    if sim_state.term != TermReason::AtmosphereExit {
-        return;
-    }
-    let orbit = elements::from_spherical(
-        sim_state.state[0],
-        sim_state.state[1],
-        sim_state.state[2],
-        sim_state.state[3],
-        sim_state.state[4],
-        sim_state.state[5],
-        planet,
-    );
-    let (_, velocity_abs) = to_absolute_cartesian(
-        sim_state.state[0],
-        sim_state.state[1],
-        sim_state.state[2],
-        sim_state.state[3],
-        sim_state.state[4],
-        sim_state.state[5],
-        planet,
-    );
-    let speed_abs = norm(&velocity_abs);
-    let energy = speed_abs * speed_abs / 2.0 - planet.mu / sim_state.state[0];
-    if is_pending_crash(
-        orbit.eccentricity,
-        energy,
-        orbit.apoapsis_alt,
-        sim_state.exit_altitude,
-    ) {
-        sim_state.term = TermReason::PendingCrash;
-    }
-}
-
-pub fn build_final_record(
-    sim_state: &SimState,
-    data: &SimData,
-    planet: &PlanetConfig,
-) -> [f64; 52] {
-    let (alt_final, lat_final) = geodetic_from_spherical(
-        sim_state.state[0],
-        sim_state.state[1],
-        sim_state.state[2],
-        planet,
-    );
-
-    let orbit = elements::from_spherical(
-        sim_state.state[0],
-        sim_state.state[1],
-        sim_state.state[2],
-        sim_state.state[3],
-        sim_state.state[4],
-        sim_state.state[5],
-        planet,
-    );
-
-    let mu = planet.mu;
-    let (_position_abs, velocity_abs) = to_absolute_cartesian(
-        sim_state.state[0],
-        sim_state.state[1],
-        sim_state.state[2],
-        sim_state.state[3],
-        sim_state.state[4],
-        sim_state.state[5],
-        planet,
-    );
-    let speed_abs = norm(&velocity_abs);
-    let energy = speed_abs * speed_abs / 2.0 - mu / sim_state.state[0];
-    let velocity_radial = sim_state.state[3] * sim_state.state[4].sin();
-
-    let captured = orbit.eccentricity < 1.0 && energy < 0.0;
-
-    let ifinal = match sim_state.term {
-        TermReason::AtmosphereExit => 3,
-        TermReason::Crash => 1,
-        TermReason::PendingCrash => 4,
-        TermReason::Timeout => 2,
-        TermReason::None => 0, // should not happen; caller must check term != None
-    };
-
-    let deltav = if sim_state.term == TermReason::AtmosphereExit && captured {
-        maneuver::compute_deltav(&orbit, &data.target_orbit, &data.parking_orbit, planet)
-    } else if sim_state.term == TermReason::AtmosphereExit {
-        let v_escape = (2.0 * mu / sim_state.state[0]).sqrt();
-        let v_excess = (speed_abs - v_escape).max(0.0);
-        DeltaV {
-            dv1: 0.0,
-            dv2: 0.0,
-            dv3: 0.0,
-            total: HYPERBOLIC_BASE + v_excess,
-        }
-    } else {
-        let virtual_dv = virtual_dv_non_capture(
-            energy,
-            data.target_orbit.semi_major_axis,
-            mu,
-            sim_state.sim_time,
-            sim_state.max_time,
-        );
-        DeltaV {
-            dv1: 0.0,
-            dv2: 0.0,
-            dv3: 0.0,
-            total: virtual_dv,
-        }
-    };
-
-    let mut fr = [0.0_f64; 52];
-    fr[0] = alt_final / 1e3;
-    fr[1] = sim_state.state[1] / DEG_TO_RAD;
-    fr[2] = lat_final / DEG_TO_RAD;
-    fr[3] = sim_state.state[3];
-    fr[4] = sim_state.state[4] / DEG_TO_RAD;
-    fr[5] = sim_state.state[5] / DEG_TO_RAD;
-    fr[6] = velocity_radial;
-    fr[7] = energy / 1e6;
-    fr[8] = orbit.semi_major_axis / 1e3;
-    fr[9] = orbit.eccentricity;
-    fr[10] = orbit.inclination / DEG_TO_RAD;
-    fr[11] = orbit.raan / DEG_TO_RAD;
-    fr[12] = orbit.arg_periapsis / DEG_TO_RAD;
-    fr[13] = orbit.true_anomaly / DEG_TO_RAD;
-    fr[14] = orbit.periapsis_alt / 1e3;
-    fr[15] = orbit.apoapsis_alt / 1e3;
-    fr[16] = sim_state.max_heat_flux / 1e3;
-    fr[17] = sim_state.max_load_factor / G0;
-    fr[18] = sim_state.max_dyn_pressure / 1e3;
-    fr[19] = sim_state.alt_max_flux / 1e3;
-    fr[20] = sim_state.alt_max_load / 1e3;
-    fr[21] = sim_state.alt_max_pdyn / 1e3;
-    fr[22] = sim_state.time_max_flux;
-    fr[23] = sim_state.time_max_load;
-    fr[24] = sim_state.time_max_pdyn;
-    fr[25] = sim_state.bounce_alt / 1e3;
-    fr[26] = sim_state.bounce_time;
-    fr[27] = sim_state.sim_time;
-    fr[28] = sim_state.state[6] / 1e6;
-    fr[29] = orbit.periapsis_alt / 1e3 - data.target_orbit.periapsis / 1e3;
-    fr[30] = orbit.apoapsis_alt / 1e3 - data.target_orbit.apoapsis / 1e3;
-    fr[31] = ifinal as f64;
-    fr[37] = deltav.dv1;
-    fr[38] = deltav.dv2;
-    fr[39] = deltav.dv3;
-    fr[40] = deltav.dv1.abs() + deltav.dv2.abs();
-    fr[41] = deltav.total;
-    fr[45] = sim_state.cumulative_bank_change_deg;
-    fr[46] = orbit.inclination / DEG_TO_RAD - data.target_orbit.inclination / DEG_TO_RAD;
-    fr[48] = sim_state.guidance_state.lateral_state.n_reversals as f64;
-    fr
 }
 
 /// Build the standard aerocapture event definitions.
@@ -1672,8 +899,6 @@ pub(crate) fn integrate_step(
 pub(crate) struct AdaptiveEventResult {
     pub(crate) triggered: Vec<events::TriggeredEvent>,
 }
-
-pub(crate) const EVENT_TOL: f64 = 1e-3; // 1 ms event location tolerance
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn integrate_adaptive_with_events(
@@ -1995,307 +1220,13 @@ pub(crate) fn compute_derivatives(
 }
 
 #[cfg(test)]
-mod run_output_tests {
-    use super::*;
-    use crate::config::SimInput;
-    use crate::data::SimData;
-
-    fn load_config(config_name: &str) -> (SimInput, SimData) {
-        // Data file paths in TOML configs are relative to repo root
-        let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-        let repo_root = std::path::PathBuf::from(&manifest)
-            .join("../..")
-            .canonicalize()
-            .unwrap();
-        std::env::set_current_dir(&repo_root).unwrap();
-
-        let path = std::path::Path::new(config_name);
-        let (sim_config, toml_config) = SimInput::from_toml_file(path).expect("parse");
-        let sim_data = SimData::from_toml(&toml_config, &sim_config).expect("data");
-        (sim_config, sim_data)
-    }
-
-    fn load_test_config() -> (SimInput, SimData) {
-        load_config("configs/test/test_ref_orig.toml")
-    }
-
-    #[test]
-    fn run_for_api_returns_one_result_for_single_sim() {
-        let (config, data) = load_test_config();
-        let results = run_for_api(&config, &data, false, None).expect("run");
-        assert_eq!(results.len(), 1);
-    }
-
-    #[test]
-    fn run_output_final_record_has_52_elements() {
-        let (config, data) = load_test_config();
-        let results = run_for_api(&config, &data, false, None).expect("run");
-        assert_eq!(results[0].final_record.len(), 52);
-    }
-
-    #[test]
-    fn run_output_final_record_matches_file_path() {
-        let (config, data) = load_test_config();
-        let api_results = run_for_api(&config, &data, false, None).expect("api run");
-        let api_fr = &api_results[0].final_record;
-
-        run(&config, &data).expect("file run");
-
-        let suffix = config.results_suffix.trim_start_matches('.');
-        let final_path = config.output_path(&format!("final.{}.csv", suffix));
-        let content = std::fs::read_to_string(&final_path).expect("read final csv");
-        let lines: Vec<&str> = content.lines().collect();
-        assert!(lines.len() >= 2, "final CSV should have header + data");
-
-        assert!(api_fr[7].abs() > 0.0, "energy should be non-zero");
-        assert!(api_fr[9] > 0.0, "eccentricity should be positive");
-    }
-
-    #[test]
-    fn run_output_captured_flag_consistent_with_orbital_elements() {
-        let (config, data) = load_test_config();
-        let results = run_for_api(&config, &data, false, None).expect("run");
-        let r = &results[0];
-        let ifinal_val = r.final_record[31] as i32;
-        let expected = ifinal_val == 3 && r.final_record[9] < 1.0 && r.final_record[7] < 0.0;
-        assert_eq!(r.captured, expected);
-    }
-
-    #[test]
-    fn peak_values_populated_for_atmospheric_trajectory() {
-        let (config, data) = load_config("configs/test/test_high_bank_orig.toml");
-        let results = run_for_api(&config, &data, false, None).expect("run");
-        let rec = &results[0].final_record;
-
-        // Columns 16-18: peak heat flux (kW/m²), load factor (g), dynamic pressure (kPa)
-        assert!(
-            rec[16] > 0.0,
-            "max_heat_flux should be > 0, got {}",
-            rec[16]
-        );
-        assert!(
-            rec[17] > 0.0,
-            "max_load_factor should be > 0, got {}",
-            rec[17]
-        );
-        assert!(
-            rec[18] > 0.0,
-            "max_dyn_pressure should be > 0, got {}",
-            rec[18]
-        );
-
-        // Columns 19-24: altitudes and times at peak values
-        assert!(rec[19] > 0.0, "alt_max_flux should be > 0, got {}", rec[19]);
-        assert!(rec[20] > 0.0, "alt_max_load should be > 0, got {}", rec[20]);
-        assert!(rec[21] > 0.0, "alt_max_pdyn should be > 0, got {}", rec[21]);
-        assert!(
-            rec[22] > 0.0,
-            "time_max_flux should be > 0, got {}",
-            rec[22]
-        );
-        assert!(
-            rec[23] > 0.0,
-            "time_max_load should be > 0, got {}",
-            rec[23]
-        );
-        assert!(
-            rec[24] > 0.0,
-            "time_max_pdyn should be > 0, got {}",
-            rec[24]
-        );
-
-        // Physical plausibility for Mars entry:
-        assert!(
-            rec[16] > 10.0 && rec[16] < 500.0,
-            "peak heat flux {:.1} kW/m² outside reasonable Mars entry range",
-            rec[16]
-        );
-        assert!(
-            rec[17] > 1.0 && rec[17] < 30.0,
-            "peak load factor {:.1} g outside reasonable Mars entry range",
-            rec[17]
-        );
-    }
-
-    #[test]
-    fn heat_load_in_trajectory_is_monotonically_nondecreasing() {
-        let (config, data) = load_test_config();
-        let results = run_for_api(&config, &data, true, None).expect("run");
-        let traj = &results[0].trajectory;
-        assert!(!traj.is_empty(), "trajectory should not be empty");
-        for i in 1..traj.len() {
-            assert!(
-                traj[i][15] >= traj[i - 1][15],
-                "heat load must be monotonically non-decreasing at step {}: {} < {}",
-                i,
-                traj[i][15],
-                traj[i - 1][15]
-            );
-        }
-    }
-
-    #[test]
-    fn heat_load_final_matches_final_record() {
-        let (config, data) = load_test_config();
-        let results = run_for_api(&config, &data, true, None).expect("run");
-        let r = &results[0];
-        let last_traj_heat_load = r.trajectory.last().unwrap()[15]; // kJ/m²
-        let final_record_heat_load = r.final_record[28] * 1e3; // MJ/m² → kJ/m²
-        let diff = (last_traj_heat_load - final_record_heat_load).abs();
-        assert!(
-            diff < 1.0, // allow 1 kJ/m² tolerance (photo cadence vs final state)
-            "trajectory last heat load ({:.2}) should match final_record ({:.2}), diff={:.4}",
-            last_traj_heat_load,
-            final_record_heat_load,
-            diff
-        );
-    }
-}
+#[path = "run_output_tests.rs"]
+mod run_output_tests;
 
 #[cfg(test)]
-mod virtual_dv_tests {
-    use super::*;
-    use proptest::prelude::*;
-
-    // Mars-ish constants for proptest scenarios.
-    const MU_MARS: f64 = 4.282837e13;
-    const TARGET_SMA: f64 = 2.0e7; // 20000 km → E_target ≈ -1.07 MJ/kg
-
-    proptest! {
-        #[test]
-        fn crash_virtual_dv_finite_and_bounded_below(
-            energy_j_kg in -5.0e7f64..5.0e7,
-            sim_time in 0.0f64..10000.0,
-            max_time in 100.0f64..10000.0,
-        ) {
-            let dv = virtual_dv_non_capture(energy_j_kg, TARGET_SMA, MU_MARS, sim_time, max_time);
-            prop_assert!(dv.is_finite());
-            // Lower bound: CRASH_FLOOR - CRASH_TIME_BONUS (when ΔE = 0 and t_ratio = 1).
-            prop_assert!(dv >= CRASH_FLOOR - CRASH_TIME_BONUS, "dv={} below floor", dv);
-        }
-
-        #[test]
-        fn crash_virtual_dv_monotonic_in_energy_error(
-            delta_e_mj in 0.0f64..20.0,
-        ) {
-            let e_target = -MU_MARS / (2.0 * TARGET_SMA);
-            let dv0 = virtual_dv_non_capture(e_target, TARGET_SMA, MU_MARS, 0.0, 1000.0);
-            let dv1 = virtual_dv_non_capture(e_target + delta_e_mj * 1e6, TARGET_SMA, MU_MARS, 0.0, 1000.0);
-            let dv2 = virtual_dv_non_capture(e_target - delta_e_mj * 1e6, TARGET_SMA, MU_MARS, 0.0, 1000.0);
-            // Symmetric: |+ΔE| and |-ΔE| produce identical cost.
-            prop_assert!((dv1 - dv2).abs() < 1e-9);
-            // Monotonic: bigger |ΔE| → bigger cost.
-            prop_assert!(dv1 >= dv0 - 1e-9);
-        }
-
-        #[test]
-        fn crash_virtual_dv_survival_reduces_cost(
-            energy_j_kg in -5.0e7f64..5.0e7,
-        ) {
-            let early = virtual_dv_non_capture(energy_j_kg, TARGET_SMA, MU_MARS, 0.0, 1000.0);
-            let late = virtual_dv_non_capture(energy_j_kg, TARGET_SMA, MU_MARS, 1000.0, 1000.0);
-            prop_assert!((early - late - CRASH_TIME_BONUS).abs() < 1e-9);
-        }
-
-        #[test]
-        fn hyperbolic_virtual_dv_above_base(
-            v_excess in 0.0f64..5000.0,
-        ) {
-            let virtual_dv = HYPERBOLIC_BASE + v_excess;
-            prop_assert!(virtual_dv >= HYPERBOLIC_BASE);
-            prop_assert!(virtual_dv.is_finite());
-        }
-    }
-
-    #[test]
-    fn non_finite_inputs_produce_finite_capped_output() {
-        // NaN energy (from degenerate state) must not propagate.
-        let dv_nan = virtual_dv_non_capture(f64::NAN, TARGET_SMA, MU_MARS, 0.0, 1000.0);
-        assert!(dv_nan.is_finite());
-        assert!(dv_nan >= CRASH_FLOOR);
-        // Expected: CRASH_FLOOR + CRASH_ENERGY_WEIGHT * CRASH_ENERGY_CAP_MJKG - 0.
-        let expected = CRASH_FLOOR + CRASH_ENERGY_WEIGHT * CRASH_ENERGY_CAP_MJKG;
-        assert!((dv_nan - expected).abs() < 1e-9);
-
-        // +Inf energy also capped.
-        let dv_inf = virtual_dv_non_capture(f64::INFINITY, TARGET_SMA, MU_MARS, 500.0, 1000.0);
-        assert!(dv_inf.is_finite());
-        assert!((dv_inf - (expected - CRASH_TIME_BONUS * 0.5)).abs() < 1e-9);
-
-        // NaN sim_time.
-        let dv_t_nan = virtual_dv_non_capture(0.0, TARGET_SMA, MU_MARS, f64::NAN, 1000.0);
-        assert!(dv_t_nan.is_finite());
-    }
-
-    #[test]
-    fn near_target_crash_stays_above_typical_capture_floor() {
-        // A crash with energy exactly at target (best possible crash) at max survival
-        // time must still cost more than typical captures (~500-2000 m/s) so the
-        // optimizer never prefers crashing over capturing.
-        let e_target = -MU_MARS / (2.0 * TARGET_SMA);
-        let best_possible_crash =
-            virtual_dv_non_capture(e_target, TARGET_SMA, MU_MARS, 1000.0, 1000.0);
-        assert!(
-            best_possible_crash >= 2500.0,
-            "best crash DV {} too close to captures",
-            best_possible_crash
-        );
-        assert!(
-            best_possible_crash <= CRASH_FLOOR,
-            "best crash DV {} exceeds floor {}",
-            best_possible_crash,
-            CRASH_FLOOR
-        );
-    }
-}
+#[path = "virtual_dv_tests.rs"]
+mod virtual_dv_tests;
 
 #[cfg(test)]
-mod pending_crash_tests {
-    use super::is_pending_crash;
-
-    // exit_altitude in meters matches the field's unit.
-    const EXIT_ALT: f64 = 125_000.0;
-
-    #[test]
-    fn hyperbolic_orbit_is_not_pending_crash() {
-        // e >= 1 -> not captured -> not pending crash regardless of apoapsis.
-        assert!(!is_pending_crash(1.1, 1.0e6, 0.0, EXIT_ALT));
-    }
-
-    #[test]
-    fn positive_energy_is_not_pending_crash() {
-        // energy > 0 -> unbound -> not captured even if e < 1.
-        assert!(!is_pending_crash(0.5, 1.0e6, 100_000.0, EXIT_ALT));
-    }
-
-    #[test]
-    fn captured_with_high_apoapsis_is_not_pending_crash() {
-        // Bound + apoapsis well above exit altitude -> clean capture.
-        assert!(!is_pending_crash(
-            0.5,
-            -1.0e6,
-            EXIT_ALT + 10_000.0,
-            EXIT_ALT
-        ));
-    }
-
-    #[test]
-    fn captured_with_apoapsis_below_ceiling_is_pending_crash() {
-        // Bound but apoapsis under the atmosphere -> guaranteed re-entry.
-        assert!(is_pending_crash(0.5, -1.0e6, EXIT_ALT - 10_000.0, EXIT_ALT));
-    }
-
-    #[test]
-    fn boundary_apoapsis_equal_exit_is_not_pending_crash() {
-        // Strict inequality -> apoapsis == exit is a clean edge.
-        assert!(!is_pending_crash(0.5, -1.0e6, EXIT_ALT, EXIT_ALT));
-    }
-
-    #[test]
-    fn nan_inputs_do_not_promote() {
-        // NaN comparisons are false -> no spurious promotion on numerical blow-up.
-        assert!(!is_pending_crash(f64::NAN, -1.0e6, 0.0, EXIT_ALT));
-        assert!(!is_pending_crash(0.5, f64::NAN, 0.0, EXIT_ALT));
-        assert!(!is_pending_crash(0.5, -1.0e6, f64::NAN, EXIT_ALT));
-    }
-}
+#[path = "pending_crash_tests.rs"]
+mod pending_crash_tests;

@@ -23,12 +23,14 @@ impl SimResult {
     ///           density_perturbation].
     /// Empty if trajectories were not requested.
     #[getter]
-    fn trajectory<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+    fn trajectory<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<f64>>> {
         let rows: Vec<Vec<f64>> = self.output.trajectory.iter().map(|r| r.to_vec()).collect();
         if rows.is_empty() {
-            PyArray2::from_vec2(py, &[]).unwrap()
+            Ok(PyArray2::<f64>::zeros(py, [0, 17], false))
         } else {
-            PyArray2::from_vec2(py, &rows).unwrap()
+            PyArray2::from_vec2(py, &rows).map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("trajectory array error: {e}"))
+            })
         }
     }
 
@@ -118,13 +120,15 @@ pub struct BatchResults {
 impl BatchResults {
     /// All final records stacked as an (N, 52) NumPy array.
     #[getter]
-    fn final_records<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+    fn final_records<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<f64>>> {
         let rows: Vec<Vec<f64>> = self
             .outputs
             .iter()
             .map(|o| o.final_record.to_vec())
             .collect();
-        PyArray2::from_vec2(py, &rows).unwrap()
+        PyArray2::from_vec2(py, &rows).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("final_records array error: {e}"))
+        })
     }
 
     /// Per-run capture flag as a NumPy bool array of length N.
@@ -139,15 +143,19 @@ impl BatchResults {
     /// Only populated if `include_trajectories=True` was passed; otherwise
     /// returns a list of empty (0, 17) arrays.
     #[getter]
-    fn trajectories<'py>(&self, py: Python<'py>) -> Vec<Bound<'py, PyArray2<f64>>> {
+    fn trajectories<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyArray2<f64>>>> {
         self.outputs
             .iter()
             .map(|o| {
                 let rows: Vec<Vec<f64>> = o.trajectory.iter().map(|r| r.to_vec()).collect();
                 if rows.is_empty() {
-                    PyArray2::from_vec2(py, &[]).unwrap()
+                    Ok(PyArray2::<f64>::zeros(py, [0, 17], false))
                 } else {
-                    PyArray2::from_vec2(py, &rows).unwrap()
+                    PyArray2::from_vec2(py, &rows).map_err(|e| {
+                        pyo3::exceptions::PyRuntimeError::new_err(format!(
+                            "trajectory array error: {e}"
+                        ))
+                    })
                 }
             })
             .collect()
@@ -155,13 +163,15 @@ impl BatchResults {
 
     /// Dispersion draws as an (N, 26) NumPy array — always populated.
     #[getter]
-    fn dispersions<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+    fn dispersions<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<f64>>> {
         let rows: Vec<Vec<f64>> = self
             .outputs
             .iter()
             .map(|o| o.dispersions.to_vec())
             .collect();
-        PyArray2::from_vec2(py, &rows).unwrap()
+        PyArray2::from_vec2(py, &rows).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("dispersions array error: {e}"))
+        })
     }
 
     /// Number of runs in the batch.

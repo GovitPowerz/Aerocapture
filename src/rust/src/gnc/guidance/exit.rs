@@ -12,10 +12,6 @@
 //! `v_r_ref` is the radial velocity latched at the phase 1→2 transition.
 //! The result is clamped to [-1, 1] then converted to a bank angle magnitude.
 //!
-//! Note: `exit_apoapsis_threshold` is loaded from TOML but reserved for a future
-//! direct apoapsis-targeting enhancement. Currently, apoapsis control emerges
-//! indirectly from the pdyn feedback (controlling drag on the ascending leg
-//! determines how much energy is removed before atmosphere exit).
 
 use crate::config::PlanetConfig;
 use crate::data::SimData;
@@ -129,7 +125,6 @@ mod tests {
                 exit_pdyn_margin: 1.75,
                 exit_altitude_threshold: 60_000.0,
                 exit_radial_vel_gain: 10.0,
-                exit_apoapsis_threshold: 100.0,
                 ..Default::default()
             },
             incidence: IncidenceProfile {

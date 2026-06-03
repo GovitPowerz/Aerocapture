@@ -11,8 +11,8 @@ pub mod nn_state;
 pub mod pilot;
 
 use crate::config::{
-    GuidanceType, IntegrationMode, SimInput, SimPhase, TomlConfig, TomlLayerSpec, TomlMonteCarlo,
-    TomlNavigation,
+    GuidanceType, IntegrationMode, SimInput, SimPhase, TomlConfig, TomlLayerSpec, TomlMcDomain,
+    TomlMonteCarlo, TomlNavigation,
 };
 use crate::gnc::guidance::lateral::LateralParams;
 use crate::gnc::guidance::thermal_limiter::ThermalLimiterParams;
@@ -474,7 +474,6 @@ impl SimData {
                 exit_pdyn_margin: ftc.exit_pdyn_margin,
                 exit_altitude_threshold: ftc.exit_altitude_threshold * 1e3,
                 exit_radial_vel_gain: ftc.exit_radial_vel_gain,
-                exit_apoapsis_threshold: ftc.exit_apoapsis_threshold,
                 lateral: if let Some(ref lat) = toml.guidance.lateral {
                     LateralParams {
                         tau: lat.tau,
@@ -551,7 +550,6 @@ impl SimData {
                 exit_pdyn_margin: 1.75,
                 exit_altitude_threshold: 60e3,
                 exit_radial_vel_gain: 10.0,
-                exit_apoapsis_threshold: 100.0,
                 lateral: if let Some(ref lat) = toml.guidance.lateral {
                     LateralParams {
                         tau: lat.tau,
@@ -821,12 +819,62 @@ impl SimData {
             dispersion_config,
             nav_mode,
             nav_config: toml.navigation.clone(),
-            integration_mode: IntegrationMode::from_toml(&toml.integration, v.periods.integration),
+            integration_mode: IntegrationMode::from_toml(&toml.integration, v.periods.integration)
+                .map_err(DataError)?,
             sim_phase: config.sim_phase,
             density_perturbation,
             nn_normalization_override,
         })
     }
+}
+
+/// A single custom-override field: (TOML key, setter writing the parsed value in).
+type CustomField<S> = (&'static str, fn(&mut S, f64));
+
+/// Reject misspelled custom-dispersion keys instead of silently dropping them
+/// (the flattened `custom` map swallows any unknown TOML key as `f64`).
+fn take_custom(
+    custom: &std::collections::HashMap<String, f64>,
+    allowed: &[&str],
+) -> Result<(), DataError> {
+    for k in custom.keys() {
+        if !allowed.contains(&k.as_str()) {
+            return Err(DataError(format!(
+                "unknown custom dispersion key: {k:?} (allowed: {allowed:?})"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Resolve one dispersion domain: `None` if absent or Off, else `from_level` seeded
+/// with optional Custom overrides. Rejects unknown custom keys under any active level.
+fn resolve_domain<S>(
+    d: Option<&TomlMcDomain>,
+    from_level: impl Fn(dispersions::DispersionLevel) -> S,
+    custom_fields: &[CustomField<S>],
+) -> Result<Option<S>, DataError> {
+    let Some(d) = d else { return Ok(None) };
+    let level = dispersions::DispersionLevel::from_str(&d.level)?;
+    if level == dispersions::DispersionLevel::Off {
+        return Ok(None);
+    }
+    // Validate stray keys whenever the custom map is non-empty and the domain is
+    // active, regardless of level. A typo'd key under "high" would otherwise be
+    // silently swallowed by serde's flattened custom map.
+    if !d.custom.is_empty() {
+        let allowed: Vec<&str> = custom_fields.iter().map(|(k, _)| *k).collect();
+        take_custom(&d.custom, &allowed)?;
+    }
+    let mut s = from_level(level);
+    if level == dispersions::DispersionLevel::Custom {
+        for (key, setter) in custom_fields {
+            if let Some(&v) = d.custom.get(*key) {
+                setter(&mut s, v);
+            }
+        }
+    }
+    Ok(Some(s))
 }
 
 /// Build a DispersionConfig from TOML [monte_carlo] section.
@@ -835,191 +883,125 @@ fn build_dispersion_config(
 ) -> Result<dispersions::DispersionConfig, DataError> {
     use dispersions::*;
 
-    let initial_state = mc.initial_state.as_ref().and_then(|d| {
-        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-        if level == DispersionLevel::Off {
-            return None;
-        }
-        let mut s = InitialStateSigmas::from_level(level);
-        if level == DispersionLevel::Custom {
-            if let Some(&v) = d.custom.get("altitude") {
-                s.altitude = v;
-            }
-            if let Some(&v) = d.custom.get("longitude") {
-                s.longitude = v;
-            }
-            if let Some(&v) = d.custom.get("latitude") {
-                s.latitude = v;
-            }
-            if let Some(&v) = d.custom.get("velocity") {
-                s.velocity = v;
-            }
-            if let Some(&v) = d.custom.get("flight_path_angle") {
-                s.flight_path = v;
-            }
-            if let Some(&v) = d.custom.get("azimuth") {
-                s.azimuth = v;
-            }
-        }
-        Some(s)
-    });
+    // Resolve a dispersion level string, surfacing typos as errors instead of
+    // silently defaulting to Medium (which inverts intent for e.g. "of" -> "off").
+    fn resolve_level(raw: &str) -> Result<DispersionLevel, DataError> {
+        DispersionLevel::from_str(raw)
+    }
 
-    let atmosphere = mc.atmosphere.as_ref().and_then(|d| {
-        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-        if level == DispersionLevel::Off {
-            return None;
-        }
-        let mut s = AtmosphereSigmas::from_level(level);
-        if level == DispersionLevel::Custom
-            && let Some(&v) = d.custom.get("density")
-        {
-            s.density = v;
-        }
-        Some(s)
-    });
+    let initial_state = resolve_domain(
+        mc.initial_state.as_ref(),
+        InitialStateSigmas::from_level,
+        &[
+            ("altitude", |s, v| s.altitude = v),
+            ("longitude", |s, v| s.longitude = v),
+            ("latitude", |s, v| s.latitude = v),
+            ("velocity", |s, v| s.velocity = v),
+            ("flight_path_angle", |s: &mut InitialStateSigmas, v| {
+                s.flight_path = v
+            }),
+            ("azimuth", |s, v| s.azimuth = v),
+        ],
+    )?;
 
-    let aerodynamics = mc.aerodynamics.as_ref().and_then(|d| {
-        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-        if level == DispersionLevel::Off {
-            return None;
-        }
-        let mut s = AerodynamicsSigmas::from_level(level);
-        if level == DispersionLevel::Custom {
-            if let Some(&v) = d.custom.get("drag") {
-                s.drag = v;
-            }
-            if let Some(&v) = d.custom.get("lift") {
-                s.lift = v;
-            }
-            if let Some(&v) = d.custom.get("incidence") {
-                s.incidence = v;
-            }
-        }
-        Some(s)
-    });
+    let atmosphere = resolve_domain(
+        mc.atmosphere.as_ref(),
+        AtmosphereSigmas::from_level,
+        &[("density", |s, v| s.density = v)],
+    )?;
 
-    let navigation = mc.navigation.as_ref().and_then(|d| {
-        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-        if level == DispersionLevel::Off {
-            return None;
-        }
-        let mut s = NavigationSigmas::from_level(level);
-        if level == DispersionLevel::Custom {
-            if let Some(&v) = d.custom.get("altitude") {
-                s.altitude = v;
-            }
-            if let Some(&v) = d.custom.get("longitude") {
-                s.longitude = v;
-            }
-            if let Some(&v) = d.custom.get("latitude") {
-                s.latitude = v;
-            }
-            if let Some(&v) = d.custom.get("velocity") {
-                s.velocity = v;
-            }
-            if let Some(&v) = d.custom.get("flight_path_angle") {
-                s.flight_path = v;
-            }
-            if let Some(&v) = d.custom.get("azimuth") {
-                s.azimuth = v;
-            }
-            if let Some(&v) = d.custom.get("drag_accel") {
-                s.drag_accel = v;
-            }
-        }
-        Some(s)
-    });
+    let aerodynamics = resolve_domain(
+        mc.aerodynamics.as_ref(),
+        AerodynamicsSigmas::from_level,
+        &[
+            ("drag", |s, v| s.drag = v),
+            ("lift", |s, v| s.lift = v),
+            ("incidence", |s, v| s.incidence = v),
+        ],
+    )?;
 
-    let mass = mc.mass.as_ref().and_then(|d| {
-        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-        if level == DispersionLevel::Off {
-            return None;
-        }
-        let mut s = MassSigmas::from_level(level);
-        if level == DispersionLevel::Custom
-            && let Some(&v) = d.custom.get("mass")
-        {
-            s.mass = v;
-        }
-        Some(s)
-    });
+    let navigation = resolve_domain(
+        mc.navigation.as_ref(),
+        NavigationSigmas::from_level,
+        &[
+            ("altitude", |s, v| s.altitude = v),
+            ("longitude", |s, v| s.longitude = v),
+            ("latitude", |s, v| s.latitude = v),
+            ("velocity", |s, v| s.velocity = v),
+            ("flight_path_angle", |s: &mut NavigationSigmas, v| {
+                s.flight_path = v
+            }),
+            ("azimuth", |s, v| s.azimuth = v),
+            ("drag_accel", |s, v| s.drag_accel = v),
+        ],
+    )?;
 
-    let vehicle = mc.vehicle.as_ref().and_then(|d| {
-        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-        if level == DispersionLevel::Off {
-            return None;
-        }
-        let mut s = VehicleSigmas::from_level(level);
-        if level == DispersionLevel::Custom {
-            if let Some(&v) = d.custom.get("ref_area") {
-                s.ref_area = v;
-            }
-            if let Some(&v) = d.custom.get("max_bank_rate") {
-                s.max_bank_rate = v;
-            }
-        }
-        Some(s)
-    });
+    let mass = resolve_domain(
+        mc.mass.as_ref(),
+        MassSigmas::from_level,
+        &[("mass", |s, v| s.mass = v)],
+    )?;
 
-    let pilot = mc.pilot.as_ref().and_then(|d| {
-        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-        if level == DispersionLevel::Off {
-            return None;
-        }
-        let mut s = PilotSigmas::from_level(level);
-        if level == DispersionLevel::Custom {
-            if let Some(&v) = d.custom.get("time_constant") {
-                s.time_constant = v;
-            }
-            if let Some(&v) = d.custom.get("damping") {
-                s.damping = v;
-            }
-            if let Some(&v) = d.custom.get("frequency") {
-                s.frequency = v;
-            }
-        }
-        Some(s)
-    });
+    let vehicle = resolve_domain(
+        mc.vehicle.as_ref(),
+        VehicleSigmas::from_level,
+        &[
+            ("ref_area", |s, v| s.ref_area = v),
+            ("max_bank_rate", |s, v| s.max_bank_rate = v),
+        ],
+    )?;
 
-    let nav_filter = mc.nav_filter.as_ref().and_then(|d| {
-        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-        if level == DispersionLevel::Off {
-            return None;
-        }
-        let mut s = NavFilterSigmas::from_level(level);
-        if level == DispersionLevel::Custom
-            && let Some(&v) = d.custom.get("filter_gain")
-        {
-            s.filter_gain = v;
-        }
-        Some(s)
-    });
+    let pilot = resolve_domain(
+        mc.pilot.as_ref(),
+        PilotSigmas::from_level,
+        &[
+            ("time_constant", |s, v| s.time_constant = v),
+            ("damping", |s, v| s.damping = v),
+            ("frequency", |s, v| s.frequency = v),
+        ],
+    )?;
 
-    let wind = mc.wind.as_ref().and_then(|d| {
-        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
-        if level == DispersionLevel::Off {
-            return None;
+    let nav_filter = resolve_domain(
+        mc.nav_filter.as_ref(),
+        NavFilterSigmas::from_level,
+        &[("filter_gain", |s, v| s.filter_gain = v)],
+    )?;
+
+    let wind = match mc.wind.as_ref() {
+        None => None,
+        Some(d) => {
+            let level = resolve_level(&d.level)?;
+            if level == DispersionLevel::Off {
+                None
+            } else {
+                let mut cfg = WindDispersionConfig::from_level(level);
+                // Apply custom overrides (for backward compat: existing configs without a level
+                // field get level="medium" by default, with their explicit values as overrides).
+                // Reads are unconditional here, so the key-guard runs unconditionally too.
+                take_custom(&d.custom, &["scale_min", "scale_max", "direction_bias_deg"])?;
+                if let Some(&v) = d.custom.get("scale_min") {
+                    cfg.scale_min = v;
+                }
+                if let Some(&v) = d.custom.get("scale_max") {
+                    cfg.scale_max = v;
+                }
+                if let Some(&v) = d.custom.get("direction_bias_deg") {
+                    cfg.direction_bias_deg = v;
+                }
+                Some(cfg)
+            }
         }
-        let mut cfg = WindDispersionConfig::from_level(level);
-        // Apply custom overrides (for backward compat: existing configs without a level
-        // field get level="medium" by default, with their explicit values as overrides)
-        if let Some(&v) = d.custom.get("scale_min") {
-            cfg.scale_min = v;
-        }
-        if let Some(&v) = d.custom.get("scale_max") {
-            cfg.scale_max = v;
-        }
-        if let Some(&v) = d.custom.get("direction_bias_deg") {
-            cfg.direction_bias_deg = v;
-        }
-        Some(cfg)
-    });
+    };
 
     let density_perturbation = if let Some(d) = mc.density_perturbation.as_ref() {
-        let level = DispersionLevel::from_str(&d.level).unwrap_or(DispersionLevel::Medium);
+        let level = resolve_level(&d.level)?;
         if level == DispersionLevel::Off {
             None
         } else {
+            // Validate stray keys whenever active, regardless of level.
+            if !d.custom.is_empty() {
+                take_custom(&d.custom, &["tau", "sigma"])?;
+            }
             let mut cfg = DensityPerturbationConfig::from_level(level);
             if level == DispersionLevel::Custom {
                 if let Some(&v) = d.custom.get("tau") {
@@ -1196,6 +1178,55 @@ mod tests {
         let path = dir.join(filename);
         fs::write(&path, content).expect("failed to write temp file");
         path.to_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn unknown_dispersion_level_errors_not_silent_medium() {
+        // `TomlMonteCarlo` is the deserialization target for the `[monte_carlo]`
+        // sub-table, so its fields (seed, initial_state, ...) sit at the top level here.
+        let toml_str = r#"
+seed = 0
+
+[initial_state]
+level = "of"
+"#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        let err = build_dispersion_config(&mc).unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("of") || msg.to_lowercase().contains("level"),
+            "error should name the bad level, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn unknown_custom_dispersion_key_errors() {
+        let toml_str = r#"
+seed = 0
+
+[initial_state]
+level = "custom"
+flight_path = 0.5
+"#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        let err = build_dispersion_config(&mc).unwrap_err();
+        assert!(
+            format!("{err:?}").contains("flight_path"),
+            "must name the unknown custom key"
+        );
+    }
+
+    #[test]
+    fn known_custom_dispersion_key_accepted() {
+        let toml_str = r#"
+seed = 0
+
+[initial_state]
+level = "custom"
+flight_path_angle = 0.5
+"#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        assert!(build_dispersion_config(&mc).is_ok());
     }
 
     #[test]
@@ -1447,5 +1478,65 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.0.contains("tanh") || err.0.contains("activation"));
+    }
+
+    // ─── custom-key-under-non-custom-level validation tests ───
+
+    /// A typo'd custom key under a non-custom ACTIVE level (e.g. "high") must
+    /// error. Previously it was silently swallowed because take_custom ran only
+    /// when level == Custom.
+    #[test]
+    fn unknown_custom_under_high_level_errors() {
+        // `densty` is a typo for `density`; this must be rejected.
+        let toml_str = r#"
+seed = 0
+
+[atmosphere]
+level = "high"
+densty = 0.5
+"#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        let err = build_dispersion_config(&mc).unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("densty"),
+            "error must name the unknown key, got: {msg}"
+        );
+    }
+
+    /// A KNOWN key under a non-custom active level should still NOT apply (preset
+    /// values are authoritative). No error — it's just quietly ignored but the
+    /// unknown-key guard must not fire for valid keys.
+    #[test]
+    fn known_custom_key_under_high_level_does_not_error() {
+        let toml_str = r#"
+seed = 0
+
+[atmosphere]
+level = "high"
+density = 0.5
+"#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        // Must succeed — density is a known key for atmosphere.
+        assert!(build_dispersion_config(&mc).is_ok());
+    }
+
+    /// Same typo in density_perturbation under a non-custom level.
+    #[test]
+    fn unknown_custom_under_density_perturbation_high_level_errors() {
+        let toml_str = r#"
+seed = 0
+
+[density_perturbation]
+level = "high"
+tao = 100.0
+"#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        let err = build_dispersion_config(&mc).unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("tao"),
+            "error must name the unknown key, got: {msg}"
+        );
     }
 }

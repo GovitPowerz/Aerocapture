@@ -26,6 +26,9 @@ use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy}
 use crate::gnc::navigation::estimator::NavigationOutput;
 use crate::physics::gravity;
 
+/// Altitude breakpoint (m) below which the tighter bank-angle limit applies.
+const BANK_LIMIT_SWITCH_ALTITUDE_M: f64 = 50e3;
+
 /// FNPAG persistent state (mutable runtime state only).
 #[derive(Debug, Clone)]
 pub struct FnpagState {
@@ -268,7 +271,7 @@ pub fn fnpag_bank(
 
     // Bank angle limits from params
     let bank_min = params.bank_min_deg.to_radians();
-    let bank_max = if altitude < 50e3 {
+    let bank_max = if altitude < BANK_LIMIT_SWITCH_ALTITUDE_M {
         params.bank_max_low_deg.to_radians()
     } else {
         params.bank_max_high_deg.to_radians()

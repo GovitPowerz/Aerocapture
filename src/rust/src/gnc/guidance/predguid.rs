@@ -19,9 +19,8 @@
 //! This is conceptually similar to FTC but uses a simpler feedback structure
 //! without the altitude-rate damping term.
 
-use crate::config::PlanetConfig;
 use crate::data::SimData;
-use crate::gnc::navigation::coordinates::total_energy;
+use crate::gnc::guidance::dispatch::{DEFAULT_FALLBACK_BANK_RAD, securize_cos_bank};
 use crate::gnc::navigation::estimator::NavigationOutput;
 
 /// PredGuid persistent state (runtime-only, no tunable params).
@@ -50,23 +49,12 @@ pub fn predguid_bank(
     nav: &NavigationOutput,
     _state: &PredGuidState,
     data: &SimData,
-    planet: &PlanetConfig,
+    energy: f64,
 ) -> f64 {
     let ref_traj = &data.guidance.ref_trajectory;
     if ref_traj.n_points == 0 {
-        return 60.0_f64.to_radians();
+        return DEFAULT_FALLBACK_BANK_RAD;
     }
-
-    // Current energy for reference lookup
-    let energy = total_energy(
-        nav.position_estimated[0],
-        nav.position_estimated[1],
-        nav.position_estimated[2],
-        nav.velocity_estimated[0],
-        nav.velocity_estimated[1],
-        nav.velocity_estimated[2],
-        planet,
-    );
 
     // Reference values
     let cos_bank_ref = ref_traj.interpolate(energy, &ref_traj.cos_bank);
@@ -110,8 +98,7 @@ pub fn predguid_bank(
     };
     let cos_bank = cos_bank_ref - k_drag * drag_err / lift_abs;
 
-    let cos_bank = cos_bank.clamp(-1.0, 1.0);
-    cos_bank.acos()
+    securize_cos_bank(cos_bank)
 }
 
 #[cfg(test)]
@@ -120,6 +107,7 @@ mod tests {
     use approx::assert_relative_eq;
     use rstest::rstest;
 
+    use crate::config::PlanetConfig;
     use crate::data::aerodynamics::AeroTables;
     use crate::data::atmosphere::{AtmosphereModel, DensityProfile};
     use crate::data::capsule::Capsule;
@@ -249,8 +237,17 @@ mod tests {
         let state = PredGuidState::new();
         let data = test_sim_data(); // ref_trajectory.n_points == 0
         let planet = PlanetConfig::mars();
+        let energy = crate::gnc::navigation::coordinates::total_energy(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
+            &planet,
+        );
 
-        let bank = predguid_bank(&nav, &state, &data, &planet);
+        let bank = predguid_bank(&nav, &state, &data, energy);
 
         assert_relative_eq!(bank, 60.0_f64.to_radians(), epsilon = 1e-10);
     }
@@ -264,8 +261,17 @@ mod tests {
         let state = PredGuidState::new();
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
+        let energy = crate::gnc::navigation::coordinates::total_energy(
+            nav.position_estimated[0],
+            nav.position_estimated[1],
+            nav.position_estimated[2],
+            nav.velocity_estimated[0],
+            nav.velocity_estimated[1],
+            nav.velocity_estimated[2],
+            &planet,
+        );
 
-        let bank = predguid_bank(&nav, &state, &data, &planet);
+        let bank = predguid_bank(&nav, &state, &data, energy);
 
         assert!(
             bank.is_finite(),
@@ -302,7 +308,12 @@ mod tests {
                 let state = PredGuidState::new();
                 let data = test_sim_data_with_ref_traj();
                 let planet = PlanetConfig::mars();
-                let bank = predguid_bank(&nav, &state, &data, &planet);
+                let energy = crate::gnc::navigation::coordinates::total_energy(
+                    nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2],
+                    nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2],
+                    &planet,
+                );
+                let bank = predguid_bank(&nav, &state, &data, energy);
 
                 prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
                 prop_assert!(bank >= 0.0 - 1e-10, "bank negative: {}", bank);

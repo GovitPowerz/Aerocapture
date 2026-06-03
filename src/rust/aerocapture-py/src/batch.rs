@@ -16,14 +16,29 @@ use toml::{Table, Value};
 
 use crate::config::{OverrideValue, apply_override};
 
+/// Typed error for `run_batch`: distinguishes caller contract violations
+/// (should surface as `PyValueError`) from runtime failures (should surface
+/// as `PyRuntimeError`).
+#[derive(Debug)]
+pub enum BatchError {
+    /// Caller violated the `run_batch` contract (e.g. `n_sims > 1`).
+    Contract(String),
+    /// Config load, TOML parse, data load, or simulation failure.
+    Runtime(String),
+}
+
 /// Run a batch of simulations with per-run TOML overrides.
 ///
 /// 1. Read and parse the TOML file, resolving `base` inheritance.
 /// 2. For each entry in `overrides_list`, clone the resolved tree, apply
 ///    overrides, serialize back, parse via `SimInput::from_toml` +
 ///    `SimData::from_toml`, and run `run_for_api`.
-/// 3. Returns the first `RunOutput` per batch item (if `n_sims > 1` in
-///    the config, only the first result is kept and a warning is printed).
+/// 3. Returns exactly one `RunOutput` per batch item.
+///
+/// **Contract:** `n_sims` must equal 1 for every resolved override set.
+/// `run_batch` is designed for one-trajectory-per-override evaluation (e.g.
+/// the GA training loop). Use `run_mc` for multi-sim Monte Carlo per config.
+/// Passing `n_sims > 1` in the base config or an override returns an error.
 ///
 /// Uses a scoped Rayon thread pool with `n_threads` threads.
 pub fn run_batch(
@@ -32,49 +47,51 @@ pub fn run_batch(
     n_threads: usize,
     include_trajectories: bool,
     wall_timeout: Option<Duration>,
-) -> Result<Vec<RunOutput>, String> {
+) -> Result<Vec<RunOutput>, BatchError> {
     // Read and parse the base config once.
-    let toml_content = std::fs::read_to_string(toml_path)
-        .map_err(|e| format!("Cannot read '{}': {}", toml_path.display(), e))?;
-    let base_table: Table =
-        toml::from_str(&toml_content).map_err(|e| format!("TOML parse error: {}", e))?;
+    let toml_content = std::fs::read_to_string(toml_path).map_err(|e| {
+        BatchError::Runtime(format!("Cannot read '{}': {}", toml_path.display(), e))
+    })?;
+    let base_table: Table = toml::from_str(&toml_content)
+        .map_err(|e| BatchError::Runtime(format!("TOML parse error: {}", e)))?;
     let base_value = Value::Table(base_table);
 
     // Resolve base inheritance once.
     let mut visited = HashSet::new();
     let base_value = aerocapture::config::resolve_toml_bases(base_value, toml_path, &mut visited)
-        .map_err(|e| format!("Base resolution error: {}", e))?;
+        .map_err(|e| BatchError::Runtime(format!("Base resolution error: {}", e)))?;
 
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(n_threads)
         .build()
-        .map_err(|e| format!("Failed to create thread pool: {}", e))?;
+        .map_err(|e| BatchError::Runtime(format!("Failed to create thread pool: {}", e)))?;
 
     pool.install(|| {
         use rayon::prelude::*;
 
-        let results: Vec<Result<RunOutput, String>> = overrides_list
+        let results: Vec<Result<RunOutput, BatchError>> = overrides_list
             .into_par_iter()
             .map(|overrides| {
                 // Clone base tree, apply overrides.
                 let mut patched = base_value.clone();
                 for (key, value) in &overrides {
-                    apply_override(&mut patched, key, value)?;
+                    apply_override(&mut patched, key, value).map_err(BatchError::Runtime)?;
                 }
 
                 let toml_str = toml::to_string(&patched)
-                    .map_err(|e| format!("TOML serialize error: {}", e))?;
+                    .map_err(|e| BatchError::Runtime(format!("TOML serialize error: {}", e)))?;
 
                 let (sim_input, toml_config) = SimInput::from_toml(&toml_str)
-                    .map_err(|e| format!("Config parse error: {}", e))?;
+                    .map_err(|e| BatchError::Runtime(format!("Config parse error: {}", e)))?;
                 let sim_data = SimData::from_toml(&toml_config, &sim_input)
-                    .map_err(|e| format!("Data load error: {}", e))?;
+                    .map_err(|e| BatchError::Runtime(format!("Data load error: {}", e)))?;
 
                 if sim_input.n_sims > 1 {
-                    eprintln!(
-                        "Warning: n_sims={} in config, but batch runner only keeps first result",
+                    return Err(BatchError::Contract(format!(
+                        "run_batch expects one sim per override (n_sims must be 1 per override); \
+                         got n_sims={} — use run_mc for multi-sim per config",
                         sim_input.n_sims
-                    );
+                    )));
                 }
 
                 let outputs = aerocapture::simulation::runner::run_for_api(
@@ -83,12 +100,11 @@ pub fn run_batch(
                     include_trajectories,
                     wall_timeout,
                 )
-                .map_err(|e: SimError| format!("Simulation error: {}", e))?;
+                .map_err(|e: SimError| BatchError::Runtime(format!("Simulation error: {}", e)))?;
 
-                outputs
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| "Simulation produced no results".to_string())
+                outputs.into_iter().next().ok_or_else(|| {
+                    BatchError::Runtime("Simulation produced no results".to_string())
+                })
             })
             .collect();
 

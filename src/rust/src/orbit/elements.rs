@@ -50,6 +50,10 @@ pub fn from_spherical(
     // Eccentricity
     let eccentricity_param =
         angular_momentum_magnitude * angular_momentum_magnitude / (mu * semi_major_axis_raw);
+    // eccentricity_param = h^2 / (mu * a); equals 1 when e = 0 (circular orbit).
+    // The 1e-20 branch returns 0 for the near-circular degenerate case.
+    // The .abs() in the else branch guards the sqrt domain for any floating-point
+    // rounding that pushes eccentricity_param slightly above 1.
     let eccentricity_raw = if (eccentricity_param - 1.0).abs() < 1e-20 {
         0.0
     } else {

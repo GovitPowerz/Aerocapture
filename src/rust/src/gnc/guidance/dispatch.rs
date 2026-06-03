@@ -15,6 +15,22 @@ use crate::gnc::guidance::{
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
 use crate::gnc::navigation::estimator::NavigationOutput;
 
+/// Default fallback bank angle (60°) for schemes with no valid reference trajectory.
+///
+/// Defined as `60.0_f64.to_radians()` via const-eval so every use is the
+/// same f64 bit-pattern as the literal expression.
+pub(crate) const DEFAULT_FALLBACK_BANK_RAD: f64 = 60.0_f64.to_radians();
+
+/// Convert a (possibly out-of-range) cos(bank) into a valid bank magnitude.
+///
+/// Clamps to [-1, 1] so acos stays in [0, π].  Only the clamp+acos tail is
+/// shared — each scheme's cos_bank summation stays inline (reassociating the
+/// sum would break bit-identity).
+#[inline]
+pub(crate) fn securize_cos_bank(cos_bank: f64) -> f64 {
+    cos_bank.clamp(-1.0, 1.0).acos()
+}
+
 /// Acceleration-limited command shaper state.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CommandShaper {
@@ -194,8 +210,12 @@ pub fn guidance_step(
     // the same unsigned-magnitude pipeline as FTC and the other parametric schemes.
     let nn_full_neural = matches!(guidance_type, GuidanceType::NeuralNetwork)
         && data.guidance.neural_mode == NeuralNetMode::FullNeural;
-    let uses_exit_guidance =
-        !(matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural);
+    // Schemes that produce signed bank angles bypass exit/lateral/thermal-limiter entirely.
+    // PiecewiseConstant always; NN only in FullNeural mode (MagnitudeOnly routes through
+    // the unsigned-magnitude pipeline just like FTC).
+    let is_signed_bank_scheme =
+        matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural;
+    let uses_exit_guidance = !is_signed_bank_scheme;
 
     if is_reference {
         state.bank_angle_commanded = reference_bank_angle;
@@ -210,7 +230,7 @@ pub fn guidance_step(
         // Capture phase: scheme-specific longitudinal guidance
         bank_angle_longitudinal = match guidance_type {
             GuidanceType::Ftc => {
-                ftc_capture::ftc_bank_angle(nav, &mut state.ftc_capture, data, planet)
+                ftc_capture::ftc_bank_angle(nav, &mut state.ftc_capture, data, altitude, energy)
             }
             GuidanceType::NeuralNetwork => {
                 let nn = data.neural_net.as_ref().expect("NN params not loaded");
@@ -248,17 +268,17 @@ pub fn guidance_step(
                 }
             }
             GuidanceType::EquilibriumGlide => {
-                equilibrium_glide::equilibrium_glide_bank(nav, data, planet)
+                equilibrium_glide::equilibrium_glide_bank(nav, data, planet, altitude)
             }
             GuidanceType::EnergyController => {
-                energy_controller::energy_controller_bank(nav, &state.energy_ctrl, data, planet)
+                energy_controller::energy_controller_bank(nav, &state.energy_ctrl, data, energy)
             }
-            GuidanceType::PredGuid => predguid::predguid_bank(nav, &state.predguid, data, planet),
+            GuidanceType::PredGuid => predguid::predguid_bank(nav, &state.predguid, data, energy),
             GuidanceType::Fnpag => fnpag::fnpag_bank(nav, &mut state.fnpag, data, planet),
             GuidanceType::PiecewiseConstant => piecewise_constant::piecewise_constant_bank(
                 nav,
                 &data.guidance.piecewise_constant,
-                planet,
+                energy,
             ),
         };
         state.n_active += 1;
@@ -266,8 +286,7 @@ pub fn guidance_step(
 
     // === Thermal safety limiter (unsigned-magnitude schemes only) ===
     // Same gating as exit: NN in MagnitudeOnly mode goes through the limiter.
-    let uses_thermal_limiter =
-        !(matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural);
+    let uses_thermal_limiter = !is_signed_bank_scheme;
     if uses_thermal_limiter && longitudinal_active == 1 && !is_reference {
         let cos_bank = bank_angle_longitudinal.cos();
         let cos_limited = thermal_limiter::apply_thermal_limit(
@@ -284,15 +303,13 @@ pub fn guidance_step(
     // Also gate on `longitudinal_active == 1`: when guidance is inhibited the magnitude
     // is just `|reference_bank_angle|` regardless of state — recording those ticks would
     // pollute supervised datasets with constant rows that have zero variance vs. inputs.
-    if longitudinal_active == 1
-        && !(matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural)
-    {
+    if longitudinal_active == 1 && !is_signed_bank_scheme {
         out.pre_lateral_magnitude = bank_angle_longitudinal;
     }
 
     // Schemes that provide signed bank angles — skip lateral guidance entirely.
     // NN in MagnitudeOnly mode delegates sign selection to lateral.
-    let skip_lateral = matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural;
+    let skip_lateral = is_signed_bank_scheme;
     if skip_lateral {
         state.bank_angle_commanded = bank_angle_longitudinal;
         state.lateral_state.roll_sign = if bank_angle_longitudinal >= 0.0 {
@@ -388,6 +405,12 @@ mod tests {
     use super::*;
 
     use crate::config::{GuidanceType, PlanetConfig};
+
+    /// DEFAULT_FALLBACK_BANK_RAD must be bit-identical to 60.0_f64.to_radians().
+    #[test]
+    fn fallback_bank_rad_bit_identity() {
+        assert_eq!(DEFAULT_FALLBACK_BANK_RAD, 60.0_f64.to_radians());
+    }
     use crate::data::aerodynamics::AeroTables;
     use crate::data::atmosphere::{AtmosphereModel, DensityProfile};
     use crate::data::capsule::Capsule;

@@ -1,8 +1,8 @@
 //! Per-sim mutable state for stateful NN layers.
 //!
 //! Lives outside NeuralNetModel (which is immutable and shared via Arc).
-//! Phase 0 ships only LayerState::None (dense layers are stateless).
-//! Phase 1+ adds Gru, Lstm, Window; Phase 3+ adds Ssm variants.
+//! Dense layers are stateless (LayerState::None).
+//! Stateful variants: Gru, Lstm, Window, Transformer, Mamba.
 
 use std::collections::VecDeque;
 

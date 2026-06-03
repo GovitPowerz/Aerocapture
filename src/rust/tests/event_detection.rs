@@ -123,6 +123,60 @@ fn trajectory_includes_event_rows() {
     }
 }
 
+/// Adaptive DOPRI45 bounce_alt must use the geodetic altitude convention, matching
+/// the fixed-RK4 path and the trajectory row altitude at the bounce event.
+///
+/// Before this fix, the adaptive path stored `state[0] - equatorial_radius`
+/// (geometric), while the event trajectory row uses `geodetic_from_spherical`.
+/// On Mars at typical bounce latitudes (~10-30 deg), the discrepancy is ~1-4 km.
+///
+/// This test fails against the old geometric value and passes after unification.
+#[test]
+fn adaptive_bounce_alt_matches_geodetic_trajectory_row() {
+    let (config, data) = load_config("test/test_ref_adaptive.toml");
+    let results = run_for_api(&config, &data, true, None).expect("run simulation");
+    let r = &results[0];
+
+    let bounce_alt_km = r.final_record[25]; // km, from state.bounce_alt / 1e3
+    let bounce_time = r.final_record[26];
+
+    assert!(
+        bounce_alt_km > 0.0 && bounce_alt_km.is_finite(),
+        "bounce_alt must be positive and finite, got {}",
+        bounce_alt_km
+    );
+
+    // The event trajectory row at bounce_time has altitude computed via
+    // geodetic_from_spherical (see build_event_photo_values).
+    // Find the trajectory row closest in time to bounce_time.
+    let traj = &r.trajectory;
+    let tol_time = 0.01; // 10 ms tolerance for Brent convergence
+    let bounce_row = traj
+        .iter()
+        .find(|row| (row[7] - bounce_time).abs() < tol_time)
+        .unwrap_or_else(|| {
+            panic!(
+                "no trajectory row found within {}s of bounce_time={}",
+                tol_time, bounce_time
+            )
+        });
+
+    let traj_alt_km = bounce_row[0]; // geodetic altitude (km) from build_event_photo_values
+
+    // The recorded bounce_alt must match the geodetic trajectory row altitude.
+    // On Mars at typical bounce latitudes (~15-30 deg), the geodetic vs geometric
+    // difference is ~2-4 km, so a 0.1 km tolerance is tight enough to distinguish
+    // the conventions while absorbing any floating-point rounding in the conversion.
+    assert!(
+        (bounce_alt_km - traj_alt_km).abs() < 0.1,
+        "bounce_alt ({:.4} km) must match geodetic trajectory row altitude ({:.4} km); \
+         difference {:.4} km suggests the geometric convention is still in use",
+        bounce_alt_km,
+        traj_alt_km,
+        (bounce_alt_km - traj_alt_km).abs(),
+    );
+}
+
 // ── Proptests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

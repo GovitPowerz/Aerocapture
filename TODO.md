@@ -1,7 +1,6 @@
 # TODO
 
-- [ ] After all the PRs we did recently, I think it's time for a thorough codebase review (critical on architecture, maintainability, code duplication, code quality, respect of functional specifications) or our Rust codebase.
-- [ ] After all the PRs we did recently, I think it's time for a thorough codebase review (critical on architecture, maintainability, code duplication, code quality, respect of functional specifications) or our Python codebase.
+- [ ] After all the PRs we did recently, I think it's time for a thorough codebase review (critical on architecture, maintainability, code duplication, code quality, respect of functional specifications) or our Python codebase. The scope must also include the pO interface that can be reworked and/or optimzed if need be.
 
 ---
 

@@ -153,7 +153,6 @@ pub struct GuidanceParams {
     pub exit_pdyn_margin: f64,        // exit dynamic pressure reference margin
     pub exit_altitude_threshold: f64, // constant-acceleration altitude (m, converted from km)
     pub exit_radial_vel_gain: f64,    // gain on radial velocity error (Pa/(m/s))
-    pub exit_apoapsis_threshold: f64, // apoapsis comparison threshold (m)
 
     // Lateral guidance
     pub lateral: LateralParams,
@@ -326,7 +325,6 @@ impl Default for GuidanceParams {
             exit_pdyn_margin: 0.0,
             exit_altitude_threshold: 0.0,
             exit_radial_vel_gain: 0.0,
-            exit_apoapsis_threshold: 0.0,
             lateral: LateralParams::default(),
             security_capture: 0,
             security_exit: 0,

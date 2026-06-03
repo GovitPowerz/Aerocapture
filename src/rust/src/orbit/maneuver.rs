@@ -18,6 +18,15 @@ pub struct DeltaV {
     pub total: f64,
 }
 
+/// Speed at `r_apsis` on a Hohmann-like transfer ellipse whose two apsides are
+/// `r_apsis` and `r_other`.  Vis-viva evaluated at `r_apsis`:
+///   v = sqrt(2*mu*r_other / (r_apsis*(r_apsis+r_other)))
+/// Same arithmetic / same operand order as every original inline site.
+#[inline]
+fn hohmann_leg_speed(mu: f64, r_apsis: f64, r_other: f64) -> f64 {
+    (2.0 * mu * r_other / (r_apsis * (r_apsis + r_other))).sqrt()
+}
+
 /// Compute delta-V cost for orbit correction (confirmed captures only).
 ///
 /// Only called when the trajectory has exited the atmosphere into a bound orbit.
@@ -42,17 +51,17 @@ pub fn compute_deltav(
     let rpertf = req + parking.periapsis;
 
     // Maneuver 1: at apoapsis, correct periapsis
-    let vitfin1 = (2.0 * mu * rpertf / (rapoge * (rapoge + rpertf))).sqrt();
-    let vitini1 = (2.0 * mu * rperig / (rapoge * (rapoge + rperig))).sqrt();
+    let vitfin1 = hohmann_leg_speed(mu, rapoge, rpertf);
+    let vitini1 = hohmann_leg_speed(mu, rapoge, rperig);
     let dv1 = vitfin1 - vitini1;
 
     // Maneuver 2: at new periapsis, correct apoapsis
-    let vitfin2 = (2.0 * mu * rapotf / (rpertf * (rapotf + rpertf))).sqrt();
-    let vitini2 = (2.0 * mu * rapoge / (rpertf * (rapoge + rpertf))).sqrt();
+    let vitfin2 = hohmann_leg_speed(mu, rpertf, rapotf);
+    let vitini2 = hohmann_leg_speed(mu, rpertf, rapoge);
     let dv2 = vitfin2 - vitini2;
 
     // Maneuver 3: inclination correction at ascending/descending node
-    // Uses target orbit parameters for node velocity computation
+    // Uses target orbit parameters for node velocity computation.
     let target_sma = target.semi_major_axis;
     let target_ecc = target.eccentricity;
     let pi = std::f64::consts::PI;
@@ -62,7 +71,13 @@ pub fn compute_deltav(
     for i in 0..2 {
         let rayneu =
             target_sma * (1.0 - target_ecc * target_ecc) / (1.0 + target_ecc * anoneu[i].cos());
-        vitneu[i] = (2.0 * mu * (1.0 / rayneu - 1.0 / (2.0 * target_sma))).sqrt();
+        vitneu[i] = if rayneu > 0.0 {
+            (2.0 * mu * (1.0 / rayneu - 1.0 / (2.0 * target_sma)))
+                .max(0.0)
+                .sqrt()
+        } else {
+            0.0
+        };
     }
     let dincli = (target.inclination - orbit.inclination).abs();
     let dv3 = 2.0 * vitneu[0].min(vitneu[1]) * (dincli / 2.0).sin();
@@ -108,8 +123,8 @@ pub fn predicted_dv_for_nn(
 
     let rapoge = req + orbit.apoapsis_alt;
     let dv2 = if orbit.eccentricity < 1.0 && rapoge.is_finite() && rapoge > 0.0 {
-        let vitfin1 = (2.0 * mu * rp_t / (rapoge * (rapoge + rp_t))).sqrt();
-        let vitini1 = (2.0 * mu * rp / (rapoge * (rapoge + rp))).sqrt();
+        let vitfin1 = hohmann_leg_speed(mu, rapoge, rp_t);
+        let vitini1 = hohmann_leg_speed(mu, rapoge, rp);
         vitfin1 - vitini1
     } else {
         0.0
@@ -123,6 +138,7 @@ pub fn predicted_dv_for_nn(
     for i in 0..2 {
         let rayneu =
             target_sma * (1.0 - target_ecc * target_ecc) / (1.0 + target_ecc * anoneu[i].cos());
+        // Guard + clamp on the vis-viva term (negative under extreme eccentricity).
         vitneu[i] = if rayneu > 0.0 {
             (2.0 * mu * (1.0 / rayneu - 1.0 / (2.0 * target_sma)))
                 .max(0.0)
@@ -135,40 +151,6 @@ pub fn predicted_dv_for_nn(
     let dv3 = 2.0 * vitneu[0].min(vitneu[1]) * (dincli / 2.0).sin();
 
     [dv1, dv2, dv3]
-}
-
-/// Compute optimal delta-V (from target orbit to parking orbit).
-#[allow(dead_code)]
-pub fn compute_deltav_optimal(
-    target: &OrbitalTarget,
-    parking: &ParkingOrbit,
-    planet: &PlanetConfig,
-) -> DeltaV {
-    let mu = planet.mu;
-    let req = planet.equatorial_radius;
-
-    let rapoge = req + target.apoapsis;
-    let rperig = req + target.periapsis;
-    let rapotf = req + parking.apoapsis;
-    let rpertf = req + parking.periapsis;
-
-    let vitfin1 = (2.0 * mu * rpertf / (rapoge * (rapoge + rpertf))).sqrt();
-    let vitini1 = (2.0 * mu * rperig / (rapoge * (rapoge + rperig))).sqrt();
-    let dv1 = vitfin1 - vitini1;
-
-    let vitfin2 = (2.0 * mu * rapotf / (rpertf * (rapotf + rpertf))).sqrt();
-    let vitini2 = (2.0 * mu * rapoge / (rpertf * (rapoge + rpertf))).sqrt();
-    let dv2 = vitfin2 - vitini2;
-
-    let dv3 = 0.0_f64; // inclination correction not computed for optimal case
-    let total = dv1.abs() + dv2.abs() + dv3.abs();
-
-    DeltaV {
-        dv1,
-        dv2,
-        dv3,
-        total,
-    }
 }
 
 #[cfg(test)]
@@ -228,19 +210,6 @@ mod tests {
     }
 
     #[test]
-    fn optimal_has_zero_dv3() {
-        let (_, target, parking, planet) = mars_test_fixtures();
-        let dv = compute_deltav_optimal(&target, &parking, &planet);
-        assert_eq!(dv.dv3, 0.0, "optimal dv3 should be exactly zero");
-        assert!(dv.total.is_finite(), "optimal total should be finite");
-        let expected = dv.dv1.abs() + dv.dv2.abs();
-        assert!(
-            (dv.total - expected).abs() < 1e-10,
-            "optimal total should equal |dv1|+|dv2|"
-        );
-    }
-
-    #[test]
     fn zero_inclination_error_small_dv3() {
         let (mut orbit, target, parking, planet) = mars_test_fixtures();
         // Set orbit inclination exactly equal to target inclination
@@ -252,7 +221,7 @@ mod tests {
             dv.dv3
         );
 
-        // Also test with a tiny offset — should still be very small
+        // Also test with a tiny offset -- should still be very small
         orbit.inclination = target.inclination + 1e-4; // ~0.006 deg
         let dv2 = compute_deltav(&orbit, &target, &parking, &planet);
         assert!(
@@ -262,7 +231,7 @@ mod tests {
         );
     }
 
-    // ─── predicted_dv_for_nn: smooth, always-defined NN-input correction DV ───
+    // --- predicted_dv_for_nn: smooth, always-defined NN-input correction DV ---
 
     fn mk_orbit(sma: f64, ecc: f64, incl: f64, planet: &PlanetConfig) -> OrbitalElements {
         let a = sma;
@@ -285,7 +254,7 @@ mod tests {
     /// well-defined across the parabolic boundary -- the right fixture for the
     /// continuity sweep.
     fn mk_orbit_from_rp(rp: f64, ecc: f64, incl: f64, planet: &PlanetConfig) -> OrbitalElements {
-        let a = rp / (1.0 - ecc); // a>0 for e<1, a<0 for e>1, ±inf at e=1
+        let a = rp / (1.0 - ecc); // a>0 for e<1, a<0 for e>1, +-inf at e=1
         let ra = a * (1.0 + ecc); // negative (finite) for hyperbolic, matching elements.rs
         OrbitalElements {
             semi_major_axis: a,
@@ -339,7 +308,7 @@ mod tests {
         let mut prev: Option<f64> = None;
         for k in 0..=40 {
             let e = 0.98 + 0.001 * k as f64;
-            // Fixed periapsis across the sweep: a = rp/(1-e) -> ±inf at e=1, but
+            // Fixed periapsis across the sweep: a = rp/(1-e) -> +-inf at e=1, but
             // rp stays finite so the orbit is well-defined through the parabolic
             // boundary (mk_orbit would produce NaN periapsis_alt here).
             let o = mk_orbit_from_rp(rp, e, 0.8, &p);
@@ -363,5 +332,164 @@ mod tests {
             "dv3 must stay finite for pathological target, got {}",
             dv[2]
         );
+    }
+
+    /// Pathological target: eccentricity > 1 makes rayneu <= 0 for some node angles,
+    /// which previously produced NaN via sqrt of negative.
+    /// The guard must clamp to 0.0 so dv3 (and total) is finite.
+    #[test]
+    fn compute_deltav_inclination_finite_on_pathological_target() {
+        let p = PlanetConfig::mars();
+        // Use arg_periapsis = 0.0 so anoneu[0] = 2pi, anoneu[1] = pi.
+        // With target_ecc = 1.2 (hyperbolic target), the denominator
+        // 1 + 1.2*cos(2pi) = 2.2 -> rayneu > 0, but
+        // 1 + 1.2*cos(pi)  = 1 - 1.2 = -0.2 -> rayneu < 0.
+        // Previously: vitneu[1] = sqrt(negative) = NaN -> dv3 = NaN.
+        let orbit = OrbitalElements {
+            semi_major_axis: 4.0e6,
+            eccentricity: 0.3,
+            inclination: 0.3,
+            raan: 0.0,
+            arg_periapsis: 0.0,
+            true_anomaly: 0.0,
+            periapsis_alt: 100_000.0,
+            apoapsis_alt: 500_000.0,
+        };
+        let target = OrbitalTarget {
+            apoapsis: 500_000.0,
+            periapsis: 250_000.0,
+            semi_major_axis: 3.77e6,
+            eccentricity: 1.2, // hyperbolic -> rayneu <= 0 for node angle pi
+            inclination: 0.8,  // non-zero dincli so dv3 would normally be non-trivial
+            raan: 0.0,
+        };
+        let parking = ParkingOrbit {
+            apoapsis: 500_000.0,
+            periapsis: 250_000.0,
+        };
+        let dv = compute_deltav(&orbit, &target, &parking, &p);
+        assert!(
+            dv.dv3.is_finite(),
+            "dv3 must be finite for pathological target (rayneu <= 0), got {}",
+            dv.dv3
+        );
+        assert!(
+            dv.total.is_finite(),
+            "total must be finite for pathological target, got {}",
+            dv.total
+        );
+        assert!(
+            dv.dv3 >= 0.0,
+            "dv3 must be non-negative (it is 2*v*sin(half-angle)), got {}",
+            dv.dv3
+        );
+    }
+
+    /// Exact characterization test: pins current f64 outputs of both functions
+    /// across three representative inputs. All assertions use `assert_eq!` (bit-exact).
+    /// Values were captured by running the unmodified code with --nocapture.
+    /// This test MUST pass before and after the helper extraction refactor.
+    #[test]
+    fn characterization_exact_outputs() {
+        let p = PlanetConfig::mars();
+
+        // -- Input A: elliptical orbit, inclination matches target (dv3=0) --
+        let orbit_a = OrbitalElements {
+            semi_major_axis: 4.0e6,
+            eccentricity: 0.3,
+            inclination: 0.45,
+            raan: 1.0,
+            arg_periapsis: 0.5,
+            true_anomaly: 0.0,
+            periapsis_alt: 100_000.0,
+            apoapsis_alt: 500_000.0,
+        };
+        let target_a = OrbitalTarget {
+            apoapsis: 500_000.0,
+            periapsis: 250_000.0,
+            semi_major_axis: 3.77e6,
+            eccentricity: 0.03,
+            inclination: 0.45,
+            raan: 1.0,
+        };
+        let parking_a = ParkingOrbit {
+            apoapsis: 500_000.0,
+            periapsis: 250_000.0,
+        };
+
+        let dv_a = compute_deltav(&orbit_a, &target_a, &parking_a, &p);
+        assert_eq!(dv_a.dv1, 35.56978761992332_f64);
+        assert_eq!(dv_a.dv2, 0.0_f64);
+        assert_eq!(dv_a.dv3, 0.0_f64);
+        assert_eq!(dv_a.total, 35.56978761992332_f64);
+
+        let nn_a = predicted_dv_for_nn(&orbit_a, &target_a, &parking_a, &p);
+        assert_eq!(nn_a[0], 121.34751952410579_f64);
+        assert_eq!(nn_a[1], 35.56978761992332_f64);
+        assert_eq!(nn_a[2], 0.0_f64);
+
+        // -- Input B: near-circular bound orbit, inclination error present --
+        let orbit_b = OrbitalElements {
+            semi_major_axis: 3.77e6,
+            eccentricity: 0.03,
+            inclination: 0.43,
+            raan: 0.5,
+            arg_periapsis: 1.2,
+            true_anomaly: 0.0,
+            periapsis_alt: (3.77e6 * (1.0 - 0.03)) - p.equatorial_radius,
+            apoapsis_alt: (3.77e6 * (1.0 + 0.03)) - p.equatorial_radius,
+        };
+        let target_b = OrbitalTarget {
+            apoapsis: 500_000.0,
+            periapsis: 250_000.0,
+            semi_major_axis: 3.77e6,
+            eccentricity: 0.03,
+            inclination: 0.45,
+            raan: 0.5,
+        };
+        let parking_b = ParkingOrbit {
+            apoapsis: 500_000.0,
+            periapsis: 250_000.0,
+        };
+
+        let dv_b = compute_deltav(&orbit_b, &target_b, &parking_b, &p);
+        assert_eq!(dv_b.dv1, -2.991416330771699_f64);
+        assert_eq!(dv_b.dv2, 2.3489198373895306_f64);
+        assert_eq!(dv_b.dv3, 66.73281990163794_f64);
+        assert_eq!(dv_b.total, 72.07315606979917_f64);
+
+        let nn_b = predicted_dv_for_nn(&orbit_b, &target_b, &parking_b, &p);
+        assert_eq!(nn_b[0], -2.3470332994697856_f64);
+        assert_eq!(nn_b[1], -2.991416330771699_f64);
+        assert_eq!(nn_b[2], 66.73281990163794_f64);
+
+        // -- Input C: hyperbolic orbit (e=1.5); predicted_dv_for_nn must return dv2=0 --
+        let orbit_c = OrbitalElements {
+            semi_major_axis: -5.0e6,
+            eccentricity: 1.5,
+            inclination: 0.8,
+            raan: 0.0,
+            arg_periapsis: 0.0,
+            true_anomaly: 0.0,
+            periapsis_alt: (-5.0e6 * (1.0 - 1.5)) - p.equatorial_radius,
+            apoapsis_alt: (-5.0e6 * (1.0 + 1.5)) - p.equatorial_radius,
+        };
+        let target_c = OrbitalTarget {
+            apoapsis: 500_000.0,
+            periapsis: 300_000.0,
+            semi_major_axis: 3.796e6 + 400_000.0,
+            eccentricity: 0.05,
+            inclination: 0.9,
+            raan: 0.0,
+        };
+        let parking_c = ParkingOrbit {
+            apoapsis: 500_000.0,
+            periapsis: 300_000.0,
+        };
+
+        let nn_c = predicted_dv_for_nn(&orbit_c, &target_c, &parking_c, &p);
+        assert_eq!(nn_c[0], 1976.3893027170516_f64);
+        assert_eq!(nn_c[1], 0.0_f64);
+        assert_eq!(nn_c[2], 303.76225600253156_f64);
     }
 }

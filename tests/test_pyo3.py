@@ -72,9 +72,11 @@ class TestBatchRun:
         overrides = [{"simulation.random_seed": float(i) / 10.0} for i in range(3)]
         results = aero.run_batch(GOLDEN_TOML, overrides)
         # Trajectories list is always present but each entry is empty when off.
+        # Empty entries carry the correct 17-column width (0, 17), not (0, 0),
+        # so downstream column indexing on an empty batch stays valid.
         assert len(results.trajectories) == 3
         for traj in results.trajectories:
-            assert traj.shape == (0, 0)
+            assert traj.shape == (0, 17)
 
     def test_batch_trajectories_on(self) -> None:
         overrides = [{"simulation.random_seed": float(i) / 10.0} for i in range(3)]
@@ -88,6 +90,16 @@ class TestBatchRun:
         overrides = [{"simulation.random_seed": float(i) / 10.0} for i in range(4)]
         results = aero.run_batch(GOLDEN_TOML, overrides)
         assert len(results) == 4
+
+    def test_run_batch_rejects_multi_sim(self) -> None:
+        # Contract violation: n_sims > 1 must raise ValueError (not RuntimeError).
+        with pytest.raises(ValueError, match="n_sims"):
+            aero.run_batch(GOLDEN_TOML, [{"simulation.n_sims": 3}])
+
+    def test_run_batch_bad_config_raises_runtimeerror(self) -> None:
+        # Runtime failure: nonexistent TOML path must raise RuntimeError (not ValueError).
+        with pytest.raises(RuntimeError):
+            aero.run_batch("configs/test/does_not_exist_xyz.toml", [{}])
 
 
 class TestCostCompat:

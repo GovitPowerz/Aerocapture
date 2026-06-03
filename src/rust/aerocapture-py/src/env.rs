@@ -18,10 +18,22 @@ use aerocapture::config::SimInput;
 use aerocapture::data::SimData;
 use aerocapture::data::dispersions::DispersionDraw;
 use aerocapture::integration::events::{EventContext, EventDef};
-use aerocapture::simulation::runner::{SimState, TermReason, build_final_record, build_sim_state};
+use aerocapture::simulation::runner::{
+    SimState, TermReason, build_final_record, build_sim_state, ifinal_for,
+};
 
 use crate::config;
 use crate::extract_overrides;
+
+// Type aliases to satisfy clippy::type_complexity on #[pymethods] return types.
+type ResetObs<'py> = PyResult<(Bound<'py, PyArray2<f32>>, Bound<'py, PyArray2<f32>>)>;
+type StepReturn<'py> = PyResult<(
+    Bound<'py, PyArray2<f32>>,
+    Bound<'py, PyArray1<f32>>,
+    Bound<'py, PyArray1<bool>>,
+    Vec<Py<PyDict>>,
+    Bound<'py, PyArray2<f32>>,
+)>;
 
 /// Vectorized step-based simulator for RL training.
 #[pyclass(unsendable)]
@@ -60,10 +72,11 @@ impl BatchedSimulation {
         let (sim_input, sim_data) = config::load_and_override(Path::new(toml_path), &overrides)
             .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
-        let nn = sim_data
-            .neural_net
-            .as_ref()
-            .expect("neural_net model required for RL env");
+        let nn = sim_data.neural_net.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(
+                "RL env requires a neural_network model ([data] neural_network)",
+            )
+        })?;
         let obs_dim = nn
             .input_mask
             .as_ref()
@@ -114,7 +127,7 @@ impl BatchedSimulation {
         &mut self,
         py: Python<'py>,
         seeds: Option<PyReadonlyArray1<'py, i64>>,
-    ) -> PyResult<(Bound<'py, PyArray2<f32>>, Bound<'py, PyArray2<f32>>)> {
+    ) -> ResetObs<'py> {
         let explicit_seeds = seeds.is_some();
         let seeds_vec: Vec<u64> = match seeds {
             Some(arr) => {
@@ -154,13 +167,7 @@ impl BatchedSimulation {
         &mut self,
         py: Python<'py>,
         actions: PyReadonlyArray1<'py, f32>,
-    ) -> PyResult<(
-        Bound<'py, PyArray2<f32>>,
-        Bound<'py, PyArray1<f32>>,
-        Bound<'py, PyArray1<bool>>,
-        Vec<Py<PyDict>>,
-        Bound<'py, PyArray2<f32>>,
-    )> {
+    ) -> StepReturn<'py> {
         if actions.len() != self.n_envs {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "actions length {} does not match n_envs {}",
@@ -202,13 +209,9 @@ impl BatchedSimulation {
                         // Capture terminal obs BEFORE the env state is reset.
                         let terminal_obs = build_obs_for_env(state, sim_data, sim_input);
                         let fr = build_final_record(state, sim_data, &sim_input.planet);
-                        let ifinal = match state.term() {
-                            TermReason::AtmosphereExit => 3i32,
-                            TermReason::Crash => 1,
-                            TermReason::PendingCrash => 4,
-                            TermReason::Timeout => 2,
-                            TermReason::None => unreachable!(),
-                        };
+                        // Guarded by the enclosing `if state.term() != TermReason::None`;
+                        // ifinal_for's None arm (unreachable!) cannot fire here.
+                        let ifinal = ifinal_for(state.term());
                         let ecc = fr[9];
                         let energy = fr[7]; // MJ/kg; negative = captured
                         let captured = ifinal == 3 && ecc < 1.0 && energy < 0.0;
@@ -343,7 +346,7 @@ fn build_obs_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -
     let nn = data
         .neural_net
         .as_ref()
-        .expect("neural_net model required for RL env");
+        .expect("invariant: neural_net validated in BatchedSimulation::new");
 
     let time_since_flip = state.sim_time() - state.guidance_state.last_sign_flip_time_for_nn;
     aerocapture::gnc::guidance::neural::build_nn_input(

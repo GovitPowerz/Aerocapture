@@ -14,9 +14,9 @@ use crate::integration::events::{self, EventContext, EventDef, EventType};
 use crate::orbit::elements;
 use crate::physics::atmosphere;
 use crate::simulation::runner::{
-    DEG_TO_RAD, SimState, TermReason, build_photo_values, effective_airspeed,
-    integrate_adaptive_with_events, integrate_step, navigate_from_state,
-    promote_pending_crash_if_applicable, track_peak_values,
+    DEG_TO_RAD, MIN_BOUNCE_ALT_FOR_CRASH_M, SimState, TermReason, build_photo_values,
+    effective_airspeed, ifinal_for, integrate_adaptive_with_events, integrate_step,
+    navigate_from_state, promote_pending_crash_if_applicable, track_peak_values,
 };
 
 /// Outcome of one outer guidance tick.
@@ -240,6 +240,7 @@ pub fn step_one_tick(
         state.bank_angle = wrap_to_pi(state.pilot_state.bank_angle);
         state.aoa = guidance_out.aoa_commanded;
 
+        #[cfg(debug_assertions)]
         if state.is_single && (state.step < 5 || state.step.is_multiple_of(50)) {
             let (dbg_alt, _) =
                 geodetic_from_spherical(state.state[0], state.state[1], state.state[2], planet);
@@ -276,7 +277,7 @@ pub fn step_one_tick(
         let sim_idx = state.sim_idx;
         let cumulative_bank_change_deg = state.cumulative_bank_change_deg;
         let density_gain = state.nav_filter.density_gain();
-        let run_state_snap = state.run_state.clone();
+        let run_state_snap = state.run_state;
         let cumulative_flux = state.state[6];
         let guidance_phase_for_photo = state.guidance_phase_for_photo;
         let photo_line = build_photo_values(
@@ -300,11 +301,11 @@ pub fn step_one_tick(
     let mut adaptive_events: Vec<events::TriggeredEvent> = Vec::new();
     match &data.integration_mode {
         IntegrationMode::FixedGill => {
-            let run_state_snap = state.run_state.clone();
+            let run_state_snap = state.run_state;
             integrate_step(state, dt, planet, data, &run_state_snap);
         }
         IntegrationMode::AdaptiveDopri45(adaptive_config) => {
-            let run_state_snap = state.run_state.clone();
+            let run_state_snap = state.run_state;
             let sim_time = state.sim_time;
             let result = integrate_adaptive_with_events(
                 state,
@@ -336,7 +337,7 @@ pub fn step_one_tick(
     let (altitude, _lat_geo) =
         geodetic_from_spherical(state.state[0], state.state[1], state.state[2], planet);
 
-    let run_state_snap = state.run_state.clone();
+    let run_state_snap = state.run_state;
     let sim_time = state.sim_time;
     track_peak_values(state, altitude, sim_time, data, &run_state_snap);
 
@@ -347,7 +348,16 @@ pub fn step_one_tick(
             EventType::Bounce => {
                 if !state.bounced {
                     state.bounced = true;
-                    state.bounce_alt = triggered.state[0] - planet.equatorial_radius;
+                    // Use the geodetic altitude at the sub-tick bounce point,
+                    // matching the fixed-RK4 path (which uses altitude from
+                    // geodetic_from_spherical) and the event trajectory row.
+                    let (bounce_alt, _) = geodetic_from_spherical(
+                        triggered.state[0],
+                        triggered.state[1],
+                        triggered.state[2],
+                        planet,
+                    );
+                    state.bounce_alt = bounce_alt;
                     state.bounce_time = triggered.time;
                 }
             }
@@ -411,7 +421,7 @@ pub fn step_one_tick(
         // Guard: bounce altitude must be above 20 km to exclude transient FPA sign changes
         // during the deep pass (aggressive bank reversals can momentarily push FPA positive).
         if state.bounced
-            && state.bounce_alt > 20e3
+            && state.bounce_alt > MIN_BOUNCE_ALT_FOR_CRASH_M
             && state.state[4].sin() < 0.0
             && altitude < state.exit_altitude
             && state.term == TermReason::None
@@ -423,7 +433,10 @@ pub fn step_one_tick(
         // implies the orbit fits entirely within the atmosphere, the vehicle is trapped.
         // Uses vis-viva (a = -mu/(2E)) with inertial velocity — no FPA dependency,
         // catches oscillating trajectories that the FPA-based check above misses.
-        if state.bounced && state.bounce_alt > 20e3 && state.term == TermReason::None {
+        if state.bounced
+            && state.bounce_alt > MIN_BOUNCE_ALT_FOR_CRASH_M
+            && state.term == TermReason::None
+        {
             use crate::gnc::navigation::coordinates::{norm, to_absolute_cartesian};
             let (_, v_abs) = to_absolute_cartesian(
                 state.state[0],
@@ -455,13 +468,7 @@ pub fn step_one_tick(
         promote_pending_crash_if_applicable(state, planet);
     }
     let ifinal = if done {
-        Some(match state.term {
-            TermReason::AtmosphereExit => 3,
-            TermReason::Crash => 1,
-            TermReason::PendingCrash => 4,
-            TermReason::Timeout => 2,
-            TermReason::None => unreachable!(),
-        })
+        Some(ifinal_for(state.term))
     } else {
         None
     };
