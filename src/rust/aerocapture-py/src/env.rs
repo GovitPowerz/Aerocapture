@@ -63,7 +63,9 @@ impl BatchedSimulation {
         let nn = sim_data
             .neural_net
             .as_ref()
-            .expect("neural_net model required for RL env");
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err(
+                "RL env requires a neural_network model ([data] neural_network)",
+            ))?;
         let obs_dim = nn
             .input_mask
             .as_ref()
@@ -207,7 +209,14 @@ impl BatchedSimulation {
                             TermReason::Crash => 1,
                             TermReason::PendingCrash => 4,
                             TermReason::Timeout => 2,
-                            TermReason::None => unreachable!(),
+                            TermReason::None => {
+                                // Guarded by the enclosing `if state.term() != TermReason::None`;
+                                // this arm cannot fire in correct code. Use debug_assert so
+                                // debug builds catch a future guard-refactor, but release builds
+                                // return a safe sentinel rather than poisoning the Rayon worker.
+                                debug_assert!(false, "TermReason::None reached inside terminal branch");
+                                0
+                            }
                         };
                         let ecc = fr[9];
                         let energy = fr[7]; // MJ/kg; negative = captured
@@ -343,7 +352,7 @@ fn build_obs_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -
     let nn = data
         .neural_net
         .as_ref()
-        .expect("neural_net model required for RL env");
+        .expect("invariant: neural_net validated in BatchedSimulation::new");
 
     let time_since_flip = state.sim_time() - state.guidance_state.last_sign_flip_time_for_nn;
     aerocapture::gnc::guidance::neural::build_nn_input(
