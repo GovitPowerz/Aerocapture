@@ -347,7 +347,16 @@ pub fn step_one_tick(
             EventType::Bounce => {
                 if !state.bounced {
                     state.bounced = true;
-                    state.bounce_alt = triggered.state[0] - planet.equatorial_radius;
+                    // Use the geodetic altitude at the sub-tick bounce point,
+                    // matching the fixed-RK4 path (which uses altitude from
+                    // geodetic_from_spherical) and the event trajectory row.
+                    let (bounce_alt, _) = geodetic_from_spherical(
+                        triggered.state[0],
+                        triggered.state[1],
+                        triggered.state[2],
+                        planet,
+                    );
+                    state.bounce_alt = bounce_alt;
                     state.bounce_time = triggered.time;
                 }
             }
