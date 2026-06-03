@@ -831,8 +831,24 @@ impl SimData {
 /// A single custom-override field: (TOML key, setter writing the parsed value in).
 type CustomField<S> = (&'static str, fn(&mut S, f64));
 
+/// Reject misspelled custom-dispersion keys instead of silently dropping them
+/// (the flattened `custom` map swallows any unknown TOML key as `f64`).
+fn take_custom(
+    custom: &std::collections::HashMap<String, f64>,
+    allowed: &[&str],
+) -> Result<(), DataError> {
+    for k in custom.keys() {
+        if !allowed.contains(&k.as_str()) {
+            return Err(DataError(format!(
+                "unknown custom dispersion key: {k:?} (allowed: {allowed:?})"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Resolve one dispersion domain: `None` if absent or Off, else `from_level` seeded
-/// with optional Custom overrides. Rejects unknown custom keys.
+/// with optional Custom overrides. Rejects unknown custom keys under any active level.
 fn resolve_domain<S>(
     d: Option<&TomlMcDomain>,
     from_level: impl Fn(dispersions::DispersionLevel) -> S,
@@ -843,17 +859,15 @@ fn resolve_domain<S>(
     if level == dispersions::DispersionLevel::Off {
         return Ok(None);
     }
+    // Validate stray keys whenever the custom map is non-empty and the domain is
+    // active, regardless of level. A typo'd key under "high" would otherwise be
+    // silently swallowed by serde's flattened custom map.
+    if !d.custom.is_empty() {
+        let allowed: Vec<&str> = custom_fields.iter().map(|(k, _)| *k).collect();
+        take_custom(&d.custom, &allowed)?;
+    }
     let mut s = from_level(level);
     if level == dispersions::DispersionLevel::Custom {
-        let allowed: Vec<&str> = custom_fields.iter().map(|(k, _)| *k).collect();
-        // Reject misspelled custom-dispersion keys instead of silently dropping them.
-        for k in d.custom.keys() {
-            if !allowed.contains(&k.as_str()) {
-                return Err(DataError(format!(
-                    "unknown custom dispersion key: {k:?} (allowed: {allowed:?})"
-                )));
-            }
-        }
         for (key, setter) in custom_fields {
             if let Some(&v) = d.custom.get(*key) {
                 setter(&mut s, v);
@@ -873,22 +887,6 @@ fn build_dispersion_config(
     // silently defaulting to Medium (which inverts intent for e.g. "of" -> "off").
     fn resolve_level(raw: &str) -> Result<DispersionLevel, DataError> {
         DispersionLevel::from_str(raw)
-    }
-
-    // Reject misspelled custom-dispersion keys instead of silently dropping them
-    // (the flattened `custom` map swallows any unknown TOML key as `f64`).
-    fn take_custom(
-        custom: &std::collections::HashMap<String, f64>,
-        allowed: &[&str],
-    ) -> Result<(), DataError> {
-        for k in custom.keys() {
-            if !allowed.contains(&k.as_str()) {
-                return Err(DataError(format!(
-                    "unknown custom dispersion key: {k:?} (allowed: {allowed:?})"
-                )));
-            }
-        }
-        Ok(())
     }
 
     let initial_state = resolve_domain(
@@ -1000,9 +998,12 @@ fn build_dispersion_config(
         if level == DispersionLevel::Off {
             None
         } else {
+            // Validate stray keys whenever active, regardless of level.
+            if !d.custom.is_empty() {
+                take_custom(&d.custom, &["tau", "sigma"])?;
+            }
             let mut cfg = DensityPerturbationConfig::from_level(level);
             if level == DispersionLevel::Custom {
-                take_custom(&d.custom, &["tau", "sigma"])?;
                 if let Some(&v) = d.custom.get("tau") {
                     cfg.tau = v;
                 }
@@ -1477,5 +1478,65 @@ flight_path_angle = 0.5
         )
         .unwrap_err();
         assert!(err.0.contains("tanh") || err.0.contains("activation"));
+    }
+
+    // ─── custom-key-under-non-custom-level validation tests ───
+
+    /// A typo'd custom key under a non-custom ACTIVE level (e.g. "high") must
+    /// error. Previously it was silently swallowed because take_custom ran only
+    /// when level == Custom.
+    #[test]
+    fn unknown_custom_under_high_level_errors() {
+        // `densty` is a typo for `density`; this must be rejected.
+        let toml_str = r#"
+seed = 0
+
+[atmosphere]
+level = "high"
+densty = 0.5
+"#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        let err = build_dispersion_config(&mc).unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("densty"),
+            "error must name the unknown key, got: {msg}"
+        );
+    }
+
+    /// A KNOWN key under a non-custom active level should still NOT apply (preset
+    /// values are authoritative). No error — it's just quietly ignored but the
+    /// unknown-key guard must not fire for valid keys.
+    #[test]
+    fn known_custom_key_under_high_level_does_not_error() {
+        let toml_str = r#"
+seed = 0
+
+[atmosphere]
+level = "high"
+density = 0.5
+"#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        // Must succeed — density is a known key for atmosphere.
+        assert!(build_dispersion_config(&mc).is_ok());
+    }
+
+    /// Same typo in density_perturbation under a non-custom level.
+    #[test]
+    fn unknown_custom_under_density_perturbation_high_level_errors() {
+        let toml_str = r#"
+seed = 0
+
+[density_perturbation]
+level = "high"
+tao = 100.0
+"#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        let err = build_dispersion_config(&mc).unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("tao"),
+            "error must name the unknown key, got: {msg}"
+        );
     }
 }
