@@ -94,7 +94,11 @@ pub fn equilibrium_glide_bank(
         .clamp(params.cos_bank_min, params.cos_bank_max);
     let bank = cos_bank.acos();
 
-    // Safety clamp: never go below 15° (skip-out) or above 120° (crash risk)
+    // Hard bank limits [15°, 120°] as a final safety rail.
+    // At default params (cos_bank_max=0.95, cos_bank_min=-0.5) the cos-clamp
+    // already constrains bank to [acos(0.95)≈18.2°, acos(-0.5)=120°], so the
+    // lower bound here is slack. With GA-tuned params the bounds can shift and
+    // this clamp may become active — do not remove it.
     bank.clamp(15.0_f64.to_radians(), 120.0_f64.to_radians())
 }
 
