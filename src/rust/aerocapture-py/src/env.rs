@@ -25,6 +25,16 @@ use aerocapture::simulation::runner::{
 use crate::config;
 use crate::extract_overrides;
 
+// Type aliases to satisfy clippy::type_complexity on #[pymethods] return types.
+type ResetObs<'py> = PyResult<(Bound<'py, PyArray2<f32>>, Bound<'py, PyArray2<f32>>)>;
+type StepReturn<'py> = PyResult<(
+    Bound<'py, PyArray2<f32>>,
+    Bound<'py, PyArray1<f32>>,
+    Bound<'py, PyArray1<bool>>,
+    Vec<Py<PyDict>>,
+    Bound<'py, PyArray2<f32>>,
+)>;
+
 /// Vectorized step-based simulator for RL training.
 #[pyclass(unsendable)]
 pub struct BatchedSimulation {
@@ -118,7 +128,7 @@ impl BatchedSimulation {
         &mut self,
         py: Python<'py>,
         seeds: Option<PyReadonlyArray1<'py, i64>>,
-    ) -> PyResult<(Bound<'py, PyArray2<f32>>, Bound<'py, PyArray2<f32>>)> {
+    ) -> ResetObs<'py> {
         let explicit_seeds = seeds.is_some();
         let seeds_vec: Vec<u64> = match seeds {
             Some(arr) => {
@@ -158,13 +168,7 @@ impl BatchedSimulation {
         &mut self,
         py: Python<'py>,
         actions: PyReadonlyArray1<'py, f32>,
-    ) -> PyResult<(
-        Bound<'py, PyArray2<f32>>,
-        Bound<'py, PyArray1<f32>>,
-        Bound<'py, PyArray1<bool>>,
-        Vec<Py<PyDict>>,
-        Bound<'py, PyArray2<f32>>,
-    )> {
+    ) -> StepReturn<'py> {
         if actions.len() != self.n_envs {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "actions length {} does not match n_envs {}",
