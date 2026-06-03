@@ -10,24 +10,26 @@ neural_network = "training_output/neural_network_transformer_atan2/best_model.js
 results_suffix = ".train_nn_transformer_atan2"
 
 # Architecture arrays REPLACE (not merge) under deep-merge, so this fully
-# supersedes atan2's 3-dense stack. Linear frontend projects the 17 masked
-# inputs to d_model=32 (d_model % n_heads == 0); final Dense(32->2) feeds the
-# atan2_signed decoder. Causal window attention over an n_seq=64 KV ring buffer.
+# supersedes atan2's 3-dense stack. Frontend projects the 17 masked inputs to
+# d_model=16 (d_model % n_heads == 0); final Dense(16->2) feeds the atan2_signed
+# decoder. Causal window attention over an n_seq=64 KV ring buffer. Sized to
+# ~2000 params: the 4*d_model^2 attention term forces d_model=16 (d_model=32
+# would be 4096 in attention alone).
 [[network.architecture]]
 type = "dense"
 input_size = 17
-output_size = 32
-activation = "linear"
+output_size = 16
+activation = "swish"
 
 [[network.architecture]]
 type = "transformer"
-d_model = 32
-n_heads = 4
-d_ffn = 128
-n_seq = 64
+d_model = 16
+n_heads = 2
+d_ffn = 16
+n_seq = 32
 
 [[network.architecture]]
 type = "dense"
-input_size = 32
+input_size = 16
 output_size = 2
 activation = "asinh"
