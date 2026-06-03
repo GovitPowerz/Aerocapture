@@ -13,6 +13,7 @@
 //! energy level, and K_e is a tunable gain.
 
 use crate::data::SimData;
+use crate::gnc::guidance::dispatch::securize_cos_bank;
 use crate::gnc::navigation::estimator::NavigationOutput;
 
 /// Energy controller persistent state (runtime-only, no tunable params).
@@ -70,8 +71,7 @@ pub fn energy_controller_bank(
         + params.kp * (pdyn - pdyn_ref) / pdyn_safe
         + params.kd * (hdot - hdot_ref) / pdyn_safe;
 
-    let cos_bank = cos_bank.clamp(-1.0, 1.0);
-    cos_bank.acos()
+    securize_cos_bank(cos_bank)
 }
 
 #[cfg(test)]

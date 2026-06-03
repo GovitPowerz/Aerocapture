@@ -20,6 +20,7 @@
 //! without the altitude-rate damping term.
 
 use crate::data::SimData;
+use crate::gnc::guidance::dispatch::securize_cos_bank;
 use crate::gnc::navigation::estimator::NavigationOutput;
 
 /// PredGuid persistent state (runtime-only, no tunable params).
@@ -97,8 +98,7 @@ pub fn predguid_bank(
     };
     let cos_bank = cos_bank_ref - k_drag * drag_err / lift_abs;
 
-    let cos_bank = cos_bank.clamp(-1.0, 1.0);
-    cos_bank.acos()
+    securize_cos_bank(cos_bank)
 }
 
 #[cfg(test)]

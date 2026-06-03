@@ -15,6 +15,16 @@ use crate::gnc::guidance::{
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
 use crate::gnc::navigation::estimator::NavigationOutput;
 
+/// Convert a (possibly out-of-range) cos(bank) into a valid bank magnitude.
+///
+/// Clamps to [-1, 1] so acos stays in [0, π].  Only the clamp+acos tail is
+/// shared — each scheme's cos_bank summation stays inline (reassociating the
+/// sum would break bit-identity).
+#[inline]
+pub(crate) fn securize_cos_bank(cos_bank: f64) -> f64 {
+    cos_bank.clamp(-1.0, 1.0).acos()
+}
+
 /// Acceleration-limited command shaper state.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CommandShaper {
