@@ -1123,8 +1123,9 @@ impl MambaLayer {
     /// returns `Vec<f64>` length `input_size`.
     ///
     /// Numerical contract: Python mirror (`rl/layers/mamba.py`) agrees to machine
-    /// epsilon (different reduction order than torch addmm). Uses `softplus` and `expm1_over_x` helpers
-    /// (free functions in this module).
+    /// epsilon. The helpers match torch's reduction order, so the residual is general
+    /// f64 non-associativity in the softplus/scan path, not an addmm ordering choice.
+    /// Uses `softplus` and `expm1_over_x` helpers (free functions in this module).
     pub fn forward(&self, x: &[f64], h: &mut nalgebra::DMatrix<f64>) -> Vec<f64> {
         debug_assert_eq!(x.len(), self.input_size);
         debug_assert_eq!(h.nrows(), self.input_size);
