@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn medium_config(seed: u64) -> DispersionConfig {

@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::config::SimInput;
 use crate::data::SimData;

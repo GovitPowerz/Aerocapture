@@ -1,4 +1,3 @@
-
 use super::is_pending_crash;
 
 // exit_altitude in meters matches the field's unit.
