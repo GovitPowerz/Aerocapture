@@ -27,6 +27,13 @@ use std::time::{Duration, Instant};
 pub(crate) const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
 pub(crate) const G0: f64 = 9.81;
 
+/// Sentinel value indicating the vehicle has not yet bounced (no valid bounce altitude).
+pub(crate) const BOUNCE_ALT_UNSET: f64 = 1e34;
+/// Minimum bounce altitude (m) required before treating a re-descending trajectory
+/// as a guaranteed atmospheric-apoapsis crash. Guards against transient FPA sign
+/// changes during deep passes with aggressive bank reversals.
+pub(crate) const MIN_BOUNCE_ALT_FOR_CRASH_M: f64 = 20e3;
+
 /// Virtual DV base for hyperbolic exits (m/s).
 /// Set above any realistic captured orbit correction DV.
 pub(crate) const HYPERBOLIC_BASE: f64 = 10_000.0;
@@ -317,7 +324,7 @@ pub fn build_sim_state(
         bank_angle: initial_bank_angle,
         aoa: entry_initial_aoa,
         bounced: false,
-        bounce_alt: 1e34,
+        bounce_alt: BOUNCE_ALT_UNSET,
         bounce_time: 1e30,
         max_heat_flux: 0.0,
         max_load_factor: 0.0,

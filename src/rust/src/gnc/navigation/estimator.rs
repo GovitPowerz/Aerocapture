@@ -13,6 +13,16 @@ use crate::orbit::elements;
 use crate::physics::atmosphere;
 use nalgebra::{SMatrix, SVector};
 
+/// Density multiplicative correction factor bounds.
+///
+/// The onboard density estimate is `density_gain * rho_model`, so `density_gain`
+/// is a multiplicative factor. Shared by the bias-mode filter and the EKF:
+///   - Bias mode clamps `density_gain` directly to `[DENSITY_FACTOR_MIN, DENSITY_FACTOR_MAX]`.
+///   - EKF `state[12]` is the additive offset from 1, so its bounds are
+///     `[DENSITY_FACTOR_MIN - 1.0, DENSITY_FACTOR_MAX - 1.0]` = `[-0.9, 9.0]`.
+pub(crate) const DENSITY_FACTOR_MIN: f64 = 0.1;
+pub(crate) const DENSITY_FACTOR_MAX: f64 = 10.0;
+
 /// Navigation error biases (constant during a run).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NavigationBiases {
@@ -182,7 +192,9 @@ pub fn navigate(
 
     // Gain saturation (hardcoded safety bounds, matches EKF [0.1, 10.0]) — applied
     // unconditionally every tick as a safety net, even when the filter is skipped.
-    nav_state.density_gain = nav_state.density_gain.clamp(0.1, 10.0);
+    nav_state.density_gain = nav_state
+        .density_gain
+        .clamp(DENSITY_FACTOR_MIN, DENSITY_FACTOR_MAX);
 
     if alt_est > 100e3 {
         nav_state.density_gain = 1.0;

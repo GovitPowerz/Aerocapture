@@ -14,9 +14,9 @@ use crate::integration::events::{self, EventContext, EventDef, EventType};
 use crate::orbit::elements;
 use crate::physics::atmosphere;
 use crate::simulation::runner::{
-    DEG_TO_RAD, SimState, TermReason, build_photo_values, effective_airspeed, ifinal_for,
-    integrate_adaptive_with_events, integrate_step, navigate_from_state,
-    promote_pending_crash_if_applicable, track_peak_values,
+    DEG_TO_RAD, MIN_BOUNCE_ALT_FOR_CRASH_M, SimState, TermReason, build_photo_values,
+    effective_airspeed, ifinal_for, integrate_adaptive_with_events, integrate_step,
+    navigate_from_state, promote_pending_crash_if_applicable, track_peak_values,
 };
 
 /// Outcome of one outer guidance tick.
@@ -420,7 +420,7 @@ pub fn step_one_tick(
         // Guard: bounce altitude must be above 20 km to exclude transient FPA sign changes
         // during the deep pass (aggressive bank reversals can momentarily push FPA positive).
         if state.bounced
-            && state.bounce_alt > 20e3
+            && state.bounce_alt > MIN_BOUNCE_ALT_FOR_CRASH_M
             && state.state[4].sin() < 0.0
             && altitude < state.exit_altitude
             && state.term == TermReason::None
@@ -432,7 +432,10 @@ pub fn step_one_tick(
         // implies the orbit fits entirely within the atmosphere, the vehicle is trapped.
         // Uses vis-viva (a = -mu/(2E)) with inertial velocity — no FPA dependency,
         // catches oscillating trajectories that the FPA-based check above misses.
-        if state.bounced && state.bounce_alt > 20e3 && state.term == TermReason::None {
+        if state.bounced
+            && state.bounce_alt > MIN_BOUNCE_ALT_FOR_CRASH_M
+            && state.term == TermReason::None
+        {
             use crate::gnc::navigation::coordinates::{norm, to_absolute_cartesian};
             let (_, v_abs) = to_absolute_cartesian(
                 state.state[0],

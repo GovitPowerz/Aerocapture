@@ -7,6 +7,7 @@
 //! - [9..12] gyro biases x,y,z (rad/s)
 //! - [12] density correction factor (centered at 0; actual = 1 + state[12])
 
+use crate::gnc::navigation::estimator::{DENSITY_FACTOR_MAX, DENSITY_FACTOR_MIN};
 use nalgebra::{SMatrix, SVector};
 
 /// Number of states in the EKF.
@@ -213,7 +214,7 @@ impl EkfState {
         );
 
         // Clamp density correction to keep factor in [0.1, 10.0]
-        self.state[12] = self.state[12].clamp(-0.9, 9.0);
+        self.state[12] = self.state[12].clamp(DENSITY_FACTOR_MIN - 1.0, DENSITY_FACTOR_MAX - 1.0);
     }
 
     /// Returns the density multiplicative correction factor: 1 + state[12].
