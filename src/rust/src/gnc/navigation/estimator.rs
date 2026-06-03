@@ -167,8 +167,10 @@ pub fn navigate(
 
     // Exponential filter for density correction
     // density_gain = (1-λ)*density_gain + λ*(density_estimated/rho_model)
+    // Skip guard-tripped steps (density_estimated == 0) so a rejected estimate
+    // does not drag the gain toward the floor — matches the EKF trigger.
     let lambda = (data.guidance.density_filter_gain + run_filter_gain_bias).clamp(0.01, 0.99);
-    if rho_model.abs() > 1e-30 {
+    if rho_model.abs() > 1e-30 && density_estimated > 0.0 {
         let raw_gain =
             (1.0 - lambda) * nav_state.density_gain + lambda * (density_estimated / rho_model);
 
@@ -1486,16 +1488,55 @@ mod tests {
             &no_run_biases(),
         );
 
-        // With density_estimated rejected (= 0), the filter step from gain=1.0 is
-        // (1-λ)*1.0 + λ*0 = 1 - 0.8 = 0.2 (λ = clamp(0.8) = 0.8), inside [0.1, 10].
-        // The OLD abs-guarded code admits a large NEGATIVE estimate, driving raw_gain
-        // below the 0.1 floor.
-        assert_relative_eq!(nav_state.density_gain, 0.2, max_relative = 1e-12);
+        // density_estimated is rejected (= 0), and the guard-tripped filter step is
+        // skipped (Fix 4.3), so the gain is HELD at its initial 1.0. The OLD abs-guarded
+        // code admitted a large NEGATIVE estimate, driving the gain below the 0.1 floor.
+        assert_relative_eq!(nav_state.density_gain, 1.0, max_relative = 1e-12);
         assert!(
             nav_state.density_gain >= 0.1,
             "density_gain must not go negative / below floor, got {}",
             nav_state.density_gain
         );
+    }
+
+    // ── Fix 4.3: bias density-filter trigger consistency ──
+
+    /// On a guard-tripped step (density_estimated == 0), the bias filter must be
+    /// SKIPPED (gain held), not run with a zero numerator that drags the gain
+    /// toward the 0.1 floor — matching the EKF trigger (`density_estimated > 0`).
+    #[test]
+    fn bias_filter_holds_gain_on_guard_tripped_step() {
+        let mut data = test_sim_data();
+        // Loose rate limiter: if the filter wrongly ran, the gain would move far,
+        // so a held gain is unambiguous.
+        data.guidance.density_gain_max_delta = 100.0;
+        // Negative denom (aoa=1.4, Cz=-5) → density_estimated rejected to 0 (Fix 4.2).
+        data.aero.incidence = vec![0.0, 1.57];
+        data.aero.cx = vec![1.0, 1.0];
+        data.aero.cz = vec![-5.0, -5.0];
+        data.aero.n_points = 2;
+        data.entry.initial_aoa = 1.4;
+
+        let r = MARS_REQ + 40_000.0;
+        let position_true = [r, 0.0, 0.0];
+        let velocity_true = [5000.0, -0.10, 1.0];
+        let biases = zero_biases();
+        let mut nav_state = NavigationState::new();
+        nav_state.density_gain = 5.0; // pre-set, in-range gain to be HELD
+
+        let _out = call_navigate(
+            &position_true,
+            &velocity_true,
+            &biases,
+            &mut nav_state,
+            &data,
+            &no_run_biases(),
+        );
+
+        // Filter skipped → gain held at 5.0. The OLD bias trigger (rho_model only)
+        // would run the filter with density_estimated=0: raw = (1-0.8)*5.0 = 1.0,
+        // dragging the gain down toward the floor.
+        assert_relative_eq!(nav_state.density_gain, 5.0, max_relative = 1e-12);
     }
 
     // ── Test 9: SimPhase gating in navigate() ──
