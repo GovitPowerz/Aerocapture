@@ -18,7 +18,9 @@ use aerocapture::config::SimInput;
 use aerocapture::data::SimData;
 use aerocapture::data::dispersions::DispersionDraw;
 use aerocapture::integration::events::{EventContext, EventDef};
-use aerocapture::simulation::runner::{SimState, TermReason, build_final_record, build_sim_state};
+use aerocapture::simulation::runner::{
+    SimState, TermReason, build_final_record, build_sim_state, ifinal_for,
+};
 
 use crate::config;
 use crate::extract_overrides;
@@ -204,20 +206,9 @@ impl BatchedSimulation {
                         // Capture terminal obs BEFORE the env state is reset.
                         let terminal_obs = build_obs_for_env(state, sim_data, sim_input);
                         let fr = build_final_record(state, sim_data, &sim_input.planet);
-                        let ifinal = match state.term() {
-                            TermReason::AtmosphereExit => 3i32,
-                            TermReason::Crash => 1,
-                            TermReason::PendingCrash => 4,
-                            TermReason::Timeout => 2,
-                            TermReason::None => {
-                                // Guarded by the enclosing `if state.term() != TermReason::None`;
-                                // this arm cannot fire in correct code. Use debug_assert so
-                                // debug builds catch a future guard-refactor, but release builds
-                                // return a safe sentinel rather than poisoning the Rayon worker.
-                                debug_assert!(false, "TermReason::None reached inside terminal branch");
-                                0
-                            }
-                        };
+                        // Guarded by the enclosing `if state.term() != TermReason::None`;
+                        // ifinal_for's None arm (unreachable!) cannot fire here.
+                        let ifinal = ifinal_for(state.term());
                         let ecc = fr[9];
                         let energy = fr[7]; // MJ/kg; negative = captured
                         let captured = ifinal == 3 && ecc < 1.0 && energy < 0.0;

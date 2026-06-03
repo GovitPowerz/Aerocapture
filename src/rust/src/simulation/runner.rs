@@ -1021,7 +1021,7 @@ pub fn promote_pending_crash_if_applicable(sim_state: &mut SimState, planet: &Pl
 /// Single source of truth shared by `run_single`, `build_final_record`, and the
 /// RL per-step path in `tick.rs`. Genuinely unreachable on `None`: every caller
 /// is reached only after the simulation has terminated.
-pub(crate) fn ifinal_for(term: TermReason) -> i32 {
+pub fn ifinal_for(term: TermReason) -> i32 {
     match term {
         TermReason::AtmosphereExit => 3,
         TermReason::Crash => 1,
