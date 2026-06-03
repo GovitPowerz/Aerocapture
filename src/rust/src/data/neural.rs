@@ -46,7 +46,7 @@ pub fn apply_norm(raw: f64, spec: &NormSpec) -> f64 {
 }
 
 /// Default per-input normalization table (divisor form `(raw - center) / scale`).
-/// Encodes the historical inline transforms; DV entries 32-34 are provisional.
+/// All 35 entries are calibrated, including DV entries 32-34 (smooth, no sentinel).
 pub const DEFAULT_NORMALIZATION: [NormSpec; NN_FULL_INPUT_SIZE] = [
     NormSpec {
         transform: NormTransform::None,
@@ -827,8 +827,8 @@ impl Layer {
 /// Trait for flattening and reconstructing a layer's parameters.
 ///
 /// Each layer type implements its own canonical flat ordering:
-/// dense = W (row-major) then b; gru/lstm/attention/ssm defined per variant
-/// (see Phase 1+ for those). Order MUST match the PyTorch mirror in
+/// dense = W (row-major) then b; gru/lstm/window/transformer/mamba defined per variant
+/// in the respective impl blocks below. Order MUST match the PyTorch mirror in
 /// src/python/aerocapture/training/rl/layers/<type>.py for PSO chromosome
 /// compatibility.
 ///
@@ -1122,8 +1122,8 @@ impl MambaLayer {
     /// Shapes: `x: [f64; input_size]`, `h: DMatrix<f64> (input_size, d_state)`,
     /// returns `Vec<f64>` length `input_size`.
     ///
-    /// Numerical contract: Python mirror (`rl/layers/mamba.py`) must produce
-    /// bit-identical f64 output. Uses `softplus` and `expm1_over_x` helpers
+    /// Numerical contract: Python mirror (`rl/layers/mamba.py`) agrees to machine
+    /// epsilon (different reduction order than torch addmm). Uses `softplus` and `expm1_over_x` helpers
     /// (free functions in this module).
     pub fn forward(&self, x: &[f64], h: &mut nalgebra::DMatrix<f64>) -> Vec<f64> {
         debug_assert_eq!(x.len(), self.input_size);
@@ -2336,8 +2336,8 @@ impl NeuralNetModel {
 
     /// Generic forward pass through all layers.
     ///
-    /// Takes `&mut NnState` so stateful layers (Phase 1+: GRU/LSTM/Window/SSM) can mutate
-    /// their per-sim hidden state. Phase 0 dense layers ignore the state slot.
+    /// Takes `&mut NnState` so stateful layers (GRU/LSTM/Window/Transformer/Mamba) can mutate
+    /// their per-sim hidden state. Dense layers ignore the state slot.
     pub fn forward(&self, state: &mut NnState, input: &[f64]) -> Vec<f64> {
         assert_eq!(
             input.len(),

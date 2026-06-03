@@ -249,8 +249,8 @@ fn run_with_draws(
 /// Used exclusively by the Rust<>Python cross-language equivalence test
 /// (Phase 0 integration gate). Applies `input_mask` when present; otherwise
 /// passes the input through unchanged. Per-call `NnState` is fresh, so this
-/// helper is stateless across calls (Phase 0 dense-only; Phase 1+ stateful
-/// layer equivalence tests will need a state-carrying variant).
+/// helper is stateless across calls (fresh NnState per call); stateful-layer
+/// (GRU/LSTM/Window/Transformer/Mamba) equivalence tests use nn_forward_sequence.
 #[pyfunction]
 fn nn_forward(json_path: String, input: Vec<f64>) -> PyResult<Vec<f64>> {
     use aerocapture::data::neural::NeuralNetModel;
