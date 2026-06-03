@@ -71,31 +71,6 @@ pub fn geodetic_from_spherical(
     }
 }
 
-/// Convert geodetic to geocentric Cartesian position.
-#[allow(dead_code)]
-pub fn geodetic_to_cartesian(
-    altitude: f64,
-    latitude: f64,
-    longitude: f64,
-    planet: &PlanetConfig,
-) -> [f64; 3] {
-    let req = planet.equatorial_radius;
-    let rpol = planet.polar_radius;
-    let excent = ((req * req - rpol * rpol) / (req * req)).sqrt();
-    let e2 = excent * excent;
-
-    let sin_lat = latitude.sin();
-    let cos_lat = latitude.cos();
-
-    let n = req / (1.0 - e2 * sin_lat * sin_lat).sqrt();
-    let r = n + altitude;
-
-    [
-        r * cos_lat * longitude.cos(),
-        r * cos_lat * longitude.sin(),
-        (n * (1.0 - e2) + altitude) * sin_lat,
-    ]
-}
 
 /// Convert spherical position to Cartesian.
 ///
