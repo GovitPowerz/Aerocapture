@@ -141,3 +141,70 @@ class TestResumePreservesCheckpointedBest:
             "resume overwrote checkpointed best with population argmin -- regression of the adaptive-seed training-cost incomparability bug"
         )
         assert result["best_cost"] == checkpointed_best_cost
+
+
+class TestResumeGrowsPopulation:
+    """End-to-end: resuming with a larger [optimizer] n_pop grows the population
+    through the wired single-algo resume path (not just the resize_population
+    helper in isolation)."""
+
+    def test_resume_with_larger_n_pop_grows_and_preserves_best(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        from aerocapture.training.param_spaces import PARAM_SPACES
+        from aerocapture.training.train import save_checkpoint
+
+        exe_path = tmp_path / "src" / "rust" / "target" / "release"
+        exe_path.mkdir(parents=True)
+        (tmp_path / "data" / "neural_network").mkdir(parents=True)
+        dummy_exe = exe_path / "aerocapture"
+        dummy_exe.write_text("#!/bin/sh\nexit 0\n")
+        dummy_exe.chmod(dummy_exe.stat().st_mode | stat.S_IEXEC)
+
+        save_dir = tmp_path / "training_output"
+        save_dir.mkdir(parents=True)
+        cfg = TrainingConfig(optimizer=OptimizerConfig(seed_strategy="fixed"))
+        cfg.guidance_type = "equilibrium_glide"  # non-NN: skips write_nn_json
+        cfg.optimizer.n_pop = 8  # RESUME target (checkpoint below is 4)
+        cfg.optimizer.n_gen = 1  # +resumed_gen(2) -> runs exactly gen 2
+        cfg.optimizer.validation_n_sims = 0  # no validation gate (keeps best verbatim)
+        cfg.save_dir = str(save_dir)
+
+        param_specs = PARAM_SPACES[cfg.guidance_type]
+        n_params = len(param_specs)
+
+        # Checkpoint at the SMALL size (n_pop=4).
+        rng_ck = np.random.default_rng(0)
+        small_pop = rng_ck.random((4, n_params))
+        costs = np.array([100.0, 500.0, 800.0, 500.0])
+        checkpointed_best = small_pop[0].copy()
+        save_checkpoint(
+            save_dir,
+            generation=2,
+            population=small_pop,
+            costs=costs,
+            best_cost=100.0,
+            best_individual=checkpointed_best,
+            cost_history=[float(c) for c in costs],
+            rng=rng_ck,
+            config=cfg,
+            cwd=None,
+            param_specs=param_specs,
+            best_val_cost=100.0,
+        )
+
+        # Size-aware mock: the grown pop (8) and the small pop (4) both get costs.
+        with patch.object(AerocaptureProblem, "_run_batch", side_effect=lambda X: np.full(X.shape[0], 1000.0)):
+            result = train(
+                cfg,
+                seed=42,
+                cwd=str(tmp_path),
+                resume_dir=str(save_dir),
+                verbose=True,
+                no_tui=True,
+            )
+
+        out = capsys.readouterr().out
+        assert "Resizing resumed population 4 -> 8" in out, f"resize wiring did not fire; stdout was:\n{out}"
+        # Checkpointed best is preserved (validation off, None-gate stays closed).
+        assert result["best_individual"] is not None
+        assert np.array_equal(result["best_individual"], checkpointed_best)
+        assert not result.get("interrupted", False)
