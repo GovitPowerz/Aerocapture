@@ -72,9 +72,11 @@ class TestBatchRun:
         overrides = [{"simulation.random_seed": float(i) / 10.0} for i in range(3)]
         results = aero.run_batch(GOLDEN_TOML, overrides)
         # Trajectories list is always present but each entry is empty when off.
+        # Empty entries carry the correct 17-column width (0, 17), not (0, 0),
+        # so downstream column indexing on an empty batch stays valid.
         assert len(results.trajectories) == 3
         for traj in results.trajectories:
-            assert traj.shape == (0, 0)
+            assert traj.shape == (0, 17)
 
     def test_batch_trajectories_on(self) -> None:
         overrides = [{"simulation.random_seed": float(i) / 10.0} for i in range(3)]
