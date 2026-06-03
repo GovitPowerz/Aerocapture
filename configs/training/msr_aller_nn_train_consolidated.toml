@@ -93,7 +93,6 @@ results_suffix = ".train_nn"
 # exit_pdyn_margin = 3.324353921236187
 # exit_radial_vel_gain = 14.432026466531633
 # exit_altitude_threshold = 57.353046636034556
-# exit_apoapsis_threshold = 100.0
 # security_capture = 1
 # security_exit = 3
 # longi_activation = 1000.0

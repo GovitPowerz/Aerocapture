@@ -367,7 +367,6 @@ mod tests {
                 exit_pdyn_margin: 1.75,
                 exit_altitude_threshold: 60_000.0,
                 exit_radial_vel_gain: 10.0,
-                exit_apoapsis_threshold: 100.0,
                 ..Default::default()
             },
             incidence: IncidenceProfile {

@@ -474,7 +474,6 @@ impl SimData {
                 exit_pdyn_margin: ftc.exit_pdyn_margin,
                 exit_altitude_threshold: ftc.exit_altitude_threshold * 1e3,
                 exit_radial_vel_gain: ftc.exit_radial_vel_gain,
-                exit_apoapsis_threshold: ftc.exit_apoapsis_threshold,
                 lateral: if let Some(ref lat) = toml.guidance.lateral {
                     LateralParams {
                         tau: lat.tau,
@@ -551,7 +550,6 @@ impl SimData {
                 exit_pdyn_margin: 1.75,
                 exit_altitude_threshold: 60e3,
                 exit_radial_vel_gain: 10.0,
-                exit_apoapsis_threshold: 100.0,
                 lateral: if let Some(ref lat) = toml.guidance.lateral {
                     LateralParams {
                         tau: lat.tau,

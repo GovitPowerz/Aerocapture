@@ -61,7 +61,6 @@ exit_velocity_threshold = 4400.0
 exit_pdyn_margin = 1.75
 exit_altitude_threshold = 60.0
 exit_radial_vel_gain = 10.0
-exit_apoapsis_threshold = 100.0
 security_capture = 1
 security_exit = 3
 longi_activation = 1000.0

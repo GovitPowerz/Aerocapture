@@ -749,8 +749,6 @@ pub struct TomlFtcParams {
     pub exit_altitude_threshold: f64, // km
     #[serde(default)]
     pub exit_radial_vel_gain: f64, // Pa/(m/s)
-    #[serde(default)]
-    pub exit_apoapsis_threshold: f64, // m
     #[serde(default = "default_one_i32")]
     pub security_capture: i32,
     #[serde(default = "default_three_i32")]
