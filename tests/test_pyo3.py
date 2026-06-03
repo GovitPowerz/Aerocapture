@@ -91,6 +91,10 @@ class TestBatchRun:
         results = aero.run_batch(GOLDEN_TOML, overrides)
         assert len(results) == 4
 
+    def test_run_batch_rejects_multi_sim(self) -> None:
+        with pytest.raises(ValueError, match="n_sims"):
+            aero.run_batch(GOLDEN_TOML, [{"simulation.n_sims": 3}])
+
 
 class TestCostCompat:
     def test_pyo3_final_records_work_with_compute_cost(self) -> None:
