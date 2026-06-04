@@ -462,6 +462,19 @@ def _chart_weight_stats_evolution(records: list[dict[str, Any]], output: Path, r
 
 
 # ---------------------------------------------------------------------------
+# Binning helper
+# ---------------------------------------------------------------------------
+def bin_indices(values: npt.NDArray[np.float64], edges: npt.NDArray[np.float64]) -> npt.NDArray[np.intp]:
+    """Map values to 0-based bin indices for ``len(edges)-1`` bins, clamped to range.
+
+    Inverse-edge convention matching np.digitize: bin i covers [edges[i], edges[i+1]).
+    Values outside [edges[0], edges[-1]] clamp to the first/last bin.
+    """
+    n_bins = len(edges) - 1
+    return np.clip(np.digitize(values, edges) - 1, 0, n_bins - 1)  # type: ignore[return-value]
+
+
+# ---------------------------------------------------------------------------
 # Corridor / energy helpers
 # ---------------------------------------------------------------------------
 def _compute_envelope(
@@ -501,11 +514,10 @@ def _compute_envelope(
     min_vals = np.full(n_bins, np.nan)
     max_vals = np.full(n_bins, np.nan)
 
-    bin_indices = np.digitize(energy, edges) - 1
-    bin_indices = np.clip(bin_indices, 0, n_bins - 1)
+    bidx = bin_indices(energy, edges)
 
     for b in range(n_bins):
-        mask = bin_indices == b
+        mask = bidx == b
         if np.any(mask):
             min_vals[b] = float(np.nanmin(values[mask]))
             max_vals[b] = float(np.nanmax(values[mask]))
