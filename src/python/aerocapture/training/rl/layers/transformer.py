@@ -169,3 +169,48 @@ class TransformerLayer(nn.Module):
         for ln in (self.ln1_gamma, self.ln1_beta, self.ln2_gamma, self.ln2_beta):
             parts.append(ln.detach().cpu().numpy().astype(np.float64))
         return np.concatenate(parts)
+
+    def from_flat(self, slab: np.ndarray) -> None:
+        """Load a flat slab in-place, mirroring Rust LayerWeights<TransformerLayer>::from_flat.
+
+        Flat order:
+            w_q, b_q, w_k, b_k, w_v, b_v, w_o, b_o,
+            w_ffn1, b_ffn1, w_ffn2, b_ffn2,
+            ln1_gamma, ln1_beta, ln2_gamma, ln2_beta
+
+        PE offsets are recomputed lazily on forward (w_k/w_v are already
+        the authoritative values after this load); no explicit rebuild needed.
+        """
+        d = self.d_model
+        f = self.d_ffn
+        c = 0
+
+        def _copy_param(param: torch.Tensor, src: np.ndarray) -> None:
+            param.copy_(torch.from_numpy(np.ascontiguousarray(src)).to(param.dtype))
+
+        def _copy_linear(linear: torch.nn.Linear, n_out: int, n_in: int) -> None:
+            nonlocal c
+            n_w = n_out * n_in
+            _copy_param(linear.weight, slab[c : c + n_w].reshape(n_out, n_in))
+            c += n_w
+            _copy_param(linear.bias, slab[c : c + n_out])
+            c += n_out
+
+        with torch.no_grad():
+            # Q/K/V/O projections: each (d_model x d_model) weight + (d_model,) bias
+            _copy_linear(self.w_q, d, d)
+            _copy_linear(self.w_k, d, d)
+            _copy_linear(self.w_v, d, d)
+            _copy_linear(self.w_o, d, d)
+            # FFN1: (d_ffn x d_model) + (d_ffn,)
+            _copy_linear(self.w_ffn1, f, d)
+            # FFN2: (d_model x d_ffn) + (d_model,)
+            _copy_linear(self.w_ffn2, d, f)
+            # Layer norms: (gamma, beta) x 2, each (d_model,)
+            _copy_param(self.ln1_gamma, slab[c : c + d])
+            c += d
+            _copy_param(self.ln1_beta, slab[c : c + d])
+            c += d
+            _copy_param(self.ln2_gamma, slab[c : c + d])
+            c += d
+            _copy_param(self.ln2_beta, slab[c : c + d])

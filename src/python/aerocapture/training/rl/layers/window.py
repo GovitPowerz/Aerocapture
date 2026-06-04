@@ -66,3 +66,12 @@ class WindowLayer(nn.Module):
         src/rust/src/data/neural.rs.
         """
         return np.array([], dtype=np.float64)
+
+    def from_flat(self, slab: np.ndarray) -> None:
+        """Zero trainable parameters; consumes nothing from slab (no-op).
+
+        Mirrors Rust `LayerWeights for WindowLayer::from_flat` which returns 0
+        and ignores the input slice. `slab` must be length-0 by construction
+        (callers slice by _layer_n_params which returns 0 for Window).
+        """
+        assert slab.size == 0, f"WindowLayer from_flat: expected empty slab, got size={slab.size}"

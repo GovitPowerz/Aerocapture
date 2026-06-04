@@ -47,5 +47,16 @@ class DenseLayer(nn.Module):
         b = self.linear.bias.detach().cpu().numpy().astype(np.float64)
         return np.concatenate([w.ravel(), b])
 
+    def from_flat(self, slab: np.ndarray) -> None:
+        """Load a flat slab (W row-major then b) into this layer's parameters in-place.
+
+        Inverse of to_flat(); mirrors Rust `LayerWeights for DenseLayer::from_flat`.
+        """
+        fan_out, fan_in = self.linear.weight.shape
+        n_w = fan_out * fan_in
+        with torch.no_grad():
+            self.linear.weight.copy_(torch.from_numpy(np.ascontiguousarray(slab[:n_w].reshape(fan_out, fan_in))).to(self.linear.weight.dtype))
+            self.linear.bias.copy_(torch.from_numpy(np.ascontiguousarray(slab[n_w : n_w + fan_out])).to(self.linear.bias.dtype))
+
     def extra_repr(self) -> str:
         return f"activation={self.activation_name}"

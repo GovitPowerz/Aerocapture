@@ -209,11 +209,8 @@ def _seed_policy_init(policy: object, architecture: list, bound_multiplier: floa
     Init RNG is sourced from a fresh sub-rng so that warm-start architecture
     width does NOT couple to the per-epoch chunk-shuffle order downstream.
     """
-    import torch
-
     from aerocapture.training.config import _layer_n_params
     from aerocapture.training.initialization_v2 import init_v2_population
-    from aerocapture.training.rl.layers import DenseLayer, GruLayer, LstmLayer, MambaLayer, TransformerLayer, WindowLayer
 
     # Sub-rng decouples init draws from outer rng's downstream uses (chunk
     # shuffle); architecture-width changes don't affect shuffle reproducibility.
@@ -221,117 +218,12 @@ def _seed_policy_init(policy: object, architecture: list, bound_multiplier: floa
     flat_pop = init_v2_population(architecture, n_pop=1, bound_multiplier=bound_multiplier, rng=init_rng)
     flat = flat_pop[0]
 
-    def _copy(param: torch.Tensor, src: np.ndarray) -> None:
-        # Accepts any Tensor with .copy_ (nn.Parameter and nn.Linear.weight/bias both qualify).
-        param.copy_(torch.from_numpy(np.ascontiguousarray(src)).to(param.dtype))
-
     cursor = 0
     for module, entry in zip(policy.layers, architecture, strict=True):  # type: ignore[attr-defined]
         n = _layer_n_params(entry)
         slab = flat[cursor : cursor + n]
         cursor += n
-        if hasattr(entry, "model_dump"):
-            entry = entry.model_dump()
-        ltype = entry["type"]
-        with torch.no_grad():
-            if ltype == "dense" and isinstance(module, DenseLayer):
-                fan_in = int(entry["input_size"])
-                fan_out = int(entry["output_size"])
-                n_w = fan_out * fan_in
-                _copy(module.linear.weight, slab[:n_w].reshape(fan_out, fan_in))
-                _copy(module.linear.bias, slab[n_w : n_w + fan_out])
-            elif ltype == "gru" and isinstance(module, GruLayer):
-                fan_in = int(entry["input_size"])
-                hidden = int(entry["hidden_size"])
-                three_h = 3 * hidden
-                n_w_ih = three_h * fan_in
-                n_w_hh = three_h * hidden
-                c = 0
-                _copy(module.weight_ih, slab[c : c + n_w_ih].reshape(three_h, fan_in))
-                c += n_w_ih
-                _copy(module.weight_hh, slab[c : c + n_w_hh].reshape(three_h, hidden))
-                c += n_w_hh
-                _copy(module.bias_ih, slab[c : c + three_h])
-                c += three_h
-                _copy(module.bias_hh, slab[c : c + three_h])
-            elif ltype == "lstm" and isinstance(module, LstmLayer):
-                fan_in = int(entry["input_size"])
-                hidden = int(entry["hidden_size"])
-                four_h = 4 * hidden
-                n_w_ih = four_h * fan_in
-                n_w_hh = four_h * hidden
-                c = 0
-                _copy(module.weight_ih, slab[c : c + n_w_ih].reshape(four_h, fan_in))
-                c += n_w_ih
-                _copy(module.weight_hh, slab[c : c + n_w_hh].reshape(four_h, hidden))
-                c += n_w_hh
-                # Write the FULL bias_ih AND bias_hh from the slab. init_v2_population
-                # already sets bias_ih's forget slot to 1.0 + noise and bias_hh's
-                # forget slot to ~0 -- preserving the Jozefowicz signal which would
-                # otherwise be diluted by torch's uniform(-1/sqrt(H), +1/sqrt(H))
-                # defaults on bias_hh.
-                _copy(module.bias_ih, slab[c : c + four_h])
-                c += four_h
-                _copy(module.bias_hh, slab[c : c + four_h])
-            elif ltype == "window" and isinstance(module, WindowLayer):
-                # Zero trainable params; slab is empty by construction.
-                assert n == 0 and slab.size == 0, f"window slab expected 0-width, got {slab.size}"
-            elif ltype == "transformer" and isinstance(module, TransformerLayer):
-                # Transformer flat order (matches to_flat in layers/transformer.py:155
-                # and Rust LayerWeights<TransformerLayer>::to_flat):
-                #   w_q, b_q, w_k, b_k, w_v, b_v, w_o, b_o,
-                #   w_ffn1, b_ffn1, w_ffn2, b_ffn2,
-                #   ln1_gamma, ln1_beta, ln2_gamma, ln2_beta
-                d_model = int(entry["d_model"])
-                d_ffn = int(entry["d_ffn"])
-                c = 0
-                # Q/K/V/O projections: each is (d_model x d_model) + (d_model,) bias.
-                for linear in (module.w_q, module.w_k, module.w_v, module.w_o):
-                    n_w = d_model * d_model
-                    _copy(linear.weight, slab[c : c + n_w].reshape(d_model, d_model))
-                    c += n_w
-                    _copy(linear.bias, slab[c : c + d_model])
-                    c += d_model
-                # FFN1: (d_ffn x d_model) + (d_ffn,)
-                n_ffn1_w = d_ffn * d_model
-                _copy(module.w_ffn1.weight, slab[c : c + n_ffn1_w].reshape(d_ffn, d_model))
-                c += n_ffn1_w
-                _copy(module.w_ffn1.bias, slab[c : c + d_ffn])
-                c += d_ffn
-                # FFN2: (d_model x d_ffn) + (d_model,)
-                n_ffn2_w = d_model * d_ffn
-                _copy(module.w_ffn2.weight, slab[c : c + n_ffn2_w].reshape(d_model, d_ffn))
-                c += n_ffn2_w
-                _copy(module.w_ffn2.bias, slab[c : c + d_model])
-                c += d_model
-                # Layer norms: (gamma, beta) x 2, each (d_model,)
-                _copy(module.ln1_gamma, slab[c : c + d_model])
-                c += d_model
-                _copy(module.ln1_beta, slab[c : c + d_model])
-                c += d_model
-                _copy(module.ln2_gamma, slab[c : c + d_model])
-                c += d_model
-                _copy(module.ln2_beta, slab[c : c + d_model])
-                # PE offsets are recomputed lazily on forward; no post-write step needed.
-            elif ltype == "mamba" and isinstance(module, MambaLayer):
-                d_inner = int(entry["input_size"])
-                d_state = int(entry["d_state"])
-                dt_rank = int(entry["dt_rank"])
-                c = 0
-                n_xp = (dt_rank + 2 * d_state) * d_inner
-                _copy(module.x_proj_w, slab[c : c + n_xp].reshape(dt_rank + 2 * d_state, d_inner))
-                c += n_xp
-                n_dw = d_inner * dt_rank
-                _copy(module.dt_proj_w, slab[c : c + n_dw].reshape(d_inner, dt_rank))
-                c += n_dw
-                _copy(module.dt_proj_b, slab[c : c + d_inner])
-                c += d_inner
-                n_al = d_inner * d_state
-                _copy(module.a_log, slab[c : c + n_al].reshape(d_inner, d_state))
-                c += n_al
-                _copy(module.d_skip, slab[c : c + d_inner])
-            else:
-                raise ValueError(f"_seed_policy_init: unknown layer type {ltype!r} or module/spec mismatch")
+        module.from_flat(slab)
 
 
 def _chunked_bptt_train(
