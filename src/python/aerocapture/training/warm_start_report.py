@@ -237,7 +237,7 @@ def _format_value(x: float | int | None, fmt: str = "{:.4e}") -> str:
         return "n/a"
     try:
         return fmt.format(float(x))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):  # fmt: skip
         return str(x)
 
 
