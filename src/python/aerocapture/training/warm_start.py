@@ -21,7 +21,7 @@ import numpy.typing as npt
 from aerocapture.training.config import AdamConfig, NetworkConfig, TrainingConfig
 from aerocapture.training.encoding import encode_to_normalized, nn_param_specs_from_v2
 from aerocapture.training.evaluate import WARM_START_SEED_OFFSET, make_reserved_seeds
-from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
+from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS, route_param_path
 
 if TYPE_CHECKING:
     import torch
@@ -179,22 +179,11 @@ def _build_overrides_for_source(source_params: dict[str, float], scheme: str) ->
     for key, value in source_params.items():
         # Round integer-typed params so the Rust TOML parser accepts them (same as problem.py)
         coerced: object = int(round(value)) if key in _INTEGER_PARAM_NAMES else value
-        if key.startswith("lateral."):
-            overrides[f"guidance.lateral.{key.removeprefix('lateral.')}"] = coerced
-        elif key.startswith("exit."):
-            # Exit-phase params live in the FTC block regardless of supervisor:
-            # the shared exit-phase controller (gnc/guidance/exit.rs) reads them
-            # from [guidance.ftc.exit_*] for all unsigned-magnitude schemes.
-            overrides[f"guidance.ftc.{key.removeprefix('exit.')}"] = coerced
-        elif key.startswith("nav."):
-            overrides[f"navigation.{key.removeprefix('nav.')}"] = coerced
-        elif key.startswith("thermal."):
-            overrides[f"guidance.thermal_limiter.{key.removeprefix('thermal.')}"] = coerced
-        elif key.startswith("shaping."):
-            overrides[f"guidance.command_shaping.{key.removeprefix('shaping.')}"] = coerced
+        # exit.* routes to [guidance.ftc.*] for all schemes: the shared exit-phase
+        # controller (gnc/guidance/exit.rs) reads those keys regardless of supervisor.
+        overrides[route_param_path(key, scheme)] = coerced
+        if key.startswith("shaping."):
             overrides["guidance.command_shaping.enabled"] = True
-        else:
-            overrides[f"guidance.{scheme}.{key}"] = coerced
     return overrides
 
 

@@ -25,6 +25,7 @@ import numpy.typing as npt
 
 from aerocapture.training import charts
 from aerocapture.training.metrics import convergence_speed, stagnation_count
+from aerocapture.training.param_spaces import SCAFFOLDING_PREFIXES, route_param_path
 from aerocapture.training.typst_utils import check_typst, compile_typst
 
 # ---------------------------------------------------------------------------
@@ -58,19 +59,12 @@ def _load_nn_scaffolding_overrides(scheme_dir: Path, optimized_toml: Path) -> di
     scaff_params: dict[str, object] = json.loads(scaff_path.read_text())
     overrides: dict[str, object] = {}
     for key, value in scaff_params.items():
-        if key.startswith("lateral."):
-            bare = key.removeprefix("lateral.")
-            if bare == "max_reversals":
-                value = int(round(float(value)))  # type: ignore[arg-type]
-            overrides[f"guidance.lateral.{bare}"] = value
-        elif key.startswith("exit."):
-            overrides[f"guidance.ftc.{key.removeprefix('exit.')}"] = value
-        elif key.startswith("nav."):
-            overrides[f"navigation.{key.removeprefix('nav.')}"] = value
-        elif key.startswith("thermal."):
-            overrides[f"guidance.thermal_limiter.{key.removeprefix('thermal.')}"] = value
-        elif key.startswith("shaping."):
-            overrides[f"guidance.command_shaping.{key.removeprefix('shaping.')}"] = value
+        if not key.startswith(SCAFFOLDING_PREFIXES):
+            continue  # scaffolding file only carries the 5 prefixed params; skip anything else (preserves prior behavior)
+        if key == "lateral.max_reversals":
+            value = int(round(float(value)))  # type: ignore[arg-type]
+        overrides[route_param_path(key, "")] = value  # gated above, so the unprefixed fallback never fires
+        if key.startswith("shaping."):
             overrides["guidance.command_shaping.enabled"] = True
     return overrides
 

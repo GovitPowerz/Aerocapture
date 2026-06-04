@@ -2304,6 +2304,7 @@ if __name__ == "__main__":
 
         from aerocapture.training.corridor import save_corridor as _save_corr
         from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS as _GTS
+        from aerocapture.training.param_spaces import route_param_path as _route
 
         best_params = decode_normalized(result["best_individual"], param_specs)
         _pc_section = _GTS[cfg.guidance_type]
@@ -2311,19 +2312,9 @@ if __name__ == "__main__":
         for k_, v in best_params.items():
             if k_ == "lateral.max_reversals":
                 v = int(round(v))
-            if k_.startswith("lateral."):
-                best_ovr[f"guidance.lateral.{k_.removeprefix('lateral.')}"] = v
-            elif k_.startswith("exit."):
-                best_ovr[f"guidance.ftc.{k_.removeprefix('exit.')}"] = v
-            elif k_.startswith("nav."):
-                best_ovr[f"navigation.{k_.removeprefix('nav.')}"] = v
-            elif k_.startswith("thermal."):
-                best_ovr[f"guidance.thermal_limiter.{k_.removeprefix('thermal.')}"] = v
-            elif k_.startswith("shaping."):
-                best_ovr[f"guidance.command_shaping.{k_.removeprefix('shaping.')}"] = v
+            best_ovr[_route(k_, _pc_section)] = v
+            if k_.startswith("shaping."):
                 best_ovr["guidance.command_shaping.enabled"] = True
-            else:
-                best_ovr[f"guidance.{_pc_section}.{k_}"] = v
         best_ovr["guidance.type"] = cfg.guidance_type
         best_ovr["simulation.n_sims"] = 1
         # Disable dispersions so the nominal is the true undispersed trajectory
