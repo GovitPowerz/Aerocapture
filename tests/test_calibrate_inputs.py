@@ -7,7 +7,6 @@ from aerocapture.training.calibrate_inputs import (
     choose_transform,
     derive_affine,
     derive_asinh_endpoints,
-    derive_asinh_scale,
     invert_transform,
     tail_ratio,
 )
@@ -43,11 +42,6 @@ def test_invert_tanh_roundtrip() -> None:
     norm = np.tanh((raw - center) / s)
     back = invert_transform(norm, {"transform": "tanh", "scale": s, "center": center})
     assert np.allclose(back, raw, atol=1e-6)
-
-
-def test_derive_asinh_scale_puts_p99_at_one() -> None:
-    s = derive_asinh_scale(p1=-200.0, p99=180.0)
-    assert math.isclose(math.asinh(200.0 / s), 1.0, rel_tol=1e-9)
 
 
 def test_derive_affine_maps_p1_p99_to_pm1() -> None:

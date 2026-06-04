@@ -112,12 +112,6 @@ def invert_transform(norm: np.ndarray, spec: dict) -> np.ndarray:
     raise ValueError(f"unknown transform {kind!r}")
 
 
-def derive_asinh_scale(p1: float, p99: float) -> float:
-    span = max(abs(p1), abs(p99))
-    span = max(span, 1e-12)
-    return span / math.sinh(1.0)
-
-
 def derive_affine(p1: float, p99: float) -> tuple[float, float]:
     center = (p1 + p99) / 2.0
     half = max((p99 - p1) / 2.0, 1e-6)
@@ -128,9 +122,8 @@ def derive_asinh_endpoints(p_lo: float, p_hi: float) -> tuple[float, float]:
     """Two-parameter asinh fit mapping (p_lo, p_hi) -> (-1, +1) exactly.
 
     Solving asinh((p_lo - c)/s) = -1 and asinh((p_hi - c)/s) = +1 gives
-    c = (p_lo + p_hi)/2, s = (p_hi - p_lo)/(2 sinh 1). Unlike the legacy
-    `derive_asinh_scale` (center pinned at 0), this hits BOTH endpoints even for
-    one-sided inputs (e.g. always-positive DV: p_lo would otherwise map to 0).
+    c = (p_lo + p_hi)/2, s = (p_hi - p_lo)/(2 sinh 1). Hits BOTH endpoints
+    even for one-sided inputs (e.g. always-positive DV: p_lo would otherwise map to 0).
     """
     center = (p_lo + p_hi) / 2.0
     scale = max((p_hi - p_lo) / (2.0 * math.sinh(1.0)), 1e-12)
