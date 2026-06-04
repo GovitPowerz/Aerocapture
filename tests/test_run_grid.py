@@ -15,7 +15,13 @@ aero = pytest.importorskip("aerocapture_rs")
 EQGLIDE_TOML = "configs/training/msr_aller_eqglide_train.toml"
 
 
-def _per_seed_run_batch(toml: str, overrides_list, seeds, *, nn_paths=None):
+def _per_seed_run_batch(
+    toml: str,
+    overrides_list: list[dict],
+    seeds: list[int],
+    *,
+    nn_paths: list[str] | None = None,
+) -> np.ndarray:
     """OLD path: loop seeds, run_batch per seed, return (n_pop, n_seeds, LEN)."""
     grid = []
     for seed in seeds:
@@ -60,9 +66,7 @@ class TestRunGridNnInMemory:
         # paths). An explicit all-35 mask routes every candidate input to the Dense
         # layer and is embedded in the model identically by both paths.
         full_mask = list(range(NN_INPUT))
-        arch = [
-            {"type": "dense", "input_size": NN_INPUT, "output_size": 2, "activation": "linear"}
-        ]
+        arch = [{"type": "dense", "input_size": NN_INPUT, "output_size": 2, "activation": "linear"}]
         arch_json = json.dumps(arch)
         n_w = NN_INPUT * 2 + 2
 
@@ -71,13 +75,7 @@ class TestRunGridNnInMemory:
         # JSON (OLD, with the mask baked in by flat_weights_to_json) or the injected
         # weights (NEW, with the mask passed to run_grid), so the model is used
         # verbatim in both paths. common.toml supplies dispersions + density_perturbation.
-        cfg = (
-            'base = ["../missions/mars.toml", "common.toml"]\n'
-            "[guidance]\n"
-            'type = "neural_network"\n'
-            "[guidance.neural_network]\n"
-            'mode = "full_neural"\n'
-        )
+        cfg = 'base = ["../missions/mars.toml", "common.toml"]\n[guidance]\ntype = "neural_network"\n[guidance.neural_network]\nmode = "full_neural"\n'
         cfg_dir = Path("configs/training")  # so relative base paths resolve
         with tempfile.NamedTemporaryFile("w", suffix=".toml", dir=cfg_dir, delete=False) as f:
             f.write(cfg)
@@ -87,7 +85,7 @@ class TestRunGridNnInMemory:
         n_pop = 3
         weights = (rng.standard_normal((n_pop, n_w)) * 0.1).astype(np.float64)
         seeds = list(range(7_100_000, 7_100_000 + 4))
-        overrides_list = [{} for _ in range(n_pop)]
+        overrides_list: list[dict] = [{} for _ in range(n_pop)]
 
         nn_paths = []
         try:

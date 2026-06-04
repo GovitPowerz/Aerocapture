@@ -334,9 +334,5 @@ class TestRunWithDrawsStrided:
         assert not non_contig.flags["C_CONTIGUOUS"]
         r_strided = aero.run_with_draws(GOLDEN_TOML, non_contig)
 
-        np.testing.assert_array_equal(
-            np.asarray(r_contig.dispersions), np.asarray(r_strided.dispersions)
-        )
-        np.testing.assert_array_equal(
-            np.asarray(r_contig.final_records), np.asarray(r_strided.final_records)
-        )
+        np.testing.assert_array_equal(np.asarray(r_contig.dispersions), np.asarray(r_strided.dispersions))
+        np.testing.assert_array_equal(np.asarray(r_contig.final_records), np.asarray(r_strided.final_records))
