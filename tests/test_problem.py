@@ -288,6 +288,51 @@ def test_evaluate_resets_failure_counter_on_success(monkeypatch) -> None:  # typ
     assert prob._consecutive_eval_failures == 0
 
 
+def test_evaluate_individual_records_per_seed_bit_identical_non_nn() -> None:
+    """evaluate_individual_records_per_seed (refactored run_grid path) returns records
+    bit-identical to a reference per-seed run_batch loop, for a non-NN scheme."""
+    import numpy as np
+    import pytest
+
+    aero = pytest.importorskip("aerocapture_rs")
+    from aerocapture.training.evaluate import compute_cost
+    from aerocapture.training.param_spaces import PARAM_SPACES
+    from aerocapture.training.parquet_output import FINAL_RECORD_LEN
+    from aerocapture.training.problem import AerocaptureProblem
+
+    toml = "configs/training/msr_aller_eqglide_train.toml"
+    specs = PARAM_SPACES["equilibrium_glide"]
+    seeds = list(range(7_300_000, 7_300_000 + 5))
+    cost_kwargs: dict = {}
+    p = AerocaptureProblem(
+        param_specs=specs,
+        toml_path=toml,
+        seeds=seeds,
+        cost_kwargs=cost_kwargs,
+        scheme="equilibrium_glide",
+    )
+
+    rng = np.random.default_rng(2027)
+    x = rng.random(p.n_var)
+
+    new_costs, new_records = p.evaluate_individual_records_per_seed(x, seeds)
+
+    # Reference: per-seed run_batch, one sim per seed.
+    from aerocapture.training.encoding import decode_normalized
+
+    params = decode_normalized(x, specs)
+    ovr_list = [p._build_overrides(params, mc_seed=seed) for seed in seeds]
+    res = aero.run_batch(toml, ovr_list, n_threads=None, include_trajectories=False)
+    ref_records = np.asarray(res.final_records, dtype=np.float64)
+    ref_costs = np.array(
+        [compute_cost(ref_records[k].reshape(1, FINAL_RECORD_LEN), **cost_kwargs) for k in range(len(seeds))],
+        dtype=np.float64,
+    )
+
+    np.testing.assert_array_equal(new_records, ref_records)
+    np.testing.assert_array_equal(new_costs, ref_costs)
+
+
 def test_run_batch_pyo3_matches_per_seed_run_batch_non_nn() -> None:
     """problem._run_batch (run_grid path) is bit-identical to looping seeds via
     run_batch + compute_cost + RMS, for a non-NN scheme with dispersions ON."""
