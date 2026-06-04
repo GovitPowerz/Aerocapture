@@ -139,6 +139,26 @@ def run_validation_gate(
     )
 
 
+def build_v2_architecture(network: NetworkConfig) -> list[dict[str, object]]:
+    """The v2 LayerSpec list for a NetworkConfig: the explicit architecture when
+    present, else a dense chain synthesized from layer_sizes/activations. Single
+    source of truth for the architecture JSON used by write_nn_json and run_grid.
+    """
+    if network.architecture is not None:
+        return [dict(entry) for entry in network.architecture]
+    arch: list[dict[str, object]] = []
+    for i in range(len(network.layer_sizes) - 1):
+        arch.append(
+            {
+                "type": "dense",
+                "input_size": network.layer_sizes[i],
+                "output_size": network.layer_sizes[i + 1],
+                "activation": network.activations[i],
+            }
+        )
+    return arch
+
+
 def write_nn_json(
     weights: npt.NDArray[np.float64],
     network: NetworkConfig,
@@ -169,19 +189,7 @@ def write_nn_json(
     filepath = Path(filepath)
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
-    if network.architecture is not None:
-        arch: list[dict[str, object]] = [dict(entry) for entry in network.architecture]
-    else:
-        arch = []
-        for i in range(len(network.layer_sizes) - 1):
-            arch.append(
-                {
-                    "type": "dense",
-                    "input_size": network.layer_sizes[i],
-                    "output_size": network.layer_sizes[i + 1],
-                    "activation": network.activations[i],
-                }
-            )
+    arch = build_v2_architecture(network)
     _aero_rs.flat_weights_to_json(
         flat=weights.astype(np.float64).tolist(),
         architecture_json=json.dumps(arch),

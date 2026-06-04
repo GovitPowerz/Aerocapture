@@ -286,3 +286,51 @@ def test_evaluate_resets_failure_counter_on_success(monkeypatch) -> None:  # typ
     prob._evaluate(X, out)  # success -> 5.0, counter reset to 0
     assert np.all(out["F"] == 5.0)
     assert prob._consecutive_eval_failures == 0
+
+
+def test_run_batch_pyo3_matches_per_seed_run_batch_non_nn() -> None:
+    """problem._run_batch (run_grid path) is bit-identical to looping seeds via
+    run_batch + compute_cost + RMS, for a non-NN scheme with dispersions ON."""
+    import numpy as np
+    import pytest
+
+    aero = pytest.importorskip("aerocapture_rs")
+    from aerocapture.training.encoding import decode_normalized_array
+    from aerocapture.training.evaluate import compute_cost
+    from aerocapture.training.param_spaces import PARAM_SPACES
+    from aerocapture.training.parquet_output import FINAL_RECORD_LEN
+    from aerocapture.training.problem import AerocaptureProblem
+
+    toml = "configs/training/msr_aller_eqglide_train.toml"
+    specs = PARAM_SPACES["equilibrium_glide"]
+    seeds = list(range(7_200_000, 7_200_000 + 5))
+    cost_kwargs: dict = {}
+    p = AerocaptureProblem(
+        param_specs=specs,
+        toml_path=toml,
+        seeds=seeds,
+        cost_kwargs=cost_kwargs,
+        scheme="equilibrium_glide",
+    )
+
+    rng = np.random.default_rng(2026)
+    X = rng.random((4, p.n_var))
+
+    new = p._run_batch(X)  # run_grid path
+
+    # OLD reference: per-seed run_batch + compute_cost + RMS across seeds.
+    param_dicts = decode_normalized_array(X, specs)
+    seed_costs = []
+    for seed in seeds:
+        ovr_list = [p._build_overrides(d, mc_seed=seed) for d in param_dicts]
+        res = aero.run_batch(toml, ovr_list, n_threads=None, include_trajectories=False)
+        frs = res.final_records
+        seed_costs.append(
+            np.array(
+                [compute_cost(fr.reshape(1, FINAL_RECORD_LEN), **cost_kwargs) for fr in frs],
+                dtype=np.float64,
+            )
+        )
+    old = np.sqrt(np.mean(np.stack(seed_costs, axis=0) ** 2, axis=0))
+
+    np.testing.assert_array_equal(new, old)

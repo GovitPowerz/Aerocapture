@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -99,65 +100,60 @@ class AerocaptureProblem(Problem):
         n_pop: int,
         X: npt.NDArray[np.float64] | None = None,
     ) -> npt.NDArray[np.float64]:
-        """Evaluate population via PyO3 run_batch, one call per seed, aggregate by RMS."""
-        seed_costs: list[npt.NDArray[np.float64]] = []
+        """Evaluate the population via one GIL-releasing run_grid call (all seeds),
+        aggregating costs by RMS across the seed axis (bit-identical to the old
+        per-seed run_batch loop)."""
+        # Per-individual overrides WITHOUT the seed/n_sims keys (run_grid owns the
+        # seed axis). For NN schemes, NN-weight keys are skipped (carried in-memory).
+        overrides_list = [self._build_grid_overrides(p) for p in param_dicts]
 
-        # For NN: write temp JSON files for each individual, override data.neural_network path.
-        # Weights must be in layer order (matching ParamSpec generation order from
-        # nn_param_specs_from_architecture), so we decode directly from the normalized X
-        # rows rather than sorting dict keys alphabetically.
-        nn_tmp_paths: list[Path] | None = None
+        weights = None
+        architecture_json = None
+        input_mask = None
+        output_param = None
+        scaled_pi_n = None
+        delta_max = None
         if self.scheme == "neural_network" and self.nn_config is not None and X is not None:
             from aerocapture.training.config import NetworkConfig
+            from aerocapture.training.evaluate import build_v2_architecture
 
             nn_cfg = self.nn_config
             assert isinstance(nn_cfg, NetworkConfig)
-            nn_tmp_paths = []
             n_w = self._n_nn_weight_specs
-            for i in range(n_pop):
-                # Decode normalized [0,1] to physical weight values in spec order.
-                # Cap at n_w so the scaffolding-tail (when scaffolding != "off")
-                # is excluded — those go into TOML overrides via _build_overrides,
-                # not into the NN JSON.
-                weights = np.array(
-                    [self.param_specs[j].p_min + float(X[i, j]) * (self.param_specs[j].p_max - self.param_specs[j].p_min) for j in range(n_w)],
-                    dtype=np.float64,
-                )
-                fd, tmp_str = tempfile.mkstemp(suffix=".json", prefix=f"nn_{i}_")
-                os.close(fd)
-                tmp = Path(tmp_str)
-                write_nn_json(weights, nn_cfg, tmp, input_mask=nn_cfg.input_mask, output_param=nn_cfg.output_parameterization)
-                nn_tmp_paths.append(tmp)
+            # Decode normalized [0,1] -> physical weights, in ParamSpec order,
+            # capped at n_w (scaffolding tail goes to TOML overrides, not the NN).
+            lo = np.array([self.param_specs[j].p_min for j in range(n_w)], dtype=np.float64)
+            hi = np.array([self.param_specs[j].p_max for j in range(n_w)], dtype=np.float64)
+            weights = (lo + X[:, :n_w] * (hi - lo)).astype(np.float64)  # (n_pop, n_w)
+            architecture_json = json.dumps(build_v2_architecture(nn_cfg))
+            input_mask = nn_cfg.input_mask
+            output_param = nn_cfg.output_parameterization
+            scaled_pi_n = getattr(nn_cfg, "scaled_pi_n", 1.0)
+            delta_max = getattr(nn_cfg, "delta_max", 0.35)
 
-        try:
-            for seed in self.seeds:
-                overrides_list = [self._build_overrides(p, mc_seed=seed) for p in param_dicts]
-                # For NN: inject temp JSON path into each override dict
-                if nn_tmp_paths is not None:
-                    for i, ovr in enumerate(overrides_list):
-                        ovr["data.neural_network"] = str(nn_tmp_paths[i])
-                result = aero_rs.run_batch(  # type: ignore[union-attr, attr-defined]
-                    self.toml_path,
-                    overrides_list,
-                    n_threads=None,
-                    include_trajectories=False,
-                    sim_timeout_secs=self.sim_timeout,
-                )
-                final_records = result.final_records  # list of (52,) arrays
-                per_run_costs = np.array(
-                    [compute_cost(fr.reshape(1, FINAL_RECORD_LEN), **self.cost_kwargs) for fr in final_records],
-                    dtype=np.float64,
-                )
-                seed_costs.append(per_run_costs)
-        finally:
-            # Clean up temp NN JSON files
-            if nn_tmp_paths is not None:
-                for p in nn_tmp_paths:
-                    p.unlink(missing_ok=True)
+        grid = np.asarray(
+            aero_rs.run_grid(  # type: ignore[union-attr, attr-defined]
+                self.toml_path,
+                overrides_list,
+                [int(s) for s in self.seeds],
+                weights=weights,
+                architecture_json=architecture_json,
+                input_mask=input_mask,
+                output_param=output_param,
+                scaled_pi_n=scaled_pi_n,
+                delta_max=delta_max,
+                n_threads=None,
+                sim_timeout_secs=self.sim_timeout,
+            ),
+            dtype=np.float64,
+        )  # (n_pop, n_seeds, FINAL_RECORD_LEN)
 
-        # RMS across seeds for each individual
-        stacked = np.stack(seed_costs, axis=0)  # (n_seeds, n_pop)
-        rms: npt.NDArray[np.float64] = np.sqrt(np.mean(stacked**2, axis=0))
+        n_seeds = len(self.seeds)
+        costs = np.empty((n_pop, n_seeds), dtype=np.float64)
+        for i in range(n_pop):
+            for k in range(n_seeds):
+                costs[i, k] = compute_cost(grid[i, k].reshape(1, FINAL_RECORD_LEN), **self.cost_kwargs)
+        rms: npt.NDArray[np.float64] = np.sqrt(np.mean(costs**2, axis=1))
         return rms
 
     def evaluate_individual_per_seed(
@@ -315,4 +311,17 @@ class AerocaptureProblem(Problem):
         # Always n_sims=1: each run_batch call evaluates one individual on one seed.
         overrides["simulation.n_sims"] = 1
 
+        return overrides
+
+    def _build_grid_overrides(self, params: dict[str, float]) -> dict[str, object]:
+        """Route param dict to TOML dot-path overrides for run_grid (no seed /
+        n_sims keys -- run_grid owns the seed axis and runs one sim per cell)."""
+        overrides: dict[str, object] = {}
+        skip_nn_weights = self.scheme == "neural_network" and self.nn_config is not None
+        for key, value in params.items():
+            if skip_nn_weights and not key.startswith(SCAFFOLDING_PREFIXES):
+                continue
+            if key in self._integer_params:
+                value = int(round(value))
+            overrides[route_param_path(key, self.scheme)] = value
         return overrides
