@@ -82,6 +82,13 @@ _FR_INTEGRATED_FLUX = 28
 _FR_BANK_CONSUMPTION = 45
 _FR_INCL_ERR = 46
 
+
+def is_captured(final_records: npt.NDArray[np.float64]) -> npt.NDArray[np.bool_]:
+    """Canonical captured definition: exited atmosphere (ifinal==3) on a bound orbit (ecc<1)."""
+    result: npt.NDArray[np.bool_] = (final_records[:, _FR_IFINAL] == 3) & (final_records[:, _FR_ECC] < 1.0)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Dispersion field labels (26 fields, matches Rust DispersionDraw::to_array() order)
 # ---------------------------------------------------------------------------
@@ -521,10 +528,8 @@ def classify_trajectories(
     n = len(final_records)
     classification = np.full(n, TRAJ_FAILED, dtype=np.int8)
 
-    ifinal = final_records[:, _FR_IFINAL]
-    ecc = final_records[:, _FR_ECC]
     # Captured = exited atmosphere (ifinal=3) on a bound orbit (ecc < 1)
-    captured = (ifinal == 3) & (ecc < 1.0)
+    captured = is_captured(final_records)
     classification[captured] = TRAJ_OK
 
     # Downgrade captured trajectories that violate constraints
@@ -933,7 +938,7 @@ def chart_cost_objective(
 # ---------------------------------------------------------------------------
 def chart_dv_distribution(final_records: npt.NDArray[np.float64], output: Path) -> None:
     """Panel 15: Total DV histogram (log10 x) with CDF overlay and percentile markers. Captured only."""
-    captured = (final_records[:, _FR_IFINAL] == 3) & (final_records[:, _FR_ECC] < 1.0)
+    captured = is_captured(final_records)
     if not np.any(captured):
         fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
         ax.text(0.5, 0.5, "No captured trajectories", ha="center", va="center", transform=ax.transAxes, fontsize=12, color="grey")
@@ -983,7 +988,7 @@ def chart_dv_distribution(final_records: npt.NDArray[np.float64], output: Path) 
 # ---------------------------------------------------------------------------
 def chart_dv_individual_burns(final_records: npt.NDArray[np.float64], output: Path) -> None:
     """Panel 16: 3-row subplot histograms for |dv1|, |dv2|, |dv3| on log10 x-axis. Captured only."""
-    captured = (final_records[:, _FR_IFINAL] == 3) & (final_records[:, _FR_ECC] < 1.0)
+    captured = is_captured(final_records)
     if not np.any(captured):
         fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
         ax.text(0.5, 0.5, "No captured trajectories", ha="center", va="center", transform=ax.transAxes, fontsize=12, color="grey")
@@ -1060,9 +1065,7 @@ def chart_exit_conditions(final_records: npt.NDArray[np.float64], output: Path) 
     sizes = np.log10(dv) * 10  # scale for visibility
     sizes = np.clip(sizes, 5, 100)
 
-    ifinal = final_records[:, _FR_IFINAL]
-    ecc = final_records[:, _FR_ECC]
-    captured = (ifinal == 3) & (ecc < 1.0)
+    captured = is_captured(final_records)
 
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
     if np.any(captured):

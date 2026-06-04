@@ -209,9 +209,7 @@ def compute_eval_summary(
     """
     from aerocapture.training.evaluate import compute_cost
 
-    ecc = final_records[:, charts._FR_ECC]
-    ifinal = final_records[:, charts._FR_IFINAL]
-    captured_mask = (ifinal == 3) & (ecc < 1.0)
+    captured_mask = charts.is_captured(final_records)
     n_captured = int(np.sum(captured_mask))
     cap = final_records[captured_mask]
 
@@ -418,9 +416,7 @@ def _build_summary_table(
     Adds constraint violation rates when limits are provided.
     """
     n_total = len(final_records)
-    ecc = final_records[:, charts._FR_ECC]
-    ifinal = final_records[:, charts._FR_IFINAL]
-    captured = (ifinal == 3) & (ecc < 1.0)  # only AtmosphereExit on bound orbit
+    captured = charts.is_captured(final_records)  # only AtmosphereExit on bound orbit
     cap_data = final_records[captured]
 
     if len(cap_data) == 0:
@@ -638,9 +634,7 @@ def _find_best_trajectory(
     trajectories: list[npt.NDArray[np.float64]],
 ) -> npt.NDArray[np.float64] | None:
     """Find the trajectory with the lowest total DV among captured cases."""
-    ecc = final_records[:, charts._FR_ECC]
-    ifinal = final_records[:, charts._FR_IFINAL]
-    captured_indices = np.where((ifinal == 3) & (ecc < 1.0))[0]
+    captured_indices = np.where(charts.is_captured(final_records))[0]
     if len(captured_indices) == 0:
         return None
     dv = final_records[captured_indices, charts._FR_DV_TOTAL]

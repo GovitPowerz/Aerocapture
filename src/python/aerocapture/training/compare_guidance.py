@@ -24,6 +24,7 @@ from typing import Any
 
 import numpy as np
 
+from aerocapture.training import charts
 from aerocapture.training.evaluate import compute_cost
 
 SCHEMES = [
@@ -248,9 +249,7 @@ def run_scheme(
     final = _parse_final_to_legacy_array(final_file)
     if final is None or len(final) == 0:
         return None
-    ecc = final[:, 9]
-    ifinal = final[:, 31]
-    captured = (ifinal == 3) & (ecc < 1.0)
+    captured = charts.is_captured(final)
 
     metrics: dict = {
         "n_sims": len(final),

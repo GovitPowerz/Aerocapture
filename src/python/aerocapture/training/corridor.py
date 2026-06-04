@@ -72,7 +72,7 @@ def classify_trajectories(
 
     # Step 3: atmosphere exit (ifinal == 3)
     atm_exit = ifinal == 3.0
-    captured = atm_exit & (ecc < 1.0) & (energy < 0.0)
+    captured = atm_exit & (ecc < 1.0) & (energy < 0.0)  # NOTE: stricter than charts.is_captured (adds energy<0) -- intentional.
 
     # Hyperbolic: atmosphere exit but not captured
     hyperbolic = atm_exit & ~captured & ~crash & ~timeout
