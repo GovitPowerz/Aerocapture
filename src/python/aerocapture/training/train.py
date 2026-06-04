@@ -843,6 +843,166 @@ def _emit_warm_start_artifacts(
         print(f"  [warm_start] WARNING: report rendering failed: {type(e).__name__}: {e}")
 
 
+def _build_initial_population(
+    resumed: dict | None,
+    config: TrainingConfig,
+    param_specs: list[ParamSpec],
+    seed_weights: npt.NDArray[np.float64] | None,
+    problem: AerocaptureProblem,
+    val_seeds: list[int] | None,
+    base_mc_seed: int,
+    rng: np.random.Generator,
+    verbose: bool,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64] | None]:
+    """Build the initial population (resume / v1-NN / v2-NN / non-NN), incl. the warm-start chromosome path. Returns (pop_array, pop_costs).
+
+    CRITICAL: in the warm-start branch this MUTATES `param_specs` IN PLACE
+    (param_specs[j] = warm_weight_specs[j]) so the caller's AerocaptureProblem --
+    which holds the same list reference -- decodes under the warm-start bounds.
+    The list object must NOT be reassigned; only its elements are overwritten.
+    """
+    # Recomputed here (formerly set in the param-spec block) for the v2-NN
+    # population-build branch below; both are pure functions of config.
+    warm_start_active = bool(config.network.warm_start_from) or config.warm_start.enabled
+    bound_mult = config.warm_start.bound_multiplier if warm_start_active else 2.0
+
+    # Create initial population
+    if resumed is not None:
+        pop_array = resumed["population"]
+        pop_costs = resumed["costs"]
+        # Ensure pop_array is float64 (legacy checkpoints may have int8)
+        if pop_array.dtype != np.float64:
+            pop_array = pop_array.astype(np.float64)
+        _check_resume_chromosome_shape(pop_array, expected_n_params=len(param_specs))
+        if config.optimizer.n_pop != pop_array.shape[0]:
+            from aerocapture.training.population import resize_population  # noqa: PLC0415
+
+            if verbose:
+                print(f"  Resizing resumed population {pop_array.shape[0]} -> {config.optimizer.n_pop}")
+            pop_array = resize_population(
+                pop_array,
+                pop_costs,
+                config.optimizer.n_pop,
+                rng,
+                fresh_fraction=config.optimizer.grow_fresh_fraction,
+            )
+            pop_costs = None  # force a single re-eval of the resized pop
+    else:
+        if config.guidance_type == "neural_network" and config.network.architecture is None:
+            # v1 dense-only NN: existing activation-aware Xavier/He/LeCun init.
+            pop_array = create_nn_initial_population(
+                config.network.layer_sizes,
+                config.network.activations,
+                config.optimizer.n_pop,
+                rng,
+                seed_weights=seed_weights,
+            )
+        elif config.guidance_type == "neural_network" and config.network.architecture is not None:
+            # v2 heterogeneous NN: per-layer activation-aware init with LSTM forget-bias-1.
+            scaffolding_slab = None
+            if config.network.scaffolding != "off":
+                from aerocapture.training.param_spaces import active_scaffolding_specs
+
+                _slab_pack = active_scaffolding_specs(config.network.scaffolding)
+                if config.network.scaffolding == "full":
+                    # full pack is seeded from FTC's best_params.json (FTC's bounds,
+                    # FTC's optimum). warm_start_from is independent -- it points at
+                    # a behavioural-cloning source, not a scaffolding source.
+                    scaffolding_slab = build_scaffolding_initial_slab(
+                        "training_output/ftc/best_params.json",
+                        list(_slab_pack),
+                        config.optimizer.n_pop,
+                        rng,
+                        jitter=config.warm_start.jitter,
+                    )
+                else:
+                    # live pack: 3 params seeded from their defaults, no FTC dep.
+                    scaffolding_slab = build_default_scaffolding_slab(
+                        list(_slab_pack),
+                        config.optimizer.n_pop,
+                        rng,
+                        jitter=config.warm_start.jitter,
+                    )
+
+            if warm_start_active:
+                from aerocapture.training.warm_start import WARM_START_SEED_OFFSET, build_warm_start_chromosome
+
+                # Build the periodic in-training eval callback. When
+                # `[warm_start] eval_interval > 0`, this fires every N epochs
+                # AND on the final epoch (see _chunked_bptt_train) -- writes
+                # the current policy to a temp NN JSON, runs MC on BOTH the
+                # warm-start seed pool and the reserved validation pool, and
+                # prints two detailed stats blocks to stdout. Only built when
+                # the user actually opted in to avoid pointless MC work.
+                warm_eval_callback = None
+                if config.warm_start.eval_interval > 0 and val_seeds is not None:
+                    warm_seeds_for_eval = make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, config.warm_start.n_warm_seeds)
+                    warm_eval_callback = _make_warm_start_eval_callback(
+                        problem=problem,
+                        config=config,
+                        warm_seeds=warm_seeds_for_eval,
+                        val_seeds=val_seeds,
+                    )
+
+                warm_chromo, warm_weight_specs = build_warm_start_chromosome(
+                    cfg=config,
+                    base_mc_seed=base_mc_seed,
+                    eval_callback=warm_eval_callback,
+                )
+                from aerocapture.training.param_spaces import active_scaffolding_specs
+
+                n_scaff = len(active_scaffolding_specs(config.network.scaffolding))
+                n_weights = len(warm_chromo) - n_scaff
+                # Propagate the warm-start bounds back into param_specs so PSO/GA/DE
+                # decode chromosomes under the same bounds they were encoded with.
+                # ParamSpec is frozen; replace entries in-place so Problem (which
+                # holds a reference to the same list) sees the new bounds at decode
+                # time. Length is preserved -- only the NN-weight slab [0..n_weights)
+                # is rewritten; scaffolding tail stays untouched.
+                assert len(warm_weight_specs) == n_weights, f"warm_weight_specs length ({len(warm_weight_specs)}) != n_weights ({n_weights})"
+                for j in range(n_weights):
+                    param_specs[j] = warm_weight_specs[j]
+                pop_array = _seed_initial_population(
+                    algorithm_name=config.optimizer.algorithm,
+                    chromosome=warm_chromo,
+                    n_pop=config.optimizer.n_pop,
+                    jitter=config.warm_start.jitter,
+                    rng=rng,
+                    n_weights=n_weights,
+                )
+                if scaffolding_slab is not None:
+                    pop_array[:, n_weights:] = scaffolding_slab
+                    # Restore row 0's scaffolding tail so the warm-start
+                    # chromosome is present un-jittered in the initial
+                    # population. The slab overwrite above replaced row 0's tail
+                    # with jittered values ("full": FTC-seeded via
+                    # build_scaffolding_initial_slab; "live": default-seeded via
+                    # build_default_scaffolding_slab). The warm-start chromosome
+                    # encodes the un-jittered center directly, so we copy it back.
+                    pop_array[0, n_weights:] = warm_chromo[n_weights:]
+
+                _emit_warm_start_artifacts(config, base_mc_seed, problem, val_seeds, warm_chromo, warm_weight_specs, verbose)
+            else:
+                pop_array = build_initial_population_for_v2(
+                    config.network.architecture,
+                    config.optimizer.n_pop,
+                    bound_multiplier=bound_mult,
+                    rng=rng,
+                    param_specs=param_specs,
+                    scaffolding_slab=scaffolding_slab,
+                )
+        else:
+            # Non-NN scheme: uniform [0, 1] with ParamSpec-defaults seeding.
+            pop_array = create_initial_population(
+                param_specs,
+                config.optimizer.n_pop,
+                rng,
+            )
+        pop_costs = None  # Will be evaluated by pymoo
+
+    return pop_array, pop_costs
+
+
 def train(
     config: TrainingConfig | None = None,
     seed: int | None = None,
@@ -936,11 +1096,6 @@ def train(
         )
 
     param_specs, n_params = _setup_param_specs(config, _toml, verbose)
-
-    # Recomputed here (formerly set inside the now-extracted param-spec block)
-    # for the v2-NN population-build branch below; both are pure functions of config.
-    warm_start_active = bool(config.network.warm_start_from) or config.warm_start.enabled
-    bound_mult = config.warm_start.bound_multiplier if warm_start_active else 2.0
 
     # Compute config hash for experiment grouping
     config_hash = hashlib.sha256(repr(config).encode()).hexdigest()[:12]
@@ -1077,139 +1232,7 @@ def train(
         )
         problem.update_seeds(fixed_seeds)
 
-    # Create initial population
-    if resumed is not None:
-        pop_array = resumed["population"]
-        pop_costs = resumed["costs"]
-        # Ensure pop_array is float64 (legacy checkpoints may have int8)
-        if pop_array.dtype != np.float64:
-            pop_array = pop_array.astype(np.float64)
-        _check_resume_chromosome_shape(pop_array, expected_n_params=len(param_specs))
-        if config.optimizer.n_pop != pop_array.shape[0]:
-            from aerocapture.training.population import resize_population  # noqa: PLC0415
-
-            if verbose:
-                print(f"  Resizing resumed population {pop_array.shape[0]} -> {config.optimizer.n_pop}")
-            pop_array = resize_population(
-                pop_array,
-                pop_costs,
-                config.optimizer.n_pop,
-                rng,
-                fresh_fraction=config.optimizer.grow_fresh_fraction,
-            )
-            pop_costs = None  # force a single re-eval of the resized pop
-    else:
-        if config.guidance_type == "neural_network" and config.network.architecture is None:
-            # v1 dense-only NN: existing activation-aware Xavier/He/LeCun init.
-            pop_array = create_nn_initial_population(
-                config.network.layer_sizes,
-                config.network.activations,
-                config.optimizer.n_pop,
-                rng,
-                seed_weights=seed_weights,
-            )
-        elif config.guidance_type == "neural_network" and config.network.architecture is not None:
-            # v2 heterogeneous NN: per-layer activation-aware init with LSTM forget-bias-1.
-            scaffolding_slab = None
-            if config.network.scaffolding != "off":
-                from aerocapture.training.param_spaces import active_scaffolding_specs
-
-                _slab_pack = active_scaffolding_specs(config.network.scaffolding)
-                if config.network.scaffolding == "full":
-                    # full pack is seeded from FTC's best_params.json (FTC's bounds,
-                    # FTC's optimum). warm_start_from is independent -- it points at
-                    # a behavioural-cloning source, not a scaffolding source.
-                    scaffolding_slab = build_scaffolding_initial_slab(
-                        "training_output/ftc/best_params.json",
-                        list(_slab_pack),
-                        config.optimizer.n_pop,
-                        rng,
-                        jitter=config.warm_start.jitter,
-                    )
-                else:
-                    # live pack: 3 params seeded from their defaults, no FTC dep.
-                    scaffolding_slab = build_default_scaffolding_slab(
-                        list(_slab_pack),
-                        config.optimizer.n_pop,
-                        rng,
-                        jitter=config.warm_start.jitter,
-                    )
-
-            if warm_start_active:
-                from aerocapture.training.warm_start import WARM_START_SEED_OFFSET, build_warm_start_chromosome
-
-                # Build the periodic in-training eval callback. When
-                # `[warm_start] eval_interval > 0`, this fires every N epochs
-                # AND on the final epoch (see _chunked_bptt_train) -- writes
-                # the current policy to a temp NN JSON, runs MC on BOTH the
-                # warm-start seed pool and the reserved validation pool, and
-                # prints two detailed stats blocks to stdout. Only built when
-                # the user actually opted in to avoid pointless MC work.
-                warm_eval_callback = None
-                if config.warm_start.eval_interval > 0 and val_seeds is not None:
-                    warm_seeds_for_eval = make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, config.warm_start.n_warm_seeds)
-                    warm_eval_callback = _make_warm_start_eval_callback(
-                        problem=problem,
-                        config=config,
-                        warm_seeds=warm_seeds_for_eval,
-                        val_seeds=val_seeds,
-                    )
-
-                warm_chromo, warm_weight_specs = build_warm_start_chromosome(
-                    cfg=config,
-                    base_mc_seed=base_mc_seed,
-                    eval_callback=warm_eval_callback,
-                )
-                from aerocapture.training.param_spaces import active_scaffolding_specs
-
-                n_scaff = len(active_scaffolding_specs(config.network.scaffolding))
-                n_weights = len(warm_chromo) - n_scaff
-                # Propagate the warm-start bounds back into param_specs so PSO/GA/DE
-                # decode chromosomes under the same bounds they were encoded with.
-                # ParamSpec is frozen; replace entries in-place so Problem (which
-                # holds a reference to the same list) sees the new bounds at decode
-                # time. Length is preserved -- only the NN-weight slab [0..n_weights)
-                # is rewritten; scaffolding tail stays untouched.
-                assert len(warm_weight_specs) == n_weights, f"warm_weight_specs length ({len(warm_weight_specs)}) != n_weights ({n_weights})"
-                for j in range(n_weights):
-                    param_specs[j] = warm_weight_specs[j]
-                pop_array = _seed_initial_population(
-                    algorithm_name=config.optimizer.algorithm,
-                    chromosome=warm_chromo,
-                    n_pop=config.optimizer.n_pop,
-                    jitter=config.warm_start.jitter,
-                    rng=rng,
-                    n_weights=n_weights,
-                )
-                if scaffolding_slab is not None:
-                    pop_array[:, n_weights:] = scaffolding_slab
-                    # Restore row 0's scaffolding tail so the warm-start
-                    # chromosome is present un-jittered in the initial
-                    # population. The slab overwrite above replaced row 0's tail
-                    # with jittered values ("full": FTC-seeded via
-                    # build_scaffolding_initial_slab; "live": default-seeded via
-                    # build_default_scaffolding_slab). The warm-start chromosome
-                    # encodes the un-jittered center directly, so we copy it back.
-                    pop_array[0, n_weights:] = warm_chromo[n_weights:]
-
-                _emit_warm_start_artifacts(config, base_mc_seed, problem, val_seeds, warm_chromo, warm_weight_specs, verbose)
-            else:
-                pop_array = build_initial_population_for_v2(
-                    config.network.architecture,
-                    config.optimizer.n_pop,
-                    bound_multiplier=bound_mult,
-                    rng=rng,
-                    param_specs=param_specs,
-                    scaffolding_slab=scaffolding_slab,
-                )
-        else:
-            # Non-NN scheme: uniform [0, 1] with ParamSpec-defaults seeding.
-            pop_array = create_initial_population(
-                param_specs,
-                config.optimizer.n_pop,
-                rng,
-            )
-        pop_costs = None  # Will be evaluated by pymoo
+    pop_array, pop_costs = _build_initial_population(resumed, config, param_specs, seed_weights, problem, val_seeds, base_mc_seed, rng, verbose)
 
     # CMA-ES + warm-start: shrink the initial step size. Applied unconditionally
     # (independent of resume vs fresh start) so the checkpointed CMA-ES sigma
