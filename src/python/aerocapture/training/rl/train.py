@@ -150,20 +150,14 @@ def _describe_rl_architecture(cfg: RLConfig) -> None:
     adds the chain check (layer i output -> layer i+1 input) and prints a
     human-readable summary for operator feedback at training start.
     """
-    from aerocapture.training.rl.schemas import DenseSpec, GruSpec
+    from aerocapture.training.config import _layer_output_size, describe_architecture
 
     input_mask, architecture, _input_dim = _parse_network_config(cfg)
 
-    def _in_size(s: DenseSpec | GruSpec) -> int:
-        return s.input_size
-
-    def _out_size(s: DenseSpec | GruSpec) -> int:
-        return s.output_size if isinstance(s, DenseSpec) else s.hidden_size
-
     # Chain consistency: prev.output == next.input.
     for i in range(len(architecture) - 1):
-        prev_out = _out_size(architecture[i])
-        next_in = _in_size(architecture[i + 1])
+        prev_out = _layer_output_size(architecture[i])
+        next_in = architecture[i + 1].input_size
         if prev_out != next_in:
             raise ValueError(
                 f"[network.architecture] chain mismatch at layer {i}->{i + 1}: "
@@ -171,23 +165,8 @@ def _describe_rl_architecture(cfg: RLConfig) -> None:
                 f"but layer {i + 1} ({architecture[i + 1].type}) expects input={next_in}"
             )
 
-    # Parameter count (mirrors config._layer_n_params).
-    def _n_params(s: DenseSpec | GruSpec) -> int:
-        if isinstance(s, DenseSpec):
-            return s.input_size * s.output_size + s.output_size
-        h = s.hidden_size
-        return 3 * h * s.input_size + 3 * h * h + 6 * h
-
-    total = sum(_n_params(s) for s in architecture)
-
-    lines = [f"Network architecture ({total} params):"]
-    for i, s in enumerate(architecture):
-        in_size = _in_size(s)
-        out_size = _out_size(s)
-        tail: str = s.activation if isinstance(s, DenseSpec) else f"hidden_size={s.hidden_size}"
-        lines.append(f"  layer {i}: {s.type:<6} {in_size:>4} -> {out_size:<4} {tail}")
-    lines.append(f"  input_mask: {len(input_mask)} indices")
-    print("\n".join(lines), file=sys.stderr)
+    print(describe_architecture(architecture), file=sys.stderr)
+    print(f"  input_mask: {len(input_mask)} indices", file=sys.stderr)
 
 
 def _build_shaper_and_norms(cfg: RLConfig, input_mask: list[int], gamma: float) -> tuple[StepRewardCalculator, ReturnNormalizer | None, ObsNormalizer | None]:
