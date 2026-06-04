@@ -688,6 +688,74 @@ def warm_start_algorithm(
     algorithm._set_optimum()
 
 
+def _setup_param_specs(config: TrainingConfig, _toml: dict, verbose: bool) -> tuple[list[ParamSpec], int]:
+    """Build the optimizer ParamSpec list (NN v2/v1 / piecewise / scheme table + scaffolding tail). Returns (param_specs, n_params)."""
+    # Build parameter specifications
+    from aerocapture.training.param_spaces import PARAM_SPACES
+
+    if config.guidance_type == "neural_network":
+        if config.network.architecture is not None:
+            from pydantic import TypeAdapter
+
+            from aerocapture.training.rl.schemas import LayerSpec
+
+            specs_adapter = TypeAdapter(list[LayerSpec])
+            validated = specs_adapter.validate_python(config.network.architecture)
+            # bound_multiplier=2.0 matches create_nn_initial_population's Phase 1
+            # convention AND build_initial_population_for_v2 below. Keeping them
+            # aligned avoids ~49% boundary-saturation on the initial PSO population.
+            # When warm-start is on, use the wider [warm_start] bound_multiplier
+            # (default 4.0) so the search space envelops the warm-started chromosome's
+            # post-supervised-training drift past Xavier bounds.
+            warm_start_active = bool(config.network.warm_start_from) or config.warm_start.enabled
+            bound_mult = config.warm_start.bound_multiplier if warm_start_active else 2.0
+            param_specs = nn_param_specs_from_v2(validated, bound_multiplier=bound_mult)
+        else:
+            param_specs = nn_param_specs_from_architecture(
+                config.network.layer_sizes,
+                config.network.activations,
+            )
+
+        if config.network.scaffolding != "off":
+            if config.network.architecture is None:
+                msg = "scaffolding != 'off' requires v2 [[network.architecture]]; v1 layer_sizes/activations is not supported. Convert your config."
+                raise ValueError(msg)
+            from aerocapture.training.param_spaces import active_scaffolding_specs
+
+            param_specs = [*param_specs, *active_scaffolding_specs(config.network.scaffolding)]
+            if verbose:
+                if config.network.scaffolding == "live":
+                    print("scaffolding optimization: LIVE — 3 params (nav density filter ×2, command shaping); no FTC dependency")
+                else:  # full
+                    print("scaffolding optimization: FULL — 17 params, seeded from training_output/ftc/best_params.json")
+        else:
+            if verbose and config.network.architecture is not None:
+                print("scaffolding optimization: OFF — NN weights only")
+    elif config.guidance_type == "piecewise_constant":
+        from aerocapture.training.param_spaces import make_piecewise_constant_specs
+
+        n_segments = _resolve_piecewise_n_segments(_toml)
+        param_specs = make_piecewise_constant_specs(n_segments)
+        if verbose:
+            pc = _toml.get("guidance", {}).get("piecewise_constant", {})
+            e_min = float(pc.get("energy_min", -6.0))
+            e_max = float(pc.get("energy_max", 5.0))
+            seg_width = (e_max - e_min) / n_segments if n_segments > 0 else float("nan")
+            initial = pc.get("bank_angles")
+            init_label = f"seeded from TOML bank_angles ({len(initial)} values)" if initial is not None else "GA-initialized (no TOML bank_angles)"
+            n_shaping = len(param_specs) - n_segments
+            print(
+                f"piecewise_constant: {n_segments} segments over E in [{e_min:.2f}, {e_max:.2f}] MJ/kg "
+                f"(width {seg_width:.3f} MJ/kg), {init_label}; "
+                f"chromosome = {n_segments} bank + {n_shaping} shaping = {len(param_specs)} params"
+            )
+    else:
+        param_specs = PARAM_SPACES[config.guidance_type]
+
+    n_params = len(param_specs)
+    return param_specs, n_params
+
+
 def train(
     config: TrainingConfig | None = None,
     seed: int | None = None,
@@ -780,69 +848,12 @@ def train(
             rng=rng,
         )
 
-    # Build parameter specifications
-    from aerocapture.training.param_spaces import PARAM_SPACES
+    param_specs, n_params = _setup_param_specs(config, _toml, verbose)
 
-    if config.guidance_type == "neural_network":
-        if config.network.architecture is not None:
-            from pydantic import TypeAdapter
-
-            from aerocapture.training.rl.schemas import LayerSpec
-
-            specs_adapter = TypeAdapter(list[LayerSpec])
-            validated = specs_adapter.validate_python(config.network.architecture)
-            # bound_multiplier=2.0 matches create_nn_initial_population's Phase 1
-            # convention AND build_initial_population_for_v2 below. Keeping them
-            # aligned avoids ~49% boundary-saturation on the initial PSO population.
-            # When warm-start is on, use the wider [warm_start] bound_multiplier
-            # (default 4.0) so the search space envelops the warm-started chromosome's
-            # post-supervised-training drift past Xavier bounds.
-            warm_start_active = bool(config.network.warm_start_from) or config.warm_start.enabled
-            bound_mult = config.warm_start.bound_multiplier if warm_start_active else 2.0
-            param_specs = nn_param_specs_from_v2(validated, bound_multiplier=bound_mult)
-        else:
-            param_specs = nn_param_specs_from_architecture(
-                config.network.layer_sizes,
-                config.network.activations,
-            )
-
-        if config.network.scaffolding != "off":
-            if config.network.architecture is None:
-                msg = "scaffolding != 'off' requires v2 [[network.architecture]]; v1 layer_sizes/activations is not supported. Convert your config."
-                raise ValueError(msg)
-            from aerocapture.training.param_spaces import active_scaffolding_specs
-
-            param_specs = [*param_specs, *active_scaffolding_specs(config.network.scaffolding)]
-            if verbose:
-                if config.network.scaffolding == "live":
-                    print("scaffolding optimization: LIVE — 3 params (nav density filter ×2, command shaping); no FTC dependency")
-                else:  # full
-                    print("scaffolding optimization: FULL — 17 params, seeded from training_output/ftc/best_params.json")
-        else:
-            if verbose and config.network.architecture is not None:
-                print("scaffolding optimization: OFF — NN weights only")
-    elif config.guidance_type == "piecewise_constant":
-        from aerocapture.training.param_spaces import make_piecewise_constant_specs
-
-        n_segments = _resolve_piecewise_n_segments(_toml)
-        param_specs = make_piecewise_constant_specs(n_segments)
-        if verbose:
-            pc = _toml.get("guidance", {}).get("piecewise_constant", {})
-            e_min = float(pc.get("energy_min", -6.0))
-            e_max = float(pc.get("energy_max", 5.0))
-            seg_width = (e_max - e_min) / n_segments if n_segments > 0 else float("nan")
-            initial = pc.get("bank_angles")
-            init_label = f"seeded from TOML bank_angles ({len(initial)} values)" if initial is not None else "GA-initialized (no TOML bank_angles)"
-            n_shaping = len(param_specs) - n_segments
-            print(
-                f"piecewise_constant: {n_segments} segments over E in [{e_min:.2f}, {e_max:.2f}] MJ/kg "
-                f"(width {seg_width:.3f} MJ/kg), {init_label}; "
-                f"chromosome = {n_segments} bank + {n_shaping} shaping = {len(param_specs)} params"
-            )
-    else:
-        param_specs = PARAM_SPACES[config.guidance_type]
-
-    n_params = len(param_specs)
+    # Recomputed here (formerly set inside the now-extracted param-spec block)
+    # for the v2-NN population-build branch below; both are pure functions of config.
+    warm_start_active = bool(config.network.warm_start_from) or config.warm_start.enabled
+    bound_mult = config.warm_start.bound_multiplier if warm_start_active else 2.0
 
     # Compute config hash for experiment grouping
     config_hash = hashlib.sha256(repr(config).encode()).hexdigest()[:12]
