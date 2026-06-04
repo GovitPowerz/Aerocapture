@@ -323,15 +323,16 @@ def _read_mission_name(toml_path: Path) -> str:
     return planet
 
 
-def _read_constraint_limits(toml_path: Path) -> tuple[float | None, float | None]:
-    """Read heat flux and g-load limits from TOML [flight.constraints] section."""
+def _read_constraint_limits(toml_path: Path) -> tuple[float | None, float | None, float | None]:
+    """Read heat flux, g-load, and heat-load limits from TOML [flight.constraints]."""
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     data = load_toml_with_bases(toml_path)
     constraints = data.get("flight", {}).get("constraints", {})
     heat_flux: float | None = constraints.get("max_heat_flux")
     g_load: float | None = constraints.get("max_load_factor")
-    return heat_flux, g_load
+    heat_load: float | None = constraints.get("max_heat_load")
+    return heat_flux, g_load, heat_load
 
 
 def read_cost_kwargs(toml_path: Path) -> dict[str, Any]:
@@ -406,6 +407,7 @@ def _build_summary_table(
     final_records: npt.NDArray[np.float64],
     heat_flux_limit: float | None = None,
     g_load_limit: float | None = None,
+    heat_load_limit: float | None = None,
     cost_kwargs: dict[str, Any] | None = None,
 ) -> dict:
     """Build the performance summary table dict for Typst.
@@ -475,6 +477,10 @@ def _build_summary_table(
     if heat_flux_limit is not None:
         q_exceed = float(np.mean(all_q > heat_flux_limit) * 100)
         violation_rows.append(_row(f"Heat flux, all sims (kW/m2) — {q_exceed:.1f}% > {heat_flux_limit:.0f}", all_q))
+    if heat_load_limit is not None:
+        all_hl = final_records[:, charts._FR_INTEGRATED_FLUX] * 1e3  # MJ/m² -> kJ/m²
+        hl_exceed = float(np.mean(all_hl > heat_load_limit) * 100)
+        violation_rows.append(_row(f"Heat load, all sims (kJ/m2) — {hl_exceed:.1f}% > {heat_load_limit:.0f}", all_hl))
     # Capture rate: single value, fill remaining columns with empty strings
     cr_label = f"Capture rate: {capture_pct:.1f}% ({n_captured}/{n_total})"
     violation_rows.append([cr_label, "", "", "", "", "", "", "", "", ""])
@@ -690,8 +696,8 @@ def _generate_trajectory_charts(
 ) -> None:
     """Generate Part 2 (mission performance) SVG charts from final eval data."""
     # Load constraint limits and classify trajectories
-    heat_flux_limit, g_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None)
-    traj_class = charts.classify_trajectories(final_records, heat_flux_limit=heat_flux_limit, g_load_limit=g_load_limit)
+    heat_flux_limit, g_load_limit, heat_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None, None)
+    traj_class = charts.classify_trajectories(final_records, heat_flux_limit=heat_flux_limit, g_load_limit=g_load_limit, heat_load_limit=heat_load_limit)
 
     # Load corridor boundaries and nominal trajectories
     corridor_data = _load_corridor_data(scheme_dir) if scheme_dir is not None else None
@@ -826,9 +832,15 @@ def generate_report(
         (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
 
         # Write summary_table.json
-        heat_flux_limit, g_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None)
+        heat_flux_limit, g_load_limit, heat_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None, None)
         summary = (
-            _build_summary_table(final_records, heat_flux_limit=heat_flux_limit, g_load_limit=g_load_limit, cost_kwargs=cost_kwargs)
+            _build_summary_table(
+                final_records,
+                heat_flux_limit=heat_flux_limit,
+                g_load_limit=g_load_limit,
+                heat_load_limit=heat_load_limit,
+                cost_kwargs=cost_kwargs,
+            )
             if final_records is not None
             else {"rows": [], "violation_rows": []}
         )
@@ -888,7 +900,7 @@ def render_mission_performance_charts(
 
     Returns (has_trajectories, summary_table_dict).
     """
-    heat_flux_limit, g_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None)
+    heat_flux_limit, g_load_limit, heat_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None, None)
     _generate_trajectory_charts(
         final_records,
         trajectories,
@@ -899,7 +911,13 @@ def render_mission_performance_charts(
         sim_timeout_secs=sim_timeout_secs,
         cost_kwargs=cost_kwargs,
     )
-    summary = _build_summary_table(final_records, heat_flux_limit=heat_flux_limit, g_load_limit=g_load_limit, cost_kwargs=cost_kwargs)
+    summary = _build_summary_table(
+        final_records,
+        heat_flux_limit=heat_flux_limit,
+        g_load_limit=g_load_limit,
+        heat_load_limit=heat_load_limit,
+        cost_kwargs=cost_kwargs,
+    )
     (tmp_dir / "summary_table.json").write_text(json.dumps(summary, indent=2))
     return True, summary
 
