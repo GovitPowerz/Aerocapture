@@ -14,7 +14,7 @@ from pymoo.core.problem import Problem
 
 from aerocapture.training.encoding import decode_normalized_array
 from aerocapture.training.evaluate import compute_cost, write_nn_json
-from aerocapture.training.param_spaces import ParamSpec, active_scaffolding_specs
+from aerocapture.training.param_spaces import SCAFFOLDING_PREFIXES, ParamSpec, active_scaffolding_specs, route_param_path
 
 _MAX_CONSECUTIVE_EVAL_FAILURES = 5
 
@@ -356,35 +356,18 @@ class AerocaptureProblem(Problem):
         """
         overrides: dict[str, object] = {}
 
-        # Scaffolding routing prefixes. Anything in `params` whose key starts
-        # with one of these is a tunable scaffolding param (lateral, exit,
-        # nav, thermal, shaping). For NN schemes, anything else is treated as
-        # an NN weight and skipped (the temp JSON path carries the values).
-        _SCAFFOLDING_PREFIXES = ("lateral.", "exit.", "nav.", "thermal.", "shaping.")
+        # For NN schemes, anything that isn't a scaffolding param (lateral,
+        # exit, nav, thermal, shaping) is an NN weight and skipped — the temp
+        # JSON path carries those values.
         skip_nn_weights = self.scheme == "neural_network" and self.nn_config is not None
 
         for key, value in params.items():
-            if skip_nn_weights and not key.startswith(_SCAFFOLDING_PREFIXES):
+            if skip_nn_weights and not key.startswith(SCAFFOLDING_PREFIXES):
                 continue
             # Round integer-typed params so Rust TOML parser accepts them
             if key in self._integer_params:
                 value = int(round(value))
-            if key.startswith("lateral."):
-                overrides[f"guidance.lateral.{key.removeprefix('lateral.')}"] = value
-            elif key.startswith("exit."):
-                overrides[f"guidance.ftc.{key.removeprefix('exit.')}"] = value
-            elif key.startswith("nav."):
-                overrides[f"navigation.{key.removeprefix('nav.')}"] = value
-            elif key.startswith("thermal."):
-                overrides[f"guidance.thermal_limiter.{key.removeprefix('thermal.')}"] = value
-            elif key.startswith("shaping."):
-                overrides[f"guidance.command_shaping.{key.removeprefix('shaping.')}"] = value
-            else:
-                # Non-NN schemes route unprefixed keys to their own
-                # `guidance.{scheme}.*` block. For NN schemes this branch is
-                # unreachable (skip_nn_weights eliminated all non-prefixed
-                # keys above).
-                overrides[f"guidance.{self.scheme}.{key}"] = value
+            overrides[route_param_path(key, self.scheme)] = value
 
         if mc_seed is not None:
             overrides["monte_carlo.seed"] = mc_seed

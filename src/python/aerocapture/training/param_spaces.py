@@ -200,3 +200,28 @@ GUIDANCE_TOML_SECTIONS: dict[str, str] = {
 
 # Schemes that require a pre-computed reference trajectory
 REQUIRES_REF_TRAJECTORY: set[str] = {"energy_controller", "pred_guid", "fnpag", "ftc"}
+
+# Mapping from GA param prefix to canonical TOML section prefix.
+# Keys include the trailing dot; values include the trailing dot.
+_GUIDANCE_PREFIX_SECTIONS: dict[str, str] = {
+    "lateral.": "guidance.lateral.",
+    "exit.": "guidance.ftc.",
+    "nav.": "navigation.",
+    "thermal.": "guidance.thermal_limiter.",
+    "shaping.": "guidance.command_shaping.",
+}
+
+# Tuple of scaffolding prefixes for callers that need an `str.startswith` guard.
+SCAFFOLDING_PREFIXES: tuple[str, ...] = tuple(_GUIDANCE_PREFIX_SECTIONS)
+
+
+def route_param_path(key: str, scheme: str) -> str:
+    """Map a (possibly prefixed) GA param name to its TOML dot-path.
+
+    lateral./exit./nav./thermal./shaping. route to their fixed sections;
+    an unprefixed key routes to the scheme's own guidance.<scheme>.* block.
+    """
+    for prefix, section in _GUIDANCE_PREFIX_SECTIONS.items():
+        if key.startswith(prefix):
+            return section + key.removeprefix(prefix)
+    return f"guidance.{scheme}.{key}"

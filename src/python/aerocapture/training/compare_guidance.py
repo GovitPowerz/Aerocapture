@@ -26,6 +26,7 @@ import numpy as np
 
 from aerocapture.training import charts
 from aerocapture.training.evaluate import compute_cost
+from aerocapture.training.param_spaces import route_param_path
 
 SCHEMES = [
     "equilibrium_glide",
@@ -154,19 +155,15 @@ def run_scheme(
             with open(scaff_path) as f:
                 scaff_params = json.load(f)
             for key, value in scaff_params.items():
-                if key.startswith("lateral."):
-                    bare = key.removeprefix("lateral.")
-                    if bare == "max_reversals":
-                        value = int(round(value))
-                    toml_data["guidance"].setdefault("lateral", {})[bare] = value
-                elif key.startswith("exit."):
-                    toml_data["guidance"].setdefault("ftc", {})[key.removeprefix("exit.")] = value
-                elif key.startswith("nav."):
-                    toml_data.setdefault("navigation", {})[key.removeprefix("nav.")] = value
-                elif key.startswith("thermal."):
-                    toml_data["guidance"].setdefault("thermal_limiter", {})[key.removeprefix("thermal.")] = value
-                elif key.startswith("shaping."):
-                    toml_data["guidance"].setdefault("command_shaping", {})[key.removeprefix("shaping.")] = value
+                if key == "lateral.max_reversals":
+                    value = int(round(value))
+                dot_path = route_param_path(key, scheme)
+                parts = dot_path.split(".")
+                node = toml_data
+                for p in parts[:-1]:
+                    node = node.setdefault(p, {})
+                node[parts[-1]] = value
+                if key.startswith("shaping."):
                     toml_data["guidance"]["command_shaping"].setdefault("enabled", True)
             print(f"  Using optimized NN scaffolding from {scaff_path}")
     else:
@@ -178,27 +175,18 @@ def run_scheme(
         if params_file.exists():
             with open(params_file) as f:
                 params = json.load(f)
-            from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
-
-            section = GUIDANCE_TOML_SECTIONS[scheme]
-            # Route prefixed params to correct TOML sections (same logic as evaluate.py)
+            # Route prefixed params to correct TOML sections
             for k, v in params.items():
-                if k.startswith("lateral."):
-                    bare = k.removeprefix("lateral.")
-                    if bare == "max_reversals":
-                        v = int(round(v))
-                    toml_data["guidance"].setdefault("lateral", {})[bare] = v
-                elif k.startswith("exit."):
-                    toml_data["guidance"].setdefault("ftc", {})[k.removeprefix("exit.")] = v
-                elif k.startswith("nav."):
-                    toml_data.setdefault("navigation", {})[k.removeprefix("nav.")] = v
-                elif k.startswith("thermal."):
-                    toml_data["guidance"].setdefault("thermal_limiter", {})[k.removeprefix("thermal.")] = v
-                elif k.startswith("shaping."):
-                    toml_data["guidance"].setdefault("command_shaping", {})[k.removeprefix("shaping.")] = v
+                if k == "lateral.max_reversals":
+                    v = int(round(v))
+                dot_path = route_param_path(k, scheme)
+                parts = dot_path.split(".")
+                node = toml_data
+                for p in parts[:-1]:
+                    node = node.setdefault(p, {})
+                node[parts[-1]] = v
+                if k.startswith("shaping."):
                     toml_data["guidance"]["command_shaping"].setdefault("enabled", True)
-                else:
-                    toml_data["guidance"].setdefault(section, {})[k] = v
             print(f"  Using optimized params from {params_file}")
         else:
             print(f"  Using default params (no {params_file})")
