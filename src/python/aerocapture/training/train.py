@@ -452,8 +452,6 @@ def _make_warm_start_eval_callback(
         return compute_eval_summary(final_records, len(seeds), problem.cost_kwargs)
 
     def _callback(epoch: int, policy: Any) -> None:
-        from aerocapture.training.evaluate import _aero_rs as _aero  # noqa: PLC0415
-
         if config.network.architecture is None:
             return  # v1 dense-only warm-start cannot use the v2 callback path
 
@@ -464,14 +462,13 @@ def _make_warm_start_eval_callback(
         os.close(fd)
         tmp_path = Path(tmp_str)
         try:
-            _aero.flat_weights_to_json(
-                flat_weights.tolist(),
-                json.dumps(config.network.architecture),
-                str(tmp_path),
-                config.network.input_mask,
-                config.network.output_parameterization,
-                scaled_pi_n=config.network.scaled_pi_n,
-                delta_max=config.network.delta_max,
+            write_nn_json(
+                flat_weights,
+                config.network,
+                tmp_path,
+                input_mask=config.network.input_mask,
+                output_param=config.network.output_parameterization,
+                normalization=_resolve_config_normalization(config, None),
             )
             print()
             print(f"  [warm_start] === In-training evaluation at epoch {epoch} ===")
