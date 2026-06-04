@@ -481,6 +481,109 @@ def build_critic_from_architecture(architecture: list[Any], input_dim: int) -> V
     return ValueNetwork(input_dim, critic_hidden_sizes, critic_activations)
 
 
+def collect_rollout(
+    env: Any,
+    policy: V2Policy,
+    value: ValueNetwork,
+    buf: RolloutBuffer,
+    next_values: npt.NDArray[np.float32],
+    obs: npt.NDArray[np.float32],
+    aux_cur: npt.NDArray[np.float32],
+    *,
+    obs_norm: Any,
+    ret_norm: Any,
+    step_calc: Any,
+    cfg: RLConfig,
+    episodic_returns: list[float],
+    episodic_dvs: list[float],
+    episodic_captures: list[bool],
+) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32], int]:
+    """Collect one rollout: fill `buf` + `next_values`, append episodic_* in place.
+
+    Returns (obs, aux_cur, env_steps_delta) so the caller advances its loop state.
+    """
+    env_steps_delta = 0
+    # Hidden-state tracking: seed from previous rollout's final state.
+    h_current: list = [None if s is None else s.copy() for s in buf.h_final]
+    # Snapshot of rollout-start state for chunk 0 of the BPTT update.
+    buf.h_initial = [None if s is None else s.copy() for s in h_current]
+
+    for t in range(cfg.ppo.rollout_steps):
+        if obs_norm is not None:
+            obs_norm.update(obs)
+            obs_policy = obs_norm.normalize(obs)
+        else:
+            obs_policy = obs
+        obs_t = torch.from_numpy(obs_policy).float()
+
+        # Store the per-step pre-state so chunk c of the update loop can seed
+        # from buf.states[c * bptt_length] (same indexing contract as the spec).
+        for li, s in enumerate(h_current):
+            if s is not None:
+                states_li = buf.states[li]
+                assert states_li is not None  # layer has state <=> buf.states[li] is populated
+                states_li[t] = s
+
+        state_t = _np_state_to_torch(h_current)
+        with torch.no_grad():
+            bank, raw, log_prob, state_next = policy.sample(obs_t, state_t)
+            v_pred = value(obs_t)
+
+        actions_np = bank.cpu().numpy().astype(np.float32)
+        next_obs, _rust_reward, done, info, aux_next = env.step(actions_np)
+
+        # Terminal-obs-aware next obs: unchanged PBRS + value bootstrap logic.
+        term_obs = _terminal_observations(info, done, env.obs_dim)
+        next_obs_for_shape = np.where(done[:, None], term_obs, next_obs)
+
+        shaped = step_calc.step_reward(obs, next_obs_for_shape, aux_cur, aux_next).astype(np.float32)
+
+        for i, d in enumerate(done):
+            if d:
+                fr = np.array(info[i]["final_record"], dtype=np.float64)
+                term_cost = compute_terminal_cost(fr, cost_kwargs=step_calc.cost_kwargs)
+                shaped[i] += float(-term_cost)
+                episodic_returns.append(float(-term_cost))
+                episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
+                episodic_captures.append(bool(info[i].get("captured", False)))
+
+        if ret_norm is not None:
+            ret_norm.update(shaped.astype(np.float64), done)
+            shaped = ret_norm.normalize(shaped.astype(np.float64)).astype(np.float32)
+
+        with torch.no_grad():
+            nv_obs = term_obs.copy()
+            nv_obs = np.where(done[:, None], nv_obs, next_obs)
+            nv_obs_policy = obs_norm.normalize(nv_obs) if obs_norm is not None else nv_obs
+            nv = value(torch.from_numpy(nv_obs_policy).float()).cpu().numpy()
+
+        truncated = np.array([bool(info[i].get("truncated", False)) for i in range(cfg.n_envs)], dtype=np.bool_)
+
+        buf.obs[t] = obs
+        buf.raw_actions[t] = raw.cpu().numpy()
+        buf.log_probs[t] = log_prob.cpu().numpy()
+        buf.rewards[t] = shaped
+        buf.values[t] = v_pred.cpu().numpy()
+        buf.dones[t] = done & ~truncated
+        next_values[t] = nv
+
+        # Advance hidden state; zero per-env on done (matches Rust auto-reset).
+        h_next_np = _torch_state_to_np(state_next)
+        for li in range(len(h_current)):
+            if h_current[li] is not None:
+                h_next_np[li][done] = 0.0
+                h_current[li] = h_next_np[li]
+
+        obs = next_obs
+        aux_cur = aux_next
+        env_steps_delta += cfg.n_envs
+
+    # End of rollout: snapshot for next rollout's h_initial.
+    buf.h_final = [None if s is None else s.copy() for s in h_current]
+
+    return obs, aux_cur, env_steps_delta
+
+
 def _run_ppo(
     cfg: RLConfig,
     toml_path: Path,
@@ -603,83 +706,23 @@ def _run_ppo(
     start_time = time.time()
 
     while env_steps < cfg.total_env_steps and not interrupted["v"]:
-        # Hidden-state tracking: seed from previous rollout's final state.
-        h_current: list = [None if s is None else s.copy() for s in buf.h_final]
-        # Snapshot of rollout-start state for chunk 0 of the BPTT update.
-        buf.h_initial = [None if s is None else s.copy() for s in h_current]
-
-        for t in range(cfg.ppo.rollout_steps):
-            if obs_norm is not None:
-                obs_norm.update(obs)
-                obs_policy = obs_norm.normalize(obs)
-            else:
-                obs_policy = obs
-            obs_t = torch.from_numpy(obs_policy).float()
-
-            # Store the per-step pre-state so chunk c of the update loop can seed
-            # from buf.states[c * bptt_length] (same indexing contract as the spec).
-            for li, s in enumerate(h_current):
-                if s is not None:
-                    states_li = buf.states[li]
-                    assert states_li is not None  # layer has state <=> buf.states[li] is populated
-                    states_li[t] = s
-
-            state_t = _np_state_to_torch(h_current)
-            with torch.no_grad():
-                bank, raw, log_prob, state_next = policy.sample(obs_t, state_t)
-                v_pred = value(obs_t)
-
-            actions_np = bank.cpu().numpy().astype(np.float32)
-            next_obs, _rust_reward, done, info, aux_next = env.step(actions_np)
-
-            # Terminal-obs-aware next obs: unchanged PBRS + value bootstrap logic.
-            term_obs = _terminal_observations(info, done, env.obs_dim)
-            next_obs_for_shape = np.where(done[:, None], term_obs, next_obs)
-
-            shaped = step_calc.step_reward(obs, next_obs_for_shape, aux_cur, aux_next).astype(np.float32)
-
-            for i, d in enumerate(done):
-                if d:
-                    fr = np.array(info[i]["final_record"], dtype=np.float64)
-                    term_cost = compute_terminal_cost(fr, cost_kwargs=step_calc.cost_kwargs)
-                    shaped[i] += float(-term_cost)
-                    episodic_returns.append(float(-term_cost))
-                    episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
-                    episodic_captures.append(bool(info[i].get("captured", False)))
-
-            if ret_norm is not None:
-                ret_norm.update(shaped.astype(np.float64), done)
-                shaped = ret_norm.normalize(shaped.astype(np.float64)).astype(np.float32)
-
-            with torch.no_grad():
-                nv_obs = term_obs.copy()
-                nv_obs = np.where(done[:, None], nv_obs, next_obs)
-                nv_obs_policy = obs_norm.normalize(nv_obs) if obs_norm is not None else nv_obs
-                nv = value(torch.from_numpy(nv_obs_policy).float()).cpu().numpy()
-
-            truncated = np.array([bool(info[i].get("truncated", False)) for i in range(cfg.n_envs)], dtype=np.bool_)
-
-            buf.obs[t] = obs
-            buf.raw_actions[t] = raw.cpu().numpy()
-            buf.log_probs[t] = log_prob.cpu().numpy()
-            buf.rewards[t] = shaped
-            buf.values[t] = v_pred.cpu().numpy()
-            buf.dones[t] = done & ~truncated
-            next_values[t] = nv
-
-            # Advance hidden state; zero per-env on done (matches Rust auto-reset).
-            h_next_np = _torch_state_to_np(state_next)
-            for li in range(len(h_current)):
-                if h_current[li] is not None:
-                    h_next_np[li][done] = 0.0
-                    h_current[li] = h_next_np[li]
-
-            obs = next_obs
-            aux_cur = aux_next
-            env_steps += cfg.n_envs
-
-        # End of rollout: snapshot for next rollout's h_initial.
-        buf.h_final = [None if s is None else s.copy() for s in h_current]
+        obs, aux_cur, steps = collect_rollout(
+            env,
+            policy,
+            value,
+            buf,
+            next_values,
+            obs,
+            aux_cur,
+            obs_norm=obs_norm,
+            ret_norm=ret_norm,
+            step_calc=step_calc,
+            cfg=cfg,
+            episodic_returns=episodic_returns,
+            episodic_dvs=episodic_dvs,
+            episodic_captures=episodic_captures,
+        )
+        env_steps += steps
 
         advantages = np.zeros_like(buf.rewards)
         returns = np.zeros_like(buf.rewards)
