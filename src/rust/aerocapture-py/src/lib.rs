@@ -3,13 +3,14 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use numpy::{PyReadonlyArray2, PyUntypedArrayMethods};
+use numpy::{PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
 
 mod batch;
 mod config;
 mod env;
+mod grid;
 mod results;
 
 use aerocapture::simulation::final_record::FR_DV_TOTAL_MS;
@@ -264,6 +265,121 @@ fn run_with_draws(
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }
 
+/// Run the (n_pop x n_seeds) GA training grid in one GIL-releasing call.
+///
+/// Builds each individual's SimData once (atmosphere/wind/ref tables shared via
+/// Arc), optionally injecting in-memory NN weights (no temp JSON), then runs the
+/// full individual x seed grid in parallel. Bit-identical to looping seeds in
+/// Python with run_batch (each cell = static draw from seed_k, sim_idx=0).
+///
+/// Args:
+///     toml_path: base config path.
+///     overrides_list: list of per-individual override dicts (dotted key -> value).
+///         MUST NOT contain monte_carlo.seed or simulation.n_sims (run_grid owns those).
+///     seeds: MC seed list (the second grid axis).
+///     weights: optional (n_pop, n_weights) f64 array of NN flat weights (one row
+///         per individual). Required together with architecture_json for NN schemes.
+///     architecture_json: JSON LayerSpec list (shared across individuals).
+///     input_mask / output_param / scaled_pi_n / delta_max / normalization_json:
+///         shared NN decode knobs (mirror flat_weights_to_json).
+///     n_threads: Rayon threads (None = global pool).
+///     sim_timeout_secs: per-sim wall-clock timeout.
+///
+/// Returns:
+///     numpy.ndarray of shape (n_pop, n_seeds, FINAL_RECORD_LEN), dtype float64.
+#[pyfunction]
+#[pyo3(signature = (toml_path, overrides_list, seeds, weights=None, architecture_json=None, input_mask=None, output_param=None, scaled_pi_n=None, delta_max=None, normalization_json=None, n_threads=None, sim_timeout_secs=None))]
+#[allow(clippy::too_many_arguments)]
+fn run_grid<'py>(
+    py: Python<'py>,
+    toml_path: &str,
+    overrides_list: &Bound<'_, PyList>,
+    seeds: Vec<u64>,
+    weights: Option<PyReadonlyArray2<'_, f64>>,
+    architecture_json: Option<String>,
+    input_mask: Option<Vec<usize>>,
+    output_param: Option<String>,
+    scaled_pi_n: Option<f64>,
+    delta_max: Option<f64>,
+    normalization_json: Option<String>,
+    n_threads: Option<usize>,
+    sim_timeout_secs: Option<f64>,
+) -> PyResult<Bound<'py, numpy::PyArray3<f64>>> {
+    use aerocapture::data::neural::{LayerSpec, NormSpec};
+
+    // Extract per-individual overrides (GIL).
+    let mut overrides_vec: Vec<Vec<(String, OverrideValue)>> = Vec::new();
+    for item in overrides_list.iter() {
+        let dict: &Bound<'_, PyDict> = item.cast()?;
+        overrides_vec.push(extract_overrides(Some(dict))?);
+    }
+
+    // Build the NN payload (GIL: numpy + JSON parse) iff weights provided.
+    let nn = match weights {
+        Some(w) => {
+            let arch_json = architecture_json.ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(
+                    "run_grid: architecture_json is required when weights is given",
+                )
+            })?;
+            let specs: Vec<LayerSpec> = serde_json::from_str(&arch_json).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "run_grid: architecture_json parse error: {}",
+                    e
+                ))
+            })?;
+            let output_param = parse_output_param(output_param.as_deref())?;
+            let normalization: Option<Vec<NormSpec>> = match normalization_json {
+                Some(ref s) => Some(serde_json::from_str(s).map_err(|e| {
+                    pyo3::exceptions::PyValueError::new_err(format!(
+                        "run_grid: normalization_json parse error: {}",
+                        e
+                    ))
+                })?),
+                None => None,
+            };
+            let arr = w.as_array();
+            let weights: Vec<Vec<f64>> = arr.rows().into_iter().map(|r| r.to_vec()).collect();
+            Some(grid::NnSpec {
+                specs,
+                input_mask,
+                output_param,
+                scaled_pi_n: scaled_pi_n.unwrap_or(1.0),
+                delta_max: delta_max.unwrap_or(0.35),
+                normalization,
+                weights,
+            })
+        }
+        None => None,
+    };
+
+    let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
+
+    let (n_pop, n_seeds, records) = py
+        .detach(|| {
+            grid::run_grid(
+                std::path::Path::new(toml_path),
+                overrides_vec,
+                seeds,
+                nn,
+                n_threads,
+                wall_timeout,
+            )
+        })
+        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+
+    // Flatten -> (n_pop, n_seeds, LEN) via from_vec + reshape (one copy).
+    let len = aerocapture::simulation::final_record::FINAL_RECORD_LEN;
+    let mut flat: Vec<f64> = Vec::with_capacity(n_pop * n_seeds * len);
+    for rec in &records {
+        flat.extend_from_slice(rec);
+    }
+    let arr1 = numpy::PyArray1::from_vec(py, flat);
+    arr1.reshape([n_pop, n_seeds, len]).map_err(|e| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!("run_grid reshape error: {e}"))
+    })
+}
+
 /// Load a v2 NN JSON in Rust and run a stateful forward pass on a single input.
 ///
 /// Used exclusively by the Rust<>Python cross-language equivalence test
@@ -349,6 +465,55 @@ fn nn_forward_sequence(json_path: String, inputs: Vec<Vec<f64>>) -> PyResult<Vec
     Ok(outputs)
 }
 
+/// Build a `NeuralNetModel` from flat PSO weights + a parsed v2 architecture,
+/// mirroring `flat_weights_to_json` exactly (so an in-memory model is identical
+/// to one round-tripped through the temp JSON). `output_param` is the already-
+/// resolved enum; `normalization` is the optional embedded table. Returns a
+/// plain `String` error so it is callable inside `py.detach()` (no GIL).
+fn build_model_from_flat(
+    flat: &[f64],
+    specs: &[aerocapture::data::neural::LayerSpec],
+    input_mask: Option<Vec<usize>>,
+    output_param: aerocapture::data::neural::OutputParam,
+    scaled_pi_n: f64,
+    delta_max: f64,
+    normalization: Option<&[aerocapture::data::neural::NormSpec]>,
+) -> Result<aerocapture::data::neural::NeuralNetModel, String> {
+    let mut model = aerocapture::data::neural::NeuralNetModel::from_flat_weights_v2(
+        flat,
+        specs,
+        input_mask,
+        output_param,
+        scaled_pi_n,
+        delta_max,
+    )
+    .map_err(|e| e.to_string())?;
+    if let Some(norm) = normalization {
+        if norm.len() != aerocapture::data::neural::NN_FULL_INPUT_SIZE {
+            return Err(format!(
+                "normalization must have {} entries (got {})",
+                aerocapture::data::neural::NN_FULL_INPUT_SIZE,
+                norm.len()
+            ));
+        }
+        model.normalization = norm.to_vec();
+    }
+    Ok(model)
+}
+
+fn parse_output_param(s: Option<&str>) -> PyResult<aerocapture::data::neural::OutputParam> {
+    use aerocapture::data::neural::OutputParam;
+    match s {
+        None | Some("atan2_signed") => Ok(OutputParam::default()),
+        Some("acos_tanh") => Ok(OutputParam::AcosTanh),
+        Some("scaled_pi") => Ok(OutputParam::ScaledPi),
+        Some("delta") => Ok(OutputParam::Delta),
+        Some(other) => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "output_param must be 'atan2_signed', 'acos_tanh', 'scaled_pi', or 'delta' (got {other:?})"
+        ))),
+    }
+}
+
 /// Construct a NeuralNetModel from flat PSO weights + v2 architecture (JSON string)
 /// and write it as v2 JSON. All PSO NN output flows through this helper so the
 /// Rust LayerWeights trait is the single source of truth for weight serialization.
@@ -389,9 +554,7 @@ fn flat_weights_to_json(
     delta_max: Option<f64>,
     normalization_json: Option<String>,
 ) -> PyResult<()> {
-    use aerocapture::data::neural::{
-        LayerSpec, NN_FULL_INPUT_SIZE, NeuralNetModel, NormSpec, OutputParam,
-    };
+    use aerocapture::data::neural::{LayerSpec, NormSpec};
 
     let specs: Vec<LayerSpec> = serde_json::from_str(&architecture_json).map_err(|e| {
         pyo3::exceptions::PyValueError::new_err(format!(
@@ -399,42 +562,26 @@ fn flat_weights_to_json(
             e
         ))
     })?;
-    let output_param: OutputParam = match output_param.as_deref() {
-        None | Some("atan2_signed") => OutputParam::default(),
-        Some("acos_tanh") => OutputParam::AcosTanh,
-        Some("scaled_pi") => OutputParam::ScaledPi,
-        Some("delta") => OutputParam::Delta,
-        Some(other) => {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "output_param must be 'atan2_signed', 'acos_tanh', 'scaled_pi', or 'delta' (got {other:?})"
-            )));
-        }
+    let output_param = parse_output_param(output_param.as_deref())?;
+    let parsed_norm: Option<Vec<NormSpec>> = match normalization_json {
+        Some(ref s) => Some(serde_json::from_str(s).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "flat_weights_to_json: normalization_json parse error: {}",
+                e
+            ))
+        })?),
+        None => None,
     };
-    let mut model = NeuralNetModel::from_flat_weights_v2(
+    let model = build_model_from_flat(
         &flat,
         &specs,
         input_mask,
         output_param,
         scaled_pi_n.unwrap_or(1.0),
         delta_max.unwrap_or(0.35),
+        parsed_norm.as_deref(),
     )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    if let Some(norm_json) = normalization_json {
-        let parsed: Vec<NormSpec> = serde_json::from_str(&norm_json).map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!(
-                "flat_weights_to_json: normalization_json parse error: {}",
-                e
-            ))
-        })?;
-        if parsed.len() != NN_FULL_INPUT_SIZE {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "normalization must have {} entries (got {})",
-                NN_FULL_INPUT_SIZE,
-                parsed.len()
-            )));
-        }
-        model.normalization = parsed;
-    }
+    .map_err(pyo3::exceptions::PyValueError::new_err)?;
     model
         .save_json(&path)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
@@ -855,6 +1002,7 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_mc, m)?)?;
     m.add_function(wrap_pyfunction!(run_batch, m)?)?;
     m.add_function(wrap_pyfunction!(run_with_draws, m)?)?;
+    m.add_function(wrap_pyfunction!(run_grid, m)?)?;
     m.add_function(wrap_pyfunction!(load_config, m)?)?;
     m.add_function(wrap_pyfunction!(nn_forward, m)?)?;
     m.add_function(wrap_pyfunction!(nn_forward_sequence, m)?)?;

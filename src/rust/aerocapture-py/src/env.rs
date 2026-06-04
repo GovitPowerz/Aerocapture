@@ -16,7 +16,6 @@ use rayon::prelude::*;
 
 use aerocapture::config::SimInput;
 use aerocapture::data::SimData;
-use aerocapture::data::dispersions::DispersionDraw;
 use aerocapture::integration::events::{EventContext, EventDef};
 use aerocapture::simulation::final_record::{
     FINAL_RECORD_LEN, FR_DV_TOTAL_MS, FR_ECC, FR_ENERGY_MJKG, FR_G_LOAD, FR_HEAT_FLUX_KW_M2,
@@ -103,7 +102,7 @@ impl BatchedSimulation {
 
         for i in 0..n_envs {
             let seed = seed_base + i as u64;
-            let draw = draw_from_seed(&sim_data, seed);
+            let draw = sim_data.draw_from_seed(seed);
             let run_state = aerocapture::simulation::init::init_run_from_draw(&sim_data, &draw);
             let state = build_sim_state(&sim_input, &sim_data, run_state, seed);
             envs.push(state);
@@ -150,7 +149,7 @@ impl BatchedSimulation {
         };
 
         for (i, &seed) in seeds_vec.iter().enumerate() {
-            let draw = draw_from_seed(&self.sim_data, seed);
+            let draw = self.sim_data.draw_from_seed(seed);
             let run_state =
                 aerocapture::simulation::init::init_run_from_draw(&self.sim_data, &draw);
             self.envs[i] = build_sim_state(&self.sim_input, &self.sim_data, run_state, seed);
@@ -250,7 +249,7 @@ impl BatchedSimulation {
             if *done {
                 self.episode_counter[i] += self.n_envs as u64;
                 let seed = self.seed_base + self.episode_counter[i];
-                let draw = draw_from_seed(&self.sim_data, seed);
+                let draw = self.sim_data.draw_from_seed(seed);
                 let run_state =
                     aerocapture::simulation::init::init_run_from_draw(&self.sim_data, &draw);
                 self.envs[i] = build_sim_state(&self.sim_input, &self.sim_data, run_state, seed);
@@ -368,26 +367,6 @@ fn build_obs_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -
         state.guidance_state.inclination_error_integral,
         state.guidance_state.prev_realized_bank_for_nn,
     )
-}
-
-/// Generate a deterministic dispersion draw for a given seed.
-///
-/// Clones the DispersionConfig with the given seed so each env gets a
-/// distinct, reproducible MC scenario. Falls back to the zero draw when
-/// no dispersion config is present (nominal runs).
-fn draw_from_seed(data: &SimData, seed: u64) -> DispersionDraw {
-    match &data.dispersion_config {
-        Some(cfg) => {
-            let mut seeded = cfg.clone();
-            seeded.seed = seed;
-            seeded
-                .generate_draws(1)
-                .into_iter()
-                .next()
-                .unwrap_or_default()
-        }
-        None => DispersionDraw::default(),
-    }
 }
 
 /// Terminal step payload for one env slot.
