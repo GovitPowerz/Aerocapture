@@ -8,17 +8,18 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from aerocapture.training.report import _check_typst, generate_comparison_report, generate_report
+from aerocapture.training.report import generate_comparison_report, generate_report
+from aerocapture.training.typst_utils import check_typst
 
 
 class TestCheckTypst:
     def test_returns_true_when_available(self) -> None:
         if shutil.which("typst"):
-            assert _check_typst() is True
+            assert check_typst() is True
 
     def test_returns_false_when_missing(self) -> None:
-        with patch("shutil.which", return_value=None):
-            assert _check_typst() is False
+        with patch("aerocapture.training.typst_utils.shutil.which", return_value=None):
+            assert check_typst() is False
 
 
 class TestGenerateReport:
@@ -45,13 +46,13 @@ class TestGenerateReport:
         return d
 
     def test_generates_charts_to_temp_dir(self, scheme_dir: Path) -> None:
-        with patch("aerocapture.training.report._check_typst", return_value=False):
+        with patch("aerocapture.training.report.check_typst", return_value=False):
             generate_report(scheme_dir, toml_path=None, skip_final_eval=True)
 
 
 class TestGenerateComparisonReport:
     def test_comparison_report_no_data(self, tmp_path: Path) -> None:
-        with patch("aerocapture.training.report._check_typst", return_value=False):
+        with patch("aerocapture.training.report.check_typst", return_value=False):
             result = generate_comparison_report(tmp_path)
         assert result is None
 
@@ -72,6 +73,6 @@ class TestGenerateComparisonReport:
                 for i in range(3)
             ]
             (d / "run_000.jsonl").write_text("\n".join(json.dumps(r) for r in records))
-        with patch("aerocapture.training.report._check_typst", return_value=False):
+        with patch("aerocapture.training.report.check_typst", return_value=False):
             result = generate_comparison_report(tmp_path)
         assert result is None

@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 import sys
 import tempfile
 from datetime import UTC, datetime
@@ -26,6 +25,7 @@ import numpy.typing as npt
 
 from aerocapture.training import charts
 from aerocapture.training.metrics import convergence_speed, stagnation_count
+from aerocapture.training.typst_utils import check_typst, compile_typst
 
 # ---------------------------------------------------------------------------
 # Typst template directory — src/typst/ relative to this file
@@ -73,11 +73,6 @@ def _load_nn_scaffolding_overrides(scheme_dir: Path, optimized_toml: Path) -> di
             overrides[f"guidance.command_shaping.{key.removeprefix('shaping.')}"] = value
             overrides["guidance.command_shaping.enabled"] = True
     return overrides
-
-
-def _check_typst() -> bool:
-    """Return True if the ``typst`` CLI is available on PATH."""
-    return shutil.which("typst") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -841,7 +836,7 @@ def generate_report(
         (tmp_dir / "summary_table.json").write_text(json.dumps(summary, indent=2))
 
         # Compile PDF via Typst
-        if not _check_typst():
+        if not check_typst():
             print("Typst CLI not found — skipping PDF compilation")
             if keep_artifacts:
                 print(f"Chart artifacts available at: {tmp_dir}")
@@ -850,23 +845,13 @@ def generate_report(
         output_pdf = scheme_dir / "report.pdf"
         template = _TYPST_DIR / "report.typ"
 
-        result = subprocess.run(
-            [
-                "typst",
-                "compile",
-                str(template),
-                "--root",
-                "/",
-                "--input",
-                f"dir={tmp_dir}",
-                str(output_pdf),
-            ],
-            capture_output=True,
-            text=True,
+        ok = compile_typst(
+            template,
+            output_pdf,
+            extra_args=["--root", "/", "--input", f"dir={tmp_dir}"],
+            label="report",
         )
-
-        if result.returncode != 0:
-            print(f"Typst compilation failed:\n{result.stderr}")
+        if not ok:
             return None
 
         print(f"\nReport saved to {output_pdf}")
@@ -988,30 +973,20 @@ def generate_comparison_report(
         (tmp_dir / "comparison_table.json").write_text(json.dumps(comparison_table, indent=2))
 
         # Compile PDF
-        if not _check_typst():
+        if not check_typst():
             print("Typst CLI not found — skipping PDF compilation")
             return None
 
         output_pdf = training_output_dir / "comparison_report.pdf"
         template = _TYPST_DIR / "comparison.typ"
 
-        result = subprocess.run(
-            [
-                "typst",
-                "compile",
-                str(template),
-                "--root",
-                "/",
-                "--input",
-                f"dir={tmp_dir}",
-                str(output_pdf),
-            ],
-            capture_output=True,
-            text=True,
+        ok = compile_typst(
+            template,
+            output_pdf,
+            extra_args=["--root", "/", "--input", f"dir={tmp_dir}"],
+            label="comparison_report",
         )
-
-        if result.returncode != 0:
-            print(f"Typst compilation failed:\n{result.stderr}")
+        if not ok:
             return None
 
         print(f"Comparison report saved to {output_pdf}")
