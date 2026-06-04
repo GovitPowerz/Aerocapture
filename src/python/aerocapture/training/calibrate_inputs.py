@@ -43,8 +43,7 @@ from typing import cast
 
 import numpy as np
 
-# Reserved seed pool, disjoint from train/val/final-eval/report streams.
-CALIBRATION_SEED_OFFSET = 6_000_000
+from aerocapture.training.evaluate import CALIBRATION_SEED_OFFSET
 
 # Inputs forced to asinh regardless of the observed tail ratio (known heavy-tailed:
 # velocities, energy, accelerations, DV). Optional override -- disable with

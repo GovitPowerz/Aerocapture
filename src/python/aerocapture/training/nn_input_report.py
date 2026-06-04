@@ -15,6 +15,7 @@ import numpy.typing as npt
 
 from aerocapture.training.ablation import NN_INPUT_NAMES, _load_cost_kwargs
 from aerocapture.training.charts_nn_inputs import chart_nn_input_panel
+from aerocapture.training.evaluate import NN_INPUT_REPORT_SEED_OFFSET, make_reserved_seeds
 from aerocapture.training.toml_utils import load_toml_with_bases
 
 # class codes
@@ -71,9 +72,6 @@ def input_summary(
         )
     rows.sort(key=lambda r: (r["frac_out_of_range"], r["separation"]), reverse=True)
     return rows
-
-
-NN_INPUT_REPORT_SEED_OFFSET = 5_000_000
 
 
 def _resolve_mask(toml_path: str, model_path: str | None = None) -> set[int]:
@@ -210,7 +208,7 @@ def run_report(
     override_model = overrides.get("data.neural_network") if overrides else None
     in_mask = _resolve_mask(toml_path, str(override_model) if override_model is not None else None)
 
-    seeds = [NN_INPUT_REPORT_SEED_OFFSET + i for i in range(n_sims)]
+    seeds = make_reserved_seeds(0, NN_INPUT_REPORT_SEED_OFFSET, n_sims)
     import aerocapture_rs
 
     recs = aerocapture_rs.collect_nn_inputs(toml_path, seeds, overrides=overrides)
