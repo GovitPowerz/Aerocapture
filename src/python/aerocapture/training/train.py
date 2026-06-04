@@ -1394,6 +1394,14 @@ def train(
                         best_overall_individual = gen_best_individual
                         best_overall_cost = gen_best_cost
                         validated_improvement = True
+                elif val_seeds is None and np.isfinite(gen_best_cost):
+                    # No validation gate: promote each generation's finite training
+                    # argmin directly (mirrors the islands no-validation fallback in
+                    # _train_islands). The final MC eval re-ranks on a disjoint pool,
+                    # so cross-gen seed incomparability is bounded. Without this the
+                    # deployed best_model.json freezes at the gen-0 argmin (defect D1).
+                    best_overall_individual = gen_best_individual
+                    best_overall_cost = gen_best_cost
 
                 # Curation trigger: on validated promotion OR periodic fallback.
                 # next gen's pre-next re-eval picks up the new seeds. Default-bind
