@@ -314,6 +314,24 @@ fn run_grid<'py>(
         overrides_vec.push(extract_overrides(Some(dict))?);
     }
 
+    // Contract: run_grid owns the seed axis and runs one sim per cell.
+    // Callers must never inject these keys — they would be silently ignored
+    // (run_for_api_cell bypasses n_sims and takes the seed from the grid axis).
+    const FORBIDDEN: &[&str] = &["monte_carlo.seed", "simulation.n_sims"];
+    for overrides in &overrides_vec {
+        for (key, _) in overrides {
+            if FORBIDDEN.contains(&key.as_str()) {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "run_grid: '{}' must not appear in overrides_list — \
+                     run_grid owns the seed axis (re-seeds each cell via the \
+                     external-draws path and runs one sim per cell). \
+                     Remove this key from _build_grid_overrides.",
+                    key
+                )));
+            }
+        }
+    }
+
     // Build the NN payload (GIL: numpy + JSON parse) iff weights provided.
     let nn = match weights {
         Some(w) => {

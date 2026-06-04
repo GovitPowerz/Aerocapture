@@ -120,3 +120,19 @@ class TestRunGridNnInMemory:
             for p in nn_paths:
                 Path(p).unlink(missing_ok=True)
             Path(cfg_path).unlink(missing_ok=True)
+
+
+class TestRunGridForbiddenKeys:
+    """run_grid must reject seed/n_sims overrides — it owns the seed axis."""
+
+    def test_rejects_monte_carlo_seed(self) -> None:
+        seeds = [7_000_000]
+        overrides_list = [{"monte_carlo.seed": 42}]
+        with pytest.raises(ValueError, match="monte_carlo.seed"):
+            aero.run_grid(EQGLIDE_TOML, overrides_list, seeds, n_threads=None)
+
+    def test_rejects_simulation_n_sims(self) -> None:
+        seeds = [7_000_000]
+        overrides_list = [{"simulation.n_sims": 5}]
+        with pytest.raises(ValueError, match="simulation.n_sims"):
+            aero.run_grid(EQGLIDE_TOML, overrides_list, seeds, n_threads=None)
