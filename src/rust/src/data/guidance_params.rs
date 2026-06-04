@@ -6,6 +6,7 @@
 use super::DataError;
 use crate::gnc::guidance::lateral::LateralParams;
 use crate::gnc::guidance::thermal_limiter::ThermalLimiterParams;
+use std::sync::Arc;
 
 /// Equilibrium glide tunable parameters.
 #[derive(Debug, Clone)]
@@ -177,7 +178,7 @@ pub struct GuidanceParams {
     pub gain_fade_end_km: f64,    // altitude where gains reach zero (km)
 
     // Reference trajectory tables (from tables_energie_gains file)
-    pub ref_trajectory: ReferenceTrajectory,
+    pub ref_trajectory: Arc<ReferenceTrajectory>,
 
     // Per-scheme tunable parameters
     pub eq_glide: EqGlideParams,
@@ -337,7 +338,7 @@ impl Default for GuidanceParams {
             pressure_coeff_scale_height: 6.9,
             gain_fade_start_km: 80.0,
             gain_fade_end_km: 100.0,
-            ref_trajectory: ReferenceTrajectory::default(),
+            ref_trajectory: Arc::new(ReferenceTrajectory::default()),
             eq_glide: EqGlideParams::default(),
             energy_ctrl: EnergyCtrlParams::default(),
             pred_guid: PredGuidParams::default(),

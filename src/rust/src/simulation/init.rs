@@ -87,7 +87,7 @@ mod tests {
                 periods: TimePeriods::default(),
             },
             aero: aerodynamics::AeroTables::default(),
-            atmosphere: atmosphere::AtmosphereModel::default(),
+            atmosphere: std::sync::Arc::new(atmosphere::AtmosphereModel::default()),
             atmosphere_onboard: atmosphere::OnboardAtmosphereModel::Identical,
             entry: EntryConditions {
                 state: SphericalState {

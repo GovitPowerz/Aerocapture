@@ -18,6 +18,7 @@ use crate::gnc::guidance::lateral::LateralParams;
 use crate::gnc::guidance::thermal_limiter::ThermalLimiterParams;
 use crate::physics::winds;
 use std::fmt;
+use std::sync::Arc;
 
 /// Navigation mode: bias-based (legacy) or Extended Kalman Filter.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -155,7 +156,7 @@ pub struct SuccessCriteria {
 pub struct SimData {
     pub capsule: capsule::Capsule,
     pub aero: aerodynamics::AeroTables,
-    pub atmosphere: atmosphere::AtmosphereModel,
+    pub atmosphere: Arc<atmosphere::AtmosphereModel>,
     /// Onboard atmosphere model (degraded) for navigation and guidance
     pub atmosphere_onboard: atmosphere::OnboardAtmosphereModel,
     pub entry: EntryConditions,
@@ -169,7 +170,7 @@ pub struct SimData {
     pub pilot: pilot::PilotModel,
     pub success: SuccessCriteria,
     pub wind_enabled: bool,
-    pub wind_table: Option<winds::WindTable>,
+    pub wind_table: Option<Arc<winds::WindTable>>,
     pub neural_net: Option<neural::NeuralNetModel>,
     /// Domain-based dispersion config (replaces lottery files when present)
     pub dispersion_config: Option<dispersions::DispersionConfig>,
@@ -197,7 +198,26 @@ const DEG2RAD: f64 = std::f64::consts::PI / 180.0;
 
 impl SimData {
     /// Load simulation data from TOML config (inline data + external files).
+    ///
+    /// Loads the three disk-backed tables (atmosphere, optional wind, reference
+    /// trajectory) then delegates to `from_toml_with_tables`. CLI + every existing
+    /// caller is unchanged.
     pub fn from_toml(toml: &TomlConfig, config: &SimInput) -> Result<Self, DataError> {
+        let shared = SharedTables::from_toml(toml, config)?;
+        Self::from_toml_with_tables(toml, config, &shared, None)
+    }
+
+    /// Build `SimData` from already-loaded shared tables, skipping the
+    /// atmosphere/wind/reference-trajectory disk reads. `injected_nn`, when
+    /// `Some`, replaces the on-disk NN load (the `[network]` / `[guidance.neural_network]`
+    /// override + validation block below still applies, so an injected model is
+    /// treated identically to a loaded one).
+    pub fn from_toml_with_tables(
+        toml: &TomlConfig,
+        config: &SimInput,
+        shared: &SharedTables,
+        injected_nn: Option<neural::NeuralNetModel>,
+    ) -> Result<Self, DataError> {
         let v = toml
             .vehicle
             .as_ref()
@@ -453,17 +473,6 @@ impl SimData {
         let guidance = if let Some(ref ftc) = toml.guidance.ftc {
             let energy_scale = 1e6;
 
-            // Load reference trajectory from external file
-            let ref_traj = if !config.reference_trajectory {
-                if let Some(ref path) = toml.data.reference_trajectory {
-                    guidance_params::ReferenceTrajectory::load(path)?
-                } else {
-                    guidance_params::ReferenceTrajectory::default()
-                }
-            } else {
-                guidance_params::ReferenceTrajectory::default()
-            };
-
             guidance_params::GuidanceParams {
                 capture_damping: ftc.capture_damping,
                 capture_frequency: ftc.capture_frequency,
@@ -497,7 +506,7 @@ impl SimData {
                 pressure_coeff_scale_height: ftc.pressure_coeff_scale_height,
                 gain_fade_start_km: ftc.gain_fade_start_km,
                 gain_fade_end_km: ftc.gain_fade_end_km,
-                ref_trajectory: ref_traj,
+                ref_trajectory: shared.ref_trajectory.clone(),
                 eq_glide: eq_glide_params.clone(),
                 energy_ctrl: energy_ctrl_params.clone(),
                 pred_guid: pred_guid_params.clone(),
@@ -531,15 +540,6 @@ impl SimData {
             }
         } else {
             // No FTC params — load from file if guidance suffix available, else defaults
-            let ref_traj = if !config.reference_trajectory {
-                if let Some(ref path) = toml.data.reference_trajectory {
-                    guidance_params::ReferenceTrajectory::load(path)?
-                } else {
-                    guidance_params::ReferenceTrajectory::default()
-                }
-            } else {
-                guidance_params::ReferenceTrajectory::default()
-            };
             guidance_params::GuidanceParams {
                 capture_damping: 0.7,
                 capture_frequency: 0.072,
@@ -574,7 +574,7 @@ impl SimData {
                 pressure_coeff_scale_height: 6.9,
                 gain_fade_start_km: 80.0,
                 gain_fade_end_km: 100.0,
-                ref_trajectory: ref_traj,
+                ref_trajectory: shared.ref_trajectory.clone(),
                 eq_glide: eq_glide_params,
                 energy_ctrl: energy_ctrl_params,
                 pred_guid: pred_guid_params,
@@ -608,14 +608,6 @@ impl SimData {
             }
         };
 
-        // Atmosphere (always external)
-        let atm_path = toml
-            .data
-            .atmosphere
-            .as_ref()
-            .ok_or_else(|| DataError("Missing data.atmosphere path".to_string()))?;
-        let atm = atmosphere::AtmosphereModel::load(atm_path)?;
-
         // Onboard atmosphere model
         let atm_onboard = match &toml.onboard_atmosphere {
             Some(cfg) if cfg.mode.as_deref() == Some("identical") => {
@@ -637,30 +629,28 @@ impl SimData {
             }
             Some(cfg) => {
                 let n = cfg.n_segments.unwrap_or(5);
-                atmosphere::OnboardAtmosphereModel::fit_from_table(&atm, n)
+                atmosphere::OnboardAtmosphereModel::fit_from_table(&shared.atmosphere, n)
             }
             None => {
                 // Default: auto-fit with 5 segments
-                atmosphere::OnboardAtmosphereModel::fit_from_table(&atm, 5)
+                atmosphere::OnboardAtmosphereModel::fit_from_table(&shared.atmosphere, 5)
             }
         };
 
-        // Wind table (optional)
-        let wind_table = if let Some(ref wt_path) = toml.data.wind_table {
-            Some(winds::WindTable::load(wt_path)?)
-        } else {
-            None
-        };
-
-        // Neural network (external, optional)
-        let neural_net = if config.guidance_type == GuidanceType::NeuralNetwork {
-            if let Some(ref nn_path) = toml.data.neural_network {
-                Some(neural::NeuralNetModel::load(nn_path)?)
-            } else {
-                None
+        // Neural network (external, optional) — injected model takes precedence.
+        let neural_net = match injected_nn {
+            Some(nn) => Some(nn),
+            None => {
+                if config.guidance_type == GuidanceType::NeuralNetwork {
+                    if let Some(ref nn_path) = toml.data.neural_network {
+                        Some(neural::NeuralNetModel::load(nn_path)?)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             }
-        } else {
-            None
         };
 
         // Resolve the [network.normalization] override once, length-validated,
@@ -801,7 +791,7 @@ impl SimData {
         Ok(SimData {
             capsule: capsule_data,
             aero,
-            atmosphere: atm,
+            atmosphere: shared.atmosphere.clone(),
             atmosphere_onboard: atm_onboard,
             entry,
             constraints,
@@ -814,7 +804,7 @@ impl SimData {
             pilot: pilot_data,
             success,
             wind_enabled: f.wind,
-            wind_table,
+            wind_table: shared.wind_table.clone(),
             neural_net,
             dispersion_config,
             nav_mode,
@@ -824,6 +814,68 @@ impl SimData {
             sim_phase: config.sim_phase,
             density_perturbation,
             nn_normalization_override,
+        })
+    }
+
+    /// Generate the single dispersion draw the per-seed `run_batch` path would
+    /// produce for `seed` (clone the dispersion config, reseed, take draw 0).
+    /// Returns the default (zero) draw when no dispersion config is present.
+    pub fn draw_from_seed(&self, seed: u64) -> dispersions::DispersionDraw {
+        match &self.dispersion_config {
+            Some(cfg) => {
+                let mut seeded = cfg.clone();
+                seeded.seed = seed;
+                seeded
+                    .generate_draws(1)
+                    .into_iter()
+                    .next()
+                    .unwrap_or_default()
+            }
+            None => dispersions::DispersionDraw::default(),
+        }
+    }
+}
+
+/// Disk-loaded tables shared (via `Arc`) across many `SimData` built from the
+/// same base config. Build once, inject into `from_toml_with_tables` so a
+/// population differing only in guidance/NN params pays the atmosphere / wind /
+/// reference-trajectory load cost exactly once.
+pub struct SharedTables {
+    pub atmosphere: Arc<atmosphere::AtmosphereModel>,
+    pub wind_table: Option<Arc<winds::WindTable>>,
+    pub ref_trajectory: Arc<guidance_params::ReferenceTrajectory>,
+}
+
+impl SharedTables {
+    /// Load the three disk-backed tables from the paths in `toml`. The reference
+    /// trajectory honors the same `config.reference_trajectory` gate as the
+    /// original `from_toml` (empty when the sim generates the reference).
+    pub fn from_toml(toml: &TomlConfig, config: &SimInput) -> Result<Self, DataError> {
+        let atm_path = toml
+            .data
+            .atmosphere
+            .as_ref()
+            .ok_or_else(|| DataError("Missing data.atmosphere path".to_string()))?;
+        let atmosphere = Arc::new(atmosphere::AtmosphereModel::load(atm_path)?);
+
+        let wind_table = match toml.data.wind_table {
+            Some(ref wt_path) => Some(Arc::new(winds::WindTable::load(wt_path)?)),
+            None => None,
+        };
+
+        let ref_trajectory = Arc::new(if !config.reference_trajectory {
+            match toml.data.reference_trajectory {
+                Some(ref path) => guidance_params::ReferenceTrajectory::load(path)?,
+                None => guidance_params::ReferenceTrajectory::default(),
+            }
+        } else {
+            guidance_params::ReferenceTrajectory::default()
+        });
+
+        Ok(Self {
+            atmosphere,
+            wind_table,
+            ref_trajectory,
         })
     }
 }
@@ -1291,6 +1343,49 @@ flight_path_angle = 0.5
         assert_eq!(s.velocity, 0.0);
         assert_eq!(s.flight_path, 0.0);
         assert_eq!(s.azimuth, 0.0);
+    }
+
+    #[test]
+    fn shared_tables_path_is_numerically_identical() {
+        use crate::config::SimInput;
+        use crate::simulation::runner::run_single_collect;
+        use std::path::Path;
+
+        // Data file paths in TOML configs are relative to repo root (mirrors the
+        // `load_config` helper in run_output_tests.rs).
+        let repo_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("canonicalize repo root");
+        std::env::set_current_dir(&repo_root).expect("set cwd to repo root");
+
+        let cfg_path = Path::new("configs/test/test_ref_orig.toml");
+        let (sim_input, toml_config) = SimInput::from_toml_file(cfg_path).expect("load config");
+
+        // Baseline: the original load path.
+        let d0 = SimData::from_toml(&toml_config, &sim_input).expect("from_toml");
+
+        // Shared path: build tables once, two SimData share them by Arc.
+        let shared = SharedTables::from_toml(&toml_config, &sim_input).expect("shared tables");
+        let d1 = SimData::from_toml_with_tables(&toml_config, &sim_input, &shared, None)
+            .expect("with_tables 1");
+        let d2 = SimData::from_toml_with_tables(&toml_config, &sim_input, &shared, None)
+            .expect("with_tables 2");
+
+        // Tables are physically shared (same allocation).
+        assert!(Arc::ptr_eq(&d1.atmosphere, &d2.atmosphere));
+        assert!(Arc::ptr_eq(
+            &d1.guidance.ref_trajectory,
+            &d2.guidance.ref_trajectory
+        ));
+
+        // And numerically identical to the original load path, bit-for-bit.
+        let r0 = run_single_collect(&sim_input, &d0).expect("run d0");
+        let r1 = run_single_collect(&sim_input, &d1).expect("run d1");
+        assert_eq!(
+            r0, r1,
+            "shared-tables run must be bit-identical to from_toml"
+        );
     }
 
     // ─── output_parameterization validation tests ───

@@ -17,6 +17,7 @@ use aerocapture::data::{
     SphericalState, SuccessCriteria, TimePeriods,
 };
 use aerocapture::gnc::navigation::estimator::{NavigationBiases, NavigationOutput};
+use std::sync::Arc;
 
 /// Build a `NavigationOutput` from key flight-state parameters.
 ///
@@ -70,7 +71,7 @@ pub fn minimal_sim_data() -> SimData {
             equilibrium_aoa: -0.48,
             ..Default::default()
         },
-        atmosphere: AtmosphereModel {
+        atmosphere: Arc::new(AtmosphereModel {
             n_points: 3,
             altitudes: vec![0.0, 50_000.0, 130_000.0],
             densities: vec![0.02, 0.001, 1e-8],
@@ -79,7 +80,7 @@ pub fn minimal_sim_data() -> SimData {
             ref_altitude: 130_000.0,
             gas_constant: 1.3,
             density_profile: DensityProfile::default(),
-        },
+        }),
         atmosphere_onboard: aerocapture::data::atmosphere::OnboardAtmosphereModel::Identical,
         entry: EntryConditions {
             state: SphericalState {

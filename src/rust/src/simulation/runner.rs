@@ -371,6 +371,34 @@ pub fn run_for_api_with_draws(
         .collect())
 }
 
+/// Run ONE training-grid cell, bit-identical to the per-seed `run_batch` path.
+///
+/// Generates the static draw from `data`'s dispersion config reseeded to `seed`
+/// (mirrors the per-seed path's `monte_carlo.seed` override) and runs a single
+/// trajectory with `sim_idx = 0` — so the per-sim EKF / Gauss-Markov RNG stream
+/// matches the per-seed path, where `simulation.random_seed` is constant and
+/// `n_sims == 1`. This is the bit-identity invariant `run_grid` relies on.
+pub fn run_for_api_cell(
+    config: &SimInput,
+    data: &SimData,
+    seed: u64,
+    include_trajectories: bool,
+    wall_timeout: Option<Duration>,
+) -> Result<crate::RunOutput, SimError> {
+    let draw = data.draw_from_seed(seed);
+    let run_state = init::init_run_from_draw(data, &draw);
+    let mut result = run_single(
+        config,
+        data,
+        &run_state,
+        0,
+        include_trajectories,
+        wall_timeout,
+    )?;
+    result.dispersions = draw.to_array();
+    Ok(assemble_run_output(result, include_trajectories))
+}
+
 /// Write output in CSV format with named headers and clean schema.
 fn write_csv_output(
     config: &SimInput,
