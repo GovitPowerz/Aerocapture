@@ -1355,34 +1355,6 @@ def chart_sobol_heatmap(sobol_data: dict[str, Any], output: Path) -> None:
     _save_svg(fig, output)
 
 
-def chart_sobol_convergence(convergence_data: dict[str, Any], output: Path) -> None:
-    """Convergence of Sobol S1 and ST indices vs sample size."""
-    sample_sizes = convergence_data["sample_sizes"]
-    s1_series: dict[str, list[float]] = convergence_data["S1_series"]
-    st_series: dict[str, list[float]] = convergence_data["ST_series"]
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4), dpi=DPI)
-
-    for name, values in s1_series.items():
-        ax1.plot(sample_sizes, values, marker="o", markersize=3, linewidth=1.2, label=name)
-    ax1.set_xlabel("Sample size")
-    ax1.set_ylabel("S1")
-    ax1.set_title("First-Order Index Convergence")
-    ax1.legend(fontsize="small")
-    sns.despine(fig=fig, ax=ax1)
-
-    for name, values in st_series.items():
-        ax2.plot(sample_sizes, values, marker="o", markersize=3, linewidth=1.2, label=name)
-    ax2.set_xlabel("Sample size")
-    ax2.set_ylabel("ST")
-    ax2.set_title("Total-Order Index Convergence")
-    ax2.legend(fontsize="small")
-    sns.despine(fig=fig, ax=ax2)
-
-    fig.tight_layout()
-    _save_svg(fig, output)
-
-
 # ---------------------------------------------------------------------------
 # Generic line chart helper (used by RL report)
 # ---------------------------------------------------------------------------

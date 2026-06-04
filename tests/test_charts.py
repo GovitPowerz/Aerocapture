@@ -29,7 +29,6 @@ from aerocapture.training.charts import (
     chart_nav_density_ratio,
     chart_parameter_evolution,
     chart_sobol_bars,
-    chart_sobol_convergence,
     chart_sobol_heatmap,
 )
 
@@ -373,11 +372,3 @@ class TestSensitivityCharts:
         chart_sobol_heatmap(sobol_data, tmp_svg)
         assert tmp_svg.exists()
 
-    def test_sobol_convergence_produces_svg(self, tmp_svg: Path) -> None:
-        conv = {
-            "sample_sizes": [64, 128, 256],
-            "S1_series": {"p0": [0.3, 0.35, 0.38], "p1": [0.15, 0.18, 0.19]},
-            "ST_series": {"p0": [0.4, 0.45, 0.48], "p1": [0.25, 0.28, 0.29]},
-        }
-        chart_sobol_convergence(conv, tmp_svg)
-        assert tmp_svg.exists()
