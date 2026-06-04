@@ -39,9 +39,10 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-import seaborn as sns  # type: ignore[import-untyped]  # noqa: E402
 
-sns.set_theme(style="whitegrid", palette="muted", font_scale=0.9, rc={"axes.facecolor": "#f5f5f5"})
+from aerocapture.training.charts import apply_theme  # noqa: E402
+
+apply_theme()
 
 _REPORT_SUBDIR = "warm_start_report"
 

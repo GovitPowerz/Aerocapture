@@ -20,6 +20,7 @@ from aerocapture.training.charts import (
     COLOR_WORST,
     TRAJ_FAILED,
     _draw_spaghetti,
+    apply_theme,
     classify_trajectories,
 )
 
@@ -413,9 +414,7 @@ def generate_animation(
         progress_ctx = None  # type: ignore[assignment]
 
     matplotlib.use("Agg")
-    import seaborn as sns
-
-    sns.set_theme(style="whitegrid", palette="muted", font_scale=0.9, rc={"axes.facecolor": "#f5f5f5"})
+    apply_theme()
 
     from matplotlib.animation import PillowWriter
 

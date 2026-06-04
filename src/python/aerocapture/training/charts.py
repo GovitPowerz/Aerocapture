@@ -23,7 +23,13 @@ from scipy import stats  # noqa: E402
 # ---------------------------------------------------------------------------
 # Module-level theme
 # ---------------------------------------------------------------------------
-sns.set_theme(style="whitegrid", palette="muted", font_scale=0.9, rc={"axes.facecolor": "#f5f5f5"})
+
+
+def apply_theme() -> None:
+    sns.set_theme(style="whitegrid", palette="muted", font_scale=0.9, rc={"axes.facecolor": "#f5f5f5"})
+
+
+apply_theme()
 
 # ---------------------------------------------------------------------------
 # Color constants
