@@ -449,6 +449,38 @@ def _save_ppo_checkpoint(
     )
 
 
+def build_critic_from_architecture(architecture: list[Any], input_dim: int) -> ValueNetwork:
+    """Feedforward critic trunk whose widths mirror the policy architecture.
+
+    This is a deliberate Phase 1.5 simplification: the critic sees raw obs and its
+    widths mirror the policy trunk so training cost roughly matches the policy. It is
+    NOT a structural match -- the critic has no recurrence. For a recurrent arch,
+    GRU hidden_size is used as a plain feedforward width (tanh activation). A
+    dedicated [value_network] TOML section with its own MLP spec is a reasonable
+    future lift if critics under-fit when GRU capacity grows.
+    ValueNetwork contract: len(activations) == len(hidden_sizes) + 1 (the final
+    activation is the action-head's and ValueNetwork replaces it with linear).
+    """
+    from aerocapture.training.rl.schemas import DenseSpec as _DS
+
+    critic_hidden_sizes: list[int] = []
+    critic_activations: list[str] = []
+    for spec in architecture[:-1]:
+        if isinstance(spec, _DS):
+            critic_hidden_sizes.append(spec.output_size)
+            critic_activations.append(spec.activation)
+        else:  # GruSpec -> treat as a tanh-activated hidden layer of width hidden_size
+            critic_hidden_sizes.append(spec.hidden_size)
+            critic_activations.append("tanh")
+    # Append the action head's activation so len(activations) == len(hidden_sizes) + 1.
+    final_spec = architecture[-1]
+    if isinstance(final_spec, _DS):
+        critic_activations.append(final_spec.activation)
+    else:
+        critic_activations.append("tanh")
+    return ValueNetwork(input_dim, critic_hidden_sizes, critic_activations)
+
+
 def _run_ppo(
     cfg: RLConfig,
     toml_path: Path,
@@ -501,34 +533,8 @@ def _run_ppo(
         policy.load_state_dict(warm_loaded.state_dict())
         print(f"Warm-started policy from {warmstart_json}", file=sys.stderr)
 
-    # Feedforward critic trunk derived from the policy architecture. This is a
-    # deliberate Phase 1.5 simplification: the critic sees raw obs and its widths
-    # mirror the policy trunk so training cost roughly matches the policy. It is
-    # NOT a structural match -- the critic has no recurrence. For a recurrent arch,
-    # GRU hidden_size is used as a plain feedforward width (tanh activation). A
-    # dedicated [value_network] TOML section with its own MLP spec is a reasonable
-    # future lift if critics under-fit when GRU capacity grows.
     # TODO(Phase 2+): consider [value_network] block if critic under-fitting is observed.
-    # ValueNetwork contract: len(activations) == len(hidden_sizes) + 1 (the final
-    # activation is the action-head's and ValueNetwork replaces it with linear).
-    from aerocapture.training.rl.schemas import DenseSpec as _DS
-
-    critic_hidden_sizes: list[int] = []
-    critic_activations: list[str] = []
-    for spec in architecture[:-1]:
-        if isinstance(spec, _DS):
-            critic_hidden_sizes.append(spec.output_size)
-            critic_activations.append(spec.activation)
-        else:  # GruSpec -> treat as a tanh-activated hidden layer of width hidden_size
-            critic_hidden_sizes.append(spec.hidden_size)
-            critic_activations.append("tanh")
-    # Append the action head's activation so len(activations) == len(hidden_sizes) + 1.
-    final_spec = architecture[-1]
-    if isinstance(final_spec, _DS):
-        critic_activations.append(final_spec.activation)
-    else:
-        critic_activations.append("tanh")
-    value = ValueNetwork(input_dim, critic_hidden_sizes, critic_activations)
+    value = build_critic_from_architecture(architecture, input_dim)
     optim = torch.optim.Adam(
         list(policy.parameters()) + list(value.parameters()),
         lr=cfg.ppo.learning_rate,
@@ -554,6 +560,7 @@ def _run_ppo(
 
     # Derive per-layer hidden shapes from the architecture.
     # Dense: None (stateless). GRU: (H,). LSTM: (2, H) -- packs (h, c) as a single array.
+    from aerocapture.training.rl.schemas import DenseSpec as _DS
     from aerocapture.training.rl.schemas import GruSpec as _GS
     from aerocapture.training.rl.schemas import LstmSpec as _LS
     from aerocapture.training.rl.schemas import TransformerSpec as _TS
