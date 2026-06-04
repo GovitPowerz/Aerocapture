@@ -1358,7 +1358,7 @@ def chart_sobol_heatmap(sobol_data: dict[str, Any], output: Path) -> None:
 # ---------------------------------------------------------------------------
 # Generic line chart helper (used by RL report)
 # ---------------------------------------------------------------------------
-def _save_line_chart(
+def save_line_chart(
     x: list[float],
     y: list[float],
     xlabel: str,

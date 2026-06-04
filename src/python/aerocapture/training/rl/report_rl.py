@@ -160,7 +160,7 @@ def _today() -> str:
 def _chart_rl_return_curve(records: list[dict[str, Any]], out: Path) -> None:
     steps = [r["env_steps"] for r in records]
     mean = [r.get("episodic_return_mean", float("nan")) for r in records]
-    charts._save_line_chart(  # type: ignore[attr-defined]
+    charts.save_line_chart(
         steps,
         mean,
         xlabel="env steps",
@@ -173,25 +173,25 @@ def _chart_rl_return_curve(records: list[dict[str, Any]], out: Path) -> None:
 def _chart_rl_dv_curve(records: list[dict[str, Any]], out: Path) -> None:
     steps = [r["env_steps"] for r in records]
     dv = [r.get("episodic_dv_m_s_mean", float("nan")) for r in records]
-    charts._save_line_chart(steps, dv, xlabel="env steps", ylabel="mean DV (m/s)", title="RL: DV vs env steps", output_path=out)  # type: ignore[attr-defined]
+    charts.save_line_chart(steps, dv, xlabel="env steps", ylabel="mean DV (m/s)", title="RL: DV vs env steps", output_path=out)
 
 
 def _chart_rl_entropy(records: list[dict[str, Any]], out: Path) -> None:
     steps = [r["env_steps"] for r in records]
     ent = [r.get("entropy", float("nan")) for r in records]
-    charts._save_line_chart(steps, ent, xlabel="env steps", ylabel="policy entropy", title="RL: entropy", output_path=out)  # type: ignore[attr-defined]
+    charts.save_line_chart(steps, ent, xlabel="env steps", ylabel="policy entropy", title="RL: entropy", output_path=out)
 
 
 def _chart_rl_value_loss(records: list[dict[str, Any]], out: Path) -> None:
     steps = [r["env_steps"] for r in records]
     vl = [r.get("value_loss", float("nan")) for r in records]
-    charts._save_line_chart(steps, vl, xlabel="env steps", ylabel="value loss", title="RL: value loss", output_path=out)  # type: ignore[attr-defined]
+    charts.save_line_chart(steps, vl, xlabel="env steps", ylabel="value loss", title="RL: value loss", output_path=out)
 
 
 def _chart_rl_capture_rate(records: list[dict[str, Any]], out: Path) -> None:
     steps = [r["env_steps"] for r in records]
     cr = [r.get("episodic_capture_rate", float("nan")) for r in records]
-    charts._save_line_chart(steps, cr, xlabel="env steps", ylabel="capture rate", title="RL: capture rate", output_path=out)  # type: ignore[attr-defined]
+    charts.save_line_chart(steps, cr, xlabel="env steps", ylabel="capture rate", title="RL: capture rate", output_path=out)
 
 
 def _chart_rl_validation_waterfall(records: list[dict[str, Any]], out: Path) -> None:
@@ -202,4 +202,4 @@ def _chart_rl_validation_waterfall(records: list[dict[str, Any]], out: Path) -> 
         return
     steps = [r["env_steps"] for r in attempts]
     val = [r.get("val_rms_cost", float("nan")) for r in attempts]
-    charts._save_line_chart(steps, val, xlabel="env steps", ylabel="validation RMS cost", title="RL: validation", output_path=out)  # type: ignore[attr-defined]
+    charts.save_line_chart(steps, val, xlabel="env steps", ylabel="validation RMS cost", title="RL: validation", output_path=out)
