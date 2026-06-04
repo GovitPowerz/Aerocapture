@@ -14,7 +14,7 @@ from aerocapture.training.sensitivity import DISPERSION_COLUMNS
 
 # Indices into the raw 52-element RunOutput.final_record array.
 # (BatchResults.final_records exposes this raw layout, NOT the trimmed CSV layout.)
-# Verified against src/rust/src/simulation/final_record.rs FR_* consts.
+# Machine-asserted against aerocapture_rs.final_record_indices() in tests/test_record_index_drift.py.
 DV_TOTAL_RAW_INDEX: int = 41  # FR_DV_TOTAL_MS
 HEAT_FLUX_RAW_INDEX: int = 16  # FR_HEAT_FLUX_KW_M2
 G_LOAD_RAW_INDEX: int = 17  # FR_G_LOAD

@@ -11,6 +11,27 @@ import pytest
 aero = pytest.importorskip("aerocapture_rs")
 
 
+class TestFinalRecordIndexDrift:
+    def test_final_record_len_matches_rust(self) -> None:
+        from aerocapture.training.parquet_output import FINAL_RECORD_LEN
+
+        assert FINAL_RECORD_LEN == aero.FINAL_RECORD_LEN == 52
+
+    def test_raw_indices_match_rust_map(self) -> None:
+        from aerocapture.training import parquet_output as pq
+
+        idx = aero.final_record_indices()
+        assert idx["dv_total_ms"] == pq.DV_TOTAL_RAW_INDEX
+        assert idx["heat_flux_kw_m2"] == pq.HEAT_FLUX_RAW_INDEX
+        assert idx["g_load"] == pq.G_LOAD_RAW_INDEX
+        assert idx["heat_load_mjm2"] == pq.HEAT_LOAD_RAW_INDEX
+
+    def test_index_map_is_within_record(self) -> None:
+        idx = aero.final_record_indices()
+        assert idx, "final_record_indices() returned empty"
+        assert all(0 <= v < aero.FINAL_RECORD_LEN for v in idx.values())
+
+
 class TestWidthDrift:
     def test_nn_input_names_len_matches_rust(self) -> None:
         from aerocapture.training.ablation import NN_INPUT_NAMES

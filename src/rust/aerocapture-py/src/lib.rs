@@ -768,6 +768,58 @@ fn default_normalization(py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
     Ok(out)
 }
 
+/// Return the Rust `FR_*` index map as a Python dict `{name: index}`.
+///
+/// Keys are the `FR_*` const names with the `FR_` prefix stripped and lowercased,
+/// e.g. `FR_DV_TOTAL_MS` -> `"dv_total_ms"`, `FR_HEAT_FLUX_KW_M2` -> `"heat_flux_kw_m2"`.
+/// Use this to machine-assert that Python column-index literals match the Rust source.
+#[pyfunction]
+fn final_record_indices() -> std::collections::HashMap<&'static str, usize> {
+    use aerocapture::simulation::final_record::*;
+    let mut m = std::collections::HashMap::new();
+    m.insert("alt_km", FR_ALT_KM);
+    m.insert("lon_deg", FR_LON_DEG);
+    m.insert("lat_deg", FR_LAT_DEG);
+    m.insert("vel_ms", FR_VEL_MS);
+    m.insert("fpa_deg", FR_FPA_DEG);
+    m.insert("hdg_deg", FR_HDG_DEG);
+    m.insert("radial_vel_ms", FR_RADIAL_VEL_MS);
+    m.insert("energy_mjkg", FR_ENERGY_MJKG);
+    m.insert("sma_km", FR_SMA_KM);
+    m.insert("ecc", FR_ECC);
+    m.insert("incl_deg", FR_INCL_DEG);
+    m.insert("raan_deg", FR_RAAN_DEG);
+    m.insert("arg_peri_deg", FR_ARG_PERI_DEG);
+    m.insert("true_anom_deg", FR_TRUE_ANOM_DEG);
+    m.insert("periapsis_alt_km", FR_PERIAPSIS_ALT_KM);
+    m.insert("apoapsis_alt_km", FR_APOAPSIS_ALT_KM);
+    m.insert("heat_flux_kw_m2", FR_HEAT_FLUX_KW_M2);
+    m.insert("g_load", FR_G_LOAD);
+    m.insert("dyn_pressure_kpa", FR_DYN_PRESSURE_KPA);
+    m.insert("alt_max_flux_km", FR_ALT_MAX_FLUX_KM);
+    m.insert("alt_max_load_km", FR_ALT_MAX_LOAD_KM);
+    m.insert("alt_max_pdyn_km", FR_ALT_MAX_PDYN_KM);
+    m.insert("time_max_flux_s", FR_TIME_MAX_FLUX_S);
+    m.insert("time_max_load_s", FR_TIME_MAX_LOAD_S);
+    m.insert("time_max_pdyn_s", FR_TIME_MAX_PDYN_S);
+    m.insert("bounce_alt_km", FR_BOUNCE_ALT_KM);
+    m.insert("bounce_time_s", FR_BOUNCE_TIME_S);
+    m.insert("sim_time_s", FR_SIM_TIME_S);
+    m.insert("heat_load_mjm2", FR_HEAT_LOAD_MJM2);
+    m.insert("periapsis_err_km", FR_PERIAPSIS_ERR_KM);
+    m.insert("apoapsis_err_km", FR_APOAPSIS_ERR_KM);
+    m.insert("ifinal", FR_IFINAL);
+    m.insert("dv1_ms", FR_DV1_MS);
+    m.insert("dv2_ms", FR_DV2_MS);
+    m.insert("dv3_ms", FR_DV3_MS);
+    m.insert("dv_plane_ms", FR_DV_PLANE_MS);
+    m.insert("dv_total_ms", FR_DV_TOTAL_MS);
+    m.insert("cumulative_bank_deg", FR_CUMULATIVE_BANK_DEG);
+    m.insert("incl_err_deg", FR_INCL_ERR_DEG);
+    m.insert("n_reversals", FR_N_REVERSALS);
+    m
+}
+
 /// Aerocapture trajectory simulator Python bindings.
 #[pymodule]
 fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -779,6 +831,10 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(
         "DISPERSION_DRAW_LEN",
         aerocapture::data::dispersions::DISPERSION_DRAW_LEN,
+    )?;
+    m.add(
+        "FINAL_RECORD_LEN",
+        aerocapture::simulation::final_record::FINAL_RECORD_LEN,
     )?;
     m.add_class::<SimResult>()?;
     m.add_class::<BatchResults>()?;
@@ -794,5 +850,6 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(collect_supervised, m)?)?;
     m.add_function(wrap_pyfunction!(collect_nn_inputs, m)?)?;
     m.add_function(wrap_pyfunction!(default_normalization, m)?)?;
+    m.add_function(wrap_pyfunction!(final_record_indices, m)?)?;
     Ok(())
 }
