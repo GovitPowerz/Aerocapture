@@ -756,6 +756,93 @@ def _setup_param_specs(config: TrainingConfig, _toml: dict, verbose: bool) -> tu
     return param_specs, n_params
 
 
+def _emit_warm_start_artifacts(
+    config: TrainingConfig,
+    base_mc_seed: int,
+    problem: AerocaptureProblem,
+    val_seeds: list[int] | None,
+    warm_chromo: npt.NDArray[np.float64],
+    warm_weight_specs: list[ParamSpec],
+    verbose: bool,
+) -> None:
+    """Best-effort warm-start sidecars: gen-0 validation baseline, supervisor-vs-NN trajectory comparison, warm-start report PDF.
+
+    Each block is independently best-effort (never blocks training).
+    """
+    # Gen-0 validation baseline: evaluate the bare warm-started
+    # chromosome on the RESERVED VALIDATION seed pool (same seeds
+    # the validation gate uses) so the persisted rms/mean/p95
+    # metrics are directly comparable to the `Gen N validation:`
+    # line later printed by the validation gate. Best-effort:
+    # failure here must not block training.
+    from aerocapture.training._warm_start_baseline import write_gen0_baseline
+    from aerocapture.training.report import compute_eval_summary, format_eval_summary
+
+    try:
+        if val_seeds is None:
+            raise RuntimeError("val_seeds not initialized; gen-0 baseline requires the validation pool")
+        # Single MC pass on val_seeds returning both per-seed costs
+        # AND the (n, 52) final_records so we can derive DV / apo /
+        # peri / heat-flux statistics without re-running.
+        baseline_costs, baseline_records = problem.evaluate_individual_records_per_seed(warm_chromo, val_seeds)
+        eval_summary = compute_eval_summary(baseline_records, len(val_seeds), problem.cost_kwargs)
+        baseline_path = write_gen0_baseline(
+            save_dir=Path(config.save_dir),
+            costs=baseline_costs,
+            capture_rate=eval_summary["capture_rate"],
+            n_sims=len(val_seeds),
+        )
+        # Persist the structured eval summary so the warm-start
+        # report PDF can embed it (and CLI re-render works).
+        (Path(config.save_dir) / "warm_start_eval_summary.json").write_text(json.dumps(eval_summary, indent=2))
+        # User-facing block: mirrors the end-of-training final-eval
+        # summary so users can compare like-for-like.
+        if verbose:
+            print()
+            for line in format_eval_summary(eval_summary, indent="    "):
+                print(f"  {line}" if not line.startswith(" ") else line)
+            baseline = json.loads(baseline_path.read_text())
+            print(f"  [warm_start] gen-0 baseline cost (val seeds): rms={baseline['rms_cost']:.4e} mean={baseline['mean_cost']:.4e}")
+    except Exception as e:
+        # Best-effort: failure here must not block training, but the
+        # error is always logged so it does not silently mask real
+        # bugs in problem.evaluate_individual_records_per_seed /
+        # write_gen0_baseline / compute_eval_summary.
+        print(f"  [warm_start] WARNING: gen-0 baseline write failed: {type(e).__name__}: {e}")
+
+    # Trajectory comparison: supervisor vs warm-started NN on both
+    # training and validation pools. Runs ~2*(n_warm_seeds +
+    # validation_n_sims) MC sims (e.g. ~12k for n_warm_seeds=5000,
+    # validation_n_sims=1000) and renders 20 SVGs into the report
+    # dir. Best-effort: failure here must not block training, but
+    # the warm-start PDF will just omit the comparison section.
+    try:
+        from aerocapture.training.warm_start_compare import render_trajectory_comparison
+
+        render_trajectory_comparison(
+            cfg=config,
+            base_mc_seed=base_mc_seed,
+            warm_chromo=warm_chromo,
+            nn_weight_specs=warm_weight_specs,
+        )
+    except Exception as e:
+        print(f"  [warm_start] WARNING: trajectory comparison failed: {type(e).__name__}: {e}")
+
+    # Intermediate warm-start report: charts + Typst PDF summarizing
+    # supervised MSE convergence, supervisor selection, search-space
+    # bounds, the gen-0 validation baseline + eval summary, and the
+    # supervisor-vs-NN trajectory comparison panels (if rendered).
+    # Best-effort.
+    try:
+        from aerocapture.training.warm_start_report import render_report
+
+        pdf = render_report(Path(config.save_dir))
+        if verbose and pdf is not None:
+            print(f"  [warm_start] report: {pdf}")
+    except Exception as e:
+        print(f"  [warm_start] WARNING: report rendering failed: {type(e).__name__}: {e}")
+
+
 def train(
     config: TrainingConfig | None = None,
     seed: int | None = None,
@@ -1105,78 +1192,7 @@ def train(
                     # encodes the un-jittered center directly, so we copy it back.
                     pop_array[0, n_weights:] = warm_chromo[n_weights:]
 
-                # Gen-0 validation baseline: evaluate the bare warm-started
-                # chromosome on the RESERVED VALIDATION seed pool (same seeds
-                # the validation gate uses) so the persisted rms/mean/p95
-                # metrics are directly comparable to the `Gen N validation:`
-                # line later printed by the validation gate. Best-effort:
-                # failure here must not block training.
-                from aerocapture.training._warm_start_baseline import write_gen0_baseline
-                from aerocapture.training.report import compute_eval_summary, format_eval_summary
-
-                try:
-                    if val_seeds is None:
-                        raise RuntimeError("val_seeds not initialized; gen-0 baseline requires the validation pool")
-                    # Single MC pass on val_seeds returning both per-seed costs
-                    # AND the (n, 52) final_records so we can derive DV / apo /
-                    # peri / heat-flux statistics without re-running.
-                    baseline_costs, baseline_records = problem.evaluate_individual_records_per_seed(warm_chromo, val_seeds)
-                    eval_summary = compute_eval_summary(baseline_records, len(val_seeds), problem.cost_kwargs)
-                    baseline_path = write_gen0_baseline(
-                        save_dir=Path(config.save_dir),
-                        costs=baseline_costs,
-                        capture_rate=eval_summary["capture_rate"],
-                        n_sims=len(val_seeds),
-                    )
-                    # Persist the structured eval summary so the warm-start
-                    # report PDF can embed it (and CLI re-render works).
-                    (Path(config.save_dir) / "warm_start_eval_summary.json").write_text(json.dumps(eval_summary, indent=2))
-                    # User-facing block: mirrors the end-of-training final-eval
-                    # summary so users can compare like-for-like.
-                    if verbose:
-                        print()
-                        for line in format_eval_summary(eval_summary, indent="    "):
-                            print(f"  {line}" if not line.startswith(" ") else line)
-                        baseline = json.loads(baseline_path.read_text())
-                        print(f"  [warm_start] gen-0 baseline cost (val seeds): rms={baseline['rms_cost']:.4e} mean={baseline['mean_cost']:.4e}")
-                except Exception as e:
-                    # Best-effort: failure here must not block training, but the
-                    # error is always logged so it does not silently mask real
-                    # bugs in problem.evaluate_individual_records_per_seed /
-                    # write_gen0_baseline / compute_eval_summary.
-                    print(f"  [warm_start] WARNING: gen-0 baseline write failed: {type(e).__name__}: {e}")
-
-                # Trajectory comparison: supervisor vs warm-started NN on both
-                # training and validation pools. Runs ~2*(n_warm_seeds +
-                # validation_n_sims) MC sims (e.g. ~12k for n_warm_seeds=5000,
-                # validation_n_sims=1000) and renders 20 SVGs into the report
-                # dir. Best-effort: failure here must not block training, but
-                # the warm-start PDF will just omit the comparison section.
-                try:
-                    from aerocapture.training.warm_start_compare import render_trajectory_comparison
-
-                    render_trajectory_comparison(
-                        cfg=config,
-                        base_mc_seed=base_mc_seed,
-                        warm_chromo=warm_chromo,
-                        nn_weight_specs=warm_weight_specs,
-                    )
-                except Exception as e:
-                    print(f"  [warm_start] WARNING: trajectory comparison failed: {type(e).__name__}: {e}")
-
-                # Intermediate warm-start report: charts + Typst PDF summarizing
-                # supervised MSE convergence, supervisor selection, search-space
-                # bounds, the gen-0 validation baseline + eval summary, and the
-                # supervisor-vs-NN trajectory comparison panels (if rendered).
-                # Best-effort.
-                try:
-                    from aerocapture.training.warm_start_report import render_report
-
-                    pdf = render_report(Path(config.save_dir))
-                    if verbose and pdf is not None:
-                        print(f"  [warm_start] report: {pdf}")
-                except Exception as e:
-                    print(f"  [warm_start] WARNING: report rendering failed: {type(e).__name__}: {e}")
+                _emit_warm_start_artifacts(config, base_mc_seed, problem, val_seeds, warm_chromo, warm_weight_specs, verbose)
             else:
                 pop_array = build_initial_population_for_v2(
                     config.network.architecture,
