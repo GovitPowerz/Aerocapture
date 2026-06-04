@@ -23,7 +23,7 @@ from aerocapture.training.warm_start import (  # noqa: E402
 def _basic_cfg(tmp_path: Path, supervisor_schemes: list[str] | None = None, params_paths: dict[str, str] | None = None) -> TrainingConfig:
     arch = [
         {"type": "dense", "input_size": 4, "output_size": 4, "activation": "tanh"},
-        {"type": "dense", "input_size": 4, "output_size": 1, "activation": "tanh"},
+        {"type": "dense", "input_size": 4, "output_size": 2, "activation": "tanh"},
     ]
     # Write a stub TOML so _resolve_nn_mode doesn't crash on file-not-found.
     stub_toml = tmp_path / "stub.toml"
@@ -162,7 +162,7 @@ def test_bptt_length_greater_than_n_seq_raises(tmp_path: Path) -> None:
     cfg.network.architecture = [
         {"type": "dense", "input_size": 4, "output_size": 8, "activation": "tanh"},
         {"type": "transformer", "d_model": 8, "n_heads": 2, "d_ffn": 16, "n_seq": 4},
-        {"type": "dense", "input_size": 8, "output_size": 1, "activation": "tanh"},
+        {"type": "dense", "input_size": 8, "output_size": 2, "activation": "tanh"},
     ]
     cfg.warm_start.bptt_length = 16  # > n_seq=4
 

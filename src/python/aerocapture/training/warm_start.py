@@ -410,7 +410,16 @@ def _chunked_bptt_train(
                 target = torch.cos(y_t)  # (T, B)
                 loss = nn.functional.mse_loss(pred, target)
             elif output_param == "atan2_signed":
-                # means: (T, B, 2). Target = (sin(y), cos(y)).
+                # atan2_signed needs a 2-output (sin, cos) head; means must be
+                # (T, B, 2). A 1-output last layer would silently broadcast
+                # against the (T, B, 2) target and corrupt the loss.
+                if means.shape[-1] != 2:
+                    raise ValueError(
+                        f"atan2_signed requires the network's last layer to emit "
+                        f"output_size=2 (sin, cos); got output_size={means.shape[-1]}. "
+                        f"Use output_size=2 for atan2_signed, or a single-output decoder "
+                        f"(acos_tanh / scaled_pi / delta) for output_size=1."
+                    )
                 target = torch.stack([torch.sin(y_t), torch.cos(y_t)], dim=-1)
                 loss = nn.functional.mse_loss(means, target)
             elif output_param in ("scaled_pi", "delta"):
