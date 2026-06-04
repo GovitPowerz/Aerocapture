@@ -63,12 +63,13 @@ def test_describe_uses_canonical_lstm_param_count(tmp_path: Path, capsys: pytest
     expected_total = sum(cfg_mod._layer_n_params(s) for s in arch)
 
     # Sanity: the buggy 3-gate formula gives a different (smaller) total.
-    buggy_total = sum(
-        (s.input_size * s.output_size + s.output_size)
-        if isinstance(s, DenseSpec)
-        else 3 * s.hidden_size * s.input_size + 3 * s.hidden_size * s.hidden_size + 6 * s.hidden_size
-        for s in arch
-    )
+    buggy_total = 0
+    for s in arch:
+        if isinstance(s, DenseSpec):
+            buggy_total += s.input_size * s.output_size + s.output_size
+        else:
+            assert isinstance(s, LstmSpec)
+            buggy_total += 3 * s.hidden_size * s.input_size + 3 * s.hidden_size * s.hidden_size + 6 * s.hidden_size
     assert buggy_total != expected_total, "sanity: 3-gate and 4-gate formulas must differ for LSTM"
 
     _describe_rl_architecture(cfg)

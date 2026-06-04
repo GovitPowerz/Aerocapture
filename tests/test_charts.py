@@ -371,4 +371,3 @@ class TestSensitivityCharts:
         }
         chart_sobol_heatmap(sobol_data, tmp_svg)
         assert tmp_svg.exists()
-

@@ -313,7 +313,7 @@ def test_evaluate_individual_records_per_seed_bit_identical_non_nn() -> None:
     )
 
     rng = np.random.default_rng(2027)
-    x = rng.random(p.n_var)
+    x = np.asarray(rng.random(p.n_var), dtype=np.float64)
 
     new_costs, new_records = p.evaluate_individual_records_per_seed(x, seeds)
 

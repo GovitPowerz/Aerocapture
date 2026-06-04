@@ -32,8 +32,8 @@ def test_build_mlp_asinh_activation_no_keyerror() -> None:
     # With identity weights the output equals asinh(input).
     # Set weight=1 bias=0 explicitly so the check is deterministic.
     with _torch.no_grad():
-        mlp_asinh_only[0].weight.fill_(1.0)
-        mlp_asinh_only[0].bias.fill_(0.0)
+        mlp_asinh_only[0].weight.fill_(1.0)  # type: ignore[operator]
+        mlp_asinh_only[0].bias.fill_(0.0)  # type: ignore[operator]
     result = mlp_asinh_only(_torch.tensor([[1.0]])).item()
     assert abs(result - math.asinh(1.0)) < 1e-6
 
