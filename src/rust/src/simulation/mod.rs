@@ -1,5 +1,6 @@
 //! Simulation runner and support modules.
 
+pub mod final_record;
 pub(crate) mod finalize;
 pub mod init;
 pub mod output;

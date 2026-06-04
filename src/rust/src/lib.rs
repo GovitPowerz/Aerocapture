@@ -6,6 +6,8 @@ pub mod orbit;
 pub mod physics;
 pub mod simulation;
 
+use simulation::final_record::FINAL_RECORD_LEN;
+
 /// Public output from a single simulation run, for use by PyO3 and tests.
 #[derive(Debug, Clone)]
 pub struct RunOutput {
@@ -14,7 +16,7 @@ pub struct RunOutput {
     /// g_load_g, nav_density_ratio, truth_density_kg_m3, heat_load_kj_m2, density_perturbation]
     pub trajectory: Vec<[f64; 17]>,
     /// Full 52-column final record (same layout as CSV file output)
-    pub final_record: [f64; 52],
+    pub final_record: [f64; FINAL_RECORD_LEN],
     /// True if orbit is bound (ecc < 1 && energy < 0) and not a pending crash (ifinal != 4).
     pub captured: bool,
     /// Dispersion draws for this simulation (26 fields from DispersionDraw::to_array)

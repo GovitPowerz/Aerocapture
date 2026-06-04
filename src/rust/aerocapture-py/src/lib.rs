@@ -12,6 +12,7 @@ mod config;
 mod env;
 mod results;
 
+use aerocapture::simulation::final_record::FR_DV_TOTAL_MS;
 use config::OverrideValue;
 use results::{BatchResults, SimResult};
 
@@ -492,7 +493,7 @@ where
             trace.extend(output.supervised_trace);
             dv = output
                 .final_record
-                .get(41) // dv_total_m_s column
+                .get(FR_DV_TOTAL_MS) // dv_total_m_s column
                 .copied()
                 .unwrap_or(f64::NAN);
             captured = output.captured;
@@ -771,6 +772,14 @@ fn default_normalization(py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
 #[pymodule]
 fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", "0.1.0")?;
+    m.add(
+        "NN_FULL_INPUT_SIZE",
+        aerocapture::data::neural::NN_FULL_INPUT_SIZE,
+    )?;
+    m.add(
+        "DISPERSION_DRAW_LEN",
+        aerocapture::data::dispersions::DISPERSION_DRAW_LEN,
+    )?;
     m.add_class::<SimResult>()?;
     m.add_class::<BatchResults>()?;
     m.add_class::<env::BatchedSimulation>()?;

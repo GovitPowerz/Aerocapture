@@ -15,6 +15,13 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.config import NetworkConfig, TrainingConfig
+from aerocapture.training.parquet_output import (
+    DV_TOTAL_RAW_INDEX,
+    FINAL_RECORD_LEN,
+    G_LOAD_RAW_INDEX,
+    HEAT_FLUX_RAW_INDEX,
+    HEAT_LOAD_RAW_INDEX,
+)
 
 try:
     import aerocapture_rs as _aero_rs  # type: ignore[import-not-found, import-untyped]
@@ -156,7 +163,7 @@ def _run_via_pyo3(
     toml_path = str((cwd / config.sim.toml_config).resolve())
     try:
         result = _aero_rs.run(toml_path=toml_path, overrides=overrides, sim_timeout_secs=config.sim.sim_timeout_secs)
-        arr: npt.NDArray[np.float64] = result.final_record.reshape(1, 52)
+        arr: npt.NDArray[np.float64] = result.final_record.reshape(1, FINAL_RECORD_LEN)
         return arr
     except Exception:
         import traceback
@@ -286,15 +293,15 @@ def compute_cost(
     Returns:
         RMS cost value. Lower is better.
     """
-    dv_total = final_conditions[:, 41]
-    g_max = final_conditions[:, 17]
-    q_max = final_conditions[:, 16]
+    dv_total = final_conditions[:, DV_TOTAL_RAW_INDEX]
+    g_max = final_conditions[:, G_LOAD_RAW_INDEX]
+    q_max = final_conditions[:, HEAT_FLUX_RAW_INDEX]
 
     costs = dv_cost(dv_total, threshold=dv_threshold)
 
     g_penalty = g_load_weight * _softplus((g_max - g_load_limit) / g_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
     q_penalty = heat_flux_weight * _softplus((q_max - heat_flux_limit) / heat_flux_limit, _CONSTRAINT_KNEE_SHARPNESS)
-    heat_load = final_conditions[:, 28] * 1e3  # MJ/m2 -> kJ/m2
+    heat_load = final_conditions[:, HEAT_LOAD_RAW_INDEX] * 1e3  # MJ/m2 -> kJ/m2
     hl_penalty = heat_load_weight * _softplus((heat_load - heat_load_limit) / heat_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
     costs = costs + g_penalty + q_penalty + hl_penalty
 

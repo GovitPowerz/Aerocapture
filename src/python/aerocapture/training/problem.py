@@ -15,6 +15,7 @@ from pymoo.core.problem import Problem
 from aerocapture.training.encoding import decode_normalized_array
 from aerocapture.training.evaluate import compute_cost, write_nn_json
 from aerocapture.training.param_spaces import SCAFFOLDING_PREFIXES, ParamSpec, active_scaffolding_specs, route_param_path
+from aerocapture.training.parquet_output import FINAL_RECORD_LEN
 
 _MAX_CONSECUTIVE_EVAL_FAILURES = 5
 
@@ -144,7 +145,7 @@ class AerocaptureProblem(Problem):
                 )
                 final_records = result.final_records  # list of (52,) arrays
                 per_run_costs = np.array(
-                    [compute_cost(fr.reshape(1, 52), **self.cost_kwargs) for fr in final_records],
+                    [compute_cost(fr.reshape(1, FINAL_RECORD_LEN), **self.cost_kwargs) for fr in final_records],
                     dtype=np.float64,
                 )
                 seed_costs.append(per_run_costs)
@@ -212,7 +213,7 @@ class AerocaptureProblem(Problem):
             )
             final_records = result.final_records
             for i in range(len(seeds)):
-                costs[i] = compute_cost(final_records[i].reshape(1, 52), **self.cost_kwargs)
+                costs[i] = compute_cost(final_records[i].reshape(1, FINAL_RECORD_LEN), **self.cost_kwargs)
         finally:
             if nn_tmp is not None:
                 nn_tmp.unlink(missing_ok=True)
@@ -270,7 +271,7 @@ class AerocaptureProblem(Problem):
             )
             final_records = np.asarray(result.final_records, dtype=np.float64)
             for i in range(len(seeds)):
-                costs[i] = compute_cost(final_records[i].reshape(1, 52), **self.cost_kwargs)
+                costs[i] = compute_cost(final_records[i].reshape(1, FINAL_RECORD_LEN), **self.cost_kwargs)
         finally:
             if nn_tmp is not None:
                 nn_tmp.unlink(missing_ok=True)
@@ -330,7 +331,7 @@ class AerocaptureProblem(Problem):
                 )
                 final_records = result.final_records
                 for i in range(n_pop):
-                    cost_matrix[i, j] = compute_cost(final_records[i].reshape(1, 52), **self.cost_kwargs)
+                    cost_matrix[i, j] = compute_cost(final_records[i].reshape(1, FINAL_RECORD_LEN), **self.cost_kwargs)
         finally:
             if nn_tmp_paths is not None:
                 for p in nn_tmp_paths:

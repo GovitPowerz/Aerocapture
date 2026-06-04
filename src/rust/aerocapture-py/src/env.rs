@@ -18,6 +18,10 @@ use aerocapture::config::SimInput;
 use aerocapture::data::SimData;
 use aerocapture::data::dispersions::DispersionDraw;
 use aerocapture::integration::events::{EventContext, EventDef};
+use aerocapture::simulation::final_record::{
+    FINAL_RECORD_LEN, FR_DV_TOTAL_MS, FR_ECC, FR_ENERGY_MJKG, FR_G_LOAD, FR_HEAT_FLUX_KW_M2,
+    FR_HEAT_LOAD_MJM2,
+};
 use aerocapture::simulation::runner::{
     SimState, TermReason, build_final_record, build_sim_state, ifinal_for,
 };
@@ -212,8 +216,8 @@ impl BatchedSimulation {
                         // Guarded by the enclosing `if state.term() != TermReason::None`;
                         // ifinal_for's None arm (unreachable!) cannot fire here.
                         let ifinal = ifinal_for(state.term());
-                        let ecc = fr[9];
-                        let energy = fr[7]; // MJ/kg; negative = captured
+                        let ecc = fr[FR_ECC];
+                        let energy = fr[FR_ENERGY_MJKG]; // MJ/kg; negative = captured
                         let captured = ifinal == 3 && ecc < 1.0 && energy < 0.0;
                         let violated = state.any_constraint_violated(sim_data);
                         // Truncation vs termination: ifinal=2 (Timeout) is a max_time cutoff
@@ -224,10 +228,10 @@ impl BatchedSimulation {
                             ifinal,
                             captured,
                             ecc,
-                            dv_m_s: fr[41],
-                            peak_heat_flux_kw_m2: fr[16],
-                            peak_g_load: fr[17],
-                            peak_heat_load_kj_m2: fr[28] * 1e3, // MJ/m2 -> kJ/m2
+                            dv_m_s: fr[FR_DV_TOTAL_MS],
+                            peak_heat_flux_kw_m2: fr[FR_HEAT_FLUX_KW_M2],
+                            peak_g_load: fr[FR_G_LOAD],
+                            peak_heat_load_kj_m2: fr[FR_HEAT_LOAD_MJM2] * 1e3, // MJ/m2 -> kJ/m2
                             violated_constraints: violated,
                             truncated,
                             final_record: fr,
@@ -397,7 +401,7 @@ struct TerminalOutcome {
     peak_heat_load_kj_m2: f64,
     violated_constraints: bool,
     truncated: bool,
-    final_record: [f64; 52],
+    final_record: [f64; FINAL_RECORD_LEN],
     /// Last observation of the terminated episode (pre-reset), for PPO value bootstrap.
     terminal_obs: Vec<f64>,
 }

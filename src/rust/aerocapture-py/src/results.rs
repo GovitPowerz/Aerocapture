@@ -4,6 +4,10 @@
 //! and provides efficient NumPy views over the final-record matrix.
 
 use aerocapture::RunOutput;
+use aerocapture::simulation::final_record::{
+    FR_APOAPSIS_ALT_KM, FR_APOAPSIS_ERR_KM, FR_DV_TOTAL_MS, FR_ECC, FR_ENERGY_MJKG,
+    FR_HEAT_LOAD_MJM2, FR_PERIAPSIS_ALT_KM, FR_PERIAPSIS_ERR_KM,
+};
 use numpy::{PyArray1, PyArray2};
 use pyo3::prelude::*;
 
@@ -48,52 +52,52 @@ impl SimResult {
 
     // ── Convenience getters for commonly used final-record indices ──
 
-    /// Specific orbital energy (MJ/kg) — final_record[7].
+    /// Specific orbital energy (MJ/kg) — final_record[FR_ENERGY_MJKG].
     #[getter]
     fn energy(&self) -> f64 {
-        self.output.final_record[7]
+        self.output.final_record[FR_ENERGY_MJKG]
     }
 
-    /// Eccentricity — final_record[9].
+    /// Eccentricity — final_record[FR_ECC].
     #[getter]
     fn ecc(&self) -> f64 {
-        self.output.final_record[9]
+        self.output.final_record[FR_ECC]
     }
 
-    /// Periapsis altitude (km) — final_record[14].
+    /// Periapsis altitude (km) — final_record[FR_PERIAPSIS_ALT_KM].
     #[getter]
     fn periapsis_alt(&self) -> f64 {
-        self.output.final_record[14]
+        self.output.final_record[FR_PERIAPSIS_ALT_KM]
     }
 
-    /// Apoapsis altitude (km) — final_record[15].
+    /// Apoapsis altitude (km) — final_record[FR_APOAPSIS_ALT_KM].
     #[getter]
     fn apoapsis_alt(&self) -> f64 {
-        self.output.final_record[15]
+        self.output.final_record[FR_APOAPSIS_ALT_KM]
     }
 
-    /// Total delta-V cost (m/s) — final_record[41].
+    /// Total delta-V cost (m/s) — final_record[FR_DV_TOTAL_MS].
     #[getter]
     fn delta_v(&self) -> f64 {
-        self.output.final_record[41]
+        self.output.final_record[FR_DV_TOTAL_MS]
     }
 
-    /// Periapsis error (km) — final_record[29].
+    /// Periapsis error (km) — final_record[FR_PERIAPSIS_ERR_KM].
     #[getter]
     fn peri_err(&self) -> f64 {
-        self.output.final_record[29]
+        self.output.final_record[FR_PERIAPSIS_ERR_KM]
     }
 
-    /// Apoapsis error (km) — final_record[30].
+    /// Apoapsis error (km) — final_record[FR_APOAPSIS_ERR_KM].
     #[getter]
     fn apo_err(&self) -> f64 {
-        self.output.final_record[30]
+        self.output.final_record[FR_APOAPSIS_ERR_KM]
     }
 
-    /// Integrated heat load (kJ/m²) — from final_record[28]
+    /// Integrated heat load (kJ/m²) — from final_record[FR_HEAT_LOAD_MJM2]
     #[getter]
     fn integrated_heat_load(&self) -> f64 {
-        self.output.final_record[28] * 1e3 // MJ/m² → kJ/m²
+        self.output.final_record[FR_HEAT_LOAD_MJM2] * 1e3 // MJ/m² → kJ/m²
     }
 
     /// Dispersion draws as a 1D NumPy array (26 elements).
