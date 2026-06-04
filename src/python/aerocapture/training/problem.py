@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,8 @@ from pymoo.core.problem import Problem
 from aerocapture.training.encoding import decode_normalized_array
 from aerocapture.training.evaluate import compute_cost, write_nn_json
 from aerocapture.training.param_spaces import ParamSpec, active_scaffolding_specs
+
+_MAX_CONSECUTIVE_EVAL_FAILURES = 5
 
 try:
     import aerocapture_rs as _aero_rs  # type: ignore[import-not-found, import-untyped]
@@ -50,6 +53,7 @@ class AerocaptureProblem(Problem):
         self.sim_timeout = sim_timeout
         self.nn_config = nn_config
         self._integer_params = {s.name for s in param_specs if s.is_integer}
+        self._consecutive_eval_failures = 0
 
         # NN scaffolding: chromosome layout is [NN weights..., scaffolding tail...].
         # _n_nn_weight_specs caps the slice fed to write_nn_json so the flat weight
@@ -65,8 +69,15 @@ class AerocaptureProblem(Problem):
     def _evaluate(self, X: npt.NDArray[np.float64], out: dict, *args: object, **kwargs: object) -> None:  # type: ignore[override]
         try:
             costs = self._run_batch(X)
-        except Exception:
-            # Return high penalty cost so the optimizer can continue
+            self._consecutive_eval_failures = 0
+        except Exception as e:
+            self._consecutive_eval_failures = getattr(self, "_consecutive_eval_failures", 0) + 1
+            print(
+                f"  [problem] batch eval failed ({type(e).__name__}: {e}); penalizing 1e9 (consecutive failures: {self._consecutive_eval_failures})",
+                file=sys.stderr,
+            )
+            if self._consecutive_eval_failures >= _MAX_CONSECUTIVE_EVAL_FAILURES:
+                raise RuntimeError(f"{self._consecutive_eval_failures} consecutive batch-eval failures; aborting (last: {type(e).__name__}: {e})") from e
             costs = np.full(X.shape[0], 1e9)
         out["F"] = costs.reshape(-1, 1)
 

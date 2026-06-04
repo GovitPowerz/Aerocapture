@@ -10,6 +10,16 @@ from aerocapture.training.param_spaces import ParamSpec
 from aerocapture.training.problem import AerocaptureProblem
 
 
+def _make_minimal_problem() -> AerocaptureProblem:
+    return AerocaptureProblem(
+        param_specs=[ParamSpec("tau", 2.0, 60.0, 30.0)],
+        toml_path="dummy.toml",
+        seeds=[42],
+        cost_kwargs={},
+        scheme="ftc",
+    )
+
+
 def _make_specs() -> list[ParamSpec]:
     return [
         ParamSpec("tau", 2.0, 60.0, 30.0),
@@ -233,3 +243,46 @@ def test_problem_n_nn_weight_specs_off_and_full() -> None:
     full_specs = [*base_specs, *_NN_SCAFFOLDING_PARAMS]
     prob_full = AerocaptureProblem(param_specs=full_specs, toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="neural_network", nn_config=net_full)
     assert prob_full._n_nn_weight_specs == len(base_specs)
+
+
+def test_evaluate_aborts_after_consecutive_failures(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A persistent batch-eval failure must raise after threshold, not silently return 1e9 forever (D6)."""
+    import pytest
+    from aerocapture.training import problem as problem_mod
+
+    prob = _make_minimal_problem()
+
+    def always_fail(self: AerocaptureProblem, X: object) -> object:
+        raise RuntimeError("simulated systemic break")
+
+    monkeypatch.setattr(problem_mod.AerocaptureProblem, "_run_batch", always_fail)
+
+    X = np.zeros((4, prob.n_var), dtype=np.float64)
+    out: dict = {}
+    for _ in range(problem_mod._MAX_CONSECUTIVE_EVAL_FAILURES - 1):
+        prob._evaluate(X, out)
+        assert np.all(out["F"] == 1e9)
+    with pytest.raises(RuntimeError, match="consecutive"):
+        prob._evaluate(X, out)
+
+
+def test_evaluate_resets_failure_counter_on_success(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Counter resets to zero after a successful batch; transient failure is tolerated."""
+    from aerocapture.training import problem as problem_mod
+
+    prob = _make_minimal_problem()
+    calls: dict[str, int] = {"n": 0}
+
+    def flaky(self: AerocaptureProblem, X: object) -> object:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("transient")
+        return np.full(4, 5.0)
+
+    monkeypatch.setattr(problem_mod.AerocaptureProblem, "_run_batch", flaky)
+    X = np.zeros((4, prob.n_var), dtype=np.float64)
+    out: dict = {}
+    prob._evaluate(X, out)  # transient failure -> 1e9, counter = 1
+    prob._evaluate(X, out)  # success -> 5.0, counter reset to 0
+    assert np.all(out["F"] == 5.0)
+    assert prob._consecutive_eval_failures == 0
