@@ -149,6 +149,52 @@ def test_target_kl_early_stops_epochs() -> None:
     assert metrics["epochs_run"] < 10, "target_kl should have triggered early stop"
 
 
+def _run_seeded_update(seed: int) -> list[np.ndarray]:
+    """Run one fixed ppo_update_bptt with a separately-seeded rng; return updated
+    policy params. Identical torch seed + identical buffer => only the rng-driven
+    minibatch shuffle order varies between calls."""
+    torch.manual_seed(0)
+    policy = _make_v2_policy(8, [16, 2], ["tanh", "linear"])
+    value = ValueNetwork(8, [16], ["tanh", "linear"])
+    optim = torch.optim.Adam(list(policy.parameters()) + list(value.parameters()), lr=1e-2)
+
+    T, N = 16, 4
+    buf = RolloutBuffer.create(n_steps=T, n_envs=N, obs_dim=8, hidden_shapes=[None] * len(policy.layers))
+    _fill_buffer_random(buf, np.random.default_rng(0))
+    advantages = np.random.default_rng(1).standard_normal((T, N)).astype(np.float32)
+    returns = np.random.default_rng(2).standard_normal((T, N)).astype(np.float32)
+
+    ppo_update_bptt(
+        policy,
+        value,
+        optim,
+        buf,
+        advantages,
+        returns,
+        bptt_length=8,  # 2 chunks -> chunk shuffle is exercised
+        clip_range=0.2,
+        update_epochs=3,
+        minibatches=4,  # envs_per_minibatch=1 -> env shuffle is exercised
+        entropy_coef=0.0,
+        value_coef=0.5,
+        max_grad_norm=0.5,
+        rng=np.random.default_rng(seed),
+    )
+    return [p.detach().clone().numpy() for p in policy.parameters()]
+
+
+def test_ppo_update_bptt_rng_reproducible() -> None:
+    """Two updates seeded with the same rng produce bit-identical policy params;
+    a different seed (which permutes minibatch order) produces different params."""
+    params_a = _run_seeded_update(123)
+    params_b = _run_seeded_update(123)
+    for a, b in zip(params_a, params_b, strict=True):
+        assert np.array_equal(a, b)
+
+    params_c = _run_seeded_update(999)
+    assert any(not np.array_equal(a, c) for a, c in zip(params_a, params_c, strict=True))
+
+
 def test_value_network_gradient_flows() -> None:
     """Verify ValueNetwork.forward() preserves autograd graph (not detached)."""
     value = ValueNetwork(4, [8], ["tanh", "linear"])

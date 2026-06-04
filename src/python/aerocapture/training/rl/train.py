@@ -433,6 +433,7 @@ def _save_ppo_checkpoint(
     best_val_cost: float,
     ret_norm: ReturnNormalizer | None,
     obs_norm: ObsNormalizer | None,
+    rl_rng: np.random.Generator,
 ) -> None:
     torch.save(
         {
@@ -444,6 +445,7 @@ def _save_ppo_checkpoint(
             "best_val_cost": best_val_cost,
             "ret_norm": ret_norm.state_dict() if ret_norm is not None else None,
             "obs_norm": obs_norm.state_dict() if obs_norm is not None else None,
+            "rl_rng_state": rl_rng.bit_generator.state,
         },
         output_dir / "checkpoint.pt",
     )
@@ -643,6 +645,11 @@ def _run_ppo(
         lr=cfg.ppo.learning_rate,
     )
 
+    # Seed the minibatch-shuffle RNG from the config seed so a run's shuffle
+    # stream is reproducible; resume restores this state below so a continued
+    # run keeps the same stream.
+    rl_rng = np.random.default_rng(cfg.seed_base)
+
     env_steps = 0
     update_idx = 0
     best_val_cost = float("inf")
@@ -659,6 +666,8 @@ def _run_ppo(
             ret_norm.load_state_dict(ckpt["ret_norm"])
         if obs_norm is not None and ckpt.get("obs_norm") is not None:
             obs_norm.load_state_dict(ckpt["obs_norm"])
+        if ckpt.get("rl_rng_state") is not None:  # back-compat: old checkpoints lack this key
+            rl_rng.bit_generator.state = ckpt["rl_rng_state"]
         print(f"Resumed from checkpoint: update {update_idx}, {env_steps} env steps", file=sys.stderr)
 
     # Derive per-layer hidden shapes from the architecture.
@@ -760,6 +769,7 @@ def _run_ppo(
             max_grad_norm=cfg.ppo.max_grad_norm,
             target_kl=cfg.ppo.target_kl,
             obs_norm=obs_norm,
+            rng=rl_rng,
         )
 
         update_idx += 1
@@ -776,7 +786,7 @@ def _run_ppo(
                 val_record["val_promoted"] = False
 
         if update_idx % cfg.checkpoint_interval_updates == 0:
-            _save_ppo_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost, ret_norm, obs_norm)
+            _save_ppo_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost, ret_norm, obs_norm, rl_rng)
 
         record: dict[str, Any] = {
             "update_idx": update_idx,
@@ -801,7 +811,7 @@ def _run_ppo(
         logger.log_update(record)
         display.update(record)
 
-    _save_ppo_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost, ret_norm, obs_norm)
+    _save_ppo_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost, ret_norm, obs_norm, rl_rng)
     if best_val_cost == float("inf"):
         export_v2_policy_to_json(policy, str(output_dir / "best_model.json"), obs_normalizer=obs_norm)
 
