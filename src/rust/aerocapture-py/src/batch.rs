@@ -44,7 +44,7 @@ pub enum BatchError {
 pub fn run_batch(
     toml_path: &Path,
     overrides_list: Vec<Vec<(String, OverrideValue)>>,
-    n_threads: usize,
+    n_threads: Option<usize>,
     include_trajectories: bool,
     wall_timeout: Option<Duration>,
 ) -> Result<Vec<RunOutput>, BatchError> {
@@ -61,12 +61,7 @@ pub fn run_batch(
     let base_value = aerocapture::config::resolve_toml_bases(base_value, toml_path, &mut visited)
         .map_err(|e| BatchError::Runtime(format!("Base resolution error: {}", e)))?;
 
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(n_threads)
-        .build()
-        .map_err(|e| BatchError::Runtime(format!("Failed to create thread pool: {}", e)))?;
-
-    pool.install(|| {
+    let run = || -> Result<Vec<RunOutput>, BatchError> {
         use rayon::prelude::*;
 
         let results: Vec<Result<RunOutput, BatchError>> = overrides_list
@@ -110,7 +105,18 @@ pub fn run_batch(
 
         // Collect results, returning the first error encountered.
         results.into_iter().collect()
-    })
+    };
+
+    match n_threads {
+        Some(n) => {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(n)
+                .build()
+                .map_err(|e| BatchError::Runtime(format!("Failed to create thread pool: {}", e)))?;
+            pool.install(run)
+        }
+        None => run(), // reuse the global Rayon pool (no per-call build)
+    }
 }
 
 /// Run simulations with pre-computed dispersion draws supplied by the caller.

@@ -4,11 +4,12 @@
 //! and provides efficient NumPy views over the final-record matrix.
 
 use aerocapture::RunOutput;
+use aerocapture::data::dispersions::DISPERSION_DRAW_LEN;
 use aerocapture::simulation::final_record::{
-    FR_APOAPSIS_ALT_KM, FR_APOAPSIS_ERR_KM, FR_DV_TOTAL_MS, FR_ECC, FR_ENERGY_MJKG,
-    FR_HEAT_LOAD_MJM2, FR_PERIAPSIS_ALT_KM, FR_PERIAPSIS_ERR_KM,
+    FINAL_RECORD_LEN, FR_APOAPSIS_ALT_KM, FR_APOAPSIS_ERR_KM, FR_DV_TOTAL_MS, FR_ECC,
+    FR_ENERGY_MJKG, FR_HEAT_LOAD_MJM2, FR_PERIAPSIS_ALT_KM, FR_PERIAPSIS_ERR_KM,
 };
-use numpy::{PyArray1, PyArray2};
+use numpy::{PyArray1, PyArray2, PyArrayMethods};
 use pyo3::prelude::*;
 
 /// Result of a single simulation run.
@@ -122,17 +123,19 @@ pub struct BatchResults {
 
 #[pymethods]
 impl BatchResults {
-    /// All final records stacked as an (N, 52) NumPy array.
+    /// All final records stacked as an (N, FINAL_RECORD_LEN) NumPy array.
     #[getter]
-    fn final_records<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<f64>>> {
-        let rows: Vec<Vec<f64>> = self
-            .outputs
-            .iter()
-            .map(|o| o.final_record.to_vec())
-            .collect();
-        PyArray2::from_vec2(py, &rows).map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!("final_records array error: {e}"))
-        })
+    fn final_records<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        let n = self.outputs.len();
+        let arr = PyArray2::<f64>::zeros(py, [n, FINAL_RECORD_LEN], false);
+        // SAFETY: `arr` was just allocated here and is not aliased.
+        let mut view = unsafe { arr.as_array_mut() };
+        for (i, o) in self.outputs.iter().enumerate() {
+            for (j, &v) in o.final_record.iter().enumerate() {
+                view[[i, j]] = v;
+            }
+        }
+        arr
     }
 
     /// Per-run capture flag as a NumPy bool array of length N.
@@ -165,17 +168,19 @@ impl BatchResults {
             .collect()
     }
 
-    /// Dispersion draws as an (N, 26) NumPy array — always populated.
+    /// Dispersion draws as an (N, DISPERSION_DRAW_LEN) NumPy array — always populated.
     #[getter]
-    fn dispersions<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<f64>>> {
-        let rows: Vec<Vec<f64>> = self
-            .outputs
-            .iter()
-            .map(|o| o.dispersions.to_vec())
-            .collect();
-        PyArray2::from_vec2(py, &rows).map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!("dispersions array error: {e}"))
-        })
+    fn dispersions<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        let n = self.outputs.len();
+        let arr = PyArray2::<f64>::zeros(py, [n, DISPERSION_DRAW_LEN], false);
+        // SAFETY: `arr` was just allocated here and is not aliased.
+        let mut view = unsafe { arr.as_array_mut() };
+        for (i, o) in self.outputs.iter().enumerate() {
+            for (j, &v) in o.dispersions.iter().enumerate() {
+                view[[i, j]] = v;
+            }
+        }
+        arr
     }
 
     /// Number of runs in the batch.

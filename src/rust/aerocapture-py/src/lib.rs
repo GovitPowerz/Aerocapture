@@ -67,6 +67,7 @@ fn extract_overrides(dict: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<(String, 
 #[pyfunction]
 #[pyo3(signature = (toml_path, overrides=None, sim_timeout_secs=None))]
 fn run(
+    py: Python<'_>,
     toml_path: &str,
     overrides: Option<&Bound<'_, PyDict>>,
     sim_timeout_secs: Option<f64>,
@@ -74,19 +75,23 @@ fn run(
     let overrides = extract_overrides(overrides)?;
     let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
 
-    let (sim_input, sim_data) =
-        config::load_and_override(std::path::Path::new(toml_path), &overrides)
-            .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
-
-    let outputs =
-        aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data, false, wall_timeout)
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e))
-            })?;
-
-    let output = outputs.into_iter().next().ok_or_else(|| {
-        pyo3::exceptions::PyRuntimeError::new_err("Simulation produced no results")
-    })?;
+    let output = py
+        .detach(|| -> Result<aerocapture::RunOutput, String> {
+            let (sim_input, sim_data) =
+                config::load_and_override(std::path::Path::new(toml_path), &overrides)?;
+            let outputs = aerocapture::simulation::runner::run_for_api(
+                &sim_input,
+                &sim_data,
+                false,
+                wall_timeout,
+            )
+            .map_err(|e| format!("Simulation error: {}", e))?;
+            outputs
+                .into_iter()
+                .next()
+                .ok_or_else(|| "Simulation produced no results".to_string())
+        })
+        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     Ok(SimResult::from_output(output))
 }
@@ -112,6 +117,7 @@ fn run(
 #[pyfunction]
 #[pyo3(signature = (toml_path, overrides=None, include_trajectories=false, sim_timeout_secs=None))]
 fn run_mc(
+    py: Python<'_>,
     toml_path: &str,
     overrides: Option<&Bound<'_, PyDict>>,
     include_trajectories: bool,
@@ -120,17 +126,19 @@ fn run_mc(
     let overrides = extract_overrides(overrides)?;
     let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
 
-    let (sim_input, sim_data) =
-        config::load_and_override(std::path::Path::new(toml_path), &overrides)
-            .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
-
-    let outputs = aerocapture::simulation::runner::run_for_api(
-        &sim_input,
-        &sim_data,
-        include_trajectories,
-        wall_timeout,
-    )
-    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e)))?;
+    let outputs = py
+        .detach(|| -> Result<Vec<aerocapture::RunOutput>, String> {
+            let (sim_input, sim_data) =
+                config::load_and_override(std::path::Path::new(toml_path), &overrides)?;
+            aerocapture::simulation::runner::run_for_api(
+                &sim_input,
+                &sim_data,
+                include_trajectories,
+                wall_timeout,
+            )
+            .map_err(|e| format!("Simulation error: {}", e))
+        })
+        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }
@@ -158,38 +166,34 @@ fn run_mc(
 #[pyfunction]
 #[pyo3(signature = (toml_path, overrides_list, n_threads=None, include_trajectories=false, sim_timeout_secs=None))]
 fn run_batch(
+    py: Python<'_>,
     toml_path: &str,
     overrides_list: &Bound<'_, PyList>,
     n_threads: Option<usize>,
     include_trajectories: bool,
     sim_timeout_secs: Option<f64>,
 ) -> PyResult<BatchResults> {
-    let n_threads = n_threads.unwrap_or_else(|| {
-        std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1)
-    });
-
-    // Extract each dict from the Python list.
     let mut overrides_vec = Vec::new();
     for item in overrides_list.iter() {
         let dict: &Bound<'_, PyDict> = item.cast()?;
         overrides_vec.push(extract_overrides(Some(dict))?);
     }
-
     let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
 
-    let outputs = batch::run_batch(
-        std::path::Path::new(toml_path),
-        overrides_vec,
-        n_threads,
-        include_trajectories,
-        wall_timeout,
-    )
-    .map_err(|e| match e {
-        batch::BatchError::Contract(m) => pyo3::exceptions::PyValueError::new_err(m),
-        batch::BatchError::Runtime(m) => pyo3::exceptions::PyRuntimeError::new_err(m),
-    })?;
+    let outputs = py
+        .detach(|| {
+            batch::run_batch(
+                std::path::Path::new(toml_path),
+                overrides_vec,
+                n_threads,
+                include_trajectories,
+                wall_timeout,
+            )
+        })
+        .map_err(|e| match e {
+            batch::BatchError::Contract(m) => pyo3::exceptions::PyValueError::new_err(m),
+            batch::BatchError::Runtime(m) => pyo3::exceptions::PyRuntimeError::new_err(m),
+        })?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }
@@ -212,6 +216,7 @@ fn run_batch(
 #[pyfunction]
 #[pyo3(signature = (toml_path, draws, overrides=None, include_trajectories=false, sim_timeout_secs=None))]
 fn run_with_draws(
+    py: Python<'_>,
     toml_path: &str,
     draws: PyReadonlyArray2<'_, f64>,
     overrides: Option<&Bound<'_, PyDict>>,
@@ -225,29 +230,36 @@ fn run_with_draws(
             shape
         )));
     }
-    let n_rows = shape[0];
 
-    let draw_vec: Vec<[f64; 26]> = (0..n_rows)
-        .map(|i| {
-            let mut row = [0.0f64; 26];
-            for (j, x) in row.iter_mut().enumerate() {
-                *x = *draws.get([i, j]).unwrap();
+    // `as_array()` + row iteration handles non-contiguous / transposed inputs
+    // (the old `.get([i, j]).unwrap()` panicked on strided arrays).
+    let arr = draws.as_array();
+    let draw_vec: Vec<[f64; 26]> = arr
+        .rows()
+        .into_iter()
+        .map(|row| {
+            let mut r = [0.0f64; 26];
+            for (j, &v) in row.iter().enumerate() {
+                r[j] = v;
             }
-            row
+            r
         })
         .collect();
 
     let overrides = extract_overrides(overrides)?;
     let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
 
-    let outputs = batch::run_with_external_draws(
-        std::path::Path::new(toml_path),
-        overrides,
-        draw_vec,
-        include_trajectories,
-        wall_timeout,
-    )
-    .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+    let outputs = py
+        .detach(|| {
+            batch::run_with_external_draws(
+                std::path::Path::new(toml_path),
+                overrides,
+                draw_vec,
+                include_trajectories,
+                wall_timeout,
+            )
+        })
+        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }
