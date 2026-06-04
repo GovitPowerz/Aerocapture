@@ -69,7 +69,7 @@ def parse_photo(filepath: str | Path) -> pd.DataFrame:
     """
     filepath = Path(filepath)
 
-    if filepath.stat().st_size == 0:
+    if not filepath.exists() or filepath.stat().st_size == 0:
         return pd.DataFrame()
 
     df = pd.read_csv(filepath)
