@@ -25,7 +25,7 @@ import numpy.typing as npt
 
 from aerocapture.training import charts
 from aerocapture.training.metrics import convergence_speed, stagnation_count
-from aerocapture.training.param_spaces import SCAFFOLDING_PREFIXES, route_param_path
+from aerocapture.training.param_spaces import SCAFFOLDING_PREFIXES, route_scaffolding_param
 from aerocapture.training.typst_utils import check_typst, compile_typst
 
 # ---------------------------------------------------------------------------
@@ -61,9 +61,8 @@ def _load_nn_scaffolding_overrides(scheme_dir: Path, optimized_toml: Path) -> di
     for key, value in scaff_params.items():
         if not key.startswith(SCAFFOLDING_PREFIXES):
             continue  # scaffolding file only carries the 5 prefixed params; skip anything else (preserves prior behavior)
-        if key == "lateral.max_reversals":
-            value = int(round(float(value)))  # type: ignore[arg-type]
-        overrides[route_param_path(key, "")] = value  # gated above, so the unprefixed fallback never fires
+        dot_path, value = route_scaffolding_param(key, value, "")
+        overrides[dot_path] = value
         if key.startswith("shaping."):
             overrides["guidance.command_shaping.enabled"] = True
     return overrides
@@ -127,6 +126,13 @@ def load_run_data(scheme_dir: Path) -> tuple[list[dict], list[int]]:
 
 # ---------------------------------------------------------------------------
 # Final MC evaluation via PyO3
+def _resolve_eval_toml(toml_path: Path, scheme_dir: Path) -> tuple[Path, dict[str, object]]:
+    """Resolve the eval TOML (optimized_<scheme>.toml if present, else toml_path) and its scaffolding overrides."""
+    optimized = scheme_dir / f"optimized_{scheme_dir.name}.toml"
+    eval_toml = optimized if optimized.exists() else toml_path
+    return eval_toml, _load_nn_scaffolding_overrides(scheme_dir, optimized)
+
+
 # ---------------------------------------------------------------------------
 def run_final_evaluation(
     toml_path: Path,
@@ -152,14 +158,12 @@ def run_final_evaluation(
     from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.toml_utils import load_toml_with_bases
 
-    optimized = scheme_dir / f"optimized_{scheme_dir.name}.toml"
-    eval_toml = optimized if optimized.exists() else toml_path
+    eval_toml, scaffolding_overrides = _resolve_eval_toml(toml_path, scheme_dir)
 
     toml_data = load_toml_with_bases(eval_toml)
     base_mc_seed = toml_data.get("monte_carlo", {}).get("seed", 42)
     reserved_seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
 
-    scaffolding_overrides = _load_nn_scaffolding_overrides(scheme_dir, optimized)
     if scaffolding_overrides:
         print(f"  Using optimized NN scaffolding from {scheme_dir / 'best_params.json'}")
 
@@ -585,13 +589,10 @@ def _run_undispersed_nominal(toml_path: Path, scheme_dir: Path, sim_timeout_secs
     except ImportError:
         return None
 
-    optimized = scheme_dir / f"optimized_{scheme_dir.name}.toml"
-    eval_toml = optimized if optimized.exists() else toml_path
-
     # NN schemes with scaffolding != "off" write best_params.json sibling to best_model.json;
     # without loading it here, the nominal overlay would use TOML-default scaffolding
     # while the dispersed MC corridor uses the GA-tuned values — visually inconsistent.
-    scaffolding_overrides = _load_nn_scaffolding_overrides(scheme_dir, optimized)
+    eval_toml, scaffolding_overrides = _resolve_eval_toml(toml_path, scheme_dir)
 
     overrides: dict[str, object] = {
         "simulation.n_sims": 1,

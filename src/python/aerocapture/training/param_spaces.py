@@ -225,3 +225,15 @@ def route_param_path(key: str, scheme: str) -> str:
         if key.startswith(prefix):
             return section + key.removeprefix(prefix)
     return f"guidance.{scheme}.{key}"
+
+
+def route_scaffolding_param(key: str, value: object, scheme: str) -> tuple[str, object]:
+    """Route a best_params.json key to its TOML dot-path and coerce the one integer param.
+
+    `lateral.max_reversals` is the only scaffolding param that must be an int in TOML;
+    everything else passes through unchanged. Shared by report.py (flat override dict) and
+    compare_guidance.py (nested TOML mutation), which both deploy GA-tuned scaffolding.
+    """
+    if key == "lateral.max_reversals":
+        value = int(round(float(value)))  # type: ignore[arg-type]
+    return route_param_path(key, scheme), value
