@@ -9,6 +9,7 @@ import math
 
 import numpy as np
 import numpy.typing as npt
+from scipy.spatial.distance import pdist
 
 
 def cost_stats(costs: npt.NDArray[np.float64]) -> dict[str, float]:
@@ -38,15 +39,11 @@ def population_diversity(population: npt.NDArray[np.floating]) -> float:
     if n < 2:
         return 0.0
     n_dims = population.shape[1]
-    total_distance = 0.0
-    n_pairs = 0
-    for i in range(n):
-        diffs = population[i] - population[i + 1 :]
-        distances = np.sqrt(np.sum(diffs**2, axis=1))
-        total_distance += float(np.sum(distances))
-        n_pairs += len(distances)
-    max_distance = np.sqrt(float(n_dims))
-    return total_distance / (n_pairs * max_distance) if n_pairs > 0 else 0.0
+    # pdist returns the n*(n-1)/2 unordered pairwise L2 distances; its mean is the
+    # same statistic the prior O(n^2) double-loop computed (sum over pairs / n_pairs).
+    max_distance = math.sqrt(n_dims)
+    mean_distance = float(np.mean(pdist(population)))
+    return mean_distance / max_distance
 
 
 def capture_rate(costs: npt.NDArray[np.float64], capture_threshold: float = 3000.0) -> float:

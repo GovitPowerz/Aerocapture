@@ -75,6 +75,25 @@ class TestPopulationDiversity:
         d = population_diversity(pop)
         assert 0.0 <= d <= 1.0 + 1e-10
 
+    def test_matches_reference_double_loop(self) -> None:
+        """Pin the exact statistic: mean of all unordered pairwise L2 distances,
+        normalized by sqrt(n_dims). Reference computed inline with a double loop."""
+        rng = np.random.default_rng(0)
+        pop = rng.random((5, 3))
+        n, n_dims = pop.shape
+        total = 0.0
+        n_pairs = 0
+        for i in range(n):
+            for j in range(i + 1, n):
+                total += float(np.sqrt(np.sum((pop[i] - pop[j]) ** 2)))
+                n_pairs += 1
+        expected = total / (n_pairs * np.sqrt(float(n_dims)))
+        assert population_diversity(pop) == pytest.approx(expected, abs=1e-12)
+
+    def test_n_less_than_two_returns_zero(self) -> None:
+        assert population_diversity(np.zeros((0, 3), dtype=np.float64)) == 0.0
+        assert population_diversity(np.array([[0.1, 0.2, 0.3]], dtype=np.float64)) == 0.0
+
 
 class TestCaptureRate:
     def test_all_captured(self) -> None:
