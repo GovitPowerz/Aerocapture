@@ -169,7 +169,11 @@ def _describe_rl_architecture(cfg: RLConfig) -> None:
     print(f"  input_mask: {len(input_mask)} indices", file=sys.stderr)
 
 
-def _build_shaper_and_norms(cfg: RLConfig, input_mask: list[int], gamma: float) -> tuple[StepRewardCalculator, ReturnNormalizer | None, ObsNormalizer | None]:
+def _build_shaper_and_norms(
+    cfg: RLConfig, input_mask: list[int], gamma: float, toml_path: Path
+) -> tuple[StepRewardCalculator, ReturnNormalizer | None, ObsNormalizer | None]:
+    from aerocapture.training.report import read_cost_kwargs
+
     step_calc = StepRewardCalculator(
         input_mask=input_mask,
         gamma=gamma,
@@ -179,6 +183,7 @@ def _build_shaper_and_norms(cfg: RLConfig, input_mask: list[int], gamma: float) 
         apoapsis_weight=cfg.reward.apoapsis_weight,
         eccentricity_weight=cfg.reward.eccentricity_weight,
         energy_scale=cfg.reward.energy_scale,
+        cost_kwargs=read_cost_kwargs(toml_path),
     )
     ret_norm = ReturnNormalizer(gamma=gamma, warmup_steps=cfg.reward.norm_warmup_steps) if cfg.reward.normalize_returns else None
     obs_norm = ObsNormalizer(obs_dim=len(input_mask)) if cfg.reward.normalize_obs else None
@@ -206,6 +211,7 @@ def _validate_deterministic(
     import aerocapture_rs  # type: ignore[import]
 
     from aerocapture.training.evaluate import VALIDATION_SEED_OFFSET, compute_cost, make_reserved_seeds
+    from aerocapture.training.report import read_cost_kwargs
 
     tmp_json = output_dir / "gen_current_model.json"
     export_v2_policy_to_json(policy, str(tmp_json), obs_normalizer=obs_norm)
@@ -217,7 +223,8 @@ def _validate_deterministic(
     results = aerocapture_rs.run_batch(str(toml_path), overrides_list)
     fr = results.final_records
 
-    rms_cost = float(compute_cost(fr))
+    cost_kwargs = read_cost_kwargs(toml_path)
+    rms_cost = float(compute_cost(fr, **cost_kwargs))
     capture_rate = float(np.mean((fr[:, _IDX_IFINAL] == 3) & (fr[:, _IDX_ECC] < 1.0)))
     return {"val_rms_cost": rms_cost, "val_capture_rate": capture_rate}
 
@@ -239,6 +246,7 @@ def _validate_deterministic_v1(
     import aerocapture_rs  # type: ignore[import]
 
     from aerocapture.training.evaluate import VALIDATION_SEED_OFFSET, compute_cost, make_reserved_seeds
+    from aerocapture.training.report import read_cost_kwargs
 
     tmp_json = output_dir / "gen_current_model.json"
     export_policy_to_json(policy, tmp_json, input_mask, obs_normalizer=obs_norm)
@@ -250,7 +258,8 @@ def _validate_deterministic_v1(
     results = aerocapture_rs.run_batch(str(toml_path), overrides_list)
     fr = results.final_records
 
-    rms_cost = float(compute_cost(fr))
+    cost_kwargs = read_cost_kwargs(toml_path)
+    rms_cost = float(compute_cost(fr, **cost_kwargs))
     capture_rate = float(np.mean((fr[:, _IDX_IFINAL] == 3) & (fr[:, _IDX_ECC] < 1.0)))
     return {"val_rms_cost": rms_cost, "val_capture_rate": capture_rate}
 
@@ -452,7 +461,7 @@ def _run_ppo(
     warmstart_json: Path | None = None,
 ) -> None:
     input_mask, architecture, input_dim = _parse_network_config(cfg)
-    step_calc, ret_norm, obs_norm = _build_shaper_and_norms(cfg, input_mask, gamma=cfg.ppo.gamma)
+    step_calc, ret_norm, obs_norm = _build_shaper_and_norms(cfg, input_mask, gamma=cfg.ppo.gamma, toml_path=toml_path)
 
     env = AerocaptureVecEnv(
         toml_path=str(toml_path),
@@ -625,7 +634,7 @@ def _run_ppo(
             for i, d in enumerate(done):
                 if d:
                     fr = np.array(info[i]["final_record"], dtype=np.float64)
-                    term_cost = compute_terminal_cost(fr)
+                    term_cost = compute_terminal_cost(fr, cost_kwargs=step_calc.cost_kwargs)
                     shaped[i] += float(-term_cost)
                     episodic_returns.append(float(-term_cost))
                     episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
@@ -793,7 +802,7 @@ def _run_sac(
 ) -> None:
     input_mask, architecture, input_dim = _parse_network_config(cfg)
     layer_sizes, activations = _dense_only_shapes(architecture)
-    step_calc, ret_norm, obs_norm = _build_shaper_and_norms(cfg, input_mask, gamma=cfg.sac.gamma)
+    step_calc, ret_norm, obs_norm = _build_shaper_and_norms(cfg, input_mask, gamma=cfg.sac.gamma, toml_path=toml_path)
 
     env = AerocaptureVecEnv(
         toml_path=str(toml_path),
@@ -867,7 +876,7 @@ def _run_sac(
         for i, d in enumerate(done):
             if d:
                 fr = np.array(info[i]["final_record"], dtype=np.float64)
-                term_cost = compute_terminal_cost(fr)
+                term_cost = compute_terminal_cost(fr, cost_kwargs=step_calc.cost_kwargs)
                 shaped[i] += float(-term_cost)
                 episodic_returns.append(float(-term_cost))
                 episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
