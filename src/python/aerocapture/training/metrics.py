@@ -10,10 +10,6 @@ import math
 import numpy as np
 import numpy.typing as npt
 
-# Cost above this threshold indicates a non-capture (crash, hyperbolic escape, timeout).
-# Rust virtual DV assigns >= 10000 m/s to all non-capture outcomes.
-CAPTURE_COST_THRESHOLD = 10000.0
-
 
 def cost_stats(costs: npt.NDArray[np.float64]) -> dict[str, float]:
     """Compute best/mean/worst/median/std cost, filtering np.inf and np.nan.
@@ -54,14 +50,11 @@ def population_diversity(population: npt.NDArray[np.floating]) -> float:
 
 
 def capture_rate(costs: npt.NDArray[np.float64], capture_threshold: float = 3000.0) -> float:
-    """Fraction of individuals with cost below capture threshold.
+    """Fraction of sims with cost below capture_threshold.
 
-    Default threshold 3000 separates captured trajectories (max ~2600
-    after log compression) from non-captures (min ~3300).
-
-    Note: this default assumes dv_threshold=1000 in the cost function.
-    If dv_threshold is changed, this threshold should be adjusted
-    accordingly — the gap is log_cap(HYPERBOLIC_BASE, dv_threshold).
+    Defaults to 3000.0 (the Rust CRASH_FLOOR). Captures produce the real
+    orbital-correction DV, which is far below this; non-captures use virtual
+    DV at or above CRASH_FLOOR, so the threshold cleanly separates the two.
     """
     return float(int(np.sum(costs < capture_threshold)) / len(costs))
 
