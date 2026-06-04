@@ -573,6 +573,160 @@ def _select_best_teacher_per_seed(
     return [{"scheme": scheme, **r} for seed, (scheme, r) in sorted(best.items())]
 
 
+def _collect_supervisor_corpus(
+    cfg: TrainingConfig,
+    resolved_paths: dict[str, Path],
+    base_mc_seed: int,
+) -> tuple[dict[str, list[dict]], list[dict], int]:
+    """Collect per-scheme supervised traces, pick best teacher per seed, guard corpus size."""
+    # Thread sim_timeout_secs through so a NaN-state supervisor sim can't hang
+    # the warm-start pipeline indefinitely (project convention: every
+    # run_mc-equivalent path passes the timeout).
+    seeds = make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, cfg.warm_start.n_warm_seeds)
+    results_by_scheme: dict[str, list[dict]] = {}
+    for scheme, path in resolved_paths.items():
+        with open(path) as f:
+            source_params = json.load(f)
+        overrides = _build_overrides_for_source(source_params, scheme)
+        results_by_scheme[scheme] = _aero_rs.collect_supervised(
+            toml_path=cfg.sim.toml_config,
+            seeds=seeds,
+            overrides=overrides,
+            scheme=scheme,
+            sim_timeout_secs=cfg.sim.sim_timeout_secs,
+        )
+
+    selected = _select_best_teacher_per_seed(results_by_scheme)
+    min_corpus = max(1, cfg.warm_start.n_warm_seeds // 4)
+    if len(selected) < min_corpus:
+        raise RuntimeError(
+            f"warm-start corpus too small: {len(selected)} captures across {cfg.warm_start.n_warm_seeds} seeds "
+            f"(threshold {min_corpus}). Widen MC dispersions, check the TOML, or revise supervisor_schemes."
+        )
+    return results_by_scheme, selected, min_corpus
+
+
+def _write_selection_sidecar(
+    save_dir: Path,
+    n_warm_seeds: int,
+    resolved_paths: dict[str, Path],
+    results_by_scheme: dict[str, list[dict]],
+    selected: list[dict],
+    min_corpus: int,
+) -> None:
+    """Write warm_start_selection.json: per-supervisor selection counts + capture stats."""
+    # Without this, an under-performing supervisor pool (e.g. all FTC wins
+    # because eqglide / fnpag never captured) is invisible.
+    selection_counts: dict[str, int] = dict.fromkeys(resolved_paths, 0)
+    for traj in selected:
+        selection_counts[str(traj["scheme"])] += 1
+    per_scheme_stats: dict[str, dict] = {}
+    for scheme, results in results_by_scheme.items():
+        n_total = len(results)
+        n_captured = sum(1 for r in results if r["captured"])
+        captured_dvs = [float(r["dv"]) for r in results if r["captured"] and np.isfinite(r["dv"])]
+        per_scheme_stats[scheme] = {
+            "n_supervised": n_total,
+            "n_captured": n_captured,
+            "capture_rate": n_captured / max(n_total, 1),
+            "n_selected": selection_counts.get(scheme, 0),
+            "mean_dv_captured": float(np.mean(captured_dvs)) if captured_dvs else None,
+            "median_dv_captured": float(np.median(captured_dvs)) if captured_dvs else None,
+        }
+    (save_dir / "warm_start_selection.json").write_text(
+        json.dumps(
+            {
+                "n_warm_seeds": int(n_warm_seeds),
+                "n_selected_total": len(selected),
+                "min_corpus_required": min_corpus,
+                "per_scheme": per_scheme_stats,
+            },
+            indent=2,
+        )
+    )
+
+
+def _encode_and_persist(
+    cfg: TrainingConfig,
+    policy: V2Policy,
+    save_dir: Path,
+    cache_key: dict,
+    scaffolding_source_path: Path,
+) -> tuple[npt.NDArray[np.float64], list]:
+    """Extract flat weights, derive bounds, normalize to [0,1], concat scaffolding, persist."""
+    ws = cfg.warm_start
+    network = cfg.network
+    assert network.architecture is not None  # validated by _chunked_bptt_train
+    flat_weights = _policy_to_flat_weights_v2(policy, network.architecture)
+    from pydantic import TypeAdapter
+
+    from aerocapture.training.rl.schemas import LayerSpec
+
+    validated_arch = TypeAdapter(list[LayerSpec]).validate_python(network.architecture)
+    base_specs = nn_param_specs_from_v2(validated_arch, bound_multiplier=ws.bound_multiplier)
+
+    # Safety guard (per Task 7 code-quality review): zero-param layers must be
+    # skipped consistently by nn_param_specs_from_v2 and _policy_to_flat_weights_v2.
+    assert len(flat_weights) == len(base_specs), (
+        f"flat_weights length ({len(flat_weights)}) != weight_specs length ({len(base_specs)}); "
+        "zero-param layers (Window) must be skipped consistently in both encoders"
+    )
+
+    # adaptive_bounds (default True): per-layer-slab 2x max-abs bounds floored at
+    # the Xavier × bound_multiplier half-width. By construction every trained
+    # value lies inside its slab's [-bound, +bound] range, so encoding never clips.
+    weight_specs = _adaptive_layer_slab_specs(base_specs, flat_weights, list(validated_arch)) if ws.adaptive_bounds else base_specs
+
+    weight_chromo = np.empty(len(weight_specs), dtype=np.float64)
+    n_clipped = 0
+    for i, s in enumerate(weight_specs):
+        v = float(flat_weights[i])
+        normalized = (v - s.p_min) / (s.p_max - s.p_min)
+        if normalized < 0.0 or normalized > 1.0:
+            n_clipped += 1
+        weight_chromo[i] = np.clip(normalized, 0.0, 1.0)
+
+    clip_rate = n_clipped / max(len(weight_specs), 1)
+    if ws.adaptive_bounds:
+        # Adaptive bounds guarantee 0% clipping by construction; anything > 0 is a bug.
+        assert clip_rate == 0.0, f"adaptive_bounds produced {n_clipped} clipped weights -- internal bug, bounds should always contain trained values"
+    elif clip_rate > 0.05:
+        raise RuntimeError(
+            f"warm-start clip rate {100 * clip_rate:.1f}% ({n_clipped}/{len(weight_specs)}) exceeds 5% threshold. "
+            "Set [warm_start] adaptive_bounds = true (default), or widen bound_multiplier, reduce n_epochs, or lower lr."
+        )
+    elif n_clipped > 0:
+        print(f"  [warm_start] {n_clipped}/{len(weight_specs)} weights clipped ({100 * clip_rate:.2f}%).")
+
+    chromo = weight_chromo
+    if network.scaffolding != "off":
+        from aerocapture.training.param_spaces import active_scaffolding_specs
+
+        pack = active_scaffolding_specs(network.scaffolding)
+        if network.scaffolding == "full":
+            with open(scaffolding_source_path) as f:
+                scaff_params = json.load(f)
+        else:  # live: seed the 3-param tail from defaults, no FTC source needed.
+            scaff_params = {s.name: s.default for s in pack}
+        scaff_chromo = encode_to_normalized(scaff_params, list(pack))
+        chromo = np.concatenate([weight_chromo, scaff_chromo])
+
+    np.save(save_dir / "warm_start_chromosome.npy", chromo)
+    (save_dir / "warm_start_cache_key.json").write_text(json.dumps(cache_key, indent=2))
+    # Persist the bounds so resume / cache-hit returns the same specs the
+    # chromosome was encoded under.
+    (save_dir / "warm_start_bounds.json").write_text(
+        json.dumps(
+            [
+                {"name": s.name, "p_min": s.p_min, "p_max": s.p_max, "default": s.default, "log_scale": s.log_scale, "is_integer": s.is_integer}
+                for s in weight_specs
+            ],
+            indent=2,
+        )
+    )
+    return chromo, weight_specs
+
+
 def build_warm_start_chromosome(
     cfg: TrainingConfig,
     base_mc_seed: int,
@@ -642,63 +796,12 @@ def build_warm_start_chromosome(
         validated_arch_cached = TypeAdapter(list[LayerSpec]).validate_python(network.architecture)
         return chromo, nn_param_specs_from_v2(validated_arch_cached, bound_multiplier=ws.bound_multiplier)
 
-    # 3. Collect per scheme. Thread sim_timeout_secs through so a NaN-state
-    # supervisor sim can't hang the warm-start pipeline indefinitely (project
-    # convention: every run_mc-equivalent path passes the timeout).
-    seeds = make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, ws.n_warm_seeds)
-    results_by_scheme: dict[str, list[dict]] = {}
-    for scheme, path in resolved_paths.items():
-        with open(path) as f:
-            source_params = json.load(f)
-        overrides = _build_overrides_for_source(source_params, scheme)
-        results_by_scheme[scheme] = _aero_rs.collect_supervised(
-            toml_path=cfg.sim.toml_config,
-            seeds=seeds,
-            overrides=overrides,
-            scheme=scheme,
-            sim_timeout_secs=cfg.sim.sim_timeout_secs,
-        )
+    # 3. Collect per scheme + pick best teacher per seed (with corpus-size guard).
+    results_by_scheme, selected, min_corpus = _collect_supervisor_corpus(cfg, resolved_paths, base_mc_seed)
 
-    # 4. Pick best per seed
-    selected = _select_best_teacher_per_seed(results_by_scheme)
-    min_corpus = max(1, ws.n_warm_seeds // 4)
-    if len(selected) < min_corpus:
-        raise RuntimeError(
-            f"warm-start corpus too small: {len(selected)} captures across {ws.n_warm_seeds} seeds "
-            f"(threshold {min_corpus}). Widen MC dispersions, check the TOML, or revise supervisor_schemes."
-        )
-
-    # Persist per-supervisor selection counts (and per-supervisor capture stats)
-    # so warm_start_report can show which scheme dominated the teaching corpus.
-    # Without this, an under-performing supervisor pool (e.g. all FTC wins
-    # because eqglide / fnpag never captured) is invisible.
-    selection_counts: dict[str, int] = dict.fromkeys(resolved_paths, 0)
-    for traj in selected:
-        selection_counts[str(traj["scheme"])] += 1
-    per_scheme_stats: dict[str, dict] = {}
-    for scheme, results in results_by_scheme.items():
-        n_total = len(results)
-        n_captured = sum(1 for r in results if r["captured"])
-        captured_dvs = [float(r["dv"]) for r in results if r["captured"] and np.isfinite(r["dv"])]
-        per_scheme_stats[scheme] = {
-            "n_supervised": n_total,
-            "n_captured": n_captured,
-            "capture_rate": n_captured / max(n_total, 1),
-            "n_selected": selection_counts.get(scheme, 0),
-            "mean_dv_captured": float(np.mean(captured_dvs)) if captured_dvs else None,
-            "median_dv_captured": float(np.median(captured_dvs)) if captured_dvs else None,
-        }
-    (save_dir / "warm_start_selection.json").write_text(
-        json.dumps(
-            {
-                "n_warm_seeds": int(ws.n_warm_seeds),
-                "n_selected_total": len(selected),
-                "min_corpus_required": min_corpus,
-                "per_scheme": per_scheme_stats,
-            },
-            indent=2,
-        )
-    )
+    # 4. Persist per-supervisor selection counts so warm_start_report can show
+    # which scheme dominated the teaching corpus.
+    _write_selection_sidecar(save_dir, ws.n_warm_seeds, resolved_paths, results_by_scheme, selected, min_corpus)
 
     # 5. Magnitude_only mode: collapse sign Python-side so the supervised
     # target matches the runtime decoder. Under magnitude_only deploy, the
@@ -744,75 +847,8 @@ def build_warm_start_chromosome(
     else:
         print(f"  [warm_start] supervised MSE: {losses[-1]:.4e}")
 
-    # 7. Extract flat weights and encode to normalized chromosome.
-    assert network.architecture is not None  # validated by _chunked_bptt_train
-    flat_weights = _policy_to_flat_weights_v2(policy, network.architecture)
-    from pydantic import TypeAdapter
-
-    from aerocapture.training.rl.schemas import LayerSpec
-
-    validated_arch = TypeAdapter(list[LayerSpec]).validate_python(network.architecture)
-    base_specs = nn_param_specs_from_v2(validated_arch, bound_multiplier=ws.bound_multiplier)
-
-    # Safety guard (per Task 7 code-quality review): zero-param layers must be
-    # skipped consistently by nn_param_specs_from_v2 and _policy_to_flat_weights_v2.
-    assert len(flat_weights) == len(base_specs), (
-        f"flat_weights length ({len(flat_weights)}) != weight_specs length ({len(base_specs)}); "
-        "zero-param layers (Window) must be skipped consistently in both encoders"
-    )
-
-    # adaptive_bounds (default True): per-layer-slab 2x max-abs bounds floored at
-    # the Xavier × bound_multiplier half-width. By construction every trained
-    # value lies inside its slab's [-bound, +bound] range, so encoding never clips.
-    weight_specs = _adaptive_layer_slab_specs(base_specs, flat_weights, list(validated_arch)) if ws.adaptive_bounds else base_specs
-
-    weight_chromo = np.empty(len(weight_specs), dtype=np.float64)
-    n_clipped = 0
-    for i, s in enumerate(weight_specs):
-        v = float(flat_weights[i])
-        normalized = (v - s.p_min) / (s.p_max - s.p_min)
-        if normalized < 0.0 or normalized > 1.0:
-            n_clipped += 1
-        weight_chromo[i] = np.clip(normalized, 0.0, 1.0)
-
-    clip_rate = n_clipped / max(len(weight_specs), 1)
-    if ws.adaptive_bounds:
-        # Adaptive bounds guarantee 0% clipping by construction; anything > 0 is a bug.
-        assert clip_rate == 0.0, f"adaptive_bounds produced {n_clipped} clipped weights -- internal bug, bounds should always contain trained values"
-    elif clip_rate > 0.05:
-        raise RuntimeError(
-            f"warm-start clip rate {100 * clip_rate:.1f}% ({n_clipped}/{len(weight_specs)}) exceeds 5% threshold. "
-            "Set [warm_start] adaptive_bounds = true (default), or widen bound_multiplier, reduce n_epochs, or lower lr."
-        )
-    elif n_clipped > 0:
-        print(f"  [warm_start] {n_clipped}/{len(weight_specs)} weights clipped ({100 * clip_rate:.2f}%).")
-
-    chromo = weight_chromo
-    if network.scaffolding != "off":
-        from aerocapture.training.param_spaces import active_scaffolding_specs
-
-        pack = active_scaffolding_specs(network.scaffolding)
-        if network.scaffolding == "full":
-            with open(scaffolding_source_path) as f:
-                scaff_params = json.load(f)
-        else:  # live: seed the 3-param tail from defaults, no FTC source needed.
-            scaff_params = {s.name: s.default for s in pack}
-        scaff_chromo = encode_to_normalized(scaff_params, list(pack))
-        chromo = np.concatenate([weight_chromo, scaff_chromo])
-
-    np.save(save_dir / "warm_start_chromosome.npy", chromo)
-    (save_dir / "warm_start_cache_key.json").write_text(json.dumps(cache_key, indent=2))
-    # Persist the bounds so resume / cache-hit returns the same specs the
-    # chromosome was encoded under.
-    (save_dir / "warm_start_bounds.json").write_text(
-        json.dumps(
-            [
-                {"name": s.name, "p_min": s.p_min, "p_max": s.p_max, "default": s.default, "log_scale": s.log_scale, "is_integer": s.is_integer}
-                for s in weight_specs
-            ],
-            indent=2,
-        )
-    )
+    # 7. Extract flat weights, derive bounds, normalize, concat scaffolding, persist.
+    chromo, weight_specs = _encode_and_persist(cfg, policy, save_dir, cache_key, scaffolding_source_path)
     return chromo, weight_specs
 
 
