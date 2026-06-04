@@ -16,6 +16,7 @@ import json
 import shutil
 import sys
 import tempfile
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -675,7 +676,8 @@ def _generate_trajectory_charts(
     out_dir: Path,
     scheme_dir: Path | None = None,
     toml_path: Path | None = None,
-    sim_timeout_secs: float | None = None,
+    corridor_data: dict[str, Any] | None = None,
+    undispersed: npt.NDArray[np.float64] | None = None,
     cost_kwargs: dict[str, Any] | None = None,
 ) -> None:
     """Generate Part 2 (mission performance) SVG charts from final eval data."""
@@ -683,11 +685,6 @@ def _generate_trajectory_charts(
     heat_flux_limit, g_load_limit, heat_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None, None)
     traj_class = charts.classify_trajectories(final_records, heat_flux_limit=heat_flux_limit, g_load_limit=g_load_limit, heat_load_limit=heat_load_limit)
 
-    # Load corridor boundaries and nominal trajectories
-    corridor_data = _load_corridor_data(scheme_dir) if scheme_dir is not None else None
-    undispersed = (
-        _run_undispersed_nominal(toml_path, scheme_dir, sim_timeout_secs=sim_timeout_secs) if toml_path is not None and scheme_dir is not None else None
-    )
     best_traj = _find_best_trajectory(final_records, trajectories)
 
     # Corridor panels
@@ -723,6 +720,166 @@ def _generate_trajectory_charts(
 
 
 # ---------------------------------------------------------------------------
+# Report COMPUTE phase: all simulation/data outputs (incl. persistent parquet)
+# ---------------------------------------------------------------------------
+@dataclass
+class ReportPayload:
+    records: list[dict]
+    resume_gens: list[int]
+    n_sims: int
+    cost_kwargs: dict[str, Any] | None
+    has_trajectories: bool
+    final_records: npt.NDArray[np.float64] | None
+    trajectories: list[npt.NDArray[np.float64]] | None
+    dispersions: npt.NDArray[np.float64] | None
+    undispersed: npt.NDArray[np.float64] | None
+    corridor_data: dict[str, Any] | None
+
+
+def _compute_report_payload(
+    scheme_dir: Path,
+    toml_path: Path | None,
+    skip_final_eval: bool,
+    n_sims_override: int | None,
+    sim_timeout_secs: float | None,
+) -> ReportPayload | None:
+    """COMPUTE phase: load JSONL, run final eval, write parquet, hoist nominal/corridor.
+
+    Returns None (with the same message + early return as the original) when no
+    JSONL records are present. The persistent ``final_eval.parquet`` is a compute
+    output and is written here, not in the render phase.
+    """
+    records, resume_gens = load_run_data(scheme_dir)
+    if not records:
+        print(f"No JSONL data found in {scheme_dir}")
+        return None
+
+    n_sims = n_sims_override if n_sims_override is not None else 1000
+
+    # Read cost function config from TOML (needed for cost stats)
+    cost_kwargs = read_cost_kwargs(toml_path) if toml_path is not None else None
+
+    # Final evaluation (optional)
+    has_trajectories = False
+    final_records: npt.NDArray[np.float64] | None = None
+    trajectories: list[npt.NDArray[np.float64]] | None = None
+    dispersions: npt.NDArray[np.float64] | None = None
+    if not skip_final_eval and toml_path is not None:
+        print(f"\nRunning {n_sims}-sim final evaluation...")
+        eval_result = run_final_evaluation(toml_path, scheme_dir, n_sims=n_sims, sim_timeout_secs=sim_timeout_secs)
+        if eval_result is not None:
+            final_records_arr, trajectories, dispersions = eval_result
+            has_trajectories = True
+            print_eval_summary(final_records_arr, n_sims, cost_kwargs=cost_kwargs)
+            final_records = final_records_arr
+
+            # Write Parquet output for analysis
+            try:
+                from aerocapture.training.parquet_output import write_parquet
+                from aerocapture.training.toml_utils import load_toml_with_bases
+
+                resolved_config = load_toml_with_bases(toml_path)
+                parquet_path = scheme_dir / "final_eval.parquet"
+                write_parquet(parquet_path, final_records_arr, dispersions, resolved_config, toml_path=str(toml_path))
+                print(f"Parquet output: {parquet_path}")
+            except ImportError:
+                pass  # pyarrow not installed
+            except Exception as exc:  # noqa: BLE001
+                print(f"Warning: Parquet write failed: {exc}")
+
+    # Hoisted compute (previously inside _generate_trajectory_charts): only run
+    # the corridor load + undispersed sim when there are trajectories to overlay
+    # them on — the original only reached these inside the trajectory-chart path.
+    corridor_data: dict[str, Any] | None = None
+    undispersed: npt.NDArray[np.float64] | None = None
+    if has_trajectories:
+        corridor_data = _load_corridor_data(scheme_dir) if scheme_dir is not None else None
+        undispersed = (
+            _run_undispersed_nominal(toml_path, scheme_dir, sim_timeout_secs=sim_timeout_secs) if toml_path is not None and scheme_dir is not None else None
+        )
+
+    return ReportPayload(
+        records=records,
+        resume_gens=resume_gens,
+        n_sims=n_sims,
+        cost_kwargs=cost_kwargs,
+        has_trajectories=has_trajectories,
+        final_records=final_records,
+        trajectories=trajectories,
+        dispersions=dispersions,
+        undispersed=undispersed,
+        corridor_data=corridor_data,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Report RENDER phase: all tmp_dir SVG/JSON assets
+# ---------------------------------------------------------------------------
+def _render_report_assets(
+    payload: ReportPayload,
+    tmp_dir: Path,
+    scheme_dir: Path,
+    toml_path: Path | None,
+    sensitivity: bool,
+) -> None:
+    """RENDER phase: write all SVG charts + metadata.json + summary_table.json to tmp_dir."""
+    # Part 1: training convergence charts
+    has_cost_distribution = _generate_training_charts(payload.records, payload.resume_gens, tmp_dir, scheme_dir)
+
+    # Part 2: mission performance charts (only when eval produced trajectories).
+    # has_trajectories is True iff the triple was set together (see compute phase),
+    # so the explicit non-None checks below just narrow the types for mypy.
+    if payload.has_trajectories and payload.final_records is not None and payload.trajectories is not None and payload.dispersions is not None:
+        _generate_trajectory_charts(
+            payload.final_records,
+            payload.trajectories,
+            payload.dispersions,
+            tmp_dir,
+            scheme_dir=scheme_dir,
+            toml_path=toml_path,
+            corridor_data=payload.corridor_data,
+            undispersed=payload.undispersed,
+            cost_kwargs=payload.cost_kwargs,
+        )
+
+    # Part 3: Sensitivity Analysis
+    sensitivity_flags: dict[str, bool] = {"has_sensitivity": False, "has_morris": False, "has_sobol": False, "has_sobol_heatmap": False}
+    if sensitivity:
+        sensitivity_dir = scheme_dir / "sensitivity"
+        sensitivity_flags = _generate_sensitivity_charts(sensitivity_dir, tmp_dir)
+        if not sensitivity_flags["has_sensitivity"]:
+            print(f"No sensitivity data found in {sensitivity_dir} -- skipping Part 3")
+
+    # Write metadata.json
+    metadata = _build_metadata(
+        payload.records,
+        scheme_dir,
+        n_sims=payload.n_sims,
+        has_trajectories=payload.has_trajectories,
+        has_final_eval=payload.final_records is not None,
+        toml_path=toml_path,
+        has_cost_distribution=has_cost_distribution,
+    )
+    metadata.update(sensitivity_flags)
+    (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
+
+    # Write summary_table.json
+    heat_flux_limit, g_load_limit, heat_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None, None)
+    summary = (
+        _build_summary_table(
+            payload.final_records,
+            heat_flux_limit=heat_flux_limit,
+            g_load_limit=g_load_limit,
+            heat_load_limit=heat_load_limit,
+            cost_kwargs=payload.cost_kwargs,
+        )
+        if payload.final_records is not None
+        else {"rows": [], "violation_rows": []}
+    )
+    (tmp_dir / "summary_table.json").write_text(json.dumps(summary, indent=2))
+
+
+# ---------------------------------------------------------------------------
 # Main entry point: single-scheme report
 # ---------------------------------------------------------------------------
 def generate_report(
@@ -741,94 +898,15 @@ def generate_report(
 
     Returns the path to the generated PDF, or None if no data / Typst unavailable.
     """
-    records, resume_gens = load_run_data(scheme_dir)
-    if not records:
-        print(f"No JSONL data found in {scheme_dir}")
+    payload = _compute_report_payload(scheme_dir, toml_path, skip_final_eval, n_sims_override, sim_timeout_secs)
+    if payload is None:
         return None
-
-    n_sims = n_sims_override if n_sims_override is not None else 1000
 
     # Create temp directory for artifacts
     tmp_dir = Path(tempfile.mkdtemp(prefix="aerocapture_report_"))
 
     try:
-        # Part 1: training convergence charts
-        has_cost_distribution = _generate_training_charts(records, resume_gens, tmp_dir, scheme_dir)
-
-        # Read cost function config from TOML (needed for cost stats)
-        cost_kwargs = read_cost_kwargs(toml_path) if toml_path is not None else None
-
-        # Part 2: final evaluation (optional)
-        has_trajectories = False
-        final_records = None
-        if not skip_final_eval and toml_path is not None:
-            print(f"\nRunning {n_sims}-sim final evaluation...")
-            eval_result = run_final_evaluation(toml_path, scheme_dir, n_sims=n_sims, sim_timeout_secs=sim_timeout_secs)
-            if eval_result is not None:
-                final_records_arr, trajectories, dispersions = eval_result
-                has_trajectories = True
-                print_eval_summary(final_records_arr, n_sims, cost_kwargs=cost_kwargs)
-                _generate_trajectory_charts(
-                    final_records_arr,
-                    trajectories,
-                    dispersions,
-                    tmp_dir,
-                    scheme_dir=scheme_dir,
-                    toml_path=toml_path,
-                    sim_timeout_secs=sim_timeout_secs,
-                    cost_kwargs=cost_kwargs,
-                )
-                final_records = final_records_arr
-
-                # Write Parquet output for analysis
-                try:
-                    from aerocapture.training.parquet_output import write_parquet
-                    from aerocapture.training.toml_utils import load_toml_with_bases
-
-                    resolved_config = load_toml_with_bases(toml_path)
-                    parquet_path = scheme_dir / "final_eval.parquet"
-                    write_parquet(parquet_path, final_records_arr, dispersions, resolved_config, toml_path=str(toml_path))
-                    print(f"Parquet output: {parquet_path}")
-                except ImportError:
-                    pass  # pyarrow not installed
-                except Exception as exc:  # noqa: BLE001
-                    print(f"Warning: Parquet write failed: {exc}")
-
-        # Part 3: Sensitivity Analysis
-        sensitivity_flags: dict[str, bool] = {"has_sensitivity": False, "has_morris": False, "has_sobol": False, "has_sobol_heatmap": False}
-        if sensitivity:
-            sensitivity_dir = scheme_dir / "sensitivity"
-            sensitivity_flags = _generate_sensitivity_charts(sensitivity_dir, tmp_dir)
-            if not sensitivity_flags["has_sensitivity"]:
-                print(f"No sensitivity data found in {sensitivity_dir} -- skipping Part 3")
-
-        # Write metadata.json
-        metadata = _build_metadata(
-            records,
-            scheme_dir,
-            n_sims=n_sims,
-            has_trajectories=has_trajectories,
-            has_final_eval=final_records is not None,
-            toml_path=toml_path,
-            has_cost_distribution=has_cost_distribution,
-        )
-        metadata.update(sensitivity_flags)
-        (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
-
-        # Write summary_table.json
-        heat_flux_limit, g_load_limit, heat_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None, None)
-        summary = (
-            _build_summary_table(
-                final_records,
-                heat_flux_limit=heat_flux_limit,
-                g_load_limit=g_load_limit,
-                heat_load_limit=heat_load_limit,
-                cost_kwargs=cost_kwargs,
-            )
-            if final_records is not None
-            else {"rows": [], "violation_rows": []}
-        )
-        (tmp_dir / "summary_table.json").write_text(json.dumps(summary, indent=2))
+        _render_report_assets(payload, tmp_dir, scheme_dir, toml_path, sensitivity)
 
         # Compile PDF via Typst
         if not check_typst():
@@ -875,6 +953,10 @@ def render_mission_performance_charts(
     Returns (has_trajectories, summary_table_dict).
     """
     heat_flux_limit, g_load_limit, heat_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None, None)
+    corridor_data = _load_corridor_data(scheme_dir) if scheme_dir is not None else None
+    undispersed = (
+        _run_undispersed_nominal(toml_path, scheme_dir, sim_timeout_secs=sim_timeout_secs) if toml_path is not None and scheme_dir is not None else None
+    )
     _generate_trajectory_charts(
         final_records,
         trajectories,
@@ -882,7 +964,8 @@ def render_mission_performance_charts(
         tmp_dir,
         scheme_dir=scheme_dir,
         toml_path=toml_path,
-        sim_timeout_secs=sim_timeout_secs,
+        corridor_data=corridor_data,
+        undispersed=undispersed,
         cost_kwargs=cost_kwargs,
     )
     summary = _build_summary_table(
