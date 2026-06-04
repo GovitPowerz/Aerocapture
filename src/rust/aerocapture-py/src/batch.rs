@@ -1,7 +1,8 @@
 //! Parallel batch runner.
 //!
 //! Parses the base TOML once (resolving `base` inheritance), then applies
-//! per-run overrides in parallel using a scoped Rayon thread pool.
+//! per-run overrides in parallel via Rayon (a scoped thread pool when
+//! `n_threads` is provided, otherwise the global pool).
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -40,7 +41,8 @@ pub enum BatchError {
 /// the GA training loop). Use `run_mc` for multi-sim Monte Carlo per config.
 /// Passing `n_sims > 1` in the base config or an override returns an error.
 ///
-/// Uses a scoped Rayon thread pool with `n_threads` threads.
+/// When `n_threads` is `Some(n)`, runs inside a scoped Rayon thread pool with
+/// `n` threads; when `None`, reuses the global Rayon pool (no per-call build).
 pub fn run_batch(
     toml_path: &Path,
     overrides_list: Vec<Vec<(String, OverrideValue)>>,
