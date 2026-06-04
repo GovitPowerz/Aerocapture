@@ -1115,8 +1115,8 @@ def train(
                     # Convert stringified large ints back
                     state["state"] = {k: int(v) if isinstance(v, str) else v for k, v in state["state"].items()}
                     rng.bit_generator.state = state
-                except Exception:
-                    pass  # Fall back to seeded RNG if state restore fails
+                except Exception as e:
+                    print(f"Warning: RNG state restore failed ({type(e).__name__}: {e}); using seeded RNG", file=sys.stderr)
             if verbose:
                 print(f"Resumed from gen {resumed['generation']}, best={resumed['best_cost']:.4e}")
             if seed_curator is not None and resumed.get("seed_curator") is not None:

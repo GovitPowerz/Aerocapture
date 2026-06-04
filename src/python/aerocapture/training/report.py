@@ -372,7 +372,8 @@ def _build_metadata(
     if toml_path is not None and toml_path.exists():
         try:
             mission = _read_mission_name(toml_path)
-        except Exception:
+        except Exception as e:
+            print(f"Warning: could not read mission name from {toml_path} ({type(e).__name__}: {e})", file=sys.stderr)
             mission = ""
 
     return {
@@ -561,7 +562,8 @@ def _load_migration_log(scheme_dir: Path) -> list:
                     continue
                 log: list = pickle.loads(data["migration_log"].item())
                 return log
-        except Exception:
+        except Exception as e:
+            print(f"Warning: could not load migration_log from {cand} ({type(e).__name__}: {e})", file=sys.stderr)
             continue
     return []
 

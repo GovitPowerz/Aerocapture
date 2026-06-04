@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from enum import Enum
@@ -300,7 +301,8 @@ def _run_via_subprocess(config: TrainingConfig, cwd: str | Path | None = None) -
 
     try:
         return _parse_final_to_legacy_array(final_file)
-    except Exception:
+    except Exception as e:
+        print(f"Warning: could not parse final file {final_file} ({type(e).__name__}: {e})", file=sys.stderr)
         return None
 
 
