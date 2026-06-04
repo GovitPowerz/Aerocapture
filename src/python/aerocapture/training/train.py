@@ -26,8 +26,10 @@ from aerocapture.training.evaluate import (
     _HAS_PYO3,
     FINAL_EVAL_SEED_OFFSET,
     VALIDATION_SEED_OFFSET,
+    GateStatus,
     _aero_rs,
     make_reserved_seeds,
+    run_validation_gate,
     write_nn_json,
 )
 from aerocapture.training.initialization_v2 import init_v2_population
@@ -1353,11 +1355,13 @@ def train(
                 costs = F[:, 0]
 
                 # Gen best by parameter identity -- cost comparison across gens is
-                # unreliable under rotating or curated seeds.
+                # unreliable under rotating or curated seeds. This bare-argmin
+                # selection is for the logging payload (display only) and the
+                # already-guarded no-validation fallback below; the validation
+                # gate uses its own all-inf-guarded selection.
                 gen_best_idx = int(np.argmin(costs))
                 gen_best_individual = X[gen_best_idx].copy()
                 gen_best_cost = float(costs[gen_best_idx])
-                new_gen_best = last_validated_individual is None or not np.array_equal(gen_best_individual, last_validated_individual)
 
                 # Corridor accumulation for piecewise_constant
                 if config.guidance_type == "piecewise_constant" and corridor_acc is not None and _HAS_PYO3 and config.sim.toml_config:
@@ -1373,25 +1377,29 @@ def train(
                 # Validation gate: fires whenever the gen-best individual differs
                 # (by parameter identity) from the last validated individual.
                 # Promotion to best_overall_individual gated on validation improvement.
+                # The shared gate (with islands) guards the all-inf-population case
+                # so a junk pop[0] is never validated/promoted.
                 validation_metrics: dict | None = None
                 validation_summary: dict | None = None
                 validated_improvement = False
-                if val_seeds is not None and new_gen_best:
-                    val_costs, val_records = problem.evaluate_individual_records_per_seed(gen_best_individual, val_seeds)
-                    validation_metrics, validation_summary = _build_validation_payload(
-                        val_costs,
-                        val_records,
-                        len(val_seeds),
-                        problem.cost_kwargs,
-                    )
-                    val_rms = validation_metrics["rms_cost"]
-                    last_validated_individual = gen_best_individual
-                    if val_rms < best_val_cost:
-                        best_val_cost = val_rms
-                        best_overall_individual = gen_best_individual
-                        best_overall_cost = gen_best_cost
-                        validated_improvement = True
-                elif val_seeds is None and np.isfinite(gen_best_cost):
+                if val_seeds is not None:
+                    gate = run_validation_gate(X, costs, last_validated_individual, best_val_cost, problem, val_seeds)
+                    if gate.status is GateStatus.VALIDATED:
+                        assert gate.individual is not None and gate.val_costs is not None and gate.val_rms is not None
+                        validation_metrics, validation_summary = _build_validation_payload(
+                            gate.val_costs,
+                            gate.val_records,
+                            len(val_seeds),
+                            problem.cost_kwargs,
+                        )
+                        last_validated_individual = gate.individual
+                        if gate.promoted:
+                            best_val_cost = gate.val_rms
+                            best_overall_individual = gate.individual
+                            best_overall_cost = gate.argmin_cost
+                            validated_improvement = True
+                    # SKIP_UNCHANGED / SKIP_ALL_INF: no validation, no promotion.
+                elif np.isfinite(gen_best_cost):
                     # No validation gate: promote each generation's finite training
                     # argmin directly (mirrors the islands no-validation fallback in
                     # _train_islands). The final MC eval re-ranks on a disjoint pool,

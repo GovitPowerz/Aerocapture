@@ -8,8 +8,11 @@ from __future__ import annotations
 import json
 import subprocess
 import tempfile
+from dataclasses import dataclass
+from enum import Enum
 from io import TextIOWrapper
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 import numpy.typing as npt
@@ -49,6 +52,91 @@ def make_reserved_seeds(base_mc_seed: int, offset: int, n: int) -> list[int]:
     """
     seeds: list[int] = np.random.default_rng(base_mc_seed + offset).integers(0, 2**31, size=n).tolist()
     return seeds
+
+
+class GateStatus(Enum):
+    """Outcome of the guarded validation-gate selection."""
+
+    SKIP_ALL_INF = "skip_all_inf"  # no finite training cost -> do not select/promote
+    SKIP_UNCHANGED = "skip_unchanged"  # argmin identical to last validated -> no re-validate
+    VALIDATED = "validated"  # ran validation MC; `promoted` says whether to swap best
+
+
+@dataclass
+class GateResult:
+    """Result of `run_validation_gate`. Callers apply their own state updates
+    (stagnation counters, result-dict shaping, no-validation fallback)."""
+
+    status: GateStatus
+    argmin_cost: float
+    individual: npt.NDArray[np.float64] | None = None
+    val_costs: npt.NDArray[np.float64] | None = None
+    val_records: npt.NDArray[np.float64] | None = None
+    val_rms: float | None = None
+    promoted: bool = False
+
+
+class _SupportsPerSeedEval(Protocol):
+    def evaluate_individual_records_per_seed(
+        self,
+        x: npt.NDArray[np.float64],
+        seeds: list[int],
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
+
+
+def run_validation_gate(
+    X: npt.NDArray[np.float64],
+    F: npt.NDArray[np.float64],
+    last_validated: npt.NDArray[np.float64] | None,
+    best_val_cost: float,
+    problem: _SupportsPerSeedEval,
+    val_seeds: list[int],
+) -> GateResult:
+    """Guarded gen-best selection + identity-trigger validation, shared by the
+    single-algorithm loop and the islands trainer.
+
+    Decides three things and nothing else:
+      1. SKIP_ALL_INF when every training cost is non-finite (the guard -- a bare
+         `np.argmin` on an all-inf array returns 0, which would promote whatever
+         junk chromosome sits at pop[0]).
+      2. SKIP_UNCHANGED when the guarded argmin matches `last_validated` (no point
+         re-running the same individual through the validation MC).
+      3. VALIDATED otherwise: runs the validation MC and reports `val_rms` plus
+         whether it beats `best_val_cost` (the promotion boolean).
+
+    Selection uses `nanargmin(where(isfinite, f, inf))`, which also skips NaN-cost
+    rows: in a mixed finite+NaN population the finite minimum is selected, not the
+    NaN-indexed individual that bare `np.argmin` would have returned.  This matches
+    the islands trainer's already-NaN-safe selection and closes a latent single-algo
+    bug where a Rust sim leaking a NaN state (e.g. no sim_timeout_secs) could
+    otherwise cause a NaN-cost individual to be validated and promoted.
+
+    It does NOT manage stagnation counters, build result/summary dicts, or run the
+    no-validation fallback -- those stay caller-side so each caller's observable
+    behavior (result-dict shape, logging payload) is unchanged.
+    """
+    f = np.asarray(F).reshape(-1)
+    if not np.any(np.isfinite(f)):
+        return GateResult(status=GateStatus.SKIP_ALL_INF, argmin_cost=float("inf"))
+
+    idx = int(np.nanargmin(np.where(np.isfinite(f), f, np.inf)))
+    individual = X[idx].copy()
+    argmin_cost = float(f[idx])
+
+    if last_validated is not None and np.array_equal(individual, last_validated):
+        return GateResult(status=GateStatus.SKIP_UNCHANGED, argmin_cost=argmin_cost, individual=individual)
+
+    val_costs, val_records = problem.evaluate_individual_records_per_seed(individual, val_seeds)
+    val_rms = float(np.sqrt(np.mean(val_costs**2)))
+    return GateResult(
+        status=GateStatus.VALIDATED,
+        argmin_cost=argmin_cost,
+        individual=individual,
+        val_costs=val_costs,
+        val_records=val_records,
+        val_rms=val_rms,
+        promoted=val_rms < best_val_cost,
+    )
 
 
 def write_nn_json(

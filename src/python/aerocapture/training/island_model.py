@@ -16,6 +16,7 @@ import numpy.typing as npt
 from pymoo.algorithms.soo.nonconvex.pso import PSO
 from pymoo.core.algorithm import Algorithm
 
+from aerocapture.training.evaluate import GateStatus, run_validation_gate
 from aerocapture.training.metrics import capture_rate as _capture_rate
 from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
 
@@ -367,15 +368,22 @@ class IslandModel:
         results: list[dict[str, Any]] = []
         for island in self.islands:
             pop = island.algorithm.pop
-            X = pop.get("X")
-            F = pop.get("F").flatten()
 
-            # Skip validation when every F is non-finite (e.g. all sims
-            # timed out or returned NaN). `np.argmin` on an all-inf array
-            # silently returns 0, which would promote whatever junk
-            # chromosome happens to sit at pop[0] as last_validated /
-            # best_overall_individual.
-            if not np.any(np.isfinite(F)):
+            # Shared guarded selection + identity-trigger validation. The gate
+            # skips validation when every F is non-finite (e.g. all sims timed
+            # out or returned NaN) -- a bare `np.argmin` on an all-inf array
+            # silently returns 0, which would promote whatever junk chromosome
+            # happens to sit at pop[0] as last_validated / best_overall_individual.
+            gate = run_validation_gate(
+                pop.get("X"),
+                pop.get("F"),
+                island.last_validated_individual,
+                island.best_val_cost,
+                self.problem,
+                self.validation_seeds,
+            )
+
+            if gate.status is GateStatus.SKIP_ALL_INF:
                 island.stagnation_counter += 1
                 results.append(
                     {
@@ -388,36 +396,27 @@ class IslandModel:
                 )
                 continue
 
-            argmin_idx = int(np.nanargmin(np.where(np.isfinite(F), F, np.inf)))
-            argmin_X = X[argmin_idx].copy()
-            argmin_cost = float(F[argmin_idx])
-
-            unchanged = island.last_validated_individual is not None and np.array_equal(argmin_X, island.last_validated_individual)
-            if unchanged:
+            if gate.status is GateStatus.SKIP_UNCHANGED:
                 island.stagnation_counter += 1
                 results.append(
                     {
                         "island": island.name,
                         "validated": False,
                         "promoted": False,
-                        "argmin_train_cost": argmin_cost,
+                        "argmin_train_cost": gate.argmin_cost,
                         "stagnation": island.stagnation_counter,
                     }
                 )
                 continue
 
-            val_costs, val_records = self.problem.evaluate_individual_records_per_seed(
-                argmin_X,
-                self.validation_seeds,
-            )
-            val_rms = float(np.sqrt(np.mean(val_costs**2)))
-            island.last_validated_individual = argmin_X
+            assert gate.individual is not None and gate.val_costs is not None and gate.val_records is not None and gate.val_rms is not None
+            val_costs = gate.val_costs
+            island.last_validated_individual = gate.individual
 
-            promoted = val_rms < island.best_val_cost
-            if promoted:
-                island.best_val_cost = val_rms
-                island.best_overall_individual = argmin_X.copy()
-                island.best_overall_cost = argmin_cost
+            if gate.promoted:
+                island.best_val_cost = gate.val_rms
+                island.best_overall_individual = gate.individual.copy()
+                island.best_overall_cost = gate.argmin_cost
                 island.stagnation_counter = 0
             else:
                 island.stagnation_counter += 1
@@ -429,7 +428,7 @@ class IslandModel:
             from aerocapture.training.report import compute_eval_summary
 
             val_summary = compute_eval_summary(
-                val_records,
+                gate.val_records,
                 len(self.validation_seeds),
                 getattr(self.problem, "cost_kwargs", None),
             )
@@ -438,9 +437,9 @@ class IslandModel:
                 {
                     "island": island.name,
                     "validated": True,
-                    "promoted": promoted,
-                    "argmin_train_cost": argmin_cost,
-                    "val_rms": val_rms,
+                    "promoted": gate.promoted,
+                    "argmin_train_cost": gate.argmin_cost,
+                    "val_rms": gate.val_rms,
                     "val_mean": float(np.mean(val_costs)),
                     "val_p95": float(np.percentile(val_costs, 95)),
                     "val_capture_rate": _capture_rate(np.asarray(val_costs)),
