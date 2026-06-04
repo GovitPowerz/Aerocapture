@@ -91,6 +91,19 @@ class NetworkConfig:
                 if bad:
                     msg = f"input_mask indices out of range [0, {upper}): {bad}"
                     raise ValueError(msg)
+            # atan2_signed is the default decoder (bank = atan2(out[0], out[1])):
+            # it indexes two outputs, so a last layer emitting != 2 would index
+            # out of bounds at runtime. Mirror the Rust
+            # `validate_output_parameterization` load-time defense-in-depth (the
+            # warm_start BPTT loss has its own guard, but configs without warm
+            # start would otherwise reach the Rust runtime unchecked from Python).
+            # output_param absent defaults to atan2_signed.
+            out_param = self.output_parameterization or "atan2_signed"
+            if out_param == "atan2_signed":
+                last_out = _layer_output_size(self.architecture[-1])
+                if last_out != 2:
+                    msg = f"output_parameterization='atan2_signed' requires last layer output_size=2 (bank = atan2(out[0], out[1])), got {last_out}"
+                    raise ValueError(msg)
             return
         n_layers = len(self.layer_sizes) - 1
         if len(self.activations) != n_layers:

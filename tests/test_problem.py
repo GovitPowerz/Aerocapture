@@ -208,7 +208,7 @@ def test_problem_n_nn_weight_specs_live_pack() -> None:
     """A live-scaffolding NN problem caps weights at len(param_specs) - 3."""
     from aerocapture.training.config import NetworkConfig
 
-    arch = [{"type": "dense", "input_size": 2, "output_size": 1, "activation": "tanh"}]
+    arch = [{"type": "dense", "input_size": 2, "output_size": 2, "activation": "tanh"}]
     net = NetworkConfig(architecture=arch, scaffolding="live")
     # 3 placeholder weight specs + 3 live scaffolding specs
     specs = [ParamSpec(f"w{i}", -1.0, 1.0, 0.0) for i in range(3)] + [
@@ -232,7 +232,7 @@ def test_problem_n_nn_weight_specs_off_and_full() -> None:
     from aerocapture.training.config import NetworkConfig
     from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
 
-    arch = [{"type": "dense", "input_size": 2, "output_size": 1, "activation": "tanh"}]
+    arch = [{"type": "dense", "input_size": 2, "output_size": 2, "activation": "tanh"}]
     base_specs = [ParamSpec(f"w{i}", -1.0, 1.0, 0.0) for i in range(5)]
 
     net_off = NetworkConfig(architecture=arch, scaffolding="off")

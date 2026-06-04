@@ -1128,6 +1128,33 @@ fn validate_output_parameterization(
         )));
     }
 
+    // atan2_signed is the default decoder (bank = atan2(out[0], out[1])): it
+    // indexes two outputs, so a v2 architecture whose last layer emits != 2
+    // would index-out-of-bounds at runtime. Enforce output_size == 2 here as a
+    // load-time defense-in-depth (the model-level `validate_output_size` covers
+    // a loaded JSON, but this catches a misconfigured TOML before any model is
+    // even loaded). v1 configs (architecture = None) are unaffected: the model
+    // loader enforces the width when the JSON is read.
+    if param == "atan2_signed" {
+        if let Some(arch) = architecture
+            && let Some(last) = arch.last()
+        {
+            let output_size = match last {
+                TomlLayerSpec::Dense { output_size, .. } => Some(*output_size),
+                _ => None,
+            };
+            if let Some(output_size) = output_size
+                && output_size != 2
+            {
+                return Err(DataError(format!(
+                    "output_parameterization='atan2_signed' requires last layer \
+                     output_size=2 (bank = atan2(out[0], out[1])), got {output_size}"
+                )));
+            }
+        }
+        return Ok(());
+    }
+
     // Single-output tanh-head decoders share the architecture constraints.
     let needs_single_tanh = matches!(param, "acos_tanh" | "scaled_pi" | "delta");
     if !needs_single_tanh {
@@ -1497,6 +1524,60 @@ flight_path_angle = 0.5
             "expected architecture hint, got: {}",
             msg
         );
+    }
+
+    fn two_output_linear_arch() -> Vec<TomlLayerSpec> {
+        vec![
+            TomlLayerSpec::Dense {
+                input_size: 16,
+                output_size: 32,
+                activation: "tanh".to_string(),
+            },
+            TomlLayerSpec::Dense {
+                input_size: 32,
+                output_size: 2,
+                activation: "linear".to_string(),
+            },
+        ]
+    }
+
+    #[test]
+    fn atan2_signed_with_two_output_head_accepts() {
+        validate_output_parameterization(
+            Some("atan2_signed"),
+            guidance_params::NeuralNetMode::FullNeural,
+            Some(&two_output_linear_arch()),
+        )
+        .expect("atan2_signed with a 2-output head should pass validation");
+    }
+
+    #[test]
+    fn atan2_signed_with_one_output_head_rejects() {
+        // bank = atan2(out[0], out[1]) indexes two outputs; a 1-output head
+        // would index-out-of-bounds at runtime.
+        let err = validate_output_parameterization(
+            Some("atan2_signed"),
+            guidance_params::NeuralNetMode::FullNeural,
+            Some(&one_output_tanh_arch()),
+        )
+        .unwrap_err();
+        assert!(
+            err.0.contains("output_size=2") && err.0.contains("atan2_signed"),
+            "error should mention output_size=2 and atan2_signed, got: {}",
+            err.0
+        );
+    }
+
+    #[test]
+    fn atan2_signed_with_v1_architecture_accepts() {
+        // atan2_signed is the historical default; v1 (architecture=None) configs
+        // must stay legal (the model loader enforces output_size=2 at JSON read).
+        validate_output_parameterization(
+            Some("atan2_signed"),
+            guidance_params::NeuralNetMode::FullNeural,
+            None,
+        )
+        .expect("atan2_signed + v1 architecture should pass (model loader enforces width)");
     }
 
     fn one_output_tanh_arch() -> Vec<TomlLayerSpec> {

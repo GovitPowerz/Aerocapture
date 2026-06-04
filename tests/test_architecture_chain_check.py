@@ -67,6 +67,28 @@ def test_input_mask_index_35_rejected() -> None:
         NetworkConfig(architecture=arch, input_mask=[0, 1, 35])
 
 
+def test_atan2_signed_one_output_head_rejected() -> None:
+    """atan2_signed decodes bank = atan2(out[0], out[1]); a 1-output last layer
+    would index out of bounds at runtime, so reject it at config load."""
+    arch = [
+        {"type": "dense", "input_size": 4, "output_size": 8, "activation": "tanh"},
+        {"type": "dense", "input_size": 8, "output_size": 1, "activation": "tanh"},
+    ]
+    with pytest.raises(ValueError, match="atan2_signed.*output_size=2"):
+        NetworkConfig(architecture=arch, input_mask=list(range(4)), output_parameterization="atan2_signed")
+
+
+def test_atan2_signed_default_two_output_head_accepted() -> None:
+    """atan2_signed is the default decoder; a 2-output head must pass even when
+    output_parameterization is left absent (defaults to atan2_signed)."""
+    arch = [
+        {"type": "dense", "input_size": 4, "output_size": 8, "activation": "tanh"},
+        {"type": "dense", "input_size": 8, "output_size": 2, "activation": "linear"},
+    ]
+    cfg = NetworkConfig(architecture=arch, input_mask=list(range(4)))
+    assert cfg.n_output == 2
+
+
 def test_describe_architecture_v2() -> None:
     arch = [
         {"type": "dense", "input_size": 23, "output_size": 32, "activation": "tanh"},
