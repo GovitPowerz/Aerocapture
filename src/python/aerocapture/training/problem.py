@@ -278,67 +278,6 @@ class AerocaptureProblem(Problem):
 
         return costs, final_records
 
-    def evaluate_population_per_seed(
-        self,
-        X: npt.NDArray[np.float64],
-    ) -> npt.NDArray[np.float64]:
-        """Evaluate all individuals on all current seeds, returning cost matrix.
-
-        Returns:
-            Cost matrix (n_pop, n_seeds).
-        """
-        from aerocapture.training.encoding import decode_normalized_array as _dna
-
-        n_pop = X.shape[0]
-        n_seeds = len(self.seeds)
-        param_dicts = _dna(X, self.param_specs)
-        cost_matrix = np.empty((n_pop, n_seeds), dtype=np.float64)
-
-        assert _HAS_PYO3 and _aero_rs is not None
-
-        # For NN: write temp JSON files for each individual
-        nn_tmp_paths: list[Path] | None = None
-        if self.scheme == "neural_network" and self.nn_config is not None:
-            from aerocapture.training.config import NetworkConfig
-
-            nn_cfg = self.nn_config
-            assert isinstance(nn_cfg, NetworkConfig)
-            nn_tmp_paths = []
-            n_w = self._n_nn_weight_specs
-            for i in range(n_pop):
-                weights = np.array(
-                    [self.param_specs[j].p_min + float(X[i, j]) * (self.param_specs[j].p_max - self.param_specs[j].p_min) for j in range(n_w)],
-                    dtype=np.float64,
-                )
-                fd, tmp_str = tempfile.mkstemp(suffix=".json", prefix=f"nn_{i}_")
-                os.close(fd)
-                tmp = Path(tmp_str)
-                write_nn_json(weights, nn_cfg, tmp, input_mask=nn_cfg.input_mask, output_param=nn_cfg.output_parameterization)
-                nn_tmp_paths.append(tmp)
-
-        try:
-            for j, seed in enumerate(self.seeds):
-                overrides_list = [self._build_overrides(p, mc_seed=seed) for p in param_dicts]
-                if nn_tmp_paths is not None:
-                    for i, ovr in enumerate(overrides_list):
-                        ovr["data.neural_network"] = str(nn_tmp_paths[i])
-                result = _aero_rs.run_batch(  # type: ignore[union-attr]
-                    self.toml_path,
-                    overrides_list,
-                    n_threads=None,
-                    include_trajectories=False,
-                    sim_timeout_secs=self.sim_timeout,
-                )
-                final_records = result.final_records
-                for i in range(n_pop):
-                    cost_matrix[i, j] = compute_cost(final_records[i].reshape(1, FINAL_RECORD_LEN), **self.cost_kwargs)
-        finally:
-            if nn_tmp_paths is not None:
-                for p in nn_tmp_paths:
-                    p.unlink(missing_ok=True)
-
-        return cost_matrix
-
     def _build_overrides(
         self,
         params: dict[str, float],
