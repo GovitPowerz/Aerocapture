@@ -28,10 +28,14 @@ if TYPE_CHECKING:
 
     from aerocapture.training.rl.policy import V2Policy
 
+# Soft import (mirrors evaluate.py): keep `_aero_rs` as a module attribute -- so tests that
+# monkeypatch `warm_start._aero_rs.collect_supervised` still resolve -- but DON'T hard-raise at
+# import, so the module's pure-Python helpers (e.g. _build_overrides_for_source) stay importable
+# without the PyO3 build. Only the corpus-collection path actually needs Rust (guarded below).
 try:
-    import aerocapture_rs as _aero_rs
-except ImportError as e:
-    raise ImportError("warm_start requires aerocapture_rs PyO3 module") from e
+    import aerocapture_rs as _aero_rs  # type: ignore[import-not-found, import-untyped]
+except ImportError:
+    _aero_rs = None  # type: ignore[assignment]
 
 
 def _wrap_to_pi(x: torch.Tensor) -> torch.Tensor:
@@ -579,6 +583,11 @@ def _collect_supervisor_corpus(
     base_mc_seed: int,
 ) -> tuple[dict[str, list[dict]], list[dict], int]:
     """Collect per-scheme supervised traces, pick best teacher per seed, guard corpus size."""
+    if _aero_rs is None:
+        raise RuntimeError(
+            "warm-start corpus collection requires the aerocapture_rs PyO3 module. "
+            "Build it with `maturin develop --release --manifest-path src/rust/aerocapture-py/Cargo.toml`."
+        )
     # Thread sim_timeout_secs through so a NaN-state supervisor sim can't hang
     # the warm-start pipeline indefinitely (project convention: every
     # run_mc-equivalent path passes the timeout).

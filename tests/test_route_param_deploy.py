@@ -131,3 +131,28 @@ class TestLoadNnScaffoldingOverrides:
         v = result["guidance.lateral.max_reversals"]
         assert isinstance(v, int)
         assert v == 5
+
+
+def test_warm_start_pure_helpers_importable_without_pyo3() -> None:
+    """warm_start's pure-Python helpers must import without the aerocapture_rs PyO3 build,
+    so the no-PyO3 CI 'Python' job can collect this file (it imports a warm_start helper at
+    module scope, with no importorskip guard). Regression: a module-level hard
+    `import aerocapture_rs` that raised on absence broke collection of this whole file. Run
+    in a subprocess so blocking aerocapture_rs can't pollute the session's module cache."""
+    import subprocess
+    import sys
+    import textwrap
+
+    code = textwrap.dedent(
+        """
+        import sys
+        sys.modules["aerocapture_rs"] = None  # force ImportError on `import aerocapture_rs`
+        from aerocapture.training.warm_start import _build_overrides_for_source
+        out = _build_overrides_for_source({"lateral.tau": 20.0}, "ftc")
+        assert out["guidance.lateral.tau"] == 20.0, out
+        print("WARM_START_IMPORT_OK")
+        """
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, f"warm_start not importable without aerocapture_rs:\n{result.stderr}"
+    assert "WARM_START_IMPORT_OK" in result.stdout
