@@ -34,6 +34,12 @@ dev = [
     "types-seaborn>=0.13.2.20251221",
     "types-pygments>=2.19.0.20251121",
     "types-pexpect>=4.9.0.20260127",
+    "types-colorama>=0.4.15.20260508",
+    "types-networkx>=3.6.1.20260518",
+    "types-protobuf>=7.34.1.20260518",
+    "types-setuptools>=82.0.0.20260518",
+    "types-tabulate>=0.10.0.20260508",
+    "types-tqdm>=4.67.3.20260518",
 ]
 
 
