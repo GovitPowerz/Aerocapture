@@ -316,14 +316,19 @@ def _read_mission_name(toml_path: Path) -> str:
 
 
 def _read_constraint_limits(toml_path: Path) -> tuple[float | None, float | None, float | None]:
-    """Read heat flux, g-load, and heat-load limits from TOML [flight.constraints]."""
+    """Read heat flux, g-load, and heat-load limits from TOML [flight.constraints].
+
+    Heat-load defaults to 25000.0 when the key is absent, matching read_cost_kwargs /
+    compute_cost so trajectory classification and the stats block agree for every config
+    (e.g. earth.toml omits max_heat_load); otherwise heat-load-only violators were colored
+    OK while the stats block counted them as violations (D3)."""
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     data = load_toml_with_bases(toml_path)
     constraints = data.get("flight", {}).get("constraints", {})
     heat_flux: float | None = constraints.get("max_heat_flux")
     g_load: float | None = constraints.get("max_load_factor")
-    heat_load: float | None = constraints.get("max_heat_load")
+    heat_load: float | None = constraints.get("max_heat_load", 25000.0)
     return heat_flux, g_load, heat_load
 
 
