@@ -6,7 +6,7 @@
 base = ["msr_aller_nn_atan2_train.toml"]
 
 [data]
-neural_network = "training_output/neural_network_mamba_atan2/best_model.json"
+neural_network = "training_output/neural_network_mamba_atan2_adaptive/best_model.json"
 results_suffix = ".train_nn_mamba_atan2"
 
 # Architecture arrays REPLACE (not merge) under deep-merge, so this fully
