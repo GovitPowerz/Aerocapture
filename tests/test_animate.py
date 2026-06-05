@@ -62,6 +62,18 @@ class TestDiscoverCheckpoints:
         result = _discover_checkpoints(tmp_path, every=1)
         assert result == []
 
+    def test_discover_finds_current_checkpoint_naming(self, tmp_path: Path) -> None:
+        """animate must discover the trainer's current checkpoint_g{NNNNN}.json naming (D2)."""
+        import numpy as np
+        from aerocapture.training.animate import _discover_checkpoints
+
+        for gen in (0, 1, 2):
+            (tmp_path / f"checkpoint_g{gen:05d}.json").write_text('{"best_cost": 1.0, "cost_history": [1.0]}')
+            np.savez(tmp_path / f"checkpoint_g{gen:05d}.npz", costs=np.array([1.0, 2.0]))
+
+        found = _discover_checkpoints(tmp_path, every=1)
+        assert [c["generation"] for c in found] == [0, 1, 2]
+
 
 class TestBuildOverrides:
     def test_builds_dot_path_overrides(self) -> None:

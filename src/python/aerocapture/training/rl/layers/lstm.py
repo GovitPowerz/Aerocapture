@@ -71,5 +71,29 @@ class LstmLayer(nn.Module):
             ]
         )
 
+    def from_flat(self, slab: np.ndarray) -> None:
+        """Load a flat slab in-place: weight_ih row-major, weight_hh row-major, bias_ih, bias_hh.
+
+        Inverse of to_flat(); mirrors Rust `LayerWeights for LstmLayer::from_flat`.
+        The full bias_ih slice is written verbatim -- init_v2_population already places
+        the Jozefowicz +1.0 forget-bias in the correct slot; no per-gate splicing needed here.
+        """
+        four_h = 4 * self.hidden_size
+        n_w_ih = four_h * self.input_size
+        n_w_hh = four_h * self.hidden_size
+        c = 0
+
+        def _copy(param: torch.nn.Parameter, src: np.ndarray) -> None:
+            param.copy_(torch.from_numpy(np.ascontiguousarray(src)).to(param.dtype))
+
+        with torch.no_grad():
+            _copy(self.weight_ih, slab[c : c + n_w_ih].reshape(four_h, self.input_size))
+            c += n_w_ih
+            _copy(self.weight_hh, slab[c : c + n_w_hh].reshape(four_h, self.hidden_size))
+            c += n_w_hh
+            _copy(self.bias_ih, slab[c : c + four_h])
+            c += four_h
+            _copy(self.bias_hh, slab[c : c + four_h])
+
     def extra_repr(self) -> str:
         return f"input_size={self.input_size}, hidden_size={self.hidden_size}"

@@ -16,8 +16,11 @@ use rayon::prelude::*;
 
 use aerocapture::config::SimInput;
 use aerocapture::data::SimData;
-use aerocapture::data::dispersions::DispersionDraw;
 use aerocapture::integration::events::{EventContext, EventDef};
+use aerocapture::simulation::final_record::{
+    FINAL_RECORD_LEN, FR_DV_TOTAL_MS, FR_ECC, FR_ENERGY_MJKG, FR_G_LOAD, FR_HEAT_FLUX_KW_M2,
+    FR_HEAT_LOAD_MJM2,
+};
 use aerocapture::simulation::runner::{
     SimState, TermReason, build_final_record, build_sim_state, ifinal_for,
 };
@@ -99,7 +102,7 @@ impl BatchedSimulation {
 
         for i in 0..n_envs {
             let seed = seed_base + i as u64;
-            let draw = draw_from_seed(&sim_data, seed);
+            let draw = sim_data.draw_from_seed(seed);
             let run_state = aerocapture::simulation::init::init_run_from_draw(&sim_data, &draw);
             let state = build_sim_state(&sim_input, &sim_data, run_state, seed);
             envs.push(state);
@@ -146,7 +149,7 @@ impl BatchedSimulation {
         };
 
         for (i, &seed) in seeds_vec.iter().enumerate() {
-            let draw = draw_from_seed(&self.sim_data, seed);
+            let draw = self.sim_data.draw_from_seed(seed);
             let run_state =
                 aerocapture::simulation::init::init_run_from_draw(&self.sim_data, &draw);
             self.envs[i] = build_sim_state(&self.sim_input, &self.sim_data, run_state, seed);
@@ -212,8 +215,8 @@ impl BatchedSimulation {
                         // Guarded by the enclosing `if state.term() != TermReason::None`;
                         // ifinal_for's None arm (unreachable!) cannot fire here.
                         let ifinal = ifinal_for(state.term());
-                        let ecc = fr[9];
-                        let energy = fr[7]; // MJ/kg; negative = captured
+                        let ecc = fr[FR_ECC];
+                        let energy = fr[FR_ENERGY_MJKG]; // MJ/kg; negative = captured
                         let captured = ifinal == 3 && ecc < 1.0 && energy < 0.0;
                         let violated = state.any_constraint_violated(sim_data);
                         // Truncation vs termination: ifinal=2 (Timeout) is a max_time cutoff
@@ -224,10 +227,10 @@ impl BatchedSimulation {
                             ifinal,
                             captured,
                             ecc,
-                            dv_m_s: fr[41],
-                            peak_heat_flux_kw_m2: fr[16],
-                            peak_g_load: fr[17],
-                            peak_heat_load_kj_m2: fr[28] * 1e3, // MJ/m2 -> kJ/m2
+                            dv_m_s: fr[FR_DV_TOTAL_MS],
+                            peak_heat_flux_kw_m2: fr[FR_HEAT_FLUX_KW_M2],
+                            peak_g_load: fr[FR_G_LOAD],
+                            peak_heat_load_kj_m2: fr[FR_HEAT_LOAD_MJM2] * 1e3, // MJ/m2 -> kJ/m2
                             violated_constraints: violated,
                             truncated,
                             final_record: fr,
@@ -246,7 +249,7 @@ impl BatchedSimulation {
             if *done {
                 self.episode_counter[i] += self.n_envs as u64;
                 let seed = self.seed_base + self.episode_counter[i];
-                let draw = draw_from_seed(&self.sim_data, seed);
+                let draw = self.sim_data.draw_from_seed(seed);
                 let run_state =
                     aerocapture::simulation::init::init_run_from_draw(&self.sim_data, &draw);
                 self.envs[i] = build_sim_state(&self.sim_input, &self.sim_data, run_state, seed);
@@ -366,26 +369,6 @@ fn build_obs_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -
     )
 }
 
-/// Generate a deterministic dispersion draw for a given seed.
-///
-/// Clones the DispersionConfig with the given seed so each env gets a
-/// distinct, reproducible MC scenario. Falls back to the zero draw when
-/// no dispersion config is present (nominal runs).
-fn draw_from_seed(data: &SimData, seed: u64) -> DispersionDraw {
-    match &data.dispersion_config {
-        Some(cfg) => {
-            let mut seeded = cfg.clone();
-            seeded.seed = seed;
-            seeded
-                .generate_draws(1)
-                .into_iter()
-                .next()
-                .unwrap_or_default()
-        }
-        None => DispersionDraw::default(),
-    }
-}
-
 /// Terminal step payload for one env slot.
 struct TerminalOutcome {
     ifinal: i32,
@@ -397,7 +380,7 @@ struct TerminalOutcome {
     peak_heat_load_kj_m2: f64,
     violated_constraints: bool,
     truncated: bool,
-    final_record: [f64; 52],
+    final_record: [f64; FINAL_RECORD_LEN],
     /// Last observation of the terminated episode (pre-reset), for PPO value bootstrap.
     terminal_obs: Vec<f64>,
 }

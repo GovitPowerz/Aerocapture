@@ -10,6 +10,16 @@ from aerocapture.training.param_spaces import ParamSpec
 from aerocapture.training.problem import AerocaptureProblem
 
 
+def _make_minimal_problem() -> AerocaptureProblem:
+    return AerocaptureProblem(
+        param_specs=[ParamSpec("tau", 2.0, 60.0, 30.0)],
+        toml_path="dummy.toml",
+        seeds=[42],
+        cost_kwargs={},
+        scheme="ftc",
+    )
+
+
 def _make_specs() -> list[ParamSpec]:
     return [
         ParamSpec("tau", 2.0, 60.0, 30.0),
@@ -198,7 +208,7 @@ def test_problem_n_nn_weight_specs_live_pack() -> None:
     """A live-scaffolding NN problem caps weights at len(param_specs) - 3."""
     from aerocapture.training.config import NetworkConfig
 
-    arch = [{"type": "dense", "input_size": 2, "output_size": 1, "activation": "tanh"}]
+    arch = [{"type": "dense", "input_size": 2, "output_size": 2, "activation": "tanh"}]
     net = NetworkConfig(architecture=arch, scaffolding="live")
     # 3 placeholder weight specs + 3 live scaffolding specs
     specs = [ParamSpec(f"w{i}", -1.0, 1.0, 0.0) for i in range(3)] + [
@@ -222,7 +232,7 @@ def test_problem_n_nn_weight_specs_off_and_full() -> None:
     from aerocapture.training.config import NetworkConfig
     from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
 
-    arch = [{"type": "dense", "input_size": 2, "output_size": 1, "activation": "tanh"}]
+    arch = [{"type": "dense", "input_size": 2, "output_size": 2, "activation": "tanh"}]
     base_specs = [ParamSpec(f"w{i}", -1.0, 1.0, 0.0) for i in range(5)]
 
     net_off = NetworkConfig(architecture=arch, scaffolding="off")
@@ -233,3 +243,139 @@ def test_problem_n_nn_weight_specs_off_and_full() -> None:
     full_specs = [*base_specs, *_NN_SCAFFOLDING_PARAMS]
     prob_full = AerocaptureProblem(param_specs=full_specs, toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="neural_network", nn_config=net_full)
     assert prob_full._n_nn_weight_specs == len(base_specs)
+
+
+def test_evaluate_aborts_after_consecutive_failures(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A persistent batch-eval failure must raise after threshold, not silently return 1e9 forever (D6)."""
+    import pytest
+    from aerocapture.training import problem as problem_mod
+
+    prob = _make_minimal_problem()
+
+    def always_fail(self: AerocaptureProblem, X: object) -> object:
+        raise RuntimeError("simulated systemic break")
+
+    monkeypatch.setattr(problem_mod.AerocaptureProblem, "_run_batch", always_fail)
+
+    X = np.zeros((4, prob.n_var), dtype=np.float64)
+    out: dict = {}
+    for _ in range(problem_mod._MAX_CONSECUTIVE_EVAL_FAILURES - 1):
+        prob._evaluate(X, out)
+        assert np.all(out["F"] == 1e9)
+    with pytest.raises(RuntimeError, match="consecutive"):
+        prob._evaluate(X, out)
+
+
+def test_evaluate_resets_failure_counter_on_success(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Counter resets to zero after a successful batch; transient failure is tolerated."""
+    from aerocapture.training import problem as problem_mod
+
+    prob = _make_minimal_problem()
+    calls: dict[str, int] = {"n": 0}
+
+    def flaky(self: AerocaptureProblem, X: object) -> object:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("transient")
+        return np.full(4, 5.0)
+
+    monkeypatch.setattr(problem_mod.AerocaptureProblem, "_run_batch", flaky)
+    X = np.zeros((4, prob.n_var), dtype=np.float64)
+    out: dict = {}
+    prob._evaluate(X, out)  # transient failure -> 1e9, counter = 1
+    prob._evaluate(X, out)  # success -> 5.0, counter reset to 0
+    assert np.all(out["F"] == 5.0)
+    assert prob._consecutive_eval_failures == 0
+
+
+def test_evaluate_individual_records_per_seed_bit_identical_non_nn() -> None:
+    """evaluate_individual_records_per_seed (refactored run_grid path) returns records
+    bit-identical to a reference per-seed run_batch loop, for a non-NN scheme."""
+    import numpy as np
+    import pytest
+
+    aero = pytest.importorskip("aerocapture_rs")
+    from aerocapture.training.evaluate import compute_cost
+    from aerocapture.training.param_spaces import PARAM_SPACES
+    from aerocapture.training.parquet_output import FINAL_RECORD_LEN
+    from aerocapture.training.problem import AerocaptureProblem
+
+    toml = "configs/training/msr_aller_eqglide_train.toml"
+    specs = PARAM_SPACES["equilibrium_glide"]
+    seeds = list(range(7_300_000, 7_300_000 + 5))
+    cost_kwargs: dict = {}
+    p = AerocaptureProblem(
+        param_specs=specs,
+        toml_path=toml,
+        seeds=seeds,
+        cost_kwargs=cost_kwargs,
+        scheme="equilibrium_glide",
+    )
+
+    rng = np.random.default_rng(2027)
+    x = np.asarray(rng.random(p.n_var), dtype=np.float64)
+
+    new_costs, new_records = p.evaluate_individual_records_per_seed(x, seeds)
+
+    # Reference: per-seed run_batch, one sim per seed.
+    from aerocapture.training.encoding import decode_normalized
+
+    params = decode_normalized(x, specs)
+    ovr_list = [p._build_overrides(params, mc_seed=seed) for seed in seeds]
+    res = aero.run_batch(toml, ovr_list, n_threads=None, include_trajectories=False)
+    ref_records = np.asarray(res.final_records, dtype=np.float64)
+    ref_costs = np.array(
+        [compute_cost(ref_records[k].reshape(1, FINAL_RECORD_LEN), **cost_kwargs) for k in range(len(seeds))],
+        dtype=np.float64,
+    )
+
+    np.testing.assert_array_equal(new_records, ref_records)
+    np.testing.assert_array_equal(new_costs, ref_costs)
+
+
+def test_run_batch_pyo3_matches_per_seed_run_batch_non_nn() -> None:
+    """problem._run_batch (run_grid path) is bit-identical to looping seeds via
+    run_batch + compute_cost + RMS, for a non-NN scheme with dispersions ON."""
+    import numpy as np
+    import pytest
+
+    aero = pytest.importorskip("aerocapture_rs")
+    from aerocapture.training.encoding import decode_normalized_array
+    from aerocapture.training.evaluate import compute_cost
+    from aerocapture.training.param_spaces import PARAM_SPACES
+    from aerocapture.training.parquet_output import FINAL_RECORD_LEN
+    from aerocapture.training.problem import AerocaptureProblem
+
+    toml = "configs/training/msr_aller_eqglide_train.toml"
+    specs = PARAM_SPACES["equilibrium_glide"]
+    seeds = list(range(7_200_000, 7_200_000 + 5))
+    cost_kwargs: dict = {}
+    p = AerocaptureProblem(
+        param_specs=specs,
+        toml_path=toml,
+        seeds=seeds,
+        cost_kwargs=cost_kwargs,
+        scheme="equilibrium_glide",
+    )
+
+    rng = np.random.default_rng(2026)
+    X = rng.random((4, p.n_var))
+
+    new = p._run_batch(X)  # run_grid path
+
+    # OLD reference: per-seed run_batch + compute_cost + RMS across seeds.
+    param_dicts = decode_normalized_array(X, specs)
+    seed_costs = []
+    for seed in seeds:
+        ovr_list = [p._build_overrides(d, mc_seed=seed) for d in param_dicts]
+        res = aero.run_batch(toml, ovr_list, n_threads=None, include_trajectories=False)
+        frs = res.final_records
+        seed_costs.append(
+            np.array(
+                [compute_cost(fr.reshape(1, FINAL_RECORD_LEN), **cost_kwargs) for fr in frs],
+                dtype=np.float64,
+            )
+        )
+    old = np.sqrt(np.mean(np.stack(seed_costs, axis=0) ** 2, axis=0))
+
+    np.testing.assert_array_equal(new, old)

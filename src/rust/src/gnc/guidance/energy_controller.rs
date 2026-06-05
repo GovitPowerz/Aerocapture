@@ -91,6 +91,7 @@ mod tests {
         Constraints, EntryConditions, FinalConditions, OrbitalTarget, ParkingOrbit, SimData,
         SphericalState, SuccessCriteria, TimePeriods,
     };
+    use std::sync::Arc;
 
     fn test_nav(velocity: f64) -> NavigationOutput {
         let r = 3_396_200.0 + 50_000.0;
@@ -124,7 +125,7 @@ mod tests {
                 equilibrium_aoa: -0.48,
                 ..Default::default()
             },
-            atmosphere: AtmosphereModel {
+            atmosphere: Arc::new(AtmosphereModel {
                 n_points: 3,
                 altitudes: vec![0.0, 50_000.0, 130_000.0],
                 densities: vec![0.02, 0.001, 1e-8],
@@ -133,7 +134,7 @@ mod tests {
                 ref_altitude: 130_000.0,
                 gas_constant: 1.3,
                 density_profile: DensityProfile::default(),
-            },
+            }),
             atmosphere_onboard: crate::data::atmosphere::OnboardAtmosphereModel::Identical,
             entry: EntryConditions {
                 state: SphericalState {
@@ -191,7 +192,7 @@ mod tests {
 
     fn test_sim_data_with_ref_traj() -> SimData {
         let mut data = test_sim_data();
-        data.guidance.ref_trajectory = ReferenceTrajectory {
+        data.guidance.ref_trajectory = Arc::new(ReferenceTrajectory {
             n_points: 3,
             energy: vec![-1e6, -3e6, -5e6],
             pressure: vec![500.0, 800.0, 300.0],
@@ -200,7 +201,7 @@ mod tests {
             inclination: vec![0.87, 0.87, 0.87],
             time: vec![0.0, 300.0, 600.0],
             cos_bank: vec![0.4, 0.3, 0.5],
-        };
+        });
         data
     }
 

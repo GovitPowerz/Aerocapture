@@ -195,3 +195,32 @@ class MambaLayer(nn.Module):
                 self.d_skip.detach().cpu().numpy().astype(np.float64),
             ]
         )
+
+    def from_flat(self, slab: np.ndarray) -> None:
+        """Load a flat slab in-place, mirroring Rust `LayerWeights for MambaLayer::from_flat`.
+
+        Flat order:
+            x_proj_w row-major (dt_rank + 2*d_state, input_size)
+            dt_proj_w row-major (input_size, dt_rank)
+            dt_proj_b (input_size,)
+            a_log row-major (input_size, d_state)
+            d_skip (input_size,)
+        """
+        n_xp = (self.dt_rank + 2 * self.d_state) * self.input_size
+        n_dw = self.input_size * self.dt_rank
+        n_al = self.input_size * self.d_state
+        c = 0
+
+        def _copy(param: torch.nn.Parameter, src: np.ndarray) -> None:
+            param.copy_(torch.from_numpy(np.ascontiguousarray(src)).to(param.dtype))
+
+        with torch.no_grad():
+            _copy(self.x_proj_w, slab[c : c + n_xp].reshape(self.dt_rank + 2 * self.d_state, self.input_size))
+            c += n_xp
+            _copy(self.dt_proj_w, slab[c : c + n_dw].reshape(self.input_size, self.dt_rank))
+            c += n_dw
+            _copy(self.dt_proj_b, slab[c : c + self.input_size])
+            c += self.input_size
+            _copy(self.a_log, slab[c : c + n_al].reshape(self.input_size, self.d_state))
+            c += n_al
+            _copy(self.d_skip, slab[c : c + self.input_size])

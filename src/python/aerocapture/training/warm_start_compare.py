@@ -41,6 +41,7 @@ from aerocapture.training.evaluate import (
     make_reserved_seeds,
     write_nn_json,
 )
+from aerocapture.training.report import _read_constraint_limits
 from aerocapture.training.warm_start import _build_overrides_for_source
 
 if TYPE_CHECKING:
@@ -116,21 +117,6 @@ def _render_pool_panels(
     charts.chart_heat_flux_time(trajectories, traj_class, out_dir / f"{prefix}_heat_flux_time.svg", limit_kw_m2=heat_flux_limit)
 
 
-def _read_constraint_limits(toml_path: Path) -> tuple[float | None, float | None]:
-    """Mirror report._read_constraint_limits without taking the runtime import dep."""
-    from aerocapture.training.toml_utils import load_toml_with_bases
-
-    try:
-        doc = load_toml_with_bases(toml_path)
-        constraints = doc.get("flight", {}).get("constraints", {})
-        return (
-            float(constraints["max_heat_flux"]) if "max_heat_flux" in constraints else None,
-            float(constraints["max_load_factor"]) if "max_load_factor" in constraints else None,
-        )
-    except Exception:
-        return None, None
-
-
 def _decode_warm_start_weights(
     warm_chromo: npt.NDArray[np.float64],
     weight_specs: list,
@@ -199,7 +185,7 @@ def render_trajectory_comparison(
 
     # Write the warm-start NN to a temp JSON so the runtime can load it.
     # Cleanup happens unconditionally in the finally block.
-    heat_flux_limit, _ = _read_constraint_limits(Path(toml_config))
+    heat_flux_limit, _, _ = _read_constraint_limits(Path(toml_config))
     panels = ["corridor_pdyn", "corridor_inclination", "corridor_bank", "altitude_time", "heat_flux_time"]
 
     manifest: dict[str, Any] = {

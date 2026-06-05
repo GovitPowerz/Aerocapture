@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -13,6 +12,7 @@ from aerocapture.training import charts
 from aerocapture.training import report as ga_report
 from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
 from aerocapture.training.toml_utils import load_toml_with_bases
+from aerocapture.training.typst_utils import check_typst, compile_typst
 
 # Typst template is in src/typst/, two levels up from src/python/aerocapture/training/rl/
 _TYPST_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "typst"
@@ -128,7 +128,7 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
         (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
 
         # Compile PDF
-        if not shutil.which("typst"):
+        if not check_typst():
             print("Typst CLI not found -- SVG charts written but PDF skipped")
             print(f"  Chart artifacts: {tmp_dir}")
             return None
@@ -136,23 +136,7 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
         output_pdf = output_dir / "report.pdf"
         template = _TYPST_DIR / "report_rl.typ"
 
-        result = subprocess.run(
-            [
-                "typst",
-                "compile",
-                str(template),
-                "--root",
-                "/",
-                "--input",
-                f"dir={tmp_dir}",
-                str(output_pdf),
-            ],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            print(f"Typst compilation failed:\n{result.stderr}")
+        if not compile_typst(template, output_pdf, extra_args=["--root", "/", "--input", f"dir={tmp_dir}"], label="rl_report"):
             return None
 
         print(f"\nRL report saved to {output_pdf}")
@@ -176,7 +160,7 @@ def _today() -> str:
 def _chart_rl_return_curve(records: list[dict[str, Any]], out: Path) -> None:
     steps = [r["env_steps"] for r in records]
     mean = [r.get("episodic_return_mean", float("nan")) for r in records]
-    charts._save_line_chart(  # type: ignore[attr-defined]
+    charts.save_line_chart(
         steps,
         mean,
         xlabel="env steps",
@@ -189,25 +173,25 @@ def _chart_rl_return_curve(records: list[dict[str, Any]], out: Path) -> None:
 def _chart_rl_dv_curve(records: list[dict[str, Any]], out: Path) -> None:
     steps = [r["env_steps"] for r in records]
     dv = [r.get("episodic_dv_m_s_mean", float("nan")) for r in records]
-    charts._save_line_chart(steps, dv, xlabel="env steps", ylabel="mean DV (m/s)", title="RL: DV vs env steps", output_path=out)  # type: ignore[attr-defined]
+    charts.save_line_chart(steps, dv, xlabel="env steps", ylabel="mean DV (m/s)", title="RL: DV vs env steps", output_path=out)
 
 
 def _chart_rl_entropy(records: list[dict[str, Any]], out: Path) -> None:
     steps = [r["env_steps"] for r in records]
     ent = [r.get("entropy", float("nan")) for r in records]
-    charts._save_line_chart(steps, ent, xlabel="env steps", ylabel="policy entropy", title="RL: entropy", output_path=out)  # type: ignore[attr-defined]
+    charts.save_line_chart(steps, ent, xlabel="env steps", ylabel="policy entropy", title="RL: entropy", output_path=out)
 
 
 def _chart_rl_value_loss(records: list[dict[str, Any]], out: Path) -> None:
     steps = [r["env_steps"] for r in records]
     vl = [r.get("value_loss", float("nan")) for r in records]
-    charts._save_line_chart(steps, vl, xlabel="env steps", ylabel="value loss", title="RL: value loss", output_path=out)  # type: ignore[attr-defined]
+    charts.save_line_chart(steps, vl, xlabel="env steps", ylabel="value loss", title="RL: value loss", output_path=out)
 
 
 def _chart_rl_capture_rate(records: list[dict[str, Any]], out: Path) -> None:
     steps = [r["env_steps"] for r in records]
     cr = [r.get("episodic_capture_rate", float("nan")) for r in records]
-    charts._save_line_chart(steps, cr, xlabel="env steps", ylabel="capture rate", title="RL: capture rate", output_path=out)  # type: ignore[attr-defined]
+    charts.save_line_chart(steps, cr, xlabel="env steps", ylabel="capture rate", title="RL: capture rate", output_path=out)
 
 
 def _chart_rl_validation_waterfall(records: list[dict[str, Any]], out: Path) -> None:
@@ -218,4 +202,4 @@ def _chart_rl_validation_waterfall(records: list[dict[str, Any]], out: Path) -> 
         return
     steps = [r["env_steps"] for r in attempts]
     val = [r.get("val_rms_cost", float("nan")) for r in attempts]
-    charts._save_line_chart(steps, val, xlabel="env steps", ylabel="validation RMS cost", title="RL: validation", output_path=out)  # type: ignore[attr-defined]
+    charts.save_line_chart(steps, val, xlabel="env steps", ylabel="validation RMS cost", title="RL: validation", output_path=out)

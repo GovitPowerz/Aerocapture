@@ -26,8 +26,10 @@ from aerocapture.training.evaluate import (
     _HAS_PYO3,
     FINAL_EVAL_SEED_OFFSET,
     VALIDATION_SEED_OFFSET,
+    GateStatus,
     _aero_rs,
     make_reserved_seeds,
+    run_validation_gate,
     write_nn_json,
 )
 from aerocapture.training.initialization_v2 import init_v2_population
@@ -452,8 +454,6 @@ def _make_warm_start_eval_callback(
         return compute_eval_summary(final_records, len(seeds), problem.cost_kwargs)
 
     def _callback(epoch: int, policy: Any) -> None:
-        from aerocapture.training.evaluate import _aero_rs as _aero  # noqa: PLC0415
-
         if config.network.architecture is None:
             return  # v1 dense-only warm-start cannot use the v2 callback path
 
@@ -464,14 +464,13 @@ def _make_warm_start_eval_callback(
         os.close(fd)
         tmp_path = Path(tmp_str)
         try:
-            _aero.flat_weights_to_json(
-                flat_weights.tolist(),
-                json.dumps(config.network.architecture),
-                str(tmp_path),
-                config.network.input_mask,
-                config.network.output_parameterization,
-                scaled_pi_n=config.network.scaled_pi_n,
-                delta_max=config.network.delta_max,
+            write_nn_json(
+                flat_weights,
+                config.network,
+                tmp_path,
+                input_mask=config.network.input_mask,
+                output_param=config.network.output_parameterization,
+                normalization=_resolve_config_normalization(config, None),
             )
             print()
             print(f"  [warm_start] === In-training evaluation at epoch {epoch} ===")
@@ -689,98 +688,8 @@ def warm_start_algorithm(
     algorithm._set_optimum()
 
 
-def train(
-    config: TrainingConfig | None = None,
-    seed: int | None = None,
-    cwd: str | Path | None = None,
-    verbose: bool = True,
-    checkpoint_interval: int = 10,
-    resume_dir: str | Path | None = None,
-    no_tui: bool = False,
-    corridor_acc: CorridorAccumulator | None = None,
-    from_scratch: bool = False,
-) -> dict:
-    """Run the full optimization training pipeline.
-
-    Args:
-        config: Training configuration. Uses defaults if None.
-        seed: Random seed for reproducibility.
-        cwd: Working directory for simulations.
-        verbose: Print progress.
-        checkpoint_interval: Save checkpoint every N generations.
-        resume_dir: Directory to resume training from (loads latest checkpoint).
-        no_tui: Disable Rich TUI (use plain-text output).
-        corridor_acc: Optional CorridorAccumulator for piecewise_constant training.
-        from_scratch: Ignore existing checkpoints and start fresh.
-
-    Returns:
-        Dictionary with training results:
-            - 'best_cost': Best cost found
-            - 'best_individual': Best individual (normalized [0,1] vector)
-            - 'cost_history': Cost per generation
-            - 'corridor_acc': CorridorAccumulator (if piecewise_constant)
-    """
-    if config is None:
-        config = TrainingConfig()
-
-    from aerocapture.training.optimizer import _VALID_SEED_STRATEGIES
-
-    if config.optimizer.seed_strategy not in _VALID_SEED_STRATEGIES:
-        msg = (
-            f"config.optimizer.seed_strategy must be one of {_VALID_SEED_STRATEGIES}, "
-            f"got {config.optimizer.seed_strategy!r}. Did the TOML [optimizer] section "
-            f"set it, or did you pass a TrainingConfig without overriding the default?"
-        )
-        raise ValueError(msg)
-
-    # Fail fast if Rust binary is missing
-    exe = Path(cwd or config.sim.exec_dir) / config.sim.executable
-    if not exe.exists():
-        msg = f"Rust simulator not found at {exe.resolve()}. Build it first: cd src/rust && cargo build --release"
-        raise FileNotFoundError(msg)
-
-    rng = np.random.default_rng(seed)
-
-    save_dir = Path(config.save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
-
-    # Load TOML config once (used for cost function params, curator config)
-    from aerocapture.training.toml_utils import load_toml_with_bases
-
-    _toml: dict = {}
-    cost_kwargs: dict[str, Any] = {}
-    if config.sim.toml_config:
-        toml_path = Path(cwd or config.sim.exec_dir) / config.sim.toml_config
-        _toml = load_toml_with_bases(toml_path)
-
-        # Parse cost function config
-        cost_cfg = _toml.get("cost_function", {})
-        constraints = _toml.get("flight", {}).get("constraints", {})
-        cost_kwargs = {
-            "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
-            "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
-            "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
-            "heat_load_limit": float(constraints.get("max_heat_load", 25000.0)),
-            "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
-            "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
-            "heat_load_weight": float(cost_cfg.get("heat_load_weight", 1000.0)),
-            "cost_transform": str(cost_cfg.get("cost_transform", "linear")),
-        }
-
-    # Seed strategy: three mutually exclusive training seed paths.
-    #   fixed    -- deterministic [mc_seed + i]; seeds never change.
-    #   rotating -- fresh random seeds drawn each generation (handled in loop body).
-    #   adaptive -- bootstrap random + curated-CDF refreshes (SeedCurator).
-    seed_curator: SeedCurator | None = None
-    strategy = config.optimizer.seed_strategy
-    if strategy == "adaptive":
-        seed_curator = SeedCurator(
-            sample_size=config.optimizer.curation_sample_size,
-            n_bins=config.optimizer.training_n_sims,
-            excluded_seeds=set(),  # populated once val/final-eval sets are computed
-            rng=rng,
-        )
-
+def _setup_param_specs(config: TrainingConfig, _toml: dict, verbose: bool) -> tuple[list[ParamSpec], int]:
+    """Build the optimizer ParamSpec list (NN v2/v1 / piecewise / scheme table + scaffolding tail). Returns (param_specs, n_params)."""
     # Build parameter specifications
     from aerocapture.training.param_spaces import PARAM_SPACES
 
@@ -844,141 +753,118 @@ def train(
         param_specs = PARAM_SPACES[config.guidance_type]
 
     n_params = len(param_specs)
+    return param_specs, n_params
 
-    # Compute config hash for experiment grouping
-    config_hash = hashlib.sha256(repr(config).encode()).hexdigest()[:12]
 
-    # Try resuming from checkpoint. The islands path manages its own .npz-only
-    # resume inside `_train_islands`; skip the single-algorithm `load_checkpoint`
-    # here so a stale single-algo `checkpoint.json` left in a shared save_dir
-    # can't bump `n_gen` a second time (it would also be bumped in _train_islands).
-    resumed = None
-    if resume_dir is not None and config.optimizer.algorithm != "islands":
-        resumed = load_checkpoint(Path(resume_dir))
-        if resumed is not None:
-            # Restore RNG state
-            if resumed["rng_state"] is not None:
-                try:
-                    state = resumed["rng_state"]
-                    # Convert stringified large ints back
-                    state["state"] = {k: int(v) if isinstance(v, str) else v for k, v in state["state"].items()}
-                    rng.bit_generator.state = state
-                except Exception:
-                    pass  # Fall back to seeded RNG if state restore fails
-            if verbose:
-                print(f"Resumed from gen {resumed['generation']}, best={resumed['best_cost']:.4e}")
-            if seed_curator is not None and resumed.get("seed_curator") is not None:
-                seed_curator = SeedCurator.from_dict(
-                    resumed["seed_curator"],
-                    excluded_seeds=seed_curator.excluded_seeds,
-                    rng=rng,
-                )
-            if corridor_acc is not None and resumed.get("corridor_acc") is not None:
-                corridor_acc = resumed["corridor_acc"]
-            # Make --n-gen mean "N additional" on resume
-            config.optimizer.n_gen += resumed["generation"]
+def _emit_warm_start_artifacts(
+    config: TrainingConfig,
+    base_mc_seed: int,
+    problem: AerocaptureProblem,
+    val_seeds: list[int] | None,
+    warm_chromo: npt.NDArray[np.float64],
+    warm_weight_specs: list[ParamSpec],
+    verbose: bool,
+) -> None:
+    """Best-effort warm-start sidecars: gen-0 validation baseline, supervisor-vs-NN trajectory comparison, warm-start report PDF.
 
-    # Try loading existing NN weights for population seeding. Only meaningful
-    # under the v1 dense-only init path (`create_nn_initial_population`,
-    # which is the only consumer of `seed_weights`). v2 architectures use
-    # `init_v2_population` and discard seed_weights, AND `load_base_network`
-    # only knows the v1 JSON layout — calling it on a v2 best_model.json
-    # raises "list indices must be integers or slices, not str" because the
-    # v2 `architecture` key is a list of layer dicts, not a dict-with-"layers".
-    seed_weights = None
-    is_v1_nn = config.guidance_type == "neural_network" and config.network.architecture is None
-    if is_v1_nn and resumed is None and not from_scratch:
-        nn_param_path = Path(cwd or config.sim.exec_dir) / config.sim.nn_param_file
-        if nn_param_path.exists():
-            try:
-                seed_weights = config.load_base_network(str(nn_param_path))
-                if verbose:
-                    print(f"Loaded seed weights from {nn_param_path} ({len(seed_weights)} params)")
-            except Exception as e:
-                if verbose:
-                    print(f"Could not load seed weights: {e}")
+    Each block is independently best-effort (never blocks training).
+    """
+    # Gen-0 validation baseline: evaluate the bare warm-started
+    # chromosome on the RESERVED VALIDATION seed pool (same seeds
+    # the validation gate uses) so the persisted rms/mean/p95
+    # metrics are directly comparable to the `Gen N validation:`
+    # line later printed by the validation gate. Best-effort:
+    # failure here must not block training.
+    from aerocapture.training._warm_start_baseline import write_gen0_baseline
+    from aerocapture.training.report import compute_eval_summary, format_eval_summary
 
-    best_overall_cost = resumed["best_cost"] if resumed else np.inf
-    best_overall_individual: npt.NDArray[np.float64] | None = resumed["best_individual"] if resumed else None
-    best_val_cost: float = resumed["best_val_cost"] if resumed else np.inf
-    cost_history: list[float] = resumed["cost_history"] if resumed else []
-    # Identity of the last individual we ran validation on. Used to detect
-    # "new best individual" by parameter comparison -- cost comparison is
-    # unreliable under rotating or curated seeds.
-    last_validated_individual: npt.NDArray[np.float64] | None = (
-        resumed["best_individual"].copy() if resumed and resumed["best_individual"] is not None else None
-    )
-
-    start_gen = resumed["generation"] if resumed else 0
-
-    from aerocapture.training.display import create_display
-    from aerocapture.training.logger import TrainingLogger
-
-    display = create_display(
-        scheme=config.guidance_type,
-        n_runs=1,
-        n_generations=config.optimizer.n_gen,
-        enabled=not no_tui and verbose,
-    )
-
-    interrupted = False
-
-    # Build MC seed list for problem evaluation
-    mc_seed_val = _toml.get("monte_carlo", {}).get("seed")
-    problem_seeds = [mc_seed_val] if mc_seed_val is not None else [42]
-
-    # Set up problem
-    toml_abs_path = str((Path(cwd or config.sim.exec_dir) / config.sim.toml_config).resolve()) if config.sim.toml_config else ""
-
-    problem = AerocaptureProblem(
-        param_specs=param_specs,
-        toml_path=toml_abs_path,
-        seeds=problem_seeds,
-        cost_kwargs=cost_kwargs,
-        scheme=config.guidance_type,
-        sim_timeout=config.sim.sim_timeout_secs,
-        nn_config=config.network if config.guidance_type == "neural_network" else None,
-    )
-
-    if resumed is not None and verbose:
-        # Single-algo re-validates the checkpointed best unconditionally on
-        # resume (gated on val_seeds), so best_val_cost is already recomputed
-        # under the current transform; this is just an informative notice. The
-        # islands path handles its own reset in _train_islands.
-        saved_transform = resumed.get("cost_transform")
-        current_transform = problem.cost_kwargs.get("cost_transform", "linear")
-        if saved_transform is None or saved_transform != current_transform:
-            will_revalidate = config.optimizer.validation_n_sims > 0 and bool(toml_abs_path)
-            suffix = "; re-validating best under new metric" if will_revalidate else ""
-            print(f"  cost_transform changed {saved_transform!r} -> {current_transform!r}{suffix}")
-
-    # Reserved seed sets for validation and final evaluation.
-    # Uses well-separated RNG streams so training, validation, and final eval
-    # never share seeds.
-    base_mc_seed = mc_seed_val if mc_seed_val is not None else 42
-    val_seeds: list[int] | None = None
-    excluded_seeds: set[int] = set()
-    if config.optimizer.validation_n_sims > 0 and toml_abs_path:
-        val_seeds = make_reserved_seeds(base_mc_seed, VALIDATION_SEED_OFFSET, config.optimizer.validation_n_sims)
-        final_eval_n = max(config.optimizer.validation_n_sims, 10000)
-        final_eval_seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, final_eval_n)
-        excluded_seeds = set(val_seeds) | set(final_eval_seeds)
-        overlap = set(val_seeds) & set(final_eval_seeds)
-        if overlap:
-            msg = f"BUG: {len(overlap)} seeds overlap between validation and final eval sets"
-            raise RuntimeError(msg)
-        if seed_curator is not None:
-            seed_curator.excluded_seeds = excluded_seeds
-            if seed_curator.seed_list is not None:
-                problem.update_seeds(seed_curator.seed_list)
-
-    if strategy == "fixed":
-        fixed_seeds = _compute_fixed_seeds(
-            base_mc_seed=base_mc_seed,
-            n_sims=config.optimizer.training_n_sims,
-            excluded=excluded_seeds,
+    try:
+        if val_seeds is None:
+            raise RuntimeError("val_seeds not initialized; gen-0 baseline requires the validation pool")
+        # Single MC pass on val_seeds returning both per-seed costs
+        # AND the (n, 52) final_records so we can derive DV / apo /
+        # peri / heat-flux statistics without re-running.
+        baseline_costs, baseline_records = problem.evaluate_individual_records_per_seed(warm_chromo, val_seeds)
+        eval_summary = compute_eval_summary(baseline_records, len(val_seeds), problem.cost_kwargs)
+        baseline_path = write_gen0_baseline(
+            save_dir=Path(config.save_dir),
+            costs=baseline_costs,
+            capture_rate=eval_summary["capture_rate"],
+            n_sims=len(val_seeds),
         )
-        problem.update_seeds(fixed_seeds)
+        # Persist the structured eval summary so the warm-start
+        # report PDF can embed it (and CLI re-render works).
+        (Path(config.save_dir) / "warm_start_eval_summary.json").write_text(json.dumps(eval_summary, indent=2))
+        # User-facing block: mirrors the end-of-training final-eval
+        # summary so users can compare like-for-like.
+        if verbose:
+            print()
+            for line in format_eval_summary(eval_summary, indent="    "):
+                print(f"  {line}" if not line.startswith(" ") else line)
+            baseline = json.loads(baseline_path.read_text())
+            print(f"  [warm_start] gen-0 baseline cost (val seeds): rms={baseline['rms_cost']:.4e} mean={baseline['mean_cost']:.4e}")
+    except Exception as e:
+        # Best-effort: failure here must not block training, but the
+        # error is always logged so it does not silently mask real
+        # bugs in problem.evaluate_individual_records_per_seed /
+        # write_gen0_baseline / compute_eval_summary.
+        print(f"  [warm_start] WARNING: gen-0 baseline write failed: {type(e).__name__}: {e}")
+
+    # Trajectory comparison: supervisor vs warm-started NN on both
+    # training and validation pools. Runs ~2*(n_warm_seeds +
+    # validation_n_sims) MC sims (e.g. ~12k for n_warm_seeds=5000,
+    # validation_n_sims=1000) and renders 20 SVGs into the report
+    # dir. Best-effort: failure here must not block training, but
+    # the warm-start PDF will just omit the comparison section.
+    try:
+        from aerocapture.training.warm_start_compare import render_trajectory_comparison
+
+        render_trajectory_comparison(
+            cfg=config,
+            base_mc_seed=base_mc_seed,
+            warm_chromo=warm_chromo,
+            nn_weight_specs=warm_weight_specs,
+        )
+    except Exception as e:
+        print(f"  [warm_start] WARNING: trajectory comparison failed: {type(e).__name__}: {e}")
+
+    # Intermediate warm-start report: charts + Typst PDF summarizing
+    # supervised MSE convergence, supervisor selection, search-space
+    # bounds, the gen-0 validation baseline + eval summary, and the
+    # supervisor-vs-NN trajectory comparison panels (if rendered).
+    # Best-effort.
+    try:
+        from aerocapture.training.warm_start_report import render_report
+
+        pdf = render_report(Path(config.save_dir))
+        if verbose and pdf is not None:
+            print(f"  [warm_start] report: {pdf}")
+    except Exception as e:
+        print(f"  [warm_start] WARNING: report rendering failed: {type(e).__name__}: {e}")
+
+
+def _build_initial_population(
+    resumed: dict | None,
+    config: TrainingConfig,
+    param_specs: list[ParamSpec],
+    seed_weights: npt.NDArray[np.float64] | None,
+    problem: AerocaptureProblem,
+    val_seeds: list[int] | None,
+    base_mc_seed: int,
+    rng: np.random.Generator,
+    verbose: bool,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64] | None]:
+    """Build the initial population (resume / v1-NN / v2-NN / non-NN), incl. the warm-start chromosome path. Returns (pop_array, pop_costs).
+
+    CRITICAL: in the warm-start branch this MUTATES `param_specs` IN PLACE
+    (param_specs[j] = warm_weight_specs[j]) so the caller's AerocaptureProblem --
+    which holds the same list reference -- decodes under the warm-start bounds.
+    The list object must NOT be reassigned; only its elements are overwritten.
+    """
+    # Recomputed here (formerly set in the param-spec block) for the v2-NN
+    # population-build branch below; both are pure functions of config.
+    warm_start_active = bool(config.network.warm_start_from) or config.warm_start.enabled
+    bound_mult = config.warm_start.bound_multiplier if warm_start_active else 2.0
 
     # Create initial population
     if resumed is not None:
@@ -1095,78 +981,7 @@ def train(
                     # encodes the un-jittered center directly, so we copy it back.
                     pop_array[0, n_weights:] = warm_chromo[n_weights:]
 
-                # Gen-0 validation baseline: evaluate the bare warm-started
-                # chromosome on the RESERVED VALIDATION seed pool (same seeds
-                # the validation gate uses) so the persisted rms/mean/p95
-                # metrics are directly comparable to the `Gen N validation:`
-                # line later printed by the validation gate. Best-effort:
-                # failure here must not block training.
-                from aerocapture.training._warm_start_baseline import write_gen0_baseline
-                from aerocapture.training.report import compute_eval_summary, format_eval_summary
-
-                try:
-                    if val_seeds is None:
-                        raise RuntimeError("val_seeds not initialized; gen-0 baseline requires the validation pool")
-                    # Single MC pass on val_seeds returning both per-seed costs
-                    # AND the (n, 52) final_records so we can derive DV / apo /
-                    # peri / heat-flux statistics without re-running.
-                    baseline_costs, baseline_records = problem.evaluate_individual_records_per_seed(warm_chromo, val_seeds)
-                    eval_summary = compute_eval_summary(baseline_records, len(val_seeds), problem.cost_kwargs)
-                    baseline_path = write_gen0_baseline(
-                        save_dir=Path(config.save_dir),
-                        costs=baseline_costs,
-                        capture_rate=eval_summary["capture_rate"],
-                        n_sims=len(val_seeds),
-                    )
-                    # Persist the structured eval summary so the warm-start
-                    # report PDF can embed it (and CLI re-render works).
-                    (Path(config.save_dir) / "warm_start_eval_summary.json").write_text(json.dumps(eval_summary, indent=2))
-                    # User-facing block: mirrors the end-of-training final-eval
-                    # summary so users can compare like-for-like.
-                    if verbose:
-                        print()
-                        for line in format_eval_summary(eval_summary, indent="    "):
-                            print(f"  {line}" if not line.startswith(" ") else line)
-                        baseline = json.loads(baseline_path.read_text())
-                        print(f"  [warm_start] gen-0 baseline cost (val seeds): rms={baseline['rms_cost']:.4e} mean={baseline['mean_cost']:.4e}")
-                except Exception as e:
-                    # Best-effort: failure here must not block training, but the
-                    # error is always logged so it does not silently mask real
-                    # bugs in problem.evaluate_individual_records_per_seed /
-                    # write_gen0_baseline / compute_eval_summary.
-                    print(f"  [warm_start] WARNING: gen-0 baseline write failed: {type(e).__name__}: {e}")
-
-                # Trajectory comparison: supervisor vs warm-started NN on both
-                # training and validation pools. Runs ~2*(n_warm_seeds +
-                # validation_n_sims) MC sims (e.g. ~12k for n_warm_seeds=5000,
-                # validation_n_sims=1000) and renders 20 SVGs into the report
-                # dir. Best-effort: failure here must not block training, but
-                # the warm-start PDF will just omit the comparison section.
-                try:
-                    from aerocapture.training.warm_start_compare import render_trajectory_comparison
-
-                    render_trajectory_comparison(
-                        cfg=config,
-                        base_mc_seed=base_mc_seed,
-                        warm_chromo=warm_chromo,
-                        nn_weight_specs=warm_weight_specs,
-                    )
-                except Exception as e:
-                    print(f"  [warm_start] WARNING: trajectory comparison failed: {type(e).__name__}: {e}")
-
-                # Intermediate warm-start report: charts + Typst PDF summarizing
-                # supervised MSE convergence, supervisor selection, search-space
-                # bounds, the gen-0 validation baseline + eval summary, and the
-                # supervisor-vs-NN trajectory comparison panels (if rendered).
-                # Best-effort.
-                try:
-                    from aerocapture.training.warm_start_report import render_report
-
-                    pdf = render_report(Path(config.save_dir))
-                    if verbose and pdf is not None:
-                        print(f"  [warm_start] report: {pdf}")
-                except Exception as e:
-                    print(f"  [warm_start] WARNING: report rendering failed: {type(e).__name__}: {e}")
+                _emit_warm_start_artifacts(config, base_mc_seed, problem, val_seeds, warm_chromo, warm_weight_specs, verbose)
             else:
                 pop_array = build_initial_population_for_v2(
                     config.network.architecture,
@@ -1184,6 +999,240 @@ def train(
                 rng,
             )
         pop_costs = None  # Will be evaluated by pymoo
+
+    return pop_array, pop_costs
+
+
+def train(
+    config: TrainingConfig | None = None,
+    seed: int | None = None,
+    cwd: str | Path | None = None,
+    verbose: bool = True,
+    checkpoint_interval: int = 10,
+    resume_dir: str | Path | None = None,
+    no_tui: bool = False,
+    corridor_acc: CorridorAccumulator | None = None,
+    from_scratch: bool = False,
+) -> dict:
+    """Run the full optimization training pipeline.
+
+    Args:
+        config: Training configuration. Uses defaults if None.
+        seed: Random seed for reproducibility.
+        cwd: Working directory for simulations.
+        verbose: Print progress.
+        checkpoint_interval: Save checkpoint every N generations.
+        resume_dir: Directory to resume training from (loads latest checkpoint).
+        no_tui: Disable Rich TUI (use plain-text output).
+        corridor_acc: Optional CorridorAccumulator for piecewise_constant training.
+        from_scratch: Ignore existing checkpoints and start fresh.
+
+    Returns:
+        Dictionary with training results:
+            - 'best_cost': Best cost found
+            - 'best_individual': Best individual (normalized [0,1] vector)
+            - 'cost_history': Cost per generation
+            - 'corridor_acc': CorridorAccumulator (if piecewise_constant)
+    """
+    if config is None:
+        config = TrainingConfig()
+
+    from aerocapture.training.optimizer import _VALID_SEED_STRATEGIES
+
+    if config.optimizer.seed_strategy not in _VALID_SEED_STRATEGIES:
+        msg = (
+            f"config.optimizer.seed_strategy must be one of {_VALID_SEED_STRATEGIES}, "
+            f"got {config.optimizer.seed_strategy!r}. Did the TOML [optimizer] section "
+            f"set it, or did you pass a TrainingConfig without overriding the default?"
+        )
+        raise ValueError(msg)
+
+    # Fail fast if Rust binary is missing
+    exe = Path(cwd or config.sim.exec_dir) / config.sim.executable
+    if not exe.exists():
+        msg = f"Rust simulator not found at {exe.resolve()}. Build it first: cd src/rust && cargo build --release"
+        raise FileNotFoundError(msg)
+
+    rng = np.random.default_rng(seed)
+
+    save_dir = Path(config.save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load TOML config once (used for cost function params, curator config)
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    _toml: dict = {}
+    cost_kwargs: dict[str, Any] = {}
+    if config.sim.toml_config:
+        toml_path = Path(cwd or config.sim.exec_dir) / config.sim.toml_config
+        _toml = load_toml_with_bases(toml_path)
+
+        # Parse cost function config
+        cost_cfg = _toml.get("cost_function", {})
+        constraints = _toml.get("flight", {}).get("constraints", {})
+        cost_kwargs = {
+            "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
+            "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
+            "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
+            "heat_load_limit": float(constraints.get("max_heat_load", 25000.0)),
+            "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
+            "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
+            "heat_load_weight": float(cost_cfg.get("heat_load_weight", 1000.0)),
+            "cost_transform": str(cost_cfg.get("cost_transform", "linear")),
+        }
+
+    # Seed strategy: three mutually exclusive training seed paths.
+    #   fixed    -- deterministic [mc_seed + i]; seeds never change.
+    #   rotating -- fresh random seeds drawn each generation (handled in loop body).
+    #   adaptive -- bootstrap random + curated-CDF refreshes (SeedCurator).
+    seed_curator: SeedCurator | None = None
+    strategy = config.optimizer.seed_strategy
+    if strategy == "adaptive":
+        seed_curator = SeedCurator(
+            sample_size=config.optimizer.curation_sample_size,
+            n_bins=config.optimizer.training_n_sims,
+            excluded_seeds=set(),  # populated once val/final-eval sets are computed
+            rng=rng,
+        )
+
+    param_specs, n_params = _setup_param_specs(config, _toml, verbose)
+
+    # Compute config hash for experiment grouping
+    config_hash = hashlib.sha256(repr(config).encode()).hexdigest()[:12]
+
+    # Try resuming from checkpoint. The islands path manages its own .npz-only
+    # resume inside `_train_islands`; skip the single-algorithm `load_checkpoint`
+    # here so a stale single-algo `checkpoint.json` left in a shared save_dir
+    # can't bump `n_gen` a second time (it would also be bumped in _train_islands).
+    resumed = None
+    if resume_dir is not None and config.optimizer.algorithm != "islands":
+        resumed = load_checkpoint(Path(resume_dir))
+        if resumed is not None:
+            # Restore RNG state
+            if resumed["rng_state"] is not None:
+                try:
+                    state = resumed["rng_state"]
+                    # Convert stringified large ints back
+                    state["state"] = {k: int(v) if isinstance(v, str) else v for k, v in state["state"].items()}
+                    rng.bit_generator.state = state
+                except Exception as e:
+                    print(f"Warning: RNG state restore failed ({type(e).__name__}: {e}); using seeded RNG", file=sys.stderr)
+            if verbose:
+                print(f"Resumed from gen {resumed['generation']}, best={resumed['best_cost']:.4e}")
+            if seed_curator is not None and resumed.get("seed_curator") is not None:
+                seed_curator = SeedCurator.from_dict(
+                    resumed["seed_curator"],
+                    excluded_seeds=seed_curator.excluded_seeds,
+                    rng=rng,
+                )
+            if corridor_acc is not None and resumed.get("corridor_acc") is not None:
+                corridor_acc = resumed["corridor_acc"]
+            # Make --n-gen mean "N additional" on resume
+            config.optimizer.n_gen += resumed["generation"]
+
+    # Try loading existing NN weights for population seeding. Only meaningful
+    # under the v1 dense-only init path (`create_nn_initial_population`,
+    # which is the only consumer of `seed_weights`). v2 architectures use
+    # `init_v2_population` and discard seed_weights, AND `load_base_network`
+    # only knows the v1 JSON layout — calling it on a v2 best_model.json
+    # raises "list indices must be integers or slices, not str" because the
+    # v2 `architecture` key is a list of layer dicts, not a dict-with-"layers".
+    seed_weights = None
+    is_v1_nn = config.guidance_type == "neural_network" and config.network.architecture is None
+    if is_v1_nn and resumed is None and not from_scratch:
+        nn_param_path = Path(cwd or config.sim.exec_dir) / config.sim.nn_param_file
+        if nn_param_path.exists():
+            try:
+                seed_weights = config.load_base_network(str(nn_param_path))
+                if verbose:
+                    print(f"Loaded seed weights from {nn_param_path} ({len(seed_weights)} params)")
+            except Exception as e:
+                if verbose:
+                    print(f"Could not load seed weights: {e}")
+
+    best_overall_cost = resumed["best_cost"] if resumed else np.inf
+    best_overall_individual: npt.NDArray[np.float64] | None = resumed["best_individual"] if resumed else None
+    best_val_cost: float = resumed["best_val_cost"] if resumed else np.inf
+    cost_history: list[float] = resumed["cost_history"] if resumed else []
+    # Identity of the last individual we ran validation on. Used to detect
+    # "new best individual" by parameter comparison -- cost comparison is
+    # unreliable under rotating or curated seeds.
+    last_validated_individual: npt.NDArray[np.float64] | None = (
+        resumed["best_individual"].copy() if resumed and resumed["best_individual"] is not None else None
+    )
+
+    start_gen = resumed["generation"] if resumed else 0
+
+    from aerocapture.training.display import create_display
+    from aerocapture.training.logger import TrainingLogger
+
+    display = create_display(
+        scheme=config.guidance_type,
+        n_runs=1,
+        n_generations=config.optimizer.n_gen,
+        enabled=not no_tui and verbose,
+    )
+
+    interrupted = False
+
+    # Build MC seed list for problem evaluation
+    mc_seed_val = _toml.get("monte_carlo", {}).get("seed")
+    problem_seeds = [mc_seed_val] if mc_seed_val is not None else [42]
+
+    # Set up problem
+    toml_abs_path = str((Path(cwd or config.sim.exec_dir) / config.sim.toml_config).resolve()) if config.sim.toml_config else ""
+
+    problem = AerocaptureProblem(
+        param_specs=param_specs,
+        toml_path=toml_abs_path,
+        seeds=problem_seeds,
+        cost_kwargs=cost_kwargs,
+        scheme=config.guidance_type,
+        sim_timeout=config.sim.sim_timeout_secs,
+        nn_config=config.network if config.guidance_type == "neural_network" else None,
+    )
+
+    if resumed is not None and verbose:
+        # Single-algo re-validates the checkpointed best unconditionally on
+        # resume (gated on val_seeds), so best_val_cost is already recomputed
+        # under the current transform; this is just an informative notice. The
+        # islands path handles its own reset in _train_islands.
+        saved_transform = resumed.get("cost_transform")
+        current_transform = problem.cost_kwargs.get("cost_transform", "linear")
+        if saved_transform is None or saved_transform != current_transform:
+            will_revalidate = config.optimizer.validation_n_sims > 0 and bool(toml_abs_path)
+            suffix = "; re-validating best under new metric" if will_revalidate else ""
+            print(f"  cost_transform changed {saved_transform!r} -> {current_transform!r}{suffix}")
+
+    # Reserved seed sets for validation and final evaluation.
+    # Uses well-separated RNG streams so training, validation, and final eval
+    # never share seeds.
+    base_mc_seed = mc_seed_val if mc_seed_val is not None else 42
+    val_seeds: list[int] | None = None
+    excluded_seeds: set[int] = set()
+    if config.optimizer.validation_n_sims > 0 and toml_abs_path:
+        val_seeds = make_reserved_seeds(base_mc_seed, VALIDATION_SEED_OFFSET, config.optimizer.validation_n_sims)
+        final_eval_n = max(config.optimizer.validation_n_sims, 10000)
+        final_eval_seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, final_eval_n)
+        excluded_seeds = set(val_seeds) | set(final_eval_seeds)
+        overlap = set(val_seeds) & set(final_eval_seeds)
+        if overlap:
+            msg = f"BUG: {len(overlap)} seeds overlap between validation and final eval sets"
+            raise RuntimeError(msg)
+        if seed_curator is not None:
+            seed_curator.excluded_seeds = excluded_seeds
+            if seed_curator.seed_list is not None:
+                problem.update_seeds(seed_curator.seed_list)
+
+    if strategy == "fixed":
+        fixed_seeds = _compute_fixed_seeds(
+            base_mc_seed=base_mc_seed,
+            n_sims=config.optimizer.training_n_sims,
+            excluded=excluded_seeds,
+        )
+        problem.update_seeds(fixed_seeds)
+
+    pop_array, pop_costs = _build_initial_population(resumed, config, param_specs, seed_weights, problem, val_seeds, base_mc_seed, rng, verbose)
 
     # CMA-ES + warm-start: shrink the initial step size. Applied unconditionally
     # (independent of resume vs fresh start) so the checkpointed CMA-ES sigma
@@ -1356,11 +1405,13 @@ def train(
                 costs = F[:, 0]
 
                 # Gen best by parameter identity -- cost comparison across gens is
-                # unreliable under rotating or curated seeds.
+                # unreliable under rotating or curated seeds. This bare-argmin
+                # selection is for the logging payload (display only) and the
+                # already-guarded no-validation fallback below; the validation
+                # gate uses its own all-inf-guarded selection.
                 gen_best_idx = int(np.argmin(costs))
                 gen_best_individual = X[gen_best_idx].copy()
                 gen_best_cost = float(costs[gen_best_idx])
-                new_gen_best = last_validated_individual is None or not np.array_equal(gen_best_individual, last_validated_individual)
 
                 # Corridor accumulation for piecewise_constant
                 if config.guidance_type == "piecewise_constant" and corridor_acc is not None and _HAS_PYO3 and config.sim.toml_config:
@@ -1376,24 +1427,36 @@ def train(
                 # Validation gate: fires whenever the gen-best individual differs
                 # (by parameter identity) from the last validated individual.
                 # Promotion to best_overall_individual gated on validation improvement.
+                # The shared gate (with islands) guards the all-inf-population case
+                # so a junk pop[0] is never validated/promoted.
                 validation_metrics: dict | None = None
                 validation_summary: dict | None = None
                 validated_improvement = False
-                if val_seeds is not None and new_gen_best:
-                    val_costs, val_records = problem.evaluate_individual_records_per_seed(gen_best_individual, val_seeds)
-                    validation_metrics, validation_summary = _build_validation_payload(
-                        val_costs,
-                        val_records,
-                        len(val_seeds),
-                        problem.cost_kwargs,
-                    )
-                    val_rms = validation_metrics["rms_cost"]
-                    last_validated_individual = gen_best_individual
-                    if val_rms < best_val_cost:
-                        best_val_cost = val_rms
-                        best_overall_individual = gen_best_individual
-                        best_overall_cost = gen_best_cost
-                        validated_improvement = True
+                if val_seeds is not None:
+                    gate = run_validation_gate(X, costs, last_validated_individual, best_val_cost, problem, val_seeds)
+                    if gate.status is GateStatus.VALIDATED:
+                        assert gate.individual is not None and gate.val_costs is not None and gate.val_rms is not None
+                        validation_metrics, validation_summary = _build_validation_payload(
+                            gate.val_costs,
+                            gate.val_records,
+                            len(val_seeds),
+                            problem.cost_kwargs,
+                        )
+                        last_validated_individual = gate.individual
+                        if gate.promoted:
+                            best_val_cost = gate.val_rms
+                            best_overall_individual = gate.individual
+                            best_overall_cost = gate.argmin_cost
+                            validated_improvement = True
+                    # SKIP_UNCHANGED / SKIP_ALL_INF: no validation, no promotion.
+                elif np.isfinite(gen_best_cost):
+                    # No validation gate: promote each generation's finite training
+                    # argmin directly (mirrors the islands no-validation fallback in
+                    # _train_islands). The final MC eval re-ranks on a disjoint pool,
+                    # so cross-gen seed incomparability is bounded. Without this the
+                    # deployed best_model.json freezes at the gen-0 argmin (defect D1).
+                    best_overall_individual = gen_best_individual
+                    best_overall_cost = gen_best_cost
 
                 # Curation trigger: on validated promotion OR periodic fallback.
                 # next gen's pre-next re-eval picks up the new seeds. Default-bind
@@ -2299,6 +2362,7 @@ if __name__ == "__main__":
 
         from aerocapture.training.corridor import save_corridor as _save_corr
         from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS as _GTS
+        from aerocapture.training.param_spaces import route_param_path as _route
 
         best_params = decode_normalized(result["best_individual"], param_specs)
         _pc_section = _GTS[cfg.guidance_type]
@@ -2306,19 +2370,9 @@ if __name__ == "__main__":
         for k_, v in best_params.items():
             if k_ == "lateral.max_reversals":
                 v = int(round(v))
-            if k_.startswith("lateral."):
-                best_ovr[f"guidance.lateral.{k_.removeprefix('lateral.')}"] = v
-            elif k_.startswith("exit."):
-                best_ovr[f"guidance.ftc.{k_.removeprefix('exit.')}"] = v
-            elif k_.startswith("nav."):
-                best_ovr[f"navigation.{k_.removeprefix('nav.')}"] = v
-            elif k_.startswith("thermal."):
-                best_ovr[f"guidance.thermal_limiter.{k_.removeprefix('thermal.')}"] = v
-            elif k_.startswith("shaping."):
-                best_ovr[f"guidance.command_shaping.{k_.removeprefix('shaping.')}"] = v
+            best_ovr[_route(k_, _pc_section)] = v
+            if k_.startswith("shaping."):
                 best_ovr["guidance.command_shaping.enabled"] = True
-            else:
-                best_ovr[f"guidance.{_pc_section}.{k_}"] = v
         best_ovr["guidance.type"] = cfg.guidance_type
         best_ovr["simulation.n_sims"] = 1
         # Disable dispersions so the nominal is the true undispersed trajectory

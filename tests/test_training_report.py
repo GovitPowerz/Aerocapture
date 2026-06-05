@@ -242,7 +242,7 @@ class TestResumeDetection:
 class TestSingleReport:
     """Test generate_report produces SVG chart artifacts (Typst mocked out)."""
 
-    @patch("aerocapture.training.report._check_typst", return_value=False)
+    @patch("aerocapture.training.report.check_typst", return_value=False)
     def test_generates_chart_artifacts(self, _mock_typst: object, tmp_path: Path) -> None:
         scheme_dir = _write_fixture_jsonl(tmp_path)
         result = generate_report(scheme_dir, skip_final_eval=True, keep_artifacts=True)
@@ -251,7 +251,7 @@ class TestSingleReport:
 
 
 class TestResumeMarkers:
-    @patch("aerocapture.training.report._check_typst", return_value=False)
+    @patch("aerocapture.training.report.check_typst", return_value=False)
     def test_report_with_resume_data_runs(self, _mock_typst: object, tmp_path: Path) -> None:
         scheme_dir = _write_resumed_jsonl(tmp_path)
         data, resume_gens = load_run_data(scheme_dir)
@@ -260,7 +260,7 @@ class TestResumeMarkers:
         result = generate_report(scheme_dir, skip_final_eval=True)
         assert result is None  # Typst not available
 
-    @patch("aerocapture.training.report._check_typst", return_value=False)
+    @patch("aerocapture.training.report.check_typst", return_value=False)
     def test_report_without_resume_runs(self, _mock_typst: object, tmp_path: Path) -> None:
         scheme_dir = _write_fixture_jsonl(tmp_path)
         result = generate_report(scheme_dir, skip_final_eval=True)
@@ -298,13 +298,13 @@ def _write_multi_scheme_fixtures(base_dir: Path) -> None:
 
 
 class TestComparisonReport:
-    @patch("aerocapture.training.report._check_typst", return_value=False)
+    @patch("aerocapture.training.report.check_typst", return_value=False)
     def test_comparison_runs_without_typst(self, _mock_typst: object, tmp_path: Path) -> None:
         _write_multi_scheme_fixtures(tmp_path)
         result = generate_comparison_report(tmp_path)
         assert result is None  # Typst not available
 
-    @patch("aerocapture.training.report._check_typst", return_value=False)
+    @patch("aerocapture.training.report.check_typst", return_value=False)
     def test_filters_by_scheme(self, _mock_typst: object, tmp_path: Path) -> None:
         _write_multi_scheme_fixtures(tmp_path)
         result = generate_comparison_report(tmp_path, schemes=["ftc"])
@@ -351,7 +351,7 @@ class TestResumeGenerationOffset:
 
 
 class TestConditionalPanels:
-    @patch("aerocapture.training.report._check_typst", return_value=False)
+    @patch("aerocapture.training.report.check_typst", return_value=False)
     def test_pool_metrics_detected(self, _mock_typst: object, tmp_path: Path) -> None:
         scheme_dir = _write_fixture_with_pool_metrics(tmp_path)
         data, _ = load_run_data(scheme_dir)
@@ -361,7 +361,7 @@ class TestConditionalPanels:
         result = generate_report(scheme_dir, skip_final_eval=True)
         assert result is None  # Typst not available
 
-    @patch("aerocapture.training.report._check_typst", return_value=False)
+    @patch("aerocapture.training.report.check_typst", return_value=False)
     def test_mc_seed_detected(self, _mock_typst: object, tmp_path: Path) -> None:
         scheme_dir = _write_fixture_with_mc_seed(tmp_path)
         data, _ = load_run_data(scheme_dir)
@@ -371,7 +371,7 @@ class TestConditionalPanels:
         result = generate_report(scheme_dir, skip_final_eval=True)
         assert result is None  # Typst not available
 
-    @patch("aerocapture.training.report._check_typst", return_value=False)
+    @patch("aerocapture.training.report.check_typst", return_value=False)
     def test_no_extra_fields_without_seed_data(self, _mock_typst: object, tmp_path: Path) -> None:
         scheme_dir = _write_fixture_jsonl(tmp_path)
         data, _ = load_run_data(scheme_dir)

@@ -319,3 +319,20 @@ class TestRunWithDraws:
         draws[1, 6] = 0.1  # density bias
         result = aero.run_with_draws(GOLDEN_TOML, draws)
         np.testing.assert_allclose(result.dispersions, draws, atol=1e-12)
+
+
+class TestRunWithDrawsStrided:
+    def test_non_contiguous_draws_match_contiguous(self) -> None:
+        import numpy as np
+
+        rng = np.random.default_rng(7)
+        draws = rng.normal(size=(4, 26)) * 0.1
+
+        r_contig = aero.run_with_draws(GOLDEN_TOML, np.ascontiguousarray(draws))
+        # A non-C-contiguous f64 view with the SAME values.
+        non_contig = np.asarray(draws.T.T, order="F")
+        assert not non_contig.flags["C_CONTIGUOUS"]
+        r_strided = aero.run_with_draws(GOLDEN_TOML, non_contig)
+
+        np.testing.assert_array_equal(np.asarray(r_contig.dispersions), np.asarray(r_strided.dispersions))
+        np.testing.assert_array_equal(np.asarray(r_contig.final_records), np.asarray(r_strided.final_records))

@@ -3,15 +3,17 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use numpy::{PyReadonlyArray2, PyUntypedArrayMethods};
+use numpy::{PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
 
 mod batch;
 mod config;
 mod env;
+mod grid;
 mod results;
 
+use aerocapture::simulation::final_record::FR_DV_TOTAL_MS;
 use config::OverrideValue;
 use results::{BatchResults, SimResult};
 
@@ -66,6 +68,7 @@ fn extract_overrides(dict: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<(String, 
 #[pyfunction]
 #[pyo3(signature = (toml_path, overrides=None, sim_timeout_secs=None))]
 fn run(
+    py: Python<'_>,
     toml_path: &str,
     overrides: Option<&Bound<'_, PyDict>>,
     sim_timeout_secs: Option<f64>,
@@ -73,19 +76,23 @@ fn run(
     let overrides = extract_overrides(overrides)?;
     let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
 
-    let (sim_input, sim_data) =
-        config::load_and_override(std::path::Path::new(toml_path), &overrides)
-            .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
-
-    let outputs =
-        aerocapture::simulation::runner::run_for_api(&sim_input, &sim_data, false, wall_timeout)
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e))
-            })?;
-
-    let output = outputs.into_iter().next().ok_or_else(|| {
-        pyo3::exceptions::PyRuntimeError::new_err("Simulation produced no results")
-    })?;
+    let output = py
+        .detach(|| -> Result<aerocapture::RunOutput, String> {
+            let (sim_input, sim_data) =
+                config::load_and_override(std::path::Path::new(toml_path), &overrides)?;
+            let outputs = aerocapture::simulation::runner::run_for_api(
+                &sim_input,
+                &sim_data,
+                false,
+                wall_timeout,
+            )
+            .map_err(|e| format!("Simulation error: {}", e))?;
+            outputs
+                .into_iter()
+                .next()
+                .ok_or_else(|| "Simulation produced no results".to_string())
+        })
+        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     Ok(SimResult::from_output(output))
 }
@@ -111,6 +118,7 @@ fn run(
 #[pyfunction]
 #[pyo3(signature = (toml_path, overrides=None, include_trajectories=false, sim_timeout_secs=None))]
 fn run_mc(
+    py: Python<'_>,
     toml_path: &str,
     overrides: Option<&Bound<'_, PyDict>>,
     include_trajectories: bool,
@@ -119,17 +127,19 @@ fn run_mc(
     let overrides = extract_overrides(overrides)?;
     let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
 
-    let (sim_input, sim_data) =
-        config::load_and_override(std::path::Path::new(toml_path), &overrides)
-            .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
-
-    let outputs = aerocapture::simulation::runner::run_for_api(
-        &sim_input,
-        &sim_data,
-        include_trajectories,
-        wall_timeout,
-    )
-    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {}", e)))?;
+    let outputs = py
+        .detach(|| -> Result<Vec<aerocapture::RunOutput>, String> {
+            let (sim_input, sim_data) =
+                config::load_and_override(std::path::Path::new(toml_path), &overrides)?;
+            aerocapture::simulation::runner::run_for_api(
+                &sim_input,
+                &sim_data,
+                include_trajectories,
+                wall_timeout,
+            )
+            .map_err(|e| format!("Simulation error: {}", e))
+        })
+        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }
@@ -157,38 +167,34 @@ fn run_mc(
 #[pyfunction]
 #[pyo3(signature = (toml_path, overrides_list, n_threads=None, include_trajectories=false, sim_timeout_secs=None))]
 fn run_batch(
+    py: Python<'_>,
     toml_path: &str,
     overrides_list: &Bound<'_, PyList>,
     n_threads: Option<usize>,
     include_trajectories: bool,
     sim_timeout_secs: Option<f64>,
 ) -> PyResult<BatchResults> {
-    let n_threads = n_threads.unwrap_or_else(|| {
-        std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1)
-    });
-
-    // Extract each dict from the Python list.
     let mut overrides_vec = Vec::new();
     for item in overrides_list.iter() {
         let dict: &Bound<'_, PyDict> = item.cast()?;
         overrides_vec.push(extract_overrides(Some(dict))?);
     }
-
     let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
 
-    let outputs = batch::run_batch(
-        std::path::Path::new(toml_path),
-        overrides_vec,
-        n_threads,
-        include_trajectories,
-        wall_timeout,
-    )
-    .map_err(|e| match e {
-        batch::BatchError::Contract(m) => pyo3::exceptions::PyValueError::new_err(m),
-        batch::BatchError::Runtime(m) => pyo3::exceptions::PyRuntimeError::new_err(m),
-    })?;
+    let outputs = py
+        .detach(|| {
+            batch::run_batch(
+                std::path::Path::new(toml_path),
+                overrides_vec,
+                n_threads,
+                include_trajectories,
+                wall_timeout,
+            )
+        })
+        .map_err(|e| match e {
+            batch::BatchError::Contract(m) => pyo3::exceptions::PyValueError::new_err(m),
+            batch::BatchError::Runtime(m) => pyo3::exceptions::PyRuntimeError::new_err(m),
+        })?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }
@@ -211,6 +217,7 @@ fn run_batch(
 #[pyfunction]
 #[pyo3(signature = (toml_path, draws, overrides=None, include_trajectories=false, sim_timeout_secs=None))]
 fn run_with_draws(
+    py: Python<'_>,
     toml_path: &str,
     draws: PyReadonlyArray2<'_, f64>,
     overrides: Option<&Bound<'_, PyDict>>,
@@ -224,31 +231,171 @@ fn run_with_draws(
             shape
         )));
     }
-    let n_rows = shape[0];
 
-    let draw_vec: Vec<[f64; 26]> = (0..n_rows)
-        .map(|i| {
-            let mut row = [0.0f64; 26];
-            for (j, x) in row.iter_mut().enumerate() {
-                *x = *draws.get([i, j]).unwrap();
+    // `as_array()` + row iteration handles non-contiguous / transposed inputs
+    // (the old `.get([i, j]).unwrap()` panicked on strided arrays).
+    let arr = draws.as_array();
+    let draw_vec: Vec<[f64; 26]> = arr
+        .rows()
+        .into_iter()
+        .map(|row| {
+            let mut r = [0.0f64; 26];
+            for (j, &v) in row.iter().enumerate() {
+                r[j] = v;
             }
-            row
+            r
         })
         .collect();
 
     let overrides = extract_overrides(overrides)?;
     let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
 
-    let outputs = batch::run_with_external_draws(
-        std::path::Path::new(toml_path),
-        overrides,
-        draw_vec,
-        include_trajectories,
-        wall_timeout,
-    )
-    .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+    let outputs = py
+        .detach(|| {
+            batch::run_with_external_draws(
+                std::path::Path::new(toml_path),
+                overrides,
+                draw_vec,
+                include_trajectories,
+                wall_timeout,
+            )
+        })
+        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
+}
+
+/// Run the (n_pop x n_seeds) GA training grid in one GIL-releasing call.
+///
+/// Builds each individual's SimData once (atmosphere/wind/ref tables shared via
+/// Arc), optionally injecting in-memory NN weights (no temp JSON), then runs the
+/// full individual x seed grid in parallel. Bit-identical to looping seeds in
+/// Python with run_batch (each cell = static draw from seed_k, sim_idx=0).
+///
+/// Args:
+///     toml_path: base config path.
+///     overrides_list: list of per-individual override dicts (dotted key -> value).
+///         MUST NOT contain monte_carlo.seed or simulation.n_sims (run_grid owns those).
+///     seeds: MC seed list (the second grid axis).
+///     weights: optional (n_pop, n_weights) f64 array of NN flat weights (one row
+///         per individual). Required together with architecture_json for NN schemes.
+///     architecture_json: JSON LayerSpec list (shared across individuals).
+///     input_mask / output_param / scaled_pi_n / delta_max / normalization_json:
+///         shared NN decode knobs (mirror flat_weights_to_json).
+///     n_threads: Rayon threads (None = global pool).
+///     sim_timeout_secs: per-sim wall-clock timeout.
+///
+/// Returns:
+///     numpy.ndarray of shape (n_pop, n_seeds, FINAL_RECORD_LEN), dtype float64.
+#[pyfunction]
+#[pyo3(signature = (toml_path, overrides_list, seeds, weights=None, architecture_json=None, input_mask=None, output_param=None, scaled_pi_n=None, delta_max=None, normalization_json=None, n_threads=None, sim_timeout_secs=None))]
+#[allow(clippy::too_many_arguments)]
+fn run_grid<'py>(
+    py: Python<'py>,
+    toml_path: &str,
+    overrides_list: &Bound<'_, PyList>,
+    seeds: Vec<u64>,
+    weights: Option<PyReadonlyArray2<'_, f64>>,
+    architecture_json: Option<String>,
+    input_mask: Option<Vec<usize>>,
+    output_param: Option<String>,
+    scaled_pi_n: Option<f64>,
+    delta_max: Option<f64>,
+    normalization_json: Option<String>,
+    n_threads: Option<usize>,
+    sim_timeout_secs: Option<f64>,
+) -> PyResult<Bound<'py, numpy::PyArray3<f64>>> {
+    use aerocapture::data::neural::{LayerSpec, NormSpec};
+
+    // Extract per-individual overrides (GIL).
+    let mut overrides_vec: Vec<Vec<(String, OverrideValue)>> = Vec::new();
+    for item in overrides_list.iter() {
+        let dict: &Bound<'_, PyDict> = item.cast()?;
+        overrides_vec.push(extract_overrides(Some(dict))?);
+    }
+
+    // Contract: run_grid owns the seed axis and runs one sim per cell.
+    // Callers must never inject these keys — they would be silently ignored
+    // (run_for_api_cell bypasses n_sims and takes the seed from the grid axis).
+    const FORBIDDEN: &[&str] = &["monte_carlo.seed", "simulation.n_sims"];
+    for overrides in &overrides_vec {
+        for (key, _) in overrides {
+            if FORBIDDEN.contains(&key.as_str()) {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "run_grid: '{}' must not appear in overrides_list — \
+                     run_grid owns the seed axis (re-seeds each cell via the \
+                     external-draws path and runs one sim per cell). \
+                     Remove this key from _build_grid_overrides.",
+                    key
+                )));
+            }
+        }
+    }
+
+    // Build the NN payload (GIL: numpy + JSON parse) iff weights provided.
+    let nn = match weights {
+        Some(w) => {
+            let arch_json = architecture_json.ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(
+                    "run_grid: architecture_json is required when weights is given",
+                )
+            })?;
+            let specs: Vec<LayerSpec> = serde_json::from_str(&arch_json).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "run_grid: architecture_json parse error: {}",
+                    e
+                ))
+            })?;
+            let output_param = parse_output_param(output_param.as_deref())?;
+            let normalization: Option<Vec<NormSpec>> = match normalization_json {
+                Some(ref s) => Some(serde_json::from_str(s).map_err(|e| {
+                    pyo3::exceptions::PyValueError::new_err(format!(
+                        "run_grid: normalization_json parse error: {}",
+                        e
+                    ))
+                })?),
+                None => None,
+            };
+            let arr = w.as_array();
+            let weights: Vec<Vec<f64>> = arr.rows().into_iter().map(|r| r.to_vec()).collect();
+            Some(grid::NnSpec {
+                specs,
+                input_mask,
+                output_param,
+                scaled_pi_n: scaled_pi_n.unwrap_or(1.0),
+                delta_max: delta_max.unwrap_or(0.35),
+                normalization,
+                weights,
+            })
+        }
+        None => None,
+    };
+
+    let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
+
+    let (n_pop, n_seeds, records) = py
+        .detach(|| {
+            grid::run_grid(
+                std::path::Path::new(toml_path),
+                overrides_vec,
+                seeds,
+                nn,
+                n_threads,
+                wall_timeout,
+            )
+        })
+        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+
+    // Flatten -> (n_pop, n_seeds, LEN) via from_vec + reshape (one copy).
+    let len = aerocapture::simulation::final_record::FINAL_RECORD_LEN;
+    let mut flat: Vec<f64> = Vec::with_capacity(n_pop * n_seeds * len);
+    for rec in &records {
+        flat.extend_from_slice(rec);
+    }
+    let arr1 = numpy::PyArray1::from_vec(py, flat);
+    arr1.reshape([n_pop, n_seeds, len]).map_err(|e| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!("run_grid reshape error: {e}"))
+    })
 }
 
 /// Load a v2 NN JSON in Rust and run a stateful forward pass on a single input.
@@ -336,6 +483,55 @@ fn nn_forward_sequence(json_path: String, inputs: Vec<Vec<f64>>) -> PyResult<Vec
     Ok(outputs)
 }
 
+/// Build a `NeuralNetModel` from flat PSO weights + a parsed v2 architecture,
+/// mirroring `flat_weights_to_json` exactly (so an in-memory model is identical
+/// to one round-tripped through the temp JSON). `output_param` is the already-
+/// resolved enum; `normalization` is the optional embedded table. Returns a
+/// plain `String` error so it is callable inside `py.detach()` (no GIL).
+fn build_model_from_flat(
+    flat: &[f64],
+    specs: &[aerocapture::data::neural::LayerSpec],
+    input_mask: Option<Vec<usize>>,
+    output_param: aerocapture::data::neural::OutputParam,
+    scaled_pi_n: f64,
+    delta_max: f64,
+    normalization: Option<&[aerocapture::data::neural::NormSpec]>,
+) -> Result<aerocapture::data::neural::NeuralNetModel, String> {
+    let mut model = aerocapture::data::neural::NeuralNetModel::from_flat_weights_v2(
+        flat,
+        specs,
+        input_mask,
+        output_param,
+        scaled_pi_n,
+        delta_max,
+    )
+    .map_err(|e| e.to_string())?;
+    if let Some(norm) = normalization {
+        if norm.len() != aerocapture::data::neural::NN_FULL_INPUT_SIZE {
+            return Err(format!(
+                "normalization must have {} entries (got {})",
+                aerocapture::data::neural::NN_FULL_INPUT_SIZE,
+                norm.len()
+            ));
+        }
+        model.normalization = norm.to_vec();
+    }
+    Ok(model)
+}
+
+fn parse_output_param(s: Option<&str>) -> PyResult<aerocapture::data::neural::OutputParam> {
+    use aerocapture::data::neural::OutputParam;
+    match s {
+        None | Some("atan2_signed") => Ok(OutputParam::default()),
+        Some("acos_tanh") => Ok(OutputParam::AcosTanh),
+        Some("scaled_pi") => Ok(OutputParam::ScaledPi),
+        Some("delta") => Ok(OutputParam::Delta),
+        Some(other) => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "output_param must be 'atan2_signed', 'acos_tanh', 'scaled_pi', or 'delta' (got {other:?})"
+        ))),
+    }
+}
+
 /// Construct a NeuralNetModel from flat PSO weights + v2 architecture (JSON string)
 /// and write it as v2 JSON. All PSO NN output flows through this helper so the
 /// Rust LayerWeights trait is the single source of truth for weight serialization.
@@ -376,9 +572,7 @@ fn flat_weights_to_json(
     delta_max: Option<f64>,
     normalization_json: Option<String>,
 ) -> PyResult<()> {
-    use aerocapture::data::neural::{
-        LayerSpec, NN_FULL_INPUT_SIZE, NeuralNetModel, NormSpec, OutputParam,
-    };
+    use aerocapture::data::neural::{LayerSpec, NormSpec};
 
     let specs: Vec<LayerSpec> = serde_json::from_str(&architecture_json).map_err(|e| {
         pyo3::exceptions::PyValueError::new_err(format!(
@@ -386,42 +580,26 @@ fn flat_weights_to_json(
             e
         ))
     })?;
-    let output_param: OutputParam = match output_param.as_deref() {
-        None | Some("atan2_signed") => OutputParam::default(),
-        Some("acos_tanh") => OutputParam::AcosTanh,
-        Some("scaled_pi") => OutputParam::ScaledPi,
-        Some("delta") => OutputParam::Delta,
-        Some(other) => {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "output_param must be 'atan2_signed', 'acos_tanh', 'scaled_pi', or 'delta' (got {other:?})"
-            )));
-        }
+    let output_param = parse_output_param(output_param.as_deref())?;
+    let parsed_norm: Option<Vec<NormSpec>> = match normalization_json {
+        Some(ref s) => Some(serde_json::from_str(s).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "flat_weights_to_json: normalization_json parse error: {}",
+                e
+            ))
+        })?),
+        None => None,
     };
-    let mut model = NeuralNetModel::from_flat_weights_v2(
+    let model = build_model_from_flat(
         &flat,
         &specs,
         input_mask,
         output_param,
         scaled_pi_n.unwrap_or(1.0),
         delta_max.unwrap_or(0.35),
+        parsed_norm.as_deref(),
     )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    if let Some(norm_json) = normalization_json {
-        let parsed: Vec<NormSpec> = serde_json::from_str(&norm_json).map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!(
-                "flat_weights_to_json: normalization_json parse error: {}",
-                e
-            ))
-        })?;
-        if parsed.len() != NN_FULL_INPUT_SIZE {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "normalization must have {} entries (got {})",
-                NN_FULL_INPUT_SIZE,
-                parsed.len()
-            )));
-        }
-        model.normalization = parsed;
-    }
+    .map_err(pyo3::exceptions::PyValueError::new_err)?;
     model
         .save_json(&path)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
@@ -492,7 +670,7 @@ where
             trace.extend(output.supervised_trace);
             dv = output
                 .final_record
-                .get(41) // dv_total_m_s column
+                .get(FR_DV_TOTAL_MS) // dv_total_m_s column
                 .copied()
                 .unwrap_or(f64::NAN);
             captured = output.captured;
@@ -767,10 +945,74 @@ fn default_normalization(py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
     Ok(out)
 }
 
+/// Return the Rust `FR_*` index map as a Python dict `{name: index}`.
+///
+/// Keys are the `FR_*` const names with the `FR_` prefix stripped and lowercased,
+/// e.g. `FR_DV_TOTAL_MS` -> `"dv_total_ms"`, `FR_HEAT_FLUX_KW_M2` -> `"heat_flux_kw_m2"`.
+/// Use this to machine-assert that Python column-index literals match the Rust source.
+#[pyfunction]
+fn final_record_indices() -> std::collections::HashMap<&'static str, usize> {
+    use aerocapture::simulation::final_record::*;
+    let mut m = std::collections::HashMap::new();
+    m.insert("alt_km", FR_ALT_KM);
+    m.insert("lon_deg", FR_LON_DEG);
+    m.insert("lat_deg", FR_LAT_DEG);
+    m.insert("vel_ms", FR_VEL_MS);
+    m.insert("fpa_deg", FR_FPA_DEG);
+    m.insert("hdg_deg", FR_HDG_DEG);
+    m.insert("radial_vel_ms", FR_RADIAL_VEL_MS);
+    m.insert("energy_mjkg", FR_ENERGY_MJKG);
+    m.insert("sma_km", FR_SMA_KM);
+    m.insert("ecc", FR_ECC);
+    m.insert("incl_deg", FR_INCL_DEG);
+    m.insert("raan_deg", FR_RAAN_DEG);
+    m.insert("arg_peri_deg", FR_ARG_PERI_DEG);
+    m.insert("true_anom_deg", FR_TRUE_ANOM_DEG);
+    m.insert("periapsis_alt_km", FR_PERIAPSIS_ALT_KM);
+    m.insert("apoapsis_alt_km", FR_APOAPSIS_ALT_KM);
+    m.insert("heat_flux_kw_m2", FR_HEAT_FLUX_KW_M2);
+    m.insert("g_load", FR_G_LOAD);
+    m.insert("dyn_pressure_kpa", FR_DYN_PRESSURE_KPA);
+    m.insert("alt_max_flux_km", FR_ALT_MAX_FLUX_KM);
+    m.insert("alt_max_load_km", FR_ALT_MAX_LOAD_KM);
+    m.insert("alt_max_pdyn_km", FR_ALT_MAX_PDYN_KM);
+    m.insert("time_max_flux_s", FR_TIME_MAX_FLUX_S);
+    m.insert("time_max_load_s", FR_TIME_MAX_LOAD_S);
+    m.insert("time_max_pdyn_s", FR_TIME_MAX_PDYN_S);
+    m.insert("bounce_alt_km", FR_BOUNCE_ALT_KM);
+    m.insert("bounce_time_s", FR_BOUNCE_TIME_S);
+    m.insert("sim_time_s", FR_SIM_TIME_S);
+    m.insert("heat_load_mjm2", FR_HEAT_LOAD_MJM2);
+    m.insert("periapsis_err_km", FR_PERIAPSIS_ERR_KM);
+    m.insert("apoapsis_err_km", FR_APOAPSIS_ERR_KM);
+    m.insert("ifinal", FR_IFINAL);
+    m.insert("dv1_ms", FR_DV1_MS);
+    m.insert("dv2_ms", FR_DV2_MS);
+    m.insert("dv3_ms", FR_DV3_MS);
+    m.insert("dv_plane_ms", FR_DV_PLANE_MS);
+    m.insert("dv_total_ms", FR_DV_TOTAL_MS);
+    m.insert("cumulative_bank_deg", FR_CUMULATIVE_BANK_DEG);
+    m.insert("incl_err_deg", FR_INCL_ERR_DEG);
+    m.insert("n_reversals", FR_N_REVERSALS);
+    m
+}
+
 /// Aerocapture trajectory simulator Python bindings.
 #[pymodule]
 fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", "0.1.0")?;
+    m.add(
+        "NN_FULL_INPUT_SIZE",
+        aerocapture::data::neural::NN_FULL_INPUT_SIZE,
+    )?;
+    m.add(
+        "DISPERSION_DRAW_LEN",
+        aerocapture::data::dispersions::DISPERSION_DRAW_LEN,
+    )?;
+    m.add(
+        "FINAL_RECORD_LEN",
+        aerocapture::simulation::final_record::FINAL_RECORD_LEN,
+    )?;
     m.add_class::<SimResult>()?;
     m.add_class::<BatchResults>()?;
     m.add_class::<env::BatchedSimulation>()?;
@@ -778,6 +1020,7 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_mc, m)?)?;
     m.add_function(wrap_pyfunction!(run_batch, m)?)?;
     m.add_function(wrap_pyfunction!(run_with_draws, m)?)?;
+    m.add_function(wrap_pyfunction!(run_grid, m)?)?;
     m.add_function(wrap_pyfunction!(load_config, m)?)?;
     m.add_function(wrap_pyfunction!(nn_forward, m)?)?;
     m.add_function(wrap_pyfunction!(nn_forward_sequence, m)?)?;
@@ -785,5 +1028,6 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(collect_supervised, m)?)?;
     m.add_function(wrap_pyfunction!(collect_nn_inputs, m)?)?;
     m.add_function(wrap_pyfunction!(default_normalization, m)?)?;
+    m.add_function(wrap_pyfunction!(final_record_indices, m)?)?;
     Ok(())
 }

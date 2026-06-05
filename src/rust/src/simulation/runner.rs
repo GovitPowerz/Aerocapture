@@ -41,6 +41,7 @@ pub(crate) use super::sim_types::{
 // Termination classification, virtual-DV cost, and final-record assembly live in
 // `finalize`. Re-exported below so existing `runner::*` paths and the
 // `#[path]`-included test modules keep resolving these symbols.
+pub use super::final_record::FINAL_RECORD_LEN;
 pub use super::finalize::{
     build_final_record, ifinal_for, is_pending_crash, promote_pending_crash_if_applicable,
 };
@@ -122,7 +123,7 @@ pub(crate) fn navigate_from_state(
 /// Result from a single simulation run.
 struct SimResult {
     sim_idx: i32,
-    final_line: [f64; 52],
+    final_line: [f64; FINAL_RECORD_LEN],
     photo_lines: Vec<[f64; 30]>,
     dispersions: [f64; DISPERSION_DRAW_LEN],
     supervised_trace: Vec<(Vec<f64>, f64, f64, f64, f64)>,
@@ -370,6 +371,34 @@ pub fn run_for_api_with_draws(
         .collect())
 }
 
+/// Run ONE training-grid cell, bit-identical to the per-seed `run_batch` path.
+///
+/// Generates the static draw from `data`'s dispersion config reseeded to `seed`
+/// (mirrors the per-seed path's `monte_carlo.seed` override) and runs a single
+/// trajectory with `sim_idx = 0` — so the per-sim EKF / Gauss-Markov RNG stream
+/// matches the per-seed path, where `simulation.random_seed` is constant and
+/// `n_sims == 1`. This is the bit-identity invariant `run_grid` relies on.
+pub fn run_for_api_cell(
+    config: &SimInput,
+    data: &SimData,
+    seed: u64,
+    include_trajectories: bool,
+    wall_timeout: Option<Duration>,
+) -> Result<crate::RunOutput, SimError> {
+    let draw = data.draw_from_seed(seed);
+    let run_state = init::init_run_from_draw(data, &draw);
+    let mut result = run_single(
+        config,
+        data,
+        &run_state,
+        0,
+        include_trajectories,
+        wall_timeout,
+    )?;
+    result.dispersions = draw.to_array();
+    Ok(assemble_run_output(result, include_trajectories))
+}
+
 /// Write output in CSV format with named headers and clean schema.
 fn write_csv_output(
     config: &SimInput,
@@ -450,7 +479,7 @@ fn extract_photo_csv_values(values: &[f64; 30]) -> [f64; 22] {
 
 /// Extract 39 CSV values from the 52-element final array.
 /// Drops 14 always-zero indices: 32-36, 42-44, 46-47, 49-51.
-fn extract_final_csv_values(values: &[f64; 52]) -> [f64; 39] {
+fn extract_final_csv_values(values: &[f64; FINAL_RECORD_LEN]) -> [f64; 39] {
     [
         values[0],  // altitude_km
         values[1],  // longitude_deg
@@ -665,7 +694,10 @@ pub fn build_event_ctx(config: &SimInput, data: &SimData) -> events::EventContex
 ///
 /// Equivalent to `run_single` but skips file I/O and returns the final record
 /// directly. Intended for tests that need to compare against the step-API path.
-pub fn run_single_collect(config: &SimInput, data: &SimData) -> Result<[f64; 52], SimError> {
+pub fn run_single_collect(
+    config: &SimInput,
+    data: &SimData,
+) -> Result<[f64; FINAL_RECORD_LEN], SimError> {
     let draw = crate::data::dispersions::DispersionDraw::default();
     let run_state = init::init_run_from_draw(data, &draw);
     let result = run_single(config, data, &run_state, 0, false, None)?;

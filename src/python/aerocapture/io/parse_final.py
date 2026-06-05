@@ -106,7 +106,7 @@ def parse_final(filepath: str | Path) -> pd.DataFrame:
     """
     filepath = Path(filepath)
 
-    if filepath.stat().st_size == 0:
+    if not filepath.exists() or filepath.stat().st_size == 0:
         return pd.DataFrame()
 
     return pd.read_csv(filepath)

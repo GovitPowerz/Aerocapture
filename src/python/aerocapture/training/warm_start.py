@@ -21,17 +21,21 @@ import numpy.typing as npt
 from aerocapture.training.config import AdamConfig, NetworkConfig, TrainingConfig
 from aerocapture.training.encoding import encode_to_normalized, nn_param_specs_from_v2
 from aerocapture.training.evaluate import WARM_START_SEED_OFFSET, make_reserved_seeds
-from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
+from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS, route_param_path
 
 if TYPE_CHECKING:
     import torch
 
     from aerocapture.training.rl.policy import V2Policy
 
+# Soft import (mirrors evaluate.py): keep `_aero_rs` as a module attribute -- so tests that
+# monkeypatch `warm_start._aero_rs.collect_supervised` still resolve -- but DON'T hard-raise at
+# import, so the module's pure-Python helpers (e.g. _build_overrides_for_source) stay importable
+# without the PyO3 build. Only the corpus-collection path actually needs Rust (guarded below).
 try:
-    import aerocapture_rs as _aero_rs
-except ImportError as e:
-    raise ImportError("warm_start requires aerocapture_rs PyO3 module") from e
+    import aerocapture_rs as _aero_rs  # type: ignore[import-not-found, import-untyped]
+except ImportError:
+    _aero_rs = None  # type: ignore[assignment]
 
 
 def _wrap_to_pi(x: torch.Tensor) -> torch.Tensor:
@@ -179,22 +183,11 @@ def _build_overrides_for_source(source_params: dict[str, float], scheme: str) ->
     for key, value in source_params.items():
         # Round integer-typed params so the Rust TOML parser accepts them (same as problem.py)
         coerced: object = int(round(value)) if key in _INTEGER_PARAM_NAMES else value
-        if key.startswith("lateral."):
-            overrides[f"guidance.lateral.{key.removeprefix('lateral.')}"] = coerced
-        elif key.startswith("exit."):
-            # Exit-phase params live in the FTC block regardless of supervisor:
-            # the shared exit-phase controller (gnc/guidance/exit.rs) reads them
-            # from [guidance.ftc.exit_*] for all unsigned-magnitude schemes.
-            overrides[f"guidance.ftc.{key.removeprefix('exit.')}"] = coerced
-        elif key.startswith("nav."):
-            overrides[f"navigation.{key.removeprefix('nav.')}"] = coerced
-        elif key.startswith("thermal."):
-            overrides[f"guidance.thermal_limiter.{key.removeprefix('thermal.')}"] = coerced
-        elif key.startswith("shaping."):
-            overrides[f"guidance.command_shaping.{key.removeprefix('shaping.')}"] = coerced
+        # exit.* routes to [guidance.ftc.*] for all schemes: the shared exit-phase
+        # controller (gnc/guidance/exit.rs) reads those keys regardless of supervisor.
+        overrides[route_param_path(key, scheme)] = coerced
+        if key.startswith("shaping."):
             overrides["guidance.command_shaping.enabled"] = True
-        else:
-            overrides[f"guidance.{scheme}.{key}"] = coerced
     return overrides
 
 
@@ -220,11 +213,8 @@ def _seed_policy_init(policy: object, architecture: list, bound_multiplier: floa
     Init RNG is sourced from a fresh sub-rng so that warm-start architecture
     width does NOT couple to the per-epoch chunk-shuffle order downstream.
     """
-    import torch
-
     from aerocapture.training.config import _layer_n_params
     from aerocapture.training.initialization_v2 import init_v2_population
-    from aerocapture.training.rl.layers import DenseLayer, GruLayer, LstmLayer, MambaLayer, TransformerLayer, WindowLayer
 
     # Sub-rng decouples init draws from outer rng's downstream uses (chunk
     # shuffle); architecture-width changes don't affect shuffle reproducibility.
@@ -232,117 +222,12 @@ def _seed_policy_init(policy: object, architecture: list, bound_multiplier: floa
     flat_pop = init_v2_population(architecture, n_pop=1, bound_multiplier=bound_multiplier, rng=init_rng)
     flat = flat_pop[0]
 
-    def _copy(param: torch.Tensor, src: np.ndarray) -> None:
-        # Accepts any Tensor with .copy_ (nn.Parameter and nn.Linear.weight/bias both qualify).
-        param.copy_(torch.from_numpy(np.ascontiguousarray(src)).to(param.dtype))
-
     cursor = 0
     for module, entry in zip(policy.layers, architecture, strict=True):  # type: ignore[attr-defined]
         n = _layer_n_params(entry)
         slab = flat[cursor : cursor + n]
         cursor += n
-        if hasattr(entry, "model_dump"):
-            entry = entry.model_dump()
-        ltype = entry["type"]
-        with torch.no_grad():
-            if ltype == "dense" and isinstance(module, DenseLayer):
-                fan_in = int(entry["input_size"])
-                fan_out = int(entry["output_size"])
-                n_w = fan_out * fan_in
-                _copy(module.linear.weight, slab[:n_w].reshape(fan_out, fan_in))
-                _copy(module.linear.bias, slab[n_w : n_w + fan_out])
-            elif ltype == "gru" and isinstance(module, GruLayer):
-                fan_in = int(entry["input_size"])
-                hidden = int(entry["hidden_size"])
-                three_h = 3 * hidden
-                n_w_ih = three_h * fan_in
-                n_w_hh = three_h * hidden
-                c = 0
-                _copy(module.weight_ih, slab[c : c + n_w_ih].reshape(three_h, fan_in))
-                c += n_w_ih
-                _copy(module.weight_hh, slab[c : c + n_w_hh].reshape(three_h, hidden))
-                c += n_w_hh
-                _copy(module.bias_ih, slab[c : c + three_h])
-                c += three_h
-                _copy(module.bias_hh, slab[c : c + three_h])
-            elif ltype == "lstm" and isinstance(module, LstmLayer):
-                fan_in = int(entry["input_size"])
-                hidden = int(entry["hidden_size"])
-                four_h = 4 * hidden
-                n_w_ih = four_h * fan_in
-                n_w_hh = four_h * hidden
-                c = 0
-                _copy(module.weight_ih, slab[c : c + n_w_ih].reshape(four_h, fan_in))
-                c += n_w_ih
-                _copy(module.weight_hh, slab[c : c + n_w_hh].reshape(four_h, hidden))
-                c += n_w_hh
-                # Write the FULL bias_ih AND bias_hh from the slab. init_v2_population
-                # already sets bias_ih's forget slot to 1.0 + noise and bias_hh's
-                # forget slot to ~0 -- preserving the Jozefowicz signal which would
-                # otherwise be diluted by torch's uniform(-1/sqrt(H), +1/sqrt(H))
-                # defaults on bias_hh.
-                _copy(module.bias_ih, slab[c : c + four_h])
-                c += four_h
-                _copy(module.bias_hh, slab[c : c + four_h])
-            elif ltype == "window" and isinstance(module, WindowLayer):
-                # Zero trainable params; slab is empty by construction.
-                assert n == 0 and slab.size == 0, f"window slab expected 0-width, got {slab.size}"
-            elif ltype == "transformer" and isinstance(module, TransformerLayer):
-                # Transformer flat order (matches to_flat in layers/transformer.py:155
-                # and Rust LayerWeights<TransformerLayer>::to_flat):
-                #   w_q, b_q, w_k, b_k, w_v, b_v, w_o, b_o,
-                #   w_ffn1, b_ffn1, w_ffn2, b_ffn2,
-                #   ln1_gamma, ln1_beta, ln2_gamma, ln2_beta
-                d_model = int(entry["d_model"])
-                d_ffn = int(entry["d_ffn"])
-                c = 0
-                # Q/K/V/O projections: each is (d_model x d_model) + (d_model,) bias.
-                for linear in (module.w_q, module.w_k, module.w_v, module.w_o):
-                    n_w = d_model * d_model
-                    _copy(linear.weight, slab[c : c + n_w].reshape(d_model, d_model))
-                    c += n_w
-                    _copy(linear.bias, slab[c : c + d_model])
-                    c += d_model
-                # FFN1: (d_ffn x d_model) + (d_ffn,)
-                n_ffn1_w = d_ffn * d_model
-                _copy(module.w_ffn1.weight, slab[c : c + n_ffn1_w].reshape(d_ffn, d_model))
-                c += n_ffn1_w
-                _copy(module.w_ffn1.bias, slab[c : c + d_ffn])
-                c += d_ffn
-                # FFN2: (d_model x d_ffn) + (d_model,)
-                n_ffn2_w = d_model * d_ffn
-                _copy(module.w_ffn2.weight, slab[c : c + n_ffn2_w].reshape(d_model, d_ffn))
-                c += n_ffn2_w
-                _copy(module.w_ffn2.bias, slab[c : c + d_model])
-                c += d_model
-                # Layer norms: (gamma, beta) x 2, each (d_model,)
-                _copy(module.ln1_gamma, slab[c : c + d_model])
-                c += d_model
-                _copy(module.ln1_beta, slab[c : c + d_model])
-                c += d_model
-                _copy(module.ln2_gamma, slab[c : c + d_model])
-                c += d_model
-                _copy(module.ln2_beta, slab[c : c + d_model])
-                # PE offsets are recomputed lazily on forward; no post-write step needed.
-            elif ltype == "mamba" and isinstance(module, MambaLayer):
-                d_inner = int(entry["input_size"])
-                d_state = int(entry["d_state"])
-                dt_rank = int(entry["dt_rank"])
-                c = 0
-                n_xp = (dt_rank + 2 * d_state) * d_inner
-                _copy(module.x_proj_w, slab[c : c + n_xp].reshape(dt_rank + 2 * d_state, d_inner))
-                c += n_xp
-                n_dw = d_inner * dt_rank
-                _copy(module.dt_proj_w, slab[c : c + n_dw].reshape(d_inner, dt_rank))
-                c += n_dw
-                _copy(module.dt_proj_b, slab[c : c + d_inner])
-                c += d_inner
-                n_al = d_inner * d_state
-                _copy(module.a_log, slab[c : c + n_al].reshape(d_inner, d_state))
-                c += n_al
-                _copy(module.d_skip, slab[c : c + d_inner])
-            else:
-                raise ValueError(f"_seed_policy_init: unknown layer type {ltype!r} or module/spec mismatch")
+        module.from_flat(slab)
 
 
 def _chunked_bptt_train(
@@ -529,7 +414,16 @@ def _chunked_bptt_train(
                 target = torch.cos(y_t)  # (T, B)
                 loss = nn.functional.mse_loss(pred, target)
             elif output_param == "atan2_signed":
-                # means: (T, B, 2). Target = (sin(y), cos(y)).
+                # atan2_signed needs a 2-output (sin, cos) head; means must be
+                # (T, B, 2). A 1-output last layer would silently broadcast
+                # against the (T, B, 2) target and corrupt the loss.
+                if means.shape[-1] != 2:
+                    raise ValueError(
+                        f"atan2_signed requires the network's last layer to emit "
+                        f"output_size=2 (sin, cos); got output_size={means.shape[-1]}. "
+                        f"Use output_size=2 for atan2_signed, or a single-output decoder "
+                        f"(acos_tanh / scaled_pi / delta) for output_size=1."
+                    )
                 target = torch.stack([torch.sin(y_t), torch.cos(y_t)], dim=-1)
                 loss = nn.functional.mse_loss(means, target)
             elif output_param in ("scaled_pi", "delta"):
@@ -683,6 +577,165 @@ def _select_best_teacher_per_seed(
     return [{"scheme": scheme, **r} for seed, (scheme, r) in sorted(best.items())]
 
 
+def _collect_supervisor_corpus(
+    cfg: TrainingConfig,
+    resolved_paths: dict[str, Path],
+    base_mc_seed: int,
+) -> tuple[dict[str, list[dict]], list[dict], int]:
+    """Collect per-scheme supervised traces, pick best teacher per seed, guard corpus size."""
+    if _aero_rs is None:
+        raise RuntimeError(
+            "warm-start corpus collection requires the aerocapture_rs PyO3 module. "
+            "Build it with `maturin develop --release --manifest-path src/rust/aerocapture-py/Cargo.toml`."
+        )
+    # Thread sim_timeout_secs through so a NaN-state supervisor sim can't hang
+    # the warm-start pipeline indefinitely (project convention: every
+    # run_mc-equivalent path passes the timeout).
+    seeds = make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, cfg.warm_start.n_warm_seeds)
+    results_by_scheme: dict[str, list[dict]] = {}
+    for scheme, path in resolved_paths.items():
+        with open(path) as f:
+            source_params = json.load(f)
+        overrides = _build_overrides_for_source(source_params, scheme)
+        results_by_scheme[scheme] = _aero_rs.collect_supervised(
+            toml_path=cfg.sim.toml_config,
+            seeds=seeds,
+            overrides=overrides,
+            scheme=scheme,
+            sim_timeout_secs=cfg.sim.sim_timeout_secs,
+        )
+
+    selected = _select_best_teacher_per_seed(results_by_scheme)
+    min_corpus = max(1, cfg.warm_start.n_warm_seeds // 4)
+    if len(selected) < min_corpus:
+        raise RuntimeError(
+            f"warm-start corpus too small: {len(selected)} captures across {cfg.warm_start.n_warm_seeds} seeds "
+            f"(threshold {min_corpus}). Widen MC dispersions, check the TOML, or revise supervisor_schemes."
+        )
+    return results_by_scheme, selected, min_corpus
+
+
+def _write_selection_sidecar(
+    save_dir: Path,
+    n_warm_seeds: int,
+    resolved_paths: dict[str, Path],
+    results_by_scheme: dict[str, list[dict]],
+    selected: list[dict],
+    min_corpus: int,
+) -> None:
+    """Write warm_start_selection.json: per-supervisor selection counts + capture stats."""
+    # Without this, an under-performing supervisor pool (e.g. all FTC wins
+    # because eqglide / fnpag never captured) is invisible.
+    selection_counts: dict[str, int] = dict.fromkeys(resolved_paths, 0)
+    for traj in selected:
+        selection_counts[str(traj["scheme"])] += 1
+    per_scheme_stats: dict[str, dict] = {}
+    for scheme, results in results_by_scheme.items():
+        n_total = len(results)
+        n_captured = sum(1 for r in results if r["captured"])
+        captured_dvs = [float(r["dv"]) for r in results if r["captured"] and np.isfinite(r["dv"])]
+        per_scheme_stats[scheme] = {
+            "n_supervised": n_total,
+            "n_captured": n_captured,
+            "capture_rate": n_captured / max(n_total, 1),
+            "n_selected": selection_counts.get(scheme, 0),
+            "mean_dv_captured": float(np.mean(captured_dvs)) if captured_dvs else None,
+            "median_dv_captured": float(np.median(captured_dvs)) if captured_dvs else None,
+        }
+    (save_dir / "warm_start_selection.json").write_text(
+        json.dumps(
+            {
+                "n_warm_seeds": int(n_warm_seeds),
+                "n_selected_total": len(selected),
+                "min_corpus_required": min_corpus,
+                "per_scheme": per_scheme_stats,
+            },
+            indent=2,
+        )
+    )
+
+
+def _encode_and_persist(
+    cfg: TrainingConfig,
+    policy: V2Policy,
+    save_dir: Path,
+    cache_key: dict,
+    scaffolding_source_path: Path,
+) -> tuple[npt.NDArray[np.float64], list]:
+    """Extract flat weights, derive bounds, normalize to [0,1], concat scaffolding, persist."""
+    ws = cfg.warm_start
+    network = cfg.network
+    assert network.architecture is not None  # validated by _chunked_bptt_train
+    flat_weights = _policy_to_flat_weights_v2(policy, network.architecture)
+    from pydantic import TypeAdapter
+
+    from aerocapture.training.rl.schemas import LayerSpec
+
+    validated_arch = TypeAdapter(list[LayerSpec]).validate_python(network.architecture)
+    base_specs = nn_param_specs_from_v2(validated_arch, bound_multiplier=ws.bound_multiplier)
+
+    # Safety guard (per Task 7 code-quality review): zero-param layers must be
+    # skipped consistently by nn_param_specs_from_v2 and _policy_to_flat_weights_v2.
+    assert len(flat_weights) == len(base_specs), (
+        f"flat_weights length ({len(flat_weights)}) != weight_specs length ({len(base_specs)}); "
+        "zero-param layers (Window) must be skipped consistently in both encoders"
+    )
+
+    # adaptive_bounds (default True): per-layer-slab 2x max-abs bounds floored at
+    # the Xavier × bound_multiplier half-width. By construction every trained
+    # value lies inside its slab's [-bound, +bound] range, so encoding never clips.
+    weight_specs = _adaptive_layer_slab_specs(base_specs, flat_weights, list(validated_arch)) if ws.adaptive_bounds else base_specs
+
+    weight_chromo = np.empty(len(weight_specs), dtype=np.float64)
+    n_clipped = 0
+    for i, s in enumerate(weight_specs):
+        v = float(flat_weights[i])
+        normalized = (v - s.p_min) / (s.p_max - s.p_min)
+        if normalized < 0.0 or normalized > 1.0:
+            n_clipped += 1
+        weight_chromo[i] = np.clip(normalized, 0.0, 1.0)
+
+    clip_rate = n_clipped / max(len(weight_specs), 1)
+    if ws.adaptive_bounds:
+        # Adaptive bounds guarantee 0% clipping by construction; anything > 0 is a bug.
+        assert clip_rate == 0.0, f"adaptive_bounds produced {n_clipped} clipped weights -- internal bug, bounds should always contain trained values"
+    elif clip_rate > 0.05:
+        raise RuntimeError(
+            f"warm-start clip rate {100 * clip_rate:.1f}% ({n_clipped}/{len(weight_specs)}) exceeds 5% threshold. "
+            "Set [warm_start] adaptive_bounds = true (default), or widen bound_multiplier, reduce n_epochs, or lower lr."
+        )
+    elif n_clipped > 0:
+        print(f"  [warm_start] {n_clipped}/{len(weight_specs)} weights clipped ({100 * clip_rate:.2f}%).")
+
+    chromo = weight_chromo
+    if network.scaffolding != "off":
+        from aerocapture.training.param_spaces import active_scaffolding_specs
+
+        pack = active_scaffolding_specs(network.scaffolding)
+        if network.scaffolding == "full":
+            with open(scaffolding_source_path) as f:
+                scaff_params = json.load(f)
+        else:  # live: seed the 3-param tail from defaults, no FTC source needed.
+            scaff_params = {s.name: s.default for s in pack}
+        scaff_chromo = encode_to_normalized(scaff_params, list(pack))
+        chromo = np.concatenate([weight_chromo, scaff_chromo])
+
+    np.save(save_dir / "warm_start_chromosome.npy", chromo)
+    (save_dir / "warm_start_cache_key.json").write_text(json.dumps(cache_key, indent=2))
+    # Persist the bounds so resume / cache-hit returns the same specs the
+    # chromosome was encoded under.
+    (save_dir / "warm_start_bounds.json").write_text(
+        json.dumps(
+            [
+                {"name": s.name, "p_min": s.p_min, "p_max": s.p_max, "default": s.default, "log_scale": s.log_scale, "is_integer": s.is_integer}
+                for s in weight_specs
+            ],
+            indent=2,
+        )
+    )
+    return chromo, weight_specs
+
+
 def build_warm_start_chromosome(
     cfg: TrainingConfig,
     base_mc_seed: int,
@@ -752,63 +805,12 @@ def build_warm_start_chromosome(
         validated_arch_cached = TypeAdapter(list[LayerSpec]).validate_python(network.architecture)
         return chromo, nn_param_specs_from_v2(validated_arch_cached, bound_multiplier=ws.bound_multiplier)
 
-    # 3. Collect per scheme. Thread sim_timeout_secs through so a NaN-state
-    # supervisor sim can't hang the warm-start pipeline indefinitely (project
-    # convention: every run_mc-equivalent path passes the timeout).
-    seeds = make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, ws.n_warm_seeds)
-    results_by_scheme: dict[str, list[dict]] = {}
-    for scheme, path in resolved_paths.items():
-        with open(path) as f:
-            source_params = json.load(f)
-        overrides = _build_overrides_for_source(source_params, scheme)
-        results_by_scheme[scheme] = _aero_rs.collect_supervised(
-            toml_path=cfg.sim.toml_config,
-            seeds=seeds,
-            overrides=overrides,
-            scheme=scheme,
-            sim_timeout_secs=cfg.sim.sim_timeout_secs,
-        )
+    # 3. Collect per scheme + pick best teacher per seed (with corpus-size guard).
+    results_by_scheme, selected, min_corpus = _collect_supervisor_corpus(cfg, resolved_paths, base_mc_seed)
 
-    # 4. Pick best per seed
-    selected = _select_best_teacher_per_seed(results_by_scheme)
-    min_corpus = max(1, ws.n_warm_seeds // 4)
-    if len(selected) < min_corpus:
-        raise RuntimeError(
-            f"warm-start corpus too small: {len(selected)} captures across {ws.n_warm_seeds} seeds "
-            f"(threshold {min_corpus}). Widen MC dispersions, check the TOML, or revise supervisor_schemes."
-        )
-
-    # Persist per-supervisor selection counts (and per-supervisor capture stats)
-    # so warm_start_report can show which scheme dominated the teaching corpus.
-    # Without this, an under-performing supervisor pool (e.g. all FTC wins
-    # because eqglide / fnpag never captured) is invisible.
-    selection_counts: dict[str, int] = dict.fromkeys(resolved_paths, 0)
-    for traj in selected:
-        selection_counts[str(traj["scheme"])] += 1
-    per_scheme_stats: dict[str, dict] = {}
-    for scheme, results in results_by_scheme.items():
-        n_total = len(results)
-        n_captured = sum(1 for r in results if r["captured"])
-        captured_dvs = [float(r["dv"]) for r in results if r["captured"] and np.isfinite(r["dv"])]
-        per_scheme_stats[scheme] = {
-            "n_supervised": n_total,
-            "n_captured": n_captured,
-            "capture_rate": n_captured / max(n_total, 1),
-            "n_selected": selection_counts.get(scheme, 0),
-            "mean_dv_captured": float(np.mean(captured_dvs)) if captured_dvs else None,
-            "median_dv_captured": float(np.median(captured_dvs)) if captured_dvs else None,
-        }
-    (save_dir / "warm_start_selection.json").write_text(
-        json.dumps(
-            {
-                "n_warm_seeds": int(ws.n_warm_seeds),
-                "n_selected_total": len(selected),
-                "min_corpus_required": min_corpus,
-                "per_scheme": per_scheme_stats,
-            },
-            indent=2,
-        )
-    )
+    # 4. Persist per-supervisor selection counts so warm_start_report can show
+    # which scheme dominated the teaching corpus.
+    _write_selection_sidecar(save_dir, ws.n_warm_seeds, resolved_paths, results_by_scheme, selected, min_corpus)
 
     # 5. Magnitude_only mode: collapse sign Python-side so the supervised
     # target matches the runtime decoder. Under magnitude_only deploy, the
@@ -854,75 +856,8 @@ def build_warm_start_chromosome(
     else:
         print(f"  [warm_start] supervised MSE: {losses[-1]:.4e}")
 
-    # 7. Extract flat weights and encode to normalized chromosome.
-    assert network.architecture is not None  # validated by _chunked_bptt_train
-    flat_weights = _policy_to_flat_weights_v2(policy, network.architecture)
-    from pydantic import TypeAdapter
-
-    from aerocapture.training.rl.schemas import LayerSpec
-
-    validated_arch = TypeAdapter(list[LayerSpec]).validate_python(network.architecture)
-    base_specs = nn_param_specs_from_v2(validated_arch, bound_multiplier=ws.bound_multiplier)
-
-    # Safety guard (per Task 7 code-quality review): zero-param layers must be
-    # skipped consistently by nn_param_specs_from_v2 and _policy_to_flat_weights_v2.
-    assert len(flat_weights) == len(base_specs), (
-        f"flat_weights length ({len(flat_weights)}) != weight_specs length ({len(base_specs)}); "
-        "zero-param layers (Window) must be skipped consistently in both encoders"
-    )
-
-    # adaptive_bounds (default True): per-layer-slab 2x max-abs bounds floored at
-    # the Xavier × bound_multiplier half-width. By construction every trained
-    # value lies inside its slab's [-bound, +bound] range, so encoding never clips.
-    weight_specs = _adaptive_layer_slab_specs(base_specs, flat_weights, list(validated_arch)) if ws.adaptive_bounds else base_specs
-
-    weight_chromo = np.empty(len(weight_specs), dtype=np.float64)
-    n_clipped = 0
-    for i, s in enumerate(weight_specs):
-        v = float(flat_weights[i])
-        normalized = (v - s.p_min) / (s.p_max - s.p_min)
-        if normalized < 0.0 or normalized > 1.0:
-            n_clipped += 1
-        weight_chromo[i] = np.clip(normalized, 0.0, 1.0)
-
-    clip_rate = n_clipped / max(len(weight_specs), 1)
-    if ws.adaptive_bounds:
-        # Adaptive bounds guarantee 0% clipping by construction; anything > 0 is a bug.
-        assert clip_rate == 0.0, f"adaptive_bounds produced {n_clipped} clipped weights -- internal bug, bounds should always contain trained values"
-    elif clip_rate > 0.05:
-        raise RuntimeError(
-            f"warm-start clip rate {100 * clip_rate:.1f}% ({n_clipped}/{len(weight_specs)}) exceeds 5% threshold. "
-            "Set [warm_start] adaptive_bounds = true (default), or widen bound_multiplier, reduce n_epochs, or lower lr."
-        )
-    elif n_clipped > 0:
-        print(f"  [warm_start] {n_clipped}/{len(weight_specs)} weights clipped ({100 * clip_rate:.2f}%).")
-
-    chromo = weight_chromo
-    if network.scaffolding != "off":
-        from aerocapture.training.param_spaces import active_scaffolding_specs
-
-        pack = active_scaffolding_specs(network.scaffolding)
-        if network.scaffolding == "full":
-            with open(scaffolding_source_path) as f:
-                scaff_params = json.load(f)
-        else:  # live: seed the 3-param tail from defaults, no FTC source needed.
-            scaff_params = {s.name: s.default for s in pack}
-        scaff_chromo = encode_to_normalized(scaff_params, list(pack))
-        chromo = np.concatenate([weight_chromo, scaff_chromo])
-
-    np.save(save_dir / "warm_start_chromosome.npy", chromo)
-    (save_dir / "warm_start_cache_key.json").write_text(json.dumps(cache_key, indent=2))
-    # Persist the bounds so resume / cache-hit returns the same specs the
-    # chromosome was encoded under.
-    (save_dir / "warm_start_bounds.json").write_text(
-        json.dumps(
-            [
-                {"name": s.name, "p_min": s.p_min, "p_max": s.p_max, "default": s.default, "log_scale": s.log_scale, "is_integer": s.is_integer}
-                for s in weight_specs
-            ],
-            indent=2,
-        )
-    )
+    # 7. Extract flat weights, derive bounds, normalize, concat scaffolding, persist.
+    chromo, weight_specs = _encode_and_persist(cfg, policy, save_dir, cache_key, scaffolding_source_path)
     return chromo, weight_specs
 
 

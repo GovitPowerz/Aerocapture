@@ -64,5 +64,27 @@ class GruLayer(nn.Module):
             ]
         )
 
+    def from_flat(self, slab: np.ndarray) -> None:
+        """Load a flat slab in-place: weight_ih row-major, weight_hh row-major, bias_ih, bias_hh.
+
+        Inverse of to_flat(); mirrors Rust `LayerWeights for GruLayer::from_flat`.
+        """
+        three_h = 3 * self.hidden_size
+        n_w_ih = three_h * self.input_size
+        n_w_hh = three_h * self.hidden_size
+        c = 0
+
+        def _copy(param: torch.nn.Parameter, src: np.ndarray) -> None:
+            param.copy_(torch.from_numpy(np.ascontiguousarray(src)).to(param.dtype))
+
+        with torch.no_grad():
+            _copy(self.weight_ih, slab[c : c + n_w_ih].reshape(three_h, self.input_size))
+            c += n_w_ih
+            _copy(self.weight_hh, slab[c : c + n_w_hh].reshape(three_h, self.hidden_size))
+            c += n_w_hh
+            _copy(self.bias_ih, slab[c : c + three_h])
+            c += three_h
+            _copy(self.bias_hh, slab[c : c + three_h])
+
     def extra_repr(self) -> str:
         return f"input_size={self.input_size}, hidden_size={self.hidden_size}"

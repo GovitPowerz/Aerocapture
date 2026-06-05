@@ -35,12 +35,13 @@ def test_layer_output_size_window_is_input_times_n_steps() -> None:
 def test_describe_architecture_renders_window_layer() -> None:
     architecture = [
         {"type": "window", "input_size": 16, "n_steps": 8},
-        {"type": "dense", "input_size": 128, "output_size": 32, "activation": "swish"},
+        {"type": "dense", "input_size": 128, "output_size": 2, "activation": "swish"},
     ]
     # NetworkConfig's n_base_coef / n_input / n_output are properties; pass
     # architecture in a v2 context where layer_sizes/activations are ignored.
+    # Last layer emits 2 outputs so the default (atan2_signed) head is valid.
     net = NetworkConfig(
-        layer_sizes=[16, 32],  # kept non-empty for dataclass __post_init__ path
+        layer_sizes=[16, 2],  # kept non-empty for dataclass __post_init__ path
         activations=["tanh"],
         input_mask=None,
         architecture=architecture,

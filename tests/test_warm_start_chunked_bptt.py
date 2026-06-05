@@ -272,3 +272,19 @@ def test_bptt_length_greater_than_n_seq_raises_for_transformer() -> None:
             n_epochs=1,
             adam=AdamConfig(lr=1e-2),
         )
+
+
+def test_atan2_signed_requires_two_outputs() -> None:
+    """atan2_signed needs a 2-output (sin,cos) head. A 1-output last layer must
+    raise a clear error, not silently broadcast (warm_start.py:415 bug). The
+    load-time guard in NetworkConfig.__post_init__ now rejects this at
+    construction (defense-in-depth, before warm_start/the Rust runtime see it)."""
+    with pytest.raises(ValueError, match="atan2_signed.*output_size"):
+        NetworkConfig(
+            architecture=[
+                {"type": "dense", "input_size": 4, "output_size": 4, "activation": "tanh"},
+                {"type": "dense", "input_size": 4, "output_size": 1, "activation": "tanh"},
+            ],
+            input_mask=[0, 1, 2, 3],
+            output_parameterization="atan2_signed",
+        )

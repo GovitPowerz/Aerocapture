@@ -271,11 +271,13 @@ def _evaluate_draws(
     overrides: dict[str, Any] | None = None,
     sim_timeout_secs: float | None = None,
 ) -> npt.NDArray[np.float64]:
-    """Run simulations for the given draw matrix, return DV total (column 41) for each."""
+    """Run simulations for the given draw matrix, return DV total for each."""
     import aerocapture_rs  # type: ignore[import-not-found, import-untyped]
 
+    from aerocapture.training.parquet_output import DV_TOTAL_RAW_INDEX
+
     result = aerocapture_rs.run_with_draws(toml_path, draws, overrides=overrides, sim_timeout_secs=sim_timeout_secs)
-    return result.final_records[:, 41].copy()  # type: ignore[no-any-return]
+    return result.final_records[:, DV_TOTAL_RAW_INDEX].copy()  # type: ignore[no-any-return]
 
 
 def run_morris(

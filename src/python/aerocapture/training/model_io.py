@@ -8,20 +8,55 @@ loader in data/neural.rs; this module is the Python equivalent.
 from __future__ import annotations
 
 import json
+from typing import Protocol, runtime_checkable
 
+import numpy as np
 import torch
 
-from aerocapture.training.rl.layers import DenseLayer, GruLayer, LstmLayer
 from aerocapture.training.rl.policy import V2Policy
 from aerocapture.training.rl.schemas import (
     ArchitectureV2,
     DenseSpec,
     GruSpec,
+    LayerWeights,
     LstmSpec,
     MambaSpec,
     TransformerSpec,
     WindowSpec,
 )
+
+
+@runtime_checkable
+class _HasFromFlat(Protocol):
+    def from_flat(self, slab: np.ndarray) -> None: ...
+
+
+def _slab_from_json_weights(layer_spec: DenseSpec | GruSpec | LstmSpec, lw: LayerWeights | None) -> np.ndarray:
+    """Reconstruct the canonical flat numpy slab from a JSON layer_weights entry.
+
+    Each layer type's flat order mirrors to_flat() / Rust LayerWeights::to_flat.
+    JSON stores Python lists (f64). Returns a 1-D float64 ndarray that can be
+    passed directly to module.from_flat().
+
+    Callers: load_policy_from_json only, which already guards against Window /
+    Transformer / Mamba specs at line 75, so those types never reach here.
+    """
+
+    def arr(x: object) -> np.ndarray:
+        return np.array(x, dtype=np.float64).ravel()
+
+    if isinstance(layer_spec, DenseSpec):
+        if lw is None or lw.w is None or lw.b is None:
+            raise ValueError("Dense layer missing w/b")
+        return np.concatenate([arr(lw.w), arr(lw.b)])
+
+    # GruSpec | LstmSpec
+    extra = (lw.model_extra if lw is not None else None) or {}
+    required = ("weight_ih", "weight_hh", "bias_ih", "bias_hh")
+    missing = [k for k in required if k not in extra]
+    if missing:
+        raise ValueError(f"{type(layer_spec).__name__} layer missing {missing}")
+    return np.concatenate([arr(extra["weight_ih"]), arr(extra["weight_hh"]), arr(extra["bias_ih"]), arr(extra["bias_hh"])])
 
 
 def load_policy_from_json(path: str, device: str | torch.device = "cpu") -> V2Policy:
@@ -51,57 +86,11 @@ def load_policy_from_json(path: str, device: str | torch.device = "cpu") -> V2Po
 
     for i, layer_spec in enumerate(arch.architecture):
         key = f"layer_{i}"
-        lw = arch.weights[key]
-        if isinstance(layer_spec, DenseSpec):
-            if lw.w is None or lw.b is None:
-                raise ValueError(f"Dense layer {key} missing w/b in {path}")
-            # JSON stores Python floats (f64). Load at f64 and let `.copy_`
-            # cast to the destination policy's dtype -- preserves precision
-            # for f64 policies, safely downcasts for f32 policies.
-            w = torch.tensor(lw.w, dtype=torch.float64, device=device)
-            b = torch.tensor(lw.b, dtype=torch.float64, device=device)
-            layer = policy.layers[i]
-            assert isinstance(layer, DenseLayer)
-            with torch.no_grad():
-                layer.linear.weight.copy_(w)
-                layer.linear.bias.copy_(b)
-        elif isinstance(layer_spec, GruSpec):
-            # Gru weights land in LayerWeights.model_extra (extra="allow").
-            extra = lw.model_extra or {}
-            required = ("weight_ih", "weight_hh", "bias_ih", "bias_hh")
-            missing = [k for k in required if k not in extra]
-            if missing:
-                raise ValueError(f"Gru layer {key} missing {missing} in {path}")
-            w_ih = torch.tensor(extra["weight_ih"], dtype=torch.float64, device=device)
-            w_hh = torch.tensor(extra["weight_hh"], dtype=torch.float64, device=device)
-            b_ih = torch.tensor(extra["bias_ih"], dtype=torch.float64, device=device)
-            b_hh = torch.tensor(extra["bias_hh"], dtype=torch.float64, device=device)
-            layer = policy.layers[i]
-            assert isinstance(layer, GruLayer)
-            with torch.no_grad():
-                layer.weight_ih.copy_(w_ih)
-                layer.weight_hh.copy_(w_hh)
-                layer.bias_ih.copy_(b_ih)
-                layer.bias_hh.copy_(b_hh)
-        elif isinstance(layer_spec, LstmSpec):
-            # Lstm weights land in LayerWeights.model_extra (extra="allow").
-            extra = lw.model_extra or {}
-            required = ("weight_ih", "weight_hh", "bias_ih", "bias_hh")
-            missing = [k for k in required if k not in extra]
-            if missing:
-                raise ValueError(f"Lstm layer {key} missing {missing} in {path}")
-            w_ih = torch.tensor(extra["weight_ih"], dtype=torch.float64, device=device)
-            w_hh = torch.tensor(extra["weight_hh"], dtype=torch.float64, device=device)
-            b_ih = torch.tensor(extra["bias_ih"], dtype=torch.float64, device=device)
-            b_hh = torch.tensor(extra["bias_hh"], dtype=torch.float64, device=device)
-            layer = policy.layers[i]
-            assert isinstance(layer, LstmLayer)
-            with torch.no_grad():
-                layer.weight_ih.copy_(w_ih)
-                layer.weight_hh.copy_(w_hh)
-                layer.bias_ih.copy_(b_ih)
-                layer.bias_hh.copy_(b_hh)
-        else:
-            raise ValueError(f"Unknown layer spec type: {type(layer_spec).__name__}")
+        lw = arch.weights.get(key)  # Window has no weights entry
+        assert isinstance(layer_spec, (DenseSpec, GruSpec, LstmSpec)), f"unexpected layer type {type(layer_spec).__name__} past guard"
+        slab = _slab_from_json_weights(layer_spec, lw)
+        layer = policy.layers[i]
+        assert isinstance(layer, _HasFromFlat), f"layer {i} has no from_flat method"
+        layer.from_flat(slab)
 
     return policy

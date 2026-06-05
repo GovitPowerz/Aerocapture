@@ -1,7 +1,8 @@
 //! Parallel batch runner.
 //!
 //! Parses the base TOML once (resolving `base` inheritance), then applies
-//! per-run overrides in parallel using a scoped Rayon thread pool.
+//! per-run overrides in parallel via Rayon (a scoped thread pool when
+//! `n_threads` is provided, otherwise the global pool).
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -40,11 +41,12 @@ pub enum BatchError {
 /// the GA training loop). Use `run_mc` for multi-sim Monte Carlo per config.
 /// Passing `n_sims > 1` in the base config or an override returns an error.
 ///
-/// Uses a scoped Rayon thread pool with `n_threads` threads.
+/// When `n_threads` is `Some(n)`, runs inside a scoped Rayon thread pool with
+/// `n` threads; when `None`, reuses the global Rayon pool (no per-call build).
 pub fn run_batch(
     toml_path: &Path,
     overrides_list: Vec<Vec<(String, OverrideValue)>>,
-    n_threads: usize,
+    n_threads: Option<usize>,
     include_trajectories: bool,
     wall_timeout: Option<Duration>,
 ) -> Result<Vec<RunOutput>, BatchError> {
@@ -61,12 +63,7 @@ pub fn run_batch(
     let base_value = aerocapture::config::resolve_toml_bases(base_value, toml_path, &mut visited)
         .map_err(|e| BatchError::Runtime(format!("Base resolution error: {}", e)))?;
 
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(n_threads)
-        .build()
-        .map_err(|e| BatchError::Runtime(format!("Failed to create thread pool: {}", e)))?;
-
-    pool.install(|| {
+    let run = || -> Result<Vec<RunOutput>, BatchError> {
         use rayon::prelude::*;
 
         let results: Vec<Result<RunOutput, BatchError>> = overrides_list
@@ -110,7 +107,18 @@ pub fn run_batch(
 
         // Collect results, returning the first error encountered.
         results.into_iter().collect()
-    })
+    };
+
+    match n_threads {
+        Some(n) => {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(n)
+                .build()
+                .map_err(|e| BatchError::Runtime(format!("Failed to create thread pool: {}", e)))?;
+            pool.install(run)
+        }
+        None => run(), // reuse the global Rayon pool (no per-call build)
+    }
 }
 
 /// Run simulations with pre-computed dispersion draws supplied by the caller.

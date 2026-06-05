@@ -41,6 +41,11 @@ class TestParsePhoto:
         df = parse_photo(empty)
         assert df.empty
 
+    def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
+        """Missing file returns empty DataFrame without raising FileNotFoundError."""
+        df = parse_photo(tmp_path / "nonexistent_photo.csv")
+        assert df.empty
+
 
 class TestParseFinal:
     """Tests for parse_final auto-detection and column naming."""
@@ -65,6 +70,11 @@ class TestParseFinal:
         empty = tmp_path / "final.empty"
         empty.write_text("")
         df = parse_final(empty)
+        assert df.empty
+
+    def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
+        """Missing file returns empty DataFrame without raising FileNotFoundError."""
+        df = parse_final(tmp_path / "nonexistent_final.csv")
         assert df.empty
 
 

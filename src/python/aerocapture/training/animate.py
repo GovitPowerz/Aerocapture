@@ -14,12 +14,16 @@ import numpy.typing as npt
 from matplotlib.figure import Figure
 
 from aerocapture.training.charts import (
+    _TC_BANK,
+    _TC_ENERGY,
+    _TC_INCL,
+    _TC_PDYN,
     COLOR_CAPTURE,
     COLOR_CONSTRAINED,
     COLOR_HYPERBOLIC,
-    COLOR_WORST,
     TRAJ_FAILED,
-    _draw_spaghetti,
+    _corridor_panel,
+    apply_theme,
     classify_trajectories,
 )
 
@@ -35,12 +39,20 @@ def _discover_checkpoints(training_dir: Path, every: int) -> list[dict]:
         List of dicts with keys: generation, best_cost, cost_history,
         json_path, npz_path, costs (population costs array).
     """
-    pattern = re.compile(r"checkpoint_r\d+_g(\d+)\.json$")
+    # Current trainer naming: checkpoint_g{NNNNN}.json (train.py save_checkpoint).
+    pattern = re.compile(r"checkpoint_g(\d+)\.json$")
     found: list[tuple[int, Path]] = []
-    for p in training_dir.glob("checkpoint_r*_g*.json"):
+    for p in training_dir.glob("checkpoint_g*.json"):
         m = pattern.search(p.name)
         if m:
             found.append((int(m.group(1)), p))
+    # Legacy fallback: checkpoint_r{R}_g{NNNNN}.json (matches train.py load_checkpoint).
+    if not found:
+        legacy = re.compile(r"checkpoint_r\d+_g(\d+)\.json$")
+        for p in training_dir.glob("checkpoint_r*_g*.json"):
+            m = legacy.search(p.name)
+            if m:
+                found.append((int(m.group(1)), p))
 
     found.sort(key=lambda x: x[0])
     if not found:
@@ -119,10 +131,10 @@ def _compute_axis_ranges(
 
     Adds a relative margin to each dimension so frames don't clip data.
     """
-    all_energy = np.concatenate([t[:, 8] for t in trajectories])
-    all_pdyn = np.concatenate([t[:, 9] for t in trajectories])
-    all_bank = np.concatenate([t[:, 10] for t in trajectories])
-    all_incl = np.concatenate([t[:, 11] for t in trajectories])
+    all_energy = np.concatenate([t[:, _TC_ENERGY] for t in trajectories])
+    all_pdyn = np.concatenate([t[:, _TC_PDYN] for t in trajectories])
+    all_bank = np.concatenate([t[:, _TC_BANK] for t in trajectories])
+    all_incl = np.concatenate([t[:, _TC_INCL] for t in trajectories])
 
     def _padded(arr: npt.NDArray[np.float64]) -> tuple[float, float]:
         lo, hi = float(np.nanmin(arr)), float(np.nanmax(arr))
@@ -155,26 +167,18 @@ def _render_corridor_panel(
     axis_ranges: dict[str, float],
 ) -> None:
     """Render the corridor (energy vs dynamic pressure) panel."""
-    # Draw corridor zone fills if available
-    if corridor_data is not None:
-        e_bins = corridor_data["energy_bins"]
-        crash_pdyn = corridor_data["envelope_crash_pdyn"]
-        restricted_max = corridor_data["envelope_restricted_max_pdyn"]
-        restricted_min = corridor_data["envelope_restricted_min_pdyn"]
-        capture_pdyn = corridor_data["envelope_capture_pdyn"]
-
-        ax.fill_between(e_bins, restricted_max, crash_pdyn, color=COLOR_WORST, alpha=0.15)
-        ax.fill_between(e_bins, restricted_max, restricted_min, color="white", alpha=0.6)
-        ax.fill_between(e_bins, restricted_min, capture_pdyn, color="#cccccc", alpha=0.3)
-        ax.fill_between(e_bins, capture_pdyn, 0, color=COLOR_WORST, alpha=0.15)
-
-    # col 8 = energy, col 9 = pdyn
-    _draw_spaghetti(ax, trajectories, traj_class, x_col=8, y_col=9)
+    _corridor_panel(
+        trajectories,
+        traj_class,
+        output=None,
+        y_col=_TC_PDYN,
+        y_label="Dynamic pressure (kPa)",
+        title="Corridor",
+        corridor_data=corridor_data,
+        ax=ax,
+    )
     ax.set_xlim(axis_ranges["energy_min"], axis_ranges["energy_max"])
     ax.set_ylim(axis_ranges["pdyn_min"], axis_ranges["pdyn_max"])
-    ax.set_xlabel("Energy (MJ/kg)")
-    ax.set_ylabel("Dynamic pressure (kPa)")
-    ax.set_title("Corridor")
 
 
 def _render_inclination_panel(
@@ -184,12 +188,17 @@ def _render_inclination_panel(
     axis_ranges: dict[str, float],
 ) -> None:
     """Render the inclination (energy vs inclination) panel."""
-    _draw_spaghetti(ax, trajectories, traj_class, x_col=8, y_col=11)
+    _corridor_panel(
+        trajectories,
+        traj_class,
+        output=None,
+        y_col=_TC_INCL,
+        y_label="Inclination (deg)",
+        title="Inclination",
+        ax=ax,
+    )
     ax.set_xlim(axis_ranges["energy_min"], axis_ranges["energy_max"])
     ax.set_ylim(axis_ranges["incl_min"], axis_ranges["incl_max"])
-    ax.set_xlabel("Energy (MJ/kg)")
-    ax.set_ylabel("Inclination (deg)")
-    ax.set_title("Inclination")
 
 
 def _render_bank_panel(
@@ -199,12 +208,17 @@ def _render_bank_panel(
     axis_ranges: dict[str, float],
 ) -> None:
     """Render the bank angle (energy vs bank) panel."""
-    _draw_spaghetti(ax, trajectories, traj_class, x_col=8, y_col=10)
+    _corridor_panel(
+        trajectories,
+        traj_class,
+        output=None,
+        y_col=_TC_BANK,
+        y_label="Bank angle (deg)",
+        title="Bank angle",
+        ax=ax,
+    )
     ax.set_xlim(axis_ranges["energy_min"], axis_ranges["energy_max"])
     ax.set_ylim(axis_ranges["bank_min"], axis_ranges["bank_max"])
-    ax.set_xlabel("Energy (MJ/kg)")
-    ax.set_ylabel("Bank angle (deg)")
-    ax.set_title("Bank angle")
 
 
 def _render_cost_panel(
@@ -405,9 +419,7 @@ def generate_animation(
         progress_ctx = None  # type: ignore[assignment]
 
     matplotlib.use("Agg")
-    import seaborn as sns
-
-    sns.set_theme(style="whitegrid", palette="muted", font_scale=0.9, rc={"axes.facecolor": "#f5f5f5"})
+    apply_theme()
 
     from matplotlib.animation import PillowWriter
 

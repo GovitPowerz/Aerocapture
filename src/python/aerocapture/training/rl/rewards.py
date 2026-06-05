@@ -10,7 +10,7 @@ The raw (non-shaped) signal is the terminal cost applied once at episode end.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import numpy.typing as npt
@@ -43,6 +43,7 @@ class StepRewardCalculator:
     apoapsis_weight: float = 0.2
     eccentricity_weight: float = 0.1
     energy_scale: float = 1.0e6
+    cost_kwargs: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self._rev: dict[int, int] = {v: i for i, v in enumerate(self.input_mask)}
@@ -93,6 +94,6 @@ class StepRewardCalculator:
         return self.gamma * phi_next - phi_cur
 
 
-def compute_terminal_cost(final_record: npt.NDArray[np.float64]) -> float:
+def compute_terminal_cost(final_record: npt.NDArray[np.float64], cost_kwargs: dict | None = None) -> float:
     """Per-episode cost matching evaluate.compute_cost on a single record."""
-    return compute_cost(final_record.reshape(1, -1))
+    return float(compute_cost(final_record.reshape(1, -1), **(cost_kwargs or {})))

@@ -7,14 +7,25 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import tempfile
+from dataclasses import dataclass
+from enum import Enum
 from io import TextIOWrapper
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.config import NetworkConfig, TrainingConfig
+from aerocapture.training.parquet_output import (
+    DV_TOTAL_RAW_INDEX,
+    FINAL_RECORD_LEN,
+    G_LOAD_RAW_INDEX,
+    HEAT_FLUX_RAW_INDEX,
+    HEAT_LOAD_RAW_INDEX,
+)
 
 try:
     import aerocapture_rs as _aero_rs  # type: ignore[import-not-found, import-untyped]
@@ -30,6 +41,8 @@ VALIDATION_SEED_OFFSET = 1_000_000
 FINAL_EVAL_SEED_OFFSET = 2_000_000
 RL_TRAINING_SEED_OFFSET = 3_000_000
 WARM_START_SEED_OFFSET = 4_000_000
+NN_INPUT_REPORT_SEED_OFFSET = 5_000_000
+CALIBRATION_SEED_OFFSET = 6_000_000
 
 
 def make_reserved_seeds(base_mc_seed: int, offset: int, n: int) -> list[int]:
@@ -40,6 +53,111 @@ def make_reserved_seeds(base_mc_seed: int, offset: int, n: int) -> list[int]:
     """
     seeds: list[int] = np.random.default_rng(base_mc_seed + offset).integers(0, 2**31, size=n).tolist()
     return seeds
+
+
+class GateStatus(Enum):
+    """Outcome of the guarded validation-gate selection."""
+
+    SKIP_ALL_INF = "skip_all_inf"  # no finite training cost -> do not select/promote
+    SKIP_UNCHANGED = "skip_unchanged"  # argmin identical to last validated -> no re-validate
+    VALIDATED = "validated"  # ran validation MC; `promoted` says whether to swap best
+
+
+@dataclass
+class GateResult:
+    """Result of `run_validation_gate`. Callers apply their own state updates
+    (stagnation counters, result-dict shaping, no-validation fallback)."""
+
+    status: GateStatus
+    argmin_cost: float
+    individual: npt.NDArray[np.float64] | None = None
+    val_costs: npt.NDArray[np.float64] | None = None
+    val_records: npt.NDArray[np.float64] | None = None
+    val_rms: float | None = None
+    promoted: bool = False
+
+
+class _SupportsPerSeedEval(Protocol):
+    def evaluate_individual_records_per_seed(
+        self,
+        x: npt.NDArray[np.float64],
+        seeds: list[int],
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
+
+
+def run_validation_gate(
+    X: npt.NDArray[np.float64],
+    F: npt.NDArray[np.float64],
+    last_validated: npt.NDArray[np.float64] | None,
+    best_val_cost: float,
+    problem: _SupportsPerSeedEval,
+    val_seeds: list[int],
+) -> GateResult:
+    """Guarded gen-best selection + identity-trigger validation, shared by the
+    single-algorithm loop and the islands trainer.
+
+    Decides three things and nothing else:
+      1. SKIP_ALL_INF when every training cost is non-finite (the guard -- a bare
+         `np.argmin` on an all-inf array returns 0, which would promote whatever
+         junk chromosome sits at pop[0]).
+      2. SKIP_UNCHANGED when the guarded argmin matches `last_validated` (no point
+         re-running the same individual through the validation MC).
+      3. VALIDATED otherwise: runs the validation MC and reports `val_rms` plus
+         whether it beats `best_val_cost` (the promotion boolean).
+
+    Selection uses `nanargmin(where(isfinite, f, inf))`, which also skips NaN-cost
+    rows: in a mixed finite+NaN population the finite minimum is selected, not the
+    NaN-indexed individual that bare `np.argmin` would have returned.  This matches
+    the islands trainer's already-NaN-safe selection and closes a latent single-algo
+    bug where a Rust sim leaking a NaN state (e.g. no sim_timeout_secs) could
+    otherwise cause a NaN-cost individual to be validated and promoted.
+
+    It does NOT manage stagnation counters, build result/summary dicts, or run the
+    no-validation fallback -- those stay caller-side so each caller's observable
+    behavior (result-dict shape, logging payload) is unchanged.
+    """
+    f = np.asarray(F).reshape(-1)
+    if not np.any(np.isfinite(f)):
+        return GateResult(status=GateStatus.SKIP_ALL_INF, argmin_cost=float("inf"))
+
+    idx = int(np.nanargmin(np.where(np.isfinite(f), f, np.inf)))
+    individual = X[idx].copy()
+    argmin_cost = float(f[idx])
+
+    if last_validated is not None and np.array_equal(individual, last_validated):
+        return GateResult(status=GateStatus.SKIP_UNCHANGED, argmin_cost=argmin_cost, individual=individual)
+
+    val_costs, val_records = problem.evaluate_individual_records_per_seed(individual, val_seeds)
+    val_rms = float(np.sqrt(np.mean(val_costs**2)))
+    return GateResult(
+        status=GateStatus.VALIDATED,
+        argmin_cost=argmin_cost,
+        individual=individual,
+        val_costs=val_costs,
+        val_records=val_records,
+        val_rms=val_rms,
+        promoted=val_rms < best_val_cost,
+    )
+
+
+def build_v2_architecture(network: NetworkConfig) -> list[dict[str, object]]:
+    """The v2 LayerSpec list for a NetworkConfig: the explicit architecture when
+    present, else a dense chain synthesized from layer_sizes/activations. Single
+    source of truth for the architecture JSON used by write_nn_json and run_grid.
+    """
+    if network.architecture is not None:
+        return [dict(entry) for entry in network.architecture]
+    arch: list[dict[str, object]] = []
+    for i in range(len(network.layer_sizes) - 1):
+        arch.append(
+            {
+                "type": "dense",
+                "input_size": network.layer_sizes[i],
+                "output_size": network.layer_sizes[i + 1],
+                "activation": network.activations[i],
+            }
+        )
+    return arch
 
 
 def write_nn_json(
@@ -72,19 +190,7 @@ def write_nn_json(
     filepath = Path(filepath)
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
-    if network.architecture is not None:
-        arch: list[dict[str, object]] = [dict(entry) for entry in network.architecture]
-    else:
-        arch = []
-        for i in range(len(network.layer_sizes) - 1):
-            arch.append(
-                {
-                    "type": "dense",
-                    "input_size": network.layer_sizes[i],
-                    "output_size": network.layer_sizes[i + 1],
-                    "activation": network.activations[i],
-                }
-            )
+    arch = build_v2_architecture(network)
     _aero_rs.flat_weights_to_json(
         flat=weights.astype(np.float64).tolist(),
         architecture_json=json.dumps(arch),
@@ -154,7 +260,7 @@ def _run_via_pyo3(
     toml_path = str((cwd / config.sim.toml_config).resolve())
     try:
         result = _aero_rs.run(toml_path=toml_path, overrides=overrides, sim_timeout_secs=config.sim.sim_timeout_secs)
-        arr: npt.NDArray[np.float64] = result.final_record.reshape(1, 52)
+        arr: npt.NDArray[np.float64] = result.final_record.reshape(1, FINAL_RECORD_LEN)
         return arr
     except Exception:
         import traceback
@@ -195,7 +301,8 @@ def _run_via_subprocess(config: TrainingConfig, cwd: str | Path | None = None) -
 
     try:
         return _parse_final_to_legacy_array(final_file)
-    except Exception:
+    except Exception as e:
+        print(f"Warning: could not parse final file {final_file} ({type(e).__name__}: {e})", file=sys.stderr)
         return None
 
 
@@ -284,15 +391,15 @@ def compute_cost(
     Returns:
         RMS cost value. Lower is better.
     """
-    dv_total = final_conditions[:, 41]
-    g_max = final_conditions[:, 17]
-    q_max = final_conditions[:, 16]
+    dv_total = final_conditions[:, DV_TOTAL_RAW_INDEX]
+    g_max = final_conditions[:, G_LOAD_RAW_INDEX]
+    q_max = final_conditions[:, HEAT_FLUX_RAW_INDEX]
 
     costs = dv_cost(dv_total, threshold=dv_threshold)
 
     g_penalty = g_load_weight * _softplus((g_max - g_load_limit) / g_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
     q_penalty = heat_flux_weight * _softplus((q_max - heat_flux_limit) / heat_flux_limit, _CONSTRAINT_KNEE_SHARPNESS)
-    heat_load = final_conditions[:, 28] * 1e3  # MJ/m2 -> kJ/m2
+    heat_load = final_conditions[:, HEAT_LOAD_RAW_INDEX] * 1e3  # MJ/m2 -> kJ/m2
     hl_penalty = heat_load_weight * _softplus((heat_load - heat_load_limit) / heat_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
     costs = costs + g_penalty + q_penalty + hl_penalty
 

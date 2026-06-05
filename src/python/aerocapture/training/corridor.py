@@ -18,6 +18,8 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
+from aerocapture.training.charts import bin_indices
+
 # Trajectory column indices (12-column format)
 _TRAJ_COL_ENERGY = 8
 _TRAJ_COL_PDYN = 9
@@ -72,7 +74,7 @@ def classify_trajectories(
 
     # Step 3: atmosphere exit (ifinal == 3)
     atm_exit = ifinal == 3.0
-    captured = atm_exit & (ecc < 1.0) & (energy < 0.0)
+    captured = atm_exit & (ecc < 1.0) & (energy < 0.0)  # NOTE: stricter than charts.is_captured (adds energy<0) -- intentional.
 
     # Hyperbolic: atmosphere exit but not captured
     hyperbolic = atm_exit & ~captured & ~crash & ~timeout
@@ -158,7 +160,7 @@ class CorridorAccumulator:
                 continue
             e_arr = t[:, _TRAJ_COL_ENERGY]
             p_arr = t[:, _TRAJ_COL_PDYN]
-            bin_idx = np.clip(np.digitize(e_arr, self._bin_edges) - 1, 0, self.n_bins - 1)
+            bin_idx = bin_indices(e_arr, self._bin_edges)
             for b in range(self.n_bins):
                 m = bin_idx == b
                 if not m.any():

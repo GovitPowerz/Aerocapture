@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import numpy.typing as npt  # noqa: E402
 
+from aerocapture.training.charts import bin_indices
+
 COLOR_BLUE = "#1f77b4"
 COLOR_RED = "#d62728"
 BLUE_LOW_DV = 0
@@ -35,7 +37,7 @@ def binned_band(
         empty = np.empty(0)
         return empty, empty, empty
     edges = np.linspace(x.min(), x.max(), n_bins + 1)
-    idx = np.clip(np.digitize(x, edges) - 1, 0, n_bins - 1)
+    idx = bin_indices(x, edges)
     centers: list[float] = []
     lo: list[float] = []
     hi: list[float] = []

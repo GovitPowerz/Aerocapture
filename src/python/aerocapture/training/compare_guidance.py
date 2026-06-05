@@ -24,7 +24,9 @@ from typing import Any
 
 import numpy as np
 
+from aerocapture.training import charts
 from aerocapture.training.evaluate import compute_cost
+from aerocapture.training.param_spaces import route_scaffolding_param
 
 SCHEMES = [
     "equilibrium_glide",
@@ -92,6 +94,19 @@ _NN_DEPLOY_SCHEMES = {
 }
 
 
+def _apply_optimized_params_to_toml(toml_data: dict, params: dict, scheme: str) -> None:
+    """Apply best_params.json overrides into the nested TOML tree (in place), routing each key."""
+    for key, value in params.items():
+        dot_path, value = route_scaffolding_param(key, value, scheme)
+        parts = dot_path.split(".")
+        node = toml_data
+        for p in parts[:-1]:
+            node = node.setdefault(p, {})
+        node[parts[-1]] = value
+        if key.startswith("shaping."):
+            toml_data["guidance"]["command_shaping"].setdefault("enabled", True)
+
+
 def run_scheme(
     scheme: str,
     n_sims: int,
@@ -152,21 +167,7 @@ def run_scheme(
         if scaff_path and scaff_path.exists():
             with open(scaff_path) as f:
                 scaff_params = json.load(f)
-            for key, value in scaff_params.items():
-                if key.startswith("lateral."):
-                    bare = key.removeprefix("lateral.")
-                    if bare == "max_reversals":
-                        value = int(round(value))
-                    toml_data["guidance"].setdefault("lateral", {})[bare] = value
-                elif key.startswith("exit."):
-                    toml_data["guidance"].setdefault("ftc", {})[key.removeprefix("exit.")] = value
-                elif key.startswith("nav."):
-                    toml_data.setdefault("navigation", {})[key.removeprefix("nav.")] = value
-                elif key.startswith("thermal."):
-                    toml_data["guidance"].setdefault("thermal_limiter", {})[key.removeprefix("thermal.")] = value
-                elif key.startswith("shaping."):
-                    toml_data["guidance"].setdefault("command_shaping", {})[key.removeprefix("shaping.")] = value
-                    toml_data["guidance"]["command_shaping"].setdefault("enabled", True)
+            _apply_optimized_params_to_toml(toml_data, scaff_params, scheme)
             print(f"  Using optimized NN scaffolding from {scaff_path}")
     else:
         toml_data.get("data", {}).pop("neural_network", None)
@@ -177,27 +178,8 @@ def run_scheme(
         if params_file.exists():
             with open(params_file) as f:
                 params = json.load(f)
-            from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
-
-            section = GUIDANCE_TOML_SECTIONS[scheme]
-            # Route prefixed params to correct TOML sections (same logic as evaluate.py)
-            for k, v in params.items():
-                if k.startswith("lateral."):
-                    bare = k.removeprefix("lateral.")
-                    if bare == "max_reversals":
-                        v = int(round(v))
-                    toml_data["guidance"].setdefault("lateral", {})[bare] = v
-                elif k.startswith("exit."):
-                    toml_data["guidance"].setdefault("ftc", {})[k.removeprefix("exit.")] = v
-                elif k.startswith("nav."):
-                    toml_data.setdefault("navigation", {})[k.removeprefix("nav.")] = v
-                elif k.startswith("thermal."):
-                    toml_data["guidance"].setdefault("thermal_limiter", {})[k.removeprefix("thermal.")] = v
-                elif k.startswith("shaping."):
-                    toml_data["guidance"].setdefault("command_shaping", {})[k.removeprefix("shaping.")] = v
-                    toml_data["guidance"]["command_shaping"].setdefault("enabled", True)
-                else:
-                    toml_data["guidance"].setdefault(section, {})[k] = v
+            # Route prefixed params to correct TOML sections
+            _apply_optimized_params_to_toml(toml_data, params, scheme)
             print(f"  Using optimized params from {params_file}")
         else:
             print(f"  Using default params (no {params_file})")
@@ -248,9 +230,7 @@ def run_scheme(
     final = _parse_final_to_legacy_array(final_file)
     if final is None or len(final) == 0:
         return None
-    ecc = final[:, 9]
-    ifinal = final[:, 31]
-    captured = (ifinal == 3) & (ecc < 1.0)
+    captured = charts.is_captured(final)
 
     metrics: dict = {
         "n_sims": len(final),

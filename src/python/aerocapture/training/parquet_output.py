@@ -12,10 +12,16 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from aerocapture.training.sensitivity import DISPERSION_COLUMNS
 
-# Index of dv_total_m_s in the raw 52-element RunOutput.final_record array
-# (BatchResults.final_records exposes this raw layout, NOT the trimmed CSV layout).
-# Verified against src/rust/src/simulation/runner.rs:833.
-DV_TOTAL_RAW_INDEX: int = 41
+# Indices into the raw 52-element RunOutput.final_record array.
+# (BatchResults.final_records exposes this raw layout, NOT the trimmed CSV layout.)
+# Machine-asserted against aerocapture_rs.final_record_indices() in tests/test_record_index_drift.py.
+DV_TOTAL_RAW_INDEX: int = 41  # FR_DV_TOTAL_MS
+HEAT_FLUX_RAW_INDEX: int = 16  # FR_HEAT_FLUX_KW_M2
+G_LOAD_RAW_INDEX: int = 17  # FR_G_LOAD
+HEAT_LOAD_RAW_INDEX: int = 28  # FR_HEAT_LOAD_MJM2  (stored as MJ/m², multiply by 1e3 for kJ/m²)
+
+# Width of the final-record array (matches FINAL_RECORD_LEN in final_record.rs).
+FINAL_RECORD_LEN: int = 52
 
 # Indices into the 52-element final_record array, matching extract_final_csv_values() in runner.rs
 # fmt: skip

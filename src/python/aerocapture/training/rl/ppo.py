@@ -126,13 +126,21 @@ def ppo_update_bptt(
     max_grad_norm: float,
     target_kl: float | None = None,
     obs_norm: ObsNormalizer | None = None,
+    rng: np.random.Generator | None = None,
 ) -> dict[str, float]:
     """Chunked truncated-BPTT PPO update.
 
     Splits each env's rollout into rollout_steps // bptt_length chunks.
     Minibatches partition the env axis; within each minibatch, the time axis
     stays intact and gradients flow through `bptt_length` timesteps per chunk.
+
+    `rng` seeds the per-epoch env/chunk shuffles. Pass a persistent
+    np.random.Generator from the training loop for reproducible (and
+    checkpoint-resumable) minibatch ordering; defaults to a fresh unseeded
+    generator so direct callers stay back-compatible.
     """
+    if rng is None:
+        rng = np.random.default_rng()
     n_steps, n_envs = buf.rewards.shape
     assert n_steps % bptt_length == 0, "rollout_steps must be divisible by bptt_length"
     n_chunks = n_steps // bptt_length
@@ -163,9 +171,9 @@ def ppo_update_bptt(
         # under truncated BPTT because each chunk's seed state is detached from the
         # stored snapshot, so chunk order is free to vary.
         env_indices = np.arange(n_envs)
-        np.random.shuffle(env_indices)
+        rng.shuffle(env_indices)
         chunk_indices = np.arange(n_chunks)
-        np.random.shuffle(chunk_indices)
+        rng.shuffle(chunk_indices)
         epoch_kls: list[float] = []
 
         for mb_start in range(0, n_envs, envs_per_minibatch):

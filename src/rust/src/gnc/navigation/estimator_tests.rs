@@ -12,6 +12,7 @@ use crate::data::{
     Constraints, EntryConditions, FinalConditions, OrbitalTarget, ParkingOrbit, SimData,
     SphericalState, SuccessCriteria, TimePeriods,
 };
+use std::sync::Arc;
 
 /// Build a minimal SimData suitable for navigation tests.
 fn test_sim_data() -> SimData {
@@ -34,7 +35,7 @@ fn test_sim_data() -> SimData {
             nominal_finesse: -0.205 / 1.269,
             ballistic_coeff: 0.0,
         },
-        atmosphere: AtmosphereModel {
+        atmosphere: Arc::new(AtmosphereModel {
             n_points: 3,
             altitudes: vec![0.0, 50_000.0, 130_000.0],
             densities: vec![0.02, 0.001, 1e-8],
@@ -43,7 +44,7 @@ fn test_sim_data() -> SimData {
             ref_altitude: 130_000.0,
             gas_constant: 1.3,
             density_profile: DensityProfile::default(),
-        },
+        }),
         atmosphere_onboard: crate::data::atmosphere::OnboardAtmosphereModel::Identical,
         entry: EntryConditions {
             state: SphericalState {

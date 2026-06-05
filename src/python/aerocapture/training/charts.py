@@ -23,7 +23,13 @@ from scipy import stats  # noqa: E402
 # ---------------------------------------------------------------------------
 # Module-level theme
 # ---------------------------------------------------------------------------
-sns.set_theme(style="whitegrid", palette="muted", font_scale=0.9, rc={"axes.facecolor": "#f5f5f5"})
+
+
+def apply_theme() -> None:
+    sns.set_theme(style="whitegrid", palette="muted", font_scale=0.9, rc={"axes.facecolor": "#f5f5f5"})
+
+
+apply_theme()
 
 # ---------------------------------------------------------------------------
 # Color constants
@@ -52,6 +58,25 @@ HALF_WIDTH: tuple[int, int] = (5, 4)
 DPI: int = 150
 
 # ---------------------------------------------------------------------------
+# Trajectory column indices for (N, 17) per-timestep arrays
+# Layout: alt_km(0), lon_deg(1), lat_deg(2), vel_m_s(3), fpa_deg(4),
+#   heading_deg(5), heat_flux_kw_m2(6), time_s(7), energy_mj_kg(8),
+#   pdyn_kpa(9), bank_angle_deg(10), inclination_deg(11), g_load_g(12),
+#   nav_density_ratio(13), truth_density_kg_m3(14), heat_load_kj_m2(15),
+#   density_perturbation(16)
+# ---------------------------------------------------------------------------
+_TC_ALT = 0
+_TC_HEAT_FLUX = 6
+_TC_TIME = 7
+_TC_ENERGY = 8
+_TC_PDYN = 9
+_TC_BANK = 10
+_TC_INCL = 11
+_TC_GLOAD = 12
+_TC_NAV_DENS = 13
+_TC_HEAT_LOAD = 15
+
+# ---------------------------------------------------------------------------
 # DV constants (shared with report.py)
 # ---------------------------------------------------------------------------
 DV_CAP: float = 5000.0
@@ -75,6 +100,13 @@ _FR_DV_TOTAL = 41
 _FR_INTEGRATED_FLUX = 28
 _FR_BANK_CONSUMPTION = 45
 _FR_INCL_ERR = 46
+
+
+def is_captured(final_records: npt.NDArray[np.float64]) -> npt.NDArray[np.bool_]:
+    """Canonical captured definition: exited atmosphere (ifinal==3) on a bound orbit (ecc<1)."""
+    result: npt.NDArray[np.bool_] = (final_records[:, _FR_IFINAL] == 3) & (final_records[:, _FR_ECC] < 1.0)
+    return result
+
 
 # ---------------------------------------------------------------------------
 # Dispersion field labels (26 fields, matches Rust DispersionDraw::to_array() order)
@@ -449,6 +481,19 @@ def _chart_weight_stats_evolution(records: list[dict[str, Any]], output: Path, r
 
 
 # ---------------------------------------------------------------------------
+# Binning helper
+# ---------------------------------------------------------------------------
+def bin_indices(values: npt.NDArray[np.float64], edges: npt.NDArray[np.float64]) -> npt.NDArray[np.intp]:
+    """Map values to 0-based bin indices for ``len(edges)-1`` bins, clamped to range.
+
+    Inverse-edge convention matching np.digitize: bin i covers [edges[i], edges[i+1]).
+    Values outside [edges[0], edges[-1]] clamp to the first/last bin.
+    """
+    n_bins = len(edges) - 1
+    return np.clip(np.digitize(values, edges) - 1, 0, n_bins - 1)  # type: ignore[return-value]
+
+
+# ---------------------------------------------------------------------------
 # Corridor / energy helpers
 # ---------------------------------------------------------------------------
 def _compute_envelope(
@@ -488,11 +533,10 @@ def _compute_envelope(
     min_vals = np.full(n_bins, np.nan)
     max_vals = np.full(n_bins, np.nan)
 
-    bin_indices = np.digitize(energy, edges) - 1
-    bin_indices = np.clip(bin_indices, 0, n_bins - 1)
+    bidx = bin_indices(energy, edges)
 
     for b in range(n_bins):
-        mask = bin_indices == b
+        mask = bidx == b
         if np.any(mask):
             min_vals[b] = float(np.nanmin(values[mask]))
             max_vals[b] = float(np.nanmax(values[mask]))
@@ -515,10 +559,8 @@ def classify_trajectories(
     n = len(final_records)
     classification = np.full(n, TRAJ_FAILED, dtype=np.int8)
 
-    ifinal = final_records[:, _FR_IFINAL]
-    ecc = final_records[:, _FR_ECC]
     # Captured = exited atmosphere (ifinal=3) on a bound orbit (ecc < 1)
-    captured = (ifinal == 3) & (ecc < 1.0)
+    captured = is_captured(final_records)
     classification[captured] = TRAJ_OK
 
     # Downgrade captured trajectories that violate constraints
@@ -569,6 +611,81 @@ def _draw_nominals(
         ax.plot(best_nominal[:, x_col], best_nominal[:, y_col], color=COLOR_NOMINAL_BEST, linewidth=1.5, label="Best MC")
 
 
+def _corridor_panel(
+    trajectories: list[npt.NDArray[np.float64]],
+    traj_class: npt.NDArray[np.int8],
+    output: Path | None,
+    y_col: int,
+    y_label: str,
+    title: str,
+    ref_nominal: npt.NDArray[np.float64] | None = None,
+    undispersed_nominal: npt.NDArray[np.float64] | None = None,
+    best_nominal: npt.NDArray[np.float64] | None = None,
+    corridor_data: dict[str, Any] | None = None,
+    envelope: bool = False,
+    ax: plt.Axes | None = None,  # type: ignore[name-defined]
+) -> None:
+    """Shared builder for energy-domain (corridor) panels.
+
+    Parameters
+    ----------
+    output:
+        SVG output path. When ``ax`` is supplied this is ignored (caller owns the figure).
+    y_col:
+        Column index in the (N, 17) trajectory array for the y-axis.
+    y_label, title:
+        Axis label and chart title.
+    corridor_data:
+        Optional 4-layer corridor zone fills (used by pdyn panel).
+    envelope:
+        When True, draw a captured min/max envelope fill behind the spaghetti.
+    ax:
+        Pre-existing axes to draw into. When None a standalone figure is created and
+        saved to *output*. When provided the caller owns the figure lifecycle.
+    """
+    standalone = ax is None
+    if standalone:
+        fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
+    else:
+        fig = None
+
+    assert ax is not None  # always true after the branch above; quiets mypy
+
+    if corridor_data is not None:
+        e_bins = corridor_data["energy_bins"]
+        crash_pdyn = corridor_data["envelope_crash_pdyn"]
+        restricted_max = corridor_data["envelope_restricted_max_pdyn"]
+        restricted_min = corridor_data["envelope_restricted_min_pdyn"]
+        capture_pdyn = corridor_data["envelope_capture_pdyn"]
+
+        ax.fill_between(e_bins, restricted_max, crash_pdyn, color=COLOR_WORST, alpha=0.15, label="Crash zone")
+        ax.fill_between(e_bins, restricted_max, restricted_min, color="white", alpha=0.6)
+        ax.fill_between(e_bins, restricted_min, capture_pdyn, color="#cccccc", alpha=0.3, label="Transition")
+        ax.fill_between(e_bins, capture_pdyn, 0, color=COLOR_WORST, alpha=0.15, label="Hyperbolic zone")
+
+    if envelope:
+        centers, min_vals, max_vals = _compute_envelope(trajectories, energy_col=_TC_ENERGY, value_col=y_col, traj_class=traj_class)
+        valid = ~np.isnan(min_vals)
+        if np.any(valid):
+            ax.fill_between(centers[valid], min_vals[valid], max_vals[valid], color=COLOR_CAPTURE, alpha=0.15, label="Captured envelope")
+
+    _draw_spaghetti(ax, trajectories, traj_class, x_col=_TC_ENERGY, y_col=y_col)
+    _draw_nominals(ax, x_col=_TC_ENERGY, y_col=y_col, ref_nominal=ref_nominal, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
+
+    ax.set_xlabel("Energy (MJ/kg)")
+    ax.set_ylabel(y_label)
+    ax.set_title(title)
+
+    if standalone:
+        assert fig is not None
+        handles, labels = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(fontsize="small")
+        sns.despine(fig=fig)
+        assert output is not None
+        _save_svg(fig, output)
+
+
 # ---------------------------------------------------------------------------
 # Panel 7: Energy vs pdyn (full width)
 # ---------------------------------------------------------------------------
@@ -582,36 +699,18 @@ def chart_corridor_pdyn(
     best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Panel 7: Energy vs dynamic pressure with optional 4-layer corridor fill."""
-    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-
-    # Draw corridor zones if data is provided
-    if corridor_data is not None:
-        e_bins = corridor_data["energy_bins"]
-        crash_pdyn = corridor_data["envelope_crash_pdyn"]
-        restricted_max = corridor_data["envelope_restricted_max_pdyn"]
-        restricted_min = corridor_data["envelope_restricted_min_pdyn"]
-        capture_pdyn = corridor_data["envelope_capture_pdyn"]
-
-        # Red zone at top (crash)
-        ax.fill_between(e_bins, restricted_max, crash_pdyn, color=COLOR_WORST, alpha=0.15, label="Crash zone")
-        # Grey transition above restricted
-        ax.fill_between(e_bins, restricted_max, restricted_min, color="white", alpha=0.6)
-        # Grey transition below restricted
-        ax.fill_between(e_bins, restricted_min, capture_pdyn, color="#cccccc", alpha=0.3, label="Transition")
-        # Red zone at bottom (hyperbolic)
-        ax.fill_between(e_bins, capture_pdyn, 0, color=COLOR_WORST, alpha=0.15, label="Hyperbolic zone")
-
-    _draw_spaghetti(ax, trajectories, traj_class, x_col=8, y_col=9)
-    _draw_nominals(ax, x_col=8, y_col=9, ref_nominal=ref_nominal, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
-
-    ax.set_xlabel("Energy (MJ/kg)")
-    ax.set_ylabel("Dynamic pressure (kPa)")
-    ax.set_title("Corridor — Dynamic Pressure")
-    handles, labels = ax.get_legend_handles_labels()
-    if handles:
-        ax.legend(fontsize="small")
-    sns.despine(fig=fig)
-    _save_svg(fig, output)
+    _corridor_panel(
+        trajectories,
+        traj_class,
+        output,
+        y_col=_TC_PDYN,
+        y_label="Dynamic pressure (kPa)",
+        title="Corridor — Dynamic Pressure",
+        ref_nominal=ref_nominal,
+        undispersed_nominal=undispersed_nominal,
+        best_nominal=best_nominal,
+        corridor_data=corridor_data,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -626,24 +725,18 @@ def chart_corridor_inclination(
     best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Panel 8: Energy vs inclination with captured envelope fill."""
-    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-
-    centers, min_vals, max_vals = _compute_envelope(trajectories, energy_col=8, value_col=11, traj_class=traj_class)
-    valid = ~np.isnan(min_vals)
-    if np.any(valid):
-        ax.fill_between(centers[valid], min_vals[valid], max_vals[valid], color=COLOR_CAPTURE, alpha=0.15, label="Captured envelope")
-
-    _draw_spaghetti(ax, trajectories, traj_class, x_col=8, y_col=11)
-    _draw_nominals(ax, x_col=8, y_col=11, ref_nominal=ref_nominal, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
-
-    ax.set_xlabel("Energy (MJ/kg)")
-    ax.set_ylabel("Inclination (deg)")
-    ax.set_title("Corridor — Inclination")
-    handles, labels = ax.get_legend_handles_labels()
-    if handles:
-        ax.legend(fontsize="small")
-    sns.despine(fig=fig)
-    _save_svg(fig, output)
+    _corridor_panel(
+        trajectories,
+        traj_class,
+        output,
+        y_col=_TC_INCL,
+        y_label="Inclination (deg)",
+        title="Corridor — Inclination",
+        ref_nominal=ref_nominal,
+        undispersed_nominal=undispersed_nominal,
+        best_nominal=best_nominal,
+        envelope=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -658,24 +751,18 @@ def chart_corridor_bank(
     best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Panel 9: Energy vs bank angle with captured envelope fill."""
-    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-
-    centers, min_vals, max_vals = _compute_envelope(trajectories, energy_col=8, value_col=10, traj_class=traj_class)
-    valid = ~np.isnan(min_vals)
-    if np.any(valid):
-        ax.fill_between(centers[valid], min_vals[valid], max_vals[valid], color=COLOR_CAPTURE, alpha=0.15, label="Captured envelope")
-
-    _draw_spaghetti(ax, trajectories, traj_class, x_col=8, y_col=10)
-    _draw_nominals(ax, x_col=8, y_col=10, ref_nominal=ref_nominal, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
-
-    ax.set_xlabel("Energy (MJ/kg)")
-    ax.set_ylabel("Bank angle (deg)")
-    ax.set_title("Corridor — Bank Angle")
-    handles, labels = ax.get_legend_handles_labels()
-    if handles:
-        ax.legend(fontsize="small")
-    sns.despine(fig=fig)
-    _save_svg(fig, output)
+    _corridor_panel(
+        trajectories,
+        traj_class,
+        output,
+        y_col=_TC_BANK,
+        y_label="Bank angle (deg)",
+        title="Corridor — Bank Angle",
+        ref_nominal=ref_nominal,
+        undispersed_nominal=undispersed_nominal,
+        best_nominal=best_nominal,
+        envelope=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -689,11 +776,61 @@ def _draw_time_nominals(
 ) -> None:
     """Overlay undispersed and best-DV trajectories on a time-domain chart."""
     if undispersed_nominal is not None:
-        ax.plot(undispersed_nominal[:, 7], undispersed_nominal[:, y_col], color=COLOR_NOMINAL_UNDISPERSED, linewidth=1.5, zorder=10, label="Undispersed")
+        ax.plot(undispersed_nominal[:, _TC_TIME], undispersed_nominal[:, y_col], color=COLOR_NOMINAL_UNDISPERSED, linewidth=1.5, zorder=10, label="Undispersed")
     if best_nominal is not None:
-        ax.plot(best_nominal[:, 7], best_nominal[:, y_col], color=COLOR_NOMINAL_BEST, linewidth=1.5, zorder=10, label="Best MC")
+        ax.plot(best_nominal[:, _TC_TIME], best_nominal[:, y_col], color=COLOR_NOMINAL_BEST, linewidth=1.5, zorder=10, label="Best MC")
 
 
+def _time_series_panel(
+    trajectories: list[npt.NDArray[np.float64]],
+    traj_class: npt.NDArray[np.int8],
+    output: Path,
+    y_col: int,
+    y_label: str,
+    title: str,
+    undispersed_nominal: npt.NDArray[np.float64] | None = None,
+    best_nominal: npt.NDArray[np.float64] | None = None,
+    limit_value: float | None = None,
+    limit_label: str | None = None,
+    fixed_hline: float | None = None,
+    fixed_hline_label: str | None = None,
+) -> None:
+    """Shared builder for time-domain MC spaghetti panels (x = time column).
+
+    Parameters
+    ----------
+    y_col:
+        Column index in the (N, 17) trajectory array for the y-axis.
+    y_label, title:
+        Axis label and chart title.
+    limit_value, limit_label:
+        Optional constraint limit horizontal line (red dashed).
+    fixed_hline, fixed_hline_label:
+        Optional fixed reference horizontal line (grey dashed, e.g. density ratio=1).
+    """
+    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
+    _draw_spaghetti(ax, trajectories, traj_class, x_col=_TC_TIME, y_col=y_col)
+    _draw_time_nominals(ax, y_col=y_col, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
+
+    if limit_value is not None:
+        ax.axhline(limit_value, color=COLOR_WORST, linestyle="--", linewidth=1.0, label=limit_label or f"Limit ({limit_value})")
+
+    if fixed_hline is not None:
+        ax.axhline(fixed_hline, color="grey", linestyle="--", linewidth=1.0, label=fixed_hline_label or str(fixed_hline))
+
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel(y_label)
+    ax.set_title(title)
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(fontsize="small")
+    sns.despine(fig=fig)
+    _save_svg(fig, output)
+
+
+# ---------------------------------------------------------------------------
+# Panel 10: Altitude vs time (full width)
+# ---------------------------------------------------------------------------
 def chart_altitude_time(
     trajectories: list[npt.NDArray[np.float64]],
     traj_class: npt.NDArray[np.int8],
@@ -702,18 +839,16 @@ def chart_altitude_time(
     best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Panel 10: Altitude vs time MC spaghetti with nominal overlays."""
-    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    _draw_spaghetti(ax, trajectories, traj_class, x_col=7, y_col=0)
-    _draw_time_nominals(ax, y_col=0, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
-
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Altitude (km)")
-    ax.set_title("Altitude vs Time")
-    handles, labels = ax.get_legend_handles_labels()
-    if handles:
-        ax.legend(fontsize="small")
-    sns.despine(fig=fig)
-    _save_svg(fig, output)
+    _time_series_panel(
+        trajectories,
+        traj_class,
+        output,
+        y_col=_TC_ALT,
+        y_label="Altitude (km)",
+        title="Altitude vs Time",
+        undispersed_nominal=undispersed_nominal,
+        best_nominal=best_nominal,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -728,21 +863,19 @@ def chart_heat_flux_time(
     best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Panel 11: Heat flux vs time MC spaghetti with optional constraint line and nominals."""
-    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    _draw_spaghetti(ax, trajectories, traj_class, x_col=7, y_col=6)
-    _draw_time_nominals(ax, y_col=6, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
-
-    if limit_kw_m2 is not None:
-        ax.axhline(limit_kw_m2, color=COLOR_WORST, linestyle="--", linewidth=1.0, label=f"Limit ({limit_kw_m2:.0f} kW/m\u00b2)")
-
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Heat flux (kW/m\u00b2)")
-    ax.set_title("Heat Flux vs Time")
-    handles, labels = ax.get_legend_handles_labels()
-    if handles:
-        ax.legend(fontsize="small")
-    sns.despine(fig=fig)
-    _save_svg(fig, output)
+    limit_label = f"Limit ({limit_kw_m2:.0f} kW/m\u00b2)" if limit_kw_m2 is not None else None
+    _time_series_panel(
+        trajectories,
+        traj_class,
+        output,
+        y_col=_TC_HEAT_FLUX,
+        y_label="Heat flux (kW/m\u00b2)",
+        title="Heat Flux vs Time",
+        undispersed_nominal=undispersed_nominal,
+        best_nominal=best_nominal,
+        limit_value=limit_kw_m2,
+        limit_label=limit_label,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -757,21 +890,19 @@ def chart_heat_load_time(
     best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Cumulative heat load vs time MC spaghetti with optional constraint line."""
-    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    _draw_spaghetti(ax, trajectories, traj_class, x_col=7, y_col=15)
-    _draw_time_nominals(ax, y_col=15, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
-
-    if limit_kj_m2 is not None:
-        ax.axhline(limit_kj_m2, color=COLOR_WORST, linestyle="--", linewidth=1.0, label=f"Limit ({limit_kj_m2:.0f} kJ/m\u00b2)")
-
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Heat load (kJ/m\u00b2)")
-    ax.set_title("Cumulative Heat Load vs Time")
-    handles, labels = ax.get_legend_handles_labels()
-    if handles:
-        ax.legend(fontsize="small")
-    sns.despine(fig=fig)
-    _save_svg(fig, output)
+    limit_label = f"Limit ({limit_kj_m2:.0f} kJ/m\u00b2)" if limit_kj_m2 is not None else None
+    _time_series_panel(
+        trajectories,
+        traj_class,
+        output,
+        y_col=_TC_HEAT_LOAD,
+        y_label="Heat load (kJ/m\u00b2)",
+        title="Cumulative Heat Load vs Time",
+        undispersed_nominal=undispersed_nominal,
+        best_nominal=best_nominal,
+        limit_value=limit_kj_m2,
+        limit_label=limit_label,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -786,21 +917,19 @@ def chart_gload_time(
     best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Panel 12: G-load vs time MC spaghetti with optional constraint line and nominals."""
-    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    _draw_spaghetti(ax, trajectories, traj_class, x_col=7, y_col=12)
-    _draw_time_nominals(ax, y_col=12, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
-
-    if limit_g is not None:
-        ax.axhline(limit_g, color=COLOR_WORST, linestyle="--", linewidth=1.0, label=f"Limit ({limit_g:.1f} g)")
-
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("G-load (g)")
-    ax.set_title("G-Load vs Time")
-    handles, labels = ax.get_legend_handles_labels()
-    if handles:
-        ax.legend(fontsize="small")
-    sns.despine(fig=fig)
-    _save_svg(fig, output)
+    limit_label = f"Limit ({limit_g:.1f} g)" if limit_g is not None else None
+    _time_series_panel(
+        trajectories,
+        traj_class,
+        output,
+        y_col=_TC_GLOAD,
+        y_label="G-load (g)",
+        title="G-Load vs Time",
+        undispersed_nominal=undispersed_nominal,
+        best_nominal=best_nominal,
+        limit_value=limit_g,
+        limit_label=limit_label,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -814,18 +943,16 @@ def chart_bank_angle_time(
     best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Panel 13: Bank angle vs time MC spaghetti with nominal overlays."""
-    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    _draw_spaghetti(ax, trajectories, traj_class, x_col=7, y_col=10)
-    _draw_time_nominals(ax, y_col=10, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
-
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Bank angle (deg)")
-    ax.set_title("Bank Angle vs Time")
-    handles, labels = ax.get_legend_handles_labels()
-    if handles:
-        ax.legend(fontsize="small")
-    sns.despine(fig=fig)
-    _save_svg(fig, output)
+    _time_series_panel(
+        trajectories,
+        traj_class,
+        output,
+        y_col=_TC_BANK,
+        y_label="Bank angle (deg)",
+        title="Bank Angle vs Time",
+        undispersed_nominal=undispersed_nominal,
+        best_nominal=best_nominal,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -839,18 +966,18 @@ def chart_nav_density_ratio(
     best_nominal: npt.NDArray[np.float64] | None = None,
 ) -> None:
     """Panel 14: Navigation density ratio vs time with nominals and perfect-estimate reference."""
-    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
-    _draw_spaghetti(ax, trajectories, traj_class, x_col=7, y_col=13)
-    _draw_time_nominals(ax, y_col=13, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
-
-    ax.axhline(1.0, color="grey", linestyle="--", linewidth=1.0, label="Perfect estimate")
-
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Nav density ratio")
-    ax.set_title("Navigation Density Ratio vs Time")
-    ax.legend(fontsize="small")
-    sns.despine(fig=fig)
-    _save_svg(fig, output)
+    _time_series_panel(
+        trajectories,
+        traj_class,
+        output,
+        y_col=_TC_NAV_DENS,
+        y_label="Nav density ratio",
+        title="Navigation Density Ratio vs Time",
+        undispersed_nominal=undispersed_nominal,
+        best_nominal=best_nominal,
+        fixed_hline=1.0,
+        fixed_hline_label="Perfect estimate",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -927,7 +1054,7 @@ def chart_cost_objective(
 # ---------------------------------------------------------------------------
 def chart_dv_distribution(final_records: npt.NDArray[np.float64], output: Path) -> None:
     """Panel 15: Total DV histogram (log10 x) with CDF overlay and percentile markers. Captured only."""
-    captured = (final_records[:, _FR_IFINAL] == 3) & (final_records[:, _FR_ECC] < 1.0)
+    captured = is_captured(final_records)
     if not np.any(captured):
         fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
         ax.text(0.5, 0.5, "No captured trajectories", ha="center", va="center", transform=ax.transAxes, fontsize=12, color="grey")
@@ -977,7 +1104,7 @@ def chart_dv_distribution(final_records: npt.NDArray[np.float64], output: Path) 
 # ---------------------------------------------------------------------------
 def chart_dv_individual_burns(final_records: npt.NDArray[np.float64], output: Path) -> None:
     """Panel 16: 3-row subplot histograms for |dv1|, |dv2|, |dv3| on log10 x-axis. Captured only."""
-    captured = (final_records[:, _FR_IFINAL] == 3) & (final_records[:, _FR_ECC] < 1.0)
+    captured = is_captured(final_records)
     if not np.any(captured):
         fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
         ax.text(0.5, 0.5, "No captured trajectories", ha="center", va="center", transform=ax.transAxes, fontsize=12, color="grey")
@@ -1054,9 +1181,7 @@ def chart_exit_conditions(final_records: npt.NDArray[np.float64], output: Path) 
     sizes = np.log10(dv) * 10  # scale for visibility
     sizes = np.clip(sizes, 5, 100)
 
-    ifinal = final_records[:, _FR_IFINAL]
-    ecc = final_records[:, _FR_ECC]
-    captured = (ifinal == 3) & (ecc < 1.0)
+    captured = is_captured(final_records)
 
     fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
     if np.any(captured):
@@ -1230,38 +1355,10 @@ def chart_sobol_heatmap(sobol_data: dict[str, Any], output: Path) -> None:
     _save_svg(fig, output)
 
 
-def chart_sobol_convergence(convergence_data: dict[str, Any], output: Path) -> None:
-    """Convergence of Sobol S1 and ST indices vs sample size."""
-    sample_sizes = convergence_data["sample_sizes"]
-    s1_series: dict[str, list[float]] = convergence_data["S1_series"]
-    st_series: dict[str, list[float]] = convergence_data["ST_series"]
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4), dpi=DPI)
-
-    for name, values in s1_series.items():
-        ax1.plot(sample_sizes, values, marker="o", markersize=3, linewidth=1.2, label=name)
-    ax1.set_xlabel("Sample size")
-    ax1.set_ylabel("S1")
-    ax1.set_title("First-Order Index Convergence")
-    ax1.legend(fontsize="small")
-    sns.despine(fig=fig, ax=ax1)
-
-    for name, values in st_series.items():
-        ax2.plot(sample_sizes, values, marker="o", markersize=3, linewidth=1.2, label=name)
-    ax2.set_xlabel("Sample size")
-    ax2.set_ylabel("ST")
-    ax2.set_title("Total-Order Index Convergence")
-    ax2.legend(fontsize="small")
-    sns.despine(fig=fig, ax=ax2)
-
-    fig.tight_layout()
-    _save_svg(fig, output)
-
-
 # ---------------------------------------------------------------------------
 # Generic line chart helper (used by RL report)
 # ---------------------------------------------------------------------------
-def _save_line_chart(
+def save_line_chart(
     x: list[float],
     y: list[float],
     xlabel: str,

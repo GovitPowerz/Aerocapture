@@ -9,10 +9,7 @@ import math
 
 import numpy as np
 import numpy.typing as npt
-
-# Cost above this threshold indicates a non-capture (crash, hyperbolic escape, timeout).
-# Rust virtual DV assigns >= 10000 m/s to all non-capture outcomes.
-CAPTURE_COST_THRESHOLD = 10000.0
+from scipy.spatial.distance import pdist
 
 
 def cost_stats(costs: npt.NDArray[np.float64]) -> dict[str, float]:
@@ -42,26 +39,19 @@ def population_diversity(population: npt.NDArray[np.floating]) -> float:
     if n < 2:
         return 0.0
     n_dims = population.shape[1]
-    total_distance = 0.0
-    n_pairs = 0
-    for i in range(n):
-        diffs = population[i] - population[i + 1 :]
-        distances = np.sqrt(np.sum(diffs**2, axis=1))
-        total_distance += float(np.sum(distances))
-        n_pairs += len(distances)
-    max_distance = np.sqrt(float(n_dims))
-    return total_distance / (n_pairs * max_distance) if n_pairs > 0 else 0.0
+    # pdist returns the n*(n-1)/2 unordered pairwise L2 distances; its mean is the
+    # same statistic the prior O(n^2) double-loop computed (sum over pairs / n_pairs).
+    max_distance = math.sqrt(n_dims)
+    mean_distance = float(np.mean(pdist(population)))
+    return mean_distance / max_distance
 
 
 def capture_rate(costs: npt.NDArray[np.float64], capture_threshold: float = 3000.0) -> float:
-    """Fraction of individuals with cost below capture threshold.
+    """Fraction of sims with cost below capture_threshold.
 
-    Default threshold 3000 separates captured trajectories (max ~2600
-    after log compression) from non-captures (min ~3300).
-
-    Note: this default assumes dv_threshold=1000 in the cost function.
-    If dv_threshold is changed, this threshold should be adjusted
-    accordingly — the gap is log_cap(HYPERBOLIC_BASE, dv_threshold).
+    Defaults to 3000.0 (the Rust CRASH_FLOOR). Captures produce the real
+    orbital-correction DV, which is far below this; non-captures use virtual
+    DV at or above CRASH_FLOOR, so the threshold cleanly separates the two.
     """
     return float(int(np.sum(costs < capture_threshold)) / len(costs))
 

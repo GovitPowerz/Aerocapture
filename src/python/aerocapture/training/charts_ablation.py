@@ -7,12 +7,13 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
-import seaborn as sns  # type: ignore[import-untyped]  # noqa: E402
+
+from aerocapture.training.charts import apply_theme  # noqa: E402
 
 
 def chart_ablation_bar(ranked: list[dict], output_path: str) -> None:
     """Bar chart of cost delta per input, ranked by importance."""
-    sns.set_theme(style="whitegrid", palette="muted", font_scale=0.9, rc={"axes.facecolor": "#f5f5f5"})
+    apply_theme()
 
     names = [r["name"] for r in ranked]
     deltas = [r["delta"] for r in ranked]

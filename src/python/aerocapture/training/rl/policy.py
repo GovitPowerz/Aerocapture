@@ -23,6 +23,12 @@ from torch import Tensor, nn
 from aerocapture.training.rl.layers import build_layer
 from aerocapture.training.rl.schemas import LayerSpec
 
+
+class _Asinh(nn.Module):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.asinh(x)
+
+
 _ACT: dict[str, type[nn.Module]] = {
     "tanh": nn.Tanh,
     "relu": nn.ReLU,
@@ -31,6 +37,7 @@ _ACT: dict[str, type[nn.Module]] = {
     "identity": nn.Identity,
     "swish": nn.SiLU,
     "mish": nn.Mish,
+    "asinh": _Asinh,
 }
 
 

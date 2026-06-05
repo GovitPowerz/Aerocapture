@@ -150,20 +150,14 @@ def _describe_rl_architecture(cfg: RLConfig) -> None:
     adds the chain check (layer i output -> layer i+1 input) and prints a
     human-readable summary for operator feedback at training start.
     """
-    from aerocapture.training.rl.schemas import DenseSpec, GruSpec
+    from aerocapture.training.config import _layer_output_size, describe_architecture
 
     input_mask, architecture, _input_dim = _parse_network_config(cfg)
 
-    def _in_size(s: DenseSpec | GruSpec) -> int:
-        return s.input_size
-
-    def _out_size(s: DenseSpec | GruSpec) -> int:
-        return s.output_size if isinstance(s, DenseSpec) else s.hidden_size
-
     # Chain consistency: prev.output == next.input.
     for i in range(len(architecture) - 1):
-        prev_out = _out_size(architecture[i])
-        next_in = _in_size(architecture[i + 1])
+        prev_out = _layer_output_size(architecture[i])
+        next_in = architecture[i + 1].input_size
         if prev_out != next_in:
             raise ValueError(
                 f"[network.architecture] chain mismatch at layer {i}->{i + 1}: "
@@ -171,26 +165,15 @@ def _describe_rl_architecture(cfg: RLConfig) -> None:
                 f"but layer {i + 1} ({architecture[i + 1].type}) expects input={next_in}"
             )
 
-    # Parameter count (mirrors config._layer_n_params).
-    def _n_params(s: DenseSpec | GruSpec) -> int:
-        if isinstance(s, DenseSpec):
-            return s.input_size * s.output_size + s.output_size
-        h = s.hidden_size
-        return 3 * h * s.input_size + 3 * h * h + 6 * h
-
-    total = sum(_n_params(s) for s in architecture)
-
-    lines = [f"Network architecture ({total} params):"]
-    for i, s in enumerate(architecture):
-        in_size = _in_size(s)
-        out_size = _out_size(s)
-        tail: str = s.activation if isinstance(s, DenseSpec) else f"hidden_size={s.hidden_size}"
-        lines.append(f"  layer {i}: {s.type:<6} {in_size:>4} -> {out_size:<4} {tail}")
-    lines.append(f"  input_mask: {len(input_mask)} indices")
-    print("\n".join(lines), file=sys.stderr)
+    print(describe_architecture(architecture), file=sys.stderr)
+    print(f"  input_mask: {len(input_mask)} indices", file=sys.stderr)
 
 
-def _build_shaper_and_norms(cfg: RLConfig, input_mask: list[int], gamma: float) -> tuple[StepRewardCalculator, ReturnNormalizer | None, ObsNormalizer | None]:
+def _build_shaper_and_norms(
+    cfg: RLConfig, input_mask: list[int], gamma: float, toml_path: Path
+) -> tuple[StepRewardCalculator, ReturnNormalizer | None, ObsNormalizer | None]:
+    from aerocapture.training.report import read_cost_kwargs
+
     step_calc = StepRewardCalculator(
         input_mask=input_mask,
         gamma=gamma,
@@ -200,6 +183,7 @@ def _build_shaper_and_norms(cfg: RLConfig, input_mask: list[int], gamma: float) 
         apoapsis_weight=cfg.reward.apoapsis_weight,
         eccentricity_weight=cfg.reward.eccentricity_weight,
         energy_scale=cfg.reward.energy_scale,
+        cost_kwargs=read_cost_kwargs(toml_path),
     )
     ret_norm = ReturnNormalizer(gamma=gamma, warmup_steps=cfg.reward.norm_warmup_steps) if cfg.reward.normalize_returns else None
     obs_norm = ObsNormalizer(obs_dim=len(input_mask)) if cfg.reward.normalize_obs else None
@@ -227,6 +211,7 @@ def _validate_deterministic(
     import aerocapture_rs  # type: ignore[import]
 
     from aerocapture.training.evaluate import VALIDATION_SEED_OFFSET, compute_cost, make_reserved_seeds
+    from aerocapture.training.report import read_cost_kwargs
 
     tmp_json = output_dir / "gen_current_model.json"
     export_v2_policy_to_json(policy, str(tmp_json), obs_normalizer=obs_norm)
@@ -238,7 +223,8 @@ def _validate_deterministic(
     results = aerocapture_rs.run_batch(str(toml_path), overrides_list)
     fr = results.final_records
 
-    rms_cost = float(compute_cost(fr))
+    cost_kwargs = read_cost_kwargs(toml_path)
+    rms_cost = float(compute_cost(fr, **cost_kwargs))
     capture_rate = float(np.mean((fr[:, _IDX_IFINAL] == 3) & (fr[:, _IDX_ECC] < 1.0)))
     return {"val_rms_cost": rms_cost, "val_capture_rate": capture_rate}
 
@@ -260,6 +246,7 @@ def _validate_deterministic_v1(
     import aerocapture_rs  # type: ignore[import]
 
     from aerocapture.training.evaluate import VALIDATION_SEED_OFFSET, compute_cost, make_reserved_seeds
+    from aerocapture.training.report import read_cost_kwargs
 
     tmp_json = output_dir / "gen_current_model.json"
     export_policy_to_json(policy, tmp_json, input_mask, obs_normalizer=obs_norm)
@@ -271,7 +258,8 @@ def _validate_deterministic_v1(
     results = aerocapture_rs.run_batch(str(toml_path), overrides_list)
     fr = results.final_records
 
-    rms_cost = float(compute_cost(fr))
+    cost_kwargs = read_cost_kwargs(toml_path)
+    rms_cost = float(compute_cost(fr, **cost_kwargs))
     capture_rate = float(np.mean((fr[:, _IDX_IFINAL] == 3) & (fr[:, _IDX_ECC] < 1.0)))
     return {"val_rms_cost": rms_cost, "val_capture_rate": capture_rate}
 
@@ -445,6 +433,7 @@ def _save_ppo_checkpoint(
     best_val_cost: float,
     ret_norm: ReturnNormalizer | None,
     obs_norm: ObsNormalizer | None,
+    rl_rng: np.random.Generator,
 ) -> None:
     torch.save(
         {
@@ -456,9 +445,145 @@ def _save_ppo_checkpoint(
             "best_val_cost": best_val_cost,
             "ret_norm": ret_norm.state_dict() if ret_norm is not None else None,
             "obs_norm": obs_norm.state_dict() if obs_norm is not None else None,
+            "rl_rng_state": rl_rng.bit_generator.state,
         },
         output_dir / "checkpoint.pt",
     )
+
+
+def build_critic_from_architecture(architecture: list[Any], input_dim: int) -> ValueNetwork:
+    """Feedforward critic trunk whose widths mirror the policy architecture.
+
+    This is a deliberate Phase 1.5 simplification: the critic sees raw obs and its
+    widths mirror the policy trunk so training cost roughly matches the policy. It is
+    NOT a structural match -- the critic has no recurrence. For a recurrent arch,
+    GRU hidden_size is used as a plain feedforward width (tanh activation). A
+    dedicated [value_network] TOML section with its own MLP spec is a reasonable
+    future lift if critics under-fit when GRU capacity grows.
+    ValueNetwork contract: len(activations) == len(hidden_sizes) + 1 (the final
+    activation is the action-head's and ValueNetwork replaces it with linear).
+    """
+    from aerocapture.training.rl.schemas import DenseSpec as _DS
+
+    critic_hidden_sizes: list[int] = []
+    critic_activations: list[str] = []
+    for spec in architecture[:-1]:
+        if isinstance(spec, _DS):
+            critic_hidden_sizes.append(spec.output_size)
+            critic_activations.append(spec.activation)
+        else:  # GruSpec -> treat as a tanh-activated hidden layer of width hidden_size
+            critic_hidden_sizes.append(spec.hidden_size)
+            critic_activations.append("tanh")
+    # Append the action head's activation so len(activations) == len(hidden_sizes) + 1.
+    final_spec = architecture[-1]
+    if isinstance(final_spec, _DS):
+        critic_activations.append(final_spec.activation)
+    else:
+        critic_activations.append("tanh")
+    return ValueNetwork(input_dim, critic_hidden_sizes, critic_activations)
+
+
+def collect_rollout(
+    env: Any,
+    policy: V2Policy,
+    value: ValueNetwork,
+    buf: RolloutBuffer,
+    next_values: npt.NDArray[np.float32],
+    obs: npt.NDArray[np.float32],
+    aux_cur: npt.NDArray[np.float32],
+    *,
+    obs_norm: Any,
+    ret_norm: Any,
+    step_calc: Any,
+    cfg: RLConfig,
+    episodic_returns: list[float],
+    episodic_dvs: list[float],
+    episodic_captures: list[bool],
+) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32], int]:
+    """Collect one rollout: fill `buf` + `next_values`, append episodic_* in place.
+
+    Returns (obs, aux_cur, env_steps_delta) so the caller advances its loop state.
+    """
+    env_steps_delta = 0
+    # Hidden-state tracking: seed from previous rollout's final state.
+    h_current: list = [None if s is None else s.copy() for s in buf.h_final]
+    # Snapshot of rollout-start state for chunk 0 of the BPTT update.
+    buf.h_initial = [None if s is None else s.copy() for s in h_current]
+
+    for t in range(cfg.ppo.rollout_steps):
+        if obs_norm is not None:
+            obs_norm.update(obs)
+            obs_policy = obs_norm.normalize(obs)
+        else:
+            obs_policy = obs
+        obs_t = torch.from_numpy(obs_policy).float()
+
+        # Store the per-step pre-state so chunk c of the update loop can seed
+        # from buf.states[c * bptt_length] (same indexing contract as the spec).
+        for li, s in enumerate(h_current):
+            if s is not None:
+                states_li = buf.states[li]
+                assert states_li is not None  # layer has state <=> buf.states[li] is populated
+                states_li[t] = s
+
+        state_t = _np_state_to_torch(h_current)
+        with torch.no_grad():
+            bank, raw, log_prob, state_next = policy.sample(obs_t, state_t)
+            v_pred = value(obs_t)
+
+        actions_np = bank.cpu().numpy().astype(np.float32)
+        next_obs, _rust_reward, done, info, aux_next = env.step(actions_np)
+
+        # Terminal-obs-aware next obs: unchanged PBRS + value bootstrap logic.
+        term_obs = _terminal_observations(info, done, env.obs_dim)
+        next_obs_for_shape = np.where(done[:, None], term_obs, next_obs)
+
+        shaped = step_calc.step_reward(obs, next_obs_for_shape, aux_cur, aux_next).astype(np.float32)
+
+        for i, d in enumerate(done):
+            if d:
+                fr = np.array(info[i]["final_record"], dtype=np.float64)
+                term_cost = compute_terminal_cost(fr, cost_kwargs=step_calc.cost_kwargs)
+                shaped[i] += float(-term_cost)
+                episodic_returns.append(float(-term_cost))
+                episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
+                episodic_captures.append(bool(info[i].get("captured", False)))
+
+        if ret_norm is not None:
+            ret_norm.update(shaped.astype(np.float64), done)
+            shaped = ret_norm.normalize(shaped.astype(np.float64)).astype(np.float32)
+
+        with torch.no_grad():
+            nv_obs = term_obs.copy()
+            nv_obs = np.where(done[:, None], nv_obs, next_obs)
+            nv_obs_policy = obs_norm.normalize(nv_obs) if obs_norm is not None else nv_obs
+            nv = value(torch.from_numpy(nv_obs_policy).float()).cpu().numpy()
+
+        truncated = np.array([bool(info[i].get("truncated", False)) for i in range(cfg.n_envs)], dtype=np.bool_)
+
+        buf.obs[t] = obs
+        buf.raw_actions[t] = raw.cpu().numpy()
+        buf.log_probs[t] = log_prob.cpu().numpy()
+        buf.rewards[t] = shaped
+        buf.values[t] = v_pred.cpu().numpy()
+        buf.dones[t] = done & ~truncated
+        next_values[t] = nv
+
+        # Advance hidden state; zero per-env on done (matches Rust auto-reset).
+        h_next_np = _torch_state_to_np(state_next)
+        for li in range(len(h_current)):
+            if h_current[li] is not None:
+                h_next_np[li][done] = 0.0
+                h_current[li] = h_next_np[li]
+
+        obs = next_obs
+        aux_cur = aux_next
+        env_steps_delta += cfg.n_envs
+
+    # End of rollout: snapshot for next rollout's h_initial.
+    buf.h_final = [None if s is None else s.copy() for s in h_current]
+
+    return obs, aux_cur, env_steps_delta
 
 
 def _run_ppo(
@@ -473,7 +598,7 @@ def _run_ppo(
     warmstart_json: Path | None = None,
 ) -> None:
     input_mask, architecture, input_dim = _parse_network_config(cfg)
-    step_calc, ret_norm, obs_norm = _build_shaper_and_norms(cfg, input_mask, gamma=cfg.ppo.gamma)
+    step_calc, ret_norm, obs_norm = _build_shaper_and_norms(cfg, input_mask, gamma=cfg.ppo.gamma, toml_path=toml_path)
 
     env = AerocaptureVecEnv(
         toml_path=str(toml_path),
@@ -513,38 +638,17 @@ def _run_ppo(
         policy.load_state_dict(warm_loaded.state_dict())
         print(f"Warm-started policy from {warmstart_json}", file=sys.stderr)
 
-    # Feedforward critic trunk derived from the policy architecture. This is a
-    # deliberate Phase 1.5 simplification: the critic sees raw obs and its widths
-    # mirror the policy trunk so training cost roughly matches the policy. It is
-    # NOT a structural match -- the critic has no recurrence. For a recurrent arch,
-    # GRU hidden_size is used as a plain feedforward width (tanh activation). A
-    # dedicated [value_network] TOML section with its own MLP spec is a reasonable
-    # future lift if critics under-fit when GRU capacity grows.
     # TODO(Phase 2+): consider [value_network] block if critic under-fitting is observed.
-    # ValueNetwork contract: len(activations) == len(hidden_sizes) + 1 (the final
-    # activation is the action-head's and ValueNetwork replaces it with linear).
-    from aerocapture.training.rl.schemas import DenseSpec as _DS
-
-    critic_hidden_sizes: list[int] = []
-    critic_activations: list[str] = []
-    for spec in architecture[:-1]:
-        if isinstance(spec, _DS):
-            critic_hidden_sizes.append(spec.output_size)
-            critic_activations.append(spec.activation)
-        else:  # GruSpec -> treat as a tanh-activated hidden layer of width hidden_size
-            critic_hidden_sizes.append(spec.hidden_size)
-            critic_activations.append("tanh")
-    # Append the action head's activation so len(activations) == len(hidden_sizes) + 1.
-    final_spec = architecture[-1]
-    if isinstance(final_spec, _DS):
-        critic_activations.append(final_spec.activation)
-    else:
-        critic_activations.append("tanh")
-    value = ValueNetwork(input_dim, critic_hidden_sizes, critic_activations)
+    value = build_critic_from_architecture(architecture, input_dim)
     optim = torch.optim.Adam(
         list(policy.parameters()) + list(value.parameters()),
         lr=cfg.ppo.learning_rate,
     )
+
+    # Seed the minibatch-shuffle RNG from the config seed so a run's shuffle
+    # stream is reproducible; resume restores this state below so a continued
+    # run keeps the same stream.
+    rl_rng = np.random.default_rng(cfg.seed_base)
 
     env_steps = 0
     update_idx = 0
@@ -562,10 +666,13 @@ def _run_ppo(
             ret_norm.load_state_dict(ckpt["ret_norm"])
         if obs_norm is not None and ckpt.get("obs_norm") is not None:
             obs_norm.load_state_dict(ckpt["obs_norm"])
+        if ckpt.get("rl_rng_state") is not None:  # back-compat: old checkpoints lack this key
+            rl_rng.bit_generator.state = ckpt["rl_rng_state"]
         print(f"Resumed from checkpoint: update {update_idx}, {env_steps} env steps", file=sys.stderr)
 
     # Derive per-layer hidden shapes from the architecture.
     # Dense: None (stateless). GRU: (H,). LSTM: (2, H) -- packs (h, c) as a single array.
+    from aerocapture.training.rl.schemas import DenseSpec as _DS
     from aerocapture.training.rl.schemas import GruSpec as _GS
     from aerocapture.training.rl.schemas import LstmSpec as _LS
     from aerocapture.training.rl.schemas import TransformerSpec as _TS
@@ -608,83 +715,23 @@ def _run_ppo(
     start_time = time.time()
 
     while env_steps < cfg.total_env_steps and not interrupted["v"]:
-        # Hidden-state tracking: seed from previous rollout's final state.
-        h_current: list = [None if s is None else s.copy() for s in buf.h_final]
-        # Snapshot of rollout-start state for chunk 0 of the BPTT update.
-        buf.h_initial = [None if s is None else s.copy() for s in h_current]
-
-        for t in range(cfg.ppo.rollout_steps):
-            if obs_norm is not None:
-                obs_norm.update(obs)
-                obs_policy = obs_norm.normalize(obs)
-            else:
-                obs_policy = obs
-            obs_t = torch.from_numpy(obs_policy).float()
-
-            # Store the per-step pre-state so chunk c of the update loop can seed
-            # from buf.states[c * bptt_length] (same indexing contract as the spec).
-            for li, s in enumerate(h_current):
-                if s is not None:
-                    states_li = buf.states[li]
-                    assert states_li is not None  # layer has state <=> buf.states[li] is populated
-                    states_li[t] = s
-
-            state_t = _np_state_to_torch(h_current)
-            with torch.no_grad():
-                bank, raw, log_prob, state_next = policy.sample(obs_t, state_t)
-                v_pred = value(obs_t)
-
-            actions_np = bank.cpu().numpy().astype(np.float32)
-            next_obs, _rust_reward, done, info, aux_next = env.step(actions_np)
-
-            # Terminal-obs-aware next obs: unchanged PBRS + value bootstrap logic.
-            term_obs = _terminal_observations(info, done, env.obs_dim)
-            next_obs_for_shape = np.where(done[:, None], term_obs, next_obs)
-
-            shaped = step_calc.step_reward(obs, next_obs_for_shape, aux_cur, aux_next).astype(np.float32)
-
-            for i, d in enumerate(done):
-                if d:
-                    fr = np.array(info[i]["final_record"], dtype=np.float64)
-                    term_cost = compute_terminal_cost(fr)
-                    shaped[i] += float(-term_cost)
-                    episodic_returns.append(float(-term_cost))
-                    episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
-                    episodic_captures.append(bool(info[i].get("captured", False)))
-
-            if ret_norm is not None:
-                ret_norm.update(shaped.astype(np.float64), done)
-                shaped = ret_norm.normalize(shaped.astype(np.float64)).astype(np.float32)
-
-            with torch.no_grad():
-                nv_obs = term_obs.copy()
-                nv_obs = np.where(done[:, None], nv_obs, next_obs)
-                nv_obs_policy = obs_norm.normalize(nv_obs) if obs_norm is not None else nv_obs
-                nv = value(torch.from_numpy(nv_obs_policy).float()).cpu().numpy()
-
-            truncated = np.array([bool(info[i].get("truncated", False)) for i in range(cfg.n_envs)], dtype=np.bool_)
-
-            buf.obs[t] = obs
-            buf.raw_actions[t] = raw.cpu().numpy()
-            buf.log_probs[t] = log_prob.cpu().numpy()
-            buf.rewards[t] = shaped
-            buf.values[t] = v_pred.cpu().numpy()
-            buf.dones[t] = done & ~truncated
-            next_values[t] = nv
-
-            # Advance hidden state; zero per-env on done (matches Rust auto-reset).
-            h_next_np = _torch_state_to_np(state_next)
-            for li in range(len(h_current)):
-                if h_current[li] is not None:
-                    h_next_np[li][done] = 0.0
-                    h_current[li] = h_next_np[li]
-
-            obs = next_obs
-            aux_cur = aux_next
-            env_steps += cfg.n_envs
-
-        # End of rollout: snapshot for next rollout's h_initial.
-        buf.h_final = [None if s is None else s.copy() for s in h_current]
+        obs, aux_cur, steps = collect_rollout(
+            env,
+            policy,
+            value,
+            buf,
+            next_values,
+            obs,
+            aux_cur,
+            obs_norm=obs_norm,
+            ret_norm=ret_norm,
+            step_calc=step_calc,
+            cfg=cfg,
+            episodic_returns=episodic_returns,
+            episodic_dvs=episodic_dvs,
+            episodic_captures=episodic_captures,
+        )
+        env_steps += steps
 
         advantages = np.zeros_like(buf.rewards)
         returns = np.zeros_like(buf.rewards)
@@ -722,6 +769,7 @@ def _run_ppo(
             max_grad_norm=cfg.ppo.max_grad_norm,
             target_kl=cfg.ppo.target_kl,
             obs_norm=obs_norm,
+            rng=rl_rng,
         )
 
         update_idx += 1
@@ -738,7 +786,7 @@ def _run_ppo(
                 val_record["val_promoted"] = False
 
         if update_idx % cfg.checkpoint_interval_updates == 0:
-            _save_ppo_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost, ret_norm, obs_norm)
+            _save_ppo_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost, ret_norm, obs_norm, rl_rng)
 
         record: dict[str, Any] = {
             "update_idx": update_idx,
@@ -763,7 +811,7 @@ def _run_ppo(
         logger.log_update(record)
         display.update(record)
 
-    _save_ppo_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost, ret_norm, obs_norm)
+    _save_ppo_checkpoint(output_dir, policy, value, optim, update_idx, env_steps, best_val_cost, ret_norm, obs_norm, rl_rng)
     if best_val_cost == float("inf"):
         export_v2_policy_to_json(policy, str(output_dir / "best_model.json"), obs_normalizer=obs_norm)
 
@@ -814,7 +862,7 @@ def _run_sac(
 ) -> None:
     input_mask, architecture, input_dim = _parse_network_config(cfg)
     layer_sizes, activations = _dense_only_shapes(architecture)
-    step_calc, ret_norm, obs_norm = _build_shaper_and_norms(cfg, input_mask, gamma=cfg.sac.gamma)
+    step_calc, ret_norm, obs_norm = _build_shaper_and_norms(cfg, input_mask, gamma=cfg.sac.gamma, toml_path=toml_path)
 
     env = AerocaptureVecEnv(
         toml_path=str(toml_path),
@@ -888,7 +936,7 @@ def _run_sac(
         for i, d in enumerate(done):
             if d:
                 fr = np.array(info[i]["final_record"], dtype=np.float64)
-                term_cost = compute_terminal_cost(fr)
+                term_cost = compute_terminal_cost(fr, cost_kwargs=step_calc.cost_kwargs)
                 shaped[i] += float(-term_cost)
                 episodic_returns.append(float(-term_cost))
                 episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))

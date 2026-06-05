@@ -11,6 +11,16 @@ use crate::data::SimData;
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
 use crate::orbit::maneuver::DeltaV;
 use crate::orbit::{elements, maneuver};
+use crate::simulation::final_record::{
+    FINAL_RECORD_LEN, FR_ALT_KM, FR_ALT_MAX_FLUX_KM, FR_ALT_MAX_LOAD_KM, FR_ALT_MAX_PDYN_KM,
+    FR_APOAPSIS_ALT_KM, FR_APOAPSIS_ERR_KM, FR_ARG_PERI_DEG, FR_BOUNCE_ALT_KM, FR_BOUNCE_TIME_S,
+    FR_CUMULATIVE_BANK_DEG, FR_DV_PLANE_MS, FR_DV_TOTAL_MS, FR_DV1_MS, FR_DV2_MS, FR_DV3_MS,
+    FR_DYN_PRESSURE_KPA, FR_ECC, FR_ENERGY_MJKG, FR_FPA_DEG, FR_G_LOAD, FR_HDG_DEG,
+    FR_HEAT_FLUX_KW_M2, FR_HEAT_LOAD_MJM2, FR_IFINAL, FR_INCL_DEG, FR_INCL_ERR_DEG, FR_LAT_DEG,
+    FR_LON_DEG, FR_N_REVERSALS, FR_PERIAPSIS_ALT_KM, FR_PERIAPSIS_ERR_KM, FR_RAAN_DEG,
+    FR_RADIAL_VEL_MS, FR_SIM_TIME_S, FR_SMA_KM, FR_TIME_MAX_FLUX_S, FR_TIME_MAX_LOAD_S,
+    FR_TIME_MAX_PDYN_S, FR_TRUE_ANOM_DEG, FR_VEL_MS,
+};
 use crate::simulation::sim_types::{
     CRASH_ENERGY_CAP_MJKG, CRASH_ENERGY_WEIGHT, CRASH_FLOOR, CRASH_TIME_BONUS, DEG_TO_RAD, G0,
     HYPERBOLIC_BASE, SimState, TermReason,
@@ -121,7 +131,7 @@ pub fn build_final_record(
     sim_state: &SimState,
     data: &SimData,
     planet: &PlanetConfig,
-) -> [f64; 52] {
+) -> [f64; FINAL_RECORD_LEN] {
     let (alt_final, lat_final) = geodetic_from_spherical(
         sim_state.state[0],
         sim_state.state[1],
@@ -184,46 +194,47 @@ pub fn build_final_record(
         }
     };
 
-    let mut fr = [0.0_f64; 52];
-    fr[0] = alt_final / 1e3;
-    fr[1] = sim_state.state[1] / DEG_TO_RAD;
-    fr[2] = lat_final / DEG_TO_RAD;
-    fr[3] = sim_state.state[3];
-    fr[4] = sim_state.state[4] / DEG_TO_RAD;
-    fr[5] = sim_state.state[5] / DEG_TO_RAD;
-    fr[6] = velocity_radial;
-    fr[7] = energy / 1e6;
-    fr[8] = orbit.semi_major_axis / 1e3;
-    fr[9] = orbit.eccentricity;
-    fr[10] = orbit.inclination / DEG_TO_RAD;
-    fr[11] = orbit.raan / DEG_TO_RAD;
-    fr[12] = orbit.arg_periapsis / DEG_TO_RAD;
-    fr[13] = orbit.true_anomaly / DEG_TO_RAD;
-    fr[14] = orbit.periapsis_alt / 1e3;
-    fr[15] = orbit.apoapsis_alt / 1e3;
-    fr[16] = sim_state.max_heat_flux / 1e3;
-    fr[17] = sim_state.max_load_factor / G0;
-    fr[18] = sim_state.max_dyn_pressure / 1e3;
-    fr[19] = sim_state.alt_max_flux / 1e3;
-    fr[20] = sim_state.alt_max_load / 1e3;
-    fr[21] = sim_state.alt_max_pdyn / 1e3;
-    fr[22] = sim_state.time_max_flux;
-    fr[23] = sim_state.time_max_load;
-    fr[24] = sim_state.time_max_pdyn;
-    fr[25] = sim_state.bounce_alt / 1e3;
-    fr[26] = sim_state.bounce_time;
-    fr[27] = sim_state.sim_time;
-    fr[28] = sim_state.state[6] / 1e6;
-    fr[29] = orbit.periapsis_alt / 1e3 - data.target_orbit.periapsis / 1e3;
-    fr[30] = orbit.apoapsis_alt / 1e3 - data.target_orbit.apoapsis / 1e3;
-    fr[31] = ifinal as f64;
-    fr[37] = deltav.dv1;
-    fr[38] = deltav.dv2;
-    fr[39] = deltav.dv3;
-    fr[40] = deltav.dv1.abs() + deltav.dv2.abs();
-    fr[41] = deltav.total;
-    fr[45] = sim_state.cumulative_bank_change_deg;
-    fr[46] = orbit.inclination / DEG_TO_RAD - data.target_orbit.inclination / DEG_TO_RAD;
-    fr[48] = sim_state.guidance_state.lateral_state.n_reversals as f64;
+    let mut fr = [0.0_f64; FINAL_RECORD_LEN];
+    fr[FR_ALT_KM] = alt_final / 1e3;
+    fr[FR_LON_DEG] = sim_state.state[1] / DEG_TO_RAD;
+    fr[FR_LAT_DEG] = lat_final / DEG_TO_RAD;
+    fr[FR_VEL_MS] = sim_state.state[3];
+    fr[FR_FPA_DEG] = sim_state.state[4] / DEG_TO_RAD;
+    fr[FR_HDG_DEG] = sim_state.state[5] / DEG_TO_RAD;
+    fr[FR_RADIAL_VEL_MS] = velocity_radial;
+    fr[FR_ENERGY_MJKG] = energy / 1e6;
+    fr[FR_SMA_KM] = orbit.semi_major_axis / 1e3;
+    fr[FR_ECC] = orbit.eccentricity;
+    fr[FR_INCL_DEG] = orbit.inclination / DEG_TO_RAD;
+    fr[FR_RAAN_DEG] = orbit.raan / DEG_TO_RAD;
+    fr[FR_ARG_PERI_DEG] = orbit.arg_periapsis / DEG_TO_RAD;
+    fr[FR_TRUE_ANOM_DEG] = orbit.true_anomaly / DEG_TO_RAD;
+    fr[FR_PERIAPSIS_ALT_KM] = orbit.periapsis_alt / 1e3;
+    fr[FR_APOAPSIS_ALT_KM] = orbit.apoapsis_alt / 1e3;
+    fr[FR_HEAT_FLUX_KW_M2] = sim_state.max_heat_flux / 1e3;
+    fr[FR_G_LOAD] = sim_state.max_load_factor / G0;
+    fr[FR_DYN_PRESSURE_KPA] = sim_state.max_dyn_pressure / 1e3;
+    fr[FR_ALT_MAX_FLUX_KM] = sim_state.alt_max_flux / 1e3;
+    fr[FR_ALT_MAX_LOAD_KM] = sim_state.alt_max_load / 1e3;
+    fr[FR_ALT_MAX_PDYN_KM] = sim_state.alt_max_pdyn / 1e3;
+    fr[FR_TIME_MAX_FLUX_S] = sim_state.time_max_flux;
+    fr[FR_TIME_MAX_LOAD_S] = sim_state.time_max_load;
+    fr[FR_TIME_MAX_PDYN_S] = sim_state.time_max_pdyn;
+    fr[FR_BOUNCE_ALT_KM] = sim_state.bounce_alt / 1e3;
+    fr[FR_BOUNCE_TIME_S] = sim_state.bounce_time;
+    fr[FR_SIM_TIME_S] = sim_state.sim_time;
+    fr[FR_HEAT_LOAD_MJM2] = sim_state.state[6] / 1e6;
+    fr[FR_PERIAPSIS_ERR_KM] = orbit.periapsis_alt / 1e3 - data.target_orbit.periapsis / 1e3;
+    fr[FR_APOAPSIS_ERR_KM] = orbit.apoapsis_alt / 1e3 - data.target_orbit.apoapsis / 1e3;
+    fr[FR_IFINAL] = ifinal as f64;
+    fr[FR_DV1_MS] = deltav.dv1;
+    fr[FR_DV2_MS] = deltav.dv2;
+    fr[FR_DV3_MS] = deltav.dv3;
+    fr[FR_DV_PLANE_MS] = deltav.dv1.abs() + deltav.dv2.abs();
+    fr[FR_DV_TOTAL_MS] = deltav.total;
+    fr[FR_CUMULATIVE_BANK_DEG] = sim_state.cumulative_bank_change_deg;
+    fr[FR_INCL_ERR_DEG] =
+        orbit.inclination / DEG_TO_RAD - data.target_orbit.inclination / DEG_TO_RAD;
+    fr[FR_N_REVERSALS] = sim_state.guidance_state.lateral_state.n_reversals as f64;
     fr
 }

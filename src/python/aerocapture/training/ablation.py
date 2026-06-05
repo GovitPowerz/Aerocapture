@@ -17,6 +17,9 @@ from typing import Any
 
 import numpy as np
 
+from aerocapture.training.parquet_output import DV_TOTAL_RAW_INDEX as _DV_TOTAL_COL  # noqa: F401
+from aerocapture.training.parquet_output import FINAL_RECORD_LEN as _FINAL_RECORD_LEN
+
 NN_INPUT_NAMES: list[str] = [
     "eccentricity_excess",  # 0
     "inclination_error",  # 1
@@ -56,10 +59,6 @@ NN_INPUT_NAMES: list[str] = [
     "predicted_dv2",  # 33
     "predicted_dv3",  # 34
 ]
-
-# Index of dv_total_m_s in the 52-column final_record array (0-based, includes sim_number).
-# Verified against FINAL_CSV_COLUMNS in output.rs and results.rs comment (final_record[41]).
-_DV_TOTAL_COL = 41
 
 _COST_TRANSFORMS = ("linear", "sqrt", "log", "squared", "cubed")
 
@@ -116,7 +115,7 @@ def _mean_per_sim_cost(final_records: np.ndarray, cost_kwargs: dict[str, Any]) -
     """Compute mean per-sim cost using the training cost function."""
     from aerocapture.training.evaluate import compute_cost
 
-    costs = np.array([compute_cost(fr.reshape(1, 52), **cost_kwargs) for fr in final_records])
+    costs = np.array([compute_cost(fr.reshape(1, _FINAL_RECORD_LEN), **cost_kwargs) for fr in final_records])
     return float(np.mean(costs))
 
 

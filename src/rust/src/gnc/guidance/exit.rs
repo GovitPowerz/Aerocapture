@@ -79,6 +79,7 @@ mod tests {
         Constraints, EntryConditions, FinalConditions, OrbitalTarget, ParkingOrbit, SimData,
         SphericalState, SuccessCriteria, TimePeriods,
     };
+    use std::sync::Arc;
 
     fn test_sim_data() -> SimData {
         SimData {
@@ -97,7 +98,7 @@ mod tests {
                 equilibrium_aoa: -0.48,
                 ..Default::default()
             },
-            atmosphere: AtmosphereModel {
+            atmosphere: Arc::new(AtmosphereModel {
                 n_points: 3,
                 altitudes: vec![0.0, 50_000.0, 130_000.0],
                 densities: vec![0.02, 0.001, 1e-8],
@@ -106,7 +107,7 @@ mod tests {
                 ref_altitude: 130_000.0,
                 gas_constant: 1.3,
                 density_profile: DensityProfile::default(),
-            },
+            }),
             atmosphere_onboard: crate::data::atmosphere::OnboardAtmosphereModel::Identical,
             entry: EntryConditions {
                 state: SphericalState {
