@@ -17,6 +17,7 @@ use rayon::prelude::*;
 use aerocapture::config::SimInput;
 use aerocapture::data::SimData;
 use aerocapture::integration::events::{EventContext, EventDef};
+use aerocapture::orbit::{elements, maneuver};
 use aerocapture::simulation::final_record::{
     FINAL_RECORD_LEN, FR_DV_TOTAL_MS, FR_ECC, FR_ENERGY_MJKG, FR_G_LOAD, FR_HEAT_FLUX_KW_M2,
     FR_HEAT_LOAD_MJM2,
@@ -190,7 +191,7 @@ impl BatchedSimulation {
         // gets the pre-reset values for terminal steps.
         // Release the GIL during the Rayon block so other Python threads can run
         // and Ctrl-C is responsive.
-        let outcomes: Vec<(bool, Option<TerminalOutcome>, [f64; 2])> = py.detach(|| {
+        let outcomes: Vec<(bool, Option<TerminalOutcome>, [f64; 5])> = py.detach(|| {
             self.envs
                 .par_iter_mut()
                 .zip(actions_vec.par_iter())
@@ -205,9 +206,18 @@ impl BatchedSimulation {
                         event_defs,
                         event_ctx,
                     );
-                    // Capture aux (energy, pdyn) from nav output before potential reset.
+                    // Capture aux (energy, pdyn, dv1, dv2, dv3) from nav output
+                    // before potential reset. The 3 DV components are the raw m/s
+                    // correction-budget signals the DV-reward potential consumes.
                     let nav = state.last_nav_output();
-                    let aux = [nav.energy_estimated, nav.dynamic_pressure_estimated];
+                    let dv = predicted_dv_for_state(state, sim_data, sim_input);
+                    let aux = [
+                        nav.energy_estimated,
+                        nav.dynamic_pressure_estimated,
+                        dv[0],
+                        dv[1],
+                        dv[2],
+                    ];
                     if state.term() != TermReason::None {
                         // Capture terminal obs BEFORE the env state is reset.
                         let terminal_obs = build_obs_for_env(state, sim_data, sim_input);
@@ -265,14 +275,15 @@ impl BatchedSimulation {
         let reward_arr = PyArray1::<f32>::from_iter(py, outcomes.iter().map(|_| 0.0f32));
         let done_arr = PyArray1::<bool>::from_iter(py, outcomes.iter().map(|(d, _, _)| *d));
 
-        // Aux array: (n_envs, 2) with [energy_estimated, dynamic_pressure_estimated].
+        // Aux array: (n_envs, 5) with [energy, pdyn, dv1, dv2, dv3].
         // Values are from the pre-reset nav output (terminal steps get their final-tick values).
-        let aux = PyArray2::<f32>::zeros(py, [self.n_envs, 2], false);
+        let aux = PyArray2::<f32>::zeros(py, [self.n_envs, 5], false);
         {
             let mut aux_view = unsafe { aux.as_array_mut() };
             for (i, (_, _, a)) in outcomes.iter().enumerate() {
-                aux_view[[i, 0]] = a[0] as f32;
-                aux_view[[i, 1]] = a[1] as f32;
+                for j in 0..5 {
+                    aux_view[[i, j]] = a[j] as f32;
+                }
             }
         }
 
@@ -323,14 +334,20 @@ impl BatchedSimulation {
         arr
     }
 
-    /// Auxiliary array (n_envs, 2): [energy_estimated, dynamic_pressure_estimated] per env.
+    /// Auxiliary array (n_envs, 5): [energy_estimated, dynamic_pressure_estimated,
+    /// predicted_dv1, predicted_dv2, predicted_dv3] per env. The 3 DV components are
+    /// the raw m/s correction-budget estimate consumed by the DV-reward potential.
     fn build_aux<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f32>> {
-        let arr = PyArray2::<f32>::zeros(py, [self.n_envs, 2], false);
+        let arr = PyArray2::<f32>::zeros(py, [self.n_envs, 5], false);
         let mut view = unsafe { arr.as_array_mut() };
         for (i, env) in self.envs.iter().enumerate() {
             let nav = env.last_nav_output();
+            let dv = predicted_dv_for_state(env, &self.sim_data, &self.sim_input);
             view[[i, 0]] = nav.energy_estimated as f32;
             view[[i, 1]] = nav.dynamic_pressure_estimated as f32;
+            view[[i, 2]] = dv[0] as f32;
+            view[[i, 3]] = dv[1] as f32;
+            view[[i, 4]] = dv[2] as f32;
         }
         arr
     }
@@ -366,6 +383,30 @@ fn build_obs_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -
         time_since_flip,
         state.guidance_state.inclination_error_integral,
         state.guidance_state.prev_realized_bank_for_nn,
+    )
+}
+
+/// Predicted correction delta-v [dv1, dv2, dv3] (raw m/s) on the current
+/// osculating orbit for one env. Mirrors `build_obs_for_env`'s orbit
+/// construction so the aux DV equals candidate inputs 32-34 that
+/// `build_nn_input` produces (pre-normalization). Consumed by the DV-reward
+/// potential (`StepRewardCalculator`, potential = "dv").
+fn predicted_dv_for_state(state: &SimState, data: &Arc<SimData>, config: &SimInput) -> [f64; 3] {
+    let nav = state.last_nav_output();
+    let orbit = elements::from_spherical(
+        nav.position_estimated[0],
+        nav.position_estimated[1],
+        nav.position_estimated[2],
+        nav.velocity_estimated[0],
+        nav.velocity_estimated[1],
+        nav.velocity_estimated[2],
+        &config.planet,
+    );
+    maneuver::predicted_dv_for_nn(
+        &orbit,
+        &data.target_orbit,
+        &data.parking_orbit,
+        &config.planet,
     )
 }
 

@@ -22,7 +22,7 @@ def test_batched_simulation_reset_shape() -> None:
     assert obs.shape == (4, 16)  # default input_mask is 16 elements
     assert obs.dtype == np.float32
     assert np.isfinite(obs).all()
-    assert aux.shape == (4, 2)
+    assert aux.shape == (4, 5)
     assert aux.dtype == np.float32
     assert np.isfinite(aux).all()
     env.close()
@@ -61,7 +61,7 @@ def test_step_advances_and_returns_correct_shapes() -> None:
     assert len(info) == 4
     assert np.isfinite(obs2).all()
     assert np.isfinite(reward).all()
-    assert aux.shape == (4, 2)
+    assert aux.shape == (4, 5)
     assert np.isfinite(aux).all()
     env.close()
 
@@ -121,3 +121,19 @@ def test_terminal_observation_in_info() -> None:
             assert len(t) == env.obs_dim
             return
     pytest.fail("env did not terminate within 2000 steps")
+
+
+def test_aux_carries_dv_components() -> None:
+    """Aux columns 2-4 are the raw predicted-DV correction budget (finite, live)."""
+    env = aerocapture_rs.BatchedSimulation(TOML, n_envs=4, seed_base=3_000_000)
+    _, aux = env.reset()
+    assert aux.shape == (4, 5)
+    assert np.isfinite(aux).all()
+    seen_nonzero = np.zeros(3, dtype=bool)
+    for _ in range(50):
+        _, _, _, _, aux = env.step(np.zeros(4, dtype=np.float32))
+        assert aux.shape == (4, 5)
+        assert np.isfinite(aux).all()
+        seen_nonzero |= np.abs(aux[:, 2:5]).max(axis=0) > 0.0
+    assert seen_nonzero.any(), "predicted-DV aux columns never became nonzero"
+    env.close()
