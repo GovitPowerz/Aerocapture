@@ -17,7 +17,7 @@ def test_reset_returns_expected_shape() -> None:
     obs, aux = env.reset()
     assert obs.shape == (4, env.obs_dim)
     assert obs.dtype == np.float32
-    assert aux.shape == (4, 2)
+    assert aux.shape == (4, 5)
     assert aux.dtype == np.float32
     env.close()
 
@@ -30,9 +30,9 @@ def test_step_shapes() -> None:
     assert reward.shape == (4,)
     assert done.shape == (4,)
     assert len(info) == 4
-    assert aux.shape == (4, 2)
+    assert aux.shape == (4, 5)
     assert aux.dtype == np.float32
-    # aux[0] = energy (J/kg), aux[1] = pdyn (Pa); both should be finite
+    # aux cols: 0=energy (J/kg), 1=pdyn (Pa), 2/3/4=predicted_dv1/2/3 (m/s); all finite
     assert np.all(np.isfinite(aux))
     env.close()
 
