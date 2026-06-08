@@ -25,6 +25,11 @@ class RewardConfig:
     apoapsis_weight: float = 0.2
     eccentricity_weight: float = 0.1
     energy_scale: float = 1.0e6
+    # DV-correction potential (potential = "dv"); ignored when potential = "phase_aware".
+    potential: Literal["phase_aware", "dv"] = "phase_aware"
+    dv1_weight: float = 1.0
+    dv2_weight: float = 1.0
+    dv3_weight: float = 1.0
     # Running normalization
     normalize_returns: bool = True
     normalize_obs: bool = True

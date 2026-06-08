@@ -183,6 +183,10 @@ def _build_shaper_and_norms(
         apoapsis_weight=cfg.reward.apoapsis_weight,
         eccentricity_weight=cfg.reward.eccentricity_weight,
         energy_scale=cfg.reward.energy_scale,
+        potential=cfg.reward.potential,
+        dv1_weight=cfg.reward.dv1_weight,
+        dv2_weight=cfg.reward.dv2_weight,
+        dv3_weight=cfg.reward.dv3_weight,
         cost_kwargs=read_cost_kwargs(toml_path),
     )
     ret_norm = ReturnNormalizer(gamma=gamma, warmup_steps=cfg.reward.norm_warmup_steps) if cfg.reward.normalize_returns else None
