@@ -14,12 +14,16 @@ type = "neural_network"
 mode = "full_neural"
 output_parameterization = "atan2_signed"
 
+# 19-input superset of the dense_p515 mask: adds 13 (sma_error) and 15 (bounce_flag),
+# which the RL reward shaper (PBRS potential) requires in the observation. This makes
+# the RL net 19->18->9->2 (551 params) vs the islands dense_p515 17->18->9->2 (515) --
+# a 2-input / 36-param difference inherent to the RL reward formulation (noted in the paper).
 [network]
-input_mask = [0, 2, 3, 5, 6, 7, 11, 12, 18, 19, 27, 28, 29, 30, 32, 33, 34]
+input_mask = [0, 2, 3, 5, 6, 7, 11, 12, 13, 15, 18, 19, 27, 28, 29, 30, 32, 33, 34]
 
 [[network.architecture]]
 type = "dense"
-input_size = 17
+input_size = 19
 output_size = 18
 activation = "swish"
 
