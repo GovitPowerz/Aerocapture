@@ -1,0 +1,31 @@
+# Study B -- 1D scaled_pi head on the dense control + islands.
+base = ["../sweep/dense_p515.toml"]
+
+[data]
+neural_network = "training_output/paper_out_scaledpi/best_model.json"
+results_suffix = ".paper_out_scaledpi"
+
+[optimizer]
+algorithm = "islands"
+
+[guidance.neural_network]
+output_parameterization = "scaled_pi"
+scaled_pi_n = 2.0
+
+[[network.architecture]]
+type = "dense"
+input_size = 17
+output_size = 18
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 18
+output_size = 9
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 9
+output_size = 1
+activation = "tanh"
