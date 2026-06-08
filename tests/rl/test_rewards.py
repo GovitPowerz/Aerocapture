@@ -106,8 +106,16 @@ def test_terminal_cost_matches_evaluate_module() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _dv_calc(**kw: float) -> StepRewardCalculator:
-    return StepRewardCalculator(input_mask=list(range(23)), potential="dv", constraint_weight=0.2, gamma=0.99, **kw)
+def _dv_calc(dv1_weight: float = 1.0, dv2_weight: float = 1.0, dv3_weight: float = 1.0) -> StepRewardCalculator:
+    return StepRewardCalculator(
+        input_mask=list(range(23)),
+        potential="dv",
+        constraint_weight=0.2,
+        gamma=0.99,
+        dv1_weight=dv1_weight,
+        dv2_weight=dv2_weight,
+        dv3_weight=dv3_weight,
+    )
 
 
 def _aux5(n: int = 1, dv1: float = 0.0, dv2: float = 0.0, dv3: float = 0.0) -> np.ndarray:
@@ -162,4 +170,4 @@ def test_dv_mode_missing_thermal_raises() -> None:
 
 def test_invalid_potential_raises() -> None:
     with pytest.raises(ValueError, match="potential must be"):
-        StepRewardCalculator(input_mask=list(range(23)), potential="bogus")
+        StepRewardCalculator(input_mask=list(range(23)), potential="bogus")  # type: ignore[arg-type]
