@@ -1,0 +1,40 @@
+# Study A -- PPO on the dense_p515 architecture (RL track; see spec section 10 -- may need iteration).
+# Mirrors the dense_p515 control: same 3-layer dense net + the atan2 17-input mask.
+# RL normalizes observations online (ObsNormalizer baked into layer 0 at export),
+# so no static [network.normalization] override is set here.
+base = ["../../missions/mars.toml", "../common.toml", "../rl_common.toml"]
+
+[mission]
+mission_type = "msr_aller"
+
+[guidance]
+type = "neural_network"
+
+[guidance.neural_network]
+mode = "full_neural"
+output_parameterization = "atan2_signed"
+
+[network]
+input_mask = [0, 2, 3, 5, 6, 7, 11, 12, 18, 19, 27, 28, 29, 30, 32, 33, 34]
+
+[[network.architecture]]
+type = "dense"
+input_size = 17
+output_size = 18
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 18
+output_size = 9
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 9
+output_size = 2
+activation = "asinh"
+
+[data]
+neural_network       = "training_output/paper_opt_rl/best_model.json"
+reference_trajectory = "training_output/mars/ref_trajectory.dat"
