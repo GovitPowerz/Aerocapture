@@ -36,6 +36,7 @@ SCHEMES = [
     "ftc",
     "neural_network",
     "neural_network_rl",
+    "neural_network_atan2_rl",
     "neural_network_gru_pso",
     "neural_network_gru_pso_magonly",
     "neural_network_gru_ppo",
@@ -61,6 +62,7 @@ SCHEME_TRAINING_CONFIGS: dict[str, str] = {
     "ftc": "configs/training/msr_aller_ftc_train.toml",
     "neural_network": "configs/training/msr_aller_nn_train_consolidated.toml",
     "neural_network_rl": "configs/training/msr_aller_rl_train.toml",
+    "neural_network_atan2_rl": "configs/training/msr_aller_nn_atan2_ppo_train.toml",
     "neural_network_gru_pso": "configs/training/msr_aller_gru_pso_train.toml",
     "neural_network_gru_pso_magonly": "configs/training/msr_aller_gru_pso_magonly_train.toml",
     "neural_network_gru_ppo": "configs/training/msr_aller_gru_ppo_train.toml",
@@ -80,6 +82,7 @@ SCHEME_TRAINING_CONFIGS: dict[str, str] = {
 _NN_DEPLOY_SCHEMES = {
     "neural_network",
     "neural_network_rl",
+    "neural_network_atan2_rl",
     "neural_network_gru_pso",
     "neural_network_gru_pso_magonly",
     "neural_network_gru_ppo",
