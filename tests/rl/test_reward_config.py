@@ -23,3 +23,22 @@ def test_reward_config_default_potential_is_phase_aware(tmp_path: Path) -> None:
     p.write_bytes(tomli_w.dumps({"rl": {"algorithm": "ppo"}}).encode())
     cfg = RLConfig.from_toml(p)
     assert cfg.reward.potential == "phase_aware"
+
+
+def test_atan2_rl_config_loads() -> None:
+    from aerocapture.training.rl.train import _parse_network_config
+
+    cfg = RLConfig.from_toml(Path("configs/training/msr_aller_nn_atan2_ppo_train.toml"))
+    assert cfg.algorithm == "ppo"
+    assert cfg.reward.potential == "dv"
+    assert cfg.reward.dv1_weight == 1.0
+    assert cfg.reward.dv2_weight == 1.0
+    assert cfg.reward.dv3_weight == 1.0
+    # n_envs / steps inherited from rl_common.toml
+    assert cfg.n_envs == 64
+    input_mask, architecture, input_dim = _parse_network_config(cfg)
+    assert len(input_mask) == 17
+    assert input_dim == 17
+    assert {32, 33, 34}.issubset(set(input_mask))
+    # atan2_signed requires a 2-output last layer.
+    assert architecture[-1].output_size == 2
