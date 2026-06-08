@@ -663,7 +663,9 @@ def test_atan2_rl_ppo_smoke_5_updates(tmp_path: Path) -> None:
     layer_types = [entry["type"] for entry in raw["architecture"]]
     assert layer_types == ["dense", "dense", "dense"], f"unexpected arch: {layer_types}"
 
-    output = aerocapture_rs.nn_forward(str(best_model), [0.0] * 17)
+    # nn_forward applies input_mask internally, so it needs the FULL candidate
+    # vector: expected_len = max(input_mask) + 1 = 34 + 1 = 35 (lib.rs:416-417).
+    output = aerocapture_rs.nn_forward(str(best_model), [0.0] * 35)
     assert len(output) == 2
     assert all(isinstance(v, float) for v in output)
 ```
