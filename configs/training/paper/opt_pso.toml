@@ -1,0 +1,9 @@
+# Study A -- PSO on the dense_p515 control architecture (compute-matched n_pop=300).
+base = ["../sweep/dense_p515.toml"]
+
+[data]
+neural_network = "training_output/paper_opt_pso/best_model.json"
+results_suffix = ".paper_opt_pso"
+
+[optimizer]
+algorithm = "pso"

@@ -1,0 +1,15 @@
+# Study A -- supervised warm-start then islands (the 2016 divide-and-conquer analogue).
+base = ["../sweep/dense_p515.toml"]
+
+[data]
+neural_network = "training_output/paper_opt_warmstart/best_model.json"
+results_suffix = ".paper_opt_warmstart"
+
+[optimizer]
+algorithm = "islands"
+
+[warm_start]
+supervisor_schemes = ["ftc", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag"]
+n_warm_seeds = 200
+n_epochs = 10
+bptt_length = 32
