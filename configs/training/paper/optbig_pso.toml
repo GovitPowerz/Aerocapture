@@ -1,0 +1,9 @@
+# Study A (big net) -- PSO on dense_p3998 (~4000 params, compute-matched n_pop=300).
+base = ["../sweep/dense_p3998.toml"]
+
+[data]
+neural_network = "training_output/paper_optbig_pso/best_model.json"
+results_suffix = ".paper_optbig_pso"
+
+[optimizer]
+algorithm = "pso"
