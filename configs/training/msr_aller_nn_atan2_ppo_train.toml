@@ -90,11 +90,14 @@ validation_interval_updates = 10    # was 20; ~23 promotion checkpoints instead 
 rollout_steps = 512    # was 2048; 4x fewer serial iterations, GAE windows still long vs ~725-step episodes
 gamma         = 0.997  # was 0.99; 0.99^725=6e-4 buries the terminal, 0.997^725=0.11 keeps it alive
 gae_lambda    = 0.97   # was 0.95; longer-horizon credit for the sparse terminal
-# Entropy control: last run's behavior policy exploded to entropy 8.6 (log_std ~+2.9,
-# action std ~18) with no ceiling, destabilizing training mid-run. Cap log_std and
-# anneal the bonus so the policy stays bounded then sharpens.
-max_log_std          = 0.0   # exploration std <= 1
-entropy_anneal_start = 0.5   # full bonus first half, then linearly -> 0
+# Exploration: the entropy cap fixed the 8.6 runaway, but std=1 (max_log_std=0) was still
+# too noisy -- the deterministic policy oscillated (val capture swung 23-99%) as noisy
+# gradients pushed the mean around, and PPO trailed PSO (DV 223 vs ~118). Tighten it.
+learning_rate        = 1.0e-4  # was 3e-4; less overshoot in the fine-tuning regime
+initial_log_std      = -1.0    # start at the cap (std 0.37)
+max_log_std          = -1.0    # was 0.0; exploration std <= 0.37 -> cleaner gradients, stabler mean
+entropy_coef         = 0.001   # was 0.01; stop the bonus pinning log_std at the cap
+entropy_anneal_start = 0.5     # anneal the (already small) bonus over the back half
 
 [rl.reward]
 # DV-inferred potential. Replaces the orbital-tracking proxy terms; keeps the
@@ -107,10 +110,13 @@ entropy_anneal_start = 0.5   # full bonus first half, then linearly -> 0
 # failure terminal (~3k-20k, which drives don't-crash). Sweep [0.03, 0.3]; return
 # normalization scales the summed stream but NOT the dense-vs-terminal ratio.
 potential   = "dv"
-dv1_weight  = 0.1
-dv2_weight  = 0.1
-dv3_weight  = 0.1
-constraint_weight = 0.2
+dv1_weight  = 1
+dv2_weight  = 1
+dv3_weight  = 1
+# 0.2 made PPO leave ~20 kW/m^2 of corridor unused (heat flux p95 171 vs PSO/islands 192,
+# both < 200 limit), capturing conservatively and paying ~80 m/s DV. Let PPO use the
+# corridor; the terminal compute_cost still hard-guards real violations.
+constraint_weight = 0.05
 
 # Terminal cost transform. common.toml ships "cubed" (tail-spreading for the rank-free
 # GA, where only argmin matters so monotonic transforms are free). For PPO the terminal
@@ -120,6 +126,12 @@ constraint_weight = 0.2
 [cost_function]
 cost_transform = "linear"
 
+# Warm-start (recommended): PSO solves this exact 17-input arch to ~118 m/s DV; PPO from
+# scratch reaches ~223 and oscillates, so start in the good basin and fine-tune. Run with:
+#   --data-neural-network training_output/neural_network_atan2_best/best_model.json
+# (training_output/neural_network_islands is NOT compatible: 18-input mask, 18->32->16 arch,
+# and it lacks the predicted-DV inputs 32-34.) The tight exploration + low LR above limit
+# how much the cold critic/normalizers perturb the warm policy in the first updates.
 [data]
 neural_network = "training_output/neural_network_atan2_rl/best_model.json"
 results_suffix = ".train_nn_atan2_rl"
