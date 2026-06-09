@@ -251,3 +251,41 @@ def ppo_update_bptt(
     result = {k: float(np.mean(v)) for k, v in metrics_acc.items()}
     result["epochs_run"] = float(epochs_run)
     return result
+
+
+def critic_warmup_update(
+    value: ValueNetwork,
+    optim: torch.optim.Optimizer,
+    buf: RolloutBuffer,
+    returns: npt.NDArray[np.float32],
+    *,
+    update_epochs: int,
+    minibatches: int,
+    obs_norm: ObsNormalizer | None,
+    rng: np.random.Generator,
+) -> float:
+    """Value-only update: fit the critic to ``returns`` with the policy frozen.
+
+    Used on warm-start to settle the critic (and the return normalizer, which warms during
+    the rollout collection preceding this) before any policy update, so the first PPO steps
+    see meaningful advantages instead of a random critic's noise -- which otherwise unlearns
+    the warm-started policy. The policy is absent from the loss, so the shared policy+value
+    Adam updates only the value parameters. Returns the final minibatch MSE.
+    """
+    obs = buf.obs.reshape(-1, buf.obs_dim)
+    if obs_norm is not None:
+        obs = obs_norm.normalize(obs)
+    obs_t = torch.from_numpy(obs).float()
+    ret_t = torch.from_numpy(returns.reshape(-1).astype(np.float32)).float()
+    idx = np.arange(obs_t.shape[0])
+    last = 0.0
+    for _ in range(update_epochs):
+        rng.shuffle(idx)
+        for mb in np.array_split(idx, minibatches):
+            mb_t = torch.from_numpy(mb)
+            optim.zero_grad()
+            loss = 0.5 * ((value(obs_t[mb_t]).reshape(-1) - ret_t[mb_t]) ** 2).mean()
+            loss.backward()
+            optim.step()
+            last = float(loss.item())
+    return last

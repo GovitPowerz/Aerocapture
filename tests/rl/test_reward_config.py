@@ -37,6 +37,7 @@ def test_atan2_rl_config_loads() -> None:
     assert cfg.reward.dv3_weight == cfg.reward.dv1_weight
     # n_envs: leaf overrides rl_common's 64 for throughput.
     assert cfg.n_envs == 256
+    assert cfg.reward.normalize_obs is False  # warm-start fix: redundant ObsNormalizer disabled
     input_mask, architecture, input_dim = _parse_network_config(cfg)
     assert len(input_mask) == 17
     assert input_dim == 17

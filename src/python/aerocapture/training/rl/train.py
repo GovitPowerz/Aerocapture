@@ -33,7 +33,7 @@ from aerocapture.training.rl.normalizers import ObsNormalizer, ReturnNormalizer
 from aerocapture.training.rl.policy import GaussianPolicy, V2Policy, ValueNetwork
 from aerocapture.training.rl.policy import np_state_to_torch as _np_state_to_torch
 from aerocapture.training.rl.policy import torch_state_to_np as _torch_state_to_np
-from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, ppo_update_bptt
+from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, critic_warmup_update, ppo_update_bptt
 from aerocapture.training.rl.rewards import StepRewardCalculator, compute_terminal_cost
 from aerocapture.training.rl.sac import SACAgent
 
@@ -179,6 +179,26 @@ def _linear_anneal(base: float, frac_done: float, anneal_start: float) -> float:
     if frac_done <= anneal_start:
         return base
     return base * max((1.0 - frac_done) / (1.0 - anneal_start), 0.0)
+
+
+def _compute_advantages_returns(
+    buf: RolloutBuffer, next_values: npt.NDArray[np.float32], cfg: RLConfig
+) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+    """Per-env GAE over the rollout buffer -> (advantages, returns)."""
+    advantages = np.zeros_like(buf.rewards)
+    returns = np.zeros_like(buf.rewards)
+    for e in range(cfg.n_envs):
+        adv, ret = compute_gae(
+            buf.rewards[:, e],
+            buf.values[:, e],
+            next_values[:, e],
+            buf.dones[:, e],
+            gamma=cfg.ppo.gamma,
+            lam=cfg.ppo.gae_lambda,
+        )
+        advantages[:, e] = adv
+        returns[:, e] = ret
+    return advantages, returns
 
 
 def _build_shaper_and_norms(
@@ -738,6 +758,42 @@ def _run_ppo(
     episodic_captures: list[bool] = []
     start_time = time.time()
 
+    # Critic warmup (warm-start only): fit the value net + settle the return normalizer to
+    # the warm policy's returns BEFORE any policy update, so the first PPO steps don't see a
+    # random critic's garbage advantages (which otherwise unlearn the warm-started policy).
+    # The policy stays frozen (value-only loss). Skipped for from-scratch runs.
+    if warmstart_json is not None and cfg.ppo.critic_warmup_updates > 0:
+        print(f"Critic warmup: {cfg.ppo.critic_warmup_updates} value-only update(s)", file=sys.stderr)
+        for _ in range(cfg.ppo.critic_warmup_updates):
+            obs, aux_cur, steps = collect_rollout(
+                env,
+                policy,
+                value,
+                buf,
+                next_values,
+                obs,
+                aux_cur,
+                obs_norm=obs_norm,
+                ret_norm=ret_norm,
+                step_calc=step_calc,
+                cfg=cfg,
+                episodic_returns=episodic_returns,
+                episodic_dvs=episodic_dvs,
+                episodic_captures=episodic_captures,
+            )
+            env_steps += steps
+            _, warmup_returns = _compute_advantages_returns(buf, next_values, cfg)
+            critic_warmup_update(
+                value,
+                optim,
+                buf,
+                warmup_returns,
+                update_epochs=cfg.ppo.update_epochs,
+                minibatches=cfg.ppo.minibatches,
+                obs_norm=obs_norm,
+                rng=rl_rng,
+            )
+
     while env_steps < cfg.total_env_steps and not interrupted["v"]:
         obs, aux_cur, steps = collect_rollout(
             env,
@@ -757,19 +813,7 @@ def _run_ppo(
         )
         env_steps += steps
 
-        advantages = np.zeros_like(buf.rewards)
-        returns = np.zeros_like(buf.rewards)
-        for e in range(cfg.n_envs):
-            adv, ret = compute_gae(
-                buf.rewards[:, e],
-                buf.values[:, e],
-                next_values[:, e],
-                buf.dones[:, e],
-                gamma=cfg.ppo.gamma,
-                lam=cfg.ppo.gae_lambda,
-            )
-            advantages[:, e] = adv
-            returns[:, e] = ret
+        advantages, returns = _compute_advantages_returns(buf, next_values, cfg)
 
         frac_done = env_steps / cfg.total_env_steps
         lr = _linear_anneal(cfg.ppo.learning_rate, frac_done, cfg.ppo.lr_anneal_start)

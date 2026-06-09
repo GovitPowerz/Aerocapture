@@ -98,6 +98,8 @@ initial_log_std      = -1.0    # start at the cap (std 0.37)
 max_log_std          = -1.0    # was 0.0; exploration std <= 0.37 -> cleaner gradients, stabler mean
 entropy_coef         = 0.001   # was 0.01; stop the bonus pinning log_std at the cap
 entropy_anneal_start = 0.5     # anneal the (already small) bonus over the back half
+critic_warmup_updates = 10     # warm-start only: value-only updates first so the cold
+                               # critic doesn't unlearn the warm policy (from-scratch ignores)
 
 [rl.reward]
 # DV-inferred potential. Replaces the orbital-tracking proxy terms; keeps the
@@ -117,6 +119,11 @@ dv3_weight  = 1
 # both < 200 limit), capturing conservatively and paying ~80 m/s DV. Let PPO use the
 # corridor; the terminal compute_cost still hard-guards real violations.
 constraint_weight = 0.05
+# Warm-start fix: the PSO model already consumes build_nn_input's baked [network.normalization];
+# the running ObsNormalizer double-normalizes and shifts inputs off what the warm policy was
+# trained on (warm-start train capture collapsed to 0% in rollouts -> the policy got unlearned).
+# Disable it -- inputs are already normalized, so from-scratch is unaffected.
+normalize_obs = false
 
 # Terminal cost transform. common.toml ships "cubed" (tail-spreading for the rank-free
 # GA, where only argmin matters so monotonic transforms are free). For PPO the terminal

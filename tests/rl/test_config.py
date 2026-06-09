@@ -116,3 +116,11 @@ def test_ppo_overrides_max_log_std_and_entropy_anneal(fixture_toml: Path) -> Non
     cfg = RLConfig.from_toml(fixture_toml, ppo_overrides={"max_log_std": 0.0, "entropy_anneal_start": 0.5})
     assert cfg.ppo.max_log_std == 0.0
     assert cfg.ppo.entropy_anneal_start == 0.5
+
+
+def test_ppo_critic_warmup_default_and_override(fixture_toml: Path) -> None:
+    from aerocapture.training.rl.config import PPOConfig
+
+    assert PPOConfig().critic_warmup_updates == 0  # off by default (from-scratch)
+    cfg = RLConfig.from_toml(fixture_toml, ppo_overrides={"critic_warmup_updates": 10})
+    assert cfg.ppo.critic_warmup_updates == 10

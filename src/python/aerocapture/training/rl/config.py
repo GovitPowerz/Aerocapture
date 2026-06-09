@@ -58,6 +58,9 @@ class PPOConfig:
     # Early-stop the update epoch when mean approx_kl exceeds this threshold.
     # None disables early-stop.
     target_kl: float | None = 0.03
+    # Warm-start only: value-only updates before the policy moves, so the cold critic's
+    # noise can't unlearn the warm-started policy. 0 = off (from-scratch ignores it).
+    critic_warmup_updates: int = 0
 
 
 @dataclass
