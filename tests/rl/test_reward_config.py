@@ -31,11 +31,12 @@ def test_atan2_rl_config_loads() -> None:
     cfg = RLConfig.from_toml(Path("configs/training/msr_aller_nn_atan2_ppo_train.toml"))
     assert cfg.algorithm == "ppo"
     assert cfg.reward.potential == "dv"
-    assert cfg.reward.dv1_weight == 1.0
-    assert cfg.reward.dv2_weight == 1.0
-    assert cfg.reward.dv3_weight == 1.0
-    # n_envs / steps inherited from rl_common.toml
-    assert cfg.n_envs == 64
+    # dv weights are a tuning knob; assert they parse as positive + uniform, not a pinned value.
+    assert cfg.reward.dv1_weight > 0
+    assert cfg.reward.dv2_weight == cfg.reward.dv1_weight
+    assert cfg.reward.dv3_weight == cfg.reward.dv1_weight
+    # n_envs: leaf overrides rl_common's 64 for throughput.
+    assert cfg.n_envs == 256
     input_mask, architecture, input_dim = _parse_network_config(cfg)
     assert len(input_mask) == 17
     assert input_dim == 17

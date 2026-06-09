@@ -139,6 +139,7 @@ def _generate_seed_model(cfg: RLConfig, path: Path) -> None:
         input_mask=input_mask,
         initial_log_std=cfg.ppo.initial_log_std,
         min_log_std=cfg.ppo.min_log_std,
+        max_log_std=cfg.ppo.max_log_std,
     )
     export_v2_policy_to_json(policy, str(path), obs_normalizer=None)
 
@@ -167,6 +168,17 @@ def _describe_rl_architecture(cfg: RLConfig) -> None:
 
     print(describe_architecture(architecture), file=sys.stderr)
     print(f"  input_mask: {len(input_mask)} indices", file=sys.stderr)
+
+
+def _linear_anneal(base: float, frac_done: float, anneal_start: float) -> float:
+    """Linearly anneal `base` toward 0 over [anneal_start, 1.0] of training progress.
+
+    Returns `base` unchanged while `frac_done <= anneal_start`, so `anneal_start = 1.0`
+    disables annealing (backward-compatible default; shared by LR and entropy_coef).
+    """
+    if frac_done <= anneal_start:
+        return base
+    return base * max((1.0 - frac_done) / (1.0 - anneal_start), 0.0)
 
 
 def _build_shaper_and_norms(
@@ -623,6 +635,7 @@ def _run_ppo(
         input_mask=input_mask,
         initial_log_std=cfg.ppo.initial_log_std,
         min_log_std=cfg.ppo.min_log_std,
+        max_log_std=cfg.ppo.max_log_std,
     )
     if warmstart_json is not None:
         from aerocapture.training.model_io import load_policy_from_json
@@ -759,10 +772,12 @@ def _run_ppo(
             returns[:, e] = ret
 
         frac_done = env_steps / cfg.total_env_steps
-        anneal_start = cfg.ppo.lr_anneal_start
-        lr = cfg.ppo.learning_rate if frac_done <= anneal_start else cfg.ppo.learning_rate * max((1.0 - frac_done) / (1.0 - anneal_start), 0.0)
+        lr = _linear_anneal(cfg.ppo.learning_rate, frac_done, cfg.ppo.lr_anneal_start)
         for pg in optim.param_groups:
             pg["lr"] = lr
+        # Anneal the entropy bonus the same way. With max_log_std capping exploration,
+        # decaying entropy_coef late lets the behavior policy sharpen for fine convergence.
+        ent_coef = _linear_anneal(cfg.ppo.entropy_coef, frac_done, cfg.ppo.entropy_anneal_start)
 
         metrics = ppo_update_bptt(
             policy,
@@ -775,7 +790,7 @@ def _run_ppo(
             clip_range=cfg.ppo.clip_range,
             update_epochs=cfg.ppo.update_epochs,
             minibatches=cfg.ppo.minibatches,
-            entropy_coef=cfg.ppo.entropy_coef,
+            entropy_coef=ent_coef,
             value_coef=cfg.ppo.value_coef,
             max_grad_norm=cfg.ppo.max_grad_norm,
             target_kl=cfg.ppo.target_kl,
@@ -812,6 +827,7 @@ def _run_ppo(
             "clip_frac": metrics["clip_frac"],
             "epochs_run": metrics.get("epochs_run", float(cfg.ppo.update_epochs)),
             "learning_rate": lr,
+            "entropy_coef": ent_coef,
             "val_attempted": val_attempted,
             "val_promoted": val_record.get("val_promoted", False),
             "val_rms_cost": val_record.get("val_rms_cost"),

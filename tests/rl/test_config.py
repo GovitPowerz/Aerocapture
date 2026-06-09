@@ -101,3 +101,18 @@ def test_sac_warmup_steps_dataclass_matches_toml_default() -> None:
     from aerocapture.training.rl.config import SACConfig
 
     assert SACConfig().warmup_steps == 50_000
+
+
+def test_ppo_log_std_ceiling_and_entropy_anneal_defaults() -> None:
+    """max_log_std defaults to a generous safety rail; entropy anneal off by default."""
+    from aerocapture.training.rl.config import PPOConfig
+
+    p = PPOConfig()
+    assert p.max_log_std == 2.0
+    assert p.entropy_anneal_start == 1.0
+
+
+def test_ppo_overrides_max_log_std_and_entropy_anneal(fixture_toml: Path) -> None:
+    cfg = RLConfig.from_toml(fixture_toml, ppo_overrides={"max_log_std": 0.0, "entropy_anneal_start": 0.5})
+    assert cfg.ppo.max_log_std == 0.0
+    assert cfg.ppo.entropy_anneal_start == 0.5

@@ -52,7 +52,9 @@ class PPOConfig:
     max_grad_norm: float = 0.5
     initial_log_std: float = -0.5
     min_log_std: float = -2.0
+    max_log_std: float = 2.0  # ceiling on exploration log_std; prevents entropy-bonus runaway
     lr_anneal_start: float = 0.7
+    entropy_anneal_start: float = 1.0  # frac of training after which entropy_coef linearly anneals to 0 (1.0 = off)
     # Early-stop the update epoch when mean approx_kl exceeds this threshold.
     # None disables early-stop.
     target_kl: float | None = 0.03

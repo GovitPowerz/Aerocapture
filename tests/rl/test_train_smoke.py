@@ -105,3 +105,14 @@ def test_ppo_smoke_produces_artifacts(tmp_path: Path, monkeypatch: pytest.Monkey
     assert "architecture" in doc
     assert "weights" in doc
     assert "output_interpretation" not in doc
+
+
+def test_linear_anneal_schedule() -> None:
+    """_linear_anneal: unchanged before start, linear to 0 over [start, 1], off at start=1."""
+    from aerocapture.training.rl.train import _linear_anneal
+
+    assert _linear_anneal(0.01, 0.5, 1.0) == 0.01  # anneal_start=1.0 disables
+    assert _linear_anneal(3e-4, 0.4, 0.5) == 3e-4  # before start: unchanged
+    assert _linear_anneal(1.0, 0.5, 0.5) == pytest.approx(1.0)  # at start: full
+    assert _linear_anneal(1.0, 0.75, 0.5) == pytest.approx(0.5)  # halfway: half
+    assert _linear_anneal(1.0, 1.0, 0.5) == pytest.approx(0.0)  # end: zero

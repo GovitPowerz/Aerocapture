@@ -45,3 +45,17 @@ def test_gaussian_policy_deterministic_bank_angle() -> None:
     assert bank.shape == (4,)
     assert torch.all(bank >= -torch.pi)
     assert torch.all(bank <= torch.pi)
+
+
+def test_log_std_clamped_to_max_and_min() -> None:
+    """log_std clamps to [min_log_std, max_log_std]. The ceiling prevents the
+    entropy-bonus runaway seen in the last PPO run (log_std drifted to ~+2.9,
+    action std ~18). V2Policy shares the identical clamp (covered by the PPO smoke).
+    """
+    policy = GaussianPolicy(input_dim=16, layer_sizes=[8, 2], activations=["tanh", "linear"], min_log_std=-2.0, max_log_std=0.0)
+    with torch.no_grad():
+        policy.log_std.copy_(torch.tensor([5.0, -9.0]))  # above ceiling, below floor
+    _, log_std = policy.forward_mean_logstd(torch.randn(3, 16))
+    log_std = log_std.detach()
+    assert float(log_std[0]) == pytest.approx(0.0)  # 5.0 -> max 0.0
+    assert float(log_std[1]) == pytest.approx(-2.0)  # -9.0 -> min -2.0

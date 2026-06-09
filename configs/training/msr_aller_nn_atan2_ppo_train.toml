@@ -90,6 +90,11 @@ validation_interval_updates = 10    # was 20; ~23 promotion checkpoints instead 
 rollout_steps = 512    # was 2048; 4x fewer serial iterations, GAE windows still long vs ~725-step episodes
 gamma         = 0.997  # was 0.99; 0.99^725=6e-4 buries the terminal, 0.997^725=0.11 keeps it alive
 gae_lambda    = 0.97   # was 0.95; longer-horizon credit for the sparse terminal
+# Entropy control: last run's behavior policy exploded to entropy 8.6 (log_std ~+2.9,
+# action std ~18) with no ceiling, destabilizing training mid-run. Cap log_std and
+# anneal the bonus so the policy stays bounded then sharpens.
+max_log_std          = 0.0   # exploration std <= 1
+entropy_anneal_start = 0.5   # full bonus first half, then linearly -> 0
 
 [rl.reward]
 # DV-inferred potential. Replaces the orbital-tracking proxy terms; keeps the
