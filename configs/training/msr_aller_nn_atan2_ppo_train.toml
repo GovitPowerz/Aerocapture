@@ -90,14 +90,19 @@ validation_interval_updates = 10    # was 20; ~23 promotion checkpoints instead 
 rollout_steps = 512    # was 2048; 4x fewer serial iterations, GAE windows still long vs ~725-step episodes
 gamma         = 0.997  # was 0.99; 0.99^725=6e-4 buries the terminal, 0.997^725=0.11 keeps it alive
 gae_lambda    = 0.97   # was 0.95; longer-horizon credit for the sparse terminal
-# Exploration: the entropy cap fixed the 8.6 runaway, but std=1 (max_log_std=0) was still
-# too noisy -- the deterministic policy oscillated (val capture swung 23-99%) as noisy
-# gradients pushed the mean around, and PPO trailed PSO (DV 223 vs ~118). Tighten it.
-learning_rate        = 1.0e-4  # was 3e-4; less overshoot in the fine-tuning regime
-initial_log_std      = -1.0    # start at the cap (std 0.37)
-max_log_std          = -1.0    # was 0.0; exploration std <= 0.37 -> cleaner gradients, stabler mean
-entropy_coef         = 0.001   # was 0.01; stop the bonus pinning log_std at the cap
-entropy_anneal_start = 0.5     # anneal the (already small) bonus over the back half
+# Exploration (warm-start tuned): PPO optimizes the STOCHASTIC policy's reward, so its
+# optimum differs from PSO's deterministic one by an amount that grows with the exploration
+# std. At std 0.37 the warm policy held ~30 updates then drifted off the PSO basin (val
+# 128 -> 1589). Shrink std toward 0 so PPO's optimum collapses onto PSO's and the warm
+# policy stays put. entropy_coef=0 removes the upward pressure; min_log_std=-3 lets the
+# gradient SHARPEN below the -2 cap toward deterministic (std 0.05). NOTE: tuned for
+# warm-start fine-tuning -- from-scratch explores less here (loosen via --min-log-std).
+learning_rate        = 1.0e-4  # less overshoot in the fine-tuning regime
+initial_log_std      = -2.0    # start tight (std 0.135)
+min_log_std          = -3.0    # was -2.0; floor std 0.05 -- room to sharpen toward deterministic
+max_log_std          = -2.0    # was -1.0; cap std at 0.135 (was 0.37)
+entropy_coef         = 0.0     # was 0.001; no upward pressure -> the gradient sharpens log_std
+entropy_anneal_start = 0.0     # moot at entropy_coef=0; kept explicit
 critic_warmup_updates = 10     # warm-start only: value-only updates first so the cold
                                # critic doesn't unlearn the warm policy (from-scratch ignores)
 
