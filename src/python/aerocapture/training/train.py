@@ -2116,6 +2116,7 @@ if __name__ == "__main__":
     parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
     parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds (default: no limit)")
     parser.add_argument("--algorithm", type=str, default=None, help="Optimization algorithm: ga, cma_es, de, pso (default: from TOML [optimizer])")
+    parser.add_argument("--output-dir", type=str, default=None, help="Override the training output directory (default: derived from the scheme)")
     args = parser.parse_args()
 
     cfg = TrainingConfig()
@@ -2269,6 +2270,9 @@ if __name__ == "__main__":
         cfg.save_dir = str(nn_parent)
     else:
         cfg.save_dir = f"training_output/{cfg.guidance_type}"
+
+    if args.output_dir:
+        cfg.save_dir = args.output_dir
 
     if args.resume:
         cfg.save_dir = args.resume
