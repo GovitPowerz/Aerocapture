@@ -45,31 +45,48 @@ Ordering is the recommended scientific order; §5-8 carry the user's 5 requested
 
 I generate configs + a runner script; the user executes the training; I extract numbers and write.
 
-### Study A — Optimizer comparison (control architecture = `dense_p515`, n_gen=2000)
+### Study A — Optimizer comparison (TWO control sizes, n_gen=2000)
 
-| Run | Optimizer | n_pop | Status |
-|---|---|---|---|
-| A1 | PSO | 300 | new |
-| A2 | GA | 300 | new |
-| A3 | DE | 300 | new |
-| A4 | CMA-ES | 300 (native; `_CMAES_MAX_PARAMS = 20000`, 515 < 20000) | new |
-| A5 | islands (PSO/GA/DE) | 100 × 3 islands | **reuse** `sweep_dense_p515` |
-| A6 | warm-start + islands | 100 × 3 | new |
-| A7 | RL / PPO | step budget (see risks) | new on dense arch (fallback: cite existing GRU-PPO with caveat) |
+**Amended 2026-06-09:** the small-net comparison did NOT separate optimizers (islands ≈ CMA-ES ≈ GA — see §5.1), so the study now spans two architecture sizes to test the local-minima hypothesis: optimizers tie on the easy small net; the big net is the discriminator.
 
-Metrics per run: best validation RMS cost (training-convergence) + deployed MC final-eval (capture %, ΔV mean/p50/p95/max, peak heat flux/g-load, bank consumption) on the reserved final-eval seed pool.
+**A-small (`dense_p515`, 515 params):**
+
+| Optimizer | n_pop | Status (dir) |
+|---|---|---|
+| PSO | 300 | config ready (`paper_opt_pso`) |
+| GA | 300 | done (`paper_opt_ga_half`) |
+| DE | 300 | done (`paper_opt_de`) |
+| CMA-ES | 300 (native) | done (`paper_opt_cmaes`) |
+| islands | 100 × 3 | reuse `sweep_dense_p515` |
+| warm-start + islands | 100 × 3 | done (`paper_opt_warmstart`) |
+| RL / PPO | step budget | config ready (`paper_opt_rl`) |
+
+**A-big (`dense_p3998`, ~4000 params) — the discriminator:**
+
+| Optimizer | n_pop | Status (dir) |
+|---|---|---|
+| PSO | 300 | new (`paper_optbig_pso`) |
+| GA | 300 | new (`paper_optbig_ga`) |
+| DE | 300 | new (`paper_optbig_de`) |
+| CMA-ES | 300 (slow: O(n²) covariance at ~4000 params — its struggle is itself a finding) | new (`paper_optbig_cmaes`) |
+| islands | 100 × 3 | reuse `sweep_dense_p3998` |
+| warm-start + islands | 100 × 3 | new (`paper_optbig_warmstart`) |
+
+Metrics per run: best validation RMS cost + deployed MC final-eval (capture %, ΔV mean/p50/p95/max, peak heat flux/g-load, bank consumption).
+
+### Study A2 — Classical schemes retrained with islands (fairness)
+
+All committed classical schemes were **GA-trained** (`common.toml` default `algorithm = "ga"`); the NN sweep was islands-trained. To isolate the guidance-scheme effect from the optimizer, retrain PiecewiseConstant, FTC, FNPAG, PredGuid, EnergyController, EqGlide with **islands**, deploying to `training_output/<scheme>_islands/` via the new `--output-dir` flag (`--algorithm islands --output-dir …`). The shared reference trajectory (`data/reference_trajectory/msr_aller.dat`) is a fixed committed file consumed by every scheme, so retraining classical does NOT regenerate it — no cascade, the NN sweep stays valid. Keeping both GA and islands classical also yields a GA-vs-islands sub-result (low-dim schemes barely move → reinforces "optimizer matters most for the big NN").
 
 ### Study B — Output parameterization (control = `dense_p515` + islands)
 
 | Run | Head | output_size | Status |
 |---|---|---|---|
-| B1 | 2D atan2 | 2 | **reuse** `sweep_dense_p515` |
-| B2 | 1D scaled_pi | 1 (tanh) | new |
-| B3 | 1D delta | 1 (tanh) | new |
+| B1 | 2D atan2 | 2 | reuse `sweep_dense_p515` |
+| B2 | 1D scaled_pi | 1 (tanh) | **done** (`paper_out_scaledpi`) |
+| B3 | 1D delta | 1 (tanh) | **done** (`paper_out_delta`) |
 
-(Last layer changes 9→2 to 9→1 for B2/B3, ~506 params; note the minor count difference.)
-
-**~6 new training runs total.** Everything else reuses committed data.
+**Result (done, fair — all dense + islands):** atan2 **119.6 / 131.1 / 164.5** > scaled_pi 127.3 / 149.6 / 197.6 > delta 134.4 / 156.3 / 225.2 (mean/p95/max). 2D atan2 wins decisively. (Last layer 9→1 for B2/B3, ~506 params; the minor count difference does not affect the ordering.)
 
 ---
 
@@ -82,6 +99,18 @@ Islands runs 3 heterogeneous sub-populations: per-island `n_pop` × 3 = total ev
 ## 5. Data already extracted from committed runs (reference)
 
 Capture = `ifinal==3 & eccentricity<1.0`; ΔV = `dv_total_m_s` over captured sims; n=1000 unless noted. Format: **mean / p50 / p95 / max** (m/s), capture %.
+
+### 5.1 Small-net optimizer comparison (dense_p515) — and the honest caveat
+
+| Optimizer | mean | p95 | max | best-val |
+|---|---|---|---|---|
+| islands | 119.6 | 131.1 | 164.5 | 1.734M |
+| CMA-ES | 119.8 | **130.0** | **151.5** | 1.753M |
+| DE | 124.5 | 138.0 | 228.7 | 1.990M |
+| warm-start | 132.4 | 152.7 | 182.4 | 2.472M |
+| GA | (gen 1437/2000 in progress) | | | |
+
+> **Caveat (must survive into the paper):** on the small net, islands is NOT the winner — CMA-ES ties it on mean and **beats it on p95 and max**, and warm-start *hurt*. The "islands is best" claim is therefore NOT supported at small scale; the landscape is too easy to separate optimizers. The big-net (A-big) runs are the real test. Do **not** pre-commit the narrative to "islands wins" — if the big net also clusters, the honest finding is "optimizer choice is secondary to architecture and inputs; islands is the most robust default across architectures." The paper's "islands improved training vs 2009" framing refers to the modern pipeline (islands + warm-start + adaptive seeds + larger budget) vs the 2009 basic GA, not a like-for-like small-net optimizer win.
 
 ### Classical
 | Scheme | mean | p50 | p95 | max | cap% | n |
@@ -186,15 +215,18 @@ Compile via `typst compile articles/paper/main.typ`. Degrade gracefully if a fig
 
 - **CMA-ES** runs natively up to 20000 params (`_CMAES_MAX_PARAMS = 20000`); 515 is fine. *(CLAUDE.md's "fallback >200" note is stale — fix later, out of scope here.)*
 - **Islands** `n_pop` is per-island × 3; compute-matched single-optimizers use `n_pop=300`.
-- **Control architecture** = `dense_p515` (17→18→9→2, swish/asinh; atan2 pipeline base: 17-input mask, calibrated normalization, full_neural, scaffolding=live, command shaping + navigation).
+- **Control architectures** = `dense_p515` (17→18→9→2, 515 params) AND `dense_p3998` (17→72→36→2, ~4000 params) — two sizes for the optimizer study; both on the atan2 pipeline base (17-input mask, calibrated normalization, full_neural, scaffolding=live, command shaping + navigation).
+- **`--output-dir`** flag added to `train.py` (commit `16d5056`) so classical-islands retrains deploy to `training_output/<scheme>_islands/` without overwriting the GA-trained committed dirs. Precedence: `--resume` > `--output-dir` > derived.
 - **Capture definition** = `ifinal==3 & eccentricity<1.0`; ΔV = `dv_total_m_s`.
 - **Scope** = comprehensive (includes output-param, input ablation, pruning, quantization).
 - **Paper home** = `articles/paper/`.
 
 ## 10. Risks & open items
 
-- **EqGlide** — *resolved:* user will run a deploy/eval; include EqGlide in the classical table.
-- **RL-on-dense (A7)** — *resolved:* user will run RL on the dense arch; keep A7 (no GRU-PPO fallback needed).
+- **EqGlide** — *resolved:* now retrained with islands as part of the Study A2 classical-islands batch (`run_paper_experiments2.sh`).
+- **Classical fairness (Study A2)** — *added 2026-06-09:* all committed classical were GA-trained; retrain all 6 with islands (new `_islands` dirs). The shared reference trajectory is a fixed committed file, so no cascade and the NN sweep stays valid.
+- **Islands "best" claim** — *at risk:* small-net data shows islands NOT clearly ahead (CMA-ES ties/beats on tails; see §5.1). The big-net runs decide the narrative; report whatever they show, and frame "improved vs 2009" as the modern *pipeline* vs the 2009 GA.
+- **RL-on-dense** — *resolved:* config fixed (19-input mask for the PBRS shaper) and validated; user will run it.
 - **Compute budget** — *resolved:* user approves scaling `n_gen` down uniformly across Study A if wall-clock is prohibitive (keeps the comparison fair); note any reduction in the paper.
 - **General:** if any paragraph (RL or otherwise) needs additional training/simulation runs during drafting, ask the user — they will run them.
 - **Output-param param-count:** B2/B3 are ~506 vs B1's 515 — note the minor difference; it does not affect the conclusion.
