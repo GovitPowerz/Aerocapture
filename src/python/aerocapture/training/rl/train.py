@@ -320,6 +320,13 @@ def main() -> None:
     )
     args = ap.parse_args()
 
+    # Tiny policies (sub-1k params) gain nothing from torch's intra-op thread pool
+    # and pay per-op launch overhead on every one of the ~rollout_steps forwards;
+    # pin torch to 1 thread so the env's Rayon parallelism (n_envs across cores)
+    # owns the CPU. Biggest single throughput win for this CPU-bound,
+    # step-synchronous PPO loop.
+    torch.set_num_threads(1)
+
     overrides: dict[str, Any] = {}
     if args.algorithm:
         overrides["algorithm"] = args.algorithm

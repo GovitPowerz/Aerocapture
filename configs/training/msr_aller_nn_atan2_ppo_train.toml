@@ -77,14 +77,43 @@ input_size = 12
 output_size = 2
 activation = "asinh"
 
+# ---- Throughput (multicore) overrides on rl_common.toml ----
+# Step-synchronous PPO only parallelizes inside env.step (Rayon over n_envs); the
+# rest of the loop is serial. More envs = bigger Rayon bursts + fewer serial Python
+# iterations per rollout. n_envs*rollout_steps = 256*512 = 131072 (batch unchanged).
+[rl]
+n_envs                      = 256   # was 64
+total_env_steps             = 30_000_000  # was 15M; throughput buys ~229 updates @ 131k batch. --total-steps overrides.
+validation_interval_updates = 10    # was 20; ~23 promotion checkpoints instead of ~5
+
+[rl.ppo]
+rollout_steps = 512    # was 2048; 4x fewer serial iterations, GAE windows still long vs ~725-step episodes
+gamma         = 0.997  # was 0.99; 0.99^725=6e-4 buries the terminal, 0.997^725=0.11 keeps it alive
+gae_lambda    = 0.97   # was 0.95; longer-horizon credit for the sparse terminal
+
 [rl.reward]
 # DV-inferred potential. Replaces the orbital-tracking proxy terms; keeps the
 # thermal-proximity term and the terminal compute_cost anchor.
+# Weights retuned for the linear terminal below. Under the prior cubed transform a
+# 150 m/s capture scored ~150^3=3.4M, so dv*_weight=1000 was needed to register;
+# linear drops the terminal ~2e4x (to ~150 m/s), so the dense weights drop in step.
+# At 0.1 the dense shaping (~w*dv(0) ~ O(100)) is on the scale of a capture terminal
+# (it carries the capture-quality gradient -- its job) while staying far below the
+# failure terminal (~3k-20k, which drives don't-crash). Sweep [0.03, 0.3]; return
+# normalization scales the summed stream but NOT the dense-vs-terminal ratio.
 potential   = "dv"
-dv1_weight  = 1.0
-dv2_weight  = 1.0
-dv3_weight  = 1.0
+dv1_weight  = 0.1
+dv2_weight  = 0.1
+dv3_weight  = 0.1
 constraint_weight = 0.2
+
+# Terminal cost transform. common.toml ships "cubed" (tail-spreading for the rank-free
+# GA, where only argmin matters so monotonic transforms are free). For PPO the terminal
+# MAGNITUDE enters the return: cubed (-3.4M for a 150 m/s capture) swamps the dense
+# shaping after return normalization. Linear keeps the terminal ~ -dv (interpretable,
+# strong capture-quality gradient). Try "log" if the failure tail destabilizes early.
+[cost_function]
+cost_transform = "linear"
 
 [data]
 neural_network = "training_output/neural_network_atan2_rl/best_model.json"
