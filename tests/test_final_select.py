@@ -135,6 +135,10 @@ class TestSelectionRule:
         # ordering contract: known candidates first, then fresh in candidate order
         assert [e["provenance"] for e in sel.candidate_rms] == ["champion", "last_gen[0]"]
 
+    def test_candidates_provenances_length_mismatch_raises(self) -> None:
+        with pytest.raises(ValueError, match="length mismatch"):
+            select_final_individual(_MockProblem(), np.vstack([np.full(4, 0.4)]), ["a", "b"], [], SEEDS)
+
 
 class TestSidecarAndSummary:
     def _result(self) -> SelectionResult:
@@ -153,6 +157,7 @@ class TestSidecarAndSummary:
         assert data["validation_n_sims"] == 4
         assert data["n_candidates"] == 1
         assert isinstance(data["candidate_rms"], list) and len(data["candidate_rms"]) == 2
+        assert data["champion_val_rms"] == pytest.approx(_rms(np.full(4, 0.5), SEEDS))
 
     def test_summary_mentions_winner_and_delta(self) -> None:
         sel = self._result()

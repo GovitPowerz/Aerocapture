@@ -52,6 +52,7 @@ class SelectionResult:
     winner_index: int | None  # index into the candidates matrix; None when a known candidate won
     n_candidates: int  # fresh rows offered (pre-dedup)
     n_deduped: int  # fresh rows actually simulated
+    incumbent_val_rms: float | None = None  # best known (champion) val RMS; None when no champion existed
     candidate_rms: list[dict[str, Any]] = field(default_factory=list)  # [{"provenance", "val_rms"}]
 
 
@@ -109,6 +110,7 @@ def select_final_individual(
             winner_index=best_fresh_idx,
             n_candidates=int(candidates.shape[0]),
             n_deduped=n_deduped,
+            incumbent_val_rms=incumbent.val_rms if incumbent is not None else None,
             candidate_rms=records,
         )
     if incumbent is None:
@@ -121,6 +123,7 @@ def select_final_individual(
         winner_index=None,
         n_candidates=int(candidates.shape[0]),
         n_deduped=n_deduped,
+        incumbent_val_rms=incumbent.val_rms,
         candidate_rms=records,
     )
 
@@ -132,6 +135,7 @@ def write_final_selection_json(save_dir: Path, result: SelectionResult, n_val_se
             "val_rms": result.val_rms,
             "promoted": result.promoted,
         },
+        "champion_val_rms": result.incumbent_val_rms,
         "n_candidates": result.n_candidates,
         "n_deduped": result.n_deduped,
         "validation_n_sims": n_val_seeds,

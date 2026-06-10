@@ -704,7 +704,7 @@ Everything `main()` does AFTER line ~2245 is untouched and continues to read `cf
 - [ ] **Step 4.4: Run the tests + behavior spot-check**
 
 Run: `uv run pytest tests/test_train_config_builder.py -q`
-Expected: 3 passed.
+Expected: 4 passed (3 + the post-review warm-start wiring test).
 Then: `uv run python -m aerocapture.training.train configs/training/msr_aller_eqglide_train.toml --help > /dev/null && echo OK`
 Expected: `OK` (main still imports/parses).
 
@@ -1426,7 +1426,7 @@ if __name__ == "__main__":
 - [ ] **Step 8.4: Run tests**
 
 Run: `uv run pytest tests/test_final_select.py -q`
-Expected: all pass (22 total).
+Expected: all pass (24 total) (post-review fixes).
 
 - [ ] **Step 8.5: Lint gate + commit**
 
