@@ -27,13 +27,50 @@ def _sparkline(values: list[float], width: int = 30) -> str:
         return " " * width
     vals = values[-width:]
     lo, hi = min(vals), max(vals)
-    span = hi - lo if hi > lo else 1.0
+    if hi <= lo:
+        return "▄" * len(vals)  # flat series: midline, not blanks
+    span = hi - lo
     return "".join(_SPARK_CHARS[min(int((v - lo) / span * 8), 8)] for v in vals)
 
 
 def _format_cost(value: float) -> str:
     """Format cost in scientific notation with 4 decimals."""
     return f"{value:.4e}"
+
+
+def _cost_histogram(all_costs: list[float], bins: int = 16) -> tuple[str, str]:
+    """Log-binned histogram of a population's costs as (glyphs, dim caption).
+
+    Empty bins render as a middle dot so gaps in the distribution stay
+    visible; non-finite entries (inf/NaN sim failures) are counted in the
+    caption rather than binned.
+    """
+    import math  # noqa: PLC0415
+
+    finite = sorted(c for c in all_costs if math.isfinite(c) and c > 0.0)
+    n_nonfinite = sum(1 for c in all_costs if not math.isfinite(c))
+    inf_suffix = f"  ∞×{n_nonfinite}" if n_nonfinite else ""
+    if not finite:
+        return "", f"no finite costs{inf_suffix}".strip()
+    lo, hi = finite[0], finite[-1]
+    if hi <= lo:
+        return "█" + "·" * (bins - 1), f"{lo:.0e} log{inf_suffix}"
+    log_lo, log_hi = math.log10(lo), math.log10(hi)
+    counts = [0] * bins
+    for c in finite:
+        idx = min(int((math.log10(c) - log_lo) / (log_hi - log_lo) * bins), bins - 1)
+        counts[idx] += 1
+    peak = max(counts)
+    glyphs = "".join("·" if n == 0 else _SPARK_CHARS[max(1, min(int(n / peak * 8), 8))] for n in counts)
+    return glyphs, f"{lo:.0e}→{hi:.0e} log{inf_suffix}"
+
+
+def _rate_and_eta(gen: int, start_gen: int, n_gen: int, elapsed: float) -> tuple[float, float]:
+    """(gens/sec, remaining seconds) — resume-aware, mirrors the islands header math."""
+    rate = (gen - start_gen) / elapsed if elapsed > 0 and gen > start_gen else 0.0
+    remaining_gens = max(n_gen - gen, 0)
+    remaining = remaining_gens / rate if rate > 0 else float("inf")
+    return rate, remaining
 
 
 def _format_validation_summary(summary: dict, indent: str = "  ") -> list[str]:
@@ -264,11 +301,7 @@ class LiveDisplay:
         if self._start_time is None:
             self._start_time = time.monotonic()
         elapsed = time.monotonic() - self._start_time
-        rate = (gen - self._start_gen) / elapsed if elapsed > 0 and gen > self._start_gen else 0.0
-        # Cap the remaining-gen count at 0 so an overshoot resume (gen >
-        # n_gen) doesn't render a negative duration.
-        remaining_gens = max(n_gen - gen, 0)
-        remaining = remaining_gens / rate if rate > 0 else float("inf")
+        rate, remaining = _rate_and_eta(gen, self._start_gen, n_gen, elapsed)
         header_text = f"Gen {gen}/{n_gen}  elapsed {_format_duration(elapsed)}  rate {rate:.2f} gens/s  ETA {_format_duration(remaining)}"
         header = Panel(Text(header_text, style="bold"), title="Islands training", border_style="green")
 
