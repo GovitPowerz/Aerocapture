@@ -31,7 +31,12 @@ class _PerSeedEvaluator(Protocol):
 
 @dataclass
 class KnownCandidate:
-    """A pre-scored candidate (champion); never re-simulated."""
+    """A pre-scored candidate (champion); never re-simulated.
+
+    `provenance` is structured, not just display text: the islands call sites
+    use the grammar "<island>:champion" / "<island>:last_gen[i]" and parse the
+    island name back out via split(":", 1). Island names must not contain ":".
+    """
 
     x: npt.NDArray[np.float64]
     provenance: str
@@ -65,6 +70,8 @@ def select_final_individual(
     validation gate. Fresh rows identical to a known row or to an earlier fresh
     row are deduplicated (never re-simulated).
     """
+    if candidates.shape[0] != len(provenances):
+        raise ValueError(f"candidates/provenances length mismatch: {candidates.shape[0]} != {len(provenances)}")
     records: list[dict[str, Any]] = [{"provenance": k.provenance, "val_rms": k.val_rms} for k in known]
 
     incumbent: KnownCandidate | None = None

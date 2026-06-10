@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 from aerocapture.training.final_select import (
     KnownCandidate,
     SelectionResult,
@@ -107,8 +108,6 @@ class TestSelectionRule:
             def evaluate_individual_per_seed(self, x: np.ndarray, seeds: list[int]) -> np.ndarray:
                 return np.full(len(seeds), np.nan)
 
-        import pytest
-
         with pytest.raises(ValueError, match="no finite candidate"):
             select_final_individual(_NaNProblem(), np.vstack([np.full(4, 0.4)]), ["last_gen[0]"], [], SEEDS)
 
@@ -133,6 +132,8 @@ class TestSelectionRule:
         sel = select_final_individual(problem, cands, ["last_gen[0]"], known, SEEDS)
         provs = {e["provenance"] for e in sel.candidate_rms}
         assert provs == {"champion", "last_gen[0]"}
+        # ordering contract: known candidates first, then fresh in candidate order
+        assert [e["provenance"] for e in sel.candidate_rms] == ["champion", "last_gen[0]"]
 
 
 class TestSidecarAndSummary:
