@@ -294,14 +294,30 @@ class LiveDisplay:
         if detail_src is not None and detail_src.get("validation_summary"):
             summary = detail_src["validation_summary"]
             title = f"Validation ({summary.get('n_sims', 0)} sims \u00b7 g{detail_src['generation']})"
+            # Split the rows: the 4-cell numeric rows (min/p50/p95/max header +
+            # Cost/DV/DV1-3) go into a tight right-aligned Table.grid; the 1-2
+            # cell rows (Cap/Apo/Q/G/HL) render as styled Text lines above/below
+            # so they don't inflate the grid's first numeric column.
+            rows = _validation_summary_rows(summary)
             grid = Table.grid(padding=(0, 2))
             grid.add_column()
             for _ in range(4):
                 grid.add_column(justify="right")
-            for label, cells, row_style in _validation_summary_rows(summary):
-                padded = cells + [""] * (4 - len(cells)) if len(cells) < 4 else cells
-                grid.add_row(*(Text(c, style=row_style or "") for c in [label, *padded]))
-            parts.append(grid)
+            grid_added = False
+            for label, cells, row_style in rows:
+                if len(cells) != 4:
+                    continue
+                grid.add_row(*(Text(c, style=row_style or "") for c in [label, *cells]))
+                grid_added = True
+            for label, cells, row_style in rows:
+                if len(cells) == 4:
+                    if grid_added:
+                        parts.append(grid)
+                        grid_added = False
+                    continue
+                parts.append(Text(f"{label:<5} " + "   ".join(cells), style=row_style or ""))
+            if grid_added:  # no 1-2 cell rows after the grid (degenerate summary)
+                parts.append(grid)
         return Panel(Group(*parts), title=title, border_style="green")
 
     @staticmethod
