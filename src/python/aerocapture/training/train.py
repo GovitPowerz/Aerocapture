@@ -1486,9 +1486,6 @@ def train(
                 )
                 display.update(logger, current_run=0)
 
-                if verbose and (gen + 1) % 5 == 0:
-                    print(f"  Gen {gen + 1}/{config.optimizer.n_gen}: best={best_overall_cost:.4e} ({gen_elapsed_s:.1f}s)")
-
                 # Checkpoint
                 if (gen + 1) % checkpoint_interval == 0:
                     save_checkpoint(
@@ -1508,8 +1505,6 @@ def train(
                         best_val_cost=best_val_cost,
                         cost_transform=problem.cost_kwargs.get("cost_transform", "linear"),
                     )
-                    if verbose:
-                        print(f"  Checkpoint saved: g{gen + 1:05d}")
 
             cost_history.extend(gen_best_costs)
 
@@ -2342,6 +2337,7 @@ if __name__ == "__main__":
     parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds (default: no limit)")
     parser.add_argument("--algorithm", type=str, default=None, help="Optimization algorithm: ga, cma_es, de, pso, qpso (default: from TOML [optimizer])")
     parser.add_argument("--output-dir", type=str, default=None, help="Override the training output directory (default: derived from the scheme)")
+    parser.add_argument("--seed-strategy", type=str, default=None, choices=["fixed", "rotating", "adaptive"], help="Override [optimizer] seed_strategy")
     args = parser.parse_args()
 
     cfg, _toml_data = build_training_config_from_toml(args.toml)
@@ -2353,6 +2349,8 @@ if __name__ == "__main__":
         cfg.optimizer.n_pop = args.n_pop
     if args.algorithm is not None:
         cfg.optimizer.algorithm = args.algorithm
+    if args.seed_strategy is not None:
+        cfg.optimizer.seed_strategy = args.seed_strategy
     cfg.sim.sim_timeout_secs = args.sim_timeout
     if cfg.network.architecture is not None:
         cfg.network.__post_init__()  # re-validate once all fields are set
