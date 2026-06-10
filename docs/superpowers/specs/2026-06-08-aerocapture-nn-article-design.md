@@ -11,7 +11,9 @@
 Write a thorough (page count is not a constraint) research article presenting the repo's neural aerocapture guidance, benchmarked against classical and predictor-corrector schemes, and the optimization machinery that trains it. The paper is the explicit fulfilment of the 2009 paper's closing line: *"extend our work on the aerocapture ... and evaluate the performance of neural guidance compared to classic algorithms such as the predictor-corrector schemes."*
 
 **Narrative thesis (the 17-year arc):**
-2009 feed-forward NN + GA for aerocapture → 2015-2017 recurrent NN + QPSO + divide-and-conquer + custom losses (speech) → now stateful NN guidance (Dense/GRU/LSTM/Window/Transformer/Mamba) trained by a 3-island PSO/GA/DE optimizer with supervised warm-start, benchmarked against FTC and predictor-correctors on a bit-validated simulator.
+2009 feed-forward NN + GA for aerocapture → 2015-2017 recurrent NN + QPSO + divide-and-conquer + custom losses (speech) → now stateful NN guidance (Dense/GRU/LSTM/Window/Transformer/Mamba) trained under a **non-stationary Monte-Carlo objective** (the fixed/rotating/adaptive seed strategies), benchmarked against FTC and predictor-correctors on a bit-validated simulator.
+
+**Reframed 2026-06-10 — the optimizer story flipped.** The controlled, compute-matched comparison shows **GA, not the 3-island model, is the best optimizer at every budget** (§5.1); "islands is best" was a 3× compute artifact. The optimizer spine is now: *the training objective is non-stationary because the MC seed set rotates each generation; GA's population-based recombination is uniquely robust to this moving environment, beating model-based (CMA-ES), swarm (PSO/QPSO), and fragmented (islands) methods — and the advantage grows with the degree of non-stationarity (Study C, fixed → rotating → adaptive).* The 35-input vector, architecture sweep, output-param study, and classical-vs-NN benchmark are unchanged; only the optimizer narrative flips from "islands" to "GA + the moving-environment explanation." Headline NN result improves to **GA@300 = 115.4 / 126.2 m/s** (mean/p95), beating the islands sweep's 118.4.
 
 **Source material already prepared:** `articles/markdown/00..05` (synthesis kit, the 2009 extract, the three speech-paper methodology extracts, and the authorial-voice guide). The paper reuses the voice guide for tone and the synthesis kit for the lineage narrative and bibliography.
 
@@ -78,6 +80,12 @@ Metrics per run: best validation RMS cost + deployed MC final-eval (capture %, �
 
 All committed classical schemes were **GA-trained** (`common.toml` default `algorithm = "ga"`); the NN sweep was islands-trained. To isolate the guidance-scheme effect from the optimizer, retrain PiecewiseConstant, FTC, FNPAG, PredGuid, EnergyController, EqGlide with **islands**, deploying to `training_output/<scheme>_islands/` via the new `--output-dir` flag (`--algorithm islands --output-dir …`). The shared reference trajectory (`data/reference_trajectory/msr_aller.dat`) is a fixed committed file consumed by every scheme, so retraining classical does NOT regenerate it — no cascade, the NN sweep stays valid. Keeping both GA and islands classical also yields a GA-vs-islands sub-result (low-dim schemes barely move → reinforces "optimizer matters most for the big NN").
 
+### Study C — Optimizer × seed-strategy (the reframed centerpiece)
+
+*Added 2026-06-10.* Tests whether GA's advantage comes specifically from robustness to the **non-stationary** training objective. Matrix: **{GA, islands, CMA-ES, PSO} × {fixed, rotating, adaptive}** on the big net (`dense_p3998`) @150/gen, n_gen=2000 (singles n_pop=150, islands n_pop=50). Adaptive@150 reuses `paper_optbig_{ga,islands,pso}150`; CMA-ES adaptive@150 + all fixed/rotating cells are new (`paper_seedC_<opt>_<strategy>`, runner `run_paper_experiments5.sh`). Enabled by the new `--seed-strategy` CLI flag (commit `d88ad12`).
+
+**Predicted result (the money figure):** under **fixed** seeds (stationary) the optimizers cluster; the gap **GA − {CMA-ES, islands, PSO}** widens through **rotating** and is largest under **adaptive**. If observed, "GA is robust to the moving environment" is demonstrated, not asserted. If the gap is flat across strategies, the honest finding is "GA is simply the better optimizer here" — still reportable, weaker thesis. Report whatever the data shows.
+
 ### Study B — Output parameterization (control = `dense_p515` + islands)
 
 | Run | Head | output_size | Status |
@@ -100,17 +108,22 @@ Islands runs 3 heterogeneous sub-populations: per-island `n_pop` × 3 = total ev
 
 Capture = `ifinal==3 & eccentricity<1.0`; ΔV = `dv_total_m_s` over captured sims; n=1000 unless noted. Format: **mean / p50 / p95 / max** (m/s), capture %.
 
-### 5.1 Small-net optimizer comparison (dense_p515) — and the honest caveat
+### 5.1 Optimizer comparison — GA wins (the flipped result)
 
-| Optimizer | mean | p95 | max | best-val |
-|---|---|---|---|---|
-| islands | 119.6 | 131.1 | 164.5 | 1.734M |
-| CMA-ES | 119.8 | **130.0** | **151.5** | 1.753M |
-| DE | 124.5 | 138.0 | 228.7 | 1.990M |
-| warm-start | 132.4 | 152.7 | 182.4 | 2.472M |
-| GA | (gen 1437/2000 in progress) | | | |
+**Big-net (dense_p3998) budget scaling, adaptive seeds, mean / p95 m/s by evals-per-gen:**
 
-> **Caveat (must survive into the paper):** on the small net, islands is NOT the winner — CMA-ES ties it on mean and **beats it on p95 and max**, and warm-start *hurt*. The "islands is best" claim is therefore NOT supported at small scale; the landscape is too easy to separate optimizers. The big-net (A-big) runs are the real test. Do **not** pre-commit the narrative to "islands wins" — if the big net also clusters, the honest finding is "optimizer choice is secondary to architecture and inputs; islands is the most robust default across architectures." The paper's "islands improved training vs 2009" framing refers to the modern pipeline (islands + warm-start + adaptive seeds + larger budget) vs the 2009 basic GA, not a like-for-like small-net optimizer win.
+| Optimizer | @60 | @150 | @300 |
+|---|---|---|---|
+| **GA** | 124.4 / 137.7 | 117.0 / 128.9 | **115.4 / 126.2** (best-val 1.559M) |
+| islands | 131.6 / 151.3 | 121.9 / 136.3 | 118.4 / 131.1 (= `sweep_dense_p3998`) |
+| PSO | 127.1 / 144.7 | 130.9 / 152.3 | 122.6 / 140.2 |
+| DE | 126.9 / 142.2 | 128.5 / 150.4 | 126.3 / 143.8 |
+| QPSO | 122.7 / 138.2 | 129.9 / 159.7 | 129.0 / 146.9 |
+| CMA-ES | 135.0 / 160.5 | — | — |
+
+> **GA dominates at every budget and scales best** (124.4 → 117.0 → 115.4); GA@300 is the best result anywhere in the study and the lowest training best-val (1.559M). **GA@150 (117.0) beats islands@300 (118.4) — GA at half the compute beats islands at full.** islands is a consistent second; PSO/DE/QPSO are mid-pack and scale poorly (QPSO is high-variance, even degrading with budget); CMA-ES is worst. Small net (dense_p515) clusters (islands 119.6 ≈ CMA-ES 119.8 ≈ GA), as expected for an easy landscape — the big net is where GA separates.
+
+**Why (the thesis):** all these runs use `seed_strategy = "adaptive"` — the MC seed set shifts each generation, so the objective is **non-stationary**. GA's population-based recombination is robust to a moving objective; CMA-ES (builds a stationary covariance model) suffers most; islands fragments its budget into weak sub-populations. **Study C** (optimizer × {fixed, rotating, adaptive}) tests this directly: GA's edge should grow fixed → rotating → adaptive.
 
 ### Classical
 | Scheme | mean | p50 | p95 | max | cap% | n |
@@ -225,7 +238,8 @@ Compile via `typst compile articles/paper/main.typ`. Degrade gracefully if a fig
 
 - **EqGlide** — *resolved:* now retrained with islands as part of the Study A2 classical-islands batch (`run_paper_experiments2.sh`).
 - **Classical fairness (Study A2)** — *added 2026-06-09:* all committed classical were GA-trained; retrain all 6 with islands (new `_islands` dirs). The shared reference trajectory is a fixed committed file, so no cascade and the NN sweep stays valid.
-- **Islands "best" claim** — *at risk:* small-net data shows islands NOT clearly ahead (CMA-ES ties/beats on tails; see §5.1). The big-net runs decide the narrative; report whatever they show, and frame "improved vs 2009" as the modern *pipeline* vs the 2009 GA.
+- **Optimizer narrative** — *resolved 2026-06-10:* GA wins at every budget (§5.1); "islands is best" was a 3× compute artifact. The optimizer story pivots to GA's robustness to the non-stationary (seed-rotating) training objective; Study C is the decisive test. Headline NN result is now **GA@300 = 115.4/126.2**.
+- **Architecture sweep validity** — the sweep used islands@300; its *relative* architecture ranking (dense best, Mamba 2nd) is optimizer-invariant and stands, but the absolute numbers are ~3 m/s above what GA gives. The deployed headline NN uses GA; the sweep is presented as a relative architecture comparison (note the optimizer). Do NOT re-run the 24-config sweep under GA (cost) unless the user asks.
 - **RL-on-dense** — *resolved:* config fixed (19-input mask for the PBRS shaper) and validated; user will run it.
 - **Compute budget** — *resolved:* user approves scaling `n_gen` down uniformly across Study A if wall-clock is prohibitive (keeps the comparison fair); note any reduction in the paper.
 - **General:** if any paragraph (RL or otherwise) needs additional training/simulation runs during drafting, ask the user — they will run them.
