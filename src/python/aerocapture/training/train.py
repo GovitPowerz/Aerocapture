@@ -1517,6 +1517,7 @@ def train(
             # re-rank the last generation + champion on the validation pool;
             # deploy the winner only on strict val-RMS improvement. The final-
             # eval pool stays report-only.
+            final_sel = None
             selection_promoted = False
             if val_seeds is not None:
                 from aerocapture.training.final_select import (  # noqa: PLC0415
@@ -1541,6 +1542,7 @@ def train(
                     # Pathological all-inf run with no champion: nothing to select.
                     sel = None
                 if sel is not None:
+                    final_sel = sel
                     if sel.promoted:
                         best_overall_individual = sel.individual.copy()
                         best_val_cost = sel.val_rms
@@ -1549,9 +1551,6 @@ def train(
                         # the winner's training cost under the final seed list.
                         best_overall_cost = float(costs[sel.winner_index])
                         selection_promoted = True
-                    write_final_selection_json(save_dir, sel, len(val_seeds))
-                    if verbose:
-                        print(format_selection_summary(sel))
 
             # Always save a final checkpoint
             last_gen = config.optimizer.n_gen
@@ -1575,6 +1574,13 @@ def train(
                 )
                 if verbose:
                     print(f"  Final checkpoint saved: g{last_gen:05d}")
+
+            # Sidecar written after the durable save so it never describes a
+            # winner the deployed artifacts don't have (crash-window ordering).
+            if final_sel is not None and val_seeds is not None:
+                write_final_selection_json(save_dir, final_sel, len(val_seeds))
+                if verbose:
+                    print(format_selection_summary(final_sel))
 
             logger.close()
 
