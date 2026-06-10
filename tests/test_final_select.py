@@ -315,3 +315,16 @@ class TestCheckpointIO:
 
         with pytest.raises(FileNotFoundError):
             load_selection_state(tmp_path)
+
+    def test_crashed_patch_temp_never_shadows_checkpoint(self, tmp_path: Path) -> None:
+        """A leftover patch temp must not match the resume globs (it would sort
+        after the real checkpoint and shadow it with possibly-torn content)."""
+        from aerocapture.training.final_select import load_selection_state
+
+        self._make_single_algo_ckpt(tmp_path)
+        # simulate a crashed patch: temp files left behind
+        (tmp_path / ".tmp_checkpoint_g00007.json").write_text("{torn")
+        np.savez(tmp_path / ".tmp_checkpoint_g00007.npz", junk=np.zeros(1))
+        state = load_selection_state(tmp_path)  # must still load the REAL pair
+        assert state.npz_path.name == "checkpoint_g00007.npz"
+        assert not any(p.name.startswith("checkpoint_g") and ".tmp" in p.name for p in tmp_path.iterdir())

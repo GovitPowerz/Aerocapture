@@ -273,12 +273,12 @@ def patch_checkpoint(
         with np.load(state.npz_path) as data:
             arrays = {k: data[k] for k in data.files}
         arrays["best_individual"] = np.asarray(new_best, dtype=np.float64)
-        tmp = state.npz_path.with_name(state.npz_path.stem + ".tmp.npz")
+        tmp = state.npz_path.with_name(".tmp_" + state.npz_path.name)
         np.savez(tmp, **arrays)
         tmp.rename(state.npz_path)
         meta = json.loads(state.json_path.read_text())
         meta["best_val_cost"] = float(new_val_rms)
-        tmp_json = state.json_path.with_suffix(".tmp.json")
+        tmp_json = state.json_path.with_name(".tmp_" + state.json_path.name)
         tmp_json.write_text(json.dumps(meta, indent=2))
         tmp_json.rename(state.json_path)
         return
@@ -295,6 +295,6 @@ def patch_checkpoint(
     else:
         raise ValueError(f"island {island_name!r} not found in checkpoint")
     arrays["island_states"] = np.array(pickle.dumps(states), dtype=object)
-    tmp = state.npz_path.with_name(state.npz_path.stem + ".tmp.npz")
+    tmp = state.npz_path.with_name(".tmp_" + state.npz_path.name)
     np.savez_compressed(tmp, **arrays)
     tmp.rename(state.npz_path)
