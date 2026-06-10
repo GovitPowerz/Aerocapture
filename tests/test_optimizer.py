@@ -6,8 +6,10 @@ from aerocapture.training.optimizer import (
     GASettings,
     OptimizerConfig,
     PSOSettings,
+    QPSOSettings,
     create_algorithm,
 )
+from aerocapture.training.qpso import QPSO
 from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
 from pymoo.algorithms.soo.nonconvex.de import DE
 from pymoo.algorithms.soo.nonconvex.ga import GA
@@ -22,7 +24,7 @@ class TestOptimizerConfig:
         assert cfg.algorithm == "ga"
 
     def test_all_algorithms_accepted(self) -> None:
-        for algo in ("ga", "cma_es", "de", "pso", "islands"):
+        for algo in ("ga", "cma_es", "de", "pso", "qpso", "islands"):
             cfg = OptimizerConfig(algorithm=algo, seed_strategy="adaptive")
             assert cfg.algorithm == algo
 
@@ -61,6 +63,31 @@ class TestOptimizerConfig:
         assert cfg.algorithm == "cma_es"
         assert cfg.cma_es.sigma0 == 0.5
         assert cfg.cma_es.restart_strategy == "bipop"
+
+    def test_from_toml_dict_qpso(self) -> None:
+        d = {
+            "algorithm": "qpso",
+            "seed_strategy": "adaptive",
+            "qpso": {"alpha_start": 0.9, "alpha_end": 0.4},
+        }
+        cfg = OptimizerConfig.from_dict(d)
+        assert cfg.algorithm == "qpso"
+        assert cfg.qpso.alpha_start == 0.9
+        assert cfg.qpso.alpha_end == 0.4
+
+    def test_qpso_defaults_when_subsection_missing(self) -> None:
+        cfg = OptimizerConfig.from_dict({"algorithm": "qpso", "seed_strategy": "adaptive"})
+        assert isinstance(cfg.qpso, QPSOSettings)
+        assert cfg.qpso.alpha_start == 1.0
+        assert cfg.qpso.alpha_end == 0.5
+
+    def test_qpso_settings_rejects_zero_alpha(self) -> None:
+        with pytest.raises(ValueError, match="alpha_start"):
+            QPSOSettings(alpha_start=0.0)
+
+    def test_qpso_settings_rejects_alpha_above_2(self) -> None:
+        with pytest.raises(ValueError, match="alpha_end"):
+            QPSOSettings(alpha_end=2.5)
 
     def test_defaults_when_subsection_missing(self) -> None:
         cfg = OptimizerConfig.from_dict({"algorithm": "de", "seed_strategy": "adaptive"})
@@ -108,6 +135,15 @@ class TestCreateAlgorithm:
         cfg = OptimizerConfig(algorithm="pso", seed_strategy="adaptive")
         alg = create_algorithm(cfg, n_params=10)
         assert isinstance(alg, PSO)
+
+    def test_qpso_returns_qpso(self) -> None:
+        cfg = OptimizerConfig(algorithm="qpso", seed_strategy="adaptive", n_pop=30, n_gen=500)
+        algo = create_algorithm(cfg, n_params=10)
+        assert isinstance(algo, QPSO)
+        assert algo.pop_size == 30
+        assert algo.max_iter == 500
+        assert algo.alpha_start == 1.0
+        assert algo.alpha_end == 0.5
 
     def test_cma_es_high_dim_warns_and_falls_back(self) -> None:
         # Phase 2a bumped _CMAES_MAX_PARAMS from 2000 to 20000 to accommodate
