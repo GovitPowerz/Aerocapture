@@ -50,7 +50,7 @@ Inputs: candidate matrix `C` (normalized chromosomes), champion `(x*, best_val_c
 |---|---|
 | `validation_n_sims = 0` | Inline: selection skipped entirely (current last-gen-argmin fallback stands). CLI: hard error with a message naming the knob. |
 | Champion `None` (possible only with `validation_n_sims = 0`) | Covered by the row above — selection never runs without a pool. |
-| All candidates non-finite | Champion stands; outcome recorded as `"champion (all candidates non-finite)"`. |
+| All candidates non-finite | Champion stands (provenance `"champion"`); non-finite candidates appear in the sidecar's `candidate_rms` with `null` val RMS. |
 | KeyboardInterrupt | Inline selection skipped (fast exit); the CLI covers interrupted runs from their checkpoint. |
 | Islands `base_mc_seed` mismatch (npz vs TOML) | CLI hard-errors (same guard as `from_checkpoint`). |
 
