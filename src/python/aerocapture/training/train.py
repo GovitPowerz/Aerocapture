@@ -2074,43 +2074,24 @@ def _accumulate_corridor(
     corridor_acc.update(sentinel_results.trajectories, sentinel_labels)
 
 
-if __name__ == "__main__":
-    import argparse
+def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dict]:
+    """TOML -> TrainingConfig (the TOML-derived part of main()'s bootstrap).
 
-    from aerocapture.training.evaluate import write_guidance_toml
-
-    parser = argparse.ArgumentParser(description="Train guidance parameters via pymoo optimization")
-    parser.add_argument("toml", type=str, help="TOML training config path (must contain [guidance] type)")
-    parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--n-gen", type=int, default=None, help="Number of generations (additional when resuming; default: from TOML [optimizer])")
-    parser.add_argument("--n-pop", type=int, default=None, help="Population size (default: from TOML [optimizer])")
-    parser.add_argument("--resume", type=str, default=None, help="Checkpoint directory to resume from (auto-detected if omitted and checkpoint exists)")
-    parser.add_argument("-fs", "--from-scratch", action="store_true", help="Wipe existing training output and start fresh (deletes checkpoints, logs, reports)")
-    parser.add_argument("--no-tui", action="store_true", help="Disable Rich TUI (use plain-text output)")
-    parser.add_argument("--skip-report", "--skip-final-report", action="store_true", dest="skip_report", help="Skip PDF report generation at end of training")
-    parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
-    parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds (default: no limit)")
-    parser.add_argument("--algorithm", type=str, default=None, help="Optimization algorithm: ga, cma_es, de, pso, qpso (default: from TOML [optimizer])")
-    parser.add_argument("--output-dir", type=str, default=None, help="Override the training output directory (default: derived from the scheme)")
-    args = parser.parse_args()
-
+    Applies NO CLI overrides: callers overlay n_gen/n_pop/algorithm/sim_timeout
+    on the returned config themselves. Raises SystemExit on invalid configs
+    (missing/unknown guidance type, bad [checkpoints], warm-start contract
+    violations) -- identical messages to the historical main() behavior.
+    """
     cfg = TrainingConfig()
 
     # Load TOML first -- optimizer config comes from TOML, CLI overrides on top
     from aerocapture.training.toml_utils import load_toml_with_bases
 
-    _toml_data = load_toml_with_bases(Path(args.toml))
+    _toml_data = load_toml_with_bases(Path(toml_path))
 
     # Parse optimizer config from TOML (uses OptimizerConfig defaults for missing keys)
     cfg.optimizer = OptimizerConfig.from_dict(_toml_data.get("optimizer", {}))
 
-    # CLI overrides -- only when explicitly provided (not None / default False)
-    if args.n_gen is not None:
-        cfg.optimizer.n_gen = args.n_gen
-    if args.n_pop is not None:
-        cfg.optimizer.n_pop = args.n_pop
-    if args.algorithm is not None:
-        cfg.optimizer.algorithm = args.algorithm
     guidance_type = _toml_data.get("guidance", {}).get("type")
     if guidance_type is None:
         print("ERROR: TOML config must contain [guidance] type = '<scheme>'")
@@ -2126,8 +2107,7 @@ if __name__ == "__main__":
         raise SystemExit(1)
 
     cfg.guidance_type = guidance_type
-    cfg.sim.toml_config = args.toml
-    cfg.sim.sim_timeout_secs = args.sim_timeout
+    cfg.sim.toml_config = toml_path
     cfg.sim.executable = "src/rust/target/release/aerocapture"
     cfg.sim.nn_param_file = _toml_data.get("data", {}).get("neural_network", "data/neural_network/nn_model.json")
     # Override NN architecture from TOML [network] section if present
@@ -2221,6 +2201,40 @@ if __name__ == "__main__":
                 f"(magnitude_only, acos_tanh) and (full_neural, {{atan2_signed, scaled_pi, delta}}). "
                 f"Training will still run, but the supervised target and runtime decoder may be suboptimal."
             )
+
+    return cfg, _toml_data
+
+
+if __name__ == "__main__":
+    import argparse
+
+    from aerocapture.training.evaluate import write_guidance_toml
+
+    parser = argparse.ArgumentParser(description="Train guidance parameters via pymoo optimization")
+    parser.add_argument("toml", type=str, help="TOML training config path (must contain [guidance] type)")
+    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--n-gen", type=int, default=None, help="Number of generations (additional when resuming; default: from TOML [optimizer])")
+    parser.add_argument("--n-pop", type=int, default=None, help="Population size (default: from TOML [optimizer])")
+    parser.add_argument("--resume", type=str, default=None, help="Checkpoint directory to resume from (auto-detected if omitted and checkpoint exists)")
+    parser.add_argument("-fs", "--from-scratch", action="store_true", help="Wipe existing training output and start fresh (deletes checkpoints, logs, reports)")
+    parser.add_argument("--no-tui", action="store_true", help="Disable Rich TUI (use plain-text output)")
+    parser.add_argument("--skip-report", "--skip-final-report", action="store_true", dest="skip_report", help="Skip PDF report generation at end of training")
+    parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
+    parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds (default: no limit)")
+    parser.add_argument("--algorithm", type=str, default=None, help="Optimization algorithm: ga, cma_es, de, pso, qpso (default: from TOML [optimizer])")
+    parser.add_argument("--output-dir", type=str, default=None, help="Override the training output directory (default: derived from the scheme)")
+    args = parser.parse_args()
+
+    cfg, _toml_data = build_training_config_from_toml(args.toml)
+
+    # CLI overrides -- only when explicitly provided (not None / default False)
+    if args.n_gen is not None:
+        cfg.optimizer.n_gen = args.n_gen
+    if args.n_pop is not None:
+        cfg.optimizer.n_pop = args.n_pop
+    if args.algorithm is not None:
+        cfg.optimizer.algorithm = args.algorithm
+    cfg.sim.sim_timeout_secs = args.sim_timeout
     if cfg.network.architecture is not None:
         cfg.network.__post_init__()  # re-validate once all fields are set
     cfg.sim.final_file = "output/final.train_nn_temp"
