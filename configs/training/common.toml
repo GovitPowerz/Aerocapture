@@ -100,6 +100,13 @@ w = 0.7
 c1 = 1.5
 c2 = 1.5
 
+# ── QPSO (quantum-behaved PSO, canonical mbest form): contraction-expansion ──
+# coefficient annealed linearly alpha_start -> alpha_end over n_gen.
+# Theory: divergence above alpha ~ 1.781 (e^gamma).
+[optimizer.qpso]
+alpha_start = 1.0
+alpha_end = 0.5
+
 # ── Islands: 3-island PSO/GA/DE with episodic migration ──
 # k_period = gens between full-mesh top-k/worst-(k*(n-1)) migration events.
 # k_top = individuals exported per (src->dst) pair (so PSO receives 2*k_top per event).
