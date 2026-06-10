@@ -149,3 +149,152 @@ def format_selection_summary(result: SelectionResult) -> str:
         f"  Final selection: {verdict} -> {result.provenance} "
         f"(val_rms={result.val_rms:.4e}; {result.n_deduped}/{result.n_candidates} fresh candidates simulated{spread})"
     )
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint I/O
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SelectionState:
+    """Everything the CLI needs from a training dir's latest checkpoint."""
+
+    kind: str  # "single" | "islands"
+    save_dir: Path
+    population: npt.NDArray[np.float64]  # candidate rows (union across islands for "islands")
+    provenances: list[str]
+    known: list[KnownCandidate]
+    base_mc_seed: int | None  # islands npz records it; single-algo derives from TOML
+    json_path: Path | None  # single-algo meta path
+    npz_path: Path
+    island_of_row: list[str] | None  # islands: island name per candidate row
+
+
+def _latest_islands_npz(save_dir: Path) -> Path | None:
+    """Latest checkpoint_g*.npz that carries the islands v2 marker."""
+    for p in sorted(save_dir.glob("checkpoint_g*.npz"), reverse=True):
+        try:
+            with np.load(p, allow_pickle=True) as data:
+                if "island_states" in data and int(data["version"]) == 2:
+                    return p
+        except (OSError, ValueError, KeyError):  # fmt: skip
+            continue
+    return None
+
+
+def load_selection_state(save_dir: Path) -> SelectionState:
+    """Load the latest checkpoint (islands v2 preferred when both formats coexist
+    and it is the newest; otherwise the single-algo pair)."""
+    import pickle  # noqa: PLC0415
+
+    islands_npz = _latest_islands_npz(save_dir)
+    json_files = sorted(save_dir.glob("checkpoint_g*.json"))
+    single_json = json_files[-1] if json_files else None
+
+    use_islands = islands_npz is not None and (single_json is None or islands_npz.name >= single_json.with_suffix(".npz").name)
+    if use_islands:
+        assert islands_npz is not None
+        with np.load(islands_npz, allow_pickle=True) as data:
+            states = pickle.loads(data["island_states"].item())
+            base_mc_seed = int(data["base_mc_seed"])
+        rows: list[npt.NDArray[np.float64]] = []
+        provs: list[str] = []
+        row_islands: list[str] = []
+        known: list[KnownCandidate] = []
+        for s in states:
+            name = str(s["name"])
+            if s.get("pop_X") is not None:
+                pop_x = np.asarray(s["pop_X"], dtype=np.float64)
+                for j in range(pop_x.shape[0]):
+                    rows.append(pop_x[j])
+                    provs.append(f"{name}:last_gen[{j}]")
+                    row_islands.append(name)
+            best = s.get("best_overall_individual")
+            bvc = float(s.get("best_val_cost", float("inf")))
+            if best is not None and np.isfinite(bvc):
+                known.append(KnownCandidate(x=np.asarray(best, dtype=np.float64), provenance=f"{name}:champion", val_rms=bvc))
+        if not rows:
+            raise FileNotFoundError(f"islands checkpoint {islands_npz} has no populations")
+        return SelectionState(
+            kind="islands",
+            save_dir=save_dir,
+            population=np.vstack(rows),
+            provenances=provs,
+            known=known,
+            base_mc_seed=base_mc_seed,
+            json_path=None,
+            npz_path=islands_npz,
+            island_of_row=row_islands,
+        )
+
+    if single_json is None:
+        raise FileNotFoundError(f"no checkpoint_g*.json / islands checkpoint_g*.npz found in {save_dir}")
+    npz_path = single_json.with_suffix(".npz")
+    if not npz_path.exists():
+        raise FileNotFoundError(f"checkpoint npz missing: {npz_path}")
+    meta = json.loads(single_json.read_text())
+    with np.load(npz_path) as data:
+        population = np.asarray(data["population"], dtype=np.float64)
+        best = np.asarray(data["best_individual"], dtype=np.float64) if "best_individual" in data else None
+    known = []
+    bvc = float(meta.get("best_val_cost", float("inf")))
+    if best is not None and np.isfinite(bvc):
+        known.append(KnownCandidate(x=best, provenance="champion", val_rms=bvc))
+    return SelectionState(
+        kind="single",
+        save_dir=save_dir,
+        population=population,
+        provenances=[f"last_gen[{i}]" for i in range(population.shape[0])],
+        known=known,
+        base_mc_seed=None,
+        json_path=single_json,
+        npz_path=npz_path,
+        island_of_row=None,
+    )
+
+
+def patch_checkpoint(
+    state: SelectionState,
+    new_best: npt.NDArray[np.float64],
+    new_val_rms: float,
+    island_name: str | None = None,
+) -> None:
+    """Persist the re-selected best into the latest checkpoint (atomic rewrite).
+
+    Without this, a later resume restores the old champion and the next
+    checkpoint save silently overwrites the re-selected artifacts. Only the
+    best fields are touched; populations/costs/RNG state are byte-preserved.
+    """
+    import pickle  # noqa: PLC0415
+
+    if state.kind == "single":
+        assert state.json_path is not None
+        with np.load(state.npz_path) as data:
+            arrays = {k: data[k] for k in data.files}
+        arrays["best_individual"] = np.asarray(new_best, dtype=np.float64)
+        tmp = state.npz_path.with_name(state.npz_path.stem + ".tmp.npz")
+        np.savez(tmp, **arrays)
+        tmp.rename(state.npz_path)
+        meta = json.loads(state.json_path.read_text())
+        meta["best_val_cost"] = float(new_val_rms)
+        tmp_json = state.json_path.with_suffix(".tmp.json")
+        tmp_json.write_text(json.dumps(meta, indent=2))
+        tmp_json.rename(state.json_path)
+        return
+
+    assert island_name is not None, "islands patch requires the winning island name"
+    with np.load(state.npz_path, allow_pickle=True) as data:
+        arrays = {k: data[k] for k in data.files}
+        states = pickle.loads(arrays["island_states"].item())
+    for s in states:
+        if str(s["name"]) == island_name:
+            s["best_overall_individual"] = np.asarray(new_best, dtype=np.float64)
+            s["best_val_cost"] = float(new_val_rms)
+            break
+    else:
+        raise ValueError(f"island {island_name!r} not found in checkpoint")
+    arrays["island_states"] = np.array(pickle.dumps(states), dtype=object)
+    tmp = state.npz_path.with_name(state.npz_path.stem + ".tmp.npz")
+    np.savez_compressed(tmp, **arrays)
+    tmp.rename(state.npz_path)

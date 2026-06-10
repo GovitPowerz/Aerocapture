@@ -216,3 +216,102 @@ class TestSharedTrainHelpers:
         params = json.loads((tmp_path / "best_params.json").read_text())
         assert params["gain"] == 1.0  # 0.5 of [0, 2]
         assert params["bias"] == 0.5  # 0.75 of [-1, 1]
+
+
+class TestCheckpointIO:
+    def _make_single_algo_ckpt(self, d: Path) -> None:
+        meta = {"generation": 7, "best_cost": 1.5, "best_val_cost": 2.5, "cost_history": [], "rng_state": None}
+        (d / "checkpoint_g00007.json").write_text(json.dumps(meta))
+        np.savez(
+            d / "checkpoint_g00007.npz",
+            population=np.full((4, 3), 0.5),
+            costs=np.array([1.0, 2.0, 3.0, 4.0]),
+            best_individual=np.full(3, 0.9),
+        )
+
+    def test_load_single_algo(self, tmp_path: Path) -> None:
+        from aerocapture.training.final_select import load_selection_state
+
+        self._make_single_algo_ckpt(tmp_path)
+        state = load_selection_state(tmp_path)
+        assert state.kind == "single"
+        assert state.population.shape == (4, 3)
+        assert len(state.known) == 1
+        assert state.known[0].provenance == "champion"
+        assert state.known[0].val_rms == 2.5
+
+    def test_patch_single_algo(self, tmp_path: Path) -> None:
+        from aerocapture.training.final_select import load_selection_state, patch_checkpoint
+
+        self._make_single_algo_ckpt(tmp_path)
+        state = load_selection_state(tmp_path)
+        new_best = np.full(3, 0.1)
+        patch_checkpoint(state, new_best, new_val_rms=1.25)
+        data = np.load(tmp_path / "checkpoint_g00007.npz")
+        assert np.array_equal(data["best_individual"], new_best)
+        assert np.array_equal(data["population"], np.full((4, 3), 0.5))  # untouched
+        meta = json.loads((tmp_path / "checkpoint_g00007.json").read_text())
+        assert meta["best_val_cost"] == 1.25
+        assert meta["generation"] == 7  # untouched
+
+    def _make_islands_ckpt(self, d: Path) -> None:
+        import pickle
+
+        states = [
+            {
+                "name": "pso",
+                "pop_X": np.full((3, 3), 0.4),
+                "pop_F": np.array([[1.0], [2.0], [3.0]]),
+                "best_overall_individual": np.full(3, 0.45),
+                "best_val_cost": 3.0,
+            },
+            {
+                "name": "ga",
+                "pop_X": np.full((3, 3), 0.6),
+                "pop_F": np.array([[1.0], [2.0], [3.0]]),
+                "best_overall_individual": np.full(3, 0.65),
+                "best_val_cost": 2.0,
+            },
+        ]
+        np.savez_compressed(
+            d / "checkpoint_g00005.npz",
+            version=2,
+            generation=5,
+            base_mc_seed=42,
+            cost_transform="linear",
+            island_states=np.array(pickle.dumps(states), dtype=object),
+        )
+
+    def test_load_islands(self, tmp_path: Path) -> None:
+        from aerocapture.training.final_select import load_selection_state
+
+        self._make_islands_ckpt(tmp_path)
+        state = load_selection_state(tmp_path)
+        assert state.kind == "islands"
+        assert state.population.shape == (6, 3)  # union of both pops
+        assert {k.provenance for k in state.known} == {"pso:champion", "ga:champion"}
+        assert state.base_mc_seed == 42
+
+    def test_patch_islands_winning_island(self, tmp_path: Path) -> None:
+        import pickle
+
+        from aerocapture.training.final_select import load_selection_state, patch_checkpoint
+
+        self._make_islands_ckpt(tmp_path)
+        state = load_selection_state(tmp_path)
+        new_best = np.full(3, 0.2)
+        patch_checkpoint(state, new_best, new_val_rms=0.5, island_name="ga")
+        data = np.load(tmp_path / "checkpoint_g00005.npz", allow_pickle=True)
+        states = pickle.loads(data["island_states"].item())
+        ga = next(s for s in states if s["name"] == "ga")
+        pso = next(s for s in states if s["name"] == "pso")
+        assert np.array_equal(ga["best_overall_individual"], new_best)
+        assert ga["best_val_cost"] == 0.5
+        assert pso["best_val_cost"] == 3.0  # untouched
+        assert np.array_equal(pso["pop_X"], np.full((3, 3), 0.4))  # untouched
+
+    def test_no_checkpoint_raises(self, tmp_path: Path) -> None:
+        from aerocapture.training.final_select import load_selection_state
+
+        with pytest.raises(FileNotFoundError):
+            load_selection_state(tmp_path)
