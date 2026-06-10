@@ -46,3 +46,4 @@ output/*
 *.png
 training_output/
 data/neural_network/nn_model.json
+*.pdf
