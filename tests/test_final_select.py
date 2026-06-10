@@ -182,3 +182,37 @@ class TestWarmStartBoundsLoader:
         from aerocapture.training.warm_start import load_warm_start_bounds
 
         assert load_warm_start_bounds(tmp_path) is None
+
+
+class TestSharedTrainHelpers:
+    def test_build_cost_kwargs_defaults_and_overrides(self) -> None:
+        from aerocapture.training.train import build_cost_kwargs
+
+        kw = build_cost_kwargs({})
+        assert kw["dv_threshold"] == 1000.0
+        assert kw["cost_transform"] == "linear"
+        kw2 = build_cost_kwargs(
+            {
+                "cost_function": {"dv_threshold": 500.0, "cost_transform": "log"},
+                "flight": {"constraints": {"max_load_factor": 4.0}},
+            }
+        )
+        assert kw2["dv_threshold"] == 500.0
+        assert kw2["g_load_limit"] == 4.0
+        assert kw2["cost_transform"] == "log"
+
+    def test_write_best_artifacts_non_nn(self, tmp_path: Path) -> None:
+        from aerocapture.training.config import TrainingConfig
+        from aerocapture.training.param_spaces import ParamSpec
+        from aerocapture.training.train import write_best_artifacts
+
+        cfg = TrainingConfig()
+        cfg.guidance_type = "equilibrium_glide"
+        specs = [
+            ParamSpec(name="gain", p_min=0.0, p_max=2.0, default=1.0),
+            ParamSpec(name="bias", p_min=-1.0, p_max=1.0, default=0.0),
+        ]
+        write_best_artifacts(np.array([0.5, 0.75]), cfg, specs, tmp_path, cwd=None)
+        params = json.loads((tmp_path / "best_params.json").read_text())
+        assert params["gain"] == 1.0  # 0.5 of [0, 2]
+        assert params["bias"] == 0.5  # 0.75 of [-1, 1]

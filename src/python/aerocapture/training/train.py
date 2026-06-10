@@ -545,43 +545,7 @@ def save_checkpoint(
 
     # Save best model/params (immediately usable by Rust)
     if best_individual is not None:
-        if config.guidance_type == "neural_network":
-            from aerocapture.training.param_spaces import active_scaffolding_specs
-
-            _pack = active_scaffolding_specs(config.network.scaffolding)
-            n_scaff = len(_pack)
-            n_weights = len(param_specs) - n_scaff
-            weights = _decode_nn_weights(best_individual[:n_weights], param_specs[:n_weights])
-            cfg_norm = _resolve_config_normalization(config, cwd)
-            write_nn_json(
-                weights,
-                config.network,
-                save_dir / "best_model.json",
-                input_mask=config.network.input_mask,
-                output_param=config.network.output_parameterization,
-                normalization=cfg_norm,
-            )
-            if cwd is not None:
-                nn_path = Path(cwd) / config.sim.nn_param_file
-                write_nn_json(
-                    weights,
-                    config.network,
-                    nn_path,
-                    input_mask=config.network.input_mask,
-                    output_param=config.network.output_parameterization,
-                    normalization=cfg_norm,
-                )
-            if n_scaff > 0:
-                scaff_params = decode_normalized(best_individual[n_weights:], list(_pack))
-                for s in _pack:
-                    if s.is_integer and s.name in scaff_params:
-                        scaff_params[s.name] = int(round(scaff_params[s.name]))
-                with open(save_dir / "best_params.json", "w") as fp:
-                    json.dump(scaff_params, fp, indent=2)
-        else:
-            params = decode_normalized(best_individual, param_specs)
-            with open(save_dir / "best_params.json", "w") as fp:
-                json.dump(params, fp, indent=2)
+        write_best_artifacts(best_individual, config, param_specs, save_dir, cwd=cwd, deploy_to_cwd=True)
 
     # Auto-prune older checkpoints when retention is configured.
     _prune_old_checkpoints(save_dir, config.checkpoints.keep_last)
@@ -637,6 +601,22 @@ def load_checkpoint(
         "cost_transform": meta.get("cost_transform", None),
         "seed_curator": meta.get("seed_curator"),
         "corridor_acc": corridor_acc_restored,
+    }
+
+
+def build_cost_kwargs(toml_data: dict) -> dict[str, Any]:
+    """Cost-function kwargs from a resolved TOML dict ([cost_function] + [flight.constraints])."""
+    cost_cfg = toml_data.get("cost_function", {})
+    constraints = toml_data.get("flight", {}).get("constraints", {})
+    return {
+        "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
+        "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
+        "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
+        "heat_load_limit": float(constraints.get("max_heat_load", 25000.0)),
+        "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
+        "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
+        "heat_load_weight": float(cost_cfg.get("heat_load_weight", 1000.0)),
+        "cost_transform": str(cost_cfg.get("cost_transform", "linear")),
     }
 
 
@@ -1067,19 +1047,7 @@ def train(
         toml_path = Path(cwd or config.sim.exec_dir) / config.sim.toml_config
         _toml = load_toml_with_bases(toml_path)
 
-        # Parse cost function config
-        cost_cfg = _toml.get("cost_function", {})
-        constraints = _toml.get("flight", {}).get("constraints", {})
-        cost_kwargs = {
-            "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
-            "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
-            "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
-            "heat_load_limit": float(constraints.get("max_heat_load", 25000.0)),
-            "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
-            "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
-            "heat_load_weight": float(cost_cfg.get("heat_load_weight", 1000.0)),
-            "cost_transform": str(cost_cfg.get("cost_transform", "linear")),
-        }
+        cost_kwargs = build_cost_kwargs(_toml)
 
     # Seed strategy: three mutually exclusive training seed paths.
     #   fixed    -- deterministic [mc_seed + i]; seeds never change.
@@ -1975,13 +1943,7 @@ def _train_islands(
             f"  Winner: {winner['island']} rms={winner['rms']:.4e} cap={winner['capture_rate']:.0%}{gap_detail}",
         )
 
-    _write_winner_artifacts(
-        winner=winner,
-        config=config,
-        save_dir=save_dir,
-        param_specs=param_specs,
-        cwd=cwd,
-    )
+    write_best_artifacts(winner["X"], config, param_specs, save_dir, cwd=cwd)
 
     logger.close()
     return {
@@ -1997,20 +1959,20 @@ def _train_islands(
     }
 
 
-def _write_winner_artifacts(
-    *,
-    winner: dict[str, Any],
+def write_best_artifacts(
+    best_individual: npt.NDArray[np.float64],
     config: TrainingConfig,
-    save_dir: Path,
     param_specs: list[ParamSpec],
+    save_dir: Path,
     cwd: str | Path | None = None,
+    deploy_to_cwd: bool = False,
 ) -> None:
-    """Write best_model.json / best_params.json from the winning island's chromosome.
+    """Write best_model.json (NN) / best_params.json from a normalized chromosome.
 
-    Writes only to save_dir. main() handles the deploy-path write to cwd.
+    Always writes into save_dir. When `deploy_to_cwd` and `cwd` is not None,
+    additionally writes the NN model to `cwd / config.sim.nn_param_file`
+    (the deploy-path copy save_checkpoint historically maintained).
     """
-    best_individual = winner["X"]
-
     if config.guidance_type == "neural_network":
         from aerocapture.training.param_spaces import active_scaffolding_specs
 
@@ -2021,14 +1983,25 @@ def _write_winner_artifacts(
             best_individual[:n_weights],
             param_specs[:n_weights],
         )
+        cfg_norm = _resolve_config_normalization(config, cwd)
         write_nn_json(
             weights,
             config.network,
             save_dir / "best_model.json",
             input_mask=config.network.input_mask,
             output_param=config.network.output_parameterization,
-            normalization=_resolve_config_normalization(config, cwd),
+            normalization=cfg_norm,
         )
+        if deploy_to_cwd and cwd is not None:
+            nn_path = Path(cwd) / config.sim.nn_param_file
+            write_nn_json(
+                weights,
+                config.network,
+                nn_path,
+                input_mask=config.network.input_mask,
+                output_param=config.network.output_parameterization,
+                normalization=cfg_norm,
+            )
         if n_scaff > 0:
             scaff_params = decode_normalized(
                 best_individual[n_weights:],
