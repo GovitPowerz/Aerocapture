@@ -87,6 +87,7 @@ class OptimizerConfig:
     validation_n_sims: int = 1000
     curation_top_k: int = 5
     curation_sample_size: int = 1000
+    curation_trim_fraction: float = 0.0
     grow_fresh_fraction: float = 0.2
     ga: GASettings = field(default_factory=GASettings)
     cma_es: CMAESSettings = field(default_factory=CMAESSettings)
@@ -107,6 +108,8 @@ class OptimizerConfig:
             raise ValueError(f"curation_top_k must be >= 1, got {self.curation_top_k}")
         if self.curation_sample_size < self.curation_top_k:
             raise ValueError(f"curation_sample_size ({self.curation_sample_size}) must be >= curation_top_k ({self.curation_top_k})")
+        if not 0.0 <= self.curation_trim_fraction < 0.5:
+            raise ValueError(f"curation_trim_fraction must be in [0, 0.5), got {self.curation_trim_fraction}")
         if not 0.0 <= self.grow_fresh_fraction <= 1.0:
             raise ValueError(f"grow_fresh_fraction must be in [0, 1], got {self.grow_fresh_fraction}")
 

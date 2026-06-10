@@ -51,6 +51,24 @@ class TestStratifiedPick:
         for i, c in enumerate(picked_costs):
             assert i / 10 <= c < (i + 1) / 10 or (i == 9 and c == 1.0)
 
+    def test_trim_fraction_excludes_extremes(self) -> None:
+        """trim_fraction drops the lowest/highest-cost seeds before binning."""
+        seeds = list(range(100))
+        costs = np.arange(100, dtype=float)  # cost == seed, already sorted ascending
+        curator = SeedCurator(sample_size=100, n_bins=10, excluded_seeds=set(), rng=_rng(0), trim_fraction=0.2)
+        picked = curator._stratified_pick(seeds, costs)
+        assert len(picked) == 10
+        # central 60% kept -> nothing from the trimmed 20% tails (cost < 20 or >= 80)
+        assert all(20 <= s < 80 for s in picked)
+
+    def test_trim_fraction_zero_is_legacy(self) -> None:
+        """trim_fraction=0.0 (default) keeps the full range incl. extremes."""
+        seeds = list(range(100))
+        costs = np.arange(100, dtype=float)
+        picked = SeedCurator(sample_size=100, n_bins=10, excluded_seeds=set(), rng=_rng(0), trim_fraction=0.0)._stratified_pick(seeds, costs)
+        # bin 0 picks from cost [0,10), bin 9 from [90,100) -- extremes reachable
+        assert min(picked) < 10 and max(picked) >= 90
+
     def test_non_finite_costs_sort_to_tail(self) -> None:
         """NaN-cost seeds land in the highest-cost bin, not randomly distributed."""
         # First 5 seeds (indices 0-4) have NaN costs; remaining 15 have ascending finite costs.

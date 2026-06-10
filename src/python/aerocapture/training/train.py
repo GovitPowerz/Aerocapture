@@ -1061,6 +1061,7 @@ def train(
             n_bins=config.optimizer.training_n_sims,
             excluded_seeds=set(),  # populated once val/final-eval sets are computed
             rng=rng,
+            trim_fraction=config.optimizer.curation_trim_fraction,
         )
 
     param_specs, n_params = _setup_param_specs(config, _toml, verbose)

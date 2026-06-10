@@ -29,6 +29,7 @@ class SeedCurator:
     rng: np.random.Generator
     seed_list: list[int] | None = None
     last_curation_gen: int = -1
+    trim_fraction: float = 0.0
 
     def _stratified_pick(
         self,
@@ -40,15 +41,22 @@ class SeedCurator:
         Non-finite costs are replaced with a large sentinel so their seeds sort
         to the tail bin.
         """
-        if self.n_bins > len(seeds):
-            msg = f"n_bins ({self.n_bins}) must be <= len(seeds) ({len(seeds)})"
-            raise ValueError(msg)
         arr = np.asarray(costs, dtype=np.float64)
         sentinel = np.finfo(np.float64).max / 2
         arr = np.where(np.isfinite(arr), arr, sentinel)
         order = np.argsort(arr, kind="stable")
         sorted_seeds = [seeds[i] for i in order]
 
+        # Trim the non-discriminative extremes before binning: the easiest seeds
+        # carry no between-individual signal, the hardest are un-improvable
+        # dispersion outliers that destabilize the (moving) objective.
+        if self.trim_fraction > 0.0:
+            cut = int(len(sorted_seeds) * self.trim_fraction)
+            sorted_seeds = sorted_seeds[cut : len(sorted_seeds) - cut]
+
+        if self.n_bins > len(sorted_seeds):
+            msg = f"n_bins ({self.n_bins}) must be <= len(seeds) after trim ({len(sorted_seeds)})"
+            raise ValueError(msg)
         bins = np.array_split(sorted_seeds, self.n_bins)
         return [int(self.rng.choice(b)) for b in bins]
 
@@ -82,6 +90,7 @@ class SeedCurator:
             "n_bins": self.n_bins,
             "seed_list": self.seed_list,
             "last_curation_gen": self.last_curation_gen,
+            "trim_fraction": self.trim_fraction,
         }
 
     @classmethod
@@ -98,4 +107,5 @@ class SeedCurator:
             rng=rng,
             seed_list=list(d["seed_list"]) if d.get("seed_list") is not None else None,
             last_curation_gen=int(d.get("last_curation_gen", -1)),
+            trim_fraction=float(d.get("trim_fraction", 0.0)),
         )
