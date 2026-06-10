@@ -69,7 +69,7 @@ Beyond bugs, per-generation data already in the logger buffer is invisible: wors
 **Validation panel** (border green). Built from the latest record carrying `validation`/`validation_summary` (same selection logic as today, display.py:190-222):
 - `Best`/`Last` headline rows (green RMS for best; PROMOTED green / REJECTED yellow).
 - `Cap n/N (pct)` (green when ≥ previous best capture, plain otherwise — simple, no history scan: green when pct ≥ 95, else plain).
-- The stats grid (`Table.grid`, right-aligned numeric columns): header row dim `min p50 p95 max`; rows `Cost`, `DV`, `DV1`, `DV2`, `DV3` — values from the extended summary (section 4.2). Cost max colored yellow when > 10× p95 (outlier hint).
+- The stats grid (`Table.grid`, right-aligned numeric columns): header row dim `min p50 p95 max`; rows `Cost`, `DV`, `DV1`, `DV2`, `DV3` — values from the extended summary (section 4.2). Cost row colored yellow when max > 10× p95 (outlier hint; row-level style, the rows helper carries one style per row).
 - `Apo` row: `p50 · p95 km` (existing fields).
 - Constraint rows `Q`/`G`/`HL`: `max` + violation fragment — red `{viol_pct}% > {limit}` when viol_pct > 0, dim `0% > {limit}` otherwise (same data as `_format_validation_summary` today, display.py:39-88).
 - Pre-gate / validation-off placeholder: dim `waiting for first validation…` (+ explanation line) when no record carries `validation`.
