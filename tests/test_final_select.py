@@ -159,3 +159,26 @@ class TestSidecarAndSummary:
         text = format_selection_summary(sel)
         assert "last_gen[0]" in text
         assert "Final selection" in text
+
+
+class TestWarmStartBoundsLoader:
+    def test_loads_specs_from_sidecar(self, tmp_path: Path) -> None:
+        from aerocapture.training.warm_start import load_warm_start_bounds
+
+        (tmp_path / "warm_start_bounds.json").write_text(
+            json.dumps(
+                [
+                    {"name": "w_0", "p_min": -2.0, "p_max": 2.0, "default": 0.0},
+                    {"name": "w_1", "p_min": -0.5, "p_max": 0.5, "default": 0.1, "log_scale": False, "is_integer": False},
+                ]
+            )
+        )
+        specs = load_warm_start_bounds(tmp_path)
+        assert specs is not None
+        assert [s.name for s in specs] == ["w_0", "w_1"]
+        assert specs[0].p_min == -2.0 and specs[1].p_max == 0.5
+
+    def test_returns_none_when_absent(self, tmp_path: Path) -> None:
+        from aerocapture.training.warm_start import load_warm_start_bounds
+
+        assert load_warm_start_bounds(tmp_path) is None
