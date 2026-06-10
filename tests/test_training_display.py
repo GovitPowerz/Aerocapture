@@ -292,3 +292,38 @@ def _grid_right_edges(line: str) -> list[int]:
     import re
 
     return [m.end() for m in re.finditer(r"\S+", line)]
+
+
+class TestSeedsRow:
+    def _display(self, strategy: str = "adaptive", n: int | None = 20) -> LiveDisplay:
+        return LiveDisplay(scheme="ftc", n_runs=1, n_generations=2000, algorithm="qpso", seed_strategy=strategy, training_n_sims=n)
+
+    def test_adaptive_with_curation(self) -> None:
+        out = _render(self._display()._build_optimization_panel([_record(740)]))
+        assert "Seeds" in out
+        assert "adaptive" in out
+        assert "n 20 · refreshed g720" in out
+        assert "pool refresh" not in out  # moved out of the status row
+
+    def test_adaptive_before_first_curation(self) -> None:
+        rec = _record(5)
+        del rec["pool_metrics"]
+        out = _render(self._display()._build_optimization_panel([rec]))
+        assert "n 20 · no curation yet" in out
+
+    def test_rotating_and_fixed(self) -> None:
+        out_r = _render(self._display(strategy="rotating")._build_optimization_panel([_record(10)]))
+        assert "n 20 · fresh every gen" in out_r
+        out_f = _render(self._display(strategy="fixed")._build_optimization_panel([_record(10)]))
+        assert "n 20 · deterministic" in out_f
+
+    def test_no_strategy_omits_row(self) -> None:
+        d = LiveDisplay(scheme="ftc", n_runs=1, n_generations=2000, algorithm="qpso")
+        out = _render(d._build_optimization_panel([_record(10)]))
+        assert "Seeds" not in out
+        assert "pool refresh g720" in out  # legacy status-row fragment kept when no Seeds row
+
+    def test_no_n_sims_drops_prefix(self) -> None:
+        out = _render(self._display(n=None)._build_optimization_panel([_record(740)]))
+        assert "refreshed g720" in out
+        assert "n 20" not in out

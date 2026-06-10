@@ -64,7 +64,8 @@ Beyond bugs, per-generation data already in the logger buffer is invisible: wors
 - `Capture`: percent (green) + sparkline (green).
 - `Divers`: 2-dp value + sparkline (magenta).
 - `Pop cost`: 16-bin log-spaced histogram of finite `all_costs` (blue) + dim range caption `lo→hi log`; non-finite entries appended as dim `∞×k` when present; `·` glyph for empty bins.
-- Dim status row: `gen wall {gen_elapsed_s}s · pool refresh g{last_curation_gen}` (each fragment only when its field is present in the latest record).
+- `Seeds`: strategy name + dim detail (`n {training_n_sims} · refreshed g{last_curation_gen}` for adaptive, `fresh every gen` / `deterministic` for rotating/fixed); row omitted when no strategy is configured, in which case the status row keeps its legacy `pool refresh gN` fragment.
+- Dim status row: `gen wall {gen_elapsed_s}s` always when present; `pool refresh g{last_curation_gen}` only when the Seeds row is absent.
 
 **Validation panel** (border green). Built from the latest record carrying `validation`/`validation_summary` (same selection logic as today, display.py:190-222):
 - `Best`/`Last` headline rows (green RMS for best; PROMOTED green / REJECTED yellow).
@@ -101,7 +102,7 @@ Consumers verified additive-safe: the JSONL `validation_summary` payload grows; 
 
 ### 4.3 `train.py` touchpoints
 
-Two one-liners: `create_display(..., algorithm=config.optimizer.algorithm)` and `display.set_start_gen(start_gen)` after resume restore on the single-algo path. The islands path already passes everything it needs.
+Three kwargs: `create_display(..., algorithm=config.optimizer.algorithm, seed_strategy=config.optimizer.seed_strategy, training_n_sims=config.optimizer.training_n_sims)` and `display.set_start_gen(start_gen)` after resume restore on the single-algo path. The islands path already passes everything it needs.
 
 ## 5. Edge States
 

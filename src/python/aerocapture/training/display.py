@@ -197,11 +197,13 @@ class NoopDisplay:
 class LiveDisplay:
     """Rich Live TUI for training progress."""
 
-    def __init__(self, scheme: str, n_runs: int, n_generations: int, algorithm: str = "") -> None:
+    def __init__(self, scheme: str, n_runs: int, n_generations: int, algorithm: str = "", seed_strategy: str = "", training_n_sims: int | None = None) -> None:
         self._scheme = scheme
         self._algorithm = algorithm
         self._n_runs = n_runs
         self._n_gens = n_generations
+        self._seed_strategy = seed_strategy
+        self._training_n_sims = training_n_sims
         self._live: Live | None = None
         self._start_time: float | None = None
         self._start_gen: int = 0
@@ -252,11 +254,20 @@ class LiveDisplay:
         if all_costs:
             glyphs, caption = _cost_histogram(all_costs)
             grid.add_row("Pop cost", Text(glyphs, style="blue"), Text(caption, style="dim"))
+        pool = latest.get("pool_metrics") or {}
+        if self._seed_strategy:
+            n_prefix = f"n {self._training_n_sims} \u00b7 " if self._training_n_sims is not None else ""
+            if self._seed_strategy == "adaptive":
+                detail = f"{n_prefix}refreshed g{pool['last_curation_gen']}" if pool.get("last_curation_gen") is not None else f"{n_prefix}no curation yet"
+            elif self._seed_strategy == "rotating":
+                detail = f"{n_prefix}fresh every gen"
+            else:
+                detail = f"{n_prefix}deterministic"
+            grid.add_row("Seeds", self._seed_strategy, Text(detail, style="dim"))
         bits = []
         if latest.get("gen_elapsed_s") is not None:
             bits.append(f"gen wall {latest['gen_elapsed_s']:.2f}s")
-        pool = latest.get("pool_metrics") or {}
-        if pool.get("last_curation_gen") is not None:
+        if not self._seed_strategy and pool.get("last_curation_gen") is not None:
             bits.append(f"pool refresh g{pool['last_curation_gen']}")
         body: ConsoleRenderable = Group(grid, Text(" \u00b7 ".join(bits), style="dim")) if bits else grid
         return Panel(body, title="Optimization", border_style="cyan")
@@ -513,8 +524,19 @@ class LiveDisplay:
             self._live = None
 
 
-def create_display(scheme: str, n_runs: int, n_generations: int, *, enabled: bool = True, algorithm: str = "") -> LiveDisplay | NoopDisplay:
+def create_display(
+    scheme: str,
+    n_runs: int,
+    n_generations: int,
+    *,
+    enabled: bool = True,
+    algorithm: str = "",
+    seed_strategy: str = "",
+    training_n_sims: int | None = None,
+) -> LiveDisplay | NoopDisplay:
     """Factory: returns LiveDisplay if enabled and terminal is interactive, else NoopDisplay."""
     if not enabled or not sys.stdout.isatty():
         return NoopDisplay()
-    return LiveDisplay(scheme=scheme, n_runs=n_runs, n_generations=n_generations, algorithm=algorithm)
+    return LiveDisplay(
+        scheme=scheme, n_runs=n_runs, n_generations=n_generations, algorithm=algorithm, seed_strategy=seed_strategy, training_n_sims=training_n_sims
+    )
