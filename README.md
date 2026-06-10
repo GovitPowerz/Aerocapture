@@ -154,7 +154,7 @@ Training features:
 - Resume with a larger/smaller `[optimizer] n_pop`: the resumed population is grown (keep originals + `grow_fresh_fraction` fresh-random + clone+jitter) or shrunk (best-N), in both the single-algorithm and islands paths
 - `cost_transform` is recorded in checkpoints; changing it on resume re-validates the best under the new metric (single-algo and per-island)
 - Graceful Ctrl+C (saves checkpoint and returns cleanly)
-- Rich TUI with sparklines, ETA, progress bar
+- Rich TUI dashboard: header (scheme · algorithm · gen · pop · resume-aware ETA + progress), Optimization panel (cost/capture/diversity sparklines + population cost histogram), Validation panel (min/p50/p95/max grids for cost, total DV and the DV1/DV2/DV3 burns, constraint violations highlighted)
 - Adaptive MC dispersion seeds (prevents overfitting)
 - Supports GA (SBX + polynomial mutation), CMA-ES, DE, PSO, QPSO (quantum-behaved PSO, velocity-free), and 3-island PSO/GA/DE (`islands`) via `--algorithm` or TOML `[optimizer]`
 - End-of-training final selection: the last generation + running champion are re-ranked on the held-out validation pool and the winner deploys only on strict val-RMS improvement (the deployed model can never get worse; `final_selection.json` records the per-candidate val RMS). The final-eval pool stays report-only, so quoted numbers carry no min-of-N selection bias. Also available retroactively via `python -m aerocapture.training.final_select`
