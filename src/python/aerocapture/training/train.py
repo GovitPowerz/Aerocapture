@@ -274,7 +274,7 @@ def _seed_initial_population(
     pop = np.tile(chromosome, (n_pop, 1))
     if algorithm_name == "cma_es":
         return pop
-    if algorithm_name not in ("ga", "de", "pso", "islands"):
+    if algorithm_name not in ("ga", "de", "pso", "qpso", "islands"):
         raise ValueError(f"unknown algorithm {algorithm_name!r} for warm-start seeding")
     if n_pop < 1:
         raise ValueError(f"n_pop must be >= 1, got {n_pop}")
@@ -1288,6 +1288,8 @@ def train(
             print(f"  DE:        variant={opt.de.variant}, crossover_prob={opt.de.crossover_prob}, scaling_factor={opt.de.scaling_factor}")
         elif opt.algorithm == "pso":
             print(f"  PSO:       w={opt.pso.w}, c1={opt.pso.c1}, c2={opt.pso.c2}")
+        elif opt.algorithm == "qpso":
+            print(f"  QPSO:      alpha_start={opt.qpso.alpha_start}, alpha_end={opt.qpso.alpha_end}")
 
     # Inject initial population into pymoo. NOTE: `setup(pop=…)` alone is
     # insufficient — pymoo's first `next()` would call `_initialize()` and
@@ -2115,7 +2117,7 @@ if __name__ == "__main__":
     parser.add_argument("--skip-report", "--skip-final-report", action="store_true", dest="skip_report", help="Skip PDF report generation at end of training")
     parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
     parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds (default: no limit)")
-    parser.add_argument("--algorithm", type=str, default=None, help="Optimization algorithm: ga, cma_es, de, pso (default: from TOML [optimizer])")
+    parser.add_argument("--algorithm", type=str, default=None, help="Optimization algorithm: ga, cma_es, de, pso, qpso (default: from TOML [optimizer])")
     parser.add_argument("--output-dir", type=str, default=None, help="Override the training output directory (default: derived from the scheme)")
     args = parser.parse_args()
 
