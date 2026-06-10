@@ -1,0 +1,12 @@
+# cost_transform sweep -- GA on dense_p3998, linear cost (RMS of raw cost = L2).
+base = ["../sweep/dense_p3998.toml"]
+
+[data]
+neural_network = "training_output/paper_optbig_ga_linear/best_model.json"
+results_suffix = ".paper_optbig_ga_linear"
+
+[optimizer]
+algorithm = "ga"
+
+[cost_function]
+cost_transform = "linear"
