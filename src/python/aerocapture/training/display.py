@@ -388,7 +388,7 @@ class LiveDisplay:
             return
 
         # Header: gen X/N | elapsed | rate | ETA. Uses `time.monotonic`
-        # consistently with `_build_panel` so a LiveDisplay reused across
+        # consistently with `_build_dashboard` so a LiveDisplay reused across
         # both paths can't mix epochs from two distinct clocks.
         gen = int(island_records.get("_gen", 0))  # type: ignore[arg-type]
         n_gen = int(island_records.get("_n_gen", self._n_gens))  # type: ignore[arg-type]

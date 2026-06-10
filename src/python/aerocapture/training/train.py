@@ -1140,7 +1140,9 @@ def train(
         n_runs=1,
         n_generations=config.optimizer.n_gen,
         enabled=not no_tui and verbose,
+        algorithm=config.optimizer.algorithm,
     )
+    display.set_start_gen(start_gen)
 
     interrupted = False
 
