@@ -2080,7 +2080,9 @@ def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dic
     Applies NO CLI overrides: callers overlay n_gen/n_pop/algorithm/sim_timeout
     on the returned config themselves. Raises SystemExit on invalid configs
     (missing/unknown guidance type, bad [checkpoints], warm-start contract
-    violations) -- identical messages to the historical main() behavior.
+    violations) -- identical messages to the historical main() behavior. Note:
+    [optimizer] / [warm_start] PARSE errors (OptimizerConfig.from_dict /
+    WarmStartConfig.from_dict) raise ValueError, not SystemExit.
     """
     cfg = TrainingConfig()
 

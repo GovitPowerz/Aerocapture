@@ -29,3 +29,8 @@ def test_missing_guidance_type_raises_system_exit(tmp_path: Path) -> None:
     bad.write_text('[simulation]\nn_sims = 1\n\n[optimizer]\nseed_strategy = "fixed"\n')
     with pytest.raises(SystemExit):
         build_training_config_from_toml(str(bad))
+
+
+def test_warm_start_block_reaches_config() -> None:
+    cfg, _ = build_training_config_from_toml("configs/training/msr_aller_nn_joint_train.toml")
+    assert cfg.warm_start.enabled is True
