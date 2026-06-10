@@ -443,7 +443,7 @@ and replace the `top_level` + `return` lines (the subsection-exclusion tuple MUS
 - [ ] **Step 2.4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_optimizer.py tests/test_qpso.py -q`
-Expected: all pass (existing optimizer tests + 6 new + 12 from Task 1)
+Expected: all pass (existing optimizer tests + 5 new + 11 from Task 1)
 
 - [ ] **Step 2.5: Commit**
 

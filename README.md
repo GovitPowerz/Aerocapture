@@ -156,7 +156,7 @@ Training features:
 - Graceful Ctrl+C (saves checkpoint and returns cleanly)
 - Rich TUI with sparklines, ETA, progress bar
 - Adaptive MC dispersion seeds (prevents overfitting)
-- Supports GA (SBX + polynomial mutation), CMA-ES, DE, PSO via `--algorithm` or TOML `[optimizer]`
+- Supports GA (SBX + polynomial mutation), CMA-ES, DE, PSO, QPSO (quantum-behaved PSO, velocity-free), and 3-island PSO/GA/DE (`islands`) via `--algorithm` or TOML `[optimizer]`
 - PDF report auto-generated at end of training
 
 ```bash
