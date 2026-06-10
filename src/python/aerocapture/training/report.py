@@ -196,9 +196,14 @@ def compute_eval_summary(
     table / JSON sidecar / TUI panel without re-parsing stdout. Keys:
 
       n_sims, n_captured, capture_rate,
-      cost: {p50, p95, rms},
-      captured: {dv, apoapsis, periapsis, inclination} -> {p50, p95, mean}
-                  (None when n_captured == 0),
+      cost: {min, p50, p95, rms, max},
+      captured: {
+        dv:          {min, p50, p95, mean, max},
+        apoapsis:    {p50, p95, mean},
+        periapsis:   {p50, p95, mean},
+        inclination: {p50, p95, mean},
+        dv1/dv2/dv3: {min, p50, p95, mean, max}  (abs of terminal-maneuver burns),
+      } (None when n_captured == 0),
       constraints: {heat_flux, g_load, heat_load} -> {p50, p95, max, limit, viol_pct}
     """
     from aerocapture.training.evaluate import compute_cost
@@ -216,11 +221,26 @@ def compute_eval_summary(
         apo = cap[:, charts._FR_APO_ERR]
         peri = cap[:, charts._FR_PERI_ERR]
         incl = cap[:, charts._FR_INCL_ERR]
+
+        def _spread(arr: npt.NDArray[np.float64]) -> dict[str, float]:
+            return {
+                "min": float(np.min(arr)),
+                "p50": float(np.median(arr)),
+                "p95": float(np.percentile(arr, 95)),
+                "mean": float(np.mean(arr)),
+                "max": float(np.max(arr)),
+            }
+
         captured_stats = {
-            "dv": {"p50": float(np.median(dv)), "p95": float(np.percentile(dv, 95)), "mean": float(np.mean(dv))},
+            "dv": _spread(dv),
             "apoapsis": {"p50": float(np.median(apo)), "p95": float(np.percentile(apo, 95)), "mean": float(np.mean(apo))},
             "periapsis": {"p50": float(np.median(peri)), "p95": float(np.percentile(peri, 95)), "mean": float(np.mean(peri))},
             "inclination": {"p50": float(np.median(incl)), "p95": float(np.percentile(incl, 95)), "mean": float(np.mean(incl))},
+            # Terminal-maneuver burns, abs() like chart_burn_dv_histograms (charts.py:1115-1119):
+            # DV1 periapsis, DV2 circularization, DV3 inclination.
+            "dv1": _spread(np.abs(cap[:, charts._FR_DV1])),
+            "dv2": _spread(np.abs(cap[:, charts._FR_DV2])),
+            "dv3": _spread(np.abs(cap[:, charts._FR_DV3])),
         }
 
     all_q = final_records[:, charts._FR_MAX_HEAT_FLUX]
@@ -248,7 +268,13 @@ def compute_eval_summary(
         "n_sims": int(n_sims),
         "n_captured": n_captured,
         "capture_rate": n_captured / max(n_sims, 1),
-        "cost": {"p50": float(np.median(per_sim_costs)), "p95": float(np.percentile(per_sim_costs, 95)), "rms": rms_cost},
+        "cost": {
+            "min": float(np.min(per_sim_costs)),
+            "p50": float(np.median(per_sim_costs)),
+            "p95": float(np.percentile(per_sim_costs, 95)),
+            "rms": rms_cost,
+            "max": float(np.max(per_sim_costs)),
+        },
         "captured": captured_stats,
         "constraints": {"heat_flux": _con_block(all_q, q_limit), "g_load": _con_block(all_g, g_limit), "heat_load": _con_block(all_hl, hl_limit)},
     }
