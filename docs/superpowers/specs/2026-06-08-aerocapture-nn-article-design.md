@@ -86,6 +86,10 @@ All committed classical schemes were **GA-trained** (`common.toml` default `algo
 
 **Predicted result (the money figure):** under **fixed** seeds (stationary) the optimizers cluster; the gap **GA − {CMA-ES, islands, PSO}** widens through **rotating** and is largest under **adaptive**. If observed, "GA is robust to the moving environment" is demonstrated, not asserted. If the gap is flat across strategies, the honest finding is "GA is simply the better optimizer here" — still reportable, weaker thesis. Report whatever the data shows.
 
+### Study D — cost_transform sweep (objective shaping for tail robustness)
+
+*Added 2026-06-10.* The aggregate fitness is `sqrt(mean_seeds(transform(cost)²))` (`evaluate.py` per-sim transform → `problem.py:98` RMS-across-seeds), so `cost_transform` is a knob on **which moment of the per-seed cost distribution** the optimizer minimizes: `log` → bulk/median (tail compressed), `linear` → mean (L2), `squared` → ~4th moment, `cubed` → ~6th moment (worst seeds). Sweep **{linear, sqrt, squared, cubed}** under GA on `dense_p3998` @300/gen (`optbig_ga_<t>.toml`, `run_paper_experiments6.sh`); `log` reuses `paper_optbig_ga300`. Deployed ΔV is raw (no transform), so the comparison is clean. **Hypothesis:** `cubed` (tail-weighted) wins deployed **p95/max** — the robustness metric the paper leads on — possibly at a small cost on **mean**; report all three so the tradeoff is explicit. This is the **objective-shaping** third leg of the robustness thesis, alongside seed-strategy (non-stationarity, Study C) and GA (robust optimizer): *a robust policy in a moving, dispersed environment needs a tail-weighted objective + rotating seeds + a population optimizer.* The user's preliminary read (`cubed` > `log`) motivated the controlled sweep.
+
 ### Study B — Output parameterization (control = `dense_p515` + islands)
 
 | Run | Head | output_size | Status |
