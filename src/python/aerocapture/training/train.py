@@ -1947,14 +1947,57 @@ def _train_islands(
             if verbose:
                 print(f"\n  Interrupted at gen {gen}; checkpoint saved.")
 
-    # Final eval + winner selection.
+    # Validation-pool final selection across islands (spec 2026-06-10-final-selection):
+    # union of last-gen pops + champions decides the ARTIFACTS; final_eval below
+    # is report-only (winner's fresh final-eval rms is the quoted number).
+    selection = None
+    if island_model.validation_seeds:
+        from aerocapture.training.final_select import (  # noqa: PLC0415
+            KnownCandidate,
+            format_selection_summary,
+            select_final_individual,
+            write_final_selection_json,
+        )
+
+        known = [
+            KnownCandidate(
+                x=np.asarray(isl.best_overall_individual, dtype=np.float64),
+                provenance=f"{isl.name}:champion",
+                val_rms=float(isl.best_val_cost),
+            )
+            for isl in island_model.islands
+            if isl.best_overall_individual is not None and np.isfinite(isl.best_val_cost)
+        ]
+        cand_rows: list[npt.NDArray[np.float64]] = []
+        cand_prov: list[str] = []
+        for isl in island_model.islands:
+            pop = isl.algorithm.pop
+            if pop is None:
+                continue
+            pop_x = pop.get("X")
+            for j in range(pop_x.shape[0]):
+                cand_rows.append(np.asarray(pop_x[j], dtype=np.float64))
+                cand_prov.append(f"{isl.name}:last_gen[{j}]")
+        if known or cand_rows:
+            try:
+                selection = select_final_individual(
+                    problem,
+                    np.vstack(cand_rows) if cand_rows else np.empty((0, len(param_specs))),
+                    cand_prov,
+                    known,
+                    island_model.validation_seeds,
+                )
+            except ValueError:
+                # Pathological all-inf run with no champions: fall through to the
+                # legacy final_eval / stale-removal path below.
+                selection = None
+
+    # Final eval (report-only when selection ran).
     results = island_model.final_eval()
-    if not results:
+    if selection is None and not results:
+        # validation off AND no island promoted -- legacy stale-artifact removal path.
         if verbose:
             print("  No island had a validated best — skipping final-eval / artifact write.")
-        # Remove any best_model.json / best_params.json left over from a
-        # previous experiment so downstream tooling (compare_guidance,
-        # report.py, deploy paths) doesn't silently consume a stale model.
         for stale in (
             save_dir / "best_model.json",
             save_dir / "best_params.json",
@@ -1977,11 +2020,39 @@ def _train_islands(
             "migration_log": island_model.migration_log,
         }
 
-    winner = results[0]
+    if selection is not None:
+        # Winner = validation-pool selection. Quote its UNBIASED final-eval rms:
+        # reuse the matching champion record when the incumbent won, else run
+        # one fresh single-candidate final-eval for a promoted individual.
+        match = next((r for r in results if r["island"] + ":champion" == selection.provenance), None)
+        if match is not None:
+            final_rms = float(match["rms"])
+            win_island = str(match["island"])
+            capture = float(match["capture_rate"])
+        else:
+            from aerocapture.training.island_model import _capture_rate  # noqa: PLC0415
+
+            fe_costs = problem.evaluate_individual_per_seed(selection.individual, island_model.final_eval_seeds)
+            final_rms = float(np.sqrt(np.mean(np.asarray(fe_costs, dtype=np.float64) ** 2)))
+            win_island = selection.provenance.split(":", 1)[0]
+            capture = float(_capture_rate(np.asarray(fe_costs)))
+        winner = {
+            "island": win_island,
+            "X": selection.individual.copy(),
+            "rms": final_rms,
+            "val_rms": float(selection.val_rms),
+            "capture_rate": capture,
+            "n_sims": len(island_model.final_eval_seeds),
+            "selection_provenance": selection.provenance,
+        }
+        write_final_selection_json(save_dir, selection, len(island_model.validation_seeds))
+        if verbose:
+            print(format_selection_summary(selection))
+    else:
+        winner = results[0]
+
     if verbose:
         gap, overfit = val_generalization_gap(winner["val_rms"], winner["rms"])
-        # winner["val_rms"] is the validation rms the winner was selected on; a
-        # large positive gap to the fresh final-eval rms flags overfit to validation.
         gap_detail = ""
         if winner["val_rms"] < float("inf"):
             gap_detail = f" (val_rms={winner['val_rms']:.4e}, gap={gap:+.1%}{'  [WARN: overfit to validation?]' if overfit else ''})"
