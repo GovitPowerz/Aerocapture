@@ -125,6 +125,10 @@ Capture = `ifinal==3 & eccentricity<1.0`; ΔV = `dv_total_m_s` over captured sim
 
 **Why (the thesis):** all these runs use `seed_strategy = "adaptive"` — the MC seed set shifts each generation, so the objective is **non-stationary**. GA's population-based recombination is robust to a moving objective; CMA-ES (builds a stationary covariance model) suffers most; islands fragments its budget into weak sub-populations. **Study C** (optimizer × {fixed, rotating, adaptive}) tests this directly: GA's edge should grow fixed → rotating → adaptive.
 
+**Small net (dense_p515) — the cluster (GA now finished):** islands 119.6 / 131.1 ≈ CMA-ES 119.8 / **130.0** ≈ GA 120.3 / 136.0 (CMA-ES best on tails), then DE 124.5, QPSO 124.5, warm-start 132.4. The top three are tied. **Net-size interaction (supports the thesis):** the moving objective only differentiates optimizers once the search space is hard enough — easy small net → cluster; hard big net → GA separates.
+
+**Learning / smart-init methods underperform (negative results, report them):** RL/PPO is catastrophic — dense **636.0 / 973.0 / 1185.4** (mean/p95/max), GRU-PPO 512.6 / 828.5, ~5× the population EAs — and supervised **warm-start** lands below plain GA (132.4 small-net; 125.3 joint). The simplest robust population method beats the model-based (CMA-ES), policy-gradient (RL), and smart-init (warm-start) approaches: **parsimony wins** in the non-stationary, expensive-objective regime. (RL logs use a step-budgeted `rl_training_*.jsonl` format, so its best-val is not directly comparable; deployed ΔV is the metric. Matches the project memory: PSO/EA empirically beats PPO/SAC here.)
+
 ### Classical
 | Scheme | mean | p50 | p95 | max | cap% | n |
 |---|---|---|---|---|---|---|
