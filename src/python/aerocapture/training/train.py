@@ -2036,7 +2036,7 @@ def _train_islands(
             final_rms = float(np.sqrt(np.mean(np.asarray(fe_costs, dtype=np.float64) ** 2)))
             win_island = selection.provenance.split(":", 1)[0]
             capture = float(_capture_rate(np.asarray(fe_costs)))
-        winner = {
+        winner: dict[str, Any] = {
             "island": win_island,
             "X": selection.individual.copy(),
             "rms": final_rms,
