@@ -298,3 +298,115 @@ def patch_checkpoint(
     tmp = state.npz_path.with_name(".tmp_" + state.npz_path.name)
     np.savez_compressed(tmp, **arrays)
     tmp.rename(state.npz_path)
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator (test seam) + standalone CLI
+# ---------------------------------------------------------------------------
+
+
+def run_final_select(
+    training_dir: Path,
+    config: Any,  # TrainingConfig (typed Any to avoid heavy import at module load)
+    param_specs: list[Any],
+    problem: _PerSeedEvaluator,
+    val_seeds: list[int],
+    patch: bool = True,
+) -> SelectionResult:
+    """Load the latest checkpoint in training_dir, run the selection rule,
+    rewrite best artifacts (+ sidecar), and (optionally) patch the checkpoint."""
+    from aerocapture.training.train import write_best_artifacts  # noqa: PLC0415
+
+    state = load_selection_state(training_dir)
+    sel = select_final_individual(problem, state.population, state.provenances, state.known, val_seeds)
+    write_best_artifacts(sel.individual, config, param_specs, training_dir, cwd=None)
+    write_final_selection_json(training_dir, sel, len(val_seeds))
+    if patch:
+        island_name: str | None = None
+        if state.kind == "islands":
+            if sel.winner_index is not None:
+                assert state.island_of_row is not None
+                island_name = state.island_of_row[sel.winner_index]
+            else:
+                island_name = sel.provenance.split(":", 1)[0]
+        patch_checkpoint(state, sel.individual, sel.val_rms, island_name=island_name)
+    else:
+        print("  --no-checkpoint-patch: checkpoint untouched; a later resume will revert these artifacts at its next checkpoint save.")
+    print(format_selection_summary(sel))
+    return sel
+
+
+def main() -> None:
+    import argparse  # noqa: PLC0415
+
+    parser = argparse.ArgumentParser(description="Re-run end-of-training final selection on an existing training directory.")
+    parser.add_argument("training_dir", type=str, help="Directory containing checkpoint_g*.{json,npz} and best artifacts")
+    parser.add_argument("--toml", type=str, required=True, help="Training TOML the run used (base inheritance resolved)")
+    parser.add_argument("--no-checkpoint-patch", action="store_true", help="Do not write the re-selected best back into the checkpoint")
+    parser.add_argument("--sim-timeout", type=float, default=None, help="Per-sim wall-clock timeout (seconds)")
+    args = parser.parse_args()
+
+    from aerocapture.training.evaluate import VALIDATION_SEED_OFFSET, make_reserved_seeds  # noqa: PLC0415
+    from aerocapture.training.problem import AerocaptureProblem  # noqa: PLC0415
+    from aerocapture.training.train import _setup_param_specs, build_cost_kwargs, build_training_config_from_toml  # noqa: PLC0415
+    from aerocapture.training.warm_start import load_warm_start_bounds  # noqa: PLC0415
+
+    training_dir = Path(args.training_dir)
+    config, toml_data = build_training_config_from_toml(args.toml)
+    config.sim.sim_timeout_secs = args.sim_timeout
+
+    if config.optimizer.validation_n_sims <= 0:
+        raise SystemExit("ERROR: [optimizer] validation_n_sims is 0 -- no validation pool exists to select on. Set validation_n_sims > 0 in the TOML.")
+
+    param_specs, _ = _setup_param_specs(config, toml_data, verbose=False)
+    bounds = load_warm_start_bounds(training_dir)
+    if bounds is not None:
+        # Overlay the EXACT weight-slab bounds the checkpoint population was
+        # encoded under (adaptive warm-start bounds). Decoding under rebuilt
+        # Xavier bounds would silently corrupt the weights.
+        n_weights = len(bounds)
+        if n_weights > len(param_specs):
+            raise SystemExit(f"ERROR: warm_start_bounds.json has {n_weights} specs but config yields {len(param_specs)} params")
+        param_specs = list(bounds) + param_specs[n_weights:]
+        print(f"  Overlaid {n_weights} weight-spec bounds from warm_start_bounds.json")
+
+    state = load_selection_state(training_dir)
+    base_mc_seed = state.base_mc_seed
+    if base_mc_seed is None:
+        mc_seed_val = toml_data.get("monte_carlo", {}).get("seed")
+        base_mc_seed = int(mc_seed_val) if mc_seed_val is not None else 42
+    elif toml_data.get("monte_carlo", {}).get("seed") is not None and int(toml_data["monte_carlo"]["seed"]) != base_mc_seed:
+        raise SystemExit(
+            f"ERROR: checkpoint base_mc_seed={base_mc_seed} != TOML monte_carlo.seed={toml_data['monte_carlo']['seed']} -- wrong TOML for this training dir?"
+        )
+    val_seeds = make_reserved_seeds(base_mc_seed, VALIDATION_SEED_OFFSET, config.optimizer.validation_n_sims)
+
+    if state.population.shape[1] != len(param_specs):
+        raise SystemExit(
+            f"ERROR: checkpoint chromosome width {state.population.shape[1]} != config param count {len(param_specs)} -- wrong TOML for this training dir?"
+        )
+
+    problem = AerocaptureProblem(
+        param_specs=param_specs,
+        toml_path=str(Path(args.toml).resolve()),
+        seeds=[base_mc_seed],
+        cost_kwargs=build_cost_kwargs(toml_data),
+        scheme=config.guidance_type,
+        sim_timeout=config.sim.sim_timeout_secs,
+        nn_config=config.network if config.guidance_type == "neural_network" else None,
+    )
+
+    n_sims_estimate = state.population.shape[0] * len(val_seeds)
+    print(f"  Final selection over {state.population.shape[0]} candidates x {len(val_seeds)} validation seeds (<= {n_sims_estimate} sims)...")
+    run_final_select(
+        training_dir=training_dir,
+        config=config,
+        param_specs=param_specs,
+        problem=problem,
+        val_seeds=val_seeds,
+        patch=not args.no_checkpoint_patch,
+    )
+
+
+if __name__ == "__main__":
+    main()

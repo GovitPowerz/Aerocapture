@@ -328,3 +328,56 @@ class TestCheckpointIO:
         state = load_selection_state(tmp_path)  # must still load the REAL pair
         assert state.npz_path.name == "checkpoint_g00007.npz"
         assert not any(p.name.startswith("checkpoint_g") and ".tmp" in p.name for p in tmp_path.iterdir())
+
+
+class TestRunFinalSelect:
+    def _setup_dir(self, d: Path) -> None:
+        meta = {"generation": 7, "best_cost": 1.5, "best_val_cost": _rms(np.full(2, 0.9), [1000001, 1000002]), "cost_history": [], "rng_state": None}
+        (d / "checkpoint_g00007.json").write_text(json.dumps(meta))
+        np.savez(
+            d / "checkpoint_g00007.npz",
+            population=np.vstack([np.full(2, 0.2), np.full(2, 0.8)]),
+            costs=np.array([1.0, 2.0]),
+            best_individual=np.full(2, 0.9),
+        )
+
+    def test_round_trip_promotes_and_patches(self, tmp_path: Path) -> None:
+        from aerocapture.training.config import TrainingConfig
+        from aerocapture.training.final_select import run_final_select
+        from aerocapture.training.param_spaces import ParamSpec
+
+        self._setup_dir(tmp_path)
+        cfg = TrainingConfig()
+        cfg.guidance_type = "equilibrium_glide"
+        specs = [ParamSpec(name="a", p_min=0.0, p_max=1.0, default=0.5), ParamSpec(name="b", p_min=0.0, p_max=1.0, default=0.5)]
+
+        sel = run_final_select(
+            training_dir=tmp_path,
+            config=cfg,
+            param_specs=specs,
+            problem=_MockProblem(),
+            val_seeds=[1000001, 1000002],
+            patch=True,
+        )
+        assert sel.promoted and sel.provenance == "last_gen[0]"
+        # artifacts rewritten
+        params = json.loads((tmp_path / "best_params.json").read_text())
+        assert params["a"] == 0.2
+        # checkpoint patched
+        data = np.load(tmp_path / "checkpoint_g00007.npz")
+        assert np.array_equal(data["best_individual"], np.full(2, 0.2))
+        # sidecar present
+        assert (tmp_path / "final_selection.json").exists()
+
+    def test_no_patch_leaves_checkpoint(self, tmp_path: Path) -> None:
+        from aerocapture.training.config import TrainingConfig
+        from aerocapture.training.final_select import run_final_select
+        from aerocapture.training.param_spaces import ParamSpec
+
+        self._setup_dir(tmp_path)
+        cfg = TrainingConfig()
+        cfg.guidance_type = "equilibrium_glide"
+        specs = [ParamSpec(name="a", p_min=0.0, p_max=1.0, default=0.5), ParamSpec(name="b", p_min=0.0, p_max=1.0, default=0.5)]
+        run_final_select(training_dir=tmp_path, config=cfg, param_specs=specs, problem=_MockProblem(), val_seeds=[1000001, 1000002], patch=False)
+        data = np.load(tmp_path / "checkpoint_g00007.npz")
+        assert np.array_equal(data["best_individual"], np.full(2, 0.9))  # untouched
