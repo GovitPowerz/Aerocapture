@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
     from rich.console import ConsoleRenderable
     from rich.live import Live
+    from rich.panel import Panel
     from rich.text import Text
 
     from aerocapture.training.logger import TrainingLogger
@@ -72,6 +73,20 @@ def _rate_and_eta(gen: int, start_gen: int, n_gen: int, elapsed: float) -> tuple
     remaining_gens = max(n_gen - gen, 0)
     remaining = remaining_gens / rate if rate > 0 else float("inf")
     return rate, remaining
+
+
+def _progress_line(gen: int, n_gen: int, width: int = 50) -> Text:
+    """Styled ━/╸ progress bar line (blue filled, dim remainder, bold percent)."""
+    from rich.text import Text  # noqa: PLC0415
+
+    progress = min(max(gen / n_gen, 0.0), 1.0) if n_gen > 0 else 0.0
+    filled = int(progress * width)
+    t = Text()
+    if filled > 0:
+        t.append("━" * (filled - 1) + "╸", style="blue")
+    t.append("━" * (width - filled), style="dim")
+    t.append(f" {progress:.0%}", style="bold")
+    return t
 
 
 def _validation_summary_rows(summary: dict) -> list[tuple[str, list[str], str]]:
@@ -182,8 +197,9 @@ class NoopDisplay:
 class LiveDisplay:
     """Rich Live TUI for training progress."""
 
-    def __init__(self, scheme: str, n_runs: int, n_generations: int) -> None:
+    def __init__(self, scheme: str, n_runs: int, n_generations: int, algorithm: str = "") -> None:
         self._scheme = scheme
+        self._algorithm = algorithm
         self._n_runs = n_runs
         self._n_gens = n_generations
         self._live: Live | None = None
@@ -193,51 +209,104 @@ class LiveDisplay:
     def set_start_gen(self, start_gen: int) -> None:
         self._start_gen = start_gen
 
-    def _build_panel(self, logger: TrainingLogger, current_run: int) -> ConsoleRenderable:
-        """Build a Rich Panel from logger buffer."""
-        import time
+    def _build_header(self, gen: int, pop: int | None, elapsed: float) -> Panel:
+        from rich.console import Group  # noqa: PLC0415
+        from rich.panel import Panel  # noqa: PLC0415
+        from rich.text import Text  # noqa: PLC0415
 
-        from rich.panel import Panel
-        from rich.text import Text
+        rate, remaining = _rate_and_eta(gen, self._start_gen, self._n_gens, elapsed)
+        t = Text()
+        t.append(self._scheme, style="bold")
+        if self._algorithm:
+            t.append(" \u00b7 ", style="dim")
+            t.append(self._algorithm, style="bold")
+        t.append("  \u2502  Gen ", style="dim")
+        t.append(str(gen), style="bold")
+        t.append(f"/{self._n_gens}", style="dim")
+        if pop is not None:
+            t.append("  \u2502  pop ", style="dim")
+            t.append(str(pop), style="bold")
+        if gen > self._start_gen:
+            t.append(f"  \u2502  elapsed {_format_duration(elapsed)}  \u2502  {rate:.2f} gen/s  \u2502  ETA ", style="dim")
+            t.append(_format_duration(remaining), style="bold")
+        return Panel(Group(t, _progress_line(gen, self._n_gens)), border_style="green")
 
-        buf = logger.buffer
-        if not buf:
-            return Panel("Waiting for first generation...", title=self._scheme)
-
-        if self._start_time is None:
-            self._start_time = time.monotonic()
+    def _build_optimization_panel(self, buf: list[dict]) -> Panel:
+        from rich.console import Group  # noqa: PLC0415
+        from rich.panel import Panel  # noqa: PLC0415
+        from rich.table import Table  # noqa: PLC0415
+        from rich.text import Text  # noqa: PLC0415
 
         latest = buf[-1]
-        gen = latest["generation"]
+        grid = Table.grid(padding=(0, 2))
+        grid.add_column()
+        grid.add_column(justify="right")
+        grid.add_column()
+        grid.add_row("Best", Text(_format_cost(latest["best_cost"]), style="bold"), Text(_sparkline([r["best_cost"] for r in buf]), style="cyan"))
+        grid.add_row("Mean", _format_cost(latest["mean_cost"]), Text(_sparkline([r["mean_cost"] for r in buf]), style="cyan"))
+        if latest.get("worst_cost") is not None:
+            grid.add_row("Worst", _format_cost(latest["worst_cost"]), Text(f"\u03c3 {latest.get('std_cost', float('nan')):.1e}", style="dim"))
+        grid.add_row("Capture", Text(f"{latest['capture_rate']:.0%}", style="green"), Text(_sparkline([r["capture_rate"] for r in buf]), style="green"))
+        grid.add_row("Divers", f"{latest['population_diversity']:.2f}", Text(_sparkline([r["population_diversity"] for r in buf]), style="magenta"))
+        all_costs = latest.get("all_costs")
+        if all_costs:
+            glyphs, caption = _cost_histogram(all_costs)
+            grid.add_row("Pop cost", Text(glyphs, style="blue"), Text(caption, style="dim"))
+        bits = []
+        if latest.get("gen_elapsed_s") is not None:
+            bits.append(f"gen wall {latest['gen_elapsed_s']:.2f}s")
+        pool = latest.get("pool_metrics") or {}
+        if pool.get("last_curation_gen") is not None:
+            bits.append(f"pool refresh g{pool['last_curation_gen']}")
+        body: ConsoleRenderable = Group(grid, Text(" \u00b7 ".join(bits), style="dim")) if bits else grid
+        return Panel(body, title="Optimization", border_style="cyan")
 
-        best_costs = [r["best_cost"] for r in buf]
-        mean_costs = [r["mean_cost"] for r in buf]
-        cap_rates = [r["capture_rate"] for r in buf]
-        diversities = [r["population_diversity"] for r in buf]
+    def _build_validation_panel(self, buf: list[dict]) -> Panel:
+        from rich.console import Group  # noqa: PLC0415
+        from rich.panel import Panel  # noqa: PLC0415
+        from rich.table import Table  # noqa: PLC0415
+        from rich.text import Text  # noqa: PLC0415
 
-        lines = []
-        lines.append(f"Best cost  {_format_cost(latest['best_cost']):>10s}  {_sparkline(best_costs)}")
-        lines.append(f"Mean cost  {_format_cost(latest['mean_cost']):>10s}  {_sparkline(mean_costs)}")
-        lines.append(f"Capture    {latest['capture_rate']:>9.0%}  {_sparkline(cap_rates)}")
-        lines.append(f"Diversity  {latest['population_diversity']:>9.2f}  {_sparkline(diversities)}")
-        lines.append("")
+        best_val_r, last_val_r = self._scan_validation_records(buf)
+        if last_val_r is None and best_val_r is None:
+            placeholder = Text("waiting for first validation\u2026\n", style="dim")
+            placeholder.append("(gate fires when the gen-best individual changes)", style="dim")
+            return Panel(placeholder, title="Validation", border_style="green")
 
-        # Progress bar
-        progress = gen / self._n_gens
-        bar_width = 40
-        filled = int(progress * bar_width)
-        bar = "\u2588" * filled + "\u2591" * (bar_width - filled)
-        eta_str = ""
-        if self._start_time is not None and progress > 0:
-            elapsed = time.monotonic() - self._start_time
-            remaining = elapsed / progress * (1 - progress)
-            mins, secs = divmod(int(remaining), 60)
-            eta_str = f"  ETA {mins}m {secs:02d}s"
-        lines.append(f"{bar}  {progress:.0%}{eta_str}")
-        lines.append("")
+        # parts: list[ConsoleRenderable] avoids mypy issues with Group(*parts) when
+        # the union is Text | Table (both satisfy ConsoleRenderable).
+        parts: list[ConsoleRenderable] = []
+        if best_val_r is not None:
+            bv = best_val_r["validation"]
+            line = Text("Best  ", style="")
+            line.append(f"RMS {_format_cost(bv['rms_cost'])}", style="green")
+            line.append(f"  g{best_val_r['generation']}", style="dim")
+            parts.append(line)
+        if last_val_r is not None and last_val_r is not best_val_r:
+            lv = last_val_r["validation"]
+            outcome, style = ("PROMOTED", "green") if last_val_r.get("improvement") else ("REJECTED", "yellow")
+            line = Text(f"Last  RMS {_format_cost(lv['rms_cost'])}  ")
+            line.append(outcome, style=style)
+            parts.append(line)
 
-        # Validation metrics: show the most recent validation attempt and the
-        # best-ever validated candidate (permanent).
+        detail_src = last_val_r if last_val_r is not None and last_val_r.get("validation_summary") else best_val_r
+        title = "Validation"
+        if detail_src is not None and detail_src.get("validation_summary"):
+            summary = detail_src["validation_summary"]
+            title = f"Validation ({summary.get('n_sims', 0)} sims \u00b7 g{detail_src['generation']})"
+            grid = Table.grid(padding=(0, 2))
+            grid.add_column()
+            for _ in range(4):
+                grid.add_column(justify="right")
+            for label, cells, row_style in _validation_summary_rows(summary):
+                padded = cells + [""] * (4 - len(cells)) if len(cells) < 4 else cells
+                grid.add_row(*(Text(c, style=row_style or "") for c in [label, *padded]))
+            parts.append(grid)
+        return Panel(Group(*parts), title=title, border_style="green")
+
+    @staticmethod
+    def _scan_validation_records(buf: list[dict]) -> tuple[dict | None, dict | None]:
+        """(best_val_record, last_val_record) by min rms / max generation."""
         best_val_r: dict | None = None
         last_val_r: dict | None = None
         for r in buf:
@@ -250,44 +319,57 @@ class LiveDisplay:
                 continue
             if best_val_r is None or rms < best_val_r["validation"].get("rms_cost", float("inf")):
                 best_val_r = r
-        if last_val_r is not None and last_val_r is not best_val_r:
-            lv = last_val_r["validation"]
-            outcome = "PROMOTED" if last_val_r.get("improvement") else "REJECTED"
-            rms_str = _format_cost(lv["rms_cost"]) if lv.get("rms_cost") is not None else "n/a"
-            lines.append(f"Last val  g{last_val_r['generation']}: RMS={rms_str} cap={lv['capture_rate']:.0%} -> {outcome}")
-        if best_val_r is not None:
-            bv = best_val_r["validation"]
-            lines.append(
-                f"Best val  g{best_val_r['generation']}: RMS={_format_cost(bv['rms_cost'])} "
-                f"mean={_format_cost(bv['mean_cost'])} p95={_format_cost(bv['p95_cost'])} cap={bv['capture_rate']:.0%}"
-            )
-        # Rich validation dashboard from `compute_eval_summary`. Prefer the
-        # most-recently-collected summary so the operator sees current shape
-        # (DV / apoapsis / heat-flux / g-load) rather than the historical best.
-        detail_src = last_val_r if last_val_r is not None and last_val_r.get("validation_summary") else best_val_r
-        if detail_src is not None and detail_src.get("validation_summary"):
-            lines.append("")
-            lines.append(f"-- Validation detail (g{detail_src['generation']}) --")
-            lines.extend(str(_rows_to_text(detail_src["validation_summary"])).splitlines())
+        return best_val_r, last_val_r
 
-        # Stagnation
-        improvements = [i for i, r in enumerate(buf) if r["improvement"]]
+    def _build_footer(self, buf: list[dict]) -> Text:
+        from rich.text import Text  # noqa: PLC0415
+
+        latest = buf[-1]
+        gen = latest["generation"]
+        t = Text(" ")
+        improvements = [r["generation"] for r in buf if r.get("improvement")]
         if improvements:
-            last_imp_gen = buf[improvements[-1]]["generation"]
-            stag = gen - last_imp_gen
+            last_imp = improvements[-1]
+            stag = gen - last_imp
             if stag > 0:
-                lines.append(f"Stagnant for {stag} gens \u00b7 Last improvement: gen {last_imp_gen}")
+                t.append(f"Stagnant {stag} gens", style="yellow")
+            else:
+                t.append("Improved this gen", style="green")
+            t.append(f" \u00b7 improved g{last_imp}", style="dim")
         else:
-            lines.append("No improvement yet")
-
-        # Best params
+            t.append("No improvement yet", style="yellow")
         params = latest.get("best_params")
-        if params is not None:
-            param_str = ", ".join(f"{k}: {v:.4g}" for k, v in params.items())
-            lines.append(f"Best params: {{{param_str}}}")
+        if params:
+            if self._scheme == "neural_network":
+                t.append(f" \u00b7 {len(params)} NN params (best_model.json)", style="dim")
+            else:
+                items = list(params.items())
+                preview = ", ".join(f"{k} {v:.4g}" for k, v in items[:3])
+                more = f" (+{len(items) - 3} more)" if len(items) > 3 else ""
+                t.append(f" \u00b7 best: {preview}{more}", style="dim")
+        return t
 
-        title = f"{self._scheme} \u00b7 Run {current_run + 1}/{self._n_runs} \u00b7 Gen {gen}/{self._n_gens}"
-        return Panel(Text("\n".join(lines)), title=title)
+    def _build_dashboard(self, logger: TrainingLogger, current_run: int) -> ConsoleRenderable:
+        import time  # noqa: PLC0415
+
+        from rich.columns import Columns  # noqa: PLC0415
+        from rich.console import Group  # noqa: PLC0415
+        from rich.text import Text  # noqa: PLC0415
+
+        if self._start_time is None:
+            self._start_time = time.monotonic()
+        buf = logger.buffer
+        if not buf:
+            return Group(self._build_header(gen=self._start_gen, pop=None, elapsed=0.0), Text(" Waiting for first generation\u2026", style="dim"))
+        latest = buf[-1]
+        gen = latest["generation"]
+        pop = len(latest["all_costs"]) if latest.get("all_costs") else None
+        elapsed = time.monotonic() - self._start_time
+        return Group(
+            self._build_header(gen, pop, elapsed),
+            Columns([self._build_optimization_panel(buf), self._build_validation_panel(buf)]),
+            self._build_footer(buf),
+        )
 
     def _update_islands(
         self,
@@ -395,8 +477,7 @@ class LiveDisplay:
         if island_records is not None:
             self._update_islands(logger, island_records)
             return
-        panel = self._build_panel(logger, current_run)
-        self._live.update(panel)
+        self._live.update(self._build_dashboard(logger, current_run))
 
     def stop(self) -> None:
         """Stop the Live display (for clean interrupt output)."""
@@ -416,8 +497,8 @@ class LiveDisplay:
             self._live = None
 
 
-def create_display(scheme: str, n_runs: int, n_generations: int, *, enabled: bool = True) -> LiveDisplay | NoopDisplay:
+def create_display(scheme: str, n_runs: int, n_generations: int, *, enabled: bool = True, algorithm: str = "") -> LiveDisplay | NoopDisplay:
     """Factory: returns LiveDisplay if enabled and terminal is interactive, else NoopDisplay."""
     if not enabled or not sys.stdout.isatty():
         return NoopDisplay()
-    return LiveDisplay(scheme=scheme, n_runs=n_runs, n_generations=n_generations)
+    return LiveDisplay(scheme=scheme, n_runs=n_runs, n_generations=n_generations, algorithm=algorithm)

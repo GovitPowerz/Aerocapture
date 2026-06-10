@@ -7,36 +7,15 @@ from unittest.mock import MagicMock
 from aerocapture.training.display import LiveDisplay, NoopDisplay, create_display
 
 
-class TestLiveDisplay:
-    def test_create_display_returns_noop_in_non_tty(self) -> None:
-        """In non-interactive environments (CI), create_display returns NoopDisplay."""
-        display = create_display(scheme="equilibrium_glide", n_runs=1, n_generations=50, enabled=False)
-        assert isinstance(display, NoopDisplay)
-
-    def test_build_panel_does_not_crash(self) -> None:
-        """Test panel building logic without opening a Live context."""
-        display = LiveDisplay(scheme="equilibrium_glide", n_runs=1, n_generations=50)
-        logger = MagicMock()
-        logger.buffer = [
-            {
-                "generation": 1,
-                "best_cost": 1000.0,
-                "mean_cost": 5000.0,
-                "capture_rate": 0.8,
-                "population_diversity": 0.45,
-                "improvement": True,
-                "best_params": {"k_hdot_scale": 0.3},
-            },
-        ]
-        panel = display._build_panel(logger, current_run=0)
-        assert panel is not None
-
-
 class TestNoopDisplay:
     def test_noop_context_manager(self) -> None:
         display = NoopDisplay()
         with display:
             display.update(MagicMock(), current_run=0)
+
+    def test_create_display_returns_noop_in_non_tty(self) -> None:
+        display = create_display(scheme="equilibrium_glide", n_runs=1, n_generations=50, enabled=False, algorithm="ga")
+        assert isinstance(display, NoopDisplay)
 
 
 class TestDisplayPrimitives:
@@ -185,6 +164,127 @@ class TestValidationSummaryRows:
         assert _grid_right_edges(header)[-4:] == _grid_right_edges(cost)[-4:]
         # Sanity: `max`/`12000.0` share the last (worst-case-width) edge.
         assert header.rstrip().endswith("max") and cost.rstrip().endswith("12000.0")
+
+
+def _record(gen: int, **over: object) -> dict:
+    rec: dict = {
+        "generation": gen,
+        "best_cost": 334.5,
+        "mean_cost": 480.07,
+        "worst_cost": 21300.0,
+        "std_cost": 3100.0,
+        "capture_rate": 1.0,
+        "population_diversity": 0.42,
+        "improvement": False,
+        "best_params": {"gain": 1.24, "tau": 8.31, "thr": 2.05, "k4": 0.1, "k5": 0.2},
+        "all_costs": [300.0 + 10.0 * i for i in range(64)],
+        "gen_elapsed_s": 0.83,
+        "pool_metrics": {"pool_size": 20, "last_curation_gen": 720},
+    }
+    rec.update(over)
+    return rec
+
+
+def _val_record(gen: int, promoted: bool, rms: float = 181.2) -> dict:
+    return _record(
+        gen,
+        improvement=promoted,
+        validation={
+            "rms_cost": rms,
+            "mean_cost": 142.9,
+            "median_cost": 112.0,
+            "std_cost": 80.0,
+            "p95_cost": 355.7,
+            "worst_cost": 900.0,
+            "capture_rate": 0.968,
+            "n_sims": 1000,
+        },
+        validation_summary=_summary_fixture(),
+    )
+
+
+def _logger_with(records: list[dict]) -> MagicMock:
+    logger = MagicMock()
+    logger.buffer = records
+    return logger
+
+
+def _render(renderable: object, width: int = 120) -> str:
+    from rich.console import Console
+
+    console = Console(record=True, width=width, force_terminal=True)
+    console.print(renderable)
+    return console.export_text()
+
+
+class TestDashboard:
+    def _display(self) -> LiveDisplay:
+        d = LiveDisplay(scheme="ftc", n_runs=1, n_generations=2000, algorithm="qpso")
+        d.set_start_gen(700)
+        return d
+
+    def test_dashboard_renders_key_fragments(self) -> None:
+        # Two validation records: the PROMOTED one (lower rms) becomes "Best",
+        # the later REJECTED one is "Last" -- the Last line only renders when
+        # last is not best (same convention as the old panel).
+        records = [_record(g) for g in range(701, 733)] + [
+            _val_record(704, promoted=True, rms=168.4),
+            _val_record(733, promoted=False, rms=181.2),
+            _record(740),
+        ]
+        out = _render(self._display()._build_dashboard(_logger_with(records), current_run=0))
+        assert "ftc" in out and "qpso" in out
+        assert "pop 64" in out
+        assert "Optimization" in out and "Validation" in out
+        assert "REJECTED" in out
+        assert "DV2" in out and "DV3" in out
+        assert "2.1% > 200" in out
+        assert "pool refresh g720" in out
+        assert "gen wall 0.83s" in out
+        assert "Run 1/1" not in out  # vestigial fragment removed
+
+    def test_footer_truncates_params(self) -> None:
+        out = _render(self._display()._build_footer([_record(740)]))
+        assert "(+2 more)" in out  # 5 params -> 3 shown
+        assert "k5" not in out
+
+    def test_footer_suppresses_nn_params(self) -> None:
+        d = LiveDisplay(scheme="neural_network", n_runs=1, n_generations=100, algorithm="pso")
+        rec = _record(5, best_params={f"w_{i}": 0.1 for i in range(515)})
+        out = _render(d._build_footer([rec]))
+        assert "515 NN params" in out
+        assert "w_0" not in out
+
+    def test_validation_panel_placeholder_before_first_validation(self) -> None:
+        out = _render(self._display()._build_validation_panel([_record(701)]))
+        assert "waiting for first validation" in out
+
+    def test_empty_buffer_renders_waiting(self) -> None:
+        out = _render(self._display()._build_dashboard(_logger_with([]), current_run=0))
+        assert "Waiting for first generation" in out
+
+    def test_zero_captures_grid_placeholder(self) -> None:
+        rec = _val_record(710, promoted=False)
+        rec["validation_summary"]["captured"] = None
+        rec["validation_summary"]["n_captured"] = 0
+        out = _render(self._display()._build_validation_panel([rec]))
+        assert "0/1000" in out
+
+    def test_best_and_last_lines_render_together(self) -> None:
+        # A single validation record means best == last -> only the Best line
+        # shows (pre-existing convention). With two, both lines render.
+        records = [_val_record(704, promoted=True, rms=168.4), _val_record(733, promoted=False, rms=181.2)]
+        out = _render(self._display()._build_validation_panel(records))
+        assert "Best" in out and "1.6840e+02" in out
+        assert "REJECTED" in out
+        single = _render(self._display()._build_validation_panel([_val_record(733, promoted=True)]))
+        assert "REJECTED" not in single and "PROMOTED" not in single  # best==last suppresses the Last line
+
+    def test_update_dispatches_dashboard(self) -> None:
+        d = self._display()
+        d._live = MagicMock()
+        d.update(_logger_with([_record(1)]), current_run=0, island_records=None)
+        assert d._live.update.called
 
 
 def _grid_right_edges(line: str) -> list[int]:
