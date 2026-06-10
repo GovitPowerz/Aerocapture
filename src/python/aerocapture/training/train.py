@@ -1513,9 +1513,49 @@ def train(
 
             cost_history.extend(gen_best_costs)
 
+            # End-of-training final selection (spec 2026-06-10-final-selection):
+            # re-rank the last generation + champion on the validation pool;
+            # deploy the winner only on strict val-RMS improvement. The final-
+            # eval pool stays report-only.
+            selection_promoted = False
+            if val_seeds is not None:
+                from aerocapture.training.final_select import (  # noqa: PLC0415
+                    KnownCandidate,
+                    format_selection_summary,
+                    select_final_individual,
+                    write_final_selection_json,
+                )
+
+                known: list[KnownCandidate] = []
+                if best_overall_individual is not None and np.isfinite(best_val_cost):
+                    known.append(KnownCandidate(x=best_overall_individual, provenance="champion", val_rms=float(best_val_cost)))
+                try:
+                    sel = select_final_individual(
+                        problem,
+                        X,
+                        [f"last_gen[{i}]" for i in range(X.shape[0])],
+                        known,
+                        val_seeds,
+                    )
+                except ValueError:
+                    # Pathological all-inf run with no champion: nothing to select.
+                    sel = None
+                if sel is not None:
+                    if sel.promoted:
+                        best_overall_individual = sel.individual.copy()
+                        best_val_cost = sel.val_rms
+                        assert sel.winner_index is not None
+                        # Training-cost-at-promotion semantics (resume-incomparability rule):
+                        # the winner's training cost under the final seed list.
+                        best_overall_cost = float(costs[sel.winner_index])
+                        selection_promoted = True
+                    write_final_selection_json(save_dir, sel, len(val_seeds))
+                    if verbose:
+                        print(format_selection_summary(sel))
+
             # Always save a final checkpoint
             last_gen = config.optimizer.n_gen
-            if last_gen % checkpoint_interval != 0:
+            if last_gen % checkpoint_interval != 0 or selection_promoted:
                 save_checkpoint(
                     save_dir,
                     last_gen,
