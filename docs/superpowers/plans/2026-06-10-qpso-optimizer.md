@@ -282,7 +282,7 @@ class QPSO(Algorithm):
 - [ ] **Step 1.4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_qpso.py -q`
-Expected: 12 passed
+Expected: 11 passed (5 alpha-schedule + 5 swarm-behavior + 1 warm-start)
 
 - [ ] **Step 1.5: Commit**
 
