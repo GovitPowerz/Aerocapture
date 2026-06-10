@@ -170,3 +170,25 @@ class TestValidationSummaryRows:
         import aerocapture.training.display as d
 
         assert not hasattr(d, "_format_validation_summary")
+
+    def test_grid_columns_aligned(self) -> None:
+        from aerocapture.training.display import _rows_to_text
+
+        lines = str(_rows_to_text(_summary_fixture())).splitlines()
+        header = next(line for line in lines if line.lstrip().startswith("min "))
+        # `12000.0` is the widest value cell; the Cost row exercises the worst case.
+        cost = next(line for line in lines if line.lstrip().startswith("Cost "))
+        # Right-aligned grid columns: the 4 value cells' right edges must coincide
+        # with the 4 header cells' right edges. Detect right edges directly from
+        # the rendered strings (no layout math in the assertion) and compare the
+        # trailing 4 (the value row carries a leading label token the header lacks).
+        assert _grid_right_edges(header)[-4:] == _grid_right_edges(cost)[-4:]
+        # Sanity: `max`/`12000.0` share the last (worst-case-width) edge.
+        assert header.rstrip().endswith("max") and cost.rstrip().endswith("12000.0")
+
+
+def _grid_right_edges(line: str) -> list[int]:
+    """Right-edge column indices of whitespace-separated tokens in a line."""
+    import re
+
+    return [m.end() for m in re.finditer(r"\S+", line)]

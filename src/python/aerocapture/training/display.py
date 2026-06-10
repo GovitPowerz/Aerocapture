@@ -130,7 +130,10 @@ def _rows_to_text(summary: dict) -> Text:
 
     text = Text(f"Validation ({summary.get('n_sims', 0)} sims)\n")
     for label, cells, style in _validation_summary_rows(summary):
-        text.append(f"  {label:<5} " + "   ".join(cells) + "\n", style=style or None)
+        # 4-cell grid rows (min/p50/p95/max header + value rows) get right-aligned
+        # fixed-width cells so columns line up; non-grid rows keep loose spacing.
+        body = "  ".join(f"{c:>8}" for c in cells) if len(cells) == 4 else "   ".join(cells)
+        text.append(f"  {label:<5} " + body + "\n", style=style or None)
     return text
 
 
