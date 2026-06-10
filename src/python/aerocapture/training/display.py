@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
     from rich.console import ConsoleRenderable
     from rich.live import Live
+    from rich.text import Text
 
     from aerocapture.training.logger import TrainingLogger
 
@@ -73,56 +74,64 @@ def _rate_and_eta(gen: int, start_gen: int, n_gen: int, elapsed: float) -> tuple
     return rate, remaining
 
 
-def _format_validation_summary(summary: dict, indent: str = "  ") -> list[str]:
-    """Compact one-line-per-metric rendering of `compute_eval_summary` for TUI.
+def _validation_summary_rows(summary: dict) -> list[tuple[str, list[str], str]]:
+    """Shape a `compute_eval_summary` payload into (label, cells, style) rows.
 
-    Mirrors `report.format_eval_summary` but inlines the formatter to keep
-    display.py free of the matplotlib-heavy report import path.
+    Consumed by the single-algo Validation panel (as a Table.grid) and the
+    islands per-island detail panels (as text lines). Style is a row-level
+    Rich style hint: "" | "dim" | "red" | "yellow" | "green".
     """
     nan = float("nan")
-
-    def _stat_line(label: str, block: dict, fmt: str, *, with_mean: bool = True) -> str:
-        p50 = fmt.format(block.get("p50", nan))
-        p95 = fmt.format(block.get("p95", nan))
-        tail = f"  mean={fmt.format(block.get('mean', nan))}" if with_mean else f"  RMS={fmt.format(block.get('rms', nan))}"
-        return f"{indent}{label}: p50={p50}  p95={p95}{tail}"
-
     n_sims = summary.get("n_sims", 0)
     n_cap = summary.get("n_captured", 0)
+    pct = 100.0 * n_cap / max(n_sims, 1)
+    rows: list[tuple[str, list[str], str]] = []
+    cap_style = "red" if n_cap == 0 else ("green" if pct >= 95.0 else "")
+    rows.append(("Cap", [f"{n_cap}/{n_sims} ({pct:.1f}%)"], cap_style))
+    rows.append(("", ["min", "p50", "p95", "max"], "dim"))
+
+    def _grid(block: dict, fmt: str = "{:.1f}") -> list[str]:
+        return [fmt.format(block.get(k, nan)) for k in ("min", "p50", "p95", "max")]
+
     cost = summary.get("cost", {}) or {}
-    lines = [
-        f"Validation ({n_sims} sims)",
-        _stat_line("Cost       ", cost, "{:.1f}", with_mean=False),
-        f"{indent}Capture:      {n_cap}/{n_sims} ({100 * n_cap / max(n_sims, 1):.1f}%)",
-    ]
-    cap = summary.get("captured")
-    if cap:
-        lines.extend(
-            [
-                _stat_line("DV (m/s)   ", cap.get("dv", {}), "{:.1f}"),
-                _stat_line("Apo (km)   ", cap.get("apoapsis", {}), "{:.1f}"),
-                _stat_line("Peri (km)  ", cap.get("periapsis", {}), "{:.1f}"),
-                _stat_line("Incl (deg) ", cap.get("inclination", {}), "{:.2f}"),
-            ]
-        )
+    cost_style = "yellow" if cost.get("max", 0.0) > 10.0 * cost.get("p95", float("inf")) else ""
+    rows.append(("Cost", _grid(cost), cost_style))
+    cap_block = summary.get("captured")
+    if cap_block:
+        rows.append(("DV", _grid(cap_block.get("dv", {})), ""))
+        for i in (1, 2, 3):
+            rows.append((f"DV{i}", _grid(cap_block.get(f"dv{i}", {})), "dim"))
+        apo = cap_block.get("apoapsis", {})
+        rows.append(("Apo", [f"p50 {apo.get('p50', nan):.1f} · p95 {apo.get('p95', nan):.1f} km"], ""))
+    else:
+        rows.append(("DV", ["—"], "dim"))
     con = summary.get("constraints", {}) or {}
-
-    def _con_line(label: str, block: dict | None, val_fmt: str, lim_fmt: str) -> str:
+    for label, key, val_fmt, lim_fmt in (
+        ("Q", "heat_flux", "{:.1f}", "{:.0f}"),
+        ("G", "g_load", "{:.2f}", "{:.1f}"),
+        ("HL", "heat_load", "{:.0f}", "{:.0f}"),
+    ):
+        block = con.get(key)
         if block is None:
-            return f"{indent}{label}: n/a"
-        suffix = ""
+            rows.append((label, ["n/a"], "dim"))
+            continue
+        cells = [f"max {val_fmt.format(block.get('max', nan))}"]
+        style = ""
         if block.get("limit") is not None and block.get("viol_pct") is not None:
-            suffix = f"  {block['viol_pct']:.1f}% > {lim_fmt.format(block['limit'])}"
-        return (
-            f"{indent}{label}: p50={val_fmt.format(block.get('p50', float('nan')))}  "
-            f"p95={val_fmt.format(block.get('p95', float('nan')))}  "
-            f"max={val_fmt.format(block.get('max', float('nan')))}{suffix}"
-        )
+            cells.append(f"{block['viol_pct']:.1f}% > {lim_fmt.format(block['limit'])}")
+            style = "red" if block["viol_pct"] > 0 else "dim"
+        rows.append((label, cells, style))
+    return rows
 
-    lines.append(_con_line("Q (kW/m²) ", con.get("heat_flux"), "{:.1f}", "{:.0f}"))
-    lines.append(_con_line("G (g)     ", con.get("g_load"), "{:.2f}", "{:.1f}"))
-    lines.append(_con_line("HL (kJ/m²)", con.get("heat_load"), "{:.0f}", "{:.0f}"))
-    return lines
+
+def _rows_to_text(summary: dict) -> Text:
+    """Render summary rows as styled text lines (the islands detail panels)."""
+    from rich.text import Text  # noqa: PLC0415
+
+    text = Text(f"Validation ({summary.get('n_sims', 0)} sims)\n")
+    for label, cells, style in _validation_summary_rows(summary):
+        text.append(f"  {label:<5} " + "   ".join(cells) + "\n", style=style or None)
+    return text
 
 
 def _format_duration(seconds: float) -> str:
@@ -256,7 +265,7 @@ class LiveDisplay:
         if detail_src is not None and detail_src.get("validation_summary"):
             lines.append("")
             lines.append(f"-- Validation detail (g{detail_src['generation']}) --")
-            lines.extend(_format_validation_summary(detail_src["validation_summary"]))
+            lines.extend(str(_rows_to_text(detail_src["validation_summary"])).splitlines())
 
         # Stagnation
         improvements = [i for i, r in enumerate(buf) if r["improvement"]]
@@ -371,8 +380,7 @@ class LiveDisplay:
             island_summary: dict | None = (island_records.get(name) or {}).get("val_summary")
             if not island_summary:
                 continue
-            detail_lines = _format_validation_summary(island_summary)
-            detail_panels.append(Panel(Text("\n".join(detail_lines)), title=f"{name.upper()} validation", border_style="green"))
+            detail_panels.append(Panel(_rows_to_text(island_summary), title=f"{name.upper()} validation", border_style="green"))
 
         group = Group(header, Columns(panels), Columns(detail_panels), mig_panel) if detail_panels else Group(header, Columns(panels), mig_panel)
         self._live.update(group)

@@ -100,3 +100,73 @@ class TestDisplayPrimitives:
 
         rate, remaining = _rate_and_eta(gen=2100, start_gen=2000, n_gen=2000, elapsed=50.0)
         assert remaining == 0.0  # gen > n_gen never yields negative ETA
+
+
+def _summary_fixture() -> dict:
+    block = {"min": 1.0, "p50": 2.0, "p95": 3.0, "mean": 2.2, "max": 4.0}
+    return {
+        "n_sims": 1000,
+        "n_captured": 968,
+        "capture_rate": 0.968,
+        "cost": {"min": 38.1, "p50": 112.4, "p95": 387.2, "rms": 181.2, "max": 12000.0},
+        "captured": {
+            "dv": {"min": 62.0, "p50": 118.2, "p95": 342.0, "mean": 141.7, "max": 980.4},
+            "dv1": dict(block),
+            "dv2": dict(block),
+            "dv3": dict(block),
+            "apoapsis": {"p50": 41.2, "p95": 96.0, "mean": 50.0},
+            "periapsis": {"p50": 5.0, "p95": 9.0, "mean": 6.0},
+            "inclination": {"p50": 0.1, "p95": 0.3, "mean": 0.15},
+        },
+        "constraints": {
+            "heat_flux": {"p50": 142.1, "p95": 188.4, "max": 204.9, "limit": 200.0, "viol_pct": 2.1},
+            "g_load": {"p50": 6.0, "p95": 9.8, "max": 11.2, "limit": 15.0, "viol_pct": 0.0},
+            "heat_load": {"p50": 9000.0, "p95": 14000.0, "max": 16000.0, "limit": None, "viol_pct": None},
+        },
+    }
+
+
+class TestValidationSummaryRows:
+    def test_full_summary_rows(self) -> None:
+        from aerocapture.training.display import _validation_summary_rows
+
+        rows = _validation_summary_rows(_summary_fixture())
+        labels = [r[0] for r in rows]
+        assert labels[:3] == ["Cap", "", "Cost"]
+        assert "DV" in labels and "DV1" in labels and "DV2" in labels and "DV3" in labels
+        assert "Apo" in labels and "Q" in labels and "G" in labels and "HL" in labels
+        grid_header = next(r for r in rows if r[0] == "")
+        assert grid_header[1] == ["min", "p50", "p95", "max"] and grid_header[2] == "dim"
+        q_row = next(r for r in rows if r[0] == "Q")
+        assert q_row[2] == "red"  # 2.1% violation
+        assert any("2.1% > 200" in c for c in q_row[1])
+        g_row = next(r for r in rows if r[0] == "G")
+        assert g_row[2] == "dim"  # zero violations
+        cost_row = next(r for r in rows if r[0] == "Cost")
+        assert cost_row[2] == "yellow"  # max 12000 > 10x p95 387.2 -> outlier hint
+        dv1_row = next(r for r in rows if r[0] == "DV1")
+        assert dv1_row[1] == ["1.0", "2.0", "3.0", "4.0"]
+
+    def test_captured_none_renders_placeholder(self) -> None:
+        from aerocapture.training.display import _validation_summary_rows
+
+        s = _summary_fixture()
+        s["captured"] = None
+        s["n_captured"] = 0
+        rows = _validation_summary_rows(s)
+        cap_row = rows[0]
+        assert cap_row[0] == "Cap" and cap_row[2] == "red"
+        dv_row = next(r for r in rows if r[0] == "DV")
+        assert dv_row[1] == ["—"] and dv_row[2] == "dim"
+
+    def test_missing_limits_render_na_style(self) -> None:
+        from aerocapture.training.display import _validation_summary_rows
+
+        rows = _validation_summary_rows(_summary_fixture())
+        hl_row = next(r for r in rows if r[0] == "HL")
+        assert hl_row[2] == "" and not any(">" in c for c in hl_row[1])
+
+    def test_old_formatter_gone(self) -> None:
+        import aerocapture.training.display as d
+
+        assert not hasattr(d, "_format_validation_summary")
