@@ -274,7 +274,7 @@ def _seed_initial_population(
     pop = np.tile(chromosome, (n_pop, 1))
     if algorithm_name == "cma_es":
         return pop
-    if algorithm_name not in ("ga", "de", "pso", "islands"):
+    if algorithm_name not in ("ga", "de", "pso", "qpso", "islands"):
         raise ValueError(f"unknown algorithm {algorithm_name!r} for warm-start seeding")
     if n_pop < 1:
         raise ValueError(f"n_pop must be >= 1, got {n_pop}")
@@ -545,43 +545,7 @@ def save_checkpoint(
 
     # Save best model/params (immediately usable by Rust)
     if best_individual is not None:
-        if config.guidance_type == "neural_network":
-            from aerocapture.training.param_spaces import active_scaffolding_specs
-
-            _pack = active_scaffolding_specs(config.network.scaffolding)
-            n_scaff = len(_pack)
-            n_weights = len(param_specs) - n_scaff
-            weights = _decode_nn_weights(best_individual[:n_weights], param_specs[:n_weights])
-            cfg_norm = _resolve_config_normalization(config, cwd)
-            write_nn_json(
-                weights,
-                config.network,
-                save_dir / "best_model.json",
-                input_mask=config.network.input_mask,
-                output_param=config.network.output_parameterization,
-                normalization=cfg_norm,
-            )
-            if cwd is not None:
-                nn_path = Path(cwd) / config.sim.nn_param_file
-                write_nn_json(
-                    weights,
-                    config.network,
-                    nn_path,
-                    input_mask=config.network.input_mask,
-                    output_param=config.network.output_parameterization,
-                    normalization=cfg_norm,
-                )
-            if n_scaff > 0:
-                scaff_params = decode_normalized(best_individual[n_weights:], list(_pack))
-                for s in _pack:
-                    if s.is_integer and s.name in scaff_params:
-                        scaff_params[s.name] = int(round(scaff_params[s.name]))
-                with open(save_dir / "best_params.json", "w") as fp:
-                    json.dump(scaff_params, fp, indent=2)
-        else:
-            params = decode_normalized(best_individual, param_specs)
-            with open(save_dir / "best_params.json", "w") as fp:
-                json.dump(params, fp, indent=2)
+        write_best_artifacts(best_individual, config, param_specs, save_dir, cwd=cwd, deploy_to_cwd=True)
 
     # Auto-prune older checkpoints when retention is configured.
     _prune_old_checkpoints(save_dir, config.checkpoints.keep_last)
@@ -637,6 +601,22 @@ def load_checkpoint(
         "cost_transform": meta.get("cost_transform", None),
         "seed_curator": meta.get("seed_curator"),
         "corridor_acc": corridor_acc_restored,
+    }
+
+
+def build_cost_kwargs(toml_data: dict) -> dict[str, Any]:
+    """Cost-function kwargs from a resolved TOML dict ([cost_function] + [flight.constraints])."""
+    cost_cfg = toml_data.get("cost_function", {})
+    constraints = toml_data.get("flight", {}).get("constraints", {})
+    return {
+        "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
+        "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
+        "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
+        "heat_load_limit": float(constraints.get("max_heat_load", 25000.0)),
+        "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
+        "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
+        "heat_load_weight": float(cost_cfg.get("heat_load_weight", 1000.0)),
+        "cost_transform": str(cost_cfg.get("cost_transform", "linear")),
     }
 
 
@@ -1067,19 +1047,7 @@ def train(
         toml_path = Path(cwd or config.sim.exec_dir) / config.sim.toml_config
         _toml = load_toml_with_bases(toml_path)
 
-        # Parse cost function config
-        cost_cfg = _toml.get("cost_function", {})
-        constraints = _toml.get("flight", {}).get("constraints", {})
-        cost_kwargs = {
-            "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
-            "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
-            "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
-            "heat_load_limit": float(constraints.get("max_heat_load", 25000.0)),
-            "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
-            "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
-            "heat_load_weight": float(cost_cfg.get("heat_load_weight", 1000.0)),
-            "cost_transform": str(cost_cfg.get("cost_transform", "linear")),
-        }
+        cost_kwargs = build_cost_kwargs(_toml)
 
     # Seed strategy: three mutually exclusive training seed paths.
     #   fixed    -- deterministic [mc_seed + i]; seeds never change.
@@ -1288,6 +1256,8 @@ def train(
             print(f"  DE:        variant={opt.de.variant}, crossover_prob={opt.de.crossover_prob}, scaling_factor={opt.de.scaling_factor}")
         elif opt.algorithm == "pso":
             print(f"  PSO:       w={opt.pso.w}, c1={opt.pso.c1}, c2={opt.pso.c2}")
+        elif opt.algorithm == "qpso":
+            print(f"  QPSO:      alpha_start={opt.qpso.alpha_start}, alpha_end={opt.qpso.alpha_end}")
 
     # Inject initial population into pymoo. NOTE: `setup(pop=…)` alone is
     # insufficient — pymoo's first `next()` would call `_initialize()` and
@@ -1543,9 +1513,48 @@ def train(
 
             cost_history.extend(gen_best_costs)
 
+            # End-of-training final selection (spec 2026-06-10-final-selection):
+            # re-rank the last generation + champion on the validation pool;
+            # deploy the winner only on strict val-RMS improvement. The final-
+            # eval pool stays report-only.
+            final_sel = None
+            selection_promoted = False
+            if val_seeds is not None:
+                from aerocapture.training.final_select import (  # noqa: PLC0415
+                    KnownCandidate,
+                    format_selection_summary,
+                    select_final_individual,
+                    write_final_selection_json,
+                )
+
+                known: list[KnownCandidate] = []
+                if best_overall_individual is not None and np.isfinite(best_val_cost):
+                    known.append(KnownCandidate(x=best_overall_individual, provenance="champion", val_rms=float(best_val_cost)))
+                try:
+                    sel = select_final_individual(
+                        problem,
+                        X,
+                        [f"last_gen[{i}]" for i in range(X.shape[0])],
+                        known,
+                        val_seeds,
+                    )
+                except ValueError:
+                    # Pathological all-inf run with no champion: nothing to select.
+                    sel = None
+                if sel is not None:
+                    final_sel = sel
+                    if sel.promoted:
+                        best_overall_individual = sel.individual.copy()
+                        best_val_cost = sel.val_rms
+                        assert sel.winner_index is not None
+                        # Training-cost-at-promotion semantics (resume-incomparability rule):
+                        # the winner's training cost under the final seed list.
+                        best_overall_cost = float(costs[sel.winner_index])
+                        selection_promoted = True
+
             # Always save a final checkpoint
             last_gen = config.optimizer.n_gen
-            if last_gen % checkpoint_interval != 0:
+            if last_gen % checkpoint_interval != 0 or selection_promoted:
                 save_checkpoint(
                     save_dir,
                     last_gen,
@@ -1565,6 +1574,13 @@ def train(
                 )
                 if verbose:
                     print(f"  Final checkpoint saved: g{last_gen:05d}")
+
+            # Sidecar written after the durable save so it never describes a
+            # winner the deployed artifacts don't have (crash-window ordering).
+            if final_sel is not None and val_seeds is not None:
+                write_final_selection_json(save_dir, final_sel, len(val_seeds))
+                if verbose:
+                    print(format_selection_summary(final_sel))
 
             logger.close()
 
@@ -1931,14 +1947,57 @@ def _train_islands(
             if verbose:
                 print(f"\n  Interrupted at gen {gen}; checkpoint saved.")
 
-    # Final eval + winner selection.
+    # Validation-pool final selection across islands (spec 2026-06-10-final-selection):
+    # union of last-gen pops + champions decides the ARTIFACTS; final_eval below
+    # is report-only (winner's fresh final-eval rms is the quoted number).
+    selection = None
+    if island_model.validation_seeds:
+        from aerocapture.training.final_select import (  # noqa: PLC0415
+            KnownCandidate,
+            format_selection_summary,
+            select_final_individual,
+            write_final_selection_json,
+        )
+
+        known = [
+            KnownCandidate(
+                x=np.asarray(isl.best_overall_individual, dtype=np.float64),
+                provenance=f"{isl.name}:champion",
+                val_rms=float(isl.best_val_cost),
+            )
+            for isl in island_model.islands
+            if isl.best_overall_individual is not None and np.isfinite(isl.best_val_cost)
+        ]
+        cand_rows: list[npt.NDArray[np.float64]] = []
+        cand_prov: list[str] = []
+        for isl in island_model.islands:
+            pop = isl.algorithm.pop
+            if pop is None:
+                continue
+            pop_x = pop.get("X")
+            for j in range(pop_x.shape[0]):
+                cand_rows.append(np.asarray(pop_x[j], dtype=np.float64))
+                cand_prov.append(f"{isl.name}:last_gen[{j}]")
+        if known or cand_rows:
+            try:
+                selection = select_final_individual(
+                    problem,
+                    np.vstack(cand_rows) if cand_rows else np.empty((0, len(param_specs))),
+                    cand_prov,
+                    known,
+                    island_model.validation_seeds,
+                )
+            except ValueError:
+                # Pathological all-inf run with no champions: fall through to the
+                # legacy final_eval / stale-removal path below.
+                selection = None
+
+    # Final eval (report-only when selection ran).
     results = island_model.final_eval()
-    if not results:
+    if selection is None and not results:
+        # validation off AND no island promoted -- legacy stale-artifact removal path.
         if verbose:
             print("  No island had a validated best — skipping final-eval / artifact write.")
-        # Remove any best_model.json / best_params.json left over from a
-        # previous experiment so downstream tooling (compare_guidance,
-        # report.py, deploy paths) doesn't silently consume a stale model.
         for stale in (
             save_dir / "best_model.json",
             save_dir / "best_params.json",
@@ -1961,11 +2020,39 @@ def _train_islands(
             "migration_log": island_model.migration_log,
         }
 
-    winner = results[0]
+    if selection is not None:
+        # Winner = validation-pool selection. Quote its UNBIASED final-eval rms:
+        # reuse the matching champion record when the incumbent won, else run
+        # one fresh single-candidate final-eval for a promoted individual.
+        match = next((r for r in results if r["island"] + ":champion" == selection.provenance), None)
+        if match is not None:
+            final_rms = float(match["rms"])
+            win_island = str(match["island"])
+            capture = float(match["capture_rate"])
+        else:
+            from aerocapture.training.island_model import _capture_rate  # noqa: PLC0415
+
+            fe_costs = problem.evaluate_individual_per_seed(selection.individual, island_model.final_eval_seeds)
+            final_rms = float(np.sqrt(np.mean(np.asarray(fe_costs, dtype=np.float64) ** 2)))
+            win_island = selection.provenance.split(":", 1)[0]
+            capture = float(_capture_rate(np.asarray(fe_costs)))
+        winner: dict[str, Any] = {
+            "island": win_island,
+            "X": selection.individual.copy(),
+            "rms": final_rms,
+            "val_rms": float(selection.val_rms),
+            "capture_rate": capture,
+            "n_sims": len(island_model.final_eval_seeds),
+            "selection_provenance": selection.provenance,
+        }
+        write_final_selection_json(save_dir, selection, len(island_model.validation_seeds))
+        if verbose:
+            print(format_selection_summary(selection))
+    else:
+        winner = results[0]
+
     if verbose:
         gap, overfit = val_generalization_gap(winner["val_rms"], winner["rms"])
-        # winner["val_rms"] is the validation rms the winner was selected on; a
-        # large positive gap to the fresh final-eval rms flags overfit to validation.
         gap_detail = ""
         if winner["val_rms"] < float("inf"):
             gap_detail = f" (val_rms={winner['val_rms']:.4e}, gap={gap:+.1%}{'  [WARN: overfit to validation?]' if overfit else ''})"
@@ -1973,13 +2060,7 @@ def _train_islands(
             f"  Winner: {winner['island']} rms={winner['rms']:.4e} cap={winner['capture_rate']:.0%}{gap_detail}",
         )
 
-    _write_winner_artifacts(
-        winner=winner,
-        config=config,
-        save_dir=save_dir,
-        param_specs=param_specs,
-        cwd=cwd,
-    )
+    write_best_artifacts(winner["X"], config, param_specs, save_dir, cwd=cwd)
 
     logger.close()
     return {
@@ -1995,20 +2076,20 @@ def _train_islands(
     }
 
 
-def _write_winner_artifacts(
-    *,
-    winner: dict[str, Any],
+def write_best_artifacts(
+    best_individual: npt.NDArray[np.float64],
     config: TrainingConfig,
-    save_dir: Path,
     param_specs: list[ParamSpec],
+    save_dir: Path,
     cwd: str | Path | None = None,
+    deploy_to_cwd: bool = False,
 ) -> None:
-    """Write best_model.json / best_params.json from the winning island's chromosome.
+    """Write best_model.json (NN) / best_params.json from a normalized chromosome.
 
-    Writes only to save_dir. main() handles the deploy-path write to cwd.
+    Always writes into save_dir. When `deploy_to_cwd` and `cwd` is not None,
+    additionally writes the NN model to `cwd / config.sim.nn_param_file`
+    (the deploy-path copy save_checkpoint historically maintained).
     """
-    best_individual = winner["X"]
-
     if config.guidance_type == "neural_network":
         from aerocapture.training.param_spaces import active_scaffolding_specs
 
@@ -2019,14 +2100,25 @@ def _write_winner_artifacts(
             best_individual[:n_weights],
             param_specs[:n_weights],
         )
+        cfg_norm = _resolve_config_normalization(config, cwd)
         write_nn_json(
             weights,
             config.network,
             save_dir / "best_model.json",
             input_mask=config.network.input_mask,
             output_param=config.network.output_parameterization,
-            normalization=_resolve_config_normalization(config, cwd),
+            normalization=cfg_norm,
         )
+        if deploy_to_cwd and cwd is not None:
+            nn_path = Path(cwd) / config.sim.nn_param_file
+            write_nn_json(
+                weights,
+                config.network,
+                nn_path,
+                input_mask=config.network.input_mask,
+                output_param=config.network.output_parameterization,
+                normalization=cfg_norm,
+            )
         if n_scaff > 0:
             scaff_params = decode_normalized(
                 best_individual[n_weights:],
@@ -2099,43 +2191,26 @@ def _accumulate_corridor(
     corridor_acc.update(sentinel_results.trajectories, sentinel_labels)
 
 
-if __name__ == "__main__":
-    import argparse
+def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dict]:
+    """TOML -> TrainingConfig (the TOML-derived part of main()'s bootstrap).
 
-    from aerocapture.training.evaluate import write_guidance_toml
-
-    parser = argparse.ArgumentParser(description="Train guidance parameters via pymoo optimization")
-    parser.add_argument("toml", type=str, help="TOML training config path (must contain [guidance] type)")
-    parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--n-gen", type=int, default=None, help="Number of generations (additional when resuming; default: from TOML [optimizer])")
-    parser.add_argument("--n-pop", type=int, default=None, help="Population size (default: from TOML [optimizer])")
-    parser.add_argument("--resume", type=str, default=None, help="Checkpoint directory to resume from (auto-detected if omitted and checkpoint exists)")
-    parser.add_argument("-fs", "--from-scratch", action="store_true", help="Wipe existing training output and start fresh (deletes checkpoints, logs, reports)")
-    parser.add_argument("--no-tui", action="store_true", help="Disable Rich TUI (use plain-text output)")
-    parser.add_argument("--skip-report", "--skip-final-report", action="store_true", dest="skip_report", help="Skip PDF report generation at end of training")
-    parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
-    parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds (default: no limit)")
-    parser.add_argument("--algorithm", type=str, default=None, help="Optimization algorithm: ga, cma_es, de, pso (default: from TOML [optimizer])")
-    parser.add_argument("--output-dir", type=str, default=None, help="Override the training output directory (default: derived from the scheme)")
-    args = parser.parse_args()
-
+    Applies NO CLI overrides: callers overlay n_gen/n_pop/algorithm/sim_timeout
+    on the returned config themselves. Raises SystemExit on invalid configs
+    (missing/unknown guidance type, bad [checkpoints], warm-start contract
+    violations) -- identical messages to the historical main() behavior. Note:
+    [optimizer] / [warm_start] PARSE errors (OptimizerConfig.from_dict /
+    WarmStartConfig.from_dict) raise ValueError, not SystemExit.
+    """
     cfg = TrainingConfig()
 
     # Load TOML first -- optimizer config comes from TOML, CLI overrides on top
     from aerocapture.training.toml_utils import load_toml_with_bases
 
-    _toml_data = load_toml_with_bases(Path(args.toml))
+    _toml_data = load_toml_with_bases(Path(toml_path))
 
     # Parse optimizer config from TOML (uses OptimizerConfig defaults for missing keys)
     cfg.optimizer = OptimizerConfig.from_dict(_toml_data.get("optimizer", {}))
 
-    # CLI overrides -- only when explicitly provided (not None / default False)
-    if args.n_gen is not None:
-        cfg.optimizer.n_gen = args.n_gen
-    if args.n_pop is not None:
-        cfg.optimizer.n_pop = args.n_pop
-    if args.algorithm is not None:
-        cfg.optimizer.algorithm = args.algorithm
     guidance_type = _toml_data.get("guidance", {}).get("type")
     if guidance_type is None:
         print("ERROR: TOML config must contain [guidance] type = '<scheme>'")
@@ -2151,8 +2226,7 @@ if __name__ == "__main__":
         raise SystemExit(1)
 
     cfg.guidance_type = guidance_type
-    cfg.sim.toml_config = args.toml
-    cfg.sim.sim_timeout_secs = args.sim_timeout
+    cfg.sim.toml_config = toml_path
     cfg.sim.executable = "src/rust/target/release/aerocapture"
     cfg.sim.nn_param_file = _toml_data.get("data", {}).get("neural_network", "data/neural_network/nn_model.json")
     # Override NN architecture from TOML [network] section if present
@@ -2246,6 +2320,40 @@ if __name__ == "__main__":
                 f"(magnitude_only, acos_tanh) and (full_neural, {{atan2_signed, scaled_pi, delta}}). "
                 f"Training will still run, but the supervised target and runtime decoder may be suboptimal."
             )
+
+    return cfg, _toml_data
+
+
+if __name__ == "__main__":
+    import argparse
+
+    from aerocapture.training.evaluate import write_guidance_toml
+
+    parser = argparse.ArgumentParser(description="Train guidance parameters via pymoo optimization")
+    parser.add_argument("toml", type=str, help="TOML training config path (must contain [guidance] type)")
+    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--n-gen", type=int, default=None, help="Number of generations (additional when resuming; default: from TOML [optimizer])")
+    parser.add_argument("--n-pop", type=int, default=None, help="Population size (default: from TOML [optimizer])")
+    parser.add_argument("--resume", type=str, default=None, help="Checkpoint directory to resume from (auto-detected if omitted and checkpoint exists)")
+    parser.add_argument("-fs", "--from-scratch", action="store_true", help="Wipe existing training output and start fresh (deletes checkpoints, logs, reports)")
+    parser.add_argument("--no-tui", action="store_true", help="Disable Rich TUI (use plain-text output)")
+    parser.add_argument("--skip-report", "--skip-final-report", action="store_true", dest="skip_report", help="Skip PDF report generation at end of training")
+    parser.add_argument("--final-n-sims", type=int, default=1000, help="Number of MC sims for final re-evaluation (default: 1000)")
+    parser.add_argument("--sim-timeout", type=float, default=None, help="Wall-clock timeout per simulation in seconds (default: no limit)")
+    parser.add_argument("--algorithm", type=str, default=None, help="Optimization algorithm: ga, cma_es, de, pso, qpso (default: from TOML [optimizer])")
+    parser.add_argument("--output-dir", type=str, default=None, help="Override the training output directory (default: derived from the scheme)")
+    args = parser.parse_args()
+
+    cfg, _toml_data = build_training_config_from_toml(args.toml)
+
+    # CLI overrides -- only when explicitly provided (not None / default False)
+    if args.n_gen is not None:
+        cfg.optimizer.n_gen = args.n_gen
+    if args.n_pop is not None:
+        cfg.optimizer.n_pop = args.n_pop
+    if args.algorithm is not None:
+        cfg.optimizer.algorithm = args.algorithm
+    cfg.sim.sim_timeout_secs = args.sim_timeout
     if cfg.network.architecture is not None:
         cfg.network.__post_init__()  # re-validate once all fields are set
     cfg.sim.final_file = "output/final.train_nn_temp"

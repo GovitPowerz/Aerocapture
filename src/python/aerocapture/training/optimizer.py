@@ -11,7 +11,9 @@ from pymoo.core.algorithm import Algorithm
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
 
-_VALID_ALGORITHMS = ("ga", "cma_es", "de", "pso", "islands")
+from aerocapture.training.qpso import QPSO
+
+_VALID_ALGORITHMS = ("ga", "cma_es", "de", "pso", "qpso", "islands")
 _VALID_SEED_STRATEGIES = ("fixed", "rotating", "adaptive")
 _CMAES_MAX_PARAMS = 20000
 
@@ -41,6 +43,21 @@ class PSOSettings:
     w: float = 0.7
     c1: float = 1.5
     c2: float = 1.5
+
+
+@dataclass
+class QPSOSettings:
+    # Contraction-expansion coefficient, annealed linearly alpha_start -> alpha_end.
+    # Theory (Sun et al. 2004): trajectories diverge above alpha ~ e^gamma ~ 1.781;
+    # (0, 2] is a permissive cap.
+    alpha_start: float = 1.0
+    alpha_end: float = 0.5
+
+    def __post_init__(self) -> None:
+        for name in ("alpha_start", "alpha_end"):
+            value = getattr(self, name)
+            if not 0.0 < value <= 2.0:
+                raise ValueError(f"{name} must be in (0, 2], got {value}")
 
 
 @dataclass
@@ -75,6 +92,7 @@ class OptimizerConfig:
     cma_es: CMAESSettings = field(default_factory=CMAESSettings)
     de: DESettings = field(default_factory=DESettings)
     pso: PSOSettings = field(default_factory=PSOSettings)
+    qpso: QPSOSettings = field(default_factory=QPSOSettings)
     islands: IslandSettings = field(default_factory=IslandSettings)
 
     def __post_init__(self) -> None:
@@ -101,6 +119,7 @@ class OptimizerConfig:
         cma_es = CMAESSettings(**d["cma_es"]) if "cma_es" in d else CMAESSettings()
         de = DESettings(**d["de"]) if "de" in d else DESettings()
         pso = PSOSettings(**d["pso"]) if "pso" in d else PSOSettings()
+        qpso = QPSOSettings(**d["qpso"]) if "qpso" in d else QPSOSettings()
         islands = IslandSettings(**d["islands"]) if "islands" in d else IslandSettings()
 
         _obsolete = {
@@ -119,8 +138,8 @@ class OptimizerConfig:
                 UserWarning,
                 stacklevel=2,
             )
-        top_level = {k: v for k, v in d.items() if k not in ("ga", "cma_es", "de", "pso", "islands") and k not in _obsolete}
-        return cls(**top_level, ga=ga, cma_es=cma_es, de=de, pso=pso, islands=islands)
+        top_level = {k: v for k, v in d.items() if k not in ("ga", "cma_es", "de", "pso", "qpso", "islands") and k not in _obsolete}
+        return cls(**top_level, ga=ga, cma_es=cma_es, de=de, pso=pso, qpso=qpso, islands=islands)
 
 
 def create_algorithm(config: OptimizerConfig, n_params: int) -> Algorithm:
@@ -174,6 +193,15 @@ def create_algorithm(config: OptimizerConfig, n_params: int) -> Algorithm:
             w=pso.w,
             c1=pso.c1,
             c2=pso.c2,
+        )
+
+    if algorithm == "qpso":
+        qpso = config.qpso
+        return QPSO(
+            pop_size=config.n_pop,
+            alpha_start=qpso.alpha_start,
+            alpha_end=qpso.alpha_end,
+            max_iter=config.n_gen,
         )
 
     raise ValueError(f"Unhandled algorithm: {algorithm}")  # unreachable

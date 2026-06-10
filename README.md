@@ -156,7 +156,8 @@ Training features:
 - Graceful Ctrl+C (saves checkpoint and returns cleanly)
 - Rich TUI with sparklines, ETA, progress bar
 - Adaptive MC dispersion seeds (prevents overfitting)
-- Supports GA (SBX + polynomial mutation), CMA-ES, DE, PSO via `--algorithm` or TOML `[optimizer]`
+- Supports GA (SBX + polynomial mutation), CMA-ES, DE, PSO, QPSO (quantum-behaved PSO, velocity-free), and 3-island PSO/GA/DE (`islands`) via `--algorithm` or TOML `[optimizer]`
+- End-of-training final selection: the last generation + running champion are re-ranked on the held-out validation pool and the winner deploys only on strict val-RMS improvement (the deployed model can never get worse; `final_selection.json` records the per-candidate val RMS). The final-eval pool stays report-only, so quoted numbers carry no min-of-N selection bias. Also available retroactively via `python -m aerocapture.training.final_select`
 - PDF report auto-generated at end of training
 
 ```bash
@@ -179,6 +180,13 @@ uv run python -m aerocapture.training.train <config.toml> --no-tui
 uv run python -m aerocapture.training.train \
     configs/training/msr_aller_islands_train.toml \
     --n-gen 2500
+
+# Re-run end-of-training final selection on an existing training dir (retro tool:
+# re-ranks the checkpointed last generation + champion on the validation pool,
+# rewrites best_model.json / best_params.json, patches the checkpoint so resume
+# keeps the re-selected best; --no-checkpoint-patch for a read-only-checkpoint run)
+uv run python -m aerocapture.training.final_select \
+    training_output/equilibrium_glide --toml configs/training/msr_aller_eqglide_train.toml
 ```
 
 ### RL Training (PPO)

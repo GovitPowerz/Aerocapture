@@ -44,7 +44,7 @@ def test_cma_es_singleton_seeded() -> None:
 def test_de_and_pso_match_ga_contract() -> None:
     chromo = np.full(20, 0.7)
     n_pop = 10
-    for algo in ("de", "pso"):
+    for algo in ("de", "pso", "qpso"):
         rng = np.random.default_rng(0)
         pop = _seed_initial_population(algo, chromo, n_pop, jitter=0.02, rng=rng)
         assert pop.shape == (n_pop, 20)
@@ -78,7 +78,7 @@ def test_unknown_algorithm_raises() -> None:
         _seed_initial_population("nonexistent", chromo, 5, jitter=0.02, rng=rng)
 
 
-def test_row_0_is_exact_warm_start_chromosome_ga_de_pso() -> None:
+def test_row_0_is_exact_warm_start_chromosome_jitter_algos() -> None:
     """Row 0 must be the un-jittered warm-start chromosome for every
     jitter-applying algorithm. Guarantees the supervised-pretrained vector
     is in the initial population even if jitter on rows 1..N happens to
@@ -86,7 +86,7 @@ def test_row_0_is_exact_warm_start_chromosome_ga_de_pso() -> None:
     propagates it via elitism / selection."""
     chromo = np.linspace(0.1, 0.9, 50)  # non-trivial pattern so bit-exact check is meaningful
     n_pop = 32
-    for algo in ("ga", "de", "pso"):
+    for algo in ("ga", "de", "pso", "qpso"):
         rng = np.random.default_rng(0)
         pop = _seed_initial_population(algo, chromo, n_pop, jitter=0.2, rng=rng)
         assert np.array_equal(pop[0], chromo), f"{algo}: row 0 should equal chromosome bit-for-bit"
