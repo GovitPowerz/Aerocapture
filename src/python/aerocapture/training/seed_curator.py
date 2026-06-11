@@ -30,6 +30,7 @@ class SeedCurator:
     seed_list: list[int] | None = None
     last_curation_gen: int = -1
     trim_fraction: float = 0.0
+    bucket_selection: str = "random"
 
     def _stratified_pick(
         self,
@@ -58,7 +59,18 @@ class SeedCurator:
             msg = f"n_bins ({self.n_bins}) must be <= len(seeds) after trim ({len(sorted_seeds)})"
             raise ValueError(msg)
         bins = np.array_split(sorted_seeds, self.n_bins)
-        return [int(self.rng.choice(b)) for b in bins]
+        # Representative per cost-quantile bin: random (default) or a deterministic
+        # difficulty within the bin (min=easiest, max=hardest, middle=median).
+        if self.bucket_selection == "random":
+            return [int(self.rng.choice(b)) for b in bins]
+        if self.bucket_selection == "min":
+            return [int(b[0]) for b in bins]
+        if self.bucket_selection == "max":
+            return [int(b[-1]) for b in bins]
+        if self.bucket_selection == "middle":
+            return [int(b[len(b) // 2]) for b in bins]
+        msg = f"unknown bucket_selection={self.bucket_selection!r} (expected 'random', 'min', 'max', or 'middle')"
+        raise ValueError(msg)
 
     def _draw_sample_seeds(self) -> list[int]:
         """Draw `sample_size` fresh random seeds disjoint from `excluded_seeds`."""
@@ -91,6 +103,7 @@ class SeedCurator:
             "seed_list": self.seed_list,
             "last_curation_gen": self.last_curation_gen,
             "trim_fraction": self.trim_fraction,
+            "bucket_selection": self.bucket_selection,
         }
 
     @classmethod
@@ -108,4 +121,5 @@ class SeedCurator:
             seed_list=list(d["seed_list"]) if d.get("seed_list") is not None else None,
             last_curation_gen=int(d.get("last_curation_gen", -1)),
             trim_fraction=float(d.get("trim_fraction", 0.0)),
+            bucket_selection=str(d.get("bucket_selection", "random")),
         )

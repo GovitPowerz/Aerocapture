@@ -1062,6 +1062,7 @@ def train(
             excluded_seeds=set(),  # populated once val/final-eval sets are computed
             rng=rng,
             trim_fraction=config.optimizer.curation_trim_fraction,
+            bucket_selection=config.optimizer.curation_bucket_selection,
         )
 
     param_specs, n_params = _setup_param_specs(config, _toml, verbose)

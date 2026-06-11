@@ -69,6 +69,25 @@ class TestStratifiedPick:
         # bin 0 picks from cost [0,10), bin 9 from [90,100) -- extremes reachable
         assert min(picked) < 10 and max(picked) >= 90
 
+    def test_bucket_selection_max_picks_hardest_per_bin(self) -> None:
+        """bucket_selection='max' deterministically picks the highest-cost seed in each bin."""
+        seeds = list(range(100))
+        costs = np.arange(100, dtype=float)  # cost == seed
+        picked = SeedCurator(sample_size=100, n_bins=10, excluded_seeds=set(), rng=_rng(0), bucket_selection="max")._stratified_pick(seeds, costs)
+        assert sorted(picked) == [9, 19, 29, 39, 49, 59, 69, 79, 89, 99]
+
+    def test_bucket_selection_min_picks_easiest_per_bin(self) -> None:
+        seeds = list(range(100))
+        costs = np.arange(100, dtype=float)
+        picked = SeedCurator(sample_size=100, n_bins=10, excluded_seeds=set(), rng=_rng(0), bucket_selection="min")._stratified_pick(seeds, costs)
+        assert sorted(picked) == [0, 10, 20, 30, 40, 50, 60, 70, 80, 90]
+
+    def test_bucket_selection_middle_picks_median_per_bin(self) -> None:
+        seeds = list(range(100))
+        costs = np.arange(100, dtype=float)
+        picked = SeedCurator(sample_size=100, n_bins=10, excluded_seeds=set(), rng=_rng(0), bucket_selection="middle")._stratified_pick(seeds, costs)
+        assert sorted(picked) == [5, 15, 25, 35, 45, 55, 65, 75, 85, 95]
+
     def test_non_finite_costs_sort_to_tail(self) -> None:
         """NaN-cost seeds land in the highest-cost bin, not randomly distributed."""
         # First 5 seeds (indices 0-4) have NaN costs; remaining 15 have ascending finite costs.
