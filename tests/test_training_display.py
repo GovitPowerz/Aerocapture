@@ -224,24 +224,44 @@ class TestDashboard:
         return d
 
     def test_dashboard_renders_key_fragments(self) -> None:
-        # Two validation records: the PROMOTED one (lower rms) becomes "Best",
-        # the later REJECTED one is "Last" -- the Last line only renders when
-        # last is not best (same convention as the old panel).
+        # Two validation records: the PROMOTED one (lower rms) feeds the grey
+        # "Best validation" panel, the later REJECTED one the red-framed
+        # "Last validation" panel.
         records = [_record(g) for g in range(701, 733)] + [
             _val_record(704, promoted=True, rms=168.4),
             _val_record(733, promoted=False, rms=181.2),
             _record(740),
         ]
-        out = _render(self._display()._build_dashboard(_logger_with(records), current_run=0))
+        out = _render(self._display()._build_dashboard(_logger_with(records), current_run=0), width=130)
         assert "ftc" in out and "qpso" in out
         assert "pop 64" in out
-        assert "Optimization" in out and "Validation" in out
+        assert "Optimization" in out
+        assert "Last validation" in out and "Best validation" in out
         assert "REJECTED" in out
         assert "DV2" in out and "DV3" in out
         assert "2.1% > 200" in out
         assert "pool refresh g720" in out
         assert "gen wall 0.83s" in out
         assert "Run 1/1" not in out  # vestigial fragment removed
+
+    def test_validation_panels_side_by_side_below_optimization(self) -> None:
+        # Layout: header and Optimization span the full width; the two
+        # validation panels sit side by side BELOW the optimization panel,
+        # splitting the same width 50/50.
+        records = [_record(g) for g in range(701, 733)] + [
+            _val_record(704, promoted=True, rms=168.4),
+            _val_record(733, promoted=False, rms=181.2),
+        ]
+        out = _render(self._display()._build_dashboard(_logger_with(records), current_run=0), width=130)
+        lines = out.splitlines()
+        opt_line = next(i for i, line in enumerate(lines) if "Optimization" in line)
+        val_line = next(i for i, line in enumerate(lines) if "Last validation" in line)
+        assert val_line > opt_line  # validation row below the optimization panel
+        assert "Best validation" in lines[val_line]  # side by side, not stacked
+        # all three frames share the full console width: their right borders align
+        opt_width = len(lines[opt_line].rstrip())
+        val_width = len(lines[val_line].rstrip())
+        assert opt_width == val_width == 130
 
     def test_footer_truncates_params(self) -> None:
         out = _render(self._display()._build_footer([_record(740)]))
@@ -256,8 +276,33 @@ class TestDashboard:
         assert "w_0" not in out
 
     def test_validation_panel_placeholder_before_first_validation(self) -> None:
-        out = _render(self._display()._build_validation_panel([_record(701)]))
-        assert "waiting for first validation" in out
+        panels = self._display()._build_validation_panels([_record(701)])
+        assert len(panels) == 1
+        assert _render(panels[0]).find("waiting for first validation") != -1
+
+    def test_validation_panels_last_rejected_framed_red(self) -> None:
+        records = [_val_record(704, promoted=True, rms=168.4), _val_record(733, promoted=False, rms=181.2)]
+        last, best = self._display()._build_validation_panels(records)
+        assert last.border_style == "red"
+        out = _render(last)
+        assert "Last validation" in out and "REJECTED" in out and "1.8120e+02" in out
+        assert best.border_style == "grey50"
+        out = _render(best)
+        assert "Best validation" in out and "1.6840e+02" in out and "g704" in out
+
+    def test_validation_panels_promoted_framed_green(self) -> None:
+        last, best = self._display()._build_validation_panels([_val_record(733, promoted=True)])
+        assert last.border_style == "green"
+        assert "PROMOTED" in _render(last)
+        # single validation: best mirrors the same record, still framed grey
+        assert best.border_style == "grey50"
+        assert "g733" in _render(best)
+
+    def test_validation_panels_both_show_stats_grid(self) -> None:
+        records = [_val_record(704, promoted=True, rms=168.4), _val_record(733, promoted=False, rms=181.2)]
+        for panel in self._display()._build_validation_panels(records):
+            out = _render(panel)
+            assert "DV2" in out and "DV3" in out and "1000 sims" in out
 
     def test_empty_buffer_renders_waiting(self) -> None:
         out = _render(self._display()._build_dashboard(_logger_with([]), current_run=0))
@@ -267,18 +312,8 @@ class TestDashboard:
         rec = _val_record(710, promoted=False)
         rec["validation_summary"]["captured"] = None
         rec["validation_summary"]["n_captured"] = 0
-        out = _render(self._display()._build_validation_panel([rec]))
+        out = _render(self._display()._build_validation_panels([rec])[0])
         assert "0/1000" in out
-
-    def test_best_and_last_lines_render_together(self) -> None:
-        # A single validation record means best == last -> only the Best line
-        # shows (pre-existing convention). With two, both lines render.
-        records = [_val_record(704, promoted=True, rms=168.4), _val_record(733, promoted=False, rms=181.2)]
-        out = _render(self._display()._build_validation_panel(records))
-        assert "Best" in out and "1.6840e+02" in out
-        assert "REJECTED" in out
-        single = _render(self._display()._build_validation_panel([_val_record(733, promoted=True)]))
-        assert "REJECTED" not in single and "PROMOTED" not in single  # best==last suppresses the Last line
 
     def test_update_dispatches_dashboard(self) -> None:
         d = self._display()

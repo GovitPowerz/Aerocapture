@@ -128,8 +128,17 @@ def load_run_data(scheme_dir: Path) -> tuple[list[dict], list[int]]:
 # ---------------------------------------------------------------------------
 # Final MC evaluation via PyO3
 def _resolve_eval_toml(toml_path: Path, scheme_dir: Path) -> tuple[Path, dict[str, object]]:
-    """Resolve the eval TOML (optimized_<scheme>.toml if present, else toml_path) and its scaffolding overrides."""
+    """Resolve the eval TOML (optimized_<scheme>.toml if present, else toml_path) and its scaffolding overrides.
+
+    The file is named after the guidance type, which differs from the dir name
+    for custom --output-dir runs (e.g. ftc_joint_ref/optimized_ftc.toml) — fall
+    back to a glob when the name-derived path misses and exactly one exists.
+    """
     optimized = scheme_dir / f"optimized_{scheme_dir.name}.toml"
+    if not optimized.exists():
+        candidates = sorted(scheme_dir.glob("optimized_*.toml"))
+        if len(candidates) == 1:
+            optimized = candidates[0]
     eval_toml = optimized if optimized.exists() else toml_path
     return eval_toml, _load_nn_scaffolding_overrides(scheme_dir, optimized)
 

@@ -24,7 +24,7 @@ set -euo pipefail
 # big-net islands baseline already exists: training_output/sweep_dense_p3998
 
 # ── Classical schemes retrained with islands (new dirs; fair vs the islands-trained NN) ──
-uv run python -m aerocapture.training.train configs/training/msr_aller_piecewise_constant_train.toml --algorithm ga --n-gen 2000 --n-pop 300 --from-scratch
+# uv run python -m aerocapture.training.train configs/training/msr_aller_piecewise_constant_train.toml --algorithm ga --n-gen 2000 --n-pop 300 --from-scratch
 uv run python -m aerocapture.training.train configs/training/msr_aller_ftc_train.toml                --algorithm ga --n-gen 2000 --n-pop 300 --from-scratch
 uv run python -m aerocapture.training.train configs/training/msr_aller_fnpag_train.toml              --algorithm ga --n-gen 2000 --n-pop 300 --from-scratch
 uv run python -m aerocapture.training.train configs/training/msr_aller_pred_guid_train.toml          --algorithm ga --n-gen 2000 --n-pop 300 --from-scratch

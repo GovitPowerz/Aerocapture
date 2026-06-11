@@ -152,6 +152,39 @@ def _rows_to_text(summary: dict) -> Text:
     return text
 
 
+def _summary_renderables(summary: dict) -> list[ConsoleRenderable]:
+    """Render a validation summary for a dashboard panel. Split the rows: the
+    4-cell numeric rows (min/p50/p95/max header + Cost/DV/DV1-3) go into a tight
+    right-aligned Table.grid; the 1-2 cell rows (Cap/Apo/Q/G/HL) render as styled
+    Text lines above/below so they don't inflate the grid's first numeric column.
+    """
+    from rich.table import Table  # noqa: PLC0415
+    from rich.text import Text  # noqa: PLC0415
+
+    parts: list[ConsoleRenderable] = []
+    rows = _validation_summary_rows(summary)
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column()
+    for _ in range(4):
+        grid.add_column(justify="right")
+    grid_added = False
+    for label, cells, row_style in rows:
+        if len(cells) != 4:
+            continue
+        grid.add_row(*(Text(c, style=row_style or "") for c in [label, *cells]))
+        grid_added = True
+    for label, cells, row_style in rows:
+        if len(cells) == 4:
+            if grid_added:
+                parts.append(grid)
+                grid_added = False
+            continue
+        parts.append(Text(f"{label:<5} " + "   ".join(cells), style=row_style or ""))
+    if grid_added:  # no 1-2 cell rows after the grid (degenerate summary)
+        parts.append(grid)
+    return parts
+
+
 def _format_duration(seconds: float) -> str:
     if not (seconds == seconds and seconds != float("inf")):  # NaN or inf
         return "--"
@@ -272,64 +305,61 @@ class LiveDisplay:
         body: ConsoleRenderable = Group(grid, Text(" \u00b7 ".join(bits), style="dim")) if bits else grid
         return Panel(body, title="Optimization", border_style="cyan")
 
-    def _build_validation_panel(self, buf: list[dict]) -> Panel:
-        from rich.console import Group  # noqa: PLC0415
+    def _build_validation_panels(self, buf: list[dict]) -> list[Panel]:
+        """[Last validation, Best validation] panels \u2014 the Last panel is framed
+        green when it became the new best (promoted) and red otherwise; the Best
+        panel is a grey-framed reminder of the best stats seen so far."""
         from rich.panel import Panel  # noqa: PLC0415
-        from rich.table import Table  # noqa: PLC0415
         from rich.text import Text  # noqa: PLC0415
 
         best_val_r, last_val_r = self._scan_validation_records(buf)
         if last_val_r is None and best_val_r is None:
             placeholder = Text("waiting for first validation\u2026\n", style="dim")
             placeholder.append("(gate fires when the gen-best individual changes)", style="dim")
-            return Panel(placeholder, title="Validation", border_style="green")
+            return [Panel(placeholder, title="Validation", border_style="green")]
+
+        panels: list[Panel] = []
+        if last_val_r is not None:
+            promoted = bool(last_val_r.get("improvement"))
+            headline = Text(f"RMS {_format_cost(last_val_r['validation']['rms_cost'])}  ")
+            headline.append("PROMOTED" if promoted else "REJECTED", style="green" if promoted else "yellow")
+            headline.append(f"  g{last_val_r['generation']}", style="dim")
+            panels.append(
+                self._validation_detail_panel(
+                    last_val_r,
+                    headline=headline,
+                    title_prefix="Last validation",
+                    border_style="green" if promoted else "red",
+                )
+            )
+        if best_val_r is not None:
+            headline = Text("")
+            headline.append(f"RMS {_format_cost(best_val_r['validation']['rms_cost'])}", style="green")
+            headline.append(f"  g{best_val_r['generation']}", style="dim")
+            panels.append(
+                self._validation_detail_panel(
+                    best_val_r,
+                    headline=headline,
+                    title_prefix="Best validation",
+                    border_style="grey50",
+                )
+            )
+        return panels
+
+    @staticmethod
+    def _validation_detail_panel(record: dict, *, headline: Text, title_prefix: str, border_style: str) -> Panel:
+        from rich.console import Group  # noqa: PLC0415
+        from rich.panel import Panel  # noqa: PLC0415
 
         # parts: list[ConsoleRenderable] avoids mypy issues with Group(*parts) when
         # the union is Text | Table (both satisfy ConsoleRenderable).
-        parts: list[ConsoleRenderable] = []
-        if best_val_r is not None:
-            bv = best_val_r["validation"]
-            line = Text("Best  ", style="")
-            line.append(f"RMS {_format_cost(bv['rms_cost'])}", style="green")
-            line.append(f"  g{best_val_r['generation']}", style="dim")
-            parts.append(line)
-        if last_val_r is not None and last_val_r is not best_val_r:
-            lv = last_val_r["validation"]
-            outcome, style = ("PROMOTED", "green") if last_val_r.get("improvement") else ("REJECTED", "yellow")
-            line = Text(f"Last  RMS {_format_cost(lv['rms_cost'])}  ")
-            line.append(outcome, style=style)
-            parts.append(line)
-
-        detail_src = last_val_r if last_val_r is not None and last_val_r.get("validation_summary") else best_val_r
-        title = "Validation"
-        if detail_src is not None and detail_src.get("validation_summary"):
-            summary = detail_src["validation_summary"]
-            title = f"Validation ({summary.get('n_sims', 0)} sims \u00b7 g{detail_src['generation']})"
-            # Split the rows: the 4-cell numeric rows (min/p50/p95/max header +
-            # Cost/DV/DV1-3) go into a tight right-aligned Table.grid; the 1-2
-            # cell rows (Cap/Apo/Q/G/HL) render as styled Text lines above/below
-            # so they don't inflate the grid's first numeric column.
-            rows = _validation_summary_rows(summary)
-            grid = Table.grid(padding=(0, 2))
-            grid.add_column()
-            for _ in range(4):
-                grid.add_column(justify="right")
-            grid_added = False
-            for label, cells, row_style in rows:
-                if len(cells) != 4:
-                    continue
-                grid.add_row(*(Text(c, style=row_style or "") for c in [label, *cells]))
-                grid_added = True
-            for label, cells, row_style in rows:
-                if len(cells) == 4:
-                    if grid_added:
-                        parts.append(grid)
-                        grid_added = False
-                    continue
-                parts.append(Text(f"{label:<5} " + "   ".join(cells), style=row_style or ""))
-            if grid_added:  # no 1-2 cell rows after the grid (degenerate summary)
-                parts.append(grid)
-        return Panel(Group(*parts), title=title, border_style="green")
+        parts: list[ConsoleRenderable] = [headline]
+        title = f"{title_prefix} (g{record['generation']})"
+        summary = record.get("validation_summary")
+        if summary:
+            title = f"{title_prefix} ({summary.get('n_sims', 0)} sims \u00b7 g{record['generation']})"
+            parts.extend(_summary_renderables(summary))
+        return Panel(Group(*parts), title=title, border_style=border_style)
 
     @staticmethod
     def _scan_validation_records(buf: list[dict]) -> tuple[dict | None, dict | None]:
@@ -379,8 +409,8 @@ class LiveDisplay:
     def _build_dashboard(self, logger: TrainingLogger, current_run: int) -> ConsoleRenderable:
         import time  # noqa: PLC0415
 
-        from rich.columns import Columns  # noqa: PLC0415
         from rich.console import Group  # noqa: PLC0415
+        from rich.table import Table  # noqa: PLC0415
         from rich.text import Text  # noqa: PLC0415
 
         if self._start_time is None:
@@ -392,9 +422,23 @@ class LiveDisplay:
         gen = latest["generation"]
         pop = len(latest["all_costs"]) if latest.get("all_costs") else None
         elapsed = time.monotonic() - self._start_time
+        # Header and Optimization span the full console width; the two
+        # validation panels share that same width 50/50 in a row below
+        # (an expand=True grid \u2014 Columns would shrink-wrap instead).
+        panels = self._build_validation_panels(buf)
+        validation_row: ConsoleRenderable
+        if len(panels) == 2:
+            row = Table.grid(expand=True)
+            row.add_column(ratio=1)
+            row.add_column(ratio=1)
+            row.add_row(*panels)
+            validation_row = row
+        else:
+            validation_row = panels[0]
         return Group(
             self._build_header(gen, pop, elapsed),
-            Columns([self._build_optimization_panel(buf), self._build_validation_panel(buf)]),
+            self._build_optimization_panel(buf),
+            validation_row,
             self._build_footer(buf),
         )
 

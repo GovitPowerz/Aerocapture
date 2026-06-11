@@ -1,0 +1,19 @@
+# FTC with jointly-optimized constant-bank reference: the chromosome carries a
+# `ref_bank` gene, and each individual is evaluated against a reference table
+# generated from ITS bank (undispersed 1-segment nominal, batched per
+# generation, ~+10% sim cost). The winner's table deploys to
+# <output-dir>/ref_trajectory.dat and the optimized TOML is wired at it, so
+# report.py and compare_guidance evaluate against the trained-with reference.
+#
+# Run with its own output dir so the shared-reference FTC baseline is preserved:
+#   uv run python -m aerocapture.training.train configs/training/msr_aller_ftc_joint_ref_train.toml \
+#       --output-dir training_output/ftc_joint_ref --n-gen 2000 --n-pop 300 --from-scratch
+base = ["msr_aller_ftc_train.toml"]
+
+[reference]
+joint_bank = true
+# bank_low = 55.0   # gene bounds (deg), defaults shown
+# bank_high = 80.0
+
+[data]
+results_suffix = ".train_ftc_joint_ref"

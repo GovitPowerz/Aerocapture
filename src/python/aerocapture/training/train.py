@@ -106,6 +106,13 @@ def _draw_disjoint_seeds(
     return drawn[:n]
 
 
+from aerocapture.training.reference import (  # noqa: E402  (re-export: make_reference.py and tests import these from train)
+    nominal_flight_overrides,
+    piecewise_commanded_cos_bank,
+    ref_trajectory_array,
+)
+
+
 def check_ref_trajectory_wiring(toml_data: dict, ref_traj_path: Path) -> None:
     """Hard-fail when a ref-tracking scheme's resolved config doesn't point at the
     mission's optimized reference. Guards against the silent-legacy-ref bug: the
@@ -744,6 +751,19 @@ def _setup_param_specs(config: TrainingConfig, _toml: dict, verbose: bool) -> tu
             )
     else:
         param_specs = PARAM_SPACES[config.guidance_type]
+
+    ref_cfg = _toml.get("reference", {})
+    if ref_cfg.get("joint_bank", False):
+        from aerocapture.training.param_spaces import JOINT_REF_BANK_SCHEMES  # noqa: PLC0415
+
+        if config.guidance_type not in JOINT_REF_BANK_SCHEMES:
+            print(f"ERROR: [reference] joint_bank requires a table-reading scheme ({sorted(JOINT_REF_BANK_SCHEMES)}), got '{config.guidance_type}'")
+            sys.exit(1)
+        bank_low = float(ref_cfg.get("bank_low", 55.0))
+        bank_high = float(ref_cfg.get("bank_high", 80.0))
+        param_specs = [*param_specs, ParamSpec("ref_bank", bank_low, bank_high, 68.0)]
+        if verbose:
+            print(f"joint reference: ref_bank gene in [{bank_low:.1f}, {bank_high:.1f}] deg (per-individual constant-bank reference tables)")
 
     n_params = len(param_specs)
     return param_specs, n_params
@@ -2434,17 +2454,12 @@ if __name__ == "__main__":
         if list(save_path.glob("checkpoint_*.json")) or list(save_path.glob("checkpoint_g*.npz")):
             resume_dir = cfg.save_dir
 
-    # Derive mission name from the first base TOML (the mission config).
-    import tomllib
+    # Derive mission name from the first missions/ base reachable through the
+    # base chain (recursive — nested leaf configs inherit it indirectly).
+    from aerocapture.training.toml_utils import find_mission_name
 
     base_toml_path = Path(cwd) / args.toml
-    with open(base_toml_path, "rb") as _f:
-        _raw_toml = tomllib.load(_f)
-    _bases = _raw_toml.get("base", [])
-    if isinstance(_bases, str):
-        _bases = [_bases]
-    _mission_base = next((b for b in _bases if "missions/" in b), _bases[0] if _bases else "")
-    mission_name = Path(_mission_base).stem if _mission_base else Path(args.toml).stem
+    mission_name = find_mission_name(base_toml_path) or Path(args.toml).stem
     corr_dir = Path(cfg.save_dir).parent / mission_name
     corr_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2494,25 +2509,10 @@ if __name__ == "__main__":
 
         from aerocapture.training.corridor import save_corridor as _save_corr
         from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS as _GTS
-        from aerocapture.training.param_spaces import route_param_path as _route
 
         best_params = decode_normalized(result["best_individual"], param_specs)
         _pc_section = _GTS[cfg.guidance_type]
-        best_ovr: dict[str, object] = {}
-        for k_, v in best_params.items():
-            if k_ == "lateral.max_reversals":
-                v = int(round(v))
-            best_ovr[_route(k_, _pc_section)] = v
-            if k_.startswith("shaping."):
-                best_ovr["guidance.command_shaping.enabled"] = True
-        best_ovr["guidance.type"] = cfg.guidance_type
-        best_ovr["simulation.n_sims"] = 1
-        # Disable dispersions so the nominal is the true undispersed trajectory
-        best_ovr["monte_carlo.initial_state.level"] = "off"
-        best_ovr["monte_carlo.atmosphere.level"] = "off"
-        best_ovr["monte_carlo.aerodynamics.level"] = "off"
-        best_ovr["monte_carlo.navigation.level"] = "off"
-        best_ovr["monte_carlo.mass.level"] = "off"
+        best_ovr = nominal_flight_overrides(best_params, _pc_section, _toml_data.get("monte_carlo", {}))
 
         assert cfg.sim.toml_config is not None
         _pc_toml_path = str((Path(cwd) / cfg.sim.toml_config).resolve())
@@ -2525,28 +2525,34 @@ if __name__ == "__main__":
         nom_traj = np.asarray(best_batch.trajectories[0]) if best_batch.trajectories else np.empty((0, 12))
         nom_dv_total = float(best_batch.final_records[0, 41]) if best_batch.final_records.shape[0] > 0 else 0.0
 
-        # Save corridor_boundaries.npz from accumulated envelopes
-        corr_data = corridor_acc_final.to_corridor_data(nominal=nom_traj)
-        corr_data["nominal_dv"] = np.array([nom_dv_total])
-        corr_npz = corr_dir / "corridor_boundaries.npz"
-        _save_corr(corr_data, corr_npz)
+        # `reference_only = true` ([guidance.piecewise_constant]) marks a run
+        # whose sole product is ref_trajectory.dat (e.g. the 1-segment
+        # constant-bank reference generator) — it must not clobber the richer
+        # corridor_boundaries.npz of the full piecewise baseline run.
+        pc_cfg = _toml_data.get("guidance", {}).get("piecewise_constant", {})
+        reference_only = bool(pc_cfg.get("reference_only", False))
+        if not reference_only:
+            # Save corridor_boundaries.npz from accumulated envelopes
+            corr_data = corridor_acc_final.to_corridor_data(nominal=nom_traj)
+            corr_data["nominal_dv"] = np.array([nom_dv_total])
+            corr_npz = corr_dir / "corridor_boundaries.npz"
+            _save_corr(corr_data, corr_npz)
 
-        # Generate ref_trajectory.dat (7-column format)
+        # Generate ref_trajectory.dat (7-column format). cos_bank carries the
+        # COMMANDED segment profile (clean steps), not the realized bank whose
+        # shaper sweeps through 0 deg whipsaw the trackers' feedforward.
         if nom_traj.ndim == 2 and nom_traj.shape[0] > 0:
-            vel = nom_traj[:, 3]
-            fpa_rad = np.radians(nom_traj[:, 4])
-            radial_vel = vel * np.sin(fpa_rad)
-            energy_j = nom_traj[:, 8] * 1e6
-            pdyn_pa = nom_traj[:, 9] * 1e3
-            incl_rad = np.radians(nom_traj[:, 11])
-            time_s = nom_traj[:, 7]
-            bank_rad = np.radians(nom_traj[:, 10])
-            cos_bank = np.cos(bank_rad)
-
-            ref_data = np.column_stack([energy_j, pdyn_pa, radial_vel, radial_vel, incl_rad, time_s, cos_bank])
+            bank_angles = [v for _, v in sorted((int(k.split("_")[-1]), v) for k, v in best_params.items() if k.startswith("bank_angle_"))]
+            commanded_cos = piecewise_commanded_cos_bank(
+                nom_traj[:, 8],
+                bank_angles,
+                energy_min_mj=float(pc_cfg.get("energy_min", -6.0)),
+                energy_max_mj=float(pc_cfg.get("energy_max", 5.0)),
+            )
+            ref_data = ref_trajectory_array(nom_traj, cos_bank=commanded_cos)
             ref_path = corr_dir / "ref_trajectory.dat"
             np.savetxt(str(ref_path), ref_data, fmt="  %.16E")
-            print(f"  Reference trajectory saved to {ref_path} ({ref_data.shape[0]} points)")
+            print(f"  Reference trajectory saved to {ref_path} ({ref_data.shape[0]} points, commanded-cos feedforward)")
 
     # Save best result and run final evaluation
     if result["best_individual"] is not None:
@@ -2584,12 +2590,34 @@ if __name__ == "__main__":
             print(f"Best params saved to {params_path}")
             print(f"  Params: {params}")
 
-            # Write optimized TOML for easy re-use
+            # Write optimized TOML for easy re-use (ref_bank is not a guidance
+            # TOML key — it deploys as the regenerated reference table below)
             assert cfg.sim.toml_config is not None
             base_toml = Path(cwd) / cfg.sim.toml_config
             opt_toml = Path(cfg.save_dir) / f"optimized_{cfg.guidance_type}.toml"
-            write_guidance_toml(base_toml, cfg.guidance_type, params, opt_toml)
+            write_guidance_toml(base_toml, cfg.guidance_type, {k: v for k, v in params.items() if k != "ref_bank"}, opt_toml)
             print(f"  Optimized TOML: {opt_toml}")
+
+            if "ref_bank" in params:
+                # Deploy the winner's reference: regenerate its table into the
+                # scheme dir and wire the optimized TOML at it, so report.py,
+                # compare_guidance, and manual reruns evaluate against the same
+                # reference the individual was trained with.
+                import tomllib  # noqa: PLC0415
+
+                from aerocapture.training.evaluate import _write_toml  # noqa: PLC0415
+                from aerocapture.training.reference import generate_constant_bank_tables  # noqa: PLC0415
+
+                [tmp_tbl] = generate_constant_bank_tables(
+                    str(base_toml), [params["ref_bank"]], _toml_data.get("monte_carlo", {}), Path(cfg.save_dir), cfg.sim.sim_timeout_secs
+                )
+                deploy_ref = Path(cfg.save_dir) / "ref_trajectory.dat"
+                tmp_tbl.replace(deploy_ref)
+                with open(opt_toml, "rb") as _f:
+                    _opt = tomllib.load(_f)
+                _opt.setdefault("data", {})["reference_trajectory"] = str(deploy_ref)
+                _write_toml(_opt, opt_toml)
+                print(f"  Joint reference (ref_bank {params['ref_bank']:.2f} deg) deployed to {deploy_ref}")
 
         # Report Generation
         if not args.skip_report:

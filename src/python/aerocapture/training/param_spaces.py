@@ -203,6 +203,12 @@ GUIDANCE_TOML_SECTIONS: dict[str, str] = {
 # Schemes that require a pre-computed reference trajectory
 REQUIRES_REF_TRAJECTORY: set[str] = {"energy_controller", "pred_guid", "fnpag", "ftc"}
 
+# Schemes eligible for the joint-reference `ref_bank` gene ([reference] joint_bank
+# in the training TOML): the ones that actually interpolate the reference table.
+# fnpag is in REQUIRES_REF_TRAJECTORY but never reads the table (numerical
+# predictor instead), so a ref_bank gene would be dead weight in its chromosome.
+JOINT_REF_BANK_SCHEMES: set[str] = {"ftc", "energy_controller", "pred_guid"}
+
 # Mapping from GA param prefix to canonical TOML section prefix.
 # Keys include the trailing dot; values include the trailing dot.
 _GUIDANCE_PREFIX_SECTIONS: dict[str, str] = {
