@@ -78,6 +78,7 @@ pub struct FnpagParams {
     pub bank_min_deg: f64,      // minimum bank angle (deg)
     pub bank_max_high_deg: f64, // max bank above 50 km (deg)
     pub bank_max_low_deg: f64,  // max bank below 50 km (deg)
+    pub replan_period: f64,     // seconds between replans; bank held in between
 }
 
 impl Default for FnpagParams {
@@ -88,6 +89,7 @@ impl Default for FnpagParams {
             bank_min_deg: 20.0,
             bank_max_high_deg: 140.0,
             bank_max_low_deg: 100.0,
+            replan_period: 2.0,
         }
     }
 }

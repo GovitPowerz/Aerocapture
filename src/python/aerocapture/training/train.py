@@ -106,6 +106,19 @@ def _draw_disjoint_seeds(
     return drawn[:n]
 
 
+def check_ref_trajectory_wiring(toml_data: dict, ref_traj_path: Path) -> None:
+    """Hard-fail when a ref-tracking scheme's resolved config doesn't point at the
+    mission's optimized reference. Guards against the silent-legacy-ref bug: the
+    existence check alone proves nothing about what the sim actually loads.
+    """
+    configured = toml_data.get("data", {}).get("reference_trajectory")
+    if configured is None or Path(configured).resolve() != Path(ref_traj_path).resolve():
+        print(f"\nERROR: this scheme tracks the optimized reference trajectory at {ref_traj_path},")
+        print(f"but the resolved config's data.reference_trajectory is {configured!r}.")
+        print(f'Add `reference_trajectory = "{ref_traj_path}"` to the [data] section of the training TOML.')
+        sys.exit(1)
+
+
 def _build_validation_payload(
     costs: npt.NDArray[np.float64],
     final_records: npt.NDArray[np.float64] | None,
@@ -125,7 +138,7 @@ def _build_validation_payload(
         "std_cost": float(np.std(costs)),
         "p95_cost": float(np.percentile(costs, 95)),
         "worst_cost": float(np.max(costs)),
-        "capture_rate": capture_rate(costs),
+        "capture_rate": capture_rate(costs, cost_transform=(cost_kwargs or {}).get("cost_transform", "linear")),
         "n_sims": n_sims,
     }
     summary: dict | None = None
@@ -1310,6 +1323,7 @@ def train(
         run=0,
         output_dir=save_dir,
         config_hash=config_hash,
+        cost_transform=str(problem.cost_kwargs.get("cost_transform", "linear")),
     )
 
     gen_best_costs: list[float] = []
@@ -1794,6 +1808,7 @@ def _train_islands(
         run=0,
         output_dir=save_dir,
         config_hash=config_hash,
+        cost_transform=str(problem.cost_kwargs.get("cost_transform", "linear")),
     )
 
     display.set_start_gen(start_gen)
@@ -2036,7 +2051,7 @@ def _train_islands(
             fe_costs = problem.evaluate_individual_per_seed(selection.individual, island_model.final_eval_seeds)
             final_rms = float(np.sqrt(np.mean(np.asarray(fe_costs, dtype=np.float64) ** 2)))
             win_island = selection.provenance.split(":", 1)[0]
-            capture = float(_capture_rate(np.asarray(fe_costs)))
+            capture = float(_capture_rate(np.asarray(fe_costs), cost_transform=str(problem.cost_kwargs.get("cost_transform", "linear"))))
         winner: dict[str, Any] = {
             "island": win_island,
             "X": selection.individual.copy(),
@@ -2443,6 +2458,7 @@ if __name__ == "__main__":
             print("Run piecewise_constant training first:")
             print("  uv run python -m aerocapture.training.train configs/training/msr_aller_piecewise_constant_train.toml")
             sys.exit(1)
+        check_ref_trajectory_wiring(_toml_data, ref_traj_path)
         print(f"  Using reference trajectory: {ref_traj_path}")
 
     # Architecture summary (NN schemes only).

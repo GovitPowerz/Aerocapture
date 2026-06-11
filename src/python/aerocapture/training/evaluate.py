@@ -19,6 +19,7 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.config import NetworkConfig, TrainingConfig
+from aerocapture.training.metrics import apply_cost_transform
 from aerocapture.training.parquet_output import (
     DV_TOTAL_RAW_INDEX,
     FINAL_RECORD_LEN,
@@ -403,19 +404,7 @@ def compute_cost(
     hl_penalty = heat_load_weight * _softplus((heat_load - heat_load_limit) / heat_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
     costs = costs + g_penalty + q_penalty + hl_penalty
 
-    if cost_transform == "sqrt":
-        costs = np.sqrt(costs)
-    elif cost_transform == "log":
-        # log1p keeps the zero-cost identity and stays monotonic; compresses
-        # the tail more aggressively than sqrt so catastrophic crashes don't
-        # dominate the RMS gradient.
-        costs = np.log1p(costs)
-    elif cost_transform == "squared":
-        costs = costs**2
-    elif cost_transform == "cubed":
-        costs = costs**3
-    elif cost_transform != "linear":
-        raise ValueError(f"unknown cost_transform={cost_transform!r} (expected 'linear', 'sqrt', 'log', 'squared', or 'cubed')")
+    costs = apply_cost_transform(costs, cost_transform)
 
     return float(np.sqrt(np.mean(costs**2)))
 

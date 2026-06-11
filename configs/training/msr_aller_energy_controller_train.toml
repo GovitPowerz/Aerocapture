@@ -6,3 +6,6 @@ type = "energy_controller"
 
 [data]
 results_suffix = ".train_energy_ctrl"
+# Optimized reference from piecewise_constant training (NOT the legacy
+# data/reference_trajectory/msr_aller.dat) -- train.py hard-errors if absent.
+reference_trajectory = "training_output/mars/ref_trajectory.dat"

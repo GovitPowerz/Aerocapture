@@ -423,6 +423,7 @@ impl SimData {
                 bank_min_deg: p.bank_min_deg,
                 bank_max_high_deg: p.bank_max_high_deg,
                 bank_max_low_deg: p.bank_max_low_deg,
+                replan_period: p.replan_period,
             }
         } else {
             guidance_params::FnpagParams::default()

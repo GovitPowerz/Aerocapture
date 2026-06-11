@@ -357,6 +357,9 @@ class IslandModel:
             self.migration_log.extend(events)
         return events
 
+    def _cost_transform(self) -> str:
+        return str(self.problem.cost_kwargs.get("cost_transform", "linear"))
+
     def validate_each(self, current_gen: int) -> list[dict[str, Any]]:
         """Run identity-trigger validation per island.
 
@@ -442,7 +445,7 @@ class IslandModel:
                     "val_rms": gate.val_rms,
                     "val_mean": float(np.mean(val_costs)),
                     "val_p95": float(np.percentile(val_costs, 95)),
-                    "val_capture_rate": _capture_rate(np.asarray(val_costs)),
+                    "val_capture_rate": _capture_rate(np.asarray(val_costs), cost_transform=self._cost_transform()),
                     "val_summary": val_summary,
                     "stagnation": island.stagnation_counter,
                 }
@@ -619,7 +622,7 @@ class IslandModel:
             version=2,
             generation=generation,
             base_mc_seed=self.base_mc_seed,
-            cost_transform=str(self.problem.cost_kwargs.get("cost_transform", "linear")),
+            cost_transform=self._cost_transform(),
             island_states=np.array(pickle.dumps(island_states), dtype=object),
             migration_log=np.array(pickle.dumps(self.migration_log), dtype=object),
             rng_state=np.array(pickle.dumps(self.rng.bit_generator.state), dtype=object),
@@ -761,7 +764,7 @@ class IslandModel:
                     "val_rms": island.best_val_cost,
                     "mean": float(np.mean(costs)),
                     "p95": float(np.percentile(costs, 95)),
-                    "capture_rate": _capture_rate(np.asarray(costs)),
+                    "capture_rate": _capture_rate(np.asarray(costs), cost_transform=self._cost_transform()),
                     "n_sims": len(self.final_eval_seeds),
                 }
             )

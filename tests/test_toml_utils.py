@@ -83,6 +83,58 @@ def test_base_single_string(tmp_path: Path) -> None:
     assert data["y"] == 2
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# Schemes that track the optimized reference must point at the piecewise-produced
+# file; regression gate for the silent-legacy-ref bug (train.py only CHECKED the
+# optimized ref existed -- nothing ever wired it into the config).
+REF_TRACKING_TRAINING_CONFIGS = [
+    "configs/training/msr_aller_ftc_train.toml",
+    "configs/training/msr_aller_energy_controller_train.toml",
+    "configs/training/msr_aller_pred_guid_train.toml",
+    "configs/training/msr_aller_fnpag_train.toml",
+]
+
+
+@pytest.mark.parametrize("config", REF_TRACKING_TRAINING_CONFIGS)
+def test_ref_tracking_training_configs_use_optimized_reference(config: str) -> None:
+    data = load_toml_with_bases(REPO_ROOT / config)
+    assert data["data"]["reference_trajectory"] == "training_output/mars/ref_trajectory.dat"
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        "configs/training/msr_aller_piecewise_constant_train.toml",
+        "configs/training/msr_aller_eqglide_train.toml",
+    ],
+)
+def test_non_tracking_training_configs_keep_legacy_reference(config: str) -> None:
+    data = load_toml_with_bases(REPO_ROOT / config)
+    assert data["data"]["reference_trajectory"] == "data/reference_trajectory/msr_aller.dat"
+
+
+class TestCheckRefTrajectoryWiring:
+    def test_matching_path_passes(self) -> None:
+        from aerocapture.training.train import check_ref_trajectory_wiring
+
+        toml_data = {"data": {"reference_trajectory": "training_output/mars/ref_trajectory.dat"}}
+        check_ref_trajectory_wiring(toml_data, Path("training_output/mars/ref_trajectory.dat"))
+
+    def test_legacy_path_exits(self) -> None:
+        from aerocapture.training.train import check_ref_trajectory_wiring
+
+        toml_data = {"data": {"reference_trajectory": "data/reference_trajectory/msr_aller.dat"}}
+        with pytest.raises(SystemExit):
+            check_ref_trajectory_wiring(toml_data, Path("training_output/mars/ref_trajectory.dat"))
+
+    def test_missing_key_exits(self) -> None:
+        from aerocapture.training.train import check_ref_trajectory_wiring
+
+        with pytest.raises(SystemExit):
+            check_ref_trajectory_wiring({}, Path("training_output/mars/ref_trajectory.dat"))
+
+
 def test_deep_merge_nested(tmp_path: Path) -> None:
     """Deep nesting merges correctly at all levels."""
     _write(

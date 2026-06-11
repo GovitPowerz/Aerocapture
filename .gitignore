@@ -44,7 +44,12 @@ output/*
 !tests/reference_data/**/*.json
 *.temp
 *.png
-training_output/
+# Ignore training artifacts, EXCEPT the optimized reference trajectory:
+# ref-tracking training configs point at it, so CI/e2e need it committed.
+training_output/*
+!training_output/mars/
+training_output/mars/*
+!training_output/mars/ref_trajectory.dat
 data/neural_network/nn_model.json
 *.pdf
 .superpowers/

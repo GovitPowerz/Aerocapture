@@ -38,6 +38,8 @@ pub struct FnpagState {
     pub energy_prev: f64,
     /// Whether predictor has been initialized
     pub initialized: bool,
+    /// Sim time of the last forward-prediction replan (s)
+    pub last_replan_time: f64,
 }
 
 impl FnpagState {
@@ -46,6 +48,7 @@ impl FnpagState {
             bank_prev: initial_bank,
             energy_prev: 0.0,
             initialized: false,
+            last_replan_time: f64::NEG_INFINITY,
         }
     }
 }
@@ -232,6 +235,7 @@ pub fn fnpag_bank(
     state: &mut FnpagState,
     data: &SimData,
     planet: &PlanetConfig,
+    sim_time: f64,
 ) -> f64 {
     let mu = planet.mu;
 
@@ -289,6 +293,7 @@ pub fn fnpag_bank(
         let err2 = e2 - target_energy;
 
         state.initialized = true;
+        state.last_replan_time = sim_time;
 
         // Use the one closer to target
         if err1.abs() < err2.abs() {
@@ -302,7 +307,15 @@ pub fn fnpag_bank(
         }
     }
 
+    // Replan throttle: between replans, hold the previous command. The
+    // command evolves slowly mid-pass, and each replan costs up to 5 full
+    // forward integrations.
+    if sim_time - state.last_replan_time < params.replan_period {
+        return state.bank_prev.abs();
+    }
+
     // Secant method iterations
+    state.last_replan_time = sim_time;
     let mut bank_k = state.bank_prev;
     let mut err_k = state.energy_prev;
 
@@ -312,6 +325,10 @@ pub fn fnpag_bank(
 
     let mut best_bank = bank_k;
     let mut best_err = err_k.abs();
+    // Signed error of best_bank, evaluated at the CURRENT state. None while
+    // best_bank is still the carried-over bank_prev (whose err_k is stale —
+    // it was evaluated at the previous replan's state).
+    let mut best_err_signed: Option<f64> = None;
 
     for _iter in 0..5 {
         let e_trial = predict_exit_energy(
@@ -328,6 +345,7 @@ pub fn fnpag_bank(
         if err_trial.abs() < best_err {
             best_err = err_trial.abs();
             best_bank = bank_trial;
+            best_err_signed = Some(err_trial);
         }
 
         // Check convergence
@@ -349,19 +367,32 @@ pub fn fnpag_bank(
         bank_k = bank_trial;
         err_k = err_trial;
         bank_trial = bank_new.clamp(bank_min, bank_max);
+
+        // Stall: the next trial equals the point just evaluated (typically
+        // both clamped at the same bound) — re-predicting it is pure waste.
+        if (bank_trial - bank_k).abs() < 1e-12 {
+            break;
+        }
     }
 
-    // Use best result found
+    // Use best result found. Its signed error was already computed in the
+    // loop; re-predict only when no trial beat the carried-over error, so the
+    // next replan's secant doesn't reuse a stale residual.
     state.bank_prev = best_bank;
-    let e_final = predict_exit_energy(
-        current,
-        best_bank,
-        planet,
-        data,
-        exit_alt,
-        params.prediction_dt,
-    );
-    state.energy_prev = e_final - target_energy;
+    state.energy_prev = match best_err_signed {
+        Some(err) => err,
+        None => {
+            let e_final = predict_exit_energy(
+                current,
+                best_bank,
+                planet,
+                data,
+                exit_alt,
+                params.prediction_dt,
+            );
+            e_final - target_energy
+        }
+    };
 
     best_bank.clamp(bank_min, bank_max)
 }
@@ -501,7 +532,7 @@ mod tests {
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
 
-        let bank = fnpag_bank(&nav, &mut state, &data, &planet);
+        let bank = fnpag_bank(&nav, &mut state, &data, &planet, 0.0);
 
         assert_relative_eq!(bank, prev_bank, epsilon = 1e-12);
     }
@@ -518,7 +549,7 @@ mod tests {
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
 
-        let _ = fnpag_bank(&nav, &mut state, &data, &planet);
+        let _ = fnpag_bank(&nav, &mut state, &data, &planet, 0.0);
 
         assert!(
             state.initialized,
@@ -545,7 +576,7 @@ mod tests {
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
 
-        let bank = fnpag_bank(&nav, &mut state, &data, &planet);
+        let bank = fnpag_bank(&nav, &mut state, &data, &planet, 0.0);
 
         assert!(
             bank.is_finite(),
@@ -558,6 +589,32 @@ mod tests {
         );
     }
 
+    /// Within `replan_period` of the last replan, FNPAG must hold the previous
+    /// bank command without re-running the forward predictor (no state update).
+    #[test]
+    fn replanning_throttled_within_replan_period() {
+        let data = test_sim_data(); // default replan_period = 2.0 s
+        let planet = PlanetConfig::mars();
+        let mut state = FnpagState::new(64.77_f64.to_radians());
+
+        let nav_entry = test_nav(5687.0);
+        let bank0 = fnpag_bank(&nav_entry, &mut state, &data, &planet, 0.0);
+        let energy_prev0 = state.energy_prev;
+        assert_relative_eq!(state.last_replan_time, 0.0, epsilon = 1e-12);
+
+        // 1 s later with a substantially different nav state: must hold the
+        // command and leave the secant state untouched.
+        let nav_later = test_nav(4000.0);
+        let bank_held = fnpag_bank(&nav_later, &mut state, &data, &planet, 1.0);
+        assert_relative_eq!(bank_held, bank0, epsilon = 1e-12);
+        assert_relative_eq!(state.energy_prev, energy_prev0, epsilon = 1e-12);
+        assert_relative_eq!(state.last_replan_time, 0.0, epsilon = 1e-12);
+
+        // Past the period: replans (timestamp advances).
+        let _ = fnpag_bank(&nav_later, &mut state, &data, &planet, 2.5);
+        assert_relative_eq!(state.last_replan_time, 2.5, epsilon = 1e-12);
+    }
+
     /// Subsequent calls (initialized state) also produce finite, bounded output.
     #[test]
     fn second_call_produces_finite_output() {
@@ -567,11 +624,11 @@ mod tests {
         let planet = PlanetConfig::mars();
 
         // Prime the state
-        let _ = fnpag_bank(&nav, &mut state, &data, &planet);
+        let _ = fnpag_bank(&nav, &mut state, &data, &planet, 0.0);
         assert!(state.initialized);
 
-        // Second call — exercises secant method path
-        let bank = fnpag_bank(&nav, &mut state, &data, &planet);
+        // Second call — exercises secant method path (past replan_period)
+        let bank = fnpag_bank(&nav, &mut state, &data, &planet, 10.0);
 
         assert!(bank.is_finite(), "second-call bank not finite: {bank}");
         assert!(
@@ -606,12 +663,12 @@ mod tests {
         let mut state_stat = FnpagState::new(64.77_f64.to_radians());
 
         // First call initializes (picks from fixed candidates) -- may be identical
-        let _ = fnpag_bank(&nav, &mut state_rot, &data, &planet_rotating);
-        let _ = fnpag_bank(&nav, &mut state_stat, &data, &planet_static);
+        let _ = fnpag_bank(&nav, &mut state_rot, &data, &planet_rotating, 0.0);
+        let _ = fnpag_bank(&nav, &mut state_stat, &data, &planet_static, 0.0);
 
         // Second call exercises the secant method where 3D effects differentiate
-        let bank_rot = fnpag_bank(&nav, &mut state_rot, &data, &planet_rotating);
-        let bank_stat = fnpag_bank(&nav, &mut state_stat, &data, &planet_static);
+        let bank_rot = fnpag_bank(&nav, &mut state_rot, &data, &planet_rotating, 10.0);
+        let bank_stat = fnpag_bank(&nav, &mut state_stat, &data, &planet_static, 10.0);
 
         assert!(bank_rot.is_finite(), "rotating bank not finite: {bank_rot}");
         assert!(bank_stat.is_finite(), "static bank not finite: {bank_stat}");
@@ -644,12 +701,12 @@ mod tests {
         let mut state_hl = FnpagState::new(64.77_f64.to_radians());
 
         // First call initializes (picks from fixed candidates) -- may be identical
-        let _ = fnpag_bank(&nav_equator, &mut state_eq, &data, &planet);
-        let _ = fnpag_bank(&nav_high_lat, &mut state_hl, &data, &planet);
+        let _ = fnpag_bank(&nav_equator, &mut state_eq, &data, &planet, 0.0);
+        let _ = fnpag_bank(&nav_high_lat, &mut state_hl, &data, &planet, 0.0);
 
         // Second call exercises the secant method where 3D effects differentiate
-        let bank_eq = fnpag_bank(&nav_equator, &mut state_eq, &data, &planet);
-        let bank_hl = fnpag_bank(&nav_high_lat, &mut state_hl, &data, &planet);
+        let bank_eq = fnpag_bank(&nav_equator, &mut state_eq, &data, &planet, 10.0);
+        let bank_hl = fnpag_bank(&nav_high_lat, &mut state_hl, &data, &planet, 10.0);
 
         assert!(bank_eq.is_finite(), "equatorial bank not finite");
         assert!(bank_hl.is_finite(), "high-lat bank not finite");
@@ -691,7 +748,7 @@ mod tests {
                 let data = test_sim_data();
                 let planet = PlanetConfig::mars();
 
-                let bank = fnpag_bank(&nav, &mut state, &data, &planet);
+                let bank = fnpag_bank(&nav, &mut state, &data, &planet, 0.0);
 
                 prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
                 prop_assert!(bank >= 0.0 - 1e-10, "bank negative: {}", bank);

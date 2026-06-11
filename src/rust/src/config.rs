@@ -896,6 +896,8 @@ pub struct TomlFnpagParams {
     pub bank_max_high_deg: f64,
     #[serde(default = "default_bank_max_low_deg")]
     pub bank_max_low_deg: f64,
+    #[serde(default = "default_2")]
+    pub replan_period: f64,
 }
 
 fn default_1e4() -> f64 {

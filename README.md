@@ -107,7 +107,7 @@ Seven guidance algorithms, all GA-optimizable:
 | **PredGuid** | Apollo/Shuttle-heritage drag tracking | 3 | Requires ref trajectory |
 | **FNPAG** | Lu's numerical predictor-corrector (3D predictor with J2 gravity, RK4) | 5 | Requires ref trajectory |
 
-**Training order:** Run `piecewise_constant` first — it produces `ref_trajectory.dat` (optimized reference) and `corridor_boundaries.npz` (4-layer corridor envelopes from GA population history). Schemes marked "Requires ref trajectory" will error at startup if it's missing.
+**Training order:** Run `piecewise_constant` first — it produces `training_output/mars/ref_trajectory.dat` (optimized reference) and `corridor_boundaries.npz` (4-layer corridor envelopes from GA population history). The ref-tracking training configs point `data.reference_trajectory` at that file explicitly (test/nominal configs keep the legacy `data/reference_trajectory/msr_aller.dat`), and `train.py` hard-errors if a ref-tracking scheme's resolved config doesn't. Piecewise training overwrites the file at the end of its run and the other schemes re-read it every generation, so train them strictly after piecewise completes — never in parallel.
 
 ### NN-vs-FTC Parity Bundle (`nn_joint`)
 

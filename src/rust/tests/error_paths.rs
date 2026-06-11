@@ -150,7 +150,7 @@ fn fnpag_zero_velocity() {
     let nav = nav_from_state(60_000.0, 0.0, -10.0_f64.to_radians(), 1e-4, 0.0, 0.0);
     let data = minimal_sim_data();
     let mut state = FnpagState::new(60.0_f64.to_radians());
-    let bank = fnpag_bank(&nav, &mut state, &data, &planet());
+    let bank = fnpag_bank(&nav, &mut state, &data, &planet(), 0.0);
     assert!(
         bank.is_finite(),
         "fnpag zero velocity produced non-finite bank: {bank}"
@@ -164,7 +164,7 @@ fn fnpag_zero_density() {
     let data = minimal_sim_data();
     let init_bank = 60.0_f64.to_radians();
     let mut state = FnpagState::new(init_bank);
-    let bank = fnpag_bank(&nav, &mut state, &data, &planet());
+    let bank = fnpag_bank(&nav, &mut state, &data, &planet(), 0.0);
     assert!(
         bank.is_finite(),
         "fnpag zero density produced non-finite bank: {bank}"
@@ -183,7 +183,7 @@ fn fnpag_extreme_fpa_down() {
     );
     let data = minimal_sim_data();
     let mut state = FnpagState::new(60.0_f64.to_radians());
-    let bank = fnpag_bank(&nav, &mut state, &data, &planet());
+    let bank = fnpag_bank(&nav, &mut state, &data, &planet(), 0.0);
     assert!(
         bank.is_finite(),
         "fnpag straight-down produced non-finite bank: {bank}"
@@ -202,7 +202,7 @@ fn fnpag_extreme_fpa_up() {
     );
     let data = minimal_sim_data();
     let mut state = FnpagState::new(60.0_f64.to_radians());
-    let bank = fnpag_bank(&nav, &mut state, &data, &planet());
+    let bank = fnpag_bank(&nav, &mut state, &data, &planet(), 0.0);
     assert!(
         bank.is_finite(),
         "fnpag straight-up produced non-finite bank: {bank}"
@@ -214,7 +214,7 @@ fn fnpag_very_high_altitude() {
     let nav = nav_from_state(300_000.0, 5_000.0, -10.0_f64.to_radians(), 0.0, 0.0, 0.0);
     let data = minimal_sim_data();
     let mut state = FnpagState::new(60.0_f64.to_radians());
-    let bank = fnpag_bank(&nav, &mut state, &data, &planet());
+    let bank = fnpag_bank(&nav, &mut state, &data, &planet(), 0.0);
     assert!(
         bank.is_finite(),
         "fnpag 300 km produced non-finite bank: {bank}"

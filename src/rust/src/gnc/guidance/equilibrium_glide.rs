@@ -42,9 +42,10 @@ pub fn equilibrium_glide_bank(
     let v2_over_r = v * v / r;
 
     // Lift force per unit mass: L/m = 0.5 * rho * V² * S * Cz / m
-    let rho = data
-        .atmosphere_onboard
-        .density_at(altitude, &data.atmosphere);
+    // Density: nav-filtered estimate (density_gain * onboard model at current
+    // altitude), so the equilibrium command tracks the dispersion the density
+    // filter has already measured instead of carrying it as bias.
+    let rho = nav.density_guidance;
     let cz = nav.aero_coefficients[1]; // lift coefficient from navigation
     let sref = data.capsule.reference_area;
     let mass = data.capsule.mass;
@@ -245,6 +246,32 @@ mod tests {
             min_bank,
             max_bank,
             velocity,
+        );
+    }
+
+    #[test]
+    fn lift_uses_nav_estimated_density() {
+        // The lift model must consume the nav-filtered density estimate
+        // (density_gain * onboard model), not the raw onboard table — otherwise
+        // the equilibrium command carries the full density dispersion as bias
+        // that the density filter already measured.
+        let data = test_sim_data();
+        let planet = PlanetConfig::mars();
+
+        let nav_nominal = test_nav(4500.0);
+        let mut nav_dense = test_nav(4500.0);
+        nav_dense.density_guidance = 2.0 * nav_nominal.density_guidance;
+
+        let altitude = test_altitude(&nav_nominal, &planet);
+        let bank_nominal = equilibrium_glide_bank(&nav_nominal, &data, &planet, altitude);
+        let bank_dense = equilibrium_glide_bank(&nav_dense, &data, &planet, altitude);
+
+        assert!(
+            (bank_nominal - bank_dense).abs() > 1e-6,
+            "estimated density must affect the equilibrium bank: \
+             nominal={:.6} rad, dense={:.6} rad",
+            bank_nominal,
+            bank_dense,
         );
     }
 

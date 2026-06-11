@@ -6,6 +6,7 @@ Used by both TrainingLogger (during training) and report.py (post-hoc analysis).
 from __future__ import annotations
 
 import math
+from typing import overload
 
 import numpy as np
 import numpy.typing as npt
@@ -46,14 +47,40 @@ def population_diversity(population: npt.NDArray[np.floating]) -> float:
     return mean_distance / max_distance
 
 
-def capture_rate(costs: npt.NDArray[np.float64], capture_threshold: float = 3000.0) -> float:
+@overload
+def apply_cost_transform(costs: npt.NDArray[np.float64], cost_transform: str) -> npt.NDArray[np.float64]: ...
+@overload
+def apply_cost_transform(costs: float, cost_transform: str) -> float: ...
+def apply_cost_transform(costs: npt.NDArray[np.float64] | float, cost_transform: str) -> npt.NDArray[np.float64] | float:
+    """Monotonic per-sim cost rescaling (single source of truth, also used by
+    `compute_cost` in evaluate.py). "log" uses log1p: keeps the zero-cost
+    identity and compresses the tail more aggressively than sqrt.
+    """
+    if cost_transform == "linear":
+        return costs
+    if cost_transform == "sqrt":
+        return np.sqrt(costs)
+    if cost_transform == "log":
+        return np.log1p(costs)
+    if cost_transform == "squared":
+        return costs**2
+    if cost_transform == "cubed":
+        return costs**3
+    raise ValueError(f"unknown cost_transform={cost_transform!r} (expected 'linear', 'sqrt', 'log', 'squared', or 'cubed')")
+
+
+def capture_rate(costs: npt.NDArray[np.float64], capture_threshold: float = 3000.0, cost_transform: str = "linear") -> float:
     """Fraction of sims with cost below capture_threshold.
 
-    Defaults to 3000.0 (the Rust CRASH_FLOOR). Captures produce the real
-    orbital-correction DV, which is far below this; non-captures use virtual
-    DV at or above CRASH_FLOOR, so the threshold cleanly separates the two.
+    `capture_threshold` is on the LINEAR cost scale, default 3000.0 (the Rust
+    CRASH_FLOOR). Captures produce the real orbital-correction DV, which is far
+    below this; non-captures use virtual DV at or above CRASH_FLOOR, so the
+    threshold cleanly separates the two. When the per-sim costs were rescaled
+    by a `cost_transform`, the same transform is applied to the threshold so
+    the classification is unchanged (all transforms are strictly monotonic).
     """
-    return float(int(np.sum(costs < capture_threshold)) / len(costs))
+    threshold = apply_cost_transform(capture_threshold, cost_transform)
+    return float(int(np.sum(costs < threshold)) / len(costs))
 
 
 def convergence_speed(cost_history: list[float], threshold: float = 0.9) -> int:
