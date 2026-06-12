@@ -79,12 +79,16 @@ class AerocaptureProblem(Problem):
         except Exception as e:
             self._consecutive_eval_failures = getattr(self, "_consecutive_eval_failures", 0) + 1
             print(
-                f"  [problem] batch eval failed ({type(e).__name__}: {e}); penalizing 1e9 (consecutive failures: {self._consecutive_eval_failures})",
+                f"  [problem] batch eval failed ({type(e).__name__}: {e}); penalizing inf (consecutive failures: {self._consecutive_eval_failures})",
                 file=sys.stderr,
             )
             if self._consecutive_eval_failures >= _MAX_CONSECUTIVE_EVAL_FAILURES:
                 raise RuntimeError(f"{self._consecutive_eval_failures} consecutive batch-eval failures; aborting (last: {type(e).__name__}: {e})") from e
-            costs = np.full(X.shape[0], 1e9)
+            # inf, not a finite sentinel: under cost_transform=cubed real crash
+            # costs reach ~4e15, so a fixed 1e9 ranks BETTER than a genuine
+            # crash. The validation gate, seed curator, and pymoo survival all
+            # tolerate inf populations.
+            costs = np.full(X.shape[0], np.inf)
         out["F"] = costs.reshape(-1, 1)
 
     def _run_batch(self, X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:

@@ -1,0 +1,158 @@
+[
+  {
+    "arch": "dense",
+    "params": 102,
+    "config": "configs/training/sweep/dense_p102.toml",
+    "output_dir": "training_output/sweep_dense_p102",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 4,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 4,
+        "output_size": 4,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 4,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "dense",
+    "params": 201,
+    "config": "configs/training/sweep/dense_p201.toml",
+    "output_dir": "training_output/sweep_dense_p201",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 8,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 8,
+        "output_size": 5,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 5,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "dense",
+    "params": 298,
+    "config": "configs/training/sweep/dense_p298.toml",
+    "output_dir": "training_output/sweep_dense_p298",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 11,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 11,
+        "output_size": 7,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 7,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "dense",
+    "params": 416,
+    "config": "configs/training/sweep/dense_p416.toml",
+    "output_dir": "training_output/sweep_dense_p416",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 15,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 15,
+        "output_size": 8,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 8,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "dense",
+    "params": 515,
+    "config": "configs/training/paper/opt_ga.toml",
+    "output_dir": "training_output/paper_pf_small_ga",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 18,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 18,
+        "output_size": 9,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 9,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "dense",
+    "params": 3998,
+    "config": "configs/training/paper/optbig_ga.toml",
+    "output_dir": "training_output/paper_pf_ga_300",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 72,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 72,
+        "output_size": 36,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 36,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  }
+]

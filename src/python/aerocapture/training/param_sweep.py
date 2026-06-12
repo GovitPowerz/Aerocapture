@@ -114,7 +114,10 @@ def _window_stack(h1: int) -> list[dict[str, Any]]:
 
 # (builder, knob range) per family. Ranges chosen to span ~300..6000 params.
 _FAMILIES = {
-    "dense": (_dense_stack, range(8, 110)),
+    # dense floor lowered to hidden=2 so the sub-500 capability sweep (budgets
+    # 100/200/300/400 -> ~102/190/308/416 params) can probe where the net stops
+    # being able to guide. hidden in [2,8) yields ~58..168-param nets.
+    "dense": (_dense_stack, range(2, 110)),
     "gru": (_gru_stack, range(6, 56)),
     "lstm": (_lstm_stack, range(5, 48)),
     "mamba": (_mamba_stack, range(8, 60)),
@@ -151,6 +154,14 @@ def _dirname(arch: str, params: int) -> str:
     return f"sweep_{arch}_p{params}"
 
 
+def _manifest_name(tag: str) -> str:
+    return f"manifest_{tag}.json" if tag else "manifest.json"
+
+
+def _results_name(tag: str) -> str:
+    return f"pareto_results_{tag}.json" if tag else "pareto_results.json"
+
+
 def _arch_toml_block(arch: list[dict[str, Any]]) -> str:
     lines: list[str] = []
     for layer in arch:
@@ -180,7 +191,7 @@ def _config_text(arch_name: str, params: int, arch: list[dict[str, Any]]) -> str
     )
 
 
-def generate(archs: tuple[str, ...], budgets: tuple[int, ...]) -> list[dict[str, Any]]:
+def generate(archs: tuple[str, ...], budgets: tuple[int, ...], tag: str = "") -> list[dict[str, Any]]:
     SWEEP_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     manifest: list[dict[str, Any]] = []
     for arch_name in archs:
@@ -197,13 +208,13 @@ def generate(archs: tuple[str, ...], budgets: tuple[int, ...]) -> list[dict[str,
             manifest.append(entry)
             print(f"  {arch_name:12s} {params:5d}p -> {cfg_path}")
     SWEEP_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    (SWEEP_CONFIG_DIR / "manifest.json").write_text(json.dumps(manifest, indent=2))
-    print(f"\nWrote {len(manifest)} configs + manifest to {SWEEP_CONFIG_DIR}/")
+    (SWEEP_CONFIG_DIR / _manifest_name(tag)).write_text(json.dumps(manifest, indent=2))
+    print(f"\nWrote {len(manifest)} configs + {_manifest_name(tag)} to {SWEEP_CONFIG_DIR}/")
     return manifest
 
 
-def _load_manifest() -> list[dict[str, Any]]:
-    path = SWEEP_CONFIG_DIR / "manifest.json"
+def _load_manifest(tag: str = "") -> list[dict[str, Any]]:
+    path = SWEEP_CONFIG_DIR / _manifest_name(tag)
     if not path.exists():
         sys.exit(f"No manifest at {path}; run --generate first.")
     manifest: list[dict[str, Any]] = json.loads(path.read_text())
@@ -213,13 +224,18 @@ def _load_manifest() -> list[dict[str, Any]]:
 # ─────────────────────────── training orchestration ───────────────────────────
 
 
-def train(manifest: list[dict[str, Any]], n_gen: int, n_pop: int, algorithm: str | None, sim_timeout: float | None, force: bool) -> None:
+def train(
+    manifest: list[dict[str, Any]], n_gen: int, n_pop: int, algorithm: str | None, sim_timeout: float | None, force: bool, from_scratch: bool = False
+) -> None:
     for i, entry in enumerate(manifest, 1):
         out_model = Path(entry["output_dir"]) / "best_model.json"
-        if out_model.exists() and not force:
-            print(f"[{i}/{len(manifest)}] skip {entry['arch']} {entry['params']}p (best_model.json exists; --force to retrain)")
+        # from_scratch wipes + retrains; without it, skip when already deployed (unless --force).
+        if out_model.exists() and not force and not from_scratch:
+            print(f"[{i}/{len(manifest)}] skip {entry['arch']} {entry['params']}p (best_model.json exists; --force/--from-scratch to retrain)")
             continue
         cmd = [sys.executable, "-m", "aerocapture.training.train", entry["config"], "--n-gen", str(n_gen), "--n-pop", str(n_pop), "--no-tui", "--skip-report"]
+        if from_scratch:
+            cmd += ["--from-scratch"]
         if algorithm:
             cmd += ["--algorithm", algorithm]
         if sim_timeout is not None:
@@ -250,7 +266,7 @@ def _entry_overrides(entry: dict[str, Any], model: Path, seeds: list[int]) -> li
     return [{**base, "monte_carlo.seed": int(s)} for s in seeds]
 
 
-def evaluate(manifest: list[dict[str, Any]], n_sims: int, base_seed: int, sim_timeout: float | None) -> list[dict[str, Any]]:
+def evaluate(manifest: list[dict[str, Any]], n_sims: int, base_seed: int, sim_timeout: float | None, tag: str = "") -> list[dict[str, Any]]:
     import aerocapture_rs
 
     from aerocapture.training.evaluate import make_reserved_seeds
@@ -280,7 +296,7 @@ def evaluate(manifest: list[dict[str, Any]], n_sims: int, base_seed: int, sim_ti
         results.append(row)
         dv = f"{row['dv_p50']:.1f}" if row["dv_p50"] is not None else "  n/a"
         print(f"  {row['arch']:12s} {row['params']:5d}p  rms={row['rms_cost']:10.2f}  cap={row['capture_rate']:5.1%}  dvP50={dv}")
-    out = SWEEP_CONFIG_DIR / "pareto_results.json"
+    out = SWEEP_CONFIG_DIR / _results_name(tag)
     out.write_text(json.dumps({"n_sims": n_sims, "base_seed": base_seed, "rows": results}, indent=2))
     print(f"\nWrote {len(results)} eval rows to {out}")
     return results
@@ -289,14 +305,16 @@ def evaluate(manifest: list[dict[str, Any]], n_sims: int, base_seed: int, sim_ti
 # ─────────────────────────── Pareto plot ───────────────────────────
 
 
-def _pareto_front(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
-    """Lower-left envelope: minimize both params (x) and cost (y)."""
+def _pareto_front(points: list[tuple[float, float]], higher_better: bool = False) -> list[tuple[float, float]]:
+    """Envelope vs ascending params. Lower-better: minimize y (lower-left).
+    Higher-better (e.g. capture rate): maximize y (running max -> the fewest
+    params to reach each capability level)."""
     front: list[tuple[float, float]] = []
-    best_cost = float("inf")
+    best = -float("inf") if higher_better else float("inf")
     for x, y in sorted(points):  # ascending params
-        if y < best_cost:
+        if (y > best) if higher_better else (y < best):
             front.append((x, y))
-            best_cost = y
+            best = y
     return front
 
 
@@ -305,17 +323,20 @@ _METRIC_LABELS = {
     "cost_p50": "median per-sim cost (lower better)",
     "dv_p50": "captured DV p50 [m/s] (survivors only)",
     "dv_p95": "captured DV p95 [m/s] (survivors only)",
+    "capture_rate": "capture rate (fraction, higher better)",
 }
+# Metrics where bigger = better (front is the upper envelope, axis linear).
+_HIGHER_BETTER = {"capture_rate"}
 
 
-def plot(results: list[dict[str, Any]] | None = None, metric: str = "rms_cost") -> None:
+def plot(results: list[dict[str, Any]] | None = None, metric: str = "rms_cost", tag: str = "") -> None:
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     if results is None:
-        path = SWEEP_CONFIG_DIR / "pareto_results.json"
+        path = SWEEP_CONFIG_DIR / _results_name(tag)
         if not path.exists():
             sys.exit(f"No eval results at {path}; run --eval first.")
         results = json.loads(path.read_text())["rows"]
@@ -331,18 +352,20 @@ def plot(results: list[dict[str, Any]] | None = None, metric: str = "rms_cost") 
         xs, ys = zip(*pts, strict=True)
         ax.plot(xs, ys, "-o", color=cmap(ci), label=arch, alpha=0.85, markersize=6)
 
-    front = _pareto_front([(r["params"], r[metric]) for r in results])
+    higher_better = metric in _HIGHER_BETTER
+    front = _pareto_front([(r["params"], r[metric]) for r in results], higher_better=higher_better)
     fx, fy = zip(*front, strict=True)
     ax.plot(fx, fy, "--", color="black", linewidth=2, label="Pareto frontier", zorder=1)
 
     ax.set_xscale("log")
-    ax.set_yscale("log")  # robust to cost_transform magnitude (e.g. "cubed")
+    if not higher_better:
+        ax.set_yscale("log")  # robust to cost_transform magnitude (e.g. "cubed")
     ax.set_xlabel("trainable weights")
     ax.set_ylabel(_METRIC_LABELS.get(metric, metric))
     ax.set_title("Architecture Pareto: performance vs parameter budget")
     ax.grid(True, which="both", alpha=0.3)
     ax.legend(fontsize=9)
-    out = SWEEP_CONFIG_DIR / f"pareto_{metric}.svg"
+    out = SWEEP_CONFIG_DIR / (f"pareto_{metric}_{tag}.svg" if tag else f"pareto_{metric}.svg")
     fig.tight_layout()
     fig.savefig(out)
     plt.close(fig)
@@ -369,6 +392,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--sim-timeout", type=float, default=30.0, help="per-sim wall-clock timeout (s)")
     p.add_argument("--metric", default="rms_cost", choices=list(_METRIC_LABELS), help="Pareto y-axis metric")
     p.add_argument("--force", action="store_true", help="retrain even if best_model.json exists")
+    p.add_argument("--from-scratch", action="store_true", help="wipe + retrain each point (passes --from-scratch to train.py; heals stale checkpoints)")
+    p.add_argument("--out-tag", default="", help="suffix isolating manifest/results/plot files (e.g. 'floor') so a sub-sweep can't clobber the main sweep")
     args = p.parse_args(argv)
 
     do_gen, do_train, do_eval, do_plot = args.generate, args.train, args.eval, args.plot
@@ -377,13 +402,13 @@ def main(argv: list[str] | None = None) -> None:
     if not any((do_gen, do_train, do_eval, do_plot)):
         p.error("specify at least one of --generate/--train/--eval/--plot/--all")
 
-    archs, budgets = tuple(args.archs), tuple(args.budgets)
-    manifest = generate(archs, budgets) if do_gen else _load_manifest()
+    archs, budgets, tag = tuple(args.archs), tuple(args.budgets), args.out_tag
+    manifest = generate(archs, budgets, tag=tag) if do_gen else _load_manifest(tag=tag)
     if do_train:
-        train(manifest, args.n_gen, args.n_pop, args.algorithm, args.sim_timeout, args.force)
-    results = evaluate(manifest, args.n_sims, args.base_seed, args.sim_timeout) if do_eval else None
+        train(manifest, args.n_gen, args.n_pop, args.algorithm, args.sim_timeout, args.force, from_scratch=args.from_scratch)
+    results = evaluate(manifest, args.n_sims, args.base_seed, args.sim_timeout, tag=tag) if do_eval else None
     if do_plot:
-        plot(results, metric=args.metric)
+        plot(results, metric=args.metric, tag=tag)
 
 
 if __name__ == "__main__":

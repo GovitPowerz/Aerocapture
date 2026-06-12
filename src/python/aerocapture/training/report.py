@@ -179,6 +179,13 @@ def run_final_evaluation(
 
     try:
         base_overrides: dict[str, object] = {"simulation.n_sims": 1, **scaffolding_overrides}
+        # Pin the evaluated NN to this run's own deployed model: the TOML's
+        # [data] neural_network path is shared by every --output-dir variant of
+        # the same config, and a concurrent run's checkpoint deploy can rewrite
+        # it mid-eval, silently scoring a foreign model into final_eval.parquet.
+        local_model = scheme_dir / "best_model.json"
+        if local_model.exists():
+            base_overrides["data.neural_network"] = str(local_model.resolve())
         overrides_list = [{**base_overrides, "monte_carlo.seed": s} for s in reserved_seeds]
         results = aerocapture_rs.run_batch(
             toml_path=str(eval_toml.resolve()),
@@ -637,13 +644,13 @@ def _run_undispersed_nominal(toml_path: Path, scheme_dir: Path, sim_timeout_secs
     # while the dispersed MC corridor uses the GA-tuned values — visually inconsistent.
     eval_toml, scaffolding_overrides = _resolve_eval_toml(toml_path, scheme_dir)
 
+    # Disable ALL dispersion domains, not a subset — the stale 5-of-10 list
+    # left wind/OU-density/vehicle/pilot/nav_filter draws in the "nominal".
+    from aerocapture.training.reference import _MC_DISPERSION_DOMAINS  # noqa: PLC0415
+
     overrides: dict[str, object] = {
         "simulation.n_sims": 1,
-        "monte_carlo.initial_state.level": "off",
-        "monte_carlo.atmosphere.level": "off",
-        "monte_carlo.aerodynamics.level": "off",
-        "monte_carlo.navigation.level": "off",
-        "monte_carlo.mass.level": "off",
+        **{f"monte_carlo.{d}.level": "off" for d in _MC_DISPERSION_DOMAINS},
         **scaffolding_overrides,
     }
 

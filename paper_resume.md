@@ -33,7 +33,7 @@ Writing a comprehensive **Typst** research paper — the follow-up to **Gelly & 
 
 ## Defaults changed in `common.toml` (CRITICAL for consistency)
 
-- `cost_transform = "cubed"` (was log) · `curation_bucket_selection = "max"` (was random) · `algorithm = "ga"` (the winner) · `training_n_sims = 10`, `curation_top_k = 2`, `seed_pool_interval = 3`.
+- `cost_transform = "cubed"` (was log) · `curation_bucket_selection = "max"` (was random) · `algorithm = "ga"` (the winner) · `training_n_sims = 10`, `curation_top_k = 1`, `seed_pool_interval = 2` (HEAD `40d3836` changed top_k 2→1, interval 3→2 AFTER the DONE post-fix studies D/C-sub, which trained at 2/3 — that is why exp10 re-runs GA@300 as `paper_pf_ga_300` instead of reusing `paper_optbig_ga_bucket_max`; the bucket/transform studies keep a one-line regime footnote).
 - The user's fixes also changed the **EqGlide/FNPAG/PredGuid guidance algorithms** (`*.rs`) and the training pipeline. **The committed reference file `data/reference_trajectory/msr_aller.dat` is UNCHANGED** (static-ref runs unaffected by the reference overhaul).
 - ⇒ **Pre-fix runs are NOT comparable to post-fix runs.** GA@300-log shifted 115.4 → 117.1.
 
@@ -49,19 +49,27 @@ Writing a comprehensive **Typst** research paper — the follow-up to **Gelly & 
 | `run_paper_experiments6.sh` | D — cost_transform | **DONE (post-fix)** |
 | `run_paper_experiments7.sh` | C-sub — curation trim | DONE (null result) |
 | `run_paper_experiments8.sh` | C-sub — bucket representative | **DONE (post-fix)** |
-| `run_paper_experiments9.sh` | **E — joint reference (ftc/energy_controller/pred_guid)** | **PENDING** |
-| `run_paper_experiments10.sh` | **A REBUILD — optimizer × budget, post-fix cubed+max** | **PENDING (run FIRST)** |
-| `run_paper_experiments11.sh` | **F — training_n_sims sweep (noise-floor + allocation)** | **PENDING** |
+| `run_paper_experiments9.sh` | **E — joint reference (ftc/energy_controller/pred_guid)** | **PENDING** (budgets now match exp2: 2000×300) |
+| `run_paper_experiments10.sh` | **A REBUILD — optimizer × budget, post-fix cubed+max** | **PENDING (run FIRST)** — full 18-cell matrix incl. GA@300 (`paper_pf_ga_300`, the new headline) + CMA-ES@300 |
+| `run_paper_experiments11.sh` | **F — training_n_sims sweep** | **PENDING** — redesigned: view A = ROTATING (pure noise floor, `paper_nsimR_*`); view B = adaptive allocation (`paper_nsimC_*`, anchor = `paper_pf_ga_300`) |
+| `run_paper_experiments12.sh` | **NEW: optimizer × dimensionality** — FTC (26p, `paper_ftcopt_*`) + dense_p515 post-fix (`paper_pf_small_*`) + Study B rerun under GA (`paper_pf_out_*`) | **PENDING** (after exp2 for the FTC GA reuse cell) |
+| `run_paper_experiments13.sh` | **NEW: sub-500 capability collapse** — dense p416/p298/p201/p102, GA @300 | **PENDING** (`dense_p190` config is MISNAMED: really 442 params) |
+| `run_paper_experiments14.sh` | **NEW: headline seed-repeats** — GA@300 ×2, islands@300 ×2 with `--seed 2/3` | **PENDING** (after exp10; gives σ_run error bars) |
+
+All pending runners now have skip-if-done guards (re-run after a crash skips finished cells) and `--sim-timeout 5`.
 
 ## What to run next (priority order)
 
-1. **`./run_paper_experiments10.sh`** — optimizer rebuild (islands/PSO/DE/QPSO/CMA-ES/GA @60/150/300, post-fix cubed+max). The headline "GA wins" table; without it the optimizer comparison mixes pre/post-fix. ~16 runs (GA@300 reuses `paper_optbig_ga_bucket_max`; CMA-ES@300 optional/slow).
-2. **Classical post-fix** — `run_paper_experiments2.sh` (GA) finishing; needed for the classical-vs-NN table.
-3. **`./run_paper_experiments5.sh`** — Study C seed-strategy (the "why GA wins" test), under cubed+max.
-4. **Output-param post-fix** — rerun the `out_scaledpi`/`out_delta` lines (now inherit cubed+max).
-5. **`./run_paper_experiments9.sh`** — Study E joint-reference (after the optimizer rebuild). Compare each `<scheme>_joint_ref` to its **post-fix** `<scheme>` baseline.
-6. **`./run_paper_experiments11.sh`** — Study F training_n_sims sweep (sample efficiency; companion to Study C).
+0. **Kill the suspended Tuesday jobs first** (`jobs` / `ps`): a stopped `run_paper_experiments2.sh` bash still holds the OLD islands version of that script (resuming it would read the rewritten file at a stale offset — kill it, plus the stopped fnpag-islands + atan2-PPO trainings if no longer wanted). Never run two cells sharing one paper TOML concurrently.
+1. **`./run_paper_experiments10.sh`** — full post-fix optimizer × budget matrix (18 runs incl. `paper_pf_ga_300` = new headline + CMA-ES@300). Feeds the headline table AND Study C's adaptive column.
+2. **Classical post-fix** — re-launch `run_paper_experiments2.sh` fresh (it has no skip guards — comment out finished cells). Provenance check first: energy_controller/eqglide/pred_guid/fnpag started BEFORE fix commit `4b07145` (Jun 11 11:19) and ftc trained across a 13:53 mid-run rewrite of `training_output/mars/ref_trajectory.dat` — re-run anything not provably clean. Feeds classical table + Study E baselines + exp12's FTC GA cell.
+3. **`./run_paper_experiments12.sh`** — optimizer × dimensionality (26 / 515 / 3998 params) + Study B rerun under GA.
+4. **`./run_paper_experiments5.sh`** — Study C fixed/rotating cells (adaptive column = exp10's `paper_pf_*_150`).
+5. **`./run_paper_experiments9.sh`** — Study E joint-reference (budgets now mirror exp2; stale pre-fix run renamed to `ftc_joint_ref_prefix_INVALID`).
+6. **`./run_paper_experiments11.sh`** — Study F (redesigned) + **`./run_paper_experiments13.sh`** sub-500 sweep + **`./run_paper_experiments14.sh`** seed-repeats.
 7. *(optional/expensive)* architecture sweep rerun under GA-cubed-max; otherwise keep the islands sweep as a relative comparison and note it.
+
+**Reporting rules locked in by the review:** quote p99 + CVaR95 (not sample max) as tail metrics; all cross-cell tables paired on the shared 1000-seed final-eval pool (paired bootstrap + Wilcoxon in `aggregate_results.py`); report ACTUAL total sims per run (from JSONL: validations fire on 58–80% of gens × 1000 sims; curation ≈1000 sims/event every ≤2 gens) next to any "compute-matched" claim; re-quote the final headline model once on a FRESH pool (offset 8M) for the abstract number.
 
 ## After all experiments (Phase 2-4 of the plan)
 

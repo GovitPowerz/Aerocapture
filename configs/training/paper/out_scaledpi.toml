@@ -6,7 +6,7 @@ neural_network = "training_output/paper_out_scaledpi/best_model.json"
 results_suffix = ".paper_out_scaledpi"
 
 [optimizer]
-algorithm = "islands"
+algorithm = "ga"   # post-fix rerun: GA, matching the paper_pf_small_ga atan2 control
 
 [guidance.neural_network]
 output_parameterization = "scaled_pi"

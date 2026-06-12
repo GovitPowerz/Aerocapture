@@ -1,6 +1,8 @@
 # TODO
 
 - [ ] After all the PRs we did recently, I think it's time for a thorough codebase review (critical on architecture, maintainability, code duplication, code quality, respect of functional specifications) or our Python codebase. The scope must also include the pO interface that can be reworked and/or optimzed if need be.
+- [ ] The optimization algo benchmark should also be made on small nn and ftc (not joint), to see the perf with very different nb of weights
+- [ ] Add a small sweep for perf of dense nn below 500 weights to see when the nn is not capable of guiding anymore (400, 300, 200, 100)
 
 ---
 

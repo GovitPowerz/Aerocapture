@@ -2532,6 +2532,8 @@ if __name__ == "__main__":
     if args.seed_strategy is not None:
         cfg.optimizer.seed_strategy = args.seed_strategy
     if args.training_n_sims is not None:
+        if args.training_n_sims < 1:
+            raise SystemExit(f"--training-n-sims must be >= 1, got {args.training_n_sims}")
         cfg.optimizer.training_n_sims = args.training_n_sims
     cfg.sim.sim_timeout_secs = args.sim_timeout
     if cfg.network.architecture is not None:

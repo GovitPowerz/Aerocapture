@@ -246,7 +246,7 @@ def test_problem_n_nn_weight_specs_off_and_full() -> None:
 
 
 def test_evaluate_aborts_after_consecutive_failures(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """A persistent batch-eval failure must raise after threshold, not silently return 1e9 forever (D6)."""
+    """A persistent batch-eval failure must raise after threshold, not silently return inf forever (D6)."""
     import pytest
     from aerocapture.training import problem as problem_mod
 
@@ -261,7 +261,7 @@ def test_evaluate_aborts_after_consecutive_failures(monkeypatch) -> None:  # typ
     out: dict = {}
     for _ in range(problem_mod._MAX_CONSECUTIVE_EVAL_FAILURES - 1):
         prob._evaluate(X, out)
-        assert np.all(out["F"] == 1e9)
+        assert np.all(np.isinf(out["F"]))
     with pytest.raises(RuntimeError, match="consecutive"):
         prob._evaluate(X, out)
 
@@ -282,7 +282,7 @@ def test_evaluate_resets_failure_counter_on_success(monkeypatch) -> None:  # typ
     monkeypatch.setattr(problem_mod.AerocaptureProblem, "_run_batch", flaky)
     X = np.zeros((4, prob.n_var), dtype=np.float64)
     out: dict = {}
-    prob._evaluate(X, out)  # transient failure -> 1e9, counter = 1
+    prob._evaluate(X, out)  # transient failure -> inf, counter = 1
     prob._evaluate(X, out)  # success -> 5.0, counter reset to 0
     assert np.all(out["F"] == 5.0)
     assert prob._consecutive_eval_failures == 0
