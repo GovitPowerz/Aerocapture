@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from aerocapture.training import param_sweep as ps
 from aerocapture.training.config import NetworkConfig, _layer_input_size, _layer_output_size
@@ -71,3 +73,28 @@ def test_generated_config_text_parses() -> None:
         assert len(net.input_mask) == ps.INPUT_DIM
     finally:
         cfg.unlink(missing_ok=True)
+
+
+def test_entry_overrides_include_cotrained_scaffolding(tmp_path: Path) -> None:
+    """Sweep points train with scaffolding = 'live' (3 co-trained nav/shaping params
+    in best_params.json); eval must apply them alongside the deployed model, the
+    way report.py / compare_guidance.py do -- else the Pareto numbers score every
+    NN against TOML-default scaffolding it was never trained with."""
+    import json
+
+    out_dir = tmp_path / "sweep_dense_p515"
+    out_dir.mkdir()
+    (out_dir / "best_params.json").write_text(json.dumps({"nav.density_filter_gain": 0.7, "shaping.max_bank_acceleration": 11.0}))
+    model = out_dir / "best_model.json"
+    entry = {"arch": "dense", "params": 515, "config": "configs/training/sweep/dense_p515.toml", "output_dir": str(out_dir)}
+
+    overrides = ps._entry_overrides(entry, model, [3, 4])
+
+    assert len(overrides) == 2
+    for ov, seed in zip(overrides, [3, 4], strict=True):
+        assert ov["monte_carlo.seed"] == seed
+        assert ov["simulation.n_sims"] == 1
+        assert ov["data.neural_network"] == str(model)
+        assert ov["navigation.density_filter_gain"] == 0.7
+        assert ov["guidance.command_shaping.max_bank_acceleration"] == 11.0
+        assert ov["guidance.command_shaping.enabled"] is True

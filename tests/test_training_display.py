@@ -17,6 +17,11 @@ class TestNoopDisplay:
         display = create_display(scheme="equilibrium_glide", n_runs=1, n_generations=50, enabled=False, algorithm="ga")
         assert isinstance(display, NoopDisplay)
 
+    def test_is_live_flag(self) -> None:
+        """train() gates the headless per-gen heartbeat print on `not display.is_live`."""
+        assert NoopDisplay().is_live is False
+        assert LiveDisplay(scheme="s", n_runs=1, n_generations=1).is_live is True
+
 
 class TestDisplayPrimitives:
     def test_sparkline_flat_series_renders_midline(self) -> None:

@@ -88,19 +88,20 @@ class TestStratifiedPick:
         picked = SeedCurator(sample_size=100, n_bins=10, excluded_seeds=set(), rng=_rng(0), bucket_selection="middle")._stratified_pick(seeds, costs)
         assert sorted(picked) == [5, 15, 25, 35, 45, 55, 65, 75, 85, 95]
 
-    def test_non_finite_costs_sort_to_tail(self) -> None:
-        """NaN-cost seeds land in the highest-cost bin, not randomly distributed."""
-        # First 5 seeds (indices 0-4) have NaN costs; remaining 15 have ascending finite costs.
+    def test_non_finite_seeds_never_picked(self) -> None:
+        """Un-simulatable (NaN/inf cost) probe seeds are dropped before binning.
+
+        The old sort-to-tail sentinel made bucket_selection='max' pick a
+        non-finite seed DETERMINISTICALLY (b[-1] of the tail bin), poisoning
+        every individual's training RMS with an inf contribution."""
         seeds = list(range(1_000, 1_020))
-        nan_seeds = set(seeds[:5])
-        costs = np.array([float("nan")] * 5 + list(np.linspace(0.1, 1.0, 15)))
-        # With 20 seeds and 4 bins, np.array_split yields bin sizes [5, 5, 5, 5].
-        # All 5 NaN seeds land in the last bin (sentinel sorts to the tail),
-        # so the pick from the last bin is guaranteed to be one of them.
-        curator = SeedCurator(sample_size=20, n_bins=4, excluded_seeds=set(), rng=_rng(0))
-        picked = curator._stratified_pick(seeds, costs)
-        assert len(picked) == 4
-        assert picked[-1] in nan_seeds
+        bad = set(seeds[:3])
+        costs = np.array([float("nan"), float("inf"), float("nan")] + list(np.linspace(0.1, 1.0, 17)))
+        for mode in ("random", "min", "max", "middle"):
+            curator = SeedCurator(sample_size=20, n_bins=4, excluded_seeds=set(), rng=_rng(0), bucket_selection=mode)
+            picked = curator._stratified_pick(seeds, costs)
+            assert len(picked) == 4, mode
+            assert not (set(picked) & bad), f"{mode}: picked a non-finite seed"
 
     def test_uneven_bin_sizes(self) -> None:
         """1000 / 30 = 33.3 -- bins must accept uneven splits."""
@@ -167,3 +168,29 @@ class TestCheckpointRoundtrip:
         c = SeedCurator.from_dict(d, excluded_seeds=set(), rng=_rng(0))
         assert c.seed_list is None
         assert c.last_curation_gen == -1
+
+
+class TestRestoreOnResume:
+    def test_toml_knobs_override_checkpoint_state(self) -> None:
+        """Resume keeps curator STATE (seed_list, last_curation_gen) from the
+        checkpoint but config knobs from the TOML -- a legacy checkpoint must not
+        silently reset trim_fraction/bucket_selection to 0.0/'random'."""
+        from aerocapture.training.train import _restore_seed_curator
+
+        configured = SeedCurator(
+            sample_size=500,
+            n_bins=10,
+            excluded_seeds={7},
+            rng=_rng(0),
+            trim_fraction=0.2,
+            bucket_selection="middle",
+        )
+        legacy_state = {"sample_size": 1000, "n_bins": 20, "seed_list": [1, 2, 3], "last_curation_gen": 17}
+        restored = _restore_seed_curator(legacy_state, configured, verbose=False)
+        assert restored.seed_list == [1, 2, 3]
+        assert restored.last_curation_gen == 17
+        assert restored.trim_fraction == 0.2
+        assert restored.bucket_selection == "middle"
+        assert restored.sample_size == 500
+        assert restored.n_bins == 10
+        assert restored.excluded_seeds == {7}

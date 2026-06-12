@@ -316,14 +316,28 @@ def run_final_select(
     problem: _PerSeedEvaluator,
     val_seeds: list[int],
     patch: bool = True,
+    base_toml: Path | None = None,
+    toml_data: dict | None = None,
 ) -> SelectionResult:
     """Load the latest checkpoint in training_dir, run the selection rule,
-    rewrite best artifacts (+ sidecar), and (optionally) patch the checkpoint."""
-    from aerocapture.training.train import write_best_artifacts  # noqa: PLC0415
+    rewrite best artifacts (+ sidecar), and (optionally) patch the checkpoint.
+
+    When `base_toml`/`toml_data` are provided (the CLI always passes them),
+    non-NN winners also get their optimized_<scheme>.toml rewritten and — for
+    joint-ref runs — the winner's reference table regenerated. Without this the
+    CLI would leave the PREVIOUS winner's optimized TOML and ref_trajectory.dat
+    behind a re-selected best_params.json (gains and reference co-adapt, so a
+    mismatched table invalidates every downstream evaluation)."""
+    from aerocapture.training.train import deploy_optimized_artifacts, write_best_artifacts  # noqa: PLC0415
 
     state = load_selection_state(training_dir)
     sel = select_final_individual(problem, state.population, state.provenances, state.known, val_seeds)
     write_best_artifacts(sel.individual, config, param_specs, training_dir, cwd=None)
+    if config.guidance_type != "neural_network" and base_toml is not None and toml_data is not None:
+        from aerocapture.training.encoding import decode_normalized  # noqa: PLC0415
+
+        params = decode_normalized(np.asarray(sel.individual, dtype=np.float64), param_specs)
+        deploy_optimized_artifacts(params, config, toml_data, training_dir, base_toml)
     write_final_selection_json(training_dir, sel, len(val_seeds))
     if patch:
         island_name: str | None = None
@@ -409,6 +423,8 @@ def main() -> None:
         problem=problem,
         val_seeds=val_seeds,
         patch=not args.no_checkpoint_patch,
+        base_toml=Path(args.toml),
+        toml_data=toml_data,
     )
 
 

@@ -386,3 +386,49 @@ class TestRunFinalSelect:
         run_final_select(training_dir=tmp_path, config=cfg, param_specs=specs, problem=_MockProblem(), val_seeds=[1000001, 1000002], patch=False)
         data = np.load(tmp_path / "checkpoint_g00007.npz")
         assert np.array_equal(data["best_individual"], np.full(2, 0.9))  # untouched
+
+
+class TestIslandsPromotionPersistence:
+    """_persist_islands_promotion: a selection-promoted winner must be written into
+    the winning island's best_overall_* and the checkpoint re-saved -- otherwise a
+    later resume restores the stale champion and reverts the deployed artifacts."""
+
+    class _FakeIsland:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.best_overall_individual: np.ndarray | None = None
+            self.best_val_cost = float("inf")
+
+    class _FakeModel:
+        def __init__(self, names: tuple[str, ...] = ("pso", "ga", "de")) -> None:
+            self.islands = [TestIslandsPromotionPersistence._FakeIsland(n) for n in names]
+            self.saved: list[tuple] = []
+
+        def checkpoint(self, path: Path, generation: int, seed_curator_state: dict | None = None) -> None:
+            self.saved.append((Path(path), generation, seed_curator_state))
+
+    def test_winner_written_to_its_island_and_checkpoint_saved(self, tmp_path: Path) -> None:
+        from aerocapture.training.final_select import SelectionResult
+        from aerocapture.training.train import _persist_islands_promotion
+
+        sel = SelectionResult(
+            individual=np.array([0.1, 0.2]),
+            val_rms=42.0,
+            provenance="ga:last_gen[3]",
+            promoted=True,
+            winner_index=3,
+            n_candidates=18,
+            n_deduped=15,
+        )
+        model = self._FakeModel()
+        _persist_islands_promotion(model, sel, tmp_path, gen=7, seed_curator=None, keep_last=None)
+
+        ga = model.islands[1]
+        assert ga.best_overall_individual is not None
+        assert np.array_equal(ga.best_overall_individual, [0.1, 0.2])
+        assert ga.best_val_cost == 42.0
+        # other islands untouched
+        assert model.islands[0].best_overall_individual is None
+        assert model.islands[2].best_overall_individual is None
+        # checkpoint re-saved at the final generation's path
+        assert model.saved == [(tmp_path / "checkpoint_g00007.npz", 7, None)]

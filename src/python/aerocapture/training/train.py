@@ -224,6 +224,63 @@ def _maybe_curate(
     return False
 
 
+def _persist_islands_promotion(
+    island_model: Any,
+    selection: Any,  # final_select.SelectionResult
+    save_dir: Path,
+    gen: int,
+    seed_curator: SeedCurator | None,
+    keep_last: int | None,
+) -> None:
+    """Persist a selection-promoted winner into the islands checkpoint.
+
+    `from_checkpoint` restores best_overall_* verbatim, so without this write-back
+    a later resume restores the stale pre-selection champion and its next
+    checkpoint save / end-of-run write silently overwrites the deployed
+    best_model.json. Called BEFORE write_best_artifacts (durable state first) and
+    AFTER final_eval (the per-island report numbers still quote the pre-selection
+    champions; the promoted winner keeps its clean single-candidate quote).
+    """
+    win_name = selection.provenance.split(":", 1)[0]
+    for isl in island_model.islands:
+        if isl.name == win_name:
+            isl.best_overall_individual = selection.individual.copy()
+            isl.best_val_cost = float(selection.val_rms)
+            break
+    island_model.checkpoint(
+        save_dir / f"checkpoint_g{gen:05d}.npz",
+        generation=gen,
+        seed_curator_state=seed_curator.to_dict() if seed_curator is not None else None,
+    )
+    _prune_old_checkpoints(save_dir, keep_last)
+
+
+def _restore_seed_curator(state: dict, configured: SeedCurator, verbose: bool) -> SeedCurator:
+    """Restore curator STATE from a checkpoint, keeping the TOML-configured knobs.
+
+    The checkpoint contributes seed_list / last_curation_gen only; sample_size,
+    n_bins, trim_fraction, and bucket_selection come from the freshly-built
+    `configured` curator (current [optimizer] TOML values). Restoring them from
+    the checkpoint would silently discard a knob edited between runs — legacy
+    checkpoints lacking the keys would even reset trim/bucket to 0.0/'random'.
+    A notice is printed when the checkpointed knobs differ (mirrors the
+    cost_transform change notice).
+    """
+    restored = SeedCurator.from_dict(state, excluded_seeds=configured.excluded_seeds, rng=configured.rng)
+    changed = [
+        f"{name} {getattr(restored, name)!r} -> {getattr(configured, name)!r}"
+        for name in ("sample_size", "n_bins", "trim_fraction", "bucket_selection")
+        if getattr(restored, name) != getattr(configured, name)
+    ]
+    if changed and verbose:
+        print(f"  seed-curator knobs from TOML override checkpoint: {', '.join(changed)}")
+    restored.sample_size = configured.sample_size
+    restored.n_bins = configured.n_bins
+    restored.trim_fraction = configured.trim_fraction
+    restored.bucket_selection = configured.bucket_selection
+    return restored
+
+
 def _prune_old_checkpoints(save_dir: Path, keep_last: int | None) -> None:
     """Retain only the `keep_last` most recent checkpoints; no-op when unset.
 
@@ -1123,15 +1180,15 @@ def train(
             if verbose:
                 print(f"Resumed from gen {resumed['generation']}, best={resumed['best_cost']:.4e}")
             if seed_curator is not None and resumed.get("seed_curator") is not None:
-                seed_curator = SeedCurator.from_dict(
-                    resumed["seed_curator"],
-                    excluded_seeds=seed_curator.excluded_seeds,
-                    rng=rng,
-                )
+                seed_curator = _restore_seed_curator(resumed["seed_curator"], seed_curator, verbose)
             if corridor_acc is not None and resumed.get("corridor_acc") is not None:
                 corridor_acc = resumed["corridor_acc"]
             # Make --n-gen mean "N additional" on resume
             config.optimizer.n_gen += resumed["generation"]
+            if config.optimizer.algorithm == "qpso" and verbose:
+                # n_iter is not checkpointed: alpha re-anneals from alpha_start
+                # over the stretched schedule, re-expanding a converged swarm.
+                print("  NOTE: QPSO resume restarts the alpha anneal at alpha_start (paper runs are single-shot --from-scratch)")
 
     # Try loading existing NN weights for population seeding. Only meaningful
     # under the v1 dense-only init path (`create_nn_initial_population`,
@@ -1526,6 +1583,12 @@ def train(
                 )
                 display.update(logger, current_run=0)
 
+                # Headless heartbeat: with --no-tui (or a non-interactive tty)
+                # the dashboard is a NoopDisplay — without this print a multi-hour
+                # run is indistinguishable from a NaN-hung simulation batch.
+                if verbose and not display.is_live and (gen + 1) % 5 == 0:
+                    print(f"  Gen {gen + 1}/{config.optimizer.n_gen}: best={best_overall_cost:.4e} ({gen_elapsed_s:.1f}s)")
+
                 # Checkpoint
                 if (gen + 1) % checkpoint_interval == 0:
                     save_checkpoint(
@@ -1545,6 +1608,8 @@ def train(
                         best_val_cost=best_val_cost,
                         cost_transform=problem.cost_kwargs.get("cost_transform", "linear"),
                     )
+                    if verbose and not display.is_live:
+                        print(f"  Checkpoint saved: g{gen + 1:05d}")
 
             cost_history.extend(gen_best_costs)
 
@@ -1771,13 +1836,7 @@ def _train_islands(
         # non-None dict — which it can't for an npz-only islands checkpoint.
         config.optimizer.n_gen += resumed_gen + 1
         if resumed_curator_state is not None and seed_curator is not None:
-            from aerocapture.training.seed_curator import SeedCurator as _SeedCurator  # noqa: PLC0415
-
-            seed_curator = _SeedCurator.from_dict(
-                resumed_curator_state,
-                excluded_seeds=seed_curator.excluded_seeds,
-                rng=seed_curator.rng,
-            )
+            seed_curator = _restore_seed_curator(resumed_curator_state, seed_curator, verbose)
             # Push the restored curated seed list into the problem so the
             # first post-resume gen evaluates against the right seeds. The
             # in-loop "adaptive bootstrap" branch is gated on `seed_list is
@@ -1964,6 +2023,12 @@ def _train_islands(
 
                 display.update(logger, current_run=0, island_records=island_records)
 
+                # Headless heartbeat (mirrors the single-algo loop): keep
+                # --no-tui / piped runs observable.
+                if verbose and not display.is_live and (gen + 1) % 5 == 0:
+                    parts = ", ".join(f"{r['island']}={r.get('argmin_train_cost', float('inf')):.3e}" for r in val_records)
+                    print(f"  Gen {gen + 1}/{config.optimizer.n_gen}: argmin {parts}")
+
                 if (gen + 1) % checkpoint_interval == 0 or gen == config.optimizer.n_gen - 1:
                     island_model.checkpoint(
                         save_dir / f"checkpoint_g{gen:05d}.npz",
@@ -1982,6 +2047,24 @@ def _train_islands(
             _prune_old_checkpoints(save_dir, config.checkpoints.keep_last)
             if verbose:
                 print(f"\n  Interrupted at gen {gen}; checkpoint saved.")
+
+    if interrupted:
+        # Mirror the single-algorithm path: Ctrl+C means stop NOW. The
+        # validation-pool selection (up to 3*n_pop x validation_n_sims sims)
+        # and the 3x10k-sim final_eval must not launch after an interrupt,
+        # and the deployed artifacts stay whatever the last full run wrote.
+        logger.close()
+        return {
+            "best_cost": float("inf"),
+            "best_individual": None,
+            "cost_history": [],
+            "interrupted": True,
+            "corridor_acc": None,
+            "param_specs": param_specs,
+            "winner": None,
+            "results": [],
+            "migration_log": island_model.migration_log,
+        }
 
     # Validation-pool final selection across islands (spec 2026-06-10-final-selection):
     # union of last-gen pops + champions decides the ARTIFACTS; final_eval below
@@ -2081,11 +2164,11 @@ def _train_islands(
             "n_sims": len(island_model.final_eval_seeds),
             "selection_provenance": selection.provenance,
         }
-        write_final_selection_json(save_dir, selection, len(island_model.validation_seeds))
-        if verbose:
-            print(format_selection_summary(selection))
     else:
         winner = results[0]
+
+    if selection is not None and selection.promoted:
+        _persist_islands_promotion(island_model, selection, save_dir, gen, seed_curator, config.checkpoints.keep_last)
 
     if verbose:
         gap, overfit = val_generalization_gap(winner["val_rms"], winner["rms"])
@@ -2097,6 +2180,14 @@ def _train_islands(
         )
 
     write_best_artifacts(winner["X"], config, param_specs, save_dir, cwd=cwd)
+
+    if selection is not None:
+        # Sidecar AFTER the durable saves (checkpoint + artifacts) so it never
+        # describes a winner the artifacts don't have (crash-window ordering,
+        # matching the single-algorithm path).
+        write_final_selection_json(save_dir, selection, len(island_model.validation_seeds))
+        if verbose:
+            print(format_selection_summary(selection))
 
     logger.close()
     return {
@@ -2169,6 +2260,55 @@ def write_best_artifacts(
         params = decode_normalized(best_individual, param_specs)
         with open(save_dir / "best_params.json", "w") as fp:
             json.dump(params, fp, indent=2)
+
+
+def deploy_optimized_artifacts(
+    params: dict[str, float],
+    config: TrainingConfig,
+    toml_data: dict,
+    save_dir: Path,
+    base_toml: Path,
+    verbose: bool = True,
+) -> None:
+    """Write optimized_<scheme>.toml for a non-NN winner and, for joint-ref runs,
+    regenerate the winner's reference table and wire the TOML at it.
+
+    Shared by main()'s end-of-training deploy and the final_select CLI — the CLI
+    must redeploy both artifacts, else a re-selected ref_bank evaluates against
+    the previous winner's table (gains and reference co-adapt strongly).
+    """
+    from aerocapture.training.evaluate import write_guidance_toml  # noqa: PLC0415
+
+    # ref_bank is not a guidance TOML key — it deploys as the regenerated
+    # reference table below (Rust silently drops unknown keys).
+    opt_toml = save_dir / f"optimized_{config.guidance_type}.toml"
+    write_guidance_toml(base_toml, config.guidance_type, {k: v for k, v in params.items() if k != "ref_bank"}, opt_toml)
+    if verbose:
+        print(f"  Optimized TOML: {opt_toml}")
+
+    if "ref_bank" in params:
+        import tomllib  # noqa: PLC0415
+
+        from aerocapture.training import reference as _reference  # noqa: PLC0415
+        from aerocapture.training.evaluate import _write_toml  # noqa: PLC0415
+
+        [tmp_tbl] = _reference.generate_constant_bank_tables(
+            str(base_toml), [params["ref_bank"]], toml_data.get("monte_carlo", {}), save_dir, config.sim.sim_timeout_secs
+        )
+        if tmp_tbl.stat().st_size == 0:
+            raise RuntimeError(
+                f"joint-reference deploy: the winner's constant-bank nominal (ref_bank={params['ref_bank']:.2f} deg) "
+                f"produced no trajectory — refusing to deploy an empty reference table "
+                f"(the Rust loader silently yields 0 points and interpolates 0.0)"
+            )
+        deploy_ref = save_dir / "ref_trajectory.dat"
+        tmp_tbl.replace(deploy_ref)
+        with open(opt_toml, "rb") as _f:
+            _opt = tomllib.load(_f)
+        _opt.setdefault("data", {})["reference_trajectory"] = str(deploy_ref)
+        _write_toml(_opt, opt_toml)
+        if verbose:
+            print(f"  Joint reference (ref_bank {params['ref_bank']:.2f} deg) deployed to {deploy_ref}")
 
 
 def _accumulate_corridor(
@@ -2363,8 +2503,6 @@ def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dic
 if __name__ == "__main__":
     import argparse
 
-    from aerocapture.training.evaluate import write_guidance_toml
-
     parser = argparse.ArgumentParser(description="Train guidance parameters via pymoo optimization")
     parser.add_argument("toml", type=str, help="TOML training config path (must contain [guidance] type)")
     parser.add_argument("--seed", type=int, default=1)
@@ -2424,6 +2562,18 @@ if __name__ == "__main__":
     if args.resume:
         cfg.save_dir = args.resume
 
+    # Derive mission name from the first missions/ base reachable through the
+    # base chain (recursive — nested leaf configs inherit it indirectly).
+    from aerocapture.training.toml_utils import find_mission_name
+
+    base_toml_path = Path(cwd) / args.toml
+    mission_name = find_mission_name(base_toml_path) or Path(args.toml).stem
+    # Mission artifacts (corridor, reference trajectory) live at the canonical
+    # training_output/<mission>/ regardless of where --output-dir / --resume
+    # relocate save_dir — deriving this from Path(save_dir).parent broke the
+    # ref-trajectory check for any output dir outside training_output/.
+    corr_dir = Path(cwd) / "training_output" / mission_name
+
     if args.from_scratch:
         if args.resume:
             print("ERROR: --from-scratch and --resume are mutually exclusive")
@@ -2437,9 +2587,8 @@ if __name__ == "__main__":
 
         # For piecewise_constant, also wipe corridor/ref trajectory in the mission directory
         if cfg.guidance_type == "piecewise_constant":
-            mission_dir = save_path.parent
             for stale in ("corridor_boundaries.npz", "ref_trajectory.dat"):
-                stale_path = mission_dir / stale
+                stale_path = corr_dir / stale
                 if stale_path.exists():
                     stale_path.unlink()
                     print(f"  Removed stale {stale_path}")
@@ -2454,13 +2603,6 @@ if __name__ == "__main__":
         if list(save_path.glob("checkpoint_*.json")) or list(save_path.glob("checkpoint_g*.npz")):
             resume_dir = cfg.save_dir
 
-    # Derive mission name from the first missions/ base reachable through the
-    # base chain (recursive — nested leaf configs inherit it indirectly).
-    from aerocapture.training.toml_utils import find_mission_name
-
-    base_toml_path = Path(cwd) / args.toml
-    mission_name = find_mission_name(base_toml_path) or Path(args.toml).stem
-    corr_dir = Path(cfg.save_dir).parent / mission_name
     corr_dir.mkdir(parents=True, exist_ok=True)
 
     # Check for reference trajectory requirement
@@ -2590,34 +2732,8 @@ if __name__ == "__main__":
             print(f"Best params saved to {params_path}")
             print(f"  Params: {params}")
 
-            # Write optimized TOML for easy re-use (ref_bank is not a guidance
-            # TOML key — it deploys as the regenerated reference table below)
             assert cfg.sim.toml_config is not None
-            base_toml = Path(cwd) / cfg.sim.toml_config
-            opt_toml = Path(cfg.save_dir) / f"optimized_{cfg.guidance_type}.toml"
-            write_guidance_toml(base_toml, cfg.guidance_type, {k: v for k, v in params.items() if k != "ref_bank"}, opt_toml)
-            print(f"  Optimized TOML: {opt_toml}")
-
-            if "ref_bank" in params:
-                # Deploy the winner's reference: regenerate its table into the
-                # scheme dir and wire the optimized TOML at it, so report.py,
-                # compare_guidance, and manual reruns evaluate against the same
-                # reference the individual was trained with.
-                import tomllib  # noqa: PLC0415
-
-                from aerocapture.training.evaluate import _write_toml  # noqa: PLC0415
-                from aerocapture.training.reference import generate_constant_bank_tables  # noqa: PLC0415
-
-                [tmp_tbl] = generate_constant_bank_tables(
-                    str(base_toml), [params["ref_bank"]], _toml_data.get("monte_carlo", {}), Path(cfg.save_dir), cfg.sim.sim_timeout_secs
-                )
-                deploy_ref = Path(cfg.save_dir) / "ref_trajectory.dat"
-                tmp_tbl.replace(deploy_ref)
-                with open(opt_toml, "rb") as _f:
-                    _opt = tomllib.load(_f)
-                _opt.setdefault("data", {})["reference_trajectory"] = str(deploy_ref)
-                _write_toml(_opt, opt_toml)
-                print(f"  Joint reference (ref_bank {params['ref_bank']:.2f} deg) deployed to {deploy_ref}")
+            deploy_optimized_artifacts(params, cfg, _toml_data, Path(cfg.save_dir), Path(cwd) / cfg.sim.toml_config)
 
         # Report Generation
         if not args.skip_report:

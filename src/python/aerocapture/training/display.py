@@ -201,6 +201,8 @@ def _format_duration(seconds: float) -> str:
 class DisplayProtocol(Protocol):
     """Protocol for training display (allows NoopDisplay as substitute)."""
 
+    is_live: bool
+
     def update(self, logger: TrainingLogger, current_run: int, island_records: dict[str, dict] | None = None) -> None: ...
     def stop(self) -> None: ...
     def set_start_gen(self, start_gen: int) -> None: ...
@@ -209,7 +211,13 @@ class DisplayProtocol(Protocol):
 
 
 class NoopDisplay:
-    """No-op display for non-interactive terminals or --no-tui mode."""
+    """No-op display for non-interactive terminals or --no-tui mode.
+
+    `is_live = False` tells the training loop to fall back to plain per-gen
+    heartbeat prints (the TUI dashboard otherwise leaves headless runs silent).
+    """
+
+    is_live = False
 
     def update(self, logger: TrainingLogger, current_run: int, island_records: dict[str, dict] | None = None) -> None:
         pass
@@ -229,6 +237,8 @@ class NoopDisplay:
 
 class LiveDisplay:
     """Rich Live TUI for training progress."""
+
+    is_live = True
 
     def __init__(self, scheme: str, n_runs: int, n_generations: int, algorithm: str = "", seed_strategy: str = "", training_n_sims: int | None = None) -> None:
         self._scheme = scheme

@@ -233,27 +233,28 @@ def train(manifest: list[dict[str, Any]], n_gen: int, n_pop: int, algorithm: str
 # ─────────────────────────── evaluation ───────────────────────────
 
 
-def _cost_kwargs(resolved: dict[str, Any]) -> dict[str, Any]:
-    cost_cfg = resolved.get("cost_function", {})
-    constraints = resolved.get("flight", {}).get("constraints", {})
-    return {
-        "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
-        "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
-        "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
-        "heat_load_limit": float(constraints.get("max_heat_load", 25000.0)),
-        "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
-        "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
-        "heat_load_weight": float(cost_cfg.get("heat_load_weight", 1000.0)),
-        "cost_transform": str(cost_cfg.get("cost_transform", "linear")),
-    }
+def _entry_overrides(entry: dict[str, Any], model: Path, seeds: list[int]) -> list[dict[str, Any]]:
+    """Per-seed run_batch overrides: deployed NN + co-trained scaffolding.
+
+    Sweep configs inherit `scaffolding = "live"`, so each point's best_params.json
+    carries co-trained nav/shaping values that MUST be applied at eval (the same
+    convention report.py / compare_guidance.py follow) — without them every model
+    is scored against TOML-default scaffolding it was never trained with.
+    run_batch == one sim per override; force n_sims=1 (configs inherit n_sims=1000).
+    """
+    from aerocapture.training.report import _load_nn_scaffolding_overrides
+
+    out_dir = Path(entry["output_dir"])
+    scaff = _load_nn_scaffolding_overrides(out_dir, out_dir / f"optimized_{out_dir.name}.toml")
+    base: dict[str, Any] = {"simulation.n_sims": 1, "data.neural_network": str(model), **scaff}
+    return [{**base, "monte_carlo.seed": int(s)} for s in seeds]
 
 
 def evaluate(manifest: list[dict[str, Any]], n_sims: int, base_seed: int, sim_timeout: float | None) -> list[dict[str, Any]]:
     import aerocapture_rs
 
     from aerocapture.training.evaluate import make_reserved_seeds
-    from aerocapture.training.report import compute_eval_summary
-    from aerocapture.training.toml_utils import load_toml_with_bases
+    from aerocapture.training.report import compute_eval_summary, read_cost_kwargs
 
     seeds = make_reserved_seeds(base_seed, SWEEP_EVAL_SEED_OFFSET, n_sims)
     results: list[dict[str, Any]] = []
@@ -262,10 +263,8 @@ def evaluate(manifest: list[dict[str, Any]], n_sims: int, base_seed: int, sim_ti
         if not model.exists():
             print(f"  skip {entry['arch']} {entry['params']}p (untrained: no {model})")
             continue
-        resolved = load_toml_with_bases(entry["config"])
-        cost_kwargs = _cost_kwargs(resolved)
-        # run_batch == one sim per override; force n_sims=1 (configs inherit n_sims=1000).
-        overrides_list = [{"simulation.n_sims": 1, "monte_carlo.seed": int(s), "data.neural_network": str(model)} for s in seeds]
+        cost_kwargs = read_cost_kwargs(Path(entry["config"]))
+        overrides_list = _entry_overrides(entry, model, seeds)
         batch = aerocapture_rs.run_batch(entry["config"], overrides_list, n_threads=None, include_trajectories=False, sim_timeout_secs=sim_timeout)
         final = np.array(batch.final_records, dtype=np.float64)
         summary = compute_eval_summary(final, n_sims=n_sims, cost_kwargs=cost_kwargs)

@@ -39,14 +39,16 @@ class SeedCurator:
     ) -> list[int]:
         """Sort seeds by cost, split into n_bins equal-count bins, pick one per bin.
 
-        Non-finite costs are replaced with a large sentinel so their seeds sort
-        to the tail bin.
+        Seeds with non-finite costs (NaN-hang / timeout records) are DROPPED
+        before binning: an un-simulatable seed in the training list makes every
+        individual's RMS non-finite, and the old sort-to-tail sentinel made its
+        selection deterministic under bucket_selection = "max".
         """
         arr = np.asarray(costs, dtype=np.float64)
-        sentinel = np.finfo(np.float64).max / 2
-        arr = np.where(np.isfinite(arr), arr, sentinel)
-        order = np.argsort(arr, kind="stable")
-        sorted_seeds = [seeds[i] for i in order]
+        finite = np.isfinite(arr)
+        order = np.argsort(arr[finite], kind="stable")
+        finite_idx = np.flatnonzero(finite)
+        sorted_seeds = [seeds[i] for i in finite_idx[order]]
 
         # Trim the non-discriminative extremes before binning: the easiest seeds
         # carry no between-individual signal, the hardest are un-improvable
@@ -56,7 +58,7 @@ class SeedCurator:
             sorted_seeds = sorted_seeds[cut : len(sorted_seeds) - cut]
 
         if self.n_bins > len(sorted_seeds):
-            msg = f"n_bins ({self.n_bins}) must be <= len(seeds) after trim ({len(sorted_seeds)})"
+            msg = f"n_bins ({self.n_bins}) must be <= len(seeds) after non-finite drop + trim ({len(sorted_seeds)})"
             raise ValueError(msg)
         bins = np.array_split(sorted_seeds, self.n_bins)
         # Representative per cost-quantile bin: random (default) or a deterministic
