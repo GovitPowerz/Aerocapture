@@ -62,7 +62,9 @@ lives in these runners, because cells are reused across studies (e.g.
 ## Reporting rules (from the 2026-06-12 methodology review)
 
 - Tail metrics: quote **p99 + CVaR95** with bootstrap CIs; the sample max at
-  n=1000 is descriptive only.
+  n=1000 is descriptive only. (Rationale: the design-case DV sizes the ergols
+  and hence mission cost — the tail IS the objective, but it is estimated, so
+  it gets CIs, not a single noisy max.)
 - All cross-cell tables are **paired** on the shared 1000-seed final-eval pool
   (offset 2M; capture = `ifinal==3 & ecc<1.0`, DV over both-captured seeds).
 - "Compute-matched" claims must report **actual sims** per run (from the JSONL:
