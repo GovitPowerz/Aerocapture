@@ -1,0 +1,843 @@
+{
+  "runs": {
+    "classical_baselines/ftc": {
+      "key": "classical_baselines/ftc",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 170.65,
+      "dv_p50": 165.95,
+      "dv_p95": 208.93,
+      "dv_p99": 272.84,
+      "dv_cvar95": 244.14,
+      "dv_max_descriptive": 351.56,
+      "dv_mean_ci": [
+        169.09,
+        172.24
+      ],
+      "dv_p95_ci": [
+        205.42,
+        214.77
+      ],
+      "dv_cvar95_ci": [
+        230.45,
+        258.44
+      ],
+      "heat_flux_p95": 195.0,
+      "g_load_p95": 3.38,
+      "best_val_rms_within_transform_only": 5706806.854907687,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1582000,
+        "curation": 1012000,
+        "reeval": 3036000,
+        "total": 11633000
+      }
+    },
+    "classical_baselines/piecewise_constant": {
+      "key": "classical_baselines/piecewise_constant",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 99.8,
+      "dv_mean": 258.31,
+      "dv_p50": 245.05,
+      "dv_p95": 374.56,
+      "dv_p99": 459.32,
+      "dv_cvar95": 421.08,
+      "dv_max_descriptive": 548.13,
+      "dv_mean_ci": [
+        254.37,
+        262.2
+      ],
+      "dv_p95_ci": [
+        362.95,
+        389.8
+      ],
+      "dv_cvar95_ci": [
+        404.42,
+        436.68
+      ],
+      "heat_flux_p95": 194.8,
+      "g_load_p95": 3.62,
+      "best_val_rms_within_transform_only": 28040947.212999262,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1812000,
+        "curation": 1004000,
+        "reeval": 3012000,
+        "total": 11831000
+      }
+    },
+    "legacy/best_neural_network_joint": {
+      "key": "legacy/best_neural_network_joint",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 125.26,
+      "dv_p50": 123.42,
+      "dv_p95": 143.34,
+      "dv_p99": 158.14,
+      "dv_cvar95": 151.67,
+      "dv_max_descriptive": 179.78,
+      "dv_mean_ci": [
+        124.68,
+        125.86
+      ],
+      "dv_p95_ci": [
+        141.05,
+        145.02
+      ],
+      "dv_cvar95_ci": [
+        148.54,
+        155.03
+      ],
+      "heat_flux_p95": 194.4,
+      "g_load_p95": 3.3,
+      "best_val_rms_within_transform_only": 11.298050901552912,
+      "actual_sims": {
+        "n_gen": 5001,
+        "n_pop": 128,
+        "training": 6401280,
+        "validation": 4931000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 11332280
+      }
+    },
+    "legacy/neural_gru_joint": {
+      "key": "legacy/neural_gru_joint",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 127.6,
+      "dv_p50": 124.32,
+      "dv_p95": 153.37,
+      "dv_p99": 173.74,
+      "dv_cvar95": 166.35,
+      "dv_max_descriptive": 204.58,
+      "dv_mean_ci": [
+        126.82,
+        128.42
+      ],
+      "dv_p95_ci": [
+        149.41,
+        156.34
+      ],
+      "dv_cvar95_ci": [
+        161.54,
+        171.06
+      ],
+      "heat_flux_p95": 188.2,
+      "g_load_p95": 3.18,
+      "best_val_rms_within_transform_only": 11.3735174454925,
+      "actual_sims": {
+        "n_gen": 5001,
+        "n_pop": 128,
+        "training": 6401280,
+        "validation": 4915000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 11316280
+      }
+    },
+    "legacy/neural_network_atan2": {
+      "key": "legacy/neural_network_atan2",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 118.97,
+      "dv_p50": 117.56,
+      "dv_p95": 131.96,
+      "dv_p99": 141.74,
+      "dv_cvar95": 138.35,
+      "dv_max_descriptive": 165.23,
+      "dv_mean_ci": [
+        118.56,
+        119.39
+      ],
+      "dv_p95_ci": [
+        130.75,
+        133.66
+      ],
+      "dv_cvar95_ci": [
+        135.92,
+        140.88
+      ],
+      "heat_flux_p95": 177.1,
+      "g_load_p95": 2.76,
+      "best_val_rms_within_transform_only": 1731330.707305085,
+      "actual_sims": {
+        "n_gen": 6000,
+        "n_pop": 10,
+        "training": 600000,
+        "validation": 3631000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 4231000
+      }
+    },
+    "legacy/neural_network_atan2_qat4": {
+      "key": "legacy/neural_network_atan2_qat4",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 128.75,
+      "dv_p50": 126.92,
+      "dv_p95": 149.67,
+      "dv_p99": 164.52,
+      "dv_cvar95": 158.64,
+      "dv_max_descriptive": 186.68,
+      "dv_mean_ci": [
+        128.06,
+        129.44
+      ],
+      "dv_p95_ci": [
+        147.92,
+        152.18
+      ],
+      "dv_cvar95_ci": [
+        155.34,
+        161.9
+      ],
+      "heat_flux_p95": 191.2,
+      "g_load_p95": 3.28,
+      "best_val_rms_within_transform_only": 2185224.815953485,
+      "actual_sims": {
+        "n_gen": 6000,
+        "n_pop": 50,
+        "training": 3000000,
+        "validation": 2890000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 5890000
+      }
+    },
+    "legacy/neural_network_atan2_qat8": {
+      "key": "legacy/neural_network_atan2_qat8",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 125.13,
+      "dv_p50": 123.63,
+      "dv_p95": 140.4,
+      "dv_p99": 151.38,
+      "dv_cvar95": 147.92,
+      "dv_max_descriptive": 196.04,
+      "dv_mean_ci": [
+        124.6,
+        125.67
+      ],
+      "dv_p95_ci": [
+        139.2,
+        142.21
+      ],
+      "dv_cvar95_ci": [
+        144.89,
+        151.43
+      ],
+      "heat_flux_p95": 186.9,
+      "g_load_p95": 3.15,
+      "best_val_rms_within_transform_only": 2002431.1212640768,
+      "actual_sims": {
+        "n_gen": 6000,
+        "n_pop": 50,
+        "training": 3000000,
+        "validation": 3319000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 6319000
+      }
+    },
+    "legacy/neural_network_delta_pso": {
+      "key": "legacy/neural_network_delta_pso",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 141.82,
+      "dv_p50": 139.67,
+      "dv_p95": 162.43,
+      "dv_p99": 181.3,
+      "dv_cvar95": 175.0,
+      "dv_max_descriptive": 228.26,
+      "dv_mean_ci": [
+        141.05,
+        142.62
+      ],
+      "dv_p95_ci": [
+        161.18,
+        164.65
+      ],
+      "dv_cvar95_ci": [
+        169.75,
+        180.9
+      ],
+      "heat_flux_p95": 189.4,
+      "g_load_p95": 3.31,
+      "best_val_rms_within_transform_only": 4.958411128335248,
+      "actual_sims": {
+        "n_gen": 3000,
+        "n_pop": 25,
+        "training": 750000,
+        "validation": 2470000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 3220000
+      }
+    },
+    "legacy/neural_network_delta_pso_pruned": {
+      "key": "legacy/neural_network_delta_pso_pruned",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 129.89,
+      "dv_p50": 128.9,
+      "dv_p95": 145.89,
+      "dv_p99": 158.02,
+      "dv_cvar95": 154.31,
+      "dv_max_descriptive": 222.12,
+      "dv_mean_ci": [
+        129.3,
+        130.52
+      ],
+      "dv_p95_ci": [
+        144.41,
+        147.93
+      ],
+      "dv_cvar95_ci": [
+        150.68,
+        158.58
+      ],
+      "heat_flux_p95": 181.3,
+      "g_load_p95": 2.93,
+      "best_val_rms_within_transform_only": 2255319.1693159007,
+      "actual_sims": {
+        "n_gen": 3000,
+        "n_pop": 25,
+        "training": 750000,
+        "validation": 2466000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 3216000
+      }
+    },
+    "legacy/neural_network_delta_pso_pruned_dv3": {
+      "key": "legacy/neural_network_delta_pso_pruned_dv3",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 122.47,
+      "dv_p50": 120.69,
+      "dv_p95": 138.52,
+      "dv_p99": 152.29,
+      "dv_cvar95": 146.6,
+      "dv_max_descriptive": 183.04,
+      "dv_mean_ci": [
+        121.95,
+        123.01
+      ],
+      "dv_p95_ci": [
+        136.17,
+        140.23
+      ],
+      "dv_cvar95_ci": [
+        143.33,
+        150.09
+      ],
+      "heat_flux_p95": 173.8,
+      "g_load_p95": 2.66,
+      "best_val_rms_within_transform_only": 1911761.0884445729,
+      "actual_sims": {
+        "n_gen": 3000,
+        "n_pop": 100,
+        "training": 3000000,
+        "validation": 2703000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 5703000
+      }
+    },
+    "legacy/neural_network_gru_ppo": {
+      "key": "legacy/neural_network_gru_ppo",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 512.64,
+      "dv_p50": 491.25,
+      "dv_p95": 828.46,
+      "dv_p99": 929.23,
+      "dv_cvar95": 893.08,
+      "dv_max_descriptive": 1015.43,
+      "dv_mean_ci": [
+        501.48,
+        523.74
+      ],
+      "dv_p95_ci": [
+        799.78,
+        847.53
+      ],
+      "dv_cvar95_ci": [
+        869.3,
+        915.34
+      ],
+      "heat_flux_p95": 182.6,
+      "g_load_p95": 3.04,
+      "best_val_rms_within_transform_only": null
+    },
+    "legacy/neural_network_joint": {
+      "key": "legacy/neural_network_joint",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 125.73,
+      "dv_p50": 123.91,
+      "dv_p95": 143.78,
+      "dv_p99": 158.93,
+      "dv_cvar95": 153.81,
+      "dv_max_descriptive": 200.46,
+      "dv_mean_ci": [
+        125.11,
+        126.38
+      ],
+      "dv_p95_ci": [
+        141.36,
+        146.67
+      ],
+      "dv_cvar95_ci": [
+        149.99,
+        157.91
+      ],
+      "heat_flux_p95": 184.3,
+      "g_load_p95": 2.98,
+      "best_val_rms_within_transform_only": 11.29130944410435,
+      "actual_sims": {
+        "n_gen": 5001,
+        "n_pop": 128,
+        "training": 6401280,
+        "validation": 4922000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 11323280
+      }
+    },
+    "legacy/neural_network_pruned": {
+      "key": "legacy/neural_network_pruned",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 132.96,
+      "dv_p50": 129.61,
+      "dv_p95": 159.42,
+      "dv_p99": 176.33,
+      "dv_cvar95": 173.69,
+      "dv_max_descriptive": 244.78,
+      "dv_mean_ci": [
+        132.1,
+        133.84
+      ],
+      "dv_p95_ci": [
+        155.29,
+        162.16
+      ],
+      "dv_cvar95_ci": [
+        167.66,
+        180.47
+      ],
+      "heat_flux_p95": 190.3,
+      "g_load_p95": 3.22,
+      "best_val_rms_within_transform_only": 2465570.9639803246,
+      "actual_sims": {
+        "n_gen": 3000,
+        "n_pop": 25,
+        "training": 750000,
+        "validation": 2367000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 3117000
+      }
+    },
+    "legacy/neural_network_pruned_dv": {
+      "key": "legacy/neural_network_pruned_dv",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 128.48,
+      "dv_p50": 126.59,
+      "dv_p95": 144.88,
+      "dv_p99": 156.62,
+      "dv_cvar95": 162.65,
+      "dv_max_descriptive": 306.45,
+      "dv_mean_ci": [
+        127.66,
+        129.38
+      ],
+      "dv_p95_ci": [
+        144.01,
+        146.74
+      ],
+      "dv_cvar95_ci": [
+        152.26,
+        175.87
+      ],
+      "heat_flux_p95": 191.9,
+      "g_load_p95": 3.3,
+      "best_val_rms_within_transform_only": 2136211.848957849,
+      "actual_sims": {
+        "n_gen": 3000,
+        "n_pop": 100,
+        "training": 3000000,
+        "validation": 2800000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 5800000
+      }
+    },
+    "legacy/neural_network_pruned_dv2": {
+      "key": "legacy/neural_network_pruned_dv2",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 123.6,
+      "dv_p50": 122.13,
+      "dv_p95": 140.39,
+      "dv_p99": 150.42,
+      "dv_cvar95": 147.38,
+      "dv_max_descriptive": 182.99,
+      "dv_mean_ci": [
+        123.09,
+        124.13
+      ],
+      "dv_p95_ci": [
+        138.38,
+        141.68
+      ],
+      "dv_cvar95_ci": [
+        144.31,
+        150.53
+      ],
+      "heat_flux_p95": 189.0,
+      "g_load_p95": 3.21,
+      "best_val_rms_within_transform_only": 1991288.577377163,
+      "actual_sims": {
+        "n_gen": 2421,
+        "n_pop": 100,
+        "training": 2421000,
+        "validation": 2310000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 4731000
+      }
+    },
+    "legacy/neural_network_pruned_dv3": {
+      "key": "legacy/neural_network_pruned_dv3",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 120.54,
+      "dv_p50": 118.43,
+      "dv_p95": 136.54,
+      "dv_p99": 157.97,
+      "dv_cvar95": 149.88,
+      "dv_max_descriptive": 215.71,
+      "dv_mean_ci": [
+        119.95,
+        121.14
+      ],
+      "dv_p95_ci": [
+        133.85,
+        139.66
+      ],
+      "dv_cvar95_ci": [
+        144.73,
+        155.38
+      ],
+      "heat_flux_p95": 174.9,
+      "g_load_p95": 2.7,
+      "best_val_rms_within_transform_only": 1797113.8717702804,
+      "actual_sims": {
+        "n_gen": 3000,
+        "n_pop": 100,
+        "training": 3000000,
+        "validation": 2870000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 5870000
+      }
+    },
+    "legacy/neural_network_rl": {
+      "key": "legacy/neural_network_rl",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 635.96,
+      "dv_p50": 618.53,
+      "dv_p95": 972.97,
+      "dv_p99": 1101.83,
+      "dv_cvar95": 1046.6,
+      "dv_max_descriptive": 1185.44,
+      "dv_mean_ci": [
+        623.93,
+        647.84
+      ],
+      "dv_p95_ci": [
+        943.92,
+        993.28
+      ],
+      "dv_cvar95_ci": [
+        1019.03,
+        1071.44
+      ],
+      "heat_flux_p95": 182.2,
+      "g_load_p95": 3.0,
+      "best_val_rms_within_transform_only": null
+    },
+    "legacy/neural_network_scaledpi_pso": {
+      "key": "legacy/neural_network_scaledpi_pso",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 144.98,
+      "dv_p50": 142.15,
+      "dv_p95": 180.33,
+      "dv_p99": 212.2,
+      "dv_cvar95": 197.28,
+      "dv_max_descriptive": 247.2,
+      "dv_mean_ci": [
+        143.83,
+        146.15
+      ],
+      "dv_p95_ci": [
+        176.57,
+        184.24
+      ],
+      "dv_cvar95_ci": [
+        190.6,
+        203.99
+      ],
+      "heat_flux_p95": 196.5,
+      "g_load_p95": 3.52,
+      "best_val_rms_within_transform_only": 4.976288194612512,
+      "actual_sims": {
+        "n_gen": 3000,
+        "n_pop": 25,
+        "training": 750000,
+        "validation": 2599000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 3349000
+      }
+    },
+    "legacy/neural_network_scaledpi_pso_pruned": {
+      "key": "legacy/neural_network_scaledpi_pso_pruned",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 99.9,
+      "dv_mean": 143.11,
+      "dv_p50": 138.61,
+      "dv_p95": 181.12,
+      "dv_p99": 222.95,
+      "dv_cvar95": 204.26,
+      "dv_max_descriptive": 274.96,
+      "dv_mean_ci": [
+        141.81,
+        144.49
+      ],
+      "dv_p95_ci": [
+        176.32,
+        186.68
+      ],
+      "dv_cvar95_ci": [
+        195.71,
+        213.05
+      ],
+      "heat_flux_p95": 192.4,
+      "g_load_p95": 3.46,
+      "best_val_rms_within_transform_only": 4.970928705753579,
+      "actual_sims": {
+        "n_gen": 3000,
+        "n_pop": 25,
+        "training": 750000,
+        "validation": 2608000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 3358000
+      }
+    },
+    "legacy/neural_network_scaledpi_pso_pruned_dv": {
+      "key": "legacy/neural_network_scaledpi_pso_pruned_dv",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 134.48,
+      "dv_p50": 132.31,
+      "dv_p95": 158.74,
+      "dv_p99": 175.51,
+      "dv_cvar95": 169.15,
+      "dv_max_descriptive": 202.66,
+      "dv_mean_ci": [
+        133.63,
+        135.36
+      ],
+      "dv_p95_ci": [
+        157.18,
+        161.72
+      ],
+      "dv_cvar95_ci": [
+        165.29,
+        172.98
+      ],
+      "heat_flux_p95": 185.4,
+      "g_load_p95": 3.17,
+      "best_val_rms_within_transform_only": 2672045.084393038,
+      "actual_sims": {
+        "n_gen": 3000,
+        "n_pop": 25,
+        "training": 750000,
+        "validation": 2465000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 3215000
+      }
+    },
+    "legacy/neural_network_scaledpi_pso_pruned_dv3": {
+      "key": "legacy/neural_network_scaledpi_pso_pruned_dv3",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 130.77,
+      "dv_p50": 128.52,
+      "dv_p95": 150.66,
+      "dv_p99": 167.31,
+      "dv_cvar95": 161.35,
+      "dv_max_descriptive": 210.79,
+      "dv_mean_ci": [
+        130.08,
+        131.47
+      ],
+      "dv_p95_ci": [
+        148.83,
+        153.09
+      ],
+      "dv_cvar95_ci": [
+        157.22,
+        165.86
+      ],
+      "heat_flux_p95": 189.8,
+      "g_load_p95": 3.14,
+      "best_val_rms_within_transform_only": 2251490.6315863235,
+      "actual_sims": {
+        "n_gen": 3000,
+        "n_pop": 100,
+        "training": 3000000,
+        "validation": 2855000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 5855000
+      }
+    },
+    "legacy/paper_opt_warmstart": {
+      "key": "legacy/paper_opt_warmstart",
+      "legacy_prefix_regime": true,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 132.4,
+      "dv_p50": 130.79,
+      "dv_p95": 152.72,
+      "dv_p99": 171.83,
+      "dv_cvar95": 163.76,
+      "dv_max_descriptive": 182.38,
+      "dv_mean_ci": [
+        131.69,
+        133.13
+      ],
+      "dv_p95_ci": [
+        149.91,
+        155.01
+      ],
+      "dv_cvar95_ci": [
+        159.95,
+        167.46
+      ],
+      "heat_flux_p95": 176.3,
+      "g_load_p95": 2.7,
+      "best_val_rms_within_transform_only": 2472453.751480205,
+      "actual_sims": {
+        "n_gen": 6000,
+        "n_pop": 100,
+        "training": 6000000,
+        "validation": 2817000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 8817000
+      }
+    }
+  },
+  "paired": {
+    "ga_vs_islands_300": {
+      "missing": true,
+      "a": "optimizer_budget/ga_300",
+      "b": "optimizer_budget/islands_300"
+    },
+    "ga150_vs_islands300": {
+      "missing": true,
+      "a": "optimizer_budget/ga_150",
+      "b": "optimizer_budget/islands_300"
+    },
+    "cubed_vs_log": {
+      "missing": true,
+      "a": "optimizer_budget/ga_300",
+      "b": "cost_transform/log"
+    },
+    "max_vs_middle_bucket": {
+      "missing": true,
+      "a": "optimizer_budget/ga_300",
+      "b": "curation_shaping/bucket_middle"
+    },
+    "max_vs_random_bucket": {
+      "missing": true,
+      "a": "optimizer_budget/ga_300",
+      "b": "curation_shaping/bucket_random"
+    },
+    "nn_vs_ftc": {
+      "missing": true,
+      "a": "optimizer_budget/ga_300",
+      "b": "classical_baselines/ftc"
+    },
+    "joint_vs_fixed_ftc": {
+      "missing": true,
+      "a": "joint_reference/ftc",
+      "b": "classical_baselines/ftc"
+    },
+    "joint_vs_fixed_ec": {
+      "missing": true,
+      "a": "joint_reference/energy_controller",
+      "b": "classical_baselines/energy_controller"
+    },
+    "joint_vs_fixed_pg": {
+      "missing": true,
+      "a": "joint_reference/pred_guid",
+      "b": "classical_baselines/pred_guid"
+    },
+    "atan2_vs_scaledpi": {
+      "missing": true,
+      "a": "optimizer_dimensionality/dense_p515_ga",
+      "b": "output_param/scaledpi"
+    },
+    "atan2_vs_delta": {
+      "missing": true,
+      "a": "optimizer_dimensionality/dense_p515_ga",
+      "b": "output_param/delta"
+    }
+  },
+  "sigma_run": {
+    "groups": {},
+    "pooled_std": null
+  },
+  "headline": "optimizer_budget/ga_300",
+  "headline_fresh_pool": {
+    "missing": true
+  }
+}
