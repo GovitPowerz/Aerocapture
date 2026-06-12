@@ -309,9 +309,13 @@ pub fn fnpag_bank(
 
     // Replan throttle: between replans, hold the previous command. The
     // command evolves slowly mid-pass, and each replan costs up to 5 full
-    // forward integrations.
+    // forward integrations. Re-clamp at the CURRENT altitude's limits: a
+    // command issued above BANK_LIMIT_SWITCH_ALTITUDE_M (bank_max_high) and
+    // held across the descent would otherwise violate bank_max_low for up to
+    // replan_period seconds. state.bank_prev stays unclamped — it is the
+    // secant's memory, paired with energy_prev.
     if sim_time - state.last_replan_time < params.replan_period {
-        return state.bank_prev.abs();
+        return state.bank_prev.abs().clamp(bank_min, bank_max);
     }
 
     // Secant method iterations
@@ -613,6 +617,38 @@ mod tests {
         // Past the period: replans (timestamp advances).
         let _ = fnpag_bank(&nav_later, &mut state, &data, &planet, 2.5);
         assert_relative_eq!(state.last_replan_time, 2.5, epsilon = 1e-12);
+    }
+
+    /// A command issued at high altitude (where bank_max_high applies) and held
+    /// across the descent through BANK_LIMIT_SWITCH_ALTITUDE_M must be re-clamped
+    /// to the low-altitude limit — the hold path is the only return that skipped
+    /// the altitude-dependent clamp.
+    #[test]
+    fn held_command_reclamps_to_low_altitude_bank_limit() {
+        let data = test_sim_data(); // default replan_period = 2.0 s
+        let planet = PlanetConfig::mars();
+
+        let mut state = FnpagState::new(0.0);
+        state.initialized = true;
+        state.last_replan_time = 0.0;
+        // Legal above 50 km (bank_max_high_deg = 140), illegal below (100).
+        state.bank_prev = 140.0_f64.to_radians();
+
+        // 40 km altitude: below the switch, within the hold window (t = 1.0 s).
+        let mut nav = test_nav(5000.0);
+        nav.position_estimated[0] = planet.equatorial_radius + 40_000.0;
+
+        let bank = fnpag_bank(&nav, &mut state, &data, &planet, 1.0);
+
+        let bank_max_low = data.guidance.fnpag.bank_max_low_deg.to_radians();
+        assert!(
+            bank <= bank_max_low + 1e-12,
+            "held bank {:.4} rad exceeds low-altitude limit {:.4} rad",
+            bank,
+            bank_max_low
+        );
+        // Still a hold: no replan happened.
+        assert_relative_eq!(state.last_replan_time, 0.0, epsilon = 1e-12);
     }
 
     /// Subsequent calls (initialized state) also produce finite, bounded output.
