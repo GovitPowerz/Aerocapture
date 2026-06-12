@@ -1,0 +1,10 @@
+# Cell: dense_p3998 (17->72->36->2, atan2) cell -- ga_trim20. Study wiring lives in experiments/paper/.
+base = ["../sweep/dense_p3998.toml"]
+
+[data]
+neural_network = "training_output/paper/cells/dense_p3998_ga_trim20/best_model.json"
+results_suffix = ".dense_p3998_ga_trim20"
+
+[optimizer]
+algorithm = "ga"
+curation_trim_fraction = 0.2

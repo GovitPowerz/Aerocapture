@@ -106,8 +106,8 @@
   {
     "arch": "dense",
     "params": 515,
-    "config": "configs/training/paper/opt_ga.toml",
-    "output_dir": "training_output/paper_pf_small_ga",
+    "config": "configs/training/paper/dense_p515_ga.toml",
+    "output_dir": "training_output/paper/optimizer_dimensionality/dense_p515_ga",
     "architecture": [
       {
         "type": "dense",
@@ -132,8 +132,8 @@
   {
     "arch": "dense",
     "params": 3998,
-    "config": "configs/training/paper/optbig_ga.toml",
-    "output_dir": "training_output/paper_pf_ga_300",
+    "config": "configs/training/paper/dense_p3998_ga.toml",
+    "output_dir": "training_output/paper/optimizer_budget/ga_300",
     "architecture": [
       {
         "type": "dense",

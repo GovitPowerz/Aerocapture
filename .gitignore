@@ -42,6 +42,9 @@ output/*
 # === Miscellaneous ===
 *.json
 !tests/reference_data/**/*.json
+# Paper results bundle (collected by experiments/paper/12_collect_results.sh):
+# the *.json rule above would silently drop best_model/best_params/final_selection.
+!articles/paper/data/**/*.json
 *.temp
 *.png
 # Ignore training artifacts, EXCEPT the optimized reference trajectory:

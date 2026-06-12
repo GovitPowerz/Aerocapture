@@ -1,0 +1,638 @@
+[
+  {
+    "arch": "dense",
+    "params": 515,
+    "config": "configs/training/sweep/dense_p515.toml",
+    "output_dir": "training_output/sweep_dense_p515",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 18,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 18,
+        "output_size": 9,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 9,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "dense",
+    "params": 972,
+    "config": "configs/training/sweep/dense_p972.toml",
+    "output_dir": "training_output/sweep_dense_p972",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 29,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 29,
+        "output_size": 14,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 14,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "dense",
+    "params": 1957,
+    "config": "configs/training/sweep/dense_p1957.toml",
+    "output_dir": "training_output/sweep_dense_p1957",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 46,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 46,
+        "output_size": 23,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 23,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "dense",
+    "params": 3998,
+    "config": "configs/training/sweep/dense_p3998.toml",
+    "output_dir": "training_output/sweep_dense_p3998",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 72,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 72,
+        "output_size": 36,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 36,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "gru",
+    "params": 478,
+    "config": "configs/training/sweep/gru_p478.toml",
+    "output_dir": "training_output/sweep_gru_p478",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 7,
+        "activation": "swish"
+      },
+      {
+        "type": "gru",
+        "input_size": 7,
+        "hidden_size": 7
+      },
+      {
+        "type": "dense",
+        "input_size": 7,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "gru",
+    "params": 1014,
+    "config": "configs/training/sweep/gru_p1014.toml",
+    "output_dir": "training_output/sweep_gru_p1014",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 11,
+        "activation": "swish"
+      },
+      {
+        "type": "gru",
+        "input_size": 11,
+        "hidden_size": 11
+      },
+      {
+        "type": "dense",
+        "input_size": 11,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "gru",
+    "params": 1954,
+    "config": "configs/training/sweep/gru_p1954.toml",
+    "output_dir": "training_output/sweep_gru_p1954",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 16,
+        "activation": "swish"
+      },
+      {
+        "type": "gru",
+        "input_size": 16,
+        "hidden_size": 16
+      },
+      {
+        "type": "dense",
+        "input_size": 16,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "gru",
+    "params": 4082,
+    "config": "configs/training/sweep/gru_p4082.toml",
+    "output_dir": "training_output/sweep_gru_p4082",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 24,
+        "activation": "swish"
+      },
+      {
+        "type": "gru",
+        "input_size": 24,
+        "hidden_size": 24
+      },
+      {
+        "type": "dense",
+        "input_size": 24,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "lstm",
+    "params": 458,
+    "config": "configs/training/sweep/lstm_p458.toml",
+    "output_dir": "training_output/sweep_lstm_p458",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 6,
+        "activation": "swish"
+      },
+      {
+        "type": "lstm",
+        "input_size": 6,
+        "hidden_size": 6
+      },
+      {
+        "type": "dense",
+        "input_size": 6,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "lstm",
+    "params": 1082,
+    "config": "configs/training/sweep/lstm_p1082.toml",
+    "output_dir": "training_output/sweep_lstm_p1082",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 10,
+        "activation": "swish"
+      },
+      {
+        "type": "lstm",
+        "input_size": 10,
+        "hidden_size": 10
+      },
+      {
+        "type": "dense",
+        "input_size": 10,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "lstm",
+    "params": 1962,
+    "config": "configs/training/sweep/lstm_p1962.toml",
+    "output_dir": "training_output/sweep_lstm_p1962",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 14,
+        "activation": "swish"
+      },
+      {
+        "type": "lstm",
+        "input_size": 14,
+        "hidden_size": 14
+      },
+      {
+        "type": "dense",
+        "input_size": 14,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "lstm",
+    "params": 4118,
+    "config": "configs/training/sweep/lstm_p4118.toml",
+    "output_dir": "training_output/sweep_lstm_p4118",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 21,
+        "activation": "swish"
+      },
+      {
+        "type": "lstm",
+        "input_size": 21,
+        "hidden_size": 21
+      },
+      {
+        "type": "dense",
+        "input_size": 21,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "mamba",
+    "params": 482,
+    "config": "configs/training/sweep/mamba_p482.toml",
+    "output_dir": "training_output/sweep_mamba_p482",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 10,
+        "activation": "swish"
+      },
+      {
+        "type": "mamba",
+        "input_size": 10,
+        "d_state": 8
+      },
+      {
+        "type": "dense",
+        "input_size": 10,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "mamba",
+    "params": 962,
+    "config": "configs/training/sweep/mamba_p962.toml",
+    "output_dir": "training_output/sweep_mamba_p962",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 16,
+        "activation": "swish"
+      },
+      {
+        "type": "mamba",
+        "input_size": 16,
+        "d_state": 12
+      },
+      {
+        "type": "dense",
+        "input_size": 16,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "mamba",
+    "params": 2027,
+    "config": "configs/training/sweep/mamba_p2027.toml",
+    "output_dir": "training_output/sweep_mamba_p2027",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 25,
+        "activation": "swish"
+      },
+      {
+        "type": "mamba",
+        "input_size": 25,
+        "d_state": 19
+      },
+      {
+        "type": "dense",
+        "input_size": 25,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "mamba",
+    "params": 4072,
+    "config": "configs/training/sweep/mamba_p4072.toml",
+    "output_dir": "training_output/sweep_mamba_p4072",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 37,
+        "activation": "swish"
+      },
+      {
+        "type": "mamba",
+        "input_size": 37,
+        "d_state": 28
+      },
+      {
+        "type": "dense",
+        "input_size": 37,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "transformer",
+    "params": 762,
+    "config": "configs/training/sweep/transformer_p762.toml",
+    "output_dir": "training_output/sweep_transformer_p762",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 8,
+        "activation": "swish"
+      },
+      {
+        "type": "transformer",
+        "d_model": 8,
+        "n_heads": 4,
+        "d_ffn": 16,
+        "n_seq": 32
+      },
+      {
+        "type": "dense",
+        "input_size": 8,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "transformer",
+    "params": 1112,
+    "config": "configs/training/sweep/transformer_p1112.toml",
+    "output_dir": "training_output/sweep_transformer_p1112",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 10,
+        "activation": "swish"
+      },
+      {
+        "type": "transformer",
+        "d_model": 10,
+        "n_heads": 2,
+        "d_ffn": 20,
+        "n_seq": 32
+      },
+      {
+        "type": "dense",
+        "input_size": 10,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "transformer",
+    "params": 2004,
+    "config": "configs/training/sweep/transformer_p2004.toml",
+    "output_dir": "training_output/sweep_transformer_p2004",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 14,
+        "activation": "swish"
+      },
+      {
+        "type": "transformer",
+        "d_model": 14,
+        "n_heads": 2,
+        "d_ffn": 28,
+        "n_seq": 32
+      },
+      {
+        "type": "dense",
+        "input_size": 14,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "transformer",
+    "params": 3822,
+    "config": "configs/training/sweep/transformer_p3822.toml",
+    "output_dir": "training_output/sweep_transformer_p3822",
+    "architecture": [
+      {
+        "type": "dense",
+        "input_size": 17,
+        "output_size": 20,
+        "activation": "swish"
+      },
+      {
+        "type": "transformer",
+        "d_model": 20,
+        "n_heads": 4,
+        "d_ffn": 40,
+        "n_seq": 32
+      },
+      {
+        "type": "dense",
+        "input_size": 20,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "window",
+    "params": 609,
+    "config": "configs/training/sweep/window_p609.toml",
+    "output_dir": "training_output/sweep_window_p609",
+    "architecture": [
+      {
+        "type": "window",
+        "input_size": 17,
+        "n_steps": 4
+      },
+      {
+        "type": "dense",
+        "input_size": 68,
+        "output_size": 8,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 8,
+        "output_size": 5,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 5,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "window",
+    "params": 1027,
+    "config": "configs/training/sweep/window_p1027.toml",
+    "output_dir": "training_output/sweep_window_p1027",
+    "architecture": [
+      {
+        "type": "window",
+        "input_size": 17,
+        "n_steps": 4
+      },
+      {
+        "type": "dense",
+        "input_size": 68,
+        "output_size": 13,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 13,
+        "output_size": 8,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 8,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "window",
+    "params": 2036,
+    "config": "configs/training/sweep/window_p2036.toml",
+    "output_dir": "training_output/sweep_window_p2036",
+    "architecture": [
+      {
+        "type": "window",
+        "input_size": 17,
+        "n_steps": 4
+      },
+      {
+        "type": "dense",
+        "input_size": 68,
+        "output_size": 24,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 24,
+        "output_size": 14,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 14,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  },
+  {
+    "arch": "window",
+    "params": 4025,
+    "config": "configs/training/sweep/window_p4025.toml",
+    "output_dir": "training_output/sweep_window_p4025",
+    "architecture": [
+      {
+        "type": "window",
+        "input_size": 17,
+        "n_steps": 4
+      },
+      {
+        "type": "dense",
+        "input_size": 68,
+        "output_size": 42,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 42,
+        "output_size": 25,
+        "activation": "swish"
+      },
+      {
+        "type": "dense",
+        "input_size": 25,
+        "output_size": 2,
+        "activation": "asinh"
+      }
+    ]
+  }
+]

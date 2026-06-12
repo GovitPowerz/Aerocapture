@@ -1,0 +1,12 @@
+# Cell: dense_p3998 (17->72->36->2, atan2) cell -- ga_bucket_random. Study wiring lives in experiments/paper/.
+# Pick a RANDOM seed of each CDF bin as its representative (explicit cell now
+# that the project default is "max").
+base = ["../sweep/dense_p3998.toml"]
+
+[data]
+neural_network = "training_output/paper/cells/dense_p3998_ga_bucket_random/best_model.json"
+results_suffix = ".dense_p3998_ga_bucket_random"
+
+[optimizer]
+algorithm = "ga"
+curation_bucket_selection = "random"
