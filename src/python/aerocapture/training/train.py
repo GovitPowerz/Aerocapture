@@ -2517,6 +2517,7 @@ if __name__ == "__main__":
     parser.add_argument("--algorithm", type=str, default=None, help="Optimization algorithm: ga, cma_es, de, pso, qpso (default: from TOML [optimizer])")
     parser.add_argument("--output-dir", type=str, default=None, help="Override the training output directory (default: derived from the scheme)")
     parser.add_argument("--seed-strategy", type=str, default=None, choices=["fixed", "rotating", "adaptive"], help="Override [optimizer] seed_strategy")
+    parser.add_argument("--training-n-sims", type=int, default=None, help="Override [optimizer] training_n_sims (sims per individual per generation)")
     args = parser.parse_args()
 
     cfg, _toml_data = build_training_config_from_toml(args.toml)
@@ -2530,6 +2531,8 @@ if __name__ == "__main__":
         cfg.optimizer.algorithm = args.algorithm
     if args.seed_strategy is not None:
         cfg.optimizer.seed_strategy = args.seed_strategy
+    if args.training_n_sims is not None:
+        cfg.optimizer.training_n_sims = args.training_n_sims
     cfg.sim.sim_timeout_secs = args.sim_timeout
     if cfg.network.architecture is not None:
         cfg.network.__post_init__()  # re-validate once all fields are set
