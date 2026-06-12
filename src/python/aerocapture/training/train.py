@@ -2740,8 +2740,13 @@ if __name__ == "__main__":
             assert cfg.sim.toml_config is not None
             deploy_optimized_artifacts(params, cfg, _toml_data, Path(cfg.save_dir), Path(cwd) / cfg.sim.toml_config)
 
-        # Report Generation
-        if not args.skip_report:
+        # Report Generation. NEVER on an interrupted run: the report writes
+        # final_eval.parquet, which is the campaign runners' skip-if-done marker
+        # and the paper's quoted artifact -- a Ctrl+C'd 4-gen run would
+        # self-certify as a completed cell (resume to completion first).
+        if result.get("interrupted"):
+            print("Run interrupted -- skipping final report/final_eval.parquet (resume to completion to produce them)")
+        elif not args.skip_report:
             from aerocapture.training.report import generate_report
 
             toml_path_report = Path(args.toml)
