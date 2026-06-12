@@ -51,6 +51,7 @@ Writing a comprehensive **Typst** research paper — the follow-up to **Gelly & 
 | `run_paper_experiments8.sh` | C-sub — bucket representative | **DONE (post-fix)** |
 | `run_paper_experiments9.sh` | **E — joint reference (ftc/energy_controller/pred_guid)** | **PENDING** |
 | `run_paper_experiments10.sh` | **A REBUILD — optimizer × budget, post-fix cubed+max** | **PENDING (run FIRST)** |
+| `run_paper_experiments11.sh` | **F — training_n_sims sweep (noise-floor + allocation)** | **PENDING** |
 
 ## What to run next (priority order)
 
@@ -59,7 +60,8 @@ Writing a comprehensive **Typst** research paper — the follow-up to **Gelly & 
 3. **`./run_paper_experiments5.sh`** — Study C seed-strategy (the "why GA wins" test), under cubed+max.
 4. **Output-param post-fix** — rerun the `out_scaledpi`/`out_delta` lines (now inherit cubed+max).
 5. **`./run_paper_experiments9.sh`** — Study E joint-reference (after the optimizer rebuild). Compare each `<scheme>_joint_ref` to its **post-fix** `<scheme>` baseline.
-6. *(optional/expensive)* architecture sweep rerun under GA-cubed-max; otherwise keep the islands sweep as a relative comparison and note it.
+6. **`./run_paper_experiments11.sh`** — Study F training_n_sims sweep (sample efficiency; companion to Study C).
+7. *(optional/expensive)* architecture sweep rerun under GA-cubed-max; otherwise keep the islands sweep as a relative comparison and note it.
 
 ## After all experiments (Phase 2-4 of the plan)
 
