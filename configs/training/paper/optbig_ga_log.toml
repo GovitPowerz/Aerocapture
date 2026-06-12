@@ -1,0 +1,12 @@
+# cost_transform sweep -- GA on dense_p3998, log cost (extreme-tail weighted, ~6th moment).
+base = ["../sweep/dense_p3998.toml"]
+
+[data]
+neural_network = "training_output/paper_optbig_ga_log/best_model.json"
+results_suffix = ".paper_optbig_ga_log"
+
+[optimizer]
+algorithm = "ga"
+
+[cost_function]
+cost_transform = "log"

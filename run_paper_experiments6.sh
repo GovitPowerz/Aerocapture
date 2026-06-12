@@ -13,6 +13,7 @@ set -euo pipefail
 # possibly at a small cost on mean. 'log' is the pipeline default ->
 # reuse training_output/paper_optbig_ga300 as the log point (do NOT re-run).
 
+uv run python -m aerocapture.training.train configs/training/paper/optbig_ga_log.toml  --n-gen 2000 --n-pop 300 --from-scratch
 uv run python -m aerocapture.training.train configs/training/paper/optbig_ga_linear.toml  --n-gen 2000 --n-pop 300 --from-scratch
 uv run python -m aerocapture.training.train configs/training/paper/optbig_ga_sqrt.toml    --n-gen 2000 --n-pop 300 --from-scratch
 uv run python -m aerocapture.training.train configs/training/paper/optbig_ga_squared.toml --n-gen 2000 --n-pop 300 --from-scratch
