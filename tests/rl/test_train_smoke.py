@@ -116,3 +116,12 @@ def test_linear_anneal_schedule() -> None:
     assert _linear_anneal(1.0, 0.5, 0.5) == pytest.approx(1.0)  # at start: full
     assert _linear_anneal(1.0, 0.75, 0.5) == pytest.approx(0.5)  # halfway: half
     assert _linear_anneal(1.0, 1.0, 0.5) == pytest.approx(0.0)  # end: zero
+
+
+def test_linear_anneal_final_update_overshoot() -> None:
+    """env_steps overshoots total_env_steps on the last update (frac_done > 1.0):
+    the default anneal_start = 1.0 ('off') must return base, not divide by zero."""
+    from aerocapture.training.rl.train import _linear_anneal
+
+    assert _linear_anneal(0.01, 1.022, 1.0) == 0.01  # default entropy config, final update
+    assert _linear_anneal(3e-4, 1.2, 0.5) == pytest.approx(0.0)  # active anneal floors at 0

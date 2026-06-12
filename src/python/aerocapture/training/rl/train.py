@@ -175,8 +175,11 @@ def _linear_anneal(base: float, frac_done: float, anneal_start: float) -> float:
 
     Returns `base` unchanged while `frac_done <= anneal_start`, so `anneal_start = 1.0`
     disables annealing (backward-compatible default; shared by LR and entropy_coef).
+    `frac_done` can exceed 1.0 on the final update (env_steps overshoots
+    total_env_steps by up to one rollout), so anneal_start = 1.0 must short-circuit
+    before the (1 - anneal_start) division.
     """
-    if frac_done <= anneal_start:
+    if anneal_start >= 1.0 or frac_done <= anneal_start:
         return base
     return base * max((1.0 - frac_done) / (1.0 - anneal_start), 0.0)
 
