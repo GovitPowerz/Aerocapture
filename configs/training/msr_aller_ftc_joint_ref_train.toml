@@ -12,8 +12,8 @@ base = ["msr_aller_ftc_train.toml"]
 
 [reference]
 joint_bank = true
-# bank_low = 55.0   # gene bounds (deg), defaults shown
-# bank_high = 80.0
+bank_low = 40.0   # gene bounds (deg), defaults shown
+bank_high = 120.0
 
 [data]
 results_suffix = ".train_ftc_joint_ref"
