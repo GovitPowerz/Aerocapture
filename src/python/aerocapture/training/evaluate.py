@@ -44,6 +44,11 @@ RL_TRAINING_SEED_OFFSET = 3_000_000
 WARM_START_SEED_OFFSET = 4_000_000
 NN_INPUT_REPORT_SEED_OFFSET = 5_000_000
 CALIBRATION_SEED_OFFSET = 6_000_000
+# 7_000_000 = SWEEP_EVAL_SEED_OFFSET (param_sweep.py).
+# Fresh pool for the paper's headline re-quote: the headline config is SELECTED
+# by sweeps scored on the 2M final-eval pool, so quoting that pool is
+# selection-on-test; the abstract number comes from this untouched stream.
+HEADLINE_REQUOTE_SEED_OFFSET = 8_000_000
 
 
 def make_reserved_seeds(base_mc_seed: int, offset: int, n: int) -> list[int]:

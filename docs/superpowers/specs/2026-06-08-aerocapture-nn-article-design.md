@@ -1,5 +1,15 @@
 # Aerocapture Neural-Guidance Article — Design
 
+> **SUPERSEDED OPERATIONALLY (2026-06-12).** Study definitions and narrative in this
+> spec remain the reference, but the EXECUTION layer moved: runners are
+> `experiments/paper/00..12` (see `experiments/paper/README.md` for run order, reuse
+> cells, and the locked reporting rules), configs were renamed to cell names
+> (`configs/training/paper/dense_p3998_ga.toml`, ...), and ALL pre-wipe training
+> outputs referenced by §3's status columns and §5's tables were DELETED on
+> 2026-06-12 (reorg spec: `2026-06-12-paper-experiments-reorg-design.md`).
+> §3 status columns, every `run_paper_experimentsN.sh` reference, and every §5
+> number are HISTORICAL. Current status lives in `paper_resume.md`.
+
 **Date:** 2026-06-08
 **Status:** Design approved (pending spec review)
 **Output:** a comprehensive arXiv-style research paper (Typst) — the follow-up to Gelly & Vernis, AIAA GNC 2009.
@@ -29,14 +39,14 @@ Write a thorough (page count is not a constraint) research article presenting th
 6. **Neural guidance** — architecture family (Dense/GRU/LSTM/Window/Transformer/Mamba, the stateful-runtime generalization of the 2009 single-hidden-layer net); the 35-candidate input vector (orbital/aero/thermal + reference-trajectory + exit-bank teacher + lateral telemetry + seam-free bank-history (sin,cos) pairs + periapsis alt + 3 live correction-DV "autoregressive" inputs) with a learned input mask; output parameterizations — 2D atan2 (the 2009 sin/cos decoder, Eq. 11), 1D scaled_pi, 1D delta.
 7. **Training & optimization** — the optimizer lineage GA(2009)→QPSO(2015)→islands(now); PSO, GA, DE, CMA-ES, RL(PPO/SAC), supervised warm-start (= 2016 divide-and-conquer reborn), and the 3-island PSO/GA/DE model with migration; **compute-fairness protocol stated explicitly** (see §4).
 8. **Results**
-   - 8.1 Optimizer comparison on a fixed dense net → islands best (Study A).
+   - 8.1 Optimizer comparison (optimizer × budget on dense_p3998; × dimensionality at 26/515/3998 params) → GA best at every budget; CMA-ES expected to compete only at low dimension.
    - 8.2 Architecture sweep (param-vs-DV Pareto) → dense best, Mamba second, **strongest in the low-param regime**.
    - 8.3 Output-parameterization study (Study B) → fair atan2 vs scaled_pi vs delta.
    - 8.4 Input ablation → engineered autoregressive inputs explain why dense beats Mamba's internal recurrence.
    - 8.5 **Classical vs NN** (headline comparison table).
    - 8.6 Pruning & quantization (deployability: QAT4/QAT8, pruned variants).
 9. **Discussion** — robustness (impressively low p95 and max), parameter efficiency, why dense+autoregressive-inputs wins, on-board feasibility (training is the only heavy cost; the deployed policy is tiny).
-10. **Conclusion** — plain dense NN is best and incredibly robust with very few parameters; islands improved training over the 2009 GA; future work (skip-entry, Earth-return leg, on-line adaptation).
+10. **Conclusion** — plain dense NN is best and incredibly robust with few parameters; the 2009 GA endures (beats islands/PSO/DE/CMA-ES/QPSO at matched compute) and the contribution is the moving-environment training methodology (adaptive curation + tail-weighted objective + worst-case bucket); future work (skip-entry, Earth-return leg, on-line adaptation).
 11. **References** — Typst native bibliography.
 
 Ordering is the recommended scientific order; §5-8 carry the user's 5 requested parts.

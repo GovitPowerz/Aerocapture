@@ -12,7 +12,7 @@ Writing a comprehensive **Typst** research paper — the follow-up to **Gelly & 
 1. **Spec (design + all studies + prior results + rerun plan):** `docs/superpowers/specs/2026-06-08-aerocapture-nn-article-design.md` ← study definitions; its §5 numbers are now HISTORICAL (pre-wipe) and will be superseded by the campaign re-runs.
 2. **Reorg spec (layout + wipe policy + bundle):** `docs/superpowers/specs/2026-06-12-paper-experiments-reorg-design.md`.
 3. **Campaign guide:** `experiments/paper/README.md` ← run order, reuse cells, reporting rules, preserved legacy dirs.
-4. **Plan (build order: experiments → aggregate → figures → Typst → smart-commit):** `docs/superpowers/plans/2026-06-08-aerocapture-nn-article.md`.
+4. **Plan v2 (aggregate → figures → Typst → smart-commit; the 06-08 plan is bannered DO NOT EXECUTE):** `docs/superpowers/plans/2026-06-12-aerocapture-nn-article-v2.md`.
 5. **Source extracts (prose + citations + voice):** `articles/markdown/00..05`.
 
 ## The narrative (current)
@@ -56,9 +56,9 @@ All runners: skip-if-done per cell, `--sim-timeout 5`. Never run two cells of th
 
 ## After all experiments (Phase 2-4 of the plan)
 
-- **Aggregate:** `articles/paper/scripts/aggregate_results.py` (plan Task 5) reads the committed bundle `articles/paper/data/runs/` → `articles/paper/data/results.json`, with paired-difference stats.
-- **Figures** (plan Tasks 6-9): param-vs-DV Pareto (incl. capability floor), optimizer scaling + dimensionality, cost_transform/bucket/seed-strategy bars, classical-vs-NN CDF, ablation (**on the new headline model**, not sweep_dense_p515), pruning/quant (legacy, footnoted).
-- **Typst paper** (plan Tasks 10-18): `articles/paper/` (standalone arXiv-style), voice from `articles/markdown/05`.
+- **Aggregate:** `articles/paper/scripts/aggregate_results.py` (plan v2 Tasks 1-2: `paper_stats.py` helpers + bundle-driven aggregator) reads `articles/paper/data/runs/` → `articles/paper/data/results.json`, with paired stats, actual-sims, σ_run, and the fresh-pool headline re-quote.
+- **Figures** (plan v2 Task 3): 10 figures via the shared figlib — Pareto incl. capability floor, optimizer budget+dimensionality, seed-strategy (thesis figure), cost_transform, curation, output-param, training_n_sims, classical-vs-NN CDF, joint-reference, pruning/quant (legacy footnote). Ablation + input report on ga_300 (Task 4); fresh-pool re-quote (Task 5).
+- **Typst paper** (plan v2 Tasks 6-14): `articles/paper/` (standalone arXiv-style), GA-quartet narrative, statistical-protocol subsection, ~10 results subsections, voice from `articles/markdown/05`.
 - **Finish:** `smart-commit` skill over the branch.
 
 ## How to extract numbers (reusable)

@@ -1,5 +1,14 @@
 # Aerocapture Neural-Guidance Article — Implementation Plan
 
+> **SUPERSEDED (2026-06-12) — DO NOT EXECUTE.** Replaced by
+> `docs/superpowers/plans/2026-06-12-aerocapture-nn-article-v2.md`. This plan predates
+> the islands→GA narrative flip, the 2026-06-12 methodology review (p99/CVaR95,
+> paired stats, actual-sims accounting, fresh-pool re-quote, sigma_run repeats), and
+> the campaign reorg (commit 0939b13): its Phase 1 recreates DELETED configs/runners,
+> its Task 5 aggregator reads WIPED dirs and would silently mislabel the GA-rerun
+> sweep as islands/atan2 cells, and its Tasks 11/15/16/17 hard-code the inverted
+> "islands best" claim with dead pre-wipe numbers. Kept for history only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Produce a comprehensive Typst research paper (the follow-up to Gelly & Vernis, AIAA GNC 2009) presenting the repo's neural aerocapture guidance, benchmarked against classical/predictor-corrector schemes and across optimizers and NN architectures.

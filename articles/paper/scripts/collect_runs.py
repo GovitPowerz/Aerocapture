@@ -16,8 +16,33 @@ REPO = Path(__file__).resolve().parents[3]
 OUT = REPO / "articles/paper/data/runs"
 TRAINING = REPO / "training_output"
 
-ARTIFACTS = ("best_model.json", "best_params.json", "final_eval.parquet", "final_selection.json")
+ARTIFACTS = ("best_model.json", "best_params.json", "final_eval.parquet", "final_selection.json", "fresh_pool_requote.json")
 CLASSICAL = ("piecewise_constant", "ftc", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag")
+# Preserved PRE-FIX legacy dirs the paper footnote-quotes (RL, warm-start/joint,
+# QAT/pruning). Bundled under legacy/ so those table rows also reproduce from
+# the committed bundle, not just from a local checkout.
+LEGACY = (
+    "neural_network_rl",
+    "neural_network_gru_ppo",
+    "paper_opt_warmstart",
+    "best_neural_network_joint",
+    "neural_network_joint",
+    "neural_gru_joint",
+    "neural_network_atan2",
+    "neural_network_atan2_qat4",
+    "neural_network_atan2_qat8",
+    "neural_network_pruned",
+    "neural_network_pruned_dv",
+    "neural_network_pruned_dv2",
+    "neural_network_pruned_dv3",
+    "neural_network_scaledpi_pso",
+    "neural_network_scaledpi_pso_pruned",
+    "neural_network_scaledpi_pso_pruned_dv",
+    "neural_network_scaledpi_pso_pruned_dv3",
+    "neural_network_delta_pso",
+    "neural_network_delta_pso_pruned",
+    "neural_network_delta_pso_pruned_dv3",
+)
 
 
 def _run_dirs() -> list[tuple[Path, Path]]:
@@ -35,7 +60,22 @@ def _run_dirs() -> list[tuple[Path, Path]]:
     for src in sorted(TRAINING.glob("sweep_*")):
         if (src / "final_eval.parquet").exists():
             pairs.append((src, OUT / "architecture_sweep" / src.name))
+    for name in LEGACY:
+        src = TRAINING / name
+        if (src / "final_eval.parquet").exists():
+            pairs.append((src, OUT / "legacy" / name))
     return pairs
+
+
+def _check_stale_parquet(src: Path) -> str | None:
+    """A best_model.json newer than final_eval.parquet means the dir was
+    re-selected (e.g. retro final_select) without re-running report.py -- the
+    parquet quotes the PREVIOUS winner. Bundling it would commit inconsistent
+    paper numbers."""
+    model, parquet = src / "best_model.json", src / "final_eval.parquet"
+    if model.exists() and model.stat().st_mtime > parquet.stat().st_mtime + 1:
+        return f"STALE: best_model.json newer than final_eval.parquet in {src} -- re-run report.py on this dir before collecting"
+    return None
 
 
 def _copy_if_newer(src: Path, dst: Path) -> bool:
@@ -68,8 +108,13 @@ def main(argv: list[str] | None = None) -> None:
     pairs = _run_dirs()
     if not pairs:
         sys.exit(f"No completed runs found under {TRAINING}")
-    n_new = 0
+    n_new, stale = 0, []
     for src, dst in pairs:
+        warning = _check_stale_parquet(src)
+        if warning:
+            stale.append(warning)
+            print(f"  {src.relative_to(TRAINING)}  [SKIPPED -- stale parquet]")
+            continue
         copied: list[str] = []
         if not args.dry_run:
             copied += [a for a in ARTIFACTS if (src / a).exists() and _copy_if_newer(src / a, dst / a)]
@@ -78,7 +123,9 @@ def main(argv: list[str] | None = None) -> None:
         status = "would collect" if args.dry_run else (f"updated {', '.join(copied)}" if copied else "up to date")
         print(f"  {src.relative_to(TRAINING)} -> {dst.relative_to(REPO)}  [{status}]")
         n_new += bool(copied)
-    print(f"\n{len(pairs)} runs in bundle, {n_new} updated. Remember to `git add articles/paper/data/runs`.")
+    for w in stale:
+        print(f"\nWARNING: {w}")
+    print(f"\n{len(pairs) - len(stale)} runs in bundle, {n_new} updated. Remember to `git add articles/paper/data/runs`.")
 
 
 if __name__ == "__main__":

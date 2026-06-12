@@ -124,6 +124,8 @@ def run_ablation(
     n_sims: int = 1000,
     sim_timeout_secs: float | None = None,
     cost_transform: str | None = None,
+    model_path: str | Path | None = None,
+    extra_overrides: dict | None = None,
 ) -> dict:
     """Run ablation analysis on a trained NN model.
 
@@ -131,15 +133,22 @@ def run_ablation(
     overrides data.neural_network to point at it, and measures cost degradation
     vs baseline using the same cost function as the training pipeline.
 
+    `model_path` pins the evaluated model (e.g. a run-local best_model.json);
+    without it the TOML's [data] neural_network deploy path is used, which is
+    SHARED by every --output-dir sibling of the same config and may hold a
+    foreign cell's weights. `extra_overrides` (e.g. the co-trained
+    scaffolding from best_params.json) are applied to baseline AND ablated
+    runs so the costs match the deployed operating point.
+
     Returns dict with keys: baseline_cost, n_sims, results, ranked.
     """
     import aerocapture_rs
 
-    nn_path = _resolve_nn_path(toml_path)
+    nn_path = Path(model_path).resolve() if model_path is not None else _resolve_nn_path(toml_path)
     model_json = json.loads(nn_path.read_text())
     cost_kwargs = _load_cost_kwargs(toml_path, cost_transform=cost_transform)
 
-    common_overrides: dict = {"simulation.n_sims": n_sims}
+    common_overrides: dict = {"simulation.n_sims": n_sims, "data.neural_network": str(nn_path), **(extra_overrides or {})}
 
     # Baseline run (no ablation)
     baseline = aerocapture_rs.run_mc(toml_path, overrides=common_overrides, sim_timeout_secs=sim_timeout_secs)
@@ -211,17 +220,22 @@ def run_flip_ablation(
     flip_indices: tuple[int, ...] = _DEFAULT_FLIP_INDICES,
     sim_timeout_secs: float | None = None,
     cost_transform: str | None = None,
+    model_path: str | Path | None = None,
+    extra_overrides: dict | None = None,
 ) -> dict:
     """Freeze each flip index to -1 and +1 (vs the network's normal ±1 flag),
     measuring cost delta for each frozen value separately. Unlike zero-ablation,
     this avoids feeding an out-of-distribution 0 to a binary flag, isolating the
-    phase-gating effect from the OOD-zero artifact."""
+    phase-gating effect from the OOD-zero artifact.
+
+    `model_path` / `extra_overrides`: same semantics as run_ablation (pin the
+    run-local model; apply co-trained scaffolding to all runs)."""
     import aerocapture_rs
 
-    nn_path = _resolve_nn_path(toml_path)
+    nn_path = Path(model_path).resolve() if model_path is not None else _resolve_nn_path(toml_path)
     model_json = json.loads(nn_path.read_text())
     cost_kwargs = _load_cost_kwargs(toml_path, cost_transform=cost_transform)
-    common_overrides: dict = {"simulation.n_sims": n_sims}
+    common_overrides: dict = {"simulation.n_sims": n_sims, "data.neural_network": str(nn_path), **(extra_overrides or {})}
 
     baseline = aerocapture_rs.run_mc(toml_path, overrides=common_overrides, sim_timeout_secs=sim_timeout_secs)
     baseline_mean = _mean_per_sim_cost(baseline.final_records, cost_kwargs)
@@ -268,11 +282,33 @@ def main() -> None:
         default=None,
         help="override [cost_function] cost_transform for this ablation run (e.g. log -- avoids cubed corrupting the ranking)",
     )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="NN model JSON to ablate (default: <training_dir>/best_model.json when present, else the TOML's "
+        "data.neural_network deploy path -- shared across --output-dir siblings, may hold a foreign cell's weights)",
+    )
     args = parser.parse_args()
+
+    # Pin the run-local model and apply its co-trained scaffolding (best_params.json,
+    # scaffolding = live/full) so costs match the deployed operating point.
+    from aerocapture.training.report import _load_nn_scaffolding_overrides  # noqa: PLC0415
+
+    training_dir = Path(args.training_dir)
+    model = args.model
+    if model is None and (training_dir / "best_model.json").exists():
+        model = str(training_dir / "best_model.json")
+    scaffolding = _load_nn_scaffolding_overrides(training_dir, training_dir / f"optimized_{training_dir.name}.toml")
+    if model:
+        print(f"Model: {model}")
+    if scaffolding:
+        print(f"Scaffolding overrides from {training_dir / 'best_params.json'}: {sorted(scaffolding)}")
 
     if args.flip:
         print(f"Running flip-ablation with {args.n_sims} sims per frozen value...")
-        flip = run_flip_ablation(args.toml, args.n_sims, sim_timeout_secs=args.sim_timeout, cost_transform=args.cost_transform)
+        flip = run_flip_ablation(
+            args.toml, args.n_sims, sim_timeout_secs=args.sim_timeout, cost_transform=args.cost_transform, model_path=model, extra_overrides=scaffolding
+        )
         out_path = Path(args.training_dir) / "flip_ablation_results.json"
         out_path.write_text(json.dumps(flip, indent=2))
         print(f"\nBaseline mean cost: {flip['baseline_cost']:.4f}")
@@ -284,7 +320,7 @@ def main() -> None:
         return
 
     print(f"Running ablation analysis with {args.n_sims} sims per input...")
-    results = run_ablation(args.toml, args.n_sims, args.sim_timeout, cost_transform=args.cost_transform)
+    results = run_ablation(args.toml, args.n_sims, args.sim_timeout, cost_transform=args.cost_transform, model_path=model, extra_overrides=scaffolding)
 
     # Print table
     print(f"\nBaseline mean cost: {results['baseline_cost']:.4f}")
