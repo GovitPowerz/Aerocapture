@@ -7,6 +7,7 @@ routed into the guidance TOML (Rust would silently drop the unknown key)."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -20,7 +21,7 @@ FTC_TOML = "configs/training/msr_aller_ftc_train.toml"
 
 def test_joint_ref_schemes_are_the_table_readers() -> None:
     # fnpag never reads the reference table; it must NOT get a dead gene.
-    assert JOINT_REF_BANK_SCHEMES == {"ftc", "energy_controller", "pred_guid"}
+    assert {"ftc", "energy_controller", "pred_guid"} == JOINT_REF_BANK_SCHEMES
 
 
 class TestSpecInjection:
@@ -100,3 +101,68 @@ def test_generate_constant_bank_tables_batched(tmp_path: Path) -> None:
     assert d68[:, 0].min() < d64[:, 0].min()
     # constant commanded-cos feedforward
     assert np.allclose(d68[:, 6], np.cos(np.radians(68.0)))
+
+
+class TestDeployOptimizedArtifacts:
+    """deploy_optimized_artifacts: optimized TOML + joint-ref table deploy (shared
+    by train.py main() and the final_select CLI -- the CLI previously left a stale
+    reference table behind a re-selected ref_bank)."""
+
+    @staticmethod
+    def _fake_tables(content: str) -> Callable[..., list[Path]]:
+        def fake(toml_path: str, banks_deg: list[float], mc_config: dict, out_dir: Path, sim_timeout_secs: float | None = None) -> list[Path]:
+            p = Path(out_dir) / "ref_bank_0000.dat"
+            p.write_text(content)
+            return [p]
+
+        return fake
+
+    def test_empty_reference_table_refused(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A winner whose constant-bank nominal produced no trajectory must not be
+        deployed: the Rust loader silently accepts a 0-point table and interpolates 0.0."""
+        from aerocapture.training import reference as ref_mod
+        from aerocapture.training.train import deploy_optimized_artifacts
+
+        cfg, toml = build_training_config_from_toml(FTC_TOML)
+        monkeypatch.setattr(ref_mod, "generate_constant_bank_tables", self._fake_tables(""))
+        with pytest.raises(RuntimeError, match="empty reference table"):
+            deploy_optimized_artifacts({"gain": 1.0, "ref_bank": 67.0}, cfg, toml, tmp_path, Path(FTC_TOML), verbose=False)
+
+    def test_deploys_table_and_rewires_toml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import tomllib
+
+        from aerocapture.training import reference as ref_mod
+        from aerocapture.training.train import deploy_optimized_artifacts
+
+        cfg, toml = build_training_config_from_toml(FTC_TOML)
+        row = "  1.0 2.0 3.0 3.0 0.5 10.0 0.42\n"
+        monkeypatch.setattr(ref_mod, "generate_constant_bank_tables", self._fake_tables(row))
+        deploy_optimized_artifacts({"gain": 1.0, "ref_bank": 67.0}, cfg, toml, tmp_path, Path(FTC_TOML), verbose=False)
+
+        deploy_ref = tmp_path / "ref_trajectory.dat"
+        assert deploy_ref.exists() and deploy_ref.read_text() == row
+        opt = tomllib.loads((tmp_path / "optimized_ftc.toml").read_text())
+        assert opt["data"]["reference_trajectory"] == str(deploy_ref)
+        # the gene must never reach a guidance TOML key (Rust drops unknown keys)
+        assert "ref_bank" not in opt.get("guidance", {}).get("ftc", {})
+
+
+def test_run_grid_honors_reference_trajectory_override(tmp_path: Path) -> None:
+    """run_grid must honor per-individual `data.reference_trajectory` overrides.
+
+    This is the joint ref_bank gene's delivery mechanism: without it the gene is
+    DEAD -- every individual trains/validates against the base mission table while
+    the deploy/report/compare paths use the winner's own table (the documented
+    gains<->reference co-adaptation trap)."""
+    import aerocapture_rs
+    from aerocapture.training.reference import generate_constant_bank_tables
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    mc = load_toml_with_bases(Path(FTC_TOML)).get("monte_carlo", {})
+    [tbl] = generate_constant_bank_tables(FTC_TOML, [72.0], mc, tmp_path)
+    assert tbl.stat().st_size > 0
+
+    base = np.asarray(aerocapture_rs.run_grid(FTC_TOML, [{}], [123]))
+    injected = np.asarray(aerocapture_rs.run_grid(FTC_TOML, [{"data.reference_trajectory": str(tbl)}], [123]))
+    assert base.shape == injected.shape
+    assert not np.allclose(base[0, 0], injected[0, 0]), "run_grid silently ignored the per-individual reference-trajectory override"

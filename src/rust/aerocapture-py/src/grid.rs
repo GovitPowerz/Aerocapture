@@ -68,9 +68,26 @@ pub fn run_grid(
         aerocapture::config::resolve_toml_bases(Value::Table(base_table), toml_path, &mut visited)
             .map_err(|e| format!("Base resolution error: {}", e))?;
 
+    // Atmosphere / wind tables are loaded once from the base config and shared
+    // across the grid — a per-individual override of their paths would be
+    // silently ignored (the reference trajectory is the one table
+    // `from_toml_with_tables` reloads per individual, for the joint ref_bank gene).
+    for ovs in &overrides_list {
+        for (k, _) in ovs {
+            if k == "data.atmosphere" || k == "data.wind_table" {
+                return Err(format!(
+                    "run_grid: '{}' override is not supported (atmosphere/wind tables are shared across the grid; use run_batch)",
+                    k
+                ));
+            }
+        }
+    }
+
     let run = || -> Result<Vec<[f64; FINAL_RECORD_LEN]>, String> {
-        // SharedTables once from the base config (table paths + reference_trajectory
-        // flag are constant across GA overrides, which only touch guidance/nav params).
+        // SharedTables once from the base config. Per-individual overrides may
+        // retarget `data.reference_trajectory` (joint ref_bank); SimData's
+        // `from_toml_with_tables` reloads that table when the patched path
+        // differs from the shared load.
         let base_str =
             toml::to_string(&base_value).map_err(|e| format!("TOML serialize error: {}", e))?;
         let (base_input, base_toml) =
