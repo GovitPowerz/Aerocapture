@@ -1691,6 +1691,35 @@
       "win_rate_a": 1.0,
       "wilcoxon_p": 3.3258591189345135e-165
     },
+    "nn_vs_fnpag": {
+      "a": "optimizer_budget/ga_300",
+      "b": "classical_baselines/fnpag",
+      "n_pairs": 1000,
+      "delta_mean": -3.811,
+      "delta_mean_ci": [
+        -4.264,
+        -3.352
+      ],
+      "win_rate_a": 0.695,
+      "wilcoxon_p": 4.3440764257085235e-54
+    },
+    "ftc_vs_fnpag": {
+      "a": "classical_baselines/ftc",
+      "b": "classical_baselines/fnpag",
+      "n_pairs": 1000,
+      "delta_mean": 46.396,
+      "delta_mean_ci": [
+        44.87,
+        47.959
+      ],
+      "win_rate_a": 0.001,
+      "wilcoxon_p": 3.4686367735029226e-165
+    },
+    "jointftc_vs_fnpag": {
+      "missing": true,
+      "a": "joint_reference/ftc",
+      "b": "classical_baselines/fnpag"
+    },
     "joint_vs_fixed_ftc": {
       "missing": true,
       "a": "joint_reference/ftc",
