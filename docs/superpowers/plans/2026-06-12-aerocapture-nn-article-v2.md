@@ -24,6 +24,7 @@ No tasks. The experiments are `experiments/paper/00_prereqs.sh` … `12_collect_
 | Task 3 (figures) | per-figure: pareto → 09+10 (+02/03 anchors); optimizer → 02 (+03, 04); output-param → 03; classical-vs-NN → 00+01+02; cost-transform → 05 (+02); curation → 06 (+02); training-n-sims → 08 (+02); joint-ref → 01+07; pruning-quant → nothing (legacy dirs); σ_run error bars → 11 |
 | Task 4 (ablation + input report on headline) | 02 |
 | Task 5 (fresh-pool re-quote) | 02 |
+| Task 5b-5c (compute benchmark + robustness stress) | 01+02 ready; HELD until 07 (joint-ref may move FTC) |
 | Tasks 6-14 (Typst) | scaffolding/template: nothing; problem/testbed/classical/neural/training prose: nothing; every results number: the relevant figures + `12` |
 | Task 15 (smart-commit) | all |
 
@@ -553,7 +554,7 @@ def save(fig, name: str) -> None:
   - `fig_curation.py` — bucket min/middle/random (`curation_shaping/bucket_*`) + max (`ga_300`); trim 0 (`ga_300`)/10/20 (`curation_shaping/trim_*`).
   - `fig_output_param.py` — atan2 control (`optimizer_dimensionality/dense_p515_ga`) vs `output_param/{scaledpi,delta}`.
   - `fig_training_n_sims.py` — two panels: rotating noise floor (`training_n_sims/rotating_*` vs n_sims) and adaptive allocation (`training_n_sims/adaptive_*` + `ga_300` anchor) with x = `actual_sims.total`, not nominal budget.
-  - `fig_classical_vs_nn.py` — `dv_cdf` overlay: classical 6 (`classical_baselines/*`) + headline NN (`optimizer_budget/ga_300`).
+  - `fig_classical_vs_nn.py` — TWO panels: (a) `dv_cdf` overlay of the full classical 6 + headline NN; (b) the **3-way** main-text figure: a compute-vs-accuracy scatter (x = ms/sim from `compute_benchmark.json` log-scale, y = CVaR95 from `results.json`) plotting NN / FTC / FNPAG (+ joint-FTC once 07 lands), showing the NN in the low-compute/low-CVaR corner. EC/eqglide/piecewise stay in panel (a) / an appendix table.
   - `fig_joint_reference.py` — per scheme (ftc/ec/pg): fixed-ref baseline vs `joint_reference/<scheme>` bars + paired delta CIs from `results.json["paired"]["joint_vs_fixed_*"]`.
   - `fig_pruning_quant.py` — LEGACY (pre-fix regime, caption footnote): `legacy/neural_network_atan2` (full) vs `legacy/neural_network_atan2_qat8`/`_qat4` + the pruned variants.
 
@@ -603,6 +604,50 @@ uv run python articles/paper/scripts/fresh_pool_requote.py \
 Expected: prints + writes `fresh_pool_requote.json` (capture, mean/p50/p95/p99/CVaR95). THIS is the abstract number.
 
 - [ ] **Step 2: Re-run `./experiments/paper/12_collect_results.sh` + `aggregate_results.py`** so `results.json["headline_fresh_pool"]` is populated; commit the bundle delta.
+
+---
+
+# Phase 2b — Deployability evidence (the 3-way NN/FTC/FNPAG)
+
+*Added 2026-06-14 after 01/02 landed: the 2026-06 FNPAG density-tracking fix made
+FNPAG the strongest classical (124.3 mean vs FTC 170.7), near-NN accuracy — so the
+NN-vs-classical headline shifts from "beats a weak FTC" to "matches the best
+predictor-corrector's correction-DV (NN−FNPAG = −3.8 m/s, 69.5% paired win, p=4e-54)
+at a fraction of the onboard compute." The 3-way spans the trade-off triangle:
+FNPAG accurate-but-slow, FTC fast-but-(currently)-trails, NN accurate-and-fast.
+**Both tasks below are DRAFTED and READY but HELD until Study E (07_joint_reference)
+lands** — joint-ref may lift FTC's accuracy materially (the canonical reference is a
+first-order FTC driver) and decide whether FTC is a fast-and-accurate peer or just
+fast. Do not write the 3-way conclusion (8.9) until 07 + the seed-repeats σ_run (11)
+are in.*
+
+### Task 5b: Compute benchmark — the "fastest compute" half of the claim *(gate: 01+02 done; HELD until 07)*
+
+**Files:** `articles/paper/scripts/compute_benchmark.py` (SHIPPED), generates `articles/paper/data/compute_benchmark.json`.
+
+- [ ] **Step 1: Run it** (single-core ms/sim for NN/FTC/FNPAG at their deployed operating points)
+
+```bash
+uv run python articles/paper/scripts/compute_benchmark.py --n-sims 200
+```
+Expected: prints ms/sim + sims/s per scheme; FNPAG ≫ NN ≈ FTC (the ratio under-states the pure guidance-cost gap since integration cost is shared — stated in the script header). Writes `compute_benchmark.json` for the figure.
+
+- [ ] **Step 2:** commit the JSON; it feeds the compute axis of the 3-way figure (Task 3 `fig_classical_vs_nn`).
+
+### Task 5c: Robustness stress — evidence for "FTC more robust than FNPAG" *(gate: 01+02 done; HELD until 07)*
+
+**Files:** `articles/paper/scripts/robustness_stress.py` (SHIPPED; `STRESS_EVAL_SEED_OFFSET = 9_000_000` in `evaluate.py`), generates `articles/paper/data/robustness_stress.json`.
+
+Tests DEPLOYMENT robustness: each deployed policy (no retraining) on a harder regime (atmosphere/density/nav/nav_filter = high) on the disjoint 9M pool. FNPAG's forward predictor depends on the onboard density estimate, so it should degrade more than FTC's analytic feedback law; if it does, "FTC more robust" is evidenced rather than asserted (otherwise soften to "structurally simpler, no predictor-divergence mode").
+
+- [ ] **Step 1: Run it**
+
+```bash
+uv run python articles/paper/scripts/robustness_stress.py --n-sims 1000
+```
+Expected: capture-rate drop + CVaR95 inflation vs nominal per scheme; the finding is the RELATIVE degradation (FNPAG vs FTC vs NN), reported whichever way it falls.
+
+- [ ] **Step 2:** commit the JSON; if FNPAG degrades most, it substantiates the robustness axis of the 3-way (accuracy × compute × robustness); if not, drop the "more robust" wording. Either way, report it.
 
 ---
 

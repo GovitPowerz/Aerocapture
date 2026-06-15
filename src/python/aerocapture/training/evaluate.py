@@ -49,6 +49,10 @@ CALIBRATION_SEED_OFFSET = 6_000_000
 # by sweeps scored on the 2M final-eval pool, so quoting that pool is
 # selection-on-test; the abstract number comes from this untouched stream.
 HEADLINE_REQUOTE_SEED_OFFSET = 8_000_000
+# Off-nominal robustness stress pool: deployed policies evaluated on a HARDER
+# MC regime (atmosphere/density/nav at level=high), disjoint from every training
+# and eval stream so the stress test is reproducible and uncontaminated.
+STRESS_EVAL_SEED_OFFSET = 9_000_000
 
 
 def make_reserved_seeds(base_mc_seed: int, offset: int, n: int) -> list[int]:
