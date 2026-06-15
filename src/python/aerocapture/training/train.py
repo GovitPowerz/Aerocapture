@@ -1442,6 +1442,21 @@ def train(
                     print(f"  {label} validation: mean={best_val_cost:.4e} cap={init_val_metrics['capture_rate']:.0%}")
 
             for gen in range(start_gen, config.optimizer.n_gen):
+                # CMA-ES wraps pycma, which terminates internally when its own
+                # convergence / restart criteria fire (e.g. IPOP restarts
+                # exhausted on the noisy adaptive-seed objective). When that
+                # happens pymoo's `_advance` sets `next_X = None` and flags the
+                # termination; calling `next()` again crashes in
+                # `norm.backward(np.array(None))` with an axis-1 boolean-index
+                # mismatch (population width collapses to 1 vs n_var). Every
+                # other algorithm uses NoTermination and never self-stops, so
+                # `has_next()` stays True. Break cleanly so the post-loop final
+                # selection / eval / report still run on the converged pop.
+                if not algorithm.has_next():
+                    if verbose:
+                        print(f"  {config.optimizer.algorithm} terminated internally at gen {gen} (converged / restarts exhausted); ending training loop.")
+                    break
+
                 gen_wall_start = time.perf_counter()
 
                 seeds_changed_this_gen = _apply_seed_strategy(

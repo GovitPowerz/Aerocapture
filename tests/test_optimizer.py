@@ -1,4 +1,5 @@
 import warnings
+from typing import Any
 
 import pytest
 from aerocapture.training.optimizer import (
@@ -239,6 +240,68 @@ class TestCurationKnobs:
             }
         )
         assert isinstance(cfg, OptimizerConfig)
+
+
+def _converging_cmaes(n_params: int = 6, n_gen: int = 5000) -> tuple[Any, Any]:
+    """Build a warm-started CMA-ES (ipop restarts, like the paper configs) on a
+    cheap analytic sphere so pycma's internal convergence/restart termination
+    fires quickly -- the precondition that crashed paper experiment 03's
+    `ftc_cmaes` cell. Returns (algorithm, problem); no Rust sims involved.
+    """
+    import numpy as np  # noqa: PLC0415
+    from aerocapture.training.train import warm_start_algorithm  # noqa: PLC0415
+    from pymoo.core.evaluator import Evaluator  # noqa: PLC0415
+    from pymoo.core.population import Population  # noqa: PLC0415
+    from pymoo.core.problem import Problem  # noqa: PLC0415
+
+    class _Sphere(Problem):
+        def __init__(self) -> None:
+            super().__init__(n_var=n_params, n_obj=1, xl=np.zeros(n_params), xu=np.ones(n_params))
+
+        def _evaluate(self, x, out, *a, **k):  # type: ignore[no-untyped-def]
+            out["F"] = ((x - 0.5) ** 2).sum(axis=1, keepdims=True)
+
+    cfg = OptimizerConfig(algorithm="cma_es", seed_strategy="adaptive", n_pop=30, n_gen=n_gen)
+    cfg.cma_es.sigma0 = 0.3
+    cfg.cma_es.restart_strategy = "ipop"
+    algo = create_algorithm(cfg, n_params=n_params)
+
+    prob = _Sphere()
+    pop = Population.new("X", np.random.default_rng(0).random((cfg.n_pop, n_params)))
+    Evaluator().eval(prob, pop)
+    warm_start_algorithm(algo, prob, pop)  # the exact seeding train.py uses
+    return algo, prob
+
+
+class TestCmaesInternalTermination:
+    """Regression for paper experiment 03 `ftc_cmaes` crash: pymoo's CMA-ES
+    wraps pycma, which self-terminates (next_X=None); a subsequent `next()`
+    crashes in `norm.backward` with 'boolean index did not match ... axis 1'.
+    The single-algorithm training loop must guard `next()` with `has_next()`.
+    """
+
+    def test_extra_next_after_termination_crashes(self) -> None:
+        algo, _ = _converging_cmaes()
+        # Drive to pycma's internal termination via the guarded pattern.
+        n = 0
+        while algo.has_next() and n < 6000:
+            algo.next()
+            n += 1
+        assert not algo.has_next(), "CMA-ES never self-terminated; tighten the analytic problem"
+        # The unguarded extra step reproduces the original IndexError.
+        with pytest.raises(IndexError, match="boolean index did not match"):
+            algo.next()
+
+    def test_has_next_guard_completes_without_crash(self) -> None:
+        algo, _ = _converging_cmaes(n_gen=6000)
+        gens = 0
+        for _ in range(6000):
+            if not algo.has_next():
+                break
+            algo.next()
+            gens += 1
+        # Guard fired before the gen cap and no IndexError was raised.
+        assert 0 < gens < 6000
 
 
 class TestSeedStrategy:
