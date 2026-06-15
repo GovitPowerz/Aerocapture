@@ -303,6 +303,52 @@ class TestCmaesInternalTermination:
         # Guard fired before the gen cap and no IndexError was raised.
         assert 0 < gens < 6000
 
+    def test_cmaes_keeps_no_termination(self) -> None:
+        # CMA-ES sets NoTermination in __init__ and setup() preserves it, so its
+        # ONLY has_next()==False is pycma's StopIteration. That is what makes the
+        # loop guard safe to gate on `is_cmaes`.
+        from pymoo.core.termination import NoTermination  # noqa: PLC0415
+
+        algo, _ = _converging_cmaes()
+        assert isinstance(algo.termination, NoTermination)
+
+    def test_non_cmaes_algorithms_self_report_convergence(self) -> None:
+        # GA/DE/PSO/QPSO get a DefaultSingleObjectiveTermination from setup(),
+        # whose ftol/xtol convergence makes has_next() go False well before
+        # n_gen on a flat objective. The single-algorithm train() loop guard
+        # MUST therefore stay gated on `is_cmaes` -- an ungated has_next() break
+        # silently early-stops these (violating the no-early-stopping policy;
+        # this is the dense_p515_ga "terminated at gen 45" regression).
+        import numpy as np  # noqa: PLC0415
+        from aerocapture.training.train import warm_start_algorithm  # noqa: PLC0415
+        from pymoo.algorithms.soo.nonconvex.cmaes import CMAES, SimpleCMAES  # noqa: PLC0415
+        from pymoo.core.evaluator import Evaluator  # noqa: PLC0415
+        from pymoo.core.population import Population  # noqa: PLC0415
+        from pymoo.core.problem import Problem  # noqa: PLC0415
+
+        class _Flat(Problem):
+            def __init__(self) -> None:
+                super().__init__(n_var=8, n_obj=1, xl=np.zeros(8), xu=np.ones(8))
+
+            def _evaluate(self, x, out, *a, **k):  # type: ignore[no-untyped-def]
+                out["F"] = ((x - 0.5) ** 2).sum(axis=1, keepdims=True) * 1e-6
+
+        for name in ("ga", "de", "pso", "qpso"):
+            cfg = OptimizerConfig(algorithm=name, seed_strategy="adaptive", n_pop=20, n_gen=2000)
+            algo = create_algorithm(cfg, n_params=8)
+            assert not isinstance(algo, (CMAES, SimpleCMAES))
+            prob = _Flat()
+            pop = Population.new("X", np.random.default_rng(0).random((20, 8)))
+            Evaluator().eval(prob, pop)
+            warm_start_algorithm(algo, prob, pop)
+            stopped_at = None
+            for g in range(2000):
+                if not algo.has_next():
+                    stopped_at = g
+                    break
+                algo.next()
+            assert stopped_at is not None and stopped_at < 2000, f"{name} did not self-report convergence; the gating rationale would be moot"
+
 
 class TestSeedStrategy:
     def test_accepts_valid_values(self) -> None:

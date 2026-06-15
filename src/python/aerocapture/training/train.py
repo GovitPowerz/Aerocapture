@@ -1441,20 +1441,29 @@ def train(
                     label = f"Gen {start_gen}" if start_gen > 0 else "Gen 0"
                     print(f"  {label} validation: mean={best_val_cost:.4e} cap={init_val_metrics['capture_rate']:.0%}")
 
+            # CMA-ES is the only optimizer that self-terminates -- it wraps
+            # pycma, which carries its own convergence / restart criteria.
+            # Cache the type check once (the algorithm type is fixed for the
+            # whole run); it gates both the internal-termination guard and the
+            # pre-next re-eval skip below. NB: a cma_es config with
+            # n_params > _CMAES_MAX_PARAMS falls back to GA, so test the
+            # instance, not config.optimizer.algorithm.
+            from pymoo.algorithms.soo.nonconvex.cmaes import CMAES, SimpleCMAES  # noqa: PLC0415
+
+            is_cmaes = isinstance(algorithm, (CMAES, SimpleCMAES))
+
             for gen in range(start_gen, config.optimizer.n_gen):
-                # CMA-ES wraps pycma, which terminates internally when its own
-                # convergence / restart criteria fire (e.g. IPOP restarts
-                # exhausted on the noisy adaptive-seed objective). When that
-                # happens pymoo's `_advance` sets `next_X = None` and flags the
-                # termination; calling `next()` again crashes in
+                # When pycma's criteria fire (e.g. IPOP restarts exhausted on
+                # the noisy adaptive-seed objective), pymoo's `_advance` sets
+                # `next_X = None`; calling `next()` again crashes in
                 # `norm.backward(np.array(None))` with an axis-1 boolean-index
-                # mismatch (population width collapses to 1 vs n_var). Every
-                # other algorithm uses NoTermination and never self-stops, so
-                # `has_next()` stays True. Break cleanly so the post-loop final
-                # selection / eval / report still run on the converged pop.
-                if not algorithm.has_next():
+                # mismatch (population width collapses to 1 vs n_var). GA/DE/
+                # PSO/QPSO use NoTermination and never self-stop, so this guard
+                # is CMA-ES-only. Break cleanly so the post-loop final selection
+                # / eval / report still run on the converged pop.
+                if is_cmaes and not algorithm.has_next():
                     if verbose:
-                        print(f"  {config.optimizer.algorithm} terminated internally at gen {gen} (converged / restarts exhausted); ending training loop.")
+                        print(f"  CMA-ES terminated internally at gen {gen} (converged / restarts exhausted); ending training loop.")
                     break
 
                 gen_wall_start = time.perf_counter()
@@ -1471,13 +1480,10 @@ def train(
                 pending_seed_change = False
 
                 # Pre-next re-eval: only fire when seeds changed. Skip for CMA-ES.
-                if seeds_changed_this_gen:
-                    from pymoo.algorithms.soo.nonconvex.cmaes import CMAES, SimpleCMAES  # noqa: PLC0415
-
-                    if not isinstance(algorithm, (CMAES, SimpleCMAES)) and algorithm.pop is not None:
-                        parent_X = algorithm.pop.get("X")
-                        fresh_F = problem._run_batch(parent_X)
-                        algorithm.pop.set("F", fresh_F.reshape(-1, 1))
+                if seeds_changed_this_gen and not is_cmaes and algorithm.pop is not None:
+                    parent_X = algorithm.pop.get("X")
+                    fresh_F = problem._run_batch(parent_X)
+                    algorithm.pop.set("F", fresh_F.reshape(-1, 1))
 
                 # Advance one generation via pymoo
                 algorithm.next()
