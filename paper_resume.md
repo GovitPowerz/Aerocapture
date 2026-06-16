@@ -1,7 +1,7 @@
 # Aerocapture NN Paper — Session Resume
 
 > **Purpose:** let a fresh session pick up the paper work without re-reading the whole history.
-> **As of:** 2026-06-12 (post-reorg). **Phase:** clean-slate campaign ready; all training re-runs pending, then figures + Typst drafting.
+> **As of:** 2026-06-14. **Phase:** campaign in progress — 00-04 DONE + analysed (05 running, 06-11 pending), then figures + Typst drafting.
 
 ## TL;DR
 
@@ -19,7 +19,21 @@ Writing a comprehensive **Typst** research paper — the follow-up to **Gelly & 
 
 17-year arc: 2009 feed-forward NN + GA for aerocapture → 2015-17 recurrent NN for speech (CG-LSTM, QPSO, divide-and-conquer, custom losses — the author's own work) → now stateful NN guidance trained for robustness, vs FTC + predictor-correctors on a bit-validated simulator.
 
-**The optimizer/training-for-robustness quartet (the centerpiece):** a robust policy in a moving, dispersed environment needs (1) **GA** — population optimizer; (2) **non-stationary seeds** — adaptive curation; (3) **tail-weighted objective** — `cost_transform = cubed`; (4) **worst-case curation** — `bucket_selection = max`. Plus the new **dimensionality axis** (optimizer ranking vs chromosome width: 26 / 515 / 3998 params) and the **capability floor** (smallest dense net that still guides). Framing (Grégory, 2026-06-12): tail optimization is the MISSION-CORRECT objective — the design-case DV sizes the ergols, and propellant mass directly drives mission cost; the mean is operationally near-irrelevant. So cubed/max optimize the actual cost function, CVaR95/p99 are the headline metrics because they approximate the sizing quantity, and the ~1-2 m/s mean cost is a footnote. The rigor rules still apply: tanks are sized off an ESTIMATE of the tail, hence CIs + σ_run, never the noisy sample max. Dual-role note (2026-06-12): the transform also sets the fitness-estimate VARIANCE at n_sims=10 (all optimizers are rank-based, so cubed acts via noisy rank-by-worst-of-10, not landscape smoothness) -- log's pre-fix mean win with a tied tail is the signature of cubed's tail gain being eaten by its convergence cost; Study D's paired cubed_vs_log CVaR95 decides it, with a log-train/tail-select hybrid as the conditional follow-up.
+**The centerpiece (REFRAMED 2026-06-14 by Study C): the adaptive-seed methodology is the load-bearing contribution — the quartet is a matched SYSTEM, not four independent wins.** The quartet is (1) **GA**, (2) **non-stationary seeds** (adaptive curation), (3) **tail-weighted objective** (`cost_transform = cubed`), (4) **worst-case curation** (`bucket_selection = max`). Study C (exp04) shows the mechanism: GA does NOT win because it is robust to a moving objective — under FIXED seeds GA is the WORST optimizer (160.3, overfits the 10 repeated scenarios); non-stationary seeds RESCUE it (fixed→rotating→adaptive = 160.3→120.0→118.0, −42 m/s, the campaign's biggest single effect), while CMA-ES is flat (~127). So **GA *needs* the moving environment**; the adaptive-seed strategy converts GA from worst optimizer to best. Iso-compute clincher: GA rotating-vs-fixed is +40 m/s at 1.14× compute, CMA-ES is +0 at exact iso-compute — the effect is the seed strategy, not compute. Plus the **dimensionality axis** (26/515/3998 params; GA separates only at HIGH dim — at 26p all optimizers tie ~170) and the **capability floor**. Framing (Grégory, 2026-06-12): tail optimization is the MISSION-CORRECT objective — the design-case DV sizes the ergols, and propellant mass directly drives mission cost; the mean is operationally near-irrelevant. So cubed/max optimize the actual cost function, CVaR95/p99 are the headline metrics because they approximate the sizing quantity, and the ~1-2 m/s mean cost is a footnote. The rigor rules still apply: tanks are sized off an ESTIMATE of the tail, hence CIs + σ_run, never the noisy sample max. Dual-role note (2026-06-12): the transform also sets the fitness-estimate VARIANCE at n_sims=10 (all optimizers are rank-based, so cubed acts via noisy rank-by-worst-of-10, not landscape smoothness) -- log's pre-fix mean win with a tied tail is the signature of cubed's tail gain being eaten by its convergence cost; Study D's paired cubed_vs_log CVaR95 decides it, with a log-train/tail-select hybrid as the conditional follow-up.
+
+## Live campaign results (post-fix, deployed DV mean / CVaR95 m/s, 100% capture unless noted)
+
+**Classical (01):** FNPAG **124.3 / 144.0** (the surprise — 2026-06 density-fix made it the best classical, near-NN; converged by gen 59 so 371 gens is plenty), pred_guid 167.4 / 227.1, FTC 170.7 / 244.1, energy_controller 176.7 / 245.8 (99.6%), eqglide 200.3 / 327.6 (99.5%), piecewise 258.3 / 421.1 (99.8%). Ordering flipped from pre-fix (pred_guid sign-fix + FNPAG density-fix; FTC worse under cubed — joint-ref/07 may recover it).
+
+**Optimizer × budget (02, dense_p3998):** GA best @150 (118.0) & @300 (120.4) but **GA@60 collapsed (166.3** — n_pop=60 starves the 4000-dim search; "GA dominates at every budget" REFUTED). islands budget-robust (123.7/120.1/122.2). Headline NN = ga_300 (120.4 / 137.6).
+
+**Optimizer × dimensionality (03):** at **26p (FTC) all optimizers tie ~170** (GA worst on tail; CMA-ES-low-dim hypothesis refuted); GA separates only at 515/3998. Optimizer matters for NN, not classical-gain tuning.
+
+**Study B output-param (03, all GA):** atan2 117.4/128.7 > delta 119.9/141.6 > scaledpi 122.2/140.4 — pre-fix 25 m/s gap was a different-optimizer artifact; real edge is ~12 m/s on the TAIL.
+
+**Study C seed-strategy (04) — THE result:** GA fixed→rotating→adaptive 160.3→120.0→118.0 (−42 m/s); CMA-ES flat ~127; islands 145→120; PSO 140→130. GA *needs* non-stationarity (see narrative). Iso-compute clincher above.
+
+**3-way paired (NN ga_300 vs classical, shared pool):** NN−FNPAG −3.8 m/s (69.5% win, p=4e-54), NN−FTC −50.2 (100% win), NN−pred_guid −46.9. The headline becomes parity-with-the-best-classical at ~50× less compute (compute-benchmark + robustness-stress drafted, HELD until 07).
 
 ## Historical results (PRE-WIPE — directional guidance only, all superseded by the campaign)
 
