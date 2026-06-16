@@ -1,0 +1,21 @@
+{
+  "winner": {
+    "provenance": "champion",
+    "val_rms": 5932319.710478746,
+    "promoted": false
+  },
+  "champion_val_rms": 5932319.710478746,
+  "n_candidates": 1,
+  "n_deduped": 1,
+  "validation_n_sims": 1000,
+  "candidate_rms": [
+    {
+      "provenance": "champion",
+      "val_rms": 5932319.710478746
+    },
+    {
+      "provenance": "last_gen[0]",
+      "val_rms": 6393547.01530854
+    }
+  ]
+}
