@@ -460,6 +460,236 @@
         "total": 11658000
       }
     },
+    "curation_shaping/bucket_middle": {
+      "key": "curation_shaping/bucket_middle",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 120.45,
+      "dv_p50": 119.36,
+      "dv_p95": 132.61,
+      "dv_p99": 141.23,
+      "dv_p999": 156.64,
+      "dv_cvar95": 138.11,
+      "dv_cvar99": 148.19,
+      "dv_max_descriptive": 157.37,
+      "dv_mean_ci": [
+        120.03,
+        120.87
+      ],
+      "dv_p95_ci": [
+        131.61,
+        133.97
+      ],
+      "dv_cvar95_ci": [
+        135.95,
+        140.4
+      ],
+      "dv_p99_ci": [
+        137.09,
+        145.09
+      ],
+      "dv_cvar99_ci": [
+        142.58,
+        153.46
+      ],
+      "heat_flux_p95": 184.1,
+      "g_load_p95": 3.01,
+      "best_val_rms_within_transform_only": 1799061.4711772366,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1381000,
+        "curation": 1022000,
+        "reeval": 3066000,
+        "total": 11472000
+      }
+    },
+    "curation_shaping/bucket_min": {
+      "key": "curation_shaping/bucket_min",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 117.84,
+      "dv_p50": 116.02,
+      "dv_p95": 132.56,
+      "dv_p99": 148.25,
+      "dv_p999": 206.79,
+      "dv_cvar95": 146.59,
+      "dv_cvar99": 180.03,
+      "dv_max_descriptive": 245.22,
+      "dv_mean_ci": [
+        117.25,
+        118.46
+      ],
+      "dv_p95_ci": [
+        130.41,
+        135.33
+      ],
+      "dv_cvar95_ci": [
+        140.27,
+        154.05
+      ],
+      "dv_p99_ci": [
+        142.67,
+        170.08
+      ],
+      "dv_cvar99_ci": [
+        156.95,
+        204.02
+      ],
+      "heat_flux_p95": 186.5,
+      "g_load_p95": 3.1,
+      "best_val_rms_within_transform_only": 1752264.782365014,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1439000,
+        "curation": 1016000,
+        "reeval": 3048000,
+        "total": 11506000
+      }
+    },
+    "curation_shaping/bucket_random": {
+      "key": "curation_shaping/bucket_random",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 122.63,
+      "dv_p50": 121.21,
+      "dv_p95": 137.66,
+      "dv_p99": 146.43,
+      "dv_p999": 158.52,
+      "dv_cvar95": 143.28,
+      "dv_cvar99": 152.23,
+      "dv_max_descriptive": 160.99,
+      "dv_mean_ci": [
+        122.15,
+        123.1
+      ],
+      "dv_p95_ci": [
+        136.14,
+        139.15
+      ],
+      "dv_cvar95_ci": [
+        141.15,
+        145.42
+      ],
+      "dv_p99_ci": [
+        143.26,
+        149.37
+      ],
+      "dv_cvar99_ci": [
+        147.71,
+        156.35
+      ],
+      "heat_flux_p95": 175.4,
+      "g_load_p95": 2.64,
+      "best_val_rms_within_transform_only": 1932169.7192854292,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1490000,
+        "curation": 1044000,
+        "reeval": 3132000,
+        "total": 11669000
+      }
+    },
+    "curation_shaping/trim_10": {
+      "key": "curation_shaping/trim_10",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 120.27,
+      "dv_p50": 118.74,
+      "dv_p95": 135.06,
+      "dv_p99": 144.71,
+      "dv_p999": 160.2,
+      "dv_cvar95": 142.03,
+      "dv_cvar99": 154.23,
+      "dv_max_descriptive": 187.33,
+      "dv_mean_ci": [
+        119.76,
+        120.78
+      ],
+      "dv_p95_ci": [
+        133.01,
+        137.39
+      ],
+      "dv_cvar95_ci": [
+        139.17,
+        145.15
+      ],
+      "dv_p99_ci": [
+        140.56,
+        149.36
+      ],
+      "dv_cvar99_ci": [
+        146.19,
+        163.96
+      ],
+      "heat_flux_p95": 183.6,
+      "g_load_p95": 2.88,
+      "best_val_rms_within_transform_only": 1802811.317125976,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1395000,
+        "curation": 1028000,
+        "reeval": 3084000,
+        "total": 11510000
+      }
+    },
+    "curation_shaping/trim_20": {
+      "key": "curation_shaping/trim_20",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 120.81,
+      "dv_p50": 119.24,
+      "dv_p95": 134.62,
+      "dv_p99": 150.72,
+      "dv_p999": 178.24,
+      "dv_cvar95": 145.26,
+      "dv_cvar99": 161.14,
+      "dv_max_descriptive": 185.45,
+      "dv_mean_ci": [
+        120.34,
+        121.31
+      ],
+      "dv_p95_ci": [
+        132.31,
+        139.05
+      ],
+      "dv_cvar95_ci": [
+        141.36,
+        149.17
+      ],
+      "dv_p99_ci": [
+        144.64,
+        156.64
+      ],
+      "dv_cvar99_ci": [
+        152.77,
+        169.92
+      ],
+      "heat_flux_p95": 187.8,
+      "g_load_p95": 3.14,
+      "best_val_rms_within_transform_only": 1803259.16089257,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1488000,
+        "curation": 1032000,
+        "reeval": 3096000,
+        "total": 11619000
+      }
+    },
     "legacy/best_neural_network_joint": {
       "key": "legacy/best_neural_network_joint",
       "legacy_prefix_regime": true,
@@ -3195,14 +3425,28 @@
       "wilcoxon_p": 8.301068495661844e-28
     },
     "max_vs_middle_bucket": {
-      "missing": true,
       "a": "optimizer_budget/ga_300",
-      "b": "curation_shaping/bucket_middle"
+      "b": "curation_shaping/bucket_middle",
+      "n_pairs": 1000,
+      "delta_mean": -0.002,
+      "delta_mean_ci": [
+        -0.416,
+        0.416
+      ],
+      "win_rate_a": 0.509,
+      "wilcoxon_p": 0.5795861699147604
     },
     "max_vs_random_bucket": {
-      "missing": true,
       "a": "optimizer_budget/ga_300",
-      "b": "curation_shaping/bucket_random"
+      "b": "curation_shaping/bucket_random",
+      "n_pairs": 1000,
+      "delta_mean": -2.181,
+      "delta_mean_ci": [
+        -2.75,
+        -1.635
+      ],
+      "win_rate_a": 0.588,
+      "wilcoxon_p": 5.901592321623854e-13
     },
     "nn_vs_ftc": {
       "a": "optimizer_budget/ga_300",
