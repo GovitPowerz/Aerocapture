@@ -60,11 +60,17 @@ def run_stats(
         dv_p50=_r2(np.percentile(dvc, 50)),
         dv_p95=_r2(np.percentile(dvc, 95)),
         dv_p99=_r2(np.percentile(dvc, 99)),
+        dv_p999=_r2(np.percentile(dvc, 99.9)),
         dv_cvar95=_r2(cvar(dvc, 0.95)),
+        dv_cvar99=_r2(cvar(dvc, 0.99)),
         dv_max_descriptive=_r2(dvc.max()),
         dv_mean_ci=[_r2(v) for v in bootstrap_ci(dvc, np.mean, n_boot, seed)],
         dv_p95_ci=[_r2(v) for v in bootstrap_ci(dvc, lambda a: float(np.percentile(a, 95)), n_boot, seed)],
         dv_cvar95_ci=[_r2(v) for v in bootstrap_ci(dvc, lambda a: cvar(a, 0.95), n_boot, seed)],
+        # Far-tail (mission-sizing) metrics with CIs. At n=1000 these are wide
+        # (CVaR99 ~ worst 10 samples, p99.9 ~ 1) -- reliable only on a large pool.
+        dv_p99_ci=[_r2(v) for v in bootstrap_ci(dvc, lambda a: float(np.percentile(a, 99)), n_boot, seed)],
+        dv_cvar99_ci=[_r2(v) for v in bootstrap_ci(dvc, lambda a: cvar(a, 0.99), n_boot, seed)],
     )
     return out
 
