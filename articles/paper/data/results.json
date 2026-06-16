@@ -216,6 +216,150 @@
         "total": 11791000
       }
     },
+    "cost_transform/linear": {
+      "key": "cost_transform/linear",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 118.04,
+      "dv_p50": 117.01,
+      "dv_p95": 129.37,
+      "dv_p99": 138.71,
+      "dv_cvar95": 135.64,
+      "dv_max_descriptive": 162.21,
+      "dv_mean_ci": [
+        117.65,
+        118.44
+      ],
+      "dv_p95_ci": [
+        127.59,
+        131.13
+      ],
+      "dv_cvar95_ci": [
+        133.28,
+        138.21
+      ],
+      "heat_flux_p95": 186.9,
+      "g_load_p95": 3.08,
+      "best_val_rms_within_transform_only": 118.07142316191891,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1505000,
+        "curation": 1052000,
+        "reeval": 3156000,
+        "total": 11716000
+      }
+    },
+    "cost_transform/log": {
+      "key": "cost_transform/log",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 117.97,
+      "dv_p50": 115.78,
+      "dv_p95": 133.91,
+      "dv_p99": 146.89,
+      "dv_cvar95": 142.07,
+      "dv_max_descriptive": 180.62,
+      "dv_mean_ci": [
+        117.47,
+        118.49
+      ],
+      "dv_p95_ci": [
+        131.65,
+        136.34
+      ],
+      "dv_cvar95_ci": [
+        138.9,
+        145.33
+      ],
+      "heat_flux_p95": 182.1,
+      "g_load_p95": 2.92,
+      "best_val_rms_within_transform_only": 4.7744904079241435,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1429000,
+        "curation": 1041000,
+        "reeval": 3123000,
+        "total": 11596000
+      }
+    },
+    "cost_transform/sqrt": {
+      "key": "cost_transform/sqrt",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 117.28,
+      "dv_p50": 116.41,
+      "dv_p95": 129.34,
+      "dv_p99": 136.24,
+      "dv_cvar95": 134.07,
+      "dv_max_descriptive": 155.31,
+      "dv_mean_ci": [
+        116.89,
+        117.66
+      ],
+      "dv_p95_ci": [
+        127.32,
+        130.65
+      ],
+      "dv_cvar95_ci": [
+        132.14,
+        135.97
+      ],
+      "heat_flux_p95": 175.3,
+      "g_load_p95": 2.73,
+      "best_val_rms_within_transform_only": 10.824585308436792,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1289000,
+        "curation": 1038000,
+        "reeval": 3114000,
+        "total": 11444000
+      }
+    },
+    "cost_transform/squared": {
+      "key": "cost_transform/squared",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 118.92,
+      "dv_p50": 117.87,
+      "dv_p95": 129.82,
+      "dv_p99": 137.81,
+      "dv_cvar95": 135.44,
+      "dv_max_descriptive": 168.13,
+      "dv_mean_ci": [
+        118.53,
+        119.32
+      ],
+      "dv_p95_ci": [
+        128.66,
+        131.02
+      ],
+      "dv_cvar95_ci": [
+        133.09,
+        138.08
+      ],
+      "heat_flux_p95": 187.3,
+      "g_load_p95": 3.14,
+      "best_val_rms_within_transform_only": 14191.357650609822,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1539000,
+        "curation": 1029000,
+        "reeval": 3087000,
+        "total": 11658000
+      }
+    },
     "legacy/best_neural_network_joint": {
       "key": "legacy/best_neural_network_joint",
       "legacy_prefix_regime": true,
@@ -2349,9 +2493,16 @@
       "wilcoxon_p": 1.013422885858978e-67
     },
     "cubed_vs_log": {
-      "missing": true,
       "a": "optimizer_budget/ga_300",
-      "b": "cost_transform/log"
+      "b": "cost_transform/log",
+      "n_pairs": 1000,
+      "delta_mean": 2.476,
+      "delta_mean_ci": [
+        1.96,
+        2.978
+      ],
+      "win_rate_a": 0.331,
+      "wilcoxon_p": 8.301068495661844e-28
     },
     "max_vs_middle_bucket": {
       "missing": true,
