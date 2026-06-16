@@ -44,11 +44,11 @@ def test_compute_eval_summary_returns_expected_keys() -> None:
     for k in ("p50", "p95", "rms"):
         assert k in summary["cost"]
     assert summary["captured"] is not None
-    assert {"p50", "p95", "mean", "min", "max"} == set(summary["captured"]["dv"])
+    assert {"p50", "p95", "s3sigma", "mean", "min", "max"} == set(summary["captured"]["dv"])
     for axis in ("apoapsis", "periapsis", "inclination"):
         assert {"p50", "p95", "mean"} == set(summary["captured"][axis])
     for axis in ("heat_flux", "g_load", "heat_load"):
-        assert {"p50", "p95", "max", "limit", "viol_pct"} == set(summary["constraints"][axis])
+        assert {"p50", "p95", "s3sigma", "max", "limit", "viol_pct"} == set(summary["constraints"][axis])
 
 
 def test_compute_eval_summary_handles_zero_captures() -> None:
@@ -148,7 +148,7 @@ class TestEvalSummaryDvComponents:
         from aerocapture.training.report import compute_eval_summary
 
         s = compute_eval_summary(self._records(), n_sims=6)
-        assert s["cost"]["min"] <= s["cost"]["p50"] <= s["cost"]["p95"] <= s["cost"]["max"]
+        assert s["cost"]["min"] <= s["cost"]["p50"] <= s["cost"]["p95"] <= s["cost"]["s3sigma"] <= s["cost"]["max"]
 
     def test_dv_min_max_present_and_clipped_consistent(self) -> None:
         from aerocapture.training.report import compute_eval_summary
@@ -157,7 +157,7 @@ class TestEvalSummaryDvComponents:
         dv = s["captured"]["dv"]
         assert dv["min"] == 100.0
         assert dv["max"] == 600.0
-        assert set(dv) == {"min", "p50", "p95", "mean", "max"}
+        assert set(dv) == {"min", "p50", "p95", "s3sigma", "mean", "max"}
 
     def test_dv_components_abs_and_stats(self) -> None:
         from aerocapture.training.report import compute_eval_summary
@@ -169,7 +169,7 @@ class TestEvalSummaryDvComponents:
         dv2 = s["captured"]["dv2"]
         assert dv2["p50"] == 35.0
         for comp in ("dv1", "dv2", "dv3"):
-            assert set(s["captured"][comp]) == {"min", "p50", "p95", "mean", "max"}
+            assert set(s["captured"][comp]) == {"min", "p50", "p95", "s3sigma", "mean", "max"}
 
     def test_captured_none_when_no_captures(self) -> None:
         from aerocapture.training import charts
@@ -185,7 +185,7 @@ class TestEvalSummaryDvComponents:
         from aerocapture.training.report import compute_eval_summary
 
         s = compute_eval_summary(self._records(), n_sims=6)
-        assert set(s["cost"]) == {"min", "p50", "p95", "rms", "max"}
+        assert set(s["cost"]) == {"min", "p50", "p95", "s3sigma", "rms", "max"}
         assert {"dv", "apoapsis", "periapsis", "inclination", "dv1", "dv2", "dv3"} <= set(s["captured"])
         for key in ("apoapsis", "periapsis", "inclination"):
             assert set(s["captured"][key]) == {"p50", "p95", "mean"}  # untouched blocks keep their shape

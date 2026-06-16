@@ -243,6 +243,9 @@ def compute_eval_summary(
                 "min": float(np.min(arr)),
                 "p50": float(np.median(arr)),
                 "p95": float(np.percentile(arr, 95)),
+                # 3-sigma (p99.87) -- the propellant-sizing design-case tail.
+                # Meaningful only when n is large (>~5000); at n=1000 it ~= max.
+                "s3sigma": float(np.percentile(arr, 99.87)),
                 "mean": float(np.mean(arr)),
                 "max": float(np.max(arr)),
             }
@@ -275,6 +278,7 @@ def compute_eval_summary(
         return {
             "p50": float(np.median(arr)),
             "p95": float(np.percentile(arr, 95)),
+            "s3sigma": float(np.percentile(arr, 99.87)),
             "max": float(np.max(arr)),
             "limit": lim,
             "viol_pct": (float(np.mean(arr > lim) * 100.0) if lim is not None else None),
@@ -288,6 +292,7 @@ def compute_eval_summary(
             "min": float(np.min(per_sim_costs)),
             "p50": float(np.median(per_sim_costs)),
             "p95": float(np.percentile(per_sim_costs, 95)),
+            "s3sigma": float(np.percentile(per_sim_costs, 99.87)),
             "rms": rms_cost,
             "max": float(np.max(per_sim_costs)),
         },
@@ -304,13 +309,22 @@ def format_eval_summary(summary: dict[str, Any], indent: str = "    ") -> list[s
     n_sims = summary["n_sims"]
     n_captured = summary["n_captured"]
     cost = summary["cost"]
+
+    # Columns match the live validation panel: p50 / p95 / 3sigma / max
+    # (3sigma = p99.87, the propellant-sizing design case; reliable only at large n).
+    _f1 = [("p50", "p50", ".1f"), ("p95", "p95", ".1f"), ("s3sigma", "3sig", ".1f"), ("max", "max", ".1f")]
+
+    def _cols(block: dict[str, Any], specs: list[tuple[str, str, str]]) -> str:
+        # Skip keys absent from older summary JSONs (pre-3sigma backward compat).
+        return "  ".join(f"{lbl}={block[k]:{f}}" for k, lbl, f in specs if k in block)
+
     lines.append(f"Final evaluation ({n_sims} sims):")
-    lines.append(f"{indent}Objective cost:     p50={cost['p50']:.1f}  p95={cost['p95']:.1f}  RMS={cost['rms']:.1f}")
+    lines.append(f"{indent}Objective cost:     " + _cols(cost, [*_f1, ("rms", "RMS", ".1f")]))
     lines.append(f"{indent}Capture rate:       {n_captured}/{n_sims} ({100 * n_captured / n_sims:.1f}%)")
     cap = summary["captured"]
     if cap is not None:
         d = cap["dv"]
-        lines.append(f"{indent}Delta-V (m/s):      p50={d['p50']:.1f}  p95={d['p95']:.1f}  mean={d['mean']:.1f}")
+        lines.append(f"{indent}Delta-V (m/s):      " + _cols(d, [*_f1, ("mean", "mean", ".1f")]))
         a = cap["apoapsis"]
         lines.append(f"{indent}Apoapsis err (km):  p50={a['p50']:.1f}  p95={a['p95']:.1f}  mean={a['mean']:.1f}")
         pe = cap["periapsis"]

@@ -89,6 +89,13 @@ def _progress_line(gen: int, n_gen: int, width: int = 50) -> Text:
     return t
 
 
+# Numeric grid columns for the validation/final-eval stats panels. 3sig = p99.87
+# (the propellant-sizing design-case tail) sits between p95 and max.
+_GRID_KEYS = ("min", "p50", "p95", "s3sigma", "max")
+_GRID_HEADER = ["min", "p50", "p95", "3σ", "max"]
+_N_GRID = len(_GRID_KEYS)
+
+
 def _validation_summary_rows(summary: dict) -> list[tuple[str, list[str], str]]:
     """Shape a `compute_eval_summary` payload into (label, cells, style) rows.
 
@@ -103,10 +110,10 @@ def _validation_summary_rows(summary: dict) -> list[tuple[str, list[str], str]]:
     rows: list[tuple[str, list[str], str]] = []
     cap_style = "red" if n_cap == 0 else ("green" if pct >= 95.0 else "")
     rows.append(("Cap", [f"{n_cap}/{n_sims} ({pct:.1f}%)"], cap_style))
-    rows.append(("", ["min", "p50", "p95", "max"], "dim"))
+    rows.append(("", list(_GRID_HEADER), "dim"))
 
     def _grid(block: dict, fmt: str = "{:.1f}") -> list[str]:
-        return [fmt.format(block.get(k, nan)) for k in ("min", "p50", "p95", "max")]
+        return [fmt.format(block.get(k, nan)) for k in _GRID_KEYS]
 
     cost = summary.get("cost", {}) or {}
     cost_style = "yellow" if cost.get("max", 0.0) > 10.0 * cost.get("p95", float("inf")) else ""
@@ -145,9 +152,10 @@ def _rows_to_text(summary: dict) -> Text:
 
     text = Text(f"Validation ({summary.get('n_sims', 0)} sims)\n")
     for label, cells, style in _validation_summary_rows(summary):
-        # 4-cell grid rows (min/p50/p95/max header + value rows) get right-aligned
-        # fixed-width cells so columns line up; non-grid rows keep loose spacing.
-        body = "  ".join(f"{c:>8}" for c in cells) if len(cells) == 4 else "   ".join(cells)
+        # Numeric grid rows (min/p50/p95/3σ/max header + value rows) get
+        # right-aligned fixed-width cells so columns line up; non-grid rows
+        # (Cap/Apo/Q/G/HL) keep loose spacing.
+        body = "  ".join(f"{c:>8}" for c in cells) if len(cells) == _N_GRID else "   ".join(cells)
         text.append(f"  {label:<5} " + body + "\n", style=style or None)
     return text
 
@@ -165,16 +173,16 @@ def _summary_renderables(summary: dict) -> list[ConsoleRenderable]:
     rows = _validation_summary_rows(summary)
     grid = Table.grid(padding=(0, 2))
     grid.add_column()
-    for _ in range(4):
+    for _ in range(_N_GRID):
         grid.add_column(justify="right")
     grid_added = False
     for label, cells, row_style in rows:
-        if len(cells) != 4:
+        if len(cells) != _N_GRID:
             continue
         grid.add_row(*(Text(c, style=row_style or "") for c in [label, *cells]))
         grid_added = True
     for label, cells, row_style in rows:
-        if len(cells) == 4:
+        if len(cells) == _N_GRID:
             if grid_added:
                 parts.append(grid)
                 grid_added = False

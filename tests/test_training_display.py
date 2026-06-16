@@ -87,14 +87,14 @@ class TestDisplayPrimitives:
 
 
 def _summary_fixture() -> dict:
-    block = {"min": 1.0, "p50": 2.0, "p95": 3.0, "mean": 2.2, "max": 4.0}
+    block = {"min": 1.0, "p50": 2.0, "p95": 3.0, "s3sigma": 3.5, "mean": 2.2, "max": 4.0}
     return {
         "n_sims": 1000,
         "n_captured": 968,
         "capture_rate": 0.968,
-        "cost": {"min": 38.1, "p50": 112.4, "p95": 387.2, "rms": 181.2, "max": 12000.0},
+        "cost": {"min": 38.1, "p50": 112.4, "p95": 387.2, "s3sigma": 9000.0, "rms": 181.2, "max": 12000.0},
         "captured": {
-            "dv": {"min": 62.0, "p50": 118.2, "p95": 342.0, "mean": 141.7, "max": 980.4},
+            "dv": {"min": 62.0, "p50": 118.2, "p95": 342.0, "s3sigma": 700.0, "mean": 141.7, "max": 980.4},
             "dv1": dict(block),
             "dv2": dict(block),
             "dv3": dict(block),
@@ -103,9 +103,9 @@ def _summary_fixture() -> dict:
             "inclination": {"p50": 0.1, "p95": 0.3, "mean": 0.15},
         },
         "constraints": {
-            "heat_flux": {"p50": 142.1, "p95": 188.4, "max": 204.9, "limit": 200.0, "viol_pct": 2.1},
-            "g_load": {"p50": 6.0, "p95": 9.8, "max": 11.2, "limit": 15.0, "viol_pct": 0.0},
-            "heat_load": {"p50": 9000.0, "p95": 14000.0, "max": 16000.0, "limit": None, "viol_pct": None},
+            "heat_flux": {"p50": 142.1, "p95": 188.4, "s3sigma": 200.0, "max": 204.9, "limit": 200.0, "viol_pct": 2.1},
+            "g_load": {"p50": 6.0, "p95": 9.8, "s3sigma": 10.9, "max": 11.2, "limit": 15.0, "viol_pct": 0.0},
+            "heat_load": {"p50": 9000.0, "p95": 14000.0, "s3sigma": 15800.0, "max": 16000.0, "limit": None, "viol_pct": None},
         },
     }
 
@@ -120,7 +120,7 @@ class TestValidationSummaryRows:
         assert "DV" in labels and "DV1" in labels and "DV2" in labels and "DV3" in labels
         assert "Apo" in labels and "Q" in labels and "G" in labels and "HL" in labels
         grid_header = next(r for r in rows if r[0] == "")
-        assert grid_header[1] == ["min", "p50", "p95", "max"] and grid_header[2] == "dim"
+        assert grid_header[1] == ["min", "p50", "p95", "3σ", "max"] and grid_header[2] == "dim"
         q_row = next(r for r in rows if r[0] == "Q")
         assert q_row[2] == "red"  # 2.1% violation
         assert any("2.1% > 200" in c for c in q_row[1])
@@ -129,7 +129,7 @@ class TestValidationSummaryRows:
         cost_row = next(r for r in rows if r[0] == "Cost")
         assert cost_row[2] == "yellow"  # max 12000 > 10x p95 387.2 -> outlier hint
         dv1_row = next(r for r in rows if r[0] == "DV1")
-        assert dv1_row[1] == ["1.0", "2.0", "3.0", "4.0"]
+        assert dv1_row[1] == ["1.0", "2.0", "3.0", "3.5", "4.0"]
 
     def test_captured_none_renders_placeholder(self) -> None:
         from aerocapture.training.display import _validation_summary_rows
@@ -162,11 +162,11 @@ class TestValidationSummaryRows:
         header = next(line for line in lines if line.lstrip().startswith("min "))
         # `12000.0` is the widest value cell; the Cost row exercises the worst case.
         cost = next(line for line in lines if line.lstrip().startswith("Cost "))
-        # Right-aligned grid columns: the 4 value cells' right edges must coincide
-        # with the 4 header cells' right edges. Detect right edges directly from
+        # Right-aligned grid columns: the 5 value cells' right edges must coincide
+        # with the 5 header cells' right edges. Detect right edges directly from
         # the rendered strings (no layout math in the assertion) and compare the
-        # trailing 4 (the value row carries a leading label token the header lacks).
-        assert _grid_right_edges(header)[-4:] == _grid_right_edges(cost)[-4:]
+        # trailing 5 (the value row carries a leading label token the header lacks).
+        assert _grid_right_edges(header)[-5:] == _grid_right_edges(cost)[-5:]
         # Sanity: `max`/`12000.0` share the last (worst-case-width) edge.
         assert header.rstrip().endswith("max") and cost.rstrip().endswith("12000.0")
 
