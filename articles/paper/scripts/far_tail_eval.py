@@ -85,16 +85,21 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--n-sims", type=int, default=10000, help="full reserved pool (training-disjoint up to 10000)")
     args = parser.parse_args(argv)
 
-    out = []
+    # Accumulate by label across runs (don't clobber previously-evaluated cells).
+    by_label: dict[str, dict] = {}
+    if OUT.exists():
+        for c in json.loads(OUT.read_text()).get("cells", []):
+            by_label[c["label"]] = c
     for spec in args.cells:
         label, toml = spec.split(":", 1)
         s = _eval_one(label, toml, args.n_sims)
-        out.append(s)
+        by_label[label] = s
         print(f"  {label:28s} n={s['n']} cap={s['capture_pct']:.1f}% | p99 {s['p99']} CVaR99 {s['cvar99']}")
         print(f"  {'':28s} p99.9 {s['p999']} CVaR99.9 {s['cvar999']} max {s['max']}")
 
-    OUT.write_text(json.dumps({"n_sims": args.n_sims, "pool": "FINAL_EVAL 2M", "cells": out}, indent=2))
-    print(f"\nwrote {OUT}")
+    cells = [by_label[k] for k in sorted(by_label)]
+    OUT.write_text(json.dumps({"n_sims": args.n_sims, "pool": "FINAL_EVAL 2M", "cells": cells}, indent=2))
+    print(f"\nwrote {OUT} ({len(cells)} cells)")
 
 
 if __name__ == "__main__":

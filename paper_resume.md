@@ -33,6 +33,8 @@ Writing a comprehensive **Typst** research paper — the follow-up to **Gelly & 
 
 **Study C seed-strategy (04) — THE result:** GA fixed→rotating→adaptive 160.3→120.0→118.0 (−42 m/s); CMA-ES flat ~127; islands 145→120; PSO 140→130. GA *needs* non-stationarity (see narrative). Iso-compute clincher above.
 
+**Study C-sub curation (06), far-tail n=10000 — bucket=max VINDICATED:** which seed per cost-CDF bin trains the policy. max (default) dominates the far tail: CVaR99.9 153.0 / max 160.1 vs random 173/190, middle 194/236, min 226/245 (catastrophic — min has best mean 117.8 but blows the extreme: optimize-the-average-blow-the-worst-case). Trim refuted again (trimming extreme deciles hurts the tail). UNIFIED: cubed (transform, Study D) + max (bucket) are the SAME worst-case-leaning mechanism — both compress the design-case extreme tail; quartet legs 3+4 are one idea.
+
 **3-way paired (NN ga_300 vs classical, shared pool):** NN−FNPAG −3.8 m/s (69.5% win, p=4e-54), NN−FTC −50.2 (100% win), NN−pred_guid −46.9. The headline becomes parity-with-the-best-classical at ~50× less compute (compute-benchmark + robustness-stress drafted, HELD until 07).
 
 ## Historical results (PRE-WIPE — directional guidance only, all superseded by the campaign)
