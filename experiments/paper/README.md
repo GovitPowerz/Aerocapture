@@ -61,10 +61,18 @@ lives in these runners, because cells are reused across studies (e.g.
 
 ## Reporting rules (from the 2026-06-12 methodology review)
 
-- Tail metrics: quote **p99 + CVaR95** with bootstrap CIs; the sample max at
-  n=1000 is descriptive only. (Rationale: the design-case DV sizes the ergols
-  and hence mission cost — the tail IS the objective, but it is estimated, so
-  it gets CIs, not a single noisy max.)
+- Sizing metrics: propellant (ergols) tanks are sized for the FAR-tail design
+  case (3σ ≈ p99.87 / CVaR99.9 / worst-case), NOT p95. Quote **p99, CVaR99,
+  p99.9, CVaR99.9** with bootstrap CIs, estimated on a LARGE pool — the deployed
+  cells get an n=10000 re-eval (`far_tail_eval.py`, full reserved 2M pool,
+  training-disjoint) so CVaR99.9 (worst 10) / p99.9 (10 samples) are stable;
+  at n=1000 they are ~1-sample and unusable. CVaR99.9 is the headline sizing
+  metric; the sample max (≈p99.99 at n=10000) is a descriptive bound. (Rationale:
+  the design-case DV sizes the ergols and hence mission cost; the tail IS the
+  objective, but it is an ESTIMATE, so it gets CIs and a large pool, not a single
+  noisy max at n=1000.) NB the cost_transform that minimizes the tail DEPENDS on
+  the sizing percentile (Study D): mild transforms win the shallow tail, cubed
+  wins the far tail — match the training tail-weight to the sizing percentile.
 - All cross-cell tables are **paired** on the shared 1000-seed final-eval pool
   (offset 2M; capture = `ifinal==3 & ecc<1.0`, DV over both-captured seeds).
 - "Compute-matched" claims must report **actual sims** per run (from the JSONL:
