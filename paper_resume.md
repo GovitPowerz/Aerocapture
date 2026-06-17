@@ -1,7 +1,7 @@
 # Aerocapture NN Paper — Session Resume
 
 > **Purpose:** let a fresh session pick up the paper work without re-reading the whole history.
-> **As of:** 2026-06-14. **Phase:** campaign in progress — 00-04 DONE + analysed (05 running, 06-11 pending), then figures + Typst drafting.
+> **As of:** 2026-06-14. **Phase:** campaign 00-08 DONE + analysed (09/10/11 pending; 5b/5c done). adaptive_2 = headline candidate. Then figures + Typst.
 
 ## TL;DR
 
@@ -36,6 +36,10 @@ Writing a comprehensive **Typst** research paper — the follow-up to **Gelly & 
 **Study C-sub curation (06), far-tail n=10000 — bucket=max VINDICATED:** which seed per cost-CDF bin trains the policy. max (default) dominates the far tail: CVaR99.9 153.0 / max 160.1 vs random 173/190, middle 194/236, min 226/245 (catastrophic — min has best mean 117.8 but blows the extreme: optimize-the-average-blow-the-worst-case). Trim refuted again (trimming extreme deciles hurts the tail). UNIFIED: cubed (transform, Study D) + max (bucket) are the SAME worst-case-leaning mechanism — both compress the design-case extreme tail; quartet legs 3+4 are one idea.
 
 **Study E joint reference (07) -- user hypothesis CONFIRMED:** co-optimizing the constant-bank reference recovers huge DV for table-reading schemes. FTC 170.7->126.2 mean (-44 m/s paired, 100% win, p=3e-165), CVaR95 244->143, CVaR99 310->153; EC 176.7->142.1 (-35); pred_guid 167.3->144.2 (-23). FTC's degradation WAS the reference. The reference-design progression (constant-bank -> PC -> joint) is a clean methodological arc.
+
+**Study F training_n_sims (08) -- POSSIBLE NEW HEADLINE:** view A (rotating, fixed gens) sweet spot n_sims=10; view B (adaptive, allocation) **n_sims=2 @ 10000 gens DOMINATES: 109.9 mean / 117.5 CVaR95 / far-tail CVaR99 123.7** (~10 m/s < ga_300, far beyond sigma_run; far-tail verified n=10000). Caveat: 1.8x actual sims (21M vs 11.6M; validation/curation scale with n_gen) -- but 2x compute ~= 2 m/s (budget axis), so ~8 m/s is genuine allocation gain. Mechanism: few-sims noise is bought out by more generations (more non-stationary diversity + selection steps; deepens Study C). **adaptive_2 is the new headline candidate -- verify via sigma_run (11), then re-point the 3-way/ablation/fresh-pool to it.**
+
+**Robustness (5c, deployed policies on high atmo/density/nav, 9M pool):** joint-FTC MOST robust (94.5% capture) > NN 93.8% > FNPAG 92.4% > PredGuid 90.8% >> FTC-fixed 67.1%. Confirms well-referenced FTC > FNPAG on robustness; FTC-fixed fragility = the reference (ties Study E). **Compute (5b, 1 core, RL-contended so approximate):** FTC 1.29 ms/sim, NN 3.29 (2.6x), FNPAG 87.3 (68x FTC, 27x NN). FNPAG DOMINATED: joint-FTC = its accuracy + better robustness at 68x less compute; NN beats its accuracy at 27x less. Re-run 5b on an IDLE box for the publication number.
 
 **The 3-way RESHAPED -> NN vs joint-FTC vs FNPAG (the new best classical = joint-FTC):** joint-FTC (126.2 mean / CVaR95 142.9) now MATCHES FNPAG (124.3 / 144.0) on accuracy across the whole distribution -- and joint-FTC is ANALYTIC/FAST (~50x faster than FNPAG's predictor). Far-tail n=10000 (sizing depth): NN CVaR99.9 152.9 / max 160.1 < joint-FTC 164.0/170.5 ~= FNPAG 165.0/175.5 (fixed-FTC 353/411, superseded). So **NN beats the best classical (joint-FTC) by ~6 m/s mean (paired -5.8, 76% win, p=1e-69) and ~11 m/s at the design tail, at FTC's compute class.** Headline: NN > best-classical at the fastest compute; joint-FTC = FNPAG accuracy at 50x less compute (the reference methodology). compute-benchmark still PENDING (needs an idle box for clean single-core timing).
 
