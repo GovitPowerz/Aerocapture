@@ -34,7 +34,8 @@ from aerocapture.training.paper_stats import run_stats  # noqa: E402
 # (a second predictor-corrector data point for the FNPAG comparison).
 SCHEMES = [
     ("NN", "paper/optimizer_budget/ga_300", "configs/training/paper/dense_p3998_ga.toml"),
-    ("FTC", "ftc", "configs/training/msr_aller_ftc_train.toml"),
+    ("joint-FTC", "paper/joint_reference/ftc", "configs/training/msr_aller_ftc_joint_ref_train.toml"),
+    ("FTC-fixed", "ftc", "configs/training/msr_aller_ftc_train.toml"),
     ("FNPAG", "fnpag", "configs/training/msr_aller_fnpag_train.toml"),
     ("PredGuid", "pred_guid", "configs/training/msr_aller_pred_guid_train.toml"),
 ]
@@ -85,7 +86,8 @@ def main(argv: list[str] | None = None) -> None:
     if res_path.exists():
         runs = json.loads(res_path.read_text())["runs"]
         for label, run_dir, _ in SCHEMES:
-            key = run_dir if run_dir.startswith("paper/") else f"classical_baselines/{run_dir}"
+            # results.json keys drop the "paper/" prefix; classical dirs nest under classical_baselines/.
+            key = run_dir[len("paper/") :] if run_dir.startswith("paper/") else f"classical_baselines/{run_dir}"
             nominal[label] = runs.get(key, {})
 
     out = []

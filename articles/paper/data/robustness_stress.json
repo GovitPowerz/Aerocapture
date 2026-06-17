@@ -1,0 +1,196 @@
+{
+  "stress_overrides": {
+    "monte_carlo.atmosphere.level": "high",
+    "monte_carlo.density_perturbation.level": "high",
+    "monte_carlo.navigation.level": "high",
+    "monte_carlo.nav_filter.level": "high"
+  },
+  "n_sims": 2000,
+  "schemes": [
+    {
+      "label": "NN",
+      "n": 2000,
+      "capture_pct": 93.75,
+      "dv_mean": 219.32,
+      "dv_p50": 181.88,
+      "dv_p95": 386.26,
+      "dv_p99": 712.44,
+      "dv_p999": 1389.77,
+      "dv_cvar95": 628.29,
+      "dv_cvar99": 1106.85,
+      "dv_max_descriptive": 1433.11,
+      "dv_mean_ci": [
+        213.97,
+        225.24
+      ],
+      "dv_p95_ci": [
+        357.67,
+        417.62
+      ],
+      "dv_cvar95_ci": [
+        559.26,
+        702.91
+      ],
+      "dv_p99_ci": [
+        626.69,
+        1001.01
+      ],
+      "dv_cvar99_ci": [
+        908.27,
+        1255.01
+      ],
+      "nominal_capture_pct": 100.0,
+      "nominal_dv_cvar95": 137.62,
+      "capture_drop_pts": 6.25,
+      "cvar95_inflation": 490.7
+    },
+    {
+      "label": "joint-FTC",
+      "n": 2000,
+      "capture_pct": 94.5,
+      "dv_mean": 170.33,
+      "dv_p50": 156.53,
+      "dv_p95": 256.34,
+      "dv_p99": 353.6,
+      "dv_p999": 1305.88,
+      "dv_cvar95": 404.66,
+      "dv_cvar99": 871.69,
+      "dv_max_descriptive": 1340.67,
+      "dv_mean_ci": [
+        166.75,
+        174.2
+      ],
+      "dv_p95_ci": [
+        242.18,
+        269.54
+      ],
+      "dv_cvar95_ci": [
+        344.41,
+        469.37
+      ],
+      "dv_p99_ci": [
+        317.2,
+        606.0
+      ],
+      "dv_cvar99_ci": [
+        596.84,
+        1120.62
+      ],
+      "nominal_capture_pct": 100.0,
+      "nominal_dv_cvar95": 142.93,
+      "capture_drop_pts": 5.5,
+      "cvar95_inflation": 261.7
+    },
+    {
+      "label": "FTC-fixed",
+      "n": 2000,
+      "capture_pct": 67.1,
+      "dv_mean": 331.81,
+      "dv_p50": 302.5,
+      "dv_p95": 503.73,
+      "dv_p99": 862.52,
+      "dv_p999": 1385.06,
+      "dv_cvar95": 679.59,
+      "dv_cvar99": 1228.36,
+      "dv_max_descriptive": 1394.15,
+      "dv_mean_ci": [
+        324.39,
+        339.44
+      ],
+      "dv_p95_ci": [
+        498.95,
+        509.66
+      ],
+      "dv_cvar95_ci": [
+        604.88,
+        768.46
+      ],
+      "dv_p99_ci": [
+        542.86,
+        1220.83
+      ],
+      "dv_cvar99_ci": [
+        961.32,
+        1351.61
+      ],
+      "nominal_capture_pct": 100.0,
+      "nominal_dv_cvar95": 244.14,
+      "capture_drop_pts": 32.9,
+      "cvar95_inflation": 435.5
+    },
+    {
+      "label": "FNPAG",
+      "n": 2000,
+      "capture_pct": 92.4,
+      "dv_mean": 187.6,
+      "dv_p50": 158.53,
+      "dv_p95": 214.49,
+      "dv_p99": 1279.35,
+      "dv_p999": 1529.83,
+      "dv_cvar95": 720.31,
+      "dv_cvar99": 1431.7,
+      "dv_max_descriptive": 1548.82,
+      "dv_mean_ci": [
+        180.63,
+        195.08
+      ],
+      "dv_p95_ci": [
+        206.02,
+        223.86
+      ],
+      "dv_cvar95_ci": [
+        587.18,
+        863.1
+      ],
+      "dv_p99_ci": [
+        992.55,
+        1402.43
+      ],
+      "dv_cvar99_ci": [
+        1300.08,
+        1497.13
+      ],
+      "nominal_capture_pct": 100.0,
+      "nominal_dv_cvar95": 144.04,
+      "capture_drop_pts": 7.6,
+      "cvar95_inflation": 576.3
+    },
+    {
+      "label": "PredGuid",
+      "n": 2000,
+      "capture_pct": 90.8,
+      "dv_mean": 279.52,
+      "dv_p50": 264.41,
+      "dv_p95": 378.07,
+      "dv_p99": 762.36,
+      "dv_p999": 1318.27,
+      "dv_cvar95": 572.55,
+      "dv_cvar99": 1050.17,
+      "dv_max_descriptive": 1402.47,
+      "dv_mean_ci": [
+        275.13,
+        284.02
+      ],
+      "dv_p95_ci": [
+        368.57,
+        391.74
+      ],
+      "dv_cvar95_ci": [
+        508.89,
+        640.63
+      ],
+      "dv_p99_ci": [
+        570.49,
+        903.67
+      ],
+      "dv_cvar99_ci": [
+        875.89,
+        1185.29
+      ],
+      "nominal_capture_pct": 100.0,
+      "nominal_dv_cvar95": 227.14,
+      "capture_drop_pts": 9.2,
+      "cvar95_inflation": 345.4
+    }
+  ]
+}

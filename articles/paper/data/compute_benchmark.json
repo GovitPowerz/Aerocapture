@@ -1,0 +1,29 @@
+{
+  "single_core": true,
+  "schemes": [
+    {
+      "label": "NN",
+      "n_sims": 200,
+      "wall_s": 0.6571,
+      "ms_per_sim": 3.2856,
+      "sims_per_s": 304.4,
+      "slowdown_vs_fastest": 2.6
+    },
+    {
+      "label": "FTC",
+      "n_sims": 200,
+      "wall_s": 0.2573,
+      "ms_per_sim": 1.2864,
+      "sims_per_s": 777.3,
+      "slowdown_vs_fastest": 1.0
+    },
+    {
+      "label": "FNPAG",
+      "n_sims": 200,
+      "wall_s": 17.4542,
+      "ms_per_sim": 87.2712,
+      "sims_per_s": 11.5,
+      "slowdown_vs_fastest": 67.8
+    }
+  ]
+}
