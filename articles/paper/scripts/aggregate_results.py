@@ -32,6 +32,7 @@ PAIRED = [
     ("max_vs_random_bucket", "optimizer_budget/ga_300", "curation_shaping/bucket_random"),
     ("nn_vs_ftc", "optimizer_budget/ga_300", "classical_baselines/ftc"),
     ("nn_vs_fnpag", "optimizer_budget/ga_300", "classical_baselines/fnpag"),
+    ("nn_vs_jointftc", "optimizer_budget/ga_300", "joint_reference/ftc"),
     ("ftc_vs_fnpag", "classical_baselines/ftc", "classical_baselines/fnpag"),
     ("jointftc_vs_fnpag", "joint_reference/ftc", "classical_baselines/fnpag"),
     ("joint_vs_fixed_ftc", "joint_reference/ftc", "classical_baselines/ftc"),

@@ -23,7 +23,7 @@ Writing a comprehensive **Typst** research paper — the follow-up to **Gelly & 
 
 ## Live campaign results (post-fix, deployed DV mean / CVaR95 m/s, 100% capture unless noted)
 
-**Classical (01):** FNPAG **124.3 / 144.0** (the surprise — 2026-06 density-fix made it the best classical, near-NN; converged by gen 59 so 371 gens is plenty), pred_guid 167.4 / 227.1, FTC 170.7 / 244.1, energy_controller 176.7 / 245.8 (99.6%), eqglide 200.3 / 327.6 (99.5%), piecewise 258.3 / 421.1 (99.8%). Ordering flipped from pre-fix (pred_guid sign-fix + FNPAG density-fix; FTC worse under cubed — joint-ref/07 may recover it).
+**Classical (01):** FNPAG **124.3 / 144.0** (the surprise — 2026-06 density-fix made it the best classical, near-NN; converged by gen 59 so 371 gens is plenty), pred_guid 167.4 / 227.1, FTC 170.7 / 244.1 (FIXED-ref; joint-ref/07 recovers it to 126.2/142.9 -- see Study E), energy_controller 176.7 / 245.8 (99.6%), eqglide 200.3 / 327.6 (99.5%), piecewise 258.3 / 421.1 (99.8%). Ordering flipped from pre-fix (pred_guid sign-fix + FNPAG density-fix).
 
 **Optimizer × budget (02, dense_p3998):** GA best @150 (118.0) & @300 (120.4) but **GA@60 collapsed (166.3** — n_pop=60 starves the 4000-dim search; "GA dominates at every budget" REFUTED). islands budget-robust (123.7/120.1/122.2). Headline NN = ga_300 (120.4 / 137.6).
 
@@ -35,7 +35,9 @@ Writing a comprehensive **Typst** research paper — the follow-up to **Gelly & 
 
 **Study C-sub curation (06), far-tail n=10000 — bucket=max VINDICATED:** which seed per cost-CDF bin trains the policy. max (default) dominates the far tail: CVaR99.9 153.0 / max 160.1 vs random 173/190, middle 194/236, min 226/245 (catastrophic — min has best mean 117.8 but blows the extreme: optimize-the-average-blow-the-worst-case). Trim refuted again (trimming extreme deciles hurts the tail). UNIFIED: cubed (transform, Study D) + max (bucket) are the SAME worst-case-leaning mechanism — both compress the design-case extreme tail; quartet legs 3+4 are one idea.
 
-**3-way paired (NN ga_300 vs classical, shared pool):** NN−FNPAG −3.8 m/s (69.5% win, p=4e-54), NN−FTC −50.2 (100% win), NN−pred_guid −46.9. The headline becomes parity-with-the-best-classical at ~50× less compute (compute-benchmark + robustness-stress drafted, HELD until 07).
+**Study E joint reference (07) -- user hypothesis CONFIRMED:** co-optimizing the constant-bank reference recovers huge DV for table-reading schemes. FTC 170.7->126.2 mean (-44 m/s paired, 100% win, p=3e-165), CVaR95 244->143, CVaR99 310->153; EC 176.7->142.1 (-35); pred_guid 167.3->144.2 (-23). FTC's degradation WAS the reference. The reference-design progression (constant-bank -> PC -> joint) is a clean methodological arc.
+
+**The 3-way RESHAPED -> NN vs joint-FTC vs FNPAG (the new best classical = joint-FTC):** joint-FTC (126.2 mean / CVaR95 142.9) now MATCHES FNPAG (124.3 / 144.0) on accuracy across the whole distribution -- and joint-FTC is ANALYTIC/FAST (~50x faster than FNPAG's predictor). Far-tail n=10000 (sizing depth): NN CVaR99.9 152.9 / max 160.1 < joint-FTC 164.0/170.5 ~= FNPAG 165.0/175.5 (fixed-FTC 353/411, superseded). So **NN beats the best classical (joint-FTC) by ~6 m/s mean (paired -5.8, 76% win, p=1e-69) and ~11 m/s at the design tail, at FTC's compute class.** Headline: NN > best-classical at the fastest compute; joint-FTC = FNPAG accuracy at 50x less compute (the reference methodology). compute-benchmark still PENDING (needs an idle box for clean single-core timing).
 
 ## Historical results (PRE-WIPE — directional guidance only, all superseded by the campaign)
 

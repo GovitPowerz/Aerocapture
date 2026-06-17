@@ -3610,6 +3610,18 @@
       "win_rate_a": 0.695,
       "wilcoxon_p": 4.3440764257085235e-54
     },
+    "nn_vs_jointftc": {
+      "a": "optimizer_budget/ga_300",
+      "b": "joint_reference/ftc",
+      "n_pairs": 1000,
+      "delta_mean": -5.805,
+      "delta_mean_ci": [
+        -6.363,
+        -5.244
+      ],
+      "win_rate_a": 0.755,
+      "wilcoxon_p": 1.1028972949254757e-69
+    },
     "ftc_vs_fnpag": {
       "a": "classical_baselines/ftc",
       "b": "classical_baselines/fnpag",
