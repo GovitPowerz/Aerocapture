@@ -630,7 +630,7 @@ are in.*
 ```bash
 uv run python articles/paper/scripts/compute_benchmark.py --n-sims 200
 ```
-**RESULT (5b, 1 core; RE-RUN ON AN IDLE BOX for the publication number -- the first run had an RL PPO contending):** FTC 1.29 ms/sim, NN 3.29 (2.6x FTC), FNPAG 87.3 (68x FTC, 27x NN). FNPAG is DOMINATED: joint-FTC matches its accuracy + beats its robustness at 68x less compute; NN beats its accuracy at 27x less. Whole-sim ratio under-states the pure guidance-cost gap (shared integration). Writes `compute_benchmark.json`.
+**RESULT (5b, 1 core, idle box -- publication-grade; the RL-contended re-run was bit-for-bit equivalent, confirming single-core isolation):** FTC 1.29 ms/sim, NN 3.21 (2.5x FTC), FNPAG 87.0 (68x FTC, 27x NN). FNPAG is DOMINATED: joint-FTC matches its accuracy + beats its robustness at 68x less compute; NN beats its accuracy at 27x less. Whole-sim ratio under-states the pure guidance-cost gap (shared integration). Writes `compute_benchmark.json`.
 
 - [ ] **Step 2:** commit the JSON; it feeds the compute axis of the 3-way figure (Task 3 `fig_classical_vs_nn`).
 

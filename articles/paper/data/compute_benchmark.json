@@ -4,26 +4,26 @@
     {
       "label": "NN",
       "n_sims": 200,
-      "wall_s": 0.6571,
-      "ms_per_sim": 3.2856,
-      "sims_per_s": 304.4,
-      "slowdown_vs_fastest": 2.6
+      "wall_s": 0.6413,
+      "ms_per_sim": 3.2067,
+      "sims_per_s": 311.8,
+      "slowdown_vs_fastest": 2.5
     },
     {
       "label": "FTC",
       "n_sims": 200,
       "wall_s": 0.2573,
       "ms_per_sim": 1.2864,
-      "sims_per_s": 777.3,
+      "sims_per_s": 777.4,
       "slowdown_vs_fastest": 1.0
     },
     {
       "label": "FNPAG",
       "n_sims": 200,
-      "wall_s": 17.4542,
-      "ms_per_sim": 87.2712,
+      "wall_s": 17.403,
+      "ms_per_sim": 87.0151,
       "sims_per_s": 11.5,
-      "slowdown_vs_fastest": 67.8
+      "slowdown_vs_fastest": 67.6
     }
   ]
 }
