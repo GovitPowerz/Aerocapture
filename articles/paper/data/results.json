@@ -3523,6 +3523,420 @@
         "reeval": 0,
         "total": 4837500
       }
+    },
+    "training_n_sims/adaptive_100": {
+      "key": "training_n_sims/adaptive_100",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 130.99,
+      "dv_p50": 129.61,
+      "dv_p95": 147.13,
+      "dv_p99": 157.54,
+      "dv_p999": 168.23,
+      "dv_cvar95": 153.18,
+      "dv_cvar99": 162.78,
+      "dv_max_descriptive": 169.72,
+      "dv_mean_ci": [
+        130.43,
+        131.57
+      ],
+      "dv_p95_ci": [
+        146.05,
+        148.8
+      ],
+      "dv_cvar95_ci": [
+        151.0,
+        155.42
+      ],
+      "dv_p99_ci": [
+        153.16,
+        161.37
+      ],
+      "dv_cvar99_ci": [
+        158.46,
+        166.08
+      ],
+      "heat_flux_p95": 184.3,
+      "g_load_p95": 2.99,
+      "best_val_rms_within_transform_only": 2329516.055438453,
+      "actual_sims": {
+        "n_gen": 201,
+        "n_pop": 300,
+        "training": 6030000,
+        "validation": 123000,
+        "curation": 112000,
+        "reeval": 3360000,
+        "total": 9625000
+      }
+    },
+    "training_n_sims/adaptive_2": {
+      "key": "training_n_sims/adaptive_2",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 109.92,
+      "dv_p50": 109.46,
+      "dv_p95": 114.51,
+      "dv_p99": 117.61,
+      "dv_p999": 136.02,
+      "dv_cvar95": 117.52,
+      "dv_cvar99": 125.25,
+      "dv_max_descriptive": 138.54,
+      "dv_mean_ci": [
+        109.74,
+        110.1
+      ],
+      "dv_p95_ci": [
+        113.99,
+        114.97
+      ],
+      "dv_cvar95_ci": [
+        116.06,
+        119.26
+      ],
+      "dv_p99_ci": [
+        116.21,
+        121.26
+      ],
+      "dv_cvar99_ci": [
+        119.43,
+        131.49
+      ],
+      "heat_flux_p95": 170.8,
+      "g_load_p95": 2.33,
+      "best_val_rms_within_transform_only": 1343010.677217661,
+      "actual_sims": {
+        "n_gen": 10001,
+        "n_pop": 300,
+        "training": 6000600,
+        "validation": 6916000,
+        "curation": 5035000,
+        "reeval": 3021000,
+        "total": 20972600
+      }
+    },
+    "training_n_sims/adaptive_20": {
+      "key": "training_n_sims/adaptive_20",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 118.84,
+      "dv_p50": 117.7,
+      "dv_p95": 130.47,
+      "dv_p99": 139.92,
+      "dv_p999": 158.9,
+      "dv_cvar95": 137.32,
+      "dv_cvar99": 149.62,
+      "dv_max_descriptive": 175.23,
+      "dv_mean_ci": [
+        118.44,
+        119.24
+      ],
+      "dv_p95_ci": [
+        128.99,
+        132.29
+      ],
+      "dv_cvar95_ci": [
+        134.57,
+        140.38
+      ],
+      "dv_p99_ci": [
+        137.03,
+        143.57
+      ],
+      "dv_cvar99_ci": [
+        142.06,
+        158.72
+      ],
+      "heat_flux_p95": 184.4,
+      "g_load_p95": 2.97,
+      "best_val_rms_within_transform_only": 1710807.7204791897,
+      "actual_sims": {
+        "n_gen": 1001,
+        "n_pop": 300,
+        "training": 6006000,
+        "validation": 822000,
+        "curation": 544000,
+        "reeval": 3264000,
+        "total": 10636000
+      }
+    },
+    "training_n_sims/adaptive_5": {
+      "key": "training_n_sims/adaptive_5",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 116.79,
+      "dv_p50": 116.28,
+      "dv_p95": 125.91,
+      "dv_p99": 132.31,
+      "dv_p999": 140.38,
+      "dv_cvar95": 129.88,
+      "dv_cvar99": 135.31,
+      "dv_max_descriptive": 146.32,
+      "dv_mean_ci": [
+        116.48,
+        117.1
+      ],
+      "dv_p95_ci": [
+        124.61,
+        127.89
+      ],
+      "dv_cvar95_ci": [
+        128.41,
+        131.35
+      ],
+      "dv_p99_ci": [
+        129.92,
+        133.22
+      ],
+      "dv_cvar99_ci": [
+        132.31,
+        138.86
+      ],
+      "heat_flux_p95": 185.9,
+      "g_load_p95": 3.03,
+      "best_val_rms_within_transform_only": 1619495.145689712,
+      "actual_sims": {
+        "n_gen": 4001,
+        "n_pop": 300,
+        "training": 6001500,
+        "validation": 3036000,
+        "curation": 2029000,
+        "reeval": 3043500,
+        "total": 14110000
+      }
+    },
+    "training_n_sims/rotating_10": {
+      "key": "training_n_sims/rotating_10",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 117.37,
+      "dv_p50": 116.36,
+      "dv_p95": 127.72,
+      "dv_p99": 135.58,
+      "dv_p999": 151.56,
+      "dv_cvar95": 133.47,
+      "dv_cvar99": 143.91,
+      "dv_max_descriptive": 153.5,
+      "dv_mean_ci": [
+        117.01,
+        117.75
+      ],
+      "dv_p95_ci": [
+        126.93,
+        129.22
+      ],
+      "dv_cvar95_ci": [
+        131.26,
+        135.79
+      ],
+      "dv_p99_ci": [
+        132.7,
+        141.69
+      ],
+      "dv_cvar99_ci": [
+        137.9,
+        149.88
+      ],
+      "heat_flux_p95": 175.8,
+      "g_load_p95": 2.56,
+      "best_val_rms_within_transform_only": 1661088.6120341264,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1947000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 7950000
+      }
+    },
+    "training_n_sims/rotating_2": {
+      "key": "training_n_sims/rotating_2",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 121.83,
+      "dv_p50": 120.3,
+      "dv_p95": 135.32,
+      "dv_p99": 148.0,
+      "dv_p999": 167.31,
+      "dv_cvar95": 143.79,
+      "dv_cvar99": 159.16,
+      "dv_max_descriptive": 173.93,
+      "dv_mean_ci": [
+        121.36,
+        122.33
+      ],
+      "dv_p95_ci": [
+        134.11,
+        137.65
+      ],
+      "dv_cvar95_ci": [
+        140.57,
+        147.07
+      ],
+      "dv_p99_ci": [
+        141.89,
+        157.27
+      ],
+      "dv_cvar99_ci": [
+        150.39,
+        166.05
+      ],
+      "heat_flux_p95": 189.2,
+      "g_load_p95": 3.23,
+      "best_val_rms_within_transform_only": 1853852.7349734078,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 1200600,
+        "validation": 1958000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 3158600
+      }
+    },
+    "training_n_sims/rotating_20": {
+      "key": "training_n_sims/rotating_20",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 118.27,
+      "dv_p50": 116.83,
+      "dv_p95": 130.4,
+      "dv_p99": 140.04,
+      "dv_p999": 155.09,
+      "dv_cvar95": 136.01,
+      "dv_cvar99": 145.46,
+      "dv_max_descriptive": 158.68,
+      "dv_mean_ci": [
+        117.87,
+        118.66
+      ],
+      "dv_p95_ci": [
+        128.19,
+        131.75
+      ],
+      "dv_cvar95_ci": [
+        133.78,
+        138.29
+      ],
+      "dv_p99_ci": [
+        136.01,
+        142.49
+      ],
+      "dv_cvar99_ci": [
+        140.61,
+        150.66
+      ],
+      "heat_flux_p95": 188.2,
+      "g_load_p95": 3.14,
+      "best_val_rms_within_transform_only": 1670828.3091778997,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 12006000,
+        "validation": 1931000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 13937000
+      }
+    },
+    "training_n_sims/rotating_40": {
+      "key": "training_n_sims/rotating_40",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 119.41,
+      "dv_p50": 118.04,
+      "dv_p95": 132.39,
+      "dv_p99": 145.42,
+      "dv_p999": 156.81,
+      "dv_cvar95": 139.11,
+      "dv_cvar99": 149.76,
+      "dv_max_descriptive": 164.47,
+      "dv_mean_ci": [
+        118.98,
+        119.86
+      ],
+      "dv_p95_ci": [
+        130.91,
+        134.11
+      ],
+      "dv_cvar95_ci": [
+        136.61,
+        141.67
+      ],
+      "dv_p99_ci": [
+        139.57,
+        147.38
+      ],
+      "dv_cvar99_ci": [
+        144.78,
+        154.59
+      ],
+      "heat_flux_p95": 187.6,
+      "g_load_p95": 3.12,
+      "best_val_rms_within_transform_only": 1723555.360810327,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 24012000,
+        "validation": 1951000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 25963000
+      }
+    },
+    "training_n_sims/rotating_5": {
+      "key": "training_n_sims/rotating_5",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 120.45,
+      "dv_p50": 119.39,
+      "dv_p95": 132.96,
+      "dv_p99": 146.14,
+      "dv_p999": 156.72,
+      "dv_cvar95": 140.18,
+      "dv_cvar99": 151.84,
+      "dv_max_descriptive": 156.84,
+      "dv_mean_ci": [
+        120.01,
+        120.89
+      ],
+      "dv_p95_ci": [
+        131.56,
+        134.9
+      ],
+      "dv_cvar95_ci": [
+        137.55,
+        142.79
+      ],
+      "dv_p99_ci": [
+        140.26,
+        149.88
+      ],
+      "dv_cvar99_ci": [
+        146.37,
+        155.28
+      ],
+      "heat_flux_p95": 189.3,
+      "g_load_p95": 3.15,
+      "best_val_rms_within_transform_only": 1793556.2657705606,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 3001500,
+        "validation": 1983000,
+        "curation": 0,
+        "reeval": 0,
+        "total": 4984500
+      }
     }
   },
   "paired": {
