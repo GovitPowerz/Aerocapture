@@ -1,109 +1,136 @@
 # Aerocapture NN Paper — Session Resume
 
 > **Purpose:** let a fresh session pick up the paper work without re-reading the whole history.
-> **As of:** 2026-06-14. **Phase:** campaign 00-08 DONE + analysed (09/10/11 pending; 5b/5c done). adaptive_2 = headline candidate. Then figures + Typst.
+> **As of:** 2026-06-18. **Phase:** campaign 00-09 DONE + analysed; 5b/5c (compute + robustness) DONE; 10/11 PENDING. **Headline NN found** (515-param net, see below). Then figures + Typst.
+> **Branch:** `feature/parameter_sweep`. Never push. The user runs the heavy training; the assistant sets up configs/runners, analyses results, keeps docs current.
 
 ## TL;DR
 
-Writing a comprehensive **Typst** research paper — the follow-up to **Gelly & Vernis, AIAA GNC 2009** ("Neural Networks as a Guidance Solution for Soft-Landing and Aerocapture"). It benchmarks the repo's NN aerocapture guidance against classical + predictor-corrector schemes, and presents the training methodology. The optimizer narrative **flipped from "islands" to "GA"** mid-project; the spine is now **training a robust policy in a non-stationary, dispersed environment**. On 2026-06-12 the whole campaign was **reorganized for reproducibility and reset to one regime**: study-named runners in `experiments/paper/`, cell-named configs in `configs/training/paper/`, all prior training outputs wiped (except footnoted legacy dirs), everything re-runs under the post-fix defaults.
+Comprehensive **Typst** research paper — the follow-up to **Gelly & Vernis, AIAA GNC 2009** ("Neural Networks as a Guidance Solution for Soft-Landing and Aerocapture"). Benchmarks the repo's NN aerocapture guidance vs classical + predictor-corrector schemes, and presents the training methodology. On 2026-06-12 the campaign was **reorganized for reproducibility and reset to one regime**: study-named runners in `experiments/paper/`, cell-named configs in `configs/training/paper/`, all prior outputs wiped (except footnoted legacy dirs). As the campaign ran (06-14 → 06-18) several headline claims FLIPPED — read "Live results" + "Headline" below, not the older numbers in the spec.
 
 ## Authoritative docs (read first, in order)
 
-1. **Spec (design + all studies + prior results + rerun plan):** `docs/superpowers/specs/2026-06-08-aerocapture-nn-article-design.md` ← study definitions; its §5 numbers are now HISTORICAL (pre-wipe) and will be superseded by the campaign re-runs.
-2. **Reorg spec (layout + wipe policy + bundle):** `docs/superpowers/specs/2026-06-12-paper-experiments-reorg-design.md`.
-3. **Campaign guide:** `experiments/paper/README.md` ← run order, reuse cells, reporting rules, preserved legacy dirs.
-4. **Plan v2 (aggregate → figures → Typst → smart-commit; the 06-08 plan is bannered DO NOT EXECUTE):** `docs/superpowers/plans/2026-06-12-aerocapture-nn-article-v2.md`.
+1. **Plan v2 (THE live build plan: aggregate → figures → Typst → smart-commit):** `docs/superpowers/plans/2026-06-12-aerocapture-nn-article-v2.md`. Its §8.x results bullets carry the up-to-date per-study readings. (The 06-08 plan is bannered DO NOT EXECUTE.)
+2. **Campaign guide:** `experiments/paper/README.md` ← run order, reuse cells, reporting rules, legacy dirs.
+3. **Reorg spec (layout + wipe policy + bundle):** `docs/superpowers/specs/2026-06-12-paper-experiments-reorg-design.md`.
+4. **Original study spec:** `docs/superpowers/specs/2026-06-08-aerocapture-nn-article-design.md` ← study DEFINITIONS only; its §5 numbers are HISTORICAL (pre-wipe), bannered/annotated as superseded.
 5. **Source extracts (prose + citations + voice):** `articles/markdown/00..05`.
 
 ## The narrative (current)
 
-17-year arc: 2009 feed-forward NN + GA for aerocapture → 2015-17 recurrent NN for speech (CG-LSTM, QPSO, divide-and-conquer, custom losses — the author's own work) → now stateful NN guidance trained for robustness, vs FTC + predictor-correctors on a bit-validated simulator.
+17-year arc: 2009 feed-forward NN + GA for aerocapture → 2015-17 recurrent NN for speech (CG-LSTM, QPSO, divide-and-conquer, custom losses) → now stateful NN guidance trained for robustness, vs FTC + predictor-correctors on a bit-validated simulator.
 
-**The centerpiece (REFRAMED 2026-06-14 by Study C): the adaptive-seed methodology is the load-bearing contribution — the quartet is a matched SYSTEM, not four independent wins.** The quartet is (1) **GA**, (2) **non-stationary seeds** (adaptive curation), (3) **tail-weighted objective** (`cost_transform = cubed`), (4) **worst-case curation** (`bucket_selection = max`). Study C (exp04) shows the mechanism: GA does NOT win because it is robust to a moving objective — under FIXED seeds GA is the WORST optimizer (160.3, overfits the 10 repeated scenarios); non-stationary seeds RESCUE it (fixed→rotating→adaptive = 160.3→120.0→118.0, −42 m/s, the campaign's biggest single effect), while CMA-ES is flat (~127). So **GA *needs* the moving environment**; the adaptive-seed strategy converts GA from worst optimizer to best. Iso-compute clincher: GA rotating-vs-fixed is +40 m/s at 1.14× compute, CMA-ES is +0 at exact iso-compute — the effect is the seed strategy, not compute. Plus the **dimensionality axis** (26/515/3998 params; GA separates only at HIGH dim — at 26p all optimizers tie ~170) and the **capability floor**. Framing (Grégory, 2026-06-12): tail optimization is the MISSION-CORRECT objective — the design-case DV sizes the ergols, and propellant mass directly drives mission cost; the mean is operationally near-irrelevant. So cubed/max optimize the actual cost function. SIZING METRIC CORRECTED 2026-06-14: tanks are sized at the FAR tail (3σ≈p99.87 / CVaR99.9 / worst-case), not p95/CVaR95 -- estimated on n=10000 (far_tail_eval.py), where Study D shows cubed WINS the far tail (CVaR99.9 153.0, max 160.1, vs 156-181) by compressing the extreme, VINDICATING the cubed default; at the shallow tail (CVaR95) mild transforms edge it, but that is the wrong sizing depth. The ~1-2 m/s mean cost is a footnote. The rigor rules still apply: tanks are sized off an ESTIMATE of the tail, hence CIs + σ_run, never the noisy sample max. Dual-role note (2026-06-12): the transform also sets the fitness-estimate VARIANCE at n_sims=10 (all optimizers are rank-based, so cubed acts via noisy rank-by-worst-of-10, not landscape smoothness) -- log's pre-fix mean win with a tied tail is the signature of cubed's tail gain being eaten by its convergence cost; Study D's paired cubed_vs_log CVaR95 decides it, with a log-train/tail-select hybrid as the conditional follow-up.
+**Two-part contribution (the spine):**
 
-## Live campaign results (post-fix, deployed DV mean / CVaR95 m/s, 100% capture unless noted)
+1. **The moving-environment training methodology IS the contribution (Study C).** GA does NOT win because it is robust to a moving objective — it WINS BECAUSE IT NEEDS one. Under FIXED seeds GA is the WORST optimizer (160.3, overfits the repeated scenarios); non-stationary (adaptive) seeds RESCUE it: fixed→rotating→adaptive = 160.3→120.0→118.0 (−42 m/s, the campaign's biggest single effect). CMA-ES is FLAT (~127). Iso-compute clincher: GA rotating-vs-fixed is +40 m/s at 1.14× compute; CMA-ES is +0 at EXACT iso-compute → it's the seed strategy, not compute. So the **adaptive-seed methodology converts GA from worst optimizer to best** — without it you'd deploy CMA-ES; with it, GA dominates. The quartet (GA + adaptive seeds + cubed transform + max bucket) is a matched SYSTEM, not four independent wins.
 
-**Classical (01):** FNPAG **124.3 / 144.0** (the surprise — 2026-06 density-fix made it the best classical, near-NN; converged by gen 59 so 371 gens is plenty), pred_guid 167.4 / 227.1, FTC 170.7 / 244.1 (FIXED-ref; joint-ref/07 recovers it to 126.2/142.9 -- see Study E), energy_controller 176.7 / 245.8 (99.6%), eqglide 200.3 / 327.6 (99.5%), piecewise 258.3 / 421.1 (99.8%). Ordering flipped from pre-fix (pred_guid sign-fix + FNPAG density-fix).
+2. **Worst-case-leaning objective shaping minimizes the mission cost (Studies D + C-sub).** Mission framing (Grégory): propellant (ergols) is sized for the FAR-tail design case (3σ ≈ p99.87 / CVaR99.9 / worst-case), NOT p95 — the tail IS the mission cost function, the mean is operationally near-irrelevant. `cost_transform = cubed` (tail-weighted) and `bucket_selection = max` (hardest seed per cost-CDF bin) are the SAME mechanism: both compress the design-case extreme tail by forcing the policy onto hard cases. Both are VINDICATED at the correct sizing depth (n=10000 far-tail eval), where shallow metrics (mean, CVaR95) would have favored milder choices. Legs 3+4 of the quartet are one idea.
 
-**Optimizer × budget (02, dense_p3998):** GA best @150 (118.0) & @300 (120.4) but **GA@60 collapsed (166.3** — n_pop=60 starves the 4000-dim search; "GA dominates at every budget" REFUTED). islands budget-robust (123.7/120.1/122.2). Headline NN = ga_300 (120.4 / 137.6).
+**Plus:** the **parameter-efficiency** story (capability floor: a ~515-param net is the sweet spot, beats 3998; no collapse down to 102 params) and the **allocation** story (Study F: many generations × few sims/gen beats balanced — few-sims noise is bought out by more non-stationary diversity, deepening Study C).
 
-**Optimizer × dimensionality (03):** at **26p (FTC) all optimizers tie ~170** (GA worst on tail; CMA-ES-low-dim hypothesis refuted); GA separates only at 515/3998. Optimizer matters for NN, not classical-gain tuning.
+## THE HEADLINE NN (supersedes ga_300 AND adaptive_2)
 
-**Study B output-param (03, all GA):** atan2 117.4/128.7 > delta 119.9/141.6 > scaledpi 122.2/140.4 — pre-fix 25 m/s gap was a different-optimizer artifact; real edge is ~12 m/s on the TAIL.
+**`training_output/dense_p515_ga_paper_best/` — 515-param dense net, GA + adaptive + cubed + max, n_sims=2, 15000 gens.**
+Deployed (n=1000): **111.1 mean / 118.0 p95 / 120.6 CVaR95 / 122.4 p99**, 100% capture.
+Far-tail (n=10000, the SIZING depth): **CVaR99 123.8 / CVaR99.9 129.8 / max 138.3**.
 
-**Study C seed-strategy (04) — THE result:** GA fixed→rotating→adaptive 160.3→120.0→118.0 (−42 m/s); CMA-ES flat ~127; islands 145→120; PSO 140→130. GA *needs* non-stationarity (see narrative). Iso-compute clincher above.
+Why it's the headline: it **dominates the design tail** at **1/8 the parameters** of the old 3998-param candidates, and beats the best classical (joint-FTC / FNPAG, CVaR99.9 ~164/165) by **~35 m/s at the sizing tail** and ~13-15 m/s on the mean. Candidate hierarchy (far-tail CVaR99.9): **515@n=2/15k 129.8** < adaptive_2 (3998@n=2/10k) 139.3 < ga_300 (3998@n=10/2k) 152.9. The smaller net gives the TIGHTER worst-case — the parameter-efficiency point made at the metric that matters.
 
-**Study C-sub curation (06), far-tail n=10000 — bucket=max VINDICATED:** which seed per cost-CDF bin trains the policy. max (default) dominates the far tail: CVaR99.9 153.0 / max 160.1 vs random 173/190, middle 194/236, min 226/245 (catastrophic — min has best mean 117.8 but blows the extreme: optimize-the-average-blow-the-worst-case). Trim refuted again (trimming extreme deciles hurts the tail). UNIFIED: cubed (transform, Study D) + max (bucket) are the SAME worst-case-leaning mechanism — both compress the design-case extreme tail; quartet legs 3+4 are one idea.
+**No-plateau signature:** val RMS still DESCENDING at 15k gens (1.81→1.54→1.38e6, decelerating −0.27/−0.16 per 5k). Because the objective is non-stationary, the GA never converges/overfits — training is **compute-bound, not capacity-bound**. This is the methodology's defining demonstration and a planned figure.
 
-**Study E joint reference (07) -- user hypothesis CONFIRMED:** co-optimizing the constant-bank reference recovers huge DV for table-reading schemes. FTC 170.7->126.2 mean (-44 m/s paired, 100% win, p=3e-165), CVaR95 244->143, CVaR99 310->153; EC 176.7->142.1 (-35); pred_guid 167.3->144.2 (-23). FTC's degradation WAS the reference. The reference-design progression (constant-bank -> PC -> joint) is a clean methodological arc.
+**Provenance caveat:** trained via 3× resume (5000-gen steps). Resume is a VALID continuation (see "Resume equivalence" below) but a DIFFERENT allocation (n_sims=2/15000) than the controlled studies (n_sims=10/2000) — state this in the methods. Not yet in the committed bundle / aggregator paired tables.
 
-**NEW HEADLINE NN (2026-06-18, training_output/dense_p515_ga_paper_best): 515-param dense net, GA + adaptive + cubed + max, n_sims=2 @ 15000 gens.** Deployed 111.1 mean / CVaR95 120.6 / CVaR99 123.8 / far-tail (n=10000) CVaR99.9 129.8 / max 138.3, 100% capture. DOMINATES every prior candidate at the design tail (vs adaptive_2 3998-net: CVaR99.9 129.8 vs 139.3, max 138.3 vs 156.0) at 1/8 the params, and beats the best classical (joint-FTC/FNPAG CVaR99.9 ~164/165) by ~35 m/s at the sizing tail / ~13-15 m/s mean. val RMS still DESCENDING at 15k gens (1.81->1.54->1.38e6, decelerating) -- the no-plateau curve is the methodology signature (non-stationary objective never converges/overfits; compute-bound, not capacity-bound). PENDING: +5000 gens to map the plateau; 1000-net head-to-head (plasticity vs GA-dimensionality); then re-point 3-way/ablation/fresh-pool to this cell + add it to the bundle.
+## Live campaign results (deployed DV mean / CVaR95 m/s, 100% capture unless noted)
 
-**Study F training_n_sims (08):** view A (rotating, fixed gens) sweet spot n_sims=10; view B (adaptive, allocation) **n_sims=2 @ 10000 gens DOMINATES: 109.9 mean / 117.5 CVaR95 / far-tail CVaR99 123.7** (~10 m/s < ga_300, far beyond sigma_run; far-tail verified n=10000). Caveat: 1.8x actual sims (21M vs 11.6M; validation/curation scale with n_gen) -- but 2x compute ~= 2 m/s (budget axis), so ~8 m/s is genuine allocation gain. Mechanism: few-sims noise is bought out by more generations (more non-stationary diversity + selection steps; deepens Study C). **adaptive_2 is the new headline candidate -- verify via sigma_run (11), then re-point the 3-way/ablation/fresh-pool to it.**
+- **Classical (01):** FNPAG **124.3 / 144.0** (surprise — the 2026-06 density-fix made it the best classical; converged by gen 59 so 371 gens was plenty), pred_guid 167.4 / 227.1, FTC-fixed 170.7 / 244.1, EC 176.7 / 245.8 (99.6%), eqglide 200.3 / 327.6 (99.5%), piecewise 258.3 / 421.1 (99.8%). Ordering flipped from pre-fix (pred_guid sign-fix + FNPAG density-fix).
+- **Study A optimizer × budget (02, dense_p3998):** GA best @150 (118.0) & @300 (120.4) but **GA@60 COLLAPSED (166.3** — n_pop=60 starves the 4000-dim search; "GA dominates at every budget" REFUTED, GA@60 is N=1). islands budget-robust (123.7/120.1/122.2).
+- **Optimizer × dimensionality (03):** at **26p (FTC) all optimizers TIE ~170** (CMA-ES-low-dim hypothesis REFUTED; GA actually worst on the 26p tail); GA separates only at 515/3998. → optimizer matters for NN weights, NOT classical-gain tuning. Confound stated: 26p is FTC (different scheme), not a pure width sweep.
+- **Study B output-param (03, all GA):** atan2 117.4/128.7 > delta 119.9/141.6 > scaledpi 122.2/140.4. The pre-fix 25 m/s gap was a different-optimizer artifact; real edge is ~12 m/s on the TAIL.
+- **Study C seed-strategy (04):** the methodology result — see narrative (GA needs non-stationarity; 42 m/s swing; iso-compute clincher).
+- **Study D cost_transform (05) + far-tail:** the optimal transform DEPENDS on the sizing percentile. Shallow (CVaR95): sqrt edges cubed. FAR tail (n=10000): TIE at p99/CVaR99 (~143-145), but cubed WINS CVaR99.9 (153.0) & max (160.1, vs 162-181) by compressing the extreme. log worst everywhere. → cubed VINDICATED for far-tail sizing; the earlier "cubed past the optimum / switch to sqrt" was a too-shallow (CVaR95) artifact, WALKED BACK.
+- **Study C-sub curation (06) + far-tail:** bucket=max VINDICATED — dominates the far tail (CVaR99.9 153.0 vs random 173, middle 194, min 226). min has BEST mean (117.8) but catastrophic extreme (max 245) — the optimize-the-average-blow-up-the-worst-case illustration. Trim refuted again.
+- **Study E joint reference (07) — user hypothesis CONFIRMED:** co-optimizing the constant-bank reference recovers FTC 170.7→**126.2** (−44 m/s, paired p=3e-165, 100% win), EC →142.1 (−35), pred_guid →144.2 (−23). FTC's weakness WAS the reference. **joint-FTC (126.2 / CVaR95 142.9) now MATCHES FNPAG (124.3 / 144.0)** and is ANALYTIC/fast → the new best classical.
+- **Study F training_n_sims (08):** view A (rotating, fixed gens) sweet spot n_sims=10; view B (adaptive, allocation) **n_sims=2 @ 10000 gens dominates** (109.9 mean) — but used 1.8× actual sims (21M vs 11.6M; validation/curation scale with n_gen, ~8 m/s is genuine allocation gain). User's efficiency note: n_sims=2 is best but ~2× the wall-time of n_sims=5.
+- **Capability floor (09):** NO collapse — even a 102-param net guides at 100% capture (120.8 mean). **Sweet spot ~515 params (117.4/128.7) BEATS 3998 (120.4/137.6)** → 3998 is over-parameterized. Below ~300p the tail degrades gracefully while mean/capture hold. This is why the headline is a 515-net.
+- **5c robustness (deployed policies on high atmo/density/nav, 9M stress pool):** joint-FTC MOST robust (94.5% capture, −5.5) > NN 93.8% > FNPAG 92.4% > PredGuid 90.8% >> **FTC-fixed 67.1% (catastrophic)**. A well-referenced FTC > FNPAG on robustness (confirms the hypothesis); FTC-fixed's fragility is the reference (ties Study E — reference drives FTC accuracy AND robustness).
+- **5b compute (1 core, idle-box publication-grade):** FTC 1.29 ms/sim, **NN 3.21 (2.5× FTC), FNPAG 87.0 (68× FTC, 27× NN)**. FNPAG is DOMINATED: joint-FTC matches its accuracy + beats its robustness at 68× less compute; the NN beats its accuracy at 27× less.
 
-**Robustness (5c, deployed policies on high atmo/density/nav, 9M pool):** joint-FTC MOST robust (94.5% capture) > NN 93.8% > FNPAG 92.4% > PredGuid 90.8% >> FTC-fixed 67.1%. Confirms well-referenced FTC > FNPAG on robustness; FTC-fixed fragility = the reference (ties Study E). **Compute (5b, 1 core, RL-contended so approximate):** FTC 1.29 ms/sim, NN 3.21 (2.5x), FNPAG 87.0 (68x FTC, 27x NN; idle-box, publication-grade). FNPAG DOMINATED: joint-FTC = its accuracy + better robustness at 68x less compute; NN beats its accuracy at 27x less.
+**The 3-way deployability triangle (NN / joint-FTC / FNPAG):** accuracy NN > joint-FTC ≈ FNPAG · compute FTC ≈ NN ≫ FNPAG (68×) · robustness joint-FTC > NN > FNPAG. With the 515-net headline the NN's accuracy lead over the best classical is ~13-15 m/s mean / **~35 m/s at the design tail**.
 
-**The 3-way RESHAPED -> NN vs joint-FTC vs FNPAG (the new best classical = joint-FTC):** joint-FTC (126.2 mean / CVaR95 142.9) now MATCHES FNPAG (124.3 / 144.0) on accuracy across the whole distribution -- and joint-FTC is ANALYTIC/FAST (~50x faster than FNPAG's predictor). Far-tail n=10000 (sizing depth): NN CVaR99.9 152.9 / max 160.1 < joint-FTC 164.0/170.5 ~= FNPAG 165.0/175.5 (fixed-FTC 353/411, superseded). So **NN beats the best classical (joint-FTC) by ~6 m/s mean (paired -5.8, 76% win, p=1e-69) and ~11 m/s at the design tail, at FTC's compute class.** Headline: NN > best-classical at the fastest compute; joint-FTC = FNPAG accuracy at 50x less compute (the reference methodology). compute-benchmark still PENDING (needs an idle box for clean single-core timing).
+## Pending decisions & next steps (priority order)
 
-## Historical results (PRE-WIPE — directional guidance only, all superseded by the campaign)
+1. **FINALIZE the 515-net as headline** (once the user confirms): add `dense_p515_ga_paper_best` to `collect_runs.py` + the aggregator `PAIRED` (nn_vs_jointftc etc. currently use ga_300); run `fresh_pool_requote.py` (8M pool) on it for the abstract number; run ablation + nn_input_report on it (not ga_300); re-run far-tail robustness/compute with it as the NN (cheap).
+2. **+5000 gens on the 515-net (to 20000)** — user considering. Recommended YES: likely a few more m/s + extends the no-plateau figure. Eval deployed DV at each milestone to confirm it tracks val-RMS.
+3. **1000-net plasticity test** (optional) — user's idea ("more plasticity → learn faster"). Expectation: under GA, more params = harder search, likely SLOWER per gen (09 + Study A argue against more params). Clean test = overlay 1000-vs-515 val-RMS-vs-gen curves at n=2.
+4. **Run 10 (architecture sweep)** — DECISION PENDING on allocation. Recommendation: run at **n_sims=5 / n_gen=4000** (the efficiency sweet spot; deployment-realistic, ~1.2× cost, avoids n_sims=2's 2× wall-time), full budget range. Needs a one-line `param_sweep.py` change to pass `--training-n-sims` (currently passes only `--n-gen`/`--n-pop`; cmd built at `param_sweep.py:236`). Alternatively keep n_sims=10 for cross-study consistency + footnote (relative ranking is allocation-invariant either way).
+5. **Run 11 (seed-repeats)** for σ_run — and ADD a repeat of the 515-net (or adaptive_2) to confirm the allocation gain is beyond σ_run (it's ~10 m/s, almost certainly real).
+6. Then Phase 2/3 of plan v2: aggregate → figures (Task 3) → Typst (Tasks 6-14) → smart-commit.
 
-All prior `training_output` study dirs were deleted 2026-06-12 (reorg). Old numbers live in spec §5 + git history. Directionally: GA won every budget on the big net (115.4/126.2 @300 pre-fix-log); atan2 ≫ scaled_pi/delta (~20+ m/s); classical FTC ~136 ≫ other classicals; RL ~5× worse; min-bucket worst, middle/max > random; trim refuted; log best mean / cubed best max (tradeoff). Effect sizes of 1-3 m/s sit at ~0.5-1.5 σ_run — hence the seed-repeats study.
+## Analysis tooling (`articles/paper/scripts/`)
 
-**Preserved legacy dirs (PRE-FIX regime, footnote when quoted):** RL (`neural_network_rl` 636/973/1185, `neural_network_gru_ppo` 513/829, `neural_network_atan2_{ppo,rl,best}`, `neural_network_rl_explore`), warm-start/joint (`paper_opt_warmstart` 132.4, `{best_,}neural_network_joint` 125.3/125.7, `neural_gru_joint`, `neural_network_warm`), quantization/pruning (`neural_network_atan2` 119.0/132.0/165.2 base, `_qat8` 125.1, `_qat4` 128.7, all `*pruned*` + bases). Regime-insensitive conclusions; not re-run.
+- `aggregate_results.py` → `articles/paper/data/results.json`: per-run capture/DV stats (incl. p99, CVaR95, CVaR99, p99.9 + bootstrap CIs), within-transform best-val, actual-sims accounting, 15 named PAIRED tables (paired bootstrap + Wilcoxon, dispersion-fingerprint asserted), σ_run pooling from the seed_repeats triplets, fresh-pool headline slot. Run after each `12_collect_results.sh`.
+- `far_tail_eval.py` — **the sizing eval.** Re-runs a deployed cell on the full reserved 2M pool at **n=10000** (training-disjoint) for stable p99.9 / CVaR99 / CVaR99.9 with CIs (n=1000 can't estimate the far tail). Accumulates cells across runs into `far_tail_eval.json`. Label = dir under `training_output/paper` or `training_output`; PASS THE RIGHT LABEL (a bad label silently scores an untrained default — happened once).
+- `fresh_pool_requote.py` — the ABSTRACT number: re-quotes the deployed headline on a FRESH pool (`HEADLINE_REQUOTE_SEED_OFFSET = 8_000_000`, disjoint), avoiding selection-on-test (the headline was chosen by sweeps scored on the 2M pool).
+- `compute_benchmark.py` — single-core ms/sim per scheme (needs an IDLE box; the whole-sim ratio under-states the pure guidance-cost gap). DONE (publication-grade): FTC 1.29 / NN 3.21 / FNPAG 87.0.
+- `robustness_stress.py` (`STRESS_EVAL_SEED_OFFSET = 9_000_000`) — deployed policies on a harder MC regime (atmo/density/nav/nav_filter = high). DONE. Schemes: NN / joint-FTC / FTC-fixed / FNPAG / PredGuid.
 
-## Defaults in `common.toml` (the ONE campaign regime)
+Seed offsets (all disjoint): VALIDATION 1M, FINAL_EVAL 2M, RL 3M, WARM_START 4M, NN_INPUT_REPORT 5M, CALIBRATION 6M, SWEEP_EVAL 7M, HEADLINE_REQUOTE 8M, STRESS_EVAL 9M.
 
-- `cost_transform = "cubed"` · `curation_bucket_selection = "max"` · `algorithm = "ga"` · `seed_strategy = "adaptive"` · `training_n_sims = 10` · `curation_top_k = 1` · `seed_pool_interval = 2` · `validation_n_sims = 1000`.
-- Every campaign cell inherits these; per-cell deltas live in the cell config name (`dense_p3998_ga_transform_log.toml`, `dense_p3998_ga_bucket_min.toml`, ...).
+## Methodology notes
+
+- **Sizing metric = FAR tail.** Quote p99 + CVaR95 AND p99.9 + CVaR99.9 with bootstrap CIs; CVaR99.9 is the headline sizing metric; the sample max (≈p99.99 at n=10000) is a descriptive bound. The far tail is unreliable at n=1000 (~1-10 samples) → use `far_tail_eval.py` (n=10000) for any sizing decision.
+- **Resume equivalence (4×5000 ≈ 1×20000? — yes as optimization, not bit-identical).** On resume the trainer RNG state (`rng.bit_generator.state`), the full GA population (pop_X+pop_F from the .npz), and the SeedCurator state (seed_list, last_curation_gen) are all RESTORED — so the **non-stationary seed schedule + population + best-so-far continue faithfully**. Only pymoo's operator RNG (SBX/PM) is re-realized (`warm_start_algorithm` calls `setup(seed=None)`, train.py:1371) — but that stream is UNSEEDED even within a single run, so resume adds NO extra non-determinism. GA has no generation-dependent operators (fixed eta/mutation_prob) so the reset is clean (NB: QPSO would re-anneal alpha on resume; GA dodges it). Consequence: not bit-reproducible from `--seed` alone (it never was) — reproduce via the deployed `best_model.json` + checkpoints. This is also WHY study 11 (seed-repeats) exists.
+- **Compute accounting:** "compute-matched" claims must report ACTUAL sims (from JSONL: training = n_pop×n_sims×n_gen; validation fires ~58-80% of gens × 1000; curation ≈1000 sims/event every ≤2 gens). The nominal n_sims×n_gen budget under-counts because validation/curation scale with n_gen.
+- **Paired comparisons** on the shared 1000-seed final-eval pool (offset 2M; prefix property: n=1000 ⊂ n=2000 ⊂ n=10000). σ_run from 11 calibrates every N=1 comparison.
 
 ## The campaign (`experiments/paper/`, run from repo root, in order)
 
-| Script | Study | Cells / reuse |
-|---|---|---|
-| `00_prereqs.sh` | corridor + mission ref + PC classical row | canonical `piecewise_constant`, `mars/` |
-| `01_classical_baselines.sh` | classical GA @2000×300 | canonical `ftc`, `equilibrium_glide`, `energy_controller`, `pred_guid`, `fnpag` |
-| `02_optimizer_budget.sh` | **Study A** (6 opt × 3 budgets, dense_p3998) | `paper/optimizer_budget/<opt>_<budget>`; **`ga_300` = headline**, reused by 04/05/06/08/11 |
-| `03_optimizer_dimensionality.sh` | **opt × width** (26p FTC / 515p) + **Study B** | `paper/optimizer_dimensionality/*`, `paper/output_param/*`; FTC GA cell = `training_output/ftc` |
-| `04_seed_strategy.sh` | **Study C** fixed/rotating | `paper/seed_strategy/*`; adaptive column = 02's @150 row |
-| `05_cost_transform.sh` | **Study D** | `paper/cost_transform/{linear,sqrt,log,squared}`; cubed = `ga_300` |
-| `06_curation_shaping.sh` | **C-sub** bucket + trim | `paper/curation_shaping/*`; max = `ga_300` |
-| `07_joint_reference.sh` | **Study E** | `paper/joint_reference/*`; baselines from 01, same budgets |
-| `08_training_n_sims.sh` | **Study F** (rotating noise floor + adaptive allocation) | `paper/training_n_sims/*`; adaptive_10 = `ga_300` |
-| `09_capability_floor.sh` | sub-500 collapse | canonical `sweep_dense_p{102,201,298,416}` |
-| `10_architecture_sweep.sh` | 6-family Pareto (GA post-fix) | canonical `sweep_<arch>_p<N>` via param_sweep |
-| `11_seed_repeats.sh` | σ_run repeats | `paper/seed_repeats/*` (s1 from 01/02/03) |
-| `12_collect_results.sh` | committed bundle | `articles/paper/data/runs/<study>/<cell>/` |
+| # | Script | Study | Status |
+|---|---|---|---|
+| 00 | `00_prereqs.sh` | corridor + mission ref + PC classical row | DONE |
+| 01 | `01_classical_baselines.sh` | classical GA @2000×300 (ftc/eqglide/ec/pred_guid/fnpag) | DONE |
+| 02 | `02_optimizer_budget.sh` | Study A (6 opt × 3 budgets, dense_p3998) | DONE |
+| 03 | `03_optimizer_dimensionality.sh` | opt × width (26p FTC / 515p) + Study B | DONE |
+| 04 | `04_seed_strategy.sh` | Study C fixed/rotating (adaptive = 02 @150) | DONE |
+| 05 | `05_cost_transform.sh` | Study D (cubed = 02 ga_300) | DONE |
+| 06 | `06_curation_shaping.sh` | C-sub bucket + trim (max = 02 ga_300) | DONE |
+| 07 | `07_joint_reference.sh` | Study E (baselines from 01) | DONE |
+| 08 | `08_training_n_sims.sh` | Study F (rotating noise floor + adaptive allocation) | DONE |
+| 09 | `09_capability_floor.sh` | sub-500 dense (p102/201/298/416) | DONE |
+| 10 | `10_architecture_sweep.sh` | 6-family Pareto (GA post-fix) via param_sweep | **PENDING** (allocation decision — see next-steps #4) |
+| 11 | `11_seed_repeats.sh` | σ_run repeats (s1 from 01/02/03) | **PENDING** (add 515-net/adaptive_2 repeat) |
+| 12 | `12_collect_results.sh` | → `articles/paper/data/runs/` committed bundle | rerun after each study |
 
-All runners: skip-if-done per cell, `--sim-timeout 5`. Never run two cells of the same config TOML concurrently; never regenerate `training_output/mars/` while a ref-tracking scheme trains.
+Plus the 5b/5c/far-tail/fresh-pool eval scripts (above) — NOT in the numbered runners. All runners: skip-if-done per cell, `--sim-timeout 5`. Never run two cells of the same config TOML concurrently; never regenerate `training_output/mars/` while a ref-tracking scheme trains.
 
-**Reporting rules (locked in by the 2026-06-12 methodology review):** quote p99 + CVaR95 (not sample max); pair all cross-cell tables on the shared 1000-seed final-eval pool (paired bootstrap + Wilcoxon in `aggregate_results.py`); report ACTUAL total sims per run (from JSONL: validations fire on ~58-80% of gens × 1000 sims; curation ≈1000 sims/event every ≤2 gens) next to any "compute-matched" claim; σ_run from 11 calibrates every N=1 comparison; re-quote the final headline model once on a FRESH pool (offset 8M) for the abstract number.
+## Defaults in `common.toml` (the ONE controlled-study regime)
 
-## After all experiments (Phase 2-4 of the plan)
+`cost_transform = "cubed"` · `curation_bucket_selection = "max"` · `algorithm = "ga"` · `seed_strategy = "adaptive"` · `training_n_sims = 10` · `curation_top_k = 1` · `seed_pool_interval = 2` · `validation_n_sims = 1000`. Every campaign cell inherits these; per-cell deltas live in the cell config name. NB the deployed HEADLINE uses a different allocation (n_sims=2/15000) — that is the best *deployable* config, not the controlled-study regime.
 
-- **Aggregate:** `articles/paper/scripts/aggregate_results.py` (plan v2 Tasks 1-2: `paper_stats.py` helpers + bundle-driven aggregator) reads `articles/paper/data/runs/` → `articles/paper/data/results.json`, with paired stats, actual-sims, σ_run, and the fresh-pool headline re-quote.
-- **Figures** (plan v2 Task 3): 10 figures via the shared figlib — Pareto incl. capability floor, optimizer budget+dimensionality, seed-strategy (thesis figure), cost_transform, curation, output-param, training_n_sims, classical-vs-NN CDF, joint-reference, pruning/quant (legacy footnote). Ablation + input report on ga_300 (Task 4); fresh-pool re-quote (Task 5).
-- **Typst paper** (plan v2 Tasks 6-14): `articles/paper/` (standalone arXiv-style), GA-quartet narrative, statistical-protocol subsection, ~10 results subsections, voice from `articles/markdown/05`.
-- **Finish:** `smart-commit` skill over the branch.
+## Legacy dirs (preserved, PRE-FIX regime — footnote when quoted)
+
+RL (`neural_network_rl` 636/973/1185, `neural_network_gru_ppo` 513/829, `neural_network_atan2_{ppo,rl,best}`, `neural_network_rl_explore`), warm-start/joint (`paper_opt_warmstart` 132.4, `{best_,}neural_network_joint`, `neural_gru_joint`, `neural_network_warm`), quant/pruning (`neural_network_atan2` 119.0/132.0/165.2 base, `_qat8` 125.1, `_qat4` 128.7, all `*pruned*` + bases). Bundled under `articles/paper/data/runs/legacy/`. Conclusions (RL ~5× worse, warm-start below plain GA, QAT/pruning deployability) are regime-insensitive; NOT re-run. Pre-wipe historical numbers: spec §5 + git history.
 
 ## How to extract numbers (reusable)
 
-Capture = `ifinal==3 & eccentricity<1.0`; DV = `dv_total_m_s` over captured; one `final_eval.parquet` per run dir (under `training_output/paper/<study>/<cell>/`, canonical scheme dirs, or the committed bundle `articles/paper/data/runs/`).
+Capture = `ifinal==3 & eccentricity<1.0`; DV = `dv_total_m_s` over captured; one `final_eval.parquet` per run dir (under `training_output/paper/<study>/<cell>/`, canonical scheme/sweep dirs, or the committed bundle).
 
 ```python
 import numpy as np, pyarrow.parquet as pq
-def stats(path):
+def stats(path):  # n=1000 -> mean/CVaR95 reliable; far tail needs far_tail_eval.py (n=10000)
     df = pq.read_table(f"{path}/final_eval.parquet").to_pandas()
     cap = (df["ifinal"]==3) & (df["eccentricity"]<1.0)
     dvc = df.loc[cap,"dv_total_m_s"].to_numpy()
+    cv = lambda lv: float(np.sort(dvc)[-max(1,int(round(len(dvc)*(1-lv)))):].mean())
     return dict(n=len(df), cap=round(100*cap.mean(),1), mean=round(dvc.mean(),1),
                 p95=round(float(np.percentile(dvc,95)),1), p99=round(float(np.percentile(dvc,99)),1),
-                cvar95=round(float(np.sort(dvc)[-max(1,len(dvc)//20):].mean()),1))
+                cvar95=round(cv(.95),1), cvar99=round(cv(.99),1))
 ```
 
-(`cost_transform` rescales the *training* best-val, so it is NOT comparable across transforms — use deployed DV. Within one transform, training best-val from `run_*.jsonl` `validation.rms_cost` is comparable.)
+(`cost_transform` rescales the TRAINING best-val, so it is NOT comparable across transforms — use deployed DV. Within one transform, training best-val from `run_*.jsonl` `validation.rms_cost` is comparable, but it's in cubed-cost space.)
 
 ## Process notes
 
-- Flow used: `brainstorming` → spec → `writing-plans` → `executing-plans` (inline). Currently: **campaign reorganized + outputs wiped; user runs `experiments/paper/00..12` in order; assistant aggregates + drafts.**
-- Division of labor: **the user runs the heavy training**; the assistant sets up configs/runners, analyzes results, keeps the spec current. Branch: `feature/parameter_sweep`. Never push.
-- New experiment knobs added this project (all in `train.py`/`OptimizerConfig`/`SeedCurator`): `--output-dir`, `--seed-strategy`, `--training-n-sims`, `--seed` (repeats), `[optimizer] curation_trim_fraction`, `[optimizer] curation_bucket_selection`.
+- Flow: `brainstorming` → spec → `writing-plans` → inline execution. New knobs added this project (all in `train.py`/`OptimizerConfig`/`SeedCurator`): `--output-dir`, `--seed-strategy`, `--training-n-sims`, `--seed`, `[optimizer] curation_trim_fraction` (null result), `[optimizer] curation_bucket_selection`.
+- The interrupted-run report bug was fixed (an interrupted training no longer writes a self-certifying `final_eval.parquet`). The far_tail/compute/robustness/fresh-pool scripts pin the run-local `best_model.json` + co-trained scaffolding so they score the right model.
+- Memory files updated this project: `project_seed_strategy_result` (GA needs non-stationarity), `project_tail_sizing_rationale`, `project_cost_function_design` (cubed vindicated far-tail).
