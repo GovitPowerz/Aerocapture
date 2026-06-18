@@ -23,7 +23,7 @@ run 2   2000 rotating rotating_2
 run 5   2000 rotating rotating_5
 run 10  2000 rotating rotating_10
 run 20  2000 rotating rotating_20
-run 100 2000 rotating rotating_100   # slow cell: 50x the n_sims=2 training sims
+run 40  2000 rotating rotating_40   # slow cell: 20x the n_sims=2 training sims
 
 # ── (B) allocation: adaptive, n_sims * n_gen = 20000 (anchor = 02's ga_300) ──
 run 2   10000 adaptive adaptive_2
