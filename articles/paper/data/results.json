@@ -1,5 +1,189 @@
 {
   "runs": {
+    "architecture_sweep/sweep_dense_p102": {
+      "key": "architecture_sweep/sweep_dense_p102",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 120.82,
+      "dv_p50": 118.5,
+      "dv_p95": 140.33,
+      "dv_p99": 152.47,
+      "dv_p999": 166.94,
+      "dv_cvar95": 148.94,
+      "dv_cvar99": 160.03,
+      "dv_max_descriptive": 170.78,
+      "dv_mean_ci": [
+        120.25,
+        121.41
+      ],
+      "dv_p95_ci": [
+        137.91,
+        143.35
+      ],
+      "dv_cvar95_ci": [
+        145.87,
+        151.72
+      ],
+      "dv_p99_ci": [
+        148.52,
+        157.16
+      ],
+      "dv_cvar99_ci": [
+        154.25,
+        164.65
+      ],
+      "heat_flux_p95": 183.9,
+      "g_load_p95": 3.09,
+      "best_val_rms_within_transform_only": 1824197.4733937823,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1611000,
+        "curation": 1029000,
+        "reeval": 3087000,
+        "total": 11730000
+      }
+    },
+    "architecture_sweep/sweep_dense_p201": {
+      "key": "architecture_sweep/sweep_dense_p201",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 120.39,
+      "dv_p50": 119.3,
+      "dv_p95": 131.75,
+      "dv_p99": 138.22,
+      "dv_p999": 148.77,
+      "dv_cvar95": 136.32,
+      "dv_cvar99": 144.49,
+      "dv_max_descriptive": 156.3,
+      "dv_mean_ci": [
+        120.01,
+        120.77
+      ],
+      "dv_p95_ci": [
+        129.86,
+        132.63
+      ],
+      "dv_cvar95_ci": [
+        134.47,
+        138.22
+      ],
+      "dv_p99_ci": [
+        136.46,
+        142.48
+      ],
+      "dv_cvar99_ci": [
+        139.77,
+        148.86
+      ],
+      "heat_flux_p95": 186.2,
+      "g_load_p95": 3.09,
+      "best_val_rms_within_transform_only": 1770272.7826992685,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1580000,
+        "curation": 1035000,
+        "reeval": 3105000,
+        "total": 11723000
+      }
+    },
+    "architecture_sweep/sweep_dense_p298": {
+      "key": "architecture_sweep/sweep_dense_p298",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 118.68,
+      "dv_p50": 117.93,
+      "dv_p95": 128.83,
+      "dv_p99": 137.06,
+      "dv_p999": 145.78,
+      "dv_cvar95": 133.65,
+      "dv_cvar99": 141.06,
+      "dv_max_descriptive": 146.34,
+      "dv_mean_ci": [
+        118.32,
+        119.04
+      ],
+      "dv_p95_ci": [
+        127.6,
+        130.05
+      ],
+      "dv_cvar95_ci": [
+        131.89,
+        135.43
+      ],
+      "dv_p99_ci": [
+        133.61,
+        139.93
+      ],
+      "dv_cvar99_ci": [
+        137.82,
+        143.64
+      ],
+      "heat_flux_p95": 187.8,
+      "g_load_p95": 3.09,
+      "best_val_rms_within_transform_only": 1691166.9294337074,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1560000,
+        "curation": 1041000,
+        "reeval": 3123000,
+        "total": 11727000
+      }
+    },
+    "architecture_sweep/sweep_dense_p416": {
+      "key": "architecture_sweep/sweep_dense_p416",
+      "legacy_prefix_regime": false,
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 119.02,
+      "dv_p50": 117.97,
+      "dv_p95": 129.74,
+      "dv_p99": 135.1,
+      "dv_p999": 142.03,
+      "dv_cvar95": 133.42,
+      "dv_cvar99": 138.53,
+      "dv_max_descriptive": 142.35,
+      "dv_mean_ci": [
+        118.68,
+        119.37
+      ],
+      "dv_p95_ci": [
+        128.83,
+        131.01
+      ],
+      "dv_cvar95_ci": [
+        132.13,
+        134.67
+      ],
+      "dv_p99_ci": [
+        133.28,
+        137.85
+      ],
+      "dv_cvar99_ci": [
+        136.07,
+        140.28
+      ],
+      "heat_flux_p95": 178.5,
+      "g_load_p95": 2.69,
+      "best_val_rms_within_transform_only": 1703354.522697111,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1434000,
+        "curation": 1034000,
+        "reeval": 3102000,
+        "total": 11573000
+      }
+    },
     "classical_baselines/energy_controller": {
       "key": "classical_baselines/energy_controller",
       "legacy_prefix_regime": false,
