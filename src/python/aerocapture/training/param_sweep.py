@@ -225,7 +225,14 @@ def _load_manifest(tag: str = "") -> list[dict[str, Any]]:
 
 
 def train(
-    manifest: list[dict[str, Any]], n_gen: int, n_pop: int, algorithm: str | None, sim_timeout: float | None, force: bool, from_scratch: bool = False
+    manifest: list[dict[str, Any]],
+    n_gen: int,
+    n_pop: int,
+    algorithm: str | None,
+    sim_timeout: float | None,
+    force: bool,
+    from_scratch: bool = False,
+    training_n_sims: int | None = None,
 ) -> None:
     for i, entry in enumerate(manifest, 1):
         out_model = Path(entry["output_dir"]) / "best_model.json"
@@ -234,6 +241,8 @@ def train(
             print(f"[{i}/{len(manifest)}] skip {entry['arch']} {entry['params']}p (best_model.json exists; --force/--from-scratch to retrain)")
             continue
         cmd = [sys.executable, "-m", "aerocapture.training.train", entry["config"], "--n-gen", str(n_gen), "--n-pop", str(n_pop), "--no-tui", "--skip-report"]
+        if training_n_sims is not None:
+            cmd += ["--training-n-sims", str(training_n_sims)]
         if from_scratch:
             cmd += ["--from-scratch"]
         if algorithm:
@@ -386,6 +395,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--budgets", nargs="+", type=int, default=list(DEFAULT_BUDGETS), help="param budgets")
     p.add_argument("--n-gen", type=int, default=1500, help="generations per training point")
     p.add_argument("--n-pop", type=int, default=64, help="population size per training point")
+    p.add_argument("--training-n-sims", type=int, default=None, help="sims/individual/gen override (else TOML default 10); e.g. 5 for the efficient allocation")
     p.add_argument("--algorithm", default=None, help="optimizer override (else TOML default)")
     p.add_argument("--n-sims", type=int, default=1000, help="eval seed-pool size")
     p.add_argument("--base-seed", type=int, default=0, help="base mc seed for the eval pool")
@@ -405,7 +415,16 @@ def main(argv: list[str] | None = None) -> None:
     archs, budgets, tag = tuple(args.archs), tuple(args.budgets), args.out_tag
     manifest = generate(archs, budgets, tag=tag) if do_gen else _load_manifest(tag=tag)
     if do_train:
-        train(manifest, args.n_gen, args.n_pop, args.algorithm, args.sim_timeout, args.force, from_scratch=args.from_scratch)
+        train(
+            manifest,
+            args.n_gen,
+            args.n_pop,
+            args.algorithm,
+            args.sim_timeout,
+            args.force,
+            from_scratch=args.from_scratch,
+            training_n_sims=args.training_n_sims,
+        )
     results = evaluate(manifest, args.n_sims, args.base_seed, args.sim_timeout, tag=tag) if do_eval else None
     if do_plot:
         plot(results, metric=args.metric, tag=tag)
