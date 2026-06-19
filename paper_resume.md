@@ -1,7 +1,7 @@
 # Aerocapture NN Paper — Session Resume
 
 > **Purpose:** let a fresh session pick up the paper work without re-reading the whole history.
-> **As of:** 2026-06-18. **Phase:** campaign 00-09 DONE + analysed; 5b/5c (compute + robustness) DONE; 10/11 PENDING. **Headline NN found** (515-param net, see below). Then figures + Typst.
+> **As of:** 2026-06-18. **Phase:** campaign 00-09 DONE + analysed; 5b/5c (compute + robustness) DONE; **headline NN FINAL** (515-net plateaued, see below; 972-net confirms bigger-is-worse-for-GA). 10 (arch sweep) about to run; 11 PENDING. Then figures + Typst.
 > **Branch:** `feature/parameter_sweep`. Never push. The user runs the heavy training; the assistant sets up configs/runners, analyses results, keeps docs current.
 
 ## TL;DR
@@ -28,17 +28,17 @@ Comprehensive **Typst** research paper — the follow-up to **Gelly & Vernis, AI
 
 **Plus:** the **parameter-efficiency** story (capability floor: a ~515-param net is the sweet spot, beats 3998; no collapse down to 102 params) and the **allocation** story (Study F: many generations × few sims/gen beats balanced — few-sims noise is bought out by more non-stationary diversity, deepening Study C).
 
-## THE HEADLINE NN (supersedes ga_300 AND adaptive_2)
+## THE HEADLINE NN (supersedes ga_300 AND adaptive_2) — FINAL (plateaued 2026-06-18)
 
-**`training_output/dense_p515_ga_paper_best/` — 515-param dense net, GA + adaptive + cubed + max, n_sims=2, 15000 gens.**
-Deployed (n=1000): **111.1 mean / 118.0 p95 / 120.6 CVaR95 / 122.4 p99**, 100% capture.
-Far-tail (n=10000, the SIZING depth): **CVaR99 123.8 / CVaR99.9 129.8 / max 138.3**.
+**`training_output/dense_p515_ga_paper_best/` — 515-param dense net, GA + adaptive + cubed + max, n_sims=2, 20000 gens.**
+Deployed (n=1000): **109.7 mean / 117.0 CVaR95 / 120.6 CVaR99**, 100% capture.
+Far-tail (n=10000, the SIZING depth): **CVaR99.9 128.1 / max 146.7**. val RMS plateaued at **1.326e6**.
 
-Why it's the headline: it **dominates the design tail** at **1/8 the parameters** of the old 3998-param candidates, and beats the best classical (joint-FTC / FNPAG, CVaR99.9 ~164/165) by **~35 m/s at the sizing tail** and ~13-15 m/s on the mean. Candidate hierarchy (far-tail CVaR99.9): **515@n=2/15k 129.8** < adaptive_2 (3998@n=2/10k) 139.3 < ga_300 (3998@n=10/2k) 152.9. The smaller net gives the TIGHTER worst-case — the parameter-efficiency point made at the metric that matters.
+Why it's the headline: it **dominates the design tail** at **1/8 the parameters** of the 3998-param candidates, and beats the best classical (joint-FTC / FNPAG, CVaR99.9 ~164/165) by **~36 m/s at the sizing tail** and ~15 m/s on the mean. Candidate hierarchy (far-tail CVaR99.9): **515@n=2/20k 128.1** < adaptive_2 (3998@n=2/10k) 139.3 < ga_300 (3998@n=10/2k) 152.9. The smaller net gives the TIGHTER worst-case — the parameter-efficiency point at the metric that matters.
 
-**No-plateau signature:** val RMS still DESCENDING at 15k gens (1.81→1.54→1.38e6, decelerating −0.27/−0.16 per 5k). Because the objective is non-stationary, the GA never converges/overfits — training is **compute-bound, not capacity-bound**. This is the methodology's defining demonstration and a planned figure.
+**Plateau + the GA-dimensionality result (2026-06-18, head-to-head 515 vs 972, SAME allocation n=2/20000 gens):** the 515 val RMS decelerated to a plateau (1.81→1.54→1.376→1.330e6, drops −0.27/−0.16/−0.046 per 5k). The 972-param net, trained identically to 20000 gens, **plateaued HIGHER (val RMS 1.433e6 vs 1.326e6) and deploys WORSE** (112.4 / CVaR95 121.6 / CVaR99.9 130.7 vs 109.7 / 117.0 / 128.1 — 515 better on mean/CVaR95/CVaR99/CVaR99.9 by 2.6-4.6 m/s; only the single-sample max is worse). So **more parameters did NOT help — they hurt**: bigger nets are harder for the GA to optimize and give no capacity benefit. This CONFIRMS the GA-dimensionality hypothesis and REFUTES the "more plasticity → learn faster/better" intuition (a gradient-descent phenomenon that does NOT transfer to a gradient-free GA). The 1000-net "plasticity" test is thereby answered (negatively) by the 972 run. (The non-stationary objective still means training is compute-bound — both nets kept improving for ~15-20k gens before plateauing — but capacity above ~515 is wasted.)
 
-**Provenance caveat:** trained via 3× resume (5000-gen steps). Resume is a VALID continuation (see "Resume equivalence" below) but a DIFFERENT allocation (n_sims=2/15000) than the controlled studies (n_sims=10/2000) — state this in the methods. Not yet in the committed bundle / aggregator paired tables.
+**Provenance caveat:** trained via 4× resume (5000-gen steps). Resume is a VALID continuation (see "Resume equivalence" below) but a DIFFERENT allocation (n_sims=2/20000) than the controlled studies (n_sims=10/2000) — state this in the methods. Not yet in the committed bundle / aggregator paired tables.
 
 ## Live campaign results (deployed DV mean / CVaR95 m/s, 100% capture unless noted)
 
@@ -59,11 +59,11 @@ Why it's the headline: it **dominates the design tail** at **1/8 the parameters*
 
 ## Pending decisions & next steps (priority order)
 
-1. **FINALIZE the 515-net as headline** (once the user confirms): add `dense_p515_ga_paper_best` to `collect_runs.py` + the aggregator `PAIRED` (nn_vs_jointftc etc. currently use ga_300); run `fresh_pool_requote.py` (8M pool) on it for the abstract number; run ablation + nn_input_report on it (not ga_300); re-run far-tail robustness/compute with it as the NN (cheap).
-2. **+5000 gens on the 515-net (to 20000)** — user considering. Recommended YES: likely a few more m/s + extends the no-plateau figure. Eval deployed DV at each milestone to confirm it tracks val-RMS.
-3. **1000-net plasticity test** (optional) — user's idea ("more plasticity → learn faster"). Expectation: under GA, more params = harder search, likely SLOWER per gen (09 + Study A argue against more params). Clean test = overlay 1000-vs-515 val-RMS-vs-gen curves at n=2.
-4. **Run 10 (architecture sweep)** — DECISION PENDING on allocation. Recommendation: run at **n_sims=5 / n_gen=4000** (the efficiency sweet spot; deployment-realistic, ~1.2× cost, avoids n_sims=2's 2× wall-time), full budget range. Needs a one-line `param_sweep.py` change to pass `--training-n-sims` (currently passes only `--n-gen`/`--n-pop`; cmd built at `param_sweep.py:236`). Alternatively keep n_sims=10 for cross-study consistency + footnote (relative ranking is allocation-invariant either way).
-5. **Run 11 (seed-repeats)** for σ_run — and ADD a repeat of the 515-net (or adaptive_2) to confirm the allocation gain is beyond σ_run (it's ~10 m/s, almost certainly real).
+1. **FINALIZE the 515-net as headline** (it is final — plateaued): add `dense_p515_ga_paper_best` to `collect_runs.py` + the aggregator `PAIRED` (nn_vs_jointftc etc. currently use ga_300); run `fresh_pool_requote.py` (8M pool) on it for the abstract number; run ablation + nn_input_report on it (not ga_300); re-run far-tail robustness/compute with it as the NN (cheap). The 972-net (`dense_p972_ga_paper_best`) should also be bundled as the GA-dimensionality data point.
+2. ~~+5000 gens~~ DONE — 515 trained to 20000 gens, plateaued (val RMS 1.330e6, deployed 109.7).
+3. ~~1000-net plasticity test~~ ANSWERED by the 972-net: more params plateau worse (1.433e6 vs 1.326e6) and deploy worse — GA-dimensionality confirmed, plasticity intuition refuted.
+4. **Run 10 (architecture sweep) — NEXT.** `--training-n-sims` passthrough now ADDED to `param_sweep.py` (commit cbc4792). Recommendation: `param_sweep --train --training-n-sims 5 --n-gen 8000 --n-pop 300 --from-scratch` (n_sims=5 = the efficiency sweet spot; n_sims=2 reserved for the deployed headline = prohibitive at 24 cells; ~8000 gens plateaus the ~500-2000 cells, the ~4000 won't fully plateau — footnote it). Budget points 500/1000/2000 are the cross-arch core (recurrent archs can't go below ~450; sub-500 is dense-only = 09); 4000 optional (over-parameterized + GA-hostile, drop if compute-bound). User chose to leave 4000 in for now.
+5. **Run 11 (seed-repeats)** for σ_run — add a repeat of the 515-net to confirm the parameter-efficiency + allocation gains are beyond σ_run.
 6. Then Phase 2/3 of plan v2: aggregate → figures (Task 3) → Typst (Tasks 6-14) → smart-commit.
 
 ## Analysis tooling (`articles/paper/scripts/`)
