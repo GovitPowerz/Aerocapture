@@ -22,7 +22,7 @@ from aerocapture.training.paper_stats import actual_sims, capture_mask, paired_c
 RUNS_DIR = REPO / "articles/paper/data/runs"
 OUT = REPO / "articles/paper/data/results.json"
 
-HEADLINE = "optimizer_budget/ga_300"
+HEADLINE = "headline/dense_p515"
 # Paired tables: (label, run_a, run_b) -- delta = a - b, negative = a better.
 PAIRED = [
     ("ga_vs_islands_300", "optimizer_budget/ga_300", "optimizer_budget/islands_300"),
@@ -30,9 +30,14 @@ PAIRED = [
     ("cubed_vs_log", "optimizer_budget/ga_300", "cost_transform/log"),
     ("max_vs_middle_bucket", "optimizer_budget/ga_300", "curation_shaping/bucket_middle"),
     ("max_vs_random_bucket", "optimizer_budget/ga_300", "curation_shaping/bucket_random"),
-    ("nn_vs_ftc", "optimizer_budget/ga_300", "classical_baselines/ftc"),
-    ("nn_vs_fnpag", "optimizer_budget/ga_300", "classical_baselines/fnpag"),
-    ("nn_vs_jointftc", "optimizer_budget/ga_300", "joint_reference/ftc"),
+    # Headline (515-net @ n=2/20000) vs the classicals -- the paper's deployed comparison.
+    ("nn_vs_ftc", "headline/dense_p515", "classical_baselines/ftc"),
+    ("nn_vs_fnpag", "headline/dense_p515", "classical_baselines/fnpag"),
+    ("nn_vs_jointftc", "headline/dense_p515", "joint_reference/ftc"),
+    ("nn515_vs_nn972", "headline/dense_p515", "headline/dense_p972"),  # GA-dimensionality
+    # ga_300 (n=10/2000, controlled-allocation reference) vs the same classicals:
+    ("ga300_vs_ftc", "optimizer_budget/ga_300", "classical_baselines/ftc"),
+    ("ga300_vs_jointftc", "optimizer_budget/ga_300", "joint_reference/ftc"),
     ("ftc_vs_fnpag", "classical_baselines/ftc", "classical_baselines/fnpag"),
     ("jointftc_vs_fnpag", "joint_reference/ftc", "classical_baselines/fnpag"),
     ("joint_vs_fixed_ftc", "joint_reference/ftc", "classical_baselines/ftc"),
@@ -58,6 +63,8 @@ def _infer_training_n_sims(key: str) -> int:
     # Study F cells encode n_sims in the cell name; everything else trains at 10.
     if key.startswith("training_n_sims/"):
         return int(key.rsplit("_", 1)[1])
+    if key.startswith("headline/"):
+        return 2  # the manual headline runs trained at n_sims=2
     return 10
 
 

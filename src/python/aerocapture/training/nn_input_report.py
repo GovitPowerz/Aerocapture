@@ -258,9 +258,29 @@ def main() -> None:
     ap.add_argument("--n-sims", type=int, default=500)
     ap.add_argument("--dv-threshold", type=float, default=None)
     ap.add_argument("--output-dir", default=None)
+    ap.add_argument(
+        "--model",
+        default=None,
+        help="NN model JSON to report on (default: <training_dir>/best_model.json when present; the TOML's "
+        "data.neural_network deploy path is shared across --output-dir siblings and may hold a foreign cell's weights)",
+    )
     args = ap.parse_args()
+
+    # Pin the run-local model + apply its co-trained scaffolding so the recorded
+    # inputs reflect the deployed operating point (mirrors the ablation CLI).
+    from aerocapture.training.report import _load_nn_scaffolding_overrides  # noqa: PLC0415
+
+    training_dir = Path(args.training_dir)
+    model = args.model
+    if model is None and (training_dir / "best_model.json").exists():
+        model = str(training_dir / "best_model.json")
+    overrides: dict[str, object] = dict(_load_nn_scaffolding_overrides(training_dir, training_dir / f"optimized_{training_dir.name}.toml"))
+    if model:
+        overrides["data.neural_network"] = model
+        print(f"Model: {model}")
+
     out = args.output_dir or str(Path(args.training_dir) / "nn_input_report")
-    run_report(args.toml, n_sims=args.n_sims, output_dir=Path(out), dv_threshold=args.dv_threshold)
+    run_report(args.toml, n_sims=args.n_sims, output_dir=Path(out), dv_threshold=args.dv_threshold, overrides=overrides or None)
     print(f"NN input report written to {out}")
 
 

@@ -45,6 +45,15 @@ LEGACY = (
 )
 
 
+# Manual headline / parameter-efficiency runs (NOT campaign cells; trained by
+# hand at the deployment allocation n_sims=2/20000 gens). dense_p515 is the
+# deployed headline; dense_p972 is the GA-dimensionality data point.
+HEADLINE = {
+    "dense_p515_ga_paper_best": "headline/dense_p515",
+    "dense_p972_ga_paper_best": "headline/dense_p972",
+}
+
+
 def _run_dirs() -> list[tuple[Path, Path]]:
     """(source run dir, bundle destination) pairs for every completed run."""
     pairs: list[tuple[Path, Path]] = []
@@ -53,6 +62,10 @@ def _run_dirs() -> list[tuple[Path, Path]]:
         for parquet in sorted(paper.rglob("final_eval.parquet")):
             src = parquet.parent
             pairs.append((src, OUT / src.relative_to(paper)))
+    for name, dest in HEADLINE.items():
+        src = TRAINING / name
+        if (src / "final_eval.parquet").exists():
+            pairs.append((src, OUT / dest))
     for scheme in CLASSICAL:
         src = TRAINING / scheme
         if (src / "final_eval.parquet").exists():
