@@ -13,7 +13,10 @@ set -euo pipefail
 # (CVaR99.9 / 3sigma), not the mean. Resumable (skip-if-final_selection,
 # auto-resume on crash -- NO --from-scratch, so a multi-day run survives a crash;
 # --n-gen is "additional" on resume, so a crash-resume trains PAST 20000, harmless).
-# Ctrl-C stops cleanly. Each run is multi-day; 4 runs (2 cells x s2/s3).
+# Ctrl-C stops cleanly. Each run is multi-day. dense_515 + mamba_962 s2/s3 are
+# DONE (10c first pass: Mamba beats Dense on the tail beyond sigma_run); the LSTM
+# co-leader (s1 CVaR99.9 123.2 ~ mamba 122.0) now gets s2/s3 to decide
+# mamba-vs-lstm on equal footing -> 2 new runs (dense/mamba skip via final_selection).
 #
 # Provenance note: dense515_s1 = the deployed headline (fresh 20000-gen run);
 # mamba962_s1 = 10b's mamba_p962_long (sweep-5000 + resume-15000). Both plateaued,
@@ -45,7 +48,7 @@ run() {  # $1=config  $2=seed  $3=cell
 }
 
 for S in 2 3; do
-  run configs/training/msr_aller_nn_atan2_best_paper.toml "$S" "dense515_s$S"   # dense_515 headline arch
-  run configs/training/sweep/mamba_p962.toml              "$S" "mamba962_s$S"   # the tail-leading challenger
-  # run configs/training/sweep/lstm_p1082.toml             "$S" "lstm1082_s$S"   # uncomment to also repeat the LSTM co-leader
+  run configs/training/msr_aller_nn_atan2_best_paper.toml "$S" "dense515_s$S"   # dense_515 headline arch (s2/s3 DONE -> skip)
+  run configs/training/sweep/mamba_p962.toml              "$S" "mamba962_s$S"   # tail-leading challenger (s2/s3 DONE -> skip)
+  run configs/training/sweep/lstm_p1082.toml             "$S" "lstm1082_s$S"   # LSTM co-leader (s1 = 10b's lstm_p1082_long); deciding mamba-vs-lstm
 done
