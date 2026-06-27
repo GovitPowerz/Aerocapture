@@ -56,3 +56,4 @@ training_output/mars/*
 data/neural_network/nn_model.json
 *.pdf
 .superpowers/
+articles/paper/paper.pdf
