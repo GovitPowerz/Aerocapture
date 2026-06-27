@@ -9,6 +9,12 @@
 > 2026-06-12 (reorg spec: `2026-06-12-paper-experiments-reorg-design.md`).
 > §3 status columns, every `run_paper_experimentsN.sh` reference, and every §5
 > number are HISTORICAL. Current status lives in `paper_resume.md`.
+>
+> **RESULTS REVERSED (2026-06-25):** §5.1's "dense best, Mamba 2nd" reading is
+> SUPERSEDED. Studies 10b/10c showed recurrent nets (Mamba_962, LSTM_1082) BEAT
+> the dense net on the mission-SIZING TAIL beyond σ_run. The deployed headline is
+> **Mamba_962** (dense_515 = efficiency reference). Do not cite §5's architecture
+> conclusions; see `paper_resume.md` "THE HEADLINE NN".
 
 **Date:** 2026-06-08
 **Status:** Design approved (pending spec review)

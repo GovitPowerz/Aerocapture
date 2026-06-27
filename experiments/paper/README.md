@@ -11,7 +11,7 @@ NaN-hang failure mode). Prereqs: `./build.sh` (Rust binary + PyO3), `uv sync`.
 ```
 ./experiments/paper/00_prereqs.sh                   corridor + mission reference (skip: both are committed)
 ./experiments/paper/01_classical_baselines.sh       classical GA baselines -> canonical training_output/<scheme>
-./experiments/paper/02_optimizer_budget.sh          Study A   (18 cells; ga_300 = headline, reused by 04/05/06/08/11)
+./experiments/paper/02_optimizer_budget.sh          Study A   (18 cells; ga_300 = Study A baseline cell, reused by 04/05/06/08; NOT the deployed headline -- that is Mamba_962 from 10c)
 ./experiments/paper/03_optimizer_dimensionality.sh  opt x width + Study B (needs 01 for the FTC GA cell)
 ./experiments/paper/04_seed_strategy.sh             Study C   (adaptive column = 02's @150 row)
 ./experiments/paper/05_cost_transform.sh            Study D   (cubed cell = 02's ga_300)
@@ -80,9 +80,10 @@ lives in these runners, because cells are reused across studies (e.g.
 - "Compute-matched" claims must report **actual sims** per run (from the JSONL:
   training = n_pop x n_sims x n_gen; validations = records with a `validation`
   key x 1000; curations = distinct `last_curation_gen` x top_k x 1000).
-- The final headline model gets one **fresh-pool** MC re-quote (seed offset 8M)
-  for the abstract number.
-- sigma_run from 11_seed_repeats calibrates every N=1 cell comparison.
+- The final headline model (**Mamba_962**, `training_output/mamba_p962_long/`) gets
+  one **fresh-pool** MC re-quote (seed offset 8M) for the abstract number (CVaR95 115.2).
+- sigma_run on the SIZING TAIL comes from 10c (dense/mamba/lstm s2/s3 at the headline
+  allocation); 11_seed_repeats (optimizer-cell mean sigma_run) is OBSOLETE/skipped.
 
 ## Legacy dirs (preserved, PRE-FIX regime -- footnote when quoted)
 

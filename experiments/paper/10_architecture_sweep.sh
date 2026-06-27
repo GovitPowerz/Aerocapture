@@ -31,9 +31,9 @@ set -euo pipefail
 # (training_output/sweep_<arch>_p<N>), distinct per cell -- no --output-dir needed.
 # ~24 runs, the longest script in the campaign after 02 (2-4 days).
 
-TRAINING_N_SIMS=5
-N_GEN=8000
-N_POP=300
+TRAINING_N_SIMS=2
+N_GEN=5000
+N_POP=512
 
 trap 'echo; echo "Ctrl-C -- stopping the sweep (re-run to resume from the last completed cell)"; exit 130' INT
 
@@ -47,7 +47,7 @@ run() {  # $1=arch  $2=params (matches the configs/training/sweep/<arch>_p<N>.to
   echo "=== train $1 p$2 -> $out ==="
   uv run python -m aerocapture.training.train "$cfg" \
       --training-n-sims "$TRAINING_N_SIMS" --n-gen "$N_GEN" --n-pop "$N_POP" \
-      --no-tui --skip-report --sim-timeout 5 \
+      --sim-timeout 5 \
     || echo "WARNING: $1 p$2 exited non-zero -- continuing to next cell (re-run to retry)"
 }
 
