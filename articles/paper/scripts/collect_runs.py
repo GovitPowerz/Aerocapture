@@ -134,7 +134,11 @@ def main(argv: list[str] | None = None) -> None:
         copied: list[str] = []
         if not args.dry_run:
             copied += [a for a in ARTIFACTS if (src / a).exists() and _copy_if_newer(src / a, dst / a)]
-            if _gzip_newest_jsonl(src, dst / "run.jsonl.gz"):
+            # Skip the ~19 MB/cell training log for the architecture-sweep Pareto cells:
+            # fig_pareto reads final_eval.parquet (+ the manifest param counts), NOT
+            # convergence curves -- only the headline cells need their logs (the plateau
+            # figure). This keeps the 24-cell sweep at ~16 MB instead of ~420 MB.
+            if dst.parent.name != "architecture_sweep" and _gzip_newest_jsonl(src, dst / "run.jsonl.gz"):
                 copied.append("run.jsonl.gz")
         status = "would collect" if args.dry_run else (f"updated {', '.join(copied)}" if copied else "up to date")
         print(f"  {src.relative_to(TRAINING)} -> {dst.relative_to(REPO)}  [{status}]")
