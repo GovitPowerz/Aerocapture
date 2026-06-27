@@ -7,9 +7,9 @@ variance, and that Mamba is the lowest AND tightest -- with the best classical
 (joint-FTC / FNPAG ~164/165) drawn as a reference band the NN crushes.
 """
 
-import numpy as np
-
 import figlib as fl
+import matplotlib.pyplot as plt
+import numpy as np
 
 # (display label, color key, [s1, s2, s3] far_tail labels) ordered best -> worst by mean CVaR99.9.
 ARCHS = [
@@ -24,7 +24,6 @@ CLASSICAL = {"joint-FTC": 164.0, "FNPAG": 165.0}
 def main():
     fl.style()
     ft = fl.far_tail()
-    import matplotlib.pyplot as plt
 
     fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.6), sharex=True)
     for ax, metric, title in ((axes[0], "cvar999", "CVaR$_{99.9}$ (m/s)"), (axes[1], "max", "worst case (m/s)")):
@@ -34,7 +33,7 @@ def main():
         ax.axhline(lo, color=fl.C["classical"], lw=0.8, ls="--", zorder=1)
         ax.text(2.45, hi + 0.5, "best classical\n(joint-FTC / FNPAG)", color=fl.C["classical"],
                 fontsize=7.5, ha="right", va="bottom")
-        for x, (label, ckey, cells) in enumerate(ARCHS):
+        for x, (_label, ckey, cells) in enumerate(ARCHS):
             vals = np.array([ft[c][metric] for c in cells])
             ax.scatter([x] * len(vals), vals, color=fl.C[ckey], s=34, zorder=3, alpha=0.85)
             ax.plot([x - 0.22, x + 0.22], [vals.mean()] * 2, color=fl.C[ckey], lw=2.4, zorder=4)
