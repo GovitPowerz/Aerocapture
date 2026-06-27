@@ -1,7 +1,13 @@
 # Writing-session instructions (paper prose)
 
-> Hand-off for the NEW session that writes the paper. ALL prep is done — data, 14 figures,
-> outline, and a compilable Typst skeleton. Your job is the PROSE, in the author's voice.
+> **STATUS — DONE (commit c7b4907).** The prose is written: `articles/paper/paper.typ` is filled
+> (all sections, tables T1-T4, `refs.bib` added) and compiles to a 19-page PDF. The three decisions
+> below were resolved as: (1) methodology-first section order; (2) abstract leads with the
+> architecture result; (3) dense_515 as full efficiency-reference rows. Single author (G. Gelly,
+> no affiliation). The notes below are kept as the provenance of how the paper was written.
+>
+> Hand-off for the session that wrote the paper. ALL prep was done — data, 14 figures,
+> outline, and a compilable Typst skeleton. The job was the PROSE, in the author's voice.
 > Nothing needs training or re-evaluation; do not re-run experiments.
 
 ## Read first, in this order
