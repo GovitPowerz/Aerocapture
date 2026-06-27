@@ -35,16 +35,7 @@
       ],
       "heat_flux_p95": 183.9,
       "g_load_p95": 3.09,
-      "best_val_rms_within_transform_only": 1824197.4733937823,
-      "actual_sims": {
-        "n_gen": 2001,
-        "n_pop": 300,
-        "training": 6003000,
-        "validation": 1611000,
-        "curation": 1029000,
-        "reeval": 3087000,
-        "total": 11730000
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_dense_p1957": {
       "key": "architecture_sweep/sweep_dense_p1957",
@@ -81,16 +72,7 @@
       ],
       "heat_flux_p95": 181.7,
       "g_load_p95": 2.86,
-      "best_val_rms_within_transform_only": 1612028.380703733,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3508000,
-        "curation": 2518000,
-        "reeval": 12892160,
-        "total": 44523280
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_dense_p201": {
       "key": "architecture_sweep/sweep_dense_p201",
@@ -127,16 +109,7 @@
       ],
       "heat_flux_p95": 186.2,
       "g_load_p95": 3.09,
-      "best_val_rms_within_transform_only": 1770272.7826992685,
-      "actual_sims": {
-        "n_gen": 2001,
-        "n_pop": 300,
-        "training": 6003000,
-        "validation": 1580000,
-        "curation": 1035000,
-        "reeval": 3105000,
-        "total": 11723000
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_dense_p298": {
       "key": "architecture_sweep/sweep_dense_p298",
@@ -173,16 +146,7 @@
       ],
       "heat_flux_p95": 187.8,
       "g_load_p95": 3.09,
-      "best_val_rms_within_transform_only": 1691166.9294337074,
-      "actual_sims": {
-        "n_gen": 2001,
-        "n_pop": 300,
-        "training": 6003000,
-        "validation": 1560000,
-        "curation": 1041000,
-        "reeval": 3123000,
-        "total": 11727000
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_dense_p3998": {
       "key": "architecture_sweep/sweep_dense_p3998",
@@ -219,16 +183,7 @@
       ],
       "heat_flux_p95": 189.1,
       "g_load_p95": 3.15,
-      "best_val_rms_within_transform_only": 1657265.5838094342,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3561000,
-        "curation": 2517000,
-        "reeval": 12887040,
-        "total": 44570160
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_dense_p416": {
       "key": "architecture_sweep/sweep_dense_p416",
@@ -265,16 +220,7 @@
       ],
       "heat_flux_p95": 178.5,
       "g_load_p95": 2.69,
-      "best_val_rms_within_transform_only": 1703354.522697111,
-      "actual_sims": {
-        "n_gen": 2001,
-        "n_pop": 300,
-        "training": 6003000,
-        "validation": 1434000,
-        "curation": 1034000,
-        "reeval": 3102000,
-        "total": 11573000
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_dense_p515": {
       "key": "architecture_sweep/sweep_dense_p515",
@@ -311,16 +257,7 @@
       ],
       "heat_flux_p95": 186.6,
       "g_load_p95": 3.1,
-      "best_val_rms_within_transform_only": 1636278.6551056763,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3612000,
-        "curation": 2513000,
-        "reeval": 12866560,
-        "total": 44596680
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_dense_p972": {
       "key": "architecture_sweep/sweep_dense_p972",
@@ -357,16 +294,7 @@
       ],
       "heat_flux_p95": 187.3,
       "g_load_p95": 3.1,
-      "best_val_rms_within_transform_only": 1604272.4448532362,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3501000,
-        "curation": 2516000,
-        "reeval": 12881920,
-        "total": 44504040
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_gru_p1954": {
       "key": "architecture_sweep/sweep_gru_p1954",
@@ -403,16 +331,7 @@
       ],
       "heat_flux_p95": 186.3,
       "g_load_p95": 3.1,
-      "best_val_rms_within_transform_only": 1654432.5556815595,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3563000,
-        "curation": 2520000,
-        "reeval": 12902400,
-        "total": 44590520
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_gru_p4082": {
       "key": "architecture_sweep/sweep_gru_p4082",
@@ -449,16 +368,7 @@
       ],
       "heat_flux_p95": 173.3,
       "g_load_p95": 2.53,
-      "best_val_rms_within_transform_only": 1442610.3628862323,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3501000,
-        "curation": 2521000,
-        "reeval": 12907520,
-        "total": 44534640
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_gru_p478": {
       "key": "architecture_sweep/sweep_gru_p478",
@@ -495,16 +405,7 @@
       ],
       "heat_flux_p95": 185.3,
       "g_load_p95": 3.03,
-      "best_val_rms_within_transform_only": 1596452.706870121,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3550000,
-        "curation": 2515000,
-        "reeval": 12876800,
-        "total": 44546920
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_lstm_p1962": {
       "key": "architecture_sweep/sweep_lstm_p1962",
@@ -541,16 +442,7 @@
       ],
       "heat_flux_p95": 182.3,
       "g_load_p95": 2.98,
-      "best_val_rms_within_transform_only": 1629670.1577540464,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3527000,
-        "curation": 2516000,
-        "reeval": 12881920,
-        "total": 44530040
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_lstm_p4118": {
       "key": "architecture_sweep/sweep_lstm_p4118",
@@ -587,16 +479,7 @@
       ],
       "heat_flux_p95": 185.4,
       "g_load_p95": 3.05,
-      "best_val_rms_within_transform_only": 1583499.4507575487,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3581000,
-        "curation": 2524000,
-        "reeval": 12922880,
-        "total": 44633000
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_lstm_p458": {
       "key": "architecture_sweep/sweep_lstm_p458",
@@ -633,16 +516,7 @@
       ],
       "heat_flux_p95": 186.7,
       "g_load_p95": 3.02,
-      "best_val_rms_within_transform_only": 1630071.6353959527,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3582000,
-        "curation": 2518000,
-        "reeval": 12892160,
-        "total": 44597280
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_mamba_p2027": {
       "key": "architecture_sweep/sweep_mamba_p2027",
@@ -679,16 +553,7 @@
       ],
       "heat_flux_p95": 180.5,
       "g_load_p95": 2.78,
-      "best_val_rms_within_transform_only": 1532002.7006865677,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3451000,
-        "curation": 2524000,
-        "reeval": 12922880,
-        "total": 44503000
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_mamba_p4072": {
       "key": "architecture_sweep/sweep_mamba_p4072",
@@ -725,16 +590,7 @@
       ],
       "heat_flux_p95": 177.8,
       "g_load_p95": 2.71,
-      "best_val_rms_within_transform_only": 1524075.961434503,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3483000,
-        "curation": 2524000,
-        "reeval": 12922880,
-        "total": 44535000
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_mamba_p482": {
       "key": "architecture_sweep/sweep_mamba_p482",
@@ -771,16 +627,7 @@
       ],
       "heat_flux_p95": 178.1,
       "g_load_p95": 2.75,
-      "best_val_rms_within_transform_only": 1613269.1824886694,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3470000,
-        "curation": 2514000,
-        "reeval": 12871680,
-        "total": 44460800
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_transformer_p1112": {
       "key": "architecture_sweep/sweep_transformer_p1112",
@@ -817,16 +664,7 @@
       ],
       "heat_flux_p95": 173.0,
       "g_load_p95": 2.48,
-      "best_val_rms_within_transform_only": 1619342.073100081,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3267000,
-        "curation": 2513000,
-        "reeval": 12866560,
-        "total": 44251680
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_transformer_p2004": {
       "key": "architecture_sweep/sweep_transformer_p2004",
@@ -863,16 +701,7 @@
       ],
       "heat_flux_p95": 186.9,
       "g_load_p95": 3.11,
-      "best_val_rms_within_transform_only": 1711929.5483567198,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3424000,
-        "curation": 2517000,
-        "reeval": 12887040,
-        "total": 44433160
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_transformer_p3822": {
       "key": "architecture_sweep/sweep_transformer_p3822",
@@ -909,16 +738,7 @@
       ],
       "heat_flux_p95": 182.7,
       "g_load_p95": 2.89,
-      "best_val_rms_within_transform_only": 1619917.8474866613,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3354000,
-        "curation": 2521000,
-        "reeval": 12907520,
-        "total": 44387640
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_transformer_p762": {
       "key": "architecture_sweep/sweep_transformer_p762",
@@ -955,16 +775,7 @@
       ],
       "heat_flux_p95": 175.4,
       "g_load_p95": 2.94,
-      "best_val_rms_within_transform_only": 1861162.6124702033,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3388000,
-        "curation": 2516000,
-        "reeval": 12881920,
-        "total": 44391040
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_window_p1027": {
       "key": "architecture_sweep/sweep_window_p1027",
@@ -1001,16 +812,7 @@
       ],
       "heat_flux_p95": 184.2,
       "g_load_p95": 3.04,
-      "best_val_rms_within_transform_only": 1681588.7218954517,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3625000,
-        "curation": 2515000,
-        "reeval": 12876800,
-        "total": 44621920
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_window_p2036": {
       "key": "architecture_sweep/sweep_window_p2036",
@@ -1047,16 +849,7 @@
       ],
       "heat_flux_p95": 178.0,
       "g_load_p95": 2.79,
-      "best_val_rms_within_transform_only": 1607041.42188169,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3352000,
-        "curation": 2520000,
-        "reeval": 12902400,
-        "total": 44379520
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_window_p4025": {
       "key": "architecture_sweep/sweep_window_p4025",
@@ -1093,16 +886,7 @@
       ],
       "heat_flux_p95": 187.4,
       "g_load_p95": 3.14,
-      "best_val_rms_within_transform_only": 1690696.8832216933,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3564000,
-        "curation": 2516000,
-        "reeval": 12881920,
-        "total": 44567040
-      }
+      "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_window_p609": {
       "key": "architecture_sweep/sweep_window_p609",
@@ -1139,16 +923,7 @@
       ],
       "heat_flux_p95": 190.6,
       "g_load_p95": 3.25,
-      "best_val_rms_within_transform_only": 1654418.5574834119,
-      "actual_sims": {
-        "n_gen": 5001,
-        "n_pop": 512,
-        "training": 25605120,
-        "validation": 3678000,
-        "curation": 2517000,
-        "reeval": 12887040,
-        "total": 44687160
-      }
+      "best_val_rms_within_transform_only": null
     },
     "classical_baselines/energy_controller": {
       "key": "classical_baselines/energy_controller",
