@@ -49,8 +49,11 @@ LEGACY = (
 # hand at the deployment allocation n_sims=2/20000 gens). dense_p515 is the
 # deployed headline; dense_p972 is the GA-dimensionality data point.
 HEADLINE = {
-    "dense_p515_ga_paper_best": "headline/dense_p515",
-    "dense_p972_ga_paper_best": "headline/dense_p972",
+    "mamba_p962_long": "headline/mamba_p962",  # THE sizing headline (10c verdict)
+    "dense_p515_ga_paper_best": "headline/dense_p515",  # efficiency reference
+    "dense_p972_ga_paper_best": "headline/dense_p972",  # GA-dimensionality point
+    "lstm_p1082_long": "headline/lstm_p1082",  # co-leader (close 2nd on the tail)
+    "gru_p1014_long": "headline/gru_p1014",  # 3rd recurrent (confirms the pattern)
 }
 
 

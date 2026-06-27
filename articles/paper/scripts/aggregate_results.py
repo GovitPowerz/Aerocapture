@@ -22,7 +22,7 @@ from aerocapture.training.paper_stats import actual_sims, capture_mask, paired_c
 RUNS_DIR = REPO / "articles/paper/data/runs"
 OUT = REPO / "articles/paper/data/results.json"
 
-HEADLINE = "headline/dense_p515"
+HEADLINE = "headline/mamba_p962"
 # Paired tables: (label, run_a, run_b) -- delta = a - b, negative = a better.
 PAIRED = [
     ("ga_vs_islands_300", "optimizer_budget/ga_300", "optimizer_budget/islands_300"),
@@ -30,11 +30,13 @@ PAIRED = [
     ("cubed_vs_log", "optimizer_budget/ga_300", "cost_transform/log"),
     ("max_vs_middle_bucket", "optimizer_budget/ga_300", "curation_shaping/bucket_middle"),
     ("max_vs_random_bucket", "optimizer_budget/ga_300", "curation_shaping/bucket_random"),
-    # Headline (515-net @ n=2/20000) vs the classicals -- the paper's deployed comparison.
-    ("nn_vs_ftc", "headline/dense_p515", "classical_baselines/ftc"),
-    ("nn_vs_fnpag", "headline/dense_p515", "classical_baselines/fnpag"),
-    ("nn_vs_jointftc", "headline/dense_p515", "joint_reference/ftc"),
-    ("nn515_vs_nn972", "headline/dense_p515", "headline/dense_p972"),  # GA-dimensionality
+    # Headline (Mamba_962 @ n=2/20000, 10c sizing winner) vs the classicals -- the paper's deployed comparison.
+    ("nn_vs_ftc", "headline/mamba_p962", "classical_baselines/ftc"),
+    ("nn_vs_fnpag", "headline/mamba_p962", "classical_baselines/fnpag"),
+    ("nn_vs_jointftc", "headline/mamba_p962", "joint_reference/ftc"),
+    ("headline_vs_dense515", "headline/mamba_p962", "headline/dense_p515"),  # sizing headline vs efficiency ref
+    ("headline_vs_lstm", "headline/mamba_p962", "headline/lstm_p1082"),  # mamba-vs-lstm tie-break
+    ("nn515_vs_nn972", "headline/dense_p515", "headline/dense_p972"),  # GA-dimensionality (dense)
     # ga_300 (n=10/2000, controlled-allocation reference) vs the same classicals:
     ("ga300_vs_ftc", "optimizer_budget/ga_300", "classical_baselines/ftc"),
     ("ga300_vs_jointftc", "optimizer_budget/ga_300", "joint_reference/ftc"),
@@ -63,8 +65,8 @@ def _infer_training_n_sims(key: str) -> int:
     # Study F cells encode n_sims in the cell name; everything else trains at 10.
     if key.startswith("training_n_sims/"):
         return int(key.rsplit("_", 1)[1])
-    if key.startswith("headline/"):
-        return 2  # the manual headline runs trained at n_sims=2
+    if key.startswith(("headline/", "tail_repeats/")):
+        return 2  # headline + tail sigma_run runs trained at n_sims=2
     return 10
 
 
@@ -126,14 +128,21 @@ def main() -> None:
         n = min(len(da), len(db))  # prefix property: first n rows = same seeds
         da, db = da.head(n), db.head(n)
         assert _disp_fingerprint_ok(da, db), f"dispersion mismatch {ka} vs {kb} -- not the same scenario pool"
+        ca = capture_mask(da["ifinal"].to_numpy(), da["eccentricity"].to_numpy())
+        cb = capture_mask(db["ifinal"].to_numpy(), db["eccentricity"].to_numpy())
+        # Marginal TAIL deltas (a - b, negative = a better) -- the headline is a TAIL
+        # winner, so mean-only tables would mislead (mamba ties dense/lstm on the mean,
+        # wins on the tail). CVaR99.9 needs n=10000 (see far_tail_eval.json); p95/CVaR95
+        # are stable at this n=1000 pool.
+        xa, xb = np.sort(da["dv_total_m_s"].to_numpy()[ca]), np.sort(db["dv_total_m_s"].to_numpy()[cb])
+        cvar95 = lambda x: float(x[-max(1, round(len(x) * 0.05)):].mean())
         paired[label] = {
             "a": ka,
             "b": kb,
+            "delta_p95": round(float(np.percentile(xa, 95) - np.percentile(xb, 95)), 2),
+            "delta_cvar95": round(cvar95(xa) - cvar95(xb), 2),
             **paired_comparison(
-                da["dv_total_m_s"].to_numpy(),
-                capture_mask(da["ifinal"].to_numpy(), da["eccentricity"].to_numpy()),
-                db["dv_total_m_s"].to_numpy(),
-                capture_mask(db["ifinal"].to_numpy(), db["eccentricity"].to_numpy()),
+                da["dv_total_m_s"].to_numpy(), ca, db["dv_total_m_s"].to_numpy(), cb
             ),
         }
 
