@@ -30,14 +30,17 @@ sys.path.insert(0, str(REPO / "src/python"))
 
 from aerocapture.training.paper_stats import run_stats  # noqa: E402
 
-# (label, run_dir, training TOML). NN + the two relevant classicals + pred_guid
-# (a second predictor-corrector data point for the FNPAG comparison).
+# (label, run_dir, training TOML, results.json key for the nominal). NN (the
+# Mamba_962 sizing headline) + the two relevant classicals + pred_guid (a second
+# predictor-corrector data point for the FNPAG comparison). The results key is
+# explicit -- the headline cell (headline/mamba_p962) is not derivable from its
+# run_dir the way paper/ and classical cells are.
 SCHEMES = [
-    ("NN", "paper/optimizer_budget/ga_300", "configs/training/paper/dense_p3998_ga.toml"),
-    ("joint-FTC", "paper/joint_reference/ftc", "configs/training/msr_aller_ftc_joint_ref_train.toml"),
-    ("FTC-fixed", "ftc", "configs/training/msr_aller_ftc_train.toml"),
-    ("FNPAG", "fnpag", "configs/training/msr_aller_fnpag_train.toml"),
-    ("PredGuid", "pred_guid", "configs/training/msr_aller_pred_guid_train.toml"),
+    ("NN", "mamba_p962_long", "configs/training/sweep/mamba_p962.toml", "headline/mamba_p962"),
+    ("joint-FTC", "paper/joint_reference/ftc", "configs/training/msr_aller_ftc_joint_ref_train.toml", "joint_reference/ftc"),
+    ("FTC-fixed", "ftc", "configs/training/msr_aller_ftc_train.toml", "classical_baselines/ftc"),
+    ("FNPAG", "fnpag", "configs/training/msr_aller_fnpag_train.toml", "classical_baselines/fnpag"),
+    ("PredGuid", "pred_guid", "configs/training/msr_aller_pred_guid_train.toml", "classical_baselines/pred_guid"),
 ]
 # The stress regime: bump the density/nav-coupled domains to high; leave the
 # rest at the campaign default (medium) so the stress isolates FNPAG's weak point.
@@ -85,13 +88,11 @@ def main(argv: list[str] | None = None) -> None:
     res_path = REPO / "articles/paper/data/results.json"
     if res_path.exists():
         runs = json.loads(res_path.read_text())["runs"]
-        for label, run_dir, _ in SCHEMES:
-            # results.json keys drop the "paper/" prefix; classical dirs nest under classical_baselines/.
-            key = run_dir[len("paper/") :] if run_dir.startswith("paper/") else f"classical_baselines/{run_dir}"
+        for label, _run_dir, _toml, key in SCHEMES:
             nominal[label] = runs.get(key, {})
 
     out = []
-    for label, run_dir, toml in SCHEMES:
+    for label, run_dir, toml, _key in SCHEMES:
         if not (REPO / "training_output" / run_dir / "final_eval.parquet").exists():
             print(f"  skip {label} ({run_dir} not deployed yet)")
             continue

@@ -28,8 +28,11 @@ REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "src/python"))
 
 # (label, run_dir relative to training_output, training TOML) -- the 3-way.
+# NN = the Mamba_962 sizing headline (stateful SSM runtime -- a deliberately
+# pessimistic per-sim cost vs the dense efficiency reference; report both if asked).
 SCHEMES = [
-    ("NN", "paper/optimizer_budget/ga_300", "configs/training/paper/dense_p3998_ga.toml"),
+    ("NN-mamba", "mamba_p962_long", "configs/training/sweep/mamba_p962.toml"),
+    ("NN-dense", "dense_p515_ga_paper_best", "configs/training/sweep/dense_p515.toml"),
     ("FTC", "ftc", "configs/training/msr_aller_ftc_train.toml"),
     ("FNPAG", "fnpag", "configs/training/msr_aller_fnpag_train.toml"),
 ]

@@ -2,28 +2,36 @@
   "single_core": true,
   "schemes": [
     {
-      "label": "NN",
+      "label": "NN-mamba",
       "n_sims": 200,
-      "wall_s": 0.6413,
-      "ms_per_sim": 3.2067,
-      "sims_per_s": 311.8,
-      "slowdown_vs_fastest": 2.5
+      "wall_s": 0.7351,
+      "ms_per_sim": 3.6757,
+      "sims_per_s": 272.1,
+      "slowdown_vs_fastest": 3.0
+    },
+    {
+      "label": "NN-dense",
+      "n_sims": 200,
+      "wall_s": 0.4802,
+      "ms_per_sim": 2.401,
+      "sims_per_s": 416.5,
+      "slowdown_vs_fastest": 1.9
     },
     {
       "label": "FTC",
       "n_sims": 200,
-      "wall_s": 0.2573,
-      "ms_per_sim": 1.2864,
-      "sims_per_s": 777.4,
+      "wall_s": 0.2492,
+      "ms_per_sim": 1.2459,
+      "sims_per_s": 802.6,
       "slowdown_vs_fastest": 1.0
     },
     {
       "label": "FNPAG",
       "n_sims": 200,
-      "wall_s": 17.403,
-      "ms_per_sim": 87.0151,
-      "sims_per_s": 11.5,
-      "slowdown_vs_fastest": 67.6
+      "wall_s": 17.2291,
+      "ms_per_sim": 86.1457,
+      "sims_per_s": 11.6,
+      "slowdown_vs_fastest": 69.1
     }
   ]
 }
