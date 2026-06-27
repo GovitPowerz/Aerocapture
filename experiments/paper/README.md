@@ -22,7 +22,7 @@ NaN-hang failure mode). Prereqs: `./build.sh` (Rust binary + PyO3), `uv sync`.
 ./experiments/paper/10_architecture_sweep.sh        6-family Pareto re-run (GA, post-fix regime)
 ./experiments/paper/10b_arch_long_challengers.sh    extend best recurrent cells to headline depth (needs 10)
 ./experiments/paper/10c_tail_sigma_repeats.sh       sigma_run on the sizing tail: mamba_962 vs dense_515 s2/s3 (needs 10b)
-./experiments/paper/11_seed_repeats.sh              sigma_run repeats (needs 01/02/03)
+./experiments/paper/11_seed_repeats.sh              sigma_run repeats (needs 01/02/03) -- OPTIONAL: 10c already measured run-variance on the tail; only run for a stated optimizer ranking
 ./experiments/paper/12_collect_results.sh           -> articles/paper/data/runs/ (committed bundle)
 ```
 
