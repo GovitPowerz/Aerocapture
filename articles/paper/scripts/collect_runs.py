@@ -16,7 +16,7 @@ REPO = Path(__file__).resolve().parents[3]
 OUT = REPO / "articles/paper/data/runs"
 TRAINING = REPO / "training_output"
 
-ARTIFACTS = ("best_model.json", "best_params.json", "final_eval.parquet", "final_selection.json", "fresh_pool_requote.json")
+ARTIFACTS = ("best_model.json", "best_params.json", "final_eval.parquet", "final_selection.json", "fresh_pool_requote.json", "ablation_results.json")
 CLASSICAL = ("piecewise_constant", "ftc", "equilibrium_glide", "energy_controller", "pred_guid", "fnpag")
 # Preserved PRE-FIX legacy dirs the paper footnote-quotes (RL, warm-start/joint,
 # QAT/pruning). Bundled under legacy/ so those table rows also reproduce from
