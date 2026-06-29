@@ -25,7 +25,7 @@ def main():
     present = [k for k in ORDER if k in conv or k in cells]
 
     fig, (axL, axR) = plt.subplots(1, 2, figsize=(9.5, 4.0))
-    for i, label in enumerate(present):
+    for label in present:
         series = conv.get(label, [])
         if series:
             xs = [p[0] / 1e6 for p in series]
@@ -36,8 +36,8 @@ def main():
     axL.set_title("Gradient recovery under the high regime", fontsize=10, loc="left")
     axL.legend(fontsize=7, loc="lower right")
 
-    labels = [k for k in ORDER if k in cells]
-    vals = [cells[k].get("dv_cvar95") for k in labels]
+    labels = [k for k in ORDER if k in cells and cells[k].get("dv_cvar95") is not None]
+    vals = [cells[k]["dv_cvar95"] for k in labels]
     axR.bar(range(len(labels)), vals, color="#4C72B0")
     axR.set_xticks(range(len(labels)))
     axR.set_xticklabels(labels, rotation=30, ha="right", fontsize=7)

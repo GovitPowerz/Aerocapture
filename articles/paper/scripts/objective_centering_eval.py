@@ -41,6 +41,20 @@ STRESS_OVERRIDES = {
 OUT = REPO / "articles/paper/data/objective_centering.json"
 
 
+def _derive_n_pop(jsonl_path: str, fallback: int) -> int:
+    """Population size = length of a generation's all_costs array; fallback if absent."""
+    with open(jsonl_path) as fh:
+        for line in fh:
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            ac = r.get("all_costs")
+            if isinstance(ac, list) and ac:
+                return len(ac)
+    return fallback
+
+
 def extract_convergence(jsonl_path: str, n_pop: int, n_sims: int) -> list[list]:
     """Per-validation [cumulative_training_sims, capture_rate]. Transform-independent."""
     series: list[list] = []
@@ -81,7 +95,11 @@ def _eval_one(label: str, run_dir: str, toml: str, n_sims_train: int, n_eval: in
     col = {name: recs[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
     stats = {"label": label, **run_stats(col["ifinal"], col["eccentricity"], col["dv_total_m_s"], n_boot=2000)}
     jsonls = sorted(glob.glob(str(scheme_dir / "run_*.jsonl")))
-    stats["convergence"] = extract_convergence(jsonls[-1], N_POP, n_sims_train) if jsonls else []
+    if jsonls:
+        n_pop = _derive_n_pop(jsonls[-1], N_POP)
+        stats["convergence"] = extract_convergence(jsonls[-1], n_pop, n_sims_train)
+    else:
+        stats["convergence"] = []
     return stats
 
 

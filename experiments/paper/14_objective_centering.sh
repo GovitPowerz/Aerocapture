@@ -11,7 +11,7 @@ set -euo pipefail
 # n_sims=16 -> 2000 gens. Then eval all deployed cells on the reserved 9M pool.
 #
 # Idempotent (skip-if-final_eval.parquet per cell). Dense vehicle is fast; this is
-# the methodology comparison. Override the budget knob with NPOP / BUDGET env vars.
+# the methodology comparison. Override the budget knobs with NPOP / GEN_N2 / GEN_N16 env vars.
 NPOP=${NPOP:-256}
 NSIMS_EVAL=${NSIMS_EVAL:-1000}
 # gen counts per n_sims to hold B = NPOP * n_sims * n_gen ~= 8.19e6 fixed:
