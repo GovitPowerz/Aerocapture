@@ -1,0 +1,27 @@
+# objective-centering Phase 1 -- +BUCKET: stacked objective but a CENTRAL
+# curation bucket (middle) instead of max. Tests whether not feeding only the
+# hardest seeds recovers the gradient. n_sims=2 via the runner.
+base = ["../../sweep/dense_p515.toml"]
+
+[data]
+neural_network = "training_output/paper/objective_centering/dense_plus_bucket/best_model.json"
+results_suffix = ".objcenter_dense_plus_bucket"
+
+[optimizer]
+algorithm = "ga"
+curation_bucket_selection = "middle"
+
+[cost_function]
+cost_transform = "cubed"
+
+[monte_carlo.atmosphere]
+level = "high"
+
+[monte_carlo.density_perturbation]
+level = "high"
+
+[monte_carlo.navigation]
+level = "high"
+
+[monte_carlo.nav_filter]
+level = "high"

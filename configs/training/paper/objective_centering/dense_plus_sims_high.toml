@@ -1,0 +1,27 @@
+# objective-centering Phase 1 -- +SIMS: stacked objective (cubed x max) but a
+# larger sample budget (n_sims=16 via the runner). Tests whether more sims alone
+# recovers the gradient under the high regime (hypothesized dominant lever).
+base = ["../../sweep/dense_p515.toml"]
+
+[data]
+neural_network = "training_output/paper/objective_centering/dense_plus_sims/best_model.json"
+results_suffix = ".objcenter_dense_plus_sims"
+
+[optimizer]
+algorithm = "ga"
+curation_bucket_selection = "max"
+
+[cost_function]
+cost_transform = "cubed"
+
+[monte_carlo.atmosphere]
+level = "high"
+
+[monte_carlo.density_perturbation]
+level = "high"
+
+[monte_carlo.navigation]
+level = "high"
+
+[monte_carlo.nav_filter]
+level = "high"
