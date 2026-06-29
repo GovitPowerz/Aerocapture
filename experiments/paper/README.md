@@ -25,6 +25,7 @@ NaN-hang failure mode). Prereqs: `./build.sh` (Rust binary + PyO3), `uv sync`.
 ./experiments/paper/11_seed_repeats.sh              sigma_run repeats (needs 01/02/03) -- OPTIONAL: 10c already measured run-variance on the tail; only run for a stated optimizer ranking
 ./experiments/paper/12_collect_results.sh           -> articles/paper/data/runs/ (committed bundle)
 ./experiments/paper/13_robustness_retrain.sh        OPTIONAL, off-campaign: retrain FTC-joint + Mamba_962 ON the high regime, eval on the 9M stress pool (tests the paper's "widen the NN training regime" future-work line; directional budget by default, scale NGEN_MAMBA for a conclusive run)
+./experiments/paper/14_objective_centering.sh        OPTIONAL, off-campaign: objective-centering lever attribution under the high regime (dense_515; Phase 2 Mamba via RUN_MAMBA=1). Tests that worst-case shaping is regime-matched. Spec 2026-06-29.
 ```
 
 02 is the long pole (18 x ~1-2 h); 01/03's FTC cells are fast (~ms/sim), fnpag is

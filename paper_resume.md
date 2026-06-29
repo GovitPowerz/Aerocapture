@@ -110,6 +110,7 @@ Seed offsets (all disjoint): VALIDATION 1M, FINAL_EVAL 2M, RL 3M, WARM_START 4M,
 | 11 | `11_seed_repeats.sh` | σ_run on optimizer cells (n=10/2000 mean) | **OBSOLETE/SKIP** (10c did σ_run on the tail; see next-steps #8) |
 | 12 | `12_collect_results.sh` | → `articles/paper/data/runs/` committed bundle | rerun after each study |
 | 13 | `13_robustness_retrain.sh` | robustness retrain: FTC-joint + Mamba_962 ON the high-dispersion regime, then eval on the 9M stress pool | SET UP, not run (tests the paper's "widen the training regime" future-work line) |
+| 14 | `14_objective_centering.sh` | objective-centering: 5-cell lever attribution (dense_515) under the high regime + Phase 2 Mamba confirm | SET UP, not run (tests regime-matched worst-case shaping; spec 2026-06-29) |
 
 Plus the 5b/5c/far-tail/fresh-pool eval scripts (above) — NOT in the numbered runners. All runners: skip-if-done per cell, `--sim-timeout 5`. Never run two cells of the same config TOML concurrently; never regenerate `training_output/mars/` while a ref-tracking scheme trains.
 
