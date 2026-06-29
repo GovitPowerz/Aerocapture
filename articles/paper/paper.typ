@@ -8,31 +8,40 @@
 // result. dense_515 carried as a full efficiency-reference row throughout.
 // =============================================================================
 
-#set document(title: "Neural-network aerocapture guidance, revisited")
-#set page(paper: "us-letter", margin: 1in, numbering: "1")
-#set text(font: "New Computer Modern", size: 10.5pt)
-#set par(justify: true, leading: 0.62em)
+// NeurIPS-style single-column layout (cf. Vaswani et al. 2017): Times body,
+// STIX Two Math for equations, a narrow 5.5in text block, bold numbered headings.
+#set document(title: "Neural-network aerocapture guidance, revisited", author: "Grégory Gelly")
+#set page(paper: "us-letter", margin: (x: 1.5in, top: 1in, bottom: 1.25in), numbering: "1")
+#set text(font: "Times New Roman", size: 10pt)
+#show math.equation: set text(font: "STIX Two Math")
+#set par(justify: true, leading: 0.58em, spacing: 0.7em)
 #set heading(numbering: "1.1")
 #set math.equation(numbering: "(1)")
+#show heading: set text(weight: "bold")
 #show heading.where(level: 1): set text(size: 12pt)
+#show heading.where(level: 2): set text(size: 11pt)
 #show link: set text(fill: blue.darken(20%))
 
 // Figure helper: include from figures/, attach the caption and the label.
-#let fig(path, cap, lbl) = [#figure(image("figures/" + path, width: 92%), caption: cap)#lbl]
+#let fig(path, cap, lbl) = [#figure(image("figures/" + path, width: 100%), caption: cap)#lbl]
 
+#v(0.15in)
 #align(center)[
-  #text(size: 17pt, weight: "bold")[Neural-network aerocapture guidance, revisited:\
+  #text(size: 16pt, weight: "bold", hyphenate: false)[Neural-network aerocapture guidance, revisited:\
   a recurrent policy that beats classical predictor--correctors at the tail that sizes the mission]
-  #v(6pt)
-  #text(size: 11pt)[Grégory Gelly]
-  #v(2pt)
-  #text(size: 9pt, style: "italic")[Preprint -- 2026]
+  #v(16pt)
+  #text(size: 12pt)[Grégory Gelly]
+  #v(1pt)
+  #text(size: 10pt)[#link("mailto:gregory.gelly@gmail.com")[gregory.gelly\@gmail.com]]
+  #v(3pt)
+  #text(size: 9pt, style: "italic")[Preprint, 2026]
 ]
-#v(4pt)
+#v(18pt)
 
-#align(center, block(width: 90%)[
-  #text(weight: "bold")[Abstract] \
-  #set par(justify: true)
+#align(center)[#text(size: 11pt, weight: "bold")[Abstract]]
+#v(2pt)
+#pad(x: 0.45in)[
+  #set par(justify: true, leading: 0.55em)
   #text(size: 9.5pt)[In 2009 we showed that a single-hidden-layer feed-forward network, trained by a
   genetic algorithm, could fly the aerocapture of a Mars Sample Return vehicle more efficiently than
   a Cerimele--Gamble feedback law, and we closed that work by asking for the obvious next step: a
@@ -53,8 +62,8 @@
   the medium-trained network -- and we trace the architecture finding to its mechanism: engineered
   autoregressive inputs flatten the median across all cell types, but genuine internal state is what
   compresses the extreme tail that sizes the tanks.]
-])
-#v(6pt)
+]
+#v(18pt)
 
 = Introduction
 
@@ -215,7 +224,7 @@ Latin-hypercube sampling for space-filling coverage.
 We benchmark the neural policies against six classical schemes that span the spectrum of aerocapture
 guidance, from analytic feedback through numerical prediction. All schemes share the same simulator,
 the same navigation chain, and -- where they need one -- the same kind of reference trajectory, so
-the comparison isolates the guidance law itself.
+the comparison isolates the guidance law itself (@tbl-schemes).
 
 == Classical schemes
 
@@ -226,7 +235,8 @@ without inclination control, tabulated as $cos mu_"ref"$, $dot(h)_"ref"$, and $q
 energy -- and enslaves the commanded bank to it through a proportional law on the altitude-rate and
 dynamic-pressure errors,
 $ cos mu_"com" = cos mu_"ref" + G_(dot(h)) (dot(h) - dot(h)_"ref") / q + G_q (q - q_"ref") / q, $ <eq-ftc>
-clamping to $0degree$ or $180degree$ when $|cos mu_"com"| > 1$. It decouples in-plane (apoapsis) from
+where $q$ is the dynamic pressure and $G_(dot(h))$, $G_q$ are the altitude-rate and dynamic-pressure
+feedback gains; the command is clamped to $0degree$ or $180degree$ when $|cos mu_"com"| > 1$. It decouples in-plane (apoapsis) from
 out-of-plane (inclination) motion, the latter handled by a roll-reversal logic that flips the bank
 sign whenever the projected inclination error leaves a velocity-referenced corridor. FTC is analytic,
 fast, and -- as we will show -- only as good as its reference.
@@ -305,7 +315,7 @@ parameter budget roughly fixed -- the fair-comparison guardrail we have always i
 
 = Training methodology
 
-This is the contribution we want remembered. The policies are trained without any reference
+The training methodology is the load-bearing contribution. The policies are trained without any reference
 trajectory or input--output pairs: each candidate network is simulated on a batch of dispersed
 Monte-Carlo scenarios, and its fitness is the resulting correction-$Delta v$ cost (with soft
 constraint penalties), so the optimizer searches directly on mission performance. The same recipe
@@ -335,7 +345,7 @@ tells it nothing new (@fig-seed). The genetic algorithm, by contrast, has no suc
 re-randomization: a fixed objective lets selection converge onto the quirks of the fixed batch.
 Rotating costs marginally more compute, but CMA-ES given the same marginal compute gains nothing, so
 the lever is the non-stationarity of the objective, not the extra evaluations. The practical
-consequence is striking: under a fixed objective you would deploy CMA-ES and discard the genetic
+consequence is striking: under a fixed objective one would deploy CMA-ES and discard the genetic
 algorithm; under a moving objective the genetic algorithm becomes the best optimizer in the study.
 The moving environment does not make the genetic algorithm *robust* to a moving objective -- it makes
 the genetic algorithm *need* one.
@@ -354,8 +364,9 @@ ranking-neutral for a deterministic argmin, but under the noisy, non-stationary 
 which individuals survive selection. Evaluated at the depth that matters -- a far-tail
 $n = 10\,000$ pool -- the cubed transform compresses the extreme tail best ($"CVaR"_(99.9)$ $153.0$ m/s,
 sample max $160.1$) against linear ($156.7$/$162.2$), square-root ($158.4$/$167.1$), squared
-($162.7$/$180.9$), and logarithmic ($162.3$/$180.6$, worst everywhere because it over-compresses and
-starves the gradient between captures). A shallower metric ($"CVaR"_95$) would have mildly favored
+($162.7$/$180.9$), and logarithmic ($162.3$/$180.6$, worst across the shallow and mid tail because it
+over-compresses and starves the gradient between captures -- only the squared transform edges it
+worse at the very extreme). A shallower metric ($"CVaR"_95$) would have mildly favored
 square-root; the deeper we look into the tail, the more the tail-weighting pays, which is exactly why
 the sizing depth must decide (@fig-cost).
 
@@ -363,10 +374,10 @@ Seed *curation* is the same mechanism applied to the scenarios rather than the c
 refresh the adaptive strategy bins the cost distribution of the best individuals into quantiles and
 picks one representative seed per bin; the choice of representative is the lever. Picking the
 *hardest* seed per bin (the "max" bucket) dominates the far tail ($"CVaR"_(99.9)$ $153.0$ m/s) against
-the bin median ($193.9$), a random pick ($173.1$), and the *easiest* seed ($225.9$ -- and the
-easiest-seed policy is the cautionary tale: it has the best mean, $117.8$ m/s, and a catastrophic
-worst case, dropping captures and reaching $245$ m/s, the canonical optimize-the-average-blow-up-the-
-worst-case failure). Trimming the cost distribution helped nothing (@fig-curation). The cost transform
+the bin median ($193.9$), a random pick ($173.1$), and the *easiest* seed ($225.9$). The easiest-seed
+bucket is the cautionary tale: the best mean, $117.8$ m/s, and a catastrophic worst case -- it drops
+captures and reaches $245$ m/s, the canonical optimize-the-average, blow-up-the-tail failure. Trimming
+the cost distribution helped nothing (@fig-curation). The cost transform
 and the curation bucket are therefore one idea -- force the policy onto the hard cases -- expressed
 twice.
 
@@ -445,16 +456,16 @@ trails the genetic optimum.], <fig-optimizer>)
 
 = Architecture: the headline result
 
-We now sweep the cell type. The thesis, stated up front because the figures bear it out, is that the
-engineered autoregressive inputs flatten the *median* correction cost to a common $108$--$112$ m/s
-across every architecture, and the cell type matters only on the *tail* -- where a recurrent or
-selective state-space policy beats the best dense network beyond run-to-run variance.
+We now sweep the cell type. The finding, which the next two subsections establish, comes in two
+halves: the engineered autoregressive inputs flatten the *median* correction cost to a common
+$108$--$112$ m/s across every architecture, and the separation appears only on the *tail*, where a
+recurrent or selective state-space policy wins.
 
 == Parameter budget and the capability floor
 
 A parameter-budget sweep across six families (dense, GRU, LSTM, windowed, Transformer, Mamba), each
 trained identically at two scenarios per generation for five thousand generations, makes the first
-half of the thesis concrete (@fig-pareto). Every one of the twenty-four cells captures $100%$ of the
+half of the thesis concrete (@fig-pareto). Every cell in the sweep captures $100%$ of the
 time -- there is no capability collapse, and a dense network with as few as $102$ parameters still
 guides the maneuver at $100%$ capture and $120.8$ m/s mean. Within the dense family the cost is flat
 from a few hundred to a few thousand parameters ($515 arrow.r 972 arrow.r 1957$ weights give
@@ -472,7 +483,8 @@ which a five-thousand-generation sweep cannot resolve.
 #fig("fig_pareto.svg", [Parameter budget versus sizing tail per architecture family (left) and the
 dense-family capability floor (right). Every cell captures $100%$; the dense cost is flat above a few
 hundred parameters; recurrent and state-space families edge dense at matched budget; the Transformer
-is penalized at small budgets.], <fig-pareto>)
+is penalized at small budgets. The left panel plots the $99$th-percentile cost; the body quotes
+medians, which order the families identically.], <fig-pareto>)
 
 == The tail reversal
 
@@ -480,21 +492,21 @@ To resolve the tail we took the strongest recurrent and state-space candidates p
 reference to convergence -- the headline allocation of two scenarios per generation, a population of
 $512$, run for roughly fifteen to twenty thousand generations until each plateaued -- and evaluated
 each on the far-tail $n = 10\,000$ pool. Because a single run carries real run-to-run scatter, we
-repeated the deciding cells over three independent seeds and report the mean and range. This is the
-deciding result of the paper (@fig-archtail).
+repeated the deciding cells over three independent seeds and report the mean and range (@fig-archtail).
 
 On the far-tail $"CVaR"_(99.9)$, the depth at which the tanks are sized, the ordering is
 $ underbrace("Mamba"_962, 124.5) < underbrace("LSTM"_1082, 129.2) < underbrace("Dense"_515, 139.2) $
-m/s (three-seed means), and on the sample maximum $127.6 < 132.4 < 159.0$. Both recurrent policies beat
-the dense reference *beyond* run-to-run variance: the LSTM's worst run maxes at $138$ m/s, the dense
-reference's best run at $146$, and they do not overlap; the Mamba is tighter still. Crucially, the
+m/s (three-seed means), and on the sample maximum $127.6 < 132.4 < 159.0$. The recurrent advantage
+clears run-to-run variance *on the sample maximum*: the LSTM's worst run maxes at $138$ m/s, the dense
+reference's best at $146$, non-overlapping, and the Mamba is tighter still. On $"CVaR"_(99.9)$ the
+three-seed mean ordering is just as clean, though there the per-seed ranges overlap. Crucially, the
 advantage is invisible at shallow depth -- on the shared $n = 1000$ pool the Mamba and the dense
-reference are a statistical tie on the mean ($+0.13$ m/s) and the Mamba leads by only $1.6$ m/s at
+reference are a statistical tie on the mean ($+0.1$ m/s) and the Mamba leads by only $1.6$ m/s at
 $"CVaR"_95$ -- and it grows monotonically with tail depth, to $14.7$ m/s at $"CVaR"_(99.9)$. The dense
 network's tight median ($109.2$ m/s) masks a fat, high-variance extreme tail: its three runs span
 $"CVaR"_(99.9)$ from $128$ to $150$ m/s, and its worst hit $184$. The Mamba's tail is both lower and
-half as variable. If you size from one dense run you might quote $128$ and be unlucky in flight; the
-recurrent state delivers a tail you can trust.
+half as variable. Sizing from a single dense run could quote $128$ m/s and still be unlucky in flight;
+the recurrent state delivers a tail one can trust.
 
 The control that pins this on architecture rather than parameter count is the equal-capacity pair.
 At roughly $960$ parameters, the Mamba ($124.5$ m/s $"CVaR"_(99.9)$) beats the dense network of the
@@ -502,11 +514,16 @@ same size ($972$ weights, $130.7$ m/s) -- the state, not the parameters, buys th
 the dense family does not reward extra capacity: the $972$-weight network plateaus to a worse
 validation loss than the half-size $515$-weight reference and is beaten by it on the $n = 1000$ pool
 ($-2.7$ m/s mean, $-4.7$ m/s at $"CVaR"_95$, paired), exactly the dimensionality effect from the
-plateau. More dense parameters do not buy a better policy; internal state does.
+plateau. (On the far-tail metric itself the two dense nets are not cleanly separable: the $972$-weight
+net's single far-tail run, $130.7$ m/s, sits inside the $515$-weight net's three-seed spread, and we
+did not repeat the $972$ net, so its tail carries no measured scatter -- the dense-versus-dense
+comparison is honest only on validation loss and the median.) More dense parameters do not buy a better
+policy; internal state does, and the Mamba's $124.5$ undercuts both dense nets regardless.
 
 #fig("fig_arch_tail.svg", [Three-seed run-to-run distribution on the sizing tail ($n = 10\,000$).
 Mamba is lowest and tightest; both recurrent policies beat the dense reference beyond run-to-run
-variance at $"CVaR"_(99.9)$ and at the maximum, and all of them crush the best classical band.], <fig-archtail>)
+variance on the sample maximum (and lead it in three-seed-mean $"CVaR"_(99.9)$), and all of them crush
+the best classical band.], <fig-archtail>)
 
 == Why: training loss does not predict the sizing tail
 
@@ -526,8 +543,8 @@ The deployed headline policy is therefore the Mamba network: a $962$-parameter
 dense-to-selective-state-space-to-dense stack (a $17$-input dense encoder, a Mamba core of inner
 width $16$ and state size $12$, a two-output dense decoder with the atan2 bank decoder), trained under
 the full methodology of Section 4. It captures $100%$ of the time at $109.9$ m/s mean and $115.2$ m/s
-$"CVaR"_95$ on a fresh, never-trained-or-selected-on pool -- matching its $2$M-pool numbers, so there
-is no selection optimism in the headline. The $515$-parameter dense network remains the
+$"CVaR"_95$ on a fresh, never-trained-or-selected-on pool -- within rounding of its $2$M-pool numbers
+(the $115.4$ of @tbl-perf), so there is no selection optimism in the headline. The $515$-parameter dense network remains the
 *efficiency reference*: half the parameters, no internal state, and a competitive median, at the cost
 of the fat tail just described. If compute or simplicity is the binding constraint it is the better
 pick; if the mission is sized off the tail, the Mamba wins.
@@ -562,7 +579,8 @@ and PredGuid by $23$. The reference *was* FTC's weakness: a feedback law trackin
 out-perform the target.
 
 With its reference repaired, FTC ($126.3$ m/s / $142.9$ $"CVaR"_95$) becomes the best classical scheme,
-statistically tied with the far more expensive FNPAG ($124.3$ / $144.0$) -- and it is analytic and
+within about $2$ m/s in mean of the far more expensive FNPAG ($124.3$ / $144.0$) -- the paired gap is
+statistically resolvable ($p approx 10^(-23)$) but operationally negligible -- and it is analytic and
 fast. The aerocapture story we wrote in 2009, in which FTC was the baseline to beat, becomes: a
 *well-referenced* FTC is the classical state of the art, and it costs a fraction of a numerical
 predictor--corrector to run.
@@ -575,7 +593,7 @@ best classical scheme.], <fig-joint>)
 
 Three schemes define the deployability frontier: the neural network, the well-referenced FTC, and
 FNPAG. They trade off along three axes -- accuracy, compute, and robustness -- and no single scheme
-dominates all three, which is why the comparison is a triangle and not a ranking.
+dominates all three.
 
 *Accuracy.* On the sizing tail the network wins outright. Its far-tail $"CVaR"_(99.9)$ of $124.5$ m/s
 sits roughly $40$ m/s below joint-FTC ($164$) and FNPAG ($165$). On the shared paired pool it beats

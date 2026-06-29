@@ -11,7 +11,7 @@ import figlib as fl
 import matplotlib.pyplot as plt
 
 # (display label, color key, compute.label, far_tail y-value, label offset (dx, dy) in points)
-# Mamba y = 3-seed mean CVaR99.9 (124.5); dense y = s1 cell; classicals annotated below.
+# Mamba and dense y = 3-seed mean CVaR99.9 (124.5 / 139.2); classicals annotated below.
 POINTS = [
     ("Mamba-962", "mamba", "NN-mamba", 124.5, (8, 6)),
     ("Dense-515", "dense", "NN-dense", None, (8, -14)),
@@ -28,9 +28,15 @@ def main():
     # far-tail CVaR99.9 per point. Mamba uses the 3-seed mean; dense the s1 cell;
     # the classical references come from the committed far_tail cells (joint-FTC
     # = joint_reference/ftc ~164, FNPAG ~165 -- the bars the NN must beat).
+    # Dense-515 on the SAME 3-seed-mean basis as Mamba (and Table 3), not the
+    # lucky s1 cell -- (128.11 + 139.84 + 149.61) / 3 = 139.2.
+    dense515_mean = sum(
+        ft[k]["cvar999"]
+        for k in ("dense_p515_ga_paper_best", "paper/tail_repeats/dense515_s2", "paper/tail_repeats/dense515_s3")
+    ) / 3.0
     y = {
         "Mamba-962": 124.5,
-        "Dense-515": ft["dense_p515_ga_paper_best"]["cvar999"],   # 128.1
+        "Dense-515": dense515_mean,                               # 139.2 (3-seed mean)
         "joint-FTC": ft["joint_reference/ftc"]["cvar999"],        # ~164
         "FNPAG": ft["fnpag"]["cvar999"],                          # ~165
     }
