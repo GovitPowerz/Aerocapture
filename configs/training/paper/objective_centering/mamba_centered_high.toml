@@ -1,0 +1,28 @@
+# objective-centering Phase 2 -- confirm the Phase-1 winning centered recipe on
+# the deployed Mamba_962 architecture under the high regime. Defaults to the FULL
+# centered recipe (linear + middle, n_sims=16 via the runner); if Phase 1 shows a
+# single dominant lever, narrow this to that lever before running.
+base = ["../../sweep/mamba_p962.toml"]
+
+[data]
+neural_network = "training_output/paper/objective_centering/mamba_centered/best_model.json"
+results_suffix = ".objcenter_mamba_centered"
+
+[optimizer]
+algorithm = "ga"
+curation_bucket_selection = "middle"
+
+[cost_function]
+cost_transform = "linear"
+
+[monte_carlo.atmosphere]
+level = "high"
+
+[monte_carlo.density_perturbation]
+level = "high"
+
+[monte_carlo.navigation]
+level = "high"
+
+[monte_carlo.nav_filter]
+level = "high"

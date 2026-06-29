@@ -36,3 +36,20 @@ train dense_plus_transform_high  dense_plus_transform  2  "$GEN_N2"
 train dense_centered_high        dense_centered        16 "$GEN_N16"
 
 uv run python articles/paper/scripts/objective_centering_eval.py --n-sims "$NSIMS_EVAL"
+
+# ---- Phase 2 (gated): confirm the winning centered recipe on Mamba_962 ----
+# Run only when RUN_MAMBA=1 (the long pole). Update mamba_centered_high.toml to
+# the Phase-1 winning lever first if a single lever dominated. Mamba plateaus
+# ~10-15k gens; default GEN_MAMBA is directional -- scale up for a final number.
+if [ "${RUN_MAMBA:-0}" = "1" ]; then
+  GEN_MAMBA=${GEN_MAMBA:-4000}
+  if [ ! -f "training_output/paper/objective_centering/mamba_centered/final_eval.parquet" ]; then
+    uv run python -m aerocapture.training.train \
+        configs/training/paper/objective_centering/mamba_centered_high.toml \
+        --training-n-sims 16 --n-gen "$GEN_MAMBA" --n-pop "$NPOP" \
+        --output-dir training_output/paper/objective_centering/mamba_centered \
+        --sim-timeout 5 --from-scratch
+  else
+    echo "skip mamba_centered (done)"
+  fi
+fi
