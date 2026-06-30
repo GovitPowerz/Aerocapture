@@ -1,0 +1,119 @@
+{
+  "stress_overrides": {
+    "monte_carlo.atmosphere.level": "high",
+    "monte_carlo.density_perturbation.level": "high",
+    "monte_carlo.navigation.level": "high",
+    "monte_carlo.nav_filter.level": "high"
+  },
+  "n_sims": 1000,
+  "pool": "STRESS_EVAL 9M",
+  "schemes": [
+    {
+      "label": "NN-medium",
+      "n": 1000,
+      "capture_pct": 90.1,
+      "dv_mean": 182.73,
+      "dv_p50": 160.9,
+      "dv_p95": 253.07,
+      "dv_p99": 1023.64,
+      "dv_p999": 1412.46,
+      "dv_cvar95": 517.9,
+      "dv_cvar99": 1315.55,
+      "dv_max_descriptive": 1473.48,
+      "dv_mean_ci": [
+        174.78,
+        191.36
+      ],
+      "dv_p95_ci": [
+        239.35,
+        262.25
+      ],
+      "dv_cvar95_ci": [
+        384.19,
+        674.24
+      ],
+      "dv_p99_ci": [
+        297.21,
+        1349.97
+      ],
+      "dv_cvar99_ci": [
+        843.53,
+        1400.66
+      ]
+    },
+    {
+      "label": "jointFTC-medium",
+      "n": 1000,
+      "capture_pct": 94.5,
+      "dv_mean": 166.51,
+      "dv_p50": 156.46,
+      "dv_p95": 248.02,
+      "dv_p99": 330.45,
+      "dv_p999": 1066.69,
+      "dv_cvar95": 340.01,
+      "dv_cvar99": 582.75,
+      "dv_max_descriptive": 1305.71,
+      "dv_mean_ci": [
+        162.88,
+        170.77
+      ],
+      "dv_p95_ci": [
+        225.27,
+        268.09
+      ],
+      "dv_cvar95_ci": [
+        286.77,
+        409.07
+      ],
+      "dv_p99_ci": [
+        300.59,
+        356.51
+      ],
+      "dv_cvar99_ci": [
+        343.81,
+        899.24
+      ]
+    },
+    {
+      "label": "jointFTC-high",
+      "n": 1000,
+      "capture_pct": 95.0,
+      "dv_mean": 312.72,
+      "dv_p50": 311.33,
+      "dv_p95": 359.41,
+      "dv_p99": 394.45,
+      "dv_p999": 1075.87,
+      "dv_cvar95": 424.09,
+      "dv_cvar99": 632.08,
+      "dv_max_descriptive": 1288.96,
+      "dv_mean_ci": [
+        309.54,
+        316.47
+      ],
+      "dv_p95_ci": [
+        355.24,
+        364.72
+      ],
+      "dv_cvar95_ci": [
+        380.41,
+        482.36
+      ],
+      "dv_p99_ci": [
+        376.4,
+        506.8
+      ],
+      "dv_cvar99_ci": [
+        430.42,
+        878.02
+      ]
+    }
+  ],
+  "summary": {
+    "nn_retrain_capture_gain_pts": null,
+    "nn_retrain_cvar95_change": null,
+    "nn_high_vs_jointftc_high_capture_pts": null,
+    "nn_high_vs_jointftc_high_cvar95": null,
+    "nn_high_vs_jointftc_medium_capture_pts": null,
+    "nn_high_vs_jointftc_medium_cvar95": null
+  }
+}

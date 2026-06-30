@@ -30,6 +30,7 @@ CELLS = [
     ("plus_bucket", "paper/objective_centering/dense_plus_bucket", "configs/training/paper/objective_centering/dense_plus_bucket_high.toml", 2),
     ("plus_transform", "paper/objective_centering/dense_plus_transform", "configs/training/paper/objective_centering/dense_plus_transform_high.toml", 2),
     ("centered", "paper/objective_centering/dense_centered", "configs/training/paper/objective_centering/dense_centered_high.toml", 16),
+    ("mamba_centered", "paper/objective_centering/mamba_centered", "configs/training/paper/objective_centering/mamba_centered_high.toml", 16),
 ]
 N_POP = 256
 STRESS_OVERRIDES = {

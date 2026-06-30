@@ -681,6 +681,57 @@ property we can claim.
   the dense reference).],
 ) <tbl-paired>
 
+== Matching the objective to the regime closes the gap <sec-objcenter>
+
+The robustness caveat of @sec-deployability invites a question: is the off-nominal gap intrinsic to
+neural guidance, or an artifact of a training objective tuned for the wrong regime? Before answering
+it, the regime itself deserves scrutiny. The high-dispersion stress pool is not a realistic operating
+point -- no mission would be flown on an entry profile that fails roughly one pass in twenty under
+*any* guidance scheme. In practice the entry interface would simply be re-targeted so that the $3sigma$
+dispersion envelope still captures, restoring a near-certain margin by construction. We therefore read
+this regime not as a deployment scenario but as a deliberate *stress probe of the training method*: it
+pushes the optimizer into a regime where roughly $4%$ of scenarios are catastrophic, and asks whether
+the genetic algorithm can still make progress.
+
+Under that probe, it cannot -- not with the objective that wins in the medium regime. Retraining the
+Mamba head on the high regime with the deployed stack (cubed transform, max-bucket curation, two
+scenarios per individual) stalled: the validation cost plateaued for thousands of generations and the
+deployed off-nominal tail stayed enormous ($"CVaR"_95$ $924$ m/s). The mechanism is the one the medium
+regime hides: when failures dominate, cubing the cost makes the objective a spiky near-discrete
+failure count, max-bucket curation feeds the optimizer only the hardest seeds, and two samples cannot
+estimate any of it -- so selection has no gradient to climb. The worst-case shaping that is a virtue
+in the medium regime becomes a liability once the noise outruns the sample budget.
+
+*Centering* the objective -- more scenarios per individual (a real cost estimate), a central curation
+bucket, and a milder transform -- restores the gradient. On the dense vehicle a one-lever-at-a-time
+sweep (@fig-objcenter) attributes the recovery: more sims is the clean lever (it halves the tail,
+$"CVaR"_95$ $1031 arrow.r 523$, while *holding* capture at $95%$); a milder transform helps moderately;
+and the central bucket *alone* is a trap -- it drops capture to $84.5%$, because one cannot pick a
+central representative from a cost distribution two samples cannot resolve. The three knobs are a
+coupled system, exactly as in the medium regime, but now the coupling has teeth: only all three
+together recover both capture and the tail (dense $"CVaR"_95$ $1031 arrow.r 276$, mean $574 arrow.r 157$).
+The effect transfers cleanly to the deployed architecture -- the centered Mamba reaches $"CVaR"_95$
+$273$ m/s against the stalled stack's $924$ -- so the stall was the objective, not the cell type.
+
+The payoff, stated with its caveat, is that the off-nominal gap is *not* intrinsic. With a
+regime-matched objective the centered Mamba ($"CVaR"_95$ $273$ m/s at $94.9%$ capture) beats the best
+classical scheme on the very regime where the medium-trained network lost to it -- joint-FTC retrained
+on the same regime sits at $424$ m/s, and the medium-deployed joint-FTC at $340$. The analytic law's
+edge in @sec-deployability was a property of the *mismatched* training objective, not of neural
+guidance. We keep the caveat honest in both directions: these are single-run, $n = 1000$ figures (the
+$3$--$4 times$ effect dwarfs any plausible run-to-run scatter, but a sizing-grade number wants the
+$sigma_"run"$ repeats and the $n = 10000$ depth used elsewhere), and the regime that produces the gap
+is itself one a real mission would design away. The durable lesson is methodological and reinforces
+Section 4: the optimal worst-case weighting is matched to the environment's noise and the per-individual
+sample budget, not fixed once.
+
+#fig("fig_objective_centering.svg", [Objective-centering under the high-dispersion stress probe
+($n = 1000$ on the 9M pool). Left: deployed capture rate; right: deployed correction-DV $"CVaR"_95$
+over captured runs. The medium-regime stack (red) carries an enormous tail; centering recovers it
+(green) and transfers to the Mamba, beating the retrained joint-FTC (dashed). The central bucket alone
+trades capture for the tail (left, $84.5%$), so the three levers are read together. Capture and tail
+are shown separately because the levers trade them off.], <fig-objcenter>)
+
 = What the network uses
 
 To close the architecture argument we ask which inputs the deployed Mamba policy actually relies on,
@@ -711,14 +762,17 @@ dominate, followed by the engineered autoregressive predicted-$Delta v$ componen
 
 = Discussion and limitations
 
-The clearest limitation is the robustness gap of @sec-deployability. The deployed network wins the nominal
-sizing tail it was trained for and loses, off-nominal, to a training-free analytic law. We think this
-is a property of the training distribution, not of neural guidance as such: the network was optimized
-on the medium dispersion regime and asked to extrapolate to a high one. The methodology already
-contains the remedy -- the moving environment that prevents overfitting to a fixed scenario batch can
-just as well move across a wider regime -- so widening the training dispersion, and re-measuring the
-off-nominal degradation, is the natural next experiment. We did not run it, and we do not claim the
-robustness it might recover.
+The clearest limitation is the off-nominal robustness gap of @sec-deployability -- the deployed network
+wins the nominal sizing tail it was trained for and loses, off-nominal, to a training-free analytic
+law. @sec-objcenter shows this gap is a property of the training objective rather than of neural
+guidance: re-training on the harsher regime with an objective matched to its noise (more sims, a
+central curation bucket, a milder transform) reverses the ordering, the network beating the best
+classical even off-nominal. Two honesty markers remain. First, that demonstration is single-run at
+$n = 1000$ -- directional, not sizing-grade; the $sigma_"run"$ repeats and the $n = 10000$ depth used
+for the headline are future work. Second, and more important, the regime that produces the gap is one
+no real mission would fly: a roughly $5%$ failure rate under any scheme would be designed away by re-targeting
+the entry interface so the $3sigma$ envelope captures by construction. The off-nominal probe is a test
+of the training method, not a deployment scenario.
 
 A second tradeoff is the cost of state. The deployed Mamba runs at $3.68$ ms per simulation against
 $2.40$ ms for the dense network -- about $1.5 times$ for the selective-state-space core -- which is
