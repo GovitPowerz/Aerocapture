@@ -12,11 +12,19 @@
 // STIX Two Math for equations, a narrow 5.5in text block, bold numbered headings.
 #set document(title: "Neural-network aerocapture guidance, revisited", author: "Grégory Gelly")
 #set page(paper: "us-letter", margin: (x: 1.5in, top: 1in, bottom: 1.25in), numbering: "1")
-#set text(font: "Times New Roman", size: 10pt)
-#show math.equation: set text(font: "STIX Two Math")
+// Fonts matched to the "Attention" PDF: body = STIX Two Text (the open Times-metric
+// face standing in for the paper's Nimbus Roman; Times New Roman reads too dark),
+// math = Computer Modern (the paper's math is CMR/CMMI, not a Times-matched math),
+// inline code = Computer Modern Typewriter (the paper's literals are SFTT/\texttt).
+#set text(font: "STIX Two Text", size: 10pt)
+#show math.equation: set text(font: "New Computer Modern Math")
+#show raw: set text(font: "Courier New")  // CM Typewriter not installed; Courier is the serifed-mono stand-in
 // NIPS-2017 body metrics: 10/11 baseline (leading 0.44em -> 11.0pt measured),
-// parindent 0, parskip 5.5pt.
+// parindent 0, parskip 5.5pt. Top-level lists indented ~2.5em (marker ~28pt from
+// the body margin, measured from the paper's itemize).
 #set par(justify: true, leading: 0.44em, spacing: 5.5pt)
+#set enum(indent: 2.8em, body-indent: 0.5em)
+#set list(indent: 2.8em, body-indent: 0.5em)
 #set heading(numbering: "1.1")
 #set math.equation(numbering: "(1)")
 // NIPS-2017 headings: section \large\bf (12pt), subsection \normalsize\bf (10pt);
@@ -24,8 +32,12 @@
 #show heading: set text(weight: "bold")
 #show heading.where(level: 1): set text(size: 12pt)
 #show heading.where(level: 2): set text(size: 10pt)
-#show heading.where(level: 1): set block(above: 9pt, below: 6.75pt)
-#show heading.where(level: 2): set block(above: 8.1pt, below: 3.6pt)
+// Heading skips: target the measured "Attention" PDF gaps (section ~17/13pt,
+// subsection ~15/10pt, subsubsection ~12/8pt). Typst's block spacing renders
+// ~3.5pt under the set value (bounding-box vs ink gap), so set value = target +3.5.
+#show heading.where(level: 1): set block(above: 20.5pt, below: 16.5pt)
+#show heading.where(level: 2): set block(above: 18.5pt, below: 13.5pt)
+#show heading.where(level: 3): set block(above: 15.5pt, below: 11.5pt)
 #show link: set text(fill: blue.darken(20%))
 
 // Figure helper: include from figures/, attach the caption and the label.
@@ -48,7 +60,7 @@
 #v(2pt)
 #pad(x: 0.45in)[
   #set par(justify: true, leading: 0.44em)
-  #text(size: 9.5pt)[In 2009 we showed that a single-hidden-layer feed-forward network, trained by a
+  #text(size: 10pt)[In 2009 we showed that a single-hidden-layer feed-forward network, trained by a
   genetic algorithm, could fly the aerocapture of a Mars Sample Return vehicle more efficiently than
   a Cerimele--Gamble feedback law, and we closed that work by asking for the obvious next step: a
   comparison against predictor--corrector guidance. This paper answers it. We train stateful neural
