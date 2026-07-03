@@ -55,14 +55,14 @@ def main():
     fl.style()
     runs = fl.results()["runs"]
 
-    fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.8))
+    fig, axes = plt.subplots(1, 2, figsize=fl.SIZE_HALF)
 
     _panel(axes[0], runs, ROTATING, "(A) Rotating noise floor", sweet_idx=2, sweet_note="sweet spot\n133.5 m/s")
     _panel(axes[1], runs, ADAPTIVE, "(B) Adaptive, $n_{sims}\\!\\times\\!n_{gen}=20000$", sweet_idx=0,
            sweet_note="dominates\n117.5 m/s")
 
     axes[0].set_ylabel("correction $\\Delta v$ (m/s)")
-    axes[0].legend(loc="upper center", fontsize=8, frameon=True)
+    axes[0].legend(loc="upper center")
     fig.tight_layout()
     fl.save(fig, "fig_training_n_sims")
 

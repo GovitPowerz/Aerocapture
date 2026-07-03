@@ -29,7 +29,7 @@ def main():
     fl.style()
     rows = {r["label"]: r for r in fl.robustness()}
 
-    fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.8))
+    fig, axes = plt.subplots(1, 2, figsize=fl.SIZE_HALF)
     panels = (
         (axes[0], "capture_drop_pts", "capture drop (pts)", "Capture robustness"),
         (axes[1], "cvar95_inflation", "CVaR$_{95}$ inflation (m/s)", "Sizing-tail robustness"),

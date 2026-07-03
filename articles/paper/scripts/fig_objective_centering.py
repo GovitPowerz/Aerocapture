@@ -51,7 +51,7 @@ def main():
     labels = [k for k in ORDER if k in cells]
     ref = _joint_ftc_high()
 
-    fig, (axL, axR) = plt.subplots(1, 2, figsize=(10.0, 4.2))
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=fl.SIZE2)
     x = range(len(labels))
     cols = [COLOR[k] for k in labels]
 

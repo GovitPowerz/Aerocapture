@@ -52,7 +52,7 @@ def main():
         if t:
             fam[arch].append((params, t[0], t[1]))
 
-    fig, (axA, axB) = plt.subplots(1, 2, figsize=(8.6, 3.7))
+    fig, (axA, axB) = plt.subplots(1, 2, figsize=fl.SIZE2)
     # Panel A: Pareto -- params vs dv_p99 per family
     for arch, pts in sorted(fam.items()):
         pts = sorted(pts)
@@ -63,7 +63,7 @@ def main():
     axA.set_xlabel("trainable parameters")
     axA.set_ylabel("dv$_{99}$ (m/s)")
     axA.set_title("Architecture Pareto (sweep, n=2/5000)", fontsize=10, loc="left")
-    axA.legend(fontsize=7, ncol=2, frameon=False)
+    axA.legend(ncol=2)
 
     # Panel B: dense capability floor (sizing tail vs params, the sweet spot)
     dense = sorted(fam["dense"])

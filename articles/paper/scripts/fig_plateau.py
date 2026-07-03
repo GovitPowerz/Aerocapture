@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 def main():
     fl.style()
     curves = json.loads((fl.DATA / "plateau.json").read_text())
-    fig, ax = plt.subplots(figsize=(7.2, 3.8))
+    fig, ax = plt.subplots(figsize=fl.SIZE1)
     # Clip the gen-0 cold-start spike (val RMS ~1e11 before the GA learns) so the
     # slow plateau in the 1.3-2.5e6 region is visible -- that descent is the story.
     for key, ckey, label in (("dense_515", "dense", "Dense-515"), ("dense_972", "gru", "Dense-972")):
@@ -31,7 +31,7 @@ def main():
     ax.set_xlabel("generation")
     ax.set_ylabel("best validation RMS cost ($\\times 10^6$)")
     ax.set_title("Compute-bound, not overfitting-bound (n=2/512)", fontsize=10, loc="left")
-    ax.legend(frameon=False, fontsize=9)
+    ax.legend()
     ax.margins(x=0.08)
     fig.tight_layout()
     fl.save(fig, "fig_plateau")

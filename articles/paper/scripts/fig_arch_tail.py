@@ -25,7 +25,7 @@ def main():
     fl.style()
     ft = fl.far_tail()
 
-    fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.6), sharex=True)
+    fig, axes = plt.subplots(1, 2, figsize=fl.SIZE2, sharex=True)
     for ax, metric, title in ((axes[0], "cvar999", "CVaR$_{99.9}$ (m/s)"), (axes[1], "max", "worst case (m/s)")):
         # classical reference band (the bar the NN must beat)
         lo, hi = min(CLASSICAL.values()), max(CLASSICAL.values())

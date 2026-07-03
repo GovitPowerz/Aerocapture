@@ -35,7 +35,7 @@ def main():
     x = np.arange(len(OPTS))
     w = 0.38
 
-    fig, ax = plt.subplots(figsize=(8.0, 4.0))
+    fig, ax = plt.subplots(figsize=fl.SIZE1)
     bf = ax.bar(x - w / 2, fixed_cvar, w, color=FIXED, label="fixed seeds", zorder=2)
     br = ax.bar(x + w / 2, rot_cvar, w, color=ROTATING, label="rotating seeds", zorder=2)
 
@@ -66,7 +66,7 @@ def main():
     ax.set_ylim(0, fixed_cvar.max() + 36)
     ax.set_title("Study C: GA needs non-stationary seeds; CMA-ES is flat "
                  "(bars = CVaR$_{95}$, black tick = mean)", fontsize=9.5, loc="left")
-    ax.legend(loc="upper right", frameon=True, fontsize=8.5)
+    ax.legend(loc="upper right")
     fig.tight_layout()
     fl.save(fig, "fig_seed_strategy")
 

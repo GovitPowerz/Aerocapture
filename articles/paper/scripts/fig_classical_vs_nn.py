@@ -48,7 +48,7 @@ def main():
         "FNPAG": ms["FNPAG"],          # 86.1
     }
 
-    fig, ax = plt.subplots(figsize=(7.6, 4.0))
+    fig, ax = plt.subplots(figsize=fl.SIZE_HALF)
 
     for label, ckey, _clbl, _yover, (dx, dy) in POINTS:
         xv, yv = x[label], y[label]

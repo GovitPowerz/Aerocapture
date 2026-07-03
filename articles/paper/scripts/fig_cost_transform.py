@@ -34,7 +34,7 @@ def main():
     x = np.arange(len(TRANSFORMS))
     w = 0.38
 
-    fig, ax = plt.subplots(figsize=(8.0, 3.8))
+    fig, ax = plt.subplots(figsize=fl.SIZE_HALF)
     # cubed (deployed) gets the headline color; the others muted.
     cvar_colors = [fl.C["dense"]] * (len(TRANSFORMS) - 1) + [fl.C["mamba"]]
     p99_colors = [fl.C["gru"]] * (len(TRANSFORMS) - 1) + ["#2e8b57"]
@@ -53,15 +53,11 @@ def main():
 
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
-    ax.set_xlabel("cost transform (increasing tail-weight →)")
+    ax.set_xlabel("cost transform (increasing tail-weight $\\rightarrow$)")
     ax.set_ylabel("correction $\\Delta v$ (m/s)")
     ax.set_ylim(0, max(p99.max(), cvar95.max()) + 12)
-    ax.set_title("Sizing tail vs cost transform (NN weights, n=1000)", fontsize=10, loc="left")
-    ax.legend(loc="upper left", frameon=True, fontsize=8.5)
-    ax.text(0.5, -0.30,
-            "argmin is transform-invariant; tail-weight shifts capture separation under rank-free PSO/GA. "
-            "cubed wins the FAR tail (n=10000 CVaR$_{99.9}$), not visible at CVaR$_{95}$.",
-            transform=ax.transAxes, ha="center", va="top", fontsize=7, color="#444444")
+    ax.set_title("Sizing tail vs cost transform (NN weights, n=1000)")
+    ax.legend(loc="upper left")
     fig.tight_layout()
     fl.save(fig, "fig_cost_transform")
 

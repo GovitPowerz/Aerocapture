@@ -30,7 +30,7 @@ def main():
     cvar95 = np.array([runs[k]["dv_cvar95"] for _, k in CELLS])
     mean = np.array([runs[k]["dv_mean"] for _, k in CELLS])
 
-    fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.8))
+    fig, axes = plt.subplots(1, 2, figsize=fl.SIZE2)
     x = np.arange(len(CELLS))
     for ax, vals, title in ((axes[0], cvar95, "CVaR$_{95}$ (m/s)"), (axes[1], mean, "mean (m/s)")):
         colors = [fl.C["jointftc"] if i == 0 else fl.C["dense"] for i in range(len(CELLS))]

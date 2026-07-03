@@ -23,7 +23,7 @@ def main():
     names = [x["name"] for x in ranked]
     deltas = [x["delta"] for x in ranked]
 
-    fig, ax = plt.subplots(figsize=(7.4, 4.0))
+    fig, ax = plt.subplots(figsize=fl.SIZE1)
     ax.barh(range(len(names)), deltas, color=fl.C["mamba"], alpha=0.85)
     ax.set_yticks(range(len(names)))
     ax.set_yticklabels(names, fontsize=8.5)

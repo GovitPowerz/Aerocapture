@@ -1,6 +1,6 @@
 """fig_optimizer -- Study A: optimizer x budget at dense_p3998.
 
-Grouped bars: x = eval budget {60, 150, 300} generations, one bar per optimizer
+Grouped bars: x = population size {60, 150, 300}, one bar per optimizer
 {GA, islands, PSO, DE, CMA-ES, QPSO}, y = sizing-tail CVaR_95 (m/s). THE story:
 GA@60 COLLAPSES (CVaR95 205.6 m/s, mean 166.3) while GA@150/300 are the best
 overall (130.9 / 137.6), and islands is budget-robust (145.6 / 136.4 / 144.8).
@@ -80,12 +80,11 @@ def main():
     )
 
     ax_b.set_xticks(x)
-    ax_b.set_xticklabels([f"{b} gens" for b in BUDGETS])
-    ax_b.set_xlabel("evaluation budget")
-    fig.supylabel("sizing tail  CVaR$_{95}$  (m/s)", fontsize=10, x=0.02)
-    ax_t.set_title("Optimizer $\\times$ budget at dense-3998 (sizing-tail CVaR$_{95}$)",
-                   fontsize=10, loc="left")
-    ax_b.legend(ncol=6, fontsize=7.5, loc="upper center", frameon=True,
+    ax_b.set_xticklabels([str(b) for b in BUDGETS])
+    ax_b.set_xlabel("population size ($n_{pop}$)")
+    fig.supylabel("sizing tail  CVaR$_{95}$  (m/s)", x=0.02)
+    ax_t.set_title("Optimizer $\\times$ population at dense-3998 (sizing-tail CVaR$_{95}$)")
+    ax_b.legend(ncol=6, fontsize=7.5, loc="upper center",
                 columnspacing=1.0, handlelength=1.2)
 
     fig.subplots_adjust(left=0.12, right=0.97, top=0.90, bottom=0.12)

@@ -31,7 +31,7 @@ def main():
     x = np.arange(len(VARIANTS))
     w = 0.38
 
-    fig, ax = plt.subplots(figsize=(7.0, 3.7))
+    fig, ax = plt.subplots(figsize=fl.SIZE1)
     b1 = ax.bar(x - w / 2, cvar95, w, label="CVaR$_{95}$", color=fl.C["dense"])
     b2 = ax.bar(x + w / 2, mean, w, label="mean", color=fl.C["dense"], alpha=0.5)
     for bars in (b1, b2):

@@ -30,7 +30,7 @@ def main():
     energy, pdyn, cls = d["energy"], d["pdyn"], d["traj_class"]
     eb = d["energy_bins"]
 
-    fig, ax = plt.subplots(figsize=(7.0, 4.1))
+    fig, ax = plt.subplots(figsize=fl.SIZE1)
 
     # --- Four-layer corridor zone fills (behind everything) ---
     crash = d["envelope_crash_pdyn"]

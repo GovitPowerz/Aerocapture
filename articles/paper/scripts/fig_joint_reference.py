@@ -34,7 +34,7 @@ def main():
     c_fixed = fl.C["ftc"]       # grey -- the fixed-ref baseline
     c_joint = fl.C["jointftc"]  # orange -- the joint-ref winner
 
-    fig, ax = plt.subplots(figsize=(7.6, 3.8))
+    fig, ax = plt.subplots(figsize=fl.SIZE1)
 
     # primary metric: CVaR95 (solid bars)
     ax.bar(x - w / 2, fixed_cvar, w, color=c_fixed, label="fixed ref (CVaR$_{95}$)", zorder=3)
@@ -46,7 +46,7 @@ def main():
     for xi, (fc, jc) in enumerate(zip(fixed_cvar, joint_cvar, strict=True)):
         ax.annotate(f"{fc:.0f}", (xi - w / 2, fc + 3), ha="center", va="bottom", fontsize=8, color=c_fixed, fontweight="bold")
         ax.annotate(f"{jc:.0f}", (xi + w / 2, jc + 3), ha="center", va="bottom", fontsize=8, color=c_joint, fontweight="bold")
-        ax.annotate(f"Δ{fc - jc:.0f}", (xi, max(fc, jc) + 18), ha="center", va="bottom", fontsize=8.5,
+        ax.annotate(f"$\\Delta${fc - jc:.0f}", (xi, max(fc, jc) + 18), ha="center", va="bottom", fontsize=8.5,
                     color=c_joint, fontweight="bold")
 
     ax.set_xticks(x)
@@ -55,7 +55,7 @@ def main():
     ax.set_title("Joint reference optimization recovers ref-tracking schemes\n"
                  "(CVaR$_{95}$ bars, mean = white hatch overlay)", fontsize=10, loc="left")
     ax.set_ylim(0, max(fixed_cvar) * 1.22)
-    ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
+    ax.legend(loc="upper right")
     ax.margins(x=0.08)
     fig.tight_layout()
     fl.save(fig, "fig_joint_reference")
