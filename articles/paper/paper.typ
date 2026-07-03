@@ -39,6 +39,14 @@
 #show heading.where(level: 2): set block(above: 18.5pt, below: 13.5pt)
 #show heading.where(level: 3): set block(above: 15.5pt, below: 11.5pt)
 #show link: set text(fill: blue.darken(20%))
+// Float spacing: set figure/table blocks off from the body text (the 5.5pt
+// parskip let captions crowd the next paragraph) and widen the body-to-caption
+// gap; the caption stays closer to its float than to the text (8 < 16pt).
+// The two side-by-side pairs sit in #grid wrappers, so grids get the same
+// block spacing (the only top-level grids in the document are those pairs).
+#show figure: set block(above: 16pt, below: 16pt)
+#set figure(gap: 8pt)
+#show grid: set block(above: 16pt, below: 16pt)
 
 // Figure helper: include from figures/, attach the caption and the label.
 #let fig(path, cap, lbl) = [#figure(image("figures/" + path, width: 100%), caption: cap)#lbl]
@@ -432,7 +440,7 @@ environment sees over the run. The deployed headline policy uses this allocation
 
 #grid(columns: 2, gutter: 6pt,
   fig("fig_cost_transform.svg", [Cost transform versus the sizing tail. The cubed transform minimizes
-  the far-tail $"CVaR"_(99.9)$, the metric that sizes the mission, even though a shallow $"CVaR"_95$
+  the far-tail $"CVaR"_(99.9)$, even though a shallow $"CVaR"_95$
   would mildly favor square-root.], <fig-cost>),
   fig("fig_training_n_sims.svg", [Allocation of the compute budget. Under the adaptive schedule, two
   scenarios per generation over many generations dominates larger per-generation batches.], <fig-nsims>))
@@ -606,7 +614,7 @@ two-output atan2 decoder inherited from the 2009 work wins, with most of its adv
 We now place the neural policy against the classical schemes on identical Monte-Carlo scenarios --
 the same seed pools, the same dispersions, the fair comparison we have always insisted on. Two things
 have to be established: that the classical baselines are tuned to their best, and that the comparison
-is read at the depth that sizes the mission.
+is read at sizing depth.
 
 == A co-optimized reference recovers the predictor--correctors
 
