@@ -277,11 +277,14 @@ the measured atmosphere rather than a nominal model; the command is held between
 integrations per replan, by far the most expensive.
 
 *PredGuid* is the Apollo/Shuttle-heritage drag-tracking law @bairstow2006reentry @harpold1979shuttle:
-it tracks a drag-versus-energy reference profile with negative feedback. *Energy controller* tracks
-an energy-dissipation reference through dynamic-pressure and altitude-rate feedback. *Equilibrium glide* holds
-the equilibrium-glide condition with altitude-rate damping and a velocity bias, using the
-navigation-filtered density rather than a static table. *Piecewise constant* flies an $N$-segment
-constant-bank profile; it is the simplest scheme, produces the reference trajectory and corridor the
+it tracks a drag-versus-energy reference profile with negative feedback.
+
+*Energy controller* tracks an energy-dissipation reference through dynamic-pressure and altitude-rate feedback.
+
+*Equilibrium glide* holds the equilibrium-glide condition with altitude-rate damping and a velocity bias, using the
+navigation-filtered density rather than a static table.
+
+*Piecewise constant* flies an $N$-segment constant-bank profile; it is the simplest scheme, produces the reference trajectory and corridor the
 other schemes consume, and -- like the full-neural network -- emits a *signed* bank, so it bypasses
 the shared roll-reversal, exit, and thermal-limiter logic.
 

@@ -1,7 +1,12 @@
 # TODO
 
-- [ ] After all the PRs we did recently, I think it's time for a thorough codebase review (critical on architecture, maintainability, code duplication, code quality, respect of functional specifications) or our Python codebase. The scope must also include the pO interface that can be reworked and/or optimzed if need be.
-- [ ] Can you clean-up a little bit the training configs and experiments scripts, please? I'd like them to be rearranged so that they can be reused to reproduce the paper data by anyone with access to the repository. They should be renamed to match their respective case study. I don't mind deleting all existing configs (they are in git history anyway) and existing training outputs to have a clearer view. Do you think I should also commit the paper's training output?
+- [ ] Can you add more spacing below figures and tables caption, please? Sometimes it's visually too close to the next paragraph.
+- [ ] For the first figure showing the aerocapture corridor, could you use spaghetti plot like we use in experiments reports which are much better looking.
+- [ ] Add an appendix with a small report per guidance scheme (showing only the best) based on the report we produce at the end of training: 2 pages per guidance scheme ; 1st page spaghetti energy corridor, inclination evolution and commanded bank angle ; 2nd page: DV correction cost CDFs, small plots on thermal and load constraints.
+- [ ] I find the Neural guidance paragraph (3.2) a bit messy. Could you rewrite it to make it clearer? maybe a clearer separation of the 3 study axes (inputs, bank decoder, cell type) and a clearer description of the 10 cells?
+- [ ] In "Optimizer and dimensionality" paragraph, could you add a sentence to explain why we use PSO, GA, CMAES, ... and not PPO or SAC for the main training? (I know the reason but it is not clear in the text). Also, could detail more the islands optimization which was designed to limit the number of evaluations and to avoid local minima. Maybe a small figure to illustrate the islands optimization would be nice.
+- [ ] Could you review all figure to make them prettier and more consistent (same font, same size, same style, ...).
+- [ ] What would you clean-up in this repo after all that we did and now the paper is done?
 
 ---
 
