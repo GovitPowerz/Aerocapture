@@ -490,6 +490,17 @@ beyond a few hundred parameters, extra dense capacity hurts the gradient-free se
 
 = Optimizer and dimensionality
 
+Every optimizer in this study is a gradient-free population method, a deliberate choice rather than
+an omission. The training objective is the correction $Delta v$ of a complete atmospheric pass --
+produced by a simulator with adaptive integration, sub-tick event detection, and discrete
+capture/crash termination -- so it is a black-box function of the network weights with no usable
+gradient: there is nothing to back-propagate through. Policy-gradient reinforcement learning
+(PPO @schulman2017ppo, SAC @haarnoja2018sac) can only sidestep this by optimizing a differentiable,
+shaped per-step reward -- a surrogate for the mission cost, not the cost itself -- and the mismatch
+between that stochastic surrogate and the true terminal cost is exactly what the direct-on-cost
+search of Section 4 avoids. We did implement and train RL policies; they underperformed the
+population methods, so throughout we optimize the mission cost directly.
+
 Having established that the genetic algorithm is the right optimizer under a moving objective, two
 questions remain: does it need a population that scales with the search dimension, and does the
 optimizer choice even matter for the low-dimensional classical-gain problems? We compared the genetic
@@ -509,8 +520,8 @@ at a starved population it is no better than a single restart. The corrective is
 stating plainly -- the population must scale with the search dimension. CMA-ES improves smoothly with
 budget ($133.3 arrow.r 126.3 arrow.r 121.8$ m/s) but never reaches the genetic algorithm's optimum and
 self-terminates on the noisy objective before exhausting a generous generation count, an asymmetry to
-keep in mind for compute-matched comparisons. The three-island heterogeneous trainer (particle-swarm
-+ genetic + differential evolution with periodic migration) is the most budget-robust of all,
+keep in mind for compute-matched comparisons. The three-island heterogeneous trainer (particle swarm,
+genetic, and differential evolution, with periodic migration) is the most budget-robust of all,
 $120$--$124$ m/s across every budget, but the well-populated single genetic algorithm edges it.
 
 The dimensionality grid carries the more useful lesson. On the $26$-parameter FTC-gain problem every
@@ -528,6 +539,24 @@ weight search, not on low-dimensional gain tuning.
 best at populations of $150$--$300$ but collapses at $60$ (the population must scale with the search
 dimension); the heterogeneous island model is the most budget-robust; CMA-ES improves with budget but
 trails the genetic optimum.], <fig-optimizer>)
+
+The island model -- the most budget-robust optimizer above -- was built for exactly that robustness
+(@fig-islands). It splits one population budget across three islands running complementary operators
+(particle swarm, genetic, and differential evolution) on the same scenarios, and every $k$
+generations migrates each island's best $n$ individuals into the others, overwriting their worst.
+Two properties follow. The heterogeneous operators explore the weight space differently and the
+migration cross-pollinates their discoveries, so a sub-population trapped in a local optimum is
+pulled out by a migrant from another island instead of having to escape on its own -- the diversity
+a single homogeneous method lacks. And because the three strategies share one run's evaluations
+through migration, one need not run each optimizer separately and keep the best. The result never
+collapses the way a starved genetic algorithm does ($120$--$124$ m/s across every budget); the price
+is that at a well-chosen budget a single large genetic algorithm still edges it, so the islands buy
+robustness to the budget choice rather than a lower optimum.
+
+#fig("fig_islands.svg", [The three-island heterogeneous optimizer. Three islands run complementary
+gradient-free operators (particle swarm, genetic, differential evolution) on the same scenarios;
+periodic migration exchanges each island's best individuals for the others' worst. The heterogeneity
+plus migration is what escapes local optima, and one population budget covers all three searches.], <fig-islands>)
 
 = Architecture: the headline result
 
