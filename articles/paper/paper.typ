@@ -879,3 +879,19 @@ to carry these stateful policies beyond the single capture maneuver -- to skip-e
 legs, and to on-line adaptation of the deployed policy in flight.
 
 #bibliography("refs.bib")
+
+#pagebreak()
+#set heading(numbering: none)
+= Appendix A: per-scheme mission reports
+
+Each scheme below gets a two-page mission-performance card on the final-evaluation
+Monte-Carlo pool ($n = 1000$), pinned to its deployed policy so the statistics
+reproduce @tbl-perf. The first page shows the corridor behaviour -- the classified
+trajectory ensemble in the (energy, dynamic pressure), (energy, inclination), and
+(energy, bank) planes, with the undispersed nominal overlaid. The second page shows
+the correction-$Delta v$ distribution (total and its three burns), the thermal and
+load-constraint margins, and the full statistics. Panels reuse the training
+pipeline's own report charts; captured trajectories are blue, constraint violations
+orange, failures red.
+
+#include "appendix.typ"
