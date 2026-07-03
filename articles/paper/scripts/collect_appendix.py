@@ -95,10 +95,17 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     base_mc_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
     seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
 
+    # Pin the NN weights to the committed bundle's frozen model (the deploy
+    # results.json was computed from) when present -- training_output can drift
+    # from the bundle on a later resume (dense_p515 did: mean 114.1 vs 109.71).
+    # Fall back to the run-local model otherwise. Classical schemes have neither
+    # and set no data.neural_network override.
     pin = dict(scaffolding)
+    bundle_model = REPO / "articles/paper/data/runs" / results_key / "best_model.json"
     local_model = scheme_dir / "best_model.json"
-    if local_model.exists():
-        pin["data.neural_network"] = str(local_model.resolve())
+    model = bundle_model if bundle_model.exists() else local_model
+    if model.exists():
+        pin["data.neural_network"] = str(model.resolve())
     overrides = [{"simulation.n_sims": 1, "monte_carlo.seed": s, **pin} for s in seeds]
     batch = aerocapture_rs.run_batch(
         toml_path=str(eval_toml.resolve()), overrides_list=overrides,
