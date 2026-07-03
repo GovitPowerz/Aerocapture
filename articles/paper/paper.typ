@@ -24,7 +24,7 @@
 // the body margin, measured from the paper's itemize).
 #set par(justify: true, leading: 0.44em, spacing: 5.5pt)
 #set enum(indent: 2.8em, body-indent: 0.5em)
-#set list(indent: 2.8em, body-indent: 0.5em)
+#set list(indent: 1.2em, body-indent: 0.5em)  // tighter than the enum: the only bullet list (§3.2 cell types) reads better close to the margin
 #set heading(numbering: "1.1")
 #set math.equation(numbering: "(1)")
 // NIPS-2017 headings: section \large\bf (12pt), subsection \normalsize\bf (10pt);
@@ -303,38 +303,60 @@ the shared roll-reversal, exit, and thermal-limiter logic.
 
 The neural policy maps an observation vector to a bank command. We generalize the 2009
 single-hidden-layer feed-forward network -- five hand-picked inputs (orbital energy, eccentricity,
-inclination, velocity, non-gravitational acceleration) and a two-output bank decoder -- in three
-directions.
+inclination, velocity, non-gravitational acceleration) feeding a two-output bank decoder -- along
+three independent axes: the *inputs* the policy reads, the *bank decoder* it writes through, and the
+*cell type* that carries state across the pass. We take them in turn.
 
-First, the *inputs*. The modern policy draws from a $35$-element candidate vector behind a learned
-input mask. Sixteen entries carry the instantaneous orbital, aerodynamic, and thermal state; the
-remaining nineteen are *engineered* signals that give the policy temporal context and a cost-aligned
-summary of the flown trajectory without requiring it to integrate the history itself -- a subset
-autoregressive (the bank-history encodings, the reversal telemetry), the rest instantaneous
-functions of the current osculating state: reference-trajectory interpolations
-($dot(h)$ and $q$ at the current energy), a closed-form exit-bank teacher signal, seam-free
-$(sin, cos)$ encodings of the recent bank history, the periapsis altitude, and -- most important, as
-the ablation in Section 8 shows -- three *predicted correction-$Delta v$* components evaluated on the
-current osculating orbit (the energy-closing, periapsis-correction, and plane-change burns). These
-are smooth, causal, and cost-aligned: they tell the network what the maneuver would cost if it stopped
-now. The deployed atan2 policies use a $17$-input subset of this vector.
+=== Inputs
 
-Second, the *bank decoder*. The 2009 paper read the bank from a two-element output through
+The modern policy draws from a $35$-element candidate vector; a learned input mask selects
+the subset that actually reaches the network (the deployed atan2 policies use $17$). Sixteen entries
+are instantaneous orbital, aerodynamic, and thermal state variables. The other nineteen are
+*engineered* signals that hand the policy temporal context and a cost-aligned summary of the flown
+trajectory, so it need not integrate the history itself. A few are genuinely autoregressive --
+seam-free $(sin, cos)$ encodings of the recent bank history and the roll-reversal telemetry -- but
+most are instantaneous functions of the current osculating orbit: reference-trajectory
+interpolations ($dot(h)$ and $q$ at the current energy), a closed-form exit-bank teacher signal, the
+periapsis altitude, and -- most important, as the ablation of Section 8 shows -- the three
+*predicted correction-$Delta v$* components (the energy-closing, periapsis-correction, and
+plane-change burns). Those last three are smooth, causal, and cost-aligned: they tell the network
+what the maneuver would cost if it stopped now.
+
+=== Bank decoder
+
+The 2009 paper read the bank from a two-element output,
 $ mu = "atan2"(o_1, o_2), $ <eq-atan2>
-which we retain as the default (#raw("atan2_signed")). It wastes half its range when the magnitude
-alone is needed, so for magnitude-only policies we add $mu = arccos(tanh(o_1))$, a single output
-mapping smoothly onto $[0, pi]$. Two further single-output decoders attack the $plus.minus pi$ wrap
-seam that a raw angle output suffers near $mu = pi$: $mu = "wrap"_pi(n pi tanh(o_1))$ (#raw("scaled_pi"),
-which pushes the seam out of the operating region) and $mu = "wrap"_pi(mu_"prev" + Delta_max tanh(o_1))$
-(#raw("delta"), a bounded increment on the previous realized bank).
+which we keep as the default (#raw("atan2_signed")). It wastes half its range when only the magnitude
+is needed, so for magnitude-only policies the #raw("acos_tanh") decoder maps a single output smoothly
+onto $[0, pi]$,
+$ mu = arccos(tanh(o_1)). $
+Two further single-output decoders attack the $plus.minus pi$ wrap seam a raw angle output suffers
+near $mu = pi$. The #raw("scaled_pi") decoder pushes the seam out of the operating region,
+$ mu = "wrap"_pi(n pi tanh(o_1)), $
+while the #raw("delta") decoder applies a bounded increment on the previous realized bank,
+$ mu = "wrap"_pi(mu_"prev" + Delta_max tanh(o_1)). $
 
-Third, the *cell type*. Where 2009 had one hidden layer, we span a family of architectures behind a
-common runtime: dense feed-forward, gated recurrent (GRU) @cho2014gru, long short-term memory (LSTM)
-@hochreiter1997lstm, a fixed windowed buffer, a causal-attention Transformer block @vaswani2017attention,
-and a selective state-space (Mamba) core @gu2023mamba. We use *recurrent* loosely for any cell that
-carries internal state across the pass; the Mamba core is a linear recurrence with input-dependent
-gates. All are trained and deployed through the same bit-validated Rust runtime, and all are sized
-so that the comparison across cell types holds the parameter budget roughly fixed.
+=== Cell type
+
+Where 2009 had a single hidden layer, we span six architecture families behind one
+common runtime, each carrying a different kind of internal state across the atmospheric pass:
+
+- *Dense* feed-forward -- memoryless; maps the current observation straight to a command. The
+  2009-style baseline.
+- *GRU* @cho2014gru -- a gated recurrent cell carrying one hidden-state vector, updated each tick
+  through reset and update gates.
+- *LSTM* @hochreiter1997lstm -- a recurrent cell that adds a separate long-term cell state alongside
+  the hidden state, regulated by input, forget, and output gates.
+- *Windowed* -- a zero-parameter FIFO buffer of the last $N$ observations flattened into a dense
+  stack: explicit recent history rather than a learned state.
+- *Transformer* @vaswani2017attention -- a causal-attention block attending over a fixed-length
+  key/value window of recent steps.
+- *Mamba* @gu2023mamba -- a selective state-space core: a linear recurrence whose gates depend on the
+  input, carrying a compact SSM state.
+
+We use *recurrent* loosely for any cell that carries internal state across the pass. All six train
+and deploy through the same bit-validated Rust runtime, and all are sized so the comparison across
+cell types holds the parameter budget roughly fixed.
 
 #figure(
   table(
