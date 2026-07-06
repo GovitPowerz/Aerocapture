@@ -164,7 +164,7 @@ def main():
     p.add_argument("--n-energy-bins", type=int, default=200)
     p.add_argument("--n-pdyn-buckets", type=int, default=400)
     p.add_argument("--chunk-size", type=int, default=20_000)
-    p.add_argument("--upper-pct", type=float, default=99.5)
+    p.add_argument("--upper-pct", type=float, default=99.9)  # near the crash-side reachable limit; p99.5 clipped deep-but-safe schemes (EqGlide/PC)
     p.add_argument("--lower-pct", type=float, default=0.5)
     p.add_argument("--smooth-sigma", type=float, default=2.5)
     p.add_argument("--ensemble-sims", type=int, default=200)
