@@ -79,9 +79,10 @@ def build_corridor(args):
     rng = np.random.default_rng(CORRIDOR_BANK_SEED)
 
     done = n_cap = 0
+    bank_lo = -180.0 if args.signed else 0.0  # signed: reversals slew shortest-path (through 180 or 0 deg)
     while done < args.n_sims:
         m = min(args.chunk_size, args.n_sims - done)
-        banks = rng.uniform(0.0, 180.0, size=(m, args.n_segments))
+        banks = rng.uniform(bank_lo, 180.0, size=(m, args.n_segments))
         ov = []
         for j in range(m):
             d = {"simulation.n_sims": 1,
@@ -168,6 +169,9 @@ def main():
     p.add_argument("--lower-pct", type=float, default=0.5)
     p.add_argument("--smooth-sigma", type=float, default=2.5)
     p.add_argument("--ensemble-sims", type=int, default=200)
+    p.add_argument("--signed", action="store_true",
+                   help="sample bank in [-180,180] (signed): roll reversals slew shortest-path "
+                        "through 0 or 180 deg, adding reversal transients an unsigned sweep misses")
     args = p.parse_args()
 
     e_centers, lower, upper, n_cap = build_corridor(args)
@@ -176,7 +180,7 @@ def main():
         OUT, energy_bins=e_centers, lower_pdyn=lower, upper_pdyn=upper,
         nominal_energy=nom_e, nominal_pdyn=nom_p, ens_energy=ens_e, ens_pdyn=ens_p,
         n_sims=args.n_sims, n_segments=args.n_segments, apoapsis_max_km=args.apoapsis_max_km,
-        upper_pct=args.upper_pct, lower_pct=args.lower_pct)
+        upper_pct=args.upper_pct, lower_pct=args.lower_pct, signed=args.signed)
     print(f"wrote {OUT.relative_to(REPO)}: {n_cap} captures, ensemble {len(ens_e)}, nominal {len(nom_e)} pts")
 
 
