@@ -187,13 +187,13 @@ guidance has the most leverage deep in the pass and almost none on the thin entr
 The vehicle must respect a peak heat-flux limit of $200$ kW/m#super[2], a $4$ g load limit, a
 dynamic-pressure limit of $1.08$ kPa, and an integrated heat-load limit of $25$ MJ/m#super[2].
 
-#fig("fig_corridor.svg", [Deployed Mamba policy on a $200$-scenario Monte-Carlo ensemble in the
-(orbital energy, dynamic pressure) plane. The vehicle enters hyperbolic ($E > 0$, right) and bleeds
-energy through the atmosphere into a bound capture orbit ($E < 0$, left). The green band is the
-restricted corridor (the constant-bank profiles landing within the target apoapsis tolerance),
-bounded above by the crash boundary and below by the hyperbolic-escape boundary (red); the grey band
-is the transition to the full-capture limit. Every scenario captures and stays deep inside the
-corridor; the heavy black line is the undispersed nominal.], <fig-corridor>)
+#fig("fig_corridor.svg", [Reachable aerocapture capture corridor in the (orbital energy, dynamic
+pressure) plane, traced by a $300\,000$-run dispersed Monte-Carlo of randomized piecewise-constant
+bank profiles. The shaded band spans the corridor: the upper edge is the $p_(99.5)$ dynamic pressure
+of all capturing trajectories (the crash-side limit), the lower edge the $p_(0.5)$ of trajectories
+capturing below a $5000$ km apoapsis (the escape-side limit). The vehicle enters hyperbolic
+($E > 0$, right) and bleeds energy into a bound orbit ($E < 0$, left); the deployed Mamba ensemble
+and its undispersed nominal (heavy line) fly well inside the corridor.], <fig-corridor>)
 
 == The objective: the tail that sizes the mission
 
