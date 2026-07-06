@@ -188,8 +188,9 @@ The vehicle must respect a peak heat-flux limit of $200$ kW/m#super[2], a $4$ g 
 dynamic-pressure limit of $1.08$ kPa, and an integrated heat-load limit of $25$ MJ/m#super[2].
 
 #fig("fig_corridor.svg", [Reachable aerocapture capture corridor in the (orbital energy, dynamic
-pressure) plane, traced by a $300\,000$-run dispersed Monte-Carlo of randomized piecewise-constant
-bank profiles. The shaded band spans the corridor: the upper edge is the $p_(99.9)$ dynamic pressure
+pressure) plane, traced by a $1\,000\,000$-run dispersed Monte-Carlo of randomized signed
+piecewise-constant bank profiles (roll reversals included). The shaded band spans the corridor: the
+upper edge is the $p_(99.9)$ dynamic pressure
 of all capturing trajectories (the crash-side limit), the lower edge the $p_(0.5)$ of trajectories
 capturing below a $5000$ km apoapsis (the escape-side limit). The vehicle enters hyperbolic
 ($E > 0$, right) and bleeds energy into a bound orbit ($E < 0$, left); the deployed Mamba ensemble
