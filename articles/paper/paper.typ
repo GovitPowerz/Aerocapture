@@ -939,7 +939,9 @@ Each scheme below gets a two-page mission-performance card on the final-evaluati
 Monte-Carlo pool ($n = 1000$), pinned to its deployed policy so the statistics
 reproduce @tbl-perf. The first page shows the corridor behaviour -- the classified
 trajectory ensemble in the (energy, dynamic pressure), (energy, inclination), and
-(energy, bank) planes, with the undispersed nominal overlaid. The second page shows
+(energy, bank) planes, with the undispersed nominal overlaid; the dynamic-pressure
+panel sets the ensemble against the shared reachable capture corridor of @fig-corridor,
+so one can read at a glance whether each scheme flies inside it. The second page shows
 the correction-$Delta v$ distribution (total and its three burns), the thermal and
 load-constraint margins, and the full statistics. Panels reuse the training
 pipeline's own report charts; captured trajectories are blue, constraint violations
