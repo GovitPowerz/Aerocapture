@@ -42,6 +42,39 @@
       ]
     },
     {
+      "label": "NN-high",
+      "n": 1000,
+      "capture_pct": 27.3,
+      "dv_mean": 578.53,
+      "dv_p50": 527.78,
+      "dv_p95": 1076.72,
+      "dv_p99": 1290.39,
+      "dv_p999": 1424.09,
+      "dv_cvar95": 1215.56,
+      "dv_cvar99": 1375.91,
+      "dv_max_descriptive": 1442.45,
+      "dv_mean_ci": [
+        546.05,
+        611.14
+      ],
+      "dv_p95_ci": [
+        990.25,
+        1156.78
+      ],
+      "dv_cvar95_ci": [
+        1113.9,
+        1293.56
+      ],
+      "dv_p99_ci": [
+        1167.32,
+        1393.84
+      ],
+      "dv_cvar99_ci": [
+        1248.22,
+        1442.45
+      ]
+    },
+    {
       "label": "jointFTC-medium",
       "n": 1000,
       "capture_pct": 94.5,
@@ -109,11 +142,11 @@
     }
   ],
   "summary": {
-    "nn_retrain_capture_gain_pts": null,
-    "nn_retrain_cvar95_change": null,
-    "nn_high_vs_jointftc_high_capture_pts": null,
-    "nn_high_vs_jointftc_high_cvar95": null,
-    "nn_high_vs_jointftc_medium_capture_pts": null,
-    "nn_high_vs_jointftc_medium_cvar95": null
+    "nn_retrain_capture_gain_pts": -62.8,
+    "nn_retrain_cvar95_change": 697.66,
+    "nn_high_vs_jointftc_high_capture_pts": -67.7,
+    "nn_high_vs_jointftc_high_cvar95": 791.47,
+    "nn_high_vs_jointftc_medium_capture_pts": -67.2,
+    "nn_high_vs_jointftc_medium_cvar95": 875.55
   }
 }

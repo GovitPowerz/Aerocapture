@@ -45,8 +45,8 @@ train() {  # $1=config-stem  $2=cell  $3=n_gen  $4=n_pop
 }
 
 # FTC-joint first (fast); then the Mamba (the long pole).
-train ftc_joint_high   ftc_joint   "$NGEN_FTC"   "$NPOP_FTC"
-train mamba_p962_high  mamba_p962  "$NGEN_MAMBA" "$NPOP_MAMBA"
+train ftc_joint_medium_wind   ftc_joint_medium_wind   "$NGEN_FTC"   "$NPOP_FTC"
+train mamba_p962_medium_wind  mamba_p962_medium_wind  "$NGEN_MAMBA" "$NPOP_MAMBA"
 
 # Evaluate medium- AND high-trained policies on the reserved 9M stress pool.
 uv run python articles/paper/scripts/robustness_retrain_eval.py --n-sims "$NSIMS_EVAL"

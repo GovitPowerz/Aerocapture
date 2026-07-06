@@ -1,0 +1,22 @@
+# exp-13 robustness retrain -- the Mamba_962 headline architecture trained ON the
+# high-dispersion regime (instead of the medium controlled-study regime).
+# Tests the paper's closing line: "widening the NN training regime is future work."
+# Inherits the deployed Mamba_962 cell verbatim (architecture, 17-input mask,
+# calibrated normalization, atan2 decoder, scaffolding = live) and overrides ONLY
+# the four MC domains that robustness_stress.py bumps to high, so train and stress
+# eval share the SAME distribution shift. Deploy path is isolated so training does
+# not clobber the headline sweep cell's best_model.json.
+base = ["../../sweep/mamba_p962.toml"]
+
+[data]
+neural_network = "training_output/paper/robustness_retrain/mamba_p962_medium_wind/best_model.json"
+results_suffix = ".robustness_mamba_medium_wind"
+
+[monte_carlo.density_perturbation]
+level = "medium"
+
+[monte_carlo.wind]
+level = "medium"
+
+[flight]
+wind = true
