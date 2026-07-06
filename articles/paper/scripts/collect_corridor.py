@@ -93,16 +93,26 @@ def build_corridor(args):
         batch = aerocapture_rs.run_batch(toml_path=str(BASE_TOML.resolve()), overrides_list=ov,
                                          include_trajectories=True, sim_timeout_secs=5.0)
         recs = np.asarray(batch.final_records)
+        all_trajs = batch.trajectories  # getter REBUILDS the whole list per access -- call it ONCE per chunk
         cap = (recs[:, FR_IFINAL] == 3) & (recs[:, FR_ECC] < 1.0)
         apo = recs[:, FR_APO]
-        n_cap += int(cap.sum())
-        for j in np.nonzero(cap)[0]:
-            t = np.asarray(batch.trajectories[j])
-            ei = np.clip(np.digitize(t[:, TC_ENERGY], e_edges) - 1, 0, args.n_energy_bins - 1)
-            pi = np.clip(np.digitize(t[:, TC_PDYN], p_edges) - 1, 0, args.n_pdyn_buckets - 1)
-            np.add.at(hist_up, (ei, pi), 1)
-            if apo[j] < args.apoapsis_max_km:
-                np.add.at(hist_lo, (ei, pi), 1)
+        caps = np.nonzero(cap)[0]
+        n_cap += len(caps)
+        if len(caps):
+            # Vectorized: concatenate all captured trajectories' (energy, pdyn) points once,
+            # bin once, bincount once per chunk. all_trajs[j] is already an (N,17) numpy array.
+            trajs = [all_trajs[j] for j in caps]
+            lens = np.fromiter((len(t) for t in trajs), dtype=np.int64, count=len(trajs))
+            E_all = np.concatenate([t[:, TC_ENERGY] for t in trajs])
+            P_all = np.concatenate([t[:, TC_PDYN] for t in trajs])
+            ei = np.clip(np.digitize(E_all, e_edges) - 1, 0, args.n_energy_bins - 1)
+            pi = np.clip(np.digitize(P_all, p_edges) - 1, 0, args.n_pdyn_buckets - 1)
+            lin = ei * args.n_pdyn_buckets + pi
+            n_cells = args.n_energy_bins * args.n_pdyn_buckets
+            hist_up += np.bincount(lin, minlength=n_cells).reshape(args.n_energy_bins, args.n_pdyn_buckets)
+            lo_pt = np.repeat(apo[caps] < args.apoapsis_max_km, lens)
+            if lo_pt.any():
+                hist_lo += np.bincount(lin[lo_pt], minlength=n_cells).reshape(args.n_energy_bins, args.n_pdyn_buckets)
         done += m
         del batch
         print(f"  {done}/{args.n_sims} sims, capture {100 * n_cap / max(done, 1):.1f}%", end="\r")
