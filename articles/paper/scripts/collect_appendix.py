@@ -25,7 +25,7 @@ sys.path.insert(0, str(REPO / "src/python"))
 
 FIGROOT = REPO / "articles/paper/figures/appendix"
 RESULTS = REPO / "articles/paper/data/results.json"
-CORRIDOR_CACHE = REPO / "training_output/mars/corridor_boundaries.npz"
+CORRIDOR_NPZ = REPO / "articles/paper/data/corridor.npz"  # shared reachable corridor (collect_corridor.py)
 N_TRAJ_SPAGHETTI = 300
 POINT_STRIDE = 3
 
@@ -52,6 +52,30 @@ SCHEMES = [
     ("piecewise", "Piecewise constant", "piecewise_constant",
      "configs/training/msr_aller_piecewise_constant_train.toml", "classical_baselines/piecewise_constant"),
 ]
+
+
+def chart_corridor_pdyn_reachable(trajs, traj_class, output, undispersed):
+    """Energy vs dynamic pressure: the shared reachable capture corridor band (from
+    collect_corridor.py) with this scheme's classified spaghetti + undispersed nominal
+    on top. Report-styled (reuses charts._draw_spaghetti/_draw_nominals)."""
+    from aerocapture.training import charts
+
+    d = np.load(CORRIDOR_NPZ)
+    e, lo, hi = d["energy_bins"], d["lower_pdyn"], d["upper_pdyn"]
+    fig, ax = plt.subplots(figsize=charts.FULL_WIDTH, dpi=charts.DPI)
+    ax.fill_between(e, lo, hi, color="#8a97a3", alpha=0.20, lw=0, zorder=0, label="reachable corridor")
+    ax.plot(e, hi, color="#566572", lw=1.1, zorder=1)
+    ax.plot(e, lo, color="#566572", lw=1.1, zorder=1)
+    charts._draw_spaghetti(ax, trajs, traj_class, charts._TC_ENERGY, charts._TC_PDYN)
+    charts._draw_nominals(ax, charts._TC_ENERGY, charts._TC_PDYN, undispersed_nominal=undispersed)
+    ax.set_xlabel("Energy (MJ/kg)")
+    ax.set_ylabel("Dynamic pressure (kPa)")
+    ax.set_title("Corridor — Dynamic Pressure")
+    ax.set_xlim(float(e.min()), float(e.max()))
+    ax.set_ylim(0, float(np.nanmax(hi)) * 1.25)  # corridor-focused; crash spikes exit the top
+    ax.legend(fontsize="small")
+    fig.savefig(output, format="svg", bbox_inches="tight")
+    plt.close(fig)
 
 
 def chart_dv_cdf_overlay(final_records, output):
@@ -131,11 +155,6 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     sub_trajs = [trajs[i][::POINT_STRIDE] for i in idx]
     sub_class = traj_class[idx]
 
-    zones = dict(np.load(CORRIDOR_CACHE))
-    corridor_data = {key: zones[key] for key in (
-        "energy_bins", "envelope_crash_pdyn", "envelope_restricted_max_pdyn",
-        "envelope_restricted_min_pdyn", "envelope_capture_pdyn")}
-
     nom_ov = {"simulation.n_sims": 1,
               **{f"monte_carlo.{d}.level": "off" for d in _MC_DISPERSION_DOMAINS}, **pin}
     nom = aerocapture_rs.run_mc(toml_path=str(eval_toml.resolve()), overrides=nom_ov,
@@ -145,7 +164,7 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
 
     out = FIGROOT / slug
     out.mkdir(parents=True, exist_ok=True)
-    charts.chart_corridor_pdyn(sub_trajs, sub_class, out / "corridor_pdyn.svg", corridor_data=corridor_data, **nk)
+    chart_corridor_pdyn_reachable(sub_trajs, sub_class, out / "corridor_pdyn.svg", undispersed)
     charts.chart_corridor_inclination(sub_trajs, sub_class, out / "corridor_inclination.svg", **nk)
     charts.chart_corridor_bank(sub_trajs, sub_class, out / "corridor_bank.svg", **nk)
     chart_dv_cdf_overlay(recs, out / "dv_cdf.svg")
