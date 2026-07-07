@@ -12,8 +12,7 @@
 //! See docs/superpowers/specs/2026-07-07-mamba3-ablation-design.md.
 
 use super::super::LayerWeights;
-#[allow(unused_imports)]
-use super::helpers::expm1_over_x; // real path reuses this (bit-identity anchor); consumed in Task 3
+use super::helpers::{expm1_over_x, softplus}; // real path reuses expm1_over_x (bit-identity anchor)
 
 /// Mamba-3 ablation layer. `trapezoidal` / `complex` are orthogonal opt-in flags.
 /// `x_proj` shape is fixed `(dt_rank + 2*d_state, input_size)` in all modes (B, C real).
@@ -149,6 +148,91 @@ impl Mamba3Layer {
             d_skip: nalgebra::DVector::zeros(input_size),
         }
     }
+
+    /// Single-tick forward. Mutates state in place, returns `y` (length input_size).
+    ///
+    /// State: `h_re`/`h_im` are `(input_size, d_state)` (h_im unused in real mode);
+    /// `x_prev` is `(input_size,)`, `b_prev` is `(d_state,)` (both unused in euler mode).
+    ///
+    /// Real mode reuses `expm1_over_x` (with `exp_m1`) so `real`+`euler` is bit-identical
+    /// to `MambaLayer::forward`. Complex mode uses `expm1_over_x_complex`. Trapezoidal adds
+    /// the `(1-lambda)` cross term on the previous (B, x); `lambda -> 1` recovers euler.
+    pub fn forward(
+        &self,
+        x: &[f64],
+        h_re: &mut nalgebra::DMatrix<f64>,
+        h_im: &mut nalgebra::DMatrix<f64>,
+        x_prev: &mut nalgebra::DVector<f64>,
+        b_prev: &mut nalgebra::DVector<f64>,
+    ) -> Vec<f64> {
+        debug_assert_eq!(x.len(), self.input_size);
+
+        let x_vec = nalgebra::DVector::from_row_slice(x);
+        let proj = &self.x_proj_w * &x_vec;
+        let dt_pre: Vec<f64> = (0..self.dt_rank).map(|i| proj[i]).collect();
+        let b_vec: Vec<f64> = (0..self.d_state).map(|i| proj[self.dt_rank + i]).collect();
+        let c_vec: Vec<f64> = (0..self.d_state)
+            .map(|i| proj[self.dt_rank + self.d_state + i])
+            .collect();
+
+        let dt_pre_v = nalgebra::DVector::from_row_slice(&dt_pre);
+        let dt_lifted = &self.dt_proj_w * &dt_pre_v + &self.dt_proj_b;
+        let delta: Vec<f64> = (0..self.input_size).map(|i| softplus(dt_lifted[i])).collect();
+
+        let mut y = vec![0.0_f64; self.input_size];
+        for d in 0..self.input_size {
+            let dd = delta[d];
+            let xd = x[d];
+            let lam = self
+                .lambda_logit
+                .as_ref()
+                .map_or(1.0, |ll| 1.0 / (1.0 + (-ll[d]).exp()));
+            let xp = x_prev[d];
+            let mut acc = 0.0;
+            for n in 0..self.d_state {
+                let ar = -self.a_log[(d, n)].exp();
+                let za_r = dd * ar;
+                if self.complex {
+                    let ai = self.a_imag.as_ref().unwrap()[(d, n)];
+                    let za_i = dd * ai;
+                    let r = za_r.exp();
+                    let (alpha_r, alpha_i) = (r * za_i.cos(), r * za_i.sin());
+                    let (ex_r, ex_i) = expm1_over_x_complex(za_r, za_i);
+                    // current-input drive: b_bar = delta * B[n] * expm1_over_x_complex(za)
+                    let bb_r = dd * b_vec[n] * ex_r;
+                    let bb_i = dd * b_vec[n] * ex_i;
+                    let hr = h_re[(d, n)];
+                    let hi = h_im[(d, n)];
+                    // h = alpha*h + lambda*b_bar*x  (+ (1-lambda)*delta*alpha*B_prev*x_prev)
+                    let mut nr = alpha_r * hr - alpha_i * hi + lam * bb_r * xd;
+                    let mut ni = alpha_r * hi + alpha_i * hr + lam * bb_i * xd;
+                    if self.trapezoidal {
+                        let cross = (1.0 - lam) * dd * b_prev[n] * xp;
+                        nr += alpha_r * cross;
+                        ni += alpha_i * cross;
+                    }
+                    h_re[(d, n)] = nr;
+                    h_im[(d, n)] = ni;
+                    acc += nr * c_vec[n]; // readout reads Re(h)
+                } else {
+                    let alpha = za_r.exp();
+                    let bb = dd * b_vec[n] * expm1_over_x(za_r);
+                    let mut nr = alpha * h_re[(d, n)] + lam * bb * xd;
+                    if self.trapezoidal {
+                        nr += (1.0 - lam) * dd * alpha * b_prev[n] * xp;
+                    }
+                    h_re[(d, n)] = nr;
+                    acc += nr * c_vec[n];
+                }
+            }
+            y[d] = acc + self.d_skip[d] * xd;
+        }
+        if self.trapezoidal {
+            *x_prev = x_vec;
+            *b_prev = nalgebra::DVector::from_row_slice(&b_vec);
+        }
+        y
+    }
 }
 
 /// Complex `(exp(z) - 1) / z` with Taylor fallback for |z| < 1e-8.
@@ -209,5 +293,105 @@ mod tests {
             assert_eq!(consumed, n, "trap={trap} cplx={cplx}");
             assert_eq!(m.to_flat(), slab, "trap={trap} cplx={cplx}");
         }
+    }
+
+    // real+euler Mamba3 shares MambaLayer's exact flat layout; load the same slab into both.
+    fn mamba_ref(
+        input_size: usize,
+        d_state: usize,
+        dt_rank: usize,
+    ) -> (super::super::MambaLayer, Mamba3Layer) {
+        let mut m3 = Mamba3Layer::zeros(input_size, d_state, dt_rank, false, false);
+        let n = m3.n_params();
+        let slab: Vec<f64> = (0..n).map(|i| 0.05 * ((i % 7) as f64 - 3.0)).collect();
+        m3.from_flat(&slab);
+        let mut m = super::super::MambaLayer {
+            input_size,
+            d_state,
+            dt_rank,
+            x_proj_w: nalgebra::DMatrix::zeros(dt_rank + 2 * d_state, input_size),
+            dt_proj_w: nalgebra::DMatrix::zeros(input_size, dt_rank),
+            dt_proj_b: nalgebra::DVector::zeros(input_size),
+            a_log: nalgebra::DMatrix::zeros(input_size, d_state),
+            d_skip: nalgebra::DVector::zeros(input_size),
+        };
+        m.from_flat(&slab);
+        (m, m3)
+    }
+
+    #[test]
+    fn real_euler_bit_identical_to_mamba() {
+        let (m, m3) = mamba_ref(4, 3, 2);
+        let mut h = nalgebra::DMatrix::zeros(4, 3);
+        let mut hr = nalgebra::DMatrix::zeros(4, 3);
+        let mut hi = nalgebra::DMatrix::zeros(4, 3);
+        let mut xp = nalgebra::DVector::zeros(4);
+        let mut bp = nalgebra::DVector::zeros(3);
+        for t in 0..20 {
+            let x: Vec<f64> = (0..4)
+                .map(|d| 0.1 * (d as f64 + 1.0) * (t as f64 + 1.0).sin())
+                .collect();
+            let ym = m.forward(&x, &mut h);
+            let y3 = m3.forward(&x, &mut hr, &mut hi, &mut xp, &mut bp);
+            for d in 0..4 {
+                assert_eq!(ym[d], y3[d], "t={t} d={d}"); // BIT-identical
+            }
+        }
+    }
+
+    #[test]
+    fn trapezoidal_reduces_to_euler_at_high_lambda() {
+        let mut euler = Mamba3Layer::zeros(4, 3, 2, false, false);
+        let n_e = euler.n_params();
+        let slab: Vec<f64> = (0..n_e).map(|i| 0.05 * ((i % 5) as f64 - 2.0)).collect();
+        euler.from_flat(&slab);
+        // trapezoidal layout = euler + lambda_logit(input_size) inserted before d_skip.
+        let mut trap = Mamba3Layer::zeros(4, 3, 2, true, false);
+        let split = n_e - 4; // everything up to (but not incl.) d_skip
+        let mut tslab = slab[..split].to_vec();
+        tslab.extend(std::iter::repeat_n(30.0, 4)); // lambda_logit -> sigmoid ~ 1
+        tslab.extend(&slab[split..]); // d_skip
+        trap.from_flat(&tslab);
+        let mut he = nalgebra::DMatrix::zeros(4, 3);
+        let (mut hr, mut hi) = (nalgebra::DMatrix::zeros(4, 3), nalgebra::DMatrix::zeros(4, 3));
+        let mut xp = nalgebra::DVector::zeros(4);
+        let mut bp = nalgebra::DVector::zeros(3);
+        let mut he0 = nalgebra::DMatrix::zeros(4, 3);
+        let (mut z1, mut z2) = (nalgebra::DVector::zeros(4), nalgebra::DVector::zeros(3));
+        for t in 0..15 {
+            let x: Vec<f64> = (0..4)
+                .map(|d| 0.2 * (d as f64 - 1.0) * (t as f64).cos())
+                .collect();
+            let ye = euler.forward(&x, &mut he, &mut he0, &mut z1, &mut z2);
+            let yt = trap.forward(&x, &mut hr, &mut hi, &mut xp, &mut bp);
+            for d in 0..4 {
+                assert!(
+                    (ye[d] - yt[d]).abs() < 1e-12,
+                    "t={t} d={d} {} vs {}",
+                    ye[d],
+                    yt[d]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn complex_warmup_deterministic() {
+        let mut m = Mamba3Layer::zeros(3, 4, 1, false, true);
+        let n = m.n_params();
+        let slab: Vec<f64> = (0..n).map(|i| 0.03 * ((i % 9) as f64 - 4.0)).collect();
+        m.from_flat(&slab);
+        let run = || {
+            let (mut hr, mut hi) = (nalgebra::DMatrix::zeros(3, 4), nalgebra::DMatrix::zeros(3, 4));
+            let (mut xp, mut bp) = (nalgebra::DVector::zeros(3), nalgebra::DVector::zeros(4));
+            let mut last = vec![];
+            for t in 0..10 {
+                let x: Vec<f64> = (0..3).map(|d| 0.15 * (d as f64 + t as f64).sin()).collect();
+                last = m.forward(&x, &mut hr, &mut hi, &mut xp, &mut bp);
+            }
+            last
+        };
+        assert_eq!(run(), run());
+        assert!(run().iter().all(|v| v.is_finite()));
     }
 }
