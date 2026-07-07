@@ -1,0 +1,40 @@
+# Mamba-3 962-cell ablation -- BASELINE arm (euler + real).
+# euler+real Mamba3 is BIT-identical to the deployed Mamba_962 cell, so this is
+# the matched control: every arm runs the identical mamba3 code path and differs
+# ONLY in the two flags, isolating the architecture effect from training budget.
+# Inherits the mamba_p962 pipeline (17-input mask, calibrated normalization,
+# full_neural / atan2_signed, scaffolding = live, command shaping + navigation);
+# overrides only the architecture, deploy path, and optimizer budget.
+# 962 trainable NN params (+3 scaffolding: nav.*/shaping.*).
+base = ["../msr_aller_nn_atan2_train.toml"]
+
+[data]
+neural_network = "training_output/mamba3_962/baseline/best_model.json"
+results_suffix = ".mamba3_962_baseline"
+
+[[network.architecture]]
+type = "dense"
+input_size = 17
+output_size = 16
+activation = "swish"
+
+[[network.architecture]]
+type = "mamba3"
+input_size = 16
+d_state = 12
+discretization = "euler"
+state_mode = "real"
+
+[[network.architecture]]
+type = "dense"
+input_size = 16
+output_size = 2
+activation = "asinh"
+
+[optimizer]
+algorithm = "ga"
+n_pop = 512
+n_gen = 10000
+training_n_sims = 2
+seed_strategy = "adaptive"
+curation_bucket_selection = "max"

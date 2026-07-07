@@ -1,0 +1,36 @@
+# Mamba-3 962-cell ablation -- COMPLEX arm (euler + complex).
+# Complex-diagonal rotational state: adds a_imag (16*12 = 192 params, S4D-Lin
+# rotation-frequency init). 962 + 192 = 1154 trainable NN params (+3 scaffolding).
+# Same cell + pipeline as baseline.toml; differs ONLY in the mamba3 flags.
+base = ["../msr_aller_nn_atan2_train.toml"]
+
+[data]
+neural_network = "training_output/mamba3_962/complex/best_model.json"
+results_suffix = ".mamba3_962_complex"
+
+[[network.architecture]]
+type = "dense"
+input_size = 17
+output_size = 16
+activation = "swish"
+
+[[network.architecture]]
+type = "mamba3"
+input_size = 16
+d_state = 12
+discretization = "euler"
+state_mode = "complex"
+
+[[network.architecture]]
+type = "dense"
+input_size = 16
+output_size = 2
+activation = "asinh"
+
+[optimizer]
+algorithm = "ga"
+n_pop = 512
+n_gen = 10000
+training_n_sims = 2
+seed_strategy = "adaptive"
+curation_bucket_selection = "max"
