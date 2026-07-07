@@ -225,7 +225,9 @@ Per layer, mirroring the mamba3 suite:
 
 1. **Cross-language equivalence** (`tests/test_rust_python_{cfc,slstm,mlstm}_equivalence.py`):
    100-step `nn_forward_sequence` vs the torch mirror on reduced dims
-   (e.g. Dense(4→8) → cell(8→H) → Dense(→2)), gate 1e-14.
+   (e.g. Dense(4→8) → cell(8→H) → Dense(→2)), gate 1e-12 (mamba3 precedent;
+   expected observed ~1e-14 -- mLSTM's matrix-state accumulation is why the
+   gate is not 1e-14).
 2. **Rust unit tests** (`data/neural/tests.rs`): flat round-trip, v2 JSON round-trip,
    slstm t=0 warm-up (no div-by-zero, finite h), mlstm denom-clamp path
    (|n·q| < 1 exercises the max), stabilizer under large preactivations (f̃, ĩ ~ ±50:
@@ -252,12 +254,14 @@ Per layer, mirroring the mamba3 suite:
 
 New: `src/rust/src/data/neural/layers/{cfc,slstm,mlstm}.rs`,
 `src/python/aerocapture/training/rl/layers/{cfc,slstm,mlstm}.py`,
-`src/python/aerocapture/training/experiments/{cfc_probe,xlstm_probe}.py`,
+`src/python/aerocapture/training/experiments/{probe_common,cfc_probe,xlstm_probe}.py`
+(`probe_common.py` holds the shared score/aggregate/report machinery; `mamba3_ablation.py`
+keeps its own copies, untouched),
 `tests/test_rust_python_{cfc,slstm,mlstm}_equivalence.py`, `tests/test_{cfc,xlstm}_probe.py`,
-`tests/test_{cfc,xlstm}_encoding.py`, `tests/test_{cfc,slstm,mlstm}_ppo_rejection.py` (or
-combined), `tests/test_{cfc,xlstm}_pso_smoke.py`, this spec + plan.
+`tests/test_{cfc,xlstm}_encoding.py`, `tests/test_init_v2_cfc_xlstm.py`,
+`tests/test_cfc_xlstm_ppo_rejection.py` (combined), `tests/test_{cfc,xlstm}_pso_smoke.py`,
+this spec + plan.
 
 Modified: `layers/mod.rs`, `neural/mod.rs`, `neural/tests.rs`, `nn_state.rs`, `config.rs`
 (Rust); `rl/schemas.py`, `rl/layers/__init__.py`, `model_io.py`, `encoding.py`,
-`config.py`, `initialization_v2.py`, `evaluate.py`, `experiments/__init__.py` (Python);
-`CLAUDE.md`, `README.md`.
+`config.py`, `initialization_v2.py`, `evaluate.py` (Python); `CLAUDE.md`, `README.md`.
