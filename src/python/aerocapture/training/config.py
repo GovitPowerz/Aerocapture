@@ -215,6 +215,19 @@ def _layer_n_params(entry: Any) -> int:
         if entry.get("discretization", "euler") == "trapezoidal":
             base += d_inner
         return base
+    if ltype == "cfc":
+        h = int(entry["hidden_size"])
+        i = int(entry["input_size"])
+        b = int(entry["backbone_units"])
+        return b * (i + h) + b + 4 * (h * b + h)
+    if ltype == "slstm":
+        h = int(entry["hidden_size"])
+        i = int(entry["input_size"])
+        return 4 * h * i + 4 * h * h + 4 * h
+    if ltype == "mlstm":
+        h = int(entry["hidden_size"])
+        i = int(entry["input_size"])
+        return 4 * (h * i + h) + 2 * (i + 1)
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
@@ -258,6 +271,8 @@ def _layer_output_size(entry: Any) -> int:
         return int(entry["d_model"])
     if ltype in ("mamba", "mamba3"):
         return int(entry["input_size"])
+    if ltype in ("cfc", "slstm", "mlstm"):
+        return int(entry["hidden_size"])
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
@@ -306,6 +321,10 @@ def describe_architecture(network: NetworkConfig | list[Any]) -> str:
                         f"d_state={entry['d_state']}, dt_rank={resolve_mamba_dt_rank(entry)}, "
                         f"{entry.get('discretization', 'euler')}, {entry.get('state_mode', 'real')}"
                     )
+                elif ltype == "cfc":
+                    tail = f"hidden_size={entry['hidden_size']}, backbone_units={entry['backbone_units']}"
+                elif ltype in ("slstm", "mlstm"):
+                    tail = f"hidden_size={entry['hidden_size']}"
                 else:
                     tail = ltype
             in_size = _layer_input_size(entry)
