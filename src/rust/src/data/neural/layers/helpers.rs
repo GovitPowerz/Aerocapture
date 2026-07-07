@@ -99,3 +99,80 @@ pub(crate) fn matvec(m: &[Vec<f64>], v: &[f64]) -> Vec<f64> {
         })
         .collect()
 }
+
+/// LeCun-scaled tanh used by the CfC backbone: 1.7159 * tanh(2z/3).
+/// Constant order matches the Python mirror (`1.7159 * torch.tanh(2.0 * z / 3.0)`).
+#[allow(dead_code)]
+pub(crate) fn lecun_tanh(z: f64) -> f64 {
+    1.7159 * (2.0 * z / 3.0).tanh()
+}
+
+/// xLSTM stabilized exponential gating (Beck et al. 2024, eq. 15-17).
+/// m_new = max(f_pre + m_prev, i_pre); both exp arguments are <= 0 by
+/// construction, so the returned gates are finite for arbitrarily large
+/// preactivations. Returns (i_gate, f_gate, m_new).
+#[allow(dead_code)]
+pub(crate) fn stabilized_exp_gates(i_pre: f64, f_pre: f64, m_prev: f64) -> (f64, f64, f64) {
+    let m_new = (f_pre + m_prev).max(i_pre);
+    ((i_pre - m_new).exp(), (f_pre + m_prev - m_new).exp(), m_new)
+}
+
+/// Copy a row-major matrix slab out of `flat`, advancing the cursor.
+#[allow(dead_code)]
+pub(crate) fn copy_mat_from_flat(mat: &mut [Vec<f64>], flat: &[f64], idx: &mut usize) {
+    for row in mat.iter_mut() {
+        let n = row.len();
+        row.copy_from_slice(&flat[*idx..*idx + n]);
+        *idx += n;
+    }
+}
+
+/// Copy a vector slab out of `flat`, advancing the cursor.
+#[allow(dead_code)]
+pub(crate) fn copy_vec_from_flat(v: &mut [f64], flat: &[f64], idx: &mut usize) {
+    let n = v.len();
+    v.copy_from_slice(&flat[*idx..*idx + n]);
+    *idx += n;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lecun_tanh_matches_definition() {
+        assert!((lecun_tanh(0.0)).abs() < 1e-15);
+        let z: f64 = 0.7;
+        let expected = 1.7159 * (2.0_f64 * z / 3.0_f64).tanh();
+        assert_eq!(lecun_tanh(z), expected);
+        assert_eq!(lecun_tanh(-z), -expected);
+    }
+
+    #[test]
+    fn stabilized_exp_gates_both_args_nonpositive() {
+        // Stabilizer guarantees exp arguments <= 0, so gates are in (0, 1].
+        for (i_pre, f_pre, m_prev) in [(0.0, 0.0, 0.0), (50.0, -50.0, 10.0), (-300.0, 300.0, -5.0)]
+        {
+            let (ig, fg, m_new) = stabilized_exp_gates(i_pre, f_pre, m_prev);
+            assert!(ig.is_finite() && fg.is_finite() && m_new.is_finite());
+            assert!(ig > 0.0 && ig <= 1.0, "ig={ig}");
+            assert!(fg > 0.0 && fg <= 1.0, "fg={fg}");
+            assert_eq!(m_new, (f_pre + m_prev).max(i_pre));
+            // One of the two gates is exactly exp(0) = 1 (the max branch).
+            assert!(ig == 1.0 || fg == 1.0);
+        }
+    }
+
+    #[test]
+    fn copy_helpers_advance_cursor() {
+        let flat = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let mut mat = vec![vec![0.0; 2]; 2];
+        let mut v = vec![0.0; 2];
+        let mut idx = 0;
+        copy_mat_from_flat(&mut mat, &flat, &mut idx);
+        copy_vec_from_flat(&mut v, &flat, &mut idx);
+        assert_eq!(idx, 6);
+        assert_eq!(mat, vec![vec![1.0, 2.0], vec![3.0, 4.0]]);
+        assert_eq!(v, vec![5.0, 6.0]);
+    }
+}
