@@ -42,6 +42,10 @@ pub enum LayerState {
         x_prev: nalgebra::DVector<f64>,
         b_prev: nalgebra::DVector<f64>,
     },
+    /// CfC hidden state, flat like GRU. Reset zeros it.
+    Cfc {
+        h: Vec<f64>,
+    },
 }
 
 impl LayerState {
@@ -76,6 +80,9 @@ impl LayerState {
                 h_im: nalgebra::DMatrix::<f64>::zeros(m.input_size, m.d_state),
                 x_prev: nalgebra::DVector::<f64>::zeros(m.input_size),
                 b_prev: nalgebra::DVector::<f64>::zeros(m.d_state),
+            },
+            Layer::Cfc(l) => LayerState::Cfc {
+                h: vec![0.0; l.hidden_size],
             },
         }
     }
@@ -120,6 +127,11 @@ impl LayerState {
                 h_im.fill(0.0);
                 x_prev.fill(0.0);
                 b_prev.fill(0.0);
+            }
+            LayerState::Cfc { h } => {
+                for v in h.iter_mut() {
+                    *v = 0.0;
+                }
             }
         }
     }
@@ -519,6 +531,25 @@ mod tests {
                 assert_eq!(b_prev.len(), 4);
             }
             _ => panic!("expected Mamba3"),
+        }
+    }
+
+    #[test]
+    fn layer_state_cfc_for_layer_and_reset() {
+        use crate::data::neural::CfcLayer;
+        let layer = Layer::Cfc(Box::new(CfcLayer::zeros(3, 4, 5)));
+        let mut state = LayerState::for_layer(&layer);
+        if let LayerState::Cfc { h } = &mut state {
+            assert_eq!(h.len(), 4);
+            h[0] = 9.0;
+        } else {
+            panic!("expected LayerState::Cfc");
+        }
+        state.reset();
+        if let LayerState::Cfc { h } = &state {
+            assert!(h.iter().all(|&v| v == 0.0));
+        } else {
+            panic!("expected LayerState::Cfc after reset");
         }
     }
 }

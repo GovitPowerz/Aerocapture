@@ -2247,6 +2247,44 @@ fn scaled_pi_knobs_persist_through_v2_json_round_trip() {
 }
 
 #[test]
+fn cfc_json_round_trip_bit_identical() {
+    let arch = vec![
+        LayerSpec::Dense {
+            input_size: 3,
+            output_size: 4,
+            activation: Activation::Tanh,
+        },
+        LayerSpec::Cfc {
+            input_size: 4,
+            hidden_size: 4,
+            backbone_units: 5,
+        },
+        LayerSpec::Dense {
+            input_size: 4,
+            output_size: 2,
+            activation: Activation::Linear,
+        },
+    ];
+    let n: usize = 3 * 4 + 4 + (5 * 8 + 5 + 4 * (4 * 5 + 4)) + (4 * 2 + 2);
+    let flat: Vec<f64> = (0..n).map(|i| (i as f64) * 0.001 - 0.2).collect();
+    let model = NeuralNetModel::from_flat_weights_v2(
+        &flat,
+        &arch,
+        None,
+        OutputParam::default(),
+        default_scaled_pi_n(),
+        default_delta_max(),
+    )
+    .unwrap();
+    assert_eq!(model.n_params(), n);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cfc_rt.json");
+    model.save_json(path.to_str().unwrap()).unwrap();
+    let loaded = NeuralNetModel::load(path.to_str().unwrap()).unwrap();
+    assert_eq!(loaded.to_flat_weights(), model.to_flat_weights());
+}
+
+#[test]
 fn output_param_absent_in_json_loads_as_atan2_signed() {
     let json = r#"{
             "format_version": 2,

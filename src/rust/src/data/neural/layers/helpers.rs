@@ -102,7 +102,6 @@ pub(crate) fn matvec(m: &[Vec<f64>], v: &[f64]) -> Vec<f64> {
 
 /// LeCun-scaled tanh used by the CfC backbone: 1.7159 * tanh(2z/3).
 /// Constant order matches the Python mirror (`1.7159 * torch.tanh(2.0 * z / 3.0)`).
-#[allow(dead_code)]
 pub(crate) fn lecun_tanh(z: f64) -> f64 {
     1.7159 * (2.0 * z / 3.0).tanh()
 }
@@ -118,7 +117,6 @@ pub(crate) fn stabilized_exp_gates(i_pre: f64, f_pre: f64, m_prev: f64) -> (f64,
 }
 
 /// Copy a row-major matrix slab out of `flat`, advancing the cursor.
-#[allow(dead_code)]
 pub(crate) fn copy_mat_from_flat(mat: &mut [Vec<f64>], flat: &[f64], idx: &mut usize) {
     for row in mat.iter_mut() {
         let n = row.len();
@@ -128,7 +126,6 @@ pub(crate) fn copy_mat_from_flat(mat: &mut [Vec<f64>], flat: &[f64], idx: &mut u
 }
 
 /// Copy a vector slab out of `flat`, advancing the cursor.
-#[allow(dead_code)]
 pub(crate) fn copy_vec_from_flat(v: &mut [f64], flat: &[f64], idx: &mut usize) {
     let n = v.len();
     v.copy_from_slice(&flat[*idx..*idx + n]);

@@ -5,6 +5,7 @@
 
 pub(crate) mod helpers;
 
+pub(crate) mod cfc;
 pub(crate) mod dense;
 pub(crate) mod gru;
 pub(crate) mod lstm;
@@ -13,6 +14,7 @@ pub(crate) mod mamba3;
 pub(crate) mod transformer;
 pub(crate) mod window;
 
+pub use cfc::CfcLayer;
 pub use dense::DenseLayer;
 pub use gru::GruLayer;
 pub use lstm::LstmLayer;
