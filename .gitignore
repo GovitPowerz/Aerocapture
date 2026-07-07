@@ -45,6 +45,9 @@ output/*
 # Paper results bundle (collected by experiments/paper/12_collect_results.sh):
 # the *.json rule above would silently drop best_model/best_params/final_selection.
 !articles/paper/data/**/*.json
+# Appendix per-scheme stats (read by appendix.typ at compile time — without
+# these the paper does not build from a clean checkout).
+!articles/paper/figures/appendix/**/*.json
 *.temp
 *.png
 # Ignore training artifacts, EXCEPT the optimized reference trajectory:

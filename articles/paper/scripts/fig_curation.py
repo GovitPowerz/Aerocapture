@@ -1,18 +1,26 @@
 """fig_curation -- Study C-sub: adaptive-seed curation bucket + trim ablation.
 
-Holds everything fixed except the per-bin seed pick (bucket_selection) and the
-cost-CDF trim fraction, on the mission-SIZING TAIL (CVaR95, primary) plus the
-median-ish dv_mean (secondary). The deployed choice is the max-bucket
-(optimizer_budget/ga_300, "bucket_max"), and it is the lowest-tail variant --
-picking the WORST seed per quantile bin (max-bucket, no trim) hardens the
-optimizer against the sizing tail better than middle/min/random or trimming.
+Panel A carries the DECIDING metric: far-tail CVaR99.9 (n=10000) per curation
+bucket (the per-bin seed pick). Picking the HARDEST seed per cost-CDF bin (the
+max bucket, deployed = optimizer_budget/ga_300) compresses the sizing tail; the
+easiest-seed (min) bucket blows it up (sample max 245 m/s) while winning the
+mean -- the canonical optimize-the-average failure. Panel B shows the n=1000
+mean for all cells including the two trim variants: trimming matched the max
+bucket on the shallow pool and was not carried to the far-tail pool.
 """
 
 import figlib as fl
 import matplotlib.pyplot as plt
 import numpy as np
 
-# (display label, results.json runs key) ordered so the deployed choice is first.
+# (display label, far_tail_eval cell label) -- deployed max-bucket first.
+BUCKETS = [
+    ("bucket_max\n(deployed)", "optimizer_budget/ga_300"),
+    ("bucket_middle", "curation_shaping/bucket_middle"),
+    ("bucket_random", "curation_shaping/bucket_random"),
+    ("bucket_min", "curation_shaping/bucket_min"),
+]
+# (display label, results.json runs key) -- the n=1000 mean panel, incl. trims.
 CELLS = [
     ("bucket_max\n(deployed)", "optimizer_budget/ga_300"),
     ("bucket_middle", "curation_shaping/bucket_middle"),
@@ -26,26 +34,48 @@ CELLS = [
 def main():
     fl.style()
     runs = fl.results()["runs"]
-    labels = [lab for lab, _ in CELLS]
-    cvar95 = np.array([runs[k]["dv_cvar95"] for _, k in CELLS])
-    mean = np.array([runs[k]["dv_mean"] for _, k in CELLS])
+    ft = fl.far_tail()
 
-    fig, axes = plt.subplots(1, 2, figsize=fl.SIZE2)
-    x = np.arange(len(CELLS))
-    for ax, vals, title in ((axes[0], cvar95, "CVaR$_{95}$ (m/s)"), (axes[1], mean, "mean (m/s)")):
-        colors = [fl.C["jointftc"] if i == 0 else fl.C["dense"] for i in range(len(CELLS))]
-        bars = ax.bar(x, vals, color=colors, width=0.66, zorder=3)
-        # deployed (max-bucket) reference line so the tail gap to each variant is legible.
-        ax.axhline(vals[0], color=fl.C["jointftc"], lw=0.9, ls="--", zorder=2)
-        for b, v in zip(bars, vals, strict=True):
-            ax.annotate(f"{v:.1f}", (b.get_x() + b.get_width() / 2, v), ha="center", va="bottom",
-                        fontsize=7.5, fontweight="bold", color="#333333")
-        ax.set_xticks(x)
-        ax.set_xticklabels(labels, rotation=20, ha="right", fontsize=8)
-        ax.set_ylabel(title)
-        ax.set_ylim(0, vals.max() * 1.12)
-        ax.margins(x=0.04)
-    axes[0].set_title("Seed-curation bucket + trim ablation (sizing tail)", fontsize=10, loc="left")
+    fig, (axA, axB) = plt.subplots(1, 2, figsize=fl.SIZE2)
+
+    # ---- Panel A: far-tail CVaR99.9 per bucket (the sizing decision) ----
+    labA = [lab for lab, _ in BUCKETS]
+    valA = np.array([ft[k]["cvar999"] for _, k in BUCKETS])
+    colA = [fl.C["jointftc"]] + [fl.C["dense"]] * (len(BUCKETS) - 1)
+    xA = np.arange(len(BUCKETS))
+    barsA = axA.bar(xA, valA, color=colA, width=0.62, zorder=3)
+    axA.axhline(valA[0], color=fl.C["jointftc"], lw=0.9, ls="--", zorder=2)
+    for b, v in zip(barsA, valA, strict=True):
+        axA.annotate(f"{v:.0f}", (b.get_x() + b.get_width() / 2, v), ha="center", va="bottom",
+                     fontsize=7.5, fontweight="bold", color="#333333")
+    # the min bucket's catastrophic worst case, quoted in the body
+    axA.annotate(f"worst case {ft['curation_shaping/bucket_min']['max']:.0f} m/s",
+                 (xA[-1], valA[-1]), xytext=(10, 16), textcoords="offset points",
+                 ha="right", fontsize=7.5, color=fl.C["fnpag"], fontweight="bold")
+    axA.set_xticks(xA)
+    axA.set_xticklabels(labA, rotation=20, ha="right", fontsize=8)
+    axA.set_ylabel("CVaR$_{99.9}$ (m/s)")
+    axA.set_ylim(0, valA.max() * 1.18)
+    axA.set_title("(A) Sizing tail (n=10000) vs curation bucket", fontsize=10, loc="left")
+    axA.margins(x=0.04)
+
+    # ---- Panel B: n=1000 mean, all cells incl. the trim variants ----
+    labB = [lab for lab, _ in CELLS]
+    valB = np.array([runs[k]["dv_mean"] for _, k in CELLS])
+    colB = [fl.C["jointftc"] if i == 0 else fl.C["dense"] for i in range(len(CELLS))]
+    xB = np.arange(len(CELLS))
+    barsB = axB.bar(xB, valB, color=colB, width=0.66, zorder=3)
+    axB.axhline(valB[0], color=fl.C["jointftc"], lw=0.9, ls="--", zorder=2)
+    for b, v in zip(barsB, valB, strict=True):
+        axB.annotate(f"{v:.1f}", (b.get_x() + b.get_width() / 2, v), ha="center", va="bottom",
+                     fontsize=7.5, fontweight="bold", color="#333333")
+    axB.set_xticks(xB)
+    axB.set_xticklabels(labB, rotation=20, ha="right", fontsize=8)
+    axB.set_ylabel("mean (m/s)")
+    axB.set_ylim(0, valB.max() * 1.12)
+    axB.set_title("(B) Mean (n=1000), incl. trim variants", fontsize=10, loc="left")
+    axB.margins(x=0.04)
+
     fig.tight_layout()
     fl.save(fig, "fig_curation")
 

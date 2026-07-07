@@ -5654,7 +5654,60 @@
   },
   "sigma_run": {
     "groups": {},
-    "pooled_std": null
+    "pooled_std": null,
+    "tail_groups": {
+      "mamba_p962": {
+        "n": 3,
+        "cvar999": [
+          121.99,
+          130.35,
+          121.04
+        ],
+        "cvar999_mean": 124.5,
+        "cvar999_range": 9.31,
+        "cvar999_std": 5.12,
+        "max": [
+          124.38,
+          136.9,
+          121.65
+        ],
+        "max_mean": 127.6
+      },
+      "lstm_p1082": {
+        "n": 3,
+        "cvar999": [
+          123.24,
+          134.2,
+          130.08
+        ],
+        "cvar999_mean": 129.2,
+        "cvar999_range": 10.96,
+        "cvar999_std": 5.54,
+        "max": [
+          126.03,
+          138.16,
+          132.9
+        ],
+        "max_mean": 132.4
+      },
+      "dense_p515": {
+        "n": 3,
+        "cvar999": [
+          128.11,
+          139.84,
+          149.61
+        ],
+        "cvar999_mean": 139.2,
+        "cvar999_range": 21.5,
+        "cvar999_std": 10.76,
+        "max": [
+          146.67,
+          146.05,
+          184.39
+        ],
+        "max_mean": 159.0
+      }
+    }
   },
   "headline": "headline/mamba_p962",
   "headline_fresh_pool": {

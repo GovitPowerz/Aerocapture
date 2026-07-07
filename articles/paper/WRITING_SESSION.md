@@ -78,7 +78,7 @@ and LSTM-init references for the architecture section.
 - Mamba fresh-pool (8M, the abstract number): p50 **109.7** / CVaR95 **115.2** / p99 116.0; 100% capture.
 - Far-tail σ_run (3 seeds, n=10000) CVaR99.9: Mamba **124.5** < LSTM **129.2** < Dense **139.2**;
   max 127.6 < 132.4 < 159.0.
-- vs best classical (joint-FTC): `nn_vs_jointftc` dMean **−16.4** / dCVaR95 **−27.6** (99.9% win, p=3e-165).
+- vs best classical (joint-FTC): `nn_vs_jointftc` dMean **−16.4** / dCVaR95 **−27.6** (100.0% win, p=3e-165).
 - Compute (5b): NN-mamba 3.68 / NN-dense 2.40 / FTC 1.25 / FNPAG 86.1 ms/sim (NN 23× < FNPAG).
 - Robustness (5c, off-nominal, HONEST CAVEAT): joint-FTC most robust (capture drop 5.5% / CVaR95 +197)
   vs NN-mamba (9.9% / +402). Frame: NN wins NOMINAL sizing, joint-FTC generalizes better.

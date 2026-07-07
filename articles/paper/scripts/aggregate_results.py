@@ -48,7 +48,18 @@ PAIRED = [
     ("atan2_vs_scaledpi", "optimizer_dimensionality/dense_p515_ga", "output_param/scaledpi"),
     ("atan2_vs_delta", "optimizer_dimensionality/dense_p515_ga", "output_param/delta"),
 ]
+# Tail-level sigma_run: the 3-seed triplets the paper actually repeated (10c),
+# on the far-tail n=10000 pool. cvar999/max are NOT derivable from the n=1000
+# parquets, so these come from far_tail_eval.json cells; this block is what
+# makes the abstract's three-seed-mean CVaR99.9 numbers durable in the bundle.
+TAIL_REPEAT_GROUPS = {
+    "mamba_p962": ["mamba_p962_long", "paper/tail_repeats/mamba962_s2", "paper/tail_repeats/mamba962_s3"],
+    "lstm_p1082": ["lstm_p1082_long", "paper/tail_repeats/lstm1082_s2", "paper/tail_repeats/lstm1082_s3"],
+    "dense_p515": ["dense_p515_ga_paper_best", "paper/tail_repeats/dense515_s2", "paper/tail_repeats/dense515_s3"],
+}
 # sigma_run triplets: repeat #1 cell + its _s2/_s3 siblings in seed_repeats/.
+# (exp-11 was skipped, so these groups stay empty in the committed bundle --
+# the Discussion reports mean-level run variance as not measured.)
 REPEAT_GROUPS = {
     "ga_300": ["optimizer_budget/ga_300", "seed_repeats/ga_300_s2", "seed_repeats/ga_300_s3"],
     "islands_300": ["optimizer_budget/islands_300", "seed_repeats/islands_300_s2", "seed_repeats/islands_300_s3"],
@@ -157,9 +168,28 @@ def main() -> None:
                 "std": round(float(np.std(means, ddof=1)), 2),
             }
     pooled = [g["std"] for g in sigma_run.values()]
+    tail_groups = {}
+    far_tail_path = REPO / "articles/paper/data/far_tail_eval.json"
+    if far_tail_path.exists():
+        cells = {c["label"]: c for c in json.loads(far_tail_path.read_text())["cells"]}
+        for label, members in TAIL_REPEAT_GROUPS.items():
+            vals = [cells[m] for m in members if m in cells]
+            if len(vals) >= 2:
+                cv = [v["cvar999"] for v in vals]
+                mx = [v["max"] for v in vals]
+                tail_groups[label] = {
+                    "n": len(vals),
+                    "cvar999": [round(v, 2) for v in cv],
+                    "cvar999_mean": round(float(np.mean(cv)), 1),
+                    "cvar999_range": round(max(cv) - min(cv), 2),
+                    "cvar999_std": round(float(np.std(cv, ddof=1)), 2),
+                    "max": [round(v, 2) for v in mx],
+                    "max_mean": round(float(np.mean(mx)), 1),
+                }
     sigma_summary = {
         "groups": sigma_run,
         "pooled_std": round(float(np.sqrt(np.mean(np.square(pooled)))), 2) if pooled else None,
+        "tail_groups": tail_groups,
     }
 
     requote_path = RUNS_DIR / HEADLINE / "fresh_pool_requote.json"

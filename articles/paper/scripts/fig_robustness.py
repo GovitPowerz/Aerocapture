@@ -2,26 +2,26 @@
 
 The honest caveat figure. Under a 1000-sim off-nominal MC (degraded nav + heavier
 dispersions), every scheme loses capture and inflates its sizing tail relative to
-the nominal pool. The point of the figure: the NN-mamba headline is NOT the most
-robust -- joint-FTC degrades LESS on both axes (capture drop 5.5 vs 9.9 pts,
-CVaR95 inflation +197 vs +402 m/s). FTC-fixed (the un-retuned classical) collapses
+the nominal pool. The point: the NN-mamba headline is NOT the most robust --
+joint-FTC degrades LESS on both axes (capture drop 5.5 vs 9.9 pts, CVaR95
+inflation +197 vs +402 m/s). FTC-fixed (the un-retuned classical) collapses
 (33 pts capture lost), confirming the off-nominal pool genuinely bites.
 
-Panel A: capture drop (pts), lower = more robust. Panel B: CVaR95 inflation (m/s),
-lower = more robust.
+Half-column single panel: capture drop (x) vs CVaR95 inflation (y), one labeled
+point per scheme -- lower-left is robust. Replaces the old two-bar-panel layout
+that was illegible at half-column width.
 """
 
 import figlib as fl
 import matplotlib.pyplot as plt
 
-# Display label, robustness-data label, color key. Ordered most -> least robust
-# by capture drop so joint-FTC (the robustness winner) leads and NN sits behind it.
+# (display label, robustness-data label, color key, label offset (dx, dy) in points)
 SCHEMES = [
-    ("joint-FTC", "joint-FTC", "jointftc"),
-    ("FNPAG", "FNPAG", "fnpag"),
-    ("PredGuid", "PredGuid", "classical"),
-    ("NN-mamba", "NN", "mamba"),
-    ("FTC-fixed", "FTC-fixed", "ftc"),
+    ("joint-FTC", "joint-FTC", "jointftc", (8, -2)),
+    ("FNPAG", "FNPAG", "fnpag", (8, -2)),
+    ("PredGuid", "PredGuid", "classical", (8, -2)),
+    ("NN-mamba", "NN", "mamba", (8, -2)),
+    ("FTC-fixed", "FTC-fixed", "ftc", (-8, -8)),
 ]
 
 
@@ -29,35 +29,29 @@ def main():
     fl.style()
     rows = {r["label"]: r for r in fl.robustness()}
 
-    fig, axes = plt.subplots(1, 2, figsize=fl.SIZE_HALF)
-    panels = (
-        (axes[0], "capture_drop_pts", "capture drop (pts)", "Capture robustness"),
-        (axes[1], "cvar95_inflation", "CVaR$_{95}$ inflation (m/s)", "Sizing-tail robustness"),
-    )
-    for ax, metric, xlabel, title in panels:
-        labels = [d for d, _, _ in SCHEMES]
-        vals = [rows[key][metric] for _, key, _ in SCHEMES]
-        colors = [fl.C[ck] for _, _, ck in SCHEMES]
-        ypos = range(len(SCHEMES))
-        ax.barh(ypos, vals, color=colors, alpha=0.9, zorder=3)
-        for y, v in zip(ypos, vals, strict=True):
-            ax.annotate(f"{v:.1f}", (v, y), xytext=(4, 0), textcoords="offset points",
-                        va="center", ha="left", fontsize=8, fontweight="bold")
-        ax.set_yticks(list(ypos))
-        ax.set_yticklabels(labels)
-        ax.invert_yaxis()  # most robust on top
-        ax.set_xlabel(xlabel)
-        ax.set_title(title, fontsize=10, loc="left")
-        ax.margins(x=0.18)
+    fig, ax = plt.subplots(figsize=fl.SIZE_HALF)
+    for label, key, ckey, (dx, dy) in SCHEMES:
+        xv = rows[key]["capture_drop_pts"]
+        yv = rows[key]["cvar95_inflation"]
+        ax.scatter([xv], [yv], color=fl.C[ckey], s=90, zorder=4,
+                   edgecolor="white", linewidth=1.0)
+        ax.annotate(f"{label}\n$-{xv:.1f}$ pts, $+{yv:.0f}$ m/s",
+                    (xv, yv), textcoords="offset points", xytext=(dx, dy),
+                    fontsize=8, color=fl.C[ckey], fontweight="bold",
+                    ha="left" if dx >= 0 else "right",
+                    va="bottom" if dy >= 0 else "top")
 
-    # honest-caveat callout: joint-FTC beats the NN headline on both axes
-    axes[0].annotate("joint-FTC most robust\n(NN headline is not)", xy=(5.5, 0),
-                     xytext=(14, 1.3), fontsize=7.5, color=fl.C["jointftc"], va="center",
-                     arrowprops=dict(arrowstyle="->", color=fl.C["jointftc"], lw=1.0))
+    # lower-left = robust guide
+    ax.annotate("robust\n(small drop + small inflation)", xy=(0.03, 0.05),
+                xycoords="axes fraction", fontsize=8, color="#555555",
+                ha="left", va="bottom", style="italic")
 
-    fig.suptitle("Off-nominal stress (degraded nav + heavy dispersions, n=1000)",
-                 fontsize=11, x=0.02, ha="left")
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    ax.set_xlabel("capture-rate drop (pts)")
+    ax.set_ylabel("CVaR$_{95}$ inflation (m/s)")
+    ax.set_title("Off-nominal stress (n=1000)")
+    ax.set_xlim(0, 38)
+    ax.set_ylim(100, 560)
+    fig.tight_layout()
     fl.save(fig, "fig_robustness")
 
 

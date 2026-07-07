@@ -31,11 +31,14 @@ C = {
     "accent": "#d1701f",    # orange: annotations / call-outs
 }
 
-# Consistent figure sizes (inches). Uniform native widths keep on-page font
-# sizes consistent after Typst scales each figure to its display width.
+# Consistent figure sizes (inches). Native width ~1.35x the display width keeps
+# the on-page font scale uniform: full-width figures display at ~5.5in (74% of
+# 7.4in native), so half-column figures must be authored at ~3.7in to display at
+# ~2.7in (73%) -- the old 7.8in-native half figures rendered their fonts at half
+# the size of every other figure on the page.
 SIZE1 = (7.4, 4.0)      # full-width, single panel
 SIZE2 = (8.4, 3.9)      # full-width, two panels side by side
-SIZE_HALF = (7.8, 3.9)  # placed two-per-row in a Typst grid (displayed at ~50%)
+SIZE_HALF = (3.7, 3.4)  # placed two-per-row in a Typst grid (displayed at ~2.7in)
 
 # STIX Two Text is the paper body face; STIXGeneral / Times are metric-compatible fallbacks.
 _SERIF = ["STIX Two Text", "STIXGeneral", "Times New Roman", "DejaVu Serif"]

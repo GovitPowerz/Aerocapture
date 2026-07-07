@@ -103,7 +103,7 @@ lead every comparison with p95 / CVaR95 / CVaR99.9, mean as a footnote.
   the reference WAS FTC's weakness. Best classical = joint-FTC ≈ FNPAG on accuracy, analytic/fast.
   **Fig: fig_joint_reference.**
 - §8.2 The 3-way (NN / joint-FTC / FNPAG): accuracy NN > joint-FTC ≈ FNPAG; far-tail CVaR99.9 NN
-  124.5 vs ~164/165 (~40 m/s); paired nn_vs_jointftc −16.4 mean / −27.6 CVaR95 (99.9% win).
+  124.5 vs ~164/165 (~40 m/s); paired nn_vs_jointftc −16.4 mean / −27.6 CVaR95 (100.0% win).
   **Fig: fig_classical_vs_nn** (compute-vs-CVaR99.9 scatter: NN-mamba, NN-dense, FTC, joint-FTC, FNPAG).
 - §8.3 Compute (5b): NN-mamba 3.68 / NN-dense 2.40 / FTC 1.25 / FNPAG 86.1 ms/sim (NN 23× < FNPAG).
 - §8.4 Robustness (5c) — HONEST CAVEAT: off-nominal (9M high-dispersion) the analytic joint-FTC is
