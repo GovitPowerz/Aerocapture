@@ -1854,7 +1854,14 @@ fn mamba_json_v2_save_load_roundtrip() {
 #[test]
 fn mamba3_json_v2_save_load_roundtrip_all_flags() {
     // Dense(8 -> 4) -> Mamba3(4, 2, 1, flags) -> Dense(4 -> 2), all 4 flag combos.
-    for &(trapezoidal, complex) in &[(false, false), (true, false), (false, true), (true, true)] {
+    for &(disc, sm) in &[
+        ("euler", "real"),
+        ("trapezoidal", "real"),
+        ("euler", "complex"),
+        ("trapezoidal", "complex"),
+    ] {
+        let trapezoidal = disc == "trapezoidal";
+        let complex = sm == "complex";
         let architecture = vec![
             LayerSpec::Dense {
                 input_size: 8,
@@ -1865,8 +1872,8 @@ fn mamba3_json_v2_save_load_roundtrip_all_flags() {
                 input_size: 4,
                 d_state: 2,
                 dt_rank: 1,
-                trapezoidal,
-                complex,
+                discretization: disc.to_string(),
+                state_mode: sm.to_string(),
             },
             LayerSpec::Dense {
                 input_size: 4,

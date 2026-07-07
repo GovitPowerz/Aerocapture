@@ -520,11 +520,36 @@ pub enum LayerSpec {
         input_size: usize,
         d_state: usize,
         dt_rank: usize,
-        #[serde(default)]
-        trapezoidal: bool,
-        #[serde(default)]
-        complex: bool,
+        #[serde(default = "default_discretization")]
+        discretization: String,
+        #[serde(default = "default_state_mode")]
+        state_mode: String,
     },
+}
+
+fn default_discretization() -> String {
+    "euler".to_string()
+}
+
+fn default_state_mode() -> String {
+    "real".to_string()
+}
+
+/// Parse the Mamba-3 `discretization`/`state_mode` strings into the runtime
+/// `(trapezoidal, complex)` bools. Shared by the JSON and flat-weights load paths
+/// so the serialized string interface stays uniform across TOML and JSON.
+pub(crate) fn mamba3_flags(discretization: &str, state_mode: &str) -> Result<(bool, bool), String> {
+    let trapezoidal = match discretization {
+        "euler" => false,
+        "trapezoidal" => true,
+        other => return Err(format!("discretization must be euler|trapezoidal, got {other:?}")),
+    };
+    let complex = match state_mode {
+        "real" => false,
+        "complex" => true,
+        other => return Err(format!("state_mode must be real|complex, got {other:?}")),
+    };
+    Ok((trapezoidal, complex))
 }
 
 impl LayerSpec {
@@ -1426,9 +1451,11 @@ impl NeuralNetModel {
                     input_size,
                     d_state,
                     dt_rank,
-                    trapezoidal,
-                    complex,
+                    discretization,
+                    state_mode,
                 } => {
+                    let (trapezoidal, complex) = mamba3_flags(discretization, state_mode)
+                        .map_err(|e| DataError(format!("Layer {i} (mamba3) {e} in {path}")))?;
                     if *input_size == 0 || *d_state == 0 || *dt_rank == 0 {
                         return Err(DataError(format!(
                             "Layer {i} (mamba3) input_size, d_state, dt_rank must be positive in {path}"
@@ -1469,16 +1496,16 @@ impl NeuralNetModel {
                     slab.extend(flat_mat("dt_proj_w", &lw.dt_proj_w)?);
                     slab.extend(flat_vec("dt_proj_b", &lw.dt_proj_b)?);
                     slab.extend(flat_mat("a_log", &lw.a_log)?);
-                    if *complex {
+                    if complex {
                         slab.extend(flat_mat("a_imag", &lw.a_imag)?);
                     }
-                    if *trapezoidal {
+                    if trapezoidal {
                         slab.extend(flat_vec("lambda_logit", &lw.lambda_logit)?);
                     }
                     slab.extend(flat_vec("d_skip", &lw.d_skip)?);
 
                     let mut m =
-                        Mamba3Layer::zeros(*input_size, *d_state, *dt_rank, *trapezoidal, *complex);
+                        Mamba3Layer::zeros(*input_size, *d_state, *dt_rank, trapezoidal, complex);
                     if slab.len() != m.n_params() {
                         return Err(DataError(format!(
                             "Layer {i} (mamba3) weight count {} != expected {} in {path}",
@@ -1955,9 +1982,11 @@ impl NeuralNetModel {
                     input_size,
                     d_state,
                     dt_rank,
-                    trapezoidal,
-                    complex,
+                    discretization,
+                    state_mode,
                 } => {
+                    let (trapezoidal, complex) = mamba3_flags(discretization, state_mode)
+                        .map_err(|e| DataError(format!("from_flat_weights_v2: Mamba3 layer {i} {e}")))?;
                     if *dt_rank == 0 || *dt_rank > *input_size || *d_state == 0 || *input_size == 0 {
                         return Err(DataError(format!(
                             "from_flat_weights_v2: Mamba3 layer {} dims invalid (input_size={}, d_state={}, dt_rank={})",
@@ -1972,8 +2001,8 @@ impl NeuralNetModel {
                         *input_size,
                         *d_state,
                         *dt_rank,
-                        *trapezoidal,
-                        *complex,
+                        trapezoidal,
+                        complex,
                     )))
                 }
             };

@@ -103,7 +103,38 @@ class MambaSpec(BaseModel):
         return self
 
 
-LayerSpec = Annotated[DenseSpec | GruSpec | LstmSpec | WindowSpec | TransformerSpec | MambaSpec, Discriminator("type")]
+class Mamba3Spec(BaseModel):
+    """Mamba-3 ablation layer (PSO-only spike).
+
+    Same shape fields as MambaSpec plus two orthogonal flags:
+    `discretization` (euler | trapezoidal) and `state_mode` (real | complex).
+    `dt_rank` resolves to `max(1, input_size // 16)` when None.
+    See docs/superpowers/specs/2026-07-07-mamba3-ablation-design.md.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["mamba3"]
+    input_size: int = Field(ge=1)
+    d_state: int = Field(ge=1)
+    dt_rank: int | None = None
+    discretization: Literal["euler", "trapezoidal"] = "euler"
+    state_mode: Literal["real", "complex"] = "real"
+
+    @model_validator(mode="after")
+    def _resolve_and_validate_dt_rank(self) -> Mamba3Spec:
+        rank = self.dt_rank if self.dt_rank is not None else max(1, self.input_size // 16)
+        object.__setattr__(self, "dt_rank", rank)
+        if rank < 1:
+            raise ValueError(f"dt_rank must be >= 1, got {rank}")
+        if rank > self.input_size:
+            raise ValueError(f"dt_rank ({rank}) must be <= input_size ({self.input_size})")
+        return self
+
+
+LayerSpec = Annotated[
+    DenseSpec | GruSpec | LstmSpec | WindowSpec | TransformerSpec | MambaSpec | Mamba3Spec,
+    Discriminator("type"),
+]
 
 
 class LayerWeights(BaseModel):

@@ -366,30 +366,16 @@ impl TomlLayerSpec {
                         "Mamba3: dt_rank ({resolved}) must be in 1..={input_size}"
                     )));
                 }
-                let trapezoidal = match discretization.as_str() {
-                    "euler" => false,
-                    "trapezoidal" => true,
-                    other => {
-                        return Err(ParseError(format!(
-                            "Mamba3: discretization must be euler|trapezoidal, got {other:?}"
-                        )));
-                    }
-                };
-                let complex = match state_mode.as_str() {
-                    "real" => false,
-                    "complex" => true,
-                    other => {
-                        return Err(ParseError(format!(
-                            "Mamba3: state_mode must be real|complex, got {other:?}"
-                        )));
-                    }
-                };
+                // Validate the flag strings early (rejects typos at TOML load); the
+                // LayerSpec carries the canonical strings, converted to bools at layer build.
+                crate::data::neural::mamba3_flags(discretization, state_mode)
+                    .map_err(|e| ParseError(format!("Mamba3: {e}")))?;
                 Ok(LayerSpec::Mamba3 {
                     input_size: *input_size,
                     d_state: *d_state,
                     dt_rank: resolved,
-                    trapezoidal,
-                    complex,
+                    discretization: discretization.clone(),
+                    state_mode: state_mode.clone(),
                 })
             }
         }
