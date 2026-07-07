@@ -173,8 +173,8 @@ fn pred_derivatives(
 /// "apoapsis at infinity" and adds bank (dissipation), the right direction.
 fn osc_apoapsis_radius(s: &PredState, planet: &PlanetConfig) -> f64 {
     let elem = elements::from_spherical(s.r, s.lon, s.lat, s.v, s.gamma, s.psi, planet);
-    // `!(e < 1.0)` also catches NaN; apoapsis_alt is +inf for a parabolic orbit.
-    if !(elem.eccentricity < 1.0) || !elem.apoapsis_alt.is_finite() {
+    // e >= 1.0 (or NaN) is unbound; apoapsis_alt is +inf for a parabolic orbit.
+    if elem.eccentricity >= 1.0 || elem.eccentricity.is_nan() || !elem.apoapsis_alt.is_finite() {
         return UNBOUND_APOAPSIS_RADIUS_M;
     }
     elem.apoapsis_alt + planet.equatorial_radius
