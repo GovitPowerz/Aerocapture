@@ -19,6 +19,7 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.config import NetworkConfig, TrainingConfig
+from aerocapture.training.metrics import apply_cost_transform
 from aerocapture.training.parquet_output import (
     DV_TOTAL_RAW_INDEX,
     FINAL_RECORD_LEN,
@@ -43,6 +44,15 @@ RL_TRAINING_SEED_OFFSET = 3_000_000
 WARM_START_SEED_OFFSET = 4_000_000
 NN_INPUT_REPORT_SEED_OFFSET = 5_000_000
 CALIBRATION_SEED_OFFSET = 6_000_000
+# 7_000_000 = SWEEP_EVAL_SEED_OFFSET (param_sweep.py).
+# Fresh pool for the paper's headline re-quote: the headline config is SELECTED
+# by sweeps scored on the 2M final-eval pool, so quoting that pool is
+# selection-on-test; the abstract number comes from this untouched stream.
+HEADLINE_REQUOTE_SEED_OFFSET = 8_000_000
+# Off-nominal robustness stress pool: deployed policies evaluated on a HARDER
+# MC regime (atmosphere/density/nav at level=high), disjoint from every training
+# and eval stream so the stress test is reproducible and uncontaminated.
+STRESS_EVAL_SEED_OFFSET = 9_000_000
 
 
 def make_reserved_seeds(base_mc_seed: int, offset: int, n: int) -> list[int]:
@@ -403,19 +413,7 @@ def compute_cost(
     hl_penalty = heat_load_weight * _softplus((heat_load - heat_load_limit) / heat_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
     costs = costs + g_penalty + q_penalty + hl_penalty
 
-    if cost_transform == "sqrt":
-        costs = np.sqrt(costs)
-    elif cost_transform == "log":
-        # log1p keeps the zero-cost identity and stays monotonic; compresses
-        # the tail more aggressively than sqrt so catastrophic crashes don't
-        # dominate the RMS gradient.
-        costs = np.log1p(costs)
-    elif cost_transform == "squared":
-        costs = costs**2
-    elif cost_transform == "cubed":
-        costs = costs**3
-    elif cost_transform != "linear":
-        raise ValueError(f"unknown cost_transform={cost_transform!r} (expected 'linear', 'sqrt', 'log', 'squared', or 'cubed')")
+    costs = apply_cost_transform(costs, cost_transform)
 
     return float(np.sqrt(np.mean(costs**2)))
 

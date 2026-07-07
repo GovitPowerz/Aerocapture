@@ -67,6 +67,7 @@ class GaussianPolicy(nn.Module):
         activations: Sequence[str],
         initial_log_std: float = -0.5,
         min_log_std: float = -2.0,
+        max_log_std: float = 2.0,
     ) -> None:
         super().__init__()
         if layer_sizes[-1] != 2:
@@ -74,10 +75,11 @@ class GaussianPolicy(nn.Module):
         self.trunk = build_mlp(input_dim, layer_sizes, activations)
         self.log_std = nn.Parameter(torch.full((2,), initial_log_std))
         self.min_log_std = min_log_std
+        self.max_log_std = max_log_std
 
     def forward_mean_logstd(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         mean = self.trunk(obs)
-        return mean, self.log_std.clamp(min=self.min_log_std)
+        return mean, self.log_std.clamp(min=self.min_log_std, max=self.max_log_std)
 
     def deterministic_bank(self, obs: torch.Tensor) -> torch.Tensor:
         mean, _ = self.forward_mean_logstd(obs)
@@ -208,12 +210,14 @@ class V2Policy(nn.Module):
         input_mask: list[int] | None,
         initial_log_std: float = 0.0,
         min_log_std: float = -2.0,
+        max_log_std: float = 2.0,
     ) -> None:
         super().__init__()
         self.layers = nn.ModuleList([build_layer(spec) for spec in architecture])
         self.input_mask = input_mask
         self.log_std = nn.Parameter(torch.full((2,), initial_log_std))
         self.min_log_std = min_log_std
+        self.max_log_std = max_log_std
 
     def forward(self, x: Tensor, state: list[Any]) -> tuple[Tensor, list[Any]]:
         new_state: list[Any] = [None] * len(self.layers)
@@ -236,7 +240,7 @@ class V2Policy(nn.Module):
         parameter clamped at `min_log_std`.
         """
         mean, new_state = self.forward(obs, state)
-        log_std = self.log_std.clamp(min=self.min_log_std)
+        log_std = self.log_std.clamp(min=self.min_log_std, max=self.max_log_std)
         return mean, log_std, new_state
 
     def sample(self, obs: Tensor, state: list[Any]) -> tuple[Tensor, Tensor, Tensor, list[Any]]:
@@ -282,7 +286,7 @@ class V2Policy(nn.Module):
         log_probs = []
         entropies = []
         state = state_0
-        log_std = self.log_std.clamp(min=self.min_log_std)
+        log_std = self.log_std.clamp(min=self.min_log_std, max=self.max_log_std)
         std = log_std.exp()
         for t in range(T):
             mean, state = self.forward(obs_seq[t], state)

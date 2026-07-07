@@ -3,49 +3,68 @@
 //! Based on Ping Lu's algorithm (Journal of Guidance, Control, and Dynamics,
 //! 2015). This is a modern predictor-corrector specifically designed for
 //! aerocapture, using numerical forward prediction of the trajectory to
-//! find the bank angle that achieves a target exit energy.
+//! find the bank angle that achieves a target exit apoapsis radius.
 //!
 //! Algorithm overview:
 //! 1. Predict forward trajectory with current bank angle using 3D equations
 //!    of motion (J2 gravity, planet rotation, onboard atmosphere model)
-//! 2. Compute predicted exit orbital energy (inertial velocity)
-//! 3. Use secant method to find the bank angle that achieves target energy
-//! 4. Blend with equilibrium glide near atmosphere boundaries
+//! 2. Compute the predicted exit orbit's osculating apoapsis radius (inertial)
+//! 3. Bisect the bank angle (monotonic apoapsis-vs-bank) to hit target apoapsis
+//! 4. Hand off to the shared exit-phase controller after the bounce
 //!
-//! The predictor uses the same EOM as the main simulator but with onboard
-//! atmosphere (no dispersions/winds) and zero lateral lift (roll sign unknown).
-//! RK4 integration.
+//! The predictor uses the same EOM as the main simulator, with the onboard
+//! atmosphere SCALED by the nav-estimated density dispersion factor (so the
+//! forward model tracks the measured atmosphere -- the dominant apoapsis-error
+//! driver), no winds, and zero lateral lift (roll sign unknown). RK4 integration.
 //!
-//! The key insight vs FTC: FNPAG directly targets the exit orbital energy
-//! rather than tracking a pre-computed reference trajectory. This makes it
-//! inherently more robust to dispersions since it continuously re-plans.
+//! Apoapsis (not energy) is the target because the post-capture orbit-correction
+//! dV -- a periapsis-raise burn at apoapsis plus an apoapsis-correction burn --
+//! is paid on the apoapsis radius. Energy fixes only the semi-major axis and
+//! leaves the apoapsis (the dV-dominant, dispersion-sensitive quantity) free.
+//! Targeting it directly is what aligns the corrector with the mission cost.
 
 use crate::config::PlanetConfig;
 use crate::data::SimData;
-use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
+use crate::gnc::navigation::coordinates::geodetic_from_spherical;
 use crate::gnc::navigation::estimator::NavigationOutput;
+use crate::orbit::elements;
 use crate::physics::gravity;
 
 /// Altitude breakpoint (m) below which the tighter bank-angle limit applies.
 const BANK_LIMIT_SWITCH_ALTITUDE_M: f64 = 50e3;
 
+/// Bisection steps for the apoapsis corrector. Halves the bank bracket each
+/// step; 8 takes the ~110-deg bank range to ~0.4-deg resolution, well below the
+/// noise floor of the dt~=2 s onboard predictor. Plus 2 endpoint evals + 1
+/// initial midpoint, the corrector costs ~11 forward integrations per replan.
+const N_BISECT_STEPS: usize = 8;
+
+/// Apoapsis-radius sentinel (m) returned when the predicted exit orbit is
+/// unbound (eccentricity >= 1) or degenerate. Far above any captured apoapsis
+/// so the corrector reads it as "apoapsis at infinity" and commands more bank
+/// (more dissipation) -- the correct direction for an under-dissipated pass.
+const UNBOUND_APOAPSIS_RADIUS_M: f64 = 1e9;
+
 /// FNPAG persistent state (mutable runtime state only).
 #[derive(Debug, Clone)]
 pub struct FnpagState {
-    /// Previous bank angle command (for secant method seeding)
+    /// Last commanded bank (held between replans; re-clamped to current limits)
     pub bank_prev: f64,
-    /// Previous predicted exit energy (for secant method)
-    pub energy_prev: f64,
+    /// Last bisection residual = predicted exit apoapsis radius − target (m); diagnostic
+    pub resid_prev: f64,
     /// Whether predictor has been initialized
     pub initialized: bool,
+    /// Sim time of the last forward-prediction replan (s)
+    pub last_replan_time: f64,
 }
 
 impl FnpagState {
     pub fn new(initial_bank: f64) -> Self {
         Self {
             bank_prev: initial_bank,
-            energy_prev: 0.0,
+            resid_prev: 0.0,
             initialized: false,
+            last_replan_time: f64::NEG_INFINITY,
         }
     }
 }
@@ -75,11 +94,17 @@ fn pred_derivatives(
     bank_angle: f64,
     planet: &PlanetConfig,
     data: &SimData,
+    density_factor: f64,
 ) -> [f64; 6] {
     let (altitude, _) = geodetic_from_spherical(s.r, s.lon, s.lat, planet);
-    let rho = data
-        .atmosphere_onboard
-        .density_at(altitude, &data.atmosphere);
+    // Scale the nominal onboard density by the nav-estimated dispersion factor so
+    // the forward prediction tracks the MEASURED atmosphere, not the nominal one.
+    // Atmosphere density is the dominant apoapsis-error driver; a predictor blind
+    // to it cannot reject the dispersion the corrector exists to reject.
+    let rho = density_factor
+        * data
+            .atmosphere_onboard
+            .density_at(altitude, &data.atmosphere);
 
     let cx = data.aero.interpolate_cx(data.entry.initial_aoa);
     let cz = data.aero.interpolate_cz(data.entry.initial_aoa).abs();
@@ -140,39 +165,121 @@ fn pred_derivatives(
     [dr, dlon, dlat, dv, dgamma, dpsi]
 }
 
-/// Predict exit energy by integrating 3D equations of motion forward.
+/// Osculating apoapsis radius (m) of the current predicted state.
 ///
-/// Uses the same EOM as the main simulator (J2 gravity, planet rotation,
-/// Coriolis/centrifugal) but with onboard atmosphere, no dispersions, no winds,
-/// and zero lateral lift (sin_bank = 0). RK4 integration.
+/// Uses inertial velocity (via `from_spherical` -> `to_absolute_cartesian`).
+/// An unbound (eccentricity >= 1) or degenerate orbit has no apoapsis, so it
+/// returns `UNBOUND_APOAPSIS_RADIUS_M` -- the corrector then reads it as
+/// "apoapsis at infinity" and adds bank (dissipation), the right direction.
+fn osc_apoapsis_radius(s: &PredState, planet: &PlanetConfig) -> f64 {
+    let elem = elements::from_spherical(s.r, s.lon, s.lat, s.v, s.gamma, s.psi, planet);
+    // e >= 1.0 (or NaN) is unbound; apoapsis_alt is +inf for a parabolic orbit.
+    if elem.eccentricity >= 1.0 || elem.eccentricity.is_nan() || !elem.apoapsis_alt.is_finite() {
+        return UNBOUND_APOAPSIS_RADIUS_M;
+    }
+    elem.apoapsis_alt + planet.equatorial_radius
+}
+
+/// Exit-phase bank magnitude (rad) inside the predictor -- a faithful copy of
+/// `gnc::guidance::exit::exit_guidance` so the forward model matches the plant on
+/// the ascending leg (which the vehicle flies under the shared exit controller,
+/// NOT the FNPAG capture bank). No dispersion: densities come straight from the
+/// onboard model (the plant's `density_gain` ~= 1 in nominal prediction).
+fn exit_law_bank(
+    s: &PredState,
+    planet: &PlanetConfig,
+    data: &SimData,
+    rho_exit: f64,
+    v_r_ref: f64,
+    density_factor: f64,
+) -> f64 {
+    let v = s.v;
+    let v_radial = v * s.gamma.sin();
+    let (altitude, _) = geodetic_from_spherical(s.r, s.lon, s.lat, planet);
+    let rho_cur = density_factor
+        * data
+            .atmosphere_onboard
+            .density_at(altitude, &data.atmosphere);
+    let pdyn_target = 0.5 * rho_exit * v * v * data.guidance.exit_pdyn_margin;
+    let pdyn_current = 0.5 * rho_cur * v * v;
+    let pdyn_safe = if pdyn_current.abs() > 1e-10 {
+        pdyn_current
+    } else {
+        1e-10
+    };
+    let cos_bank = (pdyn_current - pdyn_target) / pdyn_safe
+        + data.guidance.exit_radial_vel_gain * (v_radial - v_r_ref) / pdyn_safe;
+    cos_bank.clamp(-1.0, 1.0).acos()
+}
+
+/// Predict the realized exit apoapsis radius by integrating the EOM forward
+/// through BOTH guidance phases the vehicle actually flies:
+/// - capture phase: the constant `capture_bank` under evaluation, and
+/// - exit phase: the shared exit-phase controller (`exit_law_bank`), engaged at
+///   the predicted handoff (post-bounce, relative speed <= exit_velocity_threshold),
+///   matching estimator.rs phase management.
 ///
-/// Integrates until atmosphere exit or crash.
-fn predict_exit_energy(
+/// Modeling the handoff is the point: ~half the energy is dissipated on the
+/// ascending leg under the exit law, so a constant-bank-to-exit prediction
+/// mis-estimates the apoapsis and the corrector cannot reject dispersions.
+///
+/// Same EOM as the main simulator (J2 gravity, rotation, Coriolis/centrifugal),
+/// onboard atmosphere, no dispersions/winds, zero lateral lift. RK4 integration.
+/// A crash / negative-velocity blow-up returns 0.0 (apoapsis below the surface)
+/// so the corrector reads over-dissipation and backs the bank off.
+fn predict_exit_apoapsis(
     initial: PredState,
-    bank_angle: f64,
+    capture_bank: f64,
     planet: &PlanetConfig,
     data: &SimData,
     exit_alt: f64,
     dt: f64,
+    density_factor: f64,
 ) -> f64 {
     let req = planet.equatorial_radius;
     let max_steps = 2000;
+    let vphase = data.guidance.exit_velocity_threshold;
+    let rho_exit = density_factor
+        * data
+            .atmosphere_onboard
+            .density_at(data.guidance.exit_altitude_threshold, &data.atmosphere);
+
     let mut s = initial;
+    // Replicate the plant's phase state: bounce latches once ascending, then the
+    // handoff to the exit controller fires when the relative speed drops to the
+    // exit-velocity threshold (estimator.rs). `v_r_ref` is latched there.
+    let mut bounced = s.gamma.sin() > 0.0;
+    let mut in_exit = false;
+    let mut v_r_ref = 0.0;
 
     for _ in 0..max_steps {
         let alt = s.r - req;
 
-        // Termination: crash
+        // Termination: crash (over-dissipated -> apoapsis below surface)
         if alt <= 0.0 {
-            return 1e8;
+            return 0.0;
         }
         // Termination: atmosphere exit (ascending)
         if alt >= exit_alt && s.gamma.sin() > 0.0 {
-            return total_energy(s.r, s.lon, s.lat, s.v, s.gamma, s.psi, planet);
+            return osc_apoapsis_radius(&s, planet);
         }
 
-        // Classic RK4
-        let k1 = pred_derivatives(&s, bank_angle, planet, data);
+        // Phase bookkeeping + bank selection for this step.
+        if !bounced && s.gamma.sin() > 0.0 {
+            bounced = true;
+        }
+        if !in_exit && bounced && s.v <= vphase {
+            in_exit = true;
+            v_r_ref = s.v * s.gamma.sin();
+        }
+        let bank = if in_exit {
+            exit_law_bank(&s, planet, data, rho_exit, v_r_ref, density_factor)
+        } else {
+            capture_bank
+        };
+
+        // Classic RK4 (bank held across the four stages, mirroring tick cadence)
+        let k1 = pred_derivatives(&s, bank, planet, data, density_factor);
 
         let s2 = PredState {
             r: s.r + 0.5 * dt * k1[0],
@@ -182,7 +289,7 @@ fn predict_exit_energy(
             gamma: s.gamma + 0.5 * dt * k1[4],
             psi: s.psi + 0.5 * dt * k1[5],
         };
-        let k2 = pred_derivatives(&s2, bank_angle, planet, data);
+        let k2 = pred_derivatives(&s2, bank, planet, data, density_factor);
 
         let s3 = PredState {
             r: s.r + 0.5 * dt * k2[0],
@@ -192,7 +299,7 @@ fn predict_exit_energy(
             gamma: s.gamma + 0.5 * dt * k2[4],
             psi: s.psi + 0.5 * dt * k2[5],
         };
-        let k3 = pred_derivatives(&s3, bank_angle, planet, data);
+        let k3 = pred_derivatives(&s3, bank, planet, data, density_factor);
 
         let s4 = PredState {
             r: s.r + dt * k3[0],
@@ -202,7 +309,7 @@ fn predict_exit_energy(
             gamma: s.gamma + dt * k3[4],
             psi: s.psi + dt * k3[5],
         };
-        let k4 = pred_derivatives(&s4, bank_angle, planet, data);
+        let k4 = pred_derivatives(&s4, bank, planet, data, density_factor);
 
         s.r += dt / 6.0 * (k1[0] + 2.0 * k2[0] + 2.0 * k3[0] + k4[0]);
         s.lon += dt / 6.0 * (k1[1] + 2.0 * k2[1] + 2.0 * k3[1] + k4[1]);
@@ -211,20 +318,20 @@ fn predict_exit_energy(
         s.gamma += dt / 6.0 * (k1[4] + 2.0 * k2[4] + 2.0 * k3[4] + k4[4]);
         s.psi += dt / 6.0 * (k1[5] + 2.0 * k2[5] + 2.0 * k3[5] + k4[5]);
 
-        // Safety: velocity can't go negative
+        // Safety: velocity can't go negative (over-dissipated)
         if s.v <= 0.0 {
-            return 1e8;
+            return 0.0;
         }
     }
 
-    // Timeout -- didn't exit atmosphere
-    total_energy(s.r, s.lon, s.lat, s.v, s.gamma, s.psi, planet)
+    // Timeout -- didn't exit atmosphere; report the current osculating apoapsis.
+    osc_apoapsis_radius(&s, planet)
 }
 
 /// Compute FNPAG bank angle command.
 ///
-/// Uses secant method over forward trajectory predictions to find
-/// the bank angle that achieves the target exit energy.
+/// Bisects over two-phase forward predictions (capture bank + exit-law ascent)
+/// to find the capture bank whose realized exit apoapsis hits the target.
 ///
 /// Returns bank angle magnitude in radians.
 pub fn fnpag_bank(
@@ -232,13 +339,13 @@ pub fn fnpag_bank(
     state: &mut FnpagState,
     data: &SimData,
     planet: &PlanetConfig,
+    sim_time: f64,
 ) -> f64 {
-    let mu = planet.mu;
-
-    // Target exit energy: E = -mu / (2a) for the target orbit
-    let target_sma =
-        (data.target_orbit.apoapsis + data.target_orbit.periapsis) / 2.0 + planet.equatorial_radius;
-    let target_energy = -mu / (2.0 * target_sma);
+    // Target: apoapsis radius of the desired orbit. FNPAG targets apoapsis
+    // (not energy) because the post-capture periapsis-raise dV is paid at
+    // apoapsis; energy fixes only the semi-major axis and leaves apoapsis --
+    // the dV-dominant, dispersion-sensitive quantity -- uncontrolled.
+    let target_apo = planet.equatorial_radius + data.target_orbit.apoapsis;
 
     let exit_alt = data.final_conditions.altitude;
 
@@ -267,6 +374,16 @@ pub fn fnpag_bank(
         return state.bank_prev.abs();
     }
 
+    // Estimated atmospheric dispersion factor: nav.density_guidance is the
+    // onboard density at the current altitude scaled by the nav-estimated
+    // dispersion. Propagate this multiplicative bias through the predictor so the
+    // forward model tracks the measured atmosphere (rho > 1e-10 here). Fall back
+    // to nominal (1.0) if the estimate is degenerate (e.g. guard-tripped to 0).
+    let density_factor = {
+        let f = nav.density_guidance / rho;
+        if f.is_finite() && f > 0.0 { f } else { 1.0 }
+    };
+
     let params = &data.guidance.fnpag;
 
     // Bank angle limits from params
@@ -277,93 +394,70 @@ pub fn fnpag_bank(
         params.bank_max_high_deg.to_radians()
     };
 
-    // Initialize with a bisection-style search over a wide bracket
-    if !state.initialized {
-        let bank1 = 40.0_f64.to_radians();
-        let bank2 = 90.0_f64.to_radians();
-
-        let e1 = predict_exit_energy(current, bank1, planet, data, exit_alt, params.prediction_dt);
-        let e2 = predict_exit_energy(current, bank2, planet, data, exit_alt, params.prediction_dt);
-
-        let err1 = e1 - target_energy;
-        let err2 = e2 - target_energy;
-
-        state.initialized = true;
-
-        // Use the one closer to target
-        if err1.abs() < err2.abs() {
-            state.bank_prev = bank1;
-            state.energy_prev = err1;
-            return bank1;
-        } else {
-            state.bank_prev = bank2;
-            state.energy_prev = err2;
-            return bank2;
-        }
+    // Replan throttle: between replans, hold the previous command. The command
+    // evolves slowly mid-pass and each replan costs ~11 forward integrations.
+    // Re-clamp at the CURRENT altitude's limits: a command issued above
+    // BANK_LIMIT_SWITCH_ALTITUDE_M (bank_max_high) and held across the descent
+    // would otherwise violate bank_max_low for up to replan_period seconds.
+    if state.initialized && sim_time - state.last_replan_time < params.replan_period {
+        return state.bank_prev.abs().clamp(bank_min, bank_max);
     }
+    state.initialized = true;
+    state.last_replan_time = sim_time;
 
-    // Secant method iterations
-    let mut bank_k = state.bank_prev;
-    let mut err_k = state.energy_prev;
-
-    // Perturb for secant step (small delta to estimate local gradient)
-    let delta_bank = 3.0_f64.to_radians();
-    let mut bank_trial = (bank_k + delta_bank).clamp(bank_min, bank_max);
-
-    let mut best_bank = bank_k;
-    let mut best_err = err_k.abs();
-
-    for _iter in 0..5 {
-        let e_trial = predict_exit_energy(
+    // Bisection on the apoapsis residual over [bank_min, bank_max]. The
+    // apoapsis-vs-bank curve is monotonic decreasing -- low bank under-dissipates
+    // (apoapsis high / escape sentinel, residual > 0), high bank over-dissipates
+    // (apoapsis low / crash sentinel = 0, residual < 0). A secant fails here
+    // because the escape/crash plateaus give it zero gradient; bisection only
+    // needs the sign and converges on the monotonic curve regardless. Closed-loop
+    // robustness comes from re-solving this each replan on the measured state.
+    let resid = |bank: f64| -> f64 {
+        predict_exit_apoapsis(
             current,
-            bank_trial,
+            bank,
             planet,
             data,
             exit_alt,
             params.prediction_dt,
-        );
-        let err_trial = e_trial - target_energy;
+            density_factor,
+        ) - target_apo
+    };
 
-        // Track best solution
-        if err_trial.abs() < best_err {
-            best_err = err_trial.abs();
-            best_bank = bank_trial;
+    let f_lo = resid(bank_min);
+    let f_hi = resid(bank_max);
+
+    let (bank_cmd, resid_cmd) = if f_lo <= 0.0 {
+        // Even the least bank over-dissipates: command least dissipation.
+        (bank_min, f_lo)
+    } else if f_hi >= 0.0 {
+        // Even the most bank can't dissipate enough (still escaping): command
+        // most dissipation.
+        (bank_max, f_hi)
+    } else {
+        // f_lo > 0 > f_hi: the bracket straddles the target. Bisect.
+        let mut lo = bank_min;
+        let mut hi = bank_max;
+        let mut mid = 0.5 * (lo + hi);
+        let mut f_mid = resid(mid);
+        for _ in 0..N_BISECT_STEPS {
+            if f_mid.abs() < params.energy_tol {
+                break;
+            }
+            if f_mid > 0.0 {
+                lo = mid; // apoapsis still too high -> need more bank
+            } else {
+                hi = mid; // apoapsis too low -> need less bank
+            }
+            mid = 0.5 * (lo + hi);
+            f_mid = resid(mid);
         }
+        (mid, f_mid)
+    };
 
-        // Check convergence
-        if err_trial.abs() < params.energy_tol {
-            state.bank_prev = bank_trial;
-            state.energy_prev = err_trial;
-            return bank_trial.clamp(bank_min, bank_max);
-        }
-
-        // Secant update
-        let d_err = err_trial - err_k;
-        if d_err.abs() < 1e-20 {
-            break;
-        }
-
-        let bank_new = bank_trial - err_trial * (bank_trial - bank_k) / d_err;
-
-        // Update for next iteration
-        bank_k = bank_trial;
-        err_k = err_trial;
-        bank_trial = bank_new.clamp(bank_min, bank_max);
-    }
-
-    // Use best result found
-    state.bank_prev = best_bank;
-    let e_final = predict_exit_energy(
-        current,
-        best_bank,
-        planet,
-        data,
-        exit_alt,
-        params.prediction_dt,
-    );
-    state.energy_prev = e_final - target_energy;
-
-    best_bank.clamp(bank_min, bank_max)
+    state.bank_prev = bank_cmd;
+    state.resid_prev = resid_cmd;
+    bank_cmd.clamp(bank_min, bank_max)
 }
 
 #[cfg(test)]
@@ -501,7 +595,7 @@ mod tests {
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
 
-        let bank = fnpag_bank(&nav, &mut state, &data, &planet);
+        let bank = fnpag_bank(&nav, &mut state, &data, &planet, 0.0);
 
         assert_relative_eq!(bank, prev_bank, epsilon = 1e-12);
     }
@@ -518,19 +612,23 @@ mod tests {
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
 
-        let _ = fnpag_bank(&nav, &mut state, &data, &planet);
+        let _ = fnpag_bank(&nav, &mut state, &data, &planet, 0.0);
 
         assert!(
             state.initialized,
             "state must be initialized after first call"
         );
-        // bank_prev should now be one of the two bisection candidates (40° or 90°)
-        let bank40 = 40.0_f64.to_radians();
-        let bank90 = 90.0_f64.to_radians();
+        // bank_prev is now the bisection result: finite and within the bank
+        // limits resolved for this altitude (>50 km -> bank_max_high).
+        let bank_min = data.guidance.fnpag.bank_min_deg.to_radians();
+        let bank_max = data.guidance.fnpag.bank_max_high_deg.to_radians();
+        assert!(state.bank_prev.is_finite(), "bank_prev not finite");
         assert!(
-            (state.bank_prev - bank40).abs() < 1e-9 || (state.bank_prev - bank90).abs() < 1e-9,
-            "bank_prev {:.4} rad should be either 40° or 90° after init",
-            state.bank_prev
+            (bank_min - 1e-9..=bank_max + 1e-9).contains(&state.bank_prev),
+            "bank_prev {:.4} rad outside [{:.4}, {:.4}] after init",
+            state.bank_prev,
+            bank_min,
+            bank_max
         );
     }
 
@@ -545,7 +643,7 @@ mod tests {
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
 
-        let bank = fnpag_bank(&nav, &mut state, &data, &planet);
+        let bank = fnpag_bank(&nav, &mut state, &data, &planet, 0.0);
 
         assert!(
             bank.is_finite(),
@@ -558,6 +656,64 @@ mod tests {
         );
     }
 
+    /// Within `replan_period` of the last replan, FNPAG must hold the previous
+    /// bank command without re-running the forward predictor (no state update).
+    #[test]
+    fn replanning_throttled_within_replan_period() {
+        let data = test_sim_data(); // default replan_period = 2.0 s
+        let planet = PlanetConfig::mars();
+        let mut state = FnpagState::new(64.77_f64.to_radians());
+
+        let nav_entry = test_nav(5687.0);
+        let bank0 = fnpag_bank(&nav_entry, &mut state, &data, &planet, 0.0);
+        let resid_prev0 = state.resid_prev;
+        assert_relative_eq!(state.last_replan_time, 0.0, epsilon = 1e-12);
+
+        // 1 s later with a substantially different nav state: must hold the
+        // command and leave the secant state untouched.
+        let nav_later = test_nav(4000.0);
+        let bank_held = fnpag_bank(&nav_later, &mut state, &data, &planet, 1.0);
+        assert_relative_eq!(bank_held, bank0, epsilon = 1e-12);
+        assert_relative_eq!(state.resid_prev, resid_prev0, epsilon = 1e-12);
+        assert_relative_eq!(state.last_replan_time, 0.0, epsilon = 1e-12);
+
+        // Past the period: replans (timestamp advances).
+        let _ = fnpag_bank(&nav_later, &mut state, &data, &planet, 2.5);
+        assert_relative_eq!(state.last_replan_time, 2.5, epsilon = 1e-12);
+    }
+
+    /// A command issued at high altitude (where bank_max_high applies) and held
+    /// across the descent through BANK_LIMIT_SWITCH_ALTITUDE_M must be re-clamped
+    /// to the low-altitude limit — the hold path is the only return that skipped
+    /// the altitude-dependent clamp.
+    #[test]
+    fn held_command_reclamps_to_low_altitude_bank_limit() {
+        let data = test_sim_data(); // default replan_period = 2.0 s
+        let planet = PlanetConfig::mars();
+
+        let mut state = FnpagState::new(0.0);
+        state.initialized = true;
+        state.last_replan_time = 0.0;
+        // Legal above 50 km (bank_max_high_deg = 140), illegal below (100).
+        state.bank_prev = 140.0_f64.to_radians();
+
+        // 40 km altitude: below the switch, within the hold window (t = 1.0 s).
+        let mut nav = test_nav(5000.0);
+        nav.position_estimated[0] = planet.equatorial_radius + 40_000.0;
+
+        let bank = fnpag_bank(&nav, &mut state, &data, &planet, 1.0);
+
+        let bank_max_low = data.guidance.fnpag.bank_max_low_deg.to_radians();
+        assert!(
+            bank <= bank_max_low + 1e-12,
+            "held bank {:.4} rad exceeds low-altitude limit {:.4} rad",
+            bank,
+            bank_max_low
+        );
+        // Still a hold: no replan happened.
+        assert_relative_eq!(state.last_replan_time, 0.0, epsilon = 1e-12);
+    }
+
     /// Subsequent calls (initialized state) also produce finite, bounded output.
     #[test]
     fn second_call_produces_finite_output() {
@@ -567,11 +723,11 @@ mod tests {
         let planet = PlanetConfig::mars();
 
         // Prime the state
-        let _ = fnpag_bank(&nav, &mut state, &data, &planet);
+        let _ = fnpag_bank(&nav, &mut state, &data, &planet, 0.0);
         assert!(state.initialized);
 
-        // Second call — exercises secant method path
-        let bank = fnpag_bank(&nav, &mut state, &data, &planet);
+        // Second call — exercises secant method path (past replan_period)
+        let bank = fnpag_bank(&nav, &mut state, &data, &planet, 10.0);
 
         assert!(bank.is_finite(), "second-call bank not finite: {bank}");
         assert!(
@@ -581,20 +737,31 @@ mod tests {
         );
     }
 
-    /// The predictor must use inertial (absolute) velocity for exit energy,
-    /// not relative velocity. For a planet with nonzero omega, these differ.
+    /// A bound (elliptical) predicted exit state for the 3D-physics sensitivity
+    /// tests: 110 km / shallow FPA, where the single-pass prediction captures
+    /// (finite apoapsis) rather than escaping (the unbound sentinel) or crashing
+    /// at BOTH equatorial and 60-deg latitude, and with/without planet rotation.
+    fn bound_pred_state(lat: f64) -> PredState {
+        PredState {
+            r: PlanetConfig::mars().equatorial_radius + 110_000.0,
+            lon: 0.0,
+            lat,
+            v: 5687.0,
+            gamma: -0.055,
+            psi: 0.6,
+        }
+    }
+
+    /// The predictor must use inertial (absolute) velocity, not relative.
+    /// For a prograde entry the inertial speed is higher with rotation, so the
+    /// predicted exit apoapsis is higher. Asserted on the predictor directly:
+    /// under the apoapsis metric the secant saturates on these shallow fixtures,
+    /// so the physics is checked where it lives -- in `predict_exit_apoapsis`.
     #[test]
-    fn exit_energy_uses_inertial_velocity() {
-        // Two predictions: one on a planet with rotation, one without.
-        // With rotation, the inertial velocity is higher (prograde entry),
-        // so the predicted exit energy should be higher (less negative).
-        //
-        // Use a high-altitude shallow-FPA state so the predictor can resolve
-        // trajectories that exit the atmosphere (not crash).
-        let mut nav = test_nav(5687.0);
-        nav.position_estimated[0] = PlanetConfig::mars().equatorial_radius + 100_000.0;
-        nav.velocity_estimated[1] = -0.05; // shallow FPA ~-2.9 deg
+    fn predict_apoapsis_uses_inertial_velocity() {
         let data = test_sim_data();
+        let exit_alt = data.final_conditions.altitude;
+        let bank = 40.0_f64.to_radians();
 
         let planet_rotating = PlanetConfig::mars();
         let planet_static = PlanetConfig {
@@ -602,62 +769,57 @@ mod tests {
             ..PlanetConfig::mars()
         };
 
-        let mut state_rot = FnpagState::new(64.77_f64.to_radians());
-        let mut state_stat = FnpagState::new(64.77_f64.to_radians());
+        let s = bound_pred_state(0.0);
+        let apo_rot = predict_exit_apoapsis(s, bank, &planet_rotating, &data, exit_alt, 2.0, 1.0);
+        let apo_stat = predict_exit_apoapsis(s, bank, &planet_static, &data, exit_alt, 2.0, 1.0);
 
-        // First call initializes (picks from fixed candidates) -- may be identical
-        let _ = fnpag_bank(&nav, &mut state_rot, &data, &planet_rotating);
-        let _ = fnpag_bank(&nav, &mut state_stat, &data, &planet_static);
-
-        // Second call exercises the secant method where 3D effects differentiate
-        let bank_rot = fnpag_bank(&nav, &mut state_rot, &data, &planet_rotating);
-        let bank_stat = fnpag_bank(&nav, &mut state_stat, &data, &planet_static);
-
-        assert!(bank_rot.is_finite(), "rotating bank not finite: {bank_rot}");
-        assert!(bank_stat.is_finite(), "static bank not finite: {bank_stat}");
-
-        // The bank angles should differ because the energy model differs
+        // Both must be bound (below the unbound sentinel), and rotation must
+        // raise the apoapsis by a large, unambiguous margin.
+        assert!(apo_rot < UNBOUND_APOAPSIS_RADIUS_M, "rotating exit escaped");
+        assert!(apo_stat < UNBOUND_APOAPSIS_RADIUS_M, "static exit escaped");
         assert!(
-            (bank_rot - bank_stat).abs() > 1e-6,
-            "rotation should affect bank angle: rot={bank_rot:.6} stat={bank_stat:.6}"
+            apo_rot - apo_stat > 1e5,
+            "rotation should raise apoapsis: rot={apo_rot:.0} stat={apo_stat:.0}"
         );
     }
 
-    /// J2 gravity depends on latitude. The predictor should produce different
-    /// bank angles for high-latitude vs equatorial entries (same speed/FPA).
+    /// J2 gravity depends on latitude: the predicted exit apoapsis must differ
+    /// measurably between an equatorial and a high-latitude entry at the same
+    /// speed/FPA. Asserted on the predictor directly (see note above).
     #[test]
     fn j2_sensitivity_with_latitude() {
         let data = test_sim_data();
         let planet = PlanetConfig::mars();
+        let exit_alt = data.final_conditions.altitude;
+        let bank = 40.0_f64.to_radians();
 
-        // Use high-altitude shallow-FPA state so trajectories exit (not crash)
-        // Equatorial entry (lat = 0)
-        let mut nav_equator = test_nav(5687.0);
-        nav_equator.position_estimated[0] = PlanetConfig::mars().equatorial_radius + 100_000.0;
-        nav_equator.velocity_estimated[1] = -0.05; // shallow FPA
+        let apo_eq = predict_exit_apoapsis(
+            bound_pred_state(0.0),
+            bank,
+            &planet,
+            &data,
+            exit_alt,
+            2.0,
+            1.0,
+        );
+        let apo_hl = predict_exit_apoapsis(
+            bound_pred_state(60.0_f64.to_radians()),
+            bank,
+            &planet,
+            &data,
+            exit_alt,
+            2.0,
+            1.0,
+        );
 
-        // High-latitude entry (lat = 60 deg)
-        let mut nav_high_lat = nav_equator;
-        nav_high_lat.position_estimated[2] = 60.0_f64.to_radians();
-
-        let mut state_eq = FnpagState::new(64.77_f64.to_radians());
-        let mut state_hl = FnpagState::new(64.77_f64.to_radians());
-
-        // First call initializes (picks from fixed candidates) -- may be identical
-        let _ = fnpag_bank(&nav_equator, &mut state_eq, &data, &planet);
-        let _ = fnpag_bank(&nav_high_lat, &mut state_hl, &data, &planet);
-
-        // Second call exercises the secant method where 3D effects differentiate
-        let bank_eq = fnpag_bank(&nav_equator, &mut state_eq, &data, &planet);
-        let bank_hl = fnpag_bank(&nav_high_lat, &mut state_hl, &data, &planet);
-
-        assert!(bank_eq.is_finite(), "equatorial bank not finite");
-        assert!(bank_hl.is_finite(), "high-lat bank not finite");
-
-        // J2 + 3D effects should produce measurably different bank commands
         assert!(
-            (bank_eq - bank_hl).abs() > 1e-4,
-            "J2 latitude effect too small: eq={bank_eq:.6} hl={bank_hl:.6}"
+            apo_eq < UNBOUND_APOAPSIS_RADIUS_M,
+            "equatorial exit escaped"
+        );
+        assert!(apo_hl < UNBOUND_APOAPSIS_RADIUS_M, "high-lat exit escaped");
+        assert!(
+            (apo_eq - apo_hl).abs() > 1e5,
+            "J2 latitude effect too small: eq={apo_eq:.0} hl={apo_hl:.0}"
         );
     }
 
@@ -691,7 +853,7 @@ mod tests {
                 let data = test_sim_data();
                 let planet = PlanetConfig::mars();
 
-                let bank = fnpag_bank(&nav, &mut state, &data, &planet);
+                let bank = fnpag_bank(&nav, &mut state, &data, &planet, 0.0);
 
                 prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
                 prop_assert!(bank >= 0.0 - 1e-10, "bank negative: {}", bank);

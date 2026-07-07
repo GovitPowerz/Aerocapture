@@ -147,27 +147,38 @@ def _cache_hit(save_dir: Path, expected_key: dict) -> tuple[npt.NDArray[np.float
     if saved_key != expected_key:
         return None
     chromo = np.asarray(np.load(chromo_path), dtype=np.float64)
-    weight_specs: list | None = None
-    bounds_path = save_dir / "warm_start_bounds.json"
-    if bounds_path.exists():
-        from aerocapture.training.param_spaces import ParamSpec
-
-        raw = json.loads(bounds_path.read_text())
-        weight_specs = [
-            ParamSpec(
-                name=str(e["name"]),
-                p_min=float(e["p_min"]),
-                p_max=float(e["p_max"]),
-                default=float(e.get("default", 0.0)),
-                log_scale=bool(e.get("log_scale", False)),
-                is_integer=bool(e.get("is_integer", False)),
-            )
-            for e in raw
-        ]
+    weight_specs = load_warm_start_bounds(save_dir)
     return chromo, weight_specs
 
 
 _INTEGER_PARAM_NAMES: frozenset[str] = frozenset(s.name for s in _NN_SCAFFOLDING_PARAMS if s.is_integer)
+
+
+def load_warm_start_bounds(save_dir: Path) -> list | None:
+    """Parse `<save_dir>/warm_start_bounds.json` into ParamSpecs, or None if absent.
+
+    The sidecar records the EXACT weight-slab bounds the chromosome/population
+    was encoded under (adaptive bounds). Any consumer decoding a checkpointed
+    population (resume, final_select CLI) must overlay these specs -- decoding
+    under rebuilt Xavier bounds silently corrupts the weights.
+    """
+    bounds_path = save_dir / "warm_start_bounds.json"
+    if not bounds_path.exists():
+        return None
+    from aerocapture.training.param_spaces import ParamSpec
+
+    raw = json.loads(bounds_path.read_text())
+    return [
+        ParamSpec(
+            name=str(e["name"]),
+            p_min=float(e["p_min"]),
+            p_max=float(e["p_max"]),
+            default=float(e.get("default", 0.0)),
+            log_scale=bool(e.get("log_scale", False)),
+            is_integer=bool(e.get("is_integer", False)),
+        )
+        for e in raw
+    ]
 
 
 def _build_overrides_for_source(source_params: dict[str, float], scheme: str) -> dict[str, object]:

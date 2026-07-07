@@ -84,19 +84,18 @@ pub fn predguid_bank(
     // The reference cos(bank) already accounts for the nominal drag.
     // We add a correction proportional to the drag error, normalized by lift.
     //
-    // If drag > ref: we're too deep → increase bank (more lift-down) → increase cos_bank
-    // If drag < ref: we're too high → decrease bank (more lift-up) → decrease cos_bank
-    //
-    // The sign convention: cos(bank) = 1 means full lift-up (min drag exposure),
-    // cos(bank) = -1 means full lift-down (max drag exposure).
-    // So drag error should DECREASE cos_bank (bank toward lift-up to reduce drag).
+    // Sign convention: cos(bank) = 1 is full lift-up (climb, drag decreases),
+    // cos(bank) = -1 is full lift-down (descend, drag increases).
+    // If drag > ref: too deep → INCREASE cos_bank (lift-up) to climb out.
+    // If drag < ref: too high → DECREASE cos_bank (lift-down) to dig in.
+    // Same direction as the FTC pdyn term and the exit-phase controller.
     let params = &data.guidance.pred_guid;
     let k_drag = if pdyn > params.pdyn_threshold {
         params.k_drag_high
     } else {
         params.k_drag_low
     };
-    let cos_bank = cos_bank_ref - k_drag * drag_err / lift_abs;
+    let cos_bank = cos_bank_ref + k_drag * drag_err / lift_abs;
 
     securize_cos_bank(cos_bank)
 }
@@ -251,6 +250,37 @@ mod tests {
         let bank = predguid_bank(&nav, &state, &data, energy);
 
         assert_relative_eq!(bank, 60.0_f64.to_radians(), epsilon = 1e-10);
+    }
+
+    #[test]
+    fn drag_above_reference_commands_lift_up() {
+        // Negative-feedback direction: drag above the reference profile means
+        // the vehicle is too deep, so the law must bank toward lift-up
+        // (smaller bank angle / larger cos_bank) to climb out and shed drag.
+        let state = PredGuidState::new();
+        let data = test_sim_data_with_ref_traj();
+        let energy = -1e6; // ref point: pdyn_ref = 500 Pa, cos_bank_ref = 0.4
+
+        let pdyn_ref = 500.0;
+        let cx = 1.269;
+        let drag_ref = pdyn_ref * data.capsule.reference_area * cx / data.capsule.mass;
+
+        let mut nav_on_ref = test_nav(4500.0);
+        nav_on_ref.acceleration_estimated[0] = drag_ref;
+        let bank_on_ref = predguid_bank(&nav_on_ref, &state, &data, energy);
+        assert_relative_eq!(bank_on_ref, 0.4_f64.acos(), epsilon = 1e-10);
+
+        let mut nav_too_deep = test_nav(4500.0);
+        nav_too_deep.acceleration_estimated[0] = drag_ref + 3.0;
+        let bank_too_deep = predguid_bank(&nav_too_deep, &state, &data, energy);
+
+        assert!(
+            bank_too_deep < bank_on_ref,
+            "drag above reference must reduce bank toward lift-up: \
+             got bank_too_deep={:.4} rad >= bank_on_ref={:.4} rad",
+            bank_too_deep,
+            bank_on_ref,
+        );
     }
 
     #[rstest]

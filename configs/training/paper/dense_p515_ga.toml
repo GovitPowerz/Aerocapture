@@ -1,0 +1,9 @@
+# Cell: dense_p515 (17->18->9->2, atan2) cell -- ga. Study wiring lives in experiments/paper/.
+base = ["../sweep/dense_p515.toml"]
+
+[data]
+neural_network = "training_output/paper/cells/dense_p515_ga/best_model.json"
+results_suffix = ".dense_p515_ga"
+
+[optimizer]
+algorithm = "ga"

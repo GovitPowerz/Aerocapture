@@ -33,7 +33,7 @@ from aerocapture.training.rl.normalizers import ObsNormalizer, ReturnNormalizer
 from aerocapture.training.rl.policy import GaussianPolicy, V2Policy, ValueNetwork
 from aerocapture.training.rl.policy import np_state_to_torch as _np_state_to_torch
 from aerocapture.training.rl.policy import torch_state_to_np as _torch_state_to_np
-from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, ppo_update_bptt
+from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, critic_warmup_update, ppo_update_bptt
 from aerocapture.training.rl.rewards import StepRewardCalculator, compute_terminal_cost
 from aerocapture.training.rl.sac import SACAgent
 
@@ -139,6 +139,7 @@ def _generate_seed_model(cfg: RLConfig, path: Path) -> None:
         input_mask=input_mask,
         initial_log_std=cfg.ppo.initial_log_std,
         min_log_std=cfg.ppo.min_log_std,
+        max_log_std=cfg.ppo.max_log_std,
     )
     export_v2_policy_to_json(policy, str(path), obs_normalizer=None)
 
@@ -169,6 +170,40 @@ def _describe_rl_architecture(cfg: RLConfig) -> None:
     print(f"  input_mask: {len(input_mask)} indices", file=sys.stderr)
 
 
+def _linear_anneal(base: float, frac_done: float, anneal_start: float) -> float:
+    """Linearly anneal `base` toward 0 over [anneal_start, 1.0] of training progress.
+
+    Returns `base` unchanged while `frac_done <= anneal_start`, so `anneal_start = 1.0`
+    disables annealing (backward-compatible default; shared by LR and entropy_coef).
+    `frac_done` can exceed 1.0 on the final update (env_steps overshoots
+    total_env_steps by up to one rollout), so anneal_start = 1.0 must short-circuit
+    before the (1 - anneal_start) division.
+    """
+    if anneal_start >= 1.0 or frac_done <= anneal_start:
+        return base
+    return base * max((1.0 - frac_done) / (1.0 - anneal_start), 0.0)
+
+
+def _compute_advantages_returns(
+    buf: RolloutBuffer, next_values: npt.NDArray[np.float32], cfg: RLConfig
+) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+    """Per-env GAE over the rollout buffer -> (advantages, returns)."""
+    advantages = np.zeros_like(buf.rewards)
+    returns = np.zeros_like(buf.rewards)
+    for e in range(cfg.n_envs):
+        adv, ret = compute_gae(
+            buf.rewards[:, e],
+            buf.values[:, e],
+            next_values[:, e],
+            buf.dones[:, e],
+            gamma=cfg.ppo.gamma,
+            lam=cfg.ppo.gae_lambda,
+        )
+        advantages[:, e] = adv
+        returns[:, e] = ret
+    return advantages, returns
+
+
 def _build_shaper_and_norms(
     cfg: RLConfig, input_mask: list[int], gamma: float, toml_path: Path
 ) -> tuple[StepRewardCalculator, ReturnNormalizer | None, ObsNormalizer | None]:
@@ -183,6 +218,10 @@ def _build_shaper_and_norms(
         apoapsis_weight=cfg.reward.apoapsis_weight,
         eccentricity_weight=cfg.reward.eccentricity_weight,
         energy_scale=cfg.reward.energy_scale,
+        potential=cfg.reward.potential,
+        dv1_weight=cfg.reward.dv1_weight,
+        dv2_weight=cfg.reward.dv2_weight,
+        dv3_weight=cfg.reward.dv3_weight,
         cost_kwargs=read_cost_kwargs(toml_path),
     )
     ret_norm = ReturnNormalizer(gamma=gamma, warmup_steps=cfg.reward.norm_warmup_steps) if cfg.reward.normalize_returns else None
@@ -315,6 +354,13 @@ def main() -> None:
         help="Override output dir. Default: derived from TOML [data] neural_network parent.",
     )
     args = ap.parse_args()
+
+    # Tiny policies (sub-1k params) gain nothing from torch's intra-op thread pool
+    # and pay per-op launch overhead on every one of the ~rollout_steps forwards;
+    # pin torch to 1 thread so the env's Rayon parallelism (n_envs across cores)
+    # owns the CPU. Biggest single throughput win for this CPU-bound,
+    # step-synchronous PPO loop.
+    torch.set_num_threads(1)
 
     overrides: dict[str, Any] = {}
     if args.algorithm:
@@ -612,6 +658,7 @@ def _run_ppo(
         input_mask=input_mask,
         initial_log_std=cfg.ppo.initial_log_std,
         min_log_std=cfg.ppo.min_log_std,
+        max_log_std=cfg.ppo.max_log_std,
     )
     if warmstart_json is not None:
         from aerocapture.training.model_io import load_policy_from_json
@@ -714,6 +761,42 @@ def _run_ppo(
     episodic_captures: list[bool] = []
     start_time = time.time()
 
+    # Critic warmup (warm-start only): fit the value net + settle the return normalizer to
+    # the warm policy's returns BEFORE any policy update, so the first PPO steps don't see a
+    # random critic's garbage advantages (which otherwise unlearn the warm-started policy).
+    # The policy stays frozen (value-only loss). Skipped for from-scratch runs.
+    if warmstart_json is not None and cfg.ppo.critic_warmup_updates > 0:
+        print(f"Critic warmup: {cfg.ppo.critic_warmup_updates} value-only update(s)", file=sys.stderr)
+        for _ in range(cfg.ppo.critic_warmup_updates):
+            obs, aux_cur, steps = collect_rollout(
+                env,
+                policy,
+                value,
+                buf,
+                next_values,
+                obs,
+                aux_cur,
+                obs_norm=obs_norm,
+                ret_norm=ret_norm,
+                step_calc=step_calc,
+                cfg=cfg,
+                episodic_returns=episodic_returns,
+                episodic_dvs=episodic_dvs,
+                episodic_captures=episodic_captures,
+            )
+            env_steps += steps
+            _, warmup_returns = _compute_advantages_returns(buf, next_values, cfg)
+            critic_warmup_update(
+                value,
+                optim,
+                buf,
+                warmup_returns,
+                update_epochs=cfg.ppo.update_epochs,
+                minibatches=cfg.ppo.minibatches,
+                obs_norm=obs_norm,
+                rng=rl_rng,
+            )
+
     while env_steps < cfg.total_env_steps and not interrupted["v"]:
         obs, aux_cur, steps = collect_rollout(
             env,
@@ -733,25 +816,15 @@ def _run_ppo(
         )
         env_steps += steps
 
-        advantages = np.zeros_like(buf.rewards)
-        returns = np.zeros_like(buf.rewards)
-        for e in range(cfg.n_envs):
-            adv, ret = compute_gae(
-                buf.rewards[:, e],
-                buf.values[:, e],
-                next_values[:, e],
-                buf.dones[:, e],
-                gamma=cfg.ppo.gamma,
-                lam=cfg.ppo.gae_lambda,
-            )
-            advantages[:, e] = adv
-            returns[:, e] = ret
+        advantages, returns = _compute_advantages_returns(buf, next_values, cfg)
 
         frac_done = env_steps / cfg.total_env_steps
-        anneal_start = cfg.ppo.lr_anneal_start
-        lr = cfg.ppo.learning_rate if frac_done <= anneal_start else cfg.ppo.learning_rate * max((1.0 - frac_done) / (1.0 - anneal_start), 0.0)
+        lr = _linear_anneal(cfg.ppo.learning_rate, frac_done, cfg.ppo.lr_anneal_start)
         for pg in optim.param_groups:
             pg["lr"] = lr
+        # Anneal the entropy bonus the same way. With max_log_std capping exploration,
+        # decaying entropy_coef late lets the behavior policy sharpen for fine convergence.
+        ent_coef = _linear_anneal(cfg.ppo.entropy_coef, frac_done, cfg.ppo.entropy_anneal_start)
 
         metrics = ppo_update_bptt(
             policy,
@@ -764,7 +837,7 @@ def _run_ppo(
             clip_range=cfg.ppo.clip_range,
             update_epochs=cfg.ppo.update_epochs,
             minibatches=cfg.ppo.minibatches,
-            entropy_coef=cfg.ppo.entropy_coef,
+            entropy_coef=ent_coef,
             value_coef=cfg.ppo.value_coef,
             max_grad_norm=cfg.ppo.max_grad_norm,
             target_kl=cfg.ppo.target_kl,
@@ -801,6 +874,7 @@ def _run_ppo(
             "clip_frac": metrics["clip_frac"],
             "epochs_run": metrics.get("epochs_run", float(cfg.ppo.update_epochs)),
             "learning_rate": lr,
+            "entropy_coef": ent_coef,
             "val_attempted": val_attempted,
             "val_promoted": val_record.get("val_promoted", False),
             "val_rms_cost": val_record.get("val_rms_cost"),

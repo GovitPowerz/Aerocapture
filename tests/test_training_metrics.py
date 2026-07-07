@@ -6,7 +6,7 @@ import math
 
 import numpy as np
 import pytest
-from aerocapture.training.metrics import capture_rate, convergence_speed, cost_stats, population_diversity, stagnation_count
+from aerocapture.training.metrics import apply_cost_transform, capture_rate, convergence_speed, cost_stats, population_diversity, stagnation_count
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
@@ -111,6 +111,31 @@ class TestCaptureRate:
     def test_custom_threshold(self) -> None:
         costs = np.array([10.0, 50.0, 100.0])
         assert capture_rate(costs, capture_threshold=50.0) == pytest.approx(1 / 3)
+
+    def test_cubed_transform(self) -> None:
+        # Costs arrive in transformed space; classification must match linear space.
+        raw = np.array([100.0, 200.0, 5000.0, 12000.0])
+        assert capture_rate(raw**3, cost_transform="cubed") == 0.5
+
+    def test_log_transform(self) -> None:
+        raw = np.array([100.0, 200.0, 5000.0, 12000.0])
+        assert capture_rate(np.log1p(raw), cost_transform="log") == 0.5
+
+    def test_linear_default_unchanged(self) -> None:
+        raw = np.array([100.0, 200.0, 5000.0, 12000.0])
+        assert capture_rate(raw) == capture_rate(raw, cost_transform="linear") == 0.5
+
+
+class TestApplyCostTransform:
+    def test_scalar_threshold_matches_array(self) -> None:
+        raw = np.array([100.0, 3000.0, 12000.0])
+        for name in ("linear", "sqrt", "log", "squared", "cubed"):
+            arr = apply_cost_transform(raw, name)
+            assert float(apply_cost_transform(3000.0, name)) == pytest.approx(float(arr[1]))
+
+    def test_unknown_transform_raises(self) -> None:
+        with pytest.raises(ValueError, match="cost_transform"):
+            apply_cost_transform(np.array([1.0]), "exp")
 
 
 class TestConvergenceSpeed:

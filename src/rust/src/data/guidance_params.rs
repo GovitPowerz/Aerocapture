@@ -78,6 +78,7 @@ pub struct FnpagParams {
     pub bank_min_deg: f64,      // minimum bank angle (deg)
     pub bank_max_high_deg: f64, // max bank above 50 km (deg)
     pub bank_max_low_deg: f64,  // max bank below 50 km (deg)
+    pub replan_period: f64,     // seconds between replans; bank held in between
 }
 
 impl Default for FnpagParams {
@@ -88,6 +89,7 @@ impl Default for FnpagParams {
             bank_min_deg: 20.0,
             bank_max_high_deg: 140.0,
             bank_max_low_deg: 100.0,
+            replan_period: 2.0,
         }
     }
 }
@@ -254,6 +256,20 @@ impl ReferenceTrajectory {
             }
         }
 
+        // Units sanity: the file contract is MJ/kg in column 0 (converted to
+        // J/kg above). Orbital specific energies are tens of MJ/kg, so a
+        // post-conversion magnitude beyond 1e9 J/kg means the file is almost
+        // certainly in J/kg already (the historical train.py writer bug) and
+        // every interpolation query would collapse into the table's tail.
+        const MAX_SANE_ENERGY_J_PER_KG: f64 = 1e9;
+        let worst = energy.iter().fold(0.0_f64, |m, e| m.max(e.abs()));
+        if worst > MAX_SANE_ENERGY_J_PER_KG {
+            return Err(DataError(format!(
+                "reference trajectory '{path}': energy column magnitude up to {worst:.3e} J/kg after MJ/kg->J/kg conversion; \
+                 the file's first column must be in MJ/kg (this one looks like J/kg)"
+            )));
+        }
+
         let n_points = energy.len();
         Ok(ReferenceTrajectory {
             n_points,
@@ -348,5 +364,68 @@ impl Default for GuidanceParams {
             command_shaping: None,
             neural_mode: NeuralNetMode::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn write_ref_file(dir: &tempfile::TempDir, rows: &[[f64; 7]]) -> String {
+        let path = dir.path().join("ref.dat");
+        let mut f = std::fs::File::create(&path).unwrap();
+        for r in rows {
+            writeln!(
+                f,
+                "  {:.16E}  {:.16E}  {:.16E}  {:.16E}  {:.16E}  {:.16E}  {:.16E}",
+                r[0], r[1], r[2], r[3], r[4], r[5], r[6]
+            )
+            .unwrap();
+        }
+        path.to_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn load_converts_mj_per_kg_to_j_per_kg() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_ref_file(
+            &dir,
+            &[
+                [4.9, 0.02, -1066.0, -1066.0, 0.87, 0.0, 0.43],
+                [0.0, 800.0, -50.0, -50.0, 0.87, 200.0, 0.30],
+                [-5.3, 10.0, 100.0, 100.0, 0.87, 400.0, 0.50],
+            ],
+        );
+
+        let rt = ReferenceTrajectory::load(&path).unwrap();
+
+        assert_eq!(rt.n_points, 3);
+        assert!((rt.energy[0] - 4.9e6).abs() < 1.0);
+        assert!((rt.energy[2] + 5.3e6).abs() < 1.0);
+    }
+
+    #[test]
+    fn load_rejects_j_per_kg_energy_column() {
+        // A file whose first column is in J/kg (the train.py writer bug shipped
+        // exactly this) would, after the loader's MJ/kg -> J/kg conversion, give
+        // an energy axis 1e6x too large -- every runtime interpolation query
+        // collapses into the table's near-zero tail. Hard-error instead.
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_ref_file(
+            &dir,
+            &[
+                [4.9e6, 0.02, -1066.0, -1066.0, 0.87, 0.0, 0.43],
+                [-5.3e6, 10.0, 100.0, 100.0, 0.87, 400.0, 0.50],
+            ],
+        );
+
+        let err = ReferenceTrajectory::load(&path);
+
+        assert!(
+            err.is_err(),
+            "loader must reject a J/kg-scaled energy column, got {:?}",
+            err.map(|rt| rt.energy[0])
+        );
     }
 }

@@ -11,7 +11,9 @@ from pymoo.core.algorithm import Algorithm
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
 
-_VALID_ALGORITHMS = ("ga", "cma_es", "de", "pso", "islands")
+from aerocapture.training.qpso import QPSO
+
+_VALID_ALGORITHMS = ("ga", "cma_es", "de", "pso", "qpso", "islands")
 _VALID_SEED_STRATEGIES = ("fixed", "rotating", "adaptive")
 _CMAES_MAX_PARAMS = 20000
 
@@ -44,6 +46,21 @@ class PSOSettings:
 
 
 @dataclass
+class QPSOSettings:
+    # Contraction-expansion coefficient, annealed linearly alpha_start -> alpha_end.
+    # Theory (Sun et al. 2004): trajectories diverge above alpha ~ e^gamma ~ 1.781;
+    # (0, 2] is a permissive cap.
+    alpha_start: float = 1.0
+    alpha_end: float = 0.5
+
+    def __post_init__(self) -> None:
+        for name in ("alpha_start", "alpha_end"):
+            value = getattr(self, name)
+            if not 0.0 < value <= 2.0:
+                raise ValueError(f"{name} must be in (0, 2], got {value}")
+
+
+@dataclass
 class IslandSettings:
     enabled: bool = True
     k_period: int = 25
@@ -70,11 +87,14 @@ class OptimizerConfig:
     validation_n_sims: int = 1000
     curation_top_k: int = 5
     curation_sample_size: int = 1000
+    curation_trim_fraction: float = 0.0
+    curation_bucket_selection: str = "random"
     grow_fresh_fraction: float = 0.2
     ga: GASettings = field(default_factory=GASettings)
     cma_es: CMAESSettings = field(default_factory=CMAESSettings)
     de: DESettings = field(default_factory=DESettings)
     pso: PSOSettings = field(default_factory=PSOSettings)
+    qpso: QPSOSettings = field(default_factory=QPSOSettings)
     islands: IslandSettings = field(default_factory=IslandSettings)
 
     def __post_init__(self) -> None:
@@ -89,6 +109,10 @@ class OptimizerConfig:
             raise ValueError(f"curation_top_k must be >= 1, got {self.curation_top_k}")
         if self.curation_sample_size < self.curation_top_k:
             raise ValueError(f"curation_sample_size ({self.curation_sample_size}) must be >= curation_top_k ({self.curation_top_k})")
+        if not 0.0 <= self.curation_trim_fraction < 0.5:
+            raise ValueError(f"curation_trim_fraction must be in [0, 0.5), got {self.curation_trim_fraction}")
+        if self.curation_bucket_selection not in ("random", "min", "max", "middle"):
+            raise ValueError(f"curation_bucket_selection must be one of ('random', 'min', 'max', 'middle'), got {self.curation_bucket_selection!r}")
         if not 0.0 <= self.grow_fresh_fraction <= 1.0:
             raise ValueError(f"grow_fresh_fraction must be in [0, 1], got {self.grow_fresh_fraction}")
 
@@ -101,6 +125,7 @@ class OptimizerConfig:
         cma_es = CMAESSettings(**d["cma_es"]) if "cma_es" in d else CMAESSettings()
         de = DESettings(**d["de"]) if "de" in d else DESettings()
         pso = PSOSettings(**d["pso"]) if "pso" in d else PSOSettings()
+        qpso = QPSOSettings(**d["qpso"]) if "qpso" in d else QPSOSettings()
         islands = IslandSettings(**d["islands"]) if "islands" in d else IslandSettings()
 
         _obsolete = {
@@ -119,8 +144,8 @@ class OptimizerConfig:
                 UserWarning,
                 stacklevel=2,
             )
-        top_level = {k: v for k, v in d.items() if k not in ("ga", "cma_es", "de", "pso", "islands") and k not in _obsolete}
-        return cls(**top_level, ga=ga, cma_es=cma_es, de=de, pso=pso, islands=islands)
+        top_level = {k: v for k, v in d.items() if k not in ("ga", "cma_es", "de", "pso", "qpso", "islands") and k not in _obsolete}
+        return cls(**top_level, ga=ga, cma_es=cma_es, de=de, pso=pso, qpso=qpso, islands=islands)
 
 
 def create_algorithm(config: OptimizerConfig, n_params: int) -> Algorithm:
@@ -174,6 +199,15 @@ def create_algorithm(config: OptimizerConfig, n_params: int) -> Algorithm:
             w=pso.w,
             c1=pso.c1,
             c2=pso.c2,
+        )
+
+    if algorithm == "qpso":
+        qpso = config.qpso
+        return QPSO(
+            pop_size=config.n_pop,
+            alpha_start=qpso.alpha_start,
+            alpha_end=qpso.alpha_end,
+            max_iter=config.n_gen,
         )
 
     raise ValueError(f"Unhandled algorithm: {algorithm}")  # unreachable

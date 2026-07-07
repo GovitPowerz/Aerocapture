@@ -25,6 +25,11 @@ class RewardConfig:
     apoapsis_weight: float = 0.2
     eccentricity_weight: float = 0.1
     energy_scale: float = 1.0e6
+    # DV-correction potential (potential = "dv"); ignored when potential = "phase_aware".
+    potential: Literal["phase_aware", "dv"] = "phase_aware"
+    dv1_weight: float = 1.0
+    dv2_weight: float = 1.0
+    dv3_weight: float = 1.0
     # Running normalization
     normalize_returns: bool = True
     normalize_obs: bool = True
@@ -47,10 +52,15 @@ class PPOConfig:
     max_grad_norm: float = 0.5
     initial_log_std: float = -0.5
     min_log_std: float = -2.0
+    max_log_std: float = 2.0  # ceiling on exploration log_std; prevents entropy-bonus runaway
     lr_anneal_start: float = 0.7
+    entropy_anneal_start: float = 1.0  # frac of training after which entropy_coef linearly anneals to 0 (1.0 = off)
     # Early-stop the update epoch when mean approx_kl exceeds this threshold.
     # None disables early-stop.
     target_kl: float | None = 0.03
+    # Warm-start only: value-only updates before the policy moves, so the cold critic's
+    # noise can't unlearn the warm-started policy. 0 = off (from-scratch ignores it).
+    critic_warmup_updates: int = 0
 
 
 @dataclass

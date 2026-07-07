@@ -1,0 +1,27 @@
+# objective-centering Phase 1 -- +TRANSFORM: stacked objective but a MILD
+# (linear) cost transform instead of cubed. Tests whether not cubing a
+# failure-dominated cost recovers the gradient. n_sims=2 via the runner.
+base = ["../../sweep/dense_p515.toml"]
+
+[data]
+neural_network = "training_output/paper/objective_centering/dense_plus_transform/best_model.json"
+results_suffix = ".objcenter_dense_plus_transform"
+
+[optimizer]
+algorithm = "ga"
+curation_bucket_selection = "max"
+
+[cost_function]
+cost_transform = "linear"
+
+[monte_carlo.atmosphere]
+level = "high"
+
+[monte_carlo.density_perturbation]
+level = "high"
+
+[monte_carlo.navigation]
+level = "high"
+
+[monte_carlo.nav_filter]
+level = "high"

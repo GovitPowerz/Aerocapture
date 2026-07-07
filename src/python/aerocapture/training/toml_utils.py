@@ -49,3 +49,27 @@ def load_toml_with_bases(path: Path, *, _visited: frozenset[Path] | None = None)
         merged = _deep_merge(merged, base_data)
 
     return _deep_merge(merged, data)
+
+
+def find_mission_name(toml_path: Path) -> str | None:
+    """Mission name (stem of the first missions/ base) reachable through the
+    base chain, depth-first. Shallow scans miss it for nested leaf configs
+    (e.g. a config whose only base is another training leaf)."""
+    import tomllib  # noqa: PLC0415
+
+    def walk(path: Path) -> str | None:
+        with open(path, "rb") as f:
+            raw = tomllib.load(f)
+        bases = raw.get("base", [])
+        if isinstance(bases, str):
+            bases = [bases]
+        for b in bases:
+            if "missions/" in b:
+                return Path(b).stem
+        for b in bases:
+            found = walk((path.parent / b).resolve())
+            if found is not None:
+                return found
+        return None
+
+    return walk(Path(toml_path).resolve())

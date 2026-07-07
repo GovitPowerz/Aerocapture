@@ -36,6 +36,7 @@ SCHEMES = [
     "ftc",
     "neural_network",
     "neural_network_rl",
+    "neural_network_atan2_rl",
     "neural_network_gru_pso",
     "neural_network_gru_pso_magonly",
     "neural_network_gru_ppo",
@@ -61,6 +62,7 @@ SCHEME_TRAINING_CONFIGS: dict[str, str] = {
     "ftc": "configs/training/msr_aller_ftc_train.toml",
     "neural_network": "configs/training/msr_aller_nn_train_consolidated.toml",
     "neural_network_rl": "configs/training/msr_aller_rl_train.toml",
+    "neural_network_atan2_rl": "configs/training/msr_aller_nn_atan2_ppo_train.toml",
     "neural_network_gru_pso": "configs/training/msr_aller_gru_pso_train.toml",
     "neural_network_gru_pso_magonly": "configs/training/msr_aller_gru_pso_magonly_train.toml",
     "neural_network_gru_ppo": "configs/training/msr_aller_gru_ppo_train.toml",
@@ -80,6 +82,7 @@ SCHEME_TRAINING_CONFIGS: dict[str, str] = {
 _NN_DEPLOY_SCHEMES = {
     "neural_network",
     "neural_network_rl",
+    "neural_network_atan2_rl",
     "neural_network_gru_pso",
     "neural_network_gru_pso_magonly",
     "neural_network_gru_ppo",
@@ -178,6 +181,17 @@ def run_scheme(
         if params_file.exists():
             with open(params_file) as f:
                 params = json.load(f)
+            # Joint-reference deploys: ref_bank is not a guidance TOML key (Rust
+            # would silently drop it) — it deploys as the scheme's own reference
+            # table written at training end.
+            ref_bank = params.pop("ref_bank", None)
+            if ref_bank is not None:
+                scheme_ref = params_dir / scheme / "ref_trajectory.dat"
+                if not scheme_ref.exists():
+                    print(f"  ERROR: best_params.json has ref_bank but {scheme_ref} is missing")
+                    return None
+                toml_data.setdefault("data", {})["reference_trajectory"] = str(scheme_ref)
+                print(f"  Using joint-optimized reference (ref_bank {ref_bank:.2f} deg) from {scheme_ref}")
             # Route prefixed params to correct TOML sections
             _apply_optimized_params_to_toml(toml_data, params, scheme)
             print(f"  Using optimized params from {params_file}")

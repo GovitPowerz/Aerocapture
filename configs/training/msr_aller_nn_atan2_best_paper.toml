@@ -1,0 +1,14 @@
+# MSR outbound — NN training, 50 MC sims per evaluation, domain-based dispersions
+base = ["sweep/dense_p515.toml"]
+
+[data]
+neural_network = "training_output/dense_p515_ga_paper_best/best_model.json"
+results_suffix = ".dense_p515_ga_paper_best"
+
+[optimizer]
+algorithm = "ga"
+training_n_sims = 2          # fresh random seeds per individual per generation (epoch rotation)
+validation_n_sims = 1000      # sims for validation gate (fixed seeds, honest generalization metric)
+curation_top_k = 1            # top-K individuals whose cost CDF is averaged at each curation
+curation_sample_size = 1000   # seeds drawn per curation to sample the cost distribution
+curation_bucket_selection = "max"  # per-CDF-bin representative (random|min|max|middle): max = best worst-case (exp 8)

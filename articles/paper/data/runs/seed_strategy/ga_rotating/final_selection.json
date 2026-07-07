@@ -1,0 +1,617 @@
+{
+  "winner": {
+    "provenance": "last_gen[62]",
+    "val_rms": 1751291.1987447538,
+    "promoted": true
+  },
+  "champion_val_rms": 1755182.3293900834,
+  "n_candidates": 150,
+  "n_deduped": 150,
+  "validation_n_sims": 1000,
+  "candidate_rms": [
+    {
+      "provenance": "champion",
+      "val_rms": 1755182.3293900834
+    },
+    {
+      "provenance": "last_gen[0]",
+      "val_rms": 1811624.719498436
+    },
+    {
+      "provenance": "last_gen[1]",
+      "val_rms": 1859483.8133067538
+    },
+    {
+      "provenance": "last_gen[2]",
+      "val_rms": 1812205.4620873334
+    },
+    {
+      "provenance": "last_gen[3]",
+      "val_rms": 1774345.0527823376
+    },
+    {
+      "provenance": "last_gen[4]",
+      "val_rms": 1773438.3828107296
+    },
+    {
+      "provenance": "last_gen[5]",
+      "val_rms": 1780325.9677737036
+    },
+    {
+      "provenance": "last_gen[6]",
+      "val_rms": 1926559.4024695554
+    },
+    {
+      "provenance": "last_gen[7]",
+      "val_rms": 1850882.477098023
+    },
+    {
+      "provenance": "last_gen[8]",
+      "val_rms": 1794128.4370960337
+    },
+    {
+      "provenance": "last_gen[9]",
+      "val_rms": 1827696.1091861788
+    },
+    {
+      "provenance": "last_gen[10]",
+      "val_rms": 1779503.0592494248
+    },
+    {
+      "provenance": "last_gen[11]",
+      "val_rms": 1765231.9681522266
+    },
+    {
+      "provenance": "last_gen[12]",
+      "val_rms": 1771366.7227202337
+    },
+    {
+      "provenance": "last_gen[13]",
+      "val_rms": 1779929.9461436113
+    },
+    {
+      "provenance": "last_gen[14]",
+      "val_rms": 1772761.201995902
+    },
+    {
+      "provenance": "last_gen[15]",
+      "val_rms": 1778503.7816809418
+    },
+    {
+      "provenance": "last_gen[16]",
+      "val_rms": 1782114.4748005287
+    },
+    {
+      "provenance": "last_gen[17]",
+      "val_rms": 1793175.7446589244
+    },
+    {
+      "provenance": "last_gen[18]",
+      "val_rms": 1867367.3968390482
+    },
+    {
+      "provenance": "last_gen[19]",
+      "val_rms": 1810483.5809066778
+    },
+    {
+      "provenance": "last_gen[20]",
+      "val_rms": 1800529.8739859178
+    },
+    {
+      "provenance": "last_gen[21]",
+      "val_rms": 1825021.909453097
+    },
+    {
+      "provenance": "last_gen[22]",
+      "val_rms": 1760806.1959741851
+    },
+    {
+      "provenance": "last_gen[23]",
+      "val_rms": 1774744.402330971
+    },
+    {
+      "provenance": "last_gen[24]",
+      "val_rms": 1769499.850226547
+    },
+    {
+      "provenance": "last_gen[25]",
+      "val_rms": 1799853.387839206
+    },
+    {
+      "provenance": "last_gen[26]",
+      "val_rms": 1798535.0673299942
+    },
+    {
+      "provenance": "last_gen[27]",
+      "val_rms": 1935293.9495242038
+    },
+    {
+      "provenance": "last_gen[28]",
+      "val_rms": 1777139.24339988
+    },
+    {
+      "provenance": "last_gen[29]",
+      "val_rms": 1787683.904002668
+    },
+    {
+      "provenance": "last_gen[30]",
+      "val_rms": 1780988.50549155
+    },
+    {
+      "provenance": "last_gen[31]",
+      "val_rms": 1761819.516593814
+    },
+    {
+      "provenance": "last_gen[32]",
+      "val_rms": 1794391.7916187372
+    },
+    {
+      "provenance": "last_gen[33]",
+      "val_rms": 1917422.2276435227
+    },
+    {
+      "provenance": "last_gen[34]",
+      "val_rms": 1780410.2331142637
+    },
+    {
+      "provenance": "last_gen[35]",
+      "val_rms": 1778988.921294456
+    },
+    {
+      "provenance": "last_gen[36]",
+      "val_rms": 1820452.1797539522
+    },
+    {
+      "provenance": "last_gen[37]",
+      "val_rms": 1763820.053176581
+    },
+    {
+      "provenance": "last_gen[38]",
+      "val_rms": 1783353.0826031247
+    },
+    {
+      "provenance": "last_gen[39]",
+      "val_rms": 1778349.6242974289
+    },
+    {
+      "provenance": "last_gen[40]",
+      "val_rms": 1770007.1437539768
+    },
+    {
+      "provenance": "last_gen[41]",
+      "val_rms": 1782511.2162090398
+    },
+    {
+      "provenance": "last_gen[42]",
+      "val_rms": 1790172.334124511
+    },
+    {
+      "provenance": "last_gen[43]",
+      "val_rms": 1767450.3701750606
+    },
+    {
+      "provenance": "last_gen[44]",
+      "val_rms": 1771552.8279916907
+    },
+    {
+      "provenance": "last_gen[45]",
+      "val_rms": 1780935.3140944624
+    },
+    {
+      "provenance": "last_gen[46]",
+      "val_rms": 1784945.168545905
+    },
+    {
+      "provenance": "last_gen[47]",
+      "val_rms": 1812988.2497205816
+    },
+    {
+      "provenance": "last_gen[48]",
+      "val_rms": 1797792.1575340547
+    },
+    {
+      "provenance": "last_gen[49]",
+      "val_rms": 1788862.3269884135
+    },
+    {
+      "provenance": "last_gen[50]",
+      "val_rms": 1767328.0665185368
+    },
+    {
+      "provenance": "last_gen[51]",
+      "val_rms": 1877734.493911795
+    },
+    {
+      "provenance": "last_gen[52]",
+      "val_rms": 1768090.7041353886
+    },
+    {
+      "provenance": "last_gen[53]",
+      "val_rms": 1789618.6218599607
+    },
+    {
+      "provenance": "last_gen[54]",
+      "val_rms": 1813224.4433859326
+    },
+    {
+      "provenance": "last_gen[55]",
+      "val_rms": 1755573.635598047
+    },
+    {
+      "provenance": "last_gen[56]",
+      "val_rms": 1785717.1603230208
+    },
+    {
+      "provenance": "last_gen[57]",
+      "val_rms": 1777936.9292774217
+    },
+    {
+      "provenance": "last_gen[58]",
+      "val_rms": 1773708.2585739177
+    },
+    {
+      "provenance": "last_gen[59]",
+      "val_rms": 1772731.9754815178
+    },
+    {
+      "provenance": "last_gen[60]",
+      "val_rms": 1784912.5026388643
+    },
+    {
+      "provenance": "last_gen[61]",
+      "val_rms": 1786277.0052105372
+    },
+    {
+      "provenance": "last_gen[62]",
+      "val_rms": 1751291.1987447538
+    },
+    {
+      "provenance": "last_gen[63]",
+      "val_rms": 1759484.9363473265
+    },
+    {
+      "provenance": "last_gen[64]",
+      "val_rms": 1770293.5454141283
+    },
+    {
+      "provenance": "last_gen[65]",
+      "val_rms": 1759603.858939118
+    },
+    {
+      "provenance": "last_gen[66]",
+      "val_rms": 1787881.5299181435
+    },
+    {
+      "provenance": "last_gen[67]",
+      "val_rms": 1771117.08345542
+    },
+    {
+      "provenance": "last_gen[68]",
+      "val_rms": 1783989.1024842574
+    },
+    {
+      "provenance": "last_gen[69]",
+      "val_rms": 1756006.5983891734
+    },
+    {
+      "provenance": "last_gen[70]",
+      "val_rms": 1775841.9426462469
+    },
+    {
+      "provenance": "last_gen[71]",
+      "val_rms": 1979859.9512782968
+    },
+    {
+      "provenance": "last_gen[72]",
+      "val_rms": 1787620.7588209796
+    },
+    {
+      "provenance": "last_gen[73]",
+      "val_rms": 1763841.2026400564
+    },
+    {
+      "provenance": "last_gen[74]",
+      "val_rms": 1774550.2649871742
+    },
+    {
+      "provenance": "last_gen[75]",
+      "val_rms": 1765305.8938533368
+    },
+    {
+      "provenance": "last_gen[76]",
+      "val_rms": 1795235.0045801187
+    },
+    {
+      "provenance": "last_gen[77]",
+      "val_rms": 1792613.4179116662
+    },
+    {
+      "provenance": "last_gen[78]",
+      "val_rms": 1759124.870156263
+    },
+    {
+      "provenance": "last_gen[79]",
+      "val_rms": 1808744.2407215755
+    },
+    {
+      "provenance": "last_gen[80]",
+      "val_rms": 1771734.4512614056
+    },
+    {
+      "provenance": "last_gen[81]",
+      "val_rms": 1766542.3957877937
+    },
+    {
+      "provenance": "last_gen[82]",
+      "val_rms": 1796476.2469333226
+    },
+    {
+      "provenance": "last_gen[83]",
+      "val_rms": 1786432.6424680182
+    },
+    {
+      "provenance": "last_gen[84]",
+      "val_rms": 1803270.8456879298
+    },
+    {
+      "provenance": "last_gen[85]",
+      "val_rms": 1762354.284339858
+    },
+    {
+      "provenance": "last_gen[86]",
+      "val_rms": 1775409.6423682717
+    },
+    {
+      "provenance": "last_gen[87]",
+      "val_rms": 1789629.7598383755
+    },
+    {
+      "provenance": "last_gen[88]",
+      "val_rms": 1774026.7888606132
+    },
+    {
+      "provenance": "last_gen[89]",
+      "val_rms": 1775267.0485675232
+    },
+    {
+      "provenance": "last_gen[90]",
+      "val_rms": 1778443.6821638278
+    },
+    {
+      "provenance": "last_gen[91]",
+      "val_rms": 1755245.070224798
+    },
+    {
+      "provenance": "last_gen[92]",
+      "val_rms": 1772683.9348450096
+    },
+    {
+      "provenance": "last_gen[93]",
+      "val_rms": 1753142.0618048653
+    },
+    {
+      "provenance": "last_gen[94]",
+      "val_rms": 1779060.1569166426
+    },
+    {
+      "provenance": "last_gen[95]",
+      "val_rms": 1763961.9789304514
+    },
+    {
+      "provenance": "last_gen[96]",
+      "val_rms": 1777342.026600359
+    },
+    {
+      "provenance": "last_gen[97]",
+      "val_rms": 1761061.5564713918
+    },
+    {
+      "provenance": "last_gen[98]",
+      "val_rms": 1762029.1858265602
+    },
+    {
+      "provenance": "last_gen[99]",
+      "val_rms": 1809250.0393794186
+    },
+    {
+      "provenance": "last_gen[100]",
+      "val_rms": 1781472.7389570896
+    },
+    {
+      "provenance": "last_gen[101]",
+      "val_rms": 1763506.3231819994
+    },
+    {
+      "provenance": "last_gen[102]",
+      "val_rms": 1782183.0601533342
+    },
+    {
+      "provenance": "last_gen[103]",
+      "val_rms": 1761870.5308323998
+    },
+    {
+      "provenance": "last_gen[104]",
+      "val_rms": 1772930.465309773
+    },
+    {
+      "provenance": "last_gen[105]",
+      "val_rms": 1757280.32210085
+    },
+    {
+      "provenance": "last_gen[106]",
+      "val_rms": 1764886.2130617315
+    },
+    {
+      "provenance": "last_gen[107]",
+      "val_rms": 1766168.040703197
+    },
+    {
+      "provenance": "last_gen[108]",
+      "val_rms": 1807156.788569232
+    },
+    {
+      "provenance": "last_gen[109]",
+      "val_rms": 1779479.2909852033
+    },
+    {
+      "provenance": "last_gen[110]",
+      "val_rms": 1762744.5821682143
+    },
+    {
+      "provenance": "last_gen[111]",
+      "val_rms": 1766016.2423497094
+    },
+    {
+      "provenance": "last_gen[112]",
+      "val_rms": 1766539.5448038161
+    },
+    {
+      "provenance": "last_gen[113]",
+      "val_rms": 1763612.8400716798
+    },
+    {
+      "provenance": "last_gen[114]",
+      "val_rms": 1779010.6941207196
+    },
+    {
+      "provenance": "last_gen[115]",
+      "val_rms": 1762055.6142327301
+    },
+    {
+      "provenance": "last_gen[116]",
+      "val_rms": 1765593.240966568
+    },
+    {
+      "provenance": "last_gen[117]",
+      "val_rms": 1762164.2556806053
+    },
+    {
+      "provenance": "last_gen[118]",
+      "val_rms": 1762830.0074833136
+    },
+    {
+      "provenance": "last_gen[119]",
+      "val_rms": 1782191.7873133414
+    },
+    {
+      "provenance": "last_gen[120]",
+      "val_rms": 1821318.4537628286
+    },
+    {
+      "provenance": "last_gen[121]",
+      "val_rms": 1815565.4811101172
+    },
+    {
+      "provenance": "last_gen[122]",
+      "val_rms": 1790548.9737748578
+    },
+    {
+      "provenance": "last_gen[123]",
+      "val_rms": 1765643.255689718
+    },
+    {
+      "provenance": "last_gen[124]",
+      "val_rms": 1777254.4151271437
+    },
+    {
+      "provenance": "last_gen[125]",
+      "val_rms": 1766873.6280108972
+    },
+    {
+      "provenance": "last_gen[126]",
+      "val_rms": 1811756.0215952448
+    },
+    {
+      "provenance": "last_gen[127]",
+      "val_rms": 1789027.2928773384
+    },
+    {
+      "provenance": "last_gen[128]",
+      "val_rms": 1790998.1621333603
+    },
+    {
+      "provenance": "last_gen[129]",
+      "val_rms": 1817888.826260614
+    },
+    {
+      "provenance": "last_gen[130]",
+      "val_rms": 1773115.0224171553
+    },
+    {
+      "provenance": "last_gen[131]",
+      "val_rms": 1971959.890352443
+    },
+    {
+      "provenance": "last_gen[132]",
+      "val_rms": 1792654.7873687388
+    },
+    {
+      "provenance": "last_gen[133]",
+      "val_rms": 1762635.935342249
+    },
+    {
+      "provenance": "last_gen[134]",
+      "val_rms": 1802986.3749977688
+    },
+    {
+      "provenance": "last_gen[135]",
+      "val_rms": 1774654.4649568195
+    },
+    {
+      "provenance": "last_gen[136]",
+      "val_rms": 1784913.8850334743
+    },
+    {
+      "provenance": "last_gen[137]",
+      "val_rms": 1771087.0484824516
+    },
+    {
+      "provenance": "last_gen[138]",
+      "val_rms": 1831964.7313630239
+    },
+    {
+      "provenance": "last_gen[139]",
+      "val_rms": 1773688.2100027779
+    },
+    {
+      "provenance": "last_gen[140]",
+      "val_rms": 1767274.202857989
+    },
+    {
+      "provenance": "last_gen[141]",
+      "val_rms": 1773631.9415627725
+    },
+    {
+      "provenance": "last_gen[142]",
+      "val_rms": 1760595.6680077894
+    },
+    {
+      "provenance": "last_gen[143]",
+      "val_rms": 1764605.3008996956
+    },
+    {
+      "provenance": "last_gen[144]",
+      "val_rms": 1827766.5942804285
+    },
+    {
+      "provenance": "last_gen[145]",
+      "val_rms": 1782450.6500034956
+    },
+    {
+      "provenance": "last_gen[146]",
+      "val_rms": 1762717.2948777906
+    },
+    {
+      "provenance": "last_gen[147]",
+      "val_rms": 1770988.8857456706
+    },
+    {
+      "provenance": "last_gen[148]",
+      "val_rms": 1798583.16755952
+    },
+    {
+      "provenance": "last_gen[149]",
+      "val_rms": 1770604.699439972
+    }
+  ]
+}

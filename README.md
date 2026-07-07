@@ -107,7 +107,7 @@ Seven guidance algorithms, all GA-optimizable:
 | **PredGuid** | Apollo/Shuttle-heritage drag tracking | 3 | Requires ref trajectory |
 | **FNPAG** | Lu's numerical predictor-corrector (3D predictor with J2 gravity, RK4) | 5 | Requires ref trajectory |
 
-**Training order:** Run `piecewise_constant` first — it produces `ref_trajectory.dat` (optimized reference) and `corridor_boundaries.npz` (4-layer corridor envelopes from GA population history). Schemes marked "Requires ref trajectory" will error at startup if it's missing.
+**Training order & reference:** Run `piecewise_constant` first for the corridor (`corridor_boundaries.npz`), then generate the mission reference `training_output/mars/ref_trajectory.dat` with the target-energy-matched constant-bank generator (`python -m aerocapture.training.make_reference --toml configs/training/msr_aller_pc_ref_train.toml`) — GA-optimal open-loop profiles under-reach the target energy and make poor tracking references. The ref-tracking training configs point `data.reference_trajectory` at the mission file explicitly (test/nominal configs keep the legacy `data/reference_trajectory/msr_aller.dat`), and `train.py` hard-errors if a ref-tracking scheme's resolved config doesn't. The schemes re-read the file every generation, so never regenerate it mid-training. Optionally, `[reference] joint_bank = true` adds a `ref_bank` gene so each individual trains against its own constant-bank reference (leaf configs exist for ftc, energy_controller, and pred_guid; `./experiments/paper/07_joint_reference.sh` trains all three jointly into `training_output/paper/joint_reference/<scheme>` dirs).
 
 ### NN-vs-FTC Parity Bundle (`nn_joint`)
 
@@ -154,9 +154,10 @@ Training features:
 - Resume with a larger/smaller `[optimizer] n_pop`: the resumed population is grown (keep originals + `grow_fresh_fraction` fresh-random + clone+jitter) or shrunk (best-N), in both the single-algorithm and islands paths
 - `cost_transform` is recorded in checkpoints; changing it on resume re-validates the best under the new metric (single-algo and per-island)
 - Graceful Ctrl+C (saves checkpoint and returns cleanly)
-- Rich TUI with sparklines, ETA, progress bar
+- Rich TUI dashboard: header (scheme · algorithm · gen · pop · resume-aware ETA + progress), Optimization panel (cost/capture/diversity sparklines + population cost histogram), Validation panel (min/p50/p95/max grids for cost, total DV and the DV1/DV2/DV3 burns, constraint violations highlighted)
 - Adaptive MC dispersion seeds (prevents overfitting)
-- Supports GA (SBX + polynomial mutation), CMA-ES, DE, PSO via `--algorithm` or TOML `[optimizer]`
+- Supports GA (SBX + polynomial mutation), CMA-ES, DE, PSO, QPSO (quantum-behaved PSO, velocity-free), and 3-island PSO/GA/DE (`islands`) via `--algorithm` or TOML `[optimizer]`
+- End-of-training final selection: the last generation + running champion are re-ranked on the held-out validation pool and the winner deploys only on strict val-RMS improvement (the deployed model can never get worse; `final_selection.json` records the per-candidate val RMS). The final-eval pool stays report-only, so quoted numbers carry no min-of-N selection bias. Also available retroactively via `python -m aerocapture.training.final_select`
 - PDF report auto-generated at end of training
 
 ```bash
@@ -179,11 +180,18 @@ uv run python -m aerocapture.training.train <config.toml> --no-tui
 uv run python -m aerocapture.training.train \
     configs/training/msr_aller_islands_train.toml \
     --n-gen 2500
+
+# Re-run end-of-training final selection on an existing training dir (retro tool:
+# re-ranks the checkpointed last generation + champion on the validation pool,
+# rewrites best_model.json / best_params.json, patches the checkpoint so resume
+# keeps the re-selected best; --no-checkpoint-patch for a read-only-checkpoint run)
+uv run python -m aerocapture.training.final_select \
+    training_output/equilibrium_glide --toml configs/training/msr_aller_eqglide_train.toml
 ```
 
 ### RL Training (PPO)
 
-Parallel track to the GA for the `neural_network` guidance scheme. PPO-trained policies export to the same `best_model.json` format the GA produces and deploy via the Rust `neural_network` runtime -- `compare_guidance` treats RL as just another scheme (`neural_network_rl`). Supports warm-starting from GA-trained weights (`--data-neural-network`), potential-based phase-aware reward shaping (`r = gamma*Phi(s') - Phi(s)`: corridor tracking + constraint proximity during capture, apoapsis targeting + eccentricity reduction during exit; optimum-preserving per Ng/Harada/Russell 1999), running return and observation normalization (obs normalization baked into exported weights for zero Rust changes), truncation-aware value bootstrap (PPO uses `V(terminal_obs)` on `max_time` timeouts instead of masking them as terminations), and SAC with replay buffer persisted across checkpoint resumes.
+Parallel track to the GA for the `neural_network` guidance scheme. PPO-trained policies export to the same `best_model.json` format the GA produces and deploy via the Rust `neural_network` runtime -- `compare_guidance` treats RL as just another scheme (`neural_network_rl`). Supports warm-starting from GA-trained weights (`--data-neural-network`), potential-based phase-aware reward shaping (`r = gamma*Phi(s') - Phi(s)`: corridor tracking + constraint proximity during capture, apoapsis targeting + eccentricity reduction during exit; optimum-preserving per Ng/Harada/Russell 1999) plus an alternative DV-inferred mode (`[rl.reward] potential = "dv"`) that builds `Phi` from the raw predicted correction delta-v (`predicted_dv_for_nn`, surfaced via the env aux channel) to approximate `-V*` -- used by the dense-PPO `neural_network_atan2_rl` scheme (`configs/training/msr_aller_nn_atan2_ppo_train.toml`), running return and observation normalization (obs normalization baked into exported weights for zero Rust changes), truncation-aware value bootstrap (PPO uses `V(terminal_obs)` on `max_time` timeouts instead of masking them as terminations), and SAC with replay buffer persisted across checkpoint resumes.
 
 ```bash
 # Train PPO from scratch
@@ -210,7 +218,7 @@ uv run python -m aerocapture.training.compare_guidance \
 ./train_all.sh nn_rl
 ```
 
-Architecture: step-able `BatchedSimulation` pyclass (Rayon-parallel per-tick advance over N SimStates, GIL released via `py.detach()`, auto-reset on episode end, `info["truncated"]` surfaced so GAE/SAC distinguish timeouts from terminations). `step()` returns `(obs, reward, done, info, aux)` where `aux` provides `(energy, pdyn)` per env for the capture-phase energy component. CleanRL-style PPO/SAC in `src/python/aerocapture/training/rl/`: PyTorch MLP with GA warm-start via `load_weights_from_json()`, `StepRewardCalculator` for potential-based phase-aware shaping, `ReturnNormalizer` + `ObsNormalizer` (vectorized Chan's parallel Welford), reserved-seed validation gate, graceful Ctrl+C, final MC evaluation summary, three-part PDF report. PPO supports `target_kl` early-stop and per-step return normalization for stable advantages. SAC's critic operates on the 2D Gaussian latent (`atan2(raw[0], raw[1])` still drives the env), with the replay buffer included in `checkpoint.pt` for full-state resume.
+Architecture: step-able `BatchedSimulation` pyclass (Rayon-parallel per-tick advance over N SimStates, GIL released via `py.detach()`, auto-reset on episode end, `info["truncated"]` surfaced so GAE/SAC distinguish timeouts from terminations). `step()` returns `(obs, reward, done, info, aux)` where `aux` provides `(energy, pdyn, dv1, dv2, dv3)` per env (energy for the phase-aware capture term; the 3 raw-m/s predicted-DV components for the `potential = "dv"` reward mode). CleanRL-style PPO/SAC in `src/python/aerocapture/training/rl/`: PyTorch MLP with GA warm-start via `load_weights_from_json()`, `StepRewardCalculator` for potential-based phase-aware shaping, `ReturnNormalizer` + `ObsNormalizer` (vectorized Chan's parallel Welford), reserved-seed validation gate, graceful Ctrl+C, final MC evaluation summary, three-part PDF report. PPO supports `target_kl` early-stop and per-step return normalization for stable advantages. SAC's critic operates on the 2D Gaussian latent (`atan2(raw[0], raw[1])` still drives the env), with the replay buffer included in `checkpoint.pt` for full-state resume.
 
 CLI flags: `--algorithm {ppo|sac}`, `--total-steps`, `--n-envs`, `--rollout-steps`, `--validation-n-sims`, `--validation-interval-updates`, `--data-neural-network`, `--from-scratch`, `--learning-rate`, `--clip-range`, `--entropy-coef`, `--min-log-std`, `--update-epochs`, `--lr-anneal-start`, `--target-kl`, `--no-tui`, `--skip-report`, `--resume`, `--output-dir`. `--from-scratch` and `--data-neural-network` are mutually exclusive. Full spec at `docs/superpowers/specs/2026-04-15-rl-nn-guidance-design.md`.
 

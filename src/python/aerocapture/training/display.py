@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
     from rich.console import ConsoleRenderable
     from rich.live import Live
+    from rich.panel import Panel
+    from rich.text import Text
 
     from aerocapture.training.logger import TrainingLogger
 
@@ -27,7 +29,9 @@ def _sparkline(values: list[float], width: int = 30) -> str:
         return " " * width
     vals = values[-width:]
     lo, hi = min(vals), max(vals)
-    span = hi - lo if hi > lo else 1.0
+    if hi <= lo:
+        return "▄" * len(vals)  # flat series: midline, not blanks
+    span = hi - lo
     return "".join(_SPARK_CHARS[min(int((v - lo) / span * 8), 8)] for v in vals)
 
 
@@ -36,56 +40,157 @@ def _format_cost(value: float) -> str:
     return f"{value:.4e}"
 
 
-def _format_validation_summary(summary: dict, indent: str = "  ") -> list[str]:
-    """Compact one-line-per-metric rendering of `compute_eval_summary` for TUI.
+def _cost_histogram(all_costs: list[float], bins: int = 16) -> tuple[str, str]:
+    """Log-binned histogram of a population's costs as (glyphs, dim caption).
 
-    Mirrors `report.format_eval_summary` but inlines the formatter to keep
-    display.py free of the matplotlib-heavy report import path.
+    Empty bins render as a middle dot so gaps in the distribution stay
+    visible; non-finite entries (inf/NaN sim failures) are counted in the
+    caption rather than binned.
+    """
+    import math  # noqa: PLC0415
+
+    finite = sorted(c for c in all_costs if math.isfinite(c) and c > 0.0)
+    n_nonfinite = sum(1 for c in all_costs if not math.isfinite(c))
+    inf_suffix = f"  ∞×{n_nonfinite}" if n_nonfinite else ""
+    if not finite:
+        return "", f"no finite costs{inf_suffix}".strip()
+    lo, hi = finite[0], finite[-1]
+    if hi <= lo:
+        return "█" + "·" * (bins - 1), f"{lo:.0e} log{inf_suffix}"
+    log_lo, log_hi = math.log10(lo), math.log10(hi)
+    counts = [0] * bins
+    for c in finite:
+        idx = min(int((math.log10(c) - log_lo) / (log_hi - log_lo) * bins), bins - 1)
+        counts[idx] += 1
+    peak = max(counts)
+    glyphs = "".join("·" if n == 0 else _SPARK_CHARS[max(1, min(int(n / peak * 8), 8))] for n in counts)
+    return glyphs, f"{lo:.0e}→{hi:.0e} log{inf_suffix}"
+
+
+def _rate_and_eta(gen: int, start_gen: int, n_gen: int, elapsed: float) -> tuple[float, float]:
+    """(gens/sec, remaining seconds) — resume-aware, mirrors the islands header math."""
+    rate = (gen - start_gen) / elapsed if elapsed > 0 and gen > start_gen else 0.0
+    remaining_gens = max(n_gen - gen, 0)
+    remaining = remaining_gens / rate if rate > 0 else float("inf")
+    return rate, remaining
+
+
+def _progress_line(gen: int, n_gen: int, width: int = 50) -> Text:
+    """Styled ━/╸ progress bar line (blue filled, dim remainder, bold percent)."""
+    from rich.text import Text  # noqa: PLC0415
+
+    progress = min(max(gen / n_gen, 0.0), 1.0) if n_gen > 0 else 0.0
+    filled = int(progress * width)
+    t = Text()
+    if filled > 0:
+        t.append("━" * (filled - 1) + "╸", style="blue")
+    t.append("━" * (width - filled), style="dim")
+    t.append(f" {progress:.0%}", style="bold")
+    return t
+
+
+# Numeric grid columns for the validation/final-eval stats panels. 3sig = p99.87
+# (the propellant-sizing design-case tail) sits between p95 and max.
+_GRID_KEYS = ("min", "p50", "p95", "s3sigma", "max")
+_GRID_HEADER = ["min", "p50", "p95", "3σ", "max"]
+_N_GRID = len(_GRID_KEYS)
+
+
+def _validation_summary_rows(summary: dict) -> list[tuple[str, list[str], str]]:
+    """Shape a `compute_eval_summary` payload into (label, cells, style) rows.
+
+    Consumed by the single-algo Validation panel (as a Table.grid) and the
+    islands per-island detail panels (as text lines). Style is a row-level
+    Rich style hint: "" | "dim" | "red" | "yellow" | "green".
     """
     nan = float("nan")
-
-    def _stat_line(label: str, block: dict, fmt: str, *, with_mean: bool = True) -> str:
-        p50 = fmt.format(block.get("p50", nan))
-        p95 = fmt.format(block.get("p95", nan))
-        tail = f"  mean={fmt.format(block.get('mean', nan))}" if with_mean else f"  RMS={fmt.format(block.get('rms', nan))}"
-        return f"{indent}{label}: p50={p50}  p95={p95}{tail}"
-
     n_sims = summary.get("n_sims", 0)
     n_cap = summary.get("n_captured", 0)
+    pct = 100.0 * n_cap / max(n_sims, 1)
+    rows: list[tuple[str, list[str], str]] = []
+    cap_style = "red" if n_cap == 0 else ("green" if pct >= 95.0 else "")
+    rows.append(("Cap", [f"{n_cap}/{n_sims} ({pct:.1f}%)"], cap_style))
+    rows.append(("", list(_GRID_HEADER), "dim"))
+
+    def _grid(block: dict, fmt: str = "{:.1f}") -> list[str]:
+        return [fmt.format(block.get(k, nan)) for k in _GRID_KEYS]
+
     cost = summary.get("cost", {}) or {}
-    lines = [
-        f"Validation ({n_sims} sims)",
-        _stat_line("Cost       ", cost, "{:.1f}", with_mean=False),
-        f"{indent}Capture:      {n_cap}/{n_sims} ({100 * n_cap / max(n_sims, 1):.1f}%)",
-    ]
-    cap = summary.get("captured")
-    if cap:
-        lines.extend(
-            [
-                _stat_line("DV (m/s)   ", cap.get("dv", {}), "{:.1f}"),
-                _stat_line("Apo (km)   ", cap.get("apoapsis", {}), "{:.1f}"),
-                _stat_line("Peri (km)  ", cap.get("periapsis", {}), "{:.1f}"),
-                _stat_line("Incl (deg) ", cap.get("inclination", {}), "{:.2f}"),
-            ]
-        )
+    cost_style = "yellow" if cost.get("max", 0.0) > 10.0 * cost.get("p95", float("inf")) else ""
+    rows.append(("Cost", _grid(cost), cost_style))
+    cap_block = summary.get("captured")
+    if cap_block:
+        rows.append(("DV", _grid(cap_block.get("dv", {})), ""))
+        for i in (1, 2, 3):
+            rows.append((f"DV{i}", _grid(cap_block.get(f"dv{i}", {})), "dim"))
+        apo = cap_block.get("apoapsis", {})
+        rows.append(("Apo", [f"p50 {apo.get('p50', nan):.1f} · p95 {apo.get('p95', nan):.1f} km"], ""))
+    else:
+        rows.append(("DV", ["—"], "dim"))
     con = summary.get("constraints", {}) or {}
-
-    def _con_line(label: str, block: dict | None, val_fmt: str, lim_fmt: str) -> str:
+    for label, key, val_fmt, lim_fmt in (
+        ("Q", "heat_flux", "{:.1f}", "{:.0f}"),
+        ("G", "g_load", "{:.2f}", "{:.1f}"),
+        ("HL", "heat_load", "{:.0f}", "{:.0f}"),
+    ):
+        block = con.get(key)
         if block is None:
-            return f"{indent}{label}: n/a"
-        suffix = ""
+            rows.append((label, ["n/a"], "dim"))
+            continue
+        cells = [f"max {val_fmt.format(block.get('max', nan))}"]
+        style = ""
         if block.get("limit") is not None and block.get("viol_pct") is not None:
-            suffix = f"  {block['viol_pct']:.1f}% > {lim_fmt.format(block['limit'])}"
-        return (
-            f"{indent}{label}: p50={val_fmt.format(block.get('p50', float('nan')))}  "
-            f"p95={val_fmt.format(block.get('p95', float('nan')))}  "
-            f"max={val_fmt.format(block.get('max', float('nan')))}{suffix}"
-        )
+            cells.append(f"{block['viol_pct']:.1f}% > {lim_fmt.format(block['limit'])}")
+            style = "red" if block["viol_pct"] > 0 else "dim"
+        rows.append((label, cells, style))
+    return rows
 
-    lines.append(_con_line("Q (kW/m²) ", con.get("heat_flux"), "{:.1f}", "{:.0f}"))
-    lines.append(_con_line("G (g)     ", con.get("g_load"), "{:.2f}", "{:.1f}"))
-    lines.append(_con_line("HL (kJ/m²)", con.get("heat_load"), "{:.0f}", "{:.0f}"))
-    return lines
+
+def _rows_to_text(summary: dict) -> Text:
+    """Render summary rows as styled text lines (the islands detail panels)."""
+    from rich.text import Text  # noqa: PLC0415
+
+    text = Text(f"Validation ({summary.get('n_sims', 0)} sims)\n")
+    for label, cells, style in _validation_summary_rows(summary):
+        # Numeric grid rows (min/p50/p95/3σ/max header + value rows) get
+        # right-aligned fixed-width cells so columns line up; non-grid rows
+        # (Cap/Apo/Q/G/HL) keep loose spacing.
+        body = "  ".join(f"{c:>8}" for c in cells) if len(cells) == _N_GRID else "   ".join(cells)
+        text.append(f"  {label:<5} " + body + "\n", style=style or None)
+    return text
+
+
+def _summary_renderables(summary: dict) -> list[ConsoleRenderable]:
+    """Render a validation summary for a dashboard panel. Split the rows: the
+    4-cell numeric rows (min/p50/p95/max header + Cost/DV/DV1-3) go into a tight
+    right-aligned Table.grid; the 1-2 cell rows (Cap/Apo/Q/G/HL) render as styled
+    Text lines above/below so they don't inflate the grid's first numeric column.
+    """
+    from rich.table import Table  # noqa: PLC0415
+    from rich.text import Text  # noqa: PLC0415
+
+    parts: list[ConsoleRenderable] = []
+    rows = _validation_summary_rows(summary)
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column()
+    for _ in range(_N_GRID):
+        grid.add_column(justify="right")
+    grid_added = False
+    for label, cells, row_style in rows:
+        if len(cells) != _N_GRID:
+            continue
+        grid.add_row(*(Text(c, style=row_style or "") for c in [label, *cells]))
+        grid_added = True
+    for label, cells, row_style in rows:
+        if len(cells) == _N_GRID:
+            if grid_added:
+                parts.append(grid)
+                grid_added = False
+            continue
+        parts.append(Text(f"{label:<5} " + "   ".join(cells), style=row_style or ""))
+    if grid_added:  # no 1-2 cell rows after the grid (degenerate summary)
+        parts.append(grid)
+    return parts
 
 
 def _format_duration(seconds: float) -> str:
@@ -104,6 +209,8 @@ def _format_duration(seconds: float) -> str:
 class DisplayProtocol(Protocol):
     """Protocol for training display (allows NoopDisplay as substitute)."""
 
+    is_live: bool
+
     def update(self, logger: TrainingLogger, current_run: int, island_records: dict[str, dict] | None = None) -> None: ...
     def stop(self) -> None: ...
     def set_start_gen(self, start_gen: int) -> None: ...
@@ -112,7 +219,13 @@ class DisplayProtocol(Protocol):
 
 
 class NoopDisplay:
-    """No-op display for non-interactive terminals or --no-tui mode."""
+    """No-op display for non-interactive terminals or --no-tui mode.
+
+    `is_live = False` tells the training loop to fall back to plain per-gen
+    heartbeat prints (the TUI dashboard otherwise leaves headless runs silent).
+    """
+
+    is_live = False
 
     def update(self, logger: TrainingLogger, current_run: int, island_records: dict[str, dict] | None = None) -> None:
         pass
@@ -133,10 +246,15 @@ class NoopDisplay:
 class LiveDisplay:
     """Rich Live TUI for training progress."""
 
-    def __init__(self, scheme: str, n_runs: int, n_generations: int) -> None:
+    is_live = True
+
+    def __init__(self, scheme: str, n_runs: int, n_generations: int, algorithm: str = "", seed_strategy: str = "", training_n_sims: int | None = None) -> None:
         self._scheme = scheme
+        self._algorithm = algorithm
         self._n_runs = n_runs
         self._n_gens = n_generations
+        self._seed_strategy = seed_strategy
+        self._training_n_sims = training_n_sims
         self._live: Live | None = None
         self._start_time: float | None = None
         self._start_gen: int = 0
@@ -144,51 +262,126 @@ class LiveDisplay:
     def set_start_gen(self, start_gen: int) -> None:
         self._start_gen = start_gen
 
-    def _build_panel(self, logger: TrainingLogger, current_run: int) -> ConsoleRenderable:
-        """Build a Rich Panel from logger buffer."""
-        import time
+    def _build_header(self, gen: int, pop: int | None, elapsed: float) -> Panel:
+        from rich.console import Group  # noqa: PLC0415
+        from rich.panel import Panel  # noqa: PLC0415
+        from rich.text import Text  # noqa: PLC0415
 
-        from rich.panel import Panel
-        from rich.text import Text
+        rate, remaining = _rate_and_eta(gen, self._start_gen, self._n_gens, elapsed)
+        t = Text()
+        t.append(self._scheme, style="bold")
+        if self._algorithm:
+            t.append(" \u00b7 ", style="dim")
+            t.append(self._algorithm, style="bold")
+        t.append("  \u2502  Gen ", style="dim")
+        t.append(str(gen), style="bold")
+        t.append(f"/{self._n_gens}", style="dim")
+        if pop is not None:
+            t.append("  \u2502  pop ", style="dim")
+            t.append(str(pop), style="bold")
+        if gen > self._start_gen:
+            t.append(f"  \u2502  elapsed {_format_duration(elapsed)}  \u2502  {rate:.2f} gen/s  \u2502  ETA ", style="dim")
+            t.append(_format_duration(remaining), style="bold")
+        return Panel(Group(t, _progress_line(gen, self._n_gens)), border_style="green")
 
-        buf = logger.buffer
-        if not buf:
-            return Panel("Waiting for first generation...", title=self._scheme)
-
-        if self._start_time is None:
-            self._start_time = time.monotonic()
+    def _build_optimization_panel(self, buf: list[dict]) -> Panel:
+        from rich.console import Group  # noqa: PLC0415
+        from rich.panel import Panel  # noqa: PLC0415
+        from rich.table import Table  # noqa: PLC0415
+        from rich.text import Text  # noqa: PLC0415
 
         latest = buf[-1]
-        gen = latest["generation"]
+        grid = Table.grid(padding=(0, 2))
+        grid.add_column()
+        grid.add_column(justify="right")
+        grid.add_column()
+        grid.add_row("Best", Text(_format_cost(latest["best_cost"]), style="bold"), Text(_sparkline([r["best_cost"] for r in buf]), style="cyan"))
+        grid.add_row("Mean", _format_cost(latest["mean_cost"]), Text(_sparkline([r["mean_cost"] for r in buf]), style="cyan"))
+        if latest.get("worst_cost") is not None:
+            grid.add_row("Worst", _format_cost(latest["worst_cost"]), Text(f"\u03c3 {latest.get('std_cost', float('nan')):.1e}", style="dim"))
+        grid.add_row("Capture", Text(f"{latest['capture_rate']:.0%}", style="green"), Text(_sparkline([r["capture_rate"] for r in buf]), style="green"))
+        grid.add_row("Divers", f"{latest['population_diversity']:.2f}", Text(_sparkline([r["population_diversity"] for r in buf]), style="magenta"))
+        all_costs = latest.get("all_costs")
+        if all_costs:
+            glyphs, caption = _cost_histogram(all_costs)
+            grid.add_row("Pop cost", Text(glyphs, style="blue"), Text(caption, style="dim"))
+        pool = latest.get("pool_metrics") or {}
+        if self._seed_strategy:
+            n_prefix = f"n {self._training_n_sims} \u00b7 " if self._training_n_sims is not None else ""
+            if self._seed_strategy == "adaptive":
+                detail = f"{n_prefix}refreshed g{pool['last_curation_gen']}" if pool.get("last_curation_gen") is not None else f"{n_prefix}no curation yet"
+            elif self._seed_strategy == "rotating":
+                detail = f"{n_prefix}fresh every gen"
+            else:
+                detail = f"{n_prefix}deterministic"
+            grid.add_row("Seeds", self._seed_strategy, Text(detail, style="dim"))
+        bits = []
+        if latest.get("gen_elapsed_s") is not None:
+            bits.append(f"gen wall {latest['gen_elapsed_s']:.2f}s")
+        if not self._seed_strategy and pool.get("last_curation_gen") is not None:
+            bits.append(f"pool refresh g{pool['last_curation_gen']}")
+        body: ConsoleRenderable = Group(grid, Text(" \u00b7 ".join(bits), style="dim")) if bits else grid
+        return Panel(body, title="Optimization", border_style="cyan")
 
-        best_costs = [r["best_cost"] for r in buf]
-        mean_costs = [r["mean_cost"] for r in buf]
-        cap_rates = [r["capture_rate"] for r in buf]
-        diversities = [r["population_diversity"] for r in buf]
+    def _build_validation_panels(self, buf: list[dict]) -> list[Panel]:
+        """[Last validation, Best validation] panels \u2014 the Last panel is framed
+        green when it became the new best (promoted) and red otherwise; the Best
+        panel is a grey-framed reminder of the best stats seen so far."""
+        from rich.panel import Panel  # noqa: PLC0415
+        from rich.text import Text  # noqa: PLC0415
 
-        lines = []
-        lines.append(f"Best cost  {_format_cost(latest['best_cost']):>10s}  {_sparkline(best_costs)}")
-        lines.append(f"Mean cost  {_format_cost(latest['mean_cost']):>10s}  {_sparkline(mean_costs)}")
-        lines.append(f"Capture    {latest['capture_rate']:>9.0%}  {_sparkline(cap_rates)}")
-        lines.append(f"Diversity  {latest['population_diversity']:>9.2f}  {_sparkline(diversities)}")
-        lines.append("")
+        best_val_r, last_val_r = self._scan_validation_records(buf)
+        if last_val_r is None and best_val_r is None:
+            placeholder = Text("waiting for first validation\u2026\n", style="dim")
+            placeholder.append("(gate fires when the gen-best individual changes)", style="dim")
+            return [Panel(placeholder, title="Validation", border_style="green")]
 
-        # Progress bar
-        progress = gen / self._n_gens
-        bar_width = 40
-        filled = int(progress * bar_width)
-        bar = "\u2588" * filled + "\u2591" * (bar_width - filled)
-        eta_str = ""
-        if self._start_time is not None and progress > 0:
-            elapsed = time.monotonic() - self._start_time
-            remaining = elapsed / progress * (1 - progress)
-            mins, secs = divmod(int(remaining), 60)
-            eta_str = f"  ETA {mins}m {secs:02d}s"
-        lines.append(f"{bar}  {progress:.0%}{eta_str}")
-        lines.append("")
+        panels: list[Panel] = []
+        if last_val_r is not None:
+            promoted = bool(last_val_r.get("improvement"))
+            headline = Text(f"RMS {_format_cost(last_val_r['validation']['rms_cost'])}  ")
+            headline.append("PROMOTED" if promoted else "REJECTED", style="green" if promoted else "yellow")
+            headline.append(f"  g{last_val_r['generation']}", style="dim")
+            panels.append(
+                self._validation_detail_panel(
+                    last_val_r,
+                    headline=headline,
+                    title_prefix="Last validation",
+                    border_style="green" if promoted else "red",
+                )
+            )
+        if best_val_r is not None:
+            headline = Text("")
+            headline.append(f"RMS {_format_cost(best_val_r['validation']['rms_cost'])}", style="green")
+            headline.append(f"  g{best_val_r['generation']}", style="dim")
+            panels.append(
+                self._validation_detail_panel(
+                    best_val_r,
+                    headline=headline,
+                    title_prefix="Best validation",
+                    border_style="grey50",
+                )
+            )
+        return panels
 
-        # Validation metrics: show the most recent validation attempt and the
-        # best-ever validated candidate (permanent).
+    @staticmethod
+    def _validation_detail_panel(record: dict, *, headline: Text, title_prefix: str, border_style: str) -> Panel:
+        from rich.console import Group  # noqa: PLC0415
+        from rich.panel import Panel  # noqa: PLC0415
+
+        # parts: list[ConsoleRenderable] avoids mypy issues with Group(*parts) when
+        # the union is Text | Table (both satisfy ConsoleRenderable).
+        parts: list[ConsoleRenderable] = [headline]
+        title = f"{title_prefix} (g{record['generation']})"
+        summary = record.get("validation_summary")
+        if summary:
+            title = f"{title_prefix} ({summary.get('n_sims', 0)} sims \u00b7 g{record['generation']})"
+            parts.extend(_summary_renderables(summary))
+        return Panel(Group(*parts), title=title, border_style=border_style)
+
+    @staticmethod
+    def _scan_validation_records(buf: list[dict]) -> tuple[dict | None, dict | None]:
+        """(best_val_record, last_val_record) by min rms / max generation."""
         best_val_r: dict | None = None
         last_val_r: dict | None = None
         for r in buf:
@@ -201,44 +394,71 @@ class LiveDisplay:
                 continue
             if best_val_r is None or rms < best_val_r["validation"].get("rms_cost", float("inf")):
                 best_val_r = r
-        if last_val_r is not None and last_val_r is not best_val_r:
-            lv = last_val_r["validation"]
-            outcome = "PROMOTED" if last_val_r.get("improvement") else "REJECTED"
-            rms_str = _format_cost(lv["rms_cost"]) if lv.get("rms_cost") is not None else "n/a"
-            lines.append(f"Last val  g{last_val_r['generation']}: RMS={rms_str} cap={lv['capture_rate']:.0%} -> {outcome}")
-        if best_val_r is not None:
-            bv = best_val_r["validation"]
-            lines.append(
-                f"Best val  g{best_val_r['generation']}: RMS={_format_cost(bv['rms_cost'])} "
-                f"mean={_format_cost(bv['mean_cost'])} p95={_format_cost(bv['p95_cost'])} cap={bv['capture_rate']:.0%}"
-            )
-        # Rich validation dashboard from `compute_eval_summary`. Prefer the
-        # most-recently-collected summary so the operator sees current shape
-        # (DV / apoapsis / heat-flux / g-load) rather than the historical best.
-        detail_src = last_val_r if last_val_r is not None and last_val_r.get("validation_summary") else best_val_r
-        if detail_src is not None and detail_src.get("validation_summary"):
-            lines.append("")
-            lines.append(f"-- Validation detail (g{detail_src['generation']}) --")
-            lines.extend(_format_validation_summary(detail_src["validation_summary"]))
+        return best_val_r, last_val_r
 
-        # Stagnation
-        improvements = [i for i, r in enumerate(buf) if r["improvement"]]
+    def _build_footer(self, buf: list[dict]) -> Text:
+        from rich.text import Text  # noqa: PLC0415
+
+        latest = buf[-1]
+        gen = latest["generation"]
+        t = Text(" ")
+        improvements = [r["generation"] for r in buf if r.get("improvement")]
         if improvements:
-            last_imp_gen = buf[improvements[-1]]["generation"]
-            stag = gen - last_imp_gen
+            last_imp = improvements[-1]
+            stag = gen - last_imp
             if stag > 0:
-                lines.append(f"Stagnant for {stag} gens \u00b7 Last improvement: gen {last_imp_gen}")
+                t.append(f"Stagnant {stag} gens", style="yellow")
+            else:
+                t.append("Improved this gen", style="green")
+            t.append(f" \u00b7 improved g{last_imp}", style="dim")
         else:
-            lines.append("No improvement yet")
-
-        # Best params
+            t.append("No improvement yet", style="yellow")
         params = latest.get("best_params")
-        if params is not None:
-            param_str = ", ".join(f"{k}: {v:.4g}" for k, v in params.items())
-            lines.append(f"Best params: {{{param_str}}}")
+        if params:
+            if self._scheme == "neural_network":
+                t.append(f" \u00b7 {len(params)} NN params (best_model.json)", style="dim")
+            else:
+                items = list(params.items())
+                preview = ", ".join(f"{k} {v:.4g}" for k, v in items[:3])
+                more = f" (+{len(items) - 3} more)" if len(items) > 3 else ""
+                t.append(f" \u00b7 best: {preview}{more}", style="dim")
+        return t
 
-        title = f"{self._scheme} \u00b7 Run {current_run + 1}/{self._n_runs} \u00b7 Gen {gen}/{self._n_gens}"
-        return Panel(Text("\n".join(lines)), title=title)
+    def _build_dashboard(self, logger: TrainingLogger, current_run: int) -> ConsoleRenderable:
+        import time  # noqa: PLC0415
+
+        from rich.console import Group  # noqa: PLC0415
+        from rich.table import Table  # noqa: PLC0415
+        from rich.text import Text  # noqa: PLC0415
+
+        if self._start_time is None:
+            self._start_time = time.monotonic()
+        buf = logger.buffer
+        if not buf:
+            return Group(self._build_header(gen=self._start_gen, pop=None, elapsed=0.0), Text(" Waiting for first generation\u2026", style="dim"))
+        latest = buf[-1]
+        gen = latest["generation"]
+        pop = len(latest["all_costs"]) if latest.get("all_costs") else None
+        elapsed = time.monotonic() - self._start_time
+        # Header and Optimization span the full console width; the two
+        # validation panels share that same width 50/50 in a row below
+        # (an expand=True grid \u2014 Columns would shrink-wrap instead).
+        panels = self._build_validation_panels(buf)
+        validation_row: ConsoleRenderable
+        if len(panels) == 2:
+            row = Table.grid(expand=True)
+            row.add_column(ratio=1)
+            row.add_column(ratio=1)
+            row.add_row(*panels)
+            validation_row = row
+        else:
+            validation_row = panels[0]
+        return Group(
+            self._build_header(gen, pop, elapsed),
+            self._build_optimization_panel(buf),
+            validation_row,
+            self._build_footer(buf),
+        )
 
     def _update_islands(
         self,
@@ -257,18 +477,14 @@ class LiveDisplay:
             return
 
         # Header: gen X/N | elapsed | rate | ETA. Uses `time.monotonic`
-        # consistently with `_build_panel` so a LiveDisplay reused across
+        # consistently with `_build_dashboard` so a LiveDisplay reused across
         # both paths can't mix epochs from two distinct clocks.
         gen = int(island_records.get("_gen", 0))  # type: ignore[arg-type]
         n_gen = int(island_records.get("_n_gen", self._n_gens))  # type: ignore[arg-type]
         if self._start_time is None:
             self._start_time = time.monotonic()
         elapsed = time.monotonic() - self._start_time
-        rate = (gen - self._start_gen) / elapsed if elapsed > 0 and gen > self._start_gen else 0.0
-        # Cap the remaining-gen count at 0 so an overshoot resume (gen >
-        # n_gen) doesn't render a negative duration.
-        remaining_gens = max(n_gen - gen, 0)
-        remaining = remaining_gens / rate if rate > 0 else float("inf")
+        rate, remaining = _rate_and_eta(gen, self._start_gen, n_gen, elapsed)
         header_text = f"Gen {gen}/{n_gen}  elapsed {_format_duration(elapsed)}  rate {rate:.2f} gens/s  ETA {_format_duration(remaining)}"
         header = Panel(Text(header_text, style="bold"), title="Islands training", border_style="green")
 
@@ -338,8 +554,7 @@ class LiveDisplay:
             island_summary: dict | None = (island_records.get(name) or {}).get("val_summary")
             if not island_summary:
                 continue
-            detail_lines = _format_validation_summary(island_summary)
-            detail_panels.append(Panel(Text("\n".join(detail_lines)), title=f"{name.upper()} validation", border_style="green"))
+            detail_panels.append(Panel(_rows_to_text(island_summary), title=f"{name.upper()} validation", border_style="green"))
 
         group = Group(header, Columns(panels), Columns(detail_panels), mig_panel) if detail_panels else Group(header, Columns(panels), mig_panel)
         self._live.update(group)
@@ -351,8 +566,7 @@ class LiveDisplay:
         if island_records is not None:
             self._update_islands(logger, island_records)
             return
-        panel = self._build_panel(logger, current_run)
-        self._live.update(panel)
+        self._live.update(self._build_dashboard(logger, current_run))
 
     def stop(self) -> None:
         """Stop the Live display (for clean interrupt output)."""
@@ -372,8 +586,19 @@ class LiveDisplay:
             self._live = None
 
 
-def create_display(scheme: str, n_runs: int, n_generations: int, *, enabled: bool = True) -> LiveDisplay | NoopDisplay:
+def create_display(
+    scheme: str,
+    n_runs: int,
+    n_generations: int,
+    *,
+    enabled: bool = True,
+    algorithm: str = "",
+    seed_strategy: str = "",
+    training_n_sims: int | None = None,
+) -> LiveDisplay | NoopDisplay:
     """Factory: returns LiveDisplay if enabled and terminal is interactive, else NoopDisplay."""
     if not enabled or not sys.stdout.isatty():
         return NoopDisplay()
-    return LiveDisplay(scheme=scheme, n_runs=n_runs, n_generations=n_generations)
+    return LiveDisplay(
+        scheme=scheme, n_runs=n_runs, n_generations=n_generations, algorithm=algorithm, seed_strategy=seed_strategy, training_n_sims=training_n_sims
+    )

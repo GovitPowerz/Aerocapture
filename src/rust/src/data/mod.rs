@@ -280,6 +280,26 @@ impl SimData {
             initial_aoa: e.initial_aoa * DEG2RAD,
         };
 
+        // Reference trajectory: reuse the shared table ONLY when this config asks
+        // for the same source it was loaded from. run_grid patches
+        // `data.reference_trajectory` per individual (joint ref_bank gene) —
+        // silently reusing the base table made the gene a no-op in training and
+        // validation while deploy/report evaluated against the winner's own table.
+        let desired_ref_path: Option<&String> = if config.reference_trajectory {
+            None
+        } else {
+            toml.data.reference_trajectory.as_ref()
+        };
+        let ref_trajectory: Arc<guidance_params::ReferenceTrajectory> =
+            if desired_ref_path == shared.ref_trajectory_path.as_ref() {
+                shared.ref_trajectory.clone()
+            } else {
+                match desired_ref_path {
+                    Some(path) => Arc::new(guidance_params::ReferenceTrajectory::load(path)?),
+                    None => Arc::new(guidance_params::ReferenceTrajectory::default()),
+                }
+            };
+
         // Aerodynamics (body-axis Ca/Cn → stability-axis Cx/Cz)
         let alfaeq = a.equilibrium_aoa * DEG2RAD;
         let n_aero = a.points.len();
@@ -423,6 +443,7 @@ impl SimData {
                 bank_min_deg: p.bank_min_deg,
                 bank_max_high_deg: p.bank_max_high_deg,
                 bank_max_low_deg: p.bank_max_low_deg,
+                replan_period: p.replan_period,
             }
         } else {
             guidance_params::FnpagParams::default()
@@ -506,7 +527,7 @@ impl SimData {
                 pressure_coeff_scale_height: ftc.pressure_coeff_scale_height,
                 gain_fade_start_km: ftc.gain_fade_start_km,
                 gain_fade_end_km: ftc.gain_fade_end_km,
-                ref_trajectory: shared.ref_trajectory.clone(),
+                ref_trajectory: ref_trajectory.clone(),
                 eq_glide: eq_glide_params.clone(),
                 energy_ctrl: energy_ctrl_params.clone(),
                 pred_guid: pred_guid_params.clone(),
@@ -574,7 +595,7 @@ impl SimData {
                 pressure_coeff_scale_height: 6.9,
                 gain_fade_start_km: 80.0,
                 gain_fade_end_km: 100.0,
-                ref_trajectory: shared.ref_trajectory.clone(),
+                ref_trajectory: ref_trajectory.clone(),
                 eq_glide: eq_glide_params,
                 energy_ctrl: energy_ctrl_params,
                 pred_guid: pred_guid_params,
@@ -844,6 +865,12 @@ pub struct SharedTables {
     pub atmosphere: Arc<atmosphere::AtmosphereModel>,
     pub wind_table: Option<Arc<winds::WindTable>>,
     pub ref_trajectory: Arc<guidance_params::ReferenceTrajectory>,
+    /// Path `ref_trajectory` was loaded from (`None` when it is the empty
+    /// default: reference-generating run or no path configured). Lets
+    /// `from_toml_with_tables` detect a per-individual
+    /// `data.reference_trajectory` override (joint ref_bank) and reload
+    /// instead of silently reusing the base table.
+    pub ref_trajectory_path: Option<String>,
 }
 
 impl SharedTables {
@@ -863,19 +890,29 @@ impl SharedTables {
             None => None,
         };
 
-        let ref_trajectory = Arc::new(if !config.reference_trajectory {
+        let (ref_trajectory, ref_trajectory_path) = if !config.reference_trajectory {
             match toml.data.reference_trajectory {
-                Some(ref path) => guidance_params::ReferenceTrajectory::load(path)?,
-                None => guidance_params::ReferenceTrajectory::default(),
+                Some(ref path) => (
+                    Arc::new(guidance_params::ReferenceTrajectory::load(path)?),
+                    Some(path.clone()),
+                ),
+                None => (
+                    Arc::new(guidance_params::ReferenceTrajectory::default()),
+                    None,
+                ),
             }
         } else {
-            guidance_params::ReferenceTrajectory::default()
-        });
+            (
+                Arc::new(guidance_params::ReferenceTrajectory::default()),
+                None,
+            )
+        };
 
         Ok(Self {
             atmosphere,
             wind_table,
             ref_trajectory,
+            ref_trajectory_path,
         })
     }
 }
@@ -1412,6 +1449,58 @@ flight_path_angle = 0.5
         assert_eq!(
             r0, r1,
             "shared-tables run must be bit-identical to from_toml"
+        );
+    }
+
+    #[test]
+    fn shared_tables_honor_per_individual_reference_override() {
+        // run_grid patches `data.reference_trajectory` per individual (the joint
+        // ref_bank gene) while sharing the base tables. from_toml_with_tables must
+        // reload the table when the patched config points elsewhere — silently
+        // keeping the base table made the joint gene a no-op in training and
+        // validation while the deploy/report paths used the winner's own table.
+        use crate::config::SimInput;
+        use std::path::Path;
+
+        let repo_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("canonicalize repo root");
+        std::env::set_current_dir(&repo_root).expect("set cwd to repo root");
+
+        // test_guided_orig.toml has `reference_trajectory = false` so the shared
+        // build actually LOADS the msr_aller table (test_ref_orig is a
+        // reference-GENERATING run whose shared table is the empty default).
+        let cfg_path = Path::new("configs/test/test_guided_orig.toml");
+        let (sim_input, toml_config) = SimInput::from_toml_file(cfg_path).expect("load config");
+        let shared = SharedTables::from_toml(&toml_config, &sim_input).expect("shared tables");
+        assert!(
+            shared.ref_trajectory.n_points > 0,
+            "fixture must load a real reference table"
+        );
+
+        // Same path as the shared load -> the Arc is reused, no reload.
+        let d_same = SimData::from_toml_with_tables(&toml_config, &sim_input, &shared, None)
+            .expect("with_tables same path");
+        assert!(Arc::ptr_eq(
+            &d_same.guidance.ref_trajectory,
+            &shared.ref_trajectory
+        ));
+
+        // Patched path -> the OTHER table must actually be loaded.
+        let other_path = "data/reference_trajectory/esr_aller.dat";
+        let other = guidance_params::ReferenceTrajectory::load(other_path).expect("load esr");
+        assert_ne!(
+            other.n_points, shared.ref_trajectory.n_points,
+            "fixture tables must differ for this test to be meaningful"
+        );
+        let (_, mut patched) = SimInput::from_toml_file(cfg_path).expect("reload config");
+        patched.data.reference_trajectory = Some(other_path.to_string());
+        let d_other = SimData::from_toml_with_tables(&patched, &sim_input, &shared, None)
+            .expect("with_tables patched path");
+        assert_eq!(
+            d_other.guidance.ref_trajectory.n_points, other.n_points,
+            "per-individual data.reference_trajectory override was silently ignored"
         );
     }
 

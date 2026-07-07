@@ -1,0 +1,28 @@
+# objective-centering Phase 1 -- STACKED control: the medium-regime winning
+# objective stack (cubed transform x max-bucket curation), run UNDER the high
+# regime. n_sims (=2) is passed by the runner via --training-n-sims. dense_515
+# vehicle (fast, memoryless); the objective-shaping effect is arch-independent.
+base = ["../../sweep/dense_p515.toml"]
+
+[data]
+neural_network = "training_output/paper/objective_centering/dense_stacked/best_model.json"
+results_suffix = ".objcenter_dense_stacked"
+
+[optimizer]
+algorithm = "ga"
+curation_bucket_selection = "max"
+
+[cost_function]
+cost_transform = "cubed"
+
+[monte_carlo.atmosphere]
+level = "high"
+
+[monte_carlo.density_perturbation]
+level = "high"
+
+[monte_carlo.navigation]
+level = "high"
+
+[monte_carlo.nav_filter]
+level = "high"

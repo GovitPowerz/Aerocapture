@@ -1,0 +1,19 @@
+# exp-13 robustness retrain -- FTC with a jointly-optimized constant-bank reference,
+# trained ON the high-dispersion regime (the best classical scheme, the one the paper
+# says generalizes BETTER than the medium-trained NN off-nominal). Inherits the joint-
+# reference FTC config (the `ref_bank` gene + per-individual reference generation) and
+# overrides ONLY the four MC domains robustness_stress.py bumps to high, matching the
+# Mamba retrain regime so the head-to-head on the 9M stress pool is paired.
+base = ["../../msr_aller_ftc_joint_ref_train.toml"]
+
+[data]
+results_suffix = ".robustness_ftc_joint_medium_wind"
+
+[monte_carlo.density_perturbation]
+level = "medium"
+
+[monte_carlo.wind]
+level = "medium"
+
+[flight]
+wind = true

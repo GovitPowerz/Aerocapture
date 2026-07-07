@@ -274,7 +274,7 @@ pub fn guidance_step(
                 energy_controller::energy_controller_bank(nav, &state.energy_ctrl, data, energy)
             }
             GuidanceType::PredGuid => predguid::predguid_bank(nav, &state.predguid, data, energy),
-            GuidanceType::Fnpag => fnpag::fnpag_bank(nav, &mut state.fnpag, data, planet),
+            GuidanceType::Fnpag => fnpag::fnpag_bank(nav, &mut state.fnpag, data, planet, sim_time),
             GuidanceType::PiecewiseConstant => piecewise_constant::piecewise_constant_bank(
                 nav,
                 &data.guidance.piecewise_constant,

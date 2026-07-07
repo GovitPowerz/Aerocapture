@@ -128,8 +128,17 @@ def load_run_data(scheme_dir: Path) -> tuple[list[dict], list[int]]:
 # ---------------------------------------------------------------------------
 # Final MC evaluation via PyO3
 def _resolve_eval_toml(toml_path: Path, scheme_dir: Path) -> tuple[Path, dict[str, object]]:
-    """Resolve the eval TOML (optimized_<scheme>.toml if present, else toml_path) and its scaffolding overrides."""
+    """Resolve the eval TOML (optimized_<scheme>.toml if present, else toml_path) and its scaffolding overrides.
+
+    The file is named after the guidance type, which differs from the dir name
+    for custom --output-dir runs (e.g. ftc_joint_ref/optimized_ftc.toml) — fall
+    back to a glob when the name-derived path misses and exactly one exists.
+    """
     optimized = scheme_dir / f"optimized_{scheme_dir.name}.toml"
+    if not optimized.exists():
+        candidates = sorted(scheme_dir.glob("optimized_*.toml"))
+        if len(candidates) == 1:
+            optimized = candidates[0]
     eval_toml = optimized if optimized.exists() else toml_path
     return eval_toml, _load_nn_scaffolding_overrides(scheme_dir, optimized)
 
@@ -170,6 +179,13 @@ def run_final_evaluation(
 
     try:
         base_overrides: dict[str, object] = {"simulation.n_sims": 1, **scaffolding_overrides}
+        # Pin the evaluated NN to this run's own deployed model: the TOML's
+        # [data] neural_network path is shared by every --output-dir variant of
+        # the same config, and a concurrent run's checkpoint deploy can rewrite
+        # it mid-eval, silently scoring a foreign model into final_eval.parquet.
+        local_model = scheme_dir / "best_model.json"
+        if local_model.exists():
+            base_overrides["data.neural_network"] = str(local_model.resolve())
         overrides_list = [{**base_overrides, "monte_carlo.seed": s} for s in reserved_seeds]
         results = aerocapture_rs.run_batch(
             toml_path=str(eval_toml.resolve()),
@@ -196,9 +212,14 @@ def compute_eval_summary(
     table / JSON sidecar / TUI panel without re-parsing stdout. Keys:
 
       n_sims, n_captured, capture_rate,
-      cost: {p50, p95, rms},
-      captured: {dv, apoapsis, periapsis, inclination} -> {p50, p95, mean}
-                  (None when n_captured == 0),
+      cost: {min, p50, p95, rms, max},
+      captured: {
+        dv:          {min, p50, p95, mean, max},
+        apoapsis:    {p50, p95, mean},
+        periapsis:   {p50, p95, mean},
+        inclination: {p50, p95, mean},
+        dv1/dv2/dv3: {min, p50, p95, mean, max}  (abs of terminal-maneuver burns),
+      } (None when n_captured == 0),
       constraints: {heat_flux, g_load, heat_load} -> {p50, p95, max, limit, viol_pct}
     """
     from aerocapture.training.evaluate import compute_cost
@@ -216,11 +237,29 @@ def compute_eval_summary(
         apo = cap[:, charts._FR_APO_ERR]
         peri = cap[:, charts._FR_PERI_ERR]
         incl = cap[:, charts._FR_INCL_ERR]
+
+        def _spread(arr: npt.NDArray[np.float64]) -> dict[str, float]:
+            return {
+                "min": float(np.min(arr)),
+                "p50": float(np.median(arr)),
+                "p95": float(np.percentile(arr, 95)),
+                # 3-sigma (p99.87) -- the propellant-sizing design-case tail.
+                # Meaningful only when n is large (>~5000); at n=1000 it ~= max.
+                "s3sigma": float(np.percentile(arr, 99.87)),
+                "mean": float(np.mean(arr)),
+                "max": float(np.max(arr)),
+            }
+
         captured_stats = {
-            "dv": {"p50": float(np.median(dv)), "p95": float(np.percentile(dv, 95)), "mean": float(np.mean(dv))},
+            "dv": _spread(dv),
             "apoapsis": {"p50": float(np.median(apo)), "p95": float(np.percentile(apo, 95)), "mean": float(np.mean(apo))},
             "periapsis": {"p50": float(np.median(peri)), "p95": float(np.percentile(peri, 95)), "mean": float(np.mean(peri))},
             "inclination": {"p50": float(np.median(incl)), "p95": float(np.percentile(incl, 95)), "mean": float(np.mean(incl))},
+            # Terminal-maneuver burns, abs() like chart_burn_dv_histograms (charts.py:1115-1119):
+            # DV1 periapsis, DV2 circularization, DV3 inclination.
+            "dv1": _spread(np.abs(cap[:, charts._FR_DV1])),
+            "dv2": _spread(np.abs(cap[:, charts._FR_DV2])),
+            "dv3": _spread(np.abs(cap[:, charts._FR_DV3])),
         }
 
     all_q = final_records[:, charts._FR_MAX_HEAT_FLUX]
@@ -239,6 +278,7 @@ def compute_eval_summary(
         return {
             "p50": float(np.median(arr)),
             "p95": float(np.percentile(arr, 95)),
+            "s3sigma": float(np.percentile(arr, 99.87)),
             "max": float(np.max(arr)),
             "limit": lim,
             "viol_pct": (float(np.mean(arr > lim) * 100.0) if lim is not None else None),
@@ -248,7 +288,14 @@ def compute_eval_summary(
         "n_sims": int(n_sims),
         "n_captured": n_captured,
         "capture_rate": n_captured / max(n_sims, 1),
-        "cost": {"p50": float(np.median(per_sim_costs)), "p95": float(np.percentile(per_sim_costs, 95)), "rms": rms_cost},
+        "cost": {
+            "min": float(np.min(per_sim_costs)),
+            "p50": float(np.median(per_sim_costs)),
+            "p95": float(np.percentile(per_sim_costs, 95)),
+            "s3sigma": float(np.percentile(per_sim_costs, 99.87)),
+            "rms": rms_cost,
+            "max": float(np.max(per_sim_costs)),
+        },
         "captured": captured_stats,
         "constraints": {"heat_flux": _con_block(all_q, q_limit), "g_load": _con_block(all_g, g_limit), "heat_load": _con_block(all_hl, hl_limit)},
     }
@@ -262,13 +309,22 @@ def format_eval_summary(summary: dict[str, Any], indent: str = "    ") -> list[s
     n_sims = summary["n_sims"]
     n_captured = summary["n_captured"]
     cost = summary["cost"]
+
+    # Columns match the live validation panel: p50 / p95 / 3sigma / max
+    # (3sigma = p99.87, the propellant-sizing design case; reliable only at large n).
+    _f1 = [("p50", "p50", ".1f"), ("p95", "p95", ".1f"), ("s3sigma", "3sig", ".1f"), ("max", "max", ".1f")]
+
+    def _cols(block: dict[str, Any], specs: list[tuple[str, str, str]]) -> str:
+        # Skip keys absent from older summary JSONs (pre-3sigma backward compat).
+        return "  ".join(f"{lbl}={block[k]:{f}}" for k, lbl, f in specs if k in block)
+
     lines.append(f"Final evaluation ({n_sims} sims):")
-    lines.append(f"{indent}Objective cost:     p50={cost['p50']:.1f}  p95={cost['p95']:.1f}  RMS={cost['rms']:.1f}")
+    lines.append(f"{indent}Objective cost:     " + _cols(cost, [*_f1, ("rms", "RMS", ".1f")]))
     lines.append(f"{indent}Capture rate:       {n_captured}/{n_sims} ({100 * n_captured / n_sims:.1f}%)")
     cap = summary["captured"]
     if cap is not None:
         d = cap["dv"]
-        lines.append(f"{indent}Delta-V (m/s):      p50={d['p50']:.1f}  p95={d['p95']:.1f}  mean={d['mean']:.1f}")
+        lines.append(f"{indent}Delta-V (m/s):      " + _cols(d, [*_f1, ("mean", "mean", ".1f")]))
         a = cap["apoapsis"]
         lines.append(f"{indent}Apoapsis err (km):  p50={a['p50']:.1f}  p95={a['p95']:.1f}  mean={a['mean']:.1f}")
         pe = cap["periapsis"]
@@ -602,13 +658,13 @@ def _run_undispersed_nominal(toml_path: Path, scheme_dir: Path, sim_timeout_secs
     # while the dispersed MC corridor uses the GA-tuned values — visually inconsistent.
     eval_toml, scaffolding_overrides = _resolve_eval_toml(toml_path, scheme_dir)
 
+    # Disable ALL dispersion domains, not a subset — the stale 5-of-10 list
+    # left wind/OU-density/vehicle/pilot/nav_filter draws in the "nominal".
+    from aerocapture.training.reference import _MC_DISPERSION_DOMAINS  # noqa: PLC0415
+
     overrides: dict[str, object] = {
         "simulation.n_sims": 1,
-        "monte_carlo.initial_state.level": "off",
-        "monte_carlo.atmosphere.level": "off",
-        "monte_carlo.aerodynamics.level": "off",
-        "monte_carlo.navigation.level": "off",
-        "monte_carlo.mass.level": "off",
+        **{f"monte_carlo.{d}.level": "off" for d in _MC_DISPERSION_DOMAINS},
         **scaffolding_overrides,
     }
 

@@ -1,0 +1,222 @@
+% =============================================================================
+% References -- NN aerocapture guidance, revisited.
+% Self-citations (the 17-year through-line) + classical baselines + ML methods.
+% =============================================================================
+
+% ---- The author's own through-line ----------------------------------------
+@inproceedings{gelly2009neural,
+  author    = {Gelly, Gr{\'e}gory and Vernis, Philippe},
+  title     = {Neural Networks as a Guidance Solution for Soft-Landing and Aerocapture},
+  booktitle = {AIAA Guidance, Navigation, and Control Conference},
+  address   = {Chicago, Illinois},
+  year      = {2009},
+  note      = {AIAA 2009-5660}
+}
+
+@inproceedings{gelly2007guidance,
+  author    = {Gelly, Gr{\'e}gory and Ferreira, Eric},
+  title     = {Guidance Algorithm Using Neural Networks for a Soft-Landing Application},
+  booktitle = {European Conference for Aerospace Sciences (EUCASS)},
+  year      = {2007}
+}
+
+@inproceedings{vernis2004tradeoff,
+  author    = {Vernis, Philippe and Gelly, Gr{\'e}gory and Ferreira, Eric and da Costa, Rui and Ortega, Guillermo},
+  title     = {Guidance Trade-Off for Aerocapture Missions},
+  booktitle = {ESA Guidance, Navigation and Control Conference},
+  year      = {2004}
+}
+
+@inproceedings{gelly2015mwe,
+  author    = {Gelly, Gr{\'e}gory and Gauvain, Jean-Luc},
+  title     = {Minimum Word Error Training of {RNN}-based Voice Activity Detection},
+  booktitle = {Interspeech},
+  year      = {2015},
+  pages     = {2650--2654}
+}
+
+@inproceedings{gelly2016divide,
+  author    = {Gelly, Gr{\'e}gory and Gauvain, Jean-Luc and Le, Viet-Bac and Messaoudi, Abdelkhalek},
+  title     = {A Divide-and-Conquer Approach for Language Identification Based on Recurrent Neural Networks},
+  booktitle = {Interspeech},
+  year      = {2016},
+  pages     = {3231--3235}
+}
+
+@inproceedings{gelly2017angular,
+  author    = {Gelly, Gr{\'e}gory and Gauvain, Jean-Luc},
+  title     = {Spoken Language Identification Using {LSTM}-Based Angular Proximity},
+  booktitle = {Interspeech},
+  year      = {2017},
+  pages     = {2566--2570}
+}
+
+% ---- Classical guidance baselines ------------------------------------------
+@inproceedings{cerimele1985simplified,
+  author    = {Cerimele, Christopher J. and Gamble, Joe D.},
+  title     = {A Simplified Guidance Algorithm for Lifting Aeroassist Orbital Transfer Vehicles},
+  booktitle = {AIAA 23rd Aerospace Sciences Meeting},
+  year      = {1985},
+  note      = {AIAA 85-0348}
+}
+
+@article{lu2015fnpag,
+  author  = {Lu, Ping and Cerimele, Christopher J. and Tigges, Michael A. and Matz, Daniel A.},
+  title   = {Optimal Aerocapture Guidance},
+  journal = {Journal of Guidance, Control, and Dynamics},
+  volume  = {38},
+  number  = {4},
+  pages   = {553--565},
+  year    = {2015}
+}
+
+@article{lu2014predictor,
+  author  = {Lu, Ping},
+  title   = {Entry Guidance: A Unified Method},
+  journal = {Journal of Guidance, Control, and Dynamics},
+  volume  = {37},
+  number  = {3},
+  pages   = {713--728},
+  year    = {2014}
+}
+
+@mastersthesis{bairstow2006reentry,
+  author = {Bairstow, Sarah H.},
+  title  = {Reentry Guidance with Extended Range Capability for Low {L/D} Spacecraft},
+  school = {Massachusetts Institute of Technology},
+  year   = {2006}
+}
+
+@article{harpold1979shuttle,
+  author  = {Harpold, Jon C. and Graves, Claude A.},
+  title   = {Shuttle Entry Guidance},
+  journal = {Journal of the Astronautical Sciences},
+  volume  = {27},
+  number  = {3},
+  pages   = {239--268},
+  year    = {1979}
+}
+
+% ---- Machine-learning methods ----------------------------------------------
+@article{hochreiter1997lstm,
+  author  = {Hochreiter, Sepp and Schmidhuber, J{\"u}rgen},
+  title   = {Long Short-Term Memory},
+  journal = {Neural Computation},
+  volume  = {9},
+  number  = {8},
+  pages   = {1735--1780},
+  year    = {1997}
+}
+
+@inproceedings{cho2014gru,
+  author    = {Cho, Kyunghyun and van Merri{\"e}nboer, Bart and G{\"u}l{\c{c}}ehre, {\c{C}}a{\u{g}}lar and Bahdanau, Dzmitry and Bougares, Fethi and Schwenk, Holger and Bengio, Yoshua},
+  title     = {Learning Phrase Representations Using {RNN} Encoder--Decoder for Statistical Machine Translation},
+  booktitle = {Conference on Empirical Methods in Natural Language Processing (EMNLP)},
+  year      = {2014},
+  pages     = {1724--1734}
+}
+
+@article{gu2023mamba,
+  author  = {Gu, Albert and Dao, Tri},
+  title   = {Mamba: Linear-Time Sequence Modeling with Selective State Spaces},
+  journal = {arXiv preprint arXiv:2312.00752},
+  year    = {2023}
+}
+
+@article{schulman2017ppo,
+  author  = {Schulman, John and Wolski, Filip and Dhariwal, Prafulla and Radford, Alec and Klimov, Oleg},
+  title   = {Proximal Policy Optimization Algorithms},
+  journal = {arXiv preprint arXiv:1707.06347},
+  year    = {2017}
+}
+
+@inproceedings{haarnoja2018sac,
+  author    = {Haarnoja, Tuomas and Zhou, Aurick and Abbeel, Pieter and Levine, Sergey},
+  title     = {Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year      = {2018},
+  pages     = {1861--1870}
+}
+
+@inproceedings{vaswani2017attention,
+  author    = {Vaswani, Ashish and Shazeer, Noam and Parmar, Niki and Uszkoreit, Jakob and Jones, Llion and Gomez, Aidan N. and Kaiser, Lukasz and Polosukhin, Illia},
+  title     = {Attention Is All You Need},
+  booktitle = {Advances in Neural Information Processing Systems 30 (NIPS)},
+  year      = {2017},
+  pages     = {5998--6008}
+}
+
+% ---- Optimization -----------------------------------------------------------
+@book{goldberg1989genetic,
+  author    = {Goldberg, David E.},
+  title     = {Genetic Algorithms in Search, Optimization, and Machine Learning},
+  publisher = {Addison-Wesley},
+  year      = {1989}
+}
+
+@inproceedings{kennedy1995pso,
+  author    = {Kennedy, James and Eberhart, Russell},
+  title     = {Particle Swarm Optimization},
+  booktitle = {IEEE International Conference on Neural Networks},
+  year      = {1995},
+  pages     = {1942--1948}
+}
+
+@inproceedings{sun2004qpso,
+  author    = {Sun, Jun and Feng, Bin and Xu, Wenbo},
+  title     = {Particle Swarm Optimization with Particles Having Quantum Behavior},
+  booktitle = {IEEE Congress on Evolutionary Computation (CEC)},
+  year      = {2004},
+  pages     = {325--331}
+}
+
+@article{hansen2001cmaes,
+  author  = {Hansen, Nikolaus and Ostermeier, Andreas},
+  title   = {Completely Derandomized Self-Adaptation in Evolution Strategies},
+  journal = {Evolutionary Computation},
+  volume  = {9},
+  number  = {2},
+  pages   = {159--195},
+  year    = {2001}
+}
+
+@article{storn1997de,
+  author  = {Storn, Rainer and Price, Kenneth},
+  title   = {Differential Evolution -- A Simple and Efficient Heuristic for Global Optimization over Continuous Spaces},
+  journal = {Journal of Global Optimization},
+  volume  = {11},
+  number  = {4},
+  pages   = {341--359},
+  year    = {1997}
+}
+
+% ---- Risk metric & environment ---------------------------------------------
+@article{rockafellar2000cvar,
+  author  = {Rockafellar, R. Tyrrell and Uryasev, Stanislav},
+  title   = {Optimization of Conditional Value-at-Risk},
+  journal = {Journal of Risk},
+  volume  = {2},
+  number  = {3},
+  pages   = {21--41},
+  year    = {2000}
+}
+
+@article{mckay1979lhs,
+  author  = {McKay, Michael D. and Beckman, Richard J. and Conover, William J.},
+  title   = {A Comparison of Three Methods for Selecting Values of Input Variables in the Analysis of Output from a Computer Code},
+  journal = {Technometrics},
+  volume  = {21},
+  number  = {2},
+  pages   = {239--245},
+  year    = {1979}
+}
+
+@article{forget1999mars,
+  author  = {Forget, Fran{\c{c}}ois and Hourdin, Fr{\'e}d{\'e}ric and Fournier, Richard and Hourdin, Christophe and Talagrand, Olivier and Collins, Matthew and Lewis, Stephen R. and Read, Peter L. and Huot, Jean-Paul},
+  title   = {Improved General Circulation Models of the Martian Atmosphere from the Surface to Above 80 km},
+  journal = {Journal of Geophysical Research: Planets},
+  volume  = {104},
+  number  = {E10},
+  pages   = {24155--24175},
+  year    = {1999}
+}

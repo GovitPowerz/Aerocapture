@@ -1,0 +1,159 @@
+# MSR outbound -- dense PPO with DV-inferred reward.
+# Phi = -(w1*dv1 + w2*dv2 + w3*dv3) - constraint*(hf^2 + hl^2), DV from
+# predicted_dv_for_nn (candidate inputs 32-34) surfaced via the env aux channel.
+# See docs/superpowers/specs/2026-06-08-rl-ppo-dv-reward-design.md.
+base = ["../missions/mars.toml", "common.toml", "rl_common.toml"]
+
+[guidance]
+type = "neural_network"
+
+[guidance.neural_network]
+mode = "full_neural"
+output_parameterization = "atan2_signed"
+
+[network]
+# 17 inputs: 8 from base set [0,2,3,5,6,7,11,12] + hdot_nominal(18) + pdyn_error(19)
+# + seam-free bank-history (sin,cos) pairs (27-30) + live correction-DV predicted_dv1/2/3 (32,33,34).
+# predicted_dv* = per-tick predicted_dv_for_nn on the current osculating orbit:
+# smooth across e=1, no sentinel. All inputs renormalized data-driven
+# (calibrate_inputs.py): asinh on heavy-tailed, calibrated affine on bounded.
+input_mask = [0, 2, 3, 5, 6, 7, 11, 12, 18, 19, 27, 28, 29, 30, 32, 33, 34]
+
+# Per-input normalization override (MUST be under [network] and BEFORE the
+# [[network.architecture]] blocks -- a bare key attaches to the preceding table).
+normalization = [
+    { transform = "none", scale = 0.8655390346546353, center = 0.9204641308303162 }, # 0 eccentricity_excess
+    { transform = "asinh", scale = 0.8175600848274288, center = 0.8867681772014051 }, # 1 inclination_error
+    { transform = "asinh", scale = 462.6300273768903, center = -333.1697854608212 }, # 2 radial_velocity
+    { transform = "none", scale = 5413222.0902614985, center = -508770.60939412704 }, # 3 orbital_energy
+    { transform = "none", scale = 1157.3507227945558, center = 4549.679429911598 }, # 4 velocity
+    { transform = "asinh", scale = 10.358129862795693, center = 12.17320223341297 }, # 5 accel_magnitude
+    { transform = "asinh", scale = 0.33924629426269115, center = 0.40005844701414567 }, # 6 heat_flux_fraction
+    { transform = "none", scale = 0.42411593596120784, center = 0.42858041580763234 }, # 7 heat_load_fraction
+    { transform = "asinh", scale = 33.09832239288295, center = 82.65759631477488 }, # 8 altitude
+    { transform = "asinh", scale = 0.0911362193061205, center = -0.04718278665783951 }, # 9 fpa
+    { transform = "asinh", scale = 0.2151370816795333, center = 0.29274513397808116 }, # 10 latitude
+    { transform = "asinh", scale = 9.832939972853932, center = 11.55598244317186 }, # 11 drag_accel
+    { transform = "asinh", scale = 3.256400734674897, center = 3.827025266270693 }, # 12 lift_accel
+    { transform = "asinh", scale = 5107742.117847206, center = -3590633.2113008387 }, # 13 sma_error
+    { transform = "asinh", scale = 10217099.16686349, center = -6706141.091617538 }, # 14 apoapsis_alt
+    { transform = "none", scale = 0.5, center = 0.5 }, # 15 bounce_flag
+    { transform = "none", scale = 1e-06, center = 0.4262529995153208 }, # 16 cos_bank_nominal
+    { transform = "asinh", scale = 594.4827404994671, center = 716.3429422450554 }, # 17 pdyn_nominal
+    { transform = "asinh", scale = 412.89140647256187, center = -302.7939124482325 }, # 18 hdot_nominal
+    { transform = "asinh", scale = 154.12675819494976, center = -169.7611160606572 }, # 19 pdyn_error
+    { transform = "none", scale = 1.5707963267948966, center = 1.5707963267948966 }, # 20 exit_bank_teacher
+    { transform = "none", scale = 0.1, center = 0.0 }, # 21 inclination_err_rate
+    { transform = "none", scale = 3.141592653589793, center = 0.0 }, # 22 prev_bank_signed
+    { transform = "tanh", scale = 30.0, center = 0.0 }, # 23 time_since_sign_flip
+    { transform = "tanh", scale = 100.0, center = 0.0 }, # 24 inclination_err_integral
+    { transform = "none", scale = 1.0, center = 0.0 }, # 25 exit_bank_teacher_sin
+    { transform = "none", scale = 1.0, center = 0.0 }, # 26 exit_bank_teacher_cos
+    { transform = "none", scale = 1.0, center = 0.0 }, # 27 prev_bank_signed_sin
+    { transform = "none", scale = 1.0, center = 0.0 }, # 28 prev_bank_signed_cos
+    { transform = "none", scale = 1.0, center = 0.0 }, # 29 prev_realized_sin
+    { transform = "none", scale = 1.0, center = 0.0 }, # 30 prev_realized_cos
+    { transform = "asinh", scale = 17774.23743300369, center = 20521.130577512882 }, # 31 periapsis_alt
+    { transform = "asinh", scale = 500.0, center = 500.0 }, # 32 predicted_dv1
+    { transform = "none", scale = 60.0, center = 60.0 }, # 33 predicted_dv2
+    { transform = "none", scale = 100.0, center = 0.0 }, # 34 predicted_dv3
+]
+
+[[network.architecture]]
+type = "dense"
+input_size = 17
+output_size = 24
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 24
+output_size = 12
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 12
+output_size = 2
+activation = "asinh"
+
+# ---- Throughput (multicore) overrides on rl_common.toml ----
+# Step-synchronous PPO only parallelizes inside env.step (Rayon over n_envs); the
+# rest of the loop is serial. More envs = bigger Rayon bursts + fewer serial Python
+# iterations per rollout. n_envs*rollout_steps = 256*512 = 131072 (batch unchanged).
+[rl]
+n_envs                      = 256   # was 64
+total_env_steps             = 30_000_000  # was 15M; throughput buys ~229 updates @ 131k batch. --total-steps overrides.
+validation_interval_updates = 10    # was 20; ~23 promotion checkpoints instead of ~5
+
+[rl.ppo]
+rollout_steps = 512    # was 2048; 4x fewer serial iterations, GAE windows still long vs ~725-step episodes
+gamma         = 0.997  # was 0.99; 0.99^725=6e-4 buries the terminal, 0.997^725=0.11 keeps it alive
+gae_lambda    = 0.97   # was 0.95; longer-horizon credit for the sparse terminal
+# Exploration (warm-start tuned): PPO optimizes the STOCHASTIC policy's reward, so its
+# optimum differs from PSO's deterministic one by an amount that grows with the exploration
+# std. At std 0.37 the warm policy held ~30 updates then drifted off the PSO basin (val
+# 128 -> 1589). Shrink std toward 0 so PPO's optimum collapses onto PSO's and the warm
+# policy stays put. entropy_coef=0 removes the upward pressure; min_log_std=-3 lets the
+# gradient SHARPEN below the -2 cap toward deterministic (std 0.05). NOTE: tuned for
+# warm-start fine-tuning -- from-scratch explores less here (loosen via --min-log-std).
+learning_rate        = 1.0e-4  # less overshoot in the fine-tuning regime
+initial_log_std      = -2.0    # start tight (std 0.135)
+min_log_std          = -3.0    # was -2.0; floor std 0.05 -- room to sharpen toward deterministic
+max_log_std          = -2.0    # was -1.0; cap std at 0.135 (was 0.37)
+entropy_coef         = 0.0     # was 0.001; no upward pressure -> the gradient sharpens log_std
+entropy_anneal_start = 0.0     # moot at entropy_coef=0; kept explicit
+critic_warmup_updates = 10     # warm-start only: value-only updates first so the cold
+                               # critic doesn't unlearn the warm policy (from-scratch ignores)
+
+[rl.reward]
+# DV-inferred potential. Replaces the orbital-tracking proxy terms; keeps the
+# thermal-proximity term and the terminal compute_cost anchor.
+# Weights retuned for the linear terminal below. Under the prior cubed transform a
+# 150 m/s capture scored ~150^3=3.4M, so dv*_weight=1000 was needed to register;
+# linear drops the terminal ~2e4x (to ~150 m/s), so the dense weights drop in step.
+# At 0.1 the dense shaping (~w*dv(0) ~ O(100)) is on the scale of a capture terminal
+# (it carries the capture-quality gradient -- its job) while staying far below the
+# failure terminal (~3k-20k, which drives don't-crash). Sweep [0.03, 0.3]; return
+# normalization scales the summed stream but NOT the dense-vs-terminal ratio.
+potential   = "dv"
+dv1_weight  = 1
+dv2_weight  = 1
+dv3_weight  = 1
+# 0.2 made PPO leave ~20 kW/m^2 of corridor unused (heat flux p95 171 vs PSO/islands 192,
+# both < 200 limit), capturing conservatively and paying ~80 m/s DV. Let PPO use the
+# corridor; the terminal compute_cost still hard-guards real violations.
+constraint_weight = 0.05
+# Warm-start fix: the PSO model already consumes build_nn_input's baked [network.normalization];
+# the running ObsNormalizer double-normalizes and shifts inputs off what the warm policy was
+# trained on (warm-start train capture collapsed to 0% in rollouts -> the policy got unlearned).
+# Disable it -- inputs are already normalized, so from-scratch is unaffected.
+normalize_obs = false
+
+# Terminal cost transform. common.toml ships "cubed" (tail-spreading for the rank-free
+# GA, where only argmin matters so monotonic transforms are free). For PPO the terminal
+# MAGNITUDE enters the return: cubed (-3.4M for a 150 m/s capture) swamps the dense
+# shaping after return normalization. Linear keeps the terminal ~ -dv (interpretable,
+# strong capture-quality gradient). Try "log" if the failure tail destabilizes early.
+[cost_function]
+cost_transform = "linear"
+
+# Warm-start (recommended): PSO solves this exact 17-input arch to ~118 m/s DV; PPO from
+# scratch reaches ~223 and oscillates, so start in the good basin and fine-tune. Run with:
+#   --data-neural-network training_output/neural_network_atan2_best/best_model.json
+# (training_output/neural_network_islands is NOT compatible: 18-input mask, 18->32->16 arch,
+# and it lacks the predicted-DV inputs 32-34.) The tight exploration + low LR above limit
+# how much the cold critic/normalizers perturb the warm policy in the first updates.
+[data]
+neural_network = "training_output/neural_network_atan2_rl/best_model.json"
+results_suffix = ".train_nn_atan2_rl"
+
+# Command shaper and navigation run for ALL guidance schemes (dispatch-layer and
+# upstream of guidance respectively), so these are live under full_neural.
+[guidance.command_shaping]
+enabled = true
+max_bank_acceleration = 12.674110367187794   # deg/s^2
+
+[navigation]
+density_filter_gain = 0.34888052188696395
+density_gain_max_delta = 0.13961756994200195

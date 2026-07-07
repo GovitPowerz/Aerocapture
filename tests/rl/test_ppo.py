@@ -8,7 +8,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from aerocapture.training.rl.policy import V2Policy, ValueNetwork  # noqa: E402
-from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, ppo_update_bptt  # noqa: E402
+from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, critic_warmup_update, ppo_update_bptt  # noqa: E402
 from aerocapture.training.rl.schemas import Activation, DenseSpec  # noqa: E402
 
 
@@ -205,3 +205,34 @@ def test_value_network_gradient_flows() -> None:
     for p in value.parameters():
         assert p.grad is not None, "ValueNetwork parameter has no gradient"
         assert p.grad.abs().sum() > 0, "ValueNetwork gradient is all zeros"
+
+
+def test_critic_warmup_freezes_policy_and_fits_value() -> None:
+    """critic_warmup_update fits the value net to returns while leaving the policy frozen
+    (the warm-start invariant: the cold critic must not move the warm-started policy)."""
+    torch.manual_seed(0)
+    rng = np.random.default_rng(0)
+    policy = _make_v2_policy(16, [32, 32, 2], ["tanh", "tanh", "linear"])
+    value = ValueNetwork(16, [32, 32], ["tanh", "tanh", "linear"])
+    optim = torch.optim.Adam(list(policy.parameters()) + list(value.parameters()), lr=1e-3)
+
+    T, N = 32, 8
+    buf = RolloutBuffer.create(n_steps=T, n_envs=N, obs_dim=16, hidden_shapes=[None] * len(policy.layers))
+    _fill_buffer_random(buf, rng)
+    returns = np.full((T, N), 5.0, dtype=np.float32)  # constant target the critic should fit
+
+    policy_before = [p.detach().clone() for p in policy.parameters()]
+    value_before = [p.detach().clone() for p in value.parameters()]
+    obs_t = torch.from_numpy(buf.obs.reshape(-1, buf.obs_dim)).float()
+    with torch.no_grad():
+        init_loss = float(0.5 * ((value(obs_t).reshape(-1) - 5.0) ** 2).mean())
+
+    final_loss = critic_warmup_update(value, optim, buf, returns, update_epochs=5, minibatches=4, obs_norm=None, rng=rng)
+
+    # Key invariant: value-only loss must not touch the (warm-started) policy.
+    for before, p in zip(policy_before, policy.parameters(), strict=True):
+        assert torch.equal(before, p), "critic warmup must not change policy params"
+    # Critic moved toward the constant target.
+    assert any(not torch.equal(b, p) for b, p in zip(value_before, value.parameters(), strict=True))
+    assert np.isfinite(final_loss)
+    assert final_loss < init_loss

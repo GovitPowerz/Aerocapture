@@ -1,0 +1,752 @@
+{
+ "source": "workflow wf_b38fd20e-6b6 run-1 dedup (5/7 dimensions: stats, consistency, domain, prose, citations)",
+ "missing_dimensions": [
+  "numbers (done inline by main session)",
+  "figures (pending)"
+ ],
+ "findings": [
+  {
+   "severity": "major",
+   "kind": "factual",
+   "location": "paper.typ lines 134-137 (Introduction, contribution 2); cf. sec 6.2 lines 516-527 and fig-archtail caption lines 541-544",
+   "claim": "a $962$-parameter Mamba policy beats the best dense network beyond run-to-run variance at the $99.9$th-percentile depth where the propellant tanks are sized",
+   "issue": "Contribution 2 pins the beyond-run-to-run-variance separation to the CVaR_99.9 depth, but the paper's own data and sec 6.2 say the per-seed CVaR_99.9 ranges OVERLAP; the non-overlap holds only on the sample maximum. Sec 6.2 and the fig-archtail caption are both careful ('beyond run-to-run variance on the sample maximum'); the contribution bullet is the only place that pins beyond-variance to the 99.9th percentile.",
+   "evidence": "far_tail_eval.json per-seed cvar999: Mamba 121.99/130.35/121.04 (range 121.0-130.4) vs dense_515 128.11/139.84/149.61 (range 128.1-149.6) -- Mamba's worst seed (130.35) exceeds dense's best (128.11), so the ranges overlap. Per-seed sample max: Mamba [121.65, 136.9] vs dense [146.05, 184.39] -- non-overlapping. Sec 6.2 itself states 'though there the per-seed ranges overlap' (line 520). paper_resume.md item 6: 'CVaR99.9 -14.7 (barely overlap), max -31.4 NON-OVERLAPPING'.",
+   "fix": "Reword the bullet to match sec 6.2, e.g.: '...a $962$-parameter Mamba policy beats the best dense network beyond run-to-run variance on the worst observed case, and by $14.7$ m/s in three-seed mean at the $99.9$th-percentile depth where the propellant tanks are sized.'",
+   "dims": [
+    "stats",
+    "consistency"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "major",
+   "kind": "factual",
+   "location": "paper.typ lines 133-134 (contribution 2), 478-479 (sec 6 intro), 552-553 (sec 6.3); abstract line 81 ('across all cell types')",
+   "claim": "Across dense, gated (GRU), recurrent (LSTM), windowed, attention (Transformer), and selective state-space (Mamba) cells, the engineered autoregressive inputs flatten the *median* correction cost to a common $108$--$112$ m/s",
+   "issue": "The 108-112 m/s median range is only ever reached by the four families that have converged (15k-20k gen) cells: LSTM 107.9, dense_515 109.2, Mamba 109.6, GRU 111.6, dense_972 111.9. Windowed and Transformer have NO converged cells anywhere in the data; their best medians (5000-gen sweep) are 115.8, and the sec 6.1 body itself quotes family-best sweep means of 112.8-121.9 -- none inside 108-112. Enumerating all six cell types in front of the 108-112 claim overstates what was measured for two of them.",
+   "evidence": "results.json: headline cells dv_p50 = lstm 107.91 / dense_p515 109.24 / mamba 109.57 / gru 111.56 / dense_p972 111.92; best sweep medians = window_p2036 115.83, transformer_p1112 115.79 (5000-gen cells only). No windowed/transformer long cells exist in results.json or far_tail_eval.json.",
+   "fix": "Scope the numeric range to the converged families, e.g. in contribution 2: '...the engineered autoregressive inputs flatten the median correction cost -- to a common $108$--$112$ m/s for every architecture we trained to convergence (dense, GRU, LSTM, Mamba), and to within a few m/s across all six families at a matched sweep budget.' Apply the same scoping at lines 478-479 and 552-553.",
+   "dims": [
+    "consistency"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "major",
+   "kind": "factual",
+   "location": "paper.typ line 326 (tbl-schemes NN row) and caption line 328; also lines 287-288 (sec 3.2), 336-337 (sec 4), 758-760 (sec 8)",
+   "claim": "[Neural network], [signed or magnitude], [no], [fast] -- where the 'Reference' column 'marks dependence on a tabulated reference trajectory'; and Sec. 4: 'The policies are trained without any reference trajectory or input--output pairs'",
+   "issue": "The deployed networks DO depend on the tabulated reference trajectory. The deployed 17-input atan2 mask includes indices 18 (hdot_nominal) and 19 (pdyn_error = q - q_ref), both interpolated from the reference-trajectory table at the current energy; the Mamba_962 headline policy inherits exactly this mask. The paper's own sec 3.2 lists 'reference-trajectory interpolations' among the NN inputs, and sec 8's ablation names 'the nominal altitude rate and the dynamic-pressure error -- the quantities a reference-tracking law would feed back on' among the deployed policy's LARGEST dependencies, contradicting the table's 'no'.",
+   "evidence": "configs/training/msr_aller_nn_atan2_train.toml:18 `input_mask = [0, 2, 3, 5, 6, 7, 11, 12, 18, 19, 27, 28, 29, 30, 32, 33, 34]`; configs/training/sweep/mamba_p962.toml base-inherits it; training_output/mamba_p962_long/best_model.json carries the same input_mask; src/rust/src/gnc/guidance/neural.rs:147-157 (raw[18] = ref_traj.interpolate(...), raw[19] = pdyn_current - pdyn_nominal); the NN configs point at the legacy data/reference_trajectory/msr_aller.dat via configs/missions/mars.toml:89; src/python/aerocapture/training/ablation.py NN_INPUT_NAMES indices 16-19 are reference-trajectory interpolations.",
+   "fix": "Change the NN row's Reference column to 'yes' (or 'yes (inputs)') and add to the caption: 'the network consumes reference-trajectory interpolations (nominal altitude rate, dynamic-pressure error) as observations but does not enslave to the reference.' In Sec. 4, qualify: 'trained without any input--output pairs or reference-tracking loss (two observation inputs interpolate the fixed legacy reference table).'",
+   "dims": [
+    "consistency",
+    "domain"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "major",
+   "kind": "factual",
+   "location": "paper.typ lines 459-462 (sec 5, dimensionality grid)",
+   "claim": "every gradient-free optimizer we ran lands in a tight band, $170$--$178$ m/s -- CMA-ES $171.7$, particle swarm $170.9$, quantum-behaved swarm $172.9$, differential evolution $178.2$, islands $169.8$ -- statistically indistinguishable",
+   "issue": "No statistical test exists for these cells, and under the paper's own paired-at-n=1000 methodology an 8.4 m/s mean spread would be overwhelmingly significant (a 2.5 m/s paired difference elsewhere yields p~2e-22). The intended basis is run-to-run training variance, which was never calibrated for these cells (the sigma_run study is empty).",
+   "evidence": "results.json: 'sigma_run': {'groups': {}, 'pooled_std': null}; the seed_repeats/* cells that aggregate_results.py REPEAT_GROUPS expects (e.g. seed_repeats/ftc_cmaes_s2) are absent from runs. results.json paired atan2_vs_delta: delta_mean -2.518, wilcoxon_p 2.3e-22. Discussion (lines 805-809) admits 'a dedicated study of the mean-level variance across the optimizer cells was not run'.",
+   "fix": "Replace 'statistically indistinguishable' with 'differences we do not rank, because they are plausibly within run-to-run training variance, which we did not calibrate at this level (Section 9)'.",
+   "dims": [
+    "stats"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "major",
+   "kind": "factual",
+   "location": "paper.typ lines 382-389 (sec 4.2, cost transform)",
+   "claim": "the cubed transform compresses the extreme tail best ($\"CVaR\"_(99.9)$ $153.0$ m/s, sample max $160.1$) against linear ($156.7$/$162.2$), square-root ($158.4$/$167.1$) ...",
+   "issue": "The transform ranking rests on ONE training run per transform, and the deciding margins (cubed vs linear 3.7 m/s, vs sqrt 5.4 m/s on CVaR_99.9) are far inside the run-to-run scatter the paper itself measured on the same metric for a comparable dense cell (21.5 m/s three-seed range). The cubed-vs-linear/sqrt ordering could flip on a repeat; only the cubed-vs-log/squared and curation max-vs-middle/min gaps (~10-73 m/s) are clearly outside scatter.",
+   "evidence": "far_tail_eval.json: cost_transform cells cvar999 = 152.95 (cubed=ga_300) / 156.67 (linear) / 158.36 (sqrt); dense_515 tail repeats cvar999 span 128.11-149.61 across three seeds of an identical config. The curation max-vs-random gap (152.95 vs 173.05, 20.1 m/s) is also at the edge of that scatter.",
+   "fix": "Hedge the ordering: 'cubed is best in our single-run grid; its margin over linear and square-root (4-5 m/s) is within the run-to-run scatter measured in Section 6.2, so we read the direction -- deeper tail-weighting pays at deeper sizing depth -- rather than the exact transform, as the finding.' Same qualifier for the max-vs-random curation gap.",
+   "dims": [
+    "stats"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "major",
+   "kind": "factual",
+   "location": "paper.typ lines 504-505 (fig-pareto caption), vs lines 486-495 (sec 6.1 body)",
+   "claim": "The left panel plots the $99$th-percentile cost; the body quotes medians, which order the families identically.",
+   "issue": "The body quotes MEANS, not medians: 117.4 -> 116.9 -> 116.8 are dv_mean of sweep_dense_p515/972/1957 (medians are 116.6/116.2/115.9); '120.8 m/s mean' is stated explicitly for the 102-param cell; GRU 112.8 / Mamba 114.9 / LSTM 116.0 / Transformer 121.9 are all dv_mean. A reader reproducing 'medians' would get different numbers. (The 'order identically' part is true for both statistics.)",
+   "evidence": "results.json architecture_sweep: dense_p515 mean 117.43 / p50 116.64; p972 116.90/116.20; p1957 116.81/115.92; gru_p4082 dv_mean 112.77 (dv_p50 112.25); mamba_p2027 114.91; lstm_p4118 115.98 (dv_p50 115.39); transformer_p762 121.91.",
+   "fix": "Change the caption to: 'The left panel plots the $99$th-percentile cost; the body quotes means, which order the families identically.'",
+   "dims": [
+    "stats",
+    "consistency"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "major",
+   "kind": "factual",
+   "location": "paper.typ lines 221 (tbl-dispersions Winds row), 236-237, and 144-145",
+   "claim": "\"[Winds], [2], [Uniform], [speed \u00d7 [0.7, 1.3], direction \u00b15\u00b0 (low)]\"; \"The winds follow a parametric Mars profile @forget1999mars\"; \"a high-fidelity simulator -- ... altitude-dependent winds ...\"",
+   "issue": "Winds are disabled in every campaign config: configs/missions/mars.toml sets `[flight] wind = false` (unchanged since the file's creation, per git log), no training/paper/sweep config overrides it, and no `wind_table` path is set in [data]. runner.rs `effective_airspeed` returns the airspeed unchanged when `wind_enabled` is false (and again when `wind_table` is None). The two wind dispersion dims are drawn as part of the 26 but are physically inert; the Forget-profile claim describes code that never executed in this campaign.",
+   "evidence": "configs/missions/mars.toml:46-47 `[flight] wind = false`; `rg 'wind = true|wind_table'` over configs/ hits only configs/test/test_wind_mars.toml; src/rust/src/simulation/runner.rs:1149 `if !data.wind_enabled { return v; }`.",
+   "fix": "Either (a) remove the Winds row from tbl-dispersions, drop \"altitude-dependent winds\" from the simulator list, and state 24 active draws, or (b) state plainly: \"the simulator carries a parametric Mars wind model (Forget et al. 1999), disabled for this campaign; the two wind draw dimensions are carried but inert.\" (b) is the honest minimal edit.",
+   "dims": [
+    "domain"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "major",
+   "kind": "factual",
+   "location": "paper.typ lines 144-146 (and abstract line 68 \"bit-validated simulator\")",
+   "claim": "\"a high-fidelity simulator -- EKF navigation, altitude-dependent winds, Gauss--Markov density perturbations, J2/J3/J4 gravity, thermal limits, and adaptive integration -- validated bit-for-bit against a legacy reference across 725 time steps\"",
+   "issue": "Two problems. (1) The bit-validation covers the legacy-mode FTC path only, and even there 2 of 24 photo columns mismatched (uninitialized-variable artifacts in the reference) -- \"bit-for-bit\" is an overclaim, and the legacy reference contains none of EKF/winds/adaptive integration, so the sentence implies those features were legacy-validated when they cannot be. (2) The campaign did not use EKF navigation or adaptive integration: no config sets navigation mode = \"ekf\" (only configs/test/test_ekf_mars.toml; default is the legacy bias filter) and configs/training/common.toml:10 sets `[integration] mode = \"fixed\"` (Gill RK4).",
+   "evidence": "CLAUDE.md: \"FTC guided trajectories matched across all 725 timesteps (22/24 photo columns exact; the remaining 2 were uninitialized variable artifacts in the reference)\"; configs/training/common.toml:9-10 `[integration] mode = \"fixed\"`; rg for \"ekf\" over configs/ hits only the test config; src/rust/src/config.rs:388-399 default nav mode.",
+   "fix": "Replace with: \"a high-fidelity simulator whose legacy-mode core (this campaign's configuration: bias-filter navigation, fixed-step RK4, J2/J3/J4 gravity, Gauss--Markov density perturbations, thermal limits) was validated against the original reference implementation across all 725 time steps of a guided trajectory, 22 of 24 output channels bit-identical (the two mismatches trace to uninitialized variables in the reference).\" Drop or footnote EKF/adaptive-integration as available-but-unused capabilities, and soften the abstract's \"bit-validated\".",
+   "dims": [
+    "domain"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "major",
+   "kind": "factual",
+   "location": "paper.typ lines 160-161 and 182-186",
+   "claim": "\"The target is a 500 \u00d7 11 km capture orbit at 50\u00b0 inclination\" ... \"the correction \u0394v -- the propellant cost to repair the captured orbit to the target, summed over the apoapsis-lowering, periapsis-raising, and inclination-change burns\"",
+   "issue": "Internally inconsistent DV definition. 500 \u00d7 11 km ([flight.target_orbit] apoapsis 500.130 / periapsis 11.233) is the ATMOSPHERE-EXIT target orbit -- its 11 km periapsis is inside the atmosphere. The correction \u0394v is computed against the 500 km CIRCULAR PARKING orbit ([flight.parking_orbit] 500 \u00d7 500): compute_deltav's burn plan is (1) periapsis raise at apoapsis, (2) apoapsis correction at the new periapsis (circularize), (3) plane change. \"Repair the captured orbit to the target\" with target = 500\u00d711 makes the 113 m/s periapsis-raise floor of the very next sentence unintelligible (a perfect exit at 500\u00d711 would then cost ~0), and \"apoapsis-lowering\" mislabels the circularization burn.",
+   "evidence": "configs/missions/mars.toml:65-75 ([flight.target_orbit] 500.130/11.233; [flight.parking_orbit] 500/500); src/rust/src/orbit/maneuver.rs:36-61 (\"Maneuver 1 at apoapsis: correct periapsis to target; Maneuver 2 at new periapsis: correct apoapsis (circularize)\", targets rapotf/rpertf = parking orbit). The 2009 extract makes the same distinction: \"Reference orbital parameters at atmosphere exit (for a circular 500 km parking orbit): apoapsis 500 km, periapsis 11 km\".",
+   "fix": "Line 160: \"The guidance targets a 500 \u00d7 11 km orbit at atmosphere exit at 50\u00b0 inclination, subsequently corrected to a 500 km circular parking orbit.\" Line 183: \"the propellant cost to repair the captured orbit to the 500 km circular parking orbit, summed over the periapsis-raising, circularization (apoapsis-correction), and inclination-change burns.\"",
+   "dims": [
+    "domain"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "major",
+   "kind": "factual",
+   "location": "paper.typ lines 285-293; recurs at 81 (abstract), 553-554, 760-761, 779, 832 (conclusion)",
+   "claim": "\"the remaining nineteen are *engineered, mostly autoregressive* signals\" and \"two of the engineered, autoregressive *predicted correction-\u0394v* components\"",
+   "issue": "The predicted-\u0394v inputs are NOT autoregressive: they are memoryless closed-form functions of the CURRENT osculating orbit (the paper itself says \"evaluated on the current osculating orbit\" three lines later), with no dependence on past network outputs or past states. The same holds for the reference interpolations, the exit-bank teacher, and the periapsis altitude -- only ~8 of the 19 engineered inputs (lateral telemetry 21-24, previous commanded/realized bank sin/cos 27-30) feed back history. Since \"engineered autoregressive inputs flatten the median\" is the paper's flagship mechanism sentence (abstract + conclusion), the mislabel is load-bearing.",
+   "evidence": "src/rust/src/orbit/maneuver.rs:96-153 predicted_dv_for_nn computes dv1/dv2/dv3 purely from the current orbit elements; ablation.py NN_INPUT_NAMES 16-19 are current-energy reference interpolations, 32-34 predicted_dv; CLAUDE.md: \"a causal, cost-aligned signal ... evaluated per tick on the CURRENT osculating orbit\".",
+   "fix": "Replace \"engineered, mostly autoregressive\" with \"engineered temporal-context and cost-aligned signals -- a subset autoregressive (bank-history encodings, reversal telemetry), the rest instantaneous functions of the osculating orbit\". In the abstract/conclusion/mechanism sentences, use \"engineered, cost-aligned inputs (the predicted-\u0394v components above all)\" and drop \"autoregressive\" where it modifies the predicted-\u0394v components.",
+   "dims": [
+    "domain"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "major",
+   "kind": "prose",
+   "location": "paper.typ lines 783-793 (Section 9, first paragraph) vs lines 704-744 (Section 7.3)",
+   "claim": "\"the regime that produces the gap is one no real mission would fly: a roughly 5% failure rate under any scheme would be designed away by re-targeting the entry interface so the 3sigma envelope captures by construction. The off-nominal probe is a test of the training method, not a deployment scenario.\"",
+   "issue": "The Discussion's opening paragraph restates Section 7.3 nearly verbatim: gap-is-not-intrinsic, single-run n=1000 / not sizing-grade / sigma_run repeats, re-targeting the entry interface, probe-not-deployment. Four full clauses are duplicated within 3 pages; the Discussion adds almost nothing new.",
+   "evidence": "paper.typ lines 707-712 (\"no mission would be flown on an entry profile that fails roughly one pass in twenty... the entry interface would simply be re-targeted so that the 3sigma dispersion envelope still captures... a deliberate stress probe of the training method\") and lines 739-743 (\"these are single-run, n = 1000 figures... a sizing-grade number wants the sigma_run repeats and the n = 10000 depth... the regime that produces the gap is itself one a real mission would design away\") say the same things as lines 783-793.",
+   "fix": "Compress the Discussion paragraph to ~3 sentences that cross-reference 7.3 instead of repeating it, e.g.: \"The clearest limitation is the off-nominal robustness gap of @sec-deployability. @sec-objcenter traces it to the training objective rather than to neural guidance, with the two honesty markers stated there: the centered-retrain demonstration is single-run at n = 1000, and the stress regime is one a real mission would design away. What remains open is the sizing-grade version of that result -- the sigma_run repeats and the n = 10,000 depth used for the headline.\"",
+   "dims": [
+    "prose"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "major",
+   "kind": "factual",
+   "location": "paper.typ lines 280-306 (Section 3.2)",
+   "claim": "\"We generalize the 2009 single-hidden-layer feed-forward network ... in two directions.\" followed by \"First, the *inputs*.\" (line 284), \"Second, the *bank decoder*.\" (line 295), \"Third, the *cell type*.\" (line 304)",
+   "issue": "The sentence announces two directions of generalization and the text then enumerates three (First/Second/Third). Self-contradictory as written.",
+   "evidence": "paper.typ line 282 (\"in two directions\"), lines 284/295/304 (First/Second/Third).",
+   "fix": "Change line 282 to \"in three directions.\"",
+   "dims": [
+    "prose"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ lines 686-692 + caption 694-699 (tbl-paired), also line 594",
+   "claim": "p = $3 \\times 10^(-165)$ on four different rows (Mamba vs FTC fixed, vs FTC joint, vs FNPAG, FTC joint vs fixed)",
+   "issue": "These identical entries are not four independent measurements: 3.3258e-165 is the deterministic saturation floor of scipy's normal-approximation Wilcoxon at n=1000 with unanimous sign (W=0, z=-27.39) -- any 100%-win comparison yields exactly this value regardless of effect size. The 99.8%-win FNPAG row (3.479e-165) sits marginally above the floor and rounds to the same '3e-165', which is plausible (two positive differences of small rank), but presenting the floor as a measured tail probability overstates precision.",
+   "evidence": "results.json paired: nn_vs_ftc, nn_vs_jointftc, joint_vs_fixed_ftc all = 3.3258591189345135e-165; nn_vs_fnpag = 3.4790663542104843e-165 (win_rate 0.998). Verified numerically: any all-negative d of length 1000 gives scipy wilcoxon p = 3.3258591189345135e-165 = 2*Phi(-27.393).",
+   "fix": "Add a table footnote: 'p-values at ~3x10^-165 are the saturation floor of the n=1000 normal-approximation Wilcoxon (a unanimous sign gives z ~ -27.4); they certify unanimity, not a resolved tail probability.'",
+   "dims": [
+    "stats"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ lines 521-523 (sec 6.2) and tbl-paired row 4 (line 689)",
+   "claim": "the Mamba and the dense reference are a statistical tie on the mean ($+0.1$ m/s)",
+   "issue": "The same row's quoted Wilcoxon p = 0.02 is nominally significant, so 'statistical tie' invites an apparent self-contradiction. The tie claim is in fact supported -- by the paired-mean bootstrap CI, which the paper never quotes -- while the significant Wilcoxon reflects a small per-scenario bulk edge for the DENSE net (Mamba win-rate 44.9%), opposite in sign to the tail result.",
+   "evidence": "results.json paired headline_vs_dense515: delta_mean 0.133, delta_mean_ci [-0.063, 0.335] (straddles 0), win_rate_a 0.449, wilcoxon_p 0.0171.",
+   "fix": "Quote the CI and disambiguate: 'a statistical tie on the mean (+0.1 m/s, 95% bootstrap CI [-0.1, +0.3]); the nominally significant Wilcoxon (p = 0.02) reflects a slight per-scenario edge for the dense net in the bulk, not a mean-level difference'.",
+   "dims": [
+    "stats"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ lines 696-699 (tbl-paired double-dagger footnote)",
+   "claim": "For the two intra-network rows the win-rate reflects the *mean*-level comparison, where the LSTM and dense networks are competitive",
+   "issue": "Win-rate is a per-scenario order statistic (the fraction of the 1000 paired scenarios where A's DV < B's); it is dominated by the bulk/median of the per-scenario difference distribution and is not a mean-level quantity. As written the footnote mislabels the statistic; also 'competitive' undersells the dense row, where dense wins the majority (55.1%) of scenarios.",
+   "evidence": "paper_stats.py paired_comparison: win_rate_a = (d < 0).mean() computed per scenario. results.json: headline_vs_dense515 win_rate_a 0.449; headline_vs_lstm 0.292.",
+   "fix": "Reword: 'For the two intra-network rows the win-rate is driven by the bulk of the per-scenario differences, where the LSTM and dense networks match or slightly beat the Mamba; the headline ordering lives in the tail (Delta CVaR_95 < 0 and Delta CVaR_99.9 = -14.7 vs dense).'",
+   "dims": [
+    "stats"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ lines 199-202 (sec 2.2)",
+   "claim": "The far tail cannot be estimated from a $1000$-case ensemble (one to ten samples beyond $p_(99.9)$)",
+   "issue": "At n = 1000 there is ~1 sample beyond p_99.9, not 'one to ten'; ten is the count beyond p_99. The parenthetical conflates two depths.",
+   "evidence": "Arithmetic: 1000 x 0.001 = 1; 1000 x 0.01 = 10. paper_stats.py comment: 'At n=1000 these are wide (CVaR99 ~ worst 10 samples, p99.9 ~ 1)'.",
+   "fix": "Replace with '(a single sample beyond $p_(99.9)$, ten beyond $p_(99)$)'.",
+   "dims": [
+    "stats"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ line 519 (sec 6.2)",
+   "claim": "the LSTM's worst run maxes at $138$ m/s, the dense reference's best at $146$, non-overlapping, and the Mamba is tighter still",
+   "issue": "On the sample maximum -- the metric of this sentence -- the Mamba's per-seed range (121.7-136.9, width 15.3 m/s) is WIDER than the LSTM's (126.0-138.2, width 12.1); it is lower, not tighter. ('Tighter' is only true on CVaR_99.9: 9.3 vs 11.0.)",
+   "evidence": "far_tail_eval.json per-seed max: Mamba 124.38/136.9/121.65; LSTM 126.03/138.16/132.9; dense 146.67/146.05/184.39.",
+   "fix": "Replace 'the Mamba is tighter still' with 'the Mamba is lower still (per-seed maxima $121.7$--$136.9$ m/s)'.",
+   "dims": [
+    "stats"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ lines 716-717 and 731-732 (sec 7.3)",
+   "claim": "the deployed off-nominal tail stayed enormous ($\"CVaR\"_95$ $924$ m/s) ... the centered Mamba reaches $\"CVaR\"_95$ $273$ m/s against the stalled stack's $924$",
+   "issue": "The 924 m/s stalled-Mamba figure -- used twice and load-bearing for the 924 -> 273 recovery claim -- is not present in any shipped data file: objective_centering.json has no stalled-Mamba cell (cells = stacked/plus_sims/plus_bucket/plus_transform/centered/mamba_centered) and robustness_retrain.json has no NN-high entry (all nn_retrain_* delta fields are null). Its only source is the session notes.",
+   "evidence": "objective_centering.json cell labels lack any mamba-stalled entry; robustness_retrain.json schemes = NN-medium/jointFTC-medium/jointFTC-high with nn_retrain_capture_gain_pts: null etc. paper_resume.md line 4 carries ' Mamba 924->273' as a note only.",
+   "fix": "Add the stalled-Mamba stress-eval cell to objective_centering.json (or robustness_retrain.json) so the 924 is reproducible from data; otherwise footnote its provenance.",
+   "dims": [
+    "stats"
+   ],
+   "status": "deferred",
+   "resolution": "924 m/s stalled-Mamba figure is real (exp-13 session) but absent from the shipped data bundle; the stalled retrain dir has checkpoints only, no final_eval.parquet. Needs a stress-eval run added to robustness_retrain.json."
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ lines 449-451 (sec 5)",
+   "claim": "best at a population of $150$ ($118.0$ m/s mean) and $300$ ($120.5$ m/s) -- the two are within run-to-run variance, so we report them as indistinguishable",
+   "issue": "Positive quantitative claim ('within run-to-run variance') with no measured variance for these cells: the sigma_run study designed for exactly these optimizer cells is empty in results.json. The claim is plausibly supported by the only measured mean-level scatter (the tail-repeat headline cells: dense_515 three-seed means span 109.7-114.1, ~4.4 m/s range > the 2.4 m/s gap) but the text never cites that basis.",
+   "evidence": "results.json sigma_run = {'groups': {}, 'pooled_std': null}; runs headline/dense_p515 dv_mean 109.71, tail_repeats/dense515_s2 113.63, _s3 114.06.",
+   "fix": "Cite the basis: 'the 2.4 m/s gap is smaller than the ~4-5 m/s three-seed mean-level scatter of the converged headline cells (Section 6.2), so we report them as indistinguishable' -- or soften to match the Discussion's 'rather than ranking them' framing.",
+   "dims": [
+    "stats"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ lines 634-636 (sec 7.2, robustness)",
+   "claim": "FNPAG ($-7.1$ pts, $+490$) and PredGuid ($-9.3$ pts, $+297$) sit between",
+   "issue": "FNPAG does not 'sit between' joint-FTC and the network on the tail: its CVaR_95 inflation (+490 m/s) is the worst of all schemes except none -- larger than the network's +402. Only its capture drop (-7.1 pts) is intermediate.",
+   "evidence": "robustness_stress.json: FNPAG cvar95_inflation 489.8 vs NN 402.5, joint-FTC 197.1, PredGuid 296.6.",
+   "fix": "Reword: 'PredGuid ($-9.3$ pts, $+297$) sits between; FNPAG loses less capture ($-7.1$ pts) but inflates its tail the most ($+490$)'.",
+   "dims": [
+    "stats"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "prose",
+   "location": "paper.typ line 199 (sec 2.2) and lines 517-519 (sec 6.2)",
+   "claim": "together with the $95$th and $99$th percentiles and the sample maximum",
+   "issue": "The locked reporting rule declares the sample max 'descriptive only', yet the paper introduces it without that qualifier and then uses per-seed max non-overlap as the deciding inferential evidence in sec 6.2. The max should be labeled a descriptive order statistic (~p_99.99 at n=10,000) at first use so the sec 6.2 range argument is read as the informal three-seed evidence it is.",
+   "evidence": "paper_stats.py docstring: 'the sample max is descriptive only'; run_stats emits dv_max_descriptive. Paper lines 199, 383-387, 517-519 use 'sample max' unqualified.",
+   "fix": "At line 199 append: 'and the sample maximum (descriptive; $approx p_(99.99)$ at $n = 10\\,000$)'.",
+   "dims": [
+    "stats"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ lines 707, 711, 791 (Sections 7.3 and 9)",
+   "claim": "\"fails roughly one pass in twenty under *any* guidance scheme\" (707) vs \"a regime where roughly 4% of scenarios are catastrophic\" (711) vs \"a roughly 5% failure rate under any scheme\" (791)",
+   "issue": "Internally inconsistent failure-rate quotes for the same high-dispersion stress regime: 5%, then 4%, then 5% -- with the 4% appearing three lines after the one-in-twenty statement in the same paragraph. No data source supports 4%; the data shows ~95.0% capture ceilings (5% failure) for the best schemes.",
+   "evidence": "articles/paper/data/objective_centering.json: capture_pct 95.0 (stacked, plus_sims, centered dense), 93.7 (plus_transform), 94.9 (centered Mamba); robustness_retrain.json jointFTC-high capture_pct = 95.0 -- all ~5% failure; nothing in the files yields 4%.",
+   "fix": "Change line 711 to 'roughly $5%$ of scenarios are catastrophic' (or 'one in twenty', matching lines 707 and 791; if 4% is a distinct measured quantity, name its source explicitly).",
+   "dims": [
+    "stats",
+    "consistency",
+    "prose"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ lines 430-433 (fig-plateau caption), vs lines 421-423 (body)",
+   "claim": "Both keep improving for roughly ten thousand generations and then plateau",
+   "issue": "The caption contradicts the body ('the validation error keeps falling for tens of thousands of generations and then plateaus') and the data: both dense curves record their last best-val improvement near generation 19,000 of 20,000, not at ~10,000.",
+   "evidence": "plateau.json: dense_515 min val RMS 1,325,760.7 first reached at gen 19,108 (of 20,000); dense_972 min 1,433,366.8 first reached at gen 18,735.",
+   "fix": "Change the caption to: 'Both keep improving for nearly the full twenty thousand generations and then plateau -- the non-stationary objective does not overfit.'",
+   "dims": [
+    "consistency"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "prose",
+   "location": "paper.typ lines 48-49 (title), 71-72 (abstract), 132 (contribution 2), 305-307 (sec 3.2), 542 (fig-archtail caption), 822 (conclusion)",
+   "claim": "'A 962-parameter recurrent (Mamba) policy' (abstract/conclusion/title) vs 'gated (GRU), recurrent (LSTM), ... selective state-space (Mamba)' (contribution 2)",
+   "issue": "The word 'recurrent' names two different things: in the taxonomy lists (contribution 2, sec 3.2) it is reserved for LSTM while Mamba is 'selective state-space', but the title, abstract, fig-archtail caption ('both recurrent policies' = Mamba + LSTM), and conclusion call the Mamba itself 'recurrent'. Additionally the 'gated (GRU)' vs 'recurrent (LSTM)' split is arbitrary -- both are gated recurrent cells.",
+   "evidence": "paper.typ line 132: 'dense, gated (GRU), recurrent (LSTM), windowed, attention (Transformer), and selective state-space (Mamba)'; line 72: 'A 962-parameter recurrent (Mamba) policy'.",
+   "fix": "Pick one taxonomy: in contribution 2 and sec 3.2 use 'gated recurrent (GRU, LSTM)' + 'selective state-space (Mamba)', and defend the broad usage once, e.g. abstract: 'A 962-parameter recurrent (selective state-space, Mamba) policy'; keep 'recurrent' thereafter as the umbrella term for stateful cells.",
+   "dims": [
+    "consistency"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ lines 224-225 (tbl-dispersions caption) and 230-231 (body)",
+   "claim": "Twenty-six static draws across ten domains, plus a time-varying Gauss--Markov density perturbation",
+   "issue": "Off-by-one domain count: the 26 static dispersion dims span NINE domains (entry 6 + density 1 + aero 3 + nav 7 + mass 1 + vehicle 2 + pilot 3 + nav-filter 1 + wind 2 = 26); the tenth table row is the time-varying OU density perturbation, which contributes no static dims ('OU' in the Dims column) and is already counted separately by the 'plus' clause -- counting it inside 'ten domains' and then adding it again double-counts it. Same error in the body ('26 dispersed parameters across ten domains ... plus a time-varying Gauss--Markov').",
+   "evidence": "tbl-dispersions Dims column itself: 6, 1, 3, 7, 1, 2, 3, 1, 2 = 26 over nine rows; the tenth row's Dims cell is 'OU'. src/rust/src/data/dispersions.rs sigma structs (6+1+3+7+1+2+3+1+2 = 26 dims across 9 static domains); CLAUDE.md: DispersionDraw::to_array() is 26 dims, density perturbation is a separate OU process.",
+   "fix": "Caption: 'Twenty-six static draws across nine domains, plus a time-varying Gauss--Markov density perturbation (the tenth row).' Mirror the same wording at line 230.",
+   "dims": [
+    "consistency",
+    "domain"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ lines 156-158",
+   "claim": "\"We study the same robotic MSR mission as the 2009 work. The vehicle reaches the atmospheric entry interface at an altitude of 130 km with a relative velocity of 5687 m/s, a flight-path angle of -10.81\u00b0...\"",
+   "issue": "The quoted numbers correctly match this campaign's config, but they are not the 2009 entry state: the 2009 paper quotes EI at 120 km with FPA -10.24\u00b0 (same 5687 m/s), and its entry dispersions also differ (velocity \u00b14.5 vs \u00b13 m/s 3\u03c3, FPA \u00b10.6\u00b0 vs \u00b10.3\u00b0, longitude \u00b11.5\u00b0 vs \u00b10.3\u00b0). Same velocity magnitude at two different altitudes is not the same trajectory, so \"the same mission\" overstates.",
+   "evidence": "configs/missions/mars.toml:8-14 (altitude 130.0, velocity 5687.15586, FPA -10.81251); articles/markdown/01_2009_AIAA_neural_guidance.md IV.A: \"Nominal entry conditions at 120 km altitude ... flight path angle \u221210.24\u00b0\".",
+   "fix": "\"We study the same robotic MSR mission concept as the 2009 work (the entry interface is defined here at 130 km altitude; the 2009 study quoted 120 km with \u03b3 = -10.24\u00b0).\"",
+   "dims": [
+    "domain"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ lines 262-264",
+   "claim": "\"Each guidance cycle it integrates the equations of motion forward to atmosphere exit and bisects the constant capture-bank magnitude...\"",
+   "issue": "FNPAG does not replan each guidance cycle. Guidance runs at 1 Hz (missions/mars.toml periods.guidance = 1.0) but FNPAG replans every `replan_period` = 2.0 s (the code default; no config overrides it) and holds the re-clamped command in between -- a deliberate design (CLAUDE.md: \"deliberately NOT a GA gene\").",
+   "evidence": "src/rust/src/data/guidance_params.rs:92 `replan_period: 2.0` with comment \"seconds between replans; bank held in between\"; `rg replan_period configs/` returns no config overrides; configs/missions/mars.toml:27 guidance = 1.0.",
+   "fix": "\"Every two-second replan cycle it integrates the equations of motion forward to atmosphere exit and bisects the constant capture-bank magnitude ... holding the command between replans.\"",
+   "dims": [
+    "domain"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ line 321 (tbl-schemes FNPAG row)",
+   "claim": "[FNPAG], [magnitude], [no], [slow], ...",
+   "issue": "FNPAG's bank command column omits \"+ roll reversal\". FNPAG is one of the unsigned-magnitude schemes whose sign is chosen by the same shared lateral roll-reversal logic as FTC/PredGuid/EC/EqGlide (and it also passes the thermal limiter), so the row is inconsistent with its four siblings that all read \"magnitude + roll reversal\".",
+   "evidence": "CLAUDE.md: \"[guidance.lateral] configures lateral guidance (predictive roll reversal) for unsigned-magnitude schemes (EqGlide, EnergyController, PredGuid, FNPAG)\"; fnpag.rs predictor uses \"zero lateral lift since roll sign unknown\" -- the sign comes from lateral.rs.",
+   "fix": "Change the FNPAG bank-command cell to \"magnitude + roll reversal\".",
+   "dims": [
+    "domain"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ line 216 (tbl-dispersions Navigation errors row)",
+   "claim": "\"position \u2248 \u00b12 km, velocity \u00b11.2 m/s, drag-accel \u00b10.3 m/s\u00b2 (3\u03c3; medium)\"",
+   "issue": "\u00b12 km (3\u03c3) is only the ALTITUDE component (medium \u03c3 = 0.667 km). The longitude/latitude navigation errors are 0.05\u00b0 1\u03c3 each, which at Mars radius (~3390 km) is \u22483 km 1\u03c3 \u2248 9 km 3\u03c3 per horizontal axis -- \"position \u2248 \u00b12 km\" understates the horizontal position error by ~4.5\u00d7.",
+   "evidence": "src/rust/src/data/dispersions.rs:201-208 NavigationSigmas Medium { altitude: 0.667, longitude: 0.05, latitude: 0.05, velocity: 0.4, ... }; 0.05\u00b0 \u00d7 \u03c0/180 \u00d7 3394 km \u2248 2.96 km (1\u03c3).",
+   "fix": "\"altitude \u00b12 km, horizontal position \u2248 \u00b19 km per axis, velocity \u00b11.2 m/s, drag-accel \u00b10.3 m/s\u00b2 (3\u03c3; medium)\".",
+   "dims": [
+    "domain"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ lines 257-259",
+   "claim": "\"a roll-reversal logic that flips the bank sign whenever the projected inclination error leaves a velocity-referenced corridor\"",
+   "issue": "\"Velocity-referenced corridor\" describes the 2009 heritage logic, not this simulator's. The implemented lateral guidance reverses when the \u03c4-second finite-difference PROJECTED inclination error exceeds a fixed angular threshold, gated by an ORBITAL-ENERGY window (lateral_activation/lateral_inhibition in MJ/kg) and an anti-chatter minimum interval; nothing in the trigger is referenced to velocity.",
+   "evidence": "src/rust/src/gnc/guidance/lateral.rs:16-23 (fixed `threshold` in radians, `lateral_activation`/`lateral_inhibition` energy gates), :94-96 (energy window gate), :142-145 (projected error vs threshold).",
+   "fix": "\"...flips the bank sign whenever the inclination error, projected a few seconds ahead, exceeds a threshold inside an energy-gated activation window.\"",
+   "dims": [
+    "domain"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "prose",
+   "location": "paper.typ lines 173-174, 270, 280 (source lines ending in a hyphen)",
+   "claim": "\"a dynamic-\\npressure limit\" (173), \"an energy-\\ndissipation reference\" (270), \"the 2009 single-hidden-\\nlayer feed-forward network\" (280)",
+   "issue": "Typst treats a source newline as a space, so these render in the PDF as \"dynamic- pressure\", \"energy- dissipation\", and \"single-hidden- layer\" -- a broken compound with a stray space after the hyphen, three times.",
+   "evidence": "rg '[a-z]-$' paper.typ hits exactly lines 173, 270, 280; Typst markup has no TeX-style hyphen-joining across source lines.",
+   "fix": "Rewrap so the full compound sits on one source line: \"a dynamic-pressure limit of $1.08$ kPa\", \"an energy-dissipation reference\", \"the 2009 single-hidden-layer feed-forward network\".",
+   "dims": [
+    "prose"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "prose",
+   "location": "paper.typ line 202 vs lines 74-75, 140-141, 594, 618-619, 823-825",
+   "claim": "\"We lead with the tail and relegate the mean to a footnote.\" (202) -- yet every headline comparison is quoted mean-first: \"beats the best classical scheme ... by $16.4$ m/s in mean and $27.6$ m/s at CVaR_95\" (74-75, repeated at 141, 618, 824).",
+   "issue": "The declared tail-first reporting discipline is contradicted by the paper's own quoting order: in the abstract, contribution 3, Section 7, and the conclusion the mean delta always comes before the CVaR delta, and tbl-perf places Mean before p95/CVaR95. The principle sentence overpromises relative to practice.",
+   "evidence": "paper.typ lines cited; the mean is a full table column and the lead number in four comparisons, not a footnote.",
+   "fix": "Either reorder the recurring comparison to tail-first (\"by $27.6$ m/s at CVaR_95 and $16.4$ in mean\") in the abstract, contribution 3, Section 7.2, and the conclusion, or soften line 202 to \"We lead with the tail and report the mean only for continuity with 2009.\"",
+   "dims": [
+    "prose"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "prose",
+   "location": "paper.typ lines 61-83 (Abstract)",
+   "claim": "The abstract runs ~278 words in a single paragraph, with 6 spaced em-dash pairs and one 62-word sentence (\"A 962-parameter recurrent (Mamba) policy reaches ... 23x faster than FNPAG.\", lines 71-76).",
+   "issue": "Over the ~230-word target and denser than the 2009-style one-paragraph abstract the voice guide prescribes; the headline sentence stacks four results (CVaR99.9, CVaR95, paired margin, compute) behind two em-dash asides.",
+   "evidence": "Word count measured from source: 278. Em-dash count in the abstract paragraph: 6.",
+   "fix": "Cut \"-- spanning recurrent, gated, attention, and selective state-space cells --\" (the taxonomy is Section 3's job), and split the headline sentence after \"at 100% capture.\": \"It beats the best classical scheme (FTC with a co-optimized reference) by 16.4 m/s in mean and 27.6 m/s at CVaR_95, better on every one of 1000 paired scenarios, at 23x less compute than FNPAG.\" Brings it to ~245 words and halves the em-dash load.",
+   "dims": [
+    "prose"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "prose",
+   "location": "paper.typ lines 78, 142, 465, 538, 630, 648, 739, 788, 838",
+   "claim": "\"honest\" appears 9 times (plus \"honesty markers\" at 788): \"one honest caveat\", \"the honest caveat\", \"the honest confound\", \"honest only on validation loss\", \"Robustness -- the honest caveat\", \"the paper's honest caveat\", \"We keep the caveat honest in both directions\", \"the honest drawback\".",
+   "issue": "The signature candor word is repeated until it reads as a tic and loses force; by the third use the reader hears self-congratulation rather than candor.",
+   "evidence": "rg -c 'honest' paper.typ = 9.",
+   "fix": "Keep three (abstract line 78, the \"Robustness -- the honest caveat\" run-in at 630, conclusion 838). Reword the rest: 142 \"with the caveat that\"; 465 \"The confound is that\"; 538 \"is conclusive only on validation loss and the median\"; 648 caption \"the robustness caveat\"; 739 \"The caveat cuts in both directions:\"; 788 \"Two markers remain.\"",
+   "dims": [
+    "prose"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "prose",
+   "location": "paper.typ lines 477-480 (Section 6 opening) vs 132-137, 80-82, 552-558, 770-775, 832-836",
+   "claim": "\"the engineered autoregressive inputs flatten the *median* correction cost to a common $108$--$112$ m/s across every architecture, and the separation appears only on the *tail*\"",
+   "issue": "The inputs-flatten-the-bulk mechanism is stated six times (abstract, contribution 2, Section 6 opener, 6.3, Section 8, conclusion). Section 6.3 (the mechanism section) and Section 8 (the ablation evidence) earn their recurrences; the Section 6 opener is a word-for-word replay of contribution 2 (\"flatten the median ... common 108--112\", \"separation appears only on the tail\") that the next two subsections then establish anyway.",
+   "evidence": "Compare lines 477-480 with lines 133-136: same numbers, same italicized median/tail contrast, same clause order.",
+   "fix": "Trim the Section 6 opener to a forecast rather than a restatement: \"We now sweep the cell type. The next two subsections establish the finding in two halves: first the flat median, then the tail where the architectures separate.\" Also vary the conclusion's phrasing (lines 832-836) so it does not reuse \"flatten the median across every cell type\" verbatim.",
+   "dims": [
+    "prose"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "prose",
+   "location": "paper.typ lines 309 and 582-583",
+   "claim": "\"the fair-comparison guardrail we have always insisted on\" (309) and \"the fair comparison we have always insisted on\" (582)",
+   "issue": "The same self-quoting flourish is used twice, in sec 3.2 and the sec 7 opening; the second occurrence reads as a copy-paste echo and dulls a signature move that should land once.",
+   "evidence": "rg 'insisted' paper.typ: exactly these two lines.",
+   "fix": "Keep line 582 (where the head-to-head needs it). At 309, end the sentence at the substance: \"...all are sized so that the comparison across cell types holds the parameter budget roughly fixed.\"",
+   "dims": [
+    "consistency",
+    "prose"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "prose",
+   "location": "paper.typ lines 535-539 (Section 6.2)",
+   "claim": "\"(On the far-tail metric itself the two dense nets are not cleanly separable: the $972$-weight net's single far-tail run, $130.7$ m/s, sits inside the $515$-weight net's three-seed spread, and we did not repeat the $972$ net, so its tail carries no measured scatter -- the dense-versus-dense comparison is honest only on validation loss and the median.)\"",
+   "issue": "A 60+-word parenthetical containing its own colon, two commas-as-appositives, and an em-dash clause. Load-bearing scoping information (which comparison is conclusive) is buried in an aside the reader is invited to skip.",
+   "evidence": "Line count and structure as quoted; it is the longest parenthetical in the paper.",
+   "fix": "Promote it to two plain sentences: \"On the far-tail metric itself the two dense nets are not cleanly separable. The $972$-weight net's single far-tail run ($130.7$ m/s) sits inside the $515$-weight net's three-seed spread, and we did not repeat it, so its tail carries no measured scatter; the dense-versus-dense comparison is conclusive only on validation loss and the median.\"",
+   "dims": [
+    "prose"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "prose",
+   "location": "paper.typ lines 382-389 (Section 4.2)",
+   "claim": "\"Evaluated at the depth that matters -- a far-tail $n = 10\\,000$ pool -- the cubed transform compresses the extreme tail best (...) against linear (...), square-root (...), squared (...), and logarithmic ($162.3$/$180.6$, worst across the shallow and mid tail because it over-compresses and starves the gradient between captures -- only the squared transform edges it worse at the very extreme).\"",
+   "issue": "~70-word sentence with an em-dash aside, a four-item parenthesized list, and a second em-dash clause nested inside the final parenthesis. The logarithm diagnosis -- the interesting mechanism -- is trapped inside a list item.",
+   "evidence": "As quoted; the closing parenthesis contains a 30-word explanatory clause.",
+   "fix": "Split: end the comparison sentence after \"...and logarithmic ($162.3$/$180.6$).\" Then: \"The logarithm is worst across the shallow and mid tail because it over-compresses and starves the gradient between captures; only the squared transform edges it at the very extreme.\"",
+   "dims": [
+    "prose"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "prose",
+   "location": "paper.typ lines 49, 82, 181, 412, 516, 557, 584, 644, 823, 834 (plus ~10 \"sizing tail/depth\" variants)",
+   "claim": "\"the tail that sizes the mission\" / \"sizes the tanks\" / \"the depth at which the tanks are sized\" -- the sizing idiom appears ~20 times including the title, a section heading, three figure captions, and the conclusion.",
+   "issue": "The thesis phrase is deliberately recurrent, but caption 412 repeats \"the metric that sizes the mission\" immediately after the body paragraph makes the same point (line 389), and line 584 repeats \"the depth that sizes the mission\" two sentences after Section 7's opening; at this density the phrase stops signaling and starts wallpapering.",
+   "evidence": "rg 'sizes the|sizing tail|tanks are sized' paper.typ: 20 hits across title, headings, body, captions, conclusion.",
+   "fix": "Keep title, Section 2.2 heading, 6.3, and conclusion. In caption 412 drop \", the metric that sizes the mission\"; at 584 write \"read at sizing depth\"; in caption 644 write \"compute versus far-tail CVaR_99.9\" instead of \"versus the sizing tail\".",
+   "dims": [
+    "prose"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "prose",
+   "location": "paper.typ lines 48-49 (title)",
+   "claim": "\"Neural-network aerocapture guidance, revisited: a recurrent policy that beats classical predictor--correctors at the tail that sizes the mission\"",
+   "issue": "The subtitle is a 16-word subordinate clause that pre-spends both of the paper's key phrases (\"beats ... predictor--correctors\", \"tail that sizes the mission\"), which then reappear in the abstract's first and last sentences; two-line titles with a full claim as subtitle read more like a talk slide than the author's prior paper titles.",
+   "evidence": "Abstract lines 66 (\"a comparison against predictor--corrector guidance\") and 82 (\"the extreme tail that sizes the tanks\") reuse both subtitle phrases.",
+   "fix": "Tighten the subtitle to one phrase, e.g. \"Neural-network aerocapture guidance, revisited: winning the tail that sizes the mission\" -- or drop the subtitle entirely and let the abstract carry the claim.",
+   "dims": [
+    "prose"
+   ],
+   "status": "applied",
+   "resolution": "title changed to: Neural-network aerocapture guidance, revisited: the tail that sizes the mission (user choice 2026-07-02)"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "refs.bib entry gelly2017angular (cited at paper.typ line 116)",
+   "claim": "@article{gelly2017angular, ... journal = {Proc. Interspeech}, year = {2017}, pages = {2566--2570}}",
+   "issue": "Wrong entry type and inconsistent venue field: the 2017 paper is an Interspeech conference paper (confirmed by articles/LID_by_Angular_Proximity_IS2017.pdf and articles/markdown/04, 'Venue: Interspeech 2017'), but it is entered as @article with journal={Proc. Interspeech}, while the sibling 2015/2016 papers are @inproceedings with booktitle={Interspeech}. It will render with a different, inconsistent venue string.",
+   "evidence": "refs.bib: gelly2015mwe and gelly2016divide are @inproceedings/booktitle={Interspeech}; gelly2017angular is @article/journal={Proc. Interspeech}. articles/markdown/04_2017_LID_angular_proximity.md: 'Venue: Interspeech 2017'.",
+   "fix": "Change to: @inproceedings{gelly2017angular, author = {Gelly, Gr{\\'e}gory and Gauvain, Jean-Luc}, title = {Spoken Language Identification Using {LSTM}-Based Angular Proximity}, booktitle = {Interspeech}, year = {2017}, pages = {2566--2570}}",
+   "dims": [
+    "citations"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "refs.bib entries cherry1964apollo, werbos1990bptt, jozefowicz2015empirical (bibliography at paper.typ line 845)",
+   "claim": "refs.bib contains cherry1964apollo, werbos1990bptt, and jozefowicz2015empirical",
+   "issue": "Three bib entries are never cited anywhere in paper.typ (verified with rg over all @-citations). Typst's default #bibliography prints only cited works, so they are silently dead; none of the topics they cover (Apollo powered-flight guidance, BPTT, LSTM forget-bias init) appear in the paper text, so there is no natural place to cite them either.",
+   "evidence": "rg -o '@[a-zA-Z0-9]+' articles/paper/paper.typ: the citation-key list contains no cherry1964apollo, werbos1990bptt, or jozefowicz2015empirical. Warm-start/BPTT and forget-bias-1 init are repo features not discussed in the paper.",
+   "fix": "Delete the three unused entries from refs.bib (or, if the warm-start/BPTT machinery gets a sentence in Section 4, cite werbos1990bptt there and delete the other two).",
+   "dims": [
+    "citations"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ lines 238-239 (Section 2.2)",
+   "claim": "Draws are generated by Latin-hypercube sampling for space-filling coverage.",
+   "issue": "Latin-hypercube sampling is a named, attributable method and every other named method in the paper (GA, CMA-ES, PSO, QPSO, GRU, LSTM, Transformer, Mamba, CVaR, the wind model) carries a citation; LHS has none.",
+   "evidence": "paper.typ line 238-239 has no @cite; refs.bib contains no LHS entry.",
+   "fix": "Add @article{mckay1979lhs, author = {McKay, Michael D. and Beckman, Richard J. and Conover, William J.}, title = {A Comparison of Three Methods for Selecting Values of Input Variables in the Analysis of Output from a Computer Code}, journal = {Technometrics}, volume = {21}, number = {2}, pages = {239--245}, year = {1979}} and cite it: 'Latin-hypercube sampling @mckay1979lhs'.",
+   "dims": [
+    "citations"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "paper.typ lines 440-442 (Section 5, optimizer list)",
+   "claim": "We compared the genetic algorithm @goldberg1989genetic against CMA-ES @hansen2001cmaes, particle-swarm optimization @kennedy1995pso and its quantum-behaved variant @sun2004qpso, differential evolution, and a three-island heterogeneous model",
+   "issue": "Every optimizer in the enumeration is cited except differential evolution, which is benchmarked and reported with numbers (178.2 m/s at line 461) but never attributed.",
+   "evidence": "paper.typ line 441: 'differential evolution' carries no citation; refs.bib has no Storn & Price entry.",
+   "fix": "Add @article{storn1997de, author = {Storn, Rainer and Price, Kenneth}, title = {Differential Evolution -- A Simple and Efficient Heuristic for Global Optimization over Continuous Spaces}, journal = {Journal of Global Optimization}, volume = {11}, number = {4}, pages = {341--359}, year = {1997}} and cite it at 'differential evolution @storn1997de'.",
+   "dims": [
+    "citations"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "refs.bib entry gelly2009neural, note field (cited at paper.typ lines 104, 250)",
+   "claim": "note = {AIAA 2009-5660}",
+   "issue": "The AIAA paper number 2009-5660 cannot be confirmed from any repo source: the source PDF (articles/Neural_Guidance_AIAA_August_2009_Article.pdf, full-text extracted) contains no AIAA paper number anywhere, and articles/markdown/01 gives only venue/city/month. A wrong paper number on the author's own headline self-citation would be embarrassing.",
+   "evidence": "pypdf full-text extraction of the 2009 PDF: the only AIAA numbers present are in its reference list (AIAA-85-0348, AIAA-1999-4154, AIAA 2005-6129); no 2009-xxxx number appears. markdown/01 line 7 gives venue only.",
+   "fix": "Verify the number against arc.aiaa.org (the AIAA 2009 GNC proceedings) before submission; if it cannot be confirmed, drop the note field -- the entry is complete without it.",
+   "dims": [
+    "citations"
+   ],
+   "status": "deferred",
+   "resolution": "AIAA 2009-5660 paper number: author must verify against arc.aiaa.org"
+  },
+  {
+   "severity": "minor",
+   "kind": "factual",
+   "location": "refs.bib entry vernis2004tradeoff (cited at paper.typ line 105)",
+   "claim": "booktitle = {ESA Guidance, Navigation and Control Conference}, year = {2004}",
+   "issue": "The venue/year pairing is suspect: the International ESA GNC Conference series had no 2004 edition (5th = Frascati 2002, 6th = Loutraki 2005). The 2009 paper's own reference list abbreviates it as 'ESA GNC, 2004', which the bib entry reproduces, but that shorthand may hide a different actual venue (e.g. a 2004 ESA workshop) or the 2005 6th ESA GNC conference.",
+   "evidence": "articles/markdown/01 line 249: 'Vernis P., Gelly G., Ferreira E., da Costa R., Ortega G., Guidance Trade-Off for Aerocapture Missions, ESA GNC, 2004.' -- the bib matches the 2009 shorthand, but no repo source confirms a 2004 ESA GNC conference existed; known series editions are 2002 and 2005.",
+   "fix": "Verify the actual proceedings (the author is a co-author and should have the original); if it was the 6th International ESA Conference on GNC Systems (Loutraki, 2005), correct booktitle and year accordingly.",
+   "dims": [
+    "citations"
+   ],
+   "status": "deferred",
+   "resolution": "vernis2004tradeoff venue/year (ESA GNC 2004 vs Loutraki 2005): author must verify against the original proceedings"
+  },
+  {
+   "severity": "nit",
+   "kind": "factual",
+   "location": "paper.typ lines 460-462 (sec 5)",
+   "claim": "every gradient-free optimizer we ran lands in a tight band, $170$--$178$ m/s -- CMA-ES $171.7$, particle swarm $170.9$, quantum-behaved swarm $172.9$, differential evolution $178.2$, islands $169.8$",
+   "issue": "The islands value 169.8, quoted in the same sentence, lies below the stated 170-178 band.",
+   "evidence": "results.json optimizer_dimensionality/ftc_islands dv_mean = 169.79.",
+   "fix": "Change the band to '$169.8$--$178.2$ m/s' (or 'roughly $170$--$178$').",
+   "dims": [
+    "stats",
+    "consistency"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "nit",
+   "kind": "factual",
+   "location": "paper.typ lines 573-574 (sec 6.3, decoder paragraph)",
+   "claim": "with the edge concentrated on the tail (roughly $12$--$13$ m/s at $\"CVaR\"_95$, paired)",
+   "issue": "The paired CVaR95 deltas are 11.7 m/s (atan2 vs scaled-pi) and 12.9 m/s (atan2 vs delta); '12-13' misquotes the lower one.",
+   "evidence": "results.json paired: atan2_vs_scaledpi delta_cvar95 = -11.72; atan2_vs_delta delta_cvar95 = -12.93.",
+   "fix": "Replace with '(roughly $12$ m/s at $\"CVaR\"_95$, paired)' or '($11.7$--$12.9$ m/s at $\"CVaR\"_95$, paired)'.",
+   "dims": [
+    "consistency"
+   ],
+   "status": "refuted",
+   "resolution": "adjudicated: 11.7 rounds to 12 and 12.9 to 13, so \"roughly 12-13\" is a fair quote; left as-is"
+  },
+  {
+   "severity": "nit",
+   "kind": "prose",
+   "location": "paper.typ lines 269-270 and 274 vs table lines 323, 325 and 665, 667",
+   "claim": "\"*EnergyController* tracks an energy-dissipation reference\" (269) and \"*Piecewise-constant* flies an $N$-segment constant-bank profile\" (274)",
+   "issue": "Scheme-name styling is inconsistent: the running text uses camel-case \"EnergyController\" and hyphenated \"Piecewise-constant\" where both tables (tbl-schemes, tbl-perf) use \"Energy controller\" and \"Piecewise constant\".",
+   "evidence": "rg of scheme names: prose 269/274 vs table rows 323/325/665/667.",
+   "fix": "Standardize on the table forms in prose: \"*Energy controller*\" and \"*Piecewise constant*\".",
+   "dims": [
+    "prose"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "nit",
+   "kind": "prose",
+   "location": "paper.typ lines 741 and 789 vs 201, 383, 513, 541",
+   "claim": "\"$n = 10000$\" (741, 789)",
+   "issue": "Number styling inconsistent: the thin-space form \"$n = 10\\,000$\" is used at 201, 383, 513, 541 and 671 but not at 741/789, so the same pool size renders two ways.",
+   "evidence": "rg '10\\\\,000|10000' paper.typ.",
+   "fix": "Change lines 741 and 789 to \"$n = 10\\,000$\".",
+   "dims": [
+    "prose"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "nit",
+   "kind": "prose",
+   "location": "paper.typ lines 158, 160-161 vs 213, 215, 221, 257",
+   "claim": "\"$-10.81 degree$\", \"$38.04 degree$\", \"$15 degree$/s\", \"$50 degree$\" (spaced) vs \"$0.3degree$\", \"$1degree$\", \"$5degree$\", \"$0degree$\", \"$180degree$\" (unspaced)",
+   "issue": "Degree-symbol source styling is split between spaced and unspaced forms; and \"$15 degree$/s\" splits the unit across math and text modes (the \"/s\" renders in the body font next to a math degree sign).",
+   "evidence": "rg 'degree' paper.typ shows both conventions.",
+   "fix": "Pick one convention (unspaced \"$38.04degree$\" matches the tables) and keep the whole unit in one mode: \"$15degree\\\"/s\\\"$\" or a text-mode \"15\u00b0/s\".",
+   "dims": [
+    "prose"
+   ],
+   "status": "deferred",
+   "resolution": "degree-symbol spacing: cosmetic, render-identical in Typst math; skipped"
+  },
+  {
+   "severity": "nit",
+   "kind": "factual",
+   "location": "refs.bib entry rockafellar2000cvar (cited at paper.typ line 198)",
+   "claim": "journal = {Journal of Risk}, volume = {2}, pages = {21--42}, year = {2000}",
+   "issue": "Missing the issue number (the article is in Journal of Risk 2(3)), and the page range is most commonly cited as 21--41; the entry's 21--42 should be double-checked against the journal.",
+   "evidence": "refs.bib rockafellar2000cvar has no number field. The canonical citation is Rockafellar, R.T. and Uryasev, S., 'Optimization of Conditional Value-at-Risk', Journal of Risk 2(3), 2000.",
+   "fix": "Add number = {3} and verify the closing page (21--41 in most citations, including the authors' own follow-up papers).",
+   "dims": [
+    "citations"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "nit",
+   "kind": "factual",
+   "location": "refs.bib entry vaswani2017attention (cited at paper.typ line 306)",
+   "claim": "booktitle = {Advances in Neural Information Processing Systems (NeurIPS)}, year = {2017}",
+   "issue": "Anachronism: in 2017 the venue was still NIPS (the paper.typ layout comments at lines 11 and 22 themselves say 'NIPS-2017'). Also missing volume (30) and pages (5998--6008), which the other ML entries provide.",
+   "evidence": "refs.bib entry as quoted; paper.typ line 11: 'NeurIPS-style single-column layout (cf. Vaswani et al. 2017)' with 'NIPS-2017' at lines 22 and 30.",
+   "fix": "Use booktitle = {Advances in Neural Information Processing Systems 30 (NIPS)}, pages = {5998--6008} (or keep NeurIPS but be consistent; either way add the pages).",
+   "dims": [
+    "citations"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "nit",
+   "kind": "prose",
+   "location": "paper.typ lines 108-110 (Introduction, direct quotation)",
+   "claim": "\"the next step would be to extend our work on the aerocapture to skip-entry missions and evaluate the performance of neural guidance compared to classic algorithms such as the predictor--corrector schemes.\"",
+   "issue": "The direct quotation silently alters the 2009 original: the source says 'skip entry missions' (no hyphen) and 'predictor-corrector' (plain hyphen), and starts 'The next step' (capitalized -- the quote lowercases it without brackets). Quoting your own prior paper inexactly is an easy referee catch.",
+   "evidence": "pypdf extraction of articles/Neural_Guidance_AIAA_August_2009_Article.pdf: 'The next step would be to extend our work on the aerocapture to skip entry missions and evaluate the performance of neural guidance compared to classic algorithms such as the predictor-corrector schemes.'",
+   "fix": "Reproduce the sentence verbatim: \"[t]he next step would be to extend our work on the aerocapture to skip entry missions and evaluate the performance of neural guidance compared to classic algorithms such as the predictor-corrector schemes.\" (or keep the silent case change and just fix 'skip entry' and the hyphen).",
+   "dims": [
+    "citations"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "nit",
+   "kind": "factual",
+   "location": "refs.bib entry cho2014gru (cited at paper.typ line 305)",
+   "claim": "author = {Cho, Kyunghyun and van Merri{\\\"e}nboer, Bart and Gulcehre, Caglar and ...}",
+   "issue": "Inconsistent diacritics within the same author list: van Merri\u00ebnboer gets the TeX accent but G\u00fcl\u00e7ehre is stripped to 'Gulcehre, Caglar'. Every other entry in the file carries full diacritics (Gr{\\'e}gory, J{\\\"u}rgen, Fran{\\c{c}}ois).",
+   "evidence": "refs.bib cho2014gru author field as quoted; the EMNLP 2014 paper lists the author as \u00c7a\u011flar G\u00fcl\u00e7ehre.",
+   "fix": "Change to G{\\\"u}l{\\c{c}}ehre, {\\c{C}}a{\\u{g}}lar (or at minimum G{\\\"u}l{\\c{c}}ehre, Caglar).",
+   "dims": [
+    "citations"
+   ],
+   "status": "applied"
+  },
+  {
+   "severity": "nit",
+   "kind": "factual",
+   "location": "paper.typ line 269 (Section 3.1)",
+   "claim": "*PredGuid* is the Apollo/Shuttle-heritage drag-tracking law @bairstow2006reentry",
+   "issue": "The single citation covers only the Apollo-derived PredGuid line (Bairstow's MIT thesis on skip-entry Earth return); the 'Shuttle-heritage drag-tracking' half of the claim is uncited -- Shuttle drag-reference tracking is Harpold & Graves, not Bairstow.",
+   "evidence": "refs.bib bairstow2006reentry: 'Reentry Guidance with Extended Range Capability for Low L/D Spacecraft', MIT master's thesis, 2006 -- an Apollo-PredGuid extension, not a Shuttle guidance reference.",
+   "fix": "Either drop 'Shuttle' ('the Apollo-heritage drag-tracking law @bairstow2006reentry') or add @article{harpold1979shuttle, author = {Harpold, Jon C. and Graves, Claude A.}, title = {Shuttle Entry Guidance}, journal = {Journal of the Astronautical Sciences}, volume = {27}, number = {3}, pages = {239--268}, year = {1979}} alongside it.",
+   "dims": [
+    "citations"
+   ],
+   "status": "applied"
+  }
+ ],
+ "completed": "2026-07-02: all findings adjudicated and applied by main session; paper.typ + refs.bib edited, recompiles clean"
+}

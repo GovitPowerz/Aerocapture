@@ -1,0 +1,31 @@
+# Cell: dense_p515-class net with a 1-output delta head. Study wiring lives in experiments/paper/.
+base = ["../sweep/dense_p515.toml"]
+
+[data]
+neural_network = "training_output/paper/cells/outparam_delta/best_model.json"
+results_suffix = ".outparam_delta"
+
+[optimizer]
+algorithm = "ga"   # matches the dense_p515_ga atan2 control cell
+
+[guidance.neural_network]
+output_parameterization = "delta"
+delta_max = 0.35
+
+[[network.architecture]]
+type = "dense"
+input_size = 17
+output_size = 18
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 18
+output_size = 9
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 9
+output_size = 1
+activation = "tanh"

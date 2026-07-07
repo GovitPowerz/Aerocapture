@@ -25,10 +25,11 @@ if TYPE_CHECKING:
 class TrainingLogger:
     """Collects per-generation metrics and writes them to a JSONL file."""
 
-    def __init__(self, scheme: str, run: int, output_dir: Path, config_hash: str) -> None:
+    def __init__(self, scheme: str, run: int, output_dir: Path, config_hash: str, cost_transform: str = "linear") -> None:
         self._scheme = scheme
         self._run = run
         self._config_hash = config_hash
+        self._cost_transform = cost_transform
         self._buffer: list[dict] = []
         self._best_cost = float("inf")
 
@@ -62,7 +63,7 @@ class TrainingLogger:
         seeds but kept for callers that don't track validation state.
         """
         stats = cost_stats(costs)
-        cap_rate = capture_rate(costs)
+        cap_rate = capture_rate(costs, cost_transform=self._cost_transform)
         diversity = population_diversity(population)
 
         gen_best = stats["best"]

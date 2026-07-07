@@ -60,11 +60,12 @@ algorithm = "ga"
 seed_strategy = "adaptive"    # fixed | rotating | adaptive
 n_pop = 60
 n_gen = 2500
-seed_pool_interval = 3       # curation periodic-fallback interval (gens) -- also fires on validated best
+seed_pool_interval = 2       # curation periodic-fallback interval (gens) -- also fires on validated best
 training_n_sims = 10          # fresh random seeds per individual per generation (epoch rotation)
 validation_n_sims = 1000      # sims for validation gate (fixed seeds, honest generalization metric)
-curation_top_k = 2            # top-K individuals whose cost CDF is averaged at each curation
+curation_top_k = 1            # top-K individuals whose cost CDF is averaged at each curation
 curation_sample_size = 1000   # seeds drawn per curation to sample the cost distribution
+curation_bucket_selection = "max"  # per-CDF-bin representative (random|min|max|middle): max = best worst-case (exp 8)
 
 # ── GA: SBX crossover + polynomial mutation ──
 # Lower eta = more exploratory (uniform-crossover-like). Higher eta = offspring closer to parents.
@@ -99,6 +100,13 @@ scaling_factor = 0.6
 w = 0.7
 c1 = 1.5
 c2 = 1.5
+
+# ── QPSO (quantum-behaved PSO, canonical mbest form): contraction-expansion ──
+# coefficient annealed linearly alpha_start -> alpha_end over n_gen.
+# Theory: divergence above alpha ~ 1.781 (e^gamma).
+[optimizer.qpso]
+alpha_start = 1.0
+alpha_end = 0.5
 
 # ── Islands: 3-island PSO/GA/DE with episodic migration ──
 # k_period = gens between full-mesh top-k/worst-(k*(n-1)) migration events.

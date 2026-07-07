@@ -1,0 +1,31 @@
+# MSR outbound -- single-segment piecewise constant: optimized CONSTANT-BANK
+# reference generator. Reproduces the classical FTC reference design (the
+# legacy msr_aller.dat is a constant-bank nominal at the 64.77 deg trim) with
+# a GA-optimized bank value, generated through the modern pipeline.
+#
+# reference_only = true: this run writes training_output/mars/ref_trajectory.dat
+# ONLY -- it does not clobber the richer corridor_boundaries.npz produced by
+# the full 11-segment piecewise baseline run.
+#
+# Run AFTER the 11-segment piecewise run (this overwrites the mission ref),
+# and give it its own output dir so the baseline artifacts are preserved:
+#   uv run python -m aerocapture.training.train configs/training/msr_aller_pc_ref_train.toml \
+#       --output-dir training_output/pc_ref --from-scratch
+base = ["../missions/mars.toml", "common.toml"]
+
+[guidance]
+type = "piecewise_constant"
+
+[guidance.piecewise_constant]
+energy_min = -7.0
+energy_max = 5.0
+n_segments = 1
+reference_only = true
+
+# 2-parameter search (one bank angle + shaping) -- small population suffices.
+[optimizer]
+n_pop = 30
+n_gen = 200
+
+[data]
+results_suffix = ".pc_ref"

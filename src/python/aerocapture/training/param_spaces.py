@@ -139,7 +139,9 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
     ],
     "fnpag": [
         ParamSpec("energy_tol", 1e2, 1e5, 1e4, log_scale=True),
-        ParamSpec("prediction_dt", 0.5, 5.0, 2.0),
+        # dt is a compute knob the GA can't feel (wall time isn't in the cost):
+        # dt=0.5 individuals run ~3.6x slower than dt=2 for no fitness gain.
+        ParamSpec("prediction_dt", 2.0, 5.0, 2.0),
         ParamSpec("bank_min_deg", 10.0, 40.0, 20.0),
         ParamSpec("bank_max_high_deg", 100.0, 170.0, 140.0),
         ParamSpec("bank_max_low_deg", 70.0, 130.0, 100.0),
@@ -200,6 +202,12 @@ GUIDANCE_TOML_SECTIONS: dict[str, str] = {
 
 # Schemes that require a pre-computed reference trajectory
 REQUIRES_REF_TRAJECTORY: set[str] = {"energy_controller", "pred_guid", "fnpag", "ftc"}
+
+# Schemes eligible for the joint-reference `ref_bank` gene ([reference] joint_bank
+# in the training TOML): the ones that actually interpolate the reference table.
+# fnpag is in REQUIRES_REF_TRAJECTORY but never reads the table (numerical
+# predictor instead), so a ref_bank gene would be dead weight in its chromosome.
+JOINT_REF_BANK_SCHEMES: set[str] = {"ftc", "energy_controller", "pred_guid"}
 
 # Mapping from GA param prefix to canonical TOML section prefix.
 # Keys include the trailing dot; values include the trailing dot.

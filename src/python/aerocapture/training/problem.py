@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -54,6 +56,13 @@ class AerocaptureProblem(Problem):
         self._integer_params = {s.name for s in param_specs if s.is_integer}
         self._consecutive_eval_failures = 0
 
+        # Joint reference optimization: a `ref_bank` gene means each individual
+        # gets its own constant-bank reference table, generated per evaluation
+        # and injected as a per-individual data.reference_trajectory override.
+        self._joint_ref_bank = any(s.name == "ref_bank" for s in param_specs)
+        self._ref_table_dir: Path | None = None
+        self._ref_mc_config: dict | None = None
+
         # NN scaffolding: chromosome layout is [NN weights..., scaffolding tail...].
         # _n_nn_weight_specs caps the NN-weight slice so run_grid gets a weights
         # matrix with exactly the right column count. Tail width = len(active scaffolding pack).
@@ -70,12 +79,16 @@ class AerocaptureProblem(Problem):
         except Exception as e:
             self._consecutive_eval_failures = getattr(self, "_consecutive_eval_failures", 0) + 1
             print(
-                f"  [problem] batch eval failed ({type(e).__name__}: {e}); penalizing 1e9 (consecutive failures: {self._consecutive_eval_failures})",
+                f"  [problem] batch eval failed ({type(e).__name__}: {e}); penalizing inf (consecutive failures: {self._consecutive_eval_failures})",
                 file=sys.stderr,
             )
             if self._consecutive_eval_failures >= _MAX_CONSECUTIVE_EVAL_FAILURES:
                 raise RuntimeError(f"{self._consecutive_eval_failures} consecutive batch-eval failures; aborting (last: {type(e).__name__}: {e})") from e
-            costs = np.full(X.shape[0], 1e9)
+            # inf, not a finite sentinel: under cost_transform=cubed real crash
+            # costs reach ~4e15, so a fixed 1e9 ranks BETTER than a genuine
+            # crash. The validation gate, seed curator, and pymoo survival all
+            # tolerate inf populations.
+            costs = np.full(X.shape[0], np.inf)
         out["F"] = costs.reshape(-1, 1)
 
     def _run_batch(self, X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
@@ -111,6 +124,10 @@ class AerocaptureProblem(Problem):
         assert _HAS_PYO3 and _aero_rs is not None
         param_dicts = decode_normalized_array(X_rows, self.param_specs)
         overrides_list = [self._build_grid_overrides(p) for p in param_dicts]
+        if self._joint_ref_bank:
+            ref_paths = self._generate_ref_tables([float(p["ref_bank"]) for p in param_dicts])
+            for ov, path in zip(overrides_list, ref_paths, strict=True):
+                ov["data.reference_trajectory"] = str(path)
 
         weights = None
         architecture_json = None
@@ -221,6 +238,11 @@ class AerocaptureProblem(Problem):
         for key, value in params.items():
             if skip_nn_weights and not key.startswith(SCAFFOLDING_PREFIXES):
                 continue
+            if key == "ref_bank":
+                # Joint-reference gene: consumed by the evaluation layer (per-
+                # individual data.reference_trajectory injection) — routing it
+                # to guidance.<scheme>.ref_bank would be silently dropped by Rust.
+                continue
             # Round integer-typed params so Rust TOML parser accepts them
             if key in self._integer_params:
                 value = int(round(value))
@@ -242,7 +264,22 @@ class AerocaptureProblem(Problem):
         for key, value in params.items():
             if skip_nn_weights and not key.startswith(SCAFFOLDING_PREFIXES):
                 continue
+            if key == "ref_bank":  # consumed by the evaluation layer, never a TOML key
+                continue
             if key in self._integer_params:
                 value = int(round(value))
             overrides[route_param_path(key, self.scheme)] = value
         return overrides
+
+    def _generate_ref_tables(self, banks_deg: list[float]) -> list[Path]:
+        """Per-individual constant-bank reference tables (slot files, overwritten
+        every call — file count is bounded by the largest batch ever evaluated)."""
+        from aerocapture.training.reference import generate_constant_bank_tables  # noqa: PLC0415
+
+        if self._ref_table_dir is None:
+            self._ref_table_dir = Path(tempfile.mkdtemp(prefix="aerocapture_joint_ref_"))
+        if self._ref_mc_config is None:
+            from aerocapture.training.toml_utils import load_toml_with_bases  # noqa: PLC0415
+
+            self._ref_mc_config = load_toml_with_bases(Path(self.toml_path)).get("monte_carlo", {})
+        return generate_constant_bank_tables(self.toml_path, banks_deg, self._ref_mc_config, self._ref_table_dir, self.sim_timeout)
