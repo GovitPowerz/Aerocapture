@@ -17,5 +17,6 @@ pub use dense::DenseLayer;
 pub use gru::GruLayer;
 pub use lstm::LstmLayer;
 pub use mamba::MambaLayer;
+pub use mamba3::Mamba3Layer;
 pub use transformer::TransformerLayer;
 pub use window::WindowLayer;

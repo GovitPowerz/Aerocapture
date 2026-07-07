@@ -33,6 +33,15 @@ pub enum LayerState {
     Mamba {
         h: nalgebra::DMatrix<f64>,
     },
+    /// Mamba-3 state: complex (h_re, h_im) SSM state + trapezoidal previous-input
+    /// carry (x_prev, b_prev). h_im is unused in real mode; x_prev/b_prev in euler
+    /// mode. All shapes (input_size, d_state) / (input_size,) / (d_state,). Reset zeros all.
+    Mamba3 {
+        h_re: nalgebra::DMatrix<f64>,
+        h_im: nalgebra::DMatrix<f64>,
+        x_prev: nalgebra::DVector<f64>,
+        b_prev: nalgebra::DVector<f64>,
+    },
 }
 
 impl LayerState {
@@ -61,6 +70,12 @@ impl LayerState {
             },
             Layer::Mamba(m) => LayerState::Mamba {
                 h: nalgebra::DMatrix::<f64>::zeros(m.input_size, m.d_state),
+            },
+            Layer::Mamba3(m) => LayerState::Mamba3 {
+                h_re: nalgebra::DMatrix::<f64>::zeros(m.input_size, m.d_state),
+                h_im: nalgebra::DMatrix::<f64>::zeros(m.input_size, m.d_state),
+                x_prev: nalgebra::DVector::<f64>::zeros(m.input_size),
+                b_prev: nalgebra::DVector::<f64>::zeros(m.d_state),
             },
         }
     }
@@ -94,6 +109,17 @@ impl LayerState {
             }
             LayerState::Mamba { h } => {
                 h.fill(0.0);
+            }
+            LayerState::Mamba3 {
+                h_re,
+                h_im,
+                x_prev,
+                b_prev,
+            } => {
+                h_re.fill(0.0);
+                h_im.fill(0.0);
+                x_prev.fill(0.0);
+                b_prev.fill(0.0);
             }
         }
     }
@@ -473,6 +499,26 @@ mod tests {
             assert!(h.iter().all(|&v| v == 0.0));
         } else {
             panic!("expected LayerState::Mamba (original)");
+        }
+    }
+
+    #[test]
+    fn layer_state_mamba3_for_layer_shapes() {
+        use crate::data::neural::Mamba3Layer;
+        let layer = Layer::Mamba3(Box::new(Mamba3Layer::zeros(5, 4, 1, true, true)));
+        match LayerState::for_layer(&layer) {
+            LayerState::Mamba3 {
+                h_re,
+                h_im,
+                x_prev,
+                b_prev,
+            } => {
+                assert_eq!(h_re.shape(), (5, 4));
+                assert_eq!(h_im.shape(), (5, 4));
+                assert_eq!(x_prev.len(), 5);
+                assert_eq!(b_prev.len(), 4);
+            }
+            _ => panic!("expected Mamba3"),
         }
     }
 }

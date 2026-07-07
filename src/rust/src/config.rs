@@ -231,6 +231,24 @@ pub enum TomlLayerSpec {
         #[serde(default)]
         dt_rank: Option<usize>,
     },
+    Mamba3 {
+        input_size: usize,
+        d_state: usize,
+        #[serde(default)]
+        dt_rank: Option<usize>,
+        #[serde(default = "default_discretization")]
+        discretization: String,
+        #[serde(default = "default_state_mode")]
+        state_mode: String,
+    },
+}
+
+fn default_discretization() -> String {
+    "euler".to_string()
+}
+
+fn default_state_mode() -> String {
+    "real".to_string()
 }
 
 impl TomlLayerSpec {
@@ -327,6 +345,51 @@ impl TomlLayerSpec {
                     input_size: *input_size,
                     d_state: *d_state,
                     dt_rank: resolved,
+                })
+            }
+            TomlLayerSpec::Mamba3 {
+                input_size,
+                d_state,
+                dt_rank,
+                discretization,
+                state_mode,
+            } => {
+                if *input_size == 0 {
+                    return Err(ParseError("Mamba3: input_size must be > 0".into()));
+                }
+                if *d_state == 0 {
+                    return Err(ParseError("Mamba3: d_state must be > 0".into()));
+                }
+                let resolved = dt_rank.unwrap_or_else(|| (*input_size / 16).max(1));
+                if resolved == 0 || resolved > *input_size {
+                    return Err(ParseError(format!(
+                        "Mamba3: dt_rank ({resolved}) must be in 1..={input_size}"
+                    )));
+                }
+                let trapezoidal = match discretization.as_str() {
+                    "euler" => false,
+                    "trapezoidal" => true,
+                    other => {
+                        return Err(ParseError(format!(
+                            "Mamba3: discretization must be euler|trapezoidal, got {other:?}"
+                        )));
+                    }
+                };
+                let complex = match state_mode.as_str() {
+                    "real" => false,
+                    "complex" => true,
+                    other => {
+                        return Err(ParseError(format!(
+                            "Mamba3: state_mode must be real|complex, got {other:?}"
+                        )));
+                    }
+                };
+                Ok(LayerSpec::Mamba3 {
+                    input_size: *input_size,
+                    d_state: *d_state,
+                    dt_rank: resolved,
+                    trapezoidal,
+                    complex,
                 })
             }
         }

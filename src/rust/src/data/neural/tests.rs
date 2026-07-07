@@ -1852,6 +1852,74 @@ fn mamba_json_v2_save_load_roundtrip() {
 }
 
 #[test]
+fn mamba3_json_v2_save_load_roundtrip_all_flags() {
+    // Dense(8 -> 4) -> Mamba3(4, 2, 1, flags) -> Dense(4 -> 2), all 4 flag combos.
+    for &(trapezoidal, complex) in &[(false, false), (true, false), (false, true), (true, true)] {
+        let architecture = vec![
+            LayerSpec::Dense {
+                input_size: 8,
+                output_size: 4,
+                activation: Activation::Linear,
+            },
+            LayerSpec::Mamba3 {
+                input_size: 4,
+                d_state: 2,
+                dt_rank: 1,
+                trapezoidal,
+                complex,
+            },
+            LayerSpec::Dense {
+                input_size: 4,
+                output_size: 2,
+                activation: Activation::Linear,
+            },
+        ];
+        // Dense=36, Mamba3 base=40 (+8 complex, +4 trapz), Dense=10.
+        let n =
+            36 + 40 + if complex { 8 } else { 0 } + if trapezoidal { 4 } else { 0 } + 10;
+        let flat: Vec<f64> = (0..n).map(|i| (i as f64) * 0.013 - 0.7).collect();
+        let model = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &architecture,
+            None,
+            OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
+        )
+        .unwrap();
+        assert_eq!(model.n_params(), n, "trap={trapezoidal} cplx={complex}");
+
+        let tmpdir = std::env::temp_dir();
+        let path = tmpdir.join(format!("mamba3_v2_roundtrip_{trapezoidal}_{complex}.json"));
+        model.save_json(path.to_str().unwrap()).unwrap();
+
+        let loaded = NeuralNetModel::load(path.to_str().unwrap()).unwrap();
+        assert_eq!(loaded.n_params(), model.n_params());
+        let orig_flat = model.to_flat_weights();
+        let loaded_flat = loaded.to_flat_weights();
+        for (i, (a, b)) in orig_flat.iter().zip(loaded_flat.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-15,
+                "trap={trapezoidal} cplx={complex} roundtrip mismatch at {i}: {a} vs {b}"
+            );
+        }
+        assert_eq!(
+            format!("{:?}", model.architecture),
+            format!("{:?}", loaded.architecture),
+        );
+        match &loaded.layers[1] {
+            Layer::Mamba3(m) => {
+                assert_eq!(m.trapezoidal, trapezoidal);
+                assert_eq!(m.complex, complex);
+                assert_eq!(m.a_imag.is_some(), complex);
+                assert_eq!(m.lambda_logit.is_some(), trapezoidal);
+            }
+            _ => panic!("expected Mamba3 at layer 1"),
+        }
+    }
+}
+
+#[test]
 fn mamba_from_v2_json_rejects_zero_dt_rank() {
     // Build a minimal v2 JSON by hand with dt_rank = 0 in the Mamba spec.
     // The constructor validators in from_v2_json must reject this.

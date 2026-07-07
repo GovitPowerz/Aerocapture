@@ -8,7 +8,9 @@ use crate::data::nn_state::{LayerState, NnState};
 use serde::{Deserialize, Serialize};
 
 mod layers;
-pub use layers::{DenseLayer, GruLayer, LstmLayer, MambaLayer, TransformerLayer, WindowLayer};
+pub use layers::{
+    DenseLayer, GruLayer, LstmLayer, Mamba3Layer, MambaLayer, TransformerLayer, WindowLayer,
+};
 // Surface the shared numerical helpers at the module root so the `use super::*`
 // test module reaches them by their bare names. Test-only: production code in
 // this module never calls the helpers directly (the layer impls that do live in
@@ -305,6 +307,8 @@ pub enum Layer {
     // of boxing. The box is purely for enum-variant size uniformity against
     // Transformer (472 bytes) -- same `large_enum_variant` clippy motivation.
     Mamba(Box<MambaLayer>),
+    // Boxed for enum-variant size uniformity, same as Mamba (adds a_imag + lambda_logit).
+    Mamba3(Box<Mamba3Layer>),
 }
 
 impl Layer {
@@ -323,6 +327,7 @@ impl Layer {
             Layer::Window(w) => w.input_size,
             Layer::Transformer(t) => t.d_model,
             Layer::Mamba(m) => m.input_size,
+            Layer::Mamba3(m) => m.input_size,
         }
     }
 }
@@ -357,6 +362,7 @@ impl LayerWeights for Layer {
             Layer::Window(w) => w.to_flat(),
             Layer::Transformer(t) => t.to_flat(),
             Layer::Mamba(m) => m.to_flat(),
+            Layer::Mamba3(m) => m.to_flat(),
         }
     }
 
@@ -369,6 +375,7 @@ impl LayerWeights for Layer {
             Layer::Window(w) => w.from_flat(flat),
             Layer::Transformer(t) => t.from_flat(flat),
             Layer::Mamba(m) => m.from_flat(flat),
+            Layer::Mamba3(m) => m.from_flat(flat),
         }
     }
 
@@ -380,6 +387,7 @@ impl LayerWeights for Layer {
             Layer::Window(w) => w.n_params(),
             Layer::Transformer(t) => t.n_params(),
             Layer::Mamba(m) => m.n_params(),
+            Layer::Mamba3(m) => m.n_params(),
         }
     }
 }
@@ -469,6 +477,11 @@ struct NnLayerWeights {
     a_log: Option<Vec<Vec<f64>>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     d_skip: Option<Vec<f64>>,
+    // Mamba-3 extra fields (spike): a_imag iff complex, lambda_logit iff trapezoidal.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    a_imag: Option<Vec<Vec<f64>>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    lambda_logit: Option<Vec<f64>>,
 }
 
 /// v2 layer spec: tagged-union over the layer type.
@@ -503,6 +516,15 @@ pub enum LayerSpec {
         d_state: usize,
         dt_rank: usize,
     },
+    Mamba3 {
+        input_size: usize,
+        d_state: usize,
+        dt_rank: usize,
+        #[serde(default)]
+        trapezoidal: bool,
+        #[serde(default)]
+        complex: bool,
+    },
 }
 
 impl LayerSpec {
@@ -533,6 +555,7 @@ impl LayerSpec {
             } => (*input_size, n_steps * input_size, "window"),
             LayerSpec::Transformer { d_model, .. } => (*d_model, *d_model, "transformer"),
             LayerSpec::Mamba { input_size, .. } => (*input_size, *input_size, "mamba"),
+            LayerSpec::Mamba3 { input_size, .. } => (*input_size, *input_size, "mamba3"),
         }
     }
 }
@@ -1399,6 +1422,73 @@ impl NeuralNetModel {
                         d_skip: nalgebra::DVector::from_vec(d_skip.clone()),
                     })));
                 }
+                LayerSpec::Mamba3 {
+                    input_size,
+                    d_state,
+                    dt_rank,
+                    trapezoidal,
+                    complex,
+                } => {
+                    if *input_size == 0 || *d_state == 0 || *dt_rank == 0 {
+                        return Err(DataError(format!(
+                            "Layer {i} (mamba3) input_size, d_state, dt_rank must be positive in {path}"
+                        )));
+                    }
+                    if *dt_rank > *input_size {
+                        return Err(DataError(format!(
+                            "Layer {i} (mamba3) dt_rank={dt_rank} must not exceed input_size={input_size} in {path}"
+                        )));
+                    }
+                    if i == 0 {
+                        layer_sizes.push(*input_size);
+                    }
+                    layer_sizes.push(*input_size);
+
+                    let key = format!("layer_{}", i);
+                    let lw = file.weights.get(&key).ok_or_else(|| {
+                        DataError(format!("Missing {} in weights in {}", key, path))
+                    })?;
+
+                    // Assemble the canonical flat slab from named JSON fields, then from_flat.
+                    let flat_mat =
+                        |name: &str, m: &Option<Vec<Vec<f64>>>| -> Result<Vec<f64>, DataError> {
+                            let rows = m.as_ref().ok_or_else(|| {
+                                DataError(format!("Layer {i} (mamba3) missing {name} in {path}"))
+                            })?;
+                            Ok(rows.iter().flat_map(|r| r.iter().copied()).collect())
+                        };
+                    let flat_vec =
+                        |name: &str, v: &Option<Vec<f64>>| -> Result<Vec<f64>, DataError> {
+                            v.as_ref().cloned().ok_or_else(|| {
+                                DataError(format!("Layer {i} (mamba3) missing {name} in {path}"))
+                            })
+                        };
+
+                    let mut slab = Vec::new();
+                    slab.extend(flat_mat("x_proj_w", &lw.x_proj_w)?);
+                    slab.extend(flat_mat("dt_proj_w", &lw.dt_proj_w)?);
+                    slab.extend(flat_vec("dt_proj_b", &lw.dt_proj_b)?);
+                    slab.extend(flat_mat("a_log", &lw.a_log)?);
+                    if *complex {
+                        slab.extend(flat_mat("a_imag", &lw.a_imag)?);
+                    }
+                    if *trapezoidal {
+                        slab.extend(flat_vec("lambda_logit", &lw.lambda_logit)?);
+                    }
+                    slab.extend(flat_vec("d_skip", &lw.d_skip)?);
+
+                    let mut m =
+                        Mamba3Layer::zeros(*input_size, *d_state, *dt_rank, *trapezoidal, *complex);
+                    if slab.len() != m.n_params() {
+                        return Err(DataError(format!(
+                            "Layer {i} (mamba3) weight count {} != expected {} in {path}",
+                            slab.len(),
+                            m.n_params()
+                        )));
+                    }
+                    m.from_flat(&slab);
+                    layers.push(Layer::Mamba3(Box::new(m)));
+                }
             }
         }
 
@@ -1494,6 +1584,23 @@ impl NeuralNetModel {
                         ..NnLayerWeights::default()
                     }
                 }
+                Layer::Mamba3(m) => {
+                    let dmatrix_rows = |mat: &nalgebra::DMatrix<f64>| -> Vec<Vec<f64>> {
+                        (0..mat.nrows())
+                            .map(|r| (0..mat.ncols()).map(|c| mat[(r, c)]).collect())
+                            .collect()
+                    };
+                    NnLayerWeights {
+                        x_proj_w: Some(dmatrix_rows(&m.x_proj_w)),
+                        dt_proj_w: Some(dmatrix_rows(&m.dt_proj_w)),
+                        dt_proj_b: Some(m.dt_proj_b.iter().copied().collect()),
+                        a_log: Some(dmatrix_rows(&m.a_log)),
+                        a_imag: m.a_imag.as_ref().map(dmatrix_rows),
+                        lambda_logit: m.lambda_logit.as_ref().map(|v| v.iter().copied().collect()),
+                        d_skip: Some(m.d_skip.iter().copied().collect()),
+                        ..NnLayerWeights::default()
+                    }
+                }
             };
             weights.insert(format!("layer_{}", i), entry);
         }
@@ -1573,6 +1680,17 @@ impl NeuralNetModel {
                 }
                 (Layer::Mamba(m), LayerState::Mamba { h }) => {
                     current = m.forward(&current, h);
+                }
+                (
+                    Layer::Mamba3(m),
+                    LayerState::Mamba3 {
+                        h_re,
+                        h_im,
+                        x_prev,
+                        b_prev,
+                    },
+                ) => {
+                    current = m.forward(&current, h_re, h_im, x_prev, b_prev);
                 }
                 _ => unreachable!(
                     "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None, Layer::Gru -> Gru, Layer::Lstm -> Lstm, Layer::Window -> Window, Layer::Transformer -> Transformer)"
@@ -1832,6 +1950,31 @@ impl NeuralNetModel {
                         a_log: nalgebra::DMatrix::<f64>::zeros(*input_size, *d_state),
                         d_skip: nalgebra::DVector::<f64>::zeros(*input_size),
                     }))
+                }
+                LayerSpec::Mamba3 {
+                    input_size,
+                    d_state,
+                    dt_rank,
+                    trapezoidal,
+                    complex,
+                } => {
+                    if *dt_rank == 0 || *dt_rank > *input_size || *d_state == 0 || *input_size == 0 {
+                        return Err(DataError(format!(
+                            "from_flat_weights_v2: Mamba3 layer {} dims invalid (input_size={}, d_state={}, dt_rank={})",
+                            i, input_size, d_state, dt_rank
+                        )));
+                    }
+                    if i == 0 {
+                        layer_sizes.push(*input_size);
+                    }
+                    layer_sizes.push(*input_size);
+                    Layer::Mamba3(Box::new(Mamba3Layer::zeros(
+                        *input_size,
+                        *d_state,
+                        *dt_rank,
+                        *trapezoidal,
+                        *complex,
+                    )))
                 }
             };
             let needed = layer.n_params();
