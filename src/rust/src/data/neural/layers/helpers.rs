@@ -110,7 +110,6 @@ pub(crate) fn lecun_tanh(z: f64) -> f64 {
 /// m_new = max(f_pre + m_prev, i_pre); both exp arguments are <= 0 by
 /// construction, so the returned gates are finite for arbitrarily large
 /// preactivations. Returns (i_gate, f_gate, m_new).
-#[allow(dead_code)]
 pub(crate) fn stabilized_exp_gates(i_pre: f64, f_pre: f64, m_prev: f64) -> (f64, f64, f64) {
     let m_new = (f_pre + m_prev).max(i_pre);
     ((i_pre - m_new).exp(), (f_pre + m_prev - m_new).exp(), m_new)

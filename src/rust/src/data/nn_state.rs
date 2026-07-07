@@ -46,6 +46,14 @@ pub enum LayerState {
     Cfc {
         h: Vec<f64>,
     },
+    /// sLSTM state: hidden h, cell c, normalizer n, stabilizer m. All zero-init
+    /// (m_0 = 0 per the xLSTM reference; no div-by-zero since n_1 = i' > 0).
+    Slstm {
+        h: Vec<f64>,
+        c: Vec<f64>,
+        n: Vec<f64>,
+        m: Vec<f64>,
+    },
 }
 
 impl LayerState {
@@ -83,6 +91,12 @@ impl LayerState {
             },
             Layer::Cfc(l) => LayerState::Cfc {
                 h: vec![0.0; l.hidden_size],
+            },
+            Layer::Slstm(l) => LayerState::Slstm {
+                h: vec![0.0; l.hidden_size],
+                c: vec![0.0; l.hidden_size],
+                n: vec![0.0; l.hidden_size],
+                m: vec![0.0; l.hidden_size],
             },
         }
     }
@@ -131,6 +145,13 @@ impl LayerState {
             LayerState::Cfc { h } => {
                 for v in h.iter_mut() {
                     *v = 0.0;
+                }
+            }
+            LayerState::Slstm { h, c, n, m } => {
+                for vec in [h, c, n, m] {
+                    for v in vec.iter_mut() {
+                        *v = 0.0;
+                    }
                 }
             }
         }
@@ -550,6 +571,30 @@ mod tests {
             assert!(h.iter().all(|&v| v == 0.0));
         } else {
             panic!("expected LayerState::Cfc after reset");
+        }
+    }
+
+    #[test]
+    fn layer_state_slstm_for_layer_and_reset() {
+        use crate::data::neural::SlstmLayer;
+        let layer = Layer::Slstm(SlstmLayer::zeros(3, 4));
+        let mut state = LayerState::for_layer(&layer);
+        if let LayerState::Slstm { h, c, n, m } = &mut state {
+            assert!(h.len() == 4 && c.len() == 4 && n.len() == 4 && m.len() == 4);
+            h[0] = 1.0;
+            c[1] = 2.0;
+            n[2] = 3.0;
+            m[3] = 4.0;
+        } else {
+            panic!("expected LayerState::Slstm");
+        }
+        state.reset();
+        if let LayerState::Slstm { h, c, n, m } = &state {
+            for vec in [h, c, n, m] {
+                assert!(vec.iter().all(|&v| v == 0.0));
+            }
+        } else {
+            panic!("expected LayerState::Slstm after reset");
         }
     }
 }

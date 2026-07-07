@@ -246,6 +246,10 @@ pub enum TomlLayerSpec {
         hidden_size: usize,
         backbone_units: usize,
     },
+    Slstm {
+        input_size: usize,
+        hidden_size: usize,
+    },
 }
 
 fn default_discretization() -> String {
@@ -397,6 +401,20 @@ impl TomlLayerSpec {
                     input_size: *input_size,
                     hidden_size: *hidden_size,
                     backbone_units: *backbone_units,
+                })
+            }
+            TomlLayerSpec::Slstm {
+                input_size,
+                hidden_size,
+            } => {
+                if *input_size == 0 || *hidden_size == 0 {
+                    return Err(ParseError(format!(
+                        "Slstm: input_size and hidden_size must be > 0 (got {input_size}, {hidden_size})"
+                    )));
+                }
+                Ok(LayerSpec::Slstm {
+                    input_size: *input_size,
+                    hidden_size: *hidden_size,
                 })
             }
         }
