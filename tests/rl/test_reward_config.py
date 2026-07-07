@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import tomli_w
 from aerocapture.training.rl.config import RLConfig
 
@@ -26,6 +27,8 @@ def test_reward_config_default_potential_is_phase_aware(tmp_path: Path) -> None:
 
 
 def test_atan2_rl_config_loads() -> None:
+    # rl.train transitively imports aerocapture_rs via env.py's top-level import.
+    pytest.importorskip("aerocapture_rs")
     from aerocapture.training.rl.train import _parse_network_config
 
     cfg = RLConfig.from_toml(Path("configs/training/msr_aller_nn_atan2_ppo_train.toml"))

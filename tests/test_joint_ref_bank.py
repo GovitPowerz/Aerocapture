@@ -65,6 +65,7 @@ class TestProblemIntegration:
         assert ov["guidance.ftc.capture_damping"] == 0.05
 
     def test_evaluate_injects_per_individual_reference(self) -> None:
+        pytest.importorskip("aerocapture_rs")  # runs the grid; needs the PyO3 build
         problem = self._problem()
         x = np.full(problem.n_var, 0.5)
         costs = problem.evaluate_individual_per_seed(x, [11, 12])
@@ -90,6 +91,7 @@ def test_mission_name_resolves_through_nested_bases() -> None:
 
 
 def test_generate_constant_bank_tables_batched(tmp_path: Path) -> None:
+    pytest.importorskip("aerocapture_rs")  # flies a nominal via run_batch; needs the PyO3 build
     from aerocapture.training.reference import generate_constant_bank_tables
     from aerocapture.training.toml_utils import load_toml_with_bases
 
@@ -154,7 +156,7 @@ def test_run_grid_honors_reference_trajectory_override(tmp_path: Path) -> None:
     DEAD -- every individual trains/validates against the base mission table while
     the deploy/report/compare paths use the winner's own table (the documented
     gains<->reference co-adaptation trap)."""
-    import aerocapture_rs
+    aerocapture_rs = pytest.importorskip("aerocapture_rs")
     from aerocapture.training.reference import generate_constant_bank_tables
     from aerocapture.training.toml_utils import load_toml_with_bases
 
