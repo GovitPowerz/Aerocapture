@@ -1,0 +1,54 @@
+{
+  "arms": {
+    "gru": {
+      "architecture": [
+        {
+          "type": "dense",
+          "input_size": 21,
+          "output_size": 32,
+          "activation": "swish"
+        },
+        {
+          "type": "gru",
+          "input_size": 32,
+          "hidden_size": 32
+        },
+        {
+          "type": "dense",
+          "input_size": 32,
+          "output_size": 2,
+          "activation": "asinh"
+        }
+      ],
+      "cell_params": 6336,
+      "total_params": 7106
+    },
+    "cfc": {
+      "architecture": [
+        {
+          "type": "dense",
+          "input_size": 21,
+          "output_size": 32,
+          "activation": "swish"
+        },
+        {
+          "type": "cfc",
+          "input_size": 32,
+          "hidden_size": 32,
+          "backbone_units": 32
+        },
+        {
+          "type": "dense",
+          "input_size": 32,
+          "output_size": 2,
+          "activation": "asinh"
+        }
+      ],
+      "cell_params": 6304,
+      "total_params": 7074
+    }
+  },
+  "repeats": 3,
+  "n_gen": 500,
+  "training_n_sims": 10
+}

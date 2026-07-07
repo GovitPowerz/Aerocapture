@@ -45,3 +45,28 @@ def test_probe_offset_alias() -> None:
 
     assert PROBE_EVAL_SEED_OFFSET == 10_000_000
     assert MAMBA3_EVAL_SEED_OFFSET == PROBE_EVAL_SEED_OFFSET
+
+
+def test_cfc_arms_and_budget_within_2pct() -> None:
+    from aerocapture.training.config import _layer_n_params
+    from aerocapture.training.experiments.cfc_probe import ARMS
+
+    assert set(ARMS) == {"gru", "cfc"}
+    totals = {arm: sum(_layer_n_params(e) for e in arch) for arm, arch in ARMS.items()}
+    assert totals["gru"] == 7106  # 704 + 6336 + 66
+    assert totals["cfc"] == 7074  # 704 + 6304 + 66
+    assert abs(totals["cfc"] - totals["gru"]) / totals["gru"] < 0.02
+
+
+def test_cfc_leaf_toml_carries_layer_and_seed() -> None:
+    from pathlib import Path
+
+    from aerocapture.training.experiments.cfc_probe import ARMS, BASE_SEED, INPUT_MASK
+    from aerocapture.training.experiments.probe_common import leaf_toml
+
+    toml = leaf_toml("cfc_probe", "cfc", ARMS["cfc"], BASE_SEED + 2, BASE_SEED, Path("training_output/cfc_probe/cfc_s2"), 500, 10, INPUT_MASK)
+    assert 'type = "cfc"' in toml
+    assert "backbone_units = 32" in toml
+    assert f"seed = {BASE_SEED + 2}" in toml
+    assert 'seed_strategy = "fixed"' in toml
+    assert ".cfc_probe_cfc_s2" in toml
