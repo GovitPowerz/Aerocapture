@@ -1882,8 +1882,7 @@ fn mamba3_json_v2_save_load_roundtrip_all_flags() {
             },
         ];
         // Dense=36, Mamba3 base=40 (+8 complex, +4 trapz), Dense=10.
-        let n =
-            36 + 40 + if complex { 8 } else { 0 } + if trapezoidal { 4 } else { 0 } + 10;
+        let n = 36 + 40 + if complex { 8 } else { 0 } + if trapezoidal { 4 } else { 0 } + 10;
         let flat: Vec<f64> = (0..n).map(|i| (i as f64) * 0.013 - 0.7).collect();
         let model = NeuralNetModel::from_flat_weights_v2(
             &flat,

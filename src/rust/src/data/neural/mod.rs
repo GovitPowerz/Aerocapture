@@ -542,7 +542,11 @@ pub(crate) fn mamba3_flags(discretization: &str, state_mode: &str) -> Result<(bo
     let trapezoidal = match discretization {
         "euler" => false,
         "trapezoidal" => true,
-        other => return Err(format!("discretization must be euler|trapezoidal, got {other:?}")),
+        other => {
+            return Err(format!(
+                "discretization must be euler|trapezoidal, got {other:?}"
+            ));
+        }
     };
     let complex = match state_mode {
         "real" => false,
@@ -1985,9 +1989,12 @@ impl NeuralNetModel {
                     discretization,
                     state_mode,
                 } => {
-                    let (trapezoidal, complex) = mamba3_flags(discretization, state_mode)
-                        .map_err(|e| DataError(format!("from_flat_weights_v2: Mamba3 layer {i} {e}")))?;
-                    if *dt_rank == 0 || *dt_rank > *input_size || *d_state == 0 || *input_size == 0 {
+                    let (trapezoidal, complex) =
+                        mamba3_flags(discretization, state_mode).map_err(|e| {
+                            DataError(format!("from_flat_weights_v2: Mamba3 layer {i} {e}"))
+                        })?;
+                    if *dt_rank == 0 || *dt_rank > *input_size || *d_state == 0 || *input_size == 0
+                    {
                         return Err(DataError(format!(
                             "from_flat_weights_v2: Mamba3 layer {} dims invalid (input_size={}, d_state={}, dt_rank={})",
                             i, input_size, d_state, dt_rank

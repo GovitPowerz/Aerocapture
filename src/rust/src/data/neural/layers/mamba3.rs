@@ -39,11 +39,7 @@ impl LayerWeights for Mamba3Layer {
             self.input_size * self.d_state
         } else {
             0
-        } + if self.trapezoidal {
-            self.input_size
-        } else {
-            0
-        }
+        } + if self.trapezoidal { self.input_size } else { 0 }
     }
 
     fn to_flat(&self) -> Vec<f64> {
@@ -104,8 +100,9 @@ impl LayerWeights for Mamba3Layer {
             self.a_imag = None;
         }
         if self.trapezoidal {
-            self.lambda_logit =
-                Some(nalgebra::DVector::from_row_slice(&flat[c..c + self.input_size]));
+            self.lambda_logit = Some(nalgebra::DVector::from_row_slice(
+                &flat[c..c + self.input_size],
+            ));
             c += self.input_size;
         } else {
             self.lambda_logit = None;
@@ -177,7 +174,9 @@ impl Mamba3Layer {
 
         let dt_pre_v = nalgebra::DVector::from_row_slice(&dt_pre);
         let dt_lifted = &self.dt_proj_w * &dt_pre_v + &self.dt_proj_b;
-        let delta: Vec<f64> = (0..self.input_size).map(|i| softplus(dt_lifted[i])).collect();
+        let delta: Vec<f64> = (0..self.input_size)
+            .map(|i| softplus(dt_lifted[i]))
+            .collect();
 
         let mut y = vec![0.0_f64; self.input_size];
         for d in 0..self.input_size {
@@ -353,7 +352,10 @@ mod tests {
         tslab.extend(&slab[split..]); // d_skip
         trap.from_flat(&tslab);
         let mut he = nalgebra::DMatrix::zeros(4, 3);
-        let (mut hr, mut hi) = (nalgebra::DMatrix::zeros(4, 3), nalgebra::DMatrix::zeros(4, 3));
+        let (mut hr, mut hi) = (
+            nalgebra::DMatrix::zeros(4, 3),
+            nalgebra::DMatrix::zeros(4, 3),
+        );
         let mut xp = nalgebra::DVector::zeros(4);
         let mut bp = nalgebra::DVector::zeros(3);
         let mut he0 = nalgebra::DMatrix::zeros(4, 3);
@@ -382,7 +384,10 @@ mod tests {
         let slab: Vec<f64> = (0..n).map(|i| 0.03 * ((i % 9) as f64 - 4.0)).collect();
         m.from_flat(&slab);
         let run = || {
-            let (mut hr, mut hi) = (nalgebra::DMatrix::zeros(3, 4), nalgebra::DMatrix::zeros(3, 4));
+            let (mut hr, mut hi) = (
+                nalgebra::DMatrix::zeros(3, 4),
+                nalgebra::DMatrix::zeros(3, 4),
+            );
             let (mut xp, mut bp) = (nalgebra::DVector::zeros(3), nalgebra::DVector::zeros(4));
             let mut last = vec![];
             for t in 0..10 {
