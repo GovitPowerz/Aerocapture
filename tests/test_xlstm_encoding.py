@@ -19,8 +19,10 @@ def test_slstm_width_and_forget_slice_bounds() -> None:
     for j, ps in enumerate(bias):
         if h <= j < 2 * h:  # forget slice (gate order i, f, z, o)
             assert ps.p_max == 3.0, f"forget bias {j} bound {ps.p_max}"
+            assert ps.default == 2.0, f"forget bias {j} default {ps.default}"
         else:
             assert ps.p_max == 0.1, f"bias {j} bound {ps.p_max}"
+            assert ps.default == 0.0, f"non-forget bias {j} default {ps.default}"
 
 
 def test_mlstm_width_and_forget_bound() -> None:
@@ -32,5 +34,6 @@ def test_mlstm_width_and_forget_bound() -> None:
     assert _layer_output_size(spec.model_dump()) == 4
     assert specs[-1].name.startswith("b_f")
     assert specs[-1].p_max == 3.0  # wide bound for the +2.0 forget center
+    assert specs[-1].default == 2.0
     assert specs[-(3 + 1) - 1].name.startswith("b_i")  # b_i sits before w_f (len I=3) + b_f
     assert specs[-5].p_max == 0.1

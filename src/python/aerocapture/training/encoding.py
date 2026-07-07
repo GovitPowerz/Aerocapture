@@ -441,7 +441,7 @@ def _slstm_specs(layer: SlstmSpec, layer_idx: int, bound_multiplier: float) -> l
         specs.append(ParamSpec(f"w_hh{li}_{j}", -w_hh_bound, w_hh_bound, 0.0))
     for j in range(four_h):
         if h <= j < 2 * h:
-            specs.append(ParamSpec(f"b{li}_{j}", -forget, forget, 0.0))
+            specs.append(ParamSpec(f"b{li}_{j}", -forget, forget, 2.0))
         else:
             specs.append(ParamSpec(f"b{li}_{j}", -tight, tight, 0.0))
     return specs
@@ -471,5 +471,5 @@ def _mlstm_specs(layer: MlstmSpec, layer_idx: int, bound_multiplier: float) -> l
     specs.append(ParamSpec(f"b_i{li}", -tight, tight, 0.0))
     for j in range(i):
         specs.append(ParamSpec(f"w_f{li}_{j}", -gate_bound, gate_bound, 0.0))
-    specs.append(ParamSpec(f"b_f{li}", -forget, forget, 0.0))
+    specs.append(ParamSpec(f"b_f{li}", -forget, forget, 2.0))
     return specs

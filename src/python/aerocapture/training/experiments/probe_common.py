@@ -136,7 +136,7 @@ def write_manifest(arms: dict[str, list[dict[str, Any]]], config_dir: Path, extr
             "cell_params": _layer_n_params(arch[1]),
             "total_params": sum(_layer_n_params(e) for e in arch),
         }
-    (config_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    (config_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     return manifest
 
 

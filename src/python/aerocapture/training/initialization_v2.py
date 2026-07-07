@@ -347,6 +347,7 @@ def _fill_slstm(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.
     b0 = n_w_ih + n_w_hh
     slab[:, b0 : b0 + four_h] = rng.normal(0.0, bias_std, size=(pop_n, four_h))
     slab[:, b0 + hidden : b0 + 2 * hidden] = 2.0 + rng.normal(0.0, bias_std, size=(pop_n, hidden))
+    assert b0 + 4 * hidden == slab.shape[1], f"slstm slab width mismatch: filled {b0 + 4 * hidden}, have {slab.shape[1]}"
 
 
 def _fill_mlstm(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.random.Generator) -> None:
