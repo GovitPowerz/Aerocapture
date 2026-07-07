@@ -16,12 +16,15 @@ import torch
 from aerocapture.training.rl.policy import V2Policy
 from aerocapture.training.rl.schemas import (
     ArchitectureV2,
+    CfcSpec,
     DenseSpec,
     GruSpec,
     LayerWeights,
     LstmSpec,
     Mamba3Spec,
     MambaSpec,
+    MlstmSpec,
+    SlstmSpec,
     TransformerSpec,
     WindowSpec,
 )
@@ -70,15 +73,17 @@ def load_policy_from_json(path: str, device: str | torch.device = "cpu") -> V2Po
     # Phase 2b / Phase 3a / Phase 4a: Window-MLP, Transformer, and Mamba are PSO-only.
     # V2Policy cannot be built with these layers (build_layer raises NotImplementedError),
     # so we short-circuit here before V2Policy construction would fail opaquely.
-    if any(isinstance(spec, (WindowSpec, TransformerSpec, MambaSpec, Mamba3Spec)) for spec in arch.architecture):
+    if any(isinstance(spec, (WindowSpec, TransformerSpec, MambaSpec, Mamba3Spec, CfcSpec, SlstmSpec, MlstmSpec)) for spec in arch.architecture):
         raise NotImplementedError(
-            "Window-MLP (Phase 2b), Transformer (Phase 3a), Mamba (Phase 4a), and Mamba3 "
-            "(ablation spike) are PSO-only; load_policy_from_json is a PPO/SAC entry point "
-            "that cannot construct V2Policy with these layers. "
+            "Window-MLP (Phase 2b), Transformer (Phase 3a), Mamba (Phase 4a), Mamba3 "
+            "(ablation spike), and CfC/sLSTM/mLSTM (architecture probes) are PSO-only; "
+            "load_policy_from_json is a PPO/SAC entry point that cannot construct V2Policy "
+            "with these layers. "
             "See docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md, "
             "docs/superpowers/specs/2026-04-22-phase-3a-transformer-mvp-design.md, "
-            "docs/superpowers/specs/2026-04-24-phase-4a-mamba-ssm-mvp-design.md, and "
-            "docs/superpowers/specs/2026-07-07-mamba3-ablation-design.md"
+            "docs/superpowers/specs/2026-04-24-phase-4a-mamba-ssm-mvp-design.md, "
+            "docs/superpowers/specs/2026-07-07-mamba3-ablation-design.md, and "
+            "docs/superpowers/specs/2026-07-07-cfc-xlstm-probes-design.md"
         )
 
     policy = V2Policy(
