@@ -100,7 +100,7 @@ class Mamba3Layer(nn.Module):
         b_vec = proj[self.dt_rank : self.dt_rank + self.d_state]
         c_vec = proj[self.dt_rank + self.d_state : self.dt_rank + 2 * self.d_state]
         delta = _softplus(self.dt_proj_w @ dt_pre + self.dt_proj_b)  # (input_size,)
-        lam = torch.sigmoid(self.lambda_logit) if self.trapezoidal else torch.ones(self.input_size, dtype=x.dtype)
+        lam = torch.sigmoid(self.lambda_logit) if self.lambda_logit is not None else torch.ones(self.input_size, dtype=x.dtype)
 
         ar = -torch.exp(self.a_log)  # (in, N)
         za_r = delta.unsqueeze(1) * ar  # (in, N)
