@@ -19,6 +19,7 @@ from aerocapture.training.rl.schemas import (
     GruSpec,
     LayerSpec,
     LstmSpec,
+    Mamba3Spec,
     MambaSpec,
     TransformerSpec,
     WindowSpec,
@@ -122,6 +123,8 @@ def _layer_param_specs(layer: LayerSpec, layer_idx: int = 0, bound_multiplier: f
         return _transformer_specs(layer, layer_idx, bound_multiplier)
     if isinstance(layer, MambaSpec):
         return _mamba_specs(layer, layer_idx, bound_multiplier)
+    if isinstance(layer, Mamba3Spec):
+        return _mamba3_specs(layer, layer_idx, bound_multiplier)
     msg = f"Unknown layer type for PSO specs: {layer!r}"
     raise ValueError(msg)
 
@@ -309,6 +312,66 @@ def _mamba_specs(layer: MambaSpec, layer_idx: int, bound_multiplier: float) -> l
             specs.append(ParamSpec(f"a_log{li}_{d}_{n}", center - mul, center + mul, center))
 
     # 5. d_skip: [d_inner] -- 1.0 centers
+    for d in range(d_inner):
+        specs.append(ParamSpec(f"d_skip{li}_{d}", 1.0 - mul, 1.0 + mul, 1.0))
+
+    return specs
+
+
+def _mamba3_specs(layer: Mamba3Spec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
+    """ParamSpec list for the Mamba-3 ablation layer, canonical flat order.
+
+    Base blocks (x_proj_w, dt_proj_w, dt_proj_b, a_log) mirror `_mamba_specs`.
+    Conditional blocks inserted before d_skip:
+      a_imag       [d_inner, d_state]  -- rotation frequency, center 0, +-pi   [iff complex]
+      lambda_logit [d_inner]           -- center +4 (near-euler), wide search  [iff trapezoidal]
+    Order MUST match Rust `LayerWeights for Mamba3Layer::to_flat`.
+    """
+    d_inner = layer.input_size
+    d_state = layer.d_state
+    dt_rank = layer.dt_rank
+    assert dt_rank is not None
+    mul = bound_multiplier
+    li = layer_idx
+
+    specs: list[ParamSpec] = []
+
+    # 1. x_proj_w -- Xavier around 0
+    fan_out_xp = dt_rank + 2 * d_state
+    bound_xp = math.sqrt(6.0 / (d_inner + fan_out_xp)) * mul
+    for j in range(fan_out_xp * d_inner):
+        specs.append(ParamSpec(f"x_proj_w{li}_{j}", -bound_xp, bound_xp, 0.0))
+
+    # 2. dt_proj_w -- Xavier * dt_rank^{-0.5} around 0
+    bound_dt = math.sqrt(6.0 / (dt_rank + d_inner)) / math.sqrt(max(dt_rank, 1)) * mul
+    for j in range(d_inner * dt_rank):
+        specs.append(ParamSpec(f"dt_proj_w{li}_{j}", -bound_dt, bound_dt, 0.0))
+
+    # 3. dt_proj_b -- inv_softplus(U(1e-3, 1e-1)) centers (same sub-RNG as _init_mamba3_layer)
+    local_rng = np.random.default_rng(_MAMBA_DT_BIAS_SEED ^ li)
+    dt_draws = local_rng.uniform(1e-3, 1e-1, size=d_inner)
+    for d in range(d_inner):
+        center = math.log(math.expm1(float(dt_draws[d])))
+        specs.append(ParamSpec(f"dt_proj_b{li}_{d}", center - mul, center + mul, center))
+
+    # 4. a_log -- HiPPO log(n+1) centers
+    for d in range(d_inner):
+        for n in range(d_state):
+            center = math.log(n + 1)
+            specs.append(ParamSpec(f"a_log{li}_{d}_{n}", center - mul, center + mul, center))
+
+    # 4b. a_imag -- rotation frequency, center 0, bounds +-pi (only when complex)
+    if layer.state_mode == "complex":
+        for d in range(d_inner):
+            for n in range(d_state):
+                specs.append(ParamSpec(f"a_imag{li}_{d}_{n}", -math.pi, math.pi, 0.0))
+
+    # 4c. lambda_logit -- center +4 (sigmoid ~ 0.98, near-euler); wide asymmetric search (only when trapezoidal)
+    if layer.discretization == "trapezoidal":
+        for d in range(d_inner):
+            specs.append(ParamSpec(f"lambda_logit{li}_{d}", -8.0, 12.0, 4.0))
+
+    # 5. d_skip -- 1.0 centers
     for d in range(d_inner):
         specs.append(ParamSpec(f"d_skip{li}_{d}", 1.0 - mul, 1.0 + mul, 1.0))
 
