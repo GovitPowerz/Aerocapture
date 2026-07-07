@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 mod layers;
 pub use layers::{
-    CfcLayer, DenseLayer, GruLayer, LstmLayer, Mamba3Layer, MambaLayer, SlstmLayer,
+    CfcLayer, DenseLayer, GruLayer, LstmLayer, Mamba3Layer, MambaLayer, MlstmLayer, SlstmLayer,
     TransformerLayer, WindowLayer,
 };
 // Surface the shared numerical helpers at the module root so the `use super::*`
@@ -313,6 +313,8 @@ pub enum Layer {
     // Boxed for enum-variant size uniformity (5 matrix + 5 bias vectors, ~264 bytes unboxed).
     Cfc(Box<CfcLayer>),
     Slstm(SlstmLayer),
+    // Boxed for enum-variant size uniformity (4 matrix + 4 bias + 2 gate vectors).
+    Mlstm(Box<MlstmLayer>),
 }
 
 impl Layer {
@@ -334,6 +336,7 @@ impl Layer {
             Layer::Mamba3(m) => m.input_size,
             Layer::Cfc(l) => l.input_size,
             Layer::Slstm(l) => l.input_size,
+            Layer::Mlstm(l) => l.input_size,
         }
     }
 }
@@ -371,6 +374,7 @@ impl LayerWeights for Layer {
             Layer::Mamba3(m) => m.to_flat(),
             Layer::Cfc(l) => l.to_flat(),
             Layer::Slstm(l) => l.to_flat(),
+            Layer::Mlstm(l) => l.to_flat(),
         }
     }
 
@@ -386,6 +390,7 @@ impl LayerWeights for Layer {
             Layer::Mamba3(m) => m.from_flat(flat),
             Layer::Cfc(l) => l.from_flat(flat),
             Layer::Slstm(l) => l.from_flat(flat),
+            Layer::Mlstm(l) => l.from_flat(flat),
         }
     }
 
@@ -400,6 +405,7 @@ impl LayerWeights for Layer {
             Layer::Mamba3(m) => m.n_params(),
             Layer::Cfc(l) => l.n_params(),
             Layer::Slstm(l) => l.n_params(),
+            Layer::Mlstm(l) => l.n_params(),
         }
     }
 }
@@ -518,6 +524,15 @@ struct NnLayerWeights {
     // sLSTM single-bias field (GRU/LSTM use the bias_ih/bias_hh pair instead)
     #[serde(skip_serializing_if = "Option::is_none", default)]
     bias: Option<Vec<f64>>,
+    // mLSTM scalar-gate fields (cfc-xlstm probes)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    w_i: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    b_i: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    w_f: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    b_f: Option<f64>,
 }
 
 /// v2 layer spec: tagged-union over the layer type.
@@ -567,6 +582,10 @@ pub enum LayerSpec {
         backbone_units: usize,
     },
     Slstm {
+        input_size: usize,
+        hidden_size: usize,
+    },
+    Mlstm {
         input_size: usize,
         hidden_size: usize,
     },
@@ -639,6 +658,10 @@ impl LayerSpec {
                 input_size,
                 hidden_size,
             } => (*input_size, *hidden_size, "slstm"),
+            LayerSpec::Mlstm {
+                input_size,
+                hidden_size,
+            } => (*input_size, *hidden_size, "mlstm"),
         }
     }
 }
@@ -1679,6 +1702,68 @@ impl NeuralNetModel {
                     l.from_flat(&slab);
                     layers.push(Layer::Slstm(l));
                 }
+                LayerSpec::Mlstm {
+                    input_size,
+                    hidden_size,
+                } => {
+                    if *input_size == 0 || *hidden_size == 0 {
+                        return Err(DataError(format!(
+                            "Layer {i} (mlstm) input_size and hidden_size must be positive in {path}"
+                        )));
+                    }
+                    if i == 0 {
+                        layer_sizes.push(*input_size);
+                    }
+                    layer_sizes.push(*hidden_size);
+
+                    let key = format!("layer_{}", i);
+                    let lw = file.weights.get(&key).ok_or_else(|| {
+                        DataError(format!("Missing {} in weights in {}", key, path))
+                    })?;
+                    let flat_mat =
+                        |name: &str, m: &Option<Vec<Vec<f64>>>| -> Result<Vec<f64>, DataError> {
+                            let rows = m.as_ref().ok_or_else(|| {
+                                DataError(format!("Layer {i} (mlstm) missing {name} in {path}"))
+                            })?;
+                            Ok(rows.iter().flat_map(|r| r.iter().copied()).collect())
+                        };
+                    let flat_vec =
+                        |name: &str, v: &Option<Vec<f64>>| -> Result<Vec<f64>, DataError> {
+                            v.as_ref().cloned().ok_or_else(|| {
+                                DataError(format!("Layer {i} (mlstm) missing {name} in {path}"))
+                            })
+                        };
+                    let scalar = |name: &str, v: &Option<f64>| -> Result<f64, DataError> {
+                        v.ok_or_else(|| {
+                            DataError(format!("Layer {i} (mlstm) missing {name} in {path}"))
+                        })
+                    };
+
+                    let mut slab = Vec::new();
+                    slab.extend(flat_mat("w_q", &lw.w_q)?);
+                    slab.extend(flat_vec("b_q", &lw.b_q)?);
+                    slab.extend(flat_mat("w_k", &lw.w_k)?);
+                    slab.extend(flat_vec("b_k", &lw.b_k)?);
+                    slab.extend(flat_mat("w_v", &lw.w_v)?);
+                    slab.extend(flat_vec("b_v", &lw.b_v)?);
+                    slab.extend(flat_mat("w_o", &lw.w_o)?);
+                    slab.extend(flat_vec("b_o", &lw.b_o)?);
+                    slab.extend(flat_vec("w_i", &lw.w_i)?);
+                    slab.push(scalar("b_i", &lw.b_i)?);
+                    slab.extend(flat_vec("w_f", &lw.w_f)?);
+                    slab.push(scalar("b_f", &lw.b_f)?);
+
+                    let mut l = MlstmLayer::zeros(*input_size, *hidden_size);
+                    if slab.len() != l.n_params() {
+                        return Err(DataError(format!(
+                            "Layer {i} (mlstm) weight count {} != expected {} in {path}",
+                            slab.len(),
+                            l.n_params()
+                        )));
+                    }
+                    l.from_flat(&slab);
+                    layers.push(Layer::Mlstm(Box::new(l)));
+                }
             }
         }
 
@@ -1810,6 +1895,21 @@ impl NeuralNetModel {
                     bias: Some(l.bias.clone()),
                     ..NnLayerWeights::default()
                 },
+                Layer::Mlstm(l) => NnLayerWeights {
+                    w_q: Some(l.w_q.clone()),
+                    b_q: Some(l.b_q.clone()),
+                    w_k: Some(l.w_k.clone()),
+                    b_k: Some(l.b_k.clone()),
+                    w_v: Some(l.w_v.clone()),
+                    b_v: Some(l.b_v.clone()),
+                    w_o: Some(l.w_o.clone()),
+                    b_o: Some(l.b_o.clone()),
+                    w_i: Some(l.w_i.clone()),
+                    b_i: Some(l.b_i),
+                    w_f: Some(l.w_f.clone()),
+                    b_f: Some(l.b_f),
+                    ..NnLayerWeights::default()
+                },
             };
             weights.insert(format!("layer_{}", i), entry);
         }
@@ -1906,6 +2006,9 @@ impl NeuralNetModel {
                 }
                 (Layer::Slstm(l), LayerState::Slstm { h, c, n, m }) => {
                     current = l.forward(&current, h, c, n, m);
+                }
+                (Layer::Mlstm(l), LayerState::Mlstm { c, n, m }) => {
+                    current = l.forward(&current, c, n, m);
                 }
                 _ => unreachable!(
                     "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None, Layer::Gru -> Gru, Layer::Lstm -> Lstm, Layer::Window -> Window, Layer::Transformer -> Transformer)"
@@ -2232,6 +2335,22 @@ impl NeuralNetModel {
                     }
                     layer_sizes.push(*hidden_size);
                     Layer::Slstm(SlstmLayer::zeros(*input_size, *hidden_size))
+                }
+                LayerSpec::Mlstm {
+                    input_size,
+                    hidden_size,
+                } => {
+                    if *input_size == 0 || *hidden_size == 0 {
+                        return Err(DataError(format!(
+                            "from_flat_weights_v2: Mlstm layer {} dims must be positive (input_size={}, hidden_size={})",
+                            i, input_size, hidden_size
+                        )));
+                    }
+                    if i == 0 {
+                        layer_sizes.push(*input_size);
+                    }
+                    layer_sizes.push(*hidden_size);
+                    Layer::Mlstm(Box::new(MlstmLayer::zeros(*input_size, *hidden_size)))
                 }
             };
             let needed = layer.n_params();
