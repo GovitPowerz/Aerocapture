@@ -87,10 +87,7 @@ Surrogate-model-based optimization using Gaussian Processes or Random Forests as
 
 ### 9.10 Recurrent and transformer architectures
 
-The neural network guidance uses a feedforward architecture (`gnc/guidance/neural.rs`). This cannot exploit temporal correlations in the trajectory.
-
-- **Improvement**: Implement LSTM or Transformer-based guidance that conditions on trajectory history (previous states, density estimates, bank angle commands). Requires backpropagation through time for training but can also be trained with GA.
-- **Impact**: Could learn more sophisticated strategies that adapt to evolving conditions during the pass, rather than reacting to instantaneous state only.
+*(Done -- see Done section below.)*
 
 ### 9.11 Neural navigation and control
 
@@ -98,6 +95,43 @@ Only guidance uses neural networks. Navigation and control use classical algorit
 
 - **Improvement**: Train neural counterparts for the density estimator (replacing the exponential filter) and the pilot model (replacing the first/second-order dynamics). Compare against classical algorithms on identical MC scenarios.
 - **Impact**: Benchmarks classical vs learned components; may discover better density estimation strategies.
+
+### 9.13 Regime-matched objective schedule (off-nominal robustness recovery)
+
+Paper future work (conclusion + section 7.3): the medium-trained network loses off-nominal robustness to the analytic joint-FTC, and the objective-centering experiment pinned the gap on the training objective (worst-case shaping collapses the GA gradient once failures dominate), not on neural guidance. Three concrete mechanisms to bridge the medium and high regimes without giving up the nominal sizing tail:
+
+- **Annealed tail-weighting (adaptive cost-transform exponent)**: schedule the transform exponent on the population's capture rate -- near-linear while capture is low (preserves the gradient toward the capture basin), ramping to cubed as capture saturates (re-engages the tail hammer).
+- **Dispersion-envelope curriculum**: start on the medium regime with the deployed cubed/max-bucket objective and widen the dispersion bounds toward the high-stress profile every k generations, so the policy tracks a moving capture basin instead of facing a gradient collapse.
+- **Stratified curation batch**: raise the per-individual budget to n=3-4 and force the batch to mix a `bucket_middle` seed (anchors the gradient, holds capture) with `bucket_max` seeds (pulls the tail) -- a dual-objective effect without Pareto machinery.
+- **Impact**: turns the paper's honest caveat (analytic law more robust off-nominal) into a training-recipe fix; the centered-retrain result says the ceiling is reachable.
+
+### 9.14 Feasibility-aware validation gate and final selection
+
+The external-review pass on the paper found that the LSTM cell's best run -- the lowest validation RMS of the whole campaign -- violates the integrated heat-load limit on 14-16% of evaluation draws. The validation gate and `final_select` promote on val RMS alone, so an infeasible winner can deploy silently.
+
+- **Improvement**: add a constraint-violation check to the validation gate and `final_select` (e.g. reject promotion when any heat-flux/g-load/heat-load violation rate exceeds a configurable ceiling, default 0), and surface per-constraint violation rates in the validation JSONL/TUI alongside capture rate.
+- **Impact**: soft penalties in the cost do not guarantee feasibility at the optimum; this makes the deploy path enforce it. Would have flagged the LSTM run at training time instead of at paper review.
+
+### 9.15 State-ablation control for the tail mechanism
+
+Paper limitation (section 9): the claim that internal state compresses the sizing tail is confounded with the cell's search behavior.
+
+- **Improvement**: run the pinning controls -- the deployed Mamba with its state reset every tick, a dense cell fed matched temporal features (finite-difference history stack), and the converged windowed cell evaluated at n=10,000.
+- **Impact**: separates "memory helps" from "this architecture searches better"; cheap (eval-only for the reset control, one training run for the others).
+
+### 9.16 Run-variance calibration beyond the tail
+
+Paper limitation (section 9): run-to-run variance is calibrated only through the three-seed tail repeats.
+
+- **Improvement**: (a) seed-repeat the objective-centering high-regime cells and re-quote them at sizing depth (n=10,000 + CIs) -- the current recovery result is single-run at n=1000; (b) a mean-level sigma_run study across the optimizer-budget cells so tight ties (GA at population 150 vs 300) can be ranked or confirmed indistinguishable.
+- **Impact**: upgrades the two "directional" results of the paper to sizing-grade statements.
+
+### 9.17 Deploy-size reduction of the Mamba head (post-fix regime)
+
+The existing pruning/QAT cells predate the simulator fixes and are not comparable to the current campaign (paper section 9).
+
+- **Improvement**: re-run structured pruning and quantization-aware training on the deployed Mamba_962 under the post-fix regime, scoring on the far-tail pool with the feasibility check of 9.14.
+- **Impact**: onboard-deployability margin; the 962-parameter head is already small, but a quantized variant quantifies how small the tail-winning policy can get.
 
 ---
 
@@ -108,7 +142,21 @@ Only guidance uses neural networks. Navigation and control use classical algorit
 The simulator has ESR reference trajectory data (`data/reference_trajectory/esr_aller.dat`) but ESR-specific configurations and validation are limited.
 
 - **Improvement**: Develop and validate ESR entry profiles, including Earth-specific atmosphere dispersions, higher entry velocities (~12 km/s), and appropriate thermal constraints.
-- **Impact**: Supports Mars Sample Return Earth entry phase analysis.
+- **Impact**: Supports Mars Sample Return Earth entry phase analysis; one of the two mission extensions named in the paper's conclusion.
+
+### 10.2 Skip-entry mission profiles
+
+The 2009 paper's closing hook -- and the new paper's conclusion -- name skip-entry missions as the next maneuver class for stateful neural guidance: a deliberate atmospheric exit and re-entry, where the policy must plan across two passes and the trajectory history matters even more than in single-pass capture.
+
+- **Improvement**: extend the phase machinery (capture/exit) to a skip-exit-reentry sequence, add skip-entry success criteria and reference data, and benchmark the stateful policies against a classical skip-entry predictor-corrector.
+- **Impact**: the maneuver class where internal state should pay the most; completes the 2009 agenda.
+
+### 10.3 On-line adaptation of the deployed policy
+
+Named in the paper's conclusion as the third forward direction: the deployed policy is a fixed forward pass, and all adaptation currently happens on the ground.
+
+- **Improvement**: investigate lightweight in-flight adaptation -- e.g. adapting only the calibrated input normalization or the three co-optimized actuator-side parameters against the navigation-estimated density history, leaving the network weights frozen.
+- **Impact**: recovers some off-nominal robustness at run time without onboard retraining; complements the training-side fix of 9.13.
 
 ---
 
@@ -140,6 +188,7 @@ Items completed and merged.
 | 9.2b Explicit seed_strategy | 2026-04-15 | `[optimizer] seed_strategy` required key with three values: `"fixed"` (deterministic `[mc_seed + i]` range, never changes), `"rotating"` (fresh random seeds drawn each gen via `_draw_disjoint_seeds`, disjoint from validation/final-eval reserved sets), `"adaptive"` (curated-CDF path from 9.2). Pre-`algorithm.next()` re-eval gated on `seeds_changed_this_gen` so GA/DE/PSO survival/`ImprovementReplacement`/`pbest` comparisons see parents and offspring on the same seed set; CMA-ES skips the re-eval. Empty-string sentinel default in `OptimizerConfig` allows bare construction; `from_dict` raises on missing key, `train()` runtime guard rejects sentinel at entry. |
 | 9.12 Drop `output_interpretation` config field | 2026-04-21 | Removed the vestigial `output_interpretation` knob ("atan2" vs "direct") from Rust (`NeuralNetModel`, v1/v2 JSON schemas, all constructors), Python (`V2Policy`, `GaussianPolicy`, `ArchitectureV2`, `describe_architecture`, `write_nn_json`, `_parse_network_config`, `flat_weights_to_json` PyO3 helper), training TOMLs, tests, and the golden JSON. Bank is unconditionally `atan2(out[0], out[1])`; `NeuralNetModel::validate_output_size` enforces final-layer `output_size == 2` at load time. Legacy JSON files still load (Pydantic `extra="ignore"`, Rust struct no longer carries the field so serde skips the unknown key). |
 | Re-validate best individual on training resume | 2026-04-21 | Dropped the `start_gen == 0` guard on the initial validation block in `train.py` so it fires on both fresh starts and resumes. On resume, re-runs the checkpointed `best_overall_individual` against the deterministic `val_seeds`, refreshes `best_val_cost` / `last_validated_individual`, and logs a validation record at `generation=start_gen` with `improved=True`. Keeps the TUI's "Best val" row and "Stagnant for N gens" counter honest on resume -- previously the resumed session's empty logger buffer showed a stale `Best val gXXX` and `No improvement yet` until the next new candidate triggered validation. Cost: one validation-MC batch (~1000 sims) per resume. |
+| 9.10 Recurrent and transformer architectures | 2026-04-24 | Stateful NN runtime shipped in phases (branches `feature/gru-mvp` through `feature/mamba-ssm-mvp`): v2 tagged-layer JSON format + per-sim `NnState`, with GRU, LSTM, Window-MLP, Transformer (causal KV-window attention), and Mamba (selective SSM) cells behind one bit-validated Rust runtime; cross-language equivalence gates at machine epsilon; PSO training for all five, PPO-BPTT for GRU/LSTM. Outcome (paper, 2026-06): the 962-parameter Mamba is the deployed sizing headline -- engineered inputs flatten the median across cell types, internal state compresses the far tail (CVaR99.9 124.5 vs 139.2 m/s for the dense reference, three-seed means). |
 | 9.9 RL training for neural network guidance | 2026-04-17 | Parallel track to the GA for the `neural_network` scheme, sharing the `best_model.json` export format so the Rust runtime is unchanged. **Rust**: new `BatchedSimulation` pyclass (Rayon-parallel per-tick advance over N `SimState`s, GIL released via `py.detach()`, auto-reset on episode end); per-tick logic extracted into `tick::step_one_tick` and shared helpers (`promote_pending_crash_if_applicable`, `navigate_from_state`) so the CLI `run_single` path and the RL env produce identical `ifinal`/`final_record`. `info["truncated"]` surfaced per-env so PPO/SAC distinguish `max_time` timeouts from terminations. EKF mode skips the initial nav priming to avoid advancing the filter twice at t=0 (bias mode stateless). **Python RL** (`training/rl/`): CleanRL-style PPO with `GaussianPolicy` (`atan2(out[0], out[1])` signed bank), `ValueNetwork`, `RolloutBuffer`, `compute_gae` with per-step `next_values` bootstrap, `ppo_update` (clipped surrogate + value + entropy + `target_kl` early-stop). Experimental SAC with twin Q networks operating on the 2D Gaussian latent (entropy target `-dim(A)=-2` aligned with the regularized density); `ReplayBuffer` with `state_dict/load_state_dict` persisted in the checkpoint so resume retains off-policy experience. Truncation-aware bootstrap in both paths: GAE uses `V(terminal_obs)` on timeouts; SAC stores terminal obs in replay rather than the next episode's reset obs. Potential-based per-step shaping (`r = gamma * Phi(s') - Phi(s)`, optimal-policy-preserving per Ng/Harada/Russell 1999): capture-phase potential combines corridor tracking, energy-gain penalty (consumes `(energy, pdyn)` from the `BatchedSimulation` aux channel), and constraint proximity; exit-phase replaces capture terms with apoapsis targeting and eccentricity reduction. Running `ReturnNormalizer` + `ObsNormalizer` using Chan's parallel Welford; obs normalization baked into the first linear layer at export (`W_new = W/std`, `b_new = b - W@mean/std`) so the Rust runtime requires no changes. PPO normalizes rewards per-step during collection for a stable advantage scale. Checkpoint resume, graceful Ctrl+C, reserved-seed validation gate (`val_rms < best_val_cost` triggers promotion + export), three-part PDF report (Part 1 RL convergence, Parts 2-3 reused from the GA report). Seed pools: `RL_TRAINING_SEED_OFFSET = 3_000_000`, disjoint from the GA training / validation (1M) / final-eval (2M) pools. Deploy as `neural_network_rl` in `compare_guidance.py`. CLI: `python -m aerocapture.training.rl.train`; `./train_all.sh nn_rl`. |
 
 ---
