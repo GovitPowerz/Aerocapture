@@ -416,3 +416,8 @@ GitHub Actions runs on PRs to `main` and manual dispatch:
 ## Roadmap
 
 See [TODO.md](TODO.md) for the prioritized task list and [IMPROVEMENTS.md](IMPROVEMENTS.md) for the detailed physics, GNC, and software improvement roadmap.
+
+## License
+
+MIT — see [LICENSE](LICENSE). The license is also declared in both Cargo
+manifests and `pyproject.toml`.
