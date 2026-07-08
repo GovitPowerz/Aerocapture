@@ -53,18 +53,21 @@ def test_cfc_arms_and_budget_within_2pct() -> None:
 
     assert set(ARMS) == {"gru", "cfc"}
     totals = {arm: sum(_layer_n_params(e) for e in arch) for arm, arch in ARMS.items()}
-    assert totals["gru"] == 7106  # 704 + 6336 + 66
-    assert totals["cfc"] == 7074  # 704 + 6304 + 66
+    assert totals["gru"] == 6978  # 576 + 6336 + 66 (17-input atan2 mask inherited from the base)
+    assert totals["cfc"] == 6946  # 576 + 6304 + 66
     assert abs(totals["cfc"] - totals["gru"]) / totals["gru"] < 0.02
 
 
 def test_cfc_leaf_toml_carries_layer_and_seed() -> None:
     from pathlib import Path
 
-    from aerocapture.training.experiments.cfc_probe import ARMS, BASE_SEED, INPUT_MASK
+    from aerocapture.training.experiments.cfc_probe import ARMS, BASE_SEED
     from aerocapture.training.experiments.probe_common import leaf_toml
 
-    toml = leaf_toml("cfc_probe", "cfc", ARMS["cfc"], BASE_SEED + 2, BASE_SEED, Path("training_output/cfc_probe/cfc_s2"), 500, 10, INPUT_MASK)
+    toml = leaf_toml("cfc_probe", "cfc", ARMS["cfc"], BASE_SEED + 2, BASE_SEED, Path("training_output/cfc_probe/cfc_s2"), 500, 10)
+    assert 'base = ["../msr_aller_nn_atan2_train.toml"]' in toml
+    assert "input_mask" not in toml  # inherited from the atan2 base, not respecified
+    assert "n_pop = 300" in toml
     assert 'type = "cfc"' in toml
     assert "backbone_units = 32" in toml
     assert f"seed = {BASE_SEED + 2}" in toml

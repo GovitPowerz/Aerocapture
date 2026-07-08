@@ -4,7 +4,7 @@
       "architecture": [
         {
           "type": "dense",
-          "input_size": 21,
+          "input_size": 17,
           "output_size": 32,
           "activation": "swish"
         },
@@ -21,13 +21,13 @@
         }
       ],
       "cell_params": 8448,
-      "total_params": 9218
+      "total_params": 9090
     },
     "slstm": {
       "architecture": [
         {
           "type": "dense",
-          "input_size": 21,
+          "input_size": 17,
           "output_size": 32,
           "activation": "swish"
         },
@@ -44,13 +44,13 @@
         }
       ],
       "cell_params": 8320,
-      "total_params": 9090
+      "total_params": 8962
     },
     "mlstm": {
       "architecture": [
         {
           "type": "dense",
-          "input_size": 21,
+          "input_size": 17,
           "output_size": 32,
           "activation": "swish"
         },
@@ -67,7 +67,7 @@
         }
       ],
       "cell_params": 8514,
-      "total_params": 9348
+      "total_params": 9220
     }
   },
   "repeats": 3,

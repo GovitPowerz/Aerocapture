@@ -3,8 +3,10 @@
 Mechanism decomposition: lstm -> slstm isolates exponential gating (can the
 cell sharply REVISE a stored estimate when surprise arrives -- the bounce, a
 density shock); slstm -> mlstm isolates matrix memory (vs Mamba's diagonal
-state). Budgets: lstm 9218 / slstm 9090 / mlstm 9348 total trainable (+-1.5%;
-mlstm runs H=64 because it has no recurrent matrices). Same fixed training
+state). Budgets: lstm 9090 / slstm 8962 / mlstm 9220 total trainable (+-1.5%;
+mlstm runs H=64 because it has no recurrent matrices). Arms inherit the paper's
+atan2 training environment (msr_aller_nn_atan2_train.toml: 17-input calibrated
+mask + normalization, scaffolding = "live", PSO n_pop 300). Same fixed training
 seeds across arms; deployed LSTM/Mamba champions scored on the same reserved
 pool as reference rows (NOT budget-matched).
 
@@ -27,9 +29,9 @@ from aerocapture.training.experiments import probe_common as pc
 BASE_SEED = 20260707
 CONFIG_DIR = Path("configs/training/xlstm_probe")
 OUT_DIR = Path("training_output/xlstm_probe")
-INPUT_MASK = list(range(21))
 
-_DENSE_IN = {"type": "dense", "input_size": 21, "output_size": 32, "activation": "swish"}
+# input_size 17 = the atan2 base's calibrated input_mask length (inherited, not respecified).
+_DENSE_IN = {"type": "dense", "input_size": 17, "output_size": 32, "activation": "swish"}
 _HEAD_32 = {"type": "dense", "input_size": 32, "output_size": 2, "activation": "asinh"}
 _HEAD_64 = {"type": "dense", "input_size": 64, "output_size": 2, "activation": "asinh"}
 
@@ -53,7 +55,7 @@ def generate_configs(repeats: int, n_gen: int, training_n_sims: int) -> None:
         for r in range(repeats):
             out_dir = OUT_DIR / f"{arm}_s{r}"
             path = CONFIG_DIR / f"{arm}_s{r}.toml"
-            path.write_text(pc.leaf_toml("xlstm_probe", arm, arch, BASE_SEED + r, BASE_SEED, out_dir, n_gen, training_n_sims, INPUT_MASK))
+            path.write_text(pc.leaf_toml("xlstm_probe", arm, arch, BASE_SEED + r, BASE_SEED, out_dir, n_gen, training_n_sims))
     manifest = pc.write_manifest(ARMS, CONFIG_DIR, {"repeats": repeats, "n_gen": n_gen, "training_n_sims": training_n_sims})
     print(f"Wrote {len(ARMS) * repeats} arm configs to {CONFIG_DIR}/")
     for arm, m in manifest["arms"].items():

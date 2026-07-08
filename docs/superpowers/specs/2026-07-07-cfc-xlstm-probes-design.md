@@ -165,28 +165,34 @@ raises `NotImplementedError`, PSO-only), `model_io.py` (load raises), `encoding.
 
 - Configs written to `configs/training/cfc_probe/` and `configs/training/xlstm_probe/`;
   outputs to `training_output/cfc_probe/<arm>_s<r>/` and `training_output/xlstm_probe/...`.
-- Generated leaf TOMLs: `base = ["../../missions/mars.toml", "../common.toml"]` (no
-  warm-start chain -- V2Policy rejects the new layers), sandwich
-  `Dense(21→32, swish) → cell → Dense(H→2, asinh)`, `input_mask = [0..20]`,
-  full_neural + atan2_signed defaults, PSO `n_pop=64`, `seed_strategy="fixed"`,
-  `validation_n_sims=200`, `monte_carlo.seed = BASE_SEED + r`,
-  `results_suffix = ".{script}_{arm}_s{r}"`.
+- Generated leaf TOMLs: `base = ["../msr_aller_nn_atan2_train.toml"]` -- the paper's
+  atan2 training environment (17-input calibrated `input_mask` + `[network]`
+  normalization, `full_neural` + `atan2_signed`, `scaffolding = "live"` with tuned
+  nav/shaping starting points; its warm-start block is commented out upstream, which
+  the PSO-only probe layers require). Sandwich `Dense(17→32, swish) → cell →
+  Dense(H→2, asinh)` (the `[[network.architecture]]` array replaces the base's dense
+  stack), PSO `n_pop=300`, `seed_strategy="fixed"`, `validation_n_sims=200`,
+  `monte_carlo.seed = BASE_SEED + r`, `results_suffix = ".{script}_{arm}_s{r}"`.
+  Because arms train with live scaffolding, `eval_arms` applies each arm's deployed
+  `best_params.json` overrides at scoring (the param_sweep lesson: scoring without
+  them mis-ranks architectures).
 - `BASE_SEED = 20260707` (same as mamba3 -- identical training seed lists across all three
   probe scripts).
 - `--generate` also writes `manifest.json` with per-arm dims and exact param counts
   (cell + total trainable, via `NetworkConfig`).
 
-### Param matching (cell params; sandwich adds 704 + head)
+### Param matching (cell params; sandwich adds 576 + head)
 
-| script | arm | dims | cell params | delta vs baseline |
-|---|---|---|---|---|
-| cfc_probe | gru (baseline) | H=32 | 6336 | -- |
-| cfc_probe | cfc | H=32, B=32 | 6304 | -0.5% |
-| xlstm_probe | lstm (baseline) | H=32 | 8448 | -- |
-| xlstm_probe | slstm | H=32 | 8320 | -1.5% |
-| xlstm_probe | mlstm | H=64 | 8514 | +0.8% |
+| script | arm | dims | cell params | total | delta vs baseline |
+|---|---|---|---|---|---|
+| cfc_probe | gru (baseline) | H=32 | 6336 | 6978 | -- |
+| cfc_probe | cfc | H=32, B=32 | 6304 | 6946 | -0.5% |
+| xlstm_probe | lstm (baseline) | H=32 | 8448 | 9090 | -- |
+| xlstm_probe | slstm | H=32 | 8320 | 8962 | -1.4% |
+| xlstm_probe | mlstm | H=64 | 8514 | 9220 | +1.4% |
 
-Head dense is `(32→2)` = 66 params for H=32 arms, `(64→2)` = 130 for mlstm.
+Head dense is `(32→2)` = 66 params for H=32 arms, `(64→2)` = 130 for mlstm; the NN
+chromosome additionally carries the 3 live-scaffolding params (identical for all arms).
 
 ### Shared eval pool
 
