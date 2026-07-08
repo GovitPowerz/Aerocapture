@@ -58,7 +58,7 @@ STRESS_EVAL_SEED_OFFSET = 9_000_000
 # reports are directly comparable. Disjoint from every training/validation/
 # final/other-eval stream above.
 PROBE_EVAL_SEED_OFFSET = 10_000_000
-# Legacy alias (mamba3_ablation.py imports this name).
+# Legacy alias (mamba3_962_compare.py imports this name).
 MAMBA3_EVAL_SEED_OFFSET = PROBE_EVAL_SEED_OFFSET
 
 
