@@ -49,6 +49,6 @@
     }
   },
   "repeats": 3,
-  "n_gen": 500,
-  "training_n_sims": 10
+  "n_gen": 5000,
+  "training_n_sims": 2
 }

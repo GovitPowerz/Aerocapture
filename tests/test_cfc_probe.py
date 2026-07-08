@@ -68,8 +68,11 @@ def test_cfc_leaf_toml_carries_layer_and_seed() -> None:
     assert 'base = ["../msr_aller_nn_atan2_train.toml"]' in toml
     assert "input_mask" not in toml  # inherited from the atan2 base, not respecified
     assert "n_pop = 300" in toml
+    # algorithm / seed_strategy / curation are NOT overridden: the sweep's
+    # ga + adaptive + bucket=max inherit from common.toml via the atan2 base.
+    assert "algorithm = " not in toml
+    assert "seed_strategy = " not in toml
     assert 'type = "cfc"' in toml
     assert "backbone_units = 32" in toml
     assert f"seed = {BASE_SEED + 2}" in toml
-    assert 'seed_strategy = "fixed"' in toml
     assert ".cfc_probe_cfc_s2" in toml

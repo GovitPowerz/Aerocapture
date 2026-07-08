@@ -35,8 +35,9 @@ claim must clear sigma_run.
   - `cfc_probe.py`: arms `{gru (baseline), cfc}`
   - `xlstm_probe.py`: arms `{lstm (baseline), slstm, mlstm}`
 - Every arm (including baselines) retrained at matched param budget, same sandwich, same
-  fixed seeds -- gaps attributable. Deployed champions additionally scored on the same eval
-  pool as non-matched **reference rows**.
+  training regime (the architecture sweep's GA + adaptive-max curation) -- gaps
+  attributable. Deployed champions additionally scored on the same eval pool as
+  non-matched **reference rows**.
 - All changes additive: existing layers, goldens, and the deployed champions untouched.
 
 ## Non-goals / deliberate simplifications (flagged for the write-up)
@@ -171,13 +172,19 @@ raises `NotImplementedError`, PSO-only), `model_io.py` (load raises), `encoding.
   nav/shaping starting points; its warm-start block is commented out upstream, which
   the PSO-only probe layers require). Sandwich `Dense(17→32, swish) → cell →
   Dense(H→2, asinh)` (the `[[network.architecture]]` array replaces the base's dense
-  stack), PSO `n_pop=300`, `seed_strategy="fixed"`, `validation_n_sims=200`,
-  `monte_carlo.seed = BASE_SEED + r`, `results_suffix = ".{script}_{arm}_s{r}"`.
+  stack). The `[optimizer]` block overrides ONLY the budget knobs (`n_pop = 300`,
+  `n_gen` default 5000, `training_n_sims` default 2); `algorithm = "ga"`,
+  `seed_strategy = "adaptive"`, `curation_bucket_selection = "max"`, and the 1000-sim
+  validation gate inherit from common.toml through the base -- the architecture
+  sweep's exact regime (Study C: GA + fixed seeds is the worst regime; adaptive-max
+  is the paper's load-bearing methodology). `monte_carlo.seed = BASE_SEED + r`,
+  `results_suffix = ".{script}_{arm}_s{r}"`.
   Because arms train with live scaffolding, `eval_arms` applies each arm's deployed
   `best_params.json` overrides at scoring (the param_sweep lesson: scoring without
   them mis-ranks architectures).
-- `BASE_SEED = 20260707` (same as mamba3 -- identical training seed lists across all three
-  probe scripts).
+- `BASE_SEED = 20260707` (same as mamba3); per-repeat `monte_carlo.seed = BASE_SEED + r`.
+  Under the adaptive strategy the curated training seed lists evolve per run -- the
+  controlled quantity is the shared regime + reserved eval pool, not the seed lists.
 - `--generate` also writes `manifest.json` with per-arm dims and exact param counts
   (cell + total trainable, via `NetworkConfig`).
 

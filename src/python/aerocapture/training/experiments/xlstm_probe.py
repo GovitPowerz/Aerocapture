@@ -6,15 +6,17 @@ density shock); slstm -> mlstm isolates matrix memory (vs Mamba's diagonal
 state). Budgets: lstm 9090 / slstm 8962 / mlstm 9220 total trainable (+-1.5%;
 mlstm runs H=64 because it has no recurrent matrices). Arms inherit the paper's
 atan2 training environment (msr_aller_nn_atan2_train.toml: 17-input calibrated
-mask + normalization, scaffolding = "live", PSO n_pop 300). Same fixed training
-seeds across arms; deployed LSTM/Mamba champions scored on the same reserved
+mask + normalization, scaffolding = "live") AND its sweep training regime (GA
+n_pop 300, seed_strategy = "adaptive" with bucket = "max" curation,
+training_n_sims 2, n_gen 5000); sigma_run comes from seed-repeats + GA/curation
+stochasticity. Deployed LSTM/Mamba champions scored on the same reserved
 pool as reference rows (NOT budget-matched).
 
 CLI (from repo root):
     python -m aerocapture.training.experiments.xlstm_probe --generate --repeats 3
-    python -m aerocapture.training.experiments.xlstm_probe --train  --repeats 3 --n-gen 500 --training-n-sims 10
+    python -m aerocapture.training.experiments.xlstm_probe --train  --repeats 3 --n-gen 5000 --training-n-sims 2
     python -m aerocapture.training.experiments.xlstm_probe --eval --report --repeats 3 --n-sims 1000
-    python -m aerocapture.training.experiments.xlstm_probe --all --repeats 3 --n-gen 500 --n-sims 1000
+    python -m aerocapture.training.experiments.xlstm_probe --all --repeats 3 --n-gen 5000 --n-sims 1000
 """
 
 from __future__ import annotations
@@ -81,13 +83,13 @@ def eval_all(repeats: int, n_sims: int, sim_timeout: float | None) -> dict[str, 
 def main() -> None:
     p = argparse.ArgumentParser(description="xLSTM probe (lstm vs slstm vs mlstm, matched budget)")
     p.add_argument("--generate", action="store_true", help="write arm configs + manifest")
-    p.add_argument("--train", action="store_true", help="PSO-train each arm x repeat (subprocess)")
+    p.add_argument("--train", action="store_true", help="GA-train each arm x repeat (subprocess, sweep regime)")
     p.add_argument("--eval", action="store_true", help="score deployed models + references on the reserved pool")
     p.add_argument("--report", action="store_true", help="print the arm comparison table + significance")
     p.add_argument("--all", action="store_true", help="generate -> train -> eval -> report")
     p.add_argument("--repeats", type=int, default=3, help="seed-repeats per arm (sigma_run sample)")
-    p.add_argument("--n-gen", type=int, default=500, help="PSO generations per training run")
-    p.add_argument("--training-n-sims", type=int, default=10, help="sims per individual per generation")
+    p.add_argument("--n-gen", type=int, default=5000, help="GA generations per training run (sweep regime)")
+    p.add_argument("--training-n-sims", type=int, default=2, help="sims per individual per generation (sweep regime)")
     p.add_argument("--n-sims", type=int, default=1000, help="reserved eval pool size")
     p.add_argument("--sim-timeout", type=float, default=None, help="per-sim wall-clock timeout (s)")
     p.add_argument("--force", action="store_true", help="retrain even if best_model.json exists")

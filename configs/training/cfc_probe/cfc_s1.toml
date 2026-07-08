@@ -24,13 +24,12 @@ input_size = 32
 output_size = 2
 activation = "asinh"
 
+# Budget knobs only; algorithm/seed_strategy/curation inherit the sweep's
+# ga + adaptive + bucket=max from common.toml via the atan2 base.
 [optimizer]
-algorithm = "pso"
 n_pop = 300
-n_gen = 500
-seed_strategy = "fixed"
-training_n_sims = 10
-validation_n_sims = 200
+n_gen = 5000
+training_n_sims = 2
 
 [monte_carlo]
 seed = 20260708

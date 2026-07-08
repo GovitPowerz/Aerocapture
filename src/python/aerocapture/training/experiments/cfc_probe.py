@@ -4,16 +4,17 @@ Hypothesis under test: input-dependent time constants (CfC) match or beat the
 closest scalar-state baseline (GRU) on the sizing tail at the same param budget
 (gru 6978 vs cfc 6946 total trainable, -0.5%). Arms inherit the paper's atan2
 training environment (msr_aller_nn_atan2_train.toml: 17-input calibrated mask +
-normalization, scaffolding = "live", PSO n_pop 300) and train on identical
-fixed seeds; sigma_run comes from seed-repeats + PSO stochasticity. Deployed
+normalization, scaffolding = "live") AND its sweep training regime (GA n_pop 300,
+seed_strategy = "adaptive" with bucket = "max" curation, training_n_sims 2,
+n_gen 5000); sigma_run comes from seed-repeats + GA/curation stochasticity. Deployed
 GRU/Mamba champions are scored on the same reserved pool as reference rows
 (NOT budget-matched -- own masks/settings).
 
 CLI (from repo root):
     python -m aerocapture.training.experiments.cfc_probe --generate --repeats 3
-    python -m aerocapture.training.experiments.cfc_probe --train  --repeats 3 --n-gen 500 --training-n-sims 10
+    python -m aerocapture.training.experiments.cfc_probe --train  --repeats 3 --n-gen 5000 --training-n-sims 2
     python -m aerocapture.training.experiments.cfc_probe --eval --report --repeats 3 --n-sims 1000
-    python -m aerocapture.training.experiments.cfc_probe --all --repeats 3 --n-gen 500 --n-sims 1000
+    python -m aerocapture.training.experiments.cfc_probe --all --repeats 3 --n-gen 5000 --n-sims 1000
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from typing import Any
 
 from aerocapture.training.experiments import probe_common as pc
 
-BASE_SEED = 20260707  # same as mamba3_ablation -- identical training seed lists across probes
+BASE_SEED = 20260707  # same as mamba3_ablation; per-repeat monte_carlo.seed = BASE_SEED + r
 CONFIG_DIR = Path("configs/training/cfc_probe")
 OUT_DIR = Path("training_output/cfc_probe")
 
@@ -80,13 +81,13 @@ def eval_all(repeats: int, n_sims: int, sim_timeout: float | None) -> dict[str, 
 def main() -> None:
     p = argparse.ArgumentParser(description="CfC vs GRU matched-budget probe")
     p.add_argument("--generate", action="store_true", help="write arm configs + manifest")
-    p.add_argument("--train", action="store_true", help="PSO-train each arm x repeat (subprocess)")
+    p.add_argument("--train", action="store_true", help="GA-train each arm x repeat (subprocess, sweep regime)")
     p.add_argument("--eval", action="store_true", help="score deployed models + references on the reserved pool")
     p.add_argument("--report", action="store_true", help="print the arm comparison table + significance")
     p.add_argument("--all", action="store_true", help="generate -> train -> eval -> report")
     p.add_argument("--repeats", type=int, default=3, help="seed-repeats per arm (sigma_run sample)")
-    p.add_argument("--n-gen", type=int, default=500, help="PSO generations per training run")
-    p.add_argument("--training-n-sims", type=int, default=10, help="sims per individual per generation")
+    p.add_argument("--n-gen", type=int, default=5000, help="GA generations per training run (sweep regime)")
+    p.add_argument("--training-n-sims", type=int, default=2, help="sims per individual per generation (sweep regime)")
     p.add_argument("--n-sims", type=int, default=1000, help="reserved eval pool size")
     p.add_argument("--sim-timeout", type=float, default=None, help="per-sim wall-clock timeout (s)")
     p.add_argument("--force", action="store_true", help="retrain even if best_model.json exists")

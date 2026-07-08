@@ -30,6 +30,8 @@ def test_xlstm_leaf_toml_carries_layer_and_seed() -> None:
     toml = leaf_toml("xlstm_probe", "slstm", ARMS["slstm"], BASE_SEED, BASE_SEED, Path("training_output/xlstm_probe/slstm_s0"), 500, 10)
     assert 'base = ["../msr_aller_nn_atan2_train.toml"]' in toml
     assert "n_pop = 300" in toml
+    assert "algorithm = " not in toml
+    assert "seed_strategy = " not in toml
     assert 'type = "slstm"' in toml
     assert f"seed = {BASE_SEED}" in toml
     assert ".xlstm_probe_slstm_s0" in toml
