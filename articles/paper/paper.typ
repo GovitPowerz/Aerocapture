@@ -10,7 +10,7 @@
 
 // NeurIPS-style single-column layout (cf. Vaswani et al. 2017): Times body,
 // STIX Two Math for equations, a narrow 5.5in text block, bold numbered headings.
-#set document(title: "Neural-network aerocapture guidance, revisited: the tail that sizes the mission", author: "Grégory Gelly")
+#set document(title: "Seventeen years later: stateful neural guidance and the tail that sizes a Mars aerocapture mission", author: "Grégory Gelly")
 #set page(paper: "us-letter", margin: (x: 1.5in, top: 1in, bottom: 1.25in), numbering: "1")
 // Fonts matched to the "Attention" PDF: body = STIX Two Text (the open Times-metric
 // face standing in for the paper's Nimbus Roman; Times New Roman reads too dark),
@@ -53,8 +53,8 @@
 
 #v(0.15in)
 #align(center)[
-  #text(size: 16pt, weight: "bold", hyphenate: false)[Neural-network aerocapture guidance, revisited:\
-  the tail that sizes the mission]
+  #text(size: 16pt, weight: "bold", hyphenate: false)[Seventeen years later: stateful neural guidance\
+  and the tail that sizes a Mars aerocapture mission]
   #v(16pt)
   #text(size: 12pt)[Grégory Gelly]
   #v(1pt)
@@ -75,16 +75,18 @@
   guidance policies and benchmark them, on identical Monte-Carlo scenarios drawn from a bit-validated
   simulator, against
   six classical schemes including a numerical predictor--corrector (FNPAG) and a reference-tracking
-  feedback law (FTC). Because aerocapture propellant is sized off the worst-case correction
+  feedback law (FTC). Because the mission's correction propellant is sized off the worst-case
   $Delta v$, we lead every comparison with the tail of its distribution, not the mean. A 962-parameter
-  recurrent (Mamba) policy reaches a far-tail $"CVaR"_(99.9)$ of $124.5$ m/s and a fresh-pool
-  $"CVaR"_95$ of $115.2$ m/s at $100%$ capture. It beats the best classical scheme (FTC with a
-  co-optimized reference) by $16.4$ m/s in mean and $27.6$ m/s at $"CVaR"_95$, better on every one
-  of $1000$ paired scenarios, at $3.68$ ms per simulation -- $23 times$ faster than FNPAG. The result rests on a training methodology that is itself a contribution: a non-stationary,
+  recurrent (Mamba) policy reaches a far-tail $"CVaR"_(99.9)$ of #box[$124.5$ m/s] and a fresh-pool
+  $"CVaR"_95$ of #box[$115.2$ m/s] at $100%$ capture. It beats the best classical scheme (FTC with a
+  co-optimized reference) by #box[$16.4$ m/s] in mean and #box[$27.6$ m/s] at $"CVaR"_95$, better on
+  every one of $1000$ paired scenarios, at #box[$3.68$ ms] per simulation -- $23 times$ faster than
+  FNPAG. The result rests on a training methodology that is itself a contribution: a non-stationary,
   adaptive-seed Monte-Carlo environment turns the genetic algorithm from the *worst* optimizer under
   fixed scenarios ($160.3$ m/s mean) into the *best* ($118.0$). We report one honest caveat -- under a
   deliberately harsher off-nominal regime the analytic reference-tracking law generalizes better than
-  the medium-trained network -- and we trace the architecture finding to its mechanism: engineered,
+  the medium-trained network, a gap we pin on the mismatched training objective rather than on neural
+  guidance itself -- and we trace the architecture finding to its mechanism: engineered,
   cost-aligned inputs flatten the median across cell types, but genuine internal state is what
   compresses the extreme tail that sizes the tanks.]
 ]
