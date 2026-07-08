@@ -246,3 +246,40 @@ is not this script (see gates).
 9. `check_all.sh` + `pytest tests` + goldens.
 10. Invoke the `smart-commit` skill, telling it to take the whole `feature/mamba3-ablation`
     branch into account.
+
+## Result (2026-07-08)
+
+**Verdict: neither Mamba-3 axis improves the aerocapture sizing tail. Clean negative.**
+
+Two experiments were run:
+
+1. **500-gen PSO spike** (3042-param arch, 3 seed-repeats, the `mamba3_ablation.py` driver).
+   Trapz/complex looked "leaning positive but within σ_run" (p95 ~215-258, σ_run 70-120). This
+   directional hint turned out to be a MIRAGE of the under-trained, high-variance regime.
+
+2. **Full-budget run** (the deployed Mamba_962 cell: Dense 17->16 -> Mamba3(16, d_state=12) ->
+   Dense 16->2; GA n_pop=512, n_gen=10000, training_n_sims=2, adaptive-max seeds, scaffolding=live,
+   no warm-start; configs `configs/training/mamba3_962/*.toml`). Scored on 2000 held-out sims
+   (reserved 10M pool) with each model's co-trained scaffolding, via
+   `aerocapture.training.experiments.mamba3_962_compare`:
+
+   | arm | params | cap% | dvP50 | dvP95 | CVaR95 |
+   |---|---|---|---|---|---|
+   | baseline (euler+real) | 962 | 100.00 | 111.0 | **116.9** | **118.6** |
+   | trapz | 978 | 100.00 | 110.7 | 117.0 | 119.6 |
+   | complex | 1154 | 99.95 | 111.5 | 118.6 | 120.9 |
+   | both | 1170 | 100.00 | 110.8 | 117.5 | 120.1 |
+
+At full budget all four converge to a tight, excellent solution (whole tail within ~8 m/s of the
+p50). Baseline (euler+real, fewest params) is best-or-tied on every tail metric; complex is
+consistently the worst (+1.8 p95, +2.2 CVaR95) despite +192 `a_imag` params. **The spike's positive
+hint reverses to flat-to-negative once training converges** -- an under-trained spike gives false
+architecture signals; confirm at full budget.
+
+Caveat: the full-budget comparison is SINGLE-run per arm, so the ~1-2% gaps are within run-to-run
+noise -- the honest claim is "no benefit / indistinguishable," NOT "baseline significantly better."
+
+Interpretation: Mamba-3's axes (trapezoidal accuracy, complex state-tracking, MIMO throughput) target
+long-context tracking and decode throughput; aerocapture is a short, smooth, low-bandwidth signal and
+the baseline 962 cell already has ample capacity. This is the data-backed answer to "why not Mamba-3?"
+See memory `project-mamba3-ablation-result`.
