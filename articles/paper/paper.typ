@@ -984,8 +984,10 @@ matches its nominal accuracy, and
 to carry these stateful policies beyond the single capture maneuver -- to skip-entry and Earth-return
 legs, and to on-line adaptation of the deployed policy in flight.
 
+#pagebreak()
 #bibliography("refs.bib")
 
+#pagebreak()
 #set heading(numbering: none)
 = Appendix A: per-scheme mission reports
 
