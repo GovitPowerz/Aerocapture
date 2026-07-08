@@ -3,14 +3,18 @@
 Mechanism decomposition: lstm -> slstm isolates exponential gating (can the
 cell sharply REVISE a stored estimate when surprise arrives -- the bounce, a
 density shock); slstm -> mlstm isolates matrix memory (vs Mamba's diagonal
-state). Budgets: lstm 9090 / slstm 8962 / mlstm 9220 total trainable (+-1.5%;
-mlstm runs H=64 because it has no recurrent matrices). Arms inherit the paper's
-atan2 training environment (msr_aller_nn_atan2_train.toml: 17-input calibrated
-mask + normalization, scaffolding = "live") AND its sweep training regime (GA
-n_pop 300, seed_strategy = "adaptive" with bucket = "max" curation,
-training_n_sims 2, n_gen 5000); sigma_run comes from seed-repeats + GA/curation
-stochasticity. Deployed LSTM/Mamba champions scored on the same reserved
-pool as reference rows (NOT budget-matched).
+state). The lstm baseline arm is the paper's sweep cell lstm_p1082 VERBATIM
+(Dense(17->10) -> LSTM(10,10) -> Dense(10->2)), anchoring the probe at the sweep's
+~1k operating point; the sweep's single trained run cross-checks the baseline
+repeats as a reference row. Budgets: lstm 1082 / slstm 1042 / mlstm 1078. slstm
+runs the SAME H=10 as lstm -- its -40 params are the single-bias delta inherent
+to the cell definition (an axis cost, like mamba3's +192 complex params), not a
+budget mismatch; mlstm runs H=19 because it has no recurrent matrices. Arms
+inherit the paper's atan2 training environment (msr_aller_nn_atan2_train.toml:
+17-input calibrated mask + normalization, scaffolding = "live") AND its sweep
+training regime (GA n_pop 300, seed_strategy = "adaptive" with bucket = "max"
+curation, training_n_sims 2, n_gen 5000); sigma_run comes from seed-repeats +
+GA/curation stochasticity.
 
 CLI (from repo root):
     python -m aerocapture.training.experiments.xlstm_probe --generate --repeats 3
@@ -32,20 +36,22 @@ BASE_SEED = 20260707
 CONFIG_DIR = Path("configs/training/xlstm_probe")
 OUT_DIR = Path("training_output/xlstm_probe")
 
-# input_size 17 = the atan2 base's calibrated input_mask length (inherited, not respecified).
-_DENSE_IN = {"type": "dense", "input_size": 17, "output_size": 32, "activation": "swish"}
-_HEAD_32 = {"type": "dense", "input_size": 32, "output_size": 2, "activation": "asinh"}
-_HEAD_64 = {"type": "dense", "input_size": 64, "output_size": 2, "activation": "asinh"}
+# Sandwich = the sweep cell lstm_p1082's, verbatim (input_size 17 = the atan2
+# base's calibrated input_mask length, inherited, not respecified).
+_DENSE_IN = {"type": "dense", "input_size": 17, "output_size": 10, "activation": "swish"}
+_HEAD_10 = {"type": "dense", "input_size": 10, "output_size": 2, "activation": "asinh"}
+_HEAD_19 = {"type": "dense", "input_size": 19, "output_size": 2, "activation": "asinh"}
 
 ARMS: dict[str, list[dict[str, Any]]] = {
-    "lstm": [_DENSE_IN, {"type": "lstm", "input_size": 32, "hidden_size": 32}, _HEAD_32],
-    "slstm": [_DENSE_IN, {"type": "slstm", "input_size": 32, "hidden_size": 32}, _HEAD_32],
-    "mlstm": [_DENSE_IN, {"type": "mlstm", "input_size": 32, "hidden_size": 64}, _HEAD_64],
+    "lstm": [_DENSE_IN, {"type": "lstm", "input_size": 10, "hidden_size": 10}, _HEAD_10],
+    "slstm": [_DENSE_IN, {"type": "slstm", "input_size": 10, "hidden_size": 10}, _HEAD_10],
+    "mlstm": [_DENSE_IN, {"type": "mlstm", "input_size": 10, "hidden_size": 19}, _HEAD_19],
 }
 BASELINE = "lstm"
 TREATMENTS = ["slstm", "mlstm"]
 
 REFERENCES: dict[str, tuple[Path, Path]] = {
+    "lstm_p1082_sweep": (Path("configs/training/sweep/lstm_p1082.toml"), Path("training_output/sweep_lstm_p1082")),
     "lstm_champion": (Path("configs/training/msr_aller_lstm_pso_train.toml"), Path("training_output/neural_network_lstm_pso")),
     "mamba_champion": (Path("configs/training/msr_aller_mamba_pso_train.toml"), Path("training_output/neural_network_mamba_pso")),
 }

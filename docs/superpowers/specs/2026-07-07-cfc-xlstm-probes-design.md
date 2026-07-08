@@ -188,18 +188,25 @@ raises `NotImplementedError`, PSO-only), `model_io.py` (load raises), `encoding.
 - `--generate` also writes `manifest.json` with per-arm dims and exact param counts
   (cell + total trainable, via `NetworkConfig`).
 
-### Param matching (cell params; sandwich adds 576 + head)
+### Param matching (anchored at the paper's ~1k sweep cells)
+
+Each baseline arm is a sweep cell VERBATIM (`configs/training/sweep/gru_p1014.toml`,
+`lstm_p1082.toml`), so the probes run at the sweep's operating point (where the
+dimensionality study says GA actually optimizes) and the sweep's single trained run
+cross-checks the baseline repeats as a reference row.
 
 | script | arm | dims | cell params | total | delta vs baseline |
 |---|---|---|---|---|---|
-| cfc_probe | gru (baseline) | H=32 | 6336 | 6978 | -- |
-| cfc_probe | cfc | H=32, B=32 | 6304 | 6946 | -0.5% |
-| xlstm_probe | lstm (baseline) | H=32 | 8448 | 9090 | -- |
-| xlstm_probe | slstm | H=32 | 8320 | 8962 | -1.4% |
-| xlstm_probe | mlstm | H=64 | 8514 | 9220 | +1.4% |
+| cfc_probe | gru (baseline) | H=11 | 792 | 1014 | -- (== gru_p1014) |
+| cfc_probe | cfc | H=11, B=11 | 781 | 1003 | -1.1% |
+| xlstm_probe | lstm (baseline) | H=10 | 880 | 1082 | -- (== lstm_p1082) |
+| xlstm_probe | slstm | H=10 | 840 | 1042 | -3.7% (single-bias axis cost at matched H) |
+| xlstm_probe | mlstm | H=19 | 858 | 1078 | -0.4% |
 
-Head dense is `(32→2)` = 66 params for H=32 arms, `(64→2)` = 130 for mlstm; the NN
-chromosome additionally carries the 3 live-scaffolding params (identical for all arms).
+slstm's -40 params are inherent to the cell definition (single bias vs LSTM's
+double) at the matched H=10 -- an axis cost like mamba3's +192 complex params, not
+a sizing miss. The NN chromosome additionally carries the 3 live-scaffolding params
+(identical for all arms).
 
 ### Shared eval pool
 

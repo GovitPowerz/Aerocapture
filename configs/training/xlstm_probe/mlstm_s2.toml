@@ -9,17 +9,17 @@ results_suffix = ".xlstm_probe_mlstm_s2"
 [[network.architecture]]
 type = "dense"
 input_size = 17
-output_size = 32
+output_size = 10
 activation = "swish"
 
 [[network.architecture]]
 type = "mlstm"
-input_size = 32
-hidden_size = 64
+input_size = 10
+hidden_size = 19
 
 [[network.architecture]]
 type = "dense"
-input_size = 64
+input_size = 19
 output_size = 2
 activation = "asinh"
 

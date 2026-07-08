@@ -53,8 +53,8 @@ def test_cfc_arms_and_budget_within_2pct() -> None:
 
     assert set(ARMS) == {"gru", "cfc"}
     totals = {arm: sum(_layer_n_params(e) for e in arch) for arm, arch in ARMS.items()}
-    assert totals["gru"] == 6978  # 576 + 6336 + 66 (17-input atan2 mask inherited from the base)
-    assert totals["cfc"] == 6946  # 576 + 6304 + 66
+    assert totals["gru"] == 1014  # 198 + 792 + 24 == the sweep cell gru_p1014, verbatim
+    assert totals["cfc"] == 1003  # 198 + 781 + 24 (B=11 backbone)
     assert abs(totals["cfc"] - totals["gru"]) / totals["gru"] < 0.02
 
 
@@ -73,6 +73,6 @@ def test_cfc_leaf_toml_carries_layer_and_seed() -> None:
     assert "algorithm = " not in toml
     assert "seed_strategy = " not in toml
     assert 'type = "cfc"' in toml
-    assert "backbone_units = 32" in toml
+    assert "backbone_units = 11" in toml
     assert f"seed = {BASE_SEED + 2}" in toml
     assert ".cfc_probe_cfc_s2" in toml

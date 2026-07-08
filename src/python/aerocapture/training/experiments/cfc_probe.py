@@ -2,13 +2,15 @@
 
 Hypothesis under test: input-dependent time constants (CfC) match or beat the
 closest scalar-state baseline (GRU) on the sizing tail at the same param budget
-(gru 6978 vs cfc 6946 total trainable, -0.5%). Arms inherit the paper's atan2
-training environment (msr_aller_nn_atan2_train.toml: 17-input calibrated mask +
+(gru 1014 vs cfc 1003 total trainable, -1.1%). The gru baseline arm is the paper's
+sweep cell gru_p1014 VERBATIM (Dense(17->11) -> GRU(11,11) -> Dense(11->2)), so the
+probe anchors at the sweep's ~1k operating point -- where the dimensionality study
+says GA actually optimizes -- and the sweep's single trained run cross-checks the
+baseline repeats as a reference row. Arms inherit the paper's atan2 training
+environment (msr_aller_nn_atan2_train.toml: 17-input calibrated mask +
 normalization, scaffolding = "live") AND its sweep training regime (GA n_pop 300,
 seed_strategy = "adaptive" with bucket = "max" curation, training_n_sims 2,
-n_gen 5000); sigma_run comes from seed-repeats + GA/curation stochasticity. Deployed
-GRU/Mamba champions are scored on the same reserved pool as reference rows
-(NOT budget-matched -- own masks/settings).
+n_gen 5000); sigma_run comes from seed-repeats + GA/curation stochasticity.
 
 CLI (from repo root):
     python -m aerocapture.training.experiments.cfc_probe --generate --repeats 3
@@ -30,20 +32,22 @@ BASE_SEED = 20260707  # same as mamba3_ablation; per-repeat monte_carlo.seed = B
 CONFIG_DIR = Path("configs/training/cfc_probe")
 OUT_DIR = Path("training_output/cfc_probe")
 
-# input_size 17 = the atan2 base's calibrated input_mask length (inherited, not respecified).
-_DENSE_IN = {"type": "dense", "input_size": 17, "output_size": 32, "activation": "swish"}
-_DENSE_OUT = {"type": "dense", "input_size": 32, "output_size": 2, "activation": "asinh"}
+# Sandwich = the sweep cell gru_p1014's, verbatim (input_size 17 = the atan2
+# base's calibrated input_mask length, inherited, not respecified).
+_DENSE_IN = {"type": "dense", "input_size": 17, "output_size": 11, "activation": "swish"}
+_DENSE_OUT = {"type": "dense", "input_size": 11, "output_size": 2, "activation": "asinh"}
 
-# arm -> full architecture (budget-matched: gru 6336 vs cfc 6304 cell params)
+# arm -> full architecture (budget-matched at the ~1k anchor: gru 792 vs cfc 781 cell params)
 ARMS: dict[str, list[dict[str, Any]]] = {
-    "gru": [_DENSE_IN, {"type": "gru", "input_size": 32, "hidden_size": 32}, _DENSE_OUT],
-    "cfc": [_DENSE_IN, {"type": "cfc", "input_size": 32, "hidden_size": 32, "backbone_units": 32}, _DENSE_OUT],
+    "gru": [_DENSE_IN, {"type": "gru", "input_size": 11, "hidden_size": 11}, _DENSE_OUT],
+    "cfc": [_DENSE_IN, {"type": "cfc", "input_size": 11, "hidden_size": 11, "backbone_units": 11}, _DENSE_OUT],
 }
 BASELINE = "gru"
 TREATMENTS = ["cfc"]
 
 # Deployed champions scored on the same pool (reference rows, not budget-matched).
 REFERENCES: dict[str, tuple[Path, Path]] = {
+    "gru_p1014_sweep": (Path("configs/training/sweep/gru_p1014.toml"), Path("training_output/sweep_gru_p1014")),
     "gru_champion": (Path("configs/training/msr_aller_gru_pso_train.toml"), Path("training_output/neural_network_gru_pso")),
     "mamba_champion": (Path("configs/training/msr_aller_mamba_pso_train.toml"), Path("training_output/neural_network_mamba_pso")),
 }
