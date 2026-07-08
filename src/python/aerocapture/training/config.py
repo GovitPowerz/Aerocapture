@@ -57,7 +57,7 @@ class NetworkConfig:
             # The shallow copy keeps us from mutating the caller's dicts in place.
             self.architecture = [dict(e) if isinstance(e, dict) else e for e in self.architecture]
             for entry in self.architecture:
-                if isinstance(entry, dict) and entry.get("type") == "mamba" and entry.get("dt_rank") is None:
+                if isinstance(entry, dict) and entry.get("type") in ("mamba", "mamba3") and entry.get("dt_rank") is None:
                     entry["dt_rank"] = resolve_mamba_dt_rank(entry)
             # v2: validate per-entry shapes + chain consistency (layer i's output size
             # must equal layer i+1's input size).
@@ -205,6 +205,16 @@ def _layer_n_params(entry: Any) -> int:
         d_state = int(entry["d_state"])
         dt_rank = resolve_mamba_dt_rank(entry)
         return d_inner * (3 * d_state + 2 * dt_rank + 2)
+    if ltype == "mamba3":
+        d_inner = int(entry["input_size"])
+        d_state = int(entry["d_state"])
+        dt_rank = resolve_mamba_dt_rank(entry)
+        base = d_inner * (3 * d_state + 2 * dt_rank + 2)
+        if entry.get("state_mode", "real") == "complex":
+            base += d_inner * d_state
+        if entry.get("discretization", "euler") == "trapezoidal":
+            base += d_inner
+        return base
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
 
@@ -246,7 +256,7 @@ def _layer_output_size(entry: Any) -> int:
         return int(entry["input_size"]) * int(entry["n_steps"])
     if ltype == "transformer":
         return int(entry["d_model"])
-    if ltype == "mamba":
+    if ltype in ("mamba", "mamba3"):
         return int(entry["input_size"])
     raise ValueError(f"Unknown v2 layer type: {ltype!r}")
 
@@ -291,6 +301,11 @@ def describe_architecture(network: NetworkConfig | list[Any]) -> str:
                     tail = f"d_model={entry['d_model']}, n_heads={entry['n_heads']}, d_ffn={entry['d_ffn']}, n_seq={entry['n_seq']}"
                 elif ltype == "mamba":
                     tail = f"d_state={entry['d_state']}, dt_rank={resolve_mamba_dt_rank(entry)}"
+                elif ltype == "mamba3":
+                    tail = (
+                        f"d_state={entry['d_state']}, dt_rank={resolve_mamba_dt_rank(entry)}, "
+                        f"{entry.get('discretization', 'euler')}, {entry.get('state_mode', 'real')}"
+                    )
                 else:
                     tail = ltype
             in_size = _layer_input_size(entry)

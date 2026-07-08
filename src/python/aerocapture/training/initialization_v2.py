@@ -87,6 +87,8 @@ def _fill_layer(entry: Any, slab: np.ndarray, bound_multiplier: float, rng: np.r
         _fill_transformer_dict(entry, slab, bound_multiplier, rng, layer_idx=layer_idx)
     elif t == "mamba":
         _fill_mamba(entry, slab, bound_multiplier, rng, layer_idx=layer_idx)
+    elif t == "mamba3":
+        _fill_mamba3(entry, slab, bound_multiplier, rng, layer_idx=layer_idx)
     else:
         raise ValueError(f"init_v2_population: unknown layer type {t!r}")
 
@@ -236,3 +238,62 @@ def _fill_mamba(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.
 
     # 5. d_skip: 1.0 + per-individual jitter
     slab[:, c4 : c4 + n_ds] = 1.0 + rng.normal(0.0, jitter_std, size=(pop_n, n_ds))
+
+
+def _fill_mamba3(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.random.Generator, layer_idx: int = 0) -> None:
+    """Fill a Mamba-3 layer slab in-place.
+
+    Base blocks (x_proj_w, dt_proj_w, dt_proj_b, a_log) mirror `_fill_mamba`, with
+    two conditional blocks inserted before d_skip (canonical flat order, matching
+    Rust `Mamba3Layer::to_flat` and `_mamba3_specs`):
+      a_imag       [d_inner, d_state] -- S4D-Lin ramp pi*(n+1)/(d_state+1) + jitter [iff complex]
+      lambda_logit [d_inner]          -- center +4 (near-euler) + jitter            [iff trapezoidal]
+    """
+    from aerocapture.training.config import resolve_mamba_dt_rank
+
+    d_inner = int(entry["input_size"])
+    d_state = int(entry["d_state"])
+    dt_rank = resolve_mamba_dt_rank(entry)
+    complex_mode = entry.get("state_mode", "real") == "complex"
+    trapezoidal = entry.get("discretization", "euler") == "trapezoidal"
+    pop_n = slab.shape[0]
+    jitter_std = _INIT_JITTER_STD * bound_multiplier
+
+    local_rng = np.random.default_rng(_MAMBA_DT_BIAS_SEED ^ layer_idx)
+    dt_bias_centers = np.log(np.expm1(local_rng.uniform(1e-3, 1e-1, size=d_inner)))
+    a_log_centers = np.tile(np.log(np.arange(d_state) + 1.0), d_inner)
+
+    n_xp = (dt_rank + 2 * d_state) * d_inner
+    n_dw = d_inner * dt_rank
+    n_db = d_inner
+    n_al = d_inner * d_state
+
+    c = 0
+    fan_out_xp = dt_rank + 2 * d_state
+    bound_xp = math.sqrt(6.0 / (d_inner + fan_out_xp)) * bound_multiplier
+    slab[:, c : c + n_xp] = rng.uniform(-bound_xp, bound_xp, size=(pop_n, n_xp))
+    c += n_xp
+
+    bound_dt = math.sqrt(6.0 / (dt_rank + d_inner)) / math.sqrt(max(dt_rank, 1)) * bound_multiplier
+    slab[:, c : c + n_dw] = rng.uniform(-bound_dt, bound_dt, size=(pop_n, n_dw))
+    c += n_dw
+
+    slab[:, c : c + n_db] = dt_bias_centers + rng.normal(0.0, jitter_std, size=(pop_n, n_db))
+    c += n_db
+
+    slab[:, c : c + n_al] = a_log_centers + rng.normal(0.0, jitter_std, size=(pop_n, n_al))
+    c += n_al
+
+    if complex_mode:
+        # S4D-Lin rotation-frequency ramp pi*(n+1)/(d_state+1), tiled over d_inner.
+        a_imag_centers = np.tile(math.pi * (np.arange(d_state) + 1.0) / (d_state + 1.0), d_inner)
+        slab[:, c : c + n_al] = a_imag_centers + rng.normal(0.0, jitter_std, size=(pop_n, n_al))
+        c += n_al
+
+    if trapezoidal:
+        # lambda_logit center +4 (sigmoid ~ 0.98 == near-euler start).
+        slab[:, c : c + d_inner] = 4.0 + rng.normal(0.0, jitter_std, size=(pop_n, d_inner))
+        c += d_inner
+
+    slab[:, c : c + d_inner] = 1.0 + rng.normal(0.0, jitter_std, size=(pop_n, d_inner))
+    c += d_inner

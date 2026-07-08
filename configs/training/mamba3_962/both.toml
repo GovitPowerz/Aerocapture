@@ -1,0 +1,36 @@
+# Mamba-3 962-cell ablation -- BOTH arm (trapezoidal + complex).
+# Stacks both axes: adds a_imag (192) + lambda_logit (16). 962 + 208 = 1170
+# trainable NN params (+3 scaffolding). Same cell + pipeline as baseline.toml;
+# differs ONLY in the mamba3 flags.
+base = ["../msr_aller_nn_atan2_train.toml"]
+
+[data]
+neural_network = "training_output/mamba3_962/both/best_model.json"
+results_suffix = ".mamba3_962_both"
+
+[[network.architecture]]
+type = "dense"
+input_size = 17
+output_size = 16
+activation = "swish"
+
+[[network.architecture]]
+type = "mamba3"
+input_size = 16
+d_state = 12
+discretization = "trapezoidal"
+state_mode = "complex"
+
+[[network.architecture]]
+type = "dense"
+input_size = 16
+output_size = 2
+activation = "asinh"
+
+[optimizer]
+algorithm = "ga"
+n_pop = 512
+n_gen = 10000
+training_n_sims = 2
+seed_strategy = "adaptive"
+curation_bucket_selection = "max"

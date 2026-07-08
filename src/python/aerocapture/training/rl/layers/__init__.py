@@ -15,6 +15,7 @@ from aerocapture.training.rl.schemas import (
     GruSpec,
     LayerSpec,
     LstmSpec,
+    Mamba3Spec,
     MambaSpec,
     TransformerSpec,
     WindowSpec,
@@ -46,4 +47,9 @@ def build_layer(spec: LayerSpec) -> nn.Module:
     if isinstance(spec, MambaSpec):
         assert spec.dt_rank is not None  # resolved by MambaSpec model_validator
         return MambaLayer(spec.input_size, spec.d_state, spec.dt_rank)
+    if isinstance(spec, Mamba3Spec):
+        raise NotImplementedError(
+            "Mamba3 is PSO-only (ablation spike); the PPO/warm-start V2Policy path is not "
+            "implemented. See docs/superpowers/specs/2026-07-07-mamba3-ablation-design.md"
+        )
     raise ValueError(f"Unknown layer spec: {spec!r}")
