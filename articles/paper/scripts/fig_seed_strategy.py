@@ -37,7 +37,8 @@ def main():
 
     fig, ax = plt.subplots(figsize=fl.SIZE1)
     bf = ax.bar(x - w / 2, fixed_cvar, w, color=FIXED, label="fixed seeds", zorder=2)
-    br = ax.bar(x + w / 2, rot_cvar, w, color=ROTATING, label="rotating seeds", zorder=2)
+    br = ax.bar(x + w / 2, rot_cvar, w, color=ROTATING, label="rotating seeds", zorder=2,
+                hatch="//", edgecolor="white", linewidth=0.4)  # hatched so the pair is not encoded by red/green alone
 
     # dv_mean tick markers on each bar (secondary metric)
     for xi, m in zip(x - w / 2, fixed_mean, strict=True):
