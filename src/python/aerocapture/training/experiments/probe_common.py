@@ -1,16 +1,23 @@
-"""Shared machinery for the architecture probe drivers (cfc_probe, xlstm_probe).
+"""Shared machinery for the architecture probe drivers (cfc / xlstm / mamba3).
 
-mamba3_ablation.py predates this module and keeps its own copies (left
-untouched to avoid churn on the underlying branch); the newer probes share
-this one. All probe scripts score on the SAME reserved pool
+All probe scripts score on the SAME reserved pool
 (evaluate.PROBE_EVAL_SEED_OFFSET) so their reports are directly comparable,
 and every claim is gated on sigma_run from seed-repeats (project lesson:
 single-run deltas are noise).
+
+`train_jobs` is resumable at the arm level: re-running `--train` skips arms that
+have a FINISHED run of the CURRENT config and (re)trains the rest. Completion is
+NOT "best_model.json exists" -- that file is rewritten on every mid-run validation
+promotion, so a killed run has one at an early generation, and it can be a stale
+architecture left over from a prior config. `_completion` therefore also checks the
+deployed arch against the config and that the latest checkpoint reached n_gen (see
+its docstring).
 """
 
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +26,43 @@ from typing import Any
 import numpy as np
 
 METRIC_KEYS = ("rms_cost", "capture_rate", "dv_p50", "dv_p95", "cvar95")
+
+# Structural fields that define an arm's architecture (dt_rank is DERIVED -- resolved
+# from input_size at load, present in best_model.json but often omitted in the config
+# -- so comparing it would false-flag matched arms as stale).
+_ARCH_KEYS = ("type", "input_size", "output_size", "hidden_size", "d_state", "backbone_units", "discretization", "state_mode")
+
+
+def _arch_sig(entries: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
+    return [tuple(e.get(k) for k in _ARCH_KEYS) for e in entries]
+
+
+def _completion(out_dir: Path, config: Path, n_gen: int) -> str:
+    """Classify an arm's on-disk state: "done" | "partial" | "stale" | "absent".
+
+    - absent:  no best_model.json (never started, or wiped).
+    - stale:   best_model.json's architecture differs from the resolved config
+               (e.g. a dir left over from a prior dims/flags choice). Its
+               checkpoints are unusable -- train.py resume would hard-error on the
+               width mismatch -- so it must be retrained from scratch.
+    - partial: arch matches but the latest checkpoint is below n_gen (a killed
+               run; best_model.json alone would falsely read as "done"). train.py
+               auto-resumes from the checkpoint.
+    - done:    arch matches AND the latest checkpoint reached n_gen.
+    """
+    bm = out_dir / "best_model.json"
+    if not bm.exists():
+        return "absent"
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    trained = _arch_sig(json.loads(bm.read_text())["architecture"])
+    want = _arch_sig(load_toml_with_bases(str(config))["network"]["architecture"])
+    if trained != want:
+        return "stale"
+    gens = [int(m.group(1)) for p in out_dir.glob("checkpoint_g*") if (m := re.match(r"checkpoint_g0*(\d+)\.", p.name))]
+    if not gens or max(gens) < n_gen:
+        return "partial"
+    return "done"
 
 
 def cvar95(dv: np.ndarray) -> float:
@@ -162,9 +206,19 @@ def train_jobs(
     for i, (arm, r) in enumerate(jobs, 1):
         out_dir = out_root / f"{arm}_s{r}"
         config = config_dir / f"{arm}_s{r}.toml"
-        if (out_dir / "best_model.json").exists() and not force and not from_scratch:
-            print(f"[{i}/{len(jobs)}] skip {arm}_s{r} (best_model.json exists; --force/--from-scratch to retrain)")
+        state = _completion(out_dir, config, n_gen)
+        if state == "done" and not force and not from_scratch:
+            print(f"[{i}/{len(jobs)}] skip {arm}_s{r} (done: arch matches config, checkpoint >= g{n_gen})")
             continue
+        # A stale dir's checkpoints are the wrong architecture -- train.py resume
+        # would hard-error, so wipe and retrain from scratch. A partial dir
+        # (matching arch, < n_gen) auto-resumes from its checkpoint. Both are
+        # relaunched here rather than silently skipped on a bare best_model.json.
+        arm_from_scratch = from_scratch or state == "stale"
+        if state == "stale":
+            print(f"[{i}/{len(jobs)}] {arm}_s{r}: deployed model is a STALE architecture (differs from config) -> retraining from scratch")
+        elif state == "partial":
+            print(f"[{i}/{len(jobs)}] {arm}_s{r}: partial run (latest checkpoint < g{n_gen}) -> resuming from checkpoint")
         cmd = [
             sys.executable,
             "-m",
@@ -172,14 +226,12 @@ def train_jobs(
             str(config),
             "--n-gen",
             str(n_gen),
-            "--no-tui",
-            "--skip-report",
             "--training-n-sims",
             str(training_n_sims),
             "--output-dir",
             str(out_dir),
         ]
-        if from_scratch:
+        if arm_from_scratch:
             cmd.append("--from-scratch")
         if sim_timeout is not None:
             cmd += ["--sim-timeout", str(sim_timeout)]

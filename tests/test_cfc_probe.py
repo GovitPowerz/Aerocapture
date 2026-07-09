@@ -2,8 +2,122 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
-from aerocapture.training.experiments.probe_common import aggregate, arch_toml, cvar95
+from aerocapture.training.experiments.probe_common import _completion, aggregate, arch_toml, cvar95
+
+
+def _write_arm(tmp: Path, arch: list[dict], checkpoint_gens: list[int]) -> tuple[Path, Path]:
+    """Fabricate an arm output dir + a self-contained config for _completion tests.
+
+    The config is standalone (no base chain) so load_toml_with_bases resolves it
+    without touching the repo; its [network].architecture is what _completion
+    compares the deployed best_model.json against.
+    """
+    out_dir = tmp / "arm"
+    out_dir.mkdir(parents=True)
+    (out_dir / "best_model.json").write_text(json.dumps({"format_version": 2, "architecture": arch, "weights": {}}))
+    for g in checkpoint_gens:
+        (out_dir / f"checkpoint_g{g:05d}.json").write_text("{}")
+    blocks = "\n\n".join("[[network.architecture]]\n" + "\n".join(f'{k} = "{v}"' if isinstance(v, str) else f"{k} = {v}" for k, v in e.items()) for e in arch)
+    config = tmp / "arm.toml"
+    config.write_text(f'[guidance]\ntype = "neural_network"\n\n[network]\ninput_mask = [0]\n\n{blocks}\n')
+    return out_dir, config
+
+
+_ARCH = [
+    {"type": "dense", "input_size": 17, "output_size": 11, "activation": "swish"},
+    {"type": "gru", "input_size": 11, "hidden_size": 11},
+    {"type": "dense", "input_size": 11, "output_size": 2, "activation": "asinh"},
+]
+
+
+def test_completion_done(tmp_path: Path) -> None:
+    out_dir, cfg = _write_arm(tmp_path, _ARCH, [10, 5000])
+    assert _completion(out_dir, cfg, n_gen=5000) == "done"
+
+
+def test_completion_partial_when_under_trained(tmp_path: Path) -> None:
+    # best_model.json present (mid-run promotion) but the latest checkpoint is < n_gen.
+    out_dir, cfg = _write_arm(tmp_path, _ARCH, [10, 14])
+    assert _completion(out_dir, cfg, n_gen=5000) == "partial"
+
+
+def test_completion_stale_when_arch_differs(tmp_path: Path) -> None:
+    # Deployed H=32 model, config now says H=11 (the gru_s0 landmine) -> stale even at g5000.
+    stale = [
+        {"type": "dense", "input_size": 17, "output_size": 32, "activation": "swish"},
+        {"type": "gru", "input_size": 32, "hidden_size": 32},
+        {"type": "dense", "input_size": 32, "output_size": 2, "activation": "asinh"},
+    ]
+    out_dir = tmp_path / "arm"
+    out_dir.mkdir()
+    (out_dir / "best_model.json").write_text(json.dumps({"format_version": 2, "architecture": stale, "weights": {}}))
+    (out_dir / "checkpoint_g05000.json").write_text("{}")
+    _, cfg = _write_arm(tmp_path / "cfgonly", _ARCH, [])  # config carries the CURRENT H=11 arch
+    assert _completion(out_dir, cfg, n_gen=5000) == "stale"
+
+
+def test_completion_absent(tmp_path: Path) -> None:
+    _, cfg = _write_arm(tmp_path, _ARCH, [])
+    assert _completion(tmp_path / "nonexistent", cfg, n_gen=5000) == "absent"
+
+
+def test_train_jobs_skips_done_resumes_partial_wipes_stale(tmp_path: Path, monkeypatch) -> None:
+    """The resumability contract: done -> no subprocess; partial -> resume (no
+    --from-scratch); stale -> relaunch WITH --from-scratch; absent -> fresh."""
+    import aerocapture.training.experiments.probe_common as pc
+
+    cfg_dir = tmp_path / "cfg"
+    cfg_dir.mkdir()
+    out_root = tmp_path / "out"
+    out_root.mkdir()
+
+    def _cfg_text(arch: list[dict]) -> str:
+        blocks = "\n\n".join(
+            "[[network.architecture]]\n" + "\n".join(f'{k} = "{v}"' if isinstance(v, str) else f"{k} = {v}" for k, v in e.items()) for e in arch
+        )
+        return f'[guidance]\ntype = "neural_network"\n\n[network]\ninput_mask = [0]\n\n{blocks}\n'
+
+    stale_arch = [
+        {"type": "dense", "input_size": 17, "output_size": 32, "activation": "swish"},
+        {"type": "gru", "input_size": 32, "hidden_size": 32},
+        {"type": "dense", "input_size": 32, "output_size": 2, "activation": "asinh"},
+    ]
+
+    def make(arm: str, deployed: list[dict] | None, gens: list[int]) -> None:
+        # Every arm's CONFIG carries the current _ARCH; only the deployed model varies.
+        (cfg_dir / f"{arm}_s0.toml").write_text(_cfg_text(_ARCH))
+        if deployed is not None:
+            d = out_root / f"{arm}_s0"
+            d.mkdir()
+            (d / "best_model.json").write_text(json.dumps({"format_version": 2, "architecture": deployed, "weights": {}}))
+            for g in gens:
+                (d / f"checkpoint_g{g:05d}.json").write_text("{}")
+
+    make("done", _ARCH, [5000])
+    make("partial", _ARCH, [14])
+    make("stale", stale_arch, [5000])
+    make("absent", None, [])
+
+    launched: dict[str, list[str]] = {}
+
+    def fake_run(cmd: list[str], **_: object) -> object:
+        # cmd[3] is the config path -> recover the arm name.
+        arm = Path(cmd[3]).stem.removesuffix("_s0")
+        launched[arm] = cmd
+        return type("R", (), {"returncode": 0})()
+
+    monkeypatch.setattr(pc.subprocess, "run", fake_run)
+    pc.train_jobs(["done", "partial", "stale", "absent"], 1, cfg_dir, out_root, 5000, 2, None, force=False, from_scratch=False)
+
+    assert "done" not in launched  # skipped, never launched
+    assert set(launched) == {"partial", "stale", "absent"}
+    assert "--from-scratch" not in launched["partial"]  # resume preserves the checkpoint
+    assert "--from-scratch" in launched["stale"]  # unusable checkpoints wiped
+    assert "--from-scratch" not in launched["absent"]  # fresh dir, nothing to wipe
 
 
 def test_cvar95_is_worst_5pct_mean() -> None:
