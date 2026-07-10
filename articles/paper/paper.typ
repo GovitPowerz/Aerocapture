@@ -1000,7 +1000,16 @@ legs, and to on-line adaptation of the deployed policy in flight.
 #set heading(numbering: none)
 = Appendix A: reproduction details
 
-One compact reference for the settings behind every number.
+One compact reference for the settings and systems behind every number.
+
+*Simulator.* All schemes fly through one native (Rust) simulator: fixed-step fourth-order
+Runge--Kutta integration (Gill variant), $J_2$--$J_4$ zonal gravity, a tabulated Mars atmosphere
+carrying the static Monte-Carlo bias and the Ornstein--Uhlenbeck perturbation, pilot dynamics,
+thermal tracking, and the navigation--guidance--control chain sequenced on its own cadences; the
+bias-filter navigation recovers density through lift-corrected inverse dynamics. The implementation is
+validated against the 2009 study's legacy code: across all $725$ time steps of a guided trajectory,
+$22$ of $24$ output channels are bit-identical (the two mismatches trace to uninitialized variables
+in the reference).
 
 *Seed pools.* Every Monte-Carlo pool derives from the mission base seed through disjoint reserved
 streams: validation (offset $10^6$, $n = 1000$, the in-training promotion gate), final evaluation
@@ -1022,6 +1031,14 @@ validated promotion: $1000$ probe seeds, scored by the top individual, one seed 
 quantile bin, hardest seed per bin. The validation gate re-runs each new argmin on the reserved
 $n = 1000$ pool and promotes on strict RMS improvement.
 
+*Training harness.* Population evaluation is batched through in-process Python bindings to the
+native core: each generation's individuals are simulated scenario-parallel across CPU cores with the
+interpreter lock released, network weights pass in memory rather than through files, and the
+dispersion-independent tables (atmosphere, winds, reference trajectories) are shared read-only
+across the batch. At the measured single-core cost of Section 7.2, the headline run's
+$approx 2 times 10^7$ dispersed passes amount to roughly twenty core-hours -- an overnight training
+on a laptop.
+
 *Deployed architecture.* Dense($17 -> 16$, swish) $->$ Mamba($d_"inner" = 16$, $d_"state" = 12$)
 $->$ Dense($16 -> 2$, asinh), atan2 bank decoder; $962$ trainable parameters. The input mask selects
 $17$ of the $35$ candidate observations (indices 0, 2, 3, 5, 6, 7, 11, 12, 18, 19, 27--30, 32--34:
@@ -1035,6 +1052,14 @@ and the command-shaping acceleration limit -- are co-optimized with the network 
 eleven forward integrations per replan); forward-predictor integration step GA-tuned at $3.8$ s; the
 onboard atmosphere is scaled by the navigation-estimated density factor so the predictor tracks the
 measured atmosphere.
+
+*One runtime, training to flight.* The policy that flies is the artifact that trained: candidates
+are evaluated, selected, and deployed through the same native forward pass, so no export or
+re-implementation step separates the training loop from the flight code. An independent PyTorch
+implementation of every cell type (used by the supervised warm-start path, not by the deployed
+runs) is held to numerical agreement with the native runtime by cross-language tests -- maximum
+absolute forward-pass difference near machine epsilon ($10^(-16)$--$10^(-14)$) over $100$-step
+stateful sequences.
 
 *Timing.* Wall-clock per simulation over $200$ sequential runs of each deployed scheme on one idle
 core of an Apple-silicon laptop; no parallelism.
