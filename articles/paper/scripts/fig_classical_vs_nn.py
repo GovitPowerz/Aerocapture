@@ -5,18 +5,19 @@ better: cheap AND tight-tailed. The recurrent NN (Mamba-962) sits lower-left of
 BOTH classical references (joint-FTC ~164, FNPAG ~165) -- it sizes a smaller
 ergol margin (lower tail DV) at a fraction of FNPAG's per-sim cost, while staying
 within ~3x of FTC's compute. Dense-515 is the cheapest NN but carries a fatter tail.
+Half-column figure: point labels carry the name + tail value only (compute is the
+x-axis), so the annotations stay legible at ~2.7in display width.
 """
 
 import figlib as fl
 import matplotlib.pyplot as plt
 
-# (display label, color key, compute.label, far_tail y-value, label offset (dx, dy) in points)
-# Mamba and dense y = 3-seed mean CVaR99.9 (124.5 / 139.2); classicals annotated below.
+# (display label, color key, label offset (dx, dy) in points)
 POINTS = [
-    ("Mamba-962", "mamba", "NN-mamba", 124.5, (8, 6)),
-    ("Dense-515", "dense", "NN-dense", None, (8, -14)),
-    ("joint-FTC", "jointftc", "FTC", None, (-8, 10)),
-    ("FNPAG", "fnpag", "FNPAG", None, (-10, -16)),
+    ("Mamba-962", "mamba", (7, 4)),
+    ("Dense-515", "dense", (7, -4)),
+    ("joint-FTC", "jointftc", (7, 6)),
+    ("FNPAG", "fnpag", (-7, -14)),
 ]
 
 
@@ -25,17 +26,19 @@ def main():
     ft = fl.far_tail()
     ms = {s["label"]: s["ms_per_sim"] for s in fl.compute()}
 
-    # far-tail CVaR99.9 per point. Mamba uses the 3-seed mean; dense the s1 cell;
-    # the classical references come from the committed far_tail cells (joint-FTC
-    # = joint_reference/ftc ~164, FNPAG ~165 -- the bars the NN must beat).
-    # Dense-515 on the SAME 3-seed-mean basis as Mamba (and Table 3), not the
-    # lucky s1 cell -- (128.11 + 139.84 + 149.61) / 3 = 139.2.
+    # far-tail CVaR99.9 per point. Mamba and dense on the SAME 3-seed-mean basis
+    # as Table 3 (not a lucky single seed); classical references from the
+    # committed far_tail cells.
+    mamba_mean = sum(
+        ft[k]["cvar999"]
+        for k in ("mamba_p962_long", "paper/tail_repeats/mamba962_s2", "paper/tail_repeats/mamba962_s3")
+    ) / 3.0
     dense515_mean = sum(
         ft[k]["cvar999"]
         for k in ("dense_p515_ga_paper_best", "paper/tail_repeats/dense515_s2", "paper/tail_repeats/dense515_s3")
     ) / 3.0
     y = {
-        "Mamba-962": 124.5,
+        "Mamba-962": mamba_mean,                                  # 124.5 (3-seed mean)
         "Dense-515": dense515_mean,                               # 139.2 (3-seed mean)
         "joint-FTC": ft["joint_reference/ftc"]["cvar999"],        # ~164
         "FNPAG": ft["fnpag"]["cvar999"],                          # ~165
@@ -50,26 +53,26 @@ def main():
 
     fig, ax = plt.subplots(figsize=fl.SIZE_HALF)
 
-    for label, ckey, _clbl, _yover, (dx, dy) in POINTS:
+    for label, ckey, (dx, dy) in POINTS:
         xv, yv = x[label], y[label]
-        ax.scatter([xv], [yv], color=fl.C[ckey], s=110, zorder=4,
+        ax.scatter([xv], [yv], color=fl.C[ckey], s=90, zorder=4,
                    edgecolor="white", linewidth=1.0)
-        ax.annotate(f"{label}\n{yv:.0f} m/s @ {xv:.2f} ms",
+        ax.annotate(f"{label}\n{yv:.0f} m/s",
                     (xv, yv), textcoords="offset points", xytext=(dx, dy),
                     fontsize=8, color=fl.C[ckey], fontweight="bold",
                     ha="left" if dx >= 0 else "right",
                     va="bottom" if dy >= 0 else "top")
 
-    # lower-left = better guide arrow
-    ax.annotate("better\n(cheap + tight tail)", xy=(0.04, 0.06), xycoords="axes fraction",
+    # lower-left = better guide
+    ax.annotate("better\n(cheap + tight tail)", xy=(0.04, 0.05), xycoords="axes fraction",
                 fontsize=8, color="#555555", ha="left", va="bottom", style="italic")
 
     ax.set_xscale("log")
     ax.set_xlabel("compute cost (ms / sim, log scale)")
     ax.set_ylabel("far-tail CVaR$_{99.9}$ (m/s)")
-    ax.set_title("Deployability: sizing tail vs per-sim compute", fontsize=10, loc="left")
-    ax.set_xlim(0.9, 130)
-    ax.set_ylim(115, 175)
+    ax.set_title("Deployability: tail vs compute")
+    ax.set_xlim(0.8, 160)
+    ax.set_ylim(115, 178)
     fig.tight_layout()
     fl.save(fig, "fig_classical_vs_nn")
 

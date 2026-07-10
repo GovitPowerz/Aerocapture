@@ -91,7 +91,7 @@ def chart_dv_cdf_overlay(final_records, output):
         ("dv3 plane change", np.abs(rec[:, charts._FR_DV3]), "#6a51a3", 1.2),
     ]
     sns.set_theme(style="whitegrid", palette="muted", rc={"axes.facecolor": "#f5f5f5"})
-    fig, ax = plt.subplots(figsize=(10, 3.2))
+    fig, ax = plt.subplots(figsize=(8, 2.8))
     for label, vals, color, lw in series:
         v = np.sort(vals)
         y = np.arange(1, len(v) + 1) / len(v)
@@ -168,9 +168,16 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     charts.chart_corridor_inclination(sub_trajs, sub_class, out / "corridor_inclination.svg", **nk)
     charts.chart_corridor_bank(sub_trajs, sub_class, out / "corridor_bank.svg", **nk)
     chart_dv_cdf_overlay(recs, out / "dv_cdf.svg")
-    charts.chart_heat_flux_time(sub_trajs, sub_class, out / "heat_flux.svg", limit_kw_m2=hfl, **nk)
-    charts.chart_gload_time(sub_trajs, sub_class, out / "g_load.svg", limit_g=gll, **nk)
-    charts.chart_heat_load_time(sub_trajs, sub_class, out / "heat_load.svg", limit_kj_m2=hll, **nk)
+    # Compact natives for the card's three-across constraint row: 2.4in rendered
+    # into a ~2.1in slot keeps the fonts at ~6-7pt effective (the report-width
+    # 10in natives rendered at 21% scale, i.e. ~2pt fonts).
+    compact = {"font.size": 8.0, "axes.titlesize": 8.5, "axes.labelsize": 8.0,
+               "xtick.labelsize": 7.0, "ytick.labelsize": 7.0, "legend.fontsize": 6.5,
+               "lines.linewidth": 1.0}
+    with plt.rc_context(compact):
+        charts.chart_heat_flux_time(sub_trajs, sub_class, out / "heat_flux.svg", limit_kw_m2=hfl, figsize=(2.4, 1.9), **nk)
+        charts.chart_gload_time(sub_trajs, sub_class, out / "g_load.svg", limit_g=gll, figsize=(2.4, 1.9), **nk)
+        charts.chart_heat_load_time(sub_trajs, sub_class, out / "heat_load.svg", limit_kj_m2=hll, figsize=(2.4, 1.9), **nk)
 
     summary = compute_eval_summary(recs, n_sims=len(recs), cost_kwargs=read_cost_kwargs(eval_toml))
     dvc = np.abs(recs[cap, charts._FR_DV_TOTAL])

@@ -51,6 +51,11 @@ pred_guid) is training.
   followed by `report.py` on that dir (regenerates `final_eval.parquet`)
   before re-collecting -- the collector skips and warns on dirs whose
   `best_model.json` is newer than their parquet.
+- Appendix cards: `articles/paper/figures/appendix/<scheme>/` (7 report-style
+  SVGs + `stats.json` per scheme, built by `articles/paper/scripts/collect_appendix.py`
+  from training_output). Committed -- `appendix.typ` reads each `stats.json` at
+  compile time, so the paper must build from a clean checkout (`.gitignore`
+  exempts them from the global `*.json` rule).
 
 ## Configs
 
@@ -86,6 +91,9 @@ lives in these runners, because cells are reused across studies (e.g.
   one **fresh-pool** MC re-quote (seed offset 8M) for the abstract number (CVaR95 115.2).
 - sigma_run on the SIZING TAIL comes from 10c (dense/mamba/lstm s2/s3 at the headline
   allocation); 11_seed_repeats (optimizer-cell mean sigma_run) is OBSOLETE/skipped.
+  `aggregate_results.py` folds the 10c triplets into `results.json` under
+  `sigma_run.tail_groups` (per-seed CVaR99.9/max + mean/range/std) -- the durable
+  source of the paper's 3-seed-mean tail numbers (124.5/129.2/139.2).
 
 ## Legacy dirs (preserved, PRE-FIX regime -- footnote when quoted)
 

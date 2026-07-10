@@ -6,6 +6,7 @@ name = "aerocapture"
 version = "0.1.0"
 edition = "2024"
 description = "Trajectory simulation for aerocapture maneuvers"
+license = "MIT"
 
 [dependencies]
 libm = "0.2"

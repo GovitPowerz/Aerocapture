@@ -2,8 +2,11 @@
 
 Panel A: trainable params (log-x) vs the SIZING tail (dv_p99) per architecture family,
 from the committed architecture_sweep bundle cells (n=2/5000/512). Panel B: the dense
-capability floor (p102..515) -- no capture collapse even at 102 params; sizing-tail sweet
-spot ~515. Param counts come from the manifests as DATA (never name-regex).
+capability floor (p102..3998, CVaR95) -- no capture collapse even at 102 params, and the
+curve flattens above a few hundred parameters. No per-cell "sweet spot" call-out: the
+5000-gen sweep cannot separate the flat cells (the body quotes means and reports them as
+indistinguishable), and the mean-vs-tail argmin differs. Param counts come from the
+manifests as DATA (never name-regex).
 """
 
 import json
@@ -74,10 +77,6 @@ def main():
     axB.set_xlabel("dense parameters")
     axB.set_ylabel("dv CVaR$_{95}$ (m/s)")
     axB.set_title("Dense capability floor (100% capture throughout)", fontsize=10, loc="left")
-    lo = min(ys)
-    sweet = xs[ys.index(lo)]
-    axB.annotate(f"sweet spot ~{sweet}p", (sweet, lo), textcoords="offset points", xytext=(6, -12),
-                 fontsize=8, color=fl.C["dense"])
 
     fig.tight_layout()
     fl.save(fig, "fig_pareto")

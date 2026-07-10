@@ -36,11 +36,11 @@ from aerocapture.training.paper_stats import bootstrap_ci, cvar  # noqa: E402
 OUT = REPO / "articles/paper/data/far_tail_eval.json"
 
 
-def _eval_one(label: str, toml: str, n_sims: int) -> dict:
+def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None) -> dict:
     import aerocapture_rs
     from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
-    from aerocapture.training.report import _resolve_eval_toml
+    from aerocapture.training.report import _read_constraint_limits, _resolve_eval_toml
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     scheme_dir = (
@@ -51,15 +51,28 @@ def _eval_one(label: str, toml: str, n_sims: int) -> dict:
     seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
 
     base: dict = {"simulation.n_sims": 1, **scaffolding}
+    # Pin the committed bundle's frozen weights when a bundle key is given --
+    # training_output can drift from the bundle on a later resume (dense_p515
+    # did: its local model far-tails at 140.3 vs the bundle's 128.1). Same
+    # rationale as collect_appendix.py.
+    bundle_model = REPO / "articles/paper/data/runs" / bundle_key / "best_model.json" if bundle_key else None
     local_model = scheme_dir / "best_model.json"
-    if local_model.exists():
-        base["data.neural_network"] = str(local_model.resolve())
+    model = bundle_model if bundle_model is not None and bundle_model.exists() else local_model
+    if model.exists():
+        base["data.neural_network"] = str(model.resolve())
     overrides = [{**base, "monte_carlo.seed": s} for s in seeds]
     res = aerocapture_rs.run_batch(toml_path=str(eval_toml.resolve()), overrides_list=overrides, sim_timeout_secs=5.0)
     recs = np.asarray(res.final_records)
     col = {name: recs[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
     cap = (col["ifinal"] == 3) & (col["eccentricity"] < 1.0)
     x = np.sort(col["dv_total_m_s"][cap])
+    # constraint feasibility on the same pool (the sizing tail must be flown INSIDE
+    # the envelope -- a policy that buys its tail with heat-load violations is not
+    # a clean competitor; see the LSTM disclosure in the paper's section 6.2)
+    hfl, gll, hll = _read_constraint_limits(eval_toml)
+    v_hf = col["max_heat_flux_kw_m2"] > hfl
+    v_g = col["max_load_factor_g"] > gll
+    v_hl = col["integrated_flux_mj_m2"] * 1e3 > hll
     r2 = lambda v: round(float(v), 2)  # noqa: E731
     return {
         "label": label,
@@ -68,6 +81,7 @@ def _eval_one(label: str, toml: str, n_sims: int) -> dict:
         "capture_pct": r2(100 * cap.mean()),
         "p95": r2(np.percentile(x, 95)),
         "cvar95": r2(cvar(x, 0.95)),
+        "cvar95_ci": [r2(v) for v in bootstrap_ci(x, lambda a: cvar(a, 0.95))],
         "p99": r2(np.percentile(x, 99)),
         "p99_ci": [r2(v) for v in bootstrap_ci(x, lambda a: float(np.percentile(a, 99)))],
         "cvar99": r2(cvar(x, 0.99)),
@@ -75,13 +89,18 @@ def _eval_one(label: str, toml: str, n_sims: int) -> dict:
         "p999": r2(np.percentile(x, 99.9)),
         "p999_ci": [r2(v) for v in bootstrap_ci(x, lambda a: float(np.percentile(a, 99.9)))],
         "cvar999": r2(cvar(x, 0.999)),
-        "max": r2(x.max()),
+        "cvar999_ci": [r2(v) for v in bootstrap_ci(x, lambda a: cvar(a, 0.999))],
+        "max": r2(x.max()),  # descriptive bound, no CI (sample max)
+        "viol_pct": r2(100 * (v_hf | v_g | v_hl).mean()),
+        "heat_flux_viol_pct": r2(100 * v_hf.mean()),
+        "g_load_viol_pct": r2(100 * v_g.mean()),
+        "heat_load_viol_pct": r2(100 * v_hl.mean()),
     }
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cells", nargs="+", required=True, help="label:toml pairs (label = dir under training_output/paper or training_output)")
+    parser.add_argument("--cells", nargs="+", required=True, help="label:toml[:bundle_key] (label = dir under training_output[/paper]; bundle_key pins articles/paper/data/runs/<key>/best_model.json)")
     parser.add_argument("--n-sims", type=int, default=10000, help="full reserved pool (training-disjoint up to 10000)")
     args = parser.parse_args(argv)
 
@@ -91,8 +110,10 @@ def main(argv: list[str] | None = None) -> None:
         for c in json.loads(OUT.read_text()).get("cells", []):
             by_label[c["label"]] = c
     for spec in args.cells:
-        label, toml = spec.split(":", 1)
-        s = _eval_one(label, toml, args.n_sims)
+        parts = spec.split(":")
+        label, toml = parts[0], parts[1]
+        bundle_key = parts[2] if len(parts) > 2 else None
+        s = _eval_one(label, toml, args.n_sims, bundle_key=bundle_key)
         by_label[label] = s
         print(f"  {label:28s} n={s['n']} cap={s['capture_pct']:.1f}% | p99 {s['p99']} CVaR99 {s['cvar99']}")
         print(f"  {'':28s} p99.9 {s['p999']} CVaR99.9 {s['cvar999']} max {s['max']}")

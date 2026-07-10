@@ -1,9 +1,6 @@
 {
  "source": "workflow wf_b38fd20e-6b6 run-1 dedup (5/7 dimensions: stats, consistency, domain, prose, citations)",
- "missing_dimensions": [
-  "numbers (done inline by main session)",
-  "figures (pending)"
- ],
+ "missing_dimensions": [],
  "findings": [
   {
    "severity": "major",
@@ -90,7 +87,7 @@
    "severity": "major",
    "kind": "factual",
    "location": "paper.typ lines 221 (tbl-dispersions Winds row), 236-237, and 144-145",
-   "claim": "\"[Winds], [2], [Uniform], [speed \u00d7 [0.7, 1.3], direction \u00b15\u00b0 (low)]\"; \"The winds follow a parametric Mars profile @forget1999mars\"; \"a high-fidelity simulator -- ... altitude-dependent winds ...\"",
+   "claim": "\"[Winds], [2], [Uniform], [speed × [0.7, 1.3], direction ±5° (low)]\"; \"The winds follow a parametric Mars profile @forget1999mars\"; \"a high-fidelity simulator -- ... altitude-dependent winds ...\"",
    "issue": "Winds are disabled in every campaign config: configs/missions/mars.toml sets `[flight] wind = false` (unchanged since the file's creation, per git log), no training/paper/sweep config overrides it, and no `wind_table` path is set in [data]. runner.rs `effective_airspeed` returns the airspeed unchanged when `wind_enabled` is false (and again when `wind_table` is None). The two wind dispersion dims are drawn as part of the 26 but are physically inert; the Forget-profile claim describes code that never executed in this campaign.",
    "evidence": "configs/missions/mars.toml:46-47 `[flight] wind = false`; `rg 'wind = true|wind_table'` over configs/ hits only configs/test/test_wind_mars.toml; src/rust/src/simulation/runner.rs:1149 `if !data.wind_enabled { return v; }`.",
    "fix": "Either (a) remove the Winds row from tbl-dispersions, drop \"altitude-dependent winds\" from the simulator list, and state 24 active draws, or (b) state plainly: \"the simulator carries a parametric Mars wind model (Forget et al. 1999), disabled for this campaign; the two wind draw dimensions are carried but inert.\" (b) is the honest minimal edit.",
@@ -116,10 +113,10 @@
    "severity": "major",
    "kind": "factual",
    "location": "paper.typ lines 160-161 and 182-186",
-   "claim": "\"The target is a 500 \u00d7 11 km capture orbit at 50\u00b0 inclination\" ... \"the correction \u0394v -- the propellant cost to repair the captured orbit to the target, summed over the apoapsis-lowering, periapsis-raising, and inclination-change burns\"",
-   "issue": "Internally inconsistent DV definition. 500 \u00d7 11 km ([flight.target_orbit] apoapsis 500.130 / periapsis 11.233) is the ATMOSPHERE-EXIT target orbit -- its 11 km periapsis is inside the atmosphere. The correction \u0394v is computed against the 500 km CIRCULAR PARKING orbit ([flight.parking_orbit] 500 \u00d7 500): compute_deltav's burn plan is (1) periapsis raise at apoapsis, (2) apoapsis correction at the new periapsis (circularize), (3) plane change. \"Repair the captured orbit to the target\" with target = 500\u00d711 makes the 113 m/s periapsis-raise floor of the very next sentence unintelligible (a perfect exit at 500\u00d711 would then cost ~0), and \"apoapsis-lowering\" mislabels the circularization burn.",
+   "claim": "\"The target is a 500 × 11 km capture orbit at 50° inclination\" ... \"the correction Δv -- the propellant cost to repair the captured orbit to the target, summed over the apoapsis-lowering, periapsis-raising, and inclination-change burns\"",
+   "issue": "Internally inconsistent DV definition. 500 × 11 km ([flight.target_orbit] apoapsis 500.130 / periapsis 11.233) is the ATMOSPHERE-EXIT target orbit -- its 11 km periapsis is inside the atmosphere. The correction Δv is computed against the 500 km CIRCULAR PARKING orbit ([flight.parking_orbit] 500 × 500): compute_deltav's burn plan is (1) periapsis raise at apoapsis, (2) apoapsis correction at the new periapsis (circularize), (3) plane change. \"Repair the captured orbit to the target\" with target = 500×11 makes the 113 m/s periapsis-raise floor of the very next sentence unintelligible (a perfect exit at 500×11 would then cost ~0), and \"apoapsis-lowering\" mislabels the circularization burn.",
    "evidence": "configs/missions/mars.toml:65-75 ([flight.target_orbit] 500.130/11.233; [flight.parking_orbit] 500/500); src/rust/src/orbit/maneuver.rs:36-61 (\"Maneuver 1 at apoapsis: correct periapsis to target; Maneuver 2 at new periapsis: correct apoapsis (circularize)\", targets rapotf/rpertf = parking orbit). The 2009 extract makes the same distinction: \"Reference orbital parameters at atmosphere exit (for a circular 500 km parking orbit): apoapsis 500 km, periapsis 11 km\".",
-   "fix": "Line 160: \"The guidance targets a 500 \u00d7 11 km orbit at atmosphere exit at 50\u00b0 inclination, subsequently corrected to a 500 km circular parking orbit.\" Line 183: \"the propellant cost to repair the captured orbit to the 500 km circular parking orbit, summed over the periapsis-raising, circularization (apoapsis-correction), and inclination-change burns.\"",
+   "fix": "Line 160: \"The guidance targets a 500 × 11 km orbit at atmosphere exit at 50° inclination, subsequently corrected to a 500 km circular parking orbit.\" Line 183: \"the propellant cost to repair the captured orbit to the 500 km circular parking orbit, summed over the periapsis-raising, circularization (apoapsis-correction), and inclination-change burns.\"",
    "dims": [
     "domain"
    ],
@@ -129,10 +126,10 @@
    "severity": "major",
    "kind": "factual",
    "location": "paper.typ lines 285-293; recurs at 81 (abstract), 553-554, 760-761, 779, 832 (conclusion)",
-   "claim": "\"the remaining nineteen are *engineered, mostly autoregressive* signals\" and \"two of the engineered, autoregressive *predicted correction-\u0394v* components\"",
-   "issue": "The predicted-\u0394v inputs are NOT autoregressive: they are memoryless closed-form functions of the CURRENT osculating orbit (the paper itself says \"evaluated on the current osculating orbit\" three lines later), with no dependence on past network outputs or past states. The same holds for the reference interpolations, the exit-bank teacher, and the periapsis altitude -- only ~8 of the 19 engineered inputs (lateral telemetry 21-24, previous commanded/realized bank sin/cos 27-30) feed back history. Since \"engineered autoregressive inputs flatten the median\" is the paper's flagship mechanism sentence (abstract + conclusion), the mislabel is load-bearing.",
+   "claim": "\"the remaining nineteen are *engineered, mostly autoregressive* signals\" and \"two of the engineered, autoregressive *predicted correction-Δv* components\"",
+   "issue": "The predicted-Δv inputs are NOT autoregressive: they are memoryless closed-form functions of the CURRENT osculating orbit (the paper itself says \"evaluated on the current osculating orbit\" three lines later), with no dependence on past network outputs or past states. The same holds for the reference interpolations, the exit-bank teacher, and the periapsis altitude -- only ~8 of the 19 engineered inputs (lateral telemetry 21-24, previous commanded/realized bank sin/cos 27-30) feed back history. Since \"engineered autoregressive inputs flatten the median\" is the paper's flagship mechanism sentence (abstract + conclusion), the mislabel is load-bearing.",
    "evidence": "src/rust/src/orbit/maneuver.rs:96-153 predicted_dv_for_nn computes dv1/dv2/dv3 purely from the current orbit elements; ablation.py NN_INPUT_NAMES 16-19 are current-energy reference interpolations, 32-34 predicted_dv; CLAUDE.md: \"a causal, cost-aligned signal ... evaluated per tick on the CURRENT osculating orbit\".",
-   "fix": "Replace \"engineered, mostly autoregressive\" with \"engineered temporal-context and cost-aligned signals -- a subset autoregressive (bank-history encodings, reversal telemetry), the rest instantaneous functions of the osculating orbit\". In the abstract/conclusion/mechanism sentences, use \"engineered, cost-aligned inputs (the predicted-\u0394v components above all)\" and drop \"autoregressive\" where it modifies the predicted-\u0394v components.",
+   "fix": "Replace \"engineered, mostly autoregressive\" with \"engineered temporal-context and cost-aligned signals -- a subset autoregressive (bank-history encodings, reversal telemetry), the rest instantaneous functions of the osculating orbit\". In the abstract/conclusion/mechanism sentences, use \"engineered, cost-aligned inputs (the predicted-Δv components above all)\" and drop \"autoregressive\" where it modifies the predicted-Δv components.",
    "dims": [
     "domain"
    ],
@@ -341,10 +338,10 @@
    "severity": "minor",
    "kind": "factual",
    "location": "paper.typ lines 156-158",
-   "claim": "\"We study the same robotic MSR mission as the 2009 work. The vehicle reaches the atmospheric entry interface at an altitude of 130 km with a relative velocity of 5687 m/s, a flight-path angle of -10.81\u00b0...\"",
-   "issue": "The quoted numbers correctly match this campaign's config, but they are not the 2009 entry state: the 2009 paper quotes EI at 120 km with FPA -10.24\u00b0 (same 5687 m/s), and its entry dispersions also differ (velocity \u00b14.5 vs \u00b13 m/s 3\u03c3, FPA \u00b10.6\u00b0 vs \u00b10.3\u00b0, longitude \u00b11.5\u00b0 vs \u00b10.3\u00b0). Same velocity magnitude at two different altitudes is not the same trajectory, so \"the same mission\" overstates.",
-   "evidence": "configs/missions/mars.toml:8-14 (altitude 130.0, velocity 5687.15586, FPA -10.81251); articles/markdown/01_2009_AIAA_neural_guidance.md IV.A: \"Nominal entry conditions at 120 km altitude ... flight path angle \u221210.24\u00b0\".",
-   "fix": "\"We study the same robotic MSR mission concept as the 2009 work (the entry interface is defined here at 130 km altitude; the 2009 study quoted 120 km with \u03b3 = -10.24\u00b0).\"",
+   "claim": "\"We study the same robotic MSR mission as the 2009 work. The vehicle reaches the atmospheric entry interface at an altitude of 130 km with a relative velocity of 5687 m/s, a flight-path angle of -10.81°...\"",
+   "issue": "The quoted numbers correctly match this campaign's config, but they are not the 2009 entry state: the 2009 paper quotes EI at 120 km with FPA -10.24° (same 5687 m/s), and its entry dispersions also differ (velocity ±4.5 vs ±3 m/s 3σ, FPA ±0.6° vs ±0.3°, longitude ±1.5° vs ±0.3°). Same velocity magnitude at two different altitudes is not the same trajectory, so \"the same mission\" overstates.",
+   "evidence": "configs/missions/mars.toml:8-14 (altitude 130.0, velocity 5687.15586, FPA -10.81251); articles/markdown/01_2009_AIAA_neural_guidance.md IV.A: \"Nominal entry conditions at 120 km altitude ... flight path angle −10.24°\".",
+   "fix": "\"We study the same robotic MSR mission concept as the 2009 work (the entry interface is defined here at 130 km altitude; the 2009 study quoted 120 km with γ = -10.24°).\"",
    "dims": [
     "domain"
    ],
@@ -380,10 +377,10 @@
    "severity": "minor",
    "kind": "factual",
    "location": "paper.typ line 216 (tbl-dispersions Navigation errors row)",
-   "claim": "\"position \u2248 \u00b12 km, velocity \u00b11.2 m/s, drag-accel \u00b10.3 m/s\u00b2 (3\u03c3; medium)\"",
-   "issue": "\u00b12 km (3\u03c3) is only the ALTITUDE component (medium \u03c3 = 0.667 km). The longitude/latitude navigation errors are 0.05\u00b0 1\u03c3 each, which at Mars radius (~3390 km) is \u22483 km 1\u03c3 \u2248 9 km 3\u03c3 per horizontal axis -- \"position \u2248 \u00b12 km\" understates the horizontal position error by ~4.5\u00d7.",
-   "evidence": "src/rust/src/data/dispersions.rs:201-208 NavigationSigmas Medium { altitude: 0.667, longitude: 0.05, latitude: 0.05, velocity: 0.4, ... }; 0.05\u00b0 \u00d7 \u03c0/180 \u00d7 3394 km \u2248 2.96 km (1\u03c3).",
-   "fix": "\"altitude \u00b12 km, horizontal position \u2248 \u00b19 km per axis, velocity \u00b11.2 m/s, drag-accel \u00b10.3 m/s\u00b2 (3\u03c3; medium)\".",
+   "claim": "\"position ≈ ±2 km, velocity ±1.2 m/s, drag-accel ±0.3 m/s² (3σ; medium)\"",
+   "issue": "±2 km (3σ) is only the ALTITUDE component (medium σ = 0.667 km). The longitude/latitude navigation errors are 0.05° 1σ each, which at Mars radius (~3390 km) is ≈3 km 1σ ≈ 9 km 3σ per horizontal axis -- \"position ≈ ±2 km\" understates the horizontal position error by ~4.5×.",
+   "evidence": "src/rust/src/data/dispersions.rs:201-208 NavigationSigmas Medium { altitude: 0.667, longitude: 0.05, latitude: 0.05, velocity: 0.4, ... }; 0.05° × π/180 × 3394 km ≈ 2.96 km (1σ).",
+   "fix": "\"altitude ±2 km, horizontal position ≈ ±9 km per axis, velocity ±1.2 m/s, drag-accel ±0.3 m/s² (3σ; medium)\".",
    "dims": [
     "domain"
    ],
@@ -394,7 +391,7 @@
    "kind": "factual",
    "location": "paper.typ lines 257-259",
    "claim": "\"a roll-reversal logic that flips the bank sign whenever the projected inclination error leaves a velocity-referenced corridor\"",
-   "issue": "\"Velocity-referenced corridor\" describes the 2009 heritage logic, not this simulator's. The implemented lateral guidance reverses when the \u03c4-second finite-difference PROJECTED inclination error exceeds a fixed angular threshold, gated by an ORBITAL-ENERGY window (lateral_activation/lateral_inhibition in MJ/kg) and an anti-chatter minimum interval; nothing in the trigger is referenced to velocity.",
+   "issue": "\"Velocity-referenced corridor\" describes the 2009 heritage logic, not this simulator's. The implemented lateral guidance reverses when the τ-second finite-difference PROJECTED inclination error exceeds a fixed angular threshold, gated by an ORBITAL-ENERGY window (lateral_activation/lateral_inhibition in MJ/kg) and an anti-chatter minimum interval; nothing in the trigger is referenced to velocity.",
    "evidence": "src/rust/src/gnc/guidance/lateral.rs:16-23 (fixed `threshold` in radians, `lateral_activation`/`lateral_inhibition` energy gates), :94-96 (energy window gate), :142-145 (projected error vs threshold).",
    "fix": "\"...flips the bank sign whenever the inclination error, projected a few seconds ahead, exceeds a threshold inside an energy-gated activation window.\"",
    "dims": [
@@ -675,7 +672,7 @@
    "claim": "\"$-10.81 degree$\", \"$38.04 degree$\", \"$15 degree$/s\", \"$50 degree$\" (spaced) vs \"$0.3degree$\", \"$1degree$\", \"$5degree$\", \"$0degree$\", \"$180degree$\" (unspaced)",
    "issue": "Degree-symbol source styling is split between spaced and unspaced forms; and \"$15 degree$/s\" splits the unit across math and text modes (the \"/s\" renders in the body font next to a math degree sign).",
    "evidence": "rg 'degree' paper.typ shows both conventions.",
-   "fix": "Pick one convention (unspaced \"$38.04degree$\" matches the tables) and keep the whole unit in one mode: \"$15degree\\\"/s\\\"$\" or a text-mode \"15\u00b0/s\".",
+   "fix": "Pick one convention (unspaced \"$38.04degree$\" matches the tables) and keep the whole unit in one mode: \"$15degree\\\"/s\\\"$\" or a text-mode \"15°/s\".",
    "dims": [
     "prose"
    ],
@@ -726,8 +723,8 @@
    "kind": "factual",
    "location": "refs.bib entry cho2014gru (cited at paper.typ line 305)",
    "claim": "author = {Cho, Kyunghyun and van Merri{\\\"e}nboer, Bart and Gulcehre, Caglar and ...}",
-   "issue": "Inconsistent diacritics within the same author list: van Merri\u00ebnboer gets the TeX accent but G\u00fcl\u00e7ehre is stripped to 'Gulcehre, Caglar'. Every other entry in the file carries full diacritics (Gr{\\'e}gory, J{\\\"u}rgen, Fran{\\c{c}}ois).",
-   "evidence": "refs.bib cho2014gru author field as quoted; the EMNLP 2014 paper lists the author as \u00c7a\u011flar G\u00fcl\u00e7ehre.",
+   "issue": "Inconsistent diacritics within the same author list: van Merriënboer gets the TeX accent but Gülçehre is stripped to 'Gulcehre, Caglar'. Every other entry in the file carries full diacritics (Gr{\\'e}gory, J{\\\"u}rgen, Fran{\\c{c}}ois).",
+   "evidence": "refs.bib cho2014gru author field as quoted; the EMNLP 2014 paper lists the author as Çağlar Gülçehre.",
    "fix": "Change to G{\\\"u}l{\\c{c}}ehre, {\\c{C}}a{\\u{g}}lar (or at minimum G{\\\"u}l{\\c{c}}ehre, Caglar).",
    "dims": [
     "citations"
@@ -748,5 +745,5 @@
    "status": "applied"
   }
  ],
- "completed": "2026-07-02: all findings adjudicated and applied by main session; paper.typ + refs.bib edited, recompiles clean"
+ "completed": "2026-07-02: all findings adjudicated and applied by main session; paper.typ + refs.bib edited, recompiles clean | 2026-07-07: second full pass (numbers re-verified vs data + parquet recompute; figures dimension covered). 15 findings, all FIXED in-session: stats.json gitignore blocker, 924 requoted from robustness_retrain.json NN-high (1216 @ 27.3%), fig_cost_transform + fig_curation moved to far-tail CVaR99.9, pareto sweet-spot annotation dropped, SIZE_HALF legibility redesign (4 figs), qdyn 1.08 kPa claim removed, appendix joint-ref carve-out, GRU exclusion sentence, edges-it/scare-quotes/near-unanimous/autoregressive prose fixes, nbsp boxes on $N$-word compounds, appendix intro merged onto bib page, sigma_run tail_groups added, OUTLINE/WRITING_SESSION win-rate 99.9->100.0."
 }

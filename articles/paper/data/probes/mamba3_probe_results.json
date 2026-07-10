@@ -1,0 +1,300 @@
+{
+  "n_sims": 1000,
+  "repeats": 3,
+  "arms": {
+    "baseline": {
+      "n_repeats": 3,
+      "per_repeat": [
+        {
+          "rms_cost": 1508994.9537685574,
+          "capture_rate": 1.0,
+          "dv_p50": 113.67884511867433,
+          "dv_p95": 121.17136879352462,
+          "cvar95": 123.88844785481531,
+          "viol_pct": 0.0,
+          "heat_flux_viol_pct": 0.0,
+          "g_load_viol_pct": 0.0,
+          "heat_load_viol_pct": 0.0
+        },
+        {
+          "rms_cost": 1502977.18353425,
+          "capture_rate": 1.0,
+          "dv_p50": 113.6129936407296,
+          "dv_p95": 121.28609444561742,
+          "cvar95": 123.82509654909465,
+          "viol_pct": 0.0,
+          "heat_flux_viol_pct": 0.0,
+          "g_load_viol_pct": 0.0,
+          "heat_load_viol_pct": 0.0
+        },
+        {
+          "rms_cost": 5269276000.897946,
+          "capture_rate": 0.999,
+          "dv_p50": 114.84621123500375,
+          "dv_p95": 122.30221615788368,
+          "cvar95": 124.49470432724853,
+          "viol_pct": 0.0,
+          "heat_flux_viol_pct": 0.0,
+          "g_load_viol_pct": 0.0,
+          "heat_load_viol_pct": 0.0
+        }
+      ],
+      "rms_cost": {
+        "mean": 1757429324.345083,
+        "std": 2483250599.479185
+      },
+      "capture_rate": {
+        "mean": 0.9996666666666667,
+        "std": 0.00047140452079103207
+      },
+      "dv_p50": {
+        "mean": 114.04601666480255,
+        "std": 0.566461306075697
+      },
+      "dv_p95": {
+        "mean": 121.58655979900857,
+        "std": 0.5082082983782719
+      },
+      "cvar95": {
+        "mean": 124.0694162437195,
+        "std": 0.3018341845870286
+      },
+      "viol_pct": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    },
+    "trapz": {
+      "n_repeats": 3,
+      "per_repeat": [
+        {
+          "rms_cost": 1545180.23494396,
+          "capture_rate": 1.0,
+          "dv_p50": 114.31314007912201,
+          "dv_p95": 123.18377408771742,
+          "cvar95": 127.51742683246195,
+          "viol_pct": 0.0,
+          "heat_flux_viol_pct": 0.0,
+          "g_load_viol_pct": 0.0,
+          "heat_load_viol_pct": 0.0
+        },
+        {
+          "rms_cost": 1670809.598809487,
+          "capture_rate": 1.0,
+          "dv_p50": 117.089801853453,
+          "dv_p95": 127.87447026488633,
+          "cvar95": 132.00544680757218,
+          "viol_pct": 0.0,
+          "heat_flux_viol_pct": 0.0,
+          "g_load_viol_pct": 0.0,
+          "heat_load_viol_pct": 0.0
+        },
+        {
+          "rms_cost": 1572154.5666541876,
+          "capture_rate": 1.0,
+          "dv_p50": 115.0981428414915,
+          "dv_p95": 123.54753593374652,
+          "cvar95": 126.93641818912491,
+          "viol_pct": 0.0,
+          "heat_flux_viol_pct": 0.0,
+          "g_load_viol_pct": 0.0,
+          "heat_load_viol_pct": 0.0
+        }
+      ],
+      "rms_cost": {
+        "mean": 1596048.1334692116,
+        "std": 53999.143003522106
+      },
+      "capture_rate": {
+        "mean": 1.0,
+        "std": 0.0
+      },
+      "dv_p50": {
+        "mean": 115.5003615913555,
+        "std": 1.1687022986527553
+      },
+      "dv_p95": {
+        "mean": 124.86859342878343,
+        "std": 2.130657540998651
+      },
+      "cvar95": {
+        "mean": 128.819763943053,
+        "std": 2.265071631814527
+      },
+      "viol_pct": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    },
+    "complex": {
+      "n_repeats": 3,
+      "per_repeat": [
+        {
+          "rms_cost": 1537399.6846386911,
+          "capture_rate": 1.0,
+          "dv_p50": 114.67920256518701,
+          "dv_p95": 121.84930675025622,
+          "cvar95": 124.2276569961536,
+          "viol_pct": 0.0,
+          "heat_flux_viol_pct": 0.0,
+          "g_load_viol_pct": 0.0,
+          "heat_load_viol_pct": 0.0
+        },
+        {
+          "rms_cost": 1539302.3824825678,
+          "capture_rate": 1.0,
+          "dv_p50": 114.56319064581905,
+          "dv_p95": 122.83855785506076,
+          "cvar95": 126.00882600558958,
+          "viol_pct": 0.0,
+          "heat_flux_viol_pct": 0.0,
+          "g_load_viol_pct": 0.0,
+          "heat_load_viol_pct": 0.0
+        },
+        {
+          "rms_cost": 1434188.4148432205,
+          "capture_rate": 1.0,
+          "dv_p50": 111.99787638409708,
+          "dv_p95": 118.65306606000796,
+          "cvar95": 121.04244497056338,
+          "viol_pct": 0.0,
+          "heat_flux_viol_pct": 0.0,
+          "g_load_viol_pct": 0.0,
+          "heat_load_viol_pct": 0.0
+        }
+      ],
+      "rms_cost": {
+        "mean": 1503630.1606548263,
+        "std": 49108.87299863468
+      },
+      "capture_rate": {
+        "mean": 1.0,
+        "std": 0.0
+      },
+      "dv_p50": {
+        "mean": 113.74675653170105,
+        "std": 1.2375516203028487
+      },
+      "dv_p95": {
+        "mean": 121.11364355510831,
+        "std": 1.7861477438209479
+      },
+      "cvar95": {
+        "mean": 123.75964265743552,
+        "std": 2.0543471326597937
+      },
+      "viol_pct": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    },
+    "both": {
+      "n_repeats": 3,
+      "per_repeat": [
+        {
+          "rms_cost": 1555853.5456924113,
+          "capture_rate": 1.0,
+          "dv_p50": 114.78314652210162,
+          "dv_p95": 122.7981554618883,
+          "cvar95": 125.8257589634364,
+          "viol_pct": 0.0,
+          "heat_flux_viol_pct": 0.0,
+          "g_load_viol_pct": 0.0,
+          "heat_load_viol_pct": 0.0
+        },
+        {
+          "rms_cost": 1477474.5647809568,
+          "capture_rate": 1.0,
+          "dv_p50": 113.06178777324507,
+          "dv_p95": 119.88662140954821,
+          "cvar95": 122.8816037438962,
+          "viol_pct": 0.0,
+          "heat_flux_viol_pct": 0.0,
+          "g_load_viol_pct": 0.0,
+          "heat_load_viol_pct": 0.0
+        },
+        {
+          "rms_cost": 1526532.144338972,
+          "capture_rate": 1.0,
+          "dv_p50": 114.12437617288771,
+          "dv_p95": 122.20463595328431,
+          "cvar95": 123.9487004408079,
+          "viol_pct": 0.0,
+          "heat_flux_viol_pct": 0.0,
+          "g_load_viol_pct": 0.0,
+          "heat_load_viol_pct": 0.0
+        }
+      ],
+      "rms_cost": {
+        "mean": 1519953.41827078,
+        "std": 32334.459324274725
+      },
+      "capture_rate": {
+        "mean": 1.0,
+        "std": 0.0
+      },
+      "dv_p50": {
+        "mean": 113.98977015607814,
+        "std": 0.7091582194814955
+      },
+      "dv_p95": {
+        "mean": 121.62980427490693,
+        "std": 1.2562062538541936
+      },
+      "cvar95": {
+        "mean": 124.21868771604683,
+        "std": 1.2170133759274928
+      },
+      "viol_pct": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    }
+  },
+  "references": {
+    "962_baseline": {
+      "rms_cost": 1388992.2641237462,
+      "capture_rate": 1.0,
+      "dv_p50": 110.93241668964781,
+      "dv_p95": 116.55324204400972,
+      "cvar95": 118.4490042024621,
+      "viol_pct": 0.0,
+      "heat_flux_viol_pct": 0.0,
+      "g_load_viol_pct": 0.0,
+      "heat_load_viol_pct": 0.0
+    },
+    "962_trapz": {
+      "rms_cost": 1389846.4947316027,
+      "capture_rate": 1.0,
+      "dv_p50": 110.80832766517487,
+      "dv_p95": 117.33628656359137,
+      "cvar95": 119.90378854673092,
+      "viol_pct": 0.0,
+      "heat_flux_viol_pct": 0.0,
+      "g_load_viol_pct": 0.0,
+      "heat_load_viol_pct": 0.0
+    },
+    "962_complex": {
+      "rms_cost": 334723520286.62476,
+      "capture_rate": 0.999,
+      "dv_p50": 111.58031742196728,
+      "dv_p95": 118.36822851766392,
+      "cvar95": 121.25272912869889,
+      "viol_pct": 0.1,
+      "heat_flux_viol_pct": 0.1,
+      "g_load_viol_pct": 0.1,
+      "heat_load_viol_pct": 0.0
+    },
+    "962_both": {
+      "rms_cost": 1397064.6871762373,
+      "capture_rate": 1.0,
+      "dv_p50": 110.89296373628792,
+      "dv_p95": 117.79609566585022,
+      "cvar95": 120.24248708339427,
+      "viol_pct": 0.0,
+      "heat_flux_viol_pct": 0.0,
+      "g_load_viol_pct": 0.0,
+      "heat_load_viol_pct": 0.0
+    }
+  }
+}

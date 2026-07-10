@@ -25,7 +25,7 @@ from typing import Any
 
 import numpy as np
 
-METRIC_KEYS = ("rms_cost", "capture_rate", "dv_p50", "dv_p95", "cvar95")
+METRIC_KEYS = ("rms_cost", "capture_rate", "dv_p50", "dv_p95", "cvar95", "viol_pct")
 
 # Structural fields that define an arm's architecture (dt_rank is DERIVED -- resolved
 # from input_size at load, present in best_model.json but often omitted in the config
@@ -90,7 +90,7 @@ def score_model(
     import aerocapture_rs
 
     from aerocapture.training import charts
-    from aerocapture.training.report import compute_eval_summary
+    from aerocapture.training.report import _read_constraint_limits, compute_eval_summary
 
     overrides = [{"simulation.n_sims": 1, "data.neural_network": str(model), "monte_carlo.seed": int(s), **(extra_overrides or {})} for s in seeds]
     batch = aerocapture_rs.run_batch(str(config), overrides, n_threads=None, include_trajectories=False, sim_timeout_secs=sim_timeout)
@@ -98,12 +98,23 @@ def score_model(
     summary = compute_eval_summary(final, n_sims=len(seeds), cost_kwargs=cost_kwargs)
     captured = charts.is_captured(final)
     dv = np.clip(final[captured, charts._FR_DV_TOTAL], charts.DV_FLOOR, charts.DV_CAP)
+    # Constraint feasibility on the same pool (the LSTM lesson: a cell can win the
+    # DV tail while violating the heat-load limit; a probe arm must not be quoted
+    # as "within sigma_run" without this check).
+    hfl, gll, hll = (v if v is not None else float("inf") for v in _read_constraint_limits(config))
+    v_hf = final[:, charts._FR_MAX_HEAT_FLUX] > hfl
+    v_g = final[:, charts._FR_MAX_G_LOAD] > gll
+    v_hl = final[:, charts._FR_INTEGRATED_FLUX] * 1e3 > hll
     return {
         "rms_cost": float(summary["cost"]["rms"]),
         "capture_rate": float(summary["capture_rate"]),
         "dv_p50": float(summary["captured"]["dv"]["p50"]) if summary["captured"] else float("nan"),
         "dv_p95": float(summary["captured"]["dv"]["p95"]) if summary["captured"] else float("nan"),
         "cvar95": cvar95(dv),
+        "viol_pct": float(100.0 * np.mean(v_hf | v_g | v_hl)),
+        "heat_flux_viol_pct": float(100.0 * np.mean(v_hf)),
+        "g_load_viol_pct": float(100.0 * np.mean(v_g)),
+        "heat_load_viol_pct": float(100.0 * np.mean(v_hl)),
     }
 
 
@@ -112,6 +123,8 @@ def aggregate(per_rep: list[dict[str, float]]) -> dict[str, Any]:
         return {"n_repeats": 0}
     agg: dict[str, Any] = {"n_repeats": len(per_rep), "per_repeat": per_rep}
     for k in METRIC_KEYS:
+        if k not in per_rep[0]:  # tolerate records predating a metric (e.g. viol_pct)
+            continue
         vals = np.array([d[k] for d in per_rep], dtype=np.float64)
         agg[k] = {"mean": float(np.nanmean(vals)), "std": float(np.nanstd(vals))}
     return agg
