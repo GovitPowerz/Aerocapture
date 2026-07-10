@@ -1,0 +1,35 @@
+# No-predicted-dv ablation retrain (reviewer R1 majors 5+6): the deployed
+# Mamba_962 architecture with the three predicted correction-DV inputs
+# (candidate indices 32/33/34) REMOVED from the input mask -- retraining, not
+# post-hoc zeroing, so the policy adapts to their absence. Tests how much of
+# the network's edge rides on the engineered cost-aligned inputs, and answers
+# the classical-fairness objection (the classical schemes cannot consume them).
+# 14 inputs -> encoder Dense(14 -> 16) = 240 params (vs 288 at 17 inputs), so
+# 914 trainable weights total vs the deployed 962 (Mamba core + decoder equal).
+# Trained by experiments/paper/15_state_controls.sh at the headline allocation.
+base = ["../msr_aller_nn_atan2_train.toml"]
+
+[data]
+neural_network = "training_output/paper_mamba_p962_nodv/best_model.json"
+results_suffix = ".mamba_p962_nodv"
+
+[network]
+# Deployed 17-mask minus the predicted-dv inputs {32, 33, 34}.
+input_mask = [0, 2, 3, 5, 6, 7, 11, 12, 18, 19, 27, 28, 29, 30]
+
+[[network.architecture]]
+type = "dense"
+input_size = 14
+output_size = 16
+activation = "swish"
+
+[[network.architecture]]
+type = "mamba"
+input_size = 16
+d_state = 12
+
+[[network.architecture]]
+type = "dense"
+input_size = 16
+output_size = 2
+activation = "asinh"
