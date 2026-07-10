@@ -50,7 +50,7 @@ PAIRS = [
 
 T95_DF9 = 2.262  # t(0.975, df=9) for 10 replicates
 
-REP_KEYS = ("capture_pct", "p95", "cvar95", "p99", "cvar99", "p999", "p9987", "cvar999", "max")
+REP_KEYS = ("capture_pct", "p50", "p95", "cvar95", "p99", "cvar99", "p999", "p9987", "cvar999", "max")
 
 
 def _r2(v: float) -> float:
@@ -79,6 +79,7 @@ def _replicate_stats(x: np.ndarray, n_total: int, n_captured: int, viol: dict[st
         "n": n_total,
         "n_captured": n_captured,
         "capture_pct": _r2(100.0 * n_captured / n_total),
+        "p50": _r2(np.percentile(x, 50)),
         "p95": _r2(np.percentile(x, 95)),
         "cvar95": _r2(cvar(x, 0.95)),
         "p99": _r2(np.percentile(x, 99)),
@@ -138,7 +139,11 @@ def _eval_cell(label: str, toml: str, pools: list[list[int]], bundle_key: str | 
             "viol_pct": 100 * float(((col["max_heat_flux_kw_m2"] > hfl) | (col["max_load_factor_g"] > gll) | (col["integrated_flux_mj_m2"] * 1e3 > hll)).mean()),
             "heat_load_viol_pct": 100 * float((col["integrated_flux_mj_m2"] * 1e3 > hll).mean()),
         }
-        reps.append({"replicate": r, **_replicate_stats(x, len(recs), int(cap.sum()), viol)})
+        rep = {"replicate": r, **_replicate_stats(x, len(recs), int(cap.sum()), viol)}
+        failed = [int(s) for s, ok in zip(seeds, cap, strict=True) if not ok][:50]
+        if failed:
+            rep["failed_seeds"] = failed  # for post-hoc classification (timeout vs physical)
+        reps.append(rep)
         pooled_parts.append(x)
         print(f"  {label} r{r}: cap={reps[-1]['capture_pct']}% cvar999={reps[-1]['cvar999']} max={reps[-1]['max']}", flush=True)
 
