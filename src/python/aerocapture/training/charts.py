@@ -794,6 +794,7 @@ def _time_series_panel(
     limit_label: str | None = None,
     fixed_hline: float | None = None,
     fixed_hline_label: str | None = None,
+    figsize: tuple[float, float] | None = None,
 ) -> None:
     """Shared builder for time-domain MC spaghetti panels (x = time column).
 
@@ -808,7 +809,7 @@ def _time_series_panel(
     fixed_hline, fixed_hline_label:
         Optional fixed reference horizontal line (grey dashed, e.g. density ratio=1).
     """
-    fig, ax = plt.subplots(figsize=FULL_WIDTH, dpi=DPI)
+    fig, ax = plt.subplots(figsize=figsize or FULL_WIDTH, dpi=DPI)
     _draw_spaghetti(ax, trajectories, traj_class, x_col=_TC_TIME, y_col=y_col)
     _draw_time_nominals(ax, y_col=y_col, undispersed_nominal=undispersed_nominal, best_nominal=best_nominal)
 
@@ -861,6 +862,7 @@ def chart_heat_flux_time(
     limit_kw_m2: float | None = None,
     undispersed_nominal: npt.NDArray[np.float64] | None = None,
     best_nominal: npt.NDArray[np.float64] | None = None,
+    figsize: tuple[float, float] | None = None,
 ) -> None:
     """Panel 11: Heat flux vs time MC spaghetti with optional constraint line and nominals."""
     limit_label = f"Limit ({limit_kw_m2:.0f} kW/m\u00b2)" if limit_kw_m2 is not None else None
@@ -875,6 +877,7 @@ def chart_heat_flux_time(
         best_nominal=best_nominal,
         limit_value=limit_kw_m2,
         limit_label=limit_label,
+        figsize=figsize,
     )
 
 
@@ -888,6 +891,7 @@ def chart_heat_load_time(
     limit_kj_m2: float | None = None,
     undispersed_nominal: npt.NDArray[np.float64] | None = None,
     best_nominal: npt.NDArray[np.float64] | None = None,
+    figsize: tuple[float, float] | None = None,
 ) -> None:
     """Cumulative heat load vs time MC spaghetti with optional constraint line."""
     limit_label = f"Limit ({limit_kj_m2:.0f} kJ/m\u00b2)" if limit_kj_m2 is not None else None
@@ -902,6 +906,7 @@ def chart_heat_load_time(
         best_nominal=best_nominal,
         limit_value=limit_kj_m2,
         limit_label=limit_label,
+        figsize=figsize,
     )
 
 
@@ -915,6 +920,7 @@ def chart_gload_time(
     limit_g: float | None = None,
     undispersed_nominal: npt.NDArray[np.float64] | None = None,
     best_nominal: npt.NDArray[np.float64] | None = None,
+    figsize: tuple[float, float] | None = None,
 ) -> None:
     """Panel 12: G-load vs time MC spaghetti with optional constraint line and nominals."""
     limit_label = f"Limit ({limit_g:.1f} g)" if limit_g is not None else None
@@ -929,6 +935,7 @@ def chart_gload_time(
         best_nominal=best_nominal,
         limit_value=limit_g,
         limit_label=limit_label,
+        figsize=figsize,
     )
 
 
