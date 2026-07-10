@@ -942,6 +942,11 @@ property we can claim.
   the heat-load feasibility caveat of Section 6.2.],
 ) <tbl-paired>
 
+#fig("fig_survival.svg", [Empirical survival curves of the correction $Delta v$ on the confirmatory
+sizing pool ($10 times 100\,000$ scenarios per scheme; log scale, curves subsampled every
+$approx 100$th order statistic). The network-to-classical separation grows with tail depth -- the
+sizing thesis in one picture.], <fig-survival>)
+
 == Matching the objective to the regime closes the gap <sec-objcenter>
 
 The robustness caveat of @sec-deployability invites a question: is the off-nominal gap intrinsic to
