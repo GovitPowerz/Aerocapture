@@ -85,9 +85,9 @@
   adaptive-seed Monte-Carlo environment turns the genetic algorithm from the *worst* optimizer under
   fixed scenarios ($160.3$ m/s mean) into the *best* ($118.0$). Across cell types, engineered,
   cost-aligned inputs flatten the median; genuine internal state is what compresses the extreme tail
-  that sizes the tanks. One honest caveat remains: under a deliberately harsher off-nominal regime
-  the analytic law generalizes better than the medium-trained network -- a gap we pin on the training
-  objective, not on neural guidance itself.]
+  that sizes the tanks. The main deployment caveat: under a deliberately harsher off-nominal regime
+  the analytic law generalizes better than the medium-trained network -- a gap we trace to the
+  training objective, not to neural guidance itself.]
 ]
 #v(18pt)
 
@@ -203,7 +203,9 @@ and its undispersed nominal (heavy line) fly well inside the corridor.], <fig-co
 Performance is measured by the *correction $Delta v$* -- the propellant cost to carry the captured
 orbit to the $500$ km circular parking orbit, summed over the periapsis-raising, circularization,
 and plane-change burns. At atmosphere exit the periapsis always sits inside the atmosphere and must be raised, so the
-correction cost has an irreducible floor of roughly $113$ m/s set by the nominal periapsis raise; a
+correction cost has a floor of roughly $105$ m/s at this entry interface, set by the nominal
+periapsis raise (dispersed cases spread a few m/s around it; the 2009 study's interface put the
+same floor near $113$ m/s); a
 guidance law cannot do better than deliver the vehicle to that floor across all dispersions. We
 define a run as a *capture* when it terminates in a bound orbit (the simulator's terminal flag
 $i_"final" = 3$ with eccentricity $< 1$) and compute $Delta v$ over captured runs only.
@@ -417,10 +419,14 @@ a $40$ m/s drop in the mean and a $71$ m/s drop on the tail. Adaptive curation t
 further, to $118.0$ m/s.
 
 The control that makes this a statement about the *objective* and not about compute is CMA-ES. Run
-on the identical fixed-versus-rotating change, CMA-ES does not move -- $126.9 arrow.r 127.3$ m/s --
-because it already resamples internally through its covariance adaptation, so a moving scenario batch
-tells it nothing new (@fig-seed). The genetic algorithm, by contrast, has no such internal
-re-randomization: a fixed objective lets selection converge onto the quirks of the fixed batch.
+on the identical fixed-versus-rotating change, CMA-ES does not move -- $126.9 arrow.r 127.3$ m/s
+(@fig-seed). Under fixed seeds the genetic algorithm's selection converges onto the quirks of those
+particular draws; CMA-ES neither suffers under the fixed batch nor benefits from the moving one. We
+state that asymmetry empirically rather than mechanistically: a plausible reading is that CMA-ES's
+continuous re-estimation of its parameter-space search distribution already decorrelates successive
+generations, while scenario noise chiefly perturbs its rank-based updates and step-size control --
+consistent with its self-termination on the noisy objective (Section 5) -- but our experiments were
+not designed to isolate the mechanism.
 Rotating costs marginally more compute, but CMA-ES given the same marginal compute gains nothing, so
 the lever is the non-stationarity of the objective, not the extra evaluations. The practical
 consequence is striking: under a fixed objective one would deploy CMA-ES and discard the genetic
@@ -430,16 +436,24 @@ the genetic algorithm *need* one.
 
 #fig("fig_seed_strategy.svg", [Fixed versus rotating seeds, per optimizer. The genetic algorithm is
 the worst optimizer under fixed seeds and is rescued by rotating them ($-40$ m/s mean, $-71$ m/s at
-$"CVaR"_95$); CMA-ES is essentially unchanged because it already resamples internally. The lever is
-the non-stationary objective, not the extra compute.], <fig-seed>)
+$"CVaR"_95$); CMA-ES is essentially unchanged (candidate mechanisms are discussed in the text). The
+lever is the non-stationary objective, not the extra compute.], <fig-seed>)
 
 == Cost transform, curation, and allocation
 
 The same worst-case-leaning logic that makes us report the tail also shapes how we train. Because the
 mission is sized off the far tail, we apply a monotonic *cost transform* to each per-simulation cost
-before aggregating, so that the optimizer feels expensive scenarios more sharply. The transform is
-ranking-neutral for a deterministic argmin, but under the noisy, non-stationary objective it changes
-which individuals survive selection. Evaluated at the depth that matters -- a far-tail
+before aggregating, so that the optimizer feels expensive scenarios more sharply. Applied per
+scenario before the root-mean-square aggregation over the individual's batch (Appendix A), the
+cubed transform makes the per-individual objective
+$ J = ( 1/n sum_(i=1)^n C_i^6 )^(1\/2) , $ <eq-objective>
+a monotone function of the $L_6$ norm of the per-scenario cost vector -- a high-moment objective
+that weights an individual's worst scenarios far more heavily than its typical ones. (For a single
+scenario a monotone transform is ranking-neutral; across a batch it deliberately is not.) We prefer
+this smooth high-moment proxy over optimizing an empirical tail quantile directly because the
+deployed allocation evaluates as few as two scenarios per individual per generation -- far too few
+to estimate a quantile -- while the moving batch supplies tail coverage across generations.
+Evaluated at the depth that matters -- a far-tail
 $n = 10\,000$ pool -- the cubed transform compresses the extreme tail best ($"CVaR"_(99.9)$ $153.0$ m/s,
 sample max $160.1$) against linear ($156.7$/$162.2$), square-root ($158.4$/$167.1$), squared
 ($162.7$/$180.9$), and logarithmic ($162.3$/$180.6$). The logarithm is worst across the shallow and
@@ -457,7 +471,7 @@ picks one representative seed per bin; the choice of representative is the lever
 *hardest* seed per bin (the "max" bucket) dominates the far tail ($"CVaR"_(99.9)$ $153.0$ m/s) against
 the bin median ($193.9$), a random pick ($173.1$), and the *easiest* seed ($225.9$). The easiest-seed
 bucket is the cautionary tale: the best mean, $117.8$ m/s, and a catastrophic worst case -- it drops
-captures and reaches $245$ m/s, the canonical optimize-the-average, blow-up-the-tail failure. Trimming
+captures and reaches $245$ m/s, optimizing the average at the expense of the worst case. Trimming
 the cost distribution helped nothing (@fig-curation). These too are single runs, but the min- and
 middle-bucket gaps ($40$--$70$ m/s) sit far outside run scatter. The cost transform
 and the curation bucket are therefore one idea -- force the policy onto the hard cases -- expressed
@@ -505,14 +519,21 @@ gradient-free search.], <fig-plateau>)
 
 Every optimizer in this study is a gradient-free population method, a deliberate choice rather than
 an omission. The training objective is the correction $Delta v$ of a complete atmospheric pass --
-produced by a simulator with adaptive integration, sub-tick event detection, and discrete
-capture/crash termination -- so it is a black-box function of the network weights with no usable
-gradient: there is nothing to back-propagate through. Policy-gradient reinforcement learning
-(PPO @schulman2017ppo, SAC @haarnoja2018sac) can only sidestep this by optimizing a differentiable,
-shaped per-step reward -- a surrogate for the mission cost, not the cost itself -- and the mismatch
-between that stochastic surrogate and the true terminal cost is exactly what the direct-on-cost
-search of Section 4 avoids. We did implement and train RL policies; they underperformed the
-population methods, so throughout we optimize the mission cost directly.
+produced by a simulator with discrete capture, crash, and atmosphere-exit termination,
+threshold-triggered phase transitions, and hard constraint limits -- so it is a black-box function
+of the network weights with no usable gradient. Policy-gradient reinforcement learning
+(PPO @schulman2017ppo, SAC @haarnoja2018sac) does not require a differentiable simulator or a
+differentiable reward -- it estimates gradients from sampled rollouts and can in principle optimize
+a terminal-only objective. We implemented and trained both, with potential-based per-step shaping
+aligned to the predicted correction cost plus the true terminal cost (the standard remedy for
+sparse terminal rewards), and the best policies still underperformed the population methods by a
+wide margin: $636$ m/s mean ($1047$ at $"CVaR"_95$) for the dense PPO policy and $513$ ($893$) for
+the recurrent one, against $119$ ($138$) for the population-trained dense network on the same
+simulator regime#footnote[The reinforcement-learning cells predate two later simulator fixes and
+are quoted on their own contemporaneous evaluation pool; the $4$--$5 times$ gap, not the absolute
+values, is the result.] -- consistent with the stochastic shaped return optimizing a different
+quantity than the deterministic mission cost. Population search on the mission cost itself was
+simply the stronger tool here, so throughout we optimize the mission cost directly.
 
 Having established that the genetic algorithm is the right optimizer under a moving objective, two
 questions remain: does it need a population that scales with the search dimension, and does the
@@ -619,7 +640,8 @@ m/s (three-seed means), and on the sample maximum $127.6 < 132.4 < 159.0$. The r
 clears run-to-run variance *on the sample maximum*: the LSTM's worst run maxes at $138$ m/s, the dense
 reference's best at $146$, non-overlapping, and the Mamba is lower still (per-seed maxima
 $121.7$--$136.9$ m/s). On $"CVaR"_(99.9)$ the
-three-seed mean ordering is the same, though there the per-seed ranges overlap; single-run bootstrap
+three-seed mean ordering is the same, though there the per-seed ranges overlap; single-run
+bootstrap
 $95%$ CIs on the first seeds -- Mamba $[120.6, 123.0]$, LSTM $[121.6, 124.8]$, dense
 $[124.0, 133.4]$ -- separate the Mamba from the dense reference per run but not from the LSTM.
 Crucially, the
@@ -629,7 +651,7 @@ $"CVaR"_95$ -- and it grows monotonically with tail depth, to $14.7$ m/s at $"CV
 network's tight median ($109.2$ m/s) masks a fat, high-variance extreme tail: its three runs span
 $"CVaR"_(99.9)$ from $128$ to $150$ m/s, and its worst hit $184$. The Mamba's tail is both lower and
 half as variable. Sizing from a single dense run could quote $128$ m/s and still be unlucky in flight;
-the recurrent state delivers a tail one can trust.
+the recurrent policy's tail estimate is consistent across retraining.
 
 One feasibility asterisk belongs on the LSTM. Its best run -- the seed with the lowest training loss
 and the tightest tail of its three -- exceeds the integrated heat-load limit on $14.4%$ of the sizing
@@ -753,8 +775,9 @@ advantage is precisely where the mission is sized.
 *Compute.* On a single idle core, the dense network runs at $2.40$ ms per simulation and the stateful
 Mamba at $3.68$ ms, against $1.25$ ms for FTC and $86.1$ ms for FNPAG (@fig-classical). The network is
 roughly three times FTC -- the same fast class -- and $23 times$ faster than the numerical
-predictor--corrector. FNPAG is dominated outright: joint-FTC matches its accuracy and the network beats
-it, both at a small fraction of its cost. The selective-state-space core costs about $1.5 times$ the
+predictor--corrector. On accuracy and compute FNPAG is dominated -- joint-FTC matches its accuracy
+and the network beats it, both at a small fraction of its cost -- though the off-nominal stress
+below keeps robustness a separate axis. The selective-state-space core costs about $1.5 times$ the
 dense network, the price of the tail it buys.
 
 *Robustness -- the honest caveat.* We trained the network on the medium dispersion regime. Under a
@@ -1022,7 +1045,8 @@ dispersion draws use Latin-hypercube sampling.
 softplus-quadratic with its knee at $1000$ m/s, plus normalized soft penalties (weight $1.0$ each) on
 heat-flux, g-load, and heat-load exceedances; non-captures receive the energy-proportional virtual
 cost of Section 4. The per-simulation cost is cubed (the deployed transform) and aggregated across an
-individual's scenario batch by root-mean-square.
+individual's scenario batch by root-mean-square -- the $L_6$-norm-equivalent objective of
+@eq-objective.
 
 *Optimizer (deployed headline).* pymoo genetic algorithm (SBX crossover, polynomial mutation),
 population $512$, two scenarios per individual per generation, run to plateau
