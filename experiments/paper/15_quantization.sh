@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Quantization study campaign (paper Appendix D). Phase-gated: run `ptq` first,
+# inspect the verdict, copy it into the two QAT configs, then run the rest.
+#   ./experiments/paper/15_quantization.sh ptq        # PTQ sweep + LOO on the champion (~minutes)
+#   ./experiments/paper/15_quantization.sh bench      # criterion microbench (run BEFORE trainings for clean numbers)
+#   ./experiments/paper/15_quantization.sh qat_finetune   # +3000 gens from the champion checkpoint (~0.5 day)
+#   ./experiments/paper/15_quantization.sh qat_scratch    # GA 512 x 20000 from scratch (~2.5-3 days)
+#   ./experiments/paper/15_quantization.sh finalists  # n=10000 re-score of the four finalist rows
+#   ./experiments/paper/15_quantization.sh collect    # bundle JSONs into articles/paper/data/quant/
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+
+CHAMPION_DIR=training_output/mamba_p962_long
+SWEEP_TOML=configs/training/sweep/mamba_p962.toml
+QUANT_DIR=training_output/quant
+
+case "${1:-}" in
+ptq)
+    uv run python -m aerocapture.training.quantize "$QUANT_DIR/ptq_sweep" \
+        --toml "$SWEEP_TOML" \
+        --model "$CHAMPION_DIR/best_model.json" \
+        --params-dir "$CHAMPION_DIR" \
+        --n-sims 1000 --loo-bits 4 --sim-timeout 120
+    echo
+    echo "GATE: read the verdict above; copy granularity/tensor_policy into"
+    echo "configs/training/quant/mamba962_qat4_{finetune,scratch}.toml before launching QAT."
+    ;;
+bench)
+    cargo bench --bench quant_forward --manifest-path src/rust/Cargo.toml
+    ;;
+qat_finetune)
+    mkdir -p "$QUANT_DIR/mamba962_qat4_finetune"
+    cp -n "$CHAMPION_DIR/checkpoint_g20000.json" "$QUANT_DIR/mamba962_qat4_finetune/"
+    cp -n "$CHAMPION_DIR/checkpoint_g20000.npz" "$QUANT_DIR/mamba962_qat4_finetune/"
+    uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_finetune.toml \
+        --n-gen 3000 --output-dir "$QUANT_DIR/mamba962_qat4_finetune" --no-tui
+    ;;
+qat_scratch)
+    uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_scratch.toml \
+        --output-dir "$QUANT_DIR/mamba962_qat4_scratch" --from-scratch --no-tui
+    ;;
+finalists)
+    # QAT arms pass quantize=null (their deployed best_model.json is already on-grid);
+    # the PTQ finalist quantizes the champion at the verdict cell on the fly.
+    uv run python - <<'PY'
+import json
+from pathlib import Path
+
+verdict = json.loads(Path("training_output/quant/ptq_sweep/quantization_results.json").read_text())["verdict"]
+entries = [
+    {"label": "champion_fp", "model": "training_output/mamba_p962_long/best_model.json", "params_dir": "training_output/mamba_p962_long", "quantize": None},
+    {"label": "ptq4_verdict", "model": "training_output/mamba_p962_long/best_model.json", "params_dir": "training_output/mamba_p962_long",
+     "quantize": {"bits": 4, "granularity": verdict["granularity"], "tensor_policy": verdict["tensor_policy"]}},
+    {"label": "qat4_finetune", "model": "training_output/quant/mamba962_qat4_finetune/best_model.json", "params_dir": "training_output/quant/mamba962_qat4_finetune", "quantize": None},
+    {"label": "qat4_scratch", "model": "training_output/quant/mamba962_qat4_scratch/best_model.json", "params_dir": "training_output/quant/mamba962_qat4_scratch", "quantize": None},
+]
+Path("training_output/quant/finalists_entries.json").write_text(json.dumps(entries, indent=2))
+PY
+    uv run python -m aerocapture.training.quantize "$QUANT_DIR/finalists" \
+        --toml "$SWEEP_TOML" \
+        --model "$CHAMPION_DIR/best_model.json" \
+        --n-sims 10000 --sim-timeout 120 \
+        --finalists "$QUANT_DIR/finalists_entries.json"
+    ;;
+collect)
+    mkdir -p articles/paper/data/quant
+    cp "$QUANT_DIR/ptq_sweep/quantization_results.json" articles/paper/data/quant/
+    cp "$QUANT_DIR/finalists/finalists_results.json" articles/paper/data/quant/
+    cp "$QUANT_DIR/ptq_sweep/quantization_sweep.svg" "$QUANT_DIR/ptq_sweep/quantization_loo.svg" articles/paper/figures/ 2>/dev/null || true
+    # criterion medians -> one compact JSON
+    uv run python - <<'PY'
+import json
+from pathlib import Path
+
+rows = {}
+for d in Path("src/rust/target/criterion/forward").iterdir():
+    est = d / "new" / "estimates.json"
+    if est.exists():
+        e = json.loads(est.read_text())
+        rows[d.name] = {"median_ns": e["median"]["point_estimate"], "ci95": [e["median"]["confidence_interval"]["lower_bound"], e["median"]["confidence_interval"]["upper_bound"]]}
+Path("articles/paper/data/quant/bench_forward.json").write_text(json.dumps(rows, indent=2))
+print(json.dumps(rows, indent=2))
+PY
+    ;;
+*)
+    echo "usage: $0 {ptq|bench|qat_finetune|qat_scratch|finalists|collect}" >&2
+    exit 1
+    ;;
+esac
