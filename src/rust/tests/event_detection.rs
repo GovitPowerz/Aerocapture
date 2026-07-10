@@ -115,7 +115,7 @@ fn trajectory_includes_event_rows() {
             "bounce_time={} not found in trajectory times (tolerance={}, first few: {:?})",
             bounce_time,
             tol,
-            &traj[..traj.len().min(5)]
+            traj[..traj.len().min(5)]
                 .iter()
                 .map(|r| r[7])
                 .collect::<Vec<_>>(),

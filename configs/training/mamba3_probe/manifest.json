@@ -1,0 +1,107 @@
+{
+  "arms": {
+    "baseline": {
+      "architecture": [
+        {
+          "type": "dense",
+          "input_size": 17,
+          "output_size": 16,
+          "activation": "swish"
+        },
+        {
+          "type": "mamba3",
+          "input_size": 16,
+          "d_state": 12,
+          "discretization": "euler",
+          "state_mode": "real"
+        },
+        {
+          "type": "dense",
+          "input_size": 16,
+          "output_size": 2,
+          "activation": "asinh"
+        }
+      ],
+      "cell_params": 640,
+      "total_params": 962
+    },
+    "trapz": {
+      "architecture": [
+        {
+          "type": "dense",
+          "input_size": 17,
+          "output_size": 16,
+          "activation": "swish"
+        },
+        {
+          "type": "mamba3",
+          "input_size": 16,
+          "d_state": 12,
+          "discretization": "trapezoidal",
+          "state_mode": "real"
+        },
+        {
+          "type": "dense",
+          "input_size": 16,
+          "output_size": 2,
+          "activation": "asinh"
+        }
+      ],
+      "cell_params": 656,
+      "total_params": 978
+    },
+    "complex": {
+      "architecture": [
+        {
+          "type": "dense",
+          "input_size": 17,
+          "output_size": 16,
+          "activation": "swish"
+        },
+        {
+          "type": "mamba3",
+          "input_size": 16,
+          "d_state": 12,
+          "discretization": "euler",
+          "state_mode": "complex"
+        },
+        {
+          "type": "dense",
+          "input_size": 16,
+          "output_size": 2,
+          "activation": "asinh"
+        }
+      ],
+      "cell_params": 832,
+      "total_params": 1154
+    },
+    "both": {
+      "architecture": [
+        {
+          "type": "dense",
+          "input_size": 17,
+          "output_size": 16,
+          "activation": "swish"
+        },
+        {
+          "type": "mamba3",
+          "input_size": 16,
+          "d_state": 12,
+          "discretization": "trapezoidal",
+          "state_mode": "complex"
+        },
+        {
+          "type": "dense",
+          "input_size": 16,
+          "output_size": 2,
+          "activation": "asinh"
+        }
+      ],
+      "cell_params": 848,
+      "total_params": 1170
+    }
+  },
+  "repeats": 3,
+  "n_gen": 5000,
+  "training_n_sims": 2
+}

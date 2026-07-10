@@ -26,7 +26,7 @@ def _score(arm: str, seeds: list[int], sim_timeout: float | None) -> dict[str, f
     import aerocapture_rs
 
     from aerocapture.training import charts
-    from aerocapture.training.experiments.mamba3_ablation import _cvar95
+    from aerocapture.training.experiments.probe_common import cvar95 as _cvar95
     from aerocapture.training.report import _load_nn_scaffolding_overrides, compute_eval_summary, read_cost_kwargs
 
     d = OUT_DIR / arm

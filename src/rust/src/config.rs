@@ -241,6 +241,19 @@ pub enum TomlLayerSpec {
         #[serde(default = "default_state_mode")]
         state_mode: String,
     },
+    Cfc {
+        input_size: usize,
+        hidden_size: usize,
+        backbone_units: usize,
+    },
+    Slstm {
+        input_size: usize,
+        hidden_size: usize,
+    },
+    Mlstm {
+        input_size: usize,
+        hidden_size: usize,
+    },
 }
 
 fn default_discretization() -> String {
@@ -376,6 +389,50 @@ impl TomlLayerSpec {
                     dt_rank: resolved,
                     discretization: discretization.clone(),
                     state_mode: state_mode.clone(),
+                })
+            }
+            TomlLayerSpec::Cfc {
+                input_size,
+                hidden_size,
+                backbone_units,
+            } => {
+                if *input_size == 0 || *hidden_size == 0 || *backbone_units == 0 {
+                    return Err(ParseError(format!(
+                        "Cfc: input_size, hidden_size, backbone_units must be > 0 (got {input_size}, {hidden_size}, {backbone_units})"
+                    )));
+                }
+                Ok(LayerSpec::Cfc {
+                    input_size: *input_size,
+                    hidden_size: *hidden_size,
+                    backbone_units: *backbone_units,
+                })
+            }
+            TomlLayerSpec::Slstm {
+                input_size,
+                hidden_size,
+            } => {
+                if *input_size == 0 || *hidden_size == 0 {
+                    return Err(ParseError(format!(
+                        "Slstm: input_size and hidden_size must be > 0 (got {input_size}, {hidden_size})"
+                    )));
+                }
+                Ok(LayerSpec::Slstm {
+                    input_size: *input_size,
+                    hidden_size: *hidden_size,
+                })
+            }
+            TomlLayerSpec::Mlstm {
+                input_size,
+                hidden_size,
+            } => {
+                if *input_size == 0 || *hidden_size == 0 {
+                    return Err(ParseError(format!(
+                        "Mlstm: input_size and hidden_size must be > 0 (got {input_size}, {hidden_size})"
+                    )));
+                }
+                Ok(LayerSpec::Mlstm {
+                    input_size: *input_size,
+                    hidden_size: *hidden_size,
                 })
             }
         }

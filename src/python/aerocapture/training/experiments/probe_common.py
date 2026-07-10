@@ -1,0 +1,356 @@
+"""Shared machinery for the architecture probe drivers (cfc / xlstm / mamba3).
+
+All probe scripts score on the SAME reserved pool
+(evaluate.PROBE_EVAL_SEED_OFFSET) so their reports are directly comparable,
+and every claim is gated on sigma_run from seed-repeats (project lesson:
+single-run deltas are noise).
+
+`train_jobs` is resumable at the arm level: re-running `--train` skips arms that
+have a FINISHED run of the CURRENT config and (re)trains the rest. Completion is
+NOT "best_model.json exists" -- that file is rewritten on every mid-run validation
+promotion, so a killed run has one at an early generation, and it can be a stale
+architecture left over from a prior config. `_completion` therefore also checks the
+deployed arch against the config and that the latest checkpoint reached n_gen (see
+its docstring).
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+METRIC_KEYS = ("rms_cost", "capture_rate", "dv_p50", "dv_p95", "cvar95")
+
+# Structural fields that define an arm's architecture (dt_rank is DERIVED -- resolved
+# from input_size at load, present in best_model.json but often omitted in the config
+# -- so comparing it would false-flag matched arms as stale).
+_ARCH_KEYS = ("type", "input_size", "output_size", "hidden_size", "d_state", "backbone_units", "discretization", "state_mode")
+
+
+def _arch_sig(entries: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
+    return [tuple(e.get(k) for k in _ARCH_KEYS) for e in entries]
+
+
+def _completion(out_dir: Path, config: Path, n_gen: int) -> str:
+    """Classify an arm's on-disk state: "done" | "partial" | "stale" | "absent".
+
+    - absent:  no best_model.json (never started, or wiped).
+    - stale:   best_model.json's architecture differs from the resolved config
+               (e.g. a dir left over from a prior dims/flags choice). Its
+               checkpoints are unusable -- train.py resume would hard-error on the
+               width mismatch -- so it must be retrained from scratch.
+    - partial: arch matches but the latest checkpoint is below n_gen (a killed
+               run; best_model.json alone would falsely read as "done"). train.py
+               auto-resumes from the checkpoint.
+    - done:    arch matches AND the latest checkpoint reached n_gen.
+    """
+    bm = out_dir / "best_model.json"
+    if not bm.exists():
+        return "absent"
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    trained = _arch_sig(json.loads(bm.read_text())["architecture"])
+    want = _arch_sig(load_toml_with_bases(config)["network"]["architecture"])
+    if trained != want:
+        return "stale"
+    gens = [int(m.group(1)) for p in out_dir.glob("checkpoint_g*") if (m := re.match(r"checkpoint_g0*(\d+)\.", p.name))]
+    if not gens or max(gens) < n_gen:
+        return "partial"
+    return "done"
+
+
+def cvar95(dv: np.ndarray) -> float:
+    """CVaR95 = mean of the worst 5% (DV at or above the 95th percentile).
+
+    The propellant-sizing tail statistic: what the ergol budget must cover in
+    the bad-luck cases, not the median mission.
+    """
+    if dv.size == 0:
+        return float("nan")
+    thr = float(np.percentile(dv, 95))
+    tail = dv[dv >= thr]
+    return float(np.mean(tail)) if tail.size else thr
+
+
+def score_model(
+    config: Path,
+    model: Path,
+    seeds: list[int],
+    cost_kwargs: dict[str, Any],
+    sim_timeout: float | None,
+    extra_overrides: dict[str, Any] | None = None,
+) -> dict[str, float]:
+    """One MC batch of len(seeds) sims for a deployed model; tail-led metric dict."""
+    import aerocapture_rs
+
+    from aerocapture.training import charts
+    from aerocapture.training.report import compute_eval_summary
+
+    overrides = [{"simulation.n_sims": 1, "data.neural_network": str(model), "monte_carlo.seed": int(s), **(extra_overrides or {})} for s in seeds]
+    batch = aerocapture_rs.run_batch(str(config), overrides, n_threads=None, include_trajectories=False, sim_timeout_secs=sim_timeout)
+    final = np.array(batch.final_records, dtype=np.float64)
+    summary = compute_eval_summary(final, n_sims=len(seeds), cost_kwargs=cost_kwargs)
+    captured = charts.is_captured(final)
+    dv = np.clip(final[captured, charts._FR_DV_TOTAL], charts.DV_FLOOR, charts.DV_CAP)
+    return {
+        "rms_cost": float(summary["cost"]["rms"]),
+        "capture_rate": float(summary["capture_rate"]),
+        "dv_p50": float(summary["captured"]["dv"]["p50"]) if summary["captured"] else float("nan"),
+        "dv_p95": float(summary["captured"]["dv"]["p95"]) if summary["captured"] else float("nan"),
+        "cvar95": cvar95(dv),
+    }
+
+
+def aggregate(per_rep: list[dict[str, float]]) -> dict[str, Any]:
+    if not per_rep:
+        return {"n_repeats": 0}
+    agg: dict[str, Any] = {"n_repeats": len(per_rep), "per_repeat": per_rep}
+    for k in METRIC_KEYS:
+        vals = np.array([d[k] for d in per_rep], dtype=np.float64)
+        agg[k] = {"mean": float(np.nanmean(vals)), "std": float(np.nanstd(vals))}
+    return agg
+
+
+def arch_toml(arch: list[dict[str, Any]]) -> str:
+    """Render an architecture list as [[network.architecture]] TOML blocks."""
+    blocks = []
+    for entry in arch:
+        lines = ["[[network.architecture]]"]
+        for k, v in entry.items():
+            lines.append(f'{k} = "{v}"' if isinstance(v, str) else f"{k} = {v}")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+def leaf_toml(
+    script: str,
+    arm: str,
+    arch: list[dict[str, Any]],
+    seed: int,
+    base_seed: int,
+    out_dir: Path,
+    n_gen: int,
+    training_n_sims: int,
+) -> str:
+    """Arm leaf config. Inherits the paper's atan2 training environment
+    (msr_aller_nn_atan2_train.toml: 17-input calibrated mask + [network]
+    normalization, scaffolding = "live" with tuned nav/shaping starting points)
+    so probe arms are directly comparable to the dense atan2 baseline. The
+    [[network.architecture]] array REPLACES the base's dense stack (arrays
+    replace under deep-merge); its warm-start block is commented out upstream,
+    which the PSO-only probe layers require (V2Policy rejects them).
+
+    The [optimizer] block overrides ONLY the campaign budget knobs (n_pop,
+    n_gen, training_n_sims). Everything else -- algorithm = "ga",
+    seed_strategy = "adaptive", curation_bucket_selection = "max", validation
+    gate at 1000 sims -- inherits from common.toml through the base: the same
+    regime the architecture sweep trained under (Study C: GA + fixed seeds is
+    the WORST regime; adaptive-max curation is the paper's load-bearing
+    methodology).
+    """
+    return f"""# Auto-generated by {script}.py -- do not edit by hand.
+# Arm: {arm}, seed={seed}.
+base = ["../msr_aller_nn_atan2_train.toml"]
+
+[data]
+neural_network = "{out_dir.as_posix()}/best_model.json"
+results_suffix = ".{script}_{arm}_s{seed - base_seed}"
+
+{arch_toml(arch)}
+
+# Budget knobs only; algorithm/seed_strategy/curation inherit the sweep's
+# ga + adaptive + bucket=max from common.toml via the atan2 base.
+[optimizer]
+n_pop = 300
+n_gen = {n_gen}
+training_n_sims = {training_n_sims}
+
+[monte_carlo]
+seed = {seed}
+"""
+
+
+def write_manifest(arms: dict[str, list[dict[str, Any]]], config_dir: Path, extra: dict[str, Any]) -> dict[str, Any]:
+    """Per-arm dims + exact param counts (cell = middle entry, total = all)."""
+    from aerocapture.training.config import _layer_n_params
+
+    manifest: dict[str, Any] = {"arms": {}, **extra}
+    for arm, arch in arms.items():
+        manifest["arms"][arm] = {
+            "architecture": arch,
+            "cell_params": _layer_n_params(arch[1]),
+            "total_params": sum(_layer_n_params(e) for e in arch),
+        }
+    (config_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    return manifest
+
+
+def train_jobs(
+    arms: list[str],
+    repeats: int,
+    config_dir: Path,
+    out_root: Path,
+    n_gen: int,
+    training_n_sims: int,
+    sim_timeout: float | None,
+    force: bool,
+    from_scratch: bool,
+) -> None:
+    jobs = [(arm, r) for arm in arms for r in range(repeats)]
+    for i, (arm, r) in enumerate(jobs, 1):
+        out_dir = out_root / f"{arm}_s{r}"
+        config = config_dir / f"{arm}_s{r}.toml"
+        state = _completion(out_dir, config, n_gen)
+        if state == "done" and not force and not from_scratch:
+            print(f"[{i}/{len(jobs)}] skip {arm}_s{r} (done: arch matches config, checkpoint >= g{n_gen})")
+            continue
+        # A stale dir's checkpoints are the wrong architecture -- train.py resume
+        # would hard-error, so wipe and retrain from scratch. A partial dir
+        # (matching arch, < n_gen) auto-resumes from its checkpoint. Both are
+        # relaunched here rather than silently skipped on a bare best_model.json.
+        arm_from_scratch = from_scratch or state == "stale"
+        if state == "stale":
+            print(f"[{i}/{len(jobs)}] {arm}_s{r}: deployed model is a STALE architecture (differs from config) -> retraining from scratch")
+        elif state == "partial":
+            print(f"[{i}/{len(jobs)}] {arm}_s{r}: partial run (latest checkpoint < g{n_gen}) -> resuming from checkpoint")
+        cmd = [
+            sys.executable,
+            "-m",
+            "aerocapture.training.train",
+            str(config),
+            "--n-gen",
+            str(n_gen),
+            "--training-n-sims",
+            str(training_n_sims),
+            "--output-dir",
+            str(out_dir),
+        ]
+        if arm_from_scratch:
+            cmd.append("--from-scratch")
+        if sim_timeout is not None:
+            cmd += ["--sim-timeout", str(sim_timeout)]
+        print(f"[{i}/{len(jobs)}] train {arm}_s{r}: {' '.join(cmd)}")
+        rc = subprocess.run(cmd).returncode
+        if rc != 0:
+            print(f"  WARNING: training exited {rc} for {config}")
+
+
+def eval_arms(
+    arms: list[str],
+    repeats: int,
+    config_dir: Path,
+    out_root: Path,
+    seeds: list[int],
+    sim_timeout: float | None,
+) -> dict[str, Any]:
+    from aerocapture.training.report import _load_nn_scaffolding_overrides, read_cost_kwargs
+
+    out: dict[str, Any] = {}
+    for arm in arms:
+        per_rep: list[dict[str, float]] = []
+        for r in range(repeats):
+            out_dir = out_root / f"{arm}_s{r}"
+            model = out_dir / "best_model.json"
+            config = config_dir / f"{arm}_s{r}.toml"
+            if not model.exists():
+                print(f"  skip {arm}_s{r} (untrained: no {model})")
+                continue
+            # scaffolding = "live" arms deploy best_params.json (nav/shaping);
+            # scoring without those overrides mis-ranks (param_sweep lesson).
+            extra = _load_nn_scaffolding_overrides(out_dir, out_dir / f"optimized_{out_dir.name}.toml")
+            per_rep.append(score_model(config, model, seeds, read_cost_kwargs(config), sim_timeout, extra_overrides=extra))
+        out[arm] = aggregate(per_rep)
+    return out
+
+
+def score_references(
+    references: dict[str, tuple[Path, Path]],
+    seeds: list[int],
+    sim_timeout: float | None,
+) -> dict[str, dict[str, float]]:
+    """Score deployed champions on the shared pool. NOT budget-matched -- each
+    runs its own training TOML + best_model.json (+ best_params.json scaffolding
+    when present). Missing artifacts skip with a notice."""
+    from aerocapture.training.report import _load_nn_scaffolding_overrides, read_cost_kwargs
+
+    out: dict[str, dict[str, float]] = {}
+    for name, (toml_path, scheme_dir) in references.items():
+        toml_path, scheme_dir = Path(toml_path), Path(scheme_dir)
+        model = scheme_dir / "best_model.json"
+        if not model.exists() or not toml_path.exists():
+            missing = model if not model.exists() else toml_path
+            print(f"  reference {name}: skipped (missing {missing})")
+            continue
+        extra = _load_nn_scaffolding_overrides(scheme_dir, scheme_dir / f"optimized_{scheme_dir.name}.toml")
+        out[name] = score_model(toml_path, model, seeds, read_cost_kwargs(toml_path), sim_timeout, extra_overrides=extra)
+    return out
+
+
+def _row(label: str, d: dict[str, Any]) -> str:
+    cap = d["capture_rate"]["mean"] * 100 if isinstance(d.get("capture_rate"), dict) else d["capture_rate"] * 100
+
+    def _mv(k: str) -> tuple[float, float]:
+        v = d[k]
+        return (v["mean"], v["std"]) if isinstance(v, dict) else (v, float("nan"))
+
+    rms, _ = _mv("rms_cost")
+    p50, _ = _mv("dv_p50")
+    p95, p95s = _mv("dv_p95")
+    cv, cvs = _mv("cvar95")
+    return f"{label:16s} {cap:6.1f} {rms:9.1f} {p50:8.1f} {p95:10.1f} +-{p95s:5.1f} {cv:10.1f} +-{cvs:5.1f}"
+
+
+def print_report(
+    results: dict[str, Any],
+    arms_order: list[str],
+    baseline: str,
+    treatments: list[str],
+    title: str,
+) -> None:
+    arms = results["arms"]
+    print("\n" + "=" * 84)
+    print(f"{title} -- {results['repeats']} repeats x {results['n_sims']} eval sims/arm")
+    print("Tail metrics are the sizing statistics; lead with dv_p95 / CVaR95, not p50.")
+    print("=" * 84)
+    print(f"{'arm':16s} {'cap%':>6s} {'rms':>9s} {'dvP50':>8s} {'dvP95 +- sig':>18s} {'CVaR95 +- sig':>18s}")
+    for arm in arms_order:
+        a = arms.get(arm, {})
+        if a.get("n_repeats", 0) == 0:
+            print(f"{arm:16s} {'(untrained)':>66s}")
+            continue
+        print(_row(arm, a))
+    refs = results.get("references", {})
+    if refs:
+        print("-" * 84)
+        print("references (deployed champions, NOT budget-matched -- own mask/settings):")
+        for name, d in refs.items():
+            print(_row(name, d))
+
+    base = arms.get(baseline, {})
+    if base.get("n_repeats", 0) == 0:
+        print(f"\nNo {baseline} baseline arm trained -- cannot compute significance.")
+        return
+    trained = [a for a in arms_order if arms.get(a, {}).get("n_repeats", 0) > 0]
+    min_reps = min((arms[a]["n_repeats"] for a in trained), default=0)
+    if min_reps < 2:
+        print(f"\nSignificance skipped: need >=2 repeats to estimate sigma_run (got min {min_reps}). Re-run with --repeats 3+.")
+        return
+    print(f"\nSignificance vs {baseline} (gap clears sigma_run only if |gap| > combined std):")
+    for metric in ("dv_p95", "cvar95"):
+        bmean, bstd = base[metric]["mean"], base[metric]["std"]
+        print(f"  [{metric}]  {baseline} = {bmean:.1f} +- {bstd:.1f}")
+        for arm in treatments:
+            a = arms.get(arm, {})
+            if a.get("n_repeats", 0) == 0:
+                continue
+            gap = a[metric]["mean"] - bmean
+            sig = float(np.sqrt(bstd**2 + a[metric]["std"] ** 2))
+            verdict = "SIGNIFICANT" if abs(gap) > sig else "within sigma_run (noise)"
+            arrow = "better" if gap < 0 else "worse"
+            print(f"    {arm:12s} gap = {gap:+7.1f} ({arrow}), sigma_run = {sig:5.1f}  -> {verdict}")

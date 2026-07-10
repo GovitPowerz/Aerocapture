@@ -89,6 +89,12 @@ def _fill_layer(entry: Any, slab: np.ndarray, bound_multiplier: float, rng: np.r
         _fill_mamba(entry, slab, bound_multiplier, rng, layer_idx=layer_idx)
     elif t == "mamba3":
         _fill_mamba3(entry, slab, bound_multiplier, rng, layer_idx=layer_idx)
+    elif t == "cfc":
+        _fill_cfc(entry, slab, bound_multiplier, rng)
+    elif t == "slstm":
+        _fill_slstm(entry, slab, bound_multiplier, rng)
+    elif t == "mlstm":
+        _fill_mlstm(entry, slab, bound_multiplier, rng)
     else:
         raise ValueError(f"init_v2_population: unknown layer type {t!r}")
 
@@ -297,3 +303,76 @@ def _fill_mamba3(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np
 
     slab[:, c : c + d_inner] = 1.0 + rng.normal(0.0, jitter_std, size=(pop_n, d_inner))
     c += d_inner
+
+
+def _fill_cfc(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.random.Generator) -> None:
+    """CfC slab in canonical flat order (interleaved matrix/bias pairs):
+    w_bb, b_bb, w_ff1, b_ff1, w_ff2, b_ff2, w_ta, b_ta, w_tb, b_tb.
+    Xavier-uniform matrices (tanh gain on bb/ff, linear on time heads),
+    N(0, BIAS_NOISE_STD * mul) biases.
+    """
+    i = int(entry["input_size"])
+    h = int(entry["hidden_size"])
+    b = int(entry["backbone_units"])
+    cat = i + h
+    bias_std = BIAS_NOISE_STD * bound_multiplier
+    pop_n = slab.shape[0]
+    c = 0
+    for rows, cols, act in ((b, cat, "tanh"), (h, b, "tanh"), (h, b, "tanh"), (h, b, "linear"), (h, b, "linear")):
+        w_bound = bound_multiplier * compute_layer_bound(cols, rows, act)
+        n_w = rows * cols
+        slab[:, c : c + n_w] = rng.uniform(-w_bound, w_bound, size=(pop_n, n_w))
+        c += n_w
+        slab[:, c : c + rows] = rng.normal(0.0, bias_std, size=(pop_n, rows))
+        c += rows
+    assert c == slab.shape[1], f"cfc slab width mismatch: filled {c}, have {slab.shape[1]}"
+
+
+def _fill_slstm(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.random.Generator) -> None:
+    """sLSTM slab: weight_ih, weight_hh (tanh-Xavier), bias N(0, std) except the
+    forget slice (rows [H:2H], gate order i/f/z/o) centered at +2.0 -- the
+    exp-gating analogue of the LSTM forget-bias-1 init.
+    """
+    fan_in = int(entry["input_size"])
+    hidden = int(entry["hidden_size"])
+    four_h = 4 * hidden
+    n_w_ih = four_h * fan_in
+    n_w_hh = four_h * hidden
+    w_ih_bound = bound_multiplier * compute_layer_bound(fan_in, four_h, "tanh")
+    w_hh_bound = bound_multiplier * compute_layer_bound(hidden, four_h, "tanh")
+    bias_std = BIAS_NOISE_STD * bound_multiplier
+    pop_n = slab.shape[0]
+    slab[:, :n_w_ih] = rng.uniform(-w_ih_bound, w_ih_bound, size=(pop_n, n_w_ih))
+    slab[:, n_w_ih : n_w_ih + n_w_hh] = rng.uniform(-w_hh_bound, w_hh_bound, size=(pop_n, n_w_hh))
+    b0 = n_w_ih + n_w_hh
+    slab[:, b0 : b0 + four_h] = rng.normal(0.0, bias_std, size=(pop_n, four_h))
+    slab[:, b0 + hidden : b0 + 2 * hidden] = 2.0 + rng.normal(0.0, bias_std, size=(pop_n, hidden))
+    assert b0 + 4 * hidden == slab.shape[1], f"slstm slab width mismatch: filled {b0 + 4 * hidden}, have {slab.shape[1]}"
+
+
+def _fill_mlstm(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.random.Generator) -> None:
+    """mLSTM slab: w_q/b_q, w_k/b_k, w_v/b_v, w_o/b_o (linear-Xavier + N(0,std)
+    biases), then w_i, b_i, w_f, b_f with b_f centered at +2.0.
+    """
+    fan_in = int(entry["input_size"])
+    hidden = int(entry["hidden_size"])
+    proj_bound = bound_multiplier * compute_layer_bound(fan_in, hidden, "linear")
+    gate_bound = bound_multiplier * compute_layer_bound(fan_in, 1, "linear")
+    bias_std = BIAS_NOISE_STD * bound_multiplier
+    pop_n = slab.shape[0]
+    c = 0
+    for _ in range(4):
+        n_w = hidden * fan_in
+        slab[:, c : c + n_w] = rng.uniform(-proj_bound, proj_bound, size=(pop_n, n_w))
+        c += n_w
+        slab[:, c : c + hidden] = rng.normal(0.0, bias_std, size=(pop_n, hidden))
+        c += hidden
+    slab[:, c : c + fan_in] = rng.uniform(-gate_bound, gate_bound, size=(pop_n, fan_in))
+    c += fan_in
+    slab[:, c] = rng.normal(0.0, bias_std, size=pop_n)
+    c += 1
+    slab[:, c : c + fan_in] = rng.uniform(-gate_bound, gate_bound, size=(pop_n, fan_in))
+    c += fan_in
+    slab[:, c] = 2.0 + rng.normal(0.0, bias_std, size=pop_n)
+    c += 1
+    assert c == slab.shape[1], f"mlstm slab width mismatch: filled {c}, have {slab.shape[1]}"

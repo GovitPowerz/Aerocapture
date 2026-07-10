@@ -11,12 +11,15 @@ from aerocapture.training.rl.layers.mamba import MambaLayer
 from aerocapture.training.rl.layers.transformer import TransformerLayer
 from aerocapture.training.rl.layers.window import WindowLayer
 from aerocapture.training.rl.schemas import (
+    CfcSpec,
     DenseSpec,
     GruSpec,
     LayerSpec,
     LstmSpec,
     Mamba3Spec,
     MambaSpec,
+    MlstmSpec,
+    SlstmSpec,
     TransformerSpec,
     WindowSpec,
 )
@@ -51,5 +54,10 @@ def build_layer(spec: LayerSpec) -> nn.Module:
         raise NotImplementedError(
             "Mamba3 is PSO-only (ablation spike); the PPO/warm-start V2Policy path is not "
             "implemented. See docs/superpowers/specs/2026-07-07-mamba3-ablation-design.md"
+        )
+    if isinstance(spec, (CfcSpec, SlstmSpec, MlstmSpec)):
+        raise NotImplementedError(
+            f"{spec.type} is PSO-only (architecture probe); the PPO/warm-start V2Policy "
+            "path is not implemented. See docs/superpowers/specs/2026-07-07-cfc-xlstm-probes-design.md"
         )
     raise ValueError(f"Unknown layer spec: {spec!r}")

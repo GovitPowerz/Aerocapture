@@ -42,6 +42,25 @@ pub enum LayerState {
         x_prev: nalgebra::DVector<f64>,
         b_prev: nalgebra::DVector<f64>,
     },
+    /// CfC hidden state, flat like GRU. Reset zeros it.
+    Cfc {
+        h: Vec<f64>,
+    },
+    /// sLSTM state: hidden h, cell c, normalizer n, stabilizer m. All zero-init
+    /// (m_0 = 0 per the xLSTM reference; no div-by-zero since n_1 = i' > 0).
+    Slstm {
+        h: Vec<f64>,
+        c: Vec<f64>,
+        n: Vec<f64>,
+        m: Vec<f64>,
+    },
+    /// mLSTM state: matrix memory C (H x H), normalizer n (H,), scalar stabilizer m.
+    /// Reset zeros all three.
+    Mlstm {
+        c: nalgebra::DMatrix<f64>,
+        n: Vec<f64>,
+        m: f64,
+    },
 }
 
 impl LayerState {
@@ -76,6 +95,20 @@ impl LayerState {
                 h_im: nalgebra::DMatrix::<f64>::zeros(m.input_size, m.d_state),
                 x_prev: nalgebra::DVector::<f64>::zeros(m.input_size),
                 b_prev: nalgebra::DVector::<f64>::zeros(m.d_state),
+            },
+            Layer::Cfc(l) => LayerState::Cfc {
+                h: vec![0.0; l.hidden_size],
+            },
+            Layer::Slstm(l) => LayerState::Slstm {
+                h: vec![0.0; l.hidden_size],
+                c: vec![0.0; l.hidden_size],
+                n: vec![0.0; l.hidden_size],
+                m: vec![0.0; l.hidden_size],
+            },
+            Layer::Mlstm(l) => LayerState::Mlstm {
+                c: nalgebra::DMatrix::<f64>::zeros(l.hidden_size, l.hidden_size),
+                n: vec![0.0; l.hidden_size],
+                m: 0.0,
             },
         }
     }
@@ -120,6 +153,25 @@ impl LayerState {
                 h_im.fill(0.0);
                 x_prev.fill(0.0);
                 b_prev.fill(0.0);
+            }
+            LayerState::Cfc { h } => {
+                for v in h.iter_mut() {
+                    *v = 0.0;
+                }
+            }
+            LayerState::Slstm { h, c, n, m } => {
+                for vec in [h, c, n, m] {
+                    for v in vec.iter_mut() {
+                        *v = 0.0;
+                    }
+                }
+            }
+            LayerState::Mlstm { c, n, m } => {
+                c.fill(0.0);
+                for v in n.iter_mut() {
+                    *v = 0.0;
+                }
+                *m = 0.0;
             }
         }
     }
@@ -519,6 +571,73 @@ mod tests {
                 assert_eq!(b_prev.len(), 4);
             }
             _ => panic!("expected Mamba3"),
+        }
+    }
+
+    #[test]
+    fn layer_state_cfc_for_layer_and_reset() {
+        use crate::data::neural::CfcLayer;
+        let layer = Layer::Cfc(Box::new(CfcLayer::zeros(3, 4, 5)));
+        let mut state = LayerState::for_layer(&layer);
+        if let LayerState::Cfc { h } = &mut state {
+            assert_eq!(h.len(), 4);
+            h[0] = 9.0;
+        } else {
+            panic!("expected LayerState::Cfc");
+        }
+        state.reset();
+        if let LayerState::Cfc { h } = &state {
+            assert!(h.iter().all(|&v| v == 0.0));
+        } else {
+            panic!("expected LayerState::Cfc after reset");
+        }
+    }
+
+    #[test]
+    fn layer_state_slstm_for_layer_and_reset() {
+        use crate::data::neural::SlstmLayer;
+        let layer = Layer::Slstm(SlstmLayer::zeros(3, 4));
+        let mut state = LayerState::for_layer(&layer);
+        if let LayerState::Slstm { h, c, n, m } = &mut state {
+            assert!(h.len() == 4 && c.len() == 4 && n.len() == 4 && m.len() == 4);
+            h[0] = 1.0;
+            c[1] = 2.0;
+            n[2] = 3.0;
+            m[3] = 4.0;
+        } else {
+            panic!("expected LayerState::Slstm");
+        }
+        state.reset();
+        if let LayerState::Slstm { h, c, n, m } = &state {
+            for vec in [h, c, n, m] {
+                assert!(vec.iter().all(|&v| v == 0.0));
+            }
+        } else {
+            panic!("expected LayerState::Slstm after reset");
+        }
+    }
+
+    #[test]
+    fn layer_state_mlstm_for_layer_and_reset() {
+        use crate::data::neural::MlstmLayer;
+        let layer = Layer::Mlstm(Box::new(MlstmLayer::zeros(3, 4)));
+        let mut state = LayerState::for_layer(&layer);
+        if let LayerState::Mlstm { c, n, m } = &mut state {
+            assert_eq!(c.shape(), (4, 4));
+            assert_eq!(n.len(), 4);
+            c[(0, 0)] = 5.0;
+            n[1] = 2.0;
+            *m = 7.0;
+        } else {
+            panic!("expected LayerState::Mlstm");
+        }
+        state.reset();
+        if let LayerState::Mlstm { c, n, m } = &state {
+            assert!(c.iter().all(|&v| v == 0.0));
+            assert!(n.iter().all(|&v| v == 0.0));
+            assert_eq!(*m, 0.0);
+        } else {
+            panic!("expected LayerState::Mlstm after reset");
         }
     }
 }

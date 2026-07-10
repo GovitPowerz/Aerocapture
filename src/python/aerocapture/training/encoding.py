@@ -15,12 +15,15 @@ import numpy.typing as npt
 from aerocapture.training.initialization import compute_layer_bound
 from aerocapture.training.param_spaces import ParamSpec
 from aerocapture.training.rl.schemas import (
+    CfcSpec,
     DenseSpec,
     GruSpec,
     LayerSpec,
     LstmSpec,
     Mamba3Spec,
     MambaSpec,
+    MlstmSpec,
+    SlstmSpec,
     TransformerSpec,
     WindowSpec,
 )
@@ -125,6 +128,12 @@ def _layer_param_specs(layer: LayerSpec, layer_idx: int = 0, bound_multiplier: f
         return _mamba_specs(layer, layer_idx, bound_multiplier)
     if isinstance(layer, Mamba3Spec):
         return _mamba3_specs(layer, layer_idx, bound_multiplier)
+    if isinstance(layer, CfcSpec):
+        return _cfc_specs(layer, layer_idx, bound_multiplier)
+    if isinstance(layer, SlstmSpec):
+        return _slstm_specs(layer, layer_idx, bound_multiplier)
+    if isinstance(layer, MlstmSpec):
+        return _mlstm_specs(layer, layer_idx, bound_multiplier)
     msg = f"Unknown layer type for PSO specs: {layer!r}"
     raise ValueError(msg)
 
@@ -375,4 +384,92 @@ def _mamba3_specs(layer: Mamba3Spec, layer_idx: int, bound_multiplier: float) ->
     for d in range(d_inner):
         specs.append(ParamSpec(f"d_skip{li}_{d}", 1.0 - mul, 1.0 + mul, 1.0))
 
+    return specs
+
+
+def _cfc_specs(layer: CfcSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
+    """Canonical flat order (Rust CfcLayer::to_flat): interleaved matrix/bias pairs
+    w_bb, b_bb, w_ff1, b_ff1, w_ff2, b_ff2, w_ta, b_ta, w_tb, b_tb.
+
+    Bounds: tanh-Xavier on w_bb/w_ff1/w_ff2 (feed lecun_tanh / tanh), plain
+    Xavier ("linear") on the time heads w_ta/w_tb, tight 0.1*mul biases.
+    """
+    i, h, b = layer.input_size, layer.hidden_size, layer.backbone_units
+    cat = i + h
+    bb_bound = bound_multiplier * compute_layer_bound(cat, b, "tanh")
+    ff_bound = bound_multiplier * compute_layer_bound(b, h, "tanh")
+    t_bound = bound_multiplier * compute_layer_bound(b, h, "linear")
+    bias_bound = 0.1 * bound_multiplier
+    li = layer_idx
+
+    specs: list[ParamSpec] = []
+    for name, rows, cols, w_bound in (
+        ("w_bb", b, cat, bb_bound),
+        ("w_ff1", h, b, ff_bound),
+        ("w_ff2", h, b, ff_bound),
+        ("w_ta", h, b, t_bound),
+        ("w_tb", h, b, t_bound),
+    ):
+        for j in range(rows * cols):
+            specs.append(ParamSpec(f"{name}{li}_{j}", -w_bound, w_bound, 0.0))
+        bias_name = name.replace("w_", "b_")
+        for j in range(rows):
+            specs.append(ParamSpec(f"{bias_name}{li}_{j}", -bias_bound, bias_bound, 0.0))
+    return specs
+
+
+def _slstm_specs(layer: SlstmSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
+    """Canonical flat order (Rust SlstmLayer::to_flat): weight_ih [4H,I] row-major,
+    weight_hh [4H,H] row-major, bias [4H]. Gate order (i, f, z, o).
+
+    The forget slice of `bias` (rows [H:2H]) gets the wide 3.0*mul bound to hold
+    the +2.0 exp-gating forget-bias init center (LSTM forget-bias-1 precedent,
+    scaled for the exponential gate).
+    """
+    h = layer.hidden_size
+    four_h = 4 * h
+    w_ih_bound = bound_multiplier * compute_layer_bound(layer.input_size, four_h, "tanh")
+    w_hh_bound = bound_multiplier * compute_layer_bound(h, four_h, "tanh")
+    tight = 0.1 * bound_multiplier
+    forget = 3.0 * bound_multiplier
+    li = layer_idx
+
+    specs: list[ParamSpec] = []
+    for j in range(four_h * layer.input_size):
+        specs.append(ParamSpec(f"w_ih{li}_{j}", -w_ih_bound, w_ih_bound, 0.0))
+    for j in range(four_h * h):
+        specs.append(ParamSpec(f"w_hh{li}_{j}", -w_hh_bound, w_hh_bound, 0.0))
+    for j in range(four_h):
+        if h <= j < 2 * h:
+            specs.append(ParamSpec(f"b{li}_{j}", -forget, forget, 2.0))
+        else:
+            specs.append(ParamSpec(f"b{li}_{j}", -tight, tight, 0.0))
+    return specs
+
+
+def _mlstm_specs(layer: MlstmSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
+    """Canonical flat order (Rust MlstmLayer::to_flat): w_q, b_q, w_k, b_k, w_v,
+    b_v, w_o, b_o, w_i, b_i, w_f, b_f. Xavier ("linear") on projections and gate
+    vectors; b_f wide (3.0*mul, +2.0 init center); every other bias tight.
+    """
+    i, h = layer.input_size, layer.hidden_size
+    proj_bound = bound_multiplier * compute_layer_bound(i, h, "linear")
+    gate_bound = bound_multiplier * compute_layer_bound(i, 1, "linear")
+    tight = 0.1 * bound_multiplier
+    forget = 3.0 * bound_multiplier
+    li = layer_idx
+
+    specs: list[ParamSpec] = []
+    for name in ("w_q", "w_k", "w_v", "w_o"):
+        for j in range(h * i):
+            specs.append(ParamSpec(f"{name}{li}_{j}", -proj_bound, proj_bound, 0.0))
+        bias_name = name.replace("w_", "b_")
+        for j in range(h):
+            specs.append(ParamSpec(f"{bias_name}{li}_{j}", -tight, tight, 0.0))
+    for j in range(i):
+        specs.append(ParamSpec(f"w_i{li}_{j}", -gate_bound, gate_bound, 0.0))
+    specs.append(ParamSpec(f"b_i{li}", -tight, tight, 0.0))
+    for j in range(i):
+        specs.append(ParamSpec(f"w_f{li}_{j}", -gate_bound, gate_bound, 0.0))
+    specs.append(ParamSpec(f"b_f{li}", -forget, forget, 2.0))
     return specs

@@ -53,9 +53,13 @@ HEADLINE_REQUOTE_SEED_OFFSET = 8_000_000
 # MC regime (atmosphere/density/nav at level=high), disjoint from every training
 # and eval stream so the stress test is reproducible and uncontaminated.
 STRESS_EVAL_SEED_OFFSET = 9_000_000
-# Mamba-3 ablation spike: shared reserved eval pool for the 2x2 arm comparison,
-# disjoint from every training/validation/final/other-eval stream above.
-MAMBA3_EVAL_SEED_OFFSET = 10_000_000
+# Shared reserved eval pool for the architecture probe scripts (mamba3 2x2,
+# cfc-vs-gru, lstm-vs-slstm-vs-mlstm): all probes score on ONE pool so their
+# reports are directly comparable. Disjoint from every training/validation/
+# final/other-eval stream above.
+PROBE_EVAL_SEED_OFFSET = 10_000_000
+# Legacy alias (mamba3_962_compare.py imports this name).
+MAMBA3_EVAL_SEED_OFFSET = PROBE_EVAL_SEED_OFFSET
 
 
 def make_reserved_seeds(base_mc_seed: int, offset: int, n: int) -> list[int]:

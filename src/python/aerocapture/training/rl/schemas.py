@@ -131,8 +131,47 @@ class Mamba3Spec(BaseModel):
         return self
 
 
+class CfcSpec(BaseModel):
+    """CfC (closed-form continuous-time) cell -- PSO-only probe layer.
+
+    ncps "default" mode, one backbone layer, dt fixed at one guidance tick.
+    See docs/superpowers/specs/2026-07-07-cfc-xlstm-probes-design.md.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["cfc"]
+    input_size: int = Field(ge=1)
+    hidden_size: int = Field(ge=1)
+    backbone_units: int = Field(ge=1)
+
+
+class SlstmSpec(BaseModel):
+    """sLSTM cell (xLSTM) -- PSO-only probe layer. Exponential gating + stabilizer.
+
+    See docs/superpowers/specs/2026-07-07-cfc-xlstm-probes-design.md.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["slstm"]
+    input_size: int = Field(ge=1)
+    hidden_size: int = Field(ge=1)
+
+
+class MlstmSpec(BaseModel):
+    """mLSTM cell (xLSTM) -- PSO-only probe layer. Matrix memory, single head,
+    d_qk = d_v = hidden_size.
+
+    See docs/superpowers/specs/2026-07-07-cfc-xlstm-probes-design.md.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["mlstm"]
+    input_size: int = Field(ge=1)
+    hidden_size: int = Field(ge=1)
+
+
 LayerSpec = Annotated[
-    DenseSpec | GruSpec | LstmSpec | WindowSpec | TransformerSpec | MambaSpec | Mamba3Spec,
+    DenseSpec | GruSpec | LstmSpec | WindowSpec | TransformerSpec | MambaSpec | Mamba3Spec | CfcSpec | SlstmSpec | MlstmSpec,
     Discriminator("type"),
 ]
 
