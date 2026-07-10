@@ -8,45 +8,45 @@
 // result. dense_515 carried as a full efficiency-reference row throughout.
 // =============================================================================
 
-// NeurIPS-style single-column layout (cf. Vaswani et al. 2017): Times body,
-// STIX Two Math for equations, a narrow 5.5in text block, bold numbered headings.
+// arXiv-preprint layout matched to the Mamba-3 PDF (arXiv:2603.15569v1): Linux
+// Libertine body (Typst's bundled Libertinus Serif) over a wide ~6.5in text block,
+// Computer Modern math (standing in for newtxmath), booktabs-style tables with the
+// caption ABOVE, hyperref-style colors (maroon citations, blue internal refs/links).
 #set document(title: "Seventeen years later: stateful neural guidance and the tail that sizes a Mars aerocapture mission", author: "Grégory Gelly")
-#set page(paper: "us-letter", margin: (x: 1.5in, top: 1in, bottom: 1.25in), numbering: "1")
-// Fonts matched to the "Attention" PDF: body = STIX Two Text (the open Times-metric
-// face standing in for the paper's Nimbus Roman; Times New Roman reads too dark),
-// math = Computer Modern (the paper's math is CMR/CMMI, not a Times-matched math),
-// inline code = Computer Modern Typewriter (the paper's literals are SFTT/\texttt).
-#set text(font: "STIX Two Text", size: 10pt)
+#set page(paper: "us-letter", margin: (x: 1in, top: 1.1in, bottom: 1.15in), numbering: "1")
+#set text(font: "Libertinus Serif", size: 10pt)
 #show math.equation: set text(font: "New Computer Modern Math")
-#show raw: set text(font: "Courier New")  // CM Typewriter not installed; Courier is the serifed-mono stand-in
-// NIPS-2017 body metrics: 10/11 baseline (leading 0.44em -> 11.0pt measured),
-// parindent 0, parskip 5.5pt. Top-level lists indented ~2.5em (marker ~28pt from
-// the body margin, measured from the paper's itemize).
-#set par(justify: true, leading: 0.44em, spacing: 5.5pt)
-#set enum(indent: 2.8em, body-indent: 0.5em)
-#set list(indent: 1.2em, body-indent: 0.5em)  // tighter than the enum: the only bullet list (§3.2 cell types) reads better close to the margin
+#show raw: set text(font: "DejaVu Sans Mono", size: 0.82em)  // cmtt stand-in for literals/URLs
+// Mamba-3 body metrics: 10pt over ~12.4pt leading, flush-left paragraphs separated
+// by vertical space (no indent).
+#set par(justify: true, leading: 0.56em, spacing: 0.95em)
+#set enum(indent: 1.2em, body-indent: 0.5em)
+#set list(indent: 1.2em, body-indent: 0.5em)
 #set heading(numbering: "1.1")
 #set math.equation(numbering: "(1)")
-// NIPS-2017 headings: section \large\bf (12pt), subsection \normalsize\bf (10pt);
-// beforeskip/afterskip 2.0ex/1.5ex (section), 1.8ex/0.8ex (subsection) at 1ex~=4.5pt.
+// Headings: section \Large-bold (~14pt), subsection \large (~12pt),
+// subsubsection \normalsize (~10.5pt), with roomier LaTeX-article skips.
 #show heading: set text(weight: "bold")
-#show heading.where(level: 1): set text(size: 12pt)
-#show heading.where(level: 2): set text(size: 10pt)
-// Heading skips: target the measured "Attention" PDF gaps (section ~17/13pt,
-// subsection ~15/10pt, subsubsection ~12/8pt). Typst's block spacing renders
-// ~3.5pt under the set value (bounding-box vs ink gap), so set value = target +3.5.
-#show heading.where(level: 1): set block(above: 20.5pt, below: 16.5pt)
-#show heading.where(level: 2): set block(above: 18.5pt, below: 13.5pt)
-#show heading.where(level: 3): set block(above: 15.5pt, below: 11.5pt)
-#show link: set text(fill: blue.darken(20%))
-// Float spacing: set figure/table blocks off from the body text (the 5.5pt
-// parskip let captions crowd the next paragraph) and widen the body-to-caption
-// gap; the caption stays closer to its float than to the text (8 < 16pt).
-// The two side-by-side pairs sit in #grid wrappers, so grids get the same
-// block spacing (the only top-level grids in the document are those pairs).
-#show figure: set block(above: 16pt, below: 16pt)
-#set figure(gap: 8pt)
-#show grid: set block(above: 16pt, below: 16pt)
+#show heading.where(level: 1): set text(size: 14pt)
+#show heading.where(level: 2): set text(size: 12pt)
+#show heading.where(level: 3): set text(size: 10.5pt)
+#show heading.where(level: 1): set block(above: 1.7em, below: 1.0em)
+#show heading.where(level: 2): set block(above: 1.5em, below: 0.9em)
+#show heading.where(level: 3): set block(above: 1.3em, below: 0.8em)
+// hyperref-style colors from the Mamba-3 PDF: citations in a crimson/maroon,
+// internal refs (sections, tables, equations) and URLs in blue.
+#let citecolor = rgb("#b83a5c")
+#let linkcolor = rgb("#2b5ba8")
+#show cite: set text(fill: citecolor)
+#show ref: set text(fill: linkcolor)
+#show link: set text(fill: linkcolor)
+// Booktabs tables: no vertical rules, no cell grid; each table adds its own
+// top/mid/bottom hlines. Table captions sit ABOVE the table (LaTeX convention).
+#set table(stroke: none, inset: (x: 7pt, y: 4.5pt))
+#show figure.where(kind: table): set figure.caption(position: top)
+#show figure: set block(above: 1.5em, below: 1.5em)
+#set figure(gap: 0.8em)
+#show grid: set block(above: 1.5em, below: 1.5em)
 
 // Figure helper: include from figures/, attach the caption and the label.
 #let fig(path, cap, lbl) = [#figure(image("figures/" + path, width: 100%), caption: cap)#lbl]
@@ -226,11 +226,11 @@ construction. We lead with the tail; the mean is reported for continuity with th
   table(
     columns: (auto, auto, auto, 1fr),
     align: (left, center, left, left),
-    stroke: 0.5pt + luma(180),
-    inset: 5pt,
+    table.hline(stroke: 0.7pt),
     table.header(
       [*Domain*], [*Dims*], [*Distribution*], [*Dispersion (controlled regime)*],
     ),
+    table.hline(stroke: 0.35pt),
     [Entry state], [6], [Gaussian], [altitude $plus.minus 0.3$ km, velocity $plus.minus 3$ m/s, flight-path/azimuth $plus.minus 0.15$--$0.3degree$ ($3sigma$; medium)],
     [Atmospheric density], [1], [Uniform], [$plus.minus 50%$ multiplicative bias (medium)],
     [Aerodynamics], [3], [Uniform], [drag $plus.minus 5%$, lift $plus.minus 10%$, angle of attack $plus.minus 1degree$ (medium)],
@@ -241,6 +241,7 @@ construction. We lead with the tail; the mean is reported for continuity with th
     [Nav-filter gain], [1], [Gaussian], [$plus.minus 0.3$ absolute ($3sigma$; medium)],
     [Winds], [2], [Uniform], [speed $times [0.7, 1.3]$, direction $plus.minus 5degree$ (low; model disabled -- draws inert)],
     [Density perturbation], [process], [Gauss--Markov], [correlation time $120$ s, $5%$ RMS, time-varying (low)],
+    table.hline(stroke: 0.7pt),
   ),
   caption: [The dispersion model. Twenty-six static draws across nine domains, plus a time-varying
   Gauss--Markov density perturbation (the tenth row). The controlled-study regime uses medium presets
@@ -368,11 +369,11 @@ Mamba-3 @lahoti2026mamba3 -- against these cells at matched budget; none improve
   table(
     columns: (auto, auto, auto, auto, 1fr),
     align: (left, left, center, center, left),
-    stroke: 0.5pt + luma(180),
-    inset: 5pt,
+    table.hline(stroke: 0.7pt),
     table.header(
       [*Scheme*], [*Bank command*], [*Reference*], [*Compute*], [*Heritage / note*],
     ),
+    table.hline(stroke: 0.35pt),
     [FTC], [magnitude + roll reversal], [yes], [fast], [Cerimele--Gamble apoapsis enslavement],
     [FNPAG], [magnitude + roll reversal], [no], [slow], [onboard forward integration, bisection corrector],
     [PredGuid], [magnitude + roll reversal], [yes], [fast], [Apollo/Shuttle drag tracking],
@@ -380,6 +381,7 @@ Mamba-3 @lahoti2026mamba3 -- against these cells at matched budget; none improve
     [Equilibrium glide], [magnitude + roll reversal], [no], [fast], [equilibrium-glide condition, nav density],
     [Piecewise constant], [signed ($N$ segments)], [no], [fast], [produces reference + corridor],
     [Neural network], [signed or magnitude], [inputs], [fast], [35-input candidate vector, stateful cells],
+    table.hline(stroke: 0.7pt),
   ),
   caption: [The benchmarked schemes. "Reference" marks dependence on a tabulated reference trajectory
   ("inputs": the network reads two reference interpolations as observations but does not enslave to
@@ -780,11 +782,11 @@ property we can claim.
   table(
     columns: (auto, auto, auto, auto, auto, auto, auto),
     align: (left, center, center, center, center, center, center),
-    stroke: 0.5pt + luma(180),
-    inset: 5pt,
+    table.hline(stroke: 0.7pt),
     table.header(
       [*Scheme*], [*Capture %*], [*Viol. %*], [*Mean*], [$bold(p_95)$], [$bold("CVaR"_95)$], [$bold("CVaR"_(99.9))$†],
     ),
+    table.hline(stroke: 0.35pt),
     [NN -- Mamba (deployed)], [100.0], [0.0], [109.9], [114.0], [*115.4*], [*124.5*],
     [NN -- dense (efficiency ref.)], [100.0], [0.0], [109.7], [114.9], [117.0], [139.2],
     [FTC (joint reference)], [100.0], [0.0], [126.3], [137.8], [142.9], [164.0],
@@ -796,6 +798,7 @@ property we can claim.
     [Energy controller (fixed reference)], [99.6], [0.0], [176.7], [226.0], [245.8], [---],
     [Equilibrium glide], [99.5], [0.5], [200.3], [290.0], [327.6], [---],
     [Piecewise constant], [99.8], [1.1], [258.3], [374.6], [421.1], [---],
+    table.hline(stroke: 0.7pt),
   ),
   caption: [Final Monte-Carlo performance, correction $Delta v$ in m/s, ordered by $"CVaR"_95$.
   Capture / Viol. / mean / $p_95$ / $"CVaR"_95$ are on the $n = 1000$ final-evaluation pool;
@@ -814,11 +817,11 @@ property we can claim.
   table(
     columns: (auto, auto, auto, auto, auto, auto),
     align: (left, center, center, center, center, center),
-    stroke: 0.5pt + luma(180),
-    inset: 5pt,
+    table.hline(stroke: 0.7pt),
     table.header(
       [*Comparison (A vs B)*], [$bold(Delta"mean")$], [*95% CI*], [$bold(Delta p_95)$], [$bold(Delta"CVaR"_95)$], [*A-win %*], [*p*],
     ),
+    table.hline(stroke: 0.35pt),
     [Mamba vs FTC (fixed ref.)], [$-60.8$], [$[-62.4, -59.2]$], [$-95.0$], [$-128.8$], [100.0], [$3 times 10^(-165)$],
     [Mamba vs FTC (joint ref.)], [$-16.4$], [$[-16.8, -16.0]$], [$-23.8$], [$-27.6$], [100.0], [$3 times 10^(-165)$],
     [Mamba vs FNPAG], [$-14.4$], [$[-14.8, -14.0]$], [$-23.4$], [$-28.7$], [99.8], [$3 times 10^(-165)$],
@@ -826,6 +829,7 @@ property we can claim.
     [Mamba vs LSTM], [$+1.4$], [$[+1.2, +1.6]$], [$-0.0$], [$-0.6$], [29.2#super[‡]], [$3 times 10^(-46)$],
     [FTC: joint vs fixed reference], [$-44.4$], [$[-45.9, -42.9]$], [$-71.2$], [$-101.2$], [100.0], [$3 times 10^(-165)$],
     [FTC (joint) vs FNPAG], [$+2.0$], [$[+1.5, +2.5]$], [$+0.4$], [$-1.1$], [33.9], [$1 times 10^(-23)$],
+    table.hline(stroke: 0.7pt),
   ),
   caption: [Paired comparisons on the shared $n = 1000$ pool, correction $Delta v$ in m/s; negative
   $Delta$ favors A. The CI is a $10\,000$-resample bootstrap on the paired mean difference.
@@ -990,7 +994,7 @@ to carry these stateful policies beyond the single capture maneuver -- to skip-e
 legs, and to on-line adaptation of the deployed policy in flight.
 
 #pagebreak()
-#bibliography("refs.bib")
+#bibliography("refs.bib", title: "References", style: "harvard-cite-them-right")
 
 #pagebreak()
 #set heading(numbering: none)
@@ -1086,11 +1090,11 @@ sit above the headline numbers and are not mission figures.
   table(
     columns: (auto, auto, auto, auto, auto, auto, auto),
     align: (left, center, center, center, center, center, center),
-    stroke: 0.5pt + luma(180),
-    inset: 5pt,
+    table.hline(stroke: 0.7pt),
     table.header(
       [*Arm*], [*Params*], [*Capture %*], [*Viol. %*], [$bold(p_50)$], [$bold(p_95 plus.minus sigma_"run")$], [$bold("CVaR"_95 plus.minus sigma_"run")$],
     ),
+    table.hline(stroke: 0.35pt),
     [Mamba (baseline)], [962], [99.97], [0.0], [114.0], [$121.6 plus.minus 0.5$], [$124.1 plus.minus 0.3$],
     [Mamba-3 trapezoidal], [978], [100.0], [0.0], [115.5], [$124.9 plus.minus 2.1$], [$128.8 plus.minus 2.3$],
     [Mamba-3 complex], [1154], [100.0], [0.0], [113.7], [$121.1 plus.minus 1.8$], [$123.8 plus.minus 2.1$],
@@ -1100,6 +1104,7 @@ sit above the headline numbers and are not mission figures.
     [LSTM (baseline)], [1082], [100.0], [0.0], [115.4], [$124.3 plus.minus 1.4$], [$127.3 plus.minus 1.4$],
     [sLSTM], [1042], [100.0], [0.0], [115.7], [$124.7 plus.minus 2.6$], [$127.6 plus.minus 3.1$],
     [mLSTM], [1078], [100.0], [0.0], [118.1], [$127.4 plus.minus 3.5$], [$130.8 plus.minus 4.8$],
+    table.hline(stroke: 0.7pt),
   ),
   caption: [The nine probe arms: three-seed means, correction $Delta v$ in m/s on the shared
   $n = 1000$ probe pool. Baselines are retrained in-regime (not the deployed champions -- see the
@@ -1111,17 +1116,18 @@ sit above the headline numbers and are not mission figures.
   table(
     columns: (auto, auto, auto, auto, auto),
     align: (left, center, center, center, left),
-    stroke: 0.5pt + luma(180),
-    inset: 5pt,
+    table.hline(stroke: 0.7pt),
     table.header(
       [*Treatment vs baseline*], [*Metric*], [*Gap*], [$bold(sigma_"run")$], [*Verdict*],
     ),
+    table.hline(stroke: 0.35pt),
     [CfC vs GRU], [$p_95$ / $"CVaR"_95$], [$+2.8$ / $+3.7$], [$1.6$ / $1.3$], [*significantly worse*],
     [Trapezoidal vs Mamba], [$p_95$ / $"CVaR"_95$], [$+3.3$ / $+4.8$], [$2.2$ / $2.3$], [*significantly worse*],
     [Complex vs Mamba], [$p_95$ / $"CVaR"_95$], [$-0.5$ / $-0.3$], [$1.9$ / $2.1$], [within $sigma_"run"$],
     [Both vs Mamba], [$p_95$ / $"CVaR"_95$], [$+0.0$ / $+0.1$], [$1.4$ / $1.2$], [within $sigma_"run"$],
     [sLSTM vs LSTM], [$p_95$ / $"CVaR"_95$], [$+0.4$ / $+0.3$], [$2.9$ / $3.4$], [within $sigma_"run"$],
     [mLSTM vs LSTM], [$p_95$ / $"CVaR"_95$], [$+3.1$ / $+3.5$], [$3.8$ / $5.0$], [within $sigma_"run"$ (high variance)],
+    table.hline(stroke: 0.7pt),
   ),
   caption: [Within-family significance, the rigorous claims: gap = treatment minus baseline
   (positive = worse), cleared when $|"gap"| > sqrt(sigma_"base"^2 + sigma_"arm"^2)$ (the tabulated
