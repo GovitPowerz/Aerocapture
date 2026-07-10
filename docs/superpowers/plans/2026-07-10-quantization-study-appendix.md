@@ -35,7 +35,7 @@ configs/training/quant/mamba962_qat4_finetune.toml
 configs/training/quant/mamba962_qat4_scratch.toml
 src/rust/Cargo.toml                              # + criterion dev-dep + [[bench]]
 src/rust/benches/quant_forward.rs                # f64/f32/w8a8/w4a8 kernels + self-checks
-experiments/paper/15_quantization.sh             # campaign runner (ptq | qat | bench | finalists | collect)
+experiments/paper/17_quantization.sh             # campaign runner (ptq | qat | bench | finalists | collect)
 docs/paper/quantization_appendix.md              # working notes (mirrors architecture_probes_appendix.md)
 articles/paper/paper.typ                         # Appendix D + updated future-work sentence at line 949
 articles/paper/data/quant/                       # results JSONs bundle
@@ -1906,7 +1906,7 @@ Two training configs inheriting the champion pipeline, and the phase-gated campa
 **Files:**
 - Create: `configs/training/quant/mamba962_qat4_finetune.toml`
 - Create: `configs/training/quant/mamba962_qat4_scratch.toml`
-- Create: `experiments/paper/15_quantization.sh` (chmod +x)
+- Create: `experiments/paper/17_quantization.sh` (chmod +x)
 
 **Interfaces:**
 - Consumes: qat knobs (Task 5), quantize CLI (Task 7), bench (Task 8).
@@ -1918,7 +1918,7 @@ Two training configs inheriting the champion pipeline, and the phase-gated campa
 # QAT-4bit FINE-TUNE arm: resume the fp champion (mamba_p962_long, GA 512 x 20k)
 # with 4-bit fake-quant fitness for +3000 gens. Answers RECOVERABILITY: how much
 # of the PTQ-4bit loss does adapting the weights to the grid win back?
-# Launch (after copying the champion checkpoint pair -- see 15_quantization.sh):
+# Launch (after copying the champion checkpoint pair -- see 17_quantization.sh):
 #   uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_finetune.toml \
 #       --n-gen 3000 --output-dir training_output/quant/mamba962_qat4_finetune
 # qat_granularity / qat_tensor_policy below are PROVISIONAL: overwrite with the
@@ -1992,18 +1992,18 @@ for p in ['configs/training/quant/mamba962_qat4_finetune.toml', 'configs/trainin
 
 Expected: two `OK` lines.
 
-- [ ] **Step 4: Write `experiments/paper/15_quantization.sh`**
+- [ ] **Step 4: Write `experiments/paper/17_quantization.sh`**
 
 ```bash
 #!/usr/bin/env bash
 # Quantization study campaign (paper Appendix D). Phase-gated: run `ptq` first,
 # inspect the verdict, copy it into the two QAT configs, then run the rest.
-#   ./experiments/paper/15_quantization.sh ptq        # PTQ sweep + LOO on the champion (~minutes)
-#   ./experiments/paper/15_quantization.sh bench      # criterion microbench (run BEFORE trainings for clean numbers)
-#   ./experiments/paper/15_quantization.sh qat_finetune   # +3000 gens from the champion checkpoint (~0.5 day)
-#   ./experiments/paper/15_quantization.sh qat_scratch    # GA 512 x 20000 from scratch (~2.5-3 days)
-#   ./experiments/paper/15_quantization.sh finalists  # n=10000 re-score of the four finalist rows
-#   ./experiments/paper/15_quantization.sh collect    # bundle JSONs into articles/paper/data/quant/
+#   ./experiments/paper/17_quantization.sh ptq        # PTQ sweep + LOO on the champion (~minutes)
+#   ./experiments/paper/17_quantization.sh bench      # criterion microbench (run BEFORE trainings for clean numbers)
+#   ./experiments/paper/17_quantization.sh qat_finetune   # +3000 gens from the champion checkpoint (~0.5 day)
+#   ./experiments/paper/17_quantization.sh qat_scratch    # GA 512 x 20000 from scratch (~2.5-3 days)
+#   ./experiments/paper/17_quantization.sh finalists  # n=10000 re-score of the four finalist rows
+#   ./experiments/paper/17_quantization.sh collect    # bundle JSONs into articles/paper/data/quant/
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -2087,16 +2087,16 @@ esac
 ```
 
 ```bash
-chmod +x experiments/paper/15_quantization.sh
+chmod +x experiments/paper/17_quantization.sh
 ```
 
 - [ ] **Step 5: Dry checks + commit**
 
-Run: `bash -n experiments/paper/15_quantization.sh && ./experiments/paper/15_quantization.sh 2>&1 | head -2`
+Run: `bash -n experiments/paper/17_quantization.sh && ./experiments/paper/17_quantization.sh 2>&1 | head -2`
 Expected: syntax OK; usage line when called without args (exit 1 is fine).
 
 ```bash
-git add configs/training/quant/ experiments/paper/15_quantization.sh
+git add configs/training/quant/ experiments/paper/17_quantization.sh
 git commit -m "feat(quant): QAT-4bit finetune/scratch configs + campaign runner script"
 ```
 
@@ -2117,7 +2117,7 @@ The compute phase. PTQ + bench are quick; the QAT arms are long-running (fine-tu
 
 - [ ] **Step 1: PTQ sweep + LOO**
 
-Run: `./experiments/paper/15_quantization.sh ptq`
+Run: `./experiments/paper/17_quantization.sh ptq`
 Expected: table of 20 grid cells + 6 LOO rows + a verdict line, ~10-20 min (27 x 1000 sims at ~4 ms/sim on all cores). SANITY GATE: the baseline row must reproduce the champion quote within noise — capture 1.000, dv_p50 109.7 +/- 0.5, cvar95 115.2 +/- 1.0 (same pool, same seeds, same scaffolding). If it does not, STOP: the pool resolution or scaffolding overrides are wrong — debug against `training_output/mamba_p962_long/fresh_pool_requote.json` before burning training days.
 
 - [ ] **Step 2: Apply the verdict to both QAT configs**
@@ -2131,7 +2131,7 @@ git commit -m "chore(quant): pin QAT cell from PTQ verdict"
 
 - [ ] **Step 3: Microbenchmark (before trainings, for clean numbers)**
 
-Run: `./experiments/paper/15_quantization.sh bench`
+Run: `./experiments/paper/17_quantization.sh bench`
 Expected: five `forward/*` benchmarks with ns-scale medians. Record nothing by hand — the `collect` phase reads `target/criterion`.
 
 - [ ] **Step 4: Ticks-per-sim bridge number**
@@ -2161,17 +2161,17 @@ Expected: a JSON line with `guidance_ticks` in the several-hundreds. Save it to 
 
 - [ ] **Step 5: QAT fine-tune arm (~0.5 day)**
 
-Run: `./experiments/paper/15_quantization.sh qat_finetune`
+Run: `./experiments/paper/17_quantization.sh qat_finetune`
 Expected: resume banner from `checkpoint_g20000`, re-validation of the checkpointed best under the quantized objective (its val RMS will jump — that IS the PTQ shock being measured by the re-validation), then +3000 gens with heartbeat prints. Ends with `best_model.json`/`best_params.json` in the finetune dir.
 
 - [ ] **Step 6: QAT from-scratch arm (~2.5-3 days, launch after Step 5 completes)**
 
-Run: `./experiments/paper/15_quantization.sh qat_scratch`
+Run: `./experiments/paper/17_quantization.sh qat_scratch`
 Expected: fresh 512 x 20000 run. Monitor via the heartbeat lines; the run auto-checkpoints and auto-resumes if interrupted (re-run the same command).
 
 - [ ] **Step 7: Finalists at n=10000**
 
-Run: `./experiments/paper/15_quantization.sh finalists`
+Run: `./experiments/paper/17_quantization.sh finalists`
 Expected: four rows (champion_fp, ptq4_verdict, qat4_finetune, qat4_scratch), each 10000 sims (~1-2 min each). This is the appendix headline table.
 
 - [ ] **Step 8: QAT deployed-weights on-grid audit** (defense-in-depth before quoting numbers)
@@ -2198,7 +2198,7 @@ Expected: two OK lines.
 
 - [ ] **Step 9: Collect the data bundle + QAT convergence chart**
 
-Run: `./experiments/paper/15_quantization.sh collect`
+Run: `./experiments/paper/17_quantization.sh collect`
 
 Then render the convergence overlay:
 
@@ -2377,7 +2377,7 @@ uv run pytest tests/test_quantize.py tests/test_qat_training.py -v   # incl. slo
 
 Expected: all green; `check_all.sh` proves the Rust side (fmt, clippy, tests, release build) is untouched by the bench addition.
 
-- [ ] **Step 2: Update CLAUDE.md** — add a short block documenting: `quantize.py` (PTQ sweep + LOO + finalists CLI, reserved-pool + scaffolding methodology), the three `[network]` qat knobs and their two hook points, the `configs/training/quant/` arms, `experiments/paper/15_quantization.sh`, and the bench. Match the existing tool-entry style (one dense paragraph per module).
+- [ ] **Step 2: Update CLAUDE.md** — add a short block documenting: `quantize.py` (PTQ sweep + LOO + finalists CLI, reserved-pool + scaffolding methodology), the three `[network]` qat knobs and their two hook points, the `configs/training/quant/` arms, `experiments/paper/17_quantization.sh`, and the bench. Match the existing tool-entry style (one dense paragraph per module).
 
 - [ ] **Step 3: Invoke the smart-commit skill**, telling it to take the whole git branch into account (per user planning rule). It reconciles CLAUDE.md/README with the branch diff and produces the final commit(s).
 

@@ -192,7 +192,7 @@ same-pool, same-depth).
   (champion vs fine-tune vs scratch best-cost curves).
 - `configs/training/quant/mamba962_qat4_finetune.toml`,
   `configs/training/quant/mamba962_qat4_scratch.toml`.
-- `experiments/paper/15_quantization.sh`: PTQ sweep -> (gate: pick QAT cell) ->
+- `experiments/paper/17_quantization.sh`: PTQ sweep -> (gate: pick QAT cell) ->
   QAT arms -> finalist requotes -> bench run -> collect JSONs into
   `articles/paper/data/quant/`.
 - `src/rust/benches/quant_forward.rs` + criterion dev-dependency + `[[bench]]`

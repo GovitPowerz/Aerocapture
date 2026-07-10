@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Quantization study campaign (paper Appendix D). Phase-gated: run `ptq` first,
 # inspect the verdict, copy it into the two QAT configs, then run the rest.
-#   ./experiments/paper/15_quantization.sh ptq        # PTQ sweep + LOO on the champion (~minutes)
-#   ./experiments/paper/15_quantization.sh bench      # criterion microbench (run BEFORE trainings for clean numbers)
-#   ./experiments/paper/15_quantization.sh qat_finetune   # +3000 gens from the champion checkpoint (~0.5 day)
-#   ./experiments/paper/15_quantization.sh qat_scratch    # GA 512 x 20000 from scratch (~2.5-3 days)
-#   ./experiments/paper/15_quantization.sh finalists  # n=10000 re-score of the four finalist rows
-#   ./experiments/paper/15_quantization.sh collect    # bundle JSONs into articles/paper/data/quant/
+#   ./experiments/paper/17_quantization.sh ptq        # PTQ sweep + LOO on the champion (~minutes)
+#   ./experiments/paper/17_quantization.sh bench      # criterion microbench (run BEFORE trainings for clean numbers)
+#   ./experiments/paper/17_quantization.sh qat_finetune   # +3000 gens from the champion checkpoint (~0.5 day)
+#   ./experiments/paper/17_quantization.sh qat_scratch    # GA 512 x 20000 from scratch (~2.5-3 days)
+#   ./experiments/paper/17_quantization.sh finalists  # n=10000 re-score of the four finalist rows
+#   ./experiments/paper/17_quantization.sh collect    # bundle JSONs into articles/paper/data/quant/
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 

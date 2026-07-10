@@ -1,7 +1,7 @@
 # QAT-4bit FINE-TUNE arm: resume the fp champion (mamba_p962_long, GA 512 x 20k)
 # with 4-bit fake-quant fitness for +3000 gens. Answers RECOVERABILITY: how much
 # of the PTQ-4bit loss does adapting the weights to the grid win back?
-# Launch (after copying the champion checkpoint pair -- see 15_quantization.sh):
+# Launch (after copying the champion checkpoint pair -- see 17_quantization.sh):
 #   uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_finetune.toml \
 #       --n-gen 3000 --output-dir training_output/quant/mamba962_qat4_finetune
 # qat_granularity / qat_tensor_policy below are PROVISIONAL: overwrite with the
