@@ -705,7 +705,8 @@ and precisely the part a validation-RMS objective under-weights.
 
 #fig("fig_loss_vs_tail.svg", [Best validation RMS versus far-tail $"CVaR"_(99.9)$ ($n = 10\,000$) for
 the eleven converged runs. Within every family the runs order identically on both axes (overall
-Spearman $rho = 0.91$); what the loss cannot see are the offsets between families -- the lowest-loss
+Spearman $rho = 0.91$, pooled over families and read as descriptive -- the runs are not
+exchangeable across families); what the loss cannot see are the offsets between families -- the lowest-loss
 run (the LSTM, starred: the heat-load-infeasible one of Section 6.2) is not the best tail, and the
 dense cells sit well above the Mamba at matched loss.], <fig-losstail>)
 

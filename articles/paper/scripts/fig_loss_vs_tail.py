@@ -51,18 +51,12 @@ def main():
                    label=fam if fam not in seen else None)
         seen.add(fam)
 
-    # connect each family's seeds in loss order to show the within-family ordering
-    from collections import defaultdict
-    byfam = defaultdict(list)
-    for (ft_label, run_key, fam, _n), x, y in zip(CELLS, xs_all, ys_all, strict=True):
-        byfam[fam].append((x, y))
-    for fam, pts in byfam.items():
-        pts = sorted(pts)
-        ax.plot([p[0] for p in pts], [p[1] for p in pts], color=fl.C[fam], lw=1.0,
-                alpha=0.5, zorder=2)
+    # No connector lines: reviewer R1-S6 -- lines between independently trained
+    # runs read as trajectories/ordered observations. Family color carries the
+    # grouping; within-family ordering is stated in the annotation and caption.
 
     rho = spearmanr(xs_all, ys_all).statistic
-    ax.annotate(f"Spearman $\\rho$ = {rho:.2f} (n = {len(xs_all)})\n"
+    ax.annotate(f"Spearman $\\rho$ = {rho:.2f} (n = {len(xs_all)}, descriptive)\n"
                 "within-family: identically ordered\nbetween families: offsets decide",
                 xy=(0.02, 0.96), xycoords="axes fraction", va="top", fontsize=8.5,
                 color="#444444")
