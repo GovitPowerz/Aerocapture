@@ -72,7 +72,7 @@
   genetic algorithm, could fly the aerocapture of a Mars Sample Return vehicle more efficiently than
   a Cerimele--Gamble feedback law, and we closed that work by asking for the obvious next step: a
   comparison against predictor--corrector guidance. This paper answers it. We train stateful neural
-  guidance policies and benchmark them, on identical Monte-Carlo scenarios drawn from a bit-validated
+  guidance policies and benchmark them, on identical Monte Carlo scenarios drawn from a bit-validated
   simulator, against
   six classical schemes including a numerical predictor--corrector (FNPAG) and a reference-tracking
   feedback law (FTC). Because the mission's correction propellant is sized off the worst-case
@@ -82,7 +82,7 @@
   co-optimized reference) by #box[$16.4$ m/s] in mean and #box[$27.6$ m/s] at $"CVaR"_95$, better on
   every one of $1000$ paired scenarios, at #box[$3.68$ ms] per simulation -- $23 times$ faster than
   FNPAG. The result rests on a training methodology that is itself a contribution: a non-stationary,
-  adaptive-seed Monte-Carlo environment turns the genetic algorithm from the *worst* optimizer under
+  adaptive-seed Monte Carlo environment turns the genetic algorithm from the *worst* optimizer under
   fixed scenarios ($160.3$ m/s mean) into the *best* ($118.0$). Across cell types, engineered,
   cost-aligned inputs flatten the median; genuine internal state is what compresses the extreme tail
   that sizes the tanks. The main deployment caveat: under a deliberately harsher off-nominal regime
@@ -130,7 +130,7 @@ pass rather than merely react to the current state.
 We make three contributions:
 
 + *A training methodology, not just a policy.* We show that a genetic algorithm is the *worst*
-  optimizer for this problem under a fixed set of Monte-Carlo scenarios -- it overfits the repeated
+  optimizer for this problem under a fixed set of Monte Carlo scenarios -- it overfits the repeated
   cases -- and the *best* under a non-stationary, adaptive-seed environment that keeps moving the
   scenarios beneath it. Switching the seed schedule from fixed to adaptive moves the mean correction
   cost from $160.3$ to $118.0$ m/s, the single largest effect in the campaign. The moving
@@ -173,7 +173,7 @@ angle of $-10.81 degree$, and an azimuth of $38.04 degree$ (the 2009 study place
 $120$ km with a $-10.24 degree$ flight-path angle; vehicle and target are unchanged); it carries a mass of $1089$ kg on a $14.7$ m#super[2]
 reference area and is statically trimmed at a fixed angle of attack, so the only control is the bank
 angle $mu$, slewed at up to $15 degree$/s. The guidance targets a $500 times 11$ km orbit at
-atmosphere exit, at $50 degree$ inclination, subsequently corrected to a $500$ km circular parking
+atmosphere exit (apoapsis $times$ periapsis altitude), at $50 degree$ inclination, subsequently corrected to a $500$ km circular parking
 orbit. Energy is dissipated by drag during a single atmospheric pass; the bank
 angle rotates the lift vector to manage how much energy is shed and in which plane.
 
@@ -190,7 +190,7 @@ The vehicle must respect a peak heat-flux limit of $200$ kW/m#super[2], a $4$ g 
 integrated heat-load limit of $25$ MJ/m#super[2].
 
 #fig("fig_corridor.svg", [Reachable aerocapture capture corridor in the (orbital energy, dynamic
-pressure) plane, traced by a $1\,000\,000$-run dispersed Monte-Carlo of randomized signed
+pressure) plane, traced by a $1\,000\,000$-run dispersed Monte Carlo of randomized signed
 piecewise-constant bank profiles (roll reversals included). The shaded band spans the corridor: the
 upper edge is the $p_(99.9)$ dynamic pressure
 of all capturing trajectories (the crash-side limit), the lower edge the $p_(0.5)$ of trajectories
@@ -219,7 +219,9 @@ therefore treat the *tail* of the $Delta v$ distribution as the objective, and r
 value-at-risk -- the mean cost in the worst $(1-alpha)$ fraction of cases, $"CVaR"_alpha$
 @rockafellar2000cvar -- at $alpha = 95%$ and, for sizing decisions, at the far-tail depth
 $"CVaR"_(99.9)$, together with the $95$th and $99$th percentiles and the sample maximum (a
-descriptive bound, $approx p_(99.99)$ at $n = 10\,000$). The far tail
+descriptive bound, $approx p_(99.99)$ at $n = 10\,000$). Empirically $"CVaR"_alpha$ is the mean of
+the worst $max(1, "round"((1-alpha) n))$ captured observations, without interpolation; every tail
+statistic is reported with the number of observations it averages. The far tail
 cannot be estimated from a #box[$1000$-case] ensemble (a single sample beyond $p_(99.9)$), so every
 sizing number in this paper is computed on a dedicated $n = 10\,000$ pool, training-disjoint by
 construction. We lead with the tail; the mean is reported for continuity with the 2009 work.
@@ -260,8 +262,10 @@ presets for the winds and the density perturbation. The atmospheric density bias
 $plus.minus 50%$ -- it is the dominant driver of apoapsis error, and a guidance law blind to it
 cannot reject it. The simulator's wind model follows a parametric Mars profile @forget1999mars but is disabled for
 this campaign (its two draw dimensions are carried but inert); the density perturbation is an
-Ornstein--Uhlenbeck process layered on the static bias. Draws are generated by
-Latin-hypercube sampling @mckay1979lhs for space-filling coverage.
+Ornstein--Uhlenbeck process layered on the static bias. Within a multi-scenario batch, draws are
+generated by Latin-hypercube sampling @mckay1979lhs for space-filling coverage; the evaluation
+pools draw one scenario per seed and are therefore plain independent samples -- which is what the
+replicate- and bootstrap-based intervals of Sections 6--7 assume.
 
 = Guidance schemes
 
@@ -397,7 +401,7 @@ Mamba-3 @lahoti2026mamba3 -- against these cells at matched budget; none improve
 The training methodology is the load-bearing contribution. The policies are trained without
 input--output pairs or any reference-tracking objective (two observation inputs interpolate the
 reference table; nothing enslaves to it): each candidate network is simulated on a batch of dispersed
-Monte-Carlo scenarios, and its fitness is the resulting correction-$Delta v$ cost (with soft
+Monte Carlo scenarios, and its fitness is the resulting correction-$Delta v$ cost (with soft
 constraint penalties), so the optimizer searches directly on mission performance. The same recipe
 trained the 2009 networks. What changed -- and what makes the modern policies work -- is the
 realization that *how the scenario batch is chosen, generation to generation, matters more than the
@@ -501,8 +505,9 @@ environment sees over the run. The deployed headline policy uses this allocation
 That the optimal allocation pours the budget into generations points to the last methodological fact:
 training here is *compute-bound, not overfitting-bound*. A stationary objective eventually overfits,
 and one stops early. The moving objective never converges to a fixed landscape, so the validation
-error keeps falling for nearly the whole twenty-thousand-generation run and then plateaus rather
-than degrading (@fig-plateau). The plateau also exposes a counter-intuitive dimensionality effect that recurs in the
+error -- the RMS on the reserved selection pool of @tbl-pools; we keep the conventional name for
+the loss curve -- keeps falling for nearly the whole twenty-thousand-generation run and then
+plateaus rather than degrading, i.e. the policy does not memorize scenarios (@fig-plateau). The plateau also exposes a counter-intuitive dimensionality effect that recurs in the
 architecture results: the #box[$972$-parameter] dense network learns *faster* early -- more plasticity --
 but the #box[$515$-parameter] network overtakes it and plateaus *lower* (validation RMS $1.326 times 10^6$
 versus $1.433 times 10^6$). For the gradient-free genetic algorithm, the extra dense parameters are
@@ -510,10 +515,37 @@ more search burden than added capacity; the "more parameters, learn faster" intu
 transfer.
 
 #fig("fig_plateau.svg", [Best validation RMS versus generation for the two dense reference networks.
-Both keep improving until late in the twenty-thousand-generation run and then plateau -- the
-non-stationary objective does not overfit. The #box[$515$-parameter] network plateaus below the
+Both keep improving until late in the twenty-thousand-generation run and then plateau -- under the
+non-stationary objective the policy generalizes across the dispersion distribution rather than
+memorizing scenarios. The #box[$515$-parameter] network plateaus below the
 #box[$972$-parameter] one: beyond a few hundred parameters, extra dense capacity hurts the
 gradient-free search.], <fig-plateau>)
+
+#figure(
+  table(
+    columns: (auto, auto, auto, 1fr),
+    align: (left, center, center, left),
+    table.hline(stroke: 0.7pt),
+    table.header([*Pool*], [*n*], [*Queries*], [*Decisions taken on it*]),
+    table.hline(stroke: 0.35pt),
+    [Training batches], [$2$/gen], [every generation], [weight updates (moving, curated)],
+    [Selection pool (offset 1M)], [$1000$], [$13\,442$ over the run], [in-training argmin promotion],
+    [Development far tail (offset 2M)], [$10\,000$], [tens], [cost transform, curation bucket, allocation, cell type, headline choice],
+    [Fresh re-quote (offset 8M)], [$1000$], [once], [none (reported only)],
+    [Confirmatory sizing (Appendix A)], [$10 times 100\,000$], [once, post-freeze], [none -- every quoted sizing number],
+    [Off-nominal stress (offset 9M)], [$1000$], [once per policy], [none (robustness probe)],
+    table.hline(stroke: 0.7pt),
+  ),
+  caption: [Scenario-pool roles and the decisions each pool influenced. The pools above the last
+  two rows are development quantities: the selection pool is adaptively reused by the promotion
+  gate, and the development far-tail pool informed the methodology and architecture choices, so
+  neither is an unbiased test set. The confirmatory pool was generated from a seed range disjoint
+  from every earlier draw, after all methodology, architecture, and checkpoint choices were frozen,
+  and each cell was evaluated on it exactly once.],
+) <tbl-pools>
+
+The studies of Sections 4--5 are exploratory -- single training runs unless stated otherwise; the
+confirmatory statements of this paper are the frozen-pool quantities of Sections 6--7.
 
 = Optimizer and dimensionality
 
@@ -731,7 +763,7 @@ two-output atan2 decoder inherited from the 2009 work wins, with most of its adv
 
 = Classical versus neural network
 
-We now place the neural policy against the classical schemes on identical Monte-Carlo scenarios --
+We now place the neural policy against the classical schemes on identical Monte Carlo scenarios --
 the same seed pools, the same dispersions, the fair comparison we have always insisted on. Two things
 have to be established: that the classical baselines are tuned to their best, and that the comparison
 is read at sizing depth.
@@ -745,7 +777,7 @@ the genetic algorithm co-optimize the reference: a single extra gene sets the co
 generates the reference table, regenerated per individual, so the law and the trajectory it tracks
 adapt together. The effect is large (@fig-joint). FTC falls from $170.7$ to $126.3$ m/s mean and from
 $244.1$ to $142.9$ m/s at $"CVaR"_95$ -- a $44$ m/s improvement, and the network beats it on every one
-of $1000$ paired scenarios ($p approx 3 times 10^(-165)$). The energy controller recovers by $35$ m/s
+of $1000$ paired scenarios ($p < 10^(-15)$, saturated). The energy controller recovers by $35$ m/s
 and PredGuid by $23$. The reference *was* FTC's weakness: a feedback law tracking a poor target cannot
 out-perform the target.
 
@@ -824,7 +856,7 @@ property we can claim.
     [Piecewise constant], [99.8], [1.1], [258.3], [374.6], [421.1], [---],
     table.hline(stroke: 0.7pt),
   ),
-  caption: [Final Monte-Carlo performance, correction $Delta v$ in m/s, ordered by $"CVaR"_95$.
+  caption: [Final Monte Carlo performance, correction $Delta v$ in m/s, ordered by $"CVaR"_95$.
   Capture / Viol. / mean / $p_95$ / $"CVaR"_95$ are on the $n = 1000$ final-evaluation pool;
   †$"CVaR"_(99.9)$ is the far-tail sizing metric on a dedicated $n = 10\,000$ pool (network values
   are three-seed means). Reference-tracking schemes appear in both their fixed- and co-optimized
@@ -846,21 +878,22 @@ property we can claim.
       [*Comparison (A vs B)*], [$bold(Delta"mean")$], [*95% CI*], [$bold(Delta p_95)$], [$bold(Delta"CVaR"_95)$], [*A-win %*], [*p*],
     ),
     table.hline(stroke: 0.35pt),
-    [Mamba vs FTC (fixed ref.)], [$-60.8$], [$[-62.4, -59.2]$], [$-95.0$], [$-128.8$], [100.0], [$3 times 10^(-165)$],
-    [Mamba vs FTC (joint ref.)], [$-16.4$], [$[-16.8, -16.0]$], [$-23.8$], [$-27.6$], [100.0], [$3 times 10^(-165)$],
-    [Mamba vs FNPAG], [$-14.4$], [$[-14.8, -14.0]$], [$-23.4$], [$-28.7$], [99.8], [$3 times 10^(-165)$],
+    [Mamba vs FTC (fixed ref.)], [$-60.8$], [$[-62.4, -59.2]$], [$-95.0$], [$-128.8$], [100.0], [$< 10^(-15)$],
+    [Mamba vs FTC (joint ref.)], [$-16.4$], [$[-16.8, -16.0]$], [$-23.8$], [$-27.6$], [100.0], [$< 10^(-15)$],
+    [Mamba vs FNPAG], [$-14.4$], [$[-14.8, -14.0]$], [$-23.4$], [$-28.7$], [99.8], [$< 10^(-15)$],
     [Mamba vs dense (eff. ref.)], [$+0.1$], [$[-0.1, +0.3]$], [$-0.9$], [$-1.6$], [44.9#super[‡]], [$0.02$],
     [Mamba vs LSTM], [$+1.4$], [$[+1.2, +1.6]$], [$-0.0$], [$-0.6$], [29.2#super[‡]], [$3 times 10^(-46)$],
-    [FTC: joint vs fixed reference], [$-44.4$], [$[-45.9, -42.9]$], [$-71.2$], [$-101.2$], [100.0], [$3 times 10^(-165)$],
+    [FTC: joint vs fixed reference], [$-44.4$], [$[-45.9, -42.9]$], [$-71.2$], [$-101.2$], [100.0], [$< 10^(-15)$],
     [FTC (joint) vs FNPAG], [$+2.0$], [$[+1.5, +2.5]$], [$+0.4$], [$-1.1$], [33.9], [$1 times 10^(-23)$],
     table.hline(stroke: 0.7pt),
   ),
   caption: [Paired comparisons on the shared $n = 1000$ pool, correction $Delta v$ in m/s; negative
   $Delta$ favors A. The CI is a $10\,000$-resample bootstrap on the paired mean difference.
-  Win-rate and $p$ (Wilcoxon signed-rank) are computed on the per-scenario cost;
-  $p approx 3 times 10^(-165)$ is the saturation floor of the normal-approximation Wilcoxon at
-  $n = 1000$, reached at or near sign unanimity -- it certifies a (near-)unanimous direction, not a
-  resolved tail probability.
+  Win-rate and $p$ (Wilcoxon signed-rank) are computed on the per-scenario cost; $p$ is truncated
+  at $10^(-15)$ -- the normal-approximation statistic saturates (near $10^(-165)$) at or near sign
+  unanimity at $n = 1000$, certifying a (near-)unanimous direction, not a resolved tail
+  probability. Deltas are computed on unrounded per-scenario values, so a delta may differ from the
+  difference of the rounded marginals in @tbl-perf by $0.1$ m/s.
   #super[‡]For the two intra-network rows the win-rate is driven by the bulk of the per-scenario
   differences, where the dense and LSTM networks match or slightly beat the Mamba; the headline
   ordering lives in the tail ($Delta"CVaR"_95 < 0$ and, at the far-tail sizing depth,
@@ -924,9 +957,11 @@ are shown separately because the levers trade them off.], <fig-objcenter>)
 
 = What the network uses
 
-To close the architecture argument we ask which inputs the deployed Mamba policy actually relies on,
-by zeroing each input in turn and measuring the resulting cost increase (@fig-ablation). The ranking
-is informative. The largest degradations come from the orbital tracking signals -- the eccentricity
+To close the architecture argument we ask which inputs the deployed Mamba policy actually relies
+on, through a closed-loop input-sensitivity analysis: each input is zeroed in turn and the
+resulting cost increase measured (@fig-ablation). Zeroing a normalized input perturbs every
+subsequent state of the closed loop, so the deltas measure closed-loop dependence, not isolated
+feature importance. The ranking is informative. The largest degradations come from the orbital tracking signals -- the eccentricity
 excess relative to the target, the nominal altitude rate, and the dynamic-pressure error -- the
 quantities a reference-tracking law would feed back on. Immediately behind them are two of the
 engineered, cost-aligned *predicted correction-$Delta v$* components: the periapsis-correction burn
@@ -943,12 +978,12 @@ without any memory matches the recurrent ones on the median: the engineered inpu
 the work that recurrence would otherwise do. What they cannot capture is the small set of hardest
 scenarios where the future of the pass depends on more than the present osculating orbit, and that is
 exactly where the Mamba's internal state pays off and the dense tail frays. A per-input behavior
-report over the deployed policy shows no distinct failure mode: the residual correction cost is
-irreducible scenario noise, not a pocket of mishandled cases. The network is using the physics we
-handed it, and reserving its memory for the tail.
+report over the deployed policy shows no clustered failure mode; we did not attempt a per-scenario
+lower-bound analysis, so we do not claim the residual cost irreducible. The network is using the
+physics we handed it, and reserving its memory for the tail.
 
-#fig("fig_ablation.svg", [Per-input cost increase when each input is zeroed, for the deployed Mamba
-policy. The orbital tracking errors (eccentricity excess, altitude rate, dynamic-pressure error)
+#fig("fig_ablation.svg", [Closed-loop input sensitivity: per-input cost increase when each input is
+zeroed, for the deployed Mamba policy. The orbital tracking errors (eccentricity excess, altitude rate, dynamic-pressure error)
 dominate, followed by the engineered, cost-aligned predicted-$Delta v$ components.], <fig-ablation>)
 
 = Discussion and limitations
@@ -999,7 +1034,7 @@ predictor--corrector.
 
 Two findings carry beyond the headline number. The first is methodological: a genetic algorithm is the
 wrong optimizer for a fixed objective and the right one for a moving one, and the moving
-Monte-Carlo environment -- adaptive seeds, a tail-weighting cost transform, and hardest-case curation
+Monte Carlo environment -- adaptive seeds, a tail-weighting cost transform, and hardest-case curation
 -- is a matched system that converts it from the worst optimizer we tested ($160.3$ m/s) to the best
 ($118.0$). The second is architectural: engineered, cost-aligned inputs flatten the
 typical cost across every cell type we tried, so the network's internal state earns its place only on the
@@ -1028,19 +1063,22 @@ One compact reference for the settings and systems behind every number.
 
 *Simulator.* All schemes fly through one native (Rust) simulator: fixed-step fourth-order
 Runge--Kutta integration (Gill variant), $J_2$--$J_4$ zonal gravity, a tabulated Mars atmosphere
-carrying the static Monte-Carlo bias and the Ornstein--Uhlenbeck perturbation, pilot dynamics,
+carrying the static Monte Carlo bias and the Ornstein--Uhlenbeck perturbation, pilot dynamics,
 thermal tracking, and the navigation--guidance--control chain sequenced on its own cadences; the
 bias-filter navigation recovers density through lift-corrected inverse dynamics. The implementation is
 validated against the 2009 study's legacy code: across all $725$ time steps of a guided trajectory,
 $22$ of $24$ output channels are bit-identical (the two mismatches trace to uninitialized variables
 in the reference).
 
-*Seed pools.* Every Monte-Carlo pool derives from the mission base seed through disjoint reserved
-streams: validation (offset $10^6$, $n = 1000$, the in-training promotion gate), final evaluation
-(offset $2 times 10^6$: the $n = 1000$ paired pool of @tbl-perf and @tbl-paired, extended to
-$n = 10\,000$ for the far tail), the fresh re-quote pool (offset $8 times 10^6$), and the off-nominal
-stress pool (offset $9 times 10^6$). Training scenarios are drawn outside every reserved stream, and
-dispersion draws use Latin-hypercube sampling.
+*Seed pools.* Every Monte Carlo pool derives from the mission base seed through disjoint reserved
+streams: the selection pool (offset $10^6$, $n = 1000$, the in-training promotion gate -- queried
+$13\,442$ times over the headline run, so it is adaptively reused and is not an unbiased estimate
+of generalization), final evaluation (offset $2 times 10^6$: the $n = 1000$ paired pool of
+@tbl-perf and @tbl-paired, extended to $n = 10\,000$ for the development far tail), the fresh
+re-quote pool (offset $8 times 10^6$), and the off-nominal stress pool (offset $9 times 10^6$).
+Training scenarios are drawn outside every reserved stream; evaluation pools draw one scenario per
+seed (independent samples), and multi-scenario batches use Latin-hypercube draws. @tbl-pools states
+which decisions each pool influenced.
 
 *Cost and objective.* Per simulation the cost is the correction $Delta v$ passed through a $C^oo$
 softplus-quadratic with its knee at $1000$ m/s, plus normalized soft penalties (weight $1.0$ each) on
@@ -1053,8 +1091,8 @@ individual's scenario batch by root-mean-square -- the $L_6$-norm-equivalent obj
 population $512$, two scenarios per individual per generation, run to plateau
 ($15\,000$--$20\,000$ generations). Adaptive seed curation fires every $2$ generations or on a
 validated promotion: $1000$ probe seeds, scored by the top individual, one seed per cost-CDF
-quantile bin, hardest seed per bin. The validation gate re-runs each new argmin on the reserved
-$n = 1000$ pool and promotes on strict RMS improvement.
+quantile bin, hardest seed per bin. The selection gate re-runs each new argmin on the reserved
+$n = 1000$ selection pool and promotes on strict RMS improvement.
 
 *Training harness.* Population evaluation is batched through in-process Python bindings to the
 native core: each generation's individuals are simulated scenario-parallel across CPU cores with the
@@ -1203,7 +1241,7 @@ significantly worse, none better.
 = Appendix C: per-scheme mission reports
 
 Each scheme below gets a two-page mission-performance card on the final-evaluation
-Monte-Carlo pool ($n = 1000$), pinned to its deployed policy so the statistics
+Monte Carlo pool ($n = 1000$), pinned to its deployed policy so the statistics
 reproduce @tbl-perf; the FTC, PredGuid, and energy-controller cards use their
 co-optimized-reference variants (Section 7.1), matching those rows of @tbl-perf. The first page shows the corridor behaviour -- the classified
 trajectory ensemble in the (energy, dynamic pressure), (energy, inclination), and
