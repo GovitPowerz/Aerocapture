@@ -816,7 +816,10 @@ dense network, the price of the tail it buys.
 *Robustness -- the honest caveat.* We trained the network on the medium dispersion regime. Under a
 deliberately harsher off-nominal regime (atmosphere, density perturbation, navigation, and filter all
 set high), the picture inverts on robustness, and we report it plainly because it is the one place the
-network loses (@fig-robust). The analytic joint-FTC degrades least -- its capture rate falls by
+network loses (@fig-robust). All stress-regime tail statistics are conditional on capture --
+$"CVaR"_95 (Delta v | "capture")$ -- and a conditional tail can improve by failing the hardest
+scenarios, so we read every stress comparison lexicographically: capture probability first,
+conditional tail cost second, and no tail win is claimed across a capture-rate deficit. The analytic joint-FTC degrades least -- its capture rate falls by
 $5.5$ points and its $"CVaR"_95$ inflates by $197$ m/s -- against the network's #box[$9.9$-point] capture
 drop and $+402$ m/s inflation; PredGuid ($-9.3$ pts, $+297$) sits between, FNPAG loses less capture
 ($-7.1$ pts) but inflates its tail the most ($+490$), and the *fixed*-reference FTC collapses entirely ($-33$ points), which again ties the
@@ -864,7 +867,9 @@ property we can claim.
   heat-flux, g-load, or heat-load limits: the deployed network, the tuned predictor--correctors, and
   the joint-reference trackers violate none; the fixed-reference FTC, equilibrium glide, and
   piecewise constant carry heat-flux exceedances of at most $1.1%$. Sub-$100%$ captures are the
-  off-corridor draws of the weaker schemes. Single-run bootstrap $95%$ CIs on $"CVaR"_(99.9)$ span
+  off-corridor draws of the weaker schemes; a $100%$ capture rate means "no failures observed" --
+  with zero failures in $n$ independent scenarios the one-sided $95%$ upper bound on the failure
+  probability is $approx 3\/n$ ($3 times 10^(-4)$ at $n = 10\,000$). Single-run bootstrap $95%$ CIs on $"CVaR"_(99.9)$ span
   roughly $plus.minus 1$--$5$ m/s for the tabulated cells. The mean
   is reported for continuity with the 2009 work but is operationally secondary to the tail.],
 ) <tbl-perf>
@@ -936,10 +941,13 @@ The effect transfers cleanly to the deployed architecture -- the centered Mamba 
 $273$ m/s at $94.9%$ capture against the stalled stack's $1216$ at $27%$ -- so the stall was the
 objective, not the cell type.
 
-The payoff, stated with its caveat, is that the off-nominal gap is *not* intrinsic. With a
+The payoff, stated with its caveats, is that on this evidence the off-nominal gap is not intrinsic
+to neural guidance. With a
 regime-matched objective the centered Mamba ($"CVaR"_95$ $273$ m/s at $94.9%$ capture) beats the best
 classical scheme on the very regime where the medium-trained network lost to it -- joint-FTC retrained
-on the same regime sits at $424$ m/s, and the medium-deployed joint-FTC at $340$. The analytic law's
+on the same regime sits at $424$ m/s at $95.0%$ capture, and the medium-deployed joint-FTC at $340$
+at $94.5%$: capture parity within half a point, so the lexicographic comparison is decided by the
+conditional tail. The analytic law's
 edge in @sec-deployability was a property of the *mismatched* training objective, not of neural
 guidance. The caveat cuts in both directions: these are single-run, $n = 1000$ figures (the
 $3$--$4 times$ effect dwarfs any plausible run-to-run scatter, but a sizing-grade number wants the
