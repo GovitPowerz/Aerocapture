@@ -6,7 +6,7 @@ its normal f64 matmul, so this measures the accuracy impact of b-bit *weights* e
 for a weight-only scheme, with no integer kernel. Biases, activations, hidden state,
 and input normalization stay fp64. Dense and Mamba layers supported via tensor policy.
 
-Spec: docs/superpowers/specs/2026-06-05-dense-nn-ptq-sweep-design.md
+Spec: docs/superpowers/specs/2026-07-10-quantization-study-appendix-design.md
 """
 
 from __future__ import annotations
@@ -272,13 +272,18 @@ def _resolve_pool(toml_path: str, pool_offset: int, n_sims: int) -> tuple[list[i
     return seeds, {"base_mc_seed": base_mc_seed, "offset": pool_offset, "n": n_sims}
 
 
-def _scaffolding_overrides(params_dir: str | Path | None) -> dict[str, Any]:
+def _scaffolding_overrides(params_dir: str | Path | None, require: bool = False) -> dict[str, Any]:
     if params_dir is None:
         return {}
     from aerocapture.training.report import _load_nn_scaffolding_overrides
 
     d = Path(params_dir)
-    return dict(_load_nn_scaffolding_overrides(d, d / f"optimized_{d.name}.toml"))
+    overrides = dict(_load_nn_scaffolding_overrides(d, d / f"optimized_{d.name}.toml"))
+    if require and not overrides:
+        raise ValueError(
+            f"params_dir {d} yielded no scaffolding overrides (missing/empty best_params.json) -- scoring without co-trained scaffolding mis-ranks the model"
+        )
+    return overrides
 
 
 def _max_viol_pct(constraints: dict[str, Any]) -> float:
@@ -321,6 +326,9 @@ def run_quant_sweep(
     a leave-one-out pass quantizes one tensor group at a time at that bit width
     (granularity taken from the verdict cell). Memory rows via `memory_footprint`.
     """
+    if loo_bits is not None and loo_bits not in bits:
+        raise ValueError(f"loo_bits={loo_bits} must be one of the swept bits {tuple(bits)} (the verdict cell is picked from that grid)")
+
     from aerocapture.training.ablation import _load_cost_kwargs
     from aerocapture.training.evaluate import HEADLINE_REQUOTE_SEED_OFFSET
 
@@ -415,8 +423,18 @@ def run_finalists(
                     json.dumps(quantize_model_weights(json.loads(model_path.read_text()), int(q["bits"]), str(q["granularity"]), str(q["tensor_policy"])))
                 )
                 model_path = tmp
-            m = _score_variant(toml_path, model_path, seeds, cost_kwargs, _scaffolding_overrides(e.get("params_dir")), sim_timeout_secs)
-            rows.append({"label": e["label"], "model": e["model"], "quantize": e.get("quantize"), **m})
+            scaff = _scaffolding_overrides(e.get("params_dir"), require=True)
+            m = _score_variant(toml_path, model_path, seeds, cost_kwargs, scaff, sim_timeout_secs)
+            rows.append(
+                {
+                    "label": e["label"],
+                    "model": e["model"],
+                    "quantize": e.get("quantize"),
+                    "params_dir": e.get("params_dir"),
+                    "scaffolding_applied": sorted(scaff),
+                    **m,
+                }
+            )
             print(f"  finalist {e['label']}: capture={m['capture_rate']:.3f}")
     return {"finalists": rows, "pool": pool, "n_sims": n_sims}
 

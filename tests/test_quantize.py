@@ -475,3 +475,23 @@ def test_max_viol_pct_all_none_is_zero() -> None:
     from aerocapture.training.quantize import _max_viol_pct
 
     assert _max_viol_pct({"heat_flux": {"viol_pct": None}}) == 0.0
+
+
+def test_run_quant_sweep_rejects_loo_bits_outside_grid() -> None:
+    from aerocapture.training.quantize import run_quant_sweep
+
+    with pytest.raises(ValueError, match="loo_bits"):
+        run_quant_sweep("unused.toml", "unused.json", bits=(8, 6), loo_bits=4)
+
+
+def test_scaffolding_overrides_require_raises_on_empty(tmp_path: Path) -> None:
+    from aerocapture.training.quantize import _scaffolding_overrides
+
+    with pytest.raises(ValueError, match="scaffolding"):
+        _scaffolding_overrides(tmp_path, require=True)  # empty dir: no best_params.json
+
+
+def test_scaffolding_overrides_none_params_dir_is_empty() -> None:
+    from aerocapture.training.quantize import _scaffolding_overrides
+
+    assert _scaffolding_overrides(None, require=True) == {}
