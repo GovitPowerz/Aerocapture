@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import math
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -86,6 +87,51 @@ def _validate_quant_args(n_bits: int, granularity: str, tensor_policy: str) -> N
         raise ValueError(f"unknown granularity {granularity!r} (expected one of {_GRANULARITIES})")
     if tensor_policy not in _TENSOR_POLICIES:
         raise ValueError(f"unknown tensor_policy {tensor_policy!r} (expected one of {_TENSOR_POLICIES})")
+
+
+def memory_footprint(architecture: list[dict], n_bits: int, granularity: str, tensor_policy: str = "all") -> dict[str, int]:
+    """Analytic deployed-model bytes: b-bit-packed quantized params + f32 scales + f32 fp params.
+
+    fp-kept parameters are costed at f32 (the realistic flight deployment width),
+    quantized parameters at ceil(n * b / 8) packed bytes, scales at f32 each.
+    """
+    from aerocapture.training.config import resolve_mamba_dt_rank
+
+    _validate_quant_args(n_bits, granularity, tensor_policy)
+    quant = fp = scales = 0
+    for e in architecture:
+        t = str(e.get("type", "dense"))
+        n_in = int(e["input_size"])
+        if t == "dense":
+            n_out = int(e["output_size"])
+            quant += n_out * n_in
+            scales += n_out if granularity == "per_channel" else 1
+            fp += n_out  # bias
+        elif t == "mamba":
+            d_state = int(e["d_state"])
+            dt_rank = resolve_mamba_dt_rank(e)
+            rows = dt_rank + 2 * d_state
+            quant += rows * n_in + n_in * dt_rank  # x_proj_w + dt_proj_w
+            scales += (rows + n_in) if granularity == "per_channel" else 2
+            fp += n_in  # dt_proj_b
+            if tensor_policy == "all":
+                quant += n_in * d_state + n_in  # a_log + d_skip
+                scales += (n_in if granularity == "per_channel" else 1) + 1  # a_log rows + d_skip per-tensor
+            else:
+                fp += n_in * d_state + n_in
+        else:
+            raise ValueError(f"quantization supports dense+mamba architectures; found {t!r}")
+    quant_bytes = math.ceil(quant * n_bits / 8)
+    return {
+        "quant_params": quant,
+        "fp_params": fp,
+        "n_scales": scales,
+        "quant_bytes": quant_bytes,
+        "scale_bytes": scales * 4,
+        "fp_bytes": fp * 4,
+        "total_bytes": quant_bytes + scales * 4 + fp * 4,
+        "f64_baseline_bytes": (quant + fp) * 8,
+    }
 
 
 def quantize_model_weights(

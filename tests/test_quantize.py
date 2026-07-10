@@ -384,3 +384,44 @@ def test_flat_scaffolding_tail_width_raises() -> None:
     flat = np.zeros((1, _N_FLAT + 3))
     with pytest.raises(ValueError, match="flat width"):
         quantize_flat_weights_batch(flat, _MAMBA_ARCH, 4, "per_channel", "all")
+
+
+_CHAMPION_ARCH = [
+    {"type": "dense", "input_size": 17, "output_size": 16, "activation": "swish"},
+    {"type": "mamba", "input_size": 16, "d_state": 12, "dt_rank": 1},
+    {"type": "dense", "input_size": 16, "output_size": 2, "activation": "asinh"},
+]
+
+
+def test_memory_footprint_champion_int8_per_tensor_all() -> None:
+    from aerocapture.training.quantize import memory_footprint
+
+    m = memory_footprint(_CHAMPION_ARCH, 8, "per_tensor", "all")
+    assert m["quant_params"] == 928 and m["fp_params"] == 34
+    assert m["n_scales"] == 6  # dense0.w, x_proj_w, dt_proj_w, a_log, d_skip, dense2.w
+    assert m["quant_bytes"] == 928 and m["scale_bytes"] == 24 and m["fp_bytes"] == 136
+    assert m["total_bytes"] == 1088
+    assert m["f64_baseline_bytes"] == 962 * 8  # 7696
+
+
+def test_memory_footprint_champion_int4_per_tensor_all() -> None:
+    from aerocapture.training.quantize import memory_footprint
+
+    m = memory_footprint(_CHAMPION_ARCH, 4, "per_tensor", "all")
+    assert m["quant_bytes"] == 464  # ceil(928 * 4 / 8)
+    assert m["total_bytes"] == 624
+
+
+def test_memory_footprint_champion_per_channel_scale_count() -> None:
+    from aerocapture.training.quantize import memory_footprint
+
+    m = memory_footprint(_CHAMPION_ARCH, 8, "per_channel", "all")
+    # dense0 16 rows + x_proj 25 + dt_proj_w 16 + a_log 16 + d_skip 1 (per-tensor rule) + dense2 2
+    assert m["n_scales"] == 76
+
+
+def test_memory_footprint_proj_only_moves_dynamics_to_fp() -> None:
+    from aerocapture.training.quantize import memory_footprint
+
+    m = memory_footprint(_CHAMPION_ARCH, 8, "per_tensor", "proj_only")
+    assert m["quant_params"] == 720 and m["fp_params"] == 242
