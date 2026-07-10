@@ -458,3 +458,20 @@ def test_pick_verdict_nan_cvar_ranks_last() -> None:
         _variant(4, "per_tensor", "all", 1.0, 120.0),
     ]
     assert _pick_verdict(variants, 4)["granularity"] == "per_tensor"
+
+
+def test_max_viol_pct_skips_unconfigured_limits() -> None:
+    from aerocapture.training.quantize import _max_viol_pct
+
+    constraints = {
+        "heat_flux": {"viol_pct": 1.5},
+        "g_load": {"viol_pct": None},  # limit absent from TOML (e.g. earth.toml has no max_heat_load)
+        "heat_load": {"viol_pct": 0.2},
+    }
+    assert _max_viol_pct(constraints) == 1.5
+
+
+def test_max_viol_pct_all_none_is_zero() -> None:
+    from aerocapture.training.quantize import _max_viol_pct
+
+    assert _max_viol_pct({"heat_flux": {"viol_pct": None}}) == 0.0

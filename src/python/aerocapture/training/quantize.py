@@ -251,7 +251,7 @@ def _score_variant(
     summary = compute_eval_summary(final, n_sims=len(seeds), cost_kwargs=cost_kwargs)
     captured = charts.is_captured(final)
     dv = np.clip(final[captured, charts._FR_DV_TOTAL], charts.DV_FLOOR, charts.DV_CAP)
-    viol = max(float(c["viol_pct"]) for c in summary["constraints"].values()) if summary["constraints"] else 0.0
+    viol = _max_viol_pct(summary["constraints"])
     return {
         "capture_rate": float(summary["capture_rate"]),
         "dv_p50": float(np.percentile(dv, 50)) if dv.size else None,
@@ -279,6 +279,11 @@ def _scaffolding_overrides(params_dir: str | Path | None) -> dict[str, Any]:
 
     d = Path(params_dir)
     return dict(_load_nn_scaffolding_overrides(d, d / f"optimized_{d.name}.toml"))
+
+
+def _max_viol_pct(constraints: dict[str, Any]) -> float:
+    """Worst constraint-violation %; constraints without a configured limit carry viol_pct=None and are skipped."""
+    return max((float(c["viol_pct"]) for c in constraints.values() if c.get("viol_pct") is not None), default=0.0)
 
 
 def _pick_verdict(variants: list[dict[str, Any]], bits: int) -> dict[str, Any]:
