@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 import pytest
-from aerocapture.training.quantize import _quantize_matrix, quantize_dense_weights
+from aerocapture.training.quantize import _quantize_matrix, quantize_model_weights
 
 
 def _dense_model(w: npt.NDArray[np.float64]) -> dict:
@@ -59,12 +59,12 @@ def test_per_tensor_grid_membership() -> None:
 
 def test_bits_below_two_raises() -> None:
     with pytest.raises(ValueError, match="n_bits"):
-        quantize_dense_weights(_dense_model(np.ones((2, 2))), 1, "per_channel")
+        quantize_model_weights(_dense_model(np.ones((2, 2))), 1, "per_channel")
 
 
 def test_unknown_granularity_raises() -> None:
     with pytest.raises(ValueError, match="granularity"):
-        quantize_dense_weights(_dense_model(np.ones((2, 2))), 8, "per_row")
+        quantize_model_weights(_dense_model(np.ones((2, 2))), 8, "per_row")
 
 
 def test_non_dense_raises() -> None:
@@ -73,8 +73,8 @@ def test_non_dense_raises() -> None:
         "architecture": [{"type": "gru", "input_size": 4, "hidden_size": 4}],
         "weights": {"layer_0": {}},
     }
-    with pytest.raises(ValueError, match="dense-only"):
-        quantize_dense_weights(model, 8, "per_channel")
+    with pytest.raises(ValueError, match="dense\\+mamba"):
+        quantize_model_weights(model, 8, "per_channel")
 
 
 def test_preserves_shape_biases_and_input() -> None:
@@ -82,7 +82,7 @@ def test_preserves_shape_biases_and_input() -> None:
     w = rng.standard_normal((3, 5))
     model = _dense_model(w)
     model["weights"]["layer_0"]["b"] = [0.1, 0.2, 0.3]
-    out = quantize_dense_weights(model, 8, "per_channel")
+    out = quantize_model_weights(model, 8, "per_channel")
     wq = np.asarray(out["weights"]["layer_0"]["w"])
     assert wq.shape == w.shape
     assert np.all(np.isfinite(wq))
@@ -119,6 +119,81 @@ def test_variant_metrics_no_captures_dv_none() -> None:
     assert m["dv_p50"] is None
     assert m["dv_p95"] is None
     assert np.isfinite(m["mean_cost"])
+
+
+def _mamba_model(rng: np.random.Generator) -> dict:
+    """Dense(3->4) -> Mamba(4, d_state=2, dt_rank=1) -> Dense(4->2), random weights."""
+    return {
+        "format_version": 2,
+        "architecture": [
+            {"type": "dense", "input_size": 3, "output_size": 4, "activation": "tanh"},
+            {"type": "mamba", "input_size": 4, "d_state": 2, "dt_rank": 1},
+            {"type": "dense", "input_size": 4, "output_size": 2, "activation": "linear"},
+        ],
+        "weights": {
+            "layer_0": {"w": rng.standard_normal((4, 3)).tolist(), "b": rng.standard_normal(4).tolist()},
+            "layer_1": {
+                "x_proj_w": rng.standard_normal((5, 4)).tolist(),  # (dt_rank + 2*d_state, input) = (5, 4)
+                "dt_proj_w": rng.standard_normal((4, 1)).tolist(),
+                "dt_proj_b": rng.standard_normal(4).tolist(),
+                "a_log": rng.standard_normal((4, 2)).tolist(),
+                "d_skip": rng.standard_normal(4).tolist(),
+            },
+            "layer_2": {"w": rng.standard_normal((2, 4)).tolist(), "b": rng.standard_normal(2).tolist()},
+        },
+    }
+
+
+def _arrays_equal(a: object, b: object) -> bool:
+    return bool(np.array_equal(np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64)))
+
+
+def test_mamba_all_policy_quantizes_projections_and_dynamics() -> None:
+    m = _mamba_model(np.random.default_rng(3))
+    q = quantize_model_weights(m, 4, "per_tensor", "all")
+    l1, ql1 = m["weights"]["layer_1"], q["weights"]["layer_1"]
+    for field in ("x_proj_w", "dt_proj_w", "a_log", "d_skip"):
+        assert not _arrays_equal(l1[field], ql1[field]), f"{field} should be rounded at 4 bits"
+    assert _arrays_equal(l1["dt_proj_b"], ql1["dt_proj_b"]), "dt_proj_b is a bias: never quantized"
+    assert _arrays_equal(m["weights"]["layer_0"]["b"], q["weights"]["layer_0"]["b"])
+    assert not _arrays_equal(m["weights"]["layer_0"]["w"], q["weights"]["layer_0"]["w"])
+
+
+def test_mamba_proj_only_policy_keeps_dynamics_fp() -> None:
+    m = _mamba_model(np.random.default_rng(4))
+    q = quantize_model_weights(m, 4, "per_channel", "proj_only")
+    l1, ql1 = m["weights"]["layer_1"], q["weights"]["layer_1"]
+    assert _arrays_equal(l1["a_log"], ql1["a_log"])
+    assert _arrays_equal(l1["d_skip"], ql1["d_skip"])
+    assert not _arrays_equal(l1["x_proj_w"], ql1["x_proj_w"])
+
+
+def test_only_tensor_isolates_one_group() -> None:
+    m = _mamba_model(np.random.default_rng(5))
+    q = quantize_model_weights(m, 4, "per_channel", "all", only_tensor="layer_1.a_log")
+    assert not _arrays_equal(m["weights"]["layer_1"]["a_log"], q["weights"]["layer_1"]["a_log"])
+    for i, fields in ((0, ("w", "b")), (2, ("w", "b"))):
+        for f in fields:
+            assert _arrays_equal(m["weights"][f"layer_{i}"][f], q["weights"][f"layer_{i}"][f])
+    for f in ("x_proj_w", "dt_proj_w", "dt_proj_b", "d_skip"):
+        assert _arrays_equal(m["weights"]["layer_1"][f], q["weights"]["layer_1"][f])
+
+
+def test_only_tensor_unknown_key_raises() -> None:
+    with pytest.raises(ValueError, match="only_tensor"):
+        quantize_model_weights(_mamba_model(np.random.default_rng(6)), 4, "per_channel", "all", only_tensor="layer_1.dt_proj_b")
+
+
+def test_d_skip_identical_under_both_granularities() -> None:
+    m = _mamba_model(np.random.default_rng(7))
+    qc = quantize_model_weights(m, 4, "per_channel", "all")
+    qt = quantize_model_weights(m, 4, "per_tensor", "all")
+    assert _arrays_equal(qc["weights"]["layer_1"]["d_skip"], qt["weights"]["layer_1"]["d_skip"])
+
+
+def test_bad_tensor_policy_raises() -> None:
+    with pytest.raises(ValueError, match="tensor_policy"):
+        quantize_model_weights(_mamba_model(np.random.default_rng(8)), 4, "per_channel", "matrices")
 
 
 def test_chart_quant_sweep_writes_svg(tmp_path: Path) -> None:

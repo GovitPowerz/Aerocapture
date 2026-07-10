@@ -1,10 +1,10 @@
-"""Weight-only post-training quantization (PTQ) sweep for the dense NN guidance policy.
+"""Weight-only post-training quantization (PTQ) sweep for the dense+Mamba NN guidance policy.
 
-Rounds each dense weight matrix to a symmetric b-bit grid (per-channel or per-tensor)
+Rounds weight matrices to a symmetric b-bit grid (per-channel or per-tensor)
 and stores the rounded values back as f64 -- "fake quant". The Rust runtime then runs
 its normal f64 matmul, so this measures the accuracy impact of b-bit *weights* exactly
 for a weight-only scheme, with no integer kernel. Biases, activations, hidden state,
-and input normalization stay fp64. Dense-only by design.
+and input normalization stay fp64. Dense and Mamba layers supported via tensor policy.
 
 Spec: docs/superpowers/specs/2026-06-05-dense-nn-ptq-sweep-design.md
 """
@@ -26,6 +26,7 @@ from aerocapture.training.charts import is_captured
 from aerocapture.training.parquet_output import DV_TOTAL_RAW_INDEX
 
 _GRANULARITIES = ("per_channel", "per_tensor")
+_TENSOR_POLICIES = ("all", "proj_only")
 
 
 def _layer_types(model_json: dict) -> list[str]:
@@ -49,27 +50,69 @@ def _quantize_matrix(w: npt.NDArray[np.float64], n_bits: int, granularity: str) 
     return result
 
 
-def quantize_dense_weights(model_json: dict, n_bits: int, granularity: str) -> dict:
-    """Return a deep copy of model_json with every dense layer's weights fake-quantized.
+def _quantize_vector(v: npt.NDArray[np.float64], n_bits: int) -> npt.NDArray[np.float64]:
+    """Symmetric fake-quant of a 1-D tensor: always a single per-tensor scale
+    (per-channel on a vector would be per-element, i.e. lossless and meaningless)."""
+    return _quantize_matrix(v.reshape(1, -1), n_bits, "per_tensor").reshape(-1)
 
-    Weights only -- biases, input_mask, normalization, output_param, architecture untouched.
-    Raises ValueError for n_bits < 2, unknown granularity, or any non-dense layer.
+
+def _quantizable_tensors(model_json: dict, tensor_policy: str) -> list[tuple[str, int, str, bool]]:
+    """(key, layer_idx, field, is_1d) for every tensor the policy quantizes.
+
+    dense: `w` only (biases stay fp). mamba: `x_proj_w` + `dt_proj_w` always;
+    `a_log` + `d_skip` only under "all"; `dt_proj_b` never (it is a bias).
     """
+    types = _layer_types(model_json)
+    unsupported = sorted({t for t in types if t not in ("dense", "mamba")})
+    if unsupported:
+        raise ValueError(f"quantization supports dense+mamba models; found layer types {unsupported}")
+    out: list[tuple[str, int, str, bool]] = []
+    for i, t in enumerate(types):
+        if t == "dense":
+            out.append((f"layer_{i}.w", i, "w", False))
+        else:
+            out.append((f"layer_{i}.x_proj_w", i, "x_proj_w", False))
+            out.append((f"layer_{i}.dt_proj_w", i, "dt_proj_w", False))
+            if tensor_policy == "all":
+                out.append((f"layer_{i}.a_log", i, "a_log", False))
+                out.append((f"layer_{i}.d_skip", i, "d_skip", True))
+    return out
+
+
+def _validate_quant_args(n_bits: int, granularity: str, tensor_policy: str) -> None:
     if n_bits < 2:
         raise ValueError(f"n_bits must be >= 2 (got {n_bits}); binary weights are out of scope")
     if granularity not in _GRANULARITIES:
         raise ValueError(f"unknown granularity {granularity!r} (expected one of {_GRANULARITIES})")
-    types = _layer_types(model_json)
-    non_dense = sorted({t for t in types if t != "dense"})
-    if non_dense:
-        raise ValueError(f"quantize_dense_weights supports dense-only models; found layer types {non_dense}")
+    if tensor_policy not in _TENSOR_POLICIES:
+        raise ValueError(f"unknown tensor_policy {tensor_policy!r} (expected one of {_TENSOR_POLICIES})")
 
+
+def quantize_model_weights(
+    model_json: dict,
+    n_bits: int,
+    granularity: str,
+    tensor_policy: str = "all",
+    only_tensor: str | None = None,
+) -> dict:
+    """Deep copy of model_json with the policy's tensors fake-quantized.
+
+    `only_tensor` (a key from `_quantizable_tensors`, e.g. "layer_1.a_log")
+    quantizes exactly that tensor group -- the leave-one-out probe. Biases,
+    input_mask, normalization, output_param, architecture are never touched.
+    """
+    _validate_quant_args(n_bits, granularity, tensor_policy)
+    targets = _quantizable_tensors(model_json, "all" if only_tensor is not None else tensor_policy)
+    if only_tensor is not None:
+        targets = [t for t in targets if t[0] == only_tensor]
+        if not targets:
+            known = [k for k, *_ in _quantizable_tensors(model_json, "all")]
+            raise ValueError(f"unknown only_tensor {only_tensor!r} (expected one of {known})")
     out = copy.deepcopy(model_json)
-    weights = out["weights"]
-    for i in range(len(types)):
-        key = f"layer_{i}"
-        w = np.asarray(weights[key]["w"], dtype=np.float64)
-        weights[key]["w"] = _quantize_matrix(w, n_bits, granularity).tolist()
+    for _key, i, field, is_1d in targets:
+        arr = np.asarray(out["weights"][f"layer_{i}"][field], dtype=np.float64)
+        q = _quantize_vector(arr, n_bits) if is_1d else _quantize_matrix(arr, n_bits, granularity)
+        out["weights"][f"layer_{i}"][field] = q.tolist()
     return out
 
 
@@ -159,7 +202,7 @@ def run_quant_sweep(
         tmp = Path(tmpdir) / "quant_model.json"
         for gran in granularities:
             for b in bits:
-                tmp.write_text(json.dumps(quantize_dense_weights(model_json, b, gran)))
+                tmp.write_text(json.dumps(quantize_model_weights(model_json, b, gran)))
                 overrides = {**common, "data.neural_network": str(tmp)}
                 res = aerocapture_rs.run_mc(toml_path, overrides=overrides, sim_timeout_secs=sim_timeout_secs)
                 m = _variant_metrics(res.final_records, cost_kwargs)
