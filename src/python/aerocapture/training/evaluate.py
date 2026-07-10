@@ -72,6 +72,27 @@ def make_reserved_seeds(base_mc_seed: int, offset: int, n: int) -> list[int]:
     return seeds
 
 
+CONFIRM_EVAL_SEED_OFFSET = 20_000_000  # confirmatory sizing-pool RNG stream (the seeds themselves live in [2^31, 2^32))
+
+
+def make_confirmatory_pools(base_mc_seed: int, n_replicates: int = 10, n: int = 100_000) -> list[list[int]]:
+    """Frozen confirmatory sizing pools: n_replicates independent pools of n seeds each.
+
+    Seeds are drawn WITHOUT duplicates from [2**31, 2**32) -- structurally disjoint
+    from every historical pool and training/curation draw (all generated in
+    [0, 2**31) via make_reserved_seeds or the trainer's seed draws), which makes the
+    pool selection-disjoint by construction rather than by birthday-bound argument.
+    Deterministic in base_mc_seed.
+    """
+    rng = np.random.default_rng(base_mc_seed + CONFIRM_EVAL_SEED_OFFSET)
+    total = n_replicates * n
+    seeds: set[int] = set()
+    while len(seeds) < total:
+        seeds.update(rng.integers(2**31, 2**32, size=total - len(seeds)).tolist())
+    ordered = rng.permutation(np.array(sorted(seeds), dtype=np.int64))
+    return [ordered[i * n : (i + 1) * n].tolist() for i in range(n_replicates)]
+
+
 class GateStatus(Enum):
     """Outcome of the guarded validation-gate selection."""
 
