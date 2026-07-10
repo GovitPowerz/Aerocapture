@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -90,37 +91,6 @@ def test_preserves_shape_biases_and_input() -> None:
     assert model["weights"]["layer_0"]["w"] == w.tolist()  # input not mutated
 
 
-def test_variant_metrics_capture_and_dv() -> None:
-    from aerocapture.training.quantize import _variant_metrics
-
-    fr = np.zeros((3, 52))
-    # record 0: captured (ifinal=3, ecc<1), dv=100
-    fr[0, 31], fr[0, 9], fr[0, 41] = 3, 0.5, 100.0
-    # record 1: captured, dv=200
-    fr[1, 31], fr[1, 9], fr[1, 41] = 3, 0.9, 200.0
-    # record 2: not captured (pending crash, hyperbolic)
-    fr[2, 31], fr[2, 9], fr[2, 41] = 4, 2.0, 5000.0
-
-    m = _variant_metrics(fr, {})
-    assert m["capture_rate"] == pytest.approx(2.0 / 3.0)
-    assert m["dv_p50"] == pytest.approx(150.0)
-    assert m["dv_p95"] == pytest.approx(195.0)
-    assert np.isfinite(m["mean_cost"])
-
-
-def test_variant_metrics_no_captures_dv_none() -> None:
-    from aerocapture.training.quantize import _variant_metrics
-
-    fr = np.zeros((2, 52))
-    fr[:, 31] = 4  # all pending-crash -> no captures
-    fr[:, 9] = 2.0
-    m = _variant_metrics(fr, {})
-    assert m["capture_rate"] == 0.0
-    assert m["dv_p50"] is None
-    assert m["dv_p95"] is None
-    assert np.isfinite(m["mean_cost"])
-
-
 def _mamba_model(rng: np.random.Generator) -> dict:
     """Dense(3->4) -> Mamba(4, d_state=2, dt_rank=1) -> Dense(4->2), random weights."""
     return {
@@ -199,18 +169,17 @@ def test_bad_tensor_policy_raises() -> None:
 def test_chart_quant_sweep_writes_svg(tmp_path: Path) -> None:
     from aerocapture.training.charts_quant import chart_quant_sweep
 
+    def _v(bits: int, gran: str, policy: str, capture: float, cvar: float | None) -> dict:
+        return {"bits": bits, "granularity": gran, "tensor_policy": policy, "capture_rate": capture, "dv_cvar95": cvar}
+
     results = {
-        "baseline": {"capture_rate": 0.90, "mean_cost": 100.0, "dv_p50": 50.0, "dv_p95": 80.0},
+        "baseline": {"capture_rate": 0.90, "dv_cvar95": 90.0},
         "variants": [
-            {"granularity": "per_channel", "bits": 8, "capture_rate": 0.90, "mean_cost": 101.0},
-            {"granularity": "per_channel", "bits": 4, "capture_rate": 0.85, "mean_cost": 120.0},
-            {"granularity": "per_tensor", "bits": 8, "capture_rate": 0.88, "mean_cost": 105.0},
-            {"granularity": "per_tensor", "bits": 4, "capture_rate": 0.60, "mean_cost": 200.0},
+            _v(8, "per_channel", "all", 0.90, 91.0),
+            _v(4, "per_channel", "all", 0.85, 120.0),
+            _v(8, "per_tensor", "all", 0.88, 105.0),
+            _v(4, "per_tensor", "all", 0.60, 200.0),
         ],
-        "n_sims": 10,
-        "bits": [8, 4],
-        "granularities": ["per_channel", "per_tensor"],
-        "model_path": "x",
     }
     out = tmp_path / "sweep.svg"
     chart_quant_sweep(results, str(out))
@@ -218,29 +187,55 @@ def test_chart_quant_sweep_writes_svg(tmp_path: Path) -> None:
 
 
 @pytest.mark.slow
-def test_quant_sweep_smoke() -> None:
+def test_quant_sweep_smoke(tmp_path: Path) -> None:
+    """Reduced end-to-end sweep on a synthetic champion-arch model: real sims, tiny grid."""
     pytest.importorskip("aerocapture_rs")
+    import aerocapture_rs
+    from aerocapture.training.quantize import main as quant_main
 
-    from aerocapture.training.ablation import _resolve_nn_path
-    from aerocapture.training.quantize import run_quant_sweep
-
-    toml = "configs/training/msr_aller_nn_atan2_train.toml"
-    if not _resolve_nn_path(toml).exists():
-        pytest.skip("deployed dense model not present (gitignored training output)")
-
-    try:
-        results = run_quant_sweep(toml, bits=(8, 4), granularities=("per_channel", "per_tensor"), n_sims=2)
-    except RuntimeError as e:
-        if "input_mask length" in str(e):
-            pytest.skip(f"config/model input_mask drift: {e}")
-        raise
-
-    assert set(results["baseline"]) >= {"capture_rate", "mean_cost", "dv_p50", "dv_p95"}
-    assert len(results["variants"]) == 4
-    for v in results["variants"]:
-        assert 0.0 <= v["capture_rate"] <= 1.0
-        assert np.isfinite(v["mean_cost"])
-        assert {"granularity", "bits", "delta_capture_rate", "delta_mean_cost"} <= set(v)
+    arch = [
+        {"type": "dense", "input_size": 17, "output_size": 16, "activation": "swish"},
+        {"type": "mamba", "input_size": 16, "d_state": 12, "dt_rank": 1},
+        {"type": "dense", "input_size": 16, "output_size": 2, "activation": "asinh"},
+    ]
+    rng = np.random.default_rng(0)
+    model_path = tmp_path / "synthetic_962.json"
+    aerocapture_rs.flat_weights_to_json(
+        flat=rng.uniform(-0.5, 0.5, 962).tolist(),
+        architecture_json=json.dumps(arch),
+        path=str(model_path),
+        input_mask=[0, 2, 3, 5, 6, 7, 11, 12, 18, 19, 27, 28, 29, 30, 32, 33, 34],
+        output_param="atan2_signed",
+    )
+    out_dir = tmp_path / "sweep_out"
+    quant_main(
+        [
+            str(out_dir),
+            "--toml",
+            "configs/training/sweep/mamba_p962.toml",
+            "--model",
+            str(model_path),
+            "--n-sims",
+            "3",
+            "--bits",
+            "8",
+            "4",
+            "--granularity",
+            "per_tensor",
+            "--policies",
+            "all",
+            "--loo-bits",
+            "4",
+            "--sim-timeout",
+            "60",
+        ]
+    )
+    results = json.loads((out_dir / "quantization_results.json").read_text())
+    assert len(results["variants"]) == 2
+    assert len(results["loo"]) == 6  # layer_0.w, x_proj_w, dt_proj_w, a_log, d_skip, layer_2.w
+    assert results["verdict"]["bits"] == 4
+    assert (out_dir / "quantization_sweep.svg").exists()
+    assert (out_dir / "quantization_loo.svg").exists()
 
 
 def test_qat_batch_matches_quantize_matrix() -> None:
@@ -425,3 +420,41 @@ def test_memory_footprint_proj_only_moves_dynamics_to_fp() -> None:
 
     m = memory_footprint(_CHAMPION_ARCH, 8, "per_tensor", "proj_only")
     assert m["quant_params"] == 720 and m["fp_params"] == 242
+
+
+def _variant(bits: int, gran: str, policy: str, capture: float, cvar: float) -> dict:
+    return {"bits": bits, "granularity": gran, "tensor_policy": policy, "capture_rate": capture, "dv_cvar95": cvar}
+
+
+def test_pick_verdict_prefers_capture_then_cvar() -> None:
+    from aerocapture.training.quantize import _pick_verdict
+
+    variants = [
+        _variant(4, "per_tensor", "all", 0.99, 110.0),
+        _variant(4, "per_channel", "proj_only", 1.0, 118.0),
+        _variant(4, "per_channel", "all", 1.0, 116.0),
+        _variant(8, "per_channel", "all", 1.0, 100.0),  # wrong bits: ignored
+    ]
+    v = _pick_verdict(variants, 4)
+    assert (v["granularity"], v["tensor_policy"]) == ("per_channel", "all")
+
+
+def test_pick_verdict_tie_breaks_toward_per_channel_all() -> None:
+    from aerocapture.training.quantize import _pick_verdict
+
+    variants = [
+        _variant(4, "per_tensor", "proj_only", 1.0, 115.0),
+        _variant(4, "per_channel", "all", 1.0, 115.0),
+    ]
+    v = _pick_verdict(variants, 4)
+    assert (v["granularity"], v["tensor_policy"]) == ("per_channel", "all")
+
+
+def test_pick_verdict_nan_cvar_ranks_last() -> None:
+    from aerocapture.training.quantize import _pick_verdict
+
+    variants = [
+        _variant(4, "per_channel", "all", 1.0, float("nan")),
+        _variant(4, "per_tensor", "all", 1.0, 120.0),
+    ]
+    assert _pick_verdict(variants, 4)["granularity"] == "per_tensor"

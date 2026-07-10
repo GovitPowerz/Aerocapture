@@ -22,10 +22,6 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from aerocapture.training.ablation import _load_cost_kwargs, _mean_per_sim_cost, _resolve_nn_path
-from aerocapture.training.charts import is_captured
-from aerocapture.training.parquet_output import DV_TOTAL_RAW_INDEX
-
 _GRANULARITIES = ("per_channel", "per_tensor")
 _TENSOR_POLICIES = ("all", "proj_only")
 
@@ -234,119 +230,272 @@ def quantize_flat_weights_batch(
     return out
 
 
-def _variant_metrics(final_records: npt.NDArray[np.float64], cost_kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Capture rate, mean training cost, and captured-only DV percentiles for one MC batch."""
-    captured = is_captured(final_records)
-    capture_rate = float(np.mean(captured))
-    mean_cost = _mean_per_sim_cost(final_records, cost_kwargs)
-    if np.any(captured):
-        dv = final_records[captured, DV_TOTAL_RAW_INDEX]
-        dv_p50: float | None = float(np.percentile(dv, 50))
-        dv_p95: float | None = float(np.percentile(dv, 95))
-    else:
-        dv_p50 = None
-        dv_p95 = None
-    return {"capture_rate": capture_rate, "mean_cost": mean_cost, "dv_p50": dv_p50, "dv_p95": dv_p95}
+def _score_variant(
+    toml_path: str,
+    model_path: str | Path,
+    seeds: list[int],
+    cost_kwargs: dict[str, Any],
+    extra_overrides: dict[str, Any],
+    sim_timeout_secs: float | None,
+) -> dict[str, Any]:
+    """One MC batch on an explicit seed list for a pinned model; tail-led metrics."""
+    import aerocapture_rs
+
+    from aerocapture.training import charts
+    from aerocapture.training.experiments.probe_common import cvar95
+    from aerocapture.training.report import compute_eval_summary
+
+    overrides = [{"simulation.n_sims": 1, "data.neural_network": str(model_path), "monte_carlo.seed": int(s), **extra_overrides} for s in seeds]
+    batch = aerocapture_rs.run_batch(toml_path, overrides, n_threads=None, include_trajectories=False, sim_timeout_secs=sim_timeout_secs)
+    final = np.array(batch.final_records, dtype=np.float64)
+    summary = compute_eval_summary(final, n_sims=len(seeds), cost_kwargs=cost_kwargs)
+    captured = charts.is_captured(final)
+    dv = np.clip(final[captured, charts._FR_DV_TOTAL], charts.DV_FLOOR, charts.DV_CAP)
+    viol = max(float(c["viol_pct"]) for c in summary["constraints"].values()) if summary["constraints"] else 0.0
+    return {
+        "capture_rate": float(summary["capture_rate"]),
+        "dv_p50": float(np.percentile(dv, 50)) if dv.size else None,
+        "dv_p95": float(np.percentile(dv, 95)) if dv.size else None,
+        "dv_p99": float(np.percentile(dv, 99)) if dv.size else None,
+        "dv_cvar95": cvar95(dv) if dv.size else None,
+        "viol_pct": viol,
+        "rms_cost": float(summary["cost"]["rms"]),
+    }
+
+
+def _resolve_pool(toml_path: str, pool_offset: int, n_sims: int) -> tuple[list[int], dict[str, Any]]:
+    from aerocapture.training.evaluate import make_reserved_seeds
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    base_mc_seed = int(load_toml_with_bases(Path(toml_path)).get("monte_carlo", {}).get("seed", 42))
+    seeds = make_reserved_seeds(base_mc_seed, pool_offset, n_sims)
+    return seeds, {"base_mc_seed": base_mc_seed, "offset": pool_offset, "n": n_sims}
+
+
+def _scaffolding_overrides(params_dir: str | Path | None) -> dict[str, Any]:
+    if params_dir is None:
+        return {}
+    from aerocapture.training.report import _load_nn_scaffolding_overrides
+
+    d = Path(params_dir)
+    return dict(_load_nn_scaffolding_overrides(d, d / f"optimized_{d.name}.toml"))
+
+
+def _pick_verdict(variants: list[dict[str, Any]], bits: int) -> dict[str, Any]:
+    """Pre-registered QAT-cell rule: among the `bits` cells, max capture rate,
+    then min CVaR95 (NaN/None last), ties break toward per_channel then all."""
+    cells = [v for v in variants if v["bits"] == bits]
+    if not cells:
+        raise ValueError(f"no {bits}-bit cells in the sweep grid")
+
+    def key(v: dict[str, Any]) -> tuple[float, float, int, int]:
+        cvar = v.get("dv_cvar95")
+        cvar_f = float(cvar) if cvar is not None and np.isfinite(cvar) else float("inf")
+        return (-round(float(v["capture_rate"]), 3), cvar_f, int(v["granularity"] != "per_channel"), int(v["tensor_policy"] != "all"))
+
+    return min(cells, key=key)
 
 
 def run_quant_sweep(
     toml_path: str,
+    model_path: str | Path,
+    params_dir: str | Path | None = None,
     bits: tuple[int, ...] = (8, 6, 4, 3, 2),
     granularities: tuple[str, ...] = ("per_channel", "per_tensor"),
+    policies: tuple[str, ...] = ("all", "proj_only"),
     n_sims: int = 1000,
+    pool_offset: int | None = None,
+    loo_bits: int | None = 4,
     sim_timeout_secs: float | None = None,
-    cost_transform: str | None = None,
+    cost_transform: str | None = "linear",
 ) -> dict[str, Any]:
-    """Sweep weight-only PTQ over (granularity, bits); evaluate each on the same MC seeds.
+    """PTQ sensitivity sweep on a reserved pool with the co-trained scaffolding applied.
 
-    monte_carlo.seed is left to the config so every variant sees identical dispersions;
-    each delta vs the fp baseline is therefore pure quantization effect.
+    Grid: bits x granularity x tensor_policy, each scored on the SAME seeds as the
+    fp baseline, so every delta is pure quantization effect. When `loo_bits` is set,
+    a leave-one-out pass quantizes one tensor group at a time at that bit width
+    (granularity taken from the verdict cell). Memory rows via `memory_footprint`.
     """
-    import aerocapture_rs
+    from aerocapture.training.ablation import _load_cost_kwargs
+    from aerocapture.training.evaluate import HEADLINE_REQUOTE_SEED_OFFSET
 
-    nn_path = _resolve_nn_path(toml_path)
-    model_json = json.loads(nn_path.read_text())
+    offset = HEADLINE_REQUOTE_SEED_OFFSET if pool_offset is None else pool_offset
+    seeds, pool = _resolve_pool(toml_path, offset, n_sims)
+    scaff = _scaffolding_overrides(params_dir)
     cost_kwargs = _load_cost_kwargs(toml_path, cost_transform=cost_transform)
-    common = {"simulation.n_sims": n_sims}
+    model_json = json.loads(Path(model_path).read_text())
 
-    baseline_res = aerocapture_rs.run_mc(toml_path, overrides=common, sim_timeout_secs=sim_timeout_secs)
-    baseline = _variant_metrics(baseline_res.final_records, cost_kwargs)
+    baseline = _score_variant(toml_path, model_path, seeds, cost_kwargs, scaff, sim_timeout_secs)
+
+    def deltas(m: dict[str, Any]) -> dict[str, Any]:
+        m["delta_capture_rate"] = m["capture_rate"] - baseline["capture_rate"]
+        if m["dv_cvar95"] is not None and baseline["dv_cvar95"] is not None:
+            m["delta_dv_cvar95"] = m["dv_cvar95"] - baseline["dv_cvar95"]
+        else:
+            m["delta_dv_cvar95"] = None
+        return m
 
     variants: list[dict[str, Any]] = []
+    loo: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir) / "quant_model.json"
         for gran in granularities:
-            for b in bits:
-                tmp.write_text(json.dumps(quantize_model_weights(model_json, b, gran)))
-                overrides = {**common, "data.neural_network": str(tmp)}
-                res = aerocapture_rs.run_mc(toml_path, overrides=overrides, sim_timeout_secs=sim_timeout_secs)
-                m = _variant_metrics(res.final_records, cost_kwargs)
-                m["granularity"] = gran
-                m["bits"] = b
-                m["delta_capture_rate"] = m["capture_rate"] - baseline["capture_rate"]
-                m["delta_mean_cost"] = m["mean_cost"] - baseline["mean_cost"]
-                variants.append(m)
+            for policy in policies:
+                for b in bits:
+                    tmp.write_text(json.dumps(quantize_model_weights(model_json, b, gran, policy)))
+                    m = _score_variant(toml_path, tmp, seeds, cost_kwargs, scaff, sim_timeout_secs)
+                    m.update({"granularity": gran, "tensor_policy": policy, "bits": b})
+                    variants.append(deltas(m))
+                    print(f"  scored bits={b} gran={gran} policy={policy}: capture={m['capture_rate']:.3f}")
 
+        verdict = _pick_verdict(variants, loo_bits) if loo_bits is not None else None
+        if loo_bits is not None:
+            assert verdict is not None
+            for key, *_ in _quantizable_tensors(model_json, "all"):
+                tmp.write_text(json.dumps(quantize_model_weights(model_json, loo_bits, verdict["granularity"], "all", only_tensor=key)))
+                m = _score_variant(toml_path, tmp, seeds, cost_kwargs, scaff, sim_timeout_secs)
+                m.update({"tensor": key, "bits": loo_bits, "granularity": verdict["granularity"]})
+                loo.append(deltas(m))
+                print(f"  scored LOO {key}: capture={m['capture_rate']:.3f}")
+
+    memory = [
+        {"bits": b, "granularity": g, "tensor_policy": p, **memory_footprint(model_json["architecture"], b, g, p)}
+        for g in granularities
+        for p in policies
+        for b in bits
+    ]
     return {
         "baseline": baseline,
         "variants": variants,
+        "loo": loo,
+        "verdict": verdict,
+        "memory": memory,
+        "pool": pool,
         "n_sims": n_sims,
-        "bits": list(bits),
-        "granularities": list(granularities),
-        "model_path": str(nn_path),
+        "model_path": str(model_path),
+        "params_dir": str(params_dir) if params_dir is not None else None,
+        "scaffolding_applied": sorted(scaff),
     }
 
 
+def run_finalists(
+    toml_path: str,
+    entries: list[dict[str, Any]],
+    n_sims: int = 10000,
+    pool_offset: int | None = None,
+    sim_timeout_secs: float | None = None,
+    cost_transform: str | None = "linear",
+) -> dict[str, Any]:
+    """Deep re-score (default n=10000) of finalist models on the same reserved pool.
+
+    Entry: {"label", "model", "params_dir", "quantize": None | {"bits", "granularity", "tensor_policy"}}.
+    QAT-deployed models pass quantize=None (their best_model.json is already on-grid);
+    the PTQ finalist passes the verdict cell so the champion is rounded on the fly.
+    """
+    from aerocapture.training.ablation import _load_cost_kwargs
+    from aerocapture.training.evaluate import HEADLINE_REQUOTE_SEED_OFFSET
+
+    offset = HEADLINE_REQUOTE_SEED_OFFSET if pool_offset is None else pool_offset
+    seeds, pool = _resolve_pool(toml_path, offset, n_sims)
+    cost_kwargs = _load_cost_kwargs(toml_path, cost_transform=cost_transform)
+
+    rows: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for i, e in enumerate(entries):
+            model_path = Path(e["model"])
+            if e.get("quantize") is not None:
+                q = e["quantize"]
+                tmp = Path(tmpdir) / f"finalist_{i}.json"
+                tmp.write_text(
+                    json.dumps(quantize_model_weights(json.loads(model_path.read_text()), int(q["bits"]), str(q["granularity"]), str(q["tensor_policy"])))
+                )
+                model_path = tmp
+            m = _score_variant(toml_path, model_path, seeds, cost_kwargs, _scaffolding_overrides(e.get("params_dir")), sim_timeout_secs)
+            rows.append({"label": e["label"], "model": e["model"], "quantize": e.get("quantize"), **m})
+            print(f"  finalist {e['label']}: capture={m['capture_rate']:.3f}")
+    return {"finalists": rows, "pool": pool, "n_sims": n_sims}
+
+
 def _print_table(results: dict[str, Any]) -> None:
+    def fmt(v: float | None) -> str:
+        return "-" if v is None else f"{v:.1f}"
+
     b = results["baseline"]
-    bp50 = "-" if b["dv_p50"] is None else f"{b['dv_p50']:.1f}"
-    bp95 = "-" if b["dv_p95"] is None else f"{b['dv_p95']:.1f}"
-    print(f"baseline (fp): capture={b['capture_rate']:.3f}  mean_cost={b['mean_cost']:.4g}  dv_p50={bp50}  dv_p95={bp95}")
-    print(f"{'gran':<12}{'bits':>5}{'capture':>9}{'d_cap':>9}{'mean_cost':>14}{'d_cost':>14}{'dv_p50':>9}{'dv_p95':>9}")
+    print(f"baseline (fp): capture={b['capture_rate']:.3f}  dv_p50={fmt(b['dv_p50'])}  dv_p95={fmt(b['dv_p95'])}  cvar95={fmt(b['dv_cvar95'])}")
+    print(f"{'gran':<12}{'policy':<11}{'bits':>5}{'capture':>9}{'d_cap':>9}{'dv_p50':>9}{'dv_p95':>9}{'cvar95':>9}{'d_cvar':>9}{'viol%':>7}")
     for v in results["variants"]:
-        p50 = "-" if v["dv_p50"] is None else f"{v['dv_p50']:.1f}"
-        p95 = "-" if v["dv_p95"] is None else f"{v['dv_p95']:.1f}"
+        d_cvar = "-" if v["delta_dv_cvar95"] is None else f"{v['delta_dv_cvar95']:+.1f}"
         print(
-            f"{v['granularity']:<12}{v['bits']:>5}{v['capture_rate']:>9.3f}{v['delta_capture_rate']:>+9.3f}"
-            f"{v['mean_cost']:>14.4g}{v['delta_mean_cost']:>+14.4g}{p50:>9}{p95:>9}"
+            f"{v['granularity']:<12}{v['tensor_policy']:<11}{v['bits']:>5}{v['capture_rate']:>9.3f}{v['delta_capture_rate']:>+9.3f}"
+            f"{fmt(v['dv_p50']):>9}{fmt(v['dv_p95']):>9}{fmt(v['dv_cvar95']):>9}{d_cvar:>9}{v['viol_pct']:>7.2f}"
         )
+    for r in results["loo"]:
+        d_cvar = "-" if r["delta_dv_cvar95"] is None else f"{r['delta_dv_cvar95']:+.1f}"
+        print(f"LOO {r['tensor']:<22}{r['bits']:>3}b  capture={r['capture_rate']:.3f}  cvar95={fmt(r['dv_cvar95'])}  d_cvar={d_cvar}")
+    if results.get("verdict"):
+        v = results["verdict"]
+        print(f"verdict (QAT cell @ {v['bits']}b): granularity={v['granularity']} tensor_policy={v['tensor_policy']}")
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Weight-only PTQ sweep for the dense NN guidance policy")
-    parser.add_argument("output_dir", help="directory for quantization_results.json + quantization_sweep.svg")
-    parser.add_argument("--toml", required=True, help="training/nominal config whose data.neural_network is the dense model")
+    parser = argparse.ArgumentParser(description="Weight-only PTQ sweep / finalists re-score for the NN guidance policy")
+    parser.add_argument("output_dir", help="directory for quantization_results.json + SVGs")
+    parser.add_argument("--toml", required=True, help="training config that resolves the mission pipeline (e.g. configs/training/sweep/mamba_p962.toml)")
+    parser.add_argument("--model", required=True, help="model JSON to quantize/evaluate (pinned; the TOML deploy path is never read)")
+    parser.add_argument("--params-dir", default=None, help="training dir whose best_params.json carries the co-trained scaffolding overrides")
     parser.add_argument("--n-sims", type=int, default=1000)
     parser.add_argument("--bits", type=int, nargs="+", default=[8, 6, 4, 3, 2])
     parser.add_argument("--granularity", nargs="+", default=["per_channel", "per_tensor"], choices=list(_GRANULARITIES))
+    parser.add_argument("--policies", nargs="+", default=["all", "proj_only"], choices=list(_TENSOR_POLICIES))
+    parser.add_argument("--loo-bits", type=int, default=4)
+    parser.add_argument("--no-loo", action="store_true")
+    parser.add_argument("--pool-offset", type=int, default=None, help="reserved-pool offset (default HEADLINE_REQUOTE_SEED_OFFSET = 8M)")
     parser.add_argument("--sim-timeout", type=float, default=None)
+    parser.add_argument("--finalists", default=None, help="JSON file with finalist entries; switches to the deep re-score mode")
     parser.add_argument(
         "--cost-transform",
         default="linear",
         choices=["linear", "sqrt", "log", "squared", "cubed"],
-        help="rescaling for the reported mean_cost; default linear = interpretable DV+penalties "
-        "(overrides the config's optimization-shaping transform, which can blow mean_cost up to ~1e9)",
+        help="rescaling for the reported rms_cost; default linear = interpretable DV+penalties",
     )
     args = parser.parse_args(argv)
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.finalists is not None:
+        entries = json.loads(Path(args.finalists).read_text())
+        results = run_finalists(
+            args.toml, entries, n_sims=args.n_sims, pool_offset=args.pool_offset, sim_timeout_secs=args.sim_timeout, cost_transform=args.cost_transform
+        )
+        (out_dir / "finalists_results.json").write_text(json.dumps(results, indent=2))
+        for r in results["finalists"]:
+            cells = " ".join(f"{k}={'-' if r[k] is None else f'{r[k]:.1f}'}" for k in ("dv_p50", "dv_p95", "dv_p99", "dv_cvar95"))
+            print(f"{r['label']:<28} capture={r['capture_rate']:.4f} {cells}")
+        print(f"\nWrote {out_dir / 'finalists_results.json'}")
+        return
 
     results = run_quant_sweep(
         args.toml,
+        args.model,
+        params_dir=args.params_dir,
         bits=tuple(args.bits),
         granularities=tuple(args.granularity),
+        policies=tuple(args.policies),
         n_sims=args.n_sims,
+        pool_offset=args.pool_offset,
+        loo_bits=None if args.no_loo else args.loo_bits,
         sim_timeout_secs=args.sim_timeout,
         cost_transform=args.cost_transform,
     )
-
-    out_dir = Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "quantization_results.json").write_text(json.dumps(results, indent=2))
 
-    from aerocapture.training.charts_quant import chart_quant_sweep
+    from aerocapture.training.charts_quant import chart_quant_loo, chart_quant_sweep
 
     chart_quant_sweep(results, str(out_dir / "quantization_sweep.svg"))
+    if results["loo"]:
+        chart_quant_loo(results, str(out_dir / "quantization_loo.svg"))
     _print_table(results)
-    print(f"\nWrote {out_dir / 'quantization_results.json'} and {out_dir / 'quantization_sweep.svg'}")
+    print(f"\nWrote {out_dir / 'quantization_results.json'} and SVGs")
 
 
 if __name__ == "__main__":
