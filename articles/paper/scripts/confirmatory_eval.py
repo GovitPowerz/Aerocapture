@@ -103,13 +103,15 @@ def _agg(values: list[float]) -> dict:
     }
 
 
-def _eval_cell(label: str, toml: str, pools: list[list[int]], bundle_key: str | None, extra: dict[str, Any]) -> dict:
+def _eval_cell(label: str, toml: str, pools: list[list[int]], bundle_key: str | None, extra: dict[str, Any],
+               scaffolding_from: str | None = None) -> dict:
     import aerocapture_rs
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
     from aerocapture.training.report import _read_constraint_limits, _resolve_eval_toml
 
+    src = scaffolding_from or label
     scheme_dir = (
-        REPO / "training_output" / "paper" / label if "/" in label and not (REPO / "training_output" / label).exists() else REPO / "training_output" / label
+        REPO / "training_output" / "paper" / src if "/" in src and not (REPO / "training_output" / src).exists() else REPO / "training_output" / src
     )
     eval_toml, scaffolding = _resolve_eval_toml(Path(toml), scheme_dir)
     hfl, gll, hll = _read_constraint_limits(eval_toml)
@@ -186,6 +188,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--replicates", type=int, default=10)
     parser.add_argument("--n", type=int, default=100_000)
     parser.add_argument("--extra-override", action="append", default=[], help="k=v applied to every sim (e.g. guidance.neural_network.reset_state_every_tick=true)")
+    parser.add_argument("--scaffolding-from", default=None, help="resolve best_params.json scaffolding from this training_output dir instead of the label's (for ablation cells sharing a source run)")
     args = parser.parse_args(argv)
 
     from aerocapture.training.evaluate import make_confirmatory_pools
@@ -216,7 +219,7 @@ def main(argv: list[str] | None = None) -> None:
     pools = make_confirmatory_pools(base_seed, args.replicates, args.n)
 
     for label, toml, bundle_key in specs:
-        by_label[label] = _eval_cell(label, toml, pools, bundle_key, extra)
+        by_label[label] = _eval_cell(label, toml, pools, bundle_key, extra, scaffolding_from=args.scaffolding_from)
         cells = [by_label[k] for k in sorted(by_label)]
         OUT.write_text(
             json.dumps(

@@ -1199,6 +1199,11 @@ pub struct TomlNeuralNetworkParams {
     /// Per-step increment bound (rad) for output_parameterization="delta".
     #[serde(default)]
     pub delta_max: Option<f64>,
+    /// Eval-only control (paper R4/R5 state ablation): reconstruct a zeroed
+    /// NnState before every guidance tick, making a stateful NN memoryless.
+    /// Default false; no effect on dense-only models.
+    #[serde(default)]
+    pub reset_state_every_tick: Option<bool>,
 }
 
 // ─── Domain-based Monte Carlo TOML structs ───

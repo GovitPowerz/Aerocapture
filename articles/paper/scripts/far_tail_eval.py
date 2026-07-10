@@ -36,21 +36,40 @@ from aerocapture.training.paper_stats import bootstrap_ci, cvar  # noqa: E402
 OUT = REPO / "articles/paper/data/far_tail_eval.json"
 
 
-def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None) -> dict:
+def _parse_extra_overrides(items: list[str]) -> dict:
+    out: dict = {}
+    for item in items:
+        k, _, v = item.partition("=")
+        if v.lower() in ("true", "false"):
+            out[k] = v.lower() == "true"
+        else:
+            try:
+                out[k] = int(v)
+            except ValueError:
+                try:
+                    out[k] = float(v)
+                except ValueError:
+                    out[k] = v
+    return out
+
+
+def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None,
+              extra: dict | None = None, scaffolding_from: str | None = None) -> dict:
     import aerocapture_rs
     from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
     from aerocapture.training.report import _read_constraint_limits, _resolve_eval_toml
     from aerocapture.training.toml_utils import load_toml_with_bases
 
+    src = scaffolding_from or label
     scheme_dir = (
-        REPO / "training_output" / "paper" / label if "/" in label and not (REPO / "training_output" / label).exists() else REPO / "training_output" / label
+        REPO / "training_output" / "paper" / src if "/" in src and not (REPO / "training_output" / src).exists() else REPO / "training_output" / src
     )
     eval_toml, scaffolding = _resolve_eval_toml(Path(toml), scheme_dir)
     base_mc_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
     seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
 
-    base: dict = {"simulation.n_sims": 1, **scaffolding}
+    base: dict = {"simulation.n_sims": 1, **scaffolding, **(extra or {})}
     # Pin the committed bundle's frozen weights when a bundle key is given --
     # training_output can drift from the bundle on a later resume (dense_p515
     # did: its local model far-tails at 140.3 vs the bundle's 128.1). Same
@@ -102,7 +121,10 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cells", nargs="+", required=True, help="label:toml[:bundle_key] (label = dir under training_output[/paper]; bundle_key pins articles/paper/data/runs/<key>/best_model.json)")
     parser.add_argument("--n-sims", type=int, default=10000, help="full reserved pool (training-disjoint up to 10000)")
+    parser.add_argument("--extra-override", action="append", default=[], help="k=v applied to every sim (e.g. guidance.neural_network.reset_state_every_tick=true)")
+    parser.add_argument("--scaffolding-from", default=None, help="resolve best_params.json scaffolding from this training_output dir instead of the label's (for ablation cells sharing a source run)")
     args = parser.parse_args(argv)
+    extra = _parse_extra_overrides(args.extra_override)
 
     # Accumulate by label across runs (don't clobber previously-evaluated cells).
     by_label: dict[str, dict] = {}
@@ -113,7 +135,7 @@ def main(argv: list[str] | None = None) -> None:
         parts = spec.split(":")
         label, toml = parts[0], parts[1]
         bundle_key = parts[2] if len(parts) > 2 else None
-        s = _eval_one(label, toml, args.n_sims, bundle_key=bundle_key)
+        s = _eval_one(label, toml, args.n_sims, bundle_key=bundle_key, extra=extra, scaffolding_from=args.scaffolding_from)
         by_label[label] = s
         print(f"  {label:28s} n={s['n']} cap={s['capture_pct']:.1f}% | p99 {s['p99']} CVaR99 {s['cvar99']}")
         print(f"  {'':28s} p99.9 {s['p999']} CVaR99.9 {s['cvar999']} max {s['max']}")
