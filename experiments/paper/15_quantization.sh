@@ -76,13 +76,18 @@ for cfg in ("configs/training/quant/mamba962_qat4_finetune.toml", "configs/train
         sys.exit(f"{cfg}: qat cell {got} != PTQ verdict {want} -- edit the config before launching (Task 10 Step 2)")
 print(f"verdict pre-flight OK: {verdict['granularity']}/{verdict['tensor_policy']}")
 PY
-    if ls "$QUANT_DIR/mamba962_qat4_scratch"/checkpoint_g*.json >/dev/null 2>&1; then
-        echo "existing checkpoints found: resuming qat_scratch (no --from-scratch)"
-        uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_scratch.toml \
-            --output-dir "$QUANT_DIR/mamba962_qat4_scratch" --no-tui
-    else
+    latest=$(ls "$QUANT_DIR/mamba962_qat4_scratch"/checkpoint_g*.json 2>/dev/null | sed -E 's/.*_g0*([0-9]+)\.json/\1/' | sort -n | tail -1 || echo "")
+    if [ -z "$latest" ]; then
         uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_scratch.toml \
             --output-dir "$QUANT_DIR/mamba962_qat4_scratch" --from-scratch --no-tui
+    else
+        if [ "$latest" -ge 20000 ]; then
+            echo "qat_scratch already at gen $latest >= 20000 (matched budget): nothing to do"
+            exit 0
+        fi
+        echo "existing checkpoints found: resuming qat_scratch to gen 20000 (+$((20000 - latest)))"
+        uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_scratch.toml \
+            --n-gen $((20000 - latest)) --output-dir "$QUANT_DIR/mamba962_qat4_scratch" --no-tui
     fi
     ;;
 finalists)
