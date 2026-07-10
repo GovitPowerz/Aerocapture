@@ -145,11 +145,27 @@ We make three contributions:
   $14.7$ m/s in three-seed-mean $"CVaR"_(99.9)$, and beyond run-to-run variance on the worst observed
   case. Training loss does not pick the tail winner; internal state does.
 
-+ *The first systematic head-to-head of neural versus predictor--corrector aerocapture guidance.* On
++ *A systematic head-to-head of neural versus predictor--corrector aerocapture guidance* -- to our
+  knowledge the first for an MSR-class Mars aerocapture to compare an end-to-end learned policy
+  against classical baselines co-tuned on the same objective, on paired dispersed scenarios, under
+  a far-tail correction-$Delta v$ risk metric. On
   identical dispersions, the deployed network beats the best classical scheme by $16.4$ m/s in mean
   and $27.6$ m/s at $"CVaR"_95$, at a per-simulation compute cost $23 times$ below the numerical
   predictor--corrector -- with the caveat that the analytic law is more robust off-nominal, under a
   deliberately harsh stress regime we return to in Section 7.3.
+
+This answer lands in a field that has moved since 2009. On the classical side, FNPAG @lu2015fnpag
+set the numerical predictor--corrector standard and was carried across Mars aerocapture mission and
+vehicle design maps @matz2017mars; more recent work replans under uncertainty explicitly --
+two-stage stochastic and robust formulations that beat a deterministic predictor--corrector under
+density perturbations @zucchelli2021twostage -- solves the full constrained replan by convexification
+@rataczak2025cpag, or augments the bank channel with angle-of-attack modulation through optimal
+control @sonandres2025abamguid. Machine learning has so far entered the loop mostly as a *component*
+inside a classical scheme: LSTM density estimation feeding FNPAG @sonandres2025density, generative
+failure-mode indicators steering a predictor--corrector @calkins2025riskaware. End-to-end learned
+aerocapture guidance evaluated against classical baselines on common dispersed scenarios -- with the
+classical side given the same objective and tuning freedom, and the comparison read at the far-tail
+depth that sizes the propellant -- is, to our knowledge, the gap this paper fills.
 
 All of this rests on a high-fidelity simulator -- $J_2$/$J_3$/$J_4$ gravity, Gauss--Markov density
 perturbations, thermal limits, pilot dynamics -- validated against a legacy reference implementation
@@ -290,7 +306,8 @@ sign whenever the inclination error, projected a few seconds ahead, exceeds a th
 energy-gated activation window. FTC is analytic,
 fast, and -- as we will show -- only as good as its reference.
 
-*FNPAG* is Lu's fully numerical predictor--corrector @lu2015fnpag @lu2014predictor. Every two-second
+*FNPAG* is Lu's fully numerical predictor--corrector @lu2015fnpag @lu2014predictor, subsequently
+carried across Mars aerocapture mission and vehicle design maps @matz2017mars. Every two-second
 replan cycle it integrates the equations of motion forward to atmosphere exit and bisects the
 constant capture-bank magnitude until the predicted osculating exit apoapsis matches the target,
 scaling the onboard atmosphere by the navigation-estimated density factor so the predictor tracks
