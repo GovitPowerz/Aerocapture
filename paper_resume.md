@@ -2,6 +2,25 @@
 
 > **Purpose:** let a fresh session pick up the paper work without re-reading the whole history.
 
+> **REVISION IN FLIGHT 2026-07-10 (R4/R5 reviewer reports, branch `rework_after_review` off the
+> claude/competent-bardeen head):** plan = `docs/superpowers/plans/2026-07-10-reviewer-4-5-revision.md`,
+> per-finding tracker = `articles/paper/revision_state.json` (untracked), 20 commits so far.
+> DONE: confirmatory sizing pool (10x100k range-disjoint, 20 cells committed in
+> `confirmatory_eval.json` — deployed mamba CVaR99.9 123.3±0.11 CONFIRMS dev 122.0; ordering
+> mamba 125.5 < lstm 131.5 < dense 140.5 holds at 1e6; mamba s2 crashes 6.1e-5, all physical,
+> `s2_failure_classification.json`); Rust `reset_state_every_tick` flag (reset control: 123.3 -> 414.5
+> CVaR99.9 at capture parity — state causally load-bearing); all text tiers T7-T18 (see git log).
+> WAITING: user runs `experiments/paper/15_state_controls.sh` (window_ctrl_p970 + mamba_p962_nodv
+> x3 seeds) then `16_sigma_extras.sh`; FNPAG confirmatory cell DEFERRED until those finish (user
+> request) — command: `uv run python articles/paper/scripts/confirmatory_eval.py --replicates 10
+> --n 100000 --cells fnpag:configs/training/msr_aller_fnpag_train.toml` (r0 preview before the
+> kill read cvar999 196.6/max 494 vs dev-pool 165 — if the clean rerun holds, FNPAG's deep tail is
+> fatter than n=10k suggested). THEN: T19 (pre-registered rules in the plan, Task 19), T20 (requote
+> everything from confirmatory incl. Table 4 CVaR99.9 column + LSTM row 129.2->131.5/135.2,
+> fig_arch_tail/fig_classical repoint, abstract = deployed artifact 123.3±CI), T10 (idle-box
+> benchmark), T21 (response doc REVIEW_RESPONSE_R4_R5 + this file + memory), T22 (smart-commit).
+> Artifacts paragraph needs the public repo URL from Grégory (placeholder in place).
+
 > **HANDOFF 2026-07-10 (read this first — two NEW reviewer reports to address next session):**
 > The paper lives on branch `claude/competent-bardeen-23b377`, checked out in THIS main checkout
 > (`/Users/govit/Git/Govit/Aerocapture`; the old session worktree is detached — work here). 14 commits
