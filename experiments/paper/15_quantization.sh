@@ -29,15 +29,61 @@ bench)
     cargo bench --bench quant_forward --manifest-path src/rust/Cargo.toml
     ;;
 qat_finetune)
+    uv run python - "$(basename "$0" .sh)" <<'PY'
+import json, sys
+from pathlib import Path
+from aerocapture.training.toml_utils import load_toml_with_bases
+
+res = Path("training_output/quant/ptq_sweep/quantization_results.json")
+if not res.exists():
+    sys.exit("PTQ sweep has not run: execute the ptq phase first (its verdict pins the QAT cell)")
+verdict = json.loads(res.read_text())["verdict"]
+for cfg in ("configs/training/quant/mamba962_qat4_finetune.toml", "configs/training/quant/mamba962_qat4_scratch.toml"):
+    net = load_toml_with_bases(Path(cfg))["network"]
+    got = (net["qat_granularity"], net["qat_tensor_policy"])
+    want = (verdict["granularity"], verdict["tensor_policy"])
+    if got != want:
+        sys.exit(f"{cfg}: qat cell {got} != PTQ verdict {want} -- edit the config before launching (Task 10 Step 2)")
+print(f"verdict pre-flight OK: {verdict['granularity']}/{verdict['tensor_policy']}")
+PY
     mkdir -p "$QUANT_DIR/mamba962_qat4_finetune"
     [ -f "$QUANT_DIR/mamba962_qat4_finetune/checkpoint_g20000.json" ] || cp "$CHAMPION_DIR/checkpoint_g20000.json" "$QUANT_DIR/mamba962_qat4_finetune/"
     [ -f "$QUANT_DIR/mamba962_qat4_finetune/checkpoint_g20000.npz" ] || cp "$CHAMPION_DIR/checkpoint_g20000.npz" "$QUANT_DIR/mamba962_qat4_finetune/"
+    latest=$(ls "$QUANT_DIR/mamba962_qat4_finetune"/checkpoint_g*.json 2>/dev/null | sed -E 's/.*_g0*([0-9]+)\.json/\1/' | sort -n | tail -1)
+    latest=${latest:-20000}
+    if [ "$latest" -ge 23000 ]; then
+        echo "qat_finetune already at gen $latest >= 23000 (champion 20000 + 3000): nothing to do"
+        exit 0
+    fi
     uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_finetune.toml \
-        --n-gen 3000 --output-dir "$QUANT_DIR/mamba962_qat4_finetune" --no-tui
+        --n-gen $((23000 - latest)) --output-dir "$QUANT_DIR/mamba962_qat4_finetune" --no-tui
     ;;
 qat_scratch)
-    uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_scratch.toml \
-        --output-dir "$QUANT_DIR/mamba962_qat4_scratch" --from-scratch --no-tui
+    uv run python - "$(basename "$0" .sh)" <<'PY'
+import json, sys
+from pathlib import Path
+from aerocapture.training.toml_utils import load_toml_with_bases
+
+res = Path("training_output/quant/ptq_sweep/quantization_results.json")
+if not res.exists():
+    sys.exit("PTQ sweep has not run: execute the ptq phase first (its verdict pins the QAT cell)")
+verdict = json.loads(res.read_text())["verdict"]
+for cfg in ("configs/training/quant/mamba962_qat4_finetune.toml", "configs/training/quant/mamba962_qat4_scratch.toml"):
+    net = load_toml_with_bases(Path(cfg))["network"]
+    got = (net["qat_granularity"], net["qat_tensor_policy"])
+    want = (verdict["granularity"], verdict["tensor_policy"])
+    if got != want:
+        sys.exit(f"{cfg}: qat cell {got} != PTQ verdict {want} -- edit the config before launching (Task 10 Step 2)")
+print(f"verdict pre-flight OK: {verdict['granularity']}/{verdict['tensor_policy']}")
+PY
+    if ls "$QUANT_DIR/mamba962_qat4_scratch"/checkpoint_g*.json >/dev/null 2>&1; then
+        echo "existing checkpoints found: resuming qat_scratch (no --from-scratch)"
+        uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_scratch.toml \
+            --output-dir "$QUANT_DIR/mamba962_qat4_scratch" --no-tui
+    else
+        uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_scratch.toml \
+            --output-dir "$QUANT_DIR/mamba962_qat4_scratch" --from-scratch --no-tui
+    fi
     ;;
 finalists)
     # QAT arms pass quantize=null (their deployed best_model.json is already on-grid);

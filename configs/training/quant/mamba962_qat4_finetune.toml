@@ -21,7 +21,7 @@ qat_tensor_policy = "all"
 [optimizer]
 algorithm = "ga"
 n_pop = 512
-n_gen = 20000
+n_gen = 3000  # resume-add semantics: +3000 on the copied g20000 checkpoint; the script computes the exact remainder
 training_n_sims = 2
 seed_strategy = "adaptive"
 curation_bucket_selection = "max"
