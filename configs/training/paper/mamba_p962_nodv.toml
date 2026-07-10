@@ -6,7 +6,9 @@
 # the classical-fairness objection (the classical schemes cannot consume them).
 # 14 inputs -> encoder Dense(14 -> 16) = 240 params (vs 288 at 17 inputs), so
 # 914 trainable weights total vs the deployed 962 (Mamba core + decoder equal).
-# Trained by experiments/paper/15_state_controls.sh at the headline allocation.
+# Trained by experiments/paper/15_state_controls.sh (n_sims=2, n_pop=512,
+# 15000 gens -- the deployed mamba_p962_long's actual budget; sequential-seed
+# protocol in the runner header).
 base = ["../msr_aller_nn_atan2_train.toml"]
 
 [data]

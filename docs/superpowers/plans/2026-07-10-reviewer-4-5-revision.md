@@ -1021,7 +1021,11 @@ on the same objective.`
   (aggregator rerun with the new cells if bundled)
 
 **Pre-registered interpretation rules (written BEFORE the results; keep verbatim in the response
-doc):**
+doc). Seed-extension criterion added 2026-07-10 before any control ran: controls run s1 first
+(window 20000 gens, nodv 15000 = the deployed mamba's actual budget); if a control's far-tail
+CVaR99.9 lands outside the intact Mamba's confirmatory seed range (122.2-131.0), the single run +
+single-run caveat suffices (the GRU precedent); s2/s3 are required only if s1 lands inside that
+range.**
 1. If the reset-state control (Task 4) degrades the deployed Mamba's confirmatory CVaR99.9 by more
    than its replicate SE, AND neither window_ctrl_p970 nor the dense reference reaches the intact
    Mamba's tail, the causal claim stands: keep "internal state compresses the extreme tail",

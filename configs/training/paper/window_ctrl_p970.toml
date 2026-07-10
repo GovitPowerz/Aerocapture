@@ -6,7 +6,8 @@
 # normalization, full_neural / atan2_signed, scaffolding = live, command
 # shaping + navigation) exactly like sweep/mamba_p962.toml; overrides only the
 # architecture and deploy path. Trained by experiments/paper/15_state_controls.sh
-# at the headline allocation (n_sims=2, n_pop=512, 20000 gens, 3 seeds).
+# (n_sims=2, n_pop=512, 20000 gens, up to 3 seeds -- sequential-seed protocol
+# in the runner header).
 base = ["../msr_aller_nn_atan2_train.toml"]
 
 [data]
