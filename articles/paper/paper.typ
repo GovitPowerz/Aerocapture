@@ -205,14 +205,16 @@ guidance has the most leverage deep in the pass and almost none on the thin entr
 The vehicle must respect a peak heat-flux limit of $200$ kW/m#super[2], a $4$ g load limit, and an
 integrated heat-load limit of $25$ MJ/m#super[2].
 
-#fig("fig_corridor.svg", [Reachable aerocapture capture corridor in the (orbital energy, dynamic
-pressure) plane, traced by a $1\,000\,000$-run dispersed Monte Carlo of randomized signed
-piecewise-constant bank profiles (roll reversals included). The shaded band spans the corridor: the
-upper edge is the $p_(99.9)$ dynamic pressure
-of all capturing trajectories (the crash-side limit), the lower edge the $p_(0.5)$ of trajectories
-capturing below a $5000$ km apoapsis (the escape-side limit). The vehicle enters hyperbolic
-($E > 0$, right) and bleeds energy into a bound orbit ($E < 0$, left); the deployed Mamba ensemble
-and its undispersed nominal (heavy line) fly well inside the corridor.], <fig-corridor>)
+#fig("fig_corridor.svg", [Empirical trajectory-occupancy envelope of the aerocapture corridor in the
+(orbital energy, dynamic pressure) plane, traced by a $1\,000\,000$-run dispersed Monte Carlo of
+randomized signed piecewise-constant bank profiles (roll reversals included), with the undispersed
+full-lift-up and full-lift-down constant-bank boundary traces overlaid (dashed). The shaded band
+spans the occupied corridor: the upper edge is the $p_(99.9)$ dynamic pressure of all capturing
+trajectories (the crash-side limit), the lower edge the $p_(0.5)$ of trajectories capturing below a
+$5000$ km apoapsis (the escape-side limit); as quantiles of sampled profiles these edges are
+empirical, not a formal reachable set. The vehicle enters hyperbolic ($E > 0$, right) and bleeds
+energy into a bound orbit ($E < 0$, left); the $200$-run Monte Carlo ensemble of the deployed Mamba
+policy and its undispersed nominal (heavy line) fly well inside the envelope.], <fig-corridor>)
 
 == The objective: the tail that sizes the mission
 
@@ -1276,7 +1278,7 @@ reproduce @tbl-perf; the FTC, PredGuid, and energy-controller cards use their
 co-optimized-reference variants (Section 7.1), matching those rows of @tbl-perf. The first page shows the corridor behaviour -- the classified
 trajectory ensemble in the (energy, dynamic pressure), (energy, inclination), and
 (energy, bank) planes, with the undispersed nominal overlaid; the dynamic-pressure
-panel sets the ensemble against the shared reachable capture corridor of @fig-corridor,
+panel sets the ensemble against the shared occupancy envelope of @fig-corridor,
 so one can read at a glance whether each scheme flies inside it. The second page shows
 the correction-$Delta v$ distribution (total and its three burns), the thermal and
 load-constraint margins, and the full statistics. Panels reuse the training

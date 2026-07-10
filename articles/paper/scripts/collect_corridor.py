@@ -157,8 +157,53 @@ def build_overlay(n_ens):
             nt[:, TC_ENERGY], nt[:, TC_PDYN])
 
 
+def build_boundaries():
+    """Undispersed constant-bank boundary traces: full lift-up (bank 0 deg, the
+    overshoot/escape-side limit) and full lift-down (bank 180 deg, the
+    undershoot/crash-side limit -- the trace runs to its crash termination).
+    These are the two classical corridor-defining profiles of section 2.1,
+    overlaid on the empirical occupancy envelope (reviewer R1-11)."""
+    import aerocapture_rs
+    from aerocapture.training.reference import _MC_DISPERSION_DOMAINS
+
+    out = {}
+    for name, bank in (("liftup", 0.0), ("liftdown", 180.0)):
+        ov = {
+            "simulation.n_sims": 1,
+            **{f"monte_carlo.{dom}.level": "off" for dom in _MC_DISPERSION_DOMAINS},
+            **{f"guidance.piecewise_constant.bank_angle_{i}": bank for i in range(10)},
+        }
+        r = aerocapture_rs.run_mc(toml_path=str(BASE_TOML.resolve()), overrides=ov,
+                                  include_trajectories=True, sim_timeout_secs=30.0)
+        t = np.asarray(r.trajectories[0])
+        out[f"{name}_energy"] = t[:, TC_ENERGY]
+        out[f"{name}_pdyn"] = t[:, TC_PDYN]
+        print(f"boundary {name} (bank {bank:.0f} deg): {len(t)} pts, "
+              f"E [{t[:, TC_ENERGY].min():.2f}, {t[:, TC_ENERGY].max():.2f}] MJ/kg")
+    return out
+
+
+def append_boundaries_only():
+    """Add the constant-bank boundary traces to the existing corridor.npz WITHOUT
+    re-running the histogram Monte Carlo; every existing array is preserved
+    verbatim (asserted)."""
+    old = dict(np.load(OUT, allow_pickle=True))
+    new = {**old, **build_boundaries()}
+    np.savez_compressed(OUT, **new)
+    check = dict(np.load(OUT, allow_pickle=True))
+    for k, v in old.items():
+        if v.dtype == object:
+            assert all(np.array_equal(a, b) for a, b in zip(v, check[k], strict=True)), k
+        else:
+            assert np.array_equal(v, check[k]), k
+    print(f"appended boundaries to {OUT.relative_to(REPO)}; {len(old)} existing arrays verified unchanged")
+
+
 def main():
     p = argparse.ArgumentParser()
+    p.add_argument("--boundaries-only", action="store_true",
+                   help="append the undispersed full-lift-up/down boundary traces to the "
+                        "existing corridor.npz without re-running the histogram Monte Carlo")
     p.add_argument("--n-sims", type=int, default=300_000)
     p.add_argument("--n-segments", type=int, default=10)
     p.add_argument("--apoapsis-max-km", type=float, default=5000.0)
@@ -174,13 +219,18 @@ def main():
                         "through 0 or 180 deg, adding reversal transients an unsigned sweep misses")
     args = p.parse_args()
 
+    if args.boundaries_only:
+        append_boundaries_only()
+        return
+
     e_centers, lower, upper, n_cap = build_corridor(args)
     ens_e, ens_p, nom_e, nom_p = build_overlay(args.ensemble_sims)
     np.savez_compressed(
         OUT, energy_bins=e_centers, lower_pdyn=lower, upper_pdyn=upper,
         nominal_energy=nom_e, nominal_pdyn=nom_p, ens_energy=ens_e, ens_pdyn=ens_p,
         n_sims=args.n_sims, n_segments=args.n_segments, apoapsis_max_km=args.apoapsis_max_km,
-        upper_pct=args.upper_pct, lower_pct=args.lower_pct, signed=args.signed)
+        upper_pct=args.upper_pct, lower_pct=args.lower_pct, signed=args.signed,
+        **build_boundaries())
     print(f"wrote {OUT.relative_to(REPO)}: {n_cap} captures, ensemble {len(ens_e)}, nominal {len(nom_e)} pts")
 
 
