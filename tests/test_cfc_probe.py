@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 from aerocapture.training.experiments.probe_common import _completion, aggregate, arch_toml, cvar95
 
 
@@ -65,7 +66,7 @@ def test_completion_absent(tmp_path: Path) -> None:
     assert _completion(tmp_path / "nonexistent", cfg, n_gen=5000) == "absent"
 
 
-def test_train_jobs_skips_done_resumes_partial_wipes_stale(tmp_path: Path, monkeypatch) -> None:
+def test_train_jobs_skips_done_resumes_partial_wipes_stale(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The resumability contract: done -> no subprocess; partial -> resume (no
     --from-scratch); stale -> relaunch WITH --from-scratch; absent -> fresh."""
     import aerocapture.training.experiments.probe_common as pc

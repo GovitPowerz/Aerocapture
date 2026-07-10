@@ -56,7 +56,7 @@ def _completion(out_dir: Path, config: Path, n_gen: int) -> str:
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     trained = _arch_sig(json.loads(bm.read_text())["architecture"])
-    want = _arch_sig(load_toml_with_bases(str(config))["network"]["architecture"])
+    want = _arch_sig(load_toml_with_bases(config)["network"]["architecture"])
     if trained != want:
         return "stale"
     gens = [int(m.group(1)) for p in out_dir.glob("checkpoint_g*") if (m := re.match(r"checkpoint_g0*(\d+)\.", p.name))]
