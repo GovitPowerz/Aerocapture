@@ -1,6 +1,6 @@
 # Architecture probes: CfC, xLSTM, and Mamba-3 axes vs vanilla Mamba
 
-Status: INTEGRATED as paper Appendix C (2026-07-10) with body pointers in
+Status: INTEGRATED as paper Appendix B (2026-07-10; mission cards moved to C) with body pointers in
 sections 3.2.3 and 6.3; probe data committed to the bundle at
 `articles/paper/data/probes/` (now including per-arm constraint-violation
 rates -- all nine arms 0%). This file remains the working notes; the paper

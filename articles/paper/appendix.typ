@@ -43,7 +43,6 @@
     table.hline(stroke: 0.7pt),
     table.header([*Statistic*], [*p50*], [*p95*], [*mean/max*], [*note*]),
     table.hline(stroke: 0.35pt),
-    ..srow([Capture rate], fnum(s.capture_rate * 100), [], [], [%]),
     ..srow([Correction Δv (m/s)], fnum(cap.dv.p50), fnum(cap.dv.p95), fnum(cap.dv.mean), [mean]),
     ..srow([Δv CVaR95 / p99 / max], fnum(s.dv_cvar95), fnum(s.dv_p99), fnum(cap.dv.max), [tail]),
     ..srow([dv1 periapsis raise], fnum(cap.dv1.p50), fnum(cap.dv1.p95), fnum(cap.dv1.max), [m/s]),
@@ -55,6 +54,8 @@
     ..srow([Heat flux (kW/m²)], fnum(con.heat_flux.p50), fnum(con.heat_flux.p95), fnum(con.heat_flux.max), [viol #fnum(con.heat_flux.viol_pct)%]),
     ..srow([G-load (g)], fnum(con.g_load.p50, d: 2), fnum(con.g_load.p95, d: 2), fnum(con.g_load.max, d: 2), [viol #fnum(con.g_load.viol_pct)%]),
     ..srow([Heat load (kJ/m²)], fnum(con.heat_load.p50, d: 0), fnum(con.heat_load.p95, d: 0), fnum(con.heat_load.max, d: 0), [viol #fnum(con.heat_load.viol_pct)%]),
+    table.hline(stroke: 0.35pt),
+    ..srow([Capture rate], [], [], [], [#fnum(s.capture_rate * 100)%]),
     table.hline(stroke: 0.7pt),
   )
 }

@@ -360,7 +360,7 @@ common runtime, each carrying a different kind of internal state across the atmo
 
 We use *recurrent* loosely for any cell that carries internal state across the pass. All six train
 and deploy through the same bit-validated Rust runtime, and all are sized so the comparison across
-cell types holds the parameter budget roughly fixed. Appendix C probes three further recent
+cell types holds the parameter budget roughly fixed. Appendix B probes three further recent
 recurrent families -- closed-form continuous-time cells @hasani2022cfc, the exponential-gated and
 matrix-memory xLSTM variants @beck2024xlstm, and the discretization and complex-state axes of
 Mamba-3 @lahoti2026mamba3 -- against these cells at matched budget; none improves on them.
@@ -670,7 +670,7 @@ feasible tail, and at indistinguishable loss the dense reference concedes $6$ m/
 picked the wrong cell. Why the selective state space edges the gated cell -- input-conditioned
 recurrence better matched to the density process, or simply a friendlier search landscape at this
 budget -- our three-seed evidence cannot separate, and we claim no mechanism for the intra-recurrent
-ordering. What we can say is that more sophisticated memory does not help: Appendix C probes three
+ordering. What we can say is that more sophisticated memory does not help: Appendix B probes three
 further recent recurrent families (CfC, the xLSTM cells, Mamba-3's axes) at matched budget, and none
 beats the plain cells -- two are significantly worse. The reason is visible in the median: every architecture we trained to convergence,
 dense included, reaches the
@@ -809,7 +809,7 @@ property we can claim.
   the joint-reference trackers violate none; the fixed-reference FTC, equilibrium glide, and
   piecewise constant carry heat-flux exceedances of at most $1.1%$. Sub-$100%$ captures are the
   off-corridor draws of the weaker schemes. Single-run bootstrap $95%$ CIs on $"CVaR"_(99.9)$ span
-  roughly $plus.minus 1$--$5$ m/s for the tabulated cells (per-cell CIs in the data bundle). The mean
+  roughly $plus.minus 1$--$5$ m/s for the tabulated cells. The mean
   is reported for continuity with the 2009 work but is operationally secondary to the tail.],
 ) <tbl-perf>
 
@@ -998,28 +998,9 @@ legs, and to on-line adaptation of the deployed policy in flight.
 
 #pagebreak()
 #set heading(numbering: none)
-= Appendix A: per-scheme mission reports
+= Appendix A: reproduction details
 
-Each scheme below gets a two-page mission-performance card on the final-evaluation
-Monte-Carlo pool ($n = 1000$), pinned to its deployed policy so the statistics
-reproduce @tbl-perf; the FTC, PredGuid, and energy-controller cards use their
-co-optimized-reference variants (Section 7.1), matching those rows of @tbl-perf. The first page shows the corridor behaviour -- the classified
-trajectory ensemble in the (energy, dynamic pressure), (energy, inclination), and
-(energy, bank) planes, with the undispersed nominal overlaid; the dynamic-pressure
-panel sets the ensemble against the shared reachable capture corridor of @fig-corridor,
-so one can read at a glance whether each scheme flies inside it. The second page shows
-the correction-$Delta v$ distribution (total and its three burns), the thermal and
-load-constraint margins, and the full statistics. Panels reuse the training
-pipeline's own report charts; captured trajectories are blue, constraint violations
-orange, failures red.
-
-#include "appendix.typ"
-
-#pagebreak(weak: true)
-= Appendix B: reproduction details
-
-One compact reference for the settings behind every number; all of it is read from the training
-configurations committed alongside the simulator.
+One compact reference for the settings behind every number.
 
 *Seed pools.* Every Monte-Carlo pool derives from the mission base seed through disjoint reserved
 streams: validation (offset $10^6$, $n = 1000$, the in-training promotion gate), final evaluation
@@ -1058,12 +1039,11 @@ measured atmosphere.
 *Timing.* Wall-clock per simulation over $200$ sequential runs of each deployed scheme on one idle
 core of an Apple-silicon laptop; no parallelism.
 
-*Artifacts.* Every number in the tables regenerates, without retraining, from the version-controlled
-data bundle: per-run final-evaluation records, deployed weights, and the evaluation and figure
-scripts.
+*Artifacts.* Every number in the tables regenerates, without retraining, from retained per-run
+evaluation records and the deployed network weights.
 
 #pagebreak(weak: true)
-= Appendix C: architecture probes -- CfC, xLSTM, and the Mamba-3 axes
+= Appendix B: architecture probes -- CfC, xLSTM, and the Mamba-3 axes
 
 A controlled negative result supporting the Section 6 headline: does any recent recurrent family
 beat the plain selective SSM on the sizing tail? Three probes, each anchored on a Section 6 cell at
@@ -1169,5 +1149,20 @@ the adaptive-seed, tail-led, matched-anchor protocol distinguishes between archi
 rubber-stamping the newest one -- three 2024--2026 recurrent families tried, two rejected as
 significantly worse, none better.
 
-The raw per-repeat records live in the data bundle (`data/probes/`); the tables regenerate via
-#raw("python -m aerocapture.training.experiments.{mamba3,cfc,xlstm}_probe --eval --report --repeats 3 --n-sims 1000").
+#pagebreak(weak: true)
+= Appendix C: per-scheme mission reports
+
+Each scheme below gets a two-page mission-performance card on the final-evaluation
+Monte-Carlo pool ($n = 1000$), pinned to its deployed policy so the statistics
+reproduce @tbl-perf; the FTC, PredGuid, and energy-controller cards use their
+co-optimized-reference variants (Section 7.1), matching those rows of @tbl-perf. The first page shows the corridor behaviour -- the classified
+trajectory ensemble in the (energy, dynamic pressure), (energy, inclination), and
+(energy, bank) planes, with the undispersed nominal overlaid; the dynamic-pressure
+panel sets the ensemble against the shared reachable capture corridor of @fig-corridor,
+so one can read at a glance whether each scheme flies inside it. The second page shows
+the correction-$Delta v$ distribution (total and its three burns), the thermal and
+load-constraint margins, and the full statistics. Panels reuse the training
+pipeline's own report charts; captured trajectories are blue, constraint violations
+orange, failures red.
+
+#include "appendix.typ"
