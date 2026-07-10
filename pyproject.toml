@@ -8,7 +8,9 @@ dependencies = [
     "numpy>=2.4",
     "pandas>=3.0",
     "matplotlib>=3.10",
-    "pymoo>=0.6",
+    # <0.6.2: pymoo 0.6.2 routes GA internals through moocore 0.3.1, whose
+    # gd_common has a stack buffer overflow (silent SIGABRT) at n_pop ~512.
+    "pymoo>=0.6,<0.6.2",
     "scipy>=1.17.1",
     "rich>=14.3",
     "seaborn>=0.13",
