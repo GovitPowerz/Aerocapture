@@ -815,8 +815,8 @@ property we can claim.
 
 #figure(
   table(
-    columns: (auto, auto, auto, auto, auto, auto),
-    align: (left, center, center, center, center, center),
+    columns: (auto, auto, auto, auto, auto, auto, auto),
+    align: (left, center, center, center, center, center, center),
     table.hline(stroke: 0.7pt),
     table.header(
       [*Comparison (A vs B)*], [$bold(Delta"mean")$], [*95% CI*], [$bold(Delta p_95)$], [$bold(Delta"CVaR"_95)$], [*A-win %*], [*p*],
