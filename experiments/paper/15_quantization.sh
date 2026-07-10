@@ -30,8 +30,8 @@ bench)
     ;;
 qat_finetune)
     mkdir -p "$QUANT_DIR/mamba962_qat4_finetune"
-    cp -n "$CHAMPION_DIR/checkpoint_g20000.json" "$QUANT_DIR/mamba962_qat4_finetune/"
-    cp -n "$CHAMPION_DIR/checkpoint_g20000.npz" "$QUANT_DIR/mamba962_qat4_finetune/"
+    [ -f "$QUANT_DIR/mamba962_qat4_finetune/checkpoint_g20000.json" ] || cp "$CHAMPION_DIR/checkpoint_g20000.json" "$QUANT_DIR/mamba962_qat4_finetune/"
+    [ -f "$QUANT_DIR/mamba962_qat4_finetune/checkpoint_g20000.npz" ] || cp "$CHAMPION_DIR/checkpoint_g20000.npz" "$QUANT_DIR/mamba962_qat4_finetune/"
     uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_finetune.toml \
         --n-gen 3000 --output-dir "$QUANT_DIR/mamba962_qat4_finetune" --no-tui
     ;;
