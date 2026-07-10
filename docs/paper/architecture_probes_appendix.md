@@ -1,10 +1,10 @@
 # Architecture probes: CfC, xLSTM, and Mamba-3 axes vs vanilla Mamba
 
-Status: DRAFT source-of-truth for a writer session. Numbers are final (from the
-committed `probe_results.json` runs); prose is notes, not finished paper text.
-Intended placement: appendix (negative-result architecture ablation) supporting
-the main-text headline that the deployed recurrent cell is the plain selective
-SSM (Mamba).
+Status: INTEGRATED as paper Appendix C (2026-07-10) with body pointers in
+sections 3.2.3 and 6.3; probe data committed to the bundle at
+`articles/paper/data/probes/` (now including per-arm constraint-violation
+rates -- all nine arms 0%). This file remains the working notes; the paper
+appendix is the citable text.
 
 Provenance:
 - Branch `feature/cfc-xlstm`. Drivers `aerocapture.training.experiments.{mamba3,cfc,xlstm}_probe`.

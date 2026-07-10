@@ -134,13 +134,17 @@ def test_cvar95_empty_is_nan() -> None:
 
 def test_aggregate_mean_std() -> None:
     per_rep = [
-        {"rms_cost": 10.0, "capture_rate": 1.0, "dv_p50": 100.0, "dv_p95": 200.0, "cvar95": 250.0},
-        {"rms_cost": 12.0, "capture_rate": 0.9, "dv_p50": 110.0, "dv_p95": 220.0, "cvar95": 270.0},
+        {"rms_cost": 10.0, "capture_rate": 1.0, "dv_p50": 100.0, "dv_p95": 200.0, "cvar95": 250.0, "viol_pct": 0.0},
+        {"rms_cost": 12.0, "capture_rate": 0.9, "dv_p50": 110.0, "dv_p95": 220.0, "cvar95": 270.0, "viol_pct": 0.2},
     ]
     agg = aggregate(per_rep)
     assert agg["n_repeats"] == 2
     assert agg["dv_p95"]["mean"] == 210.0
     assert agg["dv_p95"]["std"] == 10.0
+    assert agg["viol_pct"]["mean"] == 0.1
+    # records predating a metric aggregate without it (no KeyError)
+    legacy = aggregate([{"rms_cost": 10.0, "capture_rate": 1.0, "dv_p50": 100.0, "dv_p95": 200.0, "cvar95": 250.0}])
+    assert "viol_pct" not in legacy
 
 
 def test_arch_toml_renders_blocks() -> None:
