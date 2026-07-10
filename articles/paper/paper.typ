@@ -709,9 +709,16 @@ and the tightest tail of its three -- exceeds the integrated heat-load limit on 
 pool ($15.6%$ of the $n = 1000$ pool: its $p_95$ heat load sits above the $25$ MJ/m#super[2] limit),
 so its $Delta v$ tail is bought partly with heat. Its two repeats violate nothing, and neither do the
 GRU or the Mamba on any pool (the dense reference grazes the limit on $2$ of $10\,000$ draws). The
-LSTM three-seed mean therefore mixes one infeasible run with two feasible ones, and the Mamba is the
-only cell that wins the sizing tail entirely inside the constraint envelope; @tbl-perf's violation
-column makes the same check for the classical schemes.
+LSTM three-seed mean therefore mixes one infeasible run with two feasible ones. We adopt a
+*feasibility-first* rule for every ranking and deployment statement: a run must satisfy all three
+constraints on every pool it was evaluated on, or it is excluded from the comparison. Under that
+rule the LSTM ranks by its feasible-seeds mean ($132.1$ m/s $"CVaR"_(99.9)$) and the ordering
+Mamba $<$ LSTM $<$ dense is unchanged -- the Mamba wins the sizing tail entirely inside the
+constraint envelope with or without the rule; @tbl-perf's violation
+column makes the same check for the classical schemes. The infeasible seed also shows that the soft
+constraint penalty does not by itself enforce feasibility -- one of eleven converged runs bought
+tail performance with heat -- which is why the deployment rule is feasibility-first rather than
+penalty-trusting.
 
 The control that pins this on architecture rather than parameter count is the equal-capacity pair.
 At roughly $960$ parameters, the Mamba ($124.5$ m/s $"CVaR"_(99.9)$) beats the dense network of the
@@ -866,6 +873,7 @@ property we can claim.
     ),
     table.hline(stroke: 0.35pt),
     [NN -- Mamba (deployed)], [100.0], [0.0], [109.9], [114.0], [*115.4*], [*124.5*],
+    [NN -- LSTM#super[‡]], [100.0], [15.6], [108.4], [114.0], [116.0], [129.2],
     [NN -- dense (efficiency ref.)], [100.0], [0.0], [109.7], [114.9], [117.0], [139.2],
     [FTC (joint reference)], [100.0], [0.0], [126.3], [137.8], [142.9], [164.0],
     [FNPAG], [100.0], [0.0], [124.3], [137.4], [144.0], [165.0],
@@ -890,7 +898,11 @@ property we can claim.
   with zero failures in $n$ independent scenarios the one-sided $95%$ upper bound on the failure
   probability is $approx 3\/n$ ($3 times 10^(-4)$ at $n = 10\,000$). Single-run bootstrap $95%$ CIs on $"CVaR"_(99.9)$ span
   roughly $plus.minus 1$--$5$ m/s for the tabulated cells. The mean
-  is reported for continuity with the 2009 work but is operationally secondary to the tail.],
+  is reported for continuity with the 2009 work but is operationally secondary to the tail.
+  #super[‡]The LSTM's best seed -- its lowest-training-loss one -- exceeds the heat-load limit on
+  $15.6%$ of this pool ($14.4%$ of the sizing pool); its two feasible seeds average $132.1$ m/s at
+  $"CVaR"_(99.9)$, the value the feasibility-first rule of Section 6.2 ranks it by. The tabulated
+  $129.2$ is the raw three-seed mean.],
 ) <tbl-perf>
 
 #figure(
