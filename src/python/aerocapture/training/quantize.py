@@ -121,39 +121,68 @@ def quantize_flat_weights_batch(
     architecture: list[dict],
     n_bits: int,
     granularity: str,
+    tensor_policy: str = "all",
 ) -> npt.NDArray[np.float64]:
-    """Fake-quantize the dense weight blocks of a (n_pop, n_w) flat-weight matrix.
+    """Fake-quantize the quantizable blocks of a (n_pop, n_w) flat-weight matrix.
 
-    Mirrors `quantize_dense_weights` but operates on the PSO flat-weight layout
-    (per dense layer: n_out*n_in weights row-major, then n_out biases). Quantizes
-    every dense layer's weight block (per-channel = per output row, per-tensor =
-    per layer); biases pass through untouched. Used for quantization-aware training:
-    the optimizer searches continuous weights but each fitness eval sees the
-    b-bit-rounded policy. Dense-only.
+    Mirrors `quantize_model_weights` on the PSO/GA flat layout (dense: w then b;
+    mamba: x_proj_w, dt_proj_w, dt_proj_b, a_log, d_skip -- the canonical Rust
+    `LayerWeights::to_flat` order). Biases and policy-excluded slabs pass through.
+    Operates on the NN-weight slab ONLY: scaffolding genes travel through
+    run_grid overrides, never through this array (exact-width assert below).
     """
-    if n_bits < 2:
-        raise ValueError(f"n_bits must be >= 2 (got {n_bits}); binary weights are out of scope")
-    if granularity not in _GRANULARITIES:
-        raise ValueError(f"unknown granularity {granularity!r} (expected one of {_GRANULARITIES})")
-    non_dense = sorted({str(e.get("type", "dense")) for e in architecture if e.get("type", "dense") != "dense"})
-    if non_dense:
-        raise ValueError(f"quantize_flat_weights_batch supports dense-only architectures; found {non_dense}")
+    from aerocapture.training.config import resolve_mamba_dt_rank
+
+    _validate_quant_args(n_bits, granularity, tensor_policy)
+    unsupported = sorted({str(e.get("type", "dense")) for e in architecture} - {"dense", "mamba"})
+    if unsupported:
+        raise ValueError(f"quantization supports dense+mamba architectures; found {unsupported}")
 
     qmax = 2 ** (n_bits - 1) - 1
     out = weights.astype(np.float64).copy()
     n_pop = out.shape[0]
-    off = 0
-    for e in architecture:
-        n_in = int(e["input_size"])
-        n_out = int(e["output_size"])
-        wsize = n_out * n_in
-        block = out[:, off : off + wsize].reshape(n_pop, n_out, n_in)
-        # per_channel: scale per output row (axis 2); per_tensor: scale per layer (axes 1,2)
+
+    def q2d(block: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        # block: (n_pop, rows, cols); per_channel = one scale per output row
         amax = np.max(np.abs(block), axis=2, keepdims=True) if granularity == "per_channel" else np.max(np.abs(block), axis=(1, 2), keepdims=True)
         scale = np.where(amax == 0.0, 1.0, amax / qmax)
-        q = np.clip(np.round(block / scale), -qmax, qmax) * scale
-        out[:, off : off + wsize] = q.reshape(n_pop, wsize)
-        off += wsize + n_out  # skip biases
+        result: npt.NDArray[np.float64] = np.clip(np.round(block / scale), -qmax, qmax) * scale
+        return result
+
+    def q1d(block: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        # block: (n_pop, n); 1-D tensors always take a single per-tensor scale
+        amax = np.max(np.abs(block), axis=1, keepdims=True)
+        scale = np.where(amax == 0.0, 1.0, amax / qmax)
+        result: npt.NDArray[np.float64] = np.clip(np.round(block / scale), -qmax, qmax) * scale
+        return result
+
+    off = 0
+    for e in architecture:
+        t = str(e.get("type", "dense"))
+        n_in = int(e["input_size"])
+        if t == "dense":
+            n_out = int(e["output_size"])
+            wsize = n_out * n_in
+            out[:, off : off + wsize] = q2d(out[:, off : off + wsize].reshape(n_pop, n_out, n_in)).reshape(n_pop, wsize)
+            off += wsize + n_out  # biases fp
+        else:  # mamba
+            d_state = int(e["d_state"])
+            dt_rank = resolve_mamba_dt_rank(e)
+            rows = dt_rank + 2 * d_state
+            sz = rows * n_in  # x_proj_w
+            out[:, off : off + sz] = q2d(out[:, off : off + sz].reshape(n_pop, rows, n_in)).reshape(n_pop, sz)
+            off += sz
+            sz = n_in * dt_rank  # dt_proj_w (per_channel = per row = per element at dt_rank 1: lossless by construction)
+            out[:, off : off + sz] = q2d(out[:, off : off + sz].reshape(n_pop, n_in, dt_rank)).reshape(n_pop, sz)
+            off += sz
+            off += n_in  # dt_proj_b: bias, fp
+            sz = n_in * d_state  # a_log
+            if tensor_policy == "all":
+                out[:, off : off + sz] = q2d(out[:, off : off + sz].reshape(n_pop, n_in, d_state)).reshape(n_pop, sz)
+            off += sz
+            if tensor_policy == "all":  # d_skip
+                out[:, off : off + n_in] = q1d(out[:, off : off + n_in])
+            off += n_in
     if off != out.shape[1]:
         raise ValueError(f"architecture flat width {off} != weights width {out.shape[1]}")
     return out

@@ -278,7 +278,7 @@ def test_qat_batch_non_dense_raises() -> None:
     from aerocapture.training.quantize import quantize_flat_weights_batch
 
     arch = [{"type": "gru", "input_size": 4, "hidden_size": 4}]
-    with pytest.raises(ValueError, match="dense-only"):
+    with pytest.raises(ValueError, match="dense\\+mamba"):
         quantize_flat_weights_batch(np.zeros((2, 10)), arch, 4, "per_channel")
 
 
@@ -296,3 +296,91 @@ def test_qat_batch_bits_below_two_raises() -> None:
     arch = [{"type": "dense", "input_size": 2, "output_size": 2, "activation": "linear"}]
     with pytest.raises(ValueError, match="n_bits"):
         quantize_flat_weights_batch(np.zeros((1, 6)), arch, 1, "per_channel")
+
+
+_MAMBA_ARCH = [
+    {"type": "dense", "input_size": 3, "output_size": 4, "activation": "tanh"},
+    {"type": "mamba", "input_size": 4, "d_state": 2, "dt_rank": 1},
+    {"type": "dense", "input_size": 4, "output_size": 2, "activation": "linear"},
+]
+# flat widths: dense0 = 12w + 4b; mamba = 20 x_proj + 4 dt_proj_w + 4 dt_proj_b + 8 a_log + 4 d_skip; dense2 = 8w + 2b
+_N_FLAT = 16 + 40 + 10  # 66
+
+
+def _flat_to_model(flat: npt.NDArray[np.float64]) -> dict:
+    """Slice a flat chromosome into the JSON weights layout (canonical Rust to_flat order)."""
+    f = flat
+    return {
+        "format_version": 2,
+        "architecture": [dict(e) for e in _MAMBA_ARCH],
+        "weights": {
+            "layer_0": {"w": f[0:12].reshape(4, 3).tolist(), "b": f[12:16].tolist()},
+            "layer_1": {
+                "x_proj_w": f[16:36].reshape(5, 4).tolist(),
+                "dt_proj_w": f[36:40].reshape(4, 1).tolist(),
+                "dt_proj_b": f[40:44].tolist(),
+                "a_log": f[44:52].reshape(4, 2).tolist(),
+                "d_skip": f[52:56].tolist(),
+            },
+            "layer_2": {"w": f[56:64].reshape(2, 4).tolist(), "b": f[64:66].tolist()},
+        },
+    }
+
+
+@pytest.mark.parametrize("granularity", ["per_channel", "per_tensor"])
+@pytest.mark.parametrize("tensor_policy", ["all", "proj_only"])
+def test_flat_and_json_paths_agree(granularity: str, tensor_policy: str) -> None:
+    from aerocapture.training.quantize import quantize_flat_weights_batch, quantize_model_weights
+
+    rng = np.random.default_rng(11)
+    flat = rng.standard_normal((3, _N_FLAT))
+    q_flat = quantize_flat_weights_batch(flat, _MAMBA_ARCH, 4, granularity, tensor_policy)
+    for row in range(3):
+        q_json = quantize_model_weights(_flat_to_model(flat[row]), 4, granularity, tensor_policy)
+        np.testing.assert_allclose(q_flat[row], _model_to_flat(q_json), rtol=0, atol=0)
+
+
+def _model_to_flat(model: dict) -> npt.NDArray[np.float64]:
+    w = model["weights"]
+    parts = [
+        np.asarray(w["layer_0"]["w"]).ravel(),
+        np.asarray(w["layer_0"]["b"]).ravel(),
+        np.asarray(w["layer_1"]["x_proj_w"]).ravel(),
+        np.asarray(w["layer_1"]["dt_proj_w"]).ravel(),
+        np.asarray(w["layer_1"]["dt_proj_b"]).ravel(),
+        np.asarray(w["layer_1"]["a_log"]).ravel(),
+        np.asarray(w["layer_1"]["d_skip"]).ravel(),
+        np.asarray(w["layer_2"]["w"]).ravel(),
+        np.asarray(w["layer_2"]["b"]).ravel(),
+    ]
+    return np.concatenate([p.astype(np.float64) for p in parts])
+
+
+def test_flat_biases_and_dt_proj_b_pass_through() -> None:
+    from aerocapture.training.quantize import quantize_flat_weights_batch
+
+    rng = np.random.default_rng(12)
+    flat = rng.standard_normal((2, _N_FLAT))
+    q = quantize_flat_weights_batch(flat, _MAMBA_ARCH, 3, "per_channel", "all")
+    np.testing.assert_array_equal(q[:, 12:16], flat[:, 12:16])  # dense0 bias
+    np.testing.assert_array_equal(q[:, 40:44], flat[:, 40:44])  # dt_proj_b
+    np.testing.assert_array_equal(q[:, 64:66], flat[:, 64:66])  # dense2 bias
+
+
+def test_flat_proj_only_keeps_dynamics_slabs() -> None:
+    from aerocapture.training.quantize import quantize_flat_weights_batch
+
+    rng = np.random.default_rng(13)
+    flat = rng.standard_normal((2, _N_FLAT))
+    q = quantize_flat_weights_batch(flat, _MAMBA_ARCH, 3, "per_channel", "proj_only")
+    np.testing.assert_array_equal(q[:, 44:52], flat[:, 44:52])  # a_log
+    np.testing.assert_array_equal(q[:, 52:56], flat[:, 52:56])  # d_skip
+
+
+def test_flat_scaffolding_tail_width_raises() -> None:
+    """A 962+3 chromosome (live scaffolding) must never reach this function."""
+    from aerocapture.training.quantize import quantize_flat_weights_batch
+
+    flat = np.zeros((1, _N_FLAT + 3))
+    with pytest.raises(ValueError, match="flat width"):
+        quantize_flat_weights_batch(flat, _MAMBA_ARCH, 4, "per_channel", "all")
