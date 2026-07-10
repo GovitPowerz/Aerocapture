@@ -362,7 +362,7 @@ and deploy through the same bit-validated Rust runtime, and all are sized so the
 cell types holds the parameter budget roughly fixed. Appendix C probes three further recent
 recurrent families -- closed-form continuous-time cells @hasani2022cfc, the exponential-gated and
 matrix-memory xLSTM variants @beck2024xlstm, and the discretization and complex-state axes of
-Mamba-3 @mamba3paper -- against these cells at matched budget; none improves on them.
+Mamba-3 @lahoti2026mamba3 -- against these cells at matched budget; none improves on them.
 
 #figure(
   table(
@@ -1067,7 +1067,7 @@ matched parameter budget: a closed-form continuous-time cell (CfC @hasani2022cfc
 input-dependent time constants suit the fast-near-periapsis, static-in-vacuum phase structure)
 against the GRU anchor; the exponential-gated sLSTM and matrix-memory mLSTM of xLSTM @beck2024xlstm
 (hypothesis: sharp revision of a stored estimate at the bounce or a density shock) against the LSTM
-anchor; and a $2 times 2$ over Mamba-3's @mamba3paper two axes -- exponential-trapezoidal
+anchor; and a $2 times 2$ over Mamba-3's @lahoti2026mamba3 two axes -- exponential-trapezoidal
 discretization and complex (rotational) state -- at the deployed Mamba anchor, whose euler-real arm
 is bit-identical to the deployed cell.
 
