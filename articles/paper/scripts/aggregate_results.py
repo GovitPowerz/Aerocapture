@@ -109,6 +109,25 @@ def _disp_fingerprint_ok(df_a, df_b) -> bool:
     return all(np.allclose(df_a[c].to_numpy()[:n], df_b[c].to_numpy()[:n]) for c in cols)
 
 
+def _paired_tail_delta_cis(dva, ca, dvb, cb, n_boot=10_000, seed=0):
+    """Percentile bootstrap CIs on the marginal tail deltas (p95, CVaR95) of a
+    paired pool: resample the shared SCENARIO index (pairing preserved), apply
+    each scheme's own capture mask to the resample, recompute both marginals.
+    Reviewer R1-S2: Table 4 carried a CI only for the mean difference while the
+    paper's argument lives on the tail deltas."""
+    rng = np.random.default_rng(seed)
+    n = len(dva)
+    d95 = np.empty(n_boot)
+    dcv = np.empty(n_boot)
+    for i in range(n_boot):
+        idx = rng.integers(0, n, size=n)
+        xa, xb = np.sort(dva[idx][ca[idx]]), np.sort(dvb[idx][cb[idx]])
+        d95[i] = np.percentile(xa, 95) - np.percentile(xb, 95)
+        dcv[i] = xa[-max(1, round(len(xa) * 0.05)) :].mean() - xb[-max(1, round(len(xb) * 0.05)) :].mean()
+    pct = lambda a: [round(float(np.percentile(a, 2.5)), 2), round(float(np.percentile(a, 97.5)), 2)]  # noqa: E731
+    return pct(d95), pct(dcv)
+
+
 def summarize(key: str) -> dict:
     df = _load_parquet(key)
     if df is None:
@@ -147,11 +166,14 @@ def main() -> None:
         # are stable at this n=1000 pool.
         xa, xb = np.sort(da["dv_total_m_s"].to_numpy()[ca]), np.sort(db["dv_total_m_s"].to_numpy()[cb])
         cvar95 = lambda x: float(x[-max(1, round(len(x) * 0.05)):].mean())
+        d95_ci, dcv_ci = _paired_tail_delta_cis(da["dv_total_m_s"].to_numpy(), ca, db["dv_total_m_s"].to_numpy(), cb)
         paired[label] = {
             "a": ka,
             "b": kb,
             "delta_p95": round(float(np.percentile(xa, 95) - np.percentile(xb, 95)), 2),
+            "delta_p95_ci": d95_ci,
             "delta_cvar95": round(cvar95(xa) - cvar95(xb), 2),
+            "delta_cvar95_ci": dcv_ci,
             **paired_comparison(
                 da["dv_total_m_s"].to_numpy(), ca, db["dv_total_m_s"].to_numpy(), cb
             ),

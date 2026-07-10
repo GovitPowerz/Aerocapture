@@ -893,7 +893,12 @@ property we can claim.
     table.hline(stroke: 0.7pt),
   ),
   caption: [Paired comparisons on the shared $n = 1000$ pool, correction $Delta v$ in m/s; negative
-  $Delta$ favors A. The CI is a $10\,000$-resample bootstrap on the paired mean difference.
+  $Delta$ favors A. The CI is a $10\,000$-resample bootstrap on the paired mean difference; the
+  tail deltas carry the same paired-resample construction ($Delta p_95$ / $Delta"CVaR"_95$ $95%$
+  CIs -- Mamba vs joint-FTC $[-24.9, -22.5]$ / $[-29.7, -25.5]$; vs FNPAG $[-25.1, -21.5]$ /
+  $[-31.4, -26.0]$; vs dense $[-1.6, -0.1]$ / $[-2.6, -0.6]$; vs LSTM $[-0.6, +0.5]$ /
+  $[-1.3, +0.1]$, the one interval straddling zero -- the intra-network separation lives at the
+  far-tail depth, not here).
   Win-rate and $p$ (Wilcoxon signed-rank) are computed on the per-scenario cost; $p$ is truncated
   at $10^(-15)$ -- the normal-approximation statistic saturates (near $10^(-165)$) at or near sign
   unanimity at $n = 1000$, certifying a (near-)unanimous direction, not a resolved tail
