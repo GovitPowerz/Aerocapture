@@ -44,11 +44,15 @@ class NetworkConfig:
     scaled_pi_n: float = 1.0
     delta_max: float = 0.35
     warm_start_from: str | None = None
+    qat_bits: int | None = None
+    qat_granularity: str = "per_channel"
+    qat_tensor_policy: str = "all"
 
     def __post_init__(self) -> None:
         if self.scaffolding not in ("off", "live", "full"):
             msg = f"scaffolding must be 'off', 'live', or 'full', got {self.scaffolding!r}"
             raise ValueError(msg)
+        validate_qat(self.qat_bits, self.qat_granularity, self.qat_tensor_policy, self.architecture)
         if self.architecture is not None:
             # v2: copy the architecture list and normalize Mamba entries (resolve
             # optional dt_rank) so downstream consumers -- including the Rust
@@ -157,6 +161,22 @@ class NetworkConfig:
     def n_coef(self) -> int:
         """Total coefficients (same as n_base_coef; sign bits removed in pymoo migration)."""
         return self.n_base_coef
+
+
+def validate_qat(qat_bits: int | None, qat_granularity: str, qat_tensor_policy: str, architecture: list[dict] | None) -> None:
+    """Validate QAT settings. dense+mamba only, b>=2, known granularity/policy. No-op when qat_bits is None."""
+    if qat_bits is None:
+        return
+    if qat_bits < 2:
+        raise ValueError(f"qat_bits must be >= 2 (got {qat_bits}); binary weights are out of scope")
+    if qat_granularity not in ("per_channel", "per_tensor"):
+        raise ValueError(f"qat_granularity must be 'per_channel' or 'per_tensor', got {qat_granularity!r}")
+    if qat_tensor_policy not in ("all", "proj_only"):
+        raise ValueError(f"qat_tensor_policy must be 'all' or 'proj_only', got {qat_tensor_policy!r}")
+    if architecture is not None:
+        unsupported = sorted({str(e.get("type", "dense")) for e in architecture} - {"dense", "mamba"})
+        if unsupported:
+            raise ValueError(f"qat_bits supports dense+mamba networks; found layer types {unsupported}")
 
 
 def resolve_mamba_dt_rank(entry: Any) -> int:
