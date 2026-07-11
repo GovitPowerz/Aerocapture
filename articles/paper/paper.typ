@@ -770,6 +770,22 @@ exchangeable across families); what the loss cannot see are the offsets between 
 run (the LSTM, starred: the heat-load-infeasible one of Section 6.2) is not the best tail, and the
 dense cells sit well above the Mamba at matched loss.], <fig-losstail>)
 
+Three controls, run for this revision and evaluated once on the frozen confirmatory pool of Section
+7, pin the mechanism. *State reset*: the deployed Mamba evaluated with its recurrent state zeroed at
+every guidance tick collapses from $"CVaR"_(99.9) = 123.3$ to $414.5$ m/s at unchanged $100%$
+capture -- the deployed policy computes with its state; it is not a feedforward law in disguise.
+*Matched history*: a dense cell fed an explicit five-tick observation window ($970$ parameters,
+identical budget and regime) reaches $142.2 plus.minus 0.3$ -- inside the dense family's
+seed-to-seed spread, $19$ m/s above the intact policy, with a $423$ m/s worst case at $10^6$
+scenarios; short temporal context does not substitute for learned state. *No
+predicted-$Delta v$*: the same Mamba architecture retrained without the three cost-aligned inputs
+reaches $138.9 plus.minus 0.2$ (median $113.1$) -- the engineered inputs matter for bulk and tail
+alike, so inputs and state are complements rather than substitutes; notably, even this stripped
+network beats the best classical scheme on every reported statistic ($"CVaR"_95$ $125.3$ versus
+joint-FTC's $144.3$), so the network's edge does not ride on its privileged observations. In sum:
+state is necessary for the deployed tail (the first two controls) and not sufficient without the
+cost-aligned inputs (the third).
+
 The deployed headline policy is therefore the Mamba network: a #box[$962$-parameter]
 dense-to-selective-state-space-to-dense stack (a #box[$17$-input] dense encoder, a Mamba core of inner
 width $16$ and state size $12$, a two-output dense decoder with the atan2 bank decoder), trained under
@@ -1070,13 +1086,11 @@ behavior across the dispersion envelope, rather than the code, is the open probl
 
 We deliberately leave three threads as future work. We have no clean campaign study of pruning or
 quantizing the deployed head -- the only such cells predate the simulator fixes in this work and are
-not comparable -- so deploy-size reduction of the Mamba policy is open. The state-reset control has
-been run: zeroing the deployed Mamba's state every guidance tick collapses its correction-cost
-distribution ($"CVaR"_(99.9)$ from $122$ to $395$ m/s at unchanged $100%$ capture), so the deployed
-policy's recurrent state is causally load-bearing -- it is not a feedforward law in disguise. What
-remains open on that thread is the matched-history control -- a dense cell retrained on an explicit
-observation window at the same budget -- which would separate learned state from mere temporal
-context; Section 6.3's mechanism claim is scoped accordingly. And we calibrated run-to-run
+not comparable -- so deploy-size reduction of the Mamba policy is open. The state-ablation thread
+is now closed by the three controls of Section 6.3 -- state reset, matched history, and no
+predicted-$Delta v$ -- so the tail mechanism is measured rather than hypothesized; what remains
+open there is only the intra-recurrent ordering (why the selective state space edges the gated
+cells), which the three-seed evidence cannot separate. And we calibrated run-to-run
 variance only at the tail, through the three-seed architecture repeats, which is what the headline
 needs; a dedicated study of the mean-level variance across the optimizer cells was not run, so we
 report tight optimizer differences (the genetic algorithm at populations of $150$ versus $300$, for
@@ -1185,7 +1199,9 @@ $2000$ generations $times 300$ individuals $times 10$ scenarios per generation. 
 searches plateau far inside that budget (FNPAG's best individual stopped improving before
 generation $60$), so the network's longer run buys the comparison nothing. The joint-reference
 co-optimization of Section 7.1 is the classical counterpart of the network's co-tuned actuator
-parameters.
+parameters, and the information asymmetry is tested directly: retrained without the three
+predicted-$Delta v$ observations the classical schemes cannot consume, the network still beats the
+co-tuned joint-FTC on every reported statistic (Section 6.3, third control).
 
 *Correction burns.* The reported $Delta v$ is the three-burn plan from the captured orbit (apsis
 radii $r_a$, $r_p$) to the $500$ km circular parking orbit (radius $r_c$), using the elliptical
