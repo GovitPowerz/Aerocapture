@@ -61,7 +61,26 @@ pub fn compute_deltav(
     let dv2 = vitfin2 - vitini2;
 
     // Maneuver 3: inclination correction at ascending/descending node
-    // Uses target orbit parameters for node velocity computation.
+    let dv3 = inclination_change_dv(orbit, target, mu);
+
+    let total = dv1.abs() + dv2.abs() + dv3.abs();
+
+    DeltaV {
+        dv1,
+        dv2,
+        dv3,
+        total,
+    }
+}
+
+/// Inclination plane-change dV at the cheaper of the two node crossings.
+///
+/// Node radii come from the TARGET orbit shape evaluated at the current
+/// orbit's node anomalies (legacy convention). The vis-viva term is guarded
+/// and clamped: a hyperbolic target makes `rayneu <= 0` for some node angles.
+/// Shared by `compute_deltav` and `predicted_dv_for_nn` -- same float ops,
+/// bit-identical to the previous inline copies.
+fn inclination_change_dv(orbit: &OrbitalElements, target: &OrbitalTarget, mu: f64) -> f64 {
     let target_sma = target.semi_major_axis;
     let target_ecc = target.eccentricity;
     let pi = std::f64::consts::PI;
@@ -80,16 +99,7 @@ pub fn compute_deltav(
         };
     }
     let dincli = (target.inclination - orbit.inclination).abs();
-    let dv3 = 2.0 * vitneu[0].min(vitneu[1]) * (dincli / 2.0).sin();
-
-    let total = dv1.abs() + dv2.abs() + dv3.abs();
-
-    DeltaV {
-        dv1,
-        dv2,
-        dv3,
-        total,
-    }
+    2.0 * vitneu[0].min(vitneu[1]) * (dincli / 2.0).sin()
 }
 
 /// NN-input correction-DV: signed components, defined + smooth across e=1.
@@ -130,25 +140,7 @@ pub fn predicted_dv_for_nn(
         0.0
     };
 
-    let target_sma = target.semi_major_axis;
-    let target_ecc = target.eccentricity;
-    let pi = std::f64::consts::PI;
-    let anoneu = [2.0 * pi - orbit.arg_periapsis, pi - orbit.arg_periapsis];
-    let mut vitneu = [0.0_f64; 2];
-    for i in 0..2 {
-        let rayneu =
-            target_sma * (1.0 - target_ecc * target_ecc) / (1.0 + target_ecc * anoneu[i].cos());
-        // Guard + clamp on the vis-viva term (negative under extreme eccentricity).
-        vitneu[i] = if rayneu > 0.0 {
-            (2.0 * mu * (1.0 / rayneu - 1.0 / (2.0 * target_sma)))
-                .max(0.0)
-                .sqrt()
-        } else {
-            0.0
-        };
-    }
-    let dincli = (target.inclination - orbit.inclination).abs();
-    let dv3 = 2.0 * vitneu[0].min(vitneu[1]) * (dincli / 2.0).sin();
+    let dv3 = inclination_change_dv(orbit, target, mu);
 
     [dv1, dv2, dv3]
 }

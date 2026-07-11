@@ -934,10 +934,19 @@ impl DispersionConfig {
                     draw.filter_gain = normal.sample(&mut rng) * s.filter_gain;
                 }
 
-                // Wind (Uniform scale in [min, max], Uniform direction bias in [-deg, +deg])
+                // Wind (Uniform scale in [min, max], Uniform direction bias in [-deg, +deg]).
+                // A degenerate range (scale_min == scale_max, e.g. custom configs pinning
+                // the scale while keeping direction bias) is a fixed value: rand's
+                // `Uniform::new` errors on an empty range. scale_min > scale_max is
+                // rejected at config load (`build_dispersion_config`).
                 if let Some(ref w) = self.wind {
-                    let scale_uniform = Uniform::new(w.scale_min, w.scale_max).unwrap();
-                    draw.wind_scale = scale_uniform.sample(&mut rng);
+                    draw.wind_scale = if w.scale_max > w.scale_min {
+                        Uniform::new(w.scale_min, w.scale_max)
+                            .unwrap()
+                            .sample(&mut rng)
+                    } else {
+                        w.scale_min
+                    };
                     draw.wind_direction_bias =
                         uniform.sample(&mut rng) * w.direction_bias_deg * DEG2RAD;
                 } else {

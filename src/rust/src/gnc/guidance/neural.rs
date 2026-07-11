@@ -418,6 +418,7 @@ mod tests {
             inclination: vec![0.87, 0.87, 0.87],
             time: vec![0.0, 300.0, 600.0],
             cos_bank: vec![0.4, 0.6, 0.8],
+            monotonic_descending: false, // ascending fixture -- must use the legacy walk
         });
         data
     }

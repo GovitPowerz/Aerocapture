@@ -55,7 +55,6 @@ pub struct GuidanceState {
 
     // Roll sign and reversal tracking
     pub lateral_state: LateralState,
-    pub cumulative_bank_change: f64, // cumulative bank angle changes (rad)
 
     // Guidance securization (longitudinal only; lateral securization handled by lateral module)
     pub longi_active: i32, // longitudinal securization indicator (1=active)
@@ -105,7 +104,6 @@ impl GuidanceState {
             aoa_commanded: initial_aoa,
             command_shaper: CommandShaper::new(),
             lateral_state: LateralState::new(initial_bank),
-            cumulative_bank_change: 0.0,
             longi_active: 1,
             reference_velocity: 0.0,
             n_active: 0,
@@ -388,13 +386,6 @@ pub fn guidance_step(
             state.bank_angle_commanded =
                 state.bank_angle_realized + max_bank_rate.copysign(angle_diff) * guidance_period;
         }
-    }
-
-    // Cumulative bank angle tracking (shortest path)
-    let cumulative_diff =
-        shortest_angle_diff(state.bank_angle_realized, state.bank_angle_commanded);
-    if cumulative_diff.abs() > 1e-10 {
-        state.cumulative_bank_change += cumulative_diff.abs();
     }
 
     out.bank_angle_commanded = state.bank_angle_commanded;

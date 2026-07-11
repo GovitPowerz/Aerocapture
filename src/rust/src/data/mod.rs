@@ -377,11 +377,18 @@ impl SimData {
 
         // Incidence profile
         let incidence_data = if let Some(ref inc) = toml.incidence {
-            let n = inc.altitudes.len().min(inc.angles.len());
+            if inc.altitudes.len() != inc.angles.len() {
+                return Err(DataError(format!(
+                    "[incidence] altitudes ({}) and angles ({}) must have the same length",
+                    inc.altitudes.len(),
+                    inc.angles.len()
+                )));
+            }
+            let n = inc.altitudes.len();
             incidence::IncidenceProfile {
                 n_points: n,
-                altitudes: inc.altitudes[..n].iter().map(|a| a * 1e3).collect(),
-                incidences: inc.angles[..n].iter().map(|a| a * DEG2RAD).collect(),
+                altitudes: inc.altitudes.iter().map(|a| a * 1e3).collect(),
+                incidences: inc.angles.iter().map(|a| a * DEG2RAD).collect(),
             }
         } else {
             incidence::IncidenceProfile {
@@ -684,6 +691,16 @@ impl SimData {
             }
         };
 
+        // NN guidance without a model would otherwise pass config load and
+        // panic at the first guidance step (inside a Rayon worker).
+        if config.guidance_type == GuidanceType::NeuralNetwork && neural_net.is_none() {
+            return Err(DataError(
+                "guidance.type = \"neural_network\" requires a model: set \
+                 [data] neural_network = \"<path>.json\" or inject one via the API"
+                    .to_string(),
+            ));
+        }
+
         // Resolve the [network.normalization] override once, length-validated,
         // independent of whether an NN model is loaded. The supervised-collect
         // path runs a teacher scheme (neural_net is None) but must still apply
@@ -813,11 +830,49 @@ impl SimData {
             .as_ref()
             .and_then(|dc| dc.density_perturbation);
 
-        // Navigation mode
+        // Navigation mode. Unknown strings hard-error instead of silently
+        // running bias mode (same policy as dispersion levels / integration mode).
         let nav_mode = match toml.navigation.as_ref().map(|n| n.mode.as_str()) {
             Some("ekf") => NavMode::Ekf,
-            _ => NavMode::Bias,
+            Some("bias") | None => NavMode::Bias,
+            Some(other) => {
+                return Err(DataError(format!(
+                    "navigation.mode must be \"bias\" or \"ekf\" (got \"{}\")",
+                    other
+                )));
+            }
         };
+
+        // EKF sensor sigmas feed `Normal::new(0, sigma)` at SimState build;
+        // a negative/non-finite sigma would panic there. Validate at load.
+        if nav_mode == NavMode::Ekf
+            && let Some(nav) = toml.navigation.as_ref()
+        {
+            let mut sigmas: Vec<(&str, f64)> = Vec::new();
+            if let Some(ref imu) = nav.imu {
+                sigmas.extend([
+                    ("imu.accel_bias_sigma", imu.accel_bias_sigma),
+                    ("imu.accel_noise_sigma", imu.accel_noise_sigma),
+                    ("imu.accel_scale_factor_sigma", imu.accel_scale_factor_sigma),
+                    ("imu.gyro_bias_sigma", imu.gyro_bias_sigma),
+                    ("imu.gyro_noise_sigma", imu.gyro_noise_sigma),
+                ]);
+            }
+            if let Some(ref st) = nav.star_tracker {
+                sigmas.extend([
+                    ("star_tracker.position_sigma", st.position_sigma),
+                    ("star_tracker.attitude_sigma", st.attitude_sigma),
+                ]);
+            }
+            for (name, v) in sigmas {
+                if !v.is_finite() || v < 0.0 {
+                    return Err(DataError(format!(
+                        "navigation.{} must be finite and >= 0 (got {})",
+                        name, v
+                    )));
+                }
+            }
+        }
 
         Ok(SimData {
             capsule: capsule_data,
@@ -1087,6 +1142,12 @@ fn build_dispersion_config(
                 if let Some(&v) = d.custom.get("direction_bias_deg") {
                     cfg.direction_bias_deg = v;
                 }
+                if cfg.scale_min > cfg.scale_max {
+                    return Err(DataError(format!(
+                        "wind dispersion: scale_min ({}) must be <= scale_max ({})",
+                        cfg.scale_min, cfg.scale_max
+                    )));
+                }
                 Some(cfg)
             }
         }
@@ -1353,6 +1414,96 @@ flight_path_angle = 0.5
 "#;
         let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
         assert!(build_dispersion_config(&mc).is_ok());
+    }
+
+    #[test]
+    fn wind_custom_pinned_scale_accepted_inverted_rejected() {
+        // scale_min == scale_max is a legitimate config (pin the scale, keep
+        // direction bias); the Random draw path used to panic on it via
+        // Uniform::new's empty-range error.
+        let toml_str = r#"
+seed = 0
+
+[wind]
+level = "custom"
+scale_min = 1.0
+scale_max = 1.0
+direction_bias_deg = 5.0
+"#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        let cfg = build_dispersion_config(&mc).expect("pinned wind scale must be accepted");
+        let draws = cfg.generate_draws(3);
+        for d in &draws {
+            assert_eq!(
+                d.wind_scale, 1.0,
+                "pinned scale must draw as the fixed value"
+            );
+        }
+
+        // Inverted bounds are a config error caught at load, not a worker panic.
+        let toml_bad = r#"
+seed = 0
+
+[wind]
+level = "custom"
+scale_min = 2.0
+scale_max = 1.0
+"#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_bad).unwrap();
+        let err = build_dispersion_config(&mc).unwrap_err();
+        assert!(
+            format!("{err:?}").contains("scale_min"),
+            "error must name the bad bounds"
+        );
+    }
+
+    #[test]
+    fn config_validation_hard_errors() {
+        use std::path::Path;
+
+        let repo_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("canonicalize repo root");
+        std::env::set_current_dir(&repo_root).expect("set cwd to repo root");
+        let cfg_path = Path::new("configs/test/test_guided_orig.toml");
+
+        // Unknown navigation.mode must error, not silently run bias mode.
+        let (sim_input, mut toml_config) = SimInput::from_toml_file(cfg_path).expect("load");
+        toml_config.navigation = Some(TomlNavigation {
+            mode: "EKF".to_string(),
+            ..Default::default()
+        });
+        let shared = SharedTables::from_toml(&toml_config, &sim_input).expect("shared");
+        let err = SimData::from_toml_with_tables(&toml_config, &sim_input, &shared, None);
+        assert!(
+            format!("{}", err.unwrap_err()).contains("navigation.mode"),
+            "unknown navigation.mode must be a load error"
+        );
+
+        // NN guidance without a model must error at load, not panic at tick 1.
+        let (mut sim_input, mut toml_config) = SimInput::from_toml_file(cfg_path).expect("load");
+        sim_input.guidance_type = crate::config::GuidanceType::NeuralNetwork;
+        toml_config.data.neural_network = None;
+        let shared = SharedTables::from_toml(&toml_config, &sim_input).expect("shared");
+        let err = SimData::from_toml_with_tables(&toml_config, &sim_input, &shared, None);
+        assert!(
+            format!("{}", err.unwrap_err()).contains("neural_network"),
+            "NN guidance without a model must be a load error"
+        );
+
+        // Mismatched incidence table lengths must error, not silently truncate.
+        let (sim_input, mut toml_config) = SimInput::from_toml_file(cfg_path).expect("load");
+        toml_config.incidence = Some(crate::config::TomlIncidence {
+            altitudes: vec![0.0, 10.0],
+            angles: vec![-27.5],
+        });
+        let shared = SharedTables::from_toml(&toml_config, &sim_input).expect("shared");
+        let err = SimData::from_toml_with_tables(&toml_config, &sim_input, &shared, None);
+        assert!(
+            format!("{}", err.unwrap_err()).contains("incidence"),
+            "mismatched incidence lengths must be a load error"
+        );
     }
 
     #[test]

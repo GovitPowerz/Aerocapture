@@ -612,10 +612,16 @@ type PerSeedTrace = Vec<(u64, Vec<(Vec<f64>, f64, f64, f64, f64)>, f64, bool)>;
 
 /// Shared inner loop for collect_supervised and collect_nn_inputs.
 ///
-/// Runs one simulation per seed (n_sims=1) and accumulates the per-tick
-/// supervised_trace into `per_seed`. The caller supplies `extra_overrides`
-/// (e.g. `guidance.type`) and a `post_load` hook that can inspect/mutate
-/// `sim_input` and reject invalid configs (e.g. ensure guidance == NN).
+/// Loads the config + data ONCE (TOML resolve, atmosphere/wind/ref tables,
+/// NN JSON), then runs one simulation per seed in parallel via Rayon.
+/// The per-seed dispersion draw is generated inside `run_for_api_cell`
+/// (`draw_from_seed`), bit-identical to the prior per-seed
+/// `monte_carlo.seed` + `n_sims=1` override path -- which reloaded every
+/// table from disk for each seed and ran sequentially.
+///
+/// The caller supplies `extra_seed_overrides` (e.g. `guidance.type`) and a
+/// `post_load` hook that can inspect/mutate `sim_input` and reject invalid
+/// configs (e.g. ensure guidance == NN).
 fn collect_trace<F>(
     toml_path: &str,
     seeds: &[u64],
@@ -628,56 +634,42 @@ fn collect_trace<F>(
 where
     F: Fn(&mut aerocapture::config::SimInput, &aerocapture::data::SimData) -> PyResult<()>,
 {
-    let mut per_seed: PerSeedTrace = Vec::with_capacity(seeds.len());
+    use rayon::prelude::*;
 
-    for seed in seeds {
-        let mut seed_overrides = base_overrides.clone();
-        seed_overrides.push(("simulation.n_sims".to_string(), OverrideValue::Int(1)));
-        seed_overrides.push((
-            "monte_carlo.seed".to_string(),
-            OverrideValue::Int(*seed as i64),
-        ));
-        for (k, v) in extra_seed_overrides {
-            seed_overrides.push((k.clone(), v.clone()));
-        }
+    let mut overrides = base_overrides;
+    for (k, v) in extra_seed_overrides {
+        overrides.push((k.clone(), v.clone()));
+    }
 
-        let (mut sim_input, sim_data) =
-            config::load_and_override(std::path::Path::new(toml_path), &seed_overrides)
-                .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+    let (mut sim_input, sim_data) =
+        config::load_and_override(std::path::Path::new(toml_path), &overrides)
+            .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
-        post_load(&mut sim_input, &sim_data)?;
+    post_load(&mut sim_input, &sim_data)?;
 
-        sim_input.collect_supervised = true;
+    sim_input.collect_supervised = true;
+    sim_input.n_sims = 1;
 
-        let outputs = aerocapture::simulation::runner::run_for_api(
-            &sim_input,
-            &sim_data,
-            false,
-            wall_timeout,
-        )
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Simulation error: {e}")))?;
-
-        if outputs.is_empty() {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "{}: run_for_api returned 0 outputs for seed {} (expected 1)",
-                caller_name, seed
-            )));
-        }
-        let mut trace: Vec<(Vec<f64>, f64, f64, f64, f64)> = Vec::new();
-        let mut dv = f64::NAN;
-        let mut captured = false;
-        for output in outputs {
-            trace.extend(output.supervised_trace);
-            dv = output
+    let per_seed: Result<PerSeedTrace, String> = seeds
+        .par_iter()
+        .map(|&seed| {
+            let output = aerocapture::simulation::runner::run_for_api_cell(
+                &sim_input,
+                &sim_data,
+                seed,
+                false,
+                wall_timeout,
+            )
+            .map_err(|e| format!("{caller_name}: simulation error for seed {seed}: {e}"))?;
+            let dv = output
                 .final_record
                 .get(FR_DV_TOTAL_MS) // dv_total_m_s column
                 .copied()
                 .unwrap_or(f64::NAN);
-            captured = output.captured;
-        }
-        per_seed.push((*seed, trace, dv, captured));
-    }
-    Ok(per_seed)
+            Ok((seed, output.supervised_trace, dv, output.captured))
+        })
+        .collect();
+    per_seed.map_err(pyo3::exceptions::PyRuntimeError::new_err)
 }
 
 /// Collect supervised training data from a non-NN guidance scheme.

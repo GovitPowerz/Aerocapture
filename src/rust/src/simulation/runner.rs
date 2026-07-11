@@ -858,7 +858,9 @@ pub(crate) fn build_event_photo_values(
     let heat_flux = data.capsule.cq * rho_dispersed.sqrt() * v_eff.powf(3.05);
     let pdyn = 0.5 * rho_dispersed * v_eff * v_eff;
 
-    let aoa_dispersed = run_state.incidence_bias; // aoa=0 + bias
+    // The tick's realized AoA (passed in degrees) + the dispersed incidence
+    // bias -- same operand the regular photo rows use.
+    let aoa_dispersed = aoa_deg * DEG_TO_RAD + run_state.incidence_bias;
     let cx = data.aero.interpolate_cx(aoa_dispersed) * (1.0 + run_state.cx_bias);
     let cz = data.aero.interpolate_cz(aoa_dispersed) * (1.0 + run_state.cz_bias);
     let mass = data.capsule.mass * (1.0 + run_state.mass_bias);

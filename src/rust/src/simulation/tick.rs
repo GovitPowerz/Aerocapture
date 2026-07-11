@@ -201,13 +201,21 @@ pub fn step_one_tick(
             ));
         }
 
+        // Effective command: the RL env's forced action when present, else the
+        // dispatcher's output. Resolved BEFORE the telemetry update below so
+        // the NN-input state (indices 21-24, 27-28) tracks the bank the
+        // vehicle actually flies -- tracking the discarded internal command
+        // under `forced_bank` gave RL policies a train/deploy observation
+        // mismatch on their own previous action.
+        let bank_angle_commanded = forced_bank.unwrap_or(guidance_out.bank_angle_commanded);
+
         // ── Update NN-input telemetry for the NEXT tick ──
         // These fields back input indices 21-24. Updated unconditionally so the
         // state stays consistent regardless of guidance scheme / collect mode.
         // Sign-flip detection compares the new bank command to the previous one;
         // both must be non-zero for the flip to count (avoids spurious flips
         // when bank is near 0 transitions).
-        let new_bank = guidance_out.bank_angle_commanded;
+        let new_bank = bank_angle_commanded;
         let prev_bank = state.guidance_state.prev_bank_for_nn;
         let signs_differ = new_bank.signum() != prev_bank.signum();
         if signs_differ && new_bank != 0.0 && prev_bank != 0.0 {
@@ -219,8 +227,6 @@ pub fn step_one_tick(
         // Simple Euler integration of the inclination error, dt = guidance period.
         // No anti-windup -- the NN's tanh-bounded input 24 saturates naturally.
         state.guidance_state.inclination_error_integral += data.periods.guidance * current_incl_err;
-
-        let bank_angle_commanded = forced_bank.unwrap_or(guidance_out.bank_angle_commanded);
 
         let max_rate = data.capsule.max_bank_rate * (1.0 + state.run_state.max_bank_rate_bias);
         state.pilot_state = pilot::apply_pilot(

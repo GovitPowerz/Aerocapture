@@ -266,6 +266,65 @@ fn v2_json_parses_to_same_layers_as_v1() {
 }
 
 #[test]
+fn from_v2_json_rejects_wrong_size_normalization_block() {
+    // An older-era model with a shorter embedded normalization block must
+    // hard-error, not silently fall back to DEFAULT_NORMALIZATION -- that
+    // swap is a silent train/inference scale mismatch (NN_FULL_INPUT_SIZE
+    // has grown across eras). Mirrors the [network.normalization] TOML
+    // override strictness.
+    let v2 = r#"{
+          "format_version": 2,
+          "architecture": [
+            { "type": "dense", "input_size": 3, "output_size": 2, "activation": "linear" }
+          ],
+          "weights": { "layer_0": { "w": [[0.1,0.2,0.3],[0.4,0.5,0.6]], "b": [0.01,0.02] } },
+          "normalization": [
+            { "transform": "none", "scale": 1.0, "center": 0.0 }
+          ]
+        }"#;
+    let err = NeuralNetModel::from_json_str(v2, "wrong_norm");
+    assert!(
+        err.is_err(),
+        "wrong-size embedded normalization block must be rejected"
+    );
+    let msg = format!("{}", err.unwrap_err());
+    assert!(
+        msg.contains("normalization"),
+        "error must name the block: {msg}"
+    );
+}
+
+#[test]
+fn from_flat_weights_v2_chain_mismatch_raises() {
+    // Same chain rule as from_v2_json: a mis-chained architecture must error
+    // instead of silently zip-truncating the Dense dot products at runtime.
+    let specs = vec![
+        LayerSpec::Dense {
+            input_size: 3,
+            output_size: 4,
+            activation: Activation::Tanh,
+        },
+        LayerSpec::Dense {
+            input_size: 5,
+            output_size: 2,
+            activation: Activation::Linear,
+        },
+    ];
+    let n: usize = (3 * 4 + 4) + (5 * 2 + 2);
+    let flat = vec![0.0; n];
+    let err = NeuralNetModel::from_flat_weights_v2(
+        &flat,
+        &specs,
+        None,
+        OutputParam::Atan2Signed,
+        1.0,
+        0.35,
+    );
+    assert!(err.is_err(), "chain mismatch must be rejected");
+    assert!(format!("{}", err.unwrap_err()).contains("chain mismatch"));
+}
+
+#[test]
 fn gru_flat_weights_roundtrip() {
     // Build a GruLayer with distinct weight values so a buggy to_flat/from_flat
     // would produce visible mismatches.

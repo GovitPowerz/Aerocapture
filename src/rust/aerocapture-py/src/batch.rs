@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use aerocapture::RunOutput;
 use aerocapture::config::SimInput;
-use aerocapture::data::SimData;
 use aerocapture::data::dispersions::DispersionDraw;
+use aerocapture::data::{SharedTables, SimData};
 use aerocapture::simulation::runner::SimError;
 use toml::{Table, Value};
 
@@ -63,6 +63,24 @@ pub fn run_batch(
     let base_value = aerocapture::config::resolve_toml_bases(base_value, toml_path, &mut visited)
         .map_err(|e| BatchError::Runtime(format!("Base resolution error: {}", e)))?;
 
+    // Preload the shared tables (atmosphere/wind/ref) from the base config so
+    // per-override SimData construction skips the disk reads -- run_batch is
+    // called with thousands of overrides that differ only in guidance params /
+    // NN path. Best-effort: a base that doesn't form a complete config (or an
+    // override that retargets data.atmosphere / data.wind_table) falls back to
+    // the full per-override load below. The reference-trajectory override is
+    // handled inside `from_toml_with_tables` (joint ref_bank path).
+    let base_shared: Option<(SharedTables, Option<String>, Option<String>)> =
+        toml::to_string(&base_value).ok().and_then(|base_str| {
+            let (base_input, base_toml) = SimInput::from_toml(&base_str).ok()?;
+            let shared = SharedTables::from_toml(&base_toml, &base_input).ok()?;
+            Some((
+                shared,
+                base_toml.data.atmosphere.clone(),
+                base_toml.data.wind_table.clone(),
+            ))
+        });
+
     let run = || -> Result<Vec<RunOutput>, BatchError> {
         use rayon::prelude::*;
 
@@ -80,8 +98,16 @@ pub fn run_batch(
 
                 let (sim_input, toml_config) = SimInput::from_toml(&toml_str)
                     .map_err(|e| BatchError::Runtime(format!("Config parse error: {}", e)))?;
-                let sim_data = SimData::from_toml(&toml_config, &sim_input)
-                    .map_err(|e| BatchError::Runtime(format!("Data load error: {}", e)))?;
+                let shared_ok = base_shared.as_ref().is_some_and(|(_, atm, wind)| {
+                    toml_config.data.atmosphere == *atm && toml_config.data.wind_table == *wind
+                });
+                let sim_data = if shared_ok {
+                    let (shared, _, _) = base_shared.as_ref().unwrap();
+                    SimData::from_toml_with_tables(&toml_config, &sim_input, shared, None)
+                } else {
+                    SimData::from_toml(&toml_config, &sim_input)
+                }
+                .map_err(|e| BatchError::Runtime(format!("Data load error: {}", e)))?;
 
                 if sim_input.n_sims > 1 {
                     return Err(BatchError::Contract(format!(
