@@ -79,8 +79,8 @@
   $Delta v$, we lead every comparison with the tail of its distribution, not the mean. A 962-parameter
   recurrent (Mamba) policy captures every one of $10^6$ frozen confirmatory scenarios (a $95%$
   upper bound of $3 times 10^(-6)$ on its failure probability) and reaches a far-tail
-  $"CVaR"_(99.9)$ of #box[$123.3 plus.minus 0.1$ m/s]; independent retraining seeds span
-  $122$--$131$. It beats the best classical scheme (FTC with a
+  $"CVaR"_(99.9)$ of #box[$123.3 plus.minus 0.1$ m/s] (independent retraining seeds span
+  $122$--$131$). It beats the best classical scheme (FTC with a
   co-optimized reference) by #box[$16.4$ m/s] in mean and #box[$27.6$ m/s] at $"CVaR"_95$, better on
   every one of $1000$ paired scenarios, at #box[$3.6$ ms] per simulation -- $23 times$ faster than
   FNPAG. The result rests on a training methodology that is itself a contribution: a non-stationary,
@@ -1235,7 +1235,7 @@ assumptions.
 the atmospheric density bias to $plus.minus 100%$ (from $plus.minus 50%$); the Gauss--Markov
 density perturbation to a $30$ s correlation time at $20%$ RMS (from $120$ s at $5%$); navigation
 errors to $3sigma$ altitude $plus.minus 3$ km, horizontal $approx plus.minus 18$ km per axis,
-velocity $plus.minus 3$ m/s, drag acceleration $plus.minus 0.6$ m/s#super[2]; and the
+velocity $plus.minus 3$ m/s, drag acceleration $plus.minus 0.6$ m/s#super[2]\; and the
 navigation-filter gain draw to $plus.minus 0.45$ absolute ($3sigma$).
 
 *Dispersion rationale.* The $plus.minus 50%$ nominal density span is a deliberately conservative
