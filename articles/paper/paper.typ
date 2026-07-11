@@ -85,7 +85,7 @@
   every one of $1000$ paired scenarios, at #box[$3.68$ ms] per simulation -- $23 times$ faster than
   FNPAG. The result rests on a training methodology that is itself a contribution: a non-stationary,
   adaptive-seed Monte Carlo environment turns the genetic algorithm from the *worst* optimizer under
-  fixed scenarios ($160.3$ m/s mean) into the *best* ($118.0$). Across cell types, engineered,
+  fixed scenarios ($154$ m/s three-seed mean) into the *best* ($120$). Across cell types, engineered,
   cost-aligned inputs flatten the median; ablation controls -- state reset, matched history, input
   removal -- show it is genuine internal state that compresses the extreme tail
   that sizes the tanks. The main deployment caveat: under a deliberately harsher off-nominal regime
@@ -135,8 +135,9 @@ We make three contributions:
 + *A training methodology, not just a policy.* We show that a genetic algorithm is the *worst*
   optimizer for this problem under a fixed set of Monte Carlo scenarios -- it overfits the repeated
   cases -- and the *best* under a non-stationary, adaptive-seed environment that keeps moving the
-  scenarios beneath it. Switching the seed schedule from fixed to adaptive moves the mean correction
-  cost from $160.3$ to $118.0$ m/s, the single largest effect in the campaign. The moving
+  scenarios beneath it. Switching the seed schedule from fixed to moving takes the mean correction
+  cost from $154$ to $120$ m/s in three-seed means (first seeds $160.3 arrow.r 118.0$), the single
+  largest effect in the campaign. The moving
   environment, a tail-weighting cost transform, and hardest-case seed curation form one matched
   system.
 
@@ -440,15 +441,23 @@ hardest-case seed curation -- form one matched system. We take them in turn.
 The single largest effect in the entire campaign is the seed strategy. We compared three: *fixed*
 (a deterministic scenario batch, identical every generation), *rotating* (a fresh random batch every
 generation), and *adaptive* (a curated batch, refreshed on a validated improvement or periodically,
-drawn from the cost distribution of the best individuals). Under fixed seeds the genetic algorithm is
-the *worst* optimizer we tested -- mean correction cost $160.3$ m/s, $"CVaR"_95$ $215.8$ m/s -- because
+drawn from the cost distribution of the best individuals). The decisive cells carry three
+independent training seeds each (this revision's repeats). Under fixed seeds the genetic algorithm
+is the *worst* optimizer we tested and an unstable one -- three trainings land at $160.3$, $166.9$,
+and $133.5$ m/s mean ($"CVaR"_95$ $215.8$ on the first seed) -- because
 it overfits the repeated scenarios, evolving a policy that is excellent on those particular draws and
-mediocre elsewhere. Rotating the seeds rescues it outright: $120.0$ m/s mean, $144.5$ m/s $"CVaR"_95$,
-a $40$ m/s drop in the mean and a $71$ m/s drop on the tail. Adaptive curation tightens it a little
-further, to $118.0$ m/s.
+mediocre elsewhere. Rotating the seeds rescues it outright and *reliably*: $119.4$ m/s three-seed
+mean with a $3.5$ m/s seed range (first seed $120.0$ mean, $144.5$ $"CVaR"_95$) -- a $34$ m/s drop
+in three-seed means, a $71$ m/s drop on the tail on the first seeds, and the two distributions do
+not touch: the fixed schedule's luckiest seed sits $12.5$ m/s above the moving schedule's worst.
+Adaptive curation is indistinguishable from rotating on the *mean* at this allocation ($119.6$
+versus $119.4$, seed ranges overlapping; the first-seed $118.0$ was a favorable draw); its
+contribution is the hardest-seed tail shaping of Section 4.2, which a plain rotating schedule
+cannot express.
 
 The control that makes this a statement about the *objective* and not about compute is CMA-ES. Run
-on the identical fixed-versus-rotating change, CMA-ES does not move -- $126.9 arrow.r 127.3$ m/s
+on the identical fixed-versus-rotating change, CMA-ES does not move -- $125.7$ versus $126.1$ m/s
+in three-seed means, seed ranges within $plus.minus 1$ (first seeds $126.9 arrow.r 127.3$)
 (@fig-seed). Under fixed seeds the genetic algorithm's selection converges onto the quirks of those
 particular draws; CMA-ES neither suffers under the fixed batch nor benefits from the moving one. We
 state that asymmetry empirically rather than mechanistically: a plausible reading is that CMA-ES's
@@ -464,8 +473,10 @@ The moving environment does not make the genetic algorithm *robust* to a moving 
 the genetic algorithm *need* one.
 
 #fig("fig_seed_strategy.svg", [Fixed versus rotating seeds, per optimizer. The genetic algorithm is
-the worst optimizer under fixed seeds and is rescued by rotating them ($-40$ m/s mean, $-71$ m/s at
-$"CVaR"_95$); CMA-ES is essentially unchanged (candidate mechanisms are discussed in the text). The
+the worst optimizer under fixed seeds and is rescued by rotating them ($-34$ m/s in three-seed
+means, $-71$ m/s at $"CVaR"_95$ on the first seeds); CMA-ES is essentially unchanged (candidate
+mechanisms are discussed in the text). Black dots: three independent training seeds for the
+repeated GA and CMA-ES cells -- the fixed-seed pathology is itself high-variance. The
 lever is the non-stationary objective, not the extra compute.], <fig-seed>)
 
 == Cost transform, curation, and allocation
@@ -602,7 +613,7 @@ three-island heterogeneous model, on an optimizer-by-budget grid at the largest 
 the #box[$515$-parameter] dense network.
 
 At $3998$ weights the population size is decisive (@fig-optimizer). The genetic algorithm is best at a
-population of $150$ ($118.0$ m/s mean) and $300$ ($120.5$ m/s) -- a gap smaller than the run-to-run
+population of $150$ ($118.0$ m/s mean; three-seed $119.6$, range $3.0$) and $300$ ($120.5$ m/s) -- a gap smaller than the run-to-run
 scatter we measure on retrained cells in Section 6, so we report them as indistinguishable -- but at
 a population of $60$ it *collapses* to
 $166.3$ m/s. Sixty individuals cannot cover a four-thousand-dimensional weight space; selection
@@ -1040,9 +1051,12 @@ on the same regime sits at $424$ m/s at $95.0%$ capture, and the medium-deployed
 at $94.5%$: capture parity within half a point, so the lexicographic comparison is decided by the
 conditional tail. The analytic law's
 edge in @sec-deployability was a property of the *mismatched* training objective, not of neural
-guidance. The caveat cuts in both directions: these are single-run, $n = 1000$ figures (the
-$3$--$4 times$ effect dwarfs any plausible run-to-run scatter, but a sizing-grade number wants the
-$sigma_"run"$ repeats and the $n = 10\,000$ depth used elsewhere), and the regime that produces the gap
+guidance. The result now carries measured run-to-run scatter: three independent centered-Mamba
+retrainings hold capture at $94.8$--$95.0%$ with $"CVaR"_95 (Delta v | "capture")$ spanning
+$231$--$273$ m/s -- every seed beating both the retrained joint-FTC ($424$) and the
+medium-deployed one ($340$) -- so the reversal is stable across training runs. The remaining
+caveats: these are $n = 1000$ figures (a sizing-grade number wants the $n = 10\,000$ depth used
+elsewhere), and the regime that produces the gap
 is itself one a real mission would design away. The durable lesson is methodological and reinforces
 Section 4: the optimal worst-case weighting is matched to the environment's noise and the per-individual
 sample budget, not fixed once.
@@ -1090,10 +1104,10 @@ dominate, followed by the engineered, cost-aligned predicted-$Delta v$ component
 The clearest limitation is the off-nominal robustness gap of @sec-deployability -- the deployed
 network wins the nominal sizing tail it was trained for and loses, off-nominal, to a training-free
 analytic law. @sec-objcenter traces that gap to the training objective rather than to neural
-guidance, with the two markers stated there: the centered-retrain demonstration is single-run at
-$n = 1000$, and the stress regime is one a real mission would design away. What remains open is the
-sizing-grade version of that result -- the $sigma_"run"$ repeats and the $n = 10\,000$ depth used
-for the headline.
+guidance, with the markers stated there: the centered-retrain demonstration is now three-seed
+(capture steady at $approx 95%$, conditional tail $231$--$273$ m/s, every seed beating both FTC
+references) but remains $n = 1000$, and the stress regime is one a real mission would design away.
+What remains open is the far-tail depth used for the headline.
 
 A second tradeoff is the cost of state. The deployed Mamba runs at $3.68$ ms per simulation against
 $2.40$ ms for the dense network -- about $1.5 times$ for the selective-state-space core -- which is
@@ -1117,11 +1131,12 @@ not comparable -- so deploy-size reduction of the Mamba policy is open. The stat
 is now closed by the three controls of Section 6.3 -- state reset, matched history, and no
 predicted-$Delta v$ -- so the tail mechanism is measured rather than hypothesized; what remains
 open there is only the intra-recurrent ordering (why the selective state space edges the gated
-cells), which the three-seed evidence cannot separate. And we calibrated run-to-run
-variance only at the tail, through the three-seed architecture repeats, which is what the headline
-needs; a dedicated study of the mean-level variance across the optimizer cells was not run, so we
-report tight optimizer differences (the genetic algorithm at populations of $150$ versus $300$, for
-instance) as indistinguishable rather than ranking them.
+cells), which the three-seed evidence cannot separate. Run-to-run variance is calibrated at the
+tail through the three-seed architecture repeats and, for the decisive seed-strategy and CMA-ES
+cells, at the mean through dedicated repeats (Section 4.1; the fixed-seed pathology is itself
+high-variance, a $33$ m/s seed range); the remaining tight optimizer differences (the genetic
+algorithm at populations of $150$ versus $300$, for
+instance) stay reported as indistinguishable rather than ranked.
 
 Finally, a methodological note for anyone reproducing this. The training is not bit-reproducible from
 a seed alone -- it never was -- because the non-stationary objective and the operator randomness make
@@ -1145,8 +1160,9 @@ predictor--corrector.
 Two findings carry beyond the headline number. The first is methodological: a genetic algorithm is the
 wrong optimizer for a fixed objective and the right one for a moving one, and the moving
 Monte Carlo environment -- adaptive seeds, a tail-weighting cost transform, and hardest-case curation
--- is a matched system that converts it from the worst optimizer we tested ($160.3$ m/s) to the best
-($118.0$). The second is architectural: engineered, cost-aligned inputs flatten the
+-- is a matched system that converts it from the worst optimizer we tested ($154$ m/s three-seed
+mean) to the best
+($120$). The second is architectural: engineered, cost-aligned inputs flatten the
 typical cost across every cell type we tried, so the network's internal state earns its place only on the
 hardest scenarios -- the extreme tail -- which is exactly the part of the distribution that sizes the
 mission and exactly the part a validation-loss objective under-weights. Training loss did not pick

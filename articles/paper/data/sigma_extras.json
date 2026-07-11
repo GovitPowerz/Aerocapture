@@ -1,0 +1,115 @@
+{
+ "note": "Study C sigma_run repeats (16_sigma_extras.sh, seeds 2/3) at the 04/02 regime (n_sims 10, 2000 gens, pop 150); s1 = the original campaign cells from results.json; deployed n=1000 final-eval pool",
+ "groups": {
+  "ga_fixed": {
+   "s1": {
+    "capture_pct": 100.0,
+    "dv_mean": 160.31,
+    "dv_cvar95": 215.78
+   },
+   "s2": {
+    "capture_pct": 99.7,
+    "dv_mean": 166.92,
+    "dv_cvar95": 266.09
+   },
+   "s3": {
+    "capture_pct": 100.0,
+    "dv_mean": 133.53,
+    "dv_cvar95": 183.02
+   },
+   "dv_mean_3seed": 153.6,
+   "dv_mean_range": [
+    133.5,
+    166.9
+   ]
+  },
+  "ga_rotating": {
+   "s1": {
+    "capture_pct": 100.0,
+    "dv_mean": 119.98,
+    "dv_cvar95": 144.54
+   },
+   "s2": {
+    "capture_pct": 99.9,
+    "dv_mean": 117.29,
+    "dv_cvar95": 133.09
+   },
+   "s3": {
+    "capture_pct": 100.0,
+    "dv_mean": 120.83,
+    "dv_cvar95": 140.56
+   },
+   "dv_mean_3seed": 119.4,
+   "dv_mean_range": [
+    117.3,
+    120.8
+   ]
+  },
+  "ga_adaptive": {
+   "s1": {
+    "capture_pct": 100.0,
+    "dv_mean": 118.01,
+    "dv_cvar95": 130.89
+   },
+   "s2": {
+    "capture_pct": 100.0,
+    "dv_mean": 119.87,
+    "dv_cvar95": 139.64
+   },
+   "s3": {
+    "capture_pct": 100.0,
+    "dv_mean": 121.05,
+    "dv_cvar95": 136.79
+   },
+   "dv_mean_3seed": 119.6,
+   "dv_mean_range": [
+    118.0,
+    121.0
+   ]
+  },
+  "cmaes_fixed": {
+   "s1": {
+    "capture_pct": 100.0,
+    "dv_mean": 126.87,
+    "dv_cvar95": 158.89
+   },
+   "s2": {
+    "capture_pct": 100.0,
+    "dv_mean": 125.45,
+    "dv_cvar95": 150.61
+   },
+   "s3": {
+    "capture_pct": 100.0,
+    "dv_mean": 124.9,
+    "dv_cvar95": 154.53
+   },
+   "dv_mean_3seed": 125.7,
+   "dv_mean_range": [
+    124.9,
+    126.9
+   ]
+  },
+  "cmaes_rotating": {
+   "s1": {
+    "capture_pct": 100.0,
+    "dv_mean": 127.28,
+    "dv_cvar95": 159.15
+   },
+   "s2": {
+    "capture_pct": 100.0,
+    "dv_mean": 126.16,
+    "dv_cvar95": 152.84
+   },
+   "s3": {
+    "capture_pct": 100.0,
+    "dv_mean": 124.9,
+    "dv_cvar95": 158.4
+   },
+   "dv_mean_3seed": 126.1,
+   "dv_mean_range": [
+    124.9,
+    127.3
+   ]
+  }
+ }
+}

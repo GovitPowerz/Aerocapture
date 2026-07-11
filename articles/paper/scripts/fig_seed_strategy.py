@@ -40,6 +40,17 @@ def main():
     br = ax.bar(x + w / 2, rot_cvar, w, color=ROTATING, label="rotating seeds", zorder=2,
                 hatch="//", edgecolor="white", linewidth=0.4)  # hatched so the pair is not encoded by red/green alone
 
+    # per-seed CVaR95 dots for the repeated cells (sigma_run, 16_sigma_extras:
+    # GA + CMA-ES x fixed/rotating, 3 seeds each; reviewer R1-S1)
+    import json
+    groups = json.loads((fl.DATA / "sigma_extras.json").read_text())["groups"]
+    xdots = {("ga", "fixed"): x[0] - w / 2, ("ga", "rotating"): x[0] + w / 2,
+             ("cmaes", "fixed"): x[3] - w / 2, ("cmaes", "rotating"): x[3] + w / 2}
+    for (stem, strat), xi in xdots.items():
+        vals = [groups[f"{stem}_{strat}"][s]["dv_cvar95"] for s in ("s1", "s2", "s3")]
+        ax.scatter([xi] * 3, vals, s=17, color="#111111", zorder=5, alpha=0.85,
+                   label="independent seeds" if (stem, strat) == ("ga", "fixed") else None)
+
     # dv_mean tick markers on each bar (secondary metric)
     for xi, m in zip(x - w / 2, fixed_mean, strict=True):
         ax.plot([xi - w / 2, xi + w / 2], [m, m], color="#333333", lw=1.4, zorder=4)
