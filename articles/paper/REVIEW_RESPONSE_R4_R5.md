@@ -15,7 +15,7 @@ submission's "Table 3" (performance) and "Table 4" (paired) are now Tables 4 and
 
 ## Reviewer 1 -- major comments
 
-**R1-1 (sizing pool not selection-disjoint).** DONE (data), PENDING-requote (final numbers).
+**R1-1 (sizing pool not selection-disjoint).** DONE (FNPAG's single cell pending, visibly marked in the table).
 We built the requested pool, stronger than asked: all methodology/architecture/checkpoint
 choices frozen at a recorded revision, then a confirmatory pool of 10 replicates x 100,000
 scenarios per scheme whose seeds are drawn from [2^31, 2^32) -- structurally disjoint from
@@ -25,9 +25,9 @@ Section 4 pool-roles table states which decisions each pool influenced; the rese
 in-training pool is renamed a *selection pool* and its adaptive reuse quantified (13,442
 queries over the headline run), per the reviewer's observation. Outcome: the development
 numbers CONFIRM -- deployed policy CVaR99.9 123.3 +/- 0.11 at n=10^6 vs 122.0 on the
-development n=10^4 pool; joint-FTC 165.1 vs 164.0; no detectable selection optimism. The
-final requote of every quoted sizing number onto this pool lands with the last compute leg
-(FNPAG cell held while training runs occupy the machine).
+development n=10^4 pool; joint-FTC 165.1 vs 164.0; no detectable selection optimism. Every quoted sizing number is now requoted onto this pool; the abstract quotes the deployed
+artifact (123.3 +/- 0.1). FNPAG's cell runs after the training legs and carries a visible
+pending marker until then.
 
 **R1-2 (CVaR99.9 from ~10 observations).** DONE. On the confirmatory pool CVaR99.9 averages
 100 observations per replicate, 1000 pooled, with replicate-level (design-based) standard
@@ -38,8 +38,7 @@ recorded per replicate alongside CVaR99/CVaR99.9; the sample maximum is labeled 
 Survival curves (new figure, Section 7) show the full tail rather than point statistics.
 Replicate pools double as the "repeat the pool generation" request: ten independent designs.
 
-**R1-3 (124.5 is a three-seed mean, not the deployed artifact).** PENDING-requote, resolved
-in substance: the abstract will quote the deployed artifact's own confirmatory value
+**R1-3 (124.5 is a three-seed mean, not the deployed artifact).** DONE: the abstract quotes the deployed artifact's own confirmatory value
 (123.3 +/- 0.1 replicate CI) with the across-retraining range (per-seed 122.2 / 131.0 /
 123.3) reported separately in Section 6.2; scenario uncertainty and training-run uncertainty
 are never pooled. The confirmatory pool also sharpened the estimand distinction in a way
@@ -172,8 +171,11 @@ CVaR95 interval straddles zero at n=1000 and is reported as such). Far-tail diff
 intervals come from confirmatory replicate deltas (e.g. Mamba vs joint-FTC dCVaR99.9 = -41.8
 [-42.4, -41.2]).
 
-**R1-S3 (scenario vs training-run uncertainty).** PENDING-requote; the reporting convention
-(replicate CI beside per-seed range, never pooled) is fixed and already used in Section 6.3.
+**R1-S3 (scenario vs training-run uncertainty).** DONE -- replicate CI (scenario noise) beside
+per-seed range (training-run variance) throughout Sections 6.2-6.3, never pooled. The revision
+also retires the sample maximum as a comparison statistic at n=10^6 (Section 6.2): the reviewer's
+'the maximum is not a bound' point is confirmed by our own data (the lowest-CVaR seed logged the
+deepest single excursion).
 
 **R1-S4 (Wilcoxon pseudo-precision).** DONE -- truncated at 1e-15 with the saturation
 footnote.
