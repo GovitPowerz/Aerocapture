@@ -40,8 +40,10 @@ run() {  # $1=config  $2=seed-strategy-or-"default"  $3=seed  $4=cell  $5=n_sims
   local strat=()
   if [ "$2" != "default" ]; then strat=(--seed-strategy "$2"); fi
   echo "=== $4 (seed $3) -> $out ==="
+  # ${strat[@]+...}: macOS bash 3.2 treats an EMPTY array expansion as unbound
+  # under set -u (crashed the first run on the "default"-strategy cell).
   uv run python -m aerocapture.training.train "$1" \
-      --training-n-sims "$5" --n-gen "$6" --n-pop "$7" --seed "$3" "${strat[@]}" \
+      --training-n-sims "$5" --n-gen "$6" --n-pop "$7" --seed "$3" ${strat[@]+"${strat[@]}"} \
       --output-dir "$out" --sim-timeout 5 \
     || echo "WARNING: $4 exited non-zero -- continuing (re-run to retry)"
 }
