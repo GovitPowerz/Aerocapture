@@ -1,0 +1,8 @@
+{
+ "cell": "fnpag",
+ "n_failed": 163,
+ "n_pool": 1000000,
+ "failure_rate": 0.000163,
+ "classification": "all 163 rerun individually with sim_timeout=60s (12x the pool run): every one terminates ifinal=1 (Crash) with bound eccentricity -- physical surface crashes, not timeout censoring",
+ "note": "invisible at n=1000 (100% capture there); 1/10000 at the development n=10^4 pool. The 5s evaluation timeout censors nothing."
+}

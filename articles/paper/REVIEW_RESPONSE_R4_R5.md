@@ -15,7 +15,7 @@ submission's "Table 3" (performance) and "Table 4" (paired) are now Tables 4 and
 
 ## Reviewer 1 -- major comments
 
-**R1-1 (sizing pool not selection-disjoint).** DONE (FNPAG's single cell pending, visibly marked in the table).
+**R1-1 (sizing pool not selection-disjoint).** DONE.
 We built the requested pool, stronger than asked: all methodology/architecture/checkpoint
 choices frozen at a recorded revision, then a confirmatory pool of 10 replicates x 100,000
 scenarios per scheme whose seeds are drawn from [2^31, 2^32) -- structurally disjoint from
@@ -26,8 +26,12 @@ in-training pool is renamed a *selection pool* and its adaptive reuse quantified
 queries over the headline run), per the reviewer's observation. Outcome: the development
 numbers CONFIRM -- deployed policy CVaR99.9 123.3 +/- 0.11 at n=10^6 vs 122.0 on the
 development n=10^4 pool; joint-FTC 165.1 vs 164.0; no detectable selection optimism. Every quoted sizing number is now requoted onto this pool; the abstract quotes the deployed
-artifact (123.3 +/- 0.1). FNPAG's cell runs after the training legs and carries a visible
-pending marker until then.
+artifact (123.3 +/- 0.1). The pool's added resolution also surfaced a substantive finding:
+FNPAG's extreme tail fattens with depth (CVaR95 matches the development pool at 143, but
+CVaR99.9 grows from 165 at n=10^4 to 198.7 [194.7, 202.6] at 10^6, with 163 physical crashes --
+individually re-verified at 12x the evaluation timeout), widening the network's far-tail margin
+over FNPAG to -75.4 [-79.3, -71.4] and making the co-optimized FTC decisively the better
+classical scheme at sizing depth.
 
 **R1-2 (CVaR99.9 from ~10 observations).** DONE. On the confirmatory pool CVaR99.9 averages
 100 observations per replicate, 1000 pooled, with replicate-level (design-based) standard
@@ -229,10 +233,15 @@ for the performance table is added (see R1-9).
 
 ---
 
+**R1-S1 update.** DONE -- the sigma_run repeats landed: GA-fixed is worst AND unstable
+(133-167 m/s over three seeds; its best seed sits 12.5 m/s above the moving schedule's worst),
+rotating/adaptive are stable (+-1.5-1.8) and mean-indistinguishable from each other (the
+adaptive-vs-rotating mean claim is honestly softened; adaptive's case is the hardest-seed tail
+shaping), CMA-ES flat within +-1. Abstract/introduction/conclusion quote three-seed means.
+Section 7.3 is three-seed (capture 94.8-95.0%, conditional tail 231-273 m/s, every seed beating
+both FTC references).
+
 ## Remaining before resubmission
 
-1. sigma_run extras training (in progress) -> Study C error bars + Section 7.3 upgrade.
-2. FNPAG confirmatory cell (held until training completes) -> final requote of every sizing
-   number, abstract estimand, survival-figure FNPAG curve, paired far-tail deltas.
-3. Idle-box benchmark re-run -> Appendix A timing metadata.
-4. Public repository URL in the artifacts paragraph.
+1. Idle-box benchmark re-run -> Appendix A timing metadata.
+2. Public repository URL in the artifacts paragraph.

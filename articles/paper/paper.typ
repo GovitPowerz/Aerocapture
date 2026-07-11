@@ -856,7 +856,9 @@ out-perform the target.
 
 With its reference repaired, FTC ($126.3$ m/s / $142.9$ $"CVaR"_95$) becomes the best classical scheme,
 within about $2$ m/s in mean of the far more expensive FNPAG ($124.3$ / $144.0$) -- the paired gap is
-statistically resolvable ($p approx 10^(-23)$) but operationally negligible -- and it is analytic and
+statistically resolvable ($p approx 10^(-23)$) but operationally negligible, and at the far-tail
+sizing depth the repaired FTC pulls decisively ahead ($165.1$ versus $198.7$, Section 7.2) -- and
+it is analytic and
 fast. The aerocapture story we wrote in 2009, in which FTC was the baseline to beat, becomes: a
 *well-referenced* FTC is the classical state of the art, and it costs a fraction of a numerical
 predictor--corrector to run.
@@ -872,8 +874,12 @@ FNPAG. They trade off along three axes -- accuracy, compute, and robustness -- a
 dominates all three.
 
 *Accuracy.* On the sizing tail the network wins outright. Its far-tail $"CVaR"_(99.9)$ of
-$123.3 plus.minus 0.1$ m/s sits $41.8$ m/s $[41.2, 42.4]$ below joint-FTC ($165.1$) on the frozen
-confirmatory pool (FNPAG's confirmatory cell is pending; its development-pool value is $165$). On
+$123.3 plus.minus 0.1$ m/s sits $41.8$ m/s $[41.2, 42.4]$ below joint-FTC ($165.1$) and $75.4$
+$[71.4, 79.3]$ below FNPAG ($198.7$) on the frozen confirmatory pool. FNPAG's extreme tail fattens
+with depth in a way its shallow statistics hide -- $"CVaR"_95$ matches the development pool at
+$143$, but $"CVaR"_(99.9)$ grows from $165$ at $n = 10^4$ to $198.7$ at $10^6$, with $163$ physical
+crashes in $10^6$ (all surface impacts on individual re-runs at $12 times$ the evaluation timeout,
+not censoring) -- so the repaired FTC is decisively the better classical scheme at sizing depth. On
 the shared paired pool it beats
 joint-FTC by $16.4$ m/s in mean, $23.8$ at $p_95$, and $27.6$ at $"CVaR"_95$, winning all $1000$
 scenarios; against FNPAG the margins are $14.4$ / $23.4$ / $28.7$ m/s, winning $998$ of $1000$
@@ -930,7 +936,7 @@ property we can claim.
     [NN -- LSTM#super[‡]], [100.0], [15.6], [108.4], [114.0], [116.0], [135.2],
     [NN -- dense (efficiency ref.)], [100.0], [0.0], [109.7], [114.9], [117.0], [128.7],
     [FTC (joint reference)], [100.0], [0.0], [126.3], [137.8], [142.9], [165.1],
-    [FNPAG], [100.0], [0.0], [124.3], [137.4], [144.0], [165.0#super[§]],
+    [FNPAG], [100.0], [0.0], [124.3], [137.4], [144.0], [198.7],
     [PredGuid (joint reference)], [100.0], [0.0], [144.2], [164.2], [172.8], [225.8],
     [Energy controller (joint reference)], [100.0], [0.0], [142.1], [166.3], [178.3], [304.3],
     [PredGuid (fixed reference)], [100.0], [0.0], [167.4], [209.8], [227.1], [301.6],
@@ -960,8 +966,10 @@ property we can claim.
   #super[‡]The LSTM's best seed -- its lowest-training-loss one -- exceeds the heat-load limit on
   $15.6%$ of this pool ($13.7%$ of the confirmatory pool); the tabulated $135.2$ is its two
   feasible seeds' mean, and the raw three-seed mean including the infeasible seed is $131.5$.
-  #super[§]FNPAG's confirmatory evaluation is pending at the time of this draft; the tabulated
-  value is the development $n = 10\,000$ pool.],
+  Confirmatory capture is $100%$ for the network rows, joint-FTC, and fixed-reference FTC;
+  $99.85$--$99.98%$ for the remaining classical schemes (their † values are conditional on
+  capture; FNPAG's $163$ failures in $10^6$ were individually re-run at $12 times$ the evaluation
+  timeout and are all physical crashes).],
 ) <tbl-perf>
 
 #figure(
