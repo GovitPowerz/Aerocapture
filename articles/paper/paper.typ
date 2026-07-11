@@ -82,7 +82,7 @@
   $"CVaR"_(99.9)$ of #box[$123.3 plus.minus 0.1$ m/s]; independent retraining seeds span
   $122$--$131$. It beats the best classical scheme (FTC with a
   co-optimized reference) by #box[$16.4$ m/s] in mean and #box[$27.6$ m/s] at $"CVaR"_95$, better on
-  every one of $1000$ paired scenarios, at #box[$3.68$ ms] per simulation -- $23 times$ faster than
+  every one of $1000$ paired scenarios, at #box[$3.6$ ms] per simulation -- $23 times$ faster than
   FNPAG. The result rests on a training methodology that is itself a contribution: a non-stationary,
   adaptive-seed Monte Carlo environment turns the genetic algorithm from the *worst* optimizer under
   fixed scenarios ($154$ m/s three-seed mean) into the *best* ($120$). Across cell types, engineered,
@@ -417,7 +417,7 @@ Mamba-3 @lahoti2026mamba3 -- against these cells at matched budget; none improve
   ),
   caption: [The benchmarked schemes. "Reference" marks dependence on a tabulated reference trajectory
   ("inputs": the network reads two reference interpolations as observations but does not enslave to
-  them); "Compute" classes are quantified in @sec-deployability (fast: $1$--$4$ ms/sim; slow: $86$ ms/sim).
+  them); "Compute" classes are quantified in @sec-deployability (fast: $1$--$4$ ms/sim; slow: $82$ ms/sim).
   Signed-bank schemes (full-neural, piecewise-constant) bypass the shared roll-reversal, exit-phase,
   and thermal-limiter logic.],
 ) <tbl-schemes>
@@ -886,17 +886,20 @@ scenarios; against FNPAG the margins are $14.4$ / $23.4$ / $28.7$ m/s, winning $
 (@tbl-paired). The tail margin is consistently *larger* than the mean margin -- the network's
 advantage is precisely where the mission is sized.
 
-*Compute.* On a single idle core, the dense network runs at $2.40$ ms per simulation and the stateful
-Mamba at $3.68$ ms, against $1.25$ ms for FTC and $86.1$ ms for FNPAG (@fig-classical). The network is
+*Compute.* On a single idle core, the dense network runs at $2.35$ ms per simulation and the stateful
+Mamba at $3.59$ ms, against $1.24$ ms for FTC and $81.9$ ms for FNPAG (@fig-classical). The network is
 roughly three times FTC -- the same fast class -- and $23 times$ faster than the numerical
 predictor--corrector. On accuracy and compute FNPAG is dominated -- joint-FTC matches its accuracy
 and the network beats it, both at a small fraction of its cost -- though the off-nominal stress
 below keeps robustness a separate axis. The selective-state-space core costs about $1.5 times$ the
-dense network, the price of the tail it buys. Flight processors run one to two orders of magnitude
-slower than the laptop core measured here; at a conservative $100 times$ scaling the numerical
-predictor--corrector's $86$ ms replan would approach its own $2$ s replan period, while the
-network's few-millisecond forward pass stays comfortably sub-second. The portable result is the
-relative ordering, not the absolute milliseconds -- none of these measurements establish worst-case
+dense network, the price of the tail it buys. Per control action rather than per trajectory: the
+network's forward pass costs $approx 5$ (mu)s per $1$ s guidance update (whole-simulation cost
+divided by the $approx 734$ updates flown -- an upper bound on pure inference), while FNPAG's
+predictor work amounts to $approx 0.25$ ms per $2$ s replan cycle. Flight processors run one to
+two orders of magnitude slower than the laptop core measured here; at a conservative $100 times$
+scaling neither scheme breaches its own deadline ($approx 25$ ms per replan against $2$ s;
+$approx 0.5$ ms per update against $1$ s), but the deadline margins differ by a factor of thirty,
+and the relative cost ordering is host-independent. None of these measurements establish worst-case
 execution time or memory on qualified hardware (Section 9).
 
 *Robustness -- the honest caveat.* We trained the network on the medium dispersion regime. Under a
@@ -1117,8 +1120,8 @@ guidance, with the markers stated there: the centered-retrain demonstration is n
 references) but remains $n = 1000$, and the stress regime is one a real mission would design away.
 What remains open is the far-tail depth used for the headline.
 
-A second tradeoff is the cost of state. The deployed Mamba runs at $3.68$ ms per simulation against
-$2.40$ ms for the dense network -- about $1.5 times$ for the selective-state-space core -- which is
+A second tradeoff is the cost of state. The deployed Mamba runs at $3.59$ ms per simulation against
+$2.35$ ms for the dense network -- about $1.5 times$ for the selective-state-space core -- which is
 the price of the tighter tail. Both remain in the fast compute class, an order of magnitude below the
 numerical predictor--corrector, so the choice is between the network and FTC, not between the network
 and FNPAG. If on-board compute or implementation simplicity is the binding constraint, the memoryless
@@ -1315,8 +1318,15 @@ runs) is held to numerical agreement with the native runtime by cross-language t
 absolute forward-pass difference near machine epsilon ($10^(-16)$--$10^(-14)$) over $100$-step
 stateful sequences.
 
-*Timing.* Wall-clock per simulation over $200$ sequential runs of each deployed scheme on one idle
-core of an Apple-silicon laptop; no parallelism.
+*Timing.* Wall-clock per complete simulation over $200$ sequential runs of each deployed scheme on
+one idle core of an Apple M4 Pro laptop (native code compiled with rustc 1.97 at the release
+profile with link-time optimization; $64$-bit floats throughout; single-threaded). Quoted values
+are the median of five timed batch repeats after one warm-up; repeat spreads are $0.1$--$2.2%$ of
+the median. A flown simulation spans $approx 480$--$770$ guidance updates depending on the scheme,
+giving the per-update and per-replan shares quoted in Section 7.2 (whole-simulation cost divided by
+update count -- a loose upper bound on pure guidance inference). These are
+implementation-and-host measurements supporting the relative comparison; flight-processor
+worst-case execution time and memory footprint are not established here (Section 9).
 
 *Artifacts.* The simulator, training harness, analysis code, every configuration, the deployed
 network weights, the committed per-run evaluation records behind each table, and the scripts that

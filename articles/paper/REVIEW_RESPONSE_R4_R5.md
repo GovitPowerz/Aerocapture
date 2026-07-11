@@ -243,5 +243,4 @@ both FTC references).
 
 ## Remaining before resubmission
 
-1. Idle-box benchmark re-run -> Appendix A timing metadata.
-2. Public repository URL in the artifacts paragraph.
+1. Public repository URL in the artifacts paragraph.
