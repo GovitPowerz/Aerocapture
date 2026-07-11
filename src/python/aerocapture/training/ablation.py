@@ -17,7 +17,7 @@ from typing import Any
 
 import numpy as np
 
-from aerocapture.training.parquet_output import DV_TOTAL_RAW_INDEX as _DV_TOTAL_COL  # noqa: F401
+from aerocapture.training.parquet_output import DV_TOTAL_RAW_INDEX as _DV_TOTAL_COL  # noqa: F401  (canary re-export; test_ablation asserts == 41)
 from aerocapture.training.parquet_output import FINAL_RECORD_LEN as _FINAL_RECORD_LEN
 
 NN_INPUT_NAMES: list[str] = [
@@ -129,7 +129,7 @@ def run_ablation(
 ) -> dict:
     """Run ablation analysis on a trained NN model.
 
-    For each of the 23 inputs, writes a temp model JSON with ablated_input set,
+    For each of the 35 candidate inputs, writes a temp model JSON with ablated_input set,
     overrides data.neural_network to point at it, and measures cost degradation
     vs baseline using the same cost function as the training pipeline.
 

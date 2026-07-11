@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util as _importlib_util
 
+import numpy as np
 import pytest
 
 # Training TOML that has a [monte_carlo] section (via base inheritance from common.toml)
@@ -50,17 +51,19 @@ class TestBuildProblem:
         problem = build_problem(mc_config)
         dists = problem["dists"]
         assert isinstance(dists, list)
+        # Gaussian dims are truncated normals (unbounded 'norm' maps the
+        # Morris/Sobol grid endpoints ppf(0)/ppf(1) to +-inf draws).
         # Initial state (0-5) = Gaussian
-        assert dists[0] == "norm"
-        assert dists[5] == "norm"
+        assert dists[0] == "truncnorm"
+        assert dists[5] == "truncnorm"
         # Atmosphere (6) = Uniform
         assert dists[6] == "unif"
         # Aerodynamics (7-9) = Uniform
         assert dists[7] == "unif"
         assert dists[9] == "unif"
         # Navigation (10-16) = Gaussian
-        assert dists[10] == "norm"
-        assert dists[16] == "norm"
+        assert dists[10] == "truncnorm"
+        assert dists[16] == "truncnorm"
         # Mass (17) = Uniform
         assert dists[17] == "unif"
         # Vehicle (18-19) = Uniform
@@ -70,7 +73,7 @@ class TestBuildProblem:
         assert dists[20] == "unif"
         assert dists[22] == "unif"
         # Nav filter (23) = Gaussian
-        assert dists[23] == "norm"
+        assert dists[23] == "truncnorm"
         # Wind (24-25) = Uniform
         assert dists[24] == "unif"
         assert dists[25] == "unif"
@@ -97,11 +100,11 @@ class TestBuildProblem:
         problem = build_problem(mc_config)
         bounds = problem["bounds"]
         assert isinstance(bounds, list)
-        # All Gaussian bounds should have sigma=0
-        assert bounds[0] == [0.0, 0.0]  # altitude
-        assert bounds[3] == [0.0, 0.0]  # velocity
-        assert bounds[10] == [0.0, 0.0]  # nav_altitude
-        assert bounds[23] == [0.0, 0.0]  # filter_gain
+        # All Gaussian (truncnorm [lo, hi, mean, sd]) bounds should have sd=0
+        assert bounds[0] == [0.0, 0.0, 0.0, 0.0]  # altitude
+        assert bounds[3] == [0.0, 0.0, 0.0, 0.0]  # velocity
+        assert bounds[10] == [0.0, 0.0, 0.0, 0.0]  # nav_altitude
+        assert bounds[23] == [0.0, 0.0, 0.0, 0.0]  # filter_gain
         # All Uniform bounds should be [0, 0]
         assert bounds[6] == [0.0, 0.0]  # density
         assert bounds[7] == [0.0, 0.0]  # drag_coeff
@@ -124,24 +127,25 @@ class TestBuildProblem:
         problem = build_problem(mc_config)
         bounds = problem["bounds"]
         assert isinstance(bounds, list)
+        # Gaussian dims: truncnorm [lo, hi, mean, sd] with lo/hi = +-4 sigma.
         # altitude sigma = 0.1 km = 100 m
-        assert bounds[0] == [0.0, 100.0]
+        assert bounds[0] == [-400.0, 400.0, 0.0, 100.0]
         # velocity sigma = 1.0 m/s
-        assert bounds[3] == [0.0, 1.0]
+        assert bounds[3] == [-4.0, 4.0, 0.0, 1.0]
         # atmosphere density hw = 50% -> 0.5
         assert bounds[6] == [-0.5, 0.5]
         # drag hw = 5% -> 0.05
         assert bounds[7] == pytest.approx([-0.05, 0.05])
         # nav_altitude sigma = 0.667 km = 667.0 m
-        assert bounds[10] == pytest.approx([0.0, 667.0])
+        assert bounds[10] == pytest.approx([-2668.0, 2668.0, 0.0, 667.0])
         # nav_drag_accel sigma = 0.1 m/s²
-        assert bounds[16] == [0.0, 0.1]
+        assert bounds[16] == pytest.approx([-0.4, 0.4, 0.0, 0.1])
         # mass hw = 1% -> 0.01
         assert bounds[17] == [-0.01, 0.01]
         # filter_gain sigma = 0.10
-        assert bounds[23] == [0.0, 0.10]
+        assert bounds[23] == pytest.approx([-0.4, 0.4, 0.0, 0.10])
 
-    def test_build_problem_wind_absent_zero_width(self) -> None:
+    def test_build_problem_wind_absent_pinned_neutral(self) -> None:
         from aerocapture.training.sensitivity import build_problem
 
         mc_config: dict[str, object] = {
@@ -159,8 +163,9 @@ class TestBuildProblem:
         problem = build_problem(mc_config)
         bounds = problem["bounds"]
         assert isinstance(bounds, list)
-        # wind absent -> both dimensions zero-width
-        assert bounds[24] == [0.0, 0.0]
+        # wind absent -> scale pinned at neutral 1.0 (not 0.0, which would zero
+        # the wind table), direction bias pinned at 0
+        assert bounds[24] == [1.0, 1.0]
         assert bounds[25] == [0.0, 0.0]
 
     def test_build_problem_wind_level_medium(self) -> None:
@@ -198,9 +203,99 @@ class TestBuildProblem:
         assert problem["num_vars"] == 26
         bounds = problem["bounds"]
         assert isinstance(bounds, list)
-        assert bounds[0] == [0.0, 0.0]  # altitude
+        assert bounds[0] == [0.0, 0.0, 0.0, 0.0]  # altitude (truncnorm, sd=0)
         assert bounds[6] == [0.0, 0.0]  # density
-        assert bounds[23] == [0.0, 0.0]  # filter_gain
+        assert bounds[23] == [0.0, 0.0, 0.0, 0.0]  # filter_gain (truncnorm, sd=0)
+
+
+class TestActiveDimFiltering:
+    """Zero-width (off/absent) dims must be excluded from the SALib problem and
+    injected as constants -- SALib raises on norm sigma=0 and unif lo==hi."""
+
+    _MIXED_CONFIG: dict[str, object] = {
+        "seed": 42,
+        "initial_state": {"level": "medium"},
+        "atmosphere": {"level": "off"},
+        "aerodynamics": {"level": "medium"},
+        "navigation": {"level": "off"},
+        "mass": {"level": "off"},
+        "vehicle": {"level": "off"},
+        "pilot": {"level": "off"},
+        "nav_filter": {"level": "off"},
+        # no "wind" key -> pinned neutral
+    }
+
+    def test_active_indices_exclude_off_domains(self) -> None:
+        from aerocapture.training.sensitivity import _active_indices_and_fixed, build_problem
+
+        problem = build_problem(self._MIXED_CONFIG)
+        active, fixed = _active_indices_and_fixed(problem)
+        assert active == [0, 1, 2, 3, 4, 5, 7, 8, 9]  # initial_state + aerodynamics
+        # Fixed constants: wind_scale pinned at neutral 1.0, everything else 0.0
+        assert fixed[24] == 1.0
+        assert fixed[6] == 0.0
+        np.testing.assert_allclose(np.delete(fixed, 24), 0.0)
+
+    def test_active_dims_all_on(self) -> None:
+        from aerocapture.training.sensitivity import _active_indices_and_fixed, build_problem
+
+        cfg = {**self._MIXED_CONFIG, **{d: {"level": "medium"} for d in ("atmosphere", "navigation", "mass", "vehicle", "pilot", "nav_filter", "wind")}}
+        problem = build_problem(cfg)
+        active, _ = _active_indices_and_fixed(problem)
+        assert active == list(range(26))
+
+    def test_expand_to_full_injects_constants(self) -> None:
+        from aerocapture.training.sensitivity import _expand_to_full
+
+        fixed = np.zeros(26)
+        fixed[24] = 1.0
+        x_sub = np.arange(6, dtype=np.float64).reshape(2, 3)
+        x_full = _expand_to_full(x_sub, [0, 7, 9], fixed)
+        assert x_full.shape == (2, 26)
+        np.testing.assert_array_equal(x_full[:, [0, 7, 9]], x_sub)
+        assert (x_full[:, 24] == 1.0).all()
+        assert (x_full[:, 6] == 0.0).all()
+
+    def test_morris_sample_all_domains_on_is_finite(self) -> None:
+        # Regression: 'norm' dists mapped the Morris grid endpoints ppf(0)/ppf(1)
+        # to +-inf draws (infinite initial altitude -> NaN state in the sim).
+        # truncnorm at +-4 sigma keeps every sampled value finite.
+        from aerocapture.training.sensitivity import _active_indices_and_fixed, _subproblem, build_problem
+        from SALib.sample.morris import sample as morris_sample  # type: ignore[import-untyped]
+
+        cfg = {**self._MIXED_CONFIG, **{d: {"level": "medium"} for d in ("atmosphere", "navigation", "mass", "vehicle", "pilot", "nav_filter", "wind")}}
+        problem = build_problem(cfg)
+        active, _ = _active_indices_and_fixed(problem)
+        sub = _subproblem(problem, active)
+        X = morris_sample(sub, N=4, num_levels=4, seed=42)
+        assert np.isfinite(X).all(), "Gaussian dims must not sample +-inf at the grid endpoints"
+
+    def test_morris_sample_accepts_subproblem_with_off_domains(self) -> None:
+        # Regression: sampling the FULL problem for this config raises in SALib
+        # ("stdev must be > 0" / "lower bound must be less than upper bound").
+        # The sub-problem over active dims must sample cleanly.
+        from aerocapture.training.sensitivity import _active_indices_and_fixed, _subproblem, build_problem
+        from SALib.sample.morris import sample as morris_sample  # type: ignore[import-untyped]
+
+        problem = build_problem(self._MIXED_CONFIG)
+        active, _ = _active_indices_and_fixed(problem)
+        sub = _subproblem(problem, active)
+        X = morris_sample(sub, N=4, num_levels=4, seed=42)
+        assert X.shape[1] == len(active)
+        assert np.isfinite(X).all()
+
+    def test_morris_all_off_raises(self) -> None:
+        import pytest as _pytest
+        from aerocapture.training.sensitivity import _active_indices_and_fixed, build_problem
+
+        problem = build_problem({"seed": 42, "wind": {"level": "off"}})
+        active, _ = _active_indices_and_fixed(problem)
+        assert active == []
+        # run_morris raises before any simulation when nothing is active
+        from aerocapture.training.sensitivity import run_morris
+
+        with _pytest.raises(ValueError, match="off/absent"):
+            run_morris("unused.toml", n=2, mc_config={"seed": 42, "wind": {"level": "off"}})
 
 
 # ── Simulation-dependent tests (require aerocapture_rs) ──────────────────────

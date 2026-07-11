@@ -132,14 +132,28 @@ def _get_level(cfg: dict[str, object], domain: str) -> str:
     return str(level)
 
 
+# Gaussian dims are encoded as SALib 'truncnorm' truncated at +-4 sigma
+# (99.994% of the mass). Morris/Sobol samplers hit the [0, 1] grid endpoints,
+# and an unbounded 'norm' maps ppf(0)/ppf(1) to +-inf -- feeding infinite
+# initial states into the simulator, so the resulting mu* measured the sim's
+# NaN-crash response instead of physics.
+_TRUNCNORM_SIGMA_SPAN = 4.0
+
+
+def _gaussian_bounds(sigma: float) -> list[float]:
+    """SALib truncnorm bounds [lower, upper, mean, sd] for a zero-mean Gaussian."""
+    span = _TRUNCNORM_SIGMA_SPAN * sigma
+    return [-span, span, 0.0, sigma]
+
+
 def build_problem(mc_config: dict[str, object]) -> dict[str, object]:
     """Build a SALib problem dict from a [monte_carlo] config section.
 
     Mirrors build_dim_transforms() in dispersions.rs. Units are SI throughout:
     - angles in radians, altitudes in meters, velocities in m/s.
 
-    Gaussian dims use SALib dists='norm' with bounds=[mean=0, std=sigma].
-    Uniform dims use SALib dists='unif' with bounds=[-hw, hw].
+    Gaussian dims use SALib dists='truncnorm' with bounds=[-4s, 4s, mean=0, sd=s]
+    (see _TRUNCNORM_SIGMA_SPAN). Uniform dims use dists='unif' with bounds=[-hw, hw].
     Wind scale uses dists='unif' with bounds=[scale_min, scale_max].
     """
     bounds: list[list[float]] = []
@@ -148,13 +162,13 @@ def build_problem(mc_config: dict[str, object]) -> dict[str, object]:
     # ── Initial state (dims 0-5, Gaussian) ───────────────────────────────────
     is_level = _get_level(mc_config, "initial_state")
     is_s = _INITIAL_STATE_SIGMAS[is_level]
-    bounds.append([0.0, is_s["altitude"] * 1e3])  # 0: altitude (m)
-    bounds.append([0.0, is_s["longitude"] * _DEG2RAD])  # 1: longitude (rad)
-    bounds.append([0.0, is_s["latitude"] * _DEG2RAD])  # 2: latitude (rad)
-    bounds.append([0.0, is_s["velocity"]])  # 3: velocity (m/s)
-    bounds.append([0.0, is_s["flight_path"] * _DEG2RAD])  # 4: flight_path (rad)
-    bounds.append([0.0, is_s["azimuth"] * _DEG2RAD])  # 5: azimuth (rad)
-    dists.extend(["norm"] * 6)
+    bounds.append(_gaussian_bounds(is_s["altitude"] * 1e3))  # 0: altitude (m)
+    bounds.append(_gaussian_bounds(is_s["longitude"] * _DEG2RAD))  # 1: longitude (rad)
+    bounds.append(_gaussian_bounds(is_s["latitude"] * _DEG2RAD))  # 2: latitude (rad)
+    bounds.append(_gaussian_bounds(is_s["velocity"]))  # 3: velocity (m/s)
+    bounds.append(_gaussian_bounds(is_s["flight_path"] * _DEG2RAD))  # 4: flight_path (rad)
+    bounds.append(_gaussian_bounds(is_s["azimuth"] * _DEG2RAD))  # 5: azimuth (rad)
+    dists.extend(["truncnorm"] * 6)
 
     # ── Atmosphere (dim 6, Uniform) ──────────────────────────────────────────
     atm_level = _get_level(mc_config, "atmosphere")
@@ -176,14 +190,14 @@ def build_problem(mc_config: dict[str, object]) -> dict[str, object]:
     # ── Navigation (dims 10-16, Gaussian) ────────────────────────────────────
     nav_level = _get_level(mc_config, "navigation")
     nav_s = _NAVIGATION_SIGMAS[nav_level]
-    bounds.append([0.0, nav_s["altitude"] * 1e3])  # 10: nav_altitude (m)
-    bounds.append([0.0, nav_s["longitude"] * _DEG2RAD])  # 11: nav_longitude (rad)
-    bounds.append([0.0, nav_s["latitude"] * _DEG2RAD])  # 12: nav_latitude (rad)
-    bounds.append([0.0, nav_s["velocity"]])  # 13: nav_velocity (m/s)
-    bounds.append([0.0, nav_s["flight_path"] * _DEG2RAD])  # 14: nav_flight_path (rad)
-    bounds.append([0.0, nav_s["azimuth"] * _DEG2RAD])  # 15: nav_azimuth (rad)
-    bounds.append([0.0, nav_s["drag_accel"]])  # 16: nav_drag_accel (m/s²)
-    dists.extend(["norm"] * 7)
+    bounds.append(_gaussian_bounds(nav_s["altitude"] * 1e3))  # 10: nav_altitude (m)
+    bounds.append(_gaussian_bounds(nav_s["longitude"] * _DEG2RAD))  # 11: nav_longitude (rad)
+    bounds.append(_gaussian_bounds(nav_s["latitude"] * _DEG2RAD))  # 12: nav_latitude (rad)
+    bounds.append(_gaussian_bounds(nav_s["velocity"]))  # 13: nav_velocity (m/s)
+    bounds.append(_gaussian_bounds(nav_s["flight_path"] * _DEG2RAD))  # 14: nav_flight_path (rad)
+    bounds.append(_gaussian_bounds(nav_s["azimuth"] * _DEG2RAD))  # 15: nav_azimuth (rad)
+    bounds.append(_gaussian_bounds(nav_s["drag_accel"]))  # 16: nav_drag_accel (m/s²)
+    dists.extend(["truncnorm"] * 7)
 
     # ── Mass (dim 17, Uniform) ───────────────────────────────────────────────
     mass_level = _get_level(mc_config, "mass")
@@ -211,8 +225,8 @@ def build_problem(mc_config: dict[str, object]) -> dict[str, object]:
     # ── Nav filter (dim 23, Gaussian) ────────────────────────────────────────
     nf_level = _get_level(mc_config, "nav_filter")
     nf_sigma = _NAV_FILTER_SIGMAS[nf_level]
-    bounds.append([0.0, nf_sigma])  # 23: filter_gain (absolute)
-    dists.append("norm")
+    bounds.append(_gaussian_bounds(nf_sigma))  # 23: filter_gain (absolute)
+    dists.append("truncnorm")
 
     # ── Wind (dims 24-25, Uniform) ───────────────────────────────────────────
     wind_cfg = mc_config.get("wind")
@@ -223,10 +237,12 @@ def build_problem(mc_config: dict[str, object]) -> dict[str, object]:
         scale_max = float(wind_cfg.get("scale_max", w["scale_max"]))
         dir_hw = float(wind_cfg.get("direction_bias_deg", w["direction_bias_deg"])) * _DEG2RAD
     else:
-        # Wind absent: zero-width uniform (no dispersion)
-        scale_min = 0.0
-        scale_max = 0.0
-        dir_hw = 0.0
+        # Wind absent: pinned at the "off" preset (scale 1.0 = nominal winds).
+        # A [0, 0] scale bound would zero the wind table, not leave it neutral.
+        w = _WIND_LEVELS["off"]
+        scale_min = w["scale_min"]
+        scale_max = w["scale_max"]
+        dir_hw = w["direction_bias_deg"]
     bounds.append([scale_min, scale_max])  # 24: wind_scale
     bounds.append([-dir_hw, dir_hw])  # 25: wind_direction_bias (rad)
     dists.extend(["unif"] * 2)
@@ -237,6 +253,61 @@ def build_problem(mc_config: dict[str, object]) -> dict[str, object]:
         "bounds": bounds,
         "dists": dists,
     }
+
+
+def _active_indices_and_fixed(problem: dict[str, object]) -> tuple[list[int], npt.NDArray[np.float64]]:
+    """Split the 26 dims into active (nonzero-width) and fixed.
+
+    SALib raises on zero-width bounds (norm sigma=0, unif lo==hi), so degenerate
+    dims must be excluded from the sampled problem and injected as constants into
+    the full draw matrix instead.
+
+    Returns (active_indices, fixed_values) where fixed_values[i] is the constant
+    to inject for any dim NOT sampled: the pinned bound for degenerate uniform
+    dims, the mean for degenerate Gaussian dims, and the neutral draw
+    (0.0 everywhere, wind_scale=1.0) for active-but-unselected dims.
+    """
+    bounds = cast(list[list[float]], problem["bounds"])
+    dists = cast(list[str], problem["dists"])
+    fixed = np.zeros(len(bounds), dtype=np.float64)
+    fixed[24] = 1.0  # wind_scale: multiplicative identity
+    active: list[int] = []
+    for i, (b, dist) in enumerate(zip(bounds, dists, strict=True)):
+        if dist == "unif":
+            degenerate = b[1] <= b[0]
+            pinned = b[0]
+        else:  # truncnorm bounds are [lower, upper, mean, sd]
+            degenerate = b[3] <= 0.0
+            pinned = b[2]
+        if degenerate:
+            fixed[i] = pinned
+        else:
+            active.append(i)
+    return active, fixed
+
+
+def _subproblem(problem: dict[str, object], indices: list[int]) -> dict[str, Any]:
+    """SALib problem dict restricted to the given dims."""
+    names = cast(list[str], problem["names"])
+    bounds = cast(list[list[float]], problem["bounds"])
+    dists = cast(list[str], problem["dists"])
+    return {
+        "num_vars": len(indices),
+        "names": [names[i] for i in indices],
+        "bounds": [bounds[i] for i in indices],
+        "dists": [dists[i] for i in indices],
+    }
+
+
+def _expand_to_full(
+    x_sub: npt.NDArray[np.float64],
+    indices: list[int],
+    fixed: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    """Expand an (n, len(indices)) sample to the full (n, 26) draw matrix."""
+    x_full = np.tile(fixed, (x_sub.shape[0], 1))
+    x_full[:, indices] = x_sub
+    return x_full
 
 
 # ── Default mc_config used when a TOML has no [monte_carlo] section ──────────
@@ -299,14 +370,30 @@ def run_morris(
         mc_config = _load_mc_config(toml_path)
 
     problem = build_problem(mc_config)
-    X = morris_sample(problem, N=n, num_levels=4, seed=42)
-    Y = _evaluate_draws(toml_path, X, overrides=overrides, sim_timeout_secs=sim_timeout_secs)
-    Si = morris_analyze(problem, X, Y, num_levels=4)
+    active, fixed = _active_indices_and_fixed(problem)
+    if not active:
+        raise ValueError("all dispersion domains are off/absent; nothing to analyze")
+
+    # Sample only the active dims (SALib rejects zero-width bounds), inject the
+    # fixed dims as constants, expand results back to the full 26-dim contract
+    # (fixed dims have zero effect by construction).
+    sub = _subproblem(problem, active)
+    X_sub = morris_sample(sub, N=n, num_levels=4, seed=42)
+    Y = _evaluate_draws(toml_path, _expand_to_full(X_sub, active, fixed), overrides=overrides, sim_timeout_secs=sim_timeout_secs)
+    Si = morris_analyze(sub, X_sub, Y, num_levels=4)
+
+    n_dims = len(DISPERSION_COLUMNS)
+    mu_star = np.zeros(n_dims)
+    sigma = np.zeros(n_dims)
+    mu_star_conf = np.zeros(n_dims)
+    mu_star[active] = Si["mu_star"]
+    sigma[active] = Si["sigma"]
+    mu_star_conf[active] = Si["mu_star_conf"]
 
     return {
-        "mu_star": Si["mu_star"].tolist(),
-        "sigma": Si["sigma"].tolist(),
-        "mu_star_conf": Si["mu_star_conf"].tolist(),
+        "mu_star": mu_star.tolist(),
+        "sigma": sigma.tolist(),
+        "mu_star_conf": mu_star_conf.tolist(),
         "names": list(cast(list[str], problem["names"])),
     }
 
@@ -334,32 +421,26 @@ def run_sobol(
 
     problem = build_problem(mc_config)
     all_names: list[str] = list(cast(list[str], problem["names"]))
-    all_bounds: list[list[float]] = list(cast(list[list[float]], problem["bounds"]))
-    all_dists: list[str] = list(cast(list[str], problem["dists"]))
+    active, fixed = _active_indices_and_fixed(problem)
 
     if param_indices is None:
         param_indices = list(range(26))
 
-    # Build reduced problem for the selected parameters only
+    # Drop degenerate dims (SALib rejects zero-width bounds); they have no
+    # effect anyway. Non-selected dims get their fixed/neutral constant.
+    active_set = set(active)
+    dropped = [i for i in param_indices if i not in active_set]
+    param_indices = [i for i in param_indices if i in active_set]
+    if dropped:
+        print(f"  Skipping zero-dispersion dims: {[all_names[i] for i in dropped]}")
+    if not param_indices:
+        raise ValueError("no active dispersion dimensions among param_indices")
+
     sub_names = [all_names[i] for i in param_indices]
-    sub_bounds = [all_bounds[i] for i in param_indices]
-    sub_dists = [all_dists[i] for i in param_indices]
-    sub_problem: dict[str, Any] = {
-        "num_vars": len(param_indices),
-        "names": sub_names,
-        "bounds": sub_bounds,
-        "dists": sub_dists,
-    }
+    sub_problem: dict[str, Any] = _subproblem(problem, param_indices)
 
     X_sub = sobol_sample(sub_problem, N=n, calc_second_order=calc_second_order, scramble=True, seed=42)
-
-    # Expand to full 26-dim draw matrix; non-selected dims fixed at 0.0
-    # except wind_scale (dim 24) which defaults to 1.0 (neutral)
-    n_rows = X_sub.shape[0]
-    X_full = np.zeros((n_rows, 26), dtype=np.float64)
-    X_full[:, 24] = 1.0  # wind_scale neutral default
-    for col, idx in enumerate(param_indices):
-        X_full[:, idx] = X_sub[:, col]
+    X_full = _expand_to_full(X_sub, param_indices, fixed)
 
     Y = _evaluate_draws(toml_path, X_full, overrides=overrides, sim_timeout_secs=sim_timeout_secs)
     Si = sobol_analyze(sub_problem, Y, calc_second_order=calc_second_order)

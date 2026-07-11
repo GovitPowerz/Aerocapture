@@ -541,6 +541,12 @@ class TrainingConfig:
         content = filepath.read_text().strip()
 
         data = json.loads(content)
+        if data.get("format_version", 1) != 1:
+            raise ValueError(
+                f"load_base_network expects a v1 dense JSON; '{filepath}' has "
+                f"format_version={data.get('format_version')}. v2 architectures "
+                "warm-start through [warm_start] / load_policy_from_json instead."
+            )
         weights: list[float] = []
         for i in range(len(data["architecture"]["layers"]) - 1):
             layer = data["weights"][f"layer_{i}"]
@@ -549,4 +555,10 @@ class TrainingConfig:
             weights.extend(layer["b"])
 
         n_base = self.network.n_base_coef
-        return np.array(weights[:n_base], dtype=np.float64)
+        if len(weights) != n_base:
+            raise ValueError(
+                f"base network '{filepath}' has {len(weights)} weights but the configured "
+                f"architecture needs {n_base} -- silently truncating would misalign every "
+                "layer of the warm-start seed. Fix the [network] architecture or the file."
+            )
+        return np.array(weights, dtype=np.float64)

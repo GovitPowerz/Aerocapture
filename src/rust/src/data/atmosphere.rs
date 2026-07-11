@@ -145,6 +145,15 @@ impl AtmosphereModel {
         if n == 0 {
             return self.exponential_density(altitude);
         }
+        if altitude.is_nan() {
+            // NaN falls through every comparison guard AND makes
+            // partition_point return 0, underflowing `i - 1`. The legacy
+            // linear scan exhausted its loop and returned
+            // exponential_density(NaN) = NaN -- graceful propagation into the
+            // runner's NaN-state termination. Match it exactly: a mid-tick
+            // NaN state (extreme GA params) must not panic a Rayon worker.
+            return self.exponential_density(altitude);
+        }
         if altitude <= self.altitudes[0] {
             return self.densities[0];
         }
@@ -330,6 +339,18 @@ mod tests {
             gas_constant: 1.3,
             density_profile: DensityProfile::default(),
         }
+    }
+
+    #[test]
+    fn density_at_non_finite_altitude_matches_legacy() {
+        let atm = test_atm();
+        // NaN: legacy linear scan exhausted its loop -> exponential_density(NaN)
+        // = NaN. The binary search underflowed `i - 1` here (usize::MAX panic).
+        assert!(atm.density_at(f64::NAN).is_nan());
+        // -inf: below-table guard -> first table density.
+        assert_abs_diff_eq!(atm.density_at(f64::NEG_INFINITY), 1.0, epsilon = 0.0);
+        // +inf: above-table guard -> exponential tail -> 0.
+        assert_abs_diff_eq!(atm.density_at(f64::INFINITY), 0.0, epsilon = 0.0);
     }
 
     #[test]

@@ -45,13 +45,13 @@ def test_invert_tanh_roundtrip() -> None:
 
 
 def test_derive_affine_maps_p1_p99_to_pm1() -> None:
-    center, half = derive_affine(p1=10.0, p99=50.0)
+    center, half = derive_affine(p_lo=10.0, p_hi=50.0)
     assert math.isclose((10.0 - center) / half, -1.0, rel_tol=1e-9)
     assert math.isclose((50.0 - center) / half, 1.0, rel_tol=1e-9)
 
 
 def test_derive_affine_floors_degenerate_halfwidth() -> None:
-    center, half = derive_affine(p1=5.0, p99=5.0)
+    center, half = derive_affine(p_lo=5.0, p_hi=5.0)
     assert half >= 1e-6
 
 

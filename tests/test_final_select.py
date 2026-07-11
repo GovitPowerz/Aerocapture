@@ -22,9 +22,12 @@ class _MockProblem:
     def __init__(self) -> None:
         self.evaluated: list[np.ndarray] = []
 
-    def evaluate_individual_per_seed(self, x: np.ndarray, seeds: list[int]) -> np.ndarray:
-        self.evaluated.append(x.copy())
-        return np.array([float(np.sum(x)) + 0.001 * s for s in seeds], dtype=np.float64)
+    def evaluate_population_per_seed(self, X: np.ndarray, seeds: list[int]) -> np.ndarray:
+        out = np.empty((X.shape[0], len(seeds)), dtype=np.float64)
+        for i, x in enumerate(X):
+            self.evaluated.append(x.copy())
+            out[i] = np.array([float(np.sum(x)) + 0.001 * s for s in seeds], dtype=np.float64)
+        return out
 
 
 def _rms(problem_free_x: np.ndarray, seeds: list[int]) -> float:
@@ -82,9 +85,10 @@ class TestSelectionRule:
 
     def test_all_nonfinite_candidates_keep_champion(self) -> None:
         class _NaNProblem(_MockProblem):
-            def evaluate_individual_per_seed(self, x: np.ndarray, seeds: list[int]) -> np.ndarray:
-                self.evaluated.append(x.copy())
-                return np.full(len(seeds), np.nan)
+            def evaluate_population_per_seed(self, X: np.ndarray, seeds: list[int]) -> np.ndarray:
+                for x in X:
+                    self.evaluated.append(x.copy())
+                return np.full((X.shape[0], len(seeds)), np.nan)
 
         problem = _NaNProblem()
         champ = np.full(4, 0.5)
@@ -105,8 +109,8 @@ class TestSelectionRule:
 
     def test_no_known_and_no_finite_raises(self) -> None:
         class _NaNProblem(_MockProblem):
-            def evaluate_individual_per_seed(self, x: np.ndarray, seeds: list[int]) -> np.ndarray:
-                return np.full(len(seeds), np.nan)
+            def evaluate_population_per_seed(self, X: np.ndarray, seeds: list[int]) -> np.ndarray:
+                return np.full((X.shape[0], len(seeds)), np.nan)
 
         with pytest.raises(ValueError, match="no finite candidate"):
             select_final_individual(_NaNProblem(), np.vstack([np.full(4, 0.4)]), ["last_gen[0]"], [], SEEDS)

@@ -92,8 +92,10 @@ class SeedCurator:
         Updates ``self.seed_list`` and returns the new list.
         """
         sample_seeds = self._draw_sample_seeds()
-        costs_per_ind = [problem.evaluate_individual_per_seed(top_k_X[i], sample_seeds) for i in range(top_k_X.shape[0])]
-        avg_cost = np.mean(np.stack(costs_per_ind, axis=0), axis=0)
+        # One batched (K, sample_size) evaluation -- a per-individual loop
+        # rebuilds SimData K times for the same seed list.
+        costs_matrix = np.asarray(problem.evaluate_population_per_seed(top_k_X, sample_seeds), dtype=np.float64)
+        avg_cost = np.mean(costs_matrix, axis=0)
         new_seeds = self._stratified_pick(sample_seeds, avg_cost)
         self.seed_list = new_seeds
         return new_seeds

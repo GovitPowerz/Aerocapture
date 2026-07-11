@@ -112,9 +112,9 @@ def invert_transform(norm: np.ndarray, spec: dict) -> np.ndarray:
     raise ValueError(f"unknown transform {kind!r}")
 
 
-def derive_affine(p1: float, p99: float) -> tuple[float, float]:
-    center = (p1 + p99) / 2.0
-    half = max((p99 - p1) / 2.0, 1e-6)
+def derive_affine(p_lo: float, p_hi: float) -> tuple[float, float]:
+    center = (p_lo + p_hi) / 2.0
+    half = max((p_hi - p_lo) / 2.0, 1e-6)
     return center, half
 
 
@@ -173,7 +173,13 @@ def _collect_raw(toml_path: str, n_sims: int, transforms: list[dict] | None = No
     # s_default/s_deployed and the proposed scale oscillates between retrains.
     if transforms is None:
         transforms = _resolve_normalization(toml_path)
-    seeds = make_reserved_seeds(0, CALIBRATION_SEED_OFFSET, n_sims)
+    # Derive the pool from the config's monte_carlo.seed (like report.py) --
+    # a hardcoded base 0 loses disjointness from training draws for configs
+    # with a non-zero base seed.
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    base_mc_seed = int(load_toml_with_bases(Path(toml_path)).get("monte_carlo", {}).get("seed", 42))
+    seeds = make_reserved_seeds(base_mc_seed, CALIBRATION_SEED_OFFSET, n_sims)
     recs = aerocapture_rs.collect_nn_inputs(toml_path, seeds, overrides=None)
     cols: dict[int, list[np.ndarray]] = {}
     for r in recs:

@@ -333,7 +333,7 @@ def load_nn_model_json(path: Path) -> _PyNN:
     #               "weights": {"layer_0": {"w": [[...]], "b": [...]}, ...}, ...}
     arch = doc["architecture"]
     layer_sizes: list[int] = arch["layers"][1:]  # drop input dim; keep hidden + output
-    activations: list[str] = [a if isinstance(a, str) else a for a in arch["activations"]]
+    activations: list[str] = list(arch["activations"])
     input_mask: list[int] = doc["input_mask"]
 
     layer_weights: list[npt.NDArray[np.float64]] = []

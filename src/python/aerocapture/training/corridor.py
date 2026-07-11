@@ -20,7 +20,7 @@ import numpy.typing as npt
 
 from aerocapture.training.charts import bin_indices
 
-# Trajectory column indices (12-column format)
+# Trajectory column indices (17-column trajectory contract; see run_mc docs)
 _TRAJ_COL_ENERGY = 8
 _TRAJ_COL_PDYN = 9
 
@@ -234,7 +234,7 @@ class CorridorAccumulator:
             "schema_version": np.array([4]),
             "energy_bins": self.energy_bins,
             **smoothed,
-            "nominal": nominal if nominal is not None else np.empty((0, 12)),
+            "nominal": nominal if nominal is not None else np.empty((0, 17)),
             "delta_za_km": np.array([self.delta_za_restricted]),
         }
 

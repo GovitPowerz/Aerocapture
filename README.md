@@ -193,7 +193,7 @@ uv run python -m aerocapture.training.final_select \
 
 ### RL Training (PPO)
 
-Parallel track to the GA for the `neural_network` guidance scheme. PPO-trained policies export to the same `best_model.json` format the GA produces and deploy via the Rust `neural_network` runtime -- `compare_guidance` treats RL as just another scheme (`neural_network_rl`). Supports warm-starting from GA-trained weights (`--data-neural-network`), potential-based phase-aware reward shaping (`r = gamma*Phi(s') - Phi(s)`: corridor tracking + constraint proximity during capture, apoapsis targeting + eccentricity reduction during exit; optimum-preserving per Ng/Harada/Russell 1999) plus an alternative DV-inferred mode (`[rl.reward] potential = "dv"`) that builds `Phi` from the raw predicted correction delta-v (`predicted_dv_for_nn`, surfaced via the env aux channel) to approximate `-V*` -- used by the dense-PPO `neural_network_atan2_rl` scheme (`configs/training/msr_aller_nn_atan2_ppo_train.toml`), running return and observation normalization (obs normalization baked into exported weights for zero Rust changes), truncation-aware value bootstrap (PPO uses `V(terminal_obs)` on `max_time` timeouts instead of masking them as terminations), and SAC with replay buffer persisted across checkpoint resumes.
+Parallel track to the GA for the `neural_network` guidance scheme. PPO-trained policies export to the same `best_model.json` format the GA produces and deploy via the Rust `neural_network` runtime -- `compare_guidance` treats RL as just another scheme (`neural_network_rl`). Supports warm-starting from GA-trained weights (`--data-neural-network`), potential-based phase-aware reward shaping (`r = gamma*Phi(s') - Phi(s)`: corridor tracking + constraint proximity during capture, apoapsis targeting + eccentricity reduction during exit; optimum-preserving per Ng/Harada/Russell 1999) plus an alternative DV-inferred mode (`[rl.reward] potential = "dv"`) that builds `Phi` from the raw predicted correction delta-v (`predicted_dv_for_nn`, surfaced via the env aux channel) to approximate `-V*` -- used by the dense-PPO `neural_network_atan2_rl` scheme (`configs/training/msr_aller_nn_atan2_ppo_train.toml`), running return and observation normalization (obs normalization baked into exported weights for zero Rust changes), truncation-aware value bootstrap (PPO uses `V(terminal_obs)` on `max_time` timeouts instead of masking them as terminations; the timeout virtual-DV terminal cost is skipped on those episodes so the bootstrap isn't double-counted — same rule in SAC's Q-target), and SAC with replay buffer persisted across checkpoint resumes (minibatch sampling seeded from `seed_base` for reproducibility).
 
 ```bash
 # Train PPO from scratch
@@ -316,7 +316,7 @@ uv run python -m aerocapture.training.compare_guidance \
 
 ### Sensitivity Analysis
 
-Variance-based sensitivity analysis to rank which MC dispersion parameters most influence DV cost. Uses SALib (Morris elementary effects + Sobol indices) via the `run_with_draws()` PyO3 API.
+Variance-based sensitivity analysis to rank which MC dispersion parameters most influence DV cost. Uses SALib (Morris elementary effects + Sobol indices) via the `run_with_draws()` PyO3 API. Gaussian dispersion dims are sampled as truncated normals (±4σ) — SALib's grid samplers hit the [0, 1] endpoints, and an unbounded normal would map them to ±inf draws. Off/absent dispersion domains are excluded from the sampled problem and injected as fixed constants (results still report all 26 dims, with zero effect for inactive ones), so any config works — not just all-domains-on.
 
 ```bash
 # Full analysis: Morris to rank top-10, then Sobol on those 10
@@ -412,6 +412,8 @@ GitHub Actions runs on PRs to `main` and manual dispatch:
 ./check_all.sh          # Rust: test + fmt --check + clippy + release build
 ./upgrade_dependencies.sh   # uv sync --upgrade
 ```
+
+Note: `pymoo` is ceiling-pinned `<0.6.2` — pymoo 0.6.2 routes IGD through the compiled `moocore` package, whose `igd()` silently aborts the interpreter (SIGABRT, no traceback) for points wider than 32 dims, and pymoo's default single-objective termination feeds it n_var-wide design-space points. Every training problem here exceeds 32 params. Lift the pin only after verifying `moocore.igd(rand(1, 64), ref=rand(1, 64))` no longer aborts.
 
 ## Roadmap
 

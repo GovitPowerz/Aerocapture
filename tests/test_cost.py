@@ -284,3 +284,23 @@ class TestPiecewiseSegmentResolution:
         assert len(bank_specs) == 5
         assert [s.name for s in bank_specs] == [f"bank_angle_{i}" for i in range(5)]
         assert len(specs) == 5 + len(_SHAPING_PARAMS)
+
+
+class TestSoftplusStability:
+    """_softplus must be warning-free on both tails (the old np.where form
+    evaluated exp(kx) on the discarded branch, overflowing for kx > ~709)."""
+
+    def test_no_overflow_far_above_knee(self) -> None:
+        from aerocapture.training.evaluate import _softplus
+
+        # kx = 5000 with the constraint knee k=100: the old form overflowed here.
+        with np.errstate(over="raise"):
+            out = _softplus(np.array([50.0]), 100.0)
+        assert np.isclose(out[0], 50.0)  # asymptotically linear
+
+    def test_matches_naive_form_in_safe_range(self) -> None:
+        from aerocapture.training.evaluate import _softplus
+
+        x = np.linspace(-3.0, 3.0, 31)
+        k = 2.0
+        np.testing.assert_allclose(_softplus(x, k), np.log1p(np.exp(k * x)) / k, rtol=1e-12)
