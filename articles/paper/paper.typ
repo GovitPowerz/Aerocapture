@@ -1122,7 +1122,9 @@ What remains open is the far-tail depth used for the headline.
 
 A second tradeoff is the cost of state. The deployed Mamba runs at $3.59$ ms per simulation against
 $2.35$ ms for the dense network -- about $1.5 times$ for the selective-state-space core -- which is
-the price of the tighter tail. Both remain in the fast compute class, an order of magnitude below the
+the price of the tighter tail. The head itself accounts for $approx 1.2$ ms of that cost;
+single-precision arithmetic would roughly halve it, while integer quantization buys memory rather
+than speed at this scale (Appendix C). Both remain in the fast compute class, an order of magnitude below the
 numerical predictor--corrector, so the choice is between the network and FTC, not between the network
 and FNPAG. If on-board compute or implementation simplicity is the binding constraint, the memoryless
 #box[$515$-parameter] dense network is the efficiency reference: a competitive median at half the
@@ -1136,9 +1138,11 @@ policy is a fixed forward pass of $962$ parameters in double precision with no d
 control flow, so worst-case execution time and memory bound trivially; verifying the *decision*
 behavior across the dispersion envelope, rather than the code, is the open problem.
 
-We deliberately leave three threads as future work. We have no clean campaign study of pruning or
-quantizing the deployed head -- the only such cells predate the simulator fixes in this work and are
-not comparable -- so deploy-size reduction of the Mamba policy is open. The state-ablation thread
+Two threads earlier drafts left open are now closed, and one remains. Appendix C
+quantizes the deployed head (weight-only): $8$-bit is free, the SSM dynamics parameters are the
+$4$-bit bottleneck, and a quantization-aware fine-tune holds the sizing tail
+($"CVaR"_(99.9)$ $122.8$ versus $123.3$) at a $4.9 times$ memory reduction -- pruning remains
+open. The state-ablation thread
 is now closed by the three controls of Section 6.3 -- state reset, matched history, and no
 predicted-$Delta v$ -- so the tail mechanism is measured rather than hypothesized; what remains
 open there is only the intra-recurrent ordering (why the selective state space edges the gated
