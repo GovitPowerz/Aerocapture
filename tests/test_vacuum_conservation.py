@@ -22,7 +22,7 @@ VACUUM = REPO / "tests/reference_data/vacuum_atmosphere.dat"
 _TC_ALT_KM, _TC_VEL, _TC_FPA_DEG, _TC_ENERGY_MJ = 0, 3, 4, 8
 
 
-def test_vacuum_two_body_conserves_energy_and_angular_momentum():
+def test_vacuum_two_body_conserves_energy_and_angular_momentum() -> None:
     from aerocapture.training.reference import _MC_DISPERSION_DOMAINS
 
     cfg = aerocapture_rs.load_config(str(TOML.resolve()))
