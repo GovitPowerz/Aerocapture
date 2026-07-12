@@ -2,6 +2,20 @@
 
 > **Purpose:** let a fresh session pick up the paper work without re-reading the whole history.
 
+> **QUANTIZATION APPENDIX INTEGRATED 2026-07-12 (branch `feature/quantization-mamba962`, rebased on
+> post-revision main):** paper = 58 pp; new **Appendix C** "quantizing the deployed Mamba head"
+> (mission cards -> Appendix D); plan
+> `docs/superpowers/plans/2026-07-12-quantization-appendix-integration.md`; source notes
+> `docs/paper/quantization_appendix.md` (header marks integrated). Finalists requoted on the
+> frozen confirmatory pool: **qat4_finetune 122.8±0.07 CVaR99.9 vs champion 123.3±0.11 (paired
+> −0.46 [−0.74,−0.18]) — the 4-bit head is TAIL-EQUIVALENT at sizing depth** (claim scoped to
+> equivalence: the arm carries +3000 gens); ptq4 176.4 (fattens with depth, FNPAG-like); scratch
+> 140.7 (dense territory); all 100% capture / 0 viol at 1e6. PTQ model materialized at
+> `training_output/quant/ptq4_verdict/` (sanity-gated: reproduces the grid cell 147.9 exactly).
+> sec 9: deploy-size thread closed (pruning stays open) + head-cost pointer (~1.2 of 3.59 ms; f32
+> halves it; integers buy memory ×4.9, not speed). REMAINING for Grégory: repo URL (Appendix A),
+> Desktop PDF copy, push branch + merge + arXiv v2.
+
 > **REVISION COMPLETE 2026-07-12 (R4/R5 reviewer reports, branch `rework_after_review`, ~30
 > commits):** plan `docs/superpowers/plans/2026-07-10-reviewer-4-5-revision.md` (pre-registered
 > rules), tracker `articles/paper/revision_state.json` (36 applied / 3 rejected-as-extraction-ghosts

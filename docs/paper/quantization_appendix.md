@@ -1,10 +1,13 @@
 # Quantization of the deployed Mamba-962 guidance head
 
-Status: WORKING NOTES, complete and integration-ready (2026-07-12). NOT yet in
-paper.typ -- integration deferred to a dedicated writing session (target:
-Appendix D, plus the future-work sentence rewrite at paper.typ:949). This file
-is the single source for that session; every number below is generated from the
-committed JSONs in `articles/paper/data/quant/`, none hand-typed.
+Status: INTEGRATED into paper.typ as **Appendix C** (2026-07-12; mission cards
+shifted to Appendix D; sec 9 future-work sentence rewritten; sec 9 cost-of-state
+paragraph carries the head-cost pointer). The finalists were additionally quoted
+on the frozen confirmatory pool (10x100k each) per the R4/R5 revision's pool
+discipline -- qat4_finetune CVaR99.9 122.8 +/- 0.07 vs champion 123.3 +/- 0.11,
+paired delta -0.46 [-0.74, -0.18]: tail-equivalent at full sizing depth. This
+file remains the working-notes source; fresh-pool numbers below predate the
+confirmatory quotes.
 
 ## Provenance
 
