@@ -26,7 +26,7 @@ import numpy.typing as npt
 
 
 class _PerSeedEvaluator(Protocol):
-    def evaluate_individual_per_seed(self, x: npt.NDArray[np.float64], seeds: list[int]) -> npt.NDArray[np.float64]: ...
+    def evaluate_population_per_seed(self, X: npt.NDArray[np.float64], seeds: list[int]) -> npt.NDArray[np.float64]: ...
 
 
 @dataclass
@@ -80,25 +80,34 @@ def select_final_individual(
         if incumbent is None or k.val_rms < incumbent.val_rms:
             incumbent = k
 
+    # Pass 1: dedup (identical to a known row or an earlier fresh row).
     seen: set[bytes] = {np.ascontiguousarray(k.x).tobytes() for k in known}
-    best_fresh_rms = float("inf")
-    best_fresh_idx: int | None = None
-    n_deduped = 0
+    kept: list[int] = []
     for i in range(candidates.shape[0]):
         key = np.ascontiguousarray(candidates[i]).tobytes()
         if key in seen:
             continue
         seen.add(key)
-        n_deduped += 1
-        costs = problem.evaluate_individual_per_seed(candidates[i], val_seeds)
-        rms = float(np.sqrt(np.mean(np.asarray(costs, dtype=np.float64) ** 2)))
-        if not np.isfinite(rms):
-            records.append({"provenance": provenances[i], "val_rms": None})
-            continue
-        records.append({"provenance": provenances[i], "val_rms": rms})
-        if rms < best_fresh_rms:
-            best_fresh_rms = rms
-            best_fresh_idx = i
+        kept.append(i)
+    n_deduped = len(kept)
+
+    # Pass 2: ONE batched evaluation of all kept candidates on the validation
+    # pool (previously up to n_pop sequential single-candidate calls, each
+    # rebuilding SimData).
+    best_fresh_rms = float("inf")
+    best_fresh_idx: int | None = None
+    if kept:
+        costs = np.asarray(problem.evaluate_population_per_seed(candidates[kept], val_seeds), dtype=np.float64)
+        rms_all = np.sqrt(np.mean(costs**2, axis=1))
+        for i, rms_val in zip(kept, rms_all, strict=True):
+            rms = float(rms_val)
+            if not np.isfinite(rms):
+                records.append({"provenance": provenances[i], "val_rms": None})
+                continue
+            records.append({"provenance": provenances[i], "val_rms": rms})
+            if rms < best_fresh_rms:
+                best_fresh_rms = rms
+                best_fresh_idx = i
 
     incumbent_rms = incumbent.val_rms if incumbent is not None else float("inf")
     if best_fresh_idx is not None and best_fresh_rms < incumbent_rms:

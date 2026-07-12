@@ -123,9 +123,9 @@ class TestCurate:
     class _FakeProblem:
         """Stand-in for AerocaptureProblem: returns deterministic per-seed costs."""
 
-        def evaluate_individual_per_seed(self, x: np.ndarray, seeds: list[int]) -> np.ndarray:
+        def evaluate_population_per_seed(self, X: np.ndarray, seeds: list[int]) -> np.ndarray:
             # Cost is seed-dependent: higher seed -> higher cost, plus small x offset.
-            return np.array([float(s) + 0.01 * float(x[0]) for s in seeds])
+            return np.stack([np.array([float(s) + 0.01 * float(x[0]) for s in seeds]) for x in X])
 
     def test_returns_n_bins_seeds_disjoint_from_excluded(self) -> None:
         excluded = {1, 2, 3, 42, 999}

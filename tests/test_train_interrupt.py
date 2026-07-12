@@ -208,3 +208,81 @@ class TestResumeGrowsPopulation:
         assert result["best_individual"] is not None
         assert np.array_equal(result["best_individual"], checkpointed_best)
         assert not result.get("interrupted", False)
+
+
+class TestCheckpointAtomicity:
+    """save_checkpoint writes via tempfile+rename; load_checkpoint falls back
+    past corrupt pairs left by pre-atomic-write crashes."""
+
+    def _make_cfg(self, save_dir: Path) -> TrainingConfig:
+        cfg = TrainingConfig(optimizer=OptimizerConfig(seed_strategy="fixed"))
+        cfg.guidance_type = "equilibrium_glide"  # non-NN: skips write_nn_json
+        cfg.optimizer.n_pop = 4
+        cfg.save_dir = str(save_dir)
+        return cfg
+
+    def _save(self, save_dir: Path, cfg: TrainingConfig, generation: int) -> np.ndarray:
+        from aerocapture.training.param_spaces import PARAM_SPACES
+        from aerocapture.training.train import save_checkpoint
+
+        param_specs = PARAM_SPACES[cfg.guidance_type]
+        rng = np.random.default_rng(generation)
+        population = rng.random((cfg.optimizer.n_pop, len(param_specs)))
+        save_checkpoint(
+            save_dir,
+            generation=generation,
+            population=population,
+            costs=np.full(cfg.optimizer.n_pop, 42.0),
+            best_cost=42.0,
+            best_individual=population[0].copy(),
+            cost_history=[42.0],
+            rng=rng,
+            config=cfg,
+            cwd=None,
+            param_specs=param_specs,
+        )
+        return population
+
+    def test_save_leaves_no_tmp_files_and_round_trips(self, tmp_path: Path) -> None:
+        from aerocapture.training.train import load_checkpoint
+
+        save_dir = tmp_path / "out"
+        save_dir.mkdir()
+        cfg = self._make_cfg(save_dir)
+        population = self._save(save_dir, cfg, generation=10)
+
+        assert not list(save_dir.glob(".tmp_*")), "temp files must not survive a completed save"
+        loaded = load_checkpoint(save_dir)
+        assert loaded is not None
+        assert loaded["generation"] == 10
+        assert np.array_equal(loaded["population"], population)
+
+    def test_load_falls_back_past_corrupt_latest(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        from aerocapture.training.train import load_checkpoint
+
+        save_dir = tmp_path / "out"
+        save_dir.mkdir()
+        cfg = self._make_cfg(save_dir)
+        population = self._save(save_dir, cfg, generation=10)
+
+        # A truncated pair from a crash mid-write (pre-atomicity artifact).
+        (save_dir / "checkpoint_g00020.json").write_text('{"generation": 2')
+        (save_dir / "checkpoint_g00020.npz").write_bytes(b"not a zip")
+        # A json whose npz never landed.
+        (save_dir / "checkpoint_g00030.json").write_text("{}")
+
+        loaded = load_checkpoint(save_dir)
+        assert loaded is not None, "corrupt latest checkpoints must not brick resume"
+        assert loaded["generation"] == 10
+        assert np.array_equal(loaded["population"], population)
+        out = capsys.readouterr().out
+        assert "Skipping" in out
+
+    def test_load_returns_none_when_all_corrupt(self, tmp_path: Path) -> None:
+        from aerocapture.training.train import load_checkpoint
+
+        save_dir = tmp_path / "out"
+        save_dir.mkdir()
+        (save_dir / "checkpoint_g00005.json").write_text("{broken")
+        (save_dir / "checkpoint_g00005.npz").write_bytes(b"junk")
+        assert load_checkpoint(save_dir) is None

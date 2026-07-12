@@ -841,13 +841,52 @@ impl NeuralNetModel {
         Self::from_json_str(&content, path)
     }
 
-    /// Resolve the per-input normalization table: use the JSON block when present
-    /// and correctly sized, else fall back to `DEFAULT_NORMALIZATION`.
-    fn resolve_normalization(block: Option<Vec<NormSpec>>) -> Vec<NormSpec> {
+    /// Resolve the per-input normalization table: the JSON block when present
+    /// (hard error on wrong length -- `NN_FULL_INPUT_SIZE` has grown across
+    /// eras, and silently swapping an older model's embedded calibration for
+    /// `DEFAULT_NORMALIZATION` is exactly the train/inference mismatch the
+    /// block exists to prevent), else `DEFAULT_NORMALIZATION`. Mirrors the
+    /// strictness of the `[network.normalization]` TOML override.
+    fn resolve_normalization(
+        block: Option<Vec<NormSpec>>,
+        path: &str,
+    ) -> Result<Vec<NormSpec>, DataError> {
         match block {
-            Some(v) if v.len() == NN_FULL_INPUT_SIZE => v,
-            _ => DEFAULT_NORMALIZATION.to_vec(),
+            Some(v) if v.len() == NN_FULL_INPUT_SIZE => Ok(v),
+            Some(v) => Err(DataError(format!(
+                "embedded normalization block has {} entries, expected {} in {}",
+                v.len(),
+                NN_FULL_INPUT_SIZE,
+                path
+            ))),
+            None => Ok(DEFAULT_NORMALIZATION.to_vec()),
         }
+    }
+
+    /// Validate that layer i's output width feeds layer i+1's input width.
+    /// Shared by the JSON and flat-weights construction paths -- a mis-chained
+    /// architecture would otherwise silently truncate the Dense dot products
+    /// (`zip` stops at the shorter operand) instead of erroring.
+    fn validate_layer_chain(architecture: &[LayerSpec], context: &str) -> Result<(), DataError> {
+        for i in 0..architecture.len().saturating_sub(1) {
+            let (_, prev_out, prev_label) = architecture[i].io();
+            let (next_in, _, next_label) = architecture[i + 1].io();
+            if prev_out != next_in {
+                return Err(DataError(format!(
+                    "architecture chain mismatch at layer {}->{} in {}: layer {} ({}) produces output={}, but layer {} ({}) expects input={}",
+                    i,
+                    i + 1,
+                    context,
+                    i,
+                    prev_label,
+                    prev_out,
+                    i + 1,
+                    next_label,
+                    next_in
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Load from a JSON string. Dispatches by `format_version` (1 or 2).
@@ -912,6 +951,18 @@ impl NeuralNetModel {
                     path
                 )));
             }
+            for (row_idx, row) in w.iter().enumerate() {
+                if row.len() != n_in {
+                    return Err(DataError(format!(
+                        "Layer {} weight row {} length mismatch: expected {}, got {} in {}",
+                        i,
+                        row_idx,
+                        n_in,
+                        row.len(),
+                        path
+                    )));
+                }
+            }
 
             layers.push(Layer::Dense(DenseLayer {
                 w: w.clone(),
@@ -948,7 +999,7 @@ impl NeuralNetModel {
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
             // v1 schema has no normalization block; use the default table.
-            normalization: Self::resolve_normalization(None),
+            normalization: Self::resolve_normalization(None, path)?,
         })
     }
 
@@ -960,24 +1011,7 @@ impl NeuralNetModel {
         // Chain consistency: layer i's output must feed layer i+1's input.
         // Dense: output_size -> next.input_size; Gru/Lstm: hidden_size -> next.input_size;
         // Window: n_steps * input_size -> next.input_size (zero-param buffer flatten).
-        for i in 0..file.architecture.len().saturating_sub(1) {
-            let (_, prev_out, prev_label) = file.architecture[i].io();
-            let (next_in, _, next_label) = file.architecture[i + 1].io();
-            if prev_out != next_in {
-                return Err(DataError(format!(
-                    "architecture chain mismatch at layer {}->{} in {}: layer {} ({}) produces output={}, but layer {} ({}) expects input={}",
-                    i,
-                    i + 1,
-                    path,
-                    i,
-                    prev_label,
-                    prev_out,
-                    i + 1,
-                    next_label,
-                    next_in
-                )));
-            }
-        }
+        Self::validate_layer_chain(&file.architecture, path)?;
 
         let mut layers = Vec::with_capacity(file.architecture.len());
         let mut layer_sizes = Vec::with_capacity(file.architecture.len() + 1);
@@ -1782,7 +1816,7 @@ impl NeuralNetModel {
         };
         Self::validate_output_activation(last_activation, file.output_param, path)?;
 
-        let normalization = Self::resolve_normalization(file.normalization);
+        let normalization = Self::resolve_normalization(file.normalization, path)?;
 
         Ok(NeuralNetModel {
             architecture: file.architecture,
@@ -1962,6 +1996,14 @@ impl NeuralNetModel {
             // that accidentally break the invariant.
             match (layer, layer_state) {
                 (Layer::Dense(d), LayerState::None) => {
+                    // Load paths chain-validate widths; this guards direct
+                    // struct construction (zip would silently truncate).
+                    debug_assert!(
+                        d.w.is_empty() || d.w[0].len() == current.len(),
+                        "dense layer expects input width {}, got {}",
+                        d.w[0].len(),
+                        current.len(),
+                    );
                     let n_out = d.b.len();
                     let mut next = Vec::with_capacity(n_out);
                     for j in 0..n_out {
@@ -2109,6 +2151,7 @@ impl NeuralNetModel {
                 "from_flat_weights_v2: empty architecture".to_string(),
             ));
         }
+        Self::validate_layer_chain(architecture, "<flat_weights_v2>")?;
         let mut layers: Vec<Layer> = Vec::with_capacity(architecture.len());
         let mut layer_sizes: Vec<usize> = Vec::with_capacity(architecture.len() + 1);
         let mut offset: usize = 0;

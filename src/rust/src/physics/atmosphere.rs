@@ -7,6 +7,9 @@ use crate::data::atmosphere::AtmosphereModel;
 /// Compute atmospheric density at a given geodetic altitude.
 ///
 /// Applies optional density bias (MC static) and density perturbation (GM time-varying).
+/// Floored at 0: a tail OU draw (or a custom bias > 100%) can push a
+/// dispersion factor below -1, and a negative density would NaN the heat flux
+/// (`rho.sqrt()`) and get misclassified as a crash.
 pub fn density(
     atm: &AtmosphereModel,
     altitude: f64,
@@ -14,7 +17,7 @@ pub fn density(
     density_perturbation: f64,
 ) -> f64 {
     let rho = atm.density_at(altitude);
-    rho * (1.0 + density_bias) * (1.0 + density_perturbation)
+    (rho * (1.0 + density_bias) * (1.0 + density_perturbation)).max(0.0)
 }
 
 #[cfg(test)]
@@ -97,6 +100,20 @@ mod tests {
         let rho = density(&atm, 15_000.0, 0.1, 0.05);
         // (1 + 0.1) * (1 + 0.05) = 1.155
         assert_abs_diff_eq!(rho, rho_nominal * 1.155, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn density_never_negative_under_tail_perturbation() {
+        // A 5-sigma OU excursion can push (1 + perturbation) below 0; the
+        // product must clamp at 0 instead of going negative (negative rho
+        // NaNs the heat flux via sqrt and shows up as a spurious crash).
+        let atm = test_atm();
+        let rho = density(&atm, 15_000.0, 0.0, -1.5);
+        assert_eq!(rho, 0.0, "negative dispersed density must clamp to 0");
+        let rho2 = density(&atm, 15_000.0, -1.2, 0.0);
+        assert_eq!(rho2, 0.0, "bias below -1 must clamp to 0");
+        // Combined negative factors multiply to positive — stays positive.
+        assert!(density(&atm, 15_000.0, -1.5, -1.5) > 0.0);
     }
 
     #[test]

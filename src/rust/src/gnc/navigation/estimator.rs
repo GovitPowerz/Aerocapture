@@ -219,29 +219,13 @@ pub fn navigate(
 
     compute_energy_and_orbital_errors(&mut out, planet, data);
 
-    // Bounce detection
-    if nav_state.bounce_flag == 0 && out.velocity_estimated[1].sin() > 0.0 {
-        nav_state.bounce_flag = 1;
-    }
-
-    let velocity_radial = velocity_relative * out.velocity_estimated[1].sin();
-
-    // Phase management (once exit phase is entered, it cannot revert to capture)
-    if nav_state.bounce_flag == 0 {
-        nav_state.guidance_phase = 1;
-    } else if !nav_state.exit_phase_locked {
-        let vphase = data.guidance.exit_velocity_threshold;
-        if velocity_relative >= vphase && velocity_radial < 0.0 {
-            nav_state.guidance_phase = 1;
-        }
-        if velocity_relative <= vphase && nav_state.guidance_phase == 1 {
-            nav_state.guidance_phase = 2;
-            nav_state.exit_phase_locked = true;
-            nav_state.capture_time = sim_time;
-            out.phase_transition_flag = 1;
-            out.reference_velocity = velocity_radial;
-        }
-    }
+    let velocity_radial = update_bounce_and_phase(
+        &mut out,
+        nav_state,
+        velocity_relative,
+        sim_time,
+        data.guidance.exit_velocity_threshold,
+    );
 
     finalize_crash_phase_and_output(
         &mut out,
@@ -252,6 +236,40 @@ pub fn navigate(
     );
 
     out
+}
+
+/// Bounce detection + capture->exit phase management (with the
+/// `exit_phase_locked` irreversibility guard). Shared verbatim by the bias
+/// and EKF navigation paths. Returns the estimated radial velocity.
+fn update_bounce_and_phase(
+    out: &mut NavigationOutput,
+    ns: &mut NavigationState,
+    velocity_relative: f64,
+    sim_time: f64,
+    exit_velocity_threshold: f64,
+) -> f64 {
+    if ns.bounce_flag == 0 && out.velocity_estimated[1].sin() > 0.0 {
+        ns.bounce_flag = 1;
+    }
+
+    let velocity_radial = velocity_relative * out.velocity_estimated[1].sin();
+
+    // Phase management (once exit phase is entered, it cannot revert to capture)
+    if ns.bounce_flag == 0 {
+        ns.guidance_phase = 1;
+    } else if !ns.exit_phase_locked {
+        if velocity_relative >= exit_velocity_threshold && velocity_radial < 0.0 {
+            ns.guidance_phase = 1;
+        }
+        if velocity_relative <= exit_velocity_threshold && ns.guidance_phase == 1 {
+            ns.guidance_phase = 2;
+            ns.exit_phase_locked = true;
+            ns.capture_time = sim_time;
+            out.phase_transition_flag = 1;
+            out.reference_velocity = velocity_radial;
+        }
+    }
+    velocity_radial
 }
 
 /// Compute total energy and orbital element errors into `out`.
@@ -598,27 +616,13 @@ pub fn navigate_ekf(
     compute_energy_and_orbital_errors(&mut out, planet, data);
 
     // ── Step 11: Bounce/phase management (delegated to legacy) ──
-    if legacy.bounce_flag == 0 && out.velocity_estimated[1].sin() > 0.0 {
-        legacy.bounce_flag = 1;
-    }
-
-    let velocity_radial = velocity_relative * out.velocity_estimated[1].sin();
-
-    if legacy.bounce_flag == 0 {
-        legacy.guidance_phase = 1;
-    } else if !legacy.exit_phase_locked {
-        let vphase = data.guidance.exit_velocity_threshold;
-        if velocity_relative >= vphase && velocity_radial < 0.0 {
-            legacy.guidance_phase = 1;
-        }
-        if velocity_relative <= vphase && legacy.guidance_phase == 1 {
-            legacy.guidance_phase = 2;
-            legacy.exit_phase_locked = true;
-            legacy.capture_time = sim_time;
-            out.phase_transition_flag = 1;
-            out.reference_velocity = velocity_radial;
-        }
-    }
+    let velocity_radial = update_bounce_and_phase(
+        &mut out,
+        legacy,
+        velocity_relative,
+        sim_time,
+        data.guidance.exit_velocity_threshold,
+    );
 
     finalize_crash_phase_and_output(&mut out, legacy, velocity_radial, nav_dt, data);
 

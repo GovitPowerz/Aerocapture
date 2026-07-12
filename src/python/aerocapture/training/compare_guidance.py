@@ -313,29 +313,22 @@ def main() -> None:
     cwd = Path(args.cwd)
     params_dir = Path(args.params_dir)
 
-    # Parse cost function config from the first scheme's TOML (all inherit from same common.toml)
-    from aerocapture.training.toml_utils import load_toml_with_bases
+    # Parse cost function config from the first scheme's TOML (all inherit from
+    # same common.toml). read_cost_kwargs is the canonical TOML->kwargs reader
+    # (report.py, rl/train.py, param_sweep.py) -- the previous hand-rolled dict
+    # omitted heat_load_weight/heat_load_limit, so compute_cost fell back to
+    # weight 10000 vs the trained-with 1.0, mis-ranking heat-load violators.
+    from aerocapture.training.report import read_cost_kwargs
 
     first_scheme = args.schemes[0]
     cost_toml_path = cwd / SCHEME_TRAINING_CONFIGS.get(first_scheme, "")
     if cost_toml_path.exists():
-        _toml = load_toml_with_bases(cost_toml_path)
+        cost_kwargs: dict[str, Any] = read_cost_kwargs(cost_toml_path)
     elif base_toml and base_toml.exists():
-        _toml = load_toml_with_bases(base_toml)
+        cost_kwargs = read_cost_kwargs(base_toml)
     else:
         print(f"ERROR: No config found for cost function parsing (tried {first_scheme})")
         sys.exit(1)
-
-    cost_cfg = _toml.get("cost_function", {})
-    constraints = _toml.get("flight", {}).get("constraints", {})
-    cost_kwargs: dict[str, Any] = {
-        "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
-        "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
-        "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
-        "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
-        "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
-        "cost_transform": str(cost_cfg.get("cost_transform", "linear")),
-    }
 
     results: dict[str, dict] = {}
     for scheme in args.schemes:

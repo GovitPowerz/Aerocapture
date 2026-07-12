@@ -60,6 +60,15 @@ impl AtmosphereModel {
             densities.push(row[1]);
         }
 
+        // `density_at` bracket lookup assumes a sorted altitude axis; a
+        // non-monotonic file would silently interpolate garbage.
+        if altitudes.windows(2).any(|w| w[0] > w[1]) {
+            return Err(DataError(format!(
+                "Atmosphere file {}: altitude column must be non-decreasing",
+                path
+            )));
+        }
+
         // After the density table: marker line (-1), then profile breakpoints
         let mut idx = 1 + n_points;
 
@@ -124,10 +133,25 @@ impl AtmosphereModel {
         })
     }
 
-    /// Interpolate density at a given altitude (linear interpolation in table)
+    /// Interpolate density at a given altitude (linear interpolation in table).
+    ///
+    /// Binary search over the sorted altitude axis (validated at load). Picks
+    /// the same bracket as the previous linear scan -- first `i` with
+    /// `altitudes[i] >= altitude` -- and the same interpolation expression, so
+    /// the output is bit-identical; this is the hottest table lookup in the
+    /// simulator (every derivative evaluation).
     pub fn density_at(&self, altitude: f64) -> f64 {
         let n = self.n_points;
         if n == 0 {
+            return self.exponential_density(altitude);
+        }
+        if altitude.is_nan() {
+            // NaN falls through every comparison guard AND makes
+            // partition_point return 0, underflowing `i - 1`. The legacy
+            // linear scan exhausted its loop and returned
+            // exponential_density(NaN) = NaN -- graceful propagation into the
+            // runner's NaN-state termination. Match it exactly: a mid-tick
+            // NaN state (extreme GA params) must not panic a Rayon worker.
             return self.exponential_density(altitude);
         }
         if altitude <= self.altitudes[0] {
@@ -136,14 +160,10 @@ impl AtmosphereModel {
         if altitude >= self.altitudes[n - 1] {
             return self.exponential_density(altitude);
         }
-        for i in 1..n {
-            if altitude <= self.altitudes[i] {
-                let frac = (altitude - self.altitudes[i - 1])
-                    / (self.altitudes[i] - self.altitudes[i - 1]);
-                return self.densities[i - 1] + frac * (self.densities[i] - self.densities[i - 1]);
-            }
-        }
-        self.exponential_density(altitude)
+        // Interior: the guards above bound i to [1, n-1].
+        let i = self.altitudes.partition_point(|&a| a < altitude);
+        let frac = (altitude - self.altitudes[i - 1]) / (self.altitudes[i] - self.altitudes[i - 1]);
+        self.densities[i - 1] + frac * (self.densities[i] - self.densities[i - 1])
     }
 
     /// Exponential atmosphere model: rho = rho0 * exp(-H * (z - z0))
@@ -319,6 +339,18 @@ mod tests {
             gas_constant: 1.3,
             density_profile: DensityProfile::default(),
         }
+    }
+
+    #[test]
+    fn density_at_non_finite_altitude_matches_legacy() {
+        let atm = test_atm();
+        // NaN: legacy linear scan exhausted its loop -> exponential_density(NaN)
+        // = NaN. The binary search underflowed `i - 1` here (usize::MAX panic).
+        assert!(atm.density_at(f64::NAN).is_nan());
+        // -inf: below-table guard -> first table density.
+        assert_abs_diff_eq!(atm.density_at(f64::NEG_INFINITY), 1.0, epsilon = 0.0);
+        // +inf: above-table guard -> exponential tail -> 0.
+        assert_abs_diff_eq!(atm.density_at(f64::INFINITY), 0.0, epsilon = 0.0);
     }
 
     #[test]

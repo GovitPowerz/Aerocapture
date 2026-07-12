@@ -10,6 +10,7 @@ import hashlib
 import json
 import sys
 import time
+import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,10 @@ from aerocapture.training.seed_curator import SeedCurator
 from aerocapture.training.weight_stats import compute_weight_stats
 
 _DEFAULT_PIECEWISE_N_SEGMENTS = 10
+
+# scaffolding = "full" seeds the chromosome slab from FTC's GA optimum; the
+# warm-start eval callback must read the SAME file so eval == chromosome.
+_FTC_SCAFFOLDING_PARAMS_PATH = Path("training_output/ftc/best_params.json")
 
 
 def _resolve_config_normalization(config: TrainingConfig, cwd: str | Path | None) -> list[dict] | None:
@@ -502,12 +507,13 @@ def _make_warm_start_eval_callback(
         if config.network.scaffolding == "full":
             # Pull the scaffolding values from FTC's best_params.json so the
             # eval runs with the same scaffolding the chromosome will carry.
-            ftc_path = Path("training_output/ftc/best_params.json")
-            if ftc_path.exists():
-                ftc_params = json.loads(ftc_path.read_text())
-                for spec in _eval_pack:
-                    if spec.name in ftc_params:
-                        decoded_params[spec.name] = float(ftc_params[spec.name])
+            # build_scaffolding_initial_slab already hard-errored on a missing
+            # file / missing keys before this callback could fire, so read
+            # unconditionally -- a silent fallback here would score the eval
+            # on TOML defaults while the chromosome carries FTC values.
+            ftc_params = json.loads(_FTC_SCAFFOLDING_PARAMS_PATH.read_text())
+            for spec in _eval_pack:
+                decoded_params[spec.name] = float(ftc_params[spec.name])
         elif config.network.scaffolding == "live":
             # live tail is seeded from defaults; eval with the same.
             for spec in _eval_pack:
@@ -607,8 +613,6 @@ def save_checkpoint(
     }
     if seed_curator is not None:
         meta["seed_curator"] = seed_curator.to_dict()
-    with open(save_dir / f"{prefix}.json", "w") as f:
-        json.dump(meta, f, indent=2)
 
     arrays: dict[str, npt.NDArray] = {}
     arrays["population"] = population
@@ -618,7 +622,20 @@ def save_checkpoint(
     if corridor_acc is not None:
         for ck, cv in corridor_acc.to_checkpoint().items():
             arrays[ck] = cv
-    np.savez(save_dir / f"{prefix}.npz", **arrays)  # type: ignore[arg-type]  # mypy vs numpy stubs kwargs issue
+
+    # Atomic write (tempfile + rename; npz first, json last -- the json is the
+    # resume-glob key, so a visible json implies a complete npz). A crash or a
+    # second Ctrl+C during the interrupt-save must not leave a truncated pair
+    # shadowing the resume path. The `.tmp_` prefix keeps partial files out of
+    # the checkpoint_g* globs (same convention as final_select.patch_checkpoint;
+    # the islands checkpoint has been atomic all along).
+    npz_tmp = save_dir / f".tmp_{prefix}.npz"
+    np.savez(npz_tmp, **arrays)  # type: ignore[arg-type]  # mypy vs numpy stubs kwargs issue
+    npz_tmp.replace(save_dir / f"{prefix}.npz")
+    json_tmp = save_dir / f".tmp_{prefix}.json"
+    with open(json_tmp, "w") as f:
+        json.dump(meta, f, indent=2)
+    json_tmp.replace(save_dir / f"{prefix}.json")
 
     # Save best model/params (immediately usable by Rust)
     if best_individual is not None:
@@ -643,42 +660,47 @@ def load_checkpoint(
     if not json_files:
         return None
 
-    latest = json_files[-1]
-    npz_path = latest.with_suffix(".npz")
-    if not npz_path.exists():
-        return None
+    # Newest first; fall back past corrupt pairs (pre-atomic-write crashes left
+    # truncated files that would otherwise brick auto-resume until hand-deleted).
+    for latest in reversed(json_files):
+        npz_path = latest.with_suffix(".npz")
+        if not npz_path.exists():
+            print(f"  Skipping checkpoint {latest.name}: missing {npz_path.name}")
+            continue
+        try:
+            with open(latest) as f:
+                meta = json.load(f)
+            data = np.load(npz_path)
+            if "population" not in data:
+                return None  # Incompatible legacy checkpoint; start fresh
 
-    with open(latest) as f:
-        meta = json.load(f)
+            population = data["population"]
+            costs = data["costs"]
+            best_individual = data.get("best_individual", None)
 
-    data = np.load(npz_path)
+            # Restore corridor accumulator if present in checkpoint
+            corridor_acc_restored: CorridorAccumulator | None = None
+            if "corridor_energy_bins" in data:
+                corridor_state = {k: data[k] for k in data if k.startswith("corridor_")}
+                corridor_acc_restored = CorridorAccumulator.from_checkpoint(corridor_state)
 
-    if "population" not in data:
-        return None  # Incompatible legacy checkpoint; start fresh
-
-    population = data["population"]
-    costs = data["costs"]
-    best_individual = data.get("best_individual", None)
-
-    # Restore corridor accumulator if present in checkpoint
-    corridor_acc_restored: CorridorAccumulator | None = None
-    if "corridor_energy_bins" in data:
-        corridor_state = {k: data[k] for k in data if k.startswith("corridor_")}
-        corridor_acc_restored = CorridorAccumulator.from_checkpoint(corridor_state)
-
-    return {
-        "generation": meta["generation"],
-        "population": population,
-        "costs": costs,
-        "best_cost": meta["best_cost"],
-        "best_individual": best_individual,
-        "cost_history": meta["cost_history"],
-        "rng_state": meta.get("rng_state"),
-        "best_val_cost": meta.get("best_val_cost", float("inf")),
-        "cost_transform": meta.get("cost_transform", None),
-        "seed_curator": meta.get("seed_curator"),
-        "corridor_acc": corridor_acc_restored,
-    }
+            return {
+                "generation": meta["generation"],
+                "population": population,
+                "costs": costs,
+                "best_cost": meta["best_cost"],
+                "best_individual": best_individual,
+                "cost_history": meta["cost_history"],
+                "rng_state": meta.get("rng_state"),
+                "best_val_cost": meta.get("best_val_cost", float("inf")),
+                "cost_transform": meta.get("cost_transform", None),
+                "seed_curator": meta.get("seed_curator"),
+                "corridor_acc": corridor_acc_restored,
+            }
+        except (json.JSONDecodeError, KeyError, ValueError, OSError, EOFError, zipfile.BadZipFile) as e:
+            print(f"  Skipping corrupt checkpoint {latest.name}: {e}")
+            continue
+    return None
 
 
 def build_cost_kwargs(toml_data: dict) -> dict[str, Any]:
@@ -979,7 +1001,7 @@ def _build_initial_population(
                     # FTC's optimum). warm_start_from is independent -- it points at
                     # a behavioural-cloning source, not a scaffolding source.
                     scaffolding_slab = build_scaffolding_initial_slab(
-                        "training_output/ftc/best_params.json",
+                        _FTC_SCAFFOLDING_PARAMS_PATH,
                         list(_slab_pack),
                         config.optimizer.n_pop,
                         rng,
@@ -1380,8 +1402,18 @@ def train(
     # on the wrong chromosome -- drifting the "Best val" RMS and corrupting
     # the best_model.json that the final eval reads.
     if best_overall_individual is None:
-        init_best_idx = int(np.argmin(pop_costs))
-        best_overall_cost = float(pop_costs[init_best_idx])
+        # Finite mask: np.argmin returns the first NaN's index when one is
+        # present, and index 0 on an all-inf gen 0 (every sim timed out) --
+        # either would promote a junk chromosome as the initial best (deployed
+        # unvalidated when validation_n_sims = 0). Same guard family as
+        # island_model.validate_each / seed_curator's non-finite drop.
+        finite = np.isfinite(pop_costs)
+        if finite.any():
+            init_best_idx = int(np.flatnonzero(finite)[np.argmin(pop_costs[finite])])
+            best_overall_cost = float(pop_costs[init_best_idx])
+        else:
+            init_best_idx = 0
+            best_overall_cost = float("inf")  # any finite later gen replaces this
         best_overall_individual = pop_array[init_best_idx].copy()
 
     # Set up decode function for logger
@@ -1452,6 +1484,7 @@ def train(
 
             is_cmaes = isinstance(algorithm, (CMAES, SimpleCMAES))
 
+            completed_gen = start_gen  # last generation that fully ran (break-aware)
             for gen in range(start_gen, config.optimizer.n_gen):
                 # When pycma's criteria fire (e.g. IPOP restarts exhausted on
                 # the noisy adaptive-seed objective), pymoo's `_advance` sets
@@ -1632,7 +1665,13 @@ def train(
                     if verbose and not display.is_live:
                         print(f"  Checkpoint saved: g{gen + 1:05d}")
 
+                completed_gen = gen + 1
+
             cost_history.extend(gen_best_costs)
+            # Cleared so the KeyboardInterrupt save (cost_history + gen_best_costs)
+            # can't double-count the tail when Ctrl+C lands AFTER this merge
+            # (e.g. during the final-selection / final-eval MC sweeps below).
+            gen_best_costs.clear()
 
             # End-of-training final selection (spec 2026-06-10-final-selection):
             # re-rank the last generation + champion on the validation pool;
@@ -1673,8 +1712,11 @@ def train(
                         best_overall_cost = float(costs[sel.winner_index])
                         selection_promoted = True
 
-            # Always save a final checkpoint
-            last_gen = config.optimizer.n_gen
+            # Always save a final checkpoint. `completed_gen` is the last gen
+            # that actually ran -- labeling with config.optimizer.n_gen would
+            # inflate the checkpoint name when CMA-ES self-terminated early,
+            # and the resume "+N additional gens" bump counts from that label.
+            last_gen = completed_gen
             if last_gen % checkpoint_interval != 0 or selection_promoted:
                 save_checkpoint(
                     save_dir,
@@ -2700,7 +2742,7 @@ if __name__ == "__main__":
             include_trajectories=True,
             sim_timeout_secs=cfg.sim.sim_timeout_secs,
         )
-        nom_traj = np.asarray(best_batch.trajectories[0]) if best_batch.trajectories else np.empty((0, 12))
+        nom_traj = np.asarray(best_batch.trajectories[0]) if best_batch.trajectories else np.empty((0, 17))
         nom_dv_total = float(best_batch.final_records[0, 41]) if best_batch.final_records.shape[0] > 0 else 0.0
 
         # `reference_only = true` ([guidance.piecewise_constant]) marks a run

@@ -35,9 +35,13 @@ class _QNetwork(nn.Module):
 
 
 class ReplayBuffer:
-    """Fixed-size ring buffer storing (obs, raw_action, reward, next_obs, done, truncated)."""
+    """Fixed-size ring buffer storing (obs, raw_action, reward, next_obs, done).
 
-    def __init__(self, capacity: int, obs_dim: int) -> None:
+    Truncated (timeout) episodes are pushed with done=False and next_obs = the
+    terminal observation, so the Q-target bootstraps through them (the collect
+    loop handles that masking; nothing truncation-specific is stored here)."""
+
+    def __init__(self, capacity: int, obs_dim: int, seed: int | None = None) -> None:
         self._cap = capacity
         self._obs = np.zeros((capacity, obs_dim), dtype=np.float32)
         self._actions = np.zeros((capacity, 2), dtype=np.float32)
@@ -46,6 +50,9 @@ class ReplayBuffer:
         self._dones = np.zeros(capacity, dtype=bool)
         self._ptr = 0
         self._size = 0
+        # Own the sampling RNG: the global np.random stream is unseeded here,
+        # so minibatch order would be irreproducible across identical runs.
+        self._rng = np.random.default_rng(seed)
 
     def push(
         self,
@@ -66,7 +73,7 @@ class ReplayBuffer:
         self._size = min(self._size + n, self._cap)
 
     def sample(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        idxs = np.random.randint(0, self._size, size=batch_size)
+        idxs = self._rng.integers(0, self._size, size=batch_size)
         return (
             torch.from_numpy(self._obs[idxs]),
             torch.from_numpy(self._actions[idxs]),
@@ -117,6 +124,7 @@ class SACAgent:
         learning_rate: float = 3.0e-4,
         target_entropy: str | float = "auto",
         initial_alpha: float = 0.2,
+        seed: int | None = None,
     ) -> None:
         self.obs_dim = obs_dim
         self.gamma = gamma
@@ -144,7 +152,7 @@ class SACAgent:
         self.log_alpha = nn.Parameter(torch.tensor(float(np.log(initial_alpha))))
         self.alpha_optim = torch.optim.Adam([self.log_alpha], lr=learning_rate)
 
-        self.replay_buffer = ReplayBuffer(buffer_size, obs_dim)
+        self.replay_buffer = ReplayBuffer(buffer_size, obs_dim, seed=seed)
 
     @property
     def alpha(self) -> torch.Tensor:

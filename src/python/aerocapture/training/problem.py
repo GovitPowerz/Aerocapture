@@ -101,15 +101,28 @@ class AerocaptureProblem(Problem):
         """Evaluate the population via one GIL-releasing run_grid call (all seeds),
         aggregating costs by RMS across the seed axis (bit-identical to the old
         per-seed run_batch loop)."""
-        n_pop = X.shape[0]
-        grid = self._run_grid_records(X, self.seeds)  # (n_pop, n_seeds, rec)
-        n_seeds = len(self.seeds)
+        costs = self.evaluate_population_per_seed(X, self.seeds)
+        rms: npt.NDArray[np.float64] = np.sqrt(np.mean(costs**2, axis=1))
+        return rms
+
+    def evaluate_population_per_seed(
+        self,
+        X: npt.NDArray[np.float64],
+        seeds: list[int],
+    ) -> npt.NDArray[np.float64]:
+        """Evaluate a batch of individuals on a seed list -> (n_pop, n_seeds) costs.
+
+        One run_grid call for the whole batch (SimData built once, tables
+        Arc-shared). Final selection and seed curation call this instead of
+        looping evaluate_individual_per_seed, which rebuilt the tables per
+        candidate."""
+        grid = self._run_grid_records(X, seeds)  # (n_pop, n_seeds, rec)
+        n_pop, n_seeds = X.shape[0], len(seeds)
         costs = np.empty((n_pop, n_seeds), dtype=np.float64)
         for i in range(n_pop):
             for k in range(n_seeds):
                 costs[i, k] = compute_cost(grid[i, k].reshape(1, FINAL_RECORD_LEN), **self.cost_kwargs)
-        rms: npt.NDArray[np.float64] = np.sqrt(np.mean(costs**2, axis=1))
-        return rms
+        return costs
 
     def _run_grid_records(
         self,
@@ -122,7 +135,15 @@ class AerocaptureProblem(Problem):
         Handles both NN (in-memory weights) and non-NN (overrides-only) schemes.
         """
         assert _HAS_PYO3 and _aero_rs is not None
-        param_dicts = decode_normalized_array(X_rows, self.param_specs)
+        if self.scheme == "neural_network" and self.nn_config is not None:
+            # Decode only the scaffolding tail: the [0, n_w) weight slice is
+            # re-decoded vectorized below and carried in-memory by run_grid --
+            # building thousands of str-keyed weight entries per individual
+            # only for _build_grid_overrides to skip them was pure overhead.
+            n_w = self._n_nn_weight_specs
+            param_dicts = decode_normalized_array(X_rows[:, n_w:], self.param_specs[n_w:])
+        else:
+            param_dicts = decode_normalized_array(X_rows, self.param_specs)
         overrides_list = [self._build_grid_overrides(p) for p in param_dicts]
         if self._joint_ref_bank:
             ref_paths = self._generate_ref_tables([float(p["ref_bank"]) for p in param_dicts])
@@ -188,12 +209,7 @@ class AerocaptureProblem(Problem):
         Returns:
             1D array of costs (n_seeds,).
         """
-        grid = self._run_grid_records(x.reshape(1, -1), seeds)  # (1, n_seeds, rec)
-        records = grid[0]  # (n_seeds, FINAL_RECORD_LEN)
-        costs = np.array(
-            [compute_cost(records[k].reshape(1, FINAL_RECORD_LEN), **self.cost_kwargs) for k in range(len(seeds))],
-            dtype=np.float64,
-        )
+        costs, _ = self.evaluate_individual_records_per_seed(x, seeds)
         return costs
 
     def evaluate_individual_records_per_seed(
@@ -222,36 +238,9 @@ class AerocaptureProblem(Problem):
         params: dict[str, float],
         mc_seed: int | None = None,
     ) -> dict[str, object]:
-        """Route param dict to TOML dot-path overrides.
-
-        For neural_network, NN weight keys (anything not matching one of the
-        scaffolding routing prefixes) are skipped here; they are carried in-memory
-        via _run_grid_records. The whitelist must be a positive
-        match against the routing-prefix set, not a heuristic startswith()
-        check -- v2 stateful-layer weight names (b_ih*, x_proj_w*, a_log*,
-        ln1_gamma*, b_q*, ...) don't all start with "w" or "bias" and would
-        leak as phantom `guidance.neural_network.<weight>` overrides if the
-        skip filter were a denylist.
-        """
-        overrides: dict[str, object] = {}
-
-        # For NN schemes, anything that isn't a scaffolding param (lateral,
-        # exit, nav, thermal, shaping) is an NN weight and skipped — carried
-        # in-memory by run_grid.
-        skip_nn_weights = self.scheme == "neural_network" and self.nn_config is not None
-
-        for key, value in params.items():
-            if skip_nn_weights and not key.startswith(SCAFFOLDING_PREFIXES):
-                continue
-            if key == "ref_bank":
-                # Joint-reference gene: consumed by the evaluation layer (per-
-                # individual data.reference_trajectory injection) — routing it
-                # to guidance.<scheme>.ref_bank would be silently dropped by Rust.
-                continue
-            # Round integer-typed params so Rust TOML parser accepts them
-            if key in self._integer_params:
-                value = int(round(value))
-            overrides[route_param_path(key, self.scheme)] = value
+        """Route param dict to TOML dot-path overrides for a single run_batch sim
+        (the grid routing plus monte_carlo.seed / simulation.n_sims=1)."""
+        overrides = self._build_grid_overrides(params)
 
         if mc_seed is not None:
             overrides["monte_carlo.seed"] = mc_seed
@@ -263,14 +252,28 @@ class AerocaptureProblem(Problem):
 
     def _build_grid_overrides(self, params: dict[str, float]) -> dict[str, object]:
         """Route param dict to TOML dot-path overrides for run_grid (no seed /
-        n_sims keys -- run_grid owns the seed axis and runs one sim per cell)."""
+        n_sims keys -- run_grid owns the seed axis and runs one sim per cell).
+
+        For neural_network, NN weight keys (anything not matching one of the
+        scaffolding routing prefixes) are skipped here; they are carried in-memory
+        via _run_grid_records. The whitelist must be a positive
+        match against the routing-prefix set, not a heuristic startswith()
+        check -- v2 stateful-layer weight names (b_ih*, x_proj_w*, a_log*,
+        ln1_gamma*, b_q*, ...) don't all start with "w" or "bias" and would
+        leak as phantom `guidance.neural_network.<weight>` overrides if the
+        skip filter were a denylist.
+        """
         overrides: dict[str, object] = {}
         skip_nn_weights = self.scheme == "neural_network" and self.nn_config is not None
         for key, value in params.items():
             if skip_nn_weights and not key.startswith(SCAFFOLDING_PREFIXES):
                 continue
-            if key == "ref_bank":  # consumed by the evaluation layer, never a TOML key
+            if key == "ref_bank":
+                # Joint-reference gene: consumed by the evaluation layer (per-
+                # individual data.reference_trajectory injection) — routing it
+                # to guidance.<scheme>.ref_bank would be silently dropped by Rust.
                 continue
+            # Round integer-typed params so Rust TOML parser accepts them
             if key in self._integer_params:
                 value = int(round(value))
             overrides[route_param_path(key, self.scheme)] = value

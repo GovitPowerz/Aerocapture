@@ -66,7 +66,10 @@ def make_reserved_seeds(base_mc_seed: int, offset: int, n: int) -> list[int]:
     """Generate a deterministic, reproducible list of MC seeds from a reserved RNG stream.
 
     Given the same (base_mc_seed, offset, n), always returns the same seeds.
-    Different offsets produce independent streams.
+    Different offsets produce independent streams -- disjointness between pools
+    is therefore probabilistic (collision odds ~n^2/2^31 per pool pair), not
+    guaranteed by construction; train.py additionally excludes the reserved
+    validation/final-eval pools from rotating/adaptive training draws.
     """
     seeds: list[int] = np.random.default_rng(base_mc_seed + offset).integers(0, 2**31, size=n).tolist()
     return seeds
@@ -379,9 +382,13 @@ _CONSTRAINT_KNEE_SHARPNESS = 100.0
 
 
 def _softplus(x: npt.NDArray[np.float64], k: float) -> npt.NDArray[np.float64]:
-    """Numerically stable softplus: ln(1 + exp(k*x)) / k."""
-    kx = k * x
-    return np.where(kx > 20.0, x, np.log1p(np.exp(kx)) / k)
+    """Numerically stable softplus: ln(1 + exp(k*x)) / k.
+
+    logaddexp is exact and warning-free on both tails -- the previous
+    np.where(kx > 20, x, log1p(exp(kx))/k) still evaluated exp(kx) on the
+    discarded branch, spamming RuntimeWarning overflow for kx > ~709
+    (constraint fraction > 7, reachable on crashes)."""
+    return np.logaddexp(0.0, k * x) / k
 
 
 def dv_cost(dv: npt.NDArray[np.float64], threshold: float = 1000.0) -> npt.NDArray[np.float64]:
@@ -429,8 +436,9 @@ def compute_cost(
 
     All termination outcomes produce meaningful DV values from Rust:
     - Captured: real orbital correction DV
-    - Hyperbolic: 10000 + excess velocity
-    - Crash/PendingCrash/Timeout: 20000 * proportional time decay
+    - Hyperbolic: HYPERBOLIC_BASE (10000) + excess velocity
+    - Crash/PendingCrash/Timeout: virtual_dv_non_capture = CRASH_FLOOR (3000)
+      + 1000 * min(|E_orb - E_target|_MJkg, 50) - 500 * t/t_max
 
     Returns:
         RMS cost value. Lower is better.
@@ -553,15 +561,6 @@ def _write_toml_section(f: TextIOWrapper, data: dict, prefix: str) -> None:
     """Recursively write TOML sections."""
     # First pass: write scalar/list values at this level
     for key, value in data.items():
-        if isinstance(value, dict):
-            # Check if it's an inline table (contains only scalars) or a section
-            if _is_table_array(value):
-                # Array of inline tables (like aerodynamics.points)
-                continue
-            if any(isinstance(v, dict) for v in value.values()):
-                continue  # Will be written as subsection
-            if not _has_non_dict_values(value):
-                continue
         if not isinstance(value, dict):
             f.write(f"{key} = {_toml_value(value)}\n")
 
@@ -578,7 +577,7 @@ def _write_toml_section(f: TextIOWrapper, data: dict, prefix: str) -> None:
         if isinstance(value, dict):
             full_key = f"{prefix}{key}" if prefix else key
             # Write section header if this dict has scalar values
-            scalars = {k: v for k, v in value.items() if not isinstance(v, dict) and not _is_table_array_entry(v)}
+            scalars = {k: v for k, v in value.items() if not isinstance(v, dict) and not _is_table_array(v)}
             if scalars:
                 f.write(f"\n[{full_key}]\n")
                 for sk, sv in scalars.items():
@@ -601,14 +600,6 @@ def _write_toml_section(f: TextIOWrapper, data: dict, prefix: str) -> None:
 
 def _is_table_array(value: object) -> bool:
     return isinstance(value, list) and bool(value) and isinstance(value[0], dict)
-
-
-def _is_table_array_entry(value: object) -> bool:
-    return isinstance(value, list) and bool(value) and isinstance(value[0], dict)
-
-
-def _has_non_dict_values(d: dict) -> bool:
-    return any(not isinstance(v, dict) for v in d.values())
 
 
 def _toml_value(value: object) -> str:

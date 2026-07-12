@@ -197,7 +197,13 @@ def run_report(
     override_model = overrides.get("data.neural_network") if overrides else None
     in_mask = _resolve_mask(toml_path, str(override_model) if override_model is not None else None)
 
-    seeds = make_reserved_seeds(0, NN_INPUT_REPORT_SEED_OFFSET, n_sims)
+    # Derive the pool from the config's monte_carlo.seed (like report.py /
+    # param_sweep) -- a hardcoded base 0 loses disjointness from training
+    # draws for configs with a non-zero base seed.
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    base_mc_seed = int(load_toml_with_bases(Path(toml_path)).get("monte_carlo", {}).get("seed", 42))
+    seeds = make_reserved_seeds(base_mc_seed, NN_INPUT_REPORT_SEED_OFFSET, n_sims)
     import aerocapture_rs
 
     recs = aerocapture_rs.collect_nn_inputs(toml_path, seeds, overrides=overrides)

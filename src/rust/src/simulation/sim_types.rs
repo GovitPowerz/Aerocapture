@@ -47,7 +47,7 @@ pub(crate) const CRASH_TIME_BONUS: f64 = 500.0;
 pub(crate) const CRASH_ENERGY_CAP_MJKG: f64 = 50.0;
 
 /// Default absolute tolerances for DOPRI45, one per state component.
-/// State = [r(m), lon(rad), lat(rad), V(m/s), gamma(rad), psi(rad), flux(kJ/m²), time(s)]
+/// State = [r(m), lon(rad), lat(rad), V(m/s), gamma(rad), psi(rad), flux(J/m²), time(s)]
 pub(crate) const DOPRI45_ATOL: [f64; 8] = [
     1.0,  // r: 1 m on ~3.4e6 m
     1e-8, // lon: ~0.03 m at Mars equator
@@ -55,7 +55,7 @@ pub(crate) const DOPRI45_ATOL: [f64; 8] = [
     1e-3, // V: 1 mm/s on ~5700 m/s
     1e-8, // gamma: ~0.03 m position equiv
     1e-8, // psi: ~0.03 m
-    1e-2, // flux: 0.01 kJ/m² on O(1000) total
+    1e-2, // flux: 0.01 J/m² on O(1e6-1e7) total (rtol dominates)
     1e-6, // time: machine-level for identity derivative
 ];
 

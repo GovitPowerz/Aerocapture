@@ -586,11 +586,17 @@ def collect_rollout(
 
         shaped = step_calc.step_reward(obs, next_obs_for_shape, aux_cur, aux_next).astype(np.float32)
 
+        truncated = np.array([bool(info[i].get("truncated", False)) for i in range(cfg.n_envs)], dtype=np.bool_)
         for i, d in enumerate(done):
             if d:
                 fr = np.array(info[i]["final_record"], dtype=np.float64)
                 term_cost = compute_terminal_cost(fr, cost_kwargs=step_calc.cost_kwargs)
-                shaped[i] += float(-term_cost)
+                # Truncated (max_time timeout) episodes bootstrap V(term_obs)
+                # through GAE instead -- adding the timeout virtual-DV cost on
+                # top would count the terminal state twice in the value target.
+                # episodic_* stay logged for every done (outcome diagnostics).
+                if not truncated[i]:
+                    shaped[i] += float(-term_cost)
                 episodic_returns.append(float(-term_cost))
                 episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
                 episodic_captures.append(bool(info[i].get("captured", False)))
@@ -604,8 +610,6 @@ def collect_rollout(
             nv_obs = np.where(done[:, None], nv_obs, next_obs)
             nv_obs_policy = obs_norm.normalize(nv_obs) if obs_norm is not None else nv_obs
             nv = value(torch.from_numpy(nv_obs_policy).float()).cpu().numpy()
-
-        truncated = np.array([bool(info[i].get("truncated", False)) for i in range(cfg.n_envs)], dtype=np.bool_)
 
         buf.obs[t] = obs
         buf.raw_actions[t] = raw.cpu().numpy()
@@ -957,6 +961,7 @@ def _run_sac(
         learning_rate=sac_cfg.learning_rate,
         target_entropy=sac_cfg.target_entropy,
         initial_alpha=sac_cfg.initial_alpha,
+        seed=cfg.seed_base,
     )
 
     env_steps = 0
@@ -1007,11 +1012,16 @@ def _run_sac(
         next_obs_for_shape = np.where(done[:, None], term_obs, next_obs)
         shaped = step_calc.step_reward(obs, next_obs_for_shape, aux_cur, aux_next).astype(np.float32)
 
+        truncated = np.array([bool(info[i].get("truncated", False)) for i in range(cfg.n_envs)], dtype=np.bool_)
         for i, d in enumerate(done):
             if d:
                 fr = np.array(info[i]["final_record"], dtype=np.float64)
                 term_cost = compute_terminal_cost(fr, cost_kwargs=step_calc.cost_kwargs)
-                shaped[i] += float(-term_cost)
+                # Truncated (max_time timeout) episodes bootstrap Q(term_obs)
+                # via (1-done)*Q(next) instead -- adding the timeout virtual-DV
+                # cost on top would count the terminal state twice.
+                if not truncated[i]:
+                    shaped[i] += float(-term_cost)
                 episodic_returns.append(float(-term_cost))
                 episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
                 episodic_captures.append(bool(info[i].get("captured", False)))
@@ -1026,7 +1036,6 @@ def _run_sac(
         # For truncated steps, the Q-target bootstraps via (1-done)*Q(next), so
         # `next_obs` must be the *terminal* observation (pre-reset), not the reset
         # observation of a freshly-drawn episode (which would leak cross-episode state).
-        truncated = np.array([bool(info[i].get("truncated", False)) for i in range(cfg.n_envs)], dtype=np.bool_)
         true_next = np.where(done[:, None], term_obs, next_obs)
         next_obs_policy = obs_norm.normalize(true_next) if obs_norm is not None else true_next
         done_for_buffer = done & ~truncated

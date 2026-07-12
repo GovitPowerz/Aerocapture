@@ -73,7 +73,10 @@ impl Default for PredGuidParams {
 /// FNPAG (fully numerical predictor-corrector) tunable parameters.
 #[derive(Debug, Clone)]
 pub struct FnpagParams {
-    pub energy_tol: f64,        // convergence tolerance (J/kg)
+    // Apoapsis-radius convergence tolerance (m) since the corrector retargeted
+    // from energy to osculating apoapsis. TOML key stays `energy_tol` for
+    // config / GA-chromosome compatibility.
+    pub energy_tol: f64,
     pub prediction_dt: f64,     // forward prediction timestep (s)
     pub bank_min_deg: f64,      // minimum bank angle (deg)
     pub bank_max_high_deg: f64, // max bank above 50 km (deg)
@@ -215,6 +218,11 @@ pub struct ReferenceTrajectory {
     pub inclination: Vec<f64>,   // inclination (rad)
     pub time: Vec<f64>,          // time (s)
     pub cos_bank: Vec<f64>,      // cos(bank angle)
+    /// True when `energy` is strictly descending (computed by the loader).
+    /// Enables the O(log n) bracket lookup in `interpolate`; false (including
+    /// the `Default`) falls back to the legacy walk, which also handles
+    /// non-monotonic tables.
+    pub monotonic_descending: bool,
 }
 
 impl ReferenceTrajectory {
@@ -224,10 +232,17 @@ impl ReferenceTrajectory {
     /// Column order: energy (MJ/kg), dynamic_pressure_equilibrium (Pa), velocity_radial (m/s),
     ///               altitude_rate (m/s), inclination_error (rad), time (s), cos(reference_bank_angle)
     pub fn load(path: &str) -> Result<Self, DataError> {
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(_) => return Ok(ReferenceTrajectory::default()),
-        };
+        // A missing/unreadable file is a hard error, NOT an empty table: the
+        // ref-tracking schemes silently interpolate 0.0 everywhere on an empty
+        // table (the silent-wiring failure class). The legitimate no-file cases
+        // (reference-generating run, no path configured) construct `default()`
+        // explicitly upstream and never call `load`.
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            DataError(format!(
+                "Cannot read reference trajectory '{}': {}",
+                path, e
+            ))
+        })?;
 
         let mut energy = Vec::new();
         let mut pressure = Vec::new();
@@ -275,6 +290,7 @@ impl ReferenceTrajectory {
         }
 
         let n_points = energy.len();
+        let monotonic_descending = energy.windows(2).all(|w| w[0] > w[1]);
         Ok(ReferenceTrajectory {
             n_points,
             energy,
@@ -284,6 +300,7 @@ impl ReferenceTrajectory {
             inclination,
             time,
             cos_bank,
+            monotonic_descending,
         })
     }
 
@@ -298,6 +315,25 @@ impl ReferenceTrajectory {
         }
         if self.n_points == 1 {
             return table[0];
+        }
+
+        // Fast path for strictly descending tables (every table the loader
+        // accepts in practice): binary search for the first k with
+        // energy[k] <= energy_val, which is exactly the bracket the legacy
+        // walk below converges to -- same bracket, same interpolation
+        // expression, bit-identical output.
+        if self.monotonic_descending {
+            let k = self.energy.partition_point(|&e| e > energy_val);
+            if k == 0 {
+                return table[0];
+            }
+            if k == self.n_points {
+                return table[self.n_points - 1];
+            }
+            let x_prev = self.energy[k - 1];
+            let x_curr = self.energy[k];
+            let frac = (energy_val - x_prev) / (x_curr - x_prev);
+            return table[k - 1] + frac * (table[k] - table[k - 1]);
         }
 
         // k starts at 1 (0-based), equivalent to the original 1-based k=2 starting index.
@@ -408,6 +444,54 @@ mod tests {
         assert_eq!(rt.n_points, 3);
         assert!((rt.energy[0] - 4.9e6).abs() < 1.0);
         assert!((rt.energy[2] + 5.3e6).abs() < 1.0);
+    }
+
+    #[test]
+    fn load_rejects_missing_file() {
+        // A typo'd path must be a hard error, not a silent empty table
+        // (ref-tracking schemes interpolate 0.0 everywhere on an empty table).
+        let err = ReferenceTrajectory::load("/nonexistent/definitely_not_here.dat");
+        assert!(
+            err.is_err(),
+            "loader must reject a missing reference trajectory file"
+        );
+        let msg = format!("{}", err.unwrap_err());
+        assert!(
+            msg.contains("definitely_not_here.dat"),
+            "error must name the path, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn interpolate_fast_path_bit_identical_to_legacy_walk() {
+        // Strictly descending table -> loader sets monotonic_descending = true.
+        // The binary-search fast path must return bit-identical values to the
+        // legacy walk for every query class: above table, at knots, interior,
+        // below table.
+        let energy: Vec<f64> = (0..100).map(|i| 5.0e6 - 1.1e5 * i as f64).collect();
+        let table: Vec<f64> = (0..100).map(|i| (i as f64 * 0.37).sin() * 800.0).collect();
+        let mk = |fast: bool| ReferenceTrajectory {
+            n_points: energy.len(),
+            energy: energy.clone(),
+            pressure: table.clone(),
+            radial_vel: table.clone(),
+            altitude_rate: table.clone(),
+            inclination: table.clone(),
+            time: table.clone(),
+            cos_bank: table.clone(),
+            monotonic_descending: fast,
+        };
+        let fast = mk(true);
+        let slow = mk(false);
+        let mut queries: Vec<f64> = (-60..60).map(|i| i as f64 * 1.07e5).collect();
+        queries.extend(energy.iter().copied()); // exact knot hits
+        queries.push(6.0e6); // above table
+        queries.push(-7.0e6); // below table
+        for q in queries {
+            let a = fast.interpolate(q, &fast.pressure);
+            let b = slow.interpolate(q, &slow.pressure);
+            assert_eq!(a, b, "fast/legacy mismatch at energy_val={q}");
+        }
     }
 
     #[test]
