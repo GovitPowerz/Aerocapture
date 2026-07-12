@@ -892,19 +892,38 @@ def chart_heat_load_time(
     undispersed_nominal: npt.NDArray[np.float64] | None = None,
     best_nominal: npt.NDArray[np.float64] | None = None,
     figsize: tuple[float, float] | None = None,
+    unit: str = "kJ",
 ) -> None:
-    """Cumulative heat load vs time MC spaghetti with optional constraint line."""
-    limit_label = f"Limit ({limit_kj_m2:.0f} kJ/m\u00b2)" if limit_kj_m2 is not None else None
+    """Cumulative heat load vs time MC spaghetti with optional constraint line.
+
+    unit="MJ" rescales axis and limit to MJ/m^2 (the paper's textual unit); the
+    trajectory pipeline stays in kJ/m^2 and input arrays are not mutated.
+    """
+
+    def _scaled(t: npt.NDArray[np.float64] | None) -> npt.NDArray[np.float64] | None:
+        if t is None:
+            return None
+        t = t.copy()
+        t[:, _TC_HEAT_LOAD] *= 1e-3
+        return t
+
+    limit = limit_kj_m2
+    if unit == "MJ":
+        trajectories = [s for s in (_scaled(t) for t in trajectories) if s is not None]
+        undispersed_nominal = _scaled(undispersed_nominal)
+        best_nominal = _scaled(best_nominal)
+        limit = limit_kj_m2 * 1e-3 if limit_kj_m2 is not None else None
+    limit_label = f"Limit ({limit:.0f} {unit}/m\u00b2)" if limit is not None else None
     _time_series_panel(
         trajectories,
         traj_class,
         output,
         y_col=_TC_HEAT_LOAD,
-        y_label="Heat load (kJ/m\u00b2)",
+        y_label=f"Heat load ({unit}/m\u00b2)",
         title="Cumulative Heat Load vs Time",
         undispersed_nominal=undispersed_nominal,
         best_nominal=best_nominal,
-        limit_value=limit_kj_m2,
+        limit_value=limit,
         limit_label=limit_label,
         figsize=figsize,
     )

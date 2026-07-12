@@ -5375,7 +5375,15 @@
       "a": "optimizer_budget/ga_300",
       "b": "optimizer_budget/islands_300",
       "delta_p95": -5.87,
+      "delta_p95_ci": [
+        -7.17,
+        -3.68
+      ],
       "delta_cvar95": -7.17,
+      "delta_cvar95_ci": [
+        -9.56,
+        -4.8
+      ],
       "n_pairs": 1000,
       "delta_mean": -1.781,
       "delta_mean_ci": [
@@ -5389,7 +5397,15 @@
       "a": "optimizer_budget/ga_150",
       "b": "optimizer_budget/islands_300",
       "delta_p95": -12.59,
+      "delta_p95_ci": [
+        -13.72,
+        -10.45
+      ],
       "delta_cvar95": -13.9,
+      "delta_cvar95_ci": [
+        -16.17,
+        -11.84
+      ],
       "n_pairs": 1000,
       "delta_mean": -4.215,
       "delta_mean_ci": [
@@ -5403,7 +5419,15 @@
       "a": "optimizer_budget/ga_300",
       "b": "cost_transform/log",
       "delta_p95": -0.57,
+      "delta_p95_ci": [
+        -3.19,
+        1.91
+      ],
       "delta_cvar95": -4.45,
+      "delta_cvar95_ci": [
+        -7.72,
+        -1.33
+      ],
       "n_pairs": 1000,
       "delta_mean": 2.476,
       "delta_mean_ci": [
@@ -5417,7 +5441,15 @@
       "a": "optimizer_budget/ga_300",
       "b": "curation_shaping/bucket_middle",
       "delta_p95": 0.73,
+      "delta_p95_ci": [
+        -0.7,
+        2.17
+      ],
       "delta_cvar95": -0.49,
+      "delta_cvar95_ci": [
+        -2.72,
+        1.63
+      ],
       "n_pairs": 1000,
       "delta_mean": -0.002,
       "delta_mean_ci": [
@@ -5431,7 +5463,15 @@
       "a": "optimizer_budget/ga_300",
       "b": "curation_shaping/bucket_random",
       "delta_p95": -4.32,
+      "delta_p95_ci": [
+        -6.16,
+        -2.21
+      ],
       "delta_cvar95": -5.66,
+      "delta_cvar95_ci": [
+        -8.09,
+        -3.27
+      ],
       "n_pairs": 1000,
       "delta_mean": -2.181,
       "delta_mean_ci": [
@@ -5445,7 +5485,15 @@
       "a": "headline/mamba_p962",
       "b": "classical_baselines/ftc",
       "delta_p95": -94.97,
+      "delta_p95_ci": [
+        -100.76,
+        -91.39
+      ],
       "delta_cvar95": -128.76,
+      "delta_cvar95_ci": [
+        -143.01,
+        -115.13
+      ],
       "n_pairs": 1000,
       "delta_mean": -60.806,
       "delta_mean_ci": [
@@ -5459,7 +5507,15 @@
       "a": "headline/mamba_p962",
       "b": "classical_baselines/fnpag",
       "delta_p95": -23.4,
+      "delta_p95_ci": [
+        -25.08,
+        -21.47
+      ],
       "delta_cvar95": -28.66,
+      "delta_cvar95_ci": [
+        -31.4,
+        -25.97
+      ],
       "n_pairs": 1000,
       "delta_mean": -14.41,
       "delta_mean_ci": [
@@ -5473,7 +5529,15 @@
       "a": "headline/mamba_p962",
       "b": "joint_reference/ftc",
       "delta_p95": -23.81,
+      "delta_p95_ci": [
+        -24.86,
+        -22.51
+      ],
       "delta_cvar95": -27.55,
+      "delta_cvar95_ci": [
+        -29.7,
+        -25.51
+      ],
       "n_pairs": 1000,
       "delta_mean": -16.404,
       "delta_mean_ci": [
@@ -5487,7 +5551,15 @@
       "a": "headline/mamba_p962",
       "b": "headline/dense_p515",
       "delta_p95": -0.91,
+      "delta_p95_ci": [
+        -1.59,
+        -0.14
+      ],
       "delta_cvar95": -1.58,
+      "delta_cvar95_ci": [
+        -2.59,
+        -0.62
+      ],
       "n_pairs": 1000,
       "delta_mean": 0.133,
       "delta_mean_ci": [
@@ -5501,7 +5573,15 @@
       "a": "headline/mamba_p962",
       "b": "headline/lstm_p1082",
       "delta_p95": -0.01,
+      "delta_p95_ci": [
+        -0.61,
+        0.54
+      ],
       "delta_cvar95": -0.57,
+      "delta_cvar95_ci": [
+        -1.31,
+        0.13
+      ],
       "n_pairs": 1000,
       "delta_mean": 1.429,
       "delta_mean_ci": [
@@ -5515,7 +5595,15 @@
       "a": "headline/dense_p515",
       "b": "headline/dense_p972",
       "delta_p95": -4.33,
+      "delta_p95_ci": [
+        -5.05,
+        -3.2
+      ],
       "delta_cvar95": -4.7,
+      "delta_cvar95_ci": [
+        -6.09,
+        -3.34
+      ],
       "n_pairs": 1000,
       "delta_mean": -2.691,
       "delta_mean_ci": [
@@ -5529,7 +5617,15 @@
       "a": "optimizer_budget/ga_300",
       "b": "classical_baselines/ftc",
       "delta_p95": -75.59,
+      "delta_p95_ci": [
+        -81.22,
+        -71.76
+      ],
       "delta_cvar95": -106.52,
+      "delta_cvar95_ci": [
+        -120.98,
+        -92.83
+      ],
       "n_pairs": 1000,
       "delta_mean": -50.207,
       "delta_mean_ci": [
@@ -5543,7 +5639,15 @@
       "a": "optimizer_budget/ga_300",
       "b": "joint_reference/ftc",
       "delta_p95": -4.43,
+      "delta_p95_ci": [
+        -6.03,
+        -2.69
+      ],
       "delta_cvar95": -5.31,
+      "delta_cvar95_ci": [
+        -8.01,
+        -2.78
+      ],
       "n_pairs": 1000,
       "delta_mean": -5.805,
       "delta_mean_ci": [
@@ -5557,7 +5661,15 @@
       "a": "classical_baselines/ftc",
       "b": "classical_baselines/fnpag",
       "delta_p95": 71.57,
+      "delta_p95_ci": [
+        67.63,
+        77.6
+      ],
       "delta_cvar95": 100.1,
+      "delta_cvar95_ci": [
+        86.19,
+        114.78
+      ],
       "n_pairs": 1000,
       "delta_mean": 46.396,
       "delta_mean_ci": [
@@ -5571,7 +5683,15 @@
       "a": "joint_reference/ftc",
       "b": "classical_baselines/fnpag",
       "delta_p95": 0.41,
+      "delta_p95_ci": [
+        -1.51,
+        2.44
+      ],
       "delta_cvar95": -1.11,
+      "delta_cvar95_ci": [
+        -4.38,
+        2.24
+      ],
       "n_pairs": 1000,
       "delta_mean": 1.994,
       "delta_mean_ci": [
@@ -5585,7 +5705,15 @@
       "a": "joint_reference/ftc",
       "b": "classical_baselines/ftc",
       "delta_p95": -71.16,
+      "delta_p95_ci": [
+        -76.93,
+        -67.65
+      ],
       "delta_cvar95": -101.21,
+      "delta_cvar95_ci": [
+        -115.43,
+        -87.64
+      ],
       "n_pairs": 1000,
       "delta_mean": -44.402,
       "delta_mean_ci": [
@@ -5599,7 +5727,15 @@
       "a": "joint_reference/energy_controller",
       "b": "classical_baselines/energy_controller",
       "delta_p95": -59.74,
+      "delta_p95_ci": [
+        -65.15,
+        -57.05
+      ],
       "delta_cvar95": -67.5,
+      "delta_cvar95_ci": [
+        -75.49,
+        -58.14
+      ],
       "n_pairs": 996,
       "delta_mean": -34.677,
       "delta_mean_ci": [
@@ -5613,7 +5749,15 @@
       "a": "joint_reference/pred_guid",
       "b": "classical_baselines/pred_guid",
       "delta_p95": -45.62,
+      "delta_p95_ci": [
+        -49.13,
+        -42.48
+      ],
       "delta_cvar95": -54.35,
+      "delta_cvar95_ci": [
+        -63.24,
+        -44.23
+      ],
       "n_pairs": 1000,
       "delta_mean": -23.174,
       "delta_mean_ci": [
@@ -5627,7 +5771,15 @@
       "a": "optimizer_dimensionality/dense_p515_ga",
       "b": "output_param/scaledpi",
       "delta_p95": -9.76,
+      "delta_p95_ci": [
+        -11.94,
+        -8.46
+      ],
       "delta_cvar95": -11.72,
+      "delta_cvar95_ci": [
+        -13.77,
+        -9.66
+      ],
       "n_pairs": 1000,
       "delta_mean": -4.771,
       "delta_mean_ci": [
@@ -5641,7 +5793,15 @@
       "a": "optimizer_dimensionality/dense_p515_ga",
       "b": "output_param/delta",
       "delta_p95": -8.58,
+      "delta_p95_ci": [
+        -10.56,
+        -7.52
+      ],
       "delta_cvar95": -12.93,
+      "delta_cvar95_ci": [
+        -16.2,
+        -9.98
+      ],
       "n_pairs": 1000,
       "delta_mean": -2.518,
       "delta_mean_ci": [

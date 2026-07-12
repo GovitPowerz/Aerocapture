@@ -193,6 +193,10 @@ pub struct GuidanceParams {
 
     // Neural network guidance routing mode (FullNeural | MagnitudeOnly)
     pub neural_mode: NeuralNetMode,
+
+    // Eval-only state-ablation control: zero the NnState before every guidance
+    // tick, making a stateful NN memoryless (paper R4/R5). Default false.
+    pub nn_reset_state_every_tick: bool,
 }
 
 /// Reference trajectory tables loaded from the reference trajectory data file.
@@ -363,6 +367,7 @@ impl Default for GuidanceParams {
             thermal_limiter: ThermalLimiterParams::default(),
             command_shaping: None,
             neural_mode: NeuralNetMode::default(),
+            nn_reset_state_every_tick: false,
         }
     }
 }

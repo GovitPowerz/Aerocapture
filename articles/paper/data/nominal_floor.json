@@ -1,0 +1,10 @@
+{
+ "nominal_dv_total_m_s": 107.64,
+ "nominal_dv1_m_s": 105.26,
+ "nominal_dv2_m_s": 1.13,
+ "nominal_dv3_m_s": 1.24,
+ "captured": true,
+ "pool_min_dv1_m_s": 103.85,
+ "pool_min_dv_total_m_s": 104.46,
+ "note": "nominal = deployed Mamba on the undispersed scenario (all MC domains off); pool_min from the n=1000 final-eval card stats (appendix nn_mamba)"
+}

@@ -162293,5 +162293,23 @@
         0.968
       ]
     ]
+  },
+  "mamba_centered_repeats": {
+    "note": "sigma_run repeats (16_sigma_extras.sh seeds 2/3) at the exact s1 allocation (n_sims 16, 4000 gens, pop 256); same 9M stress pool, n=1000",
+    "s1": {
+      "capture_pct": 94.9,
+      "dv_mean": 131.8,
+      "dv_cvar95": 272.8
+    },
+    "s2": {
+      "capture_pct": 95.0,
+      "dv_mean": 145.42,
+      "dv_cvar95": 266.88
+    },
+    "s3": {
+      "capture_pct": 94.8,
+      "dv_mean": 130.39,
+      "dv_cvar95": 230.58
+    }
   }
 }

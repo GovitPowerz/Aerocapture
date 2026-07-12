@@ -234,6 +234,11 @@ pub fn guidance_step(
             }
             GuidanceType::NeuralNetwork => {
                 let nn = data.neural_net.as_ref().expect("NN params not loaded");
+                if data.guidance.nn_reset_state_every_tick {
+                    // Memoryless-eval control (paper R4/R5 state ablation):
+                    // fresh zeroed state every guidance tick.
+                    state.nn_state = Some(NnState::for_model(nn));
+                }
                 // Snapshot telemetry scalars BEFORE the mut borrow of nn_state so
                 // rustc doesn't trip on simultaneous shared+mut borrows of `state`.
                 let prev_incl_err = state.prev_inclination_error_for_nn;
@@ -1413,5 +1418,98 @@ mod tests {
         );
 
         assert!(out.bank_angle_commanded.is_finite());
+    }
+
+    /// `reset_state_every_tick` (the paper's memoryless-eval control) makes a
+    /// stateful NN a pure function of its instantaneous inputs: with the flag
+    /// on, two guidance steps with identical inputs command bit-identical
+    /// banks; with it off, the carried GRU state moves the second command.
+    #[test]
+    fn reset_state_every_tick_makes_nn_memoryless() {
+        use crate::data::neural::{
+            Activation, DenseLayer, GruLayer, Layer, LayerSpec, NeuralNetModel, OutputParam,
+        };
+
+        let h = 2;
+        let nn = NeuralNetModel {
+            architecture: vec![
+                LayerSpec::Gru {
+                    input_size: 16,
+                    hidden_size: h,
+                },
+                LayerSpec::Dense {
+                    input_size: h,
+                    output_size: 2,
+                    activation: Activation::Linear,
+                },
+            ],
+            layer_sizes: vec![16, h, 2],
+            layers: vec![
+                Layer::Gru(GruLayer {
+                    input_size: 16,
+                    hidden_size: h,
+                    weight_ih: vec![vec![0.1; 16]; 3 * h],
+                    weight_hh: vec![vec![0.3; h]; 3 * h],
+                    bias_ih: vec![0.2; 3 * h],
+                    bias_hh: vec![0.0; 3 * h],
+                }),
+                Layer::Dense(DenseLayer {
+                    w: vec![vec![0.5; h], vec![-0.5; h]],
+                    b: vec![0.3, 0.9],
+                    activation: Activation::Linear,
+                }),
+            ],
+            input_mask: None,
+            ablated_input: None,
+            ablated_value: 0.0,
+            output_param: OutputParam::default(),
+            scaled_pi_n: 1.0,
+            delta_max: 0.35,
+            normalization: crate::data::neural::DEFAULT_NORMALIZATION.to_vec(),
+        };
+
+        let nav = test_nav();
+        let planet = PlanetConfig::mars();
+        let mut data = test_sim_data();
+        data.neural_net = Some(nn.clone());
+        // Keep the rate clamp far out of the picture so commanded = raw NN bank.
+        data.capsule.max_bank_rate = 5.0_f64.to_radians() * 100.0;
+
+        let two_steps = |reset: bool, data: &mut SimData| {
+            data.guidance.nn_reset_state_every_tick = reset;
+            let mut state = GuidanceState::new(0.5, -0.48_f64.to_radians(), Some(&nn));
+            state.bank_angle_realized = 0.5;
+            let mut step = || {
+                guidance_step(
+                    &nav,
+                    0.5,
+                    0.0,
+                    0.5,
+                    &mut state,
+                    data,
+                    &planet,
+                    false,
+                    GuidanceType::NeuralNetwork,
+                )
+                .bank_angle_commanded
+            };
+            (step(), step())
+        };
+
+        let (off_1, off_2) = two_steps(false, &mut data);
+        let (on_1, on_2) = two_steps(true, &mut data);
+
+        // First ticks are identical either way (both start from a zero state).
+        assert_eq!(off_1, on_1, "first tick must not depend on the flag");
+        // Carried state moves the second command...
+        assert!(
+            (off_2 - off_1).abs() > 1e-12,
+            "GRU state should change the second command with the flag off: {off_1} vs {off_2}"
+        );
+        // ...and the reset makes the policy a pure function of its inputs.
+        assert_eq!(
+            on_1, on_2,
+            "with reset_state_every_tick the same inputs must give bit-identical commands"
+        );
     }
 }

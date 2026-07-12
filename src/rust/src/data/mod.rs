@@ -476,6 +476,14 @@ impl SimData {
             }
         };
 
+        // Eval-only state-ablation control (paper R4/R5): default false.
+        let nn_reset_state_every_tick = toml
+            .guidance
+            .neural_network
+            .as_ref()
+            .and_then(|nn| nn.reset_state_every_tick)
+            .unwrap_or(false);
+
         // Validate output_parameterization constraints.
         let output_param_toml = toml
             .guidance
@@ -558,6 +566,7 @@ impl SimData {
                     _ => None,
                 },
                 neural_mode,
+                nn_reset_state_every_tick,
             }
         } else {
             // No FTC params — load from file if guidance suffix available, else defaults
@@ -626,6 +635,7 @@ impl SimData {
                     _ => None,
                 },
                 neural_mode,
+                nn_reset_state_every_tick,
             }
         };
 

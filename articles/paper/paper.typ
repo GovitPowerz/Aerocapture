@@ -72,22 +72,25 @@
   genetic algorithm, could fly the aerocapture of a Mars Sample Return vehicle more efficiently than
   a Cerimele--Gamble feedback law, and we closed that work by asking for the obvious next step: a
   comparison against predictor--corrector guidance. This paper answers it. We train stateful neural
-  guidance policies and benchmark them, on identical Monte-Carlo scenarios drawn from a bit-validated
+  guidance policies and benchmark them, on identical Monte Carlo scenarios drawn from a bit-validated
   simulator, against
   six classical schemes including a numerical predictor--corrector (FNPAG) and a reference-tracking
   feedback law (FTC). Because the mission's correction propellant is sized off the worst-case
   $Delta v$, we lead every comparison with the tail of its distribution, not the mean. A 962-parameter
-  recurrent (Mamba) policy captures $100%$ of the time and reaches a far-tail $"CVaR"_(99.9)$ of
-  #box[$124.5$ m/s]. It beats the best classical scheme (FTC with a
+  recurrent (Mamba) policy captures every one of $10^6$ frozen confirmatory scenarios (a $95%$
+  upper bound of $3 times 10^(-6)$ on its failure probability) and reaches a far-tail
+  $"CVaR"_(99.9)$ of #box[$123.3 plus.minus 0.1$ m/s] (independent retraining seeds span
+  $122$--$131$). It beats the best classical scheme (FTC with a
   co-optimized reference) by #box[$16.4$ m/s] in mean and #box[$27.6$ m/s] at $"CVaR"_95$, better on
-  every one of $1000$ paired scenarios, at #box[$3.68$ ms] per simulation -- $23 times$ faster than
+  every one of $1000$ paired scenarios, at #box[$3.6$ ms] per simulation -- $23 times$ faster than
   FNPAG. The result rests on a training methodology that is itself a contribution: a non-stationary,
-  adaptive-seed Monte-Carlo environment turns the genetic algorithm from the *worst* optimizer under
-  fixed scenarios ($160.3$ m/s mean) into the *best* ($118.0$). Across cell types, engineered,
-  cost-aligned inputs flatten the median; genuine internal state is what compresses the extreme tail
-  that sizes the tanks. One honest caveat remains: under a deliberately harsher off-nominal regime
-  the analytic law generalizes better than the medium-trained network -- a gap we pin on the training
-  objective, not on neural guidance itself.]
+  adaptive-seed Monte Carlo environment turns the genetic algorithm from the *worst* optimizer under
+  fixed scenarios ($154$ m/s three-seed mean) into the *best* ($120$). Across cell types, engineered,
+  cost-aligned inputs flatten the median; ablation controls -- state reset, matched history, input
+  removal -- show it is genuine internal state that compresses the extreme tail
+  that sizes the tanks. The main deployment caveat: under a deliberately harsher off-nominal regime
+  the analytic law generalizes better than the medium-trained network -- a gap we trace to the
+  training objective, not to neural guidance itself.]
 ]
 #v(18pt)
 
@@ -130,10 +133,11 @@ pass rather than merely react to the current state.
 We make three contributions:
 
 + *A training methodology, not just a policy.* We show that a genetic algorithm is the *worst*
-  optimizer for this problem under a fixed set of Monte-Carlo scenarios -- it overfits the repeated
+  optimizer for this problem under a fixed set of Monte Carlo scenarios -- it overfits the repeated
   cases -- and the *best* under a non-stationary, adaptive-seed environment that keeps moving the
-  scenarios beneath it. Switching the seed schedule from fixed to adaptive moves the mean correction
-  cost from $160.3$ to $118.0$ m/s, the single largest effect in the campaign. The moving
+  scenarios beneath it. Switching the seed schedule from fixed to moving takes the mean correction
+  cost from $154$ to $120$ m/s in three-seed means (first seeds $160.3 arrow.r 118.0$), the single
+  largest effect in the campaign. The moving
   environment, a tail-weighting cost transform, and hardest-case seed curation form one matched
   system.
 
@@ -142,19 +146,38 @@ We make three contributions:
   inputs flatten the *median* correction cost to a common $108$--$112$ m/s for every architecture we
   trained to convergence. The separation appears only on the *tail*: a #box[$962$-parameter] Mamba policy
   beats the best dense network at the far-tail depth where the propellant tanks are sized -- by
-  $14.7$ m/s in three-seed-mean $"CVaR"_(99.9)$, and beyond run-to-run variance on the worst observed
-  case. Training loss does not pick the tail winner; internal state does.
+  $15.0$ m/s in three-seed-mean $"CVaR"_(99.9)$ on the frozen confirmatory pool, with the deployed
+  artifact below every dense retraining seed. Training loss does not pick the tail winner; internal
+  state does -- a mechanism the ablation controls of Section 6.3 measure directly.
 
-+ *The first systematic head-to-head of neural versus predictor--corrector aerocapture guidance.* On
++ *A systematic head-to-head of neural versus predictor--corrector aerocapture guidance* -- to our
+  knowledge the first for an MSR-class Mars aerocapture to compare an end-to-end learned policy
+  against classical baselines co-tuned on the same objective, on paired dispersed scenarios, under
+  a far-tail correction-$Delta v$ risk metric. On
   identical dispersions, the deployed network beats the best classical scheme by $16.4$ m/s in mean
   and $27.6$ m/s at $"CVaR"_95$, at a per-simulation compute cost $23 times$ below the numerical
   predictor--corrector -- with the caveat that the analytic law is more robust off-nominal, under a
   deliberately harsh stress regime we return to in Section 7.3.
 
+This answer lands in a field that has moved since 2009. On the classical side, FNPAG @lu2015fnpag
+set the numerical predictor--corrector standard and was carried across Mars aerocapture mission and
+vehicle design maps @matz2017mars; more recent work replans under uncertainty explicitly --
+two-stage stochastic and robust formulations that beat a deterministic predictor--corrector under
+density perturbations @zucchelli2021twostage -- solves the full constrained replan by convexification
+@rataczak2025cpag, or augments the bank channel with angle-of-attack modulation through optimal
+control @sonandres2025abamguid. Machine learning has so far entered the loop mostly as a *component*
+inside a classical scheme: LSTM density estimation feeding FNPAG @sonandres2025density, generative
+failure-mode indicators steering a predictor--corrector @calkins2025riskaware. End-to-end learned
+aerocapture guidance evaluated against classical baselines on common dispersed scenarios -- with the
+classical side given the same objective and tuning freedom, and the comparison read at the far-tail
+depth that sizes the propellant -- is, to our knowledge, the gap this paper fills.
+
 All of this rests on a high-fidelity simulator -- $J_2$/$J_3$/$J_4$ gravity, Gauss--Markov density
-perturbations, thermal limits, pilot dynamics -- validated against a legacy reference implementation
+perturbations, thermal limits, pilot dynamics -- regression-validated against a legacy reference
+implementation
 across all $725$ time steps of a guided trajectory, $22$ of $24$ output channels bit-identical (the
-two mismatches trace to uninitialized variables in the reference). The simulator also carries EKF
+two mismatches trace to uninitialized variables in the reference; Appendix A lists the independent
+physics checks). The simulator also carries EKF
 navigation, an altitude-dependent wind model, and adaptive integration; this campaign does not
 exercise them, so every run here uses the bias-filter navigation and fixed-step integration the
 validation covers. The next
@@ -173,7 +196,7 @@ angle of $-10.81 degree$, and an azimuth of $38.04 degree$ (the 2009 study place
 $120$ km with a $-10.24 degree$ flight-path angle; vehicle and target are unchanged); it carries a mass of $1089$ kg on a $14.7$ m#super[2]
 reference area and is statically trimmed at a fixed angle of attack, so the only control is the bank
 angle $mu$, slewed at up to $15 degree$/s. The guidance targets a $500 times 11$ km orbit at
-atmosphere exit, at $50 degree$ inclination, subsequently corrected to a $500$ km circular parking
+atmosphere exit (apoapsis $times$ periapsis altitude), at $50 degree$ inclination, subsequently corrected to a $500$ km circular parking
 orbit. Energy is dissipated by drag during a single atmospheric pass; the bank
 angle rotates the lift vector to manage how much energy is shed and in which plane.
 
@@ -189,21 +212,25 @@ guidance has the most leverage deep in the pass and almost none on the thin entr
 The vehicle must respect a peak heat-flux limit of $200$ kW/m#super[2], a $4$ g load limit, and an
 integrated heat-load limit of $25$ MJ/m#super[2].
 
-#fig("fig_corridor.svg", [Reachable aerocapture capture corridor in the (orbital energy, dynamic
-pressure) plane, traced by a $1\,000\,000$-run dispersed Monte-Carlo of randomized signed
-piecewise-constant bank profiles (roll reversals included). The shaded band spans the corridor: the
-upper edge is the $p_(99.9)$ dynamic pressure
-of all capturing trajectories (the crash-side limit), the lower edge the $p_(0.5)$ of trajectories
-capturing below a $5000$ km apoapsis (the escape-side limit). The vehicle enters hyperbolic
-($E > 0$, right) and bleeds energy into a bound orbit ($E < 0$, left); the deployed Mamba ensemble
-and its undispersed nominal (heavy line) fly well inside the corridor.], <fig-corridor>)
+#fig("fig_corridor.svg", [Empirical trajectory-occupancy envelope of the aerocapture corridor in the
+(orbital energy, dynamic pressure) plane, traced by a $1\,000\,000$-run dispersed Monte Carlo of
+randomized signed piecewise-constant bank profiles (roll reversals included), with the undispersed
+full-lift-up and full-lift-down constant-bank boundary traces overlaid (dashed). The shaded band
+spans the occupied corridor: the upper edge is the $p_(99.9)$ dynamic pressure of all capturing
+trajectories (the crash-side limit), the lower edge the $p_(0.5)$ of trajectories capturing below a
+$5000$ km apoapsis (the escape-side limit); as quantiles of sampled profiles these edges are
+empirical, not a formal reachable set. The vehicle enters hyperbolic ($E > 0$, right) and bleeds
+energy into a bound orbit ($E < 0$, left); the $200$-run Monte Carlo ensemble of the deployed Mamba
+policy and its undispersed nominal (heavy line) fly well inside the envelope.], <fig-corridor>)
 
 == The objective: the tail that sizes the mission
 
 Performance is measured by the *correction $Delta v$* -- the propellant cost to carry the captured
 orbit to the $500$ km circular parking orbit, summed over the periapsis-raising, circularization,
 and plane-change burns. At atmosphere exit the periapsis always sits inside the atmosphere and must be raised, so the
-correction cost has an irreducible floor of roughly $113$ m/s set by the nominal periapsis raise; a
+correction cost has a floor of roughly $105$ m/s at this entry interface, set by the nominal
+periapsis raise (dispersed cases spread a few m/s around it; the 2009 study's interface put the
+same floor near $113$ m/s); a
 guidance law cannot do better than deliver the vehicle to that floor across all dispersions. We
 define a run as a *capture* when it terminates in a bound orbit (the simulator's terminal flag
 $i_"final" = 3$ with eccentricity $< 1$) and compute $Delta v$ over captured runs only.
@@ -217,7 +244,9 @@ therefore treat the *tail* of the $Delta v$ distribution as the objective, and r
 value-at-risk -- the mean cost in the worst $(1-alpha)$ fraction of cases, $"CVaR"_alpha$
 @rockafellar2000cvar -- at $alpha = 95%$ and, for sizing decisions, at the far-tail depth
 $"CVaR"_(99.9)$, together with the $95$th and $99$th percentiles and the sample maximum (a
-descriptive bound, $approx p_(99.99)$ at $n = 10\,000$). The far tail
+descriptive bound, $approx p_(99.99)$ at $n = 10\,000$). Empirically $"CVaR"_alpha$ is the mean of
+the worst $max(1, "round"((1-alpha) n))$ captured observations, without interpolation; every tail
+statistic is reported with the number of observations it averages. The far tail
 cannot be estimated from a #box[$1000$-case] ensemble (a single sample beyond $p_(99.9)$), so every
 sizing number in this paper is computed on a dedicated $n = 10\,000$ pool, training-disjoint by
 construction. We lead with the tail; the mean is reported for continuity with the 2009 work.
@@ -258,8 +287,10 @@ presets for the winds and the density perturbation. The atmospheric density bias
 $plus.minus 50%$ -- it is the dominant driver of apoapsis error, and a guidance law blind to it
 cannot reject it. The simulator's wind model follows a parametric Mars profile @forget1999mars but is disabled for
 this campaign (its two draw dimensions are carried but inert); the density perturbation is an
-Ornstein--Uhlenbeck process layered on the static bias. Draws are generated by
-Latin-hypercube sampling @mckay1979lhs for space-filling coverage.
+Ornstein--Uhlenbeck process layered on the static bias. Within a multi-scenario batch, draws are
+generated by Latin-hypercube sampling @mckay1979lhs for space-filling coverage; the evaluation
+pools draw one scenario per seed and are therefore plain independent samples -- which is what the
+replicate- and bootstrap-based intervals of Sections 6--7 assume.
 
 = Guidance schemes
 
@@ -284,7 +315,8 @@ sign whenever the inclination error, projected a few seconds ahead, exceeds a th
 energy-gated activation window. FTC is analytic,
 fast, and -- as we will show -- only as good as its reference.
 
-*FNPAG* is Lu's fully numerical predictor--corrector @lu2015fnpag @lu2014predictor. Every two-second
+*FNPAG* is Lu's fully numerical predictor--corrector @lu2015fnpag @lu2014predictor, subsequently
+carried across Mars aerocapture mission and vehicle design maps @matz2017mars. Every two-second
 replan cycle it integrates the equations of motion forward to atmosphere exit and bisects the
 constant capture-bank magnitude until the predicted osculating exit apoapsis matches the target,
 scaling the onboard atmosphere by the navigation-estimated density factor so the predictor tracks
@@ -385,7 +417,7 @@ Mamba-3 @lahoti2026mamba3 -- against these cells at matched budget; none improve
   ),
   caption: [The benchmarked schemes. "Reference" marks dependence on a tabulated reference trajectory
   ("inputs": the network reads two reference interpolations as observations but does not enslave to
-  them); "Compute" classes are quantified in @sec-deployability (fast: $1$--$4$ ms/sim; slow: $86$ ms/sim).
+  them); "Compute" classes are quantified in @sec-deployability (fast: $1$--$4$ ms/sim; slow: $82$ ms/sim).
   Signed-bank schemes (full-neural, piecewise-constant) bypass the shared roll-reversal, exit-phase,
   and thermal-limiter logic.],
 ) <tbl-schemes>
@@ -395,7 +427,7 @@ Mamba-3 @lahoti2026mamba3 -- against these cells at matched budget; none improve
 The training methodology is the load-bearing contribution. The policies are trained without
 input--output pairs or any reference-tracking objective (two observation inputs interpolate the
 reference table; nothing enslaves to it): each candidate network is simulated on a batch of dispersed
-Monte-Carlo scenarios, and its fitness is the resulting correction-$Delta v$ cost (with soft
+Monte Carlo scenarios, and its fitness is the resulting correction-$Delta v$ cost (with soft
 constraint penalties), so the optimizer searches directly on mission performance. The same recipe
 trained the 2009 networks. What changed -- and what makes the modern policies work -- is the
 realization that *how the scenario batch is chosen, generation to generation, matters more than the
@@ -409,18 +441,30 @@ hardest-case seed curation -- form one matched system. We take them in turn.
 The single largest effect in the entire campaign is the seed strategy. We compared three: *fixed*
 (a deterministic scenario batch, identical every generation), *rotating* (a fresh random batch every
 generation), and *adaptive* (a curated batch, refreshed on a validated improvement or periodically,
-drawn from the cost distribution of the best individuals). Under fixed seeds the genetic algorithm is
-the *worst* optimizer we tested -- mean correction cost $160.3$ m/s, $"CVaR"_95$ $215.8$ m/s -- because
+drawn from the cost distribution of the best individuals). The decisive cells carry three
+independent training seeds each (this revision's repeats). Under fixed seeds the genetic algorithm
+is the *worst* optimizer we tested and an unstable one -- three trainings land at $160.3$, $166.9$,
+and $133.5$ m/s mean ($"CVaR"_95$ $215.8$ on the first seed) -- because
 it overfits the repeated scenarios, evolving a policy that is excellent on those particular draws and
-mediocre elsewhere. Rotating the seeds rescues it outright: $120.0$ m/s mean, $144.5$ m/s $"CVaR"_95$,
-a $40$ m/s drop in the mean and a $71$ m/s drop on the tail. Adaptive curation tightens it a little
-further, to $118.0$ m/s.
+mediocre elsewhere. Rotating the seeds rescues it outright and *reliably*: $119.4$ m/s three-seed
+mean with a $3.5$ m/s seed range (first seed $120.0$ mean, $144.5$ $"CVaR"_95$) -- a $34$ m/s drop
+in three-seed means, a $71$ m/s drop on the tail on the first seeds, and the two distributions do
+not touch: the fixed schedule's luckiest seed sits $12.5$ m/s above the moving schedule's worst.
+Adaptive curation is indistinguishable from rotating on the *mean* at this allocation ($119.6$
+versus $119.4$, seed ranges overlapping; the first-seed $118.0$ was a favorable draw); its
+contribution is the hardest-seed tail shaping of Section 4.2, which a plain rotating schedule
+cannot express.
 
 The control that makes this a statement about the *objective* and not about compute is CMA-ES. Run
-on the identical fixed-versus-rotating change, CMA-ES does not move -- $126.9 arrow.r 127.3$ m/s --
-because it already resamples internally through its covariance adaptation, so a moving scenario batch
-tells it nothing new (@fig-seed). The genetic algorithm, by contrast, has no such internal
-re-randomization: a fixed objective lets selection converge onto the quirks of the fixed batch.
+on the identical fixed-versus-rotating change, CMA-ES does not move -- $125.7$ versus $126.1$ m/s
+in three-seed means, seed ranges within $plus.minus 1$ (first seeds $126.9 arrow.r 127.3$)
+(@fig-seed). Under fixed seeds the genetic algorithm's selection converges onto the quirks of those
+particular draws; CMA-ES neither suffers under the fixed batch nor benefits from the moving one. We
+state that asymmetry empirically rather than mechanistically: a plausible reading is that CMA-ES's
+continuous re-estimation of its parameter-space search distribution already decorrelates successive
+generations, while scenario noise chiefly perturbs its rank-based updates and step-size control --
+consistent with its self-termination on the noisy objective (Section 5) -- but our experiments were
+not designed to isolate the mechanism.
 Rotating costs marginally more compute, but CMA-ES given the same marginal compute gains nothing, so
 the lever is the non-stationarity of the objective, not the extra evaluations. The practical
 consequence is striking: under a fixed objective one would deploy CMA-ES and discard the genetic
@@ -429,17 +473,27 @@ The moving environment does not make the genetic algorithm *robust* to a moving 
 the genetic algorithm *need* one.
 
 #fig("fig_seed_strategy.svg", [Fixed versus rotating seeds, per optimizer. The genetic algorithm is
-the worst optimizer under fixed seeds and is rescued by rotating them ($-40$ m/s mean, $-71$ m/s at
-$"CVaR"_95$); CMA-ES is essentially unchanged because it already resamples internally. The lever is
-the non-stationary objective, not the extra compute.], <fig-seed>)
+the worst optimizer under fixed seeds and is rescued by rotating them ($-34$ m/s in three-seed
+means, $-71$ m/s at $"CVaR"_95$ on the first seeds); CMA-ES is essentially unchanged (candidate
+mechanisms are discussed in the text). Black dots: three independent training seeds for the
+repeated GA and CMA-ES cells -- the fixed-seed pathology is itself high-variance. The
+lever is the non-stationary objective, not the extra compute.], <fig-seed>)
 
 == Cost transform, curation, and allocation
 
 The same worst-case-leaning logic that makes us report the tail also shapes how we train. Because the
 mission is sized off the far tail, we apply a monotonic *cost transform* to each per-simulation cost
-before aggregating, so that the optimizer feels expensive scenarios more sharply. The transform is
-ranking-neutral for a deterministic argmin, but under the noisy, non-stationary objective it changes
-which individuals survive selection. Evaluated at the depth that matters -- a far-tail
+before aggregating, so that the optimizer feels expensive scenarios more sharply. Applied per
+scenario before the root-mean-square aggregation over the individual's batch (Appendix A), the
+cubed transform makes the per-individual objective
+$ J = ( 1/n sum_(i=1)^n C_i^6 )^(1\/2) , $ <eq-objective>
+a monotone function of the $L_6$ norm of the per-scenario cost vector -- a high-moment objective
+that weights an individual's worst scenarios far more heavily than its typical ones. (For a single
+scenario a monotone transform is ranking-neutral; across a batch it deliberately is not.) We prefer
+this smooth high-moment proxy over optimizing an empirical tail quantile directly because the
+deployed allocation evaluates as few as two scenarios per individual per generation -- far too few
+to estimate a quantile -- while the moving batch supplies tail coverage across generations.
+Evaluated at the depth that matters -- a far-tail
 $n = 10\,000$ pool -- the cubed transform compresses the extreme tail best ($"CVaR"_(99.9)$ $153.0$ m/s,
 sample max $160.1$) against linear ($156.7$/$162.2$), square-root ($158.4$/$167.1$), squared
 ($162.7$/$180.9$), and logarithmic ($162.3$/$180.6$). The logarithm is worst across the shallow and
@@ -457,7 +511,7 @@ picks one representative seed per bin; the choice of representative is the lever
 *hardest* seed per bin (the "max" bucket) dominates the far tail ($"CVaR"_(99.9)$ $153.0$ m/s) against
 the bin median ($193.9$), a random pick ($173.1$), and the *easiest* seed ($225.9$). The easiest-seed
 bucket is the cautionary tale: the best mean, $117.8$ m/s, and a catastrophic worst case -- it drops
-captures and reaches $245$ m/s, the canonical optimize-the-average, blow-up-the-tail failure. Trimming
+captures and reaches $245$ m/s, optimizing the average at the expense of the worst case. Trimming
 the cost distribution helped nothing (@fig-curation). These too are single runs, but the min- and
 middle-bucket gaps ($40$--$70$ m/s) sit far outside run scatter. The cost transform
 and the curation bucket are therefore one idea -- force the policy onto the hard cases -- expressed
@@ -487,8 +541,9 @@ environment sees over the run. The deployed headline policy uses this allocation
 That the optimal allocation pours the budget into generations points to the last methodological fact:
 training here is *compute-bound, not overfitting-bound*. A stationary objective eventually overfits,
 and one stops early. The moving objective never converges to a fixed landscape, so the validation
-error keeps falling for nearly the whole twenty-thousand-generation run and then plateaus rather
-than degrading (@fig-plateau). The plateau also exposes a counter-intuitive dimensionality effect that recurs in the
+error -- the RMS on the reserved selection pool of @tbl-pools; we keep the conventional name for
+the loss curve -- keeps falling for nearly the whole twenty-thousand-generation run and then
+plateaus rather than degrading, i.e. the policy does not memorize scenarios (@fig-plateau). The plateau also exposes a counter-intuitive dimensionality effect that recurs in the
 architecture results: the #box[$972$-parameter] dense network learns *faster* early -- more plasticity --
 but the #box[$515$-parameter] network overtakes it and plateaus *lower* (validation RMS $1.326 times 10^6$
 versus $1.433 times 10^6$). For the gradient-free genetic algorithm, the extra dense parameters are
@@ -496,23 +551,57 @@ more search burden than added capacity; the "more parameters, learn faster" intu
 transfer.
 
 #fig("fig_plateau.svg", [Best validation RMS versus generation for the two dense reference networks.
-Both keep improving until late in the twenty-thousand-generation run and then plateau -- the
-non-stationary objective does not overfit. The #box[$515$-parameter] network plateaus below the
+Both keep improving until late in the twenty-thousand-generation run and then plateau -- under the
+non-stationary objective the policy generalizes across the dispersion distribution rather than
+memorizing scenarios. The #box[$515$-parameter] network plateaus below the
 #box[$972$-parameter] one: beyond a few hundred parameters, extra dense capacity hurts the
 gradient-free search.], <fig-plateau>)
+
+#figure(
+  table(
+    columns: (auto, auto, auto, 1fr),
+    align: (left, center, center, left),
+    table.hline(stroke: 0.7pt),
+    table.header([*Pool*], [*n*], [*Queries*], [*Decisions taken on it*]),
+    table.hline(stroke: 0.35pt),
+    [Training batches], [$2$/gen], [every generation], [weight updates (moving, curated)],
+    [Selection pool (offset 1M)], [$1000$], [$13\,442$ over the run], [in-training argmin promotion],
+    [Development far tail (offset 2M)], [$10\,000$], [tens], [cost transform, curation bucket, allocation, cell type, headline choice],
+    [Fresh re-quote (offset 8M)], [$1000$], [once], [none (reported only)],
+    [Confirmatory sizing (Appendix A)], [$10 times 100\,000$], [once, post-freeze], [none -- every quoted sizing number],
+    [Off-nominal stress (offset 9M)], [$1000$], [once per policy], [none (robustness probe)],
+    table.hline(stroke: 0.7pt),
+  ),
+  caption: [Scenario-pool roles and the decisions each pool influenced. The pools above the last
+  two rows are development quantities: the selection pool is adaptively reused by the promotion
+  gate, and the development far-tail pool informed the methodology and architecture choices, so
+  neither is an unbiased test set. The confirmatory pool was generated from a seed range disjoint
+  from every earlier draw, after all methodology, architecture, and checkpoint choices were frozen,
+  and each cell was evaluated on it exactly once.],
+) <tbl-pools>
+
+The studies of Sections 4--5 are exploratory -- single training runs unless stated otherwise; the
+confirmatory statements of this paper are the frozen-pool quantities of Sections 6--7.
 
 = Optimizer and dimensionality
 
 Every optimizer in this study is a gradient-free population method, a deliberate choice rather than
 an omission. The training objective is the correction $Delta v$ of a complete atmospheric pass --
-produced by a simulator with adaptive integration, sub-tick event detection, and discrete
-capture/crash termination -- so it is a black-box function of the network weights with no usable
-gradient: there is nothing to back-propagate through. Policy-gradient reinforcement learning
-(PPO @schulman2017ppo, SAC @haarnoja2018sac) can only sidestep this by optimizing a differentiable,
-shaped per-step reward -- a surrogate for the mission cost, not the cost itself -- and the mismatch
-between that stochastic surrogate and the true terminal cost is exactly what the direct-on-cost
-search of Section 4 avoids. We did implement and train RL policies; they underperformed the
-population methods, so throughout we optimize the mission cost directly.
+produced by a simulator with discrete capture, crash, and atmosphere-exit termination,
+threshold-triggered phase transitions, and hard constraint limits -- so it is a black-box function
+of the network weights with no usable gradient. Policy-gradient reinforcement learning
+(PPO @schulman2017ppo, SAC @haarnoja2018sac) does not require a differentiable simulator or a
+differentiable reward -- it estimates gradients from sampled rollouts and can in principle optimize
+a terminal-only objective. We implemented and trained both, with potential-based per-step shaping
+aligned to the predicted correction cost plus the true terminal cost (the standard remedy for
+sparse terminal rewards), and the best policies still underperformed the population methods by a
+wide margin: $636$ m/s mean ($1047$ at $"CVaR"_95$) for the dense PPO policy and $513$ ($893$) for
+the recurrent one, against $119$ ($138$) for the population-trained dense network on the same
+simulator regime#footnote[The reinforcement-learning cells predate two later simulator fixes and
+are quoted on their own contemporaneous evaluation pool; the $4$--$5 times$ gap, not the absolute
+values, is the result.] -- consistent with the stochastic shaped return optimizing a different
+quantity than the deterministic mission cost. Population search on the mission cost itself was
+simply the stronger tool here, so throughout we optimize the mission cost directly.
 
 Having established that the genetic algorithm is the right optimizer under a moving objective, two
 questions remain: does it need a population that scales with the search dimension, and does the
@@ -524,7 +613,7 @@ three-island heterogeneous model, on an optimizer-by-budget grid at the largest 
 the #box[$515$-parameter] dense network.
 
 At $3998$ weights the population size is decisive (@fig-optimizer). The genetic algorithm is best at a
-population of $150$ ($118.0$ m/s mean) and $300$ ($120.5$ m/s) -- a gap smaller than the run-to-run
+population of $150$ ($118.0$ m/s mean; three-seed $119.6$, range $3.0$) and $300$ ($120.5$ m/s) -- a gap smaller than the run-to-run
 scatter we measure on retrained cells in Section 6, so we report them as indistinguishable -- but at
 a population of $60$ it *collapses* to
 $166.3$ m/s. Sixty individuals cannot cover a four-thousand-dimensional weight space; selection
@@ -607,55 +696,75 @@ $"CVaR"_95$; the body quotes means, under which the flat cells are indistinguish
 To resolve the tail we took the strongest recurrent and state-space candidates plus the dense
 reference to convergence -- the headline allocation of two scenarios per generation, a population of
 $512$, run for roughly fifteen to twenty thousand generations until each plateaued -- and evaluated
-each on the far-tail $n = 10\,000$ pool. Because a single run carries real run-to-run scatter, we
+each once on the frozen confirmatory pool ($10 times 100\,000$ scenarios; the development
+$n = 10\,000$ pool guided the campaign and agrees within $1$--$2$ m/s throughout). Because a single
+run carries real run-to-run scatter, we
 repeated the deciding cells over three independent seeds and report the mean and range (@fig-archtail).
-(The GRU, which had the best sweep mean, was also taken to convergence; its single far-tail run lands
-between the Mamba and the LSTM -- $"CVaR"_(99.9)$ $126.1$ m/s, maximum $130.6$ -- but we did not
-repeat it over seeds, so it stays out of the three-seed comparison.)
+(The GRU, which had the best sweep mean, was also taken to convergence; its single confirmatory run
+lands between the Mamba and the LSTM three-seed means -- $"CVaR"_(99.9)$ $126.4$ $[126.0, 126.8]$
+-- but we did not repeat it over seeds, so it stays out of the three-seed comparison.)
 
-On the far-tail $"CVaR"_(99.9)$, the depth at which the tanks are sized, the ordering is
-$ underbrace("Mamba"_962, 124.5) < underbrace("LSTM"_1082, 129.2) < underbrace("Dense"_515, 139.2) $
-m/s (three-seed means), and on the sample maximum $127.6 < 132.4 < 159.0$. The recurrent advantage
-clears run-to-run variance *on the sample maximum*: the LSTM's worst run maxes at $138$ m/s, the dense
-reference's best at $146$, non-overlapping, and the Mamba is lower still (per-seed maxima
-$121.7$--$136.9$ m/s). On $"CVaR"_(99.9)$ the
-three-seed mean ordering is the same, though there the per-seed ranges overlap; single-run bootstrap
-$95%$ CIs on the first seeds -- Mamba $[120.6, 123.0]$, LSTM $[121.6, 124.8]$, dense
-$[124.0, 133.4]$ -- separate the Mamba from the dense reference per run but not from the LSTM.
-Crucially, the
+On the far-tail $"CVaR"_(99.9)$, the depth at which the tanks are sized, the confirmatory-pool
+ordering is
+$ underbrace("Mamba"_962, 125.5) < underbrace("LSTM"_1082, 131.5) < underbrace("Dense"_515, 140.5) $
+m/s (three-seed means; $10 times 100\,000$ scenarios per seed, replicate standard errors of
+$0.1$--$0.9$ m/s, so the per-seed values are essentially exact and the residual spread is
+training-run variance). The deployed artifact separates cleanly: its $123.3$ ($95%$ CI
+$[123.0, 123.6]$) sits below every dense retraining seed ($128.7$ / $139.2$ / $153.7$) and every
+feasible LSTM seed, with a paired margin of $5.4$ $[4.4, 6.4]$ m/s over even the best dense seed.
+Across retrainings the three-seed mean gap to dense is $15.0$ m/s against a combined seed-scatter
+standard error near $8$; the per-seed ranges touch once (the Mamba's worst seed, $131.0$, against
+the dense reference's lucky first seed, $128.7$), so the architecture-level claim is a strong
+ordering of means and of consistency -- the Mamba's seeds span $8.8$ m/s where the dense
+reference's span $25.0$ -- rather than disjoint ranges. Crucially, the
 advantage is invisible at shallow depth -- on the shared $n = 1000$ pool the Mamba and the dense
 reference are a statistical tie on the mean ($+0.1$ m/s; $95%$ CI $[-0.1, +0.3]$) and the Mamba leads by only $1.6$ m/s at
-$"CVaR"_95$ -- and it grows monotonically with tail depth, to $14.7$ m/s at $"CVaR"_(99.9)$. The dense
-network's tight median ($109.2$ m/s) masks a fat, high-variance extreme tail: its three runs span
-$"CVaR"_(99.9)$ from $128$ to $150$ m/s, and its worst hit $184$. The Mamba's tail is both lower and
-half as variable. Sizing from a single dense run could quote $128$ m/s and still be unlucky in flight;
-the recurrent state delivers a tail one can trust.
+$"CVaR"_95$ -- and it grows monotonically with tail depth. The dense
+network's tight median masks a fat, high-variance extreme tail: its three runs span
+$"CVaR"_(99.9)$ from $129$ to $154$ m/s. Sizing from a single dense run could quote $129$ m/s and
+still be unlucky in flight;
+the recurrent policy's tail estimate is consistent across retraining. The sample maximum, by
+contrast, retires as a comparison statistic at this depth: at $10^6$ scenarios it is a single draw
+from the extreme tail -- the Mamba seed with the *lowest* $"CVaR"_(99.9)$ ($122.2$) also logged the
+campaign's deepest single excursion ($412$ m/s) -- which is precisely why the sizing metric is an
+expected shortfall and the maximum is reported as descriptive only.
 
 One feasibility asterisk belongs on the LSTM. Its best run -- the seed with the lowest training loss
-and the tightest tail of its three -- exceeds the integrated heat-load limit on $14.4%$ of the sizing
-pool ($15.6%$ of the $n = 1000$ pool: its $p_95$ heat load sits above the $25$ MJ/m#super[2] limit),
+and the tightest tail of its three -- exceeds the integrated heat-load limit on $13.7%$ of the
+confirmatory pool ($15.6%$ of the $n = 1000$ pool: its $p_95$ heat load sits above the $25$ MJ/m#super[2] limit),
 so its $Delta v$ tail is bought partly with heat. Its two repeats violate nothing, and neither do the
-GRU or the Mamba on any pool (the dense reference grazes the limit on $2$ of $10\,000$ draws). The
-LSTM three-seed mean therefore mixes one infeasible run with two feasible ones, and the Mamba is the
-only cell that wins the sizing tail entirely inside the constraint envelope; @tbl-perf's violation
-column makes the same check for the classical schemes.
+GRU or the Mamba on any pool (the dense reference grazes the limit on $2$ of $10\,000$ development
+draws and $0.01%$ of the confirmatory pool). The
+LSTM three-seed mean therefore mixes one infeasible run with two feasible ones. We adopt a
+*feasibility-first* rule for every ranking and deployment statement: a run must satisfy all three
+constraints on every pool it was evaluated on, or it is excluded from the comparison. Under that
+rule the LSTM ranks by its feasible-seeds mean ($135.2$ m/s $"CVaR"_(99.9)$) and the ordering
+Mamba $<$ LSTM $<$ dense is unchanged -- the Mamba wins the sizing tail entirely inside the
+constraint envelope with or without the rule; @tbl-perf's violation
+column makes the same check for the classical schemes. The infeasible seed also shows that the soft
+constraint penalty does not by itself enforce feasibility -- one of eleven converged runs bought
+tail performance with heat -- which is why the deployment rule is feasibility-first rather than
+penalty-trusting.
 
 The control that pins this on architecture rather than parameter count is the equal-capacity pair.
-At roughly $960$ parameters, the Mamba ($124.5$ m/s $"CVaR"_(99.9)$) beats the dense network of the
-same size ($972$ weights, $130.7$ m/s) -- the state, not the parameters, buys the tighter tail. And
+At roughly $960$ parameters, the Mamba (three-seed $125.5$ m/s $"CVaR"_(99.9)$; deployed seed
+$123.3$) beats the dense network of the
+same size ($972$ weights, $131.1$ $[130.5, 131.6]$, single run) -- the state, not the parameters,
+buys the tighter tail. And
 the dense family does not reward extra capacity: the #box[$972$-weight] network plateaus to a worse
 validation loss than the half-size #box[$515$-weight] reference and is beaten by it on the $n = 1000$ pool
 ($-2.7$ m/s mean, $-4.7$ m/s at $"CVaR"_95$, paired), exactly the dimensionality effect from the
 plateau. On the far-tail metric itself the two dense nets are not cleanly separable: the #box[$972$-weight]
-net's single far-tail run, $130.7$ m/s, sits inside the #box[$515$-weight] net's three-seed spread, and we
+net's single confirmatory run, $131.1$ m/s, sits inside the #box[$515$-weight] net's three-seed spread, and we
 did not repeat the $972$ net, so its tail carries no measured scatter; the dense-versus-dense
 comparison is conclusive only on validation loss and the median. More dense parameters do not buy a better
-policy; in this campaign internal state does, and the Mamba's $124.5$ undercuts both dense nets regardless.
+policy; in this campaign internal state does, and the deployed Mamba's $123.3$ undercuts both dense nets regardless.
 
-#fig("fig_arch_tail.svg", [Three-seed run-to-run distribution on the sizing tail ($n = 10\,000$).
-Mamba is lowest and tightest; both recurrent policies beat the dense reference beyond run-to-run
-variance on the sample maximum (and lead it in three-seed-mean $"CVaR"_(99.9)$), and all of them sit
-well below the best classical band (the LSTM's best run carries the heat-load caveat of the text).], <fig-archtail>)
+#fig("fig_arch_tail.svg", [Per-seed far-tail $"CVaR"_(99.9)$ on the confirmatory pool
+($10 times 100\,000$ scenarios per seed; replicate $95%$ CIs are narrower than the markers). Mamba
+is lowest and tightest across retraining, the deployed seed sits below every dense seed, and every
+network seed sits well below the best classical scheme (the LSTM's best seed carries the heat-load
+caveat of the text).], <fig-archtail>)
 
 == Why: training loss does not pick the tail winner
 
@@ -683,16 +792,35 @@ and precisely the part a validation-RMS objective under-weights.
 
 #fig("fig_loss_vs_tail.svg", [Best validation RMS versus far-tail $"CVaR"_(99.9)$ ($n = 10\,000$) for
 the eleven converged runs. Within every family the runs order identically on both axes (overall
-Spearman $rho = 0.91$); what the loss cannot see are the offsets between families -- the lowest-loss
+Spearman $rho = 0.91$, pooled over families and read as descriptive -- the runs are not
+exchangeable across families); what the loss cannot see are the offsets between families -- the lowest-loss
 run (the LSTM, starred: the heat-load-infeasible one of Section 6.2) is not the best tail, and the
 dense cells sit well above the Mamba at matched loss.], <fig-losstail>)
+
+Three controls, run for this revision and evaluated once on the frozen confirmatory pool of Section
+7, pin the mechanism. *State reset*: the deployed Mamba evaluated with its recurrent state zeroed at
+every guidance tick collapses from $"CVaR"_(99.9) = 123.3$ to $414.5$ m/s at unchanged $100%$
+capture -- the deployed policy computes with its state; it is not a feedforward law in disguise.
+*Matched history*: a dense cell fed an explicit five-tick observation window ($970$ parameters,
+identical budget and regime) reaches $142.2 plus.minus 0.3$ -- inside the dense family's
+seed-to-seed spread, $19$ m/s above the intact policy, with a $423$ m/s worst case at $10^6$
+scenarios; short temporal context does not substitute for learned state. *No
+predicted-$Delta v$*: the same Mamba architecture retrained without the three cost-aligned inputs
+reaches $138.9 plus.minus 0.2$ (median $113.1$) -- the engineered inputs matter for bulk and tail
+alike, so inputs and state are complements rather than substitutes; notably, even this stripped
+network beats the best classical scheme on every reported statistic ($"CVaR"_95$ $125.3$ versus
+joint-FTC's $144.3$), so the network's edge does not ride on its privileged observations. In sum:
+state is necessary for the deployed tail (the first two controls) and not sufficient without the
+cost-aligned inputs (the third).
 
 The deployed headline policy is therefore the Mamba network: a #box[$962$-parameter]
 dense-to-selective-state-space-to-dense stack (a #box[$17$-input] dense encoder, a Mamba core of inner
 width $16$ and state size $12$, a two-output dense decoder with the atan2 bank decoder), trained under
 the full methodology of Section 4. It captures $100%$ of the time at $109.9$ m/s mean and $115.2$ m/s
 $"CVaR"_95$ on a fresh, never-trained-or-selected-on pool -- within rounding of its $2$M-pool numbers
-(the $115.4$ of @tbl-perf), so there is no selection optimism in the headline. The #box[$515$-parameter] dense network remains the
+(the $115.4$ of @tbl-perf) -- and, on the frozen confirmatory pool, captures $10^6$ of $10^6$
+scenarios at $"CVaR"_(99.9) = 123.3 plus.minus 0.1$, within $1.3$ m/s of the development-pool
+estimate: there is no selection optimism in the headline. The #box[$515$-parameter] dense network remains the
 *efficiency reference*: half the parameters, no internal state, and a competitive median, at the cost
 of the fat tail just described. If compute or simplicity is the binding constraint it is the better
 pick; if the mission is sized off the tail, the Mamba wins.
@@ -708,7 +836,7 @@ two-output atan2 decoder inherited from the 2009 work wins, with most of its adv
 
 = Classical versus neural network
 
-We now place the neural policy against the classical schemes on identical Monte-Carlo scenarios --
+We now place the neural policy against the classical schemes on identical Monte Carlo scenarios --
 the same seed pools, the same dispersions, the fair comparison we have always insisted on. Two things
 have to be established: that the classical baselines are tuned to their best, and that the comparison
 is read at sizing depth.
@@ -722,13 +850,15 @@ the genetic algorithm co-optimize the reference: a single extra gene sets the co
 generates the reference table, regenerated per individual, so the law and the trajectory it tracks
 adapt together. The effect is large (@fig-joint). FTC falls from $170.7$ to $126.3$ m/s mean and from
 $244.1$ to $142.9$ m/s at $"CVaR"_95$ -- a $44$ m/s improvement, and the network beats it on every one
-of $1000$ paired scenarios ($p approx 3 times 10^(-165)$). The energy controller recovers by $35$ m/s
+of $1000$ paired scenarios ($p < 10^(-15)$, saturated). The energy controller recovers by $35$ m/s
 and PredGuid by $23$. The reference *was* FTC's weakness: a feedback law tracking a poor target cannot
 out-perform the target.
 
 With its reference repaired, FTC ($126.3$ m/s / $142.9$ $"CVaR"_95$) becomes the best classical scheme,
 within about $2$ m/s in mean of the far more expensive FNPAG ($124.3$ / $144.0$) -- the paired gap is
-statistically resolvable ($p approx 10^(-23)$) but operationally negligible -- and it is analytic and
+statistically resolvable ($p approx 10^(-23)$) but operationally negligible, and at the far-tail
+sizing depth the repaired FTC pulls decisively ahead ($165.1$ versus $198.7$, Section 7.2) -- and
+it is analytic and
 fast. The aerocapture story we wrote in 2009, in which FTC was the baseline to beat, becomes: a
 *well-referenced* FTC is the classical state of the art, and it costs a fraction of a numerical
 predictor--corrector to run.
@@ -743,24 +873,42 @@ Three schemes define the deployability frontier: the neural network, the well-re
 FNPAG. They trade off along three axes -- accuracy, compute, and robustness -- and no single scheme
 dominates all three.
 
-*Accuracy.* On the sizing tail the network wins outright. Its far-tail $"CVaR"_(99.9)$ of $124.5$ m/s
-sits roughly $40$ m/s below joint-FTC ($164$) and FNPAG ($165$). On the shared paired pool it beats
+*Accuracy.* On the sizing tail the network wins outright. Its far-tail $"CVaR"_(99.9)$ of
+$123.3 plus.minus 0.1$ m/s sits $41.8$ m/s $[41.2, 42.4]$ below joint-FTC ($165.1$) and $75.4$
+$[71.4, 79.3]$ below FNPAG ($198.7$) on the frozen confirmatory pool. FNPAG's extreme tail fattens
+with depth in a way its shallow statistics hide -- $"CVaR"_95$ matches the development pool at
+$143$, but $"CVaR"_(99.9)$ grows from $165$ at $n = 10^4$ to $198.7$ at $10^6$, with $163$ physical
+crashes in $10^6$ (all surface impacts on individual re-runs at $12 times$ the evaluation timeout,
+not censoring) -- so the repaired FTC is decisively the better classical scheme at sizing depth. On
+the shared paired pool it beats
 joint-FTC by $16.4$ m/s in mean, $23.8$ at $p_95$, and $27.6$ at $"CVaR"_95$, winning all $1000$
 scenarios; against FNPAG the margins are $14.4$ / $23.4$ / $28.7$ m/s, winning $998$ of $1000$
 (@tbl-paired). The tail margin is consistently *larger* than the mean margin -- the network's
 advantage is precisely where the mission is sized.
 
-*Compute.* On a single idle core, the dense network runs at $2.40$ ms per simulation and the stateful
-Mamba at $3.68$ ms, against $1.25$ ms for FTC and $86.1$ ms for FNPAG (@fig-classical). The network is
+*Compute.* On a single idle core, the dense network runs at $2.35$ ms per simulation and the stateful
+Mamba at $3.59$ ms, against $1.24$ ms for FTC and $81.9$ ms for FNPAG (@fig-classical). The network is
 roughly three times FTC -- the same fast class -- and $23 times$ faster than the numerical
-predictor--corrector. FNPAG is dominated outright: joint-FTC matches its accuracy and the network beats
-it, both at a small fraction of its cost. The selective-state-space core costs about $1.5 times$ the
-dense network, the price of the tail it buys.
+predictor--corrector. On accuracy and compute FNPAG is dominated -- joint-FTC matches its accuracy
+and the network beats it, both at a small fraction of its cost -- though the off-nominal stress
+below keeps robustness a separate axis. The selective-state-space core costs about $1.5 times$ the
+dense network, the price of the tail it buys. Per control action rather than per trajectory: the
+network's forward pass costs $approx 5$ (mu)s per $1$ s guidance update (whole-simulation cost
+divided by the $approx 734$ updates flown -- an upper bound on pure inference), while FNPAG's
+predictor work amounts to $approx 0.25$ ms per $2$ s replan cycle. Flight processors run one to
+two orders of magnitude slower than the laptop core measured here; at a conservative $100 times$
+scaling neither scheme breaches its own deadline ($approx 25$ ms per replan against $2$ s;
+$approx 0.5$ ms per update against $1$ s), but the deadline margins differ by a factor of thirty,
+and the relative cost ordering is host-independent. None of these measurements establish worst-case
+execution time or memory on qualified hardware (Section 9).
 
 *Robustness -- the honest caveat.* We trained the network on the medium dispersion regime. Under a
 deliberately harsher off-nominal regime (atmosphere, density perturbation, navigation, and filter all
 set high), the picture inverts on robustness, and we report it plainly because it is the one place the
-network loses (@fig-robust). The analytic joint-FTC degrades least -- its capture rate falls by
+network loses (@fig-robust). All stress-regime tail statistics are conditional on capture --
+$"CVaR"_95 (Delta v | "capture")$ -- and a conditional tail can improve by failing the hardest
+scenarios, so we read every stress comparison lexicographically: capture probability first,
+conditional tail cost second, and no tail win is claimed across a capture-rate deficit. The analytic joint-FTC degrades least -- its capture rate falls by
 $5.5$ points and its $"CVaR"_95$ inflates by $197$ m/s -- against the network's #box[$9.9$-point] capture
 drop and $+402$ m/s inflation; PredGuid ($-9.3$ pts, $+297$) sits between, FNPAG loses less capture
 ($-7.1$ pts) but inflates its tail the most ($+490$), and the *fixed*-reference FTC collapses entirely ($-33$ points), which again ties the
@@ -787,30 +935,44 @@ property we can claim.
       [*Scheme*], [*Capture %*], [*Viol. %*], [*Mean*], [$bold(p_95)$], [$bold("CVaR"_95)$], [$bold("CVaR"_(99.9))$†],
     ),
     table.hline(stroke: 0.35pt),
-    [NN -- Mamba (deployed)], [100.0], [0.0], [109.9], [114.0], [*115.4*], [*124.5*],
-    [NN -- dense (efficiency ref.)], [100.0], [0.0], [109.7], [114.9], [117.0], [139.2],
-    [FTC (joint reference)], [100.0], [0.0], [126.3], [137.8], [142.9], [164.0],
-    [FNPAG], [100.0], [0.0], [124.3], [137.4], [144.0], [165.0],
-    [PredGuid (joint reference)], [100.0], [0.0], [144.2], [164.2], [172.8], [---],
-    [Energy controller (joint reference)], [100.0], [0.0], [142.1], [166.3], [178.3], [---],
-    [PredGuid (fixed reference)], [100.0], [0.0], [167.4], [209.8], [227.1], [---],
-    [FTC (fixed reference)], [100.0], [0.2], [170.7], [208.9], [244.1], [353.1],
-    [Energy controller (fixed reference)], [99.6], [0.0], [176.7], [226.0], [245.8], [---],
-    [Equilibrium glide], [99.5], [0.5], [200.3], [290.0], [327.6], [---],
-    [Piecewise constant], [99.8], [1.1], [258.3], [374.6], [421.1], [---],
+    [NN -- Mamba (deployed)], [100.0], [0.0], [109.9], [114.0], [*115.4*], [*123.3*],
+    [NN -- LSTM#super[‡]], [100.0], [15.6], [108.4], [114.0], [116.0], [135.2],
+    [NN -- dense (efficiency ref.)], [100.0], [0.0], [109.7], [114.9], [117.0], [128.7],
+    [FTC (joint reference)], [100.0], [0.0], [126.3], [137.8], [142.9], [165.1],
+    [FNPAG], [100.0], [0.0], [124.3], [137.4], [144.0], [198.7],
+    [PredGuid (joint reference)], [100.0], [0.0], [144.2], [164.2], [172.8], [225.8],
+    [Energy controller (joint reference)], [100.0], [0.0], [142.1], [166.3], [178.3], [304.3],
+    [PredGuid (fixed reference)], [100.0], [0.0], [167.4], [209.8], [227.1], [301.6],
+    [FTC (fixed reference)], [100.0], [0.2], [170.7], [208.9], [244.1], [341.4],
+    [Energy controller (fixed reference)], [99.6], [0.0], [176.7], [226.0], [245.8], [308.1],
+    [Equilibrium glide], [99.5], [0.5], [200.3], [290.0], [327.6], [410.1],
+    [Piecewise constant], [99.8], [1.1], [258.3], [374.6], [421.1], [598.2],
     table.hline(stroke: 0.7pt),
   ),
-  caption: [Final Monte-Carlo performance, correction $Delta v$ in m/s, ordered by $"CVaR"_95$.
+  caption: [Final Monte Carlo performance, correction $Delta v$ in m/s, ordered by $"CVaR"_95$.
   Capture / Viol. / mean / $p_95$ / $"CVaR"_95$ are on the $n = 1000$ final-evaluation pool;
-  †$"CVaR"_(99.9)$ is the far-tail sizing metric on a dedicated $n = 10\,000$ pool (network values
-  are three-seed means). Reference-tracking schemes appear in both their fixed- and co-optimized
+  †$"CVaR"_(99.9)$ is the far-tail sizing metric on the frozen confirmatory pool
+  ($10 times 100\,000$ scenarios per scheme; replicate standard errors $0.1$--$3.6$ m/s; each
+  average pools $1000$ tail observations). Network rows tabulate the value the feasibility-first
+  rule of Section 6.2 ranks the cell by -- the deployed Mamba seed, the dense efficiency-reference
+  seed, and the LSTM feasible-seeds mean -- with per-seed values in Section 6.2.
+  Reference-tracking schemes appear in both their fixed- and co-optimized
   (joint) reference forms (Section 7.1). Viol. is the fraction of draws exceeding any of the
   heat-flux, g-load, or heat-load limits: the deployed network, the tuned predictor--correctors, and
   the joint-reference trackers violate none; the fixed-reference FTC, equilibrium glide, and
   piecewise constant carry heat-flux exceedances of at most $1.1%$. Sub-$100%$ captures are the
-  off-corridor draws of the weaker schemes. Single-run bootstrap $95%$ CIs on $"CVaR"_(99.9)$ span
-  roughly $plus.minus 1$--$5$ m/s for the tabulated cells. The mean
-  is reported for continuity with the 2009 work but is operationally secondary to the tail.],
+  off-corridor draws of the weaker schemes; a $100%$ capture rate means "no failures observed" --
+  with zero failures in $n$ independent scenarios the one-sided $95%$ upper bound on the failure
+  probability is $approx 3\/n$ ($3 times 10^(-4)$ at $n = 1000$; $3 times 10^(-6)$ at the
+  confirmatory $n = 10^6$). The mean
+  is reported for continuity with the 2009 work but is operationally secondary to the tail.
+  #super[‡]The LSTM's best seed -- its lowest-training-loss one -- exceeds the heat-load limit on
+  $15.6%$ of this pool ($13.7%$ of the confirmatory pool); the tabulated $135.2$ is its two
+  feasible seeds' mean, and the raw three-seed mean including the infeasible seed is $131.5$.
+  Confirmatory capture is $100%$ for the network rows, joint-FTC, and fixed-reference FTC;
+  $99.85$--$99.98%$ for the remaining classical schemes (their † values are conditional on
+  capture; FNPAG's $163$ failures in $10^6$ were individually re-run at $12 times$ the evaluation
+  timeout and are all physical crashes).],
 ) <tbl-perf>
 
 #figure(
@@ -822,27 +984,40 @@ property we can claim.
       [*Comparison (A vs B)*], [$bold(Delta"mean")$], [*95% CI*], [$bold(Delta p_95)$], [$bold(Delta"CVaR"_95)$], [*A-win %*], [*p*],
     ),
     table.hline(stroke: 0.35pt),
-    [Mamba vs FTC (fixed ref.)], [$-60.8$], [$[-62.4, -59.2]$], [$-95.0$], [$-128.8$], [100.0], [$3 times 10^(-165)$],
-    [Mamba vs FTC (joint ref.)], [$-16.4$], [$[-16.8, -16.0]$], [$-23.8$], [$-27.6$], [100.0], [$3 times 10^(-165)$],
-    [Mamba vs FNPAG], [$-14.4$], [$[-14.8, -14.0]$], [$-23.4$], [$-28.7$], [99.8], [$3 times 10^(-165)$],
+    [Mamba vs FTC (fixed ref.)], [$-60.8$], [$[-62.4, -59.2]$], [$-95.0$], [$-128.8$], [100.0], [$< 10^(-15)$],
+    [Mamba vs FTC (joint ref.)], [$-16.4$], [$[-16.8, -16.0]$], [$-23.8$], [$-27.6$], [100.0], [$< 10^(-15)$],
+    [Mamba vs FNPAG], [$-14.4$], [$[-14.8, -14.0]$], [$-23.4$], [$-28.7$], [99.8], [$< 10^(-15)$],
     [Mamba vs dense (eff. ref.)], [$+0.1$], [$[-0.1, +0.3]$], [$-0.9$], [$-1.6$], [44.9#super[‡]], [$0.02$],
     [Mamba vs LSTM], [$+1.4$], [$[+1.2, +1.6]$], [$-0.0$], [$-0.6$], [29.2#super[‡]], [$3 times 10^(-46)$],
-    [FTC: joint vs fixed reference], [$-44.4$], [$[-45.9, -42.9]$], [$-71.2$], [$-101.2$], [100.0], [$3 times 10^(-165)$],
+    [FTC: joint vs fixed reference], [$-44.4$], [$[-45.9, -42.9]$], [$-71.2$], [$-101.2$], [100.0], [$< 10^(-15)$],
     [FTC (joint) vs FNPAG], [$+2.0$], [$[+1.5, +2.5]$], [$+0.4$], [$-1.1$], [33.9], [$1 times 10^(-23)$],
     table.hline(stroke: 0.7pt),
   ),
   caption: [Paired comparisons on the shared $n = 1000$ pool, correction $Delta v$ in m/s; negative
-  $Delta$ favors A. The CI is a $10\,000$-resample bootstrap on the paired mean difference.
-  Win-rate and $p$ (Wilcoxon signed-rank) are computed on the per-scenario cost;
-  $p approx 3 times 10^(-165)$ is the saturation floor of the normal-approximation Wilcoxon at
-  $n = 1000$, reached at or near sign unanimity -- it certifies a (near-)unanimous direction, not a
-  resolved tail probability.
+  $Delta$ favors A. The CI is a $10\,000$-resample bootstrap on the paired mean difference; the
+  tail deltas carry the same paired-resample construction ($Delta p_95$ / $Delta"CVaR"_95$ $95%$
+  CIs -- Mamba vs joint-FTC $[-24.9, -22.5]$ / $[-29.7, -25.5]$; vs FNPAG $[-25.1, -21.5]$ /
+  $[-31.4, -26.0]$; vs dense $[-1.6, -0.1]$ / $[-2.6, -0.6]$; vs LSTM $[-0.6, +0.5]$ /
+  $[-1.3, +0.1]$, the one interval straddling zero -- the intra-network separation lives at the
+  far-tail depth, not here).
+  Win-rate and $p$ (Wilcoxon signed-rank) are computed on the per-scenario cost; $p$ is truncated
+  at $10^(-15)$ -- the normal-approximation statistic saturates (near $10^(-165)$) at or near sign
+  unanimity at $n = 1000$, certifying a (near-)unanimous direction, not a resolved tail
+  probability. Deltas are computed on unrounded per-scenario values, so a delta may differ from the
+  difference of the rounded marginals in @tbl-perf by $0.1$ m/s.
   #super[‡]For the two intra-network rows the win-rate is driven by the bulk of the per-scenario
   differences, where the dense and LSTM networks match or slightly beat the Mamba; the headline
-  ordering lives in the tail ($Delta"CVaR"_95 < 0$ and, at the far-tail sizing depth,
-  $Delta"CVaR"_(99.9) = -14.7$ for Mamba vs the dense reference). The LSTM row additionally carries
+  ordering lives in the tail ($Delta"CVaR"_95 < 0$ and, at the far-tail sizing depth, confirmatory
+  paired replicate deltas of $Delta"CVaR"_(99.9) = -41.8$ $[-42.4, -41.2]$ vs joint-FTC, $-5.4$
+  $[-6.4, -4.4]$ vs the dense reference seed, and $-15.0$ in three-seed means). The LSTM row
+  additionally carries
   the heat-load feasibility caveat of Section 6.2.],
 ) <tbl-paired>
+
+#fig("fig_survival.svg", [Empirical survival curves of the correction $Delta v$ on the confirmatory
+sizing pool ($10 times 100\,000$ scenarios per scheme; log scale, curves subsampled every
+$approx 100$th order statistic). The network-to-classical separation grows with tail depth -- the
+sizing thesis in one picture.], <fig-survival>)
 
 == Matching the objective to the regime closes the gap <sec-objcenter>
 
@@ -879,14 +1054,20 @@ The effect transfers cleanly to the deployed architecture -- the centered Mamba 
 $273$ m/s at $94.9%$ capture against the stalled stack's $1216$ at $27%$ -- so the stall was the
 objective, not the cell type.
 
-The payoff, stated with its caveat, is that the off-nominal gap is *not* intrinsic. With a
+The payoff, stated with its caveats, is that on this evidence the off-nominal gap is not intrinsic
+to neural guidance. With a
 regime-matched objective the centered Mamba ($"CVaR"_95$ $273$ m/s at $94.9%$ capture) beats the best
 classical scheme on the very regime where the medium-trained network lost to it -- joint-FTC retrained
-on the same regime sits at $424$ m/s, and the medium-deployed joint-FTC at $340$. The analytic law's
+on the same regime sits at $424$ m/s at $95.0%$ capture, and the medium-deployed joint-FTC at $340$
+at $94.5%$: capture parity within half a point, so the lexicographic comparison is decided by the
+conditional tail. The analytic law's
 edge in @sec-deployability was a property of the *mismatched* training objective, not of neural
-guidance. The caveat cuts in both directions: these are single-run, $n = 1000$ figures (the
-$3$--$4 times$ effect dwarfs any plausible run-to-run scatter, but a sizing-grade number wants the
-$sigma_"run"$ repeats and the $n = 10\,000$ depth used elsewhere), and the regime that produces the gap
+guidance. The result now carries measured run-to-run scatter: three independent centered-Mamba
+retrainings hold capture at $94.8$--$95.0%$ with $"CVaR"_95 (Delta v | "capture")$ spanning
+$231$--$273$ m/s -- every seed beating both the retrained joint-FTC ($424$) and the
+medium-deployed one ($340$) -- so the reversal is stable across training runs. The remaining
+caveats: these are $n = 1000$ figures (a sizing-grade number wants the $n = 10\,000$ depth used
+elsewhere), and the regime that produces the gap
 is itself one a real mission would design away. The durable lesson is methodological and reinforces
 Section 4: the optimal worst-case weighting is matched to the environment's noise and the per-individual
 sample budget, not fixed once.
@@ -900,9 +1081,11 @@ are shown separately because the levers trade them off.], <fig-objcenter>)
 
 = What the network uses
 
-To close the architecture argument we ask which inputs the deployed Mamba policy actually relies on,
-by zeroing each input in turn and measuring the resulting cost increase (@fig-ablation). The ranking
-is informative. The largest degradations come from the orbital tracking signals -- the eccentricity
+To close the architecture argument we ask which inputs the deployed Mamba policy actually relies
+on, through a closed-loop input-sensitivity analysis: each input is zeroed in turn and the
+resulting cost increase measured (@fig-ablation). Zeroing a normalized input perturbs every
+subsequent state of the closed loop, so the deltas measure closed-loop dependence, not isolated
+feature importance. The ranking is informative. The largest degradations come from the orbital tracking signals -- the eccentricity
 excess relative to the target, the nominal altitude rate, and the dynamic-pressure error -- the
 quantities a reference-tracking law would feed back on. Immediately behind them are two of the
 engineered, cost-aligned *predicted correction-$Delta v$* components: the periapsis-correction burn
@@ -919,12 +1102,12 @@ without any memory matches the recurrent ones on the median: the engineered inpu
 the work that recurrence would otherwise do. What they cannot capture is the small set of hardest
 scenarios where the future of the pass depends on more than the present osculating orbit, and that is
 exactly where the Mamba's internal state pays off and the dense tail frays. A per-input behavior
-report over the deployed policy shows no distinct failure mode: the residual correction cost is
-irreducible scenario noise, not a pocket of mishandled cases. The network is using the physics we
-handed it, and reserving its memory for the tail.
+report over the deployed policy shows no clustered failure mode; we did not attempt a per-scenario
+lower-bound analysis, so we do not claim the residual cost irreducible. The network is using the
+physics we handed it, and reserving its memory for the tail.
 
-#fig("fig_ablation.svg", [Per-input cost increase when each input is zeroed, for the deployed Mamba
-policy. The orbital tracking errors (eccentricity excess, altitude rate, dynamic-pressure error)
+#fig("fig_ablation.svg", [Closed-loop input sensitivity: per-input cost increase when each input is
+zeroed, for the deployed Mamba policy. The orbital tracking errors (eccentricity excess, altitude rate, dynamic-pressure error)
 dominate, followed by the engineered, cost-aligned predicted-$Delta v$ components.], <fig-ablation>)
 
 = Discussion and limitations
@@ -932,29 +1115,39 @@ dominate, followed by the engineered, cost-aligned predicted-$Delta v$ component
 The clearest limitation is the off-nominal robustness gap of @sec-deployability -- the deployed
 network wins the nominal sizing tail it was trained for and loses, off-nominal, to a training-free
 analytic law. @sec-objcenter traces that gap to the training objective rather than to neural
-guidance, with the two markers stated there: the centered-retrain demonstration is single-run at
-$n = 1000$, and the stress regime is one a real mission would design away. What remains open is the
-sizing-grade version of that result -- the $sigma_"run"$ repeats and the $n = 10\,000$ depth used
-for the headline.
+guidance, with the markers stated there: the centered-retrain demonstration is now three-seed
+(capture steady at $approx 95%$, conditional tail $231$--$273$ m/s, every seed beating both FTC
+references) but remains $n = 1000$, and the stress regime is one a real mission would design away.
+What remains open is the far-tail depth used for the headline.
 
-A second tradeoff is the cost of state. The deployed Mamba runs at $3.68$ ms per simulation against
-$2.40$ ms for the dense network -- about $1.5 times$ for the selective-state-space core -- which is
+A second tradeoff is the cost of state. The deployed Mamba runs at $3.59$ ms per simulation against
+$2.35$ ms for the dense network -- about $1.5 times$ for the selective-state-space core -- which is
 the price of the tighter tail. Both remain in the fast compute class, an order of magnitude below the
 numerical predictor--corrector, so the choice is between the network and FTC, not between the network
 and FNPAG. If on-board compute or implementation simplicity is the binding constraint, the memoryless
 #box[$515$-parameter] dense network is the efficiency reference: a competitive median at half the
 parameters, paying only on the tail.
 
+A flight-qualification path for a stateful network remains open, and the deployability triangle
+suggests its shape: a simplex arrangement in which the analytic joint-FTC -- whose off-nominal
+robustness Section 7.2 established -- runs in parallel as an onboard monitor with authority to take
+over on envelope violation, while the network flies the nominal corridor it wins on. The deployed
+policy is a fixed forward pass of $962$ parameters in double precision with no data-dependent
+control flow, so worst-case execution time and memory bound trivially; verifying the *decision*
+behavior across the dispersion envelope, rather than the code, is the open problem.
+
 We deliberately leave three threads as future work. We have no clean campaign study of pruning or
 quantizing the deployed head -- the only such cells predate the simulator fixes in this work and are
-not comparable -- so deploy-size reduction of the Mamba policy is open. We also did not run the
-state-ablation control -- the same Mamba with its state reset every tick, or a dense cell fed
-matched temporal features -- that would pin the tail gain on memory itself rather than on the cell's
-search behavior; Section 6.3's mechanism claim is scoped accordingly. And we calibrated run-to-run
-variance only at the tail, through the three-seed architecture repeats, which is what the headline
-needs; a dedicated study of the mean-level variance across the optimizer cells was not run, so we
-report tight optimizer differences (the genetic algorithm at populations of $150$ versus $300$, for
-instance) as indistinguishable rather than ranking them.
+not comparable -- so deploy-size reduction of the Mamba policy is open. The state-ablation thread
+is now closed by the three controls of Section 6.3 -- state reset, matched history, and no
+predicted-$Delta v$ -- so the tail mechanism is measured rather than hypothesized; what remains
+open there is only the intra-recurrent ordering (why the selective state space edges the gated
+cells), which the three-seed evidence cannot separate. Run-to-run variance is calibrated at the
+tail through the three-seed architecture repeats and, for the decisive seed-strategy and CMA-ES
+cells, at the mean through dedicated repeats (Section 4.1; the fixed-seed pathology is itself
+high-variance, a $33$ m/s seed range); the remaining tight optimizer differences (the genetic
+algorithm at populations of $150$ versus $300$, for
+instance) stay reported as indistinguishable rather than ranked.
 
 Finally, a methodological note for anyone reproducing this. The training is not bit-reproducible from
 a seed alone -- it never was -- because the non-stationary objective and the operator randomness make
@@ -967,17 +1160,20 @@ than assume it away.
 Seventeen years ago we showed that a feed-forward network trained by a genetic algorithm could fly an
 MSR aerocapture more efficiently than a Cerimele--Gamble feedback law, and we asked for a comparison
 against predictor--correctors. This paper delivers it, and the answer is favorable to neural guidance
-on the metric that matters. A #box[$962$-parameter] recurrent (Mamba) policy captures $100%$ of the time and,
-on the far tail that sizes the propellant tanks, reaches $"CVaR"_(99.9) = 124.5$ m/s -- some $40$ m/s
-below the best classical schemes and beating a well-referenced FTC by $16.4$ m/s in mean and $27.6$ at
+on the metric that matters. A #box[$962$-parameter] recurrent (Mamba) policy captures every one of
+$10^6$ frozen confirmatory scenarios and,
+on the far tail that sizes the propellant tanks, reaches $"CVaR"_(99.9) = 123.3 plus.minus 0.1$ m/s
+-- $42$ m/s
+below the best classical scheme and beating a well-referenced FTC by $16.4$ m/s in mean and $27.6$ at
 $"CVaR"_95$, on every one of a thousand paired scenarios, running $23 times$ faster than the numerical
 predictor--corrector.
 
 Two findings carry beyond the headline number. The first is methodological: a genetic algorithm is the
 wrong optimizer for a fixed objective and the right one for a moving one, and the moving
-Monte-Carlo environment -- adaptive seeds, a tail-weighting cost transform, and hardest-case curation
--- is a matched system that converts it from the worst optimizer we tested ($160.3$ m/s) to the best
-($118.0$). The second is architectural: engineered, cost-aligned inputs flatten the
+Monte Carlo environment -- adaptive seeds, a tail-weighting cost transform, and hardest-case curation
+-- is a matched system that converts it from the worst optimizer we tested ($154$ m/s three-seed
+mean) to the best
+($120$). The second is architectural: engineered, cost-aligned inputs flatten the
 typical cost across every cell type we tried, so the network's internal state earns its place only on the
 hardest scenarios -- the extreme tail -- which is exactly the part of the distribution that sizes the
 mission and exactly the part a validation-loss objective under-weights. Training loss did not pick
@@ -1004,32 +1200,93 @@ One compact reference for the settings and systems behind every number.
 
 *Simulator.* All schemes fly through one native (Rust) simulator: fixed-step fourth-order
 Runge--Kutta integration (Gill variant), $J_2$--$J_4$ zonal gravity, a tabulated Mars atmosphere
-carrying the static Monte-Carlo bias and the Ornstein--Uhlenbeck perturbation, pilot dynamics,
+carrying the static Monte Carlo bias and the Ornstein--Uhlenbeck perturbation, pilot dynamics,
 thermal tracking, and the navigation--guidance--control chain sequenced on its own cadences; the
 bias-filter navigation recovers density through lift-corrected inverse dynamics. The implementation is
-validated against the 2009 study's legacy code: across all $725$ time steps of a guided trajectory,
-$22$ of $24$ output channels are bit-identical (the two mismatches trace to uninitialized variables
-in the reference).
+regression-validated against the 2009 study's legacy code -- across all $725$ time steps of a guided
+trajectory, $22$ of $24$ output channels are bit-identical (the two mismatches trace to
+uninitialized variables in the reference) -- which establishes equivalence with the flight-heritage
+implementation, not physical validation. Independent physics checks run in the test suite: an
+analytic potential-gradient oracle for the $J_2$--$J_4$ gravity expansion, integrator convergence
+on analytic systems, vacuum energy and angular-momentum conservation, and cross-language
+forward-pass parity for the network runtime at machine epsilon.
 
-*Seed pools.* Every Monte-Carlo pool derives from the mission base seed through disjoint reserved
-streams: validation (offset $10^6$, $n = 1000$, the in-training promotion gate), final evaluation
-(offset $2 times 10^6$: the $n = 1000$ paired pool of @tbl-perf and @tbl-paired, extended to
-$n = 10\,000$ for the far tail), the fresh re-quote pool (offset $8 times 10^6$), and the off-nominal
-stress pool (offset $9 times 10^6$). Training scenarios are drawn outside every reserved stream, and
-dispersion draws use Latin-hypercube sampling.
+*Seed pools.* Every Monte Carlo pool derives from the mission base seed through disjoint reserved
+streams: the selection pool (offset $10^6$, $n = 1000$, the in-training promotion gate -- queried
+$13\,442$ times over the headline run, so it is adaptively reused and is not an unbiased estimate
+of generalization), final evaluation (offset $2 times 10^6$: the $n = 1000$ paired pool of
+@tbl-perf and @tbl-paired, extended to $n = 10\,000$ for the development far tail), the fresh
+re-quote pool (offset $8 times 10^6$), and the off-nominal stress pool (offset $9 times 10^6$).
+Training scenarios are drawn outside every reserved stream; evaluation pools draw one scenario per
+seed (independent samples), and multi-scenario batches use Latin-hypercube draws. @tbl-pools states
+which decisions each pool influenced.
 
-*Cost and objective.* Per simulation the cost is the correction $Delta v$ passed through a $C^oo$
-softplus-quadratic with its knee at $1000$ m/s, plus normalized soft penalties (weight $1.0$ each) on
-heat-flux, g-load, and heat-load exceedances; non-captures receive the energy-proportional virtual
-cost of Section 4. The per-simulation cost is cubed (the deployed transform) and aggregated across an
-individual's scenario batch by root-mean-square.
+*Confirmatory sizing pool.* All methodology, architecture, and checkpoint choices were frozen at a
+recorded revision before the pool was generated. Seeds are drawn without duplicates from
+$[2^31, 2^32)$ -- structurally disjoint from every historical draw, since all earlier pools,
+training batches, and curation probes live in $[0, 2^31)$ -- arranged as ten replicate pools of
+$100\,000$ scenarios sharing seeds across schemes (so per-replicate differences are paired). Every
+cell is evaluated on it exactly once; tail statistics use the estimator of Section 2.2
+($"CVaR"_(99.9)$ averages $100$ observations per replicate, $1000$ pooled), and replicate-level
+dispersion gives the quoted standard errors and difference intervals with no distributional
+assumptions.
 
-*Optimizer (deployed headline).* pymoo genetic algorithm (SBX crossover, polynomial mutation),
-population $512$, two scenarios per individual per generation, run to plateau
-($15\,000$--$20\,000$ generations). Adaptive seed curation fires every $2$ generations or on a
-validated promotion: $1000$ probe seeds, scored by the top individual, one seed per cost-CDF
-quantile bin, hardest seed per bin. The validation gate re-runs each new argmin on the reserved
-$n = 1000$ pool and promotes on strict RMS improvement.
+*Off-nominal stress regime.* The Section 7 stress pool raises four domains to their high presets:
+the atmospheric density bias to $plus.minus 100%$ (from $plus.minus 50%$); the Gauss--Markov
+density perturbation to a $30$ s correlation time at $20%$ RMS (from $120$ s at $5%$); navigation
+errors to $3sigma$ altitude $plus.minus 3$ km, horizontal $approx plus.minus 18$ km per axis,
+velocity $plus.minus 3$ m/s, drag acceleration $plus.minus 0.6$ m/s#super[2]\; and the
+navigation-filter gain draw to $plus.minus 0.45$ absolute ($3sigma$).
+
+*Dispersion rationale.* The $plus.minus 50%$ nominal density span is a deliberately conservative
+envelope for Mars seasonal and dust-loading variability about a tabulated mean profile
+@forget1999mars; domains are drawn independently as a modeling choice (no cross-correlations are
+claimed). The static bias and the Ornstein--Uhlenbeck process model different frequencies --
+profile-scale uncertainty versus along-track variability -- and do not double-count; the process
+is zero-initialized at entry and reaches its stationary variance within roughly one correlation
+time. The two wind draw dimensions are retained inert to keep the $26$-dimensional draw layout
+stable across configurations with and without the wind model.
+
+*Classical tuning parity.* Every classical scheme was tuned by the same genetic algorithm on the
+same cost $C$ above -- identical penalties, virtual costs, and transform -- co-optimizing its full
+parameter set including the shared navigation-filter and actuator gains the network also tunes
+($26$ parameters for FTC against the network's weights plus $3$ actuator-side parameters), at
+$2000$ generations $times 300$ individuals $times 10$ scenarios per generation. The classical
+searches plateau far inside that budget (FNPAG's best individual stopped improving before
+generation $60$), so the network's longer run buys the comparison nothing. The joint-reference
+co-optimization of Section 7.1 is the classical counterpart of the network's co-tuned actuator
+parameters, and the information asymmetry is tested directly: retrained without the three
+predicted-$Delta v$ observations the classical schemes cannot consume, the network still beats the
+co-tuned joint-FTC on every reported statistic (Section 6.3, third control).
+
+*Correction burns.* The reported $Delta v$ is the three-burn plan from the captured orbit (apsis
+radii $r_a$, $r_p$) to the $500$ km circular parking orbit (radius $r_c$), using the elliptical
+apsis speed $v(r_1, r_2) = sqrt(2 mu r_2 \/ (r_1 (r_1 + r_2)))$: a periapsis correction at
+apoapsis, $Delta v_1 = v(r_a, r_c) - v(r_a, r_p)$; circularization at the new periapsis,
+$Delta v_2 = sqrt(mu \/ r_c) - v(r_c, r_a)$; and a plane change $Delta v_3 = 2 v_n sin(Delta i \/ 2)$
+at the cheaper node, $v_n$ the smaller of the target-orbit speeds at the two nodes. The total is
+$|Delta v_1| + |Delta v_2| + |Delta v_3|$.
+
+*Cost and objective.* Per simulation the cost is
+$ C = Delta v + s(Delta v - T) + s(Delta v - T)^2 / (2 S) + sum_j w_j thin s((x_j - L_j) \/ L_j), $
+with $s$ a softplus (a $C^oo$ knee), $T = 1000$ m/s, $S$ the quadratic scale, and the penalty sum
+over the peak heat-flux, peak-load, and integrated heat-load exceedances normalized by their limits
+$L_j$, weights $w_j = 1$. Non-captures receive a virtual cost above any captured correction:
+$10\,000 + v_oo$ m/s for hyperbolic escape ($v_oo$ the excess speed), and
+$3000 + 1000 min(|E - E_"target"|, 50) - 500 thin t\/t_max$ for crash and timeout outcomes
+(energies in MJ/kg) -- so captures are always preferred while the optimizer keeps a gradient
+toward the capture boundary. The per-simulation cost is cubed (the deployed transform) and
+aggregated across an individual's scenario batch by root-mean-square -- the $L_6$-norm-equivalent
+objective of @eq-objective.
+
+*Optimizer (deployed headline).* pymoo genetic algorithm (SBX crossover $eta = 3$, polynomial
+mutation $eta = 5$ at rate $0.15$), population $512$, two scenarios per individual per generation,
+run to plateau ($15\,000$--$20\,000$ generations). The adaptive seed curation, precisely: every
+second generation or on a promotion, (1) draw $1000$ fresh probe scenarios outside every reserved
+stream; (2) score them with the current best individual; (3) sort the per-scenario costs into
+$n_"sims"$ equal-count quantile bins; (4) take the hardest scenario of each bin as the next
+training batch -- scenarios are replaced as a set, never accumulated. The selection gate re-runs
+each new argmin on the reserved $n = 1000$ selection pool and promotes on strict RMS improvement.
 
 *Training harness.* Population evaluation is batched through in-process Python bindings to the
 native core: each generation's individuals are simulated scenario-parallel across CPU cores with the
@@ -1061,11 +1318,20 @@ runs) is held to numerical agreement with the native runtime by cross-language t
 absolute forward-pass difference near machine epsilon ($10^(-16)$--$10^(-14)$) over $100$-step
 stateful sequences.
 
-*Timing.* Wall-clock per simulation over $200$ sequential runs of each deployed scheme on one idle
-core of an Apple-silicon laptop; no parallelism.
+*Timing.* Wall-clock per complete simulation over $200$ sequential runs of each deployed scheme on
+one idle core of an Apple M4 Pro laptop (native code compiled with rustc 1.97 at the release
+profile with link-time optimization; $64$-bit floats throughout; single-threaded). Quoted values
+are the median of five timed batch repeats after one warm-up; repeat spreads are $0.1$--$2.2%$ of
+the median. A flown simulation spans $approx 480$--$770$ guidance updates depending on the scheme,
+giving the per-update and per-replan shares quoted in Section 7.2 (whole-simulation cost divided by
+update count -- a loose upper bound on pure guidance inference). These are
+implementation-and-host measurements supporting the relative comparison; flight-processor
+worst-case execution time and memory footprint are not established here (Section 9).
 
-*Artifacts.* Every number in the tables regenerates, without retraining, from retained per-run
-evaluation records and the deployed network weights.
+*Artifacts.* The simulator, training harness, analysis code, every configuration, the deployed
+network weights, the committed per-run evaluation records behind each table, and the scripts that
+regenerate every figure and number are released publicly under an MIT license (repository URL in
+the camera-ready). Every number in the tables regenerates, without retraining, from those records.
 
 #pagebreak(weak: true)
 = Appendix B: architecture probes -- CfC, xLSTM, and the Mamba-3 axes
@@ -1178,12 +1444,12 @@ significantly worse, none better.
 = Appendix C: per-scheme mission reports
 
 Each scheme below gets a two-page mission-performance card on the final-evaluation
-Monte-Carlo pool ($n = 1000$), pinned to its deployed policy so the statistics
+Monte Carlo pool ($n = 1000$), pinned to its deployed policy so the statistics
 reproduce @tbl-perf; the FTC, PredGuid, and energy-controller cards use their
 co-optimized-reference variants (Section 7.1), matching those rows of @tbl-perf. The first page shows the corridor behaviour -- the classified
 trajectory ensemble in the (energy, dynamic pressure), (energy, inclination), and
 (energy, bank) planes, with the undispersed nominal overlaid; the dynamic-pressure
-panel sets the ensemble against the shared reachable capture corridor of @fig-corridor,
+panel sets the ensemble against the shared occupancy envelope of @fig-corridor,
 so one can read at a glance whether each scheme flies inside it. The second page shows
 the correction-$Delta v$ distribution (total and its three burns), the thermal and
 load-constraint margins, and the full statistics. Panels reuse the training

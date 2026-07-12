@@ -177,7 +177,7 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     with plt.rc_context(compact):
         charts.chart_heat_flux_time(sub_trajs, sub_class, out / "heat_flux.svg", limit_kw_m2=hfl, figsize=(2.4, 1.9), **nk)
         charts.chart_gload_time(sub_trajs, sub_class, out / "g_load.svg", limit_g=gll, figsize=(2.4, 1.9), **nk)
-        charts.chart_heat_load_time(sub_trajs, sub_class, out / "heat_load.svg", limit_kj_m2=hll, figsize=(2.4, 1.9), **nk)
+        charts.chart_heat_load_time(sub_trajs, sub_class, out / "heat_load.svg", limit_kj_m2=hll, figsize=(2.4, 1.9), unit="MJ", **nk)
 
     summary = compute_eval_summary(recs, n_sims=len(recs), cost_kwargs=read_cost_kwargs(eval_toml))
     dvc = np.abs(recs[cap, charts._FR_DV_TOTAL])

@@ -1,0 +1,8 @@
+{
+ "cell": "paper/tail_repeats/mamba962_s2",
+ "n_failed": 61,
+ "n_pool": 1000000,
+ "failure_rate": 6.1e-05,
+ "classification": "all 61 rerun individually with sim_timeout=30s (6x the pool run): every one terminates ifinal=1 (Crash) with bound eccentricity -- physical surface crashes, not timeout artifacts",
+ "note": "the non-deployed mamba s2 retrain seed; the deployed s1 artifact captures 1000000/1000000 on the same pool. Invisible at n=10000 (s2 captured 100% there)."
+}

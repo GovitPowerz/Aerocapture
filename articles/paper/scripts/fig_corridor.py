@@ -1,9 +1,12 @@
-"""fig_corridor -- the reachable aerocapture corridor (problem & objective, §3).
+"""fig_corridor -- the empirical trajectory-occupancy envelope (problem & objective, §2).
 
-Shaded capture corridor between the p99.5 (upper, crash-side) and p0.5 (lower,
-escape-side) dynamic-pressure boundaries traced by a dispersed randomized
-piecewise-constant MC (collect_corridor.py), with the deployed Mamba ensemble
-and its undispersed nominal flying inside. Data: articles/paper/data/corridor.npz.
+Shaded occupancy envelope between the p99.9 (upper, crash-side) and p0.5 (lower,
+escape-side) dynamic-pressure quantiles traced by a dispersed randomized
+piecewise-constant MC (collect_corridor.py) -- an empirical construct, not a
+formal reachable set (reviewer R1-11) -- with the undispersed full-lift-up /
+full-lift-down constant-bank boundary traces overlaid (dashed) and the deployed
+Mamba MC ensemble + its undispersed nominal flying inside.
+Data: articles/paper/data/corridor.npz.
 """
 
 import math
@@ -32,6 +35,11 @@ def main():
         ax.plot(te, tp, color=green, lw=0.5, alpha=alpha, zorder=3)
     ax.plot(d["nominal_energy"], d["nominal_pdyn"], color="#111", lw=1.6, zorder=4, solid_capstyle="round")
 
+    boundary_color = "#8a5a00"
+    if "liftup_energy" in d.files:
+        ax.plot(d["liftup_energy"], d["liftup_pdyn"], color=boundary_color, lw=1.2, ls=(0, (5, 3)), zorder=2)
+        ax.plot(d["liftdown_energy"], d["liftdown_pdyn"], color=boundary_color, lw=1.2, ls=(0, (1, 2)), zorder=2)
+
     ax.axvline(0.0, color="#555", lw=0.9, ls="--", zorder=1)
     ax.set_xlim(float(e.min()), float(e.max()))
     ax.set_ylim(0, float(np.nanmax(hi)) * 1.08)
@@ -41,8 +49,10 @@ def main():
     ax.set_xlabel("orbital energy (MJ/kg)")
     ax.set_ylabel("dynamic pressure (kPa)")
     ax.legend(handles=[
-        Patch(facecolor=green, alpha=0.16, edgecolor=green, label="reachable capture corridor"),
-        Line2D([], [], color=green, lw=1.0, alpha=0.6, label=f"deployed ensemble ({len(ens_e)})"),
+        Patch(facecolor=green, alpha=0.16, edgecolor=green, label="occupancy envelope (randomized profiles)"),
+        Line2D([], [], color=boundary_color, lw=1.2, ls=(0, (5, 3)), label="full lift-up (escape side)"),
+        Line2D([], [], color=boundary_color, lw=1.2, ls=(0, (1, 2)), label="full lift-down (crash side)"),
+        Line2D([], [], color=green, lw=1.0, alpha=0.6, label=f"deployed Mamba MC ensemble ({len(ens_e)})"),
         Line2D([], [], color="#111", lw=1.6, label="undispersed nominal"),
     ], loc="upper left")
     fig.tight_layout()

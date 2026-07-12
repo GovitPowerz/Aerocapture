@@ -499,6 +499,80 @@
       "max": 160.08
     },
     {
+      "label": "paper/state_controls/nodv_s1",
+      "n": 10000,
+      "n_captured": 10000,
+      "capture_pct": 100.0,
+      "p95": 121.89,
+      "cvar95": 125.31,
+      "cvar95_ci": [
+        124.88,
+        125.76
+      ],
+      "p99": 127.37,
+      "p99_ci": [
+        126.78,
+        128.19
+      ],
+      "cvar99": 130.96,
+      "cvar99_ci": [
+        129.92,
+        132.1
+      ],
+      "p999": 133.71,
+      "p999_ci": [
+        132.3,
+        137.51
+      ],
+      "cvar999": 141.22,
+      "cvar999_ci": [
+        135.87,
+        147.07
+      ],
+      "max": 156.34,
+      "viol_pct": 0.0,
+      "heat_flux_viol_pct": 0.0,
+      "g_load_viol_pct": 0.0,
+      "heat_load_viol_pct": 0.0
+    },
+    {
+      "label": "paper/state_controls/window_s1",
+      "n": 10000,
+      "n_captured": 10000,
+      "capture_pct": 100.0,
+      "p95": 120.71,
+      "cvar95": 124.33,
+      "cvar95_ci": [
+        123.86,
+        124.81
+      ],
+      "p99": 126.43,
+      "p99_ci": [
+        125.81,
+        126.99
+      ],
+      "cvar99": 130.42,
+      "cvar99_ci": [
+        129.24,
+        131.74
+      ],
+      "p999": 135.03,
+      "p999_ci": [
+        132.64,
+        137.97
+      ],
+      "cvar999": 141.16,
+      "cvar999_ci": [
+        136.05,
+        148.23
+      ],
+      "max": 167.43,
+      "viol_pct": 0.0,
+      "heat_flux_viol_pct": 0.0,
+      "g_load_viol_pct": 0.0,
+      "heat_load_viol_pct": 0.0
+    },
+    {
       "label": "paper/tail_repeats/dense515_s2",
       "n": 10000,
       "n_captured": 10000,
@@ -715,6 +789,43 @@
         121.4
       ],
       "max": 121.65,
+      "viol_pct": 0.0,
+      "heat_flux_viol_pct": 0.0,
+      "g_load_viol_pct": 0.0,
+      "heat_load_viol_pct": 0.0
+    },
+    {
+      "label": "state_reset/mamba_s1",
+      "n": 10000,
+      "n_captured": 10000,
+      "capture_pct": 100.0,
+      "p95": 359.14,
+      "cvar95": 368.75,
+      "cvar95_ci": [
+        367.68,
+        369.81
+      ],
+      "p99": 374.44,
+      "p99_ci": [
+        373.23,
+        375.58
+      ],
+      "cvar99": 380.98,
+      "cvar99_ci": [
+        379.23,
+        382.77
+      ],
+      "p999": 390.08,
+      "p999_ci": [
+        385.61,
+        392.18
+      ],
+      "cvar999": 395.23,
+      "cvar999_ci": [
+        390.66,
+        399.68
+      ],
+      "max": 408.74,
       "viol_pct": 0.0,
       "heat_flux_viol_pct": 0.0,
       "g_load_viol_pct": 0.0,

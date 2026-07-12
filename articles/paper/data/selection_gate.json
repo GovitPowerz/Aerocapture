@@ -1,0 +1,6 @@
+{
+ "run": "mamba_p962_long (headline)",
+ "n_generation_records": 20002,
+ "n_selection_gate_queries": 13442,
+ "note": "count of JSONL generation records carrying a validation record = times the reserved n=1000 in-training pool was queried over the headline cell full history (sweep 5000 + long resume 15001 gens)"
+}

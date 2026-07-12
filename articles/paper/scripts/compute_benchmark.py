@@ -60,10 +60,28 @@ def _bench_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
         aerocapture_rs.run_batch(toml_path=str(eval_toml.resolve()), overrides_list=overrides, n_threads=1)
 
     run()  # warmup (discard: caches, page-ins)
-    t0 = time.perf_counter()
-    run()
-    dt = time.perf_counter() - t0
-    return {"label": label, "n_sims": n_sims, "wall_s": round(dt, 4), "ms_per_sim": round(1000 * dt / n_sims, 4), "sims_per_s": round(n_sims / dt, 1)}
+    reps = []
+    for _ in range(5):
+        t0 = time.perf_counter()
+        run()
+        reps.append(1000 * (time.perf_counter() - t0) / n_sims)
+    reps.sort()
+    ms = reps[len(reps) // 2]  # median of 5 timed repeats
+
+    # mean flown duration -> guidance updates per sim (cadence 1 s)
+    import pyarrow.parquet as pq
+
+    sim_time = float(pq.read_table(scheme_dir / "final_eval.parquet", columns=["sim_time_s"]).to_pandas()["sim_time_s"].mean())
+    return {
+        "label": label,
+        "n_sims": n_sims,
+        "ms_per_sim": round(ms, 4),
+        "ms_per_sim_repeats": [round(r, 4) for r in reps],
+        "sims_per_s": round(1000 / ms, 1),
+        "mean_sim_time_s": round(sim_time, 1),
+        "n_guidance_updates": round(sim_time / 1.0),
+        "us_per_update_incl_sim": round(1000 * ms / (sim_time / 1.0), 2),
+    }
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -84,7 +102,27 @@ def main(argv: list[str] | None = None) -> None:
         fastest = min(r["ms_per_sim"] for r in results)
         for r in results:
             r["slowdown_vs_fastest"] = round(r["ms_per_sim"] / fastest, 1)
-        OUT.write_text(json.dumps({"single_core": True, "schemes": results}, indent=2))
+        # FNPAG per-REPLAN share: total minus the shared physics/GNC baseline
+        # (~= FTC's whole-sim cost), split over its 2 s replan cycles. The
+        # per-SIM 86 ms is NOT a per-replan cost -- conflating them overstates
+        # flight-processor pressure by ~2 orders of magnitude.
+        by = {r["label"]: r for r in results}
+        if "FNPAG" in by and "FTC" in by:
+            n_replans = by["FNPAG"]["mean_sim_time_s"] / 2.0
+            by["FNPAG"]["n_replans"] = round(n_replans)
+            by["FNPAG"]["ms_per_replan_derived"] = round((by["FNPAG"]["ms_per_sim"] - by["FTC"]["ms_per_sim"]) / n_replans, 4)
+        import platform
+        import subprocess
+
+        meta = {
+            "cpu": subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True).stdout.strip(),
+            "rustc": subprocess.run(["rustc", "--version"], capture_output=True, text=True).stdout.strip(),
+            "python": platform.python_version(),
+            "profile": "release (lto), f64 throughout, n_threads=1, idle box",
+            "timing": "median of 5 batch repeats after 1 warmup; per-scheme repeat spread in ms_per_sim_repeats",
+            "guidance_cadence_s": 1.0,
+        }
+        OUT.write_text(json.dumps({"single_core": True, "meta": meta, "schemes": results}, indent=2))
         print(f"\nwrote {OUT}")
 
 

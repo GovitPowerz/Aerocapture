@@ -53,7 +53,7 @@
     ..srow([Inclination error (deg)], fnum(cap.inclination.p50, d: 2), fnum(cap.inclination.p95, d: 2), fnum(cap.inclination.mean, d: 2), [mean]),
     ..srow([Heat flux (kW/m²)], fnum(con.heat_flux.p50), fnum(con.heat_flux.p95), fnum(con.heat_flux.max), [viol #fnum(con.heat_flux.viol_pct)%]),
     ..srow([G-load (g)], fnum(con.g_load.p50, d: 2), fnum(con.g_load.p95, d: 2), fnum(con.g_load.max, d: 2), [viol #fnum(con.g_load.viol_pct)%]),
-    ..srow([Heat load (kJ/m²)], fnum(con.heat_load.p50, d: 0), fnum(con.heat_load.p95, d: 0), fnum(con.heat_load.max, d: 0), [viol #fnum(con.heat_load.viol_pct)%]),
+    ..srow([Heat load (MJ/m²)], fnum(con.heat_load.p50 / 1000, d: 1), fnum(con.heat_load.p95 / 1000, d: 1), fnum(con.heat_load.max / 1000, d: 1), [viol #fnum(con.heat_load.viol_pct)%]),
     table.hline(stroke: 0.35pt),
     ..srow([Capture rate], [], [], [], [#fnum(s.capture_rate * 100)%]),
     table.hline(stroke: 0.7pt),

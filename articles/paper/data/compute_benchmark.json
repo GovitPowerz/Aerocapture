@@ -1,37 +1,83 @@
 {
   "single_core": true,
+  "meta": {
+    "cpu": "Apple M4 Pro",
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+    "python": "3.14.6",
+    "profile": "release (lto), f64 throughout, n_threads=1, idle box",
+    "timing": "median of 5 batch repeats after 1 warmup; per-scheme repeat spread in ms_per_sim_repeats",
+    "guidance_cadence_s": 1.0
+  },
   "schemes": [
     {
       "label": "NN-mamba",
       "n_sims": 200,
-      "wall_s": 0.7351,
-      "ms_per_sim": 3.6757,
-      "sims_per_s": 272.1,
-      "slowdown_vs_fastest": 3.0
+      "ms_per_sim": 3.5917,
+      "ms_per_sim_repeats": [
+        3.5734,
+        3.5867,
+        3.5917,
+        3.596,
+        3.651
+      ],
+      "sims_per_s": 278.4,
+      "mean_sim_time_s": 734.1,
+      "n_guidance_updates": 734,
+      "us_per_update_incl_sim": 4.89,
+      "slowdown_vs_fastest": 2.9
     },
     {
       "label": "NN-dense",
       "n_sims": 200,
-      "wall_s": 0.4802,
-      "ms_per_sim": 2.401,
-      "sims_per_s": 416.5,
+      "ms_per_sim": 2.353,
+      "ms_per_sim_repeats": [
+        2.3442,
+        2.3451,
+        2.353,
+        2.354,
+        2.3555
+      ],
+      "sims_per_s": 425.0,
+      "mean_sim_time_s": 771.6,
+      "n_guidance_updates": 772,
+      "us_per_update_incl_sim": 3.05,
       "slowdown_vs_fastest": 1.9
     },
     {
       "label": "FTC",
       "n_sims": 200,
-      "wall_s": 0.2492,
-      "ms_per_sim": 1.2459,
-      "sims_per_s": 802.6,
+      "ms_per_sim": 1.2394,
+      "ms_per_sim_repeats": [
+        1.2362,
+        1.2384,
+        1.2394,
+        1.2402,
+        1.2448
+      ],
+      "sims_per_s": 806.8,
+      "mean_sim_time_s": 480.1,
+      "n_guidance_updates": 480,
+      "us_per_update_incl_sim": 2.58,
       "slowdown_vs_fastest": 1.0
     },
     {
       "label": "FNPAG",
       "n_sims": 200,
-      "wall_s": 17.2291,
-      "ms_per_sim": 86.1457,
-      "sims_per_s": 11.6,
-      "slowdown_vs_fastest": 69.1
+      "ms_per_sim": 81.8921,
+      "ms_per_sim_repeats": [
+        81.8809,
+        81.8863,
+        81.8921,
+        81.9097,
+        81.9391
+      ],
+      "sims_per_s": 12.2,
+      "mean_sim_time_s": 636.1,
+      "n_guidance_updates": 636,
+      "us_per_update_incl_sim": 128.73,
+      "slowdown_vs_fastest": 66.1,
+      "n_replans": 318,
+      "ms_per_replan_derived": 0.2536
     }
   ]
 }

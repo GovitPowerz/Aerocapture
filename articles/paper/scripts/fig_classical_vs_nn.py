@@ -23,25 +23,26 @@ POINTS = [
 
 def main():
     fl.style()
-    ft = fl.far_tail()
+    import json
+    conf = {c["label"]: c["pooled"] for c in json.loads((fl.DATA / "confirmatory_eval.json").read_text())["cells"]}
     ms = {s["label"]: s["ms_per_sim"] for s in fl.compute()}
 
-    # far-tail CVaR99.9 per point. Mamba and dense on the SAME 3-seed-mean basis
-    # as Table 3 (not a lucky single seed); classical references from the
-    # committed far_tail cells.
+    # far-tail CVaR99.9 per point, on the frozen confirmatory pool. Mamba and
+    # dense on the SAME 3-seed-mean basis as the tail-reversal section (not a
+    # lucky single seed); classical references from their confirmatory cells.
     mamba_mean = sum(
-        ft[k]["cvar999"]
+        conf[k]["cvar999"]
         for k in ("mamba_p962_long", "paper/tail_repeats/mamba962_s2", "paper/tail_repeats/mamba962_s3")
     ) / 3.0
     dense515_mean = sum(
-        ft[k]["cvar999"]
+        conf[k]["cvar999"]
         for k in ("dense_p515_ga_paper_best", "paper/tail_repeats/dense515_s2", "paper/tail_repeats/dense515_s3")
     ) / 3.0
     y = {
-        "Mamba-962": mamba_mean,                                  # 124.5 (3-seed mean)
-        "Dense-515": dense515_mean,                               # 139.2 (3-seed mean)
-        "joint-FTC": ft["joint_reference/ftc"]["cvar999"],        # ~164
-        "FNPAG": ft["fnpag"]["cvar999"],                          # ~165
+        "Mamba-962": mamba_mean,                                  # 125.5 (3-seed mean)
+        "Dense-515": dense515_mean,                                # 140.5 (3-seed mean)
+        "joint-FTC": conf["joint_reference/ftc"]["cvar999"],       # 165.1
+        "FNPAG": conf["fnpag"]["cvar999"],                         # 198.7
     }
     # compute label -> the actual per-sim ms; joint-FTC rides FTC's compute cost.
     x = {
