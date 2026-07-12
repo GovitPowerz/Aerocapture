@@ -8,8 +8,13 @@ dependencies = [
     "numpy>=2.4",
     "pandas>=3.0",
     "matplotlib>=3.10",
-    # <0.6.2: pymoo 0.6.2 routes GA internals through moocore 0.3.1, whose
-    # gd_common has a stack buffer overflow (silent SIGABRT) at n_pop ~512.
+    # <0.6.2: pymoo 0.6.2 delegates internals to moocore 0.3.1's compiled code,
+    # which SIGABRTs the whole interpreter silently (no traceback). Two known
+    # trips: igd() for points wider than 32 dims (pymoo's default termination
+    # feeds it n_var-wide design points -- any >32-param training problem dies;
+    # repro: moocore.igd(rand(1, 64), ref=rand(1, 64))), and gd_common's stack
+    # buffer overflow at n_pop ~512 (smoke tests at n_pop=8 pass, real runs die
+    # after gen 0). The June 2026 campaign trained on 0.6.1.6.
     "pymoo>=0.6,<0.6.2",
     "scipy>=1.17.1",
     "rich>=14.3",
