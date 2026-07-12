@@ -1,0 +1,26 @@
+# QAT-4bit FROM-SCRATCH arm: fresh GA 512 x 20000 (budget-matched to the fp
+# champion mamba_p962_long) with 4-bit fake-quant fitness from gen 0. Answers
+# TRAINABILITY: does training under the 4-bit constraint reach the fp champion?
+# Launch:
+#   uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_scratch.toml \
+#       --output-dir training_output/quant/mamba962_qat4_scratch --from-scratch
+# qat_granularity / qat_tensor_policy PINNED from the PTQ verdict of 2026-07-12
+# (4b per_channel proj_only -- see mamba962_qat4_finetune.toml for the numbers).
+base = ["../sweep/mamba_p962.toml"]
+
+[data]
+neural_network = "training_output/quant/mamba962_qat4_scratch/best_model.json"
+results_suffix = ".quant_qat4_scratch"
+
+[network]
+qat_bits = 4
+qat_granularity = "per_channel"
+qat_tensor_policy = "proj_only"
+
+[optimizer]
+algorithm = "ga"
+n_pop = 512
+n_gen = 20000
+training_n_sims = 2
+seed_strategy = "adaptive"
+curation_bucket_selection = "max"

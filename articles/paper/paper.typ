@@ -1122,7 +1122,9 @@ What remains open is the far-tail depth used for the headline.
 
 A second tradeoff is the cost of state. The deployed Mamba runs at $3.59$ ms per simulation against
 $2.35$ ms for the dense network -- about $1.5 times$ for the selective-state-space core -- which is
-the price of the tighter tail. Both remain in the fast compute class, an order of magnitude below the
+the price of the tighter tail. The head itself accounts for $approx 1.2$ ms of that cost;
+single-precision arithmetic would roughly halve it, while integer quantization buys memory rather
+than speed at this scale (Appendix C). Both remain in the fast compute class, an order of magnitude below the
 numerical predictor--corrector, so the choice is between the network and FTC, not between the network
 and FNPAG. If on-board compute or implementation simplicity is the binding constraint, the memoryless
 #box[$515$-parameter] dense network is the efficiency reference: a competitive median at half the
@@ -1136,9 +1138,11 @@ policy is a fixed forward pass of $962$ parameters in double precision with no d
 control flow, so worst-case execution time and memory bound trivially; verifying the *decision*
 behavior across the dispersion envelope, rather than the code, is the open problem.
 
-We deliberately leave three threads as future work. We have no clean campaign study of pruning or
-quantizing the deployed head -- the only such cells predate the simulator fixes in this work and are
-not comparable -- so deploy-size reduction of the Mamba policy is open. The state-ablation thread
+Two threads earlier drafts left open are now closed, and one remains. Appendix C
+quantizes the deployed head (weight-only): $8$-bit is free, the SSM dynamics parameters are the
+$4$-bit bottleneck, and a quantization-aware fine-tune holds the sizing tail
+($"CVaR"_(99.9)$ $122.8$ versus $123.3$) at a $4.9 times$ memory reduction -- pruning remains
+open. The state-ablation thread
 is now closed by the three controls of Section 6.3 -- state reset, matched history, and no
 predicted-$Delta v$ -- so the tail mechanism is measured rather than hypothesized; what remains
 open there is only the intra-recurrent ordering (why the selective state space edges the gated
@@ -1441,7 +1445,160 @@ rubber-stamping the newest one -- three 2024--2026 recurrent families tried, two
 significantly worse, none better.
 
 #pagebreak(weak: true)
-= Appendix C: per-scheme mission reports
+= Appendix C: quantizing the deployed Mamba head
+
+Can the deployed #box[$962$-parameter] policy shrink for flight memory without giving back the
+tail it was selected for? This appendix quantizes the deployed head -- weight-only, symmetric,
+fake-quantized (rounded values stored back as $64$-bit floats, so the runtime, the regression
+goldens, and the simulation are untouched by construction) -- across a grid of bit widths
+($8$/$6$/$4$/$3$/$2$), granularities (per-channel, per-tensor), and tensor policies (all tensors,
+or projections only, keeping the SSM dynamics parameters in floating point), followed by two
+quantization-aware training arms at the grid's verdict cell. Grid cells were evaluated on the fresh
+re-quote pool ($n = 1000$ per cell) and the verdict selected there; the finalists below are quoted
+once on the frozen confirmatory pool of Section 7 ($10 times 100\,000$ scenarios each), preserving
+the paper's selection-versus-quote discipline.
+
+#figure(
+  table(
+    columns: (auto, auto, auto, auto, auto),
+    align: (left, center, center, center, center),
+    table.hline(stroke: 0.7pt),
+    table.header(
+      [*Variant*], [*Capture %*], [$bold(p_50)$], [$bold("CVaR"_95)$], [$bold("CVaR"_(99.9) plus.minus "SE")$],
+    ),
+    table.hline(stroke: 0.35pt),
+    [Deployed policy (64-bit floats)], [100.0], [109.7], [115.9], [$123.3 plus.minus 0.1$],
+    [PTQ, best 4-bit cell], [100.0], [126.7], [149.5], [$176.4 plus.minus 0.4$],
+    [QAT fine-tune, 4-bit], [100.0], [110.2], [116.6], [$122.8 plus.minus 0.1$],
+    [QAT from scratch, 4-bit], [100.0], [112.4], [124.4], [$140.7 plus.minus 0.3$],
+    table.hline(stroke: 0.7pt),
+  ),
+  caption: [Quantization finalists on the frozen confirmatory pool ($10 times 100\,000$ scenarios
+  each; correction $Delta v$ in m/s; replicate standard errors). All four variants capture every
+  scenario with zero constraint violations. The 4-bit cells use per-channel scales on the
+  projection tensors only (the grid's verdict policy).],
+) <tbl-quant-finalists>
+
+The headline is the fine-tuned arm. Post-training quantization at the best $4$-bit cell costs
+$+33$ m/s of shallow tail on the selection pool and degrades further with depth
+($"CVaR"_(99.9)$ $176.4$ -- the same fatten-with-depth signature Section 7.2 measured for FNPAG).
+Three thousand generations of quantization-aware fine-tuning -- the champion checkpoint resumed
+with every candidate's weights fake-quantized before each fitness evaluation, so the genetic
+search optimizes the quantized policy directly -- recover it entirely:
+$"CVaR"_(99.9) = 122.8 plus.minus 0.1$ against the deployed policy's $123.3 plus.minus 0.1$, a
+paired replicate delta of $-0.46$ $[-0.74, -0.18]$, at $100%$ capture and zero violations. The
+$4$-bit head is tail-equivalent at full sizing depth (nominally below it; the fine-tune arm
+carries $3000$ additional generations, so we claim equivalence rather than improvement), while the
+shallow tail pays $+0.7$ m/s at $"CVaR"_95$ -- within the run-to-run scatter of the Appendix B
+probe repeats. Training the same $4$-bit constraint from scratch at the full matched
+$512 times 20\,000$ budget reaches a competent policy ($100%$ capture, $"CVaR"_(99.9)$ $140.7$ --
+the dense family's territory) but not the champion's basin: fine-tuning is the better path, and
+the validation-loss ordering agrees (floating point $1.331$, fine-tune $1.350$, scratch
+$1.457 times 10^6$).
+
+Which parts of a selective SSM tolerate $4$ bits? A leave-one-out probe at $4$ bits per-channel
+(one tensor group quantized, everything else floating point, selection pool):
+
+#figure(
+  table(
+    columns: (auto, auto, auto, auto),
+    align: (left, center, center, center),
+    table.hline(stroke: 0.7pt),
+    table.header([*Tensor group*], [*Params*], [*Capture %*], [$bold(Delta"CVaR"_95)$]),
+    table.hline(stroke: 0.35pt),
+    [input dense $W$], [272], [100.0], [$+59.0$],
+    [SSM input projection $W_(x,"proj")$], [400], [100.0], [$+15.8$],
+    [SSM $Delta$-projection $W_(Delta)$], [16], [100.0], [$+0.0$],
+    [SSM dynamics $a_log$], [192], [100.0], [$+53.0$],
+    [SSM residual gains $d_"skip"$], [16], [100.0], [$+47.4$],
+    [output dense $W$], [32], [100.0], [$+22.5$],
+    table.hline(stroke: 0.7pt),
+  ),
+  caption: [Leave-one-out sensitivity at $4$ bits per-channel ($n = 1000$ per cell, selection
+  pool). The SSM dynamics parameters are disproportionately sensitive; the deltas do not add up to
+  the all-tensors cell ($+119.9$) -- quantization errors interact.],
+) <tbl-quant-loo>
+
+The SSM dynamics parameters are the bottleneck. The state matrix parameters $a_log$ cost
+$+53.0$ m/s -- they are exponentiated at runtime ($A = -exp(a_log)$) and one-sided, so a symmetric
+grid wastes half its levels -- and the per-channel residual gains $d_"skip"$ cost $+47.4$ from
+just sixteen scalars. The $Delta$-projection is exactly lossless by construction (per-channel
+scaling of a one-column matrix assigns one scale per element). This is what motivates the
+projections-only policy -- quantize the $720$ projection weights, keep the $242$ dynamics and bias
+scalars in floating point -- and it is the appendix's SSM-specific finding: the outlier
+sensitivity of selective-SSM dynamics reported in the language-model quantization literature
+reproduces on a closed-loop control task under a tail-led metric. Whether $a_log$'s sensitivity is
+representational (the symmetric grid) or intrinsic is left open; an asymmetric quantizer is the
+one-line extension that would answer it.
+
+#fig("quantization_sweep.svg", [The post-training quantization grid on the selection pool
+($n = 1000$ per cell): capture rate (left) and $"CVaR"_95$ (right) versus bit width, for the four
+granularity $times$ policy series. Eight-bit per-channel quantization is free ($+0.4$ m/s);
+degradation is visible from $6$ bits and catastrophic below $4$ ($2$-bit collapses capture
+entirely). At $4$ bits the policy split dominates: projections-only holds $100%$ capture where
+all-tensors collapses to $77$--$85%$ -- far above the single-evaluation noise floor, unlike the
+few-m/s non-monotone granularity cells at $6$ and $3$ bits, which should not be over-read.],
+<fig-quant-sweep>)
+
+The deployment benefit, stated honestly, is memory -- not compute:
+
+#figure(
+  table(
+    columns: (auto, auto, auto, auto, auto, auto),
+    align: (left, center, center, center, center, center),
+    table.hline(stroke: 0.7pt),
+    table.header([*Cell*], [*Packed*], [*Scales*], [*Float*], [*Total*], [*vs 64-bit*]),
+    table.hline(stroke: 0.35pt),
+    [8-bit per-channel, projections], [720 B], [236 B], [968 B], [1924 B], [$4.0 times$],
+    [*4-bit per-channel, projections (deployed QAT cell)*], [360 B], [236 B], [968 B], [*1564 B*], [$bold(4.9 times)$],
+    [4-bit per-tensor, projections], [360 B], [16 B], [968 B], [1344 B], [$5.7 times$],
+    [4-bit per-tensor, all tensors], [464 B], [24 B], [136 B], [624 B], [$12.3 times$],
+    table.hline(stroke: 0.7pt),
+  ),
+  caption: [Analytic memory footprint (packed $b$-bit weights + $32$-bit scales + floating-point
+  remainder; $64$-bit baseline $7696$ B). The $624$ B all-tensors cell is shown for contrast only
+  -- it is accuracy-broken at $4$ bits (capture $85%$). The honest headline is the deployed cell,
+  $7696 arrow.r 1564$ B, bounded below by the $968$ B of dynamics parameters the sensitivity study
+  says must stay in floating point.],
+) <tbl-quant-memory>
+
+#figure(
+  table(
+    columns: (auto, auto, auto, auto),
+    align: (left, center, center, center),
+    table.hline(stroke: 0.7pt),
+    table.header([*Forward kernel*], [*ns / tick*], [*vs deployed*], [*ms / simulation*]),
+    table.hline(stroke: 0.35pt),
+    [64-bit (deployed runtime)], [1888], [--], [1.22],
+    [64-bit hand-rolled], [1670], [$-11.6%$], [1.08],
+    [32-bit hand-rolled], [1290], [$-31.7%$], [0.83],
+    [int8 weights, int8 activations], [1735], [$-8.1%$], [1.12],
+    [packed int4 weights, int8 activations], [1747], [$-7.5%$], [1.13],
+    table.hline(stroke: 0.7pt),
+  ),
+  caption: [Forward-pass micro-benchmark (median ns per guidance tick, laptop-class core, scalar
+  code, the SSM recurrence in floating point for every variant; ms per simulation over the
+  measured $644$ forward passes of a flown trajectory). Quantization is not a compute win at this
+  scale.],
+) <tbl-quant-bench>
+
+The head accounts for $approx 1.22$ ms of the deployed policy's $3.59$ ms whole-simulation cost
+(Section 7.2). Single precision is the compute sweet spot ($-32%$ per tick); the integer kernels
+beat the deployed runtime by only $approx 8%$, because dynamic activation quantization plus the
+floating-point SSM recurrence ($192$ exponentials per tick) dominate a #box[$962$-parameter] workload,
+and $4$-bit nibble unpacking cancels its bandwidth advantage. Simulation throughput in the
+accuracy study is unchanged by construction (fake-quantization stores rounded weights back as
+$64$-bit floats), so no simulation-time claim is made. The deployment case for the $4$-bit head is
+the $4.9 times$ memory footprint and fixed-point-capable projection arithmetic, not speed.
+
+Four scopes bound these claims. The accuracy study is weight-only: activations, the hidden state,
+and the input normalization stay in $64$-bit floats (the integer kernels quantize activations for
+the compute measurement only). Both quantization-aware training arms are single runs. The grid
+cells are single-model $n = 1000$ evaluations. And the kernel ratios are laptop-class scalar
+measurements that do not transfer to flight processors -- the memory table does.
+
+#pagebreak(weak: true)
+= Appendix D: per-scheme mission reports
 
 Each scheme below gets a two-page mission-performance card on the final-evaluation
 Monte Carlo pool ($n = 1000$), pinned to its deployed policy so the statistics

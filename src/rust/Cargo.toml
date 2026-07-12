@@ -24,6 +24,11 @@ approx = "0.5"
 rstest = "0.26"
 proptest = "1.10"
 tempfile = "3"
+criterion = "0.8.2"
+
+[[bench]]
+name = "quant_forward"
+harness = false
 
 [profile.release]
 opt-level = 3

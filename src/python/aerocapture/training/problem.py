@@ -151,6 +151,11 @@ class AerocaptureProblem(Problem):
             scaled_pi_n = getattr(nn_cfg, "scaled_pi_n", 1.0)
             delta_max = getattr(nn_cfg, "delta_max", 0.35)
 
+            if nn_cfg.qat_bits is not None:
+                from aerocapture.training.quantize import quantize_flat_weights_batch
+
+                weights = quantize_flat_weights_batch(weights, build_v2_architecture(nn_cfg), nn_cfg.qat_bits, nn_cfg.qat_granularity, nn_cfg.qat_tensor_policy)
+
         grid = np.asarray(
             _aero_rs.run_grid(  # type: ignore[union-attr, attr-defined]
                 self.toml_path,

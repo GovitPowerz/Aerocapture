@@ -229,8 +229,14 @@ def write_nn_json(
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
     arch = build_v2_architecture(network)
+    flat = weights.astype(np.float64)
+    qat_bits = getattr(network, "qat_bits", None)
+    if qat_bits is not None:
+        from aerocapture.training.quantize import quantize_flat_weights_batch
+
+        flat = quantize_flat_weights_batch(flat.reshape(1, -1), arch, qat_bits, network.qat_granularity, network.qat_tensor_policy)[0]
     _aero_rs.flat_weights_to_json(
-        flat=weights.astype(np.float64).tolist(),
+        flat=flat.tolist(),
         architecture_json=json.dumps(arch),
         path=str(filepath),
         input_mask=input_mask,
