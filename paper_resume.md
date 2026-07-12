@@ -2,6 +2,20 @@
 
 > **Purpose:** let a fresh session pick up the paper work without re-reading the whole history.
 
+> **COMPUTE REQUOTE 2026-07-12 (branch `feature/paper-compute-requote`, after the code-quality
+> review PR #61 merged):** the review's run_batch Arc-sharing removed per-sim table loading from
+> the benchmark's timed region, staling the §7.2 quotes. Fresh median-of-5 on merged main (M4 Pro,
+> repeat spread <2%, `compute_benchmark.json` recommitted): **dense 1.88 / mamba 3.14 / FTC 0.90 /
+> FNPAG 87.1 ms/sim** (was 2.35/3.59/1.24/81.9). Derived quotes updated at 9 sites: abstract
+> (3.1 ms, 28×), contributions (28×), schemes-table note (fast 1–3, slow 87), §7.2 block (3.5× FTC,
+> 1.7× state cost, ≈4 µs/update, ≈0.27 ms/replan, 100×: 27 ms / 0.4 ms, factor-of-thirty kept),
+> §9 (3.14/1.88, 1.7×), Appendix C (…of the 3.14 ms cost), conclusion (28×). fig-classical
+> regenerated. RL footnote: "two later simulator fixes" -> "several" (the review fixed forced_bank
+> telemetry — both quoted PPO cells' masks include mistracked channel 22 — and the truncation
+> reward double-count; gap-not-absolutes framing unchanged). Also fixed a literal "(mu)s" -> µs in
+> §7.2. All 6 changed pages page-proofed. Confirmatory/tail numbers UNAFFECTED (goldens
+> bit-identical; density floor unreachable at paper dispersion levels).
+
 > **QUANTIZATION APPENDIX INTEGRATED 2026-07-12 (branch `feature/quantization-mamba962`, rebased on
 > post-revision main):** paper = 58 pp; new **Appendix C** "quantizing the deployed Mamba head"
 > (mission cards -> Appendix D); plan

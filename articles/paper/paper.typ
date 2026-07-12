@@ -82,7 +82,7 @@
   $"CVaR"_(99.9)$ of #box[$123.3 plus.minus 0.1$ m/s] (independent retraining seeds span
   $122$--$131$). It beats the best classical scheme (FTC with a
   co-optimized reference) by #box[$16.4$ m/s] in mean and #box[$27.6$ m/s] at $"CVaR"_95$, better on
-  every one of $1000$ paired scenarios, at #box[$3.6$ ms] per simulation -- $23 times$ faster than
+  every one of $1000$ paired scenarios, at #box[$3.1$ ms] per simulation -- $28 times$ faster than
   FNPAG. The result rests on a training methodology that is itself a contribution: a non-stationary,
   adaptive-seed Monte Carlo environment turns the genetic algorithm from the *worst* optimizer under
   fixed scenarios ($154$ m/s three-seed mean) into the *best* ($120$). Across cell types, engineered,
@@ -155,7 +155,7 @@ We make three contributions:
   against classical baselines co-tuned on the same objective, on paired dispersed scenarios, under
   a far-tail correction-$Delta v$ risk metric. On
   identical dispersions, the deployed network beats the best classical scheme by $16.4$ m/s in mean
-  and $27.6$ m/s at $"CVaR"_95$, at a per-simulation compute cost $23 times$ below the numerical
+  and $27.6$ m/s at $"CVaR"_95$, at a per-simulation compute cost $28 times$ below the numerical
   predictor--corrector -- with the caveat that the analytic law is more robust off-nominal, under a
   deliberately harsh stress regime we return to in Section 7.3.
 
@@ -417,7 +417,7 @@ Mamba-3 @lahoti2026mamba3 -- against these cells at matched budget; none improve
   ),
   caption: [The benchmarked schemes. "Reference" marks dependence on a tabulated reference trajectory
   ("inputs": the network reads two reference interpolations as observations but does not enslave to
-  them); "Compute" classes are quantified in @sec-deployability (fast: $1$--$4$ ms/sim; slow: $82$ ms/sim).
+  them); "Compute" classes are quantified in @sec-deployability (fast: $1$--$3$ ms/sim; slow: $87$ ms/sim).
   Signed-bank schemes (full-neural, piecewise-constant) bypass the shared roll-reversal, exit-phase,
   and thermal-limiter logic.],
 ) <tbl-schemes>
@@ -597,7 +597,7 @@ aligned to the predicted correction cost plus the true terminal cost (the standa
 sparse terminal rewards), and the best policies still underperformed the population methods by a
 wide margin: $636$ m/s mean ($1047$ at $"CVaR"_95$) for the dense PPO policy and $513$ ($893$) for
 the recurrent one, against $119$ ($138$) for the population-trained dense network on the same
-simulator regime#footnote[The reinforcement-learning cells predate two later simulator fixes and
+simulator regime#footnote[The reinforcement-learning cells predate several later simulator fixes and
 are quoted on their own contemporaneous evaluation pool; the $4$--$5 times$ gap, not the absolute
 values, is the result.] -- consistent with the stochastic shaped return optimizing a different
 quantity than the deterministic mission cost. Population search on the mission cost itself was
@@ -886,19 +886,19 @@ scenarios; against FNPAG the margins are $14.4$ / $23.4$ / $28.7$ m/s, winning $
 (@tbl-paired). The tail margin is consistently *larger* than the mean margin -- the network's
 advantage is precisely where the mission is sized.
 
-*Compute.* On a single idle core, the dense network runs at $2.35$ ms per simulation and the stateful
-Mamba at $3.59$ ms, against $1.24$ ms for FTC and $81.9$ ms for FNPAG (@fig-classical). The network is
-roughly three times FTC -- the same fast class -- and $23 times$ faster than the numerical
+*Compute.* On a single idle core, the dense network runs at $1.88$ ms per simulation and the stateful
+Mamba at $3.14$ ms, against $0.90$ ms for FTC and $87.1$ ms for FNPAG (@fig-classical). The network is
+roughly three and a half times FTC -- the same fast class -- and $28 times$ faster than the numerical
 predictor--corrector. On accuracy and compute FNPAG is dominated -- joint-FTC matches its accuracy
 and the network beats it, both at a small fraction of its cost -- though the off-nominal stress
-below keeps robustness a separate axis. The selective-state-space core costs about $1.5 times$ the
+below keeps robustness a separate axis. The selective-state-space core costs about $1.7 times$ the
 dense network, the price of the tail it buys. Per control action rather than per trajectory: the
-network's forward pass costs $approx 5$ (mu)s per $1$ s guidance update (whole-simulation cost
+network's forward pass costs $approx 4$ µs per $1$ s guidance update (whole-simulation cost
 divided by the $approx 734$ updates flown -- an upper bound on pure inference), while FNPAG's
-predictor work amounts to $approx 0.25$ ms per $2$ s replan cycle. Flight processors run one to
+predictor work amounts to $approx 0.27$ ms per $2$ s replan cycle. Flight processors run one to
 two orders of magnitude slower than the laptop core measured here; at a conservative $100 times$
-scaling neither scheme breaches its own deadline ($approx 25$ ms per replan against $2$ s;
-$approx 0.5$ ms per update against $1$ s), but the deadline margins differ by a factor of thirty,
+scaling neither scheme breaches its own deadline ($approx 27$ ms per replan against $2$ s;
+$approx 0.4$ ms per update against $1$ s), but the deadline margins differ by a factor of thirty,
 and the relative cost ordering is host-independent. None of these measurements establish worst-case
 execution time or memory on qualified hardware (Section 9).
 
@@ -1120,8 +1120,8 @@ guidance, with the markers stated there: the centered-retrain demonstration is n
 references) but remains $n = 1000$, and the stress regime is one a real mission would design away.
 What remains open is the far-tail depth used for the headline.
 
-A second tradeoff is the cost of state. The deployed Mamba runs at $3.59$ ms per simulation against
-$2.35$ ms for the dense network -- about $1.5 times$ for the selective-state-space core -- which is
+A second tradeoff is the cost of state. The deployed Mamba runs at $3.14$ ms per simulation against
+$1.88$ ms for the dense network -- about $1.7 times$ for the selective-state-space core -- which is
 the price of the tighter tail. The head itself accounts for $approx 1.2$ ms of that cost;
 single-precision arithmetic would roughly halve it, while integer quantization buys memory rather
 than speed at this scale (Appendix C). Both remain in the fast compute class, an order of magnitude below the
@@ -1169,7 +1169,7 @@ $10^6$ frozen confirmatory scenarios and,
 on the far tail that sizes the propellant tanks, reaches $"CVaR"_(99.9) = 123.3 plus.minus 0.1$ m/s
 -- $42$ m/s
 below the best classical scheme and beating a well-referenced FTC by $16.4$ m/s in mean and $27.6$ at
-$"CVaR"_95$, on every one of a thousand paired scenarios, running $23 times$ faster than the numerical
+$"CVaR"_95$, on every one of a thousand paired scenarios, running $28 times$ faster than the numerical
 predictor--corrector.
 
 Two findings carry beyond the headline number. The first is methodological: a genetic algorithm is the
@@ -1582,7 +1582,7 @@ The deployment benefit, stated honestly, is memory -- not compute:
   scale.],
 ) <tbl-quant-bench>
 
-The head accounts for $approx 1.22$ ms of the deployed policy's $3.59$ ms whole-simulation cost
+The head accounts for $approx 1.22$ ms of the deployed policy's $3.14$ ms whole-simulation cost
 (Section 7.2). Single precision is the compute sweet spot ($-32%$ per tick); the integer kernels
 beat the deployed runtime by only $approx 8%$, because dynamic activation quantization plus the
 floating-point SSM recurrence ($192$ exponentials per tick) dominate a #box[$962$-parameter] workload,
