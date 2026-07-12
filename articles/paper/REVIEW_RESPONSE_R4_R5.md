@@ -1,6 +1,7 @@
 # Response to Reviewer Reports 1 and 2 (2026-07-10)
 
 Point-by-point response for the R4/R5 revision on branch `rework_after_review`.
+The reports themselves (solicited pre-submission reviews): `articles/paper/reviews/`.
 Per-finding execution status: `articles/paper/revision_state.json` (untracked working state);
 plan with pre-registered interpretation rules:
 `docs/superpowers/plans/2026-07-10-reviewer-4-5-revision.md`.
