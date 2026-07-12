@@ -55,8 +55,11 @@ PY
         echo "qat_finetune already at gen $latest >= 23000 (champion 20000 + 3000): nothing to do"
         exit 0
     fi
+    # --sim-timeout: 4-bit-rounded individuals can produce sims that never
+    # terminate (the recorded NaN-hang lesson); 120 s only kills pathological
+    # ones (nominal sims are ~4 ms) and they cost out as virtual-DV timeouts.
     uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_finetune.toml \
-        --n-gen $((23000 - latest)) --output-dir "$QUANT_DIR/mamba962_qat4_finetune" --no-tui
+        --n-gen $((23000 - latest)) --output-dir "$QUANT_DIR/mamba962_qat4_finetune" --no-tui --sim-timeout 120
     ;;
 qat_scratch)
     uv run python - "$(basename "$0" .sh)" <<'PY'
@@ -77,9 +80,10 @@ for cfg in ("configs/training/quant/mamba962_qat4_finetune.toml", "configs/train
 print(f"verdict pre-flight OK: {verdict['granularity']}/{verdict['tensor_policy']}")
 PY
     latest=$(ls "$QUANT_DIR/mamba962_qat4_scratch"/checkpoint_g*.json 2>/dev/null | sed -E 's/.*_g0*([0-9]+)\.json/\1/' | sort -n | tail -1 || echo "")
+    # --sim-timeout: see qat_finetune note (NaN-hang lesson; nominal sims ~4 ms).
     if [ -z "$latest" ]; then
         uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_scratch.toml \
-            --output-dir "$QUANT_DIR/mamba962_qat4_scratch" --from-scratch --no-tui
+            --output-dir "$QUANT_DIR/mamba962_qat4_scratch" --from-scratch --no-tui --sim-timeout 120
     else
         if [ "$latest" -ge 20000 ]; then
             echo "qat_scratch already at gen $latest >= 20000 (matched budget): nothing to do"
@@ -87,7 +91,7 @@ PY
         fi
         echo "existing checkpoints found: resuming qat_scratch to gen 20000 (+$((20000 - latest)))"
         uv run python -m aerocapture.training.train configs/training/quant/mamba962_qat4_scratch.toml \
-            --n-gen $((20000 - latest)) --output-dir "$QUANT_DIR/mamba962_qat4_scratch" --no-tui
+            --n-gen $((20000 - latest)) --output-dir "$QUANT_DIR/mamba962_qat4_scratch" --no-tui --sim-timeout 120
     fi
     ;;
 finalists)
