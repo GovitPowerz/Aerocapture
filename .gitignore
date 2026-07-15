@@ -58,5 +58,6 @@ training_output/mars/*
 !training_output/mars/ref_trajectory.dat
 data/neural_network/nn_model.json
 *.pdf
+# The compiled paper ships in-repo (linked from README; rebuild: typst compile articles/paper/paper.typ):
+!articles/paper/paper.pdf
 .superpowers/
-articles/paper/paper.pdf

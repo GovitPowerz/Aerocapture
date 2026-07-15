@@ -4,6 +4,10 @@ Trajectory simulation tool for aerocapture maneuvers, primarily targeting Mars S
 
 Built as a **Rust simulator** with **Python analysis tools**. Validated against a legacy reference implementation to bit-level precision.
 
+## Paper
+
+This repository is the artifact for *Seventeen years later: stateful neural guidance and the tail that sizes a Mars aerocapture mission* — the compiled PDF is committed at [articles/paper/paper.pdf](articles/paper/paper.pdf). The Typst source, figures, and the per-run evaluation records behind every table live under [articles/paper/](articles/paper/); rebuild with `typst compile articles/paper/paper.typ` from the repo root.
+
 ## Quick Start
 
 ```bash
@@ -41,6 +45,8 @@ configs/
 data/
   atmosphere/              Atmosphere density + wind tables (Mars, Earth)
   reference_trajectory/    Reference trajectories for guided schemes
+articles/
+  paper/                   Paper (Typst source + committed PDF, figures, evaluation data)
 training_output/           GA training output (checkpoints, logs, reports, animations)
 tests/                     Python test suite + golden reference data
 ```
