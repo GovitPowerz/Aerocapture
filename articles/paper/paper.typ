@@ -570,10 +570,11 @@ gradient-free search.], <fig-plateau>)
     [Fresh re-quote (offset 8M)], [$1000$], [once; quantization grid], [quantization cell choice (Appendix C)],
     [Confirmatory sizing (Appendix A)], [$10 times 100\,000$], [once, post-freeze], [none -- every quoted sizing number],
     [Off-nominal stress (offset 9M)], [$1000$], [once per policy], [none (robustness probe)],
+    [Architecture probes (offset 10M)], [$1000$], [once per arm-repeat], [none (Appendix B verdicts)],
     table.hline(stroke: 0.7pt),
   ),
   caption: [Scenario-pool roles and the decisions each pool influenced. The pools above the last
-  two rows are development quantities: the selection pool is adaptively reused by the promotion
+  three rows are development quantities: the selection pool is adaptively reused by the promotion
   gate, and the development far-tail pool informed the methodology and architecture choices, so
   neither is an unbiased test set. The confirmatory pool was generated from a seed range disjoint
   from every earlier draw, after all methodology, architecture, and checkpoint choices were frozen,
@@ -781,7 +782,7 @@ recurrence better matched to the density process, or simply a friendlier search 
 budget -- our three-seed evidence cannot separate, and we claim no mechanism for the intra-recurrent
 ordering. What we can say is that more sophisticated memory does not help: Appendix B probes three
 further recent recurrent families (CfC, the xLSTM cells, Mamba-3's axes) at matched budget, and none
-beats the plain cells -- two are significantly worse. The reason is visible in the median: every architecture we trained to convergence,
+beats the plain cells -- two arms are significantly worse. The reason is visible in the median: every architecture we trained to convergence,
 dense included, reaches the
 same $108$--$112$ m/s typical cost, because the engineered, cost-aligned inputs (the predicted-$Delta v$
 components above all) already encode most of what a memory cell could recover. Recurrence is redundant
@@ -1220,7 +1221,8 @@ streams: the selection pool (offset $10^6$, $n = 1000$, the in-training promotio
 $13\,442$ times over the headline run, so it is adaptively reused and is not an unbiased estimate
 of generalization), final evaluation (offset $2 times 10^6$: the $n = 1000$ paired pool of
 @tbl-perf and @tbl-paired, extended to $n = 10\,000$ for the development far tail), the fresh
-re-quote pool (offset $8 times 10^6$), and the off-nominal stress pool (offset $9 times 10^6$).
+re-quote pool (offset $8 times 10^6$), the off-nominal stress pool (offset $9 times 10^6$), and
+the architecture-probe pool (offset $10^7$, Appendix B).
 Training scenarios are drawn outside every reserved stream; evaluation pools draw one scenario per
 seed (independent samples), and multi-scenario batches use Latin-hypercube draws. @tbl-pools states
 which decisions each pool influenced.
@@ -1347,16 +1349,16 @@ input-dependent time constants suit the fast-near-periapsis, static-in-vacuum ph
 against the GRU anchor; the exponential-gated sLSTM and matrix-memory mLSTM of xLSTM @beck2024xlstm
 (hypothesis: sharp revision of a stored estimate at the bounce or a density shock) against the LSTM
 anchor; and a $2 times 2$ over Mamba-3's @lahoti2026mamba3 two axes -- exponential-trapezoidal
-discretization and complex (rotational) state -- at the deployed Mamba anchor, whose euler-real arm
-is bit-identical to the deployed cell.
+discretization and complex (rotational) state -- at the deployed Mamba anchor, whose Euler-real arm
+is bit-identical to the deployed Mamba layer.
 
 Every arm shares one training regime (the genetic algorithm at population $300$ for $5000$
 generations, two scenarios per individual, adaptive hardest-seed curation, live actuator
-scaffolding) and one reserved evaluation pool (offset $10^7$, $n = 1000$, each arm scored with its
-co-trained scaffolding), with three seed-repeats per arm; $sigma_"run"$ is the standard deviation
-over repeats. Capture is $99.97$--$100%$ everywhere and every arm passes the feasibility check of
-Section 6.2 -- zero heat-flux, g-load, and heat-load violations on every repeat -- so the comparison
-is a pure tail-$Delta v$ story. Two scopes apply throughout: these are $p_95$/$"CVaR"_95$ statistics
+scaffolding) and one reserved evaluation pool, the probe pool (offset $10^7$, $n = 1000$; each arm
+scored with its co-trained scaffolding), with three seed-repeats per arm; $sigma_"run"$ is the
+standard deviation over repeats. Capture is $99.97$--$100%$ everywhere and every arm passes the
+feasibility check of Section 6.2 -- zero heat-flux, g-load, and heat-load violations on every
+repeat -- so the comparison is a pure tail-$Delta v$ story. Two caveats apply throughout: these are $p_95$/$"CVaR"_95$ statistics
 at $n = 1000$, not the far-tail $"CVaR"_(99.9)$ sizing metric, and the probe budget is deliberately
 sub-headline ($1.5$M evaluations versus the deployed $512 times 20\,000$), so the absolute values
 sit above the headline numbers and are not mission figures.
@@ -1382,9 +1384,9 @@ sit above the headline numbers and are not mission figures.
     table.hline(stroke: 0.7pt),
   ),
   caption: [The nine probe arms: three-seed means, correction $Delta v$ in m/s on the shared
-  $n = 1000$ probe pool. Baselines are retrained in-regime (not the deployed champions -- see the
-  budget caveat below). Viol. is the any-constraint violation rate; every arm is feasible on every
-  repeat.],
+  $n = 1000$ probe pool. Baselines are retrained in-regime (not the higher-budget reference runs --
+  see the budget caveat below). Viol. is the any-constraint violation rate; every arm is feasible
+  on every repeat.],
 ) <tbl-probes>
 
 #figure(
@@ -1393,20 +1395,20 @@ sit above the headline numbers and are not mission figures.
     align: (left, center, center, center, left),
     table.hline(stroke: 0.7pt),
     table.header(
-      [*Treatment vs baseline*], [*Metric*], [*Gap*], [$bold(sigma_"run")$], [*Verdict*],
+      [*Treatment vs baseline*], [*Metric*], [*Gap*], [$bold(sigma_"comb")$], [*Verdict*],
     ),
     table.hline(stroke: 0.35pt),
     [CfC vs GRU], [$p_95$ / $"CVaR"_95$], [$+2.8$ / $+3.7$], [$1.6$ / $1.3$], [*significantly worse*],
     [Trapezoidal vs Mamba], [$p_95$ / $"CVaR"_95$], [$+3.3$ / $+4.8$], [$2.2$ / $2.3$], [*significantly worse*],
-    [Complex vs Mamba], [$p_95$ / $"CVaR"_95$], [$-0.5$ / $-0.3$], [$1.9$ / $2.1$], [within $sigma_"run"$],
-    [Both vs Mamba], [$p_95$ / $"CVaR"_95$], [$+0.0$ / $+0.1$], [$1.4$ / $1.2$], [within $sigma_"run"$],
-    [sLSTM vs LSTM], [$p_95$ / $"CVaR"_95$], [$+0.4$ / $+0.3$], [$2.9$ / $3.4$], [within $sigma_"run"$],
-    [mLSTM vs LSTM], [$p_95$ / $"CVaR"_95$], [$+3.1$ / $+3.5$], [$3.8$ / $5.0$], [within $sigma_"run"$ (high variance)],
+    [Complex vs Mamba], [$p_95$ / $"CVaR"_95$], [$-0.5$ / $-0.3$], [$1.9$ / $2.1$], [within run variance],
+    [Both vs Mamba], [$p_95$ / $"CVaR"_95$], [$+0.0$ / $+0.1$], [$1.4$ / $1.2$], [within run variance],
+    [sLSTM vs LSTM], [$p_95$ / $"CVaR"_95$], [$+0.4$ / $+0.3$], [$2.9$ / $3.4$], [within run variance],
+    [mLSTM vs LSTM], [$p_95$ / $"CVaR"_95$], [$+3.1$ / $+3.5$], [$3.8$ / $5.0$], [within run variance (high $sigma_"run"$)],
     table.hline(stroke: 0.7pt),
   ),
-  caption: [Within-family significance, the rigorous claims: gap = treatment minus baseline
-  (positive = worse), cleared when $|"gap"| > sqrt(sigma_"base"^2 + sigma_"arm"^2)$ (the tabulated
-  $sigma_"run"$).],
+  caption: [Within-family significance: gap = treatment minus baseline (positive = worse), cleared
+  when $|"gap"| > sigma_"comb" = sqrt(sigma_"base"^2 + sigma_"arm"^2)$, with the per-arm
+  $sigma_"run"$ taken from @tbl-probes.],
 ) <tbl-probes-sig>
 
 The within-family rows are the rigorous claims. The CfC is significantly worse than the GRU on both
@@ -1422,14 +1424,16 @@ anchors differ slightly ($962$/$1014$/$1082$ parameters), so the ranking is sugg
 matched: the plain Mamba tops the field (tied with its own complex arms), about $2$ m/s ahead of the
 GRU and $2.7$ ahead of the LSTM at $p_95$ -- consistent with the deployed headline.
 
-One caveat is load-bearing. Each probe also scored its deployed higher-budget champion as a
-reference row, and those sit $4$--$6$ m/s better at $p_95$ than the retrained in-regime baselines
-(Mamba $121.6$ versus $116.6$; GRU $123.7$ versus $117.3$; LSTM $124.3$ versus $120.2$) -- a pure
-training-budget effect (the champions had roughly $3.4 times$ the evaluations), not architecture.
-That gap is exactly why every treatment compares against its retrained in-regime baseline and never
-against a champion. Two smaller scopes: the probe cells are trained through the gradient-free path
-only (no warm-start), and the sLSTM's $40$-parameter deficit against the LSTM is a cell-definition
-cost (single bias), not a budget mismatch -- it does not explain its null.
+One caveat is load-bearing. Each probe also scored a higher-budget reference row -- the Section 6
+sweep cell for the GRU and the LSTM (population $512$ for the same $5000$ generations,
+$1.7 times$ the probe evaluations) and a full-budget plain-Mamba run ($512 times 10\,000$,
+$3.4 times$) for the Mamba -- and those sit $4$--$6.5$ m/s better at $p_95$ than the retrained
+in-regime baselines (Mamba $121.6$ versus $116.6$; GRU $123.7$ versus $117.3$; LSTM $124.3$ versus
+$120.2$): a training-budget effect, not architecture. That gap is exactly why every treatment
+compares against its retrained in-regime baseline and never against a higher-budget reference. Two
+smaller caveats: the probe cells are trained through the gradient-free path only (no warm-start),
+and the sLSTM's $40$-parameter deficit against the LSTM is a cell-definition cost (single bias),
+not a budget mismatch -- it does not explain its null.
 
 The consistent null across three independent families points at the task, not the cells. A single
 atmospheric pass is a few hundred guidance ticks whose latent state worth remembering is a handful
@@ -1441,8 +1445,8 @@ recall, and Mamba-3's long-context and state-tracking axes all target capacity t
 low-bandwidth control signal never exercises. The deployed cell wins not by more sophisticated
 memory but by just enough memory, cheaply. Framed positively, the probes validate the methodology:
 the adaptive-seed, tail-led, matched-anchor protocol distinguishes between architectures rather than
-rubber-stamping the newest one -- three 2024--2026 recurrent families tried, two rejected as
-significantly worse, none better.
+rubber-stamping the newest one -- three 2024--2026 recurrent families tried, none better, and two
+arms (the CfC and the trapezoidal discretization) significantly worse.
 
 #pagebreak(weak: true)
 = Appendix C: quantizing the deployed Mamba head
