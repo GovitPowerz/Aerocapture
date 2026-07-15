@@ -1336,8 +1336,9 @@ worst-case execution time and memory footprint are not established here (Section
 
 *Artifacts.* The simulator, training harness, analysis code, every configuration, the deployed
 network weights, the committed per-run evaluation records behind each table, and the scripts that
-regenerate every figure and number are released publicly under an MIT license (repository URL in
-the camera-ready). Every number in the tables regenerates, without retraining, from those records.
+regenerate every figure and number are released publicly under an MIT license at
+#link("https://github.com/GovitPowerz/Aerocapture"). Every number in the tables regenerates,
+without retraining, from those records.
 
 #pagebreak(weak: true)
 = Appendix B: architecture probes -- CfC, xLSTM, and the Mamba-3 axes
