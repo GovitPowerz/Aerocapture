@@ -65,7 +65,8 @@ def main():
 
     # visual focus: the GA fixed->rotating tail collapse
     ga_xf, ga_xr = x[0] - w / 2, x[0] + w / 2
-    ax.annotate("", xy=(ga_xr, rot_cvar[0] + 6), xytext=(ga_xf, fixed_cvar[0] + 6),
+    # tail offset +0.10 starts the arrow right of the bar's value label instead of through it
+    ax.annotate("", xy=(ga_xr, rot_cvar[0] + 6), xytext=(ga_xf + 0.10, fixed_cvar[0] + 6),
                 arrowprops={"arrowstyle": "->", "color": "#b8860b", "lw": 2.2,
                             "connectionstyle": "arc3,rad=-0.35"}, zorder=6)
     drop = fixed_cvar[0] - rot_cvar[0]

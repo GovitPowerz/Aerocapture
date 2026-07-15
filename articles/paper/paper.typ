@@ -567,7 +567,7 @@ gradient-free search.], <fig-plateau>)
     [Training batches], [$2$/gen], [every generation], [weight updates (moving, curated)],
     [Selection pool (offset 1M)], [$1000$], [$13\,442$ over the run], [in-training argmin promotion],
     [Development far tail (offset 2M)], [$10\,000$], [tens], [cost transform, curation bucket, allocation, cell type, headline choice],
-    [Fresh re-quote (offset 8M)], [$1000$], [once], [none (reported only)],
+    [Fresh re-quote (offset 8M)], [$1000$], [once; quantization grid], [quantization cell choice (Appendix C)],
     [Confirmatory sizing (Appendix A)], [$10 times 100\,000$], [once, post-freeze], [none -- every quoted sizing number],
     [Off-nominal stress (offset 9M)], [$1000$], [once per policy], [none (robustness probe)],
     table.hline(stroke: 0.7pt),
@@ -651,7 +651,7 @@ migration cross-pollinates their discoveries, so a sub-population trapped in a l
 pulled out by a migrant from another island instead of having to escape on its own -- the diversity
 a single homogeneous method lacks. And because the three strategies share one run's evaluations
 through migration, one need not run each optimizer separately and keep the best. The result never
-collapses the way a starved genetic algorithm does ($120$--$124$ m/s across every budget); the price
+collapses the way a starved genetic algorithm does (mean $120$--$124$ m/s across every budget); the price
 is that at a well-chosen budget a single large genetic algorithm still edges it, so the islands buy
 robustness to the budget choice rather than a lower optimum.
 
@@ -848,9 +848,9 @@ reference-tracking laws (FTC, the energy controller, PredGuid) are only as good 
 trajectory they enslave to, and the legacy constant-bank reference is not optimal. We therefore let
 the genetic algorithm co-optimize the reference: a single extra gene sets the constant bank angle that
 generates the reference table, regenerated per individual, so the law and the trajectory it tracks
-adapt together. The effect is large (@fig-joint). FTC falls from $170.7$ to $126.3$ m/s mean and from
-$244.1$ to $142.9$ m/s at $"CVaR"_95$ -- a $44$ m/s improvement, and the network beats it on every one
-of $1000$ paired scenarios ($p < 10^(-15)$, saturated). The energy controller recovers by $35$ m/s
+adapt together. The effect is large (@fig-joint). FTC falls from $170.7$ to $126.3$ m/s mean (a
+$44$ m/s improvement) and from $244.1$ to $142.9$ m/s at $"CVaR"_95$, and the network beats it on
+every one of $1000$ paired scenarios ($p < 10^(-15)$, saturated). The energy controller recovers by $35$ m/s
 and PredGuid by $23$. The reference *was* FTC's weakness: a feedback law tracking a poor target cannot
 out-perform the target.
 
