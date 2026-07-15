@@ -1463,8 +1463,8 @@ The grid's shape is simple (@fig-quant-sweep). Eight-bit per-channel quantizatio
 bits and catastrophic below $4$ ($2$-bit collapses capture entirely). At $4$ bits -- the target
 compression -- the tensor policy dominates: projections-only holds $100%$ capture where
 all-tensors falls to $77$--$85%$, a split far above the single-evaluation noise floor. The
-few-m/s non-monotone granularity cells at $6$ and $3$ bits are within it and should not be
-over-read. Among the $4$-bit cells the selection rule -- highest capture rate, then lowest
+few-m/s non-monotone granularity cells at $6$ and $3$ bits are within that noise floor and should
+not be over-read. Among the $4$-bit cells the selection rule -- highest capture rate, then lowest
 $"CVaR"_95$ -- picks per-channel scales, projections only.
 
 #fig("quantization_sweep.svg", [The post-training quantization grid on the re-quote pool
@@ -1537,7 +1537,7 @@ The SSM dynamics parameters are the bottleneck. The state matrix parameters $a_l
 $+53.0$ m/s -- they are exponentiated at runtime ($A = -exp(a_log)$) and one-sided, so a symmetric
 grid wastes half its levels -- and the per-channel residual gains $d_"skip"$ cost $+47.4$ from
 just sixteen scalars. The $Delta$-projection is exactly lossless by construction (per-channel
-scaling of a one-column matrix assigns one scale per element). This is what motivates the
+scaling of a one-column matrix assigns one scale per element). This is the mechanism behind the
 projections-only policy -- quantize the $720$ projection weights, keep the $242$ dynamics and bias
 scalars in floating point -- and it is the appendix's SSM-specific finding: the outlier
 sensitivity of selective-SSM dynamics reported in the language-model quantization literature
@@ -1561,12 +1561,15 @@ The deployment benefit, stated honestly, is memory -- not compute:
     table.hline(stroke: 0.7pt),
   ),
   caption: [Analytic memory footprint (packed $b$-bit weights + $32$-bit scales + floating-point
-  remainder; $64$-bit baseline $7696$ B). The per-tensor projections cell is cheaper still and
-  holds capture, but paid $+3.5$ m/s $"CVaR"_95$ over the per-channel cell on the grid. The
+  remainder; $64$-bit baseline $7696$ B). The per-tensor projections cell is cheaper than the
+  deployed cell and holds capture, but pays $+3.5$ m/s $"CVaR"_95$ over it on the grid. The
   $624$ B all-tensors cell is shown for contrast only -- it is accuracy-broken at $4$ bits
   (capture $85%$). The honest headline is the deployed cell, $7696 arrow.r 1564$ B, bounded below
   by the $968$ B of dynamics parameters the sensitivity study says must stay in floating point.],
 ) <tbl-quant-memory>
+
+On compute, the head accounts for $approx 1.22$ ms of the deployed policy's $3.14$ ms
+whole-simulation cost (Section 7.2):
 
 #figure(
   table(
@@ -1588,17 +1591,17 @@ The deployment benefit, stated honestly, is memory -- not compute:
   scale.],
 ) <tbl-quant-bench>
 
-The head accounts for $approx 1.22$ ms of the deployed policy's $3.14$ ms whole-simulation cost
-(Section 7.2). Single precision is the compute sweet spot ($-32%$ per tick); the integer kernels
-beat the deployed runtime by only $approx 8%$, because dynamic activation quantization plus the
-floating-point SSM recurrence ($192$ exponentials per tick) dominate a #box[$962$-parameter] workload,
-and $4$-bit nibble unpacking cancels its bandwidth advantage. Simulation throughput in the
-accuracy study is unchanged by construction, so no simulation-time claim is made. The deployment case for the $4$-bit head is
-the $4.9 times$ memory footprint and fixed-point-capable projection arithmetic, not speed.
+Single precision is the compute sweet spot ($-32%$ per tick); the integer kernels beat the
+deployed runtime by only $approx 8%$, because dynamic activation quantization plus the
+floating-point SSM recurrence ($192$ exponentials per tick) dominate a #box[$962$-parameter]
+workload, and $4$-bit nibble unpacking cancels its bandwidth advantage. Simulation throughput in
+the accuracy study is unchanged by construction, so no simulation-time claim is made. The
+deployment case for the $4$-bit head is the $4.9 times$ memory footprint and
+fixed-point-capable projection arithmetic, not speed.
 
 Four caveats bound these claims. The accuracy study is weight-only: activations, the hidden state,
 and the input normalization stay in $64$-bit floats (the integer kernels quantize activations for
-the compute measurement only). Both quantization-aware training arms are single runs. The grid
+the compute measurement only). Both QAT arms are single runs. The grid
 cells are single-model $n = 1000$ evaluations. And the kernel ratios are laptop-class scalar
 measurements that do not transfer to flight processors -- the memory table does.
 
