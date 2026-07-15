@@ -37,13 +37,15 @@ def main():
         surv = 1.0 - (np.arange(1, len(x) + 1) - 0.5) / len(x)
         ax.plot(x, surv, color=fl.C[key], ls=ls, lw=1.5, label=name)
 
-    for depth, txt in ((0.05, "CVaR$_{95}$ depth"), (0.001, "CVaR$_{99.9}$ depth")):
+    # the CVaR95 label anchors left of the legend box (the 5e-5 floor lifts the 0.05 line into it)
+    for depth, txt, xa in ((0.05, "CVaR$_{95}$ depth", 0.70), (0.001, "CVaR$_{99.9}$ depth", 0.995)):
         ax.axhline(depth, color="#999", lw=0.7, ls=":")
-        ax.annotate(txt, xy=(0.995, depth), xycoords=("axes fraction", "data"),
+        ax.annotate(txt, xy=(xa, depth), xycoords=("axes fraction", "data"),
                     fontsize=7.5, color="#666", ha="right", va="bottom")
 
     ax.set_yscale("log")
-    ax.set_ylim(5e-4, 1.0)
+    ax.set_ylim(5e-5, 1.0)  # floor = the subsample's depth resolution (~0.5/10k); a higher floor
+    # hides the deep tails while x still autoscales to them, leaving the right half of the plot empty
     ax.set_xlim(left=100)
     ax.set_xlabel("correction $\\Delta v$ (m/s)")
     ax.set_ylabel("survival  $1 - F(\\Delta v)$")

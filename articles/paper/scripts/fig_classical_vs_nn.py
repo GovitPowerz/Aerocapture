@@ -2,7 +2,7 @@
 
 x = per-sim compute cost (ms/sim, LOG), y = far-tail CVaR99.9 (m/s). Lower-left is
 better: cheap AND tight-tailed. The recurrent NN (Mamba-962) sits lower-left of
-BOTH classical references (joint-FTC ~164, FNPAG ~165) -- it sizes a smaller
+BOTH classical references (joint-FTC ~165, FNPAG ~199) -- it sizes a smaller
 ergol margin (lower tail DV) at a fraction of FNPAG's per-sim cost, while staying
 within ~3x of FTC's compute. Dense-515 is the cheapest NN but carries a fatter tail.
 Half-column figure: point labels carry the name + tail value only (compute is the
@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 # (display label, color key, label offset (dx, dy) in points)
 POINTS = [
     ("Mamba-962", "mamba", (7, 4)),
-    ("Dense-515", "dense", (7, -4)),
+    ("Dense-515", "dense", (-7, 4)),  # left of the point: the 210-top ylim compresses the dense/mamba gap
     ("joint-FTC", "jointftc", (7, 6)),
     ("FNPAG", "fnpag", (-7, -14)),
 ]
@@ -46,10 +46,10 @@ def main():
     }
     # compute label -> the actual per-sim ms; joint-FTC rides FTC's compute cost.
     x = {
-        "Mamba-962": ms["NN-mamba"],   # 3.68
-        "Dense-515": ms["NN-dense"],   # 2.40
-        "joint-FTC": ms["FTC"],        # 1.25
-        "FNPAG": ms["FNPAG"],          # 86.1
+        "Mamba-962": ms["NN-mamba"],   # 3.14
+        "Dense-515": ms["NN-dense"],   # 1.88
+        "joint-FTC": ms["FTC"],        # 0.90
+        "FNPAG": ms["FNPAG"],          # 87.1
     }
 
     fig, ax = plt.subplots(figsize=fl.SIZE_HALF)
@@ -73,7 +73,7 @@ def main():
     ax.set_ylabel("far-tail CVaR$_{99.9}$ (m/s)")
     ax.set_title("Deployability: tail vs compute")
     ax.set_xlim(0.8, 160)
-    ax.set_ylim(115, 178)
+    ax.set_ylim(112, 210)  # top must clear FNPAG's 198.7 (it was clipped at 178 after the R4/R5 requote)
     fig.tight_layout()
     fl.save(fig, "fig_classical_vs_nn")
 
