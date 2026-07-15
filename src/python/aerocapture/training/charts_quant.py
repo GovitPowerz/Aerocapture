@@ -34,7 +34,7 @@ def chart_quant_sweep(results: dict[str, Any], output_path: str) -> None:
     ax_cap.axhline(baseline["capture_rate"], color="grey", ls="--", label="fp baseline")
     if baseline["dv_cvar95"] is not None:
         ax_tail.axhline(baseline["dv_cvar95"], color="grey", ls="--", label="fp baseline")
-    for ax, ylab, title in ((ax_cap, "capture rate", "Capture rate vs bit width"), (ax_tail, "DV CVaR95 [m/s]", "Sizing tail vs bit width")):
+    for ax, ylab, title in ((ax_cap, "capture rate", "Capture rate vs bit width"), (ax_tail, "DV CVaR95 [m/s]", "CVaR95 vs bit width")):
         ax.set_xlabel("weight bits")
         ax.set_ylabel(ylab)
         ax.set_title(title)

@@ -1448,15 +1448,28 @@ significantly worse, none better.
 = Appendix C: quantizing the deployed Mamba head
 
 Can the deployed #box[$962$-parameter] policy shrink for flight memory without giving back the
-tail it was selected for? This appendix quantizes the deployed head -- weight-only, symmetric,
-fake-quantized (rounded values stored back as $64$-bit floats, so the runtime, the regression
-goldens, and the simulation are untouched by construction) -- across a grid of bit widths
-($8$/$6$/$4$/$3$/$2$), granularities (per-channel, per-tensor), and tensor policies (all tensors,
-or projections only, keeping the SSM dynamics parameters in floating point), followed by two
-quantization-aware training arms at the grid's verdict cell. Grid cells were evaluated on the fresh
-re-quote pool ($n = 1000$ per cell) and the verdict selected there; the finalists below are quoted
-once on the frozen confirmatory pool of Section 7 ($10 times 100\,000$ scenarios each), preserving
-the paper's selection-versus-quote discipline.
+tail it was selected for? This appendix quantizes the deployed head: weight-only, symmetric,
+fake-quantized. Rounded values are stored back as $64$-bit floats, so the runtime, the regression
+goldens, and the simulation are untouched by construction. A post-training quantization (PTQ)
+grid crosses bit width ($8$/$6$/$4$/$3$/$2$), scale granularity (per-channel, per-tensor), and
+tensor policy (all tensors, or projections only, keeping the SSM dynamics and bias scalars in
+floating point); two quantization-aware training (QAT) arms then retrain at the best $4$-bit cell
+of the grid. Selection ran on the fresh re-quote pool of Appendix A ($n = 1000$ per grid cell);
+the finalists below are quoted once on the frozen confirmatory pool of Section 7
+($10 times 100\,000$ scenarios each), preserving the paper's selection-versus-quote discipline.
+
+The grid's shape is simple (@fig-quant-sweep). Eight-bit per-channel quantization is free
+($+0.4$ m/s at $"CVaR"_95$ even with every tensor quantized); degradation is visible from $6$
+bits and catastrophic below $4$ ($2$-bit collapses capture entirely). At $4$ bits -- the target
+compression -- the tensor policy dominates: projections-only holds $100%$ capture where
+all-tensors falls to $77$--$85%$, a split far above the single-evaluation noise floor. The
+few-m/s non-monotone granularity cells at $6$ and $3$ bits are within it and should not be
+over-read. Among the $4$-bit cells the selection rule -- highest capture rate, then lowest
+$"CVaR"_95$ -- picks per-channel scales, projections only.
+
+#fig("quantization_sweep.svg", [The post-training quantization grid on the re-quote pool
+($n = 1000$ per cell): capture rate (left) and $"CVaR"_95$ (right) versus bit width, for the four
+granularity $times$ policy series.], <fig-quant-sweep>)
 
 #figure(
   table(
@@ -1476,28 +1489,28 @@ the paper's selection-versus-quote discipline.
   caption: [Quantization finalists on the frozen confirmatory pool ($10 times 100\,000$ scenarios
   each; correction $Delta v$ in m/s; replicate standard errors). All four variants capture every
   scenario with zero constraint violations. The 4-bit cells use per-channel scales on the
-  projection tensors only (the grid's verdict policy).],
+  projection tensors only.],
 ) <tbl-quant-finalists>
 
-The headline is the fine-tuned arm. Post-training quantization at the best $4$-bit cell costs
-$+33$ m/s of shallow tail on the selection pool and degrades further with depth
-($"CVaR"_(99.9)$ $176.4$ -- the same fatten-with-depth signature Section 7.2 measured for FNPAG).
-Three thousand generations of quantization-aware fine-tuning -- the champion checkpoint resumed
-with every candidate's weights fake-quantized before each fitness evaluation, so the genetic
-search optimizes the quantized policy directly -- recover it entirely:
-$"CVaR"_(99.9) = 122.8 plus.minus 0.1$ against the deployed policy's $123.3 plus.minus 0.1$, a
-paired replicate delta of $-0.46$ $[-0.74, -0.18]$, at $100%$ capture and zero violations. The
-$4$-bit head is tail-equivalent at full sizing depth (nominally below it; the fine-tune arm
-carries $3000$ additional generations, so we claim equivalence rather than improvement), while the
+The headline is the fine-tuned arm. PTQ at the best $4$-bit cell costs $+33$ m/s at $"CVaR"_95$
+on the re-quote pool and degrades further with depth ($"CVaR"_(99.9)$ $176.4$ -- the same
+fatten-with-depth signature Section 7.2 measured for FNPAG). Quantization-aware fine-tuning
+recovers the entire gap. The champion checkpoint is resumed for $3000$ generations with every
+candidate's weights fake-quantized before each fitness evaluation, so the genetic search
+optimizes the quantized policy directly; the result is $"CVaR"_(99.9) = 122.8 plus.minus 0.1$
+against the deployed policy's $123.3 plus.minus 0.1$, a paired replicate delta of $-0.46$
+$[-0.74, -0.18]$, at $100%$ capture and zero violations. The $4$-bit head is tail-equivalent at
+full sizing depth (the point estimate is in fact lower, but the fine-tune's extra generations
+bias the comparison in its favor, so we claim equivalence rather than improvement), while the
 shallow tail pays $+0.7$ m/s at $"CVaR"_95$ -- within the run-to-run scatter of the Appendix B
-probe repeats. Training the same $4$-bit constraint from scratch at the full matched
+probe repeats. Training the same $4$-bit constraint from scratch at the champion's full
 $512 times 20\,000$ budget reaches a competent policy ($100%$ capture, $"CVaR"_(99.9)$ $140.7$ --
 the dense family's territory) but not the champion's basin: fine-tuning is the better path, and
-the validation-loss ordering agrees (floating point $1.331$, fine-tune $1.350$, scratch
-$1.457 times 10^6$).
+scratch's validation RMS agrees ($1.457 times 10^6$ against the fine-tune's $1.350 times 10^6$).
 
-Which parts of a selective SSM tolerate $4$ bits? A leave-one-out probe at $4$ bits per-channel
-(one tensor group quantized, everything else floating point, selection pool):
+Which parts of a selective SSM tolerate $4$ bits? A one-tensor-at-a-time probe quantizes a single
+tensor group at $4$ bits per-channel and keeps everything else in floating point (re-quote pool,
+$n = 1000$ per cell):
 
 #figure(
   table(
@@ -1514,9 +1527,10 @@ Which parts of a selective SSM tolerate $4$ bits? A leave-one-out probe at $4$ b
     [output dense $W$], [32], [100.0], [$+22.5$],
     table.hline(stroke: 0.7pt),
   ),
-  caption: [Leave-one-out sensitivity at $4$ bits per-channel ($n = 1000$ per cell, selection
-  pool). The SSM dynamics parameters are disproportionately sensitive; the deltas do not add up to
-  the all-tensors cell ($+119.9$) -- quantization errors interact.],
+  caption: [One-tensor-at-a-time sensitivity at $4$ bits per-channel ($n = 1000$ per cell,
+  re-quote pool). The SSM dynamics parameters are disproportionately sensitive. The deltas do not
+  add up to the all-tensors per-channel cell ($+119.9$; $Delta v$ statistics are conditional on
+  capture, and that cell captures only $77%$) -- quantization errors interact.],
 ) <tbl-quant-loo>
 
 The SSM dynamics parameters are the bottleneck. The state matrix parameters $a_log$ cost
@@ -1530,15 +1544,6 @@ sensitivity of selective-SSM dynamics reported in the language-model quantizatio
 reproduces on a closed-loop control task under a tail-led metric. Whether $a_log$'s sensitivity is
 representational (the symmetric grid) or intrinsic is left open; an asymmetric quantizer is the
 one-line extension that would answer it.
-
-#fig("quantization_sweep.svg", [The post-training quantization grid on the selection pool
-($n = 1000$ per cell): capture rate (left) and $"CVaR"_95$ (right) versus bit width, for the four
-granularity $times$ policy series. Eight-bit per-channel quantization is free ($+0.4$ m/s);
-degradation is visible from $6$ bits and catastrophic below $4$ ($2$-bit collapses capture
-entirely). At $4$ bits the policy split dominates: projections-only holds $100%$ capture where
-all-tensors collapses to $77$--$85%$ -- far above the single-evaluation noise floor, unlike the
-few-m/s non-monotone granularity cells at $6$ and $3$ bits, which should not be over-read.],
-<fig-quant-sweep>)
 
 The deployment benefit, stated honestly, is memory -- not compute:
 
@@ -1556,10 +1561,11 @@ The deployment benefit, stated honestly, is memory -- not compute:
     table.hline(stroke: 0.7pt),
   ),
   caption: [Analytic memory footprint (packed $b$-bit weights + $32$-bit scales + floating-point
-  remainder; $64$-bit baseline $7696$ B). The $624$ B all-tensors cell is shown for contrast only
-  -- it is accuracy-broken at $4$ bits (capture $85%$). The honest headline is the deployed cell,
-  $7696 arrow.r 1564$ B, bounded below by the $968$ B of dynamics parameters the sensitivity study
-  says must stay in floating point.],
+  remainder; $64$-bit baseline $7696$ B). The per-tensor projections cell is cheaper still and
+  holds capture, but paid $+3.5$ m/s $"CVaR"_95$ over the per-channel cell on the grid. The
+  $624$ B all-tensors cell is shown for contrast only -- it is accuracy-broken at $4$ bits
+  (capture $85%$). The honest headline is the deployed cell, $7696 arrow.r 1564$ B, bounded below
+  by the $968$ B of dynamics parameters the sensitivity study says must stay in floating point.],
 ) <tbl-quant-memory>
 
 #figure(
@@ -1587,11 +1593,10 @@ The head accounts for $approx 1.22$ ms of the deployed policy's $3.14$ ms whole-
 beat the deployed runtime by only $approx 8%$, because dynamic activation quantization plus the
 floating-point SSM recurrence ($192$ exponentials per tick) dominate a #box[$962$-parameter] workload,
 and $4$-bit nibble unpacking cancels its bandwidth advantage. Simulation throughput in the
-accuracy study is unchanged by construction (fake-quantization stores rounded weights back as
-$64$-bit floats), so no simulation-time claim is made. The deployment case for the $4$-bit head is
+accuracy study is unchanged by construction, so no simulation-time claim is made. The deployment case for the $4$-bit head is
 the $4.9 times$ memory footprint and fixed-point-capable projection arithmetic, not speed.
 
-Four scopes bound these claims. The accuracy study is weight-only: activations, the hidden state,
+Four caveats bound these claims. The accuracy study is weight-only: activations, the hidden state,
 and the input normalization stay in $64$-bit floats (the integer kernels quantize activations for
 the compute measurement only). Both quantization-aware training arms are single runs. The grid
 cells are single-model $n = 1000$ evaluations. And the kernel ratios are laptop-class scalar
