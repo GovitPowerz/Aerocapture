@@ -29,6 +29,11 @@ class _MockProblem:
             out[i] = np.array([float(np.sum(x)) + 0.001 * s for s in seeds], dtype=np.float64)
         return out
 
+    def evaluate_population_records_per_seed(self, X: np.ndarray, seeds: list[int]) -> tuple[np.ndarray, np.ndarray]:
+        # Zero records: no constraint values, so feasibility only bites when a
+        # test passes cost_kwargs with limits (these mocks don't).
+        return self.evaluate_population_per_seed(X, seeds), np.zeros((X.shape[0], len(seeds), 52))
+
 
 def _rms(problem_free_x: np.ndarray, seeds: list[int]) -> float:
     costs = np.array([float(np.sum(problem_free_x)) + 0.001 * s for s in seeds])
@@ -89,6 +94,9 @@ class TestSelectionRule:
                 for x in X:
                     self.evaluated.append(x.copy())
                 return np.full((X.shape[0], len(seeds)), np.nan)
+
+            def evaluate_population_records_per_seed(self, X: np.ndarray, seeds: list[int]) -> tuple[np.ndarray, np.ndarray]:
+                return self.evaluate_population_per_seed(X, seeds), np.zeros((X.shape[0], len(seeds), 52))
 
         problem = _NaNProblem()
         champ = np.full(4, 0.5)

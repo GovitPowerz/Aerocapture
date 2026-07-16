@@ -110,7 +110,7 @@ train_fnpag() {
 train_cpag() {
     # CPAG runs ~10-30x slower per sim than FNPAG (SCP replans; see
     # docs/plans/2026-07-16-cpag-c0-findings.md), so the budget is sized down.
-    echo "=== cpag (13 genes + nav/shaping; convex predictor-corrector) ==="
+    echo "=== cpag (12 genes incl. nav/shaping; convex predictor-corrector) ==="
     run_scheme configs/training/msr_aller_cpag_train.toml 200 40 2000 1
 }
 

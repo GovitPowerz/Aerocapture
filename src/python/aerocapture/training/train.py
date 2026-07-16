@@ -29,6 +29,7 @@ from aerocapture.training.evaluate import (
     VALIDATION_SEED_OFFSET,
     GateStatus,
     _aero_rs,
+    constraint_violation_rates,
     make_reserved_seeds,
     run_validation_gate,
     write_nn_json,
@@ -1450,7 +1451,25 @@ def train(
             # are deterministic, so RMS is reproducible).
             if val_seeds is not None and best_overall_individual is not None:
                 init_val_costs, init_val_records = problem.evaluate_individual_records_per_seed(best_overall_individual, val_seeds)
-                best_val_cost = float(np.sqrt(np.mean(init_val_costs**2)))
+                init_rms = float(np.sqrt(np.mean(init_val_costs**2)))
+                # Feasibility gate (9.14) applies to the initial/resumed champion
+                # too: anchoring best_val_cost with an INFEASIBLE candidate makes
+                # every later feasible promotion beat an illegitimate RMS bar, and
+                # final selection would trust the anchor as-validated. Observed
+                # live: a fresh CPAG run's gen-0 argmin validated at 5.25%
+                # heat-load violation and anchored the campaign through this
+                # ungated path.
+                init_rates = constraint_violation_rates(init_val_records, problem.cost_kwargs)
+                init_feasible = init_rates is None or all(r <= config.optimizer.max_violation_rate + 1e-12 for r in init_rates.values())
+                if init_feasible:
+                    best_val_cost = init_rms
+                else:
+                    best_val_cost = float("inf")
+                    rates_txt = ", ".join(f"{k}={v:.3%}" for k, v in (init_rates or {}).items())
+                    print(
+                        f"  Initial best validation: INFEASIBLE ({rates_txt} > ceiling "
+                        f"{config.optimizer.max_violation_rate:.3%}) — not anchoring best_val_cost (rms was {init_rms:.4g})"
+                    )
                 last_validated_individual = best_overall_individual.copy()
                 init_val_metrics, init_val_summary = _build_validation_payload(
                     init_val_costs,
@@ -1458,6 +1477,8 @@ def train(
                     len(val_seeds),
                     problem.cost_kwargs,
                 )
+                init_val_metrics["feasible"] = init_feasible
+                init_val_metrics["violation_rates"] = init_rates
                 logger.log_generation(
                     start_gen,
                     pop_array,
@@ -1554,7 +1575,16 @@ def train(
                 validation_summary: dict | None = None
                 validated_improvement = False
                 if val_seeds is not None:
-                    gate = run_validation_gate(X, costs, last_validated_individual, best_val_cost, problem, val_seeds)
+                    gate = run_validation_gate(
+                        X,
+                        costs,
+                        last_validated_individual,
+                        best_val_cost,
+                        problem,
+                        val_seeds,
+                        max_violation_rate=config.optimizer.max_violation_rate,
+                        cost_kwargs=problem.cost_kwargs,
+                    )
                     if gate.status is GateStatus.VALIDATED:
                         assert gate.individual is not None and gate.val_costs is not None and gate.val_rms is not None
                         validation_metrics, validation_summary = _build_validation_payload(
@@ -1563,12 +1593,21 @@ def train(
                             len(val_seeds),
                             problem.cost_kwargs,
                         )
+                        validation_metrics["feasible"] = gate.feasible
+                        validation_metrics["violation_rates"] = gate.violation_rates
                         last_validated_individual = gate.individual
                         if gate.promoted:
                             best_val_cost = gate.val_rms
                             best_overall_individual = gate.individual
                             best_overall_cost = gate.argmin_cost
                             validated_improvement = True
+                        elif not gate.feasible and gate.val_rms < best_val_cost:
+                            # Would have promoted on RMS alone: the 9.14 gate blocked it.
+                            rates = ", ".join(f"{k}={v:.3%}" for k, v in (gate.violation_rates or {}).items())
+                            print(
+                                f"  Gen {gen} validation: REJECTED (infeasible: {rates} > "
+                                f"ceiling {config.optimizer.max_violation_rate:.3%}) despite rms {gate.val_rms:.4g}"
+                            )
                     # SKIP_UNCHANGED / SKIP_ALL_INF: no validation, no promotion.
                 elif np.isfinite(gen_best_cost):
                     # No validation gate: promote each generation's finite training
@@ -1697,6 +1736,8 @@ def train(
                         [f"last_gen[{i}]" for i in range(X.shape[0])],
                         known,
                         val_seeds,
+                        max_violation_rate=config.optimizer.max_violation_rate,
+                        cost_kwargs=problem.cost_kwargs,
                     )
                 except ValueError:
                     # Pathological all-inf run with no champion: nothing to select.
@@ -2168,6 +2209,8 @@ def _train_islands(
                     cand_prov,
                     known,
                     island_model.validation_seeds,
+                    max_violation_rate=config.optimizer.max_violation_rate,
+                    cost_kwargs=problem.cost_kwargs,
                 )
             except ValueError:
                 # Pathological all-inf run with no champions: fall through to the

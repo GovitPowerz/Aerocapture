@@ -12,5 +12,21 @@ base = ["../missions/mars.toml", "common.toml"]
 [guidance]
 type = "cpag"
 
+# C2 budget, sized for the ~3.5 s/sim wall cost on a 14-core M-series
+# (measured ~2-3 sims/s effective through run_grid): 48 x 2 sims/gen ~= 35-50 s
+# per generation, ~5-7 h for 400 generations plus validation fires. The
+# deployed-regime knobs (GA, adaptive/max curation, cubed transform) inherit
+# from common.toml; only the budget + gate knobs are overridden here.
+[optimizer]
+n_pop = 48
+n_gen = 400
+training_n_sims = 2        # deployed paper regime (common ships 10 — too slow here)
+validation_n_sims = 400    # ~3-4 min per gate fire at CPAG's sim cost
+curation_sample_size = 300 # adaptive-curation probe budget, same reason
+# Feasibility gate (IMPROVEMENTS 9.14): strict 0 on a 400-sim pool would let a
+# single tail draw block every promotion; 1% (4 draws) still rejects any
+# systematically violating candidate like the LSTM 14-16% case.
+max_violation_rate = 0.01
+
 [data]
 results_suffix = ".train_cpag"

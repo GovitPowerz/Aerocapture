@@ -250,6 +250,25 @@ class AerocaptureProblem(Problem):
 
         return overrides
 
+    def evaluate_population_records_per_seed(
+        self,
+        X: npt.NDArray[np.float64],
+        seeds: list[int],
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        """Batched variant of `evaluate_individual_records_per_seed`: per-seed
+        costs (n_pop, n_seeds) AND the (n_pop, n_seeds, 52) final-records grid.
+
+        Final selection uses the records for the 9.14 feasibility check without
+        a second MC pass.
+        """
+        grid = self._run_grid_records(X, seeds)
+        n_pop, n_seeds = X.shape[0], len(seeds)
+        costs = np.empty((n_pop, n_seeds), dtype=np.float64)
+        for i in range(n_pop):
+            for k in range(n_seeds):
+                costs[i, k] = compute_cost(grid[i, k].reshape(1, FINAL_RECORD_LEN), **self.cost_kwargs)
+        return costs, grid
+
     def _build_grid_overrides(self, params: dict[str, float]) -> dict[str, object]:
         """Route param dict to TOML dot-path overrides for run_grid (no seed /
         n_sims keys -- run_grid owns the seed axis and runs one sim per cell).

@@ -90,6 +90,11 @@ class OptimizerConfig:
     curation_trim_fraction: float = 0.0
     curation_bucket_selection: str = "random"
     grow_fresh_fraction: float = 0.2
+    # Feasibility ceiling for the validation gate and final selection
+    # (IMPROVEMENTS 9.14): max fractional violation rate per configured
+    # constraint on the validation pool. 0.0 = any violating draw blocks
+    # promotion (strict); raise per-config when a small rate is acceptable.
+    max_violation_rate: float = 0.0
     ga: GASettings = field(default_factory=GASettings)
     cma_es: CMAESSettings = field(default_factory=CMAESSettings)
     de: DESettings = field(default_factory=DESettings)
@@ -115,6 +120,8 @@ class OptimizerConfig:
             raise ValueError(f"curation_bucket_selection must be one of ('random', 'min', 'max', 'middle'), got {self.curation_bucket_selection!r}")
         if not 0.0 <= self.grow_fresh_fraction <= 1.0:
             raise ValueError(f"grow_fresh_fraction must be in [0, 1], got {self.grow_fresh_fraction}")
+        if not 0.0 <= self.max_violation_rate <= 1.0:
+            raise ValueError(f"max_violation_rate must be in [0, 1], got {self.max_violation_rate}")
 
     @classmethod
     def from_dict(cls, d: dict) -> OptimizerConfig:

@@ -62,7 +62,7 @@ evidence.
       it 100%, dv p50 150.8 / p95 223.7)
 - [x] Path constraints wired to `[flight.constraints]` (heat flux + g-load rows, terminal heat
       load on the Q state; pdyn off by default -- unsatisfiable on this mission); `[guidance.cpag]`
-      TOML params + `param_spaces.py` specs (13 genes + nav/shaping; cadence knobs deliberately
+      TOML params + `param_spaces.py` specs (12 genes: 9 CPAG + nav/shaping; cadence knobs deliberately
       not genes) + routing entry + `compare_guidance` + `train_all.sh cpag` registration
 - [x] Unit tests (constraint activation with a satisfiable limit, replan throttle, vacuum hold,
       sigma-box playback, crash-tier convergence fallback, eps identities, Clarabel smoke,

@@ -384,6 +384,8 @@ class IslandModel:
                 island.best_val_cost,
                 self.problem,
                 self.validation_seeds,
+                max_violation_rate=self.config.max_violation_rate,
+                cost_kwargs=self.problem.cost_kwargs,
             )
 
             if gate.status is GateStatus.SKIP_ALL_INF:
@@ -441,6 +443,8 @@ class IslandModel:
                     "island": island.name,
                     "validated": True,
                     "promoted": gate.promoted,
+                    "feasible": gate.feasible,
+                    "violation_rates": gate.violation_rates,
                     "argmin_train_cost": gate.argmin_cost,
                     "val_rms": gate.val_rms,
                     "val_mean": float(np.mean(val_costs)),

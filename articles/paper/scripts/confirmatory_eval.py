@@ -46,6 +46,11 @@ PAIRS = [
     ("mamba_p962_long", "lstm_p1082_long", "mamba_vs_lstm"),
     ("joint_reference/ftc", "fnpag", "jointftc_vs_fnpag"),
     ("mamba_p962_long", "state_reset/mamba_s1", "mamba_vs_state_reset"),
+    # CPAG C2 cells (bind only in the shallow-pool file where all four cells
+    # share pools; CPAG's wall cost caps pool depth well below 100k).
+    ("cpag", "joint_reference/ftc", "cpag_vs_jointftc"),
+    ("cpag", "fnpag", "cpag_vs_fnpag"),
+    ("mamba_p962_long", "cpag", "mamba_vs_cpag"),
 ]
 
 T95_DF9 = 2.262  # t(0.975, df=9) for 10 replicates
@@ -104,16 +109,15 @@ def _agg(values: list[float]) -> dict:
     }
 
 
-def _eval_cell(label: str, toml: str, pools: list[list[int]], bundle_key: str | None, extra: dict[str, Any],
-               scaffolding_from: str | None = None) -> dict:
+def _eval_cell(
+    label: str, toml: str, pools: list[list[int]], bundle_key: str | None, extra: dict[str, Any], scaffolding_from: str | None = None, sim_timeout: float = 5.0
+) -> dict:
     import aerocapture_rs
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
     from aerocapture.training.report import _read_constraint_limits, _resolve_eval_toml
 
     src = scaffolding_from or label
-    scheme_dir = (
-        REPO / "training_output" / "paper" / src if "/" in src and not (REPO / "training_output" / src).exists() else REPO / "training_output" / src
-    )
+    scheme_dir = REPO / "training_output" / "paper" / src if "/" in src and not (REPO / "training_output" / src).exists() else REPO / "training_output" / src
     eval_toml, scaffolding = _resolve_eval_toml(Path(toml), scheme_dir)
     hfl, gll, hll = _read_constraint_limits(eval_toml)
 
@@ -130,13 +134,14 @@ def _eval_cell(label: str, toml: str, pools: list[list[int]], bundle_key: str | 
     pooled_parts: list[np.ndarray] = []
     for r, seeds in enumerate(pools):
         overrides = [{**base, "monte_carlo.seed": s} for s in seeds]
-        res = aerocapture_rs.run_batch(toml_path=str(eval_toml.resolve()), overrides_list=overrides, sim_timeout_secs=5.0)
+        res = aerocapture_rs.run_batch(toml_path=str(eval_toml.resolve()), overrides_list=overrides, sim_timeout_secs=sim_timeout)
         recs = np.asarray(res.final_records)
         col = {name: recs[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
         cap = (col["ifinal"] == 3) & (col["eccentricity"] < 1.0)
         x = np.sort(col["dv_total_m_s"][cap])
         viol = {
-            "viol_pct": 100 * float(((col["max_heat_flux_kw_m2"] > hfl) | (col["max_load_factor_g"] > gll) | (col["integrated_flux_mj_m2"] * 1e3 > hll)).mean()),
+            "viol_pct": 100
+            * float(((col["max_heat_flux_kw_m2"] > hfl) | (col["max_load_factor_g"] > gll) | (col["integrated_flux_mj_m2"] * 1e3 > hll)).mean()),
             "heat_load_viol_pct": 100 * float((col["integrated_flux_mj_m2"] * 1e3 > hll).mean()),
         }
         rep = {"replicate": r, **_replicate_stats(x, len(recs), int(cap.sum()), viol)}
@@ -192,8 +197,23 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--cells", nargs="+", required=True, help="label:toml[:bundle_key]")
     parser.add_argument("--replicates", type=int, default=10)
     parser.add_argument("--n", type=int, default=100_000)
-    parser.add_argument("--extra-override", action="append", default=[], help="k=v applied to every sim (e.g. guidance.neural_network.reset_state_every_tick=true)")
-    parser.add_argument("--scaffolding-from", default=None, help="resolve best_params.json scaffolding from this training_output dir instead of the label's (for ablation cells sharing a source run)")
+    parser.add_argument(
+        "--extra-override", action="append", default=[], help="k=v applied to every sim (e.g. guidance.neural_network.reset_state_every_tick=true)"
+    )
+    parser.add_argument(
+        "--scaffolding-from",
+        default=None,
+        help="resolve best_params.json scaffolding from this training_output dir instead of the label's (for ablation cells sharing a source run)",
+    )
+    parser.add_argument(
+        "--sim-timeout",
+        type=float,
+        default=5.0,
+        help="wall-clock timeout per sim (s). Raise for slow schemes: CPAG needs ~60 (a 5 s cap kills its ~3.5 s replanned sims under load and reports them as failures)",
+    )
+    parser.add_argument(
+        "--out", type=Path, default=OUT, help="output JSON (use a separate file for shallow-pool campaigns — pairing requires all cells on the SAME pools)"
+    )
     args = parser.parse_args(argv)
 
     from aerocapture.training.evaluate import make_confirmatory_pools
@@ -201,11 +221,12 @@ def main(argv: list[str] | None = None) -> None:
 
     extra = _parse_extra_overrides(args.extra_override)
 
-    existing: dict = json.loads(OUT.read_text()) if OUT.exists() else {}
+    out_path: Path = args.out
+    existing: dict = json.loads(out_path.read_text()) if out_path.exists() else {}
     by_label: dict[str, dict] = {c["label"]: c for c in existing.get("cells", [])}
     if existing:
         assert existing.get("n_replicates") == args.replicates and existing.get("n_per_replicate") == args.n, (
-            f"pool shape mismatch vs existing {OUT.name} ({existing.get('n_replicates')}x{existing.get('n_per_replicate')})"
+            f"pool shape mismatch vs existing {out_path.name} ({existing.get('n_replicates')}x{existing.get('n_per_replicate')})"
         )
 
     specs = []
@@ -224,9 +245,9 @@ def main(argv: list[str] | None = None) -> None:
     pools = make_confirmatory_pools(base_seed, args.replicates, args.n)
 
     for label, toml, bundle_key in specs:
-        by_label[label] = _eval_cell(label, toml, pools, bundle_key, extra, scaffolding_from=args.scaffolding_from)
+        by_label[label] = _eval_cell(label, toml, pools, bundle_key, extra, scaffolding_from=args.scaffolding_from, sim_timeout=args.sim_timeout)
         cells = [by_label[k] for k in sorted(by_label)]
-        OUT.write_text(
+        out_path.write_text(
             json.dumps(
                 {
                     "freeze_commit": subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=REPO).stdout.strip(),
@@ -244,7 +265,7 @@ def main(argv: list[str] | None = None) -> None:
         p = by_label[label]["pooled"]
         print(f"{label}: pooled cap={p['capture_pct']}% cvar999={p['cvar999']} (n_tail={p['n_tail_obs_cvar999']}) max={p['max']} -> saved", flush=True)
 
-    print(f"\nwrote {OUT} ({len(by_label)} cells)")
+    print(f"\nwrote {out_path} ({len(by_label)} cells)")
 
 
 if __name__ == "__main__":
