@@ -394,7 +394,7 @@ Full spec: `docs/superpowers/specs/2026-04-24-phase-4a-mamba-ssm-mvp-design.md`.
 
 **Cross-language gate** (`tests/test_v2_rust_python_equivalence.py`): builds a 2-layer `V2Policy` in f64 (via `policy.double()`), exports to JSON v2, loads in Rust through `aerocapture_rs.nn_forward`, feeds 100 random f64 inputs, asserts max abs diff < 1e-10. Actual result: **4.4e-16** (machine epsilon).
 
-Full spec: `docs/superpowers/specs/2026-04-17-stateful-nn-runtime-infrastructure-design.md`. Multi-phase roadmap (GRU, LSTM, Window-MLP, Transformer, Mamba; PSO × BPTT training axes): `TODO.md`.
+Full spec: `docs/superpowers/specs/2026-04-17-stateful-nn-runtime-infrastructure-design.md`. The multi-phase program (GRU, LSTM, Window-MLP, Transformer, Mamba; PSO × BPTT training axes) is SHIPPED — `TODO.md` keeps a compressed epilogue; the task-by-task phase history lives in `TODO.md`'s git log and the specs/plans under `docs/superpowers/`.
 
 ## Key Lessons & Pitfalls
 
