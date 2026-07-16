@@ -12,72 +12,72 @@
     {
       "label": "NN-mamba",
       "n_sims": 200,
-      "ms_per_sim": 3.5917,
+      "ms_per_sim": 3.137,
       "ms_per_sim_repeats": [
-        3.5734,
-        3.5867,
-        3.5917,
-        3.596,
-        3.651
+        3.1119,
+        3.1253,
+        3.137,
+        3.1397,
+        3.1729
       ],
-      "sims_per_s": 278.4,
+      "sims_per_s": 318.8,
       "mean_sim_time_s": 734.1,
       "n_guidance_updates": 734,
-      "us_per_update_incl_sim": 4.89,
-      "slowdown_vs_fastest": 2.9
+      "us_per_update_incl_sim": 4.27,
+      "slowdown_vs_fastest": 3.5
     },
     {
       "label": "NN-dense",
       "n_sims": 200,
-      "ms_per_sim": 2.353,
+      "ms_per_sim": 1.8814,
       "ms_per_sim_repeats": [
-        2.3442,
-        2.3451,
-        2.353,
-        2.354,
-        2.3555
+        1.8624,
+        1.8709,
+        1.8814,
+        1.8824,
+        1.8996
       ],
-      "sims_per_s": 425.0,
+      "sims_per_s": 531.5,
       "mean_sim_time_s": 771.6,
       "n_guidance_updates": 772,
-      "us_per_update_incl_sim": 3.05,
-      "slowdown_vs_fastest": 1.9
+      "us_per_update_incl_sim": 2.44,
+      "slowdown_vs_fastest": 2.1
     },
     {
       "label": "FTC",
       "n_sims": 200,
-      "ms_per_sim": 1.2394,
+      "ms_per_sim": 0.903,
       "ms_per_sim_repeats": [
-        1.2362,
-        1.2384,
-        1.2394,
-        1.2402,
-        1.2448
+        0.8937,
+        0.9002,
+        0.903,
+        0.9052,
+        0.945
       ],
-      "sims_per_s": 806.8,
+      "sims_per_s": 1107.5,
       "mean_sim_time_s": 480.1,
       "n_guidance_updates": 480,
-      "us_per_update_incl_sim": 2.58,
+      "us_per_update_incl_sim": 1.88,
       "slowdown_vs_fastest": 1.0
     },
     {
       "label": "FNPAG",
       "n_sims": 200,
-      "ms_per_sim": 81.8921,
+      "ms_per_sim": 87.0781,
       "ms_per_sim_repeats": [
-        81.8809,
-        81.8863,
-        81.8921,
-        81.9097,
-        81.9391
+        86.9909,
+        87.0145,
+        87.0781,
+        87.0893,
+        87.1277
       ],
-      "sims_per_s": 12.2,
+      "sims_per_s": 11.5,
       "mean_sim_time_s": 636.1,
       "n_guidance_updates": 636,
-      "us_per_update_incl_sim": 128.73,
-      "slowdown_vs_fastest": 66.1,
+      "us_per_update_incl_sim": 136.89,
+      "slowdown_vs_fastest": 96.4,
       "n_replans": 318,
-      "ms_per_replan_derived": 0.2536
+      "ms_per_replan_derived": 0.2709
     }
   ]
 }

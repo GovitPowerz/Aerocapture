@@ -82,7 +82,7 @@
   $"CVaR"_(99.9)$ of #box[$123.3 plus.minus 0.1$ m/s] (independent retraining seeds span
   $122$--$131$). It beats the best classical scheme (FTC with a
   co-optimized reference) by #box[$16.4$ m/s] in mean and #box[$27.6$ m/s] at $"CVaR"_95$, better on
-  every one of $1000$ paired scenarios, at #box[$3.6$ ms] per simulation -- $23 times$ faster than
+  every one of $1000$ paired scenarios, at #box[$3.1$ ms] per simulation -- $28 times$ faster than
   FNPAG. The result rests on a training methodology that is itself a contribution: a non-stationary,
   adaptive-seed Monte Carlo environment turns the genetic algorithm from the *worst* optimizer under
   fixed scenarios ($154$ m/s three-seed mean) into the *best* ($120$). Across cell types, engineered,
@@ -155,7 +155,7 @@ We make three contributions:
   against classical baselines co-tuned on the same objective, on paired dispersed scenarios, under
   a far-tail correction-$Delta v$ risk metric. On
   identical dispersions, the deployed network beats the best classical scheme by $16.4$ m/s in mean
-  and $27.6$ m/s at $"CVaR"_95$, at a per-simulation compute cost $23 times$ below the numerical
+  and $27.6$ m/s at $"CVaR"_95$, at a per-simulation compute cost $28 times$ below the numerical
   predictor--corrector -- with the caveat that the analytic law is more robust off-nominal, under a
   deliberately harsh stress regime we return to in Section 7.3.
 
@@ -417,7 +417,7 @@ Mamba-3 @lahoti2026mamba3 -- against these cells at matched budget; none improve
   ),
   caption: [The benchmarked schemes. "Reference" marks dependence on a tabulated reference trajectory
   ("inputs": the network reads two reference interpolations as observations but does not enslave to
-  them); "Compute" classes are quantified in @sec-deployability (fast: $1$--$4$ ms/sim; slow: $82$ ms/sim).
+  them); "Compute" classes are quantified in @sec-deployability (fast: $1$--$3$ ms/sim; slow: $87$ ms/sim).
   Signed-bank schemes (full-neural, piecewise-constant) bypass the shared roll-reversal, exit-phase,
   and thermal-limiter logic.],
 ) <tbl-schemes>
@@ -567,13 +567,14 @@ gradient-free search.], <fig-plateau>)
     [Training batches], [$2$/gen], [every generation], [weight updates (moving, curated)],
     [Selection pool (offset 1M)], [$1000$], [$13\,442$ over the run], [in-training argmin promotion],
     [Development far tail (offset 2M)], [$10\,000$], [tens], [cost transform, curation bucket, allocation, cell type, headline choice],
-    [Fresh re-quote (offset 8M)], [$1000$], [once], [none (reported only)],
+    [Fresh re-quote (offset 8M)], [$1000$], [once; quantization grid], [quantization cell choice (Appendix C)],
     [Confirmatory sizing (Appendix A)], [$10 times 100\,000$], [once, post-freeze], [none -- every quoted sizing number],
     [Off-nominal stress (offset 9M)], [$1000$], [once per policy], [none (robustness probe)],
+    [Architecture probes (offset 10M)], [$1000$], [once per arm-repeat], [none (Appendix B verdicts)],
     table.hline(stroke: 0.7pt),
   ),
   caption: [Scenario-pool roles and the decisions each pool influenced. The pools above the last
-  two rows are development quantities: the selection pool is adaptively reused by the promotion
+  three rows are development quantities: the selection pool is adaptively reused by the promotion
   gate, and the development far-tail pool informed the methodology and architecture choices, so
   neither is an unbiased test set. The confirmatory pool was generated from a seed range disjoint
   from every earlier draw, after all methodology, architecture, and checkpoint choices were frozen,
@@ -597,7 +598,7 @@ aligned to the predicted correction cost plus the true terminal cost (the standa
 sparse terminal rewards), and the best policies still underperformed the population methods by a
 wide margin: $636$ m/s mean ($1047$ at $"CVaR"_95$) for the dense PPO policy and $513$ ($893$) for
 the recurrent one, against $119$ ($138$) for the population-trained dense network on the same
-simulator regime#footnote[The reinforcement-learning cells predate two later simulator fixes and
+simulator regime#footnote[The reinforcement-learning cells predate several later simulator fixes and
 are quoted on their own contemporaneous evaluation pool; the $4$--$5 times$ gap, not the absolute
 values, is the result.] -- consistent with the stochastic shaped return optimizing a different
 quantity than the deterministic mission cost. Population search on the mission cost itself was
@@ -651,7 +652,7 @@ migration cross-pollinates their discoveries, so a sub-population trapped in a l
 pulled out by a migrant from another island instead of having to escape on its own -- the diversity
 a single homogeneous method lacks. And because the three strategies share one run's evaluations
 through migration, one need not run each optimizer separately and keep the best. The result never
-collapses the way a starved genetic algorithm does ($120$--$124$ m/s across every budget); the price
+collapses the way a starved genetic algorithm does (mean $120$--$124$ m/s across every budget); the price
 is that at a well-chosen budget a single large genetic algorithm still edges it, so the islands buy
 robustness to the budget choice rather than a lower optimum.
 
@@ -781,7 +782,7 @@ recurrence better matched to the density process, or simply a friendlier search 
 budget -- our three-seed evidence cannot separate, and we claim no mechanism for the intra-recurrent
 ordering. What we can say is that more sophisticated memory does not help: Appendix B probes three
 further recent recurrent families (CfC, the xLSTM cells, Mamba-3's axes) at matched budget, and none
-beats the plain cells -- two are significantly worse. The reason is visible in the median: every architecture we trained to convergence,
+beats the plain cells -- two arms are significantly worse. The reason is visible in the median: every architecture we trained to convergence,
 dense included, reaches the
 same $108$--$112$ m/s typical cost, because the engineered, cost-aligned inputs (the predicted-$Delta v$
 components above all) already encode most of what a memory cell could recover. Recurrence is redundant
@@ -848,9 +849,9 @@ reference-tracking laws (FTC, the energy controller, PredGuid) are only as good 
 trajectory they enslave to, and the legacy constant-bank reference is not optimal. We therefore let
 the genetic algorithm co-optimize the reference: a single extra gene sets the constant bank angle that
 generates the reference table, regenerated per individual, so the law and the trajectory it tracks
-adapt together. The effect is large (@fig-joint). FTC falls from $170.7$ to $126.3$ m/s mean and from
-$244.1$ to $142.9$ m/s at $"CVaR"_95$ -- a $44$ m/s improvement, and the network beats it on every one
-of $1000$ paired scenarios ($p < 10^(-15)$, saturated). The energy controller recovers by $35$ m/s
+adapt together. The effect is large (@fig-joint). FTC falls from $170.7$ to $126.3$ m/s mean (a
+$44$ m/s improvement) and from $244.1$ to $142.9$ m/s at $"CVaR"_95$, and the network beats it on
+every one of $1000$ paired scenarios ($p < 10^(-15)$, saturated). The energy controller recovers by $35$ m/s
 and PredGuid by $23$. The reference *was* FTC's weakness: a feedback law tracking a poor target cannot
 out-perform the target.
 
@@ -886,19 +887,19 @@ scenarios; against FNPAG the margins are $14.4$ / $23.4$ / $28.7$ m/s, winning $
 (@tbl-paired). The tail margin is consistently *larger* than the mean margin -- the network's
 advantage is precisely where the mission is sized.
 
-*Compute.* On a single idle core, the dense network runs at $2.35$ ms per simulation and the stateful
-Mamba at $3.59$ ms, against $1.24$ ms for FTC and $81.9$ ms for FNPAG (@fig-classical). The network is
-roughly three times FTC -- the same fast class -- and $23 times$ faster than the numerical
+*Compute.* On a single idle core, the dense network runs at $1.88$ ms per simulation and the stateful
+Mamba at $3.14$ ms, against $0.90$ ms for FTC and $87.1$ ms for FNPAG (@fig-classical). The network is
+roughly three and a half times FTC -- the same fast class -- and $28 times$ faster than the numerical
 predictor--corrector. On accuracy and compute FNPAG is dominated -- joint-FTC matches its accuracy
 and the network beats it, both at a small fraction of its cost -- though the off-nominal stress
-below keeps robustness a separate axis. The selective-state-space core costs about $1.5 times$ the
+below keeps robustness a separate axis. The selective-state-space core costs about $1.7 times$ the
 dense network, the price of the tail it buys. Per control action rather than per trajectory: the
-network's forward pass costs $approx 5$ (mu)s per $1$ s guidance update (whole-simulation cost
+network's forward pass costs $approx 4$ µs per $1$ s guidance update (whole-simulation cost
 divided by the $approx 734$ updates flown -- an upper bound on pure inference), while FNPAG's
-predictor work amounts to $approx 0.25$ ms per $2$ s replan cycle. Flight processors run one to
+predictor work amounts to $approx 0.27$ ms per $2$ s replan cycle. Flight processors run one to
 two orders of magnitude slower than the laptop core measured here; at a conservative $100 times$
-scaling neither scheme breaches its own deadline ($approx 25$ ms per replan against $2$ s;
-$approx 0.5$ ms per update against $1$ s), but the deadline margins differ by a factor of thirty,
+scaling neither scheme breaches its own deadline ($approx 27$ ms per replan against $2$ s;
+$approx 0.4$ ms per update against $1$ s), but the deadline margins differ by a factor of thirty,
 and the relative cost ordering is host-independent. None of these measurements establish worst-case
 execution time or memory on qualified hardware (Section 9).
 
@@ -1120,8 +1121,8 @@ guidance, with the markers stated there: the centered-retrain demonstration is n
 references) but remains $n = 1000$, and the stress regime is one a real mission would design away.
 What remains open is the far-tail depth used for the headline.
 
-A second tradeoff is the cost of state. The deployed Mamba runs at $3.59$ ms per simulation against
-$2.35$ ms for the dense network -- about $1.5 times$ for the selective-state-space core -- which is
+A second tradeoff is the cost of state. The deployed Mamba runs at $3.14$ ms per simulation against
+$1.88$ ms for the dense network -- about $1.7 times$ for the selective-state-space core -- which is
 the price of the tighter tail. The head itself accounts for $approx 1.2$ ms of that cost;
 single-precision arithmetic would roughly halve it, while integer quantization buys memory rather
 than speed at this scale (Appendix C). Both remain in the fast compute class, an order of magnitude below the
@@ -1169,7 +1170,7 @@ $10^6$ frozen confirmatory scenarios and,
 on the far tail that sizes the propellant tanks, reaches $"CVaR"_(99.9) = 123.3 plus.minus 0.1$ m/s
 -- $42$ m/s
 below the best classical scheme and beating a well-referenced FTC by $16.4$ m/s in mean and $27.6$ at
-$"CVaR"_95$, on every one of a thousand paired scenarios, running $23 times$ faster than the numerical
+$"CVaR"_95$, on every one of a thousand paired scenarios, running $28 times$ faster than the numerical
 predictor--corrector.
 
 Two findings carry beyond the headline number. The first is methodological: a genetic algorithm is the
@@ -1220,7 +1221,8 @@ streams: the selection pool (offset $10^6$, $n = 1000$, the in-training promotio
 $13\,442$ times over the headline run, so it is adaptively reused and is not an unbiased estimate
 of generalization), final evaluation (offset $2 times 10^6$: the $n = 1000$ paired pool of
 @tbl-perf and @tbl-paired, extended to $n = 10\,000$ for the development far tail), the fresh
-re-quote pool (offset $8 times 10^6$), and the off-nominal stress pool (offset $9 times 10^6$).
+re-quote pool (offset $8 times 10^6$), the off-nominal stress pool (offset $9 times 10^6$), and
+the architecture-probe pool (offset $10^7$, Appendix B).
 Training scenarios are drawn outside every reserved stream; evaluation pools draw one scenario per
 seed (independent samples), and multi-scenario batches use Latin-hypercube draws. @tbl-pools states
 which decisions each pool influenced.
@@ -1334,8 +1336,9 @@ worst-case execution time and memory footprint are not established here (Section
 
 *Artifacts.* The simulator, training harness, analysis code, every configuration, the deployed
 network weights, the committed per-run evaluation records behind each table, and the scripts that
-regenerate every figure and number are released publicly under an MIT license (repository URL in
-the camera-ready). Every number in the tables regenerates, without retraining, from those records.
+regenerate every figure and number are released publicly under an MIT license at
+#link("https://github.com/GovitPowerz/Aerocapture"). Every number in the tables regenerates,
+without retraining, from those records.
 
 #pagebreak(weak: true)
 = Appendix B: architecture probes -- CfC, xLSTM, and the Mamba-3 axes
@@ -1347,16 +1350,16 @@ input-dependent time constants suit the fast-near-periapsis, static-in-vacuum ph
 against the GRU anchor; the exponential-gated sLSTM and matrix-memory mLSTM of xLSTM @beck2024xlstm
 (hypothesis: sharp revision of a stored estimate at the bounce or a density shock) against the LSTM
 anchor; and a $2 times 2$ over Mamba-3's @lahoti2026mamba3 two axes -- exponential-trapezoidal
-discretization and complex (rotational) state -- at the deployed Mamba anchor, whose euler-real arm
-is bit-identical to the deployed cell.
+discretization and complex (rotational) state -- at the deployed Mamba anchor, whose Euler-real arm
+is bit-identical to the deployed Mamba layer.
 
 Every arm shares one training regime (the genetic algorithm at population $300$ for $5000$
 generations, two scenarios per individual, adaptive hardest-seed curation, live actuator
-scaffolding) and one reserved evaluation pool (offset $10^7$, $n = 1000$, each arm scored with its
-co-trained scaffolding), with three seed-repeats per arm; $sigma_"run"$ is the standard deviation
-over repeats. Capture is $99.97$--$100%$ everywhere and every arm passes the feasibility check of
-Section 6.2 -- zero heat-flux, g-load, and heat-load violations on every repeat -- so the comparison
-is a pure tail-$Delta v$ story. Two scopes apply throughout: these are $p_95$/$"CVaR"_95$ statistics
+scaffolding) and one reserved evaluation pool, the probe pool (offset $10^7$, $n = 1000$; each arm
+scored with its co-trained scaffolding), with three seed-repeats per arm; $sigma_"run"$ is the
+standard deviation over repeats. Capture is $99.97$--$100%$ everywhere and every arm passes the
+feasibility check of Section 6.2 -- zero heat-flux, g-load, and heat-load violations on every
+repeat -- so the comparison is a pure tail-$Delta v$ story. Two caveats apply throughout: these are $p_95$/$"CVaR"_95$ statistics
 at $n = 1000$, not the far-tail $"CVaR"_(99.9)$ sizing metric, and the probe budget is deliberately
 sub-headline ($1.5$M evaluations versus the deployed $512 times 20\,000$), so the absolute values
 sit above the headline numbers and are not mission figures.
@@ -1382,9 +1385,9 @@ sit above the headline numbers and are not mission figures.
     table.hline(stroke: 0.7pt),
   ),
   caption: [The nine probe arms: three-seed means, correction $Delta v$ in m/s on the shared
-  $n = 1000$ probe pool. Baselines are retrained in-regime (not the deployed champions -- see the
-  budget caveat below). Viol. is the any-constraint violation rate; every arm is feasible on every
-  repeat.],
+  $n = 1000$ probe pool. Baselines are retrained in-regime (not the higher-budget reference runs --
+  see the budget caveat below). Viol. is the any-constraint violation rate; every arm is feasible
+  on every repeat.],
 ) <tbl-probes>
 
 #figure(
@@ -1393,20 +1396,20 @@ sit above the headline numbers and are not mission figures.
     align: (left, center, center, center, left),
     table.hline(stroke: 0.7pt),
     table.header(
-      [*Treatment vs baseline*], [*Metric*], [*Gap*], [$bold(sigma_"run")$], [*Verdict*],
+      [*Treatment vs baseline*], [*Metric*], [*Gap*], [$bold(sigma_"comb")$], [*Verdict*],
     ),
     table.hline(stroke: 0.35pt),
     [CfC vs GRU], [$p_95$ / $"CVaR"_95$], [$+2.8$ / $+3.7$], [$1.6$ / $1.3$], [*significantly worse*],
     [Trapezoidal vs Mamba], [$p_95$ / $"CVaR"_95$], [$+3.3$ / $+4.8$], [$2.2$ / $2.3$], [*significantly worse*],
-    [Complex vs Mamba], [$p_95$ / $"CVaR"_95$], [$-0.5$ / $-0.3$], [$1.9$ / $2.1$], [within $sigma_"run"$],
-    [Both vs Mamba], [$p_95$ / $"CVaR"_95$], [$+0.0$ / $+0.1$], [$1.4$ / $1.2$], [within $sigma_"run"$],
-    [sLSTM vs LSTM], [$p_95$ / $"CVaR"_95$], [$+0.4$ / $+0.3$], [$2.9$ / $3.4$], [within $sigma_"run"$],
-    [mLSTM vs LSTM], [$p_95$ / $"CVaR"_95$], [$+3.1$ / $+3.5$], [$3.8$ / $5.0$], [within $sigma_"run"$ (high variance)],
+    [Complex vs Mamba], [$p_95$ / $"CVaR"_95$], [$-0.5$ / $-0.3$], [$1.9$ / $2.1$], [within run variance],
+    [Both vs Mamba], [$p_95$ / $"CVaR"_95$], [$+0.0$ / $+0.1$], [$1.4$ / $1.2$], [within run variance],
+    [sLSTM vs LSTM], [$p_95$ / $"CVaR"_95$], [$+0.4$ / $+0.3$], [$2.9$ / $3.4$], [within run variance],
+    [mLSTM vs LSTM], [$p_95$ / $"CVaR"_95$], [$+3.1$ / $+3.5$], [$3.8$ / $5.0$], [within run variance (high $sigma_"run"$)],
     table.hline(stroke: 0.7pt),
   ),
-  caption: [Within-family significance, the rigorous claims: gap = treatment minus baseline
-  (positive = worse), cleared when $|"gap"| > sqrt(sigma_"base"^2 + sigma_"arm"^2)$ (the tabulated
-  $sigma_"run"$).],
+  caption: [Within-family significance: gap = treatment minus baseline (positive = worse), cleared
+  when $|"gap"| > sigma_"comb" = sqrt(sigma_"base"^2 + sigma_"arm"^2)$, with the per-arm
+  $sigma_"run"$ taken from @tbl-probes.],
 ) <tbl-probes-sig>
 
 The within-family rows are the rigorous claims. The CfC is significantly worse than the GRU on both
@@ -1422,14 +1425,16 @@ anchors differ slightly ($962$/$1014$/$1082$ parameters), so the ranking is sugg
 matched: the plain Mamba tops the field (tied with its own complex arms), about $2$ m/s ahead of the
 GRU and $2.7$ ahead of the LSTM at $p_95$ -- consistent with the deployed headline.
 
-One caveat is load-bearing. Each probe also scored its deployed higher-budget champion as a
-reference row, and those sit $4$--$6$ m/s better at $p_95$ than the retrained in-regime baselines
-(Mamba $121.6$ versus $116.6$; GRU $123.7$ versus $117.3$; LSTM $124.3$ versus $120.2$) -- a pure
-training-budget effect (the champions had roughly $3.4 times$ the evaluations), not architecture.
-That gap is exactly why every treatment compares against its retrained in-regime baseline and never
-against a champion. Two smaller scopes: the probe cells are trained through the gradient-free path
-only (no warm-start), and the sLSTM's $40$-parameter deficit against the LSTM is a cell-definition
-cost (single bias), not a budget mismatch -- it does not explain its null.
+One caveat is load-bearing. Each probe also scored a higher-budget reference row -- the Section 6
+sweep cell for the GRU and the LSTM (population $512$ for the same $5000$ generations,
+$1.7 times$ the probe evaluations) and a full-budget plain-Mamba run ($512 times 10\,000$,
+$3.4 times$) for the Mamba -- and those sit $4$--$6.5$ m/s better at $p_95$ than the retrained
+in-regime baselines (Mamba $121.6$ versus $116.6$; GRU $123.7$ versus $117.3$; LSTM $124.3$ versus
+$120.2$): a training-budget effect, not architecture. That gap is exactly why every treatment
+compares against its retrained in-regime baseline and never against a higher-budget reference. Two
+smaller caveats: the probe cells are trained through the gradient-free path only (no warm-start),
+and the sLSTM's $40$-parameter deficit against the LSTM is a cell-definition cost (single bias),
+not a budget mismatch -- it does not explain its null.
 
 The consistent null across three independent families points at the task, not the cells. A single
 atmospheric pass is a few hundred guidance ticks whose latent state worth remembering is a handful
@@ -1441,22 +1446,35 @@ recall, and Mamba-3's long-context and state-tracking axes all target capacity t
 low-bandwidth control signal never exercises. The deployed cell wins not by more sophisticated
 memory but by just enough memory, cheaply. Framed positively, the probes validate the methodology:
 the adaptive-seed, tail-led, matched-anchor protocol distinguishes between architectures rather than
-rubber-stamping the newest one -- three 2024--2026 recurrent families tried, two rejected as
-significantly worse, none better.
+rubber-stamping the newest one -- three 2024--2026 recurrent families tried, none better, and two
+arms (the CfC and the trapezoidal discretization) significantly worse.
 
 #pagebreak(weak: true)
 = Appendix C: quantizing the deployed Mamba head
 
 Can the deployed #box[$962$-parameter] policy shrink for flight memory without giving back the
-tail it was selected for? This appendix quantizes the deployed head -- weight-only, symmetric,
-fake-quantized (rounded values stored back as $64$-bit floats, so the runtime, the regression
-goldens, and the simulation are untouched by construction) -- across a grid of bit widths
-($8$/$6$/$4$/$3$/$2$), granularities (per-channel, per-tensor), and tensor policies (all tensors,
-or projections only, keeping the SSM dynamics parameters in floating point), followed by two
-quantization-aware training arms at the grid's verdict cell. Grid cells were evaluated on the fresh
-re-quote pool ($n = 1000$ per cell) and the verdict selected there; the finalists below are quoted
-once on the frozen confirmatory pool of Section 7 ($10 times 100\,000$ scenarios each), preserving
-the paper's selection-versus-quote discipline.
+tail it was selected for? This appendix quantizes the deployed head: weight-only, symmetric,
+fake-quantized. Rounded values are stored back as $64$-bit floats, so the runtime, the regression
+goldens, and the simulation are untouched by construction. A post-training quantization (PTQ)
+grid crosses bit width ($8$/$6$/$4$/$3$/$2$), scale granularity (per-channel, per-tensor), and
+tensor policy (all tensors, or projections only, keeping the SSM dynamics and bias scalars in
+floating point); two quantization-aware training (QAT) arms then retrain at the best $4$-bit cell
+of the grid. Selection ran on the fresh re-quote pool of Appendix A ($n = 1000$ per grid cell);
+the finalists below are quoted once on the frozen confirmatory pool of Section 7
+($10 times 100\,000$ scenarios each), preserving the paper's selection-versus-quote discipline.
+
+The grid's shape is simple (@fig-quant-sweep). Eight-bit per-channel quantization is free
+($+0.4$ m/s at $"CVaR"_95$ even with every tensor quantized); degradation is visible from $6$
+bits and catastrophic below $4$ ($2$-bit collapses capture entirely). At $4$ bits -- the target
+compression -- the tensor policy dominates: projections-only holds $100%$ capture where
+all-tensors falls to $77$--$85%$, a split far above the single-evaluation noise floor. The
+few-m/s non-monotone granularity cells at $6$ and $3$ bits are within that noise floor and should
+not be over-read. Among the $4$-bit cells the selection rule -- highest capture rate, then lowest
+$"CVaR"_95$ -- picks per-channel scales, projections only.
+
+#fig("quantization_sweep.svg", [The post-training quantization grid on the re-quote pool
+($n = 1000$ per cell): capture rate (left) and $"CVaR"_95$ (right) versus bit width, for the four
+granularity $times$ policy series.], <fig-quant-sweep>)
 
 #figure(
   table(
@@ -1476,28 +1494,28 @@ the paper's selection-versus-quote discipline.
   caption: [Quantization finalists on the frozen confirmatory pool ($10 times 100\,000$ scenarios
   each; correction $Delta v$ in m/s; replicate standard errors). All four variants capture every
   scenario with zero constraint violations. The 4-bit cells use per-channel scales on the
-  projection tensors only (the grid's verdict policy).],
+  projection tensors only.],
 ) <tbl-quant-finalists>
 
-The headline is the fine-tuned arm. Post-training quantization at the best $4$-bit cell costs
-$+33$ m/s of shallow tail on the selection pool and degrades further with depth
-($"CVaR"_(99.9)$ $176.4$ -- the same fatten-with-depth signature Section 7.2 measured for FNPAG).
-Three thousand generations of quantization-aware fine-tuning -- the champion checkpoint resumed
-with every candidate's weights fake-quantized before each fitness evaluation, so the genetic
-search optimizes the quantized policy directly -- recover it entirely:
-$"CVaR"_(99.9) = 122.8 plus.minus 0.1$ against the deployed policy's $123.3 plus.minus 0.1$, a
-paired replicate delta of $-0.46$ $[-0.74, -0.18]$, at $100%$ capture and zero violations. The
-$4$-bit head is tail-equivalent at full sizing depth (nominally below it; the fine-tune arm
-carries $3000$ additional generations, so we claim equivalence rather than improvement), while the
+The headline is the fine-tuned arm. PTQ at the best $4$-bit cell costs $+33$ m/s at $"CVaR"_95$
+on the re-quote pool and degrades further with depth ($"CVaR"_(99.9)$ $176.4$ -- the same
+fatten-with-depth signature Section 7.2 measured for FNPAG). Quantization-aware fine-tuning
+recovers the entire gap. The champion checkpoint is resumed for $3000$ generations with every
+candidate's weights fake-quantized before each fitness evaluation, so the genetic search
+optimizes the quantized policy directly; the result is $"CVaR"_(99.9) = 122.8 plus.minus 0.1$
+against the deployed policy's $123.3 plus.minus 0.1$, a paired replicate delta of $-0.46$
+$[-0.74, -0.18]$, at $100%$ capture and zero violations. The $4$-bit head is tail-equivalent at
+full sizing depth (the point estimate is in fact lower, but the fine-tune's extra generations
+bias the comparison in its favor, so we claim equivalence rather than improvement), while the
 shallow tail pays $+0.7$ m/s at $"CVaR"_95$ -- within the run-to-run scatter of the Appendix B
-probe repeats. Training the same $4$-bit constraint from scratch at the full matched
+probe repeats. Training the same $4$-bit constraint from scratch at the champion's full
 $512 times 20\,000$ budget reaches a competent policy ($100%$ capture, $"CVaR"_(99.9)$ $140.7$ --
 the dense family's territory) but not the champion's basin: fine-tuning is the better path, and
-the validation-loss ordering agrees (floating point $1.331$, fine-tune $1.350$, scratch
-$1.457 times 10^6$).
+scratch's validation RMS agrees ($1.457 times 10^6$ against the fine-tune's $1.350 times 10^6$).
 
-Which parts of a selective SSM tolerate $4$ bits? A leave-one-out probe at $4$ bits per-channel
-(one tensor group quantized, everything else floating point, selection pool):
+Which parts of a selective SSM tolerate $4$ bits? A one-tensor-at-a-time probe quantizes a single
+tensor group at $4$ bits per-channel and keeps everything else in floating point (re-quote pool,
+$n = 1000$ per cell):
 
 #figure(
   table(
@@ -1514,31 +1532,23 @@ Which parts of a selective SSM tolerate $4$ bits? A leave-one-out probe at $4$ b
     [output dense $W$], [32], [100.0], [$+22.5$],
     table.hline(stroke: 0.7pt),
   ),
-  caption: [Leave-one-out sensitivity at $4$ bits per-channel ($n = 1000$ per cell, selection
-  pool). The SSM dynamics parameters are disproportionately sensitive; the deltas do not add up to
-  the all-tensors cell ($+119.9$) -- quantization errors interact.],
+  caption: [One-tensor-at-a-time sensitivity at $4$ bits per-channel ($n = 1000$ per cell,
+  re-quote pool). The SSM dynamics parameters are disproportionately sensitive. The deltas do not
+  add up to the all-tensors per-channel cell ($+119.9$; $Delta v$ statistics are conditional on
+  capture, and that cell captures only $77%$) -- quantization errors interact.],
 ) <tbl-quant-loo>
 
 The SSM dynamics parameters are the bottleneck. The state matrix parameters $a_log$ cost
 $+53.0$ m/s -- they are exponentiated at runtime ($A = -exp(a_log)$) and one-sided, so a symmetric
 grid wastes half its levels -- and the per-channel residual gains $d_"skip"$ cost $+47.4$ from
 just sixteen scalars. The $Delta$-projection is exactly lossless by construction (per-channel
-scaling of a one-column matrix assigns one scale per element). This is what motivates the
+scaling of a one-column matrix assigns one scale per element). This is the mechanism behind the
 projections-only policy -- quantize the $720$ projection weights, keep the $242$ dynamics and bias
 scalars in floating point -- and it is the appendix's SSM-specific finding: the outlier
 sensitivity of selective-SSM dynamics reported in the language-model quantization literature
 reproduces on a closed-loop control task under a tail-led metric. Whether $a_log$'s sensitivity is
 representational (the symmetric grid) or intrinsic is left open; an asymmetric quantizer is the
 one-line extension that would answer it.
-
-#fig("quantization_sweep.svg", [The post-training quantization grid on the selection pool
-($n = 1000$ per cell): capture rate (left) and $"CVaR"_95$ (right) versus bit width, for the four
-granularity $times$ policy series. Eight-bit per-channel quantization is free ($+0.4$ m/s);
-degradation is visible from $6$ bits and catastrophic below $4$ ($2$-bit collapses capture
-entirely). At $4$ bits the policy split dominates: projections-only holds $100%$ capture where
-all-tensors collapses to $77$--$85%$ -- far above the single-evaluation noise floor, unlike the
-few-m/s non-monotone granularity cells at $6$ and $3$ bits, which should not be over-read.],
-<fig-quant-sweep>)
 
 The deployment benefit, stated honestly, is memory -- not compute:
 
@@ -1556,11 +1566,15 @@ The deployment benefit, stated honestly, is memory -- not compute:
     table.hline(stroke: 0.7pt),
   ),
   caption: [Analytic memory footprint (packed $b$-bit weights + $32$-bit scales + floating-point
-  remainder; $64$-bit baseline $7696$ B). The $624$ B all-tensors cell is shown for contrast only
-  -- it is accuracy-broken at $4$ bits (capture $85%$). The honest headline is the deployed cell,
-  $7696 arrow.r 1564$ B, bounded below by the $968$ B of dynamics parameters the sensitivity study
-  says must stay in floating point.],
+  remainder; $64$-bit baseline $7696$ B). The per-tensor projections cell is cheaper than the
+  deployed cell and holds capture, but pays $+3.5$ m/s $"CVaR"_95$ over it on the grid. The
+  $624$ B all-tensors cell is shown for contrast only -- it is accuracy-broken at $4$ bits
+  (capture $85%$). The honest headline is the deployed cell, $7696 arrow.r 1564$ B, bounded below
+  by the $968$ B of dynamics parameters the sensitivity study says must stay in floating point.],
 ) <tbl-quant-memory>
+
+On compute, the head accounts for $approx 1.22$ ms of the deployed policy's $3.14$ ms
+whole-simulation cost (Section 7.2):
 
 #figure(
   table(
@@ -1582,18 +1596,17 @@ The deployment benefit, stated honestly, is memory -- not compute:
   scale.],
 ) <tbl-quant-bench>
 
-The head accounts for $approx 1.22$ ms of the deployed policy's $3.59$ ms whole-simulation cost
-(Section 7.2). Single precision is the compute sweet spot ($-32%$ per tick); the integer kernels
-beat the deployed runtime by only $approx 8%$, because dynamic activation quantization plus the
-floating-point SSM recurrence ($192$ exponentials per tick) dominate a #box[$962$-parameter] workload,
-and $4$-bit nibble unpacking cancels its bandwidth advantage. Simulation throughput in the
-accuracy study is unchanged by construction (fake-quantization stores rounded weights back as
-$64$-bit floats), so no simulation-time claim is made. The deployment case for the $4$-bit head is
-the $4.9 times$ memory footprint and fixed-point-capable projection arithmetic, not speed.
+Single precision is the compute sweet spot ($-32%$ per tick); the integer kernels beat the
+deployed runtime by only $approx 8%$, because dynamic activation quantization plus the
+floating-point SSM recurrence ($192$ exponentials per tick) dominate a #box[$962$-parameter]
+workload, and $4$-bit nibble unpacking cancels its bandwidth advantage. Simulation throughput in
+the accuracy study is unchanged by construction, so no simulation-time claim is made. The
+deployment case for the $4$-bit head is the $4.9 times$ memory footprint and
+fixed-point-capable projection arithmetic, not speed.
 
-Four scopes bound these claims. The accuracy study is weight-only: activations, the hidden state,
+Four caveats bound these claims. The accuracy study is weight-only: activations, the hidden state,
 and the input normalization stay in $64$-bit floats (the integer kernels quantize activations for
-the compute measurement only). Both quantization-aware training arms are single runs. The grid
+the compute measurement only). Both QAT arms are single runs. The grid
 cells are single-model $n = 1000$ evaluations. And the kernel ratios are laptop-class scalar
 measurements that do not transfer to flight processors -- the memory table does.
 

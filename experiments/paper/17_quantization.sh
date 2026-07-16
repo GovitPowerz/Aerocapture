@@ -121,7 +121,7 @@ collect)
     mkdir -p articles/paper/data/quant
     cp "$QUANT_DIR/ptq_sweep/quantization_results.json" articles/paper/data/quant/
     cp "$QUANT_DIR/finalists/finalists_results.json" articles/paper/data/quant/
-    cp "$QUANT_DIR/ptq_sweep/quantization_sweep.svg" "$QUANT_DIR/ptq_sweep/quantization_loo.svg" articles/paper/figures/ 2>/dev/null || true
+    cp "$QUANT_DIR/ptq_sweep/quantization_sweep.svg" articles/paper/figures/ 2>/dev/null || true
     # criterion medians -> one compact JSON
     uv run python - <<'PY'
 import json
