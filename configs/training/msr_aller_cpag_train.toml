@@ -23,6 +23,9 @@ n_gen = 400
 training_n_sims = 2        # deployed paper regime (common ships 10 — too slow here)
 validation_n_sims = 400    # ~3-4 min per gate fire at CPAG's sim cost
 curation_sample_size = 300 # adaptive-curation probe budget, same reason
+# common.toml ships seed_pool_interval = 2 (nothing for schemes at 100-8000
+# sims/s; an 8-minute tax every 2 gens here, +26 h over the campaign).
+seed_pool_interval = 25
 # Feasibility gate (IMPROVEMENTS 9.14): strict 0 on a 400-sim pool would let a
 # single tail draw block every promotion; 1% (4 draws) still rejects any
 # systematically violating candidate like the LSTM 14-16% case.
