@@ -40,7 +40,7 @@ configs/
   planets/                 Planet physical constants (mu, radii, omega, J2/J3/J4)
   missions/                Shared per-planet base configs (inherit from planets/)
   nominal/                 Nominal simulation configurations
-  training/                GA training configs (per scheme) + common.toml (shared MC/cost)
+  training/                Training configs (per scheme) + common.toml (shared MC/cost/optimizer)
   test/                    Golden test configurations (regression tests)
 data/
   atmosphere/              Atmosphere density + wind tables (Mars, Earth)
@@ -101,19 +101,37 @@ The simulation implements a full closed-loop GNC chain:
 
 ## Guidance Schemes
 
-Seven guidance algorithms, all GA-optimizable:
+Seven guidance algorithms, all trainable by the population optimizers below:
 
-| Scheme | Description | Params | Notes |
+| Scheme | Description | Tunable params† | Notes |
 |---|---|---|---|
-| **Piecewise Constant** | N-segment bank angle profile (N tunable via TOML `n_segments` / `bank_angles = [...]`, default 10) | N | Train first — produces ref trajectory + corridor |
-| **FTC** | Predictor-corrector with reference trajectory tracking | 8 | Requires ref trajectory |
-| **Neural Network** | Trained NN maps a configurable subset of 35 candidate inputs (incl. seam-free `(sin,cos)` bank-history pairs + data-driven asinh/affine-normalized orbit/energy/acceleration signals + periapsis altitude + 3 live correction-DV components from per-tick `predicted_dv_for_nn` on the current osculating orbit, defined + smooth across capture, no sentinel) to a bank angle. Per-input normalization (`{transform, scale, center}`) is embedded in the model JSON / overridable via TOML `[network.normalization]`, data-driven by `calibrate_inputs.py`. Bank decoders (`output_parameterization`): `atan2_signed` (2-output), `scaled_pi` (`n·π·tanh`), `delta` (bounded increment on prev realized bank) for `full_neural`; `acos_tanh` magnitude for `magnitude_only`. v1 dense-only arch (`layer_sizes`/`activations`) or v2 heterogeneous arch (`[[network.architecture]]`, supports `dense` + `gru` + `lstm` + `window` + `transformer` + `mamba` + `mamba3` (experimental Mamba-3 ablation: trapezoidal discretization + complex-diagonal state, PSO-only) + `cfc` + `slstm` + `mlstm` (experimental CfC / xLSTM probe cells, PSO-only)). Trainable via GA/PSO (pymoo) or RL (PPO with chunked truncated BPTT for recurrent policies, experimental SAC). | arch-dependent | Independent, signed bank, full-envelope (capture + exit) |
-| **Equilibrium Glide** | Balances gravity, centrifugal, and lift forces | 7 | Independent |
-| **Energy Controller** | Tracks reference energy dissipation profile | 3 | Requires ref trajectory |
-| **PredGuid** | Apollo/Shuttle-heritage drag tracking | 3 | Requires ref trajectory |
-| **FNPAG** | Lu's numerical predictor-corrector (3D predictor with J2 gravity, RK4) | 5 | Requires ref trajectory |
+| **Neural Network** | Maps a configurable subset of 35 candidate inputs (orbital/aero/thermal state, reference-trajectory interpolations, seam-free `(sin,cos)` bank history, live predicted correction-ΔV components) to a bank angle. v1 dense or v2 heterogeneous architectures (`dense`, `gru`, `lstm`, `window`, `transformer`, `mamba`, plus experimental `mamba3`/`cfc`/`slstm`/`mlstm` probe cells); per-input normalization embedded in the model JSON, data-driven via `calibrate_inputs.py`; signed (`atan2_signed`, `scaled_pi`, `delta`) or magnitude (`acos_tanh`) bank decoders | arch-dependent (+3 / +17 with live / full co-trained scaffolding) | **Deployed headline** — signed bank, full envelope (capture + exit) |
+| **FTC** | Predictor-corrector with reference trajectory tracking | 26 | **Best classical** (with a co-optimized reference) |
+| **FNPAG** | Lu's numerical predictor-corrector (onboard 3D predictor with J2–J4 gravity, RK4, nav-scaled atmosphere) | 22 | Accurate but slowest (~87 ms/sim); requires ref trajectory |
+| **Equilibrium Glide** | Balances gravity, centrifugal, and lift forces | 24 | Independent (no reference) |
+| **Energy Controller** | Tracks reference energy dissipation profile | 20 | Requires ref trajectory |
+| **PredGuid** | Apollo/Shuttle-heritage drag tracking | 20 | Requires ref trajectory |
+| **Piecewise Constant** | N-segment open-loop bank profile (N tunable via `n_segments` / `bank_angles = [...]`, default 10) | 11 | Train first — produces the corridor |
 
-- **Experimental probe layers** (`cfc`, `slstm`, `mlstm`): PSO-only CfC and xLSTM cells with matched-budget probe drivers (`experiments/cfc_probe.py`, `experiments/xlstm_probe.py`).
+†Full chromosome width, including the shared lateral / exit-phase / navigation / thermal-limiter / command-shaping scaffolding co-tuned for the unsigned-magnitude schemes.
+
+### What worked best
+
+The committed [paper](articles/paper/paper.pdf) evaluates every scheme on frozen 10 × 100,000-scenario confirmatory pools. Correction ΔV in m/s; CVaR99.9 is the far-tail statistic the propellant margin is sized on:
+
+| Role | Scheme | CVaR99.9 | ms/sim |
+|---|---|---|---|
+| **Deployed** | NN — Mamba, 962 params | **123.3 ± 0.1** | 3.14 |
+| Efficiency reference | NN — dense, 515 params | 128.7 | 1.88 |
+| Best classical | FTC (joint reference) | 165.1 | 0.90 |
+| Reference NPC | FNPAG | 198.7 | 87.1 |
+
+- **A small stateful network wins where the mission is sized.** Internal state buys nothing on the median (every converged architecture lands at 108–112 m/s typical cost) and everything on the deep tail: the deployed dense→Mamba→dense policy captures 10⁶ of 10⁶ confirmatory scenarios and holds a 41.8 m/s far-tail margin over the best classical scheme.
+- **Reference co-optimization is the classical lever.** Letting the optimizer co-tune FTC's constant-bank reference (`[reference] joint_bank = true`) drops its CVaR95 from 244 to 143 — a feedback law cannot out-perform the target it tracks. The joint-reference FTC is the classical state of the art here.
+- **FNPAG matches the shallow tail, not the deep one.** Its CVaR99.9 fattens from 165 to 199 between 10⁴ and 10⁶ scenarios, at ~28× the network's per-simulation compute.
+- **Dense-515 is the pick if simplicity binds:** half the parameters, no internal state, competitive median — it concedes only the tail.
+
+Full protocol and results: paper Sections 6–7, per-scheme mission cards in Appendix D. The recent-architecture probes (CfC, xLSTM cells, Mamba-3 axes — none beat the plain cells at matched budget) are in Appendix B, with drivers under `python -m aerocapture.training.experiments.{cfc_probe,xlstm_probe,mamba3_probe}`.
 
 **Training order & reference:** Run `piecewise_constant` first for the corridor (`corridor_boundaries.npz`), then generate the mission reference `training_output/mars/ref_trajectory.dat` with the target-energy-matched constant-bank generator (`python -m aerocapture.training.make_reference --toml configs/training/msr_aller_pc_ref_train.toml`) — GA-optimal open-loop profiles under-reach the target energy and make poor tracking references. The ref-tracking training configs point `data.reference_trajectory` at the mission file explicitly (test/nominal configs keep the legacy `data/reference_trajectory/msr_aller.dat`), `train.py` hard-errors if a ref-tracking scheme's resolved config doesn't, and the Rust loader hard-errors on a missing/unreadable reference file (it used to load a silent empty table that the schemes interpolate as 0.0). The schemes re-read the file every generation, so never regenerate it mid-training. Optionally, `[reference] joint_bank = true` adds a `ref_bank` gene so each individual trains against its own constant-bank reference (leaf configs exist for ftc, energy_controller, and pred_guid; `./experiments/paper/07_joint_reference.sh` trains all three jointly into `training_output/paper/joint_reference/<scheme>` dirs).
 
@@ -150,11 +168,13 @@ Pipeline: each supervisor scheme runs over the same `n_warm_seeds` reserved seed
 
 After warm-start, `aerocapture.training.warm_start_compare.render_trajectory_comparison` runs the supervisor (primary scheme from `supervisor_schemes[0]`) and the warm-started NN on BOTH the training pool (`n_warm_seeds`) and the validation pool (`optimizer.validation_n_sims`), writes 20 SVG panels (5 quantities × 2 sides × 2 pools: corridor pdyn/inclination/bank, altitude vs time, heat flux vs time) under `<save_dir>/warm_start_report/compare_*.svg`, and the `warm_start_report.pdf` includes a side-by-side "Trajectory comparison" section so you can visually compare supervisor vs warm-started NN behaviour on identical dispersion draws -- before PSO even starts. Compute cost is ~2 × (`n_warm_seeds` + `validation_n_sims`) MC sims (~2-3 min for n_warm_seeds=5000, validation_n_sims=1000), best-effort: failure in any (pool, side) records the error in the manifest and the rest of the report still renders. The NN candidate input vector includes four "lateral-state telemetry" inputs (indices 21-24: inclination-error rate, previous bank command, time since last sign flip, integrated inclination error) that make the supervisor's signed-bank decision Markovian -- without them, post-reversal near-duplicate states collapse the supervised MSE target under bimodal sign disagreement (FTC measured ~20% sign-disagree on near-duplicates within radius 0.10).
 
-## GA Optimization
+## Training and Optimization
 
-All guidance schemes can be optimized via genetic algorithm. The GA tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load, heat flux, and integrated heat load exceedances.
+All guidance schemes train through the same population-based pipeline (pymoo): the optimizer tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load, heat flux, and integrated heat load exceedances. Six gradient-free algorithms are selectable via `--algorithm` or `[optimizer]` — GA (SBX + polynomial mutation), CMA-ES, DE, PSO, QPSO (quantum-behaved, velocity-free), and a 3-island PSO/GA/DE model with periodic migration — plus a PPO/SAC reinforcement-learning track (below) that deploys through the same `best_model.json` format.
 
-The cost function is a C-infinity softplus-quadratic DV penalty (`dv_cost`) with a smooth knee at `dv_threshold` (common-default 1000 m/s, code-default 500 m/s), plus TOML-configurable soft constraint penalties, optionally wrapped in a monotonic `cost_transform` (`"linear"` | `"sqrt"` | `"log"` | `"squared"` | `"cubed"`; `configs/training/common.toml` ships `"log"`) to reshape the landscape -- `"log"` (np.log1p) compresses the tail more aggressively than `"sqrt"` while preserving the zero-cost identity. The simulator returns meaningful DV values for all termination outcomes: captured -> real orbital-correction DV; hyperbolic -> `10000 + v_excess`; crash/pending-crash/timeout -> energy-proportional virtual DV `3000 + 1000 * min(|E_orb - E_target|_MJkg, 50) - 500 * t/t_max` (softened near the capture boundary so the optimizer explores closer to the crash limit, with a time-survival term for cold-start gradient).
+**What worked best** (paper Sections 4–5): the deployed regime is the plain **genetic algorithm at large population** with **adaptive hardest-seed curation** (`seed_strategy = "adaptive"`, `curation_bucket_selection = "max"`), the **cubed cost transform**, and a lean **2 scenarios per individual per generation** run for thousands of generations — training here is compute-bound, not overfitting-bound, so budget goes into generations, not batch size. The GA needs a non-stationary objective: under fixed seeds it converges onto scenario quirks and becomes the worst optimizer tested (rotating the seeds alone recovers 71 m/s of CVaR95). The islands model is the budget-robust choice when the right population size is uncertain; CMA-ES improves with budget but trails the GA optimum. The GA / adaptive / max-bucket / cubed defaults ship in `configs/training/common.toml`; population size and the per-generation scenario allocation are set per leaf config.
+
+The cost function is a C-infinity softplus-quadratic DV penalty (`dv_cost`) with a smooth knee at `dv_threshold` (common-default 1000 m/s, code-default 500 m/s), plus TOML-configurable soft constraint penalties, wrapped in a monotonic `cost_transform` (`"linear"` | `"sqrt"` | `"log"` | `"squared"` | `"cubed"`; `configs/training/common.toml` ships `"cubed"`, the study's far-tail winner — the high-moment transform weights an individual's worst scenarios most heavily, which is exactly what the sizing tail rewards). The simulator returns meaningful DV values for all termination outcomes: captured -> real orbital-correction DV; hyperbolic -> `10000 + v_excess`; crash/pending-crash/timeout -> energy-proportional virtual DV `3000 + 1000 * min(|E_orb - E_target|_MJkg, 50) - 500 * t/t_max` (softened near the capture boundary so the optimizer explores closer to the crash limit, with a time-survival term for cold-start gradient).
 
 Training features:
 - Auto-resumes from existing checkpoints (use `-fs` to start fresh)
@@ -199,7 +219,7 @@ uv run python -m aerocapture.training.final_select \
 
 ### RL Training (PPO)
 
-Parallel track to the GA for the `neural_network` guidance scheme. PPO-trained policies export to the same `best_model.json` format the GA produces and deploy via the Rust `neural_network` runtime -- `compare_guidance` treats RL as just another scheme (`neural_network_rl`). Supports warm-starting from GA-trained weights (`--data-neural-network`), potential-based phase-aware reward shaping (`r = gamma*Phi(s') - Phi(s)`: corridor tracking + constraint proximity during capture, apoapsis targeting + eccentricity reduction during exit; optimum-preserving per Ng/Harada/Russell 1999) plus an alternative DV-inferred mode (`[rl.reward] potential = "dv"`) that builds `Phi` from the raw predicted correction delta-v (`predicted_dv_for_nn`, surfaced via the env aux channel) to approximate `-V*` -- used by the dense-PPO `neural_network_atan2_rl` scheme (`configs/training/msr_aller_nn_atan2_ppo_train.toml`), running return and observation normalization (obs normalization baked into exported weights for zero Rust changes), truncation-aware value bootstrap (PPO uses `V(terminal_obs)` on `max_time` timeouts instead of masking them as terminations; the timeout virtual-DV terminal cost is skipped on those episodes so the bootstrap isn't double-counted — same rule in SAC's Q-target), and SAC with replay buffer persisted across checkpoint resumes (minibatch sampling seeded from `seed_base` for reproducibility).
+Parallel track to the population optimizers for the `neural_network` guidance scheme. PPO-trained policies export to the same `best_model.json` format and deploy via the Rust `neural_network` runtime -- `compare_guidance` treats RL as just another scheme (`neural_network_rl`). In this study the population methods won decisively (the best PPO policies underperformed the population-trained dense network by 636 m/s mean for the dense policy and 513 m/s for the recurrent one, on the same simulator regime -- paper Section 5), so RL is a supported baseline, not the deployed path. Supports warm-starting from GA-trained weights (`--data-neural-network`), potential-based phase-aware reward shaping (`r = gamma*Phi(s') - Phi(s)`: corridor tracking + constraint proximity during capture, apoapsis targeting + eccentricity reduction during exit; optimum-preserving per Ng/Harada/Russell 1999) plus an alternative DV-inferred mode (`[rl.reward] potential = "dv"`) that builds `Phi` from the raw predicted correction delta-v (`predicted_dv_for_nn`, surfaced via the env aux channel) to approximate `-V*` -- used by the dense-PPO `neural_network_atan2_rl` scheme (`configs/training/msr_aller_nn_atan2_ppo_train.toml`), running return and observation normalization (obs normalization baked into exported weights for zero Rust changes), truncation-aware value bootstrap (PPO uses `V(terminal_obs)` on `max_time` timeouts instead of masking them as terminations; the timeout virtual-DV terminal cost is skipped on those episodes so the bootstrap isn't double-counted — same rule in SAC's Q-target), and SAC with replay buffer persisted across checkpoint resumes (minibatch sampling seeded from `seed_base` for reproducibility).
 
 ```bash
 # Train PPO from scratch
@@ -236,9 +256,9 @@ The `[optimizer] seed_strategy` key (required) controls how Monte Carlo seeds ar
 
 | Strategy    | What it does                                                                           | When to use |
 | ----------- | -------------------------------------------------------------------------------------- | ----------- |
-| `"fixed"`   | Deterministic `[mc_seed + 0, ..., mc_seed + (n_sims-1)]`; seeds never change.          | Debugging, A/B comparisons where the cost landscape must be identical across runs. |
-| `"rotating"`| Fresh random seeds drawn every generation, disjoint from reserved sets.                | Production default candidate: landscape shifts each gen so the optimizer can't overfit to a fixed scenario set. |
-| `"adaptive"`| Random bootstrap, then curated-CDF: refreshed on validated-best or every `seed_pool_interval` gens. Each curation draws `curation_sample_size` probes, runs the top `curation_top_k` individuals, and picks one seed per cost quantile bin. | When you want a lower-variance fitness signal than rotating; pairs well with a strong `validation_n_sims`. |
+| `"fixed"`   | Deterministic `[mc_seed + 0, ..., mc_seed + (n_sims-1)]`; seeds never change.          | Debugging, A/B comparisons where the cost landscape must be identical across runs. Worst training results in the study — the GA memorizes the scenarios. |
+| `"rotating"`| Fresh random seeds drawn every generation, disjoint from reserved sets.                | Solid default: the landscape shifts each generation so the optimizer can't overfit a fixed scenario set. Matches adaptive on the mean. |
+| `"adaptive"`| Random bootstrap, then curated-CDF: refreshed on validated-best or every `seed_pool_interval` gens. Each curation draws `curation_sample_size` probes, runs the top `curation_top_k` individuals, and picks one seed per cost quantile bin. | **Deployed choice** for every paper cell: same non-stationarity as rotating, plus `curation_bucket_selection = "max"` steers the pool toward the hardest seeds, which shapes the far tail. |
 
 Typical TOML snippet:
 
@@ -387,7 +407,7 @@ The Rust simulator has been validated against a reference implementation across 
 # Rust tests
 cargo test --release --manifest-path src/rust/Cargo.toml
 
-# Python tests (~505 tests)
+# Python tests (~1200 tests)
 uv run pytest tests/
 
 # Linting + type checking
@@ -407,7 +427,7 @@ GitHub Actions runs on PRs to `main` and manual dispatch:
 
 - **Rust**: `cargo fmt --check`, `cargo clippy`, `cargo test --release`
 - **Python**: `ruff check`, `ruff format --check`, `mypy`, `pytest`
-- **PyO3**: `maturin develop --release`, `pytest tests/test_pyo3.py tests/test_v2_rust_python_equivalence.py tests/test_gru_pso_smoke.py tests/test_gru_ppo_smoke.py tests/test_lstm_pso_smoke.py tests/test_lstm_ppo_smoke.py tests/test_flat_weights_to_json_lstm.py tests/test_rust_python_window_equivalence.py tests/test_window_pso_smoke.py tests/test_flat_weights_to_json_window.py`
+- **PyO3**: `maturin develop --release`, then the PyO3 suite: bindings regression (`test_pyo3.py`), the Rust↔Python NN forward-equivalence gates for every layer type, per-architecture PSO/PPO smoke tests, and the islands smoke test (see `.github/workflows/ci.yml` for the exact file list)
 
 ## Build Commands
 
