@@ -72,14 +72,29 @@ evidence.
       capture vs tuned FTC 174.4/108 and tuned FNPAG 124.3/29; nominal apo err 0.22 km, inc err
       0.019 deg, dv 143.3. Wall cost ~3.5 s/sim (~40x FNPAG) -- size C2 budgets accordingly
 
-### Stage C2 -- training + benchmark
-- [ ] GA-tune under the deployed regime (adaptive/max curation, cubed transform); requires the
-      feasibility-aware validation gate (IMPROVEMENTS 9.14) for honest promotion
-- [ ] Head-to-head vs joint-FTC / FNPAG / deployed Mamba on confirmatory-style pools; update the
-      deployability triangle (tail, compute, robustness)
+### Stage C2 -- training + benchmark (IN FLIGHT 2026-07-16: gate shipped, campaign running)
+- [x] Feasibility-aware validation gate (IMPROVEMENTS 9.14) -- `[optimizer] max_violation_rate`
+      ceiling enforced at the validation gate, the islands `validate_each`, final selection
+      (records-based, `winner_feasible` sidecar flag), AND the pre-loop initial-champion
+      validation (the hole was live: the first C2 launch anchored a 5.75%-heat-load-violating
+      gen-0 argmin through the ungated path; caught by monitoring, patched, campaign restarted)
+- [ ] GA-tune under the deployed regime (adaptive/max curation, cubed transform) -- CAMPAIGN
+      RUNNING: `configs/training/msr_aller_cpag_train.toml` (GA 48 x 400 gens, training_n_sims 2,
+      validation 400, ceiling 1%), ~150 s/gen base + ~10 min per validation fire at the measured
+      0.64 sims/s => ETA ~20-30 h. Auto-resumes from `training_output/cpag/` checkpoints; harvest
+      artifacts early anytime via
+      `uv run python -m aerocapture.training.final_select training_output/cpag --toml configs/training/msr_aller_cpag_train.toml`
+- [ ] Head-to-head vs joint-FTC / FNPAG / deployed Mamba on confirmatory-style pools -- comparator
+      cells FROZEN on shared 10x1000 pools in `articles/paper/data/cpag_confirmatory.json`
+      (joint-FTC cvar99 154.3, FNPAG 159.2, Mamba_962 118.5, all 0% violations; tail metric capped
+      at cvar99 -- CPAG's wall cost makes 100k-deep pools infeasible, quote NO cvar999 claims from
+      this file). After training, run the CPAG cell on the same pools:
+      `uv run python articles/paper/scripts/confirmatory_eval.py --cells "cpag:configs/training/msr_aller_cpag_train.toml" --replicates 10 --n 1000 --sim-timeout 60 --out articles/paper/data/cpag_confirmatory.json`
+      then read `paired` deltas (cpag_vs_jointftc / cpag_vs_fnpag / mamba_vs_cpag) + update the
+      deployability triangle (tail, compute ~3.5 s/sim vs FNPAG 87 ms, robustness)
 - [ ] Optional follow-up: CPAG as a constraint-aware warm-start supervisor for `magnitude_only`
       NN training
-- [ ] Full verification + smart-commit
+- [ ] Full verification + smart-commit after the campaign + benchmark land
 
 ---
 
