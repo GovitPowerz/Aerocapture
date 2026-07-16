@@ -456,6 +456,35 @@ impl SimData {
             guidance_params::FnpagParams::default()
         };
 
+        let cpag_params = if let Some(ref p) = toml.guidance.cpag {
+            guidance_params::CpagParams {
+                replan_period: p.replan_period,
+                seg_dt: p.seg_dt,
+                n_sub: p.n_sub,
+                horizon_max: p.horizon_max,
+                max_iters: p.max_iters,
+                max_iters_warm: p.max_iters_warm,
+                tol_apo: p.tol_apo,
+                alpha1: p.alpha1,
+                alpha2: p.alpha2,
+                alpha3: p.alpha3,
+                alpha5: p.alpha5,
+                lambda_di: p.lambda_di,
+                di_node_fraction: p.di_node_fraction,
+                di_deadband_deg: p.di_deadband_deg,
+                trust_init: p.trust_init,
+                trust_min: p.trust_min,
+                trust_max: p.trust_max,
+                sigma_max_deg: p.sigma_max_deg,
+                enforce_heat_flux: p.enforce_heat_flux,
+                enforce_g_load: p.enforce_g_load,
+                enforce_pdyn: p.enforce_pdyn,
+                enforce_inclination: p.enforce_inclination,
+            }
+        } else {
+            guidance_params::CpagParams::default()
+        };
+
         // Navigation density filter params (live in [navigation], used by all schemes)
         let nav_density_filter_gain = toml
             .navigation
@@ -547,6 +576,7 @@ impl SimData {
                 energy_ctrl: energy_ctrl_params.clone(),
                 pred_guid: pred_guid_params.clone(),
                 fnpag: fnpag_params.clone(),
+                cpag: cpag_params.clone(),
                 piecewise_constant: piecewise_constant_params.clone(),
                 thermal_limiter: if let Some(ref tl) = toml.guidance.thermal_limiter {
                     ThermalLimiterParams {
@@ -616,6 +646,7 @@ impl SimData {
                 energy_ctrl: energy_ctrl_params,
                 pred_guid: pred_guid_params,
                 fnpag: fnpag_params,
+                cpag: cpag_params,
                 piecewise_constant: piecewise_constant_params,
                 thermal_limiter: if let Some(ref tl) = toml.guidance.thermal_limiter {
                     ThermalLimiterParams {

@@ -1,0 +1,33 @@
+# Golden regression test — CPAG, 3 MC sims, deterministic seed
+base = ["../missions/mars.toml"]
+
+[guidance]
+type = "cpag"
+
+[simulation]
+n_sims = 3
+random_seed = 0.6866
+
+[data]
+results_suffix = ".golden_cpag"
+
+[onboard_atmosphere]
+mode = "identical"
+
+[monte_carlo]
+seed = 42
+
+[monte_carlo.initial_state]
+level = "medium"
+
+[monte_carlo.atmosphere]
+level = "high"
+
+[monte_carlo.aerodynamics]
+level = "medium"
+
+[monte_carlo.navigation]
+level = "low"
+
+[monte_carlo.mass]
+level = "off"

@@ -53,13 +53,24 @@ evidence.
       p95 within ~10% of p50; OSQP-ADMM caps out (20k iters) AND breaks SCP parity; custom QP
       not warranted (2 orders of magnitude cadence headroom, pure-Rust crate)
 
-### Stage C1 -- Rust scheme MVP
-- [ ] `cpag.rs`: SCP replan on a `replan_period` cadence (FNPAG throttle pattern: hold between
-      replans, re-clamp the held command at current-altitude bank limits), onboard atmosphere
-      scaled by the nav density factor
-- [ ] Path constraints wired to `[flight.constraints]`; `[guidance.cpag]` TOML params +
-      `param_spaces.py` specs + routing-table entry + `compare_guidance` registration
-- [ ] Unit tests (constraint activation, replan throttle, convergence fallback) + golden config
+### Stage C1 -- Rust scheme MVP (DONE 2026-07-16)
+- [x] `cpag.rs`: SCP replan on a `replan_period` cadence (FNPAG throttle pattern with the PROFILE
+      as the held object: plan playback between replans, clamped to the sigma box), onboard
+      atmosphere scaled by the nav density factor -- box-trust Clarabel QP per the C0 pick;
+      warm replans escalate to the cold budget + constant-bank grid seeding when the held plan
+      crashes (without this, capture on the 50-sim medium-dispersion sanity pool was 78%; with
+      it 100%, dv p50 150.8 / p95 223.7)
+- [x] Path constraints wired to `[flight.constraints]` (heat flux + g-load rows, terminal heat
+      load on the Q state; pdyn off by default -- unsatisfiable on this mission); `[guidance.cpag]`
+      TOML params + `param_spaces.py` specs (13 genes + nav/shaping; cadence knobs deliberately
+      not genes) + routing entry + `compare_guidance` + `train_all.sh cpag` registration
+- [x] Unit tests (constraint activation with a satisfiable limit, replan throttle, vacuum hold,
+      sigma-box playback, crash-tier convergence fallback, eps identities, Clarabel smoke,
+      proptest bounds) + golden config `configs/test/test_cpag_golden.toml` (7th golden).
+      Verification: check_all green, lint green, 1284 fast Python tests; head-to-head on 100
+      identical medium-dispersion scenarios: UNTUNED CPAG dv 157.8 m/s / apo err 21 km / 100%
+      capture vs tuned FTC 174.4/108 and tuned FNPAG 124.3/29; nominal apo err 0.22 km, inc err
+      0.019 deg, dv 143.3. Wall cost ~3.5 s/sim (~40x FNPAG) -- size C2 budgets accordingly
 
 ### Stage C2 -- training + benchmark
 - [ ] GA-tune under the deployed regime (adaptive/max curation, cubed transform); requires the

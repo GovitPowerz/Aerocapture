@@ -151,6 +151,24 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         *_THERMAL_LIMITER_PARAMS,
         *_SHAPING_PARAMS,
     ],
+    # CPAG is a signed-bank scheme (no lateral/exit/thermal scaffolding). The
+    # chromosome is the subproblem weights + trust + inclination-corridor knobs;
+    # cadence/discretization knobs (replan_period, seg_dt, n_sub, max_iters*)
+    # are deliberately NOT genes — the wall-time-blind GA would floor them
+    # (the FNPAG prediction_dt lesson).
+    "cpag": [
+        ParamSpec("alpha1", 1e-4, 1.0, 1e-2, log_scale=True),
+        ParamSpec("alpha2", 0.5, 100.0, 5.0, log_scale=True),
+        ParamSpec("alpha3", 100.0, 10000.0, 1000.0, log_scale=True),
+        ParamSpec("alpha5", 100.0, 10000.0, 1000.0, log_scale=True),
+        ParamSpec("lambda_di", 100.0, 10000.0, 1000.0, log_scale=True),
+        ParamSpec("di_node_fraction", 0.5, 0.95, 0.8),
+        ParamSpec("di_deadband_deg", 0.05, 1.0, 0.5),
+        ParamSpec("trust_init", 1.0, 8.0, 4.0),
+        ParamSpec("sigma_max_deg", 140.0, 180.0, 180.0),
+        *_NAV_PARAMS,
+        *_SHAPING_PARAMS,
+    ],
     "ftc": [
         ParamSpec("capture_damping", 0.3, 1.5, 0.7),
         ParamSpec("capture_frequency", 0.01, 0.2, 0.072),
@@ -196,6 +214,7 @@ GUIDANCE_TOML_SECTIONS: dict[str, str] = {
     "energy_controller": "energy_controller",
     "pred_guid": "pred_guid",
     "fnpag": "fnpag",
+    "cpag": "cpag",
     "ftc": "ftc",
     "piecewise_constant": "piecewise_constant",
 }

@@ -1,0 +1,16 @@
+# MSR outbound — CPAG (convex predictor-corrector) GA training
+#
+# CPAG is self-contained (its own onboard predictor, no reference trajectory).
+# The chromosome is the subproblem weights + trust knobs (param_spaces.py);
+# cadence/discretization knobs (replan_period, seg_dt, n_sub, max_iters*) are
+# deliberately NOT genes — the wall-time-blind GA would floor them (the FNPAG
+# replan_period lesson). NOTE the wall-time budget: CPAG runs ~10-30x slower
+# per sim than FNPAG (see docs/plans/2026-07-16-cpag-c0-findings.md), so size
+# n_pop/training_n_sims accordingly for C2.
+base = ["../missions/mars.toml", "common.toml"]
+
+[guidance]
+type = "cpag"
+
+[data]
+results_suffix = ".train_cpag"

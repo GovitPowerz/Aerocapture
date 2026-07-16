@@ -138,6 +138,7 @@ pub enum GuidanceType {
     EnergyController,
     PredGuid,
     Fnpag,
+    Cpag,
     PiecewiseConstant,
 }
 
@@ -600,6 +601,8 @@ pub struct TomlGuidance {
     pub pred_guid: Option<TomlPredGuidParams>,
     /// FNPAG (numerical predictor-corrector) parameters
     pub fnpag: Option<TomlFnpagParams>,
+    /// CPAG (convex predictor-corrector) parameters
+    pub cpag: Option<TomlCpagParams>,
     /// Piecewise-constant bank angle parameters
     #[serde(default)]
     pub piecewise_constant: TomlPiecewiseConstantParams,
@@ -1012,6 +1015,101 @@ fn default_1e4() -> f64 {
 fn default_2() -> f64 {
     2.0
 }
+
+/// CPAG parameters ([guidance.cpag]); defaults mirror `CpagParams::default()`.
+#[derive(Debug, Deserialize, Clone)]
+pub struct TomlCpagParams {
+    #[serde(default = "default_2")]
+    pub replan_period: f64,
+    #[serde(default = "default_cpag_seg_dt")]
+    pub seg_dt: f64,
+    #[serde(default = "default_cpag_n_sub")]
+    pub n_sub: usize,
+    #[serde(default = "default_cpag_horizon_max")]
+    pub horizon_max: f64,
+    #[serde(default = "default_cpag_max_iters")]
+    pub max_iters: usize,
+    #[serde(default = "default_cpag_max_iters_warm")]
+    pub max_iters_warm: usize,
+    #[serde(default = "default_1e4")]
+    pub tol_apo: f64,
+    #[serde(default = "default_cpag_alpha1")]
+    pub alpha1: f64,
+    #[serde(default = "default_cpag_alpha2")]
+    pub alpha2: f64,
+    #[serde(default = "default_1000")]
+    pub alpha3: f64,
+    #[serde(default = "default_1000")]
+    pub alpha5: f64,
+    #[serde(default = "default_1000")]
+    pub lambda_di: f64,
+    #[serde(default = "default_cpag_di_node_fraction")]
+    pub di_node_fraction: f64,
+    #[serde(default = "default_cpag_di_deadband_deg")]
+    pub di_deadband_deg: f64,
+    #[serde(default = "default_cpag_trust_init")]
+    pub trust_init: f64,
+    #[serde(default = "default_cpag_trust_min")]
+    pub trust_min: f64,
+    #[serde(default = "default_cpag_trust_max")]
+    pub trust_max: f64,
+    #[serde(default = "default_cpag_sigma_max_deg")]
+    pub sigma_max_deg: f64,
+    #[serde(default = "default_true")]
+    pub enforce_heat_flux: bool,
+    #[serde(default = "default_true")]
+    pub enforce_g_load: bool,
+    #[serde(default)]
+    pub enforce_pdyn: bool,
+    #[serde(default = "default_true")]
+    pub enforce_inclination: bool,
+}
+
+fn default_cpag_seg_dt() -> f64 {
+    8.0
+}
+fn default_cpag_n_sub() -> usize {
+    4
+}
+fn default_cpag_horizon_max() -> f64 {
+    1200.0
+}
+fn default_cpag_max_iters() -> usize {
+    20
+}
+fn default_cpag_max_iters_warm() -> usize {
+    4
+}
+fn default_cpag_alpha1() -> f64 {
+    1e-2
+}
+fn default_cpag_alpha2() -> f64 {
+    5.0
+}
+fn default_cpag_di_node_fraction() -> f64 {
+    0.8
+}
+fn default_cpag_di_deadband_deg() -> f64 {
+    0.5
+}
+fn default_cpag_trust_init() -> f64 {
+    4.0
+}
+fn default_cpag_trust_min() -> f64 {
+    0.02
+}
+fn default_cpag_trust_max() -> f64 {
+    8.0
+}
+fn default_cpag_sigma_max_deg() -> f64 {
+    180.0
+}
+fn default_1000() -> f64 {
+    1000.0
+}
+fn default_true() -> bool {
+    true
+}
 fn default_20() -> f64 {
     20.0
 }
@@ -1392,6 +1490,7 @@ impl SimInput {
             "energy_controller" => GuidanceType::EnergyController,
             "pred_guid" => GuidanceType::PredGuid,
             "fnpag" => GuidanceType::Fnpag,
+            "cpag" => GuidanceType::Cpag,
             "piecewise_constant" => GuidanceType::PiecewiseConstant,
             other => return Err(ParseError(format!("Unknown guidance type: {}", other))),
         };

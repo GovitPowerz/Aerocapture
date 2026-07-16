@@ -1,0 +1,13 @@
+# MSR outbound — CPAG (convex predictor-corrector) guided, single nominal run
+base = ["../missions/mars.toml"]
+
+[guidance]
+type = "cpag"
+
+[simulation]
+n_sims = 1
+screen_output = true
+random_seed = 0.6866
+
+[data]
+results_suffix = ".test_cpag"

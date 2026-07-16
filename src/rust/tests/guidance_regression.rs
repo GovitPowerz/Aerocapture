@@ -129,6 +129,7 @@ fn compare_csv_approx(actual: &str, golden: &str, scheme_label: &str, rel_tol: f
     "PredGuid"
 )]
 #[case("test/test_fnpag_golden.toml", "fnpag", ".golden_fnpag", "FNPAG")]
+#[case("test/test_cpag_golden.toml", "cpag", ".golden_cpag", "CPAG")]
 #[case("test/test_ftc_golden.toml", "ftc", ".golden_ftc", "FTC")]
 #[case(
     "test/test_neural_golden.toml",

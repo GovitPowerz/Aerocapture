@@ -97,6 +97,67 @@ impl Default for FnpagParams {
     }
 }
 
+/// CPAG (convex predictor-corrector) guidance parameters.
+///
+/// Defaults are the Stage C0 validated set (docs/plans/2026-07-16-cpag-c0-
+/// findings.md). `seg_dt`/`n_sub`/`max_iters*` are deliberately NOT GA genes
+/// (the wall-time-blind GA would floor them — the FNPAG `replan_period`
+/// lesson); the weights and trust knobs are the C2 chromosome.
+#[derive(Debug, Clone)]
+pub struct CpagParams {
+    pub replan_period: f64, // seconds between replans; profile played back in between
+    pub seg_dt: f64,        // ZOH bank-rate segment duration (s)
+    pub n_sub: usize,       // RK4 substeps per segment
+    pub horizon_max: f64,   // planning horizon cap (s)
+    pub max_iters: usize,   // SCP iteration cap, cold first call
+    pub max_iters_warm: usize, // SCP iteration cap, warm-started replans
+    pub tol_apo: f64,       // apoapsis feasibility tolerance (m)
+    pub alpha1: f64,        // control effort weight (per (rad/s)^2 s)
+    pub alpha2: f64,        // terminal cos-inclination exact penalty
+    pub alpha3: f64,        // terminal eps exact penalty (per MJ/kg)
+    pub alpha5: f64,        // path-constraint slack penalty (per unit fraction)
+    pub lambda_di: f64,     // intermediate inclination slack penalty
+    pub di_node_fraction: f64, // inclination corridor on nodes >= this fraction
+    pub di_deadband_deg: f64, // free mid-arc inclination error (deg)
+    pub trust_init: f64,    // |du| trust box, in U_SCALE units
+    pub trust_min: f64,
+    pub trust_max: f64,
+    pub sigma_max_deg: f64, // |sigma| node box (anti-winding)
+    pub enforce_heat_flux: bool,
+    pub enforce_g_load: bool,
+    pub enforce_pdyn: bool, // default OFF: the mission nominal exceeds the config value
+    pub enforce_inclination: bool,
+}
+
+impl Default for CpagParams {
+    fn default() -> Self {
+        Self {
+            replan_period: 2.0,
+            seg_dt: 8.0,
+            n_sub: 4,
+            horizon_max: 1200.0,
+            max_iters: 20,
+            max_iters_warm: 4,
+            tol_apo: 1e4,
+            alpha1: 1e-2,
+            alpha2: 5.0,
+            alpha3: 1000.0,
+            alpha5: 1000.0,
+            lambda_di: 1000.0,
+            di_node_fraction: 0.8,
+            di_deadband_deg: 0.5,
+            trust_init: 4.0,
+            trust_min: 0.02,
+            trust_max: 8.0,
+            sigma_max_deg: 180.0,
+            enforce_heat_flux: true,
+            enforce_g_load: true,
+            enforce_pdyn: false,
+            enforce_inclination: true,
+        }
+    }
+}
+
 /// Piecewise-constant bank angle guidance parameters.
 /// `bank_angles.len()` segments uniformly distributed over the energy range.
 /// Bank angles are signed (negative = implicit roll reversal).
@@ -190,6 +251,7 @@ pub struct GuidanceParams {
     pub energy_ctrl: EnergyCtrlParams,
     pub pred_guid: PredGuidParams,
     pub fnpag: FnpagParams,
+    pub cpag: CpagParams,
     pub piecewise_constant: PiecewiseConstantParams,
     pub thermal_limiter: ThermalLimiterParams,
     pub command_shaping: Option<CommandShapingConfig>,
@@ -399,6 +461,7 @@ impl Default for GuidanceParams {
             energy_ctrl: EnergyCtrlParams::default(),
             pred_guid: PredGuidParams::default(),
             fnpag: FnpagParams::default(),
+            cpag: CpagParams::default(),
             piecewise_constant: PiecewiseConstantParams::default(),
             thermal_limiter: ThermalLimiterParams::default(),
             command_shaping: None,

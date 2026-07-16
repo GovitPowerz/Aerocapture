@@ -9,7 +9,7 @@ use crate::gnc::control::angle_utils::shortest_angle_diff;
 use crate::gnc::guidance::ftc::{self as ftc_capture, FtcCaptureState};
 use crate::gnc::guidance::lateral::{self, LateralState};
 use crate::gnc::guidance::{
-    energy_controller, equilibrium_glide, exit, fnpag, neural, piecewise_constant, predguid,
+    cpag, energy_controller, equilibrium_glide, exit, fnpag, neural, piecewise_constant, predguid,
     thermal_limiter,
 };
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
@@ -70,6 +70,7 @@ pub struct GuidanceState {
     pub energy_ctrl: energy_controller::EnergyControllerState,
     pub predguid: predguid::PredGuidState,
     pub fnpag: fnpag::FnpagState,
+    pub cpag: cpag::CpagState,
 
     // Per-sim mutable NN state (`Some` only when the active scheme loads a NeuralNetModel).
     pub nn_state: Option<NnState>,
@@ -111,6 +112,7 @@ impl GuidanceState {
             energy_ctrl: energy_controller::EnergyControllerState::new(),
             predguid: predguid::PredGuidState::new(),
             fnpag: fnpag::FnpagState::new(initial_bank),
+            cpag: cpag::CpagState::new(initial_bank),
             nn_state,
             prev_inclination_error_for_nn: None,
             prev_bank_for_nn: initial_bank,
@@ -209,10 +211,13 @@ pub fn guidance_step(
     let nn_full_neural = matches!(guidance_type, GuidanceType::NeuralNetwork)
         && data.guidance.neural_mode == NeuralNetMode::FullNeural;
     // Schemes that produce signed bank angles bypass exit/lateral/thermal-limiter entirely.
-    // PiecewiseConstant always; NN only in FullNeural mode (MagnitudeOnly routes through
-    // the unsigned-magnitude pipeline just like FTC).
-    let is_signed_bank_scheme =
-        matches!(guidance_type, GuidanceType::PiecewiseConstant) || nn_full_neural;
+    // PiecewiseConstant and CPAG always (CPAG plans the signed profile with inclination
+    // handled in-loop); NN only in FullNeural mode (MagnitudeOnly routes through the
+    // unsigned-magnitude pipeline just like FTC).
+    let is_signed_bank_scheme = matches!(
+        guidance_type,
+        GuidanceType::PiecewiseConstant | GuidanceType::Cpag
+    ) || nn_full_neural;
     let uses_exit_guidance = !is_signed_bank_scheme;
 
     if is_reference {
@@ -278,6 +283,7 @@ pub fn guidance_step(
             }
             GuidanceType::PredGuid => predguid::predguid_bank(nav, &state.predguid, data, energy),
             GuidanceType::Fnpag => fnpag::fnpag_bank(nav, &mut state.fnpag, data, planet, sim_time),
+            GuidanceType::Cpag => cpag::cpag_bank(nav, &mut state.cpag, data, planet, sim_time),
             GuidanceType::PiecewiseConstant => piecewise_constant::piecewise_constant_bank(
                 nav,
                 &data.guidance.piecewise_constant,

@@ -94,20 +94,21 @@ Adding a new planet requires only a new TOML preset file in `configs/planets/` �
 The simulation implements a full closed-loop GNC chain:
 
 1. **Navigation** — Two modes: legacy bias-only, or 13-state EKF (IMU sensor model + star tracker with atmospheric blackout + lift-corrected drag-derived density estimation). Legacy filter includes rate-of-change limiting and gain saturation [0.1, 10.0]. Configurable via `[navigation] mode = "bias"` or `"ekf"`.
-2. **Guidance** — One of 7 algorithms computes a bank angle command (see table below). After the trajectory nadir (bounce), FTC + 4 unsigned-magnitude schemes automatically switch to a shared **exit phase controller** (dynamic pressure feedback with radial velocity damping) for apoapsis targeting on the ascending leg.
-3. **Lateral guidance** — Roll sign management via predictive first-order inclination projection (projects error forward by configurable tau seconds; reverses only when projected error exceeds threshold). Shared by all unsigned-magnitude schemes (FTC, EqGlide, EnergyCtrl, PredGuid, FNPAG). Remains active during exit phase for inclination correction. PiecewiseConstant always produces a signed bank angle and bypasses lateral and exit guidance entirely; NN does the same in `mode = "full_neural"` (default), but `mode = "magnitude_only"` (set under `[guidance.neural_network]`) reduces the NN output to its absolute value and routes it through the same unsigned-magnitude pipeline as FTC.
+2. **Guidance** — One of 8 algorithms computes a bank angle command (see table below). After the trajectory nadir (bounce), FTC + 4 unsigned-magnitude schemes automatically switch to a shared **exit phase controller** (dynamic pressure feedback with radial velocity damping) for apoapsis targeting on the ascending leg.
+3. **Lateral guidance** — Roll sign management via predictive first-order inclination projection (projects error forward by configurable tau seconds; reverses only when projected error exceeds threshold). Shared by all unsigned-magnitude schemes (FTC, EqGlide, EnergyCtrl, PredGuid, FNPAG). Remains active during exit phase for inclination correction. PiecewiseConstant and CPAG always produce a signed bank angle and bypass lateral and exit guidance entirely (CPAG plans inclination in-loop); NN does the same in `mode = "full_neural"` (default), but `mode = "magnitude_only"` (set under `[guidance.neural_network]`) reduces the NN output to its absolute value and routes it through the same unsigned-magnitude pipeline as FTC.
 4. **Control** — Pilot dynamics model applies rate limits and first/second-order lag to bank angle commands
 5. **Integration** — Propagates equations of motion with all physical models above. Adaptive mode sub-steps within each GNC tick — guidance/navigation cadences are unchanged.
 
 ## Guidance Schemes
 
-Seven guidance algorithms, all trainable by the population optimizers below:
+Eight guidance algorithms, all trainable by the population optimizers below:
 
 | Scheme | Description | Tunable params† | Notes |
 |---|---|---|---|
 | **Neural Network** | Maps a configurable subset of 35 candidate inputs (orbital/aero/thermal state, reference-trajectory interpolations, seam-free `(sin,cos)` bank history, live predicted correction-ΔV components) to a bank angle. v1 dense or v2 heterogeneous architectures (`dense`, `gru`, `lstm`, `window`, `transformer`, `mamba`, plus experimental `mamba3`/`cfc`/`slstm`/`mlstm` probe cells); per-input normalization embedded in the model JSON, data-driven via `calibrate_inputs.py`; signed (`atan2_signed`, `scaled_pi`, `delta`) or magnitude (`acos_tanh`) bank decoders | arch-dependent (+3 / +17 with live / full co-trained scaffolding) | **Deployed headline** — signed bank, full envelope (capture + exit) |
 | **FTC** | Predictor-corrector with reference trajectory tracking | 26 | **Best classical** (with a co-optimized reference) |
-| **FNPAG** | Lu's numerical predictor-corrector (onboard 3D predictor with J2–J4 gravity, RK4, nav-scaled atmosphere) | 22 | Accurate but slowest (~87 ms/sim); requires ref trajectory |
+| **FNPAG** | Lu's numerical predictor-corrector (onboard 3D predictor with J2–J4 gravity, RK4, nav-scaled atmosphere) | 22 | Accurate but slow (~87 ms/sim); requires ref trajectory |
+| **CPAG** | Convex predictor-corrector (Rataczak/McMahon/Boyd 2025): SCP replan of a signed bank-rate profile via Clarabel QP, heat-flux/g-load/heat-load enforced in-loop, inclination in-loop (no lateral logic) | 13 (+nav/shaping) | Self-contained; slowest (~3.5 s/sim); untuned already beats tuned FTC |
 | **Equilibrium Glide** | Balances gravity, centrifugal, and lift forces | 24 | Independent (no reference) |
 | **Energy Controller** | Tracks reference energy dissipation profile | 20 | Requires ref trajectory |
 | **PredGuid** | Apollo/Shuttle-heritage drag tracking | 20 | Requires ref trajectory |
@@ -337,7 +338,7 @@ Fair head-to-head comparison on identical MC scenarios. Each scheme uses its own
 ```bash
 uv run python -m aerocapture.training.compare_guidance \
     --n-sims 500 \
-    --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network piecewise_constant
+    --schemes equilibrium_glide energy_controller pred_guid fnpag cpag ftc neural_network piecewise_constant
 ```
 
 ### Sensitivity Analysis
@@ -417,7 +418,7 @@ uv run pytest tests/
 ./check_all.sh
 ```
 
-**Rust tests** cover: physics (J2/J3/J4 gravity with proptest), all 7 guidance schemes, exit phase guidance (pdyn feedback with proptest), phase dispatch, lateral guidance, navigation (bias + EKF, SimPhase gating), wind model, control (pilot dynamics, angle utils), DOPRI45 adaptive integrator, TOML base inheritance, virtual DV ranges, trajectory heat load, density perturbation (OU config presets, step function statistics, TOML parsing, E2E backward compat), config-validation hard errors (missing reference file, unknown navigation mode, NN guidance without a model, incidence/wind bounds, wrong-sized embedded NN normalization block), and RL forced-bank telemetry.
+**Rust tests** cover: physics (J2/J3/J4 gravity with proptest), all 8 guidance schemes, exit phase guidance (pdyn feedback with proptest), phase dispatch, lateral guidance, navigation (bias + EKF, SimPhase gating), wind model, control (pilot dynamics, angle utils), DOPRI45 adaptive integrator, TOML base inheritance, virtual DV ranges, trajectory heat load, density perturbation (OU config presets, step function statistics, TOML parsing, E2E backward compat), config-validation hard errors (missing reference file, unknown navigation mode, NN guidance without a model, incidence/wind bounds, wrong-sized embedded NN normalization block), and RL forced-bank telemetry.
 
 **Python tests** cover: parsers, regression, GA pipeline, training visualization, training animation, NN weight initialization, curated-CDF seed framework (stratified picking, curation probe, checkpoint roundtrip), graceful interrupt, TOML base inheritance, PyO3 integration (bit-identical regression), corridor accumulator, unified cost function, sensitivity analysis (build_problem structure + Morris/Sobol pipeline shape/correctness), Parquet output (write/read roundtrip, schema, metadata, data integrity), RL training (GaussianPolicy / ValueNetwork, PyTorch→JSON export roundtrip, AerocaptureVecEnv wrapper, PBRS telescoping identity + terminal cost parity with GA, PPO GAE/update rule, SAC update rule, config parser with nested ppo overrides, RL-flavored PDF report charts, end-to-end PPO smoke test).
 

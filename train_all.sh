@@ -107,6 +107,13 @@ train_fnpag() {
     run_scheme configs/training/msr_aller_fnpag_train.toml 600 50 2000 1
 }
 
+train_cpag() {
+    # CPAG runs ~10-30x slower per sim than FNPAG (SCP replans; see
+    # docs/plans/2026-07-16-cpag-c0-findings.md), so the budget is sized down.
+    echo "=== cpag (13 genes + nav/shaping; convex predictor-corrector) ==="
+    run_scheme configs/training/msr_aller_cpag_train.toml 200 40 2000 1
+}
+
 train_neural_network() {
     echo "=== neural_network (a lot of params) ==="
     run_scheme configs/training/msr_aller_nn_train_consolidated.toml 1500 120 2000 1
@@ -214,6 +221,8 @@ train_all() {
     echo ""
     train_fnpag
     echo ""
+    train_cpag
+    echo ""
     train_neural_network
 }
 
@@ -229,6 +238,7 @@ else
             energy_controller|energy|ec)       train_energy_controller ;;
             pred_guid|predguid|pg)             train_pred_guid ;;
             fnpag)                             train_fnpag ;;
+            cpag)                              train_cpag ;;
             neural_network|nn)                 train_neural_network ;;
             neural_network_rl|nn_rl|rl)        train_nn_rl ;;
             neural_network_gru_ppo|nn_gru_ppo|gru_ppo)  train_neural_network_gru_ppo ;;
