@@ -34,7 +34,7 @@ uv run pytest tests/
 src/
   rust/                    Rust simulator (core crate + CLI entry)
     aerocapture-py/        PyO3 Python bindings (aerocapture_rs module)
-  python/                  Python analysis package (parsing, plotting, training)
+  python/                  Python analysis package (parsing, plotting, training, CPAG SCP prototype)
   typst/                   PDF report templates (compiled by typst)
 configs/
   planets/                 Planet physical constants (mu, radii, omega, J2/J3/J4)

@@ -39,11 +39,19 @@ evidence.
 - Deployability row from the start: per-replan wall time + iteration-count distribution
   (FNPAG's ~0.27 ms/replan is the bar; the paper's triangle gets a CPAG vertex).
 
-### Stage C0 -- formulation + solver spike
-- [ ] Python prototype of the paper's convexified formulation on our dynamics; verify SCP
+### Stage C0 -- formulation + solver spike (DONE 2026-07-16, findings: docs/plans/2026-07-16-cpag-c0-findings.md)
+- [x] Python prototype of the paper's convexified formulation on our dynamics; verify SCP
       convergence across the corridor (undispersed sweep + a dispersed batch)
-- [ ] Pick the embedded solver: Clarabel (pure Rust, SOCP) vs OSQP binding vs problem-shaped
+      -- `src/python/aerocapture/cpag/`; 372 cold replans, 100% settle; reachable-target states
+      hit apoapsis to 10 m p50 / 500 m p95 with inclination in-loop (no lateral logic);
+      unreachable-target states saturate within meters of the physical optimum
+- [ ] Optional dependent follow-up: energy-based eps apoapsis surrogate as a drop-in upgrade for
+      FNPAG's own corrector (thesis Sec. 6.5: Keplerian exit-DV predictions err up to ~25%)
+- [x] Pick the embedded solver: Clarabel (pure Rust, SOCP) vs OSQP binding vs problem-shaped
       custom QP; measure per-solve wall time and iteration spread at the real problem size
+      -- Clarabel, box-trust QP variant, N~50: 3.5-7 ms p50 per solve, 13-25 IP iterations,
+      p95 within ~10% of p50; OSQP-ADMM caps out (20k iters) AND breaks SCP parity; custom QP
+      not warranted (2 orders of magnitude cadence headroom, pure-Rust crate)
 
 ### Stage C1 -- Rust scheme MVP
 - [ ] `cpag.rs`: SCP replan on a `replan_period` cadence (FNPAG throttle pattern: hold between
