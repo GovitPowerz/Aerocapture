@@ -1,6 +1,7 @@
 # TODO
 
-- [ ] implement CPAG (Convex Predictor-Corrector Aerocapture Guidance) as the 8th guidance scheme
+- [x] implement CPAG (Convex Predictor-Corrector Aerocapture Guidance) as the 8th guidance scheme
+      (C0-C2 complete 2026-07-19; tail verdict negative -- see the CPAG section below)
 
 ---
 
@@ -18,8 +19,9 @@
 **End goal:** implement CPAG (Rataczak, McMahon & Boyd, JGCD 2025, doi:10.2514/1.G008685;
 `@rataczak2025cpag` in the paper's related work) as the 8th guidance scheme -- a convexified
 constrained replan (bank profile with heat-flux / g-load / heat-load path constraints enforced
-in-loop) -- and make it the classical architecture developed further, replacing FNPAG in that
-role. Rationale: constraint handling is the structural gap in the classical stack (the thermal
+in-loop) -- and evaluate it as the classical architecture developed further, replacing FNPAG in
+that role. **C2 verdict (2026-07-19): scheme shipped and honest, but the tail evidence does
+NOT support the crowning -- see docs/plans/2026-07-19-cpag-c2-results.md.** Rationale: constraint handling is the structural gap in the classical stack (the thermal
 limiter is a bolt-on ramp outside guidance; the paper's LSTM feasibility asterisk shows soft
 penalties do not enforce feasibility), and the confirmatory campaign demoted FNPAG (deep tail
 fattens 165 -> 198.7 at 1e6; bang-bang + bisection has no headroom for in-loop constraints).
@@ -72,30 +74,31 @@ evidence.
       capture vs tuned FTC 174.4/108 and tuned FNPAG 124.3/29; nominal apo err 0.22 km, inc err
       0.019 deg, dv 143.3. Wall cost ~3.5 s/sim (~40x FNPAG) -- size C2 budgets accordingly
 
-### Stage C2 -- training + benchmark (IN FLIGHT 2026-07-16: gate shipped, campaign running)
+### Stage C2 -- training + benchmark (DONE 2026-07-19, results: docs/plans/2026-07-19-cpag-c2-results.md)
 - [x] Feasibility-aware validation gate (IMPROVEMENTS 9.14) -- `[optimizer] max_violation_rate`
       ceiling enforced at the validation gate, the islands `validate_each`, final selection
       (records-based, `winner_feasible` sidecar flag), AND the pre-loop initial-champion
       validation (the hole was live: the first C2 launch anchored a 5.75%-heat-load-violating
-      gen-0 argmin through the ungated path; caught by monitoring, patched, campaign restarted)
-- [ ] GA-tune under the deployed regime (adaptive/max curation, cubed transform) -- CAMPAIGN
-      RUNNING: `configs/training/msr_aller_cpag_train.toml` (GA 48 x 400 gens, training_n_sims 2,
-      validation 400, ceiling 1%), ~150 s/gen base + ~10 min per validation fire at the measured
-      0.64 sims/s => ETA ~20-30 h. Auto-resumes from `training_output/cpag/` checkpoints; harvest
-      artifacts early anytime via
-      `uv run python -m aerocapture.training.final_select training_output/cpag --toml configs/training/msr_aller_cpag_train.toml`
-- [ ] Head-to-head vs joint-FTC / FNPAG / deployed Mamba on confirmatory-style pools -- comparator
-      cells FROZEN on shared 10x1000 pools in `articles/paper/data/cpag_confirmatory.json`
-      (joint-FTC cvar99 154.3, FNPAG 159.2, Mamba_962 118.5, all 0% violations; tail metric capped
-      at cvar99 -- CPAG's wall cost makes 100k-deep pools infeasible, quote NO cvar999 claims from
-      this file). After training, run the CPAG cell on the same pools:
-      `uv run python articles/paper/scripts/confirmatory_eval.py --cells "cpag:configs/training/msr_aller_cpag_train.toml" --replicates 10 --n 1000 --sim-timeout 60 --out articles/paper/data/cpag_confirmatory.json`
-      then read `paired` deltas (cpag_vs_jointftc / cpag_vs_fnpag / mamba_vs_cpag) + update the
-      deployability triangle (tail, compute ~3.5 s/sim vs FNPAG 87 ms, robustness)
-- [ ] Optional follow-up: CPAG as a constraint-aware warm-start supervisor for `magnitude_only`
-      NN training
-- [ ] Full verification + smart-commit after the campaign + benchmark land
-
+      gen-0 argmin through the ungated path). Campaign tally: 3 feasible promotions vs 21+
+      infeasible rejections -- the soft cost penalty does not hold the feasibility line
+- [x] GA-tune under the deployed regime -- 400 gens x 48 x 2 sims, adaptive/max, cubed,
+      ceiling 1% (seed_pool_interval 2 -> 25 for the wall cost). Final eval (1000 disjoint):
+      99.7% capture, dv p50 143.2 / p95 190.3, flux 0% / g 0% / heat load 0.1% violations
+- [x] Head-to-head vs joint-FTC / FNPAG / deployed Mamba on shared 10x1000 pools
+      (articles/paper/data/cpag_confirmatory.json; tail metric caps at cvar99 at this depth):
+      **CPAG LOSES THE TAIL** -- cvar95 228.8 vs jointFTC 144.9 / FNPAG 143.9 / Mamba 115.9
+      (paired +83.7/+84.8/-112.7 m/s, SE ~3.9); capture 99.81% (16 physical + 3 timeout of
+      10k) vs 99.96-100%; median parity (p50 ~143). The tail is the crash-escalation rescue's
+      bill (recovered-but-expensive 300-900 m/s captures). At ~40x FNPAG compute, in-loop
+      constraint enforcement did not pay on this mission (constraints not binding: incumbents
+      hit 0.00% violations via plain tuning). Verdict + C3 options (matched budget, tail
+      mechanism diagnostic, margin-as-gene) in the results doc -- do NOT crown CPAG the
+      developed-further classical architecture on this evidence
+- [ ] Optional C3 follow-ups (docs/plans/2026-07-19-cpag-c2-results.md section 4): replan
+      telemetry on the worst pooled draws; margin-as-gene; matched-budget retrain after a
+      faster replan (analytic Jacobians / FOH). Optional: CPAG as constraint-aware warm-start
+      supervisor for `magnitude_only` NN training
+- [x] Full verification + smart-commit
 ---
 
 ## Stateful NN guidance program -- SHIPPED (2026-04 to 2026-07)
