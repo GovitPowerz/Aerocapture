@@ -51,6 +51,25 @@ pub fn build_sim_state(
     let max_time = config.max_time;
     let exit_altitude = data.final_conditions.altitude;
 
+    // Base seed for the per-sim stochastic streams (EKF sensor noise, OU
+    // density perturbation). Legacy: `random_seed + env_idx * 10_000` — frozen
+    // across n_sims=1 configs (env_idx = 0, random_seed fixed by the TOML), so
+    // per-seed pools condition on ONE noise realization. PerDraw: derived from
+    // the dispersion draw, so every distinct scenario gets its own realization.
+    let noise_base = match data
+        .dispersion_config
+        .as_ref()
+        .map(|d| d.noise_seeding)
+        .unwrap_or_default()
+    {
+        crate::data::dispersions::NoiseSeeding::Legacy => {
+            config.random_seed as u64 + env_idx * 10_000
+        }
+        crate::data::dispersions::NoiseSeeding::PerDraw => run_state
+            .noise_seed
+            .wrapping_add(env_idx.wrapping_mul(0x9E37_79B9_7F4A_7C15)),
+    };
+
     let nav_filter = match data.nav_mode {
         crate::data::NavMode::Bias => NavigationFilter::new_bias(),
         crate::data::NavMode::Ekf => {
@@ -59,8 +78,7 @@ pub fn build_sim_state(
                 .as_ref()
                 .expect("EKF mode requires [navigation] config");
             let (imu_cfg, st_cfg, ekf_cfg) = estimator::build_ekf_configs(nav_toml);
-            let seed = config.random_seed as u64 + env_idx * 10_000;
-            NavigationFilter::new_ekf(imu_cfg, st_cfg, ekf_cfg, seed)
+            NavigationFilter::new_ekf(imu_cfg, st_cfg, ekf_cfg, noise_base)
         }
     };
 
@@ -68,9 +86,7 @@ pub fn build_sim_state(
     let gm_config = data.density_perturbation.filter(|g| !g.is_disabled());
     let (gm_rng, gm_normal) = if gm_config.is_some() {
         use rand::SeedableRng;
-        let rng = rand::rngs::StdRng::seed_from_u64(
-            config.random_seed as u64 + env_idx * 10_000 + 0xDE45,
-        );
+        let rng = rand::rngs::StdRng::seed_from_u64(noise_base.wrapping_add(0xDE45));
         let normal = rand_distr::Normal::new(0.0, 1.0).unwrap();
         (Some(rng), Some(normal))
     } else {

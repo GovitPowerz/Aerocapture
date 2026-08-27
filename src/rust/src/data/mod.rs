@@ -1189,9 +1189,16 @@ fn build_dispersion_config(
         dispersions::SamplingMethod::Random
     };
 
+    let noise_seeding = if let Some(s) = &mc.noise_seeding {
+        dispersions::NoiseSeeding::from_str(s)?
+    } else {
+        dispersions::NoiseSeeding::Legacy
+    };
+
     Ok(DispersionConfig {
         seed: mc.seed,
         sampling,
+        noise_seeding,
         initial_state,
         atmosphere,
         aerodynamics,

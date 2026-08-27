@@ -2502,6 +2502,13 @@ def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dic
     if "warm_start" in _toml_data:
         cfg.warm_start = WarmStartConfig.from_dict(_toml_data["warm_start"])
 
+    # The field assignments above bypass NetworkConfig.__post_init__, leaving
+    # per-entry normalization undone (e.g. Mamba dt_rank resolution). train()
+    # used to survive only because init_v2_population mutates the entries as a
+    # side effect; callers that never build a population (final_select CLI)
+    # crashed run_grid with "missing field dt_rank". Re-run it explicitly.
+    cfg.network.__post_init__()
+
     # `[checkpoints]` block: optional disk-retention policy. `keep_last = N`
     # auto-prunes older `checkpoint_g*.{json,npz}` pairs after each save,
     # keeping only the N most recent. The JSONL log + best_* artifacts are

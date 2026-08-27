@@ -4,6 +4,7 @@ fn medium_config(seed: u64) -> DispersionConfig {
     DispersionConfig {
         seed,
         sampling: SamplingMethod::Random,
+        noise_seeding: NoiseSeeding::Legacy,
         initial_state: Some(InitialStateSigmas::from_level(DispersionLevel::Medium)),
         atmosphere: Some(AtmosphereSigmas::from_level(DispersionLevel::Medium)),
         aerodynamics: Some(AerodynamicsSigmas::from_level(DispersionLevel::Medium)),
@@ -59,6 +60,7 @@ fn test_all_none_gives_zeros() {
     let config = DispersionConfig {
         seed: 42,
         sampling: SamplingMethod::Random,
+        noise_seeding: NoiseSeeding::Legacy,
         initial_state: None,
         atmosphere: None,
         aerodynamics: None,
@@ -171,6 +173,7 @@ fn test_uniform_fields_bounded() {
     let config = DispersionConfig {
         seed: 12345,
         sampling: SamplingMethod::Random,
+        noise_seeding: NoiseSeeding::Legacy,
         initial_state: None,
         atmosphere: Some(AtmosphereSigmas { density: 50.0 }),
         aerodynamics: Some(AerodynamicsSigmas {
@@ -254,6 +257,7 @@ fn test_filter_gain_gaussian_range() {
     let config = DispersionConfig {
         seed: 54321,
         sampling: SamplingMethod::Random,
+        noise_seeding: NoiseSeeding::Legacy,
         initial_state: None,
         atmosphere: None,
         aerodynamics: None,
@@ -536,6 +540,7 @@ mod proptests {
             let config = DispersionConfig {
                 seed,
                 sampling: method,
+                noise_seeding: NoiseSeeding::Legacy,
                 initial_state: Some(InitialStateSigmas::from_level(DispersionLevel::Medium)),
                 atmosphere: Some(AtmosphereSigmas::from_level(DispersionLevel::Medium)),
                 aerodynamics: Some(AerodynamicsSigmas::from_level(DispersionLevel::Medium)),
@@ -812,4 +817,24 @@ fn test_sobol_rejects_too_many_sims() {
     let mut config = medium_config(42);
     config.sampling = SamplingMethod::Sobol;
     config.generate_draws(70_000);
+}
+
+#[test]
+fn test_noise_seeding_from_str() {
+    assert_eq!(
+        NoiseSeeding::from_str("legacy").unwrap(),
+        NoiseSeeding::Legacy
+    );
+    assert_eq!(
+        NoiseSeeding::from_str("per_draw").unwrap(),
+        NoiseSeeding::PerDraw
+    );
+    assert!(NoiseSeeding::from_str("per-draw").is_err());
+    assert!(NoiseSeeding::from_str("").is_err());
+}
+
+#[test]
+fn test_noise_seeding_defaults_legacy() {
+    assert_eq!(NoiseSeeding::default(), NoiseSeeding::Legacy);
+    assert_eq!(medium_config(42).noise_seeding, NoiseSeeding::Legacy);
 }

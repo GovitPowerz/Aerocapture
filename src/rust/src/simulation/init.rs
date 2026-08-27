@@ -27,6 +27,7 @@ pub struct RunState {
     pub filter_gain_bias: f64,     // density filter gain bias (absolute delta)
     pub wind_scale: f64,           // wind speed multiplier (1.0 = nominal, NOT 0.0)
     pub wind_direction_bias: f64,  // wind direction rotation (radians)
+    pub noise_seed: u64, // FNV-1a hash of the draw; stream seed under NoiseSeeding::PerDraw
     pub nav_biases: NavigationBiases,
     pub pilot_biases: PilotBiases,
 }
@@ -41,8 +42,18 @@ pub fn init_run_from_draw(sim_data: &SimData, draw: &DispersionDraw) -> RunState
     entry.state.flight_path += draw.flight_path;
     entry.state.azimuth += draw.azimuth;
 
+    // FNV-1a over the draw's bit patterns: a per-draw stochastic-stream seed
+    // that is identical for identical draws (reproducibility) and distinct
+    // across draws (marginalization) on every execution path.
+    let mut noise_seed: u64 = 0xcbf29ce484222325;
+    for v in draw.to_array() {
+        noise_seed ^= v.to_bits();
+        noise_seed = noise_seed.wrapping_mul(0x100000001b3);
+    }
+
     RunState {
         entry,
+        noise_seed,
         cx_bias: draw.drag_coeff,
         cz_bias: draw.lift_coeff,
         density_bias: draw.density,

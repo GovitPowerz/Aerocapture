@@ -34,3 +34,15 @@ def test_missing_guidance_type_raises_system_exit(tmp_path: Path) -> None:
 def test_warm_start_block_reaches_config() -> None:
     cfg, _ = build_training_config_from_toml("configs/training/msr_aller_nn_joint_train.toml")
     assert cfg.warm_start.enabled is True
+
+
+def test_mamba_dt_rank_resolved_without_population_build() -> None:
+    """train.py's [network] override chain bypasses NetworkConfig.__post_init__;
+    the builder must re-normalize so callers that never build an initial
+    population (final_select CLI) get a run_grid-parseable architecture.
+    Regression: run_grid "missing field dt_rank" on Mamba cells."""
+    cfg, _ = build_training_config_from_toml("configs/training/sweep/mamba_p962.toml")
+    assert cfg.network.architecture is not None
+    for entry in cfg.network.architecture:
+        if entry["type"] == "mamba":
+            assert "dt_rank" in entry, entry
