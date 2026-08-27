@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import stat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,16 +25,12 @@ class TestKeyboardInterrupt:
 
     def test_interrupt_returns_interrupted_flag(self, tmp_path: Path) -> None:
         """train() returns interrupted=True on KeyboardInterrupt."""
-        # Create a dummy executable so the fast-fail check passes.
         exe_path = tmp_path / "src" / "rust" / "target" / "release"
         exe_path.mkdir(parents=True)
 
         # Create the NN model directory so save_checkpoint can write the best model.
         nn_dir = tmp_path / "data" / "neural_network"
         nn_dir.mkdir(parents=True)
-        dummy_exe = exe_path / "aerocapture"
-        dummy_exe.write_text("#!/bin/sh\nexit 0\n")
-        dummy_exe.chmod(dummy_exe.stat().st_mode | stat.S_IEXEC)
 
         cfg = TrainingConfig(optimizer=OptimizerConfig(seed_strategy="adaptive"))
         cfg.optimizer.n_gen = 100
@@ -75,9 +70,6 @@ class TestResumePreservesCheckpointedBest:
         exe_path = tmp_path / "src" / "rust" / "target" / "release"
         exe_path.mkdir(parents=True)
         (tmp_path / "data" / "neural_network").mkdir(parents=True)
-        dummy_exe = exe_path / "aerocapture"
-        dummy_exe.write_text("#!/bin/sh\nexit 0\n")
-        dummy_exe.chmod(dummy_exe.stat().st_mode | stat.S_IEXEC)
 
         save_dir = tmp_path / "training_output"
         save_dir.mkdir(parents=True)
@@ -155,9 +147,6 @@ class TestResumeGrowsPopulation:
         exe_path = tmp_path / "src" / "rust" / "target" / "release"
         exe_path.mkdir(parents=True)
         (tmp_path / "data" / "neural_network").mkdir(parents=True)
-        dummy_exe = exe_path / "aerocapture"
-        dummy_exe.write_text("#!/bin/sh\nexit 0\n")
-        dummy_exe.chmod(dummy_exe.stat().st_mode | stat.S_IEXEC)
 
         save_dir = tmp_path / "training_output"
         save_dir.mkdir(parents=True)

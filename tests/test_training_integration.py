@@ -6,18 +6,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 from aerocapture.training.problem import AerocaptureProblem
 
 from tests.fixtures.factories import make_training_config
-
-
-@pytest.fixture(autouse=True)
-def _dummy_executable(tmp_path: Path) -> None:
-    """Create a dummy executable so train()'s binary check passes."""
-    exe = tmp_path / "dummy"
-    exe.touch()
-    exe.chmod(0o755)
 
 
 class TestTrainLoggerIntegration:

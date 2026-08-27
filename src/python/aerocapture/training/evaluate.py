@@ -22,7 +22,6 @@ from aerocapture.training.config import NetworkConfig, TrainingConfig
 from aerocapture.training.metrics import apply_cost_transform
 from aerocapture.training.parquet_output import (
     DV_TOTAL_RAW_INDEX,
-    FINAL_RECORD_LEN,
     G_LOAD_RAW_INDEX,
     HEAT_FLUX_RAW_INDEX,
     HEAT_LOAD_RAW_INDEX,
