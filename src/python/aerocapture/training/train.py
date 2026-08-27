@@ -39,6 +39,7 @@ from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
 from aerocapture.training.param_spaces import ParamSpec
 from aerocapture.training.population import create_initial_population, create_nn_initial_population
 from aerocapture.training.problem import AerocaptureProblem
+from aerocapture.training.reference import nominal_flight_overrides, piecewise_commanded_cos_bank, ref_trajectory_array
 from aerocapture.training.seed_curator import SeedCurator
 from aerocapture.training.weight_stats import compute_weight_stats
 
@@ -109,13 +110,6 @@ def _draw_disjoint_seeds(
         batch = rng.integers(0, 2**31, size=n - len(drawn)).tolist()
         drawn.extend(s for s in batch if s not in excluded)
     return drawn[:n]
-
-
-from aerocapture.training.reference import (  # noqa: E402  (re-export: make_reference.py and tests import these from train)
-    nominal_flight_overrides,
-    piecewise_commanded_cos_bank,
-    ref_trajectory_array,
-)
 
 
 def check_ref_trajectory_wiring(toml_data: dict, ref_traj_path: Path) -> None:

@@ -5,7 +5,7 @@ the energy axis 1e6x and collapses every runtime interpolation query)."""
 from __future__ import annotations
 
 import numpy as np
-from aerocapture.training.train import ref_trajectory_array
+from aerocapture.training.reference import ref_trajectory_array
 
 
 def _nom_traj(n: int = 5) -> np.ndarray:
@@ -34,7 +34,7 @@ def test_energy_column_is_mj_per_kg() -> None:
 def test_commanded_cos_bank_mirrors_rust_segment_lookup() -> None:
     # Mirrors `segment_bank_angle` in piecewise_constant.rs: segment 0 at the
     # highest energy, frac = (e_max - E)/(e_max - e_min), floor, clamp.
-    from aerocapture.training.train import piecewise_commanded_cos_bank
+    from aerocapture.training.reference import piecewise_commanded_cos_bank
 
     banks = [60.0, 50.0, 40.0, 30.0, 20.0, -20.0, -30.0, -40.0, -50.0, -60.0]
     e = np.array([4.5, 5.0, -6.0, -7.0, 10.0, -0.501])  # MJ/kg, e_range [-6, 5]
@@ -46,7 +46,7 @@ def test_commanded_cos_bank_mirrors_rust_segment_lookup() -> None:
 
 
 def test_commanded_cos_bank_single_segment_is_constant() -> None:
-    from aerocapture.training.train import piecewise_commanded_cos_bank
+    from aerocapture.training.reference import piecewise_commanded_cos_bank
 
     e = np.linspace(4.9, -5.4, 50)
     cos = piecewise_commanded_cos_bank(e, [64.77], energy_min_mj=-7.0, energy_max_mj=5.0)
@@ -64,7 +64,7 @@ def test_nominal_flight_disables_all_dispersion_domains() -> None:
     # The reference nominal must be the true undispersed trajectory. The old
     # inline override list named only 5 domains, so the reference shipped with
     # vehicle/pilot/nav_filter dispersions, a wind draw, and OU density noise.
-    from aerocapture.training.train import nominal_flight_overrides
+    from aerocapture.training.reference import nominal_flight_overrides
 
     mc = {
         "seed": 42,
@@ -95,7 +95,7 @@ def test_nominal_flight_disables_all_dispersion_domains() -> None:
 
 
 def test_nominal_flight_covers_future_config_domains() -> None:
-    from aerocapture.training.train import nominal_flight_overrides
+    from aerocapture.training.reference import nominal_flight_overrides
 
     ov = nominal_flight_overrides({}, "piecewise_constant", {"some_new_domain": {"level": "high"}, "seed": 7})
     assert ov["monte_carlo.some_new_domain.level"] == "off"

@@ -270,52 +270,6 @@ def _parse_final_to_legacy_array(filepath: Path) -> npt.NDArray[np.float64] | No
     return result
 
 
-def run_simulation(
-    config: TrainingConfig,
-    cwd: str | Path | None = None,
-    overrides: dict[str, object] | None = None,
-) -> npt.NDArray[np.float64] | None:
-    """Run the Rust simulator and parse final conditions.
-
-    Dispatches to PyO3 direct call when available, falling back to subprocess.
-
-    Args:
-        config: Training configuration.
-        cwd: Working directory (defaults to config.sim.exec_dir).
-        overrides: Optional TOML override dict (PyO3 path only).
-
-    Returns:
-        Array of final conditions (n, 52), or None if simulation failed.
-    """
-    if _HAS_PYO3 and config.sim.toml_config:
-        return _run_via_pyo3(config, cwd, overrides)
-    return _run_via_subprocess(config, cwd)
-
-
-def _run_via_pyo3(
-    config: TrainingConfig,
-    cwd: str | Path | None = None,
-    overrides: dict[str, object] | None = None,
-) -> npt.NDArray[np.float64] | None:
-    """Run simulation via PyO3 direct call (in-process, no subprocess)."""
-    assert _aero_rs is not None
-    if cwd is None:
-        cwd = config.sim.exec_dir
-    cwd = Path(cwd)
-    if not config.sim.toml_config:
-        return None
-    toml_path = str((cwd / config.sim.toml_config).resolve())
-    try:
-        result = _aero_rs.run(toml_path=toml_path, overrides=overrides, sim_timeout_secs=config.sim.sim_timeout_secs)
-        arr: npt.NDArray[np.float64] = result.final_record.reshape(1, FINAL_RECORD_LEN)
-        return arr
-    except Exception:
-        import traceback
-
-        traceback.print_exc()
-        return None
-
-
 def _run_via_subprocess(config: TrainingConfig, cwd: str | Path | None = None) -> npt.NDArray[np.float64] | None:
     """Run simulation via subprocess (legacy path)."""
     if cwd is None:

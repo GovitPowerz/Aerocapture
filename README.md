@@ -1,29 +1,34 @@
 # Aerocapture
 
-Trajectory simulation tool for aerocapture maneuvers, primarily targeting Mars Sample Return (MSR). Models a spacecraft entering a planet's atmosphere at hyperbolic velocity, using aerodynamic forces and bank angle modulation to capture into a target orbit.
+[![CI](https://github.com/GovitPowerz/Aerocapture/actions/workflows/ci.yml/badge.svg)](https://github.com/GovitPowerz/Aerocapture/actions/workflows/ci.yml)
 
-Built as a **Rust simulator** with **Python analysis tools**. Validated against a legacy reference implementation to bit-level precision.
+Trajectory simulation and guidance optimization for aerocapture maneuvers, primarily targeting Mars Sample Return (MSR): a spacecraft enters the atmosphere at hyperbolic velocity and uses bank angle modulation to capture into a target orbit. A **Rust simulator** (validated to bit-level precision against a legacy reference implementation) with **Python training and analysis tools**: seven classical guidance schemes plus GA/PSO-trained neural guidance (dense, GRU, LSTM, Transformer, Mamba).
+
+![Correction-DV tail: classical guidance schemes vs trained neural guidance](articles/paper/figures/fig_classical_vs_nn.svg)
 
 ## Paper
 
-This repository is the artifact for *Seventeen years later: stateful neural guidance and the tail that sizes a Mars aerocapture mission* — the compiled PDF is committed at [articles/paper/paper.pdf](articles/paper/paper.pdf). The Typst source, figures, and the per-run evaluation records behind every table live under [articles/paper/](articles/paper/); rebuild with `typst compile articles/paper/paper.typ` from the repo root.
+This repository is the artifact for *Seventeen years later: stateful neural guidance and the tail that sizes a Mars aerocapture mission* — the compiled PDF is committed at [articles/paper/paper.pdf](articles/paper/paper.pdf). The Typst source, figures, and the per-run evaluation records behind every table live under [articles/paper/](articles/paper/); rebuild with `typst compile articles/paper/paper.typ` from the repo root. The raw training logs (195 MB) are a GitHub Release asset: `articles/paper/scripts/fetch_run_logs.sh` restores them.
 
 ## Quick Start
 
 ```bash
-# Build the Rust simulator
-cd src/rust && cargo build --release && cd ../..
+# Fast clone (full history carries the paper's data payload):
+git clone --depth 1 https://github.com/GovitPowerz/Aerocapture
+cd Aerocapture
 
-# Run a simulation with TOML config
+./setup_env.sh     # Python env (uv)
+./build.sh         # Rust simulator + PyO3 bindings (required for training/analysis)
+
+# 5-minute demo: fly the paper's headline NN guidance cell over 500 dispersed
+# MSR entries and render one figure (DV CDF + flown corridor):
+uv run python -m aerocapture.demo
+# -> demo_output/demo.svg, capture rate + DV percentiles on stdout
+
+# Single simulation from a TOML config (CLI, no Python needed):
 ./src/rust/target/release/aerocapture configs/nominal/msr_aller_ftc_nominal.toml
 
-# Build PyO3 bindings (optional, speeds up training ~10x)
-cd src/rust/aerocapture-py && maturin develop --release && cd ../../..
-
-# Set up Python environment
-uv sync --group dev
-
-# Run tests
+# Tests (~650 Rust + ~1300 Python):
 cargo test --release --manifest-path src/rust/Cargo.toml
 uv run pytest tests/
 ```
@@ -143,7 +148,7 @@ A separate NN training mode (`./train_all.sh nn_joint`) flips three TOML opt-in 
 - `output_parameterization = "acos_tanh"` swaps the `atan2(out[0], out[1]).abs()` decoder (which wastes half the output range under `magnitude_only`) for `bank = acos(tanh(out[0]))` — single output, smooth `[0, π]` mapping that aligns with FTC's internal `cos_bank` representation. Validated at config load (requires `mode = "magnitude_only"`, last-layer `output_size = 1`, `activation = "tanh"`).
 - Warm-start: either the legacy `warm_start_from = "training_output/ftc/best_params.json"` (single supervisor) OR a `[warm_start]` TOML block (multi-supervisor BPTT for recurrent architectures). Both encode the cloned weights into the PSO initial population. Reserved seed offset `4_000_000` keeps the supervised data disjoint from validation / final-eval / RL pools.
 
-All three knobs default off; existing trained NNs and existing configs are bit-identical. Requires FTC training output (`./train_all.sh ftc` first). Spec: `docs/superpowers/specs/2026-05-07-nn-ftc-parity-bundle-design.md` (parity bundle); `docs/superpowers/specs/2026-05-22-warm-start-all-archs-design.md` (multi-supervisor BPTT for Dense/GRU/LSTM/Window/Transformer/Mamba).
+All three knobs default off; existing trained NNs and existing configs are bit-identical. Requires FTC training output (`./train_all.sh ftc` first). Spec: `docs/design/2026-05-07-nn-ftc-parity-bundle-design.md` (parity bundle); `docs/design/2026-05-22-warm-start-all-archs-design.md` (multi-supervisor BPTT for Dense/GRU/LSTM/Window/Transformer/Mamba).
 
 ### Multi-Supervisor BPTT Warm-Start (`[warm_start]`)
 
@@ -248,7 +253,7 @@ uv run python -m aerocapture.training.compare_guidance \
 
 Architecture: step-able `BatchedSimulation` pyclass (Rayon-parallel per-tick advance over N SimStates, GIL released via `py.detach()`, auto-reset on episode end, `info["truncated"]` surfaced so GAE/SAC distinguish timeouts from terminations). `step()` returns `(obs, reward, done, info, aux)` where `aux` provides `(energy, pdyn, dv1, dv2, dv3)` per env (energy for the phase-aware capture term; the 3 raw-m/s predicted-DV components for the `potential = "dv"` reward mode). CleanRL-style PPO/SAC in `src/python/aerocapture/training/rl/`: PyTorch MLP with GA warm-start via `load_weights_from_json()`, `StepRewardCalculator` for potential-based phase-aware shaping, `ReturnNormalizer` + `ObsNormalizer` (vectorized Chan's parallel Welford), reserved-seed validation gate, graceful Ctrl+C, final MC evaluation summary, three-part PDF report. PPO supports `target_kl` early-stop and per-step return normalization for stable advantages. SAC's critic operates on the 2D Gaussian latent (`atan2(raw[0], raw[1])` still drives the env), with the replay buffer included in `checkpoint.pt` for full-state resume.
 
-CLI flags: `--algorithm {ppo|sac}`, `--total-steps`, `--n-envs`, `--rollout-steps`, `--validation-n-sims`, `--validation-interval-updates`, `--data-neural-network`, `--from-scratch`, `--learning-rate`, `--clip-range`, `--entropy-coef`, `--min-log-std`, `--update-epochs`, `--lr-anneal-start`, `--target-kl`, `--no-tui`, `--skip-report`, `--resume`, `--output-dir`. `--from-scratch` and `--data-neural-network` are mutually exclusive. Full spec at `docs/superpowers/specs/2026-04-15-rl-nn-guidance-design.md`.
+CLI flags: `--algorithm {ppo|sac}`, `--total-steps`, `--n-envs`, `--rollout-steps`, `--validation-n-sims`, `--validation-interval-updates`, `--data-neural-network`, `--from-scratch`, `--learning-rate`, `--clip-range`, `--entropy-coef`, `--min-log-std`, `--update-epochs`, `--lr-anneal-start`, `--target-kl`, `--no-tui`, `--skip-report`, `--resume`, `--output-dir`. `--from-scratch` and `--data-neural-network` are mutually exclusive. Full spec at `docs/design/2026-04-15-rl-nn-guidance-design.md`.
 
 ### Training seed strategies
 
@@ -393,7 +398,7 @@ print(f"Dispersions roundtrip: {result.dispersions.shape}")  # (100, 26)
 
 Build with: `uv run maturin develop --release --manifest-path src/rust/aerocapture-py/Cargo.toml`
 
-The training pipeline auto-detects PyO3 and falls back to subprocess if not installed.
+The training pipeline requires the PyO3 bindings: build them first (step 3 above), or the batch evaluation path raises at the first generation.
 
 ## Validation
 
@@ -444,6 +449,10 @@ Note: `pymoo` is ceiling-pinned `<0.6.2` — pymoo 0.6.2 routes IGD through the 
 ## Roadmap
 
 See [TODO.md](TODO.md) for the prioritized task list and [IMPROVEMENTS.md](IMPROVEMENTS.md) for the detailed physics, GNC, and software improvement roadmap.
+
+## Author
+
+Gregory Gelly. This repository continues a line of work started in *Neural Networks as a Guidance Solution for Soft-Landing and Aerocapture* (Gelly & Vernis, AIAA GNC 2009) — the paper above revisits that question seventeen years later with stateful architectures, population-based training, and a tail-focused evaluation methodology. Contact: gregory.gelly@gmail.com.
 
 ## License
 
