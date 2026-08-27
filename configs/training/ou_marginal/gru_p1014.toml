@@ -1,0 +1,13 @@
+# OU-marginal retrain: gru_p1014 from scratch under per-draw noise seeding.
+# Same cell regime (GA n_pop 60, adaptive seeds, training_n_sims 10); budget
+# target 20000 gens = the deployed cell's budget (driven by the campaign runner).
+base = ["../sweep/gru_p1014.toml"]
+
+[monte_carlo]
+noise_seeding = "per_draw"
+
+[data]
+neural_network = "training_output/ou_marginal/gru_p1014/best_model.json"
+
+[checkpoints]
+keep_last = 3
