@@ -17,21 +17,32 @@ import argparse
 import json
 from pathlib import Path
 
-import numpy as np
-
 import aerocapture_rs
+import numpy as np
 from aerocapture.training.report import _load_nn_scaffolding_overrides
 
 REPO = Path(__file__).resolve().parents[2]
 
+def discover_ou_cells() -> list[tuple[str, str, str | None]]:
+    """Every deployed run under training_output/ou_marginal/ (scratch s1, ft_*,
+    *_s2/_s3 repeats), plus the original pilot. Labels = 'ou_' + dir name; the
+    scoring TOML is the family config (its [data] path is irrelevant here --
+    the model is pinned via override)."""
+    rows: list[tuple[str, str, str | None]] = []
+    for d in sorted((REPO / "training_output/ou_marginal").glob("*/best_model.json")):
+        name = d.parent.name
+        cell = name.removeprefix("ft_")
+        for suf in ("_s2", "_s3"):
+            cell = cell.removesuffix(suf)
+        rows.append((f"ou_{name}", f"configs/training/ou_marginal/{cell}.toml", str(d.parent.relative_to(REPO))))
+    pilot = REPO / "training_output/ou_pilot/mamba_p962/best_model.json"
+    if pilot.exists():
+        rows.append(("ou_pilot_mamba", "configs/training/sweep/mamba_p962.toml", "training_output/ou_pilot/mamba_p962"))
+    return rows
+
+
 # (label, toml, model_dir | None for classicals-via-optimized-toml)
 CELLS: list[tuple[str, str, str | None]] = [
-    # OU-marginal retrained cells (per_draw-trained; the campaign's product):
-    ("ou_mamba_p962", "configs/training/ou_marginal/mamba_p962.toml", "training_output/ou_marginal/mamba_p962"),
-    ("ou_lstm_p1082", "configs/training/ou_marginal/lstm_p1082.toml", "training_output/ou_marginal/lstm_p1082"),
-    ("ou_gru_p1014", "configs/training/ou_marginal/gru_p1014.toml", "training_output/ou_marginal/gru_p1014"),
-    ("ou_dense_p972", "configs/training/ou_marginal/dense_p972.toml", "training_output/ou_marginal/dense_p972"),
-    ("ou_dense_p515", "configs/training/ou_marginal/dense_p515.toml", "training_output/ou_marginal/dense_p515"),
     # Frozen-trained originals (reference rows):
     ("mamba_p962", "configs/training/sweep/mamba_p962.toml", "training_output/mamba_p962_long"),
     ("lstm_p1082", "configs/training/sweep/lstm_p1082.toml", "training_output/lstm_p1082_long"),
@@ -89,7 +100,7 @@ def main() -> None:
     seeds = np.random.default_rng(987654321).integers(0, 2**31, size=args.n_sims)
 
     out: dict[str, dict] = {}
-    for label, toml, model_dir in CELLS:
+    for label, toml, model_dir in discover_ou_cells() + CELLS:
         if model_dir is not None and not (REPO / model_dir / "best_model.json").exists():
             print(f"{label:<20} SKIPPED (no best_model.json yet)")
             continue
