@@ -25,6 +25,8 @@ OUT = Path(__file__).resolve().parent / "confirmatory_marginal.json"
 CELLS = [
     ("ou_marginal/ft_dense_p515", "configs/training/ou_marginal/dense_p515.toml"),
     ("ou_marginal/ft_mamba_p962", "configs/training/ou_marginal/mamba_p962.toml"),
+    ("ou_marginal/ft_mamba_p962_s2", "configs/training/ou_marginal/mamba_p962.toml"),
+    ("ou_marginal/ft_mamba_p962_s3", "configs/training/ou_marginal/mamba_p962.toml"),
     ("mamba_p962_long", "configs/training/sweep/mamba_p962.toml"),
     ("fnpag", "configs/training/msr_aller_fnpag_train.toml"),
 ]

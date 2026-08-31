@@ -22,6 +22,8 @@ cd "$(dirname "$0")/../.."
 # name|target_gen|seed|checkpoint_source_dir("" = scratch)
 JOBS="
 ft_mamba_p962|22000|1|training_output/mamba_p962_long
+ft_mamba_p962_s2|22000|2|training_output/mamba_p962_long
+ft_mamba_p962_s3|22000|3|training_output/mamba_p962_long
 ft_lstm_p1082|22000|1|training_output/lstm_p1082_long
 ft_gru_p1014|22000|1|training_output/gru_p1014_long
 ft_dense_p972|22000|1|training_output/dense_p972_ga_paper_best
@@ -51,6 +53,14 @@ for job in $JOBS; do
   # Fine-tune jobs start from the frozen champion's checkpoint.
   if [ -n "$src" ] && [ "$last" -eq 0 ]; then
     cp "$src/checkpoint_g20000.json" "$src/checkpoint_g20000.npz" "$out/"
+    # Seed repeats (--seed != 1): strip the checkpointed RNG state, or the
+    # resume path restores it and silently overrides --seed -- all "repeats"
+    # would replay the identical training trajectory (verified: bit-identical
+    # deployed weights before this fix).
+    if [ "$seed" != "1" ]; then
+      python3 -c "import json,sys; p='$out/checkpoint_g20000.json'; d=json.load(open(p)); d['rng_state']=None; json.dump(d, open(p,'w'))"
+      echo "== ${name}: stripped rng_state (trainer seed ${seed} takes effect)"
+    fi
     last=20000
     echo "== ${name}: seeded champion checkpoint from ${src}"
   fi

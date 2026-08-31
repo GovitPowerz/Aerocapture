@@ -1,0 +1,6 @@
+# Fine-tune seed repeat s2: the frozen champion's g20000 checkpoint + 2000
+# per_draw gens with trainer --seed 2 (hardening the v3 far-tail headline).
+base = ["mamba_p962.toml"]
+
+[data]
+neural_network = "training_output/ou_marginal/ft_mamba_p962_s2/best_model.json"

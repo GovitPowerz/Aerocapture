@@ -69,3 +69,23 @@ shallow-tail win hides a fat far tail (236 / max 405), while ft_mamba holds
 FNPAG and the dense. The recurrent extreme-tail thesis SURVIVES the honest
 regime; conclusion 3 above ("ft_dense_515 primary champion") is superseded:
 **ft_mamba_962 is the deployed champion at the sizing metric.**
+
+## ft_mamba seed repeats (2026-08-29)
+
+Two further fine-tunes of the frozen champion checkpoint under trainer seeds
+2/3 (rng_state stripped from the checkpoint copy -- resume otherwise restores
+the saved RNG and silently overrides --seed; the first repeats were bit-identical
+replays, caught by md5 of the deployed weights). Far-tail confirmatory
+(10 x 100k per_draw):
+
+| seed | capture   | CVaR95 | CVaR999 | max |
+|------|-----------|--------|---------|-----|
+| s1   | 100.000%  | 138.7  | 163.0   | 249 |
+| s2   | 100.000%  | 140.0  | 164.6   | 245 |
+| s3   |  99.992%* | 138.4  | 161.9   | 211 |
+
+(*) ~80 genuine crashes per 10^6 (ifinal=1, verified without sim timeout).
+
+CVaR999 three-seed mean 163.2 +- 1.3 -- the 74 m/s margin over dense/FNPAG is
+seed-robust; capture is seed-dependent at the 1e-4 level, so deployed policies
+must be confirmatory-screened (as the protocol already requires).
