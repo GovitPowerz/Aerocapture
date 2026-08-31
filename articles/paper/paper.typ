@@ -94,9 +94,10 @@
   historical evaluation pipeline conditioned every scenario on a single sample path of the
   time-varying density noise, and the networks exploit that conditioning $2$--$4 times$ more than
   the classical schemes. Retraining under per-scenario noise restores $100%$ capture and full
-  constraint feasibility for every cell and keeps the neural tail advantage over the best classical
-  scheme -- decisively so ($-16$ to $-25$ m/s at $"CVaR"_95$) through a fine-tune recipe -- while
-  compressing the *inter-architecture* tail ordering into run-to-run variance (Appendix E).]
+  constraint feasibility, and a fresh $10^6$-scenario far-tail confirmatory under honest noise
+  restores the architecture story where it matters: the fine-tuned recurrent policy captures every
+  scenario at $"CVaR"_(99.9) = 163.0 plus.minus 0.3$ m/s, while the best classical scheme and the
+  best dense fine-tune both sit near $237$ (Appendix E).]
 ]
 #v(18pt)
 
@@ -1146,11 +1147,13 @@ same lesson from a different direction. The main-body numbers are internally con
 cross-scheme comparison is fair -- every scheme saw the identical conditioning -- but the networks
 overfit the shared density path where the analytic laws cannot, so the *margins* are
 regime-dependent: under per-scenario noise the scratch-retrained networks beat FNPAG by only about
-one run-to-run standard deviation, the decisive margin ($-16$ to $-25$ m/s at $"CVaR"_95$) comes
-from a fine-tune recipe, and the inter-architecture tail ordering of Section 6 compresses into
-$sigma_"run"$ -- what survives of the recurrent advantage at $n = 3$ repeats is consistency
-($plus.minus 1.6$ m/s for the Mamba cell against $plus.minus 6$--$13$ for the others), not the
-mean tail. Twice now -- off-nominal dispersions and per-scenario noise -- the pattern is the same:
+one run-to-run standard deviation at $"CVaR"_95$, the decisive shallow-tail margin comes from a
+fine-tune recipe, and the $"CVaR"_95$ inter-architecture ordering compresses into $sigma_"run"$.
+But the $10^6$-scenario far-tail re-run separates the architectures again, at the depth Section 6
+always claimed: the fine-tuned Mamba holds $"CVaR"_(99.9) = 163.0 plus.minus 0.3$ m/s with every
+scenario captured, while the dense fine-tune -- the $"CVaR"_95$ winner -- and FNPAG both blow past
+$236$. The recurrent advantage lives at the extreme tail, and only a million-scenario pool can see
+it. Twice now -- off-nominal dispersions and per-scenario noise -- the broader pattern is the same:
 the network is exactly as good as the distribution it trains on, and widening the training
 environment recovers what the narrow one gave away.
 
@@ -1222,11 +1225,14 @@ of others. The historical pipeline conditioned every scenario on one sample path
 density noise; under per-scenario noise the frozen-trained networks lose $54$--$102$ m/s of
 $"CVaR"_95$ where the classical schemes lose $11$--$31$ (Appendix E). Retraining under the repaired
 seeding restores $100%$ capture and full constraint feasibility for every cell -- including the LSTM
-whose deployed champion had been heat-load infeasible -- and a fine-tune of the shared-path champion
-under per-scenario noise keeps the decisive advantage over the best classical scheme ($129.8$ m/s
-$"CVaR"_95$ for the dense $515$-parameter cell against FNPAG's $154.3$). The architecture ordering,
-however, compresses into run-to-run variance: under honest noise, *that the network trains on the
-right distribution matters more than which recurrent cell it uses.*
+whose deployed champion had been heat-load infeasible -- and the correction ends by *strengthening*
+the thesis it tested. At $"CVaR"_95$ the architectures compress into run-to-run variance and a dense
+fine-tune takes the shallow tail ($128.8$ m/s against FNPAG's $152.5$); but on a fresh
+$10^6$-scenario far-tail confirmatory under honest noise, the fine-tuned recurrent policy captures
+every scenario at $"CVaR"_(99.9) = 163.0 plus.minus 0.3$ m/s while the dense fine-tune and FNPAG
+both sit near $237$. The internal state earns its keep exactly where the frozen-noise study said it
+did -- on the extreme tail that sizes the tanks -- and that claim now stands on the marginal
+distribution, not on one noise path.
 
 The honest drawback that closed the 2009 paper -- that the training is too heavy to run on board --
 remains, but its sting is gone: the deployed policy is a fixed forward pass that costs a few
@@ -1759,7 +1765,7 @@ had been heat-load infeasible.
     [GRU $1014$], [$150.2 plus.minus 5.7$], [$153.4$], [fine-tune *regresses*],
     [Dense $972$], [$150.4 plus.minus 7.0$], [$145.2$], [],
     [LSTM $1082$], [$153.8 plus.minus 12.7$], [$128.3$], [fine-tune inherits $10.8%$ heat-load viol.],
-    [Dense $515$], [$158.7 plus.minus 3.8$], [$129.8$], [best feasible policy of the study],
+    [Dense $515$], [$158.7 plus.minus 3.8$], [$129.8$], [best $"CVaR"_95$; far tail says otherwise, see @tbl-ou-confirmatory],
     table.hline(stroke: 0.7pt),
   ),
   caption: [Per-scenario $"CVaR"_95$ (m/s, $n = 1000$) after retraining under the repaired seeding.
@@ -1781,7 +1787,42 @@ $plus.minus 5.7$--$12.7$ -- which is suggestive, not conclusive. Third, the scop
 claims: the methodology results of Sections 4--5 (seed strategy, cost transform, optimizer
 ordering) compare like against like under identical conditioning and are unaffected in kind; the
 absolute $Delta v$ magnitudes and the Section 6 architecture margins are shared-path quantities and
-should be read with this appendix. Note the limits of the re-quote itself: these are
-$"CVaR"_95$ statistics at $n = 1000$, the fine-tunes are single runs, and the far-tail
-$"CVaR"_(99.9)$ confirmatory protocol has not yet been re-run under per-scenario noise -- that
-re-run is the natural next step and the numbers above set its expectations.
+should be read with this appendix.
+
+== The far-tail confirmatory under per-scenario noise
+
+The $"CVaR"_95$ statistics above are too shallow for the sizing metric, so we re-ran the
+confirmatory protocol of Section 4.3 -- the same ten pre-registered pools of $100\,000$ scenarios
+-- under per-scenario noise, for the two fine-tuned champions, the shared-path headline champion,
+and FNPAG.
+
+#figure(
+  table(
+    columns: (auto, auto, auto, auto, auto),
+    align: (left, center, center, center, center),
+    table.hline(stroke: 0.7pt),
+    table.header([Policy], [Capture], [$"CVaR"_95$], [$"CVaR"_(99.9)$ ($plus.minus$ s.e.)], [Max]),
+    table.hline(stroke: 0.4pt),
+    [Mamba $962$ fine-tune], [$100.00%$], [$138.7$], [$bold(163.0) plus.minus 0.3$], [$249$],
+    [Shared-path Mamba champion], [$97.93%$], [$188.2$], [$221.3 plus.minus 0.5$], [$270$],
+    [Dense $515$ fine-tune], [$100.00%$], [$bold(128.8)$], [$236.3 plus.minus 2.5$], [$405$],
+    [FNPAG], [$99.37%$], [$152.5$], [$236.7 plus.minus 2.3$], [$579$],
+    table.hline(stroke: 0.7pt),
+  ),
+  caption: [Far-tail confirmatory under per-scenario noise: $10 times 100\,000$ scenarios per
+  policy, the pre-registered pools of Section 4.3. $Delta v$ statistics in m/s over captured
+  scenarios; standard errors over the ten replicates. FNPAG's $0.63%$ non-captures include
+  wall-clock timeouts of the $5$ s per-simulation budget, so its capture row is a lower bound.],
+) <tbl-ou-confirmatory>
+
+The million-scenario depth reverses the shallow-tail verdict and restores the Section 6 thesis on
+the marginal distribution. The dense fine-tune, best at $"CVaR"_95$, pays for it at depth: its
+far tail reaches $236$ m/s with a worst case of $405$. The fine-tuned recurrent policy holds
+$"CVaR"_(99.9) = 163.0 plus.minus 0.3$ m/s -- $74$ m/s below both the dense fine-tune and FNPAG --
+captures all $10^6$ scenarios, and posts the smallest worst case of the study ($249$ m/s). As could
+be expected from the shared-path results, the frozen-trained champion is confirmed broken at this
+depth ($97.9%$ capture); what could not be seen at $n = 1000$ is that the recurrent advantage
+survives the honest regime precisely where the paper always located it: the extreme tail that
+sizes the tanks. The remaining limits: the fine-tunes are single training runs (their three-seed
+repeats are future work), and the fine-tune recipe still requires per-cell feasibility validation
+(@tbl-ou-retrain).

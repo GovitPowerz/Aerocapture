@@ -47,3 +47,25 @@ score 170-228 marginal (and lstm_p1082_long is 17% heat-load infeasible).
 4. **NN-vs-classical under the honest regime**: scratch means beat FNPAG by
    only ~4-6 m/s (~1 sigma_run); the decisive margin comes from the fine-tune
    recipe (-16 to -25 m/s). Frame v3 accordingly.
+
+## Far-tail confirmatory under per-scenario noise (2026-08-29)
+
+10 x 100k pre-registered pools (Section 4.3 protocol) with
+`monte_carlo.noise_seeding = per_draw`; raw data `confirmatory_marginal.json`.
+CVaR999 +- se over replicates, m/s over captured scenarios:
+
+| policy                  | capture  | CVaR95 | CVaR999       | max |
+|-------------------------|----------|--------|---------------|-----|
+| ft_mamba_962            | 100.00%  | 138.7  | 163.0 +- 0.3  | 249 |
+| frozen champion (mamba) |  97.93%  | 188.2  | 221.3 +- 0.5  | 270 |
+| ft_dense_515            | 100.00%  | 128.8  | 236.3 +- 2.5  | 405 |
+| fnpag                   |  99.37%* | 152.5  | 236.7 +- 2.3  | 579 |
+
+(*) includes 5 s sim-timeout non-captures - lower bound.
+
+The million-scenario depth reverses the CVaR95 verdict: the dense fine-tune's
+shallow-tail win hides a fat far tail (236 / max 405), while ft_mamba holds
+163.0 with all 10^6 captured and the smallest max (249) - 74 m/s below both
+FNPAG and the dense. The recurrent extreme-tail thesis SURVIVES the honest
+regime; conclusion 3 above ("ft_dense_515 primary champion") is superseded:
+**ft_mamba_962 is the deployed champion at the sizing metric.**

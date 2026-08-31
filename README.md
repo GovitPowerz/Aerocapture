@@ -10,6 +10,12 @@ Trajectory simulation and guidance optimization for aerocapture maneuvers, prima
 
 This repository is the artifact for *Seventeen years later: stateful neural guidance and the tail that sizes a Mars aerocapture mission* — the compiled PDF is committed at [articles/paper/paper.pdf](articles/paper/paper.pdf). The Typst source, figures, and the per-run evaluation records behind every table live under [articles/paper/](articles/paper/); rebuild with `typst compile articles/paper/paper.typ` from the repo root. The raw training logs (195 MB) are a GitHub Release asset: `articles/paper/scripts/fetch_run_logs.sh` restores them.
 
+## One headline, one correction
+
+The headline: a 962-parameter recurrent (Mamba) guidance policy, trained by a genetic algorithm in a non-stationary adaptive-seed Monte Carlo environment, beats six classical guidance schemes — including a numerical predictor–corrector — on the delta-v tail that sizes the mission's correction propellant, at milliseconds of onboard compute.
+
+The correction (v3, Appendix E): while building this repo's five-minute demo, we found that the historical per-seed evaluation pipeline conditioned every Monte Carlo scenario on a *single* sample path of the time-varying density noise — and the networks, trained under that conditioning, exploited it 2–4x more than the classical laws. We quantified the gap on paired pools, shipped the fix behind a backward-compatible seeding flag, retrained every headline cell under honest per-scenario noise (20 training runs, all stoppable/resumable on a laptop), and re-ran the million-scenario far-tail confirmatory. The correction ends by strengthening the thesis it tested: capture and constraint feasibility are fully restored, and on the far tail that sizes the propellant tanks the fine-tuned recurrent policy holds CVaR99.9 = 163.0 m/s across 10^6 honest-noise scenarios — 74 m/s below both the best classical scheme and the best dense network. The defect, the audit, the repair, and the numbers that changed are all in the paper — because an evaluation you can't break is an evaluation you haven't tested.
+
 ## Quick Start
 
 ```bash
