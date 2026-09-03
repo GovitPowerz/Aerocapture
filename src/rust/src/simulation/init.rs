@@ -32,6 +32,19 @@ pub struct RunState {
     pub pilot_biases: PilotBiases,
 }
 
+/// Per-draw stochastic-stream seed: FNV-1a over the draw's bit patterns, so it
+/// is identical for identical draws (reproducibility) and distinct across draws
+/// (marginalization) on every execution path. Consumed under
+/// `[monte_carlo] noise_seeding = "per_draw"`; ignored under `"legacy"`.
+pub fn draw_noise_seed(draw: &DispersionDraw) -> u64 {
+    let mut noise_seed: u64 = 0xcbf29ce484222325;
+    for v in draw.to_array() {
+        noise_seed ^= v.to_bits();
+        noise_seed = noise_seed.wrapping_mul(0x100000001b3);
+    }
+    noise_seed
+}
+
 /// Initialize a simulation run by applying dispersion draws to entry conditions.
 pub fn init_run_from_draw(sim_data: &SimData, draw: &DispersionDraw) -> RunState {
     let mut entry = sim_data.entry;
@@ -42,18 +55,9 @@ pub fn init_run_from_draw(sim_data: &SimData, draw: &DispersionDraw) -> RunState
     entry.state.flight_path += draw.flight_path;
     entry.state.azimuth += draw.azimuth;
 
-    // FNV-1a over the draw's bit patterns: a per-draw stochastic-stream seed
-    // that is identical for identical draws (reproducibility) and distinct
-    // across draws (marginalization) on every execution path.
-    let mut noise_seed: u64 = 0xcbf29ce484222325;
-    for v in draw.to_array() {
-        noise_seed ^= v.to_bits();
-        noise_seed = noise_seed.wrapping_mul(0x100000001b3);
-    }
-
     RunState {
         entry,
-        noise_seed,
+        noise_seed: draw_noise_seed(draw),
         cx_bias: draw.drag_coeff,
         cz_bias: draw.lift_coeff,
         density_bias: draw.density,
@@ -261,5 +265,21 @@ mod tests {
         assert_eq!(run.nav_biases.vel[1], 0.03);
         assert_eq!(run.nav_biases.vel[2], 0.04);
         assert_eq!(run.nav_biases.drag, 0.1);
+    }
+
+    #[test]
+    fn draw_noise_seed_is_a_pure_function_of_the_draw() {
+        let base = [0.5; crate::data::dispersions::DISPERSION_DRAW_LEN];
+        let a = DispersionDraw::from_array(base);
+        let b = DispersionDraw::from_array(base);
+        assert_eq!(draw_noise_seed(&a), draw_noise_seed(&b));
+        let mut one_field = base;
+        one_field[6] = 0.5000001; // density: the smallest edit still changes the bits
+        assert_ne!(
+            draw_noise_seed(&a),
+            draw_noise_seed(&DispersionDraw::from_array(one_field))
+        );
+        let zero = DispersionDraw::from_array([0.0; crate::data::dispersions::DISPERSION_DRAW_LEN]);
+        assert_ne!(draw_noise_seed(&a), draw_noise_seed(&zero));
     }
 }
