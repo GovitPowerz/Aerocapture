@@ -8,6 +8,12 @@ feasible unless flagged.
 
 ## Scratch per_draw retrains (3 seed repeats each: s1/s2/s3)
 
+Allocation: every run here (scratch and fine-tune) used the sweep config's
+GA n_pop 60 x training_n_sims 10 for 20000 gens. The headline/sweep cells were
+launched with `--n-pop 512 --training-n-sims 2` (10b_arch_long_challengers.sh),
+so this is the deployed generation count, NOT the deployed allocation; the
+fine-tunes shrink the champion population 512 -> 60 on resume.
+
 | cell       | s1 / s2 / s3          | mean +- std  |
 |------------|-----------------------|--------------|
 | mamba_962  | 146.9 / 150.0 / 147.6 | 148.1 +- 1.6 |
