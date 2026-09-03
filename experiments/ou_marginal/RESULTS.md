@@ -10,9 +10,9 @@ feasible unless flagged.
 
 | cell       | s1 / s2 / s3          | mean +- std  |
 |------------|-----------------------|--------------|
-| mamba_962  | 146.9 / 150.0 / 147.6 | 148.2 +- 1.6 |
+| mamba_962  | 146.9 / 150.0 / 147.6 | 148.1 +- 1.6 |
 | gru_1014   | 147.3 / 146.6 / 156.8 | 150.2 +- 5.7 |
-| dense_972  | 149.4 / 157.9 / 143.9 | 150.4 +- 7.0 |
+| dense_972  | 149.4 / 157.9 / 143.9 | 150.4 +- 7.1 |
 | lstm_1082  | 145.9 / 168.4 / 147.0 | 153.8 +- 12.7|
 | dense_515  | 155.2 / 158.0 / 162.8 | 158.7 +- 3.8 |
 
@@ -56,16 +56,16 @@ CVaR999 +- se over replicates, m/s over captured scenarios:
 
 | policy                  | capture  | CVaR95 | CVaR999       | max |
 |-------------------------|----------|--------|---------------|-----|
-| ft_mamba_962            | 100.00%  | 138.7  | 163.0 +- 0.3  | 249 |
+| ft_mamba_962            | 99.9995% | 138.7  | 163.0 +- 0.3  | 249 |
 | frozen champion (mamba) |  97.93%  | 188.2  | 221.3 +- 0.5  | 270 |
 | ft_dense_515            | 100.00%  | 128.8  | 236.3 +- 2.5  | 405 |
 | fnpag                   |  99.37%* | 152.5  | 236.7 +- 2.3  | 579 |
 
-(*) includes 5 s sim-timeout non-captures - lower bound.
+(*) physical crashes: a 500-seed sample re-runs ifinal=1 with no timeout censoring.
 
 The million-scenario depth reverses the CVaR95 verdict: the dense fine-tune's
 shallow-tail win hides a fat far tail (236 / max 405), while ft_mamba holds
-163.0 with all 10^6 captured and the smallest max (249) - 74 m/s below both
+163.0 losing 5 of 10^6 scenarios, with the smallest max (249) - 73 m/s below both
 FNPAG and the dense. The recurrent extreme-tail thesis SURVIVES the honest
 regime; conclusion 3 above ("ft_dense_515 primary champion") is superseded:
 **ft_mamba_962 is the deployed champion at the sizing metric.**
@@ -80,12 +80,12 @@ replays, caught by md5 of the deployed weights). Far-tail confirmatory
 
 | seed | capture   | CVaR95 | CVaR999 | max |
 |------|-----------|--------|---------|-----|
-| s1   | 100.000%  | 138.7  | 163.0   | 249 |
-| s2   | 100.000%  | 140.0  | 164.6   | 245 |
+| s1   | 99.9995%  | 138.7  | 163.0   | 249 |
+| s2   | 99.997%   | 140.0  | 164.6   | 240 |
 | s3   |  99.992%* | 138.4  | 161.9   | 211 |
 
-(*) ~80 genuine crashes per 10^6 (ifinal=1, verified without sim timeout).
+(*) 5 / 30 / 80 non-captures per 10^6 (s1 / s2 / s3), all genuine crashes (ifinal 1 or 4, re-run without sim timeout).
 
-CVaR999 three-seed mean 163.2 +- 1.3 -- the 74 m/s margin over dense/FNPAG is
+CVaR999 three-seed mean 163.2 +- 1.3 -- the 73 m/s margin over dense/FNPAG is
 seed-robust; capture is seed-dependent at the 1e-4 level, so deployed policies
 must be confirmatory-screened (as the protocol already requires).

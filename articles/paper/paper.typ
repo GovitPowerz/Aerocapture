@@ -77,7 +77,7 @@
   six classical schemes including a numerical predictor--corrector (FNPAG) and a reference-tracking
   feedback law (FTC). Because the mission's correction propellant is sized off the worst-case
   $Delta v$, we lead every comparison with the tail of its distribution, not the mean. A 962-parameter
-  recurrent (Mamba) policy captures every one of $10^6$ frozen confirmatory scenarios (a $95%$
+  recurrent (Mamba) policy captures every one of $10^6$ pre-registered confirmatory scenarios (a $95%$
   upper bound of $3 times 10^(-6)$ on its failure probability) and reaches a far-tail
   $"CVaR"_(99.9)$ of #box[$123.3 plus.minus 0.1$ m/s] (independent retraining seeds span
   $122$--$131$). It beats the best classical scheme (FTC with a
@@ -95,9 +95,9 @@
   time-varying density noise, and the networks exploit that conditioning $2$--$4 times$ more than
   the classical schemes. Retraining under per-scenario noise restores $100%$ capture and full
   constraint feasibility, and a fresh $10^6$-scenario far-tail confirmatory under honest noise
-  restores the architecture story where it matters: the fine-tuned recurrent policy captures every
-  scenario at $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s (three fine-tune seeds), while the best classical scheme and the
-  best dense fine-tune both sit near $237$ (Appendix E).]
+  restores the architecture story where it matters: the fine-tuned recurrent policy holds
+  $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s (three fine-tune seeds, capturing $99.996%$ of $10^6$ scenarios), while the
+  best classical scheme and the best dense fine-tune, which captures all $10^6$, both sit near $237$ m/s (Appendix E).]
 ]
 #v(18pt)
 
@@ -1150,8 +1150,8 @@ regime-dependent: under per-scenario noise the scratch-retrained networks beat F
 one run-to-run standard deviation at $"CVaR"_95$, the decisive shallow-tail margin comes from a
 fine-tune recipe, and the $"CVaR"_95$ inter-architecture ordering compresses into $sigma_"run"$.
 But the $10^6$-scenario far-tail re-run separates the architectures again, at the depth Section 6
-always claimed: the fine-tuned Mamba holds $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s over three fine-tune seeds, with every
-scenario captured, while the dense fine-tune -- the $"CVaR"_95$ winner -- and FNPAG both blow past
+always claimed: the fine-tuned Mamba holds $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s over three fine-tune seeds, with
+$99.996%$ of scenarios captured, while the dense fine-tune -- the $"CVaR"_95$ winner -- and FNPAG both blow past
 $236$. The recurrent advantage lives at the extreme tail, and only a million-scenario pool can see
 it. Twice now -- off-nominal dispersions and per-scenario noise -- the broader pattern is the same:
 the network is exactly as good as the distribution it trains on, and widening the training
@@ -1202,7 +1202,7 @@ Seventeen years ago we showed that a feed-forward network trained by a genetic a
 MSR aerocapture more efficiently than a Cerimele--Gamble feedback law, and we asked for a comparison
 against predictor--correctors. This paper delivers it, and the answer is favorable to neural guidance
 on the metric that matters. A #box[$962$-parameter] recurrent (Mamba) policy captures every one of
-$10^6$ frozen confirmatory scenarios and,
+$10^6$ pre-registered confirmatory scenarios and,
 on the far tail that sizes the propellant tanks, reaches $"CVaR"_(99.9) = 123.3 plus.minus 0.1$ m/s
 -- $42$ m/s
 below the best classical scheme and beating a well-referenced FTC by $16.4$ m/s in mean and $27.6$ at
@@ -1222,15 +1222,15 @@ the tail winner; architecture did.
 
 A third finding arrived while preparing this revision, and we report it with the same candor we ask
 of others. The historical pipeline conditioned every scenario on one sample path of the time-varying
-density noise; under per-scenario noise the frozen-trained networks lose $54$--$102$ m/s of
+density noise; under per-scenario noise the shared-path-trained networks lose $54$--$102$ m/s of
 $"CVaR"_95$ where the classical schemes lose $11$--$31$ (Appendix E). Retraining under the repaired
 seeding restores $100%$ capture and full constraint feasibility for every cell -- including the LSTM
 whose deployed champion had been heat-load infeasible -- and the correction ends by *strengthening*
 the thesis it tested. At $"CVaR"_95$ the architectures compress into run-to-run variance and a dense
-fine-tune takes the shallow tail ($128.8$ m/s against FNPAG's $152.5$); but on a fresh
-$10^6$-scenario far-tail confirmatory under honest noise, the fine-tuned recurrent policy captures
-every scenario at $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s (three fine-tune seeds) while the dense fine-tune and FNPAG
-both sit near $237$. The internal state earns its keep exactly where the frozen-noise study said it
+fine-tune takes the shallow tail ($129.8$ m/s against FNPAG's $154.3$); but on a fresh
+$10^6$-scenario far-tail confirmatory under honest noise, the fine-tuned recurrent policy holds
+$"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s (three fine-tune seeds, $99.996%$ capture) while the dense fine-tune and FNPAG
+both sit near $237$. The internal state earns its keep exactly where the shared-path study said it
 did -- on the extreme tail that sizes the tanks -- and that claim now stands on the marginal
 distribution, not on one noise path.
 
@@ -1730,14 +1730,14 @@ heat-load feasibility of Section 6.2 are noted where they move.
   ),
   caption: [Shared-path versus per-scenario $"CVaR"_95$ (m/s, paired $n = 1000$) for the deployed
   policies. The networks, trained on the shared path, give up $2$--$4 times$ more tail than the
-  classical schemes; on the per-scenario tail the deployed FNPAG beats every frozen-trained
+  classical schemes; on the per-scenario tail the deployed FNPAG beats every shared-path-trained
   network.],
 ) <tbl-ou-regimes>
 
 The asymmetry is the finding: the analytic laws lose $11$--$31$ m/s -- ordinary distribution
 widening -- while the networks lose $54$--$102$ and shed capture or feasibility. A policy with
 internal state can fit the one density history it ever sees, and did. On the per-scenario tail the
-deployed FNPAG ($154.3$ m/s, clean constraints) beats every frozen-trained network, inverting the
+deployed FNPAG ($154.3$ m/s, clean constraints) beats every shared-path-trained network, inverting the
 Section 7 margin.
 
 == The repair, and retraining under it
@@ -1749,9 +1749,9 @@ historical mode remains the default; every main-body number is reproducible as p
 
 We then retrained the five headline cells from scratch under per-scenario noise at the deployed
 budget ($20\,000$ generations, three trainer-seed repeats each), and separately fine-tuned each
-shared-path champion for $2000$ further generations under the repaired seeding. All fifteen scratch
-repeats, and four of the five fine-tunes, restore $100%$ capture with zero constraint violations on
-the per-scenario pool; notably, scratch retraining fixes the LSTM cell whose shared-path champion
+shared-path champion for $2000$ further generations under the repaired seeding. Fourteen of the fifteen scratch
+repeats (the fifteenth, a dense-515 seed, loses one scenario in $1000$) and three of the five
+fine-tunes restore $100%$ capture with zero constraint violations on the per-scenario pool; notably, scratch retraining fixes the LSTM cell whose shared-path champion
 had been heat-load infeasible.
 
 #figure(
@@ -1761,9 +1761,9 @@ had been heat-load infeasible.
     table.hline(stroke: 0.7pt),
     table.header([Cell], [Scratch, $3$ seeds (mean $plus.minus sigma_"run"$)], [Fine-tune], [Note]),
     table.hline(stroke: 0.4pt),
-    [Mamba $962$], [$148.2 plus.minus 1.6$], [$138.6$], [fine-tune replicates its pilot ($138.3$)],
+    [Mamba $962$], [$148.1 plus.minus 1.6$], [$138.6$], [fine-tune replicates its pilot ($138.3$)],
     [GRU $1014$], [$150.2 plus.minus 5.7$], [$153.4$], [fine-tune *regresses*],
-    [Dense $972$], [$150.4 plus.minus 7.0$], [$145.2$], [],
+    [Dense $972$], [$150.4 plus.minus 7.1$], [$145.2$], [],
     [LSTM $1082$], [$153.8 plus.minus 12.7$], [$128.3$], [fine-tune inherits $10.8%$ heat-load viol.],
     [Dense $515$], [$158.7 plus.minus 3.8$], [$129.8$], [best $"CVaR"_95$; far tail says otherwise, see @tbl-ou-confirmatory],
     table.hline(stroke: 0.7pt),
@@ -1774,7 +1774,7 @@ had been heat-load infeasible.
 ) <tbl-ou-retrain>
 
 Three conclusions. First, training on the right distribution repairs the damage: the scratch
-retrains beat the frozen-trained networks by $20$--$70$ m/s on the marginal tail and edge FNPAG's
+retrains beat the shared-path-trained networks by $17$--$69$ m/s on the marginal tail and edge FNPAG's
 $154.3$ by roughly one $sigma_"run"$ -- a real but modest margin. The decisive margin comes from
 the fine-tune recipe: continuing a shared-path champion briefly under per-scenario noise yields the
 two best feasible policies of the study ($129.8$ and $138.6$ m/s, $16$--$25$ below FNPAG), though
@@ -1803,7 +1803,7 @@ and FNPAG.
     table.hline(stroke: 0.7pt),
     table.header([Policy], [Capture], [$"CVaR"_95$], [$"CVaR"_(99.9)$ ($plus.minus$ s.e.)], [Max]),
     table.hline(stroke: 0.4pt),
-    [Mamba $962$ fine-tune], [$100.00%$], [$138.7$], [$bold(163.0) plus.minus 0.3$], [$249$],
+    [Mamba $962$ fine-tune], [$99.9995%$], [$138.7$], [$bold(163.0) plus.minus 0.3$], [$249$],
     [Shared-path Mamba champion], [$97.93%$], [$188.2$], [$221.3 plus.minus 0.5$], [$270$],
     [Dense $515$ fine-tune], [$100.00%$], [$bold(128.8)$], [$236.3 plus.minus 2.5$], [$405$],
     [FNPAG], [$99.37%$], [$152.5$], [$236.7 plus.minus 2.3$], [$579$],
@@ -1811,24 +1811,24 @@ and FNPAG.
   ),
   caption: [Far-tail confirmatory under per-scenario noise: $10 times 100\,000$ scenarios per
   policy, the pre-registered pools of Section 4.3. $Delta v$ statistics in m/s over captured
-  scenarios; standard errors over the ten replicates. FNPAG's $0.63%$ non-captures include
-  wall-clock timeouts of the $5$ s per-simulation budget, so its capture row is a lower bound.],
+  scenarios; standard errors over the ten replicates. FNPAG's $0.63%$ non-captures are physical
+  crashes: a $500$-seed sample re-runs as crashes with no timeout censoring.],
 ) <tbl-ou-confirmatory>
 
 The million-scenario depth reverses the shallow-tail verdict and restores the Section 6 thesis on
 the marginal distribution. The dense fine-tune, best at $"CVaR"_95$, pays for it at depth: its
 far tail reaches $236$ m/s with a worst case of $405$. The fine-tuned recurrent policy holds
-$"CVaR"_(99.9) = 163.0 plus.minus 0.3$ m/s -- $74$ m/s below both the dense fine-tune and FNPAG --
-captures all $10^6$ scenarios, and posts the smallest worst case of the study ($249$ m/s). As could
-be expected from the shared-path results, the frozen-trained champion is confirmed broken at this
+$"CVaR"_(99.9) = 163.0 plus.minus 0.3$ m/s -- more than $73$ m/s below both the dense fine-tune and FNPAG --
+loses $5$ of $10^6$ scenarios, and posts the smallest worst case of the study ($249$ m/s). As could
+be expected from the shared-path results, the shared-path-trained champion is confirmed broken at this
 depth ($97.9%$ capture); what could not be seen at $n = 1000$ is that the recurrent advantage
 survives the honest regime precisely where the paper always located it: the extreme tail that
 sizes the tanks.
 
 The far-tail claim is seed-robust. Two further fine-tunes from the same shared-path checkpoint
 under independent trainer seeds land at $"CVaR"_(99.9) = 164.6$ and $161.9$ m/s -- a three-seed
-mean of $163.2 plus.minus 1.3$, an order of magnitude below the $74$ m/s margin. Two of the three
-seeds capture all $10^6$ scenarios; the third crashes $8 times 10^(-5)$ of them, so the recipe's
+mean of $163.2 plus.minus 1.3$, an order of magnitude below the $73$ m/s margin. The three seeds lose $5$, $30$ and $80$
+of the $10^6$ scenarios ($5 times 10^(-6)$ to $8 times 10^(-5)$; all genuine crashes, none a timeout), so the recipe's
 capture guarantee is seed-dependent at the $10^(-4)$ level and a deployed policy must be
 confirmatory-screened, exactly as the shared-path protocol always required. (A reproducibility
 note: a checkpoint resume restores the saved trainer RNG state, which silently overrides the seed
