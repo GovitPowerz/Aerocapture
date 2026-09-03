@@ -1,5 +1,5 @@
 """Standalone NN input behavior report. See
-docs/superpowers/specs/2026-05-29-nn-input-report-design.md."""
+docs/design/2026-05-29-nn-input-report-design.md."""
 
 from __future__ import annotations
 

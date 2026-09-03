@@ -6,7 +6,7 @@ its normal f64 matmul, so this measures the accuracy impact of b-bit *weights* e
 for a weight-only scheme, with no integer kernel. Biases, activations, hidden state,
 and input normalization stay fp64. Dense and Mamba layers supported via tensor policy.
 
-Spec: docs/superpowers/specs/2026-07-10-quantization-study-appendix-design.md
+Spec: docs/design/2026-07-10-quantization-study-appendix-design.md
 """
 
 from __future__ import annotations

@@ -3,7 +3,7 @@
 **Date:** 2026-06-01
 **Branch:** `feature/nn-input-rescale` (or a fresh branch off it)
 **Status:** Design approved, pending implementation plan
-**Predecessor:** `docs/superpowers/specs/2026-06-01-nn-input-vector-v2-design.md` (added the DV inputs + data-driven renorm; this spec generalizes the normalization and fixes the DV sentinel).
+**Predecessor:** `docs/design/2026-06-01-nn-input-vector-v2-design.md` (added the DV inputs + data-driven renorm; this spec generalizes the normalization and fixes the DV sentinel).
 
 ## Motivation
 

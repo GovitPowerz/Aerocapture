@@ -4,7 +4,7 @@ frozen-trained cells + classical baselines, scored on BOTH noise regimes
 per scenario) over one shared paired seed pool.
 
 The frozen/marginal protocol matches the 2026-08-27 investigation
-(.scratch/ou_investigation/): n=1000 shared seeds, marginal additionally sets
+(the OU investigation summarized in RESULTS.md): n=1000 shared seeds, marginal additionally sets
 simulation.random_seed = 1000 + 7*i, identical across cells.
 
 Usage: uv run python experiments/ou_marginal/quote_marginal.py [--n-sims 1000]

@@ -1165,9 +1165,9 @@ def train(
     config_hash = hashlib.sha256(repr(config).encode()).hexdigest()[:12]
 
     # Try resuming from checkpoint. The islands path manages its own .npz-only
-    # resume inside `_train_islands`; skip the single-algorithm `load_checkpoint`
+    # resume inside the islands adapter (`IslandsTrainer`); skip the single-algorithm `load_checkpoint`
     # here so a stale single-algo `checkpoint.json` left in a shared save_dir
-    # can't bump `n_gen` a second time (it would also be bumped in _train_islands).
+    # can't bump `n_gen` a second time (it would also be bumped in the islands adapter).
     resumed = None
     if resume_dir is not None and config.optimizer.algorithm != "islands":
         resumed = load_checkpoint(Path(resume_dir))
@@ -1254,7 +1254,7 @@ def train(
         # Single-algo re-validates the checkpointed best unconditionally on
         # resume (gated on val_seeds), so best_val_cost is already recomputed
         # under the current transform; this is just an informative notice. The
-        # islands path handles its own reset in _train_islands.
+        # islands path handles its own reset in the islands adapter.
         saved_transform = resumed.get("cost_transform")
         current_transform = problem.cost_kwargs.get("cost_transform", "linear")
         if saved_transform is None or saved_transform != current_transform:

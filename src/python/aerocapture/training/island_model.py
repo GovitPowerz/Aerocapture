@@ -1,6 +1,6 @@
 """Three-island PSO/GA/DE evolutionary trainer with episodic migration.
 
-See docs/superpowers/specs/2026-05-28-island-model-pso-ga-de-design.md.
+See docs/design/2026-05-28-island-model-pso-ga-de-design.md.
 """
 
 from __future__ import annotations

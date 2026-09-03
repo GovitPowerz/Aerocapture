@@ -30,7 +30,7 @@ The PPO path gets a **clean error at build time**: `build_layer(TransformerSpec)
 - `NeuralNetModel::forward` routes through `Layer::Transformer` with the single-token forward defined in section 3.4: LN1 -> QKV projections -> cache push (evict if `len > n_seq`) -> PE-offset attention over cache -> W_O projection + residual -> LN2 -> FFN + residual.
 - PyTorch `TransformerLayer` module in `rl/layers/transformer.py` with forward `(x: Tensor, state: tuple[Tensor, Tensor]) -> (out: Tensor, new_state: tuple[Tensor, Tensor])`. Manual softmax, manual GELU (exact form `0.5 * x * (1 + erf(x / sqrt(2)))` via `torch.special.erf`), manual LayerNorm (not `nn.LayerNorm`), manual multi-head reshape. Pure `nn.Linear` for projections. Consumed only by the cross-language equivalence test; PPO rejects the layer.
 - `TransformerSpec` pydantic class appended to the `LayerSpec` discriminated union on the `type` field. Validators reject `d_model == 0`, `n_heads == 0`, `d_model % n_heads != 0`, `d_ffn == 0`, `n_seq == 0`.
-- `build_layer` in `rl/layers/__init__.py` dispatches `TransformerSpec` to **raise `NotImplementedError`** with a clear message ("Transformer is PSO-only in Phase 3a; PPO use deferred -- see docs/superpowers/specs/2026-04-22-phase-3a-transformer-mvp-design.md").
+- `build_layer` in `rl/layers/__init__.py` dispatches `TransformerSpec` to **raise `NotImplementedError`** with a clear message ("Transformer is PSO-only in Phase 3a; PPO use deferred -- see docs/design/2026-04-22-phase-3a-transformer-mvp-design.md").
 - `_layer_param_specs` Transformer dispatch returns the full concatenated PSO ParamSpec list documented in section 3.6 (Xavier bounds on projections and FFN, small-normal on biases, N(1, 0.01) on LN gamma, small-normal on LN beta).
 - `nn_param_specs_from_v2` naturally picks up the Transformer arm through `_layer_param_specs`.
 - `config.py::_layer_n_params` Transformer arm returns the formula `4*(d_model*d_model + d_model) + 2*d_ffn + d_model + d_ffn*d_model + d_model*d_ffn + 4*d_model` (see section 3.6); `_layer_output_size` returns `d_model`.
@@ -447,7 +447,7 @@ def build_layer(spec: LayerSpec) -> nn.Module:
     if isinstance(spec, WindowSpec):      raise NotImplementedError(...)  # Phase 2b
     if isinstance(spec, TransformerSpec): raise NotImplementedError(
         "Transformer is PSO-only in Phase 3a; PPO use deferred. "
-        "See docs/superpowers/specs/2026-04-22-phase-3a-transformer-mvp-design.md"
+        "See docs/design/2026-04-22-phase-3a-transformer-mvp-design.md"
     )
     raise TypeError(f"Unknown layer spec: {spec!r}")
 ```
@@ -552,7 +552,7 @@ if any(isinstance(spec, (WindowSpec, TransformerSpec)) for spec in architecture)
     raise NotImplementedError(
         "Transformer / Window-MLP are PSO-only phases; load_policy_from_json is a "
         "PPO/SAC entry point that cannot construct V2Policy with these layers. "
-        "See docs/superpowers/specs/2026-04-22-phase-3a-transformer-mvp-design.md"
+        "See docs/design/2026-04-22-phase-3a-transformer-mvp-design.md"
     )
 ```
 

@@ -1,4 +1,4 @@
-"""End-of-training final selection (spec: docs/superpowers/specs/2026-06-10-final-selection-design.md).
+"""End-of-training final selection (spec: docs/design/2026-06-10-final-selection-design.md).
 
 Re-ranks the last generation's population plus the running champion(s) on the
 reserved VALIDATION pool and deploys the winner only on strict val-RMS

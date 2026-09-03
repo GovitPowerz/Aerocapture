@@ -30,7 +30,7 @@ The PPO path gets a **clean error at build time** rather than a runtime surprise
 - `NeuralNetModel::forward` routes through `Layer::Window` which performs: push `input` to `buffer` back, `pop_front()`, output = flattened buffer contents (length `n_steps * input_size`). `LayerState::Window::for_layer` pre-fills the `VecDeque` with `n_steps` zero vectors of length `input_size` so the buffer is at steady-state capacity from tick 0.
 - PyTorch `WindowLayer` module in `rl/layers/window.py` with forward `(x: Tensor, state: Tensor) -> (out: Tensor, new_state: Tensor)` where `state` shape is `(batch, n_steps, input_size)`. `new_state(batch, device)` returns a zero tensor with the module's parameter dtype (tracks dtype via a registered non-persistent buffer since the layer has no `nn.Parameter`). Cross-language equivalence test consumes this module; no PPO use.
 - `WindowSpec` pydantic class appended to the `LayerSpec` discriminated union on the `type` field.
-- `build_layer` in `rl/layers/__init__.py` dispatches `WindowSpec` to **raise `NotImplementedError`** with a clear message ("Window-MLP is PSO-only in Phase 2b; PPO use deferred -- see docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md"). This is the PPO-rejection guard.
+- `build_layer` in `rl/layers/__init__.py` dispatches `WindowSpec` to **raise `NotImplementedError`** with a clear message ("Window-MLP is PSO-only in Phase 2b; PPO use deferred -- see docs/design/2026-04-20-phase-2b-window-mlp-design.md"). This is the PPO-rejection guard.
 - `nn_param_specs_from_v2` Window arm appends an empty list (zero trainable params).
 - `encoding._layer_param_specs` Window dispatch that returns `[]`.
 - `config.py::_layer_n_params` window arm returns `0`; `_layer_output_size` window arm returns `spec.n_steps * spec.input_size`.
@@ -286,7 +286,7 @@ def build_layer(spec: LayerSpec) -> nn.Module:
     if isinstance(spec, WindowSpec):
         raise NotImplementedError(
             "Window-MLP is PSO-only in Phase 2b; PPO use deferred. "
-            "See docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md"
+            "See docs/design/2026-04-20-phase-2b-window-mlp-design.md"
         )
     raise TypeError(f"Unknown layer spec: {spec!r}")
 ```
@@ -357,7 +357,7 @@ if any(isinstance(spec, WindowSpec) for spec in architecture):
     raise NotImplementedError(
         "Window-MLP is PSO-only in Phase 2b; load_policy_from_json is a PPO/SAC entry point "
         "that cannot construct V2Policy with Window layers. "
-        "See docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md"
+        "See docs/design/2026-04-20-phase-2b-window-mlp-design.md"
     )
 ```
 

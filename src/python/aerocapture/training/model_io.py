@@ -79,11 +79,11 @@ def load_policy_from_json(path: str, device: str | torch.device = "cpu") -> V2Po
             "(ablation spike), and CfC/sLSTM/mLSTM (architecture probes) are PSO-only; "
             "load_policy_from_json is a PPO/SAC entry point that cannot construct V2Policy "
             "with these layers. "
-            "See docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md, "
-            "docs/superpowers/specs/2026-04-22-phase-3a-transformer-mvp-design.md, "
-            "docs/superpowers/specs/2026-04-24-phase-4a-mamba-ssm-mvp-design.md, "
-            "docs/superpowers/specs/2026-07-07-mamba3-ablation-design.md, and "
-            "docs/superpowers/specs/2026-07-07-cfc-xlstm-probes-design.md"
+            "See docs/design/2026-04-20-phase-2b-window-mlp-design.md, "
+            "docs/design/2026-04-22-phase-3a-transformer-mvp-design.md, "
+            "docs/design/2026-04-24-phase-4a-mamba-ssm-mvp-design.md, "
+            "docs/design/2026-07-07-mamba3-ablation-design.md, and "
+            "docs/design/2026-07-07-cfc-xlstm-probes-design.md"
         )
 
     policy = V2Policy(

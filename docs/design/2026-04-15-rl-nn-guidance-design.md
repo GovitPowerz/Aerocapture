@@ -363,5 +363,5 @@ Not supported in v1. Animation path is chromosome-specific; porting to PyTorch c
 - CleanRL: https://github.com/vwxyzjn/cleanrl
 - Schulman et al. (2017). "Proximal Policy Optimization Algorithms."
 - Haarnoja et al. (2018). "Soft Actor-Critic."
-- Internal: `docs/superpowers/specs/2026-04-14-explicit-seed-strategy-design.md` (seed strategy framework reused here)
-- Internal: `docs/superpowers/specs/2026-04-13-nn-input-expansion-pruning-design.md` (23-input vector, `input_mask`)
+- Internal: `docs/design/2026-04-14-explicit-seed-strategy-design.md` (seed strategy framework reused here)
+- Internal: `docs/design/2026-04-13-nn-input-expansion-pruning-design.md` (23-input vector, `input_mask`)

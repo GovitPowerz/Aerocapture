@@ -34,7 +34,7 @@ set -euo pipefail
 #
 # AFTER training: the revision plan's Task 19 evaluates all 6 cells on the
 # far-tail (n=10000) and confirmatory (10x100k) pools with pre-registered
-# interpretation rules (docs/superpowers/plans/2026-07-10-reviewer-4-5-revision.md).
+# interpretation rules (git show ee1518a^:docs/superpowers/plans/2026-07-10-reviewer-4-5-revision.md).
 
 P="training_output/paper/state_controls"
 trap 'echo; echo "Ctrl-C -- stopping (re-run to resume from the last checkpoint)"; exit 130' INT

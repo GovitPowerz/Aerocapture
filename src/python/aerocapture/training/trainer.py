@@ -449,7 +449,7 @@ class SingleAlgoTrainer:
 
 
 class IslandsTrainer:
-    """Adapter over `IslandModel`: the legacy `_train_islands` path."""
+    """Adapter over `IslandModel` (formerly the `_train_islands` function in train.py)."""
 
     finalize_in_display_scope = False
 

@@ -3,7 +3,7 @@
 **Status:** design
 **Date:** 2026-04-14
 **Context:** Builds on the curated-CDF seed framework
-(`docs/superpowers/specs/2026-04-14-curated-cdf-seed-framework-design.md`).
+(`docs/design/2026-04-14-curated-cdf-seed-framework-design.md`).
 Reintroduces the rotating-seed path as a first-class option and exposes three
 explicit strategies via a single TOML knob.
 

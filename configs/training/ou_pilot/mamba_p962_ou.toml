@@ -3,7 +3,7 @@
 # realizations instead of conditioning on the frozen env_idx=0 path.
 # Everything else inherits the cell's own regime (experiment anchoring).
 # Go/no-go question: does marginal-OU training recover the frozen->marginal
-# tail gap (CVaR95 115.9 -> 194.4) measured in .scratch/ou_investigation/?
+# tail gap (CVaR95 115.9 -> 194.4) measured by the OU investigation (experiments/ou_marginal/RESULTS.md)?
 base = ["../sweep/mamba_p962.toml"]
 
 [monte_carlo]

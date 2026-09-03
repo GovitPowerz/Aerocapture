@@ -12,7 +12,7 @@ Empirically, the user has reached three new training equilibria on `feature/warm
 2. With larger population, plain **GA outperforms PSO** (the trainer used up to now) on every NN scheme tested.
 3. A `full_neural` NN (signed-bank output, bypassing exit + lateral + thermal limiter) trains successfully and outperforms every other guidance — but the run is long (hundreds of generations from random Xavier-initialized weights to convergence).
 
-The current warm-start pipeline (`aerocapture.training.warm_start.build_warm_start_chromosome`) was scoped to the `magnitude_only` use case introduced in the parity bundle (`docs/superpowers/specs/2026-05-07-nn-ftc-parity-bundle-design.md`). It is dense-only (raises `NotImplementedError` on any non-dense layer at `_policy_to_flat_weights`), FTC-only (`scheme="ftc"` hardcoded in `_aero_rs.collect_supervised`), and targets the pre-lateral unsigned magnitude (the value produced by FTC's capture-phase predictor-corrector before lateral+thermal+shaping).
+The current warm-start pipeline (`aerocapture.training.warm_start.build_warm_start_chromosome`) was scoped to the `magnitude_only` use case introduced in the parity bundle (`docs/design/2026-05-07-nn-ftc-parity-bundle-design.md`). It is dense-only (raises `NotImplementedError` on any non-dense layer at `_policy_to_flat_weights`), FTC-only (`scheme="ftc"` hardcoded in `_aero_rs.collect_supervised`), and targets the pre-lateral unsigned magnitude (the value produced by FTC's capture-phase predictor-corrector before lateral+thermal+shaping).
 
 Three asymmetries prevent it from accelerating `full_neural` training across the six NN architectures (dense, window, gru, lstm, transformer, mamba):
 
@@ -281,9 +281,9 @@ The implementation plan (next skill: writing-plans) will sequence these commits:
 
 ## References
 
-- `docs/superpowers/specs/2026-05-07-nn-ftc-parity-bundle-design.md` — parity bundle that introduced the original FTC-only warm-start, output parameterizations, optimize_scaffolding.
-- `docs/superpowers/specs/2026-04-17-stateful-nn-runtime-infrastructure-design.md` — Phase 0 v2 JSON, LayerWeights trait, NnState plumbing.
-- `docs/superpowers/specs/2026-04-18-phase-2a-lstm-mvp-design.md` — LSTM bias slab + activation-aware init pattern; the bound-multiplier widening rationale generalizes from this.
+- `docs/design/2026-05-07-nn-ftc-parity-bundle-design.md` — parity bundle that introduced the original FTC-only warm-start, output parameterizations, optimize_scaffolding.
+- `docs/design/2026-04-17-stateful-nn-runtime-infrastructure-design.md` — Phase 0 v2 JSON, LayerWeights trait, NnState plumbing.
+- `docs/design/2026-04-18-phase-2a-lstm-mvp-design.md` — LSTM bias slab + activation-aware init pattern; the bound-multiplier widening rationale generalizes from this.
 - `src/python/aerocapture/training/warm_start.py` — current pipeline being replaced.
 - `src/rust/aerocapture-py/src/lib.rs` — `collect_supervised` PyO3 binding.
 - `src/rust/src/simulation/tick.rs` — supervised_trace capture point (line 166).

@@ -26,7 +26,7 @@ set -euo pipefail
 # AFTER training: the revision plan's Task 19 evaluates the optimizer repeats
 # on the n=1000 final-eval pool (Study C's original metric) and the
 # mamba_centered repeats on the 9M stress pool
-# (docs/superpowers/plans/2026-07-10-reviewer-4-5-revision.md).
+# (git show ee1518a^:docs/superpowers/plans/2026-07-10-reviewer-4-5-revision.md).
 
 P="training_output/paper/sigma_extras"
 trap 'echo; echo "Ctrl-C -- stopping (re-run to resume from the last checkpoint)"; exit 130' INT

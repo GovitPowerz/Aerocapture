@@ -5,7 +5,7 @@ the Rust runtime (flat_weights_to_json + nn_forward); build_layer raises for the
 PPO path. The manual _softplus / _expm1_over_x_* helpers are 1-for-1 equivalents
 of the Rust free functions (helpers.rs softplus/expm1_over_x, mamba3.rs
 expm1_over_x_complex) -- both sides must produce bit-identical f64 output.
-See docs/superpowers/specs/2026-07-07-mamba3-ablation-design.md.
+See docs/design/2026-07-07-mamba3-ablation-design.md.
 """
 
 from __future__ import annotations

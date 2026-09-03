@@ -1,6 +1,6 @@
 """Unit tests for the 3-island PSO/GA/DE evolutionary trainer.
 
-See docs/superpowers/specs/2026-05-28-island-model-pso-ga-de-design.md.
+See docs/design/2026-05-28-island-model-pso-ga-de-design.md.
 """
 
 from __future__ import annotations

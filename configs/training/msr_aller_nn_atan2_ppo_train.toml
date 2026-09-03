@@ -1,7 +1,7 @@
 # MSR outbound -- dense PPO with DV-inferred reward.
 # Phi = -(w1*dv1 + w2*dv2 + w3*dv3) - constraint*(hf^2 + hl^2), DV from
 # predicted_dv_for_nn (candidate inputs 32-34) surfaced via the env aux channel.
-# See docs/superpowers/specs/2026-06-08-rl-ppo-dv-reward-design.md.
+# See docs/design/2026-06-08-rl-ppo-dv-reward-design.md.
 base = ["../missions/mars.toml", "common.toml", "rl_common.toml"]
 
 [guidance]

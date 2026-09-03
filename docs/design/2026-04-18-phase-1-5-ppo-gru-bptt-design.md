@@ -403,5 +403,5 @@ CI: append `tests/test_gru_ppo_smoke.py` to the `python-pyo3` job's pytest comma
 - R-PPO: truncated BPTT on recurrent policies is the standard lift. See IMPALA (Espeholt et al. 2018, §4.1) for the chunked BPTT idiom and Kapturowski et al. 2019 (R2D2) for the related replay-buffer story that Phase 1.6 will follow.
 - Hochreiter & Schmidhuber 1997 for BPTT foundations.
 - Ng, Harada & Russell 1999 for the potential-based shaping that the existing reward structure already uses (unchanged in Phase 1.5).
-- Phase 0 spec: `docs/superpowers/specs/2026-04-17-stateful-nn-runtime-infrastructure-design.md`.
-- Phase 1 spec: `docs/superpowers/specs/2026-04-17-phase-1-gru-mvp-design.md`.
+- Phase 0 spec: `docs/design/2026-04-17-stateful-nn-runtime-infrastructure-design.md`.
+- Phase 1 spec: `docs/design/2026-04-17-phase-1-gru-mvp-design.md`.

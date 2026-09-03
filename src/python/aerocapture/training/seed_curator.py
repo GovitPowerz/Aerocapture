@@ -3,7 +3,7 @@
 Maintains a fixed-size training seed list, refreshed on trigger by
 stratified-random sampling from the cost CDF of the current top-K
 individuals. See
-``docs/superpowers/specs/2026-04-14-curated-cdf-seed-framework-design.md``.
+``docs/design/2026-04-14-curated-cdf-seed-framework-design.md``.
 """
 
 from __future__ import annotations

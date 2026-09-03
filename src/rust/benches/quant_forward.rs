@@ -8,7 +8,7 @@
 //! implementation would see. Weights are deterministic pseudo-random: the cost
 //! of a matvec does not depend on the values.
 //!
-//! Spec: docs/superpowers/specs/2026-07-10-quantization-study-appendix-design.md
+//! Spec: docs/design/2026-07-10-quantization-study-appendix-design.md
 
 use aerocapture::data::neural::NeuralNetModel;
 use aerocapture::data::nn_state::NnState;

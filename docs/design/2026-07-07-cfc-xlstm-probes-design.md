@@ -268,7 +268,7 @@ Per layer, mirroring the mamba3 suite:
 - CLAUDE.md: one paragraph describing the three experimental layer types + probe scripts
   (mamba3-paragraph style).
 - README: experimental-layer note alongside mamba3's.
-- This spec + the implementation plan under `docs/superpowers/`.
+- This spec + the implementation plan (removed from the tree in ee1518a; `git show ee1518a^:docs/superpowers/plans/2026-07-07-cfc-xlstm-probes.md`).
 
 ## File inventory (expected)
 

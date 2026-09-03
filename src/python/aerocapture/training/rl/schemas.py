@@ -83,7 +83,7 @@ class MambaSpec(BaseModel):
 
     Constructible via `build_layer(MambaSpec)` for warm-start BPTT; the PPO
     runtime gate lives in `rl/train.py::_derive_hidden_shapes` (see
-    docs/superpowers/specs/2026-04-24-phase-4a-mamba-ssm-mvp-design.md).
+    docs/design/2026-04-24-phase-4a-mamba-ssm-mvp-design.md).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -109,7 +109,7 @@ class Mamba3Spec(BaseModel):
     Same shape fields as MambaSpec plus two orthogonal flags:
     `discretization` (euler | trapezoidal) and `state_mode` (real | complex).
     `dt_rank` resolves to `max(1, input_size // 16)` when None.
-    See docs/superpowers/specs/2026-07-07-mamba3-ablation-design.md.
+    See docs/design/2026-07-07-mamba3-ablation-design.md.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -135,7 +135,7 @@ class CfcSpec(BaseModel):
     """CfC (closed-form continuous-time) cell -- PSO-only probe layer.
 
     ncps "default" mode, one backbone layer, dt fixed at one guidance tick.
-    See docs/superpowers/specs/2026-07-07-cfc-xlstm-probes-design.md.
+    See docs/design/2026-07-07-cfc-xlstm-probes-design.md.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -148,7 +148,7 @@ class CfcSpec(BaseModel):
 class SlstmSpec(BaseModel):
     """sLSTM cell (xLSTM) -- PSO-only probe layer. Exponential gating + stabilizer.
 
-    See docs/superpowers/specs/2026-07-07-cfc-xlstm-probes-design.md.
+    See docs/design/2026-07-07-cfc-xlstm-probes-design.md.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -161,7 +161,7 @@ class MlstmSpec(BaseModel):
     """mLSTM cell (xLSTM) -- PSO-only probe layer. Matrix memory, single head,
     d_qk = d_v = hidden_size.
 
-    See docs/superpowers/specs/2026-07-07-cfc-xlstm-probes-design.md.
+    See docs/design/2026-07-07-cfc-xlstm-probes-design.md.
     """
 
     model_config = ConfigDict(extra="forbid")
