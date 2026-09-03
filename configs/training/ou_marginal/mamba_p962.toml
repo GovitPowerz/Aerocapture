@@ -1,5 +1,6 @@
 # OU-marginal retrain: mamba_p962 from scratch under per-draw noise seeding.
-# Same cell regime (GA n_pop 60, adaptive seeds, training_n_sims 10); budget
+# Sweep-config allocation (GA n_pop 60, training_n_sims 10, adaptive seeds), NOT the
+# headline's CLI allocation (n_pop 512, training_n_sims 2, see 10b_arch_long_challengers.sh); budget
 # target 20000 gens = the deployed cell's budget (driven by the campaign runner).
 base = ["../sweep/mamba_p962.toml"]
 

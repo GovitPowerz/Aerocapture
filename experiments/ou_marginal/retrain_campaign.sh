@@ -1,7 +1,9 @@
 #!/bin/bash
 # OU-marginal retrain campaign: the five paper NN headline cells retrained
-# FROM SCRATCH under [monte_carlo] noise_seeding = "per_draw", at the deployed
-# cells' budget (20000 gens, GA n_pop 60, adaptive seeds).
+# FROM SCRATCH under [monte_carlo] noise_seeding = "per_draw", for the deployed
+# cells' generation count (20000 gens) at the sweep-config allocation (GA n_pop 60,
+# training_n_sims 10, adaptive seeds) -- NOT the headline's CLI allocation
+# (n_pop 512, training_n_sims 2 in experiments/paper/10b_arch_long_challengers.sh).
 #
 # STOPPABLE / RESUMABLE by design: run this script; stop it any time
 # (Ctrl+C, laptop shutdown -- train.py checkpoints every 10 gens with atomic

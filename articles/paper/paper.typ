@@ -1747,9 +1747,15 @@ seed from a hash of its own dispersion draw: identical draw, identical realizati
 reproducible -- but distinct scenarios receive distinct paths, so per-seed pools marginalize. The
 historical mode remains the default; every main-body number is reproducible as published.
 
-We then retrained the five headline cells from scratch under per-scenario noise at the deployed
-budget ($20\,000$ generations, three trainer-seed repeats each), and separately fine-tuned each
-shared-path champion for $2000$ further generations under the repaired seeding. Fourteen of the fifteen scratch
+We then retrained the five headline cells from scratch under per-scenario noise for the deployed
+generation count ($20\,000$ generations, three trainer-seed repeats each) at the sweep configuration's
+allocation -- a population of $60$ with ten scenarios per individual, not the headline's $512 times 2$ --
+and separately fine-tuned each shared-path champion for $2000$ further generations under the repaired
+seeding (the resume keeps the best $60$ of the champion's $512$ individuals). Because the optimizer study
+showed the genetic algorithm to be population-sensitive, the scratch rows of @tbl-ou-retrain test the
+repaired seeding at a smaller population than the headline, and part of their compressed architecture
+separation may be allocation rather than noise; the fine-tunes and the far-tail confirmatory start from
+the headline-allocation champions. Fourteen of the fifteen scratch
 repeats (the fifteenth, a dense-515 seed, loses one scenario in $1000$) and three of the five
 fine-tunes restore $100%$ capture with zero constraint violations on the per-scenario pool; notably, scratch retraining fixes the LSTM cell whose shared-path champion
 had been heat-load infeasible.
@@ -1769,8 +1775,9 @@ had been heat-load infeasible.
     table.hline(stroke: 0.7pt),
   ),
   caption: [Per-scenario $"CVaR"_95$ (m/s, $n = 1000$) after retraining under the repaired seeding.
-  Scratch means are over three trainer-seed repeats at the deployed budget; fine-tunes are single
-  runs of the shared-path champion continued $2000$ generations under per-scenario noise.],
+  Scratch means are over three trainer-seed repeats ($20\,000$ generations, population $60$, ten
+  scenarios per individual); fine-tunes are single runs of the shared-path champion continued $2000$
+  generations under per-scenario noise at population $60$.],
 ) <tbl-ou-retrain>
 
 Three conclusions. First, training on the right distribution repairs the damage: the scratch

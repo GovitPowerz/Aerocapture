@@ -14,7 +14,7 @@ This repository is the artifact for *Seventeen years later: stateful neural guid
 
 The headline: a 962-parameter recurrent (Mamba) guidance policy, trained by a genetic algorithm in a non-stationary adaptive-seed Monte Carlo environment, beats six classical guidance schemes — including a numerical predictor–corrector — on the delta-v tail that sizes the mission's correction propellant, at milliseconds of onboard compute.
 
-The correction (v3, Appendix E): while building this repo's five-minute demo, we found that the historical per-seed evaluation pipeline conditioned every Monte Carlo scenario on a *single* sample path of the time-varying density noise — and the networks, trained under that conditioning, exploited it 2–4x more than the classical laws. We quantified the gap on paired pools, shipped the fix behind a backward-compatible seeding flag, retrained every headline cell under honest per-scenario noise (22 training runs, all stoppable/resumable on a laptop), and re-ran the million-scenario far-tail confirmatory. The correction ends by strengthening the thesis it tested: capture and constraint feasibility are fully restored, and on the far tail that sizes the propellant tanks the fine-tuned recurrent policy holds CVaR99.9 = 163.2 ± 1.3 m/s (three fine-tune seeds) across 10^6 honest-noise scenarios — 73 m/s below both the best classical scheme and the best dense network. The defect, the audit, the repair, and the numbers that changed are all in the paper — because an evaluation you can't break is an evaluation you haven't tested.
+The correction (v3, Appendix E): while building this repo's five-minute demo, we found that the historical per-seed evaluation pipeline conditioned every Monte Carlo scenario on a *single* sample path of the time-varying density noise — and the networks, trained under that conditioning, exploited it 2–4x more than the classical laws. We quantified the gap on paired pools, shipped the fix behind a backward-compatible seeding flag, retrained every headline cell under honest per-scenario noise (22 training runs, all stoppable/resumable on a laptop), and re-ran the million-scenario far-tail confirmatory. The correction ends by strengthening the thesis it tested: every cell's scratch retrain restores capture and constraint feasibility (the fine-tune shortcut does not for every cell), and on the far tail that sizes the propellant tanks the fine-tuned recurrent policy holds CVaR99.9 = 163.2 ± 1.3 m/s (three fine-tune seeds) across 10^6 honest-noise scenarios — 73 m/s below both the best classical scheme and the best dense network. The defect, the audit, the repair, and the numbers that changed are all in the paper — because an evaluation you can't break is an evaluation you haven't tested.
 
 ## Quick Start
 
@@ -27,7 +27,9 @@ cd Aerocapture
 ./build.sh         # Rust simulator + PyO3 bindings (required for training/analysis)
 
 # 5-minute demo: fly the paper's headline NN guidance cell over 500 dispersed
-# MSR entries and render one figure (DV CDF + flown corridor):
+# MSR entries and render one figure (DV CDF + flown corridor). Flies the paper's
+# main-body regime (shared density-noise path); add --per-draw for Appendix E's
+# per-scenario regime, where this shared-path champion drops to ~98% capture:
 uv run python -m aerocapture.demo
 # -> demo_output/demo.svg, capture rate + DV percentiles on stdout
 
