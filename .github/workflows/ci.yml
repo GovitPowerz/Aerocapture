@@ -48,11 +48,11 @@ jobs:
       matrix:
         include:
           - check: lint
-            command: uv run ruff check src/python tests
+            command: uv run ruff check src/python tests experiments
           - check: format
-            command: uv run ruff format --check src/python tests
+            command: uv run ruff format --check src/python tests experiments
           - check: typecheck
-            command: uv run mypy src/python
+            command: uv run mypy src/python experiments
 
     steps:
       - uses: actions/checkout@v4

@@ -19,9 +19,10 @@ from pathlib import Path
 
 import aerocapture_rs
 import numpy as np
-from aerocapture.training.report import _load_nn_scaffolding_overrides
+from aerocapture.training.report import _load_nn_scaffolding_overrides, _read_constraint_limits
 
 REPO = Path(__file__).resolve().parents[2]
+
 
 def discover_ou_cells() -> list[tuple[str, str, str | None]]:
     """Every deployed run under training_output/ou_marginal/ (scratch s1, ft_*,
@@ -58,11 +59,11 @@ CELLS: list[tuple[str, str, str | None]] = [
     ("piecewise_constant", "training_output/piecewise_constant/optimized_piecewise_constant.toml", None),
 ]
 
-HEAT_LOAD_LIMIT_MJ = 25.0  # [flight.constraints] max_heat_load = 25000 kJ/m2
-
 
 def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> dict:
     idx = aerocapture_rs.final_record_indices()
+    _, _, heat_load_limit_kj = _read_constraint_limits(REPO / toml)  # [flight.constraints] is authoritative
+    assert heat_load_limit_kj is not None
     base: dict[str, object] = {"simulation.n_sims": 1}
     if model_dir is not None:
         d = REPO / model_dir
@@ -89,7 +90,7 @@ def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> d
         "dv_p95": round(float(p95), 2),
         "dv_p99": round(float(p99), 2),
         "dv_cvar95": round(float(dv[dv >= p95].mean()), 2),
-        "heat_load_viol_pct": round(100.0 * float((hl > HEAT_LOAD_LIMIT_MJ).mean()), 2),
+        "heat_load_viol_pct": round(100.0 * float((hl * 1e3 > heat_load_limit_kj).mean()), 2),
     }
 
 

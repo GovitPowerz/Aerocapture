@@ -25,9 +25,6 @@ class TestKeyboardInterrupt:
 
     def test_interrupt_returns_interrupted_flag(self, tmp_path: Path) -> None:
         """train() returns interrupted=True on KeyboardInterrupt."""
-        exe_path = tmp_path / "src" / "rust" / "target" / "release"
-        exe_path.mkdir(parents=True)
-
         # Create the NN model directory so save_checkpoint can write the best model.
         nn_dir = tmp_path / "data" / "neural_network"
         nn_dir.mkdir(parents=True)
@@ -66,9 +63,7 @@ class TestResumePreservesCheckpointedBest:
         from aerocapture.training.param_spaces import PARAM_SPACES
         from aerocapture.training.train import save_checkpoint
 
-        # Fast-fail exe + NN dir, matching the sibling test.
-        exe_path = tmp_path / "src" / "rust" / "target" / "release"
-        exe_path.mkdir(parents=True)
+        # NN dir, matching the sibling test.
         (tmp_path / "data" / "neural_network").mkdir(parents=True)
 
         save_dir = tmp_path / "training_output"
@@ -144,8 +139,6 @@ class TestResumeGrowsPopulation:
         from aerocapture.training.param_spaces import PARAM_SPACES
         from aerocapture.training.train import save_checkpoint
 
-        exe_path = tmp_path / "src" / "rust" / "target" / "release"
-        exe_path.mkdir(parents=True)
         (tmp_path / "data" / "neural_network").mkdir(parents=True)
 
         save_dir = tmp_path / "training_output"

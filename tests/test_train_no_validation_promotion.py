@@ -18,8 +18,6 @@ from aerocapture.training.train import train  # noqa: E402
 
 
 def test_no_validation_promotes_later_generation(tmp_path: Path) -> None:
-    exe_path = tmp_path / "src" / "rust" / "target" / "release"
-    exe_path.mkdir(parents=True)
     (tmp_path / "data" / "neural_network").mkdir(parents=True)
 
     cfg = TrainingConfig(optimizer=OptimizerConfig(seed_strategy="fixed"))

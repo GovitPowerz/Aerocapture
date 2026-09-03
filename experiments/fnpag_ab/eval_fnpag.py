@@ -5,16 +5,14 @@ Writes experiments/fnpag_ab/result_<label>.json (per-seed dv + summary).
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
-import numpy as np
-
 import aerocapture_rs
+import numpy as np
 from aerocapture.training.evaluate import VALIDATION_SEED_OFFSET, make_reserved_seeds
 from aerocapture.training.param_spaces import route_scaffolding_param
-
-import os
 
 TOML = os.environ.get("AERO_TOML", "configs/training/msr_aller_fnpag_train.toml")
 BEST = os.environ.get("AERO_BEST", "training_output/fnpag/best_params.json")
@@ -27,7 +25,7 @@ C_APOERR, C_PERIERR = IDX["apoapsis_err_km"], IDX["periapsis_err_km"]
 C_IFINAL, C_ECC = IDX["ifinal"], IDX["ecc"]
 
 
-def pct(a, label):
+def pct(a: np.ndarray | list[float], label: str) -> dict[str, float]:
     a = np.asarray(a, float)
     return {
         "p50": float(np.percentile(a, 50)),
@@ -37,7 +35,7 @@ def pct(a, label):
     }
 
 
-def main():
+def main() -> None:
     label = sys.argv[1]
     n = int(sys.argv[2]) if len(sys.argv) > 2 else 256
 
@@ -73,7 +71,7 @@ def main():
     Path(f"experiments/fnpag_ab/result_{label}.json").write_text(json.dumps(out, indent=2))
 
     s = out["summary_captured"]
-    print(f"[{label}] n={n} capture={out['capture_rate']*100:.1f}%")
+    print(f"[{label}] n={n} capture={out['capture_rate'] * 100:.1f}%")
     for k in ("dv", "dv1", "dv2", "dv3", "apoapsis_err_km", "periapsis_err_km"):
         v = s[k]
         print(f"  {k:18s} p50={v['p50']:9.2f}  p95={v['p95']:9.2f}  mean={v['mean']:9.2f}  max={v['max']:9.2f}")

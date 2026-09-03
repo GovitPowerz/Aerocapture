@@ -1646,10 +1646,6 @@ def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dic
         cfg.network.qat_granularity = str(_net["qat_granularity"])
     if "qat_tensor_policy" in _net:
         cfg.network.qat_tensor_policy = str(_net["qat_tensor_policy"])
-    # Post-hoc field assignment bypasses NetworkConfig.__post_init__, so validate here.
-    from aerocapture.training.config import validate_qat
-
-    validate_qat(cfg.network.qat_bits, cfg.network.qat_granularity, cfg.network.qat_tensor_policy, cfg.network.architecture)
     _gnn = _toml_data.get("guidance", {}).get("neural_network", {})
     if "scaffolding" in _gnn:
         cfg.network.scaffolding = str(_gnn["scaffolding"])
