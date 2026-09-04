@@ -147,7 +147,8 @@ src/rust/src/
                                        `[network.normalization]` / the `DEFAULT_NORMALIZATION` table (`data/neural.rs`); data-driven via `calibrate_inputs.py`. The TOML override is ALSO carried on
                                        `SimData::nn_normalization_override` (populated regardless of guidance type), so the `collect_supervised` trace -- a teacher scheme with NO NN model loaded --
                                        normalizes on the same scales the deployed NN uses, avoiding a warm-start train/inference mismatch (`build_nn_input` precedence: loaded model > SimData override
-                                       > DEFAULT). Ablation support via ablated_input); `nn_bank_angle(nav, nn, &mut NnState, data, planet, &NnInputContext)` -- `NnInputContext::from_guidance_state(&GuidanceState,
+                                       > DEFAULT). Ablation support via ablated_input); `nn_bank_angle(nav, nn, &mut NnState, data, planet, &NnInputContext)` --
+                                       `NnInputContext::from_guidance_state(&GuidanceState,
                                                                                                                                                                  sim_time, target_inclination)` is the
                                                                                                                                                                  ONE place the previous-tick telemetry
                                                                                                                                                                  (inputs 21-24, the (sin,cos) history
