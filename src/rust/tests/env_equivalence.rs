@@ -12,6 +12,7 @@ mod common;
 use aerocapture::config::SimInput;
 use aerocapture::data::SimData;
 use aerocapture::data::dispersions::DispersionDraw;
+use aerocapture::simulation::runner::SimStateOptions;
 use aerocapture::simulation::{init, runner, tick};
 
 fn load() -> (SimInput, SimData) {
@@ -45,7 +46,8 @@ fn step_matches_run_single_collect_reference_trajectory() {
     let planet = config.planet.clone();
     let draw = DispersionDraw::default();
     let run_state = init::init_run_from_draw(&data, &draw);
-    let mut state = runner::build_sim_state(&config, &data, run_state, 0);
+    let mut state =
+        runner::build_sim_state(&config, &data, run_state, 0, SimStateOptions::default());
 
     let event_defs = runner::build_event_defs();
     let event_ctx = runner::build_event_ctx(&config, &data);

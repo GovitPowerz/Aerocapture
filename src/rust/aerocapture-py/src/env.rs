@@ -23,7 +23,7 @@ use aerocapture::simulation::final_record::{
     FR_HEAT_LOAD_MJM2,
 };
 use aerocapture::simulation::runner::{
-    SimState, TermReason, build_final_record, build_sim_state, ifinal_for,
+    SimState, SimStateOptions, TermReason, build_final_record, build_sim_state, ifinal_for,
 };
 
 use crate::config;
@@ -112,7 +112,13 @@ impl BatchedSimulation {
             let seed = seed_base + i as u64;
             let draw = sim_data.draw_from_seed(seed);
             let run_state = aerocapture::simulation::init::init_run_from_draw(&sim_data, &draw);
-            let state = build_sim_state(&sim_input, &sim_data, run_state, seed);
+            let state = build_sim_state(
+                &sim_input,
+                &sim_data,
+                run_state,
+                seed,
+                SimStateOptions::default(),
+            );
             envs.push(state);
             episode_ids.push(seed);
             episode_counter.push(i as u64);
@@ -160,7 +166,13 @@ impl BatchedSimulation {
             let draw = self.sim_data.draw_from_seed(seed);
             let run_state =
                 aerocapture::simulation::init::init_run_from_draw(&self.sim_data, &draw);
-            self.envs[i] = build_sim_state(&self.sim_input, &self.sim_data, run_state, seed);
+            self.envs[i] = build_sim_state(
+                &self.sim_input,
+                &self.sim_data,
+                run_state,
+                seed,
+                SimStateOptions::default(),
+            );
             self.episode_ids[i] = seed;
             self.step_counts[i] = 0;
             if !explicit_seeds {
@@ -272,7 +284,13 @@ impl BatchedSimulation {
                 let draw = self.sim_data.draw_from_seed(seed);
                 let run_state =
                     aerocapture::simulation::init::init_run_from_draw(&self.sim_data, &draw);
-                self.envs[i] = build_sim_state(&self.sim_input, &self.sim_data, run_state, seed);
+                self.envs[i] = build_sim_state(
+                    &self.sim_input,
+                    &self.sim_data,
+                    run_state,
+                    seed,
+                    SimStateOptions::default(),
+                );
                 self.episode_ids[i] = seed;
                 self.step_counts[i] = 0;
             } else {

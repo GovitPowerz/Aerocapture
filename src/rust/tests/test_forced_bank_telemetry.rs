@@ -10,7 +10,9 @@ use aerocapture::config::SimInput;
 use aerocapture::data::SimData;
 use aerocapture::data::dispersions::DispersionDraw;
 use aerocapture::simulation::init;
-use aerocapture::simulation::runner::{build_event_ctx, build_event_defs, build_sim_state};
+use aerocapture::simulation::runner::{
+    SimStateOptions, build_event_ctx, build_event_defs, build_sim_state,
+};
 use aerocapture::simulation::tick::step_one_tick;
 
 #[test]
@@ -23,7 +25,7 @@ fn forced_bank_drives_nn_telemetry() {
 
     let draw = DispersionDraw::default();
     let run_state = init::init_run_from_draw(&data, &draw);
-    let mut state = build_sim_state(&config, &data, run_state, 0);
+    let mut state = build_sim_state(&config, &data, run_state, 0, SimStateOptions::default());
     let event_defs = build_event_defs();
     let event_ctx = build_event_ctx(&config, &data);
 

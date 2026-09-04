@@ -189,7 +189,12 @@ src/rust/src/
     elements.rs                    — Orbital elements from state vector
     maneuver.rs                    — Delta-V cost computation (only called for confirmed captures)
   simulation/
-    runner.rs                      — Main sim loop: run() for CLI, run_for_api() for PyO3, run_for_api_with_draws() for external-draw API; dispatches between fixed Gill RK4 and adaptive DOPRI45
+    runner.rs                      — Main sim loop. ONE Monte Carlo fan-out, `run_core(config, data, draws, RunOptions)` (one run state per draw,
+                                     Rayon-parallel for >1 draw, each result stamped with its draw); the public entry points are draw-source adapters over it:
+                                     run() for CLI (draws from the config + photo/CSV output), run_for_api() for PyO3, run_for_api_with_draws() for the
+                                     external-draw API, run_for_api_cell() for one grid cell (`draw_from_seed`), run_single_collect() for the trace path.
+                                     `SimStateOptions` (photo / wall timeout / single-run banner) go INTO `build_sim_state`; nothing is poked onto a
+                                     `SimState` after construction; dispatches between fixed Gill RK4 and adaptive DOPRI45
                                        based on IntegrationMode; DOPRI45 mode uses `integrate_adaptive_with_events` (returns Vec<TriggeredEvent> for all events in a tick, processed chronologically)
                                        for sub-tick event detection (bounce, atmosphere exit, crash, phase transition) via dense output + Brent's root-finding (~1 ms precision); fixed RK4 uses legacy
                                        post-tick threshold checks (unchanged); tracks peak heat flux, g-load, dynamic pressure; NaN/Inf state termination (prevents infinite loops from extreme GA
