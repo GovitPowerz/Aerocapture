@@ -1351,7 +1351,8 @@ Issues live in this repo's GitHub Issues, operated via the `gh` CLI. See `docs/a
 
 ### Triage labels
 
-Default vocabulary: the five canonical role names are the label strings (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`); categories are `bug` / `enhancement`. See `docs/agents/triage-labels.md`.
+Default vocabulary: the five canonical role names are the label strings (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`); categories are `bug` / `enhancement`. See
+`docs/agents/triage-labels.md`.
 
 ### Domain docs
 
