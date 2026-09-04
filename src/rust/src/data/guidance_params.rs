@@ -142,6 +142,20 @@ pub enum NeuralNetMode {
     MagnitudeOnly,
 }
 
+impl NeuralNetMode {
+    /// Parse the `[guidance.neural_network] mode` string (absent = full_neural).
+    pub fn parse(mode: Option<&str>) -> Result<Self, String> {
+        match mode {
+            None | Some("full_neural") => Ok(Self::FullNeural),
+            Some("magnitude_only") => Ok(Self::MagnitudeOnly),
+            Some(other) => Err(format!(
+                "guidance.neural_network.mode must be \"full_neural\" or \"magnitude_only\" (got \"{}\")",
+                other
+            )),
+        }
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct GuidanceParams {

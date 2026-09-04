@@ -102,6 +102,27 @@ class TestBatchRun:
             aero.run_batch("configs/test/does_not_exist_xyz.toml", [{}])
 
 
+class TestValidateConfig:
+    def test_valid_config_passes(self) -> None:
+        assert aero.validate_config(GOLDEN_TOML) is None
+
+    def test_override_violation_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="navigation.mode"):
+            aero.validate_config(GOLDEN_TOML, overrides={"navigation.mode": "EKF"})
+
+    def test_does_not_read_data_tables(self) -> None:
+        # Retargeting the atmosphere table at a nonexistent file must still pass:
+        # the pass reads no table. The same override makes run() fail.
+        overrides = {"data.atmosphere": "/nonexistent/atm.dat"}
+        aero.validate_config(GOLDEN_TOML, overrides=overrides)
+        with pytest.raises(RuntimeError):
+            aero.run(GOLDEN_TOML, overrides=overrides)
+
+    def test_missing_toml_raises_value_error(self) -> None:
+        with pytest.raises(ValueError):
+            aero.validate_config("configs/test/does_not_exist_xyz.toml")
+
+
 class TestCostCompat:
     def test_pyo3_final_records_work_with_compute_cost(self) -> None:
         from aerocapture.training.cost import compute_cost

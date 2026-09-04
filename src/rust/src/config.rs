@@ -11,6 +11,15 @@ pub enum MissionType {
     Aerocapture,
 }
 
+impl MissionType {
+    pub fn parse(s: &str) -> Result<Self, ParseError> {
+        match s {
+            "aerocapture" => Ok(Self::Aerocapture),
+            other => Err(ParseError(format!("Unknown mission type: {}", other))),
+        }
+    }
+}
+
 /// Planet physical constants, parsed from TOML [planet] section.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PlanetConfig {
@@ -86,6 +95,18 @@ pub enum SimPhase {
     Preprogrammed,
 }
 
+impl SimPhase {
+    pub fn parse(s: &str) -> Result<Self, ParseError> {
+        match s {
+            "full" => Ok(Self::Full),
+            "capture_only" => Ok(Self::CaptureOnly),
+            "exit_only" => Ok(Self::ExitOnly),
+            "preprogrammed" => Ok(Self::Preprogrammed),
+            other => Err(ParseError(format!("Unknown phase: {}", other))),
+        }
+    }
+}
+
 /// Adaptive integration configuration.
 #[derive(Debug, Clone, Copy)]
 pub struct AdaptiveConfig {
@@ -141,6 +162,21 @@ pub enum GuidanceType {
     PiecewiseConstant,
 }
 
+impl GuidanceType {
+    pub fn parse(s: &str) -> Result<Self, ParseError> {
+        match s {
+            "ftc" => Ok(Self::Ftc),
+            "neural_network" => Ok(Self::NeuralNetwork),
+            "equilibrium_glide" => Ok(Self::EquilibriumGlide),
+            "energy_controller" => Ok(Self::EnergyController),
+            "pred_guid" => Ok(Self::PredGuid),
+            "fnpag" => Ok(Self::Fnpag),
+            "piecewise_constant" => Ok(Self::PiecewiseConstant),
+            other => Err(ParseError(format!("Unknown guidance type: {}", other))),
+        }
+    }
+}
+
 /// Parsed simulation input configuration
 #[derive(Debug, Clone)]
 pub struct SimInput {
@@ -191,6 +227,23 @@ pub struct TomlConfig {
     /// Neural network architecture/mask overrides
     #[serde(default)]
     pub network: Option<TomlNetwork>,
+}
+
+impl TomlConfig {
+    /// The four inline data sections every simulation needs.
+    pub fn inline_sections(
+        &self,
+    ) -> Result<(&TomlVehicle, &TomlEntry, &TomlFlight, &TomlAero), ParseError> {
+        let missing = |name: &str| ParseError(format!("Missing [{}] section", name));
+        Ok((
+            self.vehicle.as_ref().ok_or_else(|| missing("vehicle"))?,
+            self.entry.as_ref().ok_or_else(|| missing("entry"))?,
+            self.flight.as_ref().ok_or_else(|| missing("flight"))?,
+            self.aerodynamics
+                .as_ref()
+                .ok_or_else(|| missing("aerodynamics"))?,
+        ))
+    }
 }
 
 // ─── Network TOML struct ───
@@ -1254,6 +1307,230 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+// ─── Config validation (no filesystem access) ───
+
+/// Every config rule that needs no file IO, in one pass over the post-override
+/// config. Rules that need a loaded table or model (input mask vs model width,
+/// NN scheme without a model, TOML decoder knob vs the loaded model's
+/// `output_param`) stay with the builders in `data/mod.rs`.
+///
+/// Called by `SimData::from_toml` before any table is read and again at the top
+/// of `SimData::from_toml_with_tables` (microseconds, no IO) so a hand-built or
+/// per-individual-patched `TomlConfig` is covered too. Also the PyO3
+/// `validate_config` entry point.
+pub fn validate(toml: &TomlConfig) -> Result<(), ParseError> {
+    MissionType::parse(&toml.mission.mission_type)?;
+    SimPhase::parse(&toml.mission.phase)?;
+    GuidanceType::parse(&toml.guidance.guidance_type)?;
+    let (v, _, _, _) = toml.inline_sections()?;
+    crate::data::pilot::PilotType::parse(&v.pilot.model).map_err(ParseError)?;
+    validate_incidence(toml.incidence.as_ref())?;
+    validate_guidance(&toml.guidance, toml.network.as_ref())?;
+    validate_network(toml.network.as_ref())?;
+    if let Some(mc) = &toml.monte_carlo {
+        crate::data::build_dispersion_config(mc).map_err(|e| ParseError(e.0))?;
+    }
+    validate_navigation(toml.navigation.as_ref())?;
+    IntegrationMode::from_toml(&toml.integration, v.periods.integration).map_err(ParseError)?;
+    Ok(())
+}
+
+fn validate_incidence(inc: Option<&TomlIncidence>) -> Result<(), ParseError> {
+    if let Some(inc) = inc
+        && inc.altitudes.len() != inc.angles.len()
+    {
+        return Err(ParseError(format!(
+            "[incidence] altitudes ({}) and angles ({}) must have the same length",
+            inc.altitudes.len(),
+            inc.angles.len()
+        )));
+    }
+    Ok(())
+}
+
+fn validate_guidance(g: &TomlGuidance, network: Option<&TomlNetwork>) -> Result<(), ParseError> {
+    g.piecewise_constant
+        .resolve_bank_angles_deg()
+        .map_err(ParseError)?;
+    let nn = g.neural_network.as_ref();
+    let neural_mode =
+        crate::data::guidance_params::NeuralNetMode::parse(nn.and_then(|nn| nn.mode.as_deref()))
+            .map_err(ParseError)?;
+    validate_output_parameterization(
+        nn.and_then(|nn| nn.output_parameterization.as_deref()),
+        neural_mode,
+        network.and_then(|n| n.architecture.as_deref()),
+    )?;
+    if let Some(cs) = g.command_shaping.as_ref()
+        && cs.enabled
+        && cs.max_bank_acceleration <= 0.0
+    {
+        return Err(ParseError(format!(
+            "command_shaping.max_bank_acceleration must be > 0 when enabled (got {})",
+            cs.max_bank_acceleration
+        )));
+    }
+    Ok(())
+}
+
+fn validate_network(network: Option<&TomlNetwork>) -> Result<(), ParseError> {
+    if let Some(norm) = network.and_then(|n| n.normalization.as_ref())
+        && norm.len() != crate::data::neural::NN_FULL_INPUT_SIZE
+    {
+        return Err(ParseError(format!(
+            "[network.normalization] has {} entries, expected {}",
+            norm.len(),
+            crate::data::neural::NN_FULL_INPUT_SIZE
+        )));
+    }
+    Ok(())
+}
+
+/// Unknown `mode` strings hard-error (same policy as dispersion levels /
+/// integration mode). EKF sensor sigmas feed `Normal::new(0, sigma)` at
+/// SimState build; a negative/non-finite sigma would panic there.
+fn validate_navigation(nav: Option<&TomlNavigation>) -> Result<(), ParseError> {
+    let Some(nav) = nav else { return Ok(()) };
+    if crate::data::NavMode::from_toml(Some(nav)).map_err(ParseError)? != crate::data::NavMode::Ekf
+    {
+        return Ok(());
+    }
+    let mut sigmas: Vec<(&str, f64)> = Vec::new();
+    if let Some(ref imu) = nav.imu {
+        sigmas.extend([
+            ("imu.accel_bias_sigma", imu.accel_bias_sigma),
+            ("imu.accel_noise_sigma", imu.accel_noise_sigma),
+            ("imu.accel_scale_factor_sigma", imu.accel_scale_factor_sigma),
+            ("imu.gyro_bias_sigma", imu.gyro_bias_sigma),
+            ("imu.gyro_noise_sigma", imu.gyro_noise_sigma),
+        ]);
+    }
+    if let Some(ref st) = nav.star_tracker {
+        sigmas.extend([
+            ("star_tracker.position_sigma", st.position_sigma),
+            ("star_tracker.attitude_sigma", st.attitude_sigma),
+        ]);
+    }
+    for (name, v) in sigmas {
+        if !v.is_finite() || v < 0.0 {
+            return Err(ParseError(format!(
+                "navigation.{} must be finite and >= 0 (got {})",
+                name, v
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Validate `output_parameterization` against mode and architecture constraints.
+/// Extracted so tests can call it directly without a full `TomlConfig`.
+fn validate_output_parameterization(
+    output_param: Option<&str>,
+    neural_mode: crate::data::guidance_params::NeuralNetMode,
+    architecture: Option<&[TomlLayerSpec]>,
+) -> Result<(), ParseError> {
+    use crate::data::guidance_params::NeuralNetMode::*;
+    let param = match output_param {
+        Some(p) => p,
+        None => return Ok(()),
+    };
+
+    // acos_tanh is a magnitude decoder; the new scaled_pi/delta are signed.
+    if param == "acos_tanh" && neural_mode != MagnitudeOnly {
+        return Err(ParseError(
+            "output_parameterization='acos_tanh' is only legal with mode='magnitude_only' \
+             (it cannot emit signed bank); use 'atan2_signed' for full_neural mode"
+                .to_string(),
+        ));
+    }
+    // atan2_signed has no architecture constraint and is the historical default;
+    // only the new signed decoders need the full_neural assertion here.
+    if matches!(param, "scaled_pi" | "delta") && neural_mode != FullNeural {
+        return Err(ParseError(format!(
+            "output_parameterization='{}' is only legal with mode='full_neural' \
+             (it emits a signed bank; magnitude_only expects an unsigned magnitude)",
+            param
+        )));
+    }
+
+    // atan2_signed is the default decoder (bank = atan2(out[0], out[1])): it
+    // indexes two outputs, so a v2 architecture whose last layer emits != 2
+    // would index-out-of-bounds at runtime. Enforce output_size == 2 here as a
+    // load-time defense-in-depth (the model-level `validate_output_size` covers
+    // a loaded JSON, but this catches a misconfigured TOML before any model is
+    // even loaded). v1 configs (architecture = None) are unaffected: the model
+    // loader enforces the width when the JSON is read.
+    if param == "atan2_signed" {
+        if let Some(arch) = architecture
+            && let Some(last) = arch.last()
+        {
+            let output_size = match last {
+                TomlLayerSpec::Dense { output_size, .. } => Some(*output_size),
+                _ => None,
+            };
+            if let Some(output_size) = output_size
+                && output_size != 2
+            {
+                return Err(ParseError(format!(
+                    "output_parameterization='atan2_signed' requires last layer \
+                     output_size=2 (bank = atan2(out[0], out[1])), got {output_size}"
+                )));
+            }
+        }
+        return Ok(());
+    }
+
+    // Single-output tanh-head decoders share the architecture constraints.
+    let needs_single_tanh = matches!(param, "acos_tanh" | "scaled_pi" | "delta");
+    if !needs_single_tanh {
+        return Ok(());
+    }
+
+    let arch = architecture.ok_or_else(|| {
+        ParseError(format!(
+            "output_parameterization='{}' requires v2 [[network.architecture]] entries; \
+             v1 layer_sizes/activations is not supported. Convert your config to use \
+             [[network.architecture]] with last-layer output_size=1, activation='tanh'.",
+            param
+        ))
+    })?;
+    let last = arch.last().ok_or_else(|| {
+        ParseError(format!(
+            "output_parameterization='{}' requires [[network.architecture]] entries",
+            param
+        ))
+    })?;
+    match last {
+        TomlLayerSpec::Dense {
+            output_size,
+            activation,
+            ..
+        } => {
+            if *output_size != 1 {
+                return Err(ParseError(format!(
+                    "output_parameterization='{}' requires last layer \
+                     output_size=1, got {output_size}",
+                    param
+                )));
+            }
+            if activation.as_str() != "tanh" {
+                return Err(ParseError(format!(
+                    "output_parameterization='{}' requires last-layer \
+                     activation='tanh', got {:?}",
+                    param, activation
+                )));
+            }
+        }
+        _ => {
+            return Err(ParseError(format!(
+                "output_parameterization='{}' requires last layer to be dense",
+                param
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Deep-merge `overlay` into `base`. Tables merge recursively;
 /// all other types (scalars, arrays) replace the base value.
 pub fn deep_merge(base: &mut toml::Value, overlay: toml::Value) {
@@ -1372,31 +1649,10 @@ impl SimInput {
         let config: TomlConfig =
             toml::from_str(content).map_err(|e| ParseError(format!("TOML parse error: {}", e)))?;
 
-        let mission_type = match config.mission.mission_type.as_str() {
-            "aerocapture" => MissionType::Aerocapture,
-            other => return Err(ParseError(format!("Unknown mission type: {}", other))),
-        };
-
+        let mission_type = MissionType::parse(&config.mission.mission_type)?;
         let planet = config.planet.clone();
-
-        let sim_phase = match config.mission.phase.as_str() {
-            "full" => SimPhase::Full,
-            "capture_only" => SimPhase::CaptureOnly,
-            "exit_only" => SimPhase::ExitOnly,
-            "preprogrammed" => SimPhase::Preprogrammed,
-            other => return Err(ParseError(format!("Unknown phase: {}", other))),
-        };
-
-        let guidance_type = match config.guidance.guidance_type.as_str() {
-            "ftc" => GuidanceType::Ftc,
-            "neural_network" => GuidanceType::NeuralNetwork,
-            "equilibrium_glide" => GuidanceType::EquilibriumGlide,
-            "energy_controller" => GuidanceType::EnergyController,
-            "pred_guid" => GuidanceType::PredGuid,
-            "fnpag" => GuidanceType::Fnpag,
-            "piecewise_constant" => GuidanceType::PiecewiseConstant,
-            other => return Err(ParseError(format!("Unknown guidance type: {}", other))),
-        };
+        let sim_phase = SimPhase::parse(&config.mission.phase)?;
+        let guidance_type = GuidanceType::parse(&config.guidance.guidance_type)?;
 
         let sim_input = SimInput {
             mission_type,

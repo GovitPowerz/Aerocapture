@@ -79,9 +79,16 @@ PyO3 binding crate. TOML config as a CLI argument (`./aerocapture config.toml`) 
 ```
 src/rust/src/
   main.rs                          — CLI entry, TOML config loading
-  config.rs                        — TOML parser (PlanetConfig, MissionType, SimInput, IntegrationMode, AdaptiveConfig) + base inheritance (deep_merge, resolve_toml_bases, from_toml_file)
+  config.rs                        — TOML parser (PlanetConfig, SimInput, IntegrationMode, MissionType/SimPhase/GuidanceType::parse) + base inheritance (deep_merge, resolve_toml_bases)
+                                     + validate(&TomlConfig): every no-IO rule in one pass (sections, enum strings, incidence, piecewise, command_shaping, normalization width,
+                                     output_parameterization vs mode+arch, MC levels/keys/bounds via build_dispersion_config, nav mode + EKF sigmas, integration mode); run by
+                                     SimData::from_toml BEFORE any table IO and again atop from_toml_with_tables (post-override config); exposed as PyO3 validate_config
   data/
-    mod.rs, SimData                — Top-level data container
+    mod.rs, SimData                — Top-level data container; from_toml_with_tables = ~70 lines of orchestration: config::validate first, then named builders (build_capsule/
+                                     pilot/entry/aero/flight/success/incidence/guidance_params/onboard_atmosphere/neural_net, resolve_reference_trajectory = the per-individual ref
+                                     reload rule, build_dispersion_config, NavMode::from_toml). legacy_ftc_defaults() replaces the duplicated no-[guidance.ftc] branch (pinned
+                                     bit-identical by legacy_ftc_defaults_match_historical_literals). Model-dependent rules (mask width, NN-without-model, decoder knob vs model
+                                     output_param) stay in build_neural_net; SharedTables::from_toml is the only other table IO
     atmosphere.rs                  — Atmosphere density table (binary-search lookup; altitude column validated non-decreasing at load; NaN altitude returns NaN via the exponential tail exactly like
                                        the legacy linear scan — it falls through both range guards and would otherwise underflow the bracket index and panic a Rayon worker) + OnboardAtmosphereModel
                                        (piecewise exponential, auto-fitted or explicit)
@@ -240,6 +247,7 @@ Separate workspace member crate providing Python bindings via PyO3. Built with `
 ```
 src/rust/aerocapture-py/src/
   lib.rs         — Module entry: run(), run_mc(), run_batch(), run_with_draws(), load_config(), nn_forward() (load v2 JSON + stateful forward; used by the Rust<>Python equivalence test),
+                     validate_config() (post-override no-IO config validation via config::validate — reads no table; ValueError on the first violation),
                      nn_forward_sequence() (stateful multi-step forward over an input sequence; the per-layer cross-language equivalence gates run through it), collect_supervised() (per-tick
                      candidate-input trace from a teacher scheme, for NN warm-start), collect_nn_inputs() (per-tick candidate-input trace from the deployed NN itself — no teacher override, rejects
                      non-NN configs; returns per-seed {seed, X (T,35), time, energy, dv, captured}; powers the NN input behavior report and the input calibration). Both collect helpers load the config
@@ -255,7 +263,7 @@ src/rust/aerocapture-py/src/
                      reference trajectory is the one shared table that RELOADS per individual when a `data.reference_trajectory` override retargets it (`SharedTables.ref_trajectory_path` comparison
                      inside `from_toml_with_tables` -- the joint ref_bank delivery path; until 2026-06-12 the override was silently swallowed and the gene trained dead); `data.atmosphere` /
                      `data.wind_table` overrides hard-error instead of being silently shared. `final_record_indices()` exposes the Rust final-record column map for the Python drift tests
-  config.rs      — TOML loading with base inheritance resolution + dot-path override merging
+  config.rs      — TOML loading with base inheritance resolution + dot-path override merging (resolve_and_patch, shared by load_and_override and the no-IO validate_only)
   results.rs     — SimResult/BatchResults pyclasses with numpy getters
   batch.rs       — Rayon parallel batch execution
 ```
@@ -378,8 +386,9 @@ requires `mode = "magnitude_only"`, last-layer `output_size = 1`, last-layer `ac
 the dropped 'direct' single-output path) and `output_parameterization = "delta"` decodes `bank = wrap_to_pi(prev_realized + delta_max * tanh(out[0]))` (knob `delta_max`, default 0.35 rad -- a bounded
 per-tick increment on the previous pilot-realized bank, the accumulator left unbounded and wrapped only at the guidance->shaper boundary). Both require `mode = "full_neural"` and a 1-output `tanh`
 last layer; validation is hard at config load -- signed decoders (`atan2_signed`/`scaled_pi`/`delta`) reject `magnitude_only` except `atan2_signed` which stays legal in both modes via the `.abs()`
-path, and `acos_tanh` rejects `full_neural` (a generalized `validate_output_parameterization` + a model-level defense-in-depth guard in `data/mod.rs`; `atan2_signed` (the default decoder,
-`bank = atan2(out[0], out[1])`) additionally requires a 2-output last layer, validated load-time in both `validate_output_parameterization` (Rust) and `NetworkConfig.__post_init__` (Python) so a
+path, and `acos_tanh` rejects `full_neural` (a generalized `validate_output_parameterization` in `config.rs` + a model-level defense-in-depth guard in `data/mod.rs::build_neural_net`;
+`atan2_signed` (the default decoder, `bank = atan2(out[0], out[1])`) additionally requires a 2-output last layer, validated load-time in both `validate_output_parameterization` (Rust) and
+`NetworkConfig.__post_init__` (Python) so a
 misconfigured 1-output head fails at config load instead of index-OOB at runtime). The knobs are TOML-overridable onto the loaded model and embedded in the deployed `best_model.json` (self-describing)
 via the PSO `flat_weights_to_json` path. The three bank-history inputs are fed as seam-free `(sin,cos)` pairs (indices 25-30), plus `periapsis_alt` at index 31 and 3 live correction-DV inputs at
 indices 32-34; `NN_FULL_INPUT_SIZE = 35`. Warm-start is activated by EITHER a `[warm_start]` TOML block (flips `WarmStartConfig.enabled = True` via `from_dict`) OR the legacy

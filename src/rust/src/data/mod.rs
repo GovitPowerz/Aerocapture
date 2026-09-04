@@ -11,8 +11,9 @@ pub mod nn_state;
 pub mod pilot;
 
 use crate::config::{
-    GuidanceType, IntegrationMode, SimInput, SimPhase, TomlConfig, TomlLayerSpec, TomlMcDomain,
-    TomlMonteCarlo, TomlNavigation,
+    GuidanceType, IntegrationMode, SimInput, SimPhase, TomlAero, TomlAtmosphereOnboard, TomlConfig,
+    TomlEntry, TomlFlight, TomlFtcParams, TomlIncidence, TomlMcDomain, TomlMonteCarlo,
+    TomlNavigation, TomlPilot, TomlSuccess, TomlVehicle,
 };
 use crate::gnc::guidance::lateral::LateralParams;
 use crate::gnc::guidance::thermal_limiter::ThermalLimiterParams;
@@ -25,6 +26,21 @@ use std::sync::Arc;
 pub enum NavMode {
     Bias,
     Ekf,
+}
+
+impl NavMode {
+    /// Parse `[navigation] mode` (absent section = bias). Unknown strings
+    /// hard-error instead of silently running bias mode.
+    pub fn from_toml(nav: Option<&TomlNavigation>) -> Result<Self, String> {
+        match nav.map(|n| n.mode.as_str()) {
+            Some("ekf") => Ok(Self::Ekf),
+            Some("bias") | None => Ok(Self::Bias),
+            Some(other) => Err(format!(
+                "navigation.mode must be \"bias\" or \"ekf\" (got \"{}\")",
+                other
+            )),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -199,680 +215,69 @@ const DEG2RAD: f64 = std::f64::consts::PI / 180.0;
 impl SimData {
     /// Load simulation data from TOML config (inline data + external files).
     ///
-    /// Loads the three disk-backed tables (atmosphere, optional wind, reference
-    /// trajectory) then delegates to `from_toml_with_tables`. CLI + every existing
-    /// caller is unchanged.
+    /// Validates the config (no IO), loads the three disk-backed tables
+    /// (atmosphere, optional wind, reference trajectory), then delegates to
+    /// `from_toml_with_tables`. CLI + every existing caller is unchanged.
     pub fn from_toml(toml: &TomlConfig, config: &SimInput) -> Result<Self, DataError> {
+        crate::config::validate(toml).map_err(|e| DataError(e.0))?;
         let shared = SharedTables::from_toml(toml, config)?;
         Self::from_toml_with_tables(toml, config, &shared, None)
     }
 
     /// Build `SimData` from already-loaded shared tables, skipping the
     /// atmosphere/wind/reference-trajectory disk reads. `injected_nn`, when
-    /// `Some`, replaces the on-disk NN load (the `[network]` / `[guidance.neural_network]`
-    /// override + validation block below still applies, so an injected model is
-    /// treated identically to a loaded one).
+    /// `Some`, replaces the on-disk NN load (the `[network]` /
+    /// `[guidance.neural_network]` override + validation in `build_neural_net`
+    /// still applies, so an injected model is treated identically to a loaded one).
+    ///
+    /// Orchestration only: the post-override config is validated first (no IO),
+    /// then each section is built by a named builder. The IO left here is the
+    /// per-individual reference-trajectory reload (`resolve_reference_trajectory`)
+    /// and the NN file load in `build_neural_net` when no model is injected.
     pub fn from_toml_with_tables(
         toml: &TomlConfig,
         config: &SimInput,
         shared: &SharedTables,
         injected_nn: Option<neural::NeuralNetModel>,
     ) -> Result<Self, DataError> {
-        let v = toml
-            .vehicle
-            .as_ref()
-            .ok_or_else(|| DataError("Missing [vehicle] section".to_string()))?;
-        let e = toml
-            .entry
-            .as_ref()
-            .ok_or_else(|| DataError("Missing [entry] section".to_string()))?;
-        let f = toml
-            .flight
-            .as_ref()
-            .ok_or_else(|| DataError("Missing [flight] section".to_string()))?;
-        let a = toml
-            .aerodynamics
-            .as_ref()
-            .ok_or_else(|| DataError("Missing [aerodynamics] section".to_string()))?;
+        crate::config::validate(toml).map_err(|e| DataError(e.0))?;
+        let (v, e, f, a) = toml.inline_sections().map_err(|e| DataError(e.0))?;
 
-        // Vehicle / capsule
-        let capsule_data = capsule::Capsule {
-            mass: v.mass,
-            reference_area: v.reference_area,
-            cq: v.cq,
-            max_bank_rate: v.max_bank_rate * DEG2RAD,
-            periods: TimePeriods {
-                navigation: v.periods.navigation,
-                guidance: v.periods.guidance,
-                pilot: v.periods.pilot,
-                prediction: v.periods.prediction,
-                integration: v.periods.integration,
-                photo: v.periods.photo,
-            },
-        };
+        let capsule_data = build_capsule(v);
+        let pilot_data = build_pilot(&v.pilot)?;
+        let entry = build_entry(e);
+        let ref_trajectory = resolve_reference_trajectory(toml, config, shared)?;
+        let aero = build_aero(a);
+        let (constraints, final_conditions, target_orbit, parking_orbit) = build_flight(f);
+        let success = build_success(toml.success.as_ref());
+        let incidence_data = build_incidence(toml.incidence.as_ref());
+        let guidance = build_guidance_params(toml, ref_trajectory)?;
+        let atm_onboard =
+            build_onboard_atmosphere(toml.onboard_atmosphere.as_ref(), &shared.atmosphere);
 
-        // Pilot
-        let pilot_type = match v.pilot.model.as_str() {
-            "perfect" => pilot::PilotType::Perfect,
-            "first_order" => pilot::PilotType::FirstOrder,
-            "second_order" => pilot::PilotType::SecondOrder,
-            other => return Err(DataError(format!("Unknown pilot model: {}", other))),
-        };
-        let pilot_data = pilot::PilotModel {
-            pilot_type,
-            time_constant: v.pilot.time_constant,
-            damping: v.pilot.damping,
-            frequency: v.pilot.frequency,
-        };
-
-        // Entry conditions
-        let entry = EntryConditions {
-            state: SphericalState {
-                altitude: e.altitude * 1e3,
-                longitude: e.longitude * DEG2RAD,
-                latitude: e.latitude * DEG2RAD,
-                velocity: e.velocity,
-                flight_path: e.flight_path_angle * DEG2RAD,
-                azimuth: e.azimuth * DEG2RAD,
-            },
-            initial_date: e.initial_time,
-            initial_bank: e.initial_bank_angle * DEG2RAD,
-            initial_aoa: e.initial_aoa * DEG2RAD,
-        };
-
-        // Reference trajectory: reuse the shared table ONLY when this config asks
-        // for the same source it was loaded from. run_grid patches
-        // `data.reference_trajectory` per individual (joint ref_bank gene) —
-        // silently reusing the base table made the gene a no-op in training and
-        // validation while deploy/report evaluated against the winner's own table.
-        let desired_ref_path: Option<&String> = if config.reference_trajectory {
-            None
-        } else {
-            toml.data.reference_trajectory.as_ref()
-        };
-        let ref_trajectory: Arc<guidance_params::ReferenceTrajectory> =
-            if desired_ref_path == shared.ref_trajectory_path.as_ref() {
-                shared.ref_trajectory.clone()
-            } else {
-                match desired_ref_path {
-                    Some(path) => Arc::new(guidance_params::ReferenceTrajectory::load(path)?),
-                    None => Arc::new(guidance_params::ReferenceTrajectory::default()),
-                }
-            };
-
-        // Aerodynamics (body-axis Ca/Cn → stability-axis Cx/Cz)
-        let alfaeq = a.equilibrium_aoa * DEG2RAD;
-        let n_aero = a.points.len();
-        let mut aero_incidence = Vec::with_capacity(n_aero);
-        let mut cx_vec = Vec::with_capacity(n_aero);
-        let mut cz_vec = Vec::with_capacity(n_aero);
-        for pt in &a.points {
-            let alpha = pt.aoa * DEG2RAD;
-            let cx_i = pt.ca * alpha.cos() + pt.cn * alpha.sin();
-            let cz_i = -pt.ca * alpha.sin() + pt.cn * alpha.cos();
-            aero_incidence.push(alpha);
-            cx_vec.push(cx_i);
-            cz_vec.push(cz_i);
-        }
-        let nominal_cx = aerodynamics::interpolate(&aero_incidence, &cx_vec, alfaeq);
-        let nominal_cz = aerodynamics::interpolate(&aero_incidence, &cz_vec, alfaeq);
-        let nominal_finesse = if nominal_cx.abs() > 1e-30 {
-            nominal_cz / nominal_cx
-        } else {
-            0.0
-        };
-        let aero = aerodynamics::AeroTables {
-            equilibrium_aoa: alfaeq,
-            n_points: n_aero,
-            incidence: aero_incidence,
-            cx: cx_vec,
-            cz: cz_vec,
-            nominal_cx,
-            nominal_cz,
-            nominal_finesse,
-            ballistic_coeff: 0.0,
-        };
-
-        // Flight / mission
-        let constraints = Constraints {
-            max_heat_flux: f.constraints.max_heat_flux * 1e3,
-            max_load_factor: f.constraints.max_load_factor * G0,
-            max_dynamic_pressure: f.constraints.max_dynamic_pressure * 1e3,
-            max_heat_load: f.constraints.max_heat_load * 1e3, // kJ/m^2 -> J/m^2
-        };
-        let final_conditions = FinalConditions {
-            altitude: f.final_conditions.altitude * 1e3,
-            longitude: f.final_conditions.longitude * DEG2RAD,
-            latitude: f.final_conditions.latitude * DEG2RAD,
-            velocity: f.final_conditions.velocity,
-            flight_path: f.final_conditions.flight_path_angle * DEG2RAD,
-            azimuth: f.final_conditions.azimuth * DEG2RAD,
-            energy: f.final_conditions.energy * 1e6,
-            radial_vel: f.final_conditions.radial_velocity,
-        };
-        let target_orbit = OrbitalTarget {
-            apoapsis: f.target_orbit.apoapsis * 1e3,
-            periapsis: f.target_orbit.periapsis * 1e3,
-            semi_major_axis: f.target_orbit.semi_major_axis * 1e3,
-            eccentricity: f.target_orbit.eccentricity,
-            inclination: f.target_orbit.inclination * DEG2RAD,
-            raan: f.target_orbit.raan * DEG2RAD,
-        };
-        let parking_orbit = ParkingOrbit {
-            apoapsis: f.parking_orbit.apoapsis * 1e3,
-            periapsis: f.parking_orbit.periapsis * 1e3,
-        };
-
-        // Success criteria
-        let success = if let Some(ref s) = toml.success {
-            SuccessCriteria {
-                inclination_tol: s.inclination_tolerance * DEG2RAD,
-                velocity_tol: s.velocity_tolerance,
-                apoapsis_tol: s.apoapsis_tolerance * 1e3,
-                periapsis_tol: s.periapsis_tolerance * 1e3,
-            }
-        } else {
-            SuccessCriteria::default()
-        };
-
-        // Incidence profile
-        let incidence_data = if let Some(ref inc) = toml.incidence {
-            if inc.altitudes.len() != inc.angles.len() {
-                return Err(DataError(format!(
-                    "[incidence] altitudes ({}) and angles ({}) must have the same length",
-                    inc.altitudes.len(),
-                    inc.angles.len()
-                )));
-            }
-            let n = inc.altitudes.len();
-            incidence::IncidenceProfile {
-                n_points: n,
-                altitudes: inc.altitudes.iter().map(|a| a * 1e3).collect(),
-                incidences: inc.angles.iter().map(|a| a * DEG2RAD).collect(),
-            }
-        } else {
-            incidence::IncidenceProfile {
-                n_points: 0,
-                altitudes: vec![],
-                incidences: vec![],
-            }
-        };
-
-        // Per-scheme guidance params (with defaults if not in TOML)
-        let piecewise_constant_params = {
-            let pc = &toml.guidance.piecewise_constant;
-            let bank_angles_deg = pc.resolve_bank_angles_deg().map_err(DataError)?;
-            guidance_params::PiecewiseConstantParams {
-                bank_angles: bank_angles_deg.iter().map(|d| d.to_radians()).collect(),
-                energy_min: pc.energy_min * 1e6,
-                energy_max: pc.energy_max * 1e6,
-            }
-        };
-
-        let eq_glide_params = if let Some(ref p) = toml.guidance.equilibrium_glide {
-            guidance_params::EqGlideParams {
-                k_hdot_scale: p.k_hdot_scale,
-                v_ratio_threshold: p.v_ratio_threshold,
-                velocity_bias_high: p.velocity_bias_high,
-                velocity_bias_low: p.velocity_bias_low,
-                alt_bias_threshold: p.alt_bias_threshold,
-                cos_bank_min: p.cos_bank_min,
-                cos_bank_max: p.cos_bank_max,
-            }
-        } else {
-            guidance_params::EqGlideParams::default()
-        };
-
-        let energy_ctrl_params = if let Some(ref p) = toml.guidance.energy_controller {
-            guidance_params::EnergyCtrlParams {
-                gain: p.gain,
-                kp: p.kp,
-                kd: p.kd,
-            }
-        } else {
-            guidance_params::EnergyCtrlParams::default()
-        };
-
-        let pred_guid_params = if let Some(ref p) = toml.guidance.pred_guid {
-            guidance_params::PredGuidParams {
-                k_drag_high: p.k_drag_high,
-                k_drag_low: p.k_drag_low,
-                pdyn_threshold: p.pdyn_threshold,
-            }
-        } else {
-            guidance_params::PredGuidParams::default()
-        };
-
-        let fnpag_params = if let Some(ref p) = toml.guidance.fnpag {
-            guidance_params::FnpagParams {
-                energy_tol: p.energy_tol,
-                prediction_dt: p.prediction_dt,
-                bank_min_deg: p.bank_min_deg,
-                bank_max_high_deg: p.bank_max_high_deg,
-                bank_max_low_deg: p.bank_max_low_deg,
-                replan_period: p.replan_period,
-            }
-        } else {
-            guidance_params::FnpagParams::default()
-        };
-
-        // Navigation density filter params (live in [navigation], used by all schemes)
-        let nav_density_filter_gain = toml
-            .navigation
-            .as_ref()
-            .map_or(0.8, |n| n.density_filter_gain);
-        let nav_density_gain_max_delta = toml
-            .navigation
-            .as_ref()
-            .map_or(0.1, |n| n.density_gain_max_delta);
-
-        // Neural network guidance mode (full_neural | magnitude_only)
-        let neural_mode = match toml
-            .guidance
-            .neural_network
-            .as_ref()
-            .and_then(|nn| nn.mode.as_deref())
-        {
-            None | Some("full_neural") => guidance_params::NeuralNetMode::FullNeural,
-            Some("magnitude_only") => guidance_params::NeuralNetMode::MagnitudeOnly,
-            Some(other) => {
-                return Err(DataError(format!(
-                    "guidance.neural_network.mode must be \"full_neural\" or \"magnitude_only\" (got \"{}\")",
-                    other
-                )));
-            }
-        };
-
-        // Eval-only state-ablation control (paper R4/R5): default false.
-        let nn_reset_state_every_tick = toml
-            .guidance
-            .neural_network
-            .as_ref()
-            .and_then(|nn| nn.reset_state_every_tick)
-            .unwrap_or(false);
-
-        // Validate output_parameterization constraints.
-        let output_param_toml = toml
-            .guidance
-            .neural_network
-            .as_ref()
-            .and_then(|nn| nn.output_parameterization.as_deref());
-        validate_output_parameterization(
-            output_param_toml,
-            neural_mode,
-            toml.network
-                .as_ref()
-                .and_then(|n| n.architecture.as_deref()),
+        // The [network.normalization] override lives on SimData independently of
+        // whether an NN model is loaded: the supervised-collect path runs a
+        // teacher scheme (neural_net is None) but must still normalize the
+        // recorded trace with the SAME scales the deployed NN will use.
+        // Length-validated in `config::validate`.
+        let nn_normalization_override = toml.network.as_ref().and_then(|n| n.normalization.clone());
+        let neural_net = build_neural_net(
+            toml,
+            config,
+            injected_nn,
+            guidance.neural_mode,
+            nn_normalization_override.as_deref(),
         )?;
 
-        // FTC guidance params
-        let guidance = if let Some(ref ftc) = toml.guidance.ftc {
-            let energy_scale = 1e6;
-
-            guidance_params::GuidanceParams {
-                capture_damping: ftc.capture_damping,
-                capture_frequency: ftc.capture_frequency,
-                capture_pdyn_margin: ftc.capture_pdyn_margin,
-                altitude_damping: ftc.altitude_damping,
-                altitude_frequency: ftc.altitude_frequency * DEG2RAD,
-                exit_velocity_threshold: ftc.exit_velocity_threshold,
-                exit_pdyn_margin: ftc.exit_pdyn_margin,
-                exit_altitude_threshold: ftc.exit_altitude_threshold * 1e3,
-                exit_radial_vel_gain: ftc.exit_radial_vel_gain,
-                lateral: if let Some(ref lat) = toml.guidance.lateral {
-                    LateralParams {
-                        tau: lat.tau,
-                        threshold: lat.threshold * DEG2RAD,
-                        min_reversal_interval: lat.min_reversal_interval,
-                        lateral_activation: lat.lateral_activation * energy_scale,
-                        lateral_inhibition: lat.lateral_inhibition * energy_scale,
-                        max_reversals: lat.max_reversals,
-                    }
-                } else {
-                    LateralParams::default()
-                },
-                security_capture: ftc.security_capture,
-                security_exit: ftc.security_exit,
-                density_filter_gain: nav_density_filter_gain,
-                density_gain_max_delta: nav_density_gain_max_delta,
-                longi_activation: ftc.longi_activation * energy_scale,
-                longi_inhibition: ftc.longi_inhibition * energy_scale,
-                pdyn_min: ftc.pdyn_min,
-                pressure_coeff_base: ftc.pressure_coeff_base,
-                pressure_coeff_scale_height: ftc.pressure_coeff_scale_height,
-                gain_fade_start_km: ftc.gain_fade_start_km,
-                gain_fade_end_km: ftc.gain_fade_end_km,
-                ref_trajectory: ref_trajectory.clone(),
-                eq_glide: eq_glide_params.clone(),
-                energy_ctrl: energy_ctrl_params.clone(),
-                pred_guid: pred_guid_params.clone(),
-                fnpag: fnpag_params.clone(),
-                piecewise_constant: piecewise_constant_params.clone(),
-                thermal_limiter: if let Some(ref tl) = toml.guidance.thermal_limiter {
-                    ThermalLimiterParams {
-                        heat_flux_activation: tl.heat_flux_activation,
-                        heat_load_activation: tl.heat_load_activation,
-                        heat_flux_ramp_exponent: tl.heat_flux_ramp_exponent,
-                        heat_load_ramp_exponent: tl.heat_load_ramp_exponent,
-                    }
-                } else {
-                    ThermalLimiterParams::default()
-                },
-                command_shaping: match toml.guidance.command_shaping.as_ref() {
-                    Some(cs) if cs.enabled => {
-                        if cs.max_bank_acceleration <= 0.0 {
-                            return Err(DataError(format!(
-                                "command_shaping.max_bank_acceleration must be > 0 when enabled (got {})",
-                                cs.max_bank_acceleration
-                            )));
-                        }
-                        Some(guidance_params::CommandShapingConfig {
-                            max_bank_acceleration: cs.max_bank_acceleration.to_radians(),
-                        })
-                    }
-                    _ => None,
-                },
-                neural_mode,
-                nn_reset_state_every_tick,
-            }
-        } else {
-            // No FTC params — load from file if guidance suffix available, else defaults
-            guidance_params::GuidanceParams {
-                capture_damping: 0.7,
-                capture_frequency: 0.072,
-                capture_pdyn_margin: 1.75,
-                altitude_damping: 0.7,
-                altitude_frequency: 0.08 * DEG2RAD,
-                exit_velocity_threshold: 4400.0,
-                exit_pdyn_margin: 1.75,
-                exit_altitude_threshold: 60e3,
-                exit_radial_vel_gain: 10.0,
-                lateral: if let Some(ref lat) = toml.guidance.lateral {
-                    LateralParams {
-                        tau: lat.tau,
-                        threshold: lat.threshold * DEG2RAD,
-                        min_reversal_interval: lat.min_reversal_interval,
-                        lateral_activation: lat.lateral_activation * 1e6,
-                        lateral_inhibition: lat.lateral_inhibition * 1e6,
-                        max_reversals: lat.max_reversals,
-                    }
-                } else {
-                    // No lateral config — inactive by default (tau=0 disables)
-                    LateralParams::default()
-                },
-                security_capture: 1,
-                security_exit: 3,
-                density_filter_gain: nav_density_filter_gain,
-                density_gain_max_delta: nav_density_gain_max_delta,
-                longi_activation: 1e9,
-                longi_inhibition: -1e9,
-                pdyn_min: 0.0,
-                pressure_coeff_base: -134.4,
-                pressure_coeff_scale_height: 6.9,
-                gain_fade_start_km: 80.0,
-                gain_fade_end_km: 100.0,
-                ref_trajectory: ref_trajectory.clone(),
-                eq_glide: eq_glide_params,
-                energy_ctrl: energy_ctrl_params,
-                pred_guid: pred_guid_params,
-                fnpag: fnpag_params,
-                piecewise_constant: piecewise_constant_params,
-                thermal_limiter: if let Some(ref tl) = toml.guidance.thermal_limiter {
-                    ThermalLimiterParams {
-                        heat_flux_activation: tl.heat_flux_activation,
-                        heat_load_activation: tl.heat_load_activation,
-                        heat_flux_ramp_exponent: tl.heat_flux_ramp_exponent,
-                        heat_load_ramp_exponent: tl.heat_load_ramp_exponent,
-                    }
-                } else {
-                    ThermalLimiterParams::default()
-                },
-                command_shaping: match toml.guidance.command_shaping.as_ref() {
-                    Some(cs) if cs.enabled => {
-                        if cs.max_bank_acceleration <= 0.0 {
-                            return Err(DataError(format!(
-                                "command_shaping.max_bank_acceleration must be > 0 when enabled (got {})",
-                                cs.max_bank_acceleration
-                            )));
-                        }
-                        Some(guidance_params::CommandShapingConfig {
-                            max_bank_acceleration: cs.max_bank_acceleration.to_radians(),
-                        })
-                    }
-                    _ => None,
-                },
-                neural_mode,
-                nn_reset_state_every_tick,
-            }
-        };
-
-        // Onboard atmosphere model
-        let atm_onboard = match &toml.onboard_atmosphere {
-            Some(cfg) if cfg.mode.as_deref() == Some("identical") => {
-                atmosphere::OnboardAtmosphereModel::Identical
-            }
-            Some(cfg) if cfg.segments.is_some() => {
-                let segs = cfg.segments.as_ref().unwrap();
-                atmosphere::OnboardAtmosphereModel::PiecewiseExponential {
-                    segments: segs
-                        .iter()
-                        .map(|s| atmosphere::ExponentialSegment {
-                            alt_low: s.alt_low,
-                            alt_high: s.alt_high,
-                            rho_ref: s.rho_ref,
-                            scale_height: s.scale_height,
-                        })
-                        .collect(),
-                }
-            }
-            Some(cfg) => {
-                let n = cfg.n_segments.unwrap_or(5);
-                atmosphere::OnboardAtmosphereModel::fit_from_table(&shared.atmosphere, n)
-            }
-            None => {
-                // Default: auto-fit with 5 segments
-                atmosphere::OnboardAtmosphereModel::fit_from_table(&shared.atmosphere, 5)
-            }
-        };
-
-        // Neural network (external, optional) — injected model takes precedence.
-        let neural_net = match injected_nn {
-            Some(nn) => Some(nn),
-            None => {
-                if config.guidance_type == GuidanceType::NeuralNetwork {
-                    if let Some(ref nn_path) = toml.data.neural_network {
-                        Some(neural::NeuralNetModel::load(nn_path)?)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }
-        };
-
-        // NN guidance without a model would otherwise pass config load and
-        // panic at the first guidance step (inside a Rayon worker).
-        if config.guidance_type == GuidanceType::NeuralNetwork && neural_net.is_none() {
-            return Err(DataError(
-                "guidance.type = \"neural_network\" requires a model: set \
-                 [data] neural_network = \"<path>.json\" or inject one via the API"
-                    .to_string(),
-            ));
-        }
-
-        // Resolve the [network.normalization] override once, length-validated,
-        // independent of whether an NN model is loaded. The supervised-collect
-        // path runs a teacher scheme (neural_net is None) but must still apply
-        // this override to the recorded trace, so it lives on SimData directly.
-        let nn_normalization_override =
-            match toml.network.as_ref().and_then(|n| n.normalization.clone()) {
-                Some(norm) => {
-                    if norm.len() != neural::NN_FULL_INPUT_SIZE {
-                        return Err(DataError(format!(
-                            "[network.normalization] has {} entries, expected {}",
-                            norm.len(),
-                            neural::NN_FULL_INPUT_SIZE
-                        )));
-                    }
-                    Some(norm)
-                }
-                None => None,
-            };
-
-        // Apply TOML [network] overrides to loaded NN model
-        let mut neural_net = match (neural_net, &toml.network) {
-            (Some(mut nn), Some(net_cfg)) => {
-                if let Some(ref mask) = net_cfg.input_mask {
-                    nn.input_mask = Some(mask.clone());
-                }
-                if let Some(ablated) = net_cfg.ablated_input {
-                    nn.ablated_input = Some(ablated);
-                }
-                if let Some(ref norm) = nn_normalization_override {
-                    nn.normalization = norm.clone();
-                }
-                // Re-validate after override
-                neural::NeuralNetModel::validate_mask(&nn.input_mask, nn.layer_sizes[0])?;
-                neural::NeuralNetModel::validate_ablated_input(&nn.ablated_input)?;
-                Some(nn)
-            }
-            (nn, _) => nn,
-        };
-
-        // Apply TOML [guidance.neural_network] decoder-knob overrides onto the
-        // loaded model so the runtime honors the training-time knob even if the
-        // deployed JSON predates the field. Done before the immutable cross-check
-        // / defense-in-depth borrows below to satisfy the borrow checker.
-        if let Some(nn) = neural_net.as_mut()
-            && let Some(tnn) = &toml.guidance.neural_network
-        {
-            if let Some(n) = tnn.scaled_pi_n {
-                nn.scaled_pi_n = n;
-            }
-            if let Some(d) = tnn.delta_max {
-                nn.delta_max = d;
-            }
-        }
-
-        // Cross-check TOML `[guidance.neural_network] output_parameterization`
-        // against the loaded model's `output_param`. The TOML is a training-time
-        // knob; the JSON model file is the deploy-time source of truth. They MUST
-        // agree if both are set — silently ignoring a mismatched TOML would mean
-        // the user's intent is unrepresented at runtime.
-        if let (Some(nn), Some(tnn)) = (&neural_net, &toml.guidance.neural_network)
-            && let Some(toml_param) = &tnn.output_parameterization
-        {
-            let toml_enum = match toml_param.as_str() {
-                "atan2_signed" => neural::OutputParam::Atan2Signed,
-                "acos_tanh" => neural::OutputParam::AcosTanh,
-                "scaled_pi" => neural::OutputParam::ScaledPi,
-                "delta" => neural::OutputParam::Delta,
-                other => {
-                    return Err(DataError(format!(
-                        "[guidance.neural_network] output_parameterization='{}' is not recognized; \
-                         expected 'atan2_signed', 'acos_tanh', 'scaled_pi', or 'delta'",
-                        other
-                    )));
-                }
-            };
-            if nn.output_param != toml_enum {
-                return Err(DataError(format!(
-                    "TOML output_parameterization='{}' disagrees with the loaded model's \
-                     output_param={:?}. Either retrain the model with the TOML knob set to \
-                     '{}' before training (the trainer embeds it into best_model.json) or \
-                     align the TOML to match the model.",
-                    toml_param, nn.output_param, toml_param
-                )));
-            }
-        }
-
-        // Defense-in-depth: regardless of whether the TOML sets
-        // `output_parameterization`, an `acos_tanh` model emits a non-negative
-        // magnitude in `[0, π]`. Running it under `full_neural` mode would feed
-        // an unsigned magnitude through the signed-bank dispatch path, silently
-        // suppressing roll reversals. The deployed JSON is the runtime source
-        // of truth, so reject this combo at data load even when the TOML key
-        // is absent.
-        if let Some(nn) = &neural_net {
-            match nn.output_param {
-                neural::OutputParam::AcosTanh
-                    if neural_mode != guidance_params::NeuralNetMode::MagnitudeOnly =>
-                {
-                    return Err(DataError(
-                        "loaded model has output_param='acos_tanh' which requires \
-                         [guidance.neural_network] mode='magnitude_only'; the model emits an \
-                         unsigned bank magnitude and cannot drive the signed-bank dispatch path."
-                            .to_string(),
-                    ));
-                }
-                neural::OutputParam::ScaledPi | neural::OutputParam::Delta
-                    if neural_mode != guidance_params::NeuralNetMode::FullNeural =>
-                {
-                    return Err(DataError(format!(
-                        "loaded model output_param={:?} emits a signed bank and requires \
-                         [guidance.neural_network] mode='full_neural'.",
-                        nn.output_param
-                    )));
-                }
-                _ => {}
-            }
-        }
-
-        // Domain-based Monte Carlo config (replaces lottery files)
-        let dispersion_config = if let Some(ref mc) = toml.monte_carlo {
-            Some(build_dispersion_config(mc)?)
-        } else {
-            None
-        };
-
+        let dispersion_config = toml
+            .monte_carlo
+            .as_ref()
+            .map(build_dispersion_config)
+            .transpose()?;
         let density_perturbation = dispersion_config
             .as_ref()
             .and_then(|dc| dc.density_perturbation);
-
-        // Navigation mode. Unknown strings hard-error instead of silently
-        // running bias mode (same policy as dispersion levels / integration mode).
-        let nav_mode = match toml.navigation.as_ref().map(|n| n.mode.as_str()) {
-            Some("ekf") => NavMode::Ekf,
-            Some("bias") | None => NavMode::Bias,
-            Some(other) => {
-                return Err(DataError(format!(
-                    "navigation.mode must be \"bias\" or \"ekf\" (got \"{}\")",
-                    other
-                )));
-            }
-        };
-
-        // EKF sensor sigmas feed `Normal::new(0, sigma)` at SimState build;
-        // a negative/non-finite sigma would panic there. Validate at load.
-        if nav_mode == NavMode::Ekf
-            && let Some(nav) = toml.navigation.as_ref()
-        {
-            let mut sigmas: Vec<(&str, f64)> = Vec::new();
-            if let Some(ref imu) = nav.imu {
-                sigmas.extend([
-                    ("imu.accel_bias_sigma", imu.accel_bias_sigma),
-                    ("imu.accel_noise_sigma", imu.accel_noise_sigma),
-                    ("imu.accel_scale_factor_sigma", imu.accel_scale_factor_sigma),
-                    ("imu.gyro_bias_sigma", imu.gyro_bias_sigma),
-                    ("imu.gyro_noise_sigma", imu.gyro_noise_sigma),
-                ]);
-            }
-            if let Some(ref st) = nav.star_tracker {
-                sigmas.extend([
-                    ("star_tracker.position_sigma", st.position_sigma),
-                    ("star_tracker.attitude_sigma", st.attitude_sigma),
-                ]);
-            }
-            for (name, v) in sigmas {
-                if !v.is_finite() || v < 0.0 {
-                    return Err(DataError(format!(
-                        "navigation.{} must be finite and >= 0 (got {})",
-                        name, v
-                    )));
-                }
-            }
-        }
+        let nav_mode = NavMode::from_toml(toml.navigation.as_ref()).map_err(DataError)?;
 
         Ok(SimData {
             capsule: capsule_data,
@@ -902,7 +307,6 @@ impl SimData {
             nn_normalization_override,
         })
     }
-
     /// Generate the single dispersion draw the per-seed `run_batch` path would
     /// produce for `seed` (clone the dispersion config, reseed, take draw 0).
     /// Returns the default (zero) draw when no dispersion config is present.
@@ -920,6 +324,486 @@ impl SimData {
             None => dispersions::DispersionDraw::default(),
         }
     }
+}
+
+// ─── Section builders (called from `from_toml_with_tables` only) ───
+
+fn build_capsule(v: &TomlVehicle) -> capsule::Capsule {
+    capsule::Capsule {
+        mass: v.mass,
+        reference_area: v.reference_area,
+        cq: v.cq,
+        max_bank_rate: v.max_bank_rate * DEG2RAD,
+        periods: TimePeriods {
+            navigation: v.periods.navigation,
+            guidance: v.periods.guidance,
+            pilot: v.periods.pilot,
+            prediction: v.periods.prediction,
+            integration: v.periods.integration,
+            photo: v.periods.photo,
+        },
+    }
+}
+
+fn build_pilot(p: &TomlPilot) -> Result<pilot::PilotModel, DataError> {
+    Ok(pilot::PilotModel {
+        pilot_type: pilot::PilotType::parse(&p.model).map_err(DataError)?,
+        time_constant: p.time_constant,
+        damping: p.damping,
+        frequency: p.frequency,
+    })
+}
+
+fn build_entry(e: &TomlEntry) -> EntryConditions {
+    EntryConditions {
+        state: SphericalState {
+            altitude: e.altitude * 1e3,
+            longitude: e.longitude * DEG2RAD,
+            latitude: e.latitude * DEG2RAD,
+            velocity: e.velocity,
+            flight_path: e.flight_path_angle * DEG2RAD,
+            azimuth: e.azimuth * DEG2RAD,
+        },
+        initial_date: e.initial_time,
+        initial_bank: e.initial_bank_angle * DEG2RAD,
+        initial_aoa: e.initial_aoa * DEG2RAD,
+    }
+}
+
+/// Reference trajectory: reuse the shared table ONLY when this config asks
+/// for the same source it was loaded from. run_grid patches
+/// `data.reference_trajectory` per individual (joint ref_bank gene) —
+/// silently reusing the base table made the gene a no-op in training and
+/// validation while deploy/report evaluated against the winner's own table.
+fn resolve_reference_trajectory(
+    toml: &TomlConfig,
+    config: &SimInput,
+    shared: &SharedTables,
+) -> Result<Arc<guidance_params::ReferenceTrajectory>, DataError> {
+    let desired_ref_path: Option<&String> = if config.reference_trajectory {
+        None
+    } else {
+        toml.data.reference_trajectory.as_ref()
+    };
+    if desired_ref_path == shared.ref_trajectory_path.as_ref() {
+        return Ok(shared.ref_trajectory.clone());
+    }
+    Ok(match desired_ref_path {
+        Some(path) => Arc::new(guidance_params::ReferenceTrajectory::load(path)?),
+        None => Arc::new(guidance_params::ReferenceTrajectory::default()),
+    })
+}
+
+/// Aerodynamics (body-axis Ca/Cn → stability-axis Cx/Cz)
+fn build_aero(a: &TomlAero) -> aerodynamics::AeroTables {
+    let alfaeq = a.equilibrium_aoa * DEG2RAD;
+    let n_aero = a.points.len();
+    let mut aero_incidence = Vec::with_capacity(n_aero);
+    let mut cx_vec = Vec::with_capacity(n_aero);
+    let mut cz_vec = Vec::with_capacity(n_aero);
+    for pt in &a.points {
+        let alpha = pt.aoa * DEG2RAD;
+        let cx_i = pt.ca * alpha.cos() + pt.cn * alpha.sin();
+        let cz_i = -pt.ca * alpha.sin() + pt.cn * alpha.cos();
+        aero_incidence.push(alpha);
+        cx_vec.push(cx_i);
+        cz_vec.push(cz_i);
+    }
+    let nominal_cx = aerodynamics::interpolate(&aero_incidence, &cx_vec, alfaeq);
+    let nominal_cz = aerodynamics::interpolate(&aero_incidence, &cz_vec, alfaeq);
+    let nominal_finesse = if nominal_cx.abs() > 1e-30 {
+        nominal_cz / nominal_cx
+    } else {
+        0.0
+    };
+    aerodynamics::AeroTables {
+        equilibrium_aoa: alfaeq,
+        n_points: n_aero,
+        incidence: aero_incidence,
+        cx: cx_vec,
+        cz: cz_vec,
+        nominal_cx,
+        nominal_cz,
+        nominal_finesse,
+        ballistic_coeff: 0.0,
+    }
+}
+
+/// Flight / mission: constraints, final conditions, target + parking orbits (SI).
+fn build_flight(f: &TomlFlight) -> (Constraints, FinalConditions, OrbitalTarget, ParkingOrbit) {
+    let constraints = Constraints {
+        max_heat_flux: f.constraints.max_heat_flux * 1e3,
+        max_load_factor: f.constraints.max_load_factor * G0,
+        max_dynamic_pressure: f.constraints.max_dynamic_pressure * 1e3,
+        max_heat_load: f.constraints.max_heat_load * 1e3, // kJ/m^2 -> J/m^2
+    };
+    let final_conditions = FinalConditions {
+        altitude: f.final_conditions.altitude * 1e3,
+        longitude: f.final_conditions.longitude * DEG2RAD,
+        latitude: f.final_conditions.latitude * DEG2RAD,
+        velocity: f.final_conditions.velocity,
+        flight_path: f.final_conditions.flight_path_angle * DEG2RAD,
+        azimuth: f.final_conditions.azimuth * DEG2RAD,
+        energy: f.final_conditions.energy * 1e6,
+        radial_vel: f.final_conditions.radial_velocity,
+    };
+    let target_orbit = OrbitalTarget {
+        apoapsis: f.target_orbit.apoapsis * 1e3,
+        periapsis: f.target_orbit.periapsis * 1e3,
+        semi_major_axis: f.target_orbit.semi_major_axis * 1e3,
+        eccentricity: f.target_orbit.eccentricity,
+        inclination: f.target_orbit.inclination * DEG2RAD,
+        raan: f.target_orbit.raan * DEG2RAD,
+    };
+    let parking_orbit = ParkingOrbit {
+        apoapsis: f.parking_orbit.apoapsis * 1e3,
+        periapsis: f.parking_orbit.periapsis * 1e3,
+    };
+    (constraints, final_conditions, target_orbit, parking_orbit)
+}
+
+fn build_success(s: Option<&TomlSuccess>) -> SuccessCriteria {
+    s.map_or_else(SuccessCriteria::default, |s| SuccessCriteria {
+        inclination_tol: s.inclination_tolerance * DEG2RAD,
+        velocity_tol: s.velocity_tolerance,
+        apoapsis_tol: s.apoapsis_tolerance * 1e3,
+        periapsis_tol: s.periapsis_tolerance * 1e3,
+    })
+}
+
+/// Incidence profile (lengths already matched by `config::validate`).
+fn build_incidence(inc: Option<&TomlIncidence>) -> incidence::IncidenceProfile {
+    match inc {
+        Some(inc) => incidence::IncidenceProfile {
+            n_points: inc.altitudes.len(),
+            altitudes: inc.altitudes.iter().map(|a| a * 1e3).collect(),
+            incidences: inc.angles.iter().map(|a| a * DEG2RAD).collect(),
+        },
+        None => incidence::IncidenceProfile {
+            n_points: 0,
+            altitudes: vec![],
+            incidences: vec![],
+        },
+    }
+}
+
+/// FTC gains used when `[guidance.ftc]` is absent: every scheme still runs the
+/// shared exit-phase law and the security modes on them. TOML units; the
+/// builder converts them exactly as it converts a parsed section, so the
+/// resulting `GuidanceParams` are bit-identical to the historical literals
+/// (`legacy_ftc_defaults_match_historical_literals` pins them).
+fn legacy_ftc_defaults() -> TomlFtcParams {
+    TomlFtcParams {
+        capture_damping: 0.7,
+        capture_frequency: 0.072,
+        capture_pdyn_margin: 1.75,
+        altitude_damping: 0.7,
+        altitude_frequency: 0.08, // deg/s
+        exit_velocity_threshold: 4400.0,
+        exit_pdyn_margin: 1.75,
+        exit_altitude_threshold: 60.0, // km
+        exit_radial_vel_gain: 10.0,
+        security_capture: 1,
+        security_exit: 3,
+        longi_activation: 1000.0, // MJ/kg
+        longi_inhibition: -1000.0,
+        pdyn_min: 0.0,
+        pressure_coeff_base: -134.4,
+        pressure_coeff_scale_height: 6.9,
+        gain_fade_start_km: 80.0,
+        gain_fade_end_km: 100.0,
+    }
+}
+
+/// Guidance params for every scheme: FTC gains (parsed or legacy defaults),
+/// the shared lateral / thermal-limiter / command-shaping blocks, the
+/// per-scheme tunables, and the `[navigation]` density-filter gains.
+fn build_guidance_params(
+    toml: &TomlConfig,
+    ref_trajectory: Arc<guidance_params::ReferenceTrajectory>,
+) -> Result<guidance_params::GuidanceParams, DataError> {
+    let g = &toml.guidance;
+    let legacy;
+    let ftc: &TomlFtcParams = match &g.ftc {
+        Some(f) => f,
+        None => {
+            legacy = legacy_ftc_defaults();
+            &legacy
+        }
+    };
+    let nav = toml.navigation.as_ref();
+    let nn = g.neural_network.as_ref();
+    let bank_angles_deg = g
+        .piecewise_constant
+        .resolve_bank_angles_deg()
+        .map_err(DataError)?;
+
+    Ok(guidance_params::GuidanceParams {
+        capture_damping: ftc.capture_damping,
+        capture_frequency: ftc.capture_frequency,
+        capture_pdyn_margin: ftc.capture_pdyn_margin,
+        altitude_damping: ftc.altitude_damping,
+        altitude_frequency: ftc.altitude_frequency * DEG2RAD,
+        exit_velocity_threshold: ftc.exit_velocity_threshold,
+        exit_pdyn_margin: ftc.exit_pdyn_margin,
+        exit_altitude_threshold: ftc.exit_altitude_threshold * 1e3,
+        exit_radial_vel_gain: ftc.exit_radial_vel_gain,
+        lateral: g
+            .lateral
+            .as_ref()
+            .map_or_else(LateralParams::default, |lat| LateralParams {
+                tau: lat.tau,
+                threshold: lat.threshold * DEG2RAD,
+                min_reversal_interval: lat.min_reversal_interval,
+                lateral_activation: lat.lateral_activation * 1e6,
+                lateral_inhibition: lat.lateral_inhibition * 1e6,
+                max_reversals: lat.max_reversals,
+            }),
+        security_capture: ftc.security_capture,
+        security_exit: ftc.security_exit,
+        density_filter_gain: nav.map_or(0.8, |n| n.density_filter_gain),
+        density_gain_max_delta: nav.map_or(0.1, |n| n.density_gain_max_delta),
+        longi_activation: ftc.longi_activation * 1e6,
+        longi_inhibition: ftc.longi_inhibition * 1e6,
+        pdyn_min: ftc.pdyn_min,
+        pressure_coeff_base: ftc.pressure_coeff_base,
+        pressure_coeff_scale_height: ftc.pressure_coeff_scale_height,
+        gain_fade_start_km: ftc.gain_fade_start_km,
+        gain_fade_end_km: ftc.gain_fade_end_km,
+        ref_trajectory,
+        eq_glide: g.equilibrium_glide.as_ref().map_or_else(
+            guidance_params::EqGlideParams::default,
+            |p| guidance_params::EqGlideParams {
+                k_hdot_scale: p.k_hdot_scale,
+                v_ratio_threshold: p.v_ratio_threshold,
+                velocity_bias_high: p.velocity_bias_high,
+                velocity_bias_low: p.velocity_bias_low,
+                alt_bias_threshold: p.alt_bias_threshold,
+                cos_bank_min: p.cos_bank_min,
+                cos_bank_max: p.cos_bank_max,
+            },
+        ),
+        energy_ctrl: g.energy_controller.as_ref().map_or_else(
+            guidance_params::EnergyCtrlParams::default,
+            |p| guidance_params::EnergyCtrlParams {
+                gain: p.gain,
+                kp: p.kp,
+                kd: p.kd,
+            },
+        ),
+        pred_guid: g.pred_guid.as_ref().map_or_else(
+            guidance_params::PredGuidParams::default,
+            |p| guidance_params::PredGuidParams {
+                k_drag_high: p.k_drag_high,
+                k_drag_low: p.k_drag_low,
+                pdyn_threshold: p.pdyn_threshold,
+            },
+        ),
+        fnpag: g
+            .fnpag
+            .as_ref()
+            .map_or_else(guidance_params::FnpagParams::default, |p| {
+                guidance_params::FnpagParams {
+                    energy_tol: p.energy_tol,
+                    prediction_dt: p.prediction_dt,
+                    bank_min_deg: p.bank_min_deg,
+                    bank_max_high_deg: p.bank_max_high_deg,
+                    bank_max_low_deg: p.bank_max_low_deg,
+                    replan_period: p.replan_period,
+                }
+            }),
+        piecewise_constant: guidance_params::PiecewiseConstantParams {
+            bank_angles: bank_angles_deg.iter().map(|d| d.to_radians()).collect(),
+            energy_min: g.piecewise_constant.energy_min * 1e6,
+            energy_max: g.piecewise_constant.energy_max * 1e6,
+        },
+        thermal_limiter: g.thermal_limiter.as_ref().map_or_else(
+            ThermalLimiterParams::default,
+            |tl| ThermalLimiterParams {
+                heat_flux_activation: tl.heat_flux_activation,
+                heat_load_activation: tl.heat_load_activation,
+                heat_flux_ramp_exponent: tl.heat_flux_ramp_exponent,
+                heat_load_ramp_exponent: tl.heat_load_ramp_exponent,
+            },
+        ),
+        // `max_bank_acceleration > 0` is enforced by `config::validate`.
+        command_shaping: match g.command_shaping.as_ref() {
+            Some(cs) if cs.enabled => Some(guidance_params::CommandShapingConfig {
+                max_bank_acceleration: cs.max_bank_acceleration.to_radians(),
+            }),
+            _ => None,
+        },
+        neural_mode: guidance_params::NeuralNetMode::parse(nn.and_then(|n| n.mode.as_deref()))
+            .map_err(DataError)?,
+        // Eval-only state-ablation control (paper R4/R5): default false.
+        nn_reset_state_every_tick: nn.and_then(|n| n.reset_state_every_tick).unwrap_or(false),
+    })
+}
+
+/// Onboard atmosphere model: identical to truth, explicit exponential
+/// segments, or an N-segment fit of the truth table (default 5).
+fn build_onboard_atmosphere(
+    cfg: Option<&TomlAtmosphereOnboard>,
+    truth: &atmosphere::AtmosphereModel,
+) -> atmosphere::OnboardAtmosphereModel {
+    match cfg {
+        Some(cfg) if cfg.mode.as_deref() == Some("identical") => {
+            atmosphere::OnboardAtmosphereModel::Identical
+        }
+        Some(cfg) if cfg.segments.is_some() => {
+            let segs = cfg.segments.as_ref().unwrap();
+            atmosphere::OnboardAtmosphereModel::PiecewiseExponential {
+                segments: segs
+                    .iter()
+                    .map(|s| atmosphere::ExponentialSegment {
+                        alt_low: s.alt_low,
+                        alt_high: s.alt_high,
+                        rho_ref: s.rho_ref,
+                        scale_height: s.scale_height,
+                    })
+                    .collect(),
+            }
+        }
+        Some(cfg) => {
+            let n = cfg.n_segments.unwrap_or(5);
+            atmosphere::OnboardAtmosphereModel::fit_from_table(truth, n)
+        }
+        None => atmosphere::OnboardAtmosphereModel::fit_from_table(truth, 5),
+    }
+}
+
+/// Neural network (external, optional). An injected model takes precedence
+/// over the `[data] neural_network` file; either way the TOML `[network]` /
+/// `[guidance.neural_network]` overrides are applied and the model-dependent
+/// rules (mask width, decoder knob vs the model's `output_param`) checked.
+fn build_neural_net(
+    toml: &TomlConfig,
+    config: &SimInput,
+    injected_nn: Option<neural::NeuralNetModel>,
+    neural_mode: guidance_params::NeuralNetMode,
+    normalization_override: Option<&[neural::NormSpec]>,
+) -> Result<Option<neural::NeuralNetModel>, DataError> {
+    let neural_net = match injected_nn {
+        Some(nn) => Some(nn),
+        None if config.guidance_type == GuidanceType::NeuralNetwork => {
+            match &toml.data.neural_network {
+                Some(nn_path) => Some(neural::NeuralNetModel::load(nn_path)?),
+                None => None,
+            }
+        }
+        None => None,
+    };
+
+    // NN guidance without a model would otherwise pass config load and
+    // panic at the first guidance step (inside a Rayon worker).
+    if config.guidance_type == GuidanceType::NeuralNetwork && neural_net.is_none() {
+        return Err(DataError(
+            "guidance.type = \"neural_network\" requires a model: set \
+             [data] neural_network = \"<path>.json\" or inject one via the API"
+                .to_string(),
+        ));
+    }
+
+    // Apply TOML [network] overrides to loaded NN model
+    let mut neural_net = match (neural_net, &toml.network) {
+        (Some(mut nn), Some(net_cfg)) => {
+            if let Some(ref mask) = net_cfg.input_mask {
+                nn.input_mask = Some(mask.clone());
+            }
+            if let Some(ablated) = net_cfg.ablated_input {
+                nn.ablated_input = Some(ablated);
+            }
+            if let Some(norm) = normalization_override {
+                nn.normalization = norm.to_vec();
+            }
+            // Re-validate after override
+            neural::NeuralNetModel::validate_mask(&nn.input_mask, nn.layer_sizes[0])?;
+            neural::NeuralNetModel::validate_ablated_input(&nn.ablated_input)?;
+            Some(nn)
+        }
+        (nn, _) => nn,
+    };
+
+    // Apply TOML [guidance.neural_network] decoder-knob overrides onto the
+    // loaded model so the runtime honors the training-time knob even if the
+    // deployed JSON predates the field. Done before the immutable cross-check
+    // / defense-in-depth borrows below to satisfy the borrow checker.
+    if let Some(nn) = neural_net.as_mut()
+        && let Some(tnn) = &toml.guidance.neural_network
+    {
+        if let Some(n) = tnn.scaled_pi_n {
+            nn.scaled_pi_n = n;
+        }
+        if let Some(d) = tnn.delta_max {
+            nn.delta_max = d;
+        }
+    }
+
+    // Cross-check TOML `[guidance.neural_network] output_parameterization`
+    // against the loaded model's `output_param`. The TOML is a training-time
+    // knob; the JSON model file is the deploy-time source of truth. They MUST
+    // agree if both are set — silently ignoring a mismatched TOML would mean
+    // the user's intent is unrepresented at runtime.
+    if let (Some(nn), Some(tnn)) = (&neural_net, &toml.guidance.neural_network)
+        && let Some(toml_param) = &tnn.output_parameterization
+    {
+        let toml_enum = match toml_param.as_str() {
+            "atan2_signed" => neural::OutputParam::Atan2Signed,
+            "acos_tanh" => neural::OutputParam::AcosTanh,
+            "scaled_pi" => neural::OutputParam::ScaledPi,
+            "delta" => neural::OutputParam::Delta,
+            other => {
+                return Err(DataError(format!(
+                    "[guidance.neural_network] output_parameterization='{}' is not recognized; \
+                     expected 'atan2_signed', 'acos_tanh', 'scaled_pi', or 'delta'",
+                    other
+                )));
+            }
+        };
+        if nn.output_param != toml_enum {
+            return Err(DataError(format!(
+                "TOML output_parameterization='{}' disagrees with the loaded model's \
+                 output_param={:?}. Either retrain the model with the TOML knob set to \
+                 '{}' before training (the trainer embeds it into best_model.json) or \
+                 align the TOML to match the model.",
+                toml_param, nn.output_param, toml_param
+            )));
+        }
+    }
+
+    // Defense-in-depth: regardless of whether the TOML sets
+    // `output_parameterization`, an `acos_tanh` model emits a non-negative
+    // magnitude in `[0, π]`. Running it under `full_neural` mode would feed
+    // an unsigned magnitude through the signed-bank dispatch path, silently
+    // suppressing roll reversals. The deployed JSON is the runtime source
+    // of truth, so reject this combo at data load even when the TOML key
+    // is absent.
+    if let Some(nn) = &neural_net {
+        match nn.output_param {
+            neural::OutputParam::AcosTanh
+                if neural_mode != guidance_params::NeuralNetMode::MagnitudeOnly =>
+            {
+                return Err(DataError(
+                    "loaded model has output_param='acos_tanh' which requires \
+                     [guidance.neural_network] mode='magnitude_only'; the model emits an \
+                     unsigned bank magnitude and cannot drive the signed-bank dispatch path."
+                        .to_string(),
+                ));
+            }
+            neural::OutputParam::ScaledPi | neural::OutputParam::Delta
+                if neural_mode != guidance_params::NeuralNetMode::FullNeural =>
+            {
+                return Err(DataError(format!(
+                    "loaded model output_param={:?} emits a signed bank and requires \
+                     [guidance.neural_network] mode='full_neural'.",
+                    nn.output_param
+                )));
+            }
+            _ => {}
+        }
+    }
+
+    Ok(neural_net)
 }
 
 /// Disk-loaded tables shared (via `Arc`) across many `SimData` built from the
@@ -1032,7 +916,7 @@ fn resolve_domain<S>(
 }
 
 /// Build a DispersionConfig from TOML [monte_carlo] section.
-fn build_dispersion_config(
+pub(crate) fn build_dispersion_config(
     mc: &TomlMonteCarlo,
 ) -> Result<dispersions::DispersionConfig, DataError> {
     use dispersions::*;
@@ -1210,117 +1094,6 @@ fn build_dispersion_config(
         wind,
         density_perturbation,
     })
-}
-
-/// Validate `output_parameterization` against mode and architecture constraints.
-/// Extracted so tests can call it directly without a full `TomlConfig`.
-fn validate_output_parameterization(
-    output_param: Option<&str>,
-    neural_mode: guidance_params::NeuralNetMode,
-    architecture: Option<&[TomlLayerSpec]>,
-) -> Result<(), DataError> {
-    use guidance_params::NeuralNetMode::*;
-    let param = match output_param {
-        Some(p) => p,
-        None => return Ok(()),
-    };
-
-    // acos_tanh is a magnitude decoder; the new scaled_pi/delta are signed.
-    if param == "acos_tanh" && neural_mode != MagnitudeOnly {
-        return Err(DataError(
-            "output_parameterization='acos_tanh' is only legal with mode='magnitude_only' \
-             (it cannot emit signed bank); use 'atan2_signed' for full_neural mode"
-                .to_string(),
-        ));
-    }
-    // atan2_signed has no architecture constraint and is the historical default;
-    // only the new signed decoders need the full_neural assertion here.
-    if matches!(param, "scaled_pi" | "delta") && neural_mode != FullNeural {
-        return Err(DataError(format!(
-            "output_parameterization='{}' is only legal with mode='full_neural' \
-             (it emits a signed bank; magnitude_only expects an unsigned magnitude)",
-            param
-        )));
-    }
-
-    // atan2_signed is the default decoder (bank = atan2(out[0], out[1])): it
-    // indexes two outputs, so a v2 architecture whose last layer emits != 2
-    // would index-out-of-bounds at runtime. Enforce output_size == 2 here as a
-    // load-time defense-in-depth (the model-level `validate_output_size` covers
-    // a loaded JSON, but this catches a misconfigured TOML before any model is
-    // even loaded). v1 configs (architecture = None) are unaffected: the model
-    // loader enforces the width when the JSON is read.
-    if param == "atan2_signed" {
-        if let Some(arch) = architecture
-            && let Some(last) = arch.last()
-        {
-            let output_size = match last {
-                TomlLayerSpec::Dense { output_size, .. } => Some(*output_size),
-                _ => None,
-            };
-            if let Some(output_size) = output_size
-                && output_size != 2
-            {
-                return Err(DataError(format!(
-                    "output_parameterization='atan2_signed' requires last layer \
-                     output_size=2 (bank = atan2(out[0], out[1])), got {output_size}"
-                )));
-            }
-        }
-        return Ok(());
-    }
-
-    // Single-output tanh-head decoders share the architecture constraints.
-    let needs_single_tanh = matches!(param, "acos_tanh" | "scaled_pi" | "delta");
-    if !needs_single_tanh {
-        return Ok(());
-    }
-
-    let arch = architecture.ok_or_else(|| {
-        DataError(format!(
-            "output_parameterization='{}' requires v2 [[network.architecture]] entries; \
-             v1 layer_sizes/activations is not supported. Convert your config to use \
-             [[network.architecture]] with last-layer output_size=1, activation='tanh'.",
-            param
-        ))
-    })?;
-    {
-        let last = arch.last().ok_or_else(|| {
-            DataError(format!(
-                "output_parameterization='{}' requires [[network.architecture]] entries",
-                param
-            ))
-        })?;
-        match last {
-            TomlLayerSpec::Dense {
-                output_size,
-                activation,
-                ..
-            } => {
-                if *output_size != 1 {
-                    return Err(DataError(format!(
-                        "output_parameterization='{}' requires last layer \
-                         output_size=1, got {output_size}",
-                        param
-                    )));
-                }
-                if activation.as_str() != "tanh" {
-                    return Err(DataError(format!(
-                        "output_parameterization='{}' requires last-layer \
-                         activation='tanh', got {:?}",
-                        param, activation
-                    )));
-                }
-            }
-            _ => {
-                return Err(DataError(format!(
-                    "output_parameterization='{}' requires last layer to be dense",
-                    param
-                )));
-            }
-        }
-    }
-    Ok(())
 }
 
 /// Lines whose first whitespace-delimited token parses as f64 are data lines.
@@ -1514,6 +1287,48 @@ scale_max = 1.0
     }
 
     #[test]
+    fn legacy_ftc_defaults_match_historical_literals() {
+        // Configs without [guidance.ftc] used to hit a hand-written default
+        // branch; `legacy_ftc_defaults()` now feeds the same builder as a parsed
+        // section. Pin the converted values to the historical literals so the
+        // dedupe stays bit-identical (five of the six guidance goldens run on it).
+        use std::path::Path;
+
+        let repo_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("canonicalize repo root");
+        std::env::set_current_dir(&repo_root).expect("set cwd to repo root");
+        let cfg_path = Path::new("configs/test/test_eqglide_golden.toml");
+        let (sim_input, toml_config) = SimInput::from_toml_file(cfg_path).expect("load");
+        assert!(
+            toml_config.guidance.ftc.is_none(),
+            "fixture must lack [guidance.ftc]"
+        );
+        let g = SimData::from_toml(&toml_config, &sim_input)
+            .expect("data")
+            .guidance;
+        assert_eq!(g.capture_damping, 0.7);
+        assert_eq!(g.capture_frequency, 0.072);
+        assert_eq!(g.capture_pdyn_margin, 1.75);
+        assert_eq!(g.altitude_damping, 0.7);
+        assert_eq!(g.altitude_frequency, 0.08 * DEG2RAD);
+        assert_eq!(g.exit_velocity_threshold, 4400.0);
+        assert_eq!(g.exit_pdyn_margin, 1.75);
+        assert_eq!(g.exit_altitude_threshold, 60e3);
+        assert_eq!(g.exit_radial_vel_gain, 10.0);
+        assert_eq!(g.security_capture, 1);
+        assert_eq!(g.security_exit, 3);
+        assert_eq!(g.longi_activation, 1e9);
+        assert_eq!(g.longi_inhibition, -1e9);
+        assert_eq!(g.pdyn_min, 0.0);
+        assert_eq!(g.pressure_coeff_base, -134.4);
+        assert_eq!(g.pressure_coeff_scale_height, 6.9);
+        assert_eq!(g.gain_fade_start_km, 80.0);
+        assert_eq!(g.gain_fade_end_km, 100.0);
+    }
+
+    #[test]
     fn parse_data_file_skips_comments() {
         let dir = temp_dir("skips_comments");
         let path = write_temp_file(
@@ -1670,247 +1485,6 @@ scale_max = 1.0
             d_other.guidance.ref_trajectory.n_points, other.n_points,
             "per-individual data.reference_trajectory override was silently ignored"
         );
-    }
-
-    // ─── output_parameterization validation tests ───
-
-    fn valid_arch_1out_tanh() -> Vec<TomlLayerSpec> {
-        vec![
-            TomlLayerSpec::Dense {
-                input_size: 16,
-                output_size: 32,
-                activation: "tanh".to_string(),
-            },
-            TomlLayerSpec::Dense {
-                input_size: 32,
-                output_size: 1,
-                activation: "tanh".to_string(),
-            },
-        ]
-    }
-
-    #[test]
-    fn acos_tanh_with_full_neural_mode_rejects() {
-        let arch = valid_arch_1out_tanh();
-        let err = validate_output_parameterization(
-            Some("acos_tanh"),
-            guidance_params::NeuralNetMode::FullNeural,
-            Some(&arch),
-        )
-        .unwrap_err();
-        assert!(
-            err.0.contains("acos_tanh") && err.0.contains("magnitude_only"),
-            "error should mention acos_tanh and magnitude_only, got: {}",
-            err.0
-        );
-    }
-
-    #[test]
-    fn acos_tanh_with_output_size_2_rejects() {
-        let arch = vec![TomlLayerSpec::Dense {
-            input_size: 16,
-            output_size: 2,
-            activation: "tanh".to_string(),
-        }];
-        let err = validate_output_parameterization(
-            Some("acos_tanh"),
-            guidance_params::NeuralNetMode::MagnitudeOnly,
-            Some(&arch),
-        )
-        .unwrap_err();
-        assert!(
-            err.0.contains("output_size=1"),
-            "error should mention output_size=1, got: {}",
-            err.0
-        );
-    }
-
-    #[test]
-    fn acos_tanh_with_wrong_activation_rejects() {
-        let arch = vec![TomlLayerSpec::Dense {
-            input_size: 16,
-            output_size: 1,
-            activation: "asinh".to_string(),
-        }];
-        let err = validate_output_parameterization(
-            Some("acos_tanh"),
-            guidance_params::NeuralNetMode::MagnitudeOnly,
-            Some(&arch),
-        )
-        .unwrap_err();
-        assert!(
-            err.0.contains("tanh"),
-            "error should mention tanh, got: {}",
-            err.0
-        );
-    }
-
-    #[test]
-    fn acos_tanh_with_valid_config_accepts() {
-        let arch = valid_arch_1out_tanh();
-        validate_output_parameterization(
-            Some("acos_tanh"),
-            guidance_params::NeuralNetMode::MagnitudeOnly,
-            Some(&arch),
-        )
-        .expect("valid acos_tanh config should pass validation");
-    }
-
-    #[test]
-    fn no_output_parameterization_always_accepts() {
-        // None always passes regardless of mode or architecture.
-        validate_output_parameterization(None, guidance_params::NeuralNetMode::FullNeural, None)
-            .expect("None output_param should always be valid");
-    }
-
-    #[test]
-    fn acos_tanh_with_v1_architecture_is_rejected() {
-        // v1 path (architecture=None) used to silently accept acos_tanh,
-        // which combined with the JSON-load NaN bug produced silent runtime
-        // NaN trajectories. Now must error with a clear remediation message.
-        let err = validate_output_parameterization(
-            Some("acos_tanh"),
-            guidance_params::NeuralNetMode::MagnitudeOnly,
-            None,
-        )
-        .expect_err("acos_tanh + v1 architecture should be rejected");
-        let msg = format!("{:?}", err);
-        assert!(msg.contains("v2"), "expected v2 hint, got: {}", msg);
-        assert!(
-            msg.contains("[[network.architecture]]"),
-            "expected architecture hint, got: {}",
-            msg
-        );
-    }
-
-    fn two_output_linear_arch() -> Vec<TomlLayerSpec> {
-        vec![
-            TomlLayerSpec::Dense {
-                input_size: 16,
-                output_size: 32,
-                activation: "tanh".to_string(),
-            },
-            TomlLayerSpec::Dense {
-                input_size: 32,
-                output_size: 2,
-                activation: "linear".to_string(),
-            },
-        ]
-    }
-
-    #[test]
-    fn atan2_signed_with_two_output_head_accepts() {
-        validate_output_parameterization(
-            Some("atan2_signed"),
-            guidance_params::NeuralNetMode::FullNeural,
-            Some(&two_output_linear_arch()),
-        )
-        .expect("atan2_signed with a 2-output head should pass validation");
-    }
-
-    #[test]
-    fn atan2_signed_with_one_output_head_rejects() {
-        // bank = atan2(out[0], out[1]) indexes two outputs; a 1-output head
-        // would index-out-of-bounds at runtime.
-        let err = validate_output_parameterization(
-            Some("atan2_signed"),
-            guidance_params::NeuralNetMode::FullNeural,
-            Some(&one_output_tanh_arch()),
-        )
-        .unwrap_err();
-        assert!(
-            err.0.contains("output_size=2") && err.0.contains("atan2_signed"),
-            "error should mention output_size=2 and atan2_signed, got: {}",
-            err.0
-        );
-    }
-
-    #[test]
-    fn atan2_signed_with_v1_architecture_accepts() {
-        // atan2_signed is the historical default; v1 (architecture=None) configs
-        // must stay legal (the model loader enforces output_size=2 at JSON read).
-        validate_output_parameterization(
-            Some("atan2_signed"),
-            guidance_params::NeuralNetMode::FullNeural,
-            None,
-        )
-        .expect("atan2_signed + v1 architecture should pass (model loader enforces width)");
-    }
-
-    fn one_output_tanh_arch() -> Vec<TomlLayerSpec> {
-        valid_arch_1out_tanh()
-    }
-
-    fn one_output_linear_arch() -> Vec<TomlLayerSpec> {
-        vec![
-            TomlLayerSpec::Dense {
-                input_size: 16,
-                output_size: 32,
-                activation: "tanh".to_string(),
-            },
-            TomlLayerSpec::Dense {
-                input_size: 32,
-                output_size: 1,
-                activation: "linear".to_string(),
-            },
-        ]
-    }
-
-    #[test]
-    fn scaled_pi_with_magnitude_only_rejects() {
-        let err = validate_output_parameterization(
-            Some("scaled_pi"),
-            guidance_params::NeuralNetMode::MagnitudeOnly,
-            Some(&one_output_tanh_arch()),
-        )
-        .unwrap_err();
-        assert!(err.0.contains("scaled_pi") && err.0.contains("full_neural"));
-    }
-
-    #[test]
-    fn delta_with_magnitude_only_rejects() {
-        let err = validate_output_parameterization(
-            Some("delta"),
-            guidance_params::NeuralNetMode::MagnitudeOnly,
-            Some(&one_output_tanh_arch()),
-        )
-        .unwrap_err();
-        assert!(err.0.contains("delta") && err.0.contains("full_neural"));
-    }
-
-    #[test]
-    fn delta_with_full_neural_and_tanh_accepts() {
-        assert!(
-            validate_output_parameterization(
-                Some("delta"),
-                guidance_params::NeuralNetMode::FullNeural,
-                Some(&one_output_tanh_arch()),
-            )
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn scaled_pi_with_full_neural_and_tanh_accepts() {
-        assert!(
-            validate_output_parameterization(
-                Some("scaled_pi"),
-                guidance_params::NeuralNetMode::FullNeural,
-                Some(&one_output_tanh_arch()),
-            )
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn scaled_pi_with_linear_last_activation_rejects() {
-        let err = validate_output_parameterization(
-            Some("scaled_pi"),
-            guidance_params::NeuralNetMode::FullNeural,
-            Some(&one_output_linear_arch()),
-        )
-        .unwrap_err();
-        assert!(err.0.contains("tanh") || err.0.contains("activation"));
     }
 
     // ─── custom-key-under-non-custom-level validation tests ───

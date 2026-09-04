@@ -7,6 +7,18 @@ pub enum PilotType {
     SecondOrder, // natpil = 2
 }
 
+impl PilotType {
+    /// Parse the `[vehicle.pilot] model` string.
+    pub fn parse(model: &str) -> Result<Self, String> {
+        match model {
+            "perfect" => Ok(Self::Perfect),
+            "first_order" => Ok(Self::FirstOrder),
+            "second_order" => Ok(Self::SecondOrder),
+            other => Err(format!("Unknown pilot model: {}", other)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct PilotModel {
     pub pilot_type: PilotType,

@@ -918,3 +918,352 @@ fn defaults_command_shaping_enabled() {
     let cs: TomlCommandShapingParams = toml::from_str("max_bank_acceleration = 5.0").unwrap();
     assert!(cs.enabled);
 }
+
+use crate::data::guidance_params;
+
+// ─── output_parameterization validation tests ───
+
+fn valid_arch_1out_tanh() -> Vec<TomlLayerSpec> {
+    vec![
+        TomlLayerSpec::Dense {
+            input_size: 16,
+            output_size: 32,
+            activation: "tanh".to_string(),
+        },
+        TomlLayerSpec::Dense {
+            input_size: 32,
+            output_size: 1,
+            activation: "tanh".to_string(),
+        },
+    ]
+}
+
+#[test]
+fn acos_tanh_with_full_neural_mode_rejects() {
+    let arch = valid_arch_1out_tanh();
+    let err = validate_output_parameterization(
+        Some("acos_tanh"),
+        guidance_params::NeuralNetMode::FullNeural,
+        Some(&arch),
+    )
+    .unwrap_err();
+    assert!(
+        err.0.contains("acos_tanh") && err.0.contains("magnitude_only"),
+        "error should mention acos_tanh and magnitude_only, got: {}",
+        err.0
+    );
+}
+
+#[test]
+fn acos_tanh_with_output_size_2_rejects() {
+    let arch = vec![TomlLayerSpec::Dense {
+        input_size: 16,
+        output_size: 2,
+        activation: "tanh".to_string(),
+    }];
+    let err = validate_output_parameterization(
+        Some("acos_tanh"),
+        guidance_params::NeuralNetMode::MagnitudeOnly,
+        Some(&arch),
+    )
+    .unwrap_err();
+    assert!(
+        err.0.contains("output_size=1"),
+        "error should mention output_size=1, got: {}",
+        err.0
+    );
+}
+
+#[test]
+fn acos_tanh_with_wrong_activation_rejects() {
+    let arch = vec![TomlLayerSpec::Dense {
+        input_size: 16,
+        output_size: 1,
+        activation: "asinh".to_string(),
+    }];
+    let err = validate_output_parameterization(
+        Some("acos_tanh"),
+        guidance_params::NeuralNetMode::MagnitudeOnly,
+        Some(&arch),
+    )
+    .unwrap_err();
+    assert!(
+        err.0.contains("tanh"),
+        "error should mention tanh, got: {}",
+        err.0
+    );
+}
+
+#[test]
+fn acos_tanh_with_valid_config_accepts() {
+    let arch = valid_arch_1out_tanh();
+    validate_output_parameterization(
+        Some("acos_tanh"),
+        guidance_params::NeuralNetMode::MagnitudeOnly,
+        Some(&arch),
+    )
+    .expect("valid acos_tanh config should pass validation");
+}
+
+#[test]
+fn no_output_parameterization_always_accepts() {
+    // None always passes regardless of mode or architecture.
+    validate_output_parameterization(None, guidance_params::NeuralNetMode::FullNeural, None)
+        .expect("None output_param should always be valid");
+}
+
+#[test]
+fn acos_tanh_with_v1_architecture_is_rejected() {
+    // v1 path (architecture=None) used to silently accept acos_tanh,
+    // which combined with the JSON-load NaN bug produced silent runtime
+    // NaN trajectories. Now must error with a clear remediation message.
+    let err = validate_output_parameterization(
+        Some("acos_tanh"),
+        guidance_params::NeuralNetMode::MagnitudeOnly,
+        None,
+    )
+    .expect_err("acos_tanh + v1 architecture should be rejected");
+    let msg = format!("{:?}", err);
+    assert!(msg.contains("v2"), "expected v2 hint, got: {}", msg);
+    assert!(
+        msg.contains("[[network.architecture]]"),
+        "expected architecture hint, got: {}",
+        msg
+    );
+}
+
+fn two_output_linear_arch() -> Vec<TomlLayerSpec> {
+    vec![
+        TomlLayerSpec::Dense {
+            input_size: 16,
+            output_size: 32,
+            activation: "tanh".to_string(),
+        },
+        TomlLayerSpec::Dense {
+            input_size: 32,
+            output_size: 2,
+            activation: "linear".to_string(),
+        },
+    ]
+}
+
+#[test]
+fn atan2_signed_with_two_output_head_accepts() {
+    validate_output_parameterization(
+        Some("atan2_signed"),
+        guidance_params::NeuralNetMode::FullNeural,
+        Some(&two_output_linear_arch()),
+    )
+    .expect("atan2_signed with a 2-output head should pass validation");
+}
+
+#[test]
+fn atan2_signed_with_one_output_head_rejects() {
+    // bank = atan2(out[0], out[1]) indexes two outputs; a 1-output head
+    // would index-out-of-bounds at runtime.
+    let err = validate_output_parameterization(
+        Some("atan2_signed"),
+        guidance_params::NeuralNetMode::FullNeural,
+        Some(&one_output_tanh_arch()),
+    )
+    .unwrap_err();
+    assert!(
+        err.0.contains("output_size=2") && err.0.contains("atan2_signed"),
+        "error should mention output_size=2 and atan2_signed, got: {}",
+        err.0
+    );
+}
+
+#[test]
+fn atan2_signed_with_v1_architecture_accepts() {
+    // atan2_signed is the historical default; v1 (architecture=None) configs
+    // must stay legal (the model loader enforces output_size=2 at JSON read).
+    validate_output_parameterization(
+        Some("atan2_signed"),
+        guidance_params::NeuralNetMode::FullNeural,
+        None,
+    )
+    .expect("atan2_signed + v1 architecture should pass (model loader enforces width)");
+}
+
+fn one_output_tanh_arch() -> Vec<TomlLayerSpec> {
+    valid_arch_1out_tanh()
+}
+
+fn one_output_linear_arch() -> Vec<TomlLayerSpec> {
+    vec![
+        TomlLayerSpec::Dense {
+            input_size: 16,
+            output_size: 32,
+            activation: "tanh".to_string(),
+        },
+        TomlLayerSpec::Dense {
+            input_size: 32,
+            output_size: 1,
+            activation: "linear".to_string(),
+        },
+    ]
+}
+
+#[test]
+fn scaled_pi_with_magnitude_only_rejects() {
+    let err = validate_output_parameterization(
+        Some("scaled_pi"),
+        guidance_params::NeuralNetMode::MagnitudeOnly,
+        Some(&one_output_tanh_arch()),
+    )
+    .unwrap_err();
+    assert!(err.0.contains("scaled_pi") && err.0.contains("full_neural"));
+}
+
+#[test]
+fn delta_with_magnitude_only_rejects() {
+    let err = validate_output_parameterization(
+        Some("delta"),
+        guidance_params::NeuralNetMode::MagnitudeOnly,
+        Some(&one_output_tanh_arch()),
+    )
+    .unwrap_err();
+    assert!(err.0.contains("delta") && err.0.contains("full_neural"));
+}
+
+#[test]
+fn delta_with_full_neural_and_tanh_accepts() {
+    assert!(
+        validate_output_parameterization(
+            Some("delta"),
+            guidance_params::NeuralNetMode::FullNeural,
+            Some(&one_output_tanh_arch()),
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn scaled_pi_with_full_neural_and_tanh_accepts() {
+    assert!(
+        validate_output_parameterization(
+            Some("scaled_pi"),
+            guidance_params::NeuralNetMode::FullNeural,
+            Some(&one_output_tanh_arch()),
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn scaled_pi_with_linear_last_activation_rejects() {
+    let err = validate_output_parameterization(
+        Some("scaled_pi"),
+        guidance_params::NeuralNetMode::FullNeural,
+        Some(&one_output_linear_arch()),
+    )
+    .unwrap_err();
+    assert!(err.0.contains("tanh") || err.0.contains("activation"));
+}
+
+// ─── validate(): the no-IO pass ───
+
+fn load_guided_orig() -> TomlConfig {
+    let repo_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("canonicalize repo root");
+    let path = repo_root.join("configs/test/test_guided_orig.toml");
+    SimInput::from_toml_file(&path).expect("load fixture").1
+}
+
+#[test]
+fn validate_needs_no_filesystem() {
+    // Every data path retargeted at a file that does not exist: validate() must
+    // still pass because it reads no table (SharedTables / build_neural_net do).
+    let mut toml = load_guided_orig();
+    toml.data.atmosphere = Some("/nonexistent/atm.dat".into());
+    toml.data.wind_table = Some("/nonexistent/wind.dat".into());
+    toml.data.reference_trajectory = Some("/nonexistent/ref.dat".into());
+    toml.data.neural_network = Some("/nonexistent/nn.json".into());
+    validate(&toml).expect("validate must not touch the filesystem");
+}
+
+#[test]
+fn validate_rejects_each_no_io_rule() {
+    // One fault per config; each error must name the offending key.
+    fn rejects(toml: &TomlConfig, needle: &str) {
+        let msg = validate(toml).expect_err(needle).0;
+        assert!(msg.contains(needle), "expected {needle:?} in: {msg}");
+    }
+
+    let mut toml = load_guided_orig();
+    toml.guidance.guidance_type = "ftcc".into();
+    rejects(&toml, "Unknown guidance type");
+
+    let mut toml = load_guided_orig();
+    toml.vehicle = None;
+    rejects(&toml, "Missing [vehicle] section");
+
+    let mut toml = load_guided_orig();
+    toml.vehicle.as_mut().unwrap().pilot.model = "autopilot".into();
+    rejects(&toml, "Unknown pilot model");
+
+    let mut toml = load_guided_orig();
+    toml.incidence = Some(TomlIncidence {
+        altitudes: vec![0.0, 10.0],
+        angles: vec![-27.5],
+    });
+    rejects(&toml, "[incidence]");
+
+    let mut toml = load_guided_orig();
+    toml.guidance.piecewise_constant.n_segments = Some(3);
+    toml.guidance.piecewise_constant.bank_angles = Some(vec![60.0, 70.0]);
+    rejects(&toml, "piecewise_constant: n_segments=3");
+
+    let mut toml = load_guided_orig();
+    toml.guidance.neural_network = Some(TomlNeuralNetworkParams {
+        mode: Some("half".into()),
+        ..Default::default()
+    });
+    rejects(&toml, "guidance.neural_network.mode");
+
+    let mut toml = load_guided_orig();
+    toml.guidance.command_shaping = Some(TomlCommandShapingParams {
+        enabled: true,
+        max_bank_acceleration: 0.0,
+    });
+    rejects(&toml, "command_shaping.max_bank_acceleration");
+
+    let mut toml = load_guided_orig();
+    toml.network = Some(TomlNetwork {
+        normalization: Some(vec![]),
+        ..Default::default()
+    });
+    rejects(&toml, "[network.normalization]");
+
+    let mut toml = load_guided_orig();
+    toml.monte_carlo = Some(toml::from_str("seed = 0\n[initial_state]\nlevel = \"of\"\n").unwrap());
+    rejects(&toml, "of");
+
+    let mut toml = load_guided_orig();
+    toml.navigation = Some(TomlNavigation {
+        mode: "EKF".into(),
+        ..Default::default()
+    });
+    rejects(&toml, "navigation.mode");
+
+    let mut toml = load_guided_orig();
+    toml.navigation = Some(TomlNavigation {
+        mode: "ekf".into(),
+        star_tracker: Some(toml::from_str("position_sigma = -1.0\n").unwrap()),
+        ..Default::default()
+    });
+    rejects(&toml, "navigation.star_tracker.position_sigma");
+
+    let mut toml = load_guided_orig();
+    toml.integration = Some(TomlIntegration {
+        mode: "rk45".into(),
+        rtol: None,
+        initial_dt: None,
+        min_dt: None,
+        max_dt: None,
+    });
+    rejects(&toml, "unknown integration mode");
+}

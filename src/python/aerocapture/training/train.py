@@ -1699,7 +1699,7 @@ def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dic
     #     wrap_to_pi(n*pi*tanh) and wrap_to_pi(prev_realized + delta_max*tanh)
     #     respectively (both hard-required to be full_neural by the Rust runtime).
     # acos_tanh + full_neural is REJECTED here because the Rust runtime
-    # (src/rust/src/data/mod.rs::validate_output_parameterization) hard-errors
+    # (src/rust/src/config.rs::validate_output_parameterization) hard-errors
     # at config load: "output_parameterization=acos_tanh is only legal with
     # mode=magnitude_only". Catching it before warm-start compute saves the
     # ~10 minutes of supervised collection + BPTT pretrain that would
@@ -1725,6 +1725,17 @@ def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dic
                 f"(magnitude_only, acos_tanh) and (full_neural, {{atan2_signed, scaled_pi, delta}}). "
                 f"Training will still run, but the supervised target and runtime decoder may be suboptimal."
             )
+
+    # Rust-side config rules (the same `config::validate` pass every SimData
+    # build runs, no table IO): fail here, before any seed pool or warm-start
+    # compute, instead of at the gen-0 run_grid. Soft-import guarded -- CI's
+    # pure-Python job has no extension and keeps the Python mirrors above.
+    if _aero_rs is not None:
+        try:
+            _aero_rs.validate_config(toml_path)
+        except ValueError as exc:
+            print(f"ERROR: invalid config (Rust validation): {exc}")
+            raise SystemExit(1) from exc
 
     return cfg, _toml_data
 
