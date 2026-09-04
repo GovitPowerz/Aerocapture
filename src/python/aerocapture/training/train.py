@@ -36,6 +36,7 @@ from aerocapture.training.population import create_initial_population, create_nn
 from aerocapture.training.problem import AerocaptureProblem
 from aerocapture.training.reference import nominal_flight_overrides, piecewise_commanded_cos_bank, ref_trajectory_array
 from aerocapture.training.seed_curator import SeedCurator
+from aerocapture.training.trainer import IslandsTrainer, SingleAlgoTrainer
 
 _DEFAULT_PIECEWISE_N_SEGMENTS = 10
 
@@ -1324,10 +1325,6 @@ def train(
     )
 
     # The trainer seam: one loop contract, two adapters (see trainer.py).
-    # Imported lazily -- trainer.py imports this module's helpers at ITS top,
-    # so a module-level import here would be circular.
-    from aerocapture.training.trainer import IslandsTrainer, SingleAlgoTrainer  # noqa: PLC0415
-
     trainer: SingleAlgoTrainer | IslandsTrainer
     if config.optimizer.algorithm == "islands":
         trainer = IslandsTrainer(
