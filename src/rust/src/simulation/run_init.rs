@@ -5,6 +5,7 @@
 //! simulation loop. Used by the CLI path (`runner::run_single`) and by
 //! `BatchedSimulation` to initialize and reset individual RL environments.
 
+use super::sim_types::SimStateOptions;
 use crate::config::SimInput;
 use crate::data::SimData;
 use crate::data::dispersions::NoiseSeeding;
@@ -50,6 +51,7 @@ pub fn build_sim_state(
     data: &SimData,
     run_state: init::RunState,
     env_idx: u64,
+    opts: SimStateOptions,
 ) -> SimState {
     let planet = &config.planet;
     let req = planet.equatorial_radius;
@@ -182,11 +184,11 @@ pub fn build_sim_state(
         max_time,
         exit_altitude,
         reference_bank_angle,
-        write_photo: false,
+        write_photo: opts.write_photo,
         sim_idx: env_idx as i32,
-        wall_timeout: None,
+        wall_timeout: opts.wall_timeout,
         wall_start: Instant::now(),
-        is_single: false,
+        is_single: opts.is_single,
     };
 
     // Prime last_nav so the RL env's reset() returns a valid initial observation

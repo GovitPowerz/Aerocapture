@@ -72,6 +72,16 @@ impl fmt::Display for SimError {
 
 impl std::error::Error for SimError {}
 
+/// Per-run switches that vary by entry point: CLI photo output, the API's per-sim
+/// wall-clock cap, and the single-run console banner. The RL env and the grid cell
+/// use `default()` (no photo, no cap, no banner).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SimStateOptions {
+    pub write_photo: bool,
+    pub wall_timeout: Option<Duration>,
+    pub is_single: bool,
+}
+
 /// Simulation state — mutable per-tick data plus pre-loop constants.
 ///
 /// Expanded to include all mutable loop-local variables from `run_single` so that

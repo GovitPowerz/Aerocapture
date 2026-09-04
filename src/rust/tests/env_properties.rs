@@ -5,6 +5,7 @@
 
 mod common;
 
+use aerocapture::simulation::runner::SimStateOptions;
 use proptest::prelude::*;
 
 use aerocapture::config::SimInput;
@@ -45,7 +46,7 @@ proptest! {
         // RNG seeding path still exercises the build_sim_state init code.
         let draw = DispersionDraw::default();
         let run_state = init::init_run_from_draw(&data, &draw);
-        let mut state = runner::build_sim_state(&config, &data, run_state, seed);
+        let mut state = runner::build_sim_state(&config, &data, run_state, seed, SimStateOptions::default());
 
         let event_defs = runner::build_event_defs();
         let event_ctx = runner::build_event_ctx(&config, &data);

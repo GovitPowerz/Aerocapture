@@ -24,7 +24,7 @@ use std::time::Duration;
 // resolving: `tick.rs`, `events.rs`, the `#[path]`-included test modules, and
 // the external `aerocapture-py` crate all reach these symbols via `runner::`.
 // Types are `pub` (aerocapture-py + events.rs consume them externally).
-pub use super::sim_types::{SimError, SimState, TermReason};
+pub use super::sim_types::{SimError, SimState, SimStateOptions, TermReason};
 // `DEG_TO_RAD` / `MIN_BOUNCE_ALT_FOR_CRASH_M` are both used inside this module
 // AND re-consumed by `tick.rs` via `runner::`, so the re-export is `pub(crate)`.
 // The remaining consts are used only inside this module's free functions.
@@ -129,45 +129,18 @@ struct SimResult {
     supervised_trace: Vec<(Vec<f64>, f64, f64, f64, f64)>,
 }
 
-/// Shared simulation orchestration: build run states, dispatch parallel/sequential runs.
-fn run_core(
-    config: &SimInput,
-    data: &SimData,
+/// Per-call switches for one fan-out: CLI photo output, trajectory capture, wall-clock cap.
+#[derive(Clone, Copy, Debug, Default)]
+struct RunOptions {
     write_photo: bool,
     include_trajectories: bool,
     wall_timeout: Option<Duration>,
-) -> Result<Vec<SimResult>, SimError> {
-    let n_sims = if config.n_sims == 0 { 1 } else { config.n_sims };
-    let is_mc = n_sims > 1;
+}
 
-    let draws = data.dispersion_config.as_ref().map(|dc| {
-        let draws = dc.generate_draws(n_sims as usize);
-        if write_photo {
-            let on_off = |b: bool| if b { "on" } else { "off" };
-            eprintln!(
-                "Monte Carlo: {} draws from seed {}, domains: state={} atmo={} aero={} nav={} mass={} vehicle={} pilot={} nav_filter={}",
-                draws.len(), dc.seed,
-                on_off(dc.initial_state.is_some()), on_off(dc.atmosphere.is_some()),
-                on_off(dc.aerodynamics.is_some()), on_off(dc.navigation.is_some()),
-                on_off(dc.mass.is_some()), on_off(dc.vehicle.is_some()),
-                on_off(dc.pilot.is_some()), on_off(dc.nav_filter.is_some()),
-            );
-        }
-        draws
-    });
-
-    let run_states: Vec<(init::RunState, [f64; DISPERSION_DRAW_LEN])> = (0..n_sims)
-        .map(|sim_idx| {
-            let draw = if let Some(ref d) = draws {
-                &d[sim_idx as usize]
-            } else {
-                &crate::data::dispersions::DispersionDraw::default()
-            };
-            (init::init_run_from_draw(data, draw), draw.to_array())
-        })
-        .collect();
-
-    let photo_sim_idx = if is_mc {
+/// Which sim gets the photo file in a Monte Carlo batch (`visualize_sim` is 1-based;
+/// default the last one); the only sim when there is just one.
+fn photo_sim_index(config: &SimInput, n_sims: i32) -> i32 {
+    if n_sims > 1 {
         if config.visualize_sim > 0 {
             (config.visualize_sim - 1).min(n_sims - 1)
         } else {
@@ -175,7 +148,68 @@ fn run_core(
         }
     } else {
         0
-    };
+    }
+}
+
+/// The draws a config asks for: `n_sims` from the dispersion config when present
+/// (announced on stderr for the CLI), else `n_sims` undispersed defaults.
+fn draws_from_config(
+    config: &SimInput,
+    data: &SimData,
+    announce: bool,
+) -> Vec<crate::data::dispersions::DispersionDraw> {
+    let n_sims = if config.n_sims == 0 { 1 } else { config.n_sims };
+    match data.dispersion_config.as_ref() {
+        Some(dc) => {
+            let draws = dc.generate_draws(n_sims as usize);
+            if announce {
+                let on_off = |b: bool| if b { "on" } else { "off" };
+                eprintln!(
+                    "Monte Carlo: {} draws from seed {}, domains: state={} atmo={} aero={} nav={} mass={} vehicle={} pilot={} nav_filter={}",
+                    draws.len(),
+                    dc.seed,
+                    on_off(dc.initial_state.is_some()),
+                    on_off(dc.atmosphere.is_some()),
+                    on_off(dc.aerodynamics.is_some()),
+                    on_off(dc.navigation.is_some()),
+                    on_off(dc.mass.is_some()),
+                    on_off(dc.vehicle.is_some()),
+                    on_off(dc.pilot.is_some()),
+                    on_off(dc.nav_filter.is_some()),
+                );
+            }
+            draws
+        }
+        None => vec![crate::data::dispersions::DispersionDraw::default(); n_sims as usize],
+    }
+}
+
+/// The one Monte Carlo fan-out: one run state per draw, Rayon-parallel when there is
+/// more than one draw, sequential otherwise, each result stamped with its draw.
+/// Every public entry point is a draw-source adapter over this function.
+fn run_core(
+    config: &SimInput,
+    data: &SimData,
+    draws: &[crate::data::dispersions::DispersionDraw],
+    opts: RunOptions,
+) -> Result<Vec<SimResult>, SimError> {
+    let RunOptions {
+        write_photo,
+        include_trajectories,
+        wall_timeout,
+    } = opts;
+    let n_sims = draws.len() as i32;
+    if n_sims == 0 {
+        return Ok(Vec::new());
+    }
+    let is_mc = n_sims > 1;
+
+    let run_states: Vec<(init::RunState, [f64; DISPERSION_DRAW_LEN])> = draws
+        .iter()
+        .map(|draw| (init::init_run_from_draw(data, draw), draw.to_array()))
+        .collect();
+
+    let photo_sim_idx = photo_sim_index(config, n_sims);
 
     if is_mc {
         let start = std::time::Instant::now();
@@ -226,21 +260,20 @@ fn run_core(
     }
 }
 
-/// Run the full simulation.
+/// Run the full simulation (CLI): draws from the config, photo + CSV output.
 pub fn run(config: &SimInput, data: &SimData) -> Result<(), SimError> {
-    let n_sims = if config.n_sims == 0 { 1 } else { config.n_sims };
-    let photo_sim_idx = if n_sims > 1 {
-        if config.visualize_sim > 0 {
-            (config.visualize_sim - 1).min(n_sims - 1)
-        } else {
-            n_sims - 1
-        }
-    } else {
-        0
+    let draws = draws_from_config(config, data, true);
+    let opts = RunOptions {
+        write_photo: true,
+        include_trajectories: false,
+        wall_timeout: None,
     };
-
-    let results = run_core(config, data, true, false, None)?;
-    write_csv_output(config, &results, photo_sim_idx)?;
+    let results = run_core(config, data, &draws, opts)?;
+    write_csv_output(
+        config,
+        &results,
+        photo_sim_index(config, draws.len() as i32),
+    )?;
     Ok(())
 }
 
@@ -304,9 +337,13 @@ pub fn run_for_api(
     include_trajectories: bool,
     wall_timeout: Option<Duration>,
 ) -> Result<Vec<crate::RunOutput>, SimError> {
-    let results = run_core(config, data, false, include_trajectories, wall_timeout)?;
-
-    Ok(results
+    let draws = draws_from_config(config, data, false);
+    let opts = RunOptions {
+        write_photo: false,
+        include_trajectories,
+        wall_timeout,
+    };
+    Ok(run_core(config, data, &draws, opts)?
         .into_iter()
         .map(|r| assemble_run_output(r, include_trajectories))
         .collect())
@@ -324,48 +361,12 @@ pub fn run_for_api_with_draws(
     include_trajectories: bool,
     wall_timeout: Option<Duration>,
 ) -> Result<Vec<crate::RunOutput>, SimError> {
-    let n = external_draws.len();
-    let is_mc = n > 1;
-
-    let run_states: Vec<(init::RunState, [f64; DISPERSION_DRAW_LEN])> = external_draws
-        .iter()
-        .map(|draw| (init::init_run_from_draw(data, draw), draw.to_array()))
-        .collect();
-
-    let results: Vec<SimResult> = if is_mc {
-        run_states
-            .par_iter()
-            .enumerate()
-            .map(|(idx, (run_state, disp_array))| {
-                let mut result = run_single(
-                    config,
-                    data,
-                    run_state,
-                    idx as i32,
-                    include_trajectories,
-                    wall_timeout,
-                )?;
-                result.dispersions = *disp_array;
-                Ok(result)
-            })
-            .collect::<Result<Vec<_>, _>>()?
-    } else if n == 1 {
-        let (run_state, disp_array) = &run_states[0];
-        let mut result = run_single(
-            config,
-            data,
-            run_state,
-            0,
-            include_trajectories,
-            wall_timeout,
-        )?;
-        result.dispersions = *disp_array;
-        vec![result]
-    } else {
-        return Ok(Vec::new());
+    let opts = RunOptions {
+        write_photo: false,
+        include_trajectories,
+        wall_timeout,
     };
-
-    Ok(results
+    Ok(run_core(config, data, &external_draws, opts)?
         .into_iter()
         .map(|r| assemble_run_output(r, include_trajectories))
         .collect())
@@ -386,16 +387,15 @@ pub fn run_for_api_cell(
     wall_timeout: Option<Duration>,
 ) -> Result<crate::RunOutput, SimError> {
     let draw = data.draw_from_seed(seed);
-    let run_state = init::init_run_from_draw(data, &draw);
-    let mut result = run_single(
-        config,
-        data,
-        &run_state,
-        0,
+    let opts = RunOptions {
+        write_photo: false,
         include_trajectories,
         wall_timeout,
-    )?;
-    result.dispersions = draw.to_array();
+    };
+    let mut results = run_core(config, data, std::slice::from_ref(&draw), opts)?;
+    let result = results
+        .pop()
+        .expect("run_core returns exactly one result for one draw");
     Ok(assemble_run_output(result, include_trajectories))
 }
 
@@ -538,13 +538,12 @@ fn run_single(
     // derivation, GNC init, and bias-mode last_nav priming as the RL env path);
     // `sim_idx as u64` reproduces the historical per-sim seeds exactly:
     // EKF `random_seed + sim_idx*10_000`, GM-RNG `... + 0xDE45`.
-    let mut sim_state = build_sim_state(config, data, *run_state, sim_idx as u64);
-
-    // CLI-specific overrides not produced by `build_sim_state` (which targets the
-    // RL env defaults: no photo, no wall timeout, not the single-run banner).
-    sim_state.write_photo = write_photo;
-    sim_state.wall_timeout = wall_timeout;
-    sim_state.is_single = config.n_sims <= 1 && config.screen_output;
+    let opts = SimStateOptions {
+        write_photo,
+        wall_timeout,
+        is_single: config.n_sims <= 1 && config.screen_output,
+    };
+    let mut sim_state = build_sim_state(config, data, *run_state, sim_idx as u64, opts);
     let is_single = sim_state.is_single;
 
     // Event detection setup (used by adaptive integrator)
@@ -699,9 +698,13 @@ pub fn run_single_collect(
     data: &SimData,
 ) -> Result<[f64; FINAL_RECORD_LEN], SimError> {
     let draw = crate::data::dispersions::DispersionDraw::default();
-    let run_state = init::init_run_from_draw(data, &draw);
-    let result = run_single(config, data, &run_state, 0, false, None)?;
-    Ok(result.final_line)
+    let mut results = run_core(
+        config,
+        data,
+        std::slice::from_ref(&draw),
+        RunOptions::default(),
+    )?;
+    Ok(results.pop().expect("one draw, one result").final_line)
 }
 
 /// Build a photo snapshot line.

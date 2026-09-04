@@ -11,6 +11,7 @@ use aerocapture::config::SimInput;
 use aerocapture::data::SimData;
 use aerocapture::data::dispersions::DispersionDraw;
 use aerocapture::simulation::init;
+use aerocapture::simulation::runner::SimStateOptions;
 use aerocapture::simulation::runner::build_sim_state;
 
 #[test]
@@ -30,8 +31,8 @@ fn guidance_state_nn_state_is_per_env() {
     let run_state_0 = init::init_run_from_draw(&data, &draw);
     let run_state_1 = init::init_run_from_draw(&data, &draw);
 
-    let s0 = build_sim_state(&config, &data, run_state_0, 0);
-    let s1 = build_sim_state(&config, &data, run_state_1, 1);
+    let s0 = build_sim_state(&config, &data, run_state_0, 0, SimStateOptions::default());
+    let s1 = build_sim_state(&config, &data, run_state_1, 1, SimStateOptions::default());
 
     assert!(
         s0.guidance_state.nn_state.is_some(),
