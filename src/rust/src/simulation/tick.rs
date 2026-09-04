@@ -165,25 +165,20 @@ pub fn step_one_tick(
             // Explicit full mask: select ALL candidate inputs (NN_FULL_INPUT_SIZE wide).
             // Passing None would trigger the backward-compat default (first 16 only).
             let full_mask: Vec<usize> = (0..crate::data::neural::NN_FULL_INPUT_SIZE).collect();
-            // Telemetry scalars sourced from GuidanceState -- these reflect the
+            // Telemetry context sourced from GuidanceState -- it reflects the
             // PREVIOUS-tick state (updated below after guidance_step), keeping
             // the supervised collect's input vector consistent with deploy.
-            let time_since_flip = state.sim_time - state.guidance_state.last_sign_flip_time_for_nn;
-            let nn_input = crate::gnc::guidance::neural::build_nn_input(
-                &nav_out,
-                Some(&full_mask),
-                None, // no ablation
-                0.0,  // ablated_value (unused when ablated_input is None)
-                data,
-                planet,
+            let ctx = crate::gnc::guidance::neural::NnInputContext::from_guidance_state(
+                &state.guidance_state,
+                state.sim_time,
                 data.target_orbit.inclination,
-                state.guidance_state.reference_velocity,
-                state.guidance_state.prev_inclination_error_for_nn,
-                state.guidance_state.prev_bank_for_nn,
-                time_since_flip,
-                state.guidance_state.inclination_error_integral,
-                state.guidance_state.prev_realized_bank_for_nn,
             );
+            let view = crate::gnc::guidance::neural::NnModelView {
+                input_mask: Some(&full_mask),
+                ..Default::default() // no ablation
+            };
+            let nn_input =
+                crate::gnc::guidance::neural::build_nn_input(&nav_out, view, data, planet, &ctx);
             // Supervised target is the post-lateral, PRE-shaper signed bank.
             // - Sign preserved: full_neural deploy has no lateral guidance at
             //   runtime, so the NN must emit signed banks itself; the signed

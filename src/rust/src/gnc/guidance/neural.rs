@@ -43,6 +43,7 @@
 //! - `Delta`: 1 tanh output; `bank = wrap_to_pi(prev_realized + delta_max * out[0]) ∈ (-π, π]`.
 //!   Only legal in `full_neural` mode.
 
+use super::dispatch::GuidanceState;
 use crate::config::PlanetConfig;
 use crate::data::SimData;
 use crate::data::neural::{NN_FULL_INPUT_SIZE, NeuralNetModel};
@@ -71,22 +72,88 @@ use crate::orbit::{elements, maneuver};
 /// `prev_realized_bank` (radians) is the pilot-realized bank angle from the
 /// PREVIOUS tick. It populates indices 29-30 as a (sin, cos) pair and also
 /// serves as the base for the `Delta` output decoder in `nn_bank_angle`.
-#[allow(clippy::too_many_arguments)]
+/// Telemetry the candidate inputs need beyond the navigation output: the target
+/// inclination and the previous-tick guidance state that makes the signed-bank
+/// decision Markovian (inputs 20-31, and the base of the `delta` decoder).
+/// Built once per tick from `GuidanceState` by `from_guidance_state`; the
+/// runtime callers (dispatch, the supervised trace, the RL env) all go through
+/// that constructor so the sign-flip age is computed in exactly one place.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NnInputContext {
+    /// Target orbit inclination (rad).
+    pub target_inclination: f64,
+    /// Exit-phase latched reference velocity (0.0 pre-bounce).
+    pub ref_velocity_latched: f64,
+    /// Previous tick's inclination error (rad); `None` on the first tick.
+    pub prev_inclination_error: Option<f64>,
+    /// Previous tick's commanded bank (rad, signed).
+    pub prev_bank_signed: f64,
+    /// Seconds since the last bank-sign flip.
+    pub time_since_last_sign_flip: f64,
+    /// Running inclination-error integral (rad*s).
+    pub inclination_error_integral: f64,
+    /// Previous tick's pilot-realized bank (rad).
+    pub prev_realized_bank: f64,
+}
+
+impl NnInputContext {
+    /// The context for this tick, from the guidance state as it was at the END of
+    /// the previous tick (tick.rs updates the telemetry fields post-guidance).
+    pub fn from_guidance_state(gs: &GuidanceState, sim_time: f64, target_inclination: f64) -> Self {
+        Self {
+            target_inclination,
+            ref_velocity_latched: gs.reference_velocity,
+            prev_inclination_error: gs.prev_inclination_error_for_nn,
+            prev_bank_signed: gs.prev_bank_for_nn,
+            time_since_last_sign_flip: sim_time - gs.last_sign_flip_time_for_nn,
+            inclination_error_integral: gs.inclination_error_integral,
+            prev_realized_bank: gs.prev_realized_bank_for_nn,
+        }
+    }
+}
+
+/// Which candidate inputs a model consumes and how one of them is ablated.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NnModelView<'a> {
+    /// Indices into the 35-wide candidate vector; `None` = the first 16 (legacy).
+    pub input_mask: Option<&'a [usize]>,
+    /// Candidate index frozen to `ablated_value` (ablation studies).
+    pub ablated_input: Option<usize>,
+    pub ablated_value: f64,
+}
+
+impl NnModelView<'_> {
+    /// The view a loaded model declares.
+    pub fn of(nn: &NeuralNetModel) -> NnModelView<'_> {
+        NnModelView {
+            input_mask: nn.input_mask.as_deref(),
+            ablated_input: nn.ablated_input,
+            ablated_value: nn.ablated_value,
+        }
+    }
+}
+
 pub fn build_nn_input(
     nav: &NavigationOutput,
-    input_mask: Option<&[usize]>,
-    ablated_input: Option<usize>,
-    ablated_value: f64,
+    view: NnModelView<'_>,
     data: &SimData,
     planet: &PlanetConfig,
-    target_inclination: f64,
-    ref_velocity_latched: f64,
-    prev_inclination_error: Option<f64>,
-    prev_bank_signed: f64,
-    time_since_last_sign_flip: f64,
-    inclination_error_integral: f64,
-    prev_realized_bank: f64,
+    ctx: &NnInputContext,
 ) -> Vec<f64> {
+    let NnModelView {
+        input_mask,
+        ablated_input,
+        ablated_value,
+    } = view;
+    let NnInputContext {
+        target_inclination,
+        ref_velocity_latched,
+        prev_inclination_error,
+        prev_bank_signed,
+        time_since_last_sign_flip,
+        inclination_error_integral,
+        prev_realized_bank,
+    } = *ctx;
     let mu = planet.mu;
 
     // Radial velocity: V * sin(gamma)
@@ -236,43 +303,19 @@ pub fn build_nn_input(
 /// Returns the **signed** bank angle in radians.
 /// Lateral guidance is bypassed for this scheme -- the NN controls roll direction directly.
 ///
-/// `prev_inclination_error`, `prev_bank_signed`, `time_since_last_sign_flip`, and
-/// `inclination_error_integral` are pulled from GuidanceState by the caller
-/// (dispatch.rs) and populate input indices 21-24 -- see build_nn_input.
-///
-/// `prev_realized_bank` (radians) is the pilot-realized bank angle from the
-/// PREVIOUS tick. Populates input indices 29-30 and serves as the base for
-/// the `Delta` output decoder.
-#[allow(clippy::too_many_arguments)]
+/// `ctx` carries the previous-tick telemetry (inputs 21-24, the (sin,cos) history
+/// pairs, and `prev_realized_bank`, the base of the `Delta` decoder); build it
+/// with `NnInputContext::from_guidance_state`.
 pub fn nn_bank_angle(
     nav: &NavigationOutput,
     nn: &NeuralNetModel,
     nn_state: &mut NnState,
     data: &SimData,
     planet: &PlanetConfig,
-    target_inclination: f64, // radians
-    ref_velocity_latched: f64,
-    prev_inclination_error: Option<f64>,
-    prev_bank_signed: f64,
-    time_since_last_sign_flip: f64,
-    inclination_error_integral: f64,
-    prev_realized_bank: f64,
+    ctx: &NnInputContext,
 ) -> f64 {
-    let masked = build_nn_input(
-        nav,
-        nn.input_mask.as_deref(),
-        nn.ablated_input,
-        nn.ablated_value,
-        data,
-        planet,
-        target_inclination,
-        ref_velocity_latched,
-        prev_inclination_error,
-        prev_bank_signed,
-        time_since_last_sign_flip,
-        inclination_error_integral,
-        prev_realized_bank,
-    );
+    let masked = build_nn_input(nav, NnModelView::of(nn), data, planet, ctx);
+    let prev_realized_bank = ctx.prev_realized_bank;
     use crate::data::neural::OutputParam;
     use crate::gnc::control::angle_utils::wrap_to_pi;
     use std::f64::consts::PI;
@@ -460,18 +503,22 @@ mod tests {
         let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let inp = build_nn_input(
             &nav,
-            Some(&full_mask),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&full_mask),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            50.0_f64.to_radians(),
-            0.0,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 50.0_f64.to_radians(),
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         assert_eq!(inp.len(), 35, "candidate vector must be 35 wide");
     }
@@ -503,18 +550,22 @@ mod tests {
         let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let inp = build_nn_input(
             &nav,
-            Some(&full_mask),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&full_mask),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            50.0_f64.to_radians(),
-            0.0,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 50.0_f64.to_radians(),
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         let expected_dv2 = apply_norm(0.0, &DEFAULT_NORMALIZATION[33]); // asinh(0) = 0
         assert!(
@@ -554,18 +605,22 @@ mod tests {
         let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let inp = build_nn_input(
             &nav,
-            Some(&full_mask),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&full_mask),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            50.0_f64.to_radians(),
-            0.0,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 50.0_f64.to_radians(),
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         assert!((inp[32] - apply_norm(dv[0], &DEFAULT_NORMALIZATION[32])).abs() < 1e-9);
         assert!((inp[33] - apply_norm(dv[1], &DEFAULT_NORMALIZATION[33])).abs() < 1e-9);
@@ -591,13 +646,15 @@ mod tests {
             &mut state,
             &data,
             &planet,
-            50.0_f64.to_radians(),
-            0.0,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 50.0_f64.to_radians(),
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         let expected = bias0.atan2(bias1); // PI/4
         assert_relative_eq!(bank, expected, epsilon = 1e-12);
@@ -619,13 +676,15 @@ mod tests {
             &mut state,
             &data,
             &planet,
-            50.0_f64.to_radians(),
-            0.0,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 50.0_f64.to_radians(),
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         assert_relative_eq!(bank, 0.5_f64.atan2(0.5), epsilon = 1e-12);
     }
@@ -645,13 +704,15 @@ mod tests {
             &mut state,
             &data,
             &planet,
-            50.0_f64.to_radians(),
-            0.0,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 50.0_f64.to_radians(),
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         assert_relative_eq!(bank, (-1.0_f64).atan2(1.0), epsilon = 1e-12);
     }
@@ -717,13 +778,15 @@ mod tests {
             &mut state,
             &data,
             &planet,
-            50.0_f64.to_radians(),
-            0.0,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 50.0_f64.to_radians(),
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
 
         assert!(bank.is_finite(), "bank angle must be finite, got: {}", bank);
@@ -800,13 +863,15 @@ mod tests {
             &mut state,
             &data,
             &planet,
-            50.0_f64.to_radians(),
-            0.0,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 50.0_f64.to_radians(),
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
 
         assert!(bank.is_finite(), "bank angle must be finite, got: {bank}");
@@ -856,13 +921,15 @@ mod tests {
             &mut state,
             &data,
             &planet,
-            50.0_f64.to_radians(),
-            -50.0,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 50.0_f64.to_radians(),
+                ref_velocity_latched: -50.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
 
         assert!(
@@ -916,18 +983,22 @@ mod tests {
         let full_mask: Vec<usize> = (0..21).collect();
         let full_input = build_nn_input(
             &nav,
-            Some(&full_mask),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&full_mask),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            target_inc,
-            ref_velocity,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: target_inc,
+                ref_velocity_latched: ref_velocity,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         let x0 = full_input[0];
         let x8 = full_input[8];
@@ -944,13 +1015,15 @@ mod tests {
             &mut state,
             &data,
             &planet,
-            target_inc,
-            ref_velocity,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: target_inc,
+                ref_velocity_latched: ref_velocity,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
 
         assert!(
@@ -1023,13 +1096,15 @@ mod tests {
             &mut state_normal,
             &data,
             &planet,
-            target_inc,
-            0.0,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: target_inc,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         let bank_ablated = nn_bank_angle(
             &nav,
@@ -1037,13 +1112,15 @@ mod tests {
             &mut state_ablated,
             &data,
             &planet,
-            target_inc,
-            0.0,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: target_inc,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
 
         // Ablated version zeros input 0, so output[0] = 0.0, bank = atan2(0, 1) = 0
@@ -1087,13 +1164,15 @@ mod tests {
             &mut state,
             &data,
             &planet,
-            50.0_f64.to_radians(),
-            0.0,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 50.0_f64.to_radians(),
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
 
         assert!(bank.is_finite(), "bank must be finite, got: {bank}");
@@ -1138,20 +1217,12 @@ mod tests {
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
         let mut state = NnState::for_model(&nn);
-        let bank = nn_bank_angle(
-            &nav,
-            &nn,
-            &mut state,
-            &data,
-            &planet,
-            50.0_f64.to_radians(),
-            0.0, // ref_velocity_latched = 0 pre-bounce,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        );
+        let ctx = NnInputContext {
+            target_inclination: 50.0_f64.to_radians(),
+            ref_velocity_latched: 0.0, // = 0 pre-bounce
+            ..Default::default()
+        };
+        let bank = nn_bank_angle(&nav, &nn, &mut state, &data, &planet, &ctx);
 
         assert!(
             bank.is_finite(),
@@ -1172,18 +1243,15 @@ mod tests {
         let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let inp = build_nn_input(
             &nav,
-            Some(&full_mask),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&full_mask),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            50.0_f64.to_radians(),
-            0.0,
-            None, // first-tick: no prev incl err
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext { target_inclination: 50.0_f64.to_radians(), ref_velocity_latched: 0.0, prev_inclination_error: None, prev_bank_signed: // first-tick: no prev incl err
+            0.0, time_since_last_sign_flip: 0.0, inclination_error_integral: 0.0, prev_realized_bank: 0.0 },
         );
         assert_eq!(inp[21], 0.0, "first-tick rate must be 0.0, got {}", inp[21]);
     }
@@ -1215,18 +1283,22 @@ mod tests {
         let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let inp = build_nn_input(
             &nav,
-            Some(&full_mask),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&full_mask),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            target,
-            0.0,
-            Some(prev_err),
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: target,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: Some(prev_err),
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         let expected = target_rate.to_degrees() * 10.0;
         assert_relative_eq!(inp[21], expected, epsilon = 1e-12);
@@ -1249,18 +1321,22 @@ mod tests {
         for (prev_bank, expected) in cases {
             let inp = build_nn_input(
                 &nav,
-                Some(&full_mask),
-                None,
-                0.0,
+                NnModelView {
+                    input_mask: Some(&full_mask),
+                    ablated_input: None,
+                    ablated_value: 0.0,
+                },
                 &data,
                 &planet,
-                target,
-                0.0,
-                None,
-                prev_bank,
-                0.0,
-                0.0,
-                0.0,
+                &NnInputContext {
+                    target_inclination: target,
+                    ref_velocity_latched: 0.0,
+                    prev_inclination_error: None,
+                    prev_bank_signed: prev_bank,
+                    time_since_last_sign_flip: 0.0,
+                    inclination_error_integral: 0.0,
+                    prev_realized_bank: 0.0,
+                },
             );
             assert_relative_eq!(inp[22], expected, epsilon = 1e-15);
         }
@@ -1278,18 +1354,22 @@ mod tests {
         for (t_since, expected) in cases {
             let inp = build_nn_input(
                 &nav,
-                Some(&full_mask),
-                None,
-                0.0,
+                NnModelView {
+                    input_mask: Some(&full_mask),
+                    ablated_input: None,
+                    ablated_value: 0.0,
+                },
                 &data,
                 &planet,
-                target,
-                0.0,
-                None,
-                0.0,
-                t_since,
-                0.0,
-                0.0,
+                &NnInputContext {
+                    target_inclination: target,
+                    ref_velocity_latched: 0.0,
+                    prev_inclination_error: None,
+                    prev_bank_signed: 0.0,
+                    time_since_last_sign_flip: t_since,
+                    inclination_error_integral: 0.0,
+                    prev_realized_bank: 0.0,
+                },
             );
             assert_relative_eq!(inp[23], expected, epsilon = 1e-10);
         }
@@ -1307,36 +1387,44 @@ mod tests {
         let integral_rad_s = 100.0_f64.to_radians(); // 100 deg·s in rad·s
         let inp = build_nn_input(
             &nav,
-            Some(&full_mask),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&full_mask),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            target,
-            0.0,
-            None,
-            0.0,
-            0.0,
-            integral_rad_s,
-            0.0,
+            &NnInputContext {
+                target_inclination: target,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: integral_rad_s,
+                prev_realized_bank: 0.0,
+            },
         );
         assert_relative_eq!(inp[24], 1.0_f64.tanh(), epsilon = 1e-12);
 
         // Negative integral → negative output (tanh is antisymmetric).
         let inp_neg = build_nn_input(
             &nav,
-            Some(&full_mask),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&full_mask),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            target,
-            0.0,
-            None,
-            0.0,
-            0.0,
-            -integral_rad_s,
-            0.0,
+            &NnInputContext {
+                target_inclination: target,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: -integral_rad_s,
+                prev_realized_bank: 0.0,
+            },
         );
         assert_relative_eq!(inp_neg[24], -1.0_f64.tanh(), epsilon = 1e-12);
     }
@@ -1355,33 +1443,34 @@ mod tests {
 
         let inp_a = build_nn_input(
             &nav,
-            Some(&mask_21),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&mask_21),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            target,
-            0.0,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: target,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         let inp_b = build_nn_input(
             &nav,
-            Some(&mask_21),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&mask_21),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            target,
-            0.0,
-            Some(0.1234), // arbitrary non-zero
-            std::f64::consts::PI,
-            42.5,
-            std::f64::consts::E,
-            0.0,
+            &NnInputContext { target_inclination: target, ref_velocity_latched: 0.0, prev_inclination_error: Some(0.1234), prev_bank_signed: // arbitrary non-zero
+            std::f64::consts::PI, time_since_last_sign_flip: 42.5, inclination_error_integral: std::f64::consts::E, prev_realized_bank: 0.0 },
         );
         assert_eq!(inp_a.len(), 21);
         assert_eq!(inp_b.len(), 21);
@@ -1400,18 +1489,14 @@ mod tests {
         // A wild prev_realized (9.9 rad) must never leak into the default [..16] slice.
         let v = build_nn_input(
             &nav,
-            None,
-            None,
-            0.0,
+            NnModelView {
+                input_mask: None,
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            0.0,
-            0.0,
-            Some(0.0),
-            0.3,
-            0.0,
-            0.0,
-            /*prev_realized*/ 9.9,
+            &NnInputContext { target_inclination: 0.0, ref_velocity_latched: 0.0, prev_inclination_error: Some(0.0), prev_bank_signed: 0.3, time_since_last_sign_flip: 0.0, inclination_error_integral: 0.0, prev_realized_bank: /*prev_realized*/ 9.9 },
         );
         assert_eq!(v.len(), 16, "default mask must return exactly 16 inputs");
         assert!(
@@ -1429,18 +1514,22 @@ mod tests {
         let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let v = build_nn_input(
             &nav,
-            Some(&mask),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&mask),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            0.0,
-            0.0,
-            Some(0.0),
-            0.3,
-            0.0,
-            0.0,
-            prev_realized,
+            &NnInputContext {
+                target_inclination: 0.0,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: Some(0.0),
+                prev_bank_signed: 0.3,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: prev_realized,
+            },
         );
         assert_eq!(v.len(), NN_FULL_INPUT_SIZE);
         // sin at index 29, cos at index 30 — atan2(sin, cos) must recover the angle.
@@ -1482,13 +1571,15 @@ mod tests {
             &mut st,
             &data,
             &planet,
-            0.0,
-            0.0,
-            Some(0.0),
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 0.0,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: Some(0.0),
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         assert_relative_eq!(b, 0.0, epsilon = 1e-12);
         assert!(
@@ -1535,13 +1626,15 @@ mod tests {
             &mut st,
             &data,
             &planet,
-            0.0,
-            0.0,
-            Some(0.0),
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 0.0,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: Some(0.0),
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         let unwrapped = 1.5 * PI * bias.tanh();
         let expected = wrap_to_pi(unwrapped);
@@ -1596,13 +1689,15 @@ mod tests {
             &mut st,
             &data,
             &planet,
-            0.0,
-            0.0,
-            Some(0.0),
-            0.0,
-            0.0,
-            0.0,
-            prev_realized,
+            &NnInputContext {
+                target_inclination: 0.0,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: Some(0.0),
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: prev_realized,
+            },
         );
         let expected_raw = prev_realized + 0.2 * 5.0_f64.tanh();
         assert!(
@@ -1655,13 +1750,15 @@ mod tests {
             &mut st,
             &data,
             &planet,
-            0.0,
-            0.0,
-            Some(0.0),
-            0.0,
-            0.0,
-            0.0,
-            prev_realized,
+            &NnInputContext {
+                target_inclination: 0.0,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: Some(0.0),
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: prev_realized,
+            },
         );
         let expected = wrap_to_pi(prev_realized + 0.5 * bias.tanh());
         assert!(
@@ -1714,40 +1811,34 @@ mod tests {
         }
 
         proptest! {
-                    #[test]
-                    fn output_always_finite(
-                        alt in 10_000.0..130_000.0_f64,
-                        vel in 2000.0..7000.0_f64,
-                        fpa in -0.3..0.05_f64,
-                        az  in -1.0..1.0_f64,
-                    ) {
-                        let r = PlanetConfig::mars().equatorial_radius + alt;
-                        let nav = NavigationOutput {
-                            position_estimated: [r, 0.1, 0.05],
-                            velocity_estimated: [vel, fpa, az],
-                            acceleration_estimated: [50.0, -8.0],
-                            aero_coefficients: [1.269, -0.205],
-                            density_guidance: 0.001,
-                            dynamic_pressure_estimated: 0.5 * 0.001 * vel * vel,
-                            energy_estimated: -1e6,
-                            ..Default::default()
-                        };
+            #[test]
+            fn output_always_finite(
+                alt in 10_000.0..130_000.0_f64,
+                vel in 2000.0..7000.0_f64,
+                fpa in -0.3..0.05_f64,
+                az  in -1.0..1.0_f64,
+            ) {
+                let r = PlanetConfig::mars().equatorial_radius + alt;
+                let nav = NavigationOutput {
+                    position_estimated: [r, 0.1, 0.05],
+                    velocity_estimated: [vel, fpa, az],
+                    acceleration_estimated: [50.0, -8.0],
+                    aero_coefficients: [1.269, -0.205],
+                    density_guidance: 0.001,
+                    dynamic_pressure_estimated: 0.5 * 0.001 * vel * vel,
+                    energy_estimated: -1e6,
+                    ..Default::default()
+                };
 
-                        let nn = fixed_small_nn();
-                        let data = test_sim_data();
-                        let planet = PlanetConfig::mars();
-                        let mut state = NnState::for_model(&nn);
-                        let bank = nn_bank_angle(&nav, &nn, &mut state, &data, &planet, 50.0_f64.to_radians(), 0.0,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        );
+                let nn = fixed_small_nn();
+                let data = test_sim_data();
+                let planet = PlanetConfig::mars();
+                let mut state = NnState::for_model(&nn);
+                let bank = nn_bank_angle(&nav, &nn, &mut state, &data, &planet, &NnInputContext { target_inclination: 50.0_f64.to_radians(), ref_velocity_latched: 0.0, prev_inclination_error: None, prev_bank_signed: 0.0, time_since_last_sign_flip: 0.0, inclination_error_integral: 0.0, prev_realized_bank: 0.0 });
 
-                        prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
-                    }
-                }
+                prop_assert!(bank.is_finite(), "bank not finite: {}", bank);
+            }
+        }
 
         #[test]
         fn acos_tanh_parameterization_emits_acos_of_output() {
@@ -1787,13 +1878,15 @@ mod tests {
                 &mut state,
                 &data,
                 &planet,
-                50.0_f64.to_radians(),
-                0.0,
-                None,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
+                &NnInputContext {
+                    target_inclination: 50.0_f64.to_radians(),
+                    ref_velocity_latched: 0.0,
+                    prev_inclination_error: None,
+                    prev_bank_signed: 0.0,
+                    time_since_last_sign_flip: 0.0,
+                    inclination_error_integral: 0.0,
+                    prev_realized_bank: 0.0,
+                },
             );
 
             let expected = (0.5_f64).tanh().acos();
@@ -1819,18 +1912,22 @@ mod tests {
         let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let v = build_nn_input(
             &nav,
-            Some(&mask),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&mask),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            0.0,
-            0.0,
-            Some(0.0),
-            0.3,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 0.0,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: Some(0.0),
+                prev_bank_signed: 0.3,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         assert_eq!(v.len(), NN_FULL_INPUT_SIZE);
         assert!(v.iter().all(|x| x.is_finite()));
@@ -1852,18 +1949,22 @@ mod tests {
         // freeze index 2 to 0.7
         let v = build_nn_input(
             &nav,
-            Some(&mask),
-            Some(2),
-            0.7,
+            NnModelView {
+                input_mask: Some(&mask),
+                ablated_input: Some(2),
+                ablated_value: 0.7,
+            },
             &data,
             &planet,
-            0.0,
-            0.0,
-            Some(0.0),
-            0.3,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 0.0,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: Some(0.0),
+                prev_bank_signed: 0.3,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         assert!((v[2] - 0.7).abs() < 1e-12);
     }
@@ -1876,18 +1977,22 @@ mod tests {
         let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let v = build_nn_input(
             &nav,
-            Some(&mask),
-            Some(2),
-            0.0,
+            NnModelView {
+                input_mask: Some(&mask),
+                ablated_input: Some(2),
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            0.0,
-            0.0,
-            Some(0.0),
-            0.3,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 0.0,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: Some(0.0),
+                prev_bank_signed: 0.3,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         assert_eq!(v[2], 0.0);
     }
@@ -1899,18 +2004,22 @@ mod tests {
         let planet = PlanetConfig::mars();
         let v = build_nn_input(
             &nav,
-            None,
-            None,
-            0.0,
+            NnModelView {
+                input_mask: None,
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            0.0,
-            0.0,
-            Some(0.0),
-            0.3,
-            0.0,
-            0.0,
-            9.9,
+            &NnInputContext {
+                target_inclination: 0.0,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: Some(0.0),
+                prev_bank_signed: 0.3,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 9.9,
+            },
         );
         assert_eq!(v.len(), 16);
     }
@@ -1923,18 +2032,22 @@ mod tests {
         let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let v = build_nn_input(
             &nav,
-            Some(&mask),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&mask),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            0.0,
-            0.0,
-            Some(0.0),
-            0.3,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 0.0,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: Some(0.0),
+                prev_bank_signed: 0.3,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         use crate::data::neural::{DEFAULT_NORMALIZATION, apply_norm};
         let velocity_radial = nav.velocity_estimated[0] * nav.velocity_estimated[1].sin();
@@ -1954,18 +2067,22 @@ mod tests {
         let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let v = build_nn_input(
             &nav,
-            Some(&mask),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&mask),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            0.0,
-            0.0,
-            Some(0.0),
-            0.3,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 0.0,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: Some(0.0),
+                prev_bank_signed: 0.3,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         // Recompute pdyn_error the same way build_nn_input does.
         let energy = total_energy(
@@ -1999,18 +2116,22 @@ mod tests {
         let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let v = build_nn_input(
             &nav,
-            Some(&mask),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&mask),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            0.0,
-            0.0,
-            Some(0.0),
-            0.3,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 0.0,
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: Some(0.0),
+                prev_bank_signed: 0.3,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         let orbit = elements::from_spherical(
             nav.position_estimated[0],
@@ -2067,18 +2188,22 @@ mod tests {
         let mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         let inp = build_nn_input(
             &nav,
-            Some(&mask),
-            None,
-            0.0,
+            NnModelView {
+                input_mask: Some(&mask),
+                ablated_input: None,
+                ablated_value: 0.0,
+            },
             &data,
             &planet,
-            50.0_f64.to_radians(),
-            0.0,
-            None,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
+            &NnInputContext {
+                target_inclination: 50.0_f64.to_radians(),
+                ref_velocity_latched: 0.0,
+                prev_inclination_error: None,
+                prev_bank_signed: 0.0,
+                time_since_last_sign_flip: 0.0,
+                inclination_error_integral: 0.0,
+                prev_realized_bank: 0.0,
+            },
         );
         for (idx, &val) in inp.iter().enumerate().skip(32).take(3) {
             assert!(val.is_finite(), "input[{idx}] = {val} must be finite");
@@ -2182,18 +2307,22 @@ mod tests {
             nav.velocity_estimated[0] *= scale_v;
             let inp = build_nn_input(
                 &nav,
-                Some(&full_mask),
-                None,
-                0.0,
+                NnModelView {
+                    input_mask: Some(&full_mask),
+                    ablated_input: None,
+                    ablated_value: 0.0,
+                },
                 &data,
                 &planet,
-                50.0_f64.to_radians(),
-                0.0,
-                Some(0.01),
-                0.2,
-                12.0,
-                3.0,
-                0.15,
+                &NnInputContext {
+                    target_inclination: 50.0_f64.to_radians(),
+                    ref_velocity_latched: 0.0,
+                    prev_inclination_error: Some(0.01),
+                    prev_bank_signed: 0.2,
+                    time_since_last_sign_flip: 12.0,
+                    inclination_error_integral: 3.0,
+                    prev_realized_bank: 0.15,
+                },
             );
             for i in 0..32 {
                 assert!(

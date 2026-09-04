@@ -237,31 +237,17 @@ pub fn guidance_step(
                     // fresh zeroed state every guidance tick.
                     state.nn_state = Some(NnState::for_model(nn));
                 }
-                // Snapshot telemetry scalars BEFORE the mut borrow of nn_state so
-                // rustc doesn't trip on simultaneous shared+mut borrows of `state`.
-                let prev_incl_err = state.prev_inclination_error_for_nn;
-                let prev_bank = state.prev_bank_for_nn;
-                let time_since_flip = sim_time - state.last_sign_flip_time_for_nn;
-                let integral = state.inclination_error_integral;
-                let ref_vel = state.reference_velocity;
-                let prev_realized = state.prev_realized_bank_for_nn;
+                // Snapshot the telemetry context (Copy) BEFORE the mut borrow of
+                // nn_state so rustc doesn't trip on shared+mut borrows of `state`.
+                let ctx = neural::NnInputContext::from_guidance_state(
+                    state,
+                    sim_time,
+                    data.target_orbit.inclination,
+                );
                 let nn_state = state.nn_state.as_mut().expect(
                     "neural_network scheme requires nn_state initialized by GuidanceState::new",
                 );
-                let signed = neural::nn_bank_angle(
-                    nav,
-                    nn,
-                    nn_state,
-                    data,
-                    planet,
-                    data.target_orbit.inclination,
-                    ref_vel,
-                    prev_incl_err,
-                    prev_bank,
-                    time_since_flip,
-                    integral,
-                    prev_realized,
-                );
+                let signed = neural::nn_bank_angle(nav, nn, nn_state, data, planet, &ctx);
                 // MagnitudeOnly: drop the sign and feed magnitude into the unsigned
                 // pipeline (thermal limiter + lateral guidance handle sign + safety).
                 if data.guidance.neural_mode == NeuralNetMode::MagnitudeOnly {

@@ -147,8 +147,22 @@ src/rust/src/
                                        `[network.normalization]` / the `DEFAULT_NORMALIZATION` table (`data/neural.rs`); data-driven via `calibrate_inputs.py`. The TOML override is ALSO carried on
                                        `SimData::nn_normalization_override` (populated regardless of guidance type), so the `collect_supervised` trace -- a teacher scheme with NO NN model loaded --
                                        normalizes on the same scales the deployed NN uses, avoiding a warm-start train/inference mismatch (`build_nn_input` precedence: loaded model > SimData override
-                                       > DEFAULT). Ablation support via ablated_input); `nn_bank_angle(nav, nn, &mut NnState, ..., prev_inclination_error, prev_bank_signed, time_since_last_sign_flip,
-                                       inclination_error_integral, prev_realized_bank)` threads stateful layer state from GuidanceState (Phase 0 dense-only; Phase 1+ adds Gru/Lstm/Attention/Ssm).
+                                       > DEFAULT). Ablation support via ablated_input); `nn_bank_angle(nav, nn, &mut NnState, data, planet, &NnInputContext)` --
+                                       `NnInputContext::from_guidance_state(&GuidanceState,
+                                                                                                                                                                 sim_time, target_inclination)` is the
+                                                                                                                                                                 ONE place the previous-tick telemetry
+                                                                                                                                                                 (inputs 21-24, the (sin,cos) history
+                                                                                                                                                                 pairs, the `delta` decoder base, the
+                                                                                                                                                                 sign-flip age) is read;
+                                                                                                                                                                 `build_nn_input(nav, NnModelView {
+                                                                                                                                                                 input_mask, ablated_input,
+                                                                                                                                                                 ablated_value }, data, planet, &ctx)`
+                                                                                                                                                                 takes the same context (dispatch, the
+                                                                                                                                                                 supervised trace in tick.rs, and the RL
+                                                                                                                                                                 env all build it with that constructor)
+                                                                                                                                                                 threads stateful layer state from
+                                                                                                                                                                 GuidanceState (Phase 0 dense-only;
+                                                                                                                                                                 Phase 1+ adds Gru/Lstm/Attention/Ssm).
                                        Path-A `mode = "magnitude_only"` (dispatched in dispatch.rs via NeuralNetMode) routes the NN's `.abs()`'d output through FTC's unsigned-magnitude pipeline (exit
                                        + lateral + thermal_limiter) instead of bypassing them.
       equilibrium_glide.rs         — Equilibrium glide with hdot damping + velocity bias; lift uses the nav-filtered density (`nav.density_guidance` = onboard model x estimated dispersion factor),
