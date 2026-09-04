@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/GovitPowerz/Aerocapture/actions/workflows/ci.yml/badge.svg)](https://github.com/GovitPowerz/Aerocapture/actions/workflows/ci.yml)
 
-Trajectory simulation and guidance optimization for aerocapture maneuvers, primarily targeting Mars Sample Return (MSR): a spacecraft enters the atmosphere at hyperbolic velocity and uses bank angle modulation to capture into a target orbit. A **Rust simulator** (validated to bit-level precision against a legacy reference implementation) with **Python training and analysis tools**: seven classical guidance schemes plus GA/PSO-trained neural guidance (dense, GRU, LSTM, Transformer, Mamba).
+Trajectory simulation and guidance optimization for aerocapture maneuvers, primarily targeting Mars Sample Return (MSR): a spacecraft enters the atmosphere at hyperbolic velocity and uses bank angle modulation to capture into a target orbit. A **Rust simulator** (validated to bit-level precision against a legacy reference implementation) with **Python training and analysis tools**: six classical guidance schemes plus GA/PSO-trained neural guidance (dense, GRU, LSTM, Transformer, Mamba).
 
 ![Correction-DV tail: classical guidance schemes vs trained neural guidance](articles/paper/figures/fig_classical_vs_nn.svg)
 
@@ -114,7 +114,7 @@ The simulation implements a full closed-loop GNC chain:
 
 ## Guidance Schemes
 
-Seven guidance algorithms, all trainable by the population optimizers below:
+Seven guidance schemes, all trainable by the population optimizers below:
 
 | Scheme | Description | Tunable params† | Notes |
 |---|---|---|---|
