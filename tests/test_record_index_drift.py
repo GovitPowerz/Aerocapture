@@ -51,6 +51,13 @@ class TestWidthDrift:
         assert isinstance(aero.NN_FULL_INPUT_SIZE, int)
         assert aero.NN_FULL_INPUT_SIZE == 35
 
+    def test_runtime_candidate_width_matches_rust(self) -> None:
+        from aerocapture.training.config import _RUNTIME_CANDIDATE_WIDTH
+
+        assert _RUNTIME_CANDIDATE_WIDTH == aero.NN_FULL_INPUT_SIZE, (
+            f"config._RUNTIME_CANDIDATE_WIDTH == {_RUNTIME_CANDIDATE_WIDTH} but aerocapture_rs.NN_FULL_INPUT_SIZE == {aero.NN_FULL_INPUT_SIZE}"
+        )
+
     def test_module_exposes_dispersion_draw_len(self) -> None:
         assert isinstance(aero.DISPERSION_DRAW_LEN, int)
         assert aero.DISPERSION_DRAW_LEN == 26

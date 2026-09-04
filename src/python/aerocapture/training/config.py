@@ -15,11 +15,13 @@ import numpy.typing as npt
 from aerocapture.training.optimizer import OptimizerConfig
 
 # Candidate input vector width, mirroring the Rust `build_nn_input` /
-# `NN_FULL_INPUT_SIZE` contract (data/neural.rs). Currently 35 (16 baseline + 4
-# ref-traj + 1 exit-bank teacher + 4 lateral telemetry + 6 seam-free (sin,cos)
-# bank-history pairs at indices 25-30 + 1 periapsis_alt at 31 + 3
-# predicted_dv1/2/3 at indices 32-34). Single Python source of truth, imported
-# by warm_start.py and asserted against Rust by tests/test_nn_scale_parity.py.
+# `NN_FULL_INPUT_SIZE` contract (src/rust/src/data/neural/mod.rs). Currently 35
+# (16 baseline + 4 ref-traj + 1 exit-bank teacher + 4 lateral telemetry + 6
+# seam-free (sin,cos) bank-history pairs at indices 25-30 + 1 periapsis_alt at 31
+# + 3 predicted_dv1/2/3 at indices 32-34). Kept as a literal so this module
+# imports without the PyO3 extension (CI's pure-Python job); imported by
+# warm_start.py and asserted equal to `aerocapture_rs.NN_FULL_INPUT_SIZE` by
+# tests/test_record_index_drift.py::TestWidthDrift.
 _RUNTIME_CANDIDATE_WIDTH = 35
 
 
