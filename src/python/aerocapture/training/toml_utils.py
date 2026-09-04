@@ -73,3 +73,12 @@ def find_mission_name(toml_path: Path) -> str | None:
         return None
 
     return walk(Path(toml_path).resolve())
+
+
+def set_dot_path(data: dict, dot_path: str, value: object) -> None:
+    """Assign `value` at a dot-separated key path, creating intermediate tables."""
+    parts = dot_path.split(".")
+    node = data
+    for part in parts[:-1]:
+        node = node.setdefault(part, {})
+    node[parts[-1]] = value

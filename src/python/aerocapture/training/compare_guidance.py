@@ -25,8 +25,9 @@ from typing import Any
 import numpy as np
 
 from aerocapture.training import charts
+from aerocapture.training.deploy_overrides import overrides_from_params
 from aerocapture.training.evaluate import compute_cost
-from aerocapture.training.param_spaces import route_scaffolding_param
+from aerocapture.training.toml_utils import set_dot_path
 
 SCHEMES = [
     "equilibrium_glide",
@@ -99,15 +100,8 @@ _NN_DEPLOY_SCHEMES = {
 
 def _apply_optimized_params_to_toml(toml_data: dict, params: dict, scheme: str) -> None:
     """Apply best_params.json overrides into the nested TOML tree (in place), routing each key."""
-    for key, value in params.items():
-        dot_path, value = route_scaffolding_param(key, value, scheme)
-        parts = dot_path.split(".")
-        node = toml_data
-        for p in parts[:-1]:
-            node = node.setdefault(p, {})
-        node[parts[-1]] = value
-        if key.startswith("shaping."):
-            toml_data["guidance"]["command_shaping"].setdefault("enabled", True)
+    for dot_path, value in overrides_from_params(params, scheme).items():
+        set_dot_path(toml_data, dot_path, value)
 
 
 def run_scheme(

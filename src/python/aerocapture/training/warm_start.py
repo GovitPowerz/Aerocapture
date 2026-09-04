@@ -19,9 +19,9 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.config import AdamConfig, NetworkConfig, TrainingConfig
+from aerocapture.training.deploy_overrides import overrides_from_params
 from aerocapture.training.encoding import encode_to_normalized, nn_param_specs_from_v2
 from aerocapture.training.evaluate import WARM_START_SEED_OFFSET, make_reserved_seeds
-from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS, route_param_path
 
 if TYPE_CHECKING:
     import torch
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 # Soft import (mirrors evaluate.py): keep `_aero_rs` as a module attribute -- so tests that
 # monkeypatch `warm_start._aero_rs.collect_supervised` still resolve -- but DON'T hard-raise at
-# import, so the module's pure-Python helpers (e.g. _build_overrides_for_source) stay importable
+# import, so the module's pure-Python helpers (e.g. _select_best_teacher_per_seed) stay importable
 # without the PyO3 build. Only the corpus-collection path actually needs Rust (guarded below).
 try:
     import aerocapture_rs as _aero_rs  # type: ignore[import-not-found, import-untyped]
@@ -151,9 +151,6 @@ def _cache_hit(save_dir: Path, expected_key: dict) -> tuple[npt.NDArray[np.float
     return chromo, weight_specs
 
 
-_INTEGER_PARAM_NAMES: frozenset[str] = frozenset(s.name for s in _NN_SCAFFOLDING_PARAMS if s.is_integer)
-
-
 def load_warm_start_bounds(save_dir: Path) -> list | None:
     """Parse `<save_dir>/warm_start_bounds.json` into ParamSpecs, or None if absent.
 
@@ -179,27 +176,6 @@ def load_warm_start_bounds(save_dir: Path) -> list | None:
         )
         for e in raw
     ]
-
-
-def _build_overrides_for_source(source_params: dict[str, float], scheme: str) -> dict[str, object]:
-    """Mirror problem.py::_build_overrides routing for the supervised data source.
-
-    `scheme` is the supervisor scheme name (e.g. "ftc", "equilibrium_glide").
-    Unprefixed keys -- the scheme's primary parameters -- route to
-    `guidance.{scheme}.*` so each supervisor sees its OWN best_params.json values
-    rather than having them silently dropped under `guidance.ftc.*` (which would
-    leave non-FTC supervisors running with TOML-default parameters).
-    """
-    overrides: dict[str, object] = {}
-    for key, value in source_params.items():
-        # Round integer-typed params so the Rust TOML parser accepts them (same as problem.py)
-        coerced: object = int(round(value)) if key in _INTEGER_PARAM_NAMES else value
-        # exit.* routes to [guidance.ftc.*] for all schemes: the shared exit-phase
-        # controller (gnc/guidance/exit.rs) reads those keys regardless of supervisor.
-        overrides[route_param_path(key, scheme)] = coerced
-        if key.startswith("shaping."):
-            overrides["guidance.command_shaping.enabled"] = True
-    return overrides
 
 
 def _seed_policy_init(policy: object, architecture: list, bound_multiplier: float, rng: np.random.Generator) -> None:
@@ -607,7 +583,7 @@ def _collect_supervisor_corpus(
     for scheme, path in resolved_paths.items():
         with open(path) as f:
             source_params = json.load(f)
-        overrides = _build_overrides_for_source(source_params, scheme)
+        overrides = overrides_from_params(source_params, scheme)
         results_by_scheme[scheme] = _aero_rs.collect_supervised(
             toml_path=cfg.sim.toml_config,
             seeds=seeds,

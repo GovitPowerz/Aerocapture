@@ -109,13 +109,14 @@ def chart_dv_cdf_overlay(final_records, output):
 def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     import aerocapture_rs
     from aerocapture.training import charts
+    from aerocapture.training.deploy_overrides import resolve_eval_toml
     from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.reference import _MC_DISPERSION_DOMAINS
-    from aerocapture.training.report import _read_constraint_limits, _resolve_eval_toml, compute_eval_summary, read_cost_kwargs
+    from aerocapture.training.report import _read_constraint_limits, compute_eval_summary, read_cost_kwargs
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     scheme_dir = REPO / "training_output" / run_dir
-    eval_toml, scaffolding = _resolve_eval_toml(REPO / toml, scheme_dir)
+    eval_toml, scaffolding = resolve_eval_toml(REPO / toml, scheme_dir)
     base_mc_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
     seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
 

@@ -11,8 +11,8 @@ from pathlib import Path
 
 import aerocapture_rs
 import numpy as np
+from aerocapture.training.deploy_overrides import overrides_from_params
 from aerocapture.training.evaluate import VALIDATION_SEED_OFFSET, make_reserved_seeds
-from aerocapture.training.param_spaces import route_scaffolding_param
 
 TOML = os.environ.get("AERO_TOML", "configs/training/msr_aller_fnpag_train.toml")
 BEST = os.environ.get("AERO_BEST", "training_output/fnpag/best_params.json")
@@ -40,7 +40,7 @@ def main() -> None:
     n = int(sys.argv[2]) if len(sys.argv) > 2 else 256
 
     best = json.loads(Path(BEST).read_text())
-    routed = dict(route_scaffolding_param(k, v, SCHEME) for k, v in best.items())
+    routed = overrides_from_params(best, SCHEME)
 
     seeds = make_reserved_seeds(BASE_SEED, VALIDATION_SEED_OFFSET, n)
     ovr = [{**routed, "monte_carlo.seed": int(s), "simulation.n_sims": 1} for s in seeds]

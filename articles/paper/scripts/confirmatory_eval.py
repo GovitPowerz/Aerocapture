@@ -107,14 +107,15 @@ def _agg(values: list[float]) -> dict:
 def _eval_cell(label: str, toml: str, pools: list[list[int]], bundle_key: str | None, extra: dict[str, Any],
                scaffolding_from: str | None = None) -> dict:
     import aerocapture_rs
+    from aerocapture.training.deploy_overrides import resolve_eval_toml
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
-    from aerocapture.training.report import _read_constraint_limits, _resolve_eval_toml
+    from aerocapture.training.report import _read_constraint_limits
 
     src = scaffolding_from or label
     scheme_dir = (
         REPO / "training_output" / "paper" / src if "/" in src and not (REPO / "training_output" / src).exists() else REPO / "training_output" / src
     )
-    eval_toml, scaffolding = _resolve_eval_toml(Path(toml), scheme_dir)
+    eval_toml, scaffolding = resolve_eval_toml(Path(toml), scheme_dir)
     hfl, gll, hll = _read_constraint_limits(eval_toml)
 
     base: dict = {"simulation.n_sims": 1, **scaffolding, **extra}

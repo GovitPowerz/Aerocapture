@@ -267,10 +267,10 @@ def _entry_overrides(entry: dict[str, Any], model: Path, seeds: list[int]) -> li
     is scored against TOML-default scaffolding it was never trained with.
     run_batch == one sim per override; force n_sims=1 (configs inherit n_sims=1000).
     """
-    from aerocapture.training.report import _load_nn_scaffolding_overrides
+    from aerocapture.training.deploy_overrides import load_scaffolding_overrides
 
     out_dir = Path(entry["output_dir"])
-    scaff = _load_nn_scaffolding_overrides(out_dir, out_dir / f"optimized_{out_dir.name}.toml")
+    scaff = load_scaffolding_overrides(out_dir)
     base: dict[str, Any] = {"simulation.n_sims": 1, "data.neural_network": str(model), **scaff}
     return [{**base, "monte_carlo.seed": int(s)} for s in seeds]
 

@@ -274,13 +274,13 @@ def main() -> None:
 
     # Pin the run-local model + apply its co-trained scaffolding so the recorded
     # inputs reflect the deployed operating point (mirrors the ablation CLI).
-    from aerocapture.training.report import _load_nn_scaffolding_overrides  # noqa: PLC0415
+    from aerocapture.training.deploy_overrides import load_scaffolding_overrides  # noqa: PLC0415
 
     training_dir = Path(args.training_dir)
     model = args.model
     if model is None and (training_dir / "best_model.json").exists():
         model = str(training_dir / "best_model.json")
-    overrides: dict[str, object] = dict(_load_nn_scaffolding_overrides(training_dir, training_dir / f"optimized_{training_dir.name}.toml"))
+    overrides: dict[str, object] = dict(load_scaffolding_overrides(training_dir))
     if model:
         overrides["data.neural_network"] = model
         print(f"Model: {model}")
