@@ -1,0 +1,16 @@
+# Equivalence gate B: single-algo GA, adaptive seeds, NN scheme (curation +
+# validation gate + scaffolding + NN deploy path all exercised).
+base = ["../../configs/training/sweep/mamba_p962.toml"]
+
+[optimizer]
+n_pop = 8
+n_gen = 4
+training_n_sims = 3
+validation_n_sims = 20
+seed_pool_interval = 2
+curation_sample_size = 30
+curation_top_k = 2
+
+# Gate-local deploy path (never clobber the sweep cell's artifact).
+[data]
+neural_network = "training_output/trainer_seam_gate_b/best_model.json"

@@ -1,0 +1,6 @@
+# Seed repeat s2 (trainer RNG --seed 2; eval pools unchanged) of the
+# per_draw scratch retrain -- sigma_run for the marginal architecture ranking.
+base = ["dense_p515.toml"]
+
+[data]
+neural_network = "training_output/ou_marginal/dense_p515_s2/best_model.json"

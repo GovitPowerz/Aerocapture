@@ -9,7 +9,7 @@
 //! Real-mode recurrence reuses `helpers::expm1_over_x` (with `f64::exp_m1`) so
 //! `real`+`euler` is BIT-identical to `MambaLayer`. Complex arithmetic is explicit
 //! (re, im) to preserve cross-language bit-identity with the Python mirror.
-//! See docs/superpowers/specs/2026-07-07-mamba3-ablation-design.md.
+//! See docs/design/2026-07-07-mamba3-ablation-design.md.
 
 use super::super::LayerWeights;
 use super::helpers::{expm1_over_x, softplus}; // real path reuses expm1_over_x (bit-identity anchor)

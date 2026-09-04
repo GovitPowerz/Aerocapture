@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
-import time
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
@@ -17,30 +16,26 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-from pymoo.core.evaluator import Evaluator  # type: ignore[import-untyped]
 from pymoo.core.population import Population  # type: ignore[import-untyped]
 
 from aerocapture.training.config import CheckpointConfig, TrainingConfig, WarmStartConfig  # noqa: F401  (CheckpointConfig re-exported for downstream tests)
 from aerocapture.training.corridor import CorridorAccumulator
 from aerocapture.training.encoding import decode_normalized, nn_param_specs_from_architecture, nn_param_specs_from_v2
 from aerocapture.training.evaluate import (
-    _HAS_PYO3,
     FINAL_EVAL_SEED_OFFSET,
     VALIDATION_SEED_OFFSET,
-    GateStatus,
     _aero_rs,
     make_reserved_seeds,
-    run_validation_gate,
     write_nn_json,
 )
 from aerocapture.training.initialization_v2 import init_v2_population
 from aerocapture.training.metrics import capture_rate
-from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
+from aerocapture.training.optimizer import OptimizerConfig
 from aerocapture.training.param_spaces import ParamSpec
 from aerocapture.training.population import create_initial_population, create_nn_initial_population
 from aerocapture.training.problem import AerocaptureProblem
+from aerocapture.training.reference import nominal_flight_overrides, piecewise_commanded_cos_bank, ref_trajectory_array
 from aerocapture.training.seed_curator import SeedCurator
-from aerocapture.training.weight_stats import compute_weight_stats
 
 _DEFAULT_PIECEWISE_N_SEGMENTS = 10
 
@@ -109,13 +104,6 @@ def _draw_disjoint_seeds(
         batch = rng.integers(0, 2**31, size=n - len(drawn)).tolist()
         drawn.extend(s for s in batch if s not in excluded)
     return drawn[:n]
-
-
-from aerocapture.training.reference import (  # noqa: E402  (re-export: make_reference.py and tests import these from train)
-    nominal_flight_overrides,
-    piecewise_commanded_cos_bank,
-    ref_trajectory_array,
-)
 
 
 def check_ref_trajectory_wiring(toml_data: dict, ref_traj_path: Path) -> None:
@@ -1139,12 +1127,6 @@ def train(
         )
         raise ValueError(msg)
 
-    # Fail fast if Rust binary is missing
-    exe = Path(cwd or config.sim.exec_dir) / config.sim.executable
-    if not exe.exists():
-        msg = f"Rust simulator not found at {exe.resolve()}. Build it first: cd src/rust && cargo build --release"
-        raise FileNotFoundError(msg)
-
     rng = np.random.default_rng(seed)
 
     save_dir = Path(config.save_dir)
@@ -1183,9 +1165,9 @@ def train(
     config_hash = hashlib.sha256(repr(config).encode()).hexdigest()[:12]
 
     # Try resuming from checkpoint. The islands path manages its own .npz-only
-    # resume inside `_train_islands`; skip the single-algorithm `load_checkpoint`
+    # resume inside the islands adapter (`IslandsTrainer`); skip the single-algorithm `load_checkpoint`
     # here so a stale single-algo `checkpoint.json` left in a shared save_dir
-    # can't bump `n_gen` a second time (it would also be bumped in _train_islands).
+    # can't bump `n_gen` a second time (it would also be bumped in the islands adapter).
     resumed = None
     if resume_dir is not None and config.optimizer.algorithm != "islands":
         resumed = load_checkpoint(Path(resume_dir))
@@ -1232,21 +1214,11 @@ def train(
                 if verbose:
                     print(f"Could not load seed weights: {e}")
 
-    best_overall_cost = resumed["best_cost"] if resumed else np.inf
-    best_overall_individual: npt.NDArray[np.float64] | None = resumed["best_individual"] if resumed else None
-    best_val_cost: float = resumed["best_val_cost"] if resumed else np.inf
-    cost_history: list[float] = resumed["cost_history"] if resumed else []
-    # Identity of the last individual we ran validation on. Used to detect
-    # "new best individual" by parameter comparison -- cost comparison is
-    # unreliable under rotating or curated seeds.
-    last_validated_individual: npt.NDArray[np.float64] | None = (
-        resumed["best_individual"].copy() if resumed and resumed["best_individual"] is not None else None
-    )
-
+    # Best-so-far / validation state now lives on the trainer adapters
+    # (SingleAlgoTrainer reads `resumed` itself; IslandModel keeps per-island bests).
     start_gen = resumed["generation"] if resumed else 0
 
     from aerocapture.training.display import create_display
-    from aerocapture.training.logger import TrainingLogger
 
     display = create_display(
         scheme=config.guidance_type,
@@ -1282,7 +1254,7 @@ def train(
         # Single-algo re-validates the checkpointed best unconditionally on
         # resume (gated on val_seeds), so best_val_cost is already recomputed
         # under the current transform; this is just an informative notice. The
-        # islands path handles its own reset in _train_islands.
+        # islands path handles its own reset in the islands adapter.
         saved_transform = resumed.get("cost_transform")
         current_transform = problem.cost_kwargs.get("cost_transform", "linear")
         if saved_transform is None or saved_transform != current_transform:
@@ -1330,9 +1302,35 @@ def train(
     if config.guidance_type == "neural_network" and warm_start_active and config.optimizer.algorithm == "cma_es":
         config.optimizer.cma_es.sigma0 = config.warm_start.cmaes_sigma0
 
-    # Islands dispatch: return early so the single-algorithm path below is untouched.
+    # Decode function for logger (NN bypasses; analytic schemes decode).
+    decode_fn: Callable[[npt.NDArray[np.float64]], dict[str, float]] | None
+    if config.guidance_type == "neural_network":
+        decode_fn = None
+    else:
+
+        def _decode(x: npt.NDArray[np.float64]) -> dict[str, float]:
+            return decode_normalized(x, param_specs)
+
+        decode_fn = _decode
+
+    from aerocapture.training.logger import TrainingLogger
+
+    logger = TrainingLogger(
+        scheme=config.guidance_type,
+        run=0,
+        output_dir=save_dir,
+        config_hash=config_hash,
+        cost_transform=str(problem.cost_kwargs.get("cost_transform", "linear")),
+    )
+
+    # The trainer seam: one loop contract, two adapters (see trainer.py).
+    # Imported lazily -- trainer.py imports this module's helpers at ITS top,
+    # so a module-level import here would be circular.
+    from aerocapture.training.trainer import IslandsTrainer, SingleAlgoTrainer  # noqa: PLC0415
+
+    trainer: SingleAlgoTrainer | IslandsTrainer
     if config.optimizer.algorithm == "islands":
-        return _train_islands(
+        trainer = IslandsTrainer(
             config=config,
             cwd=cwd,
             save_dir=save_dir,
@@ -1346,924 +1344,87 @@ def train(
             excluded_seeds=excluded_seeds,
             rng=rng,
             seed_curator=seed_curator,
-            strategy=strategy,
-            display=display,
             verbose=verbose,
             start_gen=start_gen,
-            config_hash=config_hash,
+            checkpoint_interval=checkpoint_interval,
+            decode_fn=decode_fn,
+        )
+    else:
+        trainer = SingleAlgoTrainer(
+            config=config,
+            problem=problem,
+            param_specs=param_specs,
+            save_dir=save_dir,
+            cwd=cwd,
+            corridor_acc=corridor_acc,
+            resumed=resumed,
+            pop_array=pop_array,
+            pop_costs=pop_costs,
+            val_seeds=val_seeds,
+            excluded_seeds=excluded_seeds,
+            rng=rng,
+            seed_curator=seed_curator,
+            verbose=verbose,
+            start_gen=start_gen,
             checkpoint_interval=checkpoint_interval,
             toml_abs_path=toml_abs_path,
+            decode_fn=decode_fn,
         )
+    display.set_start_gen(trainer.start_gen)
 
-    # Set up algorithm
-    algorithm = create_algorithm(config.optimizer, n_params=n_params)
-    if verbose:
-        opt = config.optimizer
-        print(f"  Algorithm: {type(algorithm).__name__} ({opt.algorithm}), n_params={n_params}, n_pop={opt.n_pop}, n_gen={opt.n_gen}")
-        print(f"  Seeds:     strategy={opt.seed_strategy}, training_n_sims={opt.training_n_sims}, validation_n_sims={opt.validation_n_sims}")
-        if opt.seed_strategy == "adaptive":
-            print(
-                f"  Curation:  seed_pool_interval={opt.seed_pool_interval}, "
-                f"curation_top_k={opt.curation_top_k}, curation_sample_size={opt.curation_sample_size}"
-            )
-        if opt.algorithm == "ga":
-            print(f"  GA:        crossover_eta={opt.ga.crossover_eta}, mutation_eta={opt.ga.mutation_eta}, mutation_prob={opt.ga.mutation_prob}")
-        elif opt.algorithm == "cma_es":
-            print(f"  CMA-ES:    sigma0={opt.cma_es.sigma0}, restart_strategy={opt.cma_es.restart_strategy}")
-        elif opt.algorithm == "de":
-            print(f"  DE:        variant={opt.de.variant}, crossover_prob={opt.de.crossover_prob}, scaling_factor={opt.de.scaling_factor}")
-        elif opt.algorithm == "pso":
-            print(f"  PSO:       w={opt.pso.w}, c1={opt.pso.c1}, c2={opt.pso.c2}")
-        elif opt.algorithm == "qpso":
-            print(f"  QPSO:      alpha_start={opt.qpso.alpha_start}, alpha_end={opt.qpso.alpha_end}")
-
-    # Inject initial population into pymoo. NOTE: `setup(pop=…)` alone is
-    # insufficient — pymoo's first `next()` would call `_initialize()` and
-    # `_initialize_infill()`, wiping the seeded pop with an LHS sample.
-    # `warm_start_algorithm` flips `is_initialized` and runs
-    # `_initialize_advance` so the seeded chromosomes survive into gen 0
-    # (and PSO's particles/V get initialized against them).
-    initial_pop = Population.new("X", pop_array)
-    if pop_costs is not None:
-        initial_pop.set("F", pop_costs.reshape(-1, 1))
-    else:
-        Evaluator().eval(problem, initial_pop)
-        pop_costs = initial_pop.get("F").flatten()
-
-    warm_start_algorithm(algorithm, problem, initial_pop)
-
-    # Initialize best from the first population eval -- but ONLY on a fresh
-    # start. On resume, `best_overall_{cost,individual}` are the checkpointed
-    # validated best; overwriting them with the current population's argmin
-    # would be wrong because the two training costs were computed under
-    # different seed lists (adaptive/rotating seeds evolve across gens), so
-    # the `<` comparison is meaningless. Swapping here would silently promote
-    # an un-validated individual and make the re-validation at line 539 run
-    # on the wrong chromosome -- drifting the "Best val" RMS and corrupting
-    # the best_model.json that the final eval reads.
-    if best_overall_individual is None:
-        # Finite mask: np.argmin returns the first NaN's index when one is
-        # present, and index 0 on an all-inf gen 0 (every sim timed out) --
-        # either would promote a junk chromosome as the initial best (deployed
-        # unvalidated when validation_n_sims = 0). Same guard family as
-        # island_model.validate_each / seed_curator's non-finite drop.
-        finite = np.isfinite(pop_costs)
-        if finite.any():
-            init_best_idx = int(np.flatnonzero(finite)[np.argmin(pop_costs[finite])])
-            best_overall_cost = float(pop_costs[init_best_idx])
-        else:
-            init_best_idx = 0
-            best_overall_cost = float("inf")  # any finite later gen replaces this
-        best_overall_individual = pop_array[init_best_idx].copy()
-
-    # Set up decode function for logger
-    decode_fn: Callable[[npt.NDArray[np.float64]], dict[str, float]] | None
-    if config.guidance_type == "neural_network":
-        decode_fn = None
-    else:
-
-        def _decode(x: npt.NDArray[np.float64]) -> dict[str, float]:
-            return decode_normalized(x, param_specs)
-
-        decode_fn = _decode
-
-    logger = TrainingLogger(
-        scheme=config.guidance_type,
-        run=0,
-        output_dir=save_dir,
-        config_hash=config_hash,
-        cost_transform=str(problem.cost_kwargs.get("cost_transform", "linear")),
-    )
-
-    gen_best_costs: list[float] = []
     pending_seed_change = False
-    # Pre-bind for KeyboardInterrupt handler safety (in case interrupt fires during algorithm.next())
-    X = pop_array
-    costs = np.full(config.optimizer.n_pop, np.inf)
-    gen = start_gen
+    gen = trainer.start_gen
+    result: dict[str, Any] | None = None
 
     with display:
         try:
-            # Validate the starting best: gen-0 individual on fresh starts,
-            # the checkpointed best on resume. Re-validating on resume keeps
-            # the TUI's "Best val" and stagnation counter honest (val_seeds
-            # are deterministic, so RMS is reproducible).
-            if val_seeds is not None and best_overall_individual is not None:
-                init_val_costs, init_val_records = problem.evaluate_individual_records_per_seed(best_overall_individual, val_seeds)
-                best_val_cost = float(np.sqrt(np.mean(init_val_costs**2)))
-                last_validated_individual = best_overall_individual.copy()
-                init_val_metrics, init_val_summary = _build_validation_payload(
-                    init_val_costs,
-                    init_val_records,
-                    len(val_seeds),
-                    problem.cost_kwargs,
-                )
-                logger.log_generation(
-                    start_gen,
-                    pop_array,
-                    pop_costs if pop_costs is not None else np.full(config.optimizer.n_pop, np.inf),
-                    best_overall_individual,
-                    decode_fn,
-                    validation=init_val_metrics,
-                    validation_summary=init_val_summary,
-                    improved=True,
-                )
-                display.update(logger, current_run=0)
-                if verbose:
-                    label = f"Gen {start_gen}" if start_gen > 0 else "Gen 0"
-                    print(f"  {label} validation: mean={best_val_cost:.4e} cap={init_val_metrics['capture_rate']:.0%}")
-
-            # CMA-ES is the only optimizer that self-terminates -- it wraps
-            # pycma, which carries its own convergence / restart criteria.
-            # Cache the type check once (the algorithm type is fixed for the
-            # whole run); it gates both the internal-termination guard and the
-            # pre-next re-eval skip below. NB: a cma_es config with
-            # n_params > _CMAES_MAX_PARAMS falls back to GA, so test the
-            # instance, not config.optimizer.algorithm.
-            from pymoo.algorithms.soo.nonconvex.cmaes import CMAES, SimpleCMAES  # noqa: PLC0415
-
-            is_cmaes = isinstance(algorithm, (CMAES, SimpleCMAES))
-
-            completed_gen = start_gen  # last generation that fully ran (break-aware)
-            for gen in range(start_gen, config.optimizer.n_gen):
-                # When pycma's criteria fire (e.g. IPOP restarts exhausted on
-                # the noisy adaptive-seed objective), pymoo's `_advance` sets
-                # `next_X = None`; calling `next()` again crashes in
-                # `norm.backward(np.array(None))` with an axis-1 boolean-index
-                # mismatch (population width collapses to 1 vs n_var). GA/DE/
-                # PSO/QPSO use NoTermination and never self-stop, so this guard
-                # is CMA-ES-only. Break cleanly so the post-loop final selection
-                # / eval / report still run on the converged pop.
-                if is_cmaes and not algorithm.has_next():
-                    if verbose:
-                        print(f"  CMA-ES terminated internally at gen {gen} (converged / restarts exhausted); ending training loop.")
+            trainer.prologue(logger, display)
+            for gen in range(trainer.start_gen, config.optimizer.n_gen):
+                if not trainer.should_continue(gen):
                     break
-
-                gen_wall_start = time.perf_counter()
 
                 seeds_changed_this_gen = _apply_seed_strategy(
                     strategy=strategy,
                     rng=rng,
                     n_sims=config.optimizer.training_n_sims,
-                    excluded_seeds=excluded_seeds,
+                    excluded_seeds=trainer.excluded_seeds,
                     problem=problem,
-                    seed_curator=seed_curator,
-                    pending_seed_change=pending_seed_change,
-                )
-                pending_seed_change = False
-
-                # Pre-next re-eval: only fire when seeds changed. Skip for CMA-ES.
-                if seeds_changed_this_gen and not is_cmaes and algorithm.pop is not None:
-                    parent_X = algorithm.pop.get("X")
-                    fresh_F = problem._run_batch(parent_X)
-                    algorithm.pop.set("F", fresh_F.reshape(-1, 1))
-
-                # Advance one generation via pymoo
-                algorithm.next()
-                pop = algorithm.pop
-                X = pop.get("X")
-                F = pop.get("F")
-                costs = F[:, 0]
-
-                # Gen best by parameter identity -- cost comparison across gens is
-                # unreliable under rotating or curated seeds. This bare-argmin
-                # selection is for the logging payload (display only) and the
-                # already-guarded no-validation fallback below; the validation
-                # gate uses its own all-inf-guarded selection.
-                gen_best_idx = int(np.argmin(costs))
-                gen_best_individual = X[gen_best_idx].copy()
-                gen_best_cost = float(costs[gen_best_idx])
-
-                # Corridor accumulation for piecewise_constant
-                if config.guidance_type == "piecewise_constant" and corridor_acc is not None and _HAS_PYO3 and config.sim.toml_config:
-                    _accumulate_corridor(
-                        X,
-                        param_specs,
-                        config,
-                        corridor_acc,
-                        toml_abs_path,
-                        problem=problem,
-                    )
-
-                # Validation gate: fires whenever the gen-best individual differs
-                # (by parameter identity) from the last validated individual.
-                # Promotion to best_overall_individual gated on validation improvement.
-                # The shared gate (with islands) guards the all-inf-population case
-                # so a junk pop[0] is never validated/promoted.
-                validation_metrics: dict | None = None
-                validation_summary: dict | None = None
-                validated_improvement = False
-                if val_seeds is not None:
-                    gate = run_validation_gate(X, costs, last_validated_individual, best_val_cost, problem, val_seeds)
-                    if gate.status is GateStatus.VALIDATED:
-                        assert gate.individual is not None and gate.val_costs is not None and gate.val_rms is not None
-                        validation_metrics, validation_summary = _build_validation_payload(
-                            gate.val_costs,
-                            gate.val_records,
-                            len(val_seeds),
-                            problem.cost_kwargs,
-                        )
-                        last_validated_individual = gate.individual
-                        if gate.promoted:
-                            best_val_cost = gate.val_rms
-                            best_overall_individual = gate.individual
-                            best_overall_cost = gate.argmin_cost
-                            validated_improvement = True
-                    # SKIP_UNCHANGED / SKIP_ALL_INF: no validation, no promotion.
-                elif np.isfinite(gen_best_cost):
-                    # No validation gate: promote each generation's finite training
-                    # argmin directly (mirrors the islands no-validation fallback in
-                    # _train_islands). The final MC eval re-ranks on a disjoint pool,
-                    # so cross-gen seed incomparability is bounded. Without this the
-                    # deployed best_model.json freezes at the gen-0 argmin (defect D1).
-                    best_overall_individual = gen_best_individual
-                    best_overall_cost = gen_best_cost
-
-                # Curation trigger: on validated promotion OR periodic fallback.
-                # next gen's pre-next re-eval picks up the new seeds. Default-bind
-                # X/costs so the provider closes over THIS gen's pop (it's called
-                # synchronously, but binding also silences the loop-var lint).
-                def _single_top_k(
-                    k: int,
-                    X: npt.NDArray[np.float64] = X,
-                    costs: npt.NDArray[np.float64] = costs,
-                ) -> npt.NDArray[np.float64]:
-                    return X[np.argsort(costs)[: min(k, len(costs))]]
-
-                if _maybe_curate(
-                    seed_curator=seed_curator,
-                    problem=problem,
-                    gen=gen,
-                    seed_pool_interval=config.optimizer.seed_pool_interval,
-                    curation_top_k=config.optimizer.curation_top_k,
-                    promoted=validated_improvement,
-                    top_k_provider=_single_top_k,
-                ):
-                    pending_seed_change = True
-
-                # Common logging
-                gen_best_costs.append(best_overall_cost)
-
-                # Compute per-layer weight stats for NN (dense-only; v2 heterogeneous
-                # architectures skip -- stats are TUI decoration, not load-bearing).
-                ws = None
-                if config.guidance_type == "neural_network" and best_overall_individual is not None and config.network.architecture is None:
-                    best_weights = _decode_nn_weights(best_overall_individual, param_specs)
-                    ws = compute_weight_stats(best_weights, config.network.layer_sizes)
-
-                # Pool metrics for logger
-                pool_metrics: dict | None = None
-                if seed_curator is not None and seed_curator.seed_list is not None:
-                    pool_metrics = {
-                        "pool_size": len(seed_curator.seed_list),
-                        "last_curation_gen": seed_curator.last_curation_gen,
-                    }
-
-                # Log metrics
-                gen_elapsed_s = time.perf_counter() - gen_wall_start
-                logger.log_generation(
-                    gen + 1,
-                    X,
-                    costs,
-                    best_overall_individual if best_overall_individual is not None else X[0],
-                    decode_fn,
-                    weight_stats=ws,
-                    pool_metrics=pool_metrics,
-                    gen_elapsed_s=gen_elapsed_s,
-                    gen_best_individual=gen_best_individual,
-                    validation=validation_metrics,
-                    validation_summary=validation_summary,
-                    improved=validated_improvement if val_seeds is not None else None,
-                )
-                display.update(logger, current_run=0)
-
-                # Headless heartbeat: with --no-tui (or a non-interactive tty)
-                # the dashboard is a NoopDisplay — without this print a multi-hour
-                # run is indistinguishable from a NaN-hung simulation batch.
-                if verbose and not display.is_live and (gen + 1) % 5 == 0:
-                    print(f"  Gen {gen + 1}/{config.optimizer.n_gen}: best={best_overall_cost:.4e} ({gen_elapsed_s:.1f}s)")
-
-                # Checkpoint
-                if (gen + 1) % checkpoint_interval == 0:
-                    save_checkpoint(
-                        save_dir,
-                        gen + 1,
-                        X,
-                        costs,
-                        best_overall_cost,
-                        best_overall_individual,
-                        cost_history + gen_best_costs,
-                        rng,
-                        config,
-                        cwd,
-                        param_specs,
-                        seed_curator=seed_curator,
-                        corridor_acc=corridor_acc,
-                        best_val_cost=best_val_cost,
-                        cost_transform=problem.cost_kwargs.get("cost_transform", "linear"),
-                    )
-                    if verbose and not display.is_live:
-                        print(f"  Checkpoint saved: g{gen + 1:05d}")
-
-                completed_gen = gen + 1
-
-            cost_history.extend(gen_best_costs)
-            # Cleared so the KeyboardInterrupt save (cost_history + gen_best_costs)
-            # can't double-count the tail when Ctrl+C lands AFTER this merge
-            # (e.g. during the final-selection / final-eval MC sweeps below).
-            gen_best_costs.clear()
-
-            # End-of-training final selection (spec 2026-06-10-final-selection):
-            # re-rank the last generation + champion on the validation pool;
-            # deploy the winner only on strict val-RMS improvement. The final-
-            # eval pool stays report-only.
-            final_sel = None
-            selection_promoted = False
-            if val_seeds is not None:
-                from aerocapture.training.final_select import (  # noqa: PLC0415
-                    KnownCandidate,
-                    format_selection_summary,
-                    select_final_individual,
-                    write_final_selection_json,
-                )
-
-                known: list[KnownCandidate] = []
-                if best_overall_individual is not None and np.isfinite(best_val_cost):
-                    known.append(KnownCandidate(x=best_overall_individual, provenance="champion", val_rms=float(best_val_cost)))
-                try:
-                    sel = select_final_individual(
-                        problem,
-                        X,
-                        [f"last_gen[{i}]" for i in range(X.shape[0])],
-                        known,
-                        val_seeds,
-                    )
-                except ValueError:
-                    # Pathological all-inf run with no champion: nothing to select.
-                    sel = None
-                if sel is not None:
-                    final_sel = sel
-                    if sel.promoted:
-                        best_overall_individual = sel.individual.copy()
-                        best_val_cost = sel.val_rms
-                        assert sel.winner_index is not None
-                        # Training-cost-at-promotion semantics (resume-incomparability rule):
-                        # the winner's training cost under the final seed list.
-                        best_overall_cost = float(costs[sel.winner_index])
-                        selection_promoted = True
-
-            # Always save a final checkpoint. `completed_gen` is the last gen
-            # that actually ran -- labeling with config.optimizer.n_gen would
-            # inflate the checkpoint name when CMA-ES self-terminated early,
-            # and the resume "+N additional gens" bump counts from that label.
-            last_gen = completed_gen
-            if last_gen % checkpoint_interval != 0 or selection_promoted:
-                save_checkpoint(
-                    save_dir,
-                    last_gen,
-                    X,
-                    costs,
-                    best_overall_cost,
-                    best_overall_individual,
-                    cost_history,
-                    rng,
-                    config,
-                    cwd,
-                    param_specs,
-                    seed_curator=seed_curator,
-                    corridor_acc=corridor_acc,
-                    best_val_cost=best_val_cost,
-                    cost_transform=problem.cost_kwargs.get("cost_transform", "linear"),
-                )
-                if verbose:
-                    print(f"  Final checkpoint saved: g{last_gen:05d}")
-
-            # Sidecar written after the durable save so it never describes a
-            # winner the deployed artifacts don't have (crash-window ordering).
-            if final_sel is not None and val_seeds is not None:
-                write_final_selection_json(save_dir, final_sel, len(val_seeds))
-                if verbose:
-                    print(format_selection_summary(final_sel))
-
-            logger.close()
-
-        except KeyboardInterrupt:
-            interrupted = True
-            display.stop()
-            print(f"\nInterrupted at gen {gen + 1}. Saving checkpoint...")
-            save_checkpoint(
-                save_dir,
-                gen + 1,
-                X,
-                costs,
-                best_overall_cost,
-                best_overall_individual,
-                cost_history + gen_best_costs,
-                rng,
-                config,
-                cwd,
-                param_specs,
-                seed_curator=seed_curator,
-                corridor_acc=corridor_acc,
-                best_val_cost=best_val_cost,
-                cost_transform=problem.cost_kwargs.get("cost_transform", "linear"),
-            )
-            logger.close()
-
-    return {
-        "best_cost": best_overall_cost,
-        "best_individual": best_overall_individual,
-        "cost_history": cost_history,
-        "interrupted": interrupted,
-        "corridor_acc": corridor_acc,
-        "param_specs": param_specs,
-    }
-
-
-def _train_islands(
-    *,
-    config: TrainingConfig,
-    cwd: str | Path | None,
-    save_dir: Path,
-    problem: AerocaptureProblem,
-    param_specs: list[ParamSpec],
-    n_params: int,
-    pop_array: npt.NDArray[np.float64],
-    pop_costs: npt.NDArray[np.float64] | None,
-    val_seeds: list[int] | None,
-    base_mc_seed: int,
-    excluded_seeds: set[int],
-    rng: np.random.Generator,
-    seed_curator: SeedCurator | None,
-    strategy: str,
-    display: Any,
-    verbose: bool,
-    start_gen: int,
-    config_hash: str,
-    checkpoint_interval: int,
-    toml_abs_path: str,
-) -> dict[str, Any]:
-    """Outer loop for the 3-island PSO/GA/DE trainer.
-
-    Mirrors the single-algorithm path in train() but drives an IslandModel.
-    Per-island JSONL records (3 per gen) are written via TrainingLogger with
-    the `island_name` field set.
-    """
-    from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds  # noqa: PLC0415
-    from aerocapture.training.island_model import (  # noqa: PLC0415
-        IslandModel,
-        compute_migration_origin_stats,
-        summarize_latest_migration,
-        val_generalization_gap,
-    )
-    from aerocapture.training.logger import TrainingLogger  # noqa: PLC0415
-
-    # Reserved final-eval seeds (disjoint from training + validation pools).
-    # Match single-algorithm path: max(validation_n_sims, 10000).
-    final_eval_n = max(config.optimizer.validation_n_sims, 10000)
-    final_eval_seeds = make_reserved_seeds(
-        base_mc_seed,
-        FINAL_EVAL_SEED_OFFSET,
-        final_eval_n,
-    )
-
-    # Keep training-seed draws (rotating / adaptive) disjoint from the reserved
-    # final-eval and validation pools. train() only unions these into
-    # excluded_seeds when validation_n_sims > 0, so do it here unconditionally.
-    excluded_seeds = excluded_seeds | set(final_eval_seeds)
-    if val_seeds:
-        excluded_seeds = excluded_seeds | set(val_seeds)
-
-    island_model = IslandModel(
-        config=config.optimizer,
-        problem=problem,
-        n_params=n_params,
-        validation_seeds=val_seeds or [],
-        final_eval_seeds=final_eval_seeds,
-        base_mc_seed=base_mc_seed,
-        rng=rng,
-    )
-
-    # Probe for a resumable islands checkpoint FIRST, so the cold-start
-    # population evaluation below can be skipped on resume (from_checkpoint
-    # overwrites every island's pop, so evaluating the fresh pop would be
-    # wasted MC work). Pick the LATEST checkpoint that actually carries the
-    # islands v2 marker — not just the lexicographically-last .npz — so a
-    # foreign single-algorithm .npz sharing the directory (which has no
-    # "version" key) can't shadow a valid islands checkpoint.
-    ckpt_files = sorted(save_dir.glob("checkpoint_g*.npz"))
-    resume_ckpt: Path | None = None
-    for cand in reversed(ckpt_files):
-        try:
-            with np.load(cand, allow_pickle=True) as probe:
-                if "version" in probe and int(probe["version"]) == 2:
-                    resume_ckpt = cand
-                    break
-        except Exception:
-            continue
-    if resume_ckpt is None and ckpt_files and verbose:
-        print(
-            f"  Found {len(ckpt_files)} checkpoint_g*.npz in {save_dir} but none are islands v2 checkpoints; starting fresh.",
-        )
-
-    # Fan out the (possibly warm-started) initial population to all 3 islands.
-    # Each island gets the same starting chromosome but its algorithm's own
-    # internal state (e.g. PSO velocity init) is fresh. `warm_start_algorithm`
-    # is used instead of `setup(pop=…)` because pymoo would otherwise wipe the
-    # seeded pop via `_initialize()` on first `next()`; it also binds the
-    # problem via setup(), which is required even on resume.
-    if pop_costs is None:
-        if resume_ckpt is not None:
-            # Resuming: from_checkpoint overwrites pop.F immediately, so don't
-            # spend a full cold-start MC batch we're about to discard.
-            pop_costs = np.zeros(pop_array.shape[0], dtype=np.float64)
-        else:
-            # Evaluate once and share F across all islands (chromosomes are
-            # identical, so the costs are too — three Evaluator passes would
-            # triple the cold-start budget).
-            shared_eval_pop = Population.new("X", pop_array.copy())
-            Evaluator().eval(problem, shared_eval_pop)
-            pop_costs = shared_eval_pop.get("F").flatten()
-    for island in island_model.islands:
-        init_pop = Population.new("X", pop_array.copy())
-        init_pop.set("F", pop_costs.reshape(-1, 1).copy())
-        warm_start_algorithm(island.algorithm, problem, init_pop)
-
-    if resume_ckpt is not None:
-        resumed_gen, resumed_curator_state, resumed_cost_transform = island_model.from_checkpoint(resume_ckpt)
-        start_gen = resumed_gen + 1
-        # Mirror the single-algorithm convention: `--n-gen N` after resume
-        # means "N additional gens", so bump n_gen by the resumed
-        # generation count. Done inside `_train_islands` because the outer
-        # `train()` bump only runs when `load_checkpoint()` returns a
-        # non-None dict — which it can't for an npz-only islands checkpoint.
-        config.optimizer.n_gen += resumed_gen + 1
-        if resumed_curator_state is not None and seed_curator is not None:
-            seed_curator = _restore_seed_curator(resumed_curator_state, seed_curator, verbose)
-            # Push the restored curated seed list into the problem so the
-            # first post-resume gen evaluates against the right seeds. The
-            # in-loop "adaptive bootstrap" branch is gated on `seed_list is
-            # None`, so without this push we would silently evaluate against
-            # the pre-islands-dispatch seed state.
-            if seed_curator.seed_list is not None:
-                problem.update_seeds(seed_curator.seed_list)
-        # Reconcile population size to the configured n_pop (supports resuming a
-        # small-pop run with a bigger pop). Done AFTER the curated seeds are
-        # pushed so the re-eval of new individuals uses the right seeds.
-        old_n = island_model.islands[0].algorithm.pop.get("X").shape[0]
-        if config.optimizer.n_pop != old_n:
-            if verbose:
-                print(f"  Resizing islands populations {old_n} -> {config.optimizer.n_pop}")
-            island_model.resize_populations(
-                target_n=config.optimizer.n_pop,
-                rng=rng,
-                fresh_fraction=config.optimizer.grow_fresh_fraction,
-                velocity_scale=config.optimizer.islands.pso_inject_velocity_scale,
-            )
-
-        # Re-validate each island's best under the current config (refreshes
-        # best_val_cost; auto-handles a changed cost_transform).
-        if val_seeds:
-            island_model.revalidate_each()
-
-        # cost_transform change notice + stagnation reset.
-        current_transform = problem.cost_kwargs.get("cost_transform", "linear")
-        if resumed_cost_transform is None or resumed_cost_transform != current_transform:
-            if verbose:
-                print(f"  cost_transform changed {resumed_cost_transform!r} -> {current_transform!r}; re-validated best under new metric")
-            for island in island_model.islands:
-                island.stagnation_counter = 0
-        if verbose:
-            print(f"  Resumed islands from gen {resumed_gen}, continuing from {start_gen}")
-
-    # Decode function for logger (NN bypasses, analytic schemes use decode_normalized).
-    decode_fn: Callable[[npt.NDArray[np.float64]], dict[str, float]] | None = None
-    if config.guidance_type != "neural_network":
-
-        def _decode(x: npt.NDArray[np.float64]) -> dict[str, float]:
-            return decode_normalized(x, param_specs)
-
-        decode_fn = _decode
-
-    logger = TrainingLogger(
-        scheme=config.guidance_type,
-        run=0,
-        output_dir=save_dir,
-        config_hash=config_hash,
-        cost_transform=str(problem.cost_kwargs.get("cost_transform", "linear")),
-    )
-
-    display.set_start_gen(start_gen)
-    pending_seed_change = False
-    interrupted = False
-    gen = start_gen
-
-    with display:
-        try:
-            for gen in range(start_gen, config.optimizer.n_gen):
-                seeds_changed_this_gen = _apply_seed_strategy(
-                    strategy=strategy,
-                    rng=rng,
-                    n_sims=config.optimizer.training_n_sims,
-                    excluded_seeds=excluded_seeds,
-                    problem=problem,
-                    seed_curator=seed_curator,
+                    seed_curator=trainer.seed_curator,
                     pending_seed_change=pending_seed_change,
                 )
                 pending_seed_change = False
 
                 if seeds_changed_this_gen:
-                    island_model.re_evaluate_all_populations()
+                    trainer.re_evaluate()
 
-                # Advance + (maybe) migrate.
-                events = island_model.step(current_gen=gen)
+                trainer.advance(gen)
+                promoted = trainer.observe(gen)
 
-                # Validate (identity-trigger per island).
-                if val_seeds:
-                    val_records = island_model.validate_each(current_gen=gen)
-                else:
-                    # No validation seeds — there is no validation gate to
-                    # promote best_overall_*, so promote each island's finite
-                    # training argmin directly. Without this no island ever sets
-                    # best_overall_individual, final_eval() returns [], and the
-                    # run produces zero artifacts while deleting any prior
-                    # best_model.json. final_eval re-ranks on the disjoint
-                    # final-eval pool, so the cross-gen incomparability is bounded
-                    # to which gen's argmin seeds each island's candidate.
-                    val_records = []
-                    for i in island_model.islands:
-                        F = i.algorithm.pop.get("F").flatten()
-                        finite_mask = np.isfinite(F)
-                        if finite_mask.any():
-                            X = i.algorithm.pop.get("X")
-                            amin = int(np.argmin(np.where(finite_mask, F, np.inf)))
-                            i.best_overall_individual = X[amin].copy()
-                            i.best_overall_cost = float(F[amin])
-                            argmin_cost = float(F[amin])
-                        else:
-                            argmin_cost = float("inf")
-                        val_records.append(
-                            {
-                                "island": i.name,
-                                "validated": False,
-                                "promoted": False,
-                                "argmin_train_cost": argmin_cost,
-                                "stagnation": i.stagnation_counter,
-                            }
-                        )
-
-                # Adaptive seed curation: probe a top-K slice pooled across all
-                # 3 islands (vs the single-algo per-gen argmin slice).
                 if _maybe_curate(
-                    seed_curator=seed_curator,
+                    seed_curator=trainer.seed_curator,
                     problem=problem,
                     gen=gen,
                     seed_pool_interval=config.optimizer.seed_pool_interval,
                     curation_top_k=config.optimizer.curation_top_k,
-                    promoted=any(r.get("promoted") for r in val_records),
-                    top_k_provider=island_model.pool_top_k_X,
+                    promoted=promoted,
+                    top_k_provider=trainer.top_k,
                 ):
                     pending_seed_change = True
 
-                # Per-island JSONL records.
-                for island, val_rec in zip(island_model.islands, val_records, strict=True):
-                    X = island.algorithm.pop.get("X")
-                    F = island.algorithm.pop.get("F").flatten()
-                    validation_dict: dict | None = None
-                    if val_rec["validated"]:
-                        validation_dict = {
-                            "rms_cost": val_rec["val_rms"],
-                            "mean_cost": val_rec["val_mean"],
-                            "p95_cost": val_rec["val_p95"],
-                            "capture_rate": val_rec["val_capture_rate"],
-                            "n_sims": len(val_seeds) if val_seeds else 0,
-                        }
-                    logger.log_generation(
-                        generation=gen,
-                        population=X,
-                        costs=F,
-                        best_individual=island.best_overall_individual,
-                        decode_fn=decode_fn,
-                        validation=validation_dict,
-                        validation_summary=val_rec.get("val_summary") if val_rec["validated"] else None,
-                        improved=val_rec["promoted"],
-                        island_name=island.name,
-                    )
+                trainer.emit(gen, logger, display)
+                trainer.maybe_checkpoint(gen)
 
-                island_records: dict[str, Any] = {
-                    island.name: {
-                        "best_val": island.best_val_cost,
-                        "val_rms": val_rec.get("val_rms", float("inf")),
-                        "stagnation": island.stagnation_counter,
-                        "argmin_train_cost": val_rec.get("argmin_train_cost", float("inf")),
-                        # Sticky: shows the last validated dashboard even on
-                        # gens where this island didn't re-validate.
-                        "val_summary": island.latest_val_summary,
-                    }
-                    for island, val_rec in zip(
-                        island_model.islands,
-                        val_records,
-                        strict=True,
-                    )
-                }
-                island_records["_gen"] = gen
-                island_records["_n_gen"] = config.optimizer.n_gen
-                island_records["_total_migrations"] = len(island_model.migration_log)
-
-                # Migration summary: best/worst migrant per destination from THIS
-                # gen's events (if any). Only (re)computed on migration gens — the
-                # cached snapshot is reused on the other ~(k_period-1)/k_period
-                # gens so the per-gen display refresh doesn't re-scan the full
-                # migration_log every generation.
-                if events:
-                    island_model.latest_migration_summary = summarize_latest_migration(events)
-                    island_model.latest_migration_gen = gen
-                    island_model.origin_stats_cache = compute_migration_origin_stats(island_model.migration_log)
-
-                island_records["_latest_migration_summary"] = island_model.latest_migration_summary
-                island_records["_latest_migration_gen"] = island_model.latest_migration_gen
-                island_records["_origin_stats"] = island_model.origin_stats_cache
-
-                display.update(logger, current_run=0, island_records=island_records)
-
-                # Headless heartbeat (mirrors the single-algo loop): keep
-                # --no-tui / piped runs observable.
-                if verbose and not display.is_live and (gen + 1) % 5 == 0:
-                    parts = ", ".join(f"{r['island']}={r.get('argmin_train_cost', float('inf')):.3e}" for r in val_records)
-                    print(f"  Gen {gen + 1}/{config.optimizer.n_gen}: argmin {parts}")
-
-                if (gen + 1) % checkpoint_interval == 0 or gen == config.optimizer.n_gen - 1:
-                    island_model.checkpoint(
-                        save_dir / f"checkpoint_g{gen:05d}.npz",
-                        generation=gen,
-                        seed_curator_state=seed_curator.to_dict() if seed_curator is not None else None,
-                    )
-                    _prune_old_checkpoints(save_dir, config.checkpoints.keep_last)
-
+            if trainer.finalize_in_display_scope:
+                result = trainer.finalize(logger)
         except KeyboardInterrupt:
             interrupted = True
-            island_model.checkpoint(
-                save_dir / f"checkpoint_g{gen:05d}.npz",
-                generation=gen,
-                seed_curator_state=seed_curator.to_dict() if seed_curator is not None else None,
-            )
-            _prune_old_checkpoints(save_dir, config.checkpoints.keep_last)
-            if verbose:
-                print(f"\n  Interrupted at gen {gen}; checkpoint saved.")
+            trainer.on_interrupt(gen, logger, display)
 
     if interrupted:
-        # Mirror the single-algorithm path: Ctrl+C means stop NOW. The
-        # validation-pool selection (up to 3*n_pop x validation_n_sims sims)
-        # and the 3x10k-sim final_eval must not launch after an interrupt,
-        # and the deployed artifacts stay whatever the last full run wrote.
-        logger.close()
-        return {
-            "best_cost": float("inf"),
-            "best_individual": None,
-            "cost_history": [],
-            "interrupted": True,
-            "corridor_acc": None,
-            "param_specs": param_specs,
-            "winner": None,
-            "results": [],
-            "migration_log": island_model.migration_log,
-        }
-
-    # Validation-pool final selection across islands (spec 2026-06-10-final-selection):
-    # union of last-gen pops + champions decides the ARTIFACTS; final_eval below
-    # is report-only (winner's fresh final-eval rms is the quoted number).
-    selection = None
-    if island_model.validation_seeds:
-        from aerocapture.training.final_select import (  # noqa: PLC0415
-            KnownCandidate,
-            format_selection_summary,
-            select_final_individual,
-            write_final_selection_json,
-        )
-
-        known = [
-            KnownCandidate(
-                x=np.asarray(isl.best_overall_individual, dtype=np.float64),
-                provenance=f"{isl.name}:champion",
-                val_rms=float(isl.best_val_cost),
-            )
-            for isl in island_model.islands
-            if isl.best_overall_individual is not None and np.isfinite(isl.best_val_cost)
-        ]
-        cand_rows: list[npt.NDArray[np.float64]] = []
-        cand_prov: list[str] = []
-        for isl in island_model.islands:
-            pop = isl.algorithm.pop
-            if pop is None:
-                continue
-            pop_x = pop.get("X")
-            for j in range(pop_x.shape[0]):
-                cand_rows.append(np.asarray(pop_x[j], dtype=np.float64))
-                cand_prov.append(f"{isl.name}:last_gen[{j}]")
-        if known or cand_rows:
-            try:
-                selection = select_final_individual(
-                    problem,
-                    np.vstack(cand_rows) if cand_rows else np.empty((0, len(param_specs))),
-                    cand_prov,
-                    known,
-                    island_model.validation_seeds,
-                )
-            except ValueError:
-                # Pathological all-inf run with no champions: fall through to the
-                # legacy final_eval / stale-removal path below.
-                selection = None
-
-    # Final eval (report-only when selection ran).
-    results = island_model.final_eval()
-    if selection is None and not results:
-        # validation off AND no island promoted -- legacy stale-artifact removal path.
-        if verbose:
-            print("  No island had a validated best — skipping final-eval / artifact write.")
-        for stale in (
-            save_dir / "best_model.json",
-            save_dir / "best_params.json",
-            Path(cwd or ".") / config.sim.nn_param_file if config.guidance_type == "neural_network" else None,
-        ):
-            if stale is not None and stale.exists():
-                stale.unlink()
-                if verbose:
-                    print(f"  Removed stale {stale}")
-        logger.close()
-        return {
-            "best_cost": float("inf"),
-            "best_individual": None,
-            "cost_history": [],
-            "interrupted": interrupted,
-            "corridor_acc": None,
-            "param_specs": param_specs,
-            "winner": None,
-            "results": [],
-            "migration_log": island_model.migration_log,
-        }
-
-    if selection is not None:
-        # Winner = validation-pool selection. Quote its UNBIASED final-eval rms:
-        # reuse the matching champion record when the incumbent won, else run
-        # one fresh single-candidate final-eval for a promoted individual.
-        match = next((r for r in results if r["island"] + ":champion" == selection.provenance), None)
-        if match is not None:
-            final_rms = float(match["rms"])
-            win_island = str(match["island"])
-            capture = float(match["capture_rate"])
-        else:
-            from aerocapture.training.island_model import _capture_rate  # noqa: PLC0415
-
-            fe_costs = problem.evaluate_individual_per_seed(selection.individual, island_model.final_eval_seeds)
-            final_rms = float(np.sqrt(np.mean(np.asarray(fe_costs, dtype=np.float64) ** 2)))
-            win_island = selection.provenance.split(":", 1)[0]
-            capture = float(_capture_rate(np.asarray(fe_costs), cost_transform=str(problem.cost_kwargs.get("cost_transform", "linear"))))
-        winner: dict[str, Any] = {
-            "island": win_island,
-            "X": selection.individual.copy(),
-            "rms": final_rms,
-            "val_rms": float(selection.val_rms),
-            "capture_rate": capture,
-            "n_sims": len(island_model.final_eval_seeds),
-            "selection_provenance": selection.provenance,
-        }
-    else:
-        winner = results[0]
-
-    if selection is not None and selection.promoted:
-        _persist_islands_promotion(island_model, selection, save_dir, gen, seed_curator, config.checkpoints.keep_last)
-
-    if verbose:
-        gap, overfit = val_generalization_gap(winner["val_rms"], winner["rms"])
-        gap_detail = ""
-        if winner["val_rms"] < float("inf"):
-            gap_detail = f" (val_rms={winner['val_rms']:.4e}, gap={gap:+.1%}{'  [WARN: overfit to validation?]' if overfit else ''})"
-        print(
-            f"  Winner: {winner['island']} rms={winner['rms']:.4e} cap={winner['capture_rate']:.0%}{gap_detail}",
-        )
-
-    write_best_artifacts(winner["X"], config, param_specs, save_dir, cwd=cwd)
-
-    if selection is not None:
-        # Sidecar AFTER the durable saves (checkpoint + artifacts) so it never
-        # describes a winner the artifacts don't have (crash-window ordering,
-        # matching the single-algorithm path).
-        write_final_selection_json(save_dir, selection, len(island_model.validation_seeds))
-        if verbose:
-            print(format_selection_summary(selection))
-
-    logger.close()
-    return {
-        "best_cost": float(winner["rms"]),
-        "best_individual": winner["X"],
-        "cost_history": [],
-        "interrupted": interrupted,
-        "corridor_acc": None,
-        "param_specs": param_specs,
-        "winner": winner,
-        "results": results,
-        "migration_log": island_model.migration_log,
-    }
+        return trainer.interrupted_result()
+    if result is None:
+        result = trainer.finalize(logger)
+    return result
 
 
 def write_best_artifacts(
@@ -2485,10 +1646,6 @@ def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dic
         cfg.network.qat_granularity = str(_net["qat_granularity"])
     if "qat_tensor_policy" in _net:
         cfg.network.qat_tensor_policy = str(_net["qat_tensor_policy"])
-    # Post-hoc field assignment bypasses NetworkConfig.__post_init__, so validate here.
-    from aerocapture.training.config import validate_qat
-
-    validate_qat(cfg.network.qat_bits, cfg.network.qat_granularity, cfg.network.qat_tensor_policy, cfg.network.architecture)
     _gnn = _toml_data.get("guidance", {}).get("neural_network", {})
     if "scaffolding" in _gnn:
         cfg.network.scaffolding = str(_gnn["scaffolding"])
@@ -2507,6 +1664,13 @@ def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dic
             raise SystemExit(1)
     if "warm_start" in _toml_data:
         cfg.warm_start = WarmStartConfig.from_dict(_toml_data["warm_start"])
+
+    # The field assignments above bypass NetworkConfig.__post_init__, leaving
+    # per-entry normalization undone (e.g. Mamba dt_rank resolution). train()
+    # used to survive only because init_v2_population mutates the entries as a
+    # side effect; callers that never build a population (final_select CLI)
+    # crashed run_grid with "missing field dt_rank". Re-run it explicitly.
+    cfg.network.__post_init__()
 
     # `[checkpoints]` block: optional disk-retention policy. `keep_last = N`
     # auto-prunes older `checkpoint_g*.{json,npz}` pairs after each save,

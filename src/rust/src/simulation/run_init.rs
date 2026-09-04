@@ -7,6 +7,7 @@
 
 use crate::config::SimInput;
 use crate::data::SimData;
+use crate::data::dispersions::NoiseSeeding;
 use crate::gnc::control::pilot::PilotState;
 use crate::gnc::guidance::dispatch::GuidanceState;
 use crate::gnc::navigation::estimator::{self, NavigationFilter};
@@ -16,6 +17,29 @@ use crate::simulation::init;
 use crate::simulation::runner::navigate_from_state;
 use crate::simulation::sim_types::{BOUNCE_ALT_UNSET, SimState, TermReason};
 use std::time::Instant;
+
+/// Odd 64-bit golden-ratio constant (the SplitMix64 increment): multiplying
+/// `env_idx` by it spreads consecutive env indices across the seed space
+/// before they are added to the per-draw seed.
+const ENV_IDX_MIX: u64 = 0x9E37_79B9_7F4A_7C15;
+
+/// Base seed for the per-sim stochastic streams (EKF sensor noise, OU density
+/// perturbation). `Legacy` reproduces the historical `random_seed + env_idx *
+/// 10_000`, which ignores the draw entirely: every n_sims=1 run (env_idx = 0,
+/// `random_seed` fixed by the TOML) shares ONE noise realization. `PerDraw`
+/// mixes the draw's own seed with `env_idx`, so distinct scenarios get distinct
+/// realizations while an identical draw stays reproducible.
+pub fn noise_base_seed(
+    mode: NoiseSeeding,
+    random_seed: f64,
+    env_idx: u64,
+    draw_noise_seed: u64,
+) -> u64 {
+    match mode {
+        NoiseSeeding::Legacy => random_seed as u64 + env_idx * 10_000,
+        NoiseSeeding::PerDraw => draw_noise_seed.wrapping_add(env_idx.wrapping_mul(ENV_IDX_MIX)),
+    }
+}
 
 /// Construct a fresh `SimState` for env `i` without running the simulation loop.
 ///
@@ -51,6 +75,21 @@ pub fn build_sim_state(
     let max_time = config.max_time;
     let exit_altitude = data.final_conditions.altitude;
 
+    // Base seed for the per-sim stochastic streams (EKF sensor noise, OU
+    // density perturbation). Legacy: `random_seed + env_idx * 10_000` — frozen
+    // across n_sims=1 configs (env_idx = 0, random_seed fixed by the TOML), so
+    // per-seed pools condition on ONE noise realization. PerDraw: derived from
+    // the dispersion draw, so every distinct scenario gets its own realization.
+    let noise_base = noise_base_seed(
+        data.dispersion_config
+            .as_ref()
+            .map(|d| d.noise_seeding)
+            .unwrap_or_default(),
+        config.random_seed,
+        env_idx,
+        run_state.noise_seed,
+    );
+
     let nav_filter = match data.nav_mode {
         crate::data::NavMode::Bias => NavigationFilter::new_bias(),
         crate::data::NavMode::Ekf => {
@@ -59,8 +98,7 @@ pub fn build_sim_state(
                 .as_ref()
                 .expect("EKF mode requires [navigation] config");
             let (imu_cfg, st_cfg, ekf_cfg) = estimator::build_ekf_configs(nav_toml);
-            let seed = config.random_seed as u64 + env_idx * 10_000;
-            NavigationFilter::new_ekf(imu_cfg, st_cfg, ekf_cfg, seed)
+            NavigationFilter::new_ekf(imu_cfg, st_cfg, ekf_cfg, noise_base)
         }
     };
 
@@ -68,9 +106,7 @@ pub fn build_sim_state(
     let gm_config = data.density_perturbation.filter(|g| !g.is_disabled());
     let (gm_rng, gm_normal) = if gm_config.is_some() {
         use rand::SeedableRng;
-        let rng = rand::rngs::StdRng::seed_from_u64(
-            config.random_seed as u64 + env_idx * 10_000 + 0xDE45,
-        );
+        let rng = rand::rngs::StdRng::seed_from_u64(noise_base.wrapping_add(0xDE45));
         let normal = rand_distr::Normal::new(0.0, 1.0).unwrap();
         (Some(rng), Some(normal))
     } else {
@@ -167,4 +203,47 @@ pub fn build_sim_state(
         s.last_nav = navigate_from_state(&mut s, data, planet);
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_seed_ignores_the_draw_and_matches_the_historical_formula() {
+        assert_eq!(noise_base_seed(NoiseSeeding::Legacy, 0.6866, 0, 1), 0);
+        assert_eq!(
+            noise_base_seed(NoiseSeeding::Legacy, 0.6866, 0, 987_654_321),
+            0
+        );
+        assert_eq!(
+            noise_base_seed(NoiseSeeding::Legacy, 42.9, 3, 7),
+            42 + 30_000
+        );
+    }
+
+    #[test]
+    fn per_draw_seed_varies_with_the_draw_and_with_env_idx() {
+        let a = noise_base_seed(NoiseSeeding::PerDraw, 0.6866, 0, 1);
+        let b = noise_base_seed(NoiseSeeding::PerDraw, 0.6866, 0, 2);
+        let a_env1 = noise_base_seed(NoiseSeeding::PerDraw, 0.6866, 1, 1);
+        assert_ne!(a, b);
+        assert_ne!(a, a_env1);
+        assert_eq!(a, noise_base_seed(NoiseSeeding::PerDraw, 0.6866, 0, 1));
+        assert_eq!(
+            a,
+            noise_base_seed(NoiseSeeding::PerDraw, 999.0, 0, 1),
+            "per_draw ignores random_seed"
+        );
+    }
+
+    #[test]
+    fn per_draw_and_legacy_disagree_on_the_shared_path_case() {
+        // env_idx = 0 is every n_sims=1 run: legacy collapses to random_seed as u64,
+        // per_draw keeps the draw's seed.
+        assert_ne!(
+            noise_base_seed(NoiseSeeding::Legacy, 0.6866, 0, 0xdead_beef),
+            noise_base_seed(NoiseSeeding::PerDraw, 0.6866, 0, 0xdead_beef)
+        );
+    }
 }

@@ -12,8 +12,8 @@ confirmatory quotes.
 ## Provenance
 
 - Branch `feature/quantization-mamba962`. Spec
-  `docs/superpowers/specs/2026-07-10-quantization-study-appendix-design.md`;
-  plan `docs/superpowers/plans/2026-07-10-quantization-study-appendix.md`.
+  `docs/design/2026-07-10-quantization-study-appendix-design.md`;
+  plan removed from the tree in ee1518a (`git show ee1518a^:docs/superpowers/plans/2026-07-10-quantization-study-appendix.md`).
 - Target: `training_output/mamba_p962_long` -- Dense(17->16, swish) ->
   Mamba(16, d_state 12, dt_rank 1) -> Dense(16->2, asinh), 962 NN params,
   atan2_signed, 17-input calibrated mask, scaffolding = live (4 co-trained

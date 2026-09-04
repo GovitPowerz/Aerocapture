@@ -48,16 +48,13 @@ pub fn ftc_bank_angle(
             / dynamic_pressure_equilibrium_safe;
 
     // Securization: clamp cos to [-1, 1]
-    let is_securized;
-    let bank_angle_longitudinal;
-    if cos_bank_commanded.abs() > 1.0 {
+    let is_securized = if cos_bank_commanded.abs() > 1.0 {
         cos_bank_commanded = cos_bank_commanded.signum();
-        bank_angle_longitudinal = cos_bank_commanded.acos();
-        is_securized = 1;
+        1
     } else {
-        bank_angle_longitudinal = cos_bank_commanded.acos();
-        is_securized = 0;
-    }
+        0
+    };
+    let bank_angle_longitudinal = cos_bank_commanded.acos();
 
     if is_securized == 1 {
         capture_state.securization_counters[0] += 1;

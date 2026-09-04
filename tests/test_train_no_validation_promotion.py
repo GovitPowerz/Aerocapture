@@ -3,7 +3,6 @@ later generation's best, not freeze the gen-0 argmin (defect D1)."""
 
 from __future__ import annotations
 
-import stat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,12 +18,7 @@ from aerocapture.training.train import train  # noqa: E402
 
 
 def test_no_validation_promotes_later_generation(tmp_path: Path) -> None:
-    exe_path = tmp_path / "src" / "rust" / "target" / "release"
-    exe_path.mkdir(parents=True)
     (tmp_path / "data" / "neural_network").mkdir(parents=True)
-    dummy_exe = exe_path / "aerocapture"
-    dummy_exe.write_text("#!/bin/sh\nexit 0\n")
-    dummy_exe.chmod(dummy_exe.stat().st_mode | stat.S_IEXEC)
 
     cfg = TrainingConfig(optimizer=OptimizerConfig(seed_strategy="fixed"))
     cfg.optimizer.n_gen = 4

@@ -486,11 +486,40 @@ pub fn step_density_perturbation(x: f64, dt: f64, tau: f64, sigma: f64, normal_s
     x * decay + sigma * (1.0 - decay * decay).sqrt() * normal_sample
 }
 
+/// How the per-sim stochastic streams (OU density perturbation, EKF sensor
+/// noise) are seeded. `Legacy` reproduces the historical behavior:
+/// `[simulation] random_seed + env_idx * 10_000`, which FREEZES the noise
+/// realization across every n_sims=1 config (per-seed pools condition on one
+/// noise path). `PerDraw` derives the stream seed from the dispersion draw
+/// itself, so per-seed pools and multi-sim runs both marginalize over noise
+/// realizations. Default `Legacy`: all committed results and goldens depend on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NoiseSeeding {
+    #[default]
+    Legacy,
+    PerDraw,
+}
+
+impl NoiseSeeding {
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Result<Self, DataError> {
+        match s {
+            "legacy" => Ok(NoiseSeeding::Legacy),
+            "per_draw" => Ok(NoiseSeeding::PerDraw),
+            other => Err(DataError(format!(
+                "unknown [monte_carlo] noise_seeding {:?}: expected \"legacy\" or \"per_draw\"",
+                other
+            ))),
+        }
+    }
+}
+
 /// Full domain-based dispersion configuration.
 #[derive(Debug, Clone)]
 pub struct DispersionConfig {
     pub seed: u64,
     pub sampling: SamplingMethod,
+    pub noise_seeding: NoiseSeeding,
     pub initial_state: Option<InitialStateSigmas>,
     pub atmosphere: Option<AtmosphereSigmas>,
     pub aerodynamics: Option<AerodynamicsSigmas>,

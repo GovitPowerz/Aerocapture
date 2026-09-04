@@ -1,0 +1,7 @@
+# Fine-tune recipe: the frozen-trained champion's g20000 checkpoint continued
+# 2000 gens under per_draw (the pilot showed this beats scratch retraining).
+# The campaign runner seeds the checkpoint copy; target 22000 gens.
+base = ["gru_p1014.toml"]
+
+[data]
+neural_network = "training_output/ou_marginal/ft_gru_p1014/best_model.json"

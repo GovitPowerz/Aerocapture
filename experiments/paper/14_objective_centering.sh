@@ -2,7 +2,7 @@
 set -euo pipefail
 # exp(objcenter) -- objective-centering under the high/adversarial regime (NOT part
 # of the numbered campaign reproduction). Spec:
-# docs/superpowers/specs/2026-06-29-objective-centering-regime-matched-design.md
+# docs/design/2026-06-29-objective-centering-regime-matched-design.md
 #
 # Five dense_515 cells, all UNDER the high regime, flipping one objective lever at
 # a time from the medium-regime-winning stack (cubed x max-bucket x n_sims=2) to

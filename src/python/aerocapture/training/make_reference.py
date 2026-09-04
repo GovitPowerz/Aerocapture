@@ -87,7 +87,7 @@ def _mission_ref_path(toml_path: Path) -> Path:
 def main(argv: list[str] | None = None) -> int:
     import aerocapture_rs  # noqa: PLC0415  # soft spot: CLI-only, keeps module importable without PyO3
 
-    from aerocapture.training.reference import nominal_flight_overrides, ref_trajectory_array  # noqa: PLC0415  # leaf module, not the train.py re-export shim
+    from aerocapture.training.reference import nominal_flight_overrides, ref_trajectory_array  # noqa: PLC0415
     from aerocapture.training.toml_utils import load_toml_with_bases  # noqa: PLC0415
 
     parser = argparse.ArgumentParser(description=__doc__)

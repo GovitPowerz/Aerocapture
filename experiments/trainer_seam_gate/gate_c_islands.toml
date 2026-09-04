@@ -1,0 +1,16 @@
+# Equivalence gate C: 3-island PSO/GA/DE with migration + per-island validation.
+base = ["../../configs/training/msr_aller_islands_train.toml"]
+
+[optimizer]
+n_pop = 8
+n_gen = 6
+training_n_sims = 3
+validation_n_sims = 20
+
+[optimizer.islands]
+k_period = 2
+k_top = 1
+
+# Gate-local deploy path (never clobber the islands cell's artifact).
+[data]
+neural_network = "training_output/trainer_seam_gate_c/best_model.json"

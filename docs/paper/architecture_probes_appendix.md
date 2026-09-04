@@ -192,6 +192,6 @@ uv run python -m aerocapture.training.experiments.xlstm_probe --eval --report --
 ```
 
 Raw numbers live in `training_output/{mamba3,cfc,xlstm}_probe/probe_results.json`.
-Design spec: `docs/superpowers/specs/2026-07-07-cfc-xlstm-probes-design.md`.
+Design spec: `docs/design/2026-07-07-cfc-xlstm-probes-design.md`.
 Related full-budget Mamba-3 result: `configs/training/mamba3_962/`,
 `aerocapture.training.experiments.mamba3_962_compare`.

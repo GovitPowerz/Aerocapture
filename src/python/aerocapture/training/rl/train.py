@@ -738,13 +738,9 @@ def _run_ppo(
         elif isinstance(spec, _LS):
             hidden_shapes.append((2, spec.hidden_size))
         elif isinstance(spec, _WS):
-            raise NotImplementedError(
-                "Window-MLP is PSO-only in Phase 2b; PPO use deferred. See docs/superpowers/specs/2026-04-20-phase-2b-window-mlp-design.md"
-            )
+            raise NotImplementedError("Window-MLP is PSO-only in Phase 2b; PPO use deferred. See docs/design/2026-04-20-phase-2b-window-mlp-design.md")
         elif isinstance(spec, _TS):
-            raise NotImplementedError(
-                "Transformer is PSO-only in Phase 3a; PPO use deferred. See docs/superpowers/specs/2026-04-22-phase-3a-transformer-mvp-design.md"
-            )
+            raise NotImplementedError("Transformer is PSO-only in Phase 3a; PPO use deferred. See docs/design/2026-04-22-phase-3a-transformer-mvp-design.md")
         else:
             raise ValueError(f"Unknown layer spec type in hidden_shapes derivation: {type(spec).__name__}")
 

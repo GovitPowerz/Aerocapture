@@ -1,0 +1,9 @@
+# Equivalence gate A: single-algo GA, fixed seeds, classical scheme.
+base = ["../../configs/training/msr_aller_eqglide_train.toml"]
+
+[optimizer]
+seed_strategy = "fixed"
+n_pop = 8
+n_gen = 15
+training_n_sims = 4
+validation_n_sims = 20

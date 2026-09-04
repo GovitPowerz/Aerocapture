@@ -52,12 +52,11 @@ def build_layer(spec: LayerSpec) -> nn.Module:
         return MambaLayer(spec.input_size, spec.d_state, spec.dt_rank)
     if isinstance(spec, Mamba3Spec):
         raise NotImplementedError(
-            "Mamba3 is PSO-only (ablation spike); the PPO/warm-start V2Policy path is not "
-            "implemented. See docs/superpowers/specs/2026-07-07-mamba3-ablation-design.md"
+            "Mamba3 is PSO-only (ablation spike); the PPO/warm-start V2Policy path is not implemented. See docs/design/2026-07-07-mamba3-ablation-design.md"
         )
     if isinstance(spec, (CfcSpec, SlstmSpec, MlstmSpec)):
         raise NotImplementedError(
             f"{spec.type} is PSO-only (architecture probe); the PPO/warm-start V2Policy "
-            "path is not implemented. See docs/superpowers/specs/2026-07-07-cfc-xlstm-probes-design.md"
+            "path is not implemented. See docs/design/2026-07-07-cfc-xlstm-probes-design.md"
         )
     raise ValueError(f"Unknown layer spec: {spec!r}")

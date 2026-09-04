@@ -77,7 +77,7 @@ Outcome: the 962-parameter Mamba is the deployed sizing headline -- CVaR99.9 123
 
 Paper: `articles/paper/paper.pdf` (tag `arxiv-v2`, GitHub Release). Detailed phase history
 (Phases 0 through 4a, task-by-task): this file's git history plus the specs and plans under
-`docs/superpowers/specs/` and `docs/superpowers/plans/`.
+`docs/design/` (the implementation plans left the tree in ee1518a: `git show ee1518a^:docs/superpowers/plans/`).
 
 **Deferred, no current motivation after the paper's results** (the RL track lost decisively to
 population search -- paper Section 5 -- and the probes found no tail benefit beyond the plain

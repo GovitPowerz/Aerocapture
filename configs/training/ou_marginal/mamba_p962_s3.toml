@@ -1,0 +1,6 @@
+# Seed repeat s3 (trainer RNG --seed 3; eval pools unchanged) of the
+# per_draw scratch retrain -- sigma_run for the marginal architecture ranking.
+base = ["mamba_p962.toml"]
+
+[data]
+neural_network = "training_output/ou_marginal/mamba_p962_s3/best_model.json"

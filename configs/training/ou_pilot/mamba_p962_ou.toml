@@ -1,0 +1,15 @@
+# OU-marginalization pilot: the paper's headline Mamba-962 cell with per-draw
+# noise seeding, so training/validation marginalize over OU density-noise
+# realizations instead of conditioning on the frozen env_idx=0 path.
+# Everything else inherits the cell's own regime (experiment anchoring).
+# Go/no-go question: does marginal-OU training recover the frozen->marginal
+# tail gap (CVaR95 115.9 -> 194.4) measured by the OU investigation (experiments/ou_marginal/RESULTS.md)?
+base = ["../sweep/mamba_p962.toml"]
+
+[monte_carlo]
+noise_seeding = "per_draw"
+
+# Own deploy path: without this, every validation promotion clobbers the sweep
+# cell's best_model.json (the base TOML's [data] neural_network target).
+[data]
+neural_network = "training_output/ou_pilot/mamba_p962/best_model.json"

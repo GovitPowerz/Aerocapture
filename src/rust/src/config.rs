@@ -1213,6 +1213,8 @@ pub struct TomlMonteCarlo {
     pub seed: u64,
     #[serde(default)]
     pub sampling: Option<String>,
+    #[serde(default)]
+    pub noise_seeding: Option<String>,
     pub initial_state: Option<TomlMcDomain>,
     pub atmosphere: Option<TomlMcDomain>,
     pub aerodynamics: Option<TomlMcDomain>,

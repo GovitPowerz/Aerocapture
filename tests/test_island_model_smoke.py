@@ -191,7 +191,7 @@ def test_islands_resume_continues_from_checkpoint(tmp_path: Path) -> None:
 @pytest.mark.slow
 def test_islands_resume_with_larger_n_pop_grows(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Auto-resume from an islands checkpoint with a LARGER [optimizer] n_pop
-    grows every island's population through the wired _train_islands resume path
+    grows every island's population through the wired islands-adapter resume path
     (resize_populations), then continues training. Exercises the resize branch
     end-to-end, not just the helper in isolation."""
     from aerocapture.training.config import NetworkConfig, SimConfig, TrainingConfig
