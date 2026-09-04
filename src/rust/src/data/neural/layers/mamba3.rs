@@ -11,8 +11,8 @@
 //! (re, im) to preserve cross-language bit-identity with the Python mirror.
 //! See docs/design/2026-07-07-mamba3-ablation-design.md.
 
-use super::super::LayerWeights;
 use super::helpers::{expm1_over_x, softplus}; // real path reuses expm1_over_x (bit-identity anchor)
+use super::tensor::tensor_table;
 
 /// Mamba-3 ablation layer. `trapezoidal` / `complex` are orthogonal opt-in flags.
 /// `x_proj` shape is fixed `(dt_rank + 2*d_state, input_size)` in all modes (B, C real).
@@ -32,86 +32,18 @@ pub struct Mamba3Layer {
     pub d_skip: nalgebra::DVector<f64>,   // (input_size,)
 }
 
-impl LayerWeights for Mamba3Layer {
-    fn n_params(&self) -> usize {
-        let base = self.input_size * (3 * self.d_state + 2 * self.dt_rank + 2);
-        base + if self.complex {
-            self.input_size * self.d_state
-        } else {
-            0
-        } + if self.trapezoidal { self.input_size } else { 0 }
-    }
-
-    fn to_flat(&self) -> Vec<f64> {
-        let mut out = Vec::with_capacity(self.n_params());
-        let push_mat = |out: &mut Vec<f64>, m: &nalgebra::DMatrix<f64>| {
-            for i in 0..m.nrows() {
-                for j in 0..m.ncols() {
-                    out.push(m[(i, j)]);
-                }
-            }
-        };
-        push_mat(&mut out, &self.x_proj_w);
-        push_mat(&mut out, &self.dt_proj_w);
-        out.extend(self.dt_proj_b.iter().copied());
-        push_mat(&mut out, &self.a_log);
-        if let Some(ai) = &self.a_imag {
-            push_mat(&mut out, ai);
-        }
-        if let Some(ll) = &self.lambda_logit {
-            out.extend(ll.iter().copied());
-        }
-        out.extend(self.d_skip.iter().copied());
-        out
-    }
-
-    #[allow(clippy::wrong_self_convention)]
-    fn from_flat(&mut self, flat: &[f64]) -> usize {
-        let mut c = 0;
-        let xr = self.dt_rank + 2 * self.d_state;
-        self.x_proj_w = nalgebra::DMatrix::from_row_slice(
-            xr,
-            self.input_size,
-            &flat[c..c + xr * self.input_size],
-        );
-        c += xr * self.input_size;
-        self.dt_proj_w = nalgebra::DMatrix::from_row_slice(
-            self.input_size,
-            self.dt_rank,
-            &flat[c..c + self.input_size * self.dt_rank],
-        );
-        c += self.input_size * self.dt_rank;
-        self.dt_proj_b = nalgebra::DVector::from_row_slice(&flat[c..c + self.input_size]);
-        c += self.input_size;
-        self.a_log = nalgebra::DMatrix::from_row_slice(
-            self.input_size,
-            self.d_state,
-            &flat[c..c + self.input_size * self.d_state],
-        );
-        c += self.input_size * self.d_state;
-        if self.complex {
-            self.a_imag = Some(nalgebra::DMatrix::from_row_slice(
-                self.input_size,
-                self.d_state,
-                &flat[c..c + self.input_size * self.d_state],
-            ));
-            c += self.input_size * self.d_state;
-        } else {
-            self.a_imag = None;
-        }
-        if self.trapezoidal {
-            self.lambda_logit = Some(nalgebra::DVector::from_row_slice(
-                &flat[c..c + self.input_size],
-            ));
-            c += self.input_size;
-        } else {
-            self.lambda_logit = None;
-        }
-        self.d_skip = nalgebra::DVector::from_row_slice(&flat[c..c + self.input_size]);
-        c += self.input_size;
-        c
-    }
-}
+// Flat order: x_proj_w, dt_proj_w, dt_proj_b, a_log, [a_imag iff complex],
+// [lambda_logit iff trapezoidal], d_skip. The two `Option` fields are present
+// exactly when `zeros` built them, so the flags fix the table at construction.
+tensor_table!(Mamba3Layer {
+    x_proj_w,
+    dt_proj_w,
+    dt_proj_b,
+    a_log,
+    a_imag,
+    lambda_logit,
+    d_skip
+});
 
 impl Mamba3Layer {
     /// Zero-weight constructor for the given shape + flags (weights filled by `from_flat`).
@@ -263,6 +195,7 @@ pub(super) fn expm1_over_x_complex(zr: f64, zi: f64) -> (f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::neural::LayerWeights;
 
     #[test]
     fn complex_reduces_to_real_on_real_axis() {

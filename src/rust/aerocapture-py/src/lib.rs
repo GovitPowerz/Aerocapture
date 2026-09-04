@@ -991,6 +991,28 @@ fn candidate_inputs(py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         .collect()
 }
 
+/// Named tensors of one v2 layer spec, in canonical flat order: a list of
+/// `(name, shape)` with shape `[]` scalar, `[n]` vector, `[rows, cols]`
+/// row-major matrix. `spec_json` is one `[[network.architecture]]` entry as
+/// JSON (`{"type": "gru", "input_size": 4, "hidden_size": 3}`; Mamba `dt_rank`
+/// must be resolved). This IS the Rust tensor table (`tensor_table!` in
+/// src/rust/src/data/neural/layers/*.rs): the PSO flat order, the JSON weight
+/// keys, and the per-layer parameter count all derive from it, so Python
+/// reads it instead of mirroring it (`aerocapture.training.layer_schema`).
+#[pyfunction]
+fn layer_schema(spec_json: String) -> PyResult<Vec<(String, Vec<usize>)>> {
+    use aerocapture::data::neural::{Layer, LayerSpec, LayerWeights};
+    let spec: LayerSpec = serde_json::from_str(&spec_json).map_err(|e| {
+        pyo3::exceptions::PyValueError::new_err(format!("layer_schema: spec parse error: {e}"))
+    })?;
+    let layer = Layer::from_spec(&spec).map_err(pyo3::exceptions::PyValueError::new_err)?;
+    Ok(layer
+        .tensors()
+        .iter()
+        .map(|(name, t)| (name.to_string(), t.shape().dims()))
+        .collect())
+}
+
 /// Return the Rust `FR_*` index map as a Python dict `{name: index}`.
 ///
 /// Keys are the `FR_*` const names with the `FR_` prefix stripped and lowercased,
@@ -1081,5 +1103,6 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(default_normalization, m)?)?;
     m.add_function(wrap_pyfunction!(candidate_inputs, m)?)?;
     m.add_function(wrap_pyfunction!(final_record_indices, m)?)?;
+    m.add_function(wrap_pyfunction!(layer_schema, m)?)?;
     Ok(())
 }

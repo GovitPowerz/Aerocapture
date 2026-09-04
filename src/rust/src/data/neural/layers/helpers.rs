@@ -115,22 +115,6 @@ pub(crate) fn stabilized_exp_gates(i_pre: f64, f_pre: f64, m_prev: f64) -> (f64,
     ((i_pre - m_new).exp(), (f_pre + m_prev - m_new).exp(), m_new)
 }
 
-/// Copy a row-major matrix slab out of `flat`, advancing the cursor.
-pub(crate) fn copy_mat_from_flat(mat: &mut [Vec<f64>], flat: &[f64], idx: &mut usize) {
-    for row in mat.iter_mut() {
-        let n = row.len();
-        row.copy_from_slice(&flat[*idx..*idx + n]);
-        *idx += n;
-    }
-}
-
-/// Copy a vector slab out of `flat`, advancing the cursor.
-pub(crate) fn copy_vec_from_flat(v: &mut [f64], flat: &[f64], idx: &mut usize) {
-    let n = v.len();
-    v.copy_from_slice(&flat[*idx..*idx + n]);
-    *idx += n;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,18 +141,5 @@ mod tests {
             // One of the two gates is exactly exp(0) = 1 (the max branch).
             assert!(ig == 1.0 || fg == 1.0);
         }
-    }
-
-    #[test]
-    fn copy_helpers_advance_cursor() {
-        let flat = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let mut mat = vec![vec![0.0; 2]; 2];
-        let mut v = vec![0.0; 2];
-        let mut idx = 0;
-        copy_mat_from_flat(&mut mat, &flat, &mut idx);
-        copy_vec_from_flat(&mut v, &flat, &mut idx);
-        assert_eq!(idx, 6);
-        assert_eq!(mat, vec![vec![1.0, 2.0], vec![3.0, 4.0]]);
-        assert_eq!(v, vec![5.0, 6.0]);
     }
 }

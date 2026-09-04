@@ -1,7 +1,7 @@
 //! 1-layer pre-norm Transformer block with causal window attention.
 
-use super::super::LayerWeights;
 use super::helpers::{build_pe_table, gelu_exact, layer_norm_biased, matvec};
+use super::tensor::tensor_table;
 
 /// 1-layer pre-norm Transformer block with causal window attention.
 ///
@@ -61,12 +61,43 @@ fn slot_k_eff_head(
 }
 
 impl TransformerLayer {
+    /// Zero-weight layer (LN gammas at 1.0); `n_heads` must divide `d_model`.
+    /// PE offsets are derived on the first load (`post_load`).
+    pub fn zeros(d_model: usize, n_heads: usize, d_ffn: usize, n_seq: usize) -> Self {
+        let (d, f) = (d_model, d_ffn);
+        Self {
+            d_model,
+            n_heads,
+            d_head: d_model / n_heads,
+            d_ffn,
+            n_seq,
+            w_q: vec![vec![0.0; d]; d],
+            b_q: vec![0.0; d],
+            w_k: vec![vec![0.0; d]; d],
+            b_k: vec![0.0; d],
+            w_v: vec![vec![0.0; d]; d],
+            b_v: vec![0.0; d],
+            w_o: vec![vec![0.0; d]; d],
+            b_o: vec![0.0; d],
+            w_ffn1: vec![vec![0.0; d]; f],
+            b_ffn1: vec![0.0; f],
+            w_ffn2: vec![vec![0.0; f]; d],
+            b_ffn2: vec![0.0; d],
+            ln1_gamma: vec![1.0; d],
+            ln1_beta: vec![0.0; d],
+            ln2_gamma: vec![1.0; d],
+            ln2_beta: vec![0.0; d],
+            k_pe_offsets: Vec::new(),
+            v_pe_offsets: Vec::new(),
+        }
+    }
+
     /// Recompute `k_pe_offsets[i] = W_K @ PE[i]` and `v_pe_offsets[i] = W_V @ PE[i]`
     /// for i in 0..n_seq. Biases are NOT included in the PE offset (they are added
     /// once per forward to the raw query/key projections, not through PE).
     ///
-    /// Call this after any mutation to `w_k` or `w_v` -- specifically from both
-    /// `from_flat` and `from_v2_json` entry points.
+    /// Call this after any mutation to `w_k` or `w_v`. Both load paths (JSON and
+    /// PSO chromosome) reach it through the table's `post_load` hook.
     pub fn rebuild_pe_offsets(&mut self) {
         let pe = build_pe_table(self.n_seq, self.d_model);
         self.k_pe_offsets = pe.iter().map(|p| matvec(&self.w_k, p)).collect();
@@ -190,78 +221,27 @@ impl TransformerLayer {
     }
 }
 
-impl LayerWeights for TransformerLayer {
-    fn n_params(&self) -> usize {
-        4 * self.d_model * self.d_model
-            + 2 * self.d_ffn * self.d_model
-            + self.d_ffn
-            + 9 * self.d_model
-    }
-
-    fn to_flat(&self) -> Vec<f64> {
-        fn push_mat(out: &mut Vec<f64>, m: &[Vec<f64>]) {
-            for row in m {
-                out.extend_from_slice(row);
-            }
-        }
-        let mut out = Vec::with_capacity(self.n_params());
-        push_mat(&mut out, &self.w_q);
-        out.extend_from_slice(&self.b_q);
-        push_mat(&mut out, &self.w_k);
-        out.extend_from_slice(&self.b_k);
-        push_mat(&mut out, &self.w_v);
-        out.extend_from_slice(&self.b_v);
-        push_mat(&mut out, &self.w_o);
-        out.extend_from_slice(&self.b_o);
-        push_mat(&mut out, &self.w_ffn1);
-        out.extend_from_slice(&self.b_ffn1);
-        push_mat(&mut out, &self.w_ffn2);
-        out.extend_from_slice(&self.b_ffn2);
-        out.extend_from_slice(&self.ln1_gamma);
-        out.extend_from_slice(&self.ln1_beta);
-        out.extend_from_slice(&self.ln2_gamma);
-        out.extend_from_slice(&self.ln2_beta);
-        out
-    }
-
-    #[allow(clippy::wrong_self_convention)]
-    fn from_flat(&mut self, flat: &[f64]) -> usize {
-        fn read_mat(flat: &[f64], idx: &mut usize, rows: usize, cols: usize) -> Vec<Vec<f64>> {
-            let mut m = Vec::with_capacity(rows);
-            for _ in 0..rows {
-                m.push(flat[*idx..*idx + cols].to_vec());
-                *idx += cols;
-            }
-            m
-        }
-        fn read_vec(flat: &[f64], idx: &mut usize, n: usize) -> Vec<f64> {
-            let v = flat[*idx..*idx + n].to_vec();
-            *idx += n;
-            v
-        }
-
-        let d = self.d_model;
-        let f = self.d_ffn;
-        let mut idx = 0;
-
-        self.w_q = read_mat(flat, &mut idx, d, d);
-        self.b_q = read_vec(flat, &mut idx, d);
-        self.w_k = read_mat(flat, &mut idx, d, d);
-        self.b_k = read_vec(flat, &mut idx, d);
-        self.w_v = read_mat(flat, &mut idx, d, d);
-        self.b_v = read_vec(flat, &mut idx, d);
-        self.w_o = read_mat(flat, &mut idx, d, d);
-        self.b_o = read_vec(flat, &mut idx, d);
-        self.w_ffn1 = read_mat(flat, &mut idx, f, d);
-        self.b_ffn1 = read_vec(flat, &mut idx, f);
-        self.w_ffn2 = read_mat(flat, &mut idx, d, f);
-        self.b_ffn2 = read_vec(flat, &mut idx, d);
-        self.ln1_gamma = read_vec(flat, &mut idx, d);
-        self.ln1_beta = read_vec(flat, &mut idx, d);
-        self.ln2_gamma = read_vec(flat, &mut idx, d);
-        self.ln2_beta = read_vec(flat, &mut idx, d);
-
-        self.rebuild_pe_offsets();
-        idx
-    }
-}
+// Flat order: the four attention projections (matrix, bias), the two FFN
+// layers (matrix, bias), then the two LayerNorms (gamma, beta). `k_pe_offsets`
+// / `v_pe_offsets` are derived, not stored: `post_load` rebuilds them.
+tensor_table!(
+    TransformerLayer {
+        w_q,
+        b_q,
+        w_k,
+        b_k,
+        w_v,
+        b_v,
+        w_o,
+        b_o,
+        w_ffn1,
+        b_ffn1,
+        w_ffn2,
+        b_ffn2,
+        ln1_gamma,
+        ln1_beta,
+        ln2_gamma,
+        ln2_beta
+    },
+    post_load = rebuild_pe_offsets
+);

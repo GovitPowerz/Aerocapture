@@ -18,7 +18,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from aerocapture.training.rl.normalizers import ObsNormalizer
@@ -26,7 +26,9 @@ if TYPE_CHECKING:
 import numpy as np
 import numpy.typing as npt
 import torch
+from torch import nn
 
+from aerocapture.training.layer_schema import layer_schema
 from aerocapture.training.rl.layers import DenseLayer, GruLayer, LstmLayer, WindowLayer
 from aerocapture.training.rl.layers.mamba import MambaLayer
 from aerocapture.training.rl.layers.transformer import TransformerLayer
@@ -36,25 +38,46 @@ from aerocapture.training.rl.schemas import MambaSpec, TransformerSpec, WindowSp
 _ACT_NAMES = {"Tanh": "tanh", "ReLU": "relu", "Sigmoid": "sigmoid", "Identity": "linear", "SiLU": "swish", "Mish": "mish"}
 
 
+@runtime_checkable
+class _HasToFlat(Protocol):
+    def to_flat(self) -> np.ndarray: ...
+
+
+def _spec_entry(layer: nn.Module) -> dict[str, Any]:
+    """The v2 architecture entry describing a torch layer module."""
+    if isinstance(layer, DenseLayer):
+        lin = layer.linear
+        return {"type": "dense", "input_size": lin.in_features, "output_size": lin.out_features, "activation": layer.activation_name}
+    if isinstance(layer, GruLayer):
+        return {"type": "gru", "input_size": layer.input_size, "hidden_size": layer.hidden_size}
+    if isinstance(layer, LstmLayer):
+        return {"type": "lstm", "input_size": layer.input_size, "hidden_size": layer.hidden_size}
+    if isinstance(layer, WindowLayer):
+        return {"type": "window", "input_size": layer.input_size, "n_steps": layer.n_steps}
+    if isinstance(layer, TransformerLayer):
+        return {"type": "transformer", "d_model": layer.d_model, "n_heads": layer.n_heads, "d_ffn": layer.d_ffn, "n_seq": layer.n_seq}
+    if isinstance(layer, MambaLayer):
+        return {"type": "mamba", "input_size": layer.input_size, "d_state": layer.d_state, "dt_rank": layer.dt_rank}
+    raise ValueError(f"Unknown layer type in export: {type(layer).__name__}")
+
+
+def _split_flat(entry: dict[str, Any], flat: np.ndarray) -> dict[str, np.ndarray]:
+    """Named tensors of one layer from its canonical flat slab, in tensor-table order."""
+    out: dict[str, np.ndarray] = {}
+    off = 0
+    for name, shape in layer_schema(entry):
+        n = math.prod(shape)
+        out[name] = flat[off : off + n].reshape(shape)
+        off += n
+    if off != flat.size:
+        raise ValueError(f"{entry['type']} layer: flat slab has {flat.size} values, schema expects {off}")
+    return out
+
+
 def _serialize_mamba_layer(layer: MambaLayer) -> dict:
-    """Serialize a MambaLayer to the flat-at-layer-level Mamba weights dict.
-
-    Keys match Rust NnLayerWeights schema: x_proj_w, dt_proj_w, dt_proj_b,
-    a_log, d_skip. All arrays are Python lists of f64 (JSON-serializable).
-    """
-
-    def to_list(t: torch.Tensor) -> list[float]:
-        from typing import cast
-
-        return cast(list[float], t.detach().cpu().numpy().astype(np.float64).tolist())
-
-    return {
-        "x_proj_w": to_list(layer.x_proj_w),  # (dt_rank + 2*d_state, input_size)
-        "dt_proj_w": to_list(layer.dt_proj_w),  # (input_size, dt_rank)
-        "dt_proj_b": to_list(layer.dt_proj_b),  # (input_size,)
-        "a_log": to_list(layer.a_log),  # (input_size, d_state)
-        "d_skip": to_list(layer.d_skip),  # (input_size,)
-    }
+    """Serialize a MambaLayer to its weights dict, keyed by the Rust tensor-table names
+    (x_proj_w, dt_proj_w, dt_proj_b, a_log, d_skip); values are lists of f64."""
+    return {name: arr.tolist() for name, arr in _split_flat(_spec_entry(layer), layer.to_flat()).items()}
 
 
 def _check_obs_norm_bake_compatibility(
@@ -164,120 +187,23 @@ def export_v2_policy_to_json(
         obs_normalizer_active=(obs_normalizer is not None),
     )
 
-    architecture: list[dict[str, object]] = []
-    weights: dict[str, dict[str, list[list[float]] | list[float]]] = {}
+    architecture: list[dict[str, Any]] = []
+    weights: dict[str, dict[str, Any]] = {}
 
     for i, layer in enumerate(policy.layers):
-        if isinstance(layer, DenseLayer):
-            lin = layer.linear
-            w = lin.weight.detach().cpu().numpy().astype(np.float64)
-            b = lin.bias.detach().cpu().numpy().astype(np.float64)
-
-            if i == 0 and obs_normalizer is not None:
-                mean = obs_normalizer._mean.astype(np.float64)
-                std = obs_normalizer.std.astype(np.float64)
-                w_new = w / std  # broadcasting over columns (inputs)
-                b_new = b - w @ (mean / std)
-                w, b = w_new, b_new
-
-            architecture.append(
-                {
-                    "type": "dense",
-                    "input_size": lin.in_features,
-                    "output_size": lin.out_features,
-                    "activation": layer.activation_name,
-                }
-            )
-            weights[f"layer_{i}"] = {
-                "w": w.tolist(),
-                "b": b.tolist(),
-            }
-        elif isinstance(layer, GruLayer):
-            w_ih = layer.weight_ih.detach().cpu().numpy().astype(np.float64)
-            w_hh = layer.weight_hh.detach().cpu().numpy().astype(np.float64)
-            b_ih = layer.bias_ih.detach().cpu().numpy().astype(np.float64)
-            b_hh = layer.bias_hh.detach().cpu().numpy().astype(np.float64)
-            architecture.append(
-                {
-                    "type": "gru",
-                    "input_size": layer.input_size,
-                    "hidden_size": layer.hidden_size,
-                }
-            )
-            weights[f"layer_{i}"] = {
-                "weight_ih": w_ih.tolist(),
-                "weight_hh": w_hh.tolist(),
-                "bias_ih": b_ih.tolist(),
-                "bias_hh": b_hh.tolist(),
-            }
-        elif isinstance(layer, LstmLayer):
-            w_ih = layer.weight_ih.detach().cpu().numpy().astype(np.float64)
-            w_hh = layer.weight_hh.detach().cpu().numpy().astype(np.float64)
-            b_ih = layer.bias_ih.detach().cpu().numpy().astype(np.float64)
-            b_hh = layer.bias_hh.detach().cpu().numpy().astype(np.float64)
-            architecture.append(
-                {
-                    "type": "lstm",
-                    "input_size": layer.input_size,
-                    "hidden_size": layer.hidden_size,
-                }
-            )
-            weights[f"layer_{i}"] = {
-                "weight_ih": w_ih.tolist(),
-                "weight_hh": w_hh.tolist(),
-                "bias_ih": b_ih.tolist(),
-                "bias_hh": b_hh.tolist(),
-            }
-        elif isinstance(layer, WindowLayer):
-            architecture.append(
-                {
-                    "type": "window",
-                    "input_size": layer.input_size,
-                    "n_steps": layer.n_steps,
-                }
-            )
-            # Window is zero-param: no weights entry for this layer.
-        elif isinstance(layer, TransformerLayer):
-            architecture.append(
-                {
-                    "type": "transformer",
-                    "d_model": layer.d_model,
-                    "n_heads": layer.n_heads,
-                    "d_ffn": layer.d_ffn,
-                    "n_seq": layer.n_seq,
-                }
-            )
-            weights[f"layer_{i}"] = {
-                "w_q": layer.w_q.weight.detach().cpu().tolist(),
-                "b_q": layer.w_q.bias.detach().cpu().tolist(),
-                "w_k": layer.w_k.weight.detach().cpu().tolist(),
-                "b_k": layer.w_k.bias.detach().cpu().tolist(),
-                "w_v": layer.w_v.weight.detach().cpu().tolist(),
-                "b_v": layer.w_v.bias.detach().cpu().tolist(),
-                "w_o": layer.w_o.weight.detach().cpu().tolist(),
-                "b_o": layer.w_o.bias.detach().cpu().tolist(),
-                "w_ffn1": layer.w_ffn1.weight.detach().cpu().tolist(),
-                "b_ffn1": layer.w_ffn1.bias.detach().cpu().tolist(),
-                "w_ffn2": layer.w_ffn2.weight.detach().cpu().tolist(),
-                "b_ffn2": layer.w_ffn2.bias.detach().cpu().tolist(),
-                # Flat LN keys matching Rust NnLayerWeights schema
-                "ln1_gamma": layer.ln1_gamma.detach().cpu().tolist(),
-                "ln1_beta": layer.ln1_beta.detach().cpu().tolist(),
-                "ln2_gamma": layer.ln2_gamma.detach().cpu().tolist(),
-                "ln2_beta": layer.ln2_beta.detach().cpu().tolist(),
-            }
-        elif isinstance(layer, MambaLayer):
-            architecture.append(
-                {
-                    "type": "mamba",
-                    "input_size": layer.input_size,
-                    "d_state": layer.d_state,
-                    "dt_rank": layer.dt_rank,
-                }
-            )
-            weights[f"layer_{i}"] = _serialize_mamba_layer(layer)
-        else:
-            raise ValueError(f"Unknown layer type in export: {type(layer).__name__}")
+        entry = _spec_entry(layer)
+        architecture.append(entry)
+        assert isinstance(layer, _HasToFlat), f"layer {i} has no to_flat method"
+        tensors = _split_flat(entry, layer.to_flat())
+        if not tensors:
+            continue  # zero-param layer (Window): no weights entry
+        if i == 0 and obs_normalizer is not None:
+            # Only Dense passes _check_obs_norm_bake_compatibility: fold the affine into W/b.
+            mean = obs_normalizer._mean.astype(np.float64)
+            std = obs_normalizer.std.astype(np.float64)
+            w, b = tensors["w"], tensors["b"]
+            tensors = {"w": w / std, "b": b - w @ (mean / std)}
+        weights[f"layer_{i}"] = {name: arr.tolist() for name, arr in tensors.items()}
 
     out: dict[str, object] = {
         "format_version": 2,

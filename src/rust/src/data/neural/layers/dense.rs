@@ -1,6 +1,7 @@
 //! Dense (fully-connected) layer.
 
-use super::super::{Activation, LayerWeights};
+use super::super::Activation;
+use super::tensor::tensor_table;
 use serde::{Deserialize, Serialize};
 
 /// A dense (fully-connected) layer: affine transform + activation.
@@ -14,32 +15,15 @@ pub struct DenseLayer {
     pub activation: Activation,
 }
 
-impl LayerWeights for DenseLayer {
-    fn to_flat(&self) -> Vec<f64> {
-        let mut v = Vec::with_capacity(self.n_params());
-        for row in &self.w {
-            v.extend_from_slice(row);
+impl DenseLayer {
+    pub fn zeros(input_size: usize, output_size: usize, activation: Activation) -> Self {
+        Self {
+            w: vec![vec![0.0; input_size]; output_size],
+            b: vec![0.0; output_size],
+            activation,
         }
-        v.extend_from_slice(&self.b);
-        v
-    }
-
-    fn from_flat(&mut self, flat: &[f64]) -> usize {
-        let n_out = self.w.len();
-        let n_in = if n_out > 0 { self.w[0].len() } else { 0 };
-        let mut idx = 0;
-        for j in 0..n_out {
-            self.w[j].copy_from_slice(&flat[idx..idx + n_in]);
-            idx += n_in;
-        }
-        self.b.copy_from_slice(&flat[idx..idx + n_out]);
-        idx += n_out;
-        idx
-    }
-
-    fn n_params(&self) -> usize {
-        let n_out = self.w.len();
-        let n_in = if n_out > 0 { self.w[0].len() } else { 0 };
-        n_out * n_in + n_out
     }
 }
+
+// Flat order: W (row-major) then b.
+tensor_table!(DenseLayer { w, b });

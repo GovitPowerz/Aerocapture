@@ -1,0 +1,338 @@
+[
+ {
+  "name": "w_ih0_0",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_1",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_2",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_3",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_4",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_5",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_6",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_7",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_8",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_9",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_10",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_11",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_12",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_13",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_14",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_15",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_16",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_ih0_17",
+  "p_min": -1.632993161855452,
+  "p_max": 1.632993161855452,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_hh0_0",
+  "p_min": -1.7320508075688772,
+  "p_max": 1.7320508075688772,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_hh0_1",
+  "p_min": -1.7320508075688772,
+  "p_max": 1.7320508075688772,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_hh0_2",
+  "p_min": -1.7320508075688772,
+  "p_max": 1.7320508075688772,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_hh0_3",
+  "p_min": -1.7320508075688772,
+  "p_max": 1.7320508075688772,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_hh0_4",
+  "p_min": -1.7320508075688772,
+  "p_max": 1.7320508075688772,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_hh0_5",
+  "p_min": -1.7320508075688772,
+  "p_max": 1.7320508075688772,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_hh0_6",
+  "p_min": -1.7320508075688772,
+  "p_max": 1.7320508075688772,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_hh0_7",
+  "p_min": -1.7320508075688772,
+  "p_max": 1.7320508075688772,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_hh0_8",
+  "p_min": -1.7320508075688772,
+  "p_max": 1.7320508075688772,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_hh0_9",
+  "p_min": -1.7320508075688772,
+  "p_max": 1.7320508075688772,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_hh0_10",
+  "p_min": -1.7320508075688772,
+  "p_max": 1.7320508075688772,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w_hh0_11",
+  "p_min": -1.7320508075688772,
+  "p_max": 1.7320508075688772,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "b_ih0_0",
+  "p_min": -0.2,
+  "p_max": 0.2,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "b_ih0_1",
+  "p_min": -0.2,
+  "p_max": 0.2,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "b_ih0_2",
+  "p_min": -0.2,
+  "p_max": 0.2,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "b_ih0_3",
+  "p_min": -0.2,
+  "p_max": 0.2,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "b_ih0_4",
+  "p_min": -0.2,
+  "p_max": 0.2,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "b_ih0_5",
+  "p_min": -0.2,
+  "p_max": 0.2,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "b_hh0_0",
+  "p_min": -0.2,
+  "p_max": 0.2,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "b_hh0_1",
+  "p_min": -0.2,
+  "p_max": 0.2,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "b_hh0_2",
+  "p_min": -0.2,
+  "p_max": 0.2,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "b_hh0_3",
+  "p_min": -0.2,
+  "p_max": 0.2,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "b_hh0_4",
+  "p_min": -0.2,
+  "p_max": 0.2,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "b_hh0_5",
+  "p_min": -0.2,
+  "p_max": 0.2,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ }
+]

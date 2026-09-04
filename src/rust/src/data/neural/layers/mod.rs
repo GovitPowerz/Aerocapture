@@ -4,6 +4,7 @@
 //! impl, and forward fn(s). Shared numerical helpers live in `helpers`.
 
 pub(crate) mod helpers;
+pub(crate) mod tensor;
 
 pub(crate) mod cfc;
 pub(crate) mod dense;
@@ -24,5 +25,6 @@ pub use mamba::MambaLayer;
 pub use mamba3::Mamba3Layer;
 pub use mlstm::MlstmLayer;
 pub use slstm::SlstmLayer;
+pub use tensor::{Shape, Tensor, TensorField, json_to_flat};
 pub use transformer::TransformerLayer;
 pub use window::WindowLayer;

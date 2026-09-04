@@ -42,6 +42,7 @@ output/*
 # === Miscellaneous ===
 *.json
 !tests/reference_data/**/*.json
+!src/rust/tests/fixtures/**/*.json
 # Committed demo model (see models/demo/ and `uv run python -m aerocapture.demo`):
 !models/demo/**/*.json
 # Paper results bundle (collected by experiments/paper/12_collect_results.sh):

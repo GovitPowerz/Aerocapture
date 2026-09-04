@@ -11,8 +11,9 @@
 //!   w_bb, b_bb, w_ff1, b_ff1, w_ff2, b_ff2, w_ta, b_ta, w_tb, b_tb
 //! (matrices row-major, interleaved matrix/bias pairs).
 
-use super::super::{Activation, LayerWeights};
-use super::helpers::{copy_mat_from_flat, copy_vec_from_flat, dot_plus_bias, lecun_tanh};
+use super::super::Activation;
+use super::helpers::{dot_plus_bias, lecun_tanh};
+use super::tensor::tensor_table;
 
 /// Fixed per-tick dt: guidance cadence is constant, so dt is absorbed into
 /// the learned time heads t_a / t_b (spec: deliberate simplification).
@@ -79,51 +80,23 @@ impl CfcLayer {
     }
 }
 
-impl LayerWeights for CfcLayer {
-    fn to_flat(&self) -> Vec<f64> {
-        let mut v = Vec::with_capacity(self.n_params());
-        for (mat, bias) in [
-            (&self.w_bb, &self.b_bb),
-            (&self.w_ff1, &self.b_ff1),
-            (&self.w_ff2, &self.b_ff2),
-            (&self.w_ta, &self.b_ta),
-            (&self.w_tb, &self.b_tb),
-        ] {
-            for row in mat.iter() {
-                v.extend_from_slice(row);
-            }
-            v.extend_from_slice(bias);
-        }
-        v
-    }
-
-    #[allow(clippy::wrong_self_convention)]
-    fn from_flat(&mut self, flat: &[f64]) -> usize {
-        let mut idx = 0;
-        copy_mat_from_flat(&mut self.w_bb, flat, &mut idx);
-        copy_vec_from_flat(&mut self.b_bb, flat, &mut idx);
-        copy_mat_from_flat(&mut self.w_ff1, flat, &mut idx);
-        copy_vec_from_flat(&mut self.b_ff1, flat, &mut idx);
-        copy_mat_from_flat(&mut self.w_ff2, flat, &mut idx);
-        copy_vec_from_flat(&mut self.b_ff2, flat, &mut idx);
-        copy_mat_from_flat(&mut self.w_ta, flat, &mut idx);
-        copy_vec_from_flat(&mut self.b_ta, flat, &mut idx);
-        copy_mat_from_flat(&mut self.w_tb, flat, &mut idx);
-        copy_vec_from_flat(&mut self.b_tb, flat, &mut idx);
-        idx
-    }
-
-    fn n_params(&self) -> usize {
-        let cat = self.input_size + self.hidden_size;
-        self.backbone_units * cat
-            + self.backbone_units
-            + 4 * (self.hidden_size * self.backbone_units + self.hidden_size)
-    }
-}
+tensor_table!(CfcLayer {
+    w_bb,
+    b_bb,
+    w_ff1,
+    b_ff1,
+    w_ff2,
+    b_ff2,
+    w_ta,
+    b_ta,
+    w_tb,
+    b_tb
+});
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::neural::LayerWeights;
 
     fn patterned(input_size: usize, hidden_size: usize, backbone_units: usize) -> CfcLayer {
         let mut l = CfcLayer::zeros(input_size, hidden_size, backbone_units);

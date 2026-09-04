@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
+from aerocapture.training.layer_schema import layer_n_params, resolve_mamba_dt_rank
 from aerocapture.training.optimizer import OptimizerConfig
 
 # The NN candidate-input contract (35 inputs: 16 baseline + 4 ref-traj + 1 exit-bank
@@ -232,76 +233,11 @@ def validate_qat(qat_bits: int | None, qat_granularity: str, qat_tensor_policy: 
             raise ValueError(f"qat_bits supports dense+mamba networks; found layer types {unsupported}")
 
 
-def resolve_mamba_dt_rank(entry: Any) -> int:
-    """Resolve the Mamba `dt_rank` field, applying the paper default when absent.
-
-    Accepts either a plain dict (pre-pydantic TOML entry) or a pydantic `MambaSpec`.
-    Returns `max(1, input_size // 16)` when `dt_rank` is None / missing, matching
-    `MambaSpec._resolve_and_validate_dt_rank` and Rust
-    `TomlLayerSpec::to_layer_spec`. Centralizing this here keeps all four callers
-    (config validation, describe_architecture, _fill_mamba, NetworkConfig.__post_init__)
-    in sync.
-    """
-    input_size = int(entry["input_size"]) if isinstance(entry, dict) else int(entry.input_size)
-    raw = entry.get("dt_rank") if isinstance(entry, dict) else getattr(entry, "dt_rank", None)
-    return int(raw) if raw is not None else max(1, input_size // 16)
-
-
 def _layer_n_params(entry: Any) -> int:
-    """Parameter count for a single v2 architecture entry. Mirrors Rust LayerWeights::n_params."""
-    from aerocapture.training.rl.schemas import TransformerSpec
-
-    if isinstance(entry, TransformerSpec):
-        return 4 * entry.d_model * entry.d_model + 2 * entry.d_ffn * entry.d_model + entry.d_ffn + 9 * entry.d_model
-    # Normalise other Pydantic models to plain dicts.
-    if hasattr(entry, "model_dump"):
-        entry = entry.model_dump()
-    ltype = entry["type"]
-    if ltype == "dense":
-        return int(entry["input_size"]) * int(entry["output_size"]) + int(entry["output_size"])
-    if ltype == "gru":
-        h = int(entry["hidden_size"])
-        i = int(entry["input_size"])
-        return 3 * h * i + 3 * h * h + 2 * 3 * h
-    if ltype == "lstm":
-        h = int(entry["hidden_size"])
-        i = int(entry["input_size"])
-        return 4 * h * i + 4 * h * h + 2 * 4 * h
-    if ltype == "window":
-        return 0  # zero trainable parameters
-    if ltype == "transformer":
-        d = int(entry["d_model"])
-        f = int(entry["d_ffn"])
-        return 4 * d * d + 2 * f * d + f + 9 * d
-    if ltype == "mamba":
-        d_inner = int(entry["input_size"])
-        d_state = int(entry["d_state"])
-        dt_rank = resolve_mamba_dt_rank(entry)
-        return d_inner * (3 * d_state + 2 * dt_rank + 2)
-    if ltype == "mamba3":
-        d_inner = int(entry["input_size"])
-        d_state = int(entry["d_state"])
-        dt_rank = resolve_mamba_dt_rank(entry)
-        base = d_inner * (3 * d_state + 2 * dt_rank + 2)
-        if entry.get("state_mode", "real") == "complex":
-            base += d_inner * d_state
-        if entry.get("discretization", "euler") == "trapezoidal":
-            base += d_inner
-        return base
-    if ltype == "cfc":
-        h = int(entry["hidden_size"])
-        i = int(entry["input_size"])
-        b = int(entry["backbone_units"])
-        return b * (i + h) + b + 4 * (h * b + h)
-    if ltype == "slstm":
-        h = int(entry["hidden_size"])
-        i = int(entry["input_size"])
-        return 4 * h * i + 4 * h * h + 4 * h
-    if ltype == "mlstm":
-        h = int(entry["hidden_size"])
-        i = int(entry["input_size"])
-        return 4 * (h * i + h) + 2 * (i + 1)
-    raise ValueError(f"Unknown v2 layer type: {ltype!r}")
+    """Parameter count for a single v2 architecture entry, from the Rust tensor table
+    (`aerocapture_rs.layer_schema`, pure-Python fallback in `layer_schema.py`).
+    Raises ValueError for an unknown layer type or invalid dimensions."""
+    return layer_n_params(entry)
 
 
 def _layer_input_size(entry: Any) -> int:

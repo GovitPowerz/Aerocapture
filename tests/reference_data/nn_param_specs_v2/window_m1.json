@@ -1,0 +1,114 @@
+[
+ {
+  "name": "w1_0_0",
+  "p_min": -0.7071067811865476,
+  "p_max": 0.7071067811865476,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w1_0_1",
+  "p_min": -0.7071067811865476,
+  "p_max": 0.7071067811865476,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w1_0_2",
+  "p_min": -0.7071067811865476,
+  "p_max": 0.7071067811865476,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w1_0_3",
+  "p_min": -0.7071067811865476,
+  "p_max": 0.7071067811865476,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w1_0_4",
+  "p_min": -0.7071067811865476,
+  "p_max": 0.7071067811865476,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w1_0_5",
+  "p_min": -0.7071067811865476,
+  "p_max": 0.7071067811865476,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w1_1_0",
+  "p_min": -0.7071067811865476,
+  "p_max": 0.7071067811865476,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w1_1_1",
+  "p_min": -0.7071067811865476,
+  "p_max": 0.7071067811865476,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w1_1_2",
+  "p_min": -0.7071067811865476,
+  "p_max": 0.7071067811865476,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w1_1_3",
+  "p_min": -0.7071067811865476,
+  "p_max": 0.7071067811865476,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w1_1_4",
+  "p_min": -0.7071067811865476,
+  "p_max": 0.7071067811865476,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w1_1_5",
+  "p_min": -0.7071067811865476,
+  "p_max": 0.7071067811865476,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "bias1_0",
+  "p_min": -0.7071067811865476,
+  "p_max": 0.7071067811865476,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "bias1_1",
+  "p_min": -0.7071067811865476,
+  "p_max": 0.7071067811865476,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ }
+]
