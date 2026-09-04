@@ -103,11 +103,11 @@ fn override_type_name(v: &OverrideValue) -> &'static str {
 }
 
 /// Read a TOML file, resolve `base` inheritance, apply overrides, and
-/// construct `SimInput` + `SimData`.
-pub fn load_and_override(
+/// serialize the patched tree back to TOML text for the normal parse pipeline.
+fn resolve_and_patch(
     toml_path: &Path,
     overrides: &[(String, OverrideValue)],
-) -> Result<(SimInput, SimData), String> {
+) -> Result<String, String> {
     let toml_content = std::fs::read_to_string(toml_path)
         .map_err(|e| format!("Cannot read '{}': {}", toml_path.display(), e))?;
 
@@ -125,15 +125,33 @@ pub fn load_and_override(
         apply_override(&mut root, key, value)?;
     }
 
-    // Serialize back to a TOML string so we can feed it through the normal pipeline.
-    let patched = toml::to_string(&root).map_err(|e| format!("TOML serialize error: {}", e))?;
+    toml::to_string(&root).map_err(|e| format!("TOML serialize error: {}", e))
+}
 
+/// Read a TOML file, resolve `base` inheritance, apply overrides, and
+/// construct `SimInput` + `SimData`.
+pub fn load_and_override(
+    toml_path: &Path,
+    overrides: &[(String, OverrideValue)],
+) -> Result<(SimInput, SimData), String> {
+    let patched = resolve_and_patch(toml_path, overrides)?;
     let (sim_input, toml_config) =
         SimInput::from_toml(&patched).map_err(|e| format!("Config parse error: {}", e))?;
     let sim_data = SimData::from_toml(&toml_config, &sim_input)
         .map_err(|e| format!("Data load error: {}", e))?;
 
     Ok((sim_input, sim_data))
+}
+
+/// Parse and validate the post-override config without reading any data
+/// table or NN model file (`aerocapture::config::validate`).
+pub fn validate_only(
+    toml_path: &Path,
+    overrides: &[(String, OverrideValue)],
+) -> Result<(), String> {
+    let patched = resolve_and_patch(toml_path, overrides)?;
+    let (_, toml_config) = SimInput::from_toml(&patched).map_err(|e| e.0)?;
+    aerocapture::config::validate(&toml_config).map_err(|e| e.0)
 }
 
 #[cfg(test)]

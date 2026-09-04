@@ -886,6 +886,32 @@ fn load_config(py: Python<'_>, toml_path: &str) -> PyResult<Py<PyAny>> {
     toml_to_py(py, &resolved)
 }
 
+/// Validate a TOML config (after `base` resolution and overrides) without
+/// reading any data table or NN model file.
+///
+/// Runs the Rust no-IO rule set (`aerocapture::config::validate`): required
+/// sections, enum strings (mission / phase / guidance / pilot / navigation /
+/// integration / NN mode), incidence lengths, piecewise segments,
+/// `output_parameterization` vs mode and architecture, `[network.normalization]`
+/// width, Monte Carlo levels / custom keys / bounds, EKF sigmas. Rules that need
+/// a loaded table or model (input mask vs model width, NN scheme without a
+/// model, decoder knob vs the model's `output_param`) surface at run time.
+///
+/// Args:
+///     toml_path: Path to the TOML config file.
+///     overrides: Optional dict of "dotted.key" -> value overrides.
+///
+/// Raises:
+///     ValueError on the first violation (also for an unreadable or
+///     unparseable TOML).
+#[pyfunction]
+#[pyo3(signature = (toml_path, overrides=None))]
+fn validate_config(toml_path: &str, overrides: Option<&Bound<'_, PyDict>>) -> PyResult<()> {
+    let overrides = extract_overrides(overrides)?;
+    config::validate_only(std::path::Path::new(toml_path), &overrides)
+        .map_err(pyo3::exceptions::PyValueError::new_err)
+}
+
 /// Convert a TOML value tree into Python objects (dict, list, str, int, float, bool).
 fn toml_to_py(py: Python<'_>, value: &toml::Value) -> PyResult<Py<PyAny>> {
     match value {
@@ -1046,6 +1072,7 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_with_draws, m)?)?;
     m.add_function(wrap_pyfunction!(run_grid, m)?)?;
     m.add_function(wrap_pyfunction!(load_config, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_config, m)?)?;
     m.add_function(wrap_pyfunction!(nn_forward, m)?)?;
     m.add_function(wrap_pyfunction!(nn_forward_sequence, m)?)?;
     m.add_function(wrap_pyfunction!(flat_weights_to_json, m)?)?;

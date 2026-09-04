@@ -46,3 +46,15 @@ def test_mamba_dt_rank_resolved_without_population_build() -> None:
     for entry in cfg.network.architecture:
         if entry["type"] == "mamba":
             assert "dt_rank" in entry, entry
+
+
+def test_rust_validation_rejects_invalid_config(tmp_path: Path) -> None:
+    """When the extension is importable the builder runs the Rust no-IO
+    validation pass (`aerocapture_rs.validate_config`), so a config Rust would
+    reject at the gen-0 run_grid fails here instead."""
+    pytest.importorskip("aerocapture_rs")
+    base = Path("configs/training/msr_aller_eqglide_train.toml").resolve()
+    bad = tmp_path / "bad_nav.toml"
+    bad.write_text(f'base = "{base}"\n\n[navigation]\nmode = "EKF"\n')
+    with pytest.raises(SystemExit):
+        build_training_config_from_toml(str(bad))
