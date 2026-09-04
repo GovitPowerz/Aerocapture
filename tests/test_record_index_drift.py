@@ -51,6 +51,19 @@ class TestWidthDrift:
         assert isinstance(aero.NN_FULL_INPUT_SIZE, int)
         assert aero.NN_FULL_INPUT_SIZE == 35
 
+    def test_fallback_names_match_rust_elementwise(self) -> None:
+        from aerocapture.training.config import _FALLBACK_NN_INPUT_NAMES, candidate_input_names
+
+        assert list(_FALLBACK_NN_INPUT_NAMES) == list(aero.NN_INPUT_NAMES)
+        assert candidate_input_names() == list(aero.NN_INPUT_NAMES)
+
+    def test_candidate_inputs_schema(self) -> None:
+        schema = aero.candidate_inputs()
+        assert [e["index"] for e in schema] == list(range(aero.NN_FULL_INPUT_SIZE))
+        assert [e["name"] for e in schema] == list(aero.NN_INPUT_NAMES)
+        norm = aero.default_normalization()
+        assert [{k: e[k] for k in ("transform", "scale", "center")} for e in schema] == norm
+
     def test_runtime_candidate_width_matches_rust(self) -> None:
         from aerocapture.training.config import _RUNTIME_CANDIDATE_WIDTH
 

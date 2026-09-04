@@ -14,15 +14,66 @@ import numpy.typing as npt
 
 from aerocapture.training.optimizer import OptimizerConfig
 
-# Candidate input vector width, mirroring the Rust `build_nn_input` /
-# `NN_FULL_INPUT_SIZE` contract (src/rust/src/data/neural/mod.rs). Currently 35
-# (16 baseline + 4 ref-traj + 1 exit-bank teacher + 4 lateral telemetry + 6
-# seam-free (sin,cos) bank-history pairs at indices 25-30 + 1 periapsis_alt at 31
-# + 3 predicted_dv1/2/3 at indices 32-34). Kept as a literal so this module
-# imports without the PyO3 extension (CI's pure-Python job); imported by
-# warm_start.py and asserted equal to `aerocapture_rs.NN_FULL_INPUT_SIZE` by
-# tests/test_record_index_drift.py::TestWidthDrift.
-_RUNTIME_CANDIDATE_WIDTH = 35
+# The NN candidate-input contract (35 inputs: 16 baseline + 4 ref-traj + 1 exit-bank
+# teacher + 4 lateral telemetry + 6 seam-free (sin,cos) bank-history pairs at 25-30 +
+# periapsis_alt at 31 + predicted_dv1/2/3 at 32-34). Rust owns it: `NN_INPUT_NAMES` /
+# `DEFAULT_NORMALIZATION` in src/rust/src/data/neural/mod.rs, exported as
+# `aerocapture_rs.NN_INPUT_NAMES` and `aerocapture_rs.candidate_inputs()`. This tuple
+# is the FALLBACK for the pure-Python CI job (no extension built) and is asserted
+# equal to the Rust table element-wise by tests/test_record_index_drift.py::TestWidthDrift.
+_FALLBACK_NN_INPUT_NAMES: tuple[str, ...] = (
+    "eccentricity_excess",  # 0
+    "inclination_error",  # 1
+    "radial_velocity",  # 2
+    "orbital_energy",  # 3
+    "velocity",  # 4
+    "accel_magnitude",  # 5
+    "heat_flux_fraction",  # 6
+    "heat_load_fraction",  # 7
+    "altitude",  # 8
+    "fpa",  # 9
+    "latitude",  # 10
+    "drag_accel",  # 11
+    "lift_accel",  # 12
+    "sma_error",  # 13
+    "apoapsis_alt",  # 14
+    "bounce_flag",  # 15
+    "cos_bank_nominal",  # 16
+    "pdyn_nominal",  # 17
+    "hdot_nominal",  # 18
+    "pdyn_error",  # 19
+    "exit_bank_teacher",  # 20
+    "inclination_err_rate",  # 21
+    "prev_bank_signed",  # 22
+    "time_since_sign_flip",  # 23
+    "inclination_err_integral",  # 24
+    "exit_bank_teacher_sin",  # 25
+    "exit_bank_teacher_cos",  # 26
+    "prev_bank_signed_sin",  # 27
+    "prev_bank_signed_cos",  # 28
+    "prev_realized_sin",  # 29
+    "prev_realized_cos",  # 30
+    "periapsis_alt",  # 31
+    "predicted_dv1",  # 32
+    "predicted_dv2",  # 33
+    "predicted_dv3",  # 34
+)
+
+_RUNTIME_CANDIDATE_WIDTH = len(_FALLBACK_NN_INPUT_NAMES)
+
+
+def candidate_input_names() -> list[str]:
+    """Index-aligned candidate-input names: the Rust table when the extension is present."""
+    try:
+        import aerocapture_rs  # type: ignore[import-not-found, import-untyped]  # noqa: PLC0415
+    except ImportError:
+        return list(_FALLBACK_NN_INPUT_NAMES)
+    return list(aerocapture_rs.NN_INPUT_NAMES)
+
+
+def candidate_input_index(name: str) -> int:
+    """Index of a candidate input by name (raises ValueError for an unknown name)."""
+    return candidate_input_names().index(name)
 
 
 @dataclass

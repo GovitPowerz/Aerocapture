@@ -57,6 +57,50 @@ pub fn apply_norm(raw: f64, spec: &NormSpec) -> f64 {
     }
 }
 
+/// Candidate-input names, index-aligned with `DEFAULT_NORMALIZATION` and with the
+/// `raw[i]` slots `gnc::guidance::neural::build_nn_input` fills. This is the single
+/// source of truth for the 35-wide candidate contract: exported to Python as
+/// `aerocapture_rs.NN_INPUT_NAMES` / `candidate_inputs()`, from which the Python side
+/// derives its name list, width and index lookups (a pure-Python fallback copy in
+/// `training/config.py` is asserted equal element-wise by the drift test).
+pub const NN_INPUT_NAMES: [&str; NN_FULL_INPUT_SIZE] = [
+    "eccentricity_excess",      // 0
+    "inclination_error",        // 1
+    "radial_velocity",          // 2
+    "orbital_energy",           // 3
+    "velocity",                 // 4
+    "accel_magnitude",          // 5
+    "heat_flux_fraction",       // 6
+    "heat_load_fraction",       // 7
+    "altitude",                 // 8
+    "fpa",                      // 9
+    "latitude",                 // 10
+    "drag_accel",               // 11
+    "lift_accel",               // 12
+    "sma_error",                // 13
+    "apoapsis_alt",             // 14
+    "bounce_flag",              // 15
+    "cos_bank_nominal",         // 16
+    "pdyn_nominal",             // 17
+    "hdot_nominal",             // 18
+    "pdyn_error",               // 19
+    "exit_bank_teacher",        // 20
+    "inclination_err_rate",     // 21
+    "prev_bank_signed",         // 22
+    "time_since_sign_flip",     // 23
+    "inclination_err_integral", // 24
+    "exit_bank_teacher_sin",    // 25
+    "exit_bank_teacher_cos",    // 26
+    "prev_bank_signed_sin",     // 27
+    "prev_bank_signed_cos",     // 28
+    "prev_realized_sin",        // 29
+    "prev_realized_cos",        // 30
+    "periapsis_alt",            // 31
+    "predicted_dv1",            // 32
+    "predicted_dv2",            // 33
+    "predicted_dv3",            // 34
+];
+
 /// Default per-input normalization table (divisor form `(raw - center) / scale`).
 /// All 35 entries are calibrated, including DV entries 32-34 (smooth, no sentinel).
 pub const DEFAULT_NORMALIZATION: [NormSpec; NN_FULL_INPUT_SIZE] = [
@@ -64,7 +108,7 @@ pub const DEFAULT_NORMALIZATION: [NormSpec; NN_FULL_INPUT_SIZE] = [
         transform: NormTransform::None,
         scale: 0.8754754,
         center: 0.9125593,
-    }, // 0  ecc_excess
+    }, // 0  eccentricity_excess
     NormSpec {
         transform: NormTransform::None,
         scale: 1.443277,

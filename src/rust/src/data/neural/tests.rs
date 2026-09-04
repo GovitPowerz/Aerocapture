@@ -2478,3 +2478,47 @@ fn acos_tanh_with_tanh_activation_accepted_at_v2_json_load() {
     let m = NeuralNetModel::from_json_str(json, "<test>").unwrap();
     assert_eq!(m.output_param, OutputParam::AcosTanh);
 }
+
+#[test]
+fn nn_input_names_unique_and_anchored() {
+    let mut seen = std::collections::HashSet::new();
+    for name in NN_INPUT_NAMES.iter() {
+        assert!(seen.insert(*name), "duplicate candidate-input name {name}");
+        assert!(!name.is_empty());
+    }
+    assert_eq!(NN_INPUT_NAMES[0], "eccentricity_excess");
+    assert_eq!(NN_INPUT_NAMES[6], "heat_flux_fraction");
+    assert_eq!(NN_INPUT_NAMES[15], "bounce_flag");
+    assert_eq!(NN_INPUT_NAMES[20], "exit_bank_teacher");
+    assert_eq!(NN_INPUT_NAMES[31], "periapsis_alt");
+    assert_eq!(NN_INPUT_NAMES[34], "predicted_dv3");
+}
+
+/// The `}, // <idx>  <name>` trailing comments on `DEFAULT_NORMALIZATION` are the
+/// human index for that table; keep them equal to `NN_INPUT_NAMES` so a reader of
+/// either table sees the same contract.
+#[test]
+fn default_normalization_comments_match_nn_input_names() {
+    let src = include_str!("mod.rs");
+    let start = src
+        .find("pub const DEFAULT_NORMALIZATION")
+        .expect("table start");
+    let end = src[start..].find("\n];").expect("table end") + start;
+    let mut found = 0usize;
+    for line in src[start..end].lines() {
+        if let Some(comment) = line.trim_start().strip_prefix("}, //") {
+            let mut parts = comment.split_whitespace();
+            let idx: usize = parts.next().expect("index").parse().expect("numeric index");
+            let name = parts.next().expect("name");
+            assert_eq!(
+                name, NN_INPUT_NAMES[idx],
+                "comment for index {idx} disagrees with NN_INPUT_NAMES"
+            );
+            found += 1;
+        }
+    }
+    assert_eq!(
+        found, NN_FULL_INPUT_SIZE,
+        "every DEFAULT_NORMALIZATION entry carries an index comment"
+    );
+}
