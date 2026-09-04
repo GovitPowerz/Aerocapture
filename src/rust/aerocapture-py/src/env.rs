@@ -6,6 +6,7 @@
 //!
 //! step() is implemented in Task 1.4.
 
+use aerocapture::gnc::guidance::neural::{NnInputContext, NnModelView, build_nn_input};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -392,29 +393,16 @@ impl BatchedSimulation {
 fn build_obs_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -> Vec<f64> {
     let nav = state.last_nav_output();
     let planet = &config.planet;
-    let target_inclination = data.target_orbit.inclination;
-    let ref_velocity_latched = state.guidance_state.reference_velocity;
     let nn = data
         .neural_net
         .as_ref()
         .expect("invariant: neural_net validated in BatchedSimulation::new");
-
-    let time_since_flip = state.sim_time() - state.guidance_state.last_sign_flip_time_for_nn;
-    aerocapture::gnc::guidance::neural::build_nn_input(
-        &nav,
-        nn.input_mask.as_deref(),
-        nn.ablated_input,
-        nn.ablated_value,
-        data,
-        planet,
-        target_inclination,
-        ref_velocity_latched,
-        state.guidance_state.prev_inclination_error_for_nn,
-        state.guidance_state.prev_bank_for_nn,
-        time_since_flip,
-        state.guidance_state.inclination_error_integral,
-        state.guidance_state.prev_realized_bank_for_nn,
-    )
+    let ctx = NnInputContext::from_guidance_state(
+        &state.guidance_state,
+        state.sim_time(),
+        data.target_orbit.inclination,
+    );
+    build_nn_input(&nav, NnModelView::of(nn), data, planet, &ctx)
 }
 
 /// Predicted correction delta-v [dv1, dv2, dv3] (raw m/s) on the current
