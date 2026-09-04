@@ -40,10 +40,15 @@ fn save_bytes(model: &NeuralNetModel) -> String {
 #[test]
 fn committed_models_load_and_resave_stably() {
     let root = common::repo_root();
-    let mut paths = vec![
+    // The two v1-format files: the golden is tracked; the legacy default model
+    // under data/ is gitignored (absent in CI), so keep whichever exist.
+    let mut paths: Vec<PathBuf> = [
         root.join("data/neural_network/nn_model.json"),
         root.join("tests/reference_data/rust_golden/neural/nn_model_golden.json"),
-    ];
+    ]
+    .into_iter()
+    .filter(|p| p.exists())
+    .collect();
     walk(&root.join("models"), "best_model.json", &mut paths);
     walk(
         &root.join("articles/paper/data/runs"),

@@ -76,4 +76,12 @@ def test_param_specs_match_frozen_fixture(case: str, mul: float) -> None:
     frozen = json.loads(path.read_text())
     assert len(specs) == len(frozen), f"{case}: spec count {len(specs)} != frozen {len(frozen)}"
     for i, (got, want) in enumerate(zip(specs, frozen, strict=True)):
-        assert got == want, f"{case} m={mul}: spec {i} differs: {got} != {want}"
+        # Bounds/centers derived through log/exp of seeded RNG draws differ by an
+        # ulp between macOS and Linux libm; names, flags and order must be exact.
+        assert got.keys() == want.keys(), f"{case} m={mul}: spec {i} keys differ"
+        for key, want_v in want.items():
+            got_v = got[key]
+            if isinstance(want_v, float):
+                assert got_v == pytest.approx(want_v, rel=1e-12, abs=1e-15), f"{case} m={mul}: spec {i} {key}: {got_v} != {want_v}"
+            else:
+                assert got_v == want_v, f"{case} m={mul}: spec {i} {key}: {got_v} != {want_v}"
