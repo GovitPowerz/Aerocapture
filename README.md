@@ -41,6 +41,14 @@ cargo test --release --manifest-path src/rust/Cargo.toml
 uv run pytest tests/
 ```
 
+## Reading guide
+
+1. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the two-language split and its one seam, a training run in fifteen lines, a simulation tick in eight, the seed pools, where the paper's numbers come from.
+2. [CONTEXT.md](CONTEXT.md) — the vocabulary (capture / exit phase, scaffolding, champion, final selection vs final eval, sizing tail).
+3. [docs/adr/](docs/adr/) — the four decisions the results rest on: adaptive training seeds, final selection on the validation pool, per-draw noise seeding, the `run_grid` bit-identity chokepoint.
+4. [docs/design/](docs/design/README.md) — the dated design behind each feature; [CLAUDE.md](CLAUDE.md) — the per-module reference.
+5. [The paper](articles/paper/paper.pdf) — the results and their evaluation methodology.
+
 ## Project Structure
 
 ```
