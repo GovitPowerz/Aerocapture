@@ -18,19 +18,28 @@ import numpy.typing as npt
 
 from aerocapture.training.evaluate import compute_cost
 
+# Candidate-input (obs) indices read by the phase-aware potential.
 _IDX_ECC_EXCESS = 0
-_IDX_HEAT_FLUX_FRAC = 6
-_IDX_HEAT_LOAD_FRAC = 7
 _IDX_SMA_ERROR = 13
 _IDX_BOUNCE_FLAG = 15
 _IDX_PDYN_ERROR = 19
+
+# Aux-channel columns (raw, un-normalized; see BatchedSimulation AUX_WIDTH in env.rs).
+AUX_WIDTH = 7
+_AUX_ENERGY = 0
+_AUX_DV1 = 2
+_AUX_DV2 = 3
+_AUX_DV3 = 4
+_AUX_HEAT_FLUX_FRAC = 5
+_AUX_HEAT_LOAD_FRAC = 6
 
 
 @dataclass
 class StepRewardCalculator:
     """Potential-based shaping built from phase-aware obs components.
 
-    `Phi(obs, aux)` is the (negative) potential; lower is worse. The per-step
+    `Phi(obs, aux)` is the (negative) potential; lower is worse. Thermal proximity
+    is always read from the raw aux fractions, never inverted from obs. The per-step
     shaped reward is `gamma * Phi(next) - Phi(cur)`, so the return telescopes
     to `gamma^T * Phi(terminal) - Phi(initial)` which is a fixed offset for
     any policy -- the optimum is preserved.
@@ -55,16 +64,29 @@ class StepRewardCalculator:
             raise ValueError(f"potential must be 'phase_aware' or 'dv', got {self.potential!r}")
         self._rev: dict[int, int] = {v: i for i, v in enumerate(self.input_mask)}
         if self.potential == "dv":
-            # DV potential is phase-agnostic; only the thermal-proximity pair is read from obs.
-            required = [_IDX_HEAT_FLUX_FRAC, _IDX_HEAT_LOAD_FRAC]
+            # DV potential is phase-agnostic and reads only the aux channel (DV + raw thermal fractions).
+            required: list[int] = []
         else:
-            required = [_IDX_ECC_EXCESS, _IDX_HEAT_FLUX_FRAC, _IDX_HEAT_LOAD_FRAC, _IDX_SMA_ERROR, _IDX_BOUNCE_FLAG, _IDX_PDYN_ERROR]
+            required = [_IDX_ECC_EXCESS, _IDX_SMA_ERROR, _IDX_BOUNCE_FLAG, _IDX_PDYN_ERROR]
         missing = [r for r in required if r not in self._rev]
         if missing:
             raise ValueError(f"input_mask missing required indices: {missing}")
 
     def _col(self, full_idx: int) -> int:
         return self._rev[full_idx]
+
+    def _thermal_term(self, aux: npt.NDArray[np.float32]) -> npt.NDArray[np.float64]:
+        """-constraint_weight * (hf^2 + hl^2) from the RAW aux fractions.
+
+        The fractions are read from aux, not from obs: obs carries them through the
+        model-dependent NN input normalization (override > embedded > default), so
+        any fixed inverse here would silently drift from what the sim applied.
+        """
+        if aux.shape[1] != AUX_WIDTH:
+            raise ValueError(f"aux must have {AUX_WIDTH} columns, got {aux.shape[1]}")
+        hf_frac = aux[:, _AUX_HEAT_FLUX_FRAC].astype(np.float64)
+        hl_frac = aux[:, _AUX_HEAT_LOAD_FRAC].astype(np.float64)
+        return -self.constraint_weight * (hf_frac**2 + hl_frac**2)
 
     def _potential_phase_aware(
         self,
@@ -76,12 +98,10 @@ class StepRewardCalculator:
         in_capture = bounce < 0
         in_exit = ~in_capture
 
-        hf_frac = (obs[:, self._col(_IDX_HEAT_FLUX_FRAC)].astype(np.float64) + 1.0) / 2.0
-        hl_frac = (obs[:, self._col(_IDX_HEAT_LOAD_FRAC)].astype(np.float64) + 1.0) / 2.0
-        phi = -self.constraint_weight * (hf_frac**2 + hl_frac**2)
+        phi = self._thermal_term(aux)
 
         pdyn_err = obs[:, self._col(_IDX_PDYN_ERROR)].astype(np.float64)
-        energy = aux[:, 0].astype(np.float64) / self.energy_scale
+        energy = aux[:, _AUX_ENERGY].astype(np.float64) / self.energy_scale
         phi_capture = -(self.corridor_weight * pdyn_err**2 + self.energy_rate_weight * np.maximum(energy, 0.0))
 
         sma_err = obs[:, self._col(_IDX_SMA_ERROR)].astype(np.float64)
@@ -109,6 +129,7 @@ class StepRewardCalculator:
         """DV-correction potential: Phi = -(w.dv) - constraint*(hf^2 + hl^2).
 
         dv1/dv2/dv3 are the raw m/s correction-budget components from aux[:, 2:5]
+        and the thermal fractions are the raw aux[:, 5:7]
         (predicted_dv_for_nn). Not phase-gated -- the DV signal is smooth across
         the bounce. The thermal-proximity term is retained (DV is blind to heat
         limits, and the terminal penalty alone is a sparse teacher).
@@ -118,13 +139,11 @@ class StepRewardCalculator:
         # rescales the combined shaped stream but NOT the dv-vs-thermal ratio --
         # raise constraint_weight (or lower dv*_weight) to give the thermal term
         # more authority.
-        hf_frac = (obs[:, self._col(_IDX_HEAT_FLUX_FRAC)].astype(np.float64) + 1.0) / 2.0
-        hl_frac = (obs[:, self._col(_IDX_HEAT_LOAD_FRAC)].astype(np.float64) + 1.0) / 2.0
-        dv1 = aux[:, 2].astype(np.float64)
-        dv2 = aux[:, 3].astype(np.float64)
-        dv3 = aux[:, 4].astype(np.float64)
+        dv1 = aux[:, _AUX_DV1].astype(np.float64)
+        dv2 = aux[:, _AUX_DV2].astype(np.float64)
+        dv3 = aux[:, _AUX_DV3].astype(np.float64)
         dv_term = self.dv1_weight * dv1 + self.dv2_weight * dv2 + self.dv3_weight * dv3
-        return -dv_term - self.constraint_weight * (hf_frac**2 + hl_frac**2)
+        return -dv_term + self._thermal_term(aux)
 
     def step_reward(
         self,
