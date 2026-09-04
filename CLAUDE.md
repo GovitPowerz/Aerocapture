@@ -1354,6 +1354,11 @@ if I'm doing something the hard way, call it out.
 
 Issues live in this repo's GitHub Issues, operated via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
+### Triage labels
+
+Default vocabulary: the five canonical role names are the label strings (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`); categories are `bug` / `enhancement`. See
+`docs/agents/triage-labels.md`.
+
 ### Domain docs
 
 Single-context: `CONTEXT.md` at the repo root + ADRs in `docs/adr/`. See `docs/agents/domain.md`.
