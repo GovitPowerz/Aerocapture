@@ -16,13 +16,15 @@ from typing import Literal
 import numpy as np
 import numpy.typing as npt
 
+from aerocapture.training.config import candidate_input_index
 from aerocapture.training.cost import compute_cost
 
-# Candidate-input (obs) indices read by the phase-aware potential.
-_IDX_ECC_EXCESS = 0
-_IDX_SMA_ERROR = 13
-_IDX_BOUNCE_FLAG = 15
-_IDX_PDYN_ERROR = 19
+# Candidate-input (obs) indices read by the phase-aware potential, looked up by name
+# in the Rust-owned contract so they cannot drift from build_nn_input.
+_IDX_ECC_EXCESS = candidate_input_index("eccentricity_excess")
+_IDX_SMA_ERROR = candidate_input_index("sma_error")
+_IDX_BOUNCE_FLAG = candidate_input_index("bounce_flag")
+_IDX_PDYN_ERROR = candidate_input_index("pdyn_error")
 
 # Aux-channel columns (raw, un-normalized; see BatchedSimulation AUX_WIDTH in env.rs).
 AUX_WIDTH = 7

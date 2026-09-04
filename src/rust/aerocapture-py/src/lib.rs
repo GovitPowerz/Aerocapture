@@ -914,27 +914,55 @@ fn toml_to_py(py: Python<'_>, value: &toml::Value) -> PyResult<Py<PyAny>> {
     }
 }
 
+fn norm_spec_to_dict<'py>(
+    py: Python<'py>,
+    spec: &aerocapture::data::neural::NormSpec,
+) -> PyResult<Bound<'py, PyDict>> {
+    use aerocapture::data::neural::NormTransform;
+    let dict = PyDict::new(py);
+    let transform = match spec.transform {
+        NormTransform::None => "none",
+        NormTransform::Asinh => "asinh",
+        NormTransform::Tanh => "tanh",
+    };
+    dict.set_item("transform", transform)?;
+    dict.set_item("scale", spec.scale)?;
+    dict.set_item("center", spec.center)?;
+    Ok(dict)
+}
+
 /// Return the Rust `DEFAULT_NORMALIZATION` table as a list of dicts.
 ///
 /// Each entry is `{"transform": "none"|"asinh"|"tanh", "scale": f64, "center": f64}`.
 /// This is the single source of truth for inverting NN normalized inputs back to raw.
 #[pyfunction]
 fn default_normalization(py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
-    use aerocapture::data::neural::{DEFAULT_NORMALIZATION, NormTransform};
-    let mut out: Vec<Py<PyAny>> = Vec::with_capacity(DEFAULT_NORMALIZATION.len());
-    for spec in DEFAULT_NORMALIZATION.iter() {
-        let dict = PyDict::new(py);
-        let transform = match spec.transform {
-            NormTransform::None => "none",
-            NormTransform::Asinh => "asinh",
-            NormTransform::Tanh => "tanh",
-        };
-        dict.set_item("transform", transform)?;
-        dict.set_item("scale", spec.scale)?;
-        dict.set_item("center", spec.center)?;
-        out.push(dict.into_any().unbind());
-    }
-    Ok(out)
+    use aerocapture::data::neural::DEFAULT_NORMALIZATION;
+    DEFAULT_NORMALIZATION
+        .iter()
+        .map(|spec| Ok(norm_spec_to_dict(py, spec)?.into_any().unbind()))
+        .collect()
+}
+
+/// The 35-wide NN candidate-input contract as one schema: a list of
+/// `{"index": int, "name": str, "transform": str, "scale": f64, "center": f64}`
+/// dicts, index-aligned with `build_nn_input` (names from `NN_INPUT_NAMES`,
+/// normalization from `DEFAULT_NORMALIZATION`). Python derives its name list,
+/// width and index lookups from this instead of mirroring them.
+#[pyfunction]
+fn candidate_inputs(py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+    use aerocapture::data::neural::{DEFAULT_NORMALIZATION, NN_INPUT_NAMES};
+    NN_INPUT_NAMES
+        .iter()
+        .zip(DEFAULT_NORMALIZATION.iter())
+        .enumerate()
+        .map(|(index, (name, spec))| {
+            let dict = norm_spec_to_dict(py, spec)?;
+            dict.set_item("index", index)?;
+            dict.set_item("name", *name)?;
+            Ok(dict.into_any().unbind())
+        })
+        .collect()
 }
 
 /// Return the Rust `FR_*` index map as a Python dict `{name: index}`.
@@ -998,6 +1026,10 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         aerocapture::data::neural::NN_FULL_INPUT_SIZE,
     )?;
     m.add(
+        "NN_INPUT_NAMES",
+        aerocapture::data::neural::NN_INPUT_NAMES.to_vec(),
+    )?;
+    m.add(
         "DISPERSION_DRAW_LEN",
         aerocapture::data::dispersions::DISPERSION_DRAW_LEN,
     )?;
@@ -1020,6 +1052,7 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(collect_supervised, m)?)?;
     m.add_function(wrap_pyfunction!(collect_nn_inputs, m)?)?;
     m.add_function(wrap_pyfunction!(default_normalization, m)?)?;
+    m.add_function(wrap_pyfunction!(candidate_inputs, m)?)?;
     m.add_function(wrap_pyfunction!(final_record_indices, m)?)?;
     Ok(())
 }

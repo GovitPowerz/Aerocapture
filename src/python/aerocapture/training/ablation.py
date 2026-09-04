@@ -17,48 +17,12 @@ from typing import Any
 
 import numpy as np
 
+from aerocapture.training.config import candidate_input_names
 from aerocapture.training.parquet_output import DV_TOTAL_RAW_INDEX as _DV_TOTAL_COL  # noqa: F401  (canary re-export; test_ablation asserts == 41)
 from aerocapture.training.parquet_output import FINAL_RECORD_LEN as _FINAL_RECORD_LEN
 
-NN_INPUT_NAMES: list[str] = [
-    "eccentricity_excess",  # 0
-    "inclination_error",  # 1
-    "radial_velocity",  # 2
-    "orbital_energy",  # 3
-    "velocity",  # 4
-    "accel_magnitude",  # 5
-    "heat_flux_fraction",  # 6
-    "heat_load_fraction",  # 7
-    "altitude",  # 8
-    "fpa",  # 9
-    "latitude",  # 10
-    "drag_accel",  # 11
-    "lift_accel",  # 12
-    "sma_error",  # 13
-    "apoapsis_alt",  # 14
-    "bounce_flag",  # 15
-    "cos_bank_nominal",  # 16
-    "pdyn_nominal",  # 17
-    "hdot_nominal",  # 18
-    "pdyn_error",  # 19
-    "exit_bank_teacher",  # 20
-    # ── Lateral-state telemetry (Markovian state for the reversal decision) ──
-    "inclination_err_rate",  # 21 -- (current - prev) incl_err / guidance_period, scaled
-    "prev_bank_signed",  # 22 -- previous-tick bank command / π, in [-1, 1]
-    "time_since_sign_flip",  # 23 -- tanh(seconds_since_last_flip / 30)
-    "inclination_err_integral",  # 24 -- tanh(integral_deg_s / 100)
-    # ── Seam-free (sin,cos) bank-history pairs ──
-    "exit_bank_teacher_sin",  # 25
-    "exit_bank_teacher_cos",  # 26
-    "prev_bank_signed_sin",  # 27
-    "prev_bank_signed_cos",  # 28
-    "prev_realized_sin",  # 29
-    "prev_realized_cos",  # 30
-    "periapsis_alt",  # 31
-    "predicted_dv1",  # 32
-    "predicted_dv2",  # 33
-    "predicted_dv3",  # 34
-]
+# Index-aligned candidate-input names from the Rust contract (see config.candidate_input_names).
+NN_INPUT_NAMES: list[str] = candidate_input_names()
 
 _COST_TRANSFORMS = ("linear", "sqrt", "log", "squared", "cubed")
 
