@@ -40,6 +40,13 @@ type StepReturn<'py> = PyResult<(
 )>;
 
 /// Vectorized step-based simulator for RL training.
+/// Width of the per-env auxiliary array returned by `reset` / `step`:
+/// `[energy_estimated, dynamic_pressure_estimated, predicted_dv1, predicted_dv2,
+/// predicted_dv3, heat_flux_fraction, heat_load_fraction]`. The thermal fractions
+/// are delivered RAW (fraction of the configured limit) so the RL reward never has
+/// to invert the NN input normalization (which is model-dependent).
+pub const AUX_WIDTH: usize = 7;
+
 #[pyclass(unsendable)]
 pub struct BatchedSimulation {
     #[pyo3(get)]
@@ -191,7 +198,7 @@ impl BatchedSimulation {
         // gets the pre-reset values for terminal steps.
         // Release the GIL during the Rayon block so other Python threads can run
         // and Ctrl-C is responsive.
-        let outcomes: Vec<(bool, Option<TerminalOutcome>, [f64; 5])> = py.detach(|| {
+        let outcomes: Vec<(bool, Option<TerminalOutcome>, [f64; AUX_WIDTH])> = py.detach(|| {
             self.envs
                 .par_iter_mut()
                 .zip(actions_vec.par_iter())
@@ -206,9 +213,10 @@ impl BatchedSimulation {
                         event_defs,
                         event_ctx,
                     );
-                    // Capture aux (energy, pdyn, dv1, dv2, dv3) from nav output
-                    // before potential reset. The 3 DV components are the raw m/s
-                    // correction-budget signals the DV-reward potential consumes.
+                    // Capture aux (energy, pdyn, dv1, dv2, dv3, heat fractions) from
+                    // nav output before potential reset. The 3 DV components are the
+                    // raw m/s correction-budget signals the DV-reward potential
+                    // consumes; the two thermal fractions are raw (not normalized).
                     let nav = state.last_nav_output();
                     let dv = predicted_dv_for_state(state, sim_data, sim_input);
                     let aux = [
@@ -217,6 +225,8 @@ impl BatchedSimulation {
                         dv[0],
                         dv[1],
                         dv[2],
+                        nav.heat_flux_fraction,
+                        nav.heat_load_fraction,
                     ];
                     if state.term() != TermReason::None {
                         // Capture terminal obs BEFORE the env state is reset.
@@ -275,13 +285,13 @@ impl BatchedSimulation {
         let reward_arr = PyArray1::<f32>::from_iter(py, outcomes.iter().map(|_| 0.0f32));
         let done_arr = PyArray1::<bool>::from_iter(py, outcomes.iter().map(|(d, _, _)| *d));
 
-        // Aux array: (n_envs, 5) with [energy, pdyn, dv1, dv2, dv3].
+        // Aux array: (n_envs, AUX_WIDTH), see `AUX_WIDTH` for the column order.
         // Values are from the pre-reset nav output (terminal steps get their final-tick values).
-        let aux = PyArray2::<f32>::zeros(py, [self.n_envs, 5], false);
+        let aux = PyArray2::<f32>::zeros(py, [self.n_envs, AUX_WIDTH], false);
         {
             let mut aux_view = unsafe { aux.as_array_mut() };
             for (i, (_, _, a)) in outcomes.iter().enumerate() {
-                for j in 0..5 {
+                for j in 0..AUX_WIDTH {
                     aux_view[[i, j]] = a[j] as f32;
                 }
             }
@@ -334,11 +344,12 @@ impl BatchedSimulation {
         arr
     }
 
-    /// Auxiliary array (n_envs, 5): [energy_estimated, dynamic_pressure_estimated,
-    /// predicted_dv1, predicted_dv2, predicted_dv3] per env. The 3 DV components are
-    /// the raw m/s correction-budget estimate consumed by the DV-reward potential.
+    /// Auxiliary array (n_envs, AUX_WIDTH): [energy_estimated, dynamic_pressure_estimated,
+    /// predicted_dv1, predicted_dv2, predicted_dv3, heat_flux_fraction, heat_load_fraction]
+    /// per env. The 3 DV components are the raw m/s correction-budget estimate consumed
+    /// by the DV-reward potential; the thermal fractions are raw (fraction of limit).
     fn build_aux<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f32>> {
-        let arr = PyArray2::<f32>::zeros(py, [self.n_envs, 5], false);
+        let arr = PyArray2::<f32>::zeros(py, [self.n_envs, AUX_WIDTH], false);
         let mut view = unsafe { arr.as_array_mut() };
         for (i, env) in self.envs.iter().enumerate() {
             let nav = env.last_nav_output();
@@ -348,6 +359,8 @@ impl BatchedSimulation {
             view[[i, 2]] = dv[0] as f32;
             view[[i, 3]] = dv[1] as f32;
             view[[i, 4]] = dv[2] as f32;
+            view[[i, 5]] = nav.heat_flux_fraction as f32;
+            view[[i, 6]] = nav.heat_load_fraction as f32;
         }
         arr
     }

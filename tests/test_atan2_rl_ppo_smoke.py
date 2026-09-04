@@ -1,6 +1,6 @@
 """Dense-PPO smoke on the atan2 DV-reward config (from-scratch + warm-start variants).
 
-Exercises the full path: TOML parse, V2Policy + atan2 head, rollout with (N,5) DV aux,
+Exercises the full path: TOML parse, V2Policy + atan2 head, rollout with (N,7) aux (DV + raw thermal fractions),
 DV-reward potential, BPTT update, validation, v2 JSON export, Rust nn_forward consumes it.
 The warm-start variant additionally covers load_state_dict warm-start, the critic-warmup
 pre-loop, and normalize_obs=false. Not a convergence test.
