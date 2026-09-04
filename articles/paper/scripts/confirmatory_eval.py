@@ -197,7 +197,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--scaffolding-from", default=None, help="resolve best_params.json scaffolding from this training_output dir instead of the label's (for ablation cells sharing a source run)")
     args = parser.parse_args(argv)
 
-    from aerocapture.training.evaluate import make_confirmatory_pools
+    from aerocapture.training.seeds import make_confirmatory_pools
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     extra = _parse_extra_overrides(args.extra_override)

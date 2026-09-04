@@ -20,7 +20,7 @@ def test_terminal_cost_respects_cost_transform() -> None:
 
 def test_terminal_cost_defaults_unchanged() -> None:
     """No cost_kwargs -> identical to the legacy defaults call (backward compatible)."""
-    from aerocapture.training.evaluate import compute_cost
+    from aerocapture.training.cost import compute_cost
 
     fr = np.zeros(52, dtype=np.float64)
     fr[41] = 1500.0

@@ -373,8 +373,8 @@ def main() -> None:
     parser.add_argument("--sim-timeout", type=float, default=None, help="Per-sim wall-clock timeout (seconds)")
     args = parser.parse_args()
 
-    from aerocapture.training.evaluate import VALIDATION_SEED_OFFSET, make_reserved_seeds  # noqa: PLC0415
     from aerocapture.training.problem import AerocaptureProblem  # noqa: PLC0415
+    from aerocapture.training.seeds import VALIDATION_SEED_OFFSET, make_reserved_seeds  # noqa: PLC0415
     from aerocapture.training.train import _setup_param_specs, build_cost_kwargs, build_training_config_from_toml  # noqa: PLC0415
     from aerocapture.training.warm_start import load_warm_start_bounds  # noqa: PLC0415
 

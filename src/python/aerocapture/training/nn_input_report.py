@@ -14,7 +14,7 @@ import numpy.typing as npt
 
 from aerocapture.training.ablation import NN_INPUT_NAMES, _load_cost_kwargs
 from aerocapture.training.charts_nn_inputs import chart_nn_input_panel
-from aerocapture.training.evaluate import NN_INPUT_REPORT_SEED_OFFSET, make_reserved_seeds
+from aerocapture.training.seeds import NN_INPUT_REPORT_SEED_OFFSET, make_reserved_seeds
 from aerocapture.training.toml_utils import load_toml_with_bases
 from aerocapture.training.typst_utils import check_typst, compile_typst
 

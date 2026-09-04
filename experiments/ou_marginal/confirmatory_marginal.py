@@ -40,7 +40,7 @@ def main() -> None:
     args = parser.parse_args()
 
     import confirmatory_eval as ce  # type: ignore[import-not-found]  # articles/paper/scripts via sys.path
-    from aerocapture.training.evaluate import make_confirmatory_pools
+    from aerocapture.training.seeds import make_confirmatory_pools
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     # Same pools as the paper's confirmatory: every cell must share the base MC seed

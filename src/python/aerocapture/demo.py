@@ -32,7 +32,7 @@ from aerocapture.training.deploy_overrides import load_scaffolding_overrides
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEMO_TOML = REPO_ROOT / "configs/training/sweep/mamba_p962.toml"
 DEMO_MODEL_DIR = REPO_ROOT / "models/demo/mamba_962"
-# Arbitrary constant, NOT drawn from the reserved seed pools in evaluate.py.
+# Arbitrary constant, NOT drawn from the reserved seed pools in seeds.py.
 DEMO_SEED = 424242
 
 # Trajectory matrix columns (see BatchResults docs): energy [8] MJ/kg, pdyn [9] kPa.

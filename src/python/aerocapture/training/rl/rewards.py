@@ -16,7 +16,7 @@ from typing import Literal
 import numpy as np
 import numpy.typing as npt
 
-from aerocapture.training.evaluate import compute_cost
+from aerocapture.training.cost import compute_cost
 
 # Candidate-input (obs) indices read by the phase-aware potential.
 _IDX_ECC_EXCESS = 0

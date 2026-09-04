@@ -249,8 +249,9 @@ def _validate_deterministic(
     """Export deterministic V2Policy + run validation batch; return RMS cost + capture rate."""
     import aerocapture_rs  # type: ignore[import]
 
-    from aerocapture.training.evaluate import VALIDATION_SEED_OFFSET, compute_cost, make_reserved_seeds
+    from aerocapture.training.cost import compute_cost
     from aerocapture.training.report import read_cost_kwargs
+    from aerocapture.training.seeds import VALIDATION_SEED_OFFSET, make_reserved_seeds
 
     tmp_json = output_dir / "gen_current_model.json"
     export_v2_policy_to_json(policy, str(tmp_json), obs_normalizer=obs_norm)
@@ -284,8 +285,9 @@ def _validate_deterministic_v1(
     """
     import aerocapture_rs  # type: ignore[import]
 
-    from aerocapture.training.evaluate import VALIDATION_SEED_OFFSET, compute_cost, make_reserved_seeds
+    from aerocapture.training.cost import compute_cost
     from aerocapture.training.report import read_cost_kwargs
+    from aerocapture.training.seeds import VALIDATION_SEED_OFFSET, make_reserved_seeds
 
     tmp_json = output_dir / "gen_current_model.json"
     export_policy_to_json(policy, tmp_json, input_mask, obs_normalizer=obs_norm)
@@ -306,8 +308,8 @@ def _validate_deterministic_v1(
 def _run_final_eval(toml_path: Path, best_model: Path, cfg: RLConfig) -> None:
     import aerocapture_rs  # type: ignore[import]
 
-    from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.report import print_eval_summary, read_cost_kwargs
+    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
 
     n_sims = cfg.validation_n_sims
     base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("seed", 42))

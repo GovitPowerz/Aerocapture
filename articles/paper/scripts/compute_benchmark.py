@@ -42,7 +42,7 @@ OUT = REPO / "articles/paper/data/compute_benchmark.json"
 def _bench_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
     import aerocapture_rs
     from aerocapture.training.deploy_overrides import resolve_eval_toml
-    from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
+    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     scheme_dir = REPO / "training_output" / run_dir

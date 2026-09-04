@@ -1,31 +1,24 @@
-"""Cost function evaluation: write NN/guidance params, run simulator, compute cost.
+"""Chromosome evaluation glue: the validation gate and the NN / guidance parameter writers.
 
-Supports both NN weight optimization and generic guidance parameter optimization.
+Seed pools live in `seeds.py`, the cost function in `cost.py`, the TOML writer in
+`toml_utils.py`; this module keeps what turns a decoded individual into something the
+simulator can run (`write_nn_json`, `write_guidance_toml`) and the in-training
+`run_validation_gate`.
 """
 
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 import tempfile
 from dataclasses import dataclass
 from enum import Enum
-from io import TextIOWrapper
 from pathlib import Path
 from typing import Protocol
 
 import numpy as np
 import numpy.typing as npt
 
-from aerocapture.training.config import NetworkConfig, TrainingConfig
-from aerocapture.training.metrics import apply_cost_transform
-from aerocapture.training.parquet_output import (
-    DV_TOTAL_RAW_INDEX,
-    G_LOAD_RAW_INDEX,
-    HEAT_FLUX_RAW_INDEX,
-    HEAT_LOAD_RAW_INDEX,
-)
+from aerocapture.training.config import NetworkConfig
 
 try:
     import aerocapture_rs as _aero_rs  # type: ignore[import-not-found, import-untyped]
@@ -34,65 +27,6 @@ try:
 except ImportError:
     _aero_rs = None  # type: ignore[assignment]
     _HAS_PYO3 = False
-
-# Reserved seed offsets — guarantees training, validation, final eval, RL
-# training, and supervised warm-start collection never share the same RNG stream.
-VALIDATION_SEED_OFFSET = 1_000_000
-FINAL_EVAL_SEED_OFFSET = 2_000_000
-RL_TRAINING_SEED_OFFSET = 3_000_000
-WARM_START_SEED_OFFSET = 4_000_000
-NN_INPUT_REPORT_SEED_OFFSET = 5_000_000
-CALIBRATION_SEED_OFFSET = 6_000_000
-# 7_000_000 = SWEEP_EVAL_SEED_OFFSET (param_sweep.py).
-# Fresh pool for the paper's headline re-quote: the headline config is SELECTED
-# by sweeps scored on the 2M final-eval pool, so quoting that pool is
-# selection-on-test; the abstract number comes from this untouched stream.
-HEADLINE_REQUOTE_SEED_OFFSET = 8_000_000
-# Off-nominal robustness stress pool: deployed policies evaluated on a HARDER
-# MC regime (atmosphere/density/nav at level=high), disjoint from every training
-# and eval stream so the stress test is reproducible and uncontaminated.
-STRESS_EVAL_SEED_OFFSET = 9_000_000
-# Shared reserved eval pool for the architecture probe scripts (mamba3 2x2,
-# cfc-vs-gru, lstm-vs-slstm-vs-mlstm): all probes score on ONE pool so their
-# reports are directly comparable. Disjoint from every training/validation/
-# final/other-eval stream above.
-PROBE_EVAL_SEED_OFFSET = 10_000_000
-# Legacy alias (mamba3_962_compare.py imports this name).
-MAMBA3_EVAL_SEED_OFFSET = PROBE_EVAL_SEED_OFFSET
-
-
-def make_reserved_seeds(base_mc_seed: int, offset: int, n: int) -> list[int]:
-    """Generate a deterministic, reproducible list of MC seeds from a reserved RNG stream.
-
-    Given the same (base_mc_seed, offset, n), always returns the same seeds.
-    Different offsets produce independent streams -- disjointness between pools
-    is therefore probabilistic (collision odds ~n^2/2^31 per pool pair), not
-    guaranteed by construction; train.py additionally excludes the reserved
-    validation/final-eval pools from rotating/adaptive training draws.
-    """
-    seeds: list[int] = np.random.default_rng(base_mc_seed + offset).integers(0, 2**31, size=n).tolist()
-    return seeds
-
-
-CONFIRM_EVAL_SEED_OFFSET = 20_000_000  # confirmatory sizing-pool RNG stream (the seeds themselves live in [2^31, 2^32))
-
-
-def make_confirmatory_pools(base_mc_seed: int, n_replicates: int = 10, n: int = 100_000) -> list[list[int]]:
-    """Frozen confirmatory sizing pools: n_replicates independent pools of n seeds each.
-
-    Seeds are drawn WITHOUT duplicates from [2**31, 2**32) -- structurally disjoint
-    from every historical pool and training/curation draw (all generated in
-    [0, 2**31) via make_reserved_seeds or the trainer's seed draws), which makes the
-    pool selection-disjoint by construction rather than by birthday-bound argument.
-    Deterministic in base_mc_seed.
-    """
-    rng = np.random.default_rng(base_mc_seed + CONFIRM_EVAL_SEED_OFFSET)
-    total = n_replicates * n
-    seeds: set[int] = set()
-    while len(seeds) < total:
-        seeds.update(rng.integers(2**31, 2**32, size=total - len(seeds)).tolist())
-    ordered = rng.permutation(np.array(sorted(seeds), dtype=np.int64))
-    return [ordered[i * n : (i + 1) * n].tolist() for i in range(n_replicates)]
 
 
 class GateStatus(Enum):
@@ -269,150 +203,6 @@ def _parse_final_to_legacy_array(filepath: Path) -> npt.NDArray[np.float64] | No
     return result
 
 
-def _run_via_subprocess(config: TrainingConfig, cwd: str | Path | None = None) -> npt.NDArray[np.float64] | None:
-    """Run simulation via subprocess (legacy path)."""
-    if cwd is None:
-        cwd = config.sim.exec_dir
-    cwd = Path(cwd)
-
-    executable = (cwd / config.sim.executable).resolve()
-
-    if not config.sim.toml_config:
-        return None
-
-    toml_path = (cwd / config.sim.toml_config).resolve()
-    try:
-        subprocess.run(
-            [str(executable), str(toml_path)],
-            capture_output=True,
-            cwd=str(cwd.resolve()),
-            timeout=300,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):  # fmt: skip
-        return None
-
-    # Parse final conditions -- auto-detect CSV vs legacy text
-    final_file = cwd / config.sim.final_file
-    csv_final = Path(str(final_file) + ".csv")
-    if csv_final.exists():
-        final_file = csv_final
-    elif not final_file.exists():
-        return None
-
-    try:
-        return _parse_final_to_legacy_array(final_file)
-    except Exception as e:
-        print(f"Warning: could not parse final file {final_file} ({type(e).__name__}: {e})", file=sys.stderr)
-        return None
-
-
-def log_cap(dv: npt.NDArray[np.float64], threshold: float = 1000.0) -> npt.NDArray[np.float64]:
-    """C1-continuous log-capped cost: linear below threshold, log above.
-
-    DEPRECATED: kept for backward compatibility. Use dv_cost() instead.
-    log_cap compresses the non-capture range (10000-20000) into 3302-3996,
-    creating a near-flat plateau that starves the optimizer of gradient.
-    """
-    dv = np.maximum(dv, 1e-6)  # safety floor
-    below = dv <= threshold
-    result = np.empty_like(dv)
-    result[below] = dv[below]
-    result[~below] = threshold * (1.0 + np.log(dv[~below] / threshold))
-    return result
-
-
-# Scale for the quadratic growth above threshold. Controls how fast the
-# cost grows on the non-capture side.
-_DV_PENALTY_SCALE = 10000.0
-
-# Sharpness of the softplus knee at the DV threshold. Larger = sharper wall.
-# k=0.01 gives ~200 m/s transition width (captures < 500 m/s are untouched).
-_DV_KNEE_SHARPNESS = 0.01
-
-# Sharpness of the softplus knee for constraint penalties. Operates on
-# normalized fractions (val-limit)/limit, so k=100 means ~1% transition.
-_CONSTRAINT_KNEE_SHARPNESS = 100.0
-
-
-def _softplus(x: npt.NDArray[np.float64], k: float) -> npt.NDArray[np.float64]:
-    """Numerically stable softplus: ln(1 + exp(k*x)) / k.
-
-    logaddexp is exact and warning-free on both tails -- the previous
-    np.where(kx > 20, x, log1p(exp(kx))/k) still evaluated exp(kx) on the
-    discarded branch, spamming RuntimeWarning overflow for kx > ~709
-    (constraint fraction > 7, reachable on crashes)."""
-    return np.logaddexp(0.0, k * x) / k
-
-
-def dv_cost(dv: npt.NDArray[np.float64], threshold: float = 1000.0) -> npt.NDArray[np.float64]:
-    """C-infinity softplus-quadratic DV cost function.
-
-    Uses softplus to smoothly transition from linear (captures) to
-    quadratic penalty (non-captures). The softplus replaces the hard
-    max(0, dv-T) knee with a C-infinity smooth version, while the
-    quadratic term provides strong, always-increasing gradient on the
-    non-capture side.
-
-    cost(dv) = dv + sp(dv-T) + sp(dv-T)^2 / (2*S)
-
-    where sp(x) = ln(1 + exp(k*x)) / k  (softplus with sharpness k).
-
-    Properties:
-        - C-infinity everywhere (no kinks or discontinuities)
-        - Captures nearly untouched: dv=200 -> cost=200.0, dv=500 -> cost=500.7
-        - Wall at threshold: slope rises from 1.0 to 1.5 across ~200 m/s
-        - Strong far gradient: slope=2.9 at dv=10000, slope=3.9 at dv=20000
-        - Wide non-capture spread: dv=10000 -> 23050, dv=20000 -> 57050
-    """
-    dv = np.maximum(dv, 1e-6)  # safety floor
-    s = _DV_PENALTY_SCALE
-    x = _softplus(dv - threshold, _DV_KNEE_SHARPNESS)
-    return dv + x + x**2 / (2.0 * s)
-
-
-def compute_cost(
-    final_conditions: npt.NDArray[np.float64],
-    *,
-    dv_threshold: float = 1000.0,
-    g_load_limit: float = 15.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
-    heat_flux_limit: float = 200.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
-    heat_load_limit: float = 25000.0,  # fallback; overridden by [flight.constraints] via cost_kwargs
-    g_load_weight: float = 10000.0,
-    heat_flux_weight: float = 10000.0,
-    heat_load_weight: float = 10000.0,
-    cost_transform: str = "linear",
-) -> float:
-    """Compute RMS cost from simulation final conditions.
-
-    Uses quadratic-penalty DV cost as the primary objective with normalized
-    soft constraint penalties for g-load, heat flux, and heat load exceedances.
-
-    All termination outcomes produce meaningful DV values from Rust:
-    - Captured: real orbital correction DV
-    - Hyperbolic: HYPERBOLIC_BASE (10000) + excess velocity
-    - Crash/PendingCrash/Timeout: virtual_dv_non_capture = CRASH_FLOOR (3000)
-      + 1000 * min(|E_orb - E_target|_MJkg, 50) - 500 * t/t_max
-
-    Returns:
-        RMS cost value. Lower is better.
-    """
-    dv_total = final_conditions[:, DV_TOTAL_RAW_INDEX]
-    g_max = final_conditions[:, G_LOAD_RAW_INDEX]
-    q_max = final_conditions[:, HEAT_FLUX_RAW_INDEX]
-
-    costs = dv_cost(dv_total, threshold=dv_threshold)
-
-    g_penalty = g_load_weight * _softplus((g_max - g_load_limit) / g_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
-    q_penalty = heat_flux_weight * _softplus((q_max - heat_flux_limit) / heat_flux_limit, _CONSTRAINT_KNEE_SHARPNESS)
-    heat_load = final_conditions[:, HEAT_LOAD_RAW_INDEX] * 1e3  # MJ/m2 -> kJ/m2
-    hl_penalty = heat_load_weight * _softplus((heat_load - heat_load_limit) / heat_load_limit, _CONSTRAINT_KNEE_SHARPNESS)
-    costs = costs + g_penalty + q_penalty + hl_penalty
-
-    costs = apply_cost_transform(costs, cost_transform)
-
-    return float(np.sqrt(np.mean(costs**2)))
-
-
 def write_guidance_toml(
     base_toml_path: str | Path,
     guidance_type: str,
@@ -431,7 +221,7 @@ def write_guidance_toml(
     """
     from aerocapture.training.deploy_overrides import overrides_from_params
     from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
-    from aerocapture.training.toml_utils import load_toml_with_bases, set_dot_path
+    from aerocapture.training.toml_utils import load_toml_with_bases, set_dot_path, write_toml
 
     base_toml_path = Path(base_toml_path)
     toml_data = load_toml_with_bases(base_toml_path)
@@ -461,111 +251,5 @@ def write_guidance_toml(
     else:
         output_path = Path(output_path)
 
-    _write_toml(toml_data, output_path)
-    return output_path
-
-
-def _write_toml(data: dict, path: Path) -> None:
-    """Minimal TOML writer for nested dicts with scalar/list values."""
-    with open(path, "w") as f:
-        _write_toml_section(f, data, prefix="")
-
-
-def _write_toml_section(f: TextIOWrapper, data: dict, prefix: str) -> None:
-    """Recursively write TOML sections."""
-    # First pass: write scalar/list values at this level
-    for key, value in data.items():
-        if not isinstance(value, dict):
-            f.write(f"{key} = {_toml_value(value)}\n")
-
-    # Second pass: write array-of-tables
-    for key, value in data.items():
-        if isinstance(value, list) and value and isinstance(value[0], dict):
-            full_key = f"{prefix}{key}" if prefix else key
-            for item in value:
-                f.write(f"\n[[{full_key}]]\n")
-                _write_toml_section(f, item, prefix=f"{full_key}.")
-
-    # Third pass: write subsections
-    for key, value in data.items():
-        if isinstance(value, dict):
-            full_key = f"{prefix}{key}" if prefix else key
-            # Write section header if this dict has scalar values
-            scalars = {k: v for k, v in value.items() if not isinstance(v, dict) and not _is_table_array(v)}
-            if scalars:
-                f.write(f"\n[{full_key}]\n")
-                for sk, sv in scalars.items():
-                    if isinstance(sv, list) and sv and isinstance(sv[0], dict):
-                        continue  # handled separately
-                    f.write(f"{sk} = {_toml_value(sv)}\n")
-            # Write array-of-tables within this section
-            for sk, sv in value.items():
-                if isinstance(sv, list) and sv and isinstance(sv[0], dict):
-                    aot_key = f"{full_key}.{sk}"
-                    for item in sv:
-                        f.write(f"\n[[{aot_key}]]\n")
-                        for ik, iv in item.items():
-                            f.write(f"{ik} = {_toml_value(iv)}\n")
-            # Recurse into nested dicts
-            for sk, sv in value.items():
-                if isinstance(sv, dict):
-                    _write_toml_section(f, {sk: sv}, prefix=f"{full_key}.")
-
-
-def _is_table_array(value: object) -> bool:
-    return isinstance(value, list) and bool(value) and isinstance(value[0], dict)
-
-
-def _toml_value(value: object) -> str:
-    """Format a Python value as TOML."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int):
-        return str(value)
-    # Coerce numpy scalar floats (np.float64, np.float32, etc.) to plain Python float
-    # before formatting; repr(np.float64(...)) produces invalid TOML like "np.float64(1e-07)".
-    import numbers
-
-    if isinstance(value, numbers.Real) and not isinstance(value, bool):
-        return repr(float(value))
-    if isinstance(value, str):
-        return f'"{value}"'
-    if isinstance(value, list):
-        if value and isinstance(value[0], dict):
-            # Inline table array -- should be handled as [[section]]
-            items = []
-            for item in value:
-                fields = ", ".join(f"{k} = {_toml_value(v)}" for k, v in item.items())
-                items.append(f"{{ {fields} }}")
-            return f"[{', '.join(items)}]"
-        return f"[{', '.join(_toml_value(v) for v in value)}]"
-    return str(value)
-
-
-def patch_toml_mc_seed(base_toml_path: str | Path, mc_seed: int, n_sims_override: int | None = None) -> Path:
-    """Create a temp TOML with [monte_carlo].seed overridden.
-
-    Args:
-        base_toml_path: Path to the base TOML config.
-        mc_seed: The Monte Carlo seed to set.
-
-    Returns:
-        Path to the temp TOML file (caller must clean up).
-    """
-    import os
-
-    from aerocapture.training.toml_utils import load_toml_with_bases
-
-    base_toml_path = Path(base_toml_path)
-    toml_data = load_toml_with_bases(base_toml_path)
-
-    toml_data.setdefault("monte_carlo", {})["seed"] = mc_seed
-
-    if n_sims_override is not None:
-        toml_data.setdefault("simulation", {})["n_sims"] = n_sims_override
-
-    fd, path_str = tempfile.mkstemp(suffix=".toml", prefix="mc_seed_")
-    output_path = Path(path_str)
-    os.close(fd)
-    _write_toml(toml_data, output_path)
+    write_toml(toml_data, output_path)
     return output_path

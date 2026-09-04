@@ -474,8 +474,8 @@ class IslandsTrainer:
         checkpoint_interval: int,
         decode_fn: Callable[[npt.NDArray[np.float64]], dict[str, float]] | None,
     ) -> None:
-        from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
         from aerocapture.training.island_model import IslandModel
+        from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
         from aerocapture.training.train import _restore_seed_curator, warm_start_algorithm
 
         self.config = config

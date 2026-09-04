@@ -21,13 +21,7 @@ from pymoo.core.population import Population  # type: ignore[import-untyped]
 from aerocapture.training.config import CheckpointConfig, TrainingConfig, WarmStartConfig  # noqa: F401  (CheckpointConfig re-exported for downstream tests)
 from aerocapture.training.corridor import CorridorAccumulator
 from aerocapture.training.encoding import decode_normalized, nn_param_specs_from_architecture, nn_param_specs_from_v2
-from aerocapture.training.evaluate import (
-    FINAL_EVAL_SEED_OFFSET,
-    VALIDATION_SEED_OFFSET,
-    _aero_rs,
-    make_reserved_seeds,
-    write_nn_json,
-)
+from aerocapture.training.evaluate import _aero_rs, write_nn_json
 from aerocapture.training.initialization_v2 import init_v2_population
 from aerocapture.training.metrics import capture_rate
 from aerocapture.training.optimizer import OptimizerConfig
@@ -36,6 +30,7 @@ from aerocapture.training.population import create_initial_population, create_nn
 from aerocapture.training.problem import AerocaptureProblem
 from aerocapture.training.reference import nominal_flight_overrides, piecewise_commanded_cos_bank, ref_trajectory_array
 from aerocapture.training.seed_curator import SeedCurator
+from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, VALIDATION_SEED_OFFSET, make_reserved_seeds
 from aerocapture.training.trainer import IslandsTrainer, SingleAlgoTrainer
 
 _DEFAULT_PIECEWISE_N_SEGMENTS = 10
@@ -1511,7 +1506,7 @@ def deploy_optimized_artifacts(
         import tomllib  # noqa: PLC0415
 
         from aerocapture.training import reference as _reference  # noqa: PLC0415
-        from aerocapture.training.evaluate import _write_toml  # noqa: PLC0415
+        from aerocapture.training.toml_utils import write_toml  # noqa: PLC0415
 
         [tmp_tbl] = _reference.generate_constant_bank_tables(
             str(base_toml), [params["ref_bank"]], toml_data.get("monte_carlo", {}), save_dir, config.sim.sim_timeout_secs
@@ -1527,7 +1522,7 @@ def deploy_optimized_artifacts(
         with open(opt_toml, "rb") as _f:
             _opt = tomllib.load(_f)
         _opt.setdefault("data", {})["reference_trajectory"] = str(deploy_ref)
-        _write_toml(_opt, opt_toml)
+        write_toml(_opt, opt_toml)
         if verbose:
             print(f"  Joint reference (ref_bank {params['ref_bank']:.2f} deg) deployed to {deploy_ref}")
 

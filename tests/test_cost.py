@@ -1,28 +1,9 @@
 """Tests for the unified cost function with quadratic-penalty DV compression."""
 
 import numpy as np
-from aerocapture.training.evaluate import compute_cost, dv_cost, log_cap
+from aerocapture.training.cost import compute_cost, dv_cost
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
-
-class TestLogCap:
-    """Tests for the legacy C1-continuous log-cap function (deprecated)."""
-
-    def test_linear_below_threshold(self) -> None:
-        dv = np.array([100.0, 500.0, 999.0])
-        result = log_cap(dv, threshold=1000.0)
-        np.testing.assert_array_almost_equal(result, dv)
-
-    def test_log_above_threshold(self) -> None:
-        dv = np.array([2000.0, 5000.0, 10000.0])
-        result = log_cap(dv, threshold=1000.0)
-        expected = 1000.0 * (1.0 + np.log(dv / 1000.0))
-        np.testing.assert_array_almost_equal(result, expected)
-
-    def test_safety_floor(self) -> None:
-        result = log_cap(np.array([0.0, -1.0]), threshold=1000.0)
-        assert np.all(np.isfinite(result))
 
 
 class TestDvCost:
@@ -291,7 +272,7 @@ class TestSoftplusStability:
     evaluated exp(kx) on the discarded branch, overflowing for kx > ~709)."""
 
     def test_no_overflow_far_above_knee(self) -> None:
-        from aerocapture.training.evaluate import _softplus
+        from aerocapture.training.cost import _softplus
 
         # kx = 5000 with the constraint knee k=100: the old form overflowed here.
         with np.errstate(over="raise"):
@@ -299,7 +280,7 @@ class TestSoftplusStability:
         assert np.isclose(out[0], 50.0)  # asymptotically linear
 
     def test_matches_naive_form_in_safe_range(self) -> None:
-        from aerocapture.training.evaluate import _softplus
+        from aerocapture.training.cost import _softplus
 
         x = np.linspace(-3.0, 3.0, 31)
         k = 2.0

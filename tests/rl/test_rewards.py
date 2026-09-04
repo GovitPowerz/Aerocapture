@@ -87,7 +87,7 @@ def test_missing_mask_raises() -> None:
 
 
 def test_terminal_cost_matches_evaluate_module() -> None:
-    from aerocapture.training.evaluate import compute_cost
+    from aerocapture.training.cost import compute_cost
 
     fc = np.zeros((1, 52))
     fc[0, 41] = 100.0
