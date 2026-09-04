@@ -11,8 +11,9 @@
 //!
 //! Canonical flat order: weight_ih row-major [4H, I], weight_hh row-major [4H, H], bias [4H].
 
-use super::super::{Activation, LayerWeights};
-use super::helpers::{copy_mat_from_flat, copy_vec_from_flat, dot_plus_bias, stabilized_exp_gates};
+use super::super::Activation;
+use super::helpers::{dot_plus_bias, stabilized_exp_gates};
+use super::tensor::tensor_table;
 
 #[derive(Debug, Clone)]
 pub struct SlstmLayer {
@@ -75,38 +76,16 @@ impl SlstmLayer {
     }
 }
 
-impl LayerWeights for SlstmLayer {
-    fn to_flat(&self) -> Vec<f64> {
-        let mut v = Vec::with_capacity(self.n_params());
-        for row in &self.weight_ih {
-            v.extend_from_slice(row);
-        }
-        for row in &self.weight_hh {
-            v.extend_from_slice(row);
-        }
-        v.extend_from_slice(&self.bias);
-        v
-    }
-
-    #[allow(clippy::wrong_self_convention)]
-    fn from_flat(&mut self, flat: &[f64]) -> usize {
-        let mut idx = 0;
-        copy_mat_from_flat(&mut self.weight_ih, flat, &mut idx);
-        copy_mat_from_flat(&mut self.weight_hh, flat, &mut idx);
-        copy_vec_from_flat(&mut self.bias, flat, &mut idx);
-        idx
-    }
-
-    fn n_params(&self) -> usize {
-        4 * self.hidden_size * self.input_size
-            + 4 * self.hidden_size * self.hidden_size
-            + 4 * self.hidden_size
-    }
-}
+tensor_table!(SlstmLayer {
+    weight_ih,
+    weight_hh,
+    bias
+});
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::neural::LayerWeights;
 
     fn patterned(input_size: usize, hidden_size: usize) -> SlstmLayer {
         let mut l = SlstmLayer::zeros(input_size, hidden_size);

@@ -8,9 +8,10 @@ use crate::data::nn_state::{LayerState, NnState};
 use serde::{Deserialize, Serialize};
 
 mod layers;
+use layers::json_to_flat;
 pub use layers::{
-    CfcLayer, DenseLayer, GruLayer, LstmLayer, Mamba3Layer, MambaLayer, MlstmLayer, SlstmLayer,
-    TransformerLayer, WindowLayer,
+    CfcLayer, DenseLayer, GruLayer, LstmLayer, Mamba3Layer, MambaLayer, MlstmLayer, Shape,
+    SlstmLayer, Tensor, TensorField, TransformerLayer, WindowLayer,
 };
 // Surface the shared numerical helpers at the module root so the `use super::*`
 // test module reaches them by their bare names. Test-only: production code in
@@ -385,72 +386,229 @@ impl Layer {
     }
 }
 
-/// Trait for flattening and reconstructing a layer's parameters.
+/// A layer's trainable weights as a tensor table.
 ///
-/// Each layer type implements its own canonical flat ordering:
-/// dense = W (row-major) then b; gru/lstm/window/transformer/mamba defined per variant
-/// in the respective impl blocks below. Order MUST match the PyTorch mirror in
-/// src/python/aerocapture/training/rl/layers/<type>.py for PSO chromosome
-/// compatibility.
+/// `tensors()` lists the named tensors in the canonical flat order, declared
+/// once per layer type with `tensor_table!`; `to_flat` / `from_flat` /
+/// `n_params` and the JSON codec are generic walks over that table. The order
+/// is the PSO chromosome contract shared with the PyTorch mirror in
+/// src/python/aerocapture/training/rl/layers/<type>.py -- Python derives it
+/// from this same table through `aerocapture_rs.layer_schema`.
 ///
 /// Callers MUST ensure `flat.len() >= self.n_params()` before invoking
 /// `from_flat`; it may panic otherwise. Length validation lives at the
 /// caller (see `NeuralNetModel::from_flat_weights`) so the trait method
-/// stays infallible and later impls don't invent per-layer error dialects.
+/// stays infallible and layers don't invent per-layer error dialects.
 pub trait LayerWeights {
-    fn to_flat(&self) -> Vec<f64>;
+    /// Named tensors in canonical flat order.
+    fn tensors(&self) -> Vec<(&'static str, &dyn Tensor)>;
+    fn tensors_mut(&mut self) -> Vec<(&'static str, &mut dyn Tensor)>;
+
+    /// Derived-field hook, run at the end of every `from_flat` -- the single
+    /// point both load paths (JSON and PSO chromosome) pass through.
+    fn post_load(&mut self) {}
+
+    fn n_params(&self) -> usize {
+        self.tensors().iter().map(|(_, t)| t.shape().numel()).sum()
+    }
+
+    fn to_flat(&self) -> Vec<f64> {
+        let mut out = Vec::with_capacity(self.n_params());
+        for (_, t) in self.tensors() {
+            t.write_flat(&mut out);
+        }
+        out
+    }
+
     // `from_flat` takes `&mut self` by design: it overwrites this layer's
     // weights in place from a flat slice and returns elements consumed.
     #[allow(clippy::wrong_self_convention)]
-    fn from_flat(&mut self, flat: &[f64]) -> usize;
-    fn n_params(&self) -> usize;
+    fn from_flat(&mut self, flat: &[f64]) -> usize {
+        let mut idx = 0;
+        for (_, t) in self.tensors_mut() {
+            let n = t.shape().numel();
+            t.read_flat(&flat[idx..idx + n]);
+            idx += n;
+        }
+        self.post_load();
+        idx
+    }
+}
+
+impl Layer {
+    fn as_weights(&self) -> &dyn LayerWeights {
+        match self {
+            Layer::Dense(l) => l,
+            Layer::Gru(l) => l,
+            Layer::Lstm(l) => l,
+            Layer::Window(l) => l,
+            Layer::Transformer(l) => l.as_ref(),
+            Layer::Mamba(l) => l.as_ref(),
+            Layer::Mamba3(l) => l.as_ref(),
+            Layer::Cfc(l) => l.as_ref(),
+            Layer::Slstm(l) => l,
+            Layer::Mlstm(l) => l.as_ref(),
+        }
+    }
+
+    fn as_weights_mut(&mut self) -> &mut dyn LayerWeights {
+        match self {
+            Layer::Dense(l) => l,
+            Layer::Gru(l) => l,
+            Layer::Lstm(l) => l,
+            Layer::Window(l) => l,
+            Layer::Transformer(l) => l.as_mut(),
+            Layer::Mamba(l) => l.as_mut(),
+            Layer::Mamba3(l) => l.as_mut(),
+            Layer::Cfc(l) => l.as_mut(),
+            Layer::Slstm(l) => l,
+            Layer::Mlstm(l) => l.as_mut(),
+        }
+    }
+
+    /// Zero-weight layer of the shape `spec` describes. The one place a spec's
+    /// dimensions are validated, shared by the JSON and flat-weights loaders
+    /// (and the PyO3 `layer_schema` accessor).
+    pub fn from_spec(spec: &LayerSpec) -> Result<Layer, String> {
+        let kind = spec.io().2;
+        let positive = |all: bool, fields: &str| -> Result<(), String> {
+            if all {
+                Ok(())
+            } else {
+                Err(format!("({kind}) {fields} must be positive"))
+            }
+        };
+        let mamba_dims = |input_size: usize, d_state: usize, dt_rank: usize| {
+            positive(
+                input_size > 0 && d_state > 0 && dt_rank > 0,
+                "input_size, d_state, dt_rank",
+            )?;
+            if dt_rank > input_size {
+                return Err(format!(
+                    "({kind}) dt_rank={dt_rank} must not exceed input_size={input_size}"
+                ));
+            }
+            Ok(())
+        };
+        Ok(match spec {
+            LayerSpec::Dense {
+                input_size,
+                output_size,
+                activation,
+            } => Layer::Dense(DenseLayer::zeros(*input_size, *output_size, *activation)),
+            LayerSpec::Gru {
+                input_size,
+                hidden_size,
+            } => Layer::Gru(GruLayer::zeros(*input_size, *hidden_size)),
+            LayerSpec::Lstm {
+                input_size,
+                hidden_size,
+            } => Layer::Lstm(LstmLayer::zeros(*input_size, *hidden_size)),
+            LayerSpec::Window {
+                input_size,
+                n_steps,
+            } => {
+                positive(*input_size > 0 && *n_steps > 0, "input_size and n_steps")?;
+                Layer::Window(WindowLayer {
+                    input_size: *input_size,
+                    n_steps: *n_steps,
+                })
+            }
+            LayerSpec::Transformer {
+                d_model,
+                n_heads,
+                d_ffn,
+                n_seq,
+            } => {
+                positive(
+                    *d_model > 0 && *d_ffn > 0 && *n_seq > 0,
+                    "d_model, d_ffn, n_seq",
+                )?;
+                if *n_heads == 0 || d_model % n_heads != 0 {
+                    return Err(format!(
+                        "({kind}) d_model={d_model} not divisible by n_heads={n_heads}"
+                    ));
+                }
+                Layer::Transformer(Box::new(TransformerLayer::zeros(
+                    *d_model, *n_heads, *d_ffn, *n_seq,
+                )))
+            }
+            LayerSpec::Mamba {
+                input_size,
+                d_state,
+                dt_rank,
+            } => {
+                mamba_dims(*input_size, *d_state, *dt_rank)?;
+                Layer::Mamba(Box::new(MambaLayer::zeros(*input_size, *d_state, *dt_rank)))
+            }
+            LayerSpec::Mamba3 {
+                input_size,
+                d_state,
+                dt_rank,
+                discretization,
+                state_mode,
+            } => {
+                let (trapezoidal, complex) = mamba3_flags(discretization, state_mode)
+                    .map_err(|e| format!("({kind}) {e}"))?;
+                mamba_dims(*input_size, *d_state, *dt_rank)?;
+                Layer::Mamba3(Box::new(Mamba3Layer::zeros(
+                    *input_size,
+                    *d_state,
+                    *dt_rank,
+                    trapezoidal,
+                    complex,
+                )))
+            }
+            LayerSpec::Cfc {
+                input_size,
+                hidden_size,
+                backbone_units,
+            } => {
+                positive(
+                    *input_size > 0 && *hidden_size > 0 && *backbone_units > 0,
+                    "input_size, hidden_size, backbone_units",
+                )?;
+                Layer::Cfc(Box::new(CfcLayer::zeros(
+                    *input_size,
+                    *hidden_size,
+                    *backbone_units,
+                )))
+            }
+            LayerSpec::Slstm {
+                input_size,
+                hidden_size,
+            } => {
+                positive(
+                    *input_size > 0 && *hidden_size > 0,
+                    "input_size and hidden_size",
+                )?;
+                Layer::Slstm(SlstmLayer::zeros(*input_size, *hidden_size))
+            }
+            LayerSpec::Mlstm {
+                input_size,
+                hidden_size,
+            } => {
+                positive(
+                    *input_size > 0 && *hidden_size > 0,
+                    "input_size and hidden_size",
+                )?;
+                Layer::Mlstm(Box::new(MlstmLayer::zeros(*input_size, *hidden_size)))
+            }
+        })
+    }
 }
 
 impl LayerWeights for Layer {
-    fn to_flat(&self) -> Vec<f64> {
-        match self {
-            Layer::Dense(d) => d.to_flat(),
-            Layer::Gru(g) => g.to_flat(),
-            Layer::Lstm(l) => l.to_flat(),
-            Layer::Window(w) => w.to_flat(),
-            Layer::Transformer(t) => t.to_flat(),
-            Layer::Mamba(m) => m.to_flat(),
-            Layer::Mamba3(m) => m.to_flat(),
-            Layer::Cfc(l) => l.to_flat(),
-            Layer::Slstm(l) => l.to_flat(),
-            Layer::Mlstm(l) => l.to_flat(),
-        }
+    fn tensors(&self) -> Vec<(&'static str, &dyn Tensor)> {
+        self.as_weights().tensors()
     }
 
-    #[allow(clippy::wrong_self_convention)]
-    fn from_flat(&mut self, flat: &[f64]) -> usize {
-        match self {
-            Layer::Dense(d) => d.from_flat(flat),
-            Layer::Gru(g) => g.from_flat(flat),
-            Layer::Lstm(l) => l.from_flat(flat),
-            Layer::Window(w) => w.from_flat(flat),
-            Layer::Transformer(t) => t.from_flat(flat),
-            Layer::Mamba(m) => m.from_flat(flat),
-            Layer::Mamba3(m) => m.from_flat(flat),
-            Layer::Cfc(l) => l.from_flat(flat),
-            Layer::Slstm(l) => l.from_flat(flat),
-            Layer::Mlstm(l) => l.from_flat(flat),
-        }
+    fn tensors_mut(&mut self) -> Vec<(&'static str, &mut dyn Tensor)> {
+        self.as_weights_mut().tensors_mut()
     }
 
-    fn n_params(&self) -> usize {
-        match self {
-            Layer::Dense(d) => d.n_params(),
-            Layer::Gru(g) => g.n_params(),
-            Layer::Lstm(l) => l.n_params(),
-            Layer::Window(w) => w.n_params(),
-            Layer::Transformer(t) => t.n_params(),
-            Layer::Mamba(m) => m.n_params(),
-            Layer::Mamba3(m) => m.n_params(),
-            Layer::Cfc(l) => l.n_params(),
-            Layer::Slstm(l) => l.n_params(),
-            Layer::Mlstm(l) => l.n_params(),
-        }
+    fn post_load(&mut self) {
+        self.as_weights_mut().post_load()
     }
 }
 
@@ -464,7 +622,7 @@ struct NnJsonFile {
     #[allow(dead_code)]
     format_version: u32,
     architecture: NnArchitecture,
-    weights: std::collections::BTreeMap<String, NnLayerWeights>,
+    weights: WeightsJson,
     #[serde(default)]
     input_mask: Option<Vec<usize>>,
     #[serde(default)]
@@ -475,108 +633,6 @@ struct NnJsonFile {
 struct NnArchitecture {
     layers: Vec<usize>,
     activations: Vec<Activation>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct NnLayerWeights {
-    // Dense fields
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    w: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    b: Option<Vec<f64>>,
-    // GRU / LSTM fields
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    weight_ih: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    weight_hh: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    bias_ih: Option<Vec<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    bias_hh: Option<Vec<f64>>,
-    // Transformer attention projection fields
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    w_q: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    b_q: Option<Vec<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    w_k: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    b_k: Option<Vec<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    w_v: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    b_v: Option<Vec<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    w_o: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    b_o: Option<Vec<f64>>,
-    // Transformer FFN fields
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    w_ffn1: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    b_ffn1: Option<Vec<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    w_ffn2: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    b_ffn2: Option<Vec<f64>>,
-    // Transformer LayerNorm fields (ln1 / ln2)
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    ln1_gamma: Option<Vec<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    ln1_beta: Option<Vec<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    ln2_gamma: Option<Vec<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    ln2_beta: Option<Vec<f64>>,
-    // Mamba SSM fields (Phase 4a)
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    x_proj_w: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    dt_proj_w: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    dt_proj_b: Option<Vec<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    a_log: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    d_skip: Option<Vec<f64>>,
-    // Mamba-3 extra fields (spike): a_imag iff complex, lambda_logit iff trapezoidal.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    a_imag: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    lambda_logit: Option<Vec<f64>>,
-    // CfC fields (cfc-xlstm probes)
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    w_bb: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    b_bb: Option<Vec<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    w_ff1: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    b_ff1: Option<Vec<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    w_ff2: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    b_ff2: Option<Vec<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    w_ta: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    b_ta: Option<Vec<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    w_tb: Option<Vec<Vec<f64>>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    b_tb: Option<Vec<f64>>,
-    // sLSTM single-bias field (GRU/LSTM use the bias_ih/bias_hh pair instead)
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    bias: Option<Vec<f64>>,
-    // mLSTM scalar-gate fields (cfc-xlstm probes)
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    w_i: Option<Vec<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    b_i: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    w_f: Option<Vec<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    b_f: Option<f64>,
 }
 
 /// v2 layer spec: tagged-union over the layer type.
@@ -717,17 +773,44 @@ fn default_delta_max() -> f64 {
     0.35
 }
 
-/// JSON file structure for neural network models (v2 schema).
+/// The `weights` block: `layer_<i>` -> `{tensor name -> rows | vector | scalar}`.
+/// Read as plain JSON objects and looked up by tensor-table name.
+type WeightsJson = std::collections::BTreeMap<String, serde_json::Map<String, serde_json::Value>>;
+
+/// Keys the retired fixed-field weights schema serialized after the rest of
+/// the layer (the flag-gated Mamba3 tensors, added after `d_skip`). They are
+/// stable-sorted last so re-saving any deployed model is byte-identical.
+const JSON_KEYS_LAST: &[&str] = &["a_imag", "lambda_logit"];
+
+/// One layer's weights for `save_json`, serialized as an object in the given
+/// (table, then `JSON_KEYS_LAST`) order.
+#[derive(Debug)]
+struct LayerWeightsJson(Vec<(&'static str, serde_json::Value)>);
+
+impl Serialize for LayerWeightsJson {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (name, value) in &self.0 {
+            map.serialize_entry(name, value)?;
+        }
+        map.end()
+    }
+}
+
+/// JSON file structure for neural network models (v2 schema), generic over
+/// the per-layer weights representation (`serde_json::Map` on load,
+/// `LayerWeightsJson` on save).
 /// `output_param` selects the bank-angle decoder: `Atan2Signed` (default,
 /// 2-output `atan2`) or `AcosTanh` (1-output `acos(tanh(x))`, magnitude_only
 /// mode only). When absent in older v2 files, defaults to `Atan2Signed`
 /// for backward compat. The legacy `output_interpretation` field is silently
 /// ignored.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct NnJsonFileV2 {
+#[derive(Debug, Serialize, Deserialize)]
+struct NnJsonFileV2<W> {
     format_version: u32,
     architecture: Vec<LayerSpec>,
-    weights: std::collections::BTreeMap<String, NnLayerWeights>,
+    weights: std::collections::BTreeMap<String, W>,
     #[serde(default)]
     input_mask: Option<Vec<usize>>,
     #[serde(default)]
@@ -742,6 +825,26 @@ struct NnJsonFileV2 {
     delta_max: f64,
     #[serde(default)]
     normalization: Option<Vec<NormSpec>>,
+}
+
+/// `[input, out_0, out_1, ...]` from the chain of `LayerSpec::io()` widths.
+fn layer_sizes_of(architecture: &[LayerSpec]) -> Vec<usize> {
+    let mut sizes = Vec::with_capacity(architecture.len() + 1);
+    if let Some(first) = architecture.first() {
+        sizes.push(first.io().0);
+    }
+    sizes.extend(architecture.iter().map(|s| s.io().1));
+    sizes
+}
+
+/// Activation the output-param check sees: the last Dense layer's, else Tanh
+/// (only Dense exposes a configurable output_size + activation pair; a
+/// non-Dense tail with a 1-output decoder already failed `validate_output_size`).
+fn last_activation(architecture: &[LayerSpec]) -> Activation {
+    match architecture.last() {
+        Some(LayerSpec::Dense { activation, .. }) => *activation,
+        _ => Activation::Tanh,
+    }
 }
 
 /// Total number of candidate NN inputs (16 baseline + 4 reference trajectory + 1 exit-bank teacher + 4 lateral-state telemetry
@@ -956,80 +1059,35 @@ impl NeuralNetModel {
         let file: NnJsonFile = serde_json::from_str(content)
             .map_err(|e| DataError(format!("JSON parse error in {}: {}", path, e)))?;
 
-        let n_layers = file.architecture.layers.len() - 1;
-        if file.architecture.activations.len() != n_layers {
+        let layer_sizes = file.architecture.layers;
+        let activations = file.architecture.activations;
+        if layer_sizes.len() < 2 {
+            return Err(DataError(format!(
+                "architecture.layers needs at least [input, output] in {path}"
+            )));
+        }
+        let n_layers = layer_sizes.len() - 1;
+        if activations.len() != n_layers {
             return Err(DataError(format!(
                 "Activation count ({}) != layer count ({}) in {}",
-                file.architecture.activations.len(),
+                activations.len(),
                 n_layers,
                 path
             )));
         }
 
-        let mut layers = Vec::with_capacity(n_layers);
-        for i in 0..n_layers {
-            let key = format!("layer_{}", i);
-            let lw = file
-                .weights
-                .get(&key)
-                .ok_or_else(|| DataError(format!("Missing {} in weights in {}", key, path)))?;
-
-            let n_out = file.architecture.layers[i + 1];
-            let n_in = file.architecture.layers[i];
-
-            let w =
-                lw.w.as_ref()
-                    .ok_or_else(|| DataError(format!("Layer {} missing w in {}", i, path)))?;
-            let b =
-                lw.b.as_ref()
-                    .ok_or_else(|| DataError(format!("Layer {} missing b in {}", i, path)))?;
-
-            if w.len() != n_out || b.len() != n_out {
-                return Err(DataError(format!(
-                    "Layer {} size mismatch: expected {}x{}, got w={}x?, b={} in {}",
-                    i,
-                    n_out,
-                    n_in,
-                    w.len(),
-                    b.len(),
-                    path
-                )));
-            }
-            for (row_idx, row) in w.iter().enumerate() {
-                if row.len() != n_in {
-                    return Err(DataError(format!(
-                        "Layer {} weight row {} length mismatch: expected {}, got {} in {}",
-                        i,
-                        row_idx,
-                        n_in,
-                        row.len(),
-                        path
-                    )));
-                }
-            }
-
-            layers.push(Layer::Dense(DenseLayer {
-                w: w.clone(),
-                b: b.clone(),
-                activation: file.architecture.activations[i],
-            }));
-        }
-
-        Self::validate_mask(&file.input_mask, file.architecture.layers[0])?;
-        Self::validate_ablated_input(&file.ablated_input)?;
-
-        let output_size = *file.architecture.layers.last().unwrap_or(&0);
-        Self::validate_output_size(output_size, OutputParam::default(), path)?;
-
-        let activations = file.architecture.activations;
-        let layer_sizes = file.architecture.layers;
-        let architecture: Vec<LayerSpec> = (0..layers.len())
+        let architecture: Vec<LayerSpec> = (0..n_layers)
             .map(|i| LayerSpec::Dense {
                 input_size: layer_sizes[i],
                 output_size: layer_sizes[i + 1],
                 activation: activations[i],
             })
             .collect();
+        let layers = Self::load_layers(&architecture, &file.weights, path)?;
+
+        Self::validate_mask(&file.input_mask, layer_sizes[0])?;
+        Self::validate_ablated_input(&file.ablated_input)?;
+        Self::validate_output_size(layer_sizes[n_layers], OutputParam::default(), path)?;
 
         Ok(NeuralNetModel {
             architecture,
@@ -1047,819 +1105,72 @@ impl NeuralNetModel {
         })
     }
 
+    /// Build every layer of `architecture` from the JSON `weights` block: a
+    /// zero layer from the spec, each tensor of its table looked up by name
+    /// and shape-checked into a flat slab, then one `from_flat` (which runs
+    /// the layer's `post_load` hook).
+    fn load_layers(
+        architecture: &[LayerSpec],
+        weights: &WeightsJson,
+        path: &str,
+    ) -> Result<Vec<Layer>, DataError> {
+        architecture
+            .iter()
+            .enumerate()
+            .map(|(i, spec)| {
+                let kind = spec.io().2;
+                let mut layer = Layer::from_spec(spec)
+                    .map_err(|e| DataError(format!("Layer {i} {e} in {path}")))?;
+                let shapes: Vec<(&'static str, Shape)> = layer
+                    .tensors()
+                    .iter()
+                    .map(|(name, t)| (*name, t.shape()))
+                    .collect();
+                if shapes.is_empty() {
+                    // Zero-parameter layer (Window): no weights entry is
+                    // written by save_json, and a hand-written one is ignored.
+                    return Ok(layer);
+                }
+                let key = format!("layer_{i}");
+                let lw = weights
+                    .get(&key)
+                    .ok_or_else(|| DataError(format!("Missing {key} in weights in {path}")))?;
+                let mut slab = Vec::with_capacity(layer.n_params());
+                for (name, shape) in shapes {
+                    let value = lw.get(name).ok_or_else(|| {
+                        DataError(format!("Layer {i} ({kind}) missing {name} in {path}"))
+                    })?;
+                    json_to_flat(value, shape, &mut slab).map_err(|e| {
+                        DataError(format!("Layer {i} ({kind}) {name}: {e} in {path}"))
+                    })?;
+                }
+                layer.from_flat(&slab);
+                Ok(layer)
+            })
+            .collect()
+    }
+
     /// Load v2 JSON schema (architecture is a tagged-layer list).
     fn from_v2_json(content: &str, path: &str) -> Result<Self, DataError> {
-        let file: NnJsonFileV2 = serde_json::from_str(content)
-            .map_err(|e| DataError(format!("JSON parse error in {}: {}", path, e)))?;
-
-        // Chain consistency: layer i's output must feed layer i+1's input.
-        // Dense: output_size -> next.input_size; Gru/Lstm: hidden_size -> next.input_size;
-        // Window: n_steps * input_size -> next.input_size (zero-param buffer flatten).
-        Self::validate_layer_chain(&file.architecture, path)?;
-
-        let mut layers = Vec::with_capacity(file.architecture.len());
-        let mut layer_sizes = Vec::with_capacity(file.architecture.len() + 1);
-
-        for (i, spec) in file.architecture.iter().enumerate() {
-            match spec {
-                LayerSpec::Dense {
-                    input_size,
-                    output_size,
-                    activation,
-                } => {
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*output_size);
-
-                    let key = format!("layer_{}", i);
-                    let lw = file.weights.get(&key).ok_or_else(|| {
-                        DataError(format!("Missing {} in weights in {}", key, path))
-                    })?;
-
-                    let w = lw
-                        .w
-                        .as_ref()
-                        .ok_or_else(|| DataError(format!("Layer {} missing w in {}", i, path)))?;
-                    let b = lw
-                        .b
-                        .as_ref()
-                        .ok_or_else(|| DataError(format!("Layer {} missing b in {}", i, path)))?;
-
-                    if w.len() != *output_size || b.len() != *output_size {
-                        return Err(DataError(format!(
-                            "Layer {} size mismatch: expected {}x{}, got w={}x?, b={} in {}",
-                            i,
-                            output_size,
-                            input_size,
-                            w.len(),
-                            b.len(),
-                            path
-                        )));
-                    }
-                    for (row_idx, row) in w.iter().enumerate() {
-                        if row.len() != *input_size {
-                            return Err(DataError(format!(
-                                "Layer {} weight row {} length mismatch: expected {}, got {} in {}",
-                                i,
-                                row_idx,
-                                input_size,
-                                row.len(),
-                                path
-                            )));
-                        }
-                    }
-
-                    layers.push(Layer::Dense(DenseLayer {
-                        w: w.clone(),
-                        b: b.clone(),
-                        activation: *activation,
-                    }));
-                }
-                LayerSpec::Gru {
-                    input_size,
-                    hidden_size,
-                } => {
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*hidden_size);
-                    let three_h = 3 * hidden_size;
-
-                    let key = format!("layer_{}", i);
-                    let lw = file.weights.get(&key).ok_or_else(|| {
-                        DataError(format!("Missing {} in weights in {}", key, path))
-                    })?;
-
-                    let w_ih = lw.weight_ih.as_ref().ok_or_else(|| {
-                        DataError(format!("Layer {} (gru) missing weight_ih in {}", i, path))
-                    })?;
-                    let w_hh = lw.weight_hh.as_ref().ok_or_else(|| {
-                        DataError(format!("Layer {} (gru) missing weight_hh in {}", i, path))
-                    })?;
-                    let b_ih = lw.bias_ih.as_ref().ok_or_else(|| {
-                        DataError(format!("Layer {} (gru) missing bias_ih in {}", i, path))
-                    })?;
-                    let b_hh = lw.bias_hh.as_ref().ok_or_else(|| {
-                        DataError(format!("Layer {} (gru) missing bias_hh in {}", i, path))
-                    })?;
-
-                    if w_ih.len() != three_h {
-                        return Err(DataError(format!(
-                            "Layer {} (gru) weight_ih must have {} rows, got {} in {}",
-                            i,
-                            three_h,
-                            w_ih.len(),
-                            path
-                        )));
-                    }
-                    if w_hh.len() != three_h {
-                        return Err(DataError(format!(
-                            "Layer {} (gru) weight_hh must have {} rows, got {} in {}",
-                            i,
-                            three_h,
-                            w_hh.len(),
-                            path
-                        )));
-                    }
-                    if b_ih.len() != three_h || b_hh.len() != three_h {
-                        return Err(DataError(format!(
-                            "Layer {} (gru) biases must each have {} elements in {} (got bias_ih={}, bias_hh={})",
-                            i,
-                            three_h,
-                            path,
-                            b_ih.len(),
-                            b_hh.len()
-                        )));
-                    }
-                    for (r, row) in w_ih.iter().enumerate() {
-                        if row.len() != *input_size {
-                            return Err(DataError(format!(
-                                "Layer {} (gru) weight_ih row {} length: expected {}, got {} in {}",
-                                i,
-                                r,
-                                input_size,
-                                row.len(),
-                                path
-                            )));
-                        }
-                    }
-                    for (r, row) in w_hh.iter().enumerate() {
-                        if row.len() != *hidden_size {
-                            return Err(DataError(format!(
-                                "Layer {} (gru) weight_hh row {} length: expected {}, got {} in {}",
-                                i,
-                                r,
-                                hidden_size,
-                                row.len(),
-                                path
-                            )));
-                        }
-                    }
-
-                    layers.push(Layer::Gru(GruLayer {
-                        input_size: *input_size,
-                        hidden_size: *hidden_size,
-                        weight_ih: w_ih.clone(),
-                        weight_hh: w_hh.clone(),
-                        bias_ih: b_ih.clone(),
-                        bias_hh: b_hh.clone(),
-                    }));
-                }
-                LayerSpec::Lstm {
-                    input_size,
-                    hidden_size,
-                } => {
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*hidden_size);
-                    let four_h = 4 * hidden_size;
-
-                    let key = format!("layer_{}", i);
-                    let lw = file.weights.get(&key).ok_or_else(|| {
-                        DataError(format!("Missing {} in weights in {}", key, path))
-                    })?;
-
-                    let w_ih = lw.weight_ih.as_ref().ok_or_else(|| {
-                        DataError(format!("Layer {} (lstm) missing weight_ih in {}", i, path))
-                    })?;
-                    let w_hh = lw.weight_hh.as_ref().ok_or_else(|| {
-                        DataError(format!("Layer {} (lstm) missing weight_hh in {}", i, path))
-                    })?;
-                    let b_ih = lw.bias_ih.as_ref().ok_or_else(|| {
-                        DataError(format!("Layer {} (lstm) missing bias_ih in {}", i, path))
-                    })?;
-                    let b_hh = lw.bias_hh.as_ref().ok_or_else(|| {
-                        DataError(format!("Layer {} (lstm) missing bias_hh in {}", i, path))
-                    })?;
-
-                    if w_ih.len() != four_h {
-                        return Err(DataError(format!(
-                            "Layer {} (lstm) weight_ih must have {} rows, got {} in {}",
-                            i,
-                            four_h,
-                            w_ih.len(),
-                            path
-                        )));
-                    }
-                    if w_hh.len() != four_h {
-                        return Err(DataError(format!(
-                            "Layer {} (lstm) weight_hh must have {} rows, got {} in {}",
-                            i,
-                            four_h,
-                            w_hh.len(),
-                            path
-                        )));
-                    }
-                    if b_ih.len() != four_h || b_hh.len() != four_h {
-                        return Err(DataError(format!(
-                            "Layer {} (lstm) biases must each have {} elements in {} (got bias_ih={}, bias_hh={})",
-                            i,
-                            four_h,
-                            path,
-                            b_ih.len(),
-                            b_hh.len()
-                        )));
-                    }
-                    for (r, row) in w_ih.iter().enumerate() {
-                        if row.len() != *input_size {
-                            return Err(DataError(format!(
-                                "Layer {} (lstm) weight_ih row {} length: expected {}, got {} in {}",
-                                i,
-                                r,
-                                input_size,
-                                row.len(),
-                                path
-                            )));
-                        }
-                    }
-                    for (r, row) in w_hh.iter().enumerate() {
-                        if row.len() != *hidden_size {
-                            return Err(DataError(format!(
-                                "Layer {} (lstm) weight_hh row {} length: expected {}, got {} in {}",
-                                i,
-                                r,
-                                hidden_size,
-                                row.len(),
-                                path
-                            )));
-                        }
-                    }
-
-                    layers.push(Layer::Lstm(LstmLayer {
-                        input_size: *input_size,
-                        hidden_size: *hidden_size,
-                        weight_ih: w_ih.clone(),
-                        weight_hh: w_hh.clone(),
-                        bias_ih: b_ih.clone(),
-                        bias_hh: b_hh.clone(),
-                    }));
-                }
-                LayerSpec::Window {
-                    input_size,
-                    n_steps,
-                } => {
-                    if *input_size == 0 || *n_steps == 0 {
-                        return Err(DataError(format!(
-                            "Layer {} (window) input_size and n_steps must be positive in {}",
-                            i, path
-                        )));
-                    }
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    // Window's output is n_steps * input_size (flattened buffer).
-                    layer_sizes.push(*input_size * *n_steps);
-                    // Window has zero trainable parameters, so we don't look up
-                    // weights["layer_i"] here -- save_json skips the entry and
-                    // any present one (from a hand-crafted JSON) is ignored.
-                    layers.push(Layer::Window(WindowLayer {
-                        input_size: *input_size,
-                        n_steps: *n_steps,
-                    }));
-                }
-                LayerSpec::Transformer {
-                    d_model,
-                    n_heads,
-                    d_ffn,
-                    n_seq,
-                } => {
-                    if *d_model == 0 || *n_heads == 0 || *d_ffn == 0 || *n_seq == 0 {
-                        return Err(DataError(format!(
-                            "Layer {} (transformer) all shape fields must be positive in {}",
-                            i, path
-                        )));
-                    }
-                    if d_model % n_heads != 0 {
-                        return Err(DataError(format!(
-                            "Layer {} (transformer) d_model={} not divisible by n_heads={} in {}",
-                            i, d_model, n_heads, path
-                        )));
-                    }
-                    let d_head = d_model / n_heads;
-
-                    let key = format!("layer_{}", i);
-                    let lw = file.weights.get(&key).ok_or_else(|| {
-                        DataError(format!("Missing {} in weights in {}", key, path))
-                    })?;
-
-                    macro_rules! req_mat {
-                        ($field:ident) => {
-                            lw.$field.as_ref().ok_or_else(|| {
-                                DataError(format!(
-                                    "Layer {} (transformer) missing {} in {}",
-                                    i,
-                                    stringify!($field),
-                                    path
-                                ))
-                            })?
-                        };
-                    }
-                    macro_rules! req_vec {
-                        ($field:ident) => {
-                            lw.$field.as_ref().ok_or_else(|| {
-                                DataError(format!(
-                                    "Layer {} (transformer) missing {} in {}",
-                                    i,
-                                    stringify!($field),
-                                    path
-                                ))
-                            })?
-                        };
-                    }
-
-                    if i == 0 {
-                        layer_sizes.push(*d_model);
-                    }
-                    layer_sizes.push(*d_model);
-
-                    // Read all weight tensors before shape validation (macros borrow lw).
-                    let w_q = req_mat!(w_q);
-                    let b_q = req_vec!(b_q);
-                    let w_k = req_mat!(w_k);
-                    let b_k = req_vec!(b_k);
-                    let w_v = req_mat!(w_v);
-                    let b_v = req_vec!(b_v);
-                    let w_o = req_mat!(w_o);
-                    let b_o = req_vec!(b_o);
-                    let w_ffn1 = req_mat!(w_ffn1);
-                    let b_ffn1 = req_vec!(b_ffn1);
-                    let w_ffn2 = req_mat!(w_ffn2);
-                    let b_ffn2 = req_vec!(b_ffn2);
-                    let ln1_gamma = req_vec!(ln1_gamma);
-                    let ln1_beta = req_vec!(ln1_beta);
-                    let ln2_gamma = req_vec!(ln2_gamma);
-                    let ln2_beta = req_vec!(ln2_beta);
-
-                    // Validate matrix shapes: (name, matrix, expected_rows, expected_cols).
-                    for (name, m, exp_rows, exp_cols) in [
-                        ("w_q", w_q, *d_model, *d_model),
-                        ("w_k", w_k, *d_model, *d_model),
-                        ("w_v", w_v, *d_model, *d_model),
-                        ("w_o", w_o, *d_model, *d_model),
-                        ("w_ffn1", w_ffn1, *d_ffn, *d_model),
-                        ("w_ffn2", w_ffn2, *d_model, *d_ffn),
-                    ] {
-                        if m.len() != exp_rows {
-                            return Err(DataError(format!(
-                                "Layer {} (transformer) {} must have {} rows, got {} in {}",
-                                i,
-                                name,
-                                exp_rows,
-                                m.len(),
-                                path
-                            )));
-                        }
-                        for (r, row) in m.iter().enumerate() {
-                            if row.len() != exp_cols {
-                                return Err(DataError(format!(
-                                    "Layer {} (transformer) {} row {} length: expected {}, got {} in {}",
-                                    i,
-                                    name,
-                                    r,
-                                    exp_cols,
-                                    row.len(),
-                                    path
-                                )));
-                            }
-                        }
-                    }
-                    // Validate vector lengths: (name, vector, expected_length).
-                    for (name, v, expected) in [
-                        ("b_q", b_q, *d_model),
-                        ("b_k", b_k, *d_model),
-                        ("b_v", b_v, *d_model),
-                        ("b_o", b_o, *d_model),
-                        ("b_ffn1", b_ffn1, *d_ffn),
-                        ("b_ffn2", b_ffn2, *d_model),
-                        ("ln1_gamma", ln1_gamma, *d_model),
-                        ("ln1_beta", ln1_beta, *d_model),
-                        ("ln2_gamma", ln2_gamma, *d_model),
-                        ("ln2_beta", ln2_beta, *d_model),
-                    ] {
-                        if v.len() != expected {
-                            return Err(DataError(format!(
-                                "Layer {} (transformer) {} length: expected {}, got {} in {}",
-                                i,
-                                name,
-                                expected,
-                                v.len(),
-                                path
-                            )));
-                        }
-                    }
-
-                    let mut layer = TransformerLayer {
-                        d_model: *d_model,
-                        n_heads: *n_heads,
-                        d_head,
-                        d_ffn: *d_ffn,
-                        n_seq: *n_seq,
-                        w_q: w_q.clone(),
-                        b_q: b_q.clone(),
-                        w_k: w_k.clone(),
-                        b_k: b_k.clone(),
-                        w_v: w_v.clone(),
-                        b_v: b_v.clone(),
-                        w_o: w_o.clone(),
-                        b_o: b_o.clone(),
-                        w_ffn1: w_ffn1.clone(),
-                        b_ffn1: b_ffn1.clone(),
-                        w_ffn2: w_ffn2.clone(),
-                        b_ffn2: b_ffn2.clone(),
-                        ln1_gamma: ln1_gamma.clone(),
-                        ln1_beta: ln1_beta.clone(),
-                        ln2_gamma: ln2_gamma.clone(),
-                        ln2_beta: ln2_beta.clone(),
-                        k_pe_offsets: Vec::new(),
-                        v_pe_offsets: Vec::new(),
-                    };
-                    layer.rebuild_pe_offsets();
-                    layers.push(Layer::Transformer(Box::new(layer)));
-                }
-                LayerSpec::Mamba {
-                    input_size,
-                    d_state,
-                    dt_rank,
-                } => {
-                    if *input_size == 0 || *d_state == 0 || *dt_rank == 0 {
-                        return Err(DataError(format!(
-                            "Layer {} (mamba) input_size, d_state, and dt_rank must be positive in {}",
-                            i, path
-                        )));
-                    }
-                    if *dt_rank > *input_size {
-                        return Err(DataError(format!(
-                            "Layer {} (mamba) dt_rank={} must not exceed input_size={} in {}",
-                            i, dt_rank, input_size, path
-                        )));
-                    }
-
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*input_size);
-
-                    let key = format!("layer_{}", i);
-                    let lw = file.weights.get(&key).ok_or_else(|| {
-                        DataError(format!("Missing {} in weights in {}", key, path))
-                    })?;
-
-                    macro_rules! req_mamba_mat {
-                        ($field:ident) => {
-                            lw.$field.as_ref().ok_or_else(|| {
-                                DataError(format!(
-                                    "Layer {} (mamba) missing {} in {}",
-                                    i,
-                                    stringify!($field),
-                                    path
-                                ))
-                            })?
-                        };
-                    }
-                    macro_rules! req_mamba_vec {
-                        ($field:ident) => {
-                            lw.$field.as_ref().ok_or_else(|| {
-                                DataError(format!(
-                                    "Layer {} (mamba) missing {} in {}",
-                                    i,
-                                    stringify!($field),
-                                    path
-                                ))
-                            })?
-                        };
-                    }
-
-                    let x_proj_w = req_mamba_mat!(x_proj_w);
-                    let dt_proj_w = req_mamba_mat!(dt_proj_w);
-                    let dt_proj_b = req_mamba_vec!(dt_proj_b);
-                    let a_log = req_mamba_mat!(a_log);
-                    let d_skip = req_mamba_vec!(d_skip);
-
-                    let rows_x = dt_rank + 2 * d_state;
-                    // Shape validation for matrices.
-                    for (name, m, exp_rows, exp_cols) in [
-                        ("x_proj_w", x_proj_w, rows_x, *input_size),
-                        ("dt_proj_w", dt_proj_w, *input_size, *dt_rank),
-                        ("a_log", a_log, *input_size, *d_state),
-                    ] {
-                        if m.len() != exp_rows {
-                            return Err(DataError(format!(
-                                "Layer {} (mamba) {} must have {} rows, got {} in {}",
-                                i,
-                                name,
-                                exp_rows,
-                                m.len(),
-                                path
-                            )));
-                        }
-                        for (r, row) in m.iter().enumerate() {
-                            if row.len() != exp_cols {
-                                return Err(DataError(format!(
-                                    "Layer {} (mamba) {} row {} length: expected {}, got {} in {}",
-                                    i,
-                                    name,
-                                    r,
-                                    exp_cols,
-                                    row.len(),
-                                    path
-                                )));
-                            }
-                        }
-                    }
-                    // Shape validation for vectors.
-                    for (name, v, expected) in [
-                        ("dt_proj_b", dt_proj_b, *input_size),
-                        ("d_skip", d_skip, *input_size),
-                    ] {
-                        if v.len() != expected {
-                            return Err(DataError(format!(
-                                "Layer {} (mamba) {} length: expected {}, got {} in {}",
-                                i,
-                                name,
-                                expected,
-                                v.len(),
-                                path
-                            )));
-                        }
-                    }
-
-                    // Convert Vec<Vec<f64>> -> DMatrix (row-major).
-                    let to_dmatrix = |rows_data: &Vec<Vec<f64>>,
-                                      nr: usize,
-                                      nc: usize|
-                     -> nalgebra::DMatrix<f64> {
-                        let flat: Vec<f64> =
-                            rows_data.iter().flat_map(|r| r.iter().copied()).collect();
-                        nalgebra::DMatrix::from_row_slice(nr, nc, &flat)
-                    };
-
-                    layers.push(Layer::Mamba(Box::new(MambaLayer {
-                        input_size: *input_size,
-                        d_state: *d_state,
-                        dt_rank: *dt_rank,
-                        x_proj_w: to_dmatrix(x_proj_w, rows_x, *input_size),
-                        dt_proj_w: to_dmatrix(dt_proj_w, *input_size, *dt_rank),
-                        dt_proj_b: nalgebra::DVector::from_vec(dt_proj_b.clone()),
-                        a_log: to_dmatrix(a_log, *input_size, *d_state),
-                        d_skip: nalgebra::DVector::from_vec(d_skip.clone()),
-                    })));
-                }
-                LayerSpec::Mamba3 {
-                    input_size,
-                    d_state,
-                    dt_rank,
-                    discretization,
-                    state_mode,
-                } => {
-                    let (trapezoidal, complex) = mamba3_flags(discretization, state_mode)
-                        .map_err(|e| DataError(format!("Layer {i} (mamba3) {e} in {path}")))?;
-                    if *input_size == 0 || *d_state == 0 || *dt_rank == 0 {
-                        return Err(DataError(format!(
-                            "Layer {i} (mamba3) input_size, d_state, dt_rank must be positive in {path}"
-                        )));
-                    }
-                    if *dt_rank > *input_size {
-                        return Err(DataError(format!(
-                            "Layer {i} (mamba3) dt_rank={dt_rank} must not exceed input_size={input_size} in {path}"
-                        )));
-                    }
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*input_size);
-
-                    let key = format!("layer_{}", i);
-                    let lw = file.weights.get(&key).ok_or_else(|| {
-                        DataError(format!("Missing {} in weights in {}", key, path))
-                    })?;
-
-                    // Assemble the canonical flat slab from named JSON fields, then from_flat.
-                    let flat_mat =
-                        |name: &str, m: &Option<Vec<Vec<f64>>>| -> Result<Vec<f64>, DataError> {
-                            let rows = m.as_ref().ok_or_else(|| {
-                                DataError(format!("Layer {i} (mamba3) missing {name} in {path}"))
-                            })?;
-                            Ok(rows.iter().flat_map(|r| r.iter().copied()).collect())
-                        };
-                    let flat_vec =
-                        |name: &str, v: &Option<Vec<f64>>| -> Result<Vec<f64>, DataError> {
-                            v.as_ref().cloned().ok_or_else(|| {
-                                DataError(format!("Layer {i} (mamba3) missing {name} in {path}"))
-                            })
-                        };
-
-                    let mut slab = Vec::new();
-                    slab.extend(flat_mat("x_proj_w", &lw.x_proj_w)?);
-                    slab.extend(flat_mat("dt_proj_w", &lw.dt_proj_w)?);
-                    slab.extend(flat_vec("dt_proj_b", &lw.dt_proj_b)?);
-                    slab.extend(flat_mat("a_log", &lw.a_log)?);
-                    if complex {
-                        slab.extend(flat_mat("a_imag", &lw.a_imag)?);
-                    }
-                    if trapezoidal {
-                        slab.extend(flat_vec("lambda_logit", &lw.lambda_logit)?);
-                    }
-                    slab.extend(flat_vec("d_skip", &lw.d_skip)?);
-
-                    let mut m =
-                        Mamba3Layer::zeros(*input_size, *d_state, *dt_rank, trapezoidal, complex);
-                    if slab.len() != m.n_params() {
-                        return Err(DataError(format!(
-                            "Layer {i} (mamba3) weight count {} != expected {} in {path}",
-                            slab.len(),
-                            m.n_params()
-                        )));
-                    }
-                    m.from_flat(&slab);
-                    layers.push(Layer::Mamba3(Box::new(m)));
-                }
-                LayerSpec::Cfc {
-                    input_size,
-                    hidden_size,
-                    backbone_units,
-                } => {
-                    if *input_size == 0 || *hidden_size == 0 || *backbone_units == 0 {
-                        return Err(DataError(format!(
-                            "Layer {i} (cfc) input_size, hidden_size, backbone_units must be positive in {path}"
-                        )));
-                    }
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*hidden_size);
-
-                    let key = format!("layer_{}", i);
-                    let lw = file.weights.get(&key).ok_or_else(|| {
-                        DataError(format!("Missing {} in weights in {}", key, path))
-                    })?;
-
-                    let flat_mat =
-                        |name: &str, m: &Option<Vec<Vec<f64>>>| -> Result<Vec<f64>, DataError> {
-                            let rows = m.as_ref().ok_or_else(|| {
-                                DataError(format!("Layer {i} (cfc) missing {name} in {path}"))
-                            })?;
-                            Ok(rows.iter().flat_map(|r| r.iter().copied()).collect())
-                        };
-                    let flat_vec =
-                        |name: &str, v: &Option<Vec<f64>>| -> Result<Vec<f64>, DataError> {
-                            v.as_ref().cloned().ok_or_else(|| {
-                                DataError(format!("Layer {i} (cfc) missing {name} in {path}"))
-                            })
-                        };
-
-                    let mut slab = Vec::new();
-                    slab.extend(flat_mat("w_bb", &lw.w_bb)?);
-                    slab.extend(flat_vec("b_bb", &lw.b_bb)?);
-                    slab.extend(flat_mat("w_ff1", &lw.w_ff1)?);
-                    slab.extend(flat_vec("b_ff1", &lw.b_ff1)?);
-                    slab.extend(flat_mat("w_ff2", &lw.w_ff2)?);
-                    slab.extend(flat_vec("b_ff2", &lw.b_ff2)?);
-                    slab.extend(flat_mat("w_ta", &lw.w_ta)?);
-                    slab.extend(flat_vec("b_ta", &lw.b_ta)?);
-                    slab.extend(flat_mat("w_tb", &lw.w_tb)?);
-                    slab.extend(flat_vec("b_tb", &lw.b_tb)?);
-
-                    let mut l = CfcLayer::zeros(*input_size, *hidden_size, *backbone_units);
-                    if slab.len() != l.n_params() {
-                        return Err(DataError(format!(
-                            "Layer {i} (cfc) weight count {} != expected {} in {path}",
-                            slab.len(),
-                            l.n_params()
-                        )));
-                    }
-                    l.from_flat(&slab);
-                    layers.push(Layer::Cfc(Box::new(l)));
-                }
-                LayerSpec::Slstm {
-                    input_size,
-                    hidden_size,
-                } => {
-                    if *input_size == 0 || *hidden_size == 0 {
-                        return Err(DataError(format!(
-                            "Layer {i} (slstm) input_size and hidden_size must be positive in {path}"
-                        )));
-                    }
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*hidden_size);
-
-                    let key = format!("layer_{}", i);
-                    let lw = file.weights.get(&key).ok_or_else(|| {
-                        DataError(format!("Missing {} in weights in {}", key, path))
-                    })?;
-                    let flat_mat =
-                        |name: &str, m: &Option<Vec<Vec<f64>>>| -> Result<Vec<f64>, DataError> {
-                            let rows = m.as_ref().ok_or_else(|| {
-                                DataError(format!("Layer {i} (slstm) missing {name} in {path}"))
-                            })?;
-                            Ok(rows.iter().flat_map(|r| r.iter().copied()).collect())
-                        };
-                    let flat_vec =
-                        |name: &str, v: &Option<Vec<f64>>| -> Result<Vec<f64>, DataError> {
-                            v.as_ref().cloned().ok_or_else(|| {
-                                DataError(format!("Layer {i} (slstm) missing {name} in {path}"))
-                            })
-                        };
-
-                    let mut slab = Vec::new();
-                    slab.extend(flat_mat("weight_ih", &lw.weight_ih)?);
-                    slab.extend(flat_mat("weight_hh", &lw.weight_hh)?);
-                    slab.extend(flat_vec("bias", &lw.bias)?);
-
-                    let mut l = SlstmLayer::zeros(*input_size, *hidden_size);
-                    if slab.len() != l.n_params() {
-                        return Err(DataError(format!(
-                            "Layer {i} (slstm) weight count {} != expected {} in {path}",
-                            slab.len(),
-                            l.n_params()
-                        )));
-                    }
-                    l.from_flat(&slab);
-                    layers.push(Layer::Slstm(l));
-                }
-                LayerSpec::Mlstm {
-                    input_size,
-                    hidden_size,
-                } => {
-                    if *input_size == 0 || *hidden_size == 0 {
-                        return Err(DataError(format!(
-                            "Layer {i} (mlstm) input_size and hidden_size must be positive in {path}"
-                        )));
-                    }
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*hidden_size);
-
-                    let key = format!("layer_{}", i);
-                    let lw = file.weights.get(&key).ok_or_else(|| {
-                        DataError(format!("Missing {} in weights in {}", key, path))
-                    })?;
-                    let flat_mat =
-                        |name: &str, m: &Option<Vec<Vec<f64>>>| -> Result<Vec<f64>, DataError> {
-                            let rows = m.as_ref().ok_or_else(|| {
-                                DataError(format!("Layer {i} (mlstm) missing {name} in {path}"))
-                            })?;
-                            Ok(rows.iter().flat_map(|r| r.iter().copied()).collect())
-                        };
-                    let flat_vec =
-                        |name: &str, v: &Option<Vec<f64>>| -> Result<Vec<f64>, DataError> {
-                            v.as_ref().cloned().ok_or_else(|| {
-                                DataError(format!("Layer {i} (mlstm) missing {name} in {path}"))
-                            })
-                        };
-                    let scalar = |name: &str, v: &Option<f64>| -> Result<f64, DataError> {
-                        v.ok_or_else(|| {
-                            DataError(format!("Layer {i} (mlstm) missing {name} in {path}"))
-                        })
-                    };
-
-                    let mut slab = Vec::new();
-                    slab.extend(flat_mat("w_q", &lw.w_q)?);
-                    slab.extend(flat_vec("b_q", &lw.b_q)?);
-                    slab.extend(flat_mat("w_k", &lw.w_k)?);
-                    slab.extend(flat_vec("b_k", &lw.b_k)?);
-                    slab.extend(flat_mat("w_v", &lw.w_v)?);
-                    slab.extend(flat_vec("b_v", &lw.b_v)?);
-                    slab.extend(flat_mat("w_o", &lw.w_o)?);
-                    slab.extend(flat_vec("b_o", &lw.b_o)?);
-                    slab.extend(flat_vec("w_i", &lw.w_i)?);
-                    slab.push(scalar("b_i", &lw.b_i)?);
-                    slab.extend(flat_vec("w_f", &lw.w_f)?);
-                    slab.push(scalar("b_f", &lw.b_f)?);
-
-                    let mut l = MlstmLayer::zeros(*input_size, *hidden_size);
-                    if slab.len() != l.n_params() {
-                        return Err(DataError(format!(
-                            "Layer {i} (mlstm) weight count {} != expected {} in {path}",
-                            slab.len(),
-                            l.n_params()
-                        )));
-                    }
-                    l.from_flat(&slab);
-                    layers.push(Layer::Mlstm(Box::new(l)));
-                }
-            }
+        let file: NnJsonFileV2<serde_json::Map<String, serde_json::Value>> =
+            serde_json::from_str(content)
+                .map_err(|e| DataError(format!("JSON parse error in {}: {}", path, e)))?;
+        if file.architecture.is_empty() {
+            return Err(DataError(format!("empty architecture in {path}")));
         }
+        Self::validate_layer_chain(&file.architecture, path)?;
+        let layers = Self::load_layers(&file.architecture, &file.weights, path)?;
+        let layer_sizes = layer_sizes_of(&file.architecture);
 
         Self::validate_mask(&file.input_mask, layer_sizes[0])?;
         Self::validate_ablated_input(&file.ablated_input)?;
-
         let output_size = *layer_sizes.last().unwrap_or(&0);
         Self::validate_output_size(output_size, file.output_param, path)?;
-        let last_activation = match file.architecture.last() {
-            Some(LayerSpec::Dense { activation, .. }) => *activation,
-            // Non-dense final layer with AcosTanh would have failed
-            // validate_output_size when output_param=AcosTanh expects
-            // output_size=1 (only Dense exposes a configurable output_size+activation
-            // pair); for Atan2Signed the activation is irrelevant so default is fine.
-            _ => Activation::Tanh,
-        };
-        Self::validate_output_activation(last_activation, file.output_param, path)?;
-
+        Self::validate_output_activation(
+            last_activation(&file.architecture),
+            file.output_param,
+            path,
+        )?;
         let normalization = Self::resolve_normalization(file.normalization, path)?;
 
         Ok(NeuralNetModel {
@@ -1879,117 +1190,18 @@ impl NeuralNetModel {
     /// Save to JSON format (v2 schema: tagged-layer list).
     pub fn save_json(&self, path: &str) -> Result<(), DataError> {
         let mut weights = std::collections::BTreeMap::new();
-
         for (i, layer) in self.layers.iter().enumerate() {
-            let entry = match layer {
-                Layer::Dense(d) => NnLayerWeights {
-                    w: Some(d.w.clone()),
-                    b: Some(d.b.clone()),
-                    ..NnLayerWeights::default()
-                },
-                Layer::Gru(g) => NnLayerWeights {
-                    weight_ih: Some(g.weight_ih.clone()),
-                    weight_hh: Some(g.weight_hh.clone()),
-                    bias_ih: Some(g.bias_ih.clone()),
-                    bias_hh: Some(g.bias_hh.clone()),
-                    ..NnLayerWeights::default()
-                },
-                Layer::Lstm(l) => NnLayerWeights {
-                    weight_ih: Some(l.weight_ih.clone()),
-                    weight_hh: Some(l.weight_hh.clone()),
-                    bias_ih: Some(l.bias_ih.clone()),
-                    bias_hh: Some(l.bias_hh.clone()),
-                    ..NnLayerWeights::default()
-                },
-                // Window is zero-param; skip the weights entry entirely.
-                Layer::Window(_) => continue,
-                Layer::Transformer(t) => NnLayerWeights {
-                    w_q: Some(t.w_q.clone()),
-                    b_q: Some(t.b_q.clone()),
-                    w_k: Some(t.w_k.clone()),
-                    b_k: Some(t.b_k.clone()),
-                    w_v: Some(t.w_v.clone()),
-                    b_v: Some(t.b_v.clone()),
-                    w_o: Some(t.w_o.clone()),
-                    b_o: Some(t.b_o.clone()),
-                    w_ffn1: Some(t.w_ffn1.clone()),
-                    b_ffn1: Some(t.b_ffn1.clone()),
-                    w_ffn2: Some(t.w_ffn2.clone()),
-                    b_ffn2: Some(t.b_ffn2.clone()),
-                    ln1_gamma: Some(t.ln1_gamma.clone()),
-                    ln1_beta: Some(t.ln1_beta.clone()),
-                    ln2_gamma: Some(t.ln2_gamma.clone()),
-                    ln2_beta: Some(t.ln2_beta.clone()),
-                    ..NnLayerWeights::default()
-                },
-                Layer::Mamba(m) => {
-                    let dmatrix_rows = |mat: &nalgebra::DMatrix<f64>| -> Vec<Vec<f64>> {
-                        (0..mat.nrows())
-                            .map(|r| (0..mat.ncols()).map(|c| mat[(r, c)]).collect())
-                            .collect()
-                    };
-                    NnLayerWeights {
-                        x_proj_w: Some(dmatrix_rows(&m.x_proj_w)),
-                        dt_proj_w: Some(dmatrix_rows(&m.dt_proj_w)),
-                        dt_proj_b: Some(m.dt_proj_b.iter().copied().collect()),
-                        a_log: Some(dmatrix_rows(&m.a_log)),
-                        d_skip: Some(m.d_skip.iter().copied().collect()),
-                        ..NnLayerWeights::default()
-                    }
-                }
-                Layer::Mamba3(m) => {
-                    let dmatrix_rows = |mat: &nalgebra::DMatrix<f64>| -> Vec<Vec<f64>> {
-                        (0..mat.nrows())
-                            .map(|r| (0..mat.ncols()).map(|c| mat[(r, c)]).collect())
-                            .collect()
-                    };
-                    NnLayerWeights {
-                        x_proj_w: Some(dmatrix_rows(&m.x_proj_w)),
-                        dt_proj_w: Some(dmatrix_rows(&m.dt_proj_w)),
-                        dt_proj_b: Some(m.dt_proj_b.iter().copied().collect()),
-                        a_log: Some(dmatrix_rows(&m.a_log)),
-                        a_imag: m.a_imag.as_ref().map(dmatrix_rows),
-                        lambda_logit: m.lambda_logit.as_ref().map(|v| v.iter().copied().collect()),
-                        d_skip: Some(m.d_skip.iter().copied().collect()),
-                        ..NnLayerWeights::default()
-                    }
-                }
-                Layer::Cfc(l) => NnLayerWeights {
-                    w_bb: Some(l.w_bb.clone()),
-                    b_bb: Some(l.b_bb.clone()),
-                    w_ff1: Some(l.w_ff1.clone()),
-                    b_ff1: Some(l.b_ff1.clone()),
-                    w_ff2: Some(l.w_ff2.clone()),
-                    b_ff2: Some(l.b_ff2.clone()),
-                    w_ta: Some(l.w_ta.clone()),
-                    b_ta: Some(l.b_ta.clone()),
-                    w_tb: Some(l.w_tb.clone()),
-                    b_tb: Some(l.b_tb.clone()),
-                    ..NnLayerWeights::default()
-                },
-                Layer::Slstm(l) => NnLayerWeights {
-                    weight_ih: Some(l.weight_ih.clone()),
-                    weight_hh: Some(l.weight_hh.clone()),
-                    bias: Some(l.bias.clone()),
-                    ..NnLayerWeights::default()
-                },
-                Layer::Mlstm(l) => NnLayerWeights {
-                    w_q: Some(l.w_q.clone()),
-                    b_q: Some(l.b_q.clone()),
-                    w_k: Some(l.w_k.clone()),
-                    b_k: Some(l.b_k.clone()),
-                    w_v: Some(l.w_v.clone()),
-                    b_v: Some(l.b_v.clone()),
-                    w_o: Some(l.w_o.clone()),
-                    b_o: Some(l.b_o.clone()),
-                    w_i: Some(l.w_i.clone()),
-                    b_i: Some(l.b_i),
-                    w_f: Some(l.w_f.clone()),
-                    b_f: Some(l.b_f),
-                    ..NnLayerWeights::default()
-                },
-            };
-            weights.insert(format!("layer_{}", i), entry);
+            let mut entries: Vec<(&'static str, serde_json::Value)> = layer
+                .tensors()
+                .iter()
+                .map(|(name, t)| (*name, t.to_json()))
+                .collect();
+            if entries.is_empty() {
+                // Zero-parameter layer (Window): no weights entry.
+                continue;
+            }
+            entries.sort_by_key(|(name, _)| JSON_KEYS_LAST.contains(name));
+            weights.insert(format!("layer_{i}"), LayerWeightsJson(entries));
         }
 
         let file = NnJsonFileV2 {
@@ -2140,11 +1352,7 @@ impl NeuralNetModel {
                 output_size: n_out,
                 activation: activations[i],
             });
-            let mut layer = Layer::Dense(DenseLayer {
-                w: vec![vec![0.0; n_in]; n_out],
-                b: vec![0.0; n_out],
-                activation: activations[i],
-            });
+            let mut layer = Layer::Dense(DenseLayer::zeros(n_in, n_out, activations[i]));
             let needed = layer.n_params();
             if offset + needed > weights.len() {
                 return Err(DataError(format!(
@@ -2179,7 +1387,7 @@ impl NeuralNetModel {
     }
 
     /// Construct a NeuralNetModel from a flat weight vector and v2 architecture spec.
-    /// Used by the PyO3 flat_weights_to_json helper (Task 7) that routes PSO output
+    /// Used by the PyO3 `flat_weights_to_json` helper that routes PSO output
     /// through Rust. Unlike `from_flat_weights` (the v1 wrapper), this accepts
     /// heterogeneous architectures via `LayerSpec`.
     pub fn from_flat_weights_v2(
@@ -2197,249 +1405,11 @@ impl NeuralNetModel {
         }
         Self::validate_layer_chain(architecture, "<flat_weights_v2>")?;
         let mut layers: Vec<Layer> = Vec::with_capacity(architecture.len());
-        let mut layer_sizes: Vec<usize> = Vec::with_capacity(architecture.len() + 1);
         let mut offset: usize = 0;
 
         for (i, spec) in architecture.iter().enumerate() {
-            let mut layer = match spec {
-                LayerSpec::Dense {
-                    input_size,
-                    output_size,
-                    activation,
-                } => {
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*output_size);
-                    Layer::Dense(DenseLayer {
-                        w: vec![vec![0.0; *input_size]; *output_size],
-                        b: vec![0.0; *output_size],
-                        activation: *activation,
-                    })
-                }
-                LayerSpec::Gru {
-                    input_size,
-                    hidden_size,
-                } => {
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*hidden_size);
-                    let three_h = 3 * hidden_size;
-                    Layer::Gru(GruLayer {
-                        input_size: *input_size,
-                        hidden_size: *hidden_size,
-                        weight_ih: vec![vec![0.0; *input_size]; three_h],
-                        weight_hh: vec![vec![0.0; *hidden_size]; three_h],
-                        bias_ih: vec![0.0; three_h],
-                        bias_hh: vec![0.0; three_h],
-                    })
-                }
-                LayerSpec::Lstm {
-                    input_size,
-                    hidden_size,
-                } => {
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*hidden_size);
-                    let four_h = 4 * hidden_size;
-                    Layer::Lstm(LstmLayer {
-                        input_size: *input_size,
-                        hidden_size: *hidden_size,
-                        weight_ih: vec![vec![0.0; *input_size]; four_h],
-                        weight_hh: vec![vec![0.0; *hidden_size]; four_h],
-                        bias_ih: vec![0.0; four_h],
-                        bias_hh: vec![0.0; four_h],
-                    })
-                }
-                LayerSpec::Window {
-                    input_size,
-                    n_steps,
-                } => {
-                    if *input_size == 0 || *n_steps == 0 {
-                        return Err(DataError(format!(
-                            "from_flat_weights_v2: Window layer {} input_size and n_steps must be positive",
-                            i
-                        )));
-                    }
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*input_size * *n_steps);
-                    Layer::Window(WindowLayer {
-                        input_size: *input_size,
-                        n_steps: *n_steps,
-                    })
-                }
-                LayerSpec::Transformer {
-                    d_model,
-                    n_heads,
-                    d_ffn,
-                    n_seq,
-                } => {
-                    if *d_model == 0 || *d_ffn == 0 || *n_seq == 0 {
-                        return Err(DataError(format!(
-                            "from_flat_weights_v2: Transformer layer {} d_model, d_ffn, and n_seq must be positive (got d_model={}, d_ffn={}, n_seq={})",
-                            i, d_model, d_ffn, n_seq
-                        )));
-                    }
-                    if *n_heads == 0 || *d_model % *n_heads != 0 {
-                        return Err(DataError(format!(
-                            "from_flat_weights_v2: Transformer layer {} d_model={} not divisible by n_heads={}",
-                            i, d_model, n_heads
-                        )));
-                    }
-                    let d_head = d_model / n_heads;
-                    let f = *d_ffn;
-                    let d = *d_model;
-                    if i == 0 {
-                        layer_sizes.push(d);
-                    }
-                    layer_sizes.push(d);
-                    Layer::Transformer(Box::new(TransformerLayer {
-                        d_model: d,
-                        n_heads: *n_heads,
-                        d_head,
-                        d_ffn: f,
-                        n_seq: *n_seq,
-                        w_q: vec![vec![0.0; d]; d],
-                        b_q: vec![0.0; d],
-                        w_k: vec![vec![0.0; d]; d],
-                        b_k: vec![0.0; d],
-                        w_v: vec![vec![0.0; d]; d],
-                        b_v: vec![0.0; d],
-                        w_o: vec![vec![0.0; d]; d],
-                        b_o: vec![0.0; d],
-                        w_ffn1: vec![vec![0.0; d]; f],
-                        b_ffn1: vec![0.0; f],
-                        w_ffn2: vec![vec![0.0; f]; d],
-                        b_ffn2: vec![0.0; d],
-                        ln1_gamma: vec![1.0; d],
-                        ln1_beta: vec![0.0; d],
-                        ln2_gamma: vec![1.0; d],
-                        ln2_beta: vec![0.0; d],
-                        k_pe_offsets: Vec::new(),
-                        v_pe_offsets: Vec::new(),
-                    }))
-                }
-                LayerSpec::Mamba {
-                    input_size,
-                    d_state,
-                    dt_rank,
-                } => {
-                    if *dt_rank == 0 || *dt_rank > *input_size {
-                        return Err(DataError(format!(
-                            "from_flat_weights_v2: Mamba layer {} dt_rank={} invalid for input_size={}",
-                            i, dt_rank, input_size
-                        )));
-                    }
-                    if *d_state == 0 || *input_size == 0 {
-                        return Err(DataError(format!(
-                            "from_flat_weights_v2: Mamba layer {} input_size and d_state must be positive",
-                            i
-                        )));
-                    }
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*input_size);
-                    let rows_x = dt_rank + 2 * d_state;
-                    Layer::Mamba(Box::new(MambaLayer {
-                        input_size: *input_size,
-                        d_state: *d_state,
-                        dt_rank: *dt_rank,
-                        x_proj_w: nalgebra::DMatrix::<f64>::zeros(rows_x, *input_size),
-                        dt_proj_w: nalgebra::DMatrix::<f64>::zeros(*input_size, *dt_rank),
-                        dt_proj_b: nalgebra::DVector::<f64>::zeros(*input_size),
-                        a_log: nalgebra::DMatrix::<f64>::zeros(*input_size, *d_state),
-                        d_skip: nalgebra::DVector::<f64>::zeros(*input_size),
-                    }))
-                }
-                LayerSpec::Mamba3 {
-                    input_size,
-                    d_state,
-                    dt_rank,
-                    discretization,
-                    state_mode,
-                } => {
-                    let (trapezoidal, complex) =
-                        mamba3_flags(discretization, state_mode).map_err(|e| {
-                            DataError(format!("from_flat_weights_v2: Mamba3 layer {i} {e}"))
-                        })?;
-                    if *dt_rank == 0 || *dt_rank > *input_size || *d_state == 0 || *input_size == 0
-                    {
-                        return Err(DataError(format!(
-                            "from_flat_weights_v2: Mamba3 layer {} dims invalid (input_size={}, d_state={}, dt_rank={})",
-                            i, input_size, d_state, dt_rank
-                        )));
-                    }
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*input_size);
-                    Layer::Mamba3(Box::new(Mamba3Layer::zeros(
-                        *input_size,
-                        *d_state,
-                        *dt_rank,
-                        trapezoidal,
-                        complex,
-                    )))
-                }
-                LayerSpec::Cfc {
-                    input_size,
-                    hidden_size,
-                    backbone_units,
-                } => {
-                    if *input_size == 0 || *hidden_size == 0 || *backbone_units == 0 {
-                        return Err(DataError(format!(
-                            "from_flat_weights_v2: Cfc layer {} dims must be positive (input_size={}, hidden_size={}, backbone_units={})",
-                            i, input_size, hidden_size, backbone_units
-                        )));
-                    }
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*hidden_size);
-                    Layer::Cfc(Box::new(CfcLayer::zeros(
-                        *input_size,
-                        *hidden_size,
-                        *backbone_units,
-                    )))
-                }
-                LayerSpec::Slstm {
-                    input_size,
-                    hidden_size,
-                } => {
-                    if *input_size == 0 || *hidden_size == 0 {
-                        return Err(DataError(format!(
-                            "from_flat_weights_v2: Slstm layer {} dims must be positive (input_size={}, hidden_size={})",
-                            i, input_size, hidden_size
-                        )));
-                    }
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*hidden_size);
-                    Layer::Slstm(SlstmLayer::zeros(*input_size, *hidden_size))
-                }
-                LayerSpec::Mlstm {
-                    input_size,
-                    hidden_size,
-                } => {
-                    if *input_size == 0 || *hidden_size == 0 {
-                        return Err(DataError(format!(
-                            "from_flat_weights_v2: Mlstm layer {} dims must be positive (input_size={}, hidden_size={})",
-                            i, input_size, hidden_size
-                        )));
-                    }
-                    if i == 0 {
-                        layer_sizes.push(*input_size);
-                    }
-                    layer_sizes.push(*hidden_size);
-                    Layer::Mlstm(Box::new(MlstmLayer::zeros(*input_size, *hidden_size)))
-                }
-            };
+            let mut layer = Layer::from_spec(spec)
+                .map_err(|e| DataError(format!("from_flat_weights_v2: layer {i} {e}")))?;
             let needed = layer.n_params();
             if offset + needed > flat.len() {
                 return Err(DataError(format!(
@@ -2450,8 +1420,7 @@ impl NeuralNetModel {
                     flat.len()
                 )));
             }
-            let consumed = layer.from_flat(&flat[offset..]);
-            offset += consumed;
+            offset += layer.from_flat(&flat[offset..]);
             layers.push(layer);
         }
 
@@ -2463,15 +1432,15 @@ impl NeuralNetModel {
             )));
         }
 
+        let layer_sizes = layer_sizes_of(architecture);
         Self::validate_mask(&input_mask, layer_sizes[0])?;
-
         let output_size = *layer_sizes.last().unwrap();
         Self::validate_output_size(output_size, output_param, "<flat_weights_v2>")?;
-        let last_activation = match architecture.last() {
-            Some(LayerSpec::Dense { activation, .. }) => *activation,
-            _ => Activation::Tanh,
-        };
-        Self::validate_output_activation(last_activation, output_param, "<flat_weights_v2>")?;
+        Self::validate_output_activation(
+            last_activation(architecture),
+            output_param,
+            "<flat_weights_v2>",
+        )?;
 
         Ok(NeuralNetModel {
             architecture: architecture.to_vec(),

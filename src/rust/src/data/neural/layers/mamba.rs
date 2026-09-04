@@ -1,7 +1,7 @@
 //! Selective SSM core (Mamba S6) -- Phase 4a PSO-only MVP.
 
-use super::super::LayerWeights;
 use super::helpers::{expm1_over_x, softplus};
+use super::tensor::tensor_table;
 
 /// Selective SSM core (Mamba S6) -- Phase 4a PSO-only MVP.
 ///
@@ -34,76 +34,29 @@ pub struct MambaLayer {
     pub d_skip: nalgebra::DVector<f64>,
 }
 
-impl LayerWeights for MambaLayer {
-    fn n_params(&self) -> usize {
-        self.input_size * (3 * self.d_state + 2 * self.dt_rank + 2)
-    }
-
-    fn to_flat(&self) -> Vec<f64> {
-        let mut out = Vec::with_capacity(self.n_params());
-        // 1. x_proj_w row-major: (dt_rank + 2*d_state, input_size)
-        for i in 0..self.x_proj_w.nrows() {
-            for j in 0..self.x_proj_w.ncols() {
-                out.push(self.x_proj_w[(i, j)]);
-            }
-        }
-        // 2. dt_proj_w row-major: (input_size, dt_rank)
-        for i in 0..self.dt_proj_w.nrows() {
-            for j in 0..self.dt_proj_w.ncols() {
-                out.push(self.dt_proj_w[(i, j)]);
-            }
-        }
-        // 3. dt_proj_b: (input_size,)
-        for i in 0..self.dt_proj_b.len() {
-            out.push(self.dt_proj_b[i]);
-        }
-        // 4. a_log row-major: (input_size, d_state)
-        for i in 0..self.a_log.nrows() {
-            for j in 0..self.a_log.ncols() {
-                out.push(self.a_log[(i, j)]);
-            }
-        }
-        // 5. d_skip: (input_size,)
-        for i in 0..self.d_skip.len() {
-            out.push(self.d_skip[i]);
-        }
-        out
-    }
-
-    #[allow(clippy::wrong_self_convention)]
-    fn from_flat(&mut self, flat: &[f64]) -> usize {
-        let mut cursor = 0;
-        // 1. x_proj_w: (dt_rank + 2*d_state, input_size) row-major
-        let rows = self.dt_rank + 2 * self.d_state;
-        let cols = self.input_size;
-        self.x_proj_w =
-            nalgebra::DMatrix::from_row_slice(rows, cols, &flat[cursor..cursor + rows * cols]);
-        cursor += rows * cols;
-        // 2. dt_proj_w: (input_size, dt_rank) row-major
-        self.dt_proj_w = nalgebra::DMatrix::from_row_slice(
-            self.input_size,
-            self.dt_rank,
-            &flat[cursor..cursor + self.input_size * self.dt_rank],
-        );
-        cursor += self.input_size * self.dt_rank;
-        // 3. dt_proj_b: (input_size,)
-        self.dt_proj_b = nalgebra::DVector::from_row_slice(&flat[cursor..cursor + self.input_size]);
-        cursor += self.input_size;
-        // 4. a_log: (input_size, d_state) row-major
-        self.a_log = nalgebra::DMatrix::from_row_slice(
-            self.input_size,
-            self.d_state,
-            &flat[cursor..cursor + self.input_size * self.d_state],
-        );
-        cursor += self.input_size * self.d_state;
-        // 5. d_skip: (input_size,)
-        self.d_skip = nalgebra::DVector::from_row_slice(&flat[cursor..cursor + self.input_size]);
-        cursor += self.input_size;
-        cursor
-    }
-}
+// Flat order: x_proj_w, dt_proj_w (row-major), dt_proj_b, a_log (row-major), d_skip.
+tensor_table!(MambaLayer {
+    x_proj_w,
+    dt_proj_w,
+    dt_proj_b,
+    a_log,
+    d_skip
+});
 
 impl MambaLayer {
+    pub fn zeros(input_size: usize, d_state: usize, dt_rank: usize) -> Self {
+        Self {
+            input_size,
+            d_state,
+            dt_rank,
+            x_proj_w: nalgebra::DMatrix::zeros(dt_rank + 2 * d_state, input_size),
+            dt_proj_w: nalgebra::DMatrix::zeros(input_size, dt_rank),
+            dt_proj_b: nalgebra::DVector::zeros(input_size),
+            a_log: nalgebra::DMatrix::zeros(input_size, d_state),
+            d_skip: nalgebra::DVector::zeros(input_size),
+        }
+    }
+
     /// Single-tick forward. Mutates `h` in place (state update), returns `y`.
     ///
     /// Shapes: `x: [f64; input_size]`, `h: DMatrix<f64> (input_size, d_state)`,

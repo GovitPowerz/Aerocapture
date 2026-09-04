@@ -107,8 +107,10 @@ committed copy of the headline cell that `aerocapture.demo` flies.
   adapters), `optimizer.py`, `qpso.py`, `island_model.py`, `seed_curator.py`, `final_select.py`
 - **Evaluation**: `problem.py` (`run_grid` chokepoint), `evaluate.py` (validation gate, NN JSON
   writer), `cost.py`, `seeds.py`, `deploy_overrides.py`, `reference.py`, `make_reference.py`
-- **NN specifics**: `warm_start.py`, `model_io.py`, `calibrate_inputs.py`, `ablation.py`,
-  `nn_input_report.py`, `quantize.py`, `weight_stats.py`, `rl/` (PPO/SAC, shelved)
+- **NN specifics**: `layer_schema.py` (per-layer tensor names/shapes/flat order, read from the
+  Rust `tensor_table!` via `aerocapture_rs.layer_schema`), `warm_start.py`, `model_io.py`,
+  `calibrate_inputs.py`, `ablation.py`, `nn_input_report.py`, `quantize.py`, `weight_stats.py`,
+  `rl/` (PPO/SAC, shelved)
 - **Reports**: `report.py`, `charts*.py`, `display.py`, `logger.py`, `metrics.py`, `animate.py`,
   `corridor.py`, `parquet_output.py`, `typst_utils.py`, `warm_start_report.py`,
   `warm_start_compare.py`, `compare_guidance.py`, `sensitivity.py`, `param_sweep.py`

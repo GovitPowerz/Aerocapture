@@ -1,0 +1,66 @@
+[
+ {
+  "name": "w0_0_0",
+  "p_min": -1.0954451150103321,
+  "p_max": 1.0954451150103321,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w0_0_1",
+  "p_min": -1.0954451150103321,
+  "p_max": 1.0954451150103321,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w0_0_2",
+  "p_min": -1.0954451150103321,
+  "p_max": 1.0954451150103321,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w0_1_0",
+  "p_min": -1.0954451150103321,
+  "p_max": 1.0954451150103321,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w0_1_1",
+  "p_min": -1.0954451150103321,
+  "p_max": 1.0954451150103321,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "w0_1_2",
+  "p_min": -1.0954451150103321,
+  "p_max": 1.0954451150103321,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "bias0_0",
+  "p_min": -1.0954451150103321,
+  "p_max": 1.0954451150103321,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ },
+ {
+  "name": "bias0_1",
+  "p_min": -1.0954451150103321,
+  "p_max": 1.0954451150103321,
+  "default": 0.0,
+  "log_scale": false,
+  "is_integer": false
+ }
+]

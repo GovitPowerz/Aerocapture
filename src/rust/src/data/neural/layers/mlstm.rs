@@ -11,8 +11,9 @@
 //! Canonical flat order: w_q, b_q, w_k, b_k, w_v, b_v, w_o, b_o, w_i, b_i, w_f, b_f
 //! (matrices row-major, scalars as single elements).
 
-use super::super::{Activation, LayerWeights};
-use super::helpers::{copy_mat_from_flat, copy_vec_from_flat, dot_plus_bias, stabilized_exp_gates};
+use super::super::Activation;
+use super::helpers::{dot_plus_bias, stabilized_exp_gates};
+use super::tensor::tensor_table;
 
 #[derive(Debug, Clone)]
 pub struct MlstmLayer {
@@ -98,55 +99,25 @@ impl MlstmLayer {
     }
 }
 
-impl LayerWeights for MlstmLayer {
-    fn to_flat(&self) -> Vec<f64> {
-        let mut v = Vec::with_capacity(self.n_params());
-        for (mat, bias) in [
-            (&self.w_q, &self.b_q),
-            (&self.w_k, &self.b_k),
-            (&self.w_v, &self.b_v),
-            (&self.w_o, &self.b_o),
-        ] {
-            for row in mat.iter() {
-                v.extend_from_slice(row);
-            }
-            v.extend_from_slice(bias);
-        }
-        v.extend_from_slice(&self.w_i);
-        v.push(self.b_i);
-        v.extend_from_slice(&self.w_f);
-        v.push(self.b_f);
-        v
-    }
-
-    #[allow(clippy::wrong_self_convention)]
-    fn from_flat(&mut self, flat: &[f64]) -> usize {
-        let mut idx = 0;
-        copy_mat_from_flat(&mut self.w_q, flat, &mut idx);
-        copy_vec_from_flat(&mut self.b_q, flat, &mut idx);
-        copy_mat_from_flat(&mut self.w_k, flat, &mut idx);
-        copy_vec_from_flat(&mut self.b_k, flat, &mut idx);
-        copy_mat_from_flat(&mut self.w_v, flat, &mut idx);
-        copy_vec_from_flat(&mut self.b_v, flat, &mut idx);
-        copy_mat_from_flat(&mut self.w_o, flat, &mut idx);
-        copy_vec_from_flat(&mut self.b_o, flat, &mut idx);
-        copy_vec_from_flat(&mut self.w_i, flat, &mut idx);
-        self.b_i = flat[idx];
-        idx += 1;
-        copy_vec_from_flat(&mut self.w_f, flat, &mut idx);
-        self.b_f = flat[idx];
-        idx += 1;
-        idx
-    }
-
-    fn n_params(&self) -> usize {
-        4 * (self.hidden_size * self.input_size + self.hidden_size) + 2 * (self.input_size + 1)
-    }
-}
+tensor_table!(MlstmLayer {
+    w_q,
+    b_q,
+    w_k,
+    b_k,
+    w_v,
+    b_v,
+    w_o,
+    b_o,
+    w_i,
+    b_i,
+    w_f,
+    b_f
+});
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::neural::LayerWeights;
 
     fn patterned(input_size: usize, hidden_size: usize) -> MlstmLayer {
         let mut l = MlstmLayer::zeros(input_size, hidden_size);

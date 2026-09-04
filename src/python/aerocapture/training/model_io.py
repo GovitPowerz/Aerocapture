@@ -13,6 +13,7 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 import torch
 
+from aerocapture.training.layer_schema import layer_schema
 from aerocapture.training.rl.policy import V2Policy
 from aerocapture.training.rl.schemas import (
     ArchitectureV2,
@@ -38,29 +39,20 @@ class _HasFromFlat(Protocol):
 def _slab_from_json_weights(layer_spec: DenseSpec | GruSpec | LstmSpec, lw: LayerWeights | None) -> np.ndarray:
     """Reconstruct the canonical flat numpy slab from a JSON layer_weights entry.
 
-    Each layer type's flat order mirrors to_flat() / Rust LayerWeights::to_flat.
-    JSON stores Python lists (f64). Returns a 1-D float64 ndarray that can be
-    passed directly to module.from_flat().
-
-    Callers: load_policy_from_json only, which already guards against Window /
-    Transformer / Mamba specs at line 75, so those types never reach here.
+    Walks the layer's tensor-table schema (names, shapes, flat order -- the same
+    table Rust loads with), so the slab can be passed directly to module.from_flat().
     """
-
-    def arr(x: object) -> np.ndarray:
-        return np.array(x, dtype=np.float64).ravel()
-
-    if isinstance(layer_spec, DenseSpec):
-        if lw is None or lw.w is None or lw.b is None:
-            raise ValueError("Dense layer missing w/b")
-        return np.concatenate([arr(lw.w), arr(lw.b)])
-
-    # GruSpec | LstmSpec
-    extra = (lw.model_extra if lw is not None else None) or {}
-    required = ("weight_ih", "weight_hh", "bias_ih", "bias_hh")
-    missing = [k for k in required if k not in extra]
-    if missing:
-        raise ValueError(f"{type(layer_spec).__name__} layer missing {missing}")
-    return np.concatenate([arr(extra["weight_ih"]), arr(extra["weight_hh"]), arr(extra["bias_ih"]), arr(extra["bias_hh"])])
+    kind = type(layer_spec).__name__
+    raw: dict[str, object] = lw.model_dump() if lw is not None else {}
+    parts: list[np.ndarray] = []
+    for name, shape in layer_schema(layer_spec):
+        if raw.get(name) is None:
+            raise ValueError(f"{kind} layer missing {name}")
+        arr = np.asarray(raw[name], dtype=np.float64)
+        if arr.shape != shape:
+            raise ValueError(f"{kind} layer {name}: expected shape {shape}, got {arr.shape}")
+        parts.append(arr.ravel())
+    return np.concatenate(parts) if parts else np.zeros(0, dtype=np.float64)
 
 
 def load_policy_from_json(path: str, device: str | torch.device = "cpu") -> V2Policy:

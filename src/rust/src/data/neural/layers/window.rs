@@ -1,6 +1,6 @@
 //! Window-MLP layer: zero-parameter FIFO ring buffer.
 
-use super::super::LayerWeights;
+use super::tensor::tensor_table;
 
 /// Window-MLP layer: FIFO ring buffer of the last `n_steps` inputs,
 /// concatenated into a vector of length `n_steps * input_size`.
@@ -45,18 +45,5 @@ impl WindowLayer {
     }
 }
 
-impl LayerWeights for WindowLayer {
-    fn to_flat(&self) -> Vec<f64> {
-        Vec::new()
-    }
-
-    #[allow(clippy::wrong_self_convention)]
-    fn from_flat(&mut self, _flat: &[f64]) -> usize {
-        // WindowLayer is parameter-free: consume nothing, tolerate any tail slice.
-        0
-    }
-
-    fn n_params(&self) -> usize {
-        0
-    }
-}
+// Parameter-free: an empty table makes `from_flat` consume 0 from any slice.
+tensor_table!(WindowLayer {});

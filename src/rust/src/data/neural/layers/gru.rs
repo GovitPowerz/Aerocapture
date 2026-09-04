@@ -1,7 +1,8 @@
 //! GRU cell layer (PyTorch nn.GRUCell convention).
 
-use super::super::{Activation, LayerWeights};
+use super::super::Activation;
 use super::helpers::dot_plus_bias;
+use super::tensor::tensor_table;
 
 /// GRU cell matching PyTorch nn.GRUCell convention (two biases per gate).
 ///
@@ -27,6 +28,18 @@ pub struct GruLayer {
 }
 
 impl GruLayer {
+    pub fn zeros(input_size: usize, hidden_size: usize) -> Self {
+        let three_h = 3 * hidden_size;
+        Self {
+            input_size,
+            hidden_size,
+            weight_ih: vec![vec![0.0; input_size]; three_h],
+            weight_hh: vec![vec![0.0; hidden_size]; three_h],
+            bias_ih: vec![0.0; three_h],
+            bias_hh: vec![0.0; three_h],
+        }
+    }
+
     /// Compute one forward step: (h_prev, x) -> h_new. Output == h_new (GRU).
     pub fn forward(&self, h_prev: &[f64], x: &[f64]) -> Vec<f64> {
         assert_eq!(h_prev.len(), self.hidden_size);
@@ -69,42 +82,10 @@ impl GruLayer {
     }
 }
 
-impl LayerWeights for GruLayer {
-    fn to_flat(&self) -> Vec<f64> {
-        let mut v = Vec::with_capacity(self.n_params());
-        for row in &self.weight_ih {
-            v.extend_from_slice(row);
-        }
-        for row in &self.weight_hh {
-            v.extend_from_slice(row);
-        }
-        v.extend_from_slice(&self.bias_ih);
-        v.extend_from_slice(&self.bias_hh);
-        v
-    }
-
-    #[allow(clippy::wrong_self_convention)]
-    fn from_flat(&mut self, flat: &[f64]) -> usize {
-        let three_h = 3 * self.hidden_size;
-        let mut idx = 0;
-        for row in self.weight_ih.iter_mut() {
-            row.copy_from_slice(&flat[idx..idx + self.input_size]);
-            idx += self.input_size;
-        }
-        for row in self.weight_hh.iter_mut() {
-            row.copy_from_slice(&flat[idx..idx + self.hidden_size]);
-            idx += self.hidden_size;
-        }
-        self.bias_ih.copy_from_slice(&flat[idx..idx + three_h]);
-        idx += three_h;
-        self.bias_hh.copy_from_slice(&flat[idx..idx + three_h]);
-        idx += three_h;
-        idx
-    }
-
-    fn n_params(&self) -> usize {
-        3 * self.hidden_size * self.input_size
-            + 3 * self.hidden_size * self.hidden_size
-            + 2 * 3 * self.hidden_size
-    }
-}
+// Flat order: weight_ih (row-major) -> weight_hh (row-major) -> bias_ih -> bias_hh.
+tensor_table!(GruLayer {
+    weight_ih,
+    weight_hh,
+    bias_ih,
+    bias_hh
+});

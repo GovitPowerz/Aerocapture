@@ -13,6 +13,7 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.initialization import compute_layer_bound
+from aerocapture.training.layer_schema import layer_schema
 from aerocapture.training.param_spaces import ParamSpec
 from aerocapture.training.rl.schemas import (
     CfcSpec,
@@ -114,6 +115,12 @@ def nn_param_specs_from_v2(
 
 
 def _layer_param_specs(layer: LayerSpec, layer_idx: int = 0, bound_multiplier: float = 1.0) -> list[ParamSpec]:
+    """Per-parameter ParamSpecs for one layer, in the layer's tensor-table order.
+
+    Each generator walks `layer_schema(layer)` (the Rust table: names, shapes,
+    canonical flat order) and applies its per-tensor bound / center / naming
+    rule, so the chromosome order can never drift from the Rust `to_flat`.
+    """
     if isinstance(layer, DenseSpec):
         return _dense_specs(layer, layer_idx, bound_multiplier)
     if isinstance(layer, GruSpec):
@@ -138,90 +145,73 @@ def _layer_param_specs(layer: LayerSpec, layer_idx: int = 0, bound_multiplier: f
     raise ValueError(msg)
 
 
+def _uniform(prefix: str, shape: tuple[int, ...], bound: float, center: float = 0.0) -> list[ParamSpec]:
+    """One ParamSpec per element, flat-indexed (`prefix_j`), symmetric bound around `center`."""
+    return [ParamSpec(f"{prefix}_{j}", center - bound, center + bound, center) for j in range(math.prod(shape))]
+
+
 def _dense_specs(layer: DenseSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
     # Mirrors nn_param_specs_from_architecture: activation-aware bound via
     # compute_layer_bound (Xavier/He/LeCun), biases use the same bound as weights.
-    fan_in = layer.input_size
-    fan_out = layer.output_size
-    bound = bound_multiplier * compute_layer_bound(fan_in, fan_out, layer.activation)
-
+    bound = bound_multiplier * compute_layer_bound(layer.input_size, layer.output_size, layer.activation)
     specs: list[ParamSpec] = []
-    for j in range(fan_out):
-        for k in range(fan_in):
-            specs.append(ParamSpec(f"w{layer_idx}_{j}_{k}", -bound, bound, 0.0))
-    for j in range(fan_out):
-        specs.append(ParamSpec(f"bias{layer_idx}_{j}", -bound, bound, 0.0))
+    for name, shape in layer_schema(layer):
+        if name == "w":
+            specs += [ParamSpec(f"w{layer_idx}_{j}_{k}", -bound, bound, 0.0) for j in range(shape[0]) for k in range(shape[1])]
+        else:  # b
+            specs += [ParamSpec(f"bias{layer_idx}_{j}", -bound, bound, 0.0) for j in range(shape[0])]
     return specs
 
 
-def _gru_specs(layer: GruSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
-    """Flat-weight spec order matches the Rust `LayerWeights for GruLayer`:
-    weight_ih (row-major [3H, I]) -> weight_hh (row-major [3H, H]) -> bias_ih -> bias_hh.
-    """
-    h = layer.hidden_size
-    three_h = 3 * h
-    w_ih_bound = bound_multiplier * compute_layer_bound(layer.input_size, three_h, "tanh")
-    w_hh_bound = bound_multiplier * compute_layer_bound(h, three_h, "tanh")
-    b_bound = 0.1 * bound_multiplier
+_GATED_CELL_NAMES = {"weight_ih": "w_ih", "weight_hh": "w_hh", "bias_ih": "b_ih", "bias_hh": "b_hh", "bias": "b"}
 
+
+def _gru_specs(layer: GruSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
+    """tanh-Xavier on the 3H-concatenated gate matrices, tight 0.1*mul biases."""
+    h = layer.hidden_size
+    bounds = {
+        "weight_ih": bound_multiplier * compute_layer_bound(layer.input_size, 3 * h, "tanh"),
+        "weight_hh": bound_multiplier * compute_layer_bound(h, 3 * h, "tanh"),
+        "bias_ih": 0.1 * bound_multiplier,
+        "bias_hh": 0.1 * bound_multiplier,
+    }
     specs: list[ParamSpec] = []
-    for j in range(three_h * layer.input_size):
-        specs.append(ParamSpec(f"w_ih{layer_idx}_{j}", -w_ih_bound, w_ih_bound, 0.0))
-    for j in range(three_h * h):
-        specs.append(ParamSpec(f"w_hh{layer_idx}_{j}", -w_hh_bound, w_hh_bound, 0.0))
-    for j in range(three_h):
-        specs.append(ParamSpec(f"b_ih{layer_idx}_{j}", -b_bound, b_bound, 0.0))
-    for j in range(three_h):
-        specs.append(ParamSpec(f"b_hh{layer_idx}_{j}", -b_bound, b_bound, 0.0))
+    for name, shape in layer_schema(layer):
+        specs += _uniform(f"{_GATED_CELL_NAMES[name]}{layer_idx}", shape, bounds[name])
     return specs
 
 
 def _lstm_specs(layer: LstmSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
-    """Flat-weight spec order matches the Rust `LayerWeights for LstmLayer`:
-    weight_ih (row-major [4H, I]) -> weight_hh (row-major [4H, H]) -> bias_ih -> bias_hh.
+    """tanh-Xavier on the 4H gate matrices; gate order (i, f, g, o).
 
-    Gate ordering on the 4H axis: (i, f, g, o). The forget-gate slice on bias_ih
-    (rows [H:2H]) uses a wider ParamSpec bound (2.0 * bound_multiplier) to
-    accommodate the Jozefowicz forget-bias-1 init (value ~1.0) inside PSO's
-    search box. All other biases use the tight 0.1 * bound_multiplier bound.
+    The forget-gate slice of bias_ih (rows [H:2H]) uses a wider bound
+    (2.0 * bound_multiplier) to hold the Jozefowicz forget-bias-1 init inside
+    PSO's search box. All other biases use the tight 0.1 * bound_multiplier bound.
     """
     h = layer.hidden_size
-    four_h = 4 * h
-    w_ih_bound = bound_multiplier * compute_layer_bound(layer.input_size, four_h, "tanh")
-    w_hh_bound = bound_multiplier * compute_layer_bound(h, four_h, "tanh")
-    tight_bias_bound = 0.1 * bound_multiplier
+    bounds = {
+        "weight_ih": bound_multiplier * compute_layer_bound(layer.input_size, 4 * h, "tanh"),
+        "weight_hh": bound_multiplier * compute_layer_bound(h, 4 * h, "tanh"),
+        "bias_ih": 0.1 * bound_multiplier,
+        "bias_hh": 0.1 * bound_multiplier,
+    }
     forget_bias_bound = 2.0 * bound_multiplier
-
     specs: list[ParamSpec] = []
-    for j in range(four_h * layer.input_size):
-        specs.append(ParamSpec(f"w_ih{layer_idx}_{j}", -w_ih_bound, w_ih_bound, 0.0))
-    for j in range(four_h * h):
-        specs.append(ParamSpec(f"w_hh{layer_idx}_{j}", -w_hh_bound, w_hh_bound, 0.0))
-    # bias_ih: forget slice (rows [H:2H]) uses wider bound; rest tight.
-    for j in range(four_h):
-        if h <= j < 2 * h:
-            specs.append(ParamSpec(f"b_ih{layer_idx}_{j}", -forget_bias_bound, forget_bias_bound, 0.0))
-        else:
-            specs.append(ParamSpec(f"b_ih{layer_idx}_{j}", -tight_bias_bound, tight_bias_bound, 0.0))
-    # bias_hh: all gates use tight bound.
-    for j in range(four_h):
-        specs.append(ParamSpec(f"b_hh{layer_idx}_{j}", -tight_bias_bound, tight_bias_bound, 0.0))
+    for name, shape in layer_schema(layer):
+        prefix = f"{_GATED_CELL_NAMES[name]}{layer_idx}"
+        for j in range(math.prod(shape)):
+            bound = forget_bias_bound if name == "bias_ih" and h <= j < 2 * h else bounds[name]
+            specs.append(ParamSpec(f"{prefix}_{j}", -bound, bound, 0.0))
     return specs
 
 
 def _transformer_specs(layer: TransformerSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
-    """ParamSpec list in canonical flat order matching Rust TransformerLayer::to_flat.
-
-    INVARIANT: ordering MUST match Rust's to_flat / from_flat cursor advance order:
-    w_q, b_q, w_k, b_k, w_v, b_v, w_o, b_o, w_ffn1, b_ffn1, w_ffn2, b_ffn2,
-    ln1_gamma, ln1_beta, ln2_gamma, ln2_beta.
-
-    Bounds:
-      - Projection matrices (Q/K/V/O): Xavier uniform sqrt(6 / (2*d_model)) * mul
-      - FFN1/FFN2:                     Xavier uniform sqrt(6 / (d_model + d_ffn)) * mul
-      - Biases:                        tight uniform [-0.1*mul, 0.1*mul]
-      - LN gamma:                      uniform [1 - 0.01*mul, 1 + 0.01*mul]
-      - LN beta:                       uniform [-0.01*mul, 0.01*mul]
+    """Bounds:
+    - Projection matrices (Q/K/V/O): Xavier uniform sqrt(6 / (2*d_model)) * mul
+    - FFN1/FFN2:                     Xavier uniform sqrt(6 / (d_model + d_ffn)) * mul
+    - Biases:                        tight uniform [-0.1*mul, 0.1*mul]
+    - LN gamma:                      uniform [1 - 0.01*mul, 1 + 0.01*mul]
+    - LN beta:                       uniform [-0.01*mul, 0.01*mul]
     """
     from math import sqrt
 
@@ -237,239 +227,136 @@ def _transformer_specs(layer: TransformerSpec, layer_idx: int, bound_multiplier:
     beta_bound = 0.01 * mul
 
     specs: list[ParamSpec] = []
-    # 4 projection matrices: w_q/b_q, w_k/b_k, w_v/b_v, w_o/b_o  (each [d,d] + [d])
-    for proj_name, bias_name in (("w_q", "b_q"), ("w_k", "b_k"), ("w_v", "b_v"), ("w_o", "b_o")):
-        for j in range(d):
-            for k in range(d):
-                specs.append(ParamSpec(f"{proj_name}{li}_{j}_{k}", -proj_bound, proj_bound, 0.0))
-        for j in range(d):
-            specs.append(ParamSpec(f"{bias_name}{li}_{j}", -bias_bound, bias_bound, 0.0))
-    # w_ffn1 [f, d] + b_ffn1 [f]
-    for j in range(f):
-        for k in range(d):
-            specs.append(ParamSpec(f"w_ffn1_{li}_{j}_{k}", -ffn_bound, ffn_bound, 0.0))
-    for j in range(f):
-        specs.append(ParamSpec(f"b_ffn1_{li}_{j}", -bias_bound, bias_bound, 0.0))
-    # w_ffn2 [d, f] + b_ffn2 [d]
-    for j in range(d):
-        for k in range(f):
-            specs.append(ParamSpec(f"w_ffn2_{li}_{j}_{k}", -ffn_bound, ffn_bound, 0.0))
-    for j in range(d):
-        specs.append(ParamSpec(f"b_ffn2_{li}_{j}", -bias_bound, bias_bound, 0.0))
-    # LN1: gamma [d] + beta [d]
-    for j in range(d):
-        specs.append(ParamSpec(f"ln1_gamma{li}_{j}", gamma_lo, gamma_hi, 0.0))
-    for j in range(d):
-        specs.append(ParamSpec(f"ln1_beta{li}_{j}", -beta_bound, beta_bound, 0.0))
-    # LN2: gamma [d] + beta [d]
-    for j in range(d):
-        specs.append(ParamSpec(f"ln2_gamma{li}_{j}", gamma_lo, gamma_hi, 0.0))
-    for j in range(d):
-        specs.append(ParamSpec(f"ln2_beta{li}_{j}", -beta_bound, beta_bound, 0.0))
+    for name, shape in layer_schema(layer):
+        if name in ("w_q", "w_k", "w_v", "w_o"):
+            specs += [ParamSpec(f"{name}{li}_{j}_{k}", -proj_bound, proj_bound, 0.0) for j in range(shape[0]) for k in range(shape[1])]
+        elif name in ("w_ffn1", "w_ffn2"):
+            specs += [ParamSpec(f"{name}_{li}_{j}_{k}", -ffn_bound, ffn_bound, 0.0) for j in range(shape[0]) for k in range(shape[1])]
+        elif name in ("b_ffn1", "b_ffn2"):
+            specs += [ParamSpec(f"{name}_{li}_{j}", -bias_bound, bias_bound, 0.0) for j in range(shape[0])]
+        elif name.startswith("b_"):
+            specs += [ParamSpec(f"{name}{li}_{j}", -bias_bound, bias_bound, 0.0) for j in range(shape[0])]
+        elif name.endswith("_gamma"):
+            specs += [ParamSpec(f"{name}{li}_{j}", gamma_lo, gamma_hi, 0.0) for j in range(shape[0])]
+        else:  # ln*_beta
+            specs += [ParamSpec(f"{name}{li}_{j}", -beta_bound, beta_bound, 0.0) for j in range(shape[0])]
     return specs
 
 
-def _mamba_specs(layer: MambaSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
-    """ParamSpec list in canonical flat order matching Rust `LayerWeights for MambaLayer::to_flat`.
-
-    INVARIANT: ordering MUST match Rust's to_flat / from_flat cursor advance order:
-      1. x_proj_w  [(dt_rank + 2*d_state), d_inner] row-major -- Xavier around 0
-      2. dt_proj_w [d_inner, dt_rank]                row-major -- Xavier * dt_rank^{-0.5} around 0
-      3. dt_proj_b [d_inner]                                   -- inv_softplus(U(1e-3, 1e-1)) centers
-      4. a_log     [d_inner, d_state]                row-major -- HiPPO log(n+1) centers (outer d, inner n)
-      5. d_skip    [d_inner]                                   -- 1.0 centers
-
-    dt_proj_b centers draw from `_MAMBA_DT_BIAS_SEED ^ layer_idx` so each stacked
-    Mamba layer gets its own per-channel centers (matches `_init_mamba_layer`).
+def _ssm_specs(layer: MambaSpec | Mamba3Spec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
+    """Mamba / Mamba-3 per-tensor rules:
+    x_proj_w     -- Xavier around 0
+    dt_proj_w    -- Xavier * dt_rank^{-0.5} around 0
+    dt_proj_b    -- inv_softplus(U(1e-3, 1e-1)) centers, drawn from
+                    `_MAMBA_DT_BIAS_SEED ^ layer_idx` so stacked layers diverge at
+                    init (matches `_init_mamba_layer`)
+    a_log        -- HiPPO log(n+1) centers (outer d, inner n)
+    a_imag       -- rotation frequency, center 0, +-pi            [Mamba3 complex]
+    lambda_logit -- center +4 (near-euler), wide asymmetric search [Mamba3 trapezoidal]
+    d_skip       -- 1.0 centers
     """
     d_inner = layer.input_size
-    d_state = layer.d_state
     dt_rank = layer.dt_rank
     assert dt_rank is not None  # validator always resolves this
     mul = bound_multiplier
     li = layer_idx
 
     specs: list[ParamSpec] = []
-
-    # 1. x_proj_w: [(dt_rank + 2*d_state), d_inner] -- Xavier around 0
-    fan_in_xp = d_inner
-    fan_out_xp = dt_rank + 2 * d_state
-    bound_xp = math.sqrt(6.0 / (fan_in_xp + fan_out_xp)) * mul
-    for j in range(fan_out_xp * d_inner):
-        specs.append(ParamSpec(f"x_proj_w{li}_{j}", -bound_xp, bound_xp, 0.0))
-
-    # 2. dt_proj_w: [d_inner, dt_rank] -- Xavier * dt_rank^{-0.5} around 0
-    fan_in_dt = dt_rank
-    fan_out_dt = d_inner
-    bound_dt = math.sqrt(6.0 / (fan_in_dt + fan_out_dt)) / math.sqrt(max(dt_rank, 1)) * mul
-    for j in range(d_inner * dt_rank):
-        specs.append(ParamSpec(f"dt_proj_w{li}_{j}", -bound_dt, bound_dt, 0.0))
-
-    # 3. dt_proj_b: [d_inner] -- per-channel inv_softplus(U(1e-3, 1e-1)) centers
-    #    Mix layer_idx into the seed so stacked Mamba layers diverge at init.
-    local_rng = np.random.default_rng(_MAMBA_DT_BIAS_SEED ^ li)
-    dt_draws = local_rng.uniform(1e-3, 1e-1, size=d_inner)
-    for d in range(d_inner):
-        dt = float(dt_draws[d])
-        center = math.log(math.expm1(dt))
-        specs.append(ParamSpec(f"dt_proj_b{li}_{d}", center - mul, center + mul, center))
-
-    # 4. a_log: [d_inner, d_state] -- HiPPO log(n+1) centers; outer d, inner n (row-major)
-    for d in range(d_inner):
-        for n in range(d_state):
-            center = math.log(n + 1)
-            specs.append(ParamSpec(f"a_log{li}_{d}_{n}", center - mul, center + mul, center))
-
-    # 5. d_skip: [d_inner] -- 1.0 centers
-    for d in range(d_inner):
-        specs.append(ParamSpec(f"d_skip{li}_{d}", 1.0 - mul, 1.0 + mul, 1.0))
-
+    for name, shape in layer_schema(layer):
+        if name == "x_proj_w":
+            bound = math.sqrt(6.0 / (d_inner + shape[0])) * mul
+            specs += _uniform(f"x_proj_w{li}", shape, bound)
+        elif name == "dt_proj_w":
+            bound = math.sqrt(6.0 / (dt_rank + d_inner)) / math.sqrt(max(dt_rank, 1)) * mul
+            specs += _uniform(f"dt_proj_w{li}", shape, bound)
+        elif name == "dt_proj_b":
+            dt_draws = np.random.default_rng(_MAMBA_DT_BIAS_SEED ^ li).uniform(1e-3, 1e-1, size=shape[0])
+            for d in range(shape[0]):
+                center = math.log(math.expm1(float(dt_draws[d])))
+                specs.append(ParamSpec(f"dt_proj_b{li}_{d}", center - mul, center + mul, center))
+        elif name == "a_log":
+            for d in range(shape[0]):
+                for n in range(shape[1]):
+                    center = math.log(n + 1)
+                    specs.append(ParamSpec(f"a_log{li}_{d}_{n}", center - mul, center + mul, center))
+        elif name == "a_imag":
+            specs += [ParamSpec(f"a_imag{li}_{d}_{n}", -math.pi, math.pi, 0.0) for d in range(shape[0]) for n in range(shape[1])]
+        elif name == "lambda_logit":
+            specs += [ParamSpec(f"lambda_logit{li}_{d}", -8.0, 12.0, 4.0) for d in range(shape[0])]
+        else:  # d_skip
+            specs += [ParamSpec(f"d_skip{li}_{d}", 1.0 - mul, 1.0 + mul, 1.0) for d in range(shape[0])]
     return specs
+
+
+def _mamba_specs(layer: MambaSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
+    return _ssm_specs(layer, layer_idx, bound_multiplier)
 
 
 def _mamba3_specs(layer: Mamba3Spec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
-    """ParamSpec list for the Mamba-3 ablation layer, canonical flat order.
-
-    Base blocks (x_proj_w, dt_proj_w, dt_proj_b, a_log) mirror `_mamba_specs`.
-    Conditional blocks inserted before d_skip:
-      a_imag       [d_inner, d_state]  -- rotation frequency, center 0, +-pi   [iff complex]
-      lambda_logit [d_inner]           -- center +4 (near-euler), wide search  [iff trapezoidal]
-    Order MUST match Rust `LayerWeights for Mamba3Layer::to_flat`.
-    """
-    d_inner = layer.input_size
-    d_state = layer.d_state
-    dt_rank = layer.dt_rank
-    assert dt_rank is not None
-    mul = bound_multiplier
-    li = layer_idx
-
-    specs: list[ParamSpec] = []
-
-    # 1. x_proj_w -- Xavier around 0
-    fan_out_xp = dt_rank + 2 * d_state
-    bound_xp = math.sqrt(6.0 / (d_inner + fan_out_xp)) * mul
-    for j in range(fan_out_xp * d_inner):
-        specs.append(ParamSpec(f"x_proj_w{li}_{j}", -bound_xp, bound_xp, 0.0))
-
-    # 2. dt_proj_w -- Xavier * dt_rank^{-0.5} around 0
-    bound_dt = math.sqrt(6.0 / (dt_rank + d_inner)) / math.sqrt(max(dt_rank, 1)) * mul
-    for j in range(d_inner * dt_rank):
-        specs.append(ParamSpec(f"dt_proj_w{li}_{j}", -bound_dt, bound_dt, 0.0))
-
-    # 3. dt_proj_b -- inv_softplus(U(1e-3, 1e-1)) centers (same sub-RNG as _init_mamba3_layer)
-    local_rng = np.random.default_rng(_MAMBA_DT_BIAS_SEED ^ li)
-    dt_draws = local_rng.uniform(1e-3, 1e-1, size=d_inner)
-    for d in range(d_inner):
-        center = math.log(math.expm1(float(dt_draws[d])))
-        specs.append(ParamSpec(f"dt_proj_b{li}_{d}", center - mul, center + mul, center))
-
-    # 4. a_log -- HiPPO log(n+1) centers
-    for d in range(d_inner):
-        for n in range(d_state):
-            center = math.log(n + 1)
-            specs.append(ParamSpec(f"a_log{li}_{d}_{n}", center - mul, center + mul, center))
-
-    # 4b. a_imag -- rotation frequency, center 0, bounds +-pi (only when complex)
-    if layer.state_mode == "complex":
-        for d in range(d_inner):
-            for n in range(d_state):
-                specs.append(ParamSpec(f"a_imag{li}_{d}_{n}", -math.pi, math.pi, 0.0))
-
-    # 4c. lambda_logit -- center +4 (sigmoid ~ 0.98, near-euler); wide asymmetric search (only when trapezoidal)
-    if layer.discretization == "trapezoidal":
-        for d in range(d_inner):
-            specs.append(ParamSpec(f"lambda_logit{li}_{d}", -8.0, 12.0, 4.0))
-
-    # 5. d_skip -- 1.0 centers
-    for d in range(d_inner):
-        specs.append(ParamSpec(f"d_skip{li}_{d}", 1.0 - mul, 1.0 + mul, 1.0))
-
-    return specs
+    return _ssm_specs(layer, layer_idx, bound_multiplier)
 
 
 def _cfc_specs(layer: CfcSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
-    """Canonical flat order (Rust CfcLayer::to_flat): interleaved matrix/bias pairs
-    w_bb, b_bb, w_ff1, b_ff1, w_ff2, b_ff2, w_ta, b_ta, w_tb, b_tb.
-
-    Bounds: tanh-Xavier on w_bb/w_ff1/w_ff2 (feed lecun_tanh / tanh), plain
-    Xavier ("linear") on the time heads w_ta/w_tb, tight 0.1*mul biases.
-    """
+    """tanh-Xavier on w_bb/w_ff1/w_ff2 (feed lecun_tanh / tanh), plain Xavier
+    ("linear") on the time heads w_ta/w_tb, tight 0.1*mul biases."""
     i, h, b = layer.input_size, layer.hidden_size, layer.backbone_units
-    cat = i + h
-    bb_bound = bound_multiplier * compute_layer_bound(cat, b, "tanh")
     ff_bound = bound_multiplier * compute_layer_bound(b, h, "tanh")
     t_bound = bound_multiplier * compute_layer_bound(b, h, "linear")
+    bounds = {
+        "w_bb": bound_multiplier * compute_layer_bound(i + h, b, "tanh"),
+        "w_ff1": ff_bound,
+        "w_ff2": ff_bound,
+        "w_ta": t_bound,
+        "w_tb": t_bound,
+    }
     bias_bound = 0.1 * bound_multiplier
-    li = layer_idx
-
     specs: list[ParamSpec] = []
-    for name, rows, cols, w_bound in (
-        ("w_bb", b, cat, bb_bound),
-        ("w_ff1", h, b, ff_bound),
-        ("w_ff2", h, b, ff_bound),
-        ("w_ta", h, b, t_bound),
-        ("w_tb", h, b, t_bound),
-    ):
-        for j in range(rows * cols):
-            specs.append(ParamSpec(f"{name}{li}_{j}", -w_bound, w_bound, 0.0))
-        bias_name = name.replace("w_", "b_")
-        for j in range(rows):
-            specs.append(ParamSpec(f"{bias_name}{li}_{j}", -bias_bound, bias_bound, 0.0))
+    for name, shape in layer_schema(layer):
+        specs += _uniform(f"{name}{layer_idx}", shape, bounds.get(name, bias_bound))
     return specs
 
 
 def _slstm_specs(layer: SlstmSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
-    """Canonical flat order (Rust SlstmLayer::to_flat): weight_ih [4H,I] row-major,
-    weight_hh [4H,H] row-major, bias [4H]. Gate order (i, f, z, o).
-
-    The forget slice of `bias` (rows [H:2H]) gets the wide 3.0*mul bound to hold
-    the +2.0 exp-gating forget-bias init center (LSTM forget-bias-1 precedent,
-    scaled for the exponential gate).
-    """
+    """Gate order (i, f, z, o). The forget slice of `bias` (rows [H:2H]) gets the
+    wide 3.0*mul bound to hold the +2.0 exp-gating forget-bias init center (LSTM
+    forget-bias-1 precedent, scaled for the exponential gate)."""
     h = layer.hidden_size
-    four_h = 4 * h
-    w_ih_bound = bound_multiplier * compute_layer_bound(layer.input_size, four_h, "tanh")
-    w_hh_bound = bound_multiplier * compute_layer_bound(h, four_h, "tanh")
-    tight = 0.1 * bound_multiplier
+    bounds = {
+        "weight_ih": bound_multiplier * compute_layer_bound(layer.input_size, 4 * h, "tanh"),
+        "weight_hh": bound_multiplier * compute_layer_bound(h, 4 * h, "tanh"),
+        "bias": 0.1 * bound_multiplier,
+    }
     forget = 3.0 * bound_multiplier
-    li = layer_idx
-
     specs: list[ParamSpec] = []
-    for j in range(four_h * layer.input_size):
-        specs.append(ParamSpec(f"w_ih{li}_{j}", -w_ih_bound, w_ih_bound, 0.0))
-    for j in range(four_h * h):
-        specs.append(ParamSpec(f"w_hh{li}_{j}", -w_hh_bound, w_hh_bound, 0.0))
-    for j in range(four_h):
-        if h <= j < 2 * h:
-            specs.append(ParamSpec(f"b{li}_{j}", -forget, forget, 2.0))
-        else:
-            specs.append(ParamSpec(f"b{li}_{j}", -tight, tight, 0.0))
+    for name, shape in layer_schema(layer):
+        prefix = f"{_GATED_CELL_NAMES[name]}{layer_idx}"
+        for j in range(math.prod(shape)):
+            if name == "bias" and h <= j < 2 * h:
+                specs.append(ParamSpec(f"{prefix}_{j}", -forget, forget, 2.0))
+            else:
+                specs.append(ParamSpec(f"{prefix}_{j}", -bounds[name], bounds[name], 0.0))
     return specs
 
 
 def _mlstm_specs(layer: MlstmSpec, layer_idx: int, bound_multiplier: float) -> list[ParamSpec]:
-    """Canonical flat order (Rust MlstmLayer::to_flat): w_q, b_q, w_k, b_k, w_v,
-    b_v, w_o, b_o, w_i, b_i, w_f, b_f. Xavier ("linear") on projections and gate
-    vectors; b_f wide (3.0*mul, +2.0 init center); every other bias tight.
-    """
+    """Xavier ("linear") on projections and gate vectors; b_f wide (3.0*mul, +2.0
+    init center); every other bias tight."""
     i, h = layer.input_size, layer.hidden_size
     proj_bound = bound_multiplier * compute_layer_bound(i, h, "linear")
     gate_bound = bound_multiplier * compute_layer_bound(i, 1, "linear")
     tight = 0.1 * bound_multiplier
     forget = 3.0 * bound_multiplier
     li = layer_idx
-
     specs: list[ParamSpec] = []
-    for name in ("w_q", "w_k", "w_v", "w_o"):
-        for j in range(h * i):
-            specs.append(ParamSpec(f"{name}{li}_{j}", -proj_bound, proj_bound, 0.0))
-        bias_name = name.replace("w_", "b_")
-        for j in range(h):
-            specs.append(ParamSpec(f"{bias_name}{li}_{j}", -tight, tight, 0.0))
-    for j in range(i):
-        specs.append(ParamSpec(f"w_i{li}_{j}", -gate_bound, gate_bound, 0.0))
-    specs.append(ParamSpec(f"b_i{li}", -tight, tight, 0.0))
-    for j in range(i):
-        specs.append(ParamSpec(f"w_f{li}_{j}", -gate_bound, gate_bound, 0.0))
-    specs.append(ParamSpec(f"b_f{li}", -forget, forget, 2.0))
+    for name, shape in layer_schema(layer):
+        if name == "b_f":
+            specs.append(ParamSpec(f"b_f{li}", -forget, forget, 2.0))
+        elif name == "b_i":
+            specs.append(ParamSpec(f"b_i{li}", -tight, tight, 0.0))
+        elif name in ("w_i", "w_f"):
+            specs += _uniform(f"{name}{li}", shape, gate_bound)
+        elif name.startswith("w_"):
+            specs += _uniform(f"{name}{li}", shape, proj_bound)
+        else:  # b_q, b_k, b_v, b_o
+            specs += _uniform(f"{name}{li}", shape, tight)
     return specs

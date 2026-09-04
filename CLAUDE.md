@@ -107,12 +107,17 @@ src/rust/src/
     navigation.rs                  — Navigation error profiles
     incidence.rs                   — AoA profile tables
     pilot.rs                       — Pilot dynamics parameters
-    neural/                        — NN model module tree: `mod.rs` (NeuralNetModel, Layer/LayerSpec enums incl. `LayerSpec::io()` chain-shape accessor, LayerWeights trait, all serialization
-                                       from_v1_json/from_v2_json/from_flat_weights_v2/save_json, NormSpec/OutputParam/DEFAULT_NORMALIZATION/apply_norm, stateful `forward(&mut NnState, &[f64])`) +
-                                       `layers/` (per-type submodules dense/gru/lstm/window/transformer/mamba/mamba3/cfc/slstm/mlstm, each with its `LayerWeights` impl; `helpers.rs` shares
-                                       matvec/dot_plus_bias/gelu_exact/layer_norm_biased/build_pe_table/softplus/expm1_over_x/lecun_tanh/stabilized_exp_gates + the
-                                       copy_mat_from_flat/copy_vec_from_flat flat-slab cursors) + `tests.rs`. v1 + v2 (tagged-layer list) loaders; LayerWeights `to_flat`/`from_flat`/`n_params` for PSO
-                                       chromosome round-trip with canonical per-layer ordering matching the PyTorch mirror
+    neural/                        — NN model module tree: `mod.rs` (NeuralNetModel, Layer/LayerSpec enums incl. `LayerSpec::io()` chain-shape accessor, `Layer::from_spec` (zero layer
+                                       + the ONE dim-validation site), the `LayerWeights` trait -- `tensors()`/`tensors_mut()` from the per-layer table, `post_load` hook, and DEFAULT
+                                       `to_flat`/`from_flat`/`n_params` -- and the generic codec: v1/v2 loaders share `load_layers` (zero layer from spec -> each table tensor looked up
+                                       by name + shape-checked via `json_to_flat` -> one `from_flat`, which runs `post_load`), `save_json` walks `tensors()` (keys in table order except
+                                       `JSON_KEYS_LAST` = Mamba3 `a_imag`/`lambda_logit`, kept last so re-saves stay byte-identical to the retired fixed-field schema), NormSpec/OutputParam/
+                                       DEFAULT_NORMALIZATION/apply_norm, stateful `forward(&mut NnState, &[f64])`) + `layers/` (`tensor.rs`: `Shape`, the `Tensor` trait over f64/Vec/Vec<Vec>/
+                                       DVector/DMatrix (+ `Option` = flag-gated), and the `tensor_table!` macro that declares a layer's weights ONCE -- the listed fields in order ARE the
+                                       flat order and the JSON keys; per-type submodules dense/gru/lstm/window/transformer/mamba/mamba3/cfc/slstm/mlstm each declare one table (+ `zeros`
+                                       constructor); `helpers.rs` shares matvec/dot_plus_bias/gelu_exact/layer_norm_biased/build_pe_table/softplus/expm1_over_x/lecun_tanh/
+                                       stabilized_exp_gates) + `tests.rs`. Frozen gates: `tests/nn_flat_order_fixtures.rs` (per-type flat vector + exact save_json bytes under
+                                       `tests/fixtures/flat_order/`) and `tests/nn_model_roundtrip.rs` (every committed model JSON load->save->reload; `--ignored` resave tool for byte diffs)
     nn_state.rs                    — `NnState { layer_states: Vec<LayerState> }` per-sim mutable state for stateful NN layers; lives outside NeuralNetModel (model is Arc-shared immutable);
                                        `LayerState::None` in Phase 0 (Gru/Lstm/Window/Ssm variants land in later phases); `Clone` for RL rollout snapshots; reset at episode start via
                                        `GuidanceState::new` reconstruction
@@ -1090,8 +1095,8 @@ buffer, sinusoidal PE relative to ring-buffer slot. PSO-only; PPO deferred to Ph
   `TransformerSpec` pydantic discriminated-union entry (validator: d_model % n_heads == 0, all shape fields positive), `build_layer` + `load_policy_from_json` raise `NotImplementedError` (PPO gate,
   same pattern as Window-MLP), `_transformer_specs` PSO ParamSpec generator with Xavier on projections (`sqrt(6/(2*d_model))`) + FFN (`sqrt(6/(d_model+d_ffn))`) + uniform [1-0.01*mul, 1+0.01*mul] on
   LN gamma + tight near-zero on biases / LN beta (ordering MUST match Rust `to_flat` or PSO chromosomes scramble), `_layer_n_params` + `_layer_output_size` + `describe_architecture` +
-  `init_v2_population` Transformer arms, `export_v2_policy_to_json` writes 16-key **flat** weights dict (`ln1_gamma`/`ln1_beta`/`ln2_gamma`/`ln2_beta` as top-level keys, NOT nested -- matches
-  `NnLayerWeights` Rust schema).
+  `init_v2_population` Transformer arms, `export_v2_policy_to_json` writes 16-key **flat** weights dict (`ln1_gamma`/`ln1_beta`/`ln2_gamma`/`ln2_beta` as top-level keys, NOT nested -- the
+  Rust tensor-table names).
 - **Training**: `configs/training/msr_aller_transformer_pso_train.toml` -- Dense(23 -> 32, linear) -> Transformer(d_model=32, n_heads=4, d_ffn=128, n_seq=64) x2 -> Dense(32 -> 2, asinh), 26,242
   trainable params, PSO n_pop=64 n_gen=2000 seed_strategy="adaptive". Registered as `neural_network_transformer_pso` in `compare_guidance.SCHEMES` + `_NN_DEPLOY_SCHEMES`; `train_all.sh` aliases
   `transformer_pso` / `nn_transformer_pso` / `transformer`.
@@ -1172,12 +1177,15 @@ dims choice) is relaunched with `--from-scratch` since its checkpoints are unusa
 mid-run validation promotion, so a killed run reads as "done" and silently deploys an under-trained (or wrong-arch) arm. Leave all ARMS uncommented and let the guard skip finished ones; commenting
 arms out to control training breaks the arm-set tests and drops the baseline row + significance from the report. Spec: `docs/design/2026-07-07-cfc-xlstm-probes-design.md`.
 
-**Extensibility (post-Phase-2b contract) -- scalar-state layers**: adding a Phase 3+ scalar-state layer type (Attention with reset-per-episode KV, Layer-Norm) touches only `neural.rs`
-(LayerSpec/Layer/XxxLayer/LayerWeights/save_json/from_v2_json/from_flat_weights_v2 arms), `nn_state.rs` (LayerState variant + for_layer + reset arms), `config.rs` (TomlLayerSpec variant +
-to_layer_spec arm), `rl/layers/<type>.py` (new file), `rl/layers/__init__.py` (dispatch line), `rl/schemas.py` (Spec class + union entry), `encoding.py` (dispatch branch), `rl/export.py` +
-`model_io.py` (isinstance branches), plus `_layer_n_params` + `_layer_output_size` arms in `config.py`. No further changes to `problem.py`, `dispatch.rs`, or `runner.rs`. Phase 2b additionally locked
-in **zero-trainable-parameter scalar-state layers** as a supported case: `_layer_param_specs` can return `[]`, `LayerWeights::from_flat` can be a tail-tolerant no-op, and `init_v2_population` can
-contribute a one-line `continue` branch.
+**Extensibility (tensor-table contract, 2026-09) -- scalar-state layers**: a new layer type declares its weights ONCE. Rust: `layers/<type>.rs` (struct + forward + `zeros` +
+`tensor_table!(XxxLayer { field, ... } [, post_load = hook])` -- the field list IS the flat order, the JSON keys, and `n_params`; flag-gated tensors are `Option` fields), then one arm each
+in `neural/mod.rs` (`LayerSpec` variant, `LayerSpec::io`, `Layer` variant + `as_weights`/`as_weights_mut`/`from_spec`, `forward`), `nn_state.rs` (LayerState variant + for_layer + reset arms),
+`config.rs` (TomlLayerSpec variant + to_layer_spec arm). No serialization code is written: `load_layers`/`save_json`/`from_flat_weights_v2` are generic walks over the table. Python:
+`rl/schemas.py` (Spec class + union entry), `layer_schema.py::_fallback_layer_schema` (one branch mirroring the table -- asserted equal to `aerocapture_rs.layer_schema` by
+`tests/test_layer_schema_drift.py`), `encoding.py` (a per-tensor bound/center/naming rule walking `layer_schema`; a frozen-spec fixture guards the chromosome contract),
+`_layer_output_size` arm in `config.py`; `rl/layers/<type>.py` + `rl/layers/__init__.py` only for BPTT-trainable types (`rl/export.py` / `model_io.py` split and rebuild slabs from the
+schema, so they only need a `_spec_entry` branch). Parameter counting (`_layer_n_params`) needs nothing. No changes to `problem.py`, `dispatch.rs`, or `runner.rs`. Zero-parameter layers
+(Window) are an empty table: `from_flat` consumes 0 from any slice, `save_json` writes no entry, `_layer_param_specs` returns `[]`, `init_v2_population` contributes a one-line `continue`.
 
 **Multi-tensor hidden states** (LSTM `(h, c)`, future Mamba SSM state, Transformer KV cache) additionally require the set of changes Phase 2a made for LSTM: (a) extend `_zero_state_where_done` in
 `policy.py` with a branch for the new container type (current helper handles `None`, `Tensor`, and `tuple`-of-the-above and raises `TypeError` on anything else to force the extension); (b) add a
@@ -1194,10 +1202,10 @@ dispatch needed. For Phase 4b (Mamba PPO), the rollout buffer stores it as `(T, 
 one operation.
 
 **Derived-at-load-time per-layer fields (PE-offset precompute pattern)**: Phase 3a introduced fields that are NOT in the flat chromosome but ARE reconstructed from other loaded weights.
-`TransformerLayer::k_pe_offsets` and `v_pe_offsets` are matrices `[n_seq][d_model]` precomputed as `W_K @ PE_table` and `W_V @ PE_table` once at layer construction. Reconstruction happens in BOTH
-entry points: `from_flat` (PSO chromosome -> layer) AND `from_v2_json` (JSON -> layer) via `rebuild_pe_offsets`. Future layer types with derived state (Mamba `A_bar` / `B_bar`, for instance) follow
-the same pattern: store only the trainable parameters in the flat chromosome; derive dependent matrices at load time in both paths. Failure to call the rebuild method after mutating `w_k` / `w_v`
-produces silently wrong attention output.
+`TransformerLayer::k_pe_offsets` and `v_pe_offsets` are matrices `[n_seq][d_model]` precomputed as `W_K @ PE_table` and `W_V @ PE_table`. They are not table entries; the layer names the
+rebuild as its hook -- `tensor_table!(TransformerLayer { ... }, post_load = rebuild_pe_offsets)` -- and the default `LayerWeights::from_flat` runs `post_load` at the end of EVERY load,
+so both entry points (JSON via `load_layers`, PSO chromosome via `from_flat_weights_v2`) rebuild without per-path code. Future layer types with derived state (Mamba `A_bar` / `B_bar`,
+for instance) do the same: store only trainable parameters in the table, name a `post_load` hook. Mutating `w_k` / `w_v` by hand still requires calling `rebuild_pe_offsets` yourself.
 
 **Rust side:**
 - `data/neural.rs` -- `LayerSpec` tagged enum (`#[serde(tag = "type")]`), `LayerWeights` trait for flat-weight round-trip, `NeuralNetModel::forward(&self, &mut NnState, &[f64])` stateful signature,
