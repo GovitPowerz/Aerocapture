@@ -1,6 +1,6 @@
 # Issue tracker: GitHub
 
-> **Scope note:** the user's global instructions ban the `gh` CLI generally. Issue-tracker operations in this repo are an explicit exception, chosen during setup on 2026-08-26. The ban still applies to PR creation and other GitHub operations.
+> **Scope note:** in this repo the `gh` CLI is allowed for issue-tracker operations (chosen during setup on 2026-08-26), and since 2026-09-04 also for pushing feature branches (`git push`, never force, never to `main`) and for creating, editing, viewing and commenting on pull requests and their CI checks. **Merging is the user's alone**: never `gh pr merge`, never a merge API call, never a push to `main`. The permission rules in `.claude/settings.json` encode exactly this (allow list + deny list); everything else on GitHub still prompts.
 
 Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
