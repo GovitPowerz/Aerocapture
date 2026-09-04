@@ -120,7 +120,7 @@ def run_final_evaluation(
         print("PyO3 bindings not available -- skipping final evaluation")
         return None
 
-    from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
+    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     eval_toml, scaffolding_overrides = resolve_eval_toml(toml_path, scheme_dir)
@@ -177,7 +177,7 @@ def compute_eval_summary(
       } (None when n_captured == 0),
       constraints: {heat_flux, g_load, heat_load} -> {p50, p95, max, limit, viol_pct}
     """
-    from aerocapture.training.evaluate import compute_cost
+    from aerocapture.training.cost import compute_cost
 
     captured_mask = charts.is_captured(final_records)
     n_captured = int(np.sum(captured_mask))
@@ -464,7 +464,7 @@ def _build_summary_table(
     ]
 
     # Objective cost (over ALL sims)
-    from aerocapture.training.evaluate import compute_cost
+    from aerocapture.training.cost import compute_cost
 
     per_sim_costs = np.array([compute_cost(final_records[i : i + 1], **(cost_kwargs or {})) for i in range(n_total)])
     rms_cost = float(np.sqrt(np.mean(per_sim_costs**2)))

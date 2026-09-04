@@ -80,7 +80,7 @@ def generate_configs(repeats: int, n_gen: int, training_n_sims: int) -> None:
 
 
 def eval_all(repeats: int, n_sims: int, sim_timeout: float | None) -> dict[str, Any]:
-    from aerocapture.training.evaluate import PROBE_EVAL_SEED_OFFSET, make_reserved_seeds
+    from aerocapture.training.seeds import PROBE_EVAL_SEED_OFFSET, make_reserved_seeds
 
     seeds = make_reserved_seeds(0, PROBE_EVAL_SEED_OFFSET, n_sims)
     results: dict[str, Any] = {

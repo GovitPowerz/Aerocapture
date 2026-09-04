@@ -1,7 +1,7 @@
 """Shared machinery for the architecture probe drivers (cfc / xlstm / mamba3).
 
 All probe scripts score on the SAME reserved pool
-(evaluate.PROBE_EVAL_SEED_OFFSET) so their reports are directly comparable,
+(seeds.PROBE_EVAL_SEED_OFFSET) so their reports are directly comparable,
 and every claim is gated on sigma_run from seed-repeats (project lesson:
 single-run deltas are noise).
 

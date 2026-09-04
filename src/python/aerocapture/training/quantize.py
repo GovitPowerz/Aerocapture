@@ -264,7 +264,7 @@ def _score_variant(
 
 
 def _resolve_pool(toml_path: str, pool_offset: int, n_sims: int) -> tuple[list[int], dict[str, Any]]:
-    from aerocapture.training.evaluate import make_reserved_seeds
+    from aerocapture.training.seeds import make_reserved_seeds
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     base_mc_seed = int(load_toml_with_bases(Path(toml_path)).get("monte_carlo", {}).get("seed", 42))
@@ -330,7 +330,7 @@ def run_quant_sweep(
         raise ValueError(f"loo_bits={loo_bits} must be one of the swept bits {tuple(bits)} (the verdict cell is picked from that grid)")
 
     from aerocapture.training.ablation import _load_cost_kwargs
-    from aerocapture.training.evaluate import HEADLINE_REQUOTE_SEED_OFFSET
+    from aerocapture.training.seeds import HEADLINE_REQUOTE_SEED_OFFSET
 
     offset = HEADLINE_REQUOTE_SEED_OFFSET if pool_offset is None else pool_offset
     seeds, pool = _resolve_pool(toml_path, offset, n_sims)
@@ -406,7 +406,7 @@ def run_finalists(
     the PTQ finalist passes the verdict cell so the champion is rounded on the fly.
     """
     from aerocapture.training.ablation import _load_cost_kwargs
-    from aerocapture.training.evaluate import HEADLINE_REQUOTE_SEED_OFFSET
+    from aerocapture.training.seeds import HEADLINE_REQUOTE_SEED_OFFSET
 
     offset = HEADLINE_REQUOTE_SEED_OFFSET if pool_offset is None else pool_offset
     seeds, pool = _resolve_pool(toml_path, offset, n_sims)

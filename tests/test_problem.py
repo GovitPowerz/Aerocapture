@@ -295,7 +295,7 @@ def test_evaluate_individual_records_per_seed_bit_identical_non_nn() -> None:
     import pytest
 
     aero = pytest.importorskip("aerocapture_rs")
-    from aerocapture.training.evaluate import compute_cost
+    from aerocapture.training.cost import compute_cost
     from aerocapture.training.param_spaces import PARAM_SPACES
     from aerocapture.training.parquet_output import FINAL_RECORD_LEN
     from aerocapture.training.problem import AerocaptureProblem
@@ -340,8 +340,8 @@ def test_run_batch_pyo3_matches_per_seed_run_batch_non_nn() -> None:
     import pytest
 
     aero = pytest.importorskip("aerocapture_rs")
+    from aerocapture.training.cost import compute_cost
     from aerocapture.training.encoding import decode_normalized_array
-    from aerocapture.training.evaluate import compute_cost
     from aerocapture.training.param_spaces import PARAM_SPACES
     from aerocapture.training.parquet_output import FINAL_RECORD_LEN
     from aerocapture.training.problem import AerocaptureProblem

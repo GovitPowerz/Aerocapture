@@ -25,8 +25,8 @@ from typing import Any
 import numpy as np
 
 from aerocapture.training import charts
+from aerocapture.training.cost import compute_cost
 from aerocapture.training.deploy_overrides import overrides_from_params
-from aerocapture.training.evaluate import compute_cost
 from aerocapture.training.toml_utils import set_dot_path
 
 SCHEMES = [
@@ -200,10 +200,10 @@ def run_scheme(
         stale_file.unlink(missing_ok=True)
 
     # Write temp TOML
-    from aerocapture.training.evaluate import _write_toml
+    from aerocapture.training.toml_utils import write_toml
 
     temp_toml = cwd / f"_compare_{scheme}.toml"
-    _write_toml(toml_data, temp_toml)
+    write_toml(toml_data, temp_toml)
 
     # Run simulator
     exe = (cwd / executable).resolve()

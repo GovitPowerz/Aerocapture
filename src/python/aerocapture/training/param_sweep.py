@@ -35,11 +35,11 @@ from typing import Any
 import numpy as np
 
 from aerocapture.training.config import NetworkConfig
+from aerocapture.training.seeds import SWEEP_EVAL_SEED_OFFSET
 
 INPUT_DIM = 17  # length of the inherited atan2 input_mask
 ARCHS = ("dense", "gru", "lstm", "mamba", "transformer", "window")
 DEFAULT_BUDGETS = (500, 1000, 2000, 4000)
-SWEEP_EVAL_SEED_OFFSET = 7_000_000  # disjoint from validation(1M)/final(2M)/rl(3M)/warm(4M)/report(5M)/calib(6M)
 
 BASE_CONFIG = "msr_aller_nn_atan2_train.toml"
 SWEEP_CONFIG_DIR = Path("configs/training/sweep")
@@ -278,8 +278,8 @@ def _entry_overrides(entry: dict[str, Any], model: Path, seeds: list[int]) -> li
 def evaluate(manifest: list[dict[str, Any]], n_sims: int, base_seed: int, sim_timeout: float | None, tag: str = "") -> list[dict[str, Any]]:
     import aerocapture_rs
 
-    from aerocapture.training.evaluate import make_reserved_seeds
     from aerocapture.training.report import compute_eval_summary, read_cost_kwargs
+    from aerocapture.training.seeds import make_reserved_seeds
 
     seeds = make_reserved_seeds(base_seed, SWEEP_EVAL_SEED_OFFSET, n_sims)
     results: list[dict[str, Any]] = []

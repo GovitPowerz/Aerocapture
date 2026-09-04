@@ -21,7 +21,7 @@ import numpy.typing as npt
 from aerocapture.training.config import AdamConfig, NetworkConfig, TrainingConfig
 from aerocapture.training.deploy_overrides import overrides_from_params
 from aerocapture.training.encoding import encode_to_normalized, nn_param_specs_from_v2
-from aerocapture.training.evaluate import WARM_START_SEED_OFFSET, make_reserved_seeds
+from aerocapture.training.seeds import WARM_START_SEED_OFFSET, make_reserved_seeds
 
 if TYPE_CHECKING:
     import torch

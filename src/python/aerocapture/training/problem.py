@@ -12,8 +12,8 @@ import numpy as np
 import numpy.typing as npt
 from pymoo.core.problem import Problem
 
+from aerocapture.training.cost import compute_cost
 from aerocapture.training.encoding import decode_normalized_array
-from aerocapture.training.evaluate import compute_cost
 from aerocapture.training.param_spaces import SCAFFOLDING_PREFIXES, ParamSpec, active_scaffolding_specs, route_param_path
 from aerocapture.training.parquet_output import FINAL_RECORD_LEN
 

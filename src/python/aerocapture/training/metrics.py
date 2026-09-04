@@ -53,7 +53,7 @@ def apply_cost_transform(costs: npt.NDArray[np.float64], cost_transform: str) ->
 def apply_cost_transform(costs: float, cost_transform: str) -> float: ...
 def apply_cost_transform(costs: npt.NDArray[np.float64] | float, cost_transform: str) -> npt.NDArray[np.float64] | float:
     """Monotonic per-sim cost rescaling (single source of truth, also used by
-    `compute_cost` in evaluate.py). "log" uses log1p: keeps the zero-cost
+    `compute_cost` in cost.py). "log" uses log1p: keeps the zero-cost
     identity and compresses the tail more aggressively than sqrt.
     """
     if cost_transform == "linear":

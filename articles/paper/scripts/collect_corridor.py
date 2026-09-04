@@ -32,7 +32,7 @@ MAMBA_TOML = REPO / "configs/training/sweep/mamba_p962.toml"
 MAMBA_BUNDLE = REPO / "articles/paper/data/runs/headline/mamba_p962"
 OUT = REPO / "articles/paper/data/corridor.npz"
 
-CORRIDOR_SEED_OFFSET = 10_000_000   # env-dispersion seeds, disjoint from reserved pools (<= 9M)
+CORRIDOR_SEED_OFFSET = 10_000_000   # raw monte_carlo.seed base for the bank draws (NOT a make_reserved_seeds stream; registered as a note in training/seeds.py)
 CORRIDOR_BANK_SEED = 20260706       # fixed -> reproducible bank draws
 
 FR_ECC, FR_APO, FR_IFINAL = 9, 15, 31   # final record (52,)
@@ -129,8 +129,8 @@ def build_overlay(n_ens):
     """Deployed Mamba dispersed ensemble (energy, pdyn per trajectory) + undispersed nominal."""
     import aerocapture_rs
     from aerocapture.training.deploy_overrides import resolve_eval_toml
-    from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.reference import _MC_DISPERSION_DOMAINS
+    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     eval_toml, scaffolding = resolve_eval_toml(MAMBA_TOML, MAMBA_RUN)

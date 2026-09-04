@@ -113,7 +113,7 @@ def _load_cost_kwargs(toml_path: str, cost_transform: str | None = None) -> dict
 
 def _mean_per_sim_cost(final_records: np.ndarray, cost_kwargs: dict[str, Any]) -> float:
     """Compute mean per-sim cost using the training cost function."""
-    from aerocapture.training.evaluate import compute_cost
+    from aerocapture.training.cost import compute_cost
 
     costs = np.array([compute_cost(fr.reshape(1, _FINAL_RECORD_LEN), **cost_kwargs) for fr in final_records])
     return float(np.mean(costs))

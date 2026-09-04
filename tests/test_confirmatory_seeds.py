@@ -7,7 +7,7 @@ confirmatory seeds live in [2**31, 2**32).
 """
 
 import numpy as np
-from aerocapture.training.evaluate import make_confirmatory_pools, make_reserved_seeds
+from aerocapture.training.seeds import make_confirmatory_pools, make_reserved_seeds
 
 
 def test_pools_shape_unique_and_range() -> None:

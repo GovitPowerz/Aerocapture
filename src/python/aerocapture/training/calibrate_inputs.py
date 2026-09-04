@@ -43,7 +43,7 @@ from typing import cast
 
 import numpy as np
 
-from aerocapture.training.evaluate import CALIBRATION_SEED_OFFSET
+from aerocapture.training.seeds import CALIBRATION_SEED_OFFSET
 
 # Inputs forced to asinh regardless of the observed tail ratio (known heavy-tailed:
 # velocities, energy, accelerations, DV). Optional override -- disable with
@@ -166,7 +166,7 @@ def choose_transform(
 def _collect_raw(toml_path: str, n_sims: int, transforms: list[dict] | None = None) -> dict[int, np.ndarray]:
     import aerocapture_rs  # type: ignore[import-not-found]
 
-    from aerocapture.training.evaluate import make_reserved_seeds
+    from aerocapture.training.seeds import make_reserved_seeds
 
     # Invert with the normalization the SIM actually used, not the Rust DEFAULT
     # (see _resolve_normalization); otherwise the recovered raw is distorted by

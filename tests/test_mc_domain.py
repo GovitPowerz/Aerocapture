@@ -37,10 +37,10 @@ def _make_mc_config(n_sims: int, seed: int, suffix: str) -> Path:
     data.setdefault("monte_carlo", {})["seed"] = seed
     data.setdefault("data", {})["results_suffix"] = f".{suffix}"
 
-    from aerocapture.training.evaluate import _write_toml
+    from aerocapture.training.toml_utils import write_toml
 
     tmp = Path(tempfile.mktemp(suffix=".toml", prefix="mc_test_"))
-    _write_toml(data, tmp)
+    write_toml(data, tmp)
     return tmp
 
 

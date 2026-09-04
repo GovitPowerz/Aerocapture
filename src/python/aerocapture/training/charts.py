@@ -1023,7 +1023,7 @@ def chart_cost_objective(
     cost_transform: str = "linear",
 ) -> None:
     """Objective cost histogram with CDF overlay (all sims, including crashes)."""
-    from aerocapture.training.evaluate import compute_cost
+    from aerocapture.training.cost import compute_cost
 
     n = final_records.shape[0]
     costs = np.array(

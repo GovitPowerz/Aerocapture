@@ -12,7 +12,7 @@ from pathlib import Path
 import aerocapture_rs
 import numpy as np
 from aerocapture.training.deploy_overrides import overrides_from_params
-from aerocapture.training.evaluate import VALIDATION_SEED_OFFSET, make_reserved_seeds
+from aerocapture.training.seeds import VALIDATION_SEED_OFFSET, make_reserved_seeds
 
 TOML = os.environ.get("AERO_TOML", "configs/training/msr_aller_fnpag_train.toml")
 BEST = os.environ.get("AERO_BEST", "training_output/fnpag/best_params.json")

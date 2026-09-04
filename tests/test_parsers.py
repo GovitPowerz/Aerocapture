@@ -117,7 +117,7 @@ class TestComputeCost:
 
     def test_compute_cost_captured(self) -> None:
         """Captured trajectory cost is based on orbit errors + delta-V."""
-        from aerocapture.training.evaluate import compute_cost
+        from aerocapture.training.cost import compute_cost
 
         # Simulate a captured trajectory (energy < 0, ecc < 1)
         final = np.zeros((1, 52))
@@ -134,7 +134,7 @@ class TestComputeCost:
 
     def test_compute_cost_hyperbolic(self) -> None:
         """Hyperbolic trajectory gets high cost via large DV from Rust."""
-        from aerocapture.training.evaluate import compute_cost
+        from aerocapture.training.cost import compute_cost
 
         final = np.zeros((1, 52))
         final[0, 7] = 5.0  # energy > 0 = hyperbolic

@@ -51,7 +51,7 @@ def _score(arm: str, seeds: list[int], sim_timeout: float | None) -> dict[str, f
 
 
 def main() -> None:
-    from aerocapture.training.evaluate import MAMBA3_EVAL_SEED_OFFSET, make_reserved_seeds
+    from aerocapture.training.seeds import MAMBA3_EVAL_SEED_OFFSET, make_reserved_seeds
 
     p = argparse.ArgumentParser(description="Mamba-3 962-cell arm comparison (single-run, tail metrics)")
     p.add_argument("--n-sims", type=int, default=2000, help="shared reserved pool size (>=5000 for a meaningful 3-sigma)")

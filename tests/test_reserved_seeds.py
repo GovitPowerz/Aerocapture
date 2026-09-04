@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, VALIDATION_SEED_OFFSET, make_reserved_seeds
+from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, VALIDATION_SEED_OFFSET, make_reserved_seeds
 
 
 class TestReservedSeeds:

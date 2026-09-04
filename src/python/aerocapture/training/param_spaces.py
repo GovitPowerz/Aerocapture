@@ -23,7 +23,7 @@ class ParamSpec:
 
 
 # Exit phase params shared by all unsigned-magnitude schemes.
-# Prefixed with "exit." so evaluate.py routes them to [guidance.ftc] in TOML.
+# Prefixed with "exit." so deploy_overrides routes them to [guidance.ftc] in TOML.
 _EXIT_PARAMS: list[ParamSpec] = [
     ParamSpec("exit.exit_velocity_threshold", 3000.0, 5500.0, 4400.0),
     ParamSpec("exit.exit_pdyn_margin", 0.5, 4.0, 1.75),
@@ -32,7 +32,7 @@ _EXIT_PARAMS: list[ParamSpec] = [
 ]
 
 # Lateral guidance params shared by all unsigned-magnitude schemes.
-# Prefixed with "lateral." so evaluate.py routes them to [guidance.lateral] in TOML.
+# Prefixed with "lateral." so deploy_overrides routes them to [guidance.lateral] in TOML.
 _LATERAL_PARAMS: list[ParamSpec] = [
     ParamSpec("lateral.tau", 2.0, 60.0, 15.0),  # seconds
     ParamSpec("lateral.threshold", 0.01, 2.0, 0.5),  # degrees (TOML units)
@@ -43,7 +43,7 @@ _LATERAL_PARAMS: list[ParamSpec] = [
 ]
 
 # Thermal safety limiter params shared by all unsigned-magnitude schemes.
-# Prefixed with "thermal." so evaluate.py routes them to [guidance.thermal_limiter] in TOML.
+# Prefixed with "thermal." so deploy_overrides routes them to [guidance.thermal_limiter] in TOML.
 _THERMAL_LIMITER_PARAMS: list[ParamSpec] = [
     ParamSpec("thermal.heat_flux_activation", 0.6, 1.0, 1.0),
     ParamSpec("thermal.heat_load_activation", 0.6, 1.0, 1.0),
@@ -52,7 +52,7 @@ _THERMAL_LIMITER_PARAMS: list[ParamSpec] = [
 ]
 
 # Command shaping params shared by all schemes.
-# Prefixed with "shaping." so evaluate.py routes them to [guidance.command_shaping] in TOML.
+# Prefixed with "shaping." so deploy_overrides routes them to [guidance.command_shaping] in TOML.
 _SHAPING_PARAMS: list[ParamSpec] = [
     ParamSpec("shaping.max_bank_acceleration", 2.0, 15.0, 5.0),  # deg/s^2
 ]

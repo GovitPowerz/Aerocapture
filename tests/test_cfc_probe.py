@@ -160,7 +160,7 @@ def test_arch_toml_renders_blocks() -> None:
 
 
 def test_probe_offset_alias() -> None:
-    from aerocapture.training.evaluate import MAMBA3_EVAL_SEED_OFFSET, PROBE_EVAL_SEED_OFFSET
+    from aerocapture.training.seeds import MAMBA3_EVAL_SEED_OFFSET, PROBE_EVAL_SEED_OFFSET
 
     assert PROBE_EVAL_SEED_OFFSET == 10_000_000
     assert MAMBA3_EVAL_SEED_OFFSET == PROBE_EVAL_SEED_OFFSET

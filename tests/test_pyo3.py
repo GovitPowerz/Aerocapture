@@ -104,7 +104,7 @@ class TestBatchRun:
 
 class TestCostCompat:
     def test_pyo3_final_records_work_with_compute_cost(self) -> None:
-        from aerocapture.training.evaluate import compute_cost
+        from aerocapture.training.cost import compute_cost
 
         overrides = [{"simulation.random_seed": float(i) / 10.0} for i in range(5)]
         results = aero.run_batch(GOLDEN_TOML, overrides)
@@ -116,8 +116,9 @@ class TestCostCompat:
 class TestBitIdenticalRegression:
     def test_pyo3_matches_subprocess(self, rust_binary: Path) -> None:
         from aerocapture.training.config import SimConfig, TrainingConfig
-        from aerocapture.training.evaluate import _run_via_subprocess
         from aerocapture.training.optimizer import OptimizerConfig
+
+        from tests.fixtures.subprocess_oracle import run_via_subprocess
 
         config = TrainingConfig(
             sim=SimConfig(
@@ -126,7 +127,7 @@ class TestBitIdenticalRegression:
             ),
             optimizer=OptimizerConfig(seed_strategy="adaptive"),
         )
-        sub_result = _run_via_subprocess(config)
+        sub_result = run_via_subprocess(config)
         assert sub_result is not None, "Subprocess path failed"
 
         pyo3_result = aero.run(GOLDEN_TOML)
@@ -284,8 +285,9 @@ class TestLoadConfig:
 class TestFallback:
     def test_subprocess_fallback_works(self, rust_binary: Path) -> None:
         from aerocapture.training.config import SimConfig, TrainingConfig
-        from aerocapture.training.evaluate import _run_via_subprocess
         from aerocapture.training.optimizer import OptimizerConfig
+
+        from tests.fixtures.subprocess_oracle import run_via_subprocess
 
         config = TrainingConfig(
             sim=SimConfig(
@@ -294,7 +296,7 @@ class TestFallback:
             ),
             optimizer=OptimizerConfig(seed_strategy="adaptive"),
         )
-        result = _run_via_subprocess(config)
+        result = run_via_subprocess(config)
         assert result is not None, "Subprocess path failed"
         assert result.shape[1] == 52
 

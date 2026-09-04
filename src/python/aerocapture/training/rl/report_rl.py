@@ -10,7 +10,7 @@ from typing import Any
 
 from aerocapture.training import charts
 from aerocapture.training import report as ga_report
-from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
+from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
 from aerocapture.training.toml_utils import load_toml_with_bases
 from aerocapture.training.typst_utils import check_typst, compile_typst
 

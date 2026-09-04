@@ -110,9 +110,9 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     import aerocapture_rs
     from aerocapture.training import charts
     from aerocapture.training.deploy_overrides import resolve_eval_toml
-    from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.reference import _MC_DISPERSION_DOMAINS
     from aerocapture.training.report import _read_constraint_limits, compute_eval_summary, read_cost_kwargs
+    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     scheme_dir = REPO / "training_output" / run_dir

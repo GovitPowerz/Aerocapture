@@ -57,9 +57,9 @@ def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None,
               extra: dict | None = None, scaffolding_from: str | None = None) -> dict:
     import aerocapture_rs
     from aerocapture.training.deploy_overrides import resolve_eval_toml
-    from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
     from aerocapture.training.report import _read_constraint_limits
+    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     src = scaffolding_from or label

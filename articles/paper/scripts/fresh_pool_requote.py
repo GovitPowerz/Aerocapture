@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> None:
 
     import aerocapture_rs
     from aerocapture.training.deploy_overrides import load_scaffolding_overrides
-    from aerocapture.training.evaluate import HEADLINE_REQUOTE_SEED_OFFSET, make_reserved_seeds
+    from aerocapture.training.seeds import HEADLINE_REQUOTE_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     run_dir = Path(args.run_dir)
