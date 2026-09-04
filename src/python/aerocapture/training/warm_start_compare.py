@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import numpy.typing as npt
 
+from aerocapture.training.deploy_overrides import overrides_from_params
 from aerocapture.training.evaluate import (
     FINAL_EVAL_SEED_OFFSET,
     VALIDATION_SEED_OFFSET,
@@ -42,7 +43,6 @@ from aerocapture.training.evaluate import (
     write_nn_json,
 )
 from aerocapture.training.report import _read_constraint_limits
-from aerocapture.training.warm_start import _build_overrides_for_source
 
 if TYPE_CHECKING:
     from aerocapture.training.config import TrainingConfig
@@ -67,14 +67,14 @@ def _run_one_pool_one_side(
 ) -> tuple[npt.NDArray[np.float64], list[npt.NDArray[np.float64]]]:
     """Run a single pool through either the supervisor or the NN. Returns
     (final_records, trajectories). The supervisor branch uses
-    `_build_overrides_for_source` so all scaffolding (lateral / exit / thermal /
+    `overrides_from_params` so all scaffolding (lateral / exit / thermal /
     nav / shaping) values from the supervisor's `best_params.json` are honored,
     matching what `build_warm_start_chromosome` fed into `collect_supervised`.
     The NN branch swaps `data.neural_network` to the temp JSON written from the
     freshly-encoded warm-start chromosome.
     """
     if side == "supervisor":
-        overrides_template: dict[str, object] = _build_overrides_for_source(supervisor_params, primary_scheme)
+        overrides_template: dict[str, object] = overrides_from_params(supervisor_params, primary_scheme)
         overrides_template["guidance.type"] = primary_scheme
     elif side == "nn":
         overrides_template = {

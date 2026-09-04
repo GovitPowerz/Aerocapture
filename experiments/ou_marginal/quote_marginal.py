@@ -19,7 +19,8 @@ from pathlib import Path
 
 import aerocapture_rs
 import numpy as np
-from aerocapture.training.report import _load_nn_scaffolding_overrides, _read_constraint_limits
+from aerocapture.training.deploy_overrides import load_scaffolding_overrides
+from aerocapture.training.report import _read_constraint_limits
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -68,7 +69,7 @@ def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> d
     if model_dir is not None:
         d = REPO / model_dir
         base["data.neural_network"] = str(d / "best_model.json")
-        base.update(_load_nn_scaffolding_overrides(d, d / "no_optimized_toml"))
+        base.update(load_scaffolding_overrides(d))
         # The ou_marginal configs bake per_draw into the TOML; pin the regime
         # explicitly so BOTH regimes are scored for every cell regardless of
         # which TOML it trained under.

@@ -292,13 +292,13 @@ def main() -> None:
 
     # Pin the run-local model and apply its co-trained scaffolding (best_params.json,
     # scaffolding = live/full) so costs match the deployed operating point.
-    from aerocapture.training.report import _load_nn_scaffolding_overrides  # noqa: PLC0415
+    from aerocapture.training.deploy_overrides import load_scaffolding_overrides  # noqa: PLC0415
 
     training_dir = Path(args.training_dir)
     model = args.model
     if model is None and (training_dir / "best_model.json").exists():
         model = str(training_dir / "best_model.json")
-    scaffolding = _load_nn_scaffolding_overrides(training_dir, training_dir / f"optimized_{training_dir.name}.toml")
+    scaffolding = load_scaffolding_overrides(training_dir)
     if model:
         print(f"Model: {model}")
     if scaffolding:

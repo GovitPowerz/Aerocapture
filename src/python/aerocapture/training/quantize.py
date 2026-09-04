@@ -275,10 +275,10 @@ def _resolve_pool(toml_path: str, pool_offset: int, n_sims: int) -> tuple[list[i
 def _scaffolding_overrides(params_dir: str | Path | None, require: bool = False) -> dict[str, Any]:
     if params_dir is None:
         return {}
-    from aerocapture.training.report import _load_nn_scaffolding_overrides
+    from aerocapture.training.deploy_overrides import load_scaffolding_overrides
 
     d = Path(params_dir)
-    overrides = dict(_load_nn_scaffolding_overrides(d, d / f"optimized_{d.name}.toml"))
+    overrides = dict(load_scaffolding_overrides(d))
     if require and not overrides:
         raise ValueError(
             f"params_dir {d} yielded no scaffolding overrides (missing/empty best_params.json) -- scoring without co-trained scaffolding mis-ranks the model"

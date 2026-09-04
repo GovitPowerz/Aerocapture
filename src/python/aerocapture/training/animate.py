@@ -103,20 +103,10 @@ def _discover_checkpoints(training_dir: Path, every: int) -> list[dict]:
 
 
 def _build_overrides(guidance_type: str, params: dict[str, float], n_sims: int) -> dict[str, object]:
-    """Convert decoded parameters to dot-path TOML overrides for run_mc.
+    """Convert decoded parameters to dot-path TOML overrides for run_mc (shared deploy rule)."""
+    from aerocapture.training.deploy_overrides import overrides_from_params
 
-    Lateral params (prefixed ``lateral.``) go to ``guidance.lateral.*``.
-    Scheme params go to ``guidance.<section>.*``.
-    """
-    from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
-
-    section = GUIDANCE_TOML_SECTIONS[guidance_type]
-    overrides: dict[str, object] = {}
-    for k, v in params.items():
-        if k.startswith("lateral."):
-            overrides[f"guidance.{k}"] = v
-        else:
-            overrides[f"guidance.{section}.{k}"] = v
+    overrides = overrides_from_params(params, guidance_type)
     overrides["guidance.type"] = guidance_type
     overrides["simulation.n_sims"] = n_sims
     return overrides

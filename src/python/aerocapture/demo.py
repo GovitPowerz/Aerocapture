@@ -27,7 +27,7 @@ import aerocapture_rs
 import matplotlib.pyplot as plt
 import numpy as np
 
-from aerocapture.training.report import _load_nn_scaffolding_overrides
+from aerocapture.training.deploy_overrides import load_scaffolding_overrides
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEMO_TOML = REPO_ROOT / "configs/training/sweep/mamba_p962.toml"
@@ -47,7 +47,7 @@ def run_demo(n_sims: int, output: Path, per_draw: bool = False) -> None:
         "data.neural_network": str(DEMO_MODEL_DIR / "best_model.json"),
         "simulation.n_sims": 1,
     }
-    base.update(_load_nn_scaffolding_overrides(DEMO_MODEL_DIR, DEMO_MODEL_DIR / "no_optimized_toml"))
+    base.update(load_scaffolding_overrides(DEMO_MODEL_DIR))
     if per_draw:
         base["monte_carlo.noise_seeding"] = "per_draw"
     regime = "per-scenario density noise (per_draw, Appendix E)" if per_draw else "shared density-noise path (legacy, main body)"

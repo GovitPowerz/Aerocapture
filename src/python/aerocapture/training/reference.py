@@ -36,14 +36,9 @@ def nominal_flight_overrides(best_params: dict[str, float], scheme: str, mc_conf
     config's [monte_carlo] section (future-proofing — domains are dict-valued
     entries; scalar keys like seed/sampling are left alone).
     """
-    from aerocapture.training.param_spaces import route_param_path  # noqa: PLC0415
+    from aerocapture.training.deploy_overrides import overrides_from_params  # noqa: PLC0415
 
-    overrides: dict[str, object] = {}
-    for key, value in best_params.items():
-        coerced: object = int(round(value)) if key == "lateral.max_reversals" else value
-        overrides[route_param_path(key, scheme)] = coerced
-        if key.startswith("shaping."):
-            overrides["guidance.command_shaping.enabled"] = True
+    overrides = overrides_from_params(best_params, scheme)
     overrides["guidance.type"] = scheme
     overrides["simulation.n_sims"] = 1
     config_domains = (k for k, v in mc_config.items() if isinstance(v, dict))

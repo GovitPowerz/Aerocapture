@@ -11,7 +11,7 @@ evaluation). The guidance cadence is identical across schemes, so ms/sim ratio
 == ms-per-guidance-call ratio.
 
 This is the "compute of the fastest" half of the NN deployability claim.
-Deployed-state aware: reuses report._resolve_eval_toml + scaffolding so each
+Deployed-state aware: reuses deploy_overrides.resolve_eval_toml + scaffolding so each
 scheme runs at its deployed operating point. Gated on 01 (classical) + 02 (NN).
 
 Usage:
@@ -41,12 +41,12 @@ OUT = REPO / "articles/paper/data/compute_benchmark.json"
 
 def _bench_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
     import aerocapture_rs
+    from aerocapture.training.deploy_overrides import resolve_eval_toml
     from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
-    from aerocapture.training.report import _resolve_eval_toml
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     scheme_dir = REPO / "training_output" / run_dir
-    eval_toml, scaffolding = _resolve_eval_toml(Path(toml), scheme_dir)
+    eval_toml, scaffolding = resolve_eval_toml(Path(toml), scheme_dir)
     base_mc_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
     seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
 

@@ -128,12 +128,12 @@ def build_corridor(args):
 def build_overlay(n_ens):
     """Deployed Mamba dispersed ensemble (energy, pdyn per trajectory) + undispersed nominal."""
     import aerocapture_rs
+    from aerocapture.training.deploy_overrides import resolve_eval_toml
     from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.reference import _MC_DISPERSION_DOMAINS
-    from aerocapture.training.report import _resolve_eval_toml
     from aerocapture.training.toml_utils import load_toml_with_bases
 
-    eval_toml, scaffolding = _resolve_eval_toml(MAMBA_TOML, MAMBA_RUN)
+    eval_toml, scaffolding = resolve_eval_toml(MAMBA_TOML, MAMBA_RUN)
     pin = dict(scaffolding)
     bundle_model = MAMBA_BUNDLE / "best_model.json"
     if bundle_model.exists():

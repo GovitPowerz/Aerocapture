@@ -25,8 +25,8 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training import charts
+from aerocapture.training.deploy_overrides import resolve_eval_toml
 from aerocapture.training.metrics import convergence_speed, stagnation_count
-from aerocapture.training.param_spaces import SCAFFOLDING_PREFIXES, route_scaffolding_param
 from aerocapture.training.typst_utils import check_typst, compile_typst
 
 # ---------------------------------------------------------------------------
@@ -38,35 +38,6 @@ _TYPST_DIR = Path(__file__).resolve().parent.parent.parent.parent / "typst"
 
 # Percentiles for summary table
 _PERCENTILES = [5, 25, 50, 75, 95]
-
-
-# ---------------------------------------------------------------------------
-# Typst availability check
-# ---------------------------------------------------------------------------
-def _load_nn_scaffolding_overrides(scheme_dir: Path, optimized_toml: Path) -> dict[str, object]:
-    """Build dot-path overrides from `best_params.json` (NN scaffolding deploys).
-
-    Non-NN schemes bake params into `optimized_<scheme>.toml`, so when that file
-    exists we return empty (the optimized TOML already carries everything).
-    NN schemes do NOT write an optimized TOML — they write `best_model.json`
-    plus `best_params.json` (scaffolding). When `scaffolding = "off"`,
-    `best_params.json` is absent and we return empty.
-    """
-    if optimized_toml.exists():
-        return {}
-    scaff_path = scheme_dir / "best_params.json"
-    if not scaff_path.exists():
-        return {}
-    scaff_params: dict[str, object] = json.loads(scaff_path.read_text())
-    overrides: dict[str, object] = {}
-    for key, value in scaff_params.items():
-        if not key.startswith(SCAFFOLDING_PREFIXES):
-            continue  # scaffolding file only carries the 5 prefixed params; skip anything else (preserves prior behavior)
-        dot_path, value = route_scaffolding_param(key, value, "")
-        overrides[dot_path] = value
-        if key.startswith("shaping."):
-            overrides["guidance.command_shaping.enabled"] = True
-    return overrides
 
 
 # ---------------------------------------------------------------------------
@@ -127,22 +98,6 @@ def load_run_data(scheme_dir: Path) -> tuple[list[dict], list[int]]:
 
 # ---------------------------------------------------------------------------
 # Final MC evaluation via PyO3
-def _resolve_eval_toml(toml_path: Path, scheme_dir: Path) -> tuple[Path, dict[str, object]]:
-    """Resolve the eval TOML (optimized_<scheme>.toml if present, else toml_path) and its scaffolding overrides.
-
-    The file is named after the guidance type, which differs from the dir name
-    for custom --output-dir runs (e.g. ftc_joint_ref/optimized_ftc.toml) — fall
-    back to a glob when the name-derived path misses and exactly one exists.
-    """
-    optimized = scheme_dir / f"optimized_{scheme_dir.name}.toml"
-    if not optimized.exists():
-        candidates = sorted(scheme_dir.glob("optimized_*.toml"))
-        if len(candidates) == 1:
-            optimized = candidates[0]
-    eval_toml = optimized if optimized.exists() else toml_path
-    return eval_toml, _load_nn_scaffolding_overrides(scheme_dir, optimized)
-
-
 # ---------------------------------------------------------------------------
 def run_final_evaluation(
     toml_path: Path,
@@ -168,7 +123,7 @@ def run_final_evaluation(
     from aerocapture.training.evaluate import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.toml_utils import load_toml_with_bases
 
-    eval_toml, scaffolding_overrides = _resolve_eval_toml(toml_path, scheme_dir)
+    eval_toml, scaffolding_overrides = resolve_eval_toml(toml_path, scheme_dir)
 
     toml_data = load_toml_with_bases(eval_toml)
     base_mc_seed = toml_data.get("monte_carlo", {}).get("seed", 42)
@@ -656,7 +611,7 @@ def _run_undispersed_nominal(toml_path: Path, scheme_dir: Path, sim_timeout_secs
     # NN schemes with scaffolding != "off" write best_params.json sibling to best_model.json;
     # without loading it here, the nominal overlay would use TOML-default scaffolding
     # while the dispersed MC corridor uses the GA-tuned values — visually inconsistent.
-    eval_toml, scaffolding_overrides = _resolve_eval_toml(toml_path, scheme_dir)
+    eval_toml, scaffolding_overrides = resolve_eval_toml(toml_path, scheme_dir)
 
     # Disable ALL dispersion domains, not a subset — the stale 5-of-10 list
     # left wind/OU-density/vehicle/pilot/nav_filter draws in the "nominal".
