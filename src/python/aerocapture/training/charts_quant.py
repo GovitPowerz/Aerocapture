@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
 import matplotlib
@@ -60,32 +58,6 @@ def chart_quant_loo(results: dict[str, Any], output_path: str) -> None:
     ax.axvline(0.0, color="grey", lw=0.8)
     ax.set_xlabel(f"delta DV CVaR95 [m/s] at {rows[0]['bits']} bits (one tensor quantized, rest fp)")
     ax.set_title("Leave-one-out tensor sensitivity")
-    fig.tight_layout()
-    fig.savefig(output_path, format="svg", bbox_inches="tight")
-    plt.close(fig)
-
-
-def chart_qat_convergence(jsonl_by_label: dict[str, list[Path]], output_path: str) -> None:
-    """Best-cost convergence overlay: champion vs QAT fine-tune vs QAT from-scratch.
-
-    Each label maps to that run's ordered `run_*.jsonl` files (concatenated)."""
-    apply_theme()
-    fig, ax = plt.subplots(figsize=(10, 6))
-    for label, paths in jsonl_by_label.items():
-        gens: list[int] = []
-        best: list[float] = []
-        for p in paths:
-            with open(p) as fh:
-                for line in fh:
-                    rec = json.loads(line)
-                    gens.append(int(rec["generation"]))
-                    best.append(float(rec["best_cost"]))
-        ax.plot(gens, best, label=label, lw=1.0)
-    ax.set_xlabel("generation")
-    ax.set_ylabel("best training cost")
-    ax.set_yscale("log")
-    ax.set_title("QAT convergence vs fp champion")
-    ax.legend()
     fig.tight_layout()
     fig.savefig(output_path, format="svg", bbox_inches="tight")
     plt.close(fig)

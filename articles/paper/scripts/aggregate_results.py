@@ -6,7 +6,6 @@ Plus: paired comparisons for the named cross-cell tables, sigma_run pooled
 from the seed_repeats triplets, and the fresh-pool headline re-quote.
 """
 
-import argparse
 import gzip
 import json
 import sys
@@ -145,22 +144,13 @@ def summarize(key: str) -> dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument(
-        "--require-logs",
-        action="store_true",
-        help="fail when no run.jsonl.gz is present (a clean checkout: fetch with scripts/fetch_run_logs.sh); "
-        "without the logs every best_val_rms is null and actual_sims is dropped, so the output is NOT the committed results.json",
-    )
-    args = parser.parse_args()
     keys = sorted(str(p.parent.relative_to(RUNS_DIR)) for p in RUNS_DIR.rglob("final_eval.parquet"))
     if not keys:
         sys.exit(f"Empty bundle at {RUNS_DIR}; run experiments/paper/12_collect_results.sh first")
-    n_logs = sum(1 for _ in RUNS_DIR.rglob("run.jsonl.gz"))
-    if args.require_logs and n_logs == 0:
-        sys.exit(f"No run.jsonl.gz under {RUNS_DIR}: run articles/paper/scripts/fetch_run_logs.sh first (--require-logs)")
-    if n_logs == 0:
-        print(f"WARNING: no run.jsonl.gz under {RUNS_DIR}; best_val_rms/actual_sims will be missing (not the committed results.json)")
+    # Without the run logs every best_val_rms is null and actual_sims is dropped: that is
+    # not the committed results.json, so it is an error, never a degraded output.
+    if not any(RUNS_DIR.rglob("run.jsonl.gz")):
+        sys.exit(f"No run.jsonl.gz under {RUNS_DIR}: run articles/paper/scripts/fetch_run_logs.sh first")
     runs = {k: summarize(k) for k in keys}
 
     paired = {}

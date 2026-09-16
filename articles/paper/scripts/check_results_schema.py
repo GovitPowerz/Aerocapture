@@ -43,14 +43,15 @@ PAIRED_KEYS = ("a", "b", "delta_p95", "delta_p95_ci", "delta_cvar95", "delta_cva
 TAIL_GROUPS = ("mamba_p962", "lstm_p1082", "dense_p515")
 
 
-def check(path: Path) -> list[str]:
+def check(path: Path) -> tuple[list[str], int]:
+    """Return (violations, number of runs)."""
     d = json.loads(path.read_text())
     errors: list[str] = []
     for key in ("runs", "paired", "sigma_run", "headline", "headline_fresh_pool"):
         if key not in d:
             errors.append(f"top-level key missing: {key}")
     if errors:
-        return errors
+        return errors, 0
 
     runs = d["runs"]
     bundle = sorted(str(p.parent.relative_to(RUNS_DIR)) for p in RUNS_DIR.rglob("final_eval.parquet"))
@@ -102,15 +103,14 @@ def check(path: Path) -> list[str]:
             errors.append(f"sigma_run.tail_groups missing {g}")
         elif tail[g].get("n") != 3:
             errors.append(f"sigma_run.tail_groups[{g}].n = {tail[g].get('n')}, expected 3 seeds")
-    return errors
+    return errors, len(runs)
 
 
 def main() -> None:
     path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT
-    errors = check(path)
+    errors, n = check(path)
     if errors:
         sys.exit(f"{path}: {len(errors)} schema violation(s)\n  " + "\n  ".join(errors))
-    n = len(json.loads(path.read_text())["runs"])
     print(f"{path.relative_to(REPO) if path.is_relative_to(REPO) else path}: schema ok ({n} runs)")
 
 

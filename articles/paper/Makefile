@@ -26,7 +26,7 @@ FIGS := figures
 PDF ?= articles/paper/paper.pdf
 
 .DEFAULT_GOAL := figures
-.PHONY: figures results fetch-logs provenance pdf paper check check-sums check-logs check-schema sums help \
+.PHONY: figures results fetch-logs provenance pdf paper check check-sums check-logs check-schema check-provenance sums help \
         need-sim mc-data mc-far-tail mc-confirmatory mc-corridor mc-appendix mc-robustness mc-robustness-retrain \
         mc-objective-centering mc-compute-benchmark mc-requote mc-quant probes
 
@@ -46,7 +46,8 @@ $(FIGS)/fig_%.svg: $(SCRIPTS)/fig_%.py $(FIGLIB)
 	$(UVPY) articles/paper/$<
 
 # Per-figure data inputs (the recipe comes from the pattern rule above). A missing
-# input is a make error, never a thinner figure.
+# input is a make error, never a thinner figure -- except the $(wildcard) sweep
+# parquets, which make cannot miss; fig_pareto.py errors on an absent cell itself.
 SWEEP_MANIFESTS := $(ROOT)/configs/training/sweep/manifest.json $(ROOT)/configs/training/sweep/manifest_floor.json
 SWEEP_PARQUETS := $(wildcard $(RUNS)/architecture_sweep/*/final_eval.parquet)
 
@@ -72,7 +73,7 @@ $(FIGS)/fig_training_n_sims.svg: $(DATA)/results.json
 # results.json is a committed bundle product consumed by the figures as a plain file
 # (deliberately no rule: a fresh clone's mtimes must not trigger a rebuild that needs
 # the 195 MB run logs; a missing file is "No rule to make target"). `make results`
-# regenerates it explicitly, and only with the logs present.
+# regenerates it explicitly; aggregate_results.py exits non-zero without the logs.
 
 # ---------------------------------------------------------------------------
 # results.json <- aggregate_results.py over the bundle parquets + the run logs
@@ -80,7 +81,7 @@ $(FIGS)/fig_training_n_sims.svg: $(DATA)/results.json
 RUN_LOGS := $(wildcard $(RUNS)/*/*/run.jsonl.gz)
 
 results:
-	$(UVPY) articles/paper/scripts/aggregate_results.py --require-logs
+	$(UVPY) articles/paper/scripts/aggregate_results.py
 
 # The 95 run.jsonl.gz (~195 MB) are a Release asset (tag arxiv-v2), gitignored. Network.
 fetch-logs:
@@ -107,8 +108,14 @@ paper: fetch-logs
 # ---------------------------------------------------------------------------
 # Checks
 # ---------------------------------------------------------------------------
-check: check-sums check-schema
+# $(FROZEN) as prerequisites: a missing frozen input fails here with its FROZEN message.
+check: check-sums check-schema check-provenance $(FROZEN)
 	cd $(ROOT) && git diff --exit-code --stat -- articles/paper/figures articles/paper/data/results.json
+	cd $(ROOT) && test -z "$$(git status --porcelain -- articles/paper/figures)" || { git status --porcelain -- articles/paper/figures; echo "error: untracked/modified figures"; exit 1; }
+
+# provenance.json must be what this tree yields (only per-input facts, so it changes only with an input).
+check-provenance:
+	$(UVPY) articles/paper/scripts/write_provenance.py --check
 
 # data/SHA256SUMS covers every tracked file under data/ except itself and provenance.json.
 check-sums:

@@ -131,7 +131,7 @@ jobs:
       - name: Upload the regenerated figures
         uses: actions/upload-artifact@v4
         with:
-          name: paper-figures-${{ runner.os }}
+          name: paper-figures
           path: articles/paper/figures/fig_*.svg
 
       - name: Figures unchanged, bundle checksums, results.json schema
@@ -154,10 +154,16 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
 
+      - uses: typst-community/setup-typst@v4
+        with:
+          typst-version: 0.15.1
+
       - name: Fetch the run logs (Release asset arxiv-v2) and verify them
         run: make -C articles/paper fetch-logs check-logs
 
-      - name: Rebuild results.json and require it unchanged
+      # The one top-level target end to end (results -> figures -> provenance -> pdf),
+      # then everything it wrote must equal git.
+      - name: make paper, then require results.json, figures and provenance unchanged
         run: |
-          make -C articles/paper results
-          git diff --exit-code --stat -- articles/paper/data/results.json
+          make -C articles/paper paper PDF=/tmp/paper.pdf
+          make -C articles/paper check

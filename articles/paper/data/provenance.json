@@ -1,7 +1,5 @@
 {
-  "head_commit": "556997a2de9650b9ad8eade3552bc3900c549cc9",
-  "head_dirty": false,
-  "paper_inputs_commit": "556997a2de9650b9ad8eade3552bc3900c549cc9",
+  "paper_inputs_sha256": "eda8263d30a1577e474f961b40c7668a9e9ef7a0b5278ea2aa840f5c63a76e45",
   "paper_inputs": [
     "articles/paper/paper.typ",
     "articles/paper/appendix.typ",
@@ -16,9 +14,8 @@
   "run_logs_asset": "https://github.com/GovitPowerz/Aerocapture/releases/download/arxiv-v2/paper_run_logs.tar",
   "noise_regime": "legacy (every committed cell; ADR-0003, ADR-0006)",
   "simulator_crate_version": "0.1.0",
-  "typst_version": "typst 0.15.1 (unknown commit)",
+  "typst_version": "0.15.1",
   "matplotlib_version": "3.11.2",
-  "python_version": "3.14.7",
   "config_sha256": {
     "configs/training/common.toml": "9b4307130c25885611e77f4984acd5fff5c758b34208ce68d079a2d8e9cc49b7",
     "configs/training/paper/dense_p3998_cmaes.toml": "1c2232d95ee5e8f7b682f83db5d8850cb2c3354ae57a15c53e6468816167152e",

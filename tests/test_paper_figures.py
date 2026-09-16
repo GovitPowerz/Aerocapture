@@ -26,15 +26,12 @@ def figlib(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ModuleType:
 
     monkeypatch.setattr(fl, "FIGDIR", tmp_path)
     monkeypatch.setattr(fl, "REPO", tmp_path)  # save() prints the path relative to REPO
-    assert isinstance(fl, ModuleType)
+    assert isinstance(fl, ModuleType)  # mypy: the untyped import is Any
     return fl
 
 
 def _save_demo(fl: ModuleType, name: str) -> bytes:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt  # figlib already forced the Agg backend
 
     fl.style()
     fig, ax = plt.subplots(figsize=(3, 2))
@@ -42,7 +39,7 @@ def _save_demo(fl: ModuleType, name: str) -> bytes:
     ax.set_title("bold title", fontweight="bold")
     ax.annotate("italic", (1, 3), style="italic")
     ax.legend()
-    return bytes(fl.save(fig, name).read_bytes())
+    return bytes(fl.save(fig, name).read_bytes())  # bytes(): mypy sees Any from the untyped module
 
 
 def test_save_is_byte_reproducible_and_undated(figlib: ModuleType) -> None:
@@ -81,9 +78,10 @@ def test_makefile_figure_inputs_exist() -> None:
     text = (PAPER / "Makefile").read_text()
     for target, prereqs in re.findall(r"^\$\(FIGS\)/(fig_\w+\.svg):(.*)$", text, flags=re.M):
         for dep in prereqs.split():
-            if dep.startswith("$("):
-                continue  # SWEEP_* variables are wildcard/absolute; checked by the CI build
+            if dep.startswith("$(SWEEP_"):
+                continue  # wildcard / absolute; fig_pareto.py errors on an absent cell
             path = PAPER / dep.replace("$(DATA)", "data").replace("$(RUNS)", "data/runs")
+            assert not path.name.startswith("$("), f"{target}: unexpanded variable in {dep}"
             assert path.is_file(), f"{target}: {path}"
 
 
@@ -122,8 +120,8 @@ def test_results_schema_check_rejects_a_dropped_run(tmp_path: Path) -> None:
     assert "only-in-bundle" in out.stderr
 
 
-def test_aggregate_require_logs_fails_without_logs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """--require-logs turns the silent `[]` for missing run.jsonl.gz into an exit."""
+def test_aggregate_fails_without_logs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bundle without run.jsonl.gz is an exit, not a degraded results.json."""
     monkeypatch.syspath_prepend(str(SCRIPTS))
     import aggregate_results as agg  # type: ignore[import-not-found]
 
@@ -132,7 +130,7 @@ def test_aggregate_require_logs_fails_without_logs(tmp_path: Path, monkeypatch: 
     shutil.copy(PAPER / "data/runs/headline/mamba_p962/final_eval.parquet", bundle / "final_eval.parquet")
     monkeypatch.setattr(agg, "RUNS_DIR", tmp_path / "runs")
     monkeypatch.setattr(agg, "OUT", tmp_path / "results.json")
-    monkeypatch.setattr(sys, "argv", ["aggregate_results.py", "--require-logs"])
+    monkeypatch.setattr(sys, "argv", ["aggregate_results.py"])
     with pytest.raises(SystemExit, match="No run.jsonl.gz"):
         agg.main()
     assert not (tmp_path / "results.json").exists()

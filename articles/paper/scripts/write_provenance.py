@@ -1,25 +1,29 @@
-"""Write articles/paper/data/provenance.json (make -C articles/paper provenance).
+"""Write (or --check) articles/paper/data/provenance.json.
 
 What the paper's data and figures were built from, so a reader can verify that the
-checkout in hand is the one behind the PDF: the HEAD commit (and whether the tree
-was dirty), the last commit that touched any paper input, the Release tag holding
-the run logs, the simulator crate version, the toolchain versions, and a SHA-256 of
-every campaign TOML. Pure stdlib + matplotlib (for its version).
+checkout in hand is the one behind the PDF: a SHA-256 over every tracked paper input
+(content-addressed, so it survives squash-merges and rebases where a commit id would
+not, and it is computed from the working tree so it commits together with the inputs
+it describes), the Release tag holding the run logs, the simulator crate version, the
+two toolchain versions the figure/PDF bytes depend on, and a SHA-256 of every campaign
+TOML. Only per-input facts, so the file changes only when an input does; `make check`
+runs `--check`, which fails when the committed file is not what this tree yields.
+Pure stdlib + matplotlib (for its version).
 """
 
 import hashlib
 import json
-import platform
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 OUT = REPO / "articles/paper/data/provenance.json"
 RELEASE_TAG = "arxiv-v2"
 RUN_LOGS_ASSET = f"https://github.com/GovitPowerz/Aerocapture/releases/download/{RELEASE_TAG}/paper_run_logs.tar"
-# Everything the figures, results.json and the PDF are built from (provenance.json itself excluded).
+# Everything the figures, results.json and the PDF are built from.
 PAPER_INPUTS = (
     "articles/paper/paper.typ",
     "articles/paper/appendix.typ",
@@ -29,8 +33,9 @@ PAPER_INPUTS = (
     "articles/paper/fonts",
     "articles/paper/figures",
     "articles/paper/data",
-    ":(exclude)articles/paper/data/provenance.json",
 )
+# provenance.json cannot name the commit that commits it, so it is not an input of itself.
+INPUTS_PATHSPEC = (*PAPER_INPUTS, f":(exclude){OUT.relative_to(REPO)}")
 CONFIG_GLOBS = ("configs/training/common.toml", "configs/training/paper/**/*.toml", "configs/training/sweep/*.toml", "configs/training/quant/*.toml")
 
 
@@ -38,43 +43,45 @@ def _git(*args: str) -> str:
     return subprocess.run(["git", *args], cwd=REPO, check=True, capture_output=True, text=True).stdout.strip()
 
 
-def _tool_version(cmd: list[str]) -> str | None:
-    if shutil.which(cmd[0]) is None:
-        return None
-    return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip()
+def _inputs_sha256() -> str:
+    """One digest over (path, content) of every tracked paper input, working-tree bytes."""
+    h = hashlib.sha256()
+    for f in sorted(filter(None, _git("ls-files", "-z", "--", *INPUTS_PATHSPEC).split("\0"))):
+        h.update(f.encode())
+        h.update(b"\0")
+        h.update(hashlib.sha256((REPO / f).read_bytes()).digest())
+    return h.hexdigest()
 
 
-def _crate_version() -> str:
-    for line in (REPO / "src/rust/Cargo.toml").read_text().splitlines():
-        if line.startswith("version"):
-            return line.split("=", 1)[1].strip().strip('"')
-    raise ValueError("no version line in src/rust/Cargo.toml")
-
-
-def main() -> None:
+def build() -> dict:
     import matplotlib
 
+    typst = None
+    if shutil.which("typst"):
+        typst = subprocess.run(["typst", "--version"], check=True, capture_output=True, text=True).stdout.split()[1]  # "typst 0.15.1 (...)"
     configs = sorted(p for g in CONFIG_GLOBS for p in REPO.glob(g))
-    out = {
-        "head_commit": _git("rev-parse", "HEAD"),
-        "head_dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
-        "paper_inputs_commit": _git("log", "-1", "--format=%H", "--", *PAPER_INPUTS),
-        "paper_inputs": [p for p in PAPER_INPUTS if not p.startswith(":")],
+    return {
+        "paper_inputs_sha256": _inputs_sha256(),
+        "paper_inputs": list(PAPER_INPUTS),
         "release_tag": RELEASE_TAG,
         "run_logs_asset": RUN_LOGS_ASSET,
         "noise_regime": "legacy (every committed cell; ADR-0003, ADR-0006)",
-        "simulator_crate_version": _crate_version(),
-        "typst_version": _tool_version(["typst", "--version"]),
+        "simulator_crate_version": tomllib.loads((REPO / "src/rust/Cargo.toml").read_text())["package"]["version"],
+        "typst_version": typst,
         "matplotlib_version": matplotlib.__version__,
-        "python_version": platform.python_version(),
         "config_sha256": {str(p.relative_to(REPO)): hashlib.sha256(p.read_bytes()).hexdigest() for p in configs},
     }
-    OUT.write_text(json.dumps(out, indent=2) + "\n")
-    print(
-        f"wrote {OUT.relative_to(REPO)}: head {out['head_commit'][:10]}{' (dirty)' if out['head_dirty'] else ''}, "
-        f"inputs {out['paper_inputs_commit'][:10]}, {len(configs)} config hashes",
-        file=sys.stderr,
-    )
+
+
+def main() -> None:
+    text = json.dumps(build(), indent=2) + "\n"
+    if sys.argv[1:] == ["--check"]:
+        if not OUT.exists() or OUT.read_text() != text:
+            sys.exit(f"{OUT.relative_to(REPO)} is stale: run `make -C articles/paper provenance` and commit it")
+        print(f"{OUT.relative_to(REPO)}: current")
+        return
+    OUT.write_text(text)
+    print(f"wrote {OUT.relative_to(REPO)}", file=sys.stderr)
 
 
 if __name__ == "__main__":
