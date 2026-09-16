@@ -50,8 +50,7 @@ def main():
         ax.annotate(f"{v:.0f}", (xi, v), ha="center", va="bottom", fontsize=7.5, color="#555555")
 
     # mark the deployed choice
-    ax.annotate("deployed", (x[-1], max(cvar999[-1], vmax[-1]) + 9), ha="center", va="bottom",
-                fontsize=8, color=fl.C["mamba"], fontweight="bold")
+    ax.annotate("deployed", (x[-1], max(cvar999[-1], vmax[-1]) + 9), ha="center", va="bottom", fontsize=8, color=fl.C["mamba"], fontweight="bold")
 
     ax.set_xticks(x)
     ax.set_xticklabels(labels)

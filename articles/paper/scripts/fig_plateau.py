@@ -25,8 +25,9 @@ def main():
         gens = [g for g, _ in c]
         rms = [r for _, r in c]
         ax.plot(gens, rms, color=fl.C[ckey], lw=2.0, label=label)
-        ax.annotate(f"{rms[-1]:.3f}M", (gens[-1], rms[-1]), textcoords="offset points",
-                    xytext=(6, 0), va="center", color=fl.C[ckey], fontsize=8, fontweight="bold")
+        ax.annotate(
+            f"{rms[-1]:.3f}M", (gens[-1], rms[-1]), textcoords="offset points", xytext=(6, 0), va="center", color=fl.C[ckey], fontsize=8, fontweight="bold"
+        )
     ax.set_ylim(1.25, 2.1)
     ax.set_xlabel("generation")
     ax.set_ylabel("best validation RMS cost ($\\times 10^6$)")

@@ -48,13 +48,16 @@ def main():
     ax.text(0.3, ytop * 0.97, "hyperbolic\n(E > 0)", fontsize=8, color="#555", va="top", ha="left")
     ax.set_xlabel("orbital energy (MJ/kg)")
     ax.set_ylabel("dynamic pressure (kPa)")
-    ax.legend(handles=[
-        Patch(facecolor=green, alpha=0.16, edgecolor=green, label="occupancy envelope (randomized profiles)"),
-        Line2D([], [], color=boundary_color, lw=1.2, ls=(0, (5, 3)), label="full lift-up (escape side)"),
-        Line2D([], [], color=boundary_color, lw=1.2, ls=(0, (1, 2)), label="full lift-down (crash side)"),
-        Line2D([], [], color=green, lw=1.0, alpha=0.6, label=f"deployed Mamba MC ensemble ({len(ens_e)})"),
-        Line2D([], [], color="#111", lw=1.6, label="undispersed nominal"),
-    ], loc="upper left")
+    ax.legend(
+        handles=[
+            Patch(facecolor=green, alpha=0.16, edgecolor=green, label="occupancy envelope (randomized profiles)"),
+            Line2D([], [], color=boundary_color, lw=1.2, ls=(0, (5, 3)), label="full lift-up (escape side)"),
+            Line2D([], [], color=boundary_color, lw=1.2, ls=(0, (1, 2)), label="full lift-down (crash side)"),
+            Line2D([], [], color=green, lw=1.0, alpha=0.6, label=f"deployed Mamba MC ensemble ({len(ens_e)})"),
+            Line2D([], [], color="#111", lw=1.6, label="undispersed nominal"),
+        ],
+        loc="upper left",
+    )
     fig.tight_layout()
     fl.save(fig, "fig_corridor")
 

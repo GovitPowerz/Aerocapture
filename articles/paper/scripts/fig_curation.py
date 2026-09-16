@@ -46,12 +46,18 @@ def main():
     barsA = axA.bar(xA, valA, color=colA, width=0.62, zorder=3)
     axA.axhline(valA[0], color=fl.C["jointftc"], lw=0.9, ls="--", zorder=2)
     for b, v in zip(barsA, valA, strict=True):
-        axA.annotate(f"{v:.0f}", (b.get_x() + b.get_width() / 2, v), ha="center", va="bottom",
-                     fontsize=7.5, fontweight="bold", color="#333333")
+        axA.annotate(f"{v:.0f}", (b.get_x() + b.get_width() / 2, v), ha="center", va="bottom", fontsize=7.5, fontweight="bold", color="#333333")
     # the min bucket's catastrophic worst case, quoted in the body
-    axA.annotate(f"worst case {ft['curation_shaping/bucket_min']['max']:.0f} m/s",
-                 (xA[-1], valA[-1]), xytext=(10, 16), textcoords="offset points",
-                 ha="right", fontsize=7.5, color=fl.C["fnpag"], fontweight="bold")
+    axA.annotate(
+        f"worst case {ft['curation_shaping/bucket_min']['max']:.0f} m/s",
+        (xA[-1], valA[-1]),
+        xytext=(10, 16),
+        textcoords="offset points",
+        ha="right",
+        fontsize=7.5,
+        color=fl.C["fnpag"],
+        fontweight="bold",
+    )
     axA.set_xticks(xA)
     axA.set_xticklabels(labA, rotation=20, ha="right", fontsize=8)
     axA.set_ylabel("CVaR$_{99.9}$ (m/s)")
@@ -67,8 +73,7 @@ def main():
     barsB = axB.bar(xB, valB, color=colB, width=0.66, zorder=3)
     axB.axhline(valB[0], color=fl.C["jointftc"], lw=0.9, ls="--", zorder=2)
     for b, v in zip(barsB, valB, strict=True):
-        axB.annotate(f"{v:.1f}", (b.get_x() + b.get_width() / 2, v), ha="center", va="bottom",
-                     fontsize=7.5, fontweight="bold", color="#333333")
+        axB.annotate(f"{v:.1f}", (b.get_x() + b.get_width() / 2, v), ha="center", va="bottom", fontsize=7.5, fontweight="bold", color="#333333")
     axB.set_xticks(xB)
     axB.set_xticklabels(labB, rotation=20, ha="right", fontsize=8)
     axB.set_ylabel("mean (m/s)")

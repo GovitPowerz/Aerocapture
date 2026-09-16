@@ -31,26 +31,34 @@ POINT_STRIDE = 3
 
 # (slug, title, run_dir under training_output/, training TOML, results.json key)
 SCHEMES = [
-    ("nn_mamba", "NN -- Mamba (962 params)", "mamba_p962_long",
-     "configs/training/sweep/mamba_p962.toml", "headline/mamba_p962"),
-    ("nn_lstm", "NN -- LSTM (1082 params)", "lstm_p1082_long",
-     "configs/training/sweep/lstm_p1082.toml", "headline/lstm_p1082"),
-    ("nn_gru", "NN -- GRU (1014 params)", "gru_p1014_long",
-     "configs/training/sweep/gru_p1014.toml", "headline/gru_p1014"),
-    ("nn_dense", "NN -- Dense (515 params)", "dense_p515_ga_paper_best",
-     "configs/training/msr_aller_nn_atan2_best_paper.toml", "headline/dense_p515"),
-    ("ftc", "FTC (joint reference)", "paper/joint_reference/ftc",
-     "configs/training/msr_aller_ftc_joint_ref_train.toml", "joint_reference/ftc"),
-    ("fnpag", "FNPAG", "fnpag",
-     "configs/training/msr_aller_fnpag_train.toml", "classical_baselines/fnpag"),
-    ("predguid", "PredGuid (joint reference)", "paper/joint_reference/pred_guid",
-     "configs/training/msr_aller_pred_guid_joint_ref_train.toml", "joint_reference/pred_guid"),
-    ("energyctl", "Energy controller (joint reference)", "paper/joint_reference/energy_controller",
-     "configs/training/msr_aller_energy_controller_joint_ref_train.toml", "joint_reference/energy_controller"),
-    ("eqglide", "Equilibrium glide", "equilibrium_glide",
-     "configs/training/msr_aller_eqglide_train.toml", "classical_baselines/equilibrium_glide"),
-    ("piecewise", "Piecewise constant", "piecewise_constant",
-     "configs/training/msr_aller_piecewise_constant_train.toml", "classical_baselines/piecewise_constant"),
+    ("nn_mamba", "NN -- Mamba (962 params)", "mamba_p962_long", "configs/training/sweep/mamba_p962.toml", "headline/mamba_p962"),
+    ("nn_lstm", "NN -- LSTM (1082 params)", "lstm_p1082_long", "configs/training/sweep/lstm_p1082.toml", "headline/lstm_p1082"),
+    ("nn_gru", "NN -- GRU (1014 params)", "gru_p1014_long", "configs/training/sweep/gru_p1014.toml", "headline/gru_p1014"),
+    ("nn_dense", "NN -- Dense (515 params)", "dense_p515_ga_paper_best", "configs/training/msr_aller_nn_atan2_best_paper.toml", "headline/dense_p515"),
+    ("ftc", "FTC (joint reference)", "paper/joint_reference/ftc", "configs/training/msr_aller_ftc_joint_ref_train.toml", "joint_reference/ftc"),
+    ("fnpag", "FNPAG", "fnpag", "configs/training/msr_aller_fnpag_train.toml", "classical_baselines/fnpag"),
+    (
+        "predguid",
+        "PredGuid (joint reference)",
+        "paper/joint_reference/pred_guid",
+        "configs/training/msr_aller_pred_guid_joint_ref_train.toml",
+        "joint_reference/pred_guid",
+    ),
+    (
+        "energyctl",
+        "Energy controller (joint reference)",
+        "paper/joint_reference/energy_controller",
+        "configs/training/msr_aller_energy_controller_joint_ref_train.toml",
+        "joint_reference/energy_controller",
+    ),
+    ("eqglide", "Equilibrium glide", "equilibrium_glide", "configs/training/msr_aller_eqglide_train.toml", "classical_baselines/equilibrium_glide"),
+    (
+        "piecewise",
+        "Piecewise constant",
+        "piecewise_constant",
+        "configs/training/msr_aller_piecewise_constant_train.toml",
+        "classical_baselines/piecewise_constant",
+    ),
 ]
 
 
@@ -133,8 +141,10 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
         pin["data.neural_network"] = str(model.resolve())
     overrides = [{"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, "monte_carlo.seed": s, **pin} for s in seeds]
     batch = aerocapture_rs.run_batch(
-        toml_path=str(eval_toml.resolve()), overrides_list=overrides,
-        include_trajectories=True, sim_timeout_secs=5.0,
+        toml_path=str(eval_toml.resolve()),
+        overrides_list=overrides,
+        include_trajectories=True,
+        sim_timeout_secs=5.0,
     )
     recs = np.asarray(batch.final_records)
     trajs = [np.asarray(t) for t in batch.trajectories]
@@ -156,10 +166,8 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     sub_trajs = [trajs[i][::POINT_STRIDE] for i in idx]
     sub_class = traj_class[idx]
 
-    nom_ov = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME,
-              **{f"monte_carlo.{d}.level": "off" for d in _MC_DISPERSION_DOMAINS}, **pin}
-    nom = aerocapture_rs.run_mc(toml_path=str(eval_toml.resolve()), overrides=nom_ov,
-                                include_trajectories=True, sim_timeout_secs=5.0)
+    nom_ov = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, **{f"monte_carlo.{d}.level": "off" for d in _MC_DISPERSION_DOMAINS}, **pin}
+    nom = aerocapture_rs.run_mc(toml_path=str(eval_toml.resolve()), overrides=nom_ov, include_trajectories=True, sim_timeout_secs=5.0)
     undispersed = np.asarray(nom.trajectories[0]) if nom.trajectories else None
     nk = {"undispersed_nominal": undispersed}
 
@@ -172,9 +180,15 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     # Compact natives for the card's three-across constraint row: 2.4in rendered
     # into a ~2.1in slot keeps the fonts at ~6-7pt effective (the report-width
     # 10in natives rendered at 21% scale, i.e. ~2pt fonts).
-    compact = {"font.size": 8.0, "axes.titlesize": 8.5, "axes.labelsize": 8.0,
-               "xtick.labelsize": 7.0, "ytick.labelsize": 7.0, "legend.fontsize": 6.5,
-               "lines.linewidth": 1.0}
+    compact = {
+        "font.size": 8.0,
+        "axes.titlesize": 8.5,
+        "axes.labelsize": 8.0,
+        "xtick.labelsize": 7.0,
+        "ytick.labelsize": 7.0,
+        "legend.fontsize": 6.5,
+        "lines.linewidth": 1.0,
+    }
     with plt.rc_context(compact):
         charts.chart_heat_flux_time(sub_trajs, sub_class, out / "heat_flux.svg", limit_kw_m2=hfl, figsize=(2.4, 1.9), **nk)
         charts.chart_gload_time(sub_trajs, sub_class, out / "g_load.svg", limit_g=gll, figsize=(2.4, 1.9), **nk)
@@ -183,7 +197,7 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     summary = compute_eval_summary(recs, n_sims=len(recs), cost_kwargs=read_cost_kwargs(eval_toml))
     dvc = np.abs(recs[cap, charts._FR_DV_TOTAL])
     summary["dv_p99"] = float(np.percentile(dvc, 99))
-    summary["dv_cvar95"] = float(np.sort(dvc)[-max(1, round(len(dvc) * 0.05)):].mean())
+    summary["dv_cvar95"] = float(np.sort(dvc)[-max(1, round(len(dvc) * 0.05)) :].mean())
     summary["title"] = title
     (out / "stats.json").write_text(json.dumps(summary, indent=1, default=float))
     print(f"  wrote {out.relative_to(REPO)} (7 svg + stats.json)")

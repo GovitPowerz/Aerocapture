@@ -47,14 +47,12 @@ def main():
     # annotate the two optima (lowest CVaR_95 per series)
     rot_sweet = runs["training_n_sims/rotating_10"]["dv_cvar95"]
     ada_best = runs["training_n_sims/adaptive_2"]["dv_cvar95"]
-    ax.scatter([10], [rot_sweet], s=130, facecolors="none", edgecolors=fl.C["accent"],
-               lw=1.8, zorder=4)
-    ax.annotate(f"sweet spot\n{rot_sweet:.1f}", (10, rot_sweet), textcoords="offset points",
-                xytext=(12, -24), color=fl.C["accent"], fontsize=8, fontweight="bold")
-    ax.scatter([2], [ada_best], s=130, facecolors="none", edgecolors=fl.C["accent"],
-               lw=1.8, zorder=4)
-    ax.annotate(f"dominates\n{ada_best:.1f}", (2, ada_best), textcoords="offset points",
-                xytext=(8, -22), color=fl.C["accent"], fontsize=8, fontweight="bold")
+    ax.scatter([10], [rot_sweet], s=130, facecolors="none", edgecolors=fl.C["accent"], lw=1.8, zorder=4)
+    ax.annotate(
+        f"sweet spot\n{rot_sweet:.1f}", (10, rot_sweet), textcoords="offset points", xytext=(12, -24), color=fl.C["accent"], fontsize=8, fontweight="bold"
+    )
+    ax.scatter([2], [ada_best], s=130, facecolors="none", edgecolors=fl.C["accent"], lw=1.8, zorder=4)
+    ax.annotate(f"dominates\n{ada_best:.1f}", (2, ada_best), textcoords="offset points", xytext=(8, -22), color=fl.C["accent"], fontsize=8, fontweight="bold")
 
     ax.set_xscale("log")
     ticks = sorted({p[0] for p in ROTATING + ADAPTIVE})

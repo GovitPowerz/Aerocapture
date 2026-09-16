@@ -33,18 +33,23 @@ def main():
     for label, key, ckey, (dx, dy) in SCHEMES:
         xv = rows[key]["capture_drop_pts"]
         yv = rows[key]["cvar95_inflation"]
-        ax.scatter([xv], [yv], color=fl.C[ckey], s=90, zorder=4,
-                   edgecolor="white", linewidth=1.0)
-        ax.annotate(f"{label}\n$-{xv:.1f}$ pts, $+{yv:.0f}$ m/s",
-                    (xv, yv), textcoords="offset points", xytext=(dx, dy),
-                    fontsize=8, color=fl.C[ckey], fontweight="bold",
-                    ha="left" if dx >= 0 else "right",
-                    va="bottom" if dy >= 0 else "top")
+        ax.scatter([xv], [yv], color=fl.C[ckey], s=90, zorder=4, edgecolor="white", linewidth=1.0)
+        ax.annotate(
+            f"{label}\n$-{xv:.1f}$ pts, $+{yv:.0f}$ m/s",
+            (xv, yv),
+            textcoords="offset points",
+            xytext=(dx, dy),
+            fontsize=8,
+            color=fl.C[ckey],
+            fontweight="bold",
+            ha="left" if dx >= 0 else "right",
+            va="bottom" if dy >= 0 else "top",
+        )
 
     # lower-left = robust guide
-    ax.annotate("robust\n(small drop + small inflation)", xy=(0.03, 0.05),
-                xycoords="axes fraction", fontsize=8, color="#555555",
-                ha="left", va="bottom", style="italic")
+    ax.annotate(
+        "robust\n(small drop + small inflation)", xy=(0.03, 0.05), xycoords="axes fraction", fontsize=8, color="#555555", ha="left", va="bottom", style="italic"
+    )
 
     ax.set_xlabel("capture-rate drop (pts)")
     ax.set_ylabel("CVaR$_{95}$ inflation (m/s)")

@@ -244,7 +244,9 @@ def main(argv: list[str] | None = None) -> None:
             f"pool shape mismatch vs existing {out_path.name} ({existing.get('n_replicates')}x{existing.get('n_per_replicate')})"
         )
         existing_regime = existing.get("noise_seeding", "legacy")  # files written before the key existed are legacy
-        assert existing_regime == args.noise_seeding, f"regime mismatch vs existing {out_path.name}: {existing_regime} != {args.noise_seeding} (one regime per file)"
+        assert existing_regime == args.noise_seeding, (
+            f"regime mismatch vs existing {out_path.name}: {existing_regime} != {args.noise_seeding} (one regime per file)"
+        )
 
     specs = []
     base_seed: int | None = None
