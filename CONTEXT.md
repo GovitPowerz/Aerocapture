@@ -105,7 +105,7 @@ The upper tail of the DV distribution (p95, CVaR95 and beyond) that sizes propel
 _Avoid_: leading comparisons with the median
 
 **Validation Gate**:
-The in-training re-evaluation of a new candidate on the validation pool; promotion requires feasibility (every configured constraint's violation rate at or below `max_violation_rate`, ADR-0006) and then strict RMS improvement.
+The in-training re-evaluation of a new candidate on the validation pool; promotion requires feasibility (every configured constraint's violation rate at or below `max_violation_rate`, ADR-0005) and then strict RMS improvement.
 
 **Champion**:
 The best validated feasible individual so far in a training run.

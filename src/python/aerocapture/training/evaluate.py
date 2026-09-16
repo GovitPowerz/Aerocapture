@@ -44,8 +44,7 @@ def constraint_violation_rates(
     from aerocapture.training import charts  # noqa: PLC0415
 
     kw = cost_kwargs or {}
-    # Column access is lazy per configured limit: callers without limits (or
-    # test fakes with narrow record stubs) must not touch the FR columns.
+    # A constraint without a configured limit is not assessed, so its column is never read.
     specs = (
         ("heat_flux", charts._FR_MAX_HEAT_FLUX, 1.0, kw.get("heat_flux_limit")),
         ("g_load", charts._FR_MAX_G_LOAD, 1.0, kw.get("g_load_limit")),
@@ -53,6 +52,15 @@ def constraint_violation_rates(
     )
     rates = {name: float(np.mean(final_records[:, col] * scale > float(lim))) for name, col, scale, lim in specs if isinstance(lim, (int, float))}
     return rates or None
+
+
+def is_feasible(rates: dict[str, float] | None, max_violation_rate: float) -> bool:
+    """ADR-0005: feasible when every assessed constraint's violation rate is at or below the ceiling."""
+    return rates is None or all(r <= max_violation_rate + 1e-12 for r in rates.values())
+
+
+def format_violation_rates(rates: dict[str, float] | None) -> str:
+    return ", ".join(f"{k}={v:.3%}" for k, v in (rates or {}).items())
 
 
 class GateStatus(Enum):
@@ -75,9 +83,7 @@ class GateResult:
     val_records: npt.NDArray[np.float64] | None = None
     val_rms: float | None = None
     promoted: bool = False
-    # Feasibility (ADR-0006): promotion additionally requires every
-    # configured constraint's violation rate <= the caller's ceiling.
-    feasible: bool = True
+    feasible: bool = True  # ADR-0005; promotion requires it
     violation_rates: dict[str, float] | None = None
 
 
@@ -109,7 +115,9 @@ def run_validation_gate(
       2. SKIP_UNCHANGED when the guarded argmin matches `last_validated` (no point
          re-running the same individual through the validation MC).
       3. VALIDATED otherwise: runs the validation MC and reports `val_rms` plus
-         whether it beats `best_val_cost` (the promotion boolean).
+         whether it promotes: feasible on the validation pool (every configured
+         constraint's violation rate <= `max_violation_rate`, ADR-0005) AND
+         `val_rms < best_val_cost`.
 
     Selection uses `nanargmin(where(isfinite, f, inf))`, which also skips NaN-cost
     rows: in a mixed finite+NaN population the finite minimum is selected, not the
@@ -135,12 +143,8 @@ def run_validation_gate(
 
     val_costs, val_records = problem.evaluate_individual_records_per_seed(individual, val_seeds)
     val_rms = float(np.sqrt(np.mean(val_costs**2)))
-    # Feasibility gate (ADR-0006): an individual whose validation MC
-    # violates a configured constraint more often than the ceiling never
-    # promotes, no matter how good its RMS - soft cost penalties do not
-    # guarantee feasibility at the optimum (the LSTM 14-16% heat-load lesson).
     rates = constraint_violation_rates(val_records, cost_kwargs)
-    feasible = rates is None or all(r <= max_violation_rate + 1e-12 for r in rates.values())
+    feasible = is_feasible(rates, max_violation_rate)
     return GateResult(
         status=GateStatus.VALIDATED,
         argmin_cost=argmin_cost,

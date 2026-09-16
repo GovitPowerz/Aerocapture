@@ -1,4 +1,4 @@
-"""Feasibility-aware validation gate + final selection (ADR-0006)."""
+"""Feasibility-aware validation gate + final selection (ADR-0005)."""
 
 import numpy as np
 import pytest
@@ -143,7 +143,7 @@ class TestFinalSelectionFeasibility:
         )
         assert sel.promoted and sel.provenance == "last_gen[0]" and sel.winner_feasible
 
-    def test_no_champion_all_infeasible_falls_back_with_flag(self) -> None:
+    def test_no_champion_all_infeasible_falls_back_with_flag(self, capsys) -> None:  # type: ignore[no-untyped-def]
         problem = _FakeProblem(np.full(10, 50.0), _records(10, n_flux_viol=5))
         sel = select_final_individual(
             problem,
@@ -155,6 +155,18 @@ class TestFinalSelectionFeasibility:
             cost_kwargs=COST_KWARGS,
         )
         assert sel.promoted and not sel.winner_feasible
+        assert "NO feasible candidate" in capsys.readouterr().out
+
+
+class TestIsFeasible:
+    def test_rule(self) -> None:
+        from aerocapture.training.evaluate import is_feasible
+
+        assert is_feasible(None, 0.0)  # nothing assessed
+        assert is_feasible({"heat_flux": 0.0, "heat_load": 0.0}, 0.0)
+        assert not is_feasible({"heat_flux": 0.001}, 0.0)
+        assert is_feasible({"heat_flux": 0.01}, 0.01)  # at the ceiling
+        assert not is_feasible({"heat_flux": 0.0, "g_load": 0.02}, 0.01)  # any constraint
 
 
 class TestPrologueFeasibility:

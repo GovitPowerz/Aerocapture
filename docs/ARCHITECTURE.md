@@ -40,7 +40,7 @@ actually flow through this code. Vocabulary is `CONTEXT.md`'s; decisions this pa
    `evaluate.run_validation_gate` re-scores a new argmin on the reserved validation pool and
    promotes the **champion** only on strictly lower val RMS) -> `_maybe_curate` (adaptive seeds:
    `seed_curator.SeedCurator`) -> `emit` (JSONL + TUI) -> `maybe_checkpoint`.
-7. `finalize`: **final selection** (`final_select.select_final_individual`, ADR-0002; feasible candidates only, ADR-0006) re-ranks the
+7. `finalize`: **final selection** (`final_select.select_final_individual`, ADR-0002; feasible candidates only, ADR-0005) re-ranks the
    last population plus the champion on the validation pool; `write_best_artifacts` writes
    `best_model.json` / `best_params.json` (+ `deploy_optimized_artifacts` for classical schemes).
 8. `report.run_final_evaluation` scores the deployed winner once on the disjoint final-eval pool

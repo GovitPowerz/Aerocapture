@@ -1,6 +1,6 @@
-# ADR-0006: A candidate must be feasible on the validation pool before its performance can promote it
+# ADR-0005: A candidate must be feasible on the validation pool before its performance can promote it
 
-**Status:** accepted · **Date:** 2026-09-16 (gate implemented 2026-07-16 on the CPAG branch, commit `0f6d531`; landed on `main` by #109)
+**Status:** accepted · **Date:** 2026-09-16 (gate implemented 2026-07-16 on the CPAG branch, commit `0f6d531`; extracted by PR #116, issue #109)
 
 ## Context
 
@@ -31,10 +31,13 @@ pre-loop initial / resumed champion validation, the islands resume re-validation
 selection (fresh candidates evaluated once via `evaluate_population_records_per_seed`, so the
 records that carry the constraint columns cost no second MC pass). An infeasible fresh candidate
 never displaces a champion. A resumed champion that fails the check is kept as
-`last_validated_individual` but its RMS does not anchor `best_val_cost` (reset to `inf`). With no
+`last_validated_individual` but its RMS does not anchor `best_val_cost` (reset to `inf`); at final
+selection it competes as an ordinary candidate rather than as a trusted champion. With no trusted
 champion and no feasible candidate, final selection deploys the best-RMS infeasible candidate
-with a loud warning and `winner_feasible = false` in `final_selection.json`, rather than leaving
-downstream consumers without an artifact.
+(that resumed champion included) with a loud warning and `winner_feasible = false` in
+`final_selection.json`, rather than leaving downstream consumers without an artifact. The retro
+CLI (`python -m aerocapture.training.final_select`) re-validates checkpoint champions under the
+same rule before trusting them, so a pre-rule directory can be re-selected honestly.
 
 `constraint_violation_rates(final_records, cost_kwargs)` in `evaluate.py` is the single
 implementation; rates and the `feasible` flag are written to the validation JSONL records and

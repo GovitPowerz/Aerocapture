@@ -134,7 +134,7 @@ The external-review pass on the paper found that the LSTM cell's best run -- the
 
 - **Improvement**: add a constraint-violation check to the validation gate and `final_select` (e.g. reject promotion when any heat-flux/g-load/heat-load violation rate exceeds a configurable ceiling, default 0), and surface per-constraint violation rates in the validation JSONL/TUI alongside capture rate.
 - **Impact**: soft penalties in the cost do not guarantee feasibility at the optimum; this makes the deploy path enforce it. Would have flagged the LSTM run at training time instead of at paper review.
-- **Shipped** (2026-09-16, #109, ADR-0006): `[optimizer] max_violation_rate` (default 0.0) gates the validation gate, islands, pre-loop and resume re-validation, and final selection.
+- **Shipped** (2026-09-16, #109, ADR-0005): `[optimizer] max_violation_rate` (default 0.0) gates the validation gate, islands, pre-loop and resume re-validation, and final selection.
 
 ### 9.15 State-ablation control for the tail mechanism
 

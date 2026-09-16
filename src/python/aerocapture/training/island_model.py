@@ -16,7 +16,7 @@ import numpy.typing as npt
 from pymoo.algorithms.soo.nonconvex.pso import PSO
 from pymoo.core.algorithm import Algorithm
 
-from aerocapture.training.evaluate import GateStatus, constraint_violation_rates, run_validation_gate
+from aerocapture.training.evaluate import GateStatus, constraint_violation_rates, format_violation_rates, is_feasible, run_validation_gate
 from aerocapture.training.metrics import capture_rate as _capture_rate
 from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
 
@@ -475,19 +475,17 @@ class IslandModel:
                 self.validation_seeds,
             )
             rms = float(np.sqrt(np.mean(val_costs**2)))
-            # A checkpoint written before the feasibility gate (ADR-0006) may
-            # carry a champion that was never checked; keep the individual as
-            # last_validated but do not let its RMS anchor the promotion bar.
+            # Pre-rule checkpoint: the champion stays last_validated, but an
+            # infeasible one must not anchor the promotion bar (ADR-0005).
             ceiling = self.config.max_violation_rate
             rates = constraint_violation_rates(val_records, self.problem.cost_kwargs)
-            feasible = rates is None or all(r <= ceiling + 1e-12 for r in rates.values())
-            if feasible:
+            if is_feasible(rates, ceiling):
                 island.best_val_cost = rms
             else:
                 island.best_val_cost = float("inf")
-                rates_txt = ", ".join(f"{k}={v:.3%}" for k, v in (rates or {}).items())
                 print(
-                    f"  [{island.name}] resumed champion is INFEASIBLE ({rates_txt} > ceiling {ceiling:.3%}) - not anchoring best_val_cost (rms was {rms:.4g})"
+                    f"  [{island.name}] resumed champion is INFEASIBLE ({format_violation_rates(rates)} > ceiling {ceiling:.3%}) "
+                    f"- not anchoring best_val_cost (rms was {rms:.4g})"
                 )
             island.last_validated_individual = island.best_overall_individual.copy()
 

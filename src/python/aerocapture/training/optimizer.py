@@ -90,10 +90,8 @@ class OptimizerConfig:
     curation_trim_fraction: float = 0.0
     curation_bucket_selection: str = "random"
     grow_fresh_fraction: float = 0.2
-    # Feasibility ceiling for the validation gate and final selection
-    # (ADR-0006): max fractional violation rate per configured
-    # constraint on the validation pool. 0.0 = any violating draw blocks
-    # promotion (strict); raise per-config when a small rate is acceptable.
+    # Feasibility ceiling for every promotion site (ADR-0005): max fractional
+    # validation-pool violation rate per configured constraint; 0.0 = strict.
     max_violation_rate: float = 0.0
     ga: GASettings = field(default_factory=GASettings)
     cma_es: CMAESSettings = field(default_factory=CMAESSettings)

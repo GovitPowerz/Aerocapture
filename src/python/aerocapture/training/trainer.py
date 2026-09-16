@@ -167,29 +167,26 @@ class SingleAlgoTrainer:
     def prologue(self, logger: Any, display: Any) -> None:
         """Validate the starting best: gen-0 individual on fresh starts, the
         checkpointed best on resume (keeps "Best val" + stagnation honest)."""
-        from aerocapture.training.evaluate import constraint_violation_rates
+        from aerocapture.training.evaluate import constraint_violation_rates, format_violation_rates, is_feasible
         from aerocapture.training.train import _build_validation_payload
 
         if self.val_seeds is None or self.best_overall_individual is None:
             return
         init_val_costs, init_val_records = self.problem.evaluate_individual_records_per_seed(self.best_overall_individual, self.val_seeds)
         init_rms = float(np.sqrt(np.mean(init_val_costs**2)))
-        # The feasibility gate (ADR-0006) applies to the initial / resumed
-        # champion too: anchoring best_val_cost with an INFEASIBLE candidate
-        # makes every later feasible promotion beat an illegitimate RMS bar,
-        # and final selection would trust the anchor as-validated. Observed
-        # live (CPAG C2): a gen-0 argmin validated at 5.25% heat-load
-        # violation and anchored the campaign through this ungated path.
+        # An infeasible initial / resumed champion must not anchor the promotion bar (ADR-0005).
         ceiling = self.config.optimizer.max_violation_rate
         init_rates = constraint_violation_rates(init_val_records, self.problem.cost_kwargs)
-        init_feasible = init_rates is None or all(r <= ceiling + 1e-12 for r in init_rates.values())
+        init_feasible = is_feasible(init_rates, ceiling)
         if init_feasible:
             self.best_val_cost = init_rms
         else:
             self.best_val_cost = float("inf")
             if self.verbose:
-                rates_txt = ", ".join(f"{k}={v:.3%}" for k, v in (init_rates or {}).items())
-                print(f"  Initial best validation: INFEASIBLE ({rates_txt} > ceiling {ceiling:.3%}) - not anchoring best_val_cost (rms was {init_rms:.4g})")
+                print(
+                    f"  Initial champion validation: INFEASIBLE ({format_violation_rates(init_rates)} > ceiling {ceiling:.3%}) "
+                    f"- not anchoring best_val_cost (rms was {init_rms:.4g})"
+                )
         self.last_validated_individual = self.best_overall_individual.copy()
         init_val_metrics, init_val_summary = _build_validation_payload(
             init_val_costs,
@@ -246,7 +243,7 @@ class SingleAlgoTrainer:
     def observe(self, gen: int) -> bool:
         """Corridor accumulation + validation gate / no-validation promotion.
         Returns True when a validated promotion happened this gen."""
-        from aerocapture.training.evaluate import _HAS_PYO3, GateStatus, run_validation_gate
+        from aerocapture.training.evaluate import _HAS_PYO3, GateStatus, format_violation_rates, run_validation_gate
         from aerocapture.training.train import _accumulate_corridor, _build_validation_payload
 
         if self.config.guidance_type == "piecewise_constant" and self.corridor_acc is not None and _HAS_PYO3 and self.config.sim.toml_config:
@@ -291,9 +288,10 @@ class SingleAlgoTrainer:
                     self.best_overall_cost = gate.argmin_cost
                     self._validated_improvement = True
                 elif not gate.feasible and gate.val_rms < self.best_val_cost and self.verbose:
-                    # Would have promoted on RMS alone: the feasibility gate blocked it.
-                    rates_txt = ", ".join(f"{k}={v:.3%}" for k, v in (gate.violation_rates or {}).items())
-                    print(f"  Gen {gen} validation: REJECTED (infeasible: {rates_txt} > ceiling {ceiling:.3%}) despite rms {gate.val_rms:.4g}")
+                    print(
+                        f"  Gen {gen} validation: REJECTED (infeasible: {format_violation_rates(gate.violation_rates)} > ceiling {ceiling:.3%}) "
+                        f"despite rms {gate.val_rms:.4g}"
+                    )
             # SKIP_UNCHANGED / SKIP_ALL_INF: no validation, no promotion.
         elif np.isfinite(self._gen_best_cost):
             # No validation gate: promote each generation's finite training
@@ -390,13 +388,19 @@ class SingleAlgoTrainer:
         selection_promoted = False
         if self.val_seeds is not None:
             known: list[KnownCandidate] = []
-            if self.best_overall_individual is not None and np.isfinite(self.best_val_cost):
-                known.append(KnownCandidate(x=self.best_overall_individual, provenance="champion", val_rms=float(self.best_val_cost)))
+            cand_X, cand_prov = self.X, [f"last_gen[{i}]" for i in range(self.X.shape[0])]
+            if self.best_overall_individual is not None:
+                if np.isfinite(self.best_val_cost):
+                    known.append(KnownCandidate(x=self.best_overall_individual, provenance="champion", val_rms=float(self.best_val_cost)))
+                else:
+                    # Infeasible initial / resumed champion (prologue): competes as a candidate, not as a trusted champion.
+                    cand_X = np.vstack([self.X, self.best_overall_individual[None, :]])
+                    cand_prov.append("champion[infeasible]")
             try:
                 sel = select_final_individual(
                     self.problem,
-                    self.X,
-                    [f"last_gen[{i}]" for i in range(self.X.shape[0])],
+                    cand_X,
+                    cand_prov,
                     known,
                     self.val_seeds,
                     max_violation_rate=self.config.optimizer.max_violation_rate,
@@ -411,8 +415,10 @@ class SingleAlgoTrainer:
                     self.best_overall_individual = sel.individual.copy()
                     self.best_val_cost = sel.val_rms
                     assert sel.winner_index is not None
-                    # Training-cost-at-promotion semantics (resume-incomparability rule).
-                    self.best_overall_cost = float(self.costs[sel.winner_index])
+                    # Training-cost-at-promotion semantics (resume-incomparability rule);
+                    # the appended champion row keeps its own recorded cost.
+                    if sel.winner_index < self.X.shape[0]:
+                        self.best_overall_cost = float(self.costs[sel.winner_index])
                     selection_promoted = True
 
         # Always save a final checkpoint labeled with the last gen that ran.
@@ -798,6 +804,10 @@ class IslandsTrainer:
             cand_rows: list[npt.NDArray[np.float64]] = []
             cand_prov: list[str] = []
             for isl in island_model.islands:
+                if isl.best_overall_individual is not None and not np.isfinite(isl.best_val_cost):
+                    # Infeasible resumed champion (revalidate_each): competes as a candidate.
+                    cand_rows.append(np.asarray(isl.best_overall_individual, dtype=np.float64))
+                    cand_prov.append(f"{isl.name}:champion[infeasible]")
                 pop = isl.algorithm.pop
                 if pop is None:
                     continue

@@ -51,7 +51,7 @@ PAIRS = [
 T95_DF9 = 2.262  # t(0.975, df=9) for 10 replicates
 
 REP_KEYS = ("capture_pct", "p50", "p95", "cvar95", "p99", "cvar99", "p999", "p9987", "cvar999", "max")
-# Per-constraint violation rates ride along per replicate (ADR-0006: quote feasibility next to the tail).
+# Per-constraint violation rates ride along per replicate (ADR-0005: quote feasibility next to the tail).
 VIOL_KEYS = ("viol_pct", "heat_flux_viol_pct", "g_load_viol_pct", "heat_load_viol_pct")
 
 

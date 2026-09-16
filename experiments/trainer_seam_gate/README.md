@@ -36,7 +36,7 @@ all three runs identical pre/post. Two prerequisites it surfaced, now in
 even under `seed_strategy = "fixed"`), and `config_hash` embeds a memory
 address and must be treated as volatile.
 
-Re-run for the feasibility gate (`feature/feasibility-gate`, 2026-09-16, ADR-0006):
+Re-run for the feasibility gate (`feature/feasibility-gate`, 2026-09-16, ADR-0005):
 baseline = `main` source, post = the gated source, same lockfiles. Gate b is
 identical modulo the two new validation-record keys (`feasible`,
 `violation_rates`). Gates a and c diverge only where the gate rejected an

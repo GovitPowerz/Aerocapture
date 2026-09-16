@@ -55,7 +55,7 @@ evidence.
 
 ### Stage C2 -- training + benchmark
 - [ ] GA-tune under the deployed regime (adaptive/max curation, cubed transform); requires the
-      feasibility-aware validation gate (ADR-0006, shipped) for honest promotion
+      feasibility-aware validation gate (ADR-0005, shipped) for honest promotion
 - [ ] Head-to-head vs joint-FTC / FNPAG / deployed Mamba on confirmatory-style pools; update the
       deployability triangle (tail, compute, robustness)
 - [ ] Optional follow-up: CPAG as a constraint-aware warm-start supervisor for `magnitude_only`

@@ -255,7 +255,7 @@ class AerocaptureProblem(Problem):
 
         The one batched kernel: `evaluate_population_per_seed` is this minus the
         records. Final selection reads the records for the feasibility check
-        (ADR-0006) without a second MC pass.
+        (ADR-0005) without a second MC pass.
         """
         grid = self._run_grid_records(X, seeds)
         n_pop, n_seeds = X.shape[0], len(seeds)
