@@ -29,10 +29,7 @@ def main():
 
     fig, ax = plt.subplots(figsize=fl.SIZE1)
     for label, name, key, ls in CELLS:
-        c = cells.get(label)
-        if c is None:
-            print(f"  (skip {label}: not in confirmatory_eval.json yet)")
-            continue
+        c = cells[label]  # KeyError = cell missing from confirmatory_eval.json: fail, never thin the figure
         x = np.asarray(c["survival_sample"], dtype=float)  # sorted pooled sample
         surv = 1.0 - (np.arange(1, len(x) + 1) - 0.5) / len(x)
         ax.plot(x, surv, color=fl.C[key], ls=ls, lw=1.5, label=name)
@@ -40,8 +37,7 @@ def main():
     # the CVaR95 label anchors left of the legend box (the 5e-5 floor lifts the 0.05 line into it)
     for depth, txt, xa in ((0.05, "CVaR$_{95}$ depth", 0.70), (0.001, "CVaR$_{99.9}$ depth", 0.995)):
         ax.axhline(depth, color="#999", lw=0.7, ls=":")
-        ax.annotate(txt, xy=(xa, depth), xycoords=("axes fraction", "data"),
-                    fontsize=7.5, color="#666", ha="right", va="bottom")
+        ax.annotate(txt, xy=(xa, depth), xycoords=("axes fraction", "data"), fontsize=7.5, color="#666", ha="right", va="bottom")
 
     ax.set_yscale("log")
     ax.set_ylim(5e-5, 1.0)  # floor = the subsample's depth resolution (~0.5/10k); a higher floor

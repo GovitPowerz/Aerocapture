@@ -6,8 +6,8 @@ The lever sweep (stacked cubed/max/n=2 -> centered linear/middle/n=16) plus the
 Mamba_962 confirmation. The dashed line marks the best retrained classical
 (joint-FTC). Capture and the tail are shown SEPARATELY because the levers trade
 them off (the middle bucket alone drops capture); CVaR95 over captures is only
-comparable among cells holding ~95% capture. Reads only committed JSON; degrades
-if cells are missing.
+comparable among cells holding ~95% capture. Reads only committed JSON; a missing
+cell or reference is an error (never a thinner figure).
 """
 
 import json
@@ -30,25 +30,30 @@ PRETTY = {
 }
 # stacked = the bad control (red); single-lever cells (blue); centered (green).
 COLOR = {
-    "stacked": "#C44E52", "plus_sims": "#4C72B0", "plus_bucket": "#4C72B0",
-    "plus_transform": "#4C72B0", "centered": "#55A868", "mamba_centered": "#55A868",
+    "stacked": "#C44E52",
+    "plus_sims": "#4C72B0",
+    "plus_bucket": "#4C72B0",
+    "plus_transform": "#4C72B0",
+    "centered": "#55A868",
+    "mamba_centered": "#55A868",
 }
 
 
 def _joint_ftc_high():
     """Best retrained classical reference (capture %, CVaR95) from the robustness eval."""
-    if not ROBUST.exists():
-        return None
-    for s in json.loads(ROBUST.read_text()).get("schemes", []):
-        if s.get("label") == "jointFTC-high":
-            return s.get("capture_pct"), s.get("dv_cvar95")
-    return None
+    for s in json.loads(ROBUST.read_text())["schemes"]:
+        if s["label"] == "jointFTC-high":
+            return s["capture_pct"], s["dv_cvar95"]
+    raise KeyError(f"jointFTC-high missing from {ROBUST}")
 
 
 def main():
     fl.style()
-    cells = {c["label"]: c for c in json.loads(DATA.read_text()).get("cells", [])}
-    labels = [k for k in ORDER if k in cells]
+    cells = {c["label"]: c for c in json.loads(DATA.read_text())["cells"]}
+    missing = [k for k in ORDER if k not in cells]
+    if missing:
+        raise KeyError(f"cells missing from {DATA}: {missing}")
+    labels = ORDER
     ref = _joint_ftc_high()
 
     fig, (axL, axR) = plt.subplots(1, 2, figsize=fl.SIZE2)

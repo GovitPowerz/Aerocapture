@@ -16,16 +16,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pyarrow.parquet as pq
 
-FAMILY_C = {"dense": fl.C["dense"], "gru": fl.C["gru"], "lstm": fl.C["lstm"],
-            "mamba": fl.C["mamba"], "transformer": "#d1701f", "window": "#937860"}
+FAMILY_C = {"dense": fl.C["dense"], "gru": fl.C["gru"], "lstm": fl.C["lstm"], "mamba": fl.C["mamba"], "transformer": "#d1701f", "window": "#937860"}
+# Manifest cells with NO architecture_sweep/ bundle entry: 10b_arch_long_challengers.sh
+# extended these three training dirs in place to the headline depth, so their
+# parquets live under runs/headline/ (a different budget) and are deliberately not
+# plotted on the n=2/5000 sweep curves. Any OTHER missing cell is an error.
+NOT_IN_SWEEP_BUNDLE = {("gru", 1014), ("lstm", 1082), ("mamba", 962)}
 
 
 def _cells():
     seen, out = set(), []
     for mf in ("manifest.json", "manifest_floor.json"):
         p = fl.REPO / "configs/training/sweep" / mf
-        if not p.exists():
-            continue
         for e in json.loads(p.read_text()):
             key = (e["arch"], e["params"])
             if key in seen:
@@ -38,17 +40,20 @@ def _cells():
 def _tail(arch: str, params: int):
     par = fl.RUNS / "architecture_sweep" / f"sweep_{arch}_p{params}" / "final_eval.parquet"
     if not par.exists():
-        return None
+        if (arch, params) in NOT_IN_SWEEP_BUNDLE:
+            return None
+        raise FileNotFoundError(f"sweep cell missing from the bundle: {par}")
     df = pq.read_table(par).to_pandas()
     cap = (df["ifinal"] == 3) & (df["eccentricity"] < 1.0)
     x = np.sort(df.loc[cap, "dv_total_m_s"].to_numpy())
-    cvar95 = x[-max(1, round(len(x) * 0.05)):].mean()
+    cvar95 = x[-max(1, round(len(x) * 0.05)) :].mean()
     return float(np.percentile(x, 99)), float(cvar95)
 
 
 def main():
     fl.style()
     from collections import defaultdict
+
     fam = defaultdict(list)
     for arch, params in _cells():
         t = _tail(arch, params)

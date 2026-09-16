@@ -89,7 +89,10 @@ def main(argv: list[str] | None = None) -> None:
             continue
         s = _eval_one(label, run_dir, toml, args.n_sims)
         out[label] = s
-        print(f"  {label:16s} stress: capture {s['capture_pct']:5.1f}% | mean {s['dv_mean']:7.1f} | CVaR95 {s.get('dv_cvar95'):7.1f} | CVaR99 {s.get('dv_cvar99'):7.1f}")
+        print(
+            f"  {label:16s} stress: capture {s['capture_pct']:5.1f}% | mean {s['dv_mean']:7.1f}"
+            f" | CVaR95 {s.get('dv_cvar95'):7.1f} | CVaR99 {s.get('dv_cvar99'):7.1f}"
+        )
 
     # Summary: how much retraining helps the NN, and the off-nominal head-to-head.
     def delta(a: str, b: str, field: str) -> float | None:
@@ -107,7 +110,12 @@ def main(argv: list[str] | None = None) -> None:
     }
 
     if out:
-        OUT.write_text(json.dumps({"stress_overrides": STRESS_OVERRIDES, "n_sims": args.n_sims, "pool": "STRESS_EVAL 9M", "schemes": list(out.values()), "summary": summary}, indent=2))
+        OUT.write_text(
+            json.dumps(
+                {"stress_overrides": STRESS_OVERRIDES, "n_sims": args.n_sims, "pool": "STRESS_EVAL 9M", "schemes": list(out.values()), "summary": summary},
+                indent=2,
+            )
+        )
         print("\n  summary:")
         for k, v in summary.items():
             print(f"    {k:42s} {v}")

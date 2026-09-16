@@ -62,8 +62,10 @@ pytest tests/test_foo.py::test_bar -v
 # ── Utility Scripts (from repo root) ──
 ./build.sh                         # Build Rust binary + PyO3 bindings (-c to clean artifacts)
 ./setup_env.sh                     # Create fresh .venv + install deps
-./lint_code.sh                     # Run ruff (imports, format, lint) + mypy
+./lint_code.sh                     # Run ruff (imports, format, lint; also over articles/paper/scripts) + mypy
 ./check_all.sh                     # Rust: test + fmt --check + clippy + release build
+make -C articles/paper             # Paper figures from the committed bundle (no Rust, no run logs); `paper` = fetch-logs -> results -> figures -> provenance -> pdf
+make -C articles/paper check       # Bundle SHA256SUMS + results.json schema + figures/results.json unchanged in git (CI runs `-B figures` then this on every PR)
 ./upgrade_dependencies.sh          # uv sync --upgrade
 ./train_all.sh                     # Train all 19 registered schemes with optimized GA/PSO/PPO settings
 ./train_all.sh eqglide             # Train a single scheme (aliases: pc, eq, ec, pg, nn, gru, gru_ppo, rl, scaledpi, delta, etc.)
@@ -488,6 +490,17 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
   `demo_output/demo.svg`. `--legacy` flies the shared-path champion (`models/demo/mamba_962_legacy/`, a copy of `training_output/mamba_p962_long/`, the historical headline) under
   `monte_carlo.noise_seeding = "legacy"`; the model and regime are printed and stamped on the figure. Demo seeds come from an arbitrary RNG stream (424242), disjoint from every reserved pool. Raw
   paper training logs (`articles/paper/data/runs/**/*.jsonl.gz`, 195 MB) are untracked — restore via `articles/paper/scripts/fetch_run_logs.sh` (Release asset on the `arxiv-v2` tag). Design docs live in `docs/design/` (formerly `docs/design/`).
+- Paper driver (`articles/paper/Makefile`, GNU make 3.81-compatible, always `make -C articles/paper <target>`): `figures` (default) rebuilds the 18 `fig_*.svg` from `data/` + the bundle with real
+  dependency semantics (per-figure data prerequisites; a missing input is a make error, never a thinner figure -- `fig_pareto`/`fig_survival`/`fig_objective_centering` hard-error on missing
+  cells too); `results` = `aggregate_results.py --require-logs` (exits non-zero with zero `run.jsonl.gz` instead of the old silent `[]`; results.json is deliberately NOT a make rule so a fresh
+  clone's mtimes never trigger it); `fetch-logs` (network, skipped when present); `provenance` writes `data/provenance.json` (HEAD, last paper-inputs commit, Release tag, crate/typst/matplotlib
+  versions, sha256 of every campaign TOML); `pdf` (typst, `SOURCE_DATE_EPOCH` = HEAD commit time; `PDF=/tmp/x.pdf` leaves the committed PDF alone); `paper` chains them; `check` = `shasum -c
+  data/SHA256SUMS` (482 tracked bundle files; `sums` regenerates it + `SHA256SUMS.runlogs` for the 95 logs) + `check_results_schema.py` + `git diff --exit-code` on figures/results.json. The
+  `FROZEN` block names the 7 data files with no producer in the tree (plateau, sigma_extras, selection_gate, nominal_floor, the two failure classifications, quant/ticks_per_sim; producing commits
+  recorded) and the opt-in `mc-*` targets re-fly cells (never default, never CI). Figures are byte-reproducible: `figlib.save` sets `svg.hashsalt` + `metadata={"Date": None}`, and `style()`
+  registers the vendored STIX Two Text (`articles/paper/fonts/`, OFL) so glyph outlines match on every machine; bytes are stable only under the pinned matplotlib -- a version bump shifts text
+  metrics and regenerates all 18 (commit that deliberately). CI's `paper` job runs `-B figures` + `check` + a /tmp `pdf` (Typst 0.15.1) on every PR; `paper-results` (workflow_dispatch only)
+  fetches the logs and requires results.json unchanged. Gates: `tests/test_paper_figures.py`.
 - GA training pipeline: optimizes any guidance scheme's parameters (not just NN weights)
   - `train.py` — Hybrid pymoo training loop with checkpoint save/resume (`<config.toml> [--no-tui] [--skip-report] [--final-n-sims N] [--algorithm ALG] [--seed-strategy fixed|rotating|adaptive]
     [--output-dir DIR]`). Mission artifacts (corridor, reference trajectory) always live at the canonical `training_output/<mission>/` — `--output-dir` / `--resume` relocate only `save_dir`
@@ -1371,10 +1384,12 @@ stop well before `n_gen` -- raise `restarts` / use `bipop`, or footnote the asym
   validation; lateral-telemetry inputs 21-24: rate=0 when prev_inclination_error is None, di_err_dt finite-diff formula match, prev_bank/π normalization at ±π/±π/2/0, time-since-flip tanh-bounded
   at 0/30/∞, integral tanh-bounded with antisymmetry, backward compat mask=[0..20] unchanged by new telemetry inputs), magnitude_only NN mode (high heat-flux nav state shrinks |bank| via thermal
   limiter only when mode = magnitude_only; full_neural passes the raw NN bank through unchanged). Run with `cargo test` or `./check_all.sh`.
-- **CI**: GitHub Actions (`.github/workflows/ci.yml`) — Rust (fmt, `clippy --workspace`, `test --workspace`: both crates), Python lint (ruff lint, ruff format, mypy over
-  `src/python tests experiments`, the `lint_code.sh` scope), and ONE Python test job that builds the CLI binary and the PyO3 extension and runs every file under `tests/`, fast and slow, with no
-  per-file allowlist (an import step before pytest proves the extension is present). The soft-import rule (training modules import without `aerocapture_rs`) is `tests/test_soft_import.py`. Runs on
-  every push to `main`, every PR to `main`, and manual dispatch.
+- **CI**: GitHub Actions (`.github/workflows/ci.yml`) — Rust (fmt, `clippy --workspace`, `test --workspace`: both crates), Python lint (ruff lint + ruff format over
+  `src/python tests experiments articles/paper/scripts`, mypy over `src/python tests experiments` -- the `lint_code.sh` scope; the paper scripts are untyped), ONE Python test job that builds the CLI
+  binary and the PyO3 extension and runs every file under `tests/`, fast and slow, with no per-file allowlist (an import step before pytest proves the extension is present), and a pure-Python
+  `paper` job (`make -C articles/paper -B figures` + `check` + `pdf` to /tmp, pinned Typst 0.15.1) that proves the 18 figures are byte-identical to git; `paper-results` (workflow_dispatch only)
+  fetches the 195 MB run logs and requires `results.json` unchanged. The soft-import rule (training modules import without `aerocapture_rs`) is `tests/test_soft_import.py`. Runs on every push to
+  `main`, every PR to `main`, and manual dispatch.
 - **Validation**: Validated against reference implementation — 22/24 photo columns bit-identical across 725 timesteps.
 
 ## Tone
