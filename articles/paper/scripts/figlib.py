@@ -76,6 +76,11 @@ def style():
             "font.family": "serif",
             "font.serif": _SERIF,
             "mathtext.fontset": "stix",
+            # Unhinted text metrics: hinted glyph extents differ between matplotlib's
+            # macOS and Linux FreeType builds by ~0.01 pt, and every tight-bbox / centred
+            # label coordinate inherits the shift. Same setting matplotlib's own
+            # cross-platform baseline images use.
+            "text.hinting": "none",
             "axes.titlesize": 10.0,
             "axes.titleweight": "bold",
             "axes.titlelocation": "left",
