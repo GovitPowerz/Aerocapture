@@ -26,7 +26,15 @@ import numpy.typing as npt
 
 
 class _PerSeedEvaluator(Protocol):
-    def evaluate_population_per_seed(self, X: npt.NDArray[np.float64], seeds: list[int]) -> npt.NDArray[np.float64]: ...
+    def evaluate_population_records_per_seed(self, X: npt.NDArray[np.float64], seeds: list[int]) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
+
+
+class _RetroEvaluator(_PerSeedEvaluator, Protocol):
+    """What the retro CLI needs on top of the rule: re-validating a checkpoint champion."""
+
+    cost_kwargs: dict[str, Any]
+
+    def evaluate_individual_records_per_seed(self, x: npt.NDArray[np.float64], seeds: list[int]) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
 
 
 @dataclass
@@ -53,7 +61,8 @@ class SelectionResult:
     n_candidates: int  # fresh rows offered (pre-dedup)
     n_deduped: int  # fresh rows actually simulated
     incumbent_val_rms: float | None = None  # best known (champion) val RMS; None when no champion existed
-    candidate_rms: list[dict[str, Any]] = field(default_factory=list)  # [{"provenance", "val_rms"}]
+    candidate_rms: list[dict[str, Any]] = field(default_factory=list)  # [{"provenance", "val_rms", "feasible"?}]
+    winner_feasible: bool = True  # False only on the no-champion, all-infeasible fallback
 
 
 def select_final_individual(
@@ -62,14 +71,24 @@ def select_final_individual(
     provenances: list[str],
     known: list[KnownCandidate],
     val_seeds: list[int],
+    max_violation_rate: float = 0.0,
+    cost_kwargs: dict[str, Any] | None = None,
 ) -> SelectionResult:
     """The selection rule (spec section 3) over fresh candidates + known champions.
 
-    Winner = lowest val RMS over {finite fresh candidates} U {known}. A fresh
-    candidate displaces the incumbent (lowest-val-RMS known) only with a
-    STRICTLY lower val RMS -- ties keep the incumbent, matching the in-training
-    validation gate. Fresh rows identical to a known row or to an earlier fresh
-    row are deduplicated (never re-simulated).
+    Winner = lowest val RMS over {FEASIBLE finite fresh candidates} U {known}.
+    A fresh candidate displaces the incumbent (lowest-val-RMS known) only with
+    a STRICTLY lower val RMS -- ties keep the incumbent, matching the
+    in-training validation gate. Fresh rows identical to a known row or to an
+    earlier fresh row are deduplicated (never re-simulated).
+
+    Feasibility (ADR-0005): when `cost_kwargs` carries constraint
+    limits, a fresh candidate whose validation-pool violation rate exceeds
+    `max_violation_rate` on any constraint cannot win. Champions are trusted
+    as-validated (their promotion already passed the gate; legacy champions
+    predate it -- re-run the retro CLI to re-select if in doubt). If there is
+    no champion and every fresh candidate is infeasible, the best-RMS
+    infeasible one deploys with a loud warning and `winner_feasible = False`.
     """
     if candidates.shape[0] != len(provenances):
         raise ValueError(f"candidates/provenances length mismatch: {candidates.shape[0]} != {len(provenances)}")
@@ -96,18 +115,27 @@ def select_final_individual(
     # rebuilding SimData).
     best_fresh_rms = float("inf")
     best_fresh_idx: int | None = None
+    best_infeasible_rms = float("inf")
+    best_infeasible_idx: int | None = None
     if kept:
-        costs = np.asarray(problem.evaluate_population_per_seed(candidates[kept], val_seeds), dtype=np.float64)
-        rms_all = np.sqrt(np.mean(costs**2, axis=1))
-        for i, rms_val in zip(kept, rms_all, strict=True):
+        from aerocapture.training.evaluate import constraint_violation_rates, is_feasible  # noqa: PLC0415
+
+        costs, grid = problem.evaluate_population_records_per_seed(candidates[kept], val_seeds)
+        rms_all = np.sqrt(np.mean(np.asarray(costs, dtype=np.float64) ** 2, axis=1))
+        for row, (i, rms_val) in enumerate(zip(kept, rms_all, strict=True)):
             rms = float(rms_val)
             if not np.isfinite(rms):
                 records.append({"provenance": provenances[i], "val_rms": None})
                 continue
-            records.append({"provenance": provenances[i], "val_rms": rms})
-            if rms < best_fresh_rms:
+            rates = constraint_violation_rates(np.asarray(grid[row]), cost_kwargs)
+            feasible = is_feasible(rates, max_violation_rate)
+            records.append({"provenance": provenances[i], "val_rms": rms, "feasible": feasible, "violation_rates": rates})
+            if feasible and rms < best_fresh_rms:
                 best_fresh_rms = rms
                 best_fresh_idx = i
+            elif not feasible and rms < best_infeasible_rms:
+                best_infeasible_rms = rms
+                best_infeasible_idx = i
 
     incumbent_rms = incumbent.val_rms if incumbent is not None else float("inf")
     if best_fresh_idx is not None and best_fresh_rms < incumbent_rms:
@@ -123,6 +151,24 @@ def select_final_individual(
             candidate_rms=records,
         )
     if incumbent is None:
+        if best_infeasible_idx is not None:
+            print(
+                f"WARNING: final selection found NO feasible candidate (ceiling {max_violation_rate:.3%}) "
+                f"and no champion - deploying the best-RMS INFEASIBLE candidate {provenances[best_infeasible_idx]!r} "
+                f"(rms {best_infeasible_rms:.4g}). Inspect final_selection.json violation_rates before using it."
+            )
+            return SelectionResult(
+                individual=candidates[best_infeasible_idx].copy(),
+                val_rms=best_infeasible_rms,
+                provenance=provenances[best_infeasible_idx],
+                promoted=True,
+                winner_index=best_infeasible_idx,
+                n_candidates=int(candidates.shape[0]),
+                n_deduped=n_deduped,
+                incumbent_val_rms=None,
+                candidate_rms=records,
+                winner_feasible=False,
+            )
         raise ValueError("final selection: no finite candidate and no known champion")
     return SelectionResult(
         individual=incumbent.x.copy(),
@@ -143,6 +189,7 @@ def write_final_selection_json(save_dir: Path, result: SelectionResult, n_val_se
             "provenance": result.provenance,
             "val_rms": result.val_rms,
             "promoted": result.promoted,
+            "feasible": result.winner_feasible,
         },
         "champion_val_rms": result.incumbent_val_rms,
         "n_candidates": result.n_candidates,
@@ -322,7 +369,7 @@ def run_final_select(
     training_dir: Path,
     config: Any,  # TrainingConfig (typed Any to avoid heavy import at module load)
     param_specs: list[Any],
-    problem: _PerSeedEvaluator,
+    problem: _RetroEvaluator,
     val_seeds: list[int],
     patch: bool = True,
     base_toml: Path | None = None,
@@ -337,10 +384,40 @@ def run_final_select(
     CLI would leave the PREVIOUS winner's optimized TOML and ref_trajectory.dat
     behind a re-selected best_params.json (gains and reference co-adapt, so a
     mismatched table invalidates every downstream evaluation)."""
+    from aerocapture.training.evaluate import constraint_violation_rates, format_violation_rates, is_feasible  # noqa: PLC0415
     from aerocapture.training.train import deploy_optimized_artifacts, write_best_artifacts  # noqa: PLC0415
 
     state = load_selection_state(training_dir)
-    sel = select_final_individual(problem, state.population, state.provenances, state.known, val_seeds)
+    ceiling = float(config.optimizer.max_violation_rate)
+    # Checkpoint champions predate the gate on pre-rule directories: re-validate
+    # them before trusting them (ADR-0005). An infeasible one competes as an
+    # ordinary candidate instead.
+    known: list[KnownCandidate] = []
+    population, provenances = state.population, list(state.provenances)
+    island_of_row = list(state.island_of_row) if state.island_of_row is not None else None
+    for k in state.known:
+        _, records = problem.evaluate_individual_records_per_seed(k.x, val_seeds)
+        rates = constraint_violation_rates(records, problem.cost_kwargs)
+        if is_feasible(rates, ceiling):
+            known.append(k)
+            continue
+        print(
+            f"  {k.provenance}: INFEASIBLE on the validation pool ({format_violation_rates(rates)} > ceiling {ceiling:.3%}); "
+            "competes as a candidate, not as champion"
+        )
+        population = np.vstack([population, k.x[None, :]])
+        provenances.append(f"{k.provenance}[infeasible]")
+        if island_of_row is not None:
+            island_of_row.append(k.provenance.split(":", 1)[0])
+    sel = select_final_individual(
+        problem,
+        population,
+        provenances,
+        known,
+        val_seeds,
+        max_violation_rate=ceiling,
+        cost_kwargs=problem.cost_kwargs,
+    )
     write_best_artifacts(sel.individual, config, param_specs, training_dir, cwd=None)
     if config.guidance_type != "neural_network" and base_toml is not None and toml_data is not None:
         from aerocapture.training.encoding import decode_normalized  # noqa: PLC0415
@@ -352,8 +429,8 @@ def run_final_select(
         island_name: str | None = None
         if state.kind == "islands":
             if sel.winner_index is not None:
-                assert state.island_of_row is not None
-                island_name = state.island_of_row[sel.winner_index]
+                assert island_of_row is not None
+                island_name = island_of_row[sel.winner_index]
             else:
                 island_name = sel.provenance.split(":", 1)[0]
         patch_checkpoint(state, sel.individual, sel.val_rms, island_name=island_name)

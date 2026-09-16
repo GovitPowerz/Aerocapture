@@ -13,7 +13,7 @@ import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 import numpy.typing as npt
@@ -27,6 +27,40 @@ try:
 except ImportError:
     _aero_rs = None  # type: ignore[assignment]
     _HAS_PYO3 = False
+
+
+def constraint_violation_rates(
+    final_records: npt.NDArray[np.float64],
+    cost_kwargs: dict[str, Any] | None,
+) -> dict[str, float] | None:
+    """Fractional per-constraint violation rates over a final-records matrix.
+
+    Limits come from `cost_kwargs` (`heat_flux_limit` kW/m^2, `g_load_limit` g,
+    `heat_load_limit` kJ/m^2 - the same keys `compute_cost` consumes, read from
+    `[flight.constraints]` by `read_cost_kwargs`). Constraints without a
+    configured limit are omitted; returns None when no limit is configured at
+    all (feasibility cannot be assessed).
+    """
+    from aerocapture.training import charts  # noqa: PLC0415
+
+    kw = cost_kwargs or {}
+    # A constraint without a configured limit is not assessed, so its column is never read.
+    specs = (
+        ("heat_flux", charts._FR_MAX_HEAT_FLUX, 1.0, kw.get("heat_flux_limit")),
+        ("g_load", charts._FR_MAX_G_LOAD, 1.0, kw.get("g_load_limit")),
+        ("heat_load", charts._FR_INTEGRATED_FLUX, 1e3, kw.get("heat_load_limit")),  # MJ -> kJ
+    )
+    rates = {name: float(np.mean(final_records[:, col] * scale > float(lim))) for name, col, scale, lim in specs if isinstance(lim, (int, float))}
+    return rates or None
+
+
+def is_feasible(rates: dict[str, float] | None, max_violation_rate: float) -> bool:
+    """ADR-0005: feasible when every assessed constraint's violation rate is at or below the ceiling."""
+    return rates is None or all(r <= max_violation_rate + 1e-12 for r in rates.values())
+
+
+def format_violation_rates(rates: dict[str, float] | None) -> str:
+    return ", ".join(f"{k}={v:.3%}" for k, v in (rates or {}).items())
 
 
 class GateStatus(Enum):
@@ -49,6 +83,8 @@ class GateResult:
     val_records: npt.NDArray[np.float64] | None = None
     val_rms: float | None = None
     promoted: bool = False
+    feasible: bool = True  # ADR-0005; promotion requires it
+    violation_rates: dict[str, float] | None = None
 
 
 class _SupportsPerSeedEval(Protocol):
@@ -66,6 +102,8 @@ def run_validation_gate(
     best_val_cost: float,
     problem: _SupportsPerSeedEval,
     val_seeds: list[int],
+    max_violation_rate: float = 0.0,
+    cost_kwargs: dict[str, Any] | None = None,
 ) -> GateResult:
     """Guarded gen-best selection + identity-trigger validation, shared by the
     single-algorithm loop and the islands trainer.
@@ -77,7 +115,9 @@ def run_validation_gate(
       2. SKIP_UNCHANGED when the guarded argmin matches `last_validated` (no point
          re-running the same individual through the validation MC).
       3. VALIDATED otherwise: runs the validation MC and reports `val_rms` plus
-         whether it beats `best_val_cost` (the promotion boolean).
+         whether it promotes: feasible on the validation pool (every configured
+         constraint's violation rate <= `max_violation_rate`, ADR-0005) AND
+         `val_rms < best_val_cost`.
 
     Selection uses `nanargmin(where(isfinite, f, inf))`, which also skips NaN-cost
     rows: in a mixed finite+NaN population the finite minimum is selected, not the
@@ -103,6 +143,8 @@ def run_validation_gate(
 
     val_costs, val_records = problem.evaluate_individual_records_per_seed(individual, val_seeds)
     val_rms = float(np.sqrt(np.mean(val_costs**2)))
+    rates = constraint_violation_rates(val_records, cost_kwargs)
+    feasible = is_feasible(rates, max_violation_rate)
     return GateResult(
         status=GateStatus.VALIDATED,
         argmin_cost=argmin_cost,
@@ -110,7 +152,9 @@ def run_validation_gate(
         val_costs=val_costs,
         val_records=val_records,
         val_rms=val_rms,
-        promoted=val_rms < best_val_cost,
+        promoted=(val_rms < best_val_cost) and feasible,
+        feasible=feasible,
+        violation_rates=rates,
     )
 
 

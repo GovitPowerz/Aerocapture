@@ -66,6 +66,7 @@ validation_n_sims = 1000      # sims for validation gate (fixed seeds, honest ge
 curation_top_k = 1            # top-K individuals whose cost CDF is averaged at each curation
 curation_sample_size = 1000   # seeds drawn per curation to sample the cost distribution
 curation_bucket_selection = "max"  # per-CDF-bin representative (random|min|max|middle): max = best worst-case (exp 8)
+max_violation_rate = 0.0      # feasibility ceiling for every promotion site (ADR-0005): max validation-pool violation rate per [flight.constraints] limit; 0.0 = strict
 
 # ── GA: SBX crossover + polynomial mutation ──
 # Lower eta = more exploratory (uniform-crossover-like). Higher eta = offspring closer to parents.

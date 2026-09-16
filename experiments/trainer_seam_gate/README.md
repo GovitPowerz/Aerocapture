@@ -35,3 +35,15 @@ all three runs identical pre/post. Two prerequisites it surfaced, now in
 (operators drew from an unseeded stream, so full-run reproducibility never held
 even under `seed_strategy = "fixed"`), and `config_hash` embeds a memory
 address and must be treated as volatile.
+
+Re-run for the feasibility gate (`feature/feasibility-gate`, 2026-09-16, ADR-0005):
+baseline = `main` source, post = the gated source, same lockfiles. Gate b is
+identical modulo the two new validation-record keys (`feasible`,
+`violation_rates`). Gates a and c diverge only where the gate rejected an
+infeasible promotion on the 20-sim gate pool at the strict default ceiling:
+in a, every validated candidate exceeds the heat-flux limit on 2/20 draws, so
+nothing promotes and the run ends on the no-champion fallback (same deployed
+individual as the baseline champion, `winner_feasible = false`); in c, the PSO
+island's gen-0 argmin exceeds the heat-load limit on 1/20 draws, is rejected,
+and every later record is identical. That is the intended behaviour change,
+not a seam regression.

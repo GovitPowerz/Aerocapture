@@ -105,14 +105,14 @@ The upper tail of the DV distribution (p95, CVaR95 and beyond) that sizes propel
 _Avoid_: leading comparisons with the median
 
 **Validation Gate**:
-The in-training re-evaluation of a new candidate on the validation pool; promotion requires strict improvement.
+The in-training re-evaluation of a new candidate on the validation pool; promotion requires feasibility (every configured constraint's violation rate at or below `max_violation_rate`, ADR-0005) and then strict RMS improvement.
 
 **Champion**:
-The best validated individual so far in a training run.
+The best validated feasible individual so far in a training run.
 _Avoid_: best, winner (until final selection)
 
 **Final Selection**:
-The end-of-training re-ranking of the last generation plus the champion on the validation pool; decides the deployed winner.
+The end-of-training re-ranking of the last generation plus the champion on the validation pool; infeasible candidates cannot win; decides the deployed winner.
 
 **Final Eval**:
 Report-only scoring of the deployed winner on the reserved final-eval pool; never chooses anything.

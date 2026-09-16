@@ -85,7 +85,7 @@ def test_islands_checkpoint_npz_schema_has_cost_transform(tmp_path: Path) -> Non
 class _FakeProblem:
     def __init__(self, rms: float) -> None:
         self._rms = rms
-        self.cost_kwargs = {"cost_transform": "linear"}
+        self.cost_kwargs: dict[str, object] = {"cost_transform": "linear"}
 
     def evaluate_individual_records_per_seed(self, x, seeds):  # type: ignore[no-untyped-def]
         # costs whose RMS == self._rms regardless of x
@@ -111,6 +111,7 @@ def test_revalidate_each_recomputes_best_val_cost() -> None:
     ]
     model.problem = _FakeProblem(rms=3.5)
     model.validation_seeds = [1, 2, 3]
+    model.config = OptimizerConfig(seed_strategy="fixed")
 
     model.revalidate_each()
 
@@ -121,6 +122,38 @@ def test_revalidate_each_recomputes_best_val_cost() -> None:
     # Island with no best_overall_individual is untouched.
     assert model.islands[1].best_val_cost == 999.0
     assert model.islands[1].last_validated_individual is None
+
+
+def test_revalidate_each_does_not_anchor_infeasible_champion(capsys) -> None:  # type: ignore[no-untyped-def]
+    """A pre-gate checkpoint may carry a champion that violates a constraint:
+    keep it as last_validated, but its RMS must not become the promotion bar."""
+    from aerocapture.training import charts
+    from aerocapture.training.island_model import IslandModel
+
+    class _InfeasibleProblem(_FakeProblem):
+        def __init__(self) -> None:
+            super().__init__(rms=3.5)
+            self.cost_kwargs = {"cost_transform": "linear", "heat_load_limit": 25000.0}
+
+        def evaluate_individual_records_per_seed(self, x, seeds):  # type: ignore[no-untyped-def]
+            costs, _ = super().evaluate_individual_records_per_seed(x, seeds)
+            records = np.zeros((len(seeds), 52))
+            records[0, charts._FR_INTEGRATED_FLUX] = 26.0  # MJ/m^2 -> 26000 kJ > limit on one draw
+            return costs, records
+
+    model = IslandModel.__new__(IslandModel)
+    model.islands = [_fake_island("pso", np.array([0.1, 0.2]), best_val_cost=999.0)]
+    model.problem = _InfeasibleProblem()
+    model.validation_seeds = [1, 2, 3]
+    model.config = OptimizerConfig(seed_strategy="fixed")  # max_violation_rate defaults to 0.0
+
+    model.revalidate_each()
+
+    assert model.islands[0].best_val_cost == float("inf")
+    last_validated = model.islands[0].last_validated_individual
+    assert last_validated is not None
+    assert np.array_equal(last_validated, np.array([0.1, 0.2]))
+    assert "INFEASIBLE" in capsys.readouterr().out
 
 
 def test_resize_populations_grows_each_island() -> None:
