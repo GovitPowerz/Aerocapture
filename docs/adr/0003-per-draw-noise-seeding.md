@@ -1,6 +1,6 @@
 # ADR-0003: Time-varying noise is seeded per dispersion draw (`noise_seeding = "per_draw"`); the legacy regime stays the default for committed numbers
 
-**Status:** accepted · **Date:** 2026-08-27 (commit `5eb13de`)
+**Status:** accepted · **Date:** 2026-08-27 (commit `5eb13de`) · default clause superseded by ADR-0006 (2026-09-16): `per_draw` is now the default and `legacy` is reproduction-only
 
 ## Context
 

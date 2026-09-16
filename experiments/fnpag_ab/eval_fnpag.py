@@ -43,7 +43,8 @@ def main() -> None:
     routed = overrides_from_params(best, SCHEME)
 
     seeds = make_reserved_seeds(BASE_SEED, VALIDATION_SEED_OFFSET, n)
-    ovr = [{**routed, "monte_carlo.seed": int(s), "simulation.n_sims": 1} for s in seeds]
+    # Legacy regime: the A/B was run under the shared noise path (ADR-0003 / ADR-0006).
+    ovr = [{**routed, "monte_carlo.seed": int(s), "simulation.n_sims": 1, "monte_carlo.noise_seeding": "legacy"} for s in seeds]
 
     res = aerocapture_rs.run_batch(TOML, ovr, sim_timeout_secs=10.0)
     fr = np.asarray(res.final_records)  # (n, 52)

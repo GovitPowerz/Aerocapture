@@ -1266,6 +1266,7 @@ pub struct TomlMonteCarlo {
     pub seed: u64,
     #[serde(default)]
     pub sampling: Option<String>,
+    /// "per_draw" (default, ADR-0006) or "legacy" (pre-2026-08-27 shared noise path).
     #[serde(default)]
     pub noise_seeding: Option<String>,
     pub initial_state: Option<TomlMcDomain>,

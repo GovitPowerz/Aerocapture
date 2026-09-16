@@ -64,7 +64,8 @@ def _stress_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
     base_mc_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
     seeds = make_reserved_seeds(base_mc_seed, STRESS_EVAL_SEED_OFFSET, n_sims)
 
-    base: dict = {"simulation.n_sims": 1, **STRESS_OVERRIDES, **scaffolding}
+    # Legacy regime: the compared cells were trained and quoted under the shared noise path (ADR-0003 / ADR-0006).
+    base: dict = {"simulation.n_sims": 1, "monte_carlo.noise_seeding": "legacy", **STRESS_OVERRIDES, **scaffolding}
     local_model = scheme_dir / "best_model.json"
     if local_model.exists():
         base["data.neural_network"] = str(local_model.resolve())

@@ -1,4 +1,4 @@
-# Demo model: Mamba-962 (paper headline cell)
+# Demo model: Mamba-962, shared-path champion (historical headline, `--legacy`)
 
 Copy of `training_output/mamba_p962_long/` (`best_model.json` + `best_params.json`),
 the deployed champion of the paper's architecture study: a 962-parameter
@@ -17,9 +17,11 @@ scaffolding, applied as overrides at run time.
 
 This champion was trained and quoted under the historical shared density-noise
 path (`noise_seeding = "legacy"`), the conditioning defect the paper's Appendix E
-discloses; under per-scenario noise it captures 97.9% (the honest-regime deployment
-is the per-scenario fine-tune `ou_marginal/ft_mamba_p962`, not this model).
+discloses; under per-scenario noise (the default since ADR-0006) it captures 97.9%
+with 0.9% heat-load violations. The deployed model is its per-scenario fine-tune,
+`models/demo/ft_mamba_962/`.
 
-Consumed by `uv run python -m aerocapture.demo`. The demo runs on an arbitrary
-fixed seed, deliberately outside every reserved evaluation pool, so its output
-is illustrative and can never be confused with the paper's quoted numbers.
+Consumed by `uv run python -m aerocapture.demo --legacy`, which also pins the
+shared-path regime. The demo runs on an arbitrary fixed seed, deliberately outside
+every reserved evaluation pool, so its output is illustrative and can never be
+confused with the paper's quoted numbers.

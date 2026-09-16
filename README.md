@@ -12,9 +12,9 @@ This repository is the artifact for *Seventeen years later: stateful neural guid
 
 ## One headline, one correction
 
-The headline: a 962-parameter recurrent (Mamba) guidance policy, trained by a genetic algorithm in a non-stationary adaptive-seed Monte Carlo environment, beats six classical guidance schemes — including a numerical predictor–corrector — on the delta-v tail that sizes the mission's correction propellant, at milliseconds of onboard compute.
+The headline: under independent per-scenario density noise (the simulator's default regime, [ADR-0006](docs/adr/0006-per-draw-noise-is-the-default-regime.md)), a 962-parameter recurrent (Mamba) guidance policy, trained by a genetic algorithm in a non-stationary adaptive-seed Monte Carlo environment and fine-tuned in that regime, captures 99.996% of 10⁶ pre-registered confirmatory scenarios with no constraint violation and holds CVaR99.9 = 163.2 ± 1.3 m/s (three fine-tune seeds) on the delta-v tail that sizes the mission's correction propellant, 73 m/s below both the best classical scheme (FNPAG, a numerical predictor–corrector) and the best dense network, at milliseconds of onboard compute.
 
-The correction (v3, Appendix E): while building this repo's five-minute demo, we found that the historical per-seed evaluation pipeline conditioned every Monte Carlo scenario on a *single* sample path of the time-varying density noise — and the networks, trained under that conditioning, exploited it 2–4x more than the classical laws. We quantified the gap on paired pools, shipped the fix behind a backward-compatible seeding flag, retrained every headline cell under honest per-scenario noise (22 training runs, all stoppable/resumable on a laptop), and re-ran the million-scenario far-tail confirmatory. The correction ends by strengthening the thesis it tested: every cell's scratch retrain restores capture and constraint feasibility (the fine-tune shortcut does not for every cell), and on the far tail that sizes the propellant tanks the fine-tuned recurrent policy holds CVaR99.9 = 163.2 ± 1.3 m/s (three fine-tune seeds) across 10^6 honest-noise scenarios — 73 m/s below both the best classical scheme and the best dense network. The defect, the audit, the repair, and the numbers that changed are all in the paper — because an evaluation you can't break is an evaluation you haven't tested.
+The correction (paper Appendix E): the historical evaluation pipeline conditioned every Monte Carlo scenario on a *single* sample path of the time-varying density noise, and the networks trained under that conditioning exploited it 2–4x more than the classical laws. The shared-path champion's CVaR99.9 of 123.3 m/s at 100% capture is that regime's number. While building this repo's five-minute demo we found the defect, quantified the gap on paired pools, shipped the fix, made per-scenario noise the default, retrained every headline cell under it (22 training runs, all stoppable/resumable on a laptop) and re-ran the million-scenario far-tail confirmatory. The correction ends by strengthening the thesis it tested. The historical result, the audit and the repair are kept under [Historical result and evaluation correction](#historical-result-and-evaluation-correction) and in the paper, because an evaluation you can't break is an evaluation you haven't tested.
 
 ## Quick Start
 
@@ -26,10 +26,10 @@ cd Aerocapture
 ./setup_env.sh     # Python env (uv)
 ./build.sh         # Rust simulator + PyO3 bindings (required for training/analysis)
 
-# 5-minute demo: fly the paper's headline NN guidance cell over 500 dispersed
-# MSR entries and render one figure (DV CDF + flown corridor). Flies the paper's
-# main-body regime (shared density-noise path); add --per-draw for Appendix E's
-# per-scenario regime, where this shared-path champion drops to ~98% capture:
+# 5-minute demo: fly the deployed NN guidance cell (the per-scenario fine-tune)
+# over 500 dispersed MSR entries under per-scenario density noise and render one
+# figure (DV CDF + flown corridor). --legacy reproduces the historical shared-path
+# champion and regime instead (it drops to ~98% capture under per-scenario noise):
 uv run python -m aerocapture.demo
 # -> demo_output/demo.svg, capture rate + DV percentiles on stdout
 
@@ -45,7 +45,7 @@ uv run pytest tests/
 
 1. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the two-language split and its one seam, a training run in fifteen lines, a simulation tick in eight, the seed pools, where the paper's numbers come from.
 2. [CONTEXT.md](CONTEXT.md) — the vocabulary (capture / exit phase, scaffolding, champion, final selection vs final eval, sizing tail).
-3. [docs/adr/](docs/adr/) — the decisions the results rest on: adaptive training seeds, final selection on the validation pool, per-draw noise seeding, the `run_grid` bit-identity chokepoint, feasibility before performance in selection.
+3. [docs/adr/](docs/adr/) — the decisions the results rest on: adaptive training seeds, final selection on the validation pool, per-draw noise seeding (now the default), the `run_grid` bit-identity chokepoint, feasibility before performance in selection.
 4. [docs/design/](docs/design/README.md) — the dated design behind each feature; [CLAUDE.md](CLAUDE.md) — the per-module reference.
 5. [The paper](articles/paper/paper.pdf) — the results and their evaluation methodology.
 
@@ -138,21 +138,33 @@ Seven guidance schemes, all trainable by the population optimizers below:
 
 ### What worked best
 
-The committed [paper](articles/paper/paper.pdf) evaluates every scheme on frozen 10 × 100,000-scenario confirmatory pools (n = 10⁶ per cell, shared density-noise regime; Appendix E re-quotes the per-scenario regime). Correction ΔV in m/s; CVaR99.9 (± standard error over the 10 replicates) is the far-tail statistic the propellant margin is sized on, and it is quoted next to what it can hide: capture probability, constraint-violation rate, and the worst scenario observed:
+Every scheme is evaluated on frozen 10 × 100,000-scenario confirmatory pools (n = 10⁶ per cell). The table below is the per-scenario density-noise regime, the simulator's default ([ADR-0006](docs/adr/0006-per-draw-noise-is-the-default-regime.md); paper Appendix E, raw data `experiments/ou_marginal/confirmatory_marginal.json`). Correction ΔV in m/s; CVaR99.9 (± standard error over the 10 replicates) is the far-tail statistic the propellant margin is sized on, and it is quoted next to what it can hide: capture probability, constraint-violation rate, and the worst scenario observed:
 
 | Role | Scheme | n | Capture % | Violation % | CVaR99.9 | Max | ms/sim |
 |---|---|---|---|---|---|---|---|
-| **Deployed** | NN — Mamba, 962 params | 10⁶ | 100.00 | 0.00 | **123.3 ± 0.1** | 140 | 3.14 |
+| **Deployed** | NN — Mamba, 962 params, per-scenario fine-tune | 10⁶ | 99.9995 | 0.00 | **163.0 ± 0.3** (3 seeds: 163.2 ± 1.3) | 249 | 3.14 |
+| Efficiency reference | NN — dense, 515 params, per-scenario fine-tune | 10⁶ | 100.00 | 0.03 | 236.3 ± 2.5 | 405 | 1.88 |
+| Best classical | FNPAG | 10⁶ | 99.37 | 0.00 | 236.7 ± 2.3 | 579 | 87.1 |
+| Historical champion | NN — Mamba, 962 params, shared-path training | 10⁶ | 97.93 | 0.91 | 221.3 ± 0.5 | 270 | 3.14 |
+
+Violation % is the fraction of the 10⁶ scenarios exceeding any `[flight.constraints]` limit (heat flux, g-load, integrated heat load). Training promotes only feasible candidates (validation-pool violation rate at or below `[optimizer] max_violation_rate`, default 0; [ADR-0005](docs/adr/0005-feasibility-before-performance-in-selection.md)); cells trained before that rule are quoted with their measured rate.
+
+- **A small stateful network wins where the mission is sized.** On the shallow tail the fine-tunes are within run-to-run variance of each other (CVaR95: dense 128.8, Mamba 138.7, FNPAG 152.5); on the far tail that sizes the tanks the recurrent policy holds 163 while the dense network and FNPAG both sit near 237, with the smallest worst case of any scheme.
+- **Honest noise costs the networks more than the classical laws.** Cells trained on the shared noise path lose 54–102 m/s of CVaR95 under per-scenario noise where the classical schemes lose 11–31; the historical champion drops to 97.9% capture. Retraining under per-scenario noise restores capture and feasibility for every cell, and fine-tuning from the frozen champion is the winning recipe where it is feasible.
+- **FNPAG is the classical reference under honest noise,** at ~28× the network's per-simulation compute, and its far tail keeps fattening with pool depth (CVaR95 152 to CVaR99.9 237).
+
+#### Historical result and evaluation correction
+
+The paper's main body (arxiv-v3) was evaluated under the historical shared-noise-path regime (`noise_seeding = "legacy"`, every scenario sharing one realization of the density noise), the defect Appendix E discloses. Its numbers are kept here because they are what the committed [paper](articles/paper/paper.pdf) quotes and what the bundle under `articles/paper/data/` reproduces:
+
+| Role | Scheme | n | Capture % | Violation % | CVaR99.9 | Max | ms/sim |
+|---|---|---|---|---|---|---|---|
+| Historical headline | NN — Mamba, 962 params | 10⁶ | 100.00 | 0.00 | 123.3 ± 0.1 | 140 | 3.14 |
 | Efficiency reference | NN — dense, 515 params | 10⁶ | 100.00 | 0.01 | 128.7 ± 0.4 | 183 | 1.88 |
 | Best classical | FTC (joint reference) | 10⁶ | 100.00 | 0.00 | 165.1 ± 0.3 | 192 | 0.90 |
 | Reference NPC | FNPAG | 10⁶ | 99.98 | 0.00 | 198.7 ± 1.7 | 658 | 87.1 |
 
-Violation % is the fraction of the 10⁶ scenarios exceeding any `[flight.constraints]` limit (heat flux, g-load, integrated heat load). Training promotes only feasible candidates (validation-pool violation rate at or below `[optimizer] max_violation_rate`, default 0; [ADR-0005](docs/adr/0005-feasibility-before-performance-in-selection.md)); cells trained before that rule are quoted with their measured rate.
-
-- **A small stateful network wins where the mission is sized.** Internal state buys nothing on the median (every converged architecture lands at 108–112 m/s typical cost) and everything on the deep tail: the deployed dense→Mamba→dense policy captures 10⁶ of 10⁶ confirmatory scenarios and holds a 41.8 m/s far-tail margin over the best classical scheme.
-- **Reference co-optimization is the classical lever.** Letting the optimizer co-tune FTC's constant-bank reference (`[reference] joint_bank = true`) drops its CVaR95 from 244 to 143 — a feedback law cannot out-perform the target it tracks. The joint-reference FTC is the classical state of the art here.
-- **FNPAG matches the shallow tail, not the deep one.** Its CVaR99.9 fattens from 165 to 199 between 10⁴ and 10⁶ scenarios, at ~28× the network's per-simulation compute.
-- **Dense-515 is the pick if simplicity binds:** half the parameters, no internal state, competitive median — it concedes only the tail.
+Two shared-path findings survive the correction unchanged: **reference co-optimization is the classical lever** (letting the optimizer co-tune FTC's constant-bank reference, `[reference] joint_bank = true`, drops its CVaR95 from 244 to 143; a feedback law cannot out-perform the target it tracks), and **internal state earns its keep on the extreme tail, not the median** (every converged architecture lands at 108–112 m/s typical cost; the state-reset control collapses the deployed cell's CVaR99.9 from 123 to 414).
 
 Full protocol and results: paper Sections 6–7, per-scheme mission cards in Appendix D. The recent-architecture probes (CfC, xLSTM cells, Mamba-3 axes — none beat the plain cells at matched budget) are in Appendix B, with drivers under `python -m aerocapture.training.experiments.{cfc_probe,xlstm_probe,mamba3_probe}`.
 

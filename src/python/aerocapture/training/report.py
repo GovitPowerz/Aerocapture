@@ -132,6 +132,9 @@ def run_final_evaluation(
     if scaffolding_overrides:
         print(f"  Using optimized NN scaffolding from {scheme_dir / 'best_params.json'}")
 
+    regime = toml_data.get("monte_carlo", {}).get("noise_seeding", "per_draw")
+    print(f"  Noise regime: {regime} ({'per-scenario, ADR-0006' if regime == 'per_draw' else 'shared path, reproduction only'})")
+
     try:
         base_overrides: dict[str, object] = {"simulation.n_sims": 1, **scaffolding_overrides}
         # Pin the evaluated NN to this run's own deployed model: the TOML's

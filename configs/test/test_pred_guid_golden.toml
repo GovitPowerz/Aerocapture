@@ -15,6 +15,7 @@ results_suffix = ".golden_pred_guid"
 mode = "identical"
 
 [monte_carlo]
+noise_seeding = "legacy"  # goldens were frozen under the pre-ADR-0006 shared noise path (no OU / bias nav here, so regime-neutral; pinned to state it)
 seed = 42
 
 [monte_carlo.initial_state]

@@ -50,7 +50,7 @@ def _bench_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
     base_mc_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
     seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
 
-    base: dict = {"simulation.n_sims": 1, **scaffolding}
+    base: dict = {"simulation.n_sims": 1, "monte_carlo.noise_seeding": "legacy", **scaffolding}  # same work as the quoted legacy-regime cells
     local_model = scheme_dir / "best_model.json"
     if local_model.exists():
         base["data.neural_network"] = str(local_model.resolve())

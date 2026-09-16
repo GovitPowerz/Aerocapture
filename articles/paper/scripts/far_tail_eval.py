@@ -70,7 +70,8 @@ def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None,
     base_mc_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
     seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
 
-    base: dict = {"simulation.n_sims": 1, **scaffolding, **(extra or {})}
+    # Legacy regime by default (the paper's main-body cells); override with --extra-override monte_carlo.noise_seeding=per_draw.
+    base: dict = {"simulation.n_sims": 1, "monte_carlo.noise_seeding": "legacy", **scaffolding, **(extra or {})}
     # Pin the committed bundle's frozen weights when a bundle key is given --
     # training_output can drift from the bundle on a later resume (dense_p515
     # did: its local model far-tails at 140.3 vs the bundle's 128.1). Same

@@ -86,6 +86,7 @@ def build_corridor(args):
         ov = []
         for j in range(m):
             d = {"simulation.n_sims": 1,
+                 "monte_carlo.noise_seeding": "legacy",  # the paper's corridor figure regime (ADR-0003 / ADR-0006)
                  "monte_carlo.seed": CORRIDOR_SEED_OFFSET + done + j,
                  "guidance.piecewise_constant.n_segments": args.n_segments}
             for i in range(args.n_segments):
@@ -140,7 +141,7 @@ def build_overlay(n_ens):
         pin["data.neural_network"] = str(bundle_model.resolve())
     base_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
     seeds = make_reserved_seeds(base_seed, FINAL_EVAL_SEED_OFFSET, n_ens)
-    ov = [{"simulation.n_sims": 1, "monte_carlo.seed": s, **pin} for s in seeds]
+    ov = [{"simulation.n_sims": 1, "monte_carlo.noise_seeding": "legacy", "monte_carlo.seed": s, **pin} for s in seeds]
     batch = aerocapture_rs.run_batch(toml_path=str(eval_toml.resolve()), overrides_list=ov,
                                      include_trajectories=True, sim_timeout_secs=5.0)
     ens_e, ens_p = [], []
@@ -148,7 +149,7 @@ def build_overlay(n_ens):
         a = np.asarray(t)[::DOWNSAMPLE]
         ens_e.append(a[:, TC_ENERGY])
         ens_p.append(a[:, TC_PDYN])
-    nom_ov = {"simulation.n_sims": 1,
+    nom_ov = {"simulation.n_sims": 1, "monte_carlo.noise_seeding": "legacy",
               **{f"monte_carlo.{dom}.level": "off" for dom in _MC_DISPERSION_DOMAINS}, **pin}
     nom = aerocapture_rs.run_mc(toml_path=str(eval_toml.resolve()), overrides=nom_ov,
                                 include_trajectories=True, sim_timeout_secs=5.0)
@@ -170,6 +171,7 @@ def build_boundaries():
     for name, bank in (("liftup", 0.0), ("liftdown", 180.0)):
         ov = {
             "simulation.n_sims": 1,
+            "monte_carlo.noise_seeding": "legacy",
             **{f"monte_carlo.{dom}.level": "off" for dom in _MC_DISPERSION_DOMAINS},
             **{f"guidance.piecewise_constant.bank_angle_{i}": bank for i in range(10)},
         }

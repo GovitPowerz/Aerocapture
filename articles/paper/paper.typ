@@ -76,28 +76,27 @@
   simulator, against
   six classical schemes including a numerical predictor--corrector (FNPAG) and a reference-tracking
   feedback law (FTC). Because the mission's correction propellant is sized off the worst-case
-  $Delta v$, we lead every comparison with the tail of its distribution, not the mean. A 962-parameter
-  recurrent (Mamba) policy captures every one of $10^6$ pre-registered confirmatory scenarios (a $95%$
-  upper bound of $3 times 10^(-6)$ on its failure probability) and reaches a far-tail
-  $"CVaR"_(99.9)$ of #box[$123.3 plus.minus 0.1$ m/s] (independent retraining seeds span
-  $122$--$131$). It beats the best classical scheme (FTC with a
-  co-optimized reference) by #box[$16.4$ m/s] in mean and #box[$27.6$ m/s] at $"CVaR"_95$, better on
-  every one of $1000$ paired scenarios, at #box[$3.1$ ms] per simulation -- $28 times$ faster than
-  FNPAG. The result rests on a training methodology that is itself a contribution: a non-stationary,
+  $Delta v$, we lead every comparison with the tail of its distribution, not the mean. Under
+  independent per-scenario realizations of the time-varying density noise, a 962-parameter
+  recurrent (Mamba) policy fine-tuned in that regime captures $99.996%$ of $10^6$ pre-registered
+  confirmatory scenarios at full constraint feasibility and holds a far-tail $"CVaR"_(99.9)$ of
+  #box[$163.2 plus.minus 1.3$ m/s] over three fine-tune seeds -- $73$ m/s below both the best
+  classical scheme (FNPAG) and the best dense network, which sit near $237$ -- at #box[$3.1$ ms]
+  per simulation, $28 times$ faster than FNPAG. That number replaces the one an earlier version of
+  this paper led with: the historical evaluation pipeline conditioned every scenario on a single
+  sample path of the density noise, and the networks exploit that conditioning $2$--$4 times$ more
+  than the classical schemes. The shared-path champion's $"CVaR"_(99.9)$ of $123.3 plus.minus 0.1$
+  m/s at $100%$ capture is that regime's number; Appendix E holds the audit, the repair and the
+  retraining, which restores $100%$ capture and full constraint feasibility for every cell. The
+  result rests on a training methodology that is itself a contribution: a non-stationary,
   adaptive-seed Monte Carlo environment turns the genetic algorithm from the *worst* optimizer under
   fixed scenarios ($154$ m/s three-seed mean) into the *best* ($120$). Across cell types, engineered,
   cost-aligned inputs flatten the median; ablation controls -- state reset, matched history, input
-  removal -- show it is genuine internal state that compresses the extreme tail
-  that sizes the tanks. The main deployment caveat: under a deliberately harsher off-nominal regime
-  the analytic law generalizes better than the medium-trained network -- a gap we trace to the
-  training objective, not to neural guidance itself. A second caveat we surface ourselves: the
-  historical evaluation pipeline conditioned every scenario on a single sample path of the
-  time-varying density noise, and the networks exploit that conditioning $2$--$4 times$ more than
-  the classical schemes. Retraining under per-scenario noise restores $100%$ capture and full
-  constraint feasibility, and a fresh $10^6$-scenario far-tail confirmatory under honest noise
-  restores the architecture story where it matters: the fine-tuned recurrent policy holds
-  $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s (three fine-tune seeds, capturing $99.996%$ of $10^6$ scenarios), while the
-  best classical scheme and the best dense fine-tune, which captures all $10^6$, both sit near $237$ m/s (Appendix E).]
+  removal -- show it is genuine internal state that compresses the extreme tail that sizes the
+  tanks, and that claim now stands on the marginal noise distribution, not on one noise path. The
+  main deployment caveat: under a deliberately harsher off-nominal regime the analytic law
+  generalizes better than the medium-trained network -- a gap we trace to the training objective,
+  not to neural guidance itself.]
 ]
 #v(18pt)
 
@@ -1201,13 +1200,12 @@ than assume it away.
 Seventeen years ago we showed that a feed-forward network trained by a genetic algorithm could fly an
 MSR aerocapture more efficiently than a Cerimele--Gamble feedback law, and we asked for a comparison
 against predictor--correctors. This paper delivers it, and the answer is favorable to neural guidance
-on the metric that matters. A #box[$962$-parameter] recurrent (Mamba) policy captures every one of
-$10^6$ pre-registered confirmatory scenarios and,
-on the far tail that sizes the propellant tanks, reaches $"CVaR"_(99.9) = 123.3 plus.minus 0.1$ m/s
--- $42$ m/s
-below the best classical scheme and beating a well-referenced FTC by $16.4$ m/s in mean and $27.6$ at
-$"CVaR"_95$, on every one of a thousand paired scenarios, running $28 times$ faster than the numerical
-predictor--corrector.
+on the metric that matters. Under independent per-scenario density noise, a #box[$962$-parameter]
+recurrent (Mamba) policy fine-tuned in that regime captures $99.996%$ of $10^6$ pre-registered
+confirmatory scenarios at full constraint feasibility and, on the far tail that sizes the propellant
+tanks, holds $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s over three fine-tune seeds -- $73$ m/s below
+both the best classical scheme and the best dense network -- running $28 times$ faster than the
+numerical predictor--corrector.
 
 Two findings carry beyond the headline number. The first is methodological: a genetic algorithm is the
 wrong optimizer for a fixed objective and the right one for a moving one, and the moving
@@ -1220,19 +1218,21 @@ hardest scenarios -- the extreme tail -- which is exactly the part of the distri
 mission and exactly the part a validation-loss objective under-weights. Training loss did not pick
 the tail winner; architecture did.
 
-A third finding arrived while preparing this revision, and we report it with the same candor we ask
-of others. The historical pipeline conditioned every scenario on one sample path of the time-varying
-density noise; under per-scenario noise the shared-path-trained networks lose $54$--$102$ m/s of
+That headline is a corrected one, and we report the correction with the same candor we ask of
+others. The historical pipeline conditioned every scenario on one sample path of the time-varying
+density noise. In that regime the shared-path champion reached $"CVaR"_(99.9) = 123.3 plus.minus 0.1$
+m/s at $100%$ capture, beating a well-referenced FTC by $16.4$ m/s in mean and $27.6$ at $"CVaR"_95$
+on every one of a thousand paired scenarios -- the numbers the main body of this paper still
+quotes; under per-scenario noise the shared-path-trained networks lose $54$--$102$ m/s of
 $"CVaR"_95$ where the classical schemes lose $11$--$31$ (Appendix E). Retraining under the repaired
 seeding restores $100%$ capture and full constraint feasibility for every cell -- including the LSTM
 whose deployed champion had been heat-load infeasible -- and the correction ends by *strengthening*
 the thesis it tested. At $"CVaR"_95$ the architectures compress into run-to-run variance and a dense
-fine-tune takes the shallow tail ($129.8$ m/s against FNPAG's $154.3$); but on a fresh
-$10^6$-scenario far-tail confirmatory under honest noise, the fine-tuned recurrent policy holds
-$"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s (three fine-tune seeds, $99.996%$ capture) while the dense fine-tune and FNPAG
-both sit near $237$. The internal state earns its keep exactly where the shared-path study said it
-did -- on the extreme tail that sizes the tanks -- and that claim now stands on the marginal
-distribution, not on one noise path.
+fine-tune takes the shallow tail ($129.8$ m/s against FNPAG's $154.3$); on the $10^6$-scenario far
+tail the fine-tuned recurrent policy holds $163.2$ while the dense fine-tune and FNPAG both sit near
+$237$. The internal state earns its keep exactly where the shared-path study said it did -- on the
+extreme tail that sizes the tanks -- and that claim now stands on the marginal distribution, not on
+one noise path.
 
 The honest drawback that closed the 2009 paper -- that the training is too heavy to run on board --
 remains, but its sting is gone: the deployed policy is a fixed forward pass that costs a few

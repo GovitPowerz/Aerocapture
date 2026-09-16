@@ -1076,7 +1076,7 @@ pub(crate) fn build_dispersion_config(
     let noise_seeding = if let Some(s) = &mc.noise_seeding {
         dispersions::NoiseSeeding::from_str(s)?
     } else {
-        dispersions::NoiseSeeding::Legacy
+        dispersions::NoiseSeeding::default() // PerDraw (ADR-0006)
     };
 
     Ok(DispersionConfig {
