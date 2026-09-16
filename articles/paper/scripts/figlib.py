@@ -11,9 +11,15 @@ import json
 from pathlib import Path
 
 import matplotlib as mpl
-import matplotlib.font_manager as fm
-import matplotlib.pyplot as plt
-import seaborn as sns
+
+# Headless Agg everywhere: with the interactive MacOSX backend the layout pass measures
+# text at the Retina device-pixel ratio, so tight_layout / bbox_inches="tight" land a
+# few hundredths of a point away from a Linux run and no figure is byte-identical.
+mpl.use("Agg")
+
+import matplotlib.font_manager as fm  # noqa: E402
+import matplotlib.pyplot as plt  # noqa: E402
+import seaborn as sns  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[3]
 DATA = REPO / "articles/paper/data"

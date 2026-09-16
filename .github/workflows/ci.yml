@@ -127,45 +127,6 @@ jobs:
       - name: Regenerate every figure
         run: make -C articles/paper -B figures
 
-      - name: TEMP probe (per-artist bboxes of fig_ablation; remove before merge)
-        run: |
-          uv run python - <<'PY'
-          import sys, json
-          sys.path.insert(0, "articles/paper/scripts")
-          import matplotlib as mpl
-          mpl.use("Agg")
-          import matplotlib.pyplot as plt
-          import matplotlib.ft2font as ft
-          import figlib as fl
-          fl.style()
-          print("freetype", ft.__freetype_version__, "mpl", mpl.__version__)
-          a = json.loads((fl.RUNS / "headline/mamba_p962/ablation_results.json").read_text())
-          ranked = [x for x in a["ranked"] if not x.get("masked_out") and x["delta"] > 0][:12][::-1]
-          names = [x["name"] for x in ranked]; deltas = [x["delta"] for x in ranked]
-          fig, ax = plt.subplots(figsize=fl.SIZE1)
-          ax.barh(range(len(names)), deltas, color=fl.C["mamba"], alpha=0.85)
-          ax.set_yticks(range(len(names))); ax.set_yticklabels(names, fontsize=8.5)
-          ax.set_xlabel("cost increase when input zeroed (log-transform units)")
-          ax.set_title("Mamba-962 input importance (top 12)", fontsize=10, loc="left")
-          for i, d in enumerate(deltas):
-              ax.annotate(f"{d:.2f}", (d, i), textcoords="offset points", xytext=(3, 0), va="center", fontsize=7.5)
-          ax.margins(x=0.12)
-          fig.tight_layout()
-          r = fig.canvas.get_renderer()
-          print("fig tightbbox", fig.get_tightbbox(r).bounds)
-          print("axes tightbbox", ax.get_tightbbox(r).bounds)
-          print("axes position", ax.get_position().bounds)
-          for art in ax.get_children():
-              try:
-                  bb = art.get_tightbbox(r) if hasattr(art, "get_tightbbox") else art.get_window_extent(r)
-              except Exception:
-                  bb = None
-              if bb is not None and bb.width > 0:
-                  print(type(art).__name__, getattr(art, "get_text", lambda: "")()[:30], [round(v, 6) for v in bb.bounds])
-          for t in ax.get_xticklabels() + ax.get_yticklabels():
-              print("tick", t.get_text()[:20], [round(v, 6) for v in t.get_window_extent(r).bounds])
-          PY
-
       # Always uploaded: when `check` fails, download this and diff it against git locally.
       - name: Upload the regenerated figures
         uses: actions/upload-artifact@v4

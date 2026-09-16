@@ -497,9 +497,10 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
   versions, sha256 of every campaign TOML); `pdf` (typst, `SOURCE_DATE_EPOCH` = HEAD commit time; `PDF=/tmp/x.pdf` leaves the committed PDF alone); `paper` chains them; `check` = `shasum -c
   data/SHA256SUMS` (482 tracked bundle files; `sums` regenerates it + `SHA256SUMS.runlogs` for the 95 logs) + `check_results_schema.py` + `git diff --exit-code` on figures/results.json. The
   `FROZEN` block names the 7 data files with no producer in the tree (plateau, sigma_extras, selection_gate, nominal_floor, the two failure classifications, quant/ticks_per_sim; producing commits
-  recorded) and the opt-in `mc-*` targets re-fly cells (never default, never CI). Figures are byte-reproducible: `figlib.save` sets `svg.hashsalt` + `metadata={"Date": None}`, and `style()`
-  registers the vendored STIX Two Text (`articles/paper/fonts/`, OFL) so glyph outlines match on every machine; bytes are stable only under the pinned matplotlib -- a version bump shifts text
-  metrics and regenerates all 18 (commit that deliberately). CI's `paper` job runs `-B figures` + `check` + a /tmp `pdf` (Typst 0.15.1) on every PR; `paper-results` (workflow_dispatch only)
+  recorded) and the opt-in `mc-*` targets re-fly cells (never default, never CI). Figures are byte-reproducible across macOS and Linux: `figlib` forces the Agg backend (the MacOSX backend measures text at the Retina device-pixel ratio during
+  `tight_layout`, shifting every layout by ~0.01 pt), sets `text.hinting = "none"` (matplotlib's own cross-platform baseline setting), and `save` sets `svg.hashsalt` +
+  `metadata={"Date": None}`; `style()` registers the vendored STIX Two Text (`articles/paper/fonts/`, OFL) so glyph outlines match on every machine. Bytes are stable only under the pinned
+  matplotlib -- a version bump shifts text metrics and regenerates all 18 (commit that deliberately). CI's `paper` job runs `-B figures` + `check` + a /tmp `pdf` (Typst 0.15.1) on every PR; `paper-results` (workflow_dispatch only)
   fetches the logs and requires results.json unchanged. Gates: `tests/test_paper_figures.py`.
 - GA training pipeline: optimizes any guidance scheme's parameters (not just NN weights)
   - `train.py` — Hybrid pymoo training loop with checkpoint save/resume (`<config.toml> [--no-tui] [--skip-report] [--final-n-sims N] [--algorithm ALG] [--seed-strategy fixed|rotating|adaptive]

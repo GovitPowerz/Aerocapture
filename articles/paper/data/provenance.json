@@ -1,7 +1,7 @@
 {
-  "head_commit": "3c812346cc8320efc48252c301bb40e99b74bc0e",
+  "head_commit": "05f0aa325ec3e0fceaad29d9a128e2a86a5972c9",
   "head_dirty": false,
-  "paper_inputs_commit": "3c812346cc8320efc48252c301bb40e99b74bc0e",
+  "paper_inputs_commit": "05f0aa325ec3e0fceaad29d9a128e2a86a5972c9",
   "paper_inputs": [
     "articles/paper/paper.typ",
     "articles/paper/appendix.typ",
