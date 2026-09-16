@@ -109,7 +109,7 @@ def chart_dv_cdf_overlay(final_records, output):
 def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     import aerocapture_rs
     from aerocapture.training import charts
-    from aerocapture.training.deploy_overrides import resolve_eval_toml
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, resolve_eval_toml
     from aerocapture.training.reference import _MC_DISPERSION_DOMAINS
     from aerocapture.training.report import _read_constraint_limits, compute_eval_summary, read_cost_kwargs
     from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
@@ -131,8 +131,7 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     model = bundle_model if bundle_model.exists() else local_model
     if model.exists():
         pin["data.neural_network"] = str(model.resolve())
-    # Legacy regime: the appendix cards re-fly the bundle's shared-noise-path cells (ADR-0003 / ADR-0006).
-    overrides = [{"simulation.n_sims": 1, "monte_carlo.noise_seeding": "legacy", "monte_carlo.seed": s, **pin} for s in seeds]
+    overrides = [{"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, "monte_carlo.seed": s, **pin} for s in seeds]
     batch = aerocapture_rs.run_batch(
         toml_path=str(eval_toml.resolve()), overrides_list=overrides,
         include_trajectories=True, sim_timeout_secs=5.0,
@@ -157,7 +156,7 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     sub_trajs = [trajs[i][::POINT_STRIDE] for i in idx]
     sub_class = traj_class[idx]
 
-    nom_ov = {"simulation.n_sims": 1, "monte_carlo.noise_seeding": "legacy",
+    nom_ov = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME,
               **{f"monte_carlo.{d}.level": "off" for d in _MC_DISPERSION_DOMAINS}, **pin}
     nom = aerocapture_rs.run_mc(toml_path=str(eval_toml.resolve()), overrides=nom_ov,
                                 include_trajectories=True, sim_timeout_secs=5.0)

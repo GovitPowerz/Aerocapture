@@ -14,3 +14,7 @@ max_reversals = 5
 
 [simulation]
 n_sims = 1
+
+[monte_carlo]
+seed = 42
+noise_seeding = "legacy"  # no dispersion domains: undispersed run; the pin states the regime its reference output was frozen under

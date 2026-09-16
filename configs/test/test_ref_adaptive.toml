@@ -20,3 +20,7 @@ mode = "identical"
 mode = "adaptive"
 rtol = 1e-6
 initial_dt = 0.1
+
+[monte_carlo]
+seed = 42
+noise_seeding = "legacy"  # no dispersion domains: undispersed run; the pin states the regime its reference output was frozen under

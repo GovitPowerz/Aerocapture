@@ -112,9 +112,10 @@ def _eval_cell(
     pools: list[list[int]],
     bundle_key: str | None,
     extra: dict[str, Any],
-    scaffolding_from: str | None = None,
-    sim_timeout: float = 5.0,
-    noise_seeding: str = "legacy",
+    *,
+    scaffolding_from: str | None,
+    sim_timeout: float,
+    noise_seeding: str,
 ) -> dict:
     import aerocapture_rs
     from aerocapture.training.deploy_overrides import resolve_eval_toml

@@ -267,11 +267,12 @@ def _entry_overrides(entry: dict[str, Any], model: Path, seeds: list[int]) -> li
     is scored against TOML-default scaffolding it was never trained with.
     run_batch == one sim per override; force n_sims=1 (configs inherit n_sims=1000).
     """
-    from aerocapture.training.deploy_overrides import load_scaffolding_overrides
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, load_scaffolding_overrides
 
     out_dir = Path(entry["output_dir"])
     scaff = load_scaffolding_overrides(out_dir)
-    base: dict[str, Any] = {"simulation.n_sims": 1, "data.neural_network": str(model), **scaff}
+    # Sweep cells were trained under the shared noise path; score them there (ADR-0006).
+    base: dict[str, Any] = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, "data.neural_network": str(model), **scaff}
     return [{**base, "monte_carlo.seed": int(s)} for s in seeds]
 
 

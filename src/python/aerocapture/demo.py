@@ -42,14 +42,17 @@ def run_demo(n_sims: int, output: Path, legacy: bool = False) -> None:
     # One sim per seed, matching the paper's evaluation methodology (run_batch
     # per-seed, as in report.py / fresh_pool_requote.py) so the demo's numbers
     # are comparable to the quoted ones.
-    model_dir = LEGACY_MODEL_DIR if legacy else DEMO_MODEL_DIR
+    model_dir, mode, regime = (
+        (LEGACY_MODEL_DIR, "legacy", "shared density-noise path (legacy, historical headline)")
+        if legacy
+        else (DEMO_MODEL_DIR, "per_draw", "per-scenario density noise (per_draw, ADR-0006)")
+    )
     base: dict[str, object] = {
         "data.neural_network": str(model_dir / "best_model.json"),
         "simulation.n_sims": 1,
-        "monte_carlo.noise_seeding": "legacy" if legacy else "per_draw",
+        "monte_carlo.noise_seeding": mode,
     }
     base.update(load_scaffolding_overrides(model_dir))
-    regime = "shared density-noise path (legacy, historical headline)" if legacy else "per-scenario density noise (per_draw, ADR-0006)"
     seeds = np.random.default_rng(DEMO_SEED).integers(0, 2**31, size=n_sims)
 
     print(f"Flying {n_sims} dispersed MSR aerocapture scenarios with the Mamba-962 guidance NN ({model_dir.name})...")

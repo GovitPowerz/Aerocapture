@@ -77,7 +77,7 @@ def extract_convergence(jsonl_path: str, n_pop: int, n_sims: int) -> list[list]:
 
 def _eval_one(label: str, run_dir: str, toml: str, n_sims_train: int, n_eval: int) -> dict:
     import aerocapture_rs
-    from aerocapture.training.deploy_overrides import resolve_eval_toml
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, resolve_eval_toml
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
     from aerocapture.training.seeds import STRESS_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.toml_utils import load_toml_with_bases
@@ -86,8 +86,7 @@ def _eval_one(label: str, run_dir: str, toml: str, n_sims_train: int, n_eval: in
     eval_toml, scaffolding = resolve_eval_toml(Path(toml), scheme_dir)
     base_mc_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
     seeds = make_reserved_seeds(base_mc_seed, STRESS_EVAL_SEED_OFFSET, n_eval)
-    # Legacy regime: the compared cells were trained and quoted under the shared noise path (ADR-0003 / ADR-0006).
-    base: dict = {"simulation.n_sims": 1, "monte_carlo.noise_seeding": "legacy", **STRESS_OVERRIDES, **scaffolding}
+    base: dict = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, **STRESS_OVERRIDES, **scaffolding}
     local_model = scheme_dir / "best_model.json"
     if local_model.exists():
         base["data.neural_network"] = str(local_model.resolve())

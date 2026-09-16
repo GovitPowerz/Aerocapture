@@ -19,7 +19,8 @@ reached the corrected one (163.2 +- 1.3 m/s) last. A reader saw a caveat, not a 
 `NoiseSeeding::PerDraw` is the default: an absent `noise_seeding` key means every distinct
 dispersion draw gets its own noise realization (identical draw, identical stream). `"legacy"`
 keeps its name and its bit-exact behaviour and must be set explicitly; it exists to reproduce
-numbers quoted before 2026-08-27. The corrected per-scenario fine-tune
+numbers quoted under the shared path (the paper's main body through arxiv-v3, and every appendix
+cell trained before this decision). The corrected per-scenario fine-tune
 (`models/demo/ft_mamba_962/`, the Appendix E champion) is the demo's model; the shared-path
 champion stays as `models/demo/mamba_962_legacy/` behind `--legacy`. Front-facing numbers (README,
 TODO, the paper's abstract and conclusion) lead with the per-scenario result; the shared-path
@@ -28,11 +29,13 @@ result is quoted under a heading that names it as the historical result and its 
 ## Consequences
 
 - Every config whose committed output must not move pins `noise_seeding = "legacy"`: the six
-  guidance goldens (`configs/test/*_golden.toml`, regime-neutral in practice since they run bias
-  navigation with the OU perturbation off, pinned to state it) and the paper's evaluation scripts
-  (`articles/paper/scripts/*`, `experiments/fnpag_ab/`), which re-fly cells trained and quoted under
-  the shared path. `confirmatory_eval.py` records the regime in its JSON and refuses to mix regimes
-  in one file.
+  guidance goldens and the seven undispersed test configs (`configs/test/*.toml`, regime-neutral in
+  practice since they run without the OU perturbation, pinned to state it; a seed-only
+  `[monte_carlo]` table is byte-neutral for an undispersed run) and every evaluation script that
+  re-flies a cell trained under the shared path: `articles/paper/scripts/*`, `experiments/fnpag_ab/`,
+  `param_sweep --eval`, `quantize`, the architecture-probe drivers. They spread one constant,
+  `deploy_overrides.LEGACY_NOISE_REGIME`, into their overrides. `confirmatory_eval.py` records the
+  regime in its JSON and refuses to mix regimes in one file.
 - Training configs inherit the new default. Re-running a paper campaign script now trains under
   per-scenario noise: that is a new experiment, not a reproduction. The committed bundle
   (`articles/paper/data/runs/`) is the reproduction of the shared-path campaign; the per-scenario

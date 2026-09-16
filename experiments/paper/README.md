@@ -58,8 +58,9 @@ pred_guid) is training.
   exempts them from the global `*.json` rule).
 - Noise regime: every committed cell under `runs/` was trained and evaluated
   under the shared noise path (`noise_seeding = "legacy"`), the simulator
-  default until ADR-0006 (2026-09-16). The eval scripts here pin `legacy`
-  explicitly so the bundle reproduces; the training configs inherit the new
+  default until ADR-0006 (2026-09-16). The eval scripts (`articles/paper/scripts/*`,
+  `param_sweep --eval`, `quantize`, the probe drivers) pin `legacy` explicitly through
+  `deploy_overrides.LEGACY_NOISE_REGIME` so the bundle reproduces; the training configs inherit the new
   `per_draw` default, so re-running a campaign script trains under
   per-scenario noise -- a new experiment, not a reproduction. The
   per-scenario cells live under `experiments/ou_marginal/` and

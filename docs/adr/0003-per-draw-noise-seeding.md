@@ -23,5 +23,6 @@ confirmatory re-run; the paper reports both regimes.
 ## Consequences
 
 - Any new evaluation that claims to marginalize over noise must set `per_draw` explicitly; the
-  demo's `--per-draw` flag and the Appendix E scripts do.
+  demo's `--per-draw` flag and the Appendix E scripts do. (Superseded by ADR-0006: `per_draw` is
+  the default and the demo flag became `--legacy`.)
 - Frozen-regime and per-draw numbers are not comparable; state the regime with every number.

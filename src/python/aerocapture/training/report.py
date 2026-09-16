@@ -132,11 +132,12 @@ def run_final_evaluation(
     if scaffolding_overrides:
         print(f"  Using optimized NN scaffolding from {scheme_dir / 'best_params.json'}")
 
+    # State the regime with every number (ADR-0003): resolve it here, pass it explicitly, print it.
     regime = toml_data.get("monte_carlo", {}).get("noise_seeding", "per_draw")
     print(f"  Noise regime: {regime} ({'per-scenario, ADR-0006' if regime == 'per_draw' else 'shared path, reproduction only'})")
 
     try:
-        base_overrides: dict[str, object] = {"simulation.n_sims": 1, **scaffolding_overrides}
+        base_overrides: dict[str, object] = {"simulation.n_sims": 1, "monte_carlo.noise_seeding": regime, **scaffolding_overrides}
         # Pin the evaluated NN to this run's own deployed model: the TOML's
         # [data] neural_network path is shared by every --output-dir variant of
         # the same config, and a concurrent run's checkpoint deploy can rewrite

@@ -30,6 +30,11 @@ INTEGER_PARAM_NAMES: frozenset[str] = frozenset(spec.name for specs in (*PARAM_S
 
 _SHAPING_ENABLED_KEY = "guidance.command_shaping.enabled"
 
+# The paper's shared-noise-path regime (ADR-0003), no longer the simulator default (ADR-0006).
+# Every script that re-flies a cell trained or quoted under it spreads this into its overrides,
+# so the regime travels with the number.
+LEGACY_NOISE_REGIME: dict[str, str] = {"monte_carlo.noise_seeding": "legacy"}
+
 
 def overrides_from_params(params: Mapping[str, object], scheme: str, *, scaffolding_only: bool = False) -> dict[str, object]:
     """Finished dot-path override dict for `params` deployed on `scheme`.

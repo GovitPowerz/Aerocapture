@@ -464,9 +464,9 @@ only improve batch draws (n_sims>1); single-sim runs and adaptive-strategy curat
 stochastic streams (OU density perturbation, EKF sensor noise) are seeded: `"per_draw"` (the DEFAULT since ADR-0006, 2026-09-16) derives the stream seed from an FNV-1a hash of the dispersion draw
 (`RunState::noise_seed`), so per-seed pools and multi-sim runs both marginalize over noise realizations (identical draw -> identical stream, distinct draws -> independent noise); `"legacy"` reproduces
 the historical `[simulation] random_seed + env_idx*10_000` behavior — which FREEZES the noise realization across every n_sims=1 config, so all per-seed pools (run_batch/run_grid: training, validation,
-final eval, requotes, confirmatory) condition on ONE noise path — and exists only to reproduce numbers quoted before 2026-08-27: the six guidance goldens and every paper evaluation script pin it
-explicitly, `confirmatory_eval.py` records it in its JSON, and `report.py` prints the regime it flies (identical draw -> identical
-stream, so runs stay reproducible). Unknown values hard-error. All committed paper numbers and goldens are legacy-regime; see `experiments/ou_marginal/quote_results.json` + `RESULTS.md` for the
+final eval, requotes, confirmatory) condition on ONE noise path — and exists only to reproduce numbers quoted under that path: every `configs/test/*.toml` and every evaluation script that re-flies a
+shared-path cell (`articles/paper/scripts/*`, `experiments/fnpag_ab/`, `param_sweep --eval`, `quantize`, the probe drivers) pins it through `deploy_overrides.LEGACY_NOISE_REGIME`,
+`confirmatory_eval.py` records it in its JSON, and `report.py` passes the regime it resolved into the run and prints it. Unknown values hard-error. All committed paper numbers and goldens are legacy-regime; see `experiments/ou_marginal/quote_results.json` + `RESULTS.md` for the
 frozen-vs-marginal quantification (marginal degrades NN cells 2-4x more than classicals). The per_draw retrain campaign for the five NN headline cells lives in
 `experiments/ou_marginal/retrain_campaign.sh` (stoppable/resumable: rerun the script and each cell continues from its latest checkpoint toward the 20000-gen target; configs in
 `configs/training/ou_marginal/`, outputs in `training_output/ou_marginal/<cell>/`), with `experiments/ou_marginal/quote_marginal.py` producing the frozen-vs-marginal quote table afterwards
@@ -487,7 +487,7 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
   the Appendix E per-scenario fine-tune) over 500 per-seed MC sims (run_batch, matching the paper's evaluation methodology) under per-scenario noise (`per_draw`, the ADR-0006 default) and writes
   `demo_output/demo.svg`. `--legacy` flies the shared-path champion (`models/demo/mamba_962_legacy/`, a copy of `training_output/mamba_p962_long/`, the historical headline) under
   `monte_carlo.noise_seeding = "legacy"`; the model and regime are printed and stamped on the figure. Demo seeds come from an arbitrary RNG stream (424242), disjoint from every reserved pool. Raw
-  paper training logs (`articles/paper/data/runs/**/*.jsonl.gz`, 195 MB) are untracked — restore via `articles/paper/scripts/fetch_run_logs.sh` (Release asset on the `arxiv-v3` tag). Design docs live in `docs/design/` (formerly `docs/design/`).
+  paper training logs (`articles/paper/data/runs/**/*.jsonl.gz`, 195 MB) are untracked — restore via `articles/paper/scripts/fetch_run_logs.sh` (Release asset on the `arxiv-v2` tag). Design docs live in `docs/design/` (formerly `docs/design/`).
 - GA training pipeline: optimizes any guidance scheme's parameters (not just NN weights)
   - `train.py` — Hybrid pymoo training loop with checkpoint save/resume (`<config.toml> [--no-tui] [--skip-report] [--final-n-sims N] [--algorithm ALG] [--seed-strategy fixed|rotating|adaptive]
     [--output-dir DIR]`). Mission artifacts (corridor, reference trajectory) always live at the canonical `training_output/<mission>/` — `--output-dir` / `--resume` relocate only `save_dir`

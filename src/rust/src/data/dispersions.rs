@@ -493,7 +493,7 @@ pub fn step_density_perturbation(x: f64, dt: f64, tau: f64, sigma: f64, normal_s
 /// historical `[simulation] random_seed + env_idx * 10_000`, which FREEZES the
 /// noise realization across every n_sims=1 config (per-seed pools condition on
 /// one noise path, the defect paper Appendix E discloses); it exists to
-/// reproduce numbers quoted before 2026-08-27 and must be set explicitly.
+/// reproduce numbers quoted under that path and must be set explicitly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NoiseSeeding {
     Legacy,

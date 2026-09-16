@@ -90,9 +90,13 @@ def score_model(
     import aerocapture_rs
 
     from aerocapture.training import charts
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
     from aerocapture.training.report import _read_constraint_limits, compute_eval_summary
 
-    overrides = [{"simulation.n_sims": 1, "data.neural_network": str(model), "monte_carlo.seed": int(s), **(extra_overrides or {})} for s in seeds]
+    # Probe arms were trained under the shared noise path; score them there (ADR-0006).
+    overrides = [
+        {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, "data.neural_network": str(model), "monte_carlo.seed": int(s), **(extra_overrides or {})} for s in seeds
+    ]
     batch = aerocapture_rs.run_batch(str(config), overrides, n_threads=None, include_trajectories=False, sim_timeout_secs=sim_timeout)
     final = np.array(batch.final_records, dtype=np.float64)
     summary = compute_eval_summary(final, n_sims=len(seeds), cost_kwargs=cost_kwargs)

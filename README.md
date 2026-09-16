@@ -140,31 +140,31 @@ Seven guidance schemes, all trainable by the population optimizers below:
 
 Every scheme is evaluated on frozen 10 × 100,000-scenario confirmatory pools (n = 10⁶ per cell). The table below is the per-scenario density-noise regime, the simulator's default ([ADR-0006](docs/adr/0006-per-draw-noise-is-the-default-regime.md); paper Appendix E, raw data `experiments/ou_marginal/confirmatory_marginal.json`). Correction ΔV in m/s; CVaR99.9 (± standard error over the 10 replicates) is the far-tail statistic the propellant margin is sized on, and it is quoted next to what it can hide: capture probability, constraint-violation rate, and the worst scenario observed:
 
-| Role | Scheme | n | Capture % | Violation % | CVaR99.9 | Max | ms/sim |
-|---|---|---|---|---|---|---|---|
-| **Deployed** | NN — Mamba, 962 params, per-scenario fine-tune | 10⁶ | 99.9995 | 0.00 | **163.0 ± 0.3** (3 seeds: 163.2 ± 1.3) | 249 | 3.14 |
-| Efficiency reference | NN — dense, 515 params, per-scenario fine-tune | 10⁶ | 100.00 | 0.03 | 236.3 ± 2.5 | 405 | 1.88 |
-| Best classical | FNPAG | 10⁶ | 99.37 | 0.00 | 236.7 ± 2.3 | 579 | 87.1 |
-| Historical champion | NN — Mamba, 962 params, shared-path training | 10⁶ | 97.93 | 0.91 | 221.3 ± 0.5 | 270 | 3.14 |
+| Role | Scheme | Regime | n | Capture % | Violation % | CVaR99.9 | Max | ms/sim |
+|---|---|---|---|---|---|---|---|---|
+| **Deployed** | NN — Mamba, 962 params, per-scenario fine-tune | per-scenario | 10⁶ | 99.9995 | 0.00 | **163.0 ± 0.3** (3 seeds: 163.2 ± 1.3) | 249 | 3.14 |
+| Efficiency reference | NN — dense, 515 params, per-scenario fine-tune | per-scenario | 10⁶ | 100.00 | 0.03 | 236.3 ± 2.5 | 405 | 1.88 |
+| Best classical | FNPAG | per-scenario | 10⁶ | 99.37 | 0.00 | 236.7 ± 2.3 | 579 | 87.1 |
+| Historical champion | NN — Mamba, 962 params, shared-path training | per-scenario | 10⁶ | 97.93 | 0.91 | 221.3 ± 0.5 | 270 | 3.14 |
 
 Violation % is the fraction of the 10⁶ scenarios exceeding any `[flight.constraints]` limit (heat flux, g-load, integrated heat load). Training promotes only feasible candidates (validation-pool violation rate at or below `[optimizer] max_violation_rate`, default 0; [ADR-0005](docs/adr/0005-feasibility-before-performance-in-selection.md)); cells trained before that rule are quoted with their measured rate.
 
-- **A small stateful network wins where the mission is sized.** On the shallow tail the fine-tunes are within run-to-run variance of each other (CVaR95: dense 128.8, Mamba 138.7, FNPAG 152.5); on the far tail that sizes the tanks the recurrent policy holds 163 while the dense network and FNPAG both sit near 237, with the smallest worst case of any scheme.
+- **A small stateful network wins where the mission is sized.** On the shallow tail the dense fine-tune wins (CVaR95: dense 128.8, Mamba 138.7, FNPAG 152.5); on the far tail that sizes the tanks the recurrent policy holds 163 while the dense network and FNPAG both sit near 237, with the smallest worst case of any scheme.
 - **Honest noise costs the networks more than the classical laws.** Cells trained on the shared noise path lose 54–102 m/s of CVaR95 under per-scenario noise where the classical schemes lose 11–31; the historical champion drops to 97.9% capture. Retraining under per-scenario noise restores capture and feasibility for every cell, and fine-tuning from the frozen champion is the winning recipe where it is feasible.
-- **FNPAG is the classical reference under honest noise,** at ~28× the network's per-simulation compute, and its far tail keeps fattening with pool depth (CVaR95 152 to CVaR99.9 237).
+- **FNPAG is the classical reference under honest noise,** at ~28× the network's per-simulation compute, but its tail is fat: CVaR95 152, CVaR99.9 237, and a 579 m/s worst case, with 0.6% of scenarios not captured.
 
 #### Historical result and evaluation correction
 
 The paper's main body (arxiv-v3) was evaluated under the historical shared-noise-path regime (`noise_seeding = "legacy"`, every scenario sharing one realization of the density noise), the defect Appendix E discloses. Its numbers are kept here because they are what the committed [paper](articles/paper/paper.pdf) quotes and what the bundle under `articles/paper/data/` reproduces:
 
-| Role | Scheme | n | Capture % | Violation % | CVaR99.9 | Max | ms/sim |
-|---|---|---|---|---|---|---|---|
-| Historical headline | NN — Mamba, 962 params | 10⁶ | 100.00 | 0.00 | 123.3 ± 0.1 | 140 | 3.14 |
-| Efficiency reference | NN — dense, 515 params | 10⁶ | 100.00 | 0.01 | 128.7 ± 0.4 | 183 | 1.88 |
-| Best classical | FTC (joint reference) | 10⁶ | 100.00 | 0.00 | 165.1 ± 0.3 | 192 | 0.90 |
-| Reference NPC | FNPAG | 10⁶ | 99.98 | 0.00 | 198.7 ± 1.7 | 658 | 87.1 |
+| Role | Scheme | Regime | n | Capture % | Violation % | CVaR99.9 | Max | ms/sim |
+|---|---|---|---|---|---|---|---|---|
+| Historical headline | NN — Mamba, 962 params | shared path | 10⁶ | 100.00 | 0.00 | 123.3 ± 0.1 | 140 | 3.14 |
+| Efficiency reference | NN — dense, 515 params | shared path | 10⁶ | 100.00 | 0.01 | 128.7 ± 0.4 | 183 | 1.88 |
+| Best classical | FTC (joint reference) | shared path | 10⁶ | 100.00 | 0.00 | 165.1 ± 0.3 | 192 | 0.90 |
+| Reference NPC | FNPAG | shared path | 10⁶ | 99.98 | 0.00 | 198.7 ± 1.7 | 658 | 87.1 |
 
-Two shared-path findings survive the correction unchanged: **reference co-optimization is the classical lever** (letting the optimizer co-tune FTC's constant-bank reference, `[reference] joint_bank = true`, drops its CVaR95 from 244 to 143; a feedback law cannot out-perform the target it tracks), and **internal state earns its keep on the extreme tail, not the median** (every converged architecture lands at 108–112 m/s typical cost; the state-reset control collapses the deployed cell's CVaR99.9 from 123 to 414).
+Two shared-path findings survive the correction unchanged: **reference co-optimization is the classical lever** (letting the optimizer co-tune FTC's constant-bank reference, `[reference] joint_bank = true`, drops its CVaR95 from 244 to 143; a feedback law cannot out-perform the target it tracks), and **internal state earns its keep on the extreme tail, not the median** (every converged architecture lands at 108–112 m/s typical cost; the state-reset control collapses the shared-path champion's CVaR99.9 from 123 to 414).
 
 Full protocol and results: paper Sections 6–7, per-scheme mission cards in Appendix D. The recent-architecture probes (CfC, xLSTM cells, Mamba-3 axes — none beat the plain cells at matched budget) are in Appendix B, with drivers under `python -m aerocapture.training.experiments.{cfc_probe,xlstm_probe,mamba3_probe}`.
 
