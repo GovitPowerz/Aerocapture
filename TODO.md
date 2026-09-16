@@ -8,8 +8,6 @@
 
 - [ ] Add neural counterparts for navigation and control
 - [ ] Develop ESR (Earth Sample Return) mission profiles
-- [ ] Fix pre-existing `cargo clippy --workspace` warnings in `src/rust/aerocapture-py/src/lib.rs`
-      (2x `type_complexity`, 1x `needless_range_loop`; `check_all.sh` scopes to `-p aerocapture`)
 
 ---
 

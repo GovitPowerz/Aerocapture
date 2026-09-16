@@ -458,11 +458,11 @@ uv run pytest tests/
 
 ## CI
 
-GitHub Actions runs on PRs to `main` and manual dispatch:
+GitHub Actions runs on every push to `main`, every PR to `main`, and manual dispatch:
 
-- **Rust**: `cargo fmt --check`, `cargo clippy`, `cargo test --release`
-- **Python**: `ruff check`, `ruff format --check`, `mypy`, `pytest`
-- **PyO3**: `maturin develop --release`, then the PyO3 suite: bindings regression (`test_pyo3.py`), the Rust↔Python NN forward-equivalence gates for every layer type, per-architecture PSO/PPO smoke tests, and the islands smoke test (see `.github/workflows/ci.yml` for the exact file list)
+- **Rust**: `cargo fmt --check`, `cargo clippy --workspace`, `cargo test --release --workspace` (both crates: the simulator and the `aerocapture-py` seam)
+- **Python (lint)**: `ruff check`, `ruff format --check`, `mypy src/python tests experiments` (the same scope as `./lint_code.sh`)
+- **Python (test)**: builds the CLI binary and the PyO3 extension, then runs every file under `tests/` (fast and slow) in one job. There is no allowlist: a test file added to the tree runs in CI, and the job fails if any test skipped for a missing extension. The rule that the training modules must import without the extension is itself a test (`tests/test_soft_import.py`).
 
 ## Build Commands
 
