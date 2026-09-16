@@ -167,12 +167,29 @@ class SingleAlgoTrainer:
     def prologue(self, logger: Any, display: Any) -> None:
         """Validate the starting best: gen-0 individual on fresh starts, the
         checkpointed best on resume (keeps "Best val" + stagnation honest)."""
+        from aerocapture.training.evaluate import constraint_violation_rates
         from aerocapture.training.train import _build_validation_payload
 
         if self.val_seeds is None or self.best_overall_individual is None:
             return
         init_val_costs, init_val_records = self.problem.evaluate_individual_records_per_seed(self.best_overall_individual, self.val_seeds)
-        self.best_val_cost = float(np.sqrt(np.mean(init_val_costs**2)))
+        init_rms = float(np.sqrt(np.mean(init_val_costs**2)))
+        # The feasibility gate (ADR-0006) applies to the initial / resumed
+        # champion too: anchoring best_val_cost with an INFEASIBLE candidate
+        # makes every later feasible promotion beat an illegitimate RMS bar,
+        # and final selection would trust the anchor as-validated. Observed
+        # live (CPAG C2): a gen-0 argmin validated at 5.25% heat-load
+        # violation and anchored the campaign through this ungated path.
+        ceiling = self.config.optimizer.max_violation_rate
+        init_rates = constraint_violation_rates(init_val_records, self.problem.cost_kwargs)
+        init_feasible = init_rates is None or all(r <= ceiling + 1e-12 for r in init_rates.values())
+        if init_feasible:
+            self.best_val_cost = init_rms
+        else:
+            self.best_val_cost = float("inf")
+            if self.verbose:
+                rates_txt = ", ".join(f"{k}={v:.3%}" for k, v in (init_rates or {}).items())
+                print(f"  Initial best validation: INFEASIBLE ({rates_txt} > ceiling {ceiling:.3%}) - not anchoring best_val_cost (rms was {init_rms:.4g})")
         self.last_validated_individual = self.best_overall_individual.copy()
         init_val_metrics, init_val_summary = _build_validation_payload(
             init_val_costs,
@@ -180,6 +197,8 @@ class SingleAlgoTrainer:
             len(self.val_seeds),
             self.problem.cost_kwargs,
         )
+        init_val_metrics["feasible"] = init_feasible
+        init_val_metrics["violation_rates"] = init_rates
         logger.log_generation(
             self.start_gen,
             self.X,
@@ -188,12 +207,12 @@ class SingleAlgoTrainer:
             self.decode_fn,
             validation=init_val_metrics,
             validation_summary=init_val_summary,
-            improved=True,
+            improved=init_feasible,
         )
         display.update(logger, current_run=0)
         if self.verbose:
             label = f"Gen {self.start_gen}" if self.start_gen > 0 else "Gen 0"
-            print(f"  {label} validation: mean={self.best_val_cost:.4e} cap={init_val_metrics['capture_rate']:.0%}")
+            print(f"  {label} validation: mean={init_rms:.4e} cap={init_val_metrics['capture_rate']:.0%}")
 
     def re_evaluate(self) -> None:
         """Pre-next re-eval after a seed-list change (skipped for CMA-ES)."""
@@ -244,7 +263,17 @@ class SingleAlgoTrainer:
         self._validation_summary = None
         self._validated_improvement = False
         if self.val_seeds is not None:
-            gate = run_validation_gate(self.X, self.costs, self.last_validated_individual, self.best_val_cost, self.problem, self.val_seeds)
+            ceiling = self.config.optimizer.max_violation_rate
+            gate = run_validation_gate(
+                self.X,
+                self.costs,
+                self.last_validated_individual,
+                self.best_val_cost,
+                self.problem,
+                self.val_seeds,
+                max_violation_rate=ceiling,
+                cost_kwargs=self.problem.cost_kwargs,
+            )
             if gate.status is GateStatus.VALIDATED:
                 assert gate.individual is not None and gate.val_costs is not None and gate.val_rms is not None
                 self._validation_metrics, self._validation_summary = _build_validation_payload(
@@ -253,12 +282,18 @@ class SingleAlgoTrainer:
                     len(self.val_seeds),
                     self.problem.cost_kwargs,
                 )
+                self._validation_metrics["feasible"] = gate.feasible
+                self._validation_metrics["violation_rates"] = gate.violation_rates
                 self.last_validated_individual = gate.individual
                 if gate.promoted:
                     self.best_val_cost = gate.val_rms
                     self.best_overall_individual = gate.individual
                     self.best_overall_cost = gate.argmin_cost
                     self._validated_improvement = True
+                elif not gate.feasible and gate.val_rms < self.best_val_cost and self.verbose:
+                    # Would have promoted on RMS alone: the feasibility gate blocked it.
+                    rates_txt = ", ".join(f"{k}={v:.3%}" for k, v in (gate.violation_rates or {}).items())
+                    print(f"  Gen {gen} validation: REJECTED (infeasible: {rates_txt} > ceiling {ceiling:.3%}) despite rms {gate.val_rms:.4g}")
             # SKIP_UNCHANGED / SKIP_ALL_INF: no validation, no promotion.
         elif np.isfinite(self._gen_best_cost):
             # No validation gate: promote each generation's finite training
@@ -364,6 +399,8 @@ class SingleAlgoTrainer:
                     [f"last_gen[{i}]" for i in range(self.X.shape[0])],
                     known,
                     self.val_seeds,
+                    max_violation_rate=self.config.optimizer.max_violation_rate,
+                    cost_kwargs=self.problem.cost_kwargs,
                 )
             except ValueError:
                 # Pathological all-inf run with no champion: nothing to select.
@@ -643,6 +680,8 @@ class IslandsTrainer:
                     "p95_cost": val_rec["val_p95"],
                     "capture_rate": val_rec["val_capture_rate"],
                     "n_sims": len(self.val_seeds) if self.val_seeds else 0,
+                    "feasible": val_rec.get("feasible", True),
+                    "violation_rates": val_rec.get("violation_rates"),
                 }
             logger.log_generation(
                 generation=gen,
@@ -774,6 +813,8 @@ class IslandsTrainer:
                         cand_prov,
                         known,
                         island_model.validation_seeds,
+                        max_violation_rate=config.optimizer.max_violation_rate,
+                        cost_kwargs=problem.cost_kwargs,
                     )
                 except ValueError:
                     # Pathological all-inf run with no champions.

@@ -45,7 +45,7 @@ uv run pytest tests/
 
 1. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the two-language split and its one seam, a training run in fifteen lines, a simulation tick in eight, the seed pools, where the paper's numbers come from.
 2. [CONTEXT.md](CONTEXT.md) — the vocabulary (capture / exit phase, scaffolding, champion, final selection vs final eval, sizing tail).
-3. [docs/adr/](docs/adr/) — the four decisions the results rest on: adaptive training seeds, final selection on the validation pool, per-draw noise seeding, the `run_grid` bit-identity chokepoint.
+3. [docs/adr/](docs/adr/) — the decisions the results rest on: adaptive training seeds, final selection on the validation pool, per-draw noise seeding, the `run_grid` bit-identity chokepoint, feasibility before performance in selection.
 4. [docs/design/](docs/design/README.md) — the dated design behind each feature; [CLAUDE.md](CLAUDE.md) — the per-module reference.
 5. [The paper](articles/paper/paper.pdf) — the results and their evaluation methodology.
 
@@ -138,14 +138,16 @@ Seven guidance schemes, all trainable by the population optimizers below:
 
 ### What worked best
 
-The committed [paper](articles/paper/paper.pdf) evaluates every scheme on frozen 10 × 100,000-scenario confirmatory pools. Correction ΔV in m/s; CVaR99.9 is the far-tail statistic the propellant margin is sized on:
+The committed [paper](articles/paper/paper.pdf) evaluates every scheme on frozen 10 × 100,000-scenario confirmatory pools (n = 10⁶ per cell, shared density-noise regime; Appendix E re-quotes the per-scenario regime). Correction ΔV in m/s; CVaR99.9 (± standard error over the 10 replicates) is the far-tail statistic the propellant margin is sized on, and it is quoted next to what it can hide: capture probability, constraint-violation rate, and the worst scenario observed:
 
-| Role | Scheme | CVaR99.9 | ms/sim |
-|---|---|---|---|
-| **Deployed** | NN — Mamba, 962 params | **123.3 ± 0.1** | 3.14 |
-| Efficiency reference | NN — dense, 515 params | 128.7 | 1.88 |
-| Best classical | FTC (joint reference) | 165.1 | 0.90 |
-| Reference NPC | FNPAG | 198.7 | 87.1 |
+| Role | Scheme | Capture % | Violation % | CVaR99.9 | Max | ms/sim |
+|---|---|---|---|---|---|---|
+| **Deployed** | NN — Mamba, 962 params | 100.00 | 0.00 | **123.3 ± 0.1** | 140 | 3.14 |
+| Efficiency reference | NN — dense, 515 params | 100.00 | 0.01 | 128.7 ± 0.4 | 183 | 1.88 |
+| Best classical | FTC (joint reference) | 100.00 | 0.00 | 165.1 ± 0.3 | 192 | 0.90 |
+| Reference NPC | FNPAG | 99.98 | 0.00 | 198.7 ± 1.7 | 658 | 87.1 |
+
+Violation % is the fraction of the 10⁶ scenarios exceeding any `[flight.constraints]` limit (heat flux, g-load, integrated heat load). Training promotes only feasible candidates (validation-pool violation rate at or below `[optimizer] max_violation_rate`, default 0; [ADR-0006](docs/adr/0006-feasibility-before-performance-in-selection.md)); cells trained before that rule are quoted with their measured rate.
 
 - **A small stateful network wins where the mission is sized.** Internal state buys nothing on the median (every converged architecture lands at 108–112 m/s typical cost) and everything on the deep tail: the deployed dense→Mamba→dense policy captures 10⁶ of 10⁶ confirmatory scenarios and holds a 41.8 m/s far-tail margin over the best classical scheme.
 - **Reference co-optimization is the classical lever.** Letting the optimizer co-tune FTC's constant-bank reference (`[reference] joint_bank = true`) drops its CVaR95 from 244 to 143 — a feedback law cannot out-perform the target it tracks. The joint-reference FTC is the classical state of the art here.

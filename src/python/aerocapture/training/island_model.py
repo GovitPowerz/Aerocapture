@@ -16,7 +16,7 @@ import numpy.typing as npt
 from pymoo.algorithms.soo.nonconvex.pso import PSO
 from pymoo.core.algorithm import Algorithm
 
-from aerocapture.training.evaluate import GateStatus, run_validation_gate
+from aerocapture.training.evaluate import GateStatus, constraint_violation_rates, run_validation_gate
 from aerocapture.training.metrics import capture_rate as _capture_rate
 from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
 
@@ -384,6 +384,8 @@ class IslandModel:
                 island.best_val_cost,
                 self.problem,
                 self.validation_seeds,
+                max_violation_rate=self.config.max_violation_rate,
+                cost_kwargs=self.problem.cost_kwargs,
             )
 
             if gate.status is GateStatus.SKIP_ALL_INF:
@@ -441,6 +443,8 @@ class IslandModel:
                     "island": island.name,
                     "validated": True,
                     "promoted": gate.promoted,
+                    "feasible": gate.feasible,
+                    "violation_rates": gate.violation_rates,
                     "argmin_train_cost": gate.argmin_cost,
                     "val_rms": gate.val_rms,
                     "val_mean": float(np.mean(val_costs)),
@@ -466,11 +470,25 @@ class IslandModel:
         for island in self.islands:
             if island.best_overall_individual is None:
                 continue
-            val_costs, _ = self.problem.evaluate_individual_records_per_seed(
+            val_costs, val_records = self.problem.evaluate_individual_records_per_seed(
                 island.best_overall_individual,
                 self.validation_seeds,
             )
-            island.best_val_cost = float(np.sqrt(np.mean(val_costs**2)))
+            rms = float(np.sqrt(np.mean(val_costs**2)))
+            # A checkpoint written before the feasibility gate (ADR-0006) may
+            # carry a champion that was never checked; keep the individual as
+            # last_validated but do not let its RMS anchor the promotion bar.
+            ceiling = self.config.max_violation_rate
+            rates = constraint_violation_rates(val_records, self.problem.cost_kwargs)
+            feasible = rates is None or all(r <= ceiling + 1e-12 for r in rates.values())
+            if feasible:
+                island.best_val_cost = rms
+            else:
+                island.best_val_cost = float("inf")
+                rates_txt = ", ".join(f"{k}={v:.3%}" for k, v in (rates or {}).items())
+                print(
+                    f"  [{island.name}] resumed champion is INFEASIBLE ({rates_txt} > ceiling {ceiling:.3%}) - not anchoring best_val_cost (rms was {rms:.4g})"
+                )
             island.last_validated_individual = island.best_overall_individual.copy()
 
     def resize_populations(

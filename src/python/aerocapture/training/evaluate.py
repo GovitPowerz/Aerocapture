@@ -13,7 +13,7 @@ import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 import numpy.typing as npt
@@ -27,6 +27,32 @@ try:
 except ImportError:
     _aero_rs = None  # type: ignore[assignment]
     _HAS_PYO3 = False
+
+
+def constraint_violation_rates(
+    final_records: npt.NDArray[np.float64],
+    cost_kwargs: dict[str, Any] | None,
+) -> dict[str, float] | None:
+    """Fractional per-constraint violation rates over a final-records matrix.
+
+    Limits come from `cost_kwargs` (`heat_flux_limit` kW/m^2, `g_load_limit` g,
+    `heat_load_limit` kJ/m^2 - the same keys `compute_cost` consumes, read from
+    `[flight.constraints]` by `read_cost_kwargs`). Constraints without a
+    configured limit are omitted; returns None when no limit is configured at
+    all (feasibility cannot be assessed).
+    """
+    from aerocapture.training import charts  # noqa: PLC0415
+
+    kw = cost_kwargs or {}
+    # Column access is lazy per configured limit: callers without limits (or
+    # test fakes with narrow record stubs) must not touch the FR columns.
+    specs = (
+        ("heat_flux", charts._FR_MAX_HEAT_FLUX, 1.0, kw.get("heat_flux_limit")),
+        ("g_load", charts._FR_MAX_G_LOAD, 1.0, kw.get("g_load_limit")),
+        ("heat_load", charts._FR_INTEGRATED_FLUX, 1e3, kw.get("heat_load_limit")),  # MJ -> kJ
+    )
+    rates = {name: float(np.mean(final_records[:, col] * scale > float(lim))) for name, col, scale, lim in specs if isinstance(lim, (int, float))}
+    return rates or None
 
 
 class GateStatus(Enum):
@@ -49,6 +75,10 @@ class GateResult:
     val_records: npt.NDArray[np.float64] | None = None
     val_rms: float | None = None
     promoted: bool = False
+    # Feasibility (ADR-0006): promotion additionally requires every
+    # configured constraint's violation rate <= the caller's ceiling.
+    feasible: bool = True
+    violation_rates: dict[str, float] | None = None
 
 
 class _SupportsPerSeedEval(Protocol):
@@ -66,6 +96,8 @@ def run_validation_gate(
     best_val_cost: float,
     problem: _SupportsPerSeedEval,
     val_seeds: list[int],
+    max_violation_rate: float = 0.0,
+    cost_kwargs: dict[str, Any] | None = None,
 ) -> GateResult:
     """Guarded gen-best selection + identity-trigger validation, shared by the
     single-algorithm loop and the islands trainer.
@@ -103,6 +135,12 @@ def run_validation_gate(
 
     val_costs, val_records = problem.evaluate_individual_records_per_seed(individual, val_seeds)
     val_rms = float(np.sqrt(np.mean(val_costs**2)))
+    # Feasibility gate (ADR-0006): an individual whose validation MC
+    # violates a configured constraint more often than the ceiling never
+    # promotes, no matter how good its RMS - soft cost penalties do not
+    # guarantee feasibility at the optimum (the LSTM 14-16% heat-load lesson).
+    rates = constraint_violation_rates(val_records, cost_kwargs)
+    feasible = rates is None or all(r <= max_violation_rate + 1e-12 for r in rates.values())
     return GateResult(
         status=GateStatus.VALIDATED,
         argmin_cost=argmin_cost,
@@ -110,7 +148,9 @@ def run_validation_gate(
         val_costs=val_costs,
         val_records=val_records,
         val_rms=val_rms,
-        promoted=val_rms < best_val_cost,
+        promoted=(val_rms < best_val_cost) and feasible,
+        feasible=feasible,
+        violation_rates=rates,
     )
 
 
