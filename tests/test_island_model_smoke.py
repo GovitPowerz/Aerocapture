@@ -11,7 +11,7 @@ Marked @slow because it runs ~3 * n_pop * training_n_sims * n_gen MC sims
 (3 islands x 8 individuals x 2 seeds x 5 gens = 240 sims, plus a few
 validation and final-eval passes).
 
-Runs in the python-pyo3 CI job (bindings required).
+Runs in CI's test job (bindings required).
 """
 
 from __future__ import annotations

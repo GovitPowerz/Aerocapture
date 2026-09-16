@@ -3,7 +3,7 @@ instantiation, rollout collect with tuple-state threading, chunked BPTT update
 with _zero_entry tuple dispatch, validation promotion, v2 JSON export with
 lstm, Rust nn_forward consumes it.
 
-Runs in the python-pyo3 CI job (bindings required). Not a convergence test.
+Runs in CI's test job (bindings required). Not a convergence test.
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 
 `aerocapture_rs.layer_schema` IS the Rust `tensor_table!` (flat order, JSON
 keys, parameter count). The fallback in `layer_schema.py` exists only for the
-extension-less CI job; this asserts it element-wise for every layer type.
+machines without the extension; this asserts it element-wise for every layer type.
 """
 
 from __future__ import annotations

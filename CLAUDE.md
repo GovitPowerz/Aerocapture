@@ -260,7 +260,7 @@ src/rust/aerocapture-py/src/
                      which reloaded every table from disk per seed and ran sequentially (the 5000-seed warm-start collection bottleneck). The per-tick candidate trace is recorded in `tick.rs` with a
                      full mask of width `NN_FULL_INPUT_SIZE` (so all 35 inputs, incl. the live correction-DV, reach the trace). `NN_INPUT_NAMES` (module constant) and `candidate_inputs()` (35
                      `{index, name, transform, scale, center}` dicts) export the Rust-owned candidate-input contract -- `training/config.py::candidate_input_names()` / `candidate_input_index()` derive
-                     the Python name list, width and index lookups from it (a fallback tuple covers the pure-Python CI job, asserted equal element-wise by `tests/test_record_index_drift.py`);
+                     the Python name list, width and index lookups from it (a fallback tuple covers machines without the extension, asserted equal element-wise by `tests/test_record_index_drift.py`);
                      `default_normalization()` exposes the Rust `DEFAULT_NORMALIZATION` table (35 `{transform, scale, center}` dicts) -- the FALLBACK for `calibrate_inputs.py`'s normalized->raw
                      inversion (which resolves override > embedded > default via `_resolve_normalization`, matching the forward pass so the recovery is exact). `flat_weights_to_json()` (PSO chromosome
                      -> deployed `best_model.json`) embeds the `normalization` block, so deployed models are self-describing. `run_grid()` evaluates a full (individuals x seeds) grid in ONE
@@ -1010,7 +1010,7 @@ makes stateful forward, per-sim state, and a heterogeneous layer enum Phase-1-re
   carry-over). `compute_weight_stats` is skipped for v2 (dense-only stats would misalign). Training config: `configs/training/msr_aller_gru_pso_train.toml` (Dense(16->32,tanh) -> Gru(32,32) ->
   Dense(32->2,linear), 6946 params, PSO `n_pop=64 n_gen=1000 seed_strategy="adaptive"`). Registered as `neural_network_gru_pso` in `compare_guidance.SCHEMES` + `_NN_DEPLOY_SCHEMES`.
 - **Gates**: cross-language equivalence tests (`test_v2_rust_python_equivalence.py`) cover GRU single-step (stateless nn_forward vs per-step-reset Python forward, max abs diff < 1e-10) and Dense +
-  `input_mask=[0,2,4]` cases (raw 5-wide input -> Rust-side mask vs pre-masked Python input). PSO training smoke test (`test_gru_pso_smoke.py`, `@pytest.mark.slow`, python-pyo3 CI job) runs 2 PSO gens
+  `input_mask=[0,2,4]` cases (raw 5-wide input -> Rust-side mask vs pre-masked Python input). PSO training smoke test (`test_gru_pso_smoke.py`, `@pytest.mark.slow`, runs in CI's single test job) runs 2 PSO gens
   on a reduced Dense(16->8) -> Gru(8,8) -> Dense(8->2) arch (586 params, 16 real sims), asserts `best_model.json` is v2 with `["dense","gru","dense"]` and `nn_forward` returns a finite 2-tuple.
 
 **Phase 1.5 PPO-GRU + truncated BPTT (branch `feature/gru-mvp`, 2026-04-18)** lifts the PPO training pipeline to recurrent policies:
@@ -1031,7 +1031,7 @@ makes stateful forward, per-sim state, and a heterogeneous layer enum Phase-1-re
 - **Scheme registration**: `neural_network_gru_ppo` added to `compare_guidance.SCHEMES` + `_NN_DEPLOY_SCHEMES`, plus `train_all.sh` alias (`gru_ppo` / `nn_gru_ppo`). Rust runtime dispatches on the
   JSON architecture (no `neural_network_gru_ppo`-specific Rust code).
 - **Gates**: cross-language equivalence extended with a PPO-GRU export roundtrip (max abs diff 5.55e-17, machine epsilon). Chunk-size invariant test (`test_ppo_bptt_chunk_invariant.py`) proves
-  one-chunk BPTT and multi-chunk BPTT produce bit-identical forward values (detach changes gradients only). PPO-GRU smoke test (`test_gru_ppo_smoke.py`, @slow, python-pyo3 CI) runs 5 PPO updates on a
+  one-chunk BPTT and multi-chunk BPTT produce bit-identical forward values (detach changes gradients only). PPO-GRU smoke test (`test_gru_ppo_smoke.py`, @slow, CI test job) runs 5 PPO updates on a
   reduced Dense(23->8) -> Gru(8,8) -> Dense(8->2) arch in ~2s. Feedforward regression gate (`test_ppo_feedforward_regression.py`, @slow) runs 5 updates of the existing dense-only
   `msr_aller_rl_train.toml` through V2Policy + `bptt_length = rollout_steps` and asserts the output is loadable + finite.
 
@@ -1371,9 +1371,10 @@ stop well before `n_gen` -- raise `restarts` / use `bipop`, or footnote the asym
   validation; lateral-telemetry inputs 21-24: rate=0 when prev_inclination_error is None, di_err_dt finite-diff formula match, prev_bank/π normalization at ±π/±π/2/0, time-since-flip tanh-bounded
   at 0/30/∞, integral tanh-bounded with antisymmetry, backward compat mask=[0..20] unchanged by new telemetry inputs), magnitude_only NN mode (high heat-flux nav state shrinks |bank| via thermal
   limiter only when mode = magnitude_only; full_neural passes the raw NN bank through unchanged). Run with `cargo test` or `./check_all.sh`.
-- **CI**: GitHub Actions (`.github/workflows/ci.yml`) — Rust (fmt, clippy, test), Python (ruff lint, ruff format, mypy over `src/python tests experiments`, pytest), and PyO3 (maturin build + a
-  19-file suite: `test_pyo3.py` bindings regression, the per-layer Rust<->Python equivalence gates, per-architecture PSO/PPO smoke tests, and the islands smoke test — exact file list in the
-  workflow) run on PRs to `main` and manual dispatch (`workflow_dispatch`).
+- **CI**: GitHub Actions (`.github/workflows/ci.yml`) — Rust (fmt, `clippy --workspace`, `test --workspace`: both crates), Python lint (ruff lint, ruff format, mypy over
+  `src/python tests experiments`, the `lint_code.sh` scope), and ONE Python test job that builds the CLI binary and the PyO3 extension and runs every file under `tests/`, fast and slow, with no
+  per-file allowlist (an import step before pytest proves the extension is present). The soft-import rule (training modules import without `aerocapture_rs`) is `tests/test_soft_import.py`. Runs on
+  every push to `main`, every PR to `main`, and manual dispatch.
 - **Validation**: Validated against reference implementation — 22/24 photo columns bit-identical across 725 timesteps.
 
 ## Tone

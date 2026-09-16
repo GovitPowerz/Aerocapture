@@ -12,9 +12,9 @@ import numpy as np
 import pytest
 import torch
 
-# Skip in environments without the PyO3 bindings installed (standard Python CI
-# job). The python-pyo3 CI job builds the bindings via `maturin develop` and
-# explicitly runs this test, so a stale build still fails the gate there.
+# Skip on a machine without the PyO3 bindings. CI's test job builds them via
+# `maturin develop` and proves the import before pytest runs, so this gate never
+# silently skips there.
 aerocapture_rs = pytest.importorskip("aerocapture_rs")
 
 from aerocapture.training.rl.export import export_v2_policy_to_json  # noqa: E402

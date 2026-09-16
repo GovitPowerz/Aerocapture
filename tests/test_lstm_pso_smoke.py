@@ -2,7 +2,7 @@
 verifies the full stack (config parse, architecture construction, PSO eval,
 Rust runtime, JSON write) runs end-to-end without error.
 
-Runs in the python-pyo3 CI job (bindings required).
+Runs in CI's test job (bindings required).
 """
 
 from __future__ import annotations

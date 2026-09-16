@@ -5,7 +5,7 @@ cd src/rust
 echo "Running all checks..."
 
 echo "Running tests..."
-cargo test --quiet
+cargo test --quiet --workspace
 test_status=$?
 
 echo "Checking formatting..."
@@ -13,7 +13,7 @@ cargo fmt --all -- --check
 fmt_status=$?
 
 echo "Running clippy..."
-cargo clippy --all-targets --all-features --quiet -- -D warnings
+cargo clippy --workspace --all-targets --all-features --quiet -- -D warnings
 clippy_status=$?
 
 cd ../..
