@@ -72,10 +72,14 @@ Transformer, Mamba) behind one bit-validated Rust runtime with cross-language eq
 machine epsilon, PSO training for all five plus PPO-BPTT for GRU/LSTM, the NN-vs-FTC parity bundle
 (co-trained scaffolding, `acos_tanh` decoder, multi-supervisor BPTT warm-start), the CfC / xLSTM /
 Mamba-3 architecture probes (paper Appendix B), and the quantization campaign (Appendix C).
-Outcome: the 962-parameter Mamba is the deployed sizing headline -- CVaR99.9 123.3 +- 0.1 m/s at
-100% capture on the 10 x 100,000 confirmatory pool, 41.8 m/s below the best classical scheme.
+Outcome: the 962-parameter Mamba is the deployed sizing headline -- under per-scenario density
+noise (the default since ADR-0006) its fine-tune holds CVaR99.9 163.2 +- 1.3 m/s (three seeds) at
+99.996% capture on the 10 x 100,000 confirmatory pool, 73 m/s below the best classical scheme and
+the best dense network. The shared-path result it replaces (123.3 +- 0.1 at 100% capture) is the
+historical headline of the paper's main body; Appendix E holds the correction.
 
-Paper: `articles/paper/paper.pdf` (tag `arxiv-v2`, GitHub Release). Detailed phase history
+Paper: `articles/paper/paper.pdf` (tag `arxiv-v3`, GitHub Release; the abstract and conclusion in
+the Typst source already lead with the per-scenario result, see `articles/paper/CHANGES.md`). Detailed phase history
 (Phases 0 through 4a, task-by-task): this file's git history plus the specs and plans under
 `docs/design/` (the implementation plans left the tree in ee1518a: `git show ee1518a^:docs/superpowers/plans/`).
 

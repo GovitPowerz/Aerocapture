@@ -5,7 +5,8 @@ perturbation, EKF sensor noise) from `[simulation] random_seed + env_idx *
 10_000`, so every n_sims=1 run shares ONE noise realization regardless of the
 dispersion draw -- the conditioning defect the paper's Appendix E discloses.
 `per_draw` derives the stream seed from the draw itself, so distinct scenarios
-get distinct realizations while identical draws stay reproducible.
+get distinct realizations while identical draws stay reproducible. `per_draw`
+is the default (ADR-0006); `legacy` must be asked for explicitly.
 """
 
 from __future__ import annotations
@@ -52,8 +53,8 @@ def test_per_draw_differs_from_legacy_on_the_same_draw() -> None:
     assert not np.array_equal(legacy, per_draw)
 
 
-def test_default_is_legacy() -> None:
-    (explicit,) = _perturbation_series("legacy", [11])
+def test_default_is_per_draw() -> None:
+    (explicit,) = _perturbation_series("per_draw", [11])
     res = aero.run_batch(TOML, [{"simulation.n_sims": 1, "monte_carlo.seed": 11}], include_trajectories=True)
     implicit = np.asarray(res.trajectories[0])[:N_COMPARE, DENSITY_PERTURBATION_COL]
     assert np.array_equal(explicit, implicit)

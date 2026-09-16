@@ -11,7 +11,7 @@ from pathlib import Path
 
 import aerocapture_rs
 import numpy as np
-from aerocapture.training.deploy_overrides import overrides_from_params
+from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, overrides_from_params
 from aerocapture.training.seeds import VALIDATION_SEED_OFFSET, make_reserved_seeds
 
 TOML = os.environ.get("AERO_TOML", "configs/training/msr_aller_fnpag_train.toml")
@@ -43,7 +43,7 @@ def main() -> None:
     routed = overrides_from_params(best, SCHEME)
 
     seeds = make_reserved_seeds(BASE_SEED, VALIDATION_SEED_OFFSET, n)
-    ovr = [{**routed, "monte_carlo.seed": int(s), "simulation.n_sims": 1} for s in seeds]
+    ovr = [{**routed, "monte_carlo.seed": int(s), "simulation.n_sims": 1, **LEGACY_NOISE_REGIME} for s in seeds]
 
     res = aerocapture_rs.run_batch(TOML, ovr, sim_timeout_secs=10.0)
     fr = np.asarray(res.final_records)  # (n, 52)

@@ -107,7 +107,15 @@ def _agg(values: list[float]) -> dict:
 
 
 def _eval_cell(
-    label: str, toml: str, pools: list[list[int]], bundle_key: str | None, extra: dict[str, Any], scaffolding_from: str | None = None, sim_timeout: float = 5.0
+    label: str,
+    toml: str,
+    pools: list[list[int]],
+    bundle_key: str | None,
+    extra: dict[str, Any],
+    *,
+    scaffolding_from: str | None,
+    sim_timeout: float,
+    noise_seeding: str,
 ) -> dict:
     import aerocapture_rs
     from aerocapture.training.deploy_overrides import resolve_eval_toml
@@ -119,7 +127,7 @@ def _eval_cell(
     eval_toml, scaffolding = resolve_eval_toml(Path(toml), scheme_dir)
     hfl, gll, hll = _read_constraint_limits(eval_toml)
 
-    base: dict = {"simulation.n_sims": 1, **scaffolding, **extra}
+    base: dict = {"simulation.n_sims": 1, "monte_carlo.noise_seeding": noise_seeding, **scaffolding, **extra}
     bundle_model = REPO / "articles/paper/data/runs" / bundle_key / "best_model.json" if bundle_key else None
     local_model = scheme_dir / "best_model.json"
     model = bundle_model if bundle_model is not None and bundle_model.exists() else local_model
@@ -215,6 +223,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--out", type=Path, default=OUT, help="output JSON (use a separate file for shallow-pool campaigns - pairing requires all cells on the SAME pools)"
     )
+    parser.add_argument(
+        "--noise-seeding",
+        choices=("legacy", "per_draw"),
+        default="legacy",
+        help="noise regime of the pools (ADR-0003 / ADR-0006): the committed confirmatory_eval.json is legacy; per_draw pools live in a separate file",
+    )
     args = parser.parse_args(argv)
 
     from aerocapture.training.seeds import make_confirmatory_pools
@@ -229,6 +243,8 @@ def main(argv: list[str] | None = None) -> None:
         assert existing.get("n_replicates") == args.replicates and existing.get("n_per_replicate") == args.n, (
             f"pool shape mismatch vs existing {out_path.name} ({existing.get('n_replicates')}x{existing.get('n_per_replicate')})"
         )
+        existing_regime = existing.get("noise_seeding", "legacy")  # files written before the key existed are legacy
+        assert existing_regime == args.noise_seeding, f"regime mismatch vs existing {out_path.name}: {existing_regime} != {args.noise_seeding} (one regime per file)"
 
     specs = []
     base_seed: int | None = None
@@ -246,13 +262,16 @@ def main(argv: list[str] | None = None) -> None:
     pools = make_confirmatory_pools(base_seed, args.replicates, args.n)
 
     for label, toml, bundle_key in specs:
-        by_label[label] = _eval_cell(label, toml, pools, bundle_key, extra, scaffolding_from=args.scaffolding_from, sim_timeout=args.sim_timeout)
+        by_label[label] = _eval_cell(
+            label, toml, pools, bundle_key, extra, scaffolding_from=args.scaffolding_from, sim_timeout=args.sim_timeout, noise_seeding=args.noise_seeding
+        )
         cells = [by_label[k] for k in sorted(by_label)]
         out_path.write_text(
             json.dumps(
                 {
                     "freeze_commit": subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=REPO).stdout.strip(),
                     "pool": "CONFIRMATORY [2^31, 2^32)",
+                    "noise_seeding": args.noise_seeding,
                     "base_mc_seed": base_seed,
                     "n_replicates": args.replicates,
                     "n_per_replicate": args.n,

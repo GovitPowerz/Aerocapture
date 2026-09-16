@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     import aerocapture_rs
-    from aerocapture.training.deploy_overrides import load_scaffolding_overrides
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, load_scaffolding_overrides
     from aerocapture.training.seeds import HEADLINE_REQUOTE_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.toml_utils import load_toml_with_bases
 
@@ -46,7 +46,7 @@ def main(argv: list[str] | None = None) -> None:
     seeds = make_reserved_seeds(base_mc_seed, HEADLINE_REQUOTE_SEED_OFFSET, args.n_sims)
 
     scaffolding = load_scaffolding_overrides(run_dir)
-    base = {"simulation.n_sims": 1, "data.neural_network": str(model.resolve()), **scaffolding}
+    base = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, "data.neural_network": str(model.resolve()), **scaffolding}
     results = aerocapture_rs.run_batch(
         toml_path=str(Path(args.toml).resolve()),
         overrides_list=[{**base, "monte_carlo.seed": s} for s in seeds],

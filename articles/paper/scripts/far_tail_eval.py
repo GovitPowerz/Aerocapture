@@ -56,7 +56,7 @@ def _parse_extra_overrides(items: list[str]) -> dict:
 def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None,
               extra: dict | None = None, scaffolding_from: str | None = None) -> dict:
     import aerocapture_rs
-    from aerocapture.training.deploy_overrides import resolve_eval_toml
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, resolve_eval_toml
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
     from aerocapture.training.report import _read_constraint_limits
     from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
@@ -70,7 +70,7 @@ def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None,
     base_mc_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
     seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
 
-    base: dict = {"simulation.n_sims": 1, **scaffolding, **(extra or {})}
+    base: dict = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, **scaffolding, **(extra or {})}
     # Pin the committed bundle's frozen weights when a bundle key is given --
     # training_output can drift from the bundle on a later resume (dense_p515
     # did: its local model far-tails at 140.3 vs the bundle's 128.1). Same

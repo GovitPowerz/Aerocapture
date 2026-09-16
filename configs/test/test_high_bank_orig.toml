@@ -16,3 +16,7 @@ results_suffix = ".test_high_bank_orig"
 
 [onboard_atmosphere]
 mode = "identical"
+
+[monte_carlo]
+seed = 42
+noise_seeding = "legacy"  # no dispersion domains: undispersed run; the pin states the regime its reference output was frozen under

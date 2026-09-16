@@ -55,7 +55,7 @@ OUT = REPO / "articles/paper/data/robustness_stress.json"
 
 def _stress_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
     import aerocapture_rs
-    from aerocapture.training.deploy_overrides import resolve_eval_toml
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, resolve_eval_toml
     from aerocapture.training.seeds import STRESS_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.toml_utils import load_toml_with_bases
 
@@ -64,7 +64,7 @@ def _stress_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
     base_mc_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
     seeds = make_reserved_seeds(base_mc_seed, STRESS_EVAL_SEED_OFFSET, n_sims)
 
-    base: dict = {"simulation.n_sims": 1, **STRESS_OVERRIDES, **scaffolding}
+    base: dict = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, **STRESS_OVERRIDES, **scaffolding}
     local_model = scheme_dir / "best_model.json"
     if local_model.exists():
         base["data.neural_network"] = str(local_model.resolve())

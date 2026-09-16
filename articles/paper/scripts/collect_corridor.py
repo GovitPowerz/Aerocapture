@@ -69,6 +69,7 @@ def _smooth(e_centers, y, sigma):
 
 def build_corridor(args):
     import aerocapture_rs
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
 
     e_edges = np.linspace(E_LO, E_HI, args.n_energy_bins + 1)
     p_edges = np.linspace(0.0, PDYN_MAX, args.n_pdyn_buckets + 1)
@@ -86,6 +87,7 @@ def build_corridor(args):
         ov = []
         for j in range(m):
             d = {"simulation.n_sims": 1,
+                 **LEGACY_NOISE_REGIME,
                  "monte_carlo.seed": CORRIDOR_SEED_OFFSET + done + j,
                  "guidance.piecewise_constant.n_segments": args.n_segments}
             for i in range(args.n_segments):
@@ -128,7 +130,7 @@ def build_corridor(args):
 def build_overlay(n_ens):
     """Deployed Mamba dispersed ensemble (energy, pdyn per trajectory) + undispersed nominal."""
     import aerocapture_rs
-    from aerocapture.training.deploy_overrides import resolve_eval_toml
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, resolve_eval_toml
     from aerocapture.training.reference import _MC_DISPERSION_DOMAINS
     from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
     from aerocapture.training.toml_utils import load_toml_with_bases
@@ -140,7 +142,7 @@ def build_overlay(n_ens):
         pin["data.neural_network"] = str(bundle_model.resolve())
     base_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
     seeds = make_reserved_seeds(base_seed, FINAL_EVAL_SEED_OFFSET, n_ens)
-    ov = [{"simulation.n_sims": 1, "monte_carlo.seed": s, **pin} for s in seeds]
+    ov = [{"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, "monte_carlo.seed": s, **pin} for s in seeds]
     batch = aerocapture_rs.run_batch(toml_path=str(eval_toml.resolve()), overrides_list=ov,
                                      include_trajectories=True, sim_timeout_secs=5.0)
     ens_e, ens_p = [], []
@@ -148,7 +150,7 @@ def build_overlay(n_ens):
         a = np.asarray(t)[::DOWNSAMPLE]
         ens_e.append(a[:, TC_ENERGY])
         ens_p.append(a[:, TC_PDYN])
-    nom_ov = {"simulation.n_sims": 1,
+    nom_ov = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME,
               **{f"monte_carlo.{dom}.level": "off" for dom in _MC_DISPERSION_DOMAINS}, **pin}
     nom = aerocapture_rs.run_mc(toml_path=str(eval_toml.resolve()), overrides=nom_ov,
                                 include_trajectories=True, sim_timeout_secs=5.0)
@@ -167,9 +169,11 @@ def build_boundaries():
     from aerocapture.training.reference import _MC_DISPERSION_DOMAINS
 
     out = {}
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
     for name, bank in (("liftup", 0.0), ("liftdown", 180.0)):
         ov = {
             "simulation.n_sims": 1,
+            **LEGACY_NOISE_REGIME,
             **{f"monte_carlo.{dom}.level": "off" for dom in _MC_DISPERSION_DOMAINS},
             **{f"guidance.piecewise_constant.bank_angle_{i}": bank for i in range(10)},
         }

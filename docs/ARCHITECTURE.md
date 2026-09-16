@@ -96,7 +96,7 @@ All in `training/seeds.py` (`make_reserved_seeds(base_mc_seed, offset, n)`), one
 
 `articles/paper/scripts/*.py` evaluate deployed cells (`training_output/<cell>/best_model.json` +
 `best_params.json`, resolved by `deploy_overrides.resolve_eval_toml`) on the pools above and write
-`articles/paper/data/*.json`; the Typst source reads those files. `models/demo/mamba_962/` is the
+`articles/paper/data/*.json`; the Typst source reads those files. `models/demo/ft_mamba_962/` is the
 committed copy of the headline cell that `aerocapture.demo` flies.
 
 ## `training/` by role

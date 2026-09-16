@@ -1,18 +1,16 @@
-"""Clone-to-figure demo: fly the paper's headline NN guidance cell over a Monte
+"""Clone-to-figure demo: fly the paper's deployed NN guidance cell over a Monte
 Carlo batch and render one figure (DV CDF + flown corridor).
 
-    uv run python -m aerocapture.demo [--n-sims N] [--output PATH]
+    uv run python -m aerocapture.demo [--n-sims N] [--output PATH] [--legacy]
 
-Uses the committed Mamba-962 model under models/demo/ (see its README for
-provenance). Runs on an arbitrary fixed seed, deliberately outside the reserved
+By default this flies the per-scenario density-noise regime (``per_draw``, the
+simulator default since ADR-0006) with the committed per-scenario fine-tune
+``models/demo/ft_mamba_962/`` (the paper's Appendix E champion; see its README
+for provenance). ``--legacy`` reproduces the historical shared-noise-path regime
+with the champion that was trained and quoted under it
+(``models/demo/mamba_962_legacy/``), the conditioning defect Appendix E
+discloses. Runs on an arbitrary fixed seed, deliberately outside the reserved
 training/validation/final-eval pools: illustrative output, not paper numbers.
-
-Noise regime: by default the demo flies the paper's main-body regime, the
-historical ``noise_seeding = "legacy"`` that conditions every scenario on one
-shared density-noise path (the defect Appendix E discloses). ``--per-draw``
-switches to the repaired per-scenario regime, where this shared-path champion
-drops to about 98% capture; the honest-regime deployment is Appendix E's
-per-scenario fine-tune, not this model.
 """
 
 from __future__ import annotations
@@ -31,7 +29,8 @@ from aerocapture.training.deploy_overrides import load_scaffolding_overrides
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEMO_TOML = REPO_ROOT / "configs/training/sweep/mamba_p962.toml"
-DEMO_MODEL_DIR = REPO_ROOT / "models/demo/mamba_962"
+DEMO_MODEL_DIR = REPO_ROOT / "models/demo/ft_mamba_962"  # per-scenario fine-tune (Appendix E champion)
+LEGACY_MODEL_DIR = REPO_ROOT / "models/demo/mamba_962_legacy"  # shared-path champion (historical headline)
 # Arbitrary constant, NOT drawn from the reserved seed pools in seeds.py.
 DEMO_SEED = 424242
 
@@ -39,21 +38,24 @@ DEMO_SEED = 424242
 TRAJ_ENERGY, TRAJ_PDYN = 8, 9
 
 
-def run_demo(n_sims: int, output: Path, per_draw: bool = False) -> None:
+def run_demo(n_sims: int, output: Path, legacy: bool = False) -> None:
     # One sim per seed, matching the paper's evaluation methodology (run_batch
     # per-seed, as in report.py / fresh_pool_requote.py) so the demo's numbers
     # are comparable to the quoted ones.
+    model_dir, mode, regime = (
+        (LEGACY_MODEL_DIR, "legacy", "shared density-noise path (legacy, historical headline)")
+        if legacy
+        else (DEMO_MODEL_DIR, "per_draw", "per-scenario density noise (per_draw, ADR-0006)")
+    )
     base: dict[str, object] = {
-        "data.neural_network": str(DEMO_MODEL_DIR / "best_model.json"),
+        "data.neural_network": str(model_dir / "best_model.json"),
         "simulation.n_sims": 1,
+        "monte_carlo.noise_seeding": mode,
     }
-    base.update(load_scaffolding_overrides(DEMO_MODEL_DIR))
-    if per_draw:
-        base["monte_carlo.noise_seeding"] = "per_draw"
-    regime = "per-scenario density noise (per_draw, Appendix E)" if per_draw else "shared density-noise path (legacy, main body)"
+    base.update(load_scaffolding_overrides(model_dir))
     seeds = np.random.default_rng(DEMO_SEED).integers(0, 2**31, size=n_sims)
 
-    print(f"Flying {n_sims} dispersed MSR aerocapture scenarios with the Mamba-962 guidance NN...")
+    print(f"Flying {n_sims} dispersed MSR aerocapture scenarios with the Mamba-962 guidance NN ({model_dir.name})...")
     print(f"Noise regime: {regime}")
     results = aerocapture_rs.run_batch(
         str(DEMO_TOML),
@@ -94,7 +96,7 @@ def run_demo(n_sims: int, output: Path, per_draw: bool = False) -> None:
     ax_corr.set_title("Flown corridor (blue = captured, red = failed)")
     ax_corr.grid(alpha=0.3)
 
-    fig.suptitle(f"Aerocapture demo: Mamba-962 NN guidance, dispersed Mars Sample Return entry ({regime})")
+    fig.suptitle(f"Aerocapture demo: Mamba-962 NN guidance ({model_dir.name}), dispersed Mars Sample Return entry ({regime})")
     fig.tight_layout()
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output)
@@ -105,9 +107,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n-sims", type=int, default=500)
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "demo_output/demo.svg")
-    parser.add_argument("--per-draw", action="store_true", help="fly Appendix E's per-scenario noise regime instead of the main-body shared-path regime")
+    parser.add_argument(
+        "--legacy",
+        action="store_true",
+        help="fly the historical shared-noise-path regime with the champion trained under it (models/demo/mamba_962_legacy), not the per-scenario default",
+    )
     args = parser.parse_args()
-    run_demo(args.n_sims, args.output, per_draw=args.per_draw)
+    run_demo(args.n_sims, args.output, legacy=args.legacy)
 
 
 if __name__ == "__main__":

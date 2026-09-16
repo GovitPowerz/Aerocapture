@@ -26,7 +26,7 @@ def _score(arm: str, seeds: list[int], sim_timeout: float | None) -> dict[str, f
     import aerocapture_rs
 
     from aerocapture.training import charts
-    from aerocapture.training.deploy_overrides import load_scaffolding_overrides
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, load_scaffolding_overrides
     from aerocapture.training.experiments.probe_common import cvar95 as _cvar95
     from aerocapture.training.report import compute_eval_summary, read_cost_kwargs
 
@@ -34,7 +34,9 @@ def _score(arm: str, seeds: list[int], sim_timeout: float | None) -> dict[str, f
     config = CONFIG_DIR / f"{arm}.toml"
     model = d / "best_model.json"
     scaff = load_scaffolding_overrides(d)
-    overrides = [{"simulation.n_sims": 1, "data.neural_network": str(model), **scaff, "monte_carlo.seed": int(s)} for s in seeds]
+    overrides = [
+        {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, "data.neural_network": str(model), **scaff, "monte_carlo.seed": int(s)} for s in seeds
+    ]  # shared-path cells
     batch = aerocapture_rs.run_batch(str(config), overrides, n_threads=None, include_trajectories=False, sim_timeout_secs=sim_timeout)
     final = np.array(batch.final_records, dtype=np.float64)
     summary = compute_eval_summary(final, n_sims=len(seeds), cost_kwargs=read_cost_kwargs(config))

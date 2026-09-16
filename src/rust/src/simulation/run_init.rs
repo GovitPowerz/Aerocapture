@@ -78,10 +78,11 @@ pub fn build_sim_state(
     let exit_altitude = data.final_conditions.altitude;
 
     // Base seed for the per-sim stochastic streams (EKF sensor noise, OU
-    // density perturbation). Legacy: `random_seed + env_idx * 10_000` — frozen
-    // across n_sims=1 configs (env_idx = 0, random_seed fixed by the TOML), so
-    // per-seed pools condition on ONE noise realization. PerDraw: derived from
-    // the dispersion draw, so every distinct scenario gets its own realization.
+    // density perturbation). PerDraw (default, ADR-0006): derived from the
+    // dispersion draw, so every distinct scenario gets its own realization.
+    // Legacy: `random_seed + env_idx * 10_000` — frozen across n_sims=1
+    // configs (env_idx = 0, random_seed fixed by the TOML), so per-seed pools
+    // condition on ONE noise realization; reproduction of pre-fix numbers only.
     let noise_base = noise_base_seed(
         data.dispersion_config
             .as_ref()

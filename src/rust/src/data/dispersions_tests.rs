@@ -834,7 +834,9 @@ fn test_noise_seeding_from_str() {
 }
 
 #[test]
-fn test_noise_seeding_defaults_legacy() {
-    assert_eq!(NoiseSeeding::default(), NoiseSeeding::Legacy);
+fn test_noise_seeding_defaults_per_draw() {
+    // ADR-0006: an absent [monte_carlo] noise_seeding key means per-scenario noise;
+    // the test fixture pins Legacy explicitly, as every reproduction config must.
+    assert_eq!(NoiseSeeding::default(), NoiseSeeding::PerDraw);
     assert_eq!(medium_config(42).noise_seeding, NoiseSeeding::Legacy);
 }
