@@ -127,6 +127,13 @@ jobs:
       - name: Regenerate every figure
         run: make -C articles/paper -B figures
 
+      # Always uploaded: when `check` fails, download this and diff it against git locally.
+      - name: Upload the regenerated figures
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-figures-${{ runner.os }}
+          path: articles/paper/figures/fig_*.svg
+
       - name: Figures unchanged, bundle checksums, results.json schema
         run: make -C articles/paper check
 
