@@ -20,7 +20,7 @@ from aerocapture.training.optimizer import OptimizerConfig
 # periapsis_alt at 31 + predicted_dv1/2/3 at 32-34). Rust owns it: `NN_INPUT_NAMES` /
 # `DEFAULT_NORMALIZATION` in src/rust/src/data/neural/mod.rs, exported as
 # `aerocapture_rs.NN_INPUT_NAMES` and `aerocapture_rs.candidate_inputs()`. This tuple
-# is the FALLBACK for the pure-Python CI job (no extension built) and is asserted
+# is the FALLBACK for machines without the extension (tests/test_soft_import.py) and is asserted
 # equal to the Rust table element-wise by tests/test_record_index_drift.py::TestWidthDrift.
 _FALLBACK_NN_INPUT_NAMES: tuple[str, ...] = (
     "eccentricity_excess",  # 0

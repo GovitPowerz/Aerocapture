@@ -260,7 +260,7 @@ src/rust/aerocapture-py/src/
                      which reloaded every table from disk per seed and ran sequentially (the 5000-seed warm-start collection bottleneck). The per-tick candidate trace is recorded in `tick.rs` with a
                      full mask of width `NN_FULL_INPUT_SIZE` (so all 35 inputs, incl. the live correction-DV, reach the trace). `NN_INPUT_NAMES` (module constant) and `candidate_inputs()` (35
                      `{index, name, transform, scale, center}` dicts) export the Rust-owned candidate-input contract -- `training/config.py::candidate_input_names()` / `candidate_input_index()` derive
-                     the Python name list, width and index lookups from it (a fallback tuple covers the pure-Python CI job, asserted equal element-wise by `tests/test_record_index_drift.py`);
+                     the Python name list, width and index lookups from it (a fallback tuple covers machines without the extension, asserted equal element-wise by `tests/test_record_index_drift.py`);
                      `default_normalization()` exposes the Rust `DEFAULT_NORMALIZATION` table (35 `{transform, scale, center}` dicts) -- the FALLBACK for `calibrate_inputs.py`'s normalized->raw
                      inversion (which resolves override > embedded > default via `_resolve_normalization`, matching the forward pass so the recovery is exact). `flat_weights_to_json()` (PSO chromosome
                      -> deployed `best_model.json`) embeds the `normalization` block, so deployed models are self-describing. `run_grid()` evaluates a full (individuals x seeds) grid in ONE
@@ -1373,7 +1373,7 @@ stop well before `n_gen` -- raise `restarts` / use `bipop`, or footnote the asym
   limiter only when mode = magnitude_only; full_neural passes the raw NN bank through unchanged). Run with `cargo test` or `./check_all.sh`.
 - **CI**: GitHub Actions (`.github/workflows/ci.yml`) — Rust (fmt, `clippy --workspace`, `test --workspace`: both crates), Python lint (ruff lint, ruff format, mypy over
   `src/python tests experiments`, the `lint_code.sh` scope), and ONE Python test job that builds the CLI binary and the PyO3 extension and runs every file under `tests/`, fast and slow, with no
-  per-file allowlist (the job fails if any test skips for a missing extension). The soft-import rule (training modules import without `aerocapture_rs`) is `tests/test_soft_import.py`. Runs on
+  per-file allowlist (an import step before pytest proves the extension is present). The soft-import rule (training modules import without `aerocapture_rs`) is `tests/test_soft_import.py`. Runs on
   every push to `main`, every PR to `main`, and manual dispatch.
 - **Validation**: Validated against reference implementation — 22/24 photo columns bit-identical across 725 timesteps.
 

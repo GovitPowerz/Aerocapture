@@ -72,10 +72,7 @@ jobs:
       - name: ${{ matrix.check }}
         run: ${{ matrix.command }}
 
-  # ONE test job with the CLI binary AND the extension built: every file under tests/ runs here,
-  # nothing is allowlisted by name. Coverage follows the file tree. The soft-import contract
-  # (modules that must import without the extension) is a named test, tests/test_soft_import.py,
-  # not a separate extension-less job.
+  # One test job with the CLI binary and the extension built; every file under tests/ runs here.
   python-test:
     name: Python (test)
     runs-on: ubuntu-latest
@@ -101,11 +98,8 @@ jobs:
       - name: Build PyO3 module into the synced venv
         run: uv run maturin develop --release --manifest-path src/rust/aerocapture-py/Cargo.toml
 
-      - name: Run every test (fast + slow), no skips for a missing extension
-        # GitHub's default shell runs with pipefail, so a pytest failure still fails the step through the tee.
-        run: |
-          uv run pytest tests -q -rs | tee pytest.log
-          if grep -q "could not import 'aerocapture_rs'" pytest.log; then
-            echo "::error::a test skipped because aerocapture_rs was missing: the extension build did not reach pytest"
-            exit 1
-          fi
+      - name: Prove the extension reached the venv (so no importorskip can silently skip)
+        run: uv run python -c "import aerocapture_rs; print(aerocapture_rs.__file__)"
+
+      - name: Run every test (fast + slow)
+        run: uv run pytest tests -q -rs

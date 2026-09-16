@@ -5,7 +5,7 @@ DV-reward potential, BPTT update, validation, v2 JSON export, Rust nn_forward co
 The warm-start variant additionally covers load_state_dict warm-start, the critic-warmup
 pre-loop, and normalize_obs=false. Not a convergence test.
 
-Runs in the python-pyo3 CI job (bindings required).
+Runs in CI's test job (bindings required).
 """
 
 from __future__ import annotations

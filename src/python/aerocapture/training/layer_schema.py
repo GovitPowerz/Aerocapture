@@ -4,7 +4,7 @@ Rust owns the table (`tensor_table!` in src/rust/src/data/neural/layers/*.rs,
 exported as `aerocapture_rs.layer_schema`); it is at once the PSO flat order,
 the JSON weight keys, and the parameter count. Python reads it here instead of
 mirroring it. `_fallback_layer_schema` is the pure-Python copy for the
-extension-less CI job, asserted equal to Rust for every layer type by
+machines without the extension, asserted equal to Rust for every layer type by
 tests/test_layer_schema_drift.py.
 """
 

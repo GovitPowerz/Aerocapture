@@ -1728,8 +1728,8 @@ def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dic
 
     # Rust-side config rules (the same `config::validate` pass every SimData
     # build runs, no table IO): fail here, before any seed pool or warm-start
-    # compute, instead of at the gen-0 run_grid. Soft-import guarded -- CI's
-    # pure-Python job has no extension and keeps the Python mirrors above.
+    # compute, instead of at the gen-0 run_grid. Soft-import guarded: a machine
+    # without the extension keeps the Python mirrors above.
     if _aero_rs is not None:
         try:
             _aero_rs.validate_config(toml_path)

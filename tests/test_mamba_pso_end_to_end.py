@@ -20,7 +20,7 @@ still exercising:
     PyO3 serialization path)
   - Rust runtime forward with a Mamba architecture under real MC dispersions
 
-This test is @slow and gated to the python-pyo3 CI job.
+This test is @slow and runs in CI's test job.
 """
 
 from __future__ import annotations

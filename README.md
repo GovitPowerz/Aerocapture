@@ -462,7 +462,7 @@ GitHub Actions runs on every push to `main`, every PR to `main`, and manual disp
 
 - **Rust**: `cargo fmt --check`, `cargo clippy --workspace`, `cargo test --release --workspace` (both crates: the simulator and the `aerocapture-py` seam)
 - **Python (lint)**: `ruff check`, `ruff format --check`, `mypy src/python tests experiments` (the same scope as `./lint_code.sh`)
-- **Python (test)**: builds the CLI binary and the PyO3 extension, then runs every file under `tests/` (fast and slow) in one job. There is no allowlist: a test file added to the tree runs in CI, and the job fails if any test skipped for a missing extension. The rule that the training modules must import without the extension is itself a test (`tests/test_soft_import.py`).
+- **Python (test)**: builds the CLI binary and the PyO3 extension, then runs every file under `tests/` (fast and slow) in one job. There is no allowlist: a test file added to the tree runs in CI, and an import step before pytest proves the extension is present, so no `importorskip` can silently skip. The rule that the training modules must import without the extension is itself a test (`tests/test_soft_import.py`).
 
 ## Build Commands
 
