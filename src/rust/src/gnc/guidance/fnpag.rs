@@ -82,7 +82,7 @@ struct PredState {
 
 /// Compute 3D trajectory derivatives for the onboard predictor.
 ///
-/// Matches the main simulator EOM (runner.rs `compute_derivatives`) with:
+/// Matches the main simulator EOM (`physics::dynamics::compute_derivatives`) with:
 /// - Onboard atmosphere model (no dispersions)
 /// - J2/J3/J4 gravity via `gravity::gravity()`
 /// - Planet rotation (Coriolis + centrifugal)

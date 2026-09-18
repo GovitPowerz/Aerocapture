@@ -125,6 +125,12 @@ src/rust/src/
                                        `GuidanceState::new` reconstruction
   physics/
     gravity.rs                     — J2/J3/J4 zonal harmonic gravity
+    dynamics.rs                    — Equations of motion + the shared aero laws (moved out of runner.rs 2026-09-18, #102): `compute_derivatives` (the plant both integrators step),
+                                       `effective_airspeed` (wind-corrected), `heat_flux` (`cq * sqrt(rho) * v_eff^3.05`, the ONE copy of the law -- EOM flux integral, peak tracker,
+                                       photo rows and the guidance thermal fraction all call it) and `loads_at(state, altitude, aoa, ...)` (dispersed density + wind-corrected airspeed + heat flux /
+                                       pdyn / load factor at one state; the peak tracker, the photo rows and the thermal fraction call it). Dispersions enter through `AeroDispersions`,
+                                       a `Copy` view built by `RunState::aero()`, so physics stays a leaf (no simulation:: import). Every expression is verbatim from the runner: goldens,
+                                       `run_grid` and the subprocess bit-identity gate pin it -- never reassociate or `mul_add`
     atmosphere.rs                  — Density lookup (dispersed product floored at 0: a tail OU draw or >100% custom bias can push a factor below -1, and negative rho would NaN the heat flux via
                                        sqrt)
     winds.rs                       — Altitude-dependent wind model (WindTable loader, latitude-scaled zonal winds, MC dispersions)
@@ -220,7 +226,8 @@ src/rust/src/
     runner.rs                      — Main sim loop. ONE Monte Carlo fan-out, `run_core(config, data, draws, RunOptions)` (one run state per draw,
                                      Rayon-parallel for >1 draw, each result stamped with its draw); the public entry points are draw-source adapters over it:
                                      run() for CLI (draws from the config + photo/CSV output), run_for_api() for PyO3, run_for_api_with_draws() for the
-                                     external-draw API, run_for_api_cell() for one grid cell (`draw_from_seed`), run_single_collect() for the trace path.
+                                     external-draw API, run_for_api_cell() for one grid cell (`draw_from_seed`), run_single_collect() for one undispersed default-draw run in memory (tests; the supervised/NN-input TRACE path is
+                                     run_for_api_cell via collect_supervised / collect_nn_inputs).
                                      `SimStateOptions` (photo / wall timeout / single-run banner) go INTO `build_sim_state`; nothing is poked onto a
                                      `SimState` after construction; dispatches between fixed Gill RK4 and adaptive DOPRI45
                                        based on IntegrationMode; DOPRI45 mode uses `integrate_adaptive_with_events` (returns Vec<TriggeredEvent> for all events in a tick, processed chronologically)
@@ -228,8 +235,13 @@ src/rust/src/
                                        post-tick threshold checks (unchanged); tracks peak heat flux, g-load, dynamic pressure; NaN/Inf state termination (prevents infinite loops from extreme GA
                                        params); optional wall-clock timeout per sim (prevents Rayon batch blocking); pending crash detection (ifinal=4); atmospheric apoapsis crash (bounce_alt > 20km +
                                        descending + still in atmosphere); virtual DV for all termination outcomes; event records interleaved into trajectory output (sorted by time); runner.rs is now
-                                       the orchestration layer — SimState construction lives in `run_init.rs`, final-record/termination assembly in `finalize.rs`, and the foundational types + consts
-                                       in `sim_types.rs`
+                                       the orchestration layer (750 lines) — SimState construction lives in `run_init.rs`, final-record/termination assembly in `finalize.rs`, the foundational
+                                       types + consts in `sim_types.rs`, the equations of motion + aero laws in `physics/dynamics.rs`, the photo rows in `photo.rs` and every record projection /
+                                       CSV writer in `output.rs` (#102). What stays: `navigate_from_state`, `run_core` + the five adapters, `run_single`, `integrate_step`,
+                                       `integrate_adaptive_with_events`, `track_peak_values`, `build_event_defs` / `build_event_ctx`. `SimResult` is `pub(crate)` so `output::write_csv_output`
+                                       can take it. `src/rust/tests/entry_fan_agreement.rs` pins the fan (6 golden configs x {legacy, per_draw}, exact `to_bits` equality): (a) run_for_api ==
+                                       run_for_api_with_draws on the config's draws, trajectories included, (b) run_for_api_cell(seed) == run_for_api with `monte_carlo.seed = seed`, `n_sims = 1` (ADR-0004),
+                                       (c) run_single_collect == run_for_api_with_draws on one default draw
     sim_types.rs                   — Foundational sim types: `SimState`, `TermReason`, `SimError` + crash/virtual-DV consts (`CRASH_FLOOR`, `HYPERBOLIC_BASE`, `BOUNCE_ALT_UNSET`, ...); a leaf module
                                        imported by runner/finalize/run_init/tick. runner re-exports these so existing `runner::` paths (incl. the external aerocapture-py crate) still resolve —
                                        breaks the finalize<->runner type coupling
@@ -241,8 +253,13 @@ src/rust/src/
                                        the effective command
     final_record.rs                — Named index constants for the 52-element final-record array; single source of truth for `fr[N]` writes in `finalize.rs` and reads in aerocapture-py
                                        (`results.rs`, `env.rs`)
-    init.rs                        — Per-run initialization
-    output.rs                      — File writers (photo, final, CSV)
+    init.rs                        — Per-run initialization: `RunState` (draw-derived biases) from a `DispersionDraw`; `RunState::aero()` is the `AeroDispersions` view `physics::dynamics` reads
+    photo.rs                       — The 30-column photo record: `build_photo_values` (per-tick snapshot row) + `build_event_photo_values` (sub-tick event row) share one `photo_physics`
+                                       core (geodetic position, osculating orbit, inertial energy via `to_absolute_cartesian`, dispersed `aero_loads`) and write columns by `output::PHOTO_*`
+                                       name; `push_photo_snapshot` (shared by `tick.rs` and `run_single`'s final row) + `append_event_photo_rows` (event rows + sort by time)
+    output.rs                      — Record projections + CSV writers: the named 30-column photo-line layout (`PHOTO_*` consts + `PHOTO_LINE_LEN`, the `final_record.rs` style),
+                                       `project_trajectory` (30 -> the 17-column PyO3 trajectory row, J->MJ / Pa->kPa), `extract_photo_csv_values` (22 columns) and `extract_final_csv_values`
+                                       (39 of 52, read by `FR_*` name), `write_csv_output` (`final.<suffix>.csv` = `sim_number` + 39, `photo.<suffix>.csv` = 22) and the header/line writers
 ```
 
 Key Rust dependency: `nalgebra` for vector/matrix ops.

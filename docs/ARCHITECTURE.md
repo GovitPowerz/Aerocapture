@@ -62,9 +62,10 @@ Checkpoints (`checkpoint_g*.{json,npz}`) make every step resumable; `--n-gen` on
 3. Lateral guidance picks the sign (roll reversals), `thermal_limiter::apply_thermal_limit` ramps
    toward lift-up near heat limits, `CommandShaper` rate/acceleration-limits the command.
 4. Pilot dynamics (`gnc::control::pilot::apply_pilot`) realize the bank angle.
-5. Integration: fixed Gill RK4 (`integration::rk4::rk4_step`) or adaptive DOPRI45 with sub-tick
-   events (`runner::integrate_adaptive_with_events` + `integration::events::check_events_and_locate`:
-   bounce, atmosphere exit, crash, phase transition).
+5. Integration of the plant `physics::dynamics::compute_derivatives` (the equations of motion; the
+   aero laws every consumer shares live beside it): fixed Gill RK4 (`integration::rk4::rk4_step`) or
+   adaptive DOPRI45 with sub-tick events (`runner::integrate_adaptive_with_events` +
+   `integration::events::check_events_and_locate`: bounce, atmosphere exit, crash, phase transition).
 6. Termination bookkeeping (`SimState.term`: captured / hyperbolic / crash / pending crash /
    timeout) and NN telemetry update.
 7. `finalize::build_final_record` assembles the 52-column final record; captured runs get the real
