@@ -6,17 +6,17 @@ echo "Running linters..."
 echo ""
 echo ""
 echo "ruff: Sorting imports..."
-uv run ruff check --select I --fix --config=pyproject.toml src tests experiments
+uv run ruff check --select I --fix --config=pyproject.toml src tests experiments articles/paper/scripts
 
 echo ""
 echo ""
 echo "ruff: Formatting code..."
-uv run ruff format --config=pyproject.toml src tests experiments
+uv run ruff format --config=pyproject.toml src tests experiments articles/paper/scripts
 
 echo ""
 echo ""
 echo "ruff: Checking code quality and style..."
-uv run ruff check --config=pyproject.toml src tests experiments
+uv run ruff check --config=pyproject.toml src tests experiments articles/paper/scripts
 
 echo ""
 echo ""

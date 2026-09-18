@@ -116,9 +116,24 @@ def main(argv: list[str] | None = None) -> None:
         s = _eval_one(label, run_dir, toml, n_sims_train, args.n_sims)
         convergence[label] = s.pop("convergence")
         cells_out.append(s)
-        print(f"  {label:16s} stress: capture {s['capture_pct']:5.1f}% | mean {s['dv_mean']:7.1f} | CVaR95 {s.get('dv_cvar95'):7.1f} | conv pts {len(convergence[label])}")
+        print(
+            f"  {label:16s} stress: capture {s['capture_pct']:5.1f}% | mean {s['dv_mean']:7.1f}"
+            f" | CVaR95 {s.get('dv_cvar95'):7.1f} | conv pts {len(convergence[label])}"
+        )
     if cells_out:
-        OUT.write_text(json.dumps({"stress_overrides": STRESS_OVERRIDES, "n_sims_eval": args.n_sims, "pool": "STRESS_EVAL 9M", "n_pop": N_POP, "cells": cells_out, "convergence": convergence}, indent=2))
+        OUT.write_text(
+            json.dumps(
+                {
+                    "stress_overrides": STRESS_OVERRIDES,
+                    "n_sims_eval": args.n_sims,
+                    "pool": "STRESS_EVAL 9M",
+                    "n_pop": N_POP,
+                    "cells": cells_out,
+                    "convergence": convergence,
+                },
+                indent=2,
+            )
+        )
         print(f"\nwrote {OUT}")
 
 

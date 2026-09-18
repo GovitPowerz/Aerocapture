@@ -96,8 +96,12 @@ All in `training/seeds.py` (`make_reserved_seeds(base_mc_seed, offset, n)`), one
 
 `articles/paper/scripts/*.py` evaluate deployed cells (`training_output/<cell>/best_model.json` +
 `best_params.json`, resolved by `deploy_overrides.resolve_eval_toml`) on the pools above and write
-`articles/paper/data/*.json`; the Typst source reads those files. `models/demo/ft_mamba_962/` is the
-committed copy of the headline cell that `aerocapture.demo` flies.
+`articles/paper/data/*.json`; `appendix.typ` reads `figures/appendix/<scheme>/stats.json` at compile
+time (the body's table numbers are transcribed from the data files). `make -C articles/paper paper`
+is the one command from the committed bundle to the PDF (`articles/paper/Makefile`: results.json,
+the 18 figures, provenance, checksums; the `mc-*` targets are the opt-in simulator-backed
+producers, and the `FROZEN` block names the data files with no producer in the tree).
+`models/demo/ft_mamba_962/` is the committed copy of the headline cell that `aerocapture.demo` flies.
 
 ## `training/` by role
 

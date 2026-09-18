@@ -17,18 +17,17 @@ BW, BH = 0.34, 0.19  # island box width/height (axis fraction)
 
 def _island(ax, xy, color, name, sub):
     x, y = xy[0] - BW / 2, xy[1] - BH / 2
-    ax.add_patch(FancyBboxPatch(
-        (x, y), BW, BH, boxstyle="round,pad=0.0,rounding_size=0.03",
-        linewidth=1.4, edgecolor=color, facecolor=color + "20", zorder=3))
+    ax.add_patch(FancyBboxPatch((x, y), BW, BH, boxstyle="round,pad=0.0,rounding_size=0.03", linewidth=1.4, edgecolor=color, facecolor=color + "20", zorder=3))
     ax.text(xy[0], xy[1] + 0.028, name, ha="center", va="center", fontsize=10, weight="bold", color=color, zorder=4)
     ax.text(xy[0], xy[1] - 0.036, sub, ha="center", va="center", fontsize=8, color="#444", zorder=4)
 
 
 def _migrate(ax, a, b, rad):
-    ax.add_patch(FancyArrowPatch(
-        a, b, connectionstyle=f"arc3,rad={rad}", arrowstyle="<|-|>",
-        mutation_scale=13, linewidth=1.2, color="#777",
-        shrinkA=52, shrinkB=52, zorder=2))
+    ax.add_patch(
+        FancyArrowPatch(
+            a, b, connectionstyle=f"arc3,rad={rad}", arrowstyle="<|-|>", mutation_scale=13, linewidth=1.2, color="#777", shrinkA=52, shrinkB=52, zorder=2
+        )
+    )
 
 
 def main():
@@ -50,12 +49,17 @@ def main():
     _island(ax, ga, fl.C["dense"], "Genetic", "island 2")
     _island(ax, de, fl.C["jointftc"], "Differential evolution", "island 3")
 
-    ax.text(0.5, 0.50, "migrate\ntop-$n$", ha="center", va="center",
-            fontsize=8, color="#777", style="italic", zorder=4)
-    ax.text(0.5, 0.05,
-            "Every $k$ generations each island's best $n$ individuals replace the worst in the others\n"
-            "(swarm destinations also get fresh velocity). One budget, three complementary searches.",
-            ha="center", va="center", fontsize=8, color="#333")
+    ax.text(0.5, 0.50, "migrate\ntop-$n$", ha="center", va="center", fontsize=8, color="#777", style="italic", zorder=4)
+    ax.text(
+        0.5,
+        0.05,
+        "Every $k$ generations each island's best $n$ individuals replace the worst in the others\n"
+        "(swarm destinations also get fresh velocity). One budget, three complementary searches.",
+        ha="center",
+        va="center",
+        fontsize=8,
+        color="#333",
+    )
     fig.tight_layout()
     fl.save(fig, "fig_islands")
 

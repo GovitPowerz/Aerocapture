@@ -46,9 +46,7 @@ def main():
         ys_all.append(cv)
         marker = "*" if ft_label in INFEASIBLE else "o"
         size = 220 if ft_label in INFEASIBLE else 70
-        ax.scatter([rms], [cv], color=fl.C[fam], marker=marker, s=size, zorder=4,
-                   edgecolor="white", linewidth=0.8,
-                   label=fam if fam not in seen else None)
+        ax.scatter([rms], [cv], color=fl.C[fam], marker=marker, s=size, zorder=4, edgecolor="white", linewidth=0.8, label=fam if fam not in seen else None)
         seen.add(fam)
 
     # No connector lines: reviewer R1-S6 -- lines between independently trained
@@ -56,12 +54,15 @@ def main():
     # grouping; within-family ordering is stated in the annotation and caption.
 
     rho = spearmanr(xs_all, ys_all).statistic
-    ax.annotate(f"Spearman $\\rho$ = {rho:.2f} (n = {len(xs_all)}, descriptive)\n"
-                "within-family: identically ordered\nbetween families: offsets decide",
-                xy=(0.02, 0.96), xycoords="axes fraction", va="top", fontsize=8.5,
-                color="#444444")
-    ax.annotate("infeasible\n(heat load)", xy=(1.276, 123.24), xytext=(8, -18),
-                textcoords="offset points", fontsize=8, color=fl.C["lstm"], fontweight="bold")
+    ax.annotate(
+        f"Spearman $\\rho$ = {rho:.2f} (n = {len(xs_all)}, descriptive)\nwithin-family: identically ordered\nbetween families: offsets decide",
+        xy=(0.02, 0.96),
+        xycoords="axes fraction",
+        va="top",
+        fontsize=8.5,
+        color="#444444",
+    )
+    ax.annotate("infeasible\n(heat load)", xy=(1.276, 123.24), xytext=(8, -18), textcoords="offset points", fontsize=8, color=fl.C["lstm"], fontweight="bold")
 
     ax.set_xlabel("best validation RMS ($\\times 10^6$, cubed-transform cost space)")
     ax.set_ylabel("far-tail CVaR$_{99.9}$ (m/s)")

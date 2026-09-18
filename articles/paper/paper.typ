@@ -2,8 +2,8 @@
 // NN aerocapture guidance, revisited -- follow-up to Gelly & Vernis 2009.
 // Compile (from repo ROOT, so figure paths resolve):
 //   typst compile articles/paper/paper.typ articles/paper/paper.pdf
-// Structure + locked numbers: articles/paper/OUTLINE.md. Data: articles/paper/data/.
-// Authorial voice: articles/markdown/05_authorial_voice_and_style.md.
+// Data: articles/paper/data/ (results.json + the eval JSONs; the body's table numbers are
+// transcribed from them). Rebuild everything: make -C articles/paper paper (see the Makefile).
 // Section order: methodology-first (the spine). Abstract leads with the architecture
 // result. dense_515 carried as a full efficiency-reference row throughout.
 // =============================================================================

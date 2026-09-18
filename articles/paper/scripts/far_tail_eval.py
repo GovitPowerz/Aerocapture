@@ -53,8 +53,7 @@ def _parse_extra_overrides(items: list[str]) -> dict:
     return out
 
 
-def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None,
-              extra: dict | None = None, scaffolding_from: str | None = None) -> dict:
+def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None, extra: dict | None = None, scaffolding_from: str | None = None) -> dict:
     import aerocapture_rs
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, resolve_eval_toml
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
@@ -63,9 +62,7 @@ def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None,
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     src = scaffolding_from or label
-    scheme_dir = (
-        REPO / "training_output" / "paper" / src if "/" in src and not (REPO / "training_output" / src).exists() else REPO / "training_output" / src
-    )
+    scheme_dir = REPO / "training_output" / "paper" / src if "/" in src and not (REPO / "training_output" / src).exists() else REPO / "training_output" / src
     eval_toml, scaffolding = resolve_eval_toml(Path(toml), scheme_dir)
     base_mc_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
     seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
@@ -120,10 +117,21 @@ def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None,
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cells", nargs="+", required=True, help="label:toml[:bundle_key] (label = dir under training_output[/paper]; bundle_key pins articles/paper/data/runs/<key>/best_model.json)")
+    parser.add_argument(
+        "--cells",
+        nargs="+",
+        required=True,
+        help="label:toml[:bundle_key] (label = dir under training_output[/paper]; bundle_key pins articles/paper/data/runs/<key>/best_model.json)",
+    )
     parser.add_argument("--n-sims", type=int, default=10000, help="full reserved pool (training-disjoint up to 10000)")
-    parser.add_argument("--extra-override", action="append", default=[], help="k=v applied to every sim (e.g. guidance.neural_network.reset_state_every_tick=true)")
-    parser.add_argument("--scaffolding-from", default=None, help="resolve best_params.json scaffolding from this training_output dir instead of the label's (for ablation cells sharing a source run)")
+    parser.add_argument(
+        "--extra-override", action="append", default=[], help="k=v applied to every sim (e.g. guidance.neural_network.reset_state_every_tick=true)"
+    )
+    parser.add_argument(
+        "--scaffolding-from",
+        default=None,
+        help="resolve best_params.json scaffolding from this training_output dir instead of the label's (for ablation cells sharing a source run)",
+    )
     args = parser.parse_args(argv)
     extra = _parse_extra_overrides(args.extra_override)
 

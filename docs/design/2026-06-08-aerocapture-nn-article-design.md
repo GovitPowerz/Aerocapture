@@ -258,7 +258,7 @@ articles/paper/
   experiments/          — the new Study A/B configs + runner script
 ```
 
-Compile via `typst compile articles/paper/main.typ`. Degrade gracefully if a figure is absent.
+Compile via `typst compile articles/paper/paper.typ` (or `make -C articles/paper pdf`). A missing figure is a compile error.
 
 ---
 

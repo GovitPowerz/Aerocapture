@@ -225,9 +225,9 @@ or intrinsic.
    per-row scaffolding provenance), bench_forward.json (criterion medians +
    CI95), ticks_per_sim.json.
 6. Figures (committed, `articles/paper/figures/`): quantization_sweep.svg
-   (capture + CVaR95 vs bits, 4 series), quantization_loo.svg (tensor bars),
-   quant_qat_convergence.svg (fp champion / fine-tune / scratch best-cost
-   overlay). Tables may suffice for the appendix; figures are ready if wanted.
+   (capture + CVaR95 vs bits, 4 series). The LOO and QAT-convergence SVGs were
+   dropped (no reader in the paper; the convergence chart function went with
+   them). Tables carry the appendix.
 7. Numbers hygiene: everything above regenerates from the JSONs via the table
    script in the plan (Task 11 Step 1); the commit message of a83450b quotes
    1592 B for the deployed int4 cell -- a typo for 1564 B; the JSON is

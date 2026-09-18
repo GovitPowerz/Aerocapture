@@ -8,7 +8,7 @@ Trajectory simulation and guidance optimization for aerocapture maneuvers, prima
 
 ## Paper
 
-This repository is the artifact for *Seventeen years later: stateful neural guidance and the tail that sizes a Mars aerocapture mission* — the compiled PDF is committed at [articles/paper/paper.pdf](articles/paper/paper.pdf). The Typst source, figures, and the per-run evaluation records behind every table live under [articles/paper/](articles/paper/); rebuild with `typst compile articles/paper/paper.typ` from the repo root. The raw training logs (195 MB) are a GitHub Release asset: `articles/paper/scripts/fetch_run_logs.sh` restores them.
+This repository is the artifact for *Seventeen years later: stateful neural guidance and the tail that sizes a Mars aerocapture mission* - the compiled PDF is committed at [articles/paper/paper.pdf](articles/paper/paper.pdf). The Typst source, figures, and the per-run evaluation records behind every table live under [articles/paper/](articles/paper/). One command rebuilds it from the committed bundle: `make -C articles/paper paper` fetches the raw training logs (195 MB, a GitHub Release asset) if absent, regenerates `data/results.json` and every figure, writes `data/provenance.json`, and compiles the PDF; `make -C articles/paper check` verifies the bundle checksums and that the figures are byte-identical to git (CI runs it on every PR). See [articles/paper/Makefile](articles/paper/Makefile).
 
 ## One headline, one correction
 

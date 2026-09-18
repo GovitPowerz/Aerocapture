@@ -35,23 +35,21 @@ def main():
     for ax, metric, title in ((axes[0], "cvar99", "CVaR$_{99}$ (m/s)"), (axes[1], "cvar999", "CVaR$_{99.9}$ (m/s)")):
         ftc = cells[JOINT_FTC]["pooled"][metric]
         ax.axhline(ftc, color=fl.C["classical"], lw=1.0, ls="--", zorder=1)
-        ax.annotate(f"best classical (joint-FTC): {ftc:.0f}", (0.03, ftc), xycoords=("axes fraction", "data"),
-                    color=fl.C["classical"], fontsize=7.5, va="bottom")
+        ax.annotate(
+            f"best classical (joint-FTC): {ftc:.0f}", (0.03, ftc), xycoords=("axes fraction", "data"), color=fl.C["classical"], fontsize=7.5, va="bottom"
+        )
         for x, (_label, ckey, labels) in enumerate(ARCHS):
             vals = np.array([cells[lb]["pooled"][metric] for lb in labels])
             for lb, v in zip(labels, vals, strict=True):
                 marker, size = ("*", 130) if lb == DEPLOYED else ("o", 34)
-                ax.scatter([x], [v], color=fl.C[ckey], marker=marker, s=size, zorder=3,
-                           alpha=0.9, edgecolor="white", linewidth=0.6)
+                ax.scatter([x], [v], color=fl.C[ckey], marker=marker, s=size, zorder=3, alpha=0.9, edgecolor="white", linewidth=0.6)
             ax.plot([x - 0.22, x + 0.22], [vals.mean()] * 2, color=fl.C[ckey], lw=2.4, zorder=4)
-            ax.annotate(f"{vals.mean():.1f}", (x + 0.26, vals.mean()), color=fl.C[ckey],
-                        fontsize=8, va="center", fontweight="bold")
+            ax.annotate(f"{vals.mean():.1f}", (x + 0.26, vals.mean()), color=fl.C[ckey], fontsize=8, va="center", fontweight="bold")
         ax.set_xticks(range(len(ARCHS)))
         ax.set_xticklabels([a[0] for a in ARCHS], rotation=12)
         ax.set_ylabel(title)
         ax.margins(x=0.18, y=0.12)
-    axes[0].set_title("Sizing tail, per seed (confirmatory pool, $10 \\times 100\\,000$; $\\star$ = deployed)",
-                      fontsize=10, loc="left")
+    axes[0].set_title("Sizing tail, per seed (confirmatory pool, $10 \\times 100\\,000$; $\\star$ = deployed)", fontsize=10, loc="left")
     fig.tight_layout()
     fl.save(fig, "fig_arch_tail")
 

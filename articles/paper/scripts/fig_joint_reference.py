@@ -31,7 +31,7 @@ def main():
 
     x = np.arange(len(SCHEMES))
     w = 0.36
-    c_fixed = fl.C["ftc"]       # grey -- the fixed-ref baseline
+    c_fixed = fl.C["ftc"]  # grey -- the fixed-ref baseline
     c_joint = fl.C["jointftc"]  # orange -- the joint-ref winner
 
     fig, ax = plt.subplots(figsize=fl.SIZE1)
@@ -46,14 +46,12 @@ def main():
     for xi, (fc, jc) in enumerate(zip(fixed_cvar, joint_cvar, strict=True)):
         ax.annotate(f"{fc:.0f}", (xi - w / 2, fc + 3), ha="center", va="bottom", fontsize=8, color=c_fixed, fontweight="bold")
         ax.annotate(f"{jc:.0f}", (xi + w / 2, jc + 3), ha="center", va="bottom", fontsize=8, color=c_joint, fontweight="bold")
-        ax.annotate(f"$\\Delta${fc - jc:.0f}", (xi, max(fc, jc) + 18), ha="center", va="bottom", fontsize=8.5,
-                    color=c_joint, fontweight="bold")
+        ax.annotate(f"$\\Delta${fc - jc:.0f}", (xi, max(fc, jc) + 18), ha="center", va="bottom", fontsize=8.5, color=c_joint, fontweight="bold")
 
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
     ax.set_ylabel("correction $\\Delta v$ (m/s)")
-    ax.set_title("Joint reference optimization recovers ref-tracking schemes\n"
-                 "(CVaR$_{95}$ bars, mean = white hatch overlay)", fontsize=10, loc="left")
+    ax.set_title("Joint reference optimization recovers ref-tracking schemes\n(CVaR$_{95}$ bars, mean = white hatch overlay)", fontsize=10, loc="left")
     ax.set_ylim(0, max(fixed_cvar) * 1.22)
     ax.legend(loc="upper right")
     ax.margins(x=0.08)

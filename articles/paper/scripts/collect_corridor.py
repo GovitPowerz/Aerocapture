@@ -32,15 +32,15 @@ MAMBA_TOML = REPO / "configs/training/sweep/mamba_p962.toml"
 MAMBA_BUNDLE = REPO / "articles/paper/data/runs/headline/mamba_p962"
 OUT = REPO / "articles/paper/data/corridor.npz"
 
-CORRIDOR_SEED_OFFSET = 10_000_000   # raw monte_carlo.seed base for the bank draws (NOT a make_reserved_seeds stream; registered as a note in training/seeds.py)
-CORRIDOR_BANK_SEED = 20260706       # fixed -> reproducible bank draws
+CORRIDOR_SEED_OFFSET = 10_000_000  # raw monte_carlo.seed base for the bank draws (NOT a make_reserved_seeds stream; registered as a note in training/seeds.py)
+CORRIDOR_BANK_SEED = 20260706  # fixed -> reproducible bank draws
 
-FR_ECC, FR_APO, FR_IFINAL = 9, 15, 31   # final record (52,)
-TC_ENERGY, TC_PDYN = 8, 9               # trajectory (N, 17)
+FR_ECC, FR_APO, FR_IFINAL = 9, 15, 31  # final record (52,)
+TC_ENERGY, TC_PDYN = 8, 9  # trajectory (N, 17)
 
 E_LO, E_HI = -6.0, 5.0
-PDYN_MAX = 2.8   # kPa top histogram edge (captures do not dive past this; deep divers crash)
-DOWNSAMPLE = 3   # ensemble trajectory point stride
+PDYN_MAX = 2.8  # kPa top histogram edge (captures do not dive past this; deep divers crash)
+DOWNSAMPLE = 3  # ensemble trajectory point stride
 
 
 def _percentile_from_hist(hist, p_centers, pct):
@@ -86,15 +86,16 @@ def build_corridor(args):
         banks = rng.uniform(bank_lo, 180.0, size=(m, args.n_segments))
         ov = []
         for j in range(m):
-            d = {"simulation.n_sims": 1,
-                 **LEGACY_NOISE_REGIME,
-                 "monte_carlo.seed": CORRIDOR_SEED_OFFSET + done + j,
-                 "guidance.piecewise_constant.n_segments": args.n_segments}
+            d = {
+                "simulation.n_sims": 1,
+                **LEGACY_NOISE_REGIME,
+                "monte_carlo.seed": CORRIDOR_SEED_OFFSET + done + j,
+                "guidance.piecewise_constant.n_segments": args.n_segments,
+            }
             for i in range(args.n_segments):
                 d[f"guidance.piecewise_constant.bank_angle_{i}"] = float(banks[j, i])
             ov.append(d)
-        batch = aerocapture_rs.run_batch(toml_path=str(BASE_TOML.resolve()), overrides_list=ov,
-                                         include_trajectories=True, sim_timeout_secs=5.0)
+        batch = aerocapture_rs.run_batch(toml_path=str(BASE_TOML.resolve()), overrides_list=ov, include_trajectories=True, sim_timeout_secs=5.0)
         recs = np.asarray(batch.final_records)
         all_trajs = batch.trajectories  # getter REBUILDS the whole list per access -- call it ONCE per chunk
         cap = (recs[:, FR_IFINAL] == 3) & (recs[:, FR_ECC] < 1.0)
@@ -143,20 +144,16 @@ def build_overlay(n_ens):
     base_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
     seeds = make_reserved_seeds(base_seed, FINAL_EVAL_SEED_OFFSET, n_ens)
     ov = [{"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, "monte_carlo.seed": s, **pin} for s in seeds]
-    batch = aerocapture_rs.run_batch(toml_path=str(eval_toml.resolve()), overrides_list=ov,
-                                     include_trajectories=True, sim_timeout_secs=5.0)
+    batch = aerocapture_rs.run_batch(toml_path=str(eval_toml.resolve()), overrides_list=ov, include_trajectories=True, sim_timeout_secs=5.0)
     ens_e, ens_p = [], []
     for t in batch.trajectories:
         a = np.asarray(t)[::DOWNSAMPLE]
         ens_e.append(a[:, TC_ENERGY])
         ens_p.append(a[:, TC_PDYN])
-    nom_ov = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME,
-              **{f"monte_carlo.{dom}.level": "off" for dom in _MC_DISPERSION_DOMAINS}, **pin}
-    nom = aerocapture_rs.run_mc(toml_path=str(eval_toml.resolve()), overrides=nom_ov,
-                                include_trajectories=True, sim_timeout_secs=5.0)
+    nom_ov = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, **{f"monte_carlo.{dom}.level": "off" for dom in _MC_DISPERSION_DOMAINS}, **pin}
+    nom = aerocapture_rs.run_mc(toml_path=str(eval_toml.resolve()), overrides=nom_ov, include_trajectories=True, sim_timeout_secs=5.0)
     nt = np.asarray(nom.trajectories[0])
-    return (np.array(ens_e, dtype=object), np.array(ens_p, dtype=object),
-            nt[:, TC_ENERGY], nt[:, TC_PDYN])
+    return (np.array(ens_e, dtype=object), np.array(ens_p, dtype=object), nt[:, TC_ENERGY], nt[:, TC_PDYN])
 
 
 def build_boundaries():
@@ -170,6 +167,7 @@ def build_boundaries():
 
     out = {}
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
+
     for name, bank in (("liftup", 0.0), ("liftdown", 180.0)):
         ov = {
             "simulation.n_sims": 1,
@@ -177,13 +175,11 @@ def build_boundaries():
             **{f"monte_carlo.{dom}.level": "off" for dom in _MC_DISPERSION_DOMAINS},
             **{f"guidance.piecewise_constant.bank_angle_{i}": bank for i in range(10)},
         }
-        r = aerocapture_rs.run_mc(toml_path=str(BASE_TOML.resolve()), overrides=ov,
-                                  include_trajectories=True, sim_timeout_secs=30.0)
+        r = aerocapture_rs.run_mc(toml_path=str(BASE_TOML.resolve()), overrides=ov, include_trajectories=True, sim_timeout_secs=30.0)
         t = np.asarray(r.trajectories[0])
         out[f"{name}_energy"] = t[:, TC_ENERGY]
         out[f"{name}_pdyn"] = t[:, TC_PDYN]
-        print(f"boundary {name} (bank {bank:.0f} deg): {len(t)} pts, "
-              f"E [{t[:, TC_ENERGY].min():.2f}, {t[:, TC_ENERGY].max():.2f}] MJ/kg")
+        print(f"boundary {name} (bank {bank:.0f} deg): {len(t)} pts, E [{t[:, TC_ENERGY].min():.2f}, {t[:, TC_ENERGY].max():.2f}] MJ/kg")
     return out
 
 
@@ -205,9 +201,11 @@ def append_boundaries_only():
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--boundaries-only", action="store_true",
-                   help="append the undispersed full-lift-up/down boundary traces to the "
-                        "existing corridor.npz without re-running the histogram Monte Carlo")
+    p.add_argument(
+        "--boundaries-only",
+        action="store_true",
+        help="append the undispersed full-lift-up/down boundary traces to the existing corridor.npz without re-running the histogram Monte Carlo",
+    )
     p.add_argument("--n-sims", type=int, default=300_000)
     p.add_argument("--n-segments", type=int, default=10)
     p.add_argument("--apoapsis-max-km", type=float, default=5000.0)
@@ -218,9 +216,11 @@ def main():
     p.add_argument("--lower-pct", type=float, default=0.5)
     p.add_argument("--smooth-sigma", type=float, default=2.5)
     p.add_argument("--ensemble-sims", type=int, default=200)
-    p.add_argument("--signed", action="store_true",
-                   help="sample bank in [-180,180] (signed): roll reversals slew shortest-path "
-                        "through 0 or 180 deg, adding reversal transients an unsigned sweep misses")
+    p.add_argument(
+        "--signed",
+        action="store_true",
+        help="sample bank in [-180,180] (signed): roll reversals slew shortest-path through 0 or 180 deg, adding reversal transients an unsigned sweep misses",
+    )
     args = p.parse_args()
 
     if args.boundaries_only:
@@ -230,11 +230,22 @@ def main():
     e_centers, lower, upper, n_cap = build_corridor(args)
     ens_e, ens_p, nom_e, nom_p = build_overlay(args.ensemble_sims)
     np.savez_compressed(
-        OUT, energy_bins=e_centers, lower_pdyn=lower, upper_pdyn=upper,
-        nominal_energy=nom_e, nominal_pdyn=nom_p, ens_energy=ens_e, ens_pdyn=ens_p,
-        n_sims=args.n_sims, n_segments=args.n_segments, apoapsis_max_km=args.apoapsis_max_km,
-        upper_pct=args.upper_pct, lower_pct=args.lower_pct, signed=args.signed,
-        **build_boundaries())
+        OUT,
+        energy_bins=e_centers,
+        lower_pdyn=lower,
+        upper_pdyn=upper,
+        nominal_energy=nom_e,
+        nominal_pdyn=nom_p,
+        ens_energy=ens_e,
+        ens_pdyn=ens_p,
+        n_sims=args.n_sims,
+        n_segments=args.n_segments,
+        apoapsis_max_km=args.apoapsis_max_km,
+        upper_pct=args.upper_pct,
+        lower_pct=args.lower_pct,
+        signed=args.signed,
+        **build_boundaries(),
+    )
     print(f"wrote {OUT.relative_to(REPO)}: {n_cap} captures, ensemble {len(ens_e)}, nominal {len(nom_e)} pts")
 
 
