@@ -1,6 +1,6 @@
 """Phase 4a end-to-end PSO training smoke test for Mamba.
 
-Unlike `test_mamba_pso_smoke.py` (which only exercises init + serialization),
+Unlike `test_nn_pso_smoke.py::test_serialization_roundtrip[mamba]` (init + serialization only),
 this test actually runs the full training pipeline via subprocess:
   python -m aerocapture.training.train <toml> --no-tui --skip-report --output-dir <tmp>
 

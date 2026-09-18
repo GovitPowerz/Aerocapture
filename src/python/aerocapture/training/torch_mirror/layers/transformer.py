@@ -1,7 +1,7 @@
 """TransformerLayer (PyTorch mirror of the Rust implementation).
 
 Cross-language contract (enforced by
-tests/test_rust_python_transformer_equivalence.py):
+tests/test_nn_equivalence.py, the `transformer` row of tests/nn_archs.py):
 
 - LayerNorm uses biased (1/N) variance with eps=1e-5 (torch.nn.LayerNorm default).
 - GELU is the exact form: 0.5 * x * (1 + erf(x / sqrt(2))), via torch.special.erf.
