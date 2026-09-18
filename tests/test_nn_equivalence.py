@@ -24,7 +24,6 @@ from tests.nn_archs import ARCHS, ArchCase, dense, init_dense, init_mamba_core, 
 
 aerocapture_rs = pytest.importorskip("aerocapture_rs")
 
-from aerocapture.training.torch_mirror.layers.dense import DenseLayer  # noqa: E402
 from aerocapture.training.torch_mirror.layers.mamba import MambaLayer  # noqa: E402
 from aerocapture.training.torch_mirror.layers.transformer import TransformerLayer  # noqa: E402
 from aerocapture.training.torch_mirror.layers.window import WindowLayer  # noqa: E402
