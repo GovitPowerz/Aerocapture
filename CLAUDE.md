@@ -282,7 +282,7 @@ src/rust/aerocapture-py/src/
                      + tables ONCE and run seeds in PARALLEL via `run_for_api_cell` (the run_grid bit-identity chokepoint) — bit-identical to the prior per-seed `monte_carlo.seed` override path,
                      which reloaded every table from disk per seed and ran sequentially (the 5000-seed warm-start collection bottleneck). The per-tick candidate trace is recorded in `tick.rs` with a
                      full mask of width `NN_FULL_INPUT_SIZE` (so all 35 inputs, incl. the live correction-DV, reach the trace). `candidate_inputs()` (the ONE candidate-input schema; 35
-                     `{index, name, transform, scale, center}` dicts) export the Rust-owned candidate-input contract -- `training/config.py::candidate_input_names()` / `candidate_input_index()` derive
+                     `{index, name, transform, scale, center}` dicts) exports the Rust-owned candidate-input contract -- `training/config.py::candidate_input_names()` / `candidate_input_index()` / `candidate_input_normalization()` derive
                      the Python name list, width and index lookups from it (a fallback tuple covers machines without the extension, asserted equal element-wise by `tests/test_record_index_drift.py`);
                      its `{transform, scale, center}` projection is the Rust `DEFAULT_NORMALIZATION` table -- the FALLBACK for `calibrate_inputs.py`'s normalized->raw
                      inversion (which resolves override > embedded > default via `_resolve_normalization`, matching the forward pass so the recovery is exact). `flat_weights_to_json()` (PSO chromosome

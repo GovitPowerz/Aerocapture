@@ -77,6 +77,15 @@ def candidate_input_index(name: str) -> int:
     return candidate_input_names().index(name)
 
 
+def candidate_input_normalization() -> list[dict]:
+    """Index-aligned `{transform, scale, center}` entries: the Rust `DEFAULT_NORMALIZATION`
+    table, projected from `aerocapture_rs.candidate_inputs()`. Needs the extension (the
+    table has no pure-Python mirror)."""
+    import aerocapture_rs  # type: ignore[import-not-found, import-untyped]  # noqa: PLC0415
+
+    return [{k: c[k] for k in ("transform", "scale", "center")} for c in aerocapture_rs.candidate_inputs()]
+
+
 @dataclass
 class NetworkConfig:
     """Neural network architecture configuration.

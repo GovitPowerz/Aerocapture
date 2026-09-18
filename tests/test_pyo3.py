@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pytest
+from aerocapture.training.config import candidate_input_normalization
 
 if TYPE_CHECKING:
     from aerocapture.training.config import NetworkConfig
@@ -20,16 +21,14 @@ if TYPE_CHECKING:
 aero = pytest.importorskip("aerocapture_rs")
 
 GOLDEN_TOML = "configs/test/test_ref_orig.toml"
-CONFIGS = sorted(Path("configs").rglob("*.toml"))
+REPO = Path(__file__).resolve().parent.parent
+CONFIGS = sorted(REPO.joinpath("configs").rglob("*.toml"))
+assert CONFIGS, "no committed configs found; the base-resolution parity oracle would be dormant"
 
 
 def _single(overrides: dict | None = None, **kwargs: Any) -> Any:
     """The deploy path for one run: `run_batch` with one override dict."""
     return aero.run_batch(GOLDEN_TOML, [overrides or {}], **kwargs)
-
-
-def _contract_normalization() -> list[dict]:
-    return [{k: e[k] for k in ("transform", "scale", "center")} for e in aero.candidate_inputs()]
 
 
 class TestSingleRun:
@@ -244,7 +243,7 @@ class TestFlatWeightsNormalization:
 
     def test_none_normalization_uses_default(self, tmp_path: Path) -> None:
         d = self._write(tmp_path, None)
-        assert d["normalization"] == _contract_normalization()
+        assert d["normalization"] == candidate_input_normalization()
 
     def test_wrong_length_raises(self, tmp_path: Path) -> None:
         import json
@@ -294,7 +293,7 @@ class TestWriteNnJsonNormalization:
         )
         with open(out) as fp:
             d = json.load(fp)
-        assert d["normalization"] == _contract_normalization()
+        assert d["normalization"] == candidate_input_normalization()
 
 
 class TestLoadConfig:
@@ -308,7 +307,7 @@ class TestLoadConfig:
         with pytest.raises(OSError):
             aero.load_config("nonexistent.toml")
 
-    @pytest.mark.parametrize("path", CONFIGS, ids=[str(p) for p in CONFIGS])
+    @pytest.mark.parametrize("path", CONFIGS, ids=[str(p.relative_to(REPO)) for p in CONFIGS])
     def test_base_resolution_parity(self, path: Path) -> None:
         """Rust `resolve_toml_bases` and Python `load_toml_with_bases` implement the same
         `base` deep-merge; `load_config` is the oracle that keeps that claim tested over

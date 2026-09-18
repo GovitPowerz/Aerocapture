@@ -42,6 +42,7 @@ from pathlib import Path
 
 import numpy as np
 
+from aerocapture.training.config import candidate_input_normalization
 from aerocapture.training.seeds import CALIBRATION_SEED_OFFSET
 
 # Inputs forced to asinh regardless of the observed tail ratio (known heavy-tailed:
@@ -53,14 +54,9 @@ _SKIP: set[int] = {15, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30}
 
 
 def _current_transforms() -> list[dict]:
-    """Return the Rust DEFAULT_NORMALIZATION table: the normalization projection of
-    the one candidate-input schema, `aerocapture_rs.candidate_inputs()`.
-
-    Each entry is `{"transform": "none"|"asinh"|"tanh", "scale": float, "center": float}`.
-    """
-    import aerocapture_rs  # type: ignore[import-not-found]
-
-    return [{k: c[k] for k in ("transform", "scale", "center")} for c in aerocapture_rs.candidate_inputs()]
+    """Return the Rust DEFAULT_NORMALIZATION table (the normalization projection of the
+    one candidate-input schema): `{"transform": "none"|"asinh"|"tanh", "scale", "center"}` per input."""
+    return candidate_input_normalization()
 
 
 def _resolve_normalization(toml_path: str) -> list[dict]:

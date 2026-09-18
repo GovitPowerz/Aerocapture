@@ -183,8 +183,10 @@ def _normalize(raw: float, spec: dict) -> float:
 def test_thermal_term_uses_raw_aux_under_default_normalization(hf_raw: float, hl_raw: float) -> None:
     """Obs carries the fractions through the sim's DEFAULT normalization; the reward must
     still see the raw values (it reads aux, so the normalization cannot drift it)."""
-    aerocapture_rs = pytest.importorskip("aerocapture_rs")
-    norm = [{k: e[k] for k in ("transform", "scale", "center")} for e in aerocapture_rs.candidate_inputs()]
+    pytest.importorskip("aerocapture_rs")
+    from aerocapture.training.config import candidate_input_normalization
+
+    norm = candidate_input_normalization()
     calc = _dv_calc()
     obs = _make_obs(n=1, **{"6": _normalize(hf_raw, norm[6]), "7": _normalize(hl_raw, norm[7])})
     phi = calc._potential(obs, _aux(hf=hf_raw, hl=hl_raw))
