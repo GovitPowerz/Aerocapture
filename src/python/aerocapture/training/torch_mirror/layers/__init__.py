@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from torch import nn
 
-from aerocapture.training.rl.layers.dense import DenseLayer
-from aerocapture.training.rl.layers.gru import GruLayer
-from aerocapture.training.rl.layers.lstm import LstmLayer
-from aerocapture.training.rl.layers.mamba import MambaLayer
-from aerocapture.training.rl.layers.transformer import TransformerLayer
-from aerocapture.training.rl.layers.window import WindowLayer
-from aerocapture.training.rl.schemas import (
+from aerocapture.training.torch_mirror.layers.dense import DenseLayer
+from aerocapture.training.torch_mirror.layers.gru import GruLayer
+from aerocapture.training.torch_mirror.layers.lstm import LstmLayer
+from aerocapture.training.torch_mirror.layers.mamba import MambaLayer
+from aerocapture.training.torch_mirror.layers.transformer import TransformerLayer
+from aerocapture.training.torch_mirror.layers.window import WindowLayer
+from aerocapture.training.torch_mirror.schemas import (
     CfcSpec,
     DenseSpec,
     GruSpec,

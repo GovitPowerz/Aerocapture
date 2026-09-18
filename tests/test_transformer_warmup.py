@@ -21,8 +21,8 @@ import torch
 
 pytest.importorskip("aerocapture_rs")
 import aerocapture_rs  # type: ignore[import-not-found]
-from aerocapture.training.rl.layers.dense import DenseLayer
-from aerocapture.training.rl.layers.transformer import TransformerLayer
+from aerocapture.training.torch_mirror.layers.dense import DenseLayer
+from aerocapture.training.torch_mirror.layers.transformer import TransformerLayer
 
 
 @pytest.mark.slow

@@ -7,9 +7,10 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from aerocapture.training.rl.policy import V2Policy, ValueNetwork  # noqa: E402
+from aerocapture.training.rl.policy import ValueNetwork  # noqa: E402
 from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, critic_warmup_update, ppo_update_bptt  # noqa: E402
-from aerocapture.training.rl.schemas import Activation, DenseSpec  # noqa: E402
+from aerocapture.training.torch_mirror.policy import V2Policy  # noqa: E402
+from aerocapture.training.torch_mirror.schemas import Activation, DenseSpec  # noqa: E402
 
 
 def _make_v2_policy(input_dim: int, layer_sizes: list[int], activations: list[Activation]) -> V2Policy:

@@ -111,10 +111,16 @@ producers, and the `FROZEN` block names the data files with no producer in the t
   adapters), `optimizer.py`, `qpso.py`, `island_model.py`, `seed_curator.py`, `final_select.py`
 - **Evaluation**: `problem.py` (`run_grid` chokepoint), `evaluate.py` (validation gate, NN JSON
   writer), `cost.py`, `seeds.py`, `deploy_overrides.py`, `reference.py`, `make_reference.py`
-- **NN specifics**: `layer_schema.py` (per-layer tensor names/shapes/flat order, read from the
-  Rust `tensor_table!` via `aerocapture_rs.layer_schema`), `warm_start.py`, `model_io.py`,
-  `calibrate_inputs.py`, `ablation.py`, `nn_input_report.py`, `quantize.py`, `weight_stats.py`,
-  `rl/` (PPO/SAC, shelved)
+- **NN specifics**: `torch_mirror/` (the differentiable PyTorch mirror of the Rust runtime:
+  one torch module per cell type under `layers/`, the `LayerSpec` union in `schemas.py` that
+  validates every v2 architecture and sizes every NN chromosome, `V2Policy`, and the v2 JSON
+  writer `export.py`; held to the native runtime by the cross-language equivalence gates),
+  `layer_schema.py` (per-layer tensor names/shapes/flat order, read from the Rust
+  `tensor_table!` via `aerocapture_rs.layer_schema`), `warm_start.py`, `model_io.py` (the v2
+  JSON reader), `calibrate_inputs.py`, `ablation.py`, `nn_input_report.py`, `quantize.py`,
+  `weight_stats.py`
+- **RL baseline**: `rl/` (PPO/SAC trainer, paper Section 5, shelved). Depends on
+  `torch_mirror/`, never the reverse: deleting `rl/` leaves the population path intact.
 - **Reports**: `report.py`, `charts*.py`, `display.py`, `logger.py`, `metrics.py`, `animate.py`,
   `corridor.py`, `parquet_output.py`, `typst_utils.py`, `warm_start_report.py`,
   `warm_start_compare.py`, `compare_guidance.py`, `sensitivity.py`, `param_sweep.py`

@@ -25,7 +25,7 @@ def _check_params_equal(m1: torch.nn.Module, m2: torch.nn.Module) -> None:
 
 class TestDenseFromFlat:
     def test_roundtrip(self) -> None:
-        from aerocapture.training.rl.layers.dense import DenseLayer
+        from aerocapture.training.torch_mirror.layers.dense import DenseLayer
 
         rng = np.random.default_rng(42)
         m = DenseLayer(8, 4, "tanh").double()
@@ -42,7 +42,7 @@ class TestDenseFromFlat:
         _check_params_equal(m, m2)
 
     def test_flat_length(self) -> None:
-        from aerocapture.training.rl.layers.dense import DenseLayer
+        from aerocapture.training.torch_mirror.layers.dense import DenseLayer
 
         m = DenseLayer(5, 3, "linear").double()
         assert len(m.to_flat()) == 5 * 3 + 3  # 18
@@ -50,7 +50,7 @@ class TestDenseFromFlat:
 
 class TestGruFromFlat:
     def test_roundtrip(self) -> None:
-        from aerocapture.training.rl.layers.gru import GruLayer
+        from aerocapture.training.torch_mirror.layers.gru import GruLayer
 
         rng = np.random.default_rng(7)
         m = GruLayer(6, 4).double()
@@ -66,7 +66,7 @@ class TestGruFromFlat:
         _check_params_equal(m, m2)
 
     def test_flat_length(self) -> None:
-        from aerocapture.training.rl.layers.gru import GruLayer
+        from aerocapture.training.torch_mirror.layers.gru import GruLayer
 
         m = GruLayer(6, 4).double()
         # 3*4*6 + 3*4*4 + 3*4 + 3*4 = 72 + 48 + 12 + 12 = 144
@@ -75,7 +75,7 @@ class TestGruFromFlat:
 
 class TestLstmFromFlat:
     def test_roundtrip(self) -> None:
-        from aerocapture.training.rl.layers.lstm import LstmLayer
+        from aerocapture.training.torch_mirror.layers.lstm import LstmLayer
 
         rng = np.random.default_rng(13)
         m = LstmLayer(6, 4).double()
@@ -91,7 +91,7 @@ class TestLstmFromFlat:
         _check_params_equal(m, m2)
 
     def test_flat_length(self) -> None:
-        from aerocapture.training.rl.layers.lstm import LstmLayer
+        from aerocapture.training.torch_mirror.layers.lstm import LstmLayer
 
         m = LstmLayer(6, 4).double()
         # 4*4*6 + 4*4*4 + 4*4 + 4*4 = 96 + 64 + 16 + 16 = 192
@@ -100,7 +100,7 @@ class TestLstmFromFlat:
 
 class TestWindowFromFlat:
     def test_empty_slab_noop(self) -> None:
-        from aerocapture.training.rl.layers.window import WindowLayer
+        from aerocapture.training.torch_mirror.layers.window import WindowLayer
 
         m = WindowLayer(4, 3)
         slab = m.to_flat()
@@ -111,7 +111,7 @@ class TestWindowFromFlat:
         assert m2.to_flat().size == 0
 
     def test_rejects_nonempty_slab(self) -> None:
-        from aerocapture.training.rl.layers.window import WindowLayer
+        from aerocapture.training.torch_mirror.layers.window import WindowLayer
 
         m = WindowLayer(4, 3)
         with pytest.raises(AssertionError):
@@ -120,7 +120,7 @@ class TestWindowFromFlat:
 
 class TestTransformerFromFlat:
     def test_roundtrip(self) -> None:
-        from aerocapture.training.rl.layers.transformer import TransformerLayer
+        from aerocapture.training.torch_mirror.layers.transformer import TransformerLayer
 
         rng = np.random.default_rng(99)
         m = TransformerLayer(d_model=8, n_heads=2, d_ffn=16, n_seq=4).double()
@@ -136,7 +136,7 @@ class TestTransformerFromFlat:
         _check_params_equal(m, m2)
 
     def test_flat_length(self) -> None:
-        from aerocapture.training.rl.layers.transformer import TransformerLayer
+        from aerocapture.training.torch_mirror.layers.transformer import TransformerLayer
 
         d, f = 8, 16
         m = TransformerLayer(d_model=d, n_heads=2, d_ffn=f, n_seq=4).double()
@@ -147,7 +147,7 @@ class TestTransformerFromFlat:
 
 class TestMambaFromFlat:
     def test_roundtrip(self) -> None:
-        from aerocapture.training.rl.layers.mamba import MambaLayer
+        from aerocapture.training.torch_mirror.layers.mamba import MambaLayer
 
         rng = np.random.default_rng(55)
         m = MambaLayer(input_size=8, d_state=4, dt_rank=2).double()
@@ -163,7 +163,7 @@ class TestMambaFromFlat:
         _check_params_equal(m, m2)
 
     def test_flat_length(self) -> None:
-        from aerocapture.training.rl.layers.mamba import MambaLayer
+        from aerocapture.training.torch_mirror.layers.mamba import MambaLayer
 
         d, n, r = 8, 4, 2
         m = MambaLayer(input_size=d, d_state=n, dt_rank=r).double()

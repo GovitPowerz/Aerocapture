@@ -14,7 +14,7 @@ from aerocapture.training.config import (
     _layer_output_size,
     describe_architecture,
 )
-from aerocapture.training.rl.schemas import DenseSpec, TransformerSpec
+from aerocapture.training.torch_mirror.schemas import DenseSpec, TransformerSpec
 
 
 def _transformer_arch() -> list[dict]:

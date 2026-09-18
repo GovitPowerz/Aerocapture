@@ -3,7 +3,7 @@ Window (3D), Mamba (3D), Transformer KV cache (tuple of 3D)."""
 
 import pytest
 import torch
-from aerocapture.training.rl.policy import _zero_state_where_done
+from aerocapture.training.torch_mirror.policy import _zero_state_where_done
 
 
 def test_none_passthrough() -> None:

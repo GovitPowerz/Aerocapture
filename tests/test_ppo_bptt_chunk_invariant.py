@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 import torch
-from aerocapture.training.rl.policy import V2Policy
-from aerocapture.training.rl.schemas import DenseSpec, GruSpec, LstmSpec
+from aerocapture.training.torch_mirror.policy import V2Policy
+from aerocapture.training.torch_mirror.schemas import DenseSpec, GruSpec, LstmSpec
 
 
 def test_bptt_chunk_size_invariant_forward_outputs() -> None:
@@ -158,7 +158,7 @@ def test_bptt_chunk_size_invariant_forward_outputs_lstm_with_dones() -> None:
         ent_multi[lo:hi] = ent_c.detach()
         # Advance state with the same dones-aware zeroing V2Policy.evaluate uses,
         # so the next chunk's state_0 matches the one-chunk pass.
-        from aerocapture.training.rl.policy import _zero_state_where_done
+        from aerocapture.training.torch_mirror.policy import _zero_state_where_done
 
         with torch.no_grad():
             s = state_c_detached

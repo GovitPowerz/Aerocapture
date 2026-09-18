@@ -7,7 +7,7 @@ import math
 import numpy as np
 from aerocapture.training.encoding import _layer_param_specs
 from aerocapture.training.initialization_v2 import init_v2_population
-from aerocapture.training.rl.schemas import MambaSpec
+from aerocapture.training.torch_mirror.schemas import MambaSpec
 
 
 def test_mamba_init_produces_correct_param_count() -> None:

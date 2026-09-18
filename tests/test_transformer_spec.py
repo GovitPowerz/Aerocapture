@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from aerocapture.training.rl.schemas import LayerSpec, TransformerSpec
+from aerocapture.training.torch_mirror.schemas import LayerSpec, TransformerSpec
 from pydantic import TypeAdapter, ValidationError
 
 

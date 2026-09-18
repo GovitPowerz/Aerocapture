@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 from aerocapture.training.model_io import load_policy_from_json
-from aerocapture.training.rl.export import export_v2_policy_to_json
-from aerocapture.training.rl.policy import V2Policy
-from aerocapture.training.rl.schemas import DenseSpec, GruSpec
+from aerocapture.training.torch_mirror.export import export_v2_policy_to_json
+from aerocapture.training.torch_mirror.policy import V2Policy
+from aerocapture.training.torch_mirror.schemas import DenseSpec, GruSpec
 
 
 def _make_policy(arch: list[DenseSpec | GruSpec]) -> V2Policy:

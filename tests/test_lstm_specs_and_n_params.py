@@ -6,7 +6,7 @@ import math
 
 from aerocapture.training.config import _layer_n_params, _layer_output_size
 from aerocapture.training.encoding import _lstm_specs, nn_param_specs_from_v2
-from aerocapture.training.rl.schemas import LstmSpec
+from aerocapture.training.torch_mirror.schemas import LstmSpec
 
 
 def test_layer_n_params_lstm() -> None:

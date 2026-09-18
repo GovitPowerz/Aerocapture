@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 from aerocapture.training.encoding import nn_param_specs_from_v2
-from aerocapture.training.rl.schemas import (
+from aerocapture.training.torch_mirror.schemas import (
     CfcSpec,
     DenseSpec,
     GruSpec,

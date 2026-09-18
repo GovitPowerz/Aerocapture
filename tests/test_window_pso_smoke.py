@@ -31,7 +31,7 @@ import aerocapture_rs
 def test_window_pso_two_gens_smoke(tmp_path: Path) -> None:
     from aerocapture.training.encoding import nn_param_specs_from_v2
     from aerocapture.training.initialization_v2 import init_v2_population
-    from aerocapture.training.rl.schemas import DenseSpec, WindowSpec
+    from aerocapture.training.torch_mirror.schemas import DenseSpec, WindowSpec
 
     # Reduced arch: Window(4, 4) -> Dense(16, 4, swish) -> Dense(4, 2, linear).
     architecture_specs: list[DenseSpec | WindowSpec] = [

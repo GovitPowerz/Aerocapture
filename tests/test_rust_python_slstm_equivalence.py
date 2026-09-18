@@ -17,8 +17,8 @@ import torch
 
 pytest.importorskip("aerocapture_rs")
 import aerocapture_rs  # type: ignore[import-not-found]  # noqa: E402
-from aerocapture.training.rl.layers.dense import DenseLayer  # noqa: E402
-from aerocapture.training.rl.layers.slstm import SlstmLayer  # noqa: E402
+from aerocapture.training.torch_mirror.layers.dense import DenseLayer  # noqa: E402
+from aerocapture.training.torch_mirror.layers.slstm import SlstmLayer  # noqa: E402
 
 
 @pytest.mark.slow

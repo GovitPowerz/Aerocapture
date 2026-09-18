@@ -242,7 +242,7 @@ def _layer_n_params(entry: Any) -> int:
 
 def _layer_input_size(entry: Any) -> int:
     """Input size of a v2 layer entry. Accepts dict OR Pydantic LayerSpec."""
-    from aerocapture.training.rl.schemas import TransformerSpec
+    from aerocapture.training.torch_mirror.schemas import TransformerSpec
 
     if isinstance(entry, TransformerSpec):
         return entry.d_model
@@ -258,7 +258,7 @@ def _layer_output_size(entry: Any) -> int:
     """Output size of a v2 layer entry. Dense: output_size. GRU/LSTM: hidden_size
     (the cell emits its hidden state to the next layer). Window: n_steps * input_size
     (flattened ring buffer). Transformer: d_model. Mamba: input_size (d_inner)."""
-    from aerocapture.training.rl.schemas import MambaSpec, TransformerSpec
+    from aerocapture.training.torch_mirror.schemas import MambaSpec, TransformerSpec
 
     if isinstance(entry, TransformerSpec):
         return entry.d_model
@@ -291,7 +291,7 @@ def describe_architecture(network: NetworkConfig | list[Any]) -> str:
     Accepts either a NetworkConfig or a bare list[dict|LayerSpec] (the latter
     is used by tests and callers that only have the raw architecture list).
     """
-    from aerocapture.training.rl.schemas import TransformerSpec
+    from aerocapture.training.torch_mirror.schemas import TransformerSpec
 
     arch: list[Any] | None
     if isinstance(network, list):

@@ -32,7 +32,7 @@ import aerocapture_rs  # type: ignore[import-not-found]
 def test_transformer_pso_two_gens_smoke(tmp_path: Path) -> None:
     from aerocapture.training.encoding import nn_param_specs_from_v2
     from aerocapture.training.initialization_v2 import init_v2_population
-    from aerocapture.training.rl.schemas import DenseSpec, TransformerSpec
+    from aerocapture.training.torch_mirror.schemas import DenseSpec, TransformerSpec
 
     # Reduced arch: Dense(8 -> 4, linear) -> Transformer(4, 2, 8, 3) -> Dense(4 -> 2, linear).
     architecture_specs: list[DenseSpec | TransformerSpec] = [

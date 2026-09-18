@@ -7,8 +7,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from aerocapture.training.rl.layers import build_layer
-from aerocapture.training.rl.schemas import Mamba3Spec
+from aerocapture.training.torch_mirror.layers import build_layer
+from aerocapture.training.torch_mirror.schemas import Mamba3Spec
 
 
 def test_mamba3_spec_validates_and_resolves_dt_rank() -> None:

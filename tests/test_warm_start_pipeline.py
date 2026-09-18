@@ -63,8 +63,8 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
     import aerocapture_rs
     import torch
     from aerocapture.training.encoding import nn_param_specs_from_v2
-    from aerocapture.training.rl.policy import V2Policy
-    from aerocapture.training.rl.schemas import LayerSpec
+    from aerocapture.training.torch_mirror.policy import V2Policy
+    from aerocapture.training.torch_mirror.schemas import LayerSpec
     from pydantic import TypeAdapter
 
     # Task 1 changed collect_supervised to return list[dict] (one dict per seed
@@ -101,7 +101,7 @@ def test_build_warm_start_chromosome_returns_correctly_shaped_normalized_vector(
     n_weights = len(weight_specs)
     physical_weights = np.array([s.p_min + cached[i] * (s.p_max - s.p_min) for i, s in enumerate(weight_specs[:n_weights])])
 
-    from aerocapture.training.rl.layers.dense import DenseLayer
+    from aerocapture.training.torch_mirror.layers.dense import DenseLayer
 
     policy = V2Policy(validated, input_mask=cfg.network.input_mask).double()
     cursor = 0

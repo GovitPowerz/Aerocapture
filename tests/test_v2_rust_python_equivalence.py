@@ -17,10 +17,10 @@ import torch
 # silently skips there.
 aerocapture_rs = pytest.importorskip("aerocapture_rs")
 
-from aerocapture.training.rl.export import export_v2_policy_to_json  # noqa: E402
-from aerocapture.training.rl.layers.dense import DenseLayer  # noqa: E402
-from aerocapture.training.rl.policy import V2Policy  # noqa: E402
-from aerocapture.training.rl.schemas import DenseSpec, GruSpec, LstmSpec  # noqa: E402
+from aerocapture.training.torch_mirror.export import export_v2_policy_to_json  # noqa: E402
+from aerocapture.training.torch_mirror.layers.dense import DenseLayer  # noqa: E402
+from aerocapture.training.torch_mirror.policy import V2Policy  # noqa: E402
+from aerocapture.training.torch_mirror.schemas import DenseSpec, GruSpec, LstmSpec  # noqa: E402
 
 
 def _rust_forward_single(json_path: str, inputs: np.ndarray) -> np.ndarray:
@@ -155,7 +155,7 @@ def test_rust_python_lstm_stateful_equivalence(tmp_path: Path) -> None:
     ]
     policy = V2Policy(architecture=architecture, input_mask=None)
     torch.manual_seed(2718)
-    from aerocapture.training.rl.layers.lstm import LstmLayer
+    from aerocapture.training.torch_mirror.layers.lstm import LstmLayer
 
     lstm_layer = policy.layers[1]
     assert isinstance(lstm_layer, LstmLayer)
@@ -289,9 +289,9 @@ def test_rust_python_ppo_gru_export_equivalence(tmp_path: Path) -> None:
     """A V2Policy with GRU, trained under PPO code (simulated by random init here),
     exports to v2 JSON and the Rust runtime's nn_forward matches the Python
     single-step forward at machine epsilon."""
-    from aerocapture.training.rl.export import export_v2_policy_to_json
-    from aerocapture.training.rl.policy import V2Policy
-    from aerocapture.training.rl.schemas import DenseSpec, GruSpec
+    from aerocapture.training.torch_mirror.export import export_v2_policy_to_json
+    from aerocapture.training.torch_mirror.policy import V2Policy
+    from aerocapture.training.torch_mirror.schemas import DenseSpec, GruSpec
 
     architecture: list[DenseSpec | GruSpec] = [
         DenseSpec(type="dense", input_size=5, output_size=8, activation="tanh"),

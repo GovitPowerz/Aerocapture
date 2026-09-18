@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from aerocapture.training.rl.schemas import MambaSpec
+from aerocapture.training.torch_mirror.schemas import MambaSpec
 
 
 def test_mamba_spec_validates() -> None:

@@ -62,7 +62,7 @@ impl MambaLayer {
     /// Shapes: `x: [f64; input_size]`, `h: DMatrix<f64> (input_size, d_state)`,
     /// returns `Vec<f64>` length `input_size`.
     ///
-    /// Numerical contract: Python mirror (`rl/layers/mamba.py`) agrees to machine
+    /// Numerical contract: Python mirror (`torch_mirror/layers/mamba.py`) agrees to machine
     /// epsilon. The helpers match torch's reduction order, so the residual is general
     /// f64 non-associativity in the softplus/scan path, not an addmm ordering choice.
     /// Uses `softplus` and `expm1_over_x` helpers (free functions in this module).

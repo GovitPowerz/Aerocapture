@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 
 import torch
-from aerocapture.training.rl.layers.transformer import TransformerLayer
+from aerocapture.training.torch_mirror.layers.transformer import TransformerLayer
 
 
 def test_transformer_layer_output_shape() -> None:

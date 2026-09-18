@@ -36,7 +36,7 @@ import aerocapture_rs  # type: ignore[import-not-found]  # noqa: E402
 def test_mamba_pso_smoke(tmp_path: Path) -> None:
     from aerocapture.training.encoding import nn_param_specs_from_v2
     from aerocapture.training.initialization_v2 import init_v2_population
-    from aerocapture.training.rl.schemas import DenseSpec, MambaSpec
+    from aerocapture.training.torch_mirror.schemas import DenseSpec, MambaSpec
 
     architecture_specs: list[DenseSpec | MambaSpec] = [
         DenseSpec(type="dense", input_size=23, output_size=8, activation="tanh"),

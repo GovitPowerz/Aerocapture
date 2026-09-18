@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-from aerocapture.training.rl.layers.mamba3 import Mamba3Layer
+from aerocapture.training.torch_mirror.layers.mamba3 import Mamba3Layer
 
 
 def test_flat_roundtrip_all_flags() -> None:

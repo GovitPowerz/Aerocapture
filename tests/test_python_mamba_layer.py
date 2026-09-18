@@ -11,7 +11,7 @@ import math
 
 import pytest
 import torch
-from aerocapture.training.rl.layers.mamba import MambaLayer
+from aerocapture.training.torch_mirror.layers.mamba import MambaLayer
 
 
 @pytest.fixture

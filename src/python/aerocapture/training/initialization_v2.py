@@ -59,7 +59,7 @@ def init_v2_population(
 
 
 def _fill_layer(entry: Any, slab: np.ndarray, bound_multiplier: float, rng: np.random.Generator, layer_idx: int = 0) -> None:
-    from aerocapture.training.rl.schemas import TransformerSpec
+    from aerocapture.training.torch_mirror.schemas import TransformerSpec
 
     if isinstance(entry, TransformerSpec):
         _fill_transformer(entry, slab, bound_multiplier, rng, layer_idx=layer_idx)
@@ -171,7 +171,7 @@ def _fill_transformer(entry: object, slab: np.ndarray, bound_multiplier: float, 
 
 def _fill_transformer_dict(entry: dict, slab: np.ndarray, bound_multiplier: float, rng: np.random.Generator, layer_idx: int = 0) -> None:
     """Fill a raw dict transformer entry by converting to TransformerSpec and delegating."""
-    from aerocapture.training.rl.schemas import TransformerSpec
+    from aerocapture.training.torch_mirror.schemas import TransformerSpec
 
     spec = TransformerSpec(**entry)
     _fill_transformer(spec, slab, bound_multiplier, rng, layer_idx=layer_idx)

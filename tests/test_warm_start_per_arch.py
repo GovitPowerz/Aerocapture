@@ -17,7 +17,7 @@ from aerocapture.training.config import (  # noqa: E402
     WarmStartConfig,
 )
 from aerocapture.training.encoding import nn_param_specs_from_v2  # noqa: E402
-from aerocapture.training.rl.schemas import LayerSpec  # noqa: E402
+from aerocapture.training.torch_mirror.schemas import LayerSpec  # noqa: E402
 from aerocapture.training.warm_start import build_warm_start_chromosome  # noqa: E402
 from pydantic import TypeAdapter  # noqa: E402
 

@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-from aerocapture.training.rl.policy import V2Policy
 from aerocapture.training.rl.policy import np_state_to_torch as _np_state_to_torch
 from aerocapture.training.rl.policy import torch_state_to_np as _torch_state_to_np
-from aerocapture.training.rl.schemas import DenseSpec, LstmSpec
+from aerocapture.training.torch_mirror.policy import V2Policy
+from aerocapture.training.torch_mirror.schemas import DenseSpec, LstmSpec
 
 
 def test_stacked_lstm_state_roundtrip_is_lossless() -> None:

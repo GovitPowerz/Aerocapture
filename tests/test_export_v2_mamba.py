@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import pytest
 import torch
-from aerocapture.training.rl.layers.mamba import MambaLayer
-from aerocapture.training.rl.schemas import DenseSpec, MambaSpec
+from aerocapture.training.torch_mirror.layers.mamba import MambaLayer
+from aerocapture.training.torch_mirror.schemas import DenseSpec, MambaSpec
 
 
 def test_export_v2_mamba_layer_emits_flat_keys() -> None:
     """Export a hand-constructed MambaLayer, verify the JSON v2 weights dict
     has the 5 flat Mamba keys at layer level (not nested).
     """
-    from aerocapture.training.rl.export import _serialize_mamba_layer
+    from aerocapture.training.torch_mirror.export import _spec_entry, _split_flat
 
     m = MambaLayer(input_size=4, d_state=2, dt_rank=1)
     m.double()
@@ -23,7 +23,7 @@ def test_export_v2_mamba_layer_emits_flat_keys() -> None:
         m.a_log.normal_(0, 0.1)
         m.d_skip.normal_(0, 0.1)
 
-    weights_dict = _serialize_mamba_layer(m)
+    weights_dict = {name: arr.tolist() for name, arr in _split_flat(_spec_entry(m), m.to_flat()).items()}
     # Flat at layer level -- NOT nested under further sub-dicts.
     assert set(weights_dict.keys()) == {"x_proj_w", "dt_proj_w", "dt_proj_b", "a_log", "d_skip"}
     # Shapes
@@ -42,7 +42,7 @@ def test_obs_norm_bake_in_rejects_mamba_as_layer_zero() -> None:
     Mamba's x_proj + softplus + A = -exp(a_log) nonlinearity means absorbing an
     affine input transform isn't closed-form.
     """
-    from aerocapture.training.rl.export import _check_obs_norm_bake_compatibility
+    from aerocapture.training.torch_mirror.export import _check_obs_norm_bake_compatibility
 
     arch = [
         MambaSpec(type="mamba", input_size=8, d_state=4, dt_rank=2),

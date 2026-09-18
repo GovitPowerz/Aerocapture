@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 import torch
-from aerocapture.training.rl.layers import WindowLayer
-from aerocapture.training.rl.schemas import LayerSpec, WindowSpec
+from aerocapture.training.torch_mirror.layers import WindowLayer
+from aerocapture.training.torch_mirror.schemas import LayerSpec, WindowSpec
 from pydantic import TypeAdapter, ValidationError
 
 # ── WindowSpec schema ───────────────────────────────────────────────────

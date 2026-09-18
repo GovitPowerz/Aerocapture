@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from aerocapture.training.config import _layer_n_params, _layer_output_size
 from aerocapture.training.encoding import _layer_param_specs
-from aerocapture.training.rl.schemas import CfcSpec
+from aerocapture.training.torch_mirror.schemas import CfcSpec
 
 
 def test_cfc_spec_width_matches_n_params() -> None:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import torch
-from aerocapture.training.rl.layers.gru import GruLayer
+from aerocapture.training.torch_mirror.layers.gru import GruLayer
 
 
 def test_gru_layer_shapes() -> None:

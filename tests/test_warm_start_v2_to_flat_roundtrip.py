@@ -21,7 +21,7 @@ import torch
 
 aerocapture_rs = pytest.importorskip("aerocapture_rs")
 
-from aerocapture.training.rl.layers import (  # noqa: E402
+from aerocapture.training.torch_mirror.layers import (  # noqa: E402
     DenseLayer,
     GruLayer,
     LstmLayer,
@@ -126,8 +126,8 @@ def test_to_flat_roundtrip_via_rust(architecture: list[dict], input_dim: int, tm
     """Build small V2Policy, extract via per-layer to_flat, write through the
     Rust flat_weights_to_json helper, load via nn_forward, and assert the Rust
     forward matches the Python V2Policy forward at <1e-10 (machine epsilon)."""
-    from aerocapture.training.rl.policy import V2Policy
-    from aerocapture.training.rl.schemas import LayerSpec
+    from aerocapture.training.torch_mirror.policy import V2Policy
+    from aerocapture.training.torch_mirror.schemas import LayerSpec
     from pydantic import TypeAdapter
 
     validated = TypeAdapter(list[LayerSpec]).validate_python(architecture)

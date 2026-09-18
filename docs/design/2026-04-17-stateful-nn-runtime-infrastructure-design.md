@@ -339,6 +339,10 @@ Callers in `dispatch.rs` pass `&mut guidance_state.nn_state.as_mut().expect(...)
 
 ### 5.1 Module layout
 
+> Relocated 2026-09-18 (issue #100): the mirror (`layers/`, `schemas.py`, `V2Policy`, the v2 writer) now lives
+> under `src/python/aerocapture/training/torch_mirror/`; only the PPO/SAC trainer and the v1 `GaussianPolicy`
+> remain in `rl/`. The paths below are as designed at the time.
+
 ```
 src/python/aerocapture/training/rl/policy.py      -- V2Policy + build_layer dispatch
 src/python/aerocapture/training/rl/export.py      -- export_policy_to_json v2

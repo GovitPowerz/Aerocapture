@@ -1,8 +1,8 @@
 """build_layer accepts all six layer specs for warm-start training."""
 
 import pytest
-from aerocapture.training.rl.layers import build_layer
-from aerocapture.training.rl.schemas import (
+from aerocapture.training.torch_mirror.layers import build_layer
+from aerocapture.training.torch_mirror.schemas import (
     DenseSpec,
     GruSpec,
     LstmSpec,

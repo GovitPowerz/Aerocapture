@@ -15,7 +15,7 @@ def _toy_arch() -> list[dict]:
 
 
 def test_specs_include_scaffolding_when_knob_on() -> None:
-    from aerocapture.training.rl.schemas import LayerSpec
+    from aerocapture.training.torch_mirror.schemas import LayerSpec
     from pydantic import TypeAdapter
 
     arch = _toy_arch()
@@ -38,7 +38,7 @@ def test_specs_match_chromosome_widths_per_knob_state() -> None:
     This was previously misnamed `test_specs_unchanged_when_knob_off` and only
     asserted `len(base_specs) > 0`. It now actually exercises both knob states.
     """
-    from aerocapture.training.rl.schemas import LayerSpec
+    from aerocapture.training.torch_mirror.schemas import LayerSpec
     from pydantic import TypeAdapter
 
     arch = _toy_arch()
