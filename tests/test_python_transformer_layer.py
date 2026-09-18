@@ -1,7 +1,7 @@
 """Unit tests for the Python TransformerLayer torch module.
 
 Cross-language equivalence tests against Rust live in
-test_rust_python_transformer_equivalence.py (Task 17).
+tests/test_nn_equivalence.py::test_stateful_100_steps[transformer] (the nn_archs.py row).
 """
 
 from __future__ import annotations

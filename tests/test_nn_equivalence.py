@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 import torch
 
-from tests.nn_archs import ARCHS, ArchCase, init_mamba_core, run_mirror, write_model_json
+from tests.nn_archs import ARCHS, ArchCase, dense, init_dense, init_mamba_core, run_mirror, write_model_json
 
 aerocapture_rs = pytest.importorskip("aerocapture_rs")
 
@@ -48,7 +48,7 @@ def test_stateful_100_steps(case: ArchCase, tmp_path: Path) -> None:
 
     rust_outs = _rust_sequence(path, inputs)
     assert rust_outs.shape == (N_STEPS, 2)
-    py_outs, _ = run_mirror(modules, inputs)
+    py_outs = run_mirror(modules, inputs)
 
     per_step = np.abs(rust_outs - py_outs).max(axis=1)
     diff = float(per_step.max())
@@ -79,29 +79,22 @@ def test_deterministic(case: ArchCase, tmp_path: Path) -> None:
 # ---- named extras: genuinely per-type ---------------------------------------
 
 
-def _dense(i: int, o: int, act: str) -> DenseLayer:
-    return DenseLayer(input_size=i, output_size=o, activation=act).double()
-
-
 @pytest.mark.slow
 def test_mamba_stacked_two_layers(tmp_path: Path) -> None:
     """The production 2x-Mamba stack: catches layer-index-dependent state-init /
     dt-bias-seed contamination that a single-layer row cannot."""
     torch.manual_seed(7)
-    modules: list[torch.nn.Module] = [_dense(4, 8, "tanh"), MambaLayer(8, 4, 2).double(), MambaLayer(8, 4, 2).double(), _dense(8, 2, "linear")]
+    d0, m_a, m_b, d1 = dense(4, 8, "tanh"), MambaLayer(8, 4, 2).double(), MambaLayer(8, 4, 2).double(), dense(8, 2, "linear")
+    modules: list[torch.nn.Module] = [d0, m_a, m_b, d1]
     with torch.no_grad():
-        for d in (modules[0], modules[3]):
-            assert isinstance(d, DenseLayer)
-            torch.nn.init.uniform_(d.linear.weight, -0.3, 0.3)
-            torch.nn.init.uniform_(d.linear.bias, -0.3, 0.3)
-        for m in (modules[1], modules[2]):
-            assert isinstance(m, MambaLayer)
-            init_mamba_core(m)
+        init_dense([d0, d1], 0.3, 0.3)
+        init_mamba_core(m_a)
+        init_mamba_core(m_b)
     mid = {"type": "mamba", "input_size": 8, "d_state": 4, "dt_rank": 2}
     arch = [ARCHS["mamba"].arch[0], mid, mid, ARCHS["mamba"].arch[2]]
     path = write_model_json(tmp_path / "mamba_stacked.json", arch, modules)
     inputs = np.random.default_rng(5678).standard_normal((N_STEPS, 4))
-    diff = float(np.abs(_rust_sequence(path, inputs) - run_mirror(modules, inputs)[0]).max())
+    diff = float(np.abs(_rust_sequence(path, inputs) - run_mirror(modules, inputs)).max())
     print(f"stacked 2x mamba cross-language max abs diff: {diff:.3e}")
     assert diff < 1e-14, f"stacked-mamba drift {diff:.3e} >= 1e-14"
 
@@ -112,13 +105,10 @@ def test_mamba_high_a_log_numerical_stability(tmp_path: Path) -> None:
     (A ~= -148), so exp(dt*A) underflows to 0. The Rust forward must stay finite and
     match the mirror in that regime."""
     torch.manual_seed(13)
-    m = MambaLayer(8, 4, 2).double()
-    modules: list[torch.nn.Module] = [_dense(4, 8, "tanh"), m, _dense(8, 2, "linear")]
+    d0, m, d1 = dense(4, 8, "tanh"), MambaLayer(8, 4, 2).double(), dense(8, 2, "linear")
+    modules: list[torch.nn.Module] = [d0, m, d1]
     with torch.no_grad():
-        for d in (modules[0], modules[2]):
-            assert isinstance(d, DenseLayer)
-            torch.nn.init.uniform_(d.linear.weight, -0.3, 0.3)
-            torch.nn.init.uniform_(d.linear.bias, -0.3, 0.3)
+        init_dense([d0, d1], 0.3, 0.3)
         init_mamba_core(m)
         torch.nn.init.uniform_(m.dt_proj_b, -3.0, 3.0)  # softplus output spans ~1e-3 .. ~10
         torch.nn.init.uniform_(m.a_log, 3.0, 5.0)  # A = -exp(a_log) down to -148
@@ -126,7 +116,7 @@ def test_mamba_high_a_log_numerical_stability(tmp_path: Path) -> None:
     inputs = np.random.default_rng(13).standard_normal((50, 4))
     rust_outs = _rust_sequence(path, inputs)
     assert np.all(np.isfinite(rust_outs)), f"Rust produced non-finite outputs under high a_log: {rust_outs}"
-    py_outs, _ = run_mirror(modules, inputs)
+    py_outs = run_mirror(modules, inputs)
     assert np.all(np.isfinite(py_outs)), "Python mirror produced non-finite outputs"
     diff = float(np.abs(rust_outs - py_outs).max())
     print(f"high-a_log mamba cross-language max abs diff: {diff:.3e}")
@@ -146,7 +136,7 @@ def test_transformer_cache_warmup(tmp_path: Path) -> None:
     d_model, n_seq = 8, 4
     torch.manual_seed(1)
     tr = TransformerLayer(d_model=d_model, n_heads=2, d_ffn=16, n_seq=n_seq).double()
-    d1 = _dense(d_model, 2, "linear")
+    d1 = dense(d_model, 2, "linear")
     with torch.no_grad():
         for lin in (tr.w_q, tr.w_k, tr.w_v, tr.w_o, tr.w_ffn1, tr.w_ffn2, d1.linear):
             torch.nn.init.uniform_(lin.weight, -0.1, 0.1)
@@ -179,17 +169,17 @@ def test_window_buffer_warmup_zero_padded(tmp_path: Path) -> None:
     """Before n_steps ticks the window is zero-padded on both sides: a Dense that reads
     the OLDEST slot returns zeros for the first n_steps-1 ticks, then lags by n_steps-1."""
     input_size, n_steps = 2, 3
-    dense = _dense(input_size * n_steps, input_size, "linear")
+    reader = dense(input_size * n_steps, input_size, "linear")
     with torch.no_grad():
-        dense.linear.weight.zero_()
-        dense.linear.weight[0, 0] = 1.0  # buffer[0][0]
-        dense.linear.weight[1, 1] = 1.0  # buffer[0][1]
-        dense.linear.bias.zero_()
+        reader.linear.weight.zero_()
+        reader.linear.weight[0, 0] = 1.0  # buffer[0][0]
+        reader.linear.weight[1, 1] = 1.0  # buffer[0][1]
+        reader.linear.bias.zero_()
     arch = [
         {"type": "window", "input_size": input_size, "n_steps": n_steps},
         {"type": "dense", "input_size": input_size * n_steps, "output_size": input_size, "activation": "linear"},
     ]
-    path = write_model_json(tmp_path / "window_warmup.json", arch, [WindowLayer(input_size=input_size, n_steps=n_steps).double(), dense])
+    path = write_model_json(tmp_path / "window_warmup.json", arch, [WindowLayer(input_size=input_size, n_steps=n_steps).double(), reader])
     inputs = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0], [9.0, 10.0]])
     expected = np.array([[0.0, 0.0], [0.0, 0.0], [1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
     rust_out = _rust_sequence(path, inputs)

@@ -2,7 +2,7 @@
 
 Validates the forward contract in isolation (Python-side only). The full
 cross-language equivalence test vs Rust runtime lives in
-test_rust_python_mamba_equivalence.py (Task 14).
+tests/test_nn_equivalence.py::test_stateful_100_steps[mamba] (the nn_archs.py row).
 """
 
 from __future__ import annotations
