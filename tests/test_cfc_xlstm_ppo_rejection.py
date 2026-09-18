@@ -7,8 +7,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from aerocapture.training.rl.layers import build_layer
-from aerocapture.training.rl.schemas import CfcSpec, MlstmSpec, SlstmSpec
+from aerocapture.training.torch_mirror.layers import build_layer
+from aerocapture.training.torch_mirror.schemas import CfcSpec, MlstmSpec, SlstmSpec
 
 SPECS = [
     CfcSpec(type="cfc", input_size=8, hidden_size=4, backbone_units=4),

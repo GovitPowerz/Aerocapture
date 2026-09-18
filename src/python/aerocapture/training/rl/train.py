@@ -27,15 +27,17 @@ import torch
 from aerocapture.training.rl.config import RLConfig
 from aerocapture.training.rl.display import make_display
 from aerocapture.training.rl.env import AerocaptureVecEnv
-from aerocapture.training.rl.export import export_policy_to_json, export_v2_policy_to_json
+from aerocapture.training.rl.export import export_policy_to_json
 from aerocapture.training.rl.logger import RLLogger
 from aerocapture.training.rl.normalizers import ObsNormalizer, ReturnNormalizer
-from aerocapture.training.rl.policy import GaussianPolicy, V2Policy, ValueNetwork
+from aerocapture.training.rl.policy import GaussianPolicy, ValueNetwork
 from aerocapture.training.rl.policy import np_state_to_torch as _np_state_to_torch
 from aerocapture.training.rl.policy import torch_state_to_np as _torch_state_to_np
 from aerocapture.training.rl.ppo import RolloutBuffer, compute_gae, critic_warmup_update, ppo_update_bptt
 from aerocapture.training.rl.rewards import StepRewardCalculator, compute_terminal_cost
 from aerocapture.training.rl.sac import SACAgent
+from aerocapture.training.torch_mirror.export import export_v2_policy_to_json
+from aerocapture.training.torch_mirror.policy import V2Policy
 
 
 def _resolve_output_dir(cfg: RLConfig) -> Path:
@@ -78,7 +80,7 @@ def _parse_network_config(cfg: RLConfig) -> tuple[list[int], list[Any], int]:
     """
     from pydantic import TypeAdapter
 
-    from aerocapture.training.rl.schemas import LayerSpec
+    from aerocapture.training.torch_mirror.schemas import LayerSpec
 
     net = cfg.raw_toml.get("network", {})
     input_mask: list[int] = net.get("input_mask", list(range(16)))
@@ -122,7 +124,7 @@ def _dense_only_shapes(architecture: list[Any]) -> tuple[list[int], list[str]]:
     until Phase 1.6's SAC-GRU migration. PPO uses V2Policy directly (Task 5).
     Raises NotImplementedError if any non-dense layer is present.
     """
-    from aerocapture.training.rl.schemas import DenseSpec
+    from aerocapture.training.torch_mirror.schemas import DenseSpec
 
     if not all(isinstance(s, DenseSpec) for s in architecture):
         raise NotImplementedError("SAC / GaussianPolicy path requires dense-only architecture; SAC-GRU lands in Phase 1.6.")
@@ -511,7 +513,7 @@ def build_critic_from_architecture(architecture: list[Any], input_dim: int) -> V
     ValueNetwork contract: len(activations) == len(hidden_sizes) + 1 (the final
     activation is the action-head's and ValueNetwork replaces it with linear).
     """
-    from aerocapture.training.rl.schemas import DenseSpec as _DS
+    from aerocapture.training.torch_mirror.schemas import DenseSpec as _DS
 
     critic_hidden_sizes: list[int] = []
     critic_activations: list[str] = []
@@ -725,11 +727,11 @@ def _run_ppo(
 
     # Derive per-layer hidden shapes from the architecture.
     # Dense: None (stateless). GRU: (H,). LSTM: (2, H) -- packs (h, c) as a single array.
-    from aerocapture.training.rl.schemas import DenseSpec as _DS
-    from aerocapture.training.rl.schemas import GruSpec as _GS
-    from aerocapture.training.rl.schemas import LstmSpec as _LS
-    from aerocapture.training.rl.schemas import TransformerSpec as _TS
-    from aerocapture.training.rl.schemas import WindowSpec as _WS
+    from aerocapture.training.torch_mirror.schemas import DenseSpec as _DS
+    from aerocapture.training.torch_mirror.schemas import GruSpec as _GS
+    from aerocapture.training.torch_mirror.schemas import LstmSpec as _LS
+    from aerocapture.training.torch_mirror.schemas import TransformerSpec as _TS
+    from aerocapture.training.torch_mirror.schemas import WindowSpec as _WS
 
     hidden_shapes: list = []
     for spec in architecture:

@@ -22,8 +22,8 @@ import torch
 
 pytest.importorskip("aerocapture_rs")
 import aerocapture_rs
-from aerocapture.training.rl.layers.dense import DenseLayer
-from aerocapture.training.rl.layers.window import WindowLayer
+from aerocapture.training.torch_mirror.layers.dense import DenseLayer
+from aerocapture.training.torch_mirror.layers.window import WindowLayer
 
 
 def test_rust_python_window_stateful_equivalence(tmp_path: Path) -> None:

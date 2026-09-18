@@ -13,8 +13,8 @@ aerocapture_rs = pytest.importorskip("aerocapture_rs")
 def test_rollout_state_zeros_on_done_per_env() -> None:
     """A mocked env issues done=True for env 0 at step 5; assert h_current[env=0]
     is zero at step 6, while h_current[env=1] continues."""
-    from aerocapture.training.rl.policy import V2Policy
-    from aerocapture.training.rl.schemas import DenseSpec, GruSpec
+    from aerocapture.training.torch_mirror.policy import V2Policy
+    from aerocapture.training.torch_mirror.schemas import DenseSpec, GruSpec
 
     arch: list[DenseSpec | GruSpec] = [
         DenseSpec(type="dense", input_size=2, output_size=4, activation="tanh"),

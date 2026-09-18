@@ -1,6 +1,6 @@
 import torch
-from aerocapture.training.rl.policy import V2Policy
-from aerocapture.training.rl.schemas import DenseSpec
+from aerocapture.training.torch_mirror.policy import V2Policy
+from aerocapture.training.torch_mirror.schemas import DenseSpec
 
 
 def _two_layer_policy() -> V2Policy:
@@ -39,8 +39,8 @@ def test_v2_policy_log_std_not_in_state_dict_export_contract() -> None:
 
 
 def test_v2_policy_forward_mean_logstd_dense_shapes() -> None:
-    from aerocapture.training.rl.policy import V2Policy
-    from aerocapture.training.rl.schemas import DenseSpec
+    from aerocapture.training.torch_mirror.policy import V2Policy
+    from aerocapture.training.torch_mirror.schemas import DenseSpec
 
     arch: list[DenseSpec] = [
         DenseSpec(type="dense", input_size=4, output_size=8, activation="tanh"),
@@ -56,8 +56,8 @@ def test_v2_policy_forward_mean_logstd_dense_shapes() -> None:
 
 
 def test_v2_policy_sample_dense_shapes() -> None:
-    from aerocapture.training.rl.policy import V2Policy
-    from aerocapture.training.rl.schemas import DenseSpec
+    from aerocapture.training.torch_mirror.policy import V2Policy
+    from aerocapture.training.torch_mirror.schemas import DenseSpec
 
     arch: list[DenseSpec] = [
         DenseSpec(type="dense", input_size=4, output_size=8, activation="tanh"),
@@ -80,8 +80,8 @@ def test_v2_policy_sample_dense_shapes() -> None:
 
 
 def test_v2_policy_evaluate_dense_shapes_and_grad() -> None:
-    from aerocapture.training.rl.policy import V2Policy
-    from aerocapture.training.rl.schemas import DenseSpec
+    from aerocapture.training.torch_mirror.policy import V2Policy
+    from aerocapture.training.torch_mirror.schemas import DenseSpec
 
     arch: list[DenseSpec] = [
         DenseSpec(type="dense", input_size=4, output_size=8, activation="tanh"),
@@ -105,8 +105,8 @@ def test_v2_policy_evaluate_dense_shapes_and_grad() -> None:
 
 
 def test_v2_policy_evaluate_with_gru_grad_flows_through_time() -> None:
-    from aerocapture.training.rl.policy import V2Policy
-    from aerocapture.training.rl.schemas import DenseSpec, GruSpec
+    from aerocapture.training.torch_mirror.policy import V2Policy
+    from aerocapture.training.torch_mirror.schemas import DenseSpec, GruSpec
 
     arch: list[DenseSpec | GruSpec] = [
         DenseSpec(type="dense", input_size=3, output_size=4, activation="tanh"),
@@ -133,8 +133,8 @@ def test_v2_policy_evaluate_with_gru_grad_flows_through_time() -> None:
 def test_v2_policy_evaluate_resets_state_on_done() -> None:
     """When dones_seq[t] is True, the state at step t+1 is zeroed per-env."""
     import torch
-    from aerocapture.training.rl.policy import V2Policy
-    from aerocapture.training.rl.schemas import DenseSpec, GruSpec
+    from aerocapture.training.torch_mirror.policy import V2Policy
+    from aerocapture.training.torch_mirror.schemas import DenseSpec, GruSpec
 
     arch: list[DenseSpec | GruSpec] = [
         DenseSpec(type="dense", input_size=2, output_size=4, activation="tanh"),
@@ -166,7 +166,7 @@ def test_zero_state_where_done_handles_lstm_tuple_state() -> None:
     Phase 2a LSTM MVP). The Phase 0 guard that raised on tuples is retired;
     non-tuple, non-Tensor, non-None entries still raise TypeError.
     """
-    from aerocapture.training.rl.policy import _zero_state_where_done
+    from aerocapture.training.torch_mirror.policy import _zero_state_where_done
 
     # LSTM state: tuple of (h, c) tensors.
     h = torch.tensor([[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0]])

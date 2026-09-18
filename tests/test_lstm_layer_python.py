@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import torch
-from aerocapture.training.rl.layers.lstm import LstmLayer
+from aerocapture.training.torch_mirror.layers.lstm import LstmLayer
 from torch import nn
 
 

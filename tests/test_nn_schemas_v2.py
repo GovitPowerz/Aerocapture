@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from aerocapture.training.rl.schemas import ArchitectureV2, DenseSpec
+from aerocapture.training.torch_mirror.schemas import ArchitectureV2, DenseSpec
 from pydantic import ValidationError
 
 

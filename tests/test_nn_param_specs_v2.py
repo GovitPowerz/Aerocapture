@@ -6,7 +6,7 @@ from aerocapture.training.encoding import (
     nn_param_specs_from_architecture,
     nn_param_specs_from_v2,
 )
-from aerocapture.training.rl.schemas import DenseSpec
+from aerocapture.training.torch_mirror.schemas import DenseSpec
 
 
 def test_v2_all_dense_matches_v1() -> None:

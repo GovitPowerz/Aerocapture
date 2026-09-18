@@ -21,7 +21,7 @@ import aerocapture_rs  # type: ignore[import-not-found]  # noqa: E402
 def test_cfc_pso_smoke(tmp_path: Path) -> None:
     from aerocapture.training.encoding import nn_param_specs_from_v2
     from aerocapture.training.initialization_v2 import init_v2_population
-    from aerocapture.training.rl.schemas import CfcSpec, DenseSpec
+    from aerocapture.training.torch_mirror.schemas import CfcSpec, DenseSpec
 
     architecture_specs: list[DenseSpec | CfcSpec] = [
         DenseSpec(type="dense", input_size=23, output_size=8, activation="tanh"),

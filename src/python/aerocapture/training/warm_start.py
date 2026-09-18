@@ -26,7 +26,7 @@ from aerocapture.training.seeds import WARM_START_SEED_OFFSET, make_reserved_see
 if TYPE_CHECKING:
     import torch
 
-    from aerocapture.training.rl.policy import V2Policy
+    from aerocapture.training.torch_mirror.policy import V2Policy
 
 # Soft import (mirrors evaluate.py): keep `_aero_rs` as a module attribute -- so tests that
 # monkeypatch `warm_start._aero_rs.collect_supervised` still resolve -- but DON'T hard-raise at
@@ -252,9 +252,9 @@ def _chunked_bptt_train(
     from pydantic import TypeAdapter
     from torch import nn
 
-    from aerocapture.training.rl.layers.transformer import TransformerLayer
-    from aerocapture.training.rl.policy import V2Policy
-    from aerocapture.training.rl.schemas import LayerSpec
+    from aerocapture.training.torch_mirror.layers.transformer import TransformerLayer
+    from aerocapture.training.torch_mirror.policy import V2Policy
+    from aerocapture.training.torch_mirror.schemas import LayerSpec
 
     if network.architecture is None:
         raise ValueError("_chunked_bptt_train requires a v2 architecture (network.architecture is None)")
@@ -656,7 +656,7 @@ def _encode_and_persist(
     flat_weights = _policy_to_flat_weights_v2(policy, network.architecture)
     from pydantic import TypeAdapter
 
-    from aerocapture.training.rl.schemas import LayerSpec
+    from aerocapture.training.torch_mirror.schemas import LayerSpec
 
     validated_arch = TypeAdapter(list[LayerSpec]).validate_python(network.architecture)
     base_specs = nn_param_specs_from_v2(validated_arch, bound_multiplier=ws.bound_multiplier)
@@ -786,7 +786,7 @@ def build_warm_start_chromosome(
         # configured bound_multiplier so the chromosome decode matches.
         from pydantic import TypeAdapter
 
-        from aerocapture.training.rl.schemas import LayerSpec
+        from aerocapture.training.torch_mirror.schemas import LayerSpec
 
         assert network.architecture is not None
         validated_arch_cached = TypeAdapter(list[LayerSpec]).validate_python(network.architecture)

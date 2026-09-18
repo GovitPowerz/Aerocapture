@@ -6,7 +6,7 @@ from typing import Literal
 
 from aerocapture.training.config import _layer_n_params
 from aerocapture.training.encoding import _mamba3_specs
-from aerocapture.training.rl.schemas import Mamba3Spec
+from aerocapture.training.torch_mirror.schemas import Mamba3Spec
 
 _Disc = Literal["euler", "trapezoidal"]
 _SM = Literal["real", "complex"]

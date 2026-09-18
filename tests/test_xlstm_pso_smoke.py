@@ -27,7 +27,7 @@ CASES = [
 def test_xlstm_pso_smoke(name: str, mid: dict, total: int, keys: tuple, tmp_path: Path) -> None:
     from aerocapture.training.encoding import nn_param_specs_from_v2
     from aerocapture.training.initialization_v2 import init_v2_population
-    from aerocapture.training.rl.schemas import LayerSpec
+    from aerocapture.training.torch_mirror.schemas import LayerSpec
     from pydantic import TypeAdapter
 
     architecture_dicts = [

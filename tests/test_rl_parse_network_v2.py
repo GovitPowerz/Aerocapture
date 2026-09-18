@@ -11,7 +11,7 @@ import pytest
 pytest.importorskip("aerocapture_rs")
 
 from aerocapture.training.rl.config import RLConfig  # noqa: E402
-from aerocapture.training.rl.schemas import DenseSpec, GruSpec  # noqa: E402
+from aerocapture.training.torch_mirror.schemas import DenseSpec, GruSpec  # noqa: E402
 
 
 def test_parse_network_config_v2_gru_arch(tmp_path: Path) -> None:

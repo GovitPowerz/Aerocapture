@@ -1112,7 +1112,7 @@ buffer, sinusoidal PE relative to ring-buffer slot. PSO-only; PPO deferred to Ph
   w_o, b_o, w_ffn1, b_ffn1, w_ffn2, b_ffn2, ln1_gamma, ln1_beta, ln2_gamma, ln2_beta). `rebuild_pe_offsets` called in both `from_flat` (PSO chromosome path) AND `from_v2_json` (JSON load path).
   `TomlLayerSpec::Transformer` parser + d_model % n_heads divisibility validator. New free helpers `gelu_exact`, `layer_norm_biased`, `build_pe_table`, `matvec` (all `pub(crate)`, sequential FIFO
   reductions for cross-language bit-identity).
-- **Python**: `TransformerLayer` torch module in `rl/layers/transformer.py` (manual LN/GELU/softmax/MHA for 1-for-1 Rust equivalence -- no `nn.LayerNorm`, `F.softmax`, or tanh-GELU approx),
+- **Python**: `TransformerLayer` torch module in `torch_mirror/layers/transformer.py` (manual LN/GELU/softmax/MHA for 1-for-1 Rust equivalence -- no `nn.LayerNorm`, `F.softmax`, or tanh-GELU approx),
   `TransformerSpec` pydantic discriminated-union entry (validator: d_model % n_heads == 0, all shape fields positive), `build_layer` + `load_policy_from_json` raise `NotImplementedError` (PPO gate,
   same pattern as Window-MLP), `_transformer_specs` PSO ParamSpec generator with Xavier on projections (`sqrt(6/(2*d_model))`) + FFN (`sqrt(6/(d_model+d_ffn))`) + uniform [1-0.01*mul, 1+0.01*mul] on
   LN gamma + tight near-zero on biases / LN beta (ordering MUST match Rust `to_flat` or PSO chromosomes scramble), `_layer_n_params` + `_layer_output_size` + `describe_architecture` +
@@ -1202,9 +1202,9 @@ arms out to control training breaks the arm-set tests and drops the baseline row
 `tensor_table!(XxxLayer { field, ... } [, post_load = hook])` -- the field list IS the flat order, the JSON keys, and `n_params`; flag-gated tensors are `Option` fields), then one arm each
 in `neural/mod.rs` (`LayerSpec` variant, `LayerSpec::io`, `Layer` variant + `as_weights`/`as_weights_mut`/`from_spec`, `forward`), `nn_state.rs` (LayerState variant + for_layer + reset arms),
 `config.rs` (TomlLayerSpec variant + to_layer_spec arm). No serialization code is written: `load_layers`/`save_json`/`from_flat_weights_v2` are generic walks over the table. Python:
-`rl/schemas.py` (Spec class + union entry), `layer_schema.py::_fallback_layer_schema` (one branch mirroring the table -- asserted equal to `aerocapture_rs.layer_schema` by
+`torch_mirror/schemas.py` (Spec class + union entry), `layer_schema.py::_fallback_layer_schema` (one branch mirroring the table -- asserted equal to `aerocapture_rs.layer_schema` by
 `tests/test_layer_schema_drift.py`), `encoding.py` (a per-tensor bound/center/naming rule walking `layer_schema`; a frozen-spec fixture guards the chromosome contract),
-`_layer_output_size` arm in `config.py`; `rl/layers/<type>.py` + `rl/layers/__init__.py` only for BPTT-trainable types (`rl/export.py` / `model_io.py` split and rebuild slabs from the
+`_layer_output_size` arm in `config.py`; `torch_mirror/layers/<type>.py` + `torch_mirror/layers/__init__.py` only for BPTT-trainable types (`torch_mirror/export.py` / `model_io.py` split and rebuild slabs from the
 schema, so they only need a `_spec_entry` branch). Parameter counting (`_layer_n_params`) needs nothing. No changes to `problem.py`, `dispatch.rs`, or `runner.rs`. Zero-parameter layers
 (Window) are an empty table: `from_flat` consumes 0 from any slice, `save_json` writes no entry, `_layer_param_specs` returns `[]`, `init_v2_population` contributes a one-line `continue`.
 
@@ -1236,13 +1236,16 @@ for instance) do the same: store only trainable parameters in the table, name a 
 - `simulation/runner.rs` -- `build_sim_state` passes `data.neural_net.as_ref()`; `assert_eq!` verifies `nn_state.is_some() == neural_net.is_some()`.
 
 **Python side:**
-- `training/rl/schemas.py` -- Pydantic v2 schemas (`DenseSpec`, `ArchitectureV2`); Phase 1+ appends `GruSpec`, `LstmSpec`, `AttentionSpec`, `LayerNormSpec`, `SsmSpec`, `WindowSpec` to a discriminated
+- `training/torch_mirror/` -- the differentiable PyTorch mirror of the Rust NN runtime (moved out of `rl/` 2026-09-18, issue #100: it is load-bearing for the shipped
+  population path via `schemas.py` / `encoding.py` / warm-start, and the shelved PPO/SAC trainer in `rl/` depends on it, never the reverse).
+- `training/torch_mirror/schemas.py` -- Pydantic v2 schemas (`DenseSpec`, `ArchitectureV2`); Phase 1+ appends `GruSpec`, `LstmSpec`, `AttentionSpec`, `LayerNormSpec`, `SsmSpec`, `WindowSpec` to a discriminated
   union on the `type` field.
-- `training/rl/layers/` -- one file per layer variant. Phase 0 ships `dense.py` (`DenseLayer` torch module with the step-wise `forward(x, state) -> (y, new_state)` API). `__init__.py` exposes
+- `training/torch_mirror/layers/` -- one file per layer variant. Phase 0 ships `dense.py` (`DenseLayer` torch module with the step-wise `forward(x, state) -> (y, new_state)` API). `__init__.py` exposes
   `build_layer(spec)` dispatching per `spec.type`.
-- `training/rl/policy.py` -- `V2Policy` (alongside the pre-existing `GaussianPolicy`) iterates layers with per-layer state; `log_std` is a non-exported `nn.Parameter` (exploration-noise only).
-- `training/rl/export.py` -- `export_v2_policy_to_json(policy, path, obs_normalizer=None)` writes format v2 with the obs-normalizer transform baked into layer 0 (`W_new = W/std`,
-  `b_new = b - W @ (mean/std)`). Existing v1 `export_policy_to_json` for `GaussianPolicy` is unchanged.
+- `training/torch_mirror/policy.py` -- `V2Policy` iterates layers with per-layer state; `log_std` is a non-exported `nn.Parameter` (exploration-noise only).
+- `training/torch_mirror/export.py` -- `export_v2_policy_to_json(policy, path, obs_normalizer=None)` writes format v2 with the obs-normalizer transform baked into layer 0 (`W_new = W/std`,
+  `b_new = b - W @ (mean/std)`; `obs_normalizer` is typed as the `ObsAffine` Protocol so the mirror never imports `rl/`). The v1 `GaussianPolicy` + `export_policy_to_json` + `ValueNetwork` +
+  rollout state packing stay in the trainer package (`rl/`, `policy.py` / `export.py`).
 - `training/model_io.py` -- `load_policy_from_json(path, device) -> V2Policy`; round-trips with the exporter bit-for-bit.
 - `training/encoding.py` -- `nn_param_specs_from_v2(architecture, bound_multiplier)` dispatches per layer type via `_layer_param_specs`; produces PSO bounds identical to the v1
   `nn_param_specs_from_architecture` for all-dense architectures (via the shared `compute_layer_bound` helper).

@@ -760,7 +760,7 @@ def _setup_param_specs(config: TrainingConfig, _toml: dict, verbose: bool) -> tu
         if config.network.architecture is not None:
             from pydantic import TypeAdapter
 
-            from aerocapture.training.rl.schemas import LayerSpec
+            from aerocapture.training.torch_mirror.schemas import LayerSpec
 
             specs_adapter = TypeAdapter(list[LayerSpec])
             validated = specs_adapter.validate_python(config.network.architecture)

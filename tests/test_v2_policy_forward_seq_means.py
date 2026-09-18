@@ -2,8 +2,8 @@
 for supervised warm-start, with done-mask state zeroing matching evaluate."""
 
 import torch
-from aerocapture.training.rl.policy import V2Policy
-from aerocapture.training.rl.schemas import LayerSpec
+from aerocapture.training.torch_mirror.policy import V2Policy
+from aerocapture.training.torch_mirror.schemas import LayerSpec
 from pydantic import TypeAdapter
 
 

@@ -8,9 +8,9 @@ from unittest.mock import MagicMock
 
 import pytest
 import torch
-from aerocapture.training.rl.layers import DenseLayer
-from aerocapture.training.rl.layers.transformer import TransformerLayer
-from aerocapture.training.rl.schemas import DenseSpec, TransformerSpec
+from aerocapture.training.torch_mirror.layers import DenseLayer
+from aerocapture.training.torch_mirror.layers.transformer import TransformerLayer
+from aerocapture.training.torch_mirror.schemas import DenseSpec, TransformerSpec
 
 
 def _make_policy(architecture: list, dtype: torch.dtype = torch.float64) -> MagicMock:
@@ -36,7 +36,7 @@ def _make_policy(architecture: list, dtype: torch.dtype = torch.float64) -> Magi
 
 
 def test_export_transformer_writes_flat_ln_keys(tmp_path: Path) -> None:
-    from aerocapture.training.rl.export import export_v2_policy_to_json
+    from aerocapture.training.torch_mirror.export import export_v2_policy_to_json
 
     architecture = [
         DenseSpec(type="dense", input_size=8, output_size=4, activation="linear"),
@@ -91,7 +91,7 @@ def test_export_transformer_writes_flat_ln_keys(tmp_path: Path) -> None:
 
 
 def test_export_obs_normalizer_rejects_transformer_as_first_layer(tmp_path: Path) -> None:
-    from aerocapture.training.rl.export import export_v2_policy_to_json
+    from aerocapture.training.torch_mirror.export import export_v2_policy_to_json
 
     architecture = [
         TransformerSpec(type="transformer", d_model=4, n_heads=2, d_ffn=8, n_seq=4),

@@ -15,7 +15,7 @@ import numpy.typing as npt
 from aerocapture.training.initialization import compute_layer_bound
 from aerocapture.training.layer_schema import layer_schema
 from aerocapture.training.param_spaces import ParamSpec
-from aerocapture.training.rl.schemas import (
+from aerocapture.training.torch_mirror.schemas import (
     CfcSpec,
     DenseSpec,
     GruSpec,

@@ -1,7 +1,8 @@
 """Load V2Policy from JSON v2 format.
 
-Shared between RL training (report_rl.py post-training analysis), test code,
-and any Python-side consumer that needs the torch model. Rust side uses its own
+Reader counterpart of `torch_mirror.export.export_v2_policy_to_json`; used by the
+RL trainer's warm-start (`rl/train.py`), the tests, and any Python-side consumer
+that needs the torch model. Rust side uses its own
 loader in data/neural/mod.rs; this module is the Python equivalent.
 """
 
@@ -14,8 +15,8 @@ import numpy as np
 import torch
 
 from aerocapture.training.layer_schema import layer_schema
-from aerocapture.training.rl.policy import V2Policy
-from aerocapture.training.rl.schemas import (
+from aerocapture.training.torch_mirror.policy import V2Policy
+from aerocapture.training.torch_mirror.schemas import (
     ArchitectureV2,
     CfcSpec,
     DenseSpec,

@@ -17,9 +17,9 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 from aerocapture.training.model_io import load_policy_from_json
-from aerocapture.training.rl.export import export_v2_policy_to_json
-from aerocapture.training.rl.layers import WindowLayer
-from aerocapture.training.rl.schemas import DenseSpec, WindowSpec
+from aerocapture.training.torch_mirror.export import export_v2_policy_to_json
+from aerocapture.training.torch_mirror.layers import WindowLayer
+from aerocapture.training.torch_mirror.schemas import DenseSpec, WindowSpec
 
 
 def test_export_obs_norm_rejects_window_as_layer_0(tmp_path: Path) -> None:

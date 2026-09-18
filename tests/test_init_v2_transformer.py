@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 from aerocapture.training.initialization_v2 import init_v2_population
-from aerocapture.training.rl.schemas import DenseSpec, TransformerSpec
+from aerocapture.training.torch_mirror.schemas import DenseSpec, TransformerSpec
 
 
 def test_init_v2_population_transformer_slab_shape_and_bounds() -> None:

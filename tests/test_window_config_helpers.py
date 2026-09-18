@@ -16,7 +16,7 @@ from aerocapture.training.config import (
 )
 from aerocapture.training.encoding import _layer_param_specs, nn_param_specs_from_v2
 from aerocapture.training.initialization_v2 import init_v2_population
-from aerocapture.training.rl.schemas import DenseSpec, WindowSpec
+from aerocapture.training.torch_mirror.schemas import DenseSpec, WindowSpec
 
 
 def test_layer_n_params_window_returns_zero() -> None:

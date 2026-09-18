@@ -13,7 +13,7 @@ pytest.importorskip("aerocapture_rs")
 
 from aerocapture.training import config as cfg_mod  # noqa: E402
 from aerocapture.training.rl.config import RLConfig  # noqa: E402
-from aerocapture.training.rl.schemas import DenseSpec, LstmSpec  # noqa: E402
+from aerocapture.training.torch_mirror.schemas import DenseSpec, LstmSpec  # noqa: E402
 
 
 def _make_lstm_toml(tmp_path: Path) -> Path:

@@ -6,8 +6,8 @@ import torch
 
 pytest.importorskip("aerocapture_rs")
 
-from aerocapture.training.rl.policy import V2Policy  # noqa: E402
-from aerocapture.training.rl.schemas import LayerSpec  # noqa: E402
+from aerocapture.training.torch_mirror.policy import V2Policy  # noqa: E402
+from aerocapture.training.torch_mirror.schemas import LayerSpec  # noqa: E402
 from aerocapture.training.warm_start import _policy_to_flat_weights_v2  # noqa: E402
 from pydantic import TypeAdapter  # noqa: E402
 

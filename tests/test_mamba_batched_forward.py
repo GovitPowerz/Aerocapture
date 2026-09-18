@@ -2,7 +2,7 @@
 
 import pytest
 import torch
-from aerocapture.training.rl.layers import MambaLayer
+from aerocapture.training.torch_mirror.layers import MambaLayer
 
 
 @pytest.fixture
