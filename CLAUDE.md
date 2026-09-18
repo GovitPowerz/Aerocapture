@@ -270,17 +270,21 @@ Separate workspace member crate providing Python bindings via PyO3. Built with `
 
 ```
 src/rust/aerocapture-py/src/
-  lib.rs         — Module entry: run(), run_mc(), run_batch(), run_with_draws(), load_config(), nn_forward() (load v2 JSON + stateful forward; used by the Rust<>Python equivalence test),
+  lib.rs         — Module entry, TIERED (the module doc names each tier's gate; ADR-0007): evaluate `run_grid` / `run_batch` / `run_mc` / `run_with_draws`; config `validate_config` /
+                     `load_config` (Rust-side base resolution; its one job is the parity oracle for `toml_utils.load_toml_with_bases`, asserted over every committed config); contract
+                     `candidate_inputs` / `final_record_indices` / `layer_schema` + the width consts; nn `flat_weights_to_json` / `collect_*` / `nn_forward` (gate-only stateless forward) /
+                     `nn_forward_sequence`; env `BatchedSimulation`. Retired 2026-09-18 (#103): `run()` + `SimResult` (one run is `run_batch(toml, [{}])` row 0, the deploy path the CLI
+                     bit-identity gate now compares against) and `default_normalization()` + the `NN_INPUT_NAMES` constant (both projections of `candidate_inputs()`). Also:
                      validate_config() (post-override no-IO config validation via config::validate — reads no table; ValueError on the first violation),
                      nn_forward_sequence() (stateful multi-step forward over an input sequence; the per-layer cross-language equivalence gates run through it), collect_supervised() (per-tick
                      candidate-input trace from a teacher scheme, for NN warm-start), collect_nn_inputs() (per-tick candidate-input trace from the deployed NN itself — no teacher override, rejects
                      non-NN configs; returns per-seed {seed, X (T,35), time, energy, dv, captured}; powers the NN input behavior report and the input calibration). Both collect helpers load the config
                      + tables ONCE and run seeds in PARALLEL via `run_for_api_cell` (the run_grid bit-identity chokepoint) — bit-identical to the prior per-seed `monte_carlo.seed` override path,
                      which reloaded every table from disk per seed and ran sequentially (the 5000-seed warm-start collection bottleneck). The per-tick candidate trace is recorded in `tick.rs` with a
-                     full mask of width `NN_FULL_INPUT_SIZE` (so all 35 inputs, incl. the live correction-DV, reach the trace). `NN_INPUT_NAMES` (module constant) and `candidate_inputs()` (35
-                     `{index, name, transform, scale, center}` dicts) export the Rust-owned candidate-input contract -- `training/config.py::candidate_input_names()` / `candidate_input_index()` derive
+                     full mask of width `NN_FULL_INPUT_SIZE` (so all 35 inputs, incl. the live correction-DV, reach the trace). `candidate_inputs()` (the ONE candidate-input schema; 35
+                     `{index, name, transform, scale, center}` dicts) exports the Rust-owned candidate-input contract -- `training/config.py::candidate_input_names()` / `candidate_input_index()` / `candidate_input_normalization()` derive
                      the Python name list, width and index lookups from it (a fallback tuple covers machines without the extension, asserted equal element-wise by `tests/test_record_index_drift.py`);
-                     `default_normalization()` exposes the Rust `DEFAULT_NORMALIZATION` table (35 `{transform, scale, center}` dicts) -- the FALLBACK for `calibrate_inputs.py`'s normalized->raw
+                     its `{transform, scale, center}` projection is the Rust `DEFAULT_NORMALIZATION` table -- the FALLBACK for `calibrate_inputs.py`'s normalized->raw
                      inversion (which resolves override > embedded > default via `_resolve_normalization`, matching the forward pass so the recovery is exact). `flat_weights_to_json()` (PSO chromosome
                      -> deployed `best_model.json`) embeds the `normalization` block, so deployed models are self-describing. `run_grid()` evaluates a full (individuals x seeds) grid in ONE
                      GIL-releasing call, building each `SimData` once with Arc-shared atmosphere/wind/ref tables and passing NN weights in-memory (no temp JSON) -- the GA population-eval hot path. The
@@ -288,13 +292,12 @@ src/rust/aerocapture-py/src/
                      inside `from_toml_with_tables` -- the joint ref_bank delivery path; until 2026-06-12 the override was silently swallowed and the gene trained dead); `data.atmosphere` /
                      `data.wind_table` overrides hard-error instead of being silently shared. `final_record_indices()` exposes the Rust final-record column map for the Python drift tests
   config.rs      — TOML loading with base inheritance resolution + dot-path override merging (resolve_and_patch, shared by load_and_override and the no-IO validate_only)
-  results.rs     — SimResult/BatchResults pyclasses with numpy getters
+  results.rs     — `BatchResults` pyclass with numpy getters (final_records (N,52), captured (N,), trajectories, dispersions (N,26)); no single-run type
   batch.rs       — Rayon parallel batch execution
 ```
 
 Key API:
-- `aerocapture_rs.run(toml_path, overrides=None, sim_timeout_secs=None)` → `SimResult` with `.final_record` (52,), `.captured`, `.energy`, `.ecc`, `.dispersions` (26,), etc. Returns first result
-  only (use `run_mc` for multi-sim).
+- One run = `aerocapture_rs.run_batch(toml_path, [{}])` row 0 (the deploy path; `run()` / `SimResult` retired in #103, `final_record_indices()` names the columns).
 - `aerocapture_rs.run_mc(toml_path, overrides=None, include_trajectories=False, sim_timeout_secs=None)` → `BatchResults` with all n_sims results. When `include_trajectories=True`, populates
   per-timestep trajectory data (N, 17) for corridor/time-domain plots. Trajectory columns: [alt_km, lon_deg, lat_deg, vel_m_s, fpa_deg, heading_deg, heat_flux_kw_m2, time_s, energy_mj_kg, pdyn_kpa,
   bank_angle_deg, inclination_deg, g_load_g, nav_density_ratio, truth_density_kg_m3, heat_load_kj_m2, density_perturbation]. `.dispersions` (N, 26) always populated.
@@ -312,7 +315,8 @@ Key API:
   axis; NN individuals pass flat `weights` + `architecture_json` in-memory (no temp JSON per individual). `overrides_list` MUST NOT carry `monte_carlo.seed` / `simulation.n_sims` (run_grid owns the
   seed axis — raises `ValueError` otherwise) nor `data.atmosphere` / `data.wind_table` (genuinely shared — hard error, use `run_batch`). This is the GA population-eval hot path
   (`problem._run_batch_pyo3`), bit-identical to the prior per-seed `run_batch` loop.
-- `aerocapture_rs.load_config(toml_path)` → Python dict
+- `aerocapture_rs.load_config(toml_path)` → Python dict after Rust-side `base` resolution; its one job is the parity oracle for `toml_utils.load_toml_with_bases`
+  (`tests/test_pyo3.py::TestLoadConfig::test_base_resolution_parity` over every `configs/**/*.toml`).
 
 The training pipeline requires the PyO3 bindings (`aerocapture_rs`); the batch evaluation path raises if they are absent (build with `maturin develop --release`). Override dict uses dot-separated TOML
 key paths with type coercion (int→float when existing field is float).
@@ -731,7 +735,7 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
     skip-if-`best_model.json`-exists, `--force` to retrain). Dense family floor is hidden=2 so sub-500 budgets resolve. CLI: `python -m aerocapture.training.param_sweep
     --generate|--train|--eval|--plot|--all [--archs ...] [--budgets ...] [--training-n-sims N] [--out-tag T] [--from-scratch]`.
   - `calibrate_inputs.py` — NN input-scale calibration: runs `collect_nn_inputs` over a reserved seed pool (`CALIBRATION_SEED_OFFSET = 6_000_000`), inverts the normalized trace back to raw using the
-    normalization the SIM ACTUALLY applied -- resolved by `_resolve_normalization` (`[network.normalization]` override > embedded model `normalization` > Rust `default_normalization()`), NOT the fixed
+    normalization the SIM ACTUALLY applied -- resolved by `_resolve_normalization` (`[network.normalization]` override > embedded model `normalization` > the Rust `candidate_inputs()` normalization), NOT the fixed
     DEFAULT. Inverting with constants that differ from the forward pass distorts the recovered raw by `s_forward/s_invert`, so the proposed scale oscillates (never converges) across
     retrain+recalibrate cycles -- using the resolved normalization is the fix (`sinh(asinh(x)) = x` exactly, recovery is exact regardless of deployed scale). It then derives new
     `{transform, scale, center}` entries so each input's `[p_lo, p_hi]` (default `[5, 95]`, tunable via `--target-percentiles LO HI`) maps EXACTLY to `[-1, 1]` via a two-parameter endpoint fit
@@ -1109,8 +1113,8 @@ extensibility contract on the smallest possible layer:
   `w.forward(&current, buffer)` (forward takes `&mut VecDeque` directly, not `&mut LayerState`, to avoid a double-borrow across the match). `save_json` skips the weights dict entry for Window
   (spec-only JSON); `from_v2_json` chain validator computes Window's output as `n_steps * input_size`; `from_flat_weights_v2` instantiates zero-param `WindowLayer` and advances the cursor by 0.
 - **Python**: `WindowSpec` pydantic schema in the `LayerSpec` discriminated union, `WindowLayer` torch module with class-level `_dtype_anchor: Tensor` annotation so mypy resolves the non-persistent
-  buffer correctly. `build_layer(WindowSpec)` raises `NotImplementedError` with a pointer to the Phase 2b spec (PSO bypasses V2Policy and invokes the Rust runtime directly via
-  `aerocapture_rs.nn_forward`, so PPO is the only caller of `build_layer` that would see Window). `_layer_param_specs(WindowSpec)` returns `[]`; `config.py::_layer_n_params(window) == 0`,
+  buffer correctly. `build_layer(WindowSpec)` raises `NotImplementedError` with a pointer to the Phase 2b spec (PSO bypasses V2Policy and evaluates through `aerocapture_rs.run_grid` with in-memory
+  weights, so PPO is the only caller of `build_layer` that would see Window). `_layer_param_specs(WindowSpec)` returns `[]`; `config.py::_layer_n_params(window) == 0`,
   `_layer_output_size(window) == n_steps * input_size`; `init_v2_population` Window branch is a one-line `continue` (slab width is 0). `export_v2_policy_to_json` Window arm writes spec-only JSON (no
   weights dict entry) and the obs-norm bake-in guard rejects Window as layer 0 (buffer-flatten cannot absorb affine shift). `load_policy_from_json` short-circuits with `NotImplementedError` on any v2
   JSON containing a Window layer.

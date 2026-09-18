@@ -10,10 +10,17 @@ actually flow through this code. Vocabulary is `CONTEXT.md`'s; decisions this pa
   runtime, Monte Carlo dispersions. It is a library crate plus a CLI (`aerocapture <config.toml>`).
 - **Python** (`src/python/aerocapture/`) is everything around it: TOML config resolution, the
   population optimizers (pymoo), seed pools, cost, reports, the paper's evaluation scripts.
-- They meet at **one seam**, the PyO3 crate `aerocapture_rs` (`src/rust/aerocapture-py/`). Training
-  goes through `run_grid` (one GIL-releasing call per population x seed grid; the bit-identity
-  chokepoint, ADR-0004). Deploy-side evaluation (reports, demo, paper scripts) goes through
-  `run_batch` with one override dict per seed.
+- They meet at **one seam**, the PyO3 crate `aerocapture_rs` (`src/rust/aerocapture-py/`), in
+  five tiers (ADR-0007; each names its gate in `lib.rs`'s module doc):
+  - **evaluate**: `run_grid` (training; one GIL-releasing call per population x seed grid, the
+    bit-identity chokepoint of ADR-0004), `run_batch` (deploy-side evaluation: reports, demo,
+    paper scripts; one override dict per seed), `run_mc` (one config, its own `n_sims`),
+    `run_with_draws` (external dispersion draws).
+  - **config**: `validate_config`, `load_config` (the parity oracle for the Python base resolution).
+  - **contract**: `candidate_inputs`, `final_record_indices`, `layer_schema`, the width constants.
+  - **nn**: `flat_weights_to_json`, `collect_supervised` / `collect_nn_inputs`, and the gate-only
+    `nn_forward` / `nn_forward_sequence` behind the per-layer equivalence tests.
+  - **env**: `BatchedSimulation`, the RL step API.
 
 ## A training run in fifteen lines
 

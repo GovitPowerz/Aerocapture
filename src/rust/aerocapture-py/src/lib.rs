@@ -1,4 +1,28 @@
-//! PyO3 bindings for the aerocapture trajectory simulator.
+//! PyO3 bindings for the aerocapture trajectory simulator: the ONE seam between the
+//! Rust simulator and the Python training / evaluation code. Five tiers; every entry
+//! belongs to one, and each tier names the gate that proves it (ADR-0007).
+//!
+//! evaluate  `run_grid` (training: one GIL-releasing call per population x seed grid, the
+//!           bit-identity chokepoint of ADR-0004; gate `tests/test_run_grid.py`), `run_batch`
+//!           (deploy-side evaluation: one override dict per seed over preloaded shared tables;
+//!           gates `tests/test_pyo3.py::TestBitIdenticalRegression` vs the CLI and
+//!           `tests/test_noise_seeding.py` for the noise regime), `run_mc` (one config with its
+//!           own `n_sims`: nominal overlays, ablation), `run_with_draws` (external dispersion
+//!           draws, e.g. SALib matrices; gate `tests/test_pyo3.py::TestRunWithDraws`).
+//! config    `validate_config` (the no-IO rule set after base resolution + overrides) and
+//!           `load_config` (Rust-side base resolution as a dict: the parity oracle for
+//!           `toml_utils.load_toml_with_bases`; gate `tests/test_pyo3.py::TestLoadConfig`).
+//! contract  the Rust-owned schemas Python derives from instead of mirroring: `candidate_inputs`
+//!           (the 35-wide NN candidate-input contract, names + normalization), `final_record_indices`,
+//!           `layer_schema`, and the width constants `NN_FULL_INPUT_SIZE` / `DISPERSION_DRAW_LEN` /
+//!           `FINAL_RECORD_LEN` (drift oracles); gates `tests/test_record_index_drift.py`,
+//!           `tests/test_layer_schema_drift.py`, `tests/test_soft_import.py`.
+//! nn        `flat_weights_to_json` (PSO chromosome -> deployed model JSON), `collect_supervised` /
+//!           `collect_nn_inputs` (per-tick candidate-input traces on `run_for_api_cell`), and the
+//!           gate-only `nn_forward` / `nn_forward_sequence` (the Rust side of the per-layer
+//!           equivalence tests, `tests/test_nn_equivalence.py` + `tests/test_v2_rust_python_equivalence.py`;
+//!           no training path calls them -- PSO evaluates through `run_grid` with in-memory weights).
+//! env       `BatchedSimulation` (`env.rs`, the RL step API; gate `tests/test_env_pyo3.py`).
 
 use std::collections::HashSet;
 use std::time::Duration;
@@ -15,7 +39,7 @@ mod results;
 
 use aerocapture::simulation::final_record::FR_DV_TOTAL_MS;
 use config::OverrideValue;
-use results::{BatchResults, SimResult};
+use results::BatchResults;
 
 /// Extract a Python dict of overrides into a Vec of (key, OverrideValue).
 ///
@@ -53,55 +77,11 @@ fn extract_overrides(dict: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<(String, 
     Ok(result)
 }
 
-/// Run a single simulation from a TOML config file.
-///
-/// Args:
-///     toml_path: Path to the TOML config file.
-///     overrides: Optional dict of "dotted.key" -> value overrides.
-///     sim_timeout_secs: Optional wall-clock timeout per simulation in seconds.
-///         If the simulation exceeds this duration it is terminated and returns
-///         a timeout result. Default None (no timeout).
-///
-/// Returns:
-///     SimResult with trajectory, final_record, captured flag, and
-///     convenience getters (energy, ecc, periapsis_alt, etc.).
-#[pyfunction]
-#[pyo3(signature = (toml_path, overrides=None, sim_timeout_secs=None))]
-fn run(
-    py: Python<'_>,
-    toml_path: &str,
-    overrides: Option<&Bound<'_, PyDict>>,
-    sim_timeout_secs: Option<f64>,
-) -> PyResult<SimResult> {
-    let overrides = extract_overrides(overrides)?;
-    let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
-
-    let output = py
-        .detach(|| -> Result<aerocapture::RunOutput, String> {
-            let (sim_input, sim_data) =
-                config::load_and_override(std::path::Path::new(toml_path), &overrides)?;
-            let outputs = aerocapture::simulation::runner::run_for_api(
-                &sim_input,
-                &sim_data,
-                false,
-                wall_timeout,
-            )
-            .map_err(|e| format!("Simulation error: {}", e))?;
-            outputs
-                .into_iter()
-                .next()
-                .ok_or_else(|| "Simulation produced no results".to_string())
-        })
-        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
-
-    Ok(SimResult::from_output(output))
-}
-
 /// Run a Monte Carlo simulation returning all results.
 ///
-/// Unlike `run()` which returns only the first result, this function
-/// returns all n_sims results as a `BatchResults` object. Use this
-/// for MC evaluations where you need the full distribution.
+/// One config with its own `n_sims`: every result as a `BatchResults` (nominal
+/// overlays, ablation). Per-seed evaluation goes through `run_batch`, one
+/// override dict per seed; a single run is `run_batch(toml, [{}])` row 0.
 ///
 /// Args:
 ///     toml_path: Path to the TOML config file.
@@ -862,9 +842,11 @@ fn collect_nn_inputs(
     Ok(result_list.unbind())
 }
 
-/// Load and return a TOML config file as a plain Python dict.
+/// Rust-side `base` resolution of a TOML config, as a plain Python dict.
 ///
-/// Useful for inspecting or modifying config before passing overrides.
+/// Its one job: the parity oracle for `toml_utils.load_toml_with_bases` (the Python
+/// implementation of the same resolution), asserted over every committed config by
+/// `tests/test_pyo3.py::TestLoadConfig`. Datetimes render as strings.
 #[pyfunction]
 fn load_config(py: Python<'_>, toml_path: &str) -> PyResult<Py<PyAny>> {
     let path = std::path::Path::new(toml_path);
@@ -957,24 +939,12 @@ fn norm_spec_to_dict<'py>(
     Ok(dict)
 }
 
-/// Return the Rust `DEFAULT_NORMALIZATION` table as a list of dicts.
-///
-/// Each entry is `{"transform": "none"|"asinh"|"tanh", "scale": f64, "center": f64}`.
-/// This is the single source of truth for inverting NN normalized inputs back to raw.
-#[pyfunction]
-fn default_normalization(py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
-    use aerocapture::data::neural::DEFAULT_NORMALIZATION;
-    DEFAULT_NORMALIZATION
-        .iter()
-        .map(|spec| Ok(norm_spec_to_dict(py, spec)?.into_any().unbind()))
-        .collect()
-}
-
 /// The 35-wide NN candidate-input contract as one schema: a list of
 /// `{"index": int, "name": str, "transform": str, "scale": f64, "center": f64}`
 /// dicts, index-aligned with `build_nn_input` (names from `NN_INPUT_NAMES`,
-/// normalization from `DEFAULT_NORMALIZATION`). Python derives its name list,
-/// width and index lookups from this instead of mirroring them.
+/// normalization from `DEFAULT_NORMALIZATION`). The ONE candidate-input schema:
+/// Python derives its name list, width, index lookups and the default
+/// normalization table from it instead of mirroring them.
 #[pyfunction]
 fn candidate_inputs(py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
     use aerocapture::data::neural::{DEFAULT_NORMALIZATION, NN_INPUT_NAMES};
@@ -1065,17 +1035,23 @@ fn final_record_indices() -> std::collections::HashMap<&'static str, usize> {
     m
 }
 
-/// Aerocapture trajectory simulator Python bindings.
+/// Aerocapture trajectory simulator Python bindings (tiers: see the module doc).
 #[pymodule]
 fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", "0.1.0")?;
+    // evaluate
+    m.add_class::<BatchResults>()?;
+    m.add_function(wrap_pyfunction!(run_grid, m)?)?;
+    m.add_function(wrap_pyfunction!(run_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(run_mc, m)?)?;
+    m.add_function(wrap_pyfunction!(run_with_draws, m)?)?;
+    // config
+    m.add_function(wrap_pyfunction!(validate_config, m)?)?;
+    m.add_function(wrap_pyfunction!(load_config, m)?)?;
+    // contract
     m.add(
         "NN_FULL_INPUT_SIZE",
         aerocapture::data::neural::NN_FULL_INPUT_SIZE,
-    )?;
-    m.add(
-        "NN_INPUT_NAMES",
-        aerocapture::data::neural::NN_INPUT_NAMES.to_vec(),
     )?;
     m.add(
         "DISPERSION_DRAW_LEN",
@@ -1085,24 +1061,16 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
         "FINAL_RECORD_LEN",
         aerocapture::simulation::final_record::FINAL_RECORD_LEN,
     )?;
-    m.add_class::<SimResult>()?;
-    m.add_class::<BatchResults>()?;
-    m.add_class::<env::BatchedSimulation>()?;
-    m.add_function(wrap_pyfunction!(run, m)?)?;
-    m.add_function(wrap_pyfunction!(run_mc, m)?)?;
-    m.add_function(wrap_pyfunction!(run_batch, m)?)?;
-    m.add_function(wrap_pyfunction!(run_with_draws, m)?)?;
-    m.add_function(wrap_pyfunction!(run_grid, m)?)?;
-    m.add_function(wrap_pyfunction!(load_config, m)?)?;
-    m.add_function(wrap_pyfunction!(validate_config, m)?)?;
-    m.add_function(wrap_pyfunction!(nn_forward, m)?)?;
-    m.add_function(wrap_pyfunction!(nn_forward_sequence, m)?)?;
-    m.add_function(wrap_pyfunction!(flat_weights_to_json, m)?)?;
-    m.add_function(wrap_pyfunction!(collect_supervised, m)?)?;
-    m.add_function(wrap_pyfunction!(collect_nn_inputs, m)?)?;
-    m.add_function(wrap_pyfunction!(default_normalization, m)?)?;
     m.add_function(wrap_pyfunction!(candidate_inputs, m)?)?;
     m.add_function(wrap_pyfunction!(final_record_indices, m)?)?;
     m.add_function(wrap_pyfunction!(layer_schema, m)?)?;
+    // nn
+    m.add_function(wrap_pyfunction!(flat_weights_to_json, m)?)?;
+    m.add_function(wrap_pyfunction!(collect_supervised, m)?)?;
+    m.add_function(wrap_pyfunction!(collect_nn_inputs, m)?)?;
+    m.add_function(wrap_pyfunction!(nn_forward, m)?)?;
+    m.add_function(wrap_pyfunction!(nn_forward_sequence, m)?)?;
+    // env
+    m.add_class::<env::BatchedSimulation>()?;
     Ok(())
 }

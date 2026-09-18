@@ -60,4 +60,4 @@ def test_candidate_input_names_fallback_matches_the_extension() -> None:
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().split("|") == list(aero.NN_INPUT_NAMES)
+    assert result.stdout.strip().split("|") == [e["name"] for e in aero.candidate_inputs()]
