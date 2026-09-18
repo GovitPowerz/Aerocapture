@@ -1029,8 +1029,11 @@ makes stateful forward, per-sim state, and a heterogeneous layer enum Phase-1-re
   carry-over). `compute_weight_stats` is skipped for v2 (dense-only stats would misalign). Training config: `configs/training/msr_aller_gru_pso_train.toml` (Dense(16->32,tanh) -> Gru(32,32) ->
   Dense(32->2,linear), 6946 params, PSO `n_pop=64 n_gen=1000 seed_strategy="adaptive"`). Registered as `neural_network_gru_pso` in `compare_guidance.SCHEMES` + `_NN_DEPLOY_SCHEMES`.
 - **Gates**: cross-language equivalence tests (`test_v2_rust_python_equivalence.py`) cover GRU single-step (stateless nn_forward vs per-step-reset Python forward, max abs diff < 1e-10) and Dense +
-  `input_mask=[0,2,4]` cases (raw 5-wide input -> Rust-side mask vs pre-masked Python input). PSO training smoke test (`test_gru_pso_smoke.py`, `@pytest.mark.slow`, runs in CI's single test job) runs 2 PSO gens
-  on a reduced Dense(16->8) -> Gru(8,8) -> Dense(8->2) arch (586 params, 16 real sims), asserts `best_model.json` is v2 with `["dense","gru","dense"]` and `nn_forward` returns a finite 2-tuple.
+  `input_mask=[0,2,4]` cases (raw 5-wide input -> Rust-side mask vs pre-masked Python input). PSO training smoke (`test_nn_pso_smoke.py::test_train_two_gens[gru]`, `@pytest.mark.slow`) runs 2 PSO gens
+  on a reduced Dense(25->8) -> Gru(8,8) -> Dense(8->2) arch (16 real sims), asserts `best_model.json` is v2 with `["dense","gru","dense"]` and `nn_forward` returns a finite 2-tuple.
+  Since 2026-09-18 (#99) every per-type Rust<->Python gate below is one row of `tests/nn_archs.py` driven by `tests/test_nn_equivalence.py` (100-step stateful equivalence,
+  state-evolves, determinism, + named per-type extras) and `tests/test_nn_pso_smoke.py` (PSO serialization round-trip with keys/shapes from `layer_schema`, the two `train()` smokes,
+  `test_archs_cover_every_layer_type`); the per-phase paragraphs below record what each row's gate asserts.
 
 **Phase 1.5 PPO-GRU + truncated BPTT (branch `feature/gru-mvp`, 2026-04-18)** lifts the PPO training pipeline to recurrent policies:
 - **Policy unification**: PPO retires `GaussianPolicy` and uses `V2Policy` instead. `V2Policy` gains three state-threaded methods: `forward_mean_logstd(obs, state) -> (mean, log_std, new_state)`,
@@ -1074,7 +1077,7 @@ PR, plus folds in the Phase 1 activation-aware init carry-over (LSTM forget-bias
 - **Training configs**: `msr_aller_lstm_pso_train.toml` (Dense(23->64,swish) -> Lstm(64, 32) -> Dense(32->8,swish) -> Dense(8->1,linear), PSO `n_pop=64 n_gen=2000 seed_strategy="adaptive"`) and
   `msr_aller_lstm_ppo_train.toml` (Dense(23->32,tanh) -> Lstm(32, 32) -> Dense(32->2,linear), PPO `bptt_length=32 rollout_steps=2048`). Registered as `neural_network_lstm_pso` +
   `neural_network_lstm_ppo` in `compare_guidance.SCHEMES` + `_NN_DEPLOY_SCHEMES`; `train_all.sh` aliases `lstm_pso` / `lstm_ppo` / `nn_lstm_pso` / `nn_lstm_ppo`.
-- **Gates**: cross-language LSTM equivalence (100-step stateless forward, max abs diff target 1e-10, actual machine epsilon), PSO-LSTM smoke (2 gens on reduced ~600-param arch), PPO-LSTM smoke (5
+- **Gates**: cross-language LSTM equivalence (100-step stateless forward, max abs diff target 1e-10, actual machine epsilon; the `lstm` row), PSO-LSTM smoke (`test_train_two_gens[lstm]`, 2 gens), PPO-LSTM smoke (5
   updates, `bptt_length=16` -> 4 chunks, exercises tuple-state detach end-to-end), BPTT chunk-invariant extension for LSTM (one-chunk vs 4-chunk forward values bit-identical via recursive tuple-aware
   detach helper), feedforward PPO regression gate preserved, 3/3 guidance golden regressions bit-identical.
 
@@ -1098,7 +1101,7 @@ extensibility contract on the smallest possible layer:
   `n_pop=64 n_gen=2000 seed_strategy="adaptive"`. Registered as `neural_network_window_pso` in `compare_guidance.SCHEMES` + `_NN_DEPLOY_SCHEMES`; `train_all.sh` aliases `window_pso` / `nn_window_pso`
   / `window`.
 - **Gates**: cross-language Window equivalence (Window(4,4) -> Dense(16,4,tanh) -> Dense(4,2,linear), 100 f64 inputs via `nn_forward_sequence`, max abs diff 2.78e-16 -- machine epsilon, consistent
-  with GRU 4.4e-16 and LSTM ~1e-16), zero-padded warm-up test (buffer[0] lags by n_steps-1 ticks), PSO smoke test on reduced 78-param arch (@slow), build_layer + load_policy_from_json PPO-rejection
+  with GRU 4.4e-16 and LSTM ~1e-16), zero-padded warm-up test (`test_window_buffer_warmup_zero_padded`: buffer[0] lags by n_steps-1 ticks), PSO serialization round-trip on the 78-param `window` row, build_layer + load_policy_from_json PPO-rejection
   tests. All 10 guidance golden regressions bit-identical.
 
 Full spec: `docs/design/2026-04-20-phase-2b-window-mlp-design.md`.
@@ -1122,7 +1125,7 @@ buffer, sinusoidal PE relative to ring-buffer slot. PSO-only; PPO deferred to Ph
   trainable params, PSO n_pop=64 n_gen=2000 seed_strategy="adaptive". Registered as `neural_network_transformer_pso` in `compare_guidance.SCHEMES` + `_NN_DEPLOY_SCHEMES`; `train_all.sh` aliases
   `transformer_pso` / `nn_transformer_pso` / `transformer`.
 - **Gates**: cross-language Transformer equivalence (100-step sequence through `nn_forward_sequence`, Dense -> Transformer(d_model=16, n_heads=2, d_ffn=32, n_seq=8) -> Dense, max abs diff **4.16e-17**
-  -- sub machine epsilon, tighter than prior-phase gates), warm-up test (cache grows 0 -> n_seq with no zero-padding, deterministic), PSO smoke (inline end-to-end write/forward pipeline),
+  -- sub machine epsilon, tighter than prior-phase gates), warm-up test (`test_transformer_cache_warmup`: cache grows 0 -> n_seq with no zero-padding, deterministic), PSO serialization round-trip on the `transformer` row,
   PPO-rejection test (build_layer + load_policy_from_json both raise). All 6 Rust guidance golden regressions bit-identical.
 
 Full spec: `docs/design/2026-04-22-phase-3a-transformer-mvp-design.md`.
@@ -1149,8 +1152,8 @@ discretization, and input-dependent Δ/B/C projections. PSO-only; PPO deferred t
   `nn_mamba_pso` / `mamba`.
 - **Gates**: cross-language Mamba equivalence -- single layer Dense(4->8,tanh) -> Mamba(8, 4, 2) -> Dense(8->2, linear) at **1.11e-16** max abs diff, stacked 2x-Mamba (production arch) at
   **1.11e-16**, high-a_log stress (a_log in [3, 5]) at **4.07e-14** (accumulation-order FP drift scales with max|h|*max|c|; bounded by `d_state * eps * max|h|*max|c|` and gated at 1e-12 for the stress
-  test, 1e-14 elsewhere). Warm-up test (state starts at zero and evolves deterministically, no step-0-vs-step-1 collapse), Rust-only JSON round-trip (save_json -> load -> bit-identical flat weights +
-  emitted JSON always includes resolved dt_rank), `from_v2_json` rejects `dt_rank=0`, PSO serialization smoke on reduced ~338-param arch (@slow), **real end-to-end PSO training** smoke via subprocess
+  test, 1e-14 elsewhere). Warm-up behaviour (`test_state_evolves[mamba]` / `test_deterministic[mamba]`: state starts at zero and evolves deterministically, no step-0-vs-step-1 collapse; both now run for every stateful row), Rust-only JSON round-trip (save_json -> load -> bit-identical flat weights +
+  emitted JSON always includes resolved dt_rank), `from_v2_json` rejects `dt_rank=0`, PSO serialization round-trip on the 202-param `mamba` row, **real end-to-end PSO training** smoke via subprocess
   (n_pop=4, n_gen=1, training_n_sims=2, ~16 MC sims total, exercises the full TOML -> NetworkConfig -> write_nn_json -> flat_weights_to_json path that `846cedd` patched), PPO-rejection test (@fast,
   `build_layer` + `load_policy_from_json` both raise). All 6 Rust guidance golden regressions bit-identical.
 
@@ -1169,7 +1172,7 @@ Simplifications flagged for the write-up: `λ` learned-constant not data-depende
 single Python `Mamba3Spec` parses both uniformly; bools (`trapezoidal`/`complex`) live only on the runtime `Mamba3Layer`, converted via the shared `mamba3_flags()` at layer build (JSON/flat-weights
 load paths). PSO-only: Python `build_layer`/`load_policy_from_json` raise `NotImplementedError` (warm-start/PPO route through V2Policy, unimplemented for Mamba3). Gates:
 `real_euler_bit_identical_to_mamba` + `trapezoidal_reduces_to_euler_at_high_lambda` + `complex_warmup_deterministic` (Rust units); `mamba3_json_v2_save_load_roundtrip_all_flags` (Rust, 4 combos);
-`test_rust_python_mamba3_equivalence` (all 4 combos < 1e-12, actual ~1e-16); `test_mamba3_pso_smoke` / `test_mamba3_ppo_rejection` / `test_mamba3_encoding` / `test_init_v2_mamba3`. Experiment:
+`test_nn_equivalence.py::test_stateful_100_steps[mamba3_*]` (all 4 flag combos as 4 `nn_archs.py` rows, < 1e-12, actual ~1e-16); `test_nn_pso_smoke.py::test_serialization_roundtrip[mamba3_*]` / `test_mamba3_ppo_rejection` / `test_mamba3_encoding` / `test_init_v2_mamba3`. Experiment:
 `aerocapture.training.experiments.mamba3_probe` (formerly `mamba3_ablation`, rewritten onto the shared `aerocapture/training/experiments/probe_common.py` machinery) GA-trains the 4 arms x N
 seed-repeats at the Mamba_962 anchor dims (962/978/1154/1170 NN params; euler+real == the deployed Mamba_962 cell) under the sweep regime inherited from `msr_aller_nn_atan2_train.toml` (GA n_pop 300,
 `seed_strategy = "adaptive"` + bucket=max, training_n_sims 2, n_gen 5000, 17-input calibrated mask, scaffolding = "live" with scaffolding-aware eval), scores on the shared probe pool
@@ -1203,7 +1206,9 @@ arms out to control training breaks the arm-set tests and drops the baseline row
 in `neural/mod.rs` (`LayerSpec` variant, `LayerSpec::io`, `Layer` variant + `as_weights`/`as_weights_mut`/`from_spec`, `forward`), `nn_state.rs` (LayerState variant + for_layer + reset arms),
 `config.rs` (TomlLayerSpec variant + to_layer_spec arm). No serialization code is written: `load_layers`/`save_json`/`from_flat_weights_v2` are generic walks over the table. Python:
 `torch_mirror/schemas.py` (Spec class + union entry), `layer_schema.py::_fallback_layer_schema` (one branch mirroring the table -- asserted equal to `aerocapture_rs.layer_schema` by
-`tests/test_layer_schema_drift.py`), `encoding.py` (a per-tensor bound/center/naming rule walking `layer_schema`; a frozen-spec fixture guards the chromosome contract),
+`tests/test_layer_schema_drift.py`), ONE `ArchCase` row in `tests/nn_archs.py` (reduced arch, hand-counted `n_params`, tolerance, seeded mirror builder; `test_archs_cover_every_layer_type`
+fails until it exists, and the row drives both `tests/test_nn_equivalence.py` and `tests/test_nn_pso_smoke.py` -- a `forward_unbatched`/`new_state()` mirror needs a branch in `nn_archs._step`),
+`encoding.py` (a per-tensor bound/center/naming rule walking `layer_schema`; a frozen-spec fixture guards the chromosome contract),
 `_layer_output_size` arm in `config.py`; `torch_mirror/layers/<type>.py` + `torch_mirror/layers/__init__.py` only for BPTT-trainable types (`torch_mirror/export.py` / `model_io.py` split and rebuild slabs from the
 schema, so they only need a `_spec_entry` branch). Parameter counting (`_layer_n_params`) needs nothing. No changes to `problem.py`, `dispatch.rs`, or `runner.rs`. Zero-parameter layers
 (Window) are an empty table: `from_flat` consumes 0 from any slice, `save_json` writes no entry, `_layer_param_specs` returns `[]`, `init_v2_population` contributes a one-line `continue`.
@@ -1251,7 +1256,8 @@ for instance) do the same: store only trainable parameters in the table, name a 
   `nn_param_specs_from_architecture` for all-dense architectures (via the shared `compute_layer_bound` helper).
 
 **Cross-language gate** (`tests/test_v2_rust_python_equivalence.py`): builds a 2-layer `V2Policy` in f64 (via `policy.double()`), exports to JSON v2, loads in Rust through `aerocapture_rs.nn_forward`,
-feeds 100 random f64 inputs, asserts max abs diff < 1e-10. Actual result: **4.4e-16** (machine epsilon).
+feeds 100 random f64 inputs, asserts max abs diff < 1e-10. Actual result: **4.4e-16** (machine epsilon). This file tests the `export_v2_policy_to_json` seam (dense / gru / lstm); the
+per-type manual-JSON gates for every layer type live in `tests/test_nn_equivalence.py`, one `tests/nn_archs.py` row each (tolerance per type: 1e-14 mamba, 1e-12 probe types / mamba3, 1e-10 elsewhere).
 
 Full spec: `docs/design/2026-04-17-stateful-nn-runtime-infrastructure-design.md`. The multi-phase program (GRU, LSTM, Window-MLP, Transformer, Mamba; PSO × BPTT training axes) is SHIPPED —
 `TODO.md` keeps a compressed epilogue; the task-by-task phase history lives in `TODO.md`'s git log and the design docs under `docs/design/`.
