@@ -3,8 +3,6 @@
 //! Holds N independent SimStates sharing one Arc<SimData>. step() advances
 //! each env one outer guidance tick via Rayon, auto-resets on done, and
 //! returns the stacked (obs, reward, done, info) payload.
-//!
-//! step() is implemented in Task 1.4.
 
 use aerocapture::gnc::guidance::neural::{NnInputContext, NnModelView, build_nn_input};
 use std::path::Path;

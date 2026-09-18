@@ -39,7 +39,6 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import cast
 
 import numpy as np
 
@@ -54,13 +53,14 @@ _SKIP: set[int] = {15, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30}
 
 
 def _current_transforms() -> list[dict]:
-    """Return the Rust DEFAULT_NORMALIZATION table.
+    """Return the Rust DEFAULT_NORMALIZATION table: the normalization projection of
+    the one candidate-input schema, `aerocapture_rs.candidate_inputs()`.
 
     Each entry is `{"transform": "none"|"asinh"|"tanh", "scale": float, "center": float}`.
     """
     import aerocapture_rs  # type: ignore[import-not-found]
 
-    return cast("list[dict]", aerocapture_rs.default_normalization())
+    return [{k: c[k] for k in ("transform", "scale", "center")} for c in aerocapture_rs.candidate_inputs()]
 
 
 def _resolve_normalization(toml_path: str) -> list[dict]:

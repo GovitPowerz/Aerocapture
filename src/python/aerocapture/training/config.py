@@ -18,8 +18,8 @@ from aerocapture.training.optimizer import OptimizerConfig
 # The NN candidate-input contract (35 inputs: 16 baseline + 4 ref-traj + 1 exit-bank
 # teacher + 4 lateral telemetry + 6 seam-free (sin,cos) bank-history pairs at 25-30 +
 # periapsis_alt at 31 + predicted_dv1/2/3 at 32-34). Rust owns it: `NN_INPUT_NAMES` /
-# `DEFAULT_NORMALIZATION` in src/rust/src/data/neural/mod.rs, exported as
-# `aerocapture_rs.NN_INPUT_NAMES` and `aerocapture_rs.candidate_inputs()`. This tuple
+# `DEFAULT_NORMALIZATION` in src/rust/src/data/neural/mod.rs, exported as the one
+# schema `aerocapture_rs.candidate_inputs()` (index, name, transform, scale, center). This tuple
 # is the FALLBACK for machines without the extension (tests/test_soft_import.py) and is asserted
 # equal to the Rust table element-wise by tests/test_record_index_drift.py::TestWidthDrift.
 _FALLBACK_NN_INPUT_NAMES: tuple[str, ...] = (
@@ -69,7 +69,7 @@ def candidate_input_names() -> list[str]:
         import aerocapture_rs  # type: ignore[import-not-found, import-untyped]  # noqa: PLC0415
     except ImportError:
         return list(_FALLBACK_NN_INPUT_NAMES)
-    return list(aerocapture_rs.NN_INPUT_NAMES)
+    return [c["name"] for c in aerocapture_rs.candidate_inputs()]
 
 
 def candidate_input_index(name: str) -> int:

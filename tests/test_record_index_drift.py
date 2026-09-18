@@ -54,15 +54,20 @@ class TestWidthDrift:
     def test_fallback_names_match_rust_elementwise(self) -> None:
         from aerocapture.training.config import _FALLBACK_NN_INPUT_NAMES, candidate_input_names
 
-        assert list(_FALLBACK_NN_INPUT_NAMES) == list(aero.NN_INPUT_NAMES)
-        assert candidate_input_names() == list(aero.NN_INPUT_NAMES)
+        rust_names = [e["name"] for e in aero.candidate_inputs()]
+        assert list(_FALLBACK_NN_INPUT_NAMES) == rust_names
+        assert candidate_input_names() == rust_names
 
     def test_candidate_inputs_schema(self) -> None:
+        """`candidate_inputs()` is the ONE candidate-input schema (#103): index-aligned,
+        one entry per input, every entry carrying name + normalization."""
         schema = aero.candidate_inputs()
+        assert len(schema) == aero.NN_FULL_INPUT_SIZE
         assert [e["index"] for e in schema] == list(range(aero.NN_FULL_INPUT_SIZE))
-        assert [e["name"] for e in schema] == list(aero.NN_INPUT_NAMES)
-        norm = aero.default_normalization()
-        assert [{k: e[k] for k in ("transform", "scale", "center")} for e in schema] == norm
+        assert len({e["name"] for e in schema}) == len(schema)
+        for e in schema:
+            assert set(e) == {"index", "name", "transform", "scale", "center"}
+            assert e["transform"] in ("none", "asinh", "tanh")
 
     def test_runtime_candidate_width_matches_rust(self) -> None:
         from aerocapture.training.config import _RUNTIME_CANDIDATE_WIDTH

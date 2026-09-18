@@ -1,7 +1,7 @@
 """Python torch mirror of the Rust Mamba3Layer (PSO-only spike).
 
 Consumed ONLY by the cross-language equivalence test. PSO training goes through
-the Rust runtime (flat_weights_to_json + nn_forward); build_layer raises for the
+the Rust runtime (flat_weights_to_json + run_grid); build_layer raises for the
 PPO path. The manual _softplus / _expm1_over_x_* helpers are 1-for-1 equivalents
 of the Rust free functions (helpers.rs softplus/expm1_over_x, mamba3.rs
 expm1_over_x_complex) -- both sides must produce bit-identical f64 output.

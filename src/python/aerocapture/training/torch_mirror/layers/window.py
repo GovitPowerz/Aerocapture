@@ -6,8 +6,9 @@ for the next Dense layer.
 
 Constructible via `build_layer(WindowSpec)` (used by warm-start BPTT and the
 cross-language equivalence test). The PPO runtime gate has moved to
-`rl/train.py::_derive_hidden_shapes`; PSO still bypasses V2Policy and drives
-the Rust runtime via aerocapture_rs.nn_forward.
+`rl/train.py::_derive_hidden_shapes`; PSO still bypasses V2Policy and evaluates
+through aerocapture_rs.run_grid with in-memory weights (nn_forward is the
+equivalence-gate entry only).
 """
 
 from __future__ import annotations

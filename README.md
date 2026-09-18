@@ -401,26 +401,33 @@ Results saved to `output_dir/sensitivity_results.json` with mu_star/sigma (Morri
 
 ## PyO3 Python Bindings
 
-The `aerocapture_rs` Python module provides direct access to the Rust simulator, eliminating subprocess overhead for GA training.
+The `aerocapture_rs` Python module is the one seam between the two languages. Its entries are
+tiered (see the module doc in `src/rust/aerocapture-py/src/lib.rs`): **evaluate** (`run_grid` for
+training, `run_batch` for every deploy-side number, `run_mc`, `run_with_draws`), **config**
+(`validate_config`, `load_config`), **contract** (`candidate_inputs`, `final_record_indices`,
+`layer_schema`, width constants), **nn** utilities, and the RL **env**.
 
 ```python
 import aerocapture_rs as aero
+import numpy as np
 
-# Single run
-result = aero.run("configs/test/test_ref_orig.toml")
-print(f"Captured: {result.captured}, dV: {result.delta_v:.1f} m/s")
+# The deploy path: one override dict per run, parallel via Rayon. One run is a batch of one.
+batch = aero.run_batch("configs/test/test_ref_orig.toml", [{}])
+idx = aero.final_record_indices()
+fr = batch.final_records[0]                                      # (52,)
+print(f"Captured: {batch.captured[0]}, dV: {fr[idx['dv_total_ms']]:.1f} m/s")
 
-# Monte Carlo with trajectory data
+# Per-seed sweeps and parameter overrides are the same call
+overrides = [{"guidance.equilibrium_glide.gain_kp": v} for v in [0.1, 0.5, 1.0]]
+batch = aero.run_batch("config.toml", overrides)
+
+# One config with its own n_sims, with trajectory data
 mc = aero.run_mc("config.toml", overrides={"simulation.n_sims": 1000},
                  include_trajectories=True)
 print(f"Final records: {mc.final_records.shape}")       # (1000, 52)
 print(f"Trajectories: {len(mc.trajectories)} arrays")   # list of (N, 17)
 
-# Batch run with per-sim overrides (parallel via Rayon)
-overrides = [{"guidance.equilibrium_glide.gain_kp": v} for v in [0.1, 0.5, 1.0]]
-batch = aero.run_batch("config.toml", overrides)
-
-# Run with pre-computed draws (e.g. SALib sensitivity matrices)
+# Pre-computed dispersion draws (e.g. SALib sensitivity matrices)
 draws = np.zeros((100, 26), dtype=np.float64)  # shape (N, 26)
 result = aero.run_with_draws("config.toml", draws)
 print(f"Dispersions roundtrip: {result.dispersions.shape}")  # (100, 26)

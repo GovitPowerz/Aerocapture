@@ -15,7 +15,8 @@ tests/test_nn_equivalence.py, the `transformer` row of tests/nn_archs.py):
 Note: constructible via `build_layer(TransformerSpec)` (used by warm-start BPTT
 and the cross-language equivalence test). The PPO runtime gate has moved to
 `rl/train.py::_derive_hidden_shapes`; PSO bypasses this module entirely and
-drives the Rust runtime via aerocapture_rs.nn_forward.
+evaluates through aerocapture_rs.run_grid with in-memory weights
+(aerocapture_rs.nn_forward / nn_forward_sequence are the equivalence-gate entries only).
 """
 
 from __future__ import annotations
