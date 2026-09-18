@@ -13,7 +13,7 @@ use crate::gnc::navigation::coordinates::geodetic_from_spherical;
 use crate::integration::events::{self, EventContext, EventDef, EventType};
 use crate::orbit::elements;
 use crate::physics::atmosphere;
-use crate::physics::dynamics::{effective_airspeed, heat_flux};
+use crate::physics::dynamics::loads_at;
 use crate::simulation::photo::push_photo_snapshot;
 use crate::simulation::runner::{
     DEG_TO_RAD, MIN_BOUNCE_ALT_FOR_CRASH_M, SimState, TermReason, ifinal_for,
@@ -102,23 +102,14 @@ pub fn step_one_tick(
         {
             let (alt_for_thermal, _) =
                 geodetic_from_spherical(state.state[0], state.state[1], state.state[2], planet);
-            let aero = state.run_state.aero();
-            let rho_thermal = atmosphere::density(
-                &data.atmosphere,
+            let heat_flux_now = loads_at(
+                &state.state,
                 alt_for_thermal,
-                aero.density_bias,
-                aero.density_perturbation,
-            );
-            let v_eff_thermal = effective_airspeed(
-                state.state[3],
-                state.state[4],
-                state.state[5],
-                state.state[2],
-                alt_for_thermal,
+                state.aoa,
                 data,
-                &aero,
-            );
-            let heat_flux_now = heat_flux(data.capsule.cq, rho_thermal, v_eff_thermal);
+                &state.run_state.aero(),
+            )
+            .heat_flux;
 
             nav_out.heat_flux_fraction = if data.constraints.max_heat_flux > 0.0 {
                 heat_flux_now / data.constraints.max_heat_flux

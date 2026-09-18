@@ -127,7 +127,8 @@ src/rust/src/
     gravity.rs                     — J2/J3/J4 zonal harmonic gravity
     dynamics.rs                    — Equations of motion + the shared aero laws (moved out of runner.rs 2026-09-18, #102): `compute_derivatives` (the plant both integrators step),
                                        `effective_airspeed` (wind-corrected), `heat_flux` (`cq * sqrt(rho) * v_eff^3.05`, the ONE copy of the law -- EOM flux integral, peak tracker,
-                                       photo rows and the guidance thermal fraction all call it) and `aero_loads` (heat flux / pdyn / load factor). Dispersions enter through `AeroDispersions`,
+                                       photo rows and the guidance thermal fraction all call it) and `loads_at(state, altitude, aoa, ...)` (dispersed density + wind-corrected airspeed + heat flux /
+                                       pdyn / load factor at one state; the peak tracker, the photo rows and the thermal fraction call it). Dispersions enter through `AeroDispersions`,
                                        a `Copy` view built by `RunState::aero()`, so physics stays a leaf (no simulation:: import). Every expression is verbatim from the runner: goldens,
                                        `run_grid` and the subprocess bit-identity gate pin it -- never reassociate or `mul_add`
     atmosphere.rs                  — Density lookup (dispersed product floored at 0: a tail OU draw or >100% custom bias can push a factor below -1, and negative rho would NaN the heat flux via
@@ -239,7 +240,7 @@ src/rust/src/
                                        CSV writer in `output.rs` (#102). What stays: `navigate_from_state`, `run_core` + the five adapters, `run_single`, `integrate_step`,
                                        `integrate_adaptive_with_events`, `track_peak_values`, `build_event_defs` / `build_event_ctx`. `SimResult` is `pub(crate)` so `output::write_csv_output`
                                        can take it. `src/rust/tests/entry_fan_agreement.rs` pins the fan (6 golden configs x {legacy, per_draw}, exact `to_bits` equality): (a) run_for_api ==
-                                       run_for_api_with_draws on the config's draws, (b) run_for_api_cell(seed) == run_for_api with `monte_carlo.seed = seed`, `n_sims = 1` (ADR-0004),
+                                       run_for_api_with_draws on the config's draws, trajectories included, (b) run_for_api_cell(seed) == run_for_api with `monte_carlo.seed = seed`, `n_sims = 1` (ADR-0004),
                                        (c) run_single_collect == run_for_api_with_draws on one default draw
     sim_types.rs                   — Foundational sim types: `SimState`, `TermReason`, `SimError` + crash/virtual-DV consts (`CRASH_FLOOR`, `HYPERBOLIC_BASE`, `BOUNCE_ALT_UNSET`, ...); a leaf module
                                        imported by runner/finalize/run_init/tick. runner re-exports these so existing `runner::` paths (incl. the external aerocapture-py crate) still resolve —

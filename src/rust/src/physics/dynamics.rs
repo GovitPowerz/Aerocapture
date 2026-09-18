@@ -2,7 +2,7 @@
 //!
 //! `compute_derivatives` is the plant the integrators step (Gill RK4 and
 //! DOPRI45 both take it as a closure); `effective_airspeed`, `heat_flux` and
-//! `aero_loads` are the aero quantities every consumer (the EOM, peak tracking,
+//! `loads_at` are the aero quantities every consumer (the EOM, peak tracking,
 //! the photo rows, the guidance thermal fractions) must compute identically.
 //! The dispersions enter through `AeroDispersions`, a `Copy` view of the run's
 //! `RunState` (`simulation::init`), so this module depends on `data` and
@@ -82,15 +82,25 @@ pub struct AeroLoads {
     pub load_factor: f64, // m/s^2 (aerodynamic acceleration magnitude)
 }
 
-/// Heat flux, dynamic pressure and load factor from the dispersed density, the
-/// wind-corrected airspeed and the commanded angle of attack (radians, undispersed).
-pub fn aero_loads(
-    rho: f64,
-    v_eff: f64,
+/// Heat flux, dynamic pressure and load factor at one state: the dispersed density
+/// at `altitude`, the wind-corrected airspeed from the state's (V, gamma, psi, lat),
+/// and the commanded angle of attack `aoa` (radians, undispersed). The one place
+/// the peak tracker, the photo rows and the guidance thermal fraction compute them.
+pub fn loads_at(
+    state: &[f64; 8],
+    altitude: f64,
     aoa: f64,
     data: &SimData,
     aero: &AeroDispersions,
 ) -> AeroLoads {
+    let rho = atmosphere::density(
+        &data.atmosphere,
+        altitude,
+        aero.density_bias,
+        aero.density_perturbation,
+    );
+    let v_eff = effective_airspeed(state[3], state[4], state[5], state[2], altitude, data, aero);
+
     let heat_flux = heat_flux(data.capsule.cq, rho, v_eff);
     let pdyn = 0.5 * rho * v_eff * v_eff;
 

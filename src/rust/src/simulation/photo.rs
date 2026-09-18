@@ -11,8 +11,7 @@ use crate::data::{OrbitalElements, SimData};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
 use crate::integration::events::EventRecord;
 use crate::orbit::elements;
-use crate::physics::atmosphere;
-use crate::physics::dynamics::{AeroLoads, aero_loads, effective_airspeed};
+use crate::physics::dynamics::{AeroLoads, loads_at};
 use crate::simulation::init::RunState;
 
 /// The state-derived quantities both row builders share: geodetic position, the
@@ -50,20 +49,10 @@ fn photo_physics(
     let energy = speed_abs * speed_abs / 2.0 - mu / state[0];
     let velocity_radial = state[3] * state[4].sin();
 
-    // Dispersed values (matching track_peak_values) so trajectory plots are
-    // consistent with final_record peak values and constraint classification.
+    // Dispersed loads (the same `loads_at` the peak tracker uses) so trajectory
+    // plots are consistent with final_record peak values and constraint classification.
     let rho_truth = data.atmosphere.density_at(altitude);
-    let aero = run_state.aero();
-    let rho_dispersed = atmosphere::density(
-        &data.atmosphere,
-        altitude,
-        aero.density_bias,
-        aero.density_perturbation,
-    );
-    let v_eff = effective_airspeed(
-        state[3], state[4], state[5], state[2], altitude, data, &aero,
-    );
-    let loads = aero_loads(rho_dispersed, v_eff, aoa, data, &aero);
+    let loads = loads_at(state, altitude, aoa, data, &run_state.aero());
 
     PhotoPhysics {
         altitude,

@@ -10,8 +10,7 @@ use crate::gnc::navigation::estimator::{self, NavigationFilter};
 use crate::integration::dopri45;
 use crate::integration::events::{self, EventAction, EventContext, EventDef, EventRecord};
 use crate::integration::rk4;
-use crate::physics::atmosphere;
-use crate::physics::dynamics::{AeroLoads, aero_loads, compute_derivatives, effective_airspeed};
+use crate::physics::dynamics::{AeroLoads, compute_derivatives, loads_at};
 use crate::simulation::init;
 use crate::simulation::output::{self, PHOTO_LINE_LEN};
 use crate::simulation::photo;
@@ -697,28 +696,13 @@ pub(crate) fn track_peak_values(
     data: &SimData,
     run_state: &init::RunState,
 ) {
-    let v = sim.state[3];
-    let gamma = sim.state[4];
-    let psi = sim.state[5];
-    let lat = sim.state[2];
-    let aero = run_state.aero();
-    let rho = atmosphere::density(
-        &data.atmosphere,
-        altitude,
-        aero.density_bias,
-        aero.density_perturbation,
-    );
-
-    // Wind-corrected velocity for aero-dependent quantities
-    let v_eff = effective_airspeed(v, gamma, psi, lat, altitude, data, &aero);
-
     // Heat flux (W/m²), dynamic pressure (Pa), load factor (m/s²): the shared laws
     // in `physics::dynamics` (same operands as dflux in compute_derivatives).
     let AeroLoads {
         heat_flux,
         pdyn,
         load_factor,
-    } = aero_loads(rho, v_eff, sim.aoa, data, &aero);
+    } = loads_at(&sim.state, altitude, sim.aoa, data, &run_state.aero());
 
     if heat_flux > sim.max_heat_flux {
         sim.max_heat_flux = heat_flux;

@@ -75,16 +75,34 @@ fn entry_points_agree(#[case] config: &str, #[values(false, true)] per_draw: boo
     let n_sims = cfg.n_sims as usize;
     assert!(n_sims > 1, "{config}: the fan-out case needs a batch");
 
-    // (a) the config's own draws through the external-draw adapter.
-    let batch = runner::run_for_api(&cfg, &data, false, None).expect("run_for_api");
+    // (a) the config's own draws through the external-draw adapter, trajectories on so
+    //     the photo rows + `project_trajectory` are on the same exact footing.
+    let batch = runner::run_for_api(&cfg, &data, true, None).expect("run_for_api");
     let dc = data.dispersion_config.as_ref().expect("dispersions on");
     let draws = dc.generate_draws(n_sims);
     let with_draws =
-        runner::run_for_api_with_draws(&cfg, &data, draws, false, None).expect("with_draws");
+        runner::run_for_api_with_draws(&cfg, &data, draws, true, None).expect("with_draws");
     assert_eq!(batch.len(), n_sims);
     assert_eq!(with_draws.len(), n_sims);
     for (k, (x, y)) in batch.iter().zip(&with_draws).enumerate() {
-        assert_same(&format!("{config} [{regime}] (a) sim {k}"), x, y);
+        let label = format!("{config} [{regime}] (a) sim {k}");
+        assert_same(&label, x, y);
+        assert!(
+            !x.trajectory.is_empty(),
+            "{label}: trajectory requested but empty"
+        );
+        assert_eq!(
+            x.trajectory.len(),
+            y.trajectory.len(),
+            "{label}: trajectory length"
+        );
+        for (t, (row_x, row_y)) in x.trajectory.iter().zip(&y.trajectory).enumerate() {
+            assert_eq!(
+                bits(row_x),
+                bits(row_y),
+                "{label}: trajectory row {t} differs"
+            );
+        }
     }
 
     // (b) one grid cell == the per-seed batch path (monte_carlo.seed = seed, n_sims = 1).
