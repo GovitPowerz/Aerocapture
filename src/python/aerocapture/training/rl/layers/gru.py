@@ -53,7 +53,7 @@ class GruLayer(nn.Module):
         """Canonical flat order: weight_ih row-major, weight_hh row-major, bias_ih, bias_hh.
 
         Matches Rust `LayerWeights for GruLayer::to_flat` in
-        src/rust/src/data/neural.rs.
+        src/rust/src/data/neural/layers/gru.rs.
         """
         return np.concatenate(
             [

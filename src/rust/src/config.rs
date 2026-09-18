@@ -249,7 +249,7 @@ impl TomlConfig {
 // ─── Network TOML struct ───
 
 /// v2 layer spec mirrored into TOML via [[network.architecture]] array-of-tables.
-/// Mirrors the Rust `LayerSpec` in `data/neural.rs`; kept separate to keep the
+/// Mirrors the Rust `LayerSpec` in `data/neural/mod.rs`; kept separate to keep the
 /// TOML layer Activation-as-string (TOML parsing) vs the data layer Activation-enum
 /// (runtime typing). `to_layer_spec()` bridges them.
 #[derive(Debug, Clone, Deserialize)]

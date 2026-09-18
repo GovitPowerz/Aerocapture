@@ -63,7 +63,7 @@ class WindowLayer(nn.Module):
         """Zero trainable parameters; flat representation is empty.
 
         Matches Rust `LayerWeights for WindowLayer::to_flat` in
-        src/rust/src/data/neural.rs.
+        src/rust/src/data/neural/layers/window.rs.
         """
         return np.array([], dtype=np.float64)
 
