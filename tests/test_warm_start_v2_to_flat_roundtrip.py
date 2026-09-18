@@ -7,7 +7,7 @@ forward at <1e-10.
 
 Shape tests assert that each layer's flat representation matches the byte
 budget of the Rust LayerWeights::n_params contract (gold reference:
-src/rust/src/data/neural.rs).
+src/rust/src/data/neural/mod.rs).
 """
 
 from __future__ import annotations

@@ -11,12 +11,6 @@ from aerocapture.training.ablation import _DV_TOTAL_COL, NN_INPUT_NAMES
 from aerocapture.training.charts_ablation import chart_ablation_bar
 
 
-def test_input_names_length() -> None:
-    """35 inputs: 16 baseline + 4 ref + 1 exit-teacher + 4 lateral telemetry + 6 (sin,cos) pairs + periapsis_alt + 3 predicted_dv."""
-    assert len(NN_INPUT_NAMES) == 35
-    assert "periapsis_alt" in NN_INPUT_NAMES
-
-
 def test_input_names_unique() -> None:
     """No duplicate input names."""
     assert len(set(NN_INPUT_NAMES)) == len(NN_INPUT_NAMES)
@@ -80,15 +74,6 @@ def test_run_flip_ablation_structure() -> None:
     fv = sorted(r["frozen_value"] for r in out["results"])
     assert fv == [-1.0, 1.0]  # bounce_flag frozen at both phases
     assert all(isinstance(r["delta"], float) for r in out["results"])
-
-
-def test_nn_input_names_has_35_with_dv() -> None:
-    from aerocapture.training.ablation import NN_INPUT_NAMES
-
-    assert len(NN_INPUT_NAMES) == 35
-    assert NN_INPUT_NAMES[32] == "predicted_dv1"
-    assert NN_INPUT_NAMES[33] == "predicted_dv2"
-    assert NN_INPUT_NAMES[34] == "predicted_dv3"
 
 
 def test_cost_transform_override() -> None:

@@ -2,7 +2,7 @@
 
 Shared between RL training (report_rl.py post-training analysis), test code,
 and any Python-side consumer that needs the torch model. Rust side uses its own
-loader in data/neural.rs; this module is the Python equivalent.
+loader in data/neural/mod.rs; this module is the Python equivalent.
 """
 
 from __future__ import annotations

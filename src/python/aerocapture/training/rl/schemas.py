@@ -1,6 +1,6 @@
 """Pydantic schemas for NN model JSON v2 format.
 
-Mirror of the Rust serde types in src/rust/src/data/neural.rs.
+Mirror of the Rust serde types in src/rust/src/data/neural/mod.rs.
 Adding a new layer type means: add a *Spec class, list it in LayerSpec, and
 add the matching Rust variant. No other file in this module changes.
 """

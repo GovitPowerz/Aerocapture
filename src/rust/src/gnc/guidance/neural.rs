@@ -3,21 +3,15 @@
 //! Feedforward network computing bank angle from navigation state.
 //! Supports arbitrary layer architectures via NeuralNetModel.
 //!
-//! 35 candidate inputs (selected by configurable `input_mask`):
-//!   0  eccentricity_excess    8  altitude              16 cos_bank_nominal       21 inclination_err_rate
-//!   1  inclination_error      9  fpa                   17 pdyn_nominal           22 prev_bank_signed
-//!   2  radial_velocity       10  latitude              18 hdot_nominal           23 time_since_sign_flip
-//!   3  orbital_energy        11  drag_accel            19 pdyn_error             24 inclination_err_integral
-//!   4  velocity              12  lift_accel            20 exit_bank_teacher      25 exit_bank_sin
-//!   5  accel_magnitude       13  sma_error             26 exit_bank_cos          27 prev_bank_signed_sin
-//!   6  heat_flux_fraction    14  apoapsis_alt          28 prev_bank_signed_cos   29 prev_realized_sin
-//!   7  heat_load_fraction    15  bounce_flag           30 prev_realized_cos      31 periapsis_alt
-//!  32 predicted_dv1          33 predicted_dv2          34 predicted_dv3
+//! The 35 candidate inputs (selected by configurable `input_mask`) are named
+//! by `data::neural::NN_INPUT_NAMES` and normalized per `DEFAULT_NORMALIZATION`
+//! (both in `data/neural/mod.rs`, the single owner of the contract); the
+//! index-commented `raw[i]` fills in `build_nn_input` below are the readable map.
 //!
 //! Wide-range inputs (2,3,5,11,12,13,14,18,19,31) and the 3 live correction-DV
 //! inputs (32,33,34) use `asinh((raw - center)/scale)`; bounded inputs use affine
 //! `(raw - center)/scale`. Per-input transforms live in `DEFAULT_NORMALIZATION`
-//! (data/neural.rs) or the model's embedded `normalization` block; scales are
+//! (data/neural/mod.rs) or the model's embedded `normalization` block; scales are
 //! data-driven via `calibrate_inputs.py`. The DV inputs are computed by the smooth
 //! `maneuver::predicted_dv_for_nn` (no pre-capture sentinel).
 //!

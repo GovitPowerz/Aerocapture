@@ -1,6 +1,6 @@
 """Export trained PyTorch policies to the NeuralNetModel JSON format.
 
-Rust format (from src/rust/src/data/neural.rs NnJsonFile):
+Rust format (from src/rust/src/data/neural/mod.rs NnJsonFile):
 {
   "format_version": 1,
   "architecture": {"layers": [input_dim, hidden1, ..., output_dim], "activations": ["tanh", ...]},

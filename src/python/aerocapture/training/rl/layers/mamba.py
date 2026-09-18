@@ -5,7 +5,7 @@ the PPO training path. PSO training bypasses this module entirely -- it goes
 through `aerocapture_rs.flat_weights_to_json` + the Rust forward runtime.
 
 The manual `_softplus` / `_expm1_over_x` helpers are 1-for-1 equivalents of the
-Rust `pub(crate)` free functions in `src/rust/src/data/neural.rs`. Both sides
+Rust `pub(crate)` free functions in `src/rust/src/data/neural/layers/helpers.rs`. Both sides
 must produce bit-identical f64 output (verified by Task 14's equivalence test).
 """
 

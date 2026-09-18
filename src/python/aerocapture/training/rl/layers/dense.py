@@ -41,7 +41,7 @@ class DenseLayer(nn.Module):
         """Canonical flat weight order: W (row-major, [out, in]) then b.
 
         Matches Rust `LayerWeights for DenseLayer::to_flat` in
-        src/rust/src/data/neural.rs.
+        src/rust/src/data/neural/layers/dense.rs.
         """
         w = self.linear.weight.detach().cpu().numpy().astype(np.float64)
         b = self.linear.bias.detach().cpu().numpy().astype(np.float64)

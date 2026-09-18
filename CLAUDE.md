@@ -23,11 +23,11 @@ the signed components of `maneuver::predicted_dv_for_nn` evaluated per tick on t
 (vis-viva, the Δv to shed excess energy and bring apoapsis to target -- large pre-capture, ~0 near target), dv2 = periapsis-correction (apoapsis-referenced, `->0` for hyperbolic as the continuous
 limit), dv3 = inclination plane change. All three are defined and SMOOTH across the `e=1` boundary -- there is NO sentinel (the prior `+1.5` dead pre-capture signal was removed). `predicted_dv_for_nn`
 is distinct from `compute_deltav` (the terminal-maneuver plan in `runner.rs`, unchanged). Normalization is a single uniform per-input transform `norm = transform((raw - center) / scale)` with
-`transform in {none, asinh, tanh}` (divisor form: `scale` = characteristic magnitude, `center` = subtracted offset, `apply_norm` in `data/neural.rs`). `build_nn_input` extracts raw scalars into a
+`transform in {none, asinh, tanh}` (divisor form: `scale` = characteristic magnitude, `center` = subtracted offset, `apply_norm` in `data/neural/mod.rs`). `build_nn_input` extracts raw scalars into a
 `[f64; NN_FULL_INPUT_SIZE]` then applies the per-input spec in a uniform loop (extract-then-normalize); the only input-specific extraction left non-trivial is the angle->(sin,cos) pairs. The specs are
 resolved from the model JSON's embedded `normalization` block (self-describing, like `output_param`; emitted by `save_json` and by the PSO `flat_weights_to_json` path), overridable via TOML
 `[network.normalization]` (35 entries, length-validated at load; the model-embedded block is length-validated too -- a wrong-sized block from an older input-width era hard-errors instead of silently
-reverting to DEFAULT), falling back to the baked `DEFAULT_NORMALIZATION` table (`data/neural.rs`, the single Rust source of truth) when absent. Scales are data-driven via `calibrate_inputs.py` (a
+reverting to DEFAULT), falling back to the baked `DEFAULT_NORMALIZATION` table (`data/neural/mod.rs`, the single Rust source of truth) when absent. Scales are data-driven via `calibrate_inputs.py` (a
 `tail_ratio` statistic picks asinh for heavy-tailed inputs vs affine for near-bounded, with a two-parameter endpoint fit mapping each input's [p5,p95] to [-1,1]; the trace is inverted with the SIM's
 resolved normalization so recovery is exact). The per-tick candidate trace recorded for `collect_supervised`/`collect_nn_inputs` uses a full mask of width `NN_FULL_INPUT_SIZE`.
 `NN_FULL_INPUT_SIZE = 35`. The NN output is decoded per `output_param`: `atan2_signed` (2-output signed) or `acos_tanh` (1-output magnitude, `magnitude_only`), plus two `full_neural` decoders that
@@ -158,7 +158,7 @@ src/rust/src/
                                        periapsis, dv2 periapsis-correction `->0` hyperbolic, dv3 inclination; defined + smooth across `e=1`, NO sentinel; `compute_deltav` is the separate
                                        terminal-maneuver fn). `build_nn_input` extracts raw scalars then applies a uniform per-input `apply_norm(raw, &NormSpec{transform, scale, center})` =
                                        `transform((raw - center)/scale)` with `transform in {none, asinh, tanh}` (divisor form). Specs resolve from the model's embedded `normalization` block / TOML
-                                       `[network.normalization]` / the `DEFAULT_NORMALIZATION` table (`data/neural.rs`); data-driven via `calibrate_inputs.py`. The TOML override is ALSO carried on
+                                       `[network.normalization]` / the `DEFAULT_NORMALIZATION` table (`data/neural/mod.rs`); data-driven via `calibrate_inputs.py`. The TOML override is ALSO carried on
                                        `SimData::nn_normalization_override` (populated regardless of guidance type), so the `collect_supervised` trace -- a teacher scheme with NO NN model loaded --
                                        normalizes on the same scales the deployed NN uses, avoiding a warm-start train/inference mismatch (`build_nn_input` precedence: loaded model > SimData override
                                        > DEFAULT). Ablation support via ablated_input); `nn_bank_angle(nav, nn, &mut NnState, data, planet, &NnInputContext)` --
@@ -443,8 +443,8 @@ for n_warm_seeds=5000). Best-effort: failure in any (pool, side) records the err
 builds three SVG charts (supervised MSE convergence, supervisor capture-vs-selection bars, per-layer-slab search-space bounds) under `<save_dir>/warm_start_report/`, and -- if Typst is installed --
 compiles them plus the comparison panels into `<save_dir>/warm_start_report.pdf` for a fast visual check between "did supervised pretrain converge?" and "is PSO about to start from a meaningful
 chromosome?". The report is also runnable standalone (`python -m aerocapture.training.warm_start_report <save_dir>`); the comparison section auto-appears when `compare_manifest.json` is present.
-`input_mask` indices are validated at config load to be non-negative and within `[0, NN_FULL_INPUT_SIZE)` (35; Rust `validate_mask` in `data/neural.rs`, Python `_RUNTIME_CANDIDATE_WIDTH` in
-`config.py` — keep both in sync with the const), catching typos before the supervised-collection pass. The deployed NN model file (`best_model.json`) carries `output_param` in its v2 JSON so the
+`input_mask` indices are validated at config load to be non-negative and within `[0, NN_FULL_INPUT_SIZE)` (35; Rust `validate_mask` in `data/neural/mod.rs`; the Python `_RUNTIME_CANDIDATE_WIDTH` in
+`config.py` is derived from the fallback name tuple and asserted equal to the Rust table element-wise by `tests/test_record_index_drift.py`), catching typos before the supervised-collection pass. The deployed NN model file (`best_model.json`) carries `output_param` in its v2 JSON so the
 Rust runtime is fully self-describing -- `compare_guidance.py` and `report.py` reload `best_params.json` alongside it for joint-scaffolding deploys. Cross-language equivalence for `acos_tanh` is
 verified by `tests/test_v2_rust_python_equivalence.py::test_acos_tanh_rust_python_equivalence` to <1e-10. Resume after flipping any of these three knobs is gated by `_check_resume_chromosome_shape`
 (chromosome-width mismatch -> ValueError pointing the user at `--from-scratch`). Spec / plan: `docs/design/2026-05-07-nn-ftc-parity-bundle-design.md` (parity bundle);
@@ -723,7 +723,7 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
     `_FORCE_ASINH` is an optional override forcing listed indices to asinh regardless of tail (empty `set()` by default; `--no-force-asinh` ignores it; the report tags `(forced)` only when the
     override flipped a sub-threshold input); `_SKIP` (15/20-30 -- binary/tanh/sin-cos already in [-1,1]) keeps the current transform untouched. The DV inputs (32-34) calibrate over their full
     distribution (no sentinel -- the DV is now smooth). Emit via `--write-model PATH` (writes the 35-entry block into a model JSON's `normalization` field -- recalibrate without a Rust rebuild) or
-    `--emit-toml PATH` (paste-ready `[network.normalization]` snippet, preserves hand-written comments). Pure helpers (`invert_transform`, `derive_asinh_endpoints`, `derive_affine`, `tail_ratio`,
+    `--emit-toml PATH` (paste-ready `[network.normalization]` snippet regenerated from `NN_INPUT_NAMES`; the committed blocks' `# N name` comment columns are guarded by `tests/test_config_normalization_blocks.py`). Pure helpers (`invert_transform`, `derive_asinh_endpoints`, `derive_affine`, `tail_ratio`,
     `choose_transform`, `_resolve_normalization`) are unit-tested. CLI: `python -m aerocapture.training.calibrate_inputs --toml <config.toml> [--n-sims N] [--target-percentiles LO HI]
     [--tail-threshold T] [--no-force-asinh] [--write-model PATH] [--emit-toml PATH] [--output PATH]`.
   - `ablation.py` — NN input importance analysis: `NN_INPUT_NAMES` (35-name list, matching the 35 candidate inputs incl. the seam-free (sin,cos) bank-history pairs + periapsis_alt at 31 +
@@ -1229,7 +1229,7 @@ so both entry points (JSON via `load_layers`, PSO chromosome via `from_flat_weig
 for instance) do the same: store only trainable parameters in the table, name a `post_load` hook. Mutating `w_k` / `w_v` by hand still requires calling `rebuild_pe_offsets` yourself.
 
 **Rust side:**
-- `data/neural.rs` -- `LayerSpec` tagged enum (`#[serde(tag = "type")]`), `LayerWeights` trait for flat-weight round-trip, `NeuralNetModel::forward(&self, &mut NnState, &[f64])` stateful signature,
+- `data/neural/mod.rs` -- `LayerSpec` tagged enum (`#[serde(tag = "type")]`), `LayerWeights` trait for flat-weight round-trip, `NeuralNetModel::forward(&self, &mut NnState, &[f64])` stateful signature,
   `from_json_str` dispatches on `format_version`.
 - `data/nn_state.rs` -- `NnState`, `LayerState` enum; `NnState::for_model` eager init from model shape; `Clone` for RL rollout snapshots.
 - `gnc/guidance/dispatch.rs` -- `GuidanceState::nn_state: Option<NnState>`, `GuidanceState::new(initial_bank, initial_aoa, nn_model: Option<&NeuralNetModel>)`.
