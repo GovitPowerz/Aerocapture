@@ -1209,7 +1209,7 @@ schema, so they only need a `_spec_entry` branch). Parameter counting (`_layer_n
 (Window) are an empty table: `from_flat` consumes 0 from any slice, `save_json` writes no entry, `_layer_param_specs` returns `[]`, `init_v2_population` contributes a one-line `continue`.
 
 **Multi-tensor hidden states** (LSTM `(h, c)`, future Mamba SSM state, Transformer KV cache) additionally require the set of changes Phase 2a made for LSTM: (a) extend `_zero_state_where_done` in
-`policy.py` with a branch for the new container type (current helper handles `None`, `Tensor`, and `tuple`-of-the-above and raises `TypeError` on anything else to force the extension); (b) add a
+`torch_mirror/policy.py` with a branch for the new container type (current helper handles `None`, `Tensor`, and `tuple`-of-the-above and raises `TypeError` on anything else to force the extension); (b) add a
 `hidden_shapes` arm in `train.py::_derive_hidden_shapes` that packs the multi-tensor state into a single stacked numpy array (LSTM uses `(2, H)`); (c) add matching `ndim == N` dispatch in
 `_np_state_to_torch` / `_torch_state_to_np` in `train.py` to unpack/pack the stacked array to/from the Python container; (d) add matching `ndim == N` dispatch in `ppo.py::ppo_update_bptt` to
 reconstruct the container before calling `policy.evaluate`. The `(B, 2, H)` LSTM stacking convention is deliberate: `done`-mask zeroing via numpy boolean row indexing zeros both `h` and `c` in one

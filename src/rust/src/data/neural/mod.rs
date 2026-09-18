@@ -392,7 +392,7 @@ impl Layer {
 /// once per layer type with `tensor_table!`; `to_flat` / `from_flat` /
 /// `n_params` and the JSON codec are generic walks over that table. The order
 /// is the PSO chromosome contract shared with the PyTorch mirror in
-/// src/python/aerocapture/training/rl/layers/<type>.py -- Python derives it
+/// src/python/aerocapture/training/torch_mirror/layers/<type>.py -- Python derives it
 /// from this same table through `aerocapture_rs.layer_schema`.
 ///
 /// Callers MUST ensure `flat.len() >= self.n_params()` before invoking

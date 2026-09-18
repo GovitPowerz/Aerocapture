@@ -26,7 +26,8 @@ from aerocapture.training.torch_mirror.schemas import MambaSpec, TransformerSpec
 class ObsAffine(Protocol):
     """What the obs-normalizer bake-in reads: `rl.normalizers.ObsNormalizer` satisfies it."""
 
-    _mean: np.ndarray
+    @property
+    def mean(self) -> np.ndarray: ...
 
     @property
     def std(self) -> np.ndarray: ...
@@ -66,12 +67,6 @@ def _split_flat(entry: dict[str, Any], flat: np.ndarray) -> dict[str, np.ndarray
     if off != flat.size:
         raise ValueError(f"{entry['type']} layer: flat slab has {flat.size} values, schema expects {off}")
     return out
-
-
-def _serialize_mamba_layer(layer: MambaLayer) -> dict:
-    """Serialize a MambaLayer to its weights dict, keyed by the Rust tensor-table names
-    (x_proj_w, dt_proj_w, dt_proj_b, a_log, d_skip); values are lists of f64."""
-    return {name: arr.tolist() for name, arr in _split_flat(_spec_entry(layer), layer.to_flat()).items()}
 
 
 def _check_obs_norm_bake_compatibility(
@@ -143,7 +138,7 @@ def export_v2_policy_to_json(
             continue  # zero-param layer (Window): no weights entry
         if i == 0 and obs_normalizer is not None:
             # Only Dense passes _check_obs_norm_bake_compatibility: fold the affine into W/b.
-            mean = obs_normalizer._mean.astype(np.float64)
+            mean = obs_normalizer.mean.astype(np.float64)
             std = obs_normalizer.std.astype(np.float64)
             w, b = tensors["w"], tensors["b"]
             tensors = {"w": w / std, "b": b - w @ (mean / std)}

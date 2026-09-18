@@ -112,6 +112,10 @@ class ObsNormalizer:
         self._m2 = np.zeros(obs_dim, dtype=np.float64)
 
     @property
+    def mean(self) -> npt.NDArray[np.float64]:
+        return self._mean
+
+    @property
     def std(self) -> npt.NDArray[np.float64]:
         if self._count < 2:
             return np.ones(self.obs_dim, dtype=np.float64)

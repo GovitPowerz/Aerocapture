@@ -1,7 +1,7 @@
 //! Shared numerical helpers for the layer forward passes.
 //!
 //! All reductions are sequential FIFO so the Rust output is bit-identical to
-//! the PyTorch mirror in `src/python/aerocapture/training/rl/layers/`.
+//! the PyTorch mirror in `src/python/aerocapture/training/torch_mirror/layers/`.
 
 #[inline]
 pub(crate) fn gelu_exact(z: f64) -> f64 {
@@ -57,7 +57,7 @@ pub(crate) fn build_pe_table(n_seq: usize, d_model: usize) -> Vec<Vec<f64>> {
 /// Numerically stable softplus: `log(1 + exp(x))`.
 ///
 /// Uses `max(x, 0) + log1p(exp(-|x|))` to avoid overflow for large positive x
-/// and underflow for large negative x. The Python mirror in `rl/layers/mamba.py`
+/// and underflow for large negative x. The Python mirror in `torch_mirror/layers/mamba.py`
 /// uses the identical manual form (NOT `torch.nn.functional.softplus`, which has a
 /// `threshold=20` linear-branch fallback we do not want for bit-equivalence).
 pub(crate) fn softplus(x: f64) -> f64 {
