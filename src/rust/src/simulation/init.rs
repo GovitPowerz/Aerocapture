@@ -6,6 +6,7 @@ use crate::data::dispersions::DispersionDraw;
 use crate::data::{EntryConditions, SimData};
 use crate::gnc::control::pilot::PilotBiases;
 use crate::gnc::navigation::estimator::NavigationBiases;
+use crate::physics::dynamics::AeroDispersions;
 
 /// Per-simulation-run state after applying dispersions.
 ///
@@ -30,6 +31,23 @@ pub struct RunState {
     pub noise_seed: u64, // FNV-1a hash of the draw; stream seed under NoiseSeeding::PerDraw
     pub nav_biases: NavigationBiases,
     pub pilot_biases: PilotBiases,
+}
+
+impl RunState {
+    /// The biases the aerodynamics read (`physics::dynamics`), as a `Copy` view.
+    pub fn aero(&self) -> AeroDispersions {
+        AeroDispersions {
+            density_bias: self.density_bias,
+            density_perturbation: self.density_perturbation,
+            cx_bias: self.cx_bias,
+            cz_bias: self.cz_bias,
+            mass_bias: self.mass_bias,
+            incidence_bias: self.incidence_bias,
+            ref_area_bias: self.ref_area_bias,
+            wind_scale: self.wind_scale,
+            wind_direction_bias: self.wind_direction_bias,
+        }
+    }
 }
 
 /// Per-draw stochastic-stream seed: FNV-1a over the draw's bit patterns, so it

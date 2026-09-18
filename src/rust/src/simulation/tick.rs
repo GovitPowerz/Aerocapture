@@ -13,10 +13,12 @@ use crate::gnc::navigation::coordinates::geodetic_from_spherical;
 use crate::integration::events::{self, EventContext, EventDef, EventType};
 use crate::orbit::elements;
 use crate::physics::atmosphere;
+use crate::physics::dynamics::{effective_airspeed, heat_flux};
+use crate::simulation::photo::push_photo_snapshot;
 use crate::simulation::runner::{
-    DEG_TO_RAD, MIN_BOUNCE_ALT_FOR_CRASH_M, SimState, TermReason, build_photo_values,
-    effective_airspeed, ifinal_for, integrate_adaptive_with_events, integrate_step,
-    navigate_from_state, promote_pending_crash_if_applicable, track_peak_values,
+    DEG_TO_RAD, MIN_BOUNCE_ALT_FOR_CRASH_M, SimState, TermReason, ifinal_for,
+    integrate_adaptive_with_events, integrate_step, navigate_from_state,
+    promote_pending_crash_if_applicable, track_peak_values,
 };
 
 /// Outcome of one outer guidance tick.
@@ -100,11 +102,12 @@ pub fn step_one_tick(
         {
             let (alt_for_thermal, _) =
                 geodetic_from_spherical(state.state[0], state.state[1], state.state[2], planet);
+            let aero = state.run_state.aero();
             let rho_thermal = atmosphere::density(
                 &data.atmosphere,
                 alt_for_thermal,
-                state.run_state.density_bias,
-                state.run_state.density_perturbation,
+                aero.density_bias,
+                aero.density_perturbation,
             );
             let v_eff_thermal = effective_airspeed(
                 state.state[3],
@@ -113,9 +116,9 @@ pub fn step_one_tick(
                 state.state[2],
                 alt_for_thermal,
                 data,
-                &state.run_state,
+                &aero,
             );
-            let heat_flux_now = data.capsule.cq * rho_thermal.sqrt() * v_eff_thermal.powf(3.05);
+            let heat_flux_now = heat_flux(data.capsule.cq, rho_thermal, v_eff_thermal);
 
             nav_out.heat_flux_fraction = if data.constraints.max_heat_flux > 0.0 {
                 heat_flux_now / data.constraints.max_heat_flux
@@ -272,30 +275,7 @@ pub fn step_one_tick(
 
     // === Photo snapshot ===
     if state.write_photo && flags.photo {
-        let sim_time = state.sim_time;
-        let dynamic_pressure_for_photo = state.dynamic_pressure_for_photo;
-        let density_estimate_for_photo = state.density_estimate_for_photo;
-        let sim_idx = state.sim_idx;
-        let cumulative_bank_change_deg = state.cumulative_bank_change_deg;
-        let density_gain = state.nav_filter.density_gain();
-        let run_state_snap = state.run_state;
-        let cumulative_flux = state.state[6];
-        let guidance_phase_for_photo = state.guidance_phase_for_photo;
-        let photo_line = build_photo_values(
-            state,
-            sim_time,
-            planet,
-            dynamic_pressure_for_photo,
-            density_estimate_for_photo,
-            sim_idx + 1,
-            cumulative_bank_change_deg * DEG_TO_RAD,
-            data,
-            density_gain,
-            &run_state_snap,
-            cumulative_flux,
-            guidance_phase_for_photo,
-        );
-        state.photo_lines.push(photo_line);
+        push_photo_snapshot(state, planet, data);
     }
 
     // === Integration step ===

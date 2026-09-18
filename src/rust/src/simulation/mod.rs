@@ -4,6 +4,7 @@ pub mod final_record;
 pub(crate) mod finalize;
 pub mod init;
 pub mod output;
+pub(crate) mod photo;
 pub(crate) mod run_init;
 pub mod runner;
 pub(crate) mod sim_types;
