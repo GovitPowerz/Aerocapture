@@ -22,8 +22,9 @@
 
 #full-width-chart(dir + "/parameter_evolution.svg")
 
-#if meta.at("has_seed_pool", default: false) {
-  full-width-chart(dir + "/seed_pool.svg")
+#if meta.at("has_islands", default: false) {
+  full-width-chart(dir + "/island_convergence.svg")
+  full-width-chart(dir + "/migration_timeline.svg")
 }
 
 #pagebreak()

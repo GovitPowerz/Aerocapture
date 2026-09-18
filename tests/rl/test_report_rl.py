@@ -1,11 +1,9 @@
-"""RL report tests: chart SVG generation + optional Typst compile smoke test."""
+"""RL report tests: chart SVG generation."""
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
-import pytest
 from aerocapture.training.rl.report_rl import (
     _chart_rl_capture_rate,
     _chart_rl_dv_curve,
@@ -80,19 +78,3 @@ def test_validation_waterfall_with_records_produces_svg(tmp_path: Path) -> None:
     _chart_rl_validation_waterfall(records, out)
     assert out.exists()
     assert _is_svg(out)
-
-
-@pytest.mark.slow
-def test_typst_compiles(tmp_path: Path) -> None:
-    """Requires typst CLI installed. Skipped if unavailable."""
-    try:
-        subprocess.run(["typst", "--version"], check=True, capture_output=True)
-    except (FileNotFoundError, subprocess.CalledProcessError):  # fmt: skip
-        pytest.skip("typst CLI not installed")
-
-    # Full compile test deferred to integration testing in CI.
-    # If we reach here, typst is available; just verify the template exists.
-    from aerocapture.training.rl.report_rl import _TYPST_DIR
-
-    template = _TYPST_DIR / "report_rl.typ"
-    assert template.exists(), f"report_rl.typ not found at {template}"

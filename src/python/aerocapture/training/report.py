@@ -13,9 +13,7 @@ Usage:
 from __future__ import annotations
 
 import json
-import shutil
 import sys
-import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,14 +25,7 @@ import numpy.typing as npt
 from aerocapture.training import charts
 from aerocapture.training.deploy_overrides import resolve_eval_toml
 from aerocapture.training.metrics import convergence_speed, stagnation_count
-from aerocapture.training.typst_utils import check_typst, compile_typst
-
-# ---------------------------------------------------------------------------
-# Typst template directory — src/typst/ relative to this file
-# report.py lives at src/python/aerocapture/training/report.py
-# typst dir lives at src/typst/
-# ---------------------------------------------------------------------------
-_TYPST_DIR = Path(__file__).resolve().parent.parent.parent.parent / "typst"
+from aerocapture.training.report_render import render_pdf, staged_assets
 
 # Percentiles for summary table
 _PERCENTILES = [5, 25, 50, 75, 95]
@@ -377,6 +368,7 @@ def _build_metadata(
     has_final_eval: bool,
     toml_path: Path | None,
     has_cost_distribution: bool,
+    has_islands: bool,
 ) -> dict:
     """Build metadata dict for the Typst cover page."""
     scheme = records[0].get("scheme", scheme_dir.name) if records else scheme_dir.name
@@ -410,6 +402,7 @@ def _build_metadata(
         "has_trajectories": has_trajectories,
         "has_final_eval": has_final_eval,
         "has_cost_distribution": has_cost_distribution,
+        "has_islands": has_islands,
     }
 
 
@@ -845,7 +838,10 @@ def _render_report_assets(
     sensitivity: bool,
 ) -> None:
     """RENDER phase: write all SVG charts + metadata.json + summary_table.json to tmp_dir."""
-    # Part 1: training convergence charts
+    # Part 1: training convergence charts. Same islands detection as
+    # _generate_training_charts: the flag tells report.typ to include the two
+    # islands panels it renders.
+    has_islands = any("island_name" in r for r in payload.records)
     has_cost_distribution = _generate_training_charts(payload.records, payload.resume_gens, tmp_dir, scheme_dir)
 
     # Part 2: mission performance charts (only when eval produced trajectories).
@@ -881,6 +877,7 @@ def _render_report_assets(
         has_final_eval=payload.final_records is not None,
         toml_path=toml_path,
         has_cost_distribution=has_cost_distribution,
+        has_islands=has_islands,
     )
     metadata.update(sensitivity_flags)
     (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
@@ -924,37 +921,9 @@ def generate_report(
     if payload is None:
         return None
 
-    # Create temp directory for artifacts
-    tmp_dir = Path(tempfile.mkdtemp(prefix="aerocapture_report_"))
-
-    try:
+    with staged_assets(keep=keep_artifacts) as tmp_dir:
         _render_report_assets(payload, tmp_dir, scheme_dir, toml_path, sensitivity)
-
-        # Compile PDF via Typst
-        if not check_typst():
-            print("Typst CLI not found — skipping PDF compilation")
-            if keep_artifacts:
-                print(f"Chart artifacts available at: {tmp_dir}")
-            return None
-
-        output_pdf = scheme_dir / "report.pdf"
-        template = _TYPST_DIR / "report.typ"
-
-        ok = compile_typst(
-            template,
-            output_pdf,
-            extra_args=["--root", "/", "--input", f"dir={tmp_dir}"],
-            label="report",
-        )
-        if not ok:
-            return None
-
-        print(f"\nReport saved to {output_pdf}")
-        return output_pdf
-
-    finally:
-        if not keep_artifacts:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+        return render_pdf("report", tmp_dir, scheme_dir / "report.pdf", label="report")
 
 
 # ---------------------------------------------------------------------------
@@ -1052,9 +1021,7 @@ def generate_comparison_report(
         print("No valid scheme data found")
         return None
 
-    tmp_dir = Path(tempfile.mkdtemp(prefix="aerocapture_comparison_"))
-
-    try:
+    with staged_assets(keep=keep_artifacts, prefix="aerocapture_comparison_") as tmp_dir:
         # Generate comparison chart
         charts.chart_comparison_convergence(all_data, tmp_dir / "comparison_convergence.svg")
 
@@ -1072,29 +1039,7 @@ def generate_comparison_report(
         }
         (tmp_dir / "comparison_table.json").write_text(json.dumps(comparison_table, indent=2))
 
-        # Compile PDF
-        if not check_typst():
-            print("Typst CLI not found — skipping PDF compilation")
-            return None
-
-        output_pdf = training_output_dir / "comparison_report.pdf"
-        template = _TYPST_DIR / "comparison.typ"
-
-        ok = compile_typst(
-            template,
-            output_pdf,
-            extra_args=["--root", "/", "--input", f"dir={tmp_dir}"],
-            label="comparison_report",
-        )
-        if not ok:
-            return None
-
-        print(f"Comparison report saved to {output_pdf}")
-        return output_pdf
-
-    finally:
-        if not keep_artifacts:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+        return render_pdf("comparison", tmp_dir, training_output_dir / "comparison_report.pdf", label="comparison_report")
 
 
 # ---------------------------------------------------------------------------

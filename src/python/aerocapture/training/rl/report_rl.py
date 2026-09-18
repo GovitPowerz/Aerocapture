@@ -3,19 +3,14 @@
 from __future__ import annotations
 
 import json
-import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 
 from aerocapture.training import charts
 from aerocapture.training import report as ga_report
+from aerocapture.training.report_render import render_pdf, staged_assets
 from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
 from aerocapture.training.toml_utils import load_toml_with_bases
-from aerocapture.training.typst_utils import check_typst, compile_typst
-
-# Typst template is in src/typst/, two levels up from src/python/aerocapture/training/rl/
-_TYPST_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "typst"
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -39,9 +34,7 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
     jsonl_path = jsonl_files[-1]  # most recent
     records = _load_jsonl(jsonl_path)
 
-    tmp_dir = Path(tempfile.mkdtemp(prefix="aerocapture_rl_report_"))
-
-    try:
+    with staged_assets(prefix="aerocapture_rl_report_") as tmp_dir:
         # Part 1: RL convergence charts
         _chart_rl_return_curve(records, tmp_dir / "rl_return.svg")
         _chart_rl_dv_curve(records, tmp_dir / "rl_dv.svg")
@@ -127,23 +120,7 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
         metadata.update(sensitivity_flags)
         (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
 
-        # Compile PDF
-        if not check_typst():
-            print("Typst CLI not found -- SVG charts written but PDF skipped")
-            print(f"  Chart artifacts: {tmp_dir}")
-            return None
-
-        output_pdf = output_dir / "report.pdf"
-        template = _TYPST_DIR / "report_rl.typ"
-
-        if not compile_typst(template, output_pdf, extra_args=["--root", "/", "--input", f"dir={tmp_dir}"], label="rl_report"):
-            return None
-
-        print(f"\nRL report saved to {output_pdf}")
-        return output_pdf
-
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return render_pdf("report_rl", tmp_dir, output_dir / "report.pdf", label="rl_report")
 
 
 def _today() -> str:

@@ -462,7 +462,7 @@ warm-start chromosome, dropping any scaffolding tail), then `run_batch` is dispa
 to inject `best_params.json` overrides matching the warm-start collection pass. Memory is bounded by processing one (pool, side) at a time and freeing trajectories before the next call (peak ~600 MB
 for n_warm_seeds=5000). Best-effort: failure in any (pool, side) records the error in the manifest and the rest of the report still renders. Then `aerocapture.training.warm_start_report.render_report`
 builds three SVG charts (supervised MSE convergence, supervisor capture-vs-selection bars, per-layer-slab search-space bounds) under `<save_dir>/warm_start_report/`, and -- if Typst is installed --
-compiles them plus the comparison panels into `<save_dir>/warm_start_report.pdf` for a fast visual check between "did supervised pretrain converge?" and "is PSO about to start from a meaningful
+compiles them plus the comparison panels via `src/typst/warm_start_report.typ` into `<save_dir>/warm_start_report.pdf` for a fast visual check between "did supervised pretrain converge?" and "is PSO about to start from a meaningful
 chromosome?". The report is also runnable standalone (`python -m aerocapture.training.warm_start_report <save_dir>`); the comparison section auto-appears when `compare_manifest.json` is present.
 `input_mask` indices are validated at config load to be non-negative and within `[0, NN_FULL_INPUT_SIZE)` (35; Rust `validate_mask` in `data/neural/mod.rs`; the Python `_RUNTIME_CANDIDATE_WIDTH` in
 `config.py` is derived from the fallback name tuple and asserted equal to the Rust table element-wise by `tests/test_record_index_drift.py`), catching typos before the supervised-collection pass. The deployed NN model file (`best_model.json`) carries `output_param` in its v2 JSON so the
@@ -769,8 +769,8 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
     inputs × {time, energy}) plus a per-input `summary.json` (`input_summary`: p1/p50/p99, `frac_out_of_range` saturation = fraction of samples with |value|>1, blue-vs-red `separation` =
     |Δmean|/pooled-σ). `_resolve_mask` prefers the deployed `best_model.json`'s embedded `input_mask` (what the runtime uses) over the TOML for "(unused)" panel greying. CLI: `python -m
     aerocapture.training.nn_input_report <training_dir> --toml <config.toml> [--n-sims N] [--dv-threshold F] [--output-dir DIR]`. Outputs under `<training_dir>/nn_input_report/`: 70 SVGs,
-    `summary.json`, and `nn_input_report.pdf` (via `_compile_pdf` -> a self-contained Typst template paginating the panels most-saturated-first + the summary table; guarded on `shutil.which("typst")`,
-    degrades to SVGs+JSON if Typst is absent -- mirrors `warm_start_report.py`).
+    `summary.json`, and `nn_input_report.pdf` (via `_compile_pdf` -> `report_render.render_pdf` over `src/typst/nn_input_report.typ`, paginating the panels most-saturated-first + the summary
+    table; degrades to SVGs+JSON if Typst is absent -- mirrors `warm_start_report.py`).
   - `charts_nn_inputs.py` — `chart_nn_input_panel(...)`: per-input panel with blue/red DV-class spaghetti + per-class p5–p95 envelope (via `binned_band`, x-axis binning that tolerates ragged
     lengths + non-monotonic energy) + ±1 guide lines; greyed/"(unused)" title for inputs outside the model's mask. SVG output.
   - `problem.py` — `AerocaptureProblem(Problem)` pymoo subclass: bridges population-level evaluation with the Rust simulator. Operates on normalized [0,1] decision variables; decodes via
@@ -805,14 +805,16 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
     `create_display(..., algorithm=)` threads the optimizer name into the header.
   - `report.py` — PDF report orchestrator: loads JSONL training logs + runs final MC re-evaluation (using reserved seeds via `run_batch` to guarantee no overlap with training/validation; the
     evaluated NN is pinned to `<scheme_dir>/best_model.json` when present -- the TOML's shared `[data] neural_network` deploy path is rewritten by every checkpoint of every `--output-dir` sibling run,
-    so reading it would score a foreign model under concurrent runs), generates SVG charts via `charts.py`, writes metadata/summary JSON, invokes `typst compile` to produce a single PDF. Three-part
-    structure: Part 1 (Training Convergence: cost curves, diversity, cost distribution, parameter evolution, seed pool), Part 2 (Mission Performance: corridor plots with zone fills +
+    so reading it would score a foreign model under concurrent runs), generates SVG charts via `charts.py`, writes metadata/summary JSON, and hands off to the shared render spine in
+    `report_render.py` (`staged_assets` + `render_pdf`) to produce a single PDF. Three-part
+    structure: Part 1 (Training Convergence: cost curves, diversity, cost distribution, parameter evolution, islands panels when present), Part 2 (Mission Performance: corridor plots with zone fills +
     undispersed/best-DV nominal overlays, altitude/heat flux/g-load/bank angle/density ratio vs time with constraint limit lines, DV distributions, entry/exit conditions, performance summary table
     with constraint violation rates, dispersion correlations with three-way classification), and optional Part 3 (Sensitivity Analysis: Morris scatter, Sobol bar chart, Sobol S2 heatmap — enabled
     via `--sensitivity` flag when `<scheme_dir>/sensitivity/sensitivity_results.json` exists). `load_run_data` deduplicates JSONL records by `(generation, island_name)` (not by `generation` alone) so
     islands runs preserve all 3 per-gen records; single-algo records have no `island_name` and dedup by `(gen, None)` matching the legacy behavior. `_generate_training_charts` detects islands mode by
-    presence of `island_name` and renders `chart_island_convergence_overlay` + `chart_migration_timeline` alongside the regular convergence/diversity/cost-distribution panels (the latter receive only
-    the winning island's slice -- chosen by lowest validated `rms_cost`, else lowest per-gen `best_cost`, the keys the logger actually writes -- so the cost curves stay single-line and readable). The
+    presence of `island_name` and renders `chart_island_convergence_overlay` + `chart_migration_timeline` alongside the regular convergence/diversity/cost-distribution panels (the regular panels
+    receive only the winning island's slice -- chosen by lowest validated `rms_cost`, else lowest per-gen `best_cost`, the keys the logger actually writes -- so the cost curves stay single-line and
+    readable); the two islands panels reach the PDF through the `has_islands` metadata flag read by `report.typ` (fixed in #104 -- before, they were rendered into the temp dir and deleted with it). The
     migration timeline is fed the real `migration_log` loaded from the latest `checkpoint_g*.npz` (`_load_migration_log`), since the log lives only in the npz, not the JSONL. Also produces
     cross-scheme comparison PDFs. Auto-writes `final_eval.parquet` (65-column Parquet with embedded config metadata) alongside the PDF when pyarrow is available. Auto-generated at end of training,
     also standalone CLI: `python -m aerocapture.training.report`
@@ -832,13 +834,19 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
 
 ### Typst Templates (`src/typst/`)
 
-PDF report layout templates compiled by `typst compile`. Receives SVG charts and JSON metadata from a temp directory.
+PDF report layout templates compiled by `typst compile`. Every template is compiled by `aerocapture.training.report_render.render_pdf` (the ONE render spine, #104) with
+`--root / --input dir=<assets>` and reads its SVG charts + JSON metadata via `sys.inputs.at("dir")`; `report_render.TEMPLATES_DIR` is the one template-path constant and
+`staged_assets` owns the temp staging dir (removed unless `keep_artifacts`) for the three report.py / report_rl.py renders; the warm-start / nn-input reports stage directly
+into their persistent output dirs (`warm_start_report/`, nn-input `out_dir`) and call `render_pdf` on them. The typst-absent degrade is one message. `tests/test_report_render.py` is the per-template asset-contract + compile gate (a fixture per template with every optional flag on).
 
 ```
 src/typst/
-  report.typ         — Main report template (cover page + Part 1: Training + Part 2: Mission Performance)
-  comparison.typ     — Cross-scheme comparison template
-  lib.typ            — Shared helpers (page style, colors, heading format)
+  report.typ             — Main report template (cover page + Part 1: Training incl. the islands panels behind `has_islands` + Part 2: Mission Performance + optional Part 3)
+  report_rl.typ          — RL report (Part 1: RL convergence + Parts 2/3 shared with report.typ)
+  comparison.typ         — Cross-scheme comparison template
+  warm_start_report.typ  — Warm-start snapshot (moved out of warm_start_report.py in #104)
+  nn_input_report.typ    — NN input behavior report (reads summary.json; moved out of nn_input_report.py in #104)
+  lib.typ                — Shared helpers (page style, colors, heading format)
 ```
 
 External dependency: `typst` CLI (install via `brew install typst` or `cargo install typst-cli`). Report generation degrades gracefully if Typst is not installed — charts are still generated, just
