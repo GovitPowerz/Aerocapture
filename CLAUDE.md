@@ -496,13 +496,15 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
   never trigger it); `fetch-logs` (network, skipped when present); `provenance` writes `data/provenance.json` (a content SHA-256 over every tracked paper input -- not a commit id, which cannot survive a
   squash-merge -- plus Release tag, crate/typst/matplotlib versions, sha256 of every campaign TOML; per-input facts only, so it changes only with an input and commits with it;
   `--check` fails when the committed file is stale); `pdf` (typst, `SOURCE_DATE_EPOCH` = HEAD
-  commit time; `PDF=/tmp/x.pdf` leaves the committed PDF alone); `paper` chains them; `check` = `shasum -c data/SHA256SUMS` (every tracked bundle file; `sums` regenerates it +
-  `SHA256SUMS.runlogs` for the run logs) + `check_results_schema.py` + `write_provenance.py --check` + the FROZEN files present + `git diff --exit-code` / clean `git status` on
-  figures and results.json. The
+  commit time; `PDF=/tmp/x.pdf` leaves the committed PDF alone); `paper` chains them; `check` = data/SHA256SUMS recomputed over every tracked bundle file and diffed verbatim (a file added
+  without `make sums` fails, unlike `shasum --check`; `sums` regenerates it + `SHA256SUMS.runlogs` for the run logs) + `check_results_schema.py` + `write_provenance.py --check` +
+  the FROZEN files present (the `FROZEN` block is defined BEFORE `check` names it: make expands prerequisite lists as it reads the rule) + `git diff HEAD --exit-code` on figures,
+  results.json and provenance.json (HEAD so staged regenerations count; provenance because `make paper` rewrites it before `--check` reads it back) / clean `git status` on figures. The
   `FROZEN` block names the 7 data files with no producer in the tree (plateau, sigma_extras, selection_gate, nominal_floor, the two failure classifications, quant/ticks_per_sim; producing commits
   recorded) and the opt-in `mc-*` targets re-fly cells (never default, never CI). Figures are byte-reproducible across macOS and Linux: `figlib` forces the Agg backend (the MacOSX backend measures text at the Retina device-pixel ratio during
   `tight_layout`, shifting every layout by ~0.01 pt), sets `text.hinting = "none"` (matplotlib's own cross-platform baseline setting), and `save` sets `svg.hashsalt` +
-  `metadata={"Date": None}`; `style()` registers the vendored STIX Two Text (`articles/paper/fonts/`, OFL) so glyph outlines match on every machine. Bytes are stable only under the pinned
+  `metadata={"Date": None}`; `style()` registers the vendored STIX Two Text (`articles/paper/fonts/`, OFL) as the ONLY entry of that family (every same-named system entry is dropped first -- macOS ships one,
+  and `findfont` keeps the first tied match, so `addfont` alone would resolve the OS copy) so glyph outlines match on every machine. Bytes are stable only under the pinned
   matplotlib -- a version bump shifts text metrics and regenerates all 18 (commit that deliberately). CI's `paper` job runs `-B figures` + `check` + a /tmp `pdf` (Typst 0.15.1) on every PR; `paper-results` (workflow_dispatch only)
   fetches the logs, runs `make paper` end to end and requires results.json / figures / provenance unchanged. Gates: `tests/test_paper_figures.py`.
 - GA training pipeline: optimizes any guidance scheme's parameters (not just NN weights)

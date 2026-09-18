@@ -52,10 +52,19 @@ def test_save_is_byte_reproducible_and_undated(figlib: ModuleType) -> None:
 
 
 def test_save_registers_the_vendored_font(figlib: ModuleType) -> None:
+    import matplotlib.font_manager as fm
+
     svg = _save_demo(figlib, "demo").decode()
     assert 'id="STIXTwoText-' in svg  # glyph outlines come from STIX Two Text, not a fallback serif
     for name in figlib._VENDORED_FONTS:
         assert (figlib.FONTS / name).is_file()
+    # The vendored files are what resolves, not a same-named system font (macOS ships
+    # one), and repeated style() calls do not pile up duplicate entries.
+    figlib.style()
+    for style in ("normal", "italic"):
+        resolved = Path(fm.findfont(fm.FontProperties(family=figlib._FAMILY, style=style)))
+        assert resolved.parent == figlib.FONTS, resolved
+    assert sum(f.name == figlib._FAMILY for f in fm.fontManager.ttflist) == len(figlib._VENDORED_FONTS)
 
 
 def test_missing_vendored_font_is_an_error(figlib: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -83,6 +92,14 @@ def test_makefile_figure_inputs_exist() -> None:
             path = PAPER / dep.replace("$(DATA)", "data").replace("$(RUNS)", "data/runs")
             assert not path.name.startswith("$("), f"{target}: unexpanded variable in {dep}"
             assert path.is_file(), f"{target}: {path}"
+
+
+def test_check_target_requires_the_frozen_files() -> None:
+    """FROZEN is defined before `check` names it: make expands prerequisite lists when it
+    reads the rule, so a later definition would leave the guard silently empty."""
+    out = subprocess.run(["make", "-C", str(PAPER), "-p", "-n", "check"], capture_output=True, text=True)
+    line = next(ln for ln in out.stdout.splitlines() if ln.startswith("check:"))
+    assert "data/plateau.json" in line and "data/quant/ticks_per_sim.json" in line, line
 
 
 def test_frozen_block_names_every_orphan_data_file() -> None:

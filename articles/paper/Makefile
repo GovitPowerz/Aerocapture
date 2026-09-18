@@ -21,6 +21,8 @@ SHASUM := shasum -a 256
 
 SCRIPTS := scripts
 DATA := data
+# The SHA256SUMS domain, run from $(DATA): sums writes it, check-sums requires it verbatim.
+TRACKED_DATA_SUMS = git ls-files -z . | tr '\0' '\n' | grep -v -e '^SHA256SUMS' -e '^provenance.json$$' | LC_ALL=C sort | xargs $(SHASUM)
 RUNS := $(DATA)/runs
 FIGS := figures
 PDF ?= articles/paper/paper.pdf
@@ -106,37 +108,6 @@ paper: fetch-logs
 	$(MAKE) pdf
 
 # ---------------------------------------------------------------------------
-# Checks
-# ---------------------------------------------------------------------------
-# $(FROZEN) as prerequisites: a missing frozen input fails here with its FROZEN message.
-check: check-sums check-schema check-provenance $(FROZEN)
-	cd $(ROOT) && git diff --exit-code --stat -- articles/paper/figures articles/paper/data/results.json
-	cd $(ROOT) && test -z "$$(git status --porcelain -- articles/paper/figures)" || { git status --porcelain -- articles/paper/figures; echo "error: untracked/modified figures"; exit 1; }
-
-# provenance.json must be what this tree yields (only per-input facts, so it changes only with an input).
-check-provenance:
-	$(UVPY) articles/paper/scripts/write_provenance.py --check
-
-# data/SHA256SUMS covers every tracked file under data/ except itself and provenance.json.
-check-sums:
-	cd $(DATA) && $(SHASUM) --check --quiet SHA256SUMS
-
-# The run logs (after fetch-logs): the extracted Release asset, file by file.
-check-logs:
-	cd $(DATA) && $(SHASUM) --check --quiet SHA256SUMS.runlogs
-
-check-schema:
-	$(UVPY) articles/paper/scripts/check_results_schema.py
-
-# Regenerate both checksum files after a deliberate bundle change (12_collect_results.sh, mc-* targets).
-sums:
-	cd $(DATA) && git ls-files -z . | tr '\0' '\n' | grep -v -e '^SHA256SUMS' -e '^provenance.json$$' | LC_ALL=C sort | xargs $(SHASUM) > SHA256SUMS
-	cd $(DATA) && find runs -name run.jsonl.gz | LC_ALL=C sort | xargs $(SHASUM) > SHA256SUMS.runlogs
-
-help:
-	@sed -n '2,8p' $(lastword $(MAKEFILE_LIST))
-
-# ---------------------------------------------------------------------------
 # FROZEN inputs: committed data files with NO producer in the tree. They were
 # hand-extracted once (the producing commit and the method are recorded here);
 # a missing one is an error, never a silent re-derivation (the recipe only checks
@@ -155,6 +126,41 @@ FROZEN := $(DATA)/plateau.json $(DATA)/sigma_extras.json $(DATA)/selection_gate.
           $(DATA)/fnpag_failure_classification.json $(DATA)/s2_failure_classification.json $(DATA)/quant/ticks_per_sim.json
 $(FROZEN):
 	@test -f $@ || { echo "error: $@ is a FROZEN input with no producer in the tree (see the FROZEN block in articles/paper/Makefile)"; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Checks
+# ---------------------------------------------------------------------------
+# $(FROZEN) as prerequisites: a missing frozen input fails here with its FROZEN message
+# (the block above is defined first: make expands prerequisite lists when it reads the rule).
+# `git diff HEAD` so a regenerated-and-staged file still counts as changed.
+check: check-sums check-schema check-provenance $(FROZEN)
+	cd $(ROOT) && git diff HEAD --exit-code --stat -- articles/paper/figures articles/paper/data/results.json articles/paper/data/provenance.json
+	cd $(ROOT) && test -z "$$(git status --porcelain -- articles/paper/figures)" || { git status --porcelain -- articles/paper/figures; echo "error: untracked/modified figures"; exit 1; }
+
+# provenance.json must be what this tree yields (only per-input facts, so it changes only with an input).
+check-provenance:
+	$(UVPY) articles/paper/scripts/write_provenance.py --check
+
+# data/SHA256SUMS = what `sums` writes: every tracked file under data/ except itself and
+# provenance.json. Recomputed and diffed (not `shasum --check`, which only verifies the
+# files LISTED and would pass a bundle file added without `make sums`).
+check-sums:
+	cd $(DATA) && $(TRACKED_DATA_SUMS) | diff SHA256SUMS - || { echo "error: data/SHA256SUMS differs from the tree (< committed, > tree): inspect, then make -C articles/paper sums"; exit 1; }
+
+# The run logs (after fetch-logs): the extracted Release asset, file by file.
+check-logs:
+	cd $(DATA) && $(SHASUM) --check --quiet SHA256SUMS.runlogs
+
+check-schema:
+	$(UVPY) articles/paper/scripts/check_results_schema.py
+
+# Regenerate both checksum files after a deliberate bundle change (12_collect_results.sh, mc-* targets).
+sums:
+	cd $(DATA) && $(TRACKED_DATA_SUMS) > SHA256SUMS
+	cd $(DATA) && find runs -name run.jsonl.gz | LC_ALL=C sort | xargs $(SHASUM) > SHA256SUMS.runlogs
+
+help:
+	@sed -n '2,8p' $(lastword $(MAKEFILE_LIST))
 
 # ---------------------------------------------------------------------------
 # mc-data: OPT-IN producers that re-fly deployed cells. Never default, never CI.

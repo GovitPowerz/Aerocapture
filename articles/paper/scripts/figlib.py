@@ -53,18 +53,27 @@ SIZE_HALF = (3.7, 3.4)  # placed two-per-row in a Typst grid (displayed at ~2.7i
 # STIX Two Text is the FIGURE face (the paper body is Typst's Libertinus Serif); it is
 # vendored under articles/paper/fonts/ so glyph outlines are identical on every machine.
 # The fallbacks are never reached when the vendored files load (see style()).
-_SERIF = ["STIX Two Text", "STIXGeneral", "Times New Roman", "DejaVu Serif"]
+_FAMILY = "STIX Two Text"
+_SERIF = [_FAMILY, "STIXGeneral", "Times New Roman", "DejaVu Serif"]
 _VENDORED_FONTS = ("STIXTwoText.ttf", "STIXTwoText-Italic.ttf")
 
 
 def _register_fonts() -> None:
-    """Register the vendored TTFs with matplotlib. Hard-errors when one is missing:
-    a silent fallback to another serif would still render, with different bytes."""
-    for name in _VENDORED_FONTS:
-        path = FONTS / name
+    """Make the vendored TTFs the ONLY "STIX Two Text" matplotlib can resolve.
+
+    `addfont` appends and `findfont` keeps the first tied match, so a system copy
+    (macOS ships one under /System/Library/Fonts/Supplemental) would win and the
+    bytes would follow the OS font version instead of the vendored files. Dropping
+    every same-family entry first also keeps repeated style() calls from piling up
+    duplicates. Hard-errors when a vendored file is missing: a silent fallback to
+    another serif would still render, with different bytes."""
+    paths = [FONTS / name for name in _VENDORED_FONTS]
+    for path in paths:
         if not path.is_file():
             raise FileNotFoundError(f"vendored figure font missing: {path}")
-        fm.fontManager.addfont(str(path))
+    fm.fontManager.ttflist = [f for f in fm.fontManager.ttflist if f.name != _FAMILY]
+    for path in paths:
+        fm.fontManager.addfont(str(path))  # also clears findfont's cache
 
 
 def style():
