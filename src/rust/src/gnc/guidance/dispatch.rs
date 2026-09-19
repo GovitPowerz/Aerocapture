@@ -207,7 +207,7 @@ pub fn guidance_step(
     // guidance entirely. NN bypasses only in FullNeural mode; MagnitudeOnly mode reuses
     // the same unsigned-magnitude pipeline as FTC and the other parametric schemes.
     let nn_full_neural = matches!(guidance_type, GuidanceType::NeuralNetwork)
-        && data.guidance.neural_mode == NeuralNetMode::FullNeural;
+        && data.guidance.neural_network.mode == NeuralNetMode::FullNeural;
     // Schemes that produce signed bank angles bypass exit/lateral/thermal-limiter entirely.
     // PiecewiseConstant always; NN only in FullNeural mode (MagnitudeOnly routes through
     // the unsigned-magnitude pipeline just like FTC).
@@ -232,7 +232,7 @@ pub fn guidance_step(
             }
             GuidanceType::NeuralNetwork => {
                 let nn = data.neural_net.as_ref().expect("NN params not loaded");
-                if data.guidance.nn_reset_state_every_tick {
+                if data.guidance.neural_network.reset_state_every_tick {
                     // Memoryless-eval control (paper R4/R5 state ablation):
                     // fresh zeroed state every guidance tick.
                     state.nn_state = Some(NnState::for_model(nn));
@@ -250,7 +250,7 @@ pub fn guidance_step(
                 let signed = neural::nn_bank_angle(nav, nn, nn_state, data, planet, &ctx);
                 // MagnitudeOnly: drop the sign and feed magnitude into the unsigned
                 // pipeline (thermal limiter + lateral guidance handle sign + safety).
-                if data.guidance.neural_mode == NeuralNetMode::MagnitudeOnly {
+                if data.guidance.neural_network.mode == NeuralNetMode::MagnitudeOnly {
                     signed.abs()
                 } else {
                     signed
@@ -1242,7 +1242,7 @@ mod tests {
         data.capsule.max_bank_rate = 5.0_f64.to_radians() * 100.0;
 
         let run = |mode: NeuralNetMode, data: &mut SimData| {
-            data.guidance.neural_mode = mode;
+            data.guidance.neural_network.mode = mode;
             let mut state = GuidanceState::new(target_bank, -0.48_f64.to_radians(), Some(&nn));
             // Prime realized = target so rate shaping is a no-op when not limited.
             state.bank_angle_realized = target_bank;
@@ -1326,7 +1326,7 @@ mod tests {
         let planet = PlanetConfig::mars();
         let mut data = test_sim_data();
         data.neural_net = Some(nn.clone());
-        data.guidance.neural_mode = NeuralNetMode::MagnitudeOnly;
+        data.guidance.neural_network.mode = NeuralNetMode::MagnitudeOnly;
         // Disable command shaper so we see the raw bank command (lateral may
         // multiply by ±1 sign).
         data.guidance.command_shaping = None;
@@ -1453,7 +1453,7 @@ mod tests {
         data.capsule.max_bank_rate = 5.0_f64.to_radians() * 100.0;
 
         let two_steps = |reset: bool, data: &mut SimData| {
-            data.guidance.nn_reset_state_every_tick = reset;
+            data.guidance.neural_network.reset_state_every_tick = reset;
             let mut state = GuidanceState::new(0.5, -0.48_f64.to_radians(), Some(&nn));
             state.bank_angle_realized = 0.5;
             let mut step = || {

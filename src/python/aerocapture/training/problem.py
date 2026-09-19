@@ -286,7 +286,8 @@ class AerocaptureProblem(Problem):
             if key == "ref_bank":
                 # Joint-reference gene: consumed by the evaluation layer (per-
                 # individual data.reference_trajectory injection) — routing it
-                # to guidance.<scheme>.ref_bank would be silently dropped by Rust.
+                # to guidance.<scheme>.ref_bank would fail config load as an
+                # unknown field (section-level deny_unknown_fields, #105).
                 continue
             # Round integer-typed params so Rust TOML parser accepts them
             if key in self._integer_params:

@@ -1494,7 +1494,7 @@ def deploy_optimized_artifacts(
     from aerocapture.training.evaluate import write_guidance_toml  # noqa: PLC0415
 
     # ref_bank is not a guidance TOML key — it deploys as the regenerated
-    # reference table below (Rust silently drops unknown keys).
+    # reference table below (Rust rejects it as an unknown [guidance.<scheme>] key).
     opt_toml = save_dir / f"optimized_{config.guidance_type}.toml"
     write_guidance_toml(base_toml, config.guidance_type, {k: v for k, v in params.items() if k != "ref_bank"}, opt_toml)
     if verbose:
@@ -1531,9 +1531,14 @@ def _accumulate_corridor(
     config: TrainingConfig,
     corridor_acc: CorridorAccumulator,
     toml_path: str,
-    problem: object | None = None,
+    problem: AerocaptureProblem,
 ) -> None:
-    """Run corridor accumulation for piecewise_constant training."""
+    """Run corridor accumulation for piecewise_constant training.
+
+    Overrides are routed by the problem (`route_param_path`: `shaping.*` ->
+    `[guidance.command_shaping]`, unprefixed -> `[guidance.<scheme>]`), the same
+    path the GA evaluates on.
+    """
     from aerocapture.training.corridor import classify_trajectories as classify_traj
     from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
 
@@ -1541,11 +1546,7 @@ def _accumulate_corridor(
     pop_overrides: list[dict[str, object]] = []
     for i in range(X.shape[0]):
         params = decode_normalized(X[i], param_specs)
-        if problem is not None and hasattr(problem, "_build_overrides"):
-            ovr = problem._build_overrides(params)
-        else:
-            ovr = {f"guidance.{section}.{k_}": v for k_, v in params.items()}
-            ovr["simulation.n_sims"] = 1
+        ovr = problem._build_overrides(params)
         ovr["guidance.type"] = config.guidance_type
         pop_overrides.append(ovr)
 

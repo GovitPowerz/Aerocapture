@@ -265,7 +265,7 @@ impl SimData {
             toml,
             config,
             injected_nn,
-            guidance.neural_mode,
+            guidance.neural_network.mode,
             nn_normalization_override.as_deref(),
         )?;
 
@@ -633,10 +633,13 @@ fn build_guidance_params(
             }),
             _ => None,
         },
-        neural_mode: guidance_params::NeuralNetMode::parse(nn.and_then(|n| n.mode.as_deref()))
-            .map_err(DataError)?,
-        // Eval-only state-ablation control (paper R4/R5): default false.
-        nn_reset_state_every_tick: nn.and_then(|n| n.reset_state_every_tick).unwrap_or(false),
+        // [guidance.neural_network] keys keep their names: data.guidance.neural_network.reset_state_every_tick
+        // is the eval-only state-ablation control (paper R4/R5; default false).
+        neural_network: guidance_params::NeuralNetworkParams {
+            mode: guidance_params::NeuralNetMode::parse(nn.and_then(|n| n.mode.as_deref()))
+                .map_err(DataError)?,
+            reset_state_every_tick: nn.and_then(|n| n.reset_state_every_tick).unwrap_or(false),
+        },
     })
 }
 
@@ -680,7 +683,7 @@ fn build_neural_net(
     toml: &TomlConfig,
     config: &SimInput,
     injected_nn: Option<neural::NeuralNetModel>,
-    neural_mode: guidance_params::NeuralNetMode,
+    mode: guidance_params::NeuralNetMode,
     normalization_override: Option<&[neural::NormSpec]>,
 ) -> Result<Option<neural::NeuralNetModel>, DataError> {
     let neural_net = match injected_nn {
@@ -781,7 +784,7 @@ fn build_neural_net(
     if let Some(nn) = &neural_net {
         match nn.output_param {
             neural::OutputParam::AcosTanh
-                if neural_mode != guidance_params::NeuralNetMode::MagnitudeOnly =>
+                if mode != guidance_params::NeuralNetMode::MagnitudeOnly =>
             {
                 return Err(DataError(
                     "loaded model has output_param='acos_tanh' which requires \
@@ -791,7 +794,7 @@ fn build_neural_net(
                 ));
             }
             neural::OutputParam::ScaledPi | neural::OutputParam::Delta
-                if neural_mode != guidance_params::NeuralNetMode::FullNeural =>
+                if mode != guidance_params::NeuralNetMode::FullNeural =>
             {
                 return Err(DataError(format!(
                     "loaded model output_param={:?} emits a signed bank and requires \
@@ -886,7 +889,7 @@ fn take_custom(
 }
 
 /// Resolve one dispersion domain: `None` if absent or Off, else `from_level` seeded
-/// with optional Custom overrides. Rejects unknown custom keys under any active level.
+/// with optional Custom overrides. Rejects unknown custom keys under any level.
 fn resolve_domain<S>(
     d: Option<&TomlMcDomain>,
     from_level: impl Fn(dispersions::DispersionLevel) -> S,
@@ -894,15 +897,15 @@ fn resolve_domain<S>(
 ) -> Result<Option<S>, DataError> {
     let Some(d) = d else { return Ok(None) };
     let level = dispersions::DispersionLevel::from_str(&d.level)?;
-    if level == dispersions::DispersionLevel::Off {
-        return Ok(None);
-    }
-    // Validate stray keys whenever the custom map is non-empty and the domain is
-    // active, regardless of level. A typo'd key under "high" would otherwise be
-    // silently swallowed by serde's flattened custom map.
+    // Validate stray keys whenever the custom map is non-empty, regardless of
+    // level (Off included). A typo'd key under "high" or "off" would otherwise
+    // be silently swallowed by serde's flattened custom map.
     if !d.custom.is_empty() {
         let allowed: Vec<&str> = custom_fields.iter().map(|(k, _)| *k).collect();
         take_custom(&d.custom, &allowed)?;
+    }
+    if level == dispersions::DispersionLevel::Off {
+        return Ok(None);
     }
     let mut s = from_level(level);
     if level == dispersions::DispersionLevel::Custom {
@@ -1009,14 +1012,16 @@ pub(crate) fn build_dispersion_config(
         None => None,
         Some(d) => {
             let level = resolve_level(&d.level)?;
+            // The key-guard runs before the level check so a stray key under
+            // "off" is rejected too.
+            take_custom(&d.custom, &["scale_min", "scale_max", "direction_bias_deg"])?;
             if level == DispersionLevel::Off {
                 None
             } else {
                 let mut cfg = WindDispersionConfig::from_level(level);
                 // Apply custom overrides (for backward compat: existing configs without a level
                 // field get level="medium" by default, with their explicit values as overrides).
-                // Reads are unconditional here, so the key-guard runs unconditionally too.
-                take_custom(&d.custom, &["scale_min", "scale_max", "direction_bias_deg"])?;
+                // Reads are unconditional here.
                 if let Some(&v) = d.custom.get("scale_min") {
                     cfg.scale_min = v;
                 }
@@ -1039,13 +1044,13 @@ pub(crate) fn build_dispersion_config(
 
     let density_perturbation = if let Some(d) = mc.density_perturbation.as_ref() {
         let level = resolve_level(&d.level)?;
+        // Validate stray keys regardless of level (Off included).
+        if !d.custom.is_empty() {
+            take_custom(&d.custom, &["tau", "sigma"])?;
+        }
         if level == DispersionLevel::Off {
             None
         } else {
-            // Validate stray keys whenever active, regardless of level.
-            if !d.custom.is_empty() {
-                take_custom(&d.custom, &["tau", "sigma"])?;
-            }
             let mut cfg = DensityPerturbationConfig::from_level(level);
             if level == DispersionLevel::Custom {
                 if let Some(&v) = d.custom.get("tau") {
@@ -1526,6 +1531,41 @@ density = 0.5
         let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
         // Must succeed — density is a known key for atmosphere.
         assert!(build_dispersion_config(&mc).is_ok());
+    }
+
+    /// A typo'd custom key under `level = "off"` must error too: the domain
+    /// is inactive, but the stray key is still a misspelling to surface.
+    #[test]
+    fn unknown_custom_under_off_level_errors() {
+        let toml_str = r#"
+seed = 0
+
+[atmosphere]
+level = "off"
+densty_bias = 0.1
+"#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        let err = build_dispersion_config(&mc).unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("unknown custom dispersion key") && msg.contains("densty_bias"),
+            "error must name the unknown key, got: {msg}"
+        );
+    }
+
+    /// A KNOWN key under `level = "off"` still loads (and the domain stays off).
+    #[test]
+    fn known_custom_key_under_off_level_loads() {
+        let toml_str = r#"
+seed = 0
+
+[atmosphere]
+level = "off"
+density = 0.1
+"#;
+        let mc: TomlMonteCarlo = toml::from_str(toml_str).unwrap();
+        let cfg = build_dispersion_config(&mc).expect("legal key under off must load");
+        assert!(cfg.atmosphere.is_none());
     }
 
     /// Same typo in density_perturbation under a non-custom level.
