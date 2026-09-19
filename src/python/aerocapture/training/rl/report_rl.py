@@ -34,7 +34,7 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
     jsonl_path = jsonl_files[-1]  # most recent
     records = _load_jsonl(jsonl_path)
 
-    with staged_assets(prefix="aerocapture_rl_report_") as tmp_dir:
+    with staged_assets() as tmp_dir:
         # Part 1: RL convergence charts
         _chart_rl_return_curve(records, tmp_dir / "rl_return.svg")
         _chart_rl_dv_curve(records, tmp_dir / "rl_dv.svg")
@@ -46,6 +46,7 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
         # Final eval on reserved seeds
         has_trajectories = False
         has_final_eval = False
+        n_sims = 1000
         sensitivity_flags: dict[str, bool] = {"has_sensitivity": False, "has_morris": False, "has_sobol": False, "has_sobol_heatmap": False}
 
         try:
@@ -53,7 +54,6 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
 
             toml_data = load_toml_with_bases(toml_path)
             base_seed = int(toml_data.get("monte_carlo", {}).get("seed", 42))
-            n_sims = 1000
             reserved_seeds = make_reserved_seeds(base_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
             overrides_list = [
                 {
@@ -114,13 +114,14 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
             "mission": "RL Training",
             "date": _today(),
             "n_updates": str(n_updates),
+            "final_eval_n_sims": str(n_sims),
             "has_trajectories": has_trajectories,
             "has_final_eval": has_final_eval,
         }
         metadata.update(sensitivity_flags)
         (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
 
-        return render_pdf("report_rl", tmp_dir, output_dir / "report.pdf", label="rl_report")
+        return render_pdf("report_rl", tmp_dir, output_dir / "report.pdf")
 
 
 def _today() -> str:

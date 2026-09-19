@@ -429,7 +429,10 @@ def render_report(save_dir: Path) -> Path | None:
     meta = _build_metadata(artifacts, save_dir)
     (report_dir / "metadata.json").write_text(json.dumps(meta, indent=2))
 
-    return render_pdf("warm_start_report", report_dir, save_dir / "warm_start_report.pdf", label="warm_start_report")
+    pdf = render_pdf("warm_start_report", report_dir, save_dir / "warm_start_report.pdf")
+    if pdf is None:
+        print(f"  [warm_start_report] charts at {report_dir}")
+    return pdf
 
 
 # ---------------------------------------------------------------------------
@@ -444,9 +447,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.save_dir.is_dir():
         print(f"ERROR: not a directory: {args.save_dir}", file=sys.stderr)
         return 2
-    pdf = render_report(args.save_dir)
-    if pdf is not None:
-        print(f"Wrote {pdf}")
+    render_report(args.save_dir)
     return 0
 
 

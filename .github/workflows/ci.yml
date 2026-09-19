@@ -95,6 +95,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
 
+      # The report compile gate (tests/test_report_render.py) skips without typst.
+      - uses: typst-community/setup-typst@v4
+        with:
+          typst-version: 0.15.1
+
       - name: Build PyO3 module into the synced venv
         run: uv run maturin develop --release --manifest-path src/rust/aerocapture-py/Cargo.toml
 

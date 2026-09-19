@@ -114,7 +114,7 @@ to the validation gate later in training.
   #pagebreak()
   == Trajectory comparison: supervisor vs warm-started NN
 
-  Side-by-side view of supervisor (`#meta.compare.primary_supervisor`)
+  Side-by-side view of supervisor (#meta.compare.primary_supervisor)
   trajectories vs the warm-started NN, on BOTH the training pool
   (`WARM_START_SEED_OFFSET`) and the reserved validation pool
   (`VALIDATION_SEED_OFFSET`). Same dispersion draws per seed within a pool, so

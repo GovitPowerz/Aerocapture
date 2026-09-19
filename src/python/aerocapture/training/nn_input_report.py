@@ -95,14 +95,6 @@ def _default_dv_threshold(toml_path: str) -> float:
     return float(_load_cost_kwargs(toml_path).get("dv_threshold", 1000.0))
 
 
-def _compile_pdf(out_dir: Path) -> Path | None:
-    """Compile the rendered SVGs + summary.json into nn_input_report.pdf via
-    the shared render spine. Returns the PDF path, or None (with a message) if
-    Typst is absent or the compile fails -- the SVGs + JSON remain usable
-    either way."""
-    return render_pdf("nn_input_report", out_dir, out_dir / "nn_input_report.pdf", label="nn_input_report")
-
-
 def run_report(
     toml_path: str,
     n_sims: int = 500,
@@ -174,7 +166,8 @@ def run_report(
             x_label="energy estimated (MJ/kg)",
         )
 
-    _compile_pdf(out_dir)
+    # PDF is best-effort: the SVGs + summary.json stay usable without typst.
+    render_pdf("nn_input_report", out_dir, out_dir / "nn_input_report.pdf")
     return out_dir
 
 

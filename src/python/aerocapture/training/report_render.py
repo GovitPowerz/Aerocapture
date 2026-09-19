@@ -19,7 +19,6 @@ typst-free job imports it).
 
 from __future__ import annotations
 
-import shutil
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -32,36 +31,28 @@ TEMPLATES_DIR = Path(__file__).resolve().parents[3] / "typst"
 
 
 @contextmanager
-def staged_assets(*, keep: bool = False, prefix: str = "aerocapture_report_") -> Iterator[Path]:
+def staged_assets(*, keep: bool = False) -> Iterator[Path]:
     """Yield a temp directory to stage a report's assets in; removed on exit unless `keep`."""
-    tmp = Path(tempfile.mkdtemp(prefix=prefix))
-    try:
-        yield tmp
-    finally:
-        if keep:
-            print(f"Chart artifacts kept at: {tmp}")
-        else:
-            shutil.rmtree(tmp, ignore_errors=True)
+    with tempfile.TemporaryDirectory(prefix="aerocapture_report_", delete=not keep, ignore_cleanup_errors=True) as tmp:
+        yield Path(tmp)
+    if keep:
+        print(f"Chart artifacts kept at: {tmp}")
 
 
-def render_pdf(template: str, assets: Path, out_pdf: Path, *, label: str) -> Path | None:
+def render_pdf(template: str, assets: Path, out_pdf: Path) -> Path | None:
     """Compile `TEMPLATES_DIR/<template>.typ` over `assets` into `out_pdf`.
 
     Returns the PDF path, or None when typst is absent or the compile fails;
     the assets are left untouched either way.
     """
     if not check_typst():
-        print(f"  [{label}] typst not installed; PDF skipped. Install with `brew install typst`.")
+        print(f"  [{template}] typst not installed; PDF skipped. Install with `brew install typst`.")
         return None
     # Absolute dir: with --root / a relative sys.inputs dir would resolve
     # against src/typst/, not the cwd (nn_input_report's out_dir can be relative).
-    ok = compile_typst(
-        TEMPLATES_DIR / f"{template}.typ",
-        out_pdf,
-        extra_args=["--root", "/", "--input", f"dir={assets.resolve()}"],
-        label=label,
-    )
+    assets = assets.resolve()
+    ok = compile_typst(TEMPLATES_DIR / f"{template}.typ", out_pdf, extra_args=["--root", "/", "--input", f"dir={assets}"], label=template)
     if not ok:
         return None
-    print(f"  [{label}] saved to {out_pdf}")
+    print(f"  [{template}] saved to {out_pdf}")
     return out_pdf

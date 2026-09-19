@@ -245,7 +245,7 @@ class TestSingleReport:
     @patch("aerocapture.training.report_render.check_typst", return_value=False)
     def test_generates_chart_artifacts(self, _mock_typst: object, tmp_path: Path) -> None:
         scheme_dir = _write_fixture_jsonl(tmp_path)
-        result = generate_report(scheme_dir, skip_final_eval=True, keep_artifacts=True)
+        result = generate_report(scheme_dir, skip_final_eval=True)
         # Typst unavailable -> returns None but charts were generated
         assert result is None
 

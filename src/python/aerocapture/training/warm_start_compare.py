@@ -12,7 +12,7 @@ Runs four MC batches at the end of warm-start (after `build_warm_start_chromosom
 For each batch, renders the 5 mission-performance panels from `charts.py`:
 corridor pdyn / inclination / bank + altitude-vs-time + heat-flux-vs-time.
 20 SVGs total, written to `<save_dir>/warm_start_report/compare_{pool}_{side}_*.svg`
-and consumed by the Typst template in `warm_start_report.py`.
+and consumed by `src/typst/warm_start_report.typ` via `warm_start_report.py`.
 
 Trajectories on the same (pool, seed) ARE run twice -- once for supervisor, once
 for NN -- because we want like-for-like dispersion draws between the two sides.
@@ -143,7 +143,7 @@ def render_trajectory_comparison(
     """Orchestrate the four (pool, side) batches and render 20 comparison panels.
 
     Returns a `manifest` dict with the relative SVG filenames per (pool, side, panel)
-    so `warm_start_report.py` can wire them into the Typst template without
+    so `warm_start_report.py` can hand them to `src/typst/warm_start_report.typ` without
     hard-coding the layout.
 
     Best-effort: any sub-step that raises is logged and the manifest's

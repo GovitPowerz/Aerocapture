@@ -769,7 +769,7 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
     inputs × {time, energy}) plus a per-input `summary.json` (`input_summary`: p1/p50/p99, `frac_out_of_range` saturation = fraction of samples with |value|>1, blue-vs-red `separation` =
     |Δmean|/pooled-σ). `_resolve_mask` prefers the deployed `best_model.json`'s embedded `input_mask` (what the runtime uses) over the TOML for "(unused)" panel greying. CLI: `python -m
     aerocapture.training.nn_input_report <training_dir> --toml <config.toml> [--n-sims N] [--dv-threshold F] [--output-dir DIR]`. Outputs under `<training_dir>/nn_input_report/`: 70 SVGs,
-    `summary.json`, and `nn_input_report.pdf` (via `_compile_pdf` -> `report_render.render_pdf` over `src/typst/nn_input_report.typ`, paginating the panels most-saturated-first + the summary
+    `summary.json`, and `nn_input_report.pdf` (via `report_render.render_pdf` over `src/typst/nn_input_report.typ`, paginating the panels most-saturated-first + the summary
     table; degrades to SVGs+JSON if Typst is absent -- mirrors `warm_start_report.py`).
   - `charts_nn_inputs.py` — `chart_nn_input_panel(...)`: per-input panel with blue/red DV-class spaghetti + per-class p5–p95 envelope (via `binned_band`, x-axis binning that tolerates ragged
     lengths + non-monotonic energy) + ±1 guide lines; greyed/"(unused)" title for inputs outside the model's mask. SVG output.
@@ -814,7 +814,9 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
     islands runs preserve all 3 per-gen records; single-algo records have no `island_name` and dedup by `(gen, None)` matching the legacy behavior. `_generate_training_charts` detects islands mode by
     presence of `island_name` and renders `chart_island_convergence_overlay` + `chart_migration_timeline` alongside the regular convergence/diversity/cost-distribution panels (the regular panels
     receive only the winning island's slice -- chosen by lowest validated `rms_cost`, else lowest per-gen `best_cost`, the keys the logger actually writes -- so the cost curves stay single-line and
-    readable); the two islands panels reach the PDF through the `has_islands` metadata flag read by `report.typ` (fixed in #104 -- before, they were rendered into the temp dir and deleted with it). The
+    readable, and the cover-page stats -- best cost, generations, convergence -- read that same slice, not the raw list that interleaves 3 records per gen); `_generate_training_charts` returns the
+    charted series plus the Part 1 `has_*` flags (`has_cost_distribution`, `has_islands`) that `metadata.json` carries and `report.typ` branches on, so the two islands panels reach the PDF (fixed
+    in #104 -- before, they were rendered into the temp dir and deleted with it). The
     migration timeline is fed the real `migration_log` loaded from the latest `checkpoint_g*.npz` (`_load_migration_log`), since the log lives only in the npz, not the JSONL. Also produces
     cross-scheme comparison PDFs. Auto-writes `final_eval.parquet` (65-column Parquet with embedded config metadata) alongside the PDF when pyarrow is available. Auto-generated at end of training,
     also standalone CLI: `python -m aerocapture.training.report`
@@ -837,12 +839,12 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
 PDF report layout templates compiled by `typst compile`. Every template is compiled by `aerocapture.training.report_render.render_pdf` (the ONE render spine, #104) with
 `--root / --input dir=<assets>` and reads its SVG charts + JSON metadata via `sys.inputs.at("dir")`; `report_render.TEMPLATES_DIR` is the one template-path constant and
 `staged_assets` owns the temp staging dir (removed unless `keep_artifacts`) for the three report.py / report_rl.py renders; the warm-start / nn-input reports stage directly
-into their persistent output dirs (`warm_start_report/`, nn-input `out_dir`) and call `render_pdf` on them. The typst-absent degrade is one message. `tests/test_report_render.py` is the per-template asset-contract + compile gate (a fixture per template with every optional flag on).
+into their persistent output dirs (`warm_start_report/`, nn-input `out_dir`) and call `render_pdf` on them. The typst-absent degrade is one message. `tests/test_report_render.py` is the gate: the REAL drivers run with `render_pdf` faked and every SVG they stage is checked against the template's static `dir + "/..."` set both ways (typst-free, runs in CI's python-test job), plus a real compile per template from a fixture with every optional flag on (CI's python-test job installs typst 0.15.1 for it).
 
 ```
 src/typst/
   report.typ             — Main report template (cover page + Part 1: Training incl. the islands panels behind `has_islands` + Part 2: Mission Performance + optional Part 3)
-  report_rl.typ          — RL report (Part 1: RL convergence + Parts 2/3 shared with report.typ)
+  report_rl.typ          — RL report (Part 1: RL convergence + a verbatim copy of report.typ's Parts 2/3; the Python chart writers are what is shared)
   comparison.typ         — Cross-scheme comparison template
   warm_start_report.typ  — Warm-start snapshot (moved out of warm_start_report.py in #104)
   nn_input_report.typ    — NN input behavior report (reads summary.json; moved out of nn_input_report.py in #104)
@@ -1430,7 +1432,8 @@ stop well before `n_gen` -- raise `restarts` / use `bipop`, or footnote the asym
   limiter only when mode = magnitude_only; full_neural passes the raw NN bank through unchanged). Run with `cargo test` or `./check_all.sh`.
 - **CI**: GitHub Actions (`.github/workflows/ci.yml`) - Rust (fmt, `clippy --workspace`, `test --workspace`: both crates), Python lint (ruff lint + ruff format over
   `src/python tests experiments articles/paper/scripts`, mypy over `src/python tests experiments` -- the `lint_code.sh` scope; the paper scripts are untyped), ONE Python test job that builds the CLI
-  binary and the PyO3 extension and runs every file under `tests/`, fast and slow, with no per-file allowlist (an import step before pytest proves the extension is present), and a pure-Python
+  binary and the PyO3 extension, installs Typst 0.15.1 (so the report compile gate in `tests/test_report_render.py` runs instead of skipping) and runs every file under `tests/`, fast and
+  slow, with no per-file allowlist (an import step before pytest proves the extension is present), and a pure-Python
   `paper` job (`make -C articles/paper -B figures` + `check` + `pdf` to /tmp, pinned Typst 0.15.1) that proves the 18 figures are byte-identical to git; `paper-results` (workflow_dispatch only)
   fetches the 195 MB run logs, runs `make paper` end to end and requires `results.json` unchanged. The soft-import rule (training modules import without `aerocapture_rs`) is `tests/test_soft_import.py`. Runs on every push to
   `main`, every PR to `main`, and manual dispatch.
