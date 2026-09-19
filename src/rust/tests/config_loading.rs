@@ -1,42 +1,37 @@
 mod common;
 
-use aerocapture::config::SimInput;
+use aerocapture::config::{PlanetConfig, SimInput, resolve_toml_bases};
+use std::collections::HashSet;
 use std::path::Path;
 
-/// A fragment is a base-only config: no `[mission]` section and no top-level
-/// `base` key. The `base` check is line-anchored so it doesn't false-match
-/// config keys that merely end in "base" (e.g. `pressure_coeff_base = ...`).
-fn is_fragment(raw: &str) -> bool {
-    let has_mission = raw.contains("[mission]");
-    let has_base_key = raw
-        .lines()
-        .any(|l| matches!(l.trim_start().split_once('='), Some((k, _)) if k.trim() == "base"));
-    !has_mission && !has_base_key
+/// A leaf is a config that runs as-is: after base resolution its root carries
+/// BOTH `[mission]` and `[guidance]`. Shared bases fail one or the other
+/// (`planets/*` neither, `missions/*` no guidance, `training/*_common.toml`
+/// and `nn_ftc_scaffolding.toml` no mission), so no directory name is
+/// special-cased.
+fn is_leaf(path: &Path) -> bool {
+    let raw = std::fs::read_to_string(path).expect("read config");
+    let root: toml::Value = toml::from_str(&raw)
+        .unwrap_or_else(|e| panic!("{}: TOML parse error: {e}", path.display()));
+    let resolved = resolve_toml_bases(root, path, &mut HashSet::new())
+        .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let table = resolved.as_table().expect("root table");
+    ["mission", "guidance"]
+        .iter()
+        .all(|k| table.get(*k).is_some_and(|v| v.is_table()))
 }
 
-/// Every committed non-fragment config: `configs/**` recursively (paper,
-/// sweep, quant, ou_marginal, probe cells included) plus the trainer seam
-/// gate configs under `experiments/`. `configs/planets` and `configs/missions`
-/// are shared bases (no `[guidance]`), never run as-is, so they are skipped
-/// as directories; every other fragment is caught by `is_fragment`. Sorted so
-/// failures are reported in a stable order.
+/// Every committed leaf config: `configs/**` recursively (paper, sweep, quant,
+/// ou_marginal, probe cells included) plus the trainer seam gate configs under
+/// `experiments/`. Sorted so failures are reported in a stable order.
 fn all_leaf_configs() -> Vec<std::path::PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         for entry in std::fs::read_dir(dir).expect("read configs dir") {
             let path = entry.unwrap().path();
             if path.is_dir() {
-                if path
-                    .file_name()
-                    .is_some_and(|d| d == "planets" || d == "missions")
-                {
-                    continue;
-                }
                 walk(&path, out);
-            } else if path.extension().is_some_and(|e| e == "toml") {
-                let raw = std::fs::read_to_string(&path).expect("read config");
-                if !is_fragment(&raw) {
-                    out.push(path);
-                }
+            } else if path.extension().is_some_and(|e| e == "toml") && is_leaf(&path) {
+                out.push(path);
             }
         }
     }
@@ -80,45 +75,75 @@ fn parse_mc_domain_toml() {
     assert!(!config.reference_trajectory);
 }
 
-/// Every Rust-owned section struct is `deny_unknown_fields`, so this walk is
-/// the key-reachability gate: a key no `Toml*` struct declares (typo, wrong
-/// section, stale knob) fails here with serde's `unknown field` message and
-/// the offending file.
+/// The root and every Rust-owned section struct are `deny_unknown_fields`, so
+/// this walk is the key-reachability gate: a key no `Toml*` struct declares
+/// (typo, wrong section, stale knob) fails here with serde's `unknown field`
+/// message and the offending file. Serde only proves the keys exist; the no-IO
+/// pass also runs the explicit checks of the two flatten sections
+/// ([guidance.piecewise_constant] strays, [monte_carlo.<domain>] custom keys)
+/// and every enum-string rule.
 #[test]
-fn parse_all_available_configs() {
+fn every_committed_config_parses_and_validates() {
     let configs = all_leaf_configs();
     for path in &configs {
-        let result = SimInput::from_toml_file(path);
-        assert!(
-            result.is_ok(),
-            "Failed to parse {}: {:?}",
-            path.display(),
-            result.err()
-        );
-    }
-    let count = configs.len();
-    assert!(
-        count >= 150,
-        "Expected at least 150 configs, found {}",
-        count
-    );
-}
-
-#[test]
-fn all_configs_are_consolidated() {
-    for path in all_leaf_configs() {
-        // Use from_toml_file to resolve base inheritance before checking
-        let (_config, toml_config) = SimInput::from_toml_file(&path)
+        let (_config, toml_config) = SimInput::from_toml_file(path)
             .unwrap_or_else(|e| panic!("{}: {:?}", path.display(), e));
         assert!(
             toml_config.vehicle.is_some(),
             "{} is not consolidated (missing [vehicle] section after base resolution)",
             path.display()
         );
-        // Serde only proves the keys exist; the no-IO pass also runs the explicit
-        // checks of the two flatten sections ([guidance.piecewise_constant] strays,
-        // [monte_carlo.<domain>] custom keys) and every enum-string rule.
         aerocapture::config::validate(&toml_config)
             .unwrap_or_else(|e| panic!("{}: {:?}", path.display(), e));
     }
+    // Each config family must contribute at least one leaf, so a classifier
+    // regression cannot silently empty the walk.
+    let root = common::repo_root();
+    for dir in [
+        "configs/nominal",
+        "configs/test",
+        "configs/training",
+        "configs/training/paper",
+        "configs/training/sweep",
+        "experiments/trainer_seam_gate",
+    ] {
+        let prefix = root.join(dir);
+        assert!(
+            configs.iter().any(|p| p.starts_with(&prefix)),
+            "no leaf config found under {dir}"
+        );
+    }
+}
+
+/// `configs/planets/*` are not leaves (no `[mission]`/`[guidance]`); they are
+/// parsed on their own against the runtime `PlanetConfig` so a stray key or a
+/// name/file mismatch in a preset is caught too.
+#[test]
+fn planet_presets_parse() {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct PlanetFile {
+        planet: PlanetConfig,
+    }
+    let dir = common::repo_root().join("configs/planets");
+    let mut names = Vec::new();
+    for entry in std::fs::read_dir(&dir).expect("read configs/planets") {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|e| e != "toml") {
+            continue;
+        }
+        let raw = std::fs::read_to_string(&path).expect("read planet preset");
+        let file: PlanetFile =
+            toml::from_str(&raw).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
+        assert_eq!(
+            file.planet.name,
+            stem,
+            "{}: planet.name != file stem",
+            path.display()
+        );
+        names.push(stem);
+    }
+    names.sort();
+    assert_eq!(names, ["earth", "jupiter", "mars", "moon"]);
 }

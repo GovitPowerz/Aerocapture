@@ -1283,6 +1283,46 @@ fn validate_rejects_each_no_io_rule() {
         max_dt: None,
     });
     rejects(&toml, "unknown integration mode");
+
+    // The onboard builder matches `mode == "identical"` first and otherwise
+    // never reads `mode`: an unknown string used to fall through to the fit.
+    let mut toml = load_guided_orig();
+    toml.onboard_atmosphere = Some(TomlAtmosphereOnboard {
+        mode: Some("identicl".into()),
+        ..Default::default()
+    });
+    rejects(&toml, "[onboard_atmosphere] mode = \"identicl\"");
+
+    // `n_segments` / `segments` next to `mode = "identical"` were silently shadowed.
+    let mut toml = load_guided_orig();
+    toml.onboard_atmosphere = Some(TomlAtmosphereOnboard {
+        mode: Some("identical".into()),
+        n_segments: Some(3),
+        segments: None,
+    });
+    rejects(&toml, "cannot be combined with n_segments / segments");
+}
+
+/// An absent table must read the per-key serde defaults, not the derived
+/// `Default` zeros (n_sims = 0 / max_time = 0.0 / energy_min = 0.0 used to
+/// leak in when the whole table was omitted).
+#[test]
+fn absent_simulation_table_uses_key_defaults() {
+    let mut root = resolved_config("test/test_ref_orig.toml");
+    assert!(
+        root.as_table_mut().unwrap().remove("simulation").is_some(),
+        "fixture declares [simulation]"
+    );
+    root["guidance"]
+        .as_table_mut()
+        .unwrap()
+        .remove("piecewise_constant");
+    let text = toml::to_string(&root).unwrap();
+    let (input, toml) = SimInput::from_toml(&text).expect("parse without [simulation]");
+    assert_eq!(input.n_sims, 1);
+    assert_eq!(input.max_time, 3000.0);
+    assert_eq!(toml.guidance.piecewise_constant.energy_min, -6.0);
+    assert_eq!(toml.guidance.piecewise_constant.energy_max, 5.0);
 }
 
 // ─── TOML key reachability: a patched key is observable in SimInput / SimData ───
@@ -1321,19 +1361,10 @@ fn resolved_config(rel: &str) -> Value {
 
 /// Set `dotted` to the TOML literal `literal`, creating tables on the way.
 fn set_dot(root: &mut Value, dotted: &str, literal: &str) {
-    let parsed: Value = toml::from_str(&format!("v = {literal}")).expect("value literal");
-    let value = parsed["v"].clone();
-    let mut node = root;
-    let parts: Vec<&str> = dotted.split('.').collect();
-    for part in &parts[..parts.len() - 1] {
-        let table = node.as_table_mut().expect("table on path");
-        node = table
-            .entry(part.to_string())
-            .or_insert_with(|| Value::Table(toml::map::Map::new()));
-    }
-    node.as_table_mut()
-        .expect("leaf table")
-        .insert(parts[parts.len() - 1].to_string(), value);
+    // A dotted key parses to the nested tables; deep_merge (the base-inheritance
+    // merge) overlays them.
+    let overlay: Value = toml::from_str(&format!("{dotted} = {literal}")).expect("dotted-key doc");
+    deep_merge(root, overlay);
 }
 
 fn build_sim_data(value: &Value) -> (SimInput, crate::data::SimData) {
@@ -1507,10 +1538,11 @@ fn toml_keys_reachable_in_sim_data() {
             expected: "7",
         },
         Reach {
+            // The runtime reader is estimator.rs (`data.sim_phase`), not SimInput.
             key: "mission.phase",
             literal: "\"capture_only\"",
             fixture: "test/test_ref_orig.toml",
-            observe: |i, _| format!("{:?}", i.sim_phase),
+            observe: |_, d| format!("{:?}", d.sim_phase),
             expected: "CaptureOnly",
         },
         Reach {
@@ -1610,11 +1642,13 @@ fn toml_keys_reachable_in_sim_data() {
             expected: "10.000000,20.000000,30.000000",
         },
         Reach {
-            // The fixtures pin `mode = "identical"`, which shadows
-            // `n_segments`; the whole table is replaced to observe the fit.
-            key: "onboard_atmosphere",
-            literal: "{ n_segments = 3 }",
-            fixture: "test/test_ref_orig.toml",
+            // Every configs/test fixture pins `mode = "identical"` (which
+            // `validate` refuses to combine with `n_segments`); this nominal's
+            // chain has no [onboard_atmosphere], so the baseline reads the
+            // default fit(5) and the patched key reads fit(3).
+            key: "onboard_atmosphere.n_segments",
+            literal: "3",
+            fixture: "nominal/msr_aller_ftc_mc_domain.toml",
             observe: |_, d| match &d.atmosphere_onboard {
                 crate::data::atmosphere::OnboardAtmosphereModel::PiecewiseExponential {
                     segments,

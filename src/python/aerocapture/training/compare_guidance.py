@@ -98,9 +98,9 @@ _NN_DEPLOY_SCHEMES = {
 }
 
 
-def _apply_optimized_params_to_toml(toml_data: dict, params: dict, scheme: str) -> None:
+def _apply_optimized_params_to_toml(toml_data: dict, params: dict, scheme: str, *, scaffolding_only: bool = False) -> None:
     """Apply best_params.json overrides into the nested TOML tree (in place), routing each key."""
-    for dot_path, value in overrides_from_params(params, scheme).items():
+    for dot_path, value in overrides_from_params(params, scheme, scaffolding_only=scaffolding_only).items():
         set_dot_path(toml_data, dot_path, value)
 
 
@@ -164,7 +164,9 @@ def run_scheme(
         if scaff_path and scaff_path.exists():
             with open(scaff_path) as f:
                 scaff_params = json.load(f)
-            _apply_optimized_params_to_toml(toml_data, scaff_params, scheme)
+            # Scaffolding pack only: an unprefixed key would route to
+            # [guidance.<scheme>], which Rust rejects as an unknown field (#105).
+            _apply_optimized_params_to_toml(toml_data, scaff_params, scheme, scaffolding_only=True)
             print(f"  Using optimized NN scaffolding from {scaff_path}")
     else:
         toml_data.get("data", {}).pop("neural_network", None)
@@ -176,8 +178,8 @@ def run_scheme(
             with open(params_file) as f:
                 params = json.load(f)
             # Joint-reference deploys: ref_bank is not a guidance TOML key (Rust
-            # would silently drop it) — it deploys as the scheme's own reference
-            # table written at training end.
+            # rejects it as an unknown field, #105) -- it deploys as the scheme's
+            # own reference table written at training end.
             ref_bank = params.pop("ref_bank", None)
             if ref_bank is not None:
                 scheme_ref = params_dir / scheme / "ref_trajectory.dat"
