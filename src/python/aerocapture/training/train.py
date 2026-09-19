@@ -1494,7 +1494,7 @@ def deploy_optimized_artifacts(
     from aerocapture.training.evaluate import write_guidance_toml  # noqa: PLC0415
 
     # ref_bank is not a guidance TOML key — it deploys as the regenerated
-    # reference table below (Rust silently drops unknown keys).
+    # reference table below (Rust rejects it as an unknown [guidance.<scheme>] key).
     opt_toml = save_dir / f"optimized_{config.guidance_type}.toml"
     write_guidance_toml(base_toml, config.guidance_type, {k: v for k, v in params.items() if k != "ref_bank"}, opt_toml)
     if verbose:

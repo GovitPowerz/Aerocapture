@@ -14,6 +14,40 @@ fn is_fragment(raw: &str) -> bool {
     !has_mission && !has_base_key
 }
 
+/// Every committed non-fragment config: `configs/**` recursively (paper,
+/// sweep, quant, ou_marginal, probe cells included) plus the trainer seam
+/// gate configs under `experiments/`. `configs/planets` and `configs/missions`
+/// are shared bases (no `[guidance]`), never run as-is, so they are skipped
+/// as directories; every other fragment is caught by `is_fragment`. Sorted so
+/// failures are reported in a stable order.
+fn all_leaf_configs() -> Vec<std::path::PathBuf> {
+    fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).expect("read configs dir") {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                if path
+                    .file_name()
+                    .is_some_and(|d| d == "planets" || d == "missions")
+                {
+                    continue;
+                }
+                walk(&path, out);
+            } else if path.extension().is_some_and(|e| e == "toml") {
+                let raw = std::fs::read_to_string(&path).expect("read config");
+                if !is_fragment(&raw) {
+                    out.push(path);
+                }
+            }
+        }
+    }
+    let root = common::repo_root();
+    let mut out = Vec::new();
+    walk(&root.join("configs"), &mut out);
+    walk(&root.join("experiments/trainer_seam_gate"), &mut out);
+    out.sort();
+    out
+}
+
 #[test]
 fn parse_ftc_consolidated_toml() {
     let path = common::config_path("nominal/msr_aller_ftc_consolidated.toml");
@@ -46,57 +80,45 @@ fn parse_mc_domain_toml() {
     assert!(!config.reference_trajectory);
 }
 
+/// Every Rust-owned section struct is `deny_unknown_fields`, so this walk is
+/// the key-reachability gate: a key no `Toml*` struct declares (typo, wrong
+/// section, stale knob) fails here with serde's `unknown field` message and
+/// the offending file.
 #[test]
 fn parse_all_available_configs() {
-    let configs_dir = common::repo_root().join("configs");
-    let mut count = 0;
-    for subdir in ["nominal", "training", "test"] {
-        let dir = configs_dir.join(subdir);
-        for entry in std::fs::read_dir(&dir).expect("read configs subdir") {
-            let path = entry.unwrap().path();
-            if path.extension().is_some_and(|e| e == "toml") {
-                // Skip base-only configs (no [mission] section — they're fragments)
-                let raw = std::fs::read_to_string(&path).expect("read config");
-                if is_fragment(&raw) {
-                    continue;
-                }
-                let result = SimInput::from_toml_file(&path);
-                assert!(
-                    result.is_ok(),
-                    "Failed to parse {}: {:?}",
-                    path.display(),
-                    result.err()
-                );
-                count += 1;
-            }
-        }
+    let configs = all_leaf_configs();
+    for path in &configs {
+        let result = SimInput::from_toml_file(path);
+        assert!(
+            result.is_ok(),
+            "Failed to parse {}: {:?}",
+            path.display(),
+            result.err()
+        );
     }
-    assert!(count >= 10, "Expected at least 10 configs, found {}", count);
+    let count = configs.len();
+    assert!(
+        count >= 150,
+        "Expected at least 150 configs, found {}",
+        count
+    );
 }
 
 #[test]
 fn all_configs_are_consolidated() {
-    let configs_dir = common::repo_root().join("configs");
-    for subdir in ["nominal", "training", "test"] {
-        let dir = configs_dir.join(subdir);
-        for entry in std::fs::read_dir(&dir).expect("read configs subdir") {
-            let path = entry.unwrap().path();
-            if path.extension().is_none_or(|e| e != "toml") {
-                continue;
-            }
-            // Skip base-only configs (no [mission] section — they're fragments)
-            let raw = std::fs::read_to_string(&path).expect("read config");
-            if is_fragment(&raw) {
-                continue;
-            }
-            // Use from_toml_file to resolve base inheritance before checking
-            let (_config, toml_config) = SimInput::from_toml_file(&path)
-                .unwrap_or_else(|e| panic!("{}: {:?}", path.display(), e));
-            assert!(
-                toml_config.vehicle.is_some(),
-                "{} is not consolidated (missing [vehicle] section after base resolution)",
-                path.display()
-            );
-        }
+    for path in all_leaf_configs() {
+        // Use from_toml_file to resolve base inheritance before checking
+        let (_config, toml_config) = SimInput::from_toml_file(&path)
+            .unwrap_or_else(|e| panic!("{}: {:?}", path.display(), e));
+        assert!(
+            toml_config.vehicle.is_some(),
+            "{} is not consolidated (missing [vehicle] section after base resolution)",
+            path.display()
+        );
+        // Serde only proves the keys exist; the no-IO pass also runs the explicit
+        // checks of the two flatten sections ([guidance.piecewise_constant] strays,
+        // [monte_carlo.<domain>] custom keys) and every enum-string rule.
+        aerocapture::config::validate(&toml_config)
+            .unwrap_or_else(|e| panic!("{}: {:?}", path.display(), e));
     }
 }

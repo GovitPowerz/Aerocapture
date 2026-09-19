@@ -31,7 +31,10 @@ pub enum NormTransform {
 }
 
 /// Uniform per-input normalization: `norm = transform((raw - center) / scale)`.
+/// Denies unknown keys on both the TOML `[network] normalization` entries and
+/// the model JSON block (`save_json` writes exactly these three keys).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NormSpec {
     pub transform: NormTransform,
     pub scale: f64,

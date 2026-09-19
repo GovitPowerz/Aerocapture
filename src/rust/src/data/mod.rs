@@ -265,7 +265,7 @@ impl SimData {
             toml,
             config,
             injected_nn,
-            guidance.neural_mode,
+            guidance.neural_network.mode,
             nn_normalization_override.as_deref(),
         )?;
 
@@ -633,10 +633,13 @@ fn build_guidance_params(
             }),
             _ => None,
         },
-        neural_mode: guidance_params::NeuralNetMode::parse(nn.and_then(|n| n.mode.as_deref()))
-            .map_err(DataError)?,
-        // Eval-only state-ablation control (paper R4/R5): default false.
-        nn_reset_state_every_tick: nn.and_then(|n| n.reset_state_every_tick).unwrap_or(false),
+        // [guidance.neural_network] keys keep their names: data.guidance.neural_network.reset_state_every_tick
+        // is the eval-only state-ablation control (paper R4/R5; default false).
+        neural_network: guidance_params::NeuralNetworkParams {
+            mode: guidance_params::NeuralNetMode::parse(nn.and_then(|n| n.mode.as_deref()))
+                .map_err(DataError)?,
+            reset_state_every_tick: nn.and_then(|n| n.reset_state_every_tick).unwrap_or(false),
+        },
     })
 }
 
@@ -680,7 +683,7 @@ fn build_neural_net(
     toml: &TomlConfig,
     config: &SimInput,
     injected_nn: Option<neural::NeuralNetModel>,
-    neural_mode: guidance_params::NeuralNetMode,
+    mode: guidance_params::NeuralNetMode,
     normalization_override: Option<&[neural::NormSpec]>,
 ) -> Result<Option<neural::NeuralNetModel>, DataError> {
     let neural_net = match injected_nn {
@@ -781,7 +784,7 @@ fn build_neural_net(
     if let Some(nn) = &neural_net {
         match nn.output_param {
             neural::OutputParam::AcosTanh
-                if neural_mode != guidance_params::NeuralNetMode::MagnitudeOnly =>
+                if mode != guidance_params::NeuralNetMode::MagnitudeOnly =>
             {
                 return Err(DataError(
                     "loaded model has output_param='acos_tanh' which requires \
@@ -791,7 +794,7 @@ fn build_neural_net(
                 ));
             }
             neural::OutputParam::ScaledPi | neural::OutputParam::Delta
-                if neural_mode != guidance_params::NeuralNetMode::FullNeural =>
+                if mode != guidance_params::NeuralNetMode::FullNeural =>
             {
                 return Err(DataError(format!(
                     "loaded model output_param={:?} emits a signed bank and requires \

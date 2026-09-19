@@ -22,6 +22,7 @@ impl MissionType {
 
 /// Planet physical constants, parsed from TOML [planet] section.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlanetConfig {
     pub name: String,
     pub mu: f64,
@@ -199,6 +200,11 @@ pub struct SimInput {
 
 // ─── TOML deserialization structs ───
 
+// No deny_unknown_fields: Python-only root sections ([optimizer], [cost_function],
+// [warm_start], [rl], [checkpoints], ...) pass through by design
+// (docs/design/2026-03-16-toml-base-inheritance-design.md). Every section struct
+// below denies, except the two flatten structs (TomlPiecewiseConstantParams,
+// TomlMcDomain), which check their extra keys explicitly.
 #[derive(Debug, Deserialize)]
 pub struct TomlConfig {
     pub mission: TomlMission,
@@ -253,7 +259,7 @@ impl TomlConfig {
 /// TOML layer Activation-as-string (TOML parsing) vs the data layer Activation-enum
 /// (runtime typing). `to_layer_spec()` bridges them.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TomlLayerSpec {
     Dense {
         input_size: usize,
@@ -493,6 +499,7 @@ impl TomlLayerSpec {
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct TomlNetwork {
     #[serde(default)]
     pub input_mask: Option<Vec<usize>>,
@@ -507,12 +514,28 @@ pub struct TomlNetwork {
     /// model's normalization table (must be exactly NN_FULL_INPUT_SIZE entries).
     #[serde(default)]
     pub normalization: Option<Vec<crate::data::neural::NormSpec>>,
+    // Python-only: read by training/train.py + rl/train.py (v1 dense arch), never relayed.
+    #[serde(default)]
+    pub layer_sizes: Option<Vec<usize>>,
+    // Python-only: read by training/train.py + rl/train.py (v1 dense arch), never relayed.
+    #[serde(default)]
+    pub activations: Option<Vec<String>>,
+    // Python-only: read by training/train.py (QAT fake-quantization), never relayed.
+    #[serde(default)]
+    pub qat_bits: Option<u32>,
+    // Python-only: read by training/train.py (QAT fake-quantization), never relayed.
+    #[serde(default)]
+    pub qat_granularity: Option<String>,
+    // Python-only: read by training/train.py (QAT fake-quantization), never relayed.
+    #[serde(default)]
+    pub qat_tensor_policy: Option<String>,
 }
 
 // ─── Onboard Atmosphere TOML structs ───
 
 /// TOML config for explicit exponential segment override.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TomlExponentialSegment {
     pub alt_low: f64,
     pub alt_high: f64,
@@ -522,6 +545,7 @@ pub struct TomlExponentialSegment {
 
 /// TOML config for the onboard atmosphere model.
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct TomlAtmosphereOnboard {
     pub mode: Option<String>,
     pub n_segments: Option<usize>,
@@ -532,6 +556,7 @@ pub struct TomlAtmosphereOnboard {
 
 /// TOML config for the integration method.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TomlIntegration {
     pub mode: String,            // "fixed" or "adaptive"
     pub rtol: Option<f64>,       // relative tolerance (default 1e-6)
@@ -543,6 +568,7 @@ pub struct TomlIntegration {
 // ─── Navigation TOML structs ───
 
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct TomlNavigation {
     #[serde(default = "default_nav_mode")]
     pub mode: String, // "bias" or "ekf"
@@ -560,6 +586,7 @@ fn default_nav_mode() -> String {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TomlImu {
     #[serde(default = "default_accel_bias_sigma")]
     pub accel_bias_sigma: f64,
@@ -590,6 +617,7 @@ fn default_gyro_noise_sigma() -> f64 {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TomlStarTracker {
     #[serde(default = "default_st_pos_sigma")]
     pub position_sigma: f64, // 50.0 m
@@ -615,6 +643,7 @@ fn default_st_blackout() -> f64 {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TomlEkf {
     #[serde(default = "default_q_density")]
     pub process_noise_density: f64, // 0.1
@@ -625,6 +654,7 @@ fn default_q_density() -> f64 {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TomlMission {
     #[serde(rename = "type")]
     pub mission_type: String,
@@ -637,6 +667,7 @@ fn default_phase() -> String {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TomlGuidance {
     #[serde(rename = "type")]
     pub guidance_type: String,
@@ -671,6 +702,7 @@ pub struct TomlGuidance {
 }
 
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct TomlSimulation {
     #[serde(default = "default_n_sims")]
     pub n_sims: i32,
@@ -696,6 +728,7 @@ fn default_one() -> f64 {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TomlData {
     #[serde(default = "default_base_dir")]
     pub base_dir: String,
@@ -720,6 +753,7 @@ fn default_output_dir() -> String {
 // ─── Inline data TOML structs (consolidated mode) ───
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlVehicle {
     pub mass: f64,           // kg
     pub reference_area: f64, // m²
@@ -732,6 +766,7 @@ pub struct TomlVehicle {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlPeriods {
     #[serde(default = "default_one")]
     pub navigation: f64,
@@ -761,6 +796,7 @@ impl Default for TomlPeriods {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlPilot {
     #[serde(default = "default_pilot_model")]
     pub model: String,
@@ -797,6 +833,7 @@ impl Default for TomlPilot {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlEntry {
     pub altitude: f64, // km
     #[serde(default)]
@@ -813,6 +850,7 @@ pub struct TomlEntry {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlAeroPoint {
     pub aoa: f64, // deg
     pub ca: f64,  // axial force coeff (body axis)
@@ -820,12 +858,14 @@ pub struct TomlAeroPoint {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlAero {
     pub equilibrium_aoa: f64, // deg
     pub points: Vec<TomlAeroPoint>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlFlight {
     #[serde(default)]
     pub wind: bool,
@@ -836,6 +876,7 @@ pub struct TomlFlight {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlConstraints {
     pub max_heat_flux: f64,        // kW/m²
     pub max_load_factor: f64,      // g
@@ -845,6 +886,7 @@ pub struct TomlConstraints {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlFinalConditions {
     pub altitude: f64,          // km
     pub longitude: f64,         // deg
@@ -857,6 +899,7 @@ pub struct TomlFinalConditions {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlTargetOrbit {
     pub apoapsis: f64,        // km
     pub periapsis: f64,       // km
@@ -867,12 +910,14 @@ pub struct TomlTargetOrbit {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlParkingOrbit {
     pub apoapsis: f64,  // km
     pub periapsis: f64, // km
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlSuccess {
     pub inclination_tolerance: f64, // deg
     pub velocity_tolerance: f64,    // m/s
@@ -881,12 +926,14 @@ pub struct TomlSuccess {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlIncidence {
     pub altitudes: Vec<f64>, // km
     pub angles: Vec<f64>,    // deg
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct TomlFtcParams {
     #[serde(default)]
     pub capture_damping: f64,
@@ -964,6 +1011,7 @@ fn default_gain_fade_end_km() -> f64 {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlEqGlideParams {
     #[serde(default = "default_k_hdot_scale")]
     pub k_hdot_scale: f64,
@@ -1004,6 +1052,7 @@ fn default_0_95() -> f64 {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlEnergyCtrlParams {
     #[serde(default = "default_5e_7")]
     pub gain: f64,
@@ -1024,6 +1073,7 @@ fn default_0_5() -> f64 {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlPredGuidParams {
     #[serde(default = "default_0_8")]
     pub k_drag_high: f64,
@@ -1044,6 +1094,7 @@ fn default_pdyn_threshold() -> f64 {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlFnpagParams {
     #[serde(default = "default_1e4")]
     pub energy_tol: f64,
@@ -1093,6 +1144,12 @@ pub struct TomlPiecewiseConstantParams {
     pub energy_min: f64, // MJ/kg in TOML, converted to J/kg at load time
     #[serde(default = "default_energy_max")]
     pub energy_max: f64, // MJ/kg in TOML, converted to J/kg at load time
+    // Python-only: read by training/train.py (reference-only piecewise run), never relayed.
+    #[serde(default)]
+    pub reference_only: Option<bool>,
+    // serde cannot deny unknown keys on a struct with a flattened map: `extra`
+    // catches the GA's per-element `bank_angle_N` keys and
+    // `resolve_bank_angles_deg` rejects anything else.
     #[serde(flatten)]
     pub extra: BTreeMap<String, toml::Value>,
 }
@@ -1156,12 +1213,14 @@ impl TomlPiecewiseConstantParams {
             None => vec![DEFAULT_PIECEWISE_BANK_DEG; n],
         };
         for (key, val) in &self.extra {
-            let Some(idx_str) = key.strip_prefix("bank_angle_") else {
-                continue;
-            };
-            let Ok(idx) = idx_str.parse::<usize>() else {
-                continue;
-            };
+            let idx = key
+                .strip_prefix("bank_angle_")
+                .and_then(|s| s.parse::<usize>().ok())
+                .ok_or_else(|| {
+                    format!(
+                        "piecewise_constant: unknown key {key:?} (only bank_angle_N is accepted here)"
+                    )
+                })?;
             let f = val
                 .as_float()
                 .or_else(|| val.as_integer().map(|i| i as f64))
@@ -1202,6 +1261,7 @@ fn default_command_shaping_enabled() -> bool {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlLateralParams {
     #[serde(default)]
     pub tau: f64, // s (0.0 = inactive)
@@ -1218,6 +1278,7 @@ pub struct TomlLateralParams {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlThermalLimiterParams {
     #[serde(default = "default_heat_flux_activation")]
     pub heat_flux_activation: f64,
@@ -1230,6 +1291,7 @@ pub struct TomlThermalLimiterParams {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlCommandShapingParams {
     #[serde(default = "default_command_shaping_enabled")]
     pub enabled: bool,
@@ -1238,6 +1300,7 @@ pub struct TomlCommandShapingParams {
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct TomlNeuralNetworkParams {
     /// "full_neural" (default) | "magnitude_only".
     #[serde(default)]
@@ -1257,11 +1320,18 @@ pub struct TomlNeuralNetworkParams {
     /// Default false; no effect on dense-only models.
     #[serde(default)]
     pub reset_state_every_tick: Option<bool>,
+    // Python-only: read by training/train.py (PSO chromosome scaffolding slab), never relayed.
+    #[serde(default)]
+    pub scaffolding: Option<String>,
+    // Python-only: read by training/train.py (legacy warm-start path), never relayed.
+    #[serde(default)]
+    pub warm_start_from: Option<String>,
 }
 
 // ─── Domain-based Monte Carlo TOML structs ───
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct TomlMonteCarlo {
     pub seed: u64,
     #[serde(default)]
@@ -1284,6 +1354,10 @@ pub struct TomlMonteCarlo {
 /// A single dispersion domain config.
 /// `level` selects a preset ("off", "low", "medium", "high", "custom").
 /// Custom sigma overrides are only used when level = "custom".
+// No deny_unknown_fields: serde cannot deny on a struct with a flattened map.
+// `custom` catches the per-domain sigma overrides and `resolve_domain` /
+// `take_custom` (data/mod.rs) reject anything else while the domain is active
+// (an off-level domain returns before the check).
 #[derive(Debug, Deserialize, Clone)]
 pub struct TomlMcDomain {
     #[serde(default = "default_mc_level")]
@@ -1354,12 +1428,12 @@ fn validate_guidance(g: &TomlGuidance, network: Option<&TomlNetwork>) -> Result<
         .resolve_bank_angles_deg()
         .map_err(ParseError)?;
     let nn = g.neural_network.as_ref();
-    let neural_mode =
+    let mode =
         crate::data::guidance_params::NeuralNetMode::parse(nn.and_then(|nn| nn.mode.as_deref()))
             .map_err(ParseError)?;
     validate_output_parameterization(
         nn.and_then(|nn| nn.output_parameterization.as_deref()),
-        neural_mode,
+        mode,
         network.and_then(|n| n.architecture.as_deref()),
     )?;
     if let Some(cs) = g.command_shaping.as_ref()
@@ -1427,7 +1501,7 @@ fn validate_navigation(nav: Option<&TomlNavigation>) -> Result<(), ParseError> {
 /// Extracted so tests can call it directly without a full `TomlConfig`.
 fn validate_output_parameterization(
     output_param: Option<&str>,
-    neural_mode: crate::data::guidance_params::NeuralNetMode,
+    mode: crate::data::guidance_params::NeuralNetMode,
     architecture: Option<&[TomlLayerSpec]>,
 ) -> Result<(), ParseError> {
     use crate::data::guidance_params::NeuralNetMode::*;
@@ -1437,7 +1511,7 @@ fn validate_output_parameterization(
     };
 
     // acos_tanh is a magnitude decoder; the new scaled_pi/delta are signed.
-    if param == "acos_tanh" && neural_mode != MagnitudeOnly {
+    if param == "acos_tanh" && mode != MagnitudeOnly {
         return Err(ParseError(
             "output_parameterization='acos_tanh' is only legal with mode='magnitude_only' \
              (it cannot emit signed bank); use 'atan2_signed' for full_neural mode"
@@ -1446,7 +1520,7 @@ fn validate_output_parameterization(
     }
     // atan2_signed has no architecture constraint and is the historical default;
     // only the new signed decoders need the full_neural assertion here.
-    if matches!(param, "scaled_pi" | "delta") && neural_mode != FullNeural {
+    if matches!(param, "scaled_pi" | "delta") && mode != FullNeural {
         return Err(ParseError(format!(
             "output_parameterization='{}' is only legal with mode='full_neural' \
              (it emits a signed bank; magnitude_only expects an unsigned magnitude)",

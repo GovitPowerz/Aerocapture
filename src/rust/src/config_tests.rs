@@ -44,6 +44,27 @@ fn piecewise_bank_angles_array_without_overrides_unchanged() {
     );
 }
 
+#[test]
+fn piecewise_rejects_unknown_flattened_key() {
+    // The flattened `extra` map is the one place serde cannot deny unknown
+    // keys, so the resolver (run by `validate`) does it: only `bank_angle_N`.
+    let pc: TomlPiecewiseConstantParams =
+        toml::from_str("bank_angles = [10.0, 20.0]\nbank_angel_1 = 99.0").unwrap();
+    let err = pc.resolve_bank_angles_deg().unwrap_err();
+    assert!(
+        err.contains("unknown key \"bank_angel_1\""),
+        "expected the stray key named, got: {err}"
+    );
+    let pc: TomlPiecewiseConstantParams =
+        toml::from_str("bank_angles = [10.0, 20.0]\nbank_angle_x = 99.0").unwrap();
+    assert!(pc.resolve_bank_angles_deg().is_err());
+    // `reference_only` is declared (Python-only), so it is not an extra key.
+    let pc: TomlPiecewiseConstantParams =
+        toml::from_str("bank_angles = [10.0, 20.0]\nreference_only = true").unwrap();
+    assert_eq!(pc.resolve_bank_angles_deg().unwrap(), vec![10.0, 20.0]);
+    assert!(pc.extra.is_empty());
+}
+
 // ─── deep_merge tests ───
 
 #[test]
@@ -939,7 +960,7 @@ fn valid_arch_1out_tanh() -> Vec<TomlLayerSpec> {
 }
 
 #[test]
-fn acos_tanh_with_full_neural_mode_rejects() {
+fn acos_tanh_under_full_neural_rejects() {
     let arch = valid_arch_1out_tanh();
     let err = validate_output_parameterization(
         Some("acos_tanh"),
@@ -1165,11 +1186,7 @@ fn scaled_pi_with_linear_last_activation_rejects() {
 // ─── validate(): the no-IO pass ───
 
 fn load_guided_orig() -> TomlConfig {
-    let repo_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("canonicalize repo root");
-    let path = repo_root.join("configs/test/test_guided_orig.toml");
+    let path = repo_root().join("configs/test/test_guided_orig.toml");
     SimInput::from_toml_file(&path).expect("load fixture").1
 }
 
@@ -1266,4 +1283,390 @@ fn validate_rejects_each_no_io_rule() {
         max_dt: None,
     });
     rejects(&toml, "unknown integration mode");
+}
+
+// ─── TOML key reachability: a patched key is observable in SimInput / SimData ───
+
+fn repo_root() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("canonicalize repo root")
+}
+
+/// Load a `configs/` config, resolve its bases, and absolutize the
+/// `[data]` file paths (they are repo-root-relative; unit tests run from
+/// `src/rust` and must not touch the process cwd).
+fn resolved_config(rel: &str) -> Value {
+    let root = repo_root();
+    let path = root.join("configs").join(rel);
+    let content = std::fs::read_to_string(&path).expect("read fixture");
+    let raw: Value = toml::from_str(&content).expect("parse fixture");
+    let mut visited = HashSet::new();
+    let mut resolved = resolve_toml_bases(raw, &path, &mut visited).expect("resolve bases");
+    let data = resolved["data"].as_table_mut().expect("[data] table");
+    for key in [
+        "atmosphere",
+        "reference_trajectory",
+        "neural_network",
+        "wind_table",
+    ] {
+        if let Some(Value::String(rel)) = data.get(key) {
+            let abs = root.join(rel).to_string_lossy().into_owned();
+            data.insert(key.to_string(), Value::String(abs));
+        }
+    }
+    resolved
+}
+
+/// Set `dotted` to the TOML literal `literal`, creating tables on the way.
+fn set_dot(root: &mut Value, dotted: &str, literal: &str) {
+    let parsed: Value = toml::from_str(&format!("v = {literal}")).expect("value literal");
+    let value = parsed["v"].clone();
+    let mut node = root;
+    let parts: Vec<&str> = dotted.split('.').collect();
+    for part in &parts[..parts.len() - 1] {
+        let table = node.as_table_mut().expect("table on path");
+        node = table
+            .entry(part.to_string())
+            .or_insert_with(|| Value::Table(toml::map::Map::new()));
+    }
+    node.as_table_mut()
+        .expect("leaf table")
+        .insert(parts[parts.len() - 1].to_string(), value);
+}
+
+fn build_sim_data(value: &Value) -> (SimInput, crate::data::SimData) {
+    let text = toml::to_string(value).expect("serialize");
+    let (input, toml) = SimInput::from_toml(&text).expect("parse patched config");
+    let data = crate::data::SimData::from_toml(&toml, &input).expect("build SimData");
+    (input, data)
+}
+
+struct Reach {
+    key: &'static str,
+    literal: &'static str,
+    fixture: &'static str,
+    /// The runtime field, rendered so `expected` can be a literal.
+    observe: fn(&SimInput, &crate::data::SimData) -> String,
+    expected: &'static str,
+}
+
+/// One row per relayed section (at least one key of every relay style: nested
+/// NN knobs, MC scalars, navigation gains, integration, simulation, the shared
+/// guidance blocks, per-scheme tunables, onboard atmosphere, vehicle/entry/
+/// flight conversions): the key is patched into a committed config, the config is
+/// built the same way the CLI builds it, and the runtime field must read the
+/// patched value. The fixture's own value must differ from the patch
+/// (asserted), so a relay that silently keeps the fixture's value -- or the
+/// Rust default -- fails the row. Serde covers "key exists in a Toml* struct"
+/// (deny_unknown_fields); this covers "and the sim reads it".
+#[test]
+fn toml_keys_reachable_in_sim_data() {
+    use crate::data::SimData;
+    fn f6(v: f64) -> String {
+        format!("{v:.6}")
+    }
+    fn nn(d: &SimData) -> &crate::data::neural::NeuralNetModel {
+        d.neural_net.as_ref().expect("golden NN model loaded")
+    }
+    let rows: Vec<Reach> = vec![
+        Reach {
+            key: "guidance.neural_network.mode",
+            literal: "\"magnitude_only\"",
+            fixture: "test/test_neural_golden.toml",
+            observe: |_, d| format!("{:?}", d.guidance.neural_network.mode),
+            expected: "MagnitudeOnly",
+        },
+        Reach {
+            key: "guidance.neural_network.reset_state_every_tick",
+            literal: "true",
+            fixture: "test/test_neural_golden.toml",
+            observe: |_, d| d.guidance.neural_network.reset_state_every_tick.to_string(),
+            expected: "true",
+        },
+        Reach {
+            key: "guidance.neural_network.scaled_pi_n",
+            literal: "2.5",
+            fixture: "test/test_neural_golden.toml",
+            observe: |_, d| f6(nn(d).scaled_pi_n),
+            expected: "2.500000",
+        },
+        Reach {
+            key: "guidance.neural_network.delta_max",
+            literal: "0.5",
+            fixture: "test/test_neural_golden.toml",
+            observe: |_, d| f6(nn(d).delta_max),
+            expected: "0.500000",
+        },
+        Reach {
+            key: "network.input_mask",
+            literal: "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16]",
+            fixture: "test/test_neural_golden.toml",
+            observe: |_, d| format!("{:?}", nn(d).input_mask),
+            expected: "Some([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16])",
+        },
+        Reach {
+            key: "network.ablated_input",
+            literal: "3",
+            fixture: "test/test_neural_golden.toml",
+            observe: |_, d| format!("{:?}", nn(d).ablated_input),
+            expected: "Some(3)",
+        },
+        Reach {
+            key: "monte_carlo.seed",
+            literal: "4242",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| d.dispersion_config.as_ref().unwrap().seed.to_string(),
+            expected: "4242",
+        },
+        Reach {
+            key: "monte_carlo.sampling",
+            literal: "\"sobol\"",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| format!("{:?}", d.dispersion_config.as_ref().unwrap().sampling),
+            expected: "Sobol",
+        },
+        Reach {
+            // Every configs/test fixture pins `legacy`; this nominal carries no
+            // pin, so the baseline reads the Rust default (PerDraw) and the
+            // patch differs from both the fixture and the default.
+            key: "monte_carlo.noise_seeding",
+            literal: "\"legacy\"",
+            fixture: "nominal/msr_aller_ftc_mc_domain.toml",
+            observe: |_, d| format!("{:?}", d.dispersion_config.as_ref().unwrap().noise_seeding),
+            expected: "Legacy",
+        },
+        Reach {
+            key: "monte_carlo.density_perturbation.level",
+            literal: "\"high\"",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| format!("{:?}", d.density_perturbation.map(|p| p.tau)),
+            expected: "Some(30.0)",
+        },
+        Reach {
+            key: "navigation.mode",
+            literal: "\"ekf\"",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| format!("{:?}", d.nav_mode),
+            expected: "Ekf",
+        },
+        Reach {
+            key: "navigation.density_filter_gain",
+            literal: "0.55",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| f6(d.guidance.density_filter_gain),
+            expected: "0.550000",
+        },
+        Reach {
+            key: "navigation.density_gain_max_delta",
+            literal: "0.25",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| f6(d.guidance.density_gain_max_delta),
+            expected: "0.250000",
+        },
+        Reach {
+            key: "integration.mode",
+            literal: "\"adaptive\"",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| match d.integration_mode {
+                IntegrationMode::FixedGill => "fixed".into(),
+                IntegrationMode::AdaptiveDopri45(_) => "adaptive".into(),
+            },
+            expected: "adaptive",
+        },
+        Reach {
+            key: "integration.rtol",
+            literal: "1e-9",
+            fixture: "test/test_ref_adaptive.toml",
+            observe: |_, d| match d.integration_mode {
+                IntegrationMode::FixedGill => "fixed".into(),
+                IntegrationMode::AdaptiveDopri45(a) => format!("{:e}", a.rtol),
+            },
+            expected: "1e-9",
+        },
+        Reach {
+            key: "simulation.max_time",
+            literal: "1234.0",
+            fixture: "test/test_ref_orig.toml",
+            observe: |i, _| f6(i.max_time),
+            expected: "1234.000000",
+        },
+        Reach {
+            key: "simulation.random_seed",
+            literal: "0.123",
+            fixture: "test/test_ref_orig.toml",
+            observe: |i, _| f6(i.random_seed),
+            expected: "0.123000",
+        },
+        Reach {
+            key: "simulation.n_sims",
+            literal: "7",
+            fixture: "test/test_ref_orig.toml",
+            observe: |i, _| i.n_sims.to_string(),
+            expected: "7",
+        },
+        Reach {
+            key: "mission.phase",
+            literal: "\"capture_only\"",
+            fixture: "test/test_ref_orig.toml",
+            observe: |i, _| format!("{:?}", i.sim_phase),
+            expected: "CaptureOnly",
+        },
+        Reach {
+            key: "guidance.reference_bank_angle",
+            literal: "33.0",
+            fixture: "test/test_ref_orig.toml",
+            observe: |i, _| f6(i.reference_bank_angle),
+            expected: "33.000000",
+        },
+        Reach {
+            key: "guidance.command_shaping.max_bank_acceleration",
+            literal: "7.5",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| match &d.guidance.command_shaping {
+                Some(cs) => f6(cs.max_bank_acceleration.to_degrees()),
+                None => "none".into(),
+            },
+            expected: "7.500000",
+        },
+        Reach {
+            key: "guidance.thermal_limiter.heat_flux_activation",
+            literal: "0.85",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| f6(d.guidance.thermal_limiter.heat_flux_activation),
+            expected: "0.850000",
+        },
+        Reach {
+            key: "guidance.lateral.tau",
+            literal: "12.5",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| f6(d.guidance.lateral.tau),
+            expected: "12.500000",
+        },
+        Reach {
+            key: "guidance.lateral.threshold",
+            literal: "2.0",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| f6(d.guidance.lateral.threshold.to_degrees()),
+            expected: "2.000000",
+        },
+        Reach {
+            key: "guidance.ftc.capture_damping",
+            literal: "0.42",
+            fixture: "test/test_guided_orig.toml",
+            observe: |_, d| f6(d.guidance.capture_damping),
+            expected: "0.420000",
+        },
+        Reach {
+            key: "guidance.ftc.exit_altitude_threshold",
+            literal: "55.0",
+            fixture: "test/test_guided_orig.toml",
+            observe: |_, d| f6(d.guidance.exit_altitude_threshold / 1e3),
+            expected: "55.000000",
+        },
+        Reach {
+            key: "guidance.fnpag.replan_period",
+            literal: "3.5",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| f6(d.guidance.fnpag.replan_period),
+            expected: "3.500000",
+        },
+        Reach {
+            key: "guidance.equilibrium_glide.k_hdot_scale",
+            literal: "0.45",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| f6(d.guidance.eq_glide.k_hdot_scale),
+            expected: "0.450000",
+        },
+        Reach {
+            key: "guidance.energy_controller.kp",
+            literal: "1.7",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| f6(d.guidance.energy_ctrl.kp),
+            expected: "1.700000",
+        },
+        Reach {
+            key: "guidance.pred_guid.k_drag_high",
+            literal: "0.65",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| f6(d.guidance.pred_guid.k_drag_high),
+            expected: "0.650000",
+        },
+        Reach {
+            key: "guidance.piecewise_constant.bank_angles",
+            literal: "[10.0, 20.0, 30.0]",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| {
+                let deg: Vec<String> = d
+                    .guidance
+                    .piecewise_constant
+                    .bank_angles
+                    .iter()
+                    .map(|r| f6(r.to_degrees()))
+                    .collect();
+                deg.join(",")
+            },
+            expected: "10.000000,20.000000,30.000000",
+        },
+        Reach {
+            // The fixtures pin `mode = "identical"`, which shadows
+            // `n_segments`; the whole table is replaced to observe the fit.
+            key: "onboard_atmosphere",
+            literal: "{ n_segments = 3 }",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| match &d.atmosphere_onboard {
+                crate::data::atmosphere::OnboardAtmosphereModel::PiecewiseExponential {
+                    segments,
+                } => format!("fit({})", segments.len()),
+                _ => "identical".into(),
+            },
+            expected: "fit(3)",
+        },
+        Reach {
+            key: "vehicle.mass",
+            literal: "1234.5",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| f6(d.capsule.mass),
+            expected: "1234.500000",
+        },
+        Reach {
+            key: "entry.initial_bank_angle",
+            literal: "77.0",
+            fixture: "test/test_guided_orig.toml",
+            observe: |_, d| f6(d.entry.initial_bank.to_degrees()),
+            expected: "77.000000",
+        },
+        Reach {
+            key: "flight.constraints.max_heat_flux",
+            literal: "999.0",
+            fixture: "test/test_ref_orig.toml",
+            observe: |_, d| f6(d.constraints.max_heat_flux / 1e3),
+            expected: "999.000000",
+        },
+    ];
+    assert!(rows.len() >= 15);
+
+    let mut baselines: std::collections::HashMap<&str, (SimInput, SimData)> =
+        std::collections::HashMap::new();
+    for row in &rows {
+        let (bi, bd) = baselines
+            .entry(row.fixture)
+            .or_insert_with(|| build_sim_data(&resolved_config(row.fixture)));
+        let before = (row.observe)(bi, bd);
+        assert_ne!(
+            before, row.expected,
+            "{}: fixture {} already reads {:?}; pick a value that differs",
+            row.key, row.fixture, before
+        );
+        let mut patched = resolved_config(row.fixture);
+        set_dot(&mut patched, row.key, row.literal);
+        let (pi, pd) = build_sim_data(&patched);
+        let after = (row.observe)(&pi, &pd);
+        assert_eq!(
+            after, row.expected,
+            "{} = {} did not reach the runtime (fixture {} read {:?} before, {:?} after)",
+            row.key, row.literal, row.fixture, before, after
+        );
+    }
 }

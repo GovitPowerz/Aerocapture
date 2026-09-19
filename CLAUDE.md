@@ -84,7 +84,18 @@ src/rust/src/
   config.rs                        — TOML parser (PlanetConfig, SimInput, IntegrationMode, MissionType/SimPhase/GuidanceType::parse) + base inheritance (deep_merge, resolve_toml_bases)
                                      + validate(&TomlConfig): every no-IO rule in one pass (sections, enum strings, incidence, piecewise, command_shaping, normalization width,
                                      output_parameterization vs mode+arch, MC levels/keys/bounds via build_dispersion_config, nav mode + EKF sigmas, integration mode); run by
-                                     SimData::from_toml BEFORE any table IO and again atop from_toml_with_tables (post-override config); exposed as PyO3 validate_config
+                                     SimData::from_toml BEFORE any table IO and again atop from_toml_with_tables (post-override config); exposed as PyO3 validate_config.
+                                     Naming rule (#105) for new relays: a runtime field keeps its TOML key (`data.guidance.neural_network.reset_state_every_tick` greps
+                                     end to end); an unavoidable rename is declared by `#[serde(rename)]` on the mirror, as `type` is. Pre-#105 renames (`eq_glide`,
+                                     `energy_ctrl`, `sim_phase`, `capsule`, `dispersion_config`, `atmosphere_onboard`, the `[guidance.ftc]` and `[navigation]` gains flattened
+                                     onto GuidanceParams) stay. Section-level deny: every Toml* section struct (the TomlLayerSpec enum and the NormSpec entries too) is
+                                     `deny_unknown_fields` except the root TomlConfig, whose Python-only sections pass through, and the two flatten structs
+                                     (TomlPiecewiseConstantParams, TomlMcDomain), which validate their extra keys explicitly (TomlMcDomain only while the domain is active: an
+                                     off-level domain still drops strays); Python-only keys inside Rust-owned sections (`scaffolding`, `warm_start_from`, `layer_sizes`,
+                                     `activations`, `qat_*`, `reference_only`) are declared on the mirror with a `// Python-only` comment;
+                                     `tests/config_loading.rs::parse_all_available_configs` + `all_configs_are_consolidated` walk configs/** recursively (serde parse + the no-IO
+                                     `validate` pass) so a key no struct declares fails CI, and `config_tests.rs::toml_keys_reachable_in_sim_data` asserts a patched value is
+                                     observable at runtime
   data/
     mod.rs, SimData                — Top-level data container; from_toml_with_tables = ~70 lines of orchestration: config::validate first, then named builders (build_capsule/
                                      pilot/entry/aero/flight/success/incidence/guidance_params/onboard_atmosphere/neural_net, resolve_reference_trajectory = the per-individual ref
@@ -372,7 +383,9 @@ subsections `[optimizer.ga]` (`crossover_eta`, `mutation_eta`), `[optimizer.cma_
 coefficient, annealed linearly over `n_gen`, both validated in (0, 2]). Defaults live in `configs/training/common.toml`; CLI args (`--n-gen`, `--n-pop`, `--algorithm`) override TOML values when
 explicitly provided. An optional `[integration]` section selects the integration method: `mode = "fixed"` (default, Gill-variant RK4) or `mode = "adaptive"` (Dormand-Prince 4(5) with error control);
 an unrecognized `mode` string now hard-errors at load (previously a silent fallback to fixed). Adaptive mode supports `rtol` (default 1e-6), `initial_dt` (default 0.1 s), `min_dt` (default 1e-6 s),
-and `max_dt` (default = `periods.integration`). Input validation is now strict across the config layer: an unknown `[monte_carlo.<domain>] level` (e.g. a typo `"of"` for `"off"`) and an unknown
+and `max_dt` (default = `periods.integration`). Input validation is now strict across the config layer: an unknown key in any Rust-owned section (typo, wrong section, stale knob) hard-errors at
+load (serde's `unknown field` message for the deny structs; the two flatten sections report their own message, and an off-level `[monte_carlo.<domain>]` still drops strays)
+while Python-only sections at the root still pass through; an unknown `[monte_carlo.<domain>] level` (e.g. a typo `"of"` for `"off"`) and an unknown
 custom-dispersion key (under ANY active level, not just `level = "custom"`) both hard-error at load instead of silently running Medium / dropping the key; the 8 per-domain custom-override blocks are
 consolidated through a single `resolve_domain` helper in `data/mod.rs` (wind + density_perturbation kept inline for their unconditional-read / post-validation quirks). The same hard-error policy
 covers (2026-07 review pass): an unknown `[navigation] mode` (was a silent Bias fallback), `guidance.type = "neural_network"` without a model (`[data] neural_network` or an injected one; used to panic
@@ -398,7 +411,7 @@ present), `max_bank_acceleration` (deg/s^2, must be > 0). When absent or `enable
 (default, backward compat -- NN emits a signed bank via atan2 and bypasses exit, lateral, and thermal_limiter modules) or `mode = "magnitude_only"` (Path A -- NN's atan2 output is reduced to `.abs()`
 and fed into the unsigned-magnitude pipeline; lateral guidance picks the sign, thermal limiter applies safety ramp). MagnitudeOnly lets the NN replace only the capture-phase predictor-corrector while
 reusing FTC's GA-tuned `[guidance.lateral]` / `[guidance.thermal_limiter]` / `[guidance.ftc]` exit-phase scaffolding. Unknown values raise an error at config load. An eval-only state-ablation knob
-`reset_state_every_tick` (default false, golden-neutral; parsed in `TomlNeuralNetworkParams`, carried as `GuidanceParams::nn_reset_state_every_tick`, applied in the dispatch NN arm) reconstructs a
+`reset_state_every_tick` (default false, golden-neutral; parsed in `TomlNeuralNetworkParams`, carried as `GuidanceParams::neural_network.reset_state_every_tick`, applied in the dispatch NN arm) reconstructs a
 zeroed `NnState` before every guidance tick, making a stateful NN memoryless — the paper's reset control (deployed Mamba: CVaR99.9 123→414 with the flag on); reachable via the PyO3 override
 dot-path `guidance.neural_network.reset_state_every_tick`. Three additional opt-in knobs (default off, fully backward-compatible) target the NN-vs-FTC parity gap:
 `scaffolding = "off" | "live" | "full"` (default `"off"`; declared per-leaf config, NOT in `nn_common.toml`; the active mode is printed at training start) controls whether the PSO chromosome
@@ -955,7 +968,7 @@ sim loads — training silently used the legacy file for months). Because SimDat
 is exempted from .gitignore and committed so CI/e2e (which run the training TOMLs) resolve it. **Joint reference optimization:** `[reference] joint_bank = true` (leaf example:
 `configs/training/msr_aller_ftc_joint_ref_train.toml`; eligible schemes = `JOINT_REF_BANK_SCHEMES`, others hard-error) appends a `ref_bank` gene (bounds `bank_low`/`bank_high`, default [55, 80] deg)
 to the chromosome; every evaluation path generates per-individual constant-bank tables (one batched undispersed run_batch per evaluation, ~+10% cost) and injects per-individual
-`data.reference_trajectory` overrides via the `_run_grid_records` chokepoint — the gene itself is NEVER routed to a guidance TOML key (Rust would silently drop it). The injection is honored INSIDE
+`data.reference_trajectory` overrides via the `_run_grid_records` chokepoint — the gene itself is NEVER routed to a guidance TOML key (Rust would reject it as an unknown field since #105). The injection is honored INSIDE
 `run_grid` since 2026-06-12: `SimData::from_toml_with_tables` reloads the reference when the patched config's path differs from `SharedTables.ref_trajectory_path` — before that the Arc-shared base
 table silently swallowed the override, so the gene trained DEAD (training/validation on the mission table, deploy/report/compare on the winner's random-within-bounds table: chaotic final numbers
 regardless of gene bounds; joint runs trained before the fix are invalid). Gate: `tests/test_joint_ref_bank.py::test_run_grid_honors_reference_trajectory_override` + the Rust
@@ -1336,7 +1349,9 @@ via `estimator.rs`. When adding new navigation-level tunable params, put them in
 For months every ref-tracking scheme trained against the legacy `data/reference_trajectory/msr_aller.dat` while `train.py` checked that `training_output/<mission>/ref_trajectory.dat` existed and
 printed "Using reference trajectory: ..." — nothing ever injected the path into the config. The lesson: a guard that only checks a file EXISTS does not verify the sim LOADS it; assert on the
 resolved config value (`check_ref_trajectory_wiring`). Related trap in the same family: gains and reference co-adapt strongly — FTC's GA optimum gets 133 m/s p50 DV on the reference it trained with
-and 0.3% capture rate on a different one, so swapping the reference is always a retrain-everything event.
+and 0.3% capture rate on a different one, so swapping the reference is always a retrain-everything event. The same lesson applied to keys: serde ignored unknown keys in every section until #105 (a
+committed config carried two keys Rust never read for five months); section-level `deny_unknown_fields` + the recursive `parse_all_available_configs` gate + the `toml_keys_reachable_in_sim_data`
+table are the test.
 
 ### Reference Trajectory Design (open-loop optimum != good reference)
 
@@ -1419,7 +1434,8 @@ stop well before `n_gen` -- raise `restarts` / use `bipop`, or footnote the asym
   Gill agreement, dense output boundary conditions + midpoint accuracy + proptest finiteness), event detection (Brent's root-finding: sin/linear/endpoint/tight-bracket convergence + same-sign panic,
   event function sign correctness, check_events_and_locate: zero-crossing location + direction filtering + earliest-event arbitration, E2E: bounce sub-tick precision + atmosphere exit timing + fixed
   RK4 non-regression + trajectory event interleaving with monotonic time + proptest bounce values finiteness), error paths, `run_for_api()`, peak value tracking, TOML base inheritance (deep_merge,
-  resolve_toml_bases, cycle detection), virtual DV ranges (proptest: `virtual_dv_non_capture` finite + bounded-below by `CRASH_FLOOR - CRASH_TIME_BONUS`, monotonic + symmetric in |ΔE|, survival
+  resolve_toml_bases, cycle detection), config key reachability (every committed config under configs/** parses + validates under section-level `deny_unknown_fields`;
+  a 35-row table asserts each patched TOML key is observable in SimData; the piecewise flatten map rejects non-`bank_angle_N` keys), virtual DV ranges (proptest: `virtual_dv_non_capture` finite + bounded-below by `CRASH_FLOOR - CRASH_TIME_BONUS`, monotonic + symmetric in |ΔE|, survival
   reduces cost by exactly `CRASH_TIME_BONUS`, NaN/Inf energy falls back to worst-case cap, hyperbolic DV >= HYPERBOLIC_BASE, near-target-crash stays within [2500, CRASH_FLOOR] so captures remain
   strictly preferable), trajectory heat load (monotonically non-decreasing, consistent with final_record), thermal limiter (ramp bounds, monotonicity, default-disabled invariant, proptest robustness),
   density perturbation (OU config presets, step function decay/determinism/statistics, TOML parsing with level/custom/absent), sampling (norm_ppf known values + symmetry, DimTransform

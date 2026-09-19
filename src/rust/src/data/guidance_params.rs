@@ -156,6 +156,17 @@ impl NeuralNetMode {
     }
 }
 
+/// Runtime mirror of the `[guidance.neural_network]` table (same key names).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NeuralNetworkParams {
+    // Neural network guidance routing mode (FullNeural | MagnitudeOnly)
+    pub mode: NeuralNetMode,
+
+    // Eval-only state-ablation control: zero the NnState before every guidance
+    // tick, making a stateful NN memoryless (paper R4/R5). Default false.
+    pub reset_state_every_tick: bool,
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct GuidanceParams {
@@ -208,12 +219,8 @@ pub struct GuidanceParams {
     pub thermal_limiter: ThermalLimiterParams,
     pub command_shaping: Option<CommandShapingConfig>,
 
-    // Neural network guidance routing mode (FullNeural | MagnitudeOnly)
-    pub neural_mode: NeuralNetMode,
-
-    // Eval-only state-ablation control: zero the NnState before every guidance
-    // tick, making a stateful NN memoryless (paper R4/R5). Default false.
-    pub nn_reset_state_every_tick: bool,
+    // `[guidance.neural_network]` knobs (mode, reset_state_every_tick)
+    pub neural_network: NeuralNetworkParams,
 }
 
 /// Reference trajectory tables loaded from the reference trajectory data file.
@@ -416,8 +423,7 @@ impl Default for GuidanceParams {
             piecewise_constant: PiecewiseConstantParams::default(),
             thermal_limiter: ThermalLimiterParams::default(),
             command_shaping: None,
-            neural_mode: NeuralNetMode::default(),
-            nn_reset_state_every_tick: false,
+            neural_network: NeuralNetworkParams::default(),
         }
     }
 }
