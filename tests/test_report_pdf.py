@@ -46,13 +46,13 @@ class TestGenerateReport:
         return d
 
     def test_generates_charts_to_temp_dir(self, scheme_dir: Path) -> None:
-        with patch("aerocapture.training.report.check_typst", return_value=False):
+        with patch("aerocapture.training.report_render.check_typst", return_value=False):
             generate_report(scheme_dir, toml_path=None, skip_final_eval=True)
 
 
 class TestGenerateComparisonReport:
     def test_comparison_report_no_data(self, tmp_path: Path) -> None:
-        with patch("aerocapture.training.report.check_typst", return_value=False):
+        with patch("aerocapture.training.report_render.check_typst", return_value=False):
             result = generate_comparison_report(tmp_path)
         assert result is None
 
@@ -73,6 +73,6 @@ class TestGenerateComparisonReport:
                 for i in range(3)
             ]
             (d / "run_000.jsonl").write_text("\n".join(json.dumps(r) for r in records))
-        with patch("aerocapture.training.report.check_typst", return_value=False):
+        with patch("aerocapture.training.report_render.check_typst", return_value=False):
             result = generate_comparison_report(tmp_path)
         assert result is None

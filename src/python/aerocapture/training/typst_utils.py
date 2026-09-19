@@ -1,4 +1,8 @@
-"""Shared Typst PDF-compilation helpers (single source for the 3 report modules)."""
+"""Typst CLI subprocess layer: `check_typst` + `compile_typst`.
+
+Consumed only by `report_render` (the one render spine every report driver
+goes through); drivers never call these directly.
+"""
 
 from __future__ import annotations
 
@@ -23,9 +27,8 @@ def compile_typst(
     """Compile a .typ template to PDF. Returns True on success.
 
     Logs (does not raise) on non-zero exit or timeout so report generation
-    degrades gracefully. Caller is responsible for check_typst() / printing
-    the typst-absent message before calling here, and for writing/cleaning the
-    template file.
+    degrades gracefully. The caller (`report_render.render_pdf`) is responsible
+    for check_typst() / printing the typst-absent message before calling here.
 
     Args:
         template_path: Path to the .typ template.

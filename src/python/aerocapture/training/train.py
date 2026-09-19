@@ -912,9 +912,7 @@ def _emit_warm_start_artifacts(
     try:
         from aerocapture.training.warm_start_report import render_report
 
-        pdf = render_report(Path(config.save_dir))
-        if verbose and pdf is not None:
-            print(f"  [warm_start] report: {pdf}")
+        render_report(Path(config.save_dir))
     except Exception as e:
         print(f"  [warm_start] WARNING: report rendering failed: {type(e).__name__}: {e}")
 
