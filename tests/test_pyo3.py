@@ -115,6 +115,13 @@ class TestValidateConfig:
         with pytest.raises(ValueError, match="navigation.mode"):
             aero.validate_config(GOLDEN_TOML, overrides={"navigation.mode": "EKF"})
 
+    def test_unknown_key_in_rust_section_raises_value_error(self) -> None:
+        # Every Rust-owned section struct is deny_unknown_fields: a typo'd dot
+        # path (`mde` for `mode`) fails at parse with serde's message instead
+        # of silently creating a key nothing reads.
+        with pytest.raises(ValueError, match=r"unknown field `mde`"):
+            aero.validate_config(GOLDEN_TOML, overrides={"navigation.mde": "ekf"})
+
     def test_does_not_read_data_tables(self) -> None:
         # Retargeting the atmosphere table at a nonexistent file must still pass:
         # the pass reads no table. The same override makes a run fail.
