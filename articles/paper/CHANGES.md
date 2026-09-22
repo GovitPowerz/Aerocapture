@@ -1,7 +1,7 @@
 # Changes since arxiv-v3
 
-The committed `paper.pdf` is the arxiv-v3 build. The Typst source carries the changes below
-for the next version; the PDF is recompiled only when that version pass is complete.
+The committed `paper.pdf` is recompiled from the Typst source below (`make -C articles/paper pdf`,
+last on 2026-09-22 with #120); the arxiv-v3 build is the `arxiv-v3` tag.
 
 - 2026-09-16 (#108, ADR-0006): the abstract and the conclusion lead with the per-scenario-noise
   result (fine-tuned Mamba, CVaR99.9 163.2 +- 1.3 m/s over three seeds, 99.996% capture of 10^6,
@@ -23,3 +23,12 @@ for the next version; the PDF is recompiled only when that version pass is compl
   10^6 confirmatory pools (`experiments/ou_marginal/confirmatory_marginal.json`) and a
   contributions block; the review workflow artifacts moved from `articles/paper/` to
   `docs/paper/reviews/`.
+- 2026-09-22 (#120): the headline tables read the bundle at compile time. `results.typ`
+  wraps `data/results.json`, `data/confirmatory_eval.json` and `data/quant/finalists_results.json`;
+  every cell of the performance table, the paired-comparison table and the quantization
+  finalists table is an accessor call (the performance table's Viol. column stays transcribed:
+  the bundle carries no violation field). A colophon reads `data/provenance.json` (paper-inputs
+  digest, Release tag, toolchain versions, noise regime) and the git head `make pdf` passes in.
+  One cell moved: the QAT fine-tune CVaR99.9 is 122.85 pooled, which rounds to 122.9 (the
+  transcription had rounded it down); the two prose quotes follow. Every other converted cell
+  reproduces its literal.

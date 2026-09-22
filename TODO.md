@@ -122,8 +122,8 @@ noise (the default since ADR-0006) its fine-tune holds CVaR99.9 163.2 +- 1.3 m/s
 the best dense network. The shared-path result it replaces (123.3 +- 0.1 at 100% capture) is the
 historical headline of the paper's main body; Appendix E holds the correction.
 
-Paper: `articles/paper/paper.pdf` (tag `arxiv-v3`, GitHub Release; the abstract and conclusion in
-the Typst source already lead with the per-scenario result, see `articles/paper/CHANGES.md`). Detailed phase history
+Paper: `articles/paper/paper.pdf`, recompiled from the Typst source (the arxiv-v3 build is the
+`arxiv-v3` tag / GitHub Release; changes since it: `articles/paper/CHANGES.md`). Detailed phase history
 (Phases 0 through 4a, task-by-task): this file's git history plus the specs and plans under
 `docs/design/` (the implementation plans left the tree in ee1518a: `git show ee1518a^:docs/superpowers/plans/`).
 

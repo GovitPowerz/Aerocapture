@@ -2,7 +2,7 @@
 
 Status: ARCHIVED. Workflow artifacts of the paper's R4/R5 revision (July 2026), moved here from
 `articles/paper/` on 2026-09-22 (issue #101) so the paper source directory holds only inputs of
-the build (`paper.typ`, `appendix.typ`, `refs.bib`, `data/`, `figures/`, `scripts/`, `fonts/`).
+the build (`paper.typ`, `appendix.typ`, `results.typ`, `refs.bib`, `data/`, `figures/`, `scripts/`, `fonts/`).
 Nothing in the tree reads these files.
 
 - `2026-07-10_reviewer_report_1.md`, `2026-07-10_reviewer_report_2.md`: AI-generated reviewer

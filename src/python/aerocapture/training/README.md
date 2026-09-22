@@ -672,7 +672,12 @@ validation_n_sims` sims each).
   a Release asset on the `arxiv-v2` tag); `provenance` writes `data/provenance.json` (a content
   SHA-256 over every tracked paper input plus Release tag, crate/typst/matplotlib versions,
   campaign TOML hashes; `--check` fails when stale); `pdf` (typst, `SOURCE_DATE_EPOCH` = HEAD
-  commit time; `PDF=/tmp/x.pdf` leaves the committed PDF alone); `paper` chains them; `check` =
+  commit time, `--input git_head=<short sha>[-dirty]` for the colophon; `PDF=/tmp/x.pdf` leaves
+  the committed PDF alone). `articles/paper/results.typ` is the compile-time seam: accessors over
+  `results.json` / `confirmatory_eval.json` / `quant/finalists_results.json` that fill every cell of
+  the performance, paired-comparison and quantization-finalists tables (the Viol. column excepted:
+  the bundle carries no violation field), and the colophon reads `provenance.json`; prose numbers
+  are still transcribed. `paper` chains them; `check` =
   `data/SHA256SUMS` recomputed over every tracked bundle file and diffed verbatim (`sums`
   regenerates it + `SHA256SUMS.runlogs`) + `check_results_schema.py` + `write_provenance.py
   --check` + the `FROZEN` files present (the 7 data files with no producer in the tree) + `git
