@@ -75,10 +75,12 @@ in a `pub` module, rustc's dead-code lint never saw a field no builder read.
   `TomlConfig`. A relayed field nothing reads is invisible to both gates, so the runtime structs
   carry no `#[allow(dead_code)]`: the lint is that gate (#128, option c, 2026-09-22 -- the four
   dead GA genes left `PARAM_SPACES`, their runtime fields are gone, the TOML keys stay declared
-  and inert on the `Toml*` struct with a per-field allow naming this decision; `[success]` was
-  deleted outright).
+  and inert on the `Toml*` struct with a per-field allow naming this decision; `[success]` left
+  the mission configs and the root keeps it as an opaque `Option<toml::Table>` so the generated
+  `optimized_*.toml` written before that still parse).
 - The model JSON loaders (`NnJsonFile`, `NnJsonFileV2`, the JSON `LayerSpec`) deny unknown keys
   the same way since #128 (the one legacy key, `output_interpretation`, is declared and ignored),
   and a `[[network.architecture]]` block must equal the loaded model's architecture. The
-  Python-owned `[cost_function]` / `[corridor]` / `[reference]` sections are read once each and
-  reject unknown keys (`toml_utils.reject_unknown_keys`).
+  Python-owned `[cost_function]` / `[corridor]` / `[reference]` / `[checkpoints]` / `[warm_start]`
+  sections reject unknown keys through one helper (`toml_utils.reject_unknown_keys`), at the one
+  TOML -> TrainingConfig chokepoint (`build_training_config_from_toml`) for the training sections.

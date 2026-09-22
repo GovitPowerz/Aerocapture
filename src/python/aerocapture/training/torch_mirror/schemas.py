@@ -8,7 +8,7 @@ add the matching Rust variant. No other file in this module changes.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
 
@@ -185,13 +185,19 @@ class LayerWeights(BaseModel):
 
 class ArchitectureV2(BaseModel):
     # Unknown top-level keys are rejected, mirroring the Rust loader (#128): a
-    # misspelled knob used to load and silently revert to its default. The one
-    # legacy key, `output_interpretation`, is declared, ignored and never dumped
-    # (bank is always atan2(out[0], out[1])).
+    # misspelled knob used to load and silently revert to its default. Every key
+    # the Rust writers embed (`save_json` / `flat_weights_to_json`) is declared
+    # below; the one legacy key, `output_interpretation`, is declared, ignored
+    # and never dumped (bank is always atan2(out[0], out[1])).
     model_config = ConfigDict(extra="forbid")
     format_version: Literal[2]
     architecture: list[LayerSpec]
     weights: dict[str, LayerWeights]
     input_mask: list[int] | None = None
     ablated_input: int | None = None
+    ablated_value: float | None = None
+    output_param: str | None = None
+    scaled_pi_n: float | None = None
+    delta_max: float | None = None
+    normalization: list[dict[str, Any]] | None = None
     output_interpretation: str | None = Field(default=None, exclude=True)

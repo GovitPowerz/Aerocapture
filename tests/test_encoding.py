@@ -125,3 +125,16 @@ class TestNNParamSpecs:
         # Bias bound = multiplier * xavier_bound
         expected = 2.0 * math.sqrt(6.0 / 40.0)
         assert bias_spec.p_max == pytest.approx(expected)
+
+
+class TestDecodeWidthGuard:
+    def test_width_mismatch_raises(self) -> None:
+        import numpy as np
+        from aerocapture.training.encoding import decode_normalized
+        from aerocapture.training.param_spaces import ParamSpec
+
+        specs = [ParamSpec("a", 0.0, 1.0, 0.5), ParamSpec("b", 0.0, 1.0, 0.5)]
+        # A checkpoint one gene wider than the current PARAM_SPACES (the post-#128 FTC case) must not decode shifted.
+        with pytest.raises(ValueError, match="chromosome width 3 != 2"):
+            decode_normalized(np.array([0.1, 0.2, 0.3]), specs)
+        assert decode_normalized(np.array([0.1, 0.2]), specs) == {"a": 0.1, "b": 0.2}

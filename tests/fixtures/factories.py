@@ -20,7 +20,14 @@ def leaf_toml_with_architecture(base_toml: str | Path, arch: list[dict[str, Any]
     for entry in arch:
         lines.append("[[network.architecture]]")
         for k, v in entry.items():
-            lines.append(f'{k} = "{v}"' if isinstance(v, str) else f"{k} = {v}")
+            if v is None:
+                continue  # an unset optional (e.g. mamba dt_rank) is omitted, not `None`
+            if isinstance(v, bool):
+                lines.append(f"{k} = {str(v).lower()}")
+            elif isinstance(v, str):
+                lines.append(f'{k} = "{v}"')
+            else:
+                lines.append(f"{k} = {v}")
         lines.append("")
     return "\n".join(lines)
 

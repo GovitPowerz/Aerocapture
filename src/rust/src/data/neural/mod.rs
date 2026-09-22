@@ -633,6 +633,10 @@ struct NnJsonFile {
     input_mask: Option<Vec<usize>>,
     #[serde(default)]
     ablated_input: Option<usize>,
+    /// Written by `ablation.py --flip` into a temp copy of the model (0.0 =
+    /// classic zero-ablation); declared so a v1 model can be flip-ablated.
+    #[serde(default)]
+    ablated_value: f64,
     /// Legacy key written by the retired v1 exporter; bank is always atan2.
     #[allow(dead_code)]
     #[serde(default)]
@@ -1111,8 +1115,7 @@ impl NeuralNetModel {
             layers,
             input_mask: file.input_mask,
             ablated_input: file.ablated_input,
-            // v1 schema has no ablated_value; classic zero-ablation.
-            ablated_value: 0.0,
+            ablated_value: file.ablated_value,
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
@@ -1132,48 +1135,45 @@ impl NeuralNetModel {
         weights: &WeightsJson,
         path: &str,
     ) -> Result<Vec<Layer>, DataError> {
-        let mut expected_keys: Vec<String> = Vec::with_capacity(architecture.len());
-        let layers = architecture
-            .iter()
-            .enumerate()
-            .map(|(i, spec)| {
-                let kind = spec.io().2;
-                let mut layer = Layer::from_spec(spec)
-                    .map_err(|e| DataError(format!("Layer {i} {e} in {path}")))?;
-                let shapes: Vec<(&'static str, Shape)> = layer
-                    .tensors()
-                    .iter()
-                    .map(|(name, t)| (*name, t.shape()))
-                    .collect();
-                if shapes.is_empty() {
-                    // Zero-parameter layer (Window): save_json writes no
-                    // weights entry, so one is a stray key (checked below).
-                    return Ok(layer);
-                }
-                let key = format!("layer_{i}");
-                let lw = weights
-                    .get(&key)
-                    .ok_or_else(|| DataError(format!("Missing {key} in weights in {path}")))?;
-                expected_keys.push(key);
-                if let Some(stray) = lw.keys().find(|k| !shapes.iter().any(|(n, _)| n == k)) {
-                    return Err(DataError(format!(
-                        "Layer {i} ({kind}) has unknown weight {stray:?} in {path}"
-                    )));
-                }
-                let mut slab = Vec::with_capacity(layer.n_params());
-                for (name, shape) in shapes {
-                    let value = lw.get(name).ok_or_else(|| {
-                        DataError(format!("Layer {i} ({kind}) missing {name} in {path}"))
-                    })?;
-                    json_to_flat(value, shape, &mut slab).map_err(|e| {
-                        DataError(format!("Layer {i} ({kind}) {name}: {e} in {path}"))
-                    })?;
-                }
-                layer.from_flat(&slab);
-                Ok(layer)
-            })
-            .collect::<Result<Vec<Layer>, DataError>>()?;
-        if let Some(stray) = weights.keys().find(|k| !expected_keys.contains(k)) {
+        let mut layers = Vec::with_capacity(architecture.len());
+        let mut owned_keys = std::collections::BTreeSet::new();
+        for (i, spec) in architecture.iter().enumerate() {
+            let kind = spec.io().2;
+            let mut layer = Layer::from_spec(spec)
+                .map_err(|e| DataError(format!("Layer {i} {e} in {path}")))?;
+            let shapes: Vec<(&'static str, Shape)> = layer
+                .tensors()
+                .iter()
+                .map(|(name, t)| (*name, t.shape()))
+                .collect();
+            if shapes.is_empty() {
+                // Zero-parameter layer (Window): save_json writes no weights
+                // entry, so one is a stray key (checked after the loop).
+                layers.push(layer);
+                continue;
+            }
+            let key = format!("layer_{i}");
+            let lw = weights
+                .get(&key)
+                .ok_or_else(|| DataError(format!("Missing {key} in weights in {path}")))?;
+            owned_keys.insert(key);
+            if let Some(stray) = lw.keys().find(|k| !shapes.iter().any(|(n, _)| n == k)) {
+                return Err(DataError(format!(
+                    "Layer {i} ({kind}) has unknown weight {stray:?} in {path}"
+                )));
+            }
+            let mut slab = Vec::with_capacity(layer.n_params());
+            for (name, shape) in shapes {
+                let value = lw.get(name).ok_or_else(|| {
+                    DataError(format!("Layer {i} ({kind}) missing {name} in {path}"))
+                })?;
+                json_to_flat(value, shape, &mut slab)
+                    .map_err(|e| DataError(format!("Layer {i} ({kind}) {name}: {e} in {path}")))?;
+            }
+            layer.from_flat(&slab);
+            layers.push(layer);
+        }
+        if let Some(stray) = weights.keys().find(|k| !owned_keys.contains(*k)) {
             return Err(DataError(format!(
                 "weights has entry {stray:?} that no parameterized layer owns in {path}"
             )));

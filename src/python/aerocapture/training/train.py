@@ -37,8 +37,9 @@ from aerocapture.training.trainer import IslandsTrainer, SingleAlgoTrainer
 
 _DEFAULT_PIECEWISE_N_SEGMENTS = 10
 
-# Python-owned root sections read here with `.get`; unknown keys are rejected
-# so a typo cannot train at the default silently (#128 D).
+# Python-owned root sections read here with `.get`; build_training_config_from_toml
+# rejects unknown keys so a typo cannot train at the default silently (#128 D).
+CHECKPOINTS_KEYS = frozenset({"keep_last"})
 REFERENCE_KEYS = frozenset({"joint_bank", "bank_low", "bank_high"})
 CORRIDOR_KEYS = frozenset({"delta_za_restricted", "delta_za_restricted_low", "delta_za_restricted_high"})
 
@@ -807,7 +808,6 @@ def _setup_param_specs(config: TrainingConfig, _toml: dict, verbose: bool) -> tu
         param_specs = PARAM_SPACES[config.guidance_type]
 
     ref_cfg = _toml.get("reference", {})
-    reject_unknown_keys("reference", ref_cfg, REFERENCE_KEYS)
     if ref_cfg.get("joint_bank", False):
         from aerocapture.training.param_spaces import JOINT_REF_BANK_SCHEMES  # noqa: PLC0415
 
@@ -1659,13 +1659,14 @@ def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dic
     # auto-prunes older `checkpoint_g*.{json,npz}` pairs after each save,
     # keeping only the N most recent. The JSONL log + best_* artifacts are
     # untouched.
+    # The Python-owned root sections validate here, the one TOML -> TrainingConfig
+    # chokepoint (train CLI and final_select): a misspelled key raises instead
+    # of reading the default silently (#128 D).
+    reject_unknown_keys("checkpoints", _toml_data.get("checkpoints", {}), CHECKPOINTS_KEYS)
+    reject_unknown_keys("corridor", _toml_data.get("corridor", {}), CORRIDOR_KEYS)
+    reject_unknown_keys("reference", _toml_data.get("reference", {}), REFERENCE_KEYS)
     if "checkpoints" in _toml_data:
         _ckpt = _toml_data["checkpoints"]
-        known_keys = {"keep_last"}
-        unknown = set(_ckpt.keys()) - known_keys
-        if unknown:
-            print(f"ERROR: unknown [checkpoints] keys: {sorted(unknown)}")
-            raise SystemExit(1)
         if "keep_last" in _ckpt:
             kl_raw = _ckpt["keep_last"]
             if kl_raw is not None and not isinstance(kl_raw, int):
@@ -1862,7 +1863,6 @@ if __name__ == "__main__":
 
     # Initialize corridor accumulator for piecewise_constant training
     corridor_acc_init: CorridorAccumulator | None = None
-    reject_unknown_keys("corridor", _toml_data.get("corridor", {}), CORRIDOR_KEYS)
     if cfg.guidance_type == "piecewise_constant":
         _pc_toml = _toml_data
         pc_section = _pc_toml.get("guidance", {}).get("piecewise_constant", {})

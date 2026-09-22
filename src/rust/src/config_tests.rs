@@ -1383,15 +1383,16 @@ struct Reach {
     expected: &'static str,
 }
 
-/// One row per relayed section (at least one key of every relay style: nested
-/// NN knobs, MC scalars, navigation gains, integration, simulation, the shared
-/// guidance blocks, per-scheme tunables, onboard atmosphere, vehicle/entry/
-/// flight conversions): the key is patched into a committed config, the config is
-/// built the same way the CLI builds it, and the runtime field must read the
-/// patched value. The fixture's own value must differ from the patch
-/// (asserted), so a relay that silently keeps the fixture's value -- or the
-/// Rust default -- fails the row. Serde covers "key exists in a Toml* struct"
-/// (deny_unknown_fields); this covers "and the sim reads it".
+/// `[success]` has no reader (#128) but every pre-#128 generated
+/// `optimized_*.toml` carries it: the root declares it as an opaque table.
+#[test]
+fn retired_success_section_still_parses() {
+    let mut cfg = resolved_config("test/test_ref_orig.toml");
+    set_dot(&mut cfg, "success.inclination_tolerance", "0.5");
+    set_dot(&mut cfg, "success.apoapsis_tolerance", "100.0");
+    build_sim_data(&cfg);
+}
+
 /// `[[network.architecture]]` describes the model for the trainer; the runtime
 /// shape comes from the JSON alone. A block that disagrees with the loaded
 /// model used to run byte-identically to no block at all (#128 B).
@@ -1427,6 +1428,15 @@ fn network_architecture_block_must_match_loaded_model() {
     assert!(err.contains("disagrees with the loaded model"), "{err}");
 }
 
+/// One row per relayed section (at least one key of every relay style: nested
+/// NN knobs, MC scalars, navigation gains, integration, simulation, the shared
+/// guidance blocks, per-scheme tunables, onboard atmosphere, vehicle/entry/
+/// flight conversions): the key is patched into a committed config, the config is
+/// built the same way the CLI builds it, and the runtime field must read the
+/// patched value. The fixture's own value must differ from the patch
+/// (asserted), so a relay that silently keeps the fixture's value -- or the
+/// Rust default -- fails the row. Serde covers "key exists in a Toml* struct"
+/// (deny_unknown_fields); this covers "and the sim reads it".
 #[test]
 fn toml_keys_reachable_in_sim_data() {
     use crate::data::SimData;

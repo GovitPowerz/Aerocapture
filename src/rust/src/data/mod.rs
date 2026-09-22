@@ -464,7 +464,8 @@ fn build_incidence(inc: Option<&TomlIncidence>) -> incidence::IncidenceProfile {
 /// exactly as it converts a parsed section, so the resulting `GuidanceParams`
 /// are bit-identical to the historical literals
 /// (`legacy_ftc_defaults_match_historical_literals` pins them). The inert
-/// keys (`TomlFtcParams` doc) take their serde defaults.
+/// keys (`TomlFtcParams` doc) take the derive defaults; never read, so the
+/// gap to their serde defaults is irrelevant.
 fn legacy_ftc_defaults() -> TomlFtcParams {
     TomlFtcParams {
         capture_damping: 0.7,

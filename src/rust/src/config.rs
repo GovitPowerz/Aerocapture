@@ -224,6 +224,11 @@ pub struct TomlConfig {
     pub entry: Option<TomlEntry>,
     pub aerodynamics: Option<TomlAero>,
     pub flight: Option<TomlFlight>,
+    /// Retired section (#128): no reader anywhere. Declared as an opaque table so
+    /// every pre-#128 generated `optimized_*.toml` / `config_resolved.toml` (the
+    /// writer serializes the full resolved mission) keeps parsing under the deny.
+    #[serde(default)]
+    pub success: Option<toml::Table>,
     pub incidence: Option<TomlIncidence>,
     // Domain-based Monte Carlo config (consolidated mode)
     pub monte_carlo: Option<TomlMonteCarlo>,

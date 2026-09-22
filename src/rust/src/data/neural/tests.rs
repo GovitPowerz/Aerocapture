@@ -2607,3 +2607,19 @@ fn v1_json_rejects_unknown_top_level_key() {
         .0;
     assert!(err.contains("input_mak"), "{err}");
 }
+
+#[test]
+fn v1_json_honors_ablated_value() {
+    // `ablation.py --flip` writes `ablated_value` into a temp copy of the model;
+    // v1 used to hard-code 0.0 (and, since the deny, would have rejected the key).
+    let v1 = r#"{
+        "format_version": 1,
+        "architecture": { "layers": [3, 2], "activations": ["linear"] },
+        "weights": { "layer_0": { "w": [[0.1,0.2,0.3],[0.4,0.5,0.6]], "b": [0.01,0.02] } },
+        "ablated_input": 1,
+        "ablated_value": -1.0
+    }"#;
+    let m = NeuralNetModel::from_json_str(v1, "<test>").expect("v1 with ablated_value loads");
+    assert_eq!(m.ablated_value, -1.0);
+    assert_eq!(m.ablated_input, Some(1));
+}

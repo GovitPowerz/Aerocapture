@@ -346,7 +346,8 @@ TOML config files in `configs/` are the only supported input format, organized i
 (shared per-planet base configs, inherit from planets/), `configs/nominal/` (simulation configs), `configs/training/` (GA training configs), `configs/test/` (golden test configs).
 
 **Base inheritance:** Configs support a `base` key (string or array of strings) that references parent TOML files, resolved relative to the declaring file. The loader deep-merges bases left-to-right,
-then overlays the child's own keys. This eliminates duplication — mission-level content (entry, vehicle, aero, flight, orbit, incidence, atmosphere paths) lives in
+then overlays the child's own keys. This eliminates duplication — mission-level content (entry, vehicle, aero, flight, orbit, incidence, atmosphere paths;
+`[success]` is retired -- no reader, root keeps an opaque pass-through for old generated TOMLs) lives in
 `configs/missions/mars.toml` or `earth.toml`, common training settings (MC dispersions, cost function, optimizer defaults) live in `configs/training/common.toml`, shared NN-training defaults live in
 `configs/training/nn_common.toml` (`[guidance] type = "neural_network"`) and `nn_ftc_scaffolding.toml` (frozen FTC capture/exit scaffolding block, shared by `magnitude_only` and `full_neural` NN
 configs), shared RL defaults live in `configs/training/rl_common.toml` (`[rl]`/`[rl.reward]`/`[rl.ppo]`/`[rl.sac]` — the GRU/LSTM PPO configs inherit it and override only per-arch deltas like
@@ -643,7 +644,8 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
     resume via train.py's `_restore_seed_curator`). The `fixed` and `rotating` strategies have no class -- they are dispatched inline in `train.py`.
   - `toml_utils.py` — `load_toml_with_bases()`: TOML loading with `base` inheritance resolution (mirrors Rust `resolve_toml_bases`) + `set_dot_path()` (dot-path assignment into a nested dict) +
     `write_toml()` (the minimal machine-consumed TOML writer) + `find_mission_name()` (recursive walk of the base chain to the first `missions/` entry — shallow scans miss it for nested leaf
-    configs) + `reject_unknown_keys(section, table, known)` (the Python-owned sections `[cost_function]` / `[corridor]` / `[reference]` raise on a misspelled key instead of reading the default)
+    configs) + `reject_unknown_keys(section, table, known)` (the ONE unknown-key check for the Python-owned sections: `[cost_function]` in `cost.build_cost_kwargs`,
+    `[corridor]` / `[reference]` / `[checkpoints]` in `build_training_config_from_toml`, `[warm_start]` / `[warm_start.adam]` in `WarmStartConfig.from_dict`)
   - `reference.py` — Reference-trajectory generation (leaf module, no train/problem imports): `ref_trajectory_array` (7-column table from a trajectory matrix — column 0 in MJ/kg, the Rust loader
     multiplies by 1e6; writing J/kg shifts the energy axis 1e6x and collapses every interpolation query, the bug that broke the first wired-in reference), `piecewise_commanded_cos_bank` (COMMANDED
     segment profile for the cos_bank column — the realized bank carries shaper sweeps through 0 deg that whipsaw tracker feedforward), `nominal_flight_overrides` (flies a nominal with ALL 10 MC
