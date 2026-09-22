@@ -14,7 +14,7 @@ use aerocapture::data::incidence::IncidenceProfile;
 use aerocapture::data::pilot::{PilotModel, PilotType};
 use aerocapture::data::{
     Constraints, EntryConditions, FinalConditions, OrbitalTarget, ParkingOrbit, SimData,
-    SphericalState, SuccessCriteria, TimePeriods,
+    SphericalState, TimePeriods,
 };
 use aerocapture::gnc::navigation::estimator::{NavigationBiases, NavigationOutput};
 use std::sync::Arc;
@@ -122,7 +122,6 @@ pub fn minimal_sim_data() -> SimData {
         final_conditions: FinalConditions::default(),
         parking_orbit: ParkingOrbit::default(),
         constraints: Constraints::default(),
-        success: SuccessCriteria::default(),
         wind_enabled: false,
         wind_table: None,
         neural_net: None,

@@ -2,8 +2,27 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 import numpy as np
 from aerocapture.training.config import NetworkConfig, OptimizerConfig, SimConfig, TrainingConfig
+
+
+def leaf_toml_with_architecture(base_toml: str | Path, arch: list[dict[str, Any]]) -> str:
+    """A leaf TOML inheriting `base_toml` whose `[[network.architecture]]` is `arch`.
+
+    The runtime rejects a `[[network.architecture]]` block that disagrees with the
+    model it flies (#128 B), so a smoke that trains a reduced architecture must fly
+    a config declaring it (arrays replace under base inheritance).
+    """
+    lines = [f'base = "{Path(base_toml).resolve()}"', ""]
+    for entry in arch:
+        lines.append("[[network.architecture]]")
+        for k, v in entry.items():
+            lines.append(f'{k} = "{v}"' if isinstance(v, str) else f"{k} = {v}")
+        lines.append("")
+    return "\n".join(lines)
 
 
 def make_training_config(guidance_type: str = "equilibrium_glide") -> TrainingConfig:

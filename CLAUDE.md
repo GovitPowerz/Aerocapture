@@ -96,7 +96,9 @@ src/rust/src/
                                      pilot/entry/aero/flight/success/incidence/guidance_params/onboard_atmosphere/neural_net, resolve_reference_trajectory = the per-individual ref
                                      reload rule, build_dispersion_config, NavMode::from_toml). legacy_ftc_defaults() replaces the duplicated no-[guidance.ftc] branch (pinned
                                      bit-identical by legacy_ftc_defaults_match_historical_literals). Model-dependent rules (mask width, NN-without-model, decoder knob vs model
-                                     output_param) stay in build_neural_net; SharedTables::from_toml is the only other table IO
+                                     output_param, `[[network.architecture]]` == the loaded model's `LayerSpec` list -- a disagreeing block used to run silently, #128) stay
+                                     in build_neural_net; SharedTables::from_toml is the only other table IO. Runtime structs carry no `#[allow(dead_code)]`: a `[guidance.*]` key
+                                     that drives nothing stays declared+inert on its `Toml*` struct (6 FTC keys, EC `gain`, star-tracker `attitude_sigma`; #128 option c)
     atmosphere.rs                  — Atmosphere density table (binary-search lookup; altitude column validated non-decreasing at load; NaN altitude returns NaN via the exponential tail exactly like
                                        the legacy linear scan — it falls through both range guards and would otherwise underflow the bracket index and panic a Rayon worker) + OnboardAtmosphereModel
                                        (piecewise exponential, auto-fitted or explicit)
@@ -116,6 +118,8 @@ src/rust/src/
     incidence.rs                   — AoA profile tables
     pilot.rs                       — Pilot dynamics parameters
     neural/                        — NN model module tree: `mod.rs` (NeuralNetModel, Layer/LayerSpec enums incl. `LayerSpec::io()` chain-shape accessor, `Layer::from_spec` (zero layer
+                                       + the JSON loaders deny unknown keys at every level -- file, `LayerSpec` entry, stray tensor or stray `layer_i` entry (#128; legacy `output_interpretation`
+                                       is declared and ignored; a misspelled `scaled_pi_N` used to load and revert the knob to 1.0)
                                        + the ONE dim-validation site), the `LayerWeights` trait -- `tensors()`/`tensors_mut()` from the per-layer table, `post_load` hook, and DEFAULT
                                        `to_flat`/`from_flat`/`n_params` -- and the generic codec: v1/v2 loaders share `load_layers` (zero layer from spec -> each table tensor looked up
                                        by name + shape-checked via `json_to_flat` -> one `from_flat`, which runs `post_load`), `save_json` walks `tensors()` (keys in table order except
@@ -342,7 +346,7 @@ TOML config files in `configs/` are the only supported input format, organized i
 (shared per-planet base configs, inherit from planets/), `configs/nominal/` (simulation configs), `configs/training/` (GA training configs), `configs/test/` (golden test configs).
 
 **Base inheritance:** Configs support a `base` key (string or array of strings) that references parent TOML files, resolved relative to the declaring file. The loader deep-merges bases left-to-right,
-then overlays the child's own keys. This eliminates duplication — mission-level content (entry, vehicle, aero, flight, orbit, success, incidence, atmosphere paths) lives in
+then overlays the child's own keys. This eliminates duplication — mission-level content (entry, vehicle, aero, flight, orbit, incidence, atmosphere paths) lives in
 `configs/missions/mars.toml` or `earth.toml`, common training settings (MC dispersions, cost function, optimizer defaults) live in `configs/training/common.toml`, shared NN-training defaults live in
 `configs/training/nn_common.toml` (`[guidance] type = "neural_network"`) and `nn_ftc_scaffolding.toml` (frozen FTC capture/exit scaffolding block, shared by `magnitude_only` and `full_neural` NN
 configs), shared RL defaults live in `configs/training/rl_common.toml` (`[rl]`/`[rl.reward]`/`[rl.ppo]`/`[rl.sac]` — the GRU/LSTM PPO configs inherit it and override only per-arch deltas like
@@ -614,7 +618,9 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
     requote 8M, stress 9M, probe 10M, confirmatory 20M -- `tests/test_seed_offsets.py` asserts the list AND that no other module under the package defines an offset),
     `make_reserved_seeds(base_mc_seed, offset, n)`, and `make_confirmatory_pools`. Three reserved pools (training, validation, final eval) use well-separated RNG streams; disjointness is probabilistic
     (independent streams, ~n²/2³¹ collision odds per pool pair), and rotating/adaptive training draws additionally exclude the reserved pools explicitly.
-  - `cost.py` — The per-sim optimizer objective `compute_cost`, built on `dv_cost(dv)` — a C-infinity softplus-quadratic function (linear below `dv_threshold`, softplus-quadratic above, with a
+  - `cost.py` — `build_cost_kwargs(toml_data)`, the ONE `[cost_function]` + `[flight.constraints]` reader (train, gate, final selection, report, compare; `report.read_cost_kwargs(path)` delegates;
+    unknown `[cost_function]` keys raise, #128) + the per-sim optimizer objective `compute_cost`, built on
+    `dv_cost(dv)` — a C-infinity softplus-quadratic function (linear below `dv_threshold`, softplus-quadratic above, with a
     smooth knee) — plus TOML-configurable normalized soft constraint penalties for g-load, heat flux, and heat load (integrated heat flux) exceedances, optionally wrapped in `cost_transform`
     (`"linear"` / `"sqrt"` / `"log"` / `"squared"` / `"cubed"`; `"log"` uses `np.log1p` for aggressive tail compression while preserving the zero-cost identity). All termination outcomes (captured,
     hyperbolic, crash, pending crash, timeout) produce meaningful DV values from Rust: captured -> real orbital-correction DV; hyperbolic -> `HYPERBOLIC_BASE (10000) + v_excess`; crash / pending-crash
@@ -625,7 +631,8 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
     `build_v2_architecture`, `write_guidance_toml` (load base TOML, apply `deploy_overrides.overrides_from_params`, write via `toml_utils.write_toml`), plus the in-training `run_validation_gate` /
     `GateStatus` / `GateResult`. Population evaluation itself is `problem.py` (`run_grid`). The Rust-CLI subprocess oracle lives in `tests/fixtures/subprocess_oracle.py` (test-only: it backs
     `test_pyo3_matches_subprocess`); `_parse_final_to_legacy_array` stays here for `compare_guidance`'s CSV transport.
-  - `compare_guidance.py` — Fair head-to-head comparison on identical MC scenarios; cost kwargs come from `report.read_cost_kwargs` (the canonical TOML reader) so heat-load weight/limit match the
+  - `compare_guidance.py` — Fair head-to-head comparison on identical MC scenarios; cost kwargs come from `report.read_cost_kwargs` (= `cost.build_cost_kwargs`, the ONE `[cost_function]` reader;
+    unknown keys raise) so heat-load weight/limit match the
     training objective — a hand-rolled dict once omitted them, scoring heat-load violations at compute_cost's 10000.0 fallback weight vs the trained-with 1.0
   - `initialization.py` — Activation-aware weight init (Xavier/He/LeCun uniform) for NN population seeding
   - `seed_curator.py` — `SeedCurator` class used by the `adaptive` seed strategy: maintains a fixed-size training seed list refreshed on trigger by quantile-stratified sampling from the cost CDF of
@@ -636,7 +643,7 @@ Python analysis package (numpy, pandas, matplotlib, seaborn, pymoo, scipy, SALib
     resume via train.py's `_restore_seed_curator`). The `fixed` and `rotating` strategies have no class -- they are dispatched inline in `train.py`.
   - `toml_utils.py` — `load_toml_with_bases()`: TOML loading with `base` inheritance resolution (mirrors Rust `resolve_toml_bases`) + `set_dot_path()` (dot-path assignment into a nested dict) +
     `write_toml()` (the minimal machine-consumed TOML writer) + `find_mission_name()` (recursive walk of the base chain to the first `missions/` entry — shallow scans miss it for nested leaf
-    configs)
+    configs) + `reject_unknown_keys(section, table, known)` (the Python-owned sections `[cost_function]` / `[corridor]` / `[reference]` raise on a misspelled key instead of reading the default)
   - `reference.py` — Reference-trajectory generation (leaf module, no train/problem imports): `ref_trajectory_array` (7-column table from a trajectory matrix — column 0 in MJ/kg, the Rust loader
     multiplies by 1e6; writing J/kg shifts the energy axis 1e6x and collapses every interpolation query, the bug that broke the first wired-in reference), `piecewise_commanded_cos_bank` (COMMANDED
     segment profile for the cos_bank column — the realized bank carries shaper sweeps through 0 deg that whipsaw tracker feedforward), `nominal_flight_overrides` (flies a nominal with ALL 10 MC
@@ -1346,7 +1353,8 @@ printed "Using reference trajectory: ..." — nothing ever injected the path int
 resolved config value (`check_ref_trajectory_wiring`). Related trap in the same family: gains and reference co-adapt strongly — FTC's GA optimum gets 133 m/s p50 DV on the reference it trained with
 and 0.3% capture rate on a different one, so swapping the reference is always a retrain-everything event. The same lesson applied to keys: serde ignored unknown keys in every section until #105 (a
 committed config carried two keys Rust never read for five months); section-level `deny_unknown_fields` + the recursive `every_committed_config_parses_and_validates` gate + the `toml_keys_reachable_in_sim_data`
-table are the test.
+table are the test. Neither gate sees a key relayed into a runtime field nothing reads: #128 found four LIVE GA genes (3 FTC, 1 EC) that trained as a pure noise walk
+for months; the dead-code lint on allow-free runtime structs is that gate, and the model JSON / `[cost_function]` channels now deny unknown keys too.
 
 ### Reference Trajectory Design (open-loop optimum != good reference)
 

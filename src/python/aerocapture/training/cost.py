@@ -8,6 +8,8 @@ are normalized softplus penalties; `cost_transform` rescales monotonically.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import numpy.typing as npt
 
@@ -18,6 +20,31 @@ from aerocapture.training.parquet_output import (
     HEAT_FLUX_RAW_INDEX,
     HEAT_LOAD_RAW_INDEX,
 )
+from aerocapture.training.toml_utils import reject_unknown_keys
+
+COST_FUNCTION_KEYS = frozenset({"dv_threshold", "g_load_weight", "heat_flux_weight", "heat_load_weight", "cost_transform"})
+
+
+def build_cost_kwargs(toml_data: dict[str, Any]) -> dict[str, Any]:
+    """The one `[cost_function]` + `[flight.constraints]` reader (training, gate, report, compare).
+
+    Rejects unknown `[cost_function]` keys: a misspelled weight used to train
+    and report at the 1000.0 default with no message.
+    """
+    cost_cfg = toml_data.get("cost_function", {})
+    reject_unknown_keys("cost_function", cost_cfg, COST_FUNCTION_KEYS)
+    constraints = toml_data.get("flight", {}).get("constraints", {})
+    return {
+        "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
+        "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
+        "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
+        "heat_load_limit": float(constraints.get("max_heat_load", 25000.0)),
+        "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
+        "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
+        "heat_load_weight": float(cost_cfg.get("heat_load_weight", 1000.0)),
+        "cost_transform": str(cost_cfg.get("cost_transform", "linear")),
+    }
+
 
 # Scale for the quadratic growth above threshold. Controls how fast the
 # cost grows on the non-capture side.

@@ -417,7 +417,6 @@ pub fn build_ekf_configs(
     let st_config = if let Some(ref st) = toml_nav.star_tracker {
         StarTrackerConfig {
             position_sigma: st.position_sigma,
-            attitude_sigma: st.attitude_sigma,
             update_period: st.update_period,
             blackout_qdyn_threshold: st.blackout_qdyn_threshold,
         }

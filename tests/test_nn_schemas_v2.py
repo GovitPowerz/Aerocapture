@@ -19,8 +19,8 @@ def test_v2_dense_json_roundtrip() -> None:
     assert json.dumps(roundtrip, sort_keys=True) == json.dumps(raw, sort_keys=True)
 
 
-def test_v2_ignores_legacy_output_interpretation() -> None:
-    """Legacy JSON files carry `output_interpretation`; we silently ignore it."""
+def test_v2_accepts_legacy_output_interpretation_and_never_dumps_it() -> None:
+    """The one legacy key still loads (paper-bundle RL model) but is excluded from every dump."""
     raw = {
         "format_version": 2,
         "architecture": [{"type": "dense", "input_size": 3, "output_size": 2, "activation": "linear"}],
@@ -29,7 +29,19 @@ def test_v2_ignores_legacy_output_interpretation() -> None:
     }
     model = ArchitectureV2.model_validate(raw)
     assert len(model.architecture) == 1
-    assert not hasattr(model, "output_interpretation")
+    assert "output_interpretation" not in model.model_dump()
+
+
+def test_v2_rejects_unknown_top_level_key() -> None:
+    """A misspelled knob (`scaled_pi_N`) used to load and silently revert to its default (#128)."""
+    raw = {
+        "format_version": 2,
+        "architecture": [{"type": "dense", "input_size": 3, "output_size": 2, "activation": "linear"}],
+        "weights": {"layer_0": {"w": [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]], "b": [0.01, 0.02]}},
+        "scaled_pi_N": 2.0,
+    }
+    with pytest.raises(ValidationError, match="scaled_pi_N"):
+        ArchitectureV2.model_validate(raw)
 
 
 def test_v2_rejects_unknown_layer_type() -> None:

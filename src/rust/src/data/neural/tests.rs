@@ -2522,3 +2522,88 @@ fn default_normalization_comments_match_nn_input_names() {
         "every DEFAULT_NORMALIZATION entry carries an index comment"
     );
 }
+
+// ---------------------------------------------------------------------------
+// #128 C: model JSON loaders reject unknown keys (a misspelled knob used to
+// load and silently revert to its default).
+// ---------------------------------------------------------------------------
+
+const V2_DENSE_3_2: &str = r#"{
+    "format_version": 2,
+    "architecture": [
+        { "type": "dense", "input_size": 3, "output_size": 2, "activation": "linear" }
+    ],
+    "weights": { "layer_0": { "w": [[0.1,0.2,0.3],[0.4,0.5,0.6]], "b": [0.01,0.02] } }
+}"#;
+
+fn v2_with(extra_top_level: &str) -> String {
+    V2_DENSE_3_2.replacen(
+        "\"format_version\": 2,",
+        &format!("\"format_version\": 2, {extra_top_level},"),
+        1,
+    )
+}
+
+#[test]
+fn v2_json_rejects_unknown_top_level_key() {
+    // `scaled_pi_N` for `scaled_pi_n`: the knob reverted 2.0 -> 1.0 and flipped
+    // the first bank commands by 30 deg before the deny.
+    let err = NeuralNetModel::from_json_str(&v2_with("\"scaled_pi_N\": 2.0"), "<test>")
+        .expect_err("unknown top-level key must be rejected")
+        .0;
+    assert!(err.contains("scaled_pi_N"), "{err}");
+    // The declared legacy key still loads.
+    NeuralNetModel::from_json_str(&v2_with("\"output_interpretation\": \"atan2\""), "<test>")
+        .expect("legacy output_interpretation is declared and ignored");
+}
+
+#[test]
+fn v2_json_rejects_unknown_layer_spec_key() {
+    let bad = V2_DENSE_3_2.replacen(
+        "\"activation\": \"linear\"",
+        "\"activation\": \"linear\", \"hidden_size\": 4",
+        1,
+    );
+    let err = NeuralNetModel::from_json_str(&bad, "<test>")
+        .expect_err("unknown layer key")
+        .0;
+    assert!(err.contains("hidden_size"), "{err}");
+}
+
+#[test]
+fn v2_json_rejects_stray_weight_tensor_and_stray_layer_entry() {
+    let stray_tensor = V2_DENSE_3_2.replacen(
+        "\"b\": [0.01,0.02]",
+        "\"b\": [0.01,0.02], \"bias\": [0.0, 0.0]",
+        1,
+    );
+    let err = NeuralNetModel::from_json_str(&stray_tensor, "<test>")
+        .expect_err("stray tensor")
+        .0;
+    assert!(err.contains("unknown weight \"bias\""), "{err}");
+
+    let stray_layer = V2_DENSE_3_2.replacen(
+        "\"weights\": {",
+        "\"weights\": { \"layer_1\": { \"w\": [[0.0]], \"b\": [0.0] },",
+        1,
+    );
+    let err = NeuralNetModel::from_json_str(&stray_layer, "<test>")
+        .expect_err("stray layer entry")
+        .0;
+    assert!(err.contains("\"layer_1\""), "{err}");
+}
+
+#[test]
+fn v1_json_rejects_unknown_top_level_key() {
+    let v1 = r#"{
+        "format_version": 1,
+        "architecture": { "layers": [3, 2], "activations": ["linear"] },
+        "weights": { "layer_0": { "w": [[0.1,0.2,0.3],[0.4,0.5,0.6]], "b": [0.01,0.02] } },
+        "output_interpretation": "atan2",
+        "input_mak": [0, 1, 2]
+    }"#;
+    let err = NeuralNetModel::from_json_str(v1, "<test>")
+        .expect_err("unknown v1 key")
+        .0;
+    assert!(err.contains("input_mak"), "{err}");
+}

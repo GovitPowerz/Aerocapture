@@ -20,6 +20,7 @@ from pymoo.core.population import Population  # type: ignore[import-untyped]
 
 from aerocapture.training.config import CheckpointConfig, TrainingConfig, WarmStartConfig  # noqa: F401  (CheckpointConfig re-exported for downstream tests)
 from aerocapture.training.corridor import CorridorAccumulator
+from aerocapture.training.cost import build_cost_kwargs
 from aerocapture.training.encoding import decode_normalized, nn_param_specs_from_architecture, nn_param_specs_from_v2
 from aerocapture.training.evaluate import _aero_rs, write_nn_json
 from aerocapture.training.initialization_v2 import init_v2_population
@@ -31,9 +32,15 @@ from aerocapture.training.problem import AerocaptureProblem
 from aerocapture.training.reference import nominal_flight_overrides, piecewise_commanded_cos_bank, ref_trajectory_array
 from aerocapture.training.seed_curator import SeedCurator
 from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, VALIDATION_SEED_OFFSET, make_reserved_seeds
+from aerocapture.training.toml_utils import reject_unknown_keys
 from aerocapture.training.trainer import IslandsTrainer, SingleAlgoTrainer
 
 _DEFAULT_PIECEWISE_N_SEGMENTS = 10
+
+# Python-owned root sections read here with `.get`; unknown keys are rejected
+# so a typo cannot train at the default silently (#128 D).
+REFERENCE_KEYS = frozenset({"joint_bank", "bank_low", "bank_high"})
+CORRIDOR_KEYS = frozenset({"delta_za_restricted", "delta_za_restricted_low", "delta_za_restricted_high"})
 
 # scaffolding = "full" seeds the chromosome slab from FTC's GA optimum; the
 # warm-start eval callback must read the SAME file so eval == chromosome.
@@ -687,22 +694,6 @@ def load_checkpoint(
     return None
 
 
-def build_cost_kwargs(toml_data: dict) -> dict[str, Any]:
-    """Cost-function kwargs from a resolved TOML dict ([cost_function] + [flight.constraints])."""
-    cost_cfg = toml_data.get("cost_function", {})
-    constraints = toml_data.get("flight", {}).get("constraints", {})
-    return {
-        "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
-        "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
-        "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
-        "heat_load_limit": float(constraints.get("max_heat_load", 25000.0)),
-        "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
-        "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
-        "heat_load_weight": float(cost_cfg.get("heat_load_weight", 1000.0)),
-        "cost_transform": str(cost_cfg.get("cost_transform", "linear")),
-    }
-
-
 def _decode_nn_weights(x: npt.NDArray[np.float64], specs: list[ParamSpec]) -> npt.NDArray[np.float64]:
     """Decode normalized [0,1] vector to NN weight values."""
     weights = np.empty(len(specs), dtype=np.float64)
@@ -816,6 +807,7 @@ def _setup_param_specs(config: TrainingConfig, _toml: dict, verbose: bool) -> tu
         param_specs = PARAM_SPACES[config.guidance_type]
 
     ref_cfg = _toml.get("reference", {})
+    reject_unknown_keys("reference", ref_cfg, REFERENCE_KEYS)
     if ref_cfg.get("joint_bank", False):
         from aerocapture.training.param_spaces import JOINT_REF_BANK_SCHEMES  # noqa: PLC0415
 
@@ -1870,6 +1862,7 @@ if __name__ == "__main__":
 
     # Initialize corridor accumulator for piecewise_constant training
     corridor_acc_init: CorridorAccumulator | None = None
+    reject_unknown_keys("corridor", _toml_data.get("corridor", {}), CORRIDOR_KEYS)
     if cfg.guidance_type == "piecewise_constant":
         _pc_toml = _toml_data
         pc_section = _pc_toml.get("guidance", {}).get("piecewise_constant", {})

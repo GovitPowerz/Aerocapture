@@ -184,11 +184,14 @@ class LayerWeights(BaseModel):
 
 
 class ArchitectureV2(BaseModel):
-    # `extra="ignore"` so legacy JSON files that still carry `output_interpretation`
-    # keep loading. The field is obsolete -- bank is always atan2(out[0], out[1]).
-    model_config = ConfigDict(extra="ignore")
+    # Unknown top-level keys are rejected, mirroring the Rust loader (#128): a
+    # misspelled knob used to load and silently revert to its default. The one
+    # legacy key, `output_interpretation`, is declared, ignored and never dumped
+    # (bank is always atan2(out[0], out[1])).
+    model_config = ConfigDict(extra="forbid")
     format_version: Literal[2]
     architecture: list[LayerSpec]
     weights: dict[str, LayerWeights]
     input_mask: list[int] | None = None
     ablated_input: int | None = None
+    output_interpretation: str | None = Field(default=None, exclude=True)

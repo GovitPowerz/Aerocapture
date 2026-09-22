@@ -1,6 +1,9 @@
 """Tests for the unified cost function with quadratic-penalty DV compression."""
 
+from pathlib import Path
+
 import numpy as np
+import pytest
 from aerocapture.training.cost import compute_cost, dv_cost
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -285,3 +288,30 @@ class TestSoftplusStability:
         x = np.linspace(-3.0, 3.0, 31)
         k = 2.0
         np.testing.assert_allclose(_softplus(x, k), np.log1p(np.exp(k * x)) / k, rtol=1e-12)
+
+
+class TestBuildCostKwargs:
+    """One `[cost_function]` reader; a misspelled weight must not train at the 1000.0 default silently."""
+
+    def test_rejects_unknown_key(self) -> None:
+        from aerocapture.training.cost import build_cost_kwargs
+
+        with pytest.raises(ValueError, match=r"unknown \[cost_function\] keys: \['heat_load_weigth'\]"):
+            build_cost_kwargs({"cost_function": {"heat_load_weigth": 1.0}})
+
+    def test_reads_weights_and_limits(self) -> None:
+        from aerocapture.training.cost import build_cost_kwargs
+
+        kw = build_cost_kwargs({"cost_function": {"heat_load_weight": 1.0, "cost_transform": "cubed"}, "flight": {"constraints": {"max_heat_load": 1234.0}}})
+        assert kw["heat_load_weight"] == 1.0
+        assert kw["cost_transform"] == "cubed"
+        assert kw["heat_load_limit"] == 1234.0
+        assert kw["g_load_weight"] == 1000.0  # default, unchanged
+
+    def test_report_reader_is_the_same_function(self, tmp_path: Path) -> None:
+        from aerocapture.training.report import read_cost_kwargs
+
+        toml = tmp_path / "c.toml"
+        toml.write_text("[cost_function]\nheat_flux_weigth = 2.0\n")
+        with pytest.raises(ValueError, match=r"unknown \[cost_function\] keys"):
+            read_cost_kwargs(toml)

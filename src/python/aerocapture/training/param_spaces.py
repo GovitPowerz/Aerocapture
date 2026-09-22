@@ -118,7 +118,6 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
         *_SHAPING_PARAMS,
     ],
     "energy_controller": [
-        ParamSpec("gain", 1e-8, 1e-5, 5e-7, log_scale=True),
         ParamSpec("kp", 0.1, 5.0, 1.0),
         ParamSpec("kd", 0.0, 3.0, 0.5),
         *_NAV_PARAMS,
@@ -154,9 +153,6 @@ PARAM_SPACES: dict[str, list[ParamSpec]] = {
     "ftc": [
         ParamSpec("capture_damping", 0.3, 1.5, 0.7),
         ParamSpec("capture_frequency", 0.01, 0.2, 0.072),
-        ParamSpec("altitude_damping", 0.3, 1.5, 0.7),
-        ParamSpec("altitude_frequency", 0.01, 0.2, 0.08),
-        ParamSpec("capture_pdyn_margin", 1.0, 3.0, 1.75),
         ParamSpec("pressure_coeff_base", -500.0, -10.0, -134.4),
         ParamSpec("pressure_coeff_scale_height", 4.0, 15.0, 6.9),
         ParamSpec("gain_fade_start_km", 60.0, 90.0, 80.0),

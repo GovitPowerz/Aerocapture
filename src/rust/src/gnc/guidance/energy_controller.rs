@@ -1,16 +1,15 @@
 //! Energy Controller guidance.
 //!
-//! Tracks a reference energy dissipation profile using bank angle feedback.
-//! The idea is simple: the reference trajectory defines what the orbital
-//! energy should be at each point in time. If the vehicle has too much
-//! energy, increase drag (bank toward lift-down); if too little, decrease
-//! drag (bank toward lift-up).
+//! Tracks the reference energy-dissipation profile with bank-angle feedback
+//! on the two quantities the reference tabulates against energy, dynamic
+//! pressure and radial velocity:
 //!
-//! The bank angle command is:
-//!   cos(bank) = cos(bank_ref) + K_e * (E - E_ref) / q_dyn
+//!   cos(bank) = cos(bank_ref) + kp * (q - q_ref) / q + kd * (hdot - hdot_ref) / q
 //!
-//! where E_ref is interpolated from the reference trajectory at the current
-//! energy level, and K_e is a tunable gain.
+//! where `q_ref`, `hdot_ref` and `bank_ref` are interpolated from the
+//! reference trajectory at the current energy. Too much pressure (too deep)
+//! or too fast a descent pushes cos(bank) up (lift-up); the opposite pushes
+//! it down. `[guidance.energy_controller] gain` is declared but inert (#128).
 
 use crate::data::SimData;
 use crate::gnc::guidance::dispatch::{DEFAULT_FALLBACK_BANK_RAD, securize_cos_bank};
@@ -89,7 +88,7 @@ mod tests {
     use crate::data::pilot::{PilotModel, PilotType};
     use crate::data::{
         Constraints, EntryConditions, FinalConditions, OrbitalTarget, ParkingOrbit, SimData,
-        SphericalState, SuccessCriteria, TimePeriods,
+        SphericalState, TimePeriods,
     };
     use std::sync::Arc;
 
@@ -176,7 +175,6 @@ mod tests {
             final_conditions: FinalConditions::default(),
             parking_orbit: ParkingOrbit::default(),
             constraints: Constraints::default(),
-            success: SuccessCriteria::default(),
             wind_enabled: false,
             wind_table: None,
             neural_net: None,

@@ -339,22 +339,11 @@ def _read_constraint_limits(toml_path: Path) -> tuple[float | None, float | None
 
 
 def read_cost_kwargs(toml_path: Path) -> dict[str, Any]:
-    """Read cost function parameters from TOML for objective cost computation."""
+    """Cost-function kwargs for a config path: `load_toml_with_bases` + the one `cost.build_cost_kwargs` reader."""
+    from aerocapture.training.cost import build_cost_kwargs
     from aerocapture.training.toml_utils import load_toml_with_bases
 
-    data = load_toml_with_bases(toml_path)
-    cost_cfg = data.get("cost_function", {})
-    constraints = data.get("flight", {}).get("constraints", {})
-    return {
-        "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
-        "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
-        "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
-        "heat_load_limit": float(constraints.get("max_heat_load", 25000.0)),
-        "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
-        "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
-        "heat_load_weight": float(cost_cfg.get("heat_load_weight", 1000.0)),
-        "cost_transform": str(cost_cfg.get("cost_transform", "linear")),
-    }
+    return build_cost_kwargs(load_toml_with_bases(toml_path))
 
 
 # ---------------------------------------------------------------------------

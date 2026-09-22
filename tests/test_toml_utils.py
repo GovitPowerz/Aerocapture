@@ -150,3 +150,11 @@ def test_deep_merge_nested(tmp_path: Path) -> None:
     assert data["a"]["b"]["c"]["val"] == 99  # overridden
     assert data["a"]["b"]["c"]["other"] == 10  # inherited deep
     assert data["a"]["b"]["d"]["new"] == 42  # child-only deep
+
+
+def test_reject_unknown_keys_names_section_and_keys() -> None:
+    from aerocapture.training.toml_utils import reject_unknown_keys
+
+    reject_unknown_keys("reference", {"joint_bank": True}, {"joint_bank", "bank_low"})
+    with pytest.raises(ValueError, match=r"unknown \[reference\] keys: \['bank_hgih'\]"):
+        reject_unknown_keys("reference", {"joint_bank": True, "bank_hgih": 1.0}, {"joint_bank", "bank_low"})
