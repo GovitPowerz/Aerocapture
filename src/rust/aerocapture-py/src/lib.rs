@@ -1038,7 +1038,7 @@ fn final_record_indices() -> std::collections::HashMap<&'static str, usize> {
 /// Aerocapture trajectory simulator Python bindings (tiers: see the module doc).
 #[pymodule]
 fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add("__version__", "0.1.0")?;
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     // evaluate
     m.add_class::<BatchResults>()?;
     m.add_function(wrap_pyfunction!(run_grid, m)?)?;

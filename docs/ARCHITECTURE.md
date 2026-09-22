@@ -2,7 +2,9 @@
 
 One page for a reader who has run the demo and wants to know how a training run and a simulation
 actually flow through this code. Vocabulary is `CONTEXT.md`'s; decisions this page rests on are in
-`docs/adr/`; per-module detail is in `CLAUDE.md`.
+`docs/adr/`; per-module detail is in the README next to each module (`src/rust/README.md`,
+`src/rust/aerocapture-py/README.md`, `src/rust/src/data/neural/README.md`, `configs/README.md`,
+`src/python/aerocapture/training/README.md`, `src/python/aerocapture/training/rl/README.md`).
 
 ## Two languages, one seam
 

@@ -1,9 +1,11 @@
 [package]
 name = "aerocapture-py"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 description = "PyO3 bindings for the aerocapture trajectory simulator"
 license = "MIT"
+authors = ["Grégory Gelly <gregory.gelly@gmail.com>"]
+repository = "https://github.com/GovitPowerz/Aerocapture"
 
 [lib]
 name = "aerocapture_rs"

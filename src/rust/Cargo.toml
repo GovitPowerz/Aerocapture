@@ -3,10 +3,12 @@ members = [".", "aerocapture-py"]
 
 [package]
 name = "aerocapture"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
-description = "Trajectory simulation for aerocapture maneuvers"
+description = "Aerocapture trajectory simulator: physics, navigation, six classical guidance schemes and a stateful neural-network guidance runtime"
 license = "MIT"
+authors = ["Grégory Gelly <gregory.gelly@gmail.com>"]
+repository = "https://github.com/GovitPowerz/Aerocapture"
 
 [dependencies]
 libm = "0.2"

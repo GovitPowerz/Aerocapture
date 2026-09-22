@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "aerocapture"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "approx",
  "criterion",
@@ -24,7 +24,7 @@ dependencies = [
 
 [[package]]
 name = "aerocapture-py"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "aerocapture",
  "numpy",

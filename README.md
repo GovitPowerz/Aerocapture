@@ -52,18 +52,20 @@ uv run pytest tests/
 1. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the two-language split and its one seam, a training run in fifteen lines, a simulation tick in eight, the seed pools, where the paper's numbers come from.
 2. [CONTEXT.md](CONTEXT.md) — the vocabulary (capture / exit phase, scaffolding, champion, final selection vs final eval, sizing tail).
 3. [docs/adr/](docs/adr/) — the decisions the results rest on: adaptive training seeds, final selection on the validation pool, per-draw noise seeding (now the default), the `run_grid` bit-identity chokepoint, feasibility before performance in selection.
-4. [docs/design/](docs/design/README.md) — the dated design behind each feature; [CLAUDE.md](CLAUDE.md) — the per-module reference.
-5. [The paper](articles/paper/paper.pdf) — the results and their evaluation methodology.
+4. The module reference, next to the code it describes: [src/rust/README.md](src/rust/README.md) (simulator), [src/rust/aerocapture-py/README.md](src/rust/aerocapture-py/README.md) (the PyO3 seam), [src/rust/src/data/neural/README.md](src/rust/src/data/neural/README.md) (NN runtime + PyTorch mirror), [configs/README.md](configs/README.md) (TOML), [src/python/aerocapture/training/README.md](src/python/aerocapture/training/README.md) (training), [src/python/aerocapture/training/rl/README.md](src/python/aerocapture/training/rl/README.md) (RL).
+5. [docs/design/](docs/design/README.md) — the dated design behind each feature; [CLAUDE.md](CLAUDE.md) — the agent brief (commands, lessons, conventions).
+6. [The paper](articles/paper/paper.pdf) — the results and their evaluation methodology.
 
 ## Project Structure
 
 ```
 src/
-  rust/                    Rust simulator (core crate + CLI entry)
-    aerocapture-py/        PyO3 Python bindings (aerocapture_rs module)
-  python/                  Python analysis package (parsing, plotting, training)
+  rust/                    Rust simulator (core crate + CLI entry; README.md = module reference)
+    aerocapture-py/        PyO3 Python bindings (aerocapture_rs module; README.md = the seam's contract)
+    src/data/neural/       NN runtime (README.md = input contract, layer types, PyTorch mirror)
+  python/                  Python analysis package (parsing, plotting, training; training/README.md = module reference)
   typst/                   PDF report templates (compiled by typst)
-configs/
+configs/                   TOML configs (README.md = every section and key)
   planets/                 Planet physical constants (mu, radii, omega, J2/J3/J4)
   missions/                Shared per-planet base configs (inherit from planets/)
   nominal/                 Nominal simulation configurations
@@ -74,6 +76,13 @@ data/
   reference_trajectory/    Reference trajectories for guided schemes
 articles/
   paper/                   Paper (Typst source + committed PDF, figures, evaluation data)
+docs/
+  ARCHITECTURE.md          The two-language split, a training run and a simulation tick in a page
+  adr/                     Architecture decision records
+  design/                  Dated design docs (indexed in docs/design/README.md)
+  agents/                  Agent operating docs (issue tracker, triage labels, domain docs)
+experiments/               Campaign runners (paper/, ou_marginal/, fnpag_ab/) and the trainer seam gate (trainer_seam_gate/)
+models/demo/               The committed demo cells (headline fine-tune + legacy champion)
 training_output/           GA training output (checkpoints, logs, reports, animations)
 tests/                     Python test suite + golden reference data
 ```
@@ -316,7 +325,7 @@ curation_top_k = 5
 curation_sample_size = 1000
 ```
 
-Override per-scheme by adding `seed_strategy = "..."` in a leaf training TOML. See `CLAUDE.md` for full details.
+Override per-scheme by adding `seed_strategy = "..."` in a leaf training TOML. See [src/python/aerocapture/training/README.md](src/python/aerocapture/training/README.md) for full details.
 
 ### Checkpoint retention
 
@@ -494,7 +503,7 @@ Note: `pymoo` is ceiling-pinned `<0.6.2` — pymoo 0.6.2 routes IGD through the 
 
 ## Roadmap
 
-See [TODO.md](TODO.md) for the prioritized task list and [IMPROVEMENTS.md](IMPROVEMENTS.md) for the detailed physics, GNC, and software improvement roadmap.
+See [TODO.md](TODO.md) for the prioritized task list and backlog.
 
 ## Author
 
