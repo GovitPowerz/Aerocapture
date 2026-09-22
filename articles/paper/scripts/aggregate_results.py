@@ -23,6 +23,11 @@ RUNS_DIR = REPO / "articles/paper/data/runs"
 OUT = REPO / "articles/paper/data/results.json"
 
 HEADLINE = "headline/mamba_p962"
+# Noise regime of each run's final_eval.parquet (ADR-0003: the regime is part of the number).
+# Every cell was evaluated on the shared-path ("legacy") noise except the Section 5 RL baseline
+# and the per-scenario champions it is paired with (issue #101), which report.py / the RL
+# trainer evaluated under ADR-0006's per_draw default.
+PER_DRAW_PREFIXES = ("rl/", "ou_marginal/")
 # Paired tables: (label, run_a, run_b) -- delta = a - b, negative = a better.
 PAIRED = [
     ("ga_vs_islands_300", "optimizer_budget/ga_300", "optimizer_budget/islands_300"),
@@ -47,6 +52,12 @@ PAIRED = [
     ("joint_vs_fixed_pg", "joint_reference/pred_guid", "classical_baselines/pred_guid"),
     ("atan2_vs_scaledpi", "optimizer_dimensionality/dense_p515_ga", "output_param/scaledpi"),
     ("atan2_vs_delta", "optimizer_dimensionality/dense_p515_ga", "output_param/delta"),
+    # Section 5 RL baseline (issue #101): each PPO cell vs the per-scenario population champion
+    # it is protocol-matched to (same architecture, inputs, scaffolding, per_draw regime, 2M pool).
+    ("ppo_scratch_vs_pop_dense515", "rl/dense_p515_ppo_scratch", "ou_marginal/ft_dense_p515"),
+    ("ppo_warm_vs_pop_dense515", "rl/dense_p515_ppo_warm", "ou_marginal/ft_dense_p515"),
+    ("ppo_scratch_vs_pop_gru1014", "rl/gru_p1014_ppo_scratch", "ou_marginal/ft_gru_p1014"),
+    ("ppo_warm_vs_pop_gru1014", "rl/gru_p1014_ppo_warm", "ou_marginal/ft_gru_p1014"),
 ]
 # Tail-level sigma_run: the 3-seed triplets the paper actually repeated (10c),
 # on the far-tail n=10000 pool. cvar999/max are NOT derivable from the n=1000
@@ -133,7 +144,11 @@ def summarize(key: str) -> dict:
     if df is None:
         return {"key": key, "missing": True}
     records = _jsonl_records(key)
-    out: dict = {"key": key, "legacy_prefix_regime": key.startswith("legacy/")}
+    out: dict = {
+        "key": key,
+        "legacy_prefix_regime": key.startswith("legacy/"),
+        "noise_seeding": "per_draw" if key.startswith(PER_DRAW_PREFIXES) else "legacy",
+    }
     out.update(run_stats(df["ifinal"].to_numpy(), df["eccentricity"].to_numpy(), df["dv_total_m_s"].to_numpy()))
     out["heat_flux_p95"] = round(float(np.percentile(df["max_heat_flux_kw_m2"], 95)), 1)
     out["g_load_p95"] = round(float(np.percentile(df["max_load_factor_g"], 95)), 2)

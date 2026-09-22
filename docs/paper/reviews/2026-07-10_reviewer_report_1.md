@@ -1,5 +1,7 @@
 # Reviewer report
 
+Status: ARCHIVED workflow artifact (moved from articles/paper/reviews/ on 2026-09-22, issue #101). AI-generated reviewer report (2026-07-10) that drove the R4/R5 revision of the paper: e1ba688 (full-review fixes), 6d0cb10 (second-review fixes), 608667c (reports committed alongside the response). Not a human peer review; kept for provenance of that revision only. See README.md in this directory.
+
 **Recommendation: Major revision — borderline reject-and-resubmit for a selective journal.**
 
 I reviewed the complete 48-page manuscript, including the main text, references, reproduction appendix, architecture probes, and per-scheme mission reports. This review is based on the manuscript and reported results; I did not execute the simulator or inspect the underlying code and data. 

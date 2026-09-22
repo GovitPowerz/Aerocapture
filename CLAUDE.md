@@ -995,6 +995,22 @@ Reinforcement-learning training for the `neural_network` guidance scheme, runnin
 (scheme `neural_network_atan2_rl`) -- trains a dense atan2 policy (`17->24->12->2`, `output_parameterization = "atan2_signed"`) on the 17-input atan2 mask
 `[0,2,3,5,6,7,11,12,18,19,27,28,29,30,32,33,34]` with the DV-inferred reward (`[rl.reward] potential = "dv"`); deploys to `training_output/neural_network_atan2_rl/`.
 
+**Paper Section 5 RL baseline (issue #101, 2026-09-22):** four leaf configs under `configs/training/paper/rl/` --
+`{dense_p515,gru_p1014}_ppo_{scratch,warm}.toml` -- inherit the atan2 PPO trainer knobs and pin the exact protocol of the per-scenario population champions they
+are compared to (`training_output/ou_marginal/ft_dense_p515` = Dense 17->18->9->2, `ft_gru_p1014` = Dense(17->11)->GRU(11)->Dense(11->2); same 17-input mask
+and `[network] normalization`, `atan2_signed`, the champion's `best_params.json` nav/shaping values written into `[navigation]` / `[guidance.command_shaping]`,
+`noise_seeding = "per_draw"` explicit, `[data] neural_network` under `training_output/paper/rl/<cell>/` so the trainer's output dir is the bundle key `rl/<cell>`).
+`experiments/paper/18_rl_baseline.sh` runs the two cells of a pair concurrently and is resumable (done = `final_eval.parquet`; `checkpoint.pt` = plain resume; else
+`--from-scratch` / `--data-neural-network <champion best_model.json>`). The champions get their own 2M-pool per-draw parquet from `report.py` on the ou_marginal
+dir and are bundled as `ou_marginal/<cell>` (`collect_runs.OU_MARGINAL`, run logs deliberately not bundled); `aggregate_results.PAIRED` carries the four `ppo_*`
+tables and stamps every run with `noise_seeding` (`per_draw` for `rl/*` + `ou_marginal/*` = `PER_DRAW_PREFIXES`, `legacy` otherwise; `check_results_schema` requires it);
+`tests/test_paper_rl_configs.py` asserts each RL config against the bundled champion (architecture, mask, normalization, decoder, scaffolding, regime, [rl] pools/budget,
+seed, output dir) and each bundled `rl/<cell>` model against its config. Result (2M pool, n = 1000, per_draw): PPO scratch 237 mean / 316 CVaR95 (dense, 4.8%
+heat-flux violations) and 284 / 435 (GRU, 47% heat-flux + 31% g-load) vs champions 113 / 127 and 125 / 151; PPO warm-started deploys the champion (best
+validation checkpoint within the first 10-20 updates) and then walks off it. The RL loop has NO feasibility gate (no ADR-0005 analogue): its promotion rule is
+`val_rms_cost` alone, so PPO can and does promote constraint-violating policies. `collect_runs.OFF_CAMPAIGN` skips the never-bundled `training_output/paper/`
+studies (objective_centering, robustness_retrain, sigma_extras, state_controls) so a local collect no longer diverges from the committed bundle.
+
 ```bash
 # Train a PPO policy
 uv run python -m aerocapture.training.rl.train \

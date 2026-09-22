@@ -65,7 +65,7 @@ def build() -> dict:
         "paper_inputs": list(PAPER_INPUTS),
         "release_tag": RELEASE_TAG,
         "run_logs_asset": RUN_LOGS_ASSET,
-        "noise_regime": "legacy (every committed cell; ADR-0003, ADR-0006)",
+        "noise_regime": "legacy for every committed cell except rl/* and ou_marginal/* (per_draw, issue #101); per run in results.json (ADR-0003, ADR-0006)",
         "simulator_crate_version": tomllib.loads((REPO / "src/rust/Cargo.toml").read_text())["package"]["version"],
         "typst_version": typst,
         "matplotlib_version": matplotlib.__version__,

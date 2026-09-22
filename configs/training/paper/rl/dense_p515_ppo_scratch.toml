@@ -1,0 +1,47 @@
+# Paper Section 5 RL baseline -- dense PPO from scratch, protocol-matched to the
+# per-scenario dense champion (training_output/ou_marginal/ft_dense_p515, the README's
+# "NN -- dense, 515 params, per-scenario fine-tune"). Same 17-input mask, calibrated
+# normalization, atan2_signed decoder and 17->18->9->2 architecture as that cell; its
+# co-trained navigation + command-shaping scaffolding (best_params.json) is pinned below
+# so the observation contract and the actuator pipeline are identical. Regime: per-scenario
+# noise (ADR-0006), stated explicitly. Trainer knobs (DV-inferred reward, exploration,
+# budget 30M env steps at 256 envs) inherit from msr_aller_nn_atan2_ppo_train.toml.
+#
+#   uv run python -m aerocapture.training.rl.train configs/training/paper/rl/dense_p515_ppo_scratch.toml --from-scratch --no-tui
+#
+# Output dir = the [data] neural_network parent; collect_runs.py bundles it as rl/dense_p515_ppo_scratch.
+base = ["../../msr_aller_nn_atan2_ppo_train.toml"]
+
+[monte_carlo]
+noise_seeding = "per_draw"
+
+[[network.architecture]]
+type = "dense"
+input_size = 17
+output_size = 18
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 18
+output_size = 9
+activation = "swish"
+
+[[network.architecture]]
+type = "dense"
+input_size = 9
+output_size = 2
+activation = "asinh"
+
+# training_output/ou_marginal/ft_dense_p515/best_params.json (scaffolding = "live" genes).
+[navigation]
+density_filter_gain = 0.7956072272624616
+density_gain_max_delta = 0.39296508274886394
+
+[guidance.command_shaping]
+enabled = true
+max_bank_acceleration = 14.533514838150715
+
+[data]
+neural_network = "training_output/paper/rl/dense_p515_ppo_scratch/best_model.json"
+results_suffix = ".paper_rl_dense_p515_ppo_scratch"

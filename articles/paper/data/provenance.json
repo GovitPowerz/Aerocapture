@@ -1,5 +1,5 @@
 {
-  "paper_inputs_sha256": "6bc6f1839b59899c3648a4fea00c23094ad995ae7aa1c63c91dd84d568ac9b93",
+  "paper_inputs_sha256": "9bcaf27de8f4d1334cc68abc92ee1369d08b6d2ca64cb89f4ed8061bfc0b4dfc",
   "paper_inputs": [
     "articles/paper/paper.typ",
     "articles/paper/appendix.typ",
@@ -12,7 +12,7 @@
   ],
   "release_tag": "arxiv-v2",
   "run_logs_asset": "https://github.com/GovitPowerz/Aerocapture/releases/download/arxiv-v2/paper_run_logs.tar",
-  "noise_regime": "legacy (every committed cell; ADR-0003, ADR-0006)",
+  "noise_regime": "legacy for every committed cell except rl/* and ou_marginal/* (per_draw, issue #101); per run in results.json (ADR-0003, ADR-0006)",
   "simulator_crate_version": "0.1.0",
   "typst_version": "0.15.1",
   "matplotlib_version": "3.11.2",
@@ -48,6 +48,10 @@
     "configs/training/paper/objective_centering/mamba_centered_high.toml": "1ab79c5bdba63cda0fe287723b8e4df82ae04b670f227dcd2ddb4ffd0d5a9b4d",
     "configs/training/paper/outparam_delta.toml": "dbce8129ef8100a2ac0f0eda46d53cedd44092d6b0711529d9450f967b227abe",
     "configs/training/paper/outparam_scaledpi.toml": "19dd5b4bf12618f1008939ecf655972d3381ac8a6c94d655ae9e25c660e5c5fd",
+    "configs/training/paper/rl/dense_p515_ppo_scratch.toml": "0e82307e60cb20fb1c59c2fb45928c5fe8d8c1fcc8dc8a4697f84c20af73ff4d",
+    "configs/training/paper/rl/dense_p515_ppo_warm.toml": "2ef4aa879a0044662ae704d58de437b79f1fb1a44c2a3926bb32a6c6f8e7e09f",
+    "configs/training/paper/rl/gru_p1014_ppo_scratch.toml": "414a131eb4bab215682dce5b2235e9f52f88f82156af7ed0fc7faab0e9b75fcd",
+    "configs/training/paper/rl/gru_p1014_ppo_warm.toml": "64989352d4ff91c90c3227c09dc84830bda106651f66f4d6953b7a4ed0fdcc53",
     "configs/training/paper/robustness_retrain/ftc_joint_high.toml": "8c2c7779aeb1e590ac518a0be23525e5e4e9cabe8d57b1294b1c7dda562e46c7",
     "configs/training/paper/robustness_retrain/ftc_joint_medium.toml": "96982f30d7d750611b65974389c043aa202577c4c0451dde53f99b2aa492c968",
     "configs/training/paper/robustness_retrain/ftc_joint_medium_wind.toml": "526e8bd4aded68a3be40341847a2b72a739b96ef431c67703772f337ac63b5b9",
