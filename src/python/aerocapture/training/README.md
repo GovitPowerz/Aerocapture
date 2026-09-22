@@ -31,8 +31,9 @@ uv run python -m aerocapture.training.train configs/training/msr_aller_eqglide_t
 # Resume (auto-detects the checkpoint; --n-gen means "N additional")
 uv run python -m aerocapture.training.train configs/training/msr_aller_eqglide_train.toml --n-gen 50
 
-# 3-island PSO/GA/DE (algorithm = "islands"): per-island n_pop=64 -> 192 individuals per gen,
-# migration every k_period=25 gens (top-3 from each source -> worst-6 in each destination)
+# 3-island PSO/GA/DE (algorithm = "islands"): per-island n_pop from common.toml (60 -> 180
+# individuals per gen; --n-pop sets the per-island size), migration every k_period=20 gens
+# (top-2 from each source -> worst-4 in each destination; common.toml [optimizer.islands])
 uv run python -m aerocapture.training.train configs/training/msr_aller_islands_train.toml --n-gen 2500
 
 # Compare schemes on identical MC scenarios (each scheme uses its own training TOML)
@@ -51,8 +52,9 @@ uv run python -m aerocapture.training.animate training_output/piecewise_constant
 uv run python -m aerocapture.training.sensitivity configs/training/msr_aller_eqglide_train.toml --morris-n 1000 --sobol-n 1024 --top-k 10
 ```
 
-`train.py` CLI: `<config.toml> [--no-tui] [--skip-report] [--final-n-sims N] [--algorithm ALG]
-[--seed-strategy fixed|rotating|adaptive] [--output-dir DIR] [--from-scratch] [--seed N]`.
+`train.py` CLI: `<config.toml> [--n-gen N] [--n-pop N] [--training-n-sims N] [--resume DIR]
+[--from-scratch] [--seed N] [--sim-timeout S] [--no-tui] [--skip-report] [--final-n-sims N]
+[--algorithm ALG] [--seed-strategy fixed|rotating|adaptive] [--output-dir DIR]`.
 Mission artifacts (corridor, reference trajectory) always live at the canonical
 `training_output/<mission>/`; `--output-dir` / `--resume` relocate only `save_dir`.
 

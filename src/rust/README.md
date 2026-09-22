@@ -21,11 +21,10 @@ Key dependency: `nalgebra` for vector/matrix ops.
 ## Build and run
 
 ```bash
-cd src/rust
-cargo build --release
 # From the repo root:
+cargo build --release --manifest-path src/rust/Cargo.toml
 ./src/rust/target/release/aerocapture configs/test/test_ref_orig.toml
-cargo test --release --manifest-path src/rust/Cargo.toml   # or ./check_all.sh from the root
+cargo test --release --manifest-path src/rust/Cargo.toml   # or ./check_all.sh
 ```
 
 ## Module map
@@ -42,7 +41,7 @@ src/rust/src/
                                      keeps it (`data.guidance.neural_network.reset_state_every_tick` greps end to end); every serde type that reads a section is
                                      `deny_unknown_fields` (root included, its seven Python-only sections declared as pass-through tables) and section-struct fields are
                                      `pub(crate)` so an unrelayed field fails clippy. Gates: `tests/config_loading.rs::every_committed_config_parses_and_validates`
-                                     (configs/** recursive, parse + validate) and `config_tests.rs::toml_keys_reachable_in_sim_data`.
+                                     (configs/** recursive, parse + validate) and `src/config_tests.rs::toml_keys_reachable_in_sim_data`.
   data/
     mod.rs, SimData                — Top-level data container; from_toml_with_tables = ~70 lines of orchestration: config::validate first, then named builders (build_capsule/
                                      pilot/entry/aero/flight/success/incidence/guidance_params/onboard_atmosphere/neural_net, resolve_reference_trajectory = the per-individual ref

@@ -54,7 +54,7 @@ embedded or TOML NN normalization block; a decoder / mode / architecture disagre
 and density_perturbation stay inline for their unconditional-read / post-validation quirks).
 
 Gates: `src/rust/tests/config_loading.rs::every_committed_config_parses_and_validates` (every
-file under `configs/**`), `config_tests.rs::toml_keys_reachable_in_sim_data`, and
+file under `configs/**`), `src/rust/src/config_tests.rs::toml_keys_reachable_in_sim_data`, and
 `tests/test_config_normalization_blocks.py` for the committed `[network.normalization]` blocks.
 
 ## Sections
@@ -226,7 +226,7 @@ contract itself is in [src/rust/src/data/neural/README.md](../src/rust/src/data/
 ### Python-only sections
 
 **`[cost_function]`**: `g_load_weight`, `heat_flux_weight`, `heat_load_weight`, `dv_threshold`
-(the softplus-quadratic knee; `common.toml` 1000.0 m/s, code default 500.0), `cost_transform`
+(the softplus-quadratic knee; 1000.0 m/s in both `common.toml` and the code default), `cost_transform`
 (`"linear"` | `"sqrt"` | `"log"` | `"squared"` | `"cubed"`; `common.toml` ships `"cubed"`).
 `"log"` (np.log1p) compresses the tail more than `"sqrt"` and preserves the zero-cost identity;
 `"squared"` / `"cubed"` amplify tail variance so captures separate more under rank-free
@@ -237,7 +237,7 @@ optimizers. PSO argmin is unchanged (monotonic); PPO terminal reward magnitudes 
 **`[optimizer]`**: `algorithm` (`"ga"`, `"cma_es"`, `"de"`, `"pso"`, `"qpso"`, `"islands"`),
 `n_pop`, `n_gen`, `seed_strategy` (required: `"fixed"` | `"rotating"` | `"adaptive"`, ADR-0001),
 `training_n_sims` (sims per individual; code default 1, `common.toml` 10, the paper's deployed
-regime 2), `seed_pool_interval` (adaptive curation fallback interval, default 50),
+regime 2), `seed_pool_interval` (adaptive curation fallback interval; code default 50, `common.toml` 2),
 `validation_n_sims` (default 1000), `curation_sample_size` (default 1000), `curation_top_k`
 (default 5), `curation_trim_fraction` (default 0.0, valid [0, 0.5)), `curation_bucket_selection`
 (`"random"` | `"min"` | `"max"` | `"middle"`; code default `"random"`, `common.toml` `"max"`),

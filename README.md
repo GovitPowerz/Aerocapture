@@ -81,7 +81,7 @@ docs/
   adr/                     Architecture decision records
   design/                  Dated design docs (indexed in docs/design/README.md)
   agents/                  Agent operating docs (issue tracker, triage labels, domain docs)
-experiments/               Campaign runners (paper/, ou_marginal/, probes) and one-off gates
+experiments/               Campaign runners (paper/, ou_marginal/, fnpag_ab/) and the trainer seam gate (trainer_seam_gate/)
 models/demo/               The committed demo cells (headline fine-tune + legacy champion)
 training_output/           GA training output (checkpoints, logs, reports, animations)
 tests/                     Python test suite + golden reference data
