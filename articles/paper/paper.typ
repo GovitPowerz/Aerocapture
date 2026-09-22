@@ -1,7 +1,7 @@
 // =============================================================================
 // NN aerocapture guidance, revisited -- follow-up to Gelly & Vernis 2009.
-// Compile (from repo ROOT, so figure paths resolve):
-//   typst compile articles/paper/paper.typ articles/paper/paper.pdf
+// Compile: make -C articles/paper pdf (runs typst from the repo ROOT so figure paths resolve,
+// and passes the git head the colophon prints).
 // Data: articles/paper/data/ (results.json + the eval JSONs). The headline tables (tbl-perf,
 // tbl-paired, tbl-quant-finalists) and the colophon read them at compile time through
 // results.typ; the prose still quotes transcribed numbers. Rebuild everything:
@@ -970,13 +970,15 @@ property we can claim.
 // pooled confirmatory cell(s) (several labels average, e.g. the LSTM's two feasible seeds).
 // Viol. % is the one column the bundle does not carry (results.json has no violation field),
 // so it stays a transcribed literal.
+#let far_tail(..conf_labels) = conf_labels.pos().map(l => R.conf(l).pooled.cvar999).sum() / conf_labels.pos().len()
 #let perf_row(scheme, key, viol, ..conf_labels, bold: false) = {
   let r = R.legacy_regime(key)
-  let far = conf_labels.pos().map(l => R.conf(l).pooled.cvar999).sum() / conf_labels.pos().len()
   let hi(s) = if bold { strong(s) } else { s }
   (scheme, [#R.fixed(r.capture_pct)], [#viol], [#R.fixed(r.dv_mean)], [#R.fixed(r.dv_p95)],
-    [#hi(R.fixed(r.dv_cvar95))], [#hi(R.fixed(far))])
+    [#hi(R.fixed(r.dv_cvar95))], [#hi(R.fixed(far_tail(..conf_labels)))])
 }
+// The LSTM row's CVaR99.9: its two feasible seeds (the caption quotes it too).
+#let lstm_feasible_far = far_tail("paper/tail_repeats/lstm1082_s2", "paper/tail_repeats/lstm1082_s3")
 
 #figure(
   table(
@@ -1019,10 +1021,11 @@ property we can claim.
   confirmatory $n = 10^6$). The mean
   is reported for continuity with the 2009 work but is operationally secondary to the tail.
   #super[‡]The LSTM's best seed -- its lowest-training-loss one -- exceeds the heat-load limit on
-  $15.6%$ of this pool ($13.7%$ of the confirmatory pool); the tabulated $135.2$ is its two
+  $15.6%$ of this pool ($13.7%$ of the confirmatory pool); the tabulated
+  $#R.fixed(lstm_feasible_far)$ is its two
   feasible seeds' mean, and the raw three-seed mean including the infeasible seed is $131.5$.
-  Confirmatory capture is $100%$ for the network rows, joint-FTC, and fixed-reference FTC;
-  $99.85$--$99.98%$ for the remaining classical schemes (their † values are conditional on
+  Confirmatory capture is $100%$ for the network rows, the joint-reference trackers, and
+  fixed-reference FTC; $99.7$--$99.98%$ for the remaining classical schemes (their † values are conditional on
   capture; FNPAG's $163$ failures in $10^6$ were individually re-run at $12 times$ the evaluation
   timeout and are all physical crashes).],
 ) <tbl-perf>
@@ -1586,8 +1589,9 @@ granularity $times$ policy series.], <fig-quant-sweep>)
     ..quant_row([QAT from scratch, 4-bit], "quant/mamba962_qat4_scratch", "qat4_scratch"),
     table.hline(stroke: 0.7pt),
   ),
-  caption: [Quantization finalists on the frozen confirmatory pool ($10 times 100\,000$ scenarios
-  each; correction $Delta v$ in m/s; replicate standard errors). All four variants capture every
+  caption: [Quantization finalists: capture, $"CVaR"_95$ and $"CVaR"_(99.9)$ on the frozen
+  confirmatory pool ($10 times 100\,000$ scenarios each; correction $Delta v$ in m/s; replicate
+  standard errors), $p_50$ on the re-quote pool ($n = 1000$). All four variants capture every
   scenario with zero constraint violations. The 4-bit cells use per-channel scales on the
   projection tensors only.],
 ) <tbl-quant-finalists>

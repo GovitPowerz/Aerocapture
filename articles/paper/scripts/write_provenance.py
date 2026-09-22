@@ -45,9 +45,9 @@ def _git(*args: str) -> str:
 
 
 def _inputs_sha256() -> str:
-    """One digest over (path, content) of every tracked paper input, working-tree bytes."""
+    """One digest over (path, content) of every paper input (tracked or untracked-unignored), working-tree bytes."""
     h = hashlib.sha256()
-    for f in sorted(filter(None, _git("ls-files", "-z", "--", *INPUTS_PATHSPEC).split("\0"))):
+    for f in sorted(filter(None, _git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", *INPUTS_PATHSPEC).split("\0"))):
         h.update(f.encode())
         h.update(b"\0")
         h.update(hashlib.sha256((REPO / f).read_bytes()).digest())

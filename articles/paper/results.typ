@@ -46,8 +46,8 @@
 #let ci(iv, d: 1) = signed(iv.at(0), d: d) + ", " + signed(iv.at(1), d: d)
 // Wilcoxon p: the saturated normal-approximation statistic (~1e-165 at sign unanimity) is shown
 // as "< 1e-15" as the tbl-paired caption states; resolved values keep one significant digit
-// below 1e-3 and two decimals above.
-#let pval(p) = if p < 1e-100 { $< 10^(-15)$ } else if p < 1e-3 {
+// below 0.01 and two decimals above.
+#let pval(p) = if p < 1e-100 { $< 10^(-15)$ } else if p < 0.01 {
   let e = calc.floor(calc.log(p, base: 10))
   let m = int(calc.round(p / calc.pow(10.0, e)))
   if m == 10 { m = 1; e += 1 }
