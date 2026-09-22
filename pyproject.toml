@@ -1,9 +1,22 @@
 [project]
 name = "aerocapture"
-version = "0.1.0"
-description = "Trajectory simulation tool for aerocapture maneuvers"
+version = "1.0.0"
+description = "Aerocapture trajectory simulator (Rust + PyO3) with six classical guidance schemes and stateful neural guidance trained by population search; the code behind the paper 'Seventeen years later: stateful neural guidance and the tail that sizes a Mars aerocapture mission'"
+readme = "README.md"
 license = "MIT"
+authors = [{ name = "Grégory Gelly", email = "gregory.gelly@gmail.com" }]
 requires-python = ">=3.14"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "numpy>=2.4",
     "pandas>=3.0",
@@ -24,6 +37,11 @@ dependencies = [
     "tomli-w>=1.2",
     "pydantic>=2.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/GovitPowerz/Aerocapture"
+Paper = "https://github.com/GovitPowerz/Aerocapture/blob/main/articles/paper/paper.pdf"
+Release = "https://github.com/GovitPowerz/Aerocapture/releases/tag/arxiv-v3"
 
 [dependency-groups]
 dev = [

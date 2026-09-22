@@ -46,7 +46,7 @@ belong on the seam.
 - Numbers do not move: the retired entries were adapters over the same `run_for_api`, and
   goldens, `test_pyo3_matches_subprocess`, `test_run_grid.py` and `test_noise_seeding.py` are
   unchanged.
-- `README.md`'s bindings example and CLAUDE.md's "Key API" lead with `run_batch`.
+- `README.md`'s bindings example and the seam's own `src/rust/aerocapture-py/README.md` ("Evaluate tier") lead with `run_batch`.
 - Python derives the candidate-input names and the default normalization from
   `candidate_inputs()`; the pure-Python fallback tuple in `config.py` stays, asserted equal
   element-wise by the drift test.

@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite both the software and the paper."
+type: software
+title: "Aerocapture: trajectory simulator and neural guidance training for Mars aerocapture"
+authors:
+  - family-names: Gelly
+    given-names: "Grégory"
+    email: gregory.gelly@gmail.com
+version: 1.0.0
+date-released: 2026-09-04
+repository-code: "https://github.com/GovitPowerz/Aerocapture"
+url: "https://github.com/GovitPowerz/Aerocapture/releases/tag/arxiv-v3"
+license: MIT
+keywords:
+  - aerocapture
+  - guidance
+  - Mars Sample Return
+  - neural network
+  - Monte Carlo
+  - Rust
+  - PyO3
+preferred-citation:
+  type: article
+  title: "Seventeen years later: stateful neural guidance and the tail that sizes a Mars aerocapture mission"
+  authors:
+    - family-names: Gelly
+      given-names: "Grégory"
+  year: 2026
+  url: "https://github.com/GovitPowerz/Aerocapture/blob/main/articles/paper/paper.pdf"
+  notes: "Preprint, version 3 (GitHub Release arxiv-v3, 2026-09-04)."

@@ -6,8 +6,54 @@
 
 ## Backlog
 
-- [ ] Add neural counterparts for navigation and control
-- [ ] Develop ESR (Earth Sample Return) mission profiles
+- [ ] Add neural counterparts for navigation and control: train neural counterparts for the
+      density estimator (replacing the exponential filter) and the pilot model (replacing the
+      first/second-order dynamics), compared against the classical algorithms on identical MC
+      scenarios.
+- [ ] Develop ESR (Earth Sample Return) mission profiles: the simulator has the ESR reference
+      (`data/reference_trajectory/esr_aller.dat`) but no validated ESR entry profiles
+      (Earth-specific atmosphere dispersions, ~12 km/s entry, thermal constraints); one of the two
+      mission extensions named in the paper's conclusion.
+- [ ] Skip-entry mission profiles: the 2009 paper's closing hook and the new paper's conclusion
+      name skip entry as the next maneuver class for stateful neural guidance (a deliberate
+      atmospheric exit and re-entry, where the policy must plan across two passes). Extend the
+      capture/exit phase machinery to a skip-exit-reentry sequence, add success criteria and
+      reference data, benchmark the stateful policies against a classical skip-entry
+      predictor-corrector.
+- [ ] Regime-matched objective schedule (off-nominal robustness recovery; paper conclusion +
+      section 7.3): the medium-trained network loses off-nominal robustness to the analytic
+      joint-FTC, and the objective-centering experiment pinned the gap on the training objective
+      (worst-case shaping collapses the GA gradient once failures dominate). Three mechanisms to
+      bridge the medium and high regimes without giving up the nominal sizing tail: an annealed
+      tail-weighting (schedule the cost-transform exponent on the population's capture rate,
+      near-linear while capture is low, cubed once it saturates); a dispersion-envelope curriculum
+      (start on medium with the deployed cubed/max-bucket objective and widen the bounds toward the
+      high-stress profile every k generations); a stratified curation batch (n=3-4 per individual,
+      mixing a `bucket_middle` seed that anchors the gradient with `bucket_max` seeds that pull the
+      tail). The centered-retrain result says the ceiling is reachable.
+- [ ] On-line adaptation of the deployed policy (the paper's third forward direction): the
+      deployed policy is a fixed forward pass and all adaptation happens on the ground. Investigate
+      lightweight in-flight adaptation, e.g. adapting only the calibrated input normalization or
+      the three co-optimized actuator-side parameters against the navigation-estimated density
+      history, weights frozen; complements the training-side regime-matched schedule above.
+- [ ] Run-variance calibration beyond the tail: the objective-centering recovery is three-seed
+      (capture 94.8-95.0%, conditional tail 231-273 m/s, every seed beating both FTC references)
+      and `sigma_extras.json` adds GA/CMA-ES x fixed/rotating seed-strategy repeats, but (a) the
+      centered high-regime cells are still n=1000 and need a requote at sizing depth (n=10,000 +
+      CIs), and (b) a mean-level sigma_run study across the optimizer-budget cells would let tight
+      ties (GA at population 150 vs 300) be ranked or confirmed indistinguishable.
+- [ ] Structured pruning of the Mamba head under the post-fix regime: the quantization half
+      shipped (paper Appendix C: the 4-bit fine-tuned head is tail-equivalent, 4.9x memory
+      reduction, `a_log`/`d_skip` the bottleneck). Re-run structured pruning on the deployed
+      Mamba_962 under the post-fix regime, scoring on the far-tail pool with the feasibility gate;
+      prune-then-quantize quantifies how small the tail-winning policy can get.
+- [ ] Bayesian optimization for the low-dimensional classical schemes (11-26 params): a GP or
+      random-forest surrogate for the MC fitness (BoTorch or scikit-optimize as a pymoo-compatible
+      backend); the MC fitness is noisy, so a noise-aware acquisition (noisy Expected Improvement)
+      is the key challenge. Could cut evaluations on smooth landscapes at the cost of surrogate
+      overhead.
+- [x] Feasibility-aware validation gate and final selection: shipped as #109 (ADR-0005,
+      `[optimizer] max_violation_rate`).
 
 ---
 

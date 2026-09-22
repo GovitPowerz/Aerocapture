@@ -28,6 +28,7 @@ src/rust/target/
 # === IDE / Editor ===
 .vscode/
 .idea/
+*.code-workspace
 *.swp
 *.swo
 *~

@@ -2,8 +2,12 @@
 
 One dated design per feature, in the order they were written. The **status** column is the
 document's own `Status` field at the time of writing (design / approved / draft ...); nearly
-everything here shipped -- `CLAUDE.md` describes the current behaviour, and `docs/adr/` records
-the decisions that still constrain new work. A design with no status line predates the field.
+everything here shipped -- the per-module READMEs (`src/rust/README.md`, `configs/README.md`,
+`src/python/aerocapture/training/README.md`, ...) describe the current behaviour, and `docs/adr/`
+records the decisions that still constrain new work. A design with no status line predates the
+field. The pre-#75 roadmap `IMPROVEMENTS.md` (its section numbers are cited by several designs
+below) was retired into `TODO.md`; the March implementation plans that accompanied the two
+2026-03-09 designs left the tree with the later plans (`git show 5f24302:docs/plans/`).
 
 ## NN architectures & inputs
 
@@ -102,6 +106,8 @@ the decisions that still constrain new work. A design with no status line predat
 
 | date | design | status |
 |---|---|---|
+| 2026-03-09 | [Harden & Clean — Design](2026-03-09-harden-and-clean-design.md) | — |
+| 2026-03-09 | [Rust Simulator Test Suite Design](2026-03-09-rust-test-suite-design.md) | — |
 | 2026-03-10 | [Directory Restructure Design](2026-03-10-directory-restructure-design.md) | — |
 | 2026-03-10 | [Test Coverage Expansion Design](2026-03-10-test-coverage-expansion-design.md) | — |
 | 2026-03-14 | [PyO3 Rust-Python Interface for Aerocapture](2026-03-14-pyo3-interface-design.md) | Draft |
