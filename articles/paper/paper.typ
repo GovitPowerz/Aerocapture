@@ -2,8 +2,10 @@
 // NN aerocapture guidance, revisited -- follow-up to Gelly & Vernis 2009.
 // Compile (from repo ROOT, so figure paths resolve):
 //   typst compile articles/paper/paper.typ articles/paper/paper.pdf
-// Data: articles/paper/data/ (results.json + the eval JSONs; the body's table numbers are
-// transcribed from them). Rebuild everything: make -C articles/paper paper (see the Makefile).
+// Data: articles/paper/data/ (results.json + the eval JSONs). The headline tables (tbl-perf,
+// tbl-paired, tbl-quant-finalists) and the colophon read them at compile time through
+// results.typ; the prose still quotes transcribed numbers. Rebuild everything:
+// make -C articles/paper paper (see the Makefile).
 // Section order: methodology-first (the spine). Abstract leads with the architecture
 // result. dense_515 carried as a full efficiency-reference row throughout.
 // =============================================================================
@@ -50,6 +52,9 @@
 
 // Figure helper: include from figures/, attach the caption and the label.
 #let fig(path, cap, lbl) = [#figure(image("figures/" + path, width: 100%), caption: cap)#lbl]
+
+// Bundle accessors (results.json, confirmatory_eval.json, quant/finalists_results.json).
+#import "results.typ" as R
 
 #v(0.15in)
 #align(center)[
@@ -961,6 +966,18 @@ property we can claim.
   fig("fig_robustness.svg", [Off-nominal stress. The analytic joint-FTC is the most robust to
   distribution shift; the medium-trained network generalizes less well, the paper's robustness caveat.], <fig-robust>))
 
+// One tbl-perf row: capture / mean / p95 / CVaR95 from the n = 1000 run, CVaR99.9 from the
+// pooled confirmatory cell(s) (several labels average, e.g. the LSTM's two feasible seeds).
+// Viol. % is the one column the bundle does not carry (results.json has no violation field),
+// so it stays a transcribed literal.
+#let perf_row(scheme, key, viol, ..conf_labels, bold: false) = {
+  let r = R.legacy_regime(key)
+  let far = conf_labels.pos().map(l => R.conf(l).pooled.cvar999).sum() / conf_labels.pos().len()
+  let hi(s) = if bold { strong(s) } else { s }
+  (scheme, [#R.fixed(r.capture_pct)], [#viol], [#R.fixed(r.dv_mean)], [#R.fixed(r.dv_p95)],
+    [#hi(R.fixed(r.dv_cvar95))], [#hi(R.fixed(far))])
+}
+
 #figure(
   table(
     columns: (auto, auto, auto, auto, auto, auto, auto),
@@ -970,18 +987,18 @@ property we can claim.
       [*Scheme*], [*Capture %*], [*Viol. %*], [*Mean*], [$bold(p_95)$], [$bold("CVaR"_95)$], [$bold("CVaR"_(99.9))$†],
     ),
     table.hline(stroke: 0.35pt),
-    [NN -- Mamba (deployed)], [100.0], [0.0], [109.9], [114.0], [*115.4*], [*123.3*],
-    [NN -- LSTM#super[‡]], [100.0], [15.6], [108.4], [114.0], [116.0], [135.2],
-    [NN -- dense (efficiency ref.)], [100.0], [0.0], [109.7], [114.9], [117.0], [128.7],
-    [FTC (joint reference)], [100.0], [0.0], [126.3], [137.8], [142.9], [165.1],
-    [FNPAG], [100.0], [0.0], [124.3], [137.4], [144.0], [198.7],
-    [PredGuid (joint reference)], [100.0], [0.0], [144.2], [164.2], [172.8], [225.8],
-    [Energy controller (joint reference)], [100.0], [0.0], [142.1], [166.3], [178.3], [304.3],
-    [PredGuid (fixed reference)], [100.0], [0.0], [167.4], [209.8], [227.1], [301.6],
-    [FTC (fixed reference)], [100.0], [0.2], [170.7], [208.9], [244.1], [341.4],
-    [Energy controller (fixed reference)], [99.6], [0.0], [176.7], [226.0], [245.8], [308.1],
-    [Equilibrium glide], [99.5], [0.5], [200.3], [290.0], [327.6], [410.1],
-    [Piecewise constant], [99.8], [1.1], [258.3], [374.6], [421.1], [598.2],
+    ..perf_row([NN -- Mamba (deployed)], "headline/mamba_p962", "0.0", "mamba_p962_long", bold: true),
+    ..perf_row([NN -- LSTM#super[‡]], "headline/lstm_p1082", "15.6", "paper/tail_repeats/lstm1082_s2", "paper/tail_repeats/lstm1082_s3"),
+    ..perf_row([NN -- dense (efficiency ref.)], "headline/dense_p515", "0.0", "dense_p515_ga_paper_best"),
+    ..perf_row([FTC (joint reference)], "joint_reference/ftc", "0.0", "joint_reference/ftc"),
+    ..perf_row([FNPAG], "classical_baselines/fnpag", "0.0", "fnpag"),
+    ..perf_row([PredGuid (joint reference)], "joint_reference/pred_guid", "0.0", "joint_reference/pred_guid"),
+    ..perf_row([Energy controller (joint reference)], "joint_reference/energy_controller", "0.0", "joint_reference/energy_controller"),
+    ..perf_row([PredGuid (fixed reference)], "classical_baselines/pred_guid", "0.0", "pred_guid"),
+    ..perf_row([FTC (fixed reference)], "classical_baselines/ftc", "0.2", "ftc"),
+    ..perf_row([Energy controller (fixed reference)], "classical_baselines/energy_controller", "0.0", "energy_controller"),
+    ..perf_row([Equilibrium glide], "classical_baselines/equilibrium_glide", "0.5", "equilibrium_glide"),
+    ..perf_row([Piecewise constant], "classical_baselines/piecewise_constant", "1.1", "piecewise_constant"),
     table.hline(stroke: 0.7pt),
   ),
   caption: [Final Monte Carlo performance, correction $Delta v$ in m/s, ordered by $"CVaR"_95$.
@@ -1010,6 +1027,13 @@ property we can claim.
   timeout and are all physical crashes).],
 ) <tbl-perf>
 
+// One tbl-paired row from a results.json paired comparison (A = a, B = b of the record).
+#let paired_row(label, key, mark: none) = {
+  let p = R.paired(key)
+  (label, [$#R.signed(p.delta_mean)$], [$[#R.ci(p.delta_mean_ci)]$], [$#R.signed(p.delta_p95)$],
+    [$#R.signed(p.delta_cvar95)$], [#R.fixed(p.win_rate_a * 100)#mark], [#R.pval(p.wilcoxon_p)])
+}
+
 #figure(
   table(
     columns: (auto, auto, auto, auto, auto, auto, auto),
@@ -1019,13 +1043,13 @@ property we can claim.
       [*Comparison (A vs B)*], [$bold(Delta"mean")$], [*95% CI*], [$bold(Delta p_95)$], [$bold(Delta"CVaR"_95)$], [*A-win %*], [*p*],
     ),
     table.hline(stroke: 0.35pt),
-    [Mamba vs FTC (fixed ref.)], [$-60.8$], [$[-62.4, -59.2]$], [$-95.0$], [$-128.8$], [100.0], [$< 10^(-15)$],
-    [Mamba vs FTC (joint ref.)], [$-16.4$], [$[-16.8, -16.0]$], [$-23.8$], [$-27.6$], [100.0], [$< 10^(-15)$],
-    [Mamba vs FNPAG], [$-14.4$], [$[-14.8, -14.0]$], [$-23.4$], [$-28.7$], [99.8], [$< 10^(-15)$],
-    [Mamba vs dense (eff. ref.)], [$+0.1$], [$[-0.1, +0.3]$], [$-0.9$], [$-1.6$], [44.9#super[‡]], [$0.02$],
-    [Mamba vs LSTM], [$+1.4$], [$[+1.2, +1.6]$], [$-0.0$], [$-0.6$], [29.2#super[‡]], [$3 times 10^(-46)$],
-    [FTC: joint vs fixed reference], [$-44.4$], [$[-45.9, -42.9]$], [$-71.2$], [$-101.2$], [100.0], [$< 10^(-15)$],
-    [FTC (joint) vs FNPAG], [$+2.0$], [$[+1.5, +2.5]$], [$+0.4$], [$-1.1$], [33.9], [$1 times 10^(-23)$],
+    ..paired_row([Mamba vs FTC (fixed ref.)], "nn_vs_ftc"),
+    ..paired_row([Mamba vs FTC (joint ref.)], "nn_vs_jointftc"),
+    ..paired_row([Mamba vs FNPAG], "nn_vs_fnpag"),
+    ..paired_row([Mamba vs dense (eff. ref.)], "headline_vs_dense515", mark: super[‡]),
+    ..paired_row([Mamba vs LSTM], "headline_vs_lstm", mark: super[‡]),
+    ..paired_row([FTC: joint vs fixed reference], "joint_vs_fixed_ftc"),
+    ..paired_row([FTC (joint) vs FNPAG], "jointftc_vs_fnpag"),
     table.hline(stroke: 0.7pt),
   ),
   caption: [Paired comparisons on the shared $n = 1000$ pool, correction $Delta v$ in m/s; negative
@@ -1191,7 +1215,7 @@ behavior across the dispersion envelope, rather than the code, is the open probl
 Two threads earlier drafts left open are now closed, and one remains. Appendix C
 quantizes the deployed head (weight-only): $8$-bit is free, the SSM dynamics parameters are the
 $4$-bit bottleneck, and a quantization-aware fine-tune holds the sizing tail
-($"CVaR"_(99.9)$ $122.8$ versus $123.3$) at a $4.9 times$ memory reduction -- pruning remains
+($"CVaR"_(99.9)$ $122.9$ versus $123.3$) at a $4.9 times$ memory reduction -- pruning remains
 open. The state-ablation thread
 is now closed by the three controls of Section 6.3 -- state reset, matched history, and no
 predicted-$Delta v$ -- so the tail mechanism is measured rather than hypothesized; what remains
@@ -1540,6 +1564,13 @@ $"CVaR"_95$ -- picks per-channel scales, projections only.
 ($n = 1000$ per cell): capture rate (left) and $"CVaR"_95$ (right) versus bit width, for the four
 granularity $times$ policy series.], <fig-quant-sweep>)
 
+// One tbl-quant-finalists row: capture / CVaR95 / CVaR99.9 (+- replicate SE) from the pooled
+// confirmatory cell, p50 from the finalists' re-quote pool (the confirmatory file has no p50).
+#let quant_row(label, conf_label, finalist_label) = {
+  let c = R.conf(conf_label)
+  (label, [#R.fixed(c.pooled.capture_pct)], [#R.fixed(R.finalist(finalist_label).dv_p50)],
+    [#R.fixed(c.pooled.cvar95)], [$#R.fixed(c.pooled.cvar999) plus.minus #R.fixed(c.replicate_stats.cvar999.se)$])
+}
 #figure(
   table(
     columns: (auto, auto, auto, auto, auto),
@@ -1549,10 +1580,10 @@ granularity $times$ policy series.], <fig-quant-sweep>)
       [*Variant*], [*Capture %*], [$bold(p_50)$], [$bold("CVaR"_95)$], [$bold("CVaR"_(99.9) plus.minus "SE")$],
     ),
     table.hline(stroke: 0.35pt),
-    [Deployed policy (64-bit floats)], [100.0], [109.7], [115.9], [$123.3 plus.minus 0.1$],
-    [PTQ, best 4-bit cell], [100.0], [126.7], [149.5], [$176.4 plus.minus 0.4$],
-    [QAT fine-tune, 4-bit], [100.0], [110.2], [116.6], [$122.8 plus.minus 0.1$],
-    [QAT from scratch, 4-bit], [100.0], [112.4], [124.4], [$140.7 plus.minus 0.3$],
+    ..quant_row([Deployed policy (64-bit floats)], "mamba_p962_long", "champion_fp"),
+    ..quant_row([PTQ, best 4-bit cell], "quant/ptq4_verdict", "ptq4_verdict"),
+    ..quant_row([QAT fine-tune, 4-bit], "quant/mamba962_qat4_finetune", "qat4_finetune"),
+    ..quant_row([QAT from scratch, 4-bit], "quant/mamba962_qat4_scratch", "qat4_scratch"),
     table.hline(stroke: 0.7pt),
   ),
   caption: [Quantization finalists on the frozen confirmatory pool ($10 times 100\,000$ scenarios
@@ -1566,7 +1597,7 @@ on the re-quote pool and degrades further with depth ($"CVaR"_(99.9)$ $176.4$ --
 fatten-with-depth signature Section 7.2 measured for FNPAG). Quantization-aware fine-tuning
 recovers the entire gap. The champion checkpoint is resumed for $3000$ generations with every
 candidate's weights fake-quantized before each fitness evaluation, so the genetic search
-optimizes the quantized policy directly; the result is $"CVaR"_(99.9) = 122.8 plus.minus 0.1$
+optimizes the quantized policy directly; the result is $"CVaR"_(99.9) = 122.9 plus.minus 0.1$
 against the deployed policy's $123.3 plus.minus 0.1$, a paired replicate delta of $-0.46$
 $[-0.74, -0.18]$, at $100%$ capture and zero violations. The $4$-bit head is tail-equivalent at
 full sizing depth (the point estimate is in fact lower, but the fine-tune's extra generations
@@ -1856,3 +1887,20 @@ note: a checkpoint resume restores the saved trainer RNG state, which silently o
 flag -- our first "repeats" were bit-identical replays; the campaign runner now strips the saved
 RNG state for repeat runs.) The remaining limit: the fine-tune recipe still requires per-cell
 feasibility validation (@tbl-ou-retrain).
+
+// Colophon: what this PDF was built from (data/provenance.json, written by
+// scripts/write_provenance.py; git_head is passed by `make pdf`).
+#let prov = json("data/provenance.json")
+#v(1em)
+#block(width: 100%, stroke: (top: 0.35pt), inset: (top: 6pt))[
+  #set text(size: 8.5pt)
+  #set par(justify: false)
+  *Provenance.* Every cell of @tbl-perf, @tbl-paired and @tbl-quant-finalists is read at compile
+  time from `data/results.json`, `data/confirmatory_eval.json` and
+  `data/quant/finalists_results.json` through `results.typ` (the Viol. column of @tbl-perf is
+  transcribed: the bundle carries no violation field). Paper inputs digest (SHA-256 over every
+  tracked paper input, `data/provenance.json`): #raw(prov.paper_inputs_sha256). Run logs: Release
+  #raw(prov.release_tag). Simulator crate #prov.simulator_crate_version, Typst #prov.typst_version,
+  matplotlib #prov.matplotlib_version. Noise regime: #prov.noise_regime. Compiled at git
+  #raw(sys.inputs.at("git_head", default: "(not passed: compile with make -C articles/paper pdf)")).
+]

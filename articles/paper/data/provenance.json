@@ -1,8 +1,9 @@
 {
-  "paper_inputs_sha256": "9bcaf27de8f4d1334cc68abc92ee1369d08b6d2ca64cb89f4ed8061bfc0b4dfc",
+  "paper_inputs_sha256": "40d66ab18290e1fed55df9dc8e7c2e1967c0f3549134acf1cdff9ab4f4d874b7",
   "paper_inputs": [
     "articles/paper/paper.typ",
     "articles/paper/appendix.typ",
+    "articles/paper/results.typ",
     "articles/paper/refs.bib",
     "articles/paper/Makefile",
     "articles/paper/scripts",

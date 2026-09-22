@@ -95,10 +95,12 @@ fetch-logs:
 provenance:
 	$(UVPY) articles/paper/scripts/write_provenance.py
 
-# SOURCE_DATE_EPOCH = the HEAD commit time, so the PDF's creation date is reproducible.
+# SOURCE_DATE_EPOCH = the HEAD commit time, so the PDF's creation date is reproducible; git_head
+# feeds the colophon (`-dirty` when a tracked paper input differs from HEAD).
 # `make pdf PDF=/tmp/paper.pdf` compiles without touching the committed PDF (CI).
+GIT_HEAD = $$(git rev-parse --short HEAD)$$(git diff --quiet HEAD -- articles/paper ':(exclude)articles/paper/paper.pdf' || echo -dirty)
 pdf:
-	cd $(ROOT) && SOURCE_DATE_EPOCH=$$(git log -1 --format=%ct) typst compile articles/paper/paper.typ $(PDF)
+	cd $(ROOT) && SOURCE_DATE_EPOCH=$$(git log -1 --format=%ct) typst compile --input git_head=$(GIT_HEAD) articles/paper/paper.typ $(PDF)
 
 # Recursive so the log wildcard is re-evaluated after fetch-logs.
 paper: fetch-logs

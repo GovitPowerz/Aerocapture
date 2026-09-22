@@ -27,6 +27,7 @@ RUN_LOGS_ASSET = f"https://github.com/GovitPowerz/Aerocapture/releases/download/
 PAPER_INPUTS = (
     "articles/paper/paper.typ",
     "articles/paper/appendix.typ",
+    "articles/paper/results.typ",
     "articles/paper/refs.bib",
     "articles/paper/Makefile",
     "articles/paper/scripts",
