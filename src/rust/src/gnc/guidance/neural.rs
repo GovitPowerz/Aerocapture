@@ -338,7 +338,7 @@ mod tests {
     use crate::data::pilot::{PilotModel, PilotType};
     use crate::data::{
         Constraints, EntryConditions, FinalConditions, OrbitalTarget, ParkingOrbit, SimData,
-        SphericalState, SuccessCriteria, TimePeriods,
+        SphericalState, TimePeriods,
     };
     use crate::gnc::navigation::estimator::NavigationOutput;
     use std::sync::Arc;
@@ -430,7 +430,6 @@ mod tests {
             final_conditions: FinalConditions::default(),
             parking_orbit: ParkingOrbit::default(),
             constraints: Constraints::default(),
-            success: SuccessCriteria::default(),
             wind_enabled: false,
             wind_table: None,
             neural_net: None,

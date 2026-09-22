@@ -1383,6 +1383,51 @@ struct Reach {
     expected: &'static str,
 }
 
+/// `[success]` has no reader (#128) but every pre-#128 generated
+/// `optimized_*.toml` carries it: the root declares it as an opaque table.
+#[test]
+fn retired_success_section_still_parses() {
+    let mut cfg = resolved_config("test/test_ref_orig.toml");
+    set_dot(&mut cfg, "success.inclination_tolerance", "0.5");
+    set_dot(&mut cfg, "success.apoapsis_tolerance", "100.0");
+    build_sim_data(&cfg);
+}
+
+/// `[[network.architecture]]` describes the model for the trainer; the runtime
+/// shape comes from the JSON alone. A block that disagrees with the loaded
+/// model used to run byte-identically to no block at all (#128 B).
+#[test]
+fn network_architecture_block_must_match_loaded_model() {
+    let fixture = "test/test_neural_golden.toml";
+    let (_, baseline) = build_sim_data(&resolved_config(fixture));
+    let model_arch = baseline
+        .neural_net
+        .as_ref()
+        .expect("golden NN model loaded")
+        .architecture
+        .clone();
+    let literal = toml::Value::try_from(&model_arch)
+        .expect("LayerSpec -> toml")
+        .to_string();
+
+    let mut matching = resolved_config(fixture);
+    set_dot(&mut matching, "network.architecture", &literal);
+    build_sim_data(&matching);
+
+    let mut mismatched = resolved_config(fixture);
+    set_dot(
+        &mut mismatched,
+        "network.architecture",
+        "[{ type = \"dense\", input_size = 0, output_size = 999, activation = \"tanh\" }]",
+    );
+    let text = toml::to_string(&mismatched).expect("serialize");
+    let (input, toml) = SimInput::from_toml(&text).expect("parse");
+    let err = crate::data::SimData::from_toml(&toml, &input)
+        .expect_err("mismatched architecture block must be rejected")
+        .0;
+    assert!(err.contains("disagrees with the loaded model"), "{err}");
+}
+
 /// One row per relayed section (at least one key of every relay style: nested
 /// NN knobs, MC scalars, navigation gains, integration, simulation, the shared
 /// guidance blocks, per-scheme tunables, onboard atmosphere, vehicle/entry/

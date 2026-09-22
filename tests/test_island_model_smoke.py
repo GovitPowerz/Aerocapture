@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.fixtures.factories import leaf_toml_with_architecture
+
 aerocapture_rs = pytest.importorskip("aerocapture_rs")
 
 
@@ -40,6 +42,8 @@ def test_islands_smoke_5_gens(tmp_path: Path) -> None:
         {"type": "dense", "input_size": 25, "output_size": 8, "activation": "swish"},
         {"type": "dense", "input_size": 8, "output_size": 2, "activation": "linear"},
     ]
+    toml_path = tmp_path / "islands_smoke.toml"
+    toml_path.write_text(leaf_toml_with_architecture("configs/training/msr_aller_islands_train.toml", architecture))
 
     nn_cfg = NetworkConfig(
         architecture=architecture,
@@ -48,7 +52,7 @@ def test_islands_smoke_5_gens(tmp_path: Path) -> None:
     sim_cfg = SimConfig(
         executable="src/rust/target/release/aerocapture",
         nn_param_file=str(save_dir / "best_model.json"),
-        toml_config="configs/training/msr_aller_islands_train.toml",
+        toml_config=str(toml_path),
         n_sims=2,
     )
     optimizer = OptimizerConfig(
@@ -140,6 +144,8 @@ def test_islands_resume_continues_from_checkpoint(tmp_path: Path) -> None:
         {"type": "dense", "input_size": 25, "output_size": 8, "activation": "swish"},
         {"type": "dense", "input_size": 8, "output_size": 2, "activation": "linear"},
     ]
+    toml_path = tmp_path / "islands_smoke.toml"
+    toml_path.write_text(leaf_toml_with_architecture("configs/training/msr_aller_islands_train.toml", architecture))
 
     def _make_cfg(n_gen: int) -> TrainingConfig:
         return TrainingConfig(
@@ -157,7 +163,7 @@ def test_islands_resume_continues_from_checkpoint(tmp_path: Path) -> None:
             sim=SimConfig(
                 executable="src/rust/target/release/aerocapture",
                 nn_param_file=str(save_dir / "best_model.json"),
-                toml_config="configs/training/msr_aller_islands_train.toml",
+                toml_config=str(toml_path),
                 n_sims=2,
             ),
             save_dir=str(save_dir),
@@ -203,6 +209,8 @@ def test_islands_resume_with_larger_n_pop_grows(tmp_path: Path, capsys: pytest.C
         {"type": "dense", "input_size": 25, "output_size": 8, "activation": "swish"},
         {"type": "dense", "input_size": 8, "output_size": 2, "activation": "linear"},
     ]
+    toml_path = tmp_path / "islands_smoke.toml"
+    toml_path.write_text(leaf_toml_with_architecture("configs/training/msr_aller_islands_train.toml", architecture))
 
     def _make_cfg(n_pop: int, n_gen: int) -> TrainingConfig:
         return TrainingConfig(
@@ -220,7 +228,7 @@ def test_islands_resume_with_larger_n_pop_grows(tmp_path: Path, capsys: pytest.C
             sim=SimConfig(
                 executable="src/rust/target/release/aerocapture",
                 nn_param_file=str(save_dir / "best_model.json"),
-                toml_config="configs/training/msr_aller_islands_train.toml",
+                toml_config=str(toml_path),
                 n_sims=2,
             ),
             save_dir=str(save_dir),

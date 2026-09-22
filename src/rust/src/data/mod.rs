@@ -13,7 +13,7 @@ pub mod pilot;
 use crate::config::{
     GuidanceType, IntegrationMode, SimInput, SimPhase, TomlAero, TomlAtmosphereOnboard, TomlConfig,
     TomlEntry, TomlFlight, TomlFtcParams, TomlIncidence, TomlMcDomain, TomlMonteCarlo,
-    TomlNavigation, TomlPilot, TomlSuccess, TomlVehicle,
+    TomlNavigation, TomlPilot, TomlVehicle,
 };
 use crate::gnc::guidance::lateral::LateralParams;
 use crate::gnc::guidance::thermal_limiter::ThermalLimiterParams;
@@ -66,7 +66,6 @@ pub struct SphericalState {
 }
 
 /// Orbital elements
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OrbitalElements {
     pub semi_major_axis: f64, // meters
@@ -80,7 +79,6 @@ pub struct OrbitalElements {
 }
 
 /// Target orbital parameters (from mission file)
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OrbitalTarget {
     pub apoapsis: f64,        // meters (altitude)
@@ -92,7 +90,6 @@ pub struct OrbitalTarget {
 }
 
 /// Mission final conditions (from mission file)
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FinalConditions {
     pub altitude: f64,    // meters
@@ -106,7 +103,6 @@ pub struct FinalConditions {
 }
 
 /// Parking orbit parameters
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ParkingOrbit {
     pub apoapsis: f64,  // meters
@@ -147,7 +143,6 @@ pub struct EntryConditions {
 }
 
 /// Reentry constraints (converted to SI)
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Constraints {
     pub max_heat_flux: f64,        // W/m^2 (from kW/m^2)
@@ -156,18 +151,7 @@ pub struct Constraints {
     pub max_heat_load: f64,        // J/m^2 (from kJ/m^2)
 }
 
-/// Success criteria
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SuccessCriteria {
-    pub inclination_tol: f64, // radians (from deg)
-    pub velocity_tol: f64,    // m/s
-    pub apoapsis_tol: f64,    // meters (from km)
-    pub periapsis_tol: f64,   // meters (from km)
-}
-
 /// All loaded simulation data
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct SimData {
     pub capsule: capsule::Capsule,
@@ -184,7 +168,6 @@ pub struct SimData {
     pub guidance: guidance_params::GuidanceParams,
     pub incidence: incidence::IncidenceProfile,
     pub pilot: pilot::PilotModel,
-    pub success: SuccessCriteria,
     pub wind_enabled: bool,
     pub wind_table: Option<Arc<winds::WindTable>>,
     pub neural_net: Option<neural::NeuralNetModel>,
@@ -249,7 +232,6 @@ impl SimData {
         let ref_trajectory = resolve_reference_trajectory(toml, config, shared)?;
         let aero = build_aero(a);
         let (constraints, final_conditions, target_orbit, parking_orbit) = build_flight(f);
-        let success = build_success(toml.success.as_ref());
         let incidence_data = build_incidence(toml.incidence.as_ref());
         let guidance = build_guidance_params(toml, ref_trajectory)?;
         let atm_onboard =
@@ -293,7 +275,6 @@ impl SimData {
             guidance,
             incidence: incidence_data,
             pilot: pilot_data,
-            success,
             wind_enabled: f.wind,
             wind_table: shared.wind_table.clone(),
             neural_net,
@@ -462,15 +443,6 @@ fn build_flight(f: &TomlFlight) -> (Constraints, FinalConditions, OrbitalTarget,
     (constraints, final_conditions, target_orbit, parking_orbit)
 }
 
-fn build_success(s: Option<&TomlSuccess>) -> SuccessCriteria {
-    s.map_or_else(SuccessCriteria::default, |s| SuccessCriteria {
-        inclination_tol: s.inclination_tolerance * DEG2RAD,
-        velocity_tol: s.velocity_tolerance,
-        apoapsis_tol: s.apoapsis_tolerance * 1e3,
-        periapsis_tol: s.periapsis_tolerance * 1e3,
-    })
-}
-
 /// Incidence profile (lengths already matched by `config::validate`).
 fn build_incidence(inc: Option<&TomlIncidence>) -> incidence::IncidenceProfile {
     match inc {
@@ -488,30 +460,27 @@ fn build_incidence(inc: Option<&TomlIncidence>) -> incidence::IncidenceProfile {
 }
 
 /// FTC gains used when `[guidance.ftc]` is absent: every scheme still runs the
-/// shared exit-phase law and the security modes on them. TOML units; the
-/// builder converts them exactly as it converts a parsed section, so the
-/// resulting `GuidanceParams` are bit-identical to the historical literals
-/// (`legacy_ftc_defaults_match_historical_literals` pins them).
+/// shared exit-phase law on them. TOML units; the builder converts them
+/// exactly as it converts a parsed section, so the resulting `GuidanceParams`
+/// are bit-identical to the historical literals
+/// (`legacy_ftc_defaults_match_historical_literals` pins them). The inert
+/// keys (`TomlFtcParams` doc) take the derive defaults; never read, so the
+/// gap to their serde defaults is irrelevant.
 fn legacy_ftc_defaults() -> TomlFtcParams {
     TomlFtcParams {
         capture_damping: 0.7,
         capture_frequency: 0.072,
-        capture_pdyn_margin: 1.75,
-        altitude_damping: 0.7,
-        altitude_frequency: 0.08, // deg/s
         exit_velocity_threshold: 4400.0,
         exit_pdyn_margin: 1.75,
         exit_altitude_threshold: 60.0, // km
         exit_radial_vel_gain: 10.0,
-        security_capture: 1,
-        security_exit: 3,
         longi_activation: 1000.0, // MJ/kg
         longi_inhibition: -1000.0,
-        pdyn_min: 0.0,
         pressure_coeff_base: -134.4,
         pressure_coeff_scale_height: 6.9,
         gain_fade_start_km: 80.0,
         gain_fade_end_km: 100.0,
+        ..TomlFtcParams::default()
     }
 }
 
@@ -541,9 +510,6 @@ fn build_guidance_params(
     Ok(guidance_params::GuidanceParams {
         capture_damping: ftc.capture_damping,
         capture_frequency: ftc.capture_frequency,
-        capture_pdyn_margin: ftc.capture_pdyn_margin,
-        altitude_damping: ftc.altitude_damping,
-        altitude_frequency: ftc.altitude_frequency * DEG2RAD,
         exit_velocity_threshold: ftc.exit_velocity_threshold,
         exit_pdyn_margin: ftc.exit_pdyn_margin,
         exit_altitude_threshold: ftc.exit_altitude_threshold * 1e3,
@@ -559,13 +525,10 @@ fn build_guidance_params(
                 lateral_inhibition: lat.lateral_inhibition * 1e6,
                 max_reversals: lat.max_reversals,
             }),
-        security_capture: ftc.security_capture,
-        security_exit: ftc.security_exit,
         density_filter_gain: nav.map_or(0.8, |n| n.density_filter_gain),
         density_gain_max_delta: nav.map_or(0.1, |n| n.density_gain_max_delta),
         longi_activation: ftc.longi_activation * 1e6,
         longi_inhibition: ftc.longi_inhibition * 1e6,
-        pdyn_min: ftc.pdyn_min,
         pressure_coeff_base: ftc.pressure_coeff_base,
         pressure_coeff_scale_height: ftc.pressure_coeff_scale_height,
         gain_fade_start_km: ftc.gain_fade_start_km,
@@ -583,14 +546,12 @@ fn build_guidance_params(
                 cos_bank_max: p.cos_bank_max,
             },
         ),
-        energy_ctrl: g.energy_controller.as_ref().map_or_else(
-            guidance_params::EnergyCtrlParams::default,
-            |p| guidance_params::EnergyCtrlParams {
-                gain: p.gain,
-                kp: p.kp,
-                kd: p.kd,
-            },
-        ),
+        energy_ctrl: g
+            .energy_controller
+            .as_ref()
+            .map_or_else(guidance_params::EnergyCtrlParams::default, |p| {
+                guidance_params::EnergyCtrlParams { kp: p.kp, kd: p.kd }
+            }),
         pred_guid: g.pred_guid.as_ref().map_or_else(
             guidance_params::PredGuidParams::default,
             |p| guidance_params::PredGuidParams {
@@ -726,6 +687,25 @@ fn build_neural_net(
         }
         (nn, _) => nn,
     };
+
+    // `[[network.architecture]]` is a training-time description; the runtime
+    // shape comes from the model alone. A block that disagrees with the model
+    // used to run silently (#128 B); reject it.
+    if let (Some(nn), Some(net_cfg)) = (&neural_net, &toml.network)
+        && let Some(arch) = &net_cfg.architecture
+    {
+        let toml_arch = arch
+            .iter()
+            .map(|l| l.to_layer_spec())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| DataError(e.0))?;
+        if toml_arch != nn.architecture {
+            return Err(DataError(format!(
+                "[[network.architecture]] disagrees with the loaded model: TOML {:?} vs model {:?}",
+                toml_arch, nn.architecture
+            )));
+        }
+    }
 
     // Apply TOML [guidance.neural_network] decoder-knob overrides onto the
     // loaded model so the runtime honors the training-time knob even if the
@@ -1315,18 +1295,12 @@ scale_max = 1.0
             .guidance;
         assert_eq!(g.capture_damping, 0.7);
         assert_eq!(g.capture_frequency, 0.072);
-        assert_eq!(g.capture_pdyn_margin, 1.75);
-        assert_eq!(g.altitude_damping, 0.7);
-        assert_eq!(g.altitude_frequency, 0.08 * DEG2RAD);
         assert_eq!(g.exit_velocity_threshold, 4400.0);
         assert_eq!(g.exit_pdyn_margin, 1.75);
         assert_eq!(g.exit_altitude_threshold, 60e3);
         assert_eq!(g.exit_radial_vel_gain, 10.0);
-        assert_eq!(g.security_capture, 1);
-        assert_eq!(g.security_exit, 3);
         assert_eq!(g.longi_activation, 1e9);
         assert_eq!(g.longi_inhibition, -1e9);
-        assert_eq!(g.pdyn_min, 0.0);
         assert_eq!(g.pressure_coeff_base, -134.4);
         assert_eq!(g.pressure_coeff_scale_height, 6.9);
         assert_eq!(g.gain_fade_start_km, 80.0);

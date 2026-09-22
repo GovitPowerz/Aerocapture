@@ -224,7 +224,11 @@ pub struct TomlConfig {
     pub entry: Option<TomlEntry>,
     pub aerodynamics: Option<TomlAero>,
     pub flight: Option<TomlFlight>,
-    pub success: Option<TomlSuccess>,
+    /// Retired section (#128): no reader anywhere. Declared as an opaque table so
+    /// every pre-#128 generated `optimized_*.toml` / `config_resolved.toml` (the
+    /// writer serializes the full resolved mission) keeps parsing under the deny.
+    #[serde(default)]
+    pub success: Option<toml::Table>,
     pub incidence: Option<TomlIncidence>,
     // Domain-based Monte Carlo config (consolidated mode)
     pub monte_carlo: Option<TomlMonteCarlo>,
@@ -647,6 +651,9 @@ fn default_gyro_noise_sigma() -> f64 {
 pub struct TomlStarTracker {
     #[serde(default = "default_st_pos_sigma")]
     pub(crate) position_sigma: f64, // 50.0 m
+    /// Inert (#128): the star tracker injects position noise only. Declared so
+    /// existing configs keep parsing; no runtime reader.
+    #[allow(dead_code)]
     #[serde(default = "default_st_att_sigma")]
     pub(crate) attitude_sigma: f64, // 3e-4 rad
     #[serde(default = "default_st_period")]
@@ -958,20 +965,16 @@ pub struct TomlParkingOrbit {
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
-pub struct TomlSuccess {
-    pub(crate) inclination_tolerance: f64, // deg
-    pub(crate) velocity_tolerance: f64,    // m/s
-    pub(crate) apoapsis_tolerance: f64,    // km
-    pub(crate) periapsis_tolerance: f64,   // km
-}
-
-#[derive(Debug, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
 pub struct TomlIncidence {
     pub(crate) altitudes: Vec<f64>, // km
     pub(crate) angles: Vec<f64>,    // deg
 }
 
+/// Six keys are INERT (#128, option c): parsed and type-checked, relayed
+/// nowhere, no guidance law reads them. They stay declared because 12
+/// committed configs, 17 deployed `best_params.json` (7 in the paper bundle)
+/// and 10 `optimized_*.toml` carry them and the section denies unknown keys.
+/// They are not GA genes any more (`param_spaces.py`).
 #[derive(Debug, Deserialize, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct TomlFtcParams {
@@ -979,12 +982,18 @@ pub struct TomlFtcParams {
     pub(crate) capture_damping: f64,
     #[serde(default)]
     pub(crate) capture_frequency: f64, // rad/s
+    /// Inert (#128).
+    #[allow(dead_code)]
     #[serde(default)]
     pub(crate) capture_pdyn_margin: f64,
+    /// Inert (#128).
+    #[allow(dead_code)]
     #[serde(default)]
     pub(crate) altitude_damping: f64,
+    /// Inert (#128).
+    #[allow(dead_code)]
     #[serde(default)]
-    pub(crate) altitude_frequency: f64, // deg/s (converted to rad/s)
+    pub(crate) altitude_frequency: f64, // deg/s
     #[serde(default)]
     pub(crate) exit_velocity_threshold: f64, // m/s
     #[serde(default)]
@@ -993,14 +1002,20 @@ pub struct TomlFtcParams {
     pub(crate) exit_altitude_threshold: f64, // km
     #[serde(default)]
     pub(crate) exit_radial_vel_gain: f64, // Pa/(m/s)
+    /// Inert (#128): no security mode is implemented.
+    #[allow(dead_code)]
     #[serde(default = "default_security_capture")]
     pub(crate) security_capture: i32,
+    /// Inert (#128): no security mode is implemented.
+    #[allow(dead_code)]
     #[serde(default = "default_three_i32")]
     pub(crate) security_exit: i32,
     #[serde(default = "default_longi_act")]
     pub(crate) longi_activation: f64, // MJ/kg
     #[serde(default = "default_longi_inh")]
     pub(crate) longi_inhibition: f64, // MJ/kg
+    /// Inert (#128).
+    #[allow(dead_code)]
     #[serde(default)]
     pub(crate) pdyn_min: f64, // Pa
     #[serde(default = "default_pressure_coeff_base")]
@@ -1094,6 +1109,10 @@ fn default_0_95() -> f64 {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct TomlEnergyCtrlParams {
+    /// Inert (#128): the `K_e * (E - E_ref)` term the module doc once
+    /// described was never implemented; the law is `kp` / `kd` only. Kept
+    /// declared for the deployed `best_params.json` / `optimized_*.toml`.
+    #[allow(dead_code)]
     #[serde(default = "default_5e_7")]
     pub(crate) gain: f64,
     #[serde(default = "default_kp")]
@@ -1567,10 +1586,7 @@ fn validate_navigation(nav: Option<&TomlNavigation>) -> Result<(), ParseError> {
         ]);
     }
     if let Some(ref st) = nav.star_tracker {
-        sigmas.extend([
-            ("star_tracker.position_sigma", st.position_sigma),
-            ("star_tracker.attitude_sigma", st.attitude_sigma),
-        ]);
+        sigmas.push(("star_tracker.position_sigma", st.position_sigma));
     }
     for (name, v) in sigmas {
         if !v.is_finite() || v < 0.0 {

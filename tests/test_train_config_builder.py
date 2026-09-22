@@ -58,3 +58,16 @@ def test_rust_validation_rejects_invalid_config(tmp_path: Path) -> None:
     bad.write_text(f'base = "{base}"\n\n[navigation]\nmode = "EKF"\n')
     with pytest.raises(SystemExit):
         build_training_config_from_toml(str(bad))
+
+
+@pytest.mark.parametrize(
+    ("section", "line"),
+    [("corridor", "delta_za = 100.0"), ("reference", "bank_hgih = 80.0"), ("checkpoints", "keep_lats = 3")],
+)
+def test_builder_rejects_unknown_python_owned_section_key(tmp_path: Path, section: str, line: str) -> None:
+    """The builder is the one TOML -> TrainingConfig chokepoint: a misspelled key in a Python-owned section raises (#128 D)."""
+    base = Path("configs/training/msr_aller_eqglide_train.toml").resolve()
+    leaf = tmp_path / "leaf.toml"
+    leaf.write_text(f'base = "{base}"\n\n[{section}]\n{line}\n')
+    with pytest.raises(ValueError, match=rf"unknown \[{section}\] keys"):
+        build_training_config_from_toml(str(leaf))

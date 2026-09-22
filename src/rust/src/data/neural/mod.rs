@@ -617,10 +617,13 @@ impl LayerWeights for Layer {
 
 /// JSON file structure for neural network models (v1 schema).
 /// v1 always loads with `OutputParam::Atan2Signed` (the bank-decoder
-/// parameterization is a v2 feature; v1 files predate it). The legacy
-/// `output_interpretation` field is silently ignored. Output_size is
-/// validated to match the parameterization at load time.
+/// parameterization is a v2 feature; v1 files predate it). Output_size is
+/// validated to match the parameterization at load time. Unknown keys are
+/// rejected (#128): a misspelled knob used to load and silently revert to its
+/// default. The one legacy key, `output_interpretation`, is declared and
+/// ignored.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct NnJsonFile {
     #[allow(dead_code)]
     format_version: u32,
@@ -630,17 +633,27 @@ struct NnJsonFile {
     input_mask: Option<Vec<usize>>,
     #[serde(default)]
     ablated_input: Option<usize>,
+    /// Written by `ablation.py --flip` into a temp copy of the model (0.0 =
+    /// classic zero-ablation); declared so a v1 model can be flip-ablated.
+    #[serde(default)]
+    ablated_value: f64,
+    /// Legacy key written by the retired v1 exporter; bank is always atan2.
+    #[allow(dead_code)]
+    #[serde(default)]
+    output_interpretation: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct NnArchitecture {
     layers: Vec<usize>,
     activations: Vec<Activation>,
 }
 
-/// v2 layer spec: tagged-union over the layer type.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+/// v2 layer spec: tagged-union over the layer type. Unknown keys inside a
+/// layer entry are rejected (#128).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum LayerSpec {
     Dense {
         input_size: usize,
@@ -807,9 +820,10 @@ impl Serialize for LayerWeightsJson {
 /// `output_param` selects the bank-angle decoder: `Atan2Signed` (default,
 /// 2-output `atan2`) or `AcosTanh` (1-output `acos(tanh(x))`, magnitude_only
 /// mode only). When absent in older v2 files, defaults to `Atan2Signed`
-/// for backward compat. The legacy `output_interpretation` field is silently
-/// ignored.
+/// for backward compat. Unknown keys are rejected (#128); the legacy
+/// `output_interpretation` key is declared, ignored on load and never written.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct NnJsonFileV2<W> {
     format_version: u32,
     architecture: Vec<LayerSpec>,
@@ -828,6 +842,9 @@ struct NnJsonFileV2<W> {
     delta_max: f64,
     #[serde(default)]
     normalization: Option<Vec<NormSpec>>,
+    #[allow(dead_code)]
+    #[serde(default, skip_serializing)]
+    output_interpretation: Option<String>,
 }
 
 /// `[input, out_0, out_1, ...]` from the chain of `LayerSpec::io()` widths.
@@ -1098,8 +1115,7 @@ impl NeuralNetModel {
             layers,
             input_mask: file.input_mask,
             ablated_input: file.ablated_input,
-            // v1 schema has no ablated_value; classic zero-ablation.
-            ablated_value: 0.0,
+            ablated_value: file.ablated_value,
             output_param: OutputParam::default(),
             scaled_pi_n: default_scaled_pi_n(),
             delta_max: default_delta_max(),
@@ -1111,46 +1127,58 @@ impl NeuralNetModel {
     /// Build every layer of `architecture` from the JSON `weights` block: a
     /// zero layer from the spec, each tensor of its table looked up by name
     /// and shape-checked into a flat slab, then one `from_flat` (which runs
-    /// the layer's `post_load` hook).
+    /// the layer's `post_load` hook). A tensor name the table does not list,
+    /// or a `weights` entry no parameterized layer owns, is an error (#128):
+    /// a misnamed tensor must not load as "absent" next to a defaulted one.
     fn load_layers(
         architecture: &[LayerSpec],
         weights: &WeightsJson,
         path: &str,
     ) -> Result<Vec<Layer>, DataError> {
-        architecture
-            .iter()
-            .enumerate()
-            .map(|(i, spec)| {
-                let kind = spec.io().2;
-                let mut layer = Layer::from_spec(spec)
-                    .map_err(|e| DataError(format!("Layer {i} {e} in {path}")))?;
-                let shapes: Vec<(&'static str, Shape)> = layer
-                    .tensors()
-                    .iter()
-                    .map(|(name, t)| (*name, t.shape()))
-                    .collect();
-                if shapes.is_empty() {
-                    // Zero-parameter layer (Window): no weights entry is
-                    // written by save_json, and a hand-written one is ignored.
-                    return Ok(layer);
-                }
-                let key = format!("layer_{i}");
-                let lw = weights
-                    .get(&key)
-                    .ok_or_else(|| DataError(format!("Missing {key} in weights in {path}")))?;
-                let mut slab = Vec::with_capacity(layer.n_params());
-                for (name, shape) in shapes {
-                    let value = lw.get(name).ok_or_else(|| {
-                        DataError(format!("Layer {i} ({kind}) missing {name} in {path}"))
-                    })?;
-                    json_to_flat(value, shape, &mut slab).map_err(|e| {
-                        DataError(format!("Layer {i} ({kind}) {name}: {e} in {path}"))
-                    })?;
-                }
-                layer.from_flat(&slab);
-                Ok(layer)
-            })
-            .collect()
+        let mut layers = Vec::with_capacity(architecture.len());
+        let mut owned_keys = std::collections::BTreeSet::new();
+        for (i, spec) in architecture.iter().enumerate() {
+            let kind = spec.io().2;
+            let mut layer = Layer::from_spec(spec)
+                .map_err(|e| DataError(format!("Layer {i} {e} in {path}")))?;
+            let shapes: Vec<(&'static str, Shape)> = layer
+                .tensors()
+                .iter()
+                .map(|(name, t)| (*name, t.shape()))
+                .collect();
+            if shapes.is_empty() {
+                // Zero-parameter layer (Window): save_json writes no weights
+                // entry, so one is a stray key (checked after the loop).
+                layers.push(layer);
+                continue;
+            }
+            let key = format!("layer_{i}");
+            let lw = weights
+                .get(&key)
+                .ok_or_else(|| DataError(format!("Missing {key} in weights in {path}")))?;
+            owned_keys.insert(key);
+            if let Some(stray) = lw.keys().find(|k| !shapes.iter().any(|(n, _)| n == k)) {
+                return Err(DataError(format!(
+                    "Layer {i} ({kind}) has unknown weight {stray:?} in {path}"
+                )));
+            }
+            let mut slab = Vec::with_capacity(layer.n_params());
+            for (name, shape) in shapes {
+                let value = lw.get(name).ok_or_else(|| {
+                    DataError(format!("Layer {i} ({kind}) missing {name} in {path}"))
+                })?;
+                json_to_flat(value, shape, &mut slab)
+                    .map_err(|e| DataError(format!("Layer {i} ({kind}) {name}: {e} in {path}")))?;
+            }
+            layer.from_flat(&slab);
+            layers.push(layer);
+        }
+        if let Some(stray) = weights.keys().find(|k| !owned_keys.contains(*k)) {
+            return Err(DataError(format!(
+                "weights has entry {stray:?} that no parameterized layer owns in {path}"
+            )));
+        }
+        Ok(layers)
     }
 
     /// Load v2 JSON schema (architecture is a tagged-layer list).
@@ -1218,6 +1246,7 @@ impl NeuralNetModel {
             scaled_pi_n: self.scaled_pi_n,
             delta_max: self.delta_max,
             normalization: Some(self.normalization.clone()),
+            output_interpretation: None,
         };
 
         let json = serde_json::to_string_pretty(&file)

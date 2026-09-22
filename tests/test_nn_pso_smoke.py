@@ -20,6 +20,7 @@ from aerocapture.training.layer_schema import layer_entry_dict, layer_schema
 from aerocapture.training.torch_mirror.schemas import LayerSpec
 from pydantic import TypeAdapter
 
+from tests.fixtures.factories import leaf_toml_with_architecture
 from tests.nn_archs import ARCHS, ArchCase
 
 aerocapture_rs = pytest.importorskip("aerocapture_rs")
@@ -78,10 +79,16 @@ def test_train_two_gens(case: ArchCase, tmp_path: Path) -> None:
 
     assert case.train is not None
     save_dir = tmp_path / f"neural_network_{case.name}_pso_smoke"
+    # The reduced architecture must also be what the TOML declares: the runtime
+    # rejects a `[[network.architecture]]` block that disagrees with the model
+    # it flies (#128 B), so the smoke flies a leaf config that overrides the
+    # block (arrays replace under base inheritance).
+    toml_path = tmp_path / f"{case.name}_smoke.toml"
+    toml_path.write_text(leaf_toml_with_architecture(case.train.toml, case.train.arch))
     cfg = TrainingConfig(
         network=NetworkConfig(architecture=case.train.arch, input_mask=list(range(case.train.n_inputs))),
         optimizer=OptimizerConfig(algorithm="pso", n_pop=8, n_gen=2, seed_strategy="fixed", training_n_sims=2, validation_n_sims=2, pso=PSOSettings()),
-        sim=SimConfig(executable="src/rust/target/release/aerocapture", nn_param_file=str(save_dir / "best_model.json"), toml_config=case.train.toml, n_sims=2),
+        sim=SimConfig(executable="src/rust/target/release/aerocapture", nn_param_file=str(save_dir / "best_model.json"), toml_config=str(toml_path), n_sims=2),
         save_dir=str(save_dir),
         guidance_type="neural_network",
     )

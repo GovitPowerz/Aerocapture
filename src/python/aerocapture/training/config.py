@@ -14,6 +14,7 @@ import numpy.typing as npt
 
 from aerocapture.training.layer_schema import layer_n_params, resolve_mamba_dt_rank
 from aerocapture.training.optimizer import OptimizerConfig
+from aerocapture.training.toml_utils import reject_unknown_keys
 
 # The NN candidate-input contract (35 inputs: 16 baseline + 4 ref-traj + 1 exit-bank
 # teacher + 4 lateral telemetry + 6 seam-free (sin,cos) bank-history pairs at 25-30 +
@@ -454,10 +455,7 @@ class WarmStartConfig:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> WarmStartConfig:
-        known = {f.name for f in fields(cls)}
-        unknown = set(d.keys()) - known
-        if unknown:
-            raise ValueError(f"unknown [warm_start] keys: {sorted(unknown)}")
+        reject_unknown_keys("warm_start", d, (f.name for f in fields(cls)))
         # Presence of the block always sets enabled=True; any user-set `enabled`
         # in TOML is accepted (no ValueError) but silently overridden so the
         # gating contract is a function of block presence, not contents.
@@ -469,10 +467,7 @@ class WarmStartConfig:
             adam_raw = d_filtered["adam"]
             if not isinstance(adam_raw, dict):
                 raise ValueError(f"[warm_start.adam] must be a table, got {type(adam_raw).__name__}")
-            adam_known = {f.name for f in fields(AdamConfig)}
-            adam_unknown = set(adam_raw.keys()) - adam_known
-            if adam_unknown:
-                raise ValueError(f"unknown [warm_start.adam] keys: {sorted(adam_unknown)} (known: {sorted(adam_known)})")
+            reject_unknown_keys("warm_start.adam", adam_raw, (f.name for f in fields(AdamConfig)))
             d_filtered["adam"] = AdamConfig(**adam_raw)
         return cls(enabled=True, **d_filtered)
 

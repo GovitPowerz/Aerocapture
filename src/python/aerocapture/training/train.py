@@ -20,6 +20,7 @@ from pymoo.core.population import Population  # type: ignore[import-untyped]
 
 from aerocapture.training.config import CheckpointConfig, TrainingConfig, WarmStartConfig  # noqa: F401  (CheckpointConfig re-exported for downstream tests)
 from aerocapture.training.corridor import CorridorAccumulator
+from aerocapture.training.cost import build_cost_kwargs
 from aerocapture.training.encoding import decode_normalized, nn_param_specs_from_architecture, nn_param_specs_from_v2
 from aerocapture.training.evaluate import _aero_rs, write_nn_json
 from aerocapture.training.initialization_v2 import init_v2_population
@@ -31,9 +32,16 @@ from aerocapture.training.problem import AerocaptureProblem
 from aerocapture.training.reference import nominal_flight_overrides, piecewise_commanded_cos_bank, ref_trajectory_array
 from aerocapture.training.seed_curator import SeedCurator
 from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, VALIDATION_SEED_OFFSET, make_reserved_seeds
+from aerocapture.training.toml_utils import reject_unknown_keys
 from aerocapture.training.trainer import IslandsTrainer, SingleAlgoTrainer
 
 _DEFAULT_PIECEWISE_N_SEGMENTS = 10
+
+# Python-owned root sections read here with `.get`; build_training_config_from_toml
+# rejects unknown keys so a typo cannot train at the default silently (#128 D).
+CHECKPOINTS_KEYS = frozenset({"keep_last"})
+REFERENCE_KEYS = frozenset({"joint_bank", "bank_low", "bank_high"})
+CORRIDOR_KEYS = frozenset({"delta_za_restricted", "delta_za_restricted_low", "delta_za_restricted_high"})
 
 # scaffolding = "full" seeds the chromosome slab from FTC's GA optimum; the
 # warm-start eval callback must read the SAME file so eval == chromosome.
@@ -685,22 +693,6 @@ def load_checkpoint(
             print(f"  Skipping corrupt checkpoint {latest.name}: {e}")
             continue
     return None
-
-
-def build_cost_kwargs(toml_data: dict) -> dict[str, Any]:
-    """Cost-function kwargs from a resolved TOML dict ([cost_function] + [flight.constraints])."""
-    cost_cfg = toml_data.get("cost_function", {})
-    constraints = toml_data.get("flight", {}).get("constraints", {})
-    return {
-        "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
-        "g_load_limit": float(constraints.get("max_load_factor", 15.0)),
-        "heat_flux_limit": float(constraints.get("max_heat_flux", 200.0)),
-        "heat_load_limit": float(constraints.get("max_heat_load", 25000.0)),
-        "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
-        "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
-        "heat_load_weight": float(cost_cfg.get("heat_load_weight", 1000.0)),
-        "cost_transform": str(cost_cfg.get("cost_transform", "linear")),
-    }
 
 
 def _decode_nn_weights(x: npt.NDArray[np.float64], specs: list[ParamSpec]) -> npt.NDArray[np.float64]:
@@ -1667,13 +1659,14 @@ def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dic
     # auto-prunes older `checkpoint_g*.{json,npz}` pairs after each save,
     # keeping only the N most recent. The JSONL log + best_* artifacts are
     # untouched.
+    # The Python-owned root sections validate here, the one TOML -> TrainingConfig
+    # chokepoint (train CLI and final_select): a misspelled key raises instead
+    # of reading the default silently (#128 D).
+    reject_unknown_keys("checkpoints", _toml_data.get("checkpoints", {}), CHECKPOINTS_KEYS)
+    reject_unknown_keys("corridor", _toml_data.get("corridor", {}), CORRIDOR_KEYS)
+    reject_unknown_keys("reference", _toml_data.get("reference", {}), REFERENCE_KEYS)
     if "checkpoints" in _toml_data:
         _ckpt = _toml_data["checkpoints"]
-        known_keys = {"keep_last"}
-        unknown = set(_ckpt.keys()) - known_keys
-        if unknown:
-            print(f"ERROR: unknown [checkpoints] keys: {sorted(unknown)}")
-            raise SystemExit(1)
         if "keep_last" in _ckpt:
             kl_raw = _ckpt["keep_last"]
             if kl_raw is not None and not isinstance(kl_raw, int):

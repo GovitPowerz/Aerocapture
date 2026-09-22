@@ -1,8 +1,20 @@
 """TOML config loading with base inheritance resolution."""
 
 import tomllib
+from collections.abc import Iterable, Mapping
 from io import TextIOWrapper
 from pathlib import Path
+
+
+def reject_unknown_keys(section: str, table: Mapping[str, object], known: Iterable[str]) -> None:
+    """Raise ValueError when `table` (a Python-owned TOML section) carries a key not in `known`.
+
+    The Rust sections deny unknown keys at load; the Python-only sections read
+    with `.get(key, default)` used to let a typo train at the default silently.
+    """
+    unknown = set(table) - set(known)
+    if unknown:
+        raise ValueError(f"unknown [{section}] keys: {sorted(unknown)}")
 
 
 def _deep_merge(base: dict, overlay: dict) -> dict:

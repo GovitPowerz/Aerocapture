@@ -106,8 +106,7 @@ mod tests {
     use crate::data::dispersions::DispersionDraw;
     use crate::data::{
         Constraints, EntryConditions, FinalConditions, OrbitalTarget, ParkingOrbit, SphericalState,
-        SuccessCriteria, TimePeriods, aerodynamics, atmosphere, capsule, guidance_params,
-        incidence, pilot,
+        TimePeriods, aerodynamics, atmosphere, capsule, guidance_params, incidence, pilot,
     };
 
     fn test_sim_data() -> SimData {
@@ -152,7 +151,6 @@ mod tests {
                 damping: 0.7,
                 frequency: 0.072,
             },
-            success: SuccessCriteria::default(),
             wind_enabled: false,
             wind_table: None,
             neural_net: None,

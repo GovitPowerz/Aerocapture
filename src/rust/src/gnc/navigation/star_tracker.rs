@@ -10,8 +10,6 @@ use rand_distr::Normal;
 pub struct StarTrackerConfig {
     /// 1-sigma position noise (m)
     pub position_sigma: f64,
-    /// 1-sigma attitude noise (rad)
-    pub attitude_sigma: f64,
     /// Measurement update period (s)
     pub update_period: f64,
     /// Dynamic pressure above which the star tracker is blacked out (Pa)
@@ -22,7 +20,6 @@ impl Default for StarTrackerConfig {
     fn default() -> Self {
         Self {
             position_sigma: 50.0,
-            attitude_sigma: 3e-4,
             update_period: 10.0,
             blackout_qdyn_threshold: 100.0,
         }

@@ -40,7 +40,13 @@ def decode_normalized(x: npt.NDArray[np.float64], specs: list[ParamSpec]) -> dic
 
     Linear params:    value = p_min + x * (p_max - p_min)
     Log-scale params: value = 10^(log10(p_min) + x * (log10(p_max) - log10(p_min)))
+
+    Raises when the chromosome width differs from the spec list: a checkpoint
+    trained under an older PARAM_SPACES (e.g. FTC before #128, 26 genes vs 23)
+    would otherwise decode positionally shifted with no error.
     """
+    if len(x) != len(specs):
+        raise ValueError(f"chromosome width {len(x)} != {len(specs)} param specs (checkpoint trained under a different PARAM_SPACES?)")
     result: dict[str, float] = {}
     for i, s in enumerate(specs):
         xi = float(x[i])

@@ -127,10 +127,10 @@ Seven guidance schemes, all trainable by the population optimizers below:
 | Scheme | Description | Tunable params† | Notes |
 |---|---|---|---|
 | **Neural Network** | Maps a configurable subset of 35 candidate inputs (orbital/aero/thermal state, reference-trajectory interpolations, seam-free `(sin,cos)` bank history, live predicted correction-ΔV components) to a bank angle. v1 dense or v2 heterogeneous architectures (`dense`, `gru`, `lstm`, `window`, `transformer`, `mamba`, plus experimental `mamba3`/`cfc`/`slstm`/`mlstm` probe cells); per-input normalization embedded in the model JSON, data-driven via `calibrate_inputs.py`; signed (`atan2_signed`, `scaled_pi`, `delta`) or magnitude (`acos_tanh`) bank decoders | arch-dependent (+3 / +17 with live / full co-trained scaffolding) | **Deployed headline** — signed bank, full envelope (capture + exit) |
-| **FTC** | Predictor-corrector with reference trajectory tracking | 26 | **Best classical** (with a co-optimized reference) |
+| **FTC** | Predictor-corrector with reference trajectory tracking | 23 | **Best classical** (with a co-optimized reference) |
 | **FNPAG** | Lu's numerical predictor-corrector (onboard 3D predictor with J2–J4 gravity, RK4, nav-scaled atmosphere) | 22 | Accurate but slowest (~87 ms/sim); requires ref trajectory |
 | **Equilibrium Glide** | Balances gravity, centrifugal, and lift forces | 24 | Independent (no reference) |
-| **Energy Controller** | Tracks reference energy dissipation profile | 20 | Requires ref trajectory |
+| **Energy Controller** | Tracks reference energy dissipation profile | 19 | Requires ref trajectory |
 | **PredGuid** | Apollo/Shuttle-heritage drag tracking | 20 | Requires ref trajectory |
 | **Piecewise Constant** | N-segment open-loop bank profile (N tunable via `n_segments` / `bank_angles = [...]`, default 10) | 11 | Train first — produces the corridor |
 

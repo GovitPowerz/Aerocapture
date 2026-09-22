@@ -37,18 +37,13 @@ impl Default for EqGlideParams {
 /// Energy controller tunable parameters.
 #[derive(Debug, Clone)]
 pub struct EnergyCtrlParams {
-    pub gain: f64, // energy error gain (1/Pa)
-    pub kp: f64,   // pressure proportional gain
-    pub kd: f64,   // radial velocity damping gain
+    pub kp: f64, // pressure proportional gain
+    pub kd: f64, // radial velocity damping gain
 }
 
 impl Default for EnergyCtrlParams {
     fn default() -> Self {
-        Self {
-            gain: 5e-7,
-            kp: 1.0,
-            kd: 0.5,
-        }
+        Self { kp: 1.0, kd: 0.5 }
     }
 }
 
@@ -167,17 +162,14 @@ pub struct NeuralNetworkParams {
     pub reset_state_every_tick: bool,
 }
 
-#[allow(dead_code)]
+/// Every field has a reader in `gnc/`: a `[guidance.*]` key that is parsed
+/// but drives nothing stays on its `Toml*` struct (declared, inert), never
+/// here -- the dead-code lint is the gate (#128).
 #[derive(Debug, Clone)]
 pub struct GuidanceParams {
     // Capture phase — trajectory tracking
-    pub capture_damping: f64,     // damping ratio
-    pub capture_frequency: f64,   // natural frequency (rad/s)
-    pub capture_pdyn_margin: f64, // dynamic pressure reference margin
-
-    // Capture phase — altitude oscillation
-    pub altitude_damping: f64,   // altitude damping ratio
-    pub altitude_frequency: f64, // altitude natural frequency (rad/s, converted from deg/s)
+    pub capture_damping: f64,   // damping ratio
+    pub capture_frequency: f64, // natural frequency (rad/s)
 
     // Exit phase
     pub exit_velocity_threshold: f64, // radial velocity threshold (m/s)
@@ -188,10 +180,6 @@ pub struct GuidanceParams {
     // Lateral guidance
     pub lateral: LateralParams,
 
-    // Security modes
-    pub security_capture: i32, // capture phase security mode flag
-    pub security_exit: i32,    // exit phase security mode flag
-
     // Density estimation
     pub density_filter_gain: f64, // low-pass filter gain for density estimation
     pub density_gain_max_delta: f64, // max per-step change in density_gain (rate limiter)
@@ -199,7 +187,6 @@ pub struct GuidanceParams {
     // Activation/inhibition thresholds
     pub longi_activation: f64, // longitudinal guidance activation threshold (J/kg)
     pub longi_inhibition: f64, // longitudinal guidance inhibition threshold (J/kg)
-    pub pdyn_min: f64,         // minimum dynamic pressure for tracking (Pa)
 
     // Analytical gain model (replaces pdyn altitude table)
     pub pressure_coeff_base: f64, // base pressure coefficient for exponential decay
@@ -228,7 +215,6 @@ pub struct GuidanceParams {
 /// When `reference_trajectory = true` in config, these tables are empty
 /// (the simulation is generating the reference trajectory).
 /// When `reference_trajectory = false`, these are loaded from file and used by FTC guidance.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct ReferenceTrajectory {
     pub n_points: usize,
@@ -396,21 +382,15 @@ impl Default for GuidanceParams {
         Self {
             capture_damping: 0.0,
             capture_frequency: 0.0,
-            capture_pdyn_margin: 0.0,
-            altitude_damping: 0.0,
-            altitude_frequency: 0.0,
             exit_velocity_threshold: 0.0,
             exit_pdyn_margin: 0.0,
             exit_altitude_threshold: 0.0,
             exit_radial_vel_gain: 0.0,
             lateral: LateralParams::default(),
-            security_capture: 0,
-            security_exit: 0,
             density_filter_gain: 0.0,
             density_gain_max_delta: 0.1,
             longi_activation: 0.0,
             longi_inhibition: 0.0,
-            pdyn_min: 0.0,
             pressure_coeff_base: -134.4,
             pressure_coeff_scale_height: 6.9,
             gain_fade_start_km: 80.0,
