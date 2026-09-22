@@ -1003,7 +1003,8 @@ and `[network] normalization`, `atan2_signed`, the champion's `best_params.json`
 `experiments/paper/18_rl_baseline.sh` runs the two cells of a pair concurrently and is resumable (done = `final_eval.parquet`; `checkpoint.pt` = plain resume; else
 `--from-scratch` / `--data-neural-network <champion best_model.json>`). The champions get their own 2M-pool per-draw parquet from `report.py` on the ou_marginal
 dir and are bundled as `ou_marginal/<cell>` (`collect_runs.OU_MARGINAL`, run logs deliberately not bundled); `aggregate_results.PAIRED` carries the four `ppo_*`
-tables; `tests/test_paper_rl_configs.py` asserts each RL config against the bundled champion (architecture, mask, normalization, decoder, scaffolding, regime,
+tables and stamps every run with `noise_seeding` (`per_draw` for `rl/*` + `ou_marginal/*` = `PER_DRAW_PREFIXES`, `legacy` otherwise; `check_results_schema` requires it);
+`tests/test_paper_rl_configs.py` asserts each RL config against the bundled champion (architecture, mask, normalization, decoder, scaffolding, regime, [rl] pools/budget,
 seed, output dir) and each bundled `rl/<cell>` model against its config. Result (2M pool, n = 1000, per_draw): PPO scratch 237 mean / 316 CVaR95 (dense, 4.8%
 heat-flux violations) and 284 / 435 (GRU, 47% heat-flux + 31% g-load) vs champions 113 / 127 and 125 / 151; PPO warm-started deploys the champion (best
 validation checkpoint within the first 10-20 updates) and then walks off it. The RL loop has NO feasibility gate (no ADR-0005 analogue): its promotion rule is

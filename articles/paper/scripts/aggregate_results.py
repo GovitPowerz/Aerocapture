@@ -23,6 +23,11 @@ RUNS_DIR = REPO / "articles/paper/data/runs"
 OUT = REPO / "articles/paper/data/results.json"
 
 HEADLINE = "headline/mamba_p962"
+# Noise regime of each run's final_eval.parquet (ADR-0003: the regime is part of the number).
+# Every cell was evaluated on the shared-path ("legacy") noise except the Section 5 RL baseline
+# and the per-scenario champions it is paired with (issue #101), which report.py / the RL
+# trainer evaluated under ADR-0006's per_draw default.
+PER_DRAW_PREFIXES = ("rl/", "ou_marginal/")
 # Paired tables: (label, run_a, run_b) -- delta = a - b, negative = a better.
 PAIRED = [
     ("ga_vs_islands_300", "optimizer_budget/ga_300", "optimizer_budget/islands_300"),
@@ -139,7 +144,11 @@ def summarize(key: str) -> dict:
     if df is None:
         return {"key": key, "missing": True}
     records = _jsonl_records(key)
-    out: dict = {"key": key, "legacy_prefix_regime": key.startswith("legacy/")}
+    out: dict = {
+        "key": key,
+        "legacy_prefix_regime": key.startswith("legacy/"),
+        "noise_seeding": "per_draw" if key.startswith(PER_DRAW_PREFIXES) else "legacy",
+    }
     out.update(run_stats(df["ifinal"].to_numpy(), df["eccentricity"].to_numpy(), df["dv_total_m_s"].to_numpy()))
     out["heat_flux_p95"] = round(float(np.percentile(df["max_heat_flux_kw_m2"], 95)), 1)
     out["g_load_p95"] = round(float(np.percentile(df["max_load_factor_g"], 95)), 2)

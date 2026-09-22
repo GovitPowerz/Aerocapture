@@ -4,7 +4,7 @@ Fails loudly on the ways aggregate_results.py can degrade: a run whose parquet i
 in the bundle but missing from the file, a run summarized without its run.jsonl.gz
 (null best_val_rms / no actual_sims) when the log is present, a paired table or
 the headline re-quote marked missing, a tail sigma_run group short of its three
-seeds, or a run without the noise-regime flag (ADR-0003). Pure stdlib.
+seeds, or a run without the noise-regime flags (ADR-0003 / ADR-0006). Pure stdlib.
 
 Usage: uv run python articles/paper/scripts/check_results_schema.py [results.json]
 """
@@ -20,6 +20,7 @@ DEFAULT = REPO / "articles/paper/data/results.json"
 RUN_KEYS = (
     "key",
     "legacy_prefix_regime",
+    "noise_seeding",
     "n",
     "capture_pct",
     "dv_mean",
@@ -67,6 +68,8 @@ def check(path: Path) -> tuple[list[str], int]:
                 errors.append(f"{key}: missing {k}")
         if not isinstance(run.get("legacy_prefix_regime"), bool):
             errors.append(f"{key}: legacy_prefix_regime is not a bool (ADR-0003: the regime is part of the number)")
+        if run.get("noise_seeding") not in ("legacy", "per_draw"):
+            errors.append(f"{key}: noise_seeding must be 'legacy' or 'per_draw', got {run.get('noise_seeding')!r} (ADR-0006)")
         if not isinstance(run.get("n"), int) or run["n"] <= 0:
             errors.append(f"{key}: n must be a positive int, got {run.get('n')!r}")
         has_log = (RUNS_DIR / key / "run.jsonl.gz").exists()

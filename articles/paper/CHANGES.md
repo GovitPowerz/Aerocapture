@@ -13,7 +13,7 @@ for the next version; the PDF is recompiled only when that version pass is compl
   protocol-matched cells. The old sentence ("636 m/s mean for the dense PPO policy and 513 for
   the recurrent one", footnoted as predating simulator fixes) mislabelled its artifacts: both
   bundled legacy RL cells (`legacy/neural_network_rl`, `legacy/neural_network_gru_ppo`) are one
-  Dense -> GRU(16) -> Dense architecture on a 21-input mask at 15M / 60M env steps, matched to no
+  Dense -> GRU(16) -> Dense architecture on a 23-input mask at 15M / 60M env steps, matched to no
   population cell. The new baseline (`experiments/paper/18_rl_baseline.sh`, configs under
   `configs/training/paper/rl/`) trains PPO from scratch and PPO warm-started from the per-scenario
   champions `ou_marginal/ft_dense_p515` and `ou_marginal/ft_gru_p1014` under their exact

@@ -47,6 +47,10 @@ def test_rl_config_matches_champion(stem: str, champion: str) -> None:
     assert cfg["guidance"]["command_shaping"]["enabled"] is True
     assert cfg["monte_carlo"]["noise_seeding"] == "per_draw"
     assert cfg["monte_carlo"]["seed"] == 42  # the 2M final-eval pool is derived from it: pairing needs one seed
+    # The protocol Section 5 states: reserved 3M training pool, 1000-seed validation gate, 30M env steps.
+    assert cfg["rl"]["seed_base"] == 3_000_000
+    assert cfg["rl"]["validation_n_sims"] == 1000
+    assert cfg["rl"]["total_env_steps"] == 30_000_000
     assert cfg["data"]["neural_network"] == f"training_output/paper/rl/{stem}/best_model.json"  # = the trainer's output dir
 
 

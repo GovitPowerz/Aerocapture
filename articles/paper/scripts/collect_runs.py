@@ -157,7 +157,10 @@ def main(argv: list[str] | None = None) -> None:
             # fig_pareto reads final_eval.parquet (+ the manifest param counts), NOT
             # convergence curves -- only the headline cells need their logs (the plateau
             # figure). This keeps the 24-cell sweep at ~16 MB instead of ~420 MB.
-            if dst.parent.name not in ("architecture_sweep", "ou_marginal") and _gzip_newest_jsonl(src, dst / "run.jsonl.gz"):
+            # ou_marginal / rl: see OU_MARGINAL (frozen Release asset); the RL cells' logs are
+            # also the trainer's flat `rl_training_*.jsonl`, which aggregate_results.actual_sims
+            # and _best_val_rms cannot read (they expect the population `validation` records).
+            if dst.parent.name not in ("architecture_sweep", "ou_marginal", "rl") and _gzip_newest_jsonl(src, dst / "run.jsonl.gz"):
                 copied.append("run.jsonl.gz")
         status = "would collect" if args.dry_run else (f"updated {', '.join(copied)}" if copied else "up to date")
         print(f"  {src.relative_to(TRAINING)} -> {dst.relative_to(REPO)}  [{status}]")

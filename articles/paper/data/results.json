@@ -3,6 +3,7 @@
     "architecture_sweep/sweep_dense_p102": {
       "key": "architecture_sweep/sweep_dense_p102",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 120.82,
@@ -40,6 +41,7 @@
     "architecture_sweep/sweep_dense_p1957": {
       "key": "architecture_sweep/sweep_dense_p1957",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 116.81,
@@ -77,6 +79,7 @@
     "architecture_sweep/sweep_dense_p201": {
       "key": "architecture_sweep/sweep_dense_p201",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 120.39,
@@ -114,6 +117,7 @@
     "architecture_sweep/sweep_dense_p298": {
       "key": "architecture_sweep/sweep_dense_p298",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 118.68,
@@ -151,6 +155,7 @@
     "architecture_sweep/sweep_dense_p3998": {
       "key": "architecture_sweep/sweep_dense_p3998",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 117.97,
@@ -188,6 +193,7 @@
     "architecture_sweep/sweep_dense_p416": {
       "key": "architecture_sweep/sweep_dense_p416",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 119.02,
@@ -225,6 +231,7 @@
     "architecture_sweep/sweep_dense_p515": {
       "key": "architecture_sweep/sweep_dense_p515",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 117.43,
@@ -262,6 +269,7 @@
     "architecture_sweep/sweep_dense_p972": {
       "key": "architecture_sweep/sweep_dense_p972",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 116.9,
@@ -299,6 +307,7 @@
     "architecture_sweep/sweep_gru_p1954": {
       "key": "architecture_sweep/sweep_gru_p1954",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 117.9,
@@ -336,6 +345,7 @@
     "architecture_sweep/sweep_gru_p4082": {
       "key": "architecture_sweep/sweep_gru_p4082",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 112.77,
@@ -373,6 +383,7 @@
     "architecture_sweep/sweep_gru_p478": {
       "key": "architecture_sweep/sweep_gru_p478",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 116.47,
@@ -410,6 +421,7 @@
     "architecture_sweep/sweep_lstm_p1962": {
       "key": "architecture_sweep/sweep_lstm_p1962",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 117.0,
@@ -447,6 +459,7 @@
     "architecture_sweep/sweep_lstm_p4118": {
       "key": "architecture_sweep/sweep_lstm_p4118",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 115.98,
@@ -484,6 +497,7 @@
     "architecture_sweep/sweep_lstm_p458": {
       "key": "architecture_sweep/sweep_lstm_p458",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 117.0,
@@ -521,6 +535,7 @@
     "architecture_sweep/sweep_mamba_p2027": {
       "key": "architecture_sweep/sweep_mamba_p2027",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 114.91,
@@ -558,6 +573,7 @@
     "architecture_sweep/sweep_mamba_p4072": {
       "key": "architecture_sweep/sweep_mamba_p4072",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 114.91,
@@ -595,6 +611,7 @@
     "architecture_sweep/sweep_mamba_p482": {
       "key": "architecture_sweep/sweep_mamba_p482",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 116.67,
@@ -632,6 +649,7 @@
     "architecture_sweep/sweep_transformer_p1112": {
       "key": "architecture_sweep/sweep_transformer_p1112",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 117.18,
@@ -669,6 +687,7 @@
     "architecture_sweep/sweep_transformer_p2004": {
       "key": "architecture_sweep/sweep_transformer_p2004",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 119.38,
@@ -706,6 +725,7 @@
     "architecture_sweep/sweep_transformer_p3822": {
       "key": "architecture_sweep/sweep_transformer_p3822",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 116.48,
@@ -743,6 +763,7 @@
     "architecture_sweep/sweep_transformer_p762": {
       "key": "architecture_sweep/sweep_transformer_p762",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 121.91,
@@ -780,6 +801,7 @@
     "architecture_sweep/sweep_window_p1027": {
       "key": "architecture_sweep/sweep_window_p1027",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 117.83,
@@ -817,6 +839,7 @@
     "architecture_sweep/sweep_window_p2036": {
       "key": "architecture_sweep/sweep_window_p2036",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 116.59,
@@ -854,6 +877,7 @@
     "architecture_sweep/sweep_window_p4025": {
       "key": "architecture_sweep/sweep_window_p4025",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 119.02,
@@ -891,6 +915,7 @@
     "architecture_sweep/sweep_window_p609": {
       "key": "architecture_sweep/sweep_window_p609",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 117.74,
@@ -928,6 +953,7 @@
     "classical_baselines/energy_controller": {
       "key": "classical_baselines/energy_controller",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 99.6,
       "dv_mean": 176.74,
@@ -974,6 +1000,7 @@
     "classical_baselines/equilibrium_glide": {
       "key": "classical_baselines/equilibrium_glide",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 99.5,
       "dv_mean": 200.27,
@@ -1020,6 +1047,7 @@
     "classical_baselines/fnpag": {
       "key": "classical_baselines/fnpag",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 124.26,
@@ -1066,6 +1094,7 @@
     "classical_baselines/ftc": {
       "key": "classical_baselines/ftc",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 170.65,
@@ -1112,6 +1141,7 @@
     "classical_baselines/piecewise_constant": {
       "key": "classical_baselines/piecewise_constant",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 99.8,
       "dv_mean": 258.31,
@@ -1158,6 +1188,7 @@
     "classical_baselines/pred_guid": {
       "key": "classical_baselines/pred_guid",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 167.35,
@@ -1204,6 +1235,7 @@
     "cost_transform/linear": {
       "key": "cost_transform/linear",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 118.04,
@@ -1250,6 +1282,7 @@
     "cost_transform/log": {
       "key": "cost_transform/log",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 117.97,
@@ -1296,6 +1329,7 @@
     "cost_transform/sqrt": {
       "key": "cost_transform/sqrt",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 117.28,
@@ -1342,6 +1376,7 @@
     "cost_transform/squared": {
       "key": "cost_transform/squared",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 118.92,
@@ -1388,6 +1423,7 @@
     "curation_shaping/bucket_middle": {
       "key": "curation_shaping/bucket_middle",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 120.45,
@@ -1434,6 +1470,7 @@
     "curation_shaping/bucket_min": {
       "key": "curation_shaping/bucket_min",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 117.84,
@@ -1480,6 +1517,7 @@
     "curation_shaping/bucket_random": {
       "key": "curation_shaping/bucket_random",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 122.63,
@@ -1526,6 +1564,7 @@
     "curation_shaping/trim_10": {
       "key": "curation_shaping/trim_10",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 120.27,
@@ -1572,6 +1611,7 @@
     "curation_shaping/trim_20": {
       "key": "curation_shaping/trim_20",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 120.81,
@@ -1618,6 +1658,7 @@
     "headline/dense_p515": {
       "key": "headline/dense_p515",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 109.71,
@@ -1664,6 +1705,7 @@
     "headline/dense_p972": {
       "key": "headline/dense_p972",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 112.41,
@@ -1710,6 +1752,7 @@
     "headline/gru_p1014": {
       "key": "headline/gru_p1014",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 111.7,
@@ -1756,6 +1799,7 @@
     "headline/lstm_p1082": {
       "key": "headline/lstm_p1082",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 108.42,
@@ -1802,6 +1846,7 @@
     "headline/mamba_p962": {
       "key": "headline/mamba_p962",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 109.85,
@@ -1848,6 +1893,7 @@
     "joint_reference/energy_controller": {
       "key": "joint_reference/energy_controller",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 142.13,
@@ -1894,6 +1940,7 @@
     "joint_reference/ftc": {
       "key": "joint_reference/ftc",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 126.25,
@@ -1940,6 +1987,7 @@
     "joint_reference/pred_guid": {
       "key": "joint_reference/pred_guid",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 144.18,
@@ -1986,6 +2034,7 @@
     "legacy/best_neural_network_joint": {
       "key": "legacy/best_neural_network_joint",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 125.26,
@@ -2032,6 +2081,7 @@
     "legacy/neural_gru_joint": {
       "key": "legacy/neural_gru_joint",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 127.6,
@@ -2078,6 +2128,7 @@
     "legacy/neural_network_atan2": {
       "key": "legacy/neural_network_atan2",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 118.97,
@@ -2124,6 +2175,7 @@
     "legacy/neural_network_atan2_qat4": {
       "key": "legacy/neural_network_atan2_qat4",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 128.75,
@@ -2170,6 +2222,7 @@
     "legacy/neural_network_atan2_qat8": {
       "key": "legacy/neural_network_atan2_qat8",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 125.13,
@@ -2216,6 +2269,7 @@
     "legacy/neural_network_delta_pso": {
       "key": "legacy/neural_network_delta_pso",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 141.82,
@@ -2262,6 +2316,7 @@
     "legacy/neural_network_delta_pso_pruned": {
       "key": "legacy/neural_network_delta_pso_pruned",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 129.89,
@@ -2308,6 +2363,7 @@
     "legacy/neural_network_delta_pso_pruned_dv3": {
       "key": "legacy/neural_network_delta_pso_pruned_dv3",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 122.47,
@@ -2354,6 +2410,7 @@
     "legacy/neural_network_gru_ppo": {
       "key": "legacy/neural_network_gru_ppo",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 512.64,
@@ -2391,6 +2448,7 @@
     "legacy/neural_network_joint": {
       "key": "legacy/neural_network_joint",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 125.73,
@@ -2437,6 +2495,7 @@
     "legacy/neural_network_pruned": {
       "key": "legacy/neural_network_pruned",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 132.96,
@@ -2483,6 +2542,7 @@
     "legacy/neural_network_pruned_dv": {
       "key": "legacy/neural_network_pruned_dv",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 128.48,
@@ -2529,6 +2589,7 @@
     "legacy/neural_network_pruned_dv2": {
       "key": "legacy/neural_network_pruned_dv2",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 123.6,
@@ -2575,6 +2636,7 @@
     "legacy/neural_network_pruned_dv3": {
       "key": "legacy/neural_network_pruned_dv3",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 120.54,
@@ -2621,6 +2683,7 @@
     "legacy/neural_network_rl": {
       "key": "legacy/neural_network_rl",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 635.96,
@@ -2658,6 +2721,7 @@
     "legacy/neural_network_scaledpi_pso": {
       "key": "legacy/neural_network_scaledpi_pso",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 144.98,
@@ -2704,6 +2768,7 @@
     "legacy/neural_network_scaledpi_pso_pruned": {
       "key": "legacy/neural_network_scaledpi_pso_pruned",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 99.9,
       "dv_mean": 143.11,
@@ -2750,6 +2815,7 @@
     "legacy/neural_network_scaledpi_pso_pruned_dv": {
       "key": "legacy/neural_network_scaledpi_pso_pruned_dv",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 134.48,
@@ -2796,6 +2862,7 @@
     "legacy/neural_network_scaledpi_pso_pruned_dv3": {
       "key": "legacy/neural_network_scaledpi_pso_pruned_dv3",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 130.77,
@@ -2842,6 +2909,7 @@
     "legacy/paper_opt_warmstart": {
       "key": "legacy/paper_opt_warmstart",
       "legacy_prefix_regime": true,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 132.4,
@@ -2888,6 +2956,7 @@
     "optimizer_budget/cmaes_150": {
       "key": "optimizer_budget/cmaes_150",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 126.31,
@@ -2934,6 +3003,7 @@
     "optimizer_budget/cmaes_300": {
       "key": "optimizer_budget/cmaes_300",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 121.75,
@@ -2980,6 +3050,7 @@
     "optimizer_budget/cmaes_60": {
       "key": "optimizer_budget/cmaes_60",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 133.28,
@@ -3026,6 +3097,7 @@
     "optimizer_budget/de_150": {
       "key": "optimizer_budget/de_150",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 131.92,
@@ -3072,6 +3144,7 @@
     "optimizer_budget/de_300": {
       "key": "optimizer_budget/de_300",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 131.0,
@@ -3118,6 +3191,7 @@
     "optimizer_budget/de_60": {
       "key": "optimizer_budget/de_60",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 129.19,
@@ -3164,6 +3238,7 @@
     "optimizer_budget/ga_150": {
       "key": "optimizer_budget/ga_150",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 118.01,
@@ -3210,6 +3285,7 @@
     "optimizer_budget/ga_300": {
       "key": "optimizer_budget/ga_300",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 120.45,
@@ -3256,6 +3332,7 @@
     "optimizer_budget/ga_60": {
       "key": "optimizer_budget/ga_60",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 166.25,
@@ -3302,6 +3379,7 @@
     "optimizer_budget/islands_150": {
       "key": "optimizer_budget/islands_150",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 120.13,
@@ -3348,6 +3426,7 @@
     "optimizer_budget/islands_300": {
       "key": "optimizer_budget/islands_300",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 122.23,
@@ -3394,6 +3473,7 @@
     "optimizer_budget/islands_60": {
       "key": "optimizer_budget/islands_60",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 123.67,
@@ -3440,6 +3520,7 @@
     "optimizer_budget/pso_150": {
       "key": "optimizer_budget/pso_150",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 129.56,
@@ -3486,6 +3567,7 @@
     "optimizer_budget/pso_300": {
       "key": "optimizer_budget/pso_300",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 123.39,
@@ -3532,6 +3614,7 @@
     "optimizer_budget/pso_60": {
       "key": "optimizer_budget/pso_60",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 123.96,
@@ -3578,6 +3661,7 @@
     "optimizer_budget/qpso_150": {
       "key": "optimizer_budget/qpso_150",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 121.58,
@@ -3624,6 +3708,7 @@
     "optimizer_budget/qpso_300": {
       "key": "optimizer_budget/qpso_300",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 129.27,
@@ -3670,6 +3755,7 @@
     "optimizer_budget/qpso_60": {
       "key": "optimizer_budget/qpso_60",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 123.56,
@@ -3716,6 +3802,7 @@
     "optimizer_dimensionality/dense_p515_cmaes": {
       "key": "optimizer_dimensionality/dense_p515_cmaes",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 121.64,
@@ -3762,6 +3849,7 @@
     "optimizer_dimensionality/dense_p515_de": {
       "key": "optimizer_dimensionality/dense_p515_de",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 125.97,
@@ -3808,6 +3896,7 @@
     "optimizer_dimensionality/dense_p515_ga": {
       "key": "optimizer_dimensionality/dense_p515_ga",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 117.4,
@@ -3854,6 +3943,7 @@
     "optimizer_dimensionality/dense_p515_islands": {
       "key": "optimizer_dimensionality/dense_p515_islands",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 118.57,
@@ -3900,6 +3990,7 @@
     "optimizer_dimensionality/dense_p515_pso": {
       "key": "optimizer_dimensionality/dense_p515_pso",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 129.76,
@@ -3946,6 +4037,7 @@
     "optimizer_dimensionality/dense_p515_qpso": {
       "key": "optimizer_dimensionality/dense_p515_qpso",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 122.86,
@@ -3992,6 +4084,7 @@
     "optimizer_dimensionality/ftc_cmaes": {
       "key": "optimizer_dimensionality/ftc_cmaes",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 171.65,
@@ -4038,6 +4131,7 @@
     "optimizer_dimensionality/ftc_de": {
       "key": "optimizer_dimensionality/ftc_de",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 178.16,
@@ -4084,6 +4178,7 @@
     "optimizer_dimensionality/ftc_islands": {
       "key": "optimizer_dimensionality/ftc_islands",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 169.79,
@@ -4130,6 +4225,7 @@
     "optimizer_dimensionality/ftc_pso": {
       "key": "optimizer_dimensionality/ftc_pso",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 170.9,
@@ -4176,6 +4272,7 @@
     "optimizer_dimensionality/ftc_qpso": {
       "key": "optimizer_dimensionality/ftc_qpso",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 172.88,
@@ -4222,6 +4319,7 @@
     "ou_marginal/ft_dense_p515": {
       "key": "ou_marginal/ft_dense_p515",
       "legacy_prefix_regime": false,
+      "noise_seeding": "per_draw",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 112.78,
@@ -4259,6 +4357,7 @@
     "ou_marginal/ft_gru_p1014": {
       "key": "ou_marginal/ft_gru_p1014",
       "legacy_prefix_regime": false,
+      "noise_seeding": "per_draw",
       "n": 1000,
       "capture_pct": 99.9,
       "dv_mean": 124.73,
@@ -4296,6 +4395,7 @@
     "output_param/delta": {
       "key": "output_param/delta",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 119.92,
@@ -4342,6 +4442,7 @@
     "output_param/scaledpi": {
       "key": "output_param/scaledpi",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 122.17,
@@ -4388,6 +4489,7 @@
     "rl/dense_p515_ppo_scratch": {
       "key": "rl/dense_p515_ppo_scratch",
       "legacy_prefix_regime": false,
+      "noise_seeding": "per_draw",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 237.03,
@@ -4425,6 +4527,7 @@
     "rl/dense_p515_ppo_warm": {
       "key": "rl/dense_p515_ppo_warm",
       "legacy_prefix_regime": false,
+      "noise_seeding": "per_draw",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 113.13,
@@ -4462,6 +4565,7 @@
     "rl/gru_p1014_ppo_scratch": {
       "key": "rl/gru_p1014_ppo_scratch",
       "legacy_prefix_regime": false,
+      "noise_seeding": "per_draw",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 283.69,
@@ -4499,6 +4603,7 @@
     "rl/gru_p1014_ppo_warm": {
       "key": "rl/gru_p1014_ppo_warm",
       "legacy_prefix_regime": false,
+      "noise_seeding": "per_draw",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 128.13,
@@ -4536,6 +4641,7 @@
     "seed_strategy/cmaes_fixed": {
       "key": "seed_strategy/cmaes_fixed",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 126.87,
@@ -4582,6 +4688,7 @@
     "seed_strategy/cmaes_rotating": {
       "key": "seed_strategy/cmaes_rotating",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 127.28,
@@ -4628,6 +4735,7 @@
     "seed_strategy/ga_fixed": {
       "key": "seed_strategy/ga_fixed",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 160.31,
@@ -4674,6 +4782,7 @@
     "seed_strategy/ga_rotating": {
       "key": "seed_strategy/ga_rotating",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 119.98,
@@ -4720,6 +4829,7 @@
     "seed_strategy/islands_fixed": {
       "key": "seed_strategy/islands_fixed",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 145.42,
@@ -4766,6 +4876,7 @@
     "seed_strategy/islands_rotating": {
       "key": "seed_strategy/islands_rotating",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 122.29,
@@ -4812,6 +4923,7 @@
     "seed_strategy/pso_fixed": {
       "key": "seed_strategy/pso_fixed",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 139.47,
@@ -4858,6 +4970,7 @@
     "seed_strategy/pso_rotating": {
       "key": "seed_strategy/pso_rotating",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 130.85,
@@ -4904,6 +5017,7 @@
     "tail_repeats/dense515_s2": {
       "key": "tail_repeats/dense515_s2",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 113.63,
@@ -4950,6 +5064,7 @@
     "tail_repeats/dense515_s3": {
       "key": "tail_repeats/dense515_s3",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 114.06,
@@ -4996,6 +5111,7 @@
     "tail_repeats/lstm1082_s2": {
       "key": "tail_repeats/lstm1082_s2",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 113.24,
@@ -5042,6 +5158,7 @@
     "tail_repeats/lstm1082_s3": {
       "key": "tail_repeats/lstm1082_s3",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 113.1,
@@ -5088,6 +5205,7 @@
     "tail_repeats/mamba962_s2": {
       "key": "tail_repeats/mamba962_s2",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 112.22,
@@ -5134,6 +5252,7 @@
     "tail_repeats/mamba962_s3": {
       "key": "tail_repeats/mamba962_s3",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 109.36,
@@ -5180,6 +5299,7 @@
     "training_n_sims/adaptive_100": {
       "key": "training_n_sims/adaptive_100",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 130.99,
@@ -5226,6 +5346,7 @@
     "training_n_sims/adaptive_2": {
       "key": "training_n_sims/adaptive_2",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 109.92,
@@ -5272,6 +5393,7 @@
     "training_n_sims/adaptive_20": {
       "key": "training_n_sims/adaptive_20",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 118.84,
@@ -5318,6 +5440,7 @@
     "training_n_sims/adaptive_5": {
       "key": "training_n_sims/adaptive_5",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 116.79,
@@ -5364,6 +5487,7 @@
     "training_n_sims/rotating_10": {
       "key": "training_n_sims/rotating_10",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 117.37,
@@ -5410,6 +5534,7 @@
     "training_n_sims/rotating_2": {
       "key": "training_n_sims/rotating_2",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 121.83,
@@ -5456,6 +5581,7 @@
     "training_n_sims/rotating_20": {
       "key": "training_n_sims/rotating_20",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 118.27,
@@ -5502,6 +5628,7 @@
     "training_n_sims/rotating_40": {
       "key": "training_n_sims/rotating_40",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 119.41,
@@ -5548,6 +5675,7 @@
     "training_n_sims/rotating_5": {
       "key": "training_n_sims/rotating_5",
       "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
       "n": 1000,
       "capture_pct": 100.0,
       "dv_mean": 120.45,
