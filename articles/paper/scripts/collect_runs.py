@@ -44,6 +44,19 @@ LEGACY = (
     "neural_network_delta_pso_pruned_dv3",
 )
 
+# Per-scenario (per_draw, ADR-0006) population champions the Section 5 RL baseline is
+# protocol-matched to (issue #101; PPO cells train under experiments/paper/18_rl_baseline.sh
+# into training_output/paper/rl/ and are bundled as rl/<cell> by the paper/ walk above).
+# Their 2M-pool per_draw parquet comes from report.py on the ou_marginal dir. Run logs are
+# deliberately NOT bundled: the Release run-log asset is frozen, and a log present locally
+# but absent in CI would make results.json differ (actual_sims travels with the log).
+OU_MARGINAL = ("ft_dense_p515", "ft_gru_p1014")
+# Off-campaign studies under training_output/paper/ (scripts 13-16) whose cells were never
+# bundled: their quoted numbers live in the FROZEN data files (sigma_extras.json, ...), not in
+# results.json. Walking them into runs/ made every local collect diverge from the committed
+# bundle (check_results_schema: 27 "only-in-bundle" keys) until the copies were deleted by hand.
+OFF_CAMPAIGN = ("objective_centering", "robustness_retrain", "sigma_extras", "state_controls")
+
 
 # Manual headline / parameter-efficiency runs (NOT campaign cells; trained by
 # hand at the deployment allocation n_sims=2/20000 gens). dense_p515 is the
@@ -64,6 +77,8 @@ def _run_dirs() -> list[tuple[Path, Path]]:
     if paper.is_dir():
         for parquet in sorted(paper.rglob("final_eval.parquet")):
             src = parquet.parent
+            if src.relative_to(paper).parts[0] in OFF_CAMPAIGN:
+                continue
             pairs.append((src, OUT / src.relative_to(paper)))
     for name, dest in HEADLINE.items():
         src = TRAINING / name
@@ -80,6 +95,10 @@ def _run_dirs() -> list[tuple[Path, Path]]:
         src = TRAINING / name
         if (src / "final_eval.parquet").exists():
             pairs.append((src, OUT / "legacy" / name))
+    for name in OU_MARGINAL:
+        src = TRAINING / "ou_marginal" / name
+        if (src / "final_eval.parquet").exists():
+            pairs.append((src, OUT / "ou_marginal" / name))
     return pairs
 
 
@@ -138,7 +157,7 @@ def main(argv: list[str] | None = None) -> None:
             # fig_pareto reads final_eval.parquet (+ the manifest param counts), NOT
             # convergence curves -- only the headline cells need their logs (the plateau
             # figure). This keeps the 24-cell sweep at ~16 MB instead of ~420 MB.
-            if dst.parent.name != "architecture_sweep" and _gzip_newest_jsonl(src, dst / "run.jsonl.gz"):
+            if dst.parent.name not in ("architecture_sweep", "ou_marginal") and _gzip_newest_jsonl(src, dst / "run.jsonl.gz"):
                 copied.append("run.jsonl.gz")
         status = "would collect" if args.dry_run else (f"updated {', '.join(copied)}" if copied else "up to date")
         print(f"  {src.relative_to(TRAINING)} -> {dst.relative_to(REPO)}  [{status}]")

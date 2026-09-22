@@ -613,16 +613,30 @@ threshold-triggered phase transitions, and hard constraint limits -- so it is a 
 of the network weights with no usable gradient. Policy-gradient reinforcement learning
 (PPO @schulman2017ppo, SAC @haarnoja2018sac) does not require a differentiable simulator or a
 differentiable reward -- it estimates gradients from sampled rollouts and can in principle optimize
-a terminal-only objective. We implemented and trained both, with potential-based per-step shaping
-aligned to the predicted correction cost plus the true terminal cost (the standard remedy for
-sparse terminal rewards), and the best policies still underperformed the population methods by a
-wide margin: $636$ m/s mean ($1047$ at $"CVaR"_95$) for the dense PPO policy and $513$ ($893$) for
-the recurrent one, against $119$ ($138$) for the population-trained dense network on the same
-simulator regime#footnote[The reinforcement-learning cells predate several later simulator fixes and
-are quoted on their own contemporaneous evaluation pool; the $4$--$5 times$ gap, not the absolute
-values, is the result.] -- consistent with the stochastic shaped return optimizing a different
-quantity than the deterministic mission cost. Population search on the mission cost itself was
-simply the stronger tool here, so throughout we optimize the mission cost directly.
+a terminal-only objective. We trained PPO under the protocol of the population cells it is
+compared against: the same #box[$17$-input] observation contract, per-input normalization and
+`atan2` decoder, the same architecture and co-tuned navigation and command-shaping scaffolding as
+the per-scenario-noise champions of Appendix E (the #box[$515$-weight] dense cell and the
+#box[$1014$-weight] GRU cell, trained by PPO with truncated backpropagation through time), the
+per-scenario noise regime, a reserved training pool (offset $3 times 10^6$), promotion on the
+reserved validation pool (offset $10^6$) and the quote on the reserved final-evaluation pool
+(offset $2 times 10^6$, $n = 1000$; the `rl/*` and `ou_marginal/*` keys of the bundle's
+`results.json`, paired). The reward is potential-based per-step shaping aligned to the predicted
+correction cost plus the true terminal cost (the standard remedy for sparse terminal rewards),
+the budget is $30 times 10^6$ environment steps per cell, and the deployed artifact is the best
+validation checkpoint. From scratch, PPO captures every scenario but at $237$ m/s mean ($316$ at
+$"CVaR"_95$) for the dense cell and $284$ ($435$) for the GRU cell, against $113$ ($127$) and
+$125$ ($151$) for the population-trained champions -- paired mean deltas of $+124$ and $+159$ m/s
+-- and it buys those captures by leaning on the constraints: $4.8%$ of the dense cell's scenarios
+and $47%$ of the GRU cell's exceed the heat-flux limit (the feasibility gate of the population
+trainer has no counterpart in the RL loop). Warm-started from a champion, PPO deploys the
+champion: the best validation checkpoint is reached within the first $10$--$20$ updates ($113$
+($127$) dense, $128$ ($155$) GRU; paired mean deltas $+0.3$ and $+3.4$ m/s), after which the
+policy gradient walks off the population optimum -- validation capture falls to $2%$ by
+$13 times 10^6$ steps for the dense cell and to $91%$ for the GRU cell -- consistent with the
+stochastic shaped return optimizing a different quantity than the deterministic mission cost.
+Population search on the mission cost itself was simply the stronger tool here, so throughout we
+optimize the mission cost directly.
 
 Having established that the genetic algorithm is the right optimizer under a moving objective, two
 questions remain: does it need a population that scales with the search dimension, and does the

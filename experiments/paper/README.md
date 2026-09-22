@@ -26,6 +26,7 @@ NaN-hang failure mode). Prereqs: `./build.sh` (Rust binary + PyO3), `uv sync`.
 ./experiments/paper/12_collect_results.sh           -> articles/paper/data/runs/ (committed bundle)
 ./experiments/paper/13_robustness_retrain.sh        OPTIONAL, off-campaign: retrain FTC-joint + Mamba_962 ON the high regime, eval on the 9M stress pool (tests the paper's "widen the NN training regime" future-work line; directional budget by default, scale NGEN_MAMBA for a conclusive run)
 ./experiments/paper/14_objective_centering.sh        OPTIONAL, off-campaign: objective-centering lever attribution under the high regime (dense_515; Phase 2 Mamba via RUN_MAMBA=1). Tests that worst-case shaping is regime-matched. Spec 2026-06-29.
+./experiments/paper/18_rl_baseline.sh               Section 5 RL baseline (issue #101): {dense_p515, gru_p1014} x {PPO scratch, PPO warm-started from the per-scenario champion}, protocol-matched to ou_marginal/ft_*, per_draw regime; then report.py on the two ou_marginal champions and 12 (bundle keys rl/*, ou_marginal/*)
 ```
 
 02 is the long pole (18 x ~1-2 h); 01/03's FTC cells are fast (~ms/sim), fnpag is

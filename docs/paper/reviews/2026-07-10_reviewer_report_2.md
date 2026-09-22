@@ -1,3 +1,5 @@
+Status: ARCHIVED workflow artifact (moved from articles/paper/reviews/ on 2026-09-22, issue #101). AI-generated reviewer report (2026-07-10) that drove the R4/R5 revision of the paper: e1ba688 (full-review fixes), 6d0cb10 (second-review fixes), 608667c (reports committed alongside the response). Not a human peer review; kept for provenance of that revision only. See README.md in this directory.
+
 This is an exceptionally strong paper. It is rare to see a follow-up 17 years in the making that not only honors the original work but fundamentally advances the methodology with modern architectures. The framing around the extreme tail ($CVaR_{99.9}$) as the true sizing metric for propellant tanks, rather than the mean, is highly pragmatic and shows a deep understanding of actual mission constraints.
 
 Your ablation of the network's internal state—proving that memory matters exclusively on the tail while engineered, cost-aligned inputs handle the bulk—is a brilliant insight. Furthermore, relying on a robust, bit-validated Rust runtime adds a layer of software engineering rigor that is highly appreciated in aerospace literature.

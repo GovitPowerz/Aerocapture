@@ -47,6 +47,12 @@ PAIRED = [
     ("joint_vs_fixed_pg", "joint_reference/pred_guid", "classical_baselines/pred_guid"),
     ("atan2_vs_scaledpi", "optimizer_dimensionality/dense_p515_ga", "output_param/scaledpi"),
     ("atan2_vs_delta", "optimizer_dimensionality/dense_p515_ga", "output_param/delta"),
+    # Section 5 RL baseline (issue #101): each PPO cell vs the per-scenario population champion
+    # it is protocol-matched to (same architecture, inputs, scaffolding, per_draw regime, 2M pool).
+    ("ppo_scratch_vs_pop_dense515", "rl/dense_p515_ppo_scratch", "ou_marginal/ft_dense_p515"),
+    ("ppo_warm_vs_pop_dense515", "rl/dense_p515_ppo_warm", "ou_marginal/ft_dense_p515"),
+    ("ppo_scratch_vs_pop_gru1014", "rl/gru_p1014_ppo_scratch", "ou_marginal/ft_gru_p1014"),
+    ("ppo_warm_vs_pop_gru1014", "rl/gru_p1014_ppo_warm", "ou_marginal/ft_gru_p1014"),
 ]
 # Tail-level sigma_run: the 3-seed triplets the paper actually repeated (10c),
 # on the far-tail n=10000 pool. cvar999/max are NOT derivable from the n=1000

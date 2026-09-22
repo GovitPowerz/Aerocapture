@@ -1,0 +1,45 @@
+# Paper Section 5 RL baseline -- recurrent PPO-BPTT from scratch, protocol-matched to the
+# per-scenario GRU champion (training_output/ou_marginal/ft_gru_p1014): Dense(17->11) ->
+# GRU(11) -> Dense(11->2), same 17-input mask / normalization / atan2_signed decoder, its
+# co-trained scaffolding pinned below. Trainer knobs inherit from the dense cell's family
+# config (msr_aller_nn_atan2_ppo_train.toml); bptt_length = rollout_steps (one chunk per
+# rollout, minibatches partition the env axis). Regime: per-scenario noise (ADR-0006).
+#
+#   uv run python -m aerocapture.training.rl.train configs/training/paper/rl/gru_p1014_ppo_scratch.toml --from-scratch --no-tui
+base = ["../../msr_aller_nn_atan2_ppo_train.toml"]
+
+[monte_carlo]
+noise_seeding = "per_draw"
+
+[[network.architecture]]
+type = "dense"
+input_size = 17
+output_size = 11
+activation = "swish"
+
+[[network.architecture]]
+type = "gru"
+input_size = 11
+hidden_size = 11
+
+[[network.architecture]]
+type = "dense"
+input_size = 11
+output_size = 2
+activation = "asinh"
+
+[rl.ppo]
+bptt_length = 512
+
+# training_output/ou_marginal/ft_gru_p1014/best_params.json (scaffolding = "live" genes).
+[navigation]
+density_filter_gain = 0.7024160681407927
+density_gain_max_delta = 0.4871420223708995
+
+[guidance.command_shaping]
+enabled = true
+max_bank_acceleration = 14.404179050611697
+
+[data]
+neural_network = "training_output/paper/rl/gru_p1014_ppo_scratch/best_model.json"
+results_suffix = ".paper_rl_gru_p1014_ppo_scratch"

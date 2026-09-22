@@ -1,0 +1,11 @@
+# Paper Section 5 RL baseline -- recurrent PPO-BPTT warm-started from the per-scenario GRU
+# champion it is compared to. Everything but the deploy path inherits from
+# gru_p1014_ppo_scratch.toml.
+#
+#   uv run python -m aerocapture.training.rl.train configs/training/paper/rl/gru_p1014_ppo_warm.toml \
+#       --data-neural-network training_output/ou_marginal/ft_gru_p1014/best_model.json --no-tui
+base = ["gru_p1014_ppo_scratch.toml"]
+
+[data]
+neural_network = "training_output/paper/rl/gru_p1014_ppo_warm/best_model.json"
+results_suffix = ".paper_rl_gru_p1014_ppo_warm"

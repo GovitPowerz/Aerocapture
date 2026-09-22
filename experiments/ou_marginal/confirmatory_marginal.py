@@ -30,6 +30,13 @@ CELLS = [
     ("ou_marginal/ft_mamba_p962_s3", "configs/training/ou_marginal/mamba_p962.toml"),
     ("mamba_p962_long", "configs/training/sweep/mamba_p962.toml"),
     ("fnpag", "configs/training/msr_aller_fnpag_train.toml"),
+    # Section 5 RL baseline (issue #101): PPO cells protocol-matched to ft_dense_p515 / ft_gru_p1014
+    # (experiments/paper/18_rl_baseline.sh); scaffolding is pinned in their TOMLs, no best_params.json.
+    ("paper/rl/dense_p515_ppo_scratch", "configs/training/paper/rl/dense_p515_ppo_scratch.toml"),
+    ("paper/rl/dense_p515_ppo_warm", "configs/training/paper/rl/dense_p515_ppo_warm.toml"),
+    ("paper/rl/gru_p1014_ppo_scratch", "configs/training/paper/rl/gru_p1014_ppo_scratch.toml"),
+    ("paper/rl/gru_p1014_ppo_warm", "configs/training/paper/rl/gru_p1014_ppo_warm.toml"),
+    ("ou_marginal/ft_gru_p1014", "configs/training/ou_marginal/gru_p1014.toml"),
 ]
 
 
@@ -48,7 +55,6 @@ def main() -> None:
     seeds = {label: load_toml_with_bases(REPO / toml).get("monte_carlo", {}).get("seed", 42) for label, toml in CELLS}
     assert len(set(seeds.values())) == 1, f"base_mc_seed differs across cells: {seeds}"
     pools = make_confirmatory_pools(next(iter(seeds.values())), args.replicates, args.n)
-    extra = {"monte_carlo.noise_seeding": "per_draw"}
 
     existing: dict = json.loads(OUT.read_text()) if OUT.exists() else {}
     by_label: dict = {c["label"]: c for c in existing.get("cells", [])}
@@ -61,12 +67,18 @@ def main() -> None:
         if label in by_label:
             print(f"{label}: already done, skipping")
             continue
+        # Quotable only once its final eval ran (an RL dir carries a best_model.json from the
+        # first promotion, long before the run is over).
+        if not (REPO / "training_output" / label / "final_eval.parquet").exists():
+            print(f"{label}: no final_eval.parquet yet, skipping")
+            continue
         print(f"== {label} ({toml})", flush=True)
-        by_label[label] = ce._eval_cell(label, toml, pools, None, extra)
+        by_label[label] = ce._eval_cell(label, toml, pools, None, {}, scaffolding_from=None, sim_timeout=5.0, noise_seeding="per_draw")
         OUT.write_text(
             json.dumps(
                 {
                     "regime": "per_draw (marginal noise)",
+                    "noise_seeding": "per_draw",
                     "freeze_commit": existing.get("freeze_commit", freeze_commit),
                     "n_replicates": args.replicates,
                     "n_per_replicate": args.n,
