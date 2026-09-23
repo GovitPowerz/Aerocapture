@@ -7,13 +7,13 @@ A high-fidelity Mars aerocapture guidance simulator and an ML/control research p
 ## What this demonstrates
 
 - **Numerical and systems implementation in two languages.** A closed-loop GNC simulator in Rust (J2-J4 gravity, tabulated atmosphere and winds, bias or 13-state EKF navigation, seven guidance schemes, Monte Carlo dispersions), bit-identical to a legacy reference on 22 of 24 output columns across a 725-step guided trajectory, driven from Python through one PyO3 seam ([ADR-0007](docs/adr/0007-the-pyo3-seam-has-five-tiers.md)).
-- **Cross-language ML deployment at machine epsilon.** Ten neural layer types (dense, GRU, LSTM, windowed, Transformer, Mamba and four probe cells) run natively in the Rust flight loop and are mirrored in PyTorch; the per-layer Rust/Python equivalence gates observe differences of order 1e-16, and training evaluates through one bit-identity chokepoint ([ADR-0004](docs/adr/0004-run-grid-bit-identity-chokepoint.md)).
+- **Cross-language ML deployment at machine epsilon.** Ten neural layer types (dense, GRU, LSTM, windowed, Transformer, Mamba and four probe cells) run natively in the Rust flight loop; the per-layer equivalence gates against their PyTorch mirrors observe differences between 1e-17 and 4e-14, and training evaluates through one bit-identity chokepoint ([ADR-0004](docs/adr/0004-run-grid-bit-identity-chokepoint.md)).
 - **Controlled experiments, judged on the tail.** Disjoint reserved seed pools for training, validation, final evaluation and a frozen 10⁶-scenario confirmatory; paired comparisons and seed-repeat error bars; every result quoted as the CVaR99.9 of the correction delta-v (the statistic the propellant is sized on) next to capture rate, constraint violations and the worst case.
-- **A documented self-correction, reproducible from one command.** A conditioning defect in the project's own evaluation pipeline was found after the paper's first release, quantified on paired pools, repaired as the new default and every headline cell retrained under the repair (paper Appendix E). `make -C articles/paper paper` rebuilds every figure and number from the committed bundle, and CI proves the figures byte-identical on every PR.
+- **A documented self-correction, reproducible from one command.** A conditioning defect in the project's own evaluation pipeline was found after the paper's first release, quantified on paired pools, repaired as the new default and every headline cell retrained under the repair (paper Appendix E). One command rebuilds the [paper](#paper) from its committed evaluation bundle, and CI proves its figures byte-identical on every PR.
 
 ## The headline result
 
-Under independent per-scenario density noise (the simulator's default regime, [ADR-0006](docs/adr/0006-per-draw-noise-is-the-default-regime.md)), a 962-parameter recurrent (Mamba) guidance policy, trained by a genetic algorithm on a moving adaptive-seed Monte Carlo objective and fine-tuned in that regime, captures 99.996% of 10⁶ pre-registered confirmatory scenarios with no constraint violation and holds CVaR99.9 = 163.2 ± 1.3 m/s (three fine-tune seeds) on the correction delta-v tail that sizes the propellant. That is 73 m/s below both the best classical scheme (FNPAG, a numerical predictor-corrector) and the best dense network, at milliseconds of onboard compute; the numbers the paper first quoted, and why they changed, are under [Historical result and evaluation correction](#historical-result-and-evaluation-correction).
+Under independent per-scenario density noise (the simulator's default regime, [ADR-0006](docs/adr/0006-per-draw-noise-is-the-default-regime.md)), a 962-parameter recurrent (Mamba) guidance policy, trained by a genetic algorithm on a moving adaptive-seed Monte Carlo objective and fine-tuned in that regime, captures 99.996% of 10⁶ pre-registered confirmatory scenarios with no constraint violation and holds CVaR99.9 = 163.2 ± 1.3 m/s (both three-fine-tune-seed means; the deployed seed is the first row of the [Results](#results) table) on the correction delta-v tail that sizes the propellant. That is 73 m/s below both the best classical scheme (FNPAG, a numerical predictor-corrector) and the best dense network, at milliseconds of onboard compute; the numbers the paper first quoted, and why they changed, are under [Historical result and evaluation correction](#historical-result-and-evaluation-correction).
 
 ![Correction-DV tail: classical guidance schemes vs trained neural guidance](articles/paper/figures/fig_classical_vs_nn.svg)
 
@@ -21,8 +21,8 @@ Under independent per-scenario density noise (the simulator's default regime, [A
 
 1. **How it works** (5 min): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Two languages and one seam, a training run in fifteen lines, a simulation tick in eight, where the paper's numbers come from.
 2. **The self-correction** (3 min): [ADR-0006](docs/adr/0006-per-draw-noise-is-the-default-regime.md), then Appendix E of the [paper](articles/paper/paper.pdf). A shared noise path the networks exploited 2-4x more than the classical laws: found, quantified, repaired, retrained under.
-3. **One representative change** (3 min): [PR #94](https://github.com/GovitPowerz/Aerocapture/pull/94). An invariant stated up front (each layer declares its tensors once; that list is the flat order and the JSON key set), one source of truth exported across the seam, byte-identity fixtures frozen before the refactor, the cross-language gates re-run.
-4. **Run it** (2 min to read, a build to run): the [Quick Start](#quick-start). The five-minute demo flies the deployed policy over 500 dispersed entries; `make -C articles/paper check` verifies the evaluation bundle and that every paper figure is byte-identical to git.
+3. **One representative change** (3 min, the description rather than the diff): [PR #94](https://github.com/GovitPowerz/Aerocapture/pull/94). An invariant stated up front (each layer declares its tensors once; that list is the flat order and the JSON key set), one source of truth exported across the seam, byte-identity fixtures frozen before the refactor, the cross-language gates re-run.
+4. **Run it** (2 min to read, a build to run): the [Quick Start](#quick-start). The five-minute demo flies the deployed policy over 500 dispersed entries; `make -C articles/paper -B figures check` regenerates every paper figure from the committed bundle (pure Python, no build) and verifies it byte-identical to git.
 5. **Why not reinforcement learning** (2 min): Section 5 of the [paper](articles/paper/paper.pdf). PPO from scratch and warm-started, under the protocol of the population-trained cells it is compared against.
 
 ## Results
@@ -90,7 +90,7 @@ uv run python -m aerocapture.demo
 # Single simulation from a TOML config (CLI, no Python needed):
 ./src/rust/target/release/aerocapture configs/nominal/msr_aller_ftc_nominal.toml
 
-# Tests (CI runs every test file on every push and PR):
+# Tests (CI runs every test file on every PR and every push to main):
 cargo test --release --manifest-path src/rust/Cargo.toml
 uv run pytest tests/
 ```
